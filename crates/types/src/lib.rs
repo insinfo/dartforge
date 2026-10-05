@@ -63,7 +63,7 @@ pub use codes::*;
 pub use constant::{ConstValue, ConstantEvaluator};
 pub use constraints::GenericInferrer;
 pub use hierarchy::{build_class_hierarchy, ClassHierarchy, ClassHierarchyData};
-pub use inferencia::{corpo_no_offset, BodyInferrer, CorpoRef};
+pub use inferencia::{corpo_no_offset, corpos_da_unidade, inferir_corpos, BodyInferrer, CorpoRef, CorposInferidos};
 pub use ops::{erase_extension_type, glb, lub, non_nullable, normalize, nullable, substitute};
 pub use resolve::{
     ClassTypeData, ExtensionTypeData, FunctionTypeData, OutlineResolver, OutlineTypes,

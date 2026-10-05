@@ -279,6 +279,7 @@ pub(crate) fn completar(
     offset: usize,
     features: LibraryFeatures,
     maximo: usize,
+    retido: Option<&mut crate::projeto::Projeto>,
 ) -> Option<Completar> {
     let bytes = texto.as_bytes();
     let offset = offset.min(texto.len());
@@ -304,27 +305,71 @@ pub(crate) fn completar(
     let digitado = &texto[inicio..offset];
     let preparado = preparar(texto, inicio, fim, features);
     let texto_analisado = preparado.as_deref().unwrap_or(texto);
+    let pedido = Pedido { sdk, indices, documentos, texto, inicio, fim, offset, digitado, especulativo: preparado.is_some(), maximo };
+    // O caminho incremental (docs/LSP-ESPECIFICACAO.md §16.7): o estado
+    // retido é o do texto do documento; o texto com o sentinela troca a
+    // unidade no lugar, só o corpo do sentinela é inferido (com a sonda), e a
+    // troca é desfeita depois da resposta. Fora de um corpo, ou com a
+    // assinatura, as diretivas ou a forma mudadas, a carga completa.
+    if let Some(projeto) = retido
+        && let Some(unidade) = projeto.unidade_do_uri(uri)
+        && projeto.programa().unit(unidade).source == texto
+        && projeto.bibliotecas.contains(&projeto.programa().unit(unidade).library)
+    {
+        let consulta = &mut projeto.consulta;
+        match preparado.as_deref() {
+            None => return responder(consulta, unidade, pedido, vazio),
+            Some(especulativo) => {
+                if let Some(troca) = consulta.trocar_unidade(unidade, especulativo, crate::consulta::ModoDeTroca::Especulativa { offset: inicio }) {
+                    let resposta = responder(consulta, unidade, pedido, vazio);
+                    consulta.desfazer(troca);
+                    return resposta;
+                }
+            }
+        }
+    }
     let (programa, nomes, unidade) =
         crate::semantica::carregar(sdk, uri, texto_analisado, Some(documentos))?;
     let biblioteca = programa.unit(unidade).library;
     let sonda = preparado.as_ref().map(|_| (unidade, inicio));
     let mut consulta = Consulta::inferir(programa, nomes, &[biblioteca], false, sonda);
+    responder(&mut consulta, unidade, pedido, vazio)
+}
+
+/// O pedido de completar, já com o intervalo da palavra.
+struct Pedido<'a, 'i> {
+    sdk: &'a SdkLayout,
+    indices: Indices<'i>,
+    documentos: &'a DocumentStore,
+    texto: &'a str,
+    inicio: usize,
+    fim: usize,
+    offset: usize,
+    digitado: &'a str,
+    /// O texto analisado tem o sentinela.
+    especulativo: bool,
+    maximo: usize,
+}
+
+/// As sugestões sobre a consulta pronta (a retida, com a unidade trocada
+/// pelo texto especulativo, ou a de uma carga).
+fn responder(consulta: &mut Consulta, unidade: dartforge_elements::model::UnitId, pedido: Pedido<'_, '_>, vazio: Completar) -> Option<Completar> {
+    let Pedido { sdk, indices, documentos, texto, inicio, fim, offset, digitado, especulativo, maximo } = pedido;
+    let biblioteca = consulta.programa.unit(unidade).library;
     let mut coletor = Coletor {
         itens: Vec::new(),
         biblioteca,
         receptor: None,
     };
 
-    let sentinela = preparado
-        .as_ref()
-        .and_then(|_| achar_sentinela(&consulta.programa.unit(unidade).ast, inicio));
+    let sentinela = if especulativo { achar_sentinela(&consulta.programa.unit(unidade).ast, inicio) } else { None };
     // Nome de `show`/`hide`: o que a biblioteca da diretiva exporta.
-    let combinador = biblioteca_do_combinador(&consulta, unidade, inicio);
+    let combinador = biblioteca_do_combinador(consulta, unidade, inicio);
     // Nomes de bibliotecas não importadas cabem onde um nome solto cabe.
     let mut nao_importados: Option<bool> = None;
     // `this.▮` e `super.▮` num construtor: campos ou parâmetros do
     // construtor da superclasse ainda não usados.
-    let formal = parametro_formal(&consulta, unidade, inicio);
+    let formal = parametro_formal(consulta, unidade, inicio);
     match sentinela {
         _ if formal.is_some() => {
             for (nome, tipo) in formal.into_iter().flatten() {
@@ -334,15 +379,15 @@ pub(crate) fn completar(
         _ if combinador.is_some() => {
             if let Some(alvo) = combinador {
                 let exportado = consulta.programa.library(alvo).exported.clone();
-                coletor.espaco_de_nomes(&consulta, &exportado, |_| grupo::IMPORTADO);
+                coletor.espaco_de_nomes(consulta, &exportado, |_| grupo::IMPORTADO);
             }
         }
         Some(Sentinela::Expr(expr, Some(alvo))) => {
-            coletor.membros_do_alvo(&mut consulta, unidade, expr, alvo)
+            coletor.membros_do_alvo(consulta, unidade, expr, alvo)
         }
         Some(Sentinela::Expr(expr, None)) => {
-            coletor.argumentos_nomeados(&consulta, unidade, expr);
-            coletor.escopo(&mut consulta, unidade);
+            coletor.argumentos_nomeados(consulta, unidade, expr);
+            coletor.escopo(consulta, unidade);
             let ast = &consulta.programa.unit(unidade).ast;
             let comando = ast
                 .stmts
@@ -361,7 +406,7 @@ pub(crate) fn completar(
             nao_importados = Some(false);
         }
         Some(Sentinela::Tipo { prefixo, lider }) => {
-            coletor.tipos(&consulta, unidade, inicio, prefixo);
+            coletor.tipos(consulta, unidade, inicio, prefixo);
             if let Some(palavras) = lider {
                 coletor.palavras(palavras);
             }
@@ -376,7 +421,7 @@ pub(crate) fn completar(
             return Some(vazio);
         }
         None => {
-            coletor.biblioteca(&consulta);
+            coletor.biblioteca(consulta);
             let ast = &consulta.programa.unit(unidade).ast;
             let em_tipo = ast.decls.iter().any(|d| {
                 d.span.start < inicio
@@ -422,7 +467,7 @@ pub(crate) fn completar(
         && !parte
     {
         incompleta = coletor.nao_importados(
-            &consulta, unidade, texto, so_tipos, sdk, indices, documentos,
+            consulta, unidade, texto, so_tipos, sdk, indices, documentos,
         );
     }
 
@@ -470,7 +515,7 @@ pub(crate) fn completar(
             Some(Sentinela::Expr(expr, alvo)) => {
                 // `a.▮` pede o tipo do acesso inteiro; o resto, o da expressão.
                 let _ = alvo;
-                tipo_esperado(&mut consulta, unidade, expr)
+                tipo_esperado(consulta, unidade, expr)
             }
             _ => None,
         };
@@ -487,10 +532,10 @@ pub(crate) fn completar(
             if i.rel.tipo.is_none()
                 && let Some(c) = i.classe
             {
-                i.rel.tipo = tipo_da_classe(&mut consulta, c);
+                i.rel.tipo = tipo_da_classe(consulta, c);
             }
             let contexto = match (esperado, i.rel.tipo) {
-                (Some(e), Some(t)) => caracteristica_de_contexto(&mut consulta, e, t),
+                (Some(e), Some(t)) => caracteristica_de_contexto(consulta, e, t),
                 _ => 0.0,
             };
             i.relevancia = crate::relevancia::relevancia(&i.rel, local.as_deref(), contexto);

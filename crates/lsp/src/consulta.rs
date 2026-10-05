@@ -17,6 +17,26 @@ use dartforge_types::{
     resolve_outline,
 };
 
+/// Como [`Consulta::trocar_unidade`] recria as tabelas da unidade.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum ModoDeTroca {
+    /// O texto especulativo do completar: os inicializadores contam como
+    /// corpo, e só o corpo que contém `offset` é inferido, com a sonda de
+    /// escopo nele.
+    Especulativa { offset: usize },
+    /// O texto novo do documento (`didChange`): todos os corpos da unidade
+    /// quando a biblioteca dela está entre as inferidas, senão só os
+    /// inicializadores que a inferência de topo grava sob demanda.
+    Definitiva { corpos_inferidos: bool, registrar_locais: bool },
+}
+
+/// O que [`Consulta::trocar_unidade`] substituiu.
+pub(crate) struct Troca {
+    anterior: dartforge_elements::incremental::Anterior,
+    tabelas: dartforge_types::UnitBodyTypes,
+    escopo: Option<EscopoSondado>,
+}
+
 /// Programa, tipos e corpos de uma requisição.
 pub(crate) struct Consulta {
     pub programa: Program,
@@ -63,6 +83,51 @@ impl Consulta {
             corpos,
             escopo,
         }
+    }
+
+    /// Troca o texto da unidade `u` sem recarregar o programa quando só
+    /// corpos mudaram (docs/LSP-ESPECIFICACAO.md §16.6, classe Corpo) e
+    /// recria as tabelas dela pela inferência de corpos isolados (§16.5).
+    /// `None`: recusada (assinatura, diretivas ou forma mudaram, ou o
+    /// completar caiu fora de um corpo); a consulta fica como estava.
+    pub fn trocar_unidade(&mut self, u: UnitId, texto: &str, modo: ModoDeTroca) -> Option<Troca> {
+        use dartforge_elements::incremental::{restaurar_unidade, substituir_unidade};
+        let especulativa = matches!(modo, ModoDeTroca::Especulativa { .. });
+        let anterior = substituir_unidade(&mut self.programa, &mut self.nomes, u, texto, especulativa).ok()?;
+        if !self.outline.remapear_tipos_escritos(u, anterior.mapa_de_tipos()) {
+            restaurar_unidade(&mut self.programa, anterior);
+            return None;
+        }
+        let (corpos, metadados, sonda, registrar) = match modo {
+            ModoDeTroca::Especulativa { offset } => {
+                // §16.7 regra 1: só com o sentinela dentro de um corpo.
+                let Some(c) = dartforge_types::corpo_no_offset(&self.programa, u, offset) else {
+                    self.outline.remapear_tipos_escritos(u, &anterior.mapa_inverso());
+                    restaurar_unidade(&mut self.programa, anterior);
+                    return None;
+                };
+                (vec![c], false, Some((u, offset)), false)
+            }
+            ModoDeTroca::Definitiva { corpos_inferidos, registrar_locais } => {
+                (dartforge_types::corpos_da_unidade(&self.programa, &self.outline, u, corpos_inferidos), corpos_inferidos, None, registrar_locais)
+            }
+        };
+        let r = dartforge_types::inferir_corpos(&self.programa, &self.nomes, &mut self.tabela, &self.core, &mut self.outline, u, &corpos, metadados, sonda, registrar);
+        let tabelas = std::mem::replace(&mut self.corpos.units[u.0 as usize], r.tabelas);
+        let escopo = std::mem::replace(&mut self.escopo, r.escopo);
+        Some(Troca { anterior, tabelas, escopo })
+    }
+
+    /// Desfaz uma [`Consulta::trocar_unidade`] (o completar, §16.7 regra 3:
+    /// o estado retido volta ao texto do documento; os tipos internados na
+    /// tabela pela inferência especulativa ficam, o que é inofensivo).
+    pub fn desfazer(&mut self, troca: Troca) {
+        let Troca { anterior, tabelas, escopo } = troca;
+        let u = anterior.unidade();
+        self.corpos.units[u.0 as usize] = tabelas;
+        self.escopo = escopo;
+        self.outline.remapear_tipos_escritos(u, &anterior.mapa_inverso());
+        dartforge_elements::incremental::restaurar_unidade(&mut self.programa, anterior);
     }
 
     /// A mesma consulta sobre o mesmo programa, com os corpos de outras

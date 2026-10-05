@@ -29,6 +29,12 @@ pub struct AnalisadorSemantico {
     conhecidas: crate::conhecidas::IndiceDeBibliotecas,
     /// O `maxCompletionItems` vigente.
     maximo_de_completar: usize,
+    /// O caminho incremental (docs/LSP-ESPECIFICACAO.md §16.10 I3 e I4):
+    /// `didChange` só de corpos troca a unidade retida no lugar, e o
+    /// completar infere só o corpo do sentinela. Desligado por
+    /// `DARTFORGE_LSP_INCREMENTAL=0` ou [`AnalisadorSemantico::sem_incremental`]
+    /// (a comparação com o caminho completo).
+    incremental: bool,
 }
 
 impl AnalisadorSemantico {
@@ -39,7 +45,7 @@ impl AnalisadorSemantico {
     /// assert_eq!(a.estatisticas_da_sessao().carregadas, 0);
     /// ```
     pub fn novo(sdk: Option<SdkLayout>) -> Self {
-        Self { sintatico: AnalisadorSintatico::new(), sdk, indice_sdk: None, indice_projeto: crate::indice::IndiceProjeto::default(), sessao: crate::sessao::Sessao::nova(), conhecidas: Default::default(), maximo_de_completar: crate::completar::MAXIMO_PADRAO }
+        Self { sintatico: AnalisadorSintatico::new(), sdk, indice_sdk: None, indice_projeto: crate::indice::IndiceProjeto::default(), sessao: crate::sessao::Sessao::nova(), conhecidas: Default::default(), maximo_de_completar: crate::completar::MAXIMO_PADRAO, incremental: std::env::var("DARTFORGE_LSP_INCREMENTAL").map(|v| v.trim() != "0").unwrap_or(true) }
     }
 
     /// Troca o orçamento da sessão semântica (MiB de fonte retida; `0`
@@ -52,6 +58,18 @@ impl AnalisadorSemantico {
     /// ```
     pub fn com_orcamento_de_sessao(mut self, mib: usize) -> Self {
         self.sessao = crate::sessao::Sessao::com_orcamento(mib);
+        self
+    }
+
+    /// Sem o caminho incremental: cada edição derruba a sessão e o completar
+    /// carrega e infere a biblioteca inteira.
+    ///
+    /// ```
+    /// let a = dartforge_lsp::AnalisadorSemantico::novo(None).sem_incremental();
+    /// assert_eq!(a.estatisticas_da_sessao().trocas_de_corpo, 0);
+    /// ```
+    pub fn sem_incremental(mut self) -> Self {
+        self.incremental = false;
         self
     }
 
@@ -323,6 +341,14 @@ impl Analisador for AnalisadorSemantico {
         self.sessao.invalidar();
     }
 
+    fn documento_editado(&mut self, documentos: &DocumentStore, uri: &str) {
+        if self.incremental {
+            self.sessao.atualizar(documentos, uri);
+        } else {
+            self.sessao.invalidar();
+        }
+    }
+
     fn sdk_para_diagnosticos(&self) -> Option<std::path::PathBuf> {
         self.sdk.as_ref().map(|s| s.root.clone())
     }
@@ -533,10 +559,20 @@ impl Analisador for AnalisadorSemantico {
         self.sdk.as_ref()?;
         self.indice_sdk();
         let self_maximo = self.maximo_de_completar;
-        let AnalisadorSemantico { sdk: Some(sdk), indice_sdk: Some(indice), indice_projeto, conhecidas, .. } = self else {
+        let AnalisadorSemantico { sdk: Some(sdk), indice_sdk: Some(indice), indice_projeto, conhecidas, sessao, incremental, .. } = self else {
             return None;
         };
+        let sdk: &SdkLayout = sdk;
         let indices = crate::completar::Indices { sdk: indice, projeto: indice_projeto, conhecidas };
-        crate::completar::completar(sdk, indices, documentos, uri, texto, offset, features, self_maximo)
+        // O estado retido da biblioteca (o do texto do documento), para o
+        // caminho incremental (docs/LSP-ESPECIFICACAO.md §16.7); carregado e
+        // retido aqui se faltar, para que as teclas seguintes o achem.
+        let arquivo = crate::projeto::arquivo_da_uri(uri)?;
+        let mut retido = if *incremental {
+            sessao.obter(crate::sessao::Escopo::Biblioteca(arquivo), documentos, || crate::projeto::carregar_biblioteca(sdk, documentos, uri))
+        } else {
+            None
+        };
+        crate::completar::completar(sdk, indices, documentos, uri, texto, offset, features, self_maximo, retido.as_deref_mut())
     }
 }

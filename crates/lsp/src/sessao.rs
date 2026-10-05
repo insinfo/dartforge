@@ -63,6 +63,9 @@ pub struct EstatisticasSessao {
     pub acima_do_orcamento: u64,
     /// Bytes de fonte da entrada retida agora (0 sem entrada).
     pub fonte_retida: usize,
+    /// Edições de um documento aplicadas à entrada retida sem recarga (só
+    /// corpos mudaram, docs/LSP-ESPECIFICACAO.md §16.10 I4).
+    pub trocas_de_corpo: u64,
 }
 
 /// A sessão: no máximo um programa retido.
@@ -97,6 +100,47 @@ impl Sessao {
             self.estatisticas.invalidadas += 1;
             self.estatisticas.fonte_retida = 0;
         }
+    }
+
+    /// `didChange` de `uri`: se a entrada retida tem a unidade e a edição só
+    /// mudou corpos (classe Corpo, docs/LSP-ESPECIFICACAO.md §16.6), troca a
+    /// unidade no lugar, recria as tabelas dela e a entrada continua valendo
+    /// (§16.10 I4); senão a entrada cai.
+    pub(crate) fn atualizar(&mut self, documentos: &DocumentStore, uri: &str) {
+        if !self.trocar(documentos, uri) {
+            self.invalidar();
+        }
+    }
+
+    fn trocar(&mut self, documentos: &DocumentStore, uri: &str) -> bool {
+        let Some((chave, projeto)) = self.entrada.as_mut() else { return false };
+        let Some(texto) = documentos.get(uri) else { return false };
+        let novos = abertos(documentos);
+        // Só o documento editado pode ter mudado.
+        if novos.len() != chave.abertos.len() || novos.iter().zip(chave.abertos.iter()).any(|(a, b)| a.0 != b.0 || (a.0 != uri && a != b)) {
+            return false;
+        }
+        // Um documento fora da carga pode passar a ser dono de uma parte
+        // (`part`): recarrega.
+        let Some(u) = projeto.unidade_do_uri(uri) else { return false };
+        if projeto.programa().unit(u).source != texto {
+            let corpos_inferidos = projeto.bibliotecas.contains(&projeto.programa().unit(u).library);
+            let modo = crate::consulta::ModoDeTroca::Definitiva { corpos_inferidos, registrar_locais: true };
+            if projeto.consulta.trocar_unidade(u, texto, modo).is_none() {
+                return false;
+            }
+            if let Ok(mut m) = projeto.nomes_referenciados.lock() {
+                m.remove(&u);
+            }
+        }
+        let fonte: usize = projeto.programa().units.iter().map(|u| u.source.len()).sum();
+        if fonte > self.orcamento {
+            return false;
+        }
+        chave.abertos = novos;
+        self.estatisticas.trocas_de_corpo += 1;
+        self.estatisticas.fonte_retida = fonte;
+        true
     }
 
     /// O projeto para `escopo`: o retido, se a chave ainda vale (uma entrada

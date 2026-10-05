@@ -74,6 +74,26 @@ pub struct ExtensionTypeData {
     pub on: TypeId,
 }
 
+impl OutlineTypes {
+    /// Troca os `ast::TypeId` de `u` em [`OutlineTypes::tipos_escritos`] pelo
+    /// `mapa` (a troca de texto de uma unidade sem recarga,
+    /// `dartforge_elements::incremental`). Recusa, sem mudar nada, se alguma
+    /// chave da unidade não está no mapa.
+    pub fn remapear_tipos_escritos(&mut self, u: UnitId, mapa: &HashMap<ast::TypeId, ast::TypeId>) -> bool {
+        let da_unidade: Vec<((UnitId, ast::TypeId), TypeId)> = self.tipos_escritos.iter().filter(|((un, _), _)| *un == u).map(|(k, v)| (*k, *v)).collect();
+        if da_unidade.iter().any(|((_, t), _)| !mapa.contains_key(t)) {
+            return false;
+        }
+        for (k, _) in &da_unidade {
+            self.tipos_escritos.remove(k);
+        }
+        for ((un, t), v) in da_unidade {
+            self.tipos_escritos.insert((un, mapa[&t]), v);
+        }
+        true
+    }
+}
+
 /// Dados de tipos de um typedef.
 #[derive(Debug, Clone)]
 pub struct TypedefTypeData {

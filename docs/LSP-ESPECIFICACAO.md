@@ -16457,6 +16457,63 @@ I1–I3 bastam para a meta do completar; I4 estende o ganho a todas as
 requisições depois de uma tecla; I5–I7 são o que o Dart já faz e o que
 permite analisar o workspace inteiro em fundo.
 
+**Estado em 2026-10-05 (escrito, não compilado): I1 a I4.**
+
+* **I1** (`crates/elements/src/incremental.rs`): `substituir_unidade(programa,
+  nomes, u, texto, inicializadores_como_corpo)` compara a assinatura de API
+  por **tokens** (o lexer do DartForge; comentários e espaços não contam, a
+  cola de `>` conta): ficam de fora o interior dos blocos e das expressões
+  `=>` de funções de topo, métodos e construtores, e os inicializadores de
+  listas com tipo escrito que não são `const` nem `final` de instância em
+  classe com construtor `const` (enum: sempre). Os tokens das diretivas
+  formam a assinatura à parte. Recusas: `FormaMudou` (arenas `decls`/
+  `members`/`functions` um a um, **todas** as variáveis de cada lista,
+  `declarations` da unidade, alinhamento das anotações de tipo), `Lexico`,
+  `Assinatura`, `Diretivas`. Os membros de `mixin` não têm corpo fora da
+  assinatura (os nomes chamados por `super` são assinatura no analyzer):
+  edição dentro deles recarrega. O remapeamento é a saída (b) de 16.6: o
+  percurso paralelo das anotações de tipo das assinaturas dá o mapa
+  `TypeId` velho → novo (bijeção), aplicado aos pares dos elementos (limites,
+  supertipo, mixins, interfaces, `on`, `on` de extensão) e, por
+  `OutlineTypes::remapear_tipos_escritos`, ao esboço; um par sem imagem
+  recusa a troca. `Anterior::corpos_alterados` lista os corpos cujo texto
+  mudou (base de I5).
+* **I2** (`crates/types/src/inferencia/mod.rs`): `inferir_corpos(programa,
+  nomes, tabela, core, esboço, unidade, corpos, metadados, sonda,
+  registrar_locais) -> CorposInferidos` cria tabelas só para a unidade, marca
+  como prontas as variáveis cujo tipo o esboço já inferiu, roda as
+  sobrescritas de campo e a inferência de sobrescritas (idempotentes num
+  esboço retido) e infere os corpos pedidos; uma variável sem tipo pedida é
+  reinferida para as tabelas, e o tipo do esboço é mantido.
+  `corpos_da_unidade` dá os corpos de uma unidade na ordem da inferência
+  completa (variáveis, depois funções, inclusive as sintéticas da classe).
+* **I3** (`crates/lsp/src/completar.rs`): o completar obtém da sessão o
+  estado da biblioteca (carregado e retido se faltar) e, quando ele é o do
+  texto do documento, troca a unidade pelo texto com o sentinela
+  (`Consulta::trocar_unidade`, modo especulativo: inicializadores como
+  corpo, regra 5), infere só o corpo do sentinela com a sonda, responde e
+  desfaz (`Consulta::desfazer`); sem sentinela, responde sobre o retido. Em
+  recusa, a carga completa de antes. A árvore escolhida por `preparar` ainda
+  é reanalisada na troca (regra 4 pendente).
+* **I4** (`crates/lsp/src/sessao.rs`): `didChange` chama
+  `Analisador::documento_editado`; `Sessao::atualizar` troca a unidade
+  retida (modo definitivo: todos os corpos e os metadados da unidade quando
+  a biblioteca está entre as inferidas, senão só os inicializadores que a
+  inferência de topo grava sob demanda), descarta o `referencedNames` da
+  unidade e atualiza a chave; qualquer outra mudança derruba a entrada.
+  Contador `trocas_de_corpo`. `DARTFORGE_LSP_INCREMENTAL=0` ou
+  `AnalisadorSemantico::sem_incremental` desligam I3 e I4.
+* Testes: `crates/lsp/tests/incremental.rs` (modo curto de 16.8: corpo com
+  tipos novos antes de uma cláusula `extends A<int>`, corpo de `main`,
+  assinatura, volta; diretiva, forma, corpo que vaza), comparando hover,
+  definição, destaques e completar com um servidor sem o caminho
+  incremental.
+* Desvios conhecidos: o `extensoes_usadas` das tabelas não é por unidade
+  (fica a união; só os diagnósticos o leem, e o LSP não); uma variável que
+  estava num ciclo de inferência é reinferida fora do ciclo (o tipo do
+  esboço, `dynamic`, é mantido, mas as tabelas do inicializador podem
+  diferir das da inferência completa).
+
 ## 17. Maiores divergências (por número de posições do oráculo)
 
 | # | Requisição / recurso | Atual | Posições diferentes | Causa principal | Onde se resolve | Especificado em |

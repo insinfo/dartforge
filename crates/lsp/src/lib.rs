@@ -460,6 +460,13 @@ pub trait Analisador {
     /// analisador retém de consultas anteriores deixa de valer e cai aqui.
     fn documento_alterado(&mut self, _uri: &str) {}
 
+    /// `didChange` aceito: o texto de `uri` em `documentos` é o novo. O
+    /// padrão é [`Analisador::documento_alterado`]; quem retém
+    /// estado pode trocá-lo no lugar quando só corpos mudaram.
+    fn documento_editado(&mut self, _documentos: &DocumentStore, uri: &str) {
+        self.documento_alterado(uri);
+    }
+
     /// O `lib/` do SDK com que o servidor roda, em segundo plano, a análise
     /// tipada do `dartforge analyze` sobre os documentos abertos
     /// (`docs/LSP.md`, "Diagnósticos tipados"). `None` (o padrão): só os

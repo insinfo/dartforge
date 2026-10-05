@@ -748,7 +748,7 @@ impl<A: Analisador> Servidor<A> {
                 if !self.documentos.apply(uri, versao, &mudancas) {
                     return None;
                 }
-                self.analisador.documento_alterado(uri);
+                self.analisador.documento_editado(&self.documentos, uri);
                 self.pedir_tipado(uri);
                 if self.diagnosticos_puxados {
                     return None;

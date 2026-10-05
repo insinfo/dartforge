@@ -127,6 +127,107 @@ pub fn corpo_no_offset(program: &Program, u: UnitId, pos: usize) -> Option<Corpo
     melhor.map(|(_, c)| c)
 }
 
+/// Os corpos da unidade `u`, na ordem da inferência completa (variáveis,
+/// depois funções). Com `todos = false`, só os inicializadores de variáveis
+/// sem tipo escrito que o esboço já inferiu: o que a inferência de uma
+/// biblioteca cujos corpos não foram pedidos grava nas tabelas desta unidade
+/// (a inferência de topo sob demanda).
+pub fn corpos_da_unidade(program: &Program, outline: &crate::resolve::OutlineTypes, u: UnitId, todos: bool) -> Vec<CorpoRef> {
+    use dartforge_elements::model::FunctionRef;
+    let mut v = Vec::new();
+    for (i, var) in program.variables.iter().enumerate() {
+        let unidade = match var.node {
+            VariableRef::TopLevel { unit, .. } | VariableRef::Field { unit, .. } | VariableRef::EnumConstant { unit, .. } | VariableRef::Representation { unit, .. } => unit,
+            VariableRef::None => continue,
+        };
+        if unidade != u {
+            continue;
+        }
+        let d = &outline.variables[i];
+        if todos || (d.declared_type.is_none() && d.inferred.is_some()) {
+            v.push(CorpoRef::Variavel(VariableId(i as u32)));
+        }
+    }
+    if !todos {
+        return v;
+    }
+    for (i, f) in program.functions.iter().enumerate() {
+        let dela = match f.node {
+            FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => unit == u,
+            // Sintéticas (construtor implícito, acessores de campo): pela
+            // declaração da classe ou pela variável de origem.
+            FunctionRef::None => {
+                f.class.and_then(|c| program.class(c).decl).is_some_and(|d| d.unit == u && f.variable.is_none())
+                    || f.variable.is_some_and(|x| match program.variable(x).node {
+                        VariableRef::TopLevel { unit, .. } | VariableRef::Field { unit, .. } | VariableRef::EnumConstant { unit, .. } | VariableRef::Representation { unit, .. } => unit == u,
+                        VariableRef::None => false,
+                    })
+            }
+        };
+        if dela {
+            v.push(CorpoRef::Funcao(FunctionElementId(i as u32)));
+        }
+    }
+    v
+}
+
+/// O resultado de [`inferir_corpos`].
+pub struct CorposInferidos {
+    /// As tabelas da unidade, preenchidas pelos corpos pedidos.
+    pub tabelas: UnitBodyTypes,
+    /// Os diagnósticos desses corpos.
+    pub diagnosticos: Vec<Diagnostic>,
+    /// O escopo capturado pela sonda, quando pedida e alcançada.
+    pub escopo: Option<crate::resolved::EscopoSondado>,
+}
+
+/// Infere só `corpos` (todos da unidade `unidade`) sobre um esboço e uma
+/// tabela de tipos já povoados por uma inferência anterior do mesmo
+/// programa (docs/LSP-ESPECIFICACAO.md §16.5, E1): os tipos de variáveis já
+/// inferidos valem, as sobrescritas de campo já foram completadas (a lista
+/// do esboço está vazia) e a inferência de sobrescritas já rodou. Com
+/// `metadados`, as anotações da unidade também (a recriação das tabelas de
+/// uma unidade inteira; o completar não as pede).
+///
+/// Invariante: para todo corpo `c`, as tabelas e os diagnósticos de `c` são
+/// os que a inferência completa do programa dá a `c`.
+#[allow(clippy::too_many_arguments)]
+pub fn inferir_corpos(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    core: &CoreTypes,
+    outline: &mut crate::resolve::OutlineTypes,
+    unidade: UnitId,
+    corpos: &[CorpoRef],
+    metadados: bool,
+    sonda: Option<(UnitId, usize)>,
+    registrar_locais: bool,
+) -> CorposInferidos {
+    let mut inf = BodyInferrer::com_tabelas(program, interner, table, core, outline, Some(unidade));
+    inf.apenas_bibliotecas = Some(HashSet::from([program.unit(unidade).library.0]));
+    inf.registrar_locais = registrar_locais;
+    inf.sonda_escopo = sonda;
+    inf.usar_esboco_retido();
+    inf.completar_sobrescritas_de_campo();
+    inf.inferir_sobrescritas();
+    for &c in corpos {
+        match c {
+            CorpoRef::Variavel(v) => inf.reinferir_variavel(v),
+            CorpoRef::Funcao(f) => funcoes::inferir_funcao_declarada(&mut inf, f),
+        }
+    }
+    if metadados {
+        inf.unidade_corrente = Some(unidade);
+        funcoes::inferir_metadados_da_unidade(&mut inf, unidade);
+    }
+    CorposInferidos {
+        tabelas: std::mem::take(&mut inf.body_types.units[unidade.0 as usize]),
+        diagnosticos: std::mem::take(&mut inf.diagnostics),
+        escopo: inf.escopo_sondado.take(),
+    }
+}
+
 /// Contexto de inferência de corpos para o programa inteiro.
 pub struct BodyInferrer<'a> {
     pub program: &'a Program,
@@ -226,14 +327,31 @@ impl<'a> BodyInferrer<'a> {
         core: &'a CoreTypes,
         outline: &'a mut crate::resolve::OutlineTypes,
     ) -> Self {
+        Self::com_tabelas(program, interner, table, core, outline, None)
+    }
+
+    /// Como [`BodyInferrer::new`]; com `so = Some(u)`, só a unidade `u` tem
+    /// tabelas (a inferência de corpos isolados, [`inferir_corpos`]).
+    fn com_tabelas(
+        program: &'a Program,
+        interner: &'a Interner,
+        table: &'a mut TypeTable,
+        core: &'a CoreTypes,
+        outline: &'a mut crate::resolve::OutlineTypes,
+        so: Option<UnitId>,
+    ) -> Self {
         let mut units = Vec::with_capacity(program.units.len());
-        for u in &program.units {
+        for (ui, u) in program.units.iter().enumerate() {
             // Unidades do SDK não recebem inferência de corpos: tabela vazia
             // (`get_type`/`get_resolved` devolvem `None`, `set_*` ignoram).
-            if program.library(u.library).is_sdk {
-                units.push(UnitBodyTypes::default());
-            } else {
+            let alocar = match so {
+                Some(s) => s.0 as usize == ui,
+                None => !program.library(u.library).is_sdk,
+            };
+            if alocar {
                 units.push(UnitBodyTypes::new(u.ast.exprs.len(), core.dynamic_));
+            } else {
+                units.push(UnitBodyTypes::default());
             }
         }
         let nvars = program.variables.len();
@@ -285,6 +403,39 @@ impl<'a> BodyInferrer<'a> {
             if libs.contains(&u.library) && self.program.library(u.library).is_sdk && self.body_types.units[i].static_types.is_empty() {
                 self.body_types.units[i] = UnitBodyTypes::new(u.ast.exprs.len(), self.core.dynamic_);
             }
+        }
+    }
+
+    /// Os tipos de variáveis já inferidos no esboço valem (um esboço retido
+    /// de uma inferência anterior do mesmo programa, docs/LSP-ESPECIFICACAO.md
+    /// §16.5): o estado delas começa pronto, e só as pedidas são reinferidas.
+    fn usar_esboco_retido(&mut self) {
+        for (i, d) in self.outline.variables.iter().enumerate() {
+            if d.declared_type.is_none() && d.inferred.is_some() {
+                self.estado_vars[i] = EstadoVar::Pronta;
+            }
+        }
+    }
+
+    /// O inicializador de `vid` de novo, para as tabelas da unidade: com
+    /// tipo escrito, a visita; sem, a inferência de topo, mantendo o tipo do
+    /// esboço (o inicializador de variável sem tipo é assinatura: numa troca
+    /// de classe Corpo ele não mudou; na troca especulativa do completar, o
+    /// tipo novo não é gravado).
+    fn reinferir_variavel(&mut self, vid: VariableId) {
+        let d = &self.outline.variables[vid.0 as usize];
+        if d.declared_type.is_some() {
+            self.visitar_inicializador(vid);
+            return;
+        }
+        let antes = d.inferred;
+        self.estado_vars[vid.0 as usize] = EstadoVar::Pendente;
+        let t = self.tipo_variavel(vid);
+        if let Some(a) = antes
+            && a != t
+        {
+            self.outline.variables[vid.0 as usize].inferred = Some(a);
+            self.sincronizar_acessores(vid, a);
         }
     }
 
