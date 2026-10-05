@@ -114,7 +114,32 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             let estatico_salvo = cx.estatico;
             cx.estatico = true;
             for init in ctor.initializers.iter() {
-                inicializador(inf, &mut cx, fe.class, init, &ctor.parameters);
+                inicializador(inf, &mut cx, fe.class, init, &ctor.parameters, fe.const_);
+            }
+            // `_checkForValidField` (`error_verifier.dart:5702-5760`): o tipo
+            // escrito de `this.x` contra o do campo (subtipo, não atribuível).
+            if let Some(c) = fe.class {
+                for (i, p) in ctor.parameters.iter().enumerate() {
+                    if !p.this_ || p.super_ || p.ty.is_none() {
+                        continue;
+                    }
+                    let Some(n) = p.name else { continue };
+                    let campo = inf.program.class(c).fields.iter().copied().find(|&v| inf.program.variable(v).name == n.sym);
+                    let Some(v) = campo else { continue };
+                    if inf.program.variable(v).static_ {
+                        continue;
+                    }
+                    let (Some(&pt), ft) = (tipos.get(i), inf.tipo_variavel(v)) else { continue };
+                    if !inf.sub(pt, ft) {
+                        let inicio = p.metadata.first().map_or(p.span.start, |m| m.span.start.min(p.span.start));
+                        let sp = dartforge_diagnostics::Span { start: inicio, end: n.span.end };
+                        inf.aviso_com_args(
+                            dartforge_diagnostics::codigos::compile_time_error::FIELD_INITIALIZING_FORMAL_NOT_ASSIGNABLE,
+                            sp,
+                            &[crate::exibicao::Arg::Tipo(pt), crate::exibicao::Arg::Tipo(ft)],
+                        );
+                    }
+                }
             }
             cx.tipo_this = this_salvo;
             cx.estatico = estatico_salvo;
@@ -151,15 +176,27 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
 }
 
 /// Um inicializador de construtor.
-fn inicializador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, classe: Option<ClassId>, init: &ast::Initializer, params: &[ast::Parameter]) {
+fn inicializador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, classe: Option<ClassId>, init: &ast::Initializer, params: &[ast::Parameter], construtor_const: bool) {
     let u = inf.core.unknown;
     match init {
         ast::Initializer::Field { name, value, .. } => {
             let campo = classe.and_then(|c| inf.program.class(c).fields.iter().copied().find(|&v| inf.program.variable(v).name == name.sym));
             let t = campo.map(|v| inf.tipo_variavel(v)).unwrap_or(u);
             let tv = inferir(inf, cx, *value, t);
+            // `checkForFieldInitializerNotAssignable`
+            // (`error_detection_helpers.dart:168-205`): na expressão; num
+            // construtor `const`, a variante `CONST_`.
             if campo.is_some() {
-                expr::verificar_atribuivel_expr(inf, cx, *value, tv, t, INVALID_ASSIGNMENT.template);
+                if inf.atribuivel(tv, t) {
+                    if !matches!(inf.table.get(t), Type::Void) {
+                        expr::uso_de_void(inf, cx, *value, tv);
+                    }
+                } else {
+                    use dartforge_diagnostics::codigos::compile_time_error as c;
+                    let codigo = if construtor_const { c::CONST_FIELD_INITIALIZER_NOT_ASSIGNABLE } else { c::FIELD_INITIALIZER_NOT_ASSIGNABLE };
+                    let sp = inf.span_expr(cx.unit, *value);
+                    inf.aviso_com_args(codigo, sp, &[crate::exibicao::Arg::Tipo(tv), crate::exibicao::Arg::Tipo(t)]);
+                }
             }
         }
         ast::Initializer::Super { span, constructor, arguments } => {

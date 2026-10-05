@@ -29,6 +29,7 @@ pub mod a_contexto;
 pub mod a_doc;
 pub mod c2_sintaticos;
 pub mod clausulas;
+pub mod construtores;
 pub mod duplicatas;
 pub mod enums;
 pub mod externos;

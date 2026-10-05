@@ -366,6 +366,7 @@ impl Motor {
             let mut achados = dartforge_analise::duplicatas::duplicatas(&unidades, &interner, curinga, !sintaxe_nova);
             achados.extend(dartforge_analise::enums::sem_constantes(&unidades));
             achados.extend(dartforge_analise::inicializacao::finais_nao_inicializados(&unidades, &interner));
+            achados.extend(dartforge_analise::construtores::verificar(&unidades, &interner));
             for (i, u) in unidades.iter().enumerate() {
                 // Os erros de sintaxe da unidade (a fase 1 já os pôs no arquivo).
                 let sintaticos: Vec<Span> = program

@@ -6060,6 +6060,15 @@ ou `undefined_class 'augment'`) e o resto é **outra declaração homônima** (`
 
 ---
 
+**Estado em 2026-10-05 (escrito, não compilado).** `crates/analise/src/construtores.rs` (novo, ligado na
+paridade) porta o `ConstructorFieldsVerifier` (estados `notInit`/`initInDeclaration`/`initInFieldFormal`/
+`initInInitializer` por construtor gerador não redirecionador e não `external`, com os estáticos e as
+constantes de enum no mapa e sem o `index`) e o `_checkForValidField`/`_checkForInvalidField` (campo pelo
+`getField`: o primeiro declarado; getter/setter e `values` são sintéticos). Os dois de tipo ficam em
+`crates/types/src/inferencia/funcoes.rs`: `field_initializer_not_assignable` (e a variante `const`), no lugar
+do `invalid_assignment` de antes, e `field_initializing_formal_not_assignable` (subtipo do tipo escrito de
+`this.x` contra o do campo).
+
 #### Revisão do rascunho `crates/analise/src/construtores.rs` (regra por regra)
 
 | Regra | Acerta | Errado / faltando |
