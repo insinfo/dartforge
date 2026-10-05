@@ -8,6 +8,7 @@ pub mod context;
 pub mod driver;
 pub mod fonte;
 pub mod gcmap;
+pub mod rastro_compacto;
 pub mod gerador;
 pub mod ligador;
 pub mod ligador_macos;

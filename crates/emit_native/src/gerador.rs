@@ -265,6 +265,11 @@ impl Gerador {
                 if geracao.formato == Formato::Objeto && ir.contains(dartforge_llvm::MARCA_DE_GC) && crate::gcmap::converter_aqui() {
                     crate::gcmap::converter(&mut bytes)?;
                 }
+                // O rastro simbólico: a tabela de 12 bytes por entrada vira o
+                // DFPC (`rastro_compacto.rs`); `DARTFORGE_RASTRO_CRU=1` a deixa.
+                if geracao.formato == Formato::Objeto && ir.contains("@df.pcf.") && crate::rastro_compacto::converter_aqui() {
+                    crate::rastro_compacto::converter(&mut bytes)?;
+                }
                 std::fs::write(saida, bytes).map_err(|e| format!("falha ao gravar {}: {e}", saida.display()))
             }
             Gerador::Clang(clang) => {

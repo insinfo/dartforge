@@ -144,6 +144,7 @@ pub fn objetos(p: &Pedido<'_>) -> Result<Vec<PathBuf>, String> {
     let nivel = format!("-O{}", crate::driver::nivel_da_lto());
     let descricao_da_cpu = p.cpu.map_or(String::new(), Cpu::descricao);
     let converter_mapa = crate::gcmap::converter_aqui();
+    let converter_rastro = crate::rastro_compacto::converter_aqui();
     let manter = std::env::var_os("DARTFORGE_KEEP_IR").is_some();
     let n = p.entradas.len();
     let proxima = std::sync::atomic::AtomicUsize::new(0);
@@ -179,12 +180,18 @@ pub fn objetos(p: &Pedido<'_>) -> Result<Vec<PathBuf>, String> {
             if dartforge_llvm::bitcode_com_mapas(&bitcode) && converter_mapa {
                 crate::gcmap::converter(&mut objeto)?;
             }
+            // A tabela do rastro, quando o objeto a tem (a seção é achada pelo
+            // nome; sem ela, nada muda).
+            if converter_rastro {
+                crate::rastro_compacto::converter(&mut objeto)?;
+            }
             std::fs::write(destino, objeto).map_err(|e| format!("falha ao gravar {}: {e}", destino.display()))
         };
         let objeto = match p.cache {
             Some(c) => {
                 let compacto = if converter_mapa { "mapa-compacto" } else { "mapa-cru" };
-                let chave = cache_objeto::chave_de_bytes(&bitcode, &identidade, &["lto-distribuida", compacto, descricao_da_cpu.as_str()]);
+                let rastro = if converter_rastro { "rastro-compacto" } else { "rastro-cru" };
+                let chave = cache_objeto::chave_de_bytes(&bitcode, &identidade, &["lto-distribuida", compacto, rastro, descricao_da_cpu.as_str()]);
                 c.obter_ou_criar(chave, fechar).map(|(o, _)| o)
             }
             None => {

@@ -1925,8 +1925,21 @@ retorno acha a entrada do maior rótulo abaixo dele, que tem de estar na funçã
 desenrolador dá); o quadro sem entrada (o runtime, o sistema, função sem posição) fica de fora. Sem
 quadro nenhum, o texto de hoje. O `StackTrace.current` captura a pilha dele.
 
-*Não feito.* A forma compacta do item 1 (deltas por função, no conversor de objeto). O
-`StackTrace.current` chamado pelo getter do SDK mostra o quadro do getter quando ele tem posição.
+*Não feito.* O `StackTrace.current` chamado pelo getter do SDK mostra o quadro do getter quando ele
+tem posição.
+
+**A forma compacta do item 1 (2026-10-05, escrito, não compilado).** `EN/rastro_compacto.rs`, depois
+do gerador embutido (`EN/gerador.rs`) e no fecho do ThinLTO distribuído (`EN/lto_distribuida.rs`, com
+a forma na chave do cache), como o conversor do mapa: cada seção `.dfpcl$m` (COFF) ou `dfpcl` (ELF,
+uma por grupo `comdat`) vira o **DFPC v1**: cabeçalho de 20 bytes, o índice das funções (o endereço
+relocado relativo ao próprio campo, `R_X86_64_PC32`/`R_AARCH64_PREL32` no ELF e `REL32` no COFF, que
+é relativo ao byte seguinte), a tabela dos registros distintos e, por função, as entradas em varints
+(o delta do rótulo, `registro << 2 | espécie`, a palavra), com a ordem da seção nos empates (a
+cadeia de quadros embutidos). Uma relocação por função e uma por registro, no lugar de duas por
+entrada; a ida e volta é conferida. O rótulo acha a função pelo símbolo de função que o contém
+(`DTYPE_FUNCTION` no COFF, `STT_FUNC` no ELF). O runtime lê as duas formas na mesma seção, pela
+assinatura `DFPC`. `DARTFORGE_RASTRO_CRU=1` deixa a forma de 12 bytes (a medida); o Mach-O não é
+convertido. Não medido: o tamanho das duas formas no `new_sali/backend`.
 
 **A tabela no JIT (2026-10-05, escrito, não compilado).** Com `DARTFORGE_RASTRO_VM=simbolico` o JIT
 emite os rótulos e a seção como o AOT, sem os símbolos do ligador e sem a chamada de registro

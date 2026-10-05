@@ -562,6 +562,18 @@ fn desenrolar(indice: &IndiceDoRastro, heap: &crate::heap::Heap, quadros: &[(u64
 unsafe fn ler_secao_do_rastro(inicio: usize, fim: usize, pontos: &mut Vec<PontoDoRastro>, funcoes: &mut Vec<(usize, FuncaoDoRastro)>) {
     let mut p = (inicio + 3) & !3;
     while p + 12 <= fim {
+        // A forma compacta de um objeto convertido (`rastro_compacto.rs`).
+        // SAFETY: `p .. p + 4` está dentro da seção.
+        if unsafe { std::slice::from_raw_parts(p as *const u8, 4) } == b"DFPC" {
+            // SAFETY: o blob começa em `p` e fica dentro da seção.
+            match unsafe { ler_blob_do_rastro(p, fim, pontos, funcoes) } {
+                Some(tamanho) => {
+                    p += (tamanho + 3) & !3;
+                    continue;
+                }
+                None => return,
+            }
+        }
         // SAFETY: `p .. p + 12` está dentro da seção.
         let (rotulo, registro, palavra) = unsafe {
             (
@@ -593,6 +605,96 @@ unsafe fn ler_secao_do_rastro(inicio: usize, fim: usize, pontos: &mut Vec<PontoD
             }
         }
         p += 12;
+    }
+}
+
+/// Um varint LEB128 em `*p`, sem passar de `fim`.
+///
+/// # Safety
+/// `[*p, fim)` está mapeado.
+#[allow(unsafe_code)]
+unsafe fn varint_do_rastro(p: &mut usize, fim: usize) -> Option<u64> {
+    let mut r = 0u64;
+    let mut s = 0u32;
+    loop {
+        if *p >= fim {
+            return None;
+        }
+        // SAFETY: `*p < fim`.
+        let b = unsafe { (*p as *const u8).read() };
+        *p += 1;
+        if s < 64 {
+            r |= u64::from(b & 0x7f) << s;
+        }
+        s += 7;
+        if b & 0x80 == 0 {
+            return Some(r);
+        }
+    }
+}
+
+/// Lê o blob DFPC em `inicio` (o formato de `rastro_compacto.rs`): o índice
+/// das funções e os registros, relocados relativos ao próprio campo (no
+/// COFF, ao byte seguinte), e o fluxo de cada função. Devolve o tamanho do
+/// blob; `None` num blob malformado (o resto da seção é ignorado).
+///
+/// # Safety
+/// `[inicio, fim)` é uma seção do rastro mapeada.
+#[allow(unsafe_code)]
+unsafe fn ler_blob_do_rastro(inicio: usize, fim: usize, pontos: &mut Vec<PontoDoRastro>, funcoes: &mut Vec<(usize, FuncaoDoRastro)>) -> Option<usize> {
+    // SAFETY: os campos lidos ficam dentro de `[inicio, fim)` (conferido).
+    unsafe {
+        let u32_em = |q: usize| (q as *const u32).read_unaligned();
+        if inicio + 20 > fim || (inicio as *const u8).add(4).read() != 1 {
+            return None;
+        }
+        let forma = (inicio as *const u8).add(5).read();
+        let tamanho = u32_em(inicio + 8) as usize;
+        let nf = u32_em(inicio + 12) as usize;
+        let nr = u32_em(inicio + 16) as usize;
+        if tamanho < 20 || inicio + tamanho > fim || 20 + 8 * nf + 4 * nr > tamanho {
+            return None;
+        }
+        let fim_do_blob = inicio + tamanho;
+        let endereco = |campo: usize| {
+            let v = (campo as *const i32).read_unaligned() as isize;
+            if forma == 2 { (campo + 4).wrapping_add_signed(v) } else { campo.wrapping_add_signed(v) }
+        };
+        let base_dos_registros = inicio + 20 + 8 * nf;
+        let registros: Vec<usize> = (0..nr).map(|k| endereco(base_dos_registros + 4 * k)).collect();
+        for k in 0..nf {
+            let campo = inicio + 20 + 8 * k;
+            let funcao = endereco(campo);
+            let mut q = inicio + u32_em(campo + 4) as usize;
+            let n = varint_do_rastro(&mut q, fim_do_blob)?;
+            let mut deslocamento = 0usize;
+            for _ in 0..n {
+                deslocamento += varint_do_rastro(&mut q, fim_do_blob)? as usize;
+                let rk = varint_do_rastro(&mut q, fim_do_blob)?;
+                let palavra = varint_do_rastro(&mut q, fim_do_blob)? as u32;
+                let rot = funcao + deslocamento;
+                let especie = rk & 3;
+                let reg = registros.get((rk >> 2) as usize).copied().unwrap_or(0);
+                match especie {
+                    0 => pontos.push(PontoDoRastro { rotulo: rot, registro: reg, linha_coluna: palavra }),
+                    _ => {
+                        if funcoes.last().is_none_or(|(e, _)| *e != rot) {
+                            funcoes.push((rot, FuncaoDoRastro::default()));
+                        }
+                        let f = &mut funcoes.last_mut().expect("a função acabada de pôr").1;
+                        match especie {
+                            1 => {
+                                f.registro = reg;
+                                f.token = palavra;
+                            }
+                            2 => f.esperas.push(palavra),
+                            _ => f.elo = Some(((palavra >> 2) as usize, palavra & 2 != 0, palavra & 1 != 0)),
+                        }
+                    }
+                }
+            }
+        }
+        Some(tamanho)
     }
 }
 

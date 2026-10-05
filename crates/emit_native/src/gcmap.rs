@@ -76,19 +76,19 @@ type Raizes = Vec<(bool, i32)>;
 /// se dinâmico —, registros por deslocamento de retorno).
 type Funcao = (u32, u64, Vec<(u32, Raizes)>);
 
-fn u16_em(d: &[u8], p: usize) -> Result<u16, String> {
+pub(crate) fn u16_em(d: &[u8], p: usize) -> Result<u16, String> {
     d.get(p..p + 2).map(|b| u16::from_le_bytes([b[0], b[1]])).ok_or_else(|| "objeto COFF truncado".to_string())
 }
 
-fn u32_em(d: &[u8], p: usize) -> Result<u32, String> {
+pub(crate) fn u32_em(d: &[u8], p: usize) -> Result<u32, String> {
     d.get(p..p + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]])).ok_or_else(|| "objeto COFF truncado".to_string())
 }
 
-fn u64_em(d: &[u8], p: usize) -> Result<u64, String> {
+pub(crate) fn u64_em(d: &[u8], p: usize) -> Result<u64, String> {
     Ok(u64::from(u32_em(d, p)?) | (u64::from(u32_em(d, p + 4)?) << 32))
 }
 
-fn varint(saida: &mut Vec<u8>, mut n: u64) {
+pub(crate) fn varint(saida: &mut Vec<u8>, mut n: u64) {
     loop {
         let b = (n & 0x7f) as u8;
         n >>= 7;
@@ -101,7 +101,7 @@ fn varint(saida: &mut Vec<u8>, mut n: u64) {
     }
 }
 
-fn ler_varint(d: &[u8], p: &mut usize) -> Result<u64, String> {
+pub(crate) fn ler_varint(d: &[u8], p: &mut usize) -> Result<u64, String> {
     let mut r = 0u64;
     let mut s = 0u32;
     loop {
