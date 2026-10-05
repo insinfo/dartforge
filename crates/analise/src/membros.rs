@@ -397,6 +397,91 @@ impl Ctx<'_> {
     }
 }
 
+/// `ErrorVerifier._checkUseOfCovariantInParameters`
+/// (`error_verifier.dart:6143-6178`), em toda lista de parâmetros: cala nos
+/// métodos de classe, mixin, enum ou tipo de extensão, dentro de extensão e
+/// nas funções de topo (o parser relata esses); nos outros lugares
+/// (expressão de função, função local, construtor, tipo de função,
+/// parâmetro-função, `typedef`) cada `covariant` direto relata, no token.
+fn covariant_fora_de_lugar(cx: &mut Ctx<'_>, ast_: &ast::Ast) {
+    let extensoes: Vec<Span> = ast_.decls.iter().filter(|d| matches!(d.kind, DeclKind::Extension(_))).map(|d| d.span).collect();
+    let tipos_de_extensao: Vec<Span> = ast_.decls.iter().filter(|d| matches!(d.kind, DeclKind::ExtensionType(_))).map(|d| d.span).collect();
+    let dentro = |v: &[Span], s: Span| v.iter().any(|x| x.start <= s.start && s.end <= x.end);
+    fn relatar_lista(cx: &mut Ctx<'_>, ps: &[Parameter]) {
+        for p in ps {
+            if !p.covariant {
+                continue;
+            }
+            let fim = p.name.map_or(p.span.end, |n| n.span.start);
+            let Some(trecho) = cx.fonte.get(p.span.start..fim) else { continue };
+            if let Some(i) = trecho.find("covariant") {
+                let s = Span { start: p.span.start + i, end: p.span.start + i + "covariant".len() };
+                cx.relatar(c::INVALID_USE_OF_COVARIANT, s, &[]);
+            }
+        }
+    }
+    /// As listas aninhadas de parâmetros-função (`void f(covariant int x)`).
+    fn aninhadas(cx: &mut Ctx<'_>, ps: &[Parameter]) {
+        for p in ps {
+            if let Some(inner) = &p.function_parameters {
+                relatar_lista(cx, inner);
+                aninhadas(cx, inner);
+            }
+        }
+    }
+    // As funções que são métodos de declaração e as de topo.
+    let mut metodos: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    for m in &ast_.members {
+        if let MemberKind::Method(fid) = &m.kind {
+            metodos.insert(fid.0);
+        }
+    }
+    let mut de_topo: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    for d in &ast_.decls {
+        if let DeclKind::Function(fid) = &d.kind {
+            de_topo.insert(fid.0);
+        }
+    }
+    for (i, f) in ast_.functions.iter().enumerate() {
+        let Some(ps) = &f.parameters else { continue };
+        if dentro(&extensoes, f.span) {
+            continue;
+        }
+        let i = i as u32;
+        if !metodos.contains(&i) && !de_topo.contains(&i) {
+            relatar_lista(cx, ps);
+        }
+        aninhadas(cx, ps);
+    }
+    for m in &ast_.members {
+        let MemberKind::Constructor(k) = &m.kind else { continue };
+        if dentro(&extensoes, m.span) {
+            continue;
+        }
+        // No tipo de extensão o parser relata (`EXTRANEOUS_MODIFIER_IN_EXTENSION_TYPE`).
+        if !dentro(&tipos_de_extensao, m.span) {
+            relatar_lista(cx, &k.parameters);
+        }
+        aninhadas(cx, &k.parameters);
+    }
+    for tipo in &ast_.types {
+        let TypeKind::Function { parameters, .. } = &tipo.kind else { continue };
+        if dentro(&extensoes, tipo.span) {
+            continue;
+        }
+        relatar_lista(cx, parameters);
+        aninhadas(cx, parameters);
+    }
+    for d in &ast_.decls {
+        if let DeclKind::Typedef(x) = &d.kind
+            && let TypedefKind::Legacy { parameters, .. } = &x.kind
+        {
+            relatar_lista(cx, parameters);
+            aninhadas(cx, parameters);
+        }
+    }
+}
+
 /// `ErrorVerifier.visitSuperFormalParameter`
 /// (`error_verifier.dart:1457-1478`) fora de um construtor gerador não
 /// redirecionador e não `external`: em funções, métodos, parâmetros-função
@@ -1104,6 +1189,7 @@ pub fn verificar(
             }
         }
         super_fora_de_lugar(&mut cx, ast_);
+        covariant_fora_de_lugar(&mut cx, ast_);
         this_sem_acesso(&mut cx);
         identificadores_embutidos(&mut cx);
         saida.append(&mut cx.saida);

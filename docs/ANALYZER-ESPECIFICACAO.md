@@ -764,6 +764,8 @@ Representação cíclica ou inválida cala o `implements` e o fundo. Um `dynamic
 - **Emissão:** `LibraryAnalyzer._reportImportDirectiveErrors` (`analyzer/lib/src/dart/analysis/library_analyzer.dart:672-684`) e export (:906-916); também para `@docImport`.
 - **Condição:** URI selecionada começa com `dart-ext:`. **Posição:** a URI (string). **Mensagem:** `Dart native extensions are deprecated and aren't available in Dart 2.15.`
 - **No DartForge:** inexistente; `crates/analise/src/importacoes.rs` (antes de `uri_does_not_exist`).
+- **Estado em 2026-10-05 (escrito, não compilado):** na fase 2 da `paridade`, antes do alvo ausente, para
+  `import`/`export` e para os `@docImport` do doc da biblioteca.
 
 #### Grupo 5 — argumentos de tipo (limites, inferência, contagem)
 
@@ -5645,6 +5647,8 @@ relatos iguais do analyzer contam um.
 - **Posição:** o `NamedType` inteiro. **Mensagem:** "Mixins applied to enums can't have instance variables.".
 - **No DartForge:** `clausulas.rs:1136-1144` já detecta (`tem_campo_de_instancia`) só para tirar o enum da
   lista; emitir ali. 4 FN em `enum_mixin_with_instance_variable/*`.
+- **Estado em 2026-10-05 (escrito, não compilado):** `clausulas::verificar` relata no tipo do `with`, junto da
+  marca `direto_erro`.
 
 ##### `duplicate_definition` (perda 17: FN 2, FP 13, pos 2)
 - **Emissão:** `_checkDuplicateIdentifier` (`duplicate_definition_verifier.dart:501-570`), por escopo
@@ -5704,6 +5708,10 @@ relatos iguais do analyzer contam um.
 - **No DartForge:** inexistente; `ast::Parameter.covariant` é `bool` (`frontend/src/ast.rs:576`) — precisa do
   span do token (ou derivá-lo: início do parâmetro depois dos metadados). 7 FN em `invalid_use_of_covariant/*`
   (expressão de função, tipo de função em parâmetro/tipo/alias/limite, parâmetro-função, função local).
+- **Estado em 2026-10-05 (escrito, não compilado):** `membros.rs::covariant_fora_de_lugar` acha o token na
+  fonte do parâmetro. Percorre as listas das funções que não são método nem de topo, os construtores fora de
+  tipo de extensão (lá o parser relata), os tipos de função, os `typedef` antigos e os parâmetros-função
+  aninhados em qualquer lista. Tudo dentro de extensão fica de fora.
 ### Parte B_construtores1 — construtores, redirecionamentos e inicialização de campos
 
 Grupo: 22 códigos, perda somada 292. Citações do fonte 3.6.2: `analyzer/lib/src/...:linha`
@@ -7268,6 +7276,10 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
   var y = x + 1;`, campos estáticos, `var x = x;`, `var elems = [elems]`, e o caso cruzado
   `static final a = b.c; static final b = A(); final c = a;` (ciclo "a, c": `b` tem tipo pelo
   construtor, não entra).
+- **Estado em 2026-10-05 (escrito, não compilado):** `BodyInferrer::tipo_variavel` guarda a pilha
+  `_inferring` (`pilha_de_variaveis`). O pedido de uma variável `EmCurso` chama `ciclo_de_inferencia`, que
+  marca as da pilha a partir dela (`em_ciclo`, tipo `dynamic`, resultado do inicializador descartado) e relata
+  nas não `const`, no nome, com a lista ordenada.
 
 ##### `default_value_on_required_parameter` (perda 7: FN 4, pos 3)
 - **Emissão:** `ErrorVerifier._checkUseOfDefaultValuesInParameters` (`error_verifier.dart:6196-6206`), em

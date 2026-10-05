@@ -1618,12 +1618,14 @@ pub fn verificar(
             }
         }
 
-        // `_checkMixinOfEnum`: mixin com campo de instância num enum.
+        // `_checkMixinOfEnum` (`inheritance_override.dart:742-763`): mixin com
+        // campo de instância num enum, no tipo inteiro.
         if classe.kind == ClassKind::Enum {
             for &t in cl.with {
                 if let Alvo::Classe(m) = l.alvo(u, ast_, t, 0)
                     && l.tem_campo_de_instancia(m)
                 {
+                    saida.push((decl.unit, Diagnostic::com_codigo(c::ENUM_MIXIN_WITH_INSTANCE_VARIABLE, ast_.ty(t).span, [] as [&str; 0])));
                     direto_erro = true;
                 }
             }

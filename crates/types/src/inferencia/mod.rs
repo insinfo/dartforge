@@ -210,6 +210,12 @@ pub struct BodyInferrer<'a> {
     /// Os pais das expressões de cada unidade, sob demanda (as regras que
     /// dependem do lugar sintático de um nó).
     pais: HashMap<UnitId, Rc<dartforge_frontend::pais::Pais>>,
+    /// `_inferring` da inferência de topo: as variáveis cujo inicializador
+    /// está sendo inferido, na ordem.
+    pilha_de_variaveis: Vec<VariableId>,
+    /// As variáveis num ciclo de inferência (`dependencyCycle`): o tipo é
+    /// `dynamic`, e o relato já saiu.
+    em_ciclo: HashSet<VariableId>,
 }
 
 impl<'a> BodyInferrer<'a> {
@@ -258,6 +264,8 @@ impl<'a> BodyInferrer<'a> {
             unidade_corrente: None,
             heranca: crate::heranca::Heranca::default(),
             pais: HashMap::new(),
+            pilha_de_variaveis: Vec::new(),
+            em_ciclo: HashSet::new(),
             espalhamentos_inferidos: HashMap::new(),
             registrar_locais: false,
             sonda_escopo: None,
@@ -361,8 +369,11 @@ impl<'a> BodyInferrer<'a> {
         }
         match self.estado_vars[vid.0 as usize] {
             EstadoVar::Pronta => return d.inferred.unwrap_or(self.core.dynamic_),
-            // Ciclo de inferência: erro no Dart; `dynamic` para seguir.
-            EstadoVar::EmCurso => return self.core.dynamic_,
+            // Ciclo de inferência: `TopLevelInference` (`top_level_inference.dart:228-240`).
+            EstadoVar::EmCurso => {
+                self.ciclo_de_inferencia(vid);
+                return self.core.dynamic_;
+            }
             EstadoVar::Pendente => {}
         }
         if self.profundidade_topo > 200 {
@@ -372,7 +383,12 @@ impl<'a> BodyInferrer<'a> {
         self.profundidade_topo += 1;
         let diags_antes = self.diagnostics.len();
         let unidade_salva = self.unidade_corrente;
+        self.pilha_de_variaveis.push(vid);
         let t = funcoes::inferir_tipo_de_variavel_sem_tipo(self, vid);
+        self.pilha_de_variaveis.pop();
+        // Num ciclo, o tipo já ficou `dynamic` (o resultado do inicializador
+        // não conta).
+        let t = if self.em_ciclo.contains(&vid) { self.core.dynamic_ } else { t };
         self.unidade_corrente = unidade_salva;
         // Inferência sob demanda de uma variável cujos corpos não foram
         // pedidos (SDK, biblioteca não reemitida): os avisos não são deste
@@ -387,6 +403,51 @@ impl<'a> BodyInferrer<'a> {
         self.inicializador_visitado[vid.0 as usize] = true;
         self.sincronizar_acessores(vid, t);
         t
+    }
+
+    /// O ciclo achado ao pedir de novo o tipo de `vid`: as variáveis da pilha
+    /// a partir dela, ainda em inferência, ficam `dynamic` e relatam
+    /// `TOP_LEVEL_CYCLE` (`ResolverVisitor._checkTopLevelCycle`,
+    /// `resolver.dart:4009-4030`, só as não `const`) no nome, com os nomes do
+    /// ciclo em ordem.
+    fn ciclo_de_inferencia(&mut self, vid: VariableId) {
+        let Some(inicio) = self.pilha_de_variaveis.iter().position(|&v| v == vid) else { return };
+        let ciclo: Vec<VariableId> = self.pilha_de_variaveis[inicio..].iter().copied().filter(|v| !self.em_ciclo.contains(v)).collect();
+        if ciclo.is_empty() {
+            return;
+        }
+        let mut nomes: Vec<String> = self.pilha_de_variaveis[inicio..].iter().map(|&v| self.interner.resolve(self.program.variable(v).name).to_string()).collect();
+        nomes.sort();
+        let lista = nomes.join(", ");
+        let unidade_salva = self.unidade_corrente;
+        for v in ciclo {
+            self.em_ciclo.insert(v);
+            let var = self.program.variable(v);
+            if var.const_ {
+                continue;
+            }
+            let (unit, span) = match var.node {
+                VariableRef::TopLevel { unit, decl, index } => match &self.program.unit(unit).ast.decl(decl).kind {
+                    ast::DeclKind::Variables(l) => match l.variables.get(index) {
+                        Some(x) => (unit, x.name.span),
+                        None => continue,
+                    },
+                    _ => continue,
+                },
+                VariableRef::Field { unit, member, index } => match &self.program.unit(unit).ast.member(member).kind {
+                    ast::MemberKind::Field(l) => match l.variables.get(index) {
+                        Some(x) => (unit, x.name.span),
+                        None => continue,
+                    },
+                    _ => continue,
+                },
+                _ => continue,
+            };
+            let nome = self.interner.resolve(var.name).to_string();
+            self.unidade_corrente = Some(unit);
+            self.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::TOP_LEVEL_CYCLE, span, &[&nome, &lista]);
+        }
+        self.unidade_corrente = unidade_salva;
     }
 
     /// Override inference sobre campo sem tipo escrito: o getter (retorno) ou

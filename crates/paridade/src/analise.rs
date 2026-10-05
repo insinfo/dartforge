@@ -298,6 +298,12 @@ impl Motor {
             let arvore = dartforge_analise::Unidade { ast: &unit.ast, unit: &unit.unit, fonte: &unit.source };
             for i in dartforge_analise::a_doc::imports_de_doc_da_biblioteca(arvore) {
                 let Some(uri) = i.uri else { continue };
+                // `_reportImportDirectiveErrors`: `dart-ext:` no lugar do alvo ausente.
+                if uri.starts_with("dart-ext:") {
+                    let d = Diagnostic::com_codigo(codigos::compile_time_error::USE_OF_NATIVE_EXTENSION, i.literal, [] as [&str; 0]);
+                    analise.arquivos.get_mut(k).expect("próprio").diags.push(d);
+                    continue;
+                }
                 if textos.contains_key(&chave(&base.join(&uri))) {
                     continue;
                 }
@@ -313,6 +319,13 @@ impl Motor {
                     _ => continue,
                 };
                 let Some(texto) = dartforge_elements::load::string_lit_value(lit) else { continue };
+                // `USE_OF_NATIVE_EXTENSION` (`library_analyzer.dart:672-684`, `:906-916`):
+                // import ou export de `dart-ext:`, no lugar do alvo ausente.
+                if !parte && texto.starts_with("dart-ext:") {
+                    let d = Diagnostic::com_codigo(codigos::compile_time_error::USE_OF_NATIVE_EXTENSION, lit.span, [] as [&str; 0]);
+                    analise.arquivos.get_mut(k).expect("próprio").diags.push(d);
+                    continue;
+                }
                 if textos.contains_key(&chave(&base.join(&texto))) {
                     // Documento aberto ainda não salvo: existe para o editor.
                     continue;
