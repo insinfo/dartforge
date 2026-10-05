@@ -209,15 +209,33 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.expect_op(Op::LParen)?;
         let mut positional = Vec::new();
         let mut named = Vec::new();
+        let mut viu_virgula = false;
+        let mut com_nomeados = false;
+        // `(,)`: `EMPTY_RECORD_TYPE_WITH_COMMA` na vírgula (`parser_impl.dart:1673-1676`).
+        if self.at_op(Op::Comma) && self.at_op_at(1, Op::RParen) {
+            let virgula = self.advance().span;
+            self.erro_em(codigos::parser::EMPTY_RECORD_TYPE_WITH_COMMA, virgula, &[]);
+            viu_virgula = true;
+        }
         loop {
             if self.eat_op(Op::RParen) {
                 break;
             }
             if self.eat_op(Op::LBrace) {
+                com_nomeados = true;
+                let mut campos = 0usize;
                 loop {
-                    if self.eat_op(Op::RBrace) {
+                    if self.at_op(Op::RBrace) {
+                        // `parseRecordTypeNamedFields` (`:1743-1745`): grupo
+                        // vazio, no `}`.
+                        if campos == 0 {
+                            let fecha = self.span();
+                            self.erro_em(codigos::parser::EMPTY_RECORD_TYPE_NAMED_FIELDS_LIST, fecha, &[]);
+                        }
+                        self.advance();
                         break;
                     }
+                    campos += 1;
                     self.parse_metadata_opt()?;
                     let ty = self.parse_type()?;
                     let name = self.expect_identifier()?;
@@ -236,10 +254,18 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.identifier();
             }
             positional.push(ty);
-            if !self.eat_op(Op::Comma) {
+            if self.eat_op(Op::Comma) {
+                viu_virgula = true;
+            } else {
                 self.expect_op(Op::RParen)?;
                 break;
             }
+        }
+        // `(int)`: um posicional, sem nomeados e sem vírgula, no `)`
+        // (`parser_impl.dart:1677-1680`).
+        if positional.len() == 1 && !com_nomeados && !viu_virgula {
+            let fecha = self.tokens[self.pos - 1].span;
+            self.erro_em(codigos::parser::RECORD_TYPE_ONE_POSITIONAL_NO_TRAILING_COMMA, fecha, &[]);
         }
         let span = self.span_from(start);
         Ok(self.ast.push_type(TypeAnnotation {

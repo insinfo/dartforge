@@ -706,7 +706,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.advance();
                 name.push(self.identifier());
             }
-            let type_args = if self.at_op(Op::Lt) {
+            let com_tipos = self.at_op(Op::Lt);
+            let type_args = if com_tipos {
                 self.parse_type_arguments_opt()?
             } else {
                 Vec::new()
@@ -716,9 +717,30 @@ impl<'s, 'i> Parser<'s, 'i> {
                 let part = self.identifier_or_new()?;
                 name.push(part);
             }
+            // `parseMetadata` (`parser_impl.dart:1346-1349`): com argumentos de
+            // tipo, o que segue tem de ser `(`; o erro vai no último token
+            // lido da anotação (o `>` ou o `.nome`).
+            if com_tipos && !self.at_op(Op::LParen) {
+                let ultimo = self.tokens[self.pos - 1].span;
+                self.erro_em(codigos::parser::ANNOTATION_WITH_TYPE_ARGUMENTS_UNINSTANTIATED, ultimo, &[]);
+            }
+            // `parseArgumentsOptMetadata` (`:7718-7752`): `(` colado são os
+            // argumentos; separado, só com argumentos de tipo ou quando o que
+            // segue o `)` é `class`/`enum`, com
+            // `ANNOTATION_SPACE_BEFORE_PARENTHESIS` no `(`.
             let glued = self.pos > 0 && self.tokens[self.pos - 1].glued;
-            let arguments = if self.at_op(Op::LParen) && (glued || !type_args.is_empty()) {
-                Some(self.parse_arguments()?)
+            let arguments = if self.at_op(Op::LParen) {
+                let depois_do_fecho = self.matching_close(self.pos).map(|f| f + 1 - self.pos);
+                let classe_ou_enum = depois_do_fecho.is_some_and(|n| self.at_kw_at(n, Keyword::Class) || self.at_kw_at(n, Keyword::Enum));
+                if glued {
+                    Some(self.parse_arguments()?)
+                } else if com_tipos || classe_ou_enum {
+                    let parenteses = self.span();
+                    self.erro_em(codigos::parser::ANNOTATION_SPACE_BEFORE_PARENTHESIS, parenteses, &[]);
+                    Some(self.parse_arguments()?)
+                } else {
+                    None
+                }
             } else {
                 None
             };
@@ -2863,6 +2885,18 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.params_de = self.dono_de_parametros(mods, false);
         }
         let parameters = self.parse_formal_parameters()?;
+        // `_buildConstructorDeclaration` do AstBuilder (`ast_builder.dart:5911-5920`):
+        // construtor `external` (não factory), um erro por `this.x`, no `this`.
+        if mods.external && !factory {
+            let fonte = self.source;
+            for p in parameters.iter().filter(|p| p.this_) {
+                let ate = p.name.map_or(p.span.end, |n| n.span.start);
+                if let Some(i) = fonte.get(p.span.start..ate).and_then(|s| s.rfind("this")) {
+                    let ini = p.span.start + i;
+                    self.erro_em(codigos::parser::EXTERNAL_CONSTRUCTOR_WITH_FIELD_INITIALIZERS, Span { start: ini, end: ini + 4 }, &[]);
+                }
+            }
+        }
         let mut initializers = Vec::new();
         let mut redirect = None;
         // `parseFactoryMethod` (`parser_impl.dart:5139-5145`): o modificador
@@ -2881,6 +2915,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         let body = if self.at_op(Op::Assign) {
             let eq = self.advance();
+            // `parseFactoryMethod` (`parser_impl.dart:5146-5149`).
+            if factory && mods.external {
+                self.erro_em(codigos::parser::EXTERNAL_FACTORY_REDIRECTION, eq.span, &[]);
+            }
             if !factory {
                 // `Foo() = Bar;` sem `factory`: o alvo é lido normalmente e
                 // só o `=` é denunciado (fasta 3.6.2, sem cascata).
@@ -3001,6 +3039,14 @@ impl<'s, 'i> Parser<'s, 'i> {
                 None
             };
             let arguments = self.parse_arguments()?;
+            // `buildInitializer`: `super(…)`/`super.n(…)` seguido de mais
+            // seletores não é chamada do construtor da superclasse:
+            // `INVALID_SUPER_IN_INITIALIZER` no `super` (o nó vira a chamada
+            // com a última lista de argumentos).
+            if self.seletor_depois_do_inicializador() {
+                self.erro_em(codigos::parser::INVALID_SUPER_IN_INITIALIZER, Span { start: start.start, end: start.start + 5 }, &[]);
+                self.pular_resto_do_inicializador();
+            }
             return Ok(Initializer::Super {
                 span: self.span_from(start),
                 constructor,
@@ -3012,6 +3058,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                 let name = self.identifier_or_new()?;
                 if self.at_op(Op::LParen) {
                     let arguments = self.parse_arguments()?;
+                    if self.seletor_depois_do_inicializador() {
+                        self.erro_em(codigos::parser::INVALID_THIS_IN_INITIALIZER, Span { start: start.start, end: start.start + 4 }, &[]);
+                        self.pular_resto_do_inicializador();
+                    }
                     self.conferir_corpo_de_redirecionamento();
                     return Ok(Initializer::Redirect {
                         span: self.span_from(start),
@@ -3038,6 +3088,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                 return self.inicializador_sem_atribuicao(start);
             }
             let arguments = self.parse_arguments()?;
+            if self.seletor_depois_do_inicializador() {
+                self.erro_em(codigos::parser::INVALID_THIS_IN_INITIALIZER, Span { start: start.start, end: start.start + 4 }, &[]);
+                self.pular_resto_do_inicializador();
+            }
             self.conferir_corpo_de_redirecionamento();
             return Ok(Initializer::Redirect {
                 span: self.span_from(start),
@@ -3084,6 +3138,32 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `this.x`/`this` sem atribuição é `MISSING_ASSIGNMENT_IN_INITIALIZER` no
     /// `this`, e o inicializador vira `<sintético> = expressão`, com a
     /// expressão lida desde o `this`.
+    /// Depois dos argumentos de `super(…)`/`this(…)` vem outro seletor
+    /// (`.`, `?.`, `..`, `?..`, `[`, `(`).
+    fn seletor_depois_do_inicializador(&self) -> bool {
+        matches!(
+            self.kind(),
+            Kind::Op(Op::Dot | Op::QuestionDot | Op::DotDot | Op::QuestionDotDot | Op::LBracket | Op::LParen)
+        )
+    }
+
+    /// Pula o resto de um inicializador (os seletores, com os grupos
+    /// casados) até a `,` seguinte, o corpo (`{`, `=>`), o `;` ou o fim.
+    fn pular_resto_do_inicializador(&mut self) {
+        while !self.at_eof() {
+            match self.kind() {
+                Kind::Op(Op::Comma | Op::LBrace | Op::Semicolon | Op::Arrow) => break,
+                Kind::Op(Op::LParen | Op::LBracket) => match self.matching_close(self.pos) {
+                    Some(f) => self.pos = f + 1,
+                    None => break,
+                },
+                _ => {
+                    self.advance();
+                }
+            }
+        }
+    }
+
     fn inicializador_sem_atribuicao(&mut self, start: Span) -> PResult<Initializer> {
         self.erro_em(codigos::parser::MISSING_ASSIGNMENT_IN_INITIALIZER, start, &[]);
         self.pos = self.tokens.iter().position(|t| t.span.start == start.start).unwrap_or(self.pos);

@@ -1526,6 +1526,15 @@ impl<'s, 'i> Parser<'s, 'i> {
         let mut positional = Vec::new();
         let mut named = Vec::new();
         let mut is_record = const_ || self.at_op(Op::RParen);
+        let mut viu_virgula = false;
+        // `(,)`: `EMPTY_RECORD_LITERAL_WITH_COMMA` na vírgula
+        // (`parseParenthesizedExpressionOrRecordLiteral`).
+        if self.at_op(Op::Comma) && self.at_op_at(1, Op::RParen) {
+            let virgula = self.advance().span;
+            self.erro_em(codigos::parser::EMPTY_RECORD_LITERAL_WITH_COMMA, virgula, &[]);
+            is_record = true;
+            viu_virgula = true;
+        }
         while !self.at_op(Op::RParen) {
             if self.at_identifier() && self.at_op_at(1, Op::Colon) {
                 let name = self.identifier();
@@ -1538,11 +1547,17 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             if self.eat_op(Op::Comma) {
                 is_record = true;
+                viu_virgula = true;
             } else {
                 break;
             }
         }
         self.garantir_fecha_parenteses(abre)?;
+        // `const (e)`: um posicional sem vírgula, no `)`.
+        if const_ && positional.len() == 1 && named.is_empty() && !viu_virgula {
+            let fecha = self.tokens[self.pos - 1].span;
+            self.erro_em(codigos::parser::RECORD_LITERAL_ONE_POSITIONAL_NO_TRAILING_COMMA, fecha, &[]);
+        }
         if is_record {
             return Ok(self.push(
                 start,
@@ -1719,6 +1734,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         let value = self.parse_expression()?;
         self.expect_op(Op::RParen)?;
         let abre = self.pos;
+        // `ensureBlock(…, switchExpression)`: sem `{`, o erro no `)` e um corpo
+        // vazio sintético.
+        if !self.at_op(Op::LBrace) {
+            let fecha = self.tokens[self.pos - 1].span;
+            self.erro_em(codigos::parser::EXPECTED_SWITCH_EXPRESSION_BODY, fecha, &[]);
+            return Ok(self.push(start, ExprKind::Switch { value, cases: Vec::new().into_boxed_slice() }));
+        }
         self.expect_op(Op::LBrace)?;
         let mut cases = Vec::new();
         while !self.at_op(Op::RBrace) {

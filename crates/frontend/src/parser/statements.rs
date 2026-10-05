@@ -725,6 +725,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.expect_op(Op::LParen)?;
         let value = self.parse_expression()?;
         self.garantir_fecha_parenteses(abre)?;
+        // `ensureBlock(…, switchStatement)`: sem `{`, o erro no `)` e um
+        // corpo vazio sintético; o que vem depois é a próxima instrução.
+        if !self.at_op(Op::LBrace) {
+            let fecha = self.tokens[self.pos - 1].span;
+            self.erro_em(codigos::parser::EXPECTED_SWITCH_STATEMENT_BODY, fecha, &[]);
+            return Ok(self.push_stmt(start, StmtKind::Switch { value, cases: Vec::new().into_boxed_slice() }));
+        }
         let close = self.matching_close(self.pos);
         self.expect_op(Op::LBrace)?;
         let mut cases = Vec::new();

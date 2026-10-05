@@ -19656,6 +19656,17 @@ class A { A() : super.const(); }
   `A() : this;` → `missing_assignment_in_initializer @23 len 4` + `expected_token @27 len 1 '.'`;
   `A() : ;` → `missing_initializer @14 len 1` (no `:`); `A() : x, y = 1;` → `missing_assignment_in_initializer @26 len 1`.
 
+**Estado em 2026-10-05 (escrito, não compilado), parser.** `annotation_with_type_arguments_uninstantiated`
+e `annotation_space_before_parenthesis` (`parse_metadata`, como `parseMetadata`/`parseArgumentsOptMetadata`);
+`empty_record_type_named_fields_list`, `empty_record_type_with_comma` e
+`record_type_one_positional_no_trailing_comma` (`parse_record_type`); `empty_record_literal_with_comma`
+e `record_literal_one_positional_no_trailing_comma` (`parse_parenthesized_or_record`, só com `const`);
+`expected_body` do `switch` instrução e expressão (`ensureBlock`: erro no `)` e corpo vazio sintético);
+`external_factory_redirection` (no `=`) e `external_constructor_with_field_initializers` (no `this` de
+cada `this.x`); `invalid_super_in_initializer`/`invalid_this_in_initializer` quando `super(…)`/`this(…)`
+seguem com outro seletor (o resto do inicializador é pulado). Fica de fora a releitura do `super.const()`
+(nome palavra-chave relido como record constante).
+
 ##### `annotation_with_type_arguments_uninstantiated` (perda 2: FN 2, FP 0, msg 0, pos 0)
 - **Emissão:** **parser fasta**, `parseMetadata` (`pi:1346-1349`); índice 114. Corrige §E ("Cauda"), que
   apontava o AstBuilder e o `<…>`.
