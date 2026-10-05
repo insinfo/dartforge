@@ -278,6 +278,9 @@ pub struct Servidor<A = AnalisadorSintatico> {
     /// O cliente aceita renomear arquivo numa edição (para o
     /// `renameFilesWithClasses: always` da configuração).
     renomeacao_de_arquivo_possivel: bool,
+    /// Os comandos que o cliente declara (`experimental.commands`, o
+    /// `supportedCommands`): `dart.goToLocation` liga as lentes.
+    comandos_do_cliente: Vec<String>,
     /// O cliente declarou `experimental.supportsWindowShowMessageRequest`
     /// (o `userPromptSender` do Dart): o rename pergunta ao usuário.
     perguntas_ao_usuario: bool,
@@ -377,6 +380,7 @@ impl<A: Analisador> Servidor<A> {
             configuracao_por_pasta: Vec::new(),
             renomeacao_de_arquivo_possivel: false,
             perguntas_ao_usuario: false,
+            comandos_do_cliente: Vec::new(),
             renomeacoes_pendentes: HashMap::new(),
         }
     }
@@ -992,6 +996,11 @@ impl<A: Analisador> Servidor<A> {
                     .pointer("/params/capabilities/experimental/supportsWindowShowMessageRequest")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
+                self.comandos_do_cliente = mensagem
+                    .pointer("/params/capabilities/experimental/commands")
+                    .and_then(Value::as_array)
+                    .map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                    .unwrap_or_default();
                 self.configuracao_pedivel =
                     mensagem.pointer("/params/capabilities/workspace/configuration").and_then(Value::as_bool).unwrap_or(false);
                 let (dinamicas, configuracao_dinamica) =
@@ -1711,7 +1720,35 @@ impl<A: Analisador> Servidor<A> {
             // `handler_code_lens.dart:32-61` (§8.3): só há lentes de
             // augmentations, e só para o cliente que declara o comando
             // `dart.goToLocation`; sem augmentations, lista vazia.
-            "textDocument/codeLens" => resposta(&id, json!([])),
+            "textDocument/codeLens" => {
+                let uri = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
+                let (aumentacoes, aumentados) = (self.configuracao.code_lens_augmentation, self.configuracao.code_lens_augmented);
+                if !uri.ends_with(".dart") || !(aumentacoes || aumentados) || !self.comandos_do_cliente.iter().any(|c| c == "dart.goToLocation") {
+                    return resposta(&id, json!([]));
+                }
+                let lentes: Vec<Value> = self
+                    .analisador
+                    .lentes_de_augmentation(&self.documentos, &uri, aumentados, aumentacoes)
+                    .into_iter()
+                    .filter_map(|(s, titulo, alvo, s_alvo)| {
+                        let local = json!({"uri": alvo, "range": self.faixa(&alvo, s_alvo)?});
+                        Some(json!({"range": self.faixa(&uri, s)?, "command": {"title": titulo, "command": "dart.goToLocation", "arguments": [local]}}))
+                    })
+                    .collect();
+                resposta(&id, json!(lentes))
+            }
+            // `dart/textDocument/augmented` e `augmentation` (§8.6).
+            "dart/textDocument/augmented" | "dart/textDocument/augmentation" => {
+                let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {
+                    return resposta(&id, Value::Null);
+                };
+                let proximo = metodo == "dart/textDocument/augmentation";
+                let local = self
+                    .analisador
+                    .vizinho_de_augmentation(&self.documentos, &u, offset, proximo)
+                    .and_then(|(alvo, s)| Some(json!({"uri": alvo, "range": self.faixa(&alvo, s)?})));
+                resposta(&id, local.unwrap_or(Value::Null))
+            }
             "textDocument/foldingRange" => {
                 let uri = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).map(str::to_string);
                 let Some((u, texto)) = uri.and_then(|u| Some((u.clone(), self.documentos.get(&u)?.to_string()))) else {

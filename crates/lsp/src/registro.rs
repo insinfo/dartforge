@@ -178,6 +178,11 @@ pub struct Configuracao {
     pub analysis_excluded_folders: Vec<String>,
     /// `documentation`: `none`, `summary` ou `full`.
     pub documentacao: String,
+    /// `codeLens` (`LspClientCodeLensConfiguration`): as lentes "Go to
+    /// Augmentation" e "Go to Augmented" (um `bool` vale para as duas; um
+    /// mapa as liga por nome, padrão ligadas).
+    pub code_lens_augmentation: bool,
+    pub code_lens_augmented: bool,
 }
 
 impl Default for Configuracao {
@@ -187,6 +192,8 @@ impl Default for Configuracao {
             enable_snippets: true,
             show_todos: false,
             show_todo_types: Vec::new(),
+            code_lens_augmentation: true,
+            code_lens_augmented: true,
             max_completion_items: None,
             line_length: None,
             rename_files_with_classes: "never".to_string(),
@@ -207,6 +214,19 @@ pub fn ler_configuracao(v: &Value) -> Configuracao {
     }
     // `enableServerSnippets == false` (o nome antigo) também desliga.
     c.enable_snippets = b("enableSnippets").unwrap_or(true) && b("enableServerSnippets") != Some(false);
+    // `codeLens`: um `bool` para as duas, ou o mapa (padrão ligadas: só o
+    // `false` explícito desliga).
+    match v.get("codeLens") {
+        Some(Value::Bool(x)) => {
+            c.code_lens_augmentation = *x;
+            c.code_lens_augmented = *x;
+        }
+        Some(Value::Object(m)) => {
+            c.code_lens_augmentation = m.get("augmentation") != Some(&Value::Bool(false));
+            c.code_lens_augmented = m.get("augmented") != Some(&Value::Bool(false));
+        }
+        _ => {}
+    }
     // `showTodos`: `true` (todos), ou a lista dos tipos (em maiúsculas).
     c.show_todos = matches!(v.get("showTodos"), Some(Value::Bool(true)));
     c.show_todo_types = match v.get("showTodos") {

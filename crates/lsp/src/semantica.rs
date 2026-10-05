@@ -487,6 +487,23 @@ impl Analisador for AnalisadorSemantico {
             .collect()
     }
 
+    fn lentes_de_augmentation(&mut self, documentos: &DocumentStore, uri: &str, aumentados: bool, aumentacoes: bool) -> Vec<(Span, &'static str, String, Span)> {
+        let Some(projeto) = self.biblioteca(documentos, uri) else { return Vec::new() };
+        let Some(unidade) = projeto.unidade_do_uri(uri) else { return Vec::new() };
+        projeto
+            .lentes_de_augmentation(unidade, aumentados, aumentacoes)
+            .into_iter()
+            .filter_map(|(s, t, u, alvo)| Some((s, t, projeto.uri_da_unidade(u)?, alvo)))
+            .collect()
+    }
+
+    fn vizinho_de_augmentation(&mut self, documentos: &DocumentStore, uri: &str, offset: usize, proximo: bool) -> Option<(String, Span)> {
+        let projeto = self.biblioteca(documentos, uri)?;
+        let unidade = projeto.unidade_do_uri(uri)?;
+        let (u, s) = projeto.vizinho_de_augmentation(unidade, offset, proximo)?;
+        Some((projeto.uri_da_unidade(u)?, s))
+    }
+
     fn superior(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<(String, Span)> {
         let mut projeto = self.biblioteca(documentos, uri)?;
         let unidade = projeto.unidade_do_uri(uri)?;

@@ -1751,6 +1751,20 @@ em `experimental.commands`. Caso contrário `[]`.
 **Estado no DartForge:** não anuncia. Sem efeito no oráculo (o Dart devolve
 `[]` sem augmentations). **Pendente** junto com augmentations.
 
+**Estado em 2026-10-05 (escrito, não compilado):** `crates/lsp/src/augmentations.rs`.
+As cadeias de augmentation (as bibliotecas com o experimento ligado; a ordem
+de aplicação das unidades e das declarações, e os membros pela cadeia da
+classe; a declaração `augment` liga-se à anterior de mesma chave) dão as
+lentes "Go to Augmented" (o `augmentationTarget`) e "Go to Augmentation" (o
+`augmentation`), no nome da declaração, com o comando `dart.goToLocation` e
+a `Location` do alvo; só quando o cliente declara o comando em
+`experimental.commands` e a configuração `codeLens` (um `bool`, ou o mapa
+`augmentation`/`augmented`) as deixa ligadas. Os métodos
+`dart/textDocument/augmented` e `dart/textDocument/augmentation` dão o
+vizinho do elo da declaração mais interna que contém o cursor. Desvio: as
+lentes saem na ordem do texto dentro de cada título (o Dart as ordena pela
+visita dos elementos).
+
 ### 8.4 `textDocument/documentLink`
 
 **Algoritmo** (`handler_document_link.dart:26-53`; visitor em

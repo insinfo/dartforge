@@ -46,6 +46,7 @@ mod destaques;
 mod descricao;
 mod indice;
 mod links;
+mod augmentations;
 mod mover_arquivo;
 mod inserir;
 mod item_completar;
@@ -516,6 +517,18 @@ pub trait Analisador {
     /// classe ou as sobrescritas de um membro, com a URI de cada uma.
     fn implementacoes(&mut self, _documentos: &DocumentStore, _uri: &str, _offset: usize) -> Vec<(String, dartforge_diagnostics::Span)> {
         Vec::new()
+    }
+
+    /// As lentes de augmentation de `uri` (`AugmentationCodeLensProvider`):
+    /// o nome, o título e o alvo (URI e span).
+    fn lentes_de_augmentation(&mut self, _documentos: &DocumentStore, _uri: &str, _aumentados: bool, _aumentacoes: bool) -> Vec<(dartforge_diagnostics::Span, &'static str, String, dartforge_diagnostics::Span)> {
+        Vec::new()
+    }
+
+    /// `dart/textDocument/augmented` (`proximo` falso) e
+    /// `dart/textDocument/augmentation`: o vizinho na cadeia de augmentation.
+    fn vizinho_de_augmentation(&mut self, _documentos: &DocumentStore, _uri: &str, _offset: usize, _proximo: bool) -> Option<(String, dartforge_diagnostics::Span)> {
+        None
     }
 
     /// `dart/textDocument/super`: o construtor, a classe ou o membro que o
