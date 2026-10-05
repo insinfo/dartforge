@@ -1550,7 +1550,7 @@ pub(crate) fn caminho_relativo(alvo: &std::path::Path, pasta: &std::path::Path) 
 
 /// Os elementos de topo de uma unidade com a espécie (`kind.displayName`),
 /// na ordem de `CompilationUnitElementImpl.children`.
-fn elementos_de_topo(cx: &Contexto<'_>, u: dartforge_elements::model::UnitId) -> Vec<(&'static str, String)> {
+pub(crate) fn elementos_de_topo(cx: &Contexto<'_>, u: dartforge_elements::model::UnitId) -> Vec<(&'static str, String)> {
     let prog = cx.p.programa();
     let unidade = prog.unit(u);
     let fonte = unidade.source.as_str();

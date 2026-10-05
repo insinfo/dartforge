@@ -260,6 +260,27 @@ pub struct Servidor<A = AnalisadorSintatico> {
     /// O cliente aceita renomear arquivo numa edição (para o
     /// `renameFilesWithClasses: always` da configuração).
     renomeacao_de_arquivo_possivel: bool,
+    /// O cliente declarou `experimental.supportsWindowShowMessageRequest`
+    /// (o `userPromptSender` do Dart): o rename pergunta ao usuário.
+    perguntas_ao_usuario: bool,
+    /// Os `window/showMessageRequest` do rename ainda sem resposta, pelo id
+    /// do pedido (§12.1 passos 13 e 17).
+    renomeacoes_pendentes: HashMap<String, RenomeacaoPendente>,
+}
+
+/// O `rename` à espera da resposta do usuário.
+struct RenomeacaoPendente {
+    /// O id do `textDocument/rename`.
+    id: Value,
+    /// O documento da requisição e a versão dele no começo (`null` se
+    /// fechado), para o `fileHasBeenModified`.
+    uri: String,
+    versao: Option<i32>,
+    edicoes: Vec<crate::Edicao>,
+    arquivo: Option<crate::RenomearArquivo>,
+    /// A pergunta feita: `Rename Anyway`/`Cancel` (falso) ou
+    /// `Yes`/`No` do arquivo (verdadeiro).
+    pergunta_do_arquivo: bool,
 }
 
 impl Servidor<AnalisadorSintatico> {
@@ -330,6 +351,8 @@ impl<A: Analisador> Servidor<A> {
             pastas: Vec::new(),
             configuracao: crate::registro::Configuracao::default(),
             renomeacao_de_arquivo_possivel: false,
+            perguntas_ao_usuario: false,
+            renomeacoes_pendentes: HashMap::new(),
         }
     }
 
@@ -813,6 +836,10 @@ impl<A: Analisador> Servidor<A> {
                 };
                 let aceita_renomear_arquivo = aceita_operacao("rename");
                 self.renomeacao_de_arquivo_possivel = self.mudancas_versionadas && aceita_renomear_arquivo;
+                self.perguntas_ao_usuario = mensagem
+                    .pointer("/params/capabilities/experimental/supportsWindowShowMessageRequest")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 self.configuracao_pedivel =
                     mensagem.pointer("/params/capabilities/workspace/configuration").and_then(Value::as_bool).unwrap_or(false);
                 let (dinamicas, configuracao_dinamica) =
@@ -1298,17 +1325,29 @@ impl<A: Analisador> Servidor<A> {
                 let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {
                     return resposta(&id, Value::Null);
                 };
+                // A versão no começo da requisição (`extractDocumentVersion`).
+                let versao = self.documentos.version(&u);
                 match self.analisador.renomear(&self.documentos, &u, offset, &novo) {
+                    Ok(renomeacao) if renomeacao.nulo => resposta(&id, Value::Null),
                     Ok(renomeacao) => {
-                        let mut edicoes = renomeacao.edicoes;
-                        let mut recurso = None;
-                        if self.renomear_arquivos
-                            && let Some(arquivo) = renomeacao.arquivo
-                        {
-                            edicoes.extend(arquivo.diretivas);
-                            recurso = Some(json!({"kind": "rename", "oldUri": arquivo.de, "newUri": arquivo.para}));
+                        let pendente = RenomeacaoPendente {
+                            id: id.clone(),
+                            uri: u,
+                            versao,
+                            edicoes: renomeacao.edicoes,
+                            arquivo: renomeacao.arquivo,
+                            pergunta_do_arquivo: false,
+                        };
+                        match renomeacao.aviso {
+                            // ERROR/WARNING do `checkFinalConditions`: sem
+                            // `userPromptSender`, `-32010`; com, a pergunta.
+                            Some(aviso) if !self.perguntas_ao_usuario => erro(&id, RENOMEAR_INVALIDO, aviso),
+                            Some(aviso) => self.perguntar_no_rename(
+                                pendente,
+                                json!({"type": 2, "message": aviso, "actions": [{"title": "Rename Anyway"}, {"title": "Cancel"}]}),
+                            ),
+                            None => self.concluir_renomeacao(pendente),
                         }
-                        resposta(&id, self.edicao_de_workspace(&edicoes, recurso))
                     }
                     Err(motivo) => erro(&id, RENOMEAR_INVALIDO, motivo),
                 }
@@ -2221,6 +2260,69 @@ impl<A: Analisador> Servidor<A> {
         self.pedir_aplicacao(id, rotulo, edicao)
     }
 
+    /// Um `window/showMessageRequest` do rename; o `rename` fica pendente
+    /// até a resposta.
+    fn perguntar_no_rename(&mut self, pendente: RenomeacaoPendente, params: Value) -> Value {
+        self.proximo_pedido += 1;
+        let pedido = json!(format!("dartforge/prompt/{}", self.proximo_pedido));
+        self.renomeacoes_pendentes.insert(chave_id(&pedido), pendente);
+        json!({"jsonrpc": "2.0", "id": pedido, "method": "window/showMessageRequest", "params": params})
+    }
+
+    /// `handler_rename.dart:205-269` depois das condições: a versão do
+    /// documento (`-32801`), o arquivo da classe (`renameFilesWithClasses`:
+    /// `always` renomeia, `prompt` pergunta `Yes`/`No`) e o `WorkspaceEdit`
+    /// com o `RenameFile` no fim.
+    fn concluir_renomeacao(&mut self, mut pendente: RenomeacaoPendente) -> Value {
+        if !pendente.pergunta_do_arquivo
+            && pendente.versao.is_some()
+            && self.documentos.version(&pendente.uri) != pendente.versao
+        {
+            return erro(&pendente.id, CONTEUDO_MODIFICADO, "Document was modified before operation completed");
+        }
+        let mut recurso = None;
+        if let Some(arquivo) = pendente.arquivo.take()
+            && self.renomeacao_de_arquivo_possivel
+        {
+            let renomeia = if pendente.pergunta_do_arquivo || self.renomear_arquivos {
+                true
+            } else if self.configuracao.rename_files_with_classes == "prompt" && self.perguntas_ao_usuario {
+                let base = |u: &str| u.rsplit('/').next().unwrap_or(u).to_string();
+                let mensagem = format!("Rename '{}' to '{}'?", base(&arquivo.de), base(&arquivo.para));
+                pendente.pergunta_do_arquivo = true;
+                pendente.arquivo = Some(arquivo);
+                return self.perguntar_no_rename(
+                    pendente,
+                    json!({"type": 3, "message": mensagem, "actions": [{"title": "Yes"}, {"title": "No"}]}),
+                );
+            } else {
+                false
+            };
+            if renomeia {
+                pendente.edicoes.extend(arquivo.diretivas);
+                recurso = Some(json!({"kind": "rename", "oldUri": arquivo.de, "newUri": arquivo.para}));
+            }
+        }
+        resposta(&pendente.id, self.edicao_de_workspace(&pendente.edicoes, recurso))
+    }
+
+    /// A resposta do usuário a uma pergunta do rename: `Rename Anyway`
+    /// segue (qualquer outra, inclusive `null` ou erro, dá `{}`); `Yes`
+    /// renomeia o arquivo (outra resposta, só as edições).
+    fn resposta_do_rename(&mut self, mut pendente: RenomeacaoPendente, mensagem: &Value) -> Value {
+        let escolha = mensagem.pointer("/result/title").and_then(Value::as_str);
+        if pendente.pergunta_do_arquivo {
+            if escolha != Some("Yes") {
+                pendente.arquivo = None;
+            }
+            return self.concluir_renomeacao(pendente);
+        }
+        if escolha != Some("Rename Anyway") {
+            return resposta(&pendente.id, json!({}));
+        }
+        self.concluir_renomeacao(pendente)
+    }
+
     /// O pedido `workspace/applyEdit` de um comando (§13.12.3); o
     /// `executeCommand` de id `id` fica pendente até a resposta do cliente.
     fn pedir_aplicacao(&mut self, id: &Value, rotulo: &'static str, edicao: Value) -> Value {
@@ -2243,6 +2345,9 @@ impl<A: Analisador> Servidor<A> {
         if self.pedido_de_configuracao.as_ref().is_some_and(|p| chave_id(&json!(p)) == chave) {
             self.configuracao_recebida(mensagem);
             return None;
+        }
+        if let Some(pendente) = self.renomeacoes_pendentes.remove(&chave) {
+            return Some(self.resposta_do_rename(pendente, mensagem));
         }
         let (id, rotulo, edicao) = self.edicoes_pendentes.remove(&chave)?;
         if let Some(e) = mensagem.get("error").filter(|e| !e.is_null()) {

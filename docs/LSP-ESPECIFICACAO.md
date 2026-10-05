@@ -3896,6 +3896,28 @@ the SDK…` × `null`).
   nome da classe, `.novo`/`p.` com ponto, inserção de construtor/`super.novo()` implícitos,
   `{novo.x}` em interpolação, `this.x` nomeado → privado, classe `State` do Flutter.
 
+**Estado em 2026-10-05 (escrito, não compilado)**: `renomear.rs` reescrito como porte do
+`RenameRefactoring` (itens 1 a 7 abaixo, salvo o cancelamento entre fases):
+
+* `pedido_de_renomear` segue o nó do `NodeLocator` (árvore de `arvore_analyzer.rs`):
+  `ImportDirective` (o import, intervalo vazio sem prefixo), `ImportPrefixReference`,
+  `LibraryDirective`, `InstanceCreationExpression` (a classe), `ConstructorDeclaration` (o
+  construtor, intervalo da declaração inteira), `FieldFormalParameter` (o parâmetro com o
+  campo), rótulos de comando e de `break`/`continue`, `SuperFormalParameter` e
+  `FunctionTypedFormalParameter` → `null`, URI de diretiva → `null`; o resto pelo
+  `identificar` (prefixo numa expressão → o import do `getImportElement`).
+* Classes `MembroDeUnidade`, `Construtor`, `Import`, `Rotulo`, `Biblioteca`, `Parametro`,
+  `Local`, `ParametroDeTipo`, `MembroDeClasse`, `MembroDeExtensao`, com as mensagens em inglês
+  e as severidades de `checkInitialConditions`, `checkNewName` e `checkFinalConditions`
+  (`Estado` de `refatoracoes_exec.rs`).
+* Edições: construtor (§12.7, `edicoes_de_construtor`), import (§12.8, `p.`→`novo.`,
+  ` as novo`, `${novo.x}`), `this.x` nomeado → privado, doc `[x]` do parâmetro, sem as
+  inserções de comprimento 0 (defeito do Dart não reproduzido), sem `super.x` no posicional.
+* Servidor: `nulo` → `null`; aviso → `window/showMessageRequest` `Rename Anyway`/`Cancel`
+  com `experimental.supportsWindowShowMessageRequest` (resposta diferente → `{}`), senão
+  `-32010`; versão capturada no começo → `-32801`; `renameFilesWithClasses` `always`/`prompt`
+  (`Rename 'a.dart' to 'b.dart'?`, `Yes`/`No`), `RenameFile` no fim, sem edições de diretivas.
+
 **Para implementar** (ordem sugerida; cada item cita a divergência que fecha):
 
 1. **Alvo e intervalo como `getElementToRename`** (fecha 6 + 2 do rename, 7 do prepare):
