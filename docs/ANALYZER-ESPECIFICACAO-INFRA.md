@@ -2877,6 +2877,32 @@ As linhas abaixo foram **geradas por script** (mesmo método dos lotes automáti
 
 ### II.6 — Constantes, herança e sobrescrita
 
+**Estado em 2026-10-05 (escrito, não compilado): o `InheritanceManager3`.**
+`crates/types/src/heranca.rs` porta o `InheritanceManager3` e o
+`NNBD_TOP_MERGE` da 3.6.2: a interface de classe (`_getInterfaceClass`, com
+superclasse, mixins em sequência, interfaces, `implemented`,
+`superImplemented`, encaminhadores de `noSuchMethod` e `_inheritCovariance`),
+de mixin (restrições `on`, `Object` sem elas) e de tipo de extensão (os
+excluídos, `redeclared`, os conflitos de membro de extensão), o
+`combineSignatures` com o `topMerge` das assinaturas válidas, os conflitos
+(`CandidatesConflict`, `GetterMethodConflict` e os dos tipos de extensão), o
+`getMember2` (com `concrete`, `forMixinIndex`, `forSuper`), o
+`getOverridden2`, o `getInherited2` e os `Name` privados qualificados pela
+biblioteca; os homônimos de mesma espécie partilham a entrada (T1.1). A
+covariância de cada parâmetro é a escrita mais a herdada dos sobrescritos
+(`_inferParameterCovariance`). Usam a herança fiel: a busca de membros da
+inferência (`membro_de_interface`, com o `Name` da biblioteca de quem
+acessa, e o `super.x` pelo `getMember2(forSuper: true)` e o `getInherited2`),
+o último recurso de `Object` do `TypePropertyResolver`, o
+`OverrideVerifier` (agora também nos membros de extensões e tipos de
+extensão, onde todo `@override` é relatado, e com o `@override` pelo getter
+do `dart.core`), o `RedeclareVerifier` (`redeclared` da interface), o lint
+`annotate_overrides` (`getInherited`, só o nome do getter para campos, com o
+nome do herdado), o `invalid_override_of_non_virtual_member` (saiu de
+`meta.rs` para `fase_override`, com o `@nonVirtual` do `package:meta`), o
+`_overridesUsedElement` do verificador de elementos não usados e o
+`elementIsOverride` do `strict-inference`.
+
 Lote `S2`: **71 constantes** (40 publicadas, 16 emitidas e não publicadas, 15 não implementadas no DartForge).
 Esta tabela foi **gerada por script** (`E:\dftempnalise\spec-infrainal\gera2.py`) a partir do levantamento automático (`catalogo.json`: definição, sítios de emissão por grep com o método que os contém, referências em `crates/`). A coluna "condição" traz a **mensagem oficial** do código (o texto do `messages.yaml`), não a condição lida no método emissor; a coluna "posição" está **não verificada** em todas as linhas. Antes de implementar um código deste lote, abra o emissor citado e escreva os seis campos (o molde está em `docs/ANALYZER-ESPECIFICACAO.md`).
 

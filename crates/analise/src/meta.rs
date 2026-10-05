@@ -13,19 +13,24 @@
 //! * do `BestPracticesVerifier` (`best_practices_verifier.dart`):
 //!   `invalid_required_named_param`, `…_optional_positional_param`,
 //!   `…_positional_param`, `import_deferred_library_with_load_function`,
-//!   `must_be_immutable`, `invalid_override_of_non_virtual_member`,
-//!   `invalid_export_of_internal_element` e
-//!   `invalid_export_of_internal_element_indirectly`.
+//!   `must_be_immutable`, `invalid_export_of_internal_element` e
+//!   `invalid_export_of_internal_element_indirectly` (o
+//!   `invalid_override_of_non_virtual_member` precisa do
+//!   `InheritanceManager3` e está em `dartforge_types::fase_override`).
 //!
-//! As anotações são reconhecidas pelo nome, sem conferir que vêm do
-//! `package:meta`. O `invalid_annotation_target` geral (`_checkKinds`) lê o
-//! `@Target({...})` da classe da anotação, achada pelo escopo da unidade;
-//! parâmetros e parâmetros de tipo não são visitados.
-//! Escrito sem compilar nem executar (2026-10-04).
+//! As anotações são reconhecidas pelo elemento, como o `ElementAnnotation`
+//! do analyzer: o getter de uma biblioteca chamada `meta` (`angular.meta`
+//! para as de template), o construtor de `UseResult`/`Required` do `meta` e
+//! o de `Target` do `meta_meta` (`dartforge_types::anotacoes::e_getter_de`
+//! e `e_construtor_de`). O `invalid_annotation_target` geral (`_checkKinds`)
+//! lê o `@Target({...})` da classe da anotação; parâmetros e parâmetros de
+//! tipo não são visitados.
+//! Escrito sem compilar nem executar (2026-10-04; reconhecimento pelo
+//! elemento em 2026-10-05).
 
 use dartforge_diagnostics::codigos::{hint as h, warning as w};
 use dartforge_diagnostics::{Codigo, Diagnostic, Span};
-use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionElementId, FunctionRef, LibraryId, Program, UnitId, VariableRef};
+use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionRef, LibraryId, Program, UnitId, VariableRef};
 use dartforge_frontend::ast::{
     self, Combinator, DeclKind, DirectiveKind, ExprKind, FunctionBody, FunctionKind, MemberKind, ParameterKind, StmtKind, TypeKind,
 };
@@ -71,8 +76,14 @@ impl<'a> Ctx<'a> {
         (span, partes.iter().map(|n| self.texto(*n)).collect::<Vec<_>>().join("."))
     }
 
-    fn tem(&self, m: &ast::Annotation, nome: &str) -> bool {
-        m.name.iter().any(|n| self.texto(*n) == nome)
+    /// `_isPackageMetaGetter` (e o `_isTopGetter` de `angular.meta`).
+    fn getter_de(&self, m: &ast::Annotation, biblioteca: &str, nome: &str) -> bool {
+        dartforge_types::anotacoes::e_getter_de(self.program, self.interner, self.unidade, m, biblioteca, nome)
+    }
+
+    /// `_isConstructor`.
+    fn construtor_de(&self, m: &ast::Annotation, biblioteca: &str, classe: &str) -> bool {
+        dartforge_types::anotacoes::e_construtor_de(self.program, self.interner, self.unidade, m, biblioteca, classe)
     }
 
     /// O intervalo de um `VariableDeclaration`: do nome ao fim do
@@ -334,7 +345,7 @@ impl<'a> Ctx<'a> {
             _ => None,
         };
         let valido = dono.is_some_and(|d| {
-            matches!(d.kind, DeclKind::Class(_) | DeclKind::Enum(_) | DeclKind::Mixin(_)) && d.metadata.iter().any(|x| self.tem(x, "visibleForTemplate"))
+            matches!(d.kind, DeclKind::Class(_) | DeclKind::Enum(_) | DeclKind::Mixin(_)) && d.metadata.iter().any(|x| self.getter_de(x, "angular.meta", "visibleForTemplate"))
         });
         if !valido {
             let (span, _) = self.nome_da_anotacao(m);
@@ -377,7 +388,7 @@ impl<'a> Ctx<'a> {
         let a = &self.program.unit(d.unit).ast;
         let mut saida = Vec::new();
         for m in a.decl(d.decl).metadata.iter() {
-            if !m.name.last().is_some_and(|n| self.texto(*n) == "Target") {
+            if !dartforge_types::anotacoes::e_construtor_de(self.program, self.interner, d.unit, m, "meta_meta", "Target") {
                 continue;
             }
             let Some(primeiro) = m.arguments.as_ref().and_then(|args| args.args.iter().find(|x| x.name.is_none())) else { continue };
@@ -531,32 +542,32 @@ impl<'a> Ctx<'a> {
     /// `checkAnnotation`: uma anotação, pelo primeiro papel que casa, e
     /// depois as espécies de alvo (`_checkKinds`).
     fn anotacao(&mut self, m: &ast::Annotation, alvo: Alvo<'a>, classe: Option<ClassId>) {
-        if self.tem(m, "factory") {
+        if self.getter_de(m, "meta", "factory") {
             self.fabrica(alvo);
-        } else if self.tem(m, "internal") {
+        } else if self.getter_de(m, "meta", "internal") {
             self.interno(m, alvo);
-        } else if self.tem(m, "literal") {
+        } else if self.getter_de(m, "meta", "literal") {
             // `_checkLiteral`: só em construtor `const`.
             let valido = matches!(alvo, Alvo::Membro { membro, .. } if matches!(&membro.kind, MemberKind::Constructor(k) if k.const_));
             if !valido {
                 let (span, _) = self.nome_da_anotacao(m);
                 self.relatar(w::INVALID_LITERAL_ANNOTATION, span, &[]);
             }
-        } else if self.tem(m, "nonVirtual") {
+        } else if self.getter_de(m, "meta", "nonVirtual") {
             self.nao_virtual(m, alvo);
-        } else if self.tem(m, "reopen") {
+        } else if self.getter_de(m, "meta", "reopen") {
             if matches!(alvo, Alvo::Topo(d) if matches!(d.kind, DeclKind::Class(_))) {
                 self.reabrir(m, classe);
             }
-        } else if self.tem(m, "redeclare") {
+        } else if self.getter_de(m, "meta", "redeclare") {
             self.redeclarar(m, alvo);
-        } else if self.tem(m, "useResult") || self.tem(m, "UseResult") {
+        } else if self.construtor_de(m, "meta", "UseResult") || self.getter_de(m, "meta", "useResult") {
             self.uso_de_resultado(m, alvo);
-        } else if self.tem(m, "visibleForTemplate") || self.tem(m, "visibleForTesting") {
+        } else if self.getter_de(m, "angular.meta", "visibleForTemplate") || self.getter_de(m, "meta", "visibleForTesting") {
             self.visibilidade(m, alvo, false);
-        } else if self.tem(m, "visibleForOverriding") {
+        } else if self.getter_de(m, "meta", "visibleForOverriding") {
             self.visibilidade(m, alvo, true);
-        } else if self.tem(m, "visibleOutsideTemplate") {
+        } else if self.getter_de(m, "angular.meta", "visibleOutsideTemplate") {
             self.visibilidade(m, alvo, false);
             self.fora_do_template(m, alvo);
         }
@@ -566,7 +577,7 @@ impl<'a> Ctx<'a> {
     /// `_checkRequiredParameter`: `@required` onde não faz sentido.
     fn parametros(&mut self, lista: &[ast::Parameter]) {
         for p in lista {
-            if !p.metadata.iter().any(|m| m.arguments.is_none() && m.name.last().is_some_and(|n| self.texto(*n) == "required")) {
+            if !p.metadata.iter().any(|m| self.construtor_de(m, "meta", "Required") || self.getter_de(m, "meta", "required")) {
                 continue;
             }
             let nome = p.name.map_or("", |n| self.texto(n));
@@ -592,53 +603,6 @@ fn membros_de(d: &ast::Decl) -> &[ast::MemberId] {
     }
 }
 
-/// As anotações da declaração de um membro: as do método, ou as do campo de
-/// um acessor implícito.
-fn anotacoes_do_membro(program: &Program, f: FunctionElementId) -> &[ast::Annotation] {
-    let e = program.function(f);
-    if let Some(v) = e.variable {
-        return match program.variable(v).node {
-            VariableRef::Field { unit, member, .. } => &program.unit(unit).ast.member(member).metadata[..],
-            _ => &[],
-        };
-    }
-    match e.node {
-        FunctionRef::Function { unit, function } => program
-            .unit(unit)
-            .ast
-            .members
-            .iter()
-            .find(|m| matches!(&m.kind, MemberKind::Method(g) if *g == function))
-            .map_or(&[][..], |m| &m.metadata[..]),
-        _ => &[],
-    }
-}
-
-/// `getMember2(…, forSuper: true)` aproximado: o primeiro membro de chave
-/// `chave` pelos mixins (do último ao primeiro), as restrições `on` e a
-/// cadeia de superclasses, sem a própria classe. Devolve a classe dona.
-fn herdado(program: &Program, classe: ClassId, chave: SymbolId) -> Option<(ClassId, FunctionElementId)> {
-    let mut vistos: Vec<ClassId> = vec![classe];
-    let mut atual = classe;
-    loop {
-        let e = program.class(atual);
-        for m in e.mixin_classes.iter().rev().chain(e.on_classes.iter()) {
-            if let Some(f) = program.class(*m).instance_members.get(&chave) {
-                return Some((*m, *f));
-            }
-        }
-        let s = e.supertype_class?;
-        if vistos.contains(&s) {
-            return None;
-        }
-        vistos.push(s);
-        if let Some(f) = program.class(s).instance_members.get(&chave) {
-            return Some((s, *f));
-        }
-        atual = s;
-    }
-}
-
 /// A classe, ou algo de que ela herda (mixins, interfaces, superclasse), é
 /// `@immutable` (`isOrInheritsImmutable`).
 fn imutavel(program: &Program, interner: &Interner, c: ClassId, vistos: &mut Vec<ClassId>) -> bool {
@@ -648,7 +612,13 @@ fn imutavel(program: &Program, interner: &Interner, c: ClassId, vistos: &mut Vec
     vistos.push(c);
     let e = program.class(c);
     let anotada = e.decl.is_some_and(|d| {
-        program.unit(d.unit).ast.decl(d.decl).metadata.iter().any(|m| m.name.last().is_some_and(|n| interner.resolve(n.sym) == "immutable"))
+        program
+            .unit(d.unit)
+            .ast
+            .decl(d.decl)
+            .metadata
+            .iter()
+            .any(|m| dartforge_types::anotacoes::e_getter_de(program, interner, d.unit, m, "meta", "immutable"))
     });
     anotada
         || e.mixin_classes.iter().any(|m| imutavel(program, interner, *m, vistos))
@@ -847,47 +817,6 @@ pub fn verificar(program: &Program, lib: LibraryId, interner: &Interner, em_api_
                 if !campos.is_empty() {
                     let lista = campos.join(", ");
                     ctx.relatar(w::MUST_BE_IMMUTABLE, nome.span, &[lista.as_str()]);
-                }
-            }
-            // `invalid_override_of_non_virtual_member`.
-            if let Some(c) = classe
-                && matches!(decl.kind, DeclKind::Class(_) | DeclKind::Mixin(_) | DeclKind::Enum(_))
-            {
-                let nao_virtual = |chave: Option<SymbolId>| {
-                    let (dona, f) = herdado(program, c, chave?)?;
-                    anotacoes_do_membro(program, f)
-                        .iter()
-                        .any(|m| m.name.last().is_some_and(|n| interner.resolve(n.sym) == "nonVirtual"))
-                        .then(|| interner.resolve(program.class(dona).name))
-                };
-                for &mid in membros_de(decl) {
-                    match &a.member(mid).kind {
-                        MemberKind::Field(l) if !l.static_ => {
-                            for v in l.variables.iter() {
-                                let texto = interner.resolve(v.name.sym);
-                                let do_setter = if l.final_ || l.const_ { None } else { interner.lookup(&format!("{texto}_=")) };
-                                if let Some(dona) = nao_virtual(Some(v.name.sym)).or_else(|| nao_virtual(do_setter)) {
-                                    ctx.relatar(w::INVALID_OVERRIDE_OF_NON_VIRTUAL_MEMBER, v.name.span, &[texto, dona]);
-                                }
-                            }
-                        }
-                        MemberKind::Method(f) => {
-                            let func = a.function(*f);
-                            let Some(n) = func.name else { continue };
-                            if func.static_ {
-                                continue;
-                            }
-                            let texto = interner.resolve(n.sym);
-                            let chave = match func.kind {
-                                FunctionKind::Setter => interner.lookup(&format!("{texto}_=")),
-                                _ => Some(n.sym),
-                            };
-                            if let Some(dona) = nao_virtual(chave) {
-                                ctx.relatar(w::INVALID_OVERRIDE_OF_NON_VIRTUAL_MEMBER, n.span, &[texto, dona]);
-                            }
-                        }
-                        _ => {}
-                    }
                 }
             }
         }

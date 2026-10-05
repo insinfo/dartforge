@@ -383,6 +383,94 @@ pub fn elemento_da_anotacao(program: &Program, interner: &Interner, u: UnitId, m
     }
 }
 
+/// `ElementAnnotation.element`: o construtor invocado, a classe citada sem
+/// argumentos, ou o getter lido (o da variável de topo ou estática, ou o
+/// explícito).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ElementoInvocado {
+    Construtor(dartforge_elements::model::ClassId, dartforge_elements::model::FunctionElementId),
+    Classe(dartforge_elements::model::ClassId),
+    Getter(dartforge_elements::model::FunctionElementId),
+    Outro,
+}
+
+/// O [`ElementoInvocado`] da anotação `m`, escrita na unidade `u`.
+pub fn elemento_invocado(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> ElementoInvocado {
+    use dartforge_elements::model::FunctionKind;
+    let a = &program.unit(u).ast;
+    let Some(primeiro) = m.name.first() else { return ElementoInvocado::Outro };
+    if sombreado(a, interner, m.span.start, primeiro.sym) {
+        return ElementoInvocado::Outro;
+    }
+    let (alvo, membro) = match &m.name[..] {
+        [c] => (program.lookup_na_unidade(u, c.sym).and_then(|b| b.getter), None),
+        [x, y] => match program.lookup_na_unidade(u, x.sym).and_then(|b| b.getter) {
+            Some(el @ Element::Class(_)) => (Some(el), Some(y.sym)),
+            _ => (program.lookup_prefixed_na_unidade(u, x.sym, y.sym).and_then(|b| b.getter), None),
+        },
+        [x, c, n] => (program.lookup_prefixed_na_unidade(u, x.sym, c.sym).and_then(|b| b.getter), Some(n.sym)),
+        _ => (None, None),
+    };
+    let getter = |f: dartforge_elements::model::FunctionElementId| {
+        let e = program.function(f);
+        let e_getter = match e.kind {
+            FunctionKind::Getter => true,
+            FunctionKind::ImplicitAccessor => e.variable.is_some_and(|v| program.variable(v).getter == Some(f)),
+            _ => false,
+        };
+        if e_getter { ElementoInvocado::Getter(f) } else { ElementoInvocado::Outro }
+    };
+    match (alvo, m.arguments.is_some(), membro) {
+        (Some(Element::Class(c)), true, _) => {
+            let chave = membro.or_else(|| interner.lookup(""));
+            match chave.and_then(|k| program.class(c).constructors.get(&k)) {
+                Some(&f) => ElementoInvocado::Construtor(c, f),
+                None => ElementoInvocado::Outro,
+            }
+        }
+        (Some(Element::Class(c)), false, None) => ElementoInvocado::Classe(c),
+        (Some(Element::Class(c)), false, Some(n)) => match program.class(c).static_members.get(&n) {
+            Some(&f) => getter(f),
+            None => ElementoInvocado::Outro,
+        },
+        (Some(Element::Variable(v)), _, None) => match program.variable(v).getter {
+            Some(f) => ElementoInvocado::Getter(f),
+            None => ElementoInvocado::Outro,
+        },
+        (Some(Element::Function(g)), _, None) => getter(g),
+        _ => ElementoInvocado::Outro,
+    }
+}
+
+/// O nome da biblioteca (`library a.b;`), como o `LibraryElement.name`.
+pub fn nome_da_biblioteca(program: &Program, interner: &Interner, l: dartforge_elements::model::LibraryId) -> String {
+    program.library(l).name.as_ref().map(|n| n.iter().map(|s| interner.resolve(*s)).collect::<Vec<_>>().join(".")).unwrap_or_default()
+}
+
+/// `_isTopGetter`: a anotação lê o getter `nome` de uma biblioteca chamada
+/// `biblioteca` (`_isPackageMetaGetter` com `meta`).
+pub fn e_getter_de(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation, biblioteca: &str, nome: &str) -> bool {
+    match elemento_invocado(program, interner, u, m) {
+        ElementoInvocado::Getter(f) => {
+            let e = program.function(f);
+            interner.resolve(e.name) == nome && nome_da_biblioteca(program, interner, e.library) == biblioteca
+        }
+        _ => false,
+    }
+}
+
+/// `_isConstructor`: a anotação invoca um construtor da classe `classe` de
+/// uma biblioteca chamada `biblioteca`.
+pub fn e_construtor_de(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation, biblioteca: &str, classe: &str) -> bool {
+    match elemento_invocado(program, interner, u, m) {
+        ElementoInvocado::Construtor(c, _) => {
+            let k = program.class(c);
+            interner.resolve(k.name) == classe && nome_da_biblioteca(program, interner, k.library) == biblioteca
+        }
+        _ => false,
+    }
+}
+
 /// A anotação `m` (escrita na unidade `u`), sem argumentos, é a variável de
 /// topo `nome` de uma biblioteca cujo URI satisfaz `da_biblioteca`.
 pub fn anotacao_e_variavel(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation, nome: &str, da_biblioteca: &dyn Fn(&str) -> bool) -> bool {

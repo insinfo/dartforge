@@ -33,6 +33,7 @@ pub mod fase_resultado;
 pub mod fase_sdk;
 pub mod fase_super;
 pub mod hierarchy;
+pub mod heranca;
 pub mod inferencia;
 pub mod limites;
 pub mod lints_tipados;

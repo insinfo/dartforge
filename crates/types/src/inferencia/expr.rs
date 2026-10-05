@@ -1972,73 +1972,25 @@ fn cadeia_do_super(inf: &BodyInferrer<'_>, c: ClassId) -> Vec<ClassId> {
     v
 }
 
-/// O membro `chave` que `super` alcança: o primeiro **concreto** da cadeia
-/// do super (`getMember2(forSuper: true)`); num mixin, qualquer membro das
-/// restrições `on`. `Err(Some(..))`: só há membro abstrato (o herdado pela
-/// interface, `getInherited2`); `Err(None)`: nenhum.
+/// O membro `chave` que `super` alcança: o `getMember2(forSuper: true)` da
+/// classe corrente (o `superImplemented.last` do `InheritanceManager3`).
+/// `Err(Some(..))`: só o herdado pela interface (`getInherited2`), que o
+/// analyzer usa para a recuperação com `ABSTRACT_SUPER_MEMBER_REFERENCE`;
+/// `Err(None)`: nenhum.
 #[allow(clippy::type_complexity)]
 pub(crate) fn membro_alcancado_pelo_super(
-    inf: &BodyInferrer<'_>,
+    inf: &mut BodyInferrer<'_>,
     c: ClassId,
     chave: SymbolId,
 ) -> Result<(ClassId, dartforge_elements::model::FunctionElementId), Option<(ClassId, dartforge_elements::model::FunctionElementId)>> {
-    let mixin = inf.program.class(c).kind == dartforge_elements::model::ClassKind::Mixin;
-    // Classes que entram na cadeia como mixin: não ganham encaminhadores.
-    let mut como_mixin: Vec<ClassId> = inf.program.class(c).mixin_classes.clone();
-    let mut atual = inf.program.class(c).supertype_class;
-    let mut passos = 0;
-    while let Some(k) = atual {
-        if passos > 64 {
-            break;
-        }
-        como_mixin.extend(inf.program.class(k).mixin_classes.iter().copied());
-        atual = inf.program.class(k).supertype_class;
-        passos += 1;
+    let dono = |inf: &BodyInferrer<'_>, m: &crate::heranca::Membro| inf.program.function(m.funcao).class.unwrap_or(m.classe);
+    if let Some(m) = inf.membro_da_heranca(c, chave, false, true) {
+        return Ok((dono(inf, &m), m.funcao));
     }
-    for sup in cadeia_do_super(inf, c) {
-        if let Some(&f) = inf.program.class(sup).instance_members.get(&chave) {
-            // Numa classe concreta com `noSuchMethod` próprio, o membro
-            // abstrato ganha um encaminhador (`noSuchMethod forwarder`) e é
-            // concreto para `super`.
-            if mixin
-                || !inf.program.functions[f.0 as usize].abstract_
-                || (!como_mixin.contains(&sup) && tem_encaminhador(inf, sup))
-            {
-                return Ok((sup, f));
-            }
-        }
+    match inf.herdado_da_heranca(c, chave) {
+        Some(m) => Err(Some((dono(inf, &m), m.funcao))),
+        None => Err(None),
     }
-    for (sup, _) in crate::scope::supertipos_ordenados(inf.program, &inf.outline.hierarchy, c) {
-        if let Some(&f) = inf.program.class(sup).instance_members.get(&chave) {
-            return Err(Some((sup, f)));
-        }
-    }
-    Err(None)
-}
-
-/// A classe `k` (concreta) tem um `noSuchMethod` concreto que não é o de
-/// `Object` na própria cadeia de superclasses: os membros abstratos dela viram
-/// encaminhadores.
-fn tem_encaminhador(inf: &BodyInferrer<'_>, k: ClassId) -> bool {
-    let Some(nsm) = inf.interner.lookup("noSuchMethod") else { return false };
-    if inf.program.class(k).modifiers.abstract_ {
-        return false;
-    }
-    let mut atual = Some(k);
-    let mut vistos = 0;
-    while let Some(c) = atual {
-        if Some(c) == inf.core.object_class || vistos > 64 {
-            return false;
-        }
-        if let Some(&f) = inf.program.class(c).instance_members.get(&nsm) {
-            if !inf.program.functions[f.0 as usize].abstract_ {
-                return true;
-            }
-        }
-        atual = inf.program.class(c).supertype_class;
-        vistos += 1;
-    }
-    false
 }
 
 /// `super.nome` (leitura, escrita ou invocação): o membro concreto da cadeia

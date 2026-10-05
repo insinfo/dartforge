@@ -608,11 +608,13 @@ impl Motor {
             atribuidos.extend(dartforge_types::variancia::variancia(&program, &interner, &table, &outline, *lib));
             atribuidos.extend(dartforge_types::a_main::funcao_main(&program, &interner, &mut table, &core, &outline, *lib));
             // FASES NOVAS (INFRA etapa 6): `OverrideVerifier`.
-            atribuidos.extend(dartforge_types::fase_override::sem_sobrescrita(&program, &interner, &outline, *lib));
-            atribuidos.extend(dartforge_types::fase_override::sem_redeclaracao(&program, &interner, &outline, *lib));
+            atribuidos.extend(dartforge_types::fase_override::sem_sobrescrita(&program, &interner, &mut table, &core, &outline, *lib));
+            atribuidos.extend(dartforge_types::fase_override::sem_redeclaracao(&program, &interner, &mut table, &core, &outline, *lib));
+            // `BestPracticesVerifier`: `invalid_override_of_non_virtual_member`.
+            atribuidos.extend(dartforge_types::fase_override::sobrescritas_de_nao_virtuais(&program, &interner, &mut table, &core, &outline, *lib));
             // O lint `annotate_overrides`, guardado à parte: só sai com a
             // regra ligada.
-            for (u, span, nome) in dartforge_types::fase_override::sem_anotacao_de_override(&program, &interner, &outline, *lib) {
+            for (u, span, nome) in dartforge_types::fase_override::sem_anotacao_de_override(&program, &interner, &mut table, &core, &outline, *lib) {
                 if let Some(p) = &program.unit(u).path
                     && let Some(a) = analise.arquivos.get_mut(&chave(p))
                 {
@@ -718,7 +720,7 @@ impl Motor {
                     atribuidos.push((u, d));
                 }
                 // `BestPracticesVerifier` com `strict-inference` (filtrado sem a opção).
-                for d in dartforge_types::fase_estrita::falhas_de_inferencia(&program, &interner, &outline, corpo, u) {
+                for d in dartforge_types::fase_estrita::falhas_de_inferencia(&program, &interner, &mut table, &core, &outline, corpo, u) {
                     atribuidos.push((u, d));
                 }
                 // `UseResultVerifier`.

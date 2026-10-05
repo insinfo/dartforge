@@ -86,7 +86,6 @@ fn privado(interner: &Interner, s: SymbolId) -> bool {
 struct Contexto<'a> {
     program: &'a Program,
     interner: &'a Interner,
-    outline: &'a OutlineTypes,
     lib: LibraryId,
 }
 
@@ -182,37 +181,6 @@ impl Contexto<'_> {
         }
     }
 
-    /// `_overriddenElements` (o `getOverridden2` na classe do membro, com o
-    /// nome privado só da biblioteca).
-    fn sobrescritos(&self, e: El) -> Vec<El> {
-        let Some((Some(c), _, nome)) = self.chave_de_membro(e) else { return Vec::new() };
-        let Some(s) = self.interner.lookup(&nome) else { return Vec::new() };
-        let privado = nome.starts_with('_');
-        let Some(h) = self.outline.hierarchy.get(c) else { return Vec::new() };
-        let mut v = Vec::new();
-        for &k in h.supertypes.keys() {
-            if k == c {
-                continue;
-            }
-            let x = self.program.class(k);
-            if privado && x.library != self.lib {
-                continue;
-            }
-            if let Some(&f) = x.instance_members.get(&s) {
-                v.push(self.da_funcao(f));
-            }
-        }
-        v
-    }
-
-    /// `_overridesUsedElement`.
-    fn sobrescreve_usado(&self, e: El, usados: &Usados, vistos: &mut HashSet<El>) -> bool {
-        if !vistos.insert(e) {
-            return false;
-        }
-        self.sobrescritos(e).into_iter().any(|o| usados.membros.contains(&o) || self.sobrescreve_usado(o, usados, vistos))
-    }
-
     /// `_isPubliclyAccessible` de um método, acessor ou construtor.
     fn acessivel(&self, e: El, nome: SymbolId) -> bool {
         if privado(self.interner, nome) {
@@ -245,6 +213,35 @@ impl Contexto<'_> {
         }
         true
     }
+}
+
+/// `_overriddenElements`: o `getOverridden2` na classe do membro, pelo `Name`
+/// da biblioteca verificada (`e.declaration` de cada um).
+fn sobrescritos(cx: &Contexto<'_>, h: &mut crate::heranca::Heranca, p: &mut crate::heranca::ProvedorDoOutline<'_, '_>, e: El) -> Vec<El> {
+    let Some((Some(c), _, texto)) = cx.chave_de_membro(e) else { return Vec::new() };
+    let Some(s) = cx.interner.lookup(&texto) else { return Vec::new() };
+    let nome = crate::heranca::Nome::novo(cx.interner, cx.lib, s);
+    h.sobrescritos(p, c, nome).unwrap_or_default().into_iter().map(|m| cx.da_funcao(m.funcao)).collect()
+}
+
+/// `_overridesUsedElement`.
+fn sobrescreve_usado(
+    cx: &Contexto<'_>,
+    h: &mut crate::heranca::Heranca,
+    p: &mut crate::heranca::ProvedorDoOutline<'_, '_>,
+    e: El,
+    usados: &Usados,
+    vistos: &mut HashSet<El>,
+) -> bool {
+    if !vistos.insert(e) {
+        return false;
+    }
+    for o in sobrescritos(cx, h, p, e) {
+        if usados.membros.contains(&o) || sobrescreve_usado(cx, h, p, o, usados, vistos) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Os tipos escritos direto numa lista de variáveis que não é de campo e no
@@ -356,7 +353,7 @@ pub fn elementos_nao_usados(
     inferidas: &HashSet<LibraryId>,
     lib: LibraryId,
 ) -> Vec<(UnitId, Diagnostic)> {
-    let cx = Contexto { program, interner, outline, lib };
+    let cx = Contexto { program, interner, lib };
     let mut usados = Usados::default();
     let unidades: Vec<UnitId> = program.library(lib).units.iter().copied().filter(|u| program.unit(*u).role != UnitRole::Patch).collect();
     let classe_da_decl = |u: UnitId, d: ast::DeclId| {
@@ -674,9 +671,35 @@ pub fn elementos_nao_usados(
         }
     }
 
+    // `_overridesUsedElement` de cada membro de instância e construtor das
+    // classes da biblioteca, pelo `InheritanceManager3`, antes do motor (que
+    // fica com a tabela).
+    let mut sobrescrevem_usado: HashSet<El> = HashSet::new();
+    {
+        let mut heranca = crate::heranca::Heranca::default();
+        let mut prov = crate::heranca::ProvedorDoOutline { program, interner, core, outline, table: &mut *table };
+        let mut candidatos: Vec<El> = Vec::new();
+        for (i, k) in program.classes.iter().enumerate() {
+            if k.library != lib || k.decl.is_none() {
+                continue;
+            }
+            let c = ClassId(i as u32);
+            for &f in k.instance_members.values().chain(k.constructors.values()) {
+                candidatos.push(cx.da_funcao(f));
+            }
+            for &v in &k.fields {
+                candidatos.push(El::Getter(v));
+            }
+            let _ = c;
+        }
+        for el in candidatos {
+            if sobrescreve_usado(&cx, &mut heranca, &mut prov, el, &usados, &mut HashSet::new()) {
+                sobrescrevem_usado.insert(el);
+            }
+        }
+    }
     // O relato.
     let mut motor: Option<Motor<'_>> = None;
-    let _ = (&core, &inferidas);
     let precisa_de_motor = unidades.iter().any(|&u| {
         dartforge_frontend::pais::todas_as_anotacoes(&program.unit(u).ast, &program.unit(u).unit)
             .iter()
@@ -697,7 +720,7 @@ pub fn elementos_nao_usados(
             || marcado(&cx, motor, u, metadata, false)
             || usados.membros.contains(&el)
             || usados.elementos.contains(&el)
-            || cx.sobrescreve_usado(el, &usados, &mut HashSet::new())
+            || sobrescrevem_usado.contains(&el)
     };
     // `_isReadMember` de um campo ou constante de enum.
     let lido = |v: VariableId| {
@@ -714,7 +737,7 @@ pub fn elementos_nao_usados(
         if estatico {
             return false;
         }
-        cx.sobrescreve_usado(El::Getter(v), &usados, &mut HashSet::new())
+        sobrescrevem_usado.contains(&El::Getter(v))
     };
     let variaveis_de = |u: UnitId, decl: Option<ast::DeclId>, membro: Option<ast::MemberId>| -> HashMap<usize, VariableId> {
         let mut m = HashMap::new();

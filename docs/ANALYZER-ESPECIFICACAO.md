@@ -291,6 +291,8 @@ Base comum (vale para vários códigos abaixo):
   1. **46 FN `operator/equality_static_test.dart` + 2 `binary_eqEq` + 2 `super_equals…`**: `a == b` não checa `b` contra o parâmetro de `operator ==` tornado anulável (`Covar1?`), nem `super == x`.
   2. **8 FN `incrementAnd_*`**: `++a`/`a++` com `operator +(double)`/`(String)` — falta `_checkForIntNotAssignable` no operando.
   3. **4 FN `index_validR` / `map_indexSet_ifNull` / `implicit_downcast_during/indexed_*`**: índice em composta/`??=`/`++` checado só contra `[]=`; falta o `[]` de leitura, e o lado direito da composta contra o parâmetro do operador.
+  **Estado em 2026-10-05 (escrito, não compilado):** o item 4 abaixo (assinatura combinada pelo `topMerge`) está
+  em `crates/types/src/heranca.rs`, usado pela busca de membros da inferência (`membros.rs::membro_de_interface`).
   4. **~49 msg + 10 pos `nnbd/top_merge/*`**: a assinatura combinada de membros herdados de várias interfaces deve ser o **NNBD_TOP_MERGE** dos tipos (`Object?` de `FutureOr<dynamic>`/`Object?`/`void`), e nós pegamos a de uma das interfaces (`analyzer/lib/src/dart/element/inheritance_manager3.dart`, `_topMerge`/`combineSignatures`). As "posições" são o mesmo erro casado com a linha errada.
   5. **4 msg `recordType*`**: falta o `{2}` de records e a ordem alfabética dos campos nomeados no display.
   6. **1 pos + 1 FP `RecordLiteralOnePositional…`**: falta o passo 4 (`RECORD_LITERAL_ONE_POSITIONAL_NO_TRAILING_COMMA`) e o `getErrorNode` (sem o parêntese).

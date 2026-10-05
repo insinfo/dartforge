@@ -37,7 +37,81 @@ pub(crate) enum Busca {
     Ausente,
 }
 
+/// A inferência como provedor da herança: o tipo de um acessor implícito é
+/// o do campo, inferido sob demanda.
+impl<'a> crate::heranca::Provedor<'a> for BodyInferrer<'a> {
+    fn programa(&self) -> &'a dartforge_elements::model::Program {
+        self.program
+    }
+    fn interner(&self) -> &'a dartforge_intern::Interner {
+        self.interner
+    }
+    fn core(&self) -> &'a crate::table::CoreTypes {
+        self.core
+    }
+    fn tabela(&mut self) -> &mut crate::table::TypeTable {
+        &mut *self.table
+    }
+    fn dados_da_classe(&self, c: ClassId) -> crate::resolve::ClassTypeData {
+        self.outline.classes[c.0 as usize].clone()
+    }
+    fn tipo_do_membro(&mut self, f: FunctionElementId) -> TypeId {
+        let tv = match self.program.function(f).variable {
+            Some(v) if self.program.function(f).kind == FunctionKind::ImplicitAccessor => self.tipo_variavel(v),
+            _ => self.core.dynamic_,
+        };
+        crate::heranca::tipo_de_funcao_do_membro(self.program, &*self.outline, self.core, &mut *self.table, f, tv)
+    }
+    fn sub(&mut self, a: TypeId, b: TypeId) -> bool {
+        BodyInferrer::sub(self, a, b)
+    }
+    fn normalizar(&mut self, t: TypeId) -> TypeId {
+        crate::ops::normalize(t, &mut *self.table, self.core)
+    }
+}
+
 impl<'a> BodyInferrer<'a> {
+    /// `getMember2` na interface de `classe`, pelo `Name` da biblioteca em
+    /// que o acesso está.
+    pub(crate) fn membro_da_heranca(&mut self, classe: ClassId, chave: SymbolId, concreto: bool, para_super: bool) -> Option<crate::heranca::Membro> {
+        let lib = match self.unidade_corrente {
+            Some(u) => self.program.unit(u).library,
+            None => self.program.class(classe).library,
+        };
+        let nome = crate::heranca::Nome::novo(self.interner, lib, chave);
+        // A busca pode inferir um campo, e a inferência dele buscar membros:
+        // o gerenciador sai do lugar durante a chamada (uma busca aninhada
+        // monta as interfaces que precisar num gerenciador próprio).
+        let mut h = std::mem::take(&mut self.heranca);
+        let achado = h.membro(self, classe, nome, concreto, None, para_super);
+        self.heranca = h;
+        achado
+    }
+
+    /// `getInherited2` na interface de `classe`.
+    pub(crate) fn herdado_da_heranca(&mut self, classe: ClassId, chave: SymbolId) -> Option<crate::heranca::Membro> {
+        let lib = match self.unidade_corrente {
+            Some(u) => self.program.unit(u).library,
+            None => self.program.class(classe).library,
+        };
+        let nome = crate::heranca::Nome::novo(self.interner, lib, chave);
+        let mut h = std::mem::take(&mut self.heranca);
+        let achado = h.herdado(self, classe, nome);
+        self.heranca = h;
+        achado
+    }
+
+    /// O valor de um membro da interface vindo do tipo de função dele: o
+    /// retorno do getter, o parâmetro do setter, o tipo do método.
+    fn tipo_do_membro_da_heranca(&self, m: &crate::heranca::Membro) -> (TypeId, bool) {
+        match (m.especie, self.table.get(m.tipo)) {
+            (crate::heranca::Especie::Getter, Type::Function { ret, .. }) => (*ret, false),
+            (crate::heranca::Especie::Setter, Type::Function { positional, .. }) => (positional.first().copied().unwrap_or(self.core.dynamic_), false),
+            (crate::heranca::Especie::Metodo, _) => (m.tipo, true),
+            _ => (self.core.dynamic_, false),
+        }
+    }
+
     /// Chave de setter (`nome_=`), se existir algum setter com esse nome.
     pub(crate) fn chave_setter(&self, nome: SymbolId) -> Option<SymbolId> {
         let s = format!("{}_=", self.interner.resolve(nome));
@@ -66,84 +140,6 @@ impl<'a> BodyInferrer<'a> {
                 (self.outline.functions[f.0 as usize].signature, true)
             }
         }
-    }
-
-    /// Declaração do membro `chave` em `classe` ou nos seus supertipos.
-    ///
-    /// Das declarações herdadas, a de um supertipo que outro candidato
-    /// estende ou implementa foi sobrescrita por ele no caminho e não conta
-    /// (a interface de `CompilationUnitElement` tem o `library` não anulável
-    /// de `_ExistingElement`, não o anulável de `Element`, que ele
-    /// sobrescreve). Entre as que sobram, vale a ordem de busca
-    /// (superclasses e mixins, depois interfaces).
-    fn declaracao_em_classe(&self, classe: ClassId, chave: SymbolId) -> Option<(ClassId, FunctionElementId)> {
-        let c = self.program.class(classe);
-        if let Some(&f) = c.instance_members.get(&chave) {
-            return Some((classe, f));
-        }
-        let candidatos: Vec<(ClassId, FunctionElementId)> =
-            crate::scope::supertipos_ordenados(self.program, &self.outline.hierarchy, classe)
-                .into_iter()
-                .filter_map(|(sup, _)| self.program.class(sup).instance_members.get(&chave).map(|&f| (sup, f)))
-                .collect();
-        if candidatos.len() <= 1 {
-            return candidatos.first().copied();
-        }
-        let sobrescrito = |a: ClassId| {
-            candidatos.iter().any(|&(b, _)| {
-                b != a && self.outline.hierarchy.get(b).is_some_and(|d| d.supertypes.contains_key(&a))
-            })
-        };
-        candidatos.iter().copied().find(|&(a, _)| !sobrescrito(a)).or_else(|| candidatos.first().copied())
-    }
-
-    /// Como [`Self::declaracao_em_classe`], com a assinatura combinada
-    /// (*combined member signature*) quando sobram vários candidatos não
-    /// sobrescritos: vale o primeiro, na ordem de busca, cujo tipo (vista a
-    /// classe de dentro) é subtipo do de todos os outros — `J implements I1,
-    /// I2` com `num get v` e `int get v` tem `J.v` de `I2`. Setter compara o
-    /// parâmetro no sentido contrário. Sem um mais específico, fica a ordem
-    /// de busca.
-    fn declaracao_mais_especifica(&mut self, classe: ClassId, chave: SymbolId, setter: bool) -> Option<(ClassId, FunctionElementId)> {
-        let primeira = self.declaracao_em_classe(classe, chave)?;
-        if primeira.0 == classe || self.program.class(classe).kind == dartforge_elements::model::ClassKind::ExtensionType {
-            return Some(primeira);
-        }
-        let candidatos: Vec<(ClassId, FunctionElementId)> =
-            crate::scope::supertipos_ordenados(self.program, &self.outline.hierarchy, classe)
-                .into_iter()
-                .filter_map(|(sup, _)| self.program.class(sup).instance_members.get(&chave).map(|&f| (sup, f)))
-                .collect();
-        let hier = &self.outline.hierarchy;
-        let fronteira: Vec<(ClassId, FunctionElementId)> = candidatos
-            .iter()
-            .copied()
-            .filter(|&(a, _)| !candidatos.iter().any(|&(b, _)| b != a && hier.get(b).is_some_and(|d| d.supertypes.contains_key(&a))))
-            .collect();
-        if fronteira.len() <= 1 {
-            return Some(primeira);
-        }
-        let params = self.outline.classes[classe.0 as usize].type_params.clone();
-        let args: Box<[TypeId]> = params.iter().map(|&p| self.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
-        let this = self.table.intern(Type::Interface { class: classe, args, nullable: false });
-        let mut tipos = Vec::with_capacity(fronteira.len());
-        for &(dono, f) in &fronteira {
-            let (t, metodo) = self.tipo_do_membro_declarado(f, setter);
-            let t = self.substituir_do_dono(this, classe, dono, t);
-            tipos.push((t, metodo));
-        }
-        if tipos.iter().any(|&(_, m)| m != tipos[0].1) {
-            return Some(primeira);
-        }
-        for i in 0..fronteira.len() {
-            let ok = (0..fronteira.len()).all(|j| {
-                i == j || if setter { self.sub(tipos[j].0, tipos[i].0) } else { self.sub(tipos[i].0, tipos[j].0) }
-            });
-            if ok {
-                return Some(fronteira[i]);
-            }
-        }
-        Some(primeira)
     }
 
     /// Membro de instância pela interface do receptor (sem extensões).
@@ -181,9 +177,20 @@ impl<'a> BodyInferrer<'a> {
                 {
                     return Some(m);
                 }
-                let (dono, f) = self.declaracao_mais_especifica(class, chave, setter)?;
-                let (t, metodo) = self.tipo_do_membro_declarado(f, setter);
-                let t = self.substituir_do_dono(recv, class, dono, t);
+                // A interface do `InheritanceManager3`. O membro declarado tem
+                // o tipo calculado agora (o campo pode ter terminado a
+                // inferência depois de a interface ser montada); o sintético
+                // (`topMerge`) tem o da interface, nos parâmetros da classe.
+                let m = self.membro_da_heranca(class, chave, false, false)?;
+                let f = m.funcao;
+                let dono = self.program.function(f).class.unwrap_or(m.classe);
+                let (t, metodo) = if m.sintetico {
+                    let (t, metodo) = self.tipo_do_membro_da_heranca(&m);
+                    (self.substituir_do_dono(recv, class, class, t), metodo)
+                } else {
+                    let (t, metodo) = self.tipo_do_membro_declarado(f, setter);
+                    (self.substituir_do_dono(recv, class, dono, t), metodo)
+                };
                 // Membros de instância (inclusive o getter implícito de um
                 // campo) são referidos pela função, como o emissor espera.
                 let member = MemberRef::Function(f);
@@ -330,6 +337,14 @@ impl<'a> BodyInferrer<'a> {
         }
         if let Some(m) = self.membro_de_extensao(lib, recv, nome, setter) {
             return Busca::Achado(m);
+        }
+        // O último recurso do `TypePropertyResolver`: a interface de
+        // `Object` (o tipo de extensão sem `implements` não a tem na dele).
+        if !anulavel {
+            let o = self.core.object;
+            if let Some(m) = self.membro_de_interface(o, nome, setter) {
+                return Busca::Achado(m);
+            }
         }
         // `f.call` com `f` do tipo `Function` (de `dart:core`): sem erro e
         // dinâmico (`TypePropertyResolver`,

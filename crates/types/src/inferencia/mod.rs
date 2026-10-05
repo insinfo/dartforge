@@ -202,6 +202,9 @@ pub struct BodyInferrer<'a> {
     pub(crate) ambiguidade_de_extensao: Option<(String, String, Option<(String, String)>)>,
     /// A anotação em resolução está num método ou campo estático.
     pub(crate) em_membro_estatico: bool,
+    /// O `InheritanceManager3` (as interfaces das classes), com os tipos
+    /// dos campos inferidos sob demanda.
+    pub(crate) heranca: crate::heranca::Heranca,
 }
 
 impl<'a> BodyInferrer<'a> {
@@ -248,6 +251,7 @@ impl<'a> BodyInferrer<'a> {
             alvo_da_aridade: None,
             unidades_dos_avisos: Vec::new(),
             unidade_corrente: None,
+            heranca: crate::heranca::Heranca::default(),
             espalhamentos_inferidos: HashMap::new(),
             registrar_locais: false,
             sonda_escopo: None,

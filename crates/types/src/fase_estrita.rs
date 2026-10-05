@@ -80,7 +80,16 @@ fn regioes_de(a: &ast::Ast, corpo: &FunctionBody, inicializadores: Option<&[Init
 }
 
 /// Os relatos da unidade `u` (sem olhar a opção).
-pub fn falhas_de_inferencia(program: &Program, interner: &Interner, outline: &OutlineTypes, corpo: &UnitBodyTypes, u: UnitId) -> Vec<Diagnostic> {
+#[allow(clippy::too_many_arguments)]
+pub fn falhas_de_inferencia(
+    program: &Program,
+    interner: &Interner,
+    table: &mut crate::table::TypeTable,
+    core: &crate::table::CoreTypes,
+    outline: &OutlineTypes,
+    corpo: &UnitBodyTypes,
+    u: UnitId,
+) -> Vec<Diagnostic> {
     let mut out = Vec::new();
     let unidade = program.unit(u);
     let a = &unidade.ast;
@@ -122,7 +131,10 @@ pub fn falhas_de_inferencia(program: &Program, interner: &Interner, outline: &Ou
     };
     // `getOverridden2` (o mesmo de `fase_override`), pela chave do membro.
     let lib = unidade.library;
-    let sobrescreve = |c: ClassId, chave: Option<SymbolId>| crate::fase_override::sobrescreve(program, outline, interner, c, lib, chave);
+    let mut heranca = crate::heranca::Heranca::default();
+    let mut provedor = crate::heranca::ProvedorDoOutline { program, interner, core, outline, table };
+    let mut sobrescreve =
+        |c: ClassId, chave: Option<SymbolId>| crate::fase_override::sobrescreve(&mut heranca, &mut provedor, c, lib, chave);
 
     // `visitFunctionDeclaration`: as funções de topo e as locais.
     let mut declaradas: std::collections::HashSet<ast::FunctionId> = std::collections::HashSet::new();
