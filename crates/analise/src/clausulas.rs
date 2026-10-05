@@ -1494,6 +1494,31 @@ pub fn verificar(
             continue;
         };
 
+        // `_checkForBadFunctionUse` (`error_verifier.dart:2226-2269`): sem
+        // `class-modifiers` (antes da 3.0), `Function` do `dart:core` no
+        // `extends`, no primeiro `implements` que o cita e em cada `with` de uma
+        // classe ou alias de classe.
+        if matches!(&ast_.decl(decl.decl).kind, DeclKind::Class(_)) && consumidora.features.versao().major < 3 {
+            let e_function = |t: ast::TypeId| {
+                matches!(l.alvo(u, ast_, t, 0), Alvo::Classe(f) if l.programa.library(l.programa.class(f).library).uri == "dart:core" && l.nome(l.programa.class(f).name) == "Function")
+                    && !l.anulavel(u, ast_, t, 0)
+            };
+            let vazio: [&str; 0] = [];
+            if let Some(t) = cl.extends
+                && e_function(t)
+            {
+                saida.push((decl.unit, Diagnostic::com_codigo(dartforge_diagnostics::codigos::warning::DEPRECATED_EXTENDS_FUNCTION, ast_.ty(t).span, vazio)));
+            }
+            if let Some(&t) = cl.implements.iter().find(|&&t| e_function(t)) {
+                saida.push((decl.unit, Diagnostic::com_codigo(dartforge_diagnostics::codigos::warning::DEPRECATED_IMPLEMENTS_FUNCTION, ast_.ty(t).span, vazio)));
+            }
+            for &t in cl.with {
+                if e_function(t) {
+                    saida.push((decl.unit, Diagnostic::com_codigo(dartforge_diagnostics::codigos::warning::DEPRECATED_MIXIN_FUNCTION, ast_.ty(t).span, vazio)));
+                }
+            }
+        }
+
         // `ResolutionVisitor._resolveType`: cada tipo de cláusula precisa
         // nomear uma classe (ou mixin, fora do `extends`).
         let mixin_application = matches!(&ast_.decl(decl.decl).kind, DeclKind::Class(d) if d.mixin_application);

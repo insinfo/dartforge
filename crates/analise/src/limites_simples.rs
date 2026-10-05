@@ -397,10 +397,44 @@ fn nao_instanciados(programa: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId,
     }
 }
 
+/// O tipo escrito é um tipo de função genérico (direto ou por um alias de um).
+fn funcao_generica(programa: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, prof: u32) -> bool {
+    match &a.ty(t).kind {
+        TypeKind::Function { type_params, .. } => !type_params.is_empty(),
+        TypeKind::Named { name, args } if args.is_empty() && prof < 8 => {
+            let Some(Element::Typedef(td)) = elemento(programa, u, name) else { return false };
+            let d = programa.typedef(td).decl;
+            let ad = &programa.unit(d.unit).ast;
+            match &ad.decl(d.decl).kind {
+                DeclKind::Typedef(x) => match &x.kind {
+                    TypedefKind::Alias(corpo) => funcao_generica(programa, d.unit, ad, *corpo, prof + 1),
+                    TypedefKind::Legacy { .. } => false,
+                },
+                _ => false,
+            }
+        }
+        _ => false,
+    }
+}
+
 pub fn verificar(programa: &Program, lib: LibraryId, nomes: &Interner, limites: &LimitesSimples) -> Vec<(UnitId, Diagnostic)> {
     let mut saida = Vec::new();
+    // `generic-metadata` (2.14): antes dele, tipo de função genérico como
+    // argumento de tipo escrito é `GENERIC_FUNCTION_TYPE_CANNOT_BE_TYPE_ARGUMENT`
+    // (`type_arguments_verifier.dart:300-310`), no argumento.
+    let sem_metadados_genericos = programa.library(lib).features.versao() < dartforge_frontend::features::LanguageVersion::new(2, 14);
     for &u in &programa.library(lib).units {
         let a = &programa.unit(u).ast;
+        if sem_metadados_genericos {
+            for t in &a.types {
+                let TypeKind::Named { args, .. } = &t.kind else { continue };
+                for &x in args.iter() {
+                    if funcao_generica(programa, u, a, x, 0) {
+                        saida.push((u, Diagnostic::com_codigo(c::GENERIC_FUNCTION_TYPE_CANNOT_BE_TYPE_ARGUMENT, a.ty(x).span, [] as [&str; 0])));
+                    }
+                }
+            }
+        }
         let todas = listas(a);
         // Os parâmetros de tipo em escopo numa posição: os das listas cujo
         // dono a contém.

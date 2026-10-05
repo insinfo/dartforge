@@ -1886,6 +1886,8 @@ foram rodados no oráculo vivo (`C:\tools\dartsdk-3.6.2\bin\dart analyze --forma
 - **Mensagem:** `A generic function type can't be a type argument.` (`messages.yaml:6731`).
 - **Supressões e ordem:** com linguagem ≥ 2.14 nunca sai. Em literal/inferência, o tipo inferido genérico
   dá `could_not_infer` (exemplo, 4:38).
+- **Estado em 2026-10-05 (escrito, não compilado):** `limites_simples::verificar`, em biblioteca anterior à
+  2.14, nos argumentos de todo tipo nomeado escrito que são tipo de função genérico, direto ou por alias.
 - **No DartForge:** inexistente. FN `generic/function_type_as_type_argument_test.dart:20:8`,
   `generic_methods/generic_function_result_test.dart:14:6` (arquivos `// @dart` antigos).
 - **Exemplo (oráculo vivo 3.6.2):**
@@ -5638,6 +5640,8 @@ relatos iguais do analyzer contam um.
   has no effect." / "Mixing in 'Function' is deprecated." (warnings).
 - **No DartForge:** inexistente; cabe em `clausulas.rs` (versão da biblioteca disponível em `features`).
   FN: `call/method_implicit_invoke_local_legacy_test.dart:16:21` (`// @dart=2.19`, `class C2 implements Function`).
+- **Estado em 2026-10-05 (escrito, não compilado):** `clausulas::verificar`, para classe e alias de classe
+  em biblioteca anterior à 3.0, no tipo escrito.
 
 ##### `enum_mixin_with_instance_variable` (perda 4: FN 4; nada emitido)
 - **Emissão:** `_ClassVerifier._checkMixinOfEnum` (`inheritance_override.dart:742-763`), de
