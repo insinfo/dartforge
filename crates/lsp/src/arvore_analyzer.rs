@@ -25,6 +25,28 @@ use dartforge_frontend::comentarios::Comentarios;
 use dartforge_frontend::token::{Kind, Op, Token};
 use std::collections::HashMap;
 
+/// De onde o nó veio na árvore do parser (para achar o elemento dele).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Marca {
+    Nenhuma,
+    /// Um `SimpleIdentifier` cujo elemento é o resolvido nesta expressão
+    /// (o próprio identificador, a propriedade de que é o nome, o alvo da
+    /// invocação de que é o `methodName`).
+    Expr(ExprId),
+    /// `FunctionDeclaration`, `MethodDeclaration` ou `FunctionExpression`
+    /// desta função.
+    Funcao(ast::FunctionId),
+    /// `VariableDeclaration` de uma variável local.
+    VariavelLocal,
+    /// Declaração de topo.
+    Decl(ast::DeclId),
+    /// `SimpleIdentifier` em contexto de declaração (`inDeclarationContext`:
+    /// o prefixo `as p` e o rótulo de um comando).
+    ContextoDeDeclaracao,
+    /// `PrefixExpression` desta expressão (o `staticElement` é o operador).
+    Operador(ExprId),
+}
+
 /// Um nó do analyzer.
 #[derive(Debug, Clone)]
 pub(crate) struct No {
@@ -36,11 +58,23 @@ pub(crate) struct No {
     /// A posição do fim do nome que o `NodeLocator` sobrescreve (classe,
     /// função, método, construtor).
     pub sobrescrita: Option<usize>,
+    pub marca: Marca,
+}
+
+/// As partes de um `ForParts` (`initialization`/`variables`, `condition`,
+/// `updaters`), pelos nós.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct PartesDeFor {
+    pub inicio: Option<usize>,
+    pub condicao: Option<usize>,
+    pub atualizacoes: Vec<usize>,
 }
 
 /// A árvore; o nó 0 é a `CompilationUnit`.
 pub(crate) struct Arvore {
     pub nos: Vec<No>,
+    /// As partes de cada `ForPartsWith*`, pelo nó.
+    pub partes_de_for: HashMap<usize, PartesDeFor>,
 }
 
 impl Arvore {
@@ -73,6 +107,40 @@ impl Arvore {
             }
         }
         if no.inicio <= ini && fim <= no.fim {
+            *achado = Some(n);
+        }
+    }
+
+    /// `NodeLocator2` (fim exclusivo): o nó mais profundo com
+    /// `inicio <= pos < fim`, primeiro filho que cobre, com as sobrescritas de
+    /// `name.end`.
+    pub(crate) fn localizar_exclusivo(&self, pos: usize) -> Option<usize> {
+        let mut achado = None;
+        self.visitar_exclusivo(0, pos, &mut achado);
+        achado
+    }
+
+    fn visitar_exclusivo(&self, n: usize, pos: usize, achado: &mut Option<usize>) {
+        if achado.is_some() {
+            return;
+        }
+        let no = &self.nos[n];
+        if let Some(s) = no.sobrescrita
+            && pos == s
+        {
+            *achado = Some(n);
+            return;
+        }
+        if no.fim <= pos || no.inicio > pos {
+            return;
+        }
+        for &f in &no.filhos {
+            self.visitar_exclusivo(f, pos, achado);
+            if achado.is_some() {
+                return;
+            }
+        }
+        if no.inicio <= pos && pos < no.fim {
             *achado = Some(n);
         }
     }
@@ -208,10 +276,42 @@ struct Construtor<'a> {
     antes_de_3: bool,
     /// Os metadados dos comandos (variáveis e funções locais).
     metadados_locais: HashMap<u32, &'a [Annotation]>,
+    /// A forma resolvida (a das refatorações): as chamadas sem `new` que
+    /// invocam construtor (`A()`, `A.n()`, `p.A()`, `p.A.n()`) viram
+    /// `InstanceCreationExpression`, como no `AstRewriter.methodInvocation`.
+    construtores: Option<&'a std::collections::HashSet<ExprId>>,
+    /// Os identificadores que são prefixo de import (forma resolvida).
+    prefixos: Option<&'a std::collections::HashSet<ExprId>>,
+    partes_de_for: HashMap<usize, PartesDeFor>,
 }
 
 /// Monta a árvore do texto já analisado.
 pub(crate) fn construir(fonte: &str, a: &Ast, unidade: &CompilationUnit, antes_de_3: bool) -> Arvore {
+    construir_com(fonte, a, unidade, antes_de_3, None, None)
+}
+
+/// A árvore na forma resolvida: `construtores` são as chamadas (`Call` ou
+/// `InstanceCreation` sem palavra-chave) que invocam construtor, e
+/// `prefixos` os identificadores que denotam prefixo de import.
+pub(crate) fn construir_resolvida(
+    fonte: &str,
+    a: &Ast,
+    unidade: &CompilationUnit,
+    antes_de_3: bool,
+    construtores: &std::collections::HashSet<ExprId>,
+    prefixos: &std::collections::HashSet<ExprId>,
+) -> Arvore {
+    construir_com(fonte, a, unidade, antes_de_3, Some(construtores), Some(prefixos))
+}
+
+fn construir_com<'a>(
+    fonte: &'a str,
+    a: &'a Ast,
+    unidade: &'a CompilationUnit,
+    antes_de_3: bool,
+    construtores: Option<&'a std::collections::HashSet<ExprId>>,
+    prefixos: Option<&'a std::collections::HashSet<ExprId>>,
+) -> Arvore {
     let mut c = Construtor {
         a,
         fonte,
@@ -220,9 +320,12 @@ pub(crate) fn construir(fonte: &str, a: &Ast, unidade: &CompilationUnit, antes_d
         nos: Vec::new(),
         antes_de_3,
         metadados_locais: a.metadados_locais.iter().map(|(s, m)| (s.0, &m[..])).collect(),
+        construtores,
+        prefixos,
+        partes_de_for: HashMap::new(),
     };
     // A raiz primeiro (índice 0), os filhos depois.
-    c.nos.push(No { especie: "CompilationUnit", inicio: 0, fim: fonte.len(), filhos: Vec::new(), pai: None, sobrescrita: None });
+    c.nos.push(No { especie: "CompilationUnit", inicio: 0, fim: fonte.len(), filhos: Vec::new(), pai: None, sobrescrita: None, marca: Marca::Nenhuma });
     let mut filhos = Vec::new();
     if let Some(s) = unidade.script_tag {
         filhos.extend(c.folha("ScriptTag", s));
@@ -241,7 +344,7 @@ pub(crate) fn construir(fonte: &str, a: &Ast, unidade: &CompilationUnit, antes_d
         filhos.extend(n);
     }
     c.ligar(0, filhos);
-    Arvore { nos: c.nos }
+    Arvore { nos: c.nos, partes_de_for: c.partes_de_for }
 }
 
 impl<'a> Construtor<'a> {
@@ -253,7 +356,7 @@ impl<'a> Construtor<'a> {
             return None;
         }
         let id = self.nos.len();
-        self.nos.push(No { especie, inicio, fim, filhos: Vec::new(), pai: None, sobrescrita: None });
+        self.nos.push(No { especie, inicio, fim, filhos: Vec::new(), pai: None, sobrescrita: None, marca: Marca::Nenhuma });
         self.ligar(id, filhos);
         Some(id)
     }
@@ -271,6 +374,13 @@ impl<'a> Construtor<'a> {
 
     fn identificador(&mut self, n: ast::Name) -> Option<usize> {
         self.folha("SimpleIdentifier", n.span)
+    }
+
+    fn marcar(&mut self, n: Option<usize>, m: Marca) -> Option<usize> {
+        if let Some(k) = n {
+            self.nos[k].marca = m;
+        }
+        n
     }
 
     fn com_sobrescrita(&mut self, n: Option<usize>, pos: usize) -> Option<usize> {
@@ -459,7 +569,8 @@ impl<'a> Construtor<'a> {
                     filhos.extend(self.configuracao(c));
                 }
                 if let Some(p) = prefix {
-                    filhos.extend(self.identificador(*p));
+                    let id = self.identificador(*p);
+                    filhos.extend(self.marcar(id, Marca::ContextoDeDeclaracao));
                 }
                 for c in combinators {
                     filhos.extend(self.combinador(c));
@@ -512,6 +623,15 @@ impl<'a> Construtor<'a> {
     }
 
     fn declaracao(&mut self, did: ast::DeclId) -> Option<usize> {
+        let n = self.declaracao_sem_marca(did);
+        // A função de topo guarda a marca da função.
+        match n {
+            Some(k) if self.nos[k].marca == Marca::Nenhuma => self.marcar(n, Marca::Decl(did)),
+            _ => n,
+        }
+    }
+
+    fn declaracao_sem_marca(&mut self, did: ast::DeclId) -> Option<usize> {
         let a = self.a;
         let d = a.decl(did);
         let (inicio, mut filhos) = self.doc_e_anotacoes(d.span.start, &d.metadata);
@@ -623,7 +743,8 @@ impl<'a> Construtor<'a> {
             filhos.extend(self.tipo(r));
         }
         filhos.extend(self.expressao_de_funcao(fid, de_declaracao));
-        self.no("FunctionDeclaration", inicio, f.span.end, filhos)
+        let n = self.no("FunctionDeclaration", inicio, f.span.end, filhos);
+        self.marcar(n, Marca::Funcao(fid))
     }
 
     /// `FunctionExpression`: parâmetros de tipo ?? parâmetros ?? corpo → fim
@@ -641,7 +762,8 @@ impl<'a> Construtor<'a> {
         filhos.extend(corpo);
         let inicio = filhos.first().map_or(f.span.start, |&n| self.nos[n].inicio);
         let fim = corpo.map_or(f.span.end, |n| self.nos[n].fim);
-        self.no("FunctionExpression", inicio, fim, filhos)
+        let n = self.no("FunctionExpression", inicio, fim, filhos);
+        self.marcar(n, Marca::Funcao(fid))
     }
 
     /// O corpo de uma função.
@@ -737,6 +859,7 @@ impl<'a> Construtor<'a> {
                 }
                 filhos.extend(self.corpo(&f.body, f.modifier, m.span.end, true));
                 let n = self.no("MethodDeclaration", inicio, m.span.end, filhos);
+                let n = self.marcar(n, Marca::Funcao(*fid));
                 match f.name {
                     Some(nome) => self.com_sobrescrita(n, nome.span.end),
                     None => n,
@@ -810,6 +933,14 @@ impl<'a> Construtor<'a> {
     /// ?? tipo ?? 1ª variável (depois de `static`/`covariant`/`abstract`/
     /// `external`) ao fim da última variável.
     fn lista_de_variaveis(&mut self, l: &'a ast::VariableList, inicio_do_conteiner: usize, metadata: &'a [Annotation]) -> Option<usize> {
+        self.lista_de_variaveis_com(l, inicio_do_conteiner, metadata, false)
+    }
+
+    fn lista_de_variaveis_locais(&mut self, l: &'a ast::VariableList, inicio_do_conteiner: usize, metadata: &'a [Annotation]) -> Option<usize> {
+        self.lista_de_variaveis_com(l, inicio_do_conteiner, metadata, true)
+    }
+
+    fn lista_de_variaveis_com(&mut self, l: &'a ast::VariableList, inicio_do_conteiner: usize, metadata: &'a [Annotation], locais: bool) -> Option<usize> {
         let primeira = l.variables.first()?;
         let ultima = l.variables.last()?;
         let fim = ultima.initializer.map_or(ultima.name.span.end, |e| self.a.expr(e).span.end);
@@ -836,7 +967,8 @@ impl<'a> Construtor<'a> {
         for v in l.variables.iter() {
             let fim_v = v.initializer.map_or(v.name.span.end, |e| self.a.expr(e).span.end);
             let ini = v.initializer.and_then(|e| self.expressao(e));
-            filhos.extend(self.no("VariableDeclaration", v.name.span.start, fim_v, ini.into_iter().collect()));
+            let n = self.no("VariableDeclaration", v.name.span.start, fim_v, ini.into_iter().collect());
+            filhos.extend(if locais { self.marcar(n, Marca::VariavelLocal) } else { n });
         }
         self.no("VariableDeclarationList", inicio, fim, filhos)
     }
@@ -1050,7 +1182,7 @@ impl<'a> Construtor<'a> {
             }
             StmtKind::Variables(l) => {
                 let meta = self.metadados_locais.get(&sid.0).copied().unwrap_or(&[]);
-                let lista = self.lista_de_variaveis(l, s.span.start, meta);
+                let lista = self.lista_de_variaveis_locais(l, s.span.start, meta);
                 let inicio = lista.map_or(s.span.start, |n| self.nos[n].inicio.min(s.span.start));
                 self.no("VariableDeclarationStatement", inicio, s.span.end, lista.into_iter().collect())
             }
@@ -1171,10 +1303,11 @@ impl<'a> Construtor<'a> {
         }
     }
 
-    /// `Label`: nome → `:`.
+    /// `Label` de comando: nome → `:`.
     fn rotulo(&mut self, n: ast::Name) -> Option<usize> {
         let fim = self.t.op_depois(n.span.end, Op::Colon).map_or(n.span.end, |i| self.t.span(i).end);
         let id = self.identificador(n);
+        let id = self.marcar(id, Marca::ContextoDeDeclaracao);
         self.no("Label", n.span.start, fim, id.into_iter().collect())
     }
 
@@ -1264,11 +1397,12 @@ impl<'a> Construtor<'a> {
             None => p2.map(|i| self.t.span(i).end)?,
         };
         let mut filhos = Vec::new();
+        let mut partes = PartesDeFor::default();
         let (especie, inicio) = match init {
             Some(ForInit::Variables(l)) => {
                 // A lista começa logo depois do `(` do `for`.
                 let depois_do_parentese = self.t.primeiro_op(Op::LParen, inicio_do_for, usize::MAX).map_or(inicio_do_for, |i| self.t.span(i).end);
-                let lista = self.lista_de_variaveis(l, depois_do_parentese, &[]);
+                let lista = self.lista_de_variaveis_locais(l, depois_do_parentese, &[]);
                 let inicio = lista.map_or(depois_do_parentese, |n| self.nos[n].inicio);
                 filhos.extend(lista);
                 ("ForPartsWithDeclarations", inicio)
@@ -1289,13 +1423,22 @@ impl<'a> Construtor<'a> {
             }
             None => ("ForPartsWithExpression", p1.map(|i| self.t.span(i).start)?),
         };
+        partes.inicio = if init.is_some() { filhos.first().copied() } else { None };
         if let Some(c) = cond {
-            filhos.extend(self.expressao(c));
+            let n = self.expressao(c);
+            partes.condicao = n;
+            filhos.extend(n);
         }
         for u in updates.iter() {
-            filhos.extend(self.expressao(*u));
+            let n = self.expressao(*u);
+            partes.atualizacoes.extend(n);
+            filhos.extend(n);
         }
-        self.no(especie, inicio, fim, filhos)
+        let n = self.no(especie, inicio, fim, filhos);
+        if let Some(k) = n {
+            self.partes_de_for.insert(k, partes);
+        }
+        n
     }
 
     fn partes_de_for_in(&mut self, inicio_do_for: usize, alvo: &'a ForInTarget, iteravel: ExprId) -> Option<usize> {
@@ -1377,7 +1520,10 @@ impl<'a> Construtor<'a> {
             ExprKind::Null => self.folha("NullLiteral", s),
             ExprKind::String(lit) => self.string(lit),
             ExprKind::Symbol(_) => self.folha("SymbolLiteral", s),
-            ExprKind::Identifier(_) => self.folha("SimpleIdentifier", s),
+            ExprKind::Identifier(_) => {
+                let n = self.folha("SimpleIdentifier", s);
+                self.marcar(n, Marca::Expr(e))
+            }
             ExprKind::This => self.folha("ThisExpression", s),
             ExprKind::Super => self.folha("SuperExpression", s),
             ExprKind::Rethrow => self.folha("RethrowExpression", s),
@@ -1413,7 +1559,7 @@ impl<'a> Construtor<'a> {
             }
             ExprKind::InstanceCreation { keyword, ty, constructor, arguments } => {
                 let ts = a.ty(*ty).span;
-                if keyword.is_none() && constructor.is_none() {
+                if keyword.is_none() && constructor.is_none() && !self.construtores.is_some_and(|c| c.contains(&e)) {
                     // `A<T>()` sem palavra-chave: `MethodInvocation`.
                     return self.invocacao_de_tipo(s, *ty, arguments);
                 }
@@ -1440,7 +1586,8 @@ impl<'a> Construtor<'a> {
             ExprKind::Property { target, name, null_aware } => {
                 let mut filhos = Vec::new();
                 filhos.extend(self.expressao(*target));
-                filhos.extend(self.identificador(*name));
+                let id = self.identificador(*name);
+                filhos.extend(self.marcar(id, Marca::Expr(e)));
                 let prefixado = !*null_aware && matches!(a.expr(*target).kind, ExprKind::Identifier(_)) && !self.em_cascata(e);
                 self.no(if prefixado { "PrefixedIdentifier" } else { "PropertyAccess" }, s.start, s.end, filhos)
             }
@@ -1463,7 +1610,8 @@ impl<'a> Construtor<'a> {
                     _ => "PrefixExpression",
                 };
                 let f = self.expressao(*operand);
-                self.no(especie, s.start, s.end, f.into_iter().collect())
+                let n = self.no(especie, s.start, s.end, f.into_iter().collect());
+                if especie == "PrefixExpression" { self.marcar(n, Marca::Operador(e)) } else { n }
             }
             ExprKind::Binary { left, right, .. } => {
                 let l = self.expressao(*left);
@@ -1544,7 +1692,7 @@ impl<'a> Construtor<'a> {
 
     /// `MethodInvocation` (alvo identificador ou `alvo.nome`) ou
     /// `FunctionExpressionInvocation`.
-    fn chamada(&mut self, _e: ExprId, s: Span, alvo: ExprId, arguments: &'a Arguments) -> Option<usize> {
+    fn chamada(&mut self, e: ExprId, s: Span, alvo: ExprId, arguments: &'a Arguments) -> Option<usize> {
         let a = self.a;
         // `f<int>(x)`: os argumentos de tipo podem vir no alvo.
         let (alvo, tipos_no_alvo): (ExprId, Option<&'a [TypeId]>) = match &a.expr(alvo).kind {
@@ -1555,15 +1703,22 @@ impl<'a> Construtor<'a> {
             }
             _ => (alvo, None),
         };
+        if self.construtores.is_some_and(|c| c.contains(&e))
+            && let Some(n) = self.criacao_sem_new(s, alvo, tipos_no_alvo.unwrap_or(&arguments.type_args), arguments)
+        {
+            return Some(n);
+        }
         let mut filhos = Vec::new();
         let especie = match &a.expr(alvo).kind {
             ExprKind::Identifier(n) => {
-                filhos.extend(self.identificador(*n));
+                let id = self.identificador(*n);
+                filhos.extend(self.marcar(id, Marca::Expr(alvo)));
                 "MethodInvocation"
             }
             ExprKind::Property { target, name, .. } => {
                 filhos.extend(self.expressao(*target));
-                filhos.extend(self.identificador(*name));
+                let id = self.identificador(*name);
+                filhos.extend(self.marcar(id, Marca::Expr(alvo)));
                 "MethodInvocation"
             }
             _ => {
@@ -1577,6 +1732,63 @@ impl<'a> Construtor<'a> {
         }
         filhos.extend(self.lista_de_argumentos(arguments));
         self.no(especie, s.start, s.end, filhos)
+    }
+
+    /// `AstRewriter.methodInvocation`: `A()`, `A.n()`, `p.A()` e `p.A.n()`
+    /// que invocam construtor viram `InstanceCreationExpression` com
+    /// `ConstructorName(NamedType, name?)`; os argumentos de tipo da
+    /// invocação vão para o `NamedType`.
+    fn criacao_sem_new(&mut self, s: Span, alvo: ExprId, tipos: &'a [TypeId], arguments: &'a Arguments) -> Option<usize> {
+        let a = self.a;
+        let e_prefixo = |x: ExprId| self.prefixos.is_some_and(|p| p.contains(&x));
+        // (prefixo, tipo, construtor nomeado)
+        let (prefixo, tipo, nome): (Option<ast::Name>, ast::Name, Option<(ast::Name, ExprId)>) = match &a.expr(alvo).kind {
+            ExprKind::Identifier(n) => (None, *n, None),
+            ExprKind::Property { target, name, .. } => match &a.expr(*target).kind {
+                ExprKind::Identifier(p) if e_prefixo(*target) => (Some(*p), *name, None),
+                ExprKind::Identifier(c) => (None, *c, Some((*name, alvo))),
+                ExprKind::Property { target: t2, name: c, .. } => match &a.expr(*t2).kind {
+                    ExprKind::Identifier(p) if e_prefixo(*t2) => (Some(*p), *c, Some((*name, alvo))),
+                    _ => return None,
+                },
+                _ => return None,
+            },
+            _ => return None,
+        };
+        let mut f = Vec::new();
+        let inicio_do_tipo = prefixo.map_or(tipo.span.start, |p| p.span.start);
+        if let Some(p) = prefixo {
+            let ponto = self.t.op_depois(p.span.end, Op::Dot).map_or(p.span.end, |i| self.t.span(i).end);
+            f.extend(self.no("ImportPrefixReference", p.span.start, ponto, Vec::new()));
+        }
+        // Os argumentos de tipo ficam no tipo quando vêm logo depois dele
+        // (`A<T>()`, `p.A<T>()`); depois do nome do construtor
+        // (`A.n<T>()`, erro) ficam na criação.
+        let args_no_tipo = nome.is_none() && !tipos.is_empty();
+        let mut fim_do_tipo = tipo.span.end;
+        if args_no_tipo {
+            let n = self.argumentos_de_tipo(tipos);
+            if let Some(k) = n {
+                fim_do_tipo = self.nos[k].fim;
+            }
+            f.extend(n);
+        }
+        let named = self.no("NamedType", inicio_do_tipo, fim_do_tipo, f);
+        let mut cn = Vec::new();
+        cn.extend(named);
+        let mut fim_cn = fim_do_tipo;
+        if let Some((n, de)) = nome {
+            let id = self.identificador(n);
+            cn.extend(self.marcar(id, Marca::Expr(de)));
+            fim_cn = n.span.end;
+        }
+        let nome_do_construtor = self.no("ConstructorName", inicio_do_tipo, fim_cn, cn);
+        let mut filhos: Vec<usize> = nome_do_construtor.into_iter().collect();
+        if !args_no_tipo {
+            filhos.extend(self.argumentos_de_tipo(tipos));
+        }
+        filhos.extend(self.lista_de_argumentos(arguments));
+        self.no("InstanceCreationExpression", s.start, s.end, filhos)
     }
 
     /// Um elemento de coleção.

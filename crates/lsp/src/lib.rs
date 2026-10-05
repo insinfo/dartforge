@@ -39,6 +39,11 @@ mod indice;
 mod navegacao;
 mod projeto;
 mod realce;
+mod refatoracoes;
+mod refatoracoes_embutir;
+mod refatoracoes_exec;
+mod refatoracoes_metodo;
+mod refatoracoes_mover;
 mod registro;
 mod relevancia;
 mod relevancia_tabelas;
@@ -61,6 +66,7 @@ pub use completar::{Chamada, Completar, ImportAutomatico, ItemCompletar};
 pub use renomear::{Edicao, RenomearArquivo, Renomeacao};
 
 pub use acoes::AcaoDeCodigo;
+pub use refatoracoes::{ComandoDeRefatoracao, PedidoDeRefatoracao, Refatoracao, ResultadoDeRefatoracao};
 pub use assinatura::Assinatura;
 pub use chamadas::ItemDeChamada;
 pub use dicas::Dica;
@@ -411,6 +417,25 @@ pub trait Analisador {
         let mut saida = acoes::corrigir_sintaxe(uri, &diagnosticos, inicio, fim);
         saida.push(acoes::organizar_imports(uri, texto));
         saida
+    }
+
+    /// As refatorações listadas em `offset..offset + comprimento`
+    /// (docs/LSP-ESPECIFICACAO.md §13.11.1); `criar_arquivos` é o
+    /// `supportsFileCreation` do cliente.
+    fn refatoracoes(&mut self, _documentos: &DocumentStore, _uri: &str, _offset: usize, _comprimento: usize, _criar_arquivos: bool) -> Vec<Refatoracao> {
+        Vec::new()
+    }
+
+    /// `refactor.perform`/`refactor.validate` de uma refatoração legada
+    /// (§13.11.2).
+    fn executar_refatoracao(&mut self, _documentos: &DocumentStore, _uri: &str, _pedido: &PedidoDeRefatoracao) -> ResultadoDeRefatoracao {
+        ResultadoDeRefatoracao::NaoAnalisado
+    }
+
+    /// `dart.refactor.move_top_level_to_file` para o arquivo `destino`
+    /// (§13.11.9 e).
+    fn mover_para_arquivo(&mut self, _documentos: &DocumentStore, _uri: &str, _offset: usize, _comprimento: usize, _destino: &str) -> ResultadoDeRefatoracao {
+        ResultadoDeRefatoracao::NaoAnalisado
     }
 
     /// Descarta estado associado ao documento quando ele sai do editor.

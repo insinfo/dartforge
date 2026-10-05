@@ -71,7 +71,8 @@ const ARQUIVO_NAO_ANALISADO: i32 = -32007;
 const ARQUIVO_COM_ERROS: i32 = -32008;
 const CLIENTE_NAO_APLICOU: i32 = -32009;
 const RECURSO_DESLIGADO: i32 = -32012;
-/// Os comandos de `workspace/executeCommand` que o servidor executa.
+/// Os comandos de `workspace/executeCommand`, na ordem do Dart
+/// (`constants.dart:99-111` e `refactoring_processor.dart:20-28`).
 const COMANDOS: &[&str] = &[
     "dart.edit.sortMembers",
     "dart.edit.organizeImports",
@@ -79,8 +80,31 @@ const COMANDOS: &[&str] = &[
     "dart.edit.fixAllInWorkspace.preview",
     "dart.edit.fixAllInWorkspace",
     "dart.edit.sendWorkspaceEdit",
+    "refactor.perform",
+    "refactor.validate",
     "dart.logAction",
+    "dart.refactor.convert_all_formal_parameters_to_named",
+    "dart.refactor.convert_selected_formal_parameters_to_named",
+    "dart.refactor.move_selected_formal_parameters_left",
+    "dart.refactor.move_top_level_to_file",
 ];
+/// Os `RefactoringKind` que o construtor do protocolo aceita
+/// (`protocol_common.dart:3702-3724`).
+const TIPOS_DE_REFATORACAO: &[&str] = &[
+    "CONVERT_GETTER_TO_METHOD",
+    "CONVERT_METHOD_TO_GETTER",
+    "EXTRACT_LOCAL_VARIABLE",
+    "EXTRACT_METHOD",
+    "EXTRACT_WIDGET",
+    "INLINE_LOCAL_VARIABLE",
+    "INLINE_METHOD",
+    "MOVE_FILE",
+    "RENAME",
+];
+/// `RefactoringComputeStatusFailure`.
+const FALHA_DE_CALCULO: i32 = -32014;
+/// `ContentModified`.
+const CONTEUDO_MODIFICADO: i32 = -32801;
 /// As ações de fonte de `codeAction`, na ordem do Dart: título, espécie e
 /// comando.
 const ACOES_DE_FONTE: &[(&str, &str, &str)] = &[
@@ -1250,6 +1274,7 @@ impl<A: Analisador> Servidor<A> {
                 saida.extend(ordenar_acoes(correcoes, coluna_do_pedido));
                 saida.extend(ordenar_acoes(assistencias, coluna_do_pedido));
                 saida.extend(refatoracoes);
+                saida.extend(self.refatoracoes_por_comando(&u, inicio, fim, apenas.as_deref()));
                 resposta(&id, json!(saida))
             }
             "workspace/executeCommand" => self.executar_comando(&id, mensagem),
@@ -1573,8 +1598,248 @@ impl<A: Analisador> Servidor<A> {
     /// aplicar, o pedido `workspace/applyEdit`: a resposta do
     /// `executeCommand` sai quando o cliente responder
     /// ([`Servidor::resposta_do_cliente`]).
+    /// As refatorações de `codeAction` (§13.11.1): depois dos assists, na
+    /// ordem do Dart, na forma de comando; só com `workspace/applyEdit` e
+    /// com `refactor` pedido. As legadas passam pelo `shouldIncludeKind`; a
+    /// do `RefactoringProcessor` (Move) não.
+    fn refatoracoes_por_comando(&mut self, u: &str, inicio: usize, fim: usize, apenas: Option<&[String]>) -> Vec<Value> {
+        let pedidas = apenas.is_none_or(|l| l.iter().any(|w| w == "refactor" || w.starts_with("refactor.")));
+        if !pedidas || !self.aplicar_edicoes || !u.ends_with(".dart") {
+            return Vec::new();
+        }
+        let Some(caminho) = url::Url::parse(u).ok().filter(|x| x.scheme() == "file").and_then(|x| x.to_file_path().ok()) else {
+            return Vec::new();
+        };
+        let caminho = caminho.to_string_lossy().into_owned();
+        let lista = self.analisador.refatoracoes(&self.documentos, u, inicio, fim - inicio, self.criar_arquivos);
+        let Some(texto) = self.documentos.get(u) else { return Vec::new() };
+        let o16 = texto[..inicio.min(texto.len())].encode_utf16().count();
+        let l16 = texto[inicio.min(texto.len())..fim.min(texto.len())].encode_utf16().count();
+        let versao = self.documentos.version(u);
+        let mut saida = Vec::new();
+        for r in lista {
+            match r.comando {
+                crate::ComandoDeRefatoracao::Mover { caminho_padrao } => {
+                    let padrao = url::Url::from_file_path(&caminho_padrao).map(|x| x.to_string()).unwrap_or_default();
+                    let c = json!({
+                        "title": r.titulo,
+                        "command": "dart.refactor.move_top_level_to_file",
+                        "arguments": [{"filePath": caminho, "selectionOffset": o16, "selectionLength": l16, "arguments": [padrao]}],
+                    });
+                    saida.push(json!({
+                        "title": r.titulo,
+                        "kind": r.especie,
+                        "command": c,
+                        "data": {"parameters": [{
+                            "actionLabel": "Move",
+                            "defaultValue": padrao,
+                            "filters": {"Dart": ["dart"]},
+                            "kind": "saveUri",
+                            "parameterLabel": "Move to:",
+                            "parameterTitle": "Select a file to move to",
+                        }]},
+                    }));
+                }
+                crate::ComandoDeRefatoracao::Legado(kind) => {
+                    let casa = |w: &String| r.especie == w.as_str() || r.especie.starts_with(&format!("{w}."));
+                    let incluida = match (apenas, &self.especies_de_acao) {
+                        (Some(l), _) => l.iter().any(casa),
+                        (None, Some(l)) if self.acoes_literais => l.iter().any(casa),
+                        _ => true,
+                    };
+                    if !incluida {
+                        continue;
+                    }
+                    let c = json!({
+                        "title": r.titulo,
+                        "command": "refactor.perform",
+                        "arguments": [kind, caminho, versao, o16, l16, null],
+                    });
+                    saida.push(if self.acoes_literais { json!({"title": r.titulo, "kind": r.especie, "command": c}) } else { c });
+                }
+            }
+        }
+        saida
+    }
+
+    /// O texto vigente do arquivo (o aberto, senão o do disco).
+    fn texto_do_arquivo(&self, uri: &str, caminho: &str) -> Option<String> {
+        self.documentos.get(uri).map(str::to_string).or_else(|| std::fs::read_to_string(caminho).ok())
+    }
+
+    /// `refactor.perform`/`refactor.validate` (§13.11.2).
+    fn executar_refatoracao_legada(&mut self, id: &Value, mensagem: &Value, so_validar: bool) -> Value {
+        let nome = if so_validar { "Validate Refactor" } else { "Perform Refactor" };
+        let invalidos = || {
+            erro(
+                id,
+                ARGUMENTOS_DE_COMANDO_INVALIDOS,
+                format!(
+                    "{nome} requires 6 parameters: kind: String (RefactoringKind), filePath: String, docVersion: int?, offset: int, length: int, options: Map<String, Object?>"
+                ),
+            )
+        };
+        // `parseArgList`: posicional, 6 itens; outra forma vira `{}`.
+        let argumentos = mensagem.pointer("/params/arguments").and_then(Value::as_array).cloned().unwrap_or_default();
+        if argumentos.len() != 6 {
+            return invalidos();
+        }
+        let (Some(kind), Some(caminho)) = (argumentos[0].as_str(), argumentos[1].as_str()) else { return invalidos() };
+        let versao = match &argumentos[2] {
+            Value::Null => None,
+            v => match v.as_i64() {
+                Some(n) => Some(n),
+                None => return invalidos(),
+            },
+        };
+        let (Some(offset), Some(comprimento)) = (argumentos[3].as_i64(), argumentos[4].as_i64()) else { return invalidos() };
+        let opcoes = match &argumentos[5] {
+            Value::Null => None,
+            Value::Object(m) => Some(m.clone()),
+            _ => return invalidos(),
+        };
+        // `requireResolvedUnit(path)`.
+        let uri = url::Url::from_file_path(caminho).ok().map(|u| u.to_string());
+        let texto = uri.as_deref().and_then(|u| self.texto_do_arquivo(u, caminho));
+        let (Some(uri), Some(texto)) = (uri, texto) else {
+            return erro(id, ARQUIVO_NAO_ANALISADO, "File is not being analyzed");
+        };
+        if !caminho.ends_with(".dart") {
+            return erro(id, ARQUIVO_NAO_ANALISADO, "File is not being analyzed");
+        }
+        if !TIPOS_DE_REFATORACAO.contains(&kind) {
+            return erro(id, ERRO_NAO_TRATADO, format!("Exception: Illegal enum value: {kind}"));
+        }
+        if matches!(kind, "MOVE_FILE" | "RENAME") {
+            return erro(id, ARGUMENTOS_DE_COMANDO_INVALIDOS, format!("Unknown RefactoringKind RefactoringKind.{kind} was supplied to {nome}"));
+        }
+        if offset < 0 || comprimento < 0 {
+            return erro(id, ERRO_NAO_TRATADO, format!("RangeError: offset {offset}, length {comprimento}"));
+        }
+        let ini = byte_de_utf16(&texto, offset as usize);
+        let fim = byte_de_utf16(&texto, (offset + comprimento) as usize);
+        let pedido = crate::PedidoDeRefatoracao { kind: kind.to_string(), offset: ini, comprimento: fim - ini, opcoes, so_validar };
+        let resultado = self.analisador.executar_refatoracao(&self.documentos, &uri, &pedido);
+        self.resposta_de_refatoracao(id, nome, resultado, if so_validar { None } else { Some((uri, versao)) })
+    }
+
+    /// A resposta de uma refatoração calculada. `versionada`: o arquivo e a
+    /// versão pedida, para o `ContentModified` do `refactor.perform`.
+    fn resposta_de_refatoracao(
+        &mut self,
+        id: &Value,
+        rotulo: &'static str,
+        resultado: crate::ResultadoDeRefatoracao,
+        versionada: Option<(String, Option<i64>)>,
+    ) -> Value {
+        use crate::ResultadoDeRefatoracao as R;
+        let validar = rotulo == "Validate Refactor";
+        match resultado {
+            R::NaoAnalisado => erro(id, ARQUIVO_NAO_ANALISADO, "File is not being analyzed"),
+            R::ArgumentosInvalidos(m) => erro(id, ARGUMENTOS_DE_COMANDO_INVALIDOS, m),
+            R::ErroInterno(m) => erro(id, ERRO_NAO_TRATADO, m),
+            R::Falha(motivo) => erro(id, FALHA_DE_CALCULO, motivo.unwrap_or_else(|| "Cannot compute the change. No details.".to_string())),
+            R::Erro(m) if validar => resposta(id, json!({"valid": false, "message": m})),
+            R::Erro(m) => {
+                // `showErrorMessageToUser` e sucesso `null`.
+                self.saidas_pendentes.push(json!({
+                    "jsonrpc": "2.0",
+                    "method": "window/showMessage",
+                    "params": {"type": 1, "message": m},
+                }));
+                resposta(id, Value::Null)
+            }
+            R::Valido => resposta(id, if validar { json!({"valid": true}) } else { Value::Null }),
+            R::Mudanca { .. } if validar => resposta(id, json!({"valid": true})),
+            R::Mudanca { edicoes, criar } => {
+                if edicoes.is_empty() && criar.is_none() {
+                    return resposta(id, Value::Null);
+                }
+                if let Some((uri, Some(v))) = &versionada
+                    && Some(*v) != self.documentos.version(uri).map(i64::from)
+                {
+                    return erro(id, CONTEUDO_MODIFICADO, "Document was modified before operation completed");
+                }
+                let edicao = match criar {
+                    Some((novo, conteudo)) => {
+                        let mut e = self.edicao_de_workspace(&edicoes, Some(json!({"kind": "create", "uri": novo, "options": {"ignoreIfExists": true}})));
+                        if !conteudo.is_empty()
+                            && let Some(l) = e["documentChanges"].as_array_mut()
+                        {
+                            l.push(json!({
+                                "textDocument": {"uri": novo, "version": null},
+                                "edits": [{"range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "newText": conteudo}],
+                            }));
+                        }
+                        e
+                    }
+                    None => self.edicao_de_workspace(&edicoes, None),
+                };
+                self.pedir_aplicacao(id, rotulo, edicao)
+            }
+        }
+    }
+
+    /// Os comandos do `RefactoringProcessor` (§13.11.2, "Comandos do
+    /// framework novo").
+    fn executar_refatoracao_nova(&mut self, id: &Value, mensagem: &Value, comando: &'static str) -> Value {
+        let invalidos = || {
+            erro(
+                id,
+                ARGUMENTOS_DE_COMANDO_INVALIDOS,
+                "Refactoring operations require 4 parameters: filePath: String, offset: int, length: int, arguments: List",
+            )
+        };
+        let argumentos = mensagem.pointer("/params/arguments").and_then(Value::as_array).cloned().unwrap_or_default();
+        let parametros = match argumentos.as_slice() {
+            [] => json!({}),
+            [unico] if unico.is_object() => unico.clone(),
+            _ => return erro(id, ARGUMENTOS_DE_COMANDO_INVALIDOS, format!("{comando} requires a single Map argument")),
+        };
+        let (Some(caminho), Some(offset), Some(comprimento), Some(lista)) = (
+            parametros.get("filePath").and_then(Value::as_str),
+            parametros.get("selectionOffset").and_then(Value::as_i64),
+            parametros.get("selectionLength").and_then(Value::as_i64),
+            parametros.get("arguments").and_then(Value::as_array),
+        ) else {
+            return invalidos();
+        };
+        let uri = url::Url::from_file_path(caminho).ok().map(|u| u.to_string());
+        let texto = uri.as_deref().and_then(|u| self.texto_do_arquivo(u, caminho));
+        let (Some(uri), Some(texto)) = (uri, texto) else {
+            return erro(id, ARQUIVO_NAO_ANALISADO, "File is not being analyzed");
+        };
+        if !caminho.ends_with(".dart") {
+            return erro(id, ARQUIVO_NAO_ANALISADO, "File is not being analyzed");
+        }
+        if offset < 0 || comprimento < 0 {
+            return erro(id, ERRO_NAO_TRATADO, format!("RangeError: offset {offset}, length {comprimento}"));
+        }
+        let ini = byte_de_utf16(&texto, offset as usize);
+        let fim = byte_de_utf16(&texto, (offset + comprimento) as usize);
+        let resultado = if comando == "dart.refactor.move_top_level_to_file" {
+            // `arguments[0] as String`: outro tipo lança.
+            match lista.first().and_then(Value::as_str) {
+                Some(destino) => self.analisador.mover_para_arquivo(&self.documentos, &uri, ini, fim - ini, destino),
+                None => crate::ResultadoDeRefatoracao::ErroInterno("type 'Null' is not a subtype of type 'String' in type cast".to_string()),
+            }
+        } else {
+            // As experimentais (`analyzeAvailability`): sem a mudança.
+            crate::ResultadoDeRefatoracao::Falha(None)
+        };
+        self.resposta_de_refatoracao(id, comando, resultado, None)
+    }
+
     fn executar_comando(&mut self, id: &Value, mensagem: &Value) -> Value {
         let comando = mensagem.pointer("/params/command").and_then(Value::as_str).unwrap_or("").to_string();
+        match comando.as_str() {
+            "refactor.perform" => return self.executar_refatoracao_legada(id, mensagem, false),
+            "refactor.validate" => return self.executar_refatoracao_legada(id, mensagem, true),
+            _ => {}
+        }
+        if let Some(&c) = COMANDOS.iter().find(|c| c.starts_with("dart.refactor.") && **c == comando) {
+            return self.executar_refatoracao_nova(id, mensagem, c);
+        }
         let rotulo: &'static str = match comando.as_str() {
             "dart.edit.sortMembers" => "Sort Members",
             "dart.edit.organizeImports" => "Organize Imports",
@@ -2302,6 +2567,18 @@ fn id_da_acao(especie: &str) -> Option<String> {
 /// começa na coluna mais próxima da do pedido, com os diagnósticos das
 /// outras de mesma edição fundidos (as de edição diferente saem); depois,
 /// prioridade decrescente e ordem de chegada.
+/// O offset em bytes do offset UTF-16 `u` (o fim do texto se passar dele).
+fn byte_de_utf16(texto: &str, u: usize) -> usize {
+    let mut contados = 0usize;
+    for (i, c) in texto.char_indices() {
+        if contados >= u {
+            return i;
+        }
+        contados += c.len_utf16();
+    }
+    texto.len()
+}
+
 fn ordenar_acoes(acoes: Vec<Value>, coluna_do_pedido: i64) -> Vec<Value> {
     let mut grupos: Vec<(String, Vec<Value>)> = Vec::new();
     for a in acoes {

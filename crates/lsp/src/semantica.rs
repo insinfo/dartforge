@@ -348,6 +348,22 @@ impl Analisador for AnalisadorSemantico {
         saida
     }
 
+    fn refatoracoes(&mut self, documentos: &DocumentStore, uri: &str, offset: usize, comprimento: usize, criar_arquivos: bool) -> Vec<crate::Refatoracao> {
+        let Some(projeto) = self.biblioteca(documentos, uri) else { return Vec::new() };
+        let Some(unidade) = projeto.unidade_do_uri(uri) else { return Vec::new() };
+        projeto.refatoracoes(unidade, offset, comprimento, criar_arquivos)
+    }
+
+    fn executar_refatoracao(&mut self, documentos: &DocumentStore, uri: &str, pedido: &crate::PedidoDeRefatoracao) -> crate::ResultadoDeRefatoracao {
+        let Some(projeto) = self.projeto(documentos, uri) else { return crate::ResultadoDeRefatoracao::NaoAnalisado };
+        crate::refatoracoes_exec::executar(&projeto, uri, pedido)
+    }
+
+    fn mover_para_arquivo(&mut self, documentos: &DocumentStore, uri: &str, offset: usize, comprimento: usize, destino: &str) -> crate::ResultadoDeRefatoracao {
+        let Some(projeto) = self.projeto(documentos, uri) else { return crate::ResultadoDeRefatoracao::NaoAnalisado };
+        crate::refatoracoes_exec::mover(&projeto, uri, offset, comprimento, destino)
+    }
+
     fn dobras(&mut self, uri: &str, texto: &str, so_linhas: bool) -> Vec<crate::Dobra> {
         self.sintatico.dobras(uri, texto, so_linhas)
     }

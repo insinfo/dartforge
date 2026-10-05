@@ -11,8 +11,9 @@
 //! | `Split variable declaration` | `refactor.splitVariableDeclaration` | local `var`/tipo (não `final`/`const`) com uma variável e inicializador, cursor até o fim do nome: `T x;` + `x = e;` |
 //! | `Use curly braces` | `refactor.surround.curlyBraces` | `if`/`else`/`for`/`while`/`do` com corpo sem chaves |
 //! | `Assign value to new local variable` | `refactor.assignToVariable` | comando de expressão de tipo não `void`: `var nome = …` |
-//! | `Inline Local Variable` | `refactor.inline` | local com inicializador e sem outra atribuição, cursor na declaração ou num uso |
-//! | `Extract Local Variable` | `refactor.extract` | expressão (não alvo de atribuição) num corpo de função: `var nome = e;` antes do comando |
+//!
+//! `Inline Local Variable` e `Extract Local Variable` são refatorações por
+//! comando (`refatoracoes.rs` e `refatoracoes_exec.rs`).
 //!
 //! Os nomes novos seguem o `getVariableNameSuggestionsForExpression` do
 //! Dart: o da expressão (identificador, propriedade, método sem
@@ -244,9 +245,8 @@ impl Projeto {
             }
         }
 
-        // Inline Local Variable e Extract Local Variable.
-        saida.extend(self.embutir_local(uri, unidade, offset));
-        saida.extend(self.extrair_local(uri, unidade, offset));
+        // `Inline Local Variable` e `Extract Local Variable` são refatorações
+        // por comando (`refatoracoes.rs`), não assistências.
         saida
     }
 
@@ -296,119 +296,6 @@ impl Projeto {
             edicoes.push((Span { start: antes, end: bs.end }, format!(" {{\n{prefixo}  {dentro}\n{prefixo}}}")));
         }
         Some(acao(uri, "Use curly braces", "refactor.surround.curlyBraces", edicoes))
-    }
-
-    /// `Inline Local Variable`: troca cada uso pelo inicializador e apaga a
-    /// declaração, quando o local não é atribuído de novo.
-    fn embutir_local(&self, uri: &str, unidade: UnitId, offset: usize) -> Option<AcaoDeCodigo> {
-        let u = self.programa().unit(unidade);
-        let ast = &u.ast;
-        let fonte = u.source.as_str();
-        let corpos = &self.consulta.corpos.units[unidade.0 as usize];
-        // A declaração: o nome sob o cursor ou o local que um uso refere.
-        let uso = ast.exprs.iter().position(|e| matches!(&e.kind, ExprKind::Identifier(n) if n.span.start <= offset && offset <= n.span.end));
-        let decl = uso.and_then(|i| corpos.declaracao_local(ExprId(i as u32)));
-        let (sid, l, var) = ast.stmts.iter().enumerate().find_map(|(i, s)| match &s.kind {
-            StmtKind::Variables(l) if l.variables.len() == 1 => {
-                let v = &l.variables[0];
-                let casa = decl == Some(v.name.span.start) || (v.name.span.start <= offset && offset <= v.name.span.end);
-                casa.then_some((i, l, v))
-            }
-            _ => None,
-        })?;
-        let inicializador = var.initializer?;
-        let decl_offset = var.name.span.start;
-        let mut usos = Vec::new();
-        for (i, e) in ast.exprs.iter().enumerate() {
-            if corpos.declaracao_local(ExprId(i as u32)) != Some(decl_offset) || !matches!(e.kind, ExprKind::Identifier(_)) {
-                continue;
-            }
-            // Atribuição ao local: não embute.
-            if ast.exprs.iter().any(|x| matches!(&x.kind, ExprKind::Assign { target, .. } if target.0 as usize == i)) {
-                return None;
-            }
-            usos.push(e.span);
-        }
-        let _ = l;
-        let is = ast.expr(inicializador).span;
-        let texto = &fonte[is.start..is.end];
-        let simples = matches!(ast.expr(inicializador).kind, ExprKind::Identifier(_) | ExprKind::Property { .. } | ExprKind::Call { .. } | ExprKind::Int(_) | ExprKind::Double(_) | ExprKind::String(_) | ExprKind::Bool(_) | ExprKind::Null | ExprKind::Parenthesized(_) | ExprKind::InstanceCreation { .. } | ExprKind::List { .. } | ExprKind::SetOrMap { .. } | ExprKind::This);
-        let substituto = if simples { texto.to_string() } else { format!("({texto})") };
-        let s = ast.stmt(StmtId(sid as u32)).span;
-        let ini_linha = fonte[..s.start].rfind('\n').map_or(0, |k| k + 1);
-        let fim_linha = fonte[s.end..].find('\n').map_or(fonte.len(), |k| s.end + k + 1);
-        let apagar = if fonte[ini_linha..s.start].trim().is_empty() && fonte[s.end..fim_linha].trim().is_empty() {
-            Span { start: ini_linha, end: fim_linha }
-        } else {
-            s
-        };
-        let mut edicoes = vec![(apagar, String::new())];
-        edicoes.extend(usos.into_iter().map(|span| (span, substituto.clone())));
-        Some(acao(uri, "Inline Local Variable", "refactor.inline", edicoes))
-    }
-
-    /// `Extract Local Variable`: a expressão sob o cursor (a mais interna que
-    /// não é nome declarado nem alvo de atribuição) vira um local antes do
-    /// comando.
-    fn extrair_local(&self, uri: &str, unidade: UnitId, offset: usize) -> Option<AcaoDeCodigo> {
-        let u = self.programa().unit(unidade);
-        let ast = &u.ast;
-        let fonte = u.source.as_str();
-        let corpos = &self.consulta.corpos.units[unidade.0 as usize];
-        let alvos_de_atribuicao: HashSet<u32> = ast
-            .exprs
-            .iter()
-            .filter_map(|e| match &e.kind {
-                ExprKind::Assign { target, .. } => Some(target.0),
-                _ => None,
-            })
-            .collect();
-        // O comando do bloco que contém o cursor (onde o local entra).
-        let comando = ast
-            .stmts
-            .iter()
-            .filter(|s| s.span.start <= offset && offset <= s.span.end && !matches!(s.kind, StmtKind::Block(_)))
-            .filter(|s| {
-                ast.stmts.iter().any(|b| match &b.kind {
-                    StmtKind::Block(cmds) => cmds.iter().any(|c| ast.stmt(*c).span == s.span),
-                    _ => false,
-                })
-            })
-            .min_by_key(|s| s.span.end - s.span.start)?;
-        let (eid, e) = ast
-            .exprs
-            .iter()
-            .enumerate()
-            .filter(|(i, e)| {
-                e.span.start <= offset
-                    && offset <= e.span.end
-                    && comando.span.start <= e.span.start
-                    && e.span.end <= comando.span.end
-                    && !alvos_de_atribuicao.contains(&(*i as u32))
-                    && !matches!(e.kind, ExprKind::Assign { .. } | ExprKind::FunctionExpression(_) | ExprKind::CascadeTarget)
-            })
-            .min_by_key(|(_, e)| e.span.end - e.span.start)?;
-        // Alvo de chamada (`f` em `f(x)`): extrai a chamada inteira.
-        let (eid, e) = ast
-            .exprs
-            .iter()
-            .enumerate()
-            .find(|(_, x)| matches!(&x.kind, ExprKind::Call { target, .. } if target.0 as usize == eid))
-            .unwrap_or((eid, e));
-        let tipo = corpos.get_type(ExprId(eid as u32));
-        if tipo.is_some_and(|t| matches!(self.consulta.tabela.get(t), Type::Void)) {
-            return None;
-        }
-        let nome = self.nome_sugerido(unidade, ExprId(eid as u32), tipo, offset);
-        let prefixo = indentacao(fonte, comando.span.start);
-        let texto = &fonte[e.span.start..e.span.end];
-        let decl = format!("var {nome} = {texto};\n{prefixo}");
-        Some(acao(
-            uri,
-            "Extract Local Variable",
-            "refactor.extract",
-            vec![(Span { start: comando.span.start, end: comando.span.start }, decl), (e.span, nome)],
-        ))
     }
 
     /// O nome que o Dart sugere para guardar `expr`.

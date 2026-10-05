@@ -11788,7 +11788,38 @@ O formato dos imports inseridos é o do `DartFileEditBuilder.importLibrary` (ord
 
 #### 13.11.11 Estado no DartForge e plano
 
-**O que há hoje.**
+**Estado em 2026-10-05 (escrito, não compilado).** As partes A e B estão escritas:
+
+* **Listagem** (`crates/lsp/src/refatoracoes.rs`): a árvore no formato do analyzer na forma
+  resolvida (`arvore_analyzer::construir_resolvida`: as chamadas de construtor sem `new` viram
+  `InstanceCreationExpression`, como no `AstRewriter.methodInvocation`; marcas de origem nos nós
+  para achar o elemento), o `_ExtractMethodAnalyzer` inteiro (com o primeiro fatal e a mensagem
+  dele), o laço do `ExtractLocalRefactoringImpl._checkSelection`, os elementos do
+  `NodeLocator`/`getElementOfNode` para Inline Local/Method e Convert Getter/Method, o
+  `nodeCovering` e o `_membersToMove` do Move (com as subclasses de `sealed`). O servidor emite
+  as ações na forma `command` (`refactor.perform` com os 6 argumentos posicionais em UTF-16; o
+  Move com `dart.refactor.move_top_level_to_file` e `data.parameters`), depois dos assists, com
+  os portões de 13.11.1, e anuncia os 13 comandos. As duas assistências de edição direta antigas
+  saíram de `assistencias.rs`.
+* **Execução** (`refatoracoes_exec.rs`, `refatoracoes_metodo.rs`, `refatoracoes_embutir.rs`,
+  `refatoracoes_mover.rs`): `refactor.perform`/`refactor.validate` com `parseArgList`, a
+  validação, os erros `-32001`/`-32006`/`-32007`/`-32014`/`-32801`, o `showMessage` do
+  `hasError` e o `workspace/applyEdit`; o `RefactoringStatus`; o `SourceChange` com a ordem e as
+  sobreposições do `addEditForSource` e a inversão do `sortSourceEditsForLsp`; os utilitários do
+  `CorrectionUtils`; validação e sugestão de nomes; Extract Local (alvo da declaração, atalho do
+  `ExpressionStatement`, `const`/`final`/tipo pelos lints); Inline Local (espécies das
+  referências, parênteses pela precedência, interpolação); Convert Getter/Method (família da
+  hierarquia, `get`, `()`); Extract Method (parâmetros, retorno com LUB e `ExitDetector`
+  portado, `async`, ocorrências com o padrão normalizado e o contexto estático, getter,
+  `getTypeSource` com os imports, `validateCreateFunction`/`validateCreateMethod`, a declaração
+  e o `addLibraryImports`); Inline Method (partes, `_VariablesVisitor`, `_ReferenceProcessor`,
+  `this`/`Classe.` implícitos, nomes em conflito pelo `VisibleRangesComputer`, closure imediata,
+  remoção da declaração); Move (`ImportAnalyzer`, cabeçalho, faixas dos grupos,
+  `importLibrary`/`_addLibraryImports` do construtor de edições, imports nas outras
+  bibliotecas, criação do arquivo). As três experimentais respondem `-32014` (o
+  `analyzeAvailability` não está especificado aqui).
+
+**O que havia antes.**
 
 | Peça | Onde | Situação |
 |---|---|---|
