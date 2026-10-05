@@ -343,6 +343,31 @@ impl Motor {
         // das portas: a troca só pode virar padrão depois de medida no
         // placar (nenhum FP novo em código publicado).
         let por_pulados = std::env::var("DARTFORGE_PORTAS_DE_SINTAXE").is_ok_and(|v| v == "pulados");
+        // O outline sai antes das verificações de declaração: a porta das
+        // cláusulas (`analise::clausulas`) usa as decisões dos mixins, que
+        // precisam de tipos (`dartforge_types::fase_mixins`).
+        let mut table = dartforge_types::TypeTable::new();
+        // Mensagens com o alias de `typedef` e o `Never?` escritos (C9).
+        table.preservar_exibicao = true;
+        let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
+        let (mut outline, diags_outline, unidades_outline) =
+            dartforge_types::resolve_outline_com_unidades(&program, &interner, &mut table, &core);
+        /// Limpa as decisões dos mixins ao sair (por qualquer caminho).
+        struct LimparDecisoes;
+        impl Drop for LimparDecisoes {
+            fn drop(&mut self) {
+                dartforge_analise::clausulas::definir_decisoes_de_mixins(None);
+            }
+        }
+        let _limpar_decisoes = LimparDecisoes;
+        dartforge_analise::clausulas::definir_decisoes_de_mixins(Some(dartforge_types::fase_mixins::decisoes(
+            &program,
+            &interner,
+            &mut table,
+            &core,
+            &outline,
+            &libs_proprias,
+        )));
         // 3. Nomes duplicados (`crates/analise`), por biblioteca do lote.
         for lib in &libs_proprias {
             let biblioteca = program.library(*lib);
@@ -483,13 +508,7 @@ impl Motor {
             return None;
         }
 
-        // 4. Tipos.
-        let mut table = dartforge_types::TypeTable::new();
-        // Mensagens com o alias de `typedef` e o `Never?` escritos (C9).
-        table.preservar_exibicao = true;
-        let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
-        let (mut outline, diags_outline, unidades_outline) =
-            dartforge_types::resolve_outline_com_unidades(&program, &interner, &mut table, &core);
+        // 4. Tipos (o outline já foi resolvido antes das cláusulas).
         let indice = Indice::novo(&program, &unidades_proprias);
         // Inicializadores: `types` os infere em toda passada, de qualquer
         // biblioteca. Uma passada sem corpo nenhum (`&[]`) estabiliza os tipos
@@ -611,6 +630,8 @@ impl Motor {
         // `InheritanceOverrideVerifier` chega a conferi-las.
         for lib in &libs_proprias {
             let classes = dartforge_analise::clausulas::verificador_de_heranca_prossegue(&program, *lib, &interner);
+            // `verify()`: os conflitos da interface antes dos membros.
+            atribuidos.extend(dartforge_types::fase_heranca::inconsistencias(&program, &interner, &mut table, &core, &outline, &classes));
             atribuidos.extend(dartforge_types::sobrescritas::sobrescritas_invalidas(
                 &program, &interner, &mut table, &core, &outline, &classes,
             ));
@@ -633,6 +654,13 @@ impl Motor {
             atribuidos.extend(dartforge_types::variancia::variancia(&program, &interner, &table, &outline, *lib));
             atribuidos.extend(dartforge_types::variancia::posicoes_nao_covariantes_na_representacao(&program, &table, &outline, *lib));
             atribuidos.extend(dartforge_types::a_main::funcao_main(&program, &interner, &mut table, &core, &outline, *lib));
+            // `conflicting_generic_interfaces`, com a porta das cláusulas.
+            {
+                let aberta = |id: dartforge_elements::model::ClassId| {
+                    dartforge_analise::clausulas::porta(&program, *lib, &interner, id) == dartforge_analise::clausulas::Porta::Aberta
+                };
+                atribuidos.extend(dartforge_types::fase_genericos::conflitos_genericos(&program, &interner, &mut table, &core, &outline, *lib, &aberta));
+            }
             // Declarações `extension type`: ciclos, fundo, conflitos e `implements`.
             atribuidos.extend(dartforge_types::tipos_de_extensao::verificar(&program, &interner, &mut table, &core, &outline, *lib));
             // FASES NOVAS (INFRA etapa 6): `OverrideVerifier`.

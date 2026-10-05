@@ -5155,6 +5155,25 @@ relatos iguais do analyzer contam um.
      vem depois de `.`") descarta a classe inteira por causa do construtor `A2.make` lido como método? —
      conferir; e o método de nome vazio precisa existir no modelo com nome `""`.
 
+**Estado em 2026-10-05 (escrito, não compilado), herança e mixins.**
+- `crates/types/src/fase_heranca.rs::inconsistencias`, ligada antes de `sobrescritas_invalidas`, relata os
+  conflitos da interface da `Heranca`: `inconsistent_inheritance_getter_and_method` e
+  `inconsistent_inheritance` (candidatos `Classe.nome (tipo)`, sem alias, um relato por texto). Relata também
+  `no_combined_super_signature`, para método ou operador de instância com tipo omitido cujos sobrescritos
+  (todos métodos) o `combinar` não junta. `sobrescritas_invalidas` pula esses métodos, como o `continue` do
+  `verify()`.
+- `crates/types/src/fase_genericos.rs::conflitos_genericos` porta o `InterfacesMerger` do `ClassHierarchy`
+  com um `topMerge` que falha onde o original lança. A porta das cláusulas vale para classe, alias, enum e
+  mixin; tipo de extensão não tem porta. Fica de fora a classe com mixin genérico escrito sem argumentos e
+  com restrições `on`, porque a inferência de mixins não foi portada.
+- `crates/types/src/fase_mixins.rs::decisoes` decide cada mixin de `with` com tipos:
+  `mixin_application_not_implemented_interface` (restrições substituídas),
+  `mixin_application_no_concrete_super_invoked_member/_setter` (nomes do `MixinSuperInvokedNamesCollector`,
+  em pré-ordem; `superImplemented[mixinTypeIndex]`) e `mixin_application_concrete_super_invoked_member_type`
+  (`isCorrectOverrideOf`, com os covariantes como `Object?`). As decisões entram na porta de
+  `analise::clausulas` por `definir_decisoes_de_mixins`. A `paridade` resolve o outline antes das
+  verificações de declaração e limpa as decisões ao sair. Sem decisão, a porta fica incerta como antes.
+
 ##### `conflicting_generic_interfaces` (perda 26: FN 26; nada emitido hoje)
 - **Emissão:** `ErrorVerifier._checkForConflictingGenerics` (`src/generated/error_verifier.dart:2652-2678`),
   chamado de `_checkClassInheritance` (`:1893`; classes com alguma cláusula, aliases de classe, enums com

@@ -337,6 +337,10 @@ pub fn sobrescritas_invalidas(
     outline: &OutlineTypes,
     classes: &[ClassId],
 ) -> Vec<(UnitId, Diagnostic)> {
+    // `_reportNoCombinedSuperSignature` relatado: o método pula o
+    // `_checkDeclaredMember` (`inheritance_override.dart:259-263`).
+    let sem_assinatura: std::collections::HashSet<FunctionElementId> =
+        crate::fase_heranca::metodos_sem_assinatura_combinada(program, interner, table, core, outline, classes).into_iter().map(|(_, f, _, _)| f).collect();
     let mut cx = Ctx { program, interner, table, core, outline, heranca: crate::heranca::Heranca::default(), biblioteca: dartforge_elements::model::LibraryId(0) };
     let mut saida = Vec::new();
     // Acessores e métodos por nó da fonte.
@@ -442,6 +446,9 @@ pub fn sobrescritas_invalidas(
             _ => true,
         });
         for (f, span) in declarados(cid) {
+            if sem_assinatura.contains(&f) {
+                continue;
+            }
             let Some(tipo) = outline.functions.get(f.0 as usize).map(|d| d.signature) else { continue };
             let conf = Conferencia { funcao: f, tipo, declarante: cid, span };
             cx.conferir(Conferencia { ..conf }, &supers, &mut diags);

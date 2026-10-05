@@ -25,6 +25,29 @@ use dartforge_elements::model::{
 use dartforge_frontend::ast::{self, DeclKind, TypeKind, TypedefKind};
 use dartforge_intern::{Interner, SymbolId};
 
+/// As decisões da camada de tipos sobre os mixins (`MixinElement`) das
+/// cláusulas `with` (`dartforge_types::fase_mixins::decisoes`): por
+/// `(classe, posição no with)`, `None` sem relato ou o relato
+/// (`mixin_application_not_implemented_interface`,
+/// `mixin_application_no_concrete_super_invoked_*`,
+/// `mixin_application_concrete_super_invoked_member_type`). Sem decisão, a
+/// porta fica incerta como antes.
+pub type DecisoesDeMixins = std::collections::HashMap<(ClassId, usize), Option<Diagnostic>>;
+
+thread_local! {
+    static DECISOES_DE_MIXINS: std::cell::RefCell<Option<std::rc::Rc<DecisoesDeMixins>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Define (ou limpa, com `None`) as decisões dos mixins para as análises
+/// seguintes desta thread.
+pub fn definir_decisoes_de_mixins(d: Option<DecisoesDeMixins>) {
+    DECISOES_DE_MIXINS.with(|c| *c.borrow_mut() = d.map(std::rc::Rc::new));
+}
+
+fn decisao_de_mixin(id: ClassId, i: usize) -> Option<Option<Diagnostic>> {
+    DECISOES_DE_MIXINS.with(|c| c.borrow().as_ref().and_then(|m| m.get(&(id, i)).cloned()))
+}
+
 /// O resultado da porta do `ErrorVerifier` para uma declaração.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Porta {
@@ -839,7 +862,7 @@ fn mixins(
     sdk: bool,
 ) {
     let mut anteriores: Vec<ClassId> = Vec::new();
-    for &t in tipos {
+    for (posicao, &t) in tipos.iter().enumerate() {
         let m = match l.alvo(u, ast_, t, 0) {
             Alvo::Classe(m) => m,
             Alvo::NaoInterface => continue,
@@ -882,6 +905,14 @@ fn mixins(
         match el.kind {
             ClassKind::ExtensionType => {}
             ClassKind::Mixin => {
+                // Decidido com tipos (`fase_mixins`): o relato fecha a porta.
+                if let Some(decisao) = decisao_de_mixin(id, posicao) {
+                    if let Some(d) = decisao {
+                        relatos.push(d);
+                        *fechada = true;
+                    }
+                    continue;
+                }
                 // Restrições `on` e membros invocados por `super` dependem
                 // de tipos: só um mixin sem `on` e sem `super` é seguro.
                 let decl = el.decl.map(|d| {
