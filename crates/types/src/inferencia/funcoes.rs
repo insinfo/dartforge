@@ -88,6 +88,11 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             cx.funcoes.push(CtxFuncao { modificador: af.modifier, retorno: Some(ret), contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, expressoes_retornadas: Vec::new(), executavel });
             corpo_de_funcao(inf, &mut cx, &af.body, af.modifier, ret, None);
             cx.funcoes.pop();
+            // `FunctionDeclaration` (de topo, não método) com retorno escrito.
+            let fe = inf.program.function(f);
+            if fe.class.is_none() && fe.extension.is_none() && af.return_type.is_some() {
+                conjunto_desnecessario(inf, unit, function, ret);
+            }
         }
         FunctionRef::Constructor { unit, member } => {
             let ast::MemberKind::Constructor(ctor) = &inf.program.unit(unit).ast.member(member).kind else { return };
@@ -847,6 +852,40 @@ pub(crate) fn funcao_local(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast:
     cx.locais[id.0 as usize].tipo = t;
     cx.locais[id.0 as usize].funcao_local = false;
     inf.body_types.units[cx.unit.0 as usize].set_tipo_local(nome.span.start, t);
+    // A função local com retorno escrito (`parent.returnType?.type`).
+    if let Some(rt) = inf.program.unit(cx.unit).ast.function(fid).return_type
+        && let Some(&retorno) = inf.body_types.units[cx.unit.0 as usize].tipos_de_anotacoes.get(&rt)
+    {
+        conjunto_desnecessario(inf, cx.unit, fid, retorno);
+    }
+}
+
+/// `retorno` é `void`, `Future<void>` ou `FutureOr<void>`.
+fn retorno_void(inf: &BodyInferrer<'_>, t: TypeId) -> bool {
+    match inf.table.get(t) {
+        Type::Void => true,
+        Type::Interface { class, args, .. } if Some(*class) == inf.core.future_class => args.len() == 1 && matches!(inf.table.get(args[0]), Type::Void),
+        Type::FutureOr { arg, .. } => matches!(inf.table.get(*arg), Type::Void),
+        _ => false,
+    }
+}
+
+/// `UNNECESSARY_SET_LITERAL` (`_checkForUnnecessarySetLiteral`,
+/// `an611:src/error/best_practices_verifier.dart:1283-1318`): o corpo `=> {…}`
+/// é um literal de conjunto e o retorno (o do parâmetro que recebe a closure,
+/// ou o escrito da declaração) é `void`, `Future<void>` ou `FutureOr<void>`;
+/// no literal.
+pub(crate) fn conjunto_desnecessario(inf: &mut BodyInferrer<'_>, unit: UnitId, fid: ast::FunctionId, retorno: TypeId) {
+    let a = &inf.program.unit(unit).ast;
+    let ast::FunctionBody::Expression(e) = a.function(fid).body else { return };
+    if !matches!(a.expr(e).kind, ast::ExprKind::SetOrMap { .. }) || !retorno_void(inf, retorno) {
+        return;
+    }
+    let Some(t) = inf.body_types.units[unit.0 as usize].get_type(e) else { return };
+    if matches!(inf.table.get(t), Type::Interface { class, .. } if Some(*class) == inf.core.set_class) {
+        let sp = inf.span_expr(unit, e);
+        inf.aviso_com_codigo(dartforge_diagnostics::codigos::warning::UNNECESSARY_SET_LITERAL, sp, &[]);
+    }
 }
 
 /// Metadados (anotações) e argumentos de constantes de enum de uma unidade.

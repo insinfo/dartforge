@@ -3833,6 +3833,17 @@ constantes).
 
 #### §6 Nulidade e verificadores
 
+**Estado em 2026-10-05 (escrito, não compilado).** Ganharam emissor: `unnecessary_nan_comparison`
+(`double.nan` pela forma escrita, na igualdade e no padrão constante), `null_check_always_fails`,
+`cast_from_null_always_fails` no `as`, `cast_from_nullable_always_fails`,
+`null_argument_to_non_null_type` (`Future.value` com e sem `new`, `Completer.complete` também em
+cascata) em `crates/types/src/inferencia/expr.rs`; `unnecessary_set_literal` (o parâmetro de tipo de
+função que recebe a closure em `chamadas::invocar`, e o retorno escrito de função de topo e local em
+`funcoes.rs`); `non_nullable_equals_parameter`, `unnecessary_no_such_method` (o `super.noSuchMethod`
+pelos mixins e superclasses, método de classe que não é `Object`) e `unnecessary_question_mark` em
+`crates/types/src/boas_praticas.rs`, ligados em `crates/paridade/src/analise.rs`.
+
+
 ##### Achado transversal: local inicializado/atribuído com valor de tipo **inválido**
 
 Vários FN/FP abaixo e no `unchecked_use_of_nullable_value` vêm da mesma regra do fluxo: escrever num local de tipo declarado

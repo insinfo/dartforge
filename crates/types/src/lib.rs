@@ -17,6 +17,7 @@
 
 pub mod a_main;
 pub mod anotacoes;
+pub mod boas_praticas;
 pub mod bounds;
 pub mod codes;
 pub mod constant;

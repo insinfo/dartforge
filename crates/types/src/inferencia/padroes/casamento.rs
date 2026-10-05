@@ -517,6 +517,10 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
         }
         PatternKind::Constant(e) => {
             let e = *e;
+            // `visitConstantPattern` (`best_practices_verifier.dart:257-265`).
+            if expr::e_double_nan(inf, cx, e) {
+                inf.aviso_com_codigo(w::UNNECESSARY_NAN_COMPARISON_FALSE, span_do_padrao, &[]);
+            }
             let forcado = refutavel_em_irrefutavel(inf, cx, span_do_padrao);
             let c = inferir(inf, cx, e, t);
             constante_nunca_casa(inf, cx, p, e, c, t);

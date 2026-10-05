@@ -993,7 +993,11 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
             }
             inf.table.intern(Type::Record { positional: pos.into_boxed_slice(), named: nm.into_boxed_slice(), nullable: false })
         }
-        ExprKind::InstanceCreation { .. } => chamadas::instanciacao(inf, cx, e, ctx),
+        ExprKind::InstanceCreation { .. } => {
+            let t = chamadas::instanciacao(inf, cx, e, ctx);
+            api_sem_nulo(inf, cx, e, t);
+            t
+        }
         ExprKind::FunctionExpression(f) => funcoes::expressao_de_funcao(inf, cx, *f, ctx),
         ExprKind::Property { target, name, null_aware } => {
             let (t, c) = propriedade(inf, cx, e, *target, *name, *null_aware);
@@ -1011,6 +1015,7 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
             } else {
                 let (t, c) = chamadas::chamada(inf, cx, e, ctx);
                 curto = c;
+                api_sem_nulo(inf, cx, e, t);
                 t
             }
         }
@@ -1055,6 +1060,27 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
             let iguais = v == t || crate::ops::sem_exibicao(v, inf.table) == crate::ops::sem_exibicao(t, inf.table);
             if iguais && !inf.e_dynamic(v) && !inf.table.e_invalido(v) && !inf.table.e_invalido(t) {
                 inf.aviso(UNNECESSARY_CAST.template.to_string(), span);
+            }
+            // `CAST_FROM_NULL_ALWAYS_FAILS` (`visitAsExpression`,
+            // `best_practices_verifier.dart:135-150`).
+            let nao_anulavel = inf.e_nao_anulavel(t);
+            if nao_anulavel && e_null_do_core(inf, v) {
+                inf.aviso_com_codigo(dartforge_diagnostics::codigos::warning::CAST_FROM_NULL_ALWAYS_FAILS, span, &[]);
+            }
+            // `CAST_FROM_NULLABLE_ALWAYS_FAILS` (`ResolverVisitor.visitAsExpression`,
+            // `resolver.dart:1871-1887`): o operando é o identificador de uma
+            // local ou parâmetro de tipo declarado anulável, definitivamente
+            // não atribuído.
+            if nao_anulavel && !e_null_do_core(inf, v)
+                && let ExprKind::Identifier(n) = &ast(inf, cx).expr(*value).kind
+                && let Some(Resolved::Local(id)) = inf.body_types.units[cx.unit.0 as usize].get_resolved(*value).cloned()
+            {
+                let n = *n;
+                let declarado = cx.local(id).tipo;
+                if inf.e_anulavel(declarado) && cx.fluxo.nao_atribuida(id) {
+                    let nome = inf.interner.resolve(n.sym).to_string();
+                    inf.aviso_com_codigo(dartforge_diagnostics::codigos::warning::CAST_FROM_NULLABLE_ALWAYS_FAILS, n.span, &[&nome]);
+                }
             }
             if let Some(id) = alvo_de_promocao(inf, cx, *value) {
                 let decl = cx.local(id).tipo;
@@ -2499,6 +2525,11 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
             let k = if inf.e_desconhecido(ctx) { ctx } else { inf.anulavel(ctx) };
             let (t, c) = inferir_no(inf, cx, operand, k, true);
             *curto = c;
+            // `NULL_CHECK_ALWAYS_FAILS` (`visitPostfixExpression`,
+            // `best_practices_verifier.dart:686-697`): `e!` com `e` de tipo `Null`.
+            if e_null_do_core(inf, t) {
+                inf.aviso_com_codigo(dartforge_diagnostics::codigos::warning::NULL_CHECK_ALWAYS_FAILS, span, &[]);
+            }
             // `unnecessary_non_null_assertion` (no `!`): só com o operando
             // certamente não anulável (`T extends Object?` não é).
             if !c && estritamente_nao_anulavel(inf, t) {
@@ -3419,6 +3450,106 @@ fn verificar_bool(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, uso: UsoBoo
 /// do operador ao `null`; e, no resolvedor (`binary_expression_resolver.dart:
 /// 128-160`), uma local definitivamente não atribuída comparada com `null`
 /// (`ALWAYS_NULL`).
+/// `isDoubleNan` (`an611:src/error/best_practices_verifier.dart:2093-2100`):
+/// o `PrefixedIdentifier` `double.nan`, só pela forma escrita.
+pub(crate) fn e_double_nan(inf: &BodyInferrer<'_>, cx: &Corpo, x: ExprId) -> bool {
+    let a = ast(inf, cx);
+    match &a.expr(x).kind {
+        ExprKind::Property { target, name, null_aware: false } => {
+            matches!(&a.expr(*target).kind, ExprKind::Identifier(n) if inf.interner.resolve(n.sym) == "double")
+                && inf.interner.resolve(name.sym) == "nan"
+        }
+        _ => false,
+    }
+}
+
+/// `UNNECESSARY_NAN_COMPARISON` (`_checkForInvariantNanComparison`,
+/// `an611:src/error/best_practices_verifier.dart:1031-1058`): `double.nan`
+/// num lado de `==`/`!=`, do `double.nan` ao operador ou do operador ao fim.
+fn comparacao_com_nan(inf: &mut BodyInferrer<'_>, cx: &Corpo, op: BinaryOp, left: ExprId, right: ExprId) {
+    use dartforge_diagnostics::codigos::warning as w;
+    let codigo = match op {
+        BinaryOp::NotEq => w::UNNECESSARY_NAN_COMPARISON_TRUE,
+        BinaryOp::Eq => w::UNNECESSARY_NAN_COMPARISON_FALSE,
+        _ => return,
+    };
+    let (sl, sr) = (inf.span_expr(cx.unit, left), inf.span_expr(cx.unit, right));
+    let operador = token_de_operador(inf, cx, sl.end);
+    if e_double_nan(inf, cx, left) {
+        inf.aviso_com_codigo(codigo, dartforge_diagnostics::Span { start: sl.start, end: operador.end }, &[]);
+    } else if e_double_nan(inf, cx, right) {
+        inf.aviso_com_codigo(codigo, dartforge_diagnostics::Span { start: operador.start, end: sr.end }, &[]);
+    }
+}
+
+/// O `Null` do `dart:core` (`isDartCoreNull`): não o `Never?`.
+pub(crate) fn e_null_do_core(inf: &BodyInferrer<'_>, t: TypeId) -> bool {
+    matches!(inf.table.get(t), Type::Null) && !matches!(inf.table.exibicao(t), Some(crate::table::Exibicao::NeverAnulavel))
+}
+
+/// O `NullSafeApiVerifier` (`an611:src/error/null_safe_api_verifier.dart:29-80`):
+/// `Future<T>.value(…)` e `Completer<T>.complete(…)` com `T` não anulável, no
+/// máximo um argumento, e o argumento ausente (na chamada inteira) ou de
+/// tipo `Null` (no argumento): `NULL_ARGUMENT_TO_NON_NULL_TYPE`.
+fn api_sem_nulo(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, resultado: TypeId) {
+    let a = ast(inf, cx);
+    let argumento_de = |inf: &BodyInferrer<'_>, t: TypeId, classe: Option<ClassId>| -> Option<TypeId> {
+        match inf.table.get(t) {
+            Type::Interface { class, args, .. } if Some(*class) == classe && args.len() == 1 => Some(args[0]),
+            _ => None,
+        }
+    };
+    let completer = inf.core.async_library.and_then(|l| {
+        let s = inf.interner.lookup("Completer")?;
+        match inf.program.library(l).declared.get(&s)?.getter {
+            Some(Element::Class(c)) => Some(c),
+            _ => None,
+        }
+    });
+    let futuro = inf.core.future_class;
+    let (nome, tipo, args): (&str, TypeId, &ast::Arguments) = match &a.expr(e).kind {
+        ExprKind::InstanceCreation { constructor: Some(n), arguments, .. } if inf.interner.resolve(n.sym) == "value" => {
+            let Some(x) = argumento_de(inf, resultado, futuro) else { return };
+            ("Future.value", x, arguments)
+        }
+        ExprKind::Call { target, arguments } => {
+            let ExprKind::Property { target: receptor, name, .. } = &a.expr(*target).kind else { return };
+            let bt = &inf.body_types.units[cx.unit.0 as usize];
+            match bt.get_resolved(*target) {
+                Some(Resolved::Constructor(f)) => {
+                    if inf.interner.resolve(name.sym) != "value" || inf.program.function(*f).class != futuro {
+                        return;
+                    }
+                    let Some(x) = argumento_de(inf, resultado, futuro) else { return };
+                    ("Future.value", x, arguments)
+                }
+                _ if inf.interner.resolve(name.sym) == "complete" => {
+                    let Some(rt) = bt.get_type(*receptor) else { return };
+                    let Some(x) = argumento_de(inf, rt, completer) else { return };
+                    ("Completer.complete", x, arguments)
+                }
+                _ => return,
+            }
+        }
+        _ => return,
+    };
+    if args.args.len() > 1 || !inf.e_nao_anulavel(tipo) {
+        return;
+    }
+    let argumento = args.args.first().map(|x| x.value);
+    let tipo_do_argumento = argumento.map(|x| inf.body_types.units[cx.unit.0 as usize].get_type(x));
+    let nulo = match tipo_do_argumento {
+        None => true,
+        Some(None) => return,
+        Some(Some(t)) => matches!(inf.table.get(t), Type::Null),
+    };
+    if nulo {
+        let sp = inf.span_expr(cx.unit, argumento.unwrap_or(e));
+        let exibido = inf.table.format_sem_alias(tipo, inf.interner, inf.program);
+        inf.aviso_com_codigo(dartforge_diagnostics::codigos::warning::NULL_ARGUMENT_TO_NON_NULL_TYPE, sp, &[nome, &exibido]);
+    }
+}
+
 fn comparacao_com_nulo(inf: &mut BodyInferrer<'_>, cx: &Corpo, op: BinaryOp, left: ExprId, right: ExprId, tl: TypeId, tr: TypeId) {
     use dartforge_diagnostics::codigos::warning as w;
     let a = ast(inf, cx);
@@ -3486,6 +3617,7 @@ fn condicao_binaria(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: B
             uso_de_void(inf, cx, right, tr);
             receptor_nunca(inf, cx, left, tl);
             comparacao_com_nulo(inf, cx, op, left, right, tl, tr);
+            comparacao_com_nan(inf, cx, op, left, right);
             if matches!(inf.program.unit(cx.unit).ast.expr(left).kind, ExprKind::Super) {
                 let this = cx.tipo_this.unwrap_or(inf.core.dynamic_);
                 registrar(inf, cx, left, this);

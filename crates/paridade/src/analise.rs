@@ -602,6 +602,10 @@ impl Motor {
             atribuidos.extend(dartforge_types::sobrescritas::membros_em_conflito(&program, &interner, &mut table, &core, &outline, *lib));
             atribuidos.extend(dartforge_types::sobrescritas::valores_padrao(&program, &interner, &mut table, &outline, *lib));
             atribuidos.extend(dartforge_types::sobrescritas::variaveis_nao_inicializadas(&program, &interner, &table, &outline, *lib));
+            // `BestPracticesVerifier` sobre declarações e tipos escritos.
+            atribuidos.extend(dartforge_types::boas_praticas::parametro_de_igualdade_anulavel(&program, &interner, &table, &core, &outline, *lib));
+            atribuidos.extend(dartforge_types::boas_praticas::no_such_method_desnecessario(&program, &interner, &core, *lib));
+            atribuidos.extend(dartforge_types::boas_praticas::interrogacoes_desnecessarias(&program, &interner, &table, &outline, corpos.as_ref(), *lib));
             atribuidos.extend(dartforge_types::sobrescritas::getters_e_setters(
                 &program, &interner, &mut table, &core, &outline, *lib, &classes,
             ));

@@ -412,6 +412,7 @@ pub(crate) fn invocar(
             let t = inferir(inf, cx, a.value, c);
             if let Some(p) = p {
                 expr::verificar_atribuivel_expr(inf, cx, a.value, t, *p, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
+                closure_com_conjunto(inf, cx, a.value, *p);
             }
         }
         return (ret, f);
@@ -489,11 +490,22 @@ pub(crate) fn invocar(
         for (i, a) in args.args.iter().enumerate() {
             if let Some(p) = ips[i] {
                 expr::verificar_atribuivel_expr(inf, cx, a.value, tipos[i], p, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
+                closure_com_conjunto(inf, cx, a.value, p);
             }
         }
         return (iret, inst);
     }
     (inf.core.dynamic_, inst)
+}
+
+/// O argumento é uma closure (o próprio `FunctionExpression`, com o
+/// `staticParameterElement`) e o parâmetro é um tipo de função: o
+/// `UNNECESSARY_SET_LITERAL` pelo retorno dele.
+fn closure_com_conjunto(inf: &mut BodyInferrer<'_>, cx: &Corpo, argumento: ExprId, parametro: TypeId) {
+    let ExprKind::FunctionExpression(fid) = inf.program.unit(cx.unit).ast.expr(argumento).kind else { return };
+    if let Type::Function { ret, .. } = inf.table.get(parametro).clone() {
+        super::funcoes::conjunto_desnecessario(inf, cx.unit, fid, ret);
+    }
 }
 
 /// Invoca um valor de tipo `t` (função, objeto com `call`, `dynamic`).
