@@ -751,6 +751,9 @@ pub enum ForInTarget {
         var_: bool,
         ty: Option<TypeId>,
         name: Name,
+        /// O `const` escrito (`for (const x in e)`, `for_in_with_const_variable`).
+        #[serde(default)]
+        const_: Option<Span>,
     },
     /// `for (final (a, b) in e)` / `for (var [x] in e)`.
     Pattern { final_: bool, pattern: PatternId },

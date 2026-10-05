@@ -7015,6 +7015,10 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
   (`positional: Box<[(Option<Name>, TypeId)]>`) ou relê-lo da fonte depois do span do tipo. Lugar natural:
   um verificador novo em `crates/analise` que percorre `ast.types` (todo tipo escrito) e as expressões
   `ExprKind::Record` de `ast.exprs`.
+- **Estado em 2026-10-05 (escrito, não compilado):** `crates/analise/src/registros.rs` relê o nome dos
+  campos posicionais na fonte, depois do tipo de cada campo, e relata nos tipos (`ast.types`) e nos literais
+  (`ExprKind::Record`, só os nomeados). As duplicatas saem antes dos nomes inválidos. Com
+  `wildcard-variables` (3.7+), o `_` posicional não conta.
 
 ##### `duplicate_field_name` (perda 7: FN 7)
 - **Emissão:** `RecordTypeAnnotationResolver.reportDuplicateFieldDefinitions`
@@ -7030,6 +7034,7 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
 - **No DartForge:** não existe. Mesmo verificador e mesmo obstáculo (nome posicional) de
   `invalid_field_name`. Todas as 7 amostras são desta forma (`(int a, int a)`, `(int a, {int a})`,
   `({int a, int a})`, `(a: 1, a: 2)`, `(int _, int _)`).
+- **Estado em 2026-10-05 (escrito, não compilado):** em `registros.rs`, junto de `invalid_field_name`.
 ##### `missing_default_value_for_parameter` (perda 27: FN 27 — 25 no corpus 3.6.2, 2 de sintaxe nova)
 - **Emissão:** `ErrorVerifier._checkUseOfDefaultValuesInParameters`
   (`analyzer/lib/src/generated/error_verifier.dart:6180-6250`), chamado por `visitFormalParameterList`
@@ -14088,6 +14093,11 @@ non_constant_list_element off=112 len=10 7:12 | The values in a const list liter
   `variable_not_initialized/*` (20, uma por espécie de declaração), `const/syntax_test.dart` (4), `const/const_locals_constant_locals_test.dart:10:9`,
   `static/final_field2_test.dart:13:16`. Mudança: uma função no verificador de constantes (ou em `crates/analise/src/inicializacao.rs`,
   que já percorre campos e topo), para topo, campos de qualquer declaração e `StmtKind::Variables` locais — não para o `for`.
+- **Estado em 2026-10-05 (escrito, não compilado):** `inicializacao::constantes_nao_inicializadas`, por
+  unidade, cobre topo, campos e `StmtKind::Variables`; o cabeçalho do `for` não é instrução e fica de fora.
+  `for_in_with_const_variable` sai em `instrucoes.rs`, no `const` que o parser agora guarda em
+  `ForInTarget::Declared::const_`, quando o `_checkForEachParts` (`for_in_tipo_invalido`, que passou a
+  devolvê-lo) não achou erro.
 - **Exemplos (oráculo vivo 3.6.2):** `c01.dart`:
 
 | linha: entrada | diagnósticos |

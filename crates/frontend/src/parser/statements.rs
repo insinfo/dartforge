@@ -106,11 +106,14 @@ impl<'s, 'i> Parser<'s, 'i> {
             let mut final_ = false;
             let mut var_ = false;
             let mut const_ = false;
+            let mut palavra_const = None;
             if self.eat_kw(Keyword::Final) {
                 final_ = true;
             } else if self.eat_kw(Keyword::Var) {
                 var_ = true;
-            } else if self.eat_kw(Keyword::Const) {
+            } else if self.at_kw(Keyword::Const) {
+                palavra_const = Some(self.peek().span);
+                self.advance();
                 const_ = true;
             }
             let ty = if !var_ && self.declaration_type_at(self.pos, !has_modifier) {
@@ -129,6 +132,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                         var_,
                         ty,
                         name,
+                        const_: palavra_const,
                     },
                     iterable,
                 });

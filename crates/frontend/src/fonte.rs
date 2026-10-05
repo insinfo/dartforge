@@ -894,12 +894,14 @@ impl<'a> Impressor<'a> {
 
     fn partes_do_for_in(&mut self, target: &ForInTarget, iterable: ExprId) {
         match target {
-            ForInTarget::Declared { metadata, final_, var_, ty, name } => {
+            ForInTarget::Declared { metadata, final_, var_, ty, name, const_ } => {
                 self.metadata(metadata);
                 if *final_ {
                     self.w("final ");
                 } else if *var_ {
                     self.w("var ");
+                } else if const_.is_some() {
+                    self.w("const ");
                 }
                 if let Some(t) = ty {
                     self.tipo(*t);

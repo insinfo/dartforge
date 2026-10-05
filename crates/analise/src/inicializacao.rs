@@ -61,6 +61,41 @@ type Chave = (bool, SymbolId, usize, usize);
 
 /// Uma classe com construtor gerador explícito delega a verificação dos seus
 /// campos de instância ao `ConstructorFieldsVerifier`; factories não a fazem.
+/// `CONST_NOT_INITIALIZED` (o `parseFieldInitializerOpt` do parser,
+/// `parser_impl.dart:3942-3947`, e o `_checkForFinalNotInitialized` do
+/// `ErrorVerifier`, `error_verifier.dart:3576-3617`): cada variável sem
+/// inicializador numa lista `const` de topo, de campo (qualquer declaração)
+/// ou local — não a do cabeçalho de um `for`. No nome. Escrito sem compilar
+/// nem executar (2026-10-05).
+pub fn constantes_nao_inicializadas(u: &Unidade<'_>, nomes: &Interner) -> Vec<Diagnostic> {
+    let a = u.ast;
+    let mut out = Vec::new();
+    let mut lista = |l: &VariableList| {
+        if !l.const_ {
+            return;
+        }
+        for var in l.variables.iter().filter(|v| v.initializer.is_none()) {
+            out.push(Diagnostic::com_codigo(c::CONST_NOT_INITIALIZED, var.name.span, [nomes.resolve(var.name.sym)]));
+        }
+    };
+    for d in &a.decls {
+        if let DeclKind::Variables(l) = &d.kind {
+            lista(l);
+        }
+    }
+    for m in &a.members {
+        if let MemberKind::Field(l) = &m.kind {
+            lista(l);
+        }
+    }
+    for s in &a.stmts {
+        if let dartforge_frontend::ast::StmtKind::Variables(l) = &s.kind {
+            lista(l);
+        }
+    }
+    out
+}
+
 pub fn finais_nao_inicializados(unidades: &[Unidade<'_>], nomes: &Interner) -> Vec<(usize, Diagnostic)> {
     let aliases: HashSet<_> = unidades.iter().flat_map(|u| u.unit.declarations.iter().filter_map(|&id| {
         match &u.ast.decl(id).kind {

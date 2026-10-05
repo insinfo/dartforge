@@ -30,6 +30,7 @@ pub mod a_doc;
 pub mod c2_sintaticos;
 pub mod clausulas;
 pub mod limites_simples;
+pub mod registros;
 pub mod construtores;
 pub mod duplicatas;
 pub mod enums;
