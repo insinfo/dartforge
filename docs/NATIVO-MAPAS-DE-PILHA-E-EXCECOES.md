@@ -2459,8 +2459,10 @@ O D9 usa `Function.apply`, que o runtime faz pela porta `dart_r3` (`RT/closures.
 closure sai certamente por um quadro Rust. O `then` que lança fica no programa, mas o tratador da
 microtarefa é Dart e não prova a fronteira sozinho. O harness (`crates/cli/tests/mapas_dirigidos.rs`)
 ganhou o campo `sombra` e liga o conferidor do RS4GC em toda compilação em modo mapas, inclusive nas
-das sabotagens (onde ele pode ser o primeiro a acusar). Não feitos: o callback da FFI que lança (pede
-uma biblioteca C no teste) e o `Isolate.exit` dentro de `finally`.
+das sabotagens (onde ele pode ser o primeiro a acusar). Não feito: o callback da FFI que lança (pede
+uma biblioteca C no teste). O `Isolate.exit` dentro de `finally` está escrito desde 2026-10-05
+(`gc_d09_isolate_exit_em_finally.dart`, saída `870`, calculada à mão: a soma de `0² + … + k² + k`
+para `k` de 0 a 9; mesma sabotagem `sem_porta`).
 
 O D12 (cache estático do runtime como raiz): `gc_d12_cache_do_runtime.dart` (saída `1000 1000 4000`)
 pede a cada volta o objeto `Type` canônico (`OBJETOS_TIPO`, raiz global permanente) e o texto de um

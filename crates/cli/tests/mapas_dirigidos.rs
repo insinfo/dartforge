@@ -159,6 +159,16 @@ const CASOS: &[Caso] = &[
         sabotagem_do_emissor: None,
         sabotagem_do_runtime: Some("sem_porta"),
     },
+    // D9: `Isolate.exit` dentro de `finally`, com a exceção vinda da porta
+    // ainda em curso; a saída do isolado não é capturável.
+    Caso {
+        arquivo: "gc_d09_isolate_exit_em_finally.dart",
+        esperado: "870\n",
+        tabelas: true,
+        sombra: false,
+        sabotagem_do_emissor: None,
+        sabotagem_do_runtime: Some("sem_porta"),
+    },
 ];
 
 fn ligado() -> bool {
