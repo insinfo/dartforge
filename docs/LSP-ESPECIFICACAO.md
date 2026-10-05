@@ -2839,6 +2839,17 @@ renomear de construtor segue 12.7 com as faixas novas (`renomear.rs`, `edicoes_d
 Faltam o índice por unidade (A), os arquivos candidatos com o SDK e os pacotes (B) e as buscas por
 `ChaveElem` (C).
 
+**Estado em 2026-10-05 (escrito, não compilado), parte B dentro do projeto.**
+`crates/lsp/src/nomes_referenciados.rs` porta o `computeReferencedNames` sobre a árvore no formato do
+analyzer (o `_LocalNameScope` de topo, classe, extension type, construtor, função, método, `typedef`
+e bloco, com só os `NormalFormalParameter`; prefixos de import vistos; o `returnType` do construtor;
+o `ConstructorName` do redirecionamento de fábrica; `isQualified` e o rótulo de argumento nomeado),
+em cache por unidade na sessão. O `references` de elemento não local filtra as ocorrências pelos
+arquivos candidatos de `_addResults` (nome privado: os arquivos da biblioteca de cada elemento da
+família que são o dele ou citam o nome; público: os que citam o nome mais todos os da biblioteca de
+cada elemento), o que reproduz os buracos medidos (redirecionamento de fábrica, operadores fora da
+biblioteca). O SDK e os pacotes continuam fora da busca (os corpos deles não são inferidos).
+
 * **Não há índice de referências.** `crates/lsp/src/indice.rs` só indexa
   **nomes públicos de topo** para o completar e para "importar biblioteca"
   (`IndiceSdk`, `indice.rs:101`; `IndiceProjeto`, `indice.rs:169-172`).

@@ -160,9 +160,23 @@ impl AnalisadorSemantico {
         }
         let declaracao = projeto.declaracao_para_referencias(&d);
         let declaracoes = projeto.declaracoes(&d.alvo);
+        // Busca não local: só os arquivos candidatos de `_addResults`
+        // (docs/LSP-ESPECIFICACAO.md §11.2), inclusive os buracos do Dart
+        // (redirecionamento de fábrica, operadores fora da biblioteca).
+        let candidatos = projeto.nome_da_busca(&d.alvo).map(|nome| {
+            let mut unidades: Vec<UnitId> = declaracoes.iter().map(|(u, _, _)| *u).collect();
+            if let Some((u, _)) = projeto.declaracao(&d) {
+                unidades.push(u);
+            }
+            unidades.dedup();
+            projeto.arquivos_candidatos(&nome, &unidades)
+        });
         let mut usos: Vec<(String, Span)> = Vec::new();
         for (u, de, ate) in projeto.ocorrencias(&d.alvo, false).ok()? {
             if declaracoes.contains(&(u, de, ate)) {
+                continue;
+            }
+            if candidatos.as_ref().is_some_and(|c| !c.contains(&u)) {
                 continue;
             }
             usos.push((projeto.uri_da_unidade(u)?, Span { start: de, end: ate }));

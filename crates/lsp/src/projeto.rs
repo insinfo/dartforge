@@ -49,6 +49,9 @@ pub(crate) struct Projeto {
     /// Bibliotecas cujos corpos foram inferidos (as do projeto, ou só a do
     /// documento numa consulta de biblioteca). Usos só são procurados nelas.
     pub(crate) bibliotecas: HashSet<LibraryId>,
+    /// O `referencedNames` de cada unidade já calculado
+    /// (`crate::nomes_referenciados`).
+    pub(crate) nomes_referenciados: std::sync::Mutex<std::collections::HashMap<UnitId, std::sync::Arc<HashSet<String>>>>,
 }
 
 /// O que uma posição denota.
@@ -240,6 +243,7 @@ pub(crate) fn carregar_projeto(
         consulta,
         raiz,
         bibliotecas,
+        nomes_referenciados: Default::default(),
     })
 }
 
@@ -259,6 +263,7 @@ pub(crate) fn carregar_biblioteca(
         consulta,
         raiz: raiz_do_projeto(&arquivo),
         bibliotecas: HashSet::from([lib]),
+        nomes_referenciados: Default::default(),
     })
 }
 

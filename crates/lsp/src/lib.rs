@@ -31,6 +31,7 @@ mod fonte_imports;
 mod fonte_ordenar;
 mod hierarquia;
 mod simbolos_workspace;
+mod nomes_referenciados;
 mod ignorar;
 mod aproximado;
 mod completar;
