@@ -7325,6 +7325,21 @@ fixes ausentes (`Add missing switch cases`, `Add required argument`).
   `yaml_edit` 2.2.3 portado (`_addToBlockMap`, `_replaceInBlockMap`, mapas em fluxo, recuo
   detectado, ordem alfabética das chaves; o edit emitido como inserção, como o Dart).
 
+Itens 4 a 6 (mesmo estado): os fixes dos códigos publicados da lista C (`RemoveNameFromDeclarationClause`,
+`AddClassModifier`, `UseEqEqNull`/`UseNotEqNull`, `RemoveExtendsClause`, `ExtendClassForMixin`,
+`ReplaceWithExtensionName`, `RemoveParenthesesInGetterInvocation`, `MakeSuperInvocationLast`,
+`MakeReturnTypeNullable`, `RemoveDeadCode` em membro de `switch`, `RemoveComparison`,
+`ConvertIntoBlockBody` em enum e extension type, `AddConst` na chave de map pattern,
+`RemoveUnusedParameter`, `CreateConstructor`); `Add missing switch cases` com as testemunhas com
+partes guardadas pelo verificador de constantes (`testemunhas_de_switch`); `Add required
+argument` pelas chamadas das linhas pedidas (o código não é publicado; a ação sai sem
+diagnóstico); `ImportLibrary` com as variantes por código, prefixo, `show`, SDK/PROJECT1/2/3,
+absoluto e relativo, sobre o índice das bibliotecas conhecidas (`conhecidas.rs`); `Change to` e os
+`Create …` por código sintetizado (`criar.rs`). Fora: `DataDriven` (não detalhado nesta
+especificação), `ImportLibrary.forExtensionMember`, os padrões de objeto do
+`CreateField`/`CreateGetter` (o código não é sintetizado para nomes de campo de padrão) e a ordem
+`knownFiles` entre candidatos de mesma prioridade (SDK, projeto e dependências, em ordem).
+
 **Para implementar (ordem sugerida).**
 
 1. Estrutura: `AcaoDeCodigo { prioridade, id }`; função `kind_de(id)`; `command`
