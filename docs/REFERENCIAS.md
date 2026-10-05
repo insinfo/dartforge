@@ -9,6 +9,14 @@ Preservar LICENSE/NOTICE e atribuição ao reutilizar código ou testes.
 |---|---|---|
 | dart-sdk | https://github.com/dart-lang/sdk | Linguagem, compilers, analyzer, analysis server, runtime e testes |
 | dart-language | https://github.com/dart-lang/language | Especificação e propostas da linguagem |
+| Nim | https://github.com/nim-lang/Nim | ARC/ORC, coleta de ciclos por trial deletion e contratos de descritores; revisão `450dcf50969f9aeb42af2000def4136b5679972c` |
+| koka | https://github.com/koka-lang/koka | Perceus, operações de contagem na IR e otimização de reutilização; revisão `9c55695dd2f7d4db8d93011693d37295e2b76c53` |
+| tinygo | https://github.com/tinygo-org/tinygo | Descritores precisos e rastreamento de ponteiros no compilador; revisão `f6d269f74ab45bfa53a37c5708c6661ec33531ae` |
+| gollvm | https://go.googlesource.com/gollvm | Integração gofrontend–LLVM–libgo; revisão `605d1b6368b72e7bc15f66fac1f33f754537a090`; README histórico também lido em `816aa0893286659b94cbd5e1b1cb960858825959` |
+| gofrontend | https://go.googlesource.com/gofrontend | Frontend e libgo usados pelo gollvm; revisão `d7cb797c46170ea43381064745514fd597cb8d7d` |
+| libffi | https://github.com/libffi/libffi | Fronteira de chamada C do libgo; revisão `bc553867367246d140cd156f060bd0409f57f157` |
+| libbacktrace | https://github.com/ianlancetaylor/libbacktrace | Rastros nativos usados pelo libgo; revisão `0b9b49cf4a2c9229fc052d6716e1528b2f23e91a` |
+| llvm-project | https://github.com/llvm/llvm-project | ObjC ARC, IR e codegen; checkout sparse na revisão `09910aa044808dfbfe1e0f96b5e39260789212fb` |
 | oxc | https://github.com/oxc-project/oxc | AST, arenas, parser, codegen, minificação |
 | swc | https://github.com/swc-project/swc | Transformações e emissão JavaScript |
 | biome | https://github.com/biomejs/biome | Parser recuperável, diagnostics, analyzer e organização de ferramentas |

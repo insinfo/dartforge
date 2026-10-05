@@ -583,6 +583,20 @@ Um valor de tipo errado numa chave lida com `as bool?`/`as int?` lança no
 getter (a exceção sobe ao handler que a leu); só `analysisExcludedFolders`,
 `showTodos`, `codeLens` e `documentation` toleram tipos inesperados.
 
+**Estado em 2026-10-05 (escrito, não compilado), §2.4 e §2.5.** Em `crates/lsp/src/registro.rs`
+(funções puras) e `servidor.rs`: no `initialize`, as features com `dynamicRegistration` no cliente
+saem das capacidades estáticas (guardadas inteiras como fonte das opções); no `initialized`, com
+`workspace.configuration`, o servidor pede `workspace/configuration` (uma entrada por pasta do
+workspace e a global por último) e, na resposta válida, lê a seção global; sem a capacidade, vai direto
+ao registro. O registro aplica a diferença contra o conjunto vigente (`client/unregisterCapability`
+com `unregisterations`, depois `client/registerCapability`), com os ids decimais crescentes e as
+opções das capacidades estáticas mais o `documentSelector` (Dart; a sincronização com os YAML do
+`pubspec`, do `analysis_options` e do `fix_data`). `workspace/didChangeConfiguration` pede a
+configuração de novo. Da configuração, só `renameFilesWithClasses` muda o comportamento hoje; as
+outras chaves lidas ficam em `Servidor::configuracao`. Não feitos: a configuração por pasta
+(`forResource`), a reconstrução das raízes com `analysisExcludedFolders`, o `showTodos` na análise e o
+`window/logMessage` quando o cliente recusa o registro.
+
 ### 2.6 Progresso, status e mensagens ao usuário
 
 * **Estado da análise** (`lsp_analysis_server.dart:836-871`), a cada transição

@@ -24,7 +24,33 @@ use dartforge_frontend::ast::{self, CollectionElement, DeclKind, ExprId, ExprKin
 use dartforge_intern::Interner;
 
 /// As anotações da declaração de uma função, método ou construtor.
-fn anotacoes_da_funcao(program: &Program, f: FunctionElementId) -> &[ast::Annotation] {
+/// A anotação `m`, escrita na unidade `unit`, é a constante `nome` do
+/// `package:meta` (o `isDoNotStore`, `isLiteral`… do analyzer comparam o
+/// elemento e a biblioteca `meta`): o nome, com ou sem prefixo, resolvido
+/// pelo escopo da unidade para uma variável de topo de uma biblioteca
+/// `package:meta/…`, e sem argumentos.
+pub(crate) fn anotacao_do_meta(program: &Program, interner: &Interner, unit: UnitId, m: &ast::Annotation, nome: &str) -> bool {
+    if m.arguments.is_some() || m.name.last().is_none_or(|n| interner.resolve(n.sym) != nome) {
+        return false;
+    }
+    let ligacao = match &m.name[..] {
+        [n] => program.lookup_na_unidade(unit, n.sym),
+        [p, n] => program.lookup_prefixed_na_unidade(unit, p.sym, n.sym),
+        _ => None,
+    };
+    let Some(Element::Variable(v)) = ligacao.and_then(|b| b.getter) else { return false };
+    program.library(program.variable(v).library).uri.starts_with("package:meta/")
+}
+
+/// A unidade em que a função `f` está escrita.
+pub(crate) fn unidade_da_funcao(program: &Program, f: FunctionElementId) -> Option<UnitId> {
+    match program.function(f).node {
+        FunctionRef::Constructor { unit, .. } | FunctionRef::Function { unit, .. } => Some(unit),
+        FunctionRef::None => None,
+    }
+}
+
+pub(crate) fn anotacoes_da_funcao(program: &Program, f: FunctionElementId) -> &[ast::Annotation] {
     match program.function(f).node {
         FunctionRef::Constructor { unit, member } => &program.unit(unit).ast.member(member).metadata[..],
         FunctionRef::Function { unit, function } => {
@@ -52,7 +78,7 @@ fn anotacoes_da_variavel(program: &Program, v: VariableId) -> &[ast::Annotation]
 
 /// `_getUseResultMetadata`: as anotações do elemento; as do campo para um
 /// acessor implícito.
-fn anotacoes_do_elemento<'p>(program: &'p Program, r: &Resolved) -> (&'p [ast::Annotation], Option<UnitId>) {
+pub(crate) fn anotacoes_do_elemento<'p>(program: &'p Program, r: &Resolved) -> (&'p [ast::Annotation], Option<UnitId>) {
     let da_funcao = |f: FunctionElementId| {
         let e = program.function(f);
         let unidade = match e.node {

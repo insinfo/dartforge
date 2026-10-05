@@ -1087,6 +1087,13 @@ teste do DartForge `crates/paridade/src/filtros.rs:247-248`
 (`rebaixado.ignoravel(&d)`) afirma o contrário: é um defeito; (d) lints não
 entram por severidade (só `errorCodeValues` é percorrido), só por nome.
 
+**Estado em 2026-10-05 (escrito, não compilado).** `Opcoes::ignoravel` (`crates/paridade/src/filtros.rs`)
+segue o fato (c): o código não ignorável pela severidade padrão continua não ignorável quando
+`errors:` o rebaixa, e passa a sê-lo também pela severidade nova; o teste que afirmava o contrário
+foi corrigido. `Opcoes::lint_ignoravel` é o fato (d), para os lints: só o nome (ou o nome único),
+sem caixa; `diagnosticos_json` (`crates/paridade/src/lib.rs`) não cala o lint da lista com
+`// ignore:`.
+
 ### 4.4 `analyzer: errors:` — o `ErrorProcessor`
 
 Leitura: `ErrorConfig` (`analyzer/lib/source/error_processor.dart:20-57`), a
@@ -3893,6 +3900,25 @@ Fora: as outras 145
 regras e o LSP. Os comentários `// ignore:` (com `type=lint`) e o `errors:` das opções já valem para
 os lints (`Ignorados::ignora_lint`, `diagnosticos_json`); o `cannot-ignore` ainda não.
 
+**Lotes 11 a 13, escritos em 2026-10-05 direto da fonte 3.6.2, não compilados.** Décimo primeiro, em
+`lints/regras11.rs`, oito: `no_adjacent_strings_in_list`, `missing_whitespace_between_adjacent_strings`,
+`flutter_style_todos`, `unnecessary_library_name`, `prefer_null_aware_method_calls`, `avoid_print`
+(o `print` do `dart:core` pelo nome), `avoid_catches_without_on_clauses` (as chamadas que não voltam
+e as que entregam o erro pelo nome) e `avoid_setters_without_getters` (só sem `extends`/`with`).
+Décimo segundo, em `lints/regras12.rs`, cinco: `prefer_if_elements_to_conditional_expressions`,
+`prefer_for_elements_to_map_fromIterable`, `prefer_final_parameters`, `prefer_foreach` e
+`prefer_asserts_in_initializer_lists` (os membros de instância pelo nome, só com a hierarquia toda na
+unidade). Décimo terceiro, em `lints/regras13.rs`, dois: `avoid_shadowing_type_parameters` e
+`parameter_assignments` (com a regra literal do emissor: toda expressão prefixa ou pós-fixa sobre o
+parâmetro mutado conta). Terceiro módulo com os tipos, `crates/types/src/lints_tipados3.rs`, seis: `use_truncating_division`, `avoid_double_and_int_checks`, `only_throw_errors`, `no_runtimeType_toString`, `avoid_dynamic_calls` e `unrelated_type_equality_checks` (a forma de expressão; o subtipo entre interfaces pela classe). Total: noventa e cinco regras sintáticas e dezessete com o programa resolvido.
+Doze das que faltam são marcadores de regra removida na 3.6.2, sem emissor:
+`always_require_non_null_named_parameters`, `avoid_as`, `avoid_returning_null`,
+`avoid_returning_null_for_future`, `avoid_unstable_final_fields`, `enable_null_safety`,
+`invariant_booleans`, `iterable_contains_unrelated_type`, `list_remove_unrelated_type`,
+`prefer_bool_in_asserts`, `prefer_equal_for_default_values` e `super_goes_last`. Restam cerca de 120
+com emissor, a maioria dependente de tipos (`unrelated_type_equality_checks`, `avoid_dynamic_calls`,
+`unawaited_futures`, `prefer_const_constructors`…) ou do Flutter.
+
 #### Validadores de `task/options.dart` — `OptionsFileValidator` (`analyzer/lib/src/task/options.dart:765-795`)
 
 `OptionsFileValidator.validate` roda, nesta ordem (`:776-785`, `:787-794`):
@@ -4731,6 +4757,41 @@ e `_isValidTarget`) entrou em `meta.rs` em 2026-10-05: lê o `@Target({...})` da
 entraram em `meta.rs` em 2026-10-05, sem os limites dos parâmetros de tipo no caso indireto),
 `assignment_of_do_not_store`, `return_of_do_not_store`, os dois `inference_failure_on_*` e
 `deprecated_colon_for_default_value`.
+
+**Estado em 2026-10-05 (escrito, não compilado), o resto do lote II.7.** Em `crates/types/`, ligados
+em `crates/paridade/src/analise.rs` com os tipos da inferência: `fase_nao_guardar.rs`
+(`assignment_of_do_not_store` nos inicializadores de topo e de campo; `return_of_do_not_store` nos
+`return e;` e `=> e` com a declaração de função ou método que os contém, fora de membro, classe ou
+biblioteca `@doNotStore`; nada num diretório `test`), `fase_literal.rs`
+(`non_const_call_to_literal_constructor` e a variante `_USING_NEW`) e `fase_estrita.rs`
+(`inference_failure_on_untyped_parameter` e `inference_failure_on_function_return_type`; o motor os
+relata sempre e `publicaveis`, o caminho do JSON e do LSP, os tira sem `strict-inference: true`).
+`deprecated_colon_for_default_value` já estava em `fases.rs`.
+
+**Estado em 2026-10-05 (escrito, não compilado), sem aproximações no lote II.7.** As aproximações
+da primeira escrita saíram; cada regra usa o mesmo dado que o emissor do analyzer:
+
+- Anotações do `package:meta` (`@literal`, `@doNotStore`, `@required`…): resolvidas pelo escopo da
+  unidade em que estão escritas, com ou sem prefixo, até a variável de topo de uma biblioteca
+  `package:meta/` (`fase_resultado::anotacao_do_meta`); uma constante própria de mesmo nome não conta.
+- `canBeConst` (`non_const_call_to_literal_constructor`): o construtor `const` e a verificação de
+  constantes da criação como se ela tivesse `const`, sem nenhum dos 34 erros que o
+  `_ConstantAnalysisErrorListener` do linter conta (`constantes::verificador::criacao_pode_ser_const`);
+  a fase roda depois de `constantes::verificar`, com o mesmo `Motor`.
+- `fase_estrita.rs`: "citado" pelo local resolvido (`UnitBodyTypes::declaracao_local` igual à
+  declaração do parâmetro, o `_UsedParameterVisitor`); "sobrescreve" pelo `getOverridden2`
+  (`fase_override::sobrescreve`, que vale também para o membro estático, como os candidatos herdados
+  do analyzer); a expressão de função conferida só sem tipo de função no contexto, gravado pela
+  inferência (`UnitBodyTypes::com_tipo_de_funcao`, o `wasFunctionTypeSupplied`); o construtor e o
+  corpo `native` sempre visitados (a lista de inicializadores nunca é nula no analyzer); os
+  parâmetros-função percorridos em toda a árvore (também em método que sobrescreve, em expressão de
+  função e dentro de `Function(…)`); o texto do `Function(…)` sem retorno é o `toString()` do nó.
+- `crates/frontend/src/fonte.rs` (novo): o `ToSourceVisitor` da 3.6.2 sobre a árvore daqui (tipos,
+  parâmetros, anotações, expressões, elementos de coleção, instruções e padrões). O que a árvore não
+  guarda sai da fonte no lugar em que o parser o consumiu (nome de campo posicional de record,
+  `var`/`final` de curinga, `const` de padrão constante, separador do valor padrão, limites de
+  strings adjacentes e de interpolações). A metadata das declarações locais, que o parser
+  descartava, agora fica em `Ast::metadados_locais` (o formato do cache do SDK subiu para 4).
 
 Cada verificador é um módulo novo em `crates/analise/src/`, chamado no ponto
 da ordem da §1.2. Os códigos de cada um estão nos lotes II.7 e II.8 (II.8 com

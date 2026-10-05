@@ -47,6 +47,12 @@ static PORTAS_DART: [std::sync::atomic::AtomicUsize; 16] = [
 /// `tabela` aponta para `n` endereços de função (uma constante do módulo).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_registrar_portas(tabela: *const usize, n: i64) {
+    // A sabotagem `sem_porta` (D9, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
+    // §7.3): o runtime chama Dart direto, e uma exceção Dart atravessa os
+    // quadros Rust.
+    if crate::heap::sabotagem("sem_porta") {
+        return;
+    }
     let n = usize::try_from(n).unwrap_or(0).min(PORTAS_DART.len());
     for (i, porta) in PORTAS_DART.iter().enumerate().take(n) {
         // SAFETY: garantido por quem chama (vetor constante com `n` endereços).

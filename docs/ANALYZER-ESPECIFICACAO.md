@@ -7268,6 +7268,12 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
 - **No DartForge:** não existe; o nosso relata (ou não) `return_of_invalid_type_from_closure` nesses
   casos. Entra na inferência de closures (`crates/types/src/inferencia/`): marcar a closure argumento
   `onError` de `Future.catchError` e trocar o código.
+- **Estado em 2026-10-05 (escrito, não compilado):** `crates/types/src/fase_catch_error.rs`
+  (`retornos_de_catch_error`), uma fase sobre os tipos da inferência, ligada em
+  `crates/paridade/src/analise.rs` ao lado do `FfiVerifier`: a closure que é o primeiro argumento
+  posicional de `catchError` num `Future<X>`, os `return e;` dela (fora das funções de dentro) e o
+  `=> e` quando `X` não é `void`, conferidos pelo ramo assíncrono do `_checkReturnExpression` com
+  `T = FutureOr<X>`. O `return;` sem valor (`_checkReturnWithoutValue`) não é conferido.
 
 ##### `variable_type_mismatch` (perda 4: FP 4)
 - **Emissão:** `ConstantEvaluationEngine` (`analyzer/lib/src/dart/constant/evaluation.dart:120-135`):
@@ -25332,6 +25338,41 @@ Dependências: 1 antes de tudo; 3 antes de 4, 5 e 6; 7 é independente e pode ir
 regra só age com um nome de topo repetido na mesma vaga e numa biblioteca sem patches; fora disso
 `declared` fica como o laço de declarações o deixa. Os passos 2 a 7 não foram feitos: os filtros que
 pulam homônimos continuam, e não há os caches por representante.
+
+**Estado em 2026-10-05 (escrito, não compilado), passos 2 a 7.**
+
+* **O dono do cache (T1.1 d).** `Library::dono_do_grupo` e `Program::dono_da_classe`
+  (`elements/src/model.rs`), calculados no fim do outline (`outline::calcular_donos_de_homonimos`):
+  andando as declarações da biblioteca em ordem de fonte, o dono é a primeira classe do grupo com
+  `this` ou `super` no corpo (`c07`, `c21`, `c22`) ou, antes dela, o elemento que o nome designa
+  quando outra declaração cita o nome (`c01`, `c15`); sem nenhum, o representante (o primeiro pedido
+  do verificador de herança, `c04`). Aproximação: citar o nome, como expressão ou como tipo, conta
+  como pedido; o analyzer só pede no acesso a membro.
+* **Passo 3.** A hierarquia de um homônimo é a do dono (`types/src/resolve.rs`: os supertipos
+  imediatos do dono antes de `build_class_hierarchy`), e a busca de membro de interface começa no dono
+  (`scope.rs`, `lookup_in_class`). A identidade de tipo continua a de cada classe (`c13`).
+* **Passo 4.** Saíram os filtros de `clausulas.rs` (as cláusulas de cada homônimo e a recursão de
+  herança: o `ciclo` iguala homônimos pelo representante, e `augment class A extends A` vira "A
+  implementa a si mesma") e os de `sobrescritas.rs` (`membros_em_conflito` sem o filtro de homônimos e
+  com a interface do dono; o texto `augment ` só pula a classe numa biblioteca com o experimento, em
+  `membros_abstratos`, nos parâmetros opcionais, em `membros_em_conflito` e no `Enum` implementado).
+  `inicializacao.rs` deixou de juntar as classes pelo nome sem o experimento: cada declaração tem os
+  próprios campos (`c11`). `membros.rs`: `invalid_factory_name_not_a_class` também quando o nome antes
+  do ponto designa outra declaração (`c10`, `nome_designa_outra`).
+* **Passo 5.** Já existia: `duplicatas.rs` junta os nomes de membros por elemento (espécie e nome),
+  inclusive para o estático contra a instância (`c13`, `c15`, `c20`).
+* **Passo 6.** `membros_abstratos` (`sobrescritas.rs`) calcula a interface pelo dono e procura o membro
+  abstrato na árvore da própria declaração (`c04`).
+* **Passo 7.** Já existia: sem o experimento, `parse_augment_opt` não consome `augment`, e a
+  recuperação de topo é a do fasta.
+* `redirect_to_invalid_return_type` e `redirect_to_missing_constructor` (o `c10` e as famílias do
+  §C): `inferencia/funcoes.rs`, `alvo_de_factory_redirecionadora`, que já resolvia o alvo pelo nome
+  designado, recebe a classe da factory e relata, fora de enum, o construtor que falta no alvo (o
+  padrão implícito da classe sem construtor declarado conta como presente) e o tipo do alvo que não é
+  subtipo do da classe (só entre classes sem parâmetros de tipo).
+* Não feitos: a ordem de visita exata (o analyzer infere os corpos em ordem de fonte; a regra acima a
+  aproxima); o retorno inválido com classes genéricas (pede a inferência do alvo contra o tipo da
+  classe); o filtro de mixin repetido em `clausulas.rs` (`super` de mixin), que o plano não lista.
 
 ##### T1.5 Casos de teste dirigidos
 

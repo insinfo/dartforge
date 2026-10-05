@@ -183,6 +183,8 @@ pub fn conferir_raizes() -> bool {
 ///   pilha-sombra;
 /// * `sem_uso_ficticio`: nenhum `llvm.fake.use` depois dos pontos de coleta
 ///   (os operandos e os vivos saem do mapa);
+/// * `quadro_sujo` (D5): o quadro da pilha-sombra nasce com 4098 em todos os
+///   slots em vez de zero (um slot lido antes de escrito vira raiz inválida);
 /// * `bruto_no_mapa`: um valor bruto par (4098) vivo como raiz em toda
 ///   função `gc`. O valor tem a forma de um handle de objeto (resto 2 por 8,
 ///   `layout::e_objeto`) e não aponta para bloco nenhum: a validação de

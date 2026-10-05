@@ -449,6 +449,9 @@ impl<'a> MemberResolver<'a> {
         is_setter: bool,
         via_super: bool,
     ) -> Option<(Resolved, TypeId)> {
+        // T1.1 d: a interface de um homônimo é a do dono do grupo (o
+        // `InheritanceManager3._interfaces` do analyzer é por elemento).
+        let class_id = self.program.dono_da_classe(class_id);
         let class_elem = &self.program.classes[class_id.0 as usize];
 
         // 1. Procura membro declarado diretamente na classe

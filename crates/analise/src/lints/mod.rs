@@ -20,6 +20,9 @@ pub mod regras6;
 pub mod regras7;
 pub mod regras8;
 pub mod regras10;
+pub mod regras11;
+pub mod regras12;
+pub mod regras13;
 pub mod regras9;
 pub mod tabela_g;
 
@@ -87,6 +90,9 @@ pub fn executar(
     out.extend(regras8::executar(u, interner, ligada));
     out.extend(regras9::executar(u, interner, ligada));
     out.extend(regras10::executar(u, interner, ligada));
+    out.extend(regras11::executar(u, interner, ligada));
+    out.extend(regras12::executar(u, interner, ligada));
+    out.extend(regras13::executar(u, interner, ligada));
     out.sort_by_key(|r| (r.span.start, r.span.end));
     out
 }

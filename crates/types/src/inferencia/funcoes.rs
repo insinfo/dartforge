@@ -114,7 +114,7 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             cx.tipo_this = this_salvo;
             cx.estatico = estatico_salvo;
             if let Some(red) = &ctor.redirect {
-                alvo_de_factory_redirecionadora(inf, &mut cx, red);
+                alvo_de_factory_redirecionadora(inf, &mut cx, red, fe.class);
             }
             cx.tirar_escopo();
             // Escopo do corpo: parâmetros sem `this.`/`super.`.
@@ -192,7 +192,7 @@ fn inicializador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, classe: Option<Clas
 /// partes; `constructor` só aparece com argumentos de tipo, em
 /// `= E<T>.nome`), então a resolução é sintática — sem inferir nada, sem
 /// recursão.
-fn alvo_de_factory_redirecionadora(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, red: &ast::RedirectTarget) {
+fn alvo_de_factory_redirecionadora(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, red: &ast::RedirectTarget, dona: Option<ClassId>) {
     let (partes, escrito): (Vec<dartforge_intern::SymbolId>, Option<ast::Name>) = {
         let nodo = inf.program.unit(cx.unit).ast.ty(red.ty);
         let ast::TypeKind::Named { name, .. } = &nodo.kind else { return };
@@ -215,9 +215,6 @@ fn alvo_de_factory_redirecionadora(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, r
             _ => None,
         }
     })() else { return };
-    if inf.program.class(alvo).kind != ClassKind::Enum {
-        return;
-    }
     let vazio = inf.sym.vazio;
     let chave = match ctor {
         // `= E.new` é o sem nome escrito por extenso, como no tearoff.
@@ -226,6 +223,49 @@ fn alvo_de_factory_redirecionadora(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, r
         None => vazio,
     };
     let Some(chave) = chave else { return };
+    if inf.program.class(alvo).kind != ClassKind::Enum {
+        // `_checkForAllRedirectConstructorErrorCodes` (EV:2025-2075):
+        // `redirect_to_missing_constructor` sem o construtor no alvo e
+        // `redirect_to_invalid_return_type` com o tipo do alvo fora do da
+        // classe da factory (só entre classes sem parâmetros de tipo: com
+        // eles o tipo do alvo é inferido contra o da classe, o que não se faz
+        // aqui). O alvo pode ser o homônimo que o nome designa (T1, `c10`).
+        match inf.construtor_de(alvo, chave) {
+            // O construtor padrão implícito de uma classe sem construtor
+            // declarado (a abstrata não ganha o sintético no outline; o
+            // `= Abstrata` é outro código, `redirect_to_abstract_class_constructor`).
+            None if Some(chave) == vazio && inf.program.class(alvo).constructors.is_empty() => {}
+            None => {
+                // `{0}`: o nome do tipo como escrito, com o do construtor.
+                let tipo_escrito: Vec<&str> = match (partes.as_slice(), escrito) {
+                    ([a, _b], None) => vec![inf.interner.resolve(*a)],
+                    _ => partes.iter().map(|s| inf.interner.resolve(*s)).collect(),
+                };
+                let mut nome = tipo_escrito.join(".");
+                if let Some(c) = ctor {
+                    nome.push('.');
+                    nome.push_str(inf.interner.resolve(c));
+                }
+                let tipo = inf.tipo_this_classe(alvo);
+                let exibido = inf.table.format(tipo, inf.interner, inf.program);
+                inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::REDIRECT_TO_MISSING_CONSTRUCTOR, red.span, &[&nome, &exibido]);
+            }
+            Some(_) => {
+                if let Some(classe) = dona
+                    && inf.program.class(alvo).type_params.is_empty()
+                    && inf.program.class(classe).type_params.is_empty()
+                {
+                    let de = inf.tipo_this_classe(alvo);
+                    let para = inf.tipo_this_classe(classe);
+                    if !inf.sub(de, para) {
+                        let (a, b) = (inf.table.format(de, inf.interner, inf.program), inf.table.format(para, inf.interner, inf.program));
+                        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::REDIRECT_TO_INVALID_RETURN_TYPE, red.span, &[&a, &b]);
+                    }
+                }
+            }
+        }
+        return;
+    }
     match inf.construtor_de(alvo, chave) {
         Some(f) if inf.program.function(f).factory => {}
         Some(_) => {
@@ -428,6 +468,11 @@ fn funcao_do_contexto(inf: &mut BodyInferrer<'_>, ctx: TypeId) -> Option<TypeId>
 
 /// Expressão de função (closure) no contexto `ctx`.
 pub(crate) fn expressao_de_funcao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::FunctionId, ctx: TypeId) -> TypeId {
+    // `wasFunctionTypeSupplied` (`function_expression_resolver.dart:35`): o
+    // contexto, como chegou, é um tipo de função.
+    if matches!(inf.table.get(ctx), Type::Function { .. }) {
+        inf.body_types.units[cx.unit.0 as usize].com_tipo_de_funcao.insert(fid);
+    }
     let (t, _) = funcao_literal(inf, cx, fid, ctx, None);
     t
 }

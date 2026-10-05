@@ -1036,21 +1036,28 @@ pub fn membros_abstratos(
         // lida de outro jeito pelo parser do analyzer.
         let sp = ast_.decl(decl.decl).span;
         let texto_decl = fonte.get(sp.start..sp.end).unwrap_or("");
-        let augment_no_texto = texto_decl.lines().any(|l| l.trim_start().starts_with("augment "));
+        // Sem o experimento, o parser lê `augment` como identificador e a
+        // recuperação é a do analyzer (T1.1 f): nada a pular.
+        let augment_no_texto = program.biblioteca_com_augmentations(classe.library)
+            && texto_decl.lines().any(|l| l.trim_start().starts_with("augment "));
         if recuperado || augment_no_texto || ast_.decl(decl.decl).augment {
             continue;
         }
-        let Some(este) = cx.tipo_proprio(cid) else { continue };
+        // T1.1 e: a interface é a do dono do grupo de homônimos (o cache do
+        // analyzer é por elemento), e o membro abstrato é procurado na árvore
+        // da própria declaração (`_reportConcreteClassWithAbstractMember`).
+        let intf = program.dono_da_classe(cid);
+        let Some(este) = cx.tipo_proprio(intf) else { continue };
         // `noSuchMethod` implementado que não é o de `Object`: encaminha.
         if let Some(n) = nsm
-            && let Some(a) = cx.implementado(cid, n, 0)
+            && let Some(a) = cx.implementado(intf, n, 0)
             && program.library(program.class(a.dono).library).uri != "dart:core"
         {
             continue;
         }
         // `_isNotImplementedInConcreteSuperClass`: a superclasse declarada,
         // se concreta.
-        let superclasse_concreta = classe.supertype_class.filter(|&s| {
+        let superclasse_concreta = program.class(intf).supertype_class.filter(|&s| {
             let sc = program.class(s);
             sc.decl.is_some()
                 && sc.kind == dartforge_elements::model::ClassKind::Class
@@ -1059,11 +1066,11 @@ pub fn membros_abstratos(
         });
         let mut herdados: Vec<String> = Vec::new();
         let mut incerto = false;
-        for chave in cx.chaves_da_hierarquia(cid) {
+        for chave in cx.chaves_da_hierarquia(intf) {
             let texto = interner.resolve(chave).to_string();
             let Some((membro, tipo_membro)) = cx.na_interface(este, chave, 0) else {
                 // Conflito ou assinatura combinada que não se decide aqui.
-                if !program.class(cid).instance_members.contains_key(&chave) {
+                if !program.class(intf).instance_members.contains_key(&chave) {
                     incerto = true;
                 }
                 continue;
@@ -1073,7 +1080,7 @@ pub fn membros_abstratos(
             }
             let Some(especie) = cx.especie(membro.funcao) else { continue };
             let exibido = texto.strip_suffix("_=").unwrap_or(&texto).to_string();
-            match cx.implementado(cid, chave, 0) {
+            match cx.implementado(intf, chave, 0) {
                 None => {
                     // `_reportConcreteClassWithAbstractMember`.
                     let declarado = membros.iter().find(|&&m| match &ast_.member(m).kind {
@@ -1134,7 +1141,7 @@ pub fn membros_abstratos(
                     let Some(tipo_concreto) = cx.tipo_visto(este, concreto) else { continue };
                     // `_inheritCovariance`: a covariância vem de todos os
                     // membros homônimos na hierarquia da classe.
-                    let (pos, nomes) = cx.covariantes_efetivos(cid, concreto.funcao, chave);
+                    let (pos, nomes) = cx.covariantes_efetivos(intf, concreto.funcao, chave);
                     let para_sub = cx.para_subtipo(tipo_concreto, &pos, &nomes);
                     let ok = {
                         let mut env = SubtypeEnv::new(cx.table, &outline.hierarchy, core);
@@ -1295,7 +1302,8 @@ pub fn valores_padrao(
         let da_classe = f.class.and_then(|c| program.class(c).decl).is_some_and(|d| {
             d.unit == unit && linha_comeca_com_augment(program.unit(unit).ast.decl(d.decl).span.start)
         });
-        let aumentada = linha_comeca_com_augment(inicio) || da_classe;
+        let aumentada =
+            program.biblioteca_com_augmentations(program.unit(unit).library) && (linha_comeca_com_augment(inicio) || da_classe);
         if aumentada {
             continue;
         }
@@ -1356,10 +1364,7 @@ pub fn membros_em_conflito(
             continue;
         }
         let fonte = &program.unit(decl.unit).source;
-        if fonte.lines().any(|l| l.trim_start().starts_with("augment ")) {
-            continue;
-        }
-        if program.classes.iter().filter(|c| c.library == lib && c.name == classe.name).count() > 1 {
+        if program.biblioteca_com_augmentations(lib) && fonte.lines().any(|l| l.trim_start().starts_with("augment ")) {
             continue;
         }
         let (nome_classe, membros): (ast::Name, &[ast::MemberId]) = match &ast_.decl(decl.decl).kind {
@@ -1368,7 +1373,10 @@ pub fn membros_em_conflito(
             DeclKind::ExtensionType(d) => (d.name, &d.members),
             _ => continue,
         };
-        let Some(este) = cx.tipo_proprio(cid) else { continue };
+        // T1.1 e: a interface herdada é a do dono do grupo de homônimos; os
+        // membros declarados são os da própria declaração.
+        let intf = program.dono_da_classe(cid);
+        let Some(este) = cx.tipo_proprio(intf) else { continue };
         let texto_classe = interner.resolve(classe.name).to_string();
         let herdado_visivel = |cx: &mut Ctx<'_>, nome: &str| -> Option<Achado> {
             let chave = interner.lookup(nome)?;
@@ -1448,7 +1456,7 @@ pub fn membros_em_conflito(
             }
         }
         // Método e setter herdados com o mesmo nome.
-        for chave in cx.chaves_da_hierarquia(cid) {
+        for chave in cx.chaves_da_hierarquia(intf) {
             let nome = interner.resolve(chave).to_string();
             if nome.ends_with("_=") || conflitantes.contains(&nome) {
                 continue;
@@ -1504,7 +1512,7 @@ pub fn membros_de_enum(
         }
         let ast_ = &program.unit(decl.unit).ast;
         let fonte = &program.unit(decl.unit).source;
-        if fonte.lines().any(|l| l.trim_start().starts_with("augment ")) {
+        if program.biblioteca_com_augmentations(classe.library) && fonte.lines().any(|l| l.trim_start().starts_with("augment ")) {
             continue;
         }
         let (nome_classe, membros): (ast::Name, &[ast::MemberId]) = match &ast_.decl(decl.decl).kind {

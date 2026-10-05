@@ -938,7 +938,15 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  %gcq = alloca {t}, align 8").unwrap();
                 }
                 let cabecalho = self.cabecalho_do_quadro(n);
-                writeln!(self.out, "  store {t} {{ ptr null, i64 {cabecalho}, [{n} x i64] zeroinitializer }}, ptr %gcq").unwrap();
+                // A sabotagem `quadro_sujo` (D5, §7.3): os slots nascem com um
+                // valor de handle que não aponta para bloco nenhum; um slot
+                // lido antes de escrito cai na validação de handle.
+                let slots = if n > 0 && crate::alvo::sabotagem("quadro_sujo") {
+                    format!("[{}]", vec!["i64 4098"; n].join(", "))
+                } else {
+                    "zeroinitializer".to_string()
+                };
+                writeln!(self.out, "  store {t} {{ ptr null, i64 {cabecalho}, [{n} x i64] {slots} }}, ptr %gcq").unwrap();
                 for slot in 0..n {
                     writeln!(self.out, "  %gcs{slot} = getelementptr inbounds {t}, ptr %gcq, i64 0, i32 2, i64 {slot}").unwrap();
                 }

@@ -2428,6 +2428,43 @@ quadros do JIT. Não verificado: que a camada RTDyld da API C registra o `.eh_fr
 `CONTEXT` do arm64 fica para quando o alvo existir; até lá `alvo::raizes_por_mapas` o recusa, como o §6
 pede.
 
+**O conferidor depois do RS4GC (§7.4), escrito em 2026-10-05.** `crates/llvm/src/conferir_rs4gc.rs`,
+ligado por `DARTFORGE_CONFERIR_RS4GC=1` em `gerar` e `gerar_de_bitcode` (o texto do módulo é impresso
+depois do passe). Na forma do §14.8 o `Ref` é `i64` e só a raiz é `ptr addrspace(1)`, então o
+conferidor não procura `ptr addrspace(1)` sem relocação (o RS4GC os reloca por construção): procura o
+`%v<n>` usado depois de um statepoint, ou passado a ele (C1), sem a raiz `%raiz<n>` (ou uma relocação
+dela) no `"gc-live"` desse statepoint. É o defeito que o otimizador causa ao esticar a vida de um `Ref`
+por cima de uma chamada e que o emissor causa ao esquecer o uso fictício. Por bloco: o valor que
+atravessa o statepoint para um `phi` de outro bloco não é conferido; só os pares com os nomes do
+emissor entram (`%v5.i`/`%raiz5.i` do inlining contam). As violações plantadas estão nos testes do
+arquivo. O Mach-O (o passe roda na LTO do `ld64.lld`) e o JIT não passam por ele.
+
+**D5, D8 e D9 (§7.3), escritos em 2026-10-05.** Os programas `corpus/nativo/gc_d05_slot_antes_de_escrito.dart`
+(saída `1729 140`), `gc_d08_estouro_de_pilha.dart` (`3003 0`) e `gc_d09_fronteira_rust.dart` (`925`),
+com as saídas calculadas à mão, e as sabotagens:
+
+| caso | modo | sabotagem | onde |
+|---|---|---|---|
+| D5 | `sombra` | `quadro_sujo`: o quadro nasce com 4098 (forma de handle, nenhum bloco) em vez de zero | `EN/llvm/mod.rs`, a abertura do quadro |
+| D5 | `mapas` | `sem_uso_ficticio` | — |
+| D8 | `mapas`, `checagem` e `tabelas` | `folga` (runtime): a folga da pilha de 4 KiB em vez de 256 KiB | `RT/gc_raizes.rs`, `limite_da_pilha_da_thread` |
+| D9 | `mapas`, `tabelas` | `sem_porta` (runtime): as portas não são registradas e o runtime chama Dart direto | `RT/excecoes_tabelas.rs`, `dartforge_registrar_portas` |
+
+O D9 usa `Function.apply`, que o runtime faz pela porta `dart_r3` (`RT/closures.rs`): a exceção do
+closure sai certamente por um quadro Rust. O `then` que lança fica no programa, mas o tratador da
+microtarefa é Dart e não prova a fronteira sozinho. O harness (`crates/cli/tests/mapas_dirigidos.rs`)
+ganhou o campo `sombra` e liga o conferidor do RS4GC em toda compilação em modo mapas, inclusive nas
+das sabotagens (onde ele pode ser o primeiro a acusar). Não feitos: o callback da FFI que lança (pede
+uma biblioteca C no teste) e o `Isolate.exit` dentro de `finally`.
+
+O D12 (cache estático do runtime como raiz): `gc_d12_cache_do_runtime.dart` (saída `1000 1000 4000`)
+pede a cada volta o objeto `Type` canônico (`OBJETOS_TIPO`, raiz global permanente) e o texto de um
+caractere (`UM_CARACTERE`, literal permanente), sem que o programa os segure entre as voltas. A
+sabotagem `tipo_sem_raiz` (runtime, `RT/tipos.rs`) tira o registro da raiz: a volta seguinte recebe
+do cache um handle de bloco liberado, que o veneno e a validação de handle recusam. Os demais caches
+com handle levantados (`LITERAIS_POR_ENDERECO`, `DESPACHANTE`, `ATUAL` de `portas.rs`,
+`CURRENT_STACK_TRACE`) seguem a mesma regra e não têm sabotagem própria.
+
 ## 15. Roteiro de implementação detalhado
 
 Cada passo traz: arquivos e funções (linha atual), o que entra, o teste dirigido e a medida. A ordem é a

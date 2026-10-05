@@ -26,6 +26,9 @@ struct Caso {
     esperado: &'static str,
     /// Compilar com `--excecoes=tabelas`.
     tabelas: bool,
+    /// Compilar com as raízes na pilha-sombra (`--raizes=sombra`): o caso
+    /// cuja sabotagem é do quadro da pilha-sombra (D5).
+    sombra: bool,
     /// A sabotagem do emissor (`DARTFORGE_SABOTAGEM` na compilação).
     sabotagem_do_emissor: Option<&'static str>,
     /// A sabotagem do runtime (`DARTFORGE_SABOTAGEM` na execução).
@@ -36,7 +39,7 @@ const CASOS: &[Caso] = &[
     Caso {
         arquivo: "gc_d01_argumento_vivo.dart",
         esperado: "18335 1999000 2000\n",
-        tabelas: false,
+        tabelas: false, sombra: false,
         sabotagem_do_emissor: Some("sem_uso_ficticio"),
         sabotagem_do_runtime: None,
     },
@@ -44,7 +47,7 @@ const CASOS: &[Caso] = &[
     Caso {
         arquivo: "gc_d01_argumento_vivo.dart",
         esperado: "18335 1999000 2000\n",
-        tabelas: false,
+        tabelas: false, sombra: false,
         sabotagem_do_emissor: Some("folha:dartforge_string_concat"),
         sabotagem_do_runtime: None,
     },
@@ -52,54 +55,110 @@ const CASOS: &[Caso] = &[
     Caso {
         arquivo: "gc_d01_argumento_vivo.dart",
         esperado: "18335 1999000 2000\n",
-        tabelas: false,
+        tabelas: false, sombra: false,
         sabotagem_do_emissor: None,
         sabotagem_do_runtime: if cfg!(windows) { Some("sem_nop") } else { None },
     },
     Caso {
         arquivo: "gc_d02_muitos_vivos.dart",
         esperado: "4320 h-49 2.0\n",
-        tabelas: false,
+        tabelas: false, sombra: false,
         sabotagem_do_emissor: Some("sem_uso_ficticio"),
         sabotagem_do_runtime: None,
     },
     Caso {
         arquivo: "gc_d03_excecao_profunda.dart",
         esperado: "32255\n",
-        tabelas: true,
+        tabelas: true, sombra: false,
         sabotagem_do_emissor: Some("pouso_sem_topo"),
         sabotagem_do_runtime: None,
     },
     Caso {
         arquivo: "gc_d04_finally.dart",
         esperado: "336 10 1566\n",
-        tabelas: true,
+        tabelas: true, sombra: false,
         sabotagem_do_emissor: Some("sem_uso_ficticio"),
         sabotagem_do_runtime: None,
     },
     Caso {
         arquivo: "gc_d06_valores_brutos.dart",
         esperado: "249750.0 999000 3890 1248750.0\n",
-        tabelas: false,
+        tabelas: false, sombra: false,
         sabotagem_do_emissor: Some("bruto_no_mapa"),
         sabotagem_do_runtime: None,
     },
-    Caso { arquivo: "gc_d10_closures_async.dart", esperado: "4050\n", tabelas: false, sabotagem_do_emissor: None, sabotagem_do_runtime: None },
+    Caso { arquivo: "gc_d10_closures_async.dart", esperado: "4050\n", tabelas: false, sombra: false, sabotagem_do_emissor: None, sabotagem_do_runtime: None },
     Caso {
         arquivo: "gc_d11_campos_de_objeto_morto.dart",
         esperado: "26800\n",
-        tabelas: false,
+        tabelas: false, sombra: false,
         sabotagem_do_emissor: Some("sem_uso_ficticio"),
         sabotagem_do_runtime: None,
     },
     Caso {
         arquivo: "gc_d13_estaticos_e_constantes.dart",
         esperado: "13890\n",
-        tabelas: false,
+        tabelas: false, sombra: false,
         sabotagem_do_emissor: None,
         sabotagem_do_runtime: None,
     },
-    Caso { arquivo: "gc_d14_quadro_residual.dart", esperado: "499500\n", tabelas: false, sabotagem_do_emissor: None, sabotagem_do_runtime: None },
+    Caso { arquivo: "gc_d14_quadro_residual.dart", esperado: "499500\n", tabelas: false, sombra: false, sabotagem_do_emissor: None, sabotagem_do_runtime: None },
+    // D5: o slot lido antes de escrito, na pilha-sombra; com o quadro sujo
+    // (4098 em vez de zero), o slot ainda não escrito vira raiz inválida.
+    Caso {
+        arquivo: "gc_d05_slot_antes_de_escrito.dart",
+        esperado: "1729 140\n",
+        tabelas: false,
+        sombra: true,
+        sabotagem_do_emissor: Some("quadro_sujo"),
+        sabotagem_do_runtime: None,
+    },
+    // D5 também nos mapas (o `phi` com a entrada nula, a continuação `async`).
+    Caso {
+        arquivo: "gc_d05_slot_antes_de_escrito.dart",
+        esperado: "1729 140\n",
+        tabelas: false,
+        sombra: false,
+        sabotagem_do_emissor: Some("sem_uso_ficticio"),
+        sabotagem_do_runtime: None,
+    },
+    // D8: o `StackOverflowError` capturado, nos dois modelos de exceção; com
+    // a folga de 4 KiB, montar e lançar o erro estoura a pilha de verdade.
+    Caso {
+        arquivo: "gc_d08_estouro_de_pilha.dart",
+        esperado: "3003 0\n",
+        tabelas: false,
+        sombra: false,
+        sabotagem_do_emissor: None,
+        sabotagem_do_runtime: Some("folga"),
+    },
+    Caso {
+        arquivo: "gc_d08_estouro_de_pilha.dart",
+        esperado: "3003 0\n",
+        tabelas: true,
+        sombra: false,
+        sabotagem_do_emissor: None,
+        sabotagem_do_runtime: Some("folga"),
+    },
+    // D12: os caches estáticos do runtime com handle são raiz.
+    Caso {
+        arquivo: "gc_d12_cache_do_runtime.dart",
+        esperado: "1000 1000 4000\n",
+        tabelas: false,
+        sombra: false,
+        sabotagem_do_emissor: None,
+        sabotagem_do_runtime: Some("tipo_sem_raiz"),
+    },
+    // D9: a exceção que sai de uma função Dart que o runtime chamou; sem as
+    // portas, ela atravessa os quadros Rust.
+    Caso {
+        arquivo: "gc_d09_fronteira_rust.dart",
+        esperado: "925\n",
+        tabelas: true,
+        sombra: false,
+        sabotagem_do_emissor: None,
+        sabotagem_do_runtime: Some("sem_porta"),
+    },
 ];
 
 fn ligado() -> bool {
@@ -122,14 +181,20 @@ fn dir_de_trabalho(nome: &str) -> PathBuf {
     d
 }
 
-/// Compila `arquivo` em modo mapas; o erro leva a mensagem do compilador.
-fn compilar(arquivo: &str, tabelas: bool, ambiente: &[(&str, &str)], saida: &Path) -> Result<(), String> {
+/// Compila `arquivo` em modo mapas (ou na pilha-sombra, com `sombra`); o
+/// erro leva a mensagem do compilador. Em modo mapas, o conferidor das
+/// raízes depois do RS4GC (§7.4) roda em cada módulo.
+fn compilar(arquivo: &str, tabelas: bool, sombra: bool, ambiente: &[(&str, &str)], saida: &Path) -> Result<(), String> {
     let mut c = Command::new(env!("CARGO_BIN_EXE_dartforge"));
-    c.arg("compile-native").arg(fonte(arquivo)).arg("-o").arg(saida).arg("--raizes=mapas");
+    c.arg("compile-native").arg(fonte(arquivo)).arg("-o").arg(saida);
+    c.arg(if sombra { "--raizes=sombra" } else { "--raizes=mapas" });
     if tabelas {
         c.arg("--excecoes=tabelas");
     }
     c.env_remove("DARTFORGE_SABOTAGEM").env_remove("DARTFORGE_RAIZES_CONFERIR");
+    if !sombra {
+        c.env("DARTFORGE_CONFERIR_RS4GC", "1");
+    }
     for (k, v) in ambiente {
         c.env(k, v);
     }
@@ -176,18 +241,22 @@ fn casos_dirigidos_passam_e_caem_com_a_sabotagem() {
     let dir = dir_de_trabalho("dirigidos");
     for (k, caso) in CASOS.iter().enumerate() {
         let exe = dir.join(format!("caso{k}{}", std::env::consts::EXE_SUFFIX));
-        compilar(caso.arquivo, caso.tabelas, &[], &exe).unwrap_or_else(|e| panic!("{}: não compilou:\n{e}", caso.arquivo));
+        compilar(caso.arquivo, caso.tabelas, caso.sombra, &[], &exe).unwrap_or_else(|e| panic!("{}: não compilou:\n{e}", caso.arquivo));
         let r = rodar(&exe, &[]);
         let stderr = String::from_utf8_lossy(&r.stderr).into_owned();
         assert!(saida_certa(&r, caso.esperado), "{}: saída errada ({}):\n{}\n{stderr}", caso.arquivo, r.status, String::from_utf8_lossy(&r.stdout));
         // A prova de que coletou e leu raízes de mapa (o `exigir` já sai com
         // 70 sem isso; aqui a conferência é explícita).
         assert!(estatistica(&stderr, "collections").is_some_and(|n| n > 0), "{}: nenhuma coleta:\n{stderr}", caso.arquivo);
-        assert!(estatistica(&stderr, "map_roots").is_some_and(|n| n > 0), "{}: nenhuma raiz lida de mapa:\n{stderr}", caso.arquivo);
+        assert!(
+            caso.sombra || estatistica(&stderr, "map_roots").is_some_and(|n| n > 0),
+            "{}: nenhuma raiz lida de mapa:\n{stderr}",
+            caso.arquivo
+        );
 
         if let Some(s) = caso.sabotagem_do_emissor {
             let sab = dir.join(format!("caso{k}-sab{}", std::env::consts::EXE_SUFFIX));
-            let caiu = match compilar(caso.arquivo, caso.tabelas, &[("DARTFORGE_SABOTAGEM", s)], &sab) {
+            let caiu = match compilar(caso.arquivo, caso.tabelas, caso.sombra, &[("DARTFORGE_SABOTAGEM", s)], &sab) {
                 Err(_) => true,
                 Ok(()) => !saida_certa(&rodar(&sab, &[]), caso.esperado),
             };
@@ -210,9 +279,9 @@ fn percurso_conferido_contra_a_pilha_sombra() {
         return;
     }
     let dir = dir_de_trabalho("conferencia");
-    for caso in CASOS.iter().filter(|c| c.sabotagem_do_runtime.is_none() && c.sabotagem_do_emissor.is_some()) {
+    for caso in CASOS.iter().filter(|c| !c.sombra && c.sabotagem_do_runtime.is_none() && c.sabotagem_do_emissor.is_some()) {
         let exe = dir.join(format!("conf{}", std::env::consts::EXE_SUFFIX));
-        compilar(caso.arquivo, caso.tabelas, &[("DARTFORGE_RAIZES_CONFERIR", "1")], &exe)
+        compilar(caso.arquivo, caso.tabelas, false, &[("DARTFORGE_RAIZES_CONFERIR", "1")], &exe)
             .unwrap_or_else(|e| panic!("{}: não compilou:\n{e}", caso.arquivo));
         let r = rodar(&exe, &[("DARTFORGE_GC_PERCURSO", "conferir")]);
         let stderr = String::from_utf8_lossy(&r.stderr).into_owned();
@@ -231,7 +300,7 @@ fn coleta_agendada_por_semente() {
     let dir = dir_de_trabalho("agenda");
     let caso = &CASOS[0];
     let exe = dir.join(format!("agenda{}", std::env::consts::EXE_SUFFIX));
-    compilar(caso.arquivo, false, &[], &exe).unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+    compilar(caso.arquivo, false, false, &[], &exe).unwrap_or_else(|e| panic!("não compilou:\n{e}"));
     for semente in ["1,7", "42,13", "9,3"] {
         let r = rodar_com(&exe, false, &[("DARTFORGE_GC_AGENDA", semente)]);
         assert!(saida_certa(&r, caso.esperado), "agenda {semente}: {}", String::from_utf8_lossy(&r.stderr));

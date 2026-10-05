@@ -266,6 +266,11 @@ pub struct Library {
     /// grupo (docs/ANALYZER-ESPECIFICACAO.md §G, T1.1 c–d). A identidade de
     /// tipo continua sendo a de cada elemento.
     pub representante: HashMap<Element, Element>,
+    /// T1.1 d: para cada classe com homônimo da mesma espécie, a classe cujo
+    /// cálculo de interface e de hierarquia vale para o grupo inteiro — a
+    /// que o analyzer consulta primeiro (`outline::calcular_donos_de_homonimos`).
+    /// Sem homônimo, ausente.
+    pub dono_do_grupo: HashMap<ClassId, ClassId>,
 }
 
 /// Escopo de nomes de topo de uma unidade (ver [`Library::escopos_de_unidade`]).
@@ -522,6 +527,18 @@ impl Program {
             Some(Element::Class(r)) => *r,
             _ => c,
         }
+    }
+
+    /// T1.1 d: a classe cuja interface e cuja hierarquia valem para `c` (o
+    /// dono do cache do grupo de homônimos); sem homônimo, a própria `c`.
+    /// Os tipos continuam distintos: só os supertipos e os membros da
+    /// interface vêm do dono.
+    pub fn dono_da_classe(&self, c: ClassId) -> ClassId {
+        let lib = self.library(self.class(c).library);
+        if lib.dono_do_grupo.is_empty() {
+            return c;
+        }
+        lib.dono_do_grupo.get(&c).copied().unwrap_or(c)
     }
 
     /// T1: a classe `c` tem homônimo da mesma espécie na biblioteca (ela é

@@ -24,7 +24,7 @@ fn anotado(metadata: &[ast::Annotation], sym_override: SymbolId) -> bool {
 
 /// Algum supertipo de `classe` tem um membro de instância com a chave
 /// `chave` (o nome, ou `nome_=` para o setter).
-fn sobrescreve(program: &Program, outline: &OutlineTypes, interner: &Interner, classe: ClassId, lib: LibraryId, chave: Option<SymbolId>) -> bool {
+pub(crate) fn sobrescreve(program: &Program, outline: &OutlineTypes, interner: &Interner, classe: ClassId, lib: LibraryId, chave: Option<SymbolId>) -> bool {
     let Some(chave) = chave else { return false };
     let Some(dados) = outline.hierarchy.get(classe) else { return false };
     let privado = interner.resolve(chave).starts_with('_');

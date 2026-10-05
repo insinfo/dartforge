@@ -560,6 +560,18 @@ impl Motor {
                 &inferidas,
                 &libs_proprias,
             ));
+            // `BestPracticesVerifier`: `non_const_call_to_literal_constructor`,
+            // com o `canBeConst` pela verificação de constantes.
+            atribuidos.extend(dartforge_types::fase_literal::construtores_literais(
+                &program,
+                &interner,
+                &mut table,
+                &core,
+                &outline,
+                corpos,
+                &inferidas,
+                &libs_proprias,
+            ));
         }
         // Sobrescritas inválidas, nas classes em que o `verify()` do
         // `InheritanceOverrideVerifier` chega a conferi-las.
@@ -640,6 +652,7 @@ impl Motor {
                 // com a regra ligada.
                 let mut de_lint = dartforge_types::lints_tipados::achados(&program, &table, &core, &outline, corpo, u);
                 de_lint.extend(dartforge_types::lints_tipados2::achados(&program, &interner, &table, &core, &outline, corpo, u));
+                de_lint.extend(dartforge_types::lints_tipados3::achados(&program, &interner, &table, &core, &outline, corpo, u));
                 if !de_lint.is_empty()
                     && let Some(p) = &program.unit(u).path
                     && let Some(a) = analise.arquivos.get_mut(&chave(p))
@@ -650,8 +663,20 @@ impl Motor {
                 for d in dartforge_types::fase_requeridos::requeridos_ausentes(&program, &interner, corpo, u) {
                     atribuidos.push((u, d));
                 }
+                // `ErrorHandlerVerifier`: o retorno do `onError` de `catchError`.
+                for d in dartforge_types::fase_catch_error::retornos_de_catch_error(&program, &interner, &mut table, &core, &outline, corpo, u) {
+                    atribuidos.push((u, d));
+                }
                 // `FfiVerifier`: `NON_CONSTANT_TYPE_ARGUMENT`.
                 for d in dartforge_types::fase_ffi::argumentos_nao_constantes(&program, &interner, &table, corpo, u) {
+                    atribuidos.push((u, d));
+                }
+                // `BestPracticesVerifier`: `assignment_of_do_not_store` e `return_of_do_not_store`.
+                for d in dartforge_types::fase_nao_guardar::guardados_e_devolvidos(&program, &interner, corpo, u) {
+                    atribuidos.push((u, d));
+                }
+                // `BestPracticesVerifier` com `strict-inference` (filtrado sem a opção).
+                for d in dartforge_types::fase_estrita::falhas_de_inferencia(&program, &interner, &outline, corpo, u) {
                     atribuidos.push((u, d));
                 }
                 // `UseResultVerifier`.

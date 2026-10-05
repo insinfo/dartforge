@@ -626,6 +626,17 @@ fn this_sem_acesso(cx: &mut Ctx<'_>) {
 
 /// Os identificadores embutidos do scanner (`KeywordStyle.builtIn`), menos
 /// `augment`, que o scanner do 3.6 só faz palavra-chave com o experimento.
+/// T1.1 a: o nome de topo `nome` designa, no escopo da biblioteca, outra
+/// coisa que a declaração `decl` (o homônimo que entra antes no escopo).
+fn nome_designa_outra(programa: &Program, lib: LibraryId, nome: SymbolId, decl: DeclRef) -> bool {
+    let Some(designado) = programa.library(lib).declared.get(&nome).and_then(|d| d.getter) else { return false };
+    match designado {
+        Element::Class(c) => programa.class(c).decl.is_some_and(|d| d.unit != decl.unit || d.decl != decl.decl),
+        Element::Extension(_) | Element::Prefix(..) => false,
+        _ => true,
+    }
+}
+
 fn embutido(nome: &str) -> bool {
     matches!(
         nome,
@@ -975,10 +986,12 @@ pub fn verificar(
                             continue;
                         }
                         // `_isFactoryConstructorReturnType`: o nome antes do
-                        // ponto de uma `factory` precisa ser o da declaração.
+                        // ponto de uma `factory` precisa designar a própria
+                        // declaração. Com um homônimo, o nome pode designar
+                        // outra (T1.1 a e e, `c10`).
                         if k.factory
                             && let Some(n) = nome
-                            && k.class_name.sym != n.sym
+                            && (k.class_name.sym != n.sym || nome_designa_outra(programa, lib, n.sym, DeclRef { unit: u, decl: id }))
                             && cx.fonte.get(k.class_name.span.start..k.class_name.span.end)
                                 == Some(cx.nome(k.class_name.sym))
                         {

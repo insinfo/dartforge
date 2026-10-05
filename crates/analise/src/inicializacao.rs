@@ -55,6 +55,10 @@ fn instancia_nao_final_nao_nula(v: &VariableList, ast: &Ast, nomes: &Interner, a
     }
 }
 
+/// A classe dos campos: (enum?, nome, unidade, declaração); a unidade e a
+/// declaração são zero quando as declarações se juntam pelo nome.
+type Chave = (bool, SymbolId, usize, usize);
+
 /// Uma classe com construtor gerador explícito delega a verificação dos seus
 /// campos de instância ao `ConstructorFieldsVerifier`; factories não a fazem.
 pub fn finais_nao_inicializados(unidades: &[Unidade<'_>], nomes: &Interner) -> Vec<(usize, Diagnostic)> {
@@ -65,10 +69,18 @@ pub fn finais_nao_inicializados(unidades: &[Unidade<'_>], nomes: &Interner) -> V
         }
     })).collect();
     // `unidades` contém uma biblioteca e suas partes. As declarações
-    // aumentadas da mesma classe podem estar em unidades diferentes.
-    let mut com_gerador = HashSet::<(bool, SymbolId)>::new();
-    let mut campos = HashMap::<(bool, SymbolId), Vec<(SymbolId, bool, bool)>>::new();
-    for unidade in unidades {
+    // aumentadas da mesma classe podem estar em unidades diferentes, e com
+    // o experimento elas se juntam pelo nome. Sem ele (nenhuma declaração
+    // `augment`), cada declaração tem os próprios campos, inclusive a classe
+    // homônima (T1.1 e, `c11`: o construtor de cada uma acusa os campos
+    // dela).
+    let juntar = unidades.iter().any(|u| u.unit.declarations.iter().any(|&d| u.ast.decl(d).augment));
+    let chave_de = |e: bool, nome: SymbolId, unidade: usize, id: dartforge_frontend::ast::DeclId| -> Chave {
+        if juntar { (e, nome, 0, 0) } else { (e, nome, unidade, id.0 as usize) }
+    };
+    let mut com_gerador = HashSet::<Chave>::new();
+    let mut campos = HashMap::<Chave, Vec<(SymbolId, bool, bool)>>::new();
+    for (ui, unidade) in unidades.iter().enumerate() {
         for &id in &unidade.unit.declarations {
             let (chave, membros, ffi) = match &unidade.ast.decl(id).kind {
                 DeclKind::Class(x) => {
@@ -77,9 +89,9 @@ pub fn finais_nao_inicializados(unidades: &[Unidade<'_>], nomes: &Interner) -> V
                             name.last().is_some_and(|n| matches!(nomes.resolve(n.sym), "Struct" | "Union"))
                         } else { false }
                     });
-                    ((false, x.name.sym), &x.members, ffi)
+                    (chave_de(false, x.name.sym, ui, id), &x.members, ffi)
                 }
-                DeclKind::Enum(x) => ((true, x.name.sym), &x.members, false),
+                DeclKind::Enum(x) => (chave_de(true, x.name.sym, ui, id), &x.members, false),
                 _ => continue,
             };
             if membros.iter().any(|&m| {
@@ -110,8 +122,8 @@ pub fn finais_nao_inicializados(unidades: &[Unidade<'_>], nomes: &Interner) -> V
 
     // O verificador oficial ignora nomes de campos duplicados; o diagnóstico
     // de duplicata já é emitido por outro verificador.
-    let mut pendentes = HashMap::<(bool, SymbolId), Vec<SymbolId>>::new();
-    let mut pendentes_nao_finais = HashMap::<(bool, SymbolId), Vec<SymbolId>>::new();
+    let mut pendentes = HashMap::<Chave, Vec<SymbolId>>::new();
+    let mut pendentes_nao_finais = HashMap::<Chave, Vec<SymbolId>>::new();
     for (chave, campos) in campos {
         let mut contagem = HashMap::<SymbolId, usize>::new();
         for (nome, _, _) in &campos { *contagem.entry(*nome).or_default() += 1; }
@@ -131,8 +143,8 @@ pub fn finais_nao_inicializados(unidades: &[Unidade<'_>], nomes: &Interner) -> V
                     final_sem_inicializador(v, nomes, &mut out, i, false);
                     continue;
                 }
-                DeclKind::Class(x) => (&x.members, com_gerador.contains(&(false, x.name.sym))),
-                DeclKind::Enum(x) => (&x.members, com_gerador.contains(&(true, x.name.sym))),
+                DeclKind::Class(x) => (&x.members, com_gerador.contains(&chave_de(false, x.name.sym, i, id))),
+                DeclKind::Enum(x) => (&x.members, com_gerador.contains(&chave_de(true, x.name.sym, i, id))),
                 DeclKind::Mixin(x) => (&x.members, false),
                 DeclKind::Extension(x) => (&x.members, false),
                 DeclKind::ExtensionType(x) => (&x.members, false),
@@ -162,8 +174,8 @@ pub fn finais_nao_inicializados(unidades: &[Unidade<'_>], nomes: &Interner) -> V
                     }
                     MemberKind::Constructor(k) if !k.factory && !k.external && k.redirect.is_none() => {
                         let (chave, primario) = match &unidade.ast.decl(id).kind {
-                            DeclKind::Class(x) => ((false, x.name.sym), x.primary_constructor),
-                            DeclKind::Enum(x) => ((true, x.name.sym), x.primary_constructor),
+                            DeclKind::Class(x) => (chave_de(false, x.name.sym, i, id), x.primary_constructor),
+                            DeclKind::Enum(x) => (chave_de(true, x.name.sym, i, id), x.primary_constructor),
                             _ => continue,
                         };
                         // O corpus `analyzer` usa SDK 3.6.2: nele a sintaxe

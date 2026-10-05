@@ -547,7 +547,9 @@ pub fn ha_mapas_de_pilha() -> bool {
 /// Uma sabotagem de teste ligada (`DARTFORGE_SABOTAGEM=a,b,…`,
 /// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.3 e §14.7): cada teste
 /// dirigido tem de falhar com a dele. As do runtime: `sem_nop` (o leitor
-/// sem a regra do `nop`).
+/// sem a regra do `nop`), `folga` (D8: a folga da pilha de 4 KiB) e
+/// `sem_porta` (D9: as portas Rust → Dart não são registradas) e
+/// `tipo_sem_raiz` (D12: o objeto `Type` canônico fica só no cache).
 pub fn sabotagem(nome: &str) -> bool {
     static LIGADAS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
     LIGADAS

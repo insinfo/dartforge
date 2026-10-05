@@ -38,6 +38,7 @@ mod indice;
 mod navegacao;
 mod projeto;
 mod realce;
+mod registro;
 mod relevancia;
 mod relevancia_tabelas;
 mod renomear;

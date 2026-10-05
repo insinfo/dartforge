@@ -672,7 +672,85 @@ pub fn build_outline(
             curr = program.classes[next_id.0 as usize].supertype_class;
         }
     }
+    calcular_donos_de_homonimos(program);
     program.tempos.outline_supertipos += t_fase.elapsed();
+}
+
+/// T1 (docs/ANALYZER-ESPECIFICACAO.md §G, T1.1 d): o dono dos caches de
+/// interface e de hierarquia de cada grupo de classes homônimas, isto é, a
+/// declaração que o analyzer consulta primeiro (o cache é por elemento, e
+/// os homônimos são o mesmo elemento como chave). A resolução anda as
+/// declarações da biblioteca em ordem de fonte: a primeira classe do grupo
+/// com `this` ou `super` no corpo pede a própria interface; uma declaração
+/// de fora do grupo que cita o nome antes disso pede a do elemento que o
+/// nome designa. Sem pedido na resolução, o verificador de herança pede
+/// pela primeira em ordem de fonte (o representante). Citar o nome conta
+/// como pedido (aproximação: o analyzer só pede no acesso a membro).
+fn calcular_donos_de_homonimos(program: &mut Program) {
+    let dentro = |a: Span, b: Span| a.start >= b.start && a.end <= b.end;
+    for li in 0..program.libraries.len() {
+        if program.libraries[li].representante.is_empty() {
+            continue;
+        }
+        let mut grupos: HashMap<ClassId, Vec<ClassId>> = HashMap::new();
+        for (e, r) in &program.libraries[li].representante {
+            if let (Element::Class(c), Element::Class(rc)) = (e, r) {
+                grupos.entry(*rc).or_default().push(*c);
+            }
+        }
+        let mut donos: HashMap<ClassId, ClassId> = HashMap::new();
+        for (rep, membros) in grupos {
+            let nome = program.classes[rep.0 as usize].name;
+            let designado = match program.libraries[li].declared.get(&nome).and_then(|d| d.getter) {
+                Some(Element::Class(c)) if membros.contains(&c) => Some(c),
+                _ => None,
+            };
+            let mut dono = None;
+            'unidades: for &u in &program.libraries[li].units {
+                let unidade = &program.units[u.0 as usize];
+                let a = &unidade.ast;
+                for &d in &unidade.unit.declarations {
+                    let span = a.decl(d).span;
+                    let do_grupo = membros
+                        .iter()
+                        .copied()
+                        .find(|&c| program.classes[c.0 as usize].decl.is_some_and(|r| r.unit == u && r.decl == d));
+                    match do_grupo {
+                        Some(c) => {
+                            let pede = a
+                                .exprs
+                                .iter()
+                                .any(|e| matches!(e.kind, ast::ExprKind::This | ast::ExprKind::Super) && dentro(e.span, span));
+                            if pede {
+                                dono = Some(c);
+                                break 'unidades;
+                            }
+                        }
+                        None => {
+                            let Some(designado) = designado else { continue };
+                            let cita = a
+                                .exprs
+                                .iter()
+                                .any(|e| matches!(&e.kind, ast::ExprKind::Identifier(n) if n.sym == nome) && dentro(e.span, span))
+                                || a.types.iter().any(|t| {
+                                    matches!(&t.kind, ast::TypeKind::Named { name, .. } if name.len() == 1 && name[0].sym == nome)
+                                        && dentro(t.span, span)
+                                });
+                            if cita {
+                                dono = Some(designado);
+                                break 'unidades;
+                            }
+                        }
+                    }
+                }
+            }
+            let dono = dono.unwrap_or(rep);
+            for c in membros {
+                donos.insert(c, dono);
+            }
+        }
+        program.libraries[li].dono_do_grupo = donos;
+    }
 }
 
 /// Os escopos por unidade de uma biblioteca com imports em partes

@@ -107,6 +107,11 @@ pub struct UnitBodyTypes {
     /// analyzer guarda em `DartPatternImpl.matchedValueType` e o
     /// `ConstantVerifier` lê (`constant_pattern_never_matches_value_type`).
     pub tipos_casados: std::collections::HashMap<ast::PatternId, TypeId>,
+    /// As expressões de função cujo tipo de contexto era um tipo de função
+    /// (`FunctionExpressionImpl.wasFunctionTypeSupplied`, o
+    /// `FunctionExpressionResolver` do analyzer: `contextType is
+    /// FunctionType`), pelo id da função.
+    pub com_tipo_de_funcao: std::collections::HashSet<ast::FunctionId>,
 }
 
 impl UnitBodyTypes {
@@ -117,6 +122,7 @@ impl UnitBodyTypes {
             resolved: vec![None; num_exprs],
             tipos_de_locais: std::collections::HashMap::new(),
             declaracoes_de_locais: std::collections::HashMap::new(),
+            com_tipo_de_funcao: std::collections::HashSet::new(),
             tipos_invalidos: std::collections::HashSet::new(),
             tipos_de_execucao_de_funcoes: std::collections::HashMap::new(),
             instanciacoes: std::collections::HashMap::new(),

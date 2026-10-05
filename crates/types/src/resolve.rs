@@ -618,6 +618,16 @@ impl<'a> OutlineResolver<'a> {
             });
         }
 
+        // T1.1 d: a hierarquia de um homônimo é a do dono do grupo (o
+        // `ClassHierarchy._map` do analyzer é por elemento, e os homônimos
+        // são o mesmo elemento como chave). A identidade do tipo continua a
+        // de cada classe.
+        for i in 0..hierarchy_inputs.len() {
+            let dono = self.program.dono_da_classe(ClassId(i as u32));
+            if dono.0 as usize != i && (dono.0 as usize) < hierarchy_inputs.len() {
+                hierarchy_inputs[i] = hierarchy_inputs[dono.0 as usize].clone();
+            }
+        }
         let hierarchy = build_class_hierarchy(
             self.program.classes.len(),
             &hierarchy_inputs,

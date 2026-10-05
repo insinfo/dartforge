@@ -43,7 +43,10 @@ const FOLGA_DA_PILHA: usize = 256 * 1024;
 #[allow(unsafe_code)]
 fn limite_da_pilha_da_thread() -> usize {
     let base = base_da_pilha();
-    if base == 0 { 1 } else { base + FOLGA_DA_PILHA }
+    // A sabotagem `folga` (D8, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
+    // §7.3): 4 KiB não bastam para montar e lançar o `StackOverflowError`.
+    let folga = if crate::heap::sabotagem("folga") { 4 * 1024 } else { FOLGA_DA_PILHA };
+    if base == 0 { 1 } else { base + folga }
 }
 
 #[cfg(windows)]

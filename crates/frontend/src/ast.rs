@@ -48,6 +48,12 @@ pub struct Ast {
     pub decls: Vec<Decl>,
     pub members: Vec<Member>,
     pub functions: Vec<Function>,
+    /// A metadata das declarações locais anotadas (`@pragma('x') final a =
+    /// 1;`, função local anotada), pela instrução: os nós de instrução não
+    /// têm campo para ela (o `VariableDeclarationStatement.variables.metadata`
+    /// e o `FunctionDeclaration.metadata` do analyzer).
+    #[serde(default)]
+    pub metadados_locais: Vec<(StmtId, Box<[Annotation]>)>,
 }
 
 impl Ast {

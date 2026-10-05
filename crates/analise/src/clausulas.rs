@@ -1072,7 +1072,12 @@ fn ciclo(l: &Leitor<'_>, alvo: ClassId, el: ClassId, caminho: &mut Vec<ClassId>,
     if *passos > 20_000 {
         return None;
     }
-    if !caminho.is_empty() && el == alvo {
+    // T1.1 c: homônimos da mesma espécie são o mesmo elemento para a
+    // hierarquia do analyzer; `augment class A extends A` (sem o
+    // experimento: a segunda `A` estende a primeira) é "A implementa a si
+    // mesma".
+    let mesmo = el == alvo || l.programa.representante_da_classe(el) == l.programa.representante_da_classe(alvo);
+    if !caminho.is_empty() && mesmo {
         return Some(caminho.clone());
     }
     if caminho.iter().position(|&p| p == el).is_some_and(|i| i > 0) {
@@ -1201,9 +1206,8 @@ pub fn verificador_de_heranca_prossegue(programa: &Program, lib: LibraryId, nome
             continue;
         }
         let Some(cl) = clausulas(&ast_.decl(decl.decl).kind) else { continue };
-        if programa.classes.iter().filter(|c| c.library == lib && c.name == classe.name).count() > 1 {
-            continue;
-        }
+        // T1.4 passo 4: cada homônimo é conferido pelas próprias cláusulas,
+        // com os nomes resolvidos pela regra do escopo (passo 1).
         let pode_ter_enum =
             classe.kind == ClassKind::Enum || classe.kind == ClassKind::Mixin || classe.modifiers.abstract_;
         let mut erro = false;
@@ -1424,12 +1428,10 @@ pub fn verificar(
             }
         }
 
-        // `InheritanceOverrideVerifier.verify`: supertipo de si mesmo.
-        // Com a declaração repetida (`duplicate_definition`, `augment class`
-        // sem o experimento), o nome nas cláusulas resolve para outro
-        // elemento que no analyzer; não se decide.
-        let repetida = programa.classes.iter().filter(|c| c.library == lib && c.name == classe.name).count() > 1;
-        if !direto_erro && !repetida && !ast_.decl(decl.decl).augment {
+        // `InheritanceOverrideVerifier.verify`: supertipo de si mesmo. Com a
+        // declaração repetida, o homônimo conta como a própria classe
+        // (`ciclo`, T1.1 c).
+        if !direto_erro && !ast_.decl(decl.decl).augment {
             let mut passos = 0;
             let mut caminho = Vec::new();
             if let Some(ciclo) = ciclo(&l, id, id, &mut caminho, &mut passos) {

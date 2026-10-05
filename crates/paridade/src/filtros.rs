@@ -254,16 +254,30 @@ impl Opcoes {
         if self.nao_ignoraveis.contains(info.nome) {
             return false;
         }
-        let severidade = match self.errors.get(info.nome) {
-            Some(Some(s)) => *s,
-            _ => info.severidade,
-        };
-        let nome = match severidade {
+        let nome_da = |s: Severidade| match s {
             Severidade::Error => "error",
             Severidade::Warning => "warning",
             Severidade::Info => "info",
         };
-        !self.nao_ignoraveis.contains(nome)
+        // `applyUnignorables` (docs/ANALYZER-ESPECIFICACAO-INFRA.md §4.3,
+        // fato c): o código entra pela severidade que `errors:` lhe deu e
+        // também pela padrão (o segundo `if` roda sempre que o primeiro não
+        // deu `continue`): o erro rebaixado a `warning` continua não
+        // ignorável com `cannot-ignore: [error]`.
+        if let Some(Some(s)) = self.errors.get(info.nome)
+            && self.nao_ignoraveis.contains(nome_da(*s))
+        {
+            return false;
+        }
+        !self.nao_ignoraveis.contains(nome_da(info.severidade))
+    }
+
+    /// O lint `nome` (de nome único `unico`) pode ser calado por
+    /// `// ignore:`: os lints só entram no `cannot-ignore` pelo nome, nunca
+    /// pela severidade (§4.3, fato d), e a comparação é sem caixa
+    /// (`code.name.toUpperCase()`).
+    pub fn lint_ignoravel(&self, nome: &str, unico: &str) -> bool {
+        !(self.nao_ignoraveis.contains(&nome.to_lowercase()) || self.nao_ignoraveis.contains(&unico.to_lowercase()))
     }
 
     /// `rel` (relativo à raiz, com `/`) está fora da análise: casa algum
@@ -772,8 +786,18 @@ linter:
         assert!(!por_nome.ignoravel(&d));
         let por_severidade = Opcoes::de_texto("analyzer:\n  cannot-ignore:\n    - error\n");
         assert!(!por_severidade.ignoravel(&d));
+        // O rebaixado continua não ignorável pela severidade padrão e passa a
+        // sê-lo também pela nova (conferido no binário 3.6.2, §4.3 c).
         let rebaixado = Opcoes::de_texto("analyzer:\n  errors:\n    uri_has_not_been_generated: warning\n  cannot-ignore:\n    - error\n");
-        assert!(rebaixado.ignoravel(&d));
+        assert!(!rebaixado.ignoravel(&d));
+        let pela_nova = Opcoes::de_texto("analyzer:\n  errors:\n    uri_has_not_been_generated: warning\n  cannot-ignore:\n    - warning\n");
+        assert!(!pela_nova.ignoravel(&d));
+        let outra = Opcoes::de_texto("analyzer:\n  cannot-ignore:\n    - info\n");
+        assert!(outra.ignoravel(&d));
+        // Os lints, só pelo nome.
+        let lint = Opcoes::de_texto("analyzer:\n  cannot-ignore:\n    - avoid_print\n    - info\n");
+        assert!(!lint.lint_ignoravel("avoid_print", "avoid_print"));
+        assert!(lint.lint_ignoravel("empty_catches", "empty_catches"));
     }
 
     /// A tabela conferida no binário 3.6.2 (docs/ANALYZER-ESPECIFICACAO-INFRA.md

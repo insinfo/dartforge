@@ -93,7 +93,10 @@ pub fn diagnosticos_json(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoe
                     Some(Some(s)) => s.nome(),
                     None => "INFO",
                 };
-                if ignorados.ignora_lint(r.codigo.nome, r.codigo.unico, linhas.ponto(r.span.start).line) {
+                // `cannot-ignore` com o nome do lint: o `// ignore:` não o cala.
+                if opcoes.lint_ignoravel(r.codigo.nome, r.codigo.unico)
+                    && ignorados.ignora_lint(r.codigo.nome, r.codigo.unico, linhas.ponto(r.span.start).line)
+                {
                     continue;
                 }
                 out.push(json::DiagJson {
@@ -235,6 +238,13 @@ pub fn publicaveis(a: &analise::Arquivo, opcoes: &filtros::Opcoes, so_publicados
     for (i, d) in a.diags.iter().enumerate() {
         let sintaxe = i < a.sintaticos;
         if so_publicados && !publicado(d, sintaxe) {
+            continue;
+        }
+        // Os dois `inference_failure_on_*` do `BestPracticesVerifier` só com
+        // `strict-inference: true` (INFRA §4.6); o motor os relata sempre.
+        if !opcoes.strict_inference
+            && d.code.is_some_and(|c| matches!(c.info().nome, "inference_failure_on_untyped_parameter" | "inference_failure_on_function_return_type"))
+        {
             continue;
         }
         let Some(d) = opcoes.processar(d.clone()) else { continue };

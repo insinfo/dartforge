@@ -87,6 +87,81 @@ struct Verificador<'m, 'a> {
     valores_de_chaves: HashMap<ExprId, Valor>,
 }
 
+/// Os erros que o `_ConstantAnalysisErrorListener` do linter do analyzer
+/// 3.6.2 conta como "erro de constante" (`analyzer/lib/src/lint/linter.dart`),
+/// pelo nome único.
+const ERROS_DE_CONSTANTE: &[&str] = &[
+    "CompileTimeErrorCode.CONST_CONSTRUCTOR_CONSTANT_FROM_DEFERRED_LIBRARY",
+    "CompileTimeErrorCode.CONST_CONSTRUCTOR_WITH_FIELD_INITIALIZED_BY_NON_CONST",
+    "CompileTimeErrorCode.CONST_EVAL_EXTENSION_METHOD",
+    "CompileTimeErrorCode.CONST_EVAL_EXTENSION_TYPE_METHOD",
+    "CompileTimeErrorCode.CONST_EVAL_METHOD_INVOCATION",
+    "CompileTimeErrorCode.CONST_EVAL_PROPERTY_ACCESS",
+    "CompileTimeErrorCode.CONST_EVAL_TYPE_BOOL",
+    "CompileTimeErrorCode.CONST_EVAL_TYPE_BOOL_INT",
+    "CompileTimeErrorCode.CONST_EVAL_TYPE_BOOL_NUM_STRING",
+    "CompileTimeErrorCode.CONST_EVAL_TYPE_INT",
+    "CompileTimeErrorCode.CONST_EVAL_TYPE_NUM",
+    "CompileTimeErrorCode.CONST_EVAL_TYPE_NUM_STRING",
+    "CompileTimeErrorCode.CONST_EVAL_TYPE_STRING",
+    "CompileTimeErrorCode.CONST_EVAL_THROWS_EXCEPTION",
+    "CompileTimeErrorCode.CONST_EVAL_THROWS_IDBZE",
+    "CompileTimeErrorCode.CONST_EVAL_FOR_ELEMENT",
+    "CompileTimeErrorCode.CONST_MAP_KEY_NOT_PRIMITIVE_EQUALITY",
+    "CompileTimeErrorCode.CONST_SET_ELEMENT_NOT_PRIMITIVE_EQUALITY",
+    "CompileTimeErrorCode.CONST_TYPE_PARAMETER",
+    "CompileTimeErrorCode.CONST_WITH_NON_CONST",
+    "CompileTimeErrorCode.CONST_WITH_NON_CONSTANT_ARGUMENT",
+    "CompileTimeErrorCode.CONST_WITH_TYPE_PARAMETERS",
+    "CompileTimeErrorCode.CONST_WITH_TYPE_PARAMETERS_CONSTRUCTOR_TEAROFF",
+    "CompileTimeErrorCode.INVALID_CONSTANT",
+    "CompileTimeErrorCode.MISSING_CONST_IN_LIST_LITERAL",
+    "CompileTimeErrorCode.MISSING_CONST_IN_MAP_LITERAL",
+    "CompileTimeErrorCode.MISSING_CONST_IN_SET_LITERAL",
+    "CompileTimeErrorCode.NON_BOOL_CONDITION",
+    "CompileTimeErrorCode.NON_CONSTANT_LIST_ELEMENT",
+    "CompileTimeErrorCode.NON_CONSTANT_MAP_ELEMENT",
+    "CompileTimeErrorCode.NON_CONSTANT_MAP_KEY",
+    "CompileTimeErrorCode.NON_CONSTANT_MAP_VALUE",
+    "CompileTimeErrorCode.NON_CONSTANT_RECORD_FIELD",
+    "CompileTimeErrorCode.NON_CONSTANT_SET_ELEMENT",
+];
+
+/// `canBeConst` de uma criação de instância (`_canBeConstInstanceCreation`,
+/// `analyzer/lib/src/lint/linter.dart`): o construtor resolvido é `const`
+/// e o `ConstantVerifier` sobre a criação, como se ela tivesse `const`,
+/// não relata nenhum dos [`ERROS_DE_CONSTANTE`]. A criação constante aqui
+/// é o mesmo `visitInstanceCreationExpression` da verificação de sempre
+/// (`criacao_constante`), com os argumentos visitados em contexto
+/// constante.
+pub fn criacao_pode_ser_const(m: &mut Motor<'_>, lib: LibraryId, unidade: UnitId, e: ExprId) -> bool {
+    let program = m.program;
+    let a = m.ast(unidade);
+    let argumentos = match &a.expr(e).kind {
+        ExprKind::InstanceCreation { arguments, .. } | ExprKind::Call { arguments, .. } => &**arguments,
+        _ => return false,
+    };
+    let Some(Resolved::Constructor(f)) = m.resolvido(unidade, e) else { return false };
+    if !program.function(*f).const_ {
+        return false;
+    }
+    let padroes_ligados = program.library(lib).features.versao() >= dartforge_frontend::features::LanguageVersion::new(3, 0);
+    let mut v = Verificador {
+        m,
+        lib,
+        unidade,
+        saida: Vec::new(),
+        campos: HashMap::new(),
+        topo: HashMap::new(),
+        classe_de_membro: HashMap::new(),
+        padroes_ligados,
+        valores_de_padroes: HashMap::new(),
+        valores_de_chaves: HashMap::new(),
+    };
+    v.criacao_constante(a, e, argumentos);
+    !v.saida.iter().any(|(_, d)| d.code.is_some_and(|c| ERROS_DE_CONSTANTE.contains(&c.info().unico)))
+}
+
 /// Os erros de constantes das unidades de `lib`.
 pub fn verificar(m: &mut Motor<'_>, lib: LibraryId) -> Vec<(UnitId, Diagnostic)> {
     // Os ciclos saem do grafo de dependências, antes de qualquer avaliação

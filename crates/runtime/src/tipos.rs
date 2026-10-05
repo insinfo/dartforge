@@ -1482,8 +1482,13 @@ pub extern "C" fn dartforge_rti_objeto_tipo(t: i64) -> i64 {
         let mut heap = heap.borrow_mut();
         let h = heap.novo_objeto(CLASSE_TIPO, &[(t, false)]);
         // Raiz permanente num id que os globais do programa (não negativos)
-        // e o laço de eventos (negativos pequenos) não usam.
-        heap.set_global_root(-(1_i64 << 40) - t, h);
+        // e o laço de eventos (negativos pequenos) não usam. A sabotagem
+        // `tipo_sem_raiz` (D12, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
+        // §7.3) tira o registro: o cache passa a guardar um handle que a
+        // coleta libera.
+        if !crate::heap::sabotagem("tipo_sem_raiz") {
+            heap.set_global_root(-(1_i64 << 40) - t, h);
+        }
         h
     });
     OBJETOS_TIPO.with(|m| m.borrow_mut().insert(t, h));

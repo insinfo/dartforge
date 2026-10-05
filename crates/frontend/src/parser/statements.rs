@@ -33,8 +33,9 @@
 //! bloco, e continuar. O diagnóstico já foi registrado no ponto da falha.
 //!
 //! Limitações do contrato (ver relatório): metadata antes de uma declaração
-//! local (`@pragma(...) final x = 1;`) é lida e descartada porque
-//! [`StmtKind::Variables`] e [`StmtKind::Function`] não têm campo para ela; e
+//! local (`@pragma(...) final x = 1;`) vai para a tabela lateral
+//! `Ast::metadados_locais` porque [`StmtKind::Variables`] e
+//! [`StmtKind::Function`] não têm campo para ela; e
 //! `for (var (a, b) = e; ...; ...)` (declaração por padrão como inicializador
 //! clássico) não cabe em [`ForInit`] e produz erro.
 use super::{ForHeader, PResult, ParseError, Parser};
@@ -435,24 +436,28 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(self.push_stmt(start, StmtKind::Expression(expr)))
     }
 
-    /// `@anotação` antes de uma declaração local. A metadata é descartada
-    /// porque os nós de statement não têm campo para ela (ver módulo).
+    /// `@anotação` antes de uma declaração local. A metadata vai para a
+    /// tabela lateral [`Ast::metadados_locais`](crate::ast::Ast::metadados_locais),
+    /// pela instrução, porque os nós de instrução não têm campo para ela.
     fn parse_annotated_declaration(&mut self, start: Span) -> PResult<StmtId> {
-        let _metadata = self.parse_metadata()?;
-        if self.at_kw(Keyword::Var)
+        let metadata = self.parse_metadata()?;
+        let s = if self.at_kw(Keyword::Var)
             || self.at_kw(Keyword::Final)
             || self.at_kw(Keyword::Const)
             || self.at_ident("late")
         {
-            return self.parse_local_declaration(start);
+            self.parse_local_declaration(start)?
+        } else if self.looks_like_local_function(self.pos) {
+            self.parse_local_function(start, None)?
+        } else if self.declaration_type_at(self.pos, false) {
+            self.parse_typed_declaration(start)?
+        } else {
+            return Err(self.erro(codigos::parser::MISSING_STATEMENT, &[]));
+        };
+        if !metadata.is_empty() {
+            self.ast.metadados_locais.push((s, metadata.into_boxed_slice()));
         }
-        if self.looks_like_local_function(self.pos) {
-            return self.parse_local_function(start, None);
-        }
-        if self.declaration_type_at(self.pos, false) {
-            return self.parse_typed_declaration(start);
-        }
-        Err(self.erro(codigos::parser::MISSING_STATEMENT, &[]))
+        Ok(s)
     }
 
     // -- Declarações locais -----------------------------------------------

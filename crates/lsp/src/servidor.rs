@@ -216,6 +216,26 @@ pub struct Servidor<A = AnalisadorSintatico> {
     /// só o nome, e a assinatura curta e a biblioteca a importar vão nos
     /// detalhes (como o servidor do Dart faz com esse cliente).
     rotulo_detalhes: bool,
+    /// O cliente responde `workspace/configuration` (§2.5).
+    configuracao_pedivel: bool,
+    /// As features que o cliente registra dinamicamente (§2.4) e se ele
+    /// quer o `workspace/didChangeConfiguration` registrado.
+    dinamicas: Vec<&'static str>,
+    configuracao_dinamica: bool,
+    /// As capacidades estáticas completas (antes de tirar as dinâmicas): a
+    /// fonte das opções de cada registro.
+    capacidades_estaticas: Value,
+    /// Os registros dinâmicos vigentes e o contador dos ids.
+    registros: crate::registro::Registros,
+    /// O `workspace/configuration` enviado e ainda sem resposta.
+    pedido_de_configuracao: Option<String>,
+    /// As pastas do workspace (`scopeUri` dos itens da configuração).
+    pastas: Vec<String>,
+    /// A configuração vigente do cliente (a global).
+    configuracao: crate::registro::Configuracao,
+    /// O cliente aceita renomear arquivo numa edição (para o
+    /// `renameFilesWithClasses: always` da configuração).
+    renomeacao_de_arquivo_possivel: bool,
 }
 
 impl Servidor<AnalisadorSintatico> {
@@ -277,7 +297,65 @@ impl<A: Analisador> Servidor<A> {
             tokens_multilinha: false,
             rotulo_detalhes: false,
             tipos_de_simbolo: None,
+            configuracao_pedivel: false,
+            dinamicas: Vec::new(),
+            configuracao_dinamica: false,
+            capacidades_estaticas: Value::Null,
+            registros: crate::registro::Registros::default(),
+            pedido_de_configuracao: None,
+            pastas: Vec::new(),
+            configuracao: crate::registro::Configuracao::default(),
+            renomeacao_de_arquivo_possivel: false,
         }
+    }
+
+    /// Pede a configuração ao cliente (`workspace/configuration`, §2.5):
+    /// uma entrada por pasta do workspace, na ordem, e a global por último.
+    fn pedir_configuracao(&mut self) {
+        self.proximo_pedido += 1;
+        let id = format!("dartforge/configuration/{}", self.proximo_pedido);
+        let mut itens: Vec<Value> = self.pastas.iter().map(|p| json!({"scopeUri": p, "section": "dart"})).collect();
+        itens.push(json!({"section": "dart"}));
+        self.pedido_de_configuracao = Some(id.clone());
+        self.saidas_pendentes.push(json!({"jsonrpc": "2.0", "id": id, "method": "workspace/configuration", "params": {"items": itens}}));
+    }
+
+    /// `performDynamicRegistration` (§2.4): a diferença contra os registros
+    /// vigentes, primeiro o que sai, depois o que entra; nada sem diferença.
+    fn registrar_dinamicas(&mut self) {
+        let novos = crate::registro::registros(&self.capacidades_estaticas, &self.dinamicas, self.configuracao_dinamica);
+        let (sair, entrar) = self.registros.diferenca(novos);
+        if !sair.is_empty() {
+            self.proximo_pedido += 1;
+            let id = format!("dartforge/unregisterCapability/{}", self.proximo_pedido);
+            // A grafia do protocolo: `unregisterations`.
+            self.saidas_pendentes.push(json!({"jsonrpc": "2.0", "id": id, "method": "client/unregisterCapability", "params": {"unregisterations": sair}}));
+        }
+        if !entrar.is_empty() {
+            self.proximo_pedido += 1;
+            let id = format!("dartforge/registerCapability/{}", self.proximo_pedido);
+            self.saidas_pendentes.push(json!({"jsonrpc": "2.0", "id": id, "method": "client/registerCapability", "params": {"registrations": entrar}}));
+        }
+    }
+
+    /// A resposta ao `workspace/configuration`: só uma lista com uma entrada
+    /// por pasta e a global vale (item `null` é `{}`); fora isso, fica a
+    /// configuração anterior. Depois, sempre, o registro dinâmico.
+    fn configuracao_recebida(&mut self, mensagem: &Value) {
+        self.pedido_de_configuracao = None;
+        if let Some(lista) = mensagem.get("result").and_then(Value::as_array)
+            && lista.len() == self.pastas.len() + 1
+        {
+            let global = lista.last().cloned().unwrap_or(Value::Null);
+            let nova = crate::registro::ler_configuracao(&global);
+            if nova.rename_files_with_classes == "always" {
+                self.renomear_arquivos = self.renomeacao_de_arquivo_possivel;
+            } else if nova.rename_files_with_classes == "never" && self.configuracao.rename_files_with_classes != "never" {
+                self.renomear_arquivos = false;
+            }
+            self.configuracao = nova;
+        }
+        self.registrar_dinamicas();
     }
 
     /// Registra o gancho chamado (de outra thread) quando a análise tipada
@@ -555,7 +633,25 @@ impl<A: Analisador> Servidor<A> {
         }
         let metodo = mensagem.get("method")?.as_str()?;
         match metodo {
-            "initialized" | "$/cancelRequest" => None,
+            // Com a capacidade, a configuração e depois o registro
+            // dinâmico; sem ela, só o registro (§2.2).
+            "initialized" => {
+                if self.configuracao_pedivel {
+                    self.pedir_configuracao();
+                } else {
+                    self.registrar_dinamicas();
+                }
+                None
+            }
+            "$/cancelRequest" => None,
+            // O `settings` recebido é ignorado: a configuração é pedida de
+            // novo (`handler_workspace_configuration.dart:22-31`).
+            "workspace/didChangeConfiguration" => {
+                if self.configuracao_pedivel {
+                    self.pedir_configuracao();
+                }
+                None
+            }
             "exit" => {
                 self.encerrar = true;
                 self.codigo = if self.desligando { 0 } else { 1 };
@@ -613,7 +709,7 @@ impl<A: Analisador> Servidor<A> {
             // Notificações comuns dos editores que este servidor não usa:
             // aceitas em silêncio (o do Dart trata as duas primeiras e não
             // registra a terceira).
-            "workspace/didChangeConfiguration" | "workspace/didChangeWorkspaceFolders" | "workspace/didChangeWatchedFiles" => None,
+            "workspace/didChangeWorkspaceFolders" | "workspace/didChangeWatchedFiles" => None,
             _ => {
                 registrar(format!("notificação desconhecida ignorada: {metodo}"));
                 // §2.3: `$/…` é ignorada; qualquer outra vira o erro
@@ -692,6 +788,18 @@ impl<A: Analisador> Servidor<A> {
                         .is_some_and(|l| l.iter().any(|o| o.as_str() == Some(op)))
                 };
                 let aceita_renomear_arquivo = aceita_operacao("rename");
+                self.renomeacao_de_arquivo_possivel = self.mudancas_versionadas && aceita_renomear_arquivo;
+                self.configuracao_pedivel =
+                    mensagem.pointer("/params/capabilities/workspace/configuration").and_then(Value::as_bool).unwrap_or(false);
+                let (dinamicas, configuracao_dinamica) =
+                    crate::registro::dinamicas(mensagem.pointer("/params/capabilities").unwrap_or(&Value::Null));
+                self.dinamicas = dinamicas;
+                self.configuracao_dinamica = configuracao_dinamica;
+                // As pastas do workspace (ou a raiz), para o `scopeUri`.
+                self.pastas = match mensagem.pointer("/params/workspaceFolders").and_then(Value::as_array) {
+                    Some(l) => l.iter().filter_map(|p| p.get("uri").and_then(Value::as_str)).map(str::to_string).collect(),
+                    None => mensagem.pointer("/params/rootUri").and_then(Value::as_str).map(|u| vec![u.to_string()]).unwrap_or_default(),
+                };
                 self.criar_arquivos = self.mudancas_versionadas
                     && aceita_operacao("create");
                 self.renomear_arquivos = self.mudancas_versionadas
@@ -796,6 +904,10 @@ impl<A: Analisador> Servidor<A> {
                         "workspaceDiagnostics": false,
                     });
                 }
+                // §2.4: as features dinâmicas saem do estático e são
+                // registradas depois do `initialized`.
+                self.capacidades_estaticas = resultado["capabilities"].clone();
+                crate::registro::tirar_dinamicas(&mut resultado["capabilities"], &self.dinamicas);
                 resposta(&id, resultado)
             }
             "textDocument/diagnostic" => {
@@ -1859,7 +1971,12 @@ impl<A: Analisador> Servidor<A> {
     /// `workspace/applyEdit` pendente vira a resposta do `executeCommand`
     /// que o enviou (tabela da §13.12.3); as outras não levam dado.
     fn resposta_do_cliente(&mut self, mensagem: &Value) -> Option<Value> {
-        let (id, rotulo, edicao) = self.edicoes_pendentes.remove(&chave_id(mensagem.get("id")?))?;
+        let chave = chave_id(mensagem.get("id")?);
+        if self.pedido_de_configuracao.as_ref().is_some_and(|p| chave_id(&json!(p)) == chave) {
+            self.configuracao_recebida(mensagem);
+            return None;
+        }
+        let (id, rotulo, edicao) = self.edicoes_pendentes.remove(&chave)?;
         if let Some(e) = mensagem.get("error").filter(|e| !e.is_null()) {
             return Some(erro_com_dado(
                 &id,

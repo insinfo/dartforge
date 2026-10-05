@@ -14,6 +14,7 @@
 //! [`dartforge_intern::SymbolId`], e nenhum nó empresta da fonte.
 pub mod ast;
 pub mod features;
+pub mod fonte;
 pub mod lexer;
 pub mod parser;
 pub mod text;
