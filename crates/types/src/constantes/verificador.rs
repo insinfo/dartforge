@@ -979,13 +979,16 @@ impl Verificador<'_, '_> {
             valores_de_chaves: &valores_de_chaves,
             versao_3_3,
         };
+        let coletar = self.m.testemunhas.is_some();
         let mut ex = Exaustividade::nova(self.m, self.lib);
+        ex.coletar_partes = coletar;
         let deve = expressao || ex.sempre_exaustivo(t, 0);
         let r = ex.verificar(&entrada, t, casos);
         drop(ex);
         self.valores_de_padroes = valores_de_padroes;
         self.valores_de_chaves = valores_de_chaves;
         let Some(r) = r else { return };
+        let mut partes = r.partes;
         for i in r.inalcancaveis {
             let n = if expressao { 2 } else { 4 };
             self.relatar(w::UNREACHABLE_SWITCH_CASE, Span { start: pos[i], end: pos[i] + n }, Vec::new());
@@ -1015,6 +1018,10 @@ impl Verificador<'_, '_> {
                         args.push(String::new());
                     }
                     self.relatar(codigo, Span { start: inicio_switch, end: inicio_switch + 6 }, args);
+                    let u = self.unidade;
+                    if let Some(mapa) = self.m.testemunhas.as_mut() {
+                        mapa.insert((u, inicio_switch), std::mem::take(&mut partes));
+                    }
                 }
             }
             _ => {

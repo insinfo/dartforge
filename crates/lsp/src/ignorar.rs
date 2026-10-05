@@ -44,7 +44,7 @@ fn comeca_com_ignore(linha: &str) -> bool {
 
 /// As opções aplicáveis ao arquivo e o caminho do `analysis_options.yaml`
 /// (`analysisOptions.file`), quando existe.
-fn opcoes_do_arquivo(caminho: &Path) -> (dartforge_paridade::filtros::Opcoes, Option<PathBuf>) {
+pub(crate) fn opcoes_do_arquivo(caminho: &Path) -> (dartforge_paridade::filtros::Opcoes, Option<PathBuf>) {
     let raiz = crate::projeto::raiz_do_projeto(caminho);
     let arquivo = dartforge_paridade::filtros::Opcoes::de_subpasta(caminho, &raiz).unwrap_or_else(|| raiz.join("analysis_options.yaml"));
     let existe = arquivo.is_file();

@@ -107,6 +107,10 @@ pub struct Motor<'a> {
     args_de_criacao: HashSet<(UnitId, ExprId)>,
     /// Erros relatados pelo próprio visitante (`_valueOf`) quando `relatar`.
     pub relatos: Vec<Invalida>,
+    /// Quando `Some`, o verificador guarda aqui, por (unidade, offset do
+    /// `switch`), as testemunhas com partes de cada `non_exhaustive_switch_*`
+    /// (o `diagnostic.data` do analyzer, usado pelo `AddMissingSwitchCases`).
+    pub testemunhas: Option<HashMap<(UnitId, usize), Vec<Vec<super::exaustividade::ParteDeTestemunha>>>>,
     /// Offsets dos nomes de parâmetros formais, por unidade inferida (a
     /// inferência resolve a leitura de um parâmetro como a de um local).
     parametros: HashMap<UnitId, HashSet<usize>>,
@@ -155,6 +159,7 @@ impl<'a> Motor<'a> {
             grafo: super::ciclos::Estado::default(),
             args_de_criacao: HashSet::new(),
             relatos: Vec::new(),
+            testemunhas: None,
             parametros,
             profundidade: 0,
             sym_identical: interner.lookup("identical"),

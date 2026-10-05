@@ -290,6 +290,52 @@ pub(crate) struct Caso {
     pub guardado: bool,
 }
 
+/// Uma parte de testemunha (`MissingPatternPart` do analyzer): texto, valor
+/// de enum (`writeReference(enum).nome`) ou tipo (`writeType`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParteDeTestemunha {
+    Texto(String),
+    ValorDeEnum { enumeracao: ClassId, valor: VariableId },
+    Tipo(TypeId),
+}
+
+/// Os marcadores das partes no texto da testemunha (`\u{1}` em volta).
+const MARCA: char = '\u{1}';
+
+/// O texto com marcadores em partes; `None` quando há constante geral (o
+/// `isComplete = false` do `AnalyzerDartTemplateBuffer`).
+fn partes_do_texto(m: &Motor<'_>, s: &str) -> Option<Vec<ParteDeTestemunha>> {
+    let mut v: Vec<ParteDeTestemunha> = Vec::new();
+    let mut texto = String::new();
+    let mut resto = s;
+    while let Some(i) = resto.find(MARCA) {
+        texto.push_str(&resto[..i]);
+        let depois = &resto[i + 1..];
+        let j = depois.find(MARCA)?;
+        let marca = &depois[..j];
+        resto = &depois[j + 1..];
+        if !texto.is_empty() {
+            v.push(ParteDeTestemunha::Texto(std::mem::take(&mut texto)));
+        }
+        let (tipo, num) = marca.split_at(1);
+        let n: u32 = num.parse().ok()?;
+        match tipo {
+            "T" => v.push(ParteDeTestemunha::Tipo(TypeId(n))),
+            "E" => {
+                let valor = VariableId(n);
+                let enumeracao = m.program.variable(valor).class?;
+                v.push(ParteDeTestemunha::ValorDeEnum { enumeracao, valor });
+            }
+            _ => return None,
+        }
+    }
+    texto.push_str(resto);
+    if !texto.is_empty() {
+        v.push(ParteDeTestemunha::Texto(texto));
+    }
+    Some(v)
+}
+
 /// O resultado de `_validateSwitchExhaustiveness`.
 pub(crate) struct Resultado {
     /// Índices (em `casos`) dos casos inalcançáveis.
@@ -298,6 +344,8 @@ pub(crate) struct Resultado {
     pub testemunha: Option<String>,
     /// A primeira testemunha para a correção.
     pub correcao: Option<String>,
+    /// Todas as testemunhas com partes (só com `coletar_partes`).
+    pub partes: Vec<Vec<ParteDeTestemunha>>,
 }
 
 pub(crate) struct Exaustividade<'m, 'a> {
@@ -309,6 +357,10 @@ pub(crate) struct Exaustividade<'m, 'a> {
     subtipos: HashMap<St, Vec<St>>,
     lib: LibraryId,
     invalido: bool,
+    /// Escreve as testemunhas com marcadores de partes.
+    marcar: bool,
+    /// Calcula [`Resultado::partes`].
+    pub(crate) coletar_partes: bool,
 }
 
 impl<'m, 'a> Exaustividade<'m, 'a> {
@@ -317,7 +369,7 @@ impl<'m, 'a> Exaustividade<'m, 'a> {
         let mut internos = HashMap::new();
         internos.insert(ChaveTipo::Anulavel(OBJ), OBJ_ANUL);
         internos.insert(ChaveTipo::Anulavel(NEVER), NULL);
-        Exaustividade { m, tipos, internos, unicos: 0, valores: Vec::new(), subtipos: HashMap::new(), lib, invalido: false }
+        Exaustividade { m, tipos, internos, unicos: 0, valores: Vec::new(), subtipos: HashMap::new(), lib, invalido: false, marcar: false, coletar_partes: false }
     }
 
     fn internar(&mut self, chave: ChaveTipo, t: impl FnOnce() -> Tipo) -> St {
@@ -1766,6 +1818,12 @@ impl<'m, 'a> Exaustividade<'m, 'a> {
     fn escrever_tipo(&self, buf: &mut String, s: St) {
         match &self.tipos[s] {
             _ if s == NULL => buf.push_str("Null"),
+            // `writeGeneralType` dos tipos de base.
+            Tipo::Base { ty, .. } if self.marcar => {
+                buf.push(MARCA);
+                buf.push_str(&format!("T{}", ty.0));
+                buf.push(MARCA);
+            }
             Tipo::Anulavel(u) => {
                 self.escrever_tipo(buf, *u);
                 if !self.implicitamente_anulavel(*u) {
@@ -1836,7 +1894,21 @@ impl<'m, 'a> Exaustividade<'m, 'a> {
                     self.campos_extras(buf, campos, correcao, |k| k.de_registro());
                 }
                 Especie::ValorBool | Especie::ElementoEnum | Especie::Geral => {
-                    buf.push_str(&self.nome(s));
+                    match (&self.tipos[s], self.marcar) {
+                        (Tipo::Base { especie: Especie::ElementoEnum, restr: Restr::Id(Ident::Enum(v)), .. }, true) => {
+                            buf.push(MARCA);
+                            buf.push_str(&format!("E{}", v.0));
+                            buf.push(MARCA);
+                        }
+                        // `writeGeneralConstantValue`: a testemunha não é
+                        // representável.
+                        (Tipo::Base { especie: Especie::Geral, .. }, true) => {
+                            buf.push(MARCA);
+                            buf.push('X');
+                            buf.push(MARCA);
+                        }
+                        _ => buf.push_str(&self.nome(s)),
+                    }
                     self.campos_extras(buf, campos, correcao, |k| k.de_registro());
                 }
                 Especie::ListaPadrao => {
@@ -1990,7 +2062,22 @@ impl<'m, 'a> Exaustividade<'m, 'a> {
             return None;
         }
         let (inal, nao) = self.calcular(valor, &guardados, &espacos);
-        let mut r = Resultado { inalcancaveis: inal.into_iter().map(|i| indices[i]).collect(), testemunha: None, correcao: None };
+        let mut r = Resultado { inalcancaveis: inal.into_iter().map(|i| indices[i]).collect(), testemunha: None, correcao: None, partes: Vec::new() };
+        if let Some(ts) = &nao
+            && self.coletar_partes
+        {
+            // `witness.toDart(buffer, forCorrection: true)` de cada uma.
+            self.marcar = true;
+            for t in ts.iter() {
+                let w = self.construir_testemunha(t);
+                let mut b = String::new();
+                self.escrever_testemunha(&mut b, &w, true);
+                if let Some(p) = partes_do_texto(self.m, &b) {
+                    r.partes.push(p);
+                }
+            }
+            self.marcar = false;
+        }
         if let Some(ts) = nao {
             if let Some(primeira) = ts.first() {
                 let w = self.construir_testemunha(primeira);

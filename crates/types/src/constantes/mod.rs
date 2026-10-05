@@ -23,7 +23,29 @@ use dartforge_elements::model::{LibraryId, Program, UnitId};
 use dartforge_intern::Interner;
 use std::collections::HashSet;
 
+pub use exaustividade::ParteDeTestemunha;
 pub use verificador::CODIGOS;
+
+/// As testemunhas com partes dos `switch` não exaustivos da biblioteca
+/// `lib`, por (unidade, offset do `switch`): o `diagnostic.data` que o
+/// `AddMissingSwitchCases` lê. Roda o verificador de constantes só para
+/// isso (os diagnósticos são descartados).
+#[allow(clippy::too_many_arguments)]
+pub fn testemunhas_de_switch(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    core: &CoreTypes,
+    outline: &OutlineTypes,
+    body: &BodyTypes,
+    inferidas: &HashSet<LibraryId>,
+    lib: LibraryId,
+) -> std::collections::HashMap<(UnitId, usize), Vec<Vec<ParteDeTestemunha>>> {
+    let mut m = avaliador::Motor::novo(program, interner, table, core, outline, body, inferidas);
+    m.testemunhas = Some(std::collections::HashMap::new());
+    let _ = verificador::verificar(&mut m, lib);
+    m.testemunhas.take().unwrap_or_default()
+}
 
 /// Os erros de constantes das bibliotecas `libs`. `inferidas` são as
 /// bibliotecas cujos corpos `body` tem (as outras são tratadas como

@@ -68,6 +68,11 @@ pub(crate) fn linhas_do_diagnostico(texto: &str, d: &Diagnostic) -> (usize, usiz
     (a, b)
 }
 
+/// As espécies cujos produtores (nas variantes que este servidor emite)
+/// têm `applicability = singleLocation`: não entram no "Fix all in file"
+/// mesmo com a espécie `.multi` (`canBeAppliedAcrossSingleFile` falso).
+const SO_UM_LUGAR: &[&str] = &["quickfix.add.await", "quickfix.convert.bodyToBlock", "quickfix.remove.abstract", "quickfix.remove.initializer"];
+
 /// O mesmo código de erro (`errorCode.name`).
 fn mesmo_codigo(a: &Diagnostic, b: &Diagnostic) -> bool {
     match (a.code, b.code) {
@@ -95,6 +100,9 @@ pub(crate) fn corrigir_em_todo_o_arquivo(
     for a in isoladas {
         let Some(d) = &a.diagnostico else { continue };
         let Some(resto) = a.especie.strip_prefix("quickfix.") else { continue };
+        if SO_UM_LUGAR.contains(&a.especie.as_str()) {
+            continue;
+        }
         let multi = format!("dart.fix.{resto}.multi");
         let Some((_, mensagem)) = especie_do_dart(&multi) else { continue };
         if feitos.iter().any(|(s, e)| *s == d.span && *e == a.especie) {
@@ -486,6 +494,11 @@ pub(crate) fn corrigir_publicados(
                 // `RemoveUnusedLocalVariable` (singleLocation).
                 let Some(edicoes) = cx().remover_variavel_local(d.span) else { continue };
                 saida.push(correcao(uri, "Remove unused local variable".into(), "quickfix.remove.unusedLocalVariable", edicoes, d));
+            }
+            Some("unused_element") if d.code.is_some_and(|c| c.info().unico.ends_with("UNUSED_ELEMENT_PARAMETER")) => {
+                // `RemoveUnusedParameter`.
+                let Some(s) = cx().remover_parametro(d.span) else { continue };
+                saida.push(correcao(uri, "Remove the unused parameter".into(), "quickfix.remove.unusedParameter", vec![(s, String::new())], d));
             }
             Some("unused_element") => {
                 // `RemoveUnusedElement`: sem referências na unidade.

@@ -30,6 +30,53 @@ use dartforge_frontend::ast::{self, DeclKind, MemberKind, ParameterKind, StmtKin
 use dartforge_types::{Type, TypeId};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+/// Uma ação cujas edições (num arquivo) vêm com os imports que o
+/// `writeType`/`writeReference` agendou (`Mudanca`, com a detecção de
+/// conflito do `ChangeBuilder`).
+fn acao_com_imports(
+    cx: &crate::refatoracoes::Contexto<'_>,
+    uri: &str,
+    titulo: String,
+    especie: &str,
+    edicoes: Vec<(Span, String)>,
+    importar: &std::collections::BTreeSet<dartforge_elements::model::LibraryId>,
+    d: &Diagnostic,
+) -> Option<AcaoDeCodigo> {
+    let mut m = crate::refatoracoes_exec::Mudanca::default();
+    for (s, x) in edicoes {
+        m.adicionar(uri, s, x);
+    }
+    crate::refatoracoes_metodo::adicionar_imports(cx, &mut m, importar);
+    if m.conflito.is_some() {
+        return None;
+    }
+    Some(AcaoDeCodigo {
+        titulo,
+        especie: especie.into(),
+        edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+        diagnostico: Some(d.clone()),
+        criar_arquivo: None,
+    })
+}
+
+/// `AddMissingRequiredArgument` nas chamadas das linhas pedidas (o código
+/// `missing_required_argument` não é publicado; a ação sai sem
+/// diagnóstico).
+pub(crate) fn argumentos_requeridos(projeto: &Projeto, uri: &str, inicio: usize, fim: usize) -> Vec<AcaoDeCodigo> {
+    let Some(unidade) = projeto.unidade_do_uri(uri) else { return Vec::new() };
+    let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
+    cx.argumentos_requeridos(inicio, fim)
+        .into_iter()
+        .map(|(nome, s, texto)| AcaoDeCodigo {
+            titulo: format!("Add required argument '{nome}'"),
+            especie: "quickfix.add.missingRequiredArgument".into(),
+            edicoes: vec![Edicao { uri: uri.to_string(), span: s, texto }],
+            diagnostico: None,
+            criar_arquivo: None,
+        })
+        .collect()
+}
+
 fn acao(uri: &str, titulo: String, especie: &str, edicoes: Vec<(Span, String)>, d: &Diagnostic) -> AcaoDeCodigo {
     AcaoDeCodigo {
         titulo,
@@ -199,6 +246,122 @@ pub(crate) fn corrigir(projeto: &mut Projeto, uri: &str, diagnosticos: &[Diagnos
                 let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
                 if let Some(s) = cx.remover_assercao(d.span) {
                     saida.push(acao(uri, "Remove the assertion".into(), "quickfix.remove.assertion", vec![(s, String::new())], d));
+                }
+            }
+            "implements_repeated" | "implements_super_class" | "mixin_super_class_constraint_non_interface" | "subtype_of_disallowed_type" | "invalid_use_of_type_outside_library" | "extends_non_class" => {
+                // `RemoveNameFromDeclarationClause` (no `extends_non_class`,
+                // depois dos de nome indefinido).
+                let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
+                if let Some((titulo, s)) = cx.remover_nome_da_clausula(d.span) {
+                    saida.push(acao(uri, titulo, "quickfix.remove.nameFromDeclarationClause", vec![(s, String::new())], d));
+                }
+            }
+            "subtype_of_base_or_final_is_not_base_final_or_sealed" => {
+                // `AddClassModifier.baseModifier`, `.finalModifier`,
+                // `.sealedModifier`.
+                let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
+                if let Some(o) = cx.ponto_do_modificador(d.span) {
+                    for m in ["base", "final", "sealed"] {
+                        saida.push(acao(uri, format!("Add '{m}' modifier"), &format!("quickfix.add.class.modifier.{m}"), vec![(Span { start: o, end: o }, format!("{m} "))], d));
+                    }
+                }
+            }
+            "type_check_with_null" => {
+                let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
+                if let Some(s) = cx.faixa_do_is_null(d.span) {
+                    let negado = d.code.is_some_and(|c| c.info().unico.ends_with("TYPE_CHECK_IS_NOT_NULL"));
+                    let (titulo, especie, texto_novo) = if negado {
+                        ("Use != null instead of 'is! Null'", "quickfix.use.notEqNull", " != null")
+                    } else {
+                        ("Use == null instead of 'is Null'", "quickfix.use.eqEqNull", " == null")
+                    };
+                    saida.push(acao(uri, titulo.into(), especie, vec![(s, texto_novo.into())], d));
+                }
+            }
+            "mixin_class_declaration_extends_not_object" => {
+                let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
+                if let Some(s) = cx.remover_extends(d.span) {
+                    saida.push(acao(uri, "Remove the invalid 'extends' clause".into(), "quickfix.remove.extends.clause", vec![(s, String::new())], d));
+                }
+            }
+            "mixin_application_not_implemented_interface" => {
+                let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
+                if let Some((nome, o)) = cx.estender_para_mixin(d.span, &d.message) {
+                    saida.push(acao(uri, format!("Extend the class '{nome}'"), "quickfix.extendClassForMixin", vec![(Span { start: o, end: o }, format!(" extends {nome}"))], d));
+                }
+            }
+            "extension_override_access_to_static_member" => {
+                let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
+                if let Some((nome, s)) = cx.nome_da_extensao(d.span) {
+                    saida.push(acao(uri, format!("Replace with '{nome}'"), "quickfix.replace.withExtensionName", vec![(s, nome.clone())], d));
+                }
+            }
+            "invocation_of_non_function_expression" => {
+                let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
+                if let Some(s) = cx.parenteses_do_getter(d.span) {
+                    saida.push(acao(uri, "Remove parentheses in getter invocation".into(), "quickfix.remove.parenthesisInGetterInvocation", vec![(s, String::new())], d));
+                }
+            }
+            "super_invocation_not_last" => {
+                let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
+                if let Some(e) = cx.super_por_ultimo(d.span) {
+                    saida.push(acao(uri, "Move the invocation to the end of the initializer list".into(), "quickfix.makeSuperInvocationLast", e, d));
+                }
+            }
+            "yield_of_invalid_type" => {
+                let estritas = projeto
+                    .programa()
+                    .unit(unidade)
+                    .path
+                    .as_deref()
+                    .is_some_and(|c| crate::ignorar::opcoes_do_arquivo(c).0.strict_casts);
+                let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
+                if let Some(o) = cx.retorno_anulavel(d.span, estritas) {
+                    saida.push(acao(uri, "Make the return type nullable".into(), "quickfix.makeReturnTypeNullable", vec![(Span { start: o, end: o }, "?".into())], d));
+                }
+            }
+            "unreachable_switch_case" | "unreachable_switch_default" => {
+                let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
+                if let Some(s) = cx.remover_membro_morto(d.span) {
+                    saida.push(acao(uri, "Remove dead code".into(), "quickfix.remove.deadCode", vec![(s, String::new())], d));
+                }
+            }
+            "unnecessary_null_comparison" => {
+                let verdadeira = d.code.is_some_and(|c| c.info().unico.ends_with("_TRUE"));
+                let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
+                if let Some(e) = cx.remover_comparacao(d.span, verdadeira) {
+                    saida.push(acao(uri, "Remove comparison".into(), "quickfix.remove.comparison", e, d));
+                }
+            }
+            "enum_with_abstract_member" | "extension_type_with_abstract_member" => {
+                let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
+                if let Some(e) = cx.converter_em_corpo_de_bloco(d.span) {
+                    saida.push(acao(uri, "Convert to block body".into(), "quickfix.convert.bodyToBlock", vec![e], d));
+                }
+            }
+            "non_constant_map_pattern_key" => {
+                let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
+                if let Some(e) = cx.adicionar_const(d.span) {
+                    saida.push(acao(uri, "Add 'const' modifier".into(), "quickfix.add.const", e, d));
+                }
+            }
+            "non_exhaustive_switch_statement" | "non_exhaustive_switch_expression" => {
+                let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
+                if let Some((s, texto_novo, importar)) = cx.casos_ausentes(d.span)
+                    && let Some(a) = acao_com_imports(&cx, uri, "Add missing switch cases".into(), "quickfix.add.missingSwitchCases", vec![(s, texto_novo)], &importar, d)
+                {
+                    saida.push(a);
+                }
+            }
+            "new_with_undefined_constructor" => {
+                let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
+                if let Some(c) = crate::inserir::criar_construtor(&cx, d.span) {
+                    let destino = crate::refatoracoes::Contexto::novo(projeto, c.unidade);
+                    if let Some(uri_destino) = projeto.uri_da_unidade(c.unidade)
+                        && let Some(a) = acao_com_imports(&destino, &uri_destino, format!("Create constructor '{}'", c.nome), "quickfix.create.constructor", vec![c.edicao], &c.importar, d)
+                    {
+                        saida.push(a);
+                    }
                 }
             }
             _ => {}

@@ -41,6 +41,7 @@ mod dartdoc;
 mod destaques;
 mod descricao;
 mod indice;
+mod inserir;
 mod navegacao;
 mod projeto;
 mod realce;

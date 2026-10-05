@@ -501,7 +501,7 @@ fn capitalizar(s: &str) -> String {
 }
 
 /// `_addAll`: o primeiro de `item`, `item2`, `item3`… não excluído.
-fn adicionar_todos(excluidos: &HashSet<String>, saida: &mut Vec<String>, itens: Vec<String>, prefixo: Option<&str>) {
+pub(crate) fn adicionar_todos(excluidos: &HashSet<String>, saida: &mut Vec<String>, itens: Vec<String>, prefixo: Option<&str>) {
     for item in itens {
         let mut sufixo = 1;
         loop {
@@ -522,7 +522,7 @@ fn adicionar_todos(excluidos: &HashSet<String>, saida: &mut Vec<String>, itens: 
 }
 
 /// `_addSingleCharacterName`.
-fn adicionar_letra(excluidos: &HashSet<String>, saida: &mut Vec<String>, mut c: u8) {
+pub(crate) fn adicionar_letra(excluidos: &HashSet<String>, saida: &mut Vec<String>, mut c: u8) {
     while c < b'z' {
         let nome = (c as char).to_string();
         if !excluidos.contains(&nome) {

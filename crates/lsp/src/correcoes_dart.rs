@@ -834,6 +834,940 @@ impl Contexto<'_> {
         }
     }
 
+    // -- Comentários e intervalos com comentários ------------------------------
+
+    /// A linha (0-based) do offset.
+    fn linha(&self, o: usize) -> usize {
+        let b = self.fonte.as_bytes();
+        let fim = o.min(b.len());
+        let mut n = 0;
+        let mut i = 0;
+        while i < fim {
+            match b[i] {
+                b'\r' if b.get(i + 1) == Some(&b'\n') => {
+                    n += 1;
+                    i += 2;
+                    continue;
+                }
+                b'\r' | b'\n' => n += 1,
+                _ => {}
+            }
+            i += 1;
+        }
+        n
+    }
+
+    /// Os comentários entre o token anterior e o token `t`
+    /// (`precedingComments`, em ordem).
+    fn comentarios_antes(&self, t: Span) -> Vec<Span> {
+        let a = self.token_anterior(t.start).map_or(0, |p| p.end);
+        self.comentarios.iter().copied().filter(|c| c.start >= a && c.end <= t.start).collect()
+    }
+
+    /// O primeiro e o último token do nó.
+    fn tokens_do_no(&self, n: usize) -> Option<(Span, Span)> {
+        let s = self.arvore.span(n);
+        Some((self.token_seguinte(s.start)?, self.token_anterior(s.end)?))
+    }
+
+    /// `range.deletionRange(node, overrideEnd)`.
+    pub(crate) fn faixa_de_exclusao(&self, n: usize, fim_forcado: Option<Span>) -> Option<Span> {
+        let (primeiro, ultimo) = self.tokens_do_no(n)?;
+        let comeco = self.comentarios_antes(primeiro).first().copied().unwrap_or(primeiro);
+        let fim_inicial = fim_forcado.unwrap_or(ultimo);
+        let seguinte = self.token_seguinte(fim_inicial.end);
+        let depois: Option<Span> = match seguinte {
+            Some(t) => Some(self.comentarios_antes(t).first().copied().unwrap_or(t)),
+            None => self.comentarios.iter().copied().find(|c| c.start >= fim_inicial.end),
+        };
+        match depois {
+            Some(e) => Some(Span { start: comeco.start, end: e.start }),
+            None => {
+                // `end.isEof`.
+                let e_comentario = comeco != primeiro;
+                let anotado = matches!(self.especie(n), "ClassDeclaration" | "MixinDeclaration" | "EnumDeclaration" | "ExtensionDeclaration" | "ExtensionTypeDeclaration" | "FunctionDeclaration" | "MethodDeclaration" | "FieldDeclaration" | "ConstructorDeclaration" | "TopLevelVariableDeclaration" | "FunctionTypeAlias" | "GenericTypeAlias" | "ClassTypeAlias");
+                let inicio = if anotado && e_comentario {
+                    let primeiro_depois = self.primeiro_token_apos_comentario_e_metadados(n)?;
+                    self.token_anterior(primeiro_depois.start).map_or(primeiro_depois.start, |p| p.end)
+                } else {
+                    match self.token_anterior(comeco.start) {
+                        None => comeco.start,
+                        Some(p) => p.end,
+                    }
+                };
+                Some(Span { start: inicio, end: fim_inicial.end })
+            }
+        }
+    }
+
+    /// `firstTokenAfterCommentAndMetadata`.
+    pub(crate) fn primeiro_token_apos_comentario_e_metadados(&self, n: usize) -> Option<Span> {
+        let mut pos = self.arvore.nos[n].inicio;
+        for &f in self.filhos(n) {
+            if matches!(self.especie(f), "Comment" | "Annotation") {
+                pos = pos.max(self.arvore.nos[f].fim);
+            }
+        }
+        self.token_seguinte(pos)
+    }
+
+    /// `_leadingComment(token)`.
+    fn comentario_inicial(&self, t: Span) -> Span {
+        let antes = self.comentarios_antes(t);
+        let Some(anterior) = self.token_anterior(t.start) else {
+            return antes.first().copied().unwrap_or(t);
+        };
+        let linha_t = self.linha(t.start);
+        let linha_anterior = self.linha(anterior.start);
+        let mut i = 0;
+        if linha_t != linha_anterior {
+            while i < antes.len() && self.linha(antes[i].start) == linha_anterior {
+                i += 1;
+            }
+        }
+        antes.get(i).copied().unwrap_or(t)
+    }
+
+    /// `_shouldIncludeCommentsAfterComma`.
+    fn incluir_comentarios_apos_virgula(&self, virgula: Span) -> bool {
+        let Some(depois) = self.token_seguinte(virgula.end) else { return false };
+        if matches!(self.lexema(depois), "}" | ")" | "]") {
+            return true;
+        }
+        self.linha(virgula.start) != self.linha(depois.start)
+    }
+
+    /// `trailingComment(token, returnComma)`: o token (ou comentário) e se
+    /// inclui a vírgula.
+    fn comentario_final(&self, t: Span, devolver_virgula: bool) -> (Span, bool) {
+        let mut ultimo = t;
+        let mut seguinte = self.token_seguinte(ultimo.end);
+        let inclui_virgula = seguinte.is_some_and(|s| self.lexema(s) == "," && self.incluir_comentarios_apos_virgula(s));
+        if inclui_virgula {
+            ultimo = seguinte.unwrap_or(t);
+            seguinte = self.token_seguinte(ultimo.end);
+        }
+        let precedentes = |s: Option<Span>, depois_de: usize| -> Vec<Span> {
+            match s {
+                Some(s) => self.comentarios_antes(s),
+                None => self.comentarios.iter().copied().filter(|c| c.start >= depois_de).collect(),
+            }
+        };
+        let mut cadeia = precedentes(seguinte, ultimo.end);
+        if cadeia.is_empty() && inclui_virgula && self.linha(t.start) != self.linha(ultimo.start) {
+            cadeia = self.comentarios_antes(ultimo);
+            ultimo = t;
+        }
+        if let Some(&primeiro) = cadeia.first() {
+            let linha = self.linha(ultimo.start);
+            if self.linha(primeiro.start) == linha {
+                let mut c = primeiro;
+                for &prox in &cadeia[1..] {
+                    if self.linha(prox.start) != linha {
+                        break;
+                    }
+                    c = prox;
+                }
+                return (c, inclui_virgula);
+            }
+        }
+        (if devolver_virgula { ultimo } else { t }, false)
+    }
+
+    /// `range.nodeInListWithComments(lineInfo, list, node)`.
+    fn no_em_lista_com_comentarios(&self, lista: &[usize], node: usize) -> Option<Span> {
+        let (ini, fim) = self.tokens_do_no(node)?;
+        if lista.len() == 1 {
+            let inicial = self.comentario_inicial(ini);
+            let (final_, _) = self.comentario_final(fim, true);
+            return Some(Span { start: inicial.start, end: final_.end });
+        }
+        let i = lista.iter().position(|&x| x == node)?;
+        if i == 0 {
+            let este = self.comentario_inicial(ini);
+            let (ini_prox, _) = self.tokens_do_no(lista[1])?;
+            let proximo = self.comentario_inicial(ini_prox);
+            return Some(Span { start: este.start, end: proximo.start });
+        }
+        let (_, fim_anterior) = self.tokens_do_no(lista[i - 1])?;
+        let (anterior, virgula_anterior) = self.comentario_final(fim_anterior, false);
+        let (este, virgula_este) = self.comentario_final(fim, virgula_anterior);
+        let mut token_anterior = anterior;
+        if !virgula_anterior && virgula_este {
+            token_anterior = self.token_seguinte(token_anterior.end)?;
+        }
+        Some(Span { start: token_anterior.end, end: este.end })
+    }
+
+    /// `range.nodeWithComments(lineInfo, node)`.
+    fn no_com_comentarios(&self, node: usize) -> Option<Span> {
+        let (ini, fim) = self.tokens_do_no(node)?;
+        let primeiro_da_unidade = self.token_seguinte(0) == Some(ini);
+        let inicial = if primeiro_da_unidade { ini } else { self.comentario_inicial(ini) };
+        let (final_, _) = self.comentario_final(fim, false);
+        Some(Span { start: inicial.start, end: final_.end })
+    }
+
+    // -- Produtores dos códigos publicados sem fix ---------------------------------
+
+    /// `RemoveNameFromDeclarationClause`: o título e a deleção.
+    pub(crate) fn remover_nome_da_clausula(&self, erro: Span) -> Option<(String, Span)> {
+        let tipo = self.arvore.localizar(erro.start, erro.end)?;
+        let clausula = self.pai(tipo)?;
+        let nome = match self.especie(clausula) {
+            "ExtendsClause" => return Some(("Remove 'extends' clause".to_string(), self.faixa_de_exclusao(clausula, None)?)),
+            "ImplementsClause" => "implements",
+            "MixinOnClause" => "on",
+            "WithClause" => "with",
+            _ => return None,
+        };
+        let nomes = self.filhos_da_especie(clausula, "NamedType");
+        if nomes.len() == 1 {
+            return Some((format!("Remove '{nome}' clause"), self.faixa_de_exclusao(clausula, None)?));
+        }
+        if !nomes.contains(&tipo) {
+            return None;
+        }
+        Some((format!("Remove name from '{nome}' clause"), self.no_em_lista(&nomes, tipo)))
+    }
+
+    /// `AddClassModifier`: o ponto de inserção do modificador.
+    pub(crate) fn ponto_do_modificador(&self, erro: Span) -> Option<usize> {
+        let node = self.arvore.localizar(erro.start, erro.end)?;
+        if !matches!(
+            self.especie(node),
+            "ClassDeclaration" | "ClassTypeAlias" | "MixinDeclaration" | "EnumDeclaration" | "ExtensionTypeDeclaration" | "FunctionDeclaration" | "FunctionTypeAlias" | "GenericTypeAlias"
+        ) || self.pai(node) != Some(0)
+        {
+            return None;
+        }
+        Some(self.primeiro_token_apos_comentario_e_metadados(node)?.start)
+    }
+
+    /// `UseEqEqNull`/`UseNotEqNull`: `[expression.end, is.end)`.
+    pub(crate) fn faixa_do_is_null(&self, erro: Span) -> Option<Span> {
+        let n = self.arvore.localizar2(erro.start, erro.end.saturating_sub(1))?;
+        if self.especie(n) != "IsExpression" {
+            return None;
+        }
+        let e = *self.filhos(n).first()?;
+        Some(Span { start: self.arvore.nos[e].fim, end: self.arvore.nos[n].fim })
+    }
+
+    /// `RemoveExtendsClause`: `[extends, {)`.
+    pub(crate) fn remover_extends(&self, erro: Span) -> Option<Span> {
+        let node = self.arvore.localizar(erro.start, erro.end)?;
+        let classe = self.este_ou_ancestral(node, |e| e == "ClassDeclaration")?;
+        let extends = self.filhos_da_especie(classe, "ExtendsClause").first().copied()?;
+        let mut pos = self.arvore.nos[extends].fim;
+        loop {
+            let t = self.token_seguinte(pos)?;
+            if self.lexema(t) == "{" {
+                return Some(Span { start: self.arvore.nos[extends].inicio, end: t.start });
+            }
+            pos = t.end;
+        }
+    }
+
+    /// `ExtendClassForMixin`: o nome (o último trecho entre aspas da
+    /// mensagem) e o ponto depois dos parâmetros de tipo ou do nome.
+    pub(crate) fn estender_para_mixin(&self, erro: Span, mensagem: &str) -> Option<(String, usize)> {
+        let node = self.arvore.localizar(erro.start, erro.end)?;
+        let classe = self.este_ou_ancestral(node, |e| e == "ClassDeclaration")?;
+        if !self.filhos_da_especie(classe, "ExtendsClause").is_empty() {
+            return None;
+        }
+        let fim = mensagem.rfind('\'')?;
+        let ini = mensagem[..fim].rfind('\'').map_or(0, |i| i + 1);
+        let nome = mensagem[ini..fim].to_string();
+        let ponto = match self.filhos_da_especie(classe, "TypeParameterList").first() {
+            Some(&tp) => self.arvore.nos[tp].fim,
+            None => {
+                let Marca::Decl(d) = self.arvore.nos[classe].marca else { return None };
+                match &self.ast.decl(d).kind {
+                    ast::DeclKind::Class(c) => c.name.span.end,
+                    _ => return None,
+                }
+            }
+        };
+        Some((nome, ponto))
+    }
+
+    /// `ReplaceWithExtensionName`: o nome (com o prefixo) e o alvo.
+    pub(crate) fn nome_da_extensao(&self, erro: Span) -> Option<(String, Span)> {
+        let node = self.arvore.localizar(erro.start, erro.end)?;
+        if self.especie(node) != "SimpleIdentifier" {
+            return None;
+        }
+        let pai = self.pai(node)?;
+        let alvo = match self.especie(pai) {
+            "MethodInvocation" if self.nome_do_metodo(pai) == Some(node) => *self.filhos(pai).first()?,
+            "PropertyAccess" if self.filhos(pai).get(1) == Some(&node) => *self.filhos(pai).first()?,
+            _ => return None,
+        };
+        if alvo == node {
+            return None;
+        }
+        // O `ExtensionOverride`: `E(x)`, `E<T>(x)` ou `p.E(x)`, com o nome
+        // resolvido para a extensão.
+        let ids: Vec<usize> = self.filhos(alvo).iter().copied().filter(|&f| self.especie(f) == "SimpleIdentifier").collect();
+        let extensao = ids.iter().copied().find(|&i| match self.arvore.nos[i].marca {
+            Marca::Expr(x) => matches!(self.corpos.get_resolved(x), Some(Resolved::Element(dartforge_elements::model::Element::Extension(_)))),
+            _ => false,
+        })?;
+        let prefixo = ids.iter().copied().find(|&i| i != extensao && self.arvore.nos[i].fim <= self.arvore.nos[extensao].inicio);
+        let nome = match prefixo {
+            Some(p) => format!("{}.{}", self.texto_do_no(p), self.texto_do_no(extensao)),
+            None => self.texto_do_no(extensao).to_string(),
+        };
+        Some((nome, self.arvore.span(alvo)))
+    }
+
+    /// `RemoveParenthesesInGetterInvocation`: a lista de argumentos da
+    /// `FunctionExpressionInvocation` pai do `coveringNode`.
+    pub(crate) fn parenteses_do_getter(&self, erro: Span) -> Option<Span> {
+        let n = self.arvore.localizar2(erro.start, erro.end.saturating_sub(1))?;
+        let pai = self.pai(n)?;
+        if self.especie(pai) != "FunctionExpressionInvocation" {
+            return None;
+        }
+        let args = self.filhos_da_especie(pai, "ArgumentList").first().copied()?;
+        Some(self.arvore.span(args))
+    }
+
+    /// `MakeSuperInvocationLast`: a deleção e a inserção `, <texto>`.
+    pub(crate) fn super_por_ultimo(&self, erro: Span) -> Option<Vec<(Span, String)>> {
+        let node = self.arvore.localizar(erro.start, erro.end)?;
+        if !matches!(self.especie(node), "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "ConstructorFieldInitializer" | "AssertInitializer") {
+            return None;
+        }
+        let construtor = self.pai(node).filter(|&c| self.especie(c) == "ConstructorDeclaration")?;
+        let inicializadores: Vec<usize> = self
+            .filhos(construtor)
+            .iter()
+            .copied()
+            .filter(|&f| matches!(self.especie(f), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
+            .collect();
+        let exclusao = self.no_em_lista_com_comentarios(&inicializadores, node)?;
+        let faixa = self.no_com_comentarios(node)?;
+        let texto = self.fonte[faixa.start..faixa.end].to_string();
+        let (_, fim_ultimo) = self.tokens_do_no(*inicializadores.last()?)?;
+        let (t, _) = self.comentario_final(fim_ultimo, false);
+        Some(vec![(exclusao, String::new()), (Span { start: t.end, end: t.end }, format!(", {texto}"))])
+    }
+
+    /// `RemoveDeadCode` num `SwitchMember` (o `coveringNode` dos
+    /// `unreachable_switch_*`): `deletionRange(member)`, até o `:` quando o
+    /// membro anterior não tem comandos.
+    pub(crate) fn remover_membro_morto(&self, erro: Span) -> Option<Span> {
+        let n = self.arvore.localizar2(erro.start, erro.end.saturating_sub(1))?;
+        if !matches!(self.especie(n), "SwitchCase" | "SwitchDefault" | "SwitchPatternCase") {
+            return None;
+        }
+        let switch = self.pai(n)?;
+        if self.especie(switch) != "SwitchStatement" {
+            return None;
+        }
+        let membros: Vec<usize> = self.filhos(switch).iter().copied().filter(|&f| matches!(self.especie(f), "SwitchCase" | "SwitchDefault" | "SwitchPatternCase")).collect();
+        let i = membros.iter().position(|&m| m == n)?;
+        let sem_comandos = |m: usize| !self.filhos(m).iter().any(|&f| self.e_comando(f));
+        let mut fim_forcado = None;
+        if i > 0 && sem_comandos(membros[i - 1]) {
+            // O `:` do membro: depois do padrão, da guarda ou do `default`.
+            let depois = self
+                .filhos(n)
+                .iter()
+                .copied()
+                .filter(|&f| !self.e_comando(f) && self.especie(f) != "Label")
+                .map(|f| self.arvore.nos[f].fim)
+                .max()
+                .unwrap_or(self.arvore.nos[n].inicio);
+            let mut pos = depois;
+            loop {
+                let t = self.token_seguinte(pos)?;
+                if self.lexema(t) == ":" {
+                    fim_forcado = Some(t);
+                    break;
+                }
+                pos = t.end;
+            }
+        }
+        self.faixa_de_exclusao(n, fim_forcado)
+    }
+
+    /// `RemoveComparison` (`remove_comparison.dart`): `verdadeira` para os
+    /// `…_TRUE`, falsa para os `…_FALSE`.
+    pub(crate) fn remover_comparacao(&self, erro: Span, verdadeira: bool) -> Option<Vec<(Span, String)>> {
+        let node = self.arvore.localizar(erro.start, erro.end)?;
+        let pai = self.pai(node)?;
+        let tx = Texto::novo(self.fonte);
+        let tirar_recuo = |texto: &str| -> String {
+            let eol = tx.eol();
+            texto
+                .split(eol)
+                .map(|l| l.strip_prefix(crate::refatoracoes_exec::UM_RECUO).unwrap_or(l))
+                .collect::<Vec<_>>()
+                .join(eol)
+        };
+        let com_comentarios = |n: usize| -> Option<String> {
+            let (ini, fim) = self.tokens_do_no(n)?;
+            let primeiro = self.comentarios_antes(ini).first().copied().unwrap_or(ini);
+            Some(self.fonte[primeiro.start..fim.end].to_string())
+        };
+        match self.especie(pai) {
+            "AssertInitializer" if verdadeira => {
+                let construtor = self.pai(pai)?;
+                let lista: Vec<usize> = self
+                    .filhos(construtor)
+                    .iter()
+                    .copied()
+                    .filter(|&f| matches!(self.especie(f), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
+                    .collect();
+                if lista.len() == 1 {
+                    let parametros = self.filhos_da_especie(construtor, "FormalParameterList").first().copied()?;
+                    return Some(vec![(Span { start: self.arvore.nos[parametros].fim, end: self.arvore.nos[pai].fim }, String::new())]);
+                }
+                Some(vec![(self.no_em_lista(&lista, pai), String::new())])
+            }
+            "AssertStatement" if verdadeira => Some(vec![(self.linhas_do_no(pai), String::new())]),
+            "BinaryExpression" => {
+                let f = self.filhos(pai);
+                let (esq, dir) = (*f.first()?, *f.get(1)?);
+                let operador = self.token_seguinte(self.arvore.nos[esq].fim)?;
+                let e_e = self.lexema(operador) == "&&";
+                let ou = self.lexema(operador) == "||";
+                if !((e_e && verdadeira) || (ou && !verdadeira)) {
+                    return None;
+                }
+                let s = if esq == node {
+                    Span { start: self.arvore.nos[node].inicio, end: self.arvore.nos[dir].inicio }
+                } else {
+                    Span { start: self.arvore.nos[esq].fim, end: self.arvore.nos[node].fim }
+                };
+                Some(vec![(s, String::new())])
+            }
+            "IfElement" => {
+                let ramos: Vec<usize> = self.filhos(pai).iter().copied().filter(|&f| f != node).collect();
+                let (entao, senao) = (ramos.first().copied(), ramos.get(1).copied());
+                if verdadeira {
+                    let t = com_comentarios(entao?)?;
+                    return Some(vec![(self.arvore.span(pai), tirar_recuo(&t))]);
+                }
+                match senao {
+                    Some(e) => {
+                        let t = com_comentarios(e)?;
+                        Some(vec![(self.arvore.span(pai), tirar_recuo(&t))])
+                    }
+                    None => {
+                        let colecao = self.pai(pai)?;
+                        if !matches!(self.especie(colecao), "ListLiteral" | "SetOrMapLiteral") {
+                            return None;
+                        }
+                        let elementos: Vec<usize> = self.filhos(colecao).iter().copied().filter(|&f| self.especie(f) != "TypeArgumentList").collect();
+                        Some(vec![(self.no_em_lista(&elementos, pai), String::new())])
+                    }
+                }
+            }
+            "IfStatement" => {
+                let ramos: Vec<usize> = self.filhos(pai).iter().copied().filter(|&f| f != node).collect();
+                let (entao, senao) = (ramos.first().copied(), ramos.get(1).copied());
+                let substituir = |r: usize| -> Option<Vec<(Span, String)>> {
+                    if self.especie(r) == "Block" {
+                        let s = self.arvore.span(r);
+                        let linhas = tx.faixa_de_linhas(s.start + 1, s.end - 1);
+                        let texto = tirar_recuo(&self.fonte[linhas.start..linhas.end]);
+                        return Some(vec![(self.linhas_do_no(pai), texto)]);
+                    }
+                    let t = com_comentarios(r)?;
+                    Some(vec![(self.arvore.span(pai), tirar_recuo(&t))])
+                };
+                if verdadeira {
+                    return substituir(entao?);
+                }
+                match senao {
+                    Some(e) => substituir(e),
+                    None => {
+                        let bloco = self.pai(pai).filter(|&b| self.especie(b) == "Block")?;
+                        let comandos: Vec<usize> = self.filhos(bloco).to_vec();
+                        Some(vec![(self.no_em_lista(&comandos, pai), String::new())])
+                    }
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// `MakeReturnTypeNullable`: o fim da anotação de retorno (ou do
+    /// argumento de tipo, num corpo assíncrono ou gerador).
+    pub(crate) fn retorno_anulavel(&self, erro: Span, conversoes_estritas: bool) -> Option<usize> {
+        use dartforge_types::Type;
+        let node = self.arvore.localizar(erro.start, erro.end)?;
+        if !self.e_expressao(node) {
+            return None;
+        }
+        let tipo = self.tipo_do_no(node)?;
+        let corpo = self.este_ou_ancestral(node, |e| e.ends_with("FunctionBody"))?;
+        let mut funcao = self.pai(corpo)?;
+        if self.especie(funcao) == "FunctionExpression" {
+            funcao = self.pai(funcao)?;
+        }
+        if !matches!(self.especie(funcao), "MethodDeclaration" | "FunctionDeclaration") {
+            return None;
+        }
+        let anotacao = self
+            .filhos(funcao)
+            .iter()
+            .copied()
+            .find(|&f| matches!(self.especie(f), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation"))?;
+        let elemento = self.elemento_declarado(funcao);
+        let tabela = &self.p.consulta.tabela;
+        let mut declarado = match elemento {
+            crate::refatoracoes::Elem::Funcao(f) => self.p.consulta.outline.functions.get(f.0 as usize).map(|d| d.return_type)?,
+            crate::refatoracoes::Elem::FuncaoLocal(fid) => match self.ast.function(fid).name.and_then(|n| self.corpos.tipo_local(n.span.start)).map(|t| tabela.get(t)) {
+                Some(Type::Function { ret, .. }) => *ret,
+                _ => return None,
+            },
+            _ => return None,
+        };
+        let mut alvo = anotacao;
+        let texto_do_corpo = self.texto_do_no(corpo);
+        if texto_do_corpo.starts_with("async") || texto_do_corpo.starts_with("sync") {
+            if self.especie(anotacao) != "NamedType" {
+                return None;
+            }
+            let args = self.filhos_da_especie(anotacao, "TypeArgumentList").first().copied()?;
+            let lista = self.filhos(args);
+            if lista.len() != 1 {
+                return None;
+            }
+            alvo = lista[0];
+            declarado = match tabela.get(declarado) {
+                Type::Interface { args, .. } if args.len() == 1 => args[0],
+                Type::FutureOr { arg, .. } => *arg,
+                _ => return None,
+            };
+        }
+        if self.especie(node) != "NullLiteral" {
+            let mut t = tabela.clone();
+            let nao_nulo = dartforge_types::non_nullable(tipo, &mut t);
+            let atribuivel = if !conversoes_estritas && matches!(t.get(declarado), Type::Dynamic) {
+                true
+            } else {
+                let mut env = dartforge_types::SubtypeEnv::new(&mut t, &self.p.consulta.outline.hierarchy, &self.p.consulta.core);
+                dartforge_types::is_subtype(declarado, nao_nulo, &mut env)
+            };
+            if !atribuivel {
+                return None;
+            }
+        }
+        Some(self.arvore.nos[alvo].fim)
+    }
+
+    // -- RemoveUnusedParameter e AddConst ------------------------------------------
+
+    /// O tipo (`isRequiredPositional`) de um nó de parâmetro, pelo
+    /// parâmetro do parser no intervalo dele.
+    fn posicional_obrigatorio(&self, n: usize) -> bool {
+        let s = self.arvore.span(n);
+        let dentro = |q: &&ast::Parameter| q.span.start >= s.start && q.span.end <= s.end;
+        let q = self
+            .ast
+            .functions
+            .iter()
+            .flat_map(|f| f.parameters.iter().flatten())
+            .find(dentro)
+            .or_else(|| {
+                self.ast.members.iter().find_map(|m| match &m.kind {
+                    MemberKind::Constructor(k) => k.parameters.iter().find(dentro),
+                    _ => None,
+                })
+            });
+        q.is_some_and(|q| q.kind == ast::ParameterKind::Required)
+    }
+
+    /// `RemoveUnusedParameter.compute`: a deleção.
+    pub(crate) fn remover_parametro(&self, erro: Span) -> Option<Span> {
+        let mut talvez = self.arvore.localizar(erro.start, erro.end)?;
+        if self.especie(talvez) == "SimpleIdentifier"
+            && let Some(p) = self.pai(talvez)
+        {
+            talvez = p;
+        }
+        if !matches!(self.especie(talvez), "SimpleFormalParameter" | "FieldFormalParameter" | "SuperFormalParameter" | "FunctionTypedFormalParameter" | "DefaultFormalParameter") {
+            return None;
+        }
+        let mut parametro = talvez;
+        if let Some(p) = self.pai(parametro)
+            && self.especie(p) == "DefaultFormalParameter"
+        {
+            parametro = p;
+        }
+        let lista = self.pai(parametro).filter(|&l| self.especie(l) == "FormalParameterList")?;
+        let parametros: Vec<usize> = self.filhos(lista).to_vec();
+        let i = parametros.iter().position(|&x| x == parametro)?;
+        let s = |n: usize| self.arvore.span(n);
+        let ls = s(lista);
+        if i == 0 {
+            if parametros.len() == 1 {
+                return Some(Span { start: ls.start + 1, end: ls.end - 1 });
+            }
+            let seguinte = parametros[1];
+            if self.posicional_obrigatorio(parametro) && !self.posicional_obrigatorio(seguinte) {
+                // O delimitador `[`/`{`: o token antes do primeiro opcional.
+                let delimitador = self.token_anterior(s(seguinte).start).filter(|t| matches!(&self.fonte[t.start..t.end], "[" | "{"));
+                return Some(match delimitador {
+                    Some(d) => Span { start: s(parametro).start, end: d.start },
+                    None => Span { start: s(parametro).start, end: s(seguinte).start },
+                });
+            }
+            return Some(Span { start: s(parametro).start, end: s(seguinte).start });
+        }
+        let anterior = parametros[i - 1];
+        if self.posicional_obrigatorio(anterior) && !self.posicional_obrigatorio(parametro) {
+            if i == parametros.len() - 1 {
+                // `)` ou a vírgula final antes dele.
+                let fecha = Span { start: ls.end - 1, end: ls.end };
+                let antes = self.token_anterior(fecha.start);
+                let alvo = match antes {
+                    Some(a) if &self.fonte[a.start..a.end] == "," => a,
+                    _ => fecha,
+                };
+                return Some(Span { start: s(anterior).end, end: alvo.start });
+            }
+            let seguinte = parametros[i + 1];
+            return Some(Span { start: s(parametro).start, end: s(seguinte).start });
+        }
+        Some(Span { start: s(anterior).end, end: s(parametro).end })
+    }
+
+    /// `AddConst.compute` nos caminhos que o `non_constant_map_pattern_key`
+    /// alcança (a chave do `MapPatternEntry`): binário ou prefixo →
+    /// `const (…)` na entrada; lista, conjunto/mapa ou criação sem palavra
+    /// → `const ` e os `const` internos apagados.
+    pub(crate) fn adicionar_const(&self, erro: Span) -> Option<Vec<(Span, String)>> {
+        let mut alvo = self.arvore.localizar(erro.start, erro.end)?;
+        if self.especie(alvo) == "SimpleIdentifier" {
+            alvo = self.pai(alvo)?;
+        }
+        if self.especie(alvo) == "ConstructorDeclaration" {
+            let t = self.primeiro_token_apos_comentario_e_metadados(alvo)?;
+            return Some(vec![(Span { start: t.start, end: t.start }, "const ".to_string())]);
+        }
+        let parenteses_e_const = |n: usize| {
+            let s = self.arvore.span(n);
+            vec![(Span { start: s.end, end: s.end }, ")".to_string()), (Span { start: s.start, end: s.start }, "const (".to_string())]
+        };
+        if self.especie(alvo) == "TypeArgumentList" {
+            alvo = self.este_ou_ancestral(alvo, |e| e == "ConstantPattern")?;
+        }
+        if self.especie(alvo) == "ConstantPattern" {
+            // `canBeConst`/literal de tipo: fora dos códigos publicados.
+            return None;
+        }
+        if matches!(self.especie(alvo), "BinaryExpression" | "PrefixExpression") {
+            let pai = self.pai(alvo)?;
+            if let Some(avo) = self.pai(pai)
+                && self.especie(avo) == "ParenthesizedPattern"
+            {
+                let o = self.arvore.nos[avo].inicio;
+                return Some(vec![(Span { start: o, end: o }, "const ".to_string())]);
+            }
+            return Some(parenteses_e_const(pai));
+        }
+        let inserir = |n: usize| -> Vec<(Span, String)> {
+            let o = self.arvore.nos[n].inicio;
+            let mut v = vec![(Span { start: o, end: o }, "const ".to_string())];
+            // `_ConstRangeFinder`: os `const` de criações e literais
+            // internos (sem entrar em closures).
+            let mut pilha = vec![n];
+            while let Some(k) = pilha.pop() {
+                if self.especie(k) == "FunctionExpression" {
+                    continue;
+                }
+                if matches!(self.especie(k), "InstanceCreationExpression" | "ListLiteral" | "SetOrMapLiteral")
+                    && let Some(t) = self.token_seguinte(self.arvore.nos[k].inicio)
+                    && &self.fonte[t.start..t.end] == "const"
+                    && let Some(prox) = self.token_seguinte(t.end)
+                {
+                    v.push((Span { start: t.start, end: prox.start }, String::new()));
+                }
+                for &f in self.filhos(k).iter().rev() {
+                    pilha.push(f);
+                }
+            }
+            v
+        };
+        if matches!(self.especie(alvo), "ListLiteral" | "SetOrMapLiteral") {
+            return Some(inserir(alvo));
+        }
+        if self.especie(alvo) == "NamedType" {
+            alvo = self.pai(alvo)?;
+        }
+        if self.especie(alvo) == "ConstructorName" {
+            alvo = self.pai(alvo)?;
+        }
+        if self.especie(alvo) == "InstanceCreationExpression" {
+            let sem_palavra = self.token_seguinte(self.arvore.nos[alvo].inicio).is_some_and(|t| !matches!(&self.fonte[t.start..t.end], "new" | "const"));
+            if sem_palavra {
+                return Some(inserir(alvo));
+            }
+        }
+        None
+    }
+
+    // -- AddMissingSwitchCases --------------------------------------------------------
+
+    /// `AddMissingSwitchCases.compute` com `insertCaseClauseAtEnd`: o
+    /// `node` é o `switch`; as testemunhas com partes vêm do verificador de
+    /// constantes (o `diagnostic.data`). A edição e as bibliotecas a
+    /// importar.
+    pub(crate) fn casos_ausentes(&self, erro: Span) -> Option<(Span, String, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
+        use dartforge_types::constantes::ParteDeTestemunha as P;
+        let node = self.arvore.localizar(erro.start, erro.end)?;
+        let expressao = match self.especie(node) {
+            "SwitchStatement" => false,
+            "SwitchExpression" => true,
+            _ => return None,
+        };
+        let prog = self.p.programa();
+        let lib = prog.unit(self.unidade).library;
+        let consulta = &self.p.consulta;
+        let mut tabela = consulta.tabela.clone();
+        let mapa = dartforge_types::constantes::testemunhas_de_switch(
+            prog,
+            &consulta.nomes,
+            &mut tabela,
+            &consulta.core,
+            &consulta.outline,
+            &consulta.corpos,
+            &self.p.bibliotecas,
+            lib,
+        );
+        let lista = mapa.get(&(self.unidade, self.arvore.nos[node].inicio))?;
+        if lista.is_empty() {
+            return None;
+        }
+        let tx = Texto::novo(self.fonte);
+        let eol = tx.eol();
+        let recuo_da_linha = tx.prefixo_da_linha(self.arvore.nos[node].inicio).to_string();
+        let um = crate::refatoracoes_exec::UM_RECUO;
+        // Os tokens `)`, `{` e `}` do `switch`.
+        let s = self.arvore.span(node);
+        let fecha = Span { start: s.end - 1, end: s.end };
+        let escrutinio = *self.filhos(node).first()?;
+        let parentese = self.token_seguinte(self.arvore.nos[escrutinio].fim)?;
+        let abre = self.token_seguinte(parentese.end)?;
+        if &self.fonte[abre.start..abre.end] != "{" || &self.fonte[fecha.start..fecha.end] != "}" {
+            return None;
+        }
+        let uma_linha = self.linha(abre.start) == self.linha(fecha.start);
+        let offset = if uma_linha { abre.end } else { tx.inicio_da_linha(fecha.start) };
+        let mut escritor = crate::escrever_tipo::Escritor::novo(self, offset);
+        // Valor de enum privado de outra biblioteca: a testemunha sai e
+        // entra o `default`.
+        let inacessivel = |partes: &[P]| {
+            partes.iter().any(|q| match q {
+                P::ValorDeEnum { enumeracao, valor } => {
+                    let c = prog.class(*enumeracao);
+                    (self.p.nome(c.name).starts_with('_') || self.p.nome(prog.variable(*valor).name).starts_with('_')) && c.library != lib
+                }
+                _ => false,
+            })
+        };
+        let mut texto = String::new();
+        if uma_linha {
+            texto.push_str(eol);
+        }
+        let mut precisa_default = false;
+        for partes in lista {
+            if inacessivel(partes) {
+                precisa_default = true;
+                continue;
+            }
+            let mut padrao = String::new();
+            for q in partes {
+                match q {
+                    P::Texto(t) => padrao.push_str(t),
+                    P::ValorDeEnum { enumeracao, valor } => {
+                        let nome = self.p.nome(prog.class(*enumeracao).name).to_string();
+                        padrao.push_str(&escritor.referencia_de(dartforge_elements::model::Element::Class(*enumeracao), &nome));
+                        padrao.push('.');
+                        padrao.push_str(self.p.nome(prog.variable(*valor).name));
+                    }
+                    P::Tipo(t) => padrao.push_str(&escritor.escrever_tipo(Some(*t), false).unwrap_or_default()),
+                }
+            }
+            if expressao {
+                texto.push_str(&format!("{recuo_da_linha}{um}// TODO: Handle this case.{eol}{recuo_da_linha}{um}{padrao} => throw UnimplementedError(),{eol}"));
+            } else {
+                texto.push_str(&format!(
+                    "{recuo_da_linha}{um}case {padrao}:{eol}{recuo_da_linha}{um}{um}// TODO: Handle this case.{eol}{recuo_da_linha}{um}{um}throw UnimplementedError();{eol}"
+                ));
+            }
+        }
+        if precisa_default {
+            if expressao {
+                texto.push_str(&format!("{recuo_da_linha}{um}// TODO: Handle this case.{eol}{recuo_da_linha}{um}_ => throw UnimplementedError(),{eol}"));
+            } else {
+                texto.push_str(&format!(
+                    "{recuo_da_linha}{um}default:{eol}{recuo_da_linha}{um}{um}// TODO: Handle this case.{eol}{recuo_da_linha}{um}{um}throw UnimplementedError();{eol}"
+                ));
+            }
+        }
+        if uma_linha {
+            // `linePrefix(switchKeyword.offset)`.
+            texto.push_str(&recuo_da_linha);
+        }
+        Some((Span { start: offset, end: offset }, texto, escritor.importar))
+    }
+
+    // -- AddMissingRequiredArgument -------------------------------------------------
+
+    /// O tipo é `Widget` do Flutter ou subtipo (`isWidgetType`).
+    fn e_widget(&self, t: dartforge_types::TypeId) -> bool {
+        let prog = self.p.programa();
+        let dartforge_types::Type::Interface { class, .. } = self.p.consulta.tabela.get(t) else { return false };
+        let widget = |c: dartforge_elements::model::ClassId| {
+            let k = prog.class(c);
+            self.p.nome(k.name) == "Widget" && prog.library(k.library).uri == "package:flutter/src/widgets/framework.dart"
+        };
+        widget(*class) || self.p.supertipos(*class).into_iter().any(widget)
+    }
+
+    /// `getDefaultStringParameterValue2(parameter, quote)`: o texto e a
+    /// posição do cursor.
+    fn valor_padrao_de_argumento(&self, tipo: dartforge_types::TypeId, aspas: &str, anotacao: Option<(&ast::Ast, ast::TypeId)>) -> Option<String> {
+        use dartforge_types::Type;
+        let core = &self.p.consulta.core;
+        let tabela = &self.p.consulta.tabela;
+        match tabela.get(tipo) {
+            Type::Interface { class, .. } if Some(*class) == core.list_class => Some("[]".to_string()),
+            Type::Interface { class, .. } if Some(*class) == core.map_class => Some("{}".to_string()),
+            Type::Interface { class, .. } if Some(*class) == core.string_class => Some(format!("{aspas}{aspas}")),
+            Type::Function { positional, optional, named, .. } => {
+                // Os nomes dos parâmetros vêm da anotação de tipo de função.
+                let nomes: Vec<String> = match anotacao.map(|(a, t)| &a.ty(t).kind) {
+                    Some(ast::TypeKind::Function { parameters, .. }) => parameters.iter().map(|q| q.name.map(|n| self.p.nome(n.sym).to_string()).unwrap_or_default()).collect(),
+                    _ => Vec::new(),
+                };
+                let mut partes = Vec::new();
+                let mut i = 0usize;
+                for &q in positional.iter().chain(optional.iter()) {
+                    let tipo = if matches!(tabela.get(q), Type::Dynamic) { String::new() } else { format!("{} ", self.p.consulta.formatar(q)) };
+                    partes.push(format!("{tipo}{}", nomes.get(i).cloned().unwrap_or_default()));
+                    i += 1;
+                }
+                for (n, q, _) in named.iter() {
+                    let tipo = if matches!(tabela.get(*q), Type::Dynamic) { String::new() } else { format!("{} ", self.p.consulta.formatar(*q)) };
+                    partes.push(format!("{tipo}{}", self.p.nome(*n)));
+                }
+                Some(format!("({}) {{  }}", partes.join(", ")))
+            }
+            _ => None,
+        }
+    }
+
+    /// `AddMissingRequiredArgument` para cada parâmetro nomeado obrigatório
+    /// sem argumento nas chamadas cujo nome está nas linhas `ini..fim` (o
+    /// `missing_required_argument` não é publicado: as chamadas são
+    /// examinadas no pedido). O nome do parâmetro e a inserção.
+    pub(crate) fn argumentos_requeridos(&self, ini: usize, fim: usize) -> Vec<(String, Span, String)> {
+        use dartforge_types::Resolved;
+        let prog = self.p.programa();
+        let aspas = if crate::refatoracoes_exec::regra_ligada(self.p, self.unidade, "prefer_double_quotes") { "\"" } else { "'" };
+        let mut saida = Vec::new();
+        for (n, no) in self.arvore.nos.iter().enumerate() {
+            let (alvo_do_erro, funcao, lista, criacao) = match no.especie {
+                "MethodInvocation" => {
+                    let Some(m) = self.nome_do_metodo(n) else { continue };
+                    let crate::refatoracoes::Elem::Funcao(f) = self.elemento_do_identificador(m, true) else { continue };
+                    let Some(l) = self.filhos_da_especie(n, "ArgumentList").first().copied() else { continue };
+                    (m, f, l, None)
+                }
+                "InstanceCreationExpression" => {
+                    let Some(cn) = self.filhos_da_especie(n, "ConstructorName").first().copied() else { continue };
+                    let Some(x) = self.expr_do_no(n) else { continue };
+                    let f = match self.corpos.get_resolved(x) {
+                        Some(Resolved::Constructor(f)) => *f,
+                        _ => match self.construtores_por_alvo.iter().find(|(alvo, _)| self.ast.expr(**alvo).span.start == no.inicio) {
+                            Some((_, f)) => *f,
+                            None => continue,
+                        },
+                    };
+                    let Some(l) = self.filhos_da_especie(n, "ArgumentList").first().copied() else { continue };
+                    (cn, f, l, Some(n))
+                }
+                _ => continue,
+            };
+            let s = self.arvore.span(alvo_do_erro);
+            if !(s.start <= fim && ini <= s.end) {
+                continue;
+            }
+            let Some(dados) = self.p.consulta.outline.functions.get(funcao.0 as usize) else { continue };
+            let argumentos: Vec<usize> = self.filhos(lista).to_vec();
+            let dados_nomeados: Vec<String> = argumentos
+                .iter()
+                .filter(|&&a| self.especie(a) == "NamedExpression")
+                .filter_map(|&a| self.filhos(a).first().and_then(|&r| self.filhos(r).first()).map(|&id| self.texto_do_no(id).to_string()))
+                .collect();
+            // As anotações dos parâmetros declarados (para os nomes de um
+            // tipo de função).
+            let (ast_decl, declarados): (Option<&ast::Ast>, Vec<&ast::Parameter>) = match prog.function(funcao).node {
+                dartforge_elements::model::FunctionRef::Function { unit, function } => {
+                    (Some(&prog.unit(unit).ast), prog.unit(unit).ast.function(function).parameters.iter().flatten().collect())
+                }
+                dartforge_elements::model::FunctionRef::Constructor { unit, member } => match &prog.unit(unit).ast.member(member).kind {
+                    MemberKind::Constructor(k) => (Some(&prog.unit(unit).ast), k.parameters.iter().collect()),
+                    _ => (None, Vec::new()),
+                },
+                _ => (None, Vec::new()),
+            };
+            let widget = criacao.and_then(|c| self.tipo_do_no(c)).is_some_and(|t| self.e_widget(t));
+            for q in dados.parameters.iter() {
+                if !(q.required && q.kind == ast::ParameterKind::Named) {
+                    continue;
+                }
+                let Some(nome) = q.externo.or(q.name).map(|s| self.p.nome(s).to_string()) else { continue };
+                if dados_nomeados.contains(&nome) {
+                    continue;
+                }
+                let lista_s = self.arvore.span(lista);
+                let (mut offset, mut virgula_final, mut entre) = (lista_s.start + 1, false, false);
+                if let Some(&ultimo) = argumentos.last() {
+                    offset = self.arvore.nos[ultimo].fim;
+                    virgula_final = self.token_seguinte(offset).is_some_and(|t| &self.fonte[t.start..t.end] == ",");
+                    if self.especie(ultimo) == "NamedExpression" && widget {
+                        let rotulo = self.filhos(ultimo).first().and_then(|&r| self.filhos(r).first()).map(|&id| self.texto_do_no(id).to_string());
+                        if matches!(rotulo.as_deref(), Some("child") | Some("children")) {
+                            offset = self.arvore.nos[ultimo].inicio;
+                            virgula_final = true;
+                            entre = true;
+                        }
+                    }
+                }
+                let anotacao = declarados.iter().find(|p| p.name.is_some_and(|n| self.p.nome(n.sym) == nome)).and_then(|p| p.ty).and_then(|t| ast_decl.map(|a| (a, t)));
+                let valor = self.valor_padrao_de_argumento(q.ty, aspas, anotacao).unwrap_or_else(|| "null".to_string());
+                let mut texto = String::new();
+                if !argumentos.is_empty() && !entre {
+                    texto.push_str(", ");
+                }
+                texto.push_str(&format!("{nome}: {valor}"));
+                if widget {
+                    if !virgula_final {
+                        texto.push(',');
+                    } else if entre {
+                        let eol = Texto::novo(self.fonte).eol();
+                        texto.push(',');
+                        texto.push_str(eol);
+                        texto.push_str(Texto::novo(self.fonte).prefixo_da_linha(offset));
+                    }
+                }
+                saida.push((nome, Span { start: offset, end: offset }, texto));
+            }
+        }
+        saida
+    }
+
     // -- ConvertIntoBlockBody.missingBody -----------------------------------------
 
     /// `ConvertIntoBlockBody._computeMissingBody` com `node` no erro: o
