@@ -318,8 +318,8 @@ impl<'a> Motor<'a> {
                 }
             }
             ExprKind::Double(span) => {
-                let t = self.program.unit(u).source[span.start..span.end].replace('_', "");
-                Constante::Valor(Valor::novo(self.core.double, Estado::Double(t.parse::<f64>().ok())))
+                let t = &self.program.unit(u).source[span.start..span.end];
+                Constante::Valor(Valor::novo(self.core.double, Estado::Double(crate::constant::real_literal(t))))
             }
             ExprKind::Bool(b) => Constante::Valor(Valor::bool_(self.core, Some(*b))),
             ExprKind::Null => Constante::Valor(Valor::nulo(self.core)),

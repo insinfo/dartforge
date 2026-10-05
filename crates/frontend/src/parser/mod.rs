@@ -141,6 +141,42 @@ pub fn parse_com(source: &str, interner: &mut Interner, features: LibraryFeature
     parse_lexed_com(source, lexer::lex(source), interner, features)
 }
 
+/// Os erros do scanner do fasta que não interrompem a leitura (o token
+/// sintético segue para o parser), tirados dos lexemas dos tokens:
+/// `UNSUPPORTED_OPERATOR` no começo de `===`/`!==` (com o lexema),
+/// `MISSING_DIGIT` no último caractere de um `double` cujo expoente não tem
+/// dígito e `MISSING_HEX_DIGIT` no último caractere de um `0x` sem dígito
+/// hexadecimal (`fe:scanner/errors.dart`, `translateErrorToken`). Todos com
+/// comprimento 1.
+fn erros_recuperaveis_do_scanner(source: &str, tokens: &[Token]) -> Vec<Diagnostic> {
+    use crate::token::{Kind, Op};
+    let mut saida = Vec::new();
+    let um = |inicio: usize| Span { start: inicio, end: inicio + 1 };
+    for t in tokens {
+        let lexema = &source[t.span.start..t.span.end];
+        match t.kind {
+            Kind::Op(Op::EqEq | Op::BangEq) if lexema.len() == 3 => {
+                saida.push(Diagnostic::com_codigo(dartforge_diagnostics::codigos::scanner::UNSUPPORTED_OPERATOR, um(t.span.start), [lexema]));
+            }
+            Kind::Double => {
+                if let Some(i) = lexema.find(['e', 'E']) {
+                    let expoente = &lexema[i + 1..];
+                    if !expoente.bytes().any(|b| b.is_ascii_digit()) {
+                        saida.push(Diagnostic::com_codigo(dartforge_diagnostics::codigos::scanner::MISSING_DIGIT, um(t.span.end - 1), Vec::<&str>::new()));
+                    }
+                }
+            }
+            Kind::Int => {
+                if (lexema.starts_with("0x") || lexema.starts_with("0X")) && !lexema[2..].bytes().any(|b| b.is_ascii_hexdigit()) {
+                    saida.push(Diagnostic::com_codigo(dartforge_diagnostics::codigos::scanner::MISSING_HEX_DIGIT, um(t.span.end - 1), Vec::<&str>::new()));
+                }
+            }
+            _ => {}
+        }
+    }
+    saida
+}
+
 /// Como [`parse`], com a fonte já lexada. O lexer é puro (não interna nomes),
 /// então pode correr noutra thread; só a análise sintática precisa do
 /// `Interner` e fica sequencial.
@@ -172,8 +208,10 @@ pub fn parse_lexed_com(
             };
         }
     };
+    let do_scanner = erros_recuperaveis_do_scanner(source, &tokens);
     let mut parser = Parser::new(source, tokens, interner);
     parser.features = features;
+    parser.diagnostics.extend(do_scanner);
     let unit = parser.parse_compilation_unit();
     let mut ast = parser.ast;
     // A árvore devolvida vive muito (um editor a retém por arquivo aberto) e

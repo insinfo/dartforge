@@ -76,7 +76,7 @@ impl<'a> ConstantEvaluator<'a> {
             }
             ast::ExprKind::Double(span) => {
                 let text = &self.program.unit(unit_id).source[span.start as usize..span.end as usize];
-                text.trim().replace('_', "").parse::<f64>().ok().map(ConstValue::Double)
+                real_literal(text).map(ConstValue::Double)
             }
             ast::ExprKind::Bool(b) => Some(ConstValue::Bool(*b)),
             ast::ExprKind::Null => Some(ConstValue::Null),
@@ -362,9 +362,23 @@ impl<'a> ConstantEvaluator<'a> {
 /// Valor de um literal inteiro: decimal ou hexadecimal (`0x`), com
 /// separadores de dígitos (`1_000`, Dart 3.6); hexadecimal entre 2^63 e
 /// 2^64 dá a volta em complemento de dois, como na VM.
+/// O valor de um literal `double`: sem os `_`; um expoente sem dígito
+/// (`1e`, `1e+`) vale como o token sintético do scanner, com `0` no fim.
+pub fn real_literal(texto: &str) -> Option<f64> {
+    let mut t = texto.trim().replace('_', "");
+    if t.ends_with(['e', 'E', '+', '-']) {
+        t.push('0');
+    }
+    t.parse::<f64>().ok()
+}
+
 pub fn inteiro_literal(texto: &str) -> Option<i64> {
     let t: String = texto.trim().chars().filter(|c| *c != '_').collect();
     if let Some(h) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
+        // `0x` sem dígito: o token sintético do scanner vale 0.
+        if h.is_empty() {
+            return Some(0);
+        }
         return u64::from_str_radix(h, 16).ok().map(|v| v as i64);
     }
     t.parse::<i64>().ok()

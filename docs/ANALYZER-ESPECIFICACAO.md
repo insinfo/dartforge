@@ -15564,6 +15564,13 @@ ver E.1.13). O lexer não tem pilha de grupos nem tokens sintéticos.
   `operator`.
 - **Exemplos:** a09, a48, b20.
 
+**Estado em 2026-10-05 (escrito, não compilado).** `unsupported_operator`, `missing_digit` e
+`missing_hex_digit`: o lexer lê `===`/`!==` como `==`/`!=` de três caracteres, todo `0x` como
+hexadecimal e o expoente sem dígito como parte do `double`; os diagnósticos saem dos lexemas em
+`parser::erros_recuperaveis_do_scanner` (comprimento 1, no começo do operador e no último caractere
+do número), sem interromper a análise; `operator ===` tem o nome `===`; o valor do `0x` é 0 e o do
+`1e` é `1e0` (`constant::real_literal`).
+
 ##### `missing_digit` (perda 2: FN 2)
 - **Emissão:** scanner — `tokenizeFractionPart` (:1427-1433): `UnterminatedToken(messageMissingExponent,
   tokenStart, stringOffset)`; `translateErrorToken` (`fe:scanner/errors.dart:46-50`).

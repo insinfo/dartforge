@@ -1945,8 +1945,11 @@ impl<'s, 'i> Parser<'s, 'i> {
                 | Op::Amp
                 | Op::EqEq),
             ) => {
+                // `operator ===`: o nome é o lexema (o scanner já relatou o
+                // operador).
+                let texto = if op == Op::EqEq && self.span().end - self.span().start == 3 { "===" } else { op.text() };
                 self.advance();
-                op.text()
+                texto
             }
             _ => return Err(self.erro_identificador()),
         };

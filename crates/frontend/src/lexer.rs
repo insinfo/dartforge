@@ -248,7 +248,10 @@ impl<'s> Lexer<'s> {
     /// `3`, `.` e o identificador `_14`, como lá.
     fn number(&mut self, start: usize) {
         let digito = |b: u8| b.is_ascii_digit();
-        if self.at(0) == b'0' && matches!(self.at(1), b'x' | b'X') && (self.at(2).is_ascii_hexdigit() || self.at(2) == b'_') {
+        // `tokenizeHex`: `0x`/`0X` sempre abre o hexadecimal; sem dígito, o
+        // token sintético vale 0 e o `MISSING_HEX_DIGIT` sai no último
+        // caractere (`parser::erros_recuperaveis_do_scanner`).
+        if self.at(0) == b'0' && matches!(self.at(1), b'x' | b'X') {
             self.pos += 2;
             while self.at(0).is_ascii_hexdigit() || self.at(0) == b'_' {
                 self.pos += 1;
@@ -266,12 +269,11 @@ impl<'s> Lexer<'s> {
             self.pos += 1;
         }
         if matches!(self.at(0), b'e' | b'E') {
-            // `tokenizeFractionPart` a partir do `e` (o scanner só volta
-            // atrás se o expoente não tiver dígitos).
-            if self.expoente_valido() {
-                self.fracao(start);
-                return;
-            }
+            // `tokenizeFractionPart` a partir do `e`: sem dígito no expoente,
+            // o token `double` vai até o `e` (ou o sinal) e o
+            // `MISSING_DIGIT` sai no último caractere dele.
+            self.fracao(start);
+            return;
         } else if self.at(0) == b'.' && digito(self.at(1)) {
             self.pos += 1;
             self.fracao(start);
@@ -280,28 +282,13 @@ impl<'s> Lexer<'s> {
         self.push(Kind::Int, start);
     }
 
-    /// O `e` corrente abre um expoente com dígitos (`e5`, `e+5`, `e_5`).
-    fn expoente_valido(&self) -> bool {
-        let mut i = 1;
-        while self.at(i) == b'_' {
-            i += 1;
-        }
-        if matches!(self.at(i), b'+' | b'-') {
-            i += 1;
-        }
-        while self.at(i) == b'_' {
-            i += 1;
-        }
-        self.at(i).is_ascii_digit()
-    }
-
     /// `tokenizeFractionPart`: dígitos e `_`, expoente opcional; o token é
     /// sempre `double`.
     fn fracao(&mut self, start: usize) {
         while self.at(0).is_ascii_digit() || self.at(0) == b'_' {
             self.pos += 1;
         }
-        if matches!(self.at(0), b'e' | b'E') && self.expoente_valido() {
+        if matches!(self.at(0), b'e' | b'E') {
             self.pos += 1;
             while self.at(0) == b'_' {
                 self.pos += 1;
@@ -466,6 +453,11 @@ impl<'s> Lexer<'s> {
             ("<<=", Op::LtLtAssign),
             ("??=", Op::QuestionQuestionAssign),
             ("...", Op::Ellipsis),
+            // `tokenizeEquals`/`tokenizeExclamation`: `===` e `!==` são
+            // operadores com a precedência da igualdade e o erro
+            // `UNSUPPORTED_OPERATOR` (`parser::erros_recuperaveis_do_scanner`).
+            ("===", Op::EqEq),
+            ("!==", Op::BangEq),
             ("?..", Op::QuestionDotDot),
             ("==", Op::EqEq),
             ("!=", Op::BangEq),
