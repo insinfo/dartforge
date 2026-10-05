@@ -20,6 +20,7 @@ mod assinatura;
 mod assistencias;
 mod assistencias2;
 mod assistencias3;
+mod casador;
 mod chamadas;
 mod dicas;
 mod escrever_tipo;
@@ -43,6 +44,7 @@ mod destaques;
 mod descricao;
 mod indice;
 mod inserir;
+mod item_completar;
 mod navegacao;
 mod projeto;
 mod realce;
@@ -368,6 +370,10 @@ pub trait Analisador {
     fn completar(&mut self, _documentos: &DocumentStore, _uri: &str, _offset: usize) -> Option<Completar> {
         None
     }
+
+    /// O `maxCompletionItems` da configuração do cliente (o `maxSuggestions`
+    /// do coletor e do truncamento).
+    fn definir_maximo_de_completar(&mut self, _maximo: usize) {}
 
     /// `prepareRename`: intervalo (bytes) e texto do nome renomeável sob o
     /// cursor; `Ok(None)` quando não há nome ali.

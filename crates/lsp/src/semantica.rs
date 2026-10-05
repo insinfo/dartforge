@@ -27,6 +27,8 @@ pub struct AnalisadorSemantico {
     /// Os resumos das bibliotecas conhecidas (namespace de exportação) do
     /// `ImportLibrary`.
     conhecidas: crate::conhecidas::IndiceDeBibliotecas,
+    /// O `maxCompletionItems` vigente.
+    maximo_de_completar: usize,
 }
 
 impl AnalisadorSemantico {
@@ -37,7 +39,7 @@ impl AnalisadorSemantico {
     /// assert_eq!(a.estatisticas_da_sessao().carregadas, 0);
     /// ```
     pub fn novo(sdk: Option<SdkLayout>) -> Self {
-        Self { sintatico: AnalisadorSintatico::new(), sdk, indice_sdk: None, indice_projeto: crate::indice::IndiceProjeto::default(), sessao: crate::sessao::Sessao::nova(), conhecidas: Default::default() }
+        Self { sintatico: AnalisadorSintatico::new(), sdk, indice_sdk: None, indice_projeto: crate::indice::IndiceProjeto::default(), sessao: crate::sessao::Sessao::nova(), conhecidas: Default::default(), maximo_de_completar: crate::completar::MAXIMO_PADRAO }
     }
 
     /// Troca o orçamento da sessão semântica (MiB de fonte retida; `0`
@@ -486,15 +488,20 @@ impl Analisador for AnalisadorSemantico {
         }
     }
 
+    fn definir_maximo_de_completar(&mut self, maximo: usize) {
+        self.maximo_de_completar = maximo;
+    }
+
     fn completar(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<crate::Completar> {
         let texto = documentos.get(uri)?;
         let features = self.sintatico.features(uri, texto);
         self.sdk.as_ref()?;
         self.indice_sdk();
+        let self_maximo = self.maximo_de_completar;
         let AnalisadorSemantico { sdk: Some(sdk), indice_sdk: Some(indice), indice_projeto, .. } = self else {
             return None;
         };
         let indices = crate::completar::Indices { sdk: indice, projeto: indice_projeto };
-        crate::completar::completar(sdk, indices, documentos, uri, texto, offset, features)
+        crate::completar::completar(sdk, indices, documentos, uri, texto, offset, features, self_maximo)
     }
 }

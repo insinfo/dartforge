@@ -14947,6 +14947,19 @@ A fonte é `ISP` (os `visit*` de `in_scope_completion_pass.dart`).
 
 Estado medido: o de 14.5 (alvo 98%, top-1 63%, top-5 52%, mediana 69,5 ms contra 5,0 ms).
 
+**Estado em 2026-10-05 (escrito, não compilado).** `casador.rs` porta o `FuzzyMatcher` (os três
+estilos, com os exemplos de 14.7.2 como teste); `completar.rs` passa os candidatos pelo coletor de
+14.7.3 (`matcherScore`, inserção estável, poda acima de `maxCompletionItems`), pelo mapa de
+14.7.4 (chave com `()` no construtor e `::uri` no não importado; o último vence na posição do
+primeiro), pelo filtro `score > 0` e pelo truncamento de 14.7.5, sem ordenar por relevância;
+`sortText` = `9999 − relevância`. `item_completar.rs` monta o item por 14.8.2 (rótulo,
+`filterText`, `kind` pela preferência e o `valueSet`, `detail`/`labelDetails`, snippet de chamada
+com o `defaultArgumentList` e `buildSnippetStringWithTabStops`, `InsertReplaceEdit`,
+`itemDefaults`, documentação no item e `data {file, importUris, ref}` só nos não importados), os
+snippets de código de 14.8.9 pelo contexto do `CompletionTarget`, e o `resolve` de 14.10 (import,
+"Auto import from", documentação). Continuam como antes: a escolha dos candidatos (contexto pelo
+sentinela, não pelos `visit*` de 14.14) e a ordem de chegada aproximada pelos grupos do coletor.
+
 O que cada divergência de 14.5 pede, e onde está a regra:
 
 | divergência | regra | o que implementar em `crates/lsp` |

@@ -167,6 +167,11 @@ pub struct Servidor<A = AnalisadorSintatico> {
     completar_chamadas: bool,
     /// O cliente aceita Markdown na documentação dos itens.
     documentacao_markdown: bool,
+    /// As capacidades do completar do cliente (§14.8.2).
+    capacidades_de_completar: crate::item_completar::Capacidades,
+    /// Os itens não importados da última resposta, pela chave do `data`
+    /// (`ref`): a origem (para a documentação) e o import (o resolve).
+    nao_importados: HashMap<String, (Option<(std::path::PathBuf, usize)>, Option<crate::completar::ImportAutomatico>, Option<String>)>,
     /// Raízes do workspace anunciadas no `initialize` (`rootUri`,
     /// `workspaceFolders`), para o `workspace/symbol` varrer o disco.
     raizes: Vec<std::path::PathBuf>,
@@ -316,6 +321,8 @@ impl<A: Analisador> Servidor<A> {
             renomear_arquivos: false,
             criar_arquivos: false,
             completar_chamadas: false,
+            capacidades_de_completar: Default::default(),
+            nao_importados: HashMap::new(),
             documentacao_markdown: false,
             raizes: Vec::new(),
             tipado: None,
@@ -862,6 +869,7 @@ impl<A: Analisador> Servidor<A> {
                     .and_then(Value::as_bool)
                     .unwrap_or(false)
                     && mensagem.pointer("/params/initializationOptions/completeFunctionCalls").and_then(Value::as_bool) != Some(false);
+                self.capacidades_de_completar = crate::item_completar::Capacidades::do_initialize(mensagem.pointer("/params/capabilities").unwrap_or(&Value::Null));
                 self.documentacao_markdown = mensagem
                     .pointer("/params/capabilities/textDocument/completion/completionItem/documentationFormat")
                     .and_then(Value::as_array)
@@ -1119,73 +1127,136 @@ impl<A: Analisador> Servidor<A> {
                 resposta(&id, resultado.unwrap_or(Value::Null))
             }
             "textDocument/completion" => {
+                let maximo = self.configuracao.max_completion_items.map_or(crate::completar::MAXIMO_PADRAO, |m| m as usize);
+                self.analisador.definir_maximo_de_completar(maximo);
                 let resultado = self.posicao_da_requisicao(mensagem).and_then(|(u, offset)| {
                     let completar = self.analisador.completar(&self.documentos, &u, offset)?;
-                    let texto = self.documentos.get(&u)?;
+                    let texto = self.documentos.get(&u)?.to_string();
                     let tabela = self.documentos.linhas(&u)?;
-                    let range = intervalo_lsp(texto, tabela, completar.inicio, completar.fim);
-                    // Já há parênteses depois do nome: só o nome entra.
-                    let depois = texto[completar.fim.min(texto.len())..]
-                        .trim_start_matches(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$');
-                    let com_parenteses = depois.starts_with('(');
-                    let itens: Vec<Value> = completar
-                        .itens
-                        .iter()
-                        .enumerate()
-                        .map(|(i, item)| {
-                            let snippet = match (&item.chamada, self.completar_chamadas && !com_parenteses) {
-                                (Some(chamada), true) => Some(snippet_de_chamada(&item.inserir, chamada)),
-                                _ => None,
+                    // `computeReplacementRange`: a palavra inteira; `insert`
+                    // até o cursor.
+                    let fim_da_palavra = texto[completar.fim.min(texto.len())..]
+                        .char_indices()
+                        .find(|(_, c)| !(c.is_ascii_alphanumeric() || *c == '_' || *c == '$'))
+                        .map_or(texto.len(), |(i, _)| completar.fim + i);
+                    let substituir = intervalo_lsp(&texto, tabela, completar.inicio, fim_da_palavra);
+                    let inserir = intervalo_lsp(&texto, tabela, completar.inicio, completar.fim);
+                    let iguais = fim_da_palavra == completar.fim;
+                    let cap = &self.capacidades_de_completar;
+                    // `itemDefaults` (`HC:250-291`).
+                    let mut padroes = serde_json::Map::new();
+                    if cap.padrao_modo && cap.modos_de_insercao.contains(&1) {
+                        padroes.insert("insertTextMode".into(), json!(1));
+                    }
+                    if cap.padrao_intervalo {
+                        padroes.insert(
+                            "editRange".into(),
+                            if !cap.inserir_substituir || iguais { substituir.clone() } else { json!({"insert": inserir, "replace": substituir}) },
+                        );
+                    }
+                    // `_hasExistingArgList`: já há parênteses depois do nome.
+                    let com_parenteses = texto[fim_da_palavra..].trim_start_matches([' ', '\t']).starts_with('(');
+                    let arquivo = url::Url::parse(&u).ok().and_then(|x| x.to_file_path().ok()).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+                    let pedido = crate::item_completar::Pedido {
+                        substituir: substituir.clone(),
+                        inserir: inserir.clone(),
+                        iguais,
+                        padrao: cap.padrao_intervalo,
+                        chamadas: self.configuracao.complete_function_calls && !com_parenteses,
+                        arquivo: &arquivo,
+                        preferencia_de_doc: &self.configuracao.documentacao,
+                    };
+                    // A documentação de cada item (do arquivo da declaração).
+                    let mut textos: HashMap<std::path::PathBuf, Option<String>> = HashMap::new();
+                    self.nao_importados.clear();
+                    let mut itens: Vec<Value> = Vec::new();
+                    for item in &completar.itens {
+                        let doc = match (&item.origem, &item.importar) {
+                            (Some((caminho, inicio)), None) => {
+                                let fonte = textos.entry(caminho.clone()).or_insert_with(|| {
+                                    url::Url::from_file_path(caminho)
+                                        .ok()
+                                        .and_then(|x| self.documentos.get(x.as_str()).map(str::to_string))
+                                        .or_else(|| std::fs::read_to_string(caminho).ok())
+                                });
+                                fonte.as_deref().filter(|f| *inicio <= f.len() && f.is_char_boundary(*inicio)).and_then(|f| crate::dartdoc::documentacao(f, *inicio))
+                            }
+                            _ => None,
+                        };
+                        let v = crate::item_completar::item(cap, &pedido, item, doc);
+                        if let Some(r) = v.pointer("/data/ref").and_then(Value::as_str) {
+                            self.nao_importados.insert(r.to_string(), (item.origem.clone(), item.importar.clone(), item.detalhe.clone()));
+                        }
+                        itens.push(v);
+                    }
+                    let mut incompleta = completar.incompleta;
+                    // Os snippets (sem ranqueamento, no fim).
+                    if cap.snippet && self.configuracao.enable_snippets {
+                        let prefixo = &texto[completar.inicio..completar.fim];
+                        if let Some(contexto) = crate::item_completar::contexto_de_snippet(&texto, offset) {
+                            let recuo: String = {
+                                let ini = texto[..offset].rfind('\n').map_or(0, |i| i + 1);
+                                texto[ini..].chars().take_while(|c| *c == ' ' || *c == '\t').collect()
                             };
-                            let mut valor = json!({
-                                "label": if self.rotulo_detalhes { item.inserir.trim_end().to_string() } else { item.rotulo.clone() },
-                                "kind": item.especie,
-                                "sortText": format!("{i:05}"),
-                                "filterText": item.inserir.trim_end(),
-                                "textEdit": {"range": range, "newText": snippet.as_deref().unwrap_or(&item.inserir)},
+                            let eol = if texto.contains("\r\n") { "\r\n" } else { "\n" };
+                            let em_testes = std::path::Path::new(&arquivo).components().any(|c| c.as_os_str() == "test");
+                            let finais = std::path::Path::new(&arquivo).parent().is_some_and(|_| {
+                                let caminho = std::path::Path::new(&arquivo);
+                                let raiz = crate::projeto::raiz_do_projeto(caminho);
+                                let opcoes = dartforge_paridade::filtros::Opcoes::de_subpasta(caminho, &raiz).unwrap_or_else(|| raiz.join("analysis_options.yaml"));
+                                dartforge_paridade::filtros::Opcoes::ler_arquivo(&opcoes).regras.get("prefer_final_locals").copied().unwrap_or(false)
                             });
-                            if snippet.is_some() {
-                                valor["insertTextFormat"] = json!(2);
-                            }
-                            if let Some(detalhe) = &item.detalhe {
-                                valor["detail"] = json!(detalhe);
-                            }
-                            if self.rotulo_detalhes {
-                                let mut detalhes = serde_json::Map::new();
-                                if let Some(curta) = assinatura_curta(item.detalhe.as_deref(), item.chamada.is_some()) {
-                                    detalhes.insert("detail".into(), json!(curta));
+                            let mut casador = crate::casador::Casador::novo(prefixo, crate::casador::Estilo::Texto);
+                            for (pre, rotulo, doc, corpo) in crate::item_completar::snippets(contexto, &recuo, eol, em_testes, finais) {
+                                if casador.score(pre) <= 0.0 {
+                                    continue;
                                 }
-                                if let Some(imp) = &item.importar {
-                                    detalhes.insert("description".into(), json!(imp.uri));
+                                let v = crate::item_completar::item_de_snippet(cap, &pedido, pre, rotulo, doc, &corpo);
+                                let filtro = v.get("filterText").or_else(|| v.get("label")).and_then(Value::as_str).unwrap_or("").to_string();
+                                if casador.score(&filtro) <= 0.0 {
+                                    continue;
                                 }
-                                if !detalhes.is_empty() {
-                                    valor["labelDetails"] = Value::Object(detalhes);
-                                }
+                                itens.push(v);
                             }
-                            if let Some(imp) = &item.importar {
-                                valor["additionalTextEdits"] = json!([{
-                                    "range": intervalo_lsp(texto, tabela, imp.span.start, imp.span.end),
-                                    "newText": imp.texto,
-                                }]);
-                            }
-                            if let Some((arquivo, inicio)) = &item.origem {
-                                valor["data"] = json!({"arquivo": arquivo, "inicio": inicio});
-                            }
-                            valor
-                        })
-                        .collect();
-                    Some(json!({"isIncomplete": completar.incompleta, "items": itens}))
+                        } else {
+                            incompleta |= false;
+                        }
+                    }
+                    let mut lista = json!({"isIncomplete": incompleta, "items": itens});
+                    if !padroes.is_empty() {
+                        lista["itemDefaults"] = Value::Object(padroes);
+                    }
+                    Some(lista)
                 });
                 resposta(&id, resultado.unwrap_or(Value::Null))
             }
             "completionItem/resolve" => {
                 let mut item = mensagem.get("params").cloned().unwrap_or(Value::Null);
-                if let Some(doc) = self.documentacao_do_item(&item) {
-                    item["documentation"] = if self.documentacao_markdown {
-                        json!({"kind": "markdown", "value": doc})
-                    } else {
-                        json!(doc)
-                    };
+                // `resolveDartCompletion`: só o item com `data` (não
+                // importado): o import, a documentação e o `detail`.
+                let chave = item.pointer("/data/ref").and_then(Value::as_str).map(str::to_string);
+                if let Some(chave) = chave
+                    && let Some((origem, importar, detalhe)) = self.nao_importados.get(&chave).cloned()
+                {
+                    let arquivo = item.pointer("/data/file").and_then(Value::as_str).unwrap_or("").to_string();
+                    let uri_doc = url::Url::from_file_path(&arquivo).map(|x| x.to_string()).unwrap_or_default();
+                    if let Some(imp) = &importar
+                        && let (Some(texto), Some(tabela)) = (self.documentos.get(&uri_doc), self.documentos.linhas(&uri_doc))
+                    {
+                        item["additionalTextEdits"] = json!([{"range": intervalo_lsp(texto, tabela, imp.span.start, imp.span.end), "newText": imp.texto}]);
+                        let exibida = crate::item_completar::uri_de_exibicao(&imp.uri, &arquivo);
+                        let d = format!("Auto import from '{exibida}'\n\n{}", detalhe.unwrap_or_default());
+                        item["detail"] = json!(d.trim());
+                    }
+                    if let Some((caminho, inicio)) = origem {
+                        let fonte = url::Url::from_file_path(&caminho)
+                            .ok()
+                            .and_then(|x| self.documentos.get(x.as_str()).map(str::to_string))
+                            .or_else(|| std::fs::read_to_string(&caminho).ok());
+                        if let Some(doc) = fonte.as_deref().filter(|f| inicio <= f.len() && f.is_char_boundary(inicio)).and_then(|f| crate::dartdoc::documentacao(f, inicio)) {
+                            item["documentation"] = if self.documentacao_markdown { json!({"kind": "markdown", "value": doc}) } else { json!(doc) };
+                        }
+                    }
                 }
                 resposta(&id, item)
             }
@@ -1618,21 +1689,6 @@ impl<A: Analisador> Servidor<A> {
             "selectionRange": self.faixa(&item.uri, item.selecao)?,
             "data": {"uri": item.uri, "offset": item.selecao.start, "origem": origem},
         }))
-    }
-
-    /// A documentação da declaração que o item aponta (`data.arquivo`,
-    /// `data.inicio`), lida do texto aberto ou do disco.
-    fn documentacao_do_item(&self, item: &Value) -> Option<String> {
-        let arquivo = std::path::PathBuf::from(item.pointer("/data/arquivo")?.as_str()?);
-        let inicio = item.pointer("/data/inicio")?.as_u64()? as usize;
-        let aberto = url::Url::from_file_path(&arquivo)
-            .ok()
-            .and_then(|u| self.documentos.get(u.as_str()).map(str::to_string));
-        let texto = aberto.or_else(|| std::fs::read_to_string(&arquivo).ok())?;
-        if inicio > texto.len() || !texto.is_char_boundary(inicio) {
-            return None;
-        }
-        crate::dartdoc::documentacao(&texto, inicio)
     }
 
     /// `workspace/executeCommand` (docs/LSP-ESPECIFICACAO.md §13.12.2 a
@@ -2559,27 +2615,6 @@ impl<A: Analisador> Servidor<A> {
     }
 }
 
-/// O snippet de uma chamada: `nome(${1:a}, ${2:b})$0`, com os nomeados
-/// como `nome: ${n:nome}`; sem parâmetros, `nome()$0`; desconhecidos,
-/// `nome($0)`. `$`, `}` e `\` do texto são escapados.
-fn snippet_de_chamada(nome: &str, chamada: &crate::completar::Chamada) -> String {
-    let escapar = |t: &str| t.replace('\\', "\\\\").replace('$', "\\$").replace('}', "\\}");
-    match chamada {
-        crate::completar::Chamada::Desconhecida => format!("{}($0)", escapar(nome)),
-        crate::completar::Chamada::Parametros(ps) => {
-            let marcadores: Vec<String> = ps
-                .iter()
-                .enumerate()
-                .map(|(i, p)| match p.strip_suffix(": ") {
-                    Some(n) => format!("{}: ${{{}:{}}}", escapar(n), i + 1, escapar(n)),
-                    None => format!("${{{}:{}}}", i + 1, escapar(p)),
-                })
-                .collect();
-            format!("{}({})$0", escapar(nome), marcadores.join(", "))
-        }
-    }
-}
-
 /// Raízes do workspace no `initialize`: `workspaceFolders`, senão
 /// `rootUri`, senão `rootPath`; só diretórios existentes.
 fn raizes_do_initialize(params: Option<&Value>) -> Vec<std::path::PathBuf> {
@@ -2914,37 +2949,6 @@ pub fn metodos_suportados() -> HashMap<&'static str, &'static str> {
             "requisição: gancho de teste do cancelamento em execução",
         ),
     ])
-}
-
-/// A assinatura curta dos detalhes do rótulo (`getCompletionDetail` do
-/// Dart): `(…) → R` ou `() → R` para o que se chama, ` T` (com o espaço)
-/// para campos, getters e variáveis.
-fn assinatura_curta(detalhe: Option<&str>, chamavel: bool) -> Option<String> {
-    let detalhe = detalhe?;
-    if chamavel && detalhe.starts_with('(') {
-        let mut nivel = 0usize;
-        let mut fim = detalhe.len();
-        for (i, c) in detalhe.char_indices() {
-            match c {
-                '(' | '<' | '[' | '{' => nivel += 1,
-                ')' | '>' | ']' | '}' => {
-                    nivel = nivel.saturating_sub(1);
-                    if nivel == 0 && c == ')' {
-                        fim = i + 1;
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        let parametros = if &detalhe[..fim] == "()" { "()" } else { "(…)" };
-        let retorno = detalhe[fim..].trim_start().strip_prefix("→").map(str::trim);
-        return Some(match retorno {
-            Some(r) if !r.is_empty() => format!("{parametros} → {r}"),
-            _ => parametros.to_string(),
-        });
-    }
-    (!detalhe.is_empty()).then(|| format!(" {detalhe}"))
 }
 
 /// Troca, na árvore de símbolos, as espécies que o cliente não anunciou

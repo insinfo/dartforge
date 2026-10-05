@@ -41,7 +41,7 @@ use dartforge_frontend::LibraryFeatures;
 use dartforge_frontend::ast::{self, ExprId, ExprKind, StmtKind};
 use dartforge_intern::{Interner, SymbolId};
 use dartforge_types::{MemberRef, Resolved, Type, TypeId};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 /// Identificador que ocupa o lugar do nome sob o cursor na análise.
@@ -88,7 +88,7 @@ pub struct ImportAutomatico {
 }
 
 /// Um item oferecido ao editor.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ItemCompletar {
     /// O que a lista mostra (`met(…)`, `nome: `).
     pub rotulo: String,
@@ -115,10 +115,15 @@ pub struct ItemCompletar {
     classe: Option<ClassId>,
     /// A relevância calculada (`0..1000`).
     relevancia: i32,
+    /// `sortText` = `9999 − relevância` (`MAP:59`, `:735-736`).
+    pub sort_text: String,
+    /// O score do `FuzzyMatcher` do handler (`fuzzy.suggestionScore`), para
+    /// o truncamento.
+    pub score: f64,
 }
 
 /// Resultado do completar: o intervalo do prefixo (bytes) e os itens em ordem.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Completar {
     pub inicio: usize,
     pub fim: usize,
@@ -215,6 +220,54 @@ fn eh_ident(b: u8) -> bool {
 /// `None` quando o arquivo não pode ser carregado (URI que não é de
 /// arquivo). Dentro de comentário, de texto de string ou de número, a lista
 /// é vazia.
+/// O `maxSuggestions` (`dart.maxCompletionItems`, padrão
+/// `defaultMaxCompletions = 2000`).
+pub(crate) const MAXIMO_PADRAO: usize = 2000;
+
+/// A ordem em que o `InScopeCompletionPass` cria os candidatos de cada
+/// grupo (a ordem de chegada ao coletor): argumentos nomeados, palavras de
+/// expressão, escopo léxico de dentro para fora, membros, topo da
+/// biblioteca, prefixos, importados, palavras de comando, não importados.
+fn ordem_de_visita(i: &ItemCompletar) -> u8 {
+    match i.grupo {
+        grupo::NOMEADO => 0,
+        grupo::PALAVRA if !PALAVRAS_DE_COMANDO.contains(&i.inserir.as_str()) || PALAVRAS_DE_EXPRESSAO.contains(&i.inserir.as_str()) => 1,
+        grupo::LOCAL => 2,
+        grupo::MEMBRO => 3,
+        grupo::MEMBRO_DE_OBJECT => 4,
+        grupo::BIBLIOTECA => 5,
+        grupo::PREFIXO => 6,
+        grupo::IMPORTADO => 7,
+        grupo::PALAVRA => 8,
+        _ => 9,
+    }
+}
+
+/// `SuggestionCollector.addSuggestion` (`SC:45-81`): inserção estável por
+/// `matcherScore` decrescente e a poda acima de `maximo`.
+fn coletar(lista: &mut Vec<(f64, ItemCompletar)>, score: f64, item: ItemCompletar, maximo: usize) {
+    let mut posicao = 0;
+    for k in (0..lista.len()).rev() {
+        if lista[k].0 >= score {
+            posicao = k + 1;
+            break;
+        }
+    }
+    lista.insert(posicao, (score, item));
+    if lista.len() > maximo {
+        let minimo = lista[maximo].0;
+        while lista.len() > maximo && lista.last().is_some_and(|(s, _)| *s < minimo) {
+            lista.pop();
+        }
+    }
+}
+
+/// O texto pontuado (`displayName`): o rótulo de inserção sem o `: ` de um
+/// argumento nomeado.
+fn texto_pontuado(i: &ItemCompletar) -> &str {
+    i.inserir.trim_end_matches([':', ' '])
+}
+
 pub(crate) fn completar(
     sdk: &SdkLayout,
     indices: Indices<'_>,
@@ -223,6 +276,7 @@ pub(crate) fn completar(
     texto: &str,
     offset: usize,
     features: LibraryFeatures,
+    maximo: usize,
 ) -> Option<Completar> {
     let bytes = texto.as_bytes();
     let offset = offset.min(texto.len());
@@ -388,13 +442,8 @@ pub(crate) fn completar(
         {
             return false;
         }
-        match crate::aproximado::pontuar(digitado, i.inserir.trim_end_matches([':', ' '])) {
-            Some(q) => {
-                i.qualidade = u8::from(q > 1);
-                true
-            }
-            None => false,
-        }
+        i.qualidade = 0;
+        true
     });
     // Relevância como a do servidor do Dart (`crate::relevancia`): o local
     // do completar e o tipo que ele espera.
@@ -445,31 +494,74 @@ pub(crate) fn completar(
             i.relevancia = crate::relevancia::relevancia(&i.rel, local.as_deref(), contexto);
         }
     }
-    itens.sort_by(|a, b| {
-        (
-            a.qualidade,
-            std::cmp::Reverse(a.relevancia),
-            a.grupo,
-            a.inserir.to_ascii_lowercase(),
-            &a.inserir,
-        )
-            .cmp(&(
-                b.qualidade,
-                std::cmp::Reverse(b.relevancia),
-                b.grupo,
-                b.inserir.to_ascii_lowercase(),
-                &b.inserir,
-            ))
-    });
-    // Um nome aparece uma vez; o não importado de bibliotecas diferentes,
-    // uma vez por biblioteca.
-    let mut vistos = HashSet::new();
-    itens.retain(|i| {
-        vistos.insert((
-            i.inserir.clone(),
-            i.importar.as_ref().map(|x| x.uri.clone()),
-        ))
-    });
+    // A ordem de chegada (a visita do passe); dentro de um grupo, a ordem
+    // em que o coletor local os criou.
+    itens.sort_by_key(ordem_de_visita);
+    for i in &mut itens {
+        i.sort_text = (9999 - i.relevancia).to_string();
+    }
+    // O coletor: `matcherScore` (prefixo vazio → 0; −1 não entra).
+    let mut casador = (!digitado.is_empty()).then(|| crate::casador::Casador::novo(digitado, crate::casador::Estilo::Texto));
+    let mut lista: Vec<(f64, ItemCompletar)> = Vec::new();
+    for i in itens {
+        let s = match casador.as_mut() {
+            Some(c) => c.score(texto_pontuado(&i)),
+            None => 0.0,
+        };
+        if s == -1.0 {
+            continue;
+        }
+        coletar(&mut lista, s, i, maximo);
+    }
+    // O `_suggestionMap` (`SB:989-1026`): a chave é o texto (o construtor
+    // com `()`, o não importado com `::uri`); o último vence, na posição do
+    // primeiro.
+    let mut ordem: Vec<ItemCompletar> = Vec::new();
+    let mut indice: HashMap<String, usize> = HashMap::new();
+    for (_, i) in lista {
+        let mut chave = i.inserir.clone();
+        if i.especie == especie::CONSTRUTOR {
+            chave.push_str("()");
+        }
+        if let Some(imp) = &i.importar {
+            chave.push_str("::");
+            chave.push_str(&imp.uri);
+        }
+        match indice.get(&chave) {
+            Some(&k) => ordem[k] = i,
+            None => {
+                indice.insert(chave, ordem.len());
+                ordem.push(i);
+            }
+        }
+    }
+    // O handler: `fuzzy.suggestionScore(item) > 0` (prefixo vazio → 1.0).
+    let mut fuzzy = crate::casador::Casador::novo(digitado, crate::casador::Estilo::Texto);
+    for i in &mut ordem {
+        i.score = fuzzy.score(texto_pontuado(i));
+    }
+    ordem.retain(|i| i.score > 0.0);
+    // `_truncateResults` acima do máximo.
+    if ordem.len() > maximo {
+        let prefixo = digitado.to_lowercase();
+        ordem.sort_by(|a, b| {
+            if a.score != b.score {
+                return b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal);
+            }
+            if a.sort_text == b.sort_text {
+                return a.rotulo.len().cmp(&b.rotulo.len());
+            }
+            a.sort_text.cmp(&b.sort_text)
+        });
+        let mut k = 0usize;
+        ordem.retain(|i| {
+            let manter = k < maximo || (!prefixo.is_empty() && texto_pontuado(i).to_lowercase() == prefixo);
+            k += 1;
+            manter
+        });
+        incompleta = true;
+    }
+    let itens = ordem;
     Some(Completar {
         inicio,
         fim: offset,
@@ -728,6 +820,8 @@ impl Coletor {
             rel: crate::relevancia::Rel::default(),
             classe: None,
             relevancia: 0,
+            sort_text: String::new(),
+            score: 0.0,
         });
         self.itens.last_mut().expect("item recém-empurrado")
     }
