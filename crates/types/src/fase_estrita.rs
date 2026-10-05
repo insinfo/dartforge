@@ -48,7 +48,7 @@ use dartforge_diagnostics::codigos::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{ClassId, Program, UnitId};
 use dartforge_frontend::ast::{self, DeclKind, ExprId, ExprKind, FunctionBody, Initializer, MemberKind, Parameter, TypeKind, TypedefKind};
-use dartforge_frontend::fonte::pular_brancos;
+use dartforge_frontend::fonte::fim_do_parametro_funcao;
 use dartforge_intern::{Interner, SymbolId};
 
 fn dentro(a: Span, b: Span) -> bool {
@@ -77,47 +77,6 @@ fn regioes_de(a: &ast::Ast, corpo: &FunctionBody, inicializadores: Option<&[Init
         v.push(sp);
     }
     Some(v)
-}
-
-/// O fim do nó `FunctionTypedFormalParameter` (sem o valor padrão do
-/// `DefaultFormalParameter` que o envolve): o `)` que fecha a lista que
-/// começa depois do nome (e dos parâmetros de tipo), e o `?` que o siga.
-fn fim_do_parametro_funcao(fonte: &str, depois_do_nome: usize) -> usize {
-    let b = fonte.as_bytes();
-    let mut i = depois_do_nome;
-    let mut nivel = 0usize;
-    while i < b.len() {
-        let j = pular_brancos(b, i);
-        if j != i {
-            i = j;
-            continue;
-        }
-        match b[i] {
-            b'(' | b'[' | b'{' | b'<' => nivel += 1,
-            b')' | b']' | b'}' | b'>' => {
-                nivel = nivel.saturating_sub(1);
-                if nivel == 0 && b[i] == b')' {
-                    let k = pular_brancos(b, i + 1);
-                    return if b.get(k) == Some(&b'?') { k + 1 } else { i + 1 };
-                }
-            }
-            b'\'' | b'"' => {
-                // Um literal dentro da lista (argumento de anotação): até a
-                // aspa igual.
-                let q = b[i];
-                i += 1;
-                while i < b.len() && b[i] != q {
-                    if b[i] == b'\\' {
-                        i += 1;
-                    }
-                    i += 1;
-                }
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    b.len()
 }
 
 /// Os relatos da unidade `u` (sem olhar a opção).

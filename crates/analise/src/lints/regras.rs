@@ -61,6 +61,114 @@ impl RelatoDeLint {
     }
 }
 
+/// Os nomes dos `DeclaredVariablePattern` da unidade que um visitante de
+/// `visitDeclaredVariablePattern` com a guarda `isFieldNameShortcut` olha:
+/// as variáveis de padrão fora de padrão de atribuição (onde são
+/// `AssignedVariablePattern`), salvo a que é direto o padrão de um campo
+/// `:nome`. Num padrão refutável (`case`, `if-case`), o nome solto (sem
+/// `var`, `final` nem tipo) é um padrão constante, não variável.
+pub fn variaveis_declaradas_em_padroes(a: &ast::Ast) -> Vec<ast::Name> {
+    let mut de_atribuicao: HashSet<ast::PatternId> = HashSet::new();
+    let mut pilha: Vec<ast::PatternId> = a
+        .exprs
+        .iter()
+        .filter_map(|e| match &e.kind {
+            ast::ExprKind::PatternAssign { pattern, .. } => Some(*pattern),
+            _ => None,
+        })
+        .collect();
+    while let Some(p) = pilha.pop() {
+        if !de_atribuicao.insert(p) {
+            continue;
+        }
+        match &a.pattern(p).kind {
+            PatternKind::Or(l, r) | PatternKind::And(l, r) => pilha.extend([*l, *r]),
+            PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) | PatternKind::Cast { pattern: x, .. } => pilha.push(*x),
+            PatternKind::List { elements, .. } => pilha.extend(elements.iter().filter_map(|e| match e {
+                ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) => Some(*x),
+                ast::ListPatternElement::Rest(None) => None,
+            })),
+            PatternKind::Map { entries, .. } => pilha.extend(entries.iter().map(|e| e.value)),
+            PatternKind::Record { fields } | PatternKind::Object { fields, .. } => pilha.extend(fields.iter().map(|f| f.pattern)),
+            _ => {}
+        }
+    }
+    // `isFieldNameShortcut`: o padrão direto de um campo `:nome`, também
+    // atrás de um `?` e de um `!` (o `NullCheckPattern` e o
+    // `NullAssertPattern` que o envolvem).
+    let mut atalhos: HashSet<ast::PatternId> = HashSet::new();
+    for p in a.patterns.iter() {
+        if let PatternKind::Record { fields } | PatternKind::Object { fields, .. } = &p.kind {
+            for f in fields.iter() {
+                let sp = a.pattern(f.pattern).span;
+                if f.name.is_some_and(|n| n.span.start >= sp.start && n.span.end <= sp.end) {
+                    atalhos.insert(f.pattern);
+                    match &a.pattern(f.pattern).kind {
+                        PatternKind::NullAssert(x) => {
+                            atalhos.insert(*x);
+                            if let PatternKind::NullCheck(y) = &a.pattern(*x).kind {
+                                atalhos.insert(*y);
+                            }
+                        }
+                        PatternKind::NullCheck(x) => {
+                            atalhos.insert(*x);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    // Os trechos dos padrões refutáveis.
+    let mut refutaveis: Vec<Span> = Vec::new();
+    for s in a.stmts.iter() {
+        match &s.kind {
+            StmtKind::Switch { cases, .. } => refutaveis.extend(cases.iter().filter_map(|c| c.pattern).map(|p| a.pattern(p).span)),
+            StmtKind::If { case_pattern: Some(p), .. } => refutaveis.push(a.pattern(*p).span),
+            _ => {}
+        }
+    }
+    fn de_colecao(a: &ast::Ast, el: &ast::CollectionElement, saida: &mut Vec<Span>) {
+        match el {
+            ast::CollectionElement::If { case_pattern, then, else_, .. } => {
+                saida.extend(case_pattern.map(|p| a.pattern(p).span));
+                de_colecao(a, then, saida);
+                if let Some(x) = else_ {
+                    de_colecao(a, x, saida);
+                }
+            }
+            ast::CollectionElement::For { body, .. } | ast::CollectionElement::ForIn { body, .. } => de_colecao(a, body, saida),
+            _ => {}
+        }
+    }
+    for e in a.exprs.iter() {
+        match &e.kind {
+            ast::ExprKind::Switch { cases, .. } => refutaveis.extend(cases.iter().map(|c| a.pattern(c.pattern).span)),
+            ast::ExprKind::List { elements, .. } | ast::ExprKind::SetOrMap { elements, .. } => {
+                for el in elements.iter() {
+                    de_colecao(a, el, &mut refutaveis);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut v = Vec::new();
+    for (k, p) in a.patterns.iter().enumerate() {
+        let id = ast::PatternId(k as u32);
+        if let PatternKind::Variable { name, final_, var_, ty } = &p.kind
+            && !de_atribuicao.contains(&id)
+            && !atalhos.contains(&id)
+        {
+            let solto = !*final_ && !*var_ && ty.is_none();
+            if solto && refutaveis.iter().any(|r| r.start <= p.span.start && p.span.end <= r.end) {
+                continue;
+            }
+            v.push(*name);
+        }
+    }
+    v
+}
+
 /// `isCamelCase`: `^_*(?:\$+_+)*[$?A-Z][$?a-zA-Z\d]*$`.
 pub fn e_camel_case(nome: &str) -> bool {
     let mut resto = nome.trim_start_matches('_');
@@ -280,55 +388,9 @@ impl<'a> Ctx<'a> {
         for n in do_laco {
             self.identificador(n, false);
         }
-        // `visitDeclaredVariablePattern` e `visitPatternField`: as variáveis
-        // de padrão de declaração (não as do padrão de atribuição), salvo a
-        // que é direto o padrão de um campo `:nome`.
-        let mut de_atribuicao: HashSet<ast::PatternId> = HashSet::new();
-        let mut pilha: Vec<ast::PatternId> = a
-            .exprs
-            .iter()
-            .filter_map(|e| match &e.kind {
-                ast::ExprKind::PatternAssign { pattern, .. } => Some(*pattern),
-                _ => None,
-            })
-            .collect();
-        while let Some(p) = pilha.pop() {
-            if !de_atribuicao.insert(p) {
-                continue;
-            }
-            match &a.pattern(p).kind {
-                PatternKind::Or(l, r) | PatternKind::And(l, r) => pilha.extend([*l, *r]),
-                PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) | PatternKind::Cast { pattern: x, .. } => {
-                    pilha.push(*x)
-                }
-                PatternKind::List { elements, .. } => pilha.extend(elements.iter().filter_map(|e| match e {
-                    ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) => Some(*x),
-                    ast::ListPatternElement::Rest(None) => None,
-                })),
-                PatternKind::Map { entries, .. } => pilha.extend(entries.iter().map(|e| e.value)),
-                PatternKind::Record { fields } | PatternKind::Object { fields, .. } => pilha.extend(fields.iter().map(|f| f.pattern)),
-                _ => {}
-            }
-        }
-        let mut atalhos: HashSet<ast::PatternId> = HashSet::new();
-        for p in a.patterns.iter() {
-            if let PatternKind::Record { fields } | PatternKind::Object { fields, .. } = &p.kind {
-                for f in fields.iter() {
-                    let sp = a.pattern(f.pattern).span;
-                    if f.name.is_some_and(|n| n.span.start >= sp.start && n.span.end <= sp.end) {
-                        atalhos.insert(f.pattern);
-                    }
-                }
-            }
-        }
-        for (k, p) in a.patterns.iter().enumerate() {
-            let id = ast::PatternId(k as u32);
-            if let PatternKind::Variable { name, .. } = &p.kind
-                && !de_atribuicao.contains(&id)
-                && !atalhos.contains(&id)
-            {
-                self.identificador(*name, false);
-            }
+        // `visitDeclaredVariablePattern` e `visitPatternField`.
+        for n in variaveis_declaradas_em_padroes(a) {
+            self.identificador(n, false);
         }
         // `visitExtensionTypeDeclaration`: o nome do construtor da
         // representação.

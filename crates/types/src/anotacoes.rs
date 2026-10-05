@@ -212,6 +212,23 @@ pub fn anotacao_e_variavel(program: &Program, interner: &Interner, u: UnitId, m:
     }
 }
 
+/// `ElementAnnotation.isDeprecated`: a variável `deprecated` do `dart:core`
+/// (sem argumentos), ou um construtor da classe `Deprecated` do `dart:core`
+/// (`@Deprecated('…')`, com argumentos).
+pub fn e_deprecated(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> bool {
+    match elemento_da_anotacao(program, u, m) {
+        Some(Element::Variable(v)) => {
+            let x = program.variable(v);
+            m.arguments.is_none() && interner.resolve(x.name) == "deprecated" && program.library(x.library).uri == "dart:core"
+        }
+        Some(Element::Class(c)) => {
+            let x = program.class(c);
+            m.arguments.is_some() && interner.resolve(x.name) == "Deprecated" && program.library(x.library).uri == "dart:core"
+        }
+        _ => false,
+    }
+}
+
 /// `ElementAnnotation.isDeprecated` sem argumentos: a variável
 /// `deprecated` do `dart:core`.
 pub fn e_deprecated_do_core(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> bool {

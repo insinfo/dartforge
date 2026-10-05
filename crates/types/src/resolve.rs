@@ -94,6 +94,11 @@ pub struct OutlineTypes {
     /// (`var lista = [1.5];`): o tipo do campo só existe depois da inferência
     /// do inicializador, e a dos corpos completa a assinatura antes de tudo.
     pub sobrescritas_de_campo: Vec<SobrescritaDeCampo>,
+    /// O tipo de cada anotação de tipo que o outline resolveu (assinaturas,
+    /// cláusulas, limites, e as anotações dentro delas), por unidade e nó:
+    /// o `TypeAnnotation.type` do analyzer. As dos corpos ficam em
+    /// [`crate::resolved::UnitBodyTypes::tipos_de_anotacoes`].
+    pub tipos_escritos: HashMap<(UnitId, ast::TypeId), TypeId>,
 }
 
 /// Parte omitida de uma sobrescrita que herda o tipo de um campo sem tipo
@@ -278,6 +283,8 @@ pub struct OutlineResolver<'a> {
     pub typedef_targets: Vec<Option<TypeId>>,
     /// Ver [`OutlineTypes::sobrescritas_de_campo`].
     pub sobrescritas_de_campo: Vec<SobrescritaDeCampo>,
+    /// Ver [`OutlineTypes::tipos_escritos`].
+    pub tipos_escritos: HashMap<(UnitId, ast::TypeId), TypeId>,
 }
 
 impl<'a> OutlineResolver<'a> {
@@ -306,6 +313,7 @@ impl<'a> OutlineResolver<'a> {
             extension_type_params: vec![Box::new([]); num_extensions],
             typedef_targets: vec![None; num_typedefs],
             sobrescritas_de_campo: Vec::new(),
+            tipos_escritos: HashMap::new(),
         }
     }
 
@@ -369,6 +377,7 @@ impl<'a> OutlineResolver<'a> {
             typedefs: typedef_type_data,
             hierarchy,
             sobrescritas_de_campo: std::mem::take(&mut self.sobrescritas_de_campo),
+            tipos_escritos: std::mem::take(&mut self.tipos_escritos),
         };
 
         (outline, self.diagnostics, self.unidades_dos_avisos)
@@ -1398,6 +1407,19 @@ impl<'a> OutlineResolver<'a> {
     }
 
     fn resolve_annotation(
+        &mut self,
+        unit_id: UnitId,
+        ast_ty_id: ast::TypeId,
+        library: LibraryId,
+        type_param_scope: &HashMap<SymbolId, TypeParamId>,
+    ) -> TypeId {
+        let t = self.resolver_anotacao_escrita(unit_id, ast_ty_id, library, type_param_scope);
+        // `TypeAnnotation.type`, para as regras que o leem.
+        self.tipos_escritos.insert((unit_id, ast_ty_id), t);
+        t
+    }
+
+    fn resolver_anotacao_escrita(
         &mut self,
         unit_id: UnitId,
         ast_ty_id: ast::TypeId,

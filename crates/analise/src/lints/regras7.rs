@@ -10,14 +10,16 @@
 //! de string (a árvore junta as adjacentes); entram também as URIs das
 //! diretivas.
 //!
-//! Diferenças conhecidas: onde o original pergunta pelo valor da string
-//! ("contém aspa", "parece URI"), aqui a pergunta é feita ao texto como
-//! escrito, e um caractere produzido só por escape (`\x27`, `\u002f`) não é
-//! visto. Em `lines_longer_than_80_chars` só `\n` e `\r\n` terminam linha.
+//! Onde o original pergunta pelo valor da string ("contém aspa", "parece
+//! URI"), a pergunta é feita ao valor (`valor`: os trechos com os escapes
+//! decodificados, como o `SimpleStringLiteral.value` e o
+//! `InterpolationString.value`); onde pergunta pelo lexema
+//! (`unnecessary_string_escapes`, `use_raw_strings`), ao texto escrito. As
+//! linhas são as do `LineInfo` (`\n`, `\r\n` e `\r` sozinho terminam linha).
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
-use super::cordas::{comentarios, literais, Literal};
+use super::cordas::{comentarios, decodificar, literais, Literal};
 use super::regras::RelatoDeLint;
 use super::CodigoLint;
 use crate::Unidade;
@@ -28,10 +30,15 @@ use dartforge_intern::Interner;
 /// Os caracteres que podem vir depois de `\` (`allowedEscapedChars`).
 const ESCAPAVEIS: [char; 12] = ['"', '\'', '$', '\\', 'n', 'r', 'f', 'b', 't', 'v', 'x', 'u'];
 
-/// `_looksLikeUriOrPath` sobre o texto escrito: tem `/`, ou tem `\` (numa
-/// string comum, o `\\` que produz uma).
-fn parece_uri(texto: &str, crua: bool) -> bool {
-    texto.contains('/') || if crua { texto.contains('\\') } else { texto.contains("\\\\") }
+/// `_looksLikeUriOrPath`: o valor tem `/` ou `\`.
+fn parece_uri(valor: &str) -> bool {
+    valor.contains('/') || valor.contains('\\')
+}
+
+/// O valor dos trechos de texto do literal (sem as interpolações).
+fn valor(fonte: &str, l: &Literal) -> String {
+    let texto = l.texto(fonte);
+    if l.crua { texto } else { decodificar(&texto) }
 }
 
 /// `unnecessary_string_escapes` num trecho de texto (`visitLexeme`): os
@@ -159,7 +166,7 @@ pub fn executar(u: Unidade<'_>, _interner: &Interner, ligada: &dyn Fn(&str) -> b
         }
         let pedida = if simples { '\'' } else { '"' };
         for l in todos.iter() {
-            if l.aspas_simples == simples || l.texto(fonte).contains(pedida) || aninhado(l) {
+            if l.aspas_simples == simples || valor(fonte, l).contains(pedida) || aninhado(l) {
                 continue;
             }
             if l.interpolado() && contem_string(l) {
@@ -172,7 +179,7 @@ pub fn executar(u: Unidade<'_>, _interner: &Interner, ligada: &dyn Fn(&str) -> b
     // a própria aspa e não tem a outra.
     if ligada("avoid_escaping_inner_quotes") {
         for l in todos.iter().filter(|l| !l.crua && !l.multilinha) {
-            let texto = l.texto(fonte);
+            let texto = valor(fonte, l);
             let (propria, outra) = if l.aspas_simples { ("'", "\"") } else { ("\"", "'") };
             if texto.contains(propria) && !texto.contains(outra) {
                 relatar(&c::AVOID_ESCAPING_INNER_QUOTES, l.span, &[propria, outra]);
@@ -215,8 +222,15 @@ pub fn executar(u: Unidade<'_>, _interner: &Interner, ligada: &dyn Fn(&str) -> b
     // `lines_longer_than_80_chars`.
     if ligada("lines_longer_than_80_chars") {
         // Os começos de linha, para o número (a partir de 1) de um lugar.
+        // `LineInfo`: `\n`, `\r\n` e `\r` sozinho terminam linha.
+        let bs = fonte.as_bytes();
         let mut comecos: Vec<usize> = vec![0];
-        comecos.extend(fonte.bytes().enumerate().filter(|(_, b)| *b == b'\n').map(|(i, _)| i + 1));
+        comecos.extend(
+            bs.iter()
+                .enumerate()
+                .filter(|(i, b)| **b == b'\n' || (**b == b'\r' && bs.get(i + 1) != Some(&b'\n')))
+                .map(|(i, _)| i + 1),
+        );
         let linha_de = |lugar: usize| comecos.partition_point(|&x| x <= lugar);
         let mut longas: Vec<(usize, Span)> = Vec::new();
         for (i, &inicio) in comecos.iter().enumerate() {
@@ -255,7 +269,7 @@ pub fn executar(u: Unidade<'_>, _interner: &Interner, ligada: &dyn Fn(&str) -> b
             for l in todos.iter() {
                 if l.multilinha {
                     permitidas.extend(linha_de(l.span.start)..=linha_de(l.span.end));
-                } else if parece_uri(&l.texto(fonte), l.crua) {
+                } else if parece_uri(&valor(fonte, l)) {
                     permitidas.push(linha_de(l.span.start));
                 }
             }
@@ -275,7 +289,12 @@ pub fn executar(u: Unidade<'_>, _interner: &Interner, ligada: &dyn Fn(&str) -> b
                     }
                 } else if texto.len() >= 4 {
                     let miolo = &texto[2..texto.len() - 2];
-                    linhas.extend(miolo.split('\n').map(|x| x.strip_suffix('\r').unwrap_or(x)));
+                    // Partido em `\r\n`, depois em `\r`, depois em `\n`.
+                    for a in miolo.split("\r\n") {
+                        for b in a.split('\r') {
+                            linhas.extend(b.split('\n'));
+                        }
+                    }
                 }
                 for (i, valor) in linhas.iter().enumerate() {
                     if valor.contains('/') || valor.contains('\\') {

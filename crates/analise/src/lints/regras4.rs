@@ -10,13 +10,14 @@
 //! da tag em 2026-10-05). Na 3.6.2,
 //! `use_function_type_syntax_for_parameters` só olha o parâmetro comum
 //! (`FunctionTypedFormalParameter`), não o `this.f(…)` nem o `super.f(…)`.
-//! Diferenças conhecidas:
-//! `no_leading_underscores_for_local_identifiers` só relata a variante sem
-//! sombreamento; em `prefer_function_declarations_over_variables` uma
-//! variável local conta como "não alterada" quando nenhum nome igual é
-//! atribuído na unidade inteira (o original olha só o corpo que a contém);
-//! `prefer_if_null_operators` compara os textos sem os brancos, não o
-//! `toString` dos nós.
+//! `no_leading_underscores_for_local_identifiers` olha também o `for`/`for-in`
+//! de coleção, as variáveis de padrão de declaração e as listas de
+//! parâmetros dos tipos `Function(…)` e dos typedefs antigos;
+//! `prefer_function_declarations_over_variables` relata fora de corpo de
+//! função só a lista `final` (o `isFinal`, sem `const`) e, dentro, o local
+//! que nenhuma escrita na unidade muda (`isPotentiallyMutatedInScope`, pelo
+//! elemento: pede a semântica da unidade); `prefer_if_null_operators`
+//! compara o `toString` dos nós (`dartforge_frontend::fonte`).
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
@@ -25,23 +26,20 @@ use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{
-    self, BinaryOp, DeclKind, ExprId, ExprKind, ForInTarget, ForInit, MemberKind, ParameterKind, PatternKind, StmtKind, VariableList,
+    self, BinaryOp, DeclKind, ExprId, ExprKind, ForInTarget, ForInit, MemberKind, ParameterKind, StmtKind, VariableList,
 };
 use dartforge_intern::Interner;
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, _sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
     let mut out: Vec<RelatoDeLint> = Vec::new();
     let a = u.ast;
     let fonte = u.fonte;
     let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
         out.push(RelatoDeLint { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
-    // O texto de uma expressão sem os brancos.
-    let compacto = |e: ExprId| -> String {
-        let s = a.expr(e).span;
-        fonte.get(s.start..s.end).unwrap_or("").chars().filter(|x| !x.is_whitespace()).collect()
-    };
+    // O `toString` de uma expressão.
+    let fonte_de = |e: ExprId| -> String { dartforge_frontend::fonte::de_expr(a, fonte, interner, e) };
     // Todas as listas de parâmetros da unidade, com as aninhadas.
     fn listas<'x>(lista: &'x [ast::Parameter], saida: &mut Vec<&'x [ast::Parameter]>) {
         saida.push(lista);
@@ -62,6 +60,18 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             listas(&k.parameters, &mut de_parametros);
         }
     }
+    for d in a.decls.iter() {
+        if let DeclKind::Typedef(x) = &d.kind
+            && let ast::TypedefKind::Legacy { parameters, .. } = &x.kind
+        {
+            listas(parameters, &mut de_parametros);
+        }
+    }
+    for t in a.types.iter() {
+        if let ast::TypeKind::Function { parameters, .. } = &t.kind {
+            listas(parameters, &mut de_parametros);
+        }
+    }
 
     // `prefer_if_null_operators`: `a == null ? b : a` e `a != null ? a : b`.
     if ligada("prefer_if_null_operators") {
@@ -79,7 +89,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 continue;
             };
             let ramo = if *op == BinaryOp::Eq { *else_ } else { *then };
-            if compacto(ramo) == compacto(testada) {
+            if fonte_de(ramo) == fonte_de(testada) {
                 relatar(&c::PREFER_IF_NULL_OPERATORS, e.span, &[]);
             }
         }
@@ -135,12 +145,45 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 _ => {}
             }
         }
-        for p in a.patterns.iter() {
-            if let PatternKind::Variable { final_, var_, ty, name } = &p.kind
-                && (*final_ || *var_ || ty.is_some())
-            {
-                checar(*name);
+        // `visitDeclaredVariablePattern`.
+        for n in super::regras::variaveis_declaradas_em_padroes(a) {
+            checar(n);
+        }
+        // `visitForPartsWithDeclarations` e `visitDeclaredIdentifier` do
+        // `for` e do `for-in` de coleção.
+        fn de_colecao(el: &ast::CollectionElement, saida: &mut Vec<ast::Name>) {
+            match el {
+                ast::CollectionElement::For { init, body, .. } => {
+                    if let Some(ForInit::Variables(l)) = init {
+                        saida.extend(l.variables.iter().map(|v| v.name));
+                    }
+                    de_colecao(body, saida);
+                }
+                ast::CollectionElement::ForIn { target, body, .. } => {
+                    if let ForInTarget::Declared { name, .. } = target {
+                        saida.push(*name);
+                    }
+                    de_colecao(body, saida);
+                }
+                ast::CollectionElement::If { then, else_, .. } => {
+                    de_colecao(then, saida);
+                    if let Some(x) = else_ {
+                        de_colecao(x, saida);
+                    }
+                }
+                _ => {}
             }
+        }
+        let mut de_colecoes = Vec::new();
+        for e in a.exprs.iter() {
+            if let ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } = &e.kind {
+                for el in elements.iter() {
+                    de_colecao(el, &mut de_colecoes);
+                }
+            }
+        }
+        for n in de_colecoes {
+            checar(n);
         }
         // Os parâmetros não nomeados; a lista é abandonada no primeiro
         // `this.x` ou `super.x` (o `return` do original).
@@ -157,25 +200,15 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     }
     // `prefer_function_declarations_over_variables`.
     if ligada("prefer_function_declarations_over_variables") {
-        // Os nomes atribuídos em algum lugar da unidade.
-        let atribuidos: Vec<_> = a
-            .exprs
-            .iter()
-            .filter_map(|e| match &e.kind {
-                ExprKind::Assign { target, .. } => match &a.expr(*target).kind {
-                    ExprKind::Identifier(n) => Some(n.sym),
-                    _ => None,
-                },
-                _ => None,
-            })
-            .collect();
         let mut checar = |l: &VariableList, local: bool| {
             for v in l.variables.iter() {
                 let Some(inicial) = v.initializer else { continue };
                 if !matches!(a.expr(inicial).kind, ExprKind::FunctionExpression(_)) {
                     continue;
                 }
-                let relata = if local { !atribuidos.contains(&v.name.sym) } else { l.final_ || l.const_ };
+                // Dentro de corpo de função, o elemento não mudado; fora, a
+                // lista `final`.
+                let relata = if local { sem.is_some_and(|s| !super::mutado(s, a, v.name.span.start)) } else { l.final_ };
                 if relata {
                     relatar(&c::PREFER_FUNCTION_DECLARATIONS_OVER_VARIABLES, Span { start: v.name.span.start, end: a.expr(inicial).span.end }, &[]);
                 }
@@ -195,6 +228,56 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             match &s.kind {
                 StmtKind::Variables(l) | StmtKind::For { init: Some(ForInit::Variables(l)), .. } => checar(l, true),
                 _ => {}
+            }
+        }
+        // As listas do `for` de coleção (dentro de corpo de função ou de
+        // inicializador: a de inicializador de campo ou de topo fica fora
+        // de corpo).
+        let corpos: Vec<Span> = a
+            .functions
+            .iter()
+            .filter_map(|f| match &f.body {
+                ast::FunctionBody::Block(s) => Some(a.stmt(*s).span),
+                ast::FunctionBody::Expression(e) => Some(a.expr(*e).span),
+                _ => None,
+            })
+            .chain(a.members.iter().filter_map(|m| match &m.kind {
+                MemberKind::Constructor(k) => match &k.body {
+                    ast::FunctionBody::Block(s) => Some(a.stmt(*s).span),
+                    ast::FunctionBody::Expression(e) => Some(a.expr(*e).span),
+                    _ => None,
+                },
+                _ => None,
+            }))
+            .collect();
+        fn listas_de_colecao<'x>(el: &'x ast::CollectionElement, saida: &mut Vec<&'x VariableList>) {
+            match el {
+                ast::CollectionElement::For { init, body, .. } => {
+                    if let Some(ForInit::Variables(l)) = init {
+                        saida.push(l);
+                    }
+                    listas_de_colecao(body, saida);
+                }
+                ast::CollectionElement::ForIn { body, .. } => listas_de_colecao(body, saida),
+                ast::CollectionElement::If { then, else_, .. } => {
+                    listas_de_colecao(then, saida);
+                    if let Some(x) = else_ {
+                        listas_de_colecao(x, saida);
+                    }
+                }
+                _ => {}
+            }
+        }
+        for e in a.exprs.iter() {
+            if let ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } = &e.kind {
+                let mut ls = Vec::new();
+                for el in elements.iter() {
+                    listas_de_colecao(el, &mut ls);
+                }
+                let local = corpos.iter().any(|c| c.start <= e.span.start && e.span.end <= c.end);
+                for l in ls {
+                    checar(l, local);
+                }
             }
         }
     }
@@ -239,9 +322,7 @@ mod testes {
     #[test]
     fn funcoes_em_variaveis() {
         assert_eq!(achados("final f = () {};\nvar g = () {};\n"), vec![("prefer_function_declarations_over_variables", "f = () {}".to_string())]);
-        assert_eq!(
-            achados("void m() {\n  var a = () {};\n  var b = () {};\n  b = () {};\n}\n"),
-            vec![("prefer_function_declarations_over_variables", "a = () {}".to_string())]
-        );
+        // O local pede a semântica da unidade (a mutação é pelo elemento).
+        assert!(achados("void m() {\n  var a = () {};\n  var b = () {};\n  b = () {};\n}\n").is_empty());
     }
 }

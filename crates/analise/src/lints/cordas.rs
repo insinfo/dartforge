@@ -232,6 +232,78 @@ pub fn comentarios(fonte: &str) -> Vec<Span> {
     v
 }
 
+/// O valor de um trecho de string comum (os escapes do Dart decodificados:
+/// `\n`, `\r`, `\f`, `\b`, `\t`, `\v`, `\xHH`, `\uHHHH`, `\u{H…}`; qualquer
+/// outro `\c` vale `c`). Um escape de substituto sozinho não produz
+/// caractere (não é aspa nem barra).
+pub fn decodificar(texto: &str) -> String {
+    let cs: Vec<char> = texto.chars().collect();
+    let mut s = String::with_capacity(texto.len());
+    let hex = |de: usize, ate: usize| -> Option<u32> {
+        let h: String = cs.get(de..ate)?.iter().collect();
+        u32::from_str_radix(&h, 16).ok()
+    };
+    let mut i = 0;
+    while i < cs.len() {
+        let c = cs[i];
+        if c != '\\' || i + 1 >= cs.len() {
+            s.push(c);
+            i += 1;
+            continue;
+        }
+        let d = cs[i + 1];
+        i += 2;
+        match d {
+            'n' => s.push('\n'),
+            'r' => s.push('\r'),
+            'f' => s.push('\u{c}'),
+            'b' => s.push('\u{8}'),
+            't' => s.push('\t'),
+            'v' => s.push('\u{b}'),
+            'x' => {
+                if let Some(ch) = hex(i, i + 2).and_then(char::from_u32) {
+                    s.push(ch);
+                }
+                i += 2;
+            }
+            'u' => {
+                if cs.get(i) == Some(&'{') {
+                    let fecho = cs[i..].iter().position(|x| *x == '}').map(|k| i + k);
+                    if let Some(f) = fecho {
+                        if let Some(ch) = hex(i + 1, f).and_then(char::from_u32) {
+                            s.push(ch);
+                        }
+                        i = f + 1;
+                    } else {
+                        i = cs.len();
+                    }
+                } else {
+                    if let Some(ch) = hex(i, i + 4).and_then(char::from_u32) {
+                        s.push(ch);
+                    }
+                    i += 4;
+                }
+            }
+            outro => s.push(outro),
+        }
+    }
+    s
+}
+
+/// `StringLiteral.stringValue`: o valor dos literais adjacentes juntos, ou
+/// `None` se algum tem interpolação.
+pub fn valor_de_string(fonte: &str, span: Span) -> Option<String> {
+    let mut v = String::new();
+    for l in literais(fonte, span) {
+        if l.interpolado() {
+            return None;
+        }
+        let t = l.texto(fonte);
+        v.push_str(&if l.crua { t } else { decodificar(&t) });
+    }
+    Some(v)
+}
+
 #[cfg(test)]
 mod testes {
     use super::*;

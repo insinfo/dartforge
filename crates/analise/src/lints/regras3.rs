@@ -8,9 +8,15 @@
 //! contra os da 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\linter`, extraído
 //! da tag em 2026-10-05). Nenhuma das seis difere na regra.
 //! Diferenças conhecidas:
-//! `always_declare_return_types` não tem a isenção dos métodos `test_*` em
-//! pasta de teste; `slash_for_doc_comments` acha o comentário pelo texto que
-//! precede a declaração, e não olha o corpo de construtor primário.
+//! `always_declare_return_types` isenta os métodos `test_*`/`solo_test_*`
+//! quando a unidade que define a biblioteca está no `test/` do pacote (a
+//! pasta do `pubspec.yaml` mais próximo; pede a semântica da unidade);
+//! `slash_for_doc_comments` acha o comentário de documentação de cada
+//! declaração como o `_findComment` do parser (`findDartDoc` depois da
+//! metadata, e senão antes de cada anotação, da última para a primeira),
+//! com os comentários varridos da fonte (`dartforge_frontend::comentarios`),
+//! nas declarações que o original visita (não o tipo de extensão), e o
+//! primeiro comentário antes da função local.
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
@@ -32,20 +38,8 @@ pub fn e_nome_de_biblioteca(nome: &str) -> bool {
     primeira.chars().all(do_miolo) && partes.all(|p| p.chars().next().is_some_and(|x| x.is_ascii_lowercase()) && p.chars().all(do_miolo))
 }
 
-/// O comentário de bloco `/** … */` que termina logo antes de `inicio`
-/// (só brancos entre os dois).
-fn comentario_java(fonte: &str, inicio: usize) -> Option<Span> {
-    let antes = fonte.get(..inicio)?.trim_end();
-    if !antes.ends_with("*/") {
-        return None;
-    }
-    let abre = antes[..antes.len() - 2].rfind("/*")?;
-    let texto = &antes[abre..];
-    (texto.starts_with("/**") && !texto.starts_with("/**/")).then_some(Span { start: abre, end: antes.len() })
-}
-
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, _sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
     let mut out: Vec<RelatoDeLint> = Vec::new();
     let a = u.ast;
     let fonte = u.fonte;
@@ -122,7 +116,8 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             }
             let texto = interner.resolve(nome.sym);
             if de_metodo.contains(&id) {
-                if texto != "[]=" {
+                let de_teste = (texto.starts_with("test_") || texto.starts_with("solo_test_")) && sem.is_some_and(super::em_teste_do_pacote);
+                if texto != "[]=" && !de_teste {
                     relatar(&c::ALWAYS_DECLARE_RETURN_TYPES_OF_METHODS, nome.span, &[texto]);
                 }
             } else {
@@ -153,29 +148,60 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     }
     // `slash_for_doc_comments`: `/** … */` como documentação.
     if ligada("slash_for_doc_comments") {
-        let mut inicios: Vec<usize> = Vec::new();
+        let comentarios = dartforge_frontend::comentarios::Comentarios::de(fonte);
+        // `_findComment(metadata, tokenAfterMetadata)`.
+        let doc = |metadata: &[dartforge_frontend::ast::Annotation], inicio: usize| {
+            let depois = match metadata.last() {
+                Some(m) => dartforge_frontend::fonte::pular_brancos(fonte.as_bytes(), m.span.end),
+                None => inicio,
+            };
+            comentarios.dart_doc(fonte, depois).or_else(|| metadata.iter().rev().find_map(|m| comentarios.dart_doc(fonte, m.span.start)))
+        };
+        let mut docs: Vec<Span> = Vec::new();
         if let Some(primeira) = u.unit.directives.first() {
-            inicios.push(primeira.span.start);
+            docs.extend(doc(&primeira.metadata, primeira.span.start));
         }
         for d in a.decls.iter() {
-            inicios.push(d.span.start);
+            if matches!(d.kind, DeclKind::ExtensionType(_)) {
+                continue;
+            }
+            docs.extend(doc(&d.metadata, d.span.start));
             if let DeclKind::Enum(x) = &d.kind {
-                inicios.extend(x.constants.iter().map(|k| k.span.start));
+                for k in x.constants.iter() {
+                    docs.extend(doc(&k.metadata, k.span.start));
+                }
             }
         }
-        inicios.extend(a.members.iter().map(|m| m.span.start));
-        // As funções locais: o comentário antes do comando.
-        inicios.extend(a.stmts.iter().filter(|s| matches!(s.kind, StmtKind::Function(_))).map(|s| s.span.start));
-        inicios.sort_unstable();
-        inicios.dedup();
-        let mut relatados: Vec<Span> = Vec::new();
-        for inicio in inicios {
-            if let Some(span) = comentario_java(fonte, inicio)
-                && !relatados.contains(&span)
-            {
-                relatados.push(span);
-                relatar(&c::SLASH_FOR_DOC_COMMENTS, span, &[]);
+        for m in a.members.iter() {
+            docs.extend(doc(&m.metadata, m.span.start));
+        }
+        let mut locais: Vec<Span> = Vec::new();
+        for (i, s) in a.stmts.iter().enumerate() {
+            if !matches!(s.kind, StmtKind::Function(_)) {
+                continue;
             }
+            let metadata = a
+                .metadados_locais
+                .iter()
+                .find(|(x, _)| x.0 as usize == i)
+                .map(|(_, m)| &m[..])
+                .unwrap_or(&[]);
+            docs.extend(doc(metadata, s.span.start));
+            // `visitFunctionDeclarationStatement`: o primeiro comentário
+            // antes do comando.
+            if let Some(primeiro) = comentarios.antes_de(fonte, s.span.start).first()
+                && fonte[primeiro.start..primeiro.end].starts_with("/**")
+            {
+                locais.push(*primeiro);
+            }
+        }
+        // `isJavaStyle`.
+        docs.retain(|s| fonte[s.start..s.end].starts_with("/**"));
+        docs.extend(locais);
+        docs.sort_by_key(|s| (s.start, s.end));
+        docs.dedup();
+        for span in docs {
+            relatar(&c::SLASH_FOR_DOC_COMMENTS, span, &[]);
         }
     }
     // `unnecessary_brace_in_string_interps`: `${nome}` e `${this}` quando o

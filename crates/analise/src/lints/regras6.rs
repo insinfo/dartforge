@@ -10,23 +10,22 @@
 //! `prefer_null_aware_operators`, `one_member_abstracts` e
 //! `avoid_private_typedef_functions`.
 //!
-//! Diferenças conhecidas:
-//! - `avoid_returning_null_for_void` só olha funções e métodos com o tipo de
-//!   retorno escrito (e o setter sem tipo): o original usa o tipo do
-//!   elemento, que numa função literal vem da inferência e num método sem
-//!   tipo vem da sobrescrita. `Future` é reconhecido pelo nome.
-//! - `unnecessary_breaks` não confere a versão de linguagem (o original só
-//!   roda com padrões, 3.0 ou mais).
-//! - `unnecessary_constructor_name` conhece a criação sem `new`/`const`
-//!   pela forma `X.new(…)`, sem resolver `X`.
-//! - `avoid_private_typedef_functions` conta os usos só nesta unidade, e por
-//!   isso não roda em unidade com `part` ou `part of` (o original conta na
-//!   biblioteca inteira).
-//! - `avoid_annotating_with_dynamic` não tem a isenção de augmentation.
-//! - `unnecessary_library_directive` acha o comentário de documentação pelo
-//!   texto que precede a diretiva.
-//! - `prefer_null_aware_operators` compara os textos sem os brancos, não o
-//!   `toString` dos nós.
+//! Com o mesmo dado do original (as que pedem o elemento ou o tipo só
+//! relatam com a semântica da unidade):
+//! - `avoid_returning_null_for_void`: o tipo de retorno do elemento da
+//!   função mais próxima (literal, declarada ou método), inferido ou herdado
+//!   (`super::retorno_da_funcao`), `void`, ou `Future<void>` em corpo
+//!   assíncrono.
+//! - `unnecessary_breaks`: só com padrões (a biblioteca na 3.0 ou mais).
+//! - `unnecessary_constructor_name`: a criação sem `new`/`const` é a
+//!   chamada resolvida a construtor.
+//! - `avoid_private_typedef_functions`: os `NamedType` de mesmo nome em
+//!   todas as unidades da biblioteca, também os literais de tipo.
+//! - `avoid_annotating_with_dynamic`: o tipo resolvido da anotação
+//!   (`TypeAnnotation.type`, também por alias), o `this.x`/`super.x` com
+//!   lista, e a isenção de augmentation.
+//! - `unnecessary_library_directive`: a documentação pelo `findDartDoc`.
+//! - `prefer_null_aware_operators`: o `toString` dos nós.
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::andar::{andar, No};
@@ -85,27 +84,6 @@ fn foge_do_finally(a: &Ast, pilha: &[No], fluxo: &Fluxo) -> bool {
     !dentro.iter().any(e_alvo)
 }
 
-/// A função declara que não devolve valor: `void` (ou setter sem tipo) se
-/// não é `async`; `Future<void>` se é.
-fn devolve_void(a: &Ast, f: &ast::Function, interner: &Interner) -> bool {
-    let assincrona = match f.modifier {
-        AsyncModifier::None => false,
-        AsyncModifier::Async => true,
-        AsyncModifier::AsyncStar | AsyncModifier::SyncStar => return false,
-    };
-    let Some(t) = f.return_type else { return f.kind == FunctionKind::Setter && !assincrona };
-    match &a.ty(t).kind {
-        TypeKind::Void => !assincrona,
-        TypeKind::Named { name, args } => {
-            assincrona
-                && name.last().is_some_and(|n| interner.resolve(n.sym) == "Future")
-                && args.len() == 1
-                && matches!(a.ty(args[0]).kind, TypeKind::Void)
-        }
-        _ => false,
-    }
-}
-
 /// O intervalo do corpo `=> e;` (o `ExpressionFunctionBody`): do `async`,
 /// se houver, ou do `=>`, até o `;`.
 fn corpo_de_seta(a: &Ast, fonte: &str, e: ExprId) -> Span {
@@ -139,21 +117,6 @@ fn corpo_em_bloco(fonte: &str, bloco: Span, modificador: AsyncModifier) -> Span 
     if antes.ends_with(palavra) { Span { start: antes.len() - palavra.len(), end: bloco.end } } else { bloco }
 }
 
-/// Há comentário de documentação logo antes de `inicio`.
-fn documentado(fonte: &str, inicio: usize) -> bool {
-    let antes = fonte.get(..inicio).unwrap_or("").trim_end();
-    if antes.rsplit('\n').next().unwrap_or("").trim_start().starts_with("///") {
-        return true;
-    }
-    if antes.ends_with("*/")
-        && let Some(abre) = antes[..antes.len() - 2].rfind("/*")
-    {
-        let texto = &antes[abre..];
-        return texto.starts_with("/**") && !texto.starts_with("/**/");
-    }
-    false
-}
-
 /// `Identifier`: `x` ou `p.x` (o `PrefixedIdentifier`).
 fn identificador(a: &Ast, e: ExprId) -> Option<(Option<SymbolId>, SymbolId)> {
     match &a.expr(e).kind {
@@ -167,7 +130,7 @@ fn identificador(a: &Ast, e: ExprId) -> Option<(Option<SymbolId>, SymbolId)> {
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, _sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
     let mut out: Vec<RelatoDeLint> = Vec::new();
     let a = u.ast;
     let fonte = u.fonte;
@@ -183,11 +146,8 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         })
         .collect();
     let nulo = |e: ExprId| matches!(a.expr(e).kind, ExprKind::Null);
-    // O texto de uma expressão sem os brancos.
-    let compacto = |e: ExprId| -> String {
-        let s = a.expr(e).span;
-        fonte.get(s.start..s.end).unwrap_or("").chars().filter(|x| !x.is_whitespace()).collect()
-    };
+    // O `toString` de uma expressão.
+    let fonte_de = |e: ExprId| -> String { dartforge_frontend::fonte::de_expr(a, fonte, interner, e) };
 
     // `prefer_asserts_with_message`: o comando e o inicializador.
     if ligada("prefer_asserts_with_message") {
@@ -241,7 +201,13 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     if ligada("avoid_void_async") {
         for (i, f) in a.functions.iter().enumerate() {
             let Some(nome) = f.name else { continue };
-            if f.modifier != AsyncModifier::Async || !f.return_type.is_some_and(|t| matches!(a.ty(t).kind, TypeKind::Void)) {
+            // `returnType.type is VoidType`: o `void` escrito, ou um alias dele
+            // (pela semântica da unidade).
+            let vazio = |t: ast::TypeId| {
+                matches!(a.ty(t).kind, TypeKind::Void)
+                    || sem.is_some_and(|s| super::tipo_escrito(s, t).is_some_and(|x| matches!(s.table.get(x), dartforge_types::table::Type::Void)))
+            };
+            if f.modifier != AsyncModifier::Async || !f.return_type.is_some_and(vazio) {
                 continue;
             }
             if !de_metodo.contains(&FunctionId(i as u32)) && interner.resolve(nome.sym) == "main" {
@@ -284,27 +250,48 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 listas(parameters, &mut todas);
             }
         }
+        // `inAugmentation`: a declaração (função, método, construtor, campo,
+        // variável de topo, typedef) que contém a lista é `augment`.
+        let mut aumentadas: Vec<Span> = a.decls.iter().filter(|d| d.augment).map(|d| d.span).collect();
+        aumentadas.extend(a.members.iter().filter(|m| m.augment).map(|m| m.span));
+        let em_augmentation = |s: Span| aumentadas.iter().any(|x| x.start <= s.start && s.end <= x.end);
+        // O tipo escrito é um `NamedType` cujo tipo é `dynamic` (pede a
+        // semântica da unidade).
+        let dinamico = |t: ast::TypeId| {
+            matches!(a.ty(t).kind, TypeKind::Named { .. })
+                && sem.is_some_and(|s| super::tipo_escrito(s, t).is_some_and(|x| matches!(s.table.get(x), dartforge_types::table::Type::Dynamic)))
+        };
         for lista in todas {
-            for p in lista.iter().filter(|p| p.function_parameters.is_none()) {
+            // O parâmetro comum, o `this.x` e o `super.x` (também com lista):
+            // não o parâmetro-função.
+            for p in lista.iter().filter(|p| p.function_parameters.is_none() || p.this_ || p.super_) {
                 let Some(t) = p.ty else { continue };
-                let ty = a.ty(t);
-                if let TypeKind::Named { name, args } = &ty.kind
-                    && let [unico] = &name[..]
-                    && args.is_empty()
-                    && interner.resolve(unico.sym) == "dynamic"
-                {
-                    // O nó é o parâmetro sem o valor padrão.
-                    let fim = p.name.map_or(ty.span.end, |n| n.span.end).max(ty.span.end);
-                    relatar(&c::AVOID_ANNOTATING_WITH_DYNAMIC, Span { start: p.span.start, end: fim }, &[]);
+                if !dinamico(t) || em_augmentation(p.span) {
+                    continue;
                 }
+                let ty = a.ty(t);
+                // O nó é o parâmetro sem o valor padrão.
+                let fim = match (p.default_value, p.name) {
+                    (None, _) => p.span.end,
+                    (Some(_), Some(n)) if p.function_parameters.is_some() => dartforge_frontend::fonte::fim_do_parametro_funcao(fonte, n.span.end),
+                    (Some(_), Some(n)) => n.span.end.max(ty.span.end),
+                    (Some(_), None) => ty.span.end,
+                };
+                relatar(&c::AVOID_ANNOTATING_WITH_DYNAMIC, Span { start: p.span.start, end: fim }, &[]);
             }
         }
     }
     // `unnecessary_library_directive`: sem `part`, sem documentação e sem
     // anotação.
     if ligada("unnecessary_library_directive") && !u.unit.directives.iter().any(|d| matches!(d.kind, DirectiveKind::Part { .. })) {
+        // `sortedCommentAndAnnotations`: a documentação (`_findComment`) e
+        // a metadata.
+        let comentarios = dartforge_frontend::comentarios::Comentarios::de(fonte);
         for d in u.unit.directives.iter() {
-            if matches!(d.kind, DirectiveKind::Library { .. }) && d.metadata.is_empty() && !documentado(fonte, d.span.start) {
+            if !matches!(d.kind, DirectiveKind::Library { .. }) || !d.metadata.is_empty() {
+                continue;
+            }
+            if comentarios.dart_doc(fonte, d.span.start).is_none() {
                 relatar(&c::UNNECESSARY_LIBRARY_DIRECTIVE, d.span, &[]);
             }
         }
@@ -334,12 +321,16 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 relatar(&c::UNNECESSARY_CONSTRUCTOR_NAME, n.span, &[]);
             }
         }
-        for e in a.exprs.iter() {
+        for (k, e) in a.exprs.iter().enumerate() {
             match &e.kind {
                 ExprKind::InstanceCreation { constructor: Some(n), .. } if e_new(*n) => relatar(&c::UNNECESSARY_CONSTRUCTOR_NAME, n.span, &[]),
+                // A criação sem `new`/`const` (`C.new(…)`): a chamada resolvida
+                // a construtor (pede a semântica da unidade).
                 ExprKind::Call { target, .. } => {
                     if let ExprKind::Property { name, null_aware: false, .. } = &a.expr(*target).kind
                         && e_new(*name)
+                        && let Some(s) = sem
+                        && matches!(s.corpo.get_resolved(ExprId(k as u32)), Some(dartforge_types::resolved::Resolved::Constructor(_)))
                     {
                         relatar(&c::UNNECESSARY_CONSTRUCTOR_NAME, name.span, &[]);
                     }
@@ -350,7 +341,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     }
     // `unnecessary_breaks`: o `break` sem rótulo que fecha um caso de mais
     // de um comando.
-    if ligada("unnecessary_breaks") {
+    if ligada("unnecessary_breaks") && sem.is_some_and(|s| super::versao_ao_menos(s, 3, 0)) {
         for s in a.stmts.iter() {
             let StmtKind::Switch { cases, .. } = &s.kind else { continue };
             for k in cases.iter() {
@@ -426,7 +417,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 BinaryOp::NotEq if nulo(*else_) => *then,
                 _ => continue,
             };
-            let alvo = compacto(testada);
+            let alvo = fonte_de(testada);
             loop {
                 // O prefixo, o alvo da chamada de método, o operando de `!`
                 // ou o alvo do acesso.
@@ -444,7 +435,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                     _ => None,
                 };
                 let Some(p) = proximo else { break };
-                if compacto(p) == alvo {
+                if fonte_de(p) == alvo {
                     relatar(&c::PREFER_NULL_AWARE_OPERATORS, e.span, &[]);
                     break;
                 }
@@ -487,8 +478,10 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     // `avoid_private_typedef_functions`: o alias privado de tipo função
     // citado no máximo uma vez.
     if ligada("avoid_private_typedef_functions")
-        && !u.unit.directives.iter().any(|d| matches!(d.kind, DirectiveKind::Part { .. } | DirectiveKind::PartOf { .. }))
+        && let Some(s) = sem
     {
+        // As unidades da biblioteca (`context.allUnits`).
+        let unidades = &s.program.library(s.program.unit(s.unidade).library).units;
         for d in a.decls.iter() {
             let DeclKind::Typedef(x) = &d.kind else { continue };
             let elegivel = match &x.kind {
@@ -498,11 +491,28 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             if !elegivel || !interner.resolve(x.name.sym).starts_with('_') {
                 continue;
             }
-            let usos = a
-                .types
-                .iter()
-                .filter(|t| matches!(&t.kind, TypeKind::Named { name, .. } if name.last().is_some_and(|n| n.sym == x.name.sym)))
-                .count();
+            // `_CountVisitor`: os `NamedType` de mesmo nome em todas as
+            // unidades, também o literal de tipo (que a resolução torna
+            // `TypeLiteral` com um `NamedType`).
+            let mut usos = 0usize;
+            for &uu in unidades.iter() {
+                let au = &s.program.unit(uu).ast;
+                usos += au.types.iter().filter(|t| matches!(&t.kind, TypeKind::Named { name, .. } if name.last().is_some_and(|n| n.sym == x.name.sym))).count();
+                if let Some(cu) = s.corpos.units.get(uu.0 as usize) {
+                    usos += au
+                        .exprs
+                        .iter()
+                        .enumerate()
+                        .filter(|(k, ex)| {
+                            matches!(&ex.kind, ExprKind::Identifier(n) if n.sym == x.name.sym)
+                                && matches!(
+                                    cu.get_resolved(ExprId(*k as u32)),
+                                    Some(dartforge_types::resolved::Resolved::Element(dartforge_elements::model::Element::Typedef(_)))
+                                )
+                        })
+                        .count();
+                }
+            }
             if usos <= 1 {
                 relatar(&c::AVOID_PRIVATE_TYPEDEF_FUNCTIONS, x.name.span, &[]);
             }
@@ -512,9 +522,12 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     // As regras que perguntam pelos ancestrais.
     let (do_finally, do_throw, do_nulo) = (ligada("control_flow_in_finally"), ligada("throw_in_finally"), ligada("avoid_returning_null_for_void"));
     if do_finally || do_throw || do_nulo {
-        // O código do `return null`: o da função declarada mais próxima, se
-        // ela declara que não devolve valor. Função literal não entra.
+        // O código do `return null`: o da função mais próxima (literal,
+        // declarada ou método), se o tipo de retorno do elemento é `void`
+        // (ou `Future<void>` num corpo assíncrono). Pede a semântica da
+        // unidade.
         let codigo_do_nulo = |pilha: &[No], propria: Option<FunctionId>| -> Option<&'static CodigoLint> {
+            let s = sem?;
             let f = propria.or_else(|| {
                 pilha.iter().rev().find_map(|n| match n {
                     No::Funcao(f) => Some(*f),
@@ -522,7 +535,17 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 })
             })?;
             let funcao = a.function(f);
-            if funcao.name.is_none() || !devolve_void(a, funcao, interner) {
+            let retorno = super::retorno_da_funcao(s, f)?;
+            let assincrona = matches!(funcao.modifier, AsyncModifier::Async | AsyncModifier::AsyncStar);
+            let vazio = |t: dartforge_types::table::TypeId| matches!(s.table.get(t), dartforge_types::table::Type::Void);
+            let devolve = match s.table.get(retorno) {
+                dartforge_types::table::Type::Void => !assincrona,
+                dartforge_types::table::Type::Interface { class, args, .. } => {
+                    assincrona && Some(*class) == s.core.future_class && args.first().is_some_and(|x| vazio(*x))
+                }
+                _ => false,
+            };
+            if !devolve {
                 return None;
             }
             Some(if de_metodo.contains(&f) {
@@ -610,25 +633,22 @@ mod testes {
     #[test]
     fn nulo_para_void() {
         let fonte = "void f() {\n  return null;\n}\nFuture<void> g() async => null;\nclass A {\n  void m() => null;\n  set s(int v) {\n    return null;\n  }\n  int n() {\n    return null;\n  }\n}\n";
-        assert_eq!(
-            achados(fonte).into_iter().filter(|(c, _)| c.starts_with("avoid_returning_null_for_void")).collect::<Vec<_>>(),
-            vec![
-                ("avoid_returning_null_for_void_from_function", "return null;".to_string()),
-                ("avoid_returning_null_for_void_from_function", "async => null;".to_string()),
-                ("avoid_returning_null_for_void_from_method", "=> null;".to_string()),
-                ("avoid_returning_null_for_void_from_method", "return null;".to_string()),
-            ]
-        );
+        // O tipo de retorno é o do elemento: sem a semântica da unidade,
+        // nada.
+        assert!(achados(fonte).into_iter().all(|(c, _)| !c.starts_with("avoid_returning_null_for_void")));
     }
 
     #[test]
     fn declaracoes() {
         assert_eq!(so("avoid_void_async", "void main() async {}\nvoid f() async {}\nFuture<void> g() async {}\n"), vec!["f".to_string()]);
         assert_eq!(so("avoid_final_parameters", "void f(final int a, int b) {}\n"), vec!["final int a".to_string()]);
-        assert_eq!(so("avoid_annotating_with_dynamic", "void f(dynamic a, [dynamic b = 1]) {}\n"), vec!["dynamic a".to_string(), "dynamic b".to_string()]);
+        // O tipo resolvido pede a semântica da unidade.
+        assert!(so("avoid_annotating_with_dynamic", "void f(dynamic a, [dynamic b = 1]) {}\n").is_empty());
         assert_eq!(so("one_member_abstracts", "abstract class A {\n  void m();\n}\nabstract class B {\n  void m();\n  int get x;\n}\n"), vec!["A".to_string()]);
-        assert_eq!(so("avoid_private_typedef_functions", "typedef _F = void Function();\ntypedef _G = void Function();\n_G? a;\n_G? b;\n_F? c;\n"), vec!["_F".to_string()]);
-        assert_eq!(so("unnecessary_constructor_name", "class A {\n  A.new();\n}\nvar a = A.new();\nvar t = A.new;\n"), vec!["new".to_string(), "new".to_string()]);
+        // A contagem é na biblioteca inteira: pede a semântica da unidade.
+        assert!(so("avoid_private_typedef_functions", "typedef _F = void Function();\n_F? c;\n").is_empty());
+        // A criação sem `new` pede a semântica; a declaração, não.
+        assert_eq!(so("unnecessary_constructor_name", "class A {\n  A.new();\n}\nvar a = A.new();\nvar t = A.new;\n"), vec!["new".to_string()]);
         assert_eq!(so("unnecessary_library_directive", "library a;\n"), vec!["library a;".to_string()]);
         assert!(so("unnecessary_library_directive", "/// Doc.\nlibrary a;\n").is_empty());
         assert_eq!(so("combinators_ordering", "import 'dart:math' show max, min;\nimport 'dart:async' hide Timer, Future;\n"), vec!["hide Timer, Future".to_string()]);
@@ -638,10 +658,8 @@ mod testes {
     fn comandos_e_expressoes() {
         assert_eq!(so("prefer_asserts_with_message", "void f(int x) {\n  assert(x > 0);\n  assert(x > 0, 'm');\n}\n"), vec!["assert(x > 0);".to_string()]);
         assert_eq!(so("no_self_assignments", "class A {\n  int x = 0;\n  void m(int x, A o) {\n    x = x;\n    this.x = x;\n    o.x = o.x;\n  }\n}\n"), vec!["x = x".to_string(), "o.x = o.x".to_string()]);
-        assert_eq!(
-            so("unnecessary_breaks", "void f(int x) {\n  switch (x) {\n    case 1:\n      f(2);\n      break;\n    case 2:\n      break;\n  }\n}\n"),
-            vec!["break;".to_string()]
-        );
+        // A versão de linguagem pede a semântica da unidade.
+        assert!(so("unnecessary_breaks", "void f(int x) {\n  switch (x) {\n    case 1:\n      f(2);\n      break;\n    case 2:\n      break;\n  }\n}\n").is_empty());
         assert_eq!(so("prefer_expression_function_bodies", "int f() {\n  return 1;\n}\nFuture<int> g() async {\n  return 1;\n}\nvoid h() {\n  return;\n}\n"), vec![
             "{\n  return 1;\n}".to_string(),
             "async {\n  return 1;\n}".to_string()

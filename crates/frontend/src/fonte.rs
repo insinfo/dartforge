@@ -61,6 +61,46 @@ pub fn palavra_em(fonte: &str, i: usize, p: &str) -> bool {
     b.get(i..).is_some_and(|r| r.starts_with(p.as_bytes())) && !b.get(i + p.len()).is_some_and(|&c| parte_de_identificador(c))
 }
 
+/// O fim do nó `FunctionTypedFormalParameter`/`FieldFormalParameter` com
+/// lista (sem o valor padrão do `DefaultFormalParameter` que o envolve): o
+/// `)` que fecha a lista que começa depois do nome (e dos parâmetros de
+/// tipo), e o `?` que o siga.
+pub fn fim_do_parametro_funcao(fonte: &str, depois_do_nome: usize) -> usize {
+    let b = fonte.as_bytes();
+    let mut i = depois_do_nome;
+    let mut nivel = 0usize;
+    while i < b.len() {
+        let j = pular_brancos(b, i);
+        if j != i {
+            i = j;
+            continue;
+        }
+        match b[i] {
+            b'(' | b'[' | b'{' | b'<' => nivel += 1,
+            b')' | b']' | b'}' | b'>' => {
+                nivel = nivel.saturating_sub(1);
+                if nivel == 0 && b[i] == b')' {
+                    let k = pular_brancos(b, i + 1);
+                    return if b.get(k) == Some(&b'?') { k + 1 } else { i + 1 };
+                }
+            }
+            b'\'' | b'"' => {
+                let q = b[i];
+                i += 1;
+                while i < b.len() && b[i] != q {
+                    if b[i] == b'\\' {
+                        i += 1;
+                    }
+                    i += 1;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    b.len()
+}
+
 /// O texto do tipo `t`.
 pub fn de_tipo(a: &Ast, fonte: &str, interner: &Interner, t: TypeId) -> String {
     let mut f = Impressor::novo(a, fonte, interner);

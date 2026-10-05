@@ -11,11 +11,12 @@
 //! contra os da 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\linter`, extraído
 //! da tag em 2026-10-05). Na 3.6.2 o corpo vazio de um construtor
 //! `factory` também é relatado e o prefixo `_` não é isento (o curinga é da
-//! 3.7). Diferenças conhecidas:
-//! `no_leading_underscores_for_library_prefixes` só relata a variante sem
-//! sombreamento; `constant_identifier_names` não olha os padrões de
-//! variável; `use_rethrow_when_possible` reconhece a variável do `catch`
-//! pelo nome, sem conferir sombreamento por outra declaração.
+//! 3.7). `constant_identifier_names` olha também toda variável de padrão de
+//! declaração (o `visitDeclaredVariablePattern` do original não pergunta se
+//! é constante) e toda lista `const` (também a de `for`);
+//! `use_rethrow_when_possible` compara o elemento lançado com o parâmetro
+//! do `catch` mais interno que contém o `throw` (pede a semântica da
+//! unidade).
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
@@ -53,7 +54,7 @@ fn palavra_em(fonte: &str, de: usize, ate: usize, palavra: &str) -> Option<Span>
 }
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, _sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
     let mut out: Vec<RelatoDeLint> = Vec::new();
     let a = u.ast;
     let fonte = u.fonte;
@@ -125,11 +126,47 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             }
         }
         for s in a.stmts.iter() {
-            if let StmtKind::Variables(l) = &s.kind
-                && l.const_
-            {
-                l.variables.iter().for_each(|v| checar(v.name));
+            match &s.kind {
+                StmtKind::Variables(l) | StmtKind::For { init: Some(dartforge_frontend::ast::ForInit::Variables(l)), .. } if l.const_ => {
+                    l.variables.iter().for_each(|v| checar(v.name))
+                }
+                _ => {}
             }
+        }
+        // As listas do `for` de coleção.
+        fn de_colecao(el: &dartforge_frontend::ast::CollectionElement, saida: &mut Vec<dartforge_frontend::ast::Name>) {
+            use dartforge_frontend::ast::{CollectionElement, ForInit};
+            match el {
+                CollectionElement::For { init, body, .. } => {
+                    if let Some(ForInit::Variables(l)) = init
+                        && l.const_
+                    {
+                        saida.extend(l.variables.iter().map(|v| v.name));
+                    }
+                    de_colecao(body, saida);
+                }
+                CollectionElement::ForIn { body, .. } => de_colecao(body, saida),
+                CollectionElement::If { then, else_, .. } => {
+                    de_colecao(then, saida);
+                    if let Some(x) = else_ {
+                        de_colecao(x, saida);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut de_colecoes = Vec::new();
+        for e in a.exprs.iter() {
+            if let ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } = &e.kind {
+                for el in elements.iter() {
+                    de_colecao(el, &mut de_colecoes);
+                }
+            }
+        }
+        de_colecoes.into_iter().for_each(&mut checar);
+        // `visitDeclaredVariablePattern`.
+        for n in super::regras::variaveis_declaradas_em_padroes(a) {
+            checar(n);
         }
     }
     // As regras de expressão.
@@ -218,7 +255,9 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     }
     // `use_rethrow_when_possible`: o comando `throw e;` dentro do `catch`
     // que declarou `e`.
-    if ligada("use_rethrow_when_possible") {
+    if ligada("use_rethrow_when_possible")
+        && let Some(sem) = sem
+    {
         // Os `throw` que são um comando de expressão inteiro.
         let comandos: Vec<ExprId> = a
             .stmts
@@ -228,23 +267,35 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 _ => None,
             })
             .collect();
+        // As cláusulas `catch` da unidade.
+        let clausulas: Vec<&dartforge_frontend::ast::CatchClause> = a
+            .stmts
+            .iter()
+            .filter_map(|s| match &s.kind {
+                StmtKind::Try { catches, .. } => Some(catches.iter()),
+                _ => None,
+            })
+            .flatten()
+            .collect();
         let mut relatados: Vec<Span> = Vec::new();
-        for s in a.stmts.iter() {
-            let StmtKind::Try { catches, .. } = &s.kind else { continue };
-            for k in catches.iter() {
-                let Some(excecao) = k.exception else { continue };
-                let corpo = a.stmt(k.body).span;
-                for &e in &comandos {
-                    let expr = a.expr(e);
-                    if !(corpo.start <= expr.span.start && expr.span.end <= corpo.end) || relatados.contains(&expr.span) {
-                        continue;
-                    }
-                    if let ExprKind::Throw(x) = &expr.kind
-                        && matches!(&a.expr(*x).kind, ExprKind::Identifier(n) if n.sym == excecao.sym)
-                    {
-                        relatados.push(expr.span);
-                    }
-                }
+        for &e in &comandos {
+            let expr = a.expr(e);
+            let ExprKind::Throw(x) = &expr.kind else { continue };
+            // `canonicalElement` do identificador lançado.
+            if !matches!(a.expr(*x).kind, ExprKind::Identifier(_)) {
+                continue;
+            }
+            let Some(declaracao) = sem.corpo.declaracao_local(*x) else { continue };
+            // O `catch` mais interno que contém o `throw`.
+            let Some(k) = clausulas
+                .iter()
+                .filter(|k| k.span.start <= expr.span.start && expr.span.end <= k.span.end)
+                .min_by_key(|k| k.span.end - k.span.start)
+            else {
+                continue;
+            };
+            if k.exception.is_some_and(|n| n.span.start == declaracao) {
+                relatados.push(expr.span);
             }
         }
         for span in relatados {
@@ -294,9 +345,7 @@ mod testes {
         assert_eq!(achados("var s = 'a' + 'b';\n"), vec![("prefer_adjacent_string_concatenation", "+".to_string())]);
         assert_eq!(achados("var s = f() ?? null;\nint? f() => 1;\n"), vec![("unnecessary_null_in_if_null_operators", "null".to_string())]);
         assert_eq!(achados("void f() {\n  ;\n}\n"), vec![("empty_statements", ";".to_string())]);
-        assert_eq!(
-            achados("void f() {\n  try {\n    f();\n  } catch (e) {\n    throw e;\n  }\n}\n"),
-            vec![("use_rethrow_when_possible", "throw e".to_string())]
-        );
+        // Sem a semântica da unidade, o elemento lançado não é conhecido.
+        assert!(achados("void f() {\n  try {\n    f();\n  } catch (e) {\n    throw e;\n  }\n}\n").is_empty());
     }
 }

@@ -672,7 +672,7 @@ impl Motor {
                 // com a semântica do motor.
                 {
                     let un = program.unit(u);
-                    let sem = dartforge_analise::lints::Semantica { program: &program, unidade: u, corpo, table: &table, core: &core, outline: &outline };
+                    let sem = dartforge_analise::lints::Semantica { program: &program, unidade: u, corpo, corpos: todos, table: &table, core: &core, outline: &outline };
                     let arvore = dartforge_analise::Unidade { ast: &un.ast, unit: &un.unit, fonte: &un.source };
                     let relatos = dartforge_analise::lints::executar_com(arvore, &interner, &|_| true, Some(&sem));
                     if let Some(p) = &un.path

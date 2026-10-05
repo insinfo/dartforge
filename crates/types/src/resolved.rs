@@ -116,6 +116,10 @@ pub struct UnitBodyTypes {
     /// (`TypeAnnotation.type` do analyzer): `is`, `as`, `catch`, variável
     /// local, argumento de tipo.
     pub tipos_de_anotacoes: std::collections::HashMap<ast::TypeId, TypeId>,
+    /// A declaração (o deslocamento do nome) do local que cada variável de
+    /// padrão de atribuição escreve (`AssignedVariablePattern.element`), com
+    /// o registro de locais ligado.
+    pub declaracoes_de_padroes: std::collections::HashMap<ast::PatternId, usize>,
 }
 
 impl UnitBodyTypes {
@@ -128,6 +132,7 @@ impl UnitBodyTypes {
             declaracoes_de_locais: std::collections::HashMap::new(),
             com_tipo_de_funcao: std::collections::HashSet::new(),
             tipos_de_anotacoes: std::collections::HashMap::new(),
+            declaracoes_de_padroes: std::collections::HashMap::new(),
             tipos_invalidos: std::collections::HashSet::new(),
             tipos_de_execucao_de_funcoes: std::collections::HashMap::new(),
             instanciacoes: std::collections::HashMap::new(),
