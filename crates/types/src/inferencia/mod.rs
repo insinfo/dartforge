@@ -230,7 +230,7 @@ impl<'a> BodyInferrer<'a> {
             core,
             outline,
             diagnostics: Vec::new(),
-            body_types: BodyTypes { units },
+            body_types: BodyTypes { units, extensoes_usadas: std::collections::HashSet::new() },
             apenas_bibliotecas: None,
             apenas_corpos: None,
             estado_vars: vec![EstadoVar::Pendente; nvars],

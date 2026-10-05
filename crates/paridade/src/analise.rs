@@ -764,7 +764,7 @@ impl Motor {
                 .filter_map(|k| analise.arquivos.get(k))
                 .flat_map(|a| a.diags.iter().cloned())
                 .collect();
-            for (u, d) in dartforge_analise::importacoes::nao_usados(&program, *lib, &interner, &ja) {
+            for (u, d) in dartforge_analise::importacoes::nao_usados(&program, *lib, &interner, &ja, corpos.as_ref()) {
                 if let Some(p) = &program.unit(u).path {
                     if let Some(a) = analise.arquivos.get_mut(&chave(p)) {
                         a.diags.push(d);

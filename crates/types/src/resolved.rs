@@ -216,6 +216,10 @@ impl UnitBodyTypes {
 pub struct BodyTypes {
     /// Tabelas indexadas pelo índice da unidade em `Program::units`.
     pub units: Vec<UnitBodyTypes>,
+    /// As extensões escolhidas na resolução de um membro (o
+    /// `notifyExtensionUsed` do `ImportsTracking`), pela biblioteca em que a
+    /// resolução aconteceu.
+    pub extensoes_usadas: std::collections::HashSet<(dartforge_elements::model::LibraryId, dartforge_elements::model::ExtensionId)>,
 }
 
 /// Um local (variável, parâmetro ou função local) visível num ponto do corpo.

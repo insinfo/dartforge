@@ -492,6 +492,8 @@ impl<'a> BodyInferrer<'a> {
             return None;
         };
         let (e, f, args, _) = candidatos.swap_remove(melhor);
+        // `notifyExtensionUsed`: a extensão escolhida usa os imports dela.
+        self.body_types.extensoes_usadas.insert((lib, e));
         let (t, metodo) = self.tipo_do_membro_declarado(f, setter);
         let dados = self.outline.extensions[e.0 as usize].clone();
         let mapa = self.mapa(&dados.type_params, &args);
