@@ -3140,6 +3140,25 @@ Só a constante de combinador pertence a este lote (o `dead_code` de fluxo é do
 
 Coleta de uso por `GatherUsedLocalElementsVisitor` de todos os arquivos da biblioteca (`library_analyzer.dart:316-324`), verificação por arquivo (`:513-520`). O resto do verificador (`unused_local_variable`, `unused_element`, `unused_field`) está em `docs/ANALYZER-ESPECIFICACAO.md` §F.
 
+**Estado em 2026-10-05 (escrito, não compilado).** A parte de biblioteca
+(`unused_element` e `unused_field` de classes, mixins, enums, tipos de
+extensão, typedefs, funções, variáveis de topo, métodos, acessores,
+construtores nomeados, campos e constantes de enum) saiu do relato pelo nome
+de `crates/analise/src/privados.rs` para `crates/types/src/fase_nao_usados.rs`,
+pelo elemento resolvido de cada referência depois da inferência:
+`_isReadIdentifier` (o operando de prefixo/pós-fixo e o alvo de atribuição
+composta no comando de expressão não leem; `??=` lê), `_useIdentifierElement`
+(sem a classe e o executável envolventes), o `NamedType` sem a interface no
+tipo direto de lista de variáveis que não é de campo e de `is`, os
+construtores de criação, de redirecionamento, de `super.n(…)` e das constantes
+de enum, os construtores públicos do tipo que um `typedef` público nomeia, o
+`values` que lê todas as constantes, os nomes não resolvidos lidos,
+`_isPubliclyAccessible`, `_overridesUsedElement` pela hierarquia, o
+`@pragma('vm:entry-point')` (classe `pragma` do `dart.core`, campo `name`
+constante) e o `@JS` (`_js_annotations`). `privados.rs` fica para as
+bibliotecas com erro de sintaxe, para o modo `pulados` e para quando não há
+corpos.
+
 | código | constante | emissor (arquivo:linha, método) | condição | posição | DartForge |
 |---|---|---|---|---|---|
 | `unused_catch_clause` | `WarningCode.UNUSED_CATCH_CLAUSE` | `analyzer/lib/src/error/unused_local_elements_verifier.dart:1049` (relato em `:1055`) `UnusedLocalElementsVerifier._visitLocalVariableElement` | variável de exceção de `on T catch (e)` sem pilha, nunca lida e que não é só `_`; com pilha ou sem `on` a exceção é marcada usada na coleta (`:57-66`) | `_reportErrorForElement` (`:993-1004`): `element.nameOffset`, `element.nameLength`; argumento `element.displayName` | **publicado** — `crates/analise/src/locais.rs:876` (declaração em `:671`) |

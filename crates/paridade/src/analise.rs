@@ -313,6 +313,11 @@ impl Motor {
         // Bibliotecas com erro de sintaxe: o verificador de elementos não
         // usados não roda nelas.
         let mut libs_com_erro_de_sintaxe: BTreeSet<LibraryId> = BTreeSet::new();
+        // Bibliotecas sem erro de sintaxe: o `UnusedLocalElementsVerifier`
+        // roda pelo elemento depois da inferência
+        // (`dartforge_types::fase_nao_usados`); o relato pelo nome fica
+        // guardado para quando não houver corpos.
+        let mut privados_adiados: HashMap<LibraryId, Vec<(UnitId, dartforge_diagnostics::Diagnostic)>> = HashMap::new();
         // T5 (docs/ANALYZER-ESPECIFICACAO.md §G): com
         // `DARTFORGE_PORTAS_DE_SINTAXE=pulados`, as portas por erro de
         // sintaxe (biblioteca inteira, declaração executável, arquivo) dão
@@ -388,8 +393,11 @@ impl Motor {
             } else {
                 if com_erro {
                     libs_com_erro_de_sintaxe.insert(*lib);
+                    achados.extend(dartforge_analise::privados::nao_usados(&unidades, &interner, com_erro));
+                } else {
+                    let adiados = dartforge_analise::privados::nao_usados(&unidades, &interner, com_erro);
+                    privados_adiados.insert(*lib, adiados.into_iter().map(|(i, d)| (ids[i], d)).collect());
                 }
-                achados.extend(dartforge_analise::privados::nao_usados(&unidades, &interner, com_erro));
             }
             for (i, d) in achados {
                 if let Some(p) = &program.unit(ids[i]).path {
@@ -620,6 +628,18 @@ impl Motor {
                 // código sai como `unused_element_parameter`, pela variante
                 // (`Diagnostic::na_referencia`, no laço final).
                 atribuidos.extend(dartforge_types::parametros::parametros_nao_usados(&program, &interner, &outline, corpos, *lib));
+            }
+            // `UnusedLocalElementsVerifier` (declarações de biblioteca).
+            if let Some(adiados) = privados_adiados.remove(lib) {
+                match &corpos {
+                    Some(corpos) => {
+                        let inferidas: HashSet<LibraryId> = libs_proprias.iter().copied().collect();
+                        atribuidos.extend(dartforge_types::fase_nao_usados::elementos_nao_usados(
+                            &program, &interner, &mut table, &core, &outline, corpos, &inferidas, *lib,
+                        ));
+                    }
+                    None => atribuidos.extend(adiados),
+                }
             }
         }
         // `SdkConstraintVerifier`: só com `environment: sdk:` legível no

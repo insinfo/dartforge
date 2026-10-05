@@ -40,6 +40,7 @@ pub mod lints_tipados2;
 pub mod lints_tipados3;
 pub mod fase_catch_error;
 pub mod fase_nao_guardar;
+pub mod fase_nao_usados;
 pub mod fase_literal;
 pub mod fase_estrita;
 pub mod ops;
