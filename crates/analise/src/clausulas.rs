@@ -81,6 +81,9 @@ enum Resolvido {
     NaoClasse,
     /// Já relatado pela resolução do nome, ou não decidido aqui.
     Ignorar,
+    /// Alias que se expande num parâmetro de tipo dele
+    /// (`_verifyTypeAliasForContext`): `*_type_alias_expands_to_type_parameter`.
+    AliasDeParametro,
 }
 
 /// Leitor das cláusulas no escopo de uma biblioteca.
@@ -332,8 +335,11 @@ impl Leitor<'_> {
                         if let [unico] = &n2[..]
                             && ps.contains(&unico.sym)
                         {
-                            // `supertype_expands_to_type_parameter`, outro verificador.
-                            return Resolvido::Ignorar;
+                            // `aliasedType is TypeParameterType`: o alias
+                            // escrito na cláusula. Um alias que chega a outro
+                            // depende da substituição dos argumentos (não se
+                            // decide aqui).
+                            return if prof == 0 { Resolvido::AliasDeParametro } else { Resolvido::Ignorar };
                         }
                         self.resolver(td.decl.unit, ast_td, corpo, &[], prof + 1, ignora_nao_tipo)
                     }
@@ -1523,8 +1529,28 @@ pub fn verificar(
                     };
                     saida.push((decl.unit, Diagnostic::com_codigo(codigo_nulo, ast_.ty(t).span, [] as [&str; 0])));
                 }
+                // `_verifyTypeAliasForContext`: o código da cláusula, e o tipo
+                // vira `InvalidType` (nada de `*_non_class`).
+                if resolvido == Resolvido::AliasDeParametro {
+                    let codigo_alias = if codigo == c::IMPLEMENTS_NON_CLASS {
+                        c::IMPLEMENTS_TYPE_ALIAS_EXPANDS_TO_TYPE_PARAMETER
+                    } else if codigo == c::MIXIN_OF_NON_CLASS {
+                        c::MIXIN_OF_TYPE_ALIAS_EXPANDS_TO_TYPE_PARAMETER
+                    } else if codigo == c::MIXIN_SUPER_CLASS_CONSTRAINT_NON_INTERFACE {
+                        c::MIXIN_ON_TYPE_ALIAS_EXPANDS_TO_TYPE_PARAMETER
+                    } else {
+                        c::EXTENDS_TYPE_ALIAS_EXPANDS_TO_TYPE_PARAMETER
+                    };
+                    if let TypeKind::Named { name, .. } = &ast_.ty(t).kind
+                        && let (Some(p), Some(n)) = (name.first(), name.last())
+                    {
+                        let span = dartforge_diagnostics::Span { start: p.span.start, end: n.span.end };
+                        saida.push((decl.unit, Diagnostic::com_codigo(codigo_alias, span, [] as [&str; 0])));
+                    }
+                    continue;
+                }
                 let erro = match resolvido {
-                    Resolvido::Ignorar => false,
+                    Resolvido::Ignorar | Resolvido::AliasDeParametro => false,
                     Resolvido::NaoClasse => true,
                     Resolvido::Classe(x) => match programa.class(x).kind {
                         ClassKind::Class | ClassKind::MixinApplication => false,

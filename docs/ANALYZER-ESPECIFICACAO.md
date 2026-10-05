@@ -861,6 +861,10 @@ Representação cíclica ou inválida cala o `implements` e o fundo. Um `dynamic
 ##### `instantiate_type_alias_expands_to_type_parameter` (perda 7: FN 7)
 - **Emissão:** `NamedTypeResolver._verifyTypeAliasForContext` (`analyzer/lib/src/dart/resolver/named_type_resolver.dart:420-450`). **Condição:** alias cujo `aliasedType` é parâmetro de tipo (`typedef T<X> = X;`) usado em `new`/`const T<…>()` (criação) ou como alvo de redirecionamento de factory. **Posição:** `_ErrorHelper._getErrorRange(node)` — o nome do tipo **com prefixo e argumentos de tipo** (do início do nome ao fim dos argumentos). **Mensagem:** `Type aliases that expand to a type parameter can't be instantiated.`
 - **No DartForge:** `chamadas.rs::instanciacao`, ramo `Element::Typedef` (comentário diz "ficam mudos" para `typedef A<X> = X`). **Mudança:** relatar quando o alvo do alias é parâmetro de tipo (também na criação implícita `T<int>()` reescrita).
+- **Estado em 2026-10-05 (escrito, não compilado):** `instanciacao` relata quando o tipo do alias no outline é
+  um parâmetro de tipo, também por outro alias. A posição é o nome, sem os argumentos, como no oráculo, com
+  comprimento 1. `new A.nome()` com `A` alias de parâmetro relata no `A`. A criação implícita `T()` não é
+  reescrita pelo `AstRewriter` para alias de parâmetro e fica de fora.
 
 #### Grupo 6 — aridade de argumentos, `super.x` e construtores indefinidos
 
@@ -5298,6 +5302,10 @@ relatos iguais do analyzer contam um.
   comentário "outro verificador" — mas ninguém emite. Emitir ali (em `verificar`, ao lado dos
   `*_non_class`) com o span do nome. 21 FN: 9 em `*_type_alias_expands_to_type_parameter/*`, 12 em
   `nonfunction_type_aliases/{generic_,}usage_type_variable_error_test.dart`.
+- **Estado em 2026-10-05 (escrito, não compilado):** `clausulas::Leitor::resolver` devolve
+  `Resolvido::AliasDeParametro` para o alias direto escrito na cláusula, e `verificar` relata o código da
+  cláusula (`extends`, `implements`, `on`, `with`) no nome, sem `*_non_class`. O alias que chega a outro
+  alias continua sem decisão (`Ignorar`), porque depende da substituição dos argumentos.
 
 ##### `conflicting_inherited_method_and_setter` (perda 11: FN 11)
 - **Emissão:** `ErrorVerifier._checkForConflictingClassMembers` (`src/generated/error_verifier.dart:2478-2529`).

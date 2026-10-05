@@ -1610,6 +1610,29 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
         },
         _ => (binding, constructor, false),
     };
+    // `_verifyTypeAliasForContext` (`named_type_resolver.dart:420-450`): o
+    // alias cujo tipo é um parâmetro de tipo (`typedef A<T> = T`, também por
+    // outro alias) não se instancia; no nome, sem os argumentos.
+    {
+        let alias_de_parametro = |inf: &BodyInferrer<'_>, el: Option<Element>| match el {
+            Some(Element::Typedef(td)) => matches!(inf.table.get(inf.outline.typedefs[td.0 as usize].target_type), Type::TypeParameter { .. }),
+            _ => false,
+        };
+        let faixa = if alias_de_parametro(inf, binding.and_then(|b| b.getter)) {
+            name.first().zip(name.last()).map(|(p, n)| Span { start: p.span.start, end: n.span.end })
+        } else if binding.is_none() && name.len() == 2 && alias_de_parametro(inf, inf.program.lookup_na_unidade(cx.unit, name[0].sym).and_then(|b| b.getter)) {
+            Some(name[0].span)
+        } else {
+            None
+        };
+        if let Some(sp) = faixa {
+            inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::INSTANTIATE_TYPE_ALIAS_EXPANDS_TO_TYPE_PARAMETER, sp, &[]);
+            for x in args.args.iter() {
+                inferir_livre(inf, cx, x.value);
+            }
+            return inf.core.dynamic_;
+        }
+    }
     let (c, explicitos) = match binding.and_then(|b| b.getter) {
         Some(Element::Class(c)) => {
             let ex = if targs.is_empty() { None } else { Some(targs.iter().map(|&t| inf.tipo_de_argumento_de_tipo(cx, t)).collect::<Vec<_>>()) };
