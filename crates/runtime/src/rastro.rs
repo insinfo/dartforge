@@ -167,11 +167,16 @@ unsafe fn registro_do_rastro(r: usize) -> (String, String) {
 /// endereço de retorno acha o maior rótulo abaixo dele dentro da função
 /// dele; o que não acha (o runtime, o sistema, função sem posição) fica de
 /// fora. Sem quadro nenhum, o texto de hoje.
-#[allow(unsafe_code)]
 fn simbolizar_retornos(retornos: &[(u64, u64)]) -> String {
+    com_indice_do_rastro(|pontos| simbolizar_com(pontos, retornos))
+}
+
+/// [`simbolizar_retornos`] com as entradas `pontos` (pelo rótulo).
+#[allow(unsafe_code)]
+fn simbolizar_com(pontos: &[PontoDoRastro], retornos: &[(u64, u64)]) -> String {
     use std::fmt::Write as _;
     let mut texto = String::new();
-    com_indice_do_rastro(|pontos| {
+    {
         let mut n = 0usize;
         for &(retorno, inicio) in retornos {
             let retorno = retorno as usize;
@@ -195,7 +200,7 @@ fn simbolizar_retornos(retornos: &[(u64, u64)]) -> String {
             texto.push_str(")\n");
             n += 1;
         }
-    });
+    }
     if texto.is_empty() {
         texto.push_str(RASTRO_SEM_TABELA);
     }
@@ -273,4 +278,48 @@ pub extern "C" fn dartforge_rastro_texto(h: i64) -> i64 {
         }
     });
     t
+}
+
+#[cfg(test)]
+mod testes_rastro {
+    use super::*;
+
+    /// Uma seção e dois registros montados à mão: o texto sai no formato da
+    /// VM, cada endereço de retorno acha o rótulo da função dele, e o que
+    /// não acha fica de fora.
+    #[test]
+    fn simboliza_no_formato_da_vm() {
+        // Os textos: a url em 0, o registro de `main` em 16 e o de `f` em 32.
+        let mut dados = vec![0u8; 48];
+        dados[..15].copy_from_slice(b"file:///a.dart\0");
+        let dados: &'static mut [u8] = Box::leak(dados.into_boxed_slice());
+        let base = dados.as_ptr() as usize;
+        for (r, nome) in [(16usize, &b"main\0"[..]), (32, &b"f\0"[..])] {
+            dados[r..r + 4].copy_from_slice(&(-(r as i32)).to_le_bytes());
+            dados[r + 4..r + 4 + nome.len()].copy_from_slice(nome);
+        }
+        // O código: rótulos em +10 (main) e +50 (f).
+        let codigo: &'static [u8] = Box::leak(vec![0u8; 100].into_boxed_slice());
+        let c = codigo.as_ptr() as usize;
+        // A seção: duas entradas e uma sentinela zerada no meio.
+        let secao: &'static mut [u8] = Box::leak(vec![0u8; 36].into_boxed_slice());
+        let s = secao.as_ptr() as usize;
+        let mut entrada = |k: usize, rotulo: usize, registro: usize, lc: u32| {
+            let e = s + 12 * k;
+            secao[12 * k..12 * k + 4].copy_from_slice(&((rotulo as i64 - e as i64) as i32).to_le_bytes());
+            secao[12 * k + 4..12 * k + 8].copy_from_slice(&((registro as i64 - (e + 4) as i64) as i32).to_le_bytes());
+            secao[12 * k + 8..12 * k + 12].copy_from_slice(&lc.to_le_bytes());
+        };
+        entrada(0, c + 50, base + 32, 7 << 12);
+        entrada(2, c + 10, base + 16, 3 << 12 | 5);
+        let mut pontos = Vec::new();
+        // SAFETY: a seção acima, viva até o fim do processo.
+        unsafe { ler_secao_do_rastro(s, s + 36, &mut pontos) };
+        assert_eq!(pontos.len(), 2, "a sentinela não é entrada");
+        pontos.sort_unstable_by_key(|p| p.rotulo);
+        let c = c as u64;
+        let texto = simbolizar_com(&pontos, &[(c + 5, c), (c + 20, c), (c + 60, c + 55), (c + 60, c + 40)]);
+        assert_eq!(texto, "#0      main (file:///a.dart:3:5)\n#1      f (file:///a.dart:7)\n");
+        assert_eq!(simbolizar_com(&pontos, &[(c + 5, c)]), RASTRO_SEM_TABELA);
+    }
 }

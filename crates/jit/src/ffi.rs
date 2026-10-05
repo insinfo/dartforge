@@ -2399,6 +2399,23 @@ extern "C" fn destruir(opaco: *mut std::ffi::c_void) {
     drop(unsafe { Box::from_raw(opaco.cast::<ObjetoNoJit>()) });
 }
 
+unsafe extern "C" {
+    /// A função como o cabeçalho C do LLVM 22 a declara (`llvm-c/OrcEE.h`):
+    /// o `llvm-sys` 221 a declara sem o `CreateContextCtx` (o contexto que
+    /// o `CreateContext` recebe) e com o `CreateContext` sem retorno.
+    #[link_name = "LLVMOrcCreateRTDyldObjectLinkingLayerWithMCJITMemoryManagerLikeCallbacks"]
+    fn criar_camada_rtdyld_com_gerenciador(
+        sessao: llvm_sys::orc2::LLVMOrcExecutionSessionRef,
+        contexto_da_criacao: *mut std::ffi::c_void,
+        criar_contexto: extern "C" fn(*mut std::ffi::c_void) -> *mut std::ffi::c_void,
+        notificar_fim: extern "C" fn(*mut std::ffi::c_void),
+        alocar_codigo: llvm_sys::execution_engine::LLVMMemoryManagerAllocateCodeSectionCallback,
+        alocar_dados: llvm_sys::execution_engine::LLVMMemoryManagerAllocateDataSectionCallback,
+        finalizar_memoria: llvm_sys::execution_engine::LLVMMemoryManagerFinalizeMemoryCallback,
+        destruir: llvm_sys::execution_engine::LLVMMemoryManagerDestroyCallback,
+    ) -> llvm_sys::orc2::LLVMOrcObjectLayerRef;
+}
+
 /// A camada de objetos da sessão com mapas: RTDyld com o gerenciador de
 /// memória acima.
 extern "C" fn criar_camada(
@@ -2406,17 +2423,13 @@ extern "C" fn criar_camada(
     sessao: llvm_sys::orc2::LLVMOrcExecutionSessionRef,
     _triple: *const c_char,
 ) -> llvm_sys::orc2::LLVMOrcObjectLayerRef {
-    // SAFETY: a conversão dá ao `CreateContext` a assinatura do cabeçalho C
-    // (ponteiro de função do mesmo tamanho); as funções vivem o processo.
+    // SAFETY: a assinatura do cabeçalho C (acima); `camada` é o contexto da
+    // sessão, vivo até o `Drop` dela, e as funções vivem o processo.
     unsafe {
-        let criar: llvm_sys::orc2::ee::LLVMMemoryManagerCreateContextCallback =
-            std::mem::transmute::<extern "C" fn(*mut std::ffi::c_void) -> *mut std::ffi::c_void, llvm_sys::orc2::ee::LLVMMemoryManagerCreateContextCallback>(
-                criar_contexto,
-            );
-        llvm_sys::orc2::ee::LLVMOrcCreateRTDyldObjectLinkingLayerWithMCJITMemoryManagerLikeCallbacks(
+        criar_camada_rtdyld_com_gerenciador(
             sessao,
             camada,
-            criar,
+            criar_contexto,
             notificar_fim,
             alocar_codigo,
             alocar_dados,

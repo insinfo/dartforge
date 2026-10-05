@@ -69,15 +69,13 @@ pub extern "C" fn dartforge_null_check_error_new() -> i64 {
 /// O texto do rastro da exceção corrente (o `StackTrace` do lançamento),
 /// para a exceção não capturada; vazio sem rastro.
 pub fn texto_do_rastro_da_excecao() -> String {
-    let Some(h) = CURRENT_STACK_TRACE.with(|slot| *slot.borrow()) else { return String::new() };
-    HEAP.with(|heap| {
-        let heap = heap.borrow();
-        let Some(campo) = heap.objeto(h).and_then(|o| o.first()) else { return String::new() };
-        match campo {
-            (t, true) => heap.texto(t).map(|t| t.para_string()).unwrap_or_default(),
-            _ => String::new(),
-        }
-    })
+    let Some(h) = CURRENT_STACK_TRACE.with(|slot| *slot.borrow()) else {
+        // §13.14: sem `StackTrace` pedido, os endereços do lançamento (vazio
+        // sem a tabela do rastro).
+        let retornos = retornos_do_lancamento();
+        return if retornos.is_empty() { String::new() } else { simbolizar_retornos(&retornos) };
+    };
+    texto_do_rastro(h).unwrap_or_default()
 }
 
 fn id_da_classe_stack_trace() -> i64 {
@@ -131,12 +129,27 @@ pub extern "C" fn dartforge_stack_trace_get() -> i64 {
     if let Some(h) = CURRENT_STACK_TRACE.with(|slot| *slot.borrow()) {
         return h;
     }
-    alocar_stack_trace("#0      main (dart:native)\n")
+    // §13.14: os endereços do último `throw` viram o rastro corrente (o
+    // `_stackTrace` do erro e o `catch (e, s)` veem o mesmo objeto), o texto
+    // feito só no primeiro pedido.
+    let retornos = retornos_do_lancamento();
+    if !retornos.is_empty() {
+        let st = alocar_rastro_de_retornos(&retornos);
+        CURRENT_STACK_TRACE.with(|slot| *slot.borrow_mut() = Some(st));
+        HEAP.with(|h| h.borrow_mut().set_raiz_do_runtime(1, st));
+        return st;
+    }
+    alocar_stack_trace(RASTRO_SEM_TABELA)
 }
 
-/// Native do getter estático `StackTrace.current` da VM.
+/// Native do getter estático `StackTrace.current` da VM: com a tabela do
+/// rastro, os endereços desta pilha (§13.14).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_StackTrace_current() -> i64 {
+    let retornos = capturar_retornos();
+    if !retornos.is_empty() {
+        return alocar_rastro_de_retornos(&retornos);
+    }
     dartforge_stack_trace_get()
 }
 
@@ -229,6 +242,12 @@ fn allocate_range_error(message: &str) -> i64 {
 /// Registra a exceção pendente; referências devem estar vivas e enraizadas.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_exception_throw(bits: i64, tag: u8) {
+    // §13.14: os endereços de retorno do lançamento, antes de qualquer
+    // alocação (o rastro explícito de `Error.throwWithStackTrace` já está no
+    // rastro corrente).
+    if CURRENT_STACK_TRACE.with(|slot| slot.borrow().is_none()) {
+        guardar_retornos_do_lancamento();
+    }
     let value = excecao_da_abi(bits, tag);
     let referencia = ref_da_excecao(value).unwrap_or(0);
     if referencia != 0 {
@@ -301,6 +320,7 @@ pub extern "C" fn dartforge_exception_clear() {
     CURRENT_STACK_TRACE.with(|slot| {
         slot.borrow_mut().take();
     });
+    esquecer_retornos_do_lancamento();
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
         h.set_raiz_do_runtime(0, 0);

@@ -86,6 +86,19 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
+        // `_StackTrace.toString` (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
+        // §13.14): o texto guardado, ou os endereços do `throw`
+        // simbolizados agora (aloca o texto).
+        decl: "declare i64 @dartforge_rastro_texto(i64)",
+        efeitos: CONSERVADOR,
+    },
+    Extern {
+        // O registro da tabela do rastro da imagem (§13.14): não aloca nem
+        // lança.
+        decl: "declare void @dartforge_registrar_rastro(ptr, ptr)",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
         // A barreira de escrita (`llvm/mod.rs`, `emitir_barreira`): lembra o
         // objeto velho; não aloca nem lança.
         decl: "declare void @dartforge_lembrar(i64) nounwind",

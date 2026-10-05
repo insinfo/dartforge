@@ -465,7 +465,11 @@ fn descrever_objeto(heap: &Heap, r: i64, depth: usize, output: &mut TextoMut) {
     } else if name == "StackTrace" || name == "_StackTrace" {
         match texto(0) {
             Some(m) => output.push_texto(&m),
-            None => output.push_str("#0      main (dart:native)\n"),
+            // §13.14: os endereços guardados, simbolizados agora.
+            None => {
+                let retornos = retornos_do_objeto(heap, r);
+                output.push_str(&if retornos.is_empty() { RASTRO_SEM_TABELA.to_string() } else { simbolizar_retornos(&retornos) });
+            }
         }
     } else {
         output.push_str(&format!("Instance of '{name}'"));

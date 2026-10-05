@@ -1867,6 +1867,58 @@ O que a implementação precisa, em qualquer dos quatro modos:
 
 Não medido: o tamanho da tabela no `new_sali/backend`. É a primeira medida do passo.
 
+**Estado em 2026-10-05 (escrito, não compilado).** O rastro existe com `--rastro=simbolico`
+(`DARTFORGE_RASTRO_VM=simbolico`; `alvo::rastro_simbolico`), nos quatro modos de raízes e exceções, no
+Windows x86-64 e no Linux e no macOS em x86-64 e aarch64. O padrão continua `nenhum`, com o IR de sempre
+byte a byte e o texto de hoje: o padrão só muda depois da medida do tamanho e de um teste que rode.
+
+*Posições.* As posições do J05 passam a valer sem o `--depuracao` quando o rastro está ligado
+(`Context::depuracao` indexa as linhas; `Context::dwarf` e `hir::Module::dwarf` dizem se viram tabelas
+de linha). Cada expressão que chama marca a posição que a VM dá a ela, o `fileOffset` do front_end
+(`offsetForToken(selector.token)`): o nome chamado em `f()`, `o.m()` e `o.p`; o operador em `a + b`,
+`a += b` e `e as T`; o `[` em `a[i]`; o começo em `throw`, `await`, criação, unário e identificador
+(`lower/expressoes.rs`, `posicao_da_expressao`). A posição volta à de fora quando a expressão termina.
+A url é a da VM (`Context::url_do_rastro`): `file:///…`, `package:…`, `dart:core` para a unidade que
+define a biblioteca do SDK, `dart:core/list.dart` para as partes e `dart:core-patch/…` para as da VM e
+da sobreposição nativa.
+
+*A tabela* (`EN/llvm/rastro.rs`). Não é a do item 1 (deltas em varints por função): esta é a forma que
+sai sem ler o objeto depois da emissão. Antes de cada chamada rotulável (a indireta, a de função Dart e
+a extern que a tabela de efeitos marca `lanca` ou `roda_dart`; nunca um intrínseco), um
+`asm sideeffect` com `"gc-leaf-function"` (o RS4GC não trata `asm` como folha) e
+`memory(inaccessiblemem: readwrite)` (o otimizador não o move nem o apaga, e ele não esconde memória
+visível) define o rótulo `42:` e empurra para a seção uma entrada de 12 bytes: o rótulo e o registro
+da função como deslocamentos a partir do próprio campo, e `linha << 12 | coluna`. O registro da função
+é uma constante do módulo: `i32` até a url (um texto por unidade) e o nome terminado em zero. As
+seções: `.dfpcl$m` no COFF, com sentinelas `.dfpcl$a`/`$z` em `comdat`; `dfpcl` no ELF com `aR?`
+(`SHF_GNU_RETAIN`, e no grupo da função `comdat`); `__DATA,__dfpcl,regular,no_dead_strip` no Mach-O,
+com um símbolo `l…${:uid}` por entrada (o escritor Mach-O do aarch64 só reloca subtração com símbolo
+não temporário antes; o `l…` não chega ao executável). As diretivas foram conferidas na fonte do LLVM
+22.1.8 (`E:\references\llvm-project-22`: `COFFAsmParser`, `ELFAsmParser`, `DarwinAsmParser`, o `s`
+genérico de `TargetLowering` e o `c` do `AsmPrinter`). Uma função `linkonce_odr` (as entradas de
+tear-off e as constantes canônicas) não é rotulada, e as chamadas dela saem `noinline`: uma entrada
+copiada para ela pelo inlining apontaria para a cópia que o ligador descarta. Uma âncora em
+`module asm` foi recusada: um símbolo local em `module asm` tira da importação do ThinLTO toda função
+com `asm` do módulo. O registro (`dartforge_registrar_rastro(começo, fim)`) vai na função de registro
+de cada módulo (`seletores.rs`, `emitir_registro`), com os mapas, que agora também saem pelo formato
+da imagem (antes o módulo do SDK chamava a forma do Windows em todo sistema).
+
+*O runtime* (fragmento `RT/rastro.rs`). O `throw` (`dartforge_exception_throw`) guarda os endereços
+de retorno e o começo da função de cada quadro (`heap::enderecos_de_retorno`, o percorredor do §14.6
+sem ler raízes), até 1024 quadros, sem tocar no heap. O `dartforge_stack_trace_get` transforma os
+endereços num `_StackTrace` com o campo 0 nulo, o número de quadros e os pares brutos, e o deixa como
+rastro corrente (o `_stackTrace` do erro e o `catch (e, s)` veem o mesmo objeto). O texto é feito no
+primeiro `toString` (`dartforge_rastro_texto`, agora o corpo do `_StackTrace.toString`) e guardado no
+campo 0; a exceção não capturada e a descrição do runtime o fazem do mesmo jeito. Cada endereço de
+retorno acha a entrada do maior rótulo abaixo dele, que tem de estar na função dele (o começo que o
+desenrolador dá); o quadro sem entrada (o runtime, o sistema, função sem posição) fica de fora. Sem
+quadro nenhum, o texto de hoje. O `StackTrace.current` captura a pilha dele.
+
+*Não feito.* A linha `<asynchronous suspension>`; os quadros das funções copiadas pelo inlining (o
+quadro da função de fora some; a VM os mostra pela tabela de inlining); a forma compacta do item 1
+(deltas por função, no conversor de objeto); a tabela no JIT. O `StackTrace.current` chamado pelo
+getter do SDK mostra o quadro do getter quando ele tem posição.
+
 ---
 
 ### 13.15 Estado da implementação (2026-10-04)
@@ -1941,7 +1993,8 @@ porta registrada chamam direto, como antes.
 * **O `grep` do CI** contra `transmute` para `extern "C" fn` fora de `excecoes_tabelas.rs`: não feito.
 * **Os perfis do diferencial** (`aot-tabelas`): não feitos; a variável `DARTFORGE_EXCECOES` já basta
   para rodar o harness no modo.
-* **O rastro no formato da VM** (§13.14): não feito; não é passo do §15.1.
+* **O rastro no formato da VM** (§13.14): escrito em 2026-10-05, atrás de `--rastro=simbolico`
+  (veja o estado no §13.14).
 * **Linux e macOS** (a personalidade Itanium do §13.11): Etapa 4.
 
 ---

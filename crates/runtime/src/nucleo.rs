@@ -72,6 +72,9 @@ pub fn finalizar_programa() -> i32 {
     // `Isolate.exit` no isolado principal: ele terminou, sem erro.
     let pending = EXCEPTION.with(|slot| slot.borrow().is_some()) && !desenrolando();
     if pending {
+        // O rastro antes do `toString()` do erro, que roda código Dart (um
+        // `throw` tratado lá dentro trocaria o rastro guardado).
+        let rastro = texto_do_rastro_da_excecao();
         let (bits, tag) = EXCEPTION.with(|slot| {
             let value = slot.borrow().expect("exceção verificada acima");
             (bits_da_excecao(value), etiqueta_da_excecao(value))
@@ -100,7 +103,6 @@ pub fn finalizar_programa() -> i32 {
             };
             // O formato e o código da VM (`Unhandled exception:`, a mensagem,
             // o rastro; 255). O rastro é o que o runtime tem da exceção.
-            let rastro = texto_do_rastro_da_excecao();
             use std::io::Write;
             let mut err = std::io::stderr().lock();
             let _ = writeln!(err, "Unhandled exception:\n{detail}");

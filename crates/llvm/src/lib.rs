@@ -23,11 +23,13 @@
 // compilação (`unsafe_code = "deny"` do workspace).
 #![allow(unsafe_code)]
 
+pub mod conferir_rs4gc;
+
 use llvm_sys::bit_writer::LLVMWriteBitcodeToMemoryBuffer;
 use llvm_sys::core::{
     LLVMContextCreate, LLVMContextDispose, LLVMCreateMemoryBufferWithMemoryRangeCopy, LLVMDisposeMemoryBuffer,
     LLVMDisposeMessage, LLVMDisposeModule, LLVMGetBufferSize, LLVMGetBufferStart, LLVMGetDataLayoutStr,
-    LLVMGetTarget, LLVMGetVersion, LLVMSetDataLayout, LLVMSetTarget,
+    LLVMGetTarget, LLVMGetVersion, LLVMPrintModuleToString, LLVMSetDataLayout, LLVMSetTarget,
 };
 use llvm_sys::error::{LLVMDisposeErrorMessage, LLVMErrorRef, LLVMGetErrorMessage};
 use llvm_sys::ir_reader::LLVMParseIRInContext2;
@@ -193,6 +195,7 @@ pub fn gerar(nome: &str, ir: &str, opcoes: &Opcoes) -> Result<Vec<u8>, String> {
     };
     if com_mapas && !passe_no_ligador {
         modulo.otimizar(&format!("{pipeline},rewrite-statepoints-for-gc,verify"), &maquina)?;
+        conferir_depois_do_rs4gc(nome, &modulo)?;
     } else {
         modulo.otimizar(pipeline, &maquina)?;
     }
@@ -235,10 +238,22 @@ pub fn gerar_de_bitcode(nome: &str, bitcode: &[u8], cpu: Option<&'static str>) -
     modulo.completar_alvo(&triple, &maquina, bitcode_com_mapas(bitcode));
     if bitcode_com_mapas(bitcode) {
         modulo.otimizar("rewrite-statepoints-for-gc,verify", &maquina)?;
+        conferir_depois_do_rs4gc(nome, &modulo)?;
     } else {
         modulo.otimizar("verify", &maquina)?;
     }
     maquina.emitir_objeto(&modulo)
+}
+
+/// `DARTFORGE_CONFERIR_RS4GC=1`: o conferidor das raízes depois do
+/// `rewrite-statepoints-for-gc` ([`conferir_rs4gc`],
+/// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.4) sobre o texto do módulo.
+/// Caro (imprime o módulo inteiro): ligado nos testes do modo mapas.
+fn conferir_depois_do_rs4gc(nome: &str, modulo: &Modulo<'_>) -> Result<(), String> {
+    if !std::env::var("DARTFORGE_CONFERIR_RS4GC").is_ok_and(|v| v == "1") {
+        return Ok(());
+    }
+    conferir_rs4gc::conferir(&modulo.texto()).map_err(|e| format!("{nome}: {e}"))
 }
 
 /// O triple do hospedeiro, como o LLVM o descreve (no macOS, com a versão do
@@ -416,6 +431,13 @@ impl Modulo<'_> {
     fn bitcode(&self) -> Vec<u8> {
         // SAFETY: o buffer criado é nosso e sai por `tomar_buffer`.
         unsafe { tomar_buffer(LLVMWriteBitcodeToMemoryBuffer(self.m)) }
+    }
+
+    /// O texto do módulo (o IR como o LLVM o imprime).
+    fn texto(&self) -> String {
+        // SAFETY: módulo vivo; a mensagem devolvida é nossa e liberada por
+        // `tomar_mensagem`.
+        unsafe { tomar_mensagem(LLVMPrintModuleToString(self.m)) }
     }
 }
 

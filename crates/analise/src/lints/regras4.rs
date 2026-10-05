@@ -111,7 +111,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 relatar(&c::NO_LEADING_UNDERSCORES_FOR_LOCAL_IDENTIFIERS, n.span, &[texto]);
             }
         };
-        let mut da_lista = |l: &VariableList, checar: &mut dyn FnMut(ast::Name)| {
+        let da_lista = |l: &VariableList, checar: &mut dyn FnMut(ast::Name)| {
             for v in l.variables.iter() {
                 checar(v.name);
             }

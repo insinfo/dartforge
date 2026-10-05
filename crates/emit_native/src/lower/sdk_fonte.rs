@@ -1673,7 +1673,9 @@ pub fn lower_adaptadores_e_tabelas(ctx: &Context, module: &mut Module) {
         if concreta && let Some(id) = ctx.id_de_classe(cid) {
             let mut tabela = tabela_de_metodos(ctx, cid);
             // A VM implementa `_StackTrace.toString` em C++, sem declaração
-            // Dart na classe. Nosso objeto guarda a string no campo zero.
+            // Dart na classe. Nosso objeto guarda a string no campo zero, ou
+            // os endereços do `throw` que o runtime simboliza no primeiro
+            // pedido (o rastro simbólico, §13.14).
             if ctx.symbol_name(classe.name) == "_StackTrace"
                 && ctx.program.library(classe.library).uri == "dart:core"
                 && let Some(u) = unidade_de(ctx, cid)
@@ -1684,8 +1686,8 @@ pub fn lower_adaptadores_e_tabelas(ctx: &Context, module: &mut Module) {
                 b.add_param("args".to_string(), Type::Ptr);
                 b.add_param("desc".to_string(), Type::Ptr);
                 let texto = b.emit(Instruction::CallRuntime {
-                    name: "dartforge_object_get".to_string(),
-                    args: vec![(this, Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)],
+                    name: "dartforge_rastro_texto".to_string(),
+                    args: vec![(this, Type::Ref)],
                     ret_ty: Type::Ref,
                 }, Type::Ref);
                 b.terminate(Terminator::Return(Some(texto)));
