@@ -1,0 +1,10 @@
+var v = 1;
+const a = v++;
+const b = ++v;
+const c = -v;
+const d = v = 2;
+const e = () {};
+const f = [() {}];
+const h = v!;
+const j = (v);
+const k = v..toString();

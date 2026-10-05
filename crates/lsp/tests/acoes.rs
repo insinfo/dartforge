@@ -51,7 +51,7 @@ fn anuncia_a_capacidade() {
     let r = p.requisitar("initialize", json!({"capabilities": {}}));
     assert_eq!(
         r["result"]["capabilities"]["codeActionProvider"],
-        json!({"codeActionKinds": ["quickfix", "refactor", "source", "source.organizeImports"]})
+        json!(true)
     );
 }
 

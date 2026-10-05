@@ -331,6 +331,15 @@ impl<'a> BodyInferrer<'a> {
         if let Some(m) = self.membro_de_extensao(lib, recv, nome, setter) {
             return Busca::Achado(m);
         }
+        // `f.call` com `f` do tipo `Function` (de `dart:core`): sem erro e
+        // dinâmico (`TypePropertyResolver`,
+        // an611:src/dart/resolver/type_property_resolver.dart:186-191).
+        if !anulavel
+            && Some(nome) == self.sym.call
+            && matches!(self.table.get(recv), Type::Interface { class, .. } if Some(*class) == self.core.function_class)
+        {
+            return Busca::Dinamico;
+        }
         Busca::Ausente
     }
 
@@ -463,7 +472,23 @@ impl<'a> BodyInferrer<'a> {
                 2 => format!("{} and {}", nomes[0], nomes[1]),
                 n => format!("{}, and {}", nomes[..n - 1].join(", "), nomes[n - 1]),
             };
-            self.ambiguidade_de_extensao = Some((self.interner.resolve(nome).to_string(), lista));
+            // Com exatamente duas, o 3.13.4 escreve as extensões por
+            // extenso (`extension E1 on int`; T2, caso c13). Só as nomeadas
+            // e sem parâmetros de tipo: a exibição das outras no 3.13.4 não
+            // foi conferida, e sem os dois argumentos o texto fica o do 3.6.
+            let exibicao = |inf: &Self, i: usize| -> Option<String> {
+                let x = inf.program.extension(candidatos[i].0);
+                let dados = &inf.outline.extensions[candidatos[i].0 .0 as usize];
+                let n = x.name?;
+                dados.type_params.is_empty().then(|| {
+                    format!("extension {} on {}", inf.interner.resolve(n), inf.table.format(dados.on, inf.interner, inf.program))
+                })
+            };
+            let duas = match empatados[..] {
+                [a, b] => exibicao(self, a).zip(exibicao(self, b)),
+                _ => None,
+            };
+            self.ambiguidade_de_extensao = Some((self.interner.resolve(nome).to_string(), lista, duas));
             return None;
         };
         let (e, f, args, _) = candidatos.swap_remove(melhor);
@@ -511,12 +536,12 @@ impl<'a> BodyInferrer<'a> {
     /// (`AMBIGUOUS_EXTENSION_MEMBER_ACCESS`,
     /// `extension_member_resolver.dart:115-128`).
     pub(crate) fn relatar_ambiguidade_de_extensao(&mut self, nome: dartforge_diagnostics::Span) {
-        if let Some((n, lista)) = self.ambiguidade_de_extensao.take() {
-            self.aviso_com_codigo(
-                dartforge_diagnostics::codigos::compile_time_error::AMBIGUOUS_EXTENSION_MEMBER_ACCESS,
-                nome,
-                &[&n, &lista],
-            );
+        if let Some((n, lista, duas)) = self.ambiguidade_de_extensao.take() {
+            let codigo = dartforge_diagnostics::codigos::compile_time_error::AMBIGUOUS_EXTENSION_MEMBER_ACCESS;
+            match duas {
+                Some((a, b)) => self.aviso_com_codigo(codigo, nome, &[&n, &lista, &a, &b]),
+                None => self.aviso_com_codigo(codigo, nome, &[&n, &lista]),
+            }
         }
     }
 

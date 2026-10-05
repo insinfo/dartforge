@@ -404,6 +404,73 @@ fn migrar_area(antiga: &AreaDeGlobais, nova: &mut AreaDeGlobais) {
     });
 }
 
+/// Raízes por mapas de pilha (`--raizes=mapas`): o módulo com funções
+/// descritas por mapa registra, na partida, a imagem em que foi ligado
+/// (`crate::heap::registrar_mapa_de_pilha`; idempotente por imagem). Não
+/// aloca no heap do coletor nem lança.
+///
+/// # Safety
+/// `base` é o `__ImageBase` de uma imagem PE carregada.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_registrar_mapa(base: *const u8) {
+    crate::heap::registrar_mapa_de_pilha(base as usize);
+}
+
+/// O registro do mapa de pilha compacto de uma imagem ELF ou Mach-O
+/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md, Etapa 4): o módulo com funções
+/// de raízes no mapa chama isto na partida com os limites da seção `dfgcm`
+/// que o ligador definiu. Idempotente por imagem.
+///
+/// # Safety
+/// `[inicio, fim)` é a seção do mapa de uma imagem carregada.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_registrar_mapa_secao(inicio: *const u8, fim: *const u8) {
+    crate::heap::registrar_secao_de_mapa(inicio as usize, fim as usize);
+}
+
+/// O registro do mapa de pilha no formato do LLVM de uma imagem Mach-O
+/// (Etapa 4): os limites da seção `__LLVM_STACKMAPS,__llvm_stackmaps`.
+///
+/// # Safety
+/// `[inicio, fim)` é a seção do mapa de uma imagem carregada.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_registrar_mapa_llvm(inicio: *const u8, fim: *const u8) {
+    crate::heap::registrar_secao_llvm(inicio as usize, fim as usize);
+}
+
+/// Tira o mapa registrado por [`dartforge_registrar_mapa_llvm`] com o mesmo
+/// `inicio` (o JIT, ao soltar a memória de um objeto).
+///
+/// # Safety
+/// Nenhuma: só compara o endereço.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_desregistrar_mapa(inicio: *const u8) {
+    crate::heap::desregistrar_mapa(inicio as usize);
+}
+
+/// As estatísticas que um teste dirigido lê no fim (§7.5, a prova de que
+/// coletou): grava em `saida[0..4]` as coletas do isolado corrente, os
+/// quadros nativos percorridos, as raízes lidas de mapas e as raízes
+/// conferidas contra a pilha-sombra (as três últimas, do processo).
+///
+/// # Safety
+/// `saida` aponta para quatro `u64` graváveis.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_gc_estatisticas(saida: *mut u64) {
+    if saida.is_null() {
+        return;
+    }
+    let coletas = HEAP.with(|h| h.borrow().stats().collections);
+    let (quadros, raizes, conferidas) = crate::heap::numeros_do_percurso();
+    // SAFETY: o chamador garante os quatro `u64`.
+    unsafe {
+        *saida = coletas;
+        *saida.add(1) = quadros;
+        *saida.add(2) = raizes;
+        *saida.add(3) = conferidas;
+    }
+}
+
 #[cfg(test)]
 mod testes_gc_raizes {
     use super::*;

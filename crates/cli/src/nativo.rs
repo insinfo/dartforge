@@ -50,6 +50,55 @@ pub fn abi_info(args: &[std::ffi::OsString]) -> Resultado {
 }
 
 #[cfg(feature = "nativo")]
+/// `--excecoes checagem|tabelas`: o modelo de exceções do código gerado
+/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13). O emissor o lê da variável
+/// `DARTFORGE_EXCECOES` (`dartforge_emit_native::alvo::excecoes_por_tabelas`),
+/// que também entra na chave do SDK compilado — o programa e o SDK saem
+/// sempre no mesmo modelo; a opção só a define, para este processo.
+#[allow(unsafe_code)]
+fn definir_modelo_de_excecoes(valor: &str) -> Result<(), String> {
+    if valor != "checagem" && valor != "tabelas" {
+        return Err(format!("--excecoes={valor}: os modelos de exceção são `checagem` e `tabelas`"));
+    }
+    // SAFETY: a CLI ainda está lendo as opções, na thread principal, antes
+    // de criar a thread da compilação: nenhuma outra thread lê o ambiente.
+    unsafe { std::env::set_var("DARTFORGE_EXCECOES", valor) };
+    Ok(())
+}
+
+#[cfg(feature = "nativo")]
+/// `--raizes sombra|mapas`: onde ficam as raízes do coletor no código gerado
+/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8). Como
+/// [`definir_modelo_de_excecoes`]: o emissor lê `DARTFORGE_RAIZES`.
+#[allow(unsafe_code)]
+fn definir_modo_de_raizes(valor: &str) -> Result<(), String> {
+    if valor != "sombra" && valor != "mapas" {
+        return Err(format!("--raizes={valor}: os modos de raízes são `sombra` e `mapas`"));
+    }
+    // SAFETY: a CLI ainda está lendo as opções, na thread principal, antes
+    // de criar a thread da compilação: nenhuma outra thread lê o ambiente.
+    unsafe { std::env::set_var("DARTFORGE_RAIZES", valor) };
+    Ok(())
+}
+
+#[cfg(feature = "nativo")]
+/// `--rastro simbolico|nenhum`: o rastro no formato da VM
+/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14): `simbolico` emite a
+/// tabela endereço → (função, linha, coluna) e o `StackTrace` sai com os
+/// quadros Dart; `nenhum` (o padrão) não emite tabela. Como
+/// [`definir_modelo_de_excecoes`]: o emissor lê `DARTFORGE_RASTRO_VM`.
+#[allow(unsafe_code)]
+fn definir_rastro(valor: &str) -> Result<(), String> {
+    if valor != "simbolico" && valor != "nenhum" {
+        return Err(format!("--rastro={valor}: os rastros são `simbolico` e `nenhum`"));
+    }
+    // SAFETY: a CLI ainda está lendo as opções, na thread principal, antes
+    // de criar a thread da compilação: nenhuma outra thread lê o ambiente.
+    unsafe { std::env::set_var("DARTFORGE_RASTRO_VM", valor) };
+    Ok(())
+}
+
+#[cfg(feature = "nativo")]
 /// `dartforge aot <entrada.dart> <saida.exe>` — AOT de produção.
 ///
 /// Antes este comando chamava `dartforge_compiler::compile_path_llvm_*`, da
@@ -65,7 +114,7 @@ pub fn abi_info(args: &[std::ffi::OsString]) -> Resultado {
 /// aceitas e ignoradas, porque silenciosamente não fazer o que a bandeira diz
 /// é pior do que não ter a bandeira.
 pub fn aot(args: &[std::ffi::OsString]) -> Resultado {
-    let usage = "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--depuracao] [--timings] [--cpu x86-64|x86-64-v2|x86-64-v3|x86-64-v4|native] [--sdk <lib>] [--packages <package_config.json>]";
+    let usage = "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--depuracao] [--timings] [--cpu x86-64|x86-64-v2|x86-64-v3|x86-64-v4|native] [--excecoes checagem|tabelas] [--rastro simbolico|nenhum] [--sdk <lib>] [--packages <package_config.json>]";
     if args.len() < 3 {
         return Err(usage.into());
     }
@@ -90,6 +139,27 @@ pub fn aot(args: &[std::ffi::OsString]) -> Resultado {
             Some("--sdk") => sdk = Some(PathBuf::from(flags.next().ok_or("--sdk exige caminho")?)),
             Some("--packages") => {
                 packages = Some(PathBuf::from(flags.next().ok_or("--packages exige caminho")?))
+            }
+            Some("--raizes") => {
+                let valor = flags.next().and_then(|v| v.to_str()).ok_or("--raizes exige sombra ou mapas")?;
+                definir_modo_de_raizes(valor)?;
+            }
+            Some(opcao) if opcao.starts_with("--raizes=") => {
+                definir_modo_de_raizes(&opcao["--raizes=".len()..])?;
+            }
+            Some("--excecoes") => {
+                let valor = flags.next().and_then(|v| v.to_str()).ok_or("--excecoes exige checagem ou tabelas")?;
+                definir_modelo_de_excecoes(valor)?;
+            }
+            Some(opcao) if opcao.starts_with("--excecoes=") => {
+                definir_modelo_de_excecoes(&opcao["--excecoes=".len()..])?;
+            }
+            Some("--rastro") => {
+                let valor = flags.next().and_then(|v| v.to_str()).ok_or("--rastro exige simbolico ou nenhum")?;
+                definir_rastro(valor)?;
+            }
+            Some(opcao) if opcao.starts_with("--rastro=") => {
+                definir_rastro(&opcao["--rastro=".len()..])?;
             }
             Some("--merge-identical-functions") | Some("--link-object") => {
                 return Err(format!(
@@ -136,12 +206,20 @@ pub fn aot(args: &[std::ffi::OsString]) -> Resultado {
 #[cfg(feature = "nativo")]
 pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
     use dartforge_elements::sdk::Linguagem;
-    let usage = "usage: dartforge compile-native <input.dart> -o <output.exe> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--optimize] [--depuracao] [--cpu <cpu>] [--versao-linguagem x.y] [--enable-experiment=a,b]
+    let usage = "usage: dartforge compile-native <input.dart> -o <output.exe> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--optimize] [--depuracao] [--cpu <cpu>] [--excecoes checagem|tabelas] [--rastro simbolico|nenhum] [--versao-linguagem x.y] [--enable-experiment=a,b]
        dartforge compile-native <input.dart> --emit-ir -o <saida.ll> [--resumo] [...]
        dartforge compile-native <input.dart> --resumo [...]
   --depuracao  tabelas de linha para o depurador nativo (gdb, lldb, Visual Studio)
   --cpu      CPU-alvo: x86-64 (a base, SSE2), x86-64-v2, x86-64-v3, x86-64-v4 ou native
              (o executável só roda em máquinas com ela)
+  --raizes   onde ficam as raízes do coletor: sombra (o padrão: o quadro de raízes de
+             cada função) ou mapas (mapas de pilha do LLVM, só no Windows x86-64)
+  --excecoes modelo de exceções do código gerado: checagem (o padrão: a pendência
+             conferida depois de cada chamada) ou tabelas (desenrolamento por
+             tabelas, só no Windows x86-64; docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md)
+  --rastro   o StackTrace: nenhum (o padrão: o texto fixo de hoje) ou simbolico (os
+             quadros Dart no formato da VM, `#0      f (url:linha:coluna)`, pela
+             tabela de endereços que o executável leva; §13.14)
   --emit-ir  grava o LLVM IR em -o, sem Clang nem ligação
   --resumo   imprime `<hash de 32 dígitos>  <bytes>` do LLVM IR (o mesmo resumo
              do `dartforge-diferencial determinismo --nativo`), sem Clang";
@@ -172,6 +250,27 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
             Some("--depuracao") => depuracao = true,
             Some("--emit-ir") => emit_ir = true,
             Some("--resumo") => resumo = true,
+            Some("--raizes") => {
+                let valor = it.next().and_then(|v| v.to_str()).ok_or("--raizes exige sombra ou mapas")?;
+                definir_modo_de_raizes(valor)?;
+            }
+            Some(opcao) if opcao.starts_with("--raizes=") => {
+                definir_modo_de_raizes(&opcao["--raizes=".len()..])?;
+            }
+            Some("--excecoes") => {
+                let valor = it.next().and_then(|v| v.to_str()).ok_or("--excecoes exige checagem ou tabelas")?;
+                definir_modelo_de_excecoes(valor)?;
+            }
+            Some(opcao) if opcao.starts_with("--excecoes=") => {
+                definir_modelo_de_excecoes(&opcao["--excecoes=".len()..])?;
+            }
+            Some("--rastro") => {
+                let valor = it.next().and_then(|v| v.to_str()).ok_or("--rastro exige simbolico ou nenhum")?;
+                definir_rastro(valor)?;
+            }
+            Some(opcao) if opcao.starts_with("--rastro=") => {
+                definir_rastro(&opcao["--rastro=".len()..])?;
+            }
             Some("--versao-linguagem" | "--enable-experiment") => {
                 let valor = it.next().and_then(|v| v.to_str()).ok_or(usage)?;
                 linguagem.ler_opcao(a.to_str().unwrap_or_default(), &mut std::iter::once(valor))?;

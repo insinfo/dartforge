@@ -659,7 +659,7 @@ fn materializar(g: &Grafo) -> i64 {
                 // SAFETY: `getter` é o endereço de um getter gerado sem
                 // argumentos (registrado por `dartforge_marcar_constante`),
                 // o mesmo em todos os isolados do processo.
-                let f: extern "C" fn() -> i64 = unsafe { std::mem::transmute(getter) };
+                let f = { let alvo_dart: usize = getter; move || -> i64 { dart_r0(alvo_dart) } };
                 f()
             });
         }
@@ -792,7 +792,7 @@ fn refazer_indices_copiados(g: &Grafo, handles: &[i64]) {
     let Some(f) = ajudante("_dartforgeRefazerIndiceCopiado") else { return };
     // SAFETY: registrado pela `dart:_compact_hash` com a assinatura
     // `(Object) -> int`.
-    let refazer: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(f) };
+    let refazer = { let alvo_dart: usize = f; move |a0: i64| -> i64 { dart_r1(alvo_dart, a0) } };
     let mut outras: crate::hash::HashSet<i32> = crate::hash::HashSet::default();
     for (i, (no, _)) in g.nos.iter().enumerate() {
         let NoG::Instancia { cid, .. } = no else { continue };
@@ -1242,7 +1242,7 @@ fn despachar_proxima(chamar: extern "C" fn(i64) -> i64) -> bool {
     let valor = materializar(&m.grafo);
     HEAP.with(|h| h.borrow_mut().set_global_root(RAIZ_MENSAGEM, valor));
     ATUAL.with(|a| *a.borrow_mut() = (m.porta, valor));
-    chamar(despachante);
+    dart_r1(chamar as usize, despachante);
     ATUAL.with(|a| *a.borrow_mut() = (0, 0));
     HEAP.with(|h| h.borrow_mut().set_global_root(RAIZ_MENSAGEM, 0));
     true

@@ -274,7 +274,7 @@ fn relatar_erro_nao_tratado() -> bool {
     let (fatal, ouvintes) = com_estado(|e| (e.erros_fatais, e.ouvintes_de_erro.clone()));
     // SAFETY: registrada pela sobreposição de `dart:isolate` com a
     // assinatura (`Object?`, `Object?`) → `List<String>`.
-    let descrever: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(ajudante_de_isolado("_dartforgeDescreverErro")) };
+    let descrever = { let alvo_dart: usize = ajudante_de_isolado("_dartforgeDescreverErro"); move |a0: i64, a1: i64| -> i64 { dart_r2(alvo_dart, a0, a1) } };
     let descricao = com_raizes(&[erro, rastro], || descrever(erro, rastro));
     if dartforge_exception_pending() != 0 {
         // O `toString()` do erro falhou: a descrição do runtime.
@@ -388,7 +388,7 @@ fn rodar_isolado(p: PedidoDeIsolado) {
     let chamar = CHAMAR_CLOSURE.load(std::sync::atomic::Ordering::Acquire);
     // SAFETY: registrados por `dartforge_registrar_isolados` com essas
     // assinaturas, antes de qualquer `Isolate.spawn`.
-    let preparar: extern "C" fn() = unsafe { std::mem::transmute(preparar) };
+    let preparar = { let alvo_dart: usize = preparar; move || { dart_v0(alvo_dart) } };
     let chamar: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(chamar) };
     preparar();
     let (controle, pausa, termino) = com_estado(|e| {
@@ -415,8 +415,8 @@ fn rodar_isolado(p: PedidoDeIsolado) {
             // SAFETY: registradas pela sobreposição de `dart:isolate` com as
             // assinaturas (`int`, `int`, `int`) → `List` e (`Function`,
             // `Object?`) → `void`.
-            let pronto: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(ajudante_de_isolado("_dartforgeMensagemDePronto")) };
-            let iniciar: extern "C" fn(i64, i64) = unsafe { std::mem::transmute(ajudante_de_isolado("_dartforgeIniciarIsolado")) };
+            let pronto = { let alvo_dart: usize = ajudante_de_isolado("_dartforgeMensagemDePronto"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(alvo_dart, a0, a1, a2) } };
+            let iniciar = { let alvo_dart: usize = ajudante_de_isolado("_dartforgeIniciarIsolado"); move |a0: i64, a1: i64| { dart_v2(alvo_dart, a0, a1) } };
             let m = pronto(controle, pausa, termino);
             if let Ok(g) = com_raizes(&[m], || copiar_para_grafo(m, false)) {
                 postar(p.pronto, g);
@@ -520,7 +520,7 @@ pub extern "C" fn dartforge_nativo_Isolate_getPortAndCapabilitiesOfCurrentIsolat
     let (c, p, t) = com_estado(|e| (e.controle, e.pausa, e.termino));
     // SAFETY: registrada pela sobreposição de `dart:isolate` com a
     // assinatura (`int`, `int`, `int`) → `List`.
-    let f: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(ajudante_de_isolado("_dartforgePortaECapacidades")) };
+    let f = { let alvo_dart: usize = ajudante_de_isolado("_dartforgePortaECapacidades"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(alvo_dart, a0, a1, a2) } };
     f(c, p, t)
 }
 

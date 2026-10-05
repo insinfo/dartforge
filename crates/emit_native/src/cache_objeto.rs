@@ -74,6 +74,12 @@ pub fn identidade_clang(clang: &Path) -> Result<String, String> {
 /// A chave de um objeto. Cada componente é separado por `\0`, para que duas
 /// divisões diferentes das mesmas bytes não colidam.
 pub fn chave(ir: &str, clang_id: &str, args: &[&str]) -> u128 {
+    chave_de_bytes(ir.as_bytes(), clang_id, args)
+}
+
+/// Como [`chave`], para uma entrada que não é texto (o bitcode de uma parte
+/// do ThinLTO distribuído).
+pub fn chave_de_bytes(ir: &[u8], clang_id: &str, args: &[&str]) -> u128 {
     let mut h = Fnv128::default();
     h.escrever(b"dartforge-obj\0")
         .escrever(&VERSAO_FORMATO.to_le_bytes())
@@ -84,7 +90,7 @@ pub fn chave(ir: &str, clang_id: &str, args: &[&str]) -> u128 {
     for a in args {
         h.escrever(a.as_bytes()).escrever(b"\0");
     }
-    h.escrever(ir.as_bytes());
+    h.escrever(ir);
     h.fim()
 }
 

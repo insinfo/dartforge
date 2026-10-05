@@ -1,0 +1,9 @@
+const u = bool.fromEnvironment('dart.library.js_util');
+const l = [if (u) 1];
+const c = u ? 1 : 'a'.foo;
+const d = u ? 1 : v;
+var v = 0;
+const e = u && v2;
+var v2 = true;
+const f = !u;
+const g = u ? 1 ~/ 0 : 2;

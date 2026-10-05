@@ -1,0 +1,264 @@
+amostras total 5256 em arquivos 3.13.4 649
+experiment_not_enabled 104 {'FN': 79, 'FP': 24, 'posição': 1} de 231
+      [experiment_not_enabled] FN: augmentation_formal_parameter/AugmentationFormalParameterShape__class_19c99c17.dart:1:10 This requires the 'primary-constructors' language feature to be enabled.
+      [experiment_not_enabled] FN: duplicate_definition/DuplicateDefinitionClass__instance_prim_4b8879c9.dart:1:9 This requires the 'primary-constructors' language feature to be enabled.
+assignment_to_primary_constructor_parameter 40 {'FN': 40} de 40
+      [assignment_to_primary_constructor_parameter] FN: assignment_to_primary_constructor_parameter/AssignmentToPrimaryConstructorParameter_04261f5f.dart:4:5 A primary constructor parameter can't be assigned to in an initializer.
+      [assignment_to_primary_constructor_parameter] FN: assignment_to_primary_constructor_parameter/AssignmentToPrimaryConstructorParameter_275ff23d.dart:2:27 A primary constructor parameter can't be assigned to in an initializer.
+unused_field_from_primary_constructor 39 {'FN': 39} de 39
+      [unused_field_from_primary_constructor] FN: duplicate_definition/DuplicateDefinitionClass__instance_prim_988478c6.dart:1:17 The value of the field '_' isn't used.
+      [unused_field_from_primary_constructor] FN: duplicate_definition/DuplicateDefinitionClass__instance_prim_e8fb7df9.dart:1:17 The value of the field '_' isn't used.
+private_optional_parameter 21 {'FN': 21} de 21
+      [private_optional_parameter] FN: private_optional_parameter/PrivateOptionalParameter__class_primary_289bed90.dart:1:20 Named parameters can't start with an underscore.
+      [private_optional_parameter] FN: private_optional_parameter/PrivateOptionalParameter__class_primary_6a827d47.dart:1:21 Named parameters can't start with an underscore.
+unused_element_parameter 21 {'FN': 21} de 21
+      [unused_element_parameter] FN: invalid_reference_to_this/InvalidReferenceToThis__enum_primaryCon_899bf0ed.dart:1:13 A value for optional parameter 'p' isn't ever given.
+      [unused_element_parameter] FN: unused_element/UnusedElement__classPrivate_primaryCons_043bf8d4.dart:1:23 A value for optional parameter 'f' isn't ever given.
+const_with_undefined_constructor 20 {'FN': 20} de 25
+      [const_with_undefined_constructor] FN: dot_shorthands/equality/equality_ctor_error_test.dart:306:20 The class 'Object' doesn't have a constant constructor 'constRegular'.
+      [const_with_undefined_constructor] FN: dot_shorthands/equality/equality_ctor_error_test.dart:312:20 The class 'Object' doesn't have a constant constructor 'constNamed'.
+primary_constructor_cannot_redirect 17 {'FN': 17} de 17
+      [primary_constructor_cannot_redirect] FN: assert_in_redirecting_constructor/AssertInRedirectingConstructor__class_p_05c63f61.dart:3:25 A primary constructor can't be a redirecting constructor.
+      [primary_constructor_cannot_redirect] FN: assert_in_redirecting_constructor/AssertInRedirectingConstructor__class_p_52c5cc67.dart:3:10 A primary constructor can't be a redirecting constructor.
+extra_positional_arguments 16 {'FN': 14, 'FP': 1, 'posição': 1} de 64
+      [extra_positional_arguments] FN: extra_positional_arguments/ExtraPositionalArguments__dotShorthandC_2ca2c45e.dart:4:18 Too many positional arguments: 1 expected, but 2 found.
+      [extra_positional_arguments] FN: extra_positional_arguments/ExtraPositionalArguments__dotShorthandC_9f30b3bb.dart:4:20 Too many positional arguments: 1 expected, but 2 found.
+final_not_initialized_constructor 16 {'FN': 13, 'FP': 3} de 24
+      [final_not_initialized_constructor] FN: variable_not_initialized/VariableNotInitialized__class_instanceF_01f4790b.dart:1:7 All final variables must be initialized, but 'v2' isn't.
+      [final_not_initialized_constructor] FN: variable_not_initialized/VariableNotInitialized__class_instanceF_3a29f492.dart:1:7 All final variables must be initialized, but 'v2' isn't.
+mixin_class_declares_non_trivial_generative_constructor 16 {'FN': 16} de 16
+      [mixin_class_declares_non_trivial_generative_constructor] FN: mixin_class_declares_non_trivial_generative_constructor/MixinClassDeclaresNonTrivialGenerativeC_009ed778.dart:1:13 The mixin class 'A' can't declare a non-trivial generative constructor.
+      [mixin_class_declares_non_trivial_generative_constructor] FN: mixin_class_declares_non_trivial_generative_constructor/MixinClassDeclaresNonTrivialGenerativeC_1386f74b.dart:2:3 The mixin class 'A' can't declare a non-trivial generative constructor.
+invalid_constant 15 {'FN': 1, 'FP': 6, 'posição': 8} de 17
+      [invalid_constant] FN: primary_constructors/const/potentially_constant_error_test.dart:45:17 Invalid constant value.
+      [invalid_constant] FP: dot_shorthands/equality/equality_ctor_error_test.dart:11:14 Invalid constant value.
+duplicate_definition 14 {'FP': 12, 'posição': 2} de 17
+      [duplicate_definition] FP: duplicate_private_named_parameter/DuplicatePrivateNamedParameter__initial_afa12950.dart:5:20 The name 'foo' is already defined.
+      [duplicate_definition] FP: duplicate_private_named_parameter/DuplicatePrivateNamedParameter__publicI_8a6f7876.dart:6:39 The name 'foo' is already defined.
+expected_token 12 {'FP': 12} de 85
+      [expected_token] FP: wrong_number_of_type_arguments/WrongNumberOfTypeArguments__messageText_20833ba3.dart:11:30 Expected to find '('.
+      [expected_token] FP: constructor/unnamed_new_error_test.dart:35:3 Expected to find ';'.
+non_constant_relational_pattern_expression 12 {'posição': 12} de 16
+      [non_constant_relational_pattern_expression] posição: dot_shorthands/equality/equality_ctor_error_test.dart:306:13 The relational pattern expression must be a constant.  <> nosso 312:13 (+23)
+      [non_constant_relational_pattern_expression] posição: dot_shorthands/equality/equality_ctor_error_test.dart:321:13 The relational pattern expression must be a constant.  <> nosso 327:13 (+22)
+representation_field_modifier 12 {'FP': 1, 'mensagem': 11} de 12
+      [representation_field_modifier] FP: primary_constructors/header/extension_type_error_test.dart:29:20 Representation fields can't have modifiers.
+      [representation_field_modifier] mensagem: primary_constructors/header/extension_type_error_test.dart:14:20 Representation fields can't have the modifier 'var'.  <> nosso: Representation fields can't have modifiers.
+implicit_super_initializer_missing_arguments 11 {'FN': 11} de 22
+      [implicit_super_initializer_missing_arguments] FN: duplicate_definition/DuplicateDefinition__parameters_primary_eb63a0b9.dart:5:7 The implicitly invoked unnamed constructor from 'A' has required parameters.
+      [implicit_super_initializer_missing_arguments] FN: no_default_super_constructor/NoDefaultSuperConstructor__super_requir_1dc35bb5.dart:4:7 The implicitly invoked unnamed constructor from 'A' has required parameters.
+unused_field 11 {'FN': 11} de 27
+      [unused_field] FN: duplicate_definition/DuplicateDefinition__parameters_primary_0186d973.dart:2:7 The value of the field '_' isn't used.
+      [unused_field] FN: duplicate_definition/DuplicateDefinition__parameters_primary_7abc7165.dart:2:7 The value of the field '_' isn't used.
+const_constructor_with_mixin_with_field 8 {'FN': 8} de 13
+      [const_constructor_with_mixin_with_field] FN: const_constructor_with_mixin_with_field/ConstConstructorWithMixinWithField__con_2893d216.dart:6:9 This constructor can't be declared 'const' because a mixin adds the instance field: 'A.a'.
+      [const_constructor_with_mixin_with_field] FN: const_constructor_with_mixin_with_field/ConstConstructorWithMixinWithField__con_5dae591b.dart:7:9 This constructor can't be declared 'const' because the mixins add the instance fields: 'A.a', 'A.b'.
+const_initialized_with_non_constant_value 8 {'posição': 8} de 20
+      [const_initialized_with_non_constant_value] posição: dot_shorthands/equality/equality_error_test.dart:185:67 Const variables must be initialized with a constant value.  <> nosso 185:66 (+6)
+      [const_initialized_with_non_constant_value] posição: dot_shorthands/equality/equality_error_test.dart:196:68 Const variables must be initialized with a constant value.  <> nosso 196:67 (+6)
+duplicate_field_formal_parameter 8 {'FP': 8} de 8
+      [duplicate_field_formal_parameter] FP: duplicate_definition/DuplicateDefinitionClass__instance_prim_e8fb7df9.dart:1:28 The field '_' can't be initialized by multiple parameters in the same constructor.
+      [duplicate_field_formal_parameter] FP: duplicate_definition/DuplicateDefinitionEnum__instance_prima_f8580926.dart:1:31 The field '_' can't be initialized by multiple parameters in the same constructor.
+recursive_constant_constructor 8 {'FN': 8} de 14
+      [recursive_constant_constructor] FN: assert_in_redirecting_constructor/AssertInRedirectingConstructor__enum_pr_bf07cd7e.dart:3:9 The constant constructor depends on itself.
+      [recursive_constant_constructor] FN: assert_in_redirecting_constructor/AssertInRedirectingConstructor__enum_pr_ea921e48.dart:3:9 The constant constructor depends on itself.
+undefined_constructor_in_initializer 8 {'FN': 8} de 18
+      [undefined_constructor_in_initializer] FN: super_formal_parameter_without_associated_positional/SuperFormalParameterWithoutAssociatedPo_179ee365.dart:6:10 The class 'A' doesn't have a constructor named 'named'.
+      [undefined_constructor_in_initializer] FN: super_formal_parameter_without_associated_positional/SuperFormalParameterWithoutAssociatedPo_e824b0cb.dart:4:10 The class 'Object' doesn't have a constructor named 'named'.
+enum_without_constants 7 {'FN': 7} de 62
+      [enum_without_constants] FN: augmentation_modifier_extra/AugmentationModifierExtra__enum_constru_a5e1b2c2.dart:5:14 The enum must have at least one enum constant.
+      [enum_without_constants] FN: constructor_body/ConstructorBody__enum_primaryConstructo_b4bc584e.dart:7:14 The enum must have at least one enum constant.
+extension_type_declares_member_of_object 7 {'FN': 7} de 7
+      [extension_type_declares_member_of_object] FN: primary_constructors/header/extension_type_error_test.dart:87:41 Extension types can't declare members with the same name as a member declared by 'Object'.
+      [extension_type_declares_member_of_object] FN: primary_constructors/header/extension_type_error_test.dart:92:66 Extension types can't declare members with the same name as a member declared by 'Object'.
+dead_null_aware_expression 6 {'FN': 6} de 8
+      [dead_null_aware_expression] FN: dot_shorthands/constructor/constructor_if_null_error_test.dart:40:52 The left operand can't be null, so the right operand is never executed.
+      [dead_null_aware_expression] FN: dot_shorthands/constructor/constructor_if_null_error_test.dart:43:63 The left operand can't be null, so the right operand is never executed.
+expected_class_member 6 {'FP': 6} de 6
+      [expected_class_member] FP: constructor/unnamed_new_error_test.dart:71:11 Expected a class member.
+      [expected_class_member] FP: constructor/unnamed_new_error_test.dart:71:13 Expected a class member.
+extraneous_modifier 6 {'FN': 5, 'FP': 1} de 6
+      [extraneous_modifier] FN: primary_constructors/syntax/const_in_header_and_body_error_test.dart:9:3 Can't have modifier 'const' here.
+      [extraneous_modifier] FN: primary_constructors/syntax/const_in_header_and_body_error_test.dart:16:3 Can't have modifier 'const' here.
+recursive_interface_inheritance 6 {'mensagem': 6} de 10
+      [recursive_interface_inheritance] mensagem: primary_constructors/cycle_error_test.dart:7:7 'A' can't be a superinterface of itself: B, C, A.  <> nosso: 'A' can't be a superinterface of itself: A, C, B, A.
+      [recursive_interface_inheritance] mensagem: primary_constructors/cycle_error_test.dart:12:7 'B' can't be a superinterface of itself: B, C, A.  <> nosso: 'B' can't be a superinterface of itself: B, A, C, B.
+super_formal_parameter_without_associated_positional 6 {'FN': 6} de 12
+      [super_formal_parameter_without_associated_positional] FN: super_formal_parameter_without_associated_positional/SuperFormalParameterWithoutAssociatedPo_1ad2cdbd.dart:3:15 No associated positional super constructor parameter.
+      [super_formal_parameter_without_associated_positional] FN: super_formal_parameter_without_associated_positional/SuperFormalParameterWithoutAssociatedPo_66f25af4.dart:1:14 No associated positional super constructor parameter.
+undefined_identifier 6 {'FN': 1, 'FP': 5} de 169
+      [undefined_identifier] FN: augmentation_formal_parameter/AugmentationFormalParameterScope__class_9220bb4e.dart:3:21 Undefined name 'p1'.
+      [undefined_identifier] FP: assignment_to_primary_constructor_parameter/AssignmentToPrimaryConstructorParameter_998e9fd8.dart:3:5 Undefined name 'x'.
+unused_element 6 {'FN': 6} de 74
+      [unused_element] FN: augmentation_modifier_extra/AugmentationModifierExtra__extensionTyp_72995408.dart:1:1 The declaration '<unnamed>' isn't referenced.
+      [unused_element] FN: augmentation_modifier_missing/AugmentationModifierMissing__extensionT_f07aa47f.dart:1:1 The declaration '<unnamed>' isn't referenced.
+const_constructor_with_non_const_super 5 {'FN': 5} de 11
+      [const_constructor_with_non_const_super] FN: const_constructor_with_non_const_super/ConstConstructorWithNonConstSuper__clas_081b577b.dart:2:7 A constant constructor can't call a non-constant super constructor of 'A'.
+      [const_constructor_with_non_const_super] FN: const_constructor_with_non_const_super/ConstConstructorWithNonConstSuper__clas_107840ce.dart:2:7 A constant constructor can't call a non-constant super constructor of 'A'.
+expected_representation_type 5 {'FN': 4, 'posição': 1} de 5
+      [expected_representation_type] FN: primary_constructors/header/extension_type_error_test.dart:20:24 Expected a representation type.
+      [expected_representation_type] FN: extension_type/regress_53625_error_test.dart:46:26 Expected a representation type.
+field_initialized_by_multiple_initializers 5 {'FN': 5} de 12
+      [field_initialized_by_multiple_initializers] FN: variable_not_initialized/VariableNotInitialized__class_instanceF_556b68ea.dart:4:18 The field 'v1' can't be initialized twice in the same constructor.
+      [field_initialized_by_multiple_initializers] FN: variable_not_initialized/VariableNotInitialized__class_instanceF_556b68ea.dart:4:34 The field 'v2' can't be initialized twice in the same constructor.
+initializing_declaring_parameter 5 {'FN': 5} de 5
+      [initializing_declaring_parameter] FN: initializing_declaring/InitializingDeclaring__final_initializing.dart:1:15 Declaring parameters can't be initializing.
+      [initializing_declaring_parameter] FN: initializing_declaring/InitializingDeclaring__var_initializing.dart:1:13 Declaring parameters can't be initializing.
+initializing_formal_for_non_existent_field 5 {'FN': 5} de 17
+      [initializing_formal_for_non_existent_field] FN: initializing_formal_for_non_existent_field/InitializingFormalForNonExistentField___69d83cc3.dart:1:9 'x' isn't a field in the enclosing class.
+      [initializing_formal_for_non_existent_field] FN: initializing_formal_for_non_existent_field/InitializingFormalForNonExistentField___fa5e92b6.dart:1:8 'x' isn't a field in the enclosing class.
+not_enough_positional_arguments 5 {'FN': 3, 'posição': 2} de 41
+      [not_enough_positional_arguments] FN: not_enough_positional_arguments/NotEnoughPositionalArguments__dotShorth_40423a1b.dart:4:18 2 positional arguments expected by 'named', but 1 found.
+      [not_enough_positional_arguments] FN: not_enough_positional_arguments/NotEnoughPositionalArguments__dotShorth_6bce7a0c.dart:4:17 1 positional argument expected by 'named', but 0 found.
+deprecated_optional 4 {'FN': 4} de 4
+      [deprecated_optional] FN: deprecated_optional/DeprecatedOptional__argumentOmitted_dotShorthand.dart:6:11 Omitting an argument for the 'p' parameter is deprecated.
+      [deprecated_optional] FN: deprecated_optional/DeprecatedOptional__argumentOmitted_dot_5b2bf974.dart:6:11 Omitting an argument for the 'p' parameter is deprecated.
+expected_representation_field 4 {'FN': 2, 'posição': 2} de 4
+      [expected_representation_field] FN: augmentation_modifier_extra/AugmentationModifierExtra__extensionTyp_72995408.dart:3:26 Expected a representation field.
+      [expected_representation_field] FN: augmentation_modifier_missing/AugmentationModifierMissing__extensionT_f07aa47f.dart:3:26 Expected a representation field.
+field_initialized_in_declaration_and_parameter_of_primary_constructor 4 {'FN': 4} de 4
+      [field_initialized_in_declaration_and_parameter_of_primary_constructor] FN: variable_not_initialized/VariableNotInitialized__class_instanceF_248f8e38.dart:1:14 Fields can't be initialized in both the primary constructor parameter list and at their declaration.
+      [field_initialized_in_declaration_and_parameter_of_primary_constructor] FN: variable_not_initialized/VariableNotInitialized__class_instanceF_521fd215.dart:1:14 Fields can't be initialized in both the primary constructor parameter list and at their declaration.
+field_initialized_in_parameter_and_initializer 4 {'FN': 4} de 8
+      [field_initialized_in_parameter_and_initializer] FN: invalid_reference_to_this/InvalidReferenceToThis__extensionType_p_2bda2a43.dart:2:10 Fields can't be initialized in both the parameter list and the initializers.
+      [field_initialized_in_parameter_and_initializer] FN: variable_not_initialized/VariableNotInitialized__class_instanceF_521fd215.dart:5:10 Fields can't be initialized in both the parameter list and the initializers.
+instantiate_abstract_class 4 {'FN': 4} de 4
+      [instantiate_abstract_class] FN: dot_shorthands/constructor/constructor_abstract_class_error_test.dart:9:10 Abstract classes can't be instantiated.
+      [instantiate_abstract_class] FN: dot_shorthands/constructor/constructor_abstract_class_error_test.dart:34:35 Abstract classes can't be instantiated.
+late_final_field_with_const_constructor 4 {'FN': 4} de 10
+      [late_final_field_with_const_constructor] FN: variable_not_initialized/VariableNotInitialized__class_instanceF_562da5fe.dart:2:3 Can't have a late final field in a class with a generative const constructor.
+      [late_final_field_with_const_constructor] FN: variable_not_initialized/VariableNotInitialized__class_instanceF_7a83678a.dart:2:3 Can't have a late final field in a class with a generative const constructor.
+missing_const_final_var_or_type 4 {'FP': 4} de 8
+      [missing_const_final_var_or_type] FP: constructor/unnamed_new_error_test.dart:35:3 Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+      [missing_const_final_var_or_type] FP: constructor/unnamed_new_error_test.dart:52:3 Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+redirect_generative_to_missing_constructor 4 {'FN': 4} de 7
+      [redirect_generative_to_missing_constructor] FN: non_redirecting_generative_constructor_with_primary/NonRedirectingGenerativeConstructorWith_0c516f6b.dart:6:28 The constructor 'C' couldn't be found in 'C'.
+      [redirect_generative_to_missing_constructor] FN: non_redirecting_generative_constructor_with_primary/NonRedirectingGenerativeConstructorWith_272a43f4.dart:2:15 The constructor 'C.missing' couldn't be found in 'C'.
+super_initializing_declaring_parameter 4 {'FN': 4} de 4
+      [super_initializing_declaring_parameter] FN: initializing_declaring/InitializingDeclaring__final_superInitializing.dart:2:15 Declaring parameters can't be super parameters.
+      [super_initializing_declaring_parameter] FN: initializing_declaring/InitializingDeclaring__var_superInitializing.dart:2:13 Declaring parameters can't be super parameters.
+wrong_number_of_type_arguments_constructor 4 {'FN': 4} de 12
+      [wrong_number_of_type_arguments_constructor] FN: wrong_number_of_type_arguments/WrongNumberOfTypeArguments__messageText_20833ba3.dart:11:30 The dot shorthand resolves to the constructor 'Foo.a', and type parameters can't be applied to dot shorthand constructor
+      [wrong_number_of_type_arguments_constructor] FN: dot_shorthands/constructor/constructor_abstract_class_error_test.dart:28:34 The dot shorthand resolves to the constructor 'Foo.a', and type parameters can't be applied to dot shorthand constructor invocations.
+const_constructor_with_non_final_field 3 {'FN': 3} de 9
+      [const_constructor_with_non_final_field] FN: const_constructor_with_non_final_field/ConstConstructorWithNonFinalField__cons_96abaadd.dart:3:9 Can't define a const constructor for a class with non-final fields.
+      [const_constructor_with_non_final_field] FN: const_constructor_with_non_final_field/ConstConstructorWithNonFinalField__prim_a7c4d9e3.dart:1:7 Can't define a const constructor for a class with non-final fields.
+const_eval_method_invocation 3 {'FP': 3} de 8
+      [const_eval_method_invocation] FP: dot_shorthands/language_defined/bool_context_error_test.dart:12:30 Methods can't be invoked in constant expressions.
+      [const_eval_method_invocation] FP: dot_shorthands/language_defined/bool_context_error_test.dart:13:31 Methods can't be invoked in constant expressions.
+const_primary_constructor_with_body 3 {'FN': 3} de 3
+      [const_primary_constructor_with_body] FN: constructor_body/ConstructorBody__extensionType_primaryC_2a25fda3.dart:2:8 The body part of a constant primary constructor can't have a block body.
+      [const_primary_constructor_with_body] FN: constructor_body/ConstructorBody__extensionType_primaryC_a68b6b78.dart:2:8 The body part of a constant primary constructor can't have an expression body.
+default_value_on_required_parameter 3 {'posição': 3} de 7
+      [default_value_on_required_parameter] posição: primary_constructors/syntax/required_with_default_error_test.dart:8:28 Required named parameters can't have a default value.  <> nosso 8:11 (+22)
+      [default_value_on_required_parameter] posição: primary_constructors/syntax/required_with_default_error_test.dart:13:30 Required named parameters can't have a default value.  <> nosso 13:11 (+24)
+expected_identifier_but_got_keyword 3 {'FN': 2, 'posição': 1} de 15
+      [expected_identifier_but_got_keyword] FN: constructor/unnamed_new_error_test.dart:64:12 'new' can't be used as an identifier because it's a keyword.
+      [expected_identifier_but_got_keyword] FN: constructor/unnamed_new_error_test.dart:96:19 'new' can't be used as an identifier because it's a keyword.
+extraneous_modifier_in_primary_constructor 3 {'FN': 3} de 3
+      [extraneous_modifier_in_primary_constructor] FN: invalid_override/InvalidOverride__class_declaringFormalP_14faa66e.dart:4:9 Can't have modifier 'covariant' in a primary constructor.
+      [extraneous_modifier_in_primary_constructor] FN: invalid_override/InvalidOverride__class_declaringFormalP_ba98c91d.dart:8:9 Can't have modifier 'covariant' in a primary constructor.
+field_initialized_in_declaration_and_initializer_of_primary_constructor 3 {'FN': 3} de 3
+      [field_initialized_in_declaration_and_initializer_of_primary_constructor] FN: variable_not_initialized/VariableNotInitialized__class_instanceF_5f6589c9.dart:3:10 Fields can't be initialized in both the primary constructor and at their declaration.
+      [field_initialized_in_declaration_and_initializer_of_primary_constructor] FN: variable_not_initialized/VariableNotInitialized__class_instanceF_c942df16.dart:3:10 Fields can't be initialized in both the primary constructor and at their declaration.
+invalid_assignment 3 {'FN': 3} de 126
+      [invalid_assignment] FN: dot_shorthands/type_parameter/type_parameter_error_test.dart:44:18 A value of type 'C Function()' can't be assigned to a variable of type 'C'.
+      [invalid_assignment] FN: dot_shorthands/type_parameter/type_parameter_error_test.dart:51:20 A value of type 'C Function()' can't be assigned to a variable of type 'C'.
+invalid_factory_name_not_a_class 3 {'FN': 3} de 23
+      [invalid_factory_name_not_a_class] FN: augmentation_modifier_extra/AugmentationModifierExtra__enum_constru_a5e1b2c2.dart:7:19 The name of a factory constructor must be the same as the name of the immediately enclosing class.
+      [invalid_factory_name_not_a_class] FN: augmentation_modifier_extra/AugmentationModifierExtra__extensionTyp_72995408.dart:4:19 The name of a factory constructor must be the same as the name of the immediately enclosing class.
+non_const_generative_enum_constructor 3 {'FN': 3} de 11
+      [non_const_generative_enum_constructor] FN: constructor_body/ConstructorBody__enum_primaryConstructo_b4bc584e.dart:8:11 Generative enum constructors must be 'const'.
+      [non_const_generative_enum_constructor] FN: constructor_body/ConstructorBody__enum_primaryConstructo_c6f5a1c0.dart:5:11 Generative enum constructors must be 'const'.
+non_generative_constructor 3 {'FN': 3} de 5
+      [non_generative_constructor] FN: non_generative_constructor/NonGenerativeConstructor__factory_expli_0f4ecc5d.dart:6:10 The generative constructor 'A.named()' is expected, but a factory was found.
+      [non_generative_constructor] FN: non_generative_constructor/NonGenerativeConstructor__factory_impli_c8a8e648.dart:6:3 The generative constructor 'A()' is expected, but a factory was found.
+wrong_number_of_type_arguments_function 3 {'FN': 3} de 13
+      [wrong_number_of_type_arguments_function] FN: dot_shorthands/type_parameter/type_parameter_error_test.dart:44:22 The type of this function is 'C Function()', which has 0 type parameters, but 1 type arguments were given.
+      [wrong_number_of_type_arguments_function] FN: dot_shorthands/type_parameter/type_parameter_error_test.dart:51:24 The type of this function is 'C Function()', which has 0 type parameters, but 1 type arguments were given.
+argument_type_not_assignable 2 {'FN': 2} de 160
+      [argument_type_not_assignable] FN: argument_type_not_assignable/ArgumentTypeNotAssignable__dotShorthand_243fc8d6.dart:4:17 The argument type 'String' can't be assigned to the parameter type 'int'.
+      [argument_type_not_assignable] FN: argument_type_not_assignable/ArgumentTypeNotAssignable__dotShorthand_2a885b0f.dart:4:15 The argument type 'String' can't be assigned to the parameter type 'int'.
+expected_executable 2 {'FN': 2} de 2
+      [expected_executable] FN: primary_constructors/syntax/empty_body_error_test.dart:35:20 Expected a method, getter, setter or operator declaration.
+      [expected_executable] FN: primary_constructors/syntax/empty_body_error_test.dart:44:34 Expected a method, getter, setter or operator declaration.
+initializer_for_static_field 2 {'FN': 2} de 8
+      [initializer_for_static_field] FN: initializer_for_static_field/InitializerForStaticField__class_primar_d0813a68.dart:1:9 'x' is a static field in the enclosing class. Fields initialized in a constructor can't be static.
+      [initializer_for_static_field] FN: initializer_for_static_field/InitializerForStaticField__enum_primary_c4cd8dcd.dart:1:8 'x' is a static field in the enclosing class. Fields initialized in a constructor can't be static.
+missing_default_value_for_parameter 2 {'FN': 2} de 27
+      [missing_default_value_for_parameter] FN: missing_default_value_for_parameter/MissingDefaultValueForParameter__constr_a91e8dea.dart:4:18 The parameter 'x' can't have a value of 'null' because of its type, but the implicit default value is 'null'.
+      [missing_default_value_for_parameter] FN: non_redirecting_generative_constructor_with_primary/NonRedirectingGenerativeConstructorWith_ef701407.dart:4:18 The parameter 'p' can't have a value of 'null' because of its type, but the implicit default value is 'null
+missing_identifier 2 {'FP': 2} de 42
+      [missing_identifier] FP: constructor/unnamed_new_error_test.dart:59:15 Expected an identifier.
+      [missing_identifier] FP: constructor/unnamed_new_error_test.dart:91:22 Expected an identifier.
+missing_method_parameters 2 {'FP': 2} de 2
+      [missing_method_parameters] FP: constructor/unnamed_new_error_test.dart:59:15 Methods must have an explicit list of parameters.
+      [missing_method_parameters] FP: constructor/unnamed_new_error_test.dart:91:22 Methods must have an explicit list of parameters.
+multiple_primary_constructor_body_declarations 2 {'FN': 2} de 2
+      [multiple_primary_constructor_body_declarations] FN: primary_constructors/syntax/no_parameter_list_error_test.dart:31:3 Only one primary constructor body declaration is allowed.
+      [multiple_primary_constructor_body_declarations] FN: primary_constructors/syntax/no_parameter_list_error_test.dart:61:3 Only one primary constructor body declaration is allowed.
+not_initialized_non_nullable_instance_field 2 {'FP': 2} de 15
+      [not_initialized_non_nullable_instance_field] FP: augmentation_formal_parameter/AugmentationFormalParameterShape__class_19c99c17.dart:8:11 Non-nullable instance field 'n1' must be initialized.
+      [not_initialized_non_nullable_instance_field] FP: constructor/unnamed_new_error_test.dart:64:12 Non-nullable instance field 'get' must be initialized.
+recursive_constructor_redirect 2 {'FN': 2} de 26
+      [recursive_constructor_redirect] FN: recursive_constant_constructor/RecursiveConstantConstructor__redirectC_0523ea3a.dart:2:23 Constructors can't redirect to themselves either directly or indirectly.
+      [recursive_constructor_redirect] FN: recursive_constant_constructor/RecursiveConstantConstructor__redirectC_d6dc6167.dart:2:18 Constructors can't redirect to themselves either directly or indirectly.
+redirect_to_missing_constructor 2 {'FN': 2} de 5
+      [redirect_to_missing_constructor] FN: constructor/unnamed_new_error_test.dart:121:34 The constructor 'NoUnnamed.new' couldn't be found in 'NoUnnamed<T>'.
+      [redirect_to_missing_constructor] FN: constructor/unnamed_new_error_test.dart:126:35 The constructor 'NoUnnamed.new' couldn't be found in 'NoUnnamed<T>'.
+super_formal_parameter_without_associated_named 2 {'FN': 2} de 6
+      [super_formal_parameter_without_associated_named] FN: primary_constructors/syntax/covariant_super_this_error_test.dart:51:28 No associated named super constructor parameter.
+      [super_formal_parameter_without_associated_named] FN: primary_constructors/syntax/covariant_super_this_error_test.dart:61:37 No associated named super constructor parameter.
+super_invocation_not_last 2 {'FN': 2} de 2
+      [super_invocation_not_last] FN: super_invocation_not_last/SuperInvocationNotLast__primary_superBe_74235610.dart:2:10 The superconstructor call must be last in an initializer list.
+      [super_invocation_not_last] FN: super_invocation_not_last/SuperInvocationNotLast__primary_superBeforeField.dart:3:10 The superconstructor call must be last in an initializer list.
+undefined_class 2 {'FN': 2} de 124
+      [undefined_class] FN: augmentation_modifier_extra/AugmentationModifierExtra__extensionTyp_72995408.dart:3:1 Undefined class 'augment'.
+      [undefined_class] FN: augmentation_modifier_missing/AugmentationModifierMissing__extensionT_f07aa47f.dart:3:1 Undefined class 'augment'.
+unnecessary_type_check 2 {'FP': 2} de 8
+      [unnecessary_type_check] FP: interface/injection1_test.dart:21:18 Unnecessary type check; the result is always 'true'.
+      [unnecessary_type_check] FP: interface/injection2_test.dart:19:18 Unnecessary type check; the result is always 'true'.
+class_instantiation_access_to_member 1 {'FN': 1} de 2
+      [class_instantiation_access_to_member] FN: explicit_type_instantiation_parsing_test.dart:265:3 The class 'Class' doesn't have a constructor named 'any'.
+conflicting_constructor_and_static_member 1 {'FN': 1} de 5
+      [conflicting_constructor_and_static_member] FN: primary_constructors/header/static_member_conflict_error_test.dart:59:20 'name' can't be used to name both a constructor and a static field in this class.
+const_constructor_with_field_initialized_by_non_const 1 {'FP': 1} de 3
+      [const_constructor_with_field_initialized_by_non_const] FP: primary_constructors/const/potentially_constant_error_test.dart:56:7 Can't define the 'const' constructor because the field 'i' is initialized with a non-constant value.
+const_eval_property_access 1 {'FN': 1} de 12
+      [const_eval_property_access] FN: primary_constructors/const/potentially_constant_error_test.dart:57:17 The property 'length' can't be accessed on the type 'List<dynamic>' in a constant expression.
+constructor_with_return_type 1 {'FN': 1} de 1
+      [constructor_with_return_type] FN: constructor/unnamed_new_error_test.dart:79:10 Constructors can't have a return type.
+disallowed_type_instantiation_expression 1 {'FN': 1} de 2
+      [disallowed_type_instantiation_expression] FN: dot_shorthands/type_parameter/type_parameter_error_test.dart:37:57 Only a generic type, generic function, generic instance method, or generic constructor can have type arguments.
+extension_type_implements_not_supertype 1 {'FN': 1} de 6
+      [extension_type_implements_not_supertype] FN: primary_constructors/type_inference/extension_type_error_test.dart:31:37 'A' is not a supertype of 'Object?', the representation type.
+extension_type_implements_representation_not_supertype 1 {'FN': 1} de 2
+      [extension_type_implements_representation_not_supertype] FN: primary_constructors/type_inference/extension_type_error_test.dart:41:37 'int?', the representation type of 'ES1', is not a supertype of 'Object?', the representation type of 'ET1'.
+factory_constructor_new_name 1 {'FN': 1} de 1
+      [factory_constructor_new_name] FN: constructor/unnamed_new_error_test.dart:35:11 Factory constructors can't be named 'new'.
+multiple_super_initializers 1 {'FN': 1} de 1
+      [multiple_super_initializers] FN: multiple_super_initializers/MultipleSuperInitializers__primary_twoS_7eab4ea8.dart:3:19 A constructor can have at most one 'super' initializer.
+override_on_non_overriding_member 1 {'FN': 1} de 21
+      [override_on_non_overriding_member] FN: override_on_non_overriding_field/OverrideOnNonOverridingField__class_pri_fb057801.dart:1:29 The field doesn't override an inherited getter or setter.
+positional_super_formal_parameter_with_positional_argument 1 {'FN': 1} de 2
+      [positional_super_formal_parameter_with_positional_argument] FN: positional_super_formal_parameter_with_positional_argument/PositionalSuperFormalParameterWithPosit_a3e770b9.dart:5:15 Positional super parameters can't be used when the super constructor invocati
+primary_constructor_body_with_expression_body 1 {'FN': 1} de 1
+      [primary_constructor_body_with_expression_body] FN: constructor_body/ConstructorBody__extensionType_primaryC_cb08b938.dart:2:8 A primary constructor body can't use '=>'.
+static_constructor 1 {'FN': 1} de 1
+      [static_constructor] FN: constructor/unnamed_new_error_test.dart:79:3 Constructors can't be static.
+super_in_enum_constructor 1 {'FN': 1} de 1
+      [super_in_enum_constructor] FN: super_in_enum_constructor/SuperInEnumConstructor__primary_one.dart:3:10 The enum constructor can't have a 'super' initializer.
+tearoff_of_generative_constructor_of_abstract_class 1 {'FN': 1} de 2
+      [tearoff_of_generative_constructor_of_abstract_class] FN: dot_shorthands/constructor/constructor_error_test.dart:50:35 A generative constructor of an abstract class can't be torn off.
+unchecked_use_of_nullable_value 1 {'FN': 1} de 178
+      [unchecked_use_of_nullable_value] FN: primary_constructors/type_inference/extension_type_error_test.dart:16:20 The property 'arglebargle' can't be unconditionally accessed because the receiver can be 'null'.
+undefined_enum_constructor 1 {'FN': 1} de 4
+      [undefined_enum_constructor] FN: primary_constructors/header/constructor_name_error_test.dart:36:3 The enum doesn't have an unnamed constructor.
+undefined_named_parameter 1 {'FP': 1} de 3
+      [undefined_named_parameter] FP: use_of_private_parameter_name/UseOfPrivateParameterName__andVoidLhsError.dart:8:5 The named parameter '_x' isn't defined.
+unexpected_token 1 {'FN': 1} de 7
+      [unexpected_token] FN: primary_constructors/syntax/empty_body_error_test.dart:18:6 Unexpected text 'const'.
+unnecessary_null_assert_pattern 1 {'FN': 1} de 7
+      [unnecessary_null_assert_pattern] FN: assignment_to_primary_constructor_parameter/AssignmentToPrimaryConstructorParameter_fcdbb29b.dart:2:13 The null-assert pattern will have no effect because the matched type isn't nullable.
+unused_import 1 {'FN': 1} de 42
+      [unused_import] FN: primary_constructors/wildcard_declaring_parameters_error_test.dart:5:8 Unused import: 'package:expect/expect.dart'.

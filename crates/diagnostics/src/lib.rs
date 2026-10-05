@@ -200,6 +200,52 @@ impl Codigo {
     }
 }
 
+/// Qual analyzer é a referência de nomes de código e de textos de um
+/// arquivo (docs/ANALYZER-ESPECIFICACAO.md, T2): o 3.6.2, ou o 3.13.4 para
+/// os arquivos de versão de linguagem acima da 3.6 e para os que usam
+/// sintaxe que o 3.6.2 não conhece.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, serde::Serialize, serde::Deserialize)]
+pub enum Referencia {
+    /// O analyzer 6.11.0, do SDK 3.6.2.
+    #[default]
+    V3_6,
+    /// O analyzer do SDK 3.13.4.
+    V3_13,
+}
+
+/// Como um código do catálogo 6.11 sai quando a referência é o 3.13.4.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Variante313 {
+    /// A entrada do catálogo 6.11.
+    pub de: Codigo,
+    /// A entrada com que o 3.13.4 relata (pode ser a mesma); `None` quando
+    /// o 3.13.4 não relata.
+    pub para: Option<Codigo>,
+    /// Os índices, nos argumentos do diagnóstico, dos argumentos do molde de
+    /// destino, na ordem dos `{n}` dele.
+    pub args: &'static [u8],
+    /// Quantos argumentos o diagnóstico tem de trazer para a linha valer.
+    pub exige: u8,
+}
+
+impl Codigo {
+    /// As linhas da tabela de variantes deste código, na ordem em que são
+    /// tentadas.
+    pub fn variantes_3_13(self) -> &'static [Variante313] {
+        let t = &codigos_g::VARIANTES_3_13[..];
+        let ini = t.partition_point(|v| v.de < self);
+        let fim = t.partition_point(|v| v.de <= self);
+        &t[ini..fim]
+    }
+
+    /// A variante que vale para um diagnóstico com `argumentos` argumentos:
+    /// a primeira que cabe. O emissor que não passa os argumentos que só o
+    /// 3.13 usa fica sem variante, e o diagnóstico sai como no 3.6.
+    pub fn variante_3_13(self, argumentos: usize) -> Option<&'static Variante313> {
+        self.variantes_3_13().iter().find(|v| argumentos >= v.exige as usize)
+    }
+}
+
 impl serde::Serialize for Codigo {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         s.serialize_str(self.info().unico)
@@ -255,6 +301,20 @@ pub fn formatar(molde: &str, args: &[Box<str>]) -> String {
     out
 }
 
+/// Uma mensagem de contexto de um diagnóstico (`DiagnosticMessage` do
+/// analyzer: "The first definition of this name", a declaração de um tipo
+/// homônimo…), que a saída mostra abaixo dele
+/// (docs/ANALYZER-ESPECIFICACAO-INFRA.md §3.3, §5.4, §5.5).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Contexto {
+    /// O arquivo da mensagem, quando não é o do diagnóstico (caminho
+    /// absoluto).
+    #[serde(default)]
+    pub arquivo: Option<Box<str>>,
+    pub span: Span,
+    pub mensagem: Box<str>,
+}
+
 /// Erro acompanhado da localização correspondente no código de origem.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Diagnostic {
@@ -273,6 +333,9 @@ pub struct Diagnostic {
     /// Argumentos do molde, na ordem dos `{n}`.
     #[serde(default)]
     pub args: Box<[Box<str>]>,
+    /// As mensagens de contexto (`contextMessages`); quase sempre vazio.
+    #[serde(default)]
+    pub contexto: Vec<Contexto>,
 }
 
 impl Diagnostic {
@@ -293,7 +356,14 @@ impl Diagnostic {
             code: None,
             severity: Severidade::Error,
             args: Box::default(),
+            contexto: Vec::new(),
         }
+    }
+
+    /// Acrescenta uma mensagem de contexto no mesmo arquivo do diagnóstico.
+    pub fn com_contexto(mut self, span: Span, mensagem: impl Into<Box<str>>) -> Self {
+        self.contexto.push(Contexto { arquivo: None, span, mensagem: mensagem.into() });
+        self
     }
 
     /// Cria um diagnóstico com código: a mensagem sai do molde oficial.
@@ -317,7 +387,31 @@ impl Diagnostic {
             code: Some(code),
             severity: info.severidade,
             args,
+            contexto: Vec::new(),
         }
+    }
+
+    /// O diagnóstico como o analyzer da referência `r` o relata: no 3.6,
+    /// ele mesmo; no 3.13.4, com o código, o texto e os argumentos da
+    /// variante ([`Codigo::variante_3_13`]), ou `None` quando o 3.13.4 não
+    /// o relata. A severidade acompanha a do código de destino, salvo se já
+    /// tiver sido reconfigurada.
+    pub fn na_referencia(mut self, r: Referencia) -> Option<Diagnostic> {
+        if r == Referencia::V3_6 {
+            return Some(self);
+        }
+        let Some(de) = self.code else { return Some(self) };
+        let Some(v) = de.variante_3_13(self.args.len()) else { return Some(self) };
+        let para = v.para?;
+        let args: Box<[Box<str>]> = v.args.iter().map(|&i| self.args[i as usize].clone()).collect();
+        let info = para.info();
+        if self.severity == de.info().severidade {
+            self.severity = info.severidade;
+        }
+        self.message = formatar(info.mensagem, &args);
+        self.code = Some(para);
+        self.args = args;
+        Some(self)
     }
 
     /// A correção renderizada do molde oficial, se o código tiver uma.
@@ -354,18 +448,86 @@ mod testes {
     }
 
     /// A tabela do analyzer 6.11 mais o suplemento 3.13.4 do gerador
-    /// (`SUPLEMENTO_3_13`: 4 `CompileTimeErrorCode` e 3 `ParserErrorCode`
-    /// de construtores primários, 3 `CompileTimeErrorCode` de atalhos de ponto).
+    /// (`SUPLEMENTO_3_13`): 4 `CompileTimeErrorCode` e 3 `ParserErrorCode`
+    /// de construtores primários, 3 `CompileTimeErrorCode` de atalhos de
+    /// ponto, os 10 códigos que só o 3.13.4 tem (5, 3 e 2 `WarningCode`) e
+    /// as 14 formas novas de códigos da 6.11 (12, 1 e 1).
     #[test]
     fn tabela_tem_as_contagens_do_analyzer_6_11_e_do_suplemento() {
         let conta = |prefixo: &str| Codigo::todos().filter(|c| c.info().unico.starts_with(prefixo)).count();
-        assert_eq!(conta("CompileTimeErrorCode."), 542 + 4 + 3);
+        assert_eq!(conta("CompileTimeErrorCode."), 542 + 4 + 3 + 5 + 12);
         assert_eq!(conta("StaticWarningCode."), 7);
-        assert_eq!(conta("WarningCode."), 144);
-        assert_eq!(conta("ParserErrorCode."), 265 + 3);
+        assert_eq!(conta("WarningCode."), 144 + 2 + 1);
+        assert_eq!(conta("ParserErrorCode."), 265 + 3 + 3 + 1);
         for c in Codigo::todos() {
             assert_eq!(Codigo::por_unico(c.info().unico), Some(c));
         }
+    }
+
+    /// A tabela de variantes está ordenada, e cada linha cabe nos moldes.
+    #[test]
+    fn variantes_3_13_ordenadas_e_coerentes() {
+        let t = &codigos_g::VARIANTES_3_13;
+        assert!(t.windows(2).all(|w| w[0].de <= w[1].de));
+        for v in t.iter() {
+            assert!(v.args.iter().all(|&i| i < v.exige));
+            assert_eq!(v.de.variantes_3_13().first().map(|p| p.de), Some(v.de));
+        }
+        assert!(codigos::compile_time_error::UNDEFINED_FUNCTION.variantes_3_13().is_empty());
+    }
+
+    /// Os casos c02, c03, c04, c05, c13 e c16 de `corpus/especificacao/t2/v`.
+    #[test]
+    fn na_referencia_troca_nome_texto_e_argumentos() {
+        use codigos::{compile_time_error as c, parser as p, warning as w};
+        let s = Span { start: 0, end: 1 };
+        let igual = Diagnostic::com_codigo(c::ENUM_WITHOUT_CONSTANTS, s, Vec::<String>::new());
+        assert_eq!(igual.clone().na_referencia(Referencia::V3_6), Some(igual.clone()));
+        let novo = igual.na_referencia(Referencia::V3_13).unwrap();
+        assert_eq!(novo.message, "The enum must have at least one enum constant.");
+        assert_eq!(novo.correcao().as_deref(), Some("Try declaring an enum constant."));
+        assert_eq!(novo.code.unwrap().info().nome, "enum_without_constants");
+
+        let campo = Diagnostic::com_codigo(p::REPRESENTATION_FIELD_MODIFIER, s, ["var"]);
+        assert_eq!(campo.message, "Representation fields can't have modifiers.");
+        assert_eq!(campo.na_referencia(Referencia::V3_13).unwrap().message, "Representation fields can't have the modifier 'var'.");
+
+        let parametro = Diagnostic::com_codigo(w::UNUSED_ELEMENT_PARAMETER, s, ["p"]);
+        assert_eq!(parametro.code.unwrap().info().nome, "unused_element");
+        let parametro = parametro.na_referencia(Referencia::V3_13).unwrap();
+        assert_eq!(parametro.code.unwrap().info().nome, "unused_element_parameter");
+        assert_eq!(parametro.message, "A value for optional parameter 'p' isn't ever given.");
+        assert_eq!(parametro.severity, Severidade::Warning);
+
+        let superior = Diagnostic::com_codigo(c::CONST_CONSTRUCTOR_WITH_NON_CONST_SUPER, s, ["B", "A"]);
+        assert!(superior.message.ends_with("of 'B'."));
+        assert!(superior.na_referencia(Referencia::V3_13).unwrap().message.ends_with("of 'A'."));
+        // Sem o argumento que só o 3.13 usa, o diagnóstico não muda.
+        let antigo = Diagnostic::com_codigo(c::CONST_CONSTRUCTOR_WITH_NON_CONST_SUPER, s, ["B"]);
+        assert_eq!(antigo.clone().na_referencia(Referencia::V3_13), Some(antigo));
+
+        let duas = Diagnostic::com_codigo(
+            c::AMBIGUOUS_EXTENSION_MEMBER_ACCESS,
+            s,
+            ["m", "extension 'E1' and extension 'E2'", "extension E1 on int", "extension E2 on int"],
+        );
+        assert_eq!(
+            duas.na_referencia(Referencia::V3_13).unwrap().message,
+            "A member named 'm' is defined in 'extension E1 on int' and 'extension E2 on int', and neither is more specific."
+        );
+        // Três ou mais: o texto do 3.13.4 é o do 3.6.2 (caso c25).
+        let tres = Diagnostic::com_codigo(c::AMBIGUOUS_EXTENSION_MEMBER_ACCESS, s, ["m", "extension 'E1', extension 'E2', and extension 'E3'"]);
+        assert_eq!(tres.clone().na_referencia(Referencia::V3_13), Some(tres));
+
+        let privado = Diagnostic::com_codigo(c::NON_EXHAUSTIVE_SWITCH_EXPRESSION, s, ["P", "P._b", "P._b", ""]);
+        let privado = privado.na_referencia(Referencia::V3_13).unwrap();
+        assert_eq!(privado.message, "The enum 'P' isn't exhaustively matched by the switch cases because some of the enum constants are private.");
+        assert_eq!(privado.correcao().as_deref(), Some("Try adding a wildcard pattern."));
+
+        let fora = Diagnostic::com_codigo(c::FIELD_INITIALIZER_OUTSIDE_CONSTRUCTOR, s, Vec::<String>::new());
+        assert_eq!(fora.na_referencia(Referencia::V3_13), None);
+        let do_parser = Diagnostic::com_codigo(p::FIELD_INITIALIZER_OUTSIDE_CONSTRUCTOR, s, Vec::<String>::new());
+        assert!(do_parser.na_referencia(Referencia::V3_13).is_some());
     }
 
     #[test]

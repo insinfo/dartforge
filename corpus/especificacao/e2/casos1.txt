@@ -1,0 +1,133 @@
+=== a01_class_class
+class class {}
+=== a02_class_sem_nome
+class {}
+=== a03_class_as
+class as {}
+=== a04_class_void
+class void {}
+=== a05_metodo_class
+class A { void class() {} }
+=== a06_campo_sem_nome
+class A { int }
+=== a07_campo_sem_nome_pv
+class A { int; }
+=== a08_var_sem_nome
+class A { var }
+=== a09_param_class
+void f(int class) {}
+=== a10_param_so_tipo
+void f(int) {}
+=== a11_param_a_b
+void f(int a b) {}
+=== a12_param_virgula
+void f(,) {}
+=== a13_local_class
+void f() { int class = 10; }
+=== a14_local_var_pv
+void f() { var; }
+=== a15_local_var_class
+void f() { var class; }
+=== a16_local_xyz
+void f() { x y z; }
+=== a17_typedef_void_as
+typedef void as();
+=== a18_typedef_as
+typedef as = int;
+=== a19_typedef_Function
+typedef Function = int;
+=== a20_typedef_class
+typedef class = int;
+=== a21_typedef_sem_nome
+typedef = int;
+=== a22_enum_class
+enum class { a }
+=== a23_enum_sem_nome
+enum { a }
+=== a24_enum_valor_class
+enum E { class }
+=== a25_enum_virgulas
+enum E { a, , b }
+=== a26_break_class
+void f() { while (true) { break class; } }
+=== a27_rotulo_class
+void f() { class: while (true) {} }
+=== a28_import_as_class
+import 'dart:core' as class;
+=== a29_import_as_vazio
+import 'dart:core' as;
+=== a30_import_as_show
+import 'dart:core' as show;
+=== a31_campo_class
+class A { int class = 1; }
+=== a32_topo_int_class
+int class = 10;
+=== a33_topo_var_pv
+var;
+=== a34_topo_xyz
+x y z;
+=== a35_arg_nomeado_class
+void g({int? x}) {}
+void f() { g(class: 1); }
+=== a36_arg_nomeado_vazio
+void g({int? x}) {}
+void f() { g(: 1); }
+=== a37_interp_class
+var s = "$class";
+=== a38_interp_is
+var s = "a $is b";
+=== a39_interp_vazio
+var s = "$";
+=== a40_print_is
+void f() { print(is String); }
+=== a41_var_igual_pv
+void f() { var x = ; }
+=== a42_x_as
+void f() { var x = as; }
+=== a43_expr_class
+void f() { var x = class; }
+=== a44_expr_if
+void f() { var x = if; }
+=== a45_ponto_class
+void f(dynamic a) { a.class; }
+=== a46_ponto_vazio
+void f(dynamic a) { a.; }
+=== a47_metodo_sem_nome
+class A { void () {} }
+=== a48_topo_fn_class
+void class() {}
+=== a49_tipo_param_class
+class A<class> {}
+=== a50_tipo_param_vazio
+class A<> {}
+=== a51_catch_class
+void f() { try {} catch (class) {} }
+=== a52_catch_vazio
+void f() { try {} catch () {} }
+=== a53_show_class
+import 'dart:core' show class;
+=== a54_show_vazio
+import 'dart:core' show ;
+=== a55_library_class
+library class;
+=== a56_simbolo_class
+var s = #class;
+=== a57_new_class
+var x = new class();
+=== a58_anot_class
+@class
+void f() {}
+=== a59_local_fn_class
+void f() { void class() {} }
+=== a60_this_ponto
+class A { int x; A(this.); }
+=== a61_await_x
+void f() { await x; }
+=== a62_topo_fn_sem_nome
+void () {}
+=== a63_topo_int_pv
+int;
+=== a64_topo_as_campo
+int as = 1;
+=== a65_eof_class
+class

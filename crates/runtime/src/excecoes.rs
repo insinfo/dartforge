@@ -336,7 +336,7 @@ pub extern "C" fn dartforge_format_exception_new(msg_handle: i64, src_handle: i6
     if let Some(f) = ajudante("_dartforgeErroDeFormato") {
         // SAFETY: registrado pelo `dart:core` com a assinatura
         // `(String, Object?, int) -> Object`.
-        let g: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
+        let g = { let alvo_dart: usize = f; move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(alvo_dart, a0, a1, a2) } };
         return com_raizes(&[msg_handle, src_handle], || g(msg_handle, src_handle, offset));
     }
     HEAP.with(|h| {
@@ -348,7 +348,7 @@ pub extern "C" fn dartforge_format_exception_new(msg_handle: i64, src_handle: i6
 pub extern "C" fn dartforge_state_error_new(msg_handle: i64) -> i64 {
     if let Some(f) = ajudante("_dartforgeErroDeEstado") {
         // SAFETY: registrado pelo `dart:core` com a assinatura `(String) -> Object`.
-        let g: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(f) };
+        let g = { let alvo_dart: usize = f; move |a0: i64| -> i64 { dart_r1(alvo_dart, a0) } };
         return com_raizes(&[msg_handle], || g(msg_handle));
     }
     alocar_erro_com_rastro(1002, vec![(msg_handle, true)])
@@ -359,7 +359,7 @@ pub extern "C" fn dartforge_argument_error_new(msg_handle: i64, name_handle: i64
     if let Some(f) = ajudante("_dartforgeErroDeArgumento") {
         // SAFETY: registrado pelo `dart:core` com a assinatura
         // `(String?, String?) -> Object`.
-        let g: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
+        let g = { let alvo_dart: usize = f; move |a0: i64, a1: i64| -> i64 { dart_r2(alvo_dart, a0, a1) } };
         return com_raizes(&[msg_handle, name_handle], || g(msg_handle, name_handle));
     }
     alocar_erro_com_rastro(1003, vec![(msg_handle, true), (name_handle, true), (0, false), (0, false), (0, false)])
@@ -389,7 +389,7 @@ pub extern "C" fn dartforge_range_error_new(msg_handle: i64) -> i64 {
 pub extern "C" fn dartforge_range_error_range(val: i64, min: i64, max: i64, name_handle: i64, msg_handle: i64) -> i64 {
     if let Some(f) = ajudante("_dartforgeErroDeFaixa") {
         // SAFETY: registrado pelo `dart:core`: `(int, int, int, String?) -> Object`.
-        let g: extern "C" fn(i64, i64, i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
+        let g = { let alvo_dart: usize = f; move |a0: i64, a1: i64, a2: i64, a3: i64| -> i64 { dart_r4(alvo_dart, a0, a1, a2, a3) } };
         let _ = msg_handle;
         return com_raizes(&[name_handle], || g(val, min, max, name_handle));
     }
@@ -423,7 +423,7 @@ pub extern "C" fn dartforge_range_error_index(index: i64, indexable_or_len: i64,
 pub extern "C" fn dartforge_unsupported_error_new(msg_handle: i64) -> i64 {
     if let Some(f) = ajudante("_dartforgeErroNaoSuportado") {
         // SAFETY: registrado pelo `dart:core` com a assinatura `(String?) -> Object`.
-        let g: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(f) };
+        let g = { let alvo_dart: usize = f; move |a0: i64| -> i64 { dart_r1(alvo_dart, a0) } };
         return com_raizes(&[msg_handle], || g(msg_handle));
     }
     alocar_erro_com_rastro(1005, vec![(msg_handle, true)])
@@ -438,7 +438,7 @@ pub extern "C" fn dartforge_unimplemented_error_new(msg_handle: i64) -> i64 {
 pub extern "C" fn dartforge_assertion_error_new(msg_bits: i64, is_ref: u8) -> i64 {
     if let Some(f) = ajudante("_dartforgeErroDeAssercao") {
         // SAFETY: registrado pelo `dart:core` com a assinatura `(Object?) -> Object`.
-        let g: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(f) };
+        let g = { let alvo_dart: usize = f; move |a0: i64| -> i64 { dart_r1(alvo_dart, a0) } };
         let m = if is_ref != 0 { msg_bits } else { HEAP.with(|h| h.borrow_mut().como_ref(crate::heap::Valor::Int(msg_bits))) };
         return com_raizes(&[m], || g(m));
     }
@@ -461,7 +461,7 @@ pub extern "C" fn dartforge_type_error_new() -> i64 {
 pub extern "C" fn dartforge_late_error_new(nome: i64, codigo: i64) -> i64 {
     if let Some(f) = ajudante("_dartforgeErroLate") {
         // SAFETY: helper registrado pelo dart:_internal como (String, int) -> Object.
-        let g: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
+        let g = { let alvo_dart: usize = f; move |a0: i64, a1: i64| -> i64 { dart_r2(alvo_dart, a0, a1) } };
         return com_raizes(&[nome], || g(nome, codigo));
     }
     let n = HEAP.with(|h| h.borrow().texto(nome).map(|t| t.para_string()).unwrap_or_default());
@@ -486,7 +486,7 @@ pub extern "C" fn dartforge_late_error_new(nome: i64, codigo: i64) -> i64 {
 pub extern "C" fn dartforge_stack_overflow_error_new() -> i64 {
     if let Some(f) = ajudante("_dartforgeErroPilha") {
         // SAFETY: helper registrado pelo dart:_internal como () -> Object.
-        let g: extern "C" fn() -> i64 = unsafe { std::mem::transmute(f) };
+        let g = { let alvo_dart: usize = f; move || -> i64 { dart_r0(alvo_dart) } };
         return g();
     }
     let msg = texto_de_erro("Stack Overflow");
@@ -505,7 +505,7 @@ pub extern "C" fn dartforge_no_such_method_error_new(nome: i64) -> i64 {
     if let Some(f) = ajudante("_dartforgeErroDeChamada") {
         // O SDK da fonte fornece a instância concreta de NoSuchMethodError.
         // O nome é enraizado enquanto os construtores Dart alocam.
-        let g: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(f) };
+        let g = { let alvo_dart: usize = f; move |a0: i64| -> i64 { dart_r1(alvo_dart, a0) } };
         return com_raizes(&[nome], || g(nome));
     }
     alocar_erro_com_rastro(1012, vec![(nome, true)])
@@ -548,7 +548,7 @@ fn campo_como_ref(handle: i64, indice: usize) -> i64 {
 fn erro_da_fonte_com_texto(nome: &str, texto: &str) -> Option<i64> {
     let f = ajudante(nome)?;
     // SAFETY: registrado pelo `dart:core` com a assinatura `(String) -> Object`.
-    let g: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(f) };
+    let g = { let alvo_dart: usize = f; move |a0: i64| -> i64 { dart_r1(alvo_dart, a0) } };
     let t = texto_de_erro(texto);
     Some(com_raizes(&[t], || g(t)))
 }

@@ -1,0 +1,11 @@
+const a = bool.fromEnvironment('x');
+const b = int.fromEnvironment('x');
+const c = String.fromEnvironment('x');
+const d = bool.hasEnvironment('x');
+const e = a ? 1 : 'a';
+const f = bool.fromEnvironment(1);
+const g = int.fromEnvironment('x', defaultValue: 'a');
+const h = Symbol('a');
+const i = b ~/ 0;
+const j = !b;
+const k = a && 1;

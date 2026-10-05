@@ -1,0 +1,82 @@
+== b2
+  ambiguous_export | 24+8 | 2:8 | [main.dart] The name 'Zed' is defined in the libraries 'file:///E:/dftemp/analise/spec-r4/casos/f1/b2/exp2/a.dart' and 'file:///E:/dftemp/analise/spec-r4/casos/f1/b2/exp2/b.dart'.
+  ambiguous_export | 48+8 | 3:8 | [main2.dart] The name 'A' is defined in the libraries 'file:///E:/dftemp/analise/spec-r4/casos/f1/b2/exp2/c.dart' and 'file:///E:/dftemp/analise/spec-r4/casos/f1/b2/exp2/b.dart'.
+  unused_field | 17+14 | 2:8 | [lib.dart] The value of the field '_instanceField' isn't used.
+  unused_field | 54+2 | 3:14 | [lib.dart] The value of the field '_s' isn't used.
+  unused_element | 69+2 | 4:8 | [lib.dart] The declaration '_m' isn't referenced.
+  unused_element | 83+4 | 6:5 | [lib.dart] The declaration '_top' isn't referenced.
+  undefined_identifier | 81+14 | 5:5 | [main.dart] Undefined name '_instanceField'.
+  undefined_identifier | 108+14 | 6:5 | [main.dart] Undefined name '_instanceField'.
+  undefined_method | 128+2 | 7:5 | [main.dart] The method '_m' isn't defined for the type 'Test'.
+  undefined_identifier | 138+2 | 8:5 | [main.dart] Undefined name '_s'.
+  undefined_identifier | 146+4 | 9:5 | [main.dart] Undefined name '_top'.
+  undefined_prefixed_name | 158+4 | 10:7 | [main.dart] The name '_top' is being referenced through the prefix 'p', but it isn't defined in any of the libraries imported using that prefix.
+  undefined_class | 14+6 | 2:1 | [t03.dart] Undefined class 'Record'.
+  undefined_identifier | 38+6 | 4:3 | [t03.dart] Undefined name 'Record'.
+  prefix_identifier_not_followed_by_dot | 60+3 | 4:3 | [t05.dart] The name 'max' refers to an import prefix, so it must be followed by '.'.
+  prefix_identifier_not_followed_by_dot | 67+3 | 5:3 | [t05.dart] The name 'max' refers to an import prefix, so it must be followed by '.'.
+  undefined_class | 25+7 | 2:1 | [t06.dart] Undefined class 'Undef'.
+  creation_with_non_type | 64+5 | 4:9 | [t06.dart] The name 'Undef' isn't a class.
+  creation_with_non_type | 83+5 | 5:11 | [t06.dart] The name 'Undef' isn't a class.
+  creation_with_non_type | 100+5 | 6:9 | [t06.dart] The name 'Undef' isn't a class.
+  creation_with_non_type | 123+2 | 7:9 | [t06.dart] The name 'pi' isn't a class.
+  non_type_in_catch_clause | 141+7 | 8:13 | [t06.dart] The name 'Undef' isn't a type and can't be used in an on-catch clause.
+  unused_catch_clause | 156+1 | 8:28 | [t06.dart] The exception variable 'e' isn't used, so the 'catch' clause can be removed.
+  type_test_with_undefined_name | 169+7 | 9:8 | [t06.dart] The name 'Undef' isn't defined, so it can't be used in an 'is' expression.
+  cast_to_non_type | 185+7 | 10:8 | [t06.dart] The name 'Undef' isn't a type, so it can't be used in an 'as' expression.
+  non_type_as_type_argument | 197+7 | 11:4 | [t06.dart] The name 'Undef' isn't a type, so it can't be used as a type argument.
+  not_a_type | 211+4 | 12:3 | [t06.dart] pi isn't a type.
+  unused_local_variable | 216+1 | 12:8 | [t06.dart] The value of the local variable 'x' isn't used.
+  redirect_to_non_class | 249+7 | 15:19 | [t06.dart] The name 'Undef' isn't a type and can't be used in a redirected constructor.
+  extends_non_class | 283+7 | 18:17 | [t06.dart] Classes can only extend other classes.
+  uri_does_not_exist | 7+10 | 1:8 | [t07.dart] Target of URI doesn't exist: 'dart:foo'.
+  undefined_function | 33+1 | 4:3 | [t07.dart] The function 'A' isn't defined.
+  undefined_function | 46+3 | 5:3 | [t07.dart] The function 'foo' isn't defined.
+  undefined_function | 64+1 | 6:3 | [t07.dart] The function 'E' isn't defined.
+  undefined_identifier | 78+1 | 7:3 | [t07.dart] Undefined name 'A'.
+  undefined_class | 83+1 | 8:3 | [t07.dart] Undefined class 'A'.
+  unused_local_variable | 85+1 | 8:5 | [t07.dart] The value of the local variable 'x' isn't used.
+  undefined_class | 0+11 | 1:1 | [t08.dart] Undefined class 'UnknownType'.
+  undefined_function | 26+11 | 1:27 | [t08.dart] The function 'UnknownType' isn't defined.
+  undefined_method | 71+3 | 4:5 | [t08.dart] The method 'foo' isn't defined for the type 'A'.
+  undefined_method | 120+1 | 7:19 | [t08.dart] The method 'X' isn't defined for the type 'A'.
+  undefined_method | 142+1 | 8:18 | [t08.dart] The method 'Y' isn't defined for the type 'A'.
+  undefined_method | 157+1 | 9:11 | [t08.dart] The method 'Z' isn't defined for the type 'A'.
+  unused_import | 7+12 | 1:8 | [t12.dart] Unused import: 'dart:async'.
+  prefix_shadowed_by_local_declaration | 104+1 | 7:5 | [t12.dart] The prefix 'a' can't be used here because it's shadowed by a local declaration.
+  unused_local_variable | 114+1 | 7:15 | [t12.dart] The value of the local variable 'x' isn't used.
+  undefined_getter | 143+6 | 11:5 | [t12.dart] The getter 'Future' isn't defined for the type 'int'.
+  undefined_getter | 155+6 | 12:5 | [t12.dart] The getter 'Future' isn't defined for the type 'int'.
+  unused_import | 7+11 | 1:8 | [t13.dart] Unused import: 'dart:math'.
+  prefix_shadowed_by_local_declaration | 40+1 | 3:3 | [t13.dart] The prefix 'p' can't be used here because it's shadowed by a local declaration.
+  undefined_getter | 72+2 | 5:7 | [t13.dart] The getter 'pi' isn't defined for the type 'Type'.
+  undefined_getter | 107+2 | 10:5 | [t13.dart] The getter 'pi' isn't defined for the type 'Type'.
+  referenced_before_declaration | 21+1 | 2:11 | [t14.dart] Local variable 'x' can't be referenced before it is declared.
+  referenced_before_declaration | 34+1 | 3:11 | [t14.dart] Local variable 'y' can't be referenced before it is declared.
+  referenced_before_declaration | 43+1 | 4:3 | [t14.dart] Local variable 'g' can't be referenced before it is declared.
+  referenced_before_declaration | 45+1 | 4:5 | [t14.dart] Local variable 'g' can't be referenced before it is declared.
+  referenced_before_declaration | 103+1 | 9:9 | [t14.dart] Local variable 'a' can't be referenced before it is declared.
+  referenced_before_declaration | 121+1 | 11:11 | [t14.dart] Local variable 'a' can't be referenced before it is declared.
+  referenced_before_declaration | 183+1 | 16:24 | [t14.dart] Local variable 'b' can't be referenced before it is declared.
+  instance_member_access_from_static | 104+1 | 8:5 | [t15.dart] Instance members can't be accessed from a static method.
+  instance_member_access_from_static | 113+1 | 9:5 | [t15.dart] Instance members can't be accessed from a static method.
+  unqualified_reference_to_non_local_static_member | 120+1 | 10:5 | [t15.dart] Static members from supertypes must be qualified by the name of the defining type.
+  undefined_method | 163+1 | 15:5 | [t15.dart] The method 's' isn't defined for the type 'M'.
+  undefined_method | 172+1 | 16:5 | [t15.dart] The method 'g' isn't defined for the type 'M'.
+  prefix_identifier_not_followed_by_dot | 86+1 | 6:3 | [t16.dart] The name '_' refers to an import prefix, so it must be followed by '.'.
+  invocation_of_non_function | 98+1 | 6:3 | [t17.dart] 'F' isn't a function.
+  new_with_undefined_constructor_default | 105+1 | 7:3 | [t17.dart] The class 'G' doesn't have an unnamed constructor.
+  new_with_undefined_constructor_default | 112+6 | 8:3 | [t17.dart] The class 'G' doesn't have an unnamed constructor.
+  creation_with_non_type | 128+1 | 9:7 | [t17.dart] The name 'F' isn't a class.
+  invocation_of_non_function_expression | 135+1 | 10:3 | [t17.dart] The expression doesn't evaluate to a function, so it can't be invoked.
+  invocation_of_non_function | 155+7 | 12:3 | [t17.dart] 'dynamic' isn't a function.
+  invocation_of_non_function | 168+5 | 13:3 | [t17.dart] 'Never' isn't a function.
+  instance_member_access_from_static | 68+1 | 6:5 | [t18.dart] Instance members can't be accessed from a static method.
+  undefined_identifier | 75+1 | 7:5 | [t18.dart] Undefined name 'y'.
+  undefined_identifier | 106+1 | 11:5 | [t18.dart] Undefined name 'y'.
+  undefined_identifier | 113+1 | 12:5 | [t18.dart] Undefined name 'y'.
+  undefined_method | 124+1 | 13:5 | [t18.dart] The method 'y' isn't defined for the type 'A'.
+  unused_element | 160+1 | 17:8 | [t18.dart] The declaration 'n' isn't referenced.
+  unchecked_use_of_nullable_value | 170+1 | 18:5 | [t18.dart] The property 'x' can't be unconditionally accessed because the receiver can be 'null'.
+  unchecked_use_of_nullable_value | 177+2 | 19:5 | [t18.dart] The property 'zz' can't be unconditionally accessed because the receiver can be 'null'.
+  undefined_identifier | 177+2 | 19:5 | [t18.dart] Undefined name 'zz'.

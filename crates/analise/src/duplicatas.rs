@@ -37,9 +37,12 @@ struct Elem {
     de_campo: bool,
     /// Parâmetro `this.x` (`DUPLICATE_FIELD_FORMAL_PARAMETER`).
     formal_campo: bool,
+    /// O nome da primeira declaração, para a mensagem de contexto (vazio
+    /// quando não é conhecido).
+    onde: Span,
 }
 
-const OUTRO: Elem = Elem { tipo: Tipo::Outro, de_campo: false, formal_campo: false };
+const OUTRO: Elem = Elem { tipo: Tipo::Outro, de_campo: false, formal_campo: false, onde: Span { start: 0, end: 0 } };
 
 type Escopo = HashMap<String, Elem>;
 
@@ -76,11 +79,17 @@ impl Relato<'_> {
                     } else {
                         c::DUPLICATE_DEFINITION
                     };
-                    self.por(codigo, span, &[nome]);
+                    // `DiagnosticFactory.duplicateDefinition`: a primeira
+                    // definição vai como mensagem de contexto.
+                    let mut d = Diagnostic::com_codigo(codigo, span, [nome]);
+                    if codigo == c::DUPLICATE_DEFINITION && anterior.onde.start != anterior.onde.end {
+                        d = d.com_contexto(anterior.onde, "The first definition of this name.");
+                    }
+                    self.out.push((self.unidade, d));
                 }
             }
             None => {
-                getters.insert(nome.to_string(), e);
+                getters.insert(nome.to_string(), Elem { onde: span, ..e });
             }
         }
         if let Some(setters) = setters {
@@ -103,10 +112,10 @@ impl Relato<'_> {
         span: Span,
         mutavel: bool,
     ) {
-        let g = Elem { tipo: Tipo::Getter, de_campo: true, formal_campo: false };
+        let g = Elem { tipo: Tipo::Getter, de_campo: true, ..OUTRO };
         self.conferir(getters, setters.as_deref_mut(), nome, span, g);
         if mutavel {
-            let s = Elem { tipo: Tipo::Setter, de_campo: true, formal_campo: false };
+            let s = Elem { tipo: Tipo::Setter, de_campo: true, ..OUTRO };
             self.conferir(getters, setters, nome, span, s);
         }
     }
@@ -120,22 +129,6 @@ fn tipo_da_funcao(k: FunctionKind) -> Tipo {
     }
 }
 
-/// Recursos que o analyzer 3.6.2 não conhece (os de
-/// `dartforge_paridade::oraculo::RECURSOS_DESCONHECIDOS_NO_3_6_2`): uma
-/// biblioteca que os usa tem por referência o analyzer 3.13.4
-/// (docs/VERSOES-LINGUAGEM.md, placar), que não junta declarações de mesmo
-/// nome (ver [`duplicatas`]).
-pub const RECURSOS_POSTERIORES_AO_3_6: &[&str] = &["dot-shorthands", "primary-constructors", "private-named-parameters"];
-
-/// A sintaxe da unidade (os diagnósticos do parser) usa um recurso que o
-/// 3.6.2 não conhece.
-pub fn usa_sintaxe_posterior_ao_3_6(sintaxe: &[Diagnostic]) -> bool {
-    sintaxe.iter().any(|d| {
-        d.code.is_some_and(|c| c.info().nome == "experiment_not_enabled")
-            && d.args.first().is_some_and(|a| RECURSOS_POSTERIORES_AO_3_6.contains(&&**a))
-    })
-}
-
 /// Todos os diagnósticos de nomes duplicados de uma biblioteca, com o índice
 /// da unidade em que cada um cai. `curinga`: a biblioteca tem
 /// `wildcard-variables` (3.7+), e `_` local não declara nada.
@@ -144,8 +137,9 @@ pub fn usa_sintaxe_posterior_ao_3_6(sintaxe: &[Diagnostic]) -> bool {
 /// 3.6.2), em que duas declarações de mesmo nome e espécie na mesma unidade
 /// são o mesmo elemento e os membros de uma se conferem com os da outra
 /// ([`ChaveDeElemento`]). O 3.13.4 não junta (conferido com os dois SDKs):
-/// passe `false` numa biblioteca com sintaxe posterior ao 3.6
-/// ([`usa_sintaxe_posterior_ao_3_6`]).
+/// passe `false` numa biblioteca cuja referência é o 3.13.4
+/// (`dartforge_elements::Program::referencia_da_biblioteca`, ou
+/// `dartforge_frontend::parser::Parsed::referencia` para um arquivo só).
 pub fn duplicatas(
     unidades: &[Unidade<'_>],
     interner: &Interner,
@@ -615,7 +609,7 @@ fn membros_da_unidade(rel: &mut Relato<'_>, u: &Unidade<'_>) -> (Vec<Contexto>, 
             }
             DeclKind::ExtensionType(x) => {
                 ctx.construtores.insert(x.constructor.map(|n| rel.nome(n)).unwrap_or_default());
-                ctx.ig.insert(rel.nome(x.representation_name), Elem { tipo: Tipo::Getter, de_campo: true, formal_campo: false });
+                ctx.ig.insert(rel.nome(x.representation_name), Elem { tipo: Tipo::Getter, de_campo: true, ..OUTRO });
                 ctx.membros = x.members.clone();
             }
             DeclKind::Enum(x) => {
@@ -626,7 +620,7 @@ fn membros_da_unidade(rel: &mut Relato<'_>, u: &Unidade<'_>) -> (Vec<Contexto>, 
                     if n == nome {
                         rel.por(c::ENUM_CONSTANT_SAME_NAME_AS_ENCLOSING, k.name.span, &[]);
                     }
-                    let e = Elem { tipo: Tipo::Getter, de_campo: true, formal_campo: false };
+                    let e = Elem { tipo: Tipo::Getter, de_campo: true, ..OUTRO };
                     rel.conferir(&mut ctx.sg, None, &n, k.name.span, e);
                     if n == "values" {
                         rel.por(c::VALUES_DECLARATION_IN_ENUM, k.name.span, &[]);

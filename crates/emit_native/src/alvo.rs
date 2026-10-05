@@ -37,6 +37,167 @@ pub const fn sistema() -> Sistema {
     }
 }
 
+/// O modelo de exceções do código gerado
+/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13), pela variável
+/// `DARTFORGE_EXCECOES` (o `--excecoes=` de `compile-native` a define):
+///
+/// * ausente, vazia ou `checagem`: a exceção é uma pendência do runtime que
+///   quem chama confere depois de cada chamada — o IR de sempre, byte a byte;
+/// * `tabelas`: a chamada Dart que lança desenrola a pilha até o
+///   `landingpad` de quem a trata (`otimizar/tabelas.rs`), com a
+///   personalidade do runtime (`dartforge_personalidade`). Só no Windows
+///   x86-64, o único alvo com a personalidade escrita, e sem o rastro de
+///   funções (`DARTFORGE_RASTRO=1` conta entradas e saídas, e o
+///   desenrolamento pula as saídas).
+///
+/// O programa e o SDK têm de sair no mesmo modelo: a variável entra na chave
+/// do SDK compilado (`sdk_modulo::chave_do_sdk`).
+///
+/// # Errors
+/// Valor desconhecido, ou `tabelas` onde o modo não existe.
+pub fn excecoes_por_tabelas() -> Result<bool, String> {
+    let valor = std::env::var("DARTFORGE_EXCECOES").unwrap_or_default();
+    match valor.as_str() {
+        "" | "checagem" => Ok(false),
+        "tabelas" => {
+            // Windows x86-64 (SEH) e, pela personalidade Itanium do
+            // runtime (Etapa 4, escrita e nunca executada), Linux e macOS
+            // em x86-64 e aarch64.
+            let seh = cfg!(windows) && cfg!(target_arch = "x86_64");
+            let itanium = cfg!(unix) && (cfg!(target_arch = "x86_64") || cfg!(target_arch = "aarch64"));
+            if !(seh || itanium) {
+                return Err(
+                    "as exceções por tabelas (--excecoes=tabelas) só existem no Windows x86-64 e, em Linux e macOS, em x86-64 e aarch64".to_string()
+                );
+            }
+            if std::env::var("DARTFORGE_RASTRO").is_ok_and(|v| v == "1") {
+                return Err("as exceções por tabelas (--excecoes=tabelas) não combinam com DARTFORGE_RASTRO=1".to_string());
+            }
+            Ok(true)
+        }
+        outro => Err(format!("DARTFORGE_EXCECOES={outro}: os modelos de exceção são `checagem` e `tabelas`")),
+    }
+}
+
+/// Onde ficam as raízes do coletor no código gerado
+/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8), pela variável
+/// `DARTFORGE_RAIZES` (o `--raizes=` de `compile-native` a define):
+///
+/// * ausente, vazia ou `sombra`: o quadro de raízes de cada função (a
+///   pilha-sombra) — o IR de sempre, byte a byte;
+/// * `mapas`: os valores SSA vivos através de uma chamada saem nos mapas de
+///   pilha do LLVM (`rewrite-statepoints-for-gc`), e o coletor os acha
+///   percorrendo a pilha nativa. No Windows x86-64 (o percorredor do SEH,
+///   `RtlVirtualUnwind`) e, desde a Etapa 4, no Linux e no macOS em x86-64 e
+///   aarch64 (o percorredor do `_Unwind_Backtrace`); o Windows arm64 fica na
+///   pilha-sombra até um percorredor dele ser testado. Só com o gerador
+///   embutido (o `clang` não roda o passe).
+///
+/// O programa e o SDK têm de sair no mesmo modo: a variável entra na chave
+/// do SDK compilado.
+///
+/// # Errors
+/// Valor desconhecido, ou `mapas` onde o modo não existe.
+pub fn raizes_por_mapas() -> Result<bool, String> {
+    let valor = std::env::var("DARTFORGE_RAIZES").unwrap_or_default();
+    match valor.as_str() {
+        "" | "sombra" => Ok(false),
+        "mapas" => {
+            let alvo_com_percorredor = (cfg!(windows) && cfg!(target_arch = "x86_64"))
+                || ((cfg!(target_os = "linux") || cfg!(target_os = "macos")) && (cfg!(target_arch = "x86_64") || cfg!(target_arch = "aarch64")));
+            if !alvo_com_percorredor {
+                return Err(
+                    "as raízes por mapas (--raizes=mapas) existem no Windows x86-64 e no Linux e no macOS em x86-64 e aarch64".to_string(),
+                );
+            }
+            if !crate::gerador::GERADOR_EMBUTIDO || std::env::var("DARTFORGE_GERADOR").is_ok_and(|g| g == "clang") {
+                return Err("as raízes por mapas (--raizes=mapas) exigem o gerador embutido do dartforge (o Clang não roda o passe dos mapas)".to_string());
+            }
+            Ok(true)
+        }
+        outro => Err(format!("DARTFORGE_RAIZES={outro}: os modos de raízes são `sombra` e `mapas`")),
+    }
+}
+
+/// O rastro no formato da VM (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
+/// §13.14), pela variável `DARTFORGE_RASTRO_VM` (o `--rastro=` de
+/// `compile-native` a define):
+///
+/// * ausente, vazia ou `nenhum`: sem tabela, o IR de sempre, e o texto do
+///   rastro é o de hoje;
+/// * `simbolico`: cada chamada que pode aparecer num rastro ganha um rótulo
+///   antes dela e uma entrada na seção `dfpcl` (`llvm/rastro.rs`): o
+///   endereço do rótulo, a função (nome e url) e a linha e a coluna. O
+///   runtime guarda os endereços de retorno no `throw` e simboliza só quando
+///   o texto é pedido.
+///
+/// Só onde o runtime percorre a pilha nativa (Windows x86-64; Linux e macOS
+/// em x86-64 e aarch64). O JIT não emite a tabela. A variável entra na chave
+/// do SDK compilado.
+///
+/// # Errors
+/// Valor desconhecido, ou `simbolico` num alvo sem o percorredor.
+pub fn rastro_simbolico() -> Result<bool, String> {
+    let valor = std::env::var("DARTFORGE_RASTRO_VM").unwrap_or_default();
+    match valor.as_str() {
+        "" | "nenhum" => Ok(false),
+        "simbolico" => {
+            let com_percorredor = (cfg!(windows) && cfg!(target_arch = "x86_64"))
+                || ((cfg!(target_os = "linux") || cfg!(target_os = "macos")) && (cfg!(target_arch = "x86_64") || cfg!(target_arch = "aarch64")));
+            if !com_percorredor {
+                return Err("o rastro simbólico (--rastro=simbolico) existe no Windows x86-64 e no Linux e no macOS em x86-64 e aarch64".to_string());
+            }
+            Ok(true)
+        }
+        outro => Err(format!("DARTFORGE_RASTRO_VM={outro}: os rastros são `simbolico` e `nenhum`")),
+    }
+}
+
+/// O teto do orçamento do `rewrite-statepoints-for-gc` por função
+/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.4): `vivos × pontos de
+/// coleta`. Acima dele a função fica na pilha-sombra (o quadro residual,
+/// §3.7). `DARTFORGE_ORCAMENTO_MAPAS=<n>` muda o teto (entra na chave do SDK
+/// compilado); o padrão, 250 000, é 500 valores enraizados através de 500
+/// pontos.
+pub fn orcamento_dos_mapas() -> u64 {
+    std::env::var("DARTFORGE_ORCAMENTO_MAPAS").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(250_000)
+}
+
+/// O build de conferência do percurso por mapas (§15.2, E2.5):
+/// `DARTFORGE_RAIZES_CONFERIR=1` na compilação, com `--raizes=mapas`. Cada
+/// função `gc` grava também, antes de cada ponto de coleta, os vivos dele
+/// em slots do quadro da pilha-sombra; com `DARTFORGE_GC_PERCURSO=conferir`
+/// na execução, o runtime exige que o percurso por mapas os tenha visitado.
+pub fn conferir_raizes() -> bool {
+    std::env::var("DARTFORGE_RAIZES_CONFERIR").is_ok_and(|v| v == "1")
+}
+
+/// Uma sabotagem de teste ligada na compilação (`DARTFORGE_SABOTAGEM=a,b,…`,
+/// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.3 e §14.7). Cada teste
+/// dirigido do modo mapas tem de falhar com a dele; um teste que não falha
+/// com a sabotagem não conta. As do emissor:
+///
+/// * `folha:<extern>`: declara a extern `"gc-leaf-function"` mesmo coletando
+///   (o mapa perde os registros das chamadas a ela);
+/// * `pouso_sem_topo`: o pouso de um `invoke` não restaura o topo da
+///   pilha-sombra;
+/// * `sem_uso_ficticio`: nenhum `llvm.fake.use` depois dos pontos de coleta
+///   (os operandos e os vivos saem do mapa);
+/// * `bruto_no_mapa`: um valor bruto par (4098) vivo como raiz em toda
+///   função `gc`. O valor tem a forma de um handle de objeto (resto 2 por 8,
+///   `layout::e_objeto`) e não aponta para bloco nenhum: a validação de
+///   handle do coletor o recusa.
+///
+/// A variável entra na chave do SDK compilado.
+pub fn sabotagem(nome: &str) -> bool {
+    std::env::var("DARTFORGE_SABOTAGEM").unwrap_or_default().split(',').any(|s| s.trim() == nome)
+}
+
+/// A extern `nome` está na sabotagem `folha:<nome>`.
+pub fn folha_sabotada(nome: &str) -> bool {
+    std::env::var("DARTFORGE_SABOTAGEM").unwrap_or_default().split(',').any(|s| s.trim().strip_prefix("folha:") == Some(nome))
+}
+
 /// O cabeçalho `target datalayout`/`target triple` do módulo.
 ///
 /// Windows e Linux x86-64 fixam as strings exatas que a `LLJIT` do processo

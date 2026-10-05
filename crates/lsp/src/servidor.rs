@@ -60,6 +60,34 @@ const FONTE: &str = "dartforge";
 /// Códigos de erro JSON-RPC/LSP usados nas respostas.
 const REQUEST_CANCELLED: i32 = -32800;
 const METHOD_NOT_FOUND: i32 = -32601;
+const INVALID_REQUEST: i32 = -32600;
+const SERVER_NOT_INITIALIZED: i32 = -32002;
+/// Os erros do servidor do Dart usados pelos comandos
+/// (`AS:src/lsp/constants.dart:273-312`).
+const ERRO_NAO_TRATADO: i32 = -32001;
+const COMANDO_DESCONHECIDO: i32 = -32005;
+const ARGUMENTOS_DE_COMANDO_INVALIDOS: i32 = -32006;
+const ARQUIVO_NAO_ANALISADO: i32 = -32007;
+const ARQUIVO_COM_ERROS: i32 = -32008;
+const CLIENTE_NAO_APLICOU: i32 = -32009;
+const RECURSO_DESLIGADO: i32 = -32012;
+/// Os comandos de `workspace/executeCommand` que o servidor executa.
+const COMANDOS: &[&str] = &[
+    "dart.edit.sortMembers",
+    "dart.edit.organizeImports",
+    "dart.edit.fixAll",
+    "dart.edit.fixAllInWorkspace.preview",
+    "dart.edit.fixAllInWorkspace",
+    "dart.edit.sendWorkspaceEdit",
+    "dart.logAction",
+];
+/// As ações de fonte de `codeAction`, na ordem do Dart: título, espécie e
+/// comando.
+const ACOES_DE_FONTE: &[(&str, &str, &str)] = &[
+    ("Sort Members", "source.sortMembers", "dart.edit.sortMembers"),
+    ("Organize Imports", "source.organizeImports", "dart.edit.organizeImports"),
+    ("Fix All", "source.fixAll", "dart.edit.fixAll"),
+];
 /// Renomear recusado (nome inválido, elemento externo, conflito): o mesmo
 /// código do servidor do Dart (`ServerErrorCodes.RenameNotValid`).
 const RENOMEAR_INVALIDO: i32 = -32010;
@@ -89,6 +117,8 @@ pub struct Servidor<A = AnalisadorSintatico> {
     cancelados: HashSet<String>,
     /// `shutdown` já foi respondido; `exit` sai com 0, sem ele sai com 1.
     desligando: bool,
+    /// O `initialize` já foi respondido: um segundo é recusado (§2.3).
+    inicializado: bool,
     /// `exit` chegou (ou o fluxo acabou): o laço principal deve terminar.
     encerrar: bool,
     /// Código de saída correspondente.
@@ -139,6 +169,37 @@ pub struct Servidor<A = AnalisadorSintatico> {
     atualizar_puxados: bool,
     /// Número do próximo pedido do servidor ao cliente (o id do `refresh`).
     proximo_pedido: u64,
+    /// O cliente aceita `workspace/applyEdit` (`workspace.applyEdit`): sem
+    /// isso não há ações de fonte (docs/LSP-ESPECIFICACAO.md §13.12.1).
+    aplicar_edicoes: bool,
+    /// A opção de inicialização `closingLabels`: o servidor envia
+    /// `dart/textDocument/publishClosingLabels` dos documentos abertos.
+    rotulos_de_fechamento: bool,
+    /// O cliente aceita progresso de trabalho (`window.workDoneProgress`):
+    /// o estado da análise sai por `$/progress` com o token `ANALYZING`;
+    /// sem isso, por `$/analyzerStatus` (§2.6).
+    progresso_de_trabalho: bool,
+    /// A análise tipada está em curso e o cliente já foi avisado.
+    analisando: bool,
+    /// Mensagens ao cliente produzidas fora de `bombear` (o começo da
+    /// análise), entregues na próxima passada.
+    saidas_pendentes: Vec<Value>,
+    /// A opção de inicialização `outline`: o servidor envia
+    /// `dart/textDocument/publishOutline` dos documentos abertos.
+    contorno: bool,
+    /// O cliente aceita anotações de mudança
+    /// (`workspace.workspaceEdit.changeAnnotationSupport`).
+    anotacoes_de_mudanca: bool,
+    /// O cliente aceita `CodeAction` literal
+    /// (`textDocument.codeAction.codeActionLiteralSupport`); sem isso as
+    /// ações de fonte saem como `Command` puro.
+    acoes_literais: bool,
+    /// O `codeActionKind.valueSet` do cliente, quando ele o anuncia.
+    especies_de_acao: Option<Vec<String>>,
+    /// Os `workspace/applyEdit` enviados e ainda sem resposta do cliente:
+    /// pelo id do pedido, o id do `executeCommand` que espera, o rótulo do
+    /// comando e o `WorkspaceEdit` enviado.
+    edicoes_pendentes: HashMap<String, (Value, &'static str, Value)>,
     /// O cliente aceita Markdown na documentação da ajuda de assinatura.
     assinatura_markdown: bool,
     /// O cliente aceita `activeParameter: null` (`noActiveParameterSupport`).
@@ -180,6 +241,7 @@ impl<A: Analisador> Servidor<A> {
             fila: VecDeque::new(),
             cancelados: HashSet::new(),
             desligando: false,
+            inicializado: false,
             encerrar: false,
             codigo: 1,
             simbolos_hierarquicos: false,
@@ -199,6 +261,16 @@ impl<A: Analisador> Servidor<A> {
             diagnosticos_puxados: false,
             atualizar_puxados: false,
             proximo_pedido: 0,
+            aplicar_edicoes: false,
+            rotulos_de_fechamento: false,
+            progresso_de_trabalho: false,
+            analisando: false,
+            saidas_pendentes: Vec::new(),
+            contorno: false,
+            anotacoes_de_mudanca: false,
+            acoes_literais: false,
+            especies_de_acao: None,
+            edicoes_pendentes: HashMap::new(),
             assinatura_markdown: false,
             assinatura_sem_ativo: false,
             dobras_so_linhas: false,
@@ -266,6 +338,26 @@ impl<A: Analisador> Servidor<A> {
             return;
         };
         t.documento(uri, versao, texto);
+        // O estado da análise (§2.6): ociosa → trabalhando.
+        if !self.analisando {
+            self.analisando = true;
+            if self.progresso_de_trabalho {
+                self.proximo_pedido += 1;
+                self.saidas_pendentes.push(json!({
+                    "jsonrpc": "2.0",
+                    "id": format!("dartforge/progress/{}", self.proximo_pedido),
+                    "method": "window/workDoneProgress/create",
+                    "params": {"token": "ANALYZING"},
+                }));
+                self.saidas_pendentes.push(json!({
+                    "jsonrpc": "2.0",
+                    "method": "$/progress",
+                    "params": {"token": "ANALYZING", "value": {"kind": "begin", "title": "Analyzing\u{2026}"}},
+                }));
+            } else {
+                self.saidas_pendentes.push(json!({"jsonrpc": "2.0", "method": "$/analyzerStatus", "params": {"isAnalyzing": true}}));
+            }
+        }
     }
 
     /// Publica os resultados tipados prontos que ainda são da versão vigente;
@@ -274,13 +366,40 @@ impl<A: Analisador> Servidor<A> {
         let Some(t) = &self.tipado else { return Vec::new() };
         let mut saidas = Vec::new();
         let mut novos = false;
+        let mut recebeu = false;
         for r in t.receber() {
+            recebeu = true;
             if self.documentos.version(&r.uri) != Some(r.versao) {
                 self.tipados_descartados += 1;
                 continue;
             }
             if !self.diagnosticos_puxados {
                 saidas.push(self.publicacao(&r.uri, &r.diagnosticos));
+            }
+            // A unidade acabou de ser resolvida para a versão vigente: é o
+            // ponto em que o servidor do Dart manda os rótulos de fechamento
+            // de um arquivo aberto (§3.4).
+            if self.rotulos_de_fechamento {
+                let rotulos = self.analisador.rotulos_de_fechamento(&self.documentos, &r.uri);
+                let lista: Vec<Value> = rotulos
+                    .iter()
+                    .filter_map(|(span, texto)| Some(json!({"range": self.faixa(&r.uri, *span)?, "label": texto})))
+                    .collect();
+                saidas.push(json!({
+                    "jsonrpc": "2.0",
+                    "method": "dart/textDocument/publishClosingLabels",
+                    "params": {"uri": r.uri, "labels": lista},
+                }));
+            }
+            // O contorno no formato do Dart, no mesmo ponto (§3.4).
+            if self.contorno
+                && let Some(texto) = self.documentos.get(&r.uri)
+            {
+                saidas.push(json!({
+                    "jsonrpc": "2.0",
+                    "method": "dart/textDocument/publishOutline",
+                    "params": {"uri": r.uri, "outline": crate::contorno::do_documento(texto)},
+                }));
             }
             self.tipados_publicados.insert(r.uri, (r.versao, r.diagnosticos));
             novos = true;
@@ -294,6 +413,20 @@ impl<A: Analisador> Servidor<A> {
                 "id": format!("dartforge/refresh/{}", self.proximo_pedido),
                 "method": "workspace/diagnostic/refresh",
             }));
+        }
+        // O estado da análise (§2.6): trabalhando → ociosa. O resultado
+        // chega um instante antes de o trabalhador se declarar ocioso; a
+        // espera curta cobre essa janela.
+        if self.analisando && (t.ocioso() || (recebeu && t.esperar_ocioso(std::time::Duration::from_millis(20)))) {
+            self.analisando = false;
+            // Na frente das publicações desta passada: quem lê a última
+            // mensagem continua achando a publicação.
+            let fim = if self.progresso_de_trabalho {
+                json!({"jsonrpc": "2.0", "method": "$/progress", "params": {"token": "ANALYZING", "value": {"kind": "end"}}})
+            } else {
+                json!({"jsonrpc": "2.0", "method": "$/analyzerStatus", "params": {"isAnalyzing": false}})
+            };
+            saidas.insert(0, fim);
         }
         saidas
     }
@@ -373,6 +506,12 @@ impl<A: Analisador> Servidor<A> {
         // Resultados tipados depois das notificações: o que uma mudança já
         // recebida tornou velho é descartado aqui, antes de chegar ao editor.
         // (Uma requisição não muda documentos; a resposta sai primeiro.)
+        // O começo da análise vai na frente das saídas da passada.
+        if !self.saidas_pendentes.is_empty() {
+            let mut com_pendentes = std::mem::take(&mut self.saidas_pendentes);
+            com_pendentes.append(&mut saidas);
+            saidas = com_pendentes;
+        }
         saidas.extend(self.drenar_tipados());
         saidas
     }
@@ -411,6 +550,9 @@ impl<A: Analisador> Servidor<A> {
 
     /// Trata uma notificação; devolve a publicação de diagnósticos quando há.
     fn tratar_notificacao(&mut self, mensagem: &Value) -> Option<Value> {
+        if mensagem.get("method").is_none() {
+            return self.resposta_do_cliente(mensagem);
+        }
         let metodo = mensagem.get("method")?.as_str()?;
         match metodo {
             "initialized" | "$/cancelRequest" => None,
@@ -468,9 +610,25 @@ impl<A: Analisador> Servidor<A> {
                 }
                 Some(publicacao_vazia(uri))
             }
+            // Notificações comuns dos editores que este servidor não usa:
+            // aceitas em silêncio (o do Dart trata as duas primeiras e não
+            // registra a terceira).
+            "workspace/didChangeConfiguration" | "workspace/didChangeWorkspaceFolders" | "workspace/didChangeWatchedFiles" => None,
             _ => {
                 registrar(format!("notificação desconhecida ignorada: {metodo}"));
-                None
+                // §2.3: `$/…` é ignorada; qualquer outra vira o erro
+                // `Unknown method`, que para uma notificação é um
+                // `window/showMessage` de erro. Depois do `shutdown`, é
+                // descartada.
+                if metodo.starts_with("$/") || self.desligando {
+                    None
+                } else {
+                    Some(json!({
+                        "jsonrpc": "2.0",
+                        "method": "window/showMessage",
+                        "params": {"type": 1, "message": format!("Unknown method {metodo}")},
+                    }))
+                }
             }
         }
     }
@@ -483,8 +641,18 @@ impl<A: Analisador> Servidor<A> {
             return erro(&id, REQUEST_CANCELLED, "requisição cancelada");
         }
         let metodo = mensagem.get("method").and_then(Value::as_str).unwrap_or("");
+        // Os estados do servidor do Dart (§2.3) que não dependem da
+        // notificação `initialized`: depois do `shutdown` só o `exit` vale, e
+        // o `initialize` só vale uma vez.
+        if self.desligando {
+            return erro(&id, INVALID_REQUEST, format!("Unable to handle {metodo} after shutdown request"));
+        }
+        if metodo == "initialize" && self.inicializado {
+            return erro(&id, SERVER_NOT_INITIALIZED, "Server already initialized");
+        }
         match metodo {
             "initialize" => {
+                self.inicializado = true;
                 self.simbolos_hierarquicos = mensagem
                     .pointer("/params/capabilities/textDocument/documentSymbol/hierarchicalDocumentSymbolSupport")
                     .and_then(Value::as_bool)
@@ -501,6 +669,22 @@ impl<A: Analisador> Servidor<A> {
                     .pointer("/params/capabilities/workspace/workspaceEdit/documentChanges")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
+                self.aplicar_edicoes =
+                    mensagem.pointer("/params/capabilities/workspace/applyEdit").and_then(Value::as_bool).unwrap_or(false);
+                self.rotulos_de_fechamento =
+                    mensagem.pointer("/params/initializationOptions/closingLabels").and_then(Value::as_bool).unwrap_or(false);
+                self.contorno = mensagem.pointer("/params/initializationOptions/outline").and_then(Value::as_bool).unwrap_or(false);
+                self.progresso_de_trabalho =
+                    mensagem.pointer("/params/capabilities/window/workDoneProgress").and_then(Value::as_bool).unwrap_or(false);
+                self.anotacoes_de_mudanca = mensagem
+                    .pointer("/params/capabilities/workspace/workspaceEdit/changeAnnotationSupport")
+                    .is_some_and(|x| !x.is_null());
+                let literais = mensagem.pointer("/params/capabilities/textDocument/codeAction/codeActionLiteralSupport");
+                self.acoes_literais = literais.is_some_and(|l| !l.is_null());
+                self.especies_de_acao = literais
+                    .and_then(|l| l.pointer("/codeActionKind/valueSet"))
+                    .and_then(Value::as_array)
+                    .map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect());
                 let aceita_operacao = |op: &str| {
                     mensagem
                         .pointer("/params/capabilities/workspace/workspaceEdit/resourceOperations")
@@ -553,6 +737,13 @@ impl<A: Analisador> Servidor<A> {
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
                 let renomear = if self.preparar_renomeacao { json!({"prepareProvider": true}) } else { json!(true) };
+                // `handler_code_actions.dart:252-280`: a lista de espécies só
+                // para o cliente com literais; senão, `true`.
+                let acoes_de_codigo = if self.acoes_literais {
+                    json!({"codeActionKinds": ["source", "source.organizeImports", "source.fixAll", "source.sortMembers", "quickfix", "refactor"]})
+                } else {
+                    json!(true)
+                };
                 let mut resultado = json!({
                     "capabilities": {
                         "textDocumentSync": SINCRONIZACAO_INCREMENTAL,
@@ -563,13 +754,18 @@ impl<A: Analisador> Servidor<A> {
                         "referencesProvider": true,
                         "hoverProvider": true,
                         "renameProvider": renomear,
-                        "codeActionProvider": {"codeActionKinds": ["quickfix", "refactor", "source", "source.organizeImports"]},
+                        "codeActionProvider": acoes_de_codigo,
+                        // Só os comandos que este servidor executa (o do
+                        // Dart anuncia treze, §13.12.4).
+                        "executeCommandProvider": {"commands": COMANDOS, "workDoneProgress": true},
                         // Os caracteres do servidor do Dart
                         // (`dartSignatureHelpTriggerCharacters`).
                         "signatureHelpProvider": {"triggerCharacters": ["("], "retriggerCharacters": [","]},
                         "documentHighlightProvider": true,
                         "implementationProvider": true,
                         "typeDefinitionProvider": true,
+                        "documentLinkProvider": {"resolveProvider": false},
+                        "codeLensProvider": {"resolveProvider": false},
                         "foldingRangeProvider": true,
                         "selectionRangeProvider": true,
                         "typeHierarchyProvider": true,
@@ -853,7 +1049,38 @@ impl<A: Analisador> Servidor<A> {
                 };
                 let acoes = self.analisador.acoes(&self.documentos, &u, inicio, fim, publicados);
                 let mut saida = Vec::new();
+                // As ações de fonte (§13.12.1): antes de todas as outras, na
+                // forma de comando, sempre oferecidas (o cálculo fica para o
+                // `executeCommand`), e só a quem aceita `workspace/applyEdit`.
+                let fontes_pedidas = apenas.as_ref().is_none_or(|l| l.iter().any(|w| w == "source" || w.starts_with("source.")));
+                let caminho = url::Url::parse(&u).ok().filter(|x| x.scheme() == "file").and_then(|x| x.to_file_path().ok());
+                if let (true, true, true, Some(caminho)) = (fontes_pedidas, self.aplicar_edicoes, u.ends_with(".dart"), caminho) {
+                    let mut argumento = json!({"path": caminho.to_string_lossy()});
+                    if params.and_then(|p| p.pointer("/context/triggerKind")).and_then(Value::as_u64) == Some(2) {
+                        argumento["autoTriggered"] = json!(true);
+                    }
+                    for (titulo, especie, comando) in ACOES_DE_FONTE {
+                        let casa = |w: &String| *especie == w.as_str() || especie.starts_with(&format!("{w}."));
+                        let incluida = match (&apenas, &self.especies_de_acao) {
+                            (Some(l), _) => l.iter().any(casa),
+                            (None, Some(l)) if self.acoes_literais => l.iter().any(casa),
+                            _ => true,
+                        };
+                        if !incluida {
+                            continue;
+                        }
+                        let c = json!({"title": titulo, "command": comando, "arguments": [argumento.clone()]});
+                        saida.push(if self.acoes_literais { json!({"title": titulo, "kind": especie, "command": c}) } else { c });
+                    }
+                }
+                let (mut correcoes, mut assistencias, mut refatoracoes): (Vec<Value>, Vec<Value>, Vec<Value>) =
+                    (Vec::new(), Vec::new(), Vec::new());
                 for acao in acoes {
+                    // As de fonte do analisador (a edição pronta do
+                    // `Organize Imports`) dão lugar aos comandos acima.
+                    if acao.especie.starts_with("source") {
+                        continue;
+                    }
                     let permitida = apenas.as_ref().is_none_or(|l| {
                         l.iter().any(|k| acao.especie == *k || acao.especie.starts_with(&format!("{k}.")))
                     });
@@ -878,17 +1105,42 @@ impl<A: Analisador> Servidor<A> {
                         }
                         None => self.edicao_de_workspace(&acao.edicoes, None),
                     };
+                    // A forma do servidor do Dart (§13.7.1 item 8 e §13.8.1):
+                    // `diagnostics` (o do erro numa correção, vazia numa
+                    // assistência), o comando de registro com o id original
+                    // da mudança, e nunca `isPreferred`. As duas refatorações
+                    // legadas (`Inline`/`Extract Local Variable`) não são
+                    // assistências e ficam como estavam.
+                    let refatoracao = matches!(acao.especie.as_str(), "refactor.inline" | "refactor.extract");
                     let mut valor = json!({"title": acao.titulo, "kind": acao.especie, "edit": edicao});
                     if let (Some(d), Some(texto), Some(tabela)) =
                         (&acao.diagnostico, self.documentos.get(&u), self.documentos.linhas(&u))
                     {
                         valor["diagnostics"] = json!([converter_diagnostico(texto, tabela, d)]);
-                        valor["isPreferred"] = json!(true);
+                    } else if !refatoracao {
+                        valor["diagnostics"] = json!([]);
                     }
-                    saida.push(valor);
+                    if !refatoracao && let Some(acao_id) = id_da_acao(&acao.especie) {
+                        valor["command"] = json!({"title": "Log Action", "command": "dart.logAction", "arguments": [{"action": acao_id}]});
+                    }
+                    if refatoracao {
+                        refatoracoes.push(valor);
+                    } else if acao.especie.starts_with("quickfix") {
+                        correcoes.push(valor);
+                    } else {
+                        assistencias.push(valor);
+                    }
                 }
+                // As ações de fonte, as correções, as assistências e as
+                // refatorações, nesta ordem; correções e assistências passam
+                // cada grupo pelo `_CodeActionSorter`.
+                let coluna_do_pedido = i64::from(de.coluna);
+                saida.extend(ordenar_acoes(correcoes, coluna_do_pedido));
+                saida.extend(ordenar_acoes(assistencias, coluna_do_pedido));
+                saida.extend(refatoracoes);
                 resposta(&id, json!(saida))
             }
+            "workspace/executeCommand" => self.executar_comando(&id, mensagem),
             "textDocument/prepareRename" => {
                 let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {
                     return resposta(&id, Value::Null);
@@ -980,6 +1232,16 @@ impl<A: Analisador> Servidor<A> {
                     .and_then(|(alvo, s)| Some(json!({"uri": alvo, "range": self.faixa(&alvo, s)?})));
                 resposta(&id, local.unwrap_or_else(|| json!([])))
             }
+            // `handler_document_link.dart:26-53` (docs/LSP-ESPECIFICACAO.md
+            // §8.4): no 3.6.2 o visitante só liga os comentários "See code
+            // in examples/api/…" do Flutter; as URIs das diretivas não viram
+            // link (o oráculo devolve `[]` nos 36 arquivos, todos com
+            // imports). Fora do Flutter a resposta é sempre a lista vazia.
+            "textDocument/documentLink" => resposta(&id, json!([])),
+            // `handler_code_lens.dart:32-61` (§8.3): só há lentes de
+            // augmentations, e só para o cliente que declara o comando
+            // `dart.goToLocation`; sem augmentations, lista vazia.
+            "textDocument/codeLens" => resposta(&id, json!([])),
             "textDocument/foldingRange" => {
                 let uri = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).map(str::to_string);
                 let Some((u, texto)) = uri.and_then(|u| Some((u.clone(), self.documentos.get(&u)?.to_string()))) else {
@@ -1144,7 +1406,7 @@ impl<A: Analisador> Servidor<A> {
                 erro(
                     &id,
                     METHOD_NOT_FOUND,
-                    format!("método desconhecido: {metodo}"),
+                    format!("Unknown method {metodo}"),
                 )
             }
         }
@@ -1194,6 +1456,436 @@ impl<A: Analisador> Servidor<A> {
         crate::dartdoc::documentacao(&texto, inicio)
     }
 
+    /// `workspace/executeCommand` (docs/LSP-ESPECIFICACAO.md §13.12.2 a
+    /// §13.12.6). Devolve a resposta, ou, quando o comando tem edição a
+    /// aplicar, o pedido `workspace/applyEdit`: a resposta do
+    /// `executeCommand` sai quando o cliente responder
+    /// ([`Servidor::resposta_do_cliente`]).
+    fn executar_comando(&mut self, id: &Value, mensagem: &Value) -> Value {
+        let comando = mensagem.pointer("/params/command").and_then(Value::as_str).unwrap_or("").to_string();
+        let rotulo: &'static str = match comando.as_str() {
+            "dart.edit.sortMembers" => "Sort Members",
+            "dart.edit.organizeImports" => "Organize Imports",
+            "dart.edit.fixAll" => "Fix All",
+            "dart.edit.fixAllInWorkspace.preview" => "Preview All Fixes in Workspace",
+            "dart.edit.fixAllInWorkspace" => "Apply All Fixes in Workspace",
+            "dart.edit.sendWorkspaceEdit" => "Send Workspace Edit",
+            "dart.logAction" => "Log Action",
+            _ => return erro(id, COMANDO_DESCONHECIDO, format!("{comando} is not a valid command identifier")),
+        };
+        let argumentos = mensagem.pointer("/params/arguments").and_then(Value::as_array).cloned().unwrap_or_default();
+        let parametros = match argumentos.as_slice() {
+            [] => json!({}),
+            [unico] if unico.is_object() => unico.clone(),
+            _ => return erro(id, ARGUMENTOS_DE_COMANDO_INVALIDOS, format!("{comando} requires a single Map argument")),
+        };
+        match comando.as_str() {
+            // Só telemetria no servidor do Dart; sem `action`, a conversão
+            // dele lança (`log_action.dart:23`).
+            "dart.logAction" => match parametros.get("action").and_then(Value::as_str) {
+                Some(_) => resposta(id, Value::Null),
+                None => erro(id, ERRO_NAO_TRATADO, "dart.logAction sem o campo action"),
+            },
+            "dart.edit.fixAllInWorkspace" | "dart.edit.fixAllInWorkspace.preview" => {
+                self.corrigir_workspace(id, rotulo, comando.ends_with(".preview"))
+            }
+            "dart.edit.sendWorkspaceEdit" => match parametros.get("edit").filter(|e| e.is_object()).cloned() {
+                Some(edicao) => self.pedir_aplicacao(id, rotulo, edicao),
+                None => erro(
+                    id,
+                    ARGUMENTOS_DE_COMANDO_INVALIDOS,
+                    "Send Workspace Edit requires a Map argument containing \"edit\" (WorkspaceEdit)",
+                ),
+            },
+            _ => {
+                let Some(caminho) = parametros.get("path").and_then(Value::as_str).map(str::to_string) else {
+                    return erro(id, ARGUMENTOS_DE_COMANDO_INVALIDOS, format!("{rotulo} requires a Map argument containing a \"path\""));
+                };
+                let automatico = parametros.get("autoTriggered").and_then(Value::as_bool).unwrap_or(false);
+                let uri = url::Url::from_file_path(&caminho).ok().map(|u| u.to_string());
+                let texto = uri
+                    .as_deref()
+                    .and_then(|u| self.documentos.get(u).map(str::to_string))
+                    .or_else(|| std::fs::read_to_string(&caminho).ok());
+                let (Some(uri), Some(texto)) = (uri, texto) else {
+                    return if automatico && comando != "dart.edit.fixAll" {
+                        resposta(id, Value::Null)
+                    } else {
+                        erro(id, ARQUIVO_NAO_ANALISADO, format!("{rotulo} is only available for analyzed files"))
+                    };
+                };
+                if comando == "dart.edit.fixAll" {
+                    return self.corrigir_tudo(id, rotulo, &uri, &texto, automatico);
+                }
+                let mut nomes = dartforge_intern::Interner::new();
+                let analisado = dartforge_frontend::parser::parse(&texto, &mut nomes);
+                // `hasScanParseErrors`: algum erro do scanner ou do parser.
+                let com_erros = analisado.diagnostics.iter().any(|d| {
+                    d.code.is_none_or(|c| {
+                        let unico = c.info().unico;
+                        unico.starts_with("ParserErrorCode.") || unico.starts_with("ScannerErrorCode.")
+                    })
+                });
+                if com_erros {
+                    return if automatico {
+                        resposta(id, Value::Null)
+                    } else {
+                        erro_com_dado(
+                            id,
+                            ARQUIVO_COM_ERROS,
+                            format!("Unable to {rotulo} because the file contains parse errors"),
+                            json!(caminho),
+                        )
+                    };
+                }
+                let edicoes: Vec<crate::Edicao> = if comando == "dart.edit.sortMembers" {
+                    crate::fonte_ordenar::ordenar_membros(&texto, &analisado.unit, &analisado.ast, &nomes)
+                        .map(|(offset, comprimento, novo)| {
+                            vec![crate::Edicao {
+                                uri: uri.clone(),
+                                span: dartforge_diagnostics::Span { start: offset, end: offset + comprimento },
+                                texto: novo,
+                            }]
+                        })
+                        .unwrap_or_default()
+                } else {
+                    // Os erros semânticos são os da última publicação tipada,
+                    // se ela é da versão vigente; sem ela, nenhum import sai
+                    // por erro (só as duplicatas textuais).
+                    let tipados: &[dartforge_diagnostics::Diagnostic] = self
+                        .tipados_publicados
+                        .get(&uri)
+                        .filter(|(versao, _)| Some(*versao) == self.documentos.version(&uri))
+                        .map(|(_, d)| d.as_slice())
+                        .unwrap_or_default();
+                    let nome_de =
+                        |d: &dartforge_diagnostics::Diagnostic| d.code.map_or("", |c| c.info().unico.rsplit('.').next().unwrap_or(""));
+                    let removiveis: Vec<usize> = tipados
+                        .iter()
+                        .filter(|d| matches!(nome_de(d), "DUPLICATE_IMPORT" | "UNUSED_IMPORT" | "UNNECESSARY_IMPORT"))
+                        .map(|d| d.span.start)
+                        .collect();
+                    // Os nove códigos com `isUnresolvedIdentifier`.
+                    let nao_resolvido = tipados.iter().any(|d| {
+                        matches!(
+                            nome_de(d),
+                            "CONST_WITH_NON_TYPE"
+                                | "EXTENDS_NON_CLASS"
+                                | "NEW_WITH_NON_TYPE"
+                                | "NON_TYPE_AS_TYPE_ARGUMENT"
+                                | "UNDEFINED_ANNOTATION"
+                                | "UNDEFINED_CLASS"
+                                | "UNDEFINED_CLASS_BOOLEAN"
+                                | "UNDEFINED_FUNCTION"
+                                | "UNDEFINED_IDENTIFIER"
+                        )
+                    });
+                    crate::fonte_imports::organizar(&texto, &analisado.unit, &removiveis, nao_resolvido, true)
+                        .and_then(|novo| crate::fonte_imports::edicao(&texto, &novo))
+                        .map(|(offset, comprimento, novo)| {
+                            vec![crate::Edicao {
+                                uri: uri.clone(),
+                                span: dartforge_diagnostics::Span { start: offset, end: offset + comprimento },
+                                texto: novo,
+                            }]
+                        })
+                        .unwrap_or_default()
+                };
+                // Nada a mudar: `null`, sem falar com o cliente.
+                if edicoes.is_empty() {
+                    return resposta(id, Value::Null);
+                }
+                let edicao = self.edicao_de_workspace(&edicoes, None);
+                self.pedir_aplicacao(id, rotulo, edicao)
+            }
+        }
+    }
+
+    /// `Fix All` (docs/LSP-ESPECIFICACAO.md §13.12.7): até quatro passadas;
+    /// em cada uma, as correções aplicáveis em lote dos diagnósticos do
+    /// arquivo, em ordem de offset, cada produtor de forma atômica e
+    /// descartado se conflita. A primeira passada vê os diagnósticos tipados
+    /// publicados para a versão vigente; as seguintes rodam sobre o texto já
+    /// corrigido (uma cópia dos documentos abertos) e só veem os
+    /// diagnósticos imediatos do analisador. Sem recusa por erro de sintaxe.
+    fn corrigir_tudo(&mut self, id: &Value, rotulo: &'static str, uri: &str, texto: &str, automatico: bool) -> Value {
+        use crate::fonte_corrigir::{Construtor, Ed};
+        if !uri.ends_with(".dart") || crate::fonte_corrigir::gerado(uri) {
+            return resposta(id, Value::Null);
+        }
+        let versao = self.documentos.version(uri);
+        let publicados: Vec<dartforge_diagnostics::Diagnostic> = self
+            .tipados_publicados
+            .get(uri)
+            .filter(|(v, _)| Some(*v) == versao)
+            .map(|(_, d)| d.clone())
+            .unwrap_or_default();
+        let mut passadas: Vec<Vec<Ed>> = Vec::new();
+        let mut atual = texto.to_string();
+        let mut sobreposto: Option<DocumentStore> = None;
+        for passada in 0..4 {
+            let documentos = sobreposto.as_ref().unwrap_or(&self.documentos);
+            let vistos: &[dartforge_diagnostics::Diagnostic] = if passada == 0 { &publicados } else { &[] };
+            let acoes = self.analisador.acoes(documentos, uri, 0, atual.len(), vistos);
+            // Fase A: por diagnóstico, em ordem de offset.
+            let mut candidatas: Vec<&crate::AcaoDeCodigo> = acoes
+                .iter()
+                .filter(|a| {
+                    a.diagnostico.is_some()
+                        && a.criar_arquivo.is_none()
+                        && crate::fonte_corrigir::em_lote(&a.especie, automatico)
+                        && a.edicoes.iter().all(|e| e.uri == uri && e.span.start <= e.span.end && e.span.end <= atual.len())
+                })
+                .collect();
+            candidatas.sort_by_key(|a| a.diagnostico.as_ref().map_or(0, |d| d.span.start));
+            let mut construtor = Construtor::default();
+            for a in candidatas {
+                construtor.aplicar_produtor(a.edicoes.iter().map(|e| (e.span.start, e.span.end - e.span.start, e.texto.clone())));
+            }
+            // Fase B: a limpeza de imports, só no pedido manual e numa
+            // passada sem edição da fase A. Os erros de import são os
+            // tipados, que só valem para o texto original.
+            if construtor.edicoes.is_empty() && !automatico && passada == 0 {
+                let mut nomes = dartforge_intern::Interner::new();
+                let analisado = dartforge_frontend::parser::parse(&atual, &mut nomes);
+                for remocao in crate::fonte_corrigir::remover_imports(&atual, &analisado.unit, &publicados) {
+                    construtor.aplicar_produtor([remocao]);
+                }
+            }
+            if construtor.edicoes.is_empty() {
+                break;
+            }
+            atual = construtor.aplicar(&atual);
+            passadas.push(construtor.edicoes);
+            // O texto corrigido como documento aberto, para a passada
+            // seguinte; os outros documentos abertos seguem como estão.
+            let mut copia = DocumentStore::new();
+            for outro in self.documentos.uris() {
+                if outro != uri
+                    && let (Some(v), Some(t)) = (self.documentos.version(outro), self.documentos.get(outro))
+                {
+                    copia.open(outro.to_string(), v, t.to_string());
+                }
+            }
+            copia.open(uri.to_string(), versao.unwrap_or(0), atual.clone());
+            sobreposto = Some(copia);
+            // O que o analisador retém era do texto anterior.
+            self.analisador.documento_alterado(uri);
+        }
+        if sobreposto.is_some() {
+            // O analisador volta a ver os documentos de verdade.
+            self.analisador.documento_alterado(uri);
+        }
+        let edicoes: Vec<Ed> = match passadas.len() {
+            0 => return resposta(id, Value::Null),
+            1 => passadas.pop().unwrap_or_default(),
+            _ => crate::fonte_corrigir::fundir(passadas.concat()),
+        };
+        // Em LSP, ordem crescente de offset; todas relativas ao original.
+        let edicoes: Vec<crate::Edicao> = edicoes
+            .into_iter()
+            .rev()
+            .map(|(offset, comprimento, novo)| crate::Edicao {
+                uri: uri.to_string(),
+                span: dartforge_diagnostics::Span { start: offset, end: offset + comprimento },
+                texto: novo,
+            })
+            .collect();
+        let edicao = self.edicao_de_workspace(&edicoes, None);
+        self.pedir_aplicacao(id, rotulo, edicao)
+    }
+
+    /// `Fix All in Workspace` e a prévia (docs/LSP-ESPECIFICACAO.md
+    /// §13.12.8): uma única passada, manual, por todos os arquivos `.dart`
+    /// não gerados das raízes do workspace e dos documentos abertos, com as
+    /// fases A e B do `Fix All`; cada edição leva a anotação com o modelo
+    /// da mensagem da correção. Um documento aberto usa os diagnósticos
+    /// tipados publicados para a versão vigente; um arquivo só do disco, os
+    /// imediatos do analisador.
+    fn corrigir_workspace(&mut self, id: &Value, rotulo: &'static str, confirmar: bool) -> Value {
+        use crate::fonte_corrigir::{Construtor, Ed};
+        if !self.aplicar_edicoes {
+            return erro(id, RECURSO_DESLIGADO, format!("\"{rotulo}\" is only available for clients that support workspace/applyEdit"));
+        }
+        if !self.anotacoes_de_mudanca {
+            return erro(id, RECURSO_DESLIGADO, format!("\"{rotulo}\" is only available for clients that support change annotations"));
+        }
+        // Os alvos: os abertos e, do disco, os que não estão abertos.
+        let mut alvos: Vec<(String, bool)> = self.documentos.uris().map(|u| (u.to_string(), true)).collect();
+        alvos.sort();
+        let abertos: HashSet<std::path::PathBuf> =
+            alvos.iter().filter_map(|(u, _)| url::Url::parse(u).ok().and_then(|x| x.to_file_path().ok())).collect();
+        let mut vistos: HashSet<std::path::PathBuf> = HashSet::new();
+        for raiz in &self.raizes {
+            for arquivo in dartforge_paridade::corpus::arquivos_dart(raiz) {
+                if abertos.contains(&arquivo) || !vistos.insert(arquivo.clone()) {
+                    continue;
+                }
+                if let Ok(u) = url::Url::from_file_path(&arquivo) {
+                    alvos.push((u.to_string(), false));
+                }
+            }
+        }
+        // Uma cópia dos abertos, em que cada arquivo do disco entra só
+        // enquanto é examinado.
+        let mut copia = DocumentStore::new();
+        for u in self.documentos.uris() {
+            if let (Some(v), Some(t)) = (self.documentos.version(u), self.documentos.get(u)) {
+                copia.open(u.to_string(), v, t.to_string());
+            }
+        }
+        let mut mudancas: Vec<(String, Vec<(Ed, &'static str)>)> = Vec::new();
+        let mut mexeu_na_copia = false;
+        for (u, aberto) in &alvos {
+            if !u.ends_with(".dart") || crate::fonte_corrigir::gerado(u) {
+                continue;
+            }
+            let (texto, tipados): (String, Vec<dartforge_diagnostics::Diagnostic>) = if *aberto {
+                let Some(t) = self.documentos.get(u) else { continue };
+                let versao = self.documentos.version(u);
+                let d = self.tipados_publicados.get(u).filter(|(v, _)| Some(*v) == versao).map(|(_, d)| d.clone()).unwrap_or_default();
+                (t.to_string(), d)
+            } else {
+                let Some(t) = url::Url::parse(u).ok().and_then(|x| x.to_file_path().ok()).and_then(|p| std::fs::read_to_string(p).ok()) else {
+                    continue;
+                };
+                copia.open(u.clone(), 0, t.clone());
+                self.analisador.documento_alterado(u);
+                mexeu_na_copia = true;
+                (t, Vec::new())
+            };
+            let acoes = self.analisador.acoes(&copia, u, 0, texto.len(), &tipados);
+            let mut candidatas: Vec<&crate::AcaoDeCodigo> = acoes
+                .iter()
+                .filter(|a| {
+                    a.diagnostico.is_some()
+                        && a.criar_arquivo.is_none()
+                        && crate::fonte_corrigir::em_lote(&a.especie, false)
+                        && a.edicoes.iter().all(|e| e.uri == *u && e.span.start <= e.span.end && e.span.end <= texto.len())
+                })
+                .collect();
+            candidatas.sort_by_key(|a| a.diagnostico.as_ref().map_or(0, |d| d.span.start));
+            let mut construtor = Construtor::default();
+            let mut descritas: Vec<(Ed, &'static str)> = Vec::new();
+            for a in candidatas {
+                let edicoes: Vec<Ed> = a.edicoes.iter().map(|e| (e.span.start, e.span.end - e.span.start, e.texto.clone())).collect();
+                if construtor.aplicar_produtor(edicoes.clone()) {
+                    let descricao = crate::fonte_corrigir::descricao(&a.especie);
+                    descritas.extend(edicoes.into_iter().map(|e| (e, descricao)));
+                }
+            }
+            if construtor.edicoes.is_empty() {
+                let mut nomes = dartforge_intern::Interner::new();
+                let analisado = dartforge_frontend::parser::parse(&texto, &mut nomes);
+                for remocao in crate::fonte_corrigir::remover_imports(&texto, &analisado.unit, &tipados) {
+                    if construtor.aplicar_produtor([remocao.clone()]) {
+                        descritas.push((remocao, "Remove unused import"));
+                    }
+                }
+            }
+            if !*aberto {
+                let _ = copia.close(u);
+            }
+            if !construtor.edicoes.is_empty() {
+                let com_descricao = construtor
+                    .edicoes
+                    .into_iter()
+                    .map(|e| {
+                        let d = descritas.iter().find(|(x, _)| *x == e).map_or("", |(_, d)| *d);
+                        (e, d)
+                    })
+                    .collect();
+                mudancas.push((u.clone(), com_descricao));
+            }
+        }
+        if mexeu_na_copia {
+            // O analisador volta a ver os documentos de verdade.
+            self.analisador.documento_alterado("");
+        }
+        if mudancas.is_empty() {
+            return resposta(id, Value::Null);
+        }
+        let mut anotacoes = serde_json::Map::new();
+        let mut por_arquivo: Vec<(String, Vec<Value>)> = Vec::new();
+        for (u, edicoes) in &mudancas {
+            let mut lista = Vec::new();
+            // Em LSP, ordem crescente de offset.
+            for ((offset, comprimento, novo), descricao) in edicoes.iter().rev() {
+                let Some(range) = self.faixa(u, dartforge_diagnostics::Span { start: *offset, end: offset + comprimento }) else { continue };
+                // Sem descrição, o último segmento da URI.
+                let rotulo_da_edicao: &str = if descricao.is_empty() { u.rsplit('/').next().unwrap_or(u.as_str()) } else { *descricao };
+                anotacoes
+                    .entry(rotulo_da_edicao.to_string())
+                    .or_insert_with(|| json!({"label": rotulo_da_edicao, "needsConfirmation": confirmar}));
+                lista.push(json!({"range": range, "newText": novo, "annotationId": rotulo_da_edicao}));
+            }
+            por_arquivo.push((u.clone(), lista));
+        }
+        let mut edicao = if self.mudancas_versionadas {
+            let documentos: Vec<Value> = por_arquivo
+                .into_iter()
+                .map(|(u, edits)| {
+                    let versao = self.documentos.version(&u).map_or(Value::Null, |v| json!(v));
+                    json!({"textDocument": {"uri": u, "version": versao}, "edits": edits})
+                })
+                .collect();
+            json!({"documentChanges": documentos})
+        } else {
+            let mut mapa = serde_json::Map::new();
+            for (u, edits) in por_arquivo {
+                mapa.insert(u, json!(edits));
+            }
+            json!({"changes": mapa})
+        };
+        edicao["changeAnnotations"] = Value::Object(anotacoes);
+        self.pedir_aplicacao(id, rotulo, edicao)
+    }
+
+    /// O pedido `workspace/applyEdit` de um comando (§13.12.3); o
+    /// `executeCommand` de id `id` fica pendente até a resposta do cliente.
+    fn pedir_aplicacao(&mut self, id: &Value, rotulo: &'static str, edicao: Value) -> Value {
+        self.proximo_pedido += 1;
+        let pedido = json!(format!("dartforge/applyEdit/{}", self.proximo_pedido));
+        self.edicoes_pendentes.insert(chave_id(&pedido), (id.clone(), rotulo, edicao.clone()));
+        json!({
+            "jsonrpc": "2.0",
+            "id": pedido,
+            "method": "workspace/applyEdit",
+            "params": {"label": rotulo, "edit": edicao},
+        })
+    }
+
+    /// Uma resposta do cliente a um pedido do servidor. A de um
+    /// `workspace/applyEdit` pendente vira a resposta do `executeCommand`
+    /// que o enviou (tabela da §13.12.3); as outras não levam dado.
+    fn resposta_do_cliente(&mut self, mensagem: &Value) -> Option<Value> {
+        let (id, rotulo, edicao) = self.edicoes_pendentes.remove(&chave_id(mensagem.get("id")?))?;
+        if let Some(e) = mensagem.get("error").filter(|e| !e.is_null()) {
+            return Some(erro_com_dado(
+                &id,
+                CLIENTE_NAO_APLICOU,
+                format!("Client failed to apply workspace edit for {rotulo}"),
+                json!(e.to_string()),
+            ));
+        }
+        let Some(resultado) = mensagem.get("result").filter(|r| r.is_object()) else {
+            return Some(erro(&id, ERRO_NAO_TRATADO, "resposta do workspace/applyEdit sem resultado"));
+        };
+        if resultado.get("applied").and_then(Value::as_bool) == Some(true) {
+            return Some(resposta(&id, Value::Null));
+        }
+        Some(match resultado.get("failureReason").and_then(Value::as_str) {
+            // Sem motivo: o usuário recusou uma prévia; não é erro.
+            None => resposta(&id, Value::Null),
+            Some(motivo) => erro_com_dado(
+                &id,
+                CLIENTE_NAO_APLICOU,
+                format!("Client failed to apply workspace edit for {rotulo} (reason: {motivo})"),
+                edicao,
+            ),
+        })
+    }
+
     /// `WorkspaceEdit` das edições: `documentChanges` (cada documento com a
     /// versão vigente, `null` se fechado) quando o cliente aceita, senão
     /// `changes`. Uma operação de recurso (renomear arquivo) vai depois das
@@ -1233,6 +1925,11 @@ impl<A: Analisador> Servidor<A> {
     /// aproximação (`crate::aproximado`): os que contêm a consulta primeiro,
     /// depois as subsequências; entre iguais, a ordem de (URI, posição).
     fn simbolos_do_workspace(&mut self, consulta: &str) -> Vec<Value> {
+        // `handler_workspace_symbols.dart:28-123` (docs/LSP-ESPECIFICACAO.md
+        // §5): consulta vazia não devolve nada.
+        if consulta.is_empty() {
+            return Vec::new();
+        }
         let mut uris: std::collections::BTreeSet<String> = self.documentos.uris().map(str::to_string).collect();
         let mut raizes = self.raizes.clone();
         for aberto in self.documentos.uris() {
@@ -1250,7 +1947,24 @@ impl<A: Analisador> Servidor<A> {
                 }
             }
         }
-        let mut achados: Vec<(u8, usize, Value)> = Vec::new();
+        // O casamento do `FuzzyMatcher` com `MatchStyle.TEXT`: as letras da
+        // consulta em ordem, sem caixa (subsequência); os resultados saem na
+        // ordem da coleta, sem ordenar por pontuação, e param em 500.
+        let consulta_minuscula: Vec<char> = consulta.chars().flat_map(char::to_lowercase).collect();
+        let casa = |nome: &str| -> bool {
+            let mut falta = consulta_minuscula.iter();
+            let mut proxima = falta.next();
+            for c in nome.chars().flat_map(char::to_lowercase) {
+                match proxima {
+                    Some(p) if *p == c => proxima = falta.next(),
+                    Some(_) => {}
+                    None => break,
+                }
+            }
+            proxima.is_none()
+        };
+        const LIMITE: usize = 500;
+        let mut achados: Vec<Value> = Vec::new();
         for uri in uris {
             let texto = match self.documentos.get(&uri) {
                 Some(t) => t.to_string(),
@@ -1266,16 +1980,15 @@ impl<A: Analisador> Servidor<A> {
                 achatar_simbolos(&simbolo, &uri, None, &mut planos);
             }
             for s in planos {
-                // Subsequência solta (qualidade 4) é ruído numa busca global.
-                let Some(q) = s["name"].as_str().and_then(|n| crate::aproximado::pontuar(consulta, n)).filter(|q| *q <= 3) else {
-                    continue;
-                };
-                let ordem = achados.len();
-                achados.push((if q <= 2 { 0 } else { 1 }, ordem, s));
+                if achados.len() >= LIMITE {
+                    return achados;
+                }
+                if s["name"].as_str().is_some_and(|n| casa(n)) {
+                    achados.push(s);
+                }
             }
         }
-        achados.sort_by_key(|(q, ordem, _)| (*q, *ordem));
-        achados.into_iter().map(|(_, _, s)| s).collect()
+        achados
     }
 
     /// URI e offset (bytes) de `params.textDocument` + `params.position`,
@@ -1436,6 +2149,77 @@ fn resposta(id: &Value, resultado: Value) -> Value {
 /// Resposta de erro JSON-RPC.
 fn erro(id: &Value, codigo: i32, mensagem: impl Into<String>) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "error": {"code": codigo, "message": mensagem.into()}})
+}
+
+/// A prioridade de uma correção ou assistência pela espécie
+/// (docs/LSP-ESPECIFICACAO.md §13.7.2 e §13.3): só as espécies que este
+/// servidor emite têm valor próprio; as demais ficam no padrão do grupo (50
+/// para correções, 40 para as `*.multi`, 30 para assistências).
+fn prioridade_da_acao(especie: &str) -> i32 {
+    match especie {
+        "quickfix.import.librarySdk" => 54,
+        "quickfix.import.libraryProject1" => 53,
+        "quickfix.change.to" | "quickfix.create.missingOverrides" => 51,
+        "quickfix.create.field" | "quickfix.create.function" | "quickfix.create.noSuchMethod" => 49,
+        "quickfix.create.extension.getter" | "quickfix.create.extension.method" | "quickfix.ignore.line" => 30,
+        "quickfix.ignore.file" => 29,
+        "refactor.convert.bodyToAsync" | "refactor.remove.typeAnnotation" => 31,
+        outra if outra.starts_with("quickfix") && outra.ends_with(".multi") => 40,
+        outra if outra.starts_with("quickfix") => 50,
+        _ => 30,
+    }
+}
+
+/// O id original da mudança (`dart.fix.…`, `dart.assist.…`) de uma espécie
+/// LSP: o inverso de `toCodeActionKind`.
+fn id_da_acao(especie: &str) -> Option<String> {
+    if let Some(resto) = especie.strip_prefix("quickfix.") {
+        return Some(format!("dart.fix.{resto}"));
+    }
+    especie.strip_prefix("refactor.").map(|resto| format!("dart.assist.{resto}"))
+}
+
+/// `_CodeActionSorter.sort` (`handler_code_actions.dart:284-406`;
+/// docs/LSP-ESPECIFICACAO.md §13.7.1, item 9): agrupa por título na ordem
+/// da primeira ocorrência; num grupo, fica a ação cujo primeiro diagnóstico
+/// começa na coluna mais próxima da do pedido, com os diagnósticos das
+/// outras de mesma edição fundidos (as de edição diferente saem); depois,
+/// prioridade decrescente e ordem de chegada.
+fn ordenar_acoes(acoes: Vec<Value>, coluna_do_pedido: i64) -> Vec<Value> {
+    let mut grupos: Vec<(String, Vec<Value>)> = Vec::new();
+    for a in acoes {
+        let titulo = a["title"].as_str().unwrap_or("").to_string();
+        match grupos.iter_mut().find(|(t, _)| *t == titulo) {
+            Some((_, g)) => g.push(a),
+            None => grupos.push((titulo, vec![a])),
+        }
+    }
+    let distancia = |a: &Value| a.pointer("/diagnostics/0/range/start/character").and_then(Value::as_i64).map_or(0, |c| (c - coluna_do_pedido).abs());
+    let mut unicas: Vec<Value> = Vec::new();
+    for (_, mut grupo) in grupos {
+        if grupo.len() > 1 {
+            grupo.sort_by_key(distancia);
+            let mut primeira = grupo.remove(0);
+            let mut diagnosticos: Vec<Value> = primeira["diagnostics"].as_array().cloned().unwrap_or_default();
+            for outra in grupo {
+                if outra["edit"] == primeira["edit"] {
+                    diagnosticos.extend(outra["diagnostics"].as_array().cloned().unwrap_or_default());
+                }
+            }
+            primeira["diagnostics"] = Value::Array(diagnosticos);
+            unicas.push(primeira);
+        } else {
+            unicas.extend(grupo);
+        }
+    }
+    // Estável: em empate vale a ordem de chegada.
+    unicas.sort_by_key(|a| -prioridade_da_acao(a["kind"].as_str().unwrap_or("")));
+    unicas
+}
+
+/// Resposta de erro JSON-RPC com o campo `data`.
+fn erro_com_dado(id: &Value, codigo: i32, mensagem: impl Into<String>, dado: Value) -> Value {
+    json!({"jsonrpc": "2.0", "id": id, "error": {"code": codigo, "message": mensagem.into(), "data": dado}})
 }
 
 /// Publicação vazia: documento fechado ou desconhecido não tem diagnósticos.
@@ -1599,6 +2383,14 @@ pub fn metodos_suportados() -> HashMap<&'static str, &'static str> {
         (
             "textDocument/didClose",
             "notificação: fecha e publica lista vazia",
+        ),
+        (
+            "textDocument/documentLink",
+            "requisição: lista vazia (no 3.6.2 só há links de exemplos do Flutter)",
+        ),
+        (
+            "textDocument/codeLens",
+            "requisição: lista vazia (só há lentes de augmentations)",
         ),
         (
             "textDocument/completion",

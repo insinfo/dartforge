@@ -1,0 +1,49 @@
+== parte/lib.dart
+  unused_import | 27+17 | 2:8 | Unused import: 'dart:collection'.
+  unused_element | 87+6 | 5:7 | The declaration '_Nunca' isn't referenced.
+== parte/p.dart
+  unused_local_variable | 74+8 | 6:7 | The value of the local variable 'naoUsada' isn't used.
+  unused_element | 105+8 | 8:7 | The declaration '_NaParte' isn't referenced.
+== r/r01_rotulos.dart
+  unused_label | 18+9 | 2:3 | The label 'naoUsado' isn't used.
+  dead_code | 157+432 | 5:3 | Dead code.
+  unused_label | 157+6 | 5:3 | The label 'bloco' isn't used.
+  unused_label | 180+2 | 6:3 | The label 'a' isn't used.
+  unused_label | 239+7 | 8:5 | The label 'dentro' isn't used.
+  unused_label | 299+3 | 11:5 | The label 'c0' isn't used.
+  unused_label | 363+3 | 15:5 | The label 'c2' isn't used.
+  unused_label | 395+9 | 18:3 | The label 'repetido' isn't used.
+  label_in_outer_scope | 512+7 | 22:16 | Can't reference label 'closure' declared in an outer method.
+  unused_label | 562+8 | 25:24 | The label 'interno' isn't used.
+== d/d01_usos.dart
+  deprecated_member_use_from_same_package | 51+5 | 2:31 | 'velha' is deprecated and shouldn't be used.
+  unused_import | 65+12 | 3:8 | Unused import: 'd_lib.dart'.
+  prefix_collides_with_top_level_member | 81+1 | 3:24 | The name 'h' is already used as an import prefix and can't be used to name a top-level element.
+  deprecated_member_use_from_same_package | 107+5 | 4:13 | 'Velha' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 120+5 | 5:3 | 'velha' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 131+11 | 6:3 | 'comMensagem' is deprecated and shouldn't be used. Use nova.
+  deprecated_member_use_from_same_package | 148+8 | 7:3 | 'comPonto' is deprecated and shouldn't be used. Use nova.
+  deprecated_member_use_from_same_package | 162+8 | 8:3 | 'comVazia' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 176+1 | 9:3 | 'C.new' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 183+3 | 10:3 | 'C.n' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 194+5 | 11:5 | 'campo' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 205+5 | 12:5 | 'campo' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 220+5 | 13:5 | 'campo' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 236+1 | 14:5 | 'g' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 243+1 | 15:5 | 's' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 252+5 | 16:3 | '+' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 261+3 | 17:3 | 'call' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 272+1 | 18:7 | 'p' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 278+1 | 18:13 | 'q' is deprecated and shouldn't be used. nao.
+  deprecated_member_use_from_same_package | 293+10 | 19:9 | 'velhaConst' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 314+5 | 20:9 | 'velha' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 326+5 | 21:5 | 'velha' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 343+5 | 22:9 | 'C.new' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 438+5 | 28:6 | 'velha' is deprecated and shouldn't be used.
+== d/d02_mesma_biblioteca.dart
+  deprecated_member_use_from_same_package | 111+6 | 7:3 | '_velha' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 123+1 | 8:3 | 'x' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 132+1 | 9:3 | 'x' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 141+1 | 10:5 | 'p' is deprecated and shouldn't be used.
+== d/d_lib.dart
+  (nenhum)

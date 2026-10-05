@@ -82,8 +82,12 @@ impl<'s, 'i> Parser<'s, 'i> {
             let final_ = self.at_kw(Keyword::Final);
             self.advance();
             let pattern = self.parse_pattern_em(super::patterns::ContextoDePadrao::Declaracao)?;
-            if self.at_op(Op::Assign) {
-                return Err(self.erro_esperado("in"));
+            // `for (var (a, b) = e; c; u)`: com `=`, o padrão é a
+            // inicialização de um `for` clássico
+            // (`parseForStatement`, `handleForInitializerPatternVariableAssignment`).
+            if self.eat_op(Op::Assign) {
+                let value = self.parse_expression()?;
+                return self.parse_classic_for_rest(Some(ForInit::Pattern { final_, pattern, value }));
             }
             self.expect_kw(Keyword::In)?;
             let iterable = self.parse_expression()?;
@@ -181,9 +185,13 @@ impl<'s, 'i> Parser<'s, 'i> {
             if in_switch && self.at_switch_case_start() {
                 break;
             }
+            let inicio_do_comando = self.pos;
             match self.parse_statement() {
                 Ok(id) => stmts.push(id),
-                Err(ParseError) => self.synchronize_statement(in_switch),
+                Err(ParseError) => {
+                    self.synchronize_statement(in_switch);
+                    self.registrar_pulado(inicio_do_comando);
+                }
             }
         }
         stmts

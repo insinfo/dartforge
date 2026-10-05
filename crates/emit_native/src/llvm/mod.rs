@@ -4,6 +4,8 @@ pub mod abi_c;
 pub mod externs;
 mod depuracao;
 mod raizes;
+mod rastro;
+pub mod verificar_mapas;
 mod simd;
 // As emissões que dependem da representação dos valores do runtime, uma por
 // pacote do espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md §4.2, passo 4).
@@ -165,6 +167,46 @@ pub struct LlvmEmitter<'a> {
     listas: listas_ir::EstadoDeListas,
     #[allow(dead_code)]
     tipados: tipados_ir::EstadoDeTipados,
+    /// Exceções por tabelas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13):
+    /// a decisão do passe `otimizar::tabelas` para a função em emissão —
+    /// quem é `invoke`, os pousos e como cada `Return` sai. `None` no modelo
+    /// de sempre (a pendência conferida depois de cada chamada), e o IR é
+    /// então o de sempre, byte a byte.
+    tab: Option<&'a TabelasDaFuncao>,
+    /// `DARTFORGE_EFEITOS=conferir` ([`externs::conferir_efeitos`]): os nomes
+    /// das externs conferidas neste módulo, na ordem do primeiro uso (o
+    /// índice é o do global `@df.efn.<k>` com o texto).
+    externs_conferidas: Vec<String>,
+    /// Raízes por mapas de pilha (`--raizes=mapas`,
+    /// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8): os valores SSA `Ref`
+    /// vivos através de um ponto de coleta não vão para o quadro da
+    /// pilha-sombra; cada um ganha um ponteiro `addrspace(1)` com os mesmos
+    /// bits, mantido vivo depois de cada ponto de coleta
+    /// (`llvm.fake.use`), e o `rewrite-statepoints-for-gc` do LLVM o põe no
+    /// mapa de pilha da chamada. Só os `alloca` `Ref` continuam no quadro.
+    mapas: bool,
+    /// Com [`Self::mapas`], a análise de raízes da função em emissão.
+    raizes_da_funcao: raizes::Raizes,
+    /// Com [`Self::mapas`], os valores enraizados da função em emissão.
+    enraizados: std::collections::HashSet<ValueId>,
+    /// O build de conferência do percurso (`DARTFORGE_RAIZES_CONFERIR=1`
+    /// com `--raizes=mapas`, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §15.2,
+    /// E2.5): numa função `gc`, o primeiro dos slots de conferência no fim
+    /// do quadro de raízes e quantos são. Antes de cada ponto de coleta eles
+    /// recebem exatamente os valores vivos nele (zero nos demais), e o
+    /// runtime confere que o percurso por mapas visitou todos.
+    conferencia: Option<(usize, usize)>,
+    /// Raízes por mapas num módulo do JIT (§3.8): o gerenciador de memória do
+    /// JIT acha o mapa de cada objeto e o registra; o módulo não chama o
+    /// registro nem leva o `-ni:1` (o `LLJIT` recusa um módulo com a camada
+    /// de dados diferente da dele, e o JIT não roda otimização de IR).
+    mapas_no_jit: bool,
+    /// Quantas funções `gc` o módulo emitiu (no Mach-O, o `.no_dead_strip`
+    /// do mapa só vai a um módulo que tem mapa).
+    funcoes_gc: usize,
+    /// O rastro no formato da VM (§13.14, `llvm/rastro.rs`): os rótulos das
+    /// chamadas e a tabela da seção `dfpcl`. `None`: sem tabela.
+    rastro_vm: Option<rastro::Rastro>,
 }
 
 impl<'a> LlvmEmitter<'a> {
@@ -203,7 +245,9 @@ impl<'a> LlvmEmitter<'a> {
             hashes_de_slot: Vec::new(),
             area_anterior: None,
             area_enxuta: false,
-            depuracao: module.functions.iter().any(|f| f.depuracao.is_some()).then(depuracao::Depuracao::nova),
+            // As posições servem às tabelas de linha só com `--depuracao`; sem
+            // ela, são só do rastro simbólico (`rastro_vm`).
+            depuracao: (module.dwarf && module.functions.iter().any(|f| f.depuracao.is_some())).then(depuracao::Depuracao::nova),
             funcao_por_simbolo: {
                 let mut m = std::collections::HashMap::with_capacity(module.functions.len());
                 for f in &module.functions {
@@ -223,7 +267,44 @@ impl<'a> LlvmEmitter<'a> {
             caixas: Default::default(),
             listas: Default::default(),
             tipados: Default::default(),
+            tab: None,
+            externs_conferidas: Vec::new(),
+            mapas: false,
+            raizes_da_funcao: raizes::Raizes::default(),
+            enraizados: std::collections::HashSet::new(),
+            conferencia: None,
+            funcoes_gc: 0,
+            mapas_no_jit: false,
+            rastro_vm: None,
         }
+    }
+
+    /// O rastro simbólico (§13.14): os rótulos antes das chamadas e a
+    /// tabela da imagem (`alvo::rastro_simbolico`; nunca no JIT).
+    pub fn com_rastro(mut self, sim: bool) -> Self {
+        self.rastro_vm = sim.then(rastro::Rastro::novo);
+        self
+    }
+
+    /// A chamada de registro dos mapas de pilha da imagem, por formato: a
+    /// base da imagem PE (o runtime acha `.dfgcm` e `.llvm_st` pelos
+    /// cabeçalhos); os limites da seção `dfgcm` que o `ld.lld` define; no
+    /// Mach-O, os do `__llvm_stackmaps` do LLVM.
+    fn chamada_de_registro_dos_mapas() -> &'static str {
+        match crate::alvo::sistema() {
+            crate::alvo::Sistema::Windows => "  call void @dartforge_registrar_mapa(ptr @__ImageBase)\n",
+            crate::alvo::Sistema::Linux => "  call void @dartforge_registrar_mapa_secao(ptr @__start_dfgcm, ptr @__stop_dfgcm)\n",
+            crate::alvo::Sistema::MacOs => {
+                "  call void @dartforge_registrar_mapa_llvm(ptr @\"\\01section$start$__LLVM_STACKMAPS$__llvm_stackmaps\", ptr @\"\\01section$end$__LLVM_STACKMAPS$__llvm_stackmaps\")\n"
+            }
+        }
+    }
+
+    /// A chamada de registro da tabela do rastro da imagem (§13.14).
+    fn chamada_de_registro_do_rastro(&self) -> Option<String> {
+        self.rastro_vm.as_ref()?;
+        let (_, inicio, fim) = rastro::marcadores();
+        Some(format!("  call void @dartforge_registrar_rastro(ptr {inicio}, ptr {fim})\n"))
     }
 
     /// Os literais de string como objetos estáticos do módulo (§2.11 da
@@ -270,6 +351,18 @@ impl<'a> LlvmEmitter<'a> {
     /// devolve são definidos aqui, só declarados por quem os cita; o
     /// conteúdo vai para o resumo da biblioteca (`poda::resumir`). Só o SDK
     /// de produção.
+    /// Veja [`LlvmEmitter::mapas_no_jit`].
+    pub fn com_mapas_no_jit(mut self, sim: bool) -> Self {
+        self.mapas_no_jit = sim;
+        self
+    }
+
+    /// Veja [`LlvmEmitter::mapas`].
+    pub fn com_raizes_por_mapas(mut self, sim: bool) -> Self {
+        self.mapas = sim;
+        self
+    }
+
     pub fn com_tabelas_na_ligacao(mut self, sim: bool) -> Self {
         self.tabelas_na_ligacao = sim;
         self
@@ -322,9 +415,18 @@ impl<'a> LlvmEmitter<'a> {
         self.emit_closures();
 
         // 5. Funções compiladas
-        for func in &self.module.functions {
+        let modulo = self.module;
+        if modulo.excecoes_por_tabelas {
+            assert!(
+                modulo.tabelas.len() == modulo.functions.len(),
+                "bug do compilador: as funções do módulo mudaram depois do passe das exceções por tabelas"
+            );
+        }
+        for (k, func) in modulo.functions.iter().enumerate() {
+            self.tab = if modulo.excecoes_por_tabelas { modulo.tabelas.get(k) } else { None };
             self.emit_function(func);
         }
+        self.tab = None;
 
         if self.module.biblioteca_sdk {
             // Uma biblioteca do SDK da fonte (P5c): sem entrada nem despacho
@@ -337,6 +439,10 @@ impl<'a> LlvmEmitter<'a> {
             self.out.push_str(OBTER_AREA);
             self.emitir_globais_de_texto();
             self.emitir_declaracoes_externas();
+            self.fechar_mapas();
+            if let Some(r) = self.rastro_vm.take() {
+                r.finalizar(&mut self.out);
+            }
             if let Some(d) = self.depuracao.take() {
                 d.finalizar(&mut self.out);
             }
@@ -373,10 +479,28 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str(&fora_de_linha(&obter_area, &self.ajudantes_fora));
         self.emitir_globais_de_texto();
         self.emitir_declaracoes_externas();
+        self.fechar_mapas();
+        if let Some(r) = self.rastro_vm.take() {
+            r.finalizar(&mut self.out);
+        }
         if let Some(d) = self.depuracao.take() {
             d.finalizar(&mut self.out);
         }
         self.out
+    }
+
+    /// Raízes por mapas no Mach-O: o `__llvm_stackmaps` fica no formato do
+    /// LLVM (o `ld64.lld` não separa os índices do ThinLTO, e o conversor
+    /// não roda na LTO do ligador), e nada o referencia — o `-dead_strip` o
+    /// descartaria. `.no_dead_strip` marca vivo o átomo local
+    /// `__LLVM_StackMaps` que o LLVM emite em cada objeto com mapa, sem
+    /// torná-lo global (o Perry faz o mesmo,
+    /// `perry-codegen/src/module.rs`). Só num módulo com função `gc`: sem
+    /// mapa, o símbolo não existe.
+    fn fechar_mapas(&mut self) {
+        if self.mapas && !self.mapas_no_jit && self.funcoes_gc > 0 && crate::alvo::sistema() == crate::alvo::Sistema::MacOs {
+            self.out.push_str("module asm \".no_dead_strip __LLVM_StackMaps\"\n");
+        }
     }
 
     fn collect_string_constants(&mut self) {
@@ -408,7 +532,13 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     fn emit_header(&mut self) {
-        self.out.push_str(crate::alvo::cabecalho_ir());
+        if self.mapas && !self.mapas_no_jit {
+            // `-ni:1`: o `addrspace(1)` é de ponteiros não integrais — o
+            // otimizador não fabrica `ptrtoint`/`inttoptr` com as raízes.
+            self.out.push_str(&crate::alvo::cabecalho_ir().replacen("-S128\"", "-S128-ni:1\"", 1));
+        } else {
+            self.out.push_str(crate::alvo::cabecalho_ir());
+        }
         // Os ids das classes do programa, para a geração seguinte de uma
         // recarga do JIT (J03, `context::ids_do_ir`).
         for (id, lib, classe) in &self.module.ids_do_programa {
@@ -432,7 +562,39 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str("; Declarações do runtime nativo Rust (tabela em llvm/externs.rs)\n");
         for e in externs::EXTERNS {
             self.out.push_str(e.decl);
+            // Raízes por mapas: a extern que não coleta é folha — a chamada
+            // a ela não vira ponto de coleta (nem registro no mapa).
+            if self.mapas {
+                let ef = externs::efeitos_de(e.nome());
+                if (!ef.aloca && !ef.chama_dart) || crate::alvo::folha_sabotada(e.nome()) {
+                    self.out.push_str(" \"gc-leaf-function\"");
+                }
+            }
             self.out.push('\n');
+        }
+        if self.mapas {
+            self.out.push_str("declare void @llvm.fake.use(...)\n");
+        }
+        if self.rastro_vm.is_some() {
+            // O começo e o fim da seção do rastro da imagem (§13.14).
+            self.out.push_str(rastro::marcadores().0);
+        }
+        if self.mapas && !self.mapas_no_jit {
+            // O registro do mapa da imagem (`dartforge_registrar_mapa*`): a
+            // base da imagem PE (o runtime acha `.dfgcm` e `.llvm_st` pelos
+            // cabeçalhos); os limites da seção `dfgcm` que o `ld.lld` define;
+            // no Mach-O, os do `__llvm_stackmaps` do LLVM.
+            self.out.push_str(match crate::alvo::sistema() {
+                crate::alvo::Sistema::Windows => "declare void @dartforge_registrar_mapa(ptr)\n@__ImageBase = external constant i8\n",
+                crate::alvo::Sistema::Linux => {
+                    "declare void @dartforge_registrar_mapa_secao(ptr, ptr)\n@__start_dfgcm = external hidden global i8\n@__stop_dfgcm = external hidden global i8\n"
+                }
+                crate::alvo::Sistema::MacOs => {
+                    "declare void @dartforge_registrar_mapa_llvm(ptr, ptr)\n\
+                     @\"\\01section$start$__LLVM_STACKMAPS$__llvm_stackmaps\" = external hidden global i8\n\
+                     @\"\\01section$end$__LLVM_STACKMAPS$__llvm_stackmaps\" = external hidden global i8\n"
+                }
+            });
         }
         // As chamadas nativas com struct por valor copiam os bytes numa
         // temporária da pilha (`llvm/abi_c.rs`).
@@ -460,6 +622,10 @@ impl<'a> LlvmEmitter<'a> {
             let ajudantes = self.out.split_off(inicio_dos_ajudantes);
             self.out.push_str(&fora_de_linha(&ajudantes, &self.ajudantes_fora));
         }
+        if self.mapas {
+            let ajudantes = self.out.split_off(inicio_dos_ajudantes);
+            self.out.push_str(&ajudantes_folha(&ajudantes));
+        }
         if self.alocacao_fora_de_linha {
             self.out.push_str(&nova_instancia());
         }
@@ -473,6 +639,12 @@ impl<'a> LlvmEmitter<'a> {
                  declare ptr @llvm.stacksave.p0()\n\
                  declare void @llvm.stackrestore.p0(ptr)\n",
             );
+        }
+        if self.module.excecoes_por_tabelas {
+            self.out.push_str(if cfg!(windows) { EXCECOES_POR_TABELAS } else { EXCECOES_POR_TABELAS_ITANIUM });
+        }
+        if externs::conferir_efeitos() {
+            self.out.push_str("declare void @dartforge_efeitos_antes(ptr, i64, i64)\ndeclare void @dartforge_efeitos_depois()\n");
         }
         self.out.push('\n');
     }
@@ -580,30 +752,87 @@ impl<'a> LlvmEmitter<'a> {
         let params_str = params.join(", ");
 
         let (ligacao, comdat) = self.ligacao_de(&func.symbol);
+        // Uma cópia por imagem (`linkonce_odr`): o rastro não a rotula.
+        let compartilhada = !ligacao.is_empty();
         let inicio_da_funcao = self.out.len();
         let mut posicao_escrita: Option<(u32, u32)> = None;
         let atributos = if self.otimizar_tamanho { " optsize" } else { "" };
-        writeln!(self.out, "define {ligacao}{ret_ty} @{}({}){atributos}{comdat} {{", func.symbol, params_str).unwrap();
+        // Exceções por tabelas: a decisão do passe para esta função. Só a
+        // função com pouso nomeia a personalidade (é ela que lê a tabela dos
+        // pousos); as outras o desenrolamento atravessa.
+        let tab = self.tab;
+        let tem_pouso = tab.is_some_and(|t| !t.pousos.is_empty());
+        let personalidade = if tem_pouso { " personality ptr @dartforge_personalidade" } else { "" };
 
         // G1/G2 (docs/NATIVO-PLANO.md §6.5): um slot por `alloca` de tipo
         // `Ref`, e os valores SSA `Ref` vivos em algum ponto de coleta, com
         // slot compartilhado entre os que nunca estão vivos juntos
         // (`raizes.rs`).
         let blocos_que_convertem: std::collections::HashSet<u32> = self.conv_phi.iter().map(|(b, ..)| *b).collect();
-        self.slots = raizes::atribuir_slots(
+        let mut analise = raizes::analisar(
             func,
             &self.tipos,
             &|inst| self.pode_coletar(inst),
             &|b| blocos_que_convertem.contains(&b.0),
         );
-        self.tem_frame = !self.slots.is_empty();
+        // O orçamento do `rewrite-statepoints-for-gc` (§3.4): o passe cresce
+        // de forma superlinear com `vivos × pontos de coleta`. Acima do teto
+        // a função fica inteira na pilha-sombra, como quadro residual
+        // (§3.7): sem `gc`, com os slots de sempre.
+        let custo = analise.enraizados.len() as u64 * (analise.vivos_em.len() + analise.vivos_no_fim.len()) as u64;
+        let no_orcamento = custo <= crate::alvo::orcamento_dos_mapas();
+        if self.mapas && !no_orcamento && std::env::var_os("DARTFORGE_RELATORIO_MAPAS").is_some() {
+            eprintln!("dartforge: {} fora do orçamento dos mapas ({custo}): pilha-sombra", func.symbol);
+        }
+        if self.mapas && no_orcamento {
+            // Raízes por mapas: no quadro só ficam os `alloca` `Ref` (o
+            // mapa de pilha descreve valores SSA, não memória); os valores
+            // SSA enraizados vão para o mapa.
+            analise.slots.retain(|v, _| self.apontado.contains_key(v));
+            self.enraizados = analise.enraizados.iter().copied().collect();
+        } else {
+            self.enraizados.clear();
+        }
+        self.slots = std::mem::take(&mut analise.slots);
+        self.raizes_da_funcao = analise;
+        // A função com raízes no mapa é uma função `gc`: o
+        // `rewrite-statepoints-for-gc` transforma as chamadas dela que podem
+        // coletar em statepoints (`crates/llvm`, `gerar`).
+        let tem_gc = !self.enraizados.is_empty();
+        if tem_gc {
+            self.funcoes_gc += 1;
+        }
+        // O build de conferência: tantos slots a mais quantos o maior
+        // conjunto de vivos num ponto de coleta.
+        self.conferencia = None;
+        if tem_gc && crate::alvo::conferir_raizes() {
+            let k = self
+                .raizes_da_funcao
+                .vivos_em
+                .values()
+                .chain(self.raizes_da_funcao.vivos_no_fim.values())
+                .map(Vec::len)
+                .max()
+                .unwrap_or(0);
+            if k > 0 {
+                let primeiro = self.slots.values().max().map_or(0, |m| m + 1);
+                self.conferencia = Some((primeiro, k));
+            }
+        }
+        let gc = if tem_gc { " gc \"statepoint-example\"" } else { "" };
+        writeln!(self.out, "define {ligacao}{ret_ty} @{}({}){atributos}{comdat}{gc}{personalidade} {{", func.symbol, params_str)
+            .unwrap();
+        self.tem_frame = !self.slots.is_empty() || self.conferencia.is_some();
         self.rotulos_de_saida = func
             .blocks
             .iter()
             .filter_map(|b| {
                 b.instructions.iter().rev().find_map(|(vid, i, _)| {
                     let v = vid.0;
-                    if Self::alocacao_em_linha(i).is_some() && !self.alocacao_fora_de_linha {
+                    if tab.is_some_and(|t| t.invocacoes.contains_key(vid)) {
+                        // O caminho normal de um `invoke` ([`Self::tornar_invoke`]).
+                        Some((b.id.0, format!("inv{v}.fim")))
+                    } else if Self::alocacao_em_linha(i).is_some() && !self.alocacao_fora_de_linha {
                         Some((b.id.0, format!("ao{v}.fim")))
                     } else if self.barreira_em_linha(i) {
                         Some((b.id.0, format!("wb{v}.fim")))
@@ -628,11 +857,37 @@ impl<'a> LlvmEmitter<'a> {
                     matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending")
                         || Self::usa_contexto(i)
                 })
-            });
+            })
+            // O pouso restaura o topo da pilha-sombra e a saída guardada lê
+            // a pendência: os dois pelo contexto.
+            || tem_pouso
+            || tab.is_some_and(|t| t.confere_pilha || t.saidas.values().any(|s| *s == SaidaPorExcecao::Guarda));
 
         for block in &func.blocks {
             writeln!(self.out, "b{}:", block.id.0).unwrap();
             self.rotulo_atual = format!("b{}", block.id.0);
+            // O pouso de um `invoke`: quem desenrolou até aqui deixou a
+            // exceção pendente e os quadros de raízes dele (e dos quadros
+            // atravessados) ainda encadeados — o topo da pilha-sombra volta
+            // a ser o desta função, antes de qualquer outra instrução.
+            if tab.is_some_and(|t| t.pousos.contains(&block.id)) {
+                if tem_gc {
+                    // Numa função `gc` o `invoke` vira statepoint, e o pouso
+                    // dele é `token` (o que as relocações do caminho de
+                    // exceção referenciam).
+                    writeln!(self.out, "  %lpad{} = landingpad token cleanup", block.id.0).unwrap();
+                } else {
+                    writeln!(self.out, "  %lpad{} = landingpad {{ ptr, i32 }} catch ptr null", block.id.0).unwrap();
+                }
+                let topo = if self.tem_frame { "%gcq" } else { "%topo0" };
+                if !crate::alvo::sabotagem("pouso_sem_topo") {
+                    writeln!(self.out, "  store ptr {topo}, ptr %ctxtopo, align 8").unwrap();
+                }
+                // O que o tratador ainda lê estava vivo através do `invoke`.
+                if let Some(vivos) = self.raizes_da_funcao.vivos_na_entrada.get(&block.id).cloned() {
+                    self.manter_vivos(&vivos);
+                }
+            }
             if block.id.0 == 0 {
                 self.emit_buffers_de_closure(func);
                 // O quadro de raízes também nasce antes de qualquer chamada
@@ -644,7 +899,7 @@ impl<'a> LlvmEmitter<'a> {
                 // `DARTFORGE_SEM_QUADRO_NA_ENTRADA=1` na compilação volta ao
                 // lugar antigo (medida).
                 if self.tem_frame && Self::quadro_na_entrada() {
-                    let n = self.slots.values().max().map_or(0, |m| m + 1);
+                    let n = self.tamanho_do_quadro();
                     writeln!(self.out, "  %gcq = alloca {{ ptr, i64, [{n} x i64] }}, align 8").unwrap();
                 }
                 if Self::usa_area(func) {
@@ -664,6 +919,11 @@ impl<'a> LlvmEmitter<'a> {
             if block.id.0 == 0 && self.tem_ctx {
                 writeln!(self.out, "  %ctx = call ptr @dartforge_contexto()").unwrap();
                 writeln!(self.out, "  %ctxtopo = getelementptr inbounds i8, ptr %ctx, i64 8").unwrap();
+                // Sem quadro de raízes, o topo que o pouso restaura é o da
+                // entrada da função.
+                if tem_pouso && !self.tem_frame {
+                    writeln!(self.out, "  %topo0 = load ptr, ptr %ctxtopo, align 8").unwrap();
+                }
                 self.emitir_conferencia_da_pilha(func);
             }
             if block.id.0 == 0 && self.tem_frame {
@@ -672,12 +932,13 @@ impl<'a> LlvmEmitter<'a> {
                 // os slots, zerados antes de o runtime encadeá-lo. Cada raiz
                 // é um `store` no slot dela (slots compartilhados: o tamanho
                 // é o do maior).
-                let n = self.slots.values().max().map_or(0, |m| m + 1);
+                let n = self.tamanho_do_quadro();
                 let t = format!("{{ ptr, i64, [{n} x i64] }}");
                 if !Self::quadro_na_entrada() {
                     writeln!(self.out, "  %gcq = alloca {t}, align 8").unwrap();
                 }
-                writeln!(self.out, "  store {t} {{ ptr null, i64 {n}, [{n} x i64] zeroinitializer }}, ptr %gcq").unwrap();
+                let cabecalho = self.cabecalho_do_quadro(n);
+                writeln!(self.out, "  store {t} {{ ptr null, i64 {cabecalho}, [{n} x i64] zeroinitializer }}, ptr %gcq").unwrap();
                 for slot in 0..n {
                     writeln!(self.out, "  %gcs{slot} = getelementptr inbounds {t}, ptr %gcq, i64 0, i32 2, i64 {slot}").unwrap();
                 }
@@ -697,6 +958,20 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  %v{} = getelementptr inbounds i8, ptr %gcs{slot}, i64 0", vid.0).unwrap();
                 }
             }
+            if block.id.0 == 0 {
+                for (vid, _, _) in &func.params {
+                    if self.enraizados.contains(vid) {
+                        self.raiz_no_mapa(vid.0);
+                    }
+                }
+                // A sabotagem `bruto_no_mapa`: um valor que o otimizador não
+                // dobra (a carga volátil) posto no mapa como raiz.
+                if tem_gc && crate::alvo::sabotagem("bruto_no_mapa") {
+                    self.out.push_str(
+                        "  %dfsab = alloca i64, align 8\n  store volatile i64 4098, ptr %dfsab, align 8\n  %dfsabv = load volatile i64, ptr %dfsab, align 8\n  %raizsab = inttoptr i64 %dfsabv to ptr addrspace(1)\n",
+                    );
+                }
+            }
             // `phi` tem de ser a primeira instrução do bloco: as raízes dos
             // `phi` saem todas depois do último deles.
             let mut raizes_de_phi: Vec<(usize, u32)> = Vec::new();
@@ -712,9 +987,17 @@ impl<'a> LlvmEmitter<'a> {
                 }
                 if !matches!(inst, Instruction::Phi { .. }) && !raizes_de_phi.is_empty() {
                     for (slot, pv) in std::mem::take(&mut raizes_de_phi) {
-                        writeln!(self.out, "  store i64 %v{pv}, ptr %gcs{slot}").unwrap();
+                        self.raiz_de_phi(slot, pv);
                     }
                 }
+                // O build de conferência: os vivos deste ponto de coleta,
+                // exatamente, nos slots de conferência.
+                if self.conferencia.is_some()
+                    && let Some(vivos) = self.raizes_da_funcao.vivos_em.get(vid).cloned()
+                {
+                    self.gravar_conferencia(&vivos);
+                }
+                let inicio_da_instrucao = self.out.len();
                 match inst {
                     Instruction::Const(Constant::Int(n)) => {
                         writeln!(self.out, "  %v{v} = add i64 0, {n}").unwrap();
@@ -1030,7 +1313,22 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  br i1 %xce{v}, label %xc{v}.limpar, label %xc{v}.fim").unwrap();
                         writeln!(self.out, "xc{v}.limpar:").unwrap();
                         writeln!(self.out, "  call void @dartforge_exception_clear()").unwrap();
-                        writeln!(self.out, "  br label %xc{v}.fim").unwrap();
+                        if tab.is_some() {
+                            // A limpeza que não limpou é o desenrolar do
+                            // isolado (`Isolate.exit`, `kill`), que nenhum
+                            // tratador segura: no modelo de conferência a
+                            // função voltava com ele pendente; aqui ela
+                            // desenrola (o `catch` e o `finally` de fora, na
+                            // mesma função, não o tratariam mesmo).
+                            writeln!(self.out, "  %xcd{v} = load i8, ptr %ctx, align 8").unwrap();
+                            writeln!(self.out, "  %xcq{v} = icmp ne i8 %xcd{v}, 0").unwrap();
+                            writeln!(self.out, "  br i1 %xcq{v}, label %xc{v}.sai, label %xc{v}.fim").unwrap();
+                            writeln!(self.out, "xc{v}.sai:").unwrap();
+                            writeln!(self.out, "  call void @df.lancar()").unwrap();
+                            writeln!(self.out, "  unreachable").unwrap();
+                        } else {
+                            writeln!(self.out, "  br label %xc{v}.fim").unwrap();
+                        }
                         writeln!(self.out, "xc{v}.fim:").unwrap();
                         self.rotulo_atual = format!("xc{v}.fim");
                     }
@@ -1073,10 +1371,26 @@ impl<'a> LlvmEmitter<'a> {
                         }
                         let joined = args_formatted.join(", ");
                         let r = ret_ty.llvm_ir();
+                        // `DARTFORGE_EFEITOS=conferir`: a extern marcada sem
+                        // coletar ou sem lançar roda vigiada pelo runtime.
+                        let marcas = if externs::conferir_efeitos() { externs::marcas_a_conferir(name) } else { 0 };
+                        if marcas != 0 {
+                            let k = match self.externs_conferidas.iter().position(|n| n == name) {
+                                Some(k) => k,
+                                None => {
+                                    self.externs_conferidas.push(name.clone());
+                                    self.externs_conferidas.len() - 1
+                                }
+                            };
+                            writeln!(self.out, "  call void @dartforge_efeitos_antes(ptr @df.efn.{k}, i64 {}, i64 {marcas})", name.len()).unwrap();
+                        }
                         if *ret_ty == Type::Void {
                             writeln!(self.out, "  call {r} @{name}({joined})").unwrap();
                         } else {
                             writeln!(self.out, "  %v{v} = call {r} @{name}({joined})").unwrap();
+                        }
+                        if marcas != 0 {
+                            writeln!(self.out, "  call void @dartforge_efeitos_depois()").unwrap();
                         }
                     }
                     Instruction::ChamadaNativa { alvo, args, ret } => {
@@ -1274,6 +1588,11 @@ impl<'a> LlvmEmitter<'a> {
                         unreachable!("instrução sem emissão passou pelo verificador: {inst:?}");
                     }
                 }
+                // Exceções por tabelas: a chamada Dart com pouso é `invoke`
+                // (a raiz do resultado, abaixo, já sai no caminho normal).
+                if let Some(pouso) = tab.and_then(|t| t.invocacoes.get(vid)) {
+                    self.tornar_invoke(inicio_da_instrucao, v, pouso.0);
+                }
                 // G1: a raiz logo depois da definição — nada aloca entre
                 // o retorno da chamada e este `set_root` (G5).
                 if let Some(&slot) = self.slots.get(vid) {
@@ -1282,18 +1601,44 @@ impl<'a> LlvmEmitter<'a> {
                     } else if !matches!(inst, Instruction::Alloca(_)) {
                         writeln!(self.out, "  store i64 %v{v}, ptr %gcs{slot}").unwrap();
                     }
+                } else if self.enraizados.contains(vid) {
+                    if matches!(inst, Instruction::Phi { .. }) {
+                        raizes_de_phi.push((usize::MAX, v));
+                    } else {
+                        self.raiz_no_mapa(v);
+                    }
+                }
+                // Raízes por mapas: o que estava vivo na entrada deste ponto
+                // de coleta (os operandos inclusive) continua vivo através
+                // dele — é o que o põe no mapa da chamada.
+                if tem_gc && let Some(vivos) = self.raizes_da_funcao.vivos_em.get(vid).cloned() {
+                    self.manter_vivos(&vivos);
                 }
                 let _ = ty;
             }
             for (slot, pv) in std::mem::take(&mut raizes_de_phi) {
-                writeln!(self.out, "  store i64 %v{pv}, ptr %gcs{slot}").unwrap();
+                self.raiz_de_phi(slot, pv);
             }
 
+            // O build de conferência: o ponto de coleta do fim do bloco.
+            if self.conferencia.is_some() {
+                let vivos = self.raizes_da_funcao.vivos_no_fim.get(&block.id).cloned().unwrap_or_default();
+                self.gravar_conferencia(&vivos);
+            }
             for (b, nome, de, v, para) in self.conv_phi.clone() {
                 if b == block.id.0 {
                     let origem = format!("%v{}", v.0);
                     self.emitir_conversao_nomeada(&nome, de, &origem, para);
                 }
+            }
+            // Raízes por mapas: o ponto de coleta do fim do bloco (as
+            // conversões acima podem encaixotar; o `throw` é tratado no
+            // terminador, depois da chamada dele).
+            if tem_gc
+                && !matches!(block.terminator, Terminator::Throw(_))
+                && let Some(vivos) = self.raizes_da_funcao.vivos_no_fim.get(&block.id).cloned()
+            {
+                self.manter_vivos(&vivos);
             }
 
             if let Some(p) = func.depuracao.as_ref().and_then(|d| d.saidas.get(&block.id))
@@ -1301,6 +1646,31 @@ impl<'a> LlvmEmitter<'a> {
             {
                 writeln!(self.out, "{}{} {}", depuracao::MARCADOR, p.0, p.1).unwrap();
                 posicao_escrita = Some(*p);
+            }
+            // Exceções por tabelas: o `Return` com a exceção pendente não
+            // retorna — desenrola até o pouso de quem a trata (que restaura
+            // o topo da pilha-sombra: o quadro de raízes não é fechado
+            // aqui). Com a pendência incerta, confere antes.
+            if matches!(block.terminator, Terminator::Return(_)) {
+                match tab.and_then(|t| t.saidas.get(&block.id)) {
+                    Some(SaidaPorExcecao::Lanca) => {
+                        writeln!(self.out, "  call void @df.lancar()").unwrap();
+                        writeln!(self.out, "  unreachable").unwrap();
+                        continue;
+                    }
+                    Some(SaidaPorExcecao::Guarda) => {
+                        let b = block.id.0;
+                        writeln!(self.out, "  %xgp{b} = load i8, ptr %ctx, align 8").unwrap();
+                        writeln!(self.out, "  %xgn{b} = icmp ne i8 %xgp{b}, 0").unwrap();
+                        writeln!(self.out, "  %xge{b} = call i1 @llvm.expect.i1(i1 %xgn{b}, i1 false)").unwrap();
+                        writeln!(self.out, "  br i1 %xge{b}, label %xg{b}.lanca, label %xg{b}.ret").unwrap();
+                        writeln!(self.out, "xg{b}.lanca:").unwrap();
+                        writeln!(self.out, "  call void @df.lancar()").unwrap();
+                        writeln!(self.out, "  unreachable").unwrap();
+                        writeln!(self.out, "xg{b}.ret:").unwrap();
+                    }
+                    None => {}
+                }
             }
             if self.rastro.is_some() && matches!(block.terminator, Terminator::Return(_)) {
                 writeln!(self.out, "  call void @dartforge_rastro_saida()").unwrap();
@@ -1335,6 +1705,11 @@ impl<'a> LlvmEmitter<'a> {
                 Terminator::Branch(target) => {
                     writeln!(self.out, "  br label %b{}", target.0).unwrap();
                 }
+                // O desvio ao pouso é o do `invoke` deste bloco
+                // (`otimizar/tabelas.rs`): aqui só segue a continuação.
+                Terminator::CondBranch { then_block, else_block, .. } if tab.is_some_and(|t| t.pousos.contains(then_block)) => {
+                    writeln!(self.out, "  br label %b{}", else_block.0).unwrap();
+                }
                 Terminator::CondBranch { cond, then_block, else_block } => {
                     let sc = self.coagir(cond, Type::I1);
                     writeln!(self.out, "  br i1 {sc}, label %b{}, label %b{}", then_block.0, else_block.0).unwrap();
@@ -1356,6 +1731,12 @@ impl<'a> LlvmEmitter<'a> {
                     };
                     let sop = self.coagir(op, Type::I64);
                     writeln!(self.out, "  call void @dartforge_exception_throw(i64 {sop}, i8 {tag})").unwrap();
+                    if tem_gc && let Some(vivos) = self.raizes_da_funcao.vivos_no_fim.get(&block.id).cloned() {
+                        self.manter_vivos(&vivos);
+                    }
+                    if tab.is_some() {
+                        writeln!(self.out, "  call void @df.lancar()").unwrap();
+                    }
                     writeln!(self.out, "  unreachable").unwrap();
                 }
                 Terminator::Unreachable => {
@@ -1365,6 +1746,16 @@ impl<'a> LlvmEmitter<'a> {
         }
 
         writeln!(self.out, "}}\n").unwrap();
+        // §13.14: os rótulos do rastro, antes do DWARF (que consome os
+        // marcadores de posição).
+        if (func.depuracao.is_some() || compartilhada)
+            && let Some(mut r) = self.rastro_vm.take()
+        {
+            let texto = self.out.split_off(inicio_da_funcao);
+            let rotulado = r.rotular(&texto, func, func.depuracao.as_deref(), self.depuracao.is_some(), compartilhada);
+            self.out.push_str(&rotulado);
+            self.rastro_vm = Some(r);
+        }
         if let Some(d) = func.depuracao.as_deref()
             && let Some(mut dep) = self.depuracao.take()
         {
@@ -1373,6 +1764,100 @@ impl<'a> LlvmEmitter<'a> {
             self.out.push_str(&anotado);
             self.depuracao = Some(dep);
         }
+    }
+
+    /// O número de slots do quadro de raízes da função em emissão: os de
+    /// sempre e, no build de conferência, os de conferência depois deles.
+    fn tamanho_do_quadro(&self) -> usize {
+        match self.conferencia {
+            Some((primeiro, k)) => primeiro + k,
+            None => self.slots.values().max().map_or(0, |m| m + 1),
+        }
+    }
+
+    /// O campo `n` do quadro (`QuadroDeRaizes` do runtime): o número de
+    /// slots e, nos bits 40 em diante, quantos dos últimos são de
+    /// conferência.
+    fn cabecalho_do_quadro(&self, n: usize) -> u64 {
+        match self.conferencia {
+            Some((_, k)) => n as u64 | ((k as u64) << 40),
+            None => n as u64,
+        }
+    }
+
+    /// O build de conferência: grava `vivos` nos slots de conferência e zera
+    /// os que sobram.
+    fn gravar_conferencia(&mut self, vivos: &[ValueId]) {
+        let Some((primeiro, k)) = self.conferencia else { return };
+        for i in 0..k {
+            match vivos.get(i) {
+                Some(x) => writeln!(self.out, "  store i64 %v{}, ptr %gcs{}", x.0, primeiro + i).unwrap(),
+                None => writeln!(self.out, "  store i64 0, ptr %gcs{}", primeiro + i).unwrap(),
+            }
+        }
+    }
+
+    /// Raízes por mapas: `%raiz<v>`, o valor `Ref` `%v<v>` como ponteiro
+    /// `addrspace(1)` — os mesmos bits, na forma que o
+    /// `rewrite-statepoints-for-gc` reconhece como referência do coletor. O
+    /// código continua usando o `i64` (o coletor não move objetos); o
+    /// ponteiro só existe para o valor aparecer no mapa de pilha.
+    fn raiz_no_mapa(&mut self, v: u32) {
+        writeln!(self.out, "  %raiz{v} = inttoptr i64 %v{v} to ptr addrspace(1)").unwrap();
+    }
+
+    /// A raiz de um `phi`, emitida depois do último `phi` do bloco: o `store`
+    /// no slot do quadro, ou (slot `usize::MAX`) o ponteiro do mapa.
+    fn raiz_de_phi(&mut self, slot: usize, v: u32) {
+        if slot == usize::MAX {
+            self.raiz_no_mapa(v);
+        } else {
+            writeln!(self.out, "  store i64 %v{v}, ptr %gcs{slot}").unwrap();
+        }
+    }
+
+    /// Raízes por mapas: mantém vivos, até aqui, os valores enraizados
+    /// `vivos` — um uso que não gera código (`llvm.fake.use`) logo depois de
+    /// um ponto de coleta. É ele que faz o valor estar vivo *através* da
+    /// chamada e, portanto, no mapa dela; vale também para o argumento cujo
+    /// último uso é a própria chamada (o runtime conta com quem chama para
+    /// mantê-lo vivo enquanto ela roda).
+    fn manter_vivos(&mut self, vivos: &[ValueId]) {
+        if crate::alvo::sabotagem("sem_uso_ficticio") {
+            return;
+        }
+        if !self.enraizados.is_empty() && crate::alvo::sabotagem("bruto_no_mapa") {
+            self.out.push_str("  call void (...) @llvm.fake.use(ptr addrspace(1) %raizsab)\n");
+        }
+        for x in vivos {
+            writeln!(self.out, "  call void (...) @llvm.fake.use(ptr addrspace(1) %raiz{})", x.0).unwrap();
+        }
+    }
+
+    /// Exceções por tabelas: a chamada Dart que a instrução `v` acabou de
+    /// emitir (a última linha desde `inicio`: a de `CallStatic`,
+    /// `ChamadaTipada`, da closure ou do seletor) vira
+    /// `invoke … to label %inv<v>.fim unwind label %b<pouso>`, e a emissão
+    /// continua no rótulo do caminho normal — o bloco da HIR passa a
+    /// terminar nele ([`LlvmEmitter::rotulos_de_saida`]). As chamadas ao
+    /// runtime que a mesma instrução emite antes (a entrada da closure, a
+    /// busca do seletor) não desenrolam e continuam `call`.
+    fn tornar_invoke(&mut self, inicio: usize, v: u32, pouso: u32) {
+        let texto = self.out.split_off(inicio);
+        let corpo = texto.strip_suffix('\n').unwrap_or(&texto);
+        let (antes, chamada) = match corpo.rfind('\n') {
+            Some(i) => (&corpo[..=i], &corpo[i + 1..]),
+            None => ("", corpo),
+        };
+        assert!(
+            chamada.starts_with("  call ") || chamada.contains(" = call "),
+            "bug do compilador: a instrução com pouso não termina numa chamada: {chamada}"
+        );
+        self.out.push_str(antes);
+        self.out.push_str(&chamada.replacen("call ", "invoke ", 1));
+        writeln!(self.out, " to label %inv{v}.fim unwind label %b{pouso}").unwrap();
+        writeln!(self.out, "inv{v}.fim:").unwrap();
+        self.rotulo_atual = format!("inv{v}.fim");
     }
 
     /// `%cf<v>`: o ponteiro da entrada uniforme da closure `c` — o código
@@ -1824,6 +2309,9 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     fn emit_entry(&mut self) {
+        if self.module.excecoes_por_tabelas {
+            self.emitir_portas();
+        }
         if self.module.modo_sdk {
             self.emitir_registro("df.registrar.programa");
             let ids: Vec<String> = self.module.cids_do_runtime.iter().map(|c| format!("i64 {c}")).collect();
@@ -1866,7 +2354,7 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(self.out, "  call void @df.registrar.programa()").unwrap();
             // RTI e laço de eventos, como na entrada de sempre (abaixo).
             if let Some(iniciar) = &self.module.iniciar_rti {
-                writeln!(self.out, "  call void @{iniciar}()").unwrap();
+                writeln!(self.out, "  {}", chamada_de_entrada(self.module.excecoes_por_tabelas, iniciar, &[])).unwrap();
             }
             // O que o embedder da VM prepara antes do `main` (o script de
             // `dart:io`, o `Uri.base`), já com as bibliotecas registradas.
@@ -1906,6 +2394,11 @@ impl<'a> LlvmEmitter<'a> {
             }
             self.emit_callbacks_ffi();
             writeln!(self.out, "define void @dartforge_entry() {{").unwrap();
+            // Exceções por tabelas: as portas pelas quais o runtime chama
+            // código Dart, entregues antes de qualquer código Dart rodar.
+            if self.module.excecoes_por_tabelas {
+                writeln!(self.out, "  call void @dartforge_registrar_portas(ptr @df.portas, i64 {N_PORTAS})").unwrap();
+            }
             let chamar = self.module.chamar_dart.as_ref().map_or("null".to_string(), |c| format!("@{c}"));
             writeln!(self.out, "  call void @dartforge_registrar_isolados(ptr @df.preparar_isolado, ptr {chamar})").unwrap();
             writeln!(self.out, "  call void @df.preparar_isolado()").unwrap();
@@ -1924,6 +2417,11 @@ impl<'a> LlvmEmitter<'a> {
             return;
         }
         writeln!(self.out, "define void @dartforge_entry() {{").unwrap();
+        // Exceções por tabelas: as portas pelas quais o runtime chama
+        // código Dart, entregues antes de qualquer código Dart rodar.
+        if self.module.excecoes_por_tabelas {
+            writeln!(self.out, "  call void @dartforge_registrar_portas(ptr @df.portas, i64 {N_PORTAS})").unwrap();
+        }
         // Registra classes
         for class in &self.module.classes {
             let idx = self.string_const_index(class.name.as_bytes()).unwrap_or(0);
@@ -1935,6 +2433,12 @@ impl<'a> LlvmEmitter<'a> {
             ).unwrap();
         }
 
+        if self.mapas && !self.mapas_no_jit {
+            self.out.push_str(Self::chamada_de_registro_dos_mapas());
+        }
+        if let Some(c) = self.chamada_de_registro_do_rastro() {
+            self.out.push_str(&c);
+        }
         // Registra grafo de subtipagem
         for (sub, sup) in &self.module.subtyping_edges {
             writeln!(
@@ -1945,7 +2449,7 @@ impl<'a> LlvmEmitter<'a> {
 
         // RTI: o universo de tipos (classes citadas e regras de supertipo).
         if let Some(iniciar) = &self.module.iniciar_rti {
-            writeln!(self.out, "  call void @{iniciar}()").unwrap();
+            writeln!(self.out, "  {}", chamada_de_entrada(self.module.excecoes_por_tabelas, iniciar, &[])).unwrap();
         }
         self.chamar_main();
         // P6: microtarefas e timers depois do `main` (runtime, `eventos.rs`).
@@ -2212,7 +2716,12 @@ impl<'a> LlvmEmitter<'a> {
                 _ => ("void".to_string(), ""),
             };
             let r = tipo_ret.as_str();
-            writeln!(self.out, "define internal {ret_ext}{r} @df.ffi.cbentrada.{i}({}) {{", decls.join(", ")).unwrap();
+            // Exceções por tabelas: a entrada pousa o desenrolamento do corpo
+            // (abaixo) — código C não é atravessado.
+            let por_tabelas = self.module.excecoes_por_tabelas;
+            let personalidade = if por_tabelas { " personality ptr @dartforge_personalidade" } else { "" };
+            writeln!(self.out, "define internal {ret_ext}{r} @df.ffi.cbentrada.{i}({}){personalidade} {{", decls.join(", "))
+                .unwrap();
             let n = cb.params.len().max(1);
             writeln!(self.out, "entrada:\n  %saida = alloca i64\n  %buf = alloca [{n} x i64]").unwrap();
             if let Some((_, l)) = &ret {
@@ -2296,7 +2805,30 @@ impl<'a> LlvmEmitter<'a> {
             }
             let hr = cb.ret.tipo_hir().llvm_ir();
             let vazio = matches!(cb.ret, TipoNativo::Prim(TipoC::Void));
-            if vazio {
+            if por_tabelas {
+                // O corpo que lança desenrola: o pouso restaura o topo da
+                // pilha-sombra e segue com o valor padrão e a exceção
+                // pendente, como o corpo devolvia no modelo de conferência.
+                self.out.push_str(
+                    "  %tctx = call ptr @dartforge_contexto()\n  %ttp = getelementptr inbounds i8, ptr %tctx, i64 8\n  %ttopo = load ptr, ptr %ttp, align 8\n",
+                );
+                let pouso = "tlp:\n  %tx = landingpad { ptr, i32 } catch ptr null\n  store ptr %ttopo, ptr %ttp, align 8\n  br label %tcont\n";
+                if vazio {
+                    writeln!(self.out, "  invoke void @{}({}) to label %tcont unwind label %tlp", cb.corpo, args.join(", ")).unwrap();
+                    self.out.push_str(pouso);
+                    self.out.push_str("tcont:\n");
+                } else {
+                    let zero = match hr {
+                        "double" => "0.0",
+                        "i1" => "false",
+                        _ => "0",
+                    };
+                    writeln!(self.out, "  %r.ok = invoke {hr} @{}({}) to label %tok unwind label %tlp", cb.corpo, args.join(", ")).unwrap();
+                    self.out.push_str(pouso);
+                    self.out.push_str("tok:\n  br label %tcont\ntcont:\n");
+                    writeln!(self.out, "  %r = phi {hr} [ %r.ok, %tok ], [ {zero}, %tlp ]").unwrap();
+                }
+            } else if vazio {
                 writeln!(self.out, "  call void @{}({})", cb.corpo, args.join(", ")).unwrap();
             } else {
                 writeln!(self.out, "  %r = call {hr} @{}({})", cb.corpo, args.join(", ")).unwrap();
@@ -2366,14 +2898,50 @@ impl<'a> LlvmEmitter<'a> {
 
     fn chamar_main(&mut self) {
         let Some(entry) = self.module.entry_symbol.clone() else { return };
+        let por_tabelas = self.module.excecoes_por_tabelas;
         let n = self.module.entry_params.min(2);
         if n == 0 {
-            writeln!(self.out, "  call void @{entry}()").unwrap();
+            writeln!(self.out, "  {}", chamada_de_entrada(por_tabelas, &entry, &[])).unwrap();
             return;
         }
         writeln!(self.out, "  %df.args = call i64 @dartforge_argumentos_do_main()").unwrap();
-        let args = if n == 1 { "i64 %df.args".to_string() } else { "i64 %df.args, i64 0".to_string() };
-        writeln!(self.out, "  call void @{entry}({args})").unwrap();
+        let args: &[&str] = if n == 1 { &["i64 %df.args"] } else { &["i64 %df.args", "i64 0"] };
+        writeln!(self.out, "  {}", chamada_de_entrada(por_tabelas, &entry, args)).unwrap();
+    }
+
+    /// Exceções por tabelas: as portas pelas quais o runtime chama código
+    /// Dart (`runtime/src/excecoes_tabelas.rs`), uma por assinatura —
+    /// `@df.porta.<v|r><n>(função, n palavras)`, `v` sem valor e `r`
+    /// devolvendo uma palavra — e a tabela `@df.portas`, no índice
+    /// `2n + (1 se devolve)`, que a entrada do programa registra. A porta
+    /// chama a função com `invoke`; um desenrolamento pousa nela, que
+    /// restaura o topo da pilha-sombra e volta com a exceção pendente — o
+    /// que o runtime espera de uma função Dart que lançou. Assim nenhum
+    /// quadro do runtime fica no caminho de um desenrolamento.
+    fn emitir_portas(&mut self) {
+        let mut tabela = Vec::with_capacity(N_PORTAS);
+        for n in 0..N_PORTAS / 2 {
+            for retorna in [false, true] {
+                let nome = format!("df.porta.{}{n}", if retorna { 'r' } else { 'v' });
+                let params: String = (0..n).map(|i| format!(", i64 %a{i}")).collect();
+                let args: Vec<String> = (0..n).map(|i| format!("i64 %a{i}")).collect();
+                let (tipo, resultado, volta, padrao) =
+                    if retorna { ("i64", "%r = ", "ret i64 %r", "ret i64 0") } else { ("void", "", "ret void", "ret void") };
+                writeln!(self.out, "define internal {tipo} @{nome}(ptr %f{params}) personality ptr @dartforge_personalidade {{")
+                    .unwrap();
+                self.out.push_str(
+                    "entrada:\n  %ctx = call ptr @dartforge_contexto()\n  %tp = getelementptr inbounds i8, ptr %ctx, i64 8\n  %topo = load ptr, ptr %tp, align 8\n",
+                );
+                writeln!(self.out, "  {resultado}invoke {tipo} %f({}) to label %volta unwind label %pouso", args.join(", ")).unwrap();
+                writeln!(
+                    self.out,
+                    "volta:\n  {volta}\npouso:\n  %lp = landingpad {{ ptr, i32 }} catch ptr null\n  store ptr %topo, ptr %tp, align 8\n  {padrao}\n}}"
+                )
+                .unwrap();
+                tabela.push(format!("ptr @{nome}"));
+            }
+        }
+        writeln!(self.out, "@df.portas = private unnamed_addr constant [{N_PORTAS} x ptr] [{}]\n", tabela.join(", ")).unwrap();
     }
 
     /// Tipo do valor que o emissor de fato imprime para uma instrucao.
@@ -2454,6 +3022,7 @@ impl<'a> LlvmEmitter<'a> {
     /// pendente, antes de encadear o quadro de raízes. Só nas funções que
     /// chamam (as que têm `%ctx`): uma folha não aprofunda a pilha.
     fn emitir_conferencia_da_pilha(&mut self, func: &Function) {
+        let por_tabelas = self.tab.is_some();
         let o = &mut self.out;
         writeln!(o, "  %pilhaq = alloca i8, align 1").unwrap();
         writeln!(o, "  %pilhalp = getelementptr inbounds i8, ptr %ctx, i64 {}", layout::contexto::LIMITE_DA_PILHA).unwrap();
@@ -2465,6 +3034,15 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(o, "  call void @dartforge_estouro_de_pilha()").unwrap();
         if self.rastro.is_some() {
             writeln!(o, "  call void @dartforge_rastro_saida()").unwrap();
+        }
+        // Exceções por tabelas: o `StackOverflowError` desenrola daqui.
+        if por_tabelas {
+            writeln!(o, "  call void @df.lancar()").unwrap();
+            writeln!(o, "  unreachable").unwrap();
+            writeln!(o, "pilha.ok:").unwrap();
+            self.rotulo_atual = "pilha.ok".to_string();
+            self.rotulos_de_saida.entry(0).or_insert_with(|| "pilha.ok".to_string());
+            return;
         }
         match func.return_ty {
             Type::Void => writeln!(o, "  ret void").unwrap(),
@@ -2941,6 +3519,81 @@ impl<'a> LlvmEmitter<'a> {
             }
             Operand::Constant(Constant::Funcao(f)) => format!("ptrtoint (ptr @{f} to i64)"),
         }
+    }
+}
+
+/// Raízes por mapas: os ajudantes `@df.*` que comprovadamente não coletam
+/// ganham `"gc-leaf-function"` — fora de linha (o programa grande), a
+/// chamada a eles não vira ponto de coleta. Em linha o atributo não muda
+/// nada. Só os que não chamam o runtime, ou chamam uma extern que não aloca
+/// no heap do coletor (`dartforge_lembrar`).
+fn ajudantes_folha(texto: &str) -> String {
+    const FOLHAS: &[&str] = &["@df.corpo(", "@df.barreira(", "@df.barreira_elemento(", "@df.e_objeto(", "@df.filho_jovem("];
+    let mut saida = String::with_capacity(texto.len() + 256);
+    for linha in texto.split_inclusive('\n') {
+        let alvo = linha.starts_with("define internal ") && FOLHAS.iter().any(|f| linha.contains(f));
+        match linha.rfind(" {") {
+            Some(i) if alvo => {
+                saida.push_str(&linha[..i]);
+                saida.push_str(" \"gc-leaf-function\"");
+                saida.push_str(&linha[i..]);
+            }
+            _ => saida.push_str(linha),
+        }
+    }
+    saida
+}
+
+/// Quantas portas Rust → Dart o módulo do programa define
+/// ([`LlvmEmitter::emitir_portas`]): aridades 0 a 7, sem valor e com valor. O
+/// runtime tem o mesmo número (`PORTAS_DART`, `excecoes_tabelas.rs`).
+const N_PORTAS: usize = 16;
+
+/// O que todo módulo declara nas exceções por tabelas
+/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13):
+///
+/// * a personalidade das funções com pouso (`dartforge_personalidade`, do
+///   runtime) e o registro das portas;
+/// * `@df.lancar`, o desenrolamento: uma exceção estruturada do sistema com
+///   o código próprio `0xE0444652` (o inteiro abaixo), não continuável, sem
+///   parâmetros — a exceção Dart em si é a pendência do runtime. `internal`:
+///   cada módulo (e cada parte de um módulo dividido) tem a sua cópia.
+const EXCECOES_POR_TABELAS: &str = "; Exceções por tabelas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md)\n\
+declare i32 @dartforge_personalidade(...)\n\
+declare void @dartforge_registrar_portas(ptr, i64)\n\
+declare dllimport void @RaiseException(i32, i32, i32, ptr)\n\
+define internal void @df.lancar() noreturn noinline cold \"gc-leaf-function\" {\n\
+  call void @RaiseException(i32 -532396462, i32 1, i32 0, ptr null)\n\
+  unreachable\n\
+}\n";
+
+/// O mesmo nos alvos Itanium (Linux, macOS): `@df.lancar` chama o runtime,
+/// que entrega ao desenrolador do sistema (`_Unwind_RaiseException`) o
+/// objeto de exceção da thread (`excecoes_tabelas.rs`).
+const EXCECOES_POR_TABELAS_ITANIUM: &str = "; Exceções por tabelas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md)
+declare i32 @dartforge_personalidade(...)
+declare void @dartforge_registrar_portas(ptr, i64)
+declare void @dartforge_lancar_desenrolamento() noreturn
+define internal void @df.lancar() noreturn noinline cold \"gc-leaf-function\" {
+  call void @dartforge_lancar_desenrolamento()
+  unreachable
+}
+";
+
+/// A chamada, na entrada do programa, de uma função Dart sem valor: direta
+/// ou, nas exceções por tabelas, pela porta da aridade
+/// ([`LlvmEmitter::emitir_portas`]) — a entrada é chamada pelo runtime, e um
+/// desenrolamento não pode chegar a ele.
+fn chamada_de_entrada(por_tabelas: bool, simbolo: &str, args: &[&str]) -> String {
+    if por_tabelas {
+        let mut lista = format!("ptr @{simbolo}");
+        for a in args {
+            lista.push_str(", ");
+            lista.push_str(a);
+        }
+        format!("call void @df.porta.v{}({lista})", args.len())
+    } else {
+        format!("call void @{simbolo}({})", args.join(", "))
     }
 }
 

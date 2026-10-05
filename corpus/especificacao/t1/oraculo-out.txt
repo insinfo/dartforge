@@ -1,0 +1,146 @@
+== c01.dart
+  duplicate_definition | offset 36, length 1 | 4:7 | ERROR | The name 'A' is already defined.
+  undefined_method | offset 93, length 3 | 9:5 | ERROR | The method 'bar' isn't defined for the type 'A'.
+== c02.dart
+  duplicate_definition | offset 15, length 1 | 2:5 | ERROR | The name 'A' is already defined.
+  duplicate_definition | offset 39, length 1 | 4:7 | ERROR | The name 'B' is already defined.
+  duplicate_definition | offset 60, length 1 | 6:6 | ERROR | The name 'C' is already defined.
+  duplicate_definition | offset 86, length 1 | 8:7 | ERROR | The name 'D' is already defined.
+  duplicate_definition | offset 114, length 1 | 10:7 | ERROR | The name 'E' is already defined.
+  extends_non_class | offset 210, length 1 | 19:17 | ERROR | Classes can only extend other classes.
+== c03.dart
+  expected_token | offset 28, length 7 | 4:1 | ERROR | Expected to find ';'.
+  missing_const_final_var_or_type | offset 28, length 7 | 4:1 | ERROR | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+  duplicate_definition | offset 42, length 1 | 4:15 | ERROR | The name 'A' is already defined.
+  undefined_method | offset 93, length 3 | 9:5 | ERROR | The method 'bar' isn't defined for the type 'A'.
+== c04.dart
+  non_abstract_class_inherits_abstract_member | offset 39, length 1 | 4:7 | ERROR | Missing concrete implementation of 'I.m'.
+  duplicate_definition | offset 63, length 1 | 5:7 | ERROR | The name 'B' is already defined.
+  concrete_class_with_abstract_member | offset 82, length 11 | 6:3 | ERROR | 'm' must have a method body because 'B' isn't abstract.
+  duplicate_definition | offset 141, length 1 | 11:7 | ERROR | The name 'C' is already defined.
+== c05.dart
+  expected_token | offset 11, length 7 | 2:1 | ERROR | Expected to find ';'.
+  missing_const_final_var_or_type | offset 11, length 7 | 2:1 | ERROR | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+  recursive_interface_inheritance | offset 25, length 1 | 2:15 | ERROR | 'A' can't implement itself.
+  duplicate_definition | offset 25, length 1 | 2:15 | ERROR | The name 'A' is already defined.
+  expected_token | offset 51, length 7 | 4:1 | ERROR | Expected to find ';'.
+  not_a_type | offset 51, length 7 | 4:1 | ERROR | augment isn't a type.
+  missing_identifier | offset 59, length 5 | 4:9 | ERROR | Expected an identifier.
+  recursive_interface_inheritance | offset 65, length 1 | 4:15 | ERROR | 'M' can't implement itself.
+  duplicate_definition | offset 65, length 1 | 4:15 | ERROR | The name 'M' is already defined.
+  expected_token | offset 88, length 7 | 6:1 | ERROR | Expected to find ';'.
+  duplicate_definition | offset 88, length 7 | 6:1 | ERROR | The name 'augment' is already defined.
+  missing_const_final_var_or_type | offset 88, length 7 | 6:1 | ERROR | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+  duplicate_definition | offset 101, length 1 | 6:14 | ERROR | The name 'E' is already defined.
+== c06.dart
+  duplicate_definition | offset 18, length 1 | 2:8 | ERROR | The name 'v' is already defined.
+  duplicate_definition | offset 42, length 1 | 4:5 | ERROR | The name 'g' is already defined.
+  duplicate_definition | offset 79, length 1 | 6:12 | ERROR | The name 'h' is already defined.
+  undefined_getter | offset 115, length 6 | 9:5 | ERROR | The getter 'length' isn't defined for the type 'int'.
+  use_of_void_result | offset 133, length 1 | 10:11 | ERROR | This expression has a type of 'void' so its value can't be used.
+  undefined_getter | offset 154, length 6 | 12:5 | ERROR | The getter 'length' isn't defined for the type 'int'.
+== c07.dart
+  duplicate_definition | offset 47, length 1 | 5:7 | ERROR | The name 'A' is already defined.
+  undefined_method | offset 115, length 3 | 10:10 | ERROR | The method 'foo' isn't defined for the type 'A'.
+  undefined_getter | offset 150, length 1 | 13:10 | ERROR | The getter 'x' isn't defined for the type 'A'.
+  undefined_method | offset 157, length 3 | 14:5 | ERROR | The method 'foo' isn't defined for the type 'A'.
+== c09.dart
+  duplicate_definition | offset 21, length 1 | 2:6 | ERROR | The name 'E' is already defined.
+  undefined_enum_constant | offset 54, length 1 | 5:5 | ERROR | There's no constant named 'c' in 'E'.
+== c10.dart
+  duplicate_definition | offset 27, length 1 | 4:7 | ERROR | The name 'A' is already defined.
+  invalid_factory_name_not_a_class | offset 50, length 1 | 6:11 | ERROR | The name of a factory constructor must be the same as the name of the immediately enclosing class.
+  redirect_to_invalid_return_type | offset 58, length 3 | 6:19 | ERROR | The return type 'A' of the redirected constructor isn't a subtype of 'A'.
+  invalid_factory_name_not_a_class | offset 73, length 1 | 7:11 | ERROR | The name of a factory constructor must be the same as the name of the immediately enclosing class.
+  redirect_to_missing_constructor | offset 81, length 3 | 7:19 | ERROR | The constructor 'A.y' couldn't be found in 'A'.
+  undefined_method | offset 112, length 1 | 11:5 | ERROR | The method 'y' isn't defined for the type 'A'.
+  undefined_method | offset 121, length 1 | 12:5 | ERROR | The method 'z' isn't defined for the type 'A'.
+== c11.dart
+  duplicate_definition | offset 46, length 1 | 5:7 | ERROR | The name 'A' is already defined.
+  final_not_initialized_constructor | offset 67, length 1 | 7:3 | ERROR | All final variables must be initialized, but 'b' isn't.
+  duplicate_definition | offset 113, length 1 | 11:13 | ERROR | The name 'v' is already defined.
+  final_not_initialized_constructor | offset 118, length 1 | 12:3 | ERROR | All final variables must be initialized, but 'v' isn't.
+== c12.dart
+  expected_token | offset 59, length 7 | 6:1 | ERROR | Expected to find ';'.
+  missing_const_final_var_or_type | offset 59, length 7 | 6:1 | ERROR | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+  duplicate_definition | offset 73, length 1 | 6:15 | ERROR | The name 'A' is already defined.
+  constructor_with_return_type | offset 79, length 7 | 7:3 | ERROR | Constructors can't have a return type.
+  duplicate_constructor | offset 87, length 1 | 7:11 | ERROR | The unnamed constructor is already defined.
+  type_before_factory | offset 99, length 7 | 8:3 | ERROR | Factory constructors cannot have a return type.
+  invalid_factory_name_not_a_class | offset 115, length 1 | 8:19 | ERROR | The name of a factory constructor must be the same as the name of the immediately enclosing class.
+  redirect_to_invalid_return_type | offset 123, length 7 | 8:27 | ERROR | The return type 'A' of the redirected constructor isn't a subtype of 'A'.
+  expected_token | offset 134, length 7 | 9:3 | ERROR | Expected to find ';'.
+  missing_const_final_var_or_type | offset 134, length 7 | 9:3 | ERROR | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+== c13.dart
+  duplicate_definition | offset 38, length 1 | 4:7 | ERROR | The name 'A' is already defined.
+  duplicate_definition | offset 46, length 4 | 5:5 | ERROR | The name 'self' is already defined.
+  return_of_invalid_type | offset 56, length 4 | 5:15 | ERROR | A value of type 'A' can't be returned from the method 'self' because it has a return type of 'A'.
+  argument_type_not_assignable | offset 98, length 4 | 8:7 | ERROR | The argument type 'A' can't be assigned to the parameter type 'A'. 
+  unnecessary_type_check | offset 130, length 6 | 10:11 | WARNING | Unnecessary type check; the result is always 'true'.
+== c14.dart
+  expected_token | offset 12, length 7 | 2:1 | ERROR | Expected to find ';'.
+  missing_const_final_var_or_type | offset 12, length 7 | 2:1 | ERROR | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+  duplicate_definition | offset 25, length 1 | 2:14 | ERROR | The name 'f' is already defined.
+  not_a_type | offset 32, length 3 | 3:1 | ERROR | int isn't a type.
+  not_a_type | offset 48, length 7 | 4:1 | ERROR | augment isn't a type.
+  expected_token | offset 56, length 3 | 4:9 | ERROR | Expected to find ';'.
+  duplicate_definition | offset 64, length 1 | 4:17 | ERROR | The name 'x' is already defined.
+  not_a_type | offset 72, length 3 | 5:1 | ERROR | int isn't a type.
+  not_a_type | offset 83, length 7 | 6:1 | ERROR | augment isn't a type.
+  expected_token | offset 91, length 3 | 6:9 | ERROR | Expected to find ';'.
+  duplicate_definition | offset 91, length 3 | 6:9 | ERROR | The name 'int' is already defined.
+  duplicate_definition | offset 95, length 1 | 6:13 | ERROR | The name 'v' is already defined.
+  missing_const_final_var_or_type | offset 95, length 1 | 6:13 | ERROR | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+  not_a_type | offset 114, length 3 | 7:13 | ERROR | int isn't a type.
+  expected_token | offset 119, length 7 | 8:1 | ERROR | Expected to find ';'.
+  duplicate_definition | offset 119, length 7 | 8:1 | ERROR | The name 'augment' is already defined.
+  missing_const_final_var_or_type | offset 119, length 7 | 8:1 | ERROR | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+  duplicate_definition | offset 135, length 1 | 8:17 | ERROR | The name 'T' is already defined.
+  not_a_type | offset 162, length 3 | 9:16 | ERROR | int isn't a type.
+  expected_token | offset 169, length 7 | 10:1 | ERROR | Expected to find ';'.
+  not_a_type | offset 169, length 7 | 10:1 | ERROR | augment isn't a type.
+  missing_identifier | offset 177, length 9 | 10:9 | ERROR | Expected an identifier.
+  expected_token | offset 187, length 1 | 10:19 | ERROR | Expected to find 'on'.
+  duplicate_definition | offset 187, length 1 | 10:19 | ERROR | The name 'X' is already defined.
+  expected_type_name | offset 189, length 1 | 10:21 | ERROR | Expected a type name.
+  not_a_type | offset 209, length 3 | 11:18 | ERROR | int isn't a type.
+  expected_token | offset 219, length 7 | 12:1 | ERROR | Expected to find ';'.
+  not_a_type | offset 219, length 7 | 12:1 | ERROR | augment isn't a type.
+  missing_identifier | offset 227, length 9 | 12:9 | ERROR | Expected an identifier.
+  duplicate_definition | offset 242, length 1 | 12:24 | ERROR | The name 'Y' is already defined.
+  not_a_type | offset 244, length 3 | 12:26 | ERROR | int isn't a type.
+== c15.dart
+  duplicate_definition | offset 36, length 1 | 4:7 | ERROR | The name 'A' is already defined.
+  duplicate_definition | offset 49, length 3 | 5:10 | ERROR | The name 'foo' is already defined.
+  invalid_override | offset 115, length 3 | 9:10 | ERROR | 'C.foo' ('String Function()') isn't a valid override of 'A.foo' ('int Function()').
+  non_abstract_class_inherits_abstract_member | offset 154, length 1 | 12:7 | ERROR | Missing concrete implementation of 'A.foo'.
+== c16.dart
+  duplicate_definition | offset 53, length 1 | 4:11 | ERROR | The name 'E' is already defined.
+  undefined_extension_getter | offset 134, length 3 | 11:8 | ERROR | The getter 'bar' isn't defined for the extension 'E'.
+== c18.dart
+  expected_token | offset 11, length 7 | 2:1 | ERROR | Expected to find ';'.
+  missing_const_final_var_or_type | offset 11, length 7 | 2:1 | ERROR | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+  recursive_interface_inheritance | offset 25, length 1 | 2:15 | ERROR | 'A' can't implement itself.
+  duplicate_definition | offset 25, length 1 | 2:15 | ERROR | The name 'A' is already defined.
+  expected_token | offset 54, length 7 | 4:1 | ERROR | Expected to find ';'.
+  duplicate_definition | offset 54, length 7 | 4:1 | ERROR | The name 'augment' is already defined.
+  missing_const_final_var_or_type | offset 54, length 7 | 4:1 | ERROR | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+  recursive_interface_inheritance | offset 68, length 1 | 4:15 | ERROR | 'B' can't implement itself.
+  duplicate_definition | offset 68, length 1 | 4:15 | ERROR | The name 'B' is already defined.
+  class_used_as_mixin | offset 75, length 1 | 4:22 | ERROR | The class 'B' can't be used as a mixin because it's neither a mixin class nor a mixin.
+  recursive_interface_inheritance | offset 97, length 1 | 6:7 | ERROR | 'S' can't implement itself.
+  duplicate_definition | offset 97, length 1 | 6:7 | ERROR | The name 'S' is already defined.
+== c20.dart
+  conflicting_static_and_instance | offset 23, length 1 | 2:14 | ERROR | Class 'A' can't define static member 's' and have instance member 'A.s' with the same name.
+  duplicate_definition | offset 51, length 1 | 5:7 | ERROR | The name 'A' is already defined.
+  conflicting_static_and_instance | offset 81, length 1 | 7:14 | ERROR | Class 'A' can't define static member 'i' and have instance member 'A.i' with the same name.
+  duplicate_definition | offset 110, length 1 | 10:7 | ERROR | The name 'A' is already defined.
+  duplicate_definition | offset 121, length 1 | 11:8 | ERROR | The name 'm' is already defined.
+== c21.dart
+  duplicate_definition | offset 52, length 1 | 4:7 | ERROR | The name 'A' is already defined.
+  invalid_assignment | offset 92, length 4 | 6:11 | ERROR | A value of type 'A' can't be assigned to a variable of type 'X'.
+  invalid_assignment | offset 161, length 1 | 12:9 | ERROR | A value of type 'A' can't be assigned to a variable of type 'X'.
+== c22.dart
+  invalid_assignment | offset 84, length 4 | 6:11 | ERROR | A value of type 'A' can't be assigned to a variable of type 'Y'.
+  duplicate_definition | offset 121, length 1 | 10:7 | ERROR | The name 'A' is already defined.
+  invalid_assignment | offset 172, length 1 | 13:9 | ERROR | A value of type 'A' can't be assigned to a variable of type 'Y'.

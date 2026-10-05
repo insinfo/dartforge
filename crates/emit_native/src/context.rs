@@ -62,7 +62,12 @@ pub struct Context<'a> {
     pub te: crate::apagamento::TiposDeExtensao,
     /// J05: com informação de depuração, o início de cada linha de cada
     /// unidade (pelo índice da unidade), para as posições das instruções.
+    /// Ligado também pelo rastro simbólico (§13.14), que usa as posições sem
+    /// o DWARF.
     pub depuracao: Option<Vec<Vec<u32>>>,
+    /// J05: as posições viram tabelas de linha do depurador (`--depuracao`);
+    /// sem isto, só o rastro simbólico as usa.
+    pub dwarf: bool,
     /// Recarga do JIT (J03): os ids que a geração viva deu às classes do
     /// programa, por `(biblioteca, classe)`. A mesma classe fica com o mesmo
     /// id; uma classe nova ganha um id acima de todos eles (os objetos vivos
@@ -223,6 +228,32 @@ impl<'a> Context<'a> {
         self.depuracao = Some(linhas);
     }
 
+    /// A url do script da unidade no rastro da VM (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
+    /// §13.14): a da unidade (`file:///…`, `package:x/y.dart`); no SDK, a da
+    /// biblioteca para a unidade que a define (`dart:core`) e
+    /// `dart:<biblioteca>/<arquivo>` para as partes (`dart:core/list.dart`),
+    /// com `-patch` nas da VM e da sobreposição nativa
+    /// (`dart:core-patch/growable_array.dart`).
+    pub fn url_do_rastro(&self, unit: dartforge_elements::model::UnitId) -> String {
+        let u = self.program.unit(unit);
+        let biblioteca = &self.program.library(u.library).uri;
+        let Some(nome) = biblioteca.strip_prefix("dart:") else { return u.uri.clone() };
+        if u.uri == *biblioteca {
+            return biblioteca.clone();
+        }
+        let arquivo = u
+            .path
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| u.uri.rsplit('/').next().unwrap_or_default().to_string());
+        let remendo = u
+            .path
+            .as_ref()
+            .is_some_and(|p| p.components().any(|c| matches!(c.as_os_str().to_str(), Some("_internal" | "sdk_nativo"))));
+        if remendo { format!("dart:{nome}-patch/{arquivo}") } else { format!("dart:{nome}/{arquivo}") }
+    }
+
     /// `(linha, coluna)`, a partir de 1, do byte `offset` da unidade `unit`,
     /// com a depuração ligada.
     pub fn linha_e_coluna(&self, unit: dartforge_elements::model::UnitId, offset: usize) -> Option<(u32, u32)> {
@@ -272,6 +303,7 @@ impl<'a> Context<'a> {
             te: crate::apagamento::TiposDeExtensao::default(),
             ids_anteriores: None,
             depuracao: None,
+            dwarf: false,
         };
         // Formas de record com campo nomeado: literais, padrões e tipos de
         // todas as unidades do programa (o conjunto inteiro, antes do

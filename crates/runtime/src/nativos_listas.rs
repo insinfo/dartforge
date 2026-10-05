@@ -42,7 +42,7 @@ fn lancar_indice(indice: i64, alvo: i64, tamanho: i64) {
     if let Some(f) = ajudante("_dartforgeErroDeIndice") {
         // SAFETY: registrado pela biblioteca `dart:_internal` com esta
         // assinatura (`int`, `Object?`, `int`) → `Object`.
-        let g: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
+        let g = { let alvo_dart: usize = f; move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(alvo_dart, a0, a1, a2) } };
         let erro = com_raizes(&[alvo], || g(indice, alvo, tamanho));
         if dartforge_exception_pending() != 0 {
             return;
@@ -524,7 +524,7 @@ pub unsafe extern "C" fn dartforge_lista_de_tabela_g(dados: *const u8, len: i64,
                     // SAFETY: o índice é de uma entrada do vetor (o compilador
                     // escreve os dois juntos); o getter é uma função do módulo.
                     let f = unsafe { *getters.add(g) };
-                    let v = f();
+                    let v = dart_r0(f as usize);
                     if dartforge_exception_pending() != 0 {
                         return;
                     }

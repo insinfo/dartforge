@@ -1,0 +1,121 @@
+### e01.dart | class A { List<int> A(); }
+  constructor_with_return_type off=10 len=4 1:11 [E] Constructors can't have a return type.
+### e02.dart | import 'dart:core' as core; \n class A { core.int A(); }
+  constructor_with_return_type off=38 len=4 2:11 [E] Constructors can't have a return type.
+### e03.dart | class A { get A.x() {} }
+  getter_constructor off=10 len=3 1:11 [E] Constructors can't be a getter.
+### e04.dart | class A { set A.x(v) {} }
+  setter_constructor off=10 len=3 1:11 [E] Constructors can't be a setter.
+### e05.dart | class A { external A(this.x, {this.y}); int x; int? y; }
+  external_constructor_with_field_initializers off=21 len=4 1:22 [E] An external constructor can't initialize fields.
+  external_constructor_with_field_initializers off=30 len=4 1:31 [E] An external constructor can't initialize fields.
+### e06.dart | class A { external A(int this.x); int x; }
+  external_constructor_with_field_initializers off=25 len=4 1:26 [E] An external constructor can't initialize fields.
+### e07.dart | mixin M { factory M() => throw 0; } \n extension E on int { factory E() => throw 0; }
+  mixin_declares_constructor off=10 len=7 1:11 [E] Mixins can't declare constructors.
+  extension_declares_constructor off=57 len=7 2:22 [E] Extensions can't declare constructors.
+### e09.dart | class A { factory A.b() = B.c d; } \n class B extends A { B.c() : super._(); }
+  expected_token off=28 len=1 1:29 [E] Expected to find ';'.
+  missing_const_final_var_or_type off=30 len=1 1:31 [E] Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+  no_generative_constructors_in_superclass off=51 len=1 2:17 [E] The class 'B' can't extend 'A' because 'A' only has factory constructors (no generative constructors), and 'B' has at least one generative constructor.
+  undefined_constructor_in_initializer off=63 len=9 2:29 [E] The class 'A' doesn't have a constructor named '_'.
+### e11.dart | class A { static A() {} }
+  static_constructor off=10 len=6 1:11 [E] Constructors can't be static.
+### e12.dart | class A { const A() => 0; }
+  const_constructor_with_body off=20 len=2 1:21 [E] Const constructors can't have a body.
+  return_in_generative_constructor off=20 len=5 1:21 [E] Constructors can't return values.
+  return_of_invalid_type off=23 len=1 1:24 [E] A value of type 'int' can't be returned from the constructor 'A' because it has a return type of 'A'.
+### e14.dart | extension type E(int i) { E.n() : i = 0; static E.s(int i) : this.i = i; }
+  static_constructor off=41 len=6 1:42 [E] Constructors can't be static.
+  missing_function_body off=71 len=1 1:72 [E] A function body must be provided.
+### e16.dart | class A { external A(); external A.b() => throw 0; }
+  external_method_with_body off=39 len=2 1:40 [E] An external or native method can't have a body.
+  return_in_generative_constructor off=39 len=11 1:40 [E] Constructors can't return values.
+### e17.dart | class A { factory() => throw 0; } \n class B { factory; }
+  missing_const_final_var_or_type off=44 len=7 2:11 [E] Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+### e18.dart | class A<T> { factory A<T>() => throw 0; }
+  type_parameter_on_constructor off=22 len=3 1:23 [E] Constructors can't have type parameters.
+### e22.dart | extension type E.(int i) {}
+  missing_identifier off=17 len=1 1:18 [E] Expected an identifier.
+### e23.dart | extension type E<T> {}
+  missing_primary_constructor off=18 len=1 1:19 [E] An extension type declaration must have a primary constructor declaration.
+### e25.dart | extension type E(int E) {}
+  member_with_class_name off=21 len=1 1:22 [E] A class member can't have the same name as the enclosing class.
+### e26.dart | extension type E(final int i,) {}
+  representation_field_modifier off=17 len=5 1:18 [E] Representation fields can't have modifiers.
+  representation_field_trailing_comma off=28 len=1 1:29 [E] The representation field can't have a trailing comma.
+### e27.dart | extension type E(var i, int j) {}
+  expected_representation_type off=17 len=3 1:18 [E] Expected a representation type.
+  representation_field_modifier off=17 len=3 1:18 [E] Representation fields can't have modifiers.
+  multiple_representation_fields off=22 len=1 1:23 [E] Each extension type should have exactly one representation field.
+### e28.dart | extension type E(covariant final i) {}
+  expected_representation_type off=17 len=9 1:18 [E] Expected a representation type.
+  extraneous_modifier_in_primary_constructor off=17 len=9 1:18 [E] Can't have modifier 'covariant' in a primary constructor.
+  representation_field_modifier off=27 len=5 1:28 [E] Representation fields can't have modifiers.
+### e29.dart | extension type E(int i) with A extends B implements C {} \n mixin A {} \n class B {} \n class C {}
+  extension_type_with off=24 len=4 1:25 [E] An extension type declaration can't have a 'with' clause.
+  extension_type_extends off=31 len=7 1:32 [E] An extension type declaration can't have an 'extends' clause.
+### e30.dart | extension type E(int i) implements A, B extends C {} \n class A {} \n class B {} \n class C {}
+  extension_type_implements_not_supertype off=35 len=1 1:36 [E] 'A' is not a supertype of 'int', the representation type.
+  extension_type_implements_not_supertype off=38 len=1 1:39 [E] 'B' is not a supertype of 'int', the representation type.
+  extension_type_extends off=40 len=7 1:41 [E] An extension type declaration can't have an 'extends' clause.
+### e33.dart | class A { static const A(); }
+  static_constructor off=10 len=6 1:11 [E] Constructors can't be static.
+  missing_function_body off=26 len=1 1:27 [E] A function body must be provided.
+### e34.dart | extension type E(int i) { void m; set s; static t => 0; }
+  extension_type_declares_instance_field off=31 len=1 1:32 [E] Extension types can't declare instance fields.
+  extension_type_with_abstract_member off=34 len=6 1:35 [E] 's' must have a method body because 'E' is an extension type.
+  missing_function_parameters off=38 len=1 1:39 [E] Functions must have an explicit list of parameters.
+  wrong_number_of_parameters_for_setter off=38 len=1 1:39 [E] Setters must declare exactly one required positional parameter.
+  missing_function_parameters off=48 len=1 1:49 [E] Functions must have an explicit list of parameters.
+### e35.dart | extension E on int { void m; }
+  extension_declares_instance_field off=26 len=1 1:27 [E] Extensions can't declare instance fields
+### e36.dart | mixin M { void m {} } \n enum F { a; void m {} }
+  missing_method_parameters off=15 len=1 1:16 [E] Methods must have an explicit list of parameters.
+  missing_method_parameters off=39 len=1 2:18 [E] Methods must have an explicit list of parameters.
+### e37.dart | class A { A() : x = 1 { } A.b() => 0; int x; }
+  not_initialized_non_nullable_instance_field off=26 len=1 1:27 [E] Non-nullable instance field 'x' must be initialized.
+  return_in_generative_constructor off=32 len=5 1:33 [E] Constructors can't return values.
+  return_of_invalid_type off=35 len=1 1:36 [E] A value of type 'int' can't be returned from the constructor 'A.b' because it has a return type of 'A'.
+### e38.dart | class A { void m() : x = 1 {} int x = 0; }
+  constructor_with_return_type off=10 len=4 1:11 [E] Constructors can't have a return type.
+  invalid_constructor_name off=15 len=1 1:16 [E] The name of a constructor must match the name of the enclosing class.
+### e39.dart | class A { B.c(); }
+  invalid_constructor_name off=10 len=1 1:11 [E] The name of a constructor must match the name of the enclosing class.
+### e40.dart | class A { external A() : super() {} }
+  external_constructor_with_initializer off=23 len=1 1:24 [E] An external constructor can't have any initializers.
+  external_method_with_body off=33 len=1 1:34 [E] An external or native method can't have a body.
+### e41.dart | class A { covariant A(); abstract A.b(); late A.c(); final A.d(); var A.e(); }
+  covariant_member off=10 len=9 1:11 [E] Getters, setters and methods can't be declared to be 'covariant'.
+  abstract_class_member off=25 len=8 1:26 [E] Members of classes can't be declared to be 'abstract'.
+  extraneous_modifier off=41 len=4 1:42 [E] Can't have modifier 'late' here.
+  extraneous_modifier off=53 len=5 1:54 [E] Can't have modifier 'final' here.
+  var_return_type off=66 len=3 1:67 [E] The return type can't be 'var'.
+### e42.dart | class A { const A.x() {} const factory A.y() => throw 0; }
+  const_constructor_with_body off=22 len=1 1:23 [E] Const constructors can't have a body.
+  const_factory off=25 len=5 1:26 [E] Only redirecting factory constructors can be declared to be 'const'.
+  const_constructor_throws_exception off=48 len=7 1:49 [E] Const constructors can't throw exceptions.
+### e43.dart | extension type E(int i) { factory E.f(int i) = E; external factory E.g(int i) = E; }
+  external_factory_redirection off=78 len=1 1:79 [E] A redirecting factory can't be external.
+### e44.dart | void f() { static void g() {} }
+  extraneous_modifier off=11 len=6 1:12 [E] Can't have modifier 'static' here.
+  unused_element off=23 len=1 1:24 [W] The declaration 'g' isn't referenced.
+### e45.dart | class A { operator +(a); static void m() async* {} static n() sync*; }
+  concrete_class_with_abstract_member off=10 len=14 1:11 [E] '+' must have a method body because 'A' isn't abstract.
+  illegal_async_generator_return_type off=32 len=4 1:33 [E] Functions marked 'async*' must have a return type that is a supertype of 'Stream<T>' for some type 'T'.
+  missing_function_body off=67 len=1 1:68 [E] A function body must be provided.
+### e46.dart | typedef void F;
+  missing_typedef_parameters off=14 len=1 1:15 [E] Typedefs must have an explicit list of parameters.
+### e47.dart | void f(void g) {} \n void h(int k<T>) {}
+  expected_token off=30 len=1 2:13 [E] Expected to find ')'.
+### e48.dart | class A { A.b c() {} }
+  not_a_type off=10 len=3 1:11 [E] A.b isn't a type.
+### e49.dart | class A { int get A => 0; static int get A => 0; }
+  member_with_class_name off=18 len=1 1:19 [E] A class member can't have the same name as the enclosing class.
+  conflicting_static_and_instance off=41 len=1 1:42 [E] Class 'A' can't define static member 'A' and have instance member 'A.A' with the same name.
+  member_with_class_name off=41 len=1 1:42 [E] A class member can't have the same name as the enclosing class.
+### e50.dart | class A { final A(); const static A.b(); }
+  extraneous_modifier off=10 len=5 1:11 [E] Can't have modifier 'final' here.
+  modifier_out_of_order off=27 len=6 1:28 [E] The modifier 'static' should be before the modifier 'const'.
+  static_constructor off=27 len=6 1:28 [E] Constructors can't be static.
+  missing_function_body off=39 len=1 1:40 [E] A function body must be provided.

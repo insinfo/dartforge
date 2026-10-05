@@ -1,0 +1,1 @@
+macro class A {}

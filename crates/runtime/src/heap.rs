@@ -384,6 +384,11 @@ pub unsafe fn desempilhar_quadro(q: *const QuadroDeRaizes) {
     });
 }
 
+/// O campo `n` de um quadro de raízes: o número de slots nos 40 bits de
+/// baixo; nos de cima, quantos dos últimos são de conferência (o build de
+/// conferência do percurso por mapas, `llvm/mod.rs`).
+const SLOTS_DO_QUADRO: u64 = (1 << 40) - 1;
+
 /// Visita as raízes de todos os quadros da pilha-sombra desta thread.
 #[allow(unsafe_code)]
 fn visitar_quadros(mut f: impl FnMut(i64)) {
@@ -392,7 +397,7 @@ fn visitar_quadros(mut f: impl FnMut(i64)) {
         // SAFETY: cada quadro encadeado está no stack de uma função ainda
         // ativa desta thread, com `n` slots depois do cabeçalho.
         unsafe {
-            let n = (*q).n as usize;
+            let n = ((*q).n as u64 & SLOTS_DO_QUADRO) as usize;
             let slots = std::ptr::addr_of!((*q).slots) as *const i64;
             for i in 0..n {
                 f(*slots.add(i));
@@ -402,15 +407,773 @@ fn visitar_quadros(mut f: impl FnMut(i64)) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Raízes por mapas de pilha (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8).
+//
+// Com `--raizes=mapas` os valores vivos através de uma chamada não vão para a
+// pilha-sombra: o LLVM (`rewrite-statepoints-for-gc`) os derrama em slots do
+// quadro nativo e descreve, para cada chamada, onde estão — a seção
+// `.llvm_stackmaps` do objeto (`.llvm_st` na imagem). Na coleta o runtime
+// percorre a pilha nativa da thread e, para cada quadro cujo endereço de
+// retorno tem registro, lê os slots. Os quadros sem registro (o runtime, C, o
+// sistema, as funções que só têm pilha-sombra) são atravessados; a
+// pilha-sombra continua sendo visitada como sempre.
+
+/// O registrador DWARF do SP e o do FP do alvo, como o `.llvm_stackmaps`
+/// os escreve (x86-64: RSP 7, RBP 6; aarch64: SP 31, x29 29).
+#[cfg(target_arch = "aarch64")]
+const DWARF_SP: u16 = 31;
+#[cfg(target_arch = "aarch64")]
+const DWARF_FP: u16 = 29;
+#[cfg(not(target_arch = "aarch64"))]
+const DWARF_SP: u16 = 7;
+#[cfg(not(target_arch = "aarch64"))]
+const DWARF_FP: u16 = 6;
+
+/// Uma função com mapa de pilha numa imagem: o endereço do começo dela e
+/// onde está a descrição, que só é decodificada na primeira consulta
+/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.5 e §14.5, E3.2).
+#[derive(Clone, Copy)]
+struct FuncaoComMapa {
+    inicio: u64,
+    /// DFGM: o começo do fluxo da função; `.llvm_stackmaps`: o primeiro
+    /// registro dela.
+    dados: usize,
+    /// `.llvm_stackmaps`: quantos registros e o vetor de constantes do blob
+    /// (os `ConstIndex`); DFGM: `u32::MAX` e 0.
+    n_llvm: u32,
+    constantes: usize,
+}
+
+/// Os registros de uma função, decodificados: (deslocamento do endereço de
+/// retorno em relação ao começo da função, início em `slots`, número), em
+/// ordem do deslocamento; e os slots, (base no FP?, deslocamento em bytes).
+#[derive(Default)]
+struct RegistrosDaFuncao {
+    registros: Vec<(u32, u32, u32)>,
+    slots: Vec<(bool, i32)>,
+}
+
+/// Os mapas de uma imagem (o executável, a DLL do SDK).
+struct MapaDePilha {
+    /// O que identifica a imagem no registro: a base no Windows, o começo
+    /// da seção no ELF e no Mach-O.
+    chave: usize,
+    /// Ordenadas pelo começo.
+    funcoes: Vec<FuncaoComMapa>,
+    decodificadas: Vec<std::sync::OnceLock<RegistrosDaFuncao>>,
+}
+
+// SAFETY: os endereços guardados são de seções só de leitura da imagem,
+// mapeadas enquanto o processo vive; nada é escrito por eles.
+#[allow(unsafe_code)]
+unsafe impl Send for MapaDePilha {}
+#[allow(unsafe_code)]
+unsafe impl Sync for MapaDePilha {}
+
+impl MapaDePilha {
+    fn novo(chave: usize) -> Self {
+        MapaDePilha { chave, funcoes: Vec::new(), decodificadas: Vec::new() }
+    }
+
+    /// Ordena o índice e prepara as decodificações preguiçosas. Duas
+    /// entradas com o mesmo começo (o ICF do ligador juntou duas funções
+    /// idênticas, de mapas idênticos) ficam numa só.
+    fn fechar(&mut self) {
+        self.funcoes.sort_by_key(|f| f.inicio);
+        self.funcoes.dedup_by_key(|f| f.inicio);
+        self.decodificadas = (0..self.funcoes.len()).map(|_| std::sync::OnceLock::new()).collect();
+    }
+
+    /// A função com o maior começo que não passa de `retorno`.
+    fn funcao_de(&self, retorno: u64) -> Option<usize> {
+        self.funcoes.partition_point(|f| f.inicio <= retorno).checked_sub(1)
+    }
+
+    #[allow(unsafe_code)]
+    fn registros(&self, i: usize) -> &RegistrosDaFuncao {
+        // SAFETY: `funcoes[i]` aponta para a descrição de uma função numa
+        // seção mapeada (conferida no registro da imagem).
+        self.decodificadas[i].get_or_init(|| unsafe { decodificar_funcao(self.funcoes[i]) })
+    }
+
+    /// Os slots da chamada da função `i` que retorna em `retorno`.
+    ///
+    /// No Windows x64, em parte das chamadas, o gerador de código põe um
+    /// `nop` depois do `call` (para o desenrolador do sistema) e o registro
+    /// aponta depois dele (§14.5): o deslocamento seguinte também vale, só
+    /// quando o byte no endereço de retorno é esse `nop`.
+    #[allow(unsafe_code)]
+    fn slots_de(&self, i: usize, retorno: u64) -> Option<&[(bool, i32)]> {
+        let r = self.registros(i);
+        let deslocamento = u32::try_from(retorno.checked_sub(self.funcoes[i].inicio)?).ok()?;
+        let achar = |d: u32| {
+            r.registros.binary_search_by_key(&d, |g| g.0).ok().map(|k| {
+                let (_, ini, n) = r.registros[k];
+                &r.slots[ini as usize..(ini + n) as usize]
+            })
+        };
+        achar(deslocamento).or_else(|| {
+            // SAFETY: `retorno` é um endereço de retorno da pilha desta
+            // thread, um byte de código mapeado.
+            let nop = cfg!(all(windows, target_arch = "x86_64")) && !sabotagem("sem_nop") && unsafe { *(retorno as *const u8) } == 0x90;
+            if nop { achar(deslocamento + 1) } else { None }
+        })
+    }
+}
+
+static MAPAS_DE_PILHA: std::sync::RwLock<Vec<MapaDePilha>> = std::sync::RwLock::new(Vec::new());
+/// Alguma imagem registrou mapas: a coleta percorre a pilha nativa.
+static HA_MAPAS_DE_PILHA: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Os números do percurso por mapas, do processo inteiro (§7.5, a prova de
+/// que coletou): quadros nativos percorridos, raízes lidas de mapas e
+/// raízes conferidas contra a pilha-sombra (`DARTFORGE_GC_PERCURSO`).
+static QUADROS_PERCORRIDOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static RAIZES_DE_MAPA: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static RAIZES_CONFERIDAS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// (quadros percorridos, raízes de mapa visitadas, raízes conferidas).
+pub fn numeros_do_percurso() -> (u64, u64, u64) {
+    use std::sync::atomic::Ordering::Relaxed;
+    (QUADROS_PERCORRIDOS.load(Relaxed), RAIZES_DE_MAPA.load(Relaxed), RAIZES_CONFERIDAS.load(Relaxed))
+}
+
+/// Alguma imagem do processo registrou mapas de pilha.
+pub fn ha_mapas_de_pilha() -> bool {
+    HA_MAPAS_DE_PILHA.load(std::sync::atomic::Ordering::Acquire)
+}
+
+/// Uma sabotagem de teste ligada (`DARTFORGE_SABOTAGEM=a,b,…`,
+/// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.3 e §14.7): cada teste
+/// dirigido tem de falhar com a dele. As do runtime: `sem_nop` (o leitor
+/// sem a regra do `nop`).
+pub fn sabotagem(nome: &str) -> bool {
+    static LIGADAS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    LIGADAS
+        .get_or_init(|| std::env::var("DARTFORGE_SABOTAGEM").unwrap_or_default().split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+        .iter()
+        .any(|s| s == nome)
+}
+
+/// `DARTFORGE_GC_PERCURSO=conferir` (§3.6, E2.5): cada coleta confere que
+/// o percurso por mapas visitou as raízes que o build de conferência
+/// (`DARTFORGE_RAIZES_CONFERIR=1` na compilação) gravou na pilha-sombra, e
+/// uma anomalia do percurso aborta em vez de só encerrá-lo.
+fn percurso_conferido() -> bool {
+    static SIM: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SIM.get_or_init(|| std::env::var("DARTFORGE_GC_PERCURSO").is_ok_and(|v| v == "conferir"))
+}
+
+/// Encerra o processo: um mapa que o runtime não sabe ler é uma raiz
+/// perdida, e continuar seria liberar objeto vivo.
+fn mapa_recusado(motivo: &str) -> ! {
+    eprintln!("dartforge: mapa de pilha recusado: {motivo}");
+    std::process::abort()
+}
+
+/// Registra os mapas de pilha da imagem PE carregada em `base` (uma vez por
+/// imagem). O módulo que tem funções com raízes no mapa chama isto na
+/// partida, com o `__ImageBase` da imagem em que foi ligado.
+#[allow(unsafe_code)]
+pub fn registrar_mapa_de_pilha(base: usize) {
+    if base == 0 {
+        return;
+    }
+    let mut mapas = MAPAS_DE_PILHA.write().unwrap_or_else(|e| e.into_inner());
+    if mapas.iter().any(|m| m.chave == base) {
+        return;
+    }
+    // SAFETY: `base` é o começo de uma imagem PE carregada neste processo.
+    let mapa = unsafe { ler_mapa_da_imagem(base) };
+    if mapa.funcoes.is_empty() {
+        mapa_recusado("a imagem foi compilada com raízes por mapas e não tem a seção `.dfgcm` nem a `.llvm_st` (o ligador renomeia a seção quando há informação de depuração)");
+    }
+    HA_MAPAS_DE_PILHA.store(true, std::sync::atomic::Ordering::Release);
+    mapas.push(mapa);
+}
+
+/// Registra o mapa compacto de uma imagem ELF ou Mach-O: a seção `dfgcm`
+/// (`__DATA_CONST,__dfgcm` no Mach-O) entre `inicio` e `fim`, que o
+/// ligador delimita (`__start_dfgcm`/`__stop_dfgcm`; `section$start$…`).
+#[allow(unsafe_code)]
+pub fn registrar_secao_de_mapa(inicio: usize, fim: usize) {
+    if inicio == 0 || fim <= inicio {
+        return;
+    }
+    let mut mapas = MAPAS_DE_PILHA.write().unwrap_or_else(|e| e.into_inner());
+    if mapas.iter().any(|m| m.chave == inicio) {
+        return;
+    }
+    let mut mapa = MapaDePilha::novo(inicio);
+    // SAFETY: `[inicio, fim)` é a seção do mapa, mapeada e legível.
+    unsafe { ler_dfgm(inicio as *const u8, fim - inicio, 0, &mut mapa) };
+    mapa.fechar();
+    if mapa.funcoes.is_empty() {
+        mapa_recusado("a seção do mapa de pilha compacto está vazia numa imagem compilada com raízes por mapas");
+    }
+    HA_MAPAS_DE_PILHA.store(true, std::sync::atomic::Ordering::Release);
+    mapas.push(mapa);
+}
+
+/// Registra o mapa de pilha no formato do LLVM (`.llvm_stackmaps` versão 3)
+/// de uma imagem Mach-O: a seção `__LLVM_STACKMAPS,__llvm_stackmaps` entre
+/// `inicio` e `fim` (`section$start$…`/`section$end$…`), com os endereços
+/// das funções já ajustados pelo carregador. Seção vazia não é erro aqui: o
+/// módulo que registra pode não ter função com mapa, e o `.no_dead_strip`
+/// que guarda a seção vai em todo módulo que tem (`llvm/mod.rs`).
+#[allow(unsafe_code)]
+pub fn registrar_secao_llvm(inicio: usize, fim: usize) {
+    if inicio == 0 || fim <= inicio {
+        return;
+    }
+    let mut mapas = MAPAS_DE_PILHA.write().unwrap_or_else(|e| e.into_inner());
+    if mapas.iter().any(|m| m.chave == inicio) {
+        return;
+    }
+    let mut mapa = MapaDePilha::novo(inicio);
+    // SAFETY: `[inicio, fim)` é a seção do mapa, mapeada e legível.
+    unsafe { ler_stackmaps(inicio as *const u8, fim - inicio, &mut mapa) };
+    mapa.fechar();
+    if mapa.funcoes.is_empty() {
+        return;
+    }
+    HA_MAPAS_DE_PILHA.store(true, std::sync::atomic::Ordering::Release);
+    mapas.push(mapa);
+}
+
+/// Tira do índice o mapa registrado com a chave `chave` (o começo da seção):
+/// o JIT o chama quando solta a memória de um objeto (uma geração aposentada
+/// da recarga, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.8). A
+/// publicação de uma geração acontece sem quadro Dart na pilha, então nenhum
+/// quadro em curso usa o mapa que sai.
+pub fn desregistrar_mapa(chave: usize) {
+    let mut mapas = MAPAS_DE_PILHA.write().unwrap_or_else(|e| e.into_inner());
+    mapas.retain(|m| m.chave != chave);
+}
+
+/// Lê os mapas de pilha da imagem PE em `base`: a seção `.dfgcm` (o mapa
+/// compacto, `emit_native/src/gcmap.rs`) e a `.llvm_st` (o `.llvm_stackmaps`
+/// dos objetos que não passaram pelo conversor — os da LTO —, com o nome
+/// cortado em 8 bytes).
+///
+/// # Safety
+/// `base` é o começo de uma imagem PE mapeada.
+#[allow(unsafe_code)]
+unsafe fn ler_mapa_da_imagem(base: usize) -> MapaDePilha {
+    let mut mapa = MapaDePilha::novo(base);
+    // SAFETY: os cabeçalhos de uma imagem PE mapeada (DOS, NT, seções).
+    unsafe {
+        let b = base as *const u8;
+        let nt = b.add(b.add(0x3c).cast::<u32>().read_unaligned() as usize);
+        let n_secoes = nt.add(6).cast::<u16>().read_unaligned() as usize;
+        let opcional = nt.add(20).cast::<u16>().read_unaligned() as usize;
+        let secoes = nt.add(24 + opcional);
+        for i in 0..n_secoes {
+            let s = secoes.add(40 * i);
+            let nome = std::slice::from_raw_parts(s, 8);
+            let tamanho = s.add(8).cast::<u32>().read_unaligned() as usize;
+            let rva = s.add(12).cast::<u32>().read_unaligned() as usize;
+            if nome == b".llvm_st" {
+                ler_stackmaps(b.add(rva), tamanho, &mut mapa);
+            } else if nome == b".dfgcm\0\0" {
+                ler_dfgm(b.add(rva), tamanho, base, &mut mapa);
+            }
+        }
+    }
+    mapa.fechar();
+    mapa
+}
+
+/// O tamanho de um registro do `.llvm_stackmaps` v3 que começa em `r`
+/// (cabeçalho, locais, enchimento, *live-outs*, enchimento).
+///
+/// # Safety
+/// `r` é o começo de um registro dentro de uma seção mapeada.
+#[allow(unsafe_code)]
+unsafe fn fim_do_registro_llvm(r: *const u8) -> *const u8 {
+    let alinhar = |q: *const u8| ((q as usize + 7) & !7) as *const u8;
+    // SAFETY: o formato do registro (§14.3).
+    unsafe {
+        let n_locais = r.add(14).cast::<u16>().read_unaligned() as usize;
+        let q = alinhar(r.add(16 + 12 * n_locais));
+        let n_saidas = q.add(2).cast::<u16>().read_unaligned() as usize;
+        alinhar(q.add(4 + 4 * n_saidas))
+    }
+}
+
+/// Indexa os blobs `.llvm_stackmaps` versão 3 de `[p, p + tamanho)` (um
+/// por objeto ligado, com zeros de enchimento entre eles): por função, o
+/// começo e o primeiro registro. Os registros só são lidos na consulta.
+///
+/// # Safety
+/// `[p, p + tamanho)` é a seção, mapeada e legível.
+#[allow(unsafe_code)]
+unsafe fn ler_stackmaps(mut p: *const u8, tamanho: usize, mapa: &mut MapaDePilha) {
+    // SAFETY: todas as leituras ficam dentro da seção, pelo formato.
+    unsafe {
+        let fim = p.add(tamanho);
+        while (p as usize) + 16 <= fim as usize {
+            if *p == 0 {
+                p = p.add(1);
+                continue;
+            }
+            if *p != 3 {
+                mapa_recusado("versão do `.llvm_stackmaps` diferente de 3");
+            }
+            let n_funcoes = p.add(4).cast::<u32>().read_unaligned() as usize;
+            let n_constantes = p.add(8).cast::<u32>().read_unaligned() as usize;
+            let funcoes = p.add(16);
+            let constantes = funcoes.add(24 * n_funcoes);
+            let mut r = constantes.add(8 * n_constantes);
+            for i in 0..n_funcoes {
+                let endereco = funcoes.add(24 * i).cast::<u64>().read_unaligned();
+                let n_registros = funcoes.add(24 * i + 16).cast::<u64>().read_unaligned();
+                if n_registros > u64::from(u32::MAX - 1) {
+                    mapa_recusado("função do `.llvm_stackmaps` com registros demais");
+                }
+                mapa.funcoes.push(FuncaoComMapa { inicio: endereco, dados: r as usize, n_llvm: n_registros as u32, constantes: constantes as usize });
+                for _ in 0..n_registros {
+                    r = fim_do_registro_llvm(r);
+                }
+                if r as usize > fim as usize {
+                    mapa_recusado("`.llvm_stackmaps` truncado");
+                }
+            }
+            p = r;
+        }
+    }
+}
+
+/// Indexa os blobs DFGM v1 de `[p, p + tamanho)` (o formato está em
+/// `emit_native/src/gcmap.rs`; entre as contribuições dos objetos há zeros
+/// de enchimento, em múltiplos de 4). O endereço de cada função vem do
+/// índice conforme as bandeiras do blob: 0, deslocamento sobre `base` (o
+/// `ADDR32NB` do COFF); 1, deslocamento de 32 bits sobre o próprio campo
+/// (ELF); 2, endereço absoluto de 64 bits (Mach-O).
+///
+/// # Safety
+/// `[p, p + tamanho)` é a seção, mapeada e legível.
+#[allow(unsafe_code)]
+unsafe fn ler_dfgm(mut p: *const u8, tamanho: usize, base: usize, mapa: &mut MapaDePilha) {
+    // SAFETY: todas as leituras ficam dentro da seção, pelo formato.
+    unsafe {
+        let fim = p.add(tamanho);
+        while (p as usize) + 16 <= fim as usize {
+            if std::slice::from_raw_parts(p, 4) != b"DFGM" {
+                p = p.add(4);
+                continue;
+            }
+            if *p.add(4) != 1 {
+                mapa_recusado("versão do mapa compacto diferente de 1");
+            }
+            let bandeiras = p.add(6).cast::<u16>().read_unaligned();
+            let total = p.add(8).cast::<u32>().read_unaligned() as usize;
+            let n_funcoes = p.add(12).cast::<u32>().read_unaligned() as usize;
+            let entrada = if bandeiras & 2 != 0 { 16 } else { 8 };
+            if total < 16 + entrada * n_funcoes || (p as usize) + total > fim as usize || (bandeiras & 3 == 0 && base == 0) {
+                mapa_recusado("mapa compacto com o cabeçalho errado");
+            }
+            let indice = p.add(16);
+            let fluxo = indice.add(entrada * n_funcoes);
+            for i in 0..n_funcoes {
+                let e = indice.add(entrada * i);
+                let (inicio_da_funcao, desloc_no_fluxo) = if bandeiras & 2 != 0 {
+                    (e.cast::<u64>().read_unaligned(), e.add(8).cast::<u32>().read_unaligned())
+                } else if bandeiras & 1 != 0 {
+                    let rel = i64::from(e.cast::<i32>().read_unaligned());
+                    ((e as i64).wrapping_add(rel) as u64, e.add(4).cast::<u32>().read_unaligned())
+                } else {
+                    (base as u64 + u64::from(e.cast::<u32>().read_unaligned()), e.add(4).cast::<u32>().read_unaligned())
+                };
+                mapa.funcoes.push(FuncaoComMapa {
+                    inicio: inicio_da_funcao,
+                    dados: fluxo.add(desloc_no_fluxo as usize) as usize,
+                    n_llvm: u32::MAX,
+                    constantes: 0,
+                });
+            }
+            p = p.add(total);
+        }
+    }
+}
+
+/// Decodifica os registros de uma função (a primeira consulta a ela).
+///
+/// # Safety
+/// `f` vem de [`ler_stackmaps`] ou [`ler_dfgm`] sobre uma seção mapeada.
+#[allow(unsafe_code)]
+unsafe fn decodificar_funcao(f: FuncaoComMapa) -> RegistrosDaFuncao {
+    let mut d = RegistrosDaFuncao::default();
+    // SAFETY: as leituras seguem o formato a partir de `f.dados`.
+    unsafe {
+        if f.n_llvm == u32::MAX {
+            let mut q = f.dados as *const u8;
+            let varint = |q: &mut *const u8| -> u64 {
+                let mut r = 0u64;
+                let mut s = 0u32;
+                loop {
+                    let b = **q;
+                    *q = q.add(1);
+                    if s < 64 {
+                        r |= u64::from(b & 0x7f) << s;
+                    }
+                    s += 7;
+                    if b & 0x80 == 0 {
+                        return r;
+                    }
+                }
+            };
+            let n_registros = varint(&mut q);
+            let _quadro = varint(&mut q);
+            let mut retorno = 0u64;
+            // (início em `slots`, número) do conjunto do registro anterior.
+            let mut anterior = (0u32, 0u32);
+            for _ in 0..n_registros {
+                retorno += varint(&mut q);
+                let c = varint(&mut q);
+                if c & 1 == 0 {
+                    let primeiro = d.slots.len() as u32;
+                    let mut slot = 0i64;
+                    for _ in 0..(c >> 1) {
+                        let s = varint(&mut q);
+                        let u = s >> 1;
+                        slot += ((u >> 1) as i64) ^ -((u & 1) as i64);
+                        d.slots.push((s & 1 == 1, (slot * 8) as i32));
+                    }
+                    anterior = (primeiro, (c >> 1) as u32);
+                }
+                if retorno > u64::from(u32::MAX) {
+                    mapa_recusado("deslocamento de retorno fora de 32 bits no mapa compacto");
+                }
+                d.registros.push((retorno as u32, anterior.0, anterior.1));
+            }
+        } else {
+            let mut r = f.dados as *const u8;
+            for _ in 0..f.n_llvm {
+                let deslocamento = r.add(8).cast::<u32>().read_unaligned();
+                let n_locais = r.add(14).cast::<u16>().read_unaligned() as usize;
+                let locais = r.add(16);
+                if n_locais < 3 {
+                    mapa_recusado("registro de statepoint sem os três locais iniciais");
+                }
+                let n_deopt = locais.add(2 * 12 + 8).cast::<i32>().read_unaligned().max(0) as usize;
+                let inicio = d.slots.len();
+                let mut j = 3 + n_deopt;
+                while j + 1 < n_locais {
+                    let l = locais.add(12 * j);
+                    j += 2;
+                    let tipo = *l;
+                    let largura = l.add(2).cast::<u16>().read_unaligned();
+                    let registrador = l.add(4).cast::<u16>().read_unaligned();
+                    let valor = l.add(8).cast::<i32>().read_unaligned();
+                    // Constante: null não é raiz; uma constante par não nula
+                    // seria um valor bruto tratado como referência (§3.5).
+                    if tipo == 4 || tipo == 5 {
+                        let c = if tipo == 4 {
+                            i64::from(valor)
+                        } else {
+                            (f.constantes as *const u8).add(8 * valor.max(0) as usize).cast::<i64>().read_unaligned()
+                        };
+                        if c != 0 && c & 1 == 0 {
+                            mapa_recusado("constante par não nula como raiz no mapa de pilha");
+                        }
+                        continue;
+                    }
+                    if tipo != 3 || largura != 8 || (registrador != DWARF_SP && registrador != DWARF_FP) {
+                        mapa_recusado("local que não é `Indirect [SP|FP + d]` de 8 bytes");
+                    }
+                    let slot = (registrador == DWARF_FP, valor);
+                    if !d.slots[inicio..].contains(&slot) {
+                        d.slots.push(slot);
+                    }
+                }
+                d.registros.push((deslocamento, inicio as u32, (d.slots.len() - inicio) as u32));
+                r = fim_do_registro_llvm(r);
+            }
+            d.registros.sort_unstable_by_key(|g| g.0);
+        }
+    }
+    if d.registros.windows(2).any(|par| par[0].0 == par[1].0) {
+        mapa_recusado("dois registros do mapa de pilha no mesmo endereço de retorno");
+    }
+    d
+}
+
+/// Visita as raízes do quadro nativo parado no endereço de retorno
+/// `retorno`, com o SP do quadro no ponto da chamada em `sp` e o FP em `fp`.
+/// `inicio_exato` é o começo da função como o desenrolador o conhece: se
+/// ela tem mapa e o endereço não tem registro, é defeito do emissor ou do
+/// conversor, e o processo aborta. Devolve se o quadro tinha mapa.
+#[allow(unsafe_code)]
+fn visitar_quadro(mapas: &[MapaDePilha], inicio_exato: Option<u64>, retorno: u64, sp: u64, fp: u64, f: &mut dyn FnMut(i64)) -> bool {
+    for m in mapas {
+        let Some(i) = m.funcao_de(retorno) else { continue };
+        match m.slots_de(i, retorno) {
+            Some(slots) => {
+                for &(no_fp, d) in slots {
+                    let b = if no_fp { fp } else { sp };
+                    // SAFETY: o slot é do quadro de uma função ainda ativa,
+                    // parada na chamada que o registro descreve.
+                    f(unsafe { *((b as i64).wrapping_add(i64::from(d)) as *const i64) });
+                }
+                RAIZES_DE_MAPA.fetch_add(slots.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                return true;
+            }
+            None => {
+                if inicio_exato == Some(m.funcoes[i].inicio) {
+                    mapa_recusado("função com mapa sem registro exato para o endereço de retorno");
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Uma anomalia do percurso (SP que não cresce, fora da pilha): encerra o
+/// percurso; com `DARTFORGE_GC_PERCURSO=conferir`, aborta.
+fn anomalia_do_percurso(motivo: &str) {
+    if percurso_conferido() {
+        mapa_recusado(&format!("anomalia no percurso da pilha: {motivo}"));
+    }
+}
+
+/// Visita as raízes dos quadros nativos desta thread que têm mapa de pilha:
+/// desenrola a pilha a partir daqui (`RtlVirtualUnwind`, sem chamar
+/// tratadores) e, em cada quadro, lê os slots do registro do endereço de
+/// retorno. Sem mapa registrado, não faz nada.
+#[cfg(all(windows, target_arch = "x86_64"))]
+#[allow(unsafe_code)]
+#[inline(never)]
+fn visitar_quadros_por_mapas(mut f: impl FnMut(i64)) {
+    if !HA_MAPAS_DE_PILHA.load(std::sync::atomic::Ordering::Acquire) {
+        return;
+    }
+    /// O `CONTEXT` do x86-64: 1232 bytes, alinhado a 16. Só três campos são
+    /// lidos: `Rsp` (0x98), `Rbp` (0xA0) e `Rip` (0xF8).
+    #[repr(C, align(16))]
+    struct ContextoDaCpu([u8; 1232]);
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn RtlCaptureContext(contexto: *mut ContextoDaCpu);
+        fn RtlLookupFunctionEntry(pc: u64, base: *mut u64, historico: *mut u8) -> *const u8;
+        fn RtlVirtualUnwind(
+            tipo: u32,
+            base: u64,
+            pc: u64,
+            funcao: *const u8,
+            contexto: *mut ContextoDaCpu,
+            dados: *mut *mut u8,
+            quadro: *mut u64,
+            ponteiros: *mut u8,
+        ) -> *mut u8;
+        fn GetCurrentThreadStackLimits(baixo: *mut usize, alto: *mut usize);
+    }
+    let mapas = MAPAS_DE_PILHA.read().unwrap_or_else(|e| e.into_inner());
+    let mut contexto = ContextoDaCpu([0; 1232]);
+    let campo = |c: &ContextoDaCpu, d: usize| u64::from_le_bytes(c.0[d..d + 8].try_into().expect("oito bytes"));
+    let mut quadros = 0u64;
+    // SAFETY: o contexto é o desta thread, capturado aqui; cada passo
+    // desenrola um quadro com a tabela de desenrolamento da função dele, e
+    // para quando o SP deixa de crescer ou sai da pilha da thread. Os slots
+    // lidos são do quadro de uma função ainda ativa, parada na chamada que o
+    // registro descreve.
+    unsafe {
+        RtlCaptureContext(&mut contexto);
+        let (mut baixo, mut alto) = (0usize, 0usize);
+        GetCurrentThreadStackLimits(&mut baixo, &mut alto);
+        let mut pc = campo(&contexto, 0xF8);
+        let mut base = 0u64;
+        let mut funcao = RtlLookupFunctionEntry(pc, &mut base, std::ptr::null_mut());
+        while !funcao.is_null() {
+            let sp_antes = campo(&contexto, 0x98);
+            let mut dados: *mut u8 = std::ptr::null_mut();
+            let mut quadro = 0u64;
+            RtlVirtualUnwind(0, base, pc, funcao, &mut contexto, &mut dados, &mut quadro, std::ptr::null_mut());
+            // Agora o contexto é o de quem chamou: `Rip` é o endereço de
+            // retorno nele e `Rsp`, o SP dele no ponto da chamada.
+            let (retorno, sp, fp) = (campo(&contexto, 0xF8), campo(&contexto, 0x98), campo(&contexto, 0xA0));
+            if retorno == 0 {
+                break;
+            }
+            if sp <= sp_antes || (sp as usize) < baixo || (sp as usize) >= alto {
+                anomalia_do_percurso("o SP não cresce ou saiu da pilha da thread");
+                break;
+            }
+            quadros += 1;
+            // A função de quem chamou: o começo exato (o `BeginAddress` da
+            // entrada do `.pdata`) e a entrada, para o passo seguinte.
+            let mut base_seguinte = 0u64;
+            let seguinte = RtlLookupFunctionEntry(retorno, &mut base_seguinte, std::ptr::null_mut());
+            let inicio = (!seguinte.is_null()).then(|| base_seguinte + u64::from(seguinte.cast::<u32>().read_unaligned()));
+            visitar_quadro(&mapas, inicio, retorno, sp, fp, &mut f);
+            pc = retorno;
+            base = base_seguinte;
+            funcao = seguinte;
+        }
+    }
+    QUADROS_PERCORRIDOS.fetch_add(quadros, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// O mesmo nos alvos do desenrolador Itanium (Linux e macOS, x86-64 e
+/// aarch64; §3.6): `_Unwind_Backtrace` entrega os quadros de dentro para
+/// fora; o SP de um quadro no ponto da chamada é o CFA do quadro que ele
+/// chamou (o anterior no percurso), o FP é o registrador restaurado nele, e
+/// o começo da função é o da região do FDE. O runtime e o código gerado têm
+/// de ter tabelas de desenrolamento (`uwtable`; `-C
+/// force-unwind-tables=yes` no runtime), senão o percurso vê zero quadros.
+#[cfg(all(unix, any(target_arch = "x86_64", target_arch = "aarch64")))]
+#[allow(unsafe_code)]
+#[inline(never)]
+fn visitar_quadros_por_mapas(mut f: impl FnMut(i64)) {
+    if !HA_MAPAS_DE_PILHA.load(std::sync::atomic::Ordering::Acquire) {
+        return;
+    }
+    unsafe extern "C" {
+        fn _Unwind_Backtrace(passo: unsafe extern "C" fn(*mut u8, *mut u8) -> i32, argumento: *mut u8) -> i32;
+        fn _Unwind_GetIP(contexto: *mut u8) -> usize;
+        fn _Unwind_GetCFA(contexto: *mut u8) -> usize;
+        fn _Unwind_GetGR(contexto: *mut u8, registrador: i32) -> usize;
+        fn _Unwind_GetRegionStart(contexto: *mut u8) -> usize;
+    }
+    /// `_URC_NO_REASON` (continua) e `_URC_NORMAL_STOP` (para).
+    const CONTINUA: i32 = 0;
+    const PARA: i32 = 4;
+    struct Estado<'a> {
+        mapas: &'a [MapaDePilha],
+        f: &'a mut dyn FnMut(i64),
+        /// O CFA do quadro anterior do percurso (o chamado).
+        cfa_anterior: Option<usize>,
+        quadros: u64,
+    }
+    unsafe extern "C" fn passo(contexto: *mut u8, argumento: *mut u8) -> i32 {
+        // SAFETY: `argumento` é o `Estado` abaixo, vivo durante o percurso;
+        // `contexto` é o do desenrolador, válido durante a chamada.
+        unsafe {
+            let e = &mut *argumento.cast::<Estado<'_>>();
+            let ip = _Unwind_GetIP(contexto) as u64;
+            if ip == 0 {
+                return PARA;
+            }
+            let cfa = _Unwind_GetCFA(contexto);
+            if let Some(sp) = e.cfa_anterior {
+                if cfa < sp {
+                    anomalia_do_percurso("o CFA não cresce");
+                    return PARA;
+                }
+                e.quadros += 1;
+                let inicio = _Unwind_GetRegionStart(contexto) as u64;
+                let fp = _Unwind_GetGR(contexto, i32::from(DWARF_FP)) as u64;
+                visitar_quadro(e.mapas, (inicio != 0).then_some(inicio), ip, sp as u64, fp, e.f);
+            }
+            e.cfa_anterior = Some(cfa);
+            CONTINUA
+        }
+    }
+    let mapas = MAPAS_DE_PILHA.read().unwrap_or_else(|e| e.into_inner());
+    let mut estado = Estado { mapas: &mapas, f: &mut f, cfa_anterior: None, quadros: 0 };
+    // SAFETY: o desenrolador percorre a pilha desta thread; `passo` só lê.
+    unsafe {
+        _Unwind_Backtrace(passo, std::ptr::addr_of_mut!(estado).cast::<u8>());
+    }
+    QUADROS_PERCORRIDOS.fetch_add(estado.quadros, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[cfg(not(any(all(windows, target_arch = "x86_64"), all(unix, any(target_arch = "x86_64", target_arch = "aarch64")))))]
+fn visitar_quadros_por_mapas(_f: impl FnMut(i64)) {}
+
+/// O build de conferência (§15.2, E2.5): os valores dos slots de
+/// conferência dos quadros da pilha-sombra desta thread (os últimos `k`
+/// slots de um quadro cujo campo `n` traz `k` nos bits 40 em diante).
+#[allow(unsafe_code)]
+fn visitar_slots_de_conferencia(mut f: impl FnMut(i64)) {
+    let mut q = CONTEXTO.with(|c| c.topo.get());
+    while !q.is_null() {
+        // SAFETY: cada quadro encadeado está no stack de uma função ainda
+        // ativa desta thread (como em `visitar_quadros`).
+        unsafe {
+            let n = (*q).n as u64;
+            let total = (n & SLOTS_DO_QUADRO) as usize;
+            let k = (n >> 40) as usize;
+            let slots = std::ptr::addr_of!((*q).slots) as *const i64;
+            for i in total.saturating_sub(k)..total {
+                f(*slots.add(i));
+            }
+            q = (*q).anterior;
+        }
+    }
+}
+
+/// `DARTFORGE_GC_PERCURSO=conferir`: toda raiz que o build de conferência
+/// gravou na pilha-sombra tem de estar entre as que o percurso por mapas
+/// visitou (`dos_mapas`). Uma que falte é raiz que o mapa perdeu.
+fn conferir_percurso(dos_mapas: &[i64]) {
+    let vistos: crate::hash::HashSet<i64> = dos_mapas.iter().copied().collect();
+    let mut conferidas = 0u64;
+    visitar_slots_de_conferencia(|h| {
+        if h == 0 {
+            return;
+        }
+        conferidas += 1;
+        if !vistos.contains(&h) {
+            mapa_recusado(&format!("conferência do percurso: a raiz {h:#x} está viva na pilha-sombra de conferência e o percurso por mapas não a visitou"));
+        }
+    });
+    RAIZES_CONFERIDAS.fetch_add(conferidas, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// O heap de um isolado: o espaço de objetos (todo valor do runtime é um bloco
 /// dele, docs/NATIVO-ESPACO-UNIFICADO.md), as raízes, as tabelas laterais por
 /// handle e a coleta.
+/// A coleta agendada por semente (`DARTFORGE_GC_AGENDA=<semente>,<taxa>`,
+/// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.5): uma coleta em uma de cada
+/// `taxa` alocações, sorteadas por um gerador fixo a partir da semente. A
+/// mesma semente e o mesmo programa coletam nos mesmos pontos: acha o defeito
+/// que o `--gc-stress` total esconde por mudar o tempo, e o reproduz. Como
+/// no estresse, sem TLAB (toda alocação passa pelo runtime).
+#[derive(Debug)]
+struct Agenda {
+    estado: std::cell::Cell<u64>,
+    taxa: u64,
+    /// O sorteio já saiu e a coleta ainda não veio: a próxima consulta
+    /// responde o mesmo (o caminho lento consulta de novo).
+    pendente: std::cell::Cell<bool>,
+}
+
+impl Agenda {
+    fn do_ambiente() -> Option<Agenda> {
+        let v = std::env::var("DARTFORGE_GC_AGENDA").ok()?;
+        let (semente, taxa) = v.split_once(',')?;
+        let semente: u64 = semente.trim().parse().ok()?;
+        let taxa: u64 = taxa.trim().parse().ok().filter(|&t| t > 0)?;
+        let estado = semente ^ 0x9E37_79B9_7F4A_7C15;
+        Some(Agenda { estado: std::cell::Cell::new(if estado == 0 { 1 } else { estado }), taxa, pendente: std::cell::Cell::new(false) })
+    }
+
+    /// Esta alocação coleta? (O xorshift64*.)
+    fn sorteia(&self) -> bool {
+        if self.pendente.get() {
+            return true;
+        }
+        let mut x = self.estado.get();
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        self.estado.set(x);
+        let sim = x.wrapping_mul(0x2545_F491_4F6C_DD1D) % self.taxa == 0;
+        self.pendente.set(sim);
+        sim
+    }
+}
+
 #[derive(Debug)]
 pub struct Heap {
     frames: Vec<(i64, Vec<i64>)>,
     next_frame: i64,
     allocations: usize,
     stress: bool,
+    /// `DARTFORGE_GC_AGENDA`; `None` sem ela.
+    agenda: Option<Agenda>,
     stats: HeapStats,
     /// Posições percorridas pela última marcação.
     trabalho_da_marcacao: usize,
@@ -585,6 +1348,7 @@ impl Heap {
             next_frame: 1,
             allocations: 0,
             stress,
+            agenda: Agenda::do_ambiente(),
             stats: HeapStats::default(),
             trabalho_da_marcacao: 0,
             pending: Vec::new(),
@@ -619,6 +1383,8 @@ impl Heap {
             verificar: std::env::var("DARTFORGE_GC_VERIFICAR").as_deref() == Ok("1"),
             validar_handles: stress
                 || cfg!(any(test, debug_assertions))
+                // O veneno só pega o uso depois de liberar na validação.
+                || std::env::var("DARTFORGE_GC_VENENO").is_ok_and(|v| !v.is_empty() && v != "0")
                 || std::env::var("DARTFORGE_GC_VERIFICAR").as_deref() == Ok("1")
                 || std::env::var("DARTFORGE_VALIDAR_HANDLES").as_deref() == Ok("1"),
             rastrear: std::env::var("DARTFORGE_GC_RASTRO").as_deref() == Ok("1"),
@@ -932,6 +1698,7 @@ impl Heap {
     #[inline]
     fn precisa_coletar(&self, bytes: usize) -> bool {
         self.stress
+            || self.agenda.as_ref().is_some_and(Agenda::sorteia)
             || self.allocations >= CONTAGEM_JOVEM
             || self.bytes_jovens + bytes > self.limite_jovem
             || self.stats.estimated_bytes.saturating_add(bytes) > self.byte_threshold
@@ -962,7 +1729,7 @@ impl Heap {
     /// e nos heaps de teste.
     pub fn reabastecer_tlab(&mut self, palavras: usize) {
         let n = palavras;
-        if !self.publica || self.stress || n == 0 || n > TLAB_N {
+        if !self.publica || self.stress || self.agenda.is_some() || n == 0 || n > TLAB_N {
             return;
         }
         let tamanho = bytes_do_bloco(n);
@@ -1043,6 +1810,11 @@ impl Heap {
             Self::handle_invalido(handle);
         }
         match self.objetos.bloco_de(handle) {
+            // SAFETY: bloco de uma página do espaço.
+            #[allow(unsafe_code)]
+            Some(b) if unsafe { (*b).estado } == crate::espaco::ESTADO_DE_VENENO => {
+                panic!("bug do compilador: handle já coletado (raiz faltando; bloco envenenado, DARTFORGE_GC_VENENO)\nhandle {handle}")
+            }
             // SAFETY: bloco de uma página do espaço.
             #[allow(unsafe_code)]
             Some(b) if unsafe { (*b).estado } != 0 => b,
@@ -1466,6 +2238,11 @@ impl Heap {
         }
         destino.extend(self.frames.iter().flat_map(|(_, roots)| roots.iter().copied()));
         visitar_quadros(|h| destino.push(h));
+        let dos_mapas = destino.len();
+        visitar_quadros_por_mapas(|h| destino.push(h));
+        if percurso_conferido() {
+            conferir_percurso(&destino[dos_mapas..]);
+        }
     }
 
     /// `DARTFORGE_GC_VERIFICAR=1`, depois da marcação de uma coleta menor:
@@ -1525,6 +2302,10 @@ impl Heap {
     /// vivos, e os lembrados pela barreira de escrita entram como raízes);
     /// a completa, tudo. Em ambas o que sobrevive fica velho.
     fn coletar(&mut self, menor: bool) {
+        conferir_coleta_permitida();
+        if let Some(a) = &self.agenda {
+            a.pendente.set(false);
+        }
         // O que a TLAB não usou volta a ser livre.
         self.devolver_tlabs();
         self.coleta_menor = menor;
@@ -2909,6 +3690,36 @@ mod fixed_root_tests {
 /// A época dos layouts de objeto do processo (J03): cresce a cada migração
 /// que uma recarga do JIT define (`dartforge_definir_migracao`).
 pub static EPOCA_DE_LAYOUT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+thread_local! {
+    /// `DARTFORGE_EFEITOS=conferir` (`efeitos_conferir.rs`): as externs em
+    /// execução nesta thread que a tabela de efeitos marca `coleta = 0`. Com
+    /// alguma, uma coleta é a marca errada — o defeito de um mapa de raízes
+    /// errado, só que do nosso lado — e encerra o processo dizendo qual.
+    static COLETA_PROIBIDA: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Proíbe a coleta até o [`permitir_coleta`] casado: a extern `nome` está
+/// marcada `coleta = 0`.
+pub fn proibir_coleta(nome: String) {
+    COLETA_PROIBIDA.with(|p| p.borrow_mut().push(nome));
+}
+
+/// Desfaz o último [`proibir_coleta`].
+pub fn permitir_coleta() {
+    COLETA_PROIBIDA.with(|p| {
+        p.borrow_mut().pop();
+    });
+}
+
+/// Encerra o processo se uma extern marcada `coleta = 0` está em execução.
+fn conferir_coleta_permitida() {
+    let culpada = COLETA_PROIBIDA.with(|p| p.borrow().last().cloned());
+    if let Some(nome) = culpada {
+        eprintln!("dartforge: a extern {nome} está marcada coleta = 0 em efeitos.tsv e coletou");
+        std::process::abort();
+    }
+}
 
 #[cfg(test)]
 mod espaco_unificado {

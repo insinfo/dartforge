@@ -33,6 +33,91 @@ pub(crate) struct ElementPools<'a> {
     pub(crate) variables: &'a mut Vec<VariableElement>,
 }
 
+/// A espécie de uma declaração de topo, para a regra de qual declaração um
+/// nome repetido designa (docs/ANALYZER-ESPECIFICACAO.md §G, T1.1 a).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Especie {
+    Getter,
+    Setter,
+    Variavel,
+    Funcao,
+    Enum,
+    Extensao,
+    TipoDeExtensao,
+    Typedef,
+    Mixin,
+    Classe,
+}
+
+impl Especie {
+    /// A ordem em que o analyzer põe as declarações no escopo da biblioteca
+    /// (`LibraryDeclarations._addLibraryFragment`, `scope.dart:312-332`):
+    /// acessores (os explícitos e os das variáveis), funções, enums,
+    /// extensões, tipos de extensão, typedefs, mixins, classes. Cada inclusão
+    /// é `??=`: quem entra primeiro fica com o nome.
+    fn ordem(self) -> u8 {
+        match self {
+            Especie::Getter | Especie::Setter | Especie::Variavel => 0,
+            Especie::Funcao => 1,
+            Especie::Enum => 2,
+            Especie::Extensao => 3,
+            Especie::TipoDeExtensao => 4,
+            Especie::Typedef => 5,
+            Especie::Mixin => 6,
+            Especie::Classe => 7,
+        }
+    }
+}
+
+/// T1: com um nome de topo declarado mais de uma vez, o nome designa a
+/// declaração que o analyzer poria primeiro no escopo — a de espécie
+/// anterior na [`Especie::ordem`] e, na mesma espécie, a primeira da fonte —,
+/// e não a última, que é o que o laço de declarações deixa. Getter e setter
+/// são vagas separadas. Os homônimos da mesma espécie ganham o
+/// [`Library::representante`]. Sem nome repetido, nada muda.
+fn resolver_homonimos(lib: &mut Library, candidatos: &[(SymbolId, bool, Especie, Element, u32)]) {
+    let mut por_vaga: HashMap<(SymbolId, bool), Vec<usize>> = HashMap::new();
+    for (k, (nome, setter, _, _, _)) in candidatos.iter().enumerate() {
+        por_vaga.entry((*nome, *setter)).or_default().push(k);
+    }
+    for ((nome, setter), grupo) in &por_vaga {
+        if grupo.len() < 2 {
+            continue;
+        }
+        // O vencedor: a menor (unidade, ordem da espécie, posição na fonte).
+        // O escopo é montado unidade por unidade (`library.units.forEach(
+        // _addLibraryFragment)`, `scope.dart:286`), e só dentro de cada uma
+        // vale a ordem por espécie.
+        let vencedor = grupo
+            .iter()
+            .copied()
+            .min_by_key(|&k| (candidatos[k].4, candidatos[k].2.ordem(), k))
+            .expect("grupo não vazio");
+        let entrada = lib.declared.entry(*nome).or_default();
+        if *setter {
+            entrada.setter = Some(candidatos[vencedor].3);
+        } else {
+            entrada.getter = Some(candidatos[vencedor].3);
+        }
+        // Os representantes: o primeiro de cada espécie no grupo.
+        let mut primeiro: HashMap<Especie, Element> = HashMap::new();
+        for &k in grupo {
+            let (_, _, especie, elemento, _) = candidatos[k];
+            primeiro.entry(especie).or_insert(elemento);
+        }
+        let mut quantos: HashMap<Especie, usize> = HashMap::new();
+        for &k in grupo {
+            *quantos.entry(candidatos[k].2).or_default() += 1;
+        }
+        for &k in grupo {
+            let (_, _, especie, elemento, _) = candidatos[k];
+            if quantos[&especie] > 1 {
+                lib.representante.insert(elemento, primeiro[&especie]);
+            }
+        }
+    }
+}
+
 /// Constrói o outline completo do programa: declarações, membros, namespaces e supertipos.
 pub fn build_outline(
     program: &mut Program,
@@ -67,7 +152,13 @@ pub fn build_outline(
 
         let mut cadeias: Vec<(ClassId, DeclRef)> = Vec::new();
         let mut classes_macro: Vec<ClassId> = Vec::new();
-        for unit_id in unit_ids {
+        // T1: cada declaração de topo das unidades de origem, na ordem da
+        // fonte — (nome, é a vaga do setter?, espécie, elemento). Com um
+        // nome repetido, quem ele designa sai de `resolver_homonimos`.
+        let mut candidatos: Vec<(SymbolId, bool, Especie, Element, u32)> = Vec::new();
+        let tem_patch = unit_ids.iter().any(|u| program.units[u.0 as usize].role == UnitRole::Patch);
+        for (ordem_da_unidade, unit_id) in unit_ids.into_iter().enumerate() {
+            let ordem_da_unidade = ordem_da_unidade as u32;
             let role = program.units[unit_id.0 as usize].role;
             let decl_ids = program.units[unit_id.0 as usize].unit.declarations.clone();
             let ast = &program.units[unit_id.0 as usize].ast;
@@ -132,6 +223,7 @@ pub fn build_outline(
                                 .entry(class_name)
                                 .or_default();
                             entry.getter = Some(Element::Class(class_id));
+                            candidatos.push((class_name, false, Especie::Classe, Element::Class(class_id), ordem_da_unidade));
                         }
                     }
                     DeclKind::Mixin(m) => {
@@ -143,6 +235,7 @@ pub fn build_outline(
                             .entry(m.name.sym)
                             .or_default();
                         entry.getter = Some(Element::Class(mixin_id));
+                        candidatos.push((m.name.sym, false, Especie::Mixin, Element::Class(mixin_id), ordem_da_unidade));
                     }
                     DeclKind::Enum(e) => {
                         let enum_id = create_enum_element(
@@ -153,6 +246,7 @@ pub fn build_outline(
                             .entry(e.name.sym)
                             .or_default();
                         entry.getter = Some(Element::Class(enum_id));
+                        candidatos.push((e.name.sym, false, Especie::Enum, Element::Class(enum_id), ordem_da_unidade));
                     }
                     DeclKind::Extension(ext) => {
                         // `@patch extension E` funde os membros na extensão
@@ -180,6 +274,7 @@ pub fn build_outline(
                                 .entry(name.sym)
                                 .or_default();
                             entry.getter = Some(Element::Extension(ext_id));
+                            candidatos.push((name.sym, false, Especie::Extensao, Element::Extension(ext_id), ordem_da_unidade));
                         }
                     }
                     DeclKind::ExtensionType(et) => {
@@ -191,6 +286,7 @@ pub fn build_outline(
                             .entry(et.name.sym)
                             .or_default();
                         entry.getter = Some(Element::Class(ext_type_id));
+                        candidatos.push((et.name.sym, false, Especie::TipoDeExtensao, Element::Class(ext_type_id), ordem_da_unidade));
                     }
                     DeclKind::Typedef(td) => {
                         let td_id = TypedefId(program.typedefs.len() as u32);
@@ -216,6 +312,7 @@ pub fn build_outline(
                             .entry(td.name.sym)
                             .or_default();
                         entry.getter = Some(Element::Typedef(td_id));
+                        candidatos.push((td.name.sym, false, Especie::Typedef, Element::Typedef(td_id), ordem_da_unidade));
                     }
                     DeclKind::Function(fid) => {
                         let ast_fn = ast.function(*fid);
@@ -245,8 +342,14 @@ pub fn build_outline(
                                 },
                                 variable: None,
                                 patched_by: None,
+                                declaracao_publica: None,
                             });
 
+                            candidatos.push(match fn_kind {
+                                FunctionKind::Getter => (fn_sym, false, Especie::Getter, Element::Function(fn_id), ordem_da_unidade),
+                                FunctionKind::Setter => (fn_sym, true, Especie::Setter, Element::Function(fn_id), ordem_da_unidade),
+                                _ => (fn_sym, false, Especie::Funcao, Element::Function(fn_id), ordem_da_unidade),
+                            });
                             let entry = program.libraries[lib_idx]
                                 .declared
                                 .entry(fn_sym)
@@ -257,6 +360,7 @@ pub fn build_outline(
                                         if let Some(Element::Function(old_id)) = entry.getter {
                                             pools.functions[old_id.0 as usize].patched_by =
                                                 Some(fn_id);
+                                            pools.functions[fn_id.0 as usize].declaracao_publica = Some(pools.functions[old_id.0 as usize].declaracao_publica.unwrap_or(old_id));
                                         }
                                     }
                                     entry.getter = Some(Element::Function(fn_id));
@@ -266,6 +370,7 @@ pub fn build_outline(
                                         if let Some(Element::Function(old_id)) = entry.setter {
                                             pools.functions[old_id.0 as usize].patched_by =
                                                 Some(fn_id);
+                                            pools.functions[fn_id.0 as usize].declaracao_publica = Some(pools.functions[old_id.0 as usize].declaracao_publica.unwrap_or(old_id));
                                         }
                                     }
                                     entry.setter = Some(Element::Function(fn_id));
@@ -275,6 +380,7 @@ pub fn build_outline(
                                         if let Some(Element::Function(old_id)) = entry.getter {
                                             pools.functions[old_id.0 as usize].patched_by =
                                                 Some(fn_id);
+                                            pools.functions[fn_id.0 as usize].declaracao_publica = Some(pools.functions[old_id.0 as usize].declaracao_publica.unwrap_or(old_id));
                                         }
                                     }
                                     entry.getter = Some(Element::Function(fn_id));
@@ -303,6 +409,7 @@ pub fn build_outline(
                                 node: FunctionRef::None,
                                 variable: Some(var_id),
                                 patched_by: None,
+                                declaracao_publica: None,
                             });
 
                             // Setter implícito se não for const/final
@@ -322,6 +429,7 @@ pub fn build_outline(
                                     node: FunctionRef::None,
                                     variable: Some(var_id),
                                     patched_by: None,
+                                    declaracao_publica: None,
                                 });
                                 Some(sid)
                             } else {
@@ -352,13 +460,20 @@ pub fn build_outline(
                                 .entry(var_sym)
                                 .or_default();
                             entry.getter = Some(Element::Variable(var_id));
+                            candidatos.push((var_sym, false, Especie::Variavel, Element::Variable(var_id), ordem_da_unidade));
                             if setter_id.is_some() {
                                 entry.setter = Some(Element::Variable(var_id));
+                                candidatos.push((var_sym, true, Especie::Variavel, Element::Variable(var_id), ordem_da_unidade));
                             }
                         }
                     }
                 }
             }
+        }
+        // Uma biblioteca com patches (o SDK) não tem homônimos: lá o patch
+        // substitui a declaração, e a ordem é a que o laço acima já deu.
+        if !tem_patch {
+            resolver_homonimos(&mut program.libraries[lib_idx], &candidatos);
         }
         for (c, d) in cadeias {
             program.augmentacoes.entry(c).or_default().push(d);
@@ -768,6 +883,7 @@ fn create_class_element(
             node: FunctionRef::None,
             variable: None,
             patched_by: None,
+            declaracao_publica: None,
         });
         elem.constructors.insert(empty_sym, synth_id);
     }
@@ -888,6 +1004,7 @@ fn create_enum_element(
         node: FunctionRef::None,
         variable: None,
         patched_by: None,
+        declaracao_publica: None,
     });
     elem.static_members.insert(values_sym, values_fn);
 
@@ -906,6 +1023,7 @@ fn create_enum_element(
         node: FunctionRef::None,
         variable: None,
         patched_by: None,
+        declaracao_publica: None,
     });
     elem.instance_members.insert(index_sym, index_fn);
 
@@ -924,6 +1042,7 @@ fn create_enum_element(
         node: FunctionRef::None,
         variable: None,
         patched_by: None,
+        declaracao_publica: None,
     });
     elem.instance_members.insert(name_sym, name_fn);
 
@@ -1070,6 +1189,7 @@ fn extension_members(
                         },
                         variable: None,
                         patched_by: None,
+                        declaracao_publica: None,
                     });
                     let key = if fn_kind == FunctionKind::Setter {
                         let setter_str = format!("{}_=", interner.resolve(fn_sym));
@@ -1086,6 +1206,7 @@ fn extension_members(
                     let velho = membros.insert(key, fn_id);
                     if is_patch && let Some(velho) = velho {
                         pools.functions[velho.0 as usize].patched_by = Some(fn_id);
+                        pools.functions[fn_id.0 as usize].declaracao_publica = Some(pools.functions[velho.0 as usize].declaracao_publica.unwrap_or(velho));
                     }
                 }
             }
@@ -1258,6 +1379,7 @@ pub(crate) fn extract_members(
                         },
                         variable: None,
                         patched_by: None,
+                        declaracao_publica: None,
                     });
 
                     let key = if fn_kind == FunctionKind::Setter {
@@ -1294,6 +1416,7 @@ pub(crate) fn extract_members(
                     },
                     variable: None,
                     patched_by: None,
+                    declaracao_publica: None,
                 });
                 elem.constructors.insert(ctor_sym, fn_id);
             }
@@ -1317,6 +1440,7 @@ pub(crate) fn extract_members(
                         node: FunctionRef::None,
                         variable: Some(var_id),
                         patched_by: None,
+                        declaracao_publica: None,
                     });
 
                     let setter_id = if !vars.final_ && !vars.const_ {
@@ -1335,6 +1459,7 @@ pub(crate) fn extract_members(
                             node: FunctionRef::None,
                             variable: Some(var_id),
                             patched_by: None,
+                            declaracao_publica: None,
                         });
                         Some(sid)
                     } else {
@@ -1433,6 +1558,7 @@ fn merge_class_patch(
                         },
                         variable: None,
                         patched_by: None,
+                        declaracao_publica: None,
                     });
 
                     let key = if fn_kind == FunctionKind::Setter {
@@ -1451,6 +1577,7 @@ fn merge_class_patch(
                     if let Some(&existing_fn_id) = target_map.get(&key) {
                         // Membro substitui membro external
                         pools.functions[existing_fn_id.0 as usize].patched_by = Some(fn_id);
+                        pools.functions[fn_id.0 as usize].declaracao_publica = Some(pools.functions[existing_fn_id.0 as usize].declaracao_publica.unwrap_or(existing_fn_id));
                         target_map.insert(key, fn_id);
                     } else {
                         // Membro novo acrescentado
@@ -1478,10 +1605,12 @@ fn merge_class_patch(
                     },
                     variable: None,
                     patched_by: None,
+                    declaracao_publica: None,
                 });
                 let constructors = &mut pools.classes[class_id.0 as usize].constructors;
                 if let Some(&existing_ctor_id) = constructors.get(&ctor_sym) {
                     pools.functions[existing_ctor_id.0 as usize].patched_by = Some(fn_id);
+                    pools.functions[fn_id.0 as usize].declaracao_publica = Some(pools.functions[existing_ctor_id.0 as usize].declaracao_publica.unwrap_or(existing_ctor_id));
                 }
                 constructors.insert(ctor_sym, fn_id);
             }

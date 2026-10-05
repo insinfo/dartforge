@@ -1,0 +1,1 @@
+class A { var x; A() : this.x = super; }

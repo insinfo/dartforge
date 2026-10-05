@@ -1,0 +1,57 @@
+=== v01.dart
+// @dart=2.19
+f(x) { switch (x) { case var a: break; } }
+  non_constant_case_expression @39 len 0 (2:26) [E] Case expressions must be constant.
+  expected_token @39 len 3 (2:26) [E] Expected to find ':'.
+  missing_identifier @39 len 3 (2:26) [E] Expected an identifier.
+  expected_token @43 len 1 (2:30) [E] Expected to find ';'.
+  unused_local_variable @43 len 1 (2:30) [W] The value of the local variable 'a' isn't used.
+  missing_identifier @44 len 1 (2:31) [E] Expected an identifier.
+  unexpected_token @44 len 1 (2:31) [E] Unexpected text ':'.
+=== v02.dart
+// @dart=2.19
+f() { (int, int) r = (1, 2); var (a, b) = r; }
+  experiment_not_enabled @20 len 1 (2:7) [E] This requires the 'records' language feature to be enabled.
+  experiment_not_enabled @35 len 1 (2:22) [E] This requires the 'records' language feature to be enabled.
+  expected_token @47 len 1 (2:34) [E] Expected to find ';'.
+  missing_identifier @47 len 1 (2:34) [E] Expected an identifier.
+  expected_token @48 len 1 (2:35) [E] Expected to find ';'.
+  undefined_identifier @48 len 1 (2:35) [E] Undefined name 'a'.
+  missing_identifier @49 len 1 (2:36) [E] Expected an identifier.
+  unexpected_token @49 len 1 (2:36) [E] Unexpected text ';'.
+  expected_token @51 len 1 (2:38) [E] Expected to find ';'.
+  undefined_identifier @51 len 1 (2:38) [E] Undefined name 'b'.
+  missing_identifier @52 len 1 (2:39) [E] Expected an identifier.
+  unexpected_token @52 len 1 (2:39) [E] Unexpected text ';'.
+  missing_identifier @54 len 1 (2:41) [E] Expected an identifier.
+=== v03.dart
+// @dart=2.19
+f(x) { if (x case 1) {} var y = switch (x) { _ => 1 }; }
+  expected_token @27 len 4 (2:14) [E] Expected to find ')'.
+  unused_local_variable @42 len 1 (2:29) [W] The value of the local variable 'y' isn't used.
+  expected_token @44 len 1 (2:31) [E] Expected to find ';'.
+  missing_identifier @46 len 6 (2:33) [E] Expected an identifier.
+  expected_token @59 len 1 (2:46) [E] Expected to find 'case'.
+=== v04.dart
+// @dart=2.12
+class A<T> { const A(); }
+@A<int>() class C {}
+@A<int> class D {}
+  experiment_not_enabled @42 len 1 (3:3) [E] This requires the 'generic-metadata' language feature to be enabled.
+  no_annotation_constructor_arguments @61 len 2 (4:1) [E] Annotation creation must have arguments.
+  experiment_not_enabled @63 len 1 (4:3) [E] This requires the 'generic-metadata' language feature to be enabled.
+  annotation_with_type_arguments_uninstantiated @67 len 1 (4:7) [E] An annotation with type arguments must be followed by an argument list.
+=== v05.dart
+// @dart=2.19
+f(x) { switch (x) { case 1 ?? 2: break; case void fun() {}: break; case assert(false): break; case ++x: break; } }
+  dead_null_aware_expression @44 len 1 (2:31) [W] The left operand can't be null, so the right operand is never executed.
+  named_function_expression @64 len 3 (2:51) [E] Function expressions can't be named.
+  non_constant_case_expression @67 len 5 (2:54) [E] Case expressions must be constant.
+  undefined_identifier @86 len 6 (2:73) [E] Undefined name 'assert'.
+  non_constant_case_expression @86 len 13 (2:73) [E] Case expressions must be constant.
+  non_constant_case_expression @115 len 1 (2:102) [E] Case expressions must be constant.
+=== v06.dart
+// @dart=2.19
+f(x) { switch (x) { case 1: continue; } {} = 1; }
+  continue_without_label_in_case @42 len 8 (2:29) [E] A continue statement in a switch statement must have a label as a target.
+  missing_identifier @57 len 1 (2:44) [E] Expected an identifier.

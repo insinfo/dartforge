@@ -17,13 +17,19 @@ pub mod servidor;
 mod acoes;
 mod assinatura;
 mod assistencias;
+mod assistencias2;
+mod assistencias3;
 mod chamadas;
 mod dicas;
 mod estrutura;
+mod fonte_corrigir;
+mod fonte_imports;
+mod fonte_ordenar;
 mod hierarquia;
 mod aproximado;
 mod completar;
 mod consulta;
+mod contorno;
 mod correcoes;
 mod criar;
 mod dartdoc;
@@ -35,6 +41,7 @@ mod realce;
 mod relevancia;
 mod relevancia_tabelas;
 mod renomear;
+mod rotulos;
 mod semantica;
 mod sessao;
 mod simbolos;
@@ -478,6 +485,13 @@ pub trait Analisador {
         Vec::new()
     }
 
+    /// Os rótulos de fechamento do documento
+    /// (`dart/textDocument/publishClosingLabels`): o intervalo (bytes) do nó
+    /// e o texto. O padrão não tem nenhum.
+    fn rotulos_de_fechamento(&mut self, _documentos: &DocumentStore, _uri: &str) -> Vec<(dartforge_diagnostics::Span, String)> {
+        Vec::new()
+    }
+
     /// Dicas embutidas do documento inteiro (`textDocument/inlayHint`).
     fn dicas(&mut self, _documentos: &DocumentStore, _uri: &str) -> Vec<Dica> {
         Vec::new()
@@ -595,7 +609,10 @@ impl AnalisadorSintatico {
     pub(crate) fn sintaxe(&mut self, uri: &str, texto: &str) -> Vec<Diagnostic> {
         let features = self.features(uri, texto);
         let mut nomes = dartforge_intern::Interner::new();
-        dartforge_frontend::parser::parse_com(texto, &mut nomes, features).diagnostics
+        let parsed = dartforge_frontend::parser::parse_com(texto, &mut nomes, features);
+        // Nome e texto do analyzer que é a referência do arquivo (T2).
+        let referencia = parsed.referencia;
+        parsed.diagnostics.into_iter().filter_map(|d| d.na_referencia(referencia)).collect()
     }
 }
 
@@ -621,7 +638,8 @@ impl Analisador for AnalisadorSintatico {
             .collect();
         let unidade = dartforge_analise::Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: texto };
         let curinga = features.tem(dartforge_frontend::features::Feature::WildcardVariables);
-        let juntar = !dartforge_analise::duplicatas::usa_sintaxe_posterior_ao_3_6(&saida);
+        let referencia = parsed.referencia;
+        let juntar = referencia == dartforge_diagnostics::Referencia::V3_6;
         let semanticos = dartforge_analise::duplicatas::duplicatas(&[unidade], &nomes, curinga, juntar)
             .into_iter()
             .map(|(_, d)| d)
@@ -638,7 +656,9 @@ impl Analisador for AnalisadorSintatico {
                 .filter(|d| dartforge_analise::publicacao::publicado(d, false))
                 .filter(|d| !ignorados.ignora(d, linhas.ponto(d.span.start).line)),
         );
-        saida
+        // Por último, o nome e o texto do analyzer de referência (T2): os
+        // filtros acima conhecem os códigos pelo nome do 3.6.
+        saida.into_iter().filter_map(|d| d.na_referencia(referencia)).collect()
     }
 
     fn simbolos(&mut self, uri: &str, texto: &str) -> Vec<serde_json::Value> {

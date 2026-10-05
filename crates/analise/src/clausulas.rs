@@ -1089,6 +1089,96 @@ fn ciclo(l: &Leitor<'_>, alvo: ClassId, el: ClassId, caminho: &mut Vec<ClassId>,
     None
 }
 
+/// O ciclo de `alvo` como o analyzer 3.13 o guarda (`interfaceCycle`,
+/// `summary2/interface_cycles.dart` do main): o componente fortemente conexo
+/// que o `DependencyWalker` (`_fe_analyzer_shared/lib/src/util/
+/// dependency_walker.dart`, o algoritmo de Tarjan) acha ao andar as
+/// declarações da biblioteca em ordem, com as dependências na ordem
+/// superclasse, mixins, interfaces e restrições `on`. Os nós saem da pilha
+/// do último visitado para o primeiro, e todas as classes do componente
+/// levam a mesma lista (`class A extends B`, `B extends C`, `C extends A`:
+/// `C, B, A` nas três). `None` se `alvo` não está num componente de mais de
+/// uma classe, ou se a hierarquia é grande demais.
+fn componente_3_13(l: &Leitor<'_>, lib: LibraryId, alvo: ClassId) -> Option<Vec<ClassId>> {
+    struct Andar {
+        /// (índice, menor índice alcançado) dos nós vistos neste passeio.
+        indices: std::collections::HashMap<ClassId, (u32, u32)>,
+        avaliados: std::collections::HashSet<ClassId>,
+        pilha: Vec<ClassId>,
+        proximo: u32,
+        passos: u32,
+        achado: Option<Vec<ClassId>>,
+    }
+    fn conectar(l: &Leitor<'_>, a: &mut Andar, no: ClassId, alvo: ClassId) {
+        a.passos += 1;
+        let meu = a.proximo;
+        a.proximo += 1;
+        a.indices.insert(no, (meu, meu));
+        a.pilha.push(no);
+        let (sup, mixins, on, interfaces) = diretos(l, no);
+        for d in sup.into_iter().chain(mixins).chain(interfaces).chain(on) {
+            if a.passos > 20_000 {
+                return;
+            }
+            if d == no || a.avaliados.contains(&d) {
+                continue;
+            }
+            let visto = match a.indices.get(&d) {
+                Some(&(i, _)) => i,
+                None => {
+                    conectar(l, a, d, alvo);
+                    a.indices.get(&d).map_or(u32::MAX, |x| x.1)
+                }
+            };
+            if let Some(eu) = a.indices.get_mut(&no)
+                && visto < eu.1
+            {
+                eu.1 = visto;
+            }
+        }
+        if a.indices.get(&no).is_some_and(|&(i, menor)| i == menor) {
+            let mut componente = Vec::new();
+            while let Some(outro) = a.pilha.pop() {
+                componente.push(outro);
+                a.avaliados.insert(outro);
+                if outro == no {
+                    break;
+                }
+            }
+            if componente.len() > 1 && componente.contains(&alvo) {
+                a.achado = Some(componente);
+            }
+        }
+    }
+    let mut a = Andar {
+        indices: std::collections::HashMap::new(),
+        avaliados: std::collections::HashSet::new(),
+        pilha: Vec::new(),
+        proximo: 1,
+        passos: 0,
+        achado: None,
+    };
+    for (i, classe) in l.programa.classes.iter().enumerate() {
+        let id = ClassId(i as u32);
+        if classe.library != lib || classe.decl.is_none() || a.avaliados.contains(&id) {
+            continue;
+        }
+        // Cada passeio recomeça os índices; os nós de passeios anteriores
+        // já estão todos avaliados.
+        a.indices.clear();
+        a.pilha.clear();
+        a.proximo = 1;
+        conectar(l, &mut a, id, alvo);
+        if a.passos > 20_000 {
+            return None;
+        }
+        if a.achado.is_some() || a.avaliados.contains(&alvo) {
+            break;
+        }
+    }
+    a.achado
+}
+
 /// As classes, aliases, enums e mixins de `lib` em que o
 /// `InheritanceOverrideVerifier.verify()` do analyzer passa das verificações
 /// que o encerram cedo (`_checkDirectSuperTypes`, `Enum` em classe concreta,
@@ -1353,7 +1443,16 @@ pub fn verificar(
                 let d = if ciclo.len() > 1 {
                     let mut texto: Vec<&str> = ciclo.iter().map(|&x| l.nome(programa.class(x).name)).collect();
                     texto.push(nome);
-                    Diagnostic::com_codigo(c::RECURSIVE_INTERFACE_INHERITANCE, span, [nome, texto.join(", ").as_str()])
+                    let antigo = texto.join(", ");
+                    // O terceiro argumento é o caminho como o 3.13.4 o
+                    // escreve (T2, caso c21); só a variante 3.13 o usa.
+                    match componente_3_13(&l, lib, id) {
+                        Some(componente) => {
+                            let novo = componente.iter().map(|&x| l.nome(programa.class(x).name)).collect::<Vec<&str>>().join(", ");
+                            Diagnostic::com_codigo(c::RECURSIVE_INTERFACE_INHERITANCE, span, [nome, antigo.as_str(), novo.as_str()])
+                        }
+                        None => Diagnostic::com_codigo(c::RECURSIVE_INTERFACE_INHERITANCE, span, [nome, antigo.as_str()]),
+                    }
                 } else {
                     let (sup, mixins, on, _) = diretos(&l, id);
                     let codigo = if sup == Some(id) {

@@ -1,0 +1,13 @@
+=== i01_late_x
+void f() { late x; }
+=== i02_anot_x
+const a = 0;
+void f() { @a x; }
+=== i03_topo_x_igual
+x = 1;
+=== i04_membro_x
+class A { x; }
+=== i05_tipo_interrogacao_pv
+void f() { int? x }
+=== i06_param_abc
+void f(int a b c) {}

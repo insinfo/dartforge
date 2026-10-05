@@ -128,14 +128,14 @@ pub extern "C" fn dartforge_laco_de_eventos(chamar: extern "C" fn(i64) -> i64) {
         if let Some((raiz, closure)) = imediata {
             // A raiz só sai depois da chamada: o valor da closure é argumento
             // do código gerado, que o enraíza no quadro dele.
-            chamar(closure);
+            dart_r1(chamar as usize, closure);
             soltar_raiz(raiz);
             continue;
         }
         // 1b. As finalizações prontas (`Finalizer`, `finalizadores.rs`):
         //     na VM chegam como mensagem ao isolado; aqui, entre eventos.
         if let Some(acao) = proxima_finalizacao() {
-            chamar(acao);
+            dart_r1(chamar as usize, acao);
             concluir_finalizacao();
             continue;
         }
@@ -205,7 +205,7 @@ pub extern "C" fn dartforge_laco_de_eventos(chamar: extern "C" fn(i64) -> i64) {
         let Some((closure, periodico, raiz)) = disparo else {
             continue;
         };
-        chamar(closure);
+        dart_r1(chamar as usize, closure);
         if let Some(r) = raiz {
             soltar_raiz(r);
         }

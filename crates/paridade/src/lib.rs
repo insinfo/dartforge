@@ -37,18 +37,191 @@ pub use dartforge_analise::publicacao::{VERIFICADOS, publicado, verificados};
 /// regra de publicação.
 pub fn diagnosticos_json(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoes, so_publicados: bool) -> Vec<json::DiagJson> {
     let mut out = Vec::new();
+    // As opções de subpasta (INFRA §4.5): o `analysis_options.yaml` mais
+    // próximo acima do arquivo, abaixo da raiz, vale para ele; os `exclude`
+    // dele somam-se aos da raiz.
+    let mut de_subpasta: std::collections::HashMap<std::path::PathBuf, filtros::Opcoes> = std::collections::HashMap::new();
     for (p, a) in &analise.arquivos {
         if oraculo::relativo(p, raiz).is_some_and(|rel| opcoes.excluido(&rel)) {
             continue;
         }
+        let proprias: Option<&filtros::Opcoes> = match filtros::Opcoes::de_subpasta(p, raiz) {
+            Some(arquivo) => {
+                if !de_subpasta.contains_key(&arquivo) {
+                    let lidas = filtros::Opcoes::ler_arquivo(&arquivo);
+                    de_subpasta.insert(arquivo.clone(), lidas);
+                }
+                de_subpasta.get(&arquivo)
+            }
+            None => None,
+        };
+        if proprias.is_some_and(|o| o.exclui_arquivo(p)) {
+            continue;
+        }
+        let opcoes = proprias.unwrap_or(opcoes);
         let linhas = json::Linhas::new(&a.texto);
         let caminho = p.to_string_lossy();
         for (d, sintaxe) in publicaveis(a, opcoes, so_publicados) {
             out.push(json::para_json(&caminho, &linhas, &d, sintaxe));
         }
+        // As regras de lint ligadas em `linter: rules:` (INFRA §8), sobre a
+        // árvore do texto, com os comentários `// ignore:` e o `errors:` das
+        // opções (que cala a regra ou troca a severidade).
+        if opcoes.regras.values().any(|ligada| *ligada) {
+            let mut nomes = dartforge_intern::Interner::new();
+            let analisado = dartforge_frontend::parser::parse(&a.texto, &mut nomes);
+            let unidade = dartforge_analise::Unidade { ast: &analisado.ast, unit: &analisado.unit, fonte: &a.texto };
+            let ligada = |regra: &str| opcoes.regras.get(regra).copied().unwrap_or(false);
+            let ignorados = filtros::Ignorados::de_texto(&a.texto);
+            let mut relatos = dartforge_analise::lints::executar(unidade, &nomes, &ligada);
+            // Os das regras que pedem o programa resolvido, já calculados
+            // pelo motor.
+            for l in &a.lints_semanticos {
+                if let Some(codigo) = dartforge_analise::lints::codigos_g::TODOS.iter().copied().find(|k| k.unico == l.unico)
+                    && ligada(codigo.nome)
+                {
+                    relatos.push(dartforge_analise::lints::regras::RelatoDeLint { codigo, span: l.span, args: l.args.clone() });
+                }
+            }
+            relatos.sort_by_key(|r| (r.span.start, r.span.end, r.codigo.unico));
+            // O mesmo código no mesmo lugar com os mesmos argumentos sai uma
+            // vez só (`final (a, b) = …` relata a palavra por variável).
+            relatos.dedup_by(|x, y| x.span == y.span && x.codigo.unico == y.codigo.unico && x.args == y.args);
+            for r in relatos {
+                let severidade = match opcoes.errors.get(r.codigo.nome) {
+                    Some(None) => continue,
+                    Some(Some(s)) => s.nome(),
+                    None => "INFO",
+                };
+                if ignorados.ignora_lint(r.codigo.nome, r.codigo.unico, linhas.ponto(r.span.start).line) {
+                    continue;
+                }
+                out.push(json::DiagJson {
+                    code: r.codigo.nome.to_string(),
+                    severity: severidade.to_string(),
+                    tipo: "LINT".to_string(),
+                    location: json::Local {
+                        file: caminho.to_string(),
+                        range: json::Faixa { start: linhas.ponto(r.span.start), end: linhas.ponto(r.span.end.max(r.span.start)) },
+                    },
+                    problem_message: r.mensagem(),
+                    correction_message: r.correcao(),
+                    context_messages: Vec::new(),
+                    documentation: r.codigo.documentado.then(|| format!("https://dart.dev/diagnostics/{}", r.codigo.nome)),
+                });
+            }
+        }
     }
     json::ordenar(&mut out);
     out
+}
+
+/// Um relato de arquivo não-Dart no JSON v1.
+fn relato_em_json(arquivo: &str, linhas: &json::Linhas<'_>, r: &dartforge_analise::naodart::Relato) -> json::DiagJson {
+    json::DiagJson {
+        code: r.codigo.nome.to_string(),
+        severity: r.codigo.severidade.nome().to_string(),
+        tipo: r.codigo.tipo.nome().to_string(),
+        location: json::Local {
+            file: arquivo.to_string(),
+            range: json::Faixa { start: linhas.ponto(r.span.start), end: linhas.ponto(r.span.end.max(r.span.start)) },
+        },
+        problem_message: r.mensagem(),
+        correction_message: r.correcao(),
+        context_messages: Vec::new(),
+        documentation: r.codigo.documentado.then(|| format!("https://dart.dev/diagnostics/{}", r.codigo.nome)),
+    }
+}
+
+/// Os diagnósticos de cada `AndroidManifest.xml` sob `raiz` (o
+/// `ManifestValidator` do analyzer, `dartforge_analise::naodart::manifesto`),
+/// no JSON v1. Só com `analyzer: optional-checks: chrome-os-manifest-checks`
+/// nas opções; pastas ocultas ficam fora.
+pub fn diagnosticos_do_manifesto(raiz: &Path, opcoes: &filtros::Opcoes) -> Vec<json::DiagJson> {
+    let mut out = Vec::new();
+    if !opcoes.manifesto_do_chrome_os {
+        return out;
+    }
+    let mut pilha = vec![raiz.to_path_buf()];
+    let mut achados: Vec<PathBuf> = Vec::new();
+    while let Some(pasta) = pilha.pop() {
+        let Ok(entradas) = std::fs::read_dir(&pasta) else { continue };
+        for e in entradas.flatten() {
+            let (p, nome) = (e.path(), e.file_name());
+            let nome = nome.to_string_lossy();
+            if p.is_dir() {
+                if !nome.starts_with('.') {
+                    pilha.push(p);
+                }
+            } else if nome == "AndroidManifest.xml" {
+                achados.push(p);
+            }
+        }
+    }
+    achados.sort();
+    for arquivo in achados {
+        let Ok(texto) = std::fs::read_to_string(&arquivo) else { continue };
+        let linhas = json::Linhas::new(&texto);
+        let caminho = arquivo.to_string_lossy();
+        out.extend(dartforge_analise::naodart::manifesto::validar(&texto).iter().map(|r| relato_em_json(&caminho, &linhas, r)));
+    }
+    out
+}
+
+/// Os diagnósticos do `analysis_options.yaml` de `raiz`
+/// (`analyzeAnalysisOptions`, `dartforge_analise::naodart::opcoes`), no JSON
+/// v1. Um `include:` é relativo ao arquivo que inclui, ou `package:` pelo
+/// `package_config.json` achado acima da raiz. A restrição de SDK não é
+/// passada: uma regra de lint removida com `since` não é relatada.
+pub fn diagnosticos_das_opcoes(raiz: &Path) -> Vec<json::DiagJson> {
+    let arquivo = raiz.join("analysis_options.yaml");
+    let Ok(texto) = std::fs::read_to_string(&arquivo) else { return Vec::new() };
+    let config = dartforge_elements::config::PackageConfig::discover(&arquivo)
+        .and_then(|p| dartforge_elements::config::PackageConfig::load(&p).ok());
+    let resolver = |de: &Path, uri: &str| -> Option<PathBuf> {
+        if uri.starts_with("package:") {
+            config.as_ref().and_then(|c| c.resolve_package_uri(uri).ok())
+        } else {
+            de.parent().map(|p| p.join(uri))
+        }
+    };
+    let raiz_em_texto = raiz.to_string_lossy();
+    let ctx = dartforge_analise::naodart::opcoes::Contexto {
+        arquivo: &arquivo,
+        raiz_do_contexto: raiz_em_texto.as_ref(),
+        resolver: &resolver,
+        sdk_permite: None,
+    };
+    let linhas = json::Linhas::new(&texto);
+    let caminho = arquivo.to_string_lossy();
+    dartforge_analise::naodart::opcoes::analisar(&texto, &ctx).iter().map(|r| relato_em_json(&caminho, &linhas, r)).collect()
+}
+
+/// Os diagnósticos do `pubspec.yaml` de `raiz` (o `PubspecValidator` do
+/// analyzer, `dartforge_analise::naodart::pubspec`), no JSON v1. Sem o
+/// arquivo, nada. O `analysis_options.yaml` da raiz aplica `errors:`? Não:
+/// estes códigos ainda não estão no catálogo, e saem como o validador os dá.
+pub fn diagnosticos_do_pubspec(raiz: &Path) -> Vec<json::DiagJson> {
+    let arquivo = raiz.join("pubspec.yaml");
+    let Ok(texto) = std::fs::read_to_string(&arquivo) else { return Vec::new() };
+    let linhas = json::Linhas::new(&texto);
+    let caminho = arquivo.to_string_lossy();
+    dartforge_analise::naodart::pubspec::validar(&texto, raiz)
+        .into_iter()
+        .map(|r| json::DiagJson {
+            code: r.codigo.nome.to_string(),
+            severity: r.codigo.severidade.nome().to_string(),
+            tipo: r.codigo.tipo.nome().to_string(),
+            location: json::Local {
+                file: caminho.to_string(),
+                range: json::Faixa { start: linhas.ponto(r.span.start), end: linhas.ponto(r.span.end.max(r.span.start)) },
+            },
+            problem_message: r.mensagem(),
+            correction_message: r.correcao(),
+            context_messages: Vec::new(),
+            documentation: r.codigo.documentado.then(|| format!("https://dart.dev/diagnostics/{}", r.codigo.nome)),
+        })
+        .collect()
 }
 
 /// Os diagnósticos de um arquivo que saem para o usuário, com a marca de
@@ -70,6 +243,16 @@ pub fn publicaveis(a: &analise::Arquivo, opcoes: &filtros::Opcoes, so_publicados
             continue;
         }
         out.push((d, sintaxe));
+    }
+    // `IgnoreValidator` (a última fase da unidade): os nomes repetidos nos
+    // comentários `ignore`.
+    for d in ignorados.duplicados() {
+        if so_publicados && !publicado(&d, false) {
+            continue;
+        }
+        if let Some(d) = opcoes.processar(d) {
+            out.push((d, false));
+        }
     }
     out
 }

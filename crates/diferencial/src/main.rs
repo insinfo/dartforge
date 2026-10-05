@@ -383,15 +383,26 @@ fn main() {
             print!("{}", relatorio(&resultados));
             println!("({} programas em {:.1} s)", resultados.len(), inicio.elapsed().as_secs_f64());
             if let Some(arquivo) = &matriz {
-                let nome = perfil.clone().unwrap_or_else(|| {
-                    match (op.nativo, op.jit, amb.gc_stress) {
-                        (true, true, _) => "jit",
-                        (true, false, true) => "aot-gc-stress",
-                        (true, false, false) if amb.otimizar => "aot-otimizado",
-                        (true, false, false) => "aot",
-                        (false, ..) => "js-dev",
+                // As quatro combinações do nativo (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
+                // §7.1): o modo de raízes e o de exceções vêm do ambiente, que o
+                // emissor lê (`DARTFORGE_RAIZES`, `DARTFORGE_EXCECOES`); o padrão
+                // (sombra, checagem) não entra no nome.
+                let modo = {
+                    let mut m = String::new();
+                    if std::env::var("DARTFORGE_RAIZES").is_ok_and(|v| v == "mapas") {
+                        m.push_str("-mapas");
                     }
-                    .to_string()
+                    if std::env::var("DARTFORGE_EXCECOES").is_ok_and(|v| v == "tabelas") {
+                        m.push_str("-tabelas");
+                    }
+                    m
+                };
+                let nome = perfil.clone().unwrap_or_else(|| match (op.nativo, op.jit, amb.gc_stress) {
+                    (true, true, _) => format!("jit{modo}"),
+                    (true, false, true) => format!("aot{modo}-gc-stress"),
+                    (true, false, false) if amb.otimizar => format!("aot{modo}-otimizado"),
+                    (true, false, false) => format!("aot{modo}"),
+                    (false, ..) => "js-dev".to_string(),
                 });
                 let linhas = dartforge_diferencial::matriz::tsv(&resultados, &nome);
                 let mut f = std::fs::OpenOptions::new()

@@ -138,7 +138,7 @@ impl Depuracao {
 /// `dobro`), tirado do símbolo estável `df.<biblioteca>.<classe>.<membro>`
 /// (a biblioteca vem escapada, sem pontos); sem o prefixo, o da HIR. O
 /// símbolo continua na tabela de símbolos do executável.
-fn nome_dart(func: &Function) -> String {
+pub(super) fn nome_dart(func: &Function) -> String {
     if func.symbol == "dart_main" {
         return "main".to_string();
     }

@@ -1,0 +1,40 @@
+== u3/e08_auto_referencia.dart
+  unused_element | 6+2 | 1:7 | The declaration '_C' isn't referenced.
+  unused_element | 28+4 | 1:29 | The declaration 'make' isn't referenced.
+  unused_field | 76+1 | 3:11 | The value of the field 'a' isn't used.
+  type_alias_cannot_reference_itself | 156+2 | 5:9 | Typedefs can't reference themselves directly or recursively via another typedef.
+== u3/e09_exec_envolvente.dart
+  unused_element | 57+11 | 2:6 | The declaration '_viaClosure' isn't referenced.
+  unused_element | 131+2 | 4:5 | The declaration '_s' isn't referenced.
+  unused_element | 184+2 | 7:8 | The declaration '_m' isn't referenced.
+  unused_element | 289+2 | 10:11 | The declaration '_p' isn't referenced.
+== u3/e18_parametros_chamadas.dart
+  unused_element | 22+1 | 2:12 | A value for optional parameter 'a' isn't ever given.
+  unused_element | 98+1 | 6:12 | The declaration '_C.k' isn't referenced.
+  unused_element | 106+1 | 6:20 | A value for optional parameter 'c' isn't ever given.
+  unused_element | 193+1 | 12:15 | A value for optional parameter 'a' isn't ever given.
+  unused_element | 249+1 | 14:29 | A value for optional parameter 'x' isn't ever given.
+  unused_element | 369+1 | 22:21 | A value for optional parameter 'a' isn't ever given.
+== u3/e21_comando_identificador.dart
+  unused_local_variable | 104+1 | 10:7 | The value of the local variable 'k' isn't used.
+== u3/e22_ignore.dart
+  unused_local_variable | 167+1 | 7:7 | The value of the local variable 'y' isn't used.
+== parte2/lib.dart
+  (nenhum)
+== parte2/p.dart
+  undefined_identifier | 31+9 | 2:12 | Undefined name 'naoExiste'.
+== parte3/lib.dart
+  (nenhum)
+== parte3/p.dart
+  (nenhum)
+== d3/campos.dart
+  deprecated_member_use_from_same_package | 75+8 | 6:9 | 'A.n' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 80+1 | 6:14 | 'A.n' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 104+1 | 7:20 | 'a' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 108+1 | 7:24 | 'b' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 144+9 | 10:9 | 'A.n' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 258+1 | 16:11 | 'x' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 277+1 | 17:16 | 'a' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 322+1 | 18:21 | 'b' is deprecated and shouldn't be used.
+== d3/lib_dep.dart
+  (nenhum)

@@ -99,6 +99,9 @@ pub struct Motor<'a> {
     locais: HashMap<(UnitId, usize), Option<Constante>>,
     /// Construtores em avaliação (ciclo: `isCycleFree` falso).
     construtores_em_curso: Vec<FunctionElementId>,
+    /// O grafo de dependências de constantes e quem está em ciclo
+    /// ([`super::ciclos::computar`], antes do verificador de cada biblioteca).
+    pub grafo: super::ciclos::Estado,
     /// Argumentos posicionais diretos de uma criação constante: o
     /// `genericError` deles é `CONST_WITH_NON_CONSTANT_ARGUMENT`.
     args_de_criacao: HashSet<(UnitId, ExprId)>,
@@ -149,6 +152,7 @@ impl<'a> Motor<'a> {
             locais_da_unidade: HashMap::new(),
             locais: HashMap::new(),
             construtores_em_curso: Vec::new(),
+            grafo: super::ciclos::Estado::default(),
             args_de_criacao: HashSet::new(),
             relatos: Vec::new(),
             parametros,
@@ -1462,6 +1466,20 @@ impl<'a> Motor<'a> {
             }
             None => {}
         }
+        // O componente do grafo de dependências a que a variável pertence
+        // tem ciclo (`generateCycleError`): o resultado guardado é o
+        // inválido no nome dela, e quem a lê recebe um inválido calado.
+        if self.grafo.variaveis_em_ciclo.contains(&v) {
+            let unidade = match self.program.variable(v).node {
+                VariableRef::TopLevel { unit, .. } | VariableRef::Field { unit, .. } => Some(unit),
+                _ => None,
+            };
+            if let (Some(unidade), Some(nome)) = (unidade, self.span_do_nome_da_variavel(v)) {
+                let r = Constante::Invalida(Box::new(self.erro(unidade, nome, c::RECURSIVE_COMPILE_TIME_CONSTANT)));
+                self.vars.insert(v, EstadoVar::Pronta(r.clone()));
+                return Some(r);
+            }
+        }
         let var = self.program.variable(v);
         let lib = var.library;
         let tipo_var = self.outline.variables[v.0 as usize].declared_type.or(self.outline.variables[v.0 as usize].inferred);
@@ -1608,6 +1626,11 @@ impl<'a> Motor<'a> {
         if let Some(Some(r)) = self.locais.get(&(u, offset)) {
             return r.clone();
         }
+        if self.grafo.locais_em_ciclo.contains(&(u, offset)) {
+            let r = Constante::Invalida(Box::new(self.erro(u, var.name.span, c::RECURSIVE_COMPILE_TIME_CONSTANT)));
+            self.locais.insert((u, offset), Some(r.clone()));
+            return r;
+        }
         let Some(init) = var.initializer else {
             return Constante::Valor(Valor::nulo(self.core));
         };
@@ -1709,7 +1732,9 @@ impl<'a> Motor<'a> {
         palavra: Option<Span>,
         em_const_args: bool,
     ) -> R {
-        let fe = self.program.function(f);
+        // T3: o `const` é o da declaração pública (no SDK, o patch de
+        // `bool.fromEnvironment` e dos irmãos é uma fábrica sem `const`).
+        let fe = self.program.function(self.program.publico(f));
         if !fe.const_ {
             let span = palavra.unwrap_or(erro.span);
             return Constante::Invalida(Box::new(self.erro(erro.unidade, span, c::CONST_WITH_NON_CONST)));
@@ -1760,6 +1785,11 @@ impl<'a> Motor<'a> {
         }
         // Redirecionamentos de factory `const` até um construtor que não é.
         let (f, tipo) = self.seguir_redirecionamentos(f, tipo);
+        // O construtor não é livre de ciclo (`isCycleFree`,
+        // `evaluation.dart:3090-3099`): um desconhecido do tipo, sem erro.
+        if self.grafo.construtores_em_ciclo.contains(&f) {
+            return Constante::Valor(self.desconhecido(tipo));
+        }
         let fe = self.program.function(f);
         let Some(k) = fe.class else { return Constante::Valor(self.desconhecido(tipo)) };
         if fe.factory || !self.inferidas.contains(&fe.library) || fe.kind == FunctionKind::SyntheticConstructor && self.program.class(k).kind == ClassKind::MixinApplication {
@@ -1799,7 +1829,7 @@ impl<'a> Motor<'a> {
                 break;
             }
             let Some((g, t)) = self.alvo_de_redirecionamento(f, tipo) else { break };
-            if !self.program.function(g).const_ || vistos.contains(&g) {
+            if !self.program.function(self.program.publico(g)).const_ || vistos.contains(&g) {
                 break;
             }
             vistos.push(g);
@@ -2098,7 +2128,7 @@ impl<'a> Motor<'a> {
                         let chave = constructor.map(|n| n.sym).or_else(|| self.interner.lookup(""));
                         let alvo = chave.and_then(|c| self.program.class(k).constructors.get(&c).copied());
                         if let Some(g) = alvo {
-                            if self.program.function(g).const_ {
+                            if self.program.function(self.program.publico(g)).const_ {
                                 let r = self.avaliar_chamada(&cxi, erro, g, tipo, &Argumentos::Ast(arguments), None, false);
                                 return Gerador::pronto(r);
                             }
@@ -2163,7 +2193,7 @@ impl<'a> Motor<'a> {
                 let chave = super_nome.or_else(|| self.interner.lookup(""));
                 let alvo = chave.and_then(|c| self.program.class(sup).constructors.get(&c).copied());
                 if let Some(g) = alvo {
-                    if self.program.function(g).const_ {
+                    if self.program.function(self.program.publico(g)).const_ {
                         let tipo_super = self.outline.classes.get(k.0 as usize).and_then(|d| d.supertype).unwrap_or(self.core.dynamic_);
                         let tipo_super = match cxi.tipos.as_ref() {
                             Some(m) if !m.is_empty() => crate::ops::substitute(tipo_super, m, self.table),
@@ -2365,7 +2395,7 @@ fn inicio_de_for(fonte: &[u8], i: usize) -> usize {
 
 /// As constantes locais de uma unidade: pelo offset do nome, o comando
 /// (`Variables` ou `for`) e o índice na lista.
-fn locais_constantes(a: &ast::Ast) -> HashMap<usize, (ast::StmtId, usize)> {
+pub(super) fn locais_constantes(a: &ast::Ast) -> HashMap<usize, (ast::StmtId, usize)> {
     let mut m = HashMap::new();
     for (i, s) in a.stmts.iter().enumerate() {
         let lista = match &s.kind {

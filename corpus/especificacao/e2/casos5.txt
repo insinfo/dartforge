@@ -1,0 +1,74 @@
+=== f01_arg_tipo_class
+void f(List<class> x) {}
+=== f02_extends_vazio
+class A extends {}
+=== f03_extends_class
+class A extends class {}
+=== f04_is_class
+void f(Object o) { o is class; }
+=== f05_lista_vazia_tipo
+var x = <>[];
+=== f06_arg_tipo_virgula_final
+List<int,> x = [];
+=== f07_prefixo_class
+import 'dart:core' as p;
+p.class x = 1;
+=== f08_tipo_param_as
+class A<as> {}
+=== f09_tipo_param_void
+class A<void> {}
+=== f10_for_class
+void f(List x) { for (class in x) {} }
+=== f11_final_pv
+void f() { final; }
+=== f12_if_sem_comando
+void f() { if (true) }
+=== f13_membro_void
+class A { void }
+=== f14_membro_reservado_campo
+class A { int class; }
+=== f15_topo_reservado_fn
+int class() => 1;
+=== f16_param_reservado_topo
+void f(int void) {}
+void g(int final) {}
+=== f17_param_get
+void f(int get) {}
+void g(get) {}
+=== f18_typedef_antigo_class
+typedef void class();
+=== f19_local_builtin
+void f() { int get = 1; int as = 2; print(get + as); }
+=== f20_rotulo_await
+void f() async { await: while (true) { break await; } }
+=== f21_metadado_vazio
+@
+class A {}
+=== f22_simbolo_vazio
+var s = #;
+=== f23_new_vazio
+var x = new ();
+=== f24_tipo_nulo_sem_nome
+void f() { int? ; }
+=== f25_lt_decl_funcao
+void f<T(T x) {}
+=== f26_map_sem_gt_decl
+class A { Map<String, int m = {}; }
+=== f27_extends_tipo_sem_gt
+class A<T extends List<int> {}
+=== f28_fn_tipo_sem_nome
+void f(void Function(int) ) {}
+=== f29_campo_ponto
+class A { int. x; }
+=== f30_enum_get
+enum E { get, set, class }
+=== f31_string_esperada
+import foo;
+=== f32_interp_this
+class A { String s() => "$this $super"; }
+=== f33_campo_virgula
+class A { int a, ; }
+=== f34_local_virgula
+void f() { int a, ; }
+=== f35_tipo_var
+void f(var<int> x) {}

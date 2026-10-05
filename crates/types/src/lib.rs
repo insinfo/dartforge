@@ -15,15 +15,27 @@
 //! - **Rastreio de memória**: A [`TypeTable`] computa continuamente seu `payload_bytes`
 //!   para vigilância de platô do LSP e medições do compilador.
 
+pub mod a_main;
 pub mod bounds;
 pub mod codes;
 pub mod constant;
 pub mod constantes;
 pub mod constraints;
 pub mod despejo;
+pub mod exibicao;
+pub mod fase_acesso;
+pub mod fase_deprecado;
+pub mod fase_ffi;
+pub mod fase_override;
+pub mod fase_requeridos;
+pub mod fase_resultado;
+pub mod fase_sdk;
+pub mod fase_super;
 pub mod hierarchy;
 pub mod inferencia;
 pub mod limites;
+pub mod lints_tipados;
+pub mod lints_tipados2;
 pub mod ops;
 pub mod parametros;
 pub mod resolve;
@@ -38,7 +50,7 @@ pub use codes::*;
 pub use constant::{ConstValue, ConstantEvaluator};
 pub use constraints::GenericInferrer;
 pub use hierarchy::{build_class_hierarchy, ClassHierarchy, ClassHierarchyData};
-pub use inferencia::BodyInferrer;
+pub use inferencia::{corpo_no_offset, BodyInferrer, CorpoRef};
 pub use ops::{erase_extension_type, glb, lub, non_nullable, normalize, nullable, substitute};
 pub use resolve::{
     ClassTypeData, ExtensionTypeData, FunctionTypeData, OutlineResolver, OutlineTypes,

@@ -1,0 +1,136 @@
+=== d01_sealed_219
+// @dart=2.19
+sealed class A {}
+=== d02_base_219
+// @dart=2.19
+base class A {}
+=== d03_final_219
+// @dart=2.19
+final class A {}
+=== d04_interface_219
+// @dart=2.19
+interface class A {}
+=== d05_mixin_class_219
+// @dart=2.19
+mixin class A {}
+=== d06_base_mixin_219
+// @dart=2.19
+base mixin M {}
+=== d07_typedef_212
+// @dart=2.12
+typedef X = int;
+=== d08_anot_generica_213
+// @dart=2.13
+class A<T> { const A(); }
+@A<int>()
+void f() {}
+=== d09_gtgtgt_213
+// @dart=2.13
+int f(int a) => a >>> 1;
+=== d10_gtgtgt_eq_213
+// @dart=2.13
+void f(int a) { a >>>= 1; }
+=== d11_op_gtgtgt_213
+// @dart=2.13
+class A { int operator >>>(int o) => 0; }
+=== d12_library_218
+// @dart=2.18
+library;
+=== d13_enum_216
+// @dart=2.16
+enum E<T> with M implements I { a<int>(1), b.x(); const E(int x); const E.x(); }
+mixin M {}
+class I {}
+=== d14_super_216
+// @dart=2.16
+class A { A(int x); }
+class B extends A { B(super.x); }
+=== d15_new_214
+// @dart=2.14
+class A {}
+var f = A.new;
+=== d16_tearoff_generico_214
+// @dart=2.14
+T g<T>(T x) => x;
+var f = g<int>;
+=== d17_record_219
+// @dart=2.19
+var r = (1, 2);
+(int, int) s = throw 0;
+=== d18_exttype_32
+// @dart=3.2
+extension type E(int i) {}
+=== d19_digitos_35
+// @dart=3.5
+var x = 1_000;
+var y = 1_0.5;
+var z = 0xFF_FF;
+=== d20_null_aware
+var a = <int?>[];
+int? x;
+var l = [?x];
+var s = {?x};
+var m = {?x: 1};
+var m2 = {1: ?x};
+var m3 = {?x: ?x};
+=== d21_augment_class
+augment class A {}
+=== d22_variance
+class A<out T> {}
+=== d23_import_augment
+import augment 'a.dart';
+=== d24_padrao_219
+// @dart=2.19
+void f(Object o) {
+  var (a, b) = (1, 2);
+  switch (o) { case int x: break; }
+  if (o case int y) {}
+  var z = switch (o) { _ => 1 };
+}
+=== d25_part_if
+part 'x.dart' if (dart.library.io) 'y.dart';
+=== d26_macro_class
+macro class A {}
+=== d27_named_anywhere_216
+// @dart=2.16
+void g(int a, {int? b}) {}
+void f() { g(b: 1, 2); }
+=== d28_extension_25
+// @dart=2.5
+extension E on int {}
+=== d29_nullable_211
+// @dart=2.11
+int? x;
+=== d30_late_211
+// @dart=2.11
+late int x;
+void f({required int a}) {}
+=== d31_augment_typedef
+augment typedef A = int;
+=== d32_base_typedef
+base typedef E = Enum;
+=== d33_augment_fn
+augment void f() {}
+=== d34_wildcard_spread_15
+// @dart=2.2
+var a = [...[1], if (true) 2];
+var s = {1};
+=== d35_mixin_class_219_b
+// @dart=2.19
+abstract mixin class A {}
+sealed mixin M {}
+=== d36_new_generic_214
+// @dart=2.14
+class A<T> {}
+var f = A<int>.new;
+var g = List<int>;
+=== d37_enum_pv_216
+// @dart=2.16
+enum E { a; }
+=== d38_enum_args_216
+// @dart=2.16
+enum E { a(1) }
+=== d39_named_mixin_219
+// @dart=2.19
+class M {}
+base class B = Object with M;

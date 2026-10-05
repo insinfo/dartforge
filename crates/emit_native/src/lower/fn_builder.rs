@@ -723,6 +723,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let d = self.func.depuracao.get_or_insert_with(|| {
             Box::new(crate::hir::DepuracaoDaFuncao {
                 arquivo: unidade.path.as_ref().map_or_else(|| unidade.uri.clone(), |p| p.display().to_string()),
+                url: self.ctx.url_do_rastro(self.unit_id),
                 linha: pos.0,
                 posicoes: HashMap::new(),
                 saidas: HashMap::new(),
@@ -938,6 +939,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     pub fn emit_call_with_check(&mut self, inst: Instruction, ret_ty: Type) -> Operand {
+        // A extern que a tabela de efeitos marca sem lançar (e sem rodar
+        // Dart) não deixa exceção pendente: não há o que conferir depois
+        // dela (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.2, E1.1). A
+        // própria leitura da pendência é a conferência avulsa (o fim de um
+        // comando dentro de `try`) e continua.
+        // `DARTFORGE_SEM_EFEITOS_NA_CONFERENCIA=1` volta a conferir tudo (medida).
+        if let Instruction::CallRuntime { name, .. } = &inst
+            && name != "dartforge_exception_pending"
+            && !Self::conferir_toda_extern()
+        {
+            let e = crate::llvm::externs::efeitos_de(name);
+            if !e.lanca && !e.chama_dart {
+                return self.emit(inst, ret_ty);
+            }
+        }
         let res_op = self.emit(inst, ret_ty);
         if self.is_terminated() {
             return res_op;
@@ -989,6 +1005,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
         self.set_block(cont_b);
         res_op
+    }
+
+    /// A conferência depois de toda extern, também das que não lançam (o
+    /// comportamento anterior a E1.1, para medir).
+    fn conferir_toda_extern() -> bool {
+        static LIGADO: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *LIGADO.get_or_init(|| {
+            std::env::var_os("DARTFORGE_SEM_EFEITOS_NA_CONFERENCIA").is_some_and(|v| !v.is_empty() && v != "0")
+        })
     }
 
     pub fn emit_throw(&mut self, ast: &ast::Ast, expr_id: ExprId) -> Operand {

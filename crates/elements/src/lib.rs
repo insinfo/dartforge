@@ -11,6 +11,7 @@ pub mod augmentation;
 pub mod config;
 pub mod distribuicao;
 pub mod gerado;
+pub mod incremental;
 pub mod load;
 pub mod model;
 pub mod outline;

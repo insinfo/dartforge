@@ -434,6 +434,13 @@ impl Projeto {
                         c.nome(var.name.span, "variable", &["declaration"]);
                     }
                 }
+                // `for (var i = 0; …)`: a variável do cabeçalho é declaração
+                // como qualquer local (docs/LSP-ESPECIFICACAO.md §15.2).
+                StmtKind::For { init: Some(ast::ForInit::Variables(v)), .. } => {
+                    for var in v.variables.iter() {
+                        c.nome(var.name.span, "variable", &["declaration"]);
+                    }
+                }
                 StmtKind::Function(f) => {
                     if let Some(n) = ast.function(*f).name {
                         c.nome(n.span, "function", &["declaration"]);

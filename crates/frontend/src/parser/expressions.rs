@@ -224,7 +224,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.erro_em(codigos::scanner::UNEXPECTED_SEPARATOR_IN_NUMBER, um, &[]);
         }
         if self.features.versao() < crate::features::LanguageVersion::new(3, 6) {
-            self.erro_em(codigos::parser::EXPERIMENT_NOT_ENABLED, span, &["digit-separators", "3.6.0"]);
+            self.erro_em(codigos::parser::EXPERIMENT_NOT_ENABLED, span, &["digit-separators", "3.6.0", "3.6.0"]);
         }
     }
 
@@ -1179,8 +1179,16 @@ impl<'s, 'i> Parser<'s, 'i> {
         let start = self.span();
         match self.kind() {
             Kind::Ident => {
+                if let Some(nome) = self.funcao_nomeada_a_frente() {
+                    return self.parse_funcao_nomeada(nome);
+                }
                 let name = self.identifier();
                 Ok(self.push(start, ExprKind::Identifier(name)))
+            }
+            // `void nome(…) {…}` em posição de expressão.
+            Kind::Keyword(Keyword::Void) if self.funcao_nomeada_a_frente().is_some() => {
+                let nome = self.funcao_nomeada_a_frente().expect("conferido na guarda");
+                self.parse_funcao_nomeada(nome)
             }
             Kind::Int => {
                 self.conferir_separadores(start);
@@ -1570,6 +1578,62 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.kind_of(close + 1) == Kind::Op(Op::LParen) && self.function_expression_ahead(close + 1)
     }
 
+    /// `parseSendOrFunctionLiteral` (`parser_impl.dart:7188-7207` do fasta
+    /// 3.6.2): em posição de primária, um tipo opcional, um identificador,
+    /// `<…>` opcional e `(…)` seguido de corpo (`{`, `=>`, `async`, `sync`)
+    /// são uma função literal com nome. Devolve o índice do token do nome.
+    /// Não vale onde o fasta desliga `mayParseFunctionExpressions`
+    /// ([`Parser::sem_funcao_nomeada`]).
+    fn funcao_nomeada_a_frente(&self) -> Option<usize> {
+        if self.sem_funcao_nomeada {
+            return None;
+        }
+        // O resto, a partir do nome.
+        let resto = |nome: usize| -> bool {
+            if self.kind_of(nome) != Kind::Ident {
+                return false;
+            }
+            let mut abre = nome + 1;
+            if self.kind_of(abre) == Kind::Op(Op::Lt) {
+                match self.angle_close(abre) {
+                    Some(fecha) => abre = fecha + 1,
+                    None => return false,
+                }
+            }
+            self.kind_of(abre) == Kind::Op(Op::LParen) && self.function_expression_ahead(abre)
+        };
+        // Sem tipo: `g() {}`.
+        if self.kind() == Kind::Ident && resto(self.pos) {
+            return Some(self.pos);
+        }
+        // Com tipo: `void g() {}`, `int g<T>() => 1`. Um identificador só
+        // começa um tipo seguido de nome se depois dele vem outro
+        // identificador, `<`, `.` ou `?` (o filtro poupa o `skip_type` em
+        // quase toda primária).
+        if self.kind() == Kind::Ident
+            && !matches!(self.kind_of(self.pos + 1), Kind::Ident | Kind::Op(Op::Lt | Op::Dot | Op::Question))
+        {
+            return None;
+        }
+        let depois = self.skip_type(self.pos)?;
+        (depois > self.pos && resto(depois)).then_some(depois)
+    }
+
+    /// A função literal com nome: `NAMED_FUNCTION_EXPRESSION` no nome
+    /// (`parseNamedFunctionRest` com `isFunctionExpression`,
+    /// `parser_impl.dart:5286-5289`), e a expressão de função sem ele, como
+    /// o `AstBuilder` a monta. O tipo de retorno escrito é pulado.
+    fn parse_funcao_nomeada(&mut self, nome: usize) -> PResult<ExprId> {
+        while self.pos < nome {
+            self.advance();
+        }
+        let span = self.span();
+        self.erro_em(codigos::parser::NAMED_FUNCTION_EXPRESSION, span, &[]);
+        self.advance();
+        let inicio = self.span();
+        self.parse_function_expression(inicio)
+    }
+
     /// `<T>? (params) async? { }` / `=> e`.
     fn parse_function_expression(&mut self, start: Span) -> PResult<ExprId> {
         let type_params = self.parse_type_parameters_opt()?;
@@ -1673,10 +1737,18 @@ impl<'s, 'i> Parser<'s, 'i> {
                     self.erro(codigos::parser::UNEXPECTED_TOKEN, &["case"]);
                     self.advance();
                 }
-                self.parse_pattern()?
+                // O padrão e a guarda de um caso de `switch` expressão
+                // não leem função literal nomeada (o `=>` é o do caso).
+                let salvo = std::mem::replace(&mut self.sem_funcao_nomeada, true);
+                let padrao = self.parse_pattern();
+                self.sem_funcao_nomeada = salvo;
+                padrao?
             };
             let guard = if self.eat_ident("when") {
-                Some(self.parse_expression()?)
+                let salvo = std::mem::replace(&mut self.sem_funcao_nomeada, true);
+                let guarda = self.parse_expression();
+                self.sem_funcao_nomeada = salvo;
+                Some(guarda?)
             } else {
                 None
             };

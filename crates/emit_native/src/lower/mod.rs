@@ -196,6 +196,7 @@ pub fn lower_program(ctx: &Context) -> Module {
     // classes de erro são as dele (P5c).
     module.modo_sdk = true;
     module.biblioteca_sdk = ctx.biblioteca_sdk;
+    module.dwarf = ctx.dwarf;
     lower_classes_e_funcoes(ctx, module)
 }
 

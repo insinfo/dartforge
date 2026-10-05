@@ -1,0 +1,18 @@
+== n313/p01_primario.dart
+  unused_field_from_primary_constructor | 18+8 | 1:19 | The value of the field '_naoLido' isn't used.
+  unused_field_from_primary_constructor | 167+2 | 7:17 | The value of the field '_y' isn't used.
+  unused_field_from_primary_constructor | 221+2 | 10:18 | The value of the field '_v' isn't used.
+  unused_field_from_primary_constructor | 319+1 | 15:19 | The value of the field '_' isn't used.
+  unused_field_from_primary_constructor | 332+2 | 15:32 | The value of the field '__' isn't used.
+== n313/p02_parametro.dart
+  unused_element_parameter | 14+1 | 1:15 | A value for optional parameter 'a' isn't ever given.
+  unused_element_parameter | 36+1 | 2:16 | A value for optional parameter 'a' isn't ever given.
+  unused_element_parameter | 44+1 | 2:24 | A value for optional parameter 'b' isn't ever given.
+  non_redirecting_generative_constructor_with_primary | 62+4 | 4:3 | Classes with primary constructors can't have non-redirecting generative constructors.
+  unused_element_parameter | 73+1 | 4:14 | A value for optional parameter 'c' isn't ever given.
+  unused_element_parameter | 93+1 | 6:14 | A value for optional parameter 'x' isn't ever given.
+== n313/p03_local_curinga.dart
+  dead_code | 16+11 | 2:3 | Dead code.
+  unused_element | 35+2 | 3:8 | The declaration '__' isn't referenced.
+  duplicate_definition | 62+2 | 5:7 | The name '__' is already defined.
+  unused_local_variable | 62+2 | 5:7 | The value of the local variable '__' isn't used.

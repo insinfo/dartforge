@@ -129,7 +129,7 @@ impl ErroDoSo {
         };
         // SAFETY: registrada pela biblioteca `dart:io` da sobreposição com a
         // assinatura (`String`, `int`) → `OSError`.
-        let g: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
+        let g = { let alvo_dart: usize = f; move |a0: i64, a1: i64| -> i64 { dart_r2(alvo_dart, a0, a1) } };
         let mensagem = alocar_str(&self.mensagem);
         com_raizes(&[mensagem], || g(mensagem, self.codigo))
     }

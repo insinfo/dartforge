@@ -470,6 +470,10 @@ impl<'m, 'a> Exaustividade<'m, 'a> {
     // ---- `getStaticType` (`fe76:shared.dart:161-234`) ----
 
     fn tipo_estatico(&mut self, t: TypeId) -> St {
+        // `createStaticType(InvalidType)` liga `hasInvalidType`.
+        if self.m.table.contem_invalido(t) {
+            self.invalido = true;
+        }
         let t = self.m.table.canonico(t);
         let t = self.m.apagar(t);
         match self.m.table.get(t).clone() {

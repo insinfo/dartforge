@@ -239,6 +239,29 @@ fn placar(a: &Args, trabalhadores: usize) -> (String, bool) {
             tg.falsos_positivos,
             tg.falsos_negativos
         );
+        // T2, critério de pronto: o marcador de referência do nosso parser
+        // contra a lista que o parser do 3.13.4 fez do grupo.
+        if meta.sdk == oraculo::SdkOraculo::V362 {
+            let nosso = oraculo::marcador_3_13(&dir, &fontes);
+            let do_oraculo: std::collections::BTreeSet<String> =
+                sintaxe_nova.get(nome.as_str()).map(|v| v.iter().cloned().collect()).unwrap_or_default();
+            let so_nosso: Vec<&String> = nosso.difference(&do_oraculo).collect();
+            let so_oraculo: Vec<&String> = do_oraculo.difference(&nosso).collect();
+            let _ = writeln!(
+                corpo,
+                "  referência 3.13.4 em {nome}: nosso {} | oráculo {} | só nosso {} | só oráculo {}",
+                nosso.len(),
+                do_oraculo.len(),
+                so_nosso.len(),
+                so_oraculo.len()
+            );
+            for f in so_nosso.iter().take(10) {
+                let _ = writeln!(corpo, "    só nosso: {f}");
+            }
+            for f in so_oraculo.iter().take(10) {
+                let _ = writeln!(corpo, "    só oráculo: {f}");
+            }
+        }
         total.somar(&p);
     }
     let t = total.total();

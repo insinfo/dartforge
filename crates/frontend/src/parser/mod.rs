@@ -37,7 +37,7 @@ pub mod statements;
 pub mod types;
 
 use crate::ast::{Ast, CompilationUnit, ExprId, ForInTarget, ForInit, Name};
-use crate::features::{Feature, LibraryFeatures};
+use crate::features::{Feature, LanguageVersion, LibraryFeatures, Referencia};
 use crate::lexer;
 use crate::token::{Keyword, Kind, Op, Token};
 use dartforge_diagnostics::{Codigo, Diagnostic, Span, codigos};
@@ -100,6 +100,18 @@ pub struct Parsed {
     pub unit: CompilationUnit,
     pub ast: Ast,
     pub diagnostics: Vec<Diagnostic>,
+    /// Os trechos da fonte cujos tokens a recuperação de erro descartou (do
+    /// primeiro ao último token pulado): a declaração, o membro ou o comando
+    /// que não fechou, e o que `ensureCloseParen` saltou. Um nome citado
+    /// num desses trechos pode ter uso ou declaração que a árvore não tem
+    /// (docs/ANALYZER-ESPECIFICACAO.md §G, T5, estrutura (b)).
+    pub pulados: Vec<Span>,
+    /// Qual analyzer é a referência de nomes de código e de textos desta
+    /// unidade: o 3.13.4 se a biblioteca está acima da 3.6 ou se a unidade
+    /// usa sintaxe de um recurso desligado que o 3.6.2 não conhece
+    /// ([`Feature::DESCONHECIDOS_NO_3_6`]); senão o 3.6.2
+    /// (docs/ANALYZER-ESPECIFICACAO.md, T2).
+    pub referencia: Referencia,
 }
 
 /// Analisa uma unidade de compilação inteira na versão de linguagem corrente
@@ -154,6 +166,9 @@ pub fn parse_lexed_com(
                 unit: CompilationUnit::default(),
                 ast: Ast::default(),
                 diagnostics: vec![diagnostic],
+                // Erro léxico: nada foi lido, a fonte inteira ficou de fora.
+                pulados: vec![Span { start: 0, end: source.len() }],
+                referencia: if features.versao() > LanguageVersion::PISO { Referencia::V3_13 } else { Referencia::V3_6 },
             };
         }
     };
@@ -166,10 +181,21 @@ pub fn parse_lexed_com(
     // 29 MiB de 132 MiB. Uma realocação por arena aqui é mais barata do que
     // reter a folga pela vida inteira da unidade.
     ast.shrink_to_fit();
+    let referencia =
+        if features.versao() > LanguageVersion::PISO || parser.sintaxe_nova { Referencia::V3_13 } else { Referencia::V3_6 };
+    // Os diagnósticos que só a outra referência relata saem agora, que se
+    // sabe qual é a desta unidade.
+    let mut diagnostics = parser.diagnostics;
+    let fora = if referencia == Referencia::V3_13 { &parser.so_3_6 } else { &parser.so_3_13 };
+    if !fora.is_empty() {
+        diagnostics.retain(|d| !d.code.is_some_and(|c| fora.contains(&(c, d.span))));
+    }
     Parsed {
         unit,
         ast,
-        diagnostics: parser.diagnostics,
+        diagnostics,
+        pulados: parser.pulados,
+        referencia,
     }
 }
 
@@ -181,6 +207,8 @@ pub struct Parser<'s, 'i> {
     pub(crate) ast: Ast,
     pub(crate) interner: &'i mut Interner,
     pub(crate) diagnostics: Vec<Diagnostic>,
+    /// Ver [`Parsed::pulados`].
+    pub(crate) pulados: Vec<Span>,
     /// Profundidade de aninhamento de expressões/statements, para recusar
     /// entradas patológicas antes de estourar a pilha.
     pub(crate) depth: u32,
@@ -230,6 +258,21 @@ pub struct Parser<'s, 'i> {
     /// O lugar do nome sintético da classe/mixin em leitura (recuperação de
     /// `nome_de_declaracao`), onde vai o erro de corpo ausente.
     pub(crate) nome_sintetico: Option<dartforge_diagnostics::Span>,
+    /// A unidade usa sintaxe de um recurso desligado que o analyzer 3.6.2
+    /// não conhece: a referência dela é o 3.13.4 ([`Parsed::referencia`]).
+    pub(crate) sintaxe_nova: bool,
+    /// Os diagnósticos (código e lugar) que só o analyzer 3.6.2 relata; saem
+    /// da lista se a referência da unidade acabar sendo o 3.13.4. Guardados
+    /// por código e lugar, não por índice: as tentativas especulativas
+    /// truncam a lista de diagnósticos.
+    pub(crate) so_3_6: Vec<(Codigo, Span)>,
+    /// O inverso: os que só o 3.13.4 relata.
+    pub(crate) so_3_13: Vec<(Codigo, Span)>,
+    /// O `!mayParseFunctionExpressions` do fasta: lendo um inicializador de
+    /// construtor ou o padrão e a guarda de um caso de `switch` expressão,
+    /// onde `nome(…) {` e `nome(…) =>` não são função literal nomeada (o
+    /// `{` é o corpo do construtor e o `=>` é o do caso).
+    pub(crate) sem_funcao_nomeada: bool,
 }
 
 /// `DirectiveState` (`directive_context.dart`), na ordem do enum do fasta.
@@ -266,6 +309,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             ast: Ast::default(),
             interner,
             diagnostics: Vec::new(),
+            pulados: Vec::new(),
             depth: 0,
             in_async: false,
             in_generator: false,
@@ -283,6 +327,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             estado_diretivas: EstadoDiretivas::Nenhum,
             especulando: false,
             nome_sintetico: None,
+            sintaxe_nova: false,
+            so_3_6: Vec::new(),
+            so_3_13: Vec::new(),
+            sem_funcao_nomeada: false,
         }
     }
 
@@ -558,6 +606,28 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
+    /// Registra como pulados os tokens de `de` até o cursor (o que uma
+    /// recuperação acabou de descartar), juntando com o trecho anterior
+    /// quando são contíguos ou se sobrepõem.
+    pub(crate) fn registrar_pulado(&mut self, de: usize) {
+        if self.pos <= de || de >= self.tokens.len() {
+            return;
+        }
+        let inicio = self.tokens[de].span.start;
+        let fim = self.tokens[self.pos - 1].span.end;
+        if fim <= inicio {
+            return;
+        }
+        if let Some(ultimo) = self.pulados.last_mut() {
+            if inicio <= ultimo.end && ultimo.start <= fim {
+                ultimo.start = ultimo.start.min(inicio);
+                ultimo.end = ultimo.end.max(fim);
+                return;
+            }
+        }
+        self.pulados.push(Span { start: inicio, end: fim });
+    }
+
     /// `ensureCloseParen` do fasta: o `)` que fecha o `(` na posição absoluta
     /// `abre`. Se o token corrente não é ele, `EXPECTED_TOKEN` (`)`) no token
     /// corrente e o cursor pula para depois do `)` casado — o que fica no
@@ -570,6 +640,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         match self.matching_close(abre) {
             Some(fecha) if fecha >= self.pos && self.kind_of(fecha) == Kind::Op(Op::RParen) && !self.at_eof() => {
                 self.erro_esperado(")");
+                let de = self.pos;
+                self.pos = fecha;
+                self.registrar_pulado(de);
                 self.pos = fecha + 1;
                 Ok(())
             }
@@ -600,14 +673,22 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
     /// Registra que `span` usa o recurso `f`: diagnóstico se a versão da
     /// biblioteca não o liga. A análise continua (o superconjunto é aceito).
+    ///
+    /// Os argumentos são `[recurso, versão que o 3.6.2 escreve, versão que o
+    /// 3.13.4 escreve]`: o molde usa o segundo, e a variante 3.13 do código
+    /// troca-o pelo terceiro (`Diagnostic::na_referencia`).
     pub(crate) fn exigir(&mut self, f: Feature, span: Span) {
         if !self.features.tem(f) {
+            if Feature::DESCONHECIDOS_NO_3_6.contains(&f) {
+                self.sintaxe_nova = true;
+            }
             // `EXPERIMENT_NOT_ENABLED` (com a versão em que o recurso liga) ou
             // `EXPERIMENT_NOT_ENABLED_OFF_BY_DEFAULT` (experimento sem versão).
             match f.habilitado_em() {
                 Some(v) => {
-                    let versao = format!("{v}.0");
-                    self.erro_em(codigos::parser::EXPERIMENT_NOT_ENABLED, span, &[f.nome(), &versao]);
+                    let nova = format!("{v}.0");
+                    let antiga = f.versao_relatada_no_3_6().map_or_else(|| nova.clone(), |a| format!("{a}.0"));
+                    self.erro_em(codigos::parser::EXPERIMENT_NOT_ENABLED, span, &[f.nome(), &antiga, &nova]);
                 }
                 None => {
                     self.erro_em(codigos::parser::EXPERIMENT_NOT_ENABLED_OFF_BY_DEFAULT, span, &[f.nome()]);
@@ -626,8 +707,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         match f.habilitado_em() {
             Some(v) => {
-                let versao = v.to_string();
-                self.erro_em(codigos::parser::EXPERIMENT_NOT_ENABLED, span, &[f.nome(), &versao]);
+                if Feature::DESCONHECIDOS_NO_3_6.contains(&f) {
+                    self.sintaxe_nova = true;
+                }
+                let nova = v.to_string();
+                let antiga = f.versao_relatada_no_3_6().map_or_else(|| nova.clone(), |a| a.to_string());
+                self.erro_em(codigos::parser::EXPERIMENT_NOT_ENABLED, span, &[f.nome(), &antiga, &nova]);
             }
             None => self.exigir(f, span),
         }

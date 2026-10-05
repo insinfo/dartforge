@@ -56,7 +56,9 @@ pub fn grupos(raiz: &Path) -> Vec<(String, Grupo)> {
     v
 }
 
-/// Os `.dart` de um diretório, recursivo, sem `.dart_tool`, ordenados.
+/// Os `.dart` de um diretório, recursivo, ordenados, como o
+/// `ContextRootImpl.analyzedFiles` (INFRA §4.5): pastas e arquivos começados
+/// por `.` ficam fora (`.dart_tool`, `.git`, `.x.dart`); `build` entra.
 pub fn arquivos_dart(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut pilha = vec![dir.to_path_buf()];
@@ -67,10 +69,10 @@ pub fn arquivos_dart(dir: &Path) -> Vec<PathBuf> {
             let nome = e.file_name();
             let nome = nome.to_string_lossy();
             if p.is_dir() {
-                if !nome.starts_with('.') && nome != "build" {
+                if !nome.starts_with('.') {
                     pilha.push(p);
                 }
-            } else if nome.ends_with(".dart") {
+            } else if nome.ends_with(".dart") && !nome.starts_with('.') {
                 out.push(p);
             }
         }

@@ -295,6 +295,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         ast::ForInit::Expression(e) => {
                             self.lower_expr_descartada(ast, *e);
                         }
+                        // Como a declaração por padrão, no escopo do laço.
+                        ast::ForInit::Pattern { pattern, value, .. } => {
+                            let v = self.lower_expr(ast, *value);
+                            self.casar_irrefutavel(ast, *pattern, v, super::padroes::Ligacao::Declarar, *value);
+                        }
                     }
                 }
 

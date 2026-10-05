@@ -1,0 +1,107 @@
+=== t01
+const a = a;
+class K { static const s = [s]; }
+=== t03
+const k = const A();
+class A { const A([x = k]); }
+=== t06
+const t = int;
+const u = List<int>;
+const b = t == int;
+const s = '$t';
+const v = t + 1;
+const w = identical(t, int);
+=== t07
+const a = 1 is num;
+const b = 1 as String;
+class G<T> {
+  final bool r;
+  final Object? c;
+  const G(Object? o) : r = o is T, c = o as T;
+}
+const g = const G<int>('x');
+const h = const G<int>(1);
+=== t08
+const a = (1, 2) == (1, 2);
+const b = identical((1, 2), (1, 2));
+const c = #a == #a;
+const d = 'a' == 1;
+const e = 'a' * 2;
+const f = '${1.5}';
+const g = 1.5 == 1.5;
+const h = 0.0 == -0.0;
+const i = identical(0.0, -0.0);
+=== t09
+class A {
+  const A() : assert(1 > 2);
+}
+class B extends A {
+  const B();
+}
+const b = const B();
+class P { final int x; const P(Object o) : x = o.foo; }
+class Q extends P { const Q() : super(1); }
+const q = const Q();
+=== t10
+class A {
+  final int x;
+  const A(int v) : this.n(v ~/ 0);
+  const A.n(this.x) : assert(x > 0);
+  const factory A.f(int v) = A.n;
+  const A.m(int v) : this.n(v);
+}
+const a = const A(1);
+const b = const A.f(0);
+const c = const A.m(0);
+=== t14
+const u = bool.fromEnvironment('dart.library.js_util');
+const l = [if (u) 1];
+const c = u ? 1 : 'a'.foo;
+const d = u ? 1 : v;
+var v = 0;
+const e = u && v2;
+var v2 = true;
+const f = !u;
+const g = u ? 1 ~/ 0 : 2;
+=== t15
+class B { const B(int x) : assert(x > 0); }
+class A { const A(Object o); }
+const a = const A(const B(0));
+const b = const A(const A('a'.foo));
+var c = const A(const B(0));
+=== t16
+T id<T>(T x) => x;
+const a = identical(id<int>, id<int>);
+const int Function(int) f = id;
+const b = identical(f, id<int>);
+const c = id == id;
+=== t17
+mixin M {}
+class S { final int x; const S(this.x) : assert(x > 0); }
+class C = S with M;
+const c = const C(0);
+class D extends S with M { const D() : super(-1); }
+const d = const D();
+=== t18
+class A {
+  final int x;
+  const A({required this.x});
+}
+const a = const A(x: 'a' as dynamic);
+const b = const A(x: 1 ~/ 0);
+const c = const A(x: v);
+var v = 1;
+=== t19
+abstract class I { const factory I() = Impl; }
+class Impl implements I { const Impl() : assert(false, 'boom'); }
+const i = const I();
+const s = const Symbol('a b');
+const d = const Duration(seconds: 1);
+const e = d.inSeconds;
+=== t20
+class A { static const a = B.b; }
+class B { static const b = C.c; }
+class C { static const c = A.a; }
+const x = A.a;
+const y = [x];
+var z = const [x];

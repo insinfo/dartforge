@@ -73,7 +73,7 @@ pub extern "C" fn dartforge_preparar_embedder() {
     preparar_sinais_do_processo();
     // SAFETY: registrada pela biblioteca `dart:io` da sobreposição com a
     // assinatura (`String`) → `Object`.
-    let iniciar: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(iniciar) };
+    let iniciar = { let alvo_dart: usize = iniciar; move |a0: i64| -> i64 { dart_r1(alvo_dart, a0) } };
     // O script: o que o hospedeiro definiu (o `.dart` que o JIT roda, como o
     // `dart run`), senão o `argv[0]` do executável (o AOT, como a VM).
     let definido = script_do_programa().lock().unwrap_or_else(|e| e.into_inner()).clone();
@@ -86,7 +86,7 @@ pub extern "C" fn dartforge_preparar_embedder() {
     if let Some(definir) = ajudante("_dartforgeDefinirUriBase") {
         // SAFETY: registrada pela biblioteca `dart:core` da sobreposição com
         // a assinatura (`Uri Function()`) → `void`.
-        let definir: extern "C" fn(i64) = unsafe { std::mem::transmute(definir) };
+        let definir = { let alvo_dart: usize = definir; move |a0: i64| { dart_v1(alvo_dart, a0) } };
         com_raizes(&[gancho], || definir(gancho));
     }
 }

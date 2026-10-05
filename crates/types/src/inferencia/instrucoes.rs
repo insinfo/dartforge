@@ -198,6 +198,8 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
             expr::uso_de_void(inf, cx, *value, t);
             let depois_valor = cx.fluxo.clone();
             let mut nao_casou = depois_valor.clone();
+            // Todos os casos casam a mesma referência do valor (T6).
+            let escrutinio_de_fora = cx.escrutinio_de_switch.replace(None);
             cx.saltos.push(AlvoSalto { rotulos, laco: false, e_switch: true, breaks: Vec::new(), continues: Vec::new() });
             let mut tem_default = false;
             let mut i = 0;
@@ -212,6 +214,20 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                 loop {
                     let c = &cases[j];
                     cx.fluxo = nao_casou.clone();
+                    // A cabeça de cada `case`/`default` é um bloco básico
+                    // (`handleSwitchBeforeAlternative` e o `flowEnd` de
+                    // `resolver.dart:1083`/`:1098`): se nenhum valor chega a
+                    // ela, o trecho morto é só a palavra-chave, e o padrão e
+                    // a guarda não abrem outro (Apêndice B do §B).
+                    let fluxo_de_padroes = padroes::fluxo_de_padroes_ligado(inf);
+                    if fluxo_de_padroes {
+                        entrar_fluxo(cx, c.span.end);
+                        if !cx.fluxo.alcancavel && cx.trecho_morto.is_none() {
+                            let palavra = palavra_do_caso(inf, cx, c);
+                            inf.aviso(DEAD_CODE.template.to_string(), palavra);
+                            cx.trecho_morto = Some(cx.fins_de_fluxo.len());
+                        }
+                    }
                     match c.pattern {
                         Some(p) => {
                             let (vf, ff) = padroes::caso(inf, cx, p, t, c.guard, Some(*value));
@@ -223,6 +239,9 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                             entradas.push(nao_casou.clone());
                             nao_casou = nao_casou.inalcancavel();
                         }
+                    }
+                    if fluxo_de_padroes {
+                        sair_fluxo(cx);
                     }
                     if !c.body.is_empty() || j + 1 >= n {
                         break;
@@ -245,12 +264,28 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                     }
                 }
                 let corpo: Vec<StmtId> = cases[j].body.to_vec();
-                let mut avisou = false;
+                // O corpo do grupo é um bloco básico (`resolver.dart:1126`):
+                // o trecho morto vai da primeira instrução inalcançável ao
+                // fim da última instrução do corpo.
+                let fluxo_de_padroes = padroes::fluxo_de_padroes_ligado(inf);
+                let fim_do_corpo = corpo.last().map(|&x| inf.program.unit(cx.unit).ast.stmt(x).span.end);
+                if fluxo_de_padroes {
+                    if let Some(fim) = fim_do_corpo {
+                        entrar_fluxo(cx, fim);
+                    }
+                }
                 for s in corpo {
-                    if !cx.fluxo.alcancavel && !avisou {
-                        avisou = true;
+                    if fluxo_de_padroes && !cx.fluxo.alcancavel && cx.trecho_morto.is_none() {
+                        if let Some(fim) = fim_do_corpo {
+                            let inicio = inf.program.unit(cx.unit).ast.stmt(s).span.start;
+                            inf.aviso(DEAD_CODE.template.to_string(), Span { start: inicio, end: fim });
+                            cx.trecho_morto = Some(cx.fins_de_fluxo.len());
+                        }
                     }
                     inferir_instrucao(inf, cx, s);
+                }
+                if fluxo_de_padroes && fim_do_corpo.is_some() {
+                    sair_fluxo(cx);
                 }
                 if cx.fluxo.alcancavel {
                     saidas.push(cx.fluxo.clone());
@@ -259,6 +294,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                 i = j + 1;
             }
             let alvo = cx.saltos.pop().unwrap();
+            cx.escrutinio_de_switch = escrutinio_de_fora;
             saidas.extend(alvo.breaks);
             if !tem_default && !switch_exaustivo(inf, t) {
                 saidas.push(nao_casou);
@@ -315,7 +351,11 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
             ramo_de_fluxo(inf, cx, *body);
             let depois_try = cx.fluxo.clone();
             let mut saidas = vec![depois_try];
-            for c in catches.iter() {
+            // `_CatchClausesVerifier` (`dead_code_verifier.dart:495-545`): os
+            // tipos `on` já vistos, e se algum `catch` já foi dado por morto.
+            let mut tipos_de_catch: Vec<TypeId> = Vec::new();
+            let mut catch_morto = false;
+            for (indice_do_catch, c) in catches.iter().enumerate() {
                 let mut f = antes.clone();
                 f.juncao_conservadora(&escritas, &capturadas);
                 cx.fluxo = f;
@@ -324,6 +364,42 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                     Some(t) => inf.tipo_no_contexto(cx, t, crate::resolve::ContextoDeTipo::Catch),
                     None => inf.core.object,
                 };
+                {
+                    use dartforge_diagnostics::codigos::warning as w;
+                    // `on T` com `T` potencialmente anulável (e não inválido):
+                    // não se lança um valor anulável.
+                    if let Some(t) = c.on_type {
+                        if !inf.table.e_invalido(tipo_ex) && !inf.e_nao_anulavel(tipo_ex) {
+                            let sp = inf.program.unit(cx.unit).ast.ty(t).span;
+                            inf.aviso_com_codigo(w::NULLABLE_TYPE_IN_CATCH_CLAUSE, sp, &[]);
+                        }
+                    }
+                    if !catch_morto {
+                        let ultimo = catches.len() - 1;
+                        let fim = catches[ultimo].span.end;
+                        if c.on_type.is_none() || tipo_ex == inf.core.object {
+                            // Um `catch` que pega tudo: os seguintes são mortos.
+                            if indice_do_catch != ultimo {
+                                let inicio = catches[indice_do_catch + 1].span.start;
+                                inf.aviso_com_codigo(w::DEAD_CODE_CATCH_FOLLOWING_CATCH, Span { start: inicio, end: fim }, &[]);
+                                catch_morto = true;
+                            }
+                        } else {
+                            let anterior = tipos_de_catch.iter().copied().find(|&s| inf.sub(tipo_ex, s));
+                            match anterior {
+                                Some(s) => {
+                                    inf.aviso_com_args(
+                                        w::DEAD_CODE_ON_CATCH_SUBTYPE,
+                                        Span { start: c.span.start, end: fim },
+                                        &[crate::exibicao::Arg::Tipo(tipo_ex), crate::exibicao::Arg::Tipo(s)],
+                                    );
+                                    catch_morto = true;
+                                }
+                                None => tipos_de_catch.push(tipo_ex),
+                            }
+                        }
+                    }
+                }
                 if let Some(n) = &c.exception {
                     declarar_local(inf, cx, Local { nome: n.sym, tipo: tipo_ex, final_: true, late: false, const_: false, offset: n.span.start, funcao_local: false }, true);
                 }
@@ -448,6 +524,24 @@ pub(crate) fn sair_fluxo(cx: &mut Corpo) {
     }
 }
 
+/// A palavra `case` ou `default` de um membro de `switch`, depois dos
+/// rótulos (`rotulo: case 1:`).
+fn palavra_do_caso(inf: &BodyInferrer<'_>, cx: &Corpo, c: &ast::SwitchCase) -> Span {
+    let palavra: &[u8] = if c.pattern.is_some() { b"case" } else { b"default" };
+    let fonte = inf.program.unit(cx.unit).source.as_bytes();
+    let de = c.labels.last().map_or(c.span.start, |l| l.span.end);
+    let ate = c.span.end.min(fonte.len());
+    let mut i = de;
+    while i + palavra.len() <= ate {
+        let antes_ok = i == 0 || !(fonte[i - 1].is_ascii_alphanumeric() || fonte[i - 1] == b'_');
+        if antes_ok && &fonte[i..i + palavra.len()] == palavra {
+            return Span { start: i, end: i + palavra.len() };
+        }
+        i += 1;
+    }
+    Span { start: c.span.start, end: (c.span.start + palavra.len()).min(c.span.end) }
+}
+
 fn rotulos_pendentes(cx: &mut Corpo) -> Vec<SymbolId> {
     std::mem::take(&mut cx.rotulos_pendentes)
 }
@@ -552,21 +646,18 @@ fn yield_invalido(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, t: TypeId, 
     let classe = if m == AsyncModifier::AsyncStar { inf.core.stream_class } else { inf.core.iterable_class };
     if estrela {
         if let Some(r) = r.filter(|&r| !inf.atribuivel(t, r)) {
-            let (a, b) = (inf.table.format(t, inf.interner, inf.program), inf.table.format(r, inf.interner, inf.program));
-            inf.aviso_com_codigo(c::YIELD_EACH_OF_INVALID_TYPE, sp, &[&a, &b]);
+            inf.aviso_com_args(c::YIELD_EACH_OF_INVALID_TYPE, sp, &[crate::exibicao::Arg::Tipo(t), crate::exibicao::Arg::Tipo(r)]);
             return;
         }
         let d = inf.core.dynamic_;
         let req = if m == AsyncModifier::AsyncStar { inf.fluxo_de(d) } else { inf.iteravel(d) };
         if !inf.atribuivel(t, req) {
-            let (a, b) = (inf.table.format(t, inf.interner, inf.program), inf.table.format(req, inf.interner, inf.program));
-            inf.aviso_com_codigo(c::YIELD_EACH_OF_INVALID_TYPE, sp, &[&a, &b]);
+            inf.aviso_com_args(c::YIELD_EACH_OF_INVALID_TYPE, sp, &[crate::exibicao::Arg::Tipo(t), crate::exibicao::Arg::Tipo(req)]);
         }
     } else if let Some(args) = r.and_then(|r| inf.como_instancia_de(r, classe)) {
         let v = args[0];
         if !inf.atribuivel(t, v) {
-            let (a, b) = (inf.table.format(t, inf.interner, inf.program), inf.table.format(v, inf.interner, inf.program));
-            inf.aviso_com_codigo(c::YIELD_OF_INVALID_TYPE, sp, &[&a, &b]);
+            inf.aviso_com_args(c::YIELD_OF_INVALID_TYPE, sp, &[crate::exibicao::Arg::Tipo(t), crate::exibicao::Arg::Tipo(v)]);
         }
     }
 }
@@ -695,6 +786,7 @@ pub(crate) fn inicializacao_de_for(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, i
         ast::ForInit::Expression(e) => {
             inferir_livre(inf, cx, *e);
         }
+        ast::ForInit::Pattern { final_, pattern, value } => padroes::declaracao(inf, cx, *final_, *pattern, *value),
     }
 }
 
@@ -717,10 +809,20 @@ pub(crate) fn cabecalho_for_in(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, targe
     };
     let t = inferir(inf, cx, iterable, ctx);
     expr::uso_de_void(inf, cx, iterable, t);
-    let el = if inf.e_dynamic(t) {
+    for_in_tipo_invalido(inf, cx, target, iterable, t, escrito, await_);
+    // `_computeForEachElementType` (`for_resolver.dart:92-116`): iterável
+    // `dynamic` dá `dynamic`; o que não é `Iterable`/`Stream` (inclusive o
+    // próprio `InvalidType`) dá `InvalidType`, e os usos do elemento não
+    // relatam mais nada.
+    let el = if inf.table.e_invalido(t) {
+        t
+    } else if inf.e_dynamic(t) {
         inf.core.dynamic_
     } else {
-        inf.como_instancia_de(t, classe).map(|a| a[0]).unwrap_or(inf.core.dynamic_)
+        match inf.como_instancia_de(t, classe) {
+            Some(a) => a[0],
+            None => inf.table.invalido(inf.core.dynamic_),
+        }
     };
     match target {
         ast::ForInTarget::Declared { final_, name, .. } => {
@@ -746,6 +848,73 @@ pub(crate) fn cabecalho_for_in(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, targe
             }
             inferir_livre(inf, cx, *e);
         }
+    }
+}
+
+/// `_checkForEachParts` (an611:src/generated/error_verifier.dart:3103-3233):
+/// `FOR_IN_OF_INVALID_TYPE` quando o iterável (resolvido ao limite) não é
+/// `Iterable`/`Stream`, e `FOR_IN_OF_INVALID_ELEMENT_TYPE` quando o tipo dos
+/// elementos não é atribuível à variável do laço. `void` (relatado antes),
+/// `dynamic` e tipos anuláveis (o erro é o de nulo) não relatam.
+fn for_in_tipo_invalido(
+    inf: &mut BodyInferrer<'_>,
+    cx: &Corpo,
+    target: &ast::ForInTarget,
+    iterable: ExprId,
+    t: TypeId,
+    escrito: Option<TypeId>,
+    await_: bool,
+) {
+    use dartforge_diagnostics::codigos::compile_time_error as ce;
+    let Some(classe) = (if await_ { inf.core.stream_class } else { inf.core.iterable_class }) else { return };
+    if inf.e_dynamic(t) || inf.e_desconhecido(t) || matches!(inf.table.get(t), Type::Void | Type::Null) || inf.table.get(t).is_declared_nullable() {
+        return;
+    }
+    // `resolveToBound`.
+    let mut base = t;
+    for _ in 0..16 {
+        match inf.table.get(base) {
+            Type::TypeParameter { param, nullable: false } => {
+                let b = inf.table.param(*param).bound;
+                if b == base {
+                    break;
+                }
+                base = b;
+            }
+            Type::Intersection { bound, .. } => base = *bound,
+            _ => break,
+        }
+    }
+    let d = inf.core.dynamic_;
+    let requerido = inf.iface(Some(classe), vec![d]);
+    let nome = if await_ { "Stream" } else { "Iterable" };
+    if inf.e_dynamic(base) || matches!(inf.table.get(base), Type::Void) || base == inf.core.object_nullable {
+        return;
+    }
+    let sp = inf.span_expr(cx.unit, iterable);
+    if !inf.atribuivel(base, requerido) {
+        let tt = inf.table.format(base, inf.interner, inf.program);
+        inf.aviso_com_codigo(ce::FOR_IN_OF_INVALID_TYPE, sp, &[&tt, nome]);
+        return;
+    }
+    // Tipo da variável: o escrito, ou o do local existente em `for (x in …)`.
+    let var = match target {
+        ast::ForInTarget::Declared { .. } => escrito,
+        ast::ForInTarget::Expression(e) => match &inf.program.unit(cx.unit).ast.expr(*e).kind {
+            ExprKind::Identifier(n) => match cx.buscar(n.sym) {
+                Some(Nome::Local(id)) => Some(cx.local(id).tipo),
+                _ => None,
+            },
+            _ => None,
+        },
+        ast::ForInTarget::Pattern { .. } => None,
+    };
+    let Some(var) = var else { return };
+    let Some(el) = inf.como_instancia_de(base, Some(classe)).map(|a| a[0]) else { return };
+    let tearoff = matches!(inf.table.get(var), Type::Function { .. } | Type::FutureOr { .. })
+        && matches!(inf.table.get(el), Type::Interface { .. } | Type::ExtensionType { .. } | Type::TypeParameter { .. } | Type::Intersection { .. });
+    if !tearoff && !inf.atribuivel(el, var) {
+        inf.aviso_com_args(ce::FOR_IN_OF_INVALID_ELEMENT_TYPE, sp, &[crate::exibicao::Arg::Tipo(base), crate::exibicao::Arg::from(nome), crate::exibicao::Arg::Tipo(var)]);
     }
 }
 
@@ -1110,6 +1279,10 @@ impl<'a> Varredura<'a> {
                 match init {
                     Some(ast::ForInit::Expression(x)) => v.expr(*x, dentro),
                     Some(ast::ForInit::Variables(vl)) => v.variaveis(vl, dentro),
+                    Some(ast::ForInit::Pattern { pattern, value, .. }) => {
+                        v.expr(*value, dentro);
+                        v.padrao(*pattern, dentro, true);
+                    }
                     None => {}
                 }
                 if let Some(c) = condition {
@@ -1188,6 +1361,10 @@ impl<'a> Varredura<'a> {
                 match init {
                     Some(ast::ForInit::Expression(x)) => v.expr(*x, dentro),
                     Some(ast::ForInit::Variables(vl)) => v.variaveis(vl, dentro),
+                    Some(ast::ForInit::Pattern { pattern, value, .. }) => {
+                        v.expr(*value, dentro);
+                        v.padrao(*pattern, dentro, true);
+                    }
                     None => {}
                 }
                 if let Some(c) = condition {

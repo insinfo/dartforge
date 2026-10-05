@@ -455,6 +455,13 @@ impl<'a> Visita<'a> {
         match init {
             Some(ForInit::Variables(vl)) => self.variaveis(vl),
             Some(ForInit::Expression(x)) => self.expr(*x),
+            // Como a declaração por padrão: o grupo só é relatado se
+            // nenhuma variável dele for lida.
+            Some(ForInit::Pattern { pattern, value, .. }) => {
+                self.expr(*value);
+                let g = self.novo_grupo();
+                self.padrao_declarado(*pattern, Some(g));
+            }
             None => {}
         }
     }
@@ -809,6 +816,22 @@ fn executaveis(u: Unidade<'_>) -> Vec<Span> {
 /// vê e nós não viraria falso positivo. Um local declarado antes de um erro
 /// de sintaxe da mesma declaração executável não se relata — pelo lado
 /// seguro, como os imports.
+/// Como [`nao_usados`], com a regra do T5 no lugar da porta por erro de
+/// sintaxe: um local só fica de fora quando o nome dele é citado num trecho
+/// que o parser pulou dentro da mesma declaração executável (um uso que o
+/// fasta pode ter mantido).
+pub fn nao_usados_com_pulados(u: Unidade<'_>, interner: &Interner, curinga: bool, pulados: crate::Pulados<'_>) -> Vec<Diagnostic> {
+    let mut out = nao_usados_sem_filtro(u, interner, curinga);
+    if !pulados.vazio() {
+        let execs = executaveis(u);
+        out.retain(|d| {
+            let nome = u.fonte.get(d.span.start..d.span.end).unwrap_or("");
+            !execs.iter().any(|e| d.span.start >= e.start && d.span.end <= e.end && pulados.cita_em(nome, *e))
+        });
+    }
+    out
+}
+
 pub fn nao_usados(u: Unidade<'_>, interner: &Interner, curinga: bool, erros_sintaticos: &[Span]) -> Vec<Diagnostic> {
     let mut out = nao_usados_sem_filtro(u, interner, curinga);
     if !erros_sintaticos.is_empty() {

@@ -1,0 +1,143 @@
+=== g01.dart
+class A<T> { const A(); }
+@A<List<int>> class C {}
+  no_annotation_constructor_arguments @26 len 2 (2:1) [E] Annotation creation must have arguments.
+  annotation_with_type_arguments_uninstantiated @38 len 1 (2:13) [E] An annotation with type arguments must be followed by an argument list.
+=== g03.dart
+f(x) { switch (x) { case 1: break; default: break; case 2: break; default: } }
+  dead_code @35 len 7 (1:36) [W] Dead code.
+  dead_code @51 len 4 (1:52) [W] Dead code.
+  switch_has_case_after_default_case @51 len 4 (1:52) [E] The default case should be the last case in a switch statement.
+  dead_code @59 len 6 (1:60) [W] Dead code.
+  dead_code @66 len 7 (1:67) [W] Dead code.
+  switch_has_multiple_default_cases @66 len 7 (1:67) [E] The 'default' case can only be declared once.
+=== g04.dart
+f(g, a, b) { g(a, b }
+  expected_token @18 len 1 (1:19) [E] Expected to find ';'.
+  expected_token @20 len 1 (1:21) [E] Expected to find ')'.
+=== g05.dart
+f() { return return; }
+  unexpected_token @13 len 6 (1:14) [E] Unexpected text 'return'.
+  missing_identifier @19 len 1 (1:20) [E] Expected an identifier.
+=== g07.dart
+f(a) { a..b?..c; }
+  null_aware_cascade_out_of_order @11 len 3 (1:12) [E] The '?..' cascade operator must be first in the cascade sequence.
+=== g09.dart
+f(a) { a.b c; }
+  prefix_shadowed_by_local_declaration @7 len 1 (1:8) [E] The prefix 'a' can't be used here because it's shadowed by a local declaration.
+  unused_local_variable @11 len 1 (1:12) [W] The value of the local variable 'c' isn't used.
+=== g10.dart
+f() { if (true) return else return; }
+  expected_token @16 len 6 (1:17) [E] Expected to find ';'.
+  missing_identifier @23 len 4 (1:24) [E] Expected an identifier.
+  dead_code @28 len 7 (1:29) [W] Dead code.
+=== g13.dart
+typedef R = (int);
+typedef S = ({});
+f((int) p, ({}) q) {}
+  record_type_one_positional_no_trailing_comma @16 len 1 (1:17) [E] A record type with exactly one positional field requires a trailing comma.
+  empty_record_type_named_fields_list @33 len 1 (2:15) [E] The list of named fields in a record type can't be empty.
+  record_type_one_positional_no_trailing_comma @43 len 1 (3:7) [E] A record type with exactly one positional field requires a trailing comma.
+  empty_record_type_named_fields_list @50 len 1 (3:14) [E] The list of named fields in a record type can't be empty.
+=== g14.dart
+class A<T> { const A(); }
+f() { @A<int> var x = 1; }
+  no_annotation_constructor_arguments @32 len 2 (2:7) [E] Annotation creation must have arguments.
+  annotation_with_type_arguments_uninstantiated @38 len 1 (2:13) [E] An annotation with type arguments must be followed by an argument list.
+  unused_local_variable @44 len 1 (2:19) [W] The value of the local variable 'x' isn't used.
+=== g15.dart
+f(x) { switch (x) { case 1: continue L; } }
+  label_undefined @37 len 1 (1:38) [E] Can't reference an undefined label 'L'.
+=== g16.dart
+f() { do { continue; } while (false); L: for (;;) { continue L; } }
+=== g17.dart
+f() { var x = 1 }
+  unused_local_variable @10 len 1 (1:11) [W] The value of the local variable 'x' isn't used.
+  expected_token @14 len 1 (1:15) [E] Expected to find ';'.
+=== g18.dart
+f(a) { a = 1 = 2; 1 = a; a.b() = 1; }
+  missing_assignable_selector @11 len 1 (1:12) [E] Missing selector such as '.identifier' or '[0]'.
+  illegal_assignment_to_non_assignable @18 len 1 (1:19) [E] Illegal assignment to non-assignable expression.
+  missing_assignable_selector @18 len 1 (1:19) [E] Missing selector such as '.identifier' or '[0]'.
+  prefix_shadowed_by_local_declaration @25 len 1 (1:26) [E] The prefix 'a' can't be used here because it's shadowed by a local declaration.
+=== g19.dart
+f() { for (var i = 0; i < 1; i++) { break; continue; } while (true) { if (true) { break; } } }
+  dead_code @29 len 3 (1:30) [W] Dead code.
+  dead_code @43 len 9 (1:44) [W] Dead code.
+=== g20.dart
+class A { A() : super(), this.x = 1; var x; A.n() : this.m(); A.m(); A.o() : super.new(); }
+  super_invocation_not_last @16 len 5 (1:17) [E] The superconstructor call must be last in an initializer list: 'Object'.
+=== g21.dart
+f() { g(1, 2
+  undefined_function @6 len 1 (1:7) [E] The function 'g' isn't defined.
+  expected_token @11 len 1 (1:12) [E] Expected to find ';'.
+  expected_token @13 len 1 (2:1) [E] Expected to find ')'.
+  expected_token @13 len 1 (2:1) [E] Expected to find '}'.
+=== g22.dart
+f() { g(1, 2
+  undefined_function @6 len 1 (1:7) [E] The function 'g' isn't defined.
+  expected_token @11 len 1 (1:12) [E] Expected to find ';'.
+  expected_token @15 len 1 (4:1) [E] Expected to find ')'.
+  expected_token @15 len 1 (4:1) [E] Expected to find '}'.
+=== g23.dart
+f() { , }
+f2(a) { a.1; a?.b ?.c; }
+  expected_token @4 len 1 (1:5) [E] Expected to find ';'.
+  missing_identifier @6 len 1 (1:7) [E] Expected an identifier.
+  unexpected_token @6 len 1 (1:7) [E] Unexpected text ';'.
+  expected_token @18 len 1 (2:9) [E] Expected to find ';'.
+=== h01.dart
+f(a, b) { var x = a ? b; }
+  unused_local_variable @14 len 1 (1:15) [W] The value of the local variable 'x' isn't used.
+  expected_token @23 len 1 (1:24) [E] Expected to find ':'.
+  missing_identifier @23 len 1 (1:24) [E] Expected an identifier.
+=== h02.dart
+f(g, a, b) { g(a ? b); }
+  expected_token @20 len 1 (1:21) [E] Expected to find ':'.
+  missing_identifier @20 len 1 (1:21) [E] Expected an identifier.
+=== h05.dart
+f(a, b) { var x = a and b; var y = a xor b; var z = a shl b; return [x, y, z]; }
+  binary_operator_written_out @20 len 3 (1:21) [E] Binary operator 'and' is written as '&' instead of the written out word.
+  binary_operator_written_out @37 len 3 (1:38) [E] Binary operator 'xor' is written as '^' instead of the written out word.
+  binary_operator_written_out @54 len 3 (1:55) [E] Binary operator 'shl' is written as '<<' instead of the written out word.
+=== h06.dart
+f(a, b) { var x = a..b = throw 1; var y = a ? throw 1 : 2; return [x, y, b]; }
+  dead_code @34 len 42 (1:35) [W] Dead code.
+=== h07.dart
+f() { var x = void; }
+  unused_local_variable @10 len 1 (1:11) [W] The value of the local variable 'x' isn't used.
+  expected_token @12 len 1 (1:13) [E] Expected to find ';'.
+  referenced_before_declaration @14 len 0 (1:15) [E] Local variable '' can't be referenced before it is declared.
+  missing_identifier @14 len 4 (1:15) [E] Expected an identifier.
+  missing_identifier @18 len 1 (1:19) [E] Expected an identifier.
+=== h08.dart
+f(g) { g(void); }
+  expected_token @9 len 4 (1:10) [E] Expected to find ')'.
+  missing_identifier @9 len 4 (1:10) [E] Expected an identifier.
+=== h09.dart
+f(g) { g(() return 1); var h = () ; }
+  expected_token @12 len 6 (1:13) [E] Expected to find ')'.
+  unused_local_variable @27 len 1 (1:28) [W] The value of the local variable 'h' isn't used.
+=== h10.dart
+class A { A() : this().b; A.n(); }
+  invalid_this_in_initializer @16 len 4 (1:17) [E] Can only use 'this' in an initializer for field initialization (e.g. 'this.x = something') and constructor redirection (e.g. 'this()' or 'this.namedConstructor())
+  recursive_constructor_redirect @16 len 6 (1:17) [E] Constructors can't redirect to themselves either directly or indirectly.
+=== h11.dart
+class A { A() : this.n()..b; A.n(); }
+  invalid_this_in_initializer @16 len 4 (1:17) [E] Can only use 'this' in an initializer for field initialization (e.g. 'this.x = something') and constructor redirection (e.g. 'this()' or 'this.namedConstructor())
+  recursive_constructor_redirect @16 len 8 (1:17) [E] Constructors can't redirect to themselves either directly or indirectly.
+=== h12.dart
+class A { A() : super().b, super()(); }
+  invalid_super_in_initializer @16 len 5 (1:17) [E] Can only use 'super' in an initializer for calling the superclass constructor (e.g. 'super()' or 'super.namedConstructor()')
+  invalid_initializer @27 len 9 (1:28) [E] Not a valid initializer.
+=== h13.dart
+class A { final x; A() : x = 1, super.a().b; }
+  invalid_super_in_initializer @32 len 5 (1:33) [E] Can only use 'super' in an initializer for calling the superclass constructor (e.g. 'super()' or 'super.namedConstructor()')
+=== h14.dart
+f() { catch; enum; }
+  expected_identifier_but_got_keyword @6 len 5 (1:7) [E] 'catch' can't be used as an identifier because it's a keyword.
+  missing_statement @6 len 5 (1:7) [E] Expected a statement.
+  undefined_identifier @6 len 5 (1:7) [E] Undefined name 'catch'.
+  expected_identifier_but_got_keyword @13 len 4 (1:14) [E] 'enum' can't be used as an identifier because it's a keyword.
+  missing_statement @13 len 4 (1:14) [E] Expected a statement.
+  undefined_identifier @13 len 4 (1:14) [E] Undefined name 'enum'.

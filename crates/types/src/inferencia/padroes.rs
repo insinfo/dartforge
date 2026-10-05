@@ -12,6 +12,14 @@ use crate::table::{Type, TypeId};
 use dartforge_elements::model::{ClassId, Element};
 use dartforge_frontend::ast::{self, ExprId, ListPatternElement, PatternId, PatternKind};
 
+mod casamento;
+pub(crate) use casamento::Casamento;
+
+/// O fluxo de padrões do analyzer (T6) está em uso neste corpo.
+pub(crate) fn fluxo_de_padroes_ligado(inf: &BodyInferrer<'_>) -> bool {
+    casamento::ligado(inf)
+}
+
 /// Esquema de tipo de um padrão (`_` onde nada restringe).
 pub(crate) fn esquema(inf: &mut BodyInferrer<'_>, cx: &Corpo, p: PatternId) -> TypeId {
     let a = &inf.program.unit(cx.unit).ast;
@@ -115,6 +123,10 @@ fn campo_nomeado_implicito(inf: &BodyInferrer<'_>, cx: &Corpo, pai: PatternId, f
 fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, final_: bool, atribuicao: bool) {
     let a = &inf.program.unit(cx.unit).ast;
     let u = inf.core.unknown;
+    // O tipo casado de cada padrão, lido pelo verificador de constantes
+    // (`UnitBodyTypes::tipos_casados`); ainda sem a promoção do fluxo de
+    // padrões (T6 da especificação).
+    inf.body_types.units[cx.unit.0 as usize].tipos_casados.insert(p, t);
     match &a.pattern(p).kind {
         PatternKind::Wildcard { ty: Some(x) } => {
             let x = *x;
@@ -378,8 +390,11 @@ fn constante_nunca_casa(inf: &mut BodyInferrer<'_>, cx: &Corpo, p: PatternId, e:
         return;
     }
     let sp = inf.program.unit(cx.unit).ast.pattern(p).span;
-    let (va, ca) = (inf.table.format(valor, inf.interner, inf.program), inf.table.format(c, inf.interner, inf.program));
-    inf.aviso_com_codigo(dartforge_diagnostics::codigos::warning::CONSTANT_PATTERN_NEVER_MATCHES_VALUE_TYPE, sp, &[&va, &ca]);
+    inf.aviso_com_args(
+        dartforge_diagnostics::codigos::warning::CONSTANT_PATTERN_NEVER_MATCHES_VALUE_TYPE,
+        sp,
+        &[crate::exibicao::Arg::Tipo(valor), crate::exibicao::Arg::Tipo(c)],
+    );
 }
 
 /// `_canBeEqual(constantType, valueType)`.
@@ -448,9 +463,11 @@ fn nunca_casa(inf: &mut BodyInferrer<'_>, cx: &Corpo, casado: TypeId, requerido:
     if pode_ser_subtipo(inf, casado, requerido, 0) {
         return;
     }
-    let a = inf.table.format(casado, inf.interner, inf.program);
-    let b = inf.table.format(requerido, inf.interner, inf.program);
-    inf.aviso_com_codigo(dartforge_diagnostics::codigos::warning::PATTERN_NEVER_MATCHES_VALUE_TYPE, span, &[&a, &b]);
+    inf.aviso_com_args(
+        dartforge_diagnostics::codigos::warning::PATTERN_NEVER_MATCHES_VALUE_TYPE,
+        span,
+        &[crate::exibicao::Arg::Tipo(casado), crate::exibicao::Arg::Tipo(requerido)],
+    );
 }
 
 /// `TypeSystemImpl.canBeSubtypeOf` (`an611:src/dart/element/type_system.dart:
@@ -679,6 +696,9 @@ fn tipo_casado(inf: &mut BodyInferrer<'_>, cx: &Corpo, p: PatternId, t: TypeId) 
 /// `escrutinio`: a expressão casada; variável promovível é promovida ao
 /// tipo casado no ramo que casa, antes da guarda (R-FLU-14).
 pub(crate) fn caso(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, guarda: Option<ExprId>, escrutinio: Option<ExprId>) -> (Fluxo, Fluxo) {
+    if casamento::ligado(inf) {
+        return casamento::caso(inf, cx, p, t, guarda, escrutinio);
+    }
     let antes = cx.fluxo.clone();
     // O escrutínio é resolvido no escopo de fora, antes de o padrão declarar
     // as suas variáveis: em `switch (e) { Neg(:final e) => … }` o `e` do
@@ -749,11 +769,19 @@ fn irrefutavel(inf: &mut BodyInferrer<'_>, cx: &Corpo, p: PatternId, t: TypeId) 
 pub(crate) fn declaracao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, final_: bool, p: PatternId, valor: ExprId) {
     let s = esquema(inf, cx, p);
     let t = inferir(inf, cx, valor, s);
+    if casamento::ligado(inf) {
+        casamento::irrefutavel(inf, cx, p, t, final_, false, Some(valor));
+        return;
+    }
     tipar(inf, cx, p, t, final_, false);
 }
 
 /// Declara as variáveis de um padrão casado com `t` (`for (var (a, b) in …)`).
 pub(crate) fn declarar_por_tipo(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, final_: bool, p: PatternId, t: TypeId) {
+    if casamento::ligado(inf) {
+        casamento::irrefutavel(inf, cx, p, t, final_, false, None);
+        return;
+    }
     tipar(inf, cx, p, t, final_, false);
 }
 
@@ -761,6 +789,10 @@ pub(crate) fn declarar_por_tipo(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fina
 pub(crate) fn atribuicao_de_padrao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, valor: ExprId) -> TypeId {
     let s = esquema_de_atribuicao(inf, cx, p);
     let t = inferir(inf, cx, valor, s);
+    if casamento::ligado(inf) {
+        casamento::irrefutavel(inf, cx, p, t, false, true, None);
+        return t;
+    }
     tipar(inf, cx, p, t, false, true);
     t
 }
@@ -798,17 +830,38 @@ pub(crate) fn expressao_switch(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, valor
     let mut nao_casou = antes.clone();
     let mut tipos: Vec<TypeId> = Vec::new();
     let mut saidas: Vec<Fluxo> = Vec::new();
+    let escrutinio_de_fora = cx.escrutinio_de_switch.replace(None);
     for c in casos {
         cx.fluxo = nao_casou.clone();
         cx.empurrar_escopo();
+        // O caso é um bloco básico (`flowEnd` em `resolver.dart:874`). Um
+        // caso a que nenhum valor chega é código morto inteiro; um caso cujo
+        // padrão nunca casa, do corpo ao fim (Apêndice B do §B).
+        let novo = casamento::ligado(inf);
+        if novo {
+            super::instrucoes::entrar_fluxo(cx, c.span.end);
+            if !cx.fluxo.alcancavel && cx.trecho_morto.is_none() {
+                inf.aviso(crate::codes::DEAD_CODE.template.to_string(), c.span);
+                cx.trecho_morto = Some(cx.fins_de_fluxo.len());
+            }
+        }
         let (sim, nao) = caso(inf, cx, c.pattern, t, c.guard, Some(valor));
         cx.fluxo = sim;
+        if novo && !cx.fluxo.alcancavel && cx.trecho_morto.is_none() {
+            let inicio = inf.span_expr(cx.unit, c.body).start;
+            inf.aviso(crate::codes::DEAD_CODE.template.to_string(), dartforge_diagnostics::Span { start: inicio, end: c.span.end });
+            cx.trecho_morto = Some(cx.fins_de_fluxo.len());
+        }
         let tc = inferir(inf, cx, c.body, ctx);
+        if novo {
+            super::instrucoes::sair_fluxo(cx);
+        }
         tipos.push(tc);
         saidas.push(cx.fluxo.clone());
         cx.tirar_escopo();
         nao_casou = nao;
     }
+    cx.escrutinio_de_switch = escrutinio_de_fora;
     cx.fluxo = inf.juntar_todos(&antes, &saidas);
     if tipos.is_empty() {
         return inf.core.never;

@@ -725,6 +725,15 @@ pub enum StmtKind {
 pub enum ForInit {
     Variables(VariableList),
     Expression(ExprId),
+    /// `for (var (a, b) = e; …; …)` / `for (final [x, y] = e; …; …)`: a
+    /// declaração por padrão como inicialização (o `ForPartsWithPattern` do
+    /// analyzer). As variáveis do padrão valem na condição, nas atualizações
+    /// e no corpo, como as de [`ForInit::Variables`].
+    Pattern {
+        final_: bool,
+        pattern: PatternId,
+        value: ExprId,
+    },
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]

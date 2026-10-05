@@ -303,12 +303,20 @@ pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path, producao: bool) -> Result<Vec<B
         dartforge_types::infer_bodies_das_bibliotecas(&program, &interner, &mut table, &core, &mut outline, &libs);
     let base = crate::context::Context::new(&program, &interner, &table, &core, &outline, &corpos);
     let base = base.com_sdk_da_fonte();
+    // O SDK sai no modelo de exceções do programa (`alvo::excecoes_por_tabelas`).
+    let excecoes_por_tabelas = crate::alvo::excecoes_por_tabelas()?;
+    let raizes_por_mapas = crate::alvo::raizes_por_mapas()?;
+    // O rastro simbólico (§13.14): as posições das funções do SDK e a tabela.
+    let rastro_simbolico = crate::alvo::rastro_simbolico()?;
     let mut saida = Vec::new();
     for lib in libs {
         let uri = program.library(lib).uri.clone();
-        let ctx = crate::context::Context::new(&program, &interner, &table, &core, &outline, &corpos)
+        let mut ctx = crate::context::Context::new(&program, &interner, &table, &core, &outline, &corpos)
             .com_sdk_da_fonte()
             .so_a_biblioteca(lib);
+        if rastro_simbolico {
+            ctx.ligar_depuracao();
+        }
         debug_assert_eq!(ctx.ids_de_classe, base.ids_de_classe);
         let mut module = crate::lower::lower_program(&ctx);
         module.biblioteca_sdk = true;
@@ -321,14 +329,23 @@ pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path, producao: bool) -> Result<Vec<B
         // O otimizador da HIR (`otimizar/`) também no SDK: é onde fica o
         // código de `List`, `Map`, `String`… que os programas mais chamam.
         crate::otimizar::otimizar(&mut module);
+        if excecoes_por_tabelas {
+            crate::otimizar::excecoes_por_tabelas(&mut module);
+        }
         // A DLL do SDK fica carregada o processo inteiro: os literais são
         // objetos estáticos também no JIT (docs/NATIVO-ESPACO-UNIFICADO.md §2.11).
         let ir = crate::llvm::LlvmEmitter::new(&module)
             .com_area_enxuta(producao)
             .com_objetos_estaticos(true)
             .com_tabelas_na_ligacao(producao)
+            .com_raizes_por_mapas(raizes_por_mapas)
+            .com_rastro(rastro_simbolico)
             .emit_all();
+        if raizes_por_mapas {
+            crate::llvm::verificar_mapas::verificar(&ir).map_err(|e| format!("{uri}: {e}"))?;
+        }
         let ir = if producao { com_optsize(&ir) } else { ir };
+        let ir = if excecoes_por_tabelas && cfg!(unix) { com_uwtable(&ir) } else { ir };
         let tabelas = if producao { std::mem::take(&mut module.tabelas_de_metodos) } else { Vec::new() };
         saida.push(BibliotecaDoSdk { uri, ir, recusados: std::mem::take(&mut module.recusados), tabelas });
     }
@@ -422,6 +439,36 @@ fn chave_do_sdk(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     // O rastro de depuração muda o código (`llvm/mod.rs`).
     h.update(std::env::var("DARTFORGE_RASTRO").unwrap_or_default().as_bytes());
     h.update(b"\0");
+    // O rastro simbólico acrescenta os rótulos e a tabela (`llvm/rastro.rs`);
+    // o padrão não entra.
+    if std::env::var("DARTFORGE_RASTRO_VM").is_ok_and(|v| v == "simbolico") {
+        h.update(b"rastro=simbolico\0");
+    }
+    // O modelo de exceções muda o código (`otimizar/tabelas.rs`). O padrão
+    // não entra na chave: o SDK de sempre continua com a chave de sempre.
+    if std::env::var("DARTFORGE_EXCECOES").is_ok_and(|v| v == "tabelas") {
+        h.update(b"excecoes=tabelas\0");
+    }
+    // O modo de raízes muda o código (`llvm/mod.rs`); o padrão não entra.
+    if std::env::var("DARTFORGE_RAIZES").is_ok_and(|v| v == "mapas") {
+        h.update(b"raizes=mapas\0");
+        // O teto do orçamento decide que funções saem com mapa, e o build de
+        // conferência acrescenta slots ao quadro.
+        h.update(crate::alvo::orcamento_dos_mapas().to_string().as_bytes());
+        h.update(if crate::alvo::conferir_raizes() { b"conferir\0" } else { b"\0\0\0\0\0\0\0\0\0" });
+    }
+    // As sabotagens de teste mudam o código (`alvo::sabotagem`).
+    if let Ok(s) = std::env::var("DARTFORGE_SABOTAGEM")
+        && !s.is_empty()
+    {
+        h.update(b"sabotagem=");
+        h.update(s.as_bytes());
+        h.update(b"\0");
+    }
+    // A conferência da tabela de efeitos instrumenta as chamadas às externs.
+    if crate::llvm::externs::conferir_efeitos() {
+        h.update(b"efeitos=conferir\0");
+    }
     // As chaves de medida do emissor (`DARTFORGE_SEM_…`, que desligam uma
     // otimização para comparar antes e depois) mudam o código.
     let mut chaves: Vec<(String, String)> = std::env::vars()
@@ -823,15 +870,35 @@ pub fn medir_lowering_do_sdk(lib_dir: &Path) -> Result<Vec<MembroDoSdk>, String>
 /// );
 /// ```
 pub fn com_optsize(ir: &str) -> String {
+    com_atributo(ir, " optsize")
+}
+
+/// O IR com `uwtable` em toda função definida: nas exceções por tabelas dos
+/// alvos Itanium (ELF, Mach-O) o desenrolador só atravessa um quadro que
+/// tem tabela de desenrolamento, e o LLVM só a emite para a função marcada
+/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.11). No COFF x64 toda
+/// função já tem a sua.
+pub fn com_uwtable(ir: &str) -> String {
+    com_atributo(ir, " uwtable")
+}
+
+/// Acrescenta um atributo de função (com o espaço na frente) a cada linha
+/// `define`.
+fn com_atributo(ir: &str, atributo: &str) -> String {
     let mut s = String::with_capacity(ir.len() + ir.len() / 64);
     for l in ir.split_inclusive('\n') {
         // Os atributos vêm depois dos parâmetros e antes do `comdat` (ou da
         // chave que abre o corpo).
-        let ponto = l.starts_with("define ").then(|| l.find(" comdat").or_else(|| l.rfind(" {"))).flatten();
+        // O `gc "…"` (raízes por mapas) e a personalidade (`personality ptr
+        // @…`, das exceções por tabelas) vêm depois dos atributos.
+        let ponto = l
+            .starts_with("define ")
+            .then(|| l.find(" comdat").or_else(|| l.find(" gc \"")).or_else(|| l.find(" personality ")).or_else(|| l.rfind(" {")))
+            .flatten();
         match ponto {
             Some(i) => {
                 s.push_str(&l[..i]);
-                s.push_str(" optsize");
+                s.push_str(atributo);
                 s.push_str(&l[i..]);
             }
             None => s.push_str(l),

@@ -1,0 +1,4 @@
+name: t2
+publish_to: none
+environment:
+  sdk: ^3.6.0

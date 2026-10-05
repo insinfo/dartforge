@@ -1,0 +1,149 @@
+=== b01_C_vazio
+class C<T> {}
+C<> x = C();
+=== b02_list_int_x
+List<int x = [];
+=== b03_list_int_x_campo
+class A { List<int x; }
+=== b04_local_list_int_x
+void f() { List<int x; }
+=== b05_param_list_int_x
+void f(List<int x) {}
+=== b06_map_virgula
+Map<int, > m = {};
+=== b07_void_args
+void<int> f() {}
+=== b08_extends_void
+class A extends void {}
+=== b09_mixin_on_void
+mixin M on void {}
+=== b10_tipo_param_extends_vazio
+class A<T extends> {}
+=== b11_tipo_param_sem_virgula
+class A<T U> {}
+=== b12_import_tipo
+import<int> x = [];
+=== b13_as_tipo
+as<int> x = 1;
+=== b14_ponto_tipo
+void f(.x y) {}
+=== b15_prefixo_ponto
+void f(p. y) {}
+=== b16_is_vazio
+void f(Object o) { if (o is ) {} }
+=== b17_as_void
+void f(Object o) { o as void; }
+=== b18_var_tipo
+void f() { List<var> x = []; }
+=== b19_gtgt
+List<List<int>> x = [];
+=== b20_falta_gt_eof
+class A<T
+=== b21_chamada_tipo
+void f() { g<int(1); }
+=== b22_typedef_L
+typedef L = Function({x});
+=== b23_typedef_sem_gt
+typedef F<T = void Function();
+=== b24_dynamic_campo
+class A { dynamic }
+=== b25_nullable
+int? ;
+=== b26_builtin_tipo_local
+void f() { get x = 1; }
+=== b27_funcao_tipo_param
+void f(int Function( x) {}
+=== b28_tipo_generico_builtin
+void f(List<as> x) {}
+=== b29_record
+(int) x = (1,);
+=== b30_record_vazio_nomeado
+({}) x = ();
+=== c01_return_sem_pv
+f() { return 1 }
+=== c02_if_sem_fecho
+void f(bool x) { if (x {} }
+=== c03_args_sem_virgula
+void g(a, b) {}
+void f(a, b) { g(a b); }
+=== c04_args_sem_fecho
+void g(a) {}
+void f() { g(1 ; }
+=== c05_classe_sem_corpo
+class A
+=== c06_enum_sem_corpo
+enum E
+=== c07_fn_sem_corpo
+void f()
+=== c08_seta_sem_pv
+int f() => 1
+=== c09_try_sem_corpo
+void f() { try } 
+=== c10_import_vazio
+import;
+=== c11_import_lixo
+import 'dart:core' b;
+=== c12_cond_sem_dois_pontos
+var x = true ? 1;
+=== c13_mixin_sem_corpo
+mixin M
+=== c14_ext_sem_corpo
+extension E on int
+=== c15_do_while
+void f(bool x) { do {} while (x) }
+=== c16_for_sem_fecho
+void f() { for (;; }
+=== c17_switch_sem_corpo
+void f(x) { switch (x) }
+=== c18_catch_sem_corpo
+void f() { try {} catch (e) }
+=== c19_finally_sem_corpo
+void f() { try {} finally }
+=== c20_exttype_sem_corpo
+extension type E(int i)
+=== c21_var_sem_pv_topo
+var x = 1
+var y = 2;
+=== c22_new_C
+class C {}
+void f() { new C(; }
+=== c23_if_sem_paren
+void f(bool x) { if x {} }
+=== c24_bloco_sem_fecho
+void f() { 
+=== c25_while_sem_paren
+void f(bool x) { while x {} }
+=== c26_lista_sem_fecho
+var x = [1, 2;
+=== c27_export_sem_uri
+export ;
+=== c28_part_sem_uri
+part ;
+=== c29_switch_expr
+int f(x) => switch (x) ;
+=== c30_campo_sem_pv
+class A { int x }
+=== c31_pv_linha_seguinte
+void f() {
+  var a = 1
+
+  var b = 2;
+}
+=== c32_assert_sem_pv
+void f() { assert(true) }
+=== c33_break_sem_pv
+void f() { while (true) { break } }
+=== c34_fn_seta_local
+void f() { g() => 1 }
+=== c35_caso_sem_dois_pontos
+void f(x) { switch (x) { case 1 break; } }
+=== c36_indice_sem_fecho
+void f(List a) { a[0 ; }
+=== c37_interp_sem_fecho
+var s = "${1 + 2";
+=== c38_param_sem_fecho
+void f(int a {}
+=== c39_named_aggregated
+void f(a [b = 42]) {}
+=== c40_named_sem_fecho
+void f({int a ) {}

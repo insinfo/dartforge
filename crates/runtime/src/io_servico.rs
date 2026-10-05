@@ -304,6 +304,6 @@ pub extern "C" fn dartforge_nativo_IOService_NewServicePort() -> i64 {
     };
     // SAFETY: registrada pela biblioteca `dart:isolate` da sobreposição com
     // a assinatura (`int`) → `SendPort`.
-    let g: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(f) };
+    let g = { let alvo_dart: usize = f; move |a0: i64| -> i64 { dart_r1(alvo_dart, a0) } };
     g(id)
 }

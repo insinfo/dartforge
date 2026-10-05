@@ -1,0 +1,268 @@
+codigos 435 iguais 393 diferentes 42
+
+[A] undefined_method (perda 87): variantes 2->3
+
+[A] assignment_to_primary_constructor_parameter (perda 40): SO NO MAIN
+   main _fe_analyzer_shared:assignmentToPrimaryConstructorParameter
+      PM: A primary constructor parameter can't be assigned to in an initializer.
+      CM: Try removing the assignment.
+
+[A] ambiguous_extension_member_access (perda 20): mensagem, argumentos [2]->[2, 3], variantes 1->2
+   3.6.2 CompileTimeErrorCode.AMBIGUOUS_EXTENSION_MEMBER_ACCESS
+      PM: A member named '{0}' is defined in {1}, and none are more specific.
+      CM: Try using an extension override to specify the extension you want to be chosen.
+   main CompileTimeErrorCode.ambiguousExtensionMemberAccessTwo
+      PM: A member named '#name' is defined in '#firstExtension' and '#secondExtension', and neither is more specific.
+      CM: Try using an extension override to specify the extension you want to be chosen.
+   main CompileTimeErrorCode.ambiguousExtensionMemberAccessThreeOrMore
+      PM: A member named '#name' is defined in #extensions, and none are more specific.
+      CM: Try using an extension override to specify the extension you want to be chosen.
+
+[A] list_element_type_not_assignable (perda 14): variantes 1->2
+
+[A] wrong_number_of_type_arguments_function (perda 13): mensagem, argumentos [2, 3]->[3], variantes 2->1
+   3.6.2 CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_ANONYMOUS_FUNCTION
+      PM: This function is declared with {0} type parameters, but {1} type arguments were given.
+      CM: Try adjusting the number of type arguments to match the number of type parameters.
+   3.6.2 CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION
+      PM: The function '{0}' is declared with {1} type parameters, but {2} type arguments were given.
+      CM: Try adjusting the number of type arguments to match the number of type parameters.
+   main CompileTimeErrorCode.wrongNumberOfTypeArgumentsFunction
+      PM: The type of this function is '#type', which has #typeParameterCount type parameters, but #typeArgumentCount type arguments were given.
+      CM: Try adjusting the number of type arguments to match the number of type parameters.
+
+[A] map_key_type_not_assignable (perda 12): variantes 1->2
+
+[A] map_value_type_not_assignable (perda 12): variantes 1->2
+
+[A] wrong_number_of_type_arguments_constructor (perda 12): mensagem, correcao, variantes 1->2
+   main CompileTimeErrorCode.wrongNumberOfTypeArgumentsDotShorthandConstructor
+      PM: The dot shorthand resolves to the constructor '#className.#constructorName', and type parameters can't be applied to dot shorthand constructor invocations.
+      CM: Try removing the type arguments, or adding a class name, followed by the type arguments, then the constructor name.
+
+[A] set_element_type_not_assignable (perda 7): variantes 1->2
+
+[A] wrong_number_of_type_arguments_method (perda 6): SO NO 3.6.2 (removido/renomeado no main)
+   3.6.2 CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_METHOD
+      PM: The method '{0}' is declared with {1} type parameters, but {2} type arguments are given.
+      CM: Try adjusting the number of type arguments.
+
+[A] assignment_to_const (perda 3): mensagem
+   3.6.2 CompileTimeErrorCode.ASSIGNMENT_TO_CONST
+      PM: Constant variables can't be assigned a value.
+      CM: Try removing the assignment, or remove the modifier 'const' from the variable.
+   main CompileTimeErrorCode.assignmentToConst
+      PM: Constant variables can't be assigned a value after initialization.
+      CM: Try removing the assignment, or remove the modifier 'const' from the variable.
+
+[A] undefined_named_parameter (perda 3): mensagem, correcao, variantes 1->2
+   main CompileTimeErrorCode.useOfPrivateParameterName
+      PM: The named parameter '_#name' should use the corresponding public name '#name' at the callsite.
+      CM: Try changing the name to '#name'.
+
+[A] deferred_import_of_extension (perda 2): mensagem, correcao
+   3.6.2 CompileTimeErrorCode.DEFERRED_IMPORT_OF_EXTENSION
+      PM: Imports of deferred libraries must hide all extensions.
+      CM: Try adding either a show combinator listing the names you need to reference or a hide combinator listing all of the extensions.
+   main CompileTimeErrorCode.deferredImportOfExtension
+      PM: Deferred library imports must hide all extension declarations.
+      CM: Try adding either a show combinator listing the names you need to reference or a hide combinator listing all of the extension declarations.
+
+[B] nullable_type_in_implements_clause (perda 4): mensagem
+   3.6.2 CompileTimeErrorCode.NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE
+      PM: A class, mixin, or extension type can't implement a nullable type.
+      CM: Try removing the question mark.
+   main CompileTimeErrorCode.nullableTypeInImplementsClause
+      PM: Nullable types can't be implemented.
+      CM: Try removing the question mark.
+
+[B] invalid_null_aware_operator (perda 1): mensagem, correcao, argumentos [2]->[0, 2], variantes 2->5
+   3.6.2 StaticWarningCode.INVALID_NULL_AWARE_OPERATOR
+      PM: The receiver can't be null, so the null-aware operator '{0}' is unnecessary.
+      CM: Try replacing the operator '{0}' with '{1}'.
+   3.6.2 StaticWarningCode.INVALID_NULL_AWARE_OPERATOR_AFTER_SHORT_CIRCUIT
+      PM: The receiver can't be 'null' because of short-circuiting, so the null-aware operator '{0}' can't be used.
+      CM: Try replacing the operator '{0}' with '{1}'.
+   main StaticWarningCode.invalidNullAwareOperator
+      PM: The receiver can't be null, so the null-aware operator '#operator' is unnecessary.
+      CM: Try replacing the operator '#operator' with '#replacement'.
+   main StaticWarningCode.invalidNullAwareOperatorAfterShortCircuit
+      PM: The receiver can't be 'null' because of short-circuiting, so the null-aware operator '#operator' can't be used.
+      CM: Try replacing the operator '#operator' with '#replacement'.
+   main StaticWarningCode.invalidNullAwareElement
+      PM: The element can't be null, so the null-aware operator '?' is unnecessary.
+      CM: Try removing the operator '?'.
+   main StaticWarningCode.invalidNullAwareMapEntryKey
+      PM: The map entry key can't be null, so the null-aware operator '?' is unnecessary.
+      CM: Try removing the operator '?'.
+   main StaticWarningCode.invalidNullAwareMapEntryValue
+      PM: The map entry value can't be null, so the null-aware operator '?' is unnecessary.
+      CM: Try removing the operator '?'.
+
+[B] non_exhaustive_switch_expression (perda 1): mensagem, correcao, argumentos [3]->[1, 3], variantes 1->2
+   3.6.2 CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_EXPRESSION
+      PM: The type '{0}' is not exhaustively matched by the switch cases since it doesn't match '{1}'.
+      CM: Try adding a wildcard pattern or cases that match '{2}'.
+   main CompileTimeErrorCode.nonExhaustiveSwitchExpression
+      PM: The type '#type' isn't exhaustively matched by the switch cases since it doesn't match the pattern '#unmatchedPattern'.
+      CM: Try adding a wildcard pattern or cases that match '#suggestedPattern'.
+   main CompileTimeErrorCode.nonExhaustiveSwitchExpressionPrivate
+      PM: The enum '#type' isn't exhaustively matched by the switch cases because some of the enum constants are private.
+      CM: Try adding a wildcard pattern.
+
+[C] enum_without_constants (perda 62): mensagem, correcao
+   3.6.2 CompileTimeErrorCode.ENUM_WITHOUT_CONSTANTS
+      PM: The enum must have at least one constant.
+      CM: Try declaring a constant.
+   main CompileTimeErrorCode.enumWithoutConstants
+      PM: The enum must have at least one enum constant.
+      CM: Try declaring an enum constant.
+
+[C] primary_constructor_cannot_redirect (perda 17): SO NO MAIN
+   main CompileTimeErrorCode.primaryConstructorCannotRedirect
+      PM: A primary constructor can't be a redirecting constructor.
+      CM: Try removing the redirect.
+
+[C] mixin_class_declares_non_trivial_generative_constructor (perda 16): SO NO MAIN
+   main CompileTimeErrorCode.mixinClassDeclaresNonTrivialGenerativeConstructor
+      PM: The mixin class '#className' can't declare a non-trivial generative constructor.
+      CM: None
+
+[C] dot_shorthand_undefined_member (perda 8): SO NO MAIN
+   main CompileTimeErrorCode.dotShorthandUndefinedGetter
+      PM: The static getter '#getterName' isn't defined for the context type '#typeName'.
+      CM: Try correcting the name to the name of an existing static getter, or defining a getter or field named '#getterName'.
+   main CompileTimeErrorCode.dotShorthandUndefinedInvocation
+      PM: The static method or constructor '#name' isn't defined for the context type '#contextType'.
+      CM: Try correcting the name to the name of an existing static method or constructor, or defining a static method or constructor named '#name'.
+
+[C] field_initializer_outside_constructor (perda 6): mensagem, correcao, variantes 2->1
+   3.6.2 CompileTimeErrorCode.FIELD_INITIALIZER_OUTSIDE_CONSTRUCTOR
+      PM: Initializing formal parameters can only be used in constructors.
+      CM: Try using a normal parameter.
+
+[C] initializing_declaring_parameter (perda 5): SO NO MAIN
+   main _fe_analyzer_shared:initializingDeclaringParameter
+      PM: Declaring parameters can't be initializing.
+      CM: Try removing the `this.` prefix or making the parameter non-declaring.
+
+[C] deprecated_optional (perda 4): SO NO MAIN
+   main WarningCode.deprecatedOptional
+      PM: Omitting an argument for the '#parameterName' parameter is deprecated.
+      CM: Try passing an argument for '#parameterName'.
+
+[C] field_initialized_in_declaration_and_parameter_of_primary_constructor (perda 4): SO NO MAIN
+   main _fe_analyzer_shared:fieldInitializedInDeclarationAndParameterOfPrimaryConstructor
+      PM: Fields can't be initialized in both the primary constructor parameter list and at their declaration.
+      CM: Try removing one of the initializations.
+
+[C] super_initializing_declaring_parameter (perda 4): SO NO MAIN
+   main _fe_analyzer_shared:superInitializingDeclaringParameter
+      PM: Declaring parameters can't be super parameters.
+      CM: Try removing the `super.` prefix or making the parameter non-declaring.
+
+[C] field_initialized_in_declaration_and_initializer_of_primary_constructor (perda 3): SO NO MAIN
+   main _fe_analyzer_shared:fieldInitializedInDeclarationAndInitializerOfPrimaryConstructor
+      PM: Fields can't be initialized in both the primary constructor and at their declaration.
+      CM: Try removing one of the initializations.
+
+[C] multiple_primary_constructor_body_declarations (perda 2): SO NO MAIN
+   main _fe_analyzer_shared:multiplePrimaryConstructorBodyDeclarations
+      PM: Only one primary constructor body declaration is allowed.
+      CM: Try removing all but one of the primary constructor body declarations.
+
+[C] super_invocation_not_last (perda 2): mensagem, argumentos [1]->[0]
+   3.6.2 CompileTimeErrorCode.SUPER_INVOCATION_NOT_LAST
+      PM: The superconstructor call must be last in an initializer list: '{0}'.
+      CM: None
+   main CompileTimeErrorCode.superInvocationNotLast
+      PM: The superconstructor call must be last in an initializer list.
+      CM: None
+
+[C] factory_constructor_new_name (perda 1): SO NO MAIN
+   main _fe_analyzer_shared:factoryConstructorNewName
+      PM: Factory constructors can't be named 'new'.
+      CM: Try removing the 'new' keyword or changing it to a different name.
+
+[C] primary_constructor_body_with_expression_body (perda 1): SO NO MAIN
+   main CompileTimeErrorCode.primaryConstructorBodyWithExpressionBody
+      PM: A primary constructor body can't use '=>'.
+      CM: Try using a block body.
+
+[E] representation_field_modifier (perda 12): mensagem
+   3.6.2 ParserErrorCode.REPRESENTATION_FIELD_MODIFIER
+      PM: Representation fields can't have modifiers.
+      CM: Try removing the modifier.
+   main ParserErrorCode.representationFieldModifier
+      PM: Representation fields can't have the modifier 'var'.
+      CM: Try removing the modifier.
+
+[E] unterminated_string_literal (perda 6): SO NO MAIN
+   main ScannerErrorCode.unterminatedStringLiteral
+      PM: Unterminated string literal.
+      CM: None
+
+[E] unsupported_operator (perda 5): SO NO MAIN
+   main ScannerErrorCode.unsupportedOperator
+      PM: The '#lexeme' operator is not supported.
+      CM: None
+
+[E] const_primary_constructor_with_body (perda 3): SO NO MAIN
+   main ParserErrorCode.constPrimaryConstructorWithBlockBody
+      PM: The body part of a constant primary constructor can't have a block body.
+      CM: Try replacing the block body with a semicolon, or removing the 'const' modifier.
+   main ParserErrorCode.constPrimaryConstructorWithExpressionBody
+      PM: The body part of a constant primary constructor can't have an expression body.
+      CM: Try replacing the expression body with a semicolon, or removing the 'const' modifier.
+
+[E] missing_digit (perda 2): SO NO MAIN
+   main ScannerErrorCode.missingDigit
+      PM: Decimal digit expected.
+      CM: None
+
+[E] illegal_character (perda 1): SO NO MAIN
+   main ScannerErrorCode.illegalCharacter
+      PM: Illegal character '#codePoint'.
+      CM: None
+
+[E] missing_hex_digit (perda 1): SO NO MAIN
+   main ScannerErrorCode.missingHexDigit
+      PM: Hexadecimal digit expected.
+      CM: None
+
+[F] unused_element (perda 74): mensagem, correcao, variantes 2->1
+   3.6.2 WarningCode.UNUSED_ELEMENT_PARAMETER
+      PM: A value for optional parameter '{0}' isn't ever given.
+      CM: Try removing the unused parameter.
+
+[F] unused_field_from_primary_constructor (perda 39): SO NO MAIN
+   main WarningCode.unusedFieldFromPrimaryConstructor
+      PM: The value of the field '#fieldName' isn't used.
+      CM: Try removing the '#keyword' keyword to avoid declaring a field, or try using the field, or removing it.
+
+[F] unused_element_parameter (perda 21): SO NO MAIN
+   main WarningCode.unusedElementParameter
+      PM: A value for optional parameter '#name' isn't ever given.
+      CM: Try removing the unused parameter.
+
+[F] ambiguous_import (perda 3): mensagem, argumentos [2]->[3]
+   3.6.2 CompileTimeErrorCode.AMBIGUOUS_IMPORT
+      PM: The name '{0}' is defined in the libraries {1}.
+      CM: Try using 'as prefix' for one of the import directives, or hiding the name from all but one of the imports.
+   main CompileTimeErrorCode.ambiguousImport
+      PM: The #kind '#name' is defined in the libraries #libraries.
+      CM: Try using 'as prefix' for one of the import directives, or hiding the name from all but one of the imports.
+
+[F] deprecated_member_use (perda 1): mensagem, correcao, variantes 2->6
+   main HintCode.deprecatedMemberUseImplicitSuperConstructorInvocation
+      PM: The implicitly invoked super constructor '#name' is deprecated and shouldn't be used.
+      CM: Try explicitly invoking a replacement super constructor.
+   main HintCode.deprecatedMemberUseImplicitSuperConstructorInvocationWithMessage
+      PM: The implicitly invoked super constructor '#name' is deprecated and shouldn't be used. #details
+      CM: Try explicitly invoking a replacement super constructor.
+   main HintCode.deprecatedMemberUseImplicitType
+      PM: The implicitly referenced type '#name' is deprecated and shouldn't be used.
+      CM: Try replacing the use of the deprecated type with the replacement.
+   main HintCode.deprecatedMemberUseImplicitTypeWithMessage
+      PM: The implicitly referenced type '#name' is deprecated and shouldn't be used. #details
+      CM: Try replacing the use of the deprecated type with the replacement.

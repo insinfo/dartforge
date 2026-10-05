@@ -1,0 +1,2 @@
+class OnlyC {}
+class A {}

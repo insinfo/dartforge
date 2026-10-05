@@ -56,6 +56,88 @@ const GRANULARIDADE_DA_REGIAO: usize = 4096;
 /// lista livre: menos, se a contiguidade acaba antes).
 pub(crate) const TLAB_BLOCOS: usize = 256;
 
+// ─── Veneno e quarentena (`DARTFORGE_GC_VENENO`) ───────────────────────────
+
+/// O estado de um bloco envenenado: o primeiro byte do padrão de veneno.
+/// Nenhum estado válido o usa; a validação de handle o recusa.
+pub(crate) const ESTADO_DE_VENENO: u8 = 0xDE;
+/// A palavra com que o bloco morto é preenchido: par, e com o primeiro byte
+/// (o estado) em [`ESTADO_DE_VENENO`].
+const PALAVRA_DE_VENENO: u64 = 0xDFDF_DFDF_DFDF_DFDE;
+
+/// A quarentena dos blocos mortos (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
+/// §7.5): com `DARTFORGE_GC_VENENO=1` (ou `=<n>` blocos), cada bloco que
+/// morre é preenchido com o padrão de veneno e só volta à lista livre depois
+/// que outros `n` (1 000 por padrão) morreram depois dele. Um uso depois de
+/// liberar lê então o veneno e falha na validação de handle, em vez de ler um
+/// objeto novo posto no mesmo lugar. O coletor não move objetos: é o
+/// equivalente da quarentena do *from-space* de um coletor de cópia.
+struct Quarentena {
+    /// (classe, bloco), na ordem em que entraram.
+    anel: std::collections::VecDeque<(usize, *mut u8)>,
+    /// Os blocos do anel, para a varredura completa não os devolver.
+    presos: crate::hash::HashSet<usize>,
+    capacidade: usize,
+}
+
+impl Quarentena {
+    fn do_ambiente() -> Option<Self> {
+        let v = std::env::var("DARTFORGE_GC_VENENO").ok()?;
+        let capacidade = match v.trim() {
+            "" | "0" => return None,
+            "1" => 1000,
+            n => n.parse::<usize>().ok().filter(|&n| n > 0)?,
+        };
+        Some(Quarentena { anel: std::collections::VecDeque::new(), presos: crate::hash::HashSet::default(), capacidade })
+    }
+
+    /// Envenena o bloco `b` de `tamanho` bytes e o põe no anel.
+    ///
+    /// # Safety
+    /// `b` é bloco sem objeto vivo de uma página do espaço.
+    unsafe fn prender(&mut self, classe: usize, b: *mut u8, tamanho: usize) {
+        let palavras = b.cast::<u64>();
+        for i in 0..tamanho / 8 {
+            // SAFETY: o contrato da função; o bloco é alinhado a 8.
+            unsafe { palavras.add(i).write(PALAVRA_DE_VENENO) };
+        }
+        self.anel.push_back((classe, b));
+        self.presos.insert(b as usize);
+    }
+
+    /// Na varredura completa: o bloco `b` não marcado fica (ou entra) na
+    /// quarentena? Já no anel, sim; com o estado de um objeto que acabou de
+    /// morrer, entra; livre (zerado ou já envenenado e solto), não.
+    ///
+    /// # Safety
+    /// `b` é bloco sem marca de uma página do espaço.
+    unsafe fn reter(&mut self, classe: usize, b: *mut u8, tamanho: usize) -> bool {
+        if self.presos.contains(&(b as usize)) {
+            return true;
+        }
+        // SAFETY: o contrato da função.
+        let estado = unsafe { *b };
+        if estado == LIVRE || estado == ESTADO_DE_VENENO {
+            return false;
+        }
+        // SAFETY: o contrato da função.
+        unsafe { self.prender(classe, b, tamanho) };
+        true
+    }
+
+    /// Os blocos que passaram da capacidade, os mais antigos primeiro: saem
+    /// do anel (continuam envenenados até a entrega, que os zera).
+    fn soltos(&mut self) -> Vec<(usize, *mut u8)> {
+        let mut v = Vec::new();
+        while self.anel.len() > self.capacidade {
+            let (classe, b) = self.anel.pop_front().expect("anel além da capacidade");
+            self.presos.remove(&(b as usize));
+            v.push((classe, b));
+        }
+        v
+    }
+}
+
 // ─── Mapa de marcas ────────────────────────────────────────────────────────
 
 /// A palavra e o bit do mapa de marcas do bloco `b`.
@@ -916,6 +998,8 @@ pub struct EspacoDeObjetos {
     entregues: usize,
     /// Objetos do espaço marcados pela coleta em curso.
     pub(crate) marcados: usize,
+    /// A quarentena dos mortos (`DARTFORGE_GC_VENENO`); `None` sem ela.
+    quarentena: Option<Quarentena>,
     /// De onde vêm as páginas de [`PAGINA`] bytes.
     reserva: ReservaDePaginas,
     /// O cache das regiões grandes soltas.
@@ -954,6 +1038,7 @@ impl EspacoDeObjetos {
             zerar_mortos,
             entregues: 0,
             marcados: 0,
+            quarentena: Quarentena::do_ambiente(),
             reserva: ReservaDePaginas::default(),
             grandes: RegioesGrandes::default(),
             anexos: crate::hash::HashMap::default(),
@@ -1090,6 +1175,22 @@ impl EspacoDeObjetos {
     /// `[inicio, fim)` são blocos da classe de uma página deste espaço, sem
     /// objeto vivo.
     unsafe fn soltar_faixa(&mut self, classe: usize, inicio: *mut u8, fim: *mut u8) {
+        // Com o veneno, cada bloco entra na quarentena; volta à lista livre
+        // o que passou da capacidade dela.
+        if let Some(q) = self.quarentena.as_mut() {
+            let tamanho = bytes_do_bloco(palavras_da_classe(classe));
+            let mut b = inicio;
+            while b < fim {
+                // SAFETY: o contrato da função.
+                unsafe { q.prender(classe, b, tamanho) };
+                b = b.wrapping_add(tamanho);
+            }
+            for (c, b) in q.soltos() {
+                let t = bytes_do_bloco(palavras_da_classe(c));
+                self.livres[c].push((b, b.wrapping_add(t)));
+            }
+            return;
+        }
         if self.zerar_mortos {
             // SAFETY: o contrato da função.
             unsafe { std::ptr::write_bytes(inicio, 0, fim as usize - inicio as usize) };
@@ -1421,12 +1522,22 @@ impl EspacoDeObjetos {
             }
             let tamanho = p.tamanho();
             let mut vivos_na_pagina = 0;
+            // Os mortos em quarentena (`DARTFORGE_GC_VENENO`): não são vivos,
+            // mas também não voltam à lista livre, e seguram a página.
+            let mut presos_na_pagina = 0;
             let mut livre: *mut u8 = std::ptr::null_mut();
             let mut q = p.inicio();
             for _ in 0..p.blocos {
                 // SAFETY: bloco da página.
-                if unsafe { marcado(q.cast()) } {
-                    vivos_na_pagina += 1;
+                let vivo = unsafe { marcado(q.cast()) };
+                // SAFETY: bloco sem marca da página.
+                let preso = !vivo && p.classe != GRANDE && self.quarentena.as_mut().is_some_and(|qt| unsafe { qt.reter(p.classe, q, tamanho) });
+                if vivo || preso {
+                    if vivo {
+                        vivos_na_pagina += 1;
+                    } else {
+                        presos_na_pagina += 1;
+                    }
                     if !livre.is_null() {
                         faixas_livres.push((livre, q));
                         livre = std::ptr::null_mut();
@@ -1439,7 +1550,7 @@ impl EspacoDeObjetos {
             if !livre.is_null() {
                 faixas_livres.push((livre, q));
             }
-            if vivos_na_pagina == 0 || p.classe == GRANDE {
+            if vivos_na_pagina + presos_na_pagina == 0 || p.classe == GRANDE {
                 faixas_livres.truncate(de);
             } else if self.zerar_mortos {
                 for &(inicio, fim) in &faixas_livres[de..] {
@@ -1453,9 +1564,10 @@ impl EspacoDeObjetos {
             } else {
                 bytes_vivos += vivos_na_pagina * tamanho;
                 vivos_da_classe[p.classe] += vivos_na_pagina;
-                livres_da_classe[p.classe] += p.blocos - vivos_na_pagina;
+                livres_da_classe[p.classe] += p.blocos - vivos_na_pagina - presos_na_pagina;
             }
-            trechos.push((de, faixas_livres.len(), vivos_na_pagina));
+            // O terceiro campo decide se a página fica: os presos a seguram.
+            trechos.push((de, faixas_livres.len(), vivos_na_pagina + presos_na_pagina));
         }
         bytes_vivos += self.bytes_de_fora() + self.bytes_de_anexos;
         let mortos = self.vivos.saturating_sub(vivos);
@@ -1522,6 +1634,13 @@ impl EspacoDeObjetos {
         for l in self.livres.iter_mut() {
             l.reverse();
         }
+        // A quarentena: o que passou da capacidade volta à lista livre.
+        if let Some(q) = self.quarentena.as_mut() {
+            for (c, b) in q.soltos() {
+                let t = bytes_do_bloco(palavras_da_classe(c));
+                self.livres[c].push((b, b.wrapping_add(t)));
+            }
+        }
         // As vazias de endereço baixo saem primeiro (`pop`).
         self.vazias.reverse();
         self.reserva.aparar();
@@ -1562,7 +1681,8 @@ impl EspacoDeObjetos {
             for j in 0..p.blocos {
                 let b = p.bloco(j);
                 // SAFETY: bloco da página.
-                if unsafe { (*b).estado } != LIVRE {
+                let estado = unsafe { (*b).estado };
+                if estado != LIVRE && estado != ESTADO_DE_VENENO {
                     f(b);
                 }
             }

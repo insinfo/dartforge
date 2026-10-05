@@ -208,8 +208,9 @@ pub extern "C" fn dartforge_nativo_Function_apply(arguments: i64, names: i64) ->
             if code == 0 { return 0; }
             // SAFETY: `dartforge_closure_entry` devolve o endereço de uma entrada
             // uniforme gerada com assinatura (closure, argumentos, descritor).
-            let entry: extern "C" fn(i64, *const i64, *const i64) -> i64 = unsafe { std::mem::transmute(code as usize) };
-            entry(function, args.as_ptr(), desc.as_ptr())
+            // Pela porta (`excecoes_tabelas.rs`): os dois ponteiros passam como
+            // palavras, a mesma passagem de argumento.
+            dart_r3(code as usize, function, args.as_ptr() as i64, desc.as_ptr() as i64)
         })
     })
 }

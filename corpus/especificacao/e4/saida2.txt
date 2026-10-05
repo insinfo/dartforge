@@ -1,0 +1,286 @@
+=== e01.dart
+f() { { ) } }
+  expected_token @6 len 1 (1:7) [E] Expected to find ';'.
+  missing_identifier @8 len 1 (1:9) [E] Expected an identifier.
+  unexpected_token @8 len 1 (1:9) [E] Unexpected text ')'.
+=== e02.dart
+f(o) { switch (o) { case const void fun() {}: } }
+  named_function_expression @36 len 3 (1:37) [E] Function expressions can't be named.
+  constant_pattern_with_non_constant_expression @39 len 5 (1:40) [E] The expression of a constant pattern must be a valid constant.
+=== e03.dart
+main() { StringBuffer('').{ return print('0'); }.toString(); }
+  missing_identifier @26 len 1 (1:27) [E] Expected an identifier.
+  undefined_getter @26 len 1 (1:27) [E] The getter '{' isn't defined for the type 'StringBuffer'.
+  unexpected_token @28 len 6 (1:29) [E] Unexpected text 'return'.
+  expected_token @45 len 1 (1:46) [E] Expected to find '}'.
+=== e04.dart
+enum const E3;
+  enum_without_constants @5 len 0 (1:6) [E] The enum must have at least one constant.
+  missing_enum_body @5 len 5 (1:6) [E] An enum definition must have a body with at least one constant name.
+  missing_identifier @5 len 5 (1:6) [E] Expected an identifier.
+  const_not_initialized @11 len 2 (1:12) [E] The constant 'E3' must be initialized.
+=== e05.dart
+void f() {
+  for (var (_,) = (0,);;) {}
+}
+=== e07.dart
+main() { L: while (false) { if (true) break L; } continue L; }
+  dead_code @26 len 22 (1:27) [W] Dead code.
+  continue_outside_of_loop @49 len 8 (1:50) [E] A continue statement can't be used outside of a loop or switch statement.
+  label_undefined @58 len 1 (1:59) [E] Can't reference an undefined label 'L'.
+=== e08.dart
+class G<T, S> { const G(); }
+@G<int, String>.new
+void f() {}
+  no_annotation_constructor_arguments @29 len 19 (2:1) [E] Annotation creation must have arguments.
+  annotation_with_type_arguments_uninstantiated @45 len 3 (2:17) [E] An annotation with type arguments must be followed by an argument list.
+=== e09.dart
+main() {
+  (int, int, {/*missing*/}) r1 = (1, 2);
+}
+  empty_record_type_named_fields_list @34 len 1 (2:26) [E] The list of named fields in a record type can't be empty.
+  unused_local_variable @37 len 2 (2:29) [W] The value of the local variable 'r1' isn't used.
+=== e10.dart
+main() {
+  (int /* missing trailing comma */ ) r2 = (1, );
+}
+  record_type_one_positional_no_trailing_comma @45 len 1 (2:37) [E] A record type with exactly one positional field requires a trailing comma.
+  unused_local_variable @47 len 2 (2:39) [W] The value of the local variable 'r2' isn't used.
+=== e11.dart
+void foo() {
+  try {
+    var x = () async => return Future.value(null);
+  } catch (_) {}
+}
+  unused_local_variable @29 len 1 (3:9) [W] The value of the local variable 'x' isn't used.
+  unexpected_token @45 len 6 (3:25) [E] Unexpected text 'return'.
+=== e14.dart
+f(y, z) { for (var x in y z) {} }
+  unused_local_variable @19 len 1 (1:20) [W] The value of the local variable 'x' isn't used.
+  expected_token @26 len 1 (1:27) [E] Expected to find ')'.
+=== e15.dart
+f(x) { x = (1 }
+  expected_token @12 len 1 (1:13) [E] Expected to find ';'.
+  expected_token @14 len 1 (1:15) [E] Expected to find ')'.
+=== e16.dart
+f() { var x = (1; }
+  unused_local_variable @10 len 1 (1:11) [W] The value of the local variable 'x' isn't used.
+  expected_token @16 len 1 (1:17) [E] Expected to find ')'.
+=== e17.dart
+f(x) { if (x }
+  expected_token @11 len 1 (1:12) [E] Expected to find ';'.
+  expected_token @13 len 1 (1:14) [E] Expected to find ')'.
+  missing_identifier @13 len 1 (1:14) [E] Expected an identifier.
+=== e19.dart
+f() { return 1 2; }
+  expected_token @13 len 1 (1:14) [E] Expected to find ';'.
+  dead_code @15 len 2 (1:16) [W] Dead code.
+=== e20.dart
+class A { var x; A() : this.x = 1, assert(true), x++; }
+  implicit_this_reference_in_initializer @49 len 1 (1:50) [E] The instance member 'x' can't be accessed in an initializer.
+  missing_assignment_in_initializer @49 len 1 (1:50) [E] Expected an assignment after the field name.
+  initializer_for_non_existent_field @49 len 3 (1:50) [E] '' isn't a field in the enclosing class.
+=== e24.dart
+f(x) { switch (x) { case 1: continue L; L: case 2: break; } }
+=== e25.dart
+f() { L: switch (1) { case 1: continue L; } }
+  continue_label_invalid @30 len 11 (1:31) [E] The label used in a 'continue' statement must be defined on either a loop or a switch member.
+=== e29.dart
+f() { if (true) break; else continue; }
+  break_outside_of_loop @16 len 5 (1:17) [E] A break statement can't be used outside of a loop or switch statement.
+  continue_outside_of_loop @28 len 8 (1:29) [E] A continue statement can't be used outside of a loop or switch statement.
+  dead_code @28 len 9 (1:29) [W] Dead code.
+=== e31.dart
+f() { default }
+  expected_identifier_but_got_keyword @6 len 7 (1:7) [E] 'default' can't be used as an identifier because it's a keyword.
+  expected_token @6 len 7 (1:7) [E] Expected to find ';'.
+  missing_statement @6 len 7 (1:7) [E] Expected a statement.
+  undefined_identifier @6 len 7 (1:7) [E] Undefined name 'default'.
+=== e32.dart
+f(a) { a = ; a += ; }
+  missing_identifier @11 len 1 (1:12) [E] Expected an identifier.
+  missing_identifier @18 len 1 (1:19) [E] Expected an identifier.
+=== e33.dart
+f() { var x = () { return }; }
+  unused_local_variable @10 len 1 (1:11) [W] The value of the local variable 'x' isn't used.
+  expected_token @19 len 6 (1:20) [E] Expected to find ';'.
+  missing_identifier @26 len 1 (1:27) [E] Expected an identifier.
+=== e34.dart
+f() { var x =
+  unused_local_variable @10 len 1 (1:11) [W] The value of the local variable 'x' isn't used.
+  expected_token @12 len 1 (1:13) [E] Expected to find ';'.
+  missing_identifier @13 len 0 (1:14) [E] Expected an identifier.
+  expected_token @13 len 1 (1:14) [E] Expected to find '}'.
+=== e35.dart
+f() { if (
+  expected_token @9 len 1 (1:10) [E] Expected to find ';'.
+  missing_identifier @10 len 0 (1:11) [E] Expected an identifier.
+  expected_token @10 len 1 (1:11) [E] Expected to find ')'.
+  expected_token @10 len 1 (1:11) [E] Expected to find '}'.
+=== e36.dart
+f(g, a, b) { g(a,, b); g(,); }
+  missing_identifier @17 len 1 (1:18) [E] Expected an identifier.
+  missing_identifier @25 len 1 (1:26) [E] Expected an identifier.
+=== e37.dart
+f() { [,]; [1,,2]; }
+  missing_identifier @7 len 1 (1:8) [E] Expected an identifier.
+  missing_identifier @14 len 1 (1:15) [E] Expected an identifier.
+=== e38.dart
+f(x) { switch (x) { case 1: case 2 } }
+  expected_token @35 len 1 (1:36) [E] Expected to find ':'.
+=== e39.dart
+f(x) { switch (x) { default } }
+  expected_token @28 len 1 (1:29) [E] Expected to find ':'.
+=== e40.dart
+f(x) { switch (x) { case: break; } }
+  missing_identifier @24 len 1 (1:25) [E] Expected an identifier.
+=== e41.dart
+f(a) { a ?? ; a || ; }
+  missing_identifier @12 len 1 (1:13) [E] Expected an identifier.
+  missing_identifier @19 len 1 (1:20) [E] Expected an identifier.
+=== e44.dart
+f() { 1 ? 2 : 3 : 4; }
+  non_bool_condition @6 len 1 (1:7) [E] Conditions must have a static type of 'bool'.
+  expected_token @14 len 1 (1:15) [E] Expected to find ';'.
+  missing_identifier @16 len 1 (1:17) [E] Expected an identifier.
+  unexpected_token @16 len 1 (1:17) [E] Unexpected text ';'.
+=== e45.dart
+f() { int x y; }
+  expected_token @10 len 1 (1:11) [E] Expected to find ';'.
+  unused_local_variable @10 len 1 (1:11) [W] The value of the local variable 'x' isn't used.
+  undefined_identifier @12 len 1 (1:13) [E] Undefined name 'y'.
+=== e46.dart
+f() { final x }
+  expected_token @12 len 1 (1:13) [E] Expected to find ';'.
+  unused_local_variable @12 len 1 (1:13) [W] The value of the local variable 'x' isn't used.
+=== e47.dart
+class A<T> { const A(); static const b = 1; }
+@A.b<int> class C {}
+  annotation_with_type_arguments_uninstantiated @54 len 1 (2:9) [E] An annotation with type arguments must be followed by an argument list.
+=== e49.dart
+f() { (int) x; ({}) r; (int x, {}) s; }
+  record_type_one_positional_no_trailing_comma @10 len 1 (1:11) [E] A record type with exactly one positional field requires a trailing comma.
+  unused_local_variable @12 len 1 (1:13) [W] The value of the local variable 'x' isn't used.
+  empty_record_type_named_fields_list @17 len 1 (1:18) [E] The list of named fields in a record type can't be empty.
+  unused_local_variable @20 len 1 (1:21) [W] The value of the local variable 'r' isn't used.
+  empty_record_type_named_fields_list @32 len 1 (1:33) [E] The list of named fields in a record type can't be empty.
+  unused_local_variable @35 len 1 (1:36) [W] The value of the local variable 's' isn't used.
+=== e50.dart
+f(x) { switch (x) { case 1: } else }
+  expected_token @28 len 1 (1:29) [E] Expected to find ';'.
+  missing_identifier @30 len 4 (1:31) [E] Expected an identifier.
+  unexpected_token @30 len 4 (1:31) [E] Unexpected text ';'.
+=== e51.dart
+f() { { else } }
+  expected_token @6 len 1 (1:7) [E] Expected to find ';'.
+  missing_identifier @8 len 4 (1:9) [E] Expected an identifier.
+  unexpected_token @8 len 4 (1:9) [E] Unexpected text 'else'.
+=== e52.dart
+f(x) { switch (x) { case 1: ) } }
+  expected_token @26 len 1 (1:27) [E] Expected to find ';'.
+  missing_identifier @28 len 1 (1:29) [E] Expected an identifier.
+  unexpected_token @28 len 1 (1:29) [E] Unexpected text ')'.
+=== e53.dart
+f() { var f = int g<T>() => 1; }
+  unused_local_variable @10 len 1 (1:11) [W] The value of the local variable 'f' isn't used.
+  named_function_expression @18 len 1 (1:19) [E] Function expressions can't be named.
+=== e54.dart
+f(g) { g(h() async {}); g(i() => 1); g(j()); }
+  named_function_expression @9 len 1 (1:10) [E] Function expressions can't be named.
+  named_function_expression @26 len 1 (1:27) [E] Function expressions can't be named.
+  undefined_function @39 len 1 (1:40) [E] The function 'j' isn't defined.
+=== e55.dart
+f() { var x = [void k() {}]; var y = {'a': m() {}}; }
+  unused_local_variable @10 len 1 (1:11) [W] The value of the local variable 'x' isn't used.
+  named_function_expression @20 len 1 (1:21) [E] Function expressions can't be named.
+  unused_local_variable @33 len 1 (1:34) [W] The value of the local variable 'y' isn't used.
+  named_function_expression @43 len 1 (1:44) [E] Function expressions can't be named.
+=== e56.dart
+f() { n() {} }
+  unused_element @6 len 1 (1:7) [W] The declaration 'n' isn't referenced.
+=== e57.dart
+class A { final f; A() : f = g() {} }
+  undefined_method @29 len 1 (1:30) [E] The method 'g' isn't defined for the type 'A'.
+=== e58.dart
+f(a) { a is B is C as D; }
+class B {}
+class C {}
+class D {}
+  unexpected_token @14 len 2 (1:15) [E] Unexpected text 'is'.
+  unexpected_token @19 len 2 (1:20) [E] Unexpected text 'as'.
+=== e59.dart
+f(a, b, c, d) { a == b != c == d; a < b > c; a == b < c; }
+  equality_cannot_be_equality_operand @23 len 2 (1:24) [E] A comparison expression can't be an operand of another comparison expression.
+  referenced_before_declaration @26 len 1 (1:27) [E] Local variable 'c' can't be referenced before it is declared.
+  equality_cannot_be_equality_operand @28 len 2 (1:29) [E] A comparison expression can't be an operand of another comparison expression.
+  not_a_type @34 len 1 (1:35) [E] a isn't a type.
+  non_type_as_type_argument @38 len 1 (1:39) [E] The name 'b' isn't a type, so it can't be used as a type argument.
+=== e60.dart
+f(a, b) { a ? b : ; a ? : b; }
+  missing_identifier @18 len 1 (1:19) [E] Expected an identifier.
+  missing_identifier @24 len 1 (1:25) [E] Expected an identifier.
+=== e61.dart
+f() { while (true) { void g() { break; } } }
+  unused_element @26 len 1 (1:27) [W] The declaration 'g' isn't referenced.
+  break_outside_of_loop @32 len 5 (1:33) [E] A break statement can't be used outside of a loop or switch statement.
+=== e62.dart
+f() { for (;;) { var h = () => 1; switch (h) { case _: continue; } } }
+=== e63.dart
+f(x) { switch (x) { case 1: for (;;) { switch (x) { case 2: continue; } } } }
+=== e64.dart
+f(x) { var y = switch (x) { _ => () { continue; } }; }
+  unused_local_variable @11 len 1 (1:12) [W] The value of the local variable 'y' isn't used.
+  continue_outside_of_loop @38 len 8 (1:39) [E] A continue statement can't be used outside of a loop or switch statement.
+=== e65.dart
+class A { m() { continue; break; } }
+  continue_outside_of_loop @16 len 8 (1:17) [E] A continue statement can't be used outside of a loop or switch statement.
+  break_outside_of_loop @26 len 5 (1:27) [E] A break statement can't be used outside of a loop or switch statement.
+  dead_code @26 len 6 (1:27) [W] Dead code.
+=== e66.dart
+var v = () { break; };
+  break_outside_of_loop @13 len 5 (1:14) [E] A break statement can't be used outside of a loop or switch statement.
+=== e67.dart
+f() { do { break; } while (true); break; }
+  dead_code @6 len 4 (1:7) [W] Dead code.
+  dead_code @18 len 15 (1:19) [W] Dead code.
+  break_outside_of_loop @34 len 5 (1:35) [E] A break statement can't be used outside of a loop or switch statement.
+=== e68.dart
+f(x) { switch (x) { case 1: break; } break; }
+  break_outside_of_loop @37 len 5 (1:38) [E] A break statement can't be used outside of a loop or switch statement.
+=== e69.dart
+f() { L: { break L; break; } }
+  break_outside_of_loop @20 len 5 (1:21) [E] A break statement can't be used outside of a loop or switch statement.
+  dead_code @20 len 8 (1:21) [W] Dead code.
+=== e70.dart
+f(x) { if (x case 1) { break; } }
+  break_outside_of_loop @23 len 5 (1:24) [E] A break statement can't be used outside of a loop or switch statement.
+=== e71.dart
+f() { try { continue; } finally { break; } }
+  continue_outside_of_loop @12 len 8 (1:13) [E] A continue statement can't be used outside of a loop or switch statement.
+  break_outside_of_loop @34 len 5 (1:35) [E] A break statement can't be used outside of a loop or switch statement.
+=== e72.dart
+f() { void; void x; }
+  missing_identifier @10 len 1 (1:11) [E] Expected an identifier.
+  unused_local_variable @17 len 1 (1:18) [W] The value of the local variable 'x' isn't used.
+=== e73.dart
+f() { this; null; true; 1; 'a'; class; }
+  invalid_reference_to_this @6 len 4 (1:7) [E] Invalid reference to 'this' expression.
+  expected_identifier_but_got_keyword @32 len 5 (1:33) [E] 'class' can't be used as an identifier because it's a keyword.
+  missing_statement @32 len 5 (1:33) [E] Expected a statement.
+  undefined_identifier @32 len 5 (1:33) [E] Undefined name 'class'.
+=== e74.dart
+f() { extends; is; new; with; }
+  expected_identifier_but_got_keyword @6 len 7 (1:7) [E] 'extends' can't be used as an identifier because it's a keyword.
+  missing_statement @6 len 7 (1:7) [E] Expected a statement.
+  undefined_identifier @6 len 7 (1:7) [E] Undefined name 'extends'.
+  missing_identifier @15 len 2 (1:16) [E] Expected an identifier.
+  expected_type_name @17 len 1 (1:18) [E] Expected a type name.
+  expected_token @22 len 1 (1:23) [E] Expected to find '('.
+  missing_identifier @22 len 1 (1:23) [E] Expected an identifier.
+  expected_identifier_but_got_keyword @24 len 4 (1:25) [E] 'with' can't be used as an identifier because it's a keyword.
+  missing_statement @24 len 4 (1:25) [E] Expected a statement.
+  undefined_identifier @24 len 4 (1:25) [E] Undefined name 'with'.
+=== e75.dart
+f(a) { a.b; -a; a + 1; (a); a.b.c; a[0]; a(); if; }
+  expected_token @48 len 1 (1:49) [E] Expected to find '('.
+  missing_identifier @48 len 1 (1:49) [E] Expected an identifier.

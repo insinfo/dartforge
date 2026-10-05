@@ -99,6 +99,7 @@ pub fn separar_partes_do_core(program: &mut Program) -> Option<LibraryId> {
         // O escopo de cada unidade (A04) e a parte que a incluiu seguem as
         // unidades que vêm para a biblioteca nova.
         pais: origem.pais.iter().filter(|(u, _)| unidades.contains(u)).map(|(u, p)| (*u, *p)).collect(),
+        representante: Default::default(),
         escopos_de_unidade: origem
             .escopos_de_unidade
             .iter()

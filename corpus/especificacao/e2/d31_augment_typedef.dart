@@ -1,0 +1,1 @@
+augment typedef A = int;

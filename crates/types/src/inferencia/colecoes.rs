@@ -148,7 +148,118 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
     if const_ {
         validar_colecao_const(inf, cx, e);
     }
+    verificar_elementos(inf, cx, elements, forma, t, const_, false);
     t
+}
+
+/// `LiteralElementVerifier` (an611:src/error/literal_element_verifier.dart:52-325),
+/// chamado pelo `ErrorVerifier` para todo literal (const ou não) com o tipo
+/// estático final: elemento, chave/valor e espalhamento contra o tipo do
+/// literal. Num literal `const`, o verificador de constantes já relata os
+/// elementos avaliados; aqui só os de dentro de `if`/`for` (ramos que a
+/// avaliação pode não visitar), para não duplicar o relato.
+/// Objeto (com `call`) num contexto de tipo de função: a conversão implícita
+/// de `call` muda o tipo; fica de fora (sem a regra completa, nada relatar).
+fn tearoff_implicita(inf: &BodyInferrer<'_>, de: TypeId, para: TypeId) -> bool {
+    matches!(inf.table.get(para), Type::Function { .. } | Type::FutureOr { .. })
+        && matches!(inf.table.get(de), Type::Interface { .. } | Type::ExtensionType { .. } | Type::TypeParameter { .. } | Type::Intersection { .. })
+}
+
+fn verificar_elementos(
+    inf: &mut BodyInferrer<'_>,
+    cx: &Corpo,
+    elements: &[CollectionElement],
+    forma: Forma,
+    t: TypeId,
+    const_: bool,
+    em_controle: bool,
+) {
+    use dartforge_diagnostics::codigos::compile_time_error as ce;
+    let args: Vec<TypeId> = match inf.table.get(t) {
+        Type::Interface { args, .. } => args.to_vec(),
+        _ => return,
+    };
+    let relatar = !const_ || em_controle;
+    for el in elements {
+        match el {
+            CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) if forma != Forma::Mapa => {
+                let Some(e_t) = args.first().copied() else { continue };
+                let Some(tx) = inf.body_types.units[cx.unit.0 as usize].get_type(*x) else { continue };
+                let tx = if matches!(el, CollectionElement::NullAwareExpression(_)) { inf.nao_nulo(tx) } else { tx };
+                if !relatar || matches!(inf.table.get(tx), Type::Void) || inf.atribuivel(tx, e_t) || tearoff_implicita(inf, tx, e_t) {
+                    continue;
+                }
+                let codigo = if forma == Forma::Lista { ce::LIST_ELEMENT_TYPE_NOT_ASSIGNABLE } else { ce::SET_ELEMENT_TYPE_NOT_ASSIGNABLE };
+                let sp = inf.span_expr(cx.unit, *x);
+                inf.aviso_com_args(codigo, sp, &[crate::exibicao::Arg::Tipo(tx), crate::exibicao::Arg::Tipo(e_t)]);
+            }
+            CollectionElement::MapEntry { key, value, null_aware_key, null_aware_value } if forma == Forma::Mapa => {
+                if !relatar || args.len() < 2 {
+                    continue;
+                }
+                let tipos = &inf.body_types.units[cx.unit.0 as usize];
+                let (Some(tk), Some(tv)) = (tipos.get_type(*key), tipos.get_type(*value)) else { continue };
+                // Chave ou valor `void`: `use_of_void_result`, e para.
+                if matches!(inf.table.get(tk), Type::Void) || matches!(inf.table.get(tv), Type::Void) {
+                    continue;
+                }
+                let tk = if *null_aware_key { inf.nao_nulo(tk) } else { tk };
+                let tv = if *null_aware_value { inf.nao_nulo(tv) } else { tv };
+                for (x, tx, alvo, codigo) in [(*key, tk, args[0], ce::MAP_KEY_TYPE_NOT_ASSIGNABLE), (*value, tv, args[1], ce::MAP_VALUE_TYPE_NOT_ASSIGNABLE)] {
+                    if !inf.atribuivel(tx, alvo) && !tearoff_implicita(inf, tx, alvo) {
+                        let sp = inf.span_expr(cx.unit, x);
+                        inf.aviso_com_args(codigo, sp, &[crate::exibicao::Arg::Tipo(tx), crate::exibicao::Arg::Tipo(alvo)]);
+                    }
+                }
+            }
+            CollectionElement::Spread { value, null_aware } => {
+                if !relatar {
+                    continue;
+                }
+                let Some(tx) = inf.body_types.units[cx.unit.0 as usize].get_type(*value) else { continue };
+                // `...e` (sem `?`) com `e` de tipo `Null`
+                // (`literal_element_verifier.dart:180-200`, `:275-292`): na
+                // expressão espalhada.
+                if !*null_aware && matches!(inf.table.get(tx), Type::Null) {
+                    let sp = inf.span_expr(cx.unit, *value);
+                    inf.aviso_com_codigo(ce::NOT_NULL_AWARE_NULL_SPREAD, sp, &[]);
+                }
+                let tx = inf.nao_nulo(tx);
+                if inf.e_dynamic(tx) || matches!(inf.table.get(tx), Type::Never | Type::Null | Type::Void) {
+                    continue;
+                }
+                let sp = inf.span_expr(cx.unit, *value);
+                if forma == Forma::Mapa {
+                    let Some(m) = inf.como_instancia_de(tx, inf.core.map_class) else { continue };
+                    if args.len() < 2 || m.len() < 2 {
+                        continue;
+                    }
+                    for (de, para, codigo) in [(m[0], args[0], ce::MAP_KEY_TYPE_NOT_ASSIGNABLE), (m[1], args[1], ce::MAP_VALUE_TYPE_NOT_ASSIGNABLE)] {
+                        if !inf.atribuivel(de, para) && !tearoff_implicita(inf, de, para) {
+                            inf.aviso_com_args(codigo, sp, &[crate::exibicao::Arg::Tipo(de), crate::exibicao::Arg::Tipo(para)]);
+                        }
+                    }
+                } else {
+                    let Some(i) = inf.como_instancia_de(tx, inf.core.iterable_class) else { continue };
+                    let (Some(de), Some(para)) = (i.first().copied(), args.first().copied()) else { continue };
+                    if !inf.atribuivel(de, para) && !tearoff_implicita(inf, de, para) {
+                        let codigo = if forma == Forma::Lista { ce::LIST_ELEMENT_TYPE_NOT_ASSIGNABLE } else { ce::SET_ELEMENT_TYPE_NOT_ASSIGNABLE };
+                        inf.aviso_com_args(codigo, sp, &[crate::exibicao::Arg::Tipo(de), crate::exibicao::Arg::Tipo(para)]);
+                    }
+                }
+            }
+            CollectionElement::If { then, else_, .. } => {
+                verificar_elementos(inf, cx, std::slice::from_ref(&**then), forma, t, const_, true);
+                if let Some(e) = else_ {
+                    verificar_elementos(inf, cx, std::slice::from_ref(&**e), forma, t, const_, true);
+                }
+            }
+            CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => {
+                verificar_elementos(inf, cx, std::slice::from_ref(&**body), forma, t, const_, true);
+            }
+            _ => {}
+        }
+    }
 }
 
 /// As variáveis de tipo que aparecem em `t`.

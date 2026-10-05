@@ -248,8 +248,12 @@ pub fn ler(dir: &Path) -> Result<(Vec<Registro>, Meta), String> {
 /// com cascata de sintaxe, e o analyzer 3.13.4 com `experiment_not_enabled`
 /// (e segue analisando). O `enabledIn` de cada um é posterior ao 3.6.2
 /// (`experimental_features.yaml`); os demais recursos desligados (por
-/// exemplo `null-aware-elements`) o 3.6.2 já acusa do mesmo jeito.
-pub const RECURSOS_DESCONHECIDOS_NO_3_6_2: &[&str] = &["dot-shorthands", "primary-constructors", "private-named-parameters"];
+/// exemplo `null-aware-elements`) o 3.6.2 já acusa do mesmo jeito. A lista
+/// é a do parser (`Feature::DESCONHECIDOS_NO_3_6`), que com ela decide a
+/// referência de cada unidade.
+pub fn recursos_desconhecidos_no_3_6_2() -> impl Iterator<Item = &'static str> {
+    dartforge_frontend::features::Feature::DESCONHECIDOS_NO_3_6.into_iter().map(|f| f.nome())
+}
 
 /// A ferramenta tem versão corrente 3.13 (VERSOES-LINGUAGEM.md, D2): numa
 /// biblioteca 3.6, o comportamento de referência é o do analyzer 3.13.4
@@ -259,8 +263,31 @@ pub const RECURSOS_DESCONHECIDOS_NO_3_6_2: &[&str] = &["dot-shorthands", "primar
 pub fn usa_sintaxe_nova(regs_313: &[&Registro]) -> bool {
     regs_313.iter().any(|r| {
         r.code == "experiment_not_enabled"
-            && RECURSOS_DESCONHECIDOS_NO_3_6_2.iter().any(|f| r.problem_message.contains(&format!("'{f}'")))
+            && recursos_desconhecidos_no_3_6_2().any(|f| r.problem_message.contains(&format!("'{f}'")))
     })
+}
+
+/// Os arquivos de um grupo 3.6 que o **nosso** parser marca com a referência
+/// 3.13.4 (`Parsed::referencia`), em caminho relativo ao grupo: a lista que
+/// tem de coincidir com a de [`ler_sintaxe_nova`], feita pelo parser do
+/// 3.13.4 (docs/ANALYZER-ESPECIFICACAO.md, T2, passo 9 e critério de
+/// pronto). A versão é a do pacote do grupo, 3.6: os arquivos com marcador
+/// `// @dart` acima dela vivem nos grupos `*-3.13`, e um marcador abaixo
+/// não liga nenhum dos recursos que decidem a referência.
+pub fn marcador_3_13(dir: &Path, fontes: &[std::path::PathBuf]) -> std::collections::BTreeSet<String> {
+    let recursos = dartforge_frontend::features::LibraryFeatures::piso();
+    let mut marcados = std::collections::BTreeSet::new();
+    for f in fontes {
+        let Ok(texto) = std::fs::read_to_string(f) else { continue };
+        let mut nomes = dartforge_intern::Interner::new();
+        let lido = dartforge_frontend::parser::parse_com(&texto, &mut nomes, recursos);
+        if lido.referencia == dartforge_diagnostics::Referencia::V3_13
+            && let Some(r) = relativo(f, dir)
+        {
+            marcados.insert(r);
+        }
+    }
+    marcados
 }
 
 /// `corpus/diagnosticos/sintaxe-nova.json`: por grupo, os arquivos cujo

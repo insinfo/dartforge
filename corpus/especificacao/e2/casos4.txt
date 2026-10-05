@@ -1,0 +1,228 @@
+=== e01_augment_int_x
+augment int x = 1;
+=== e02_super_const
+class C {
+  C() : super.const();
+}
+=== e03_cascata_paren
+void f(Never never) {
+  never..(_) => 1;
+}
+=== e04_ponto_bloco
+void f() {
+  StringBuffer('').{ return print('0'); }.toString();
+}
+=== e05_factory_redir
+class C {
+  factory C.foo() = C.bar();
+  C.bar();
+}
+=== e06_typedef_M
+typedef M = Function({int});
+=== e07_label8
+main() {
+  int i = 0;
+  switch(i)
+    L:
+  {
+    case 111:
+      while (false) {
+        break L;
+      }
+      i++;
+  }
+}
+=== e08_augment_extension
+extension on int {}
+
+augment extension {}
+=== e09_case_incremento
+void f(x) {
+  var a = 0;
+  if (x case ++a) {}
+}
+=== e10_typedef_T10
+typedef T10<X extends void Function({T10<Never> x})> = List<X>;
+=== e11_tres_iguais
+class C {
+  m() {
+    print(super === null);
+  }
+}
+void main() {
+  print("foo" !== null);
+}
+=== e12_use_C_vazio
+class C<T> {}
+void use(x) {}
+void f() {
+  use(C<>);
+}
+=== e13_new_membros
+class C3 {
+  int new() => 1;
+}
+class C4 {
+  int get new => 1;
+  void set new(int value) {}
+}
+class C5 {
+  int new = 1;
+}
+class C6 {
+  static void new() {}
+}
+class C2 {
+  factory new() => C2._();
+  C2._();
+}
+class C9 {
+  new();
+}
+=== e14_case_interrogacao
+void f(o) {
+  switch (o) {
+    case 1 ?? 2:
+  }
+}
+=== e15_case_void_fun
+void f(o) {
+  switch (o) {
+    case void fun() {}:
+  }
+}
+=== e16_case_assert
+void f(o) {
+  switch (o) {
+    case assert(false):
+  }
+}
+=== e17_async_return
+void foo() {
+  var x = () async => return Future.value(null);
+}
+=== e18_param_chave_dupla
+class C {
+  final String x;
+  final bool y;
+  const C({
+    required this.x,
+    {this.y = false}
+  });
+}
+=== e19_new_C_spread
+class C {}
+main() {
+  new C(...;
+}
+=== e20_lista_dois_pontos
+void f() {
+  <String>[0: ?""];
+}
+=== e21_variance_local
+void f() {
+  List<out String> bar;
+}
+=== e22_augment_core_int
+import 'dart:core' as core;
+void foo() {}
+
+augment core.int foo();
+=== e23_til_binario
+var a = 5 ~ 3;
+=== e24_const_ponto_a
+abstract class Foo<T> {
+  const factory Foo.a() = _Foo;
+  const Foo();
+}
+class _Foo<T> extends Foo<T> {
+  const _Foo();
+}
+Foo<int> bar<T>() => const .a<int>();
+=== e25_case_atribuicao
+const ERROR_A = 0;
+const ERROR_B = 1;
+errorToString(error) {
+  switch (error) {
+    case ERROR_A:
+      return "ERROR_A";
+    case ERROR_B = 1:
+      return "ERROR_B";
+  }
+}
+=== e26_param_mixin
+class A {
+  int bar(mixin int x);
+}
+=== e27_never_seta
+void f(Never never) {
+  never.=> 1;
+}
+=== e28_null_cascata_seta
+void f() {
+  null?..=> 1;
+}
+=== e29_igual_ponto
+enum E { a }
+void f(E e) {
+  if (e == .a) {}
+}
+=== e30_class_keyword
+main() {
+  int class = 10;
+  print("$class");
+}
+=== e31_param_tipo_sem_nome_fn
+typedef F = void Function(int, {String});
+=== e32_case_const_void
+void f(o) {
+  switch (o) {
+    case const void fun() {}:
+    case const assert(false):
+  }
+}
+=== e33_augment_metodo
+class A {
+  augment void f() {}
+}
+=== e34_sealed_typedef
+sealed typedef T = int;
+=== e35_expr_3457e
+main() {
+  3457e
+}
+=== e36_0x
+main() {
+  0x;
+  1e;
+}
+=== e37_op_tres_iguais
+class C {
+  operator ===(int index) {
+    return 0;
+  }
+}
+=== e38_base_como_nome
+int base = 1;
+int sealed = 2;
+int on = 3;
+void f(int async, int await, int yield) {}
+=== e39_get_class
+class A {
+  int get class => 1;
+  void set if(int v) {}
+}
+=== e40_fn_topo_reservada
+int switch() => 1;
+int get while => 2;
+=== e41_tipo_reservado
+class A {
+  int for = 1;
+  var while;
+  final if;
+}
+=== e42_required_nome
+void f({required}) {}
+void g({required int}) {}
+void h(int this) {}
+void i(this) {}

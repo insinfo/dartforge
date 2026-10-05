@@ -578,7 +578,7 @@ pub extern "C" fn dartforge_nativo_Socket_RecvFrom(this: i64) -> i64 {
     };
     // SAFETY: registrada pela sobreposição de `dart:io` com a assinatura
     // (`Uint8List`, `String`, `Uint8List`, `int`, `int`).
-    let g: extern "C" fn(i64, i64, i64, i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
+    let g = { let alvo_dart: usize = f; move |a0: i64, a1: i64, a2: i64, a3: i64, a4: i64| -> i64 { dart_r5(alvo_dart, a0, a1, a2, a3, a4) } };
     let dados = dart_bytes(buf);
     let texto = com_raizes(&[dados], || alocar_str(&e.texto()));
     let ip = com_raizes(&[dados, texto], || dart_bytes(e.ip()));
@@ -945,7 +945,7 @@ pub extern "C" fn dartforge_nativo_SocketControlMessage_fromHandles(recursos: i6
     #[cfg(unix)]
     {
         // SAFETY: `(List<ResourceHandle>, int, int) → Object`.
-        let f: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(ajudante_de_io("_dartforgeMensagemDeRecursos")) };
+        let f = { let alvo_dart: usize = ajudante_de_io("_dartforgeMensagemDeRecursos"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(alvo_dart, a0, a1, a2) } };
         let (nivel, tipo) = nivel_e_tipo_de_recursos();
         f(recursos, nivel, tipo)
     }
@@ -963,7 +963,7 @@ pub extern "C" fn dartforge_nativo_SocketControlMessageImpl_extractHandles(this:
     #[cfg(unix)]
     {
         // SAFETY: `(Object, int, int) → List<ResourceHandle>`.
-        let f: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(ajudante_de_io("_dartforgeRecursosDaMensagem")) };
+        let f = { let alvo_dart: usize = ajudante_de_io("_dartforgeRecursosDaMensagem"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(alvo_dart, a0, a1, a2) } };
         let (nivel, tipo) = nivel_e_tipo_de_recursos();
         f(this, nivel, tipo)
     }
@@ -1055,8 +1055,8 @@ pub extern "C" fn dartforge_nativo_ResourceHandleImpl_toFile(this: i64) -> i64 {
     #[cfg(unix)]
     {
         // SAFETY: `(Object) → int` e `(int) → RandomAccessFile`.
-        let descritor: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(ajudante_de_io("_dartforgeDescritorDoRecurso")) };
-        let arquivo: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(ajudante_de_io("_dartforgeArquivoDoRecurso")) };
+        let descritor = { let alvo_dart: usize = ajudante_de_io("_dartforgeDescritorDoRecurso"); move |a0: i64| -> i64 { dart_r1(alvo_dart, a0) } };
+        let arquivo = { let alvo_dart: usize = ajudante_de_io("_dartforgeArquivoDoRecurso"); move |a0: i64| -> i64 { dart_r1(alvo_dart, a0) } };
         arquivo(ArquivoNativo::novo(descritor(this)))
     }
     #[cfg(windows)]
@@ -1074,7 +1074,7 @@ pub extern "C" fn dartforge_nativo_ResourceHandleImpl_toRawSocket(this: i64) -> 
     #[cfg(unix)]
     {
         // SAFETY: `(Object) → int`.
-        let descritor: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(ajudante_de_io("_dartforgeDescritorDoRecurso")) };
+        let descritor = { let alvo_dart: usize = ajudante_de_io("_dartforgeDescritorDoRecurso"); move |a0: i64| -> i64 { dart_r1(alvo_dart, a0) } };
         let fd = descritor(this);
         match endereco_local(fd) {
             Ok(e) => {

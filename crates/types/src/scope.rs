@@ -887,3 +887,70 @@ impl<'a> MemberResolver<'a> {
         self.substitute_class_type_params(class_id, args, base_sig)
     }
 }
+
+/// `LibraryFragment.shouldIgnoreUndefined`
+/// (`an611:src/dart/element/element.dart:1186-1221`): um nome que não
+/// resolve não é relatado quando pode vir de um import que não existe — com
+/// o mesmo prefixo e sem `show`, ou num `show` que o cita — ou, sem prefixo
+/// e começando com `_$`, de uma parte gerada que ainda não existe. A
+/// biblioteca já tem outro erro (o do import ou da parte), então o programa
+/// não passa por válido.
+pub fn deve_ignorar_indefinido(
+    program: &Program,
+    interner: &dartforge_intern::Interner,
+    unidade: dartforge_elements::model::UnitId,
+    prefixo: Option<SymbolId>,
+    nome: SymbolId,
+) -> bool {
+    let lib_id = program.unit(unidade).library;
+    let lib = program.library(lib_id);
+    for &uid in &lib.units {
+        let u = program.unit(uid);
+        for (i, d) in u.unit.directives.iter().enumerate() {
+            match &d.kind {
+                ast::DirectiveKind::Import { prefix, combinators, .. } => {
+                    if prefix.map(|p| p.sym) != prefixo {
+                        continue;
+                    }
+                    // `importedLibrary?.isSynthetic != false`: sem biblioteca
+                    // carregada para a diretiva.
+                    let sintetica = !lib
+                        .imports
+                        .iter()
+                        .any(|im| im.unit == uid && im.directive == i && !program.library(im.library).units.is_empty());
+                    if !sintetica {
+                        continue;
+                    }
+                    let mut shows = combinators.iter().filter_map(|c| match c {
+                        ast::Combinator::Show(v) => Some(v),
+                        ast::Combinator::Hide(_) => None,
+                    });
+                    let mut algum_show = false;
+                    for v in shows.by_ref() {
+                        algum_show = true;
+                        if v.iter().any(|n| n.sym == nome) {
+                            return true;
+                        }
+                    }
+                    if prefixo.is_some() && !algum_show {
+                        return true;
+                    }
+                }
+                ast::DirectiveKind::Part { uri } if prefixo.is_none() && interner.resolve(nome).starts_with("_$") => {
+                    let Some(texto) = dartforge_elements::load::string_lit_value(uri) else { continue };
+                    // `file_paths.isGenerated`, para uma parte cujo arquivo não existe.
+                    let gerado = [".g.dart", ".pb.dart", ".pbenum.dart", ".pbserver.dart", ".pbjson.dart", ".template.dart"]
+                        .iter()
+                        .any(|s| texto.ends_with(s));
+                    let existe =
+                        texto.contains(':') || u.path.as_ref().and_then(|p| p.parent()).is_none_or(|d| d.join(&texto).is_file());
+                    if gerado && !existe {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    false
+}

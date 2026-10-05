@@ -82,7 +82,7 @@ pub struct TypedefTypeData {
 }
 
 /// Conjunto de todas as tabelas laterais de tipos do outline, indexadas pelos IDs dos elementos.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OutlineTypes {
     pub functions: Vec<FunctionTypeData>,
     pub variables: Vec<VariableTypeData>,
@@ -1469,11 +1469,11 @@ impl<'a> OutlineResolver<'a> {
                     match if span.start == span.end { None } else { self.no_conteiner(sym) } {
                         Some(NoConteiner::Getter) => {
                             self.avisar(unit_id, diagnostico_de_nome_de_tipo(contexto, true, &texto, faixa));
-                            return self.core.dynamic_;
+                            return self.table.invalido(self.core.dynamic_);
                         }
                         Some(NoConteiner::SoSetter) => {
                             self.avisar(unit_id, diagnostico_de_nome_de_tipo(contexto, false, &texto, faixa));
-                            return self.core.dynamic_;
+                            return self.table.invalido(self.core.dynamic_);
                         }
                         None => {}
                     }
@@ -1484,7 +1484,7 @@ impl<'a> OutlineResolver<'a> {
                         Some(b) => {
                             if b.ambiguous {
                                 self.avisar(unit_id, Diagnostic::new("Referência ambígua de tipo", span));
-                                return self.core.dynamic_;
+                                return self.table.invalido(self.core.dynamic_);
                             }
                             match b.getter {
                                 Some(Element::Class(cid)) => {
@@ -1505,7 +1505,13 @@ impl<'a> OutlineResolver<'a> {
                                     if !args.is_empty() && args.len() != n_params {
                                         self.avisar(unit_id, diagnostico_de_argumentos_de_tipo(&texto, n_params, args.len(), span));
                                     }
-                                    let resolved_args = self.args_ou_limites(cid, resolved_args);
+                                    // Número errado de argumentos de tipo: todos ficam inválidos
+                                    // (`_buildTypeArguments`, `named_type_resolver.dart:148`).
+                                    let resolved_args = if !args.is_empty() && args.len() != n_params {
+                                        vec![self.table.invalido(self.core.dynamic_); n_params]
+                                    } else {
+                                        self.args_ou_limites(cid, resolved_args)
+                                    };
                                     let is_ext =
                                         self.program.class(cid).kind == ClassKind::ExtensionType;
                                     if is_ext {
@@ -1543,6 +1549,9 @@ impl<'a> OutlineResolver<'a> {
                                     }
                                     let resolved_args = if resolved_args.len() == formals.len() {
                                         resolved_args
+                                    } else if !args.is_empty() {
+                                        // Número errado de argumentos de tipo: todos inválidos.
+                                        vec![self.table.invalido(self.core.dynamic_); formals.len()]
                                     } else {
                                         self.instanciar_para_limites(&formals)
                                     };
@@ -1563,7 +1572,7 @@ impl<'a> OutlineResolver<'a> {
                                 }
                                 _ => {
                                     self.avisar(unit_id, diagnostico_de_nome_de_tipo(contexto, true, &texto, faixa));
-                                    self.core.dynamic_
+                                    self.table.invalido(self.core.dynamic_)
                                 }
                             }
                         }
@@ -1573,7 +1582,7 @@ impl<'a> OutlineResolver<'a> {
                             if span.start != span.end {
                                 self.avisar(unit_id, diagnostico_de_nome_de_tipo(contexto, false, &texto, faixa));
                             }
-                            self.core.dynamic_
+                            self.table.invalido(self.core.dynamic_)
                         }
                     }
                 } else if name.len() == 2 {
@@ -1600,7 +1609,13 @@ impl<'a> OutlineResolver<'a> {
                                 if !args.is_empty() && args.len() != n_params {
                                     self.avisar(unit_id, diagnostico_de_argumentos_de_tipo(&texto, n_params, args.len(), span));
                                 }
-                                let resolved_args = self.args_ou_limites(cid, resolved_args);
+                                // Número errado de argumentos de tipo: todos ficam inválidos
+                                // (`_buildTypeArguments`, `named_type_resolver.dart:148`).
+                                let resolved_args = if !args.is_empty() && args.len() != n_params {
+                                    vec![self.table.invalido(self.core.dynamic_); n_params]
+                                } else {
+                                    self.args_ou_limites(cid, resolved_args)
+                                };
                                 let is_ext =
                                     self.program.class(cid).kind == ClassKind::ExtensionType;
                                 if is_ext {
@@ -1638,6 +1653,9 @@ impl<'a> OutlineResolver<'a> {
                                 }
                                 let resolved_args = if resolved_args.len() == formals.len() {
                                     resolved_args
+                                } else if !args.is_empty() {
+                                    // Número errado de argumentos de tipo: todos inválidos.
+                                    vec![self.table.invalido(self.core.dynamic_); formals.len()]
                                 } else {
                                     self.instanciar_para_limites(&formals)
                                 };
@@ -1658,16 +1676,16 @@ impl<'a> OutlineResolver<'a> {
                             }
                             _ => {
                                 self.avisar(unit_id, diagnostico_de_nome_de_tipo(contexto, true, &texto, faixa));
-                                self.core.dynamic_
+                                self.table.invalido(self.core.dynamic_)
                             }
                         },
                         None => {
                             self.avisar(unit_id, diagnostico_de_nome_de_tipo(contexto, false, &texto, faixa));
-                            self.core.dynamic_
+                            self.table.invalido(self.core.dynamic_)
                         }
                     }
                 } else {
-                    self.core.dynamic_
+                    self.table.invalido(self.core.dynamic_)
                 }
             }
             ast::TypeKind::Function {

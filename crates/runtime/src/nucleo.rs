@@ -86,7 +86,7 @@ pub fn finalizar_programa() -> i32 {
                     Some(f) => {
                         drop(heap);
                         tomar_excecao();
-                        let t = com_raizes(&[bits], || f(bits));
+                        let t = com_raizes(&[bits], || dart_r1(f as usize, bits));
                         let s = HEAP.with(|h| h.borrow().texto(t).map(|texto| texto.para_string()));
                         // O `toString()` também falhou: a descrição do
                         // runtime (a classe do objeto).
@@ -113,14 +113,28 @@ pub fn finalizar_programa() -> i32 {
         });
         return 255;
     }
-    if std::env::var("DARTFORGE_GC_STATS").as_deref() == Ok("1") {
+    // `DARTFORGE_GC_STATS=1` escreve as estatísticas; `=exigir` também, e
+    // devolve 70 se a execução não exercitou o coletor: nenhuma coleta, ou
+    // uma imagem com raízes por mapas e nenhuma raiz lida de mapa
+    // (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.5, a prova de que coletou:
+    // um teste que nunca coletou no ponto perigoso não pode passar).
+    let estatisticas = std::env::var("DARTFORGE_GC_STATS").unwrap_or_default();
+    let mut nada_exercitado = false;
+    if estatisticas == "1" || estatisticas == "exigir" {
         HEAP.with(|heap| {
             let s = heap.borrow().stats();
-            eprintln!("{{\"dartforge_gc\":{{\"allocations\":{},\"collections\":{},\"reclaimed\":{},\"live_objects\":{},\"reserved_slots\":{},\"root_slots\":{},\"peak_root_slots\":{},\"live_roots\":{},\"peak_roots\":{},\"live_bytes\":{},\"peak_live_bytes\":{},\"permanent_roots\":{},\"smi_caixas_evitadas\":{}}}}}",
+            let (quadros, raizes_de_mapa, conferidas) = crate::heap::numeros_do_percurso();
+            eprintln!("{{\"dartforge_gc\":{{\"allocations\":{},\"collections\":{},\"reclaimed\":{},\"live_objects\":{},\"reserved_slots\":{},\"root_slots\":{},\"peak_root_slots\":{},\"live_roots\":{},\"peak_roots\":{},\"live_bytes\":{},\"peak_live_bytes\":{},\"permanent_roots\":{},\"smi_caixas_evitadas\":{},\"map_frames\":{},\"map_roots\":{},\"checked_roots\":{}}}}}",
                 s.allocations, s.collections, s.reclaimed, s.live_objects, s.reserved_slots,
                 s.root_slots, s.peak_root_slots, s.live_roots, s.peak_roots,
-                s.estimated_bytes, s.peak_estimated_bytes, s.permanent_roots, s.caixas_evitadas);
+                s.estimated_bytes, s.peak_estimated_bytes, s.permanent_roots, s.caixas_evitadas,
+                quadros, raizes_de_mapa, conferidas);
+            nada_exercitado = s.collections == 0 || (crate::heap::ha_mapas_de_pilha() && raizes_de_mapa == 0);
         });
+    }
+    if estatisticas == "exigir" && nada_exercitado {
+        eprintln!("dartforge: DARTFORGE_GC_STATS=exigir e a execução não exercitou o coletor (nenhuma coleta, ou nenhuma raiz lida de mapa)");
+        return 70;
     }
     if std::env::var("DARTFORGE_GC_MEMORIA").is_ok_and(|v| !v.is_empty() && v != "0") {
         HEAP.with(|heap| eprint!("[memória] fim do programa\n{}", heap.borrow().relatorio_de_memoria()));

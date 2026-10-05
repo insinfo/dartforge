@@ -1,0 +1,11 @@
+{
+ "c01": "void f(a) { a[1; }\n",
+ "c02": "var a = 0x__1;\n",
+ "c03": "var a = \u001f;\nvar b = \u007f;\n",
+ "c04": "(",
+ "c05": "\u0001",
+ "c06": "void f() {\n  switch (1) {\n    case 1:\n      g(;\n  }\n}\n",
+ "c07": "var a = [1, 2;\nvar b = {1: 2;\nvar c = (1, 2;\n",
+ "c08": "var x = '${",
+ "c09": "var a = 1 >>>= 2;\nList<List<List<int>>> b = [];\nvar c = a?..x ?? b?.y ??= 1;\n"
+}

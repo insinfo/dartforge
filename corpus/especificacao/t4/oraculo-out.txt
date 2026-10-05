@@ -1,0 +1,26 @@
+== a.dart
+  undefined_class | offset 7, length 3 | 1:8 | ERROR | Undefined class 'Xyz'.
+  non_type_as_type_argument | offset 19, length 3 | 1:20 | ERROR | The name 'Xyz' isn't a type, so it can't be used as a type argument.
+== b.dart
+  undefined_class | offset 0, length 3 | 1:1 | ERROR | Undefined class 'Xyz'.
+  undefined_class | offset 14, length 3 | 2:1 | ERROR | Undefined class 'Xyz'.
+  undefined_class | offset 38, length 3 | 3:1 | ERROR | Undefined class 'Xyz'.
+== c.dart
+  undefined_identifier | offset 38, length 3 | 3:8 | ERROR | Undefined name 'und'.
+  undefined_identifier | offset 51, length 3 | 4:8 | ERROR | Undefined name 'und'.
+  undefined_identifier | offset 69, length 3 | 5:11 | ERROR | Undefined name 'und'.
+  undefined_function | offset 76, length 3 | 6:3 | ERROR | The function 'und' isn't defined.
+  undefined_identifier | offset 85, length 3 | 7:3 | ERROR | Undefined name 'und'.
+  undefined_identifier | offset 104, length 3 | 8:11 | ERROR | Undefined name 'und'.
+  undefined_identifier | offset 142, length 3 | 11:8 | ERROR | Undefined name 'und'.
+== d.dart
+  undefined_class | offset 18, length 3 | 1:19 | ERROR | Undefined class 'Xyz'.
+  undefined_class | offset 69, length 3 | 3:18 | ERROR | Undefined class 'Xyz'.
+  undefined_class | offset 160, length 3 | 6:14 | ERROR | Undefined class 'Xyz'.
+  unnecessary_non_null_assertion | offset 181, length 1 | 7:4 | WARNING | The '!' will have no effect because the receiver can't be null.
+  invalid_null_aware_operator | offset 187, length 2 | 8:4 | WARNING | The receiver can't be null, so the null-aware operator '?.' is unnecessary.
+  undefined_getter | offset 189, length 3 | 8:6 | ERROR | The getter 'foo' isn't defined for the type 'int'.
+  dead_null_aware_expression | offset 201, length 1 | 9:8 | WARNING | The left operand can't be null, so the right operand is never executed.
+  cast_to_non_type | offset 211, length 3 | 10:8 | ERROR | The name 'Xyz' isn't a type, so it can't be used in an 'as' expression.
+  cast_to_non_type | offset 224, length 3 | 11:9 | ERROR | The name 'Xyz' isn't a type, so it can't be used in an 'as' expression.
+  non_type_as_type_argument | offset 247, length 3 | 12:14 | ERROR | The name 'Xyz' isn't a type, so it can't be used as a type argument.

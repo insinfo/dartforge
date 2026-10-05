@@ -1,0 +1,46 @@
+=== v01
+import 'v01.dart' as prefix;
+class Class { const Class(); const Class.named(); }
+class GenericClass<T> { const GenericClass(); }
+const k1 = prefix.Class.named;
+const k2 = GenericClass<int>.new;
+const k3 = prefix.GenericClass<int>.new;
+void f(Object o) {
+  switch (o) {
+    case prefix.Class.named:
+    case GenericClass<int>.new:
+    case const (prefix.GenericClass<int>.new):
+  }
+}
+=== v02
+extension type const E(int it) {}
+const E0 = E(0);
+const e1 = const E(1);
+class A {
+  A({E a = const E(0)});
+}
+extension type const Bool(bool _) implements bool {
+  static const Bool isTrue = Bool(true);
+}
+void f(int x) {
+  switch (x) {
+    case == E0:
+  }
+}
+=== v03
+class Annotation {
+  const Annotation(Object obj);
+}
+class Bar {}
+class Foo {
+  @Annotation(Bar)
+  set Bar(int value) {}
+}
+=== v04
+class A { const A(); }
+class M { }
+mixin N { final int f = 0; }
+class B = A with M;
+class C = A with N;
+const b = const B();
+const c = const C();

@@ -1,0 +1,1 @@
+var typedef F = int;

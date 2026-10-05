@@ -7,10 +7,13 @@ pub mod cache_objeto;
 pub mod context;
 pub mod driver;
 pub mod fonte;
+pub mod gcmap;
 pub mod gerador;
 pub mod ligador;
 pub mod ligador_macos;
 pub mod ligador_windows;
+#[cfg(feature = "llvm-embutido")]
+pub mod lto_distribuida;
 pub mod hir;
 pub mod llvm;
 pub mod lower;
@@ -268,6 +271,21 @@ fn emitir_ir_interno(
     objetos_estaticos: bool,
     podar: bool,
 ) -> Result<IrEmitido, String> {
+    // O modelo de exceções (`alvo::excecoes_por_tabelas`). O JIT (o único
+    // que emite sem a poda) não tem as tabelas: o código dele não registra
+    // as tabelas de desenrolamento no sistema.
+    let excecoes_por_tabelas = alvo::excecoes_por_tabelas()?;
+    if excecoes_por_tabelas && !podar {
+        return Err("as exceções por tabelas (DARTFORGE_EXCECOES=tabelas) não existem no JIT: use compile-native".to_string());
+    }
+    // O modo de raízes (`alvo::raizes_por_mapas`). No JIT (o único que emite
+    // sem a poda) o mapa de cada objeto é achado e registrado pelo
+    // gerenciador de memória da sessão (`crates/jit`, §3.8).
+    let raizes_por_mapas = alvo::raizes_por_mapas()?;
+    let mapas_no_jit = raizes_por_mapas && !podar;
+    // O rastro simbólico (§13.14). O JIT não emite a tabela: os objetos dele
+    // não passam pelo registro das seções da imagem.
+    let rastro_simbolico = alvo::rastro_simbolico()? && podar;
     // 1. Carregamento e Inferência (Front-end)
     let t_front = Instant::now();
     let sdk_dir = match options.sdk {
@@ -350,6 +368,10 @@ fn emitir_ir_interno(
     ctx.te = te;
     if options.depuracao {
         ctx.ligar_depuracao();
+        ctx.dwarf = true;
+    } else if rastro_simbolico {
+        // As posições sem o DWARF: só a tabela do rastro (§13.14).
+        ctx.ligar_depuracao();
     }
     ctx.da_fonte = bibliotecas_da_fonte.into_iter().collect();
     ctx.usa_dart_async = usa_dart_async;
@@ -420,6 +442,10 @@ fn emitir_ir_interno(
     // 2b. Otimização da HIR (inlining, substituição escalar: `otimizar/`).
     let t_otimizar = Instant::now();
     otimizar::otimizar(&mut hir_module);
+    // 2c. As exceções por tabelas: o último passe, sobre a HIR já otimizada.
+    if excecoes_por_tabelas {
+        otimizar::excecoes_por_tabelas(&mut hir_module);
+    }
     if options.timings {
         eprintln!("  HIR:       baixar {:?}, otimizar {:?}", t_otimizar.duration_since(t_hir), t_otimizar.elapsed());
     }
@@ -460,8 +486,17 @@ fn emitir_ir_interno(
         // backend, sem mudar o tempo (docs/NATIVO-PRODUCAO-GRANDE.md §5);
         // `DARTFORGE_OPTSIZE_PROGRAMA=0` desliga.
         .com_otimizar_tamanho(grande && !std::env::var("DARTFORGE_OPTSIZE_PROGRAMA").is_ok_and(|v| v == "0"))
-        .com_producao(options.optimize);
+        .com_producao(options.optimize)
+        .com_raizes_por_mapas(raizes_por_mapas)
+        .com_mapas_no_jit(mapas_no_jit)
+        .com_rastro(rastro_simbolico);
     let llvm_ir = emitter.emit_all();
+    // O verificador do modo mapas (§7.4), antes do passe dos mapas.
+    if raizes_por_mapas {
+        llvm::verificar_mapas::verificar(&llvm_ir)?;
+    }
+    // Nos alvos Itanium, toda função precisa da tabela de desenrolamento.
+    let llvm_ir = if excecoes_por_tabelas && cfg!(unix) { sdk_modulo::com_uwtable(&llvm_ir) } else { llvm_ir };
     let llvm_duration = t_llvm.elapsed();
 
     let bytes_sdk = bytes_do_sdk(&llvm_ir, &program);

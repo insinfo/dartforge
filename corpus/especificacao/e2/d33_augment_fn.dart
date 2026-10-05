@@ -1,0 +1,1 @@
+augment void f() {}

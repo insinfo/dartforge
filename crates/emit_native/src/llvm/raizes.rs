@@ -56,14 +56,46 @@ impl Conjunto {
     }
 }
 
-/// Os slots do quadro: `alloca`s `Ref` com slot próprio, depois os valores
-/// SSA enraizados, com slot compartilhado quando não interferem.
+/// O resultado da análise de raízes de uma função.
+#[derive(Default)]
+pub struct Raizes {
+    /// Os slots do quadro: `alloca`s `Ref` com slot próprio, depois os
+    /// valores SSA enraizados, com slot compartilhado quando não interferem.
+    pub slots: HashMap<ValueId, usize>,
+    /// Os valores SSA enraizados (vivos na entrada de algum ponto de
+    /// coleta), na ordem de definição.
+    pub enraizados: Vec<ValueId>,
+    /// Para cada instrução que é ponto de coleta, os valores SSA `Ref` vivos
+    /// na entrada dela (os operandos inclusive: o runtime conta com quem
+    /// chama para mantê-los vivos durante a chamada).
+    pub vivos_em: HashMap<ValueId, Vec<ValueId>>,
+    /// O mesmo para o ponto de coleta do fim de um bloco (o `throw`, as
+    /// conversões das entradas de `phi`).
+    pub vivos_no_fim: HashMap<BlockId, Vec<ValueId>>,
+    /// Os valores enraizados vivos na entrada de cada bloco (depois dos
+    /// `phi` dele); só os blocos com algum.
+    pub vivos_na_entrada: HashMap<BlockId, Vec<ValueId>>,
+}
+
+/// Os slots do quadro ([`Raizes::slots`]).
 pub fn atribuir_slots(
     func: &Function,
     tipos: &HashMap<ValueId, Type>,
     pode_coletar: &dyn Fn(&Instruction) -> bool,
     blocos_que_convertem_phi: &dyn Fn(BlockId) -> bool,
 ) -> HashMap<ValueId, usize> {
+    analisar(func, tipos, pode_coletar, blocos_que_convertem_phi).slots
+}
+
+/// A análise completa: os slots (a pilha-sombra) e a vivacidade em cada
+/// ponto de coleta (as raízes por mapas,
+/// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8).
+pub fn analisar(
+    func: &Function,
+    tipos: &HashMap<ValueId, Type>,
+    pode_coletar: &dyn Fn(&Instruction) -> bool,
+    blocos_que_convertem_phi: &dyn Fn(BlockId) -> bool,
+) -> Raizes {
     let mut slots = HashMap::new();
     for block in &func.blocks {
         for (vid, inst, _) in &block.instructions {
@@ -91,7 +123,7 @@ pub fn atribuir_slots(
         }
     }
     if candidatos.is_empty() {
-        return slots;
+        return Raizes { slots, ..Raizes::default() };
     }
     let indice: HashMap<ValueId, usize> = candidatos.iter().enumerate().map(|(i, v)| (*v, i)).collect();
     let n = candidatos.len();
@@ -139,7 +171,10 @@ pub fn atribuir_slots(
     // A passada de um bloco: a partir dos vivos na saída, visita cada
     // instrução (os vivos depois dela, a definição, os usos) e devolve os
     // vivos na entrada do bloco (depois dos `phi`, que não são usos).
-    let passar = |b: usize, saida: Conjunto, visitar: &mut dyn FnMut(Option<&Instruction>, Option<usize>, &Conjunto, &Conjunto)| -> Conjunto {
+    let passar = |b: usize,
+                  saida: Conjunto,
+                  visitar: &mut dyn FnMut(Option<&Instruction>, Option<ValueId>, Option<usize>, &Conjunto, &Conjunto)|
+     -> Conjunto {
         let block = &func.blocks[b];
         let mut vivos = saida;
         // O terminador: usos; `throw` e as conversões de `phi` no fim do
@@ -151,7 +186,7 @@ pub fn atribuir_slots(
             }
         }
         if matches!(block.terminator, Terminator::Throw(_)) || blocos_que_convertem_phi(block.id) {
-            visitar(None, None, &vivos, &antes);
+            visitar(None, None, None, &vivos, &antes);
         }
         vivos = antes;
         for (vid, inst, _) in block.instructions.iter().rev() {
@@ -168,7 +203,7 @@ pub fn atribuir_slots(
                     antes.por(i);
                 }
             }
-            visitar(Some(inst), d, &vivos, &antes);
+            visitar(Some(inst), Some(*vid), d, &vivos, &antes);
             vivos = antes;
         }
         vivos
@@ -180,7 +215,7 @@ pub fn atribuir_slots(
         let mut mudou = false;
         for b in (0..nb).rev() {
             let saida = vivos_na_saida(b, &entrada);
-            let e = passar(b, saida, &mut |_, _, _, _| {});
+            let e = passar(b, saida, &mut |_, _, _, _, _| {});
             if e != entrada[b] {
                 entrada[b] = e;
                 mudou = true;
@@ -202,12 +237,16 @@ pub fn atribuir_slots(
             }
         }
     };
+    // Os pontos de coleta, com o que está vivo na entrada de cada um:
+    // (a instrução, ou `None` no fim do bloco; o bloco; os vivos).
+    let mut pontos: Vec<(Option<ValueId>, usize, Conjunto)> = Vec::new();
     for b in 0..nb {
         let saida = vivos_na_saida(b, &entrada);
-        let e = passar(b, saida, &mut |inst, d, depois, antes| {
+        let e = passar(b, saida, &mut |inst, quem, d, depois, antes| {
             let coleta = inst.is_none_or(|i| pode_coletar(i));
             if coleta {
                 enraizado.unir(antes);
+                pontos.push((quem, b, antes.clone()));
             }
             if let Some(d) = d {
                 marcar(d, depois, &mut interfere);
@@ -254,5 +293,24 @@ pub fn atribuir_slots(
         cor[a] = Some(c);
         slots.insert(candidatos[a], base + c);
     }
-    slots
+    let valores = |c: &Conjunto| -> Vec<ValueId> { c.elementos().filter(|&i| enraizado.tem(i)).map(|i| candidatos[i]).collect() };
+    let mut r = Raizes { slots, enraizados: valores(&enraizado), ..Raizes::default() };
+    for (quem, b, vivos) in &pontos {
+        let v = valores(vivos);
+        match quem {
+            Some(inst) => {
+                r.vivos_em.insert(*inst, v);
+            }
+            None => {
+                r.vivos_no_fim.insert(func.blocks[*b].id, v);
+            }
+        }
+    }
+    for (b, e) in entrada.iter().enumerate() {
+        let v = valores(e);
+        if !v.is_empty() {
+            r.vivos_na_entrada.insert(func.blocks[b].id, v);
+        }
+    }
+    r
 }

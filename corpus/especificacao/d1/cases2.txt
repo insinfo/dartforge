@@ -1,0 +1,204 @@
+=== s01
+enum E {
+  v;
+  final int x;
+  const E() : x = '';
+}
+=== s02
+class C<T> {
+  final T x = y;
+  const C();
+}
+const int y = 1;
+var v = const C<String>();
+=== s03
+class A {
+  const A({int a = 0});
+}
+class B extends A {
+  const B({super.a});
+}
+const b = const B();
+=== s04
+class A {
+  const A(int x): assert(x > 0, '${throw ''}');
+}
+const a = const A(0);
+=== s05
+class C<T> {
+  final t;
+  const C(dynamic x) : t = x as List<T>;
+}
+main() {
+  const C<int>(<int>[]);
+  const C<int>(<num>[]);
+  const C<int>(null);
+}
+=== s06
+const dynamic a = '0';
+enum E {
+  v(a);
+  const E(int a);
+}
+=== s07
+var b1 = const bool.fromEnvironment(1);
+var b2 = const bool.fromEnvironment('x', defaultValue: 1);
+=== s08
+enum A {
+  e(0);
+  final int v;
+  const A(this.v) : v = 0;
+}
+=== s09
+class B {
+  final l;
+  const B(String o) : l = o.length;
+}
+const y = B(x);
+=== s10
+extension type const A(bool it) {}
+const True = A(true);
+void f(bool x) {
+  switch (x) {
+    case == True:
+    default:
+  }
+}
+=== s11
+class A<T> {
+  A<T> Function() fn;
+  A([this.fn = A<T>.new]);
+}
+=== s12
+const A2 = A3 + 1;
+const A3 = A2 + 1;
+class C0 {
+  static const X = const C1();
+}
+class C1 {
+  const C1() : x = C0.X;
+  final x;
+}
+=== s13
+main() {
+  const elems = const [
+    const [
+      1,
+      elems,
+    ],
+  ];
+}
+=== s14
+class A {
+  B();
+  static const field = const B();
+}
+=== s15
+class K<X> {
+  final x6;
+  const K() : x6 = const <X, String?>{};
+}
+=== s16
+class A {
+  final String str;
+  const A(this.str);
+}
+class S {
+  static const DOLLAR = const A("$");
+}
+=== s17
+// @dart=2.19
+const ERROR_A = 0;
+const ERROR_B = 1;
+errorToString(error) {
+  switch (error) {
+    case ERROR_A:
+      return "ERROR_A";
+    case ERROR_B = 1:
+      return "x";
+  }
+}
+=== s18
+enum N {
+  a(1);
+  const N(int x);
+  static const N e3 = N(3);
+}
+=== s19
+enum CR {
+  e1(values);
+  final List<CR> list;
+  const CR(this.list);
+}
+=== s20
+class A { const A(Object o); }
+@A(v)
+class C {}
+var v = 0;
+enum E { v(a); const E(Object o); }
+var a = 1;
+@A(foo)
+class D<@A(foo) T> {}
+=== s21
+import 's21.dart' deferred as self;
+class E { static const f = 1; const E(); }
+const a = self.E.f;
+const b = const self.E();
+const c = self.a;
+=== s22
+void f({int x = X}) {}
+void g([int x = X]) {}
+class E { const E(int i); }
+extension type ET(int i) { const ET.c(this.i); }
+class A { const A({ET a = const ET.c(0)}); }
+=== s23
+class A {
+  final m = const A();
+  const A();
+}
+class C {
+  final x;
+  const C() : x = y;
+}
+const y = const C();
+class R { const R() : this.a(); const R.a() : this(); }
+class S { const S([x = const S()]); }
+class T { const T() : this(); }
+=== s24
+const c1 = '''
+a''' == 'a' ? true : null;
+const c2 = c1 ? 1 : 2;
+=== s25
+void f<U>() {}
+void g1<U>(U a, [num b = 0, List<U> c = const []]) {}
+void g2<U>(U a, [int b = 0, Map<U, U> c = const {}]) {}
+class M<U> {
+  final void Function(U, [int, Never]) x7;
+  const M(bool b) : x7 = b ? g1 : g2;
+}
+const m = const M<String>(true);
+=== s26
+class A {
+  final int a;
+  const A(dynamic d) : a = d.length;
+}
+const x = const A(<int>[]);
+const y = const A('abc');
+=== s27
+class A { final int x; const A.n(this.x); }
+const a = A.n;
+const b = A.n(1).x;
+void f(Object o) {
+  switch (o) {
+    case A.n:
+    case const (A.new):
+  }
+}
+=== s28
+class A { const A(); }
+const a = const A()
+  ..toString();
+const w2 = w;
+const w = const R();
+class R { const R() : this.a(); const R.a() : this(); }
+const w3 = const R();

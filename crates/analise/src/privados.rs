@@ -215,6 +215,25 @@ impl Coleta<'_> {
 /// formada por `unidades` (na ordem da biblioteca), com o índice da unidade.
 /// `com_erro_de_sintaxe`: alguma unidade teve erro de sintaxe (a biblioteca
 /// fica de fora).
+/// Como [`nao_usados`], com a regra do T5 no lugar da porta por biblioteca:
+/// uma declaração privada só fica de fora quando o nome dela é citado em
+/// algum trecho que o parser pulou em qualquer unidade da biblioteca
+/// (`pulados`, um por unidade, na mesma ordem).
+pub fn nao_usados_com_pulados(
+    unidades: &[Unidade<'_>],
+    nomes: &Interner,
+    pulados: &[crate::Pulados<'_>],
+) -> Vec<(usize, Diagnostic)> {
+    let mut saida = nao_usados(unidades, nomes, false);
+    if pulados.iter().any(|p| !p.vazio()) {
+        saida.retain(|(i, d)| {
+            let nome = unidades.get(*i).and_then(|u| u.fonte.get(d.span.start..d.span.end)).unwrap_or("");
+            !pulados.iter().any(|p| p.cita(nome))
+        });
+    }
+    saida
+}
+
 pub fn nao_usados(
     unidades: &[Unidade<'_>],
     nomes: &Interner,

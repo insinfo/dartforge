@@ -838,7 +838,9 @@ fn target_machine() -> Result<LLVMTargetMachineRef, String> {
             triple,
             if cfg!(target_arch = "x86_64") { c"x86-64" } else { c"generic" }.as_ptr(),
             c"".as_ptr(),
-            LLVMCodeGenOptLevel::LLVMCodeGenLevelNone,
+            // Com raízes por mapas, nunca o `-O0` (o FastISel tem defeitos
+            // conhecidos com `gc.relocate`, §3.4).
+            if raizes_por_mapas() { LLVMCodeGenOptLevel::LLVMCodeGenLevelLess } else { LLVMCodeGenOptLevel::LLVMCodeGenLevelNone },
             LLVMRelocMode::LLVMRelocDefault,
             LLVMCodeModel::LLVMCodeModelJITDefault,
         );
@@ -854,6 +856,9 @@ fn target_machine() -> Result<LLVMTargetMachineRef, String> {
 pub(crate) struct Lljit {
     handle: LLVMOrcLLJITRef,
     main: LLVMOrcJITDylibRef,
+    /// Com raízes por mapas, o contexto da camada de objetos (quem registra
+    /// os mapas); nulo sem elas.
+    camada: *mut ContextoDaCamada,
 }
 
 impl Lljit {
@@ -872,27 +877,96 @@ impl Lljit {
     /// `LLJIT` retorna erro, sempre com a mensagem original do LLVM anexada.
     pub(crate) fn new() -> Result<Self, String> {
         let machine = target_machine()?;
+        let mapas = raizes_por_mapas();
+        let camada: *mut ContextoDaCamada =
+            if mapas { Box::into_raw(Box::new(ContextoDaCamada { registro: std::sync::Mutex::new(None) })) } else { ptr::null_mut() };
+        let soltar_camada = || {
+            if !camada.is_null() {
+                // SAFETY: `camada` veio de `Box::into_raw` e não foi entregue
+                // a nenhuma `LLJIT` viva.
+                drop(unsafe { Box::from_raw(camada) });
+            }
+        };
         let mut handle: LLVMOrcLLJITRef = ptr::null_mut();
         // SAFETY: cada objeto criado aqui é entregue ao seguinte, que assume a
         // propriedade: o `TargetMachine` ao JTMB, o JTMB ao builder e o builder
-        // a `LLVMOrcCreateLLJIT` (que o consome inclusive quando falha).
+        // a `LLVMOrcCreateLLJIT` (que o consome inclusive quando falha). A
+        // camada de objetos com mapas recebe o contexto, que vive até o `Drop`.
         unsafe {
             let builder = LLVMOrcCreateLLJITBuilder();
             LLVMOrcLLJITBuilderSetJITTargetMachineBuilder(
                 builder,
                 LLVMOrcJITTargetMachineBuilderCreateFromTargetMachine(machine),
             );
+            if mapas {
+                llvm_sys::orc2::lljit::LLVMOrcLLJITBuilderSetObjectLinkingLayerCreator(builder, criar_camada, camada.cast());
+            }
             if let Some(message) = take_error(LLVMOrcCreateLLJIT(&mut handle, builder)) {
+                soltar_camada();
                 return Err(message);
             }
         }
         if handle.is_null() {
+            soltar_camada();
             return Err("LLVM devolveu uma LLJIT nula sem diagnóstico".to_owned());
+        }
+        if mapas {
+            // SAFETY: a camada de transformação pertence à `LLJIT` viva; a
+            // função não usa contexto.
+            unsafe {
+                llvm_sys::orc2::LLVMOrcIRTransformLayerSetTransform(
+                    llvm_sys::orc2::lljit::LLVMOrcLLJITGetIRTransformLayer(handle),
+                    transformar_ir,
+                    ptr::null_mut(),
+                );
+            }
         }
         // SAFETY: `handle` acabou de ser criado com sucesso; a dylib principal
         // pertence à `LLJIT` e é válida enquanto esta estrutura viver.
         let main = unsafe { LLVMOrcLLJITGetMainJITDylib(handle) };
-        Ok(Self { handle, main })
+        Ok(Self { handle, main, camada })
+    }
+
+    /// Com raízes por mapas: os mapas dos objetos vão para o runtime deste
+    /// processo (a sessão que publica os símbolos dele).
+    pub(crate) fn usar_registro_local(&self) {
+        if self.camada.is_null() {
+            return;
+        }
+        // SAFETY: a camada vive enquanto a sessão.
+        let camada = unsafe { &*self.camada };
+        *camada.registro.lock().unwrap_or_else(|e| e.into_inner()) = Some((registrar_local, retirar_local));
+    }
+
+    /// Com raízes por mapas: os mapas dos objetos vão para o runtime da
+    /// biblioteca do SDK da fonte (é ele que coleta).
+    ///
+    /// # Erros
+    /// A biblioteca não carrega ou não exporta o registro.
+    pub(crate) fn usar_registro_da_biblioteca(&self, dll: &std::path::Path) -> Result<(), String> {
+        if self.camada.is_null() {
+            return Ok(());
+        }
+        let modulo = carregar_biblioteca(dll);
+        if modulo.is_null() {
+            return Err(format!("não foi possível carregar a biblioteca do SDK {}", dll.display()));
+        }
+        let registrar = endereco_na_biblioteca(modulo, c"dartforge_registrar_mapa_llvm");
+        let retirar = endereco_na_biblioteca(modulo, c"dartforge_desregistrar_mapa");
+        if registrar.is_null() || retirar.is_null() {
+            return Err("a biblioteca do SDK não exporta o registro dos mapas de pilha (dartforge_registrar_mapa_llvm)".to_owned());
+        }
+        // SAFETY: a camada vive enquanto a sessão; os símbolos são as funções
+        // do runtime com estas assinaturas (`gc_raizes.rs`), e a biblioteca
+        // nunca é descarregada.
+        unsafe {
+            let camada = &*self.camada;
+            *camada.registro.lock().unwrap_or_else(|e| e.into_inner()) = Some((
+                std::mem::transmute::<*mut std::ffi::c_void, FuncaoDeRegistro>(registrar),
+                std::mem::transmute::<*mut std::ffi::c_void, FuncaoDeRetirada>(retirar),
+            ));
+        }
+        Ok(())
     }
 
     /// `target datalayout` e `target triple` que esta `LLJIT` impõe aos módulos.
@@ -1184,6 +1258,13 @@ impl Drop for Lljit {
         // `crate::JitSession` declara o vetor de módulos antes deste campo e os
         // campos são destruídos na ordem de declaração.
         let _ = take_error(unsafe { LLVMOrcDisposeLLJIT(self.handle) });
+        // Os objetos (e os mapas deles) saíram com a `LLJIT`; o contexto da
+        // camada sai depois.
+        if !self.camada.is_null() {
+            // SAFETY: veio de `Box::into_raw` em `new`, e a `LLJIT` que o
+            // usava já foi solta.
+            drop(unsafe { Box::from_raw(self.camada) });
+        }
     }
 }
 
@@ -1879,6 +1960,17 @@ pub(crate) fn compile_object(name: &str, ir: &str) -> Result<ObjectParts, String
     let signatures = parsed.signatures();
     let layouts = parsed.class_layouts();
     let machine = target_machine()?;
+    // Raízes por mapas: o objeto em cache passa pelo mesmo passe que a
+    // sessão roda nos módulos (`transformar_ir`).
+    if raizes_por_mapas() {
+        // SAFETY: o módulo pertence a `parsed`, vivo; a máquina é nossa e
+        // solta no erro.
+        if let Some(m) = take_error(unsafe { passe_dos_mapas(parsed.module, machine) }) {
+            // SAFETY: a máquina é nossa e ninguém mais a usa.
+            unsafe { LLVMDisposeTargetMachine(machine) };
+            return Err(format!("o passe dos mapas de pilha falhou: {m}"));
+        }
+    }
     // SAFETY: `machine` é nosso até o `Dispose` no fim; o módulo pertence a
     // `parsed`, vivo durante a emissão; a camada de dados criada para um
     // módulo sem layout é liberada logo depois de copiada para ele; o buffer
@@ -1912,6 +2004,456 @@ pub(crate) fn compile_object(name: &str, ir: &str) -> Result<ObjectParts, String
     }?;
     let target = parsed.target();
     Ok(ObjectParts { object, declarations, signatures, layouts, globals, target })
+}
+
+
+// ─── Raízes por mapas no JIT (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.8) ───
+//
+// Com `DARTFORGE_RAIZES=mapas`, a sessão:
+//
+// * gera código com otimização mínima (`CodeGenLevelLess`): o `-O0` usa o
+//   FastISel, que tem defeitos conhecidos com `gc.relocate` (§3.4);
+// * roda o `rewrite-statepoints-for-gc` e o verificador em cada módulo, na
+//   camada de transformação de IR do `LLJIT` (e no objeto em cache,
+//   [`compile_object`]);
+// * liga os objetos pela camada RTDyld com um gerenciador de memória próprio
+//   ([`ObjetoNoJit`]): uma região por objeto, o código numa metade e os
+//   dados na outra (no COFF, o `.pdata` e o `.xdata` precisam de RVAs de 32
+//   bits sobre a base da imagem, que o RTDyld calcula como o menor endereço
+//   das seções). Ele acha a seção do mapa de pilha pelo nome na alocação
+//   (StackMaps.rst), registra-a no runtime depois que o RTDyld aplicou as
+//   relocações (o mapa fica no formato do LLVM, com os endereços absolutos
+//   das funções), e a tira quando a memória do objeto é solta — uma geração
+//   aposentada da recarga. No Windows x64 ele também registra o `.pdata` do
+//   objeto (`RtlAddFunctionTable`): sem isso o percurso da pilha
+//   (`RtlVirtualUnwind`) não atravessa um quadro do JIT. No ELF e no Mach-O
+//   o RTDyld registra o `.eh_frame` no desenrolador do processo.
+//
+// O registro vai para o runtime que coleta: o deste processo
+// ([`Lljit::usar_registro_local`]) ou o da biblioteca do SDK da fonte
+// ([`Lljit::usar_registro_da_biblioteca`]).
+
+/// `DARTFORGE_RAIZES=mapas` neste processo (o emissor lê a mesma variável,
+/// `dartforge_emit_native::alvo::raizes_por_mapas`).
+pub(crate) fn raizes_por_mapas() -> bool {
+    static SIM: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SIM.get_or_init(|| std::env::var("DARTFORGE_RAIZES").is_ok_and(|v| v == "mapas"))
+}
+
+/// Registra a seção do mapa `[inicio, fim)` no runtime.
+type FuncaoDeRegistro = unsafe extern "C" fn(*const u8, *const u8);
+/// Tira o mapa registrado com o mesmo `inicio`.
+type FuncaoDeRetirada = unsafe extern "C" fn(*const u8);
+
+/// O que a camada de objetos da sessão compartilha com cada objeto: quem
+/// registra os mapas. Vive enquanto a sessão (o [`Lljit`] o solta depois do
+/// `LLJIT`, que solta os objetos antes).
+struct ContextoDaCamada {
+    registro: std::sync::Mutex<Option<(FuncaoDeRegistro, FuncaoDeRetirada)>>,
+}
+
+unsafe extern "C" fn registrar_local(inicio: *const u8, fim: *const u8) {
+    dartforge_runtime::heap::registrar_secao_llvm(inicio as usize, fim as usize);
+}
+
+unsafe extern "C" fn retirar_local(inicio: *const u8) {
+    dartforge_runtime::heap::desregistrar_mapa(inicio as usize);
+}
+
+/// O tamanho da região reservada para um objeto (o código na primeira
+/// metade, os dados na segunda). Só endereço reservado: as páginas são
+/// confirmadas conforme as seções chegam.
+const REGIAO_DO_OBJETO: usize = 256 << 20;
+const METADE_DA_REGIAO: usize = REGIAO_DO_OBJETO / 2;
+
+/// A memória do sistema para o código do JIT.
+#[cfg(windows)]
+mod memoria_virtual {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn VirtualAlloc(endereco: *mut u8, tamanho: usize, tipo: u32, protecao: u32) -> *mut u8;
+        fn VirtualProtect(endereco: *mut u8, tamanho: usize, protecao: u32, antiga: *mut u32) -> i32;
+        fn VirtualFree(endereco: *mut u8, tamanho: usize, tipo: u32) -> i32;
+        fn FlushInstructionCache(processo: *mut u8, endereco: *const u8, tamanho: usize) -> i32;
+        fn GetCurrentProcess() -> *mut u8;
+    }
+    const MEM_COMMIT: u32 = 0x1000;
+    const MEM_RESERVE: u32 = 0x2000;
+    const MEM_RELEASE: u32 = 0x8000;
+    const PAGE_NOACCESS: u32 = 0x01;
+    const PAGE_READWRITE: u32 = 0x04;
+    const PAGE_EXECUTE_READ: u32 = 0x20;
+
+    pub(super) fn pagina() -> usize {
+        4096
+    }
+
+    /// Reserva `n` bytes de endereço (nulo se falhar).
+    pub(super) fn reservar(n: usize) -> *mut u8 {
+        // SAFETY: só reserva endereço novo.
+        unsafe { VirtualAlloc(std::ptr::null_mut(), n, MEM_RESERVE, PAGE_NOACCESS) }
+    }
+
+    /// Confirma `[p, p + n)`, já reservado, para leitura e escrita.
+    ///
+    /// # Safety
+    /// `[p, p + n)` está numa região de [`reservar`].
+    pub(super) unsafe fn confirmar(p: *mut u8, n: usize) -> bool {
+        // SAFETY: o contrato da função.
+        !unsafe { VirtualAlloc(p, n, MEM_COMMIT, PAGE_READWRITE) }.is_null()
+    }
+
+    /// Torna `[p, p + n)` executável e só de leitura, e descarta o cache de
+    /// instruções dele.
+    ///
+    /// # Safety
+    /// `[p, p + n)` está confirmado.
+    pub(super) unsafe fn tornar_executavel(p: *mut u8, n: usize) -> bool {
+        let mut antiga = 0u32;
+        // SAFETY: o contrato da função.
+        unsafe { VirtualProtect(p, n, PAGE_EXECUTE_READ, &mut antiga) != 0 && FlushInstructionCache(GetCurrentProcess(), p, n) != 0 }
+    }
+
+    /// Solta a região inteira.
+    ///
+    /// # Safety
+    /// `p` é o começo de uma região de [`reservar`], que nada mais usa.
+    pub(super) unsafe fn soltar(p: *mut u8, _n: usize) {
+        // SAFETY: o contrato da função.
+        unsafe { VirtualFree(p, 0, MEM_RELEASE) };
+    }
+}
+
+/// A memória do sistema para o código do JIT.
+#[cfg(unix)]
+mod memoria_virtual {
+    unsafe extern "C" {
+        fn mmap(endereco: *mut u8, tamanho: usize, protecao: i32, bandeiras: i32, arquivo: i32, deslocamento: i64) -> *mut u8;
+        fn mprotect(endereco: *mut u8, tamanho: usize, protecao: i32) -> i32;
+        fn munmap(endereco: *mut u8, tamanho: usize) -> i32;
+        fn sysconf(nome: i32) -> i64;
+    }
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    unsafe extern "C" {
+        fn __clear_cache(inicio: *mut u8, fim: *mut u8);
+    }
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    unsafe extern "C" {
+        fn sys_icache_invalidate(inicio: *mut u8, tamanho: usize);
+    }
+    const PROT_READ: i32 = 1;
+    const PROT_WRITE: i32 = 2;
+    const PROT_EXEC: i32 = 4;
+    const MAP_PRIVATE: i32 = 2;
+    const MAP_ANON: i32 = if cfg!(target_os = "macos") { 0x1000 } else { 0x20 };
+    /// Sem reservar memória de troca para a região inteira (só Linux).
+    const MAP_NORESERVE: i32 = if cfg!(target_os = "linux") { 0x4000 } else { 0 };
+    /// `_SC_PAGESIZE`.
+    const SC_PAGESIZE: i32 = if cfg!(target_os = "macos") { 29 } else { 30 };
+
+    pub(super) fn pagina() -> usize {
+        // SAFETY: só consulta o sistema.
+        let n = unsafe { sysconf(SC_PAGESIZE) };
+        if n > 0 { n as usize } else { 4096 }
+    }
+
+    /// Mapeia `n` bytes para leitura e escrita, sem confirmar as páginas
+    /// (nulo se falhar).
+    pub(super) fn reservar(n: usize) -> *mut u8 {
+        // SAFETY: mapeamento anônimo novo.
+        let p = unsafe { mmap(std::ptr::null_mut(), n, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | MAP_NORESERVE, -1, 0) };
+        if p as isize == -1 { std::ptr::null_mut() } else { p }
+    }
+
+    /// As páginas de um mapeamento anônimo nascem quando tocadas.
+    ///
+    /// # Safety
+    /// Nenhuma.
+    pub(super) unsafe fn confirmar(_p: *mut u8, _n: usize) -> bool {
+        true
+    }
+
+    /// Torna `[p, p + n)` executável e só de leitura, e descarta o cache de
+    /// instruções dele (no aarch64; o x86-64 é coerente).
+    ///
+    /// # Safety
+    /// `[p, p + n)` está mapeado e alinhado à página.
+    pub(super) unsafe fn tornar_executavel(p: *mut u8, n: usize) -> bool {
+        // SAFETY: o contrato da função.
+        let ok = unsafe { mprotect(p, n, PROT_READ | PROT_EXEC) } == 0;
+        #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+        // SAFETY: o intervalo acabou de ser escrito e protegido.
+        unsafe {
+            __clear_cache(p, p.add(n))
+        };
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        // SAFETY: o intervalo acabou de ser escrito e protegido.
+        unsafe {
+            sys_icache_invalidate(p, n)
+        };
+        ok
+    }
+
+    /// Desfaz o mapeamento inteiro.
+    ///
+    /// # Safety
+    /// `[p, p + n)` é um mapeamento de [`reservar`], que nada mais usa.
+    pub(super) unsafe fn soltar(p: *mut u8, n: usize) {
+        // SAFETY: o contrato da função.
+        unsafe { munmap(p, n) };
+    }
+}
+
+#[cfg(all(windows, target_arch = "x86_64"))]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn RtlAddFunctionTable(tabela: *const u8, n: u32, base: u64) -> u8;
+    fn RtlDeleteFunctionTable(tabela: *const u8) -> u8;
+}
+
+/// A memória de um objeto carregado pelo RTDyld (o contexto por objeto do
+/// gerenciador de memória da camada).
+struct ObjetoNoJit {
+    camada: *const ContextoDaCamada,
+    /// O começo da região (nulo se a reserva falhou: toda alocação falha).
+    base: *mut u8,
+    /// O fim do código e o dos dados, em deslocamentos sobre `base`.
+    codigo: usize,
+    dados: usize,
+    /// A seção do mapa de pilha e a do `.pdata` (COFF).
+    mapa: Option<(*const u8, usize)>,
+    #[cfg_attr(not(all(windows, target_arch = "x86_64")), allow(dead_code))]
+    pdata: Option<(*const u8, usize)>,
+    mapa_registrado: bool,
+    #[cfg_attr(not(all(windows, target_arch = "x86_64")), allow(dead_code))]
+    tabela_registrada: bool,
+    finalizado: bool,
+}
+
+impl ObjetoNoJit {
+    fn novo(camada: *const ContextoDaCamada) -> Self {
+        ObjetoNoJit {
+            camada,
+            base: memoria_virtual::reservar(REGIAO_DO_OBJETO),
+            codigo: 0,
+            dados: METADE_DA_REGIAO,
+            mapa: None,
+            pdata: None,
+            mapa_registrado: false,
+            tabela_registrada: false,
+            finalizado: false,
+        }
+    }
+
+    /// Uma seção de `tamanho` bytes alinhada a `alinhamento`, na metade do
+    /// código ou na dos dados; nula se não couber.
+    fn alocar(&mut self, tamanho: usize, alinhamento: usize, codigo: bool) -> *mut u8 {
+        if self.base.is_null() {
+            return ptr::null_mut();
+        }
+        let alinhamento = alinhamento.max(16).next_power_of_two();
+        let (cursor, limite) = if codigo { (&mut self.codigo, METADE_DA_REGIAO) } else { (&mut self.dados, REGIAO_DO_OBJETO) };
+        let inicio = (*cursor + alinhamento - 1) & !(alinhamento - 1);
+        let Some(fim) = inicio.checked_add(tamanho.max(1)) else { return ptr::null_mut() };
+        if fim > limite {
+            return ptr::null_mut();
+        }
+        let pagina = memoria_virtual::pagina();
+        let de = inicio & !(pagina - 1);
+        let ate = (fim + pagina - 1) & !(pagina - 1);
+        // SAFETY: `[de, ate)` está dentro da região reservada.
+        if !unsafe { memoria_virtual::confirmar(self.base.add(de), ate - de) } {
+            return ptr::null_mut();
+        }
+        *cursor = fim;
+        // SAFETY: `inicio` está dentro da região.
+        unsafe { self.base.add(inicio) }
+    }
+
+    /// Depois das relocações: o código vira executável, o `.pdata` entra na
+    /// tabela de funções do sistema (Windows x64) e o mapa é registrado.
+    fn finalizar(&mut self) -> Result<(), String> {
+        if self.finalizado {
+            return Ok(());
+        }
+        self.finalizado = true;
+        if self.codigo > 0 {
+            let pagina = memoria_virtual::pagina();
+            let n = (self.codigo + pagina - 1) & !(pagina - 1);
+            // SAFETY: `[base, base + n)` é o código confirmado deste objeto.
+            if !unsafe { memoria_virtual::tornar_executavel(self.base, n) } {
+                return Err("não foi possível tornar executável o código do JIT".to_owned());
+            }
+        }
+        #[cfg(all(windows, target_arch = "x86_64"))]
+        if let Some((p, n)) = self.pdata
+            && n >= 12
+        {
+            // SAFETY: o `.pdata` relocado do objeto; as RVAs dele são sobre a
+            // base da região (o menor endereço das seções, como o RTDyld a
+            // calcula: a primeira seção de código começa nela).
+            if unsafe { RtlAddFunctionTable(p, (n / 12) as u32, self.base as u64) } == 0 {
+                return Err("o sistema recusou a tabela de funções do objeto do JIT".to_owned());
+            }
+            self.tabela_registrada = true;
+        }
+        if let Some((p, n)) = self.mapa {
+            // SAFETY: a camada vive mais que os objetos dela.
+            let camada = unsafe { &*self.camada };
+            let registro = *camada.registro.lock().unwrap_or_else(|e| e.into_inner());
+            let Some((registrar, _)) = registro else {
+                return Err("raízes por mapas no JIT sem o registro do runtime".to_owned());
+            };
+            // SAFETY: a seção do mapa, relocada e viva enquanto o objeto.
+            unsafe { registrar(p, p.add(n)) };
+            self.mapa_registrado = true;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for ObjetoNoJit {
+    fn drop(&mut self) {
+        if self.mapa_registrado
+            && let Some((p, _)) = self.mapa
+        {
+            // SAFETY: a camada vive mais que os objetos dela.
+            let camada = unsafe { &*self.camada };
+            if let Some((_, retirar)) = *camada.registro.lock().unwrap_or_else(|e| e.into_inner()) {
+                // SAFETY: o mapa foi registrado com este começo.
+                unsafe { retirar(p) };
+            }
+        }
+        #[cfg(all(windows, target_arch = "x86_64"))]
+        if self.tabela_registrada
+            && let Some((p, _)) = self.pdata
+        {
+            // SAFETY: a tabela foi registrada com este endereço.
+            unsafe { RtlDeleteFunctionTable(p) };
+        }
+        if !self.base.is_null() {
+            // SAFETY: a região deste objeto, que o RTDyld já soltou.
+            unsafe { memoria_virtual::soltar(self.base, REGIAO_DO_OBJETO) };
+        }
+    }
+}
+
+/// `CreateContext`: um contexto por objeto. A assinatura é a do
+/// `llvm-c/OrcEE.h` (devolve o contexto); o `llvm-sys` declara o tipo sem o
+/// retorno, e a conversão abaixo o corrige.
+extern "C" fn criar_contexto(camada: *mut std::ffi::c_void) -> *mut std::ffi::c_void {
+    Box::into_raw(Box::new(ObjetoNoJit::novo(camada.cast::<ContextoDaCamada>()))).cast()
+}
+
+extern "C" fn notificar_fim(_camada: *mut std::ffi::c_void) {}
+
+extern "C" fn alocar_codigo(opaco: *mut std::ffi::c_void, tamanho: usize, alinhamento: u32, _id: u32, _nome: *const c_char) -> *mut u8 {
+    // SAFETY: `opaco` é o `ObjetoNoJit` de `criar_contexto`, vivo até `destruir`.
+    let o = unsafe { &mut *opaco.cast::<ObjetoNoJit>() };
+    o.alocar(tamanho, alinhamento as usize, true)
+}
+
+extern "C" fn alocar_dados(
+    opaco: *mut std::ffi::c_void,
+    tamanho: usize,
+    alinhamento: u32,
+    _id: u32,
+    nome: *const c_char,
+    _so_leitura: llvm_sys::prelude::LLVMBool,
+) -> *mut u8 {
+    // SAFETY: `opaco` é o `ObjetoNoJit` de `criar_contexto`, vivo até `destruir`.
+    let o = unsafe { &mut *opaco.cast::<ObjetoNoJit>() };
+    let p = o.alocar(tamanho, alinhamento as usize, false);
+    if !p.is_null() && !nome.is_null() {
+        // SAFETY: o nome da seção, terminado em zero, vivo durante a chamada.
+        let n = unsafe { CStr::from_ptr(nome) }.to_bytes();
+        if n == b".llvm_stackmaps" || n == b"__llvm_stackmaps" {
+            o.mapa = Some((p, tamanho));
+        } else if n == b".pdata" {
+            o.pdata = Some((p, tamanho));
+        }
+    }
+    p
+}
+
+extern "C" fn finalizar_memoria(opaco: *mut std::ffi::c_void, erro: *mut *mut c_char) -> llvm_sys::prelude::LLVMBool {
+    // SAFETY: `opaco` é o `ObjetoNoJit` de `criar_contexto`, vivo até `destruir`.
+    let o = unsafe { &mut *opaco.cast::<ObjetoNoJit>() };
+    match o.finalizar() {
+        Ok(()) => 0,
+        Err(m) => {
+            if !erro.is_null() {
+                let c = CString::new(m).unwrap_or_default();
+                // SAFETY: o LLVM solta a mensagem com `free`; a do
+                // `LLVMCreateMessage` vem do `strdup`.
+                unsafe { *erro = llvm_sys::core::LLVMCreateMessage(c.as_ptr()) };
+            }
+            1
+        }
+    }
+}
+
+extern "C" fn destruir(opaco: *mut std::ffi::c_void) {
+    // SAFETY: `opaco` veio de `Box::into_raw` em `criar_contexto` e é solto
+    // uma vez, aqui.
+    drop(unsafe { Box::from_raw(opaco.cast::<ObjetoNoJit>()) });
+}
+
+/// A camada de objetos da sessão com mapas: RTDyld com o gerenciador de
+/// memória acima.
+extern "C" fn criar_camada(
+    camada: *mut std::ffi::c_void,
+    sessao: llvm_sys::orc2::LLVMOrcExecutionSessionRef,
+    _triple: *const c_char,
+) -> llvm_sys::orc2::LLVMOrcObjectLayerRef {
+    // SAFETY: a conversão dá ao `CreateContext` a assinatura do cabeçalho C
+    // (ponteiro de função do mesmo tamanho); as funções vivem o processo.
+    unsafe {
+        let criar: llvm_sys::orc2::ee::LLVMMemoryManagerCreateContextCallback =
+            std::mem::transmute::<extern "C" fn(*mut std::ffi::c_void) -> *mut std::ffi::c_void, llvm_sys::orc2::ee::LLVMMemoryManagerCreateContextCallback>(
+                criar_contexto,
+            );
+        llvm_sys::orc2::ee::LLVMOrcCreateRTDyldObjectLinkingLayerWithMCJITMemoryManagerLikeCallbacks(
+            sessao,
+            camada,
+            criar,
+            notificar_fim,
+            alocar_codigo,
+            alocar_dados,
+            finalizar_memoria,
+            Some(destruir),
+        )
+    }
+}
+
+/// O passe dos mapas e o verificador sobre um módulo.
+///
+/// # Safety
+/// `modulo` é um módulo vivo; `maquina` é nula ou uma máquina-alvo viva.
+unsafe fn passe_dos_mapas(modulo: LLVMModuleRef, maquina: LLVMTargetMachineRef) -> LLVMErrorRef {
+    // SAFETY: o contrato da função; as opções são criadas e soltas aqui.
+    unsafe {
+        let opcoes = llvm_sys::transforms::pass_builder::LLVMCreatePassBuilderOptions();
+        let erro = llvm_sys::transforms::pass_builder::LLVMRunPasses(modulo, c"rewrite-statepoints-for-gc,verify".as_ptr(), maquina, opcoes);
+        llvm_sys::transforms::pass_builder::LLVMDisposePassBuilderOptions(opcoes);
+        erro
+    }
+}
+
+extern "C" fn passe_no_modulo(_ctx: *mut std::ffi::c_void, modulo: LLVMModuleRef) -> LLVMErrorRef {
+    // SAFETY: o módulo da `ThreadSafeModule`, com o contexto travado.
+    unsafe { passe_dos_mapas(modulo, ptr::null_mut()) }
+}
+
+/// A transformação de IR da sessão com mapas: o passe dos mapas em cada
+/// módulo antes da geração de código.
+extern "C" fn transformar_ir(
+    _ctx: *mut std::ffi::c_void,
+    modulo: *mut LLVMOrcThreadSafeModuleRef,
+    _responsabilidade: llvm_sys::orc2::LLVMOrcMaterializationResponsibilityRef,
+) -> LLVMErrorRef {
+    // SAFETY: `modulo` aponta para a `ThreadSafeModule` em materialização.
+    unsafe { llvm_sys::orc2::LLVMOrcThreadSafeModuleWithModuleDo(*modulo, passe_no_modulo, ptr::null_mut()) }
 }
 
 #[cfg(test)]

@@ -277,6 +277,8 @@ impl JitSession {
     pub fn new() -> Result<Self, JitError> {
         let lljit = ffi::Lljit::new()
             .map_err(|detail| JitError::new("lljit", "não foi possível abrir a LLJIT", detail))?;
+        // Raízes por mapas: o runtime deste processo é o que coleta.
+        lljit.usar_registro_local();
         lljit.define_runtime_symbols().map_err(|detail| {
             JitError::new(
                 "runtime-symbols",
@@ -305,6 +307,10 @@ impl JitSession {
     pub fn new_com_sdk(dll: &std::path::Path, usados: &[String]) -> Result<Self, JitError> {
         let lljit = ffi::Lljit::new()
             .map_err(|detail| JitError::new("lljit", "não foi possível abrir a LLJIT", detail))?;
+        // Raízes por mapas: o runtime da biblioteca do SDK é o que coleta.
+        lljit
+            .usar_registro_da_biblioteca(dll)
+            .map_err(|detail| JitError::new("sdk", "não foi possível ligar os mapas de pilha ao runtime da DLL do SDK", detail))?;
         let nomes = lljit
             .define_symbols_from_dll(dll, usados, true)
             .map_err(|detail| JitError::new("sdk", "não foi possível publicar os símbolos da DLL do SDK", detail))?;

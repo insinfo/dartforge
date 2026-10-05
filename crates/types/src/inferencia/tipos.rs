@@ -386,11 +386,11 @@ impl<'a> BodyInferrer<'a> {
                         match crate::resolve::nome_no_conteiner(self.program, self.interner, classe, extensao, sym) {
                             Some(crate::resolve::NoConteiner::Getter) => {
                                 self.relatar_nome_de_tipo(contexto, true, &texto, faixa);
-                                return self.core.dynamic_;
+                                return self.table.invalido(self.core.dynamic_);
                             }
                             Some(crate::resolve::NoConteiner::SoSetter) => {
                                 self.relatar_nome_de_tipo(contexto, false, &texto, faixa);
-                                return self.core.dynamic_;
+                                return self.table.invalido(self.core.dynamic_);
                             }
                             None => {}
                         }
@@ -423,11 +423,21 @@ impl<'a> BodyInferrer<'a> {
                     // não era `Null` e `return Future<Null>…` em
                     // `Future<void> f() async` virava erro.
                     Some(Element::Class(cid)) if Some(cid) == self.core.null_class => self.core.null,
-                    Some(Element::Class(cid)) => self.tipo_de_classe_com_args(cid, resolvidos),
+                    Some(Element::Class(cid)) => {
+                        // Número errado de argumentos de tipo: todos
+                        // inválidos (`named_type_resolver.dart:148`).
+                        let resolvidos = match n_params {
+                            Some(n) if !args.is_empty() && args.len() != n => vec![self.table.invalido(self.core.dynamic_); n],
+                            _ => resolvidos,
+                        };
+                        self.tipo_de_classe_com_args(cid, resolvidos)
+                    }
                     Some(Element::Typedef(tid)) => {
                         let data = self.outline.typedefs[tid.0 as usize].clone();
                         let args = if resolvidos.len() == data.type_params.len() {
                             resolvidos
+                        } else if !args.is_empty() {
+                            vec![self.table.invalido(self.core.dynamic_); data.type_params.len()]
                         } else {
                             self.instanciar_para_limites(&data.type_params)
                         };
@@ -453,7 +463,8 @@ impl<'a> BodyInferrer<'a> {
                                     let achou = binding.is_some_and(|b| b.getter.is_some());
                                     self.relatar_nome_de_tipo(contexto, achou, &texto, faixa);
                                 }
-                                self.core.dynamic_
+                                // O tipo de recuperação: `InvalidType`.
+                                self.table.invalido(self.core.dynamic_)
                             }
                         }
                     }

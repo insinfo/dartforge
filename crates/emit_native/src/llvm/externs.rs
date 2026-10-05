@@ -692,7 +692,45 @@ pub fn efeitos_de(nome: &str) -> Efeitos {
         }
     }
     static TABELA: std::sync::OnceLock<std::collections::HashMap<&'static str, Efeitos>> = std::sync::OnceLock::new();
-    TABELA.get_or_init(|| EXTERNS.iter().map(|e| (e.nome(), e.efeitos)).collect()).get(nome).copied().unwrap_or(CONSERVADOR)
+    // A fonte é a tabela do runtime (`crates/runtime/efeitos.tsv`,
+    // docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.8), com uma linha por
+    // extern; as marcas de [`EXTERNS`] são a mesma informação ao lado da
+    // declaração, e o teste `tabela_do_runtime_concorda_com_as_declaracoes`
+    // as mantém iguais.
+    TABELA
+        .get_or_init(|| {
+            dartforge_runtime::efeitos::EFEITOS
+                .iter()
+                .map(|&(n, aloca, lanca, chama_dart)| (n, Efeitos { aloca, lanca, chama_dart }))
+                .collect()
+        })
+        .get(nome)
+        .copied()
+        .unwrap_or(CONSERVADOR)
+}
+
+/// A compilação confere a tabela de efeitos (`DARTFORGE_EFEITOS=conferir`):
+/// cada chamada a uma extern marcada `coleta = 0` ou `lanca = 0` sai entre
+/// `dartforge_efeitos_antes` e `dartforge_efeitos_depois`, e o runtime
+/// encerra o processo, dizendo o nome, se a extern coletar ou deixar uma
+/// exceção pendente (`runtime/src/efeitos_conferir.rs`). Só para os testes:
+/// é assim que uma marca passa de 1 para 0.
+pub fn conferir_efeitos() -> bool {
+    static LIGADO: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *LIGADO.get_or_init(|| std::env::var("DARTFORGE_EFEITOS").is_ok_and(|v| v == "conferir"))
+}
+
+/// As marcas que a conferência de `nome` leva ao runtime: bit 0, não coleta;
+/// bit 1, não lança. 0 = nada a conferir (ou não é uma extern da tabela).
+pub fn marcas_a_conferir(nome: &str) -> i64 {
+    if !dartforge_runtime::efeitos::EFEITOS.iter().any(|(n, ..)| *n == nome)
+        || nome == "dartforge_efeitos_antes"
+        || nome == "dartforge_efeitos_depois"
+    {
+        return 0;
+    }
+    let e = efeitos_de(nome);
+    i64::from(!e.aloca && !e.chama_dart) | (i64::from(!e.lanca && !e.chama_dart) << 1)
 }
 
 #[cfg(test)]
@@ -710,6 +748,20 @@ mod testes {
         nomes.sort_unstable();
         nomes.dedup();
         assert_eq!(nomes.len(), total, "extern declarada duas vezes");
+    }
+
+    #[test]
+    fn tabela_do_runtime_concorda_com_as_declaracoes() {
+        for e in EXTERNS {
+            let t = efeitos_de(e.nome());
+            assert_eq!(
+                (t.aloca, t.lanca),
+                (e.efeitos.aloca, e.efeitos.lanca),
+                "{}: a marca ao lado da declaração difere da de crates/runtime/efeitos.tsv",
+                e.nome()
+            );
+            assert!(!e.efeitos.chama_dart || t.chama_dart, "{}: roda Dart na declaração e não na tabela", e.nome());
+        }
     }
 
     #[test]

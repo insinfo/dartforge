@@ -339,6 +339,9 @@ impl Analisador for AnalisadorSemantico {
             saida.extend(crate::acoes::assistencias(&projeto, uri, inicio, fim));
             if let Some(unidade) = projeto.unidade_do_uri(uri) {
                 saida.extend(projeto.assistencias_de_reescrita(uri, unidade, inicio, fim));
+                saida.extend(projeto.assistencias_sintaticas(uri, unidade, inicio));
+                saida.extend(projeto.assistencias_de_condicao(uri, unidade, inicio));
+                saida.extend(projeto.assistencias_de_juncao(uri, unidade, inicio));
             }
         }
         saida.extend(ignorar);
@@ -384,6 +387,12 @@ impl Analisador for AnalisadorSemantico {
         let unidade = projeto.unidade_do_uri(uri)?;
         let (u, s) = projeto.definicao_de_tipo(unidade, offset)?;
         Some((projeto.uri_da_unidade(u)?, s))
+    }
+
+    fn rotulos_de_fechamento(&mut self, documentos: &DocumentStore, uri: &str) -> Vec<(Span, String)> {
+        let Some(projeto) = self.biblioteca(documentos, uri) else { return Vec::new() };
+        let Some(unidade) = projeto.unidade_do_uri(uri) else { return Vec::new() };
+        projeto.rotulos_de_fechamento(unidade)
     }
 
     fn dicas(&mut self, documentos: &DocumentStore, uri: &str) -> Vec<crate::Dica> {

@@ -127,6 +127,14 @@ pub struct Unit {
     /// Recursos com que a unidade foi analisada (os da biblioteca). A sessão
     /// residente só reaproveita a unidade se continuarem os mesmos.
     pub features: LibraryFeatures,
+    /// Os trechos da fonte que a recuperação de erro do parser descartou
+    /// (`dartforge_frontend::parser::Parsed::pulados`); vazio numa unidade
+    /// sem erro de sintaxe e nas que vêm do cache do SDK.
+    pub pulados: Vec<dartforge_diagnostics::Span>,
+    /// Qual analyzer é a referência de nomes de código e de textos deste
+    /// arquivo (`dartforge_frontend::parser::Parsed::referencia`). As
+    /// unidades do SDK são do 3.6.2.
+    pub referencia: dartforge_diagnostics::Referencia,
 }
 
 /// Importação já resolvida para uma biblioteca do programa.
@@ -249,6 +257,15 @@ pub struct Library {
     /// arquivo da biblioteca importa — aí vale [`Library::scope`] para
     /// todas. Consulte por [`Program::lookup_na_unidade`].
     pub escopos_de_unidade: HashMap<UnitId, EscopoDeUnidade>,
+    /// Para cada elemento de topo com homônimo da MESMA espécie na
+    /// biblioteca (duas classes `A`, duas funções `f`): o representante do
+    /// grupo, o primeiro em ordem de fonte — ele próprio inclusive. Sem
+    /// homônimo, ausente. É a "chave de mapa" do analyzer, que iguala
+    /// elementos pela espécie e pela localização: os caches por elemento
+    /// (interface, hierarquia, nomes de membros já vistos) são um só para o
+    /// grupo (docs/ANALYZER-ESPECIFICACAO.md §G, T1.1 c–d). A identidade de
+    /// tipo continua sendo a de cada elemento.
+    pub representante: HashMap<Element, Element>,
 }
 
 /// Escopo de nomes de topo de uma unidade (ver [`Library::escopos_de_unidade`]).
@@ -397,6 +414,14 @@ pub struct FunctionElement {
     /// Membro de patch que substituiu este `external` (o corpo a compilar é
     /// o dele); `None` quando não há patch.
     pub patched_by: Option<FunctionElementId>,
+    /// Membro de patch do SDK → a declaração pública que ele substitui (o
+    /// inverso de `patched_by`, sempre a de origem, mesmo com dois patches
+    /// do mesmo membro). O analyzer não aplica patches: a assinatura e os
+    /// modificadores (`const`, `factory`, `external`) que a análise vê são
+    /// os da declaração pública — o patch só dá o corpo
+    /// (docs/ANALYZER-ESPECIFICACAO.md §G, T3). `None` em código do usuário e
+    /// em membros que só existem no patch.
+    pub declaracao_publica: Option<FunctionElementId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -448,6 +473,16 @@ impl Program {
     pub fn unit(&self, id: UnitId) -> &Unit {
         &self.units[id.0 as usize]
     }
+    /// A referência do arquivo `u` (docs/ANALYZER-ESPECIFICACAO.md, T2): a
+    /// regra do corpus é por arquivo.
+    pub fn referencia(&self, u: UnitId) -> dartforge_diagnostics::Referencia {
+        self.unit(u).referencia
+    }
+    /// A referência de uma biblioteca, para as regras que são da biblioteca
+    /// inteira (juntar classes homônimas): a maior entre as das unidades.
+    pub fn referencia_da_biblioteca(&self, l: LibraryId) -> dartforge_diagnostics::Referencia {
+        self.library(l).units.iter().map(|&u| self.unit(u).referencia).max().unwrap_or_default()
+    }
     pub fn library(&self, id: LibraryId) -> &Library {
         &self.libraries[id.0 as usize]
     }
@@ -463,8 +498,46 @@ impl Program {
     pub fn function(&self, id: FunctionElementId) -> &FunctionElement {
         &self.functions[id.0 as usize]
     }
+    /// O elemento cuja ASSINATURA a análise vê: a declaração pública quando
+    /// `f` é um membro de patch do SDK ([`FunctionElement::declaracao_publica`]);
+    /// senão o próprio `f`. Os emissores continuam com `f` (o corpo é o do
+    /// patch).
+    pub fn publico(&self, f: FunctionElementId) -> FunctionElementId {
+        self.function(f).declaracao_publica.unwrap_or(f)
+    }
     pub fn variable(&self, id: VariableId) -> &VariableElement {
         &self.variables[id.0 as usize]
+    }
+
+    /// T1 (docs/ANALYZER-ESPECIFICACAO.md §G): o representante do grupo de
+    /// homônimos da classe `c` — a primeira declaração de classe, mixin,
+    /// enum ou tipo de extensão com o mesmo nome e a mesma espécie na
+    /// biblioteca; sem homônimo, a própria `c`. É a classe cuja interface e
+    /// cuja hierarquia o analyzer guarda em cache para o grupo inteiro
+    /// (`ElementImpl.==` por espécie e localização): os verificadores
+    /// calculam a interface do representante e percorrem a árvore de cada
+    /// declaração.
+    pub fn representante_da_classe(&self, c: ClassId) -> ClassId {
+        match self.library(self.class(c).library).representante.get(&Element::Class(c)) {
+            Some(Element::Class(r)) => *r,
+            _ => c,
+        }
+    }
+
+    /// T1: a classe `c` tem homônimo da mesma espécie na biblioteca (ela é
+    /// uma das declarações repetidas, a primeira inclusive)?
+    pub fn classe_com_homonimo(&self, c: ClassId) -> bool {
+        self.library(self.class(c).library).representante.contains_key(&Element::Class(c))
+    }
+
+    /// A biblioteca tem augmentations de verdade: o experimento
+    /// `augmentations` (ou `macros`) está ligado nela. Sem ele, `augment`
+    /// não é modificador — o parser lê `augment class A {}` como a variável
+    /// de topo `augment` seguida de uma segunda declaração `A` — e nenhum
+    /// filtro de "declaração aumentada" se aplica (T1.1 f).
+    pub fn biblioteca_com_augmentations(&self, lib: LibraryId) -> bool {
+        let f = self.library(lib).features;
+        f.tem(dartforge_frontend::Feature::Augmentations) || f.tem(dartforge_frontend::Feature::Macros)
     }
 
     /// Os membros sintáticos de uma classe: os da declaração introdutória

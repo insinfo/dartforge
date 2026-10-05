@@ -40,6 +40,14 @@ pub fn is_subtype(t0: TypeId, t1: TypeId, env: &mut SubtypeEnv) -> bool {
         return true;
     }
 
+    // O `InvalidType` (o tipo de recuperação de um nome que não resolve) é
+    // subtipo e supertipo de tudo (`subtype.dart:46-50`): o erro do nome já
+    // foi relatado, e nada que dependa do tipo é relatado de novo. Só existe
+    // na análise (tipos decorados); nos emissores a tabela não tem nenhum.
+    if !env.table.exibicao_vazia() && (env.table.e_invalido(t0) || env.table.e_invalido(t1)) {
+        return true;
+    }
+
     if !env.visiting.insert((t0, t1)) {
         // Evita recursão infinita em F-bounds cíclicos
         return true;

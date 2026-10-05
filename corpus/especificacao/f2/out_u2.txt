@@ -1,0 +1,96 @@
+== u2/u22b_operadores.dart
+  unused_element | 75+1 | 4:14 | The declaration '-' isn't referenced.
+  unused_element | 140+3 | 6:17 | The declaration '[]=' isn't referenced.
+  unused_element | 200+1 | 8:14 | The declaration '~' isn't referenced.
+  unused_element | 248+1 | 10:17 | The declaration '<' isn't referenced.
+  unused_element | 310+1 | 12:14 | The declaration '/' isn't referenced.
+  unused_element | 376+2 | 16:16 | The declaration '[]' isn't referenced.
+  unused_element | 478+2 | 21:17 | The declaration '[]' isn't referenced.
+  unused_element | 579+2 | 26:16 | The declaration '[]' isn't referenced.
+== u2/u27_alias_de_classe.dart
+  unused_element | 68+9 | 5:7 | The declaration '_Derivada' isn't referenced.
+  unused_element | 113+2 | 7:6 | The declaration '_b' isn't referenced.
+== u2/u28_campo_sobrescreve.dart
+  unused_field | 35+2 | 3:7 | The value of the field '_y' isn't used.
+  unused_field | 109+2 | 9:7 | The value of the field '_y' isn't used.
+== u2/u29_for_in_identificador.dart
+  unused_local_variable | 28+1 | 2:7 | The value of the local variable 'x' isn't used.
+== u2/u30_enum_values.dart
+  unused_field | 35+1 | 2:14 | The value of the field 'y' isn't used.
+== u2/u31_construtor_padrao.dart
+  unused_element | 111+3 | 10:6 | The declaration '_C' isn't referenced.
+== u2/u32_rotulos.dart
+  unused_label | 26+9 | 2:3 | The label 'naoUsado' isn't used.
+  unused_label | 161+6 | 5:3 | The label 'bloco' isn't used.
+  unused_label | 184+2 | 6:3 | The label 'a' isn't used.
+  unused_label | 237+7 | 8:5 | The label 'dentro' isn't used.
+  unused_label | 294+3 | 11:5 | The label 'c0' isn't used.
+  unused_label | 358+3 | 15:5 | The label 'c2' isn't used.
+  unused_label | 390+9 | 18:3 | The label 'repetido' isn't used.
+  unused_label | 483+8 | 21:24 | The label 'interno' isn't used.
+  unused_label | 513+8 | 22:3 | The label 'semAlvo' isn't used.
+  label_undefined | 540+9 | 22:30 | Can't reference an undefined label 'naoExiste'.
+== u2/u33_corpo_sem_bloco.dart
+  unused_local_variable | 43+1 | 2:17 | The value of the local variable 'x' isn't used.
+  unused_local_variable | 63+1 | 3:14 | The value of the local variable 'y' isn't used.
+  unused_local_variable | 79+1 | 3:30 | The value of the local variable 'z' isn't used.
+  unused_local_variable | 98+1 | 4:13 | The value of the local variable 'p' isn't used.
+  unused_local_variable | 158+1 | 6:7 | The value of the local variable 'w' isn't used.
+  pattern_assignment_declares_variable | 173+1 | 7:13 | Variable 'v' can't be declared in a pattern assignment.
+  unused_local_variable | 173+1 | 7:13 | The value of the local variable 'v' isn't used.
+== u2/u34_mixin_construtor.dart
+  unused_element | 76+1 | 3:7 | The declaration 'Foo._' isn't referenced.
+== u2/u35_campo_sombreado.dart
+  unused_field | 16+1 | 2:7 | The value of the field '_' isn't used.
+  unused_field | 29+2 | 3:7 | The value of the field '_x' isn't used.
+== u2/u36_topo_composto.dart
+  unused_element | 4+2 | 1:5 | The declaration '_a' isn't referenced.
+  unused_element | 16+2 | 2:5 | The declaration '_b' isn't referenced.
+== u2/u37_parametro_tipo.dart
+  conflicting_type_variable_and_member | 21+1 | 2:9 | '_' can't be used to name both a type parameter and a member in this class.
+  unused_element | 28+1 | 3:3 | The declaration '_' isn't referenced.
+  unused_element | 58+2 | 6:8 | The declaration '_m' isn't referenced.
+== d2/d03.dart
+  deprecated_member_use_from_same_package | 25+5 | 1:26 | 'velha' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 74+5 | 3:6 | 'velha' is deprecated and shouldn't be used.
+  deprecated_member_use_from_same_package | 109+11 | 4:14 | 'comMensagem' is deprecated and shouldn't be used. Use nova.
+== d2/d_lib.dart
+  (nenhum)
+== d2/sdk.dart
+  undefined_getter | 83+11 | 4:18 | The getter 'packageRoot' isn't defined for the type 'Platform'.
+  deprecated_member_use | 139+15 | 6:9 | 'HasNextIterator' is deprecated and shouldn't be used. Will be removed in a later version of the Dart SDK.
+== corpus/DuplicateDefinition__parameters_constru_072562a6.dart
+  unused_field | 66+1 | 4:8 | The value of the field '_' isn't used.
+  duplicate_definition | 155+1 | 7:17 | The name '_' is already defined.
+== corpus/LabelUndefined__break.dart
+  unused_label | 8+2 | 2:3 | The label 'x' isn't used.
+  label_undefined | 89+1 | 5:11 | Can't reference an undefined label 'y'.
+== corpus/UnusedElement__classPrivate_secondaryCo_2f78d312.dart
+  unused_element | 38+1 | 3:12 | A value for optional parameter 'e' isn't ever given.
+== corpus/UnusedElement__extension_unnamed_operat_83235816.dart
+  unused_element | 56+1 | 2:25 | The declaration '*' isn't referenced.
+== corpus/UnusedElement__getter_notUsed_invocatio_7d9034d5.dart
+  unused_element | 35+2 | 3:11 | The declaration '_a' isn't referenced.
+  unused_element | 231+2 | 13:11 | The declaration '_a' isn't referenced.
+== corpus/UnusedElement__method_isUsed_privateExt_75655fd4.dart
+  unused_element | 39+2 | 2:17 | The declaration '[]' isn't referenced.
+== corpus/UnusedElement__method_isUsed_privateExt_d8f24a17.dart
+  unused_element | 38+2 | 2:16 | The declaration '[]' isn't referenced.
+== corpus/UnusedElement__parameter_isUsed_overrid_387a0899.dart
+  expected_token | 12+7 | 3:1 | Expected to find ';'.
+  missing_const_final_var_or_type | 12+7 | 3:1 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+  duplicate_definition | 26+1 | 3:15 | The name 'A' is already defined.
+  unused_element | 37+2 | 4:8 | The declaration '_m' isn't referenced.
+  unused_element | 46+1 | 4:17 | A value for optional parameter 'a' isn't ever given.
+  unused_element | 85+2 | 7:8 | The declaration '_m' isn't referenced.
+  unused_element | 94+1 | 7:17 | A value for optional parameter 'a' isn't ever given.
+  undefined_method | 114+2 | 9:12 | The method '_m' isn't defined for the type 'A'.
+== corpus/UnusedField__isUsed_underscoreField_shadowsLocal.dart
+  unused_field | 16+1 | 2:7 | The value of the field '_' isn't used.
+== corpus/UnusedLocalVariable__switchStatement_sh_8d5b3b84.dart
+  unused_local_variable | 49+1 | 3:15 | The value of the local variable 'a' isn't used.
+== corpus/UnusedLocalVariable__switchStatement_sh_b7ecf69a.dart
+  unused_local_variable | 79+1 | 4:15 | The value of the local variable 'a' isn't used.
+== corpus/UseOfPrivateParameterName__andVoidLhsError.dart
+  unused_field | 17+2 | 2:8 | The value of the field '_x' isn't used.
+  private_optional_parameter | 103+2 | 5:11 | Named parameters can't start with an underscore.

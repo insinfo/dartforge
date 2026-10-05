@@ -1,0 +1,1628 @@
+### a01_class_class.dart
+class class {}
+--- diag
+built_in_identifier_in_declaration off=6 len=5 1:7 | The built-in identifier 'class' can't be used as a type name.
+expected_identifier_but_got_keyword off=6 len=5 1:7 | 'class' can't be used as an identifier because it's a keyword.
+### a02_class_sem_nome.dart
+class {}
+--- diag
+missing_identifier off=6 len=1 1:7 | Expected an identifier.
+### a03_class_as.dart
+class as {}
+--- diag
+built_in_identifier_in_declaration off=6 len=2 1:7 | The built-in identifier 'as' can't be used as a type name.
+### a04_class_void.dart
+class void {}
+--- diag
+built_in_identifier_in_declaration off=6 len=4 1:7 | The built-in identifier 'void' can't be used as a type name.
+expected_identifier_but_got_keyword off=6 len=4 1:7 | 'void' can't be used as an identifier because it's a keyword.
+### a05_metodo_class.dart
+class A { void class() {} }
+--- diag
+class_in_class off=15 len=5 1:16 | Classes can't be declared inside other classes.
+missing_identifier off=20 len=1 1:21 | Expected an identifier.
+### a06_campo_sem_nome.dart
+class A { int }
+--- diag
+expected_token off=10 len=3 1:11 | Expected to find ';'.
+missing_const_final_var_or_type off=10 len=3 1:11 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+### a07_campo_sem_nome_pv.dart
+class A { int; }
+--- diag
+missing_const_final_var_or_type off=10 len=3 1:11 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+### a08_var_sem_nome.dart
+class A { var }
+--- diag
+expected_token off=10 len=3 1:11 | Expected to find ';'.
+missing_identifier off=14 len=1 1:15 | Expected an identifier.
+### a09_param_class.dart
+void f(int class) {}
+--- diag
+expected_identifier_but_got_keyword off=11 len=5 1:12 | 'class' can't be used as an identifier because it's a keyword.
+### a10_param_so_tipo.dart
+void f(int) {}
+--- diag
+(nenhum)
+### a11_param_a_b.dart
+void f(int a b) {}
+--- diag
+expected_token off=13 len=1 1:14 | Expected to find ')'.
+### a12_param_virgula.dart
+void f(,) {}
+--- diag
+missing_identifier off=7 len=1 1:8 | Expected an identifier.
+### a13_local_class.dart
+void f() { int class = 10; }
+--- diag
+expected_token off=11 len=3 1:12 | Expected to find ';'.
+expected_identifier_but_got_keyword off=15 len=5 1:16 | 'class' can't be used as an identifier because it's a keyword.
+undefined_identifier off=15 len=5 1:16 | Undefined name 'class'.
+### a14_local_var_pv.dart
+void f() { var; }
+--- diag
+missing_identifier off=14 len=1 1:15 | Expected an identifier.
+### a15_local_var_class.dart
+void f() { var class; }
+--- diag
+expected_identifier_but_got_keyword off=15 len=5 1:16 | 'class' can't be used as an identifier because it's a keyword.
+unused_local_variable off=15 len=5 1:16 | The value of the local variable 'class' isn't used.
+### a16_local_xyz.dart
+void f() { x y z; }
+--- diag
+undefined_class off=11 len=1 1:12 | Undefined class 'x'.
+expected_token off=13 len=1 1:14 | Expected to find ';'.
+unused_local_variable off=13 len=1 1:14 | The value of the local variable 'y' isn't used.
+undefined_identifier off=15 len=1 1:16 | Undefined name 'z'.
+### a17_typedef_void_as.dart
+typedef void as();
+--- diag
+built_in_identifier_in_declaration off=13 len=2 1:14 | The built-in identifier 'as' can't be used as a typedef name.
+expected_identifier_but_got_keyword off=13 len=2 1:14 | 'as' can't be used as an identifier because it's a keyword.
+### a18_typedef_as.dart
+typedef as = int;
+--- diag
+built_in_identifier_in_declaration off=8 len=2 1:9 | The built-in identifier 'as' can't be used as a typedef name.
+expected_identifier_but_got_keyword off=8 len=2 1:9 | 'as' can't be used as an identifier because it's a keyword.
+### a19_typedef_Function.dart
+typedef Function = int;
+--- diag
+built_in_identifier_in_declaration off=8 len=8 1:9 | The built-in identifier 'Function' can't be used as a typedef name.
+expected_identifier_but_got_keyword off=8 len=8 1:9 | 'Function' can't be used as an identifier because it's a keyword.
+### a20_typedef_class.dart
+typedef class = int;
+--- diag
+built_in_identifier_in_declaration off=8 len=5 1:9 | The built-in identifier 'class' can't be used as a typedef name.
+expected_identifier_but_got_keyword off=8 len=5 1:9 | 'class' can't be used as an identifier because it's a keyword.
+### a21_typedef_sem_nome.dart
+typedef = int;
+--- diag
+expected_token off=0 len=7 1:1 | Expected to find ';'.
+expected_executable off=8 len=1 1:9 | Expected a method, getter, setter or operator declaration.
+missing_identifier off=8 len=1 1:9 | Expected an identifier.
+missing_typedef_parameters off=8 len=1 1:9 | Typedefs must have an explicit list of parameters.
+missing_const_final_var_or_type off=10 len=3 1:11 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+### a22_enum_class.dart
+enum class { a }
+--- diag
+enum_without_constants off=5 len=0 1:6 | The enum must have at least one constant.
+missing_enum_body off=5 len=5 1:6 | An enum definition must have a body with at least one constant name.
+missing_identifier off=5 len=5 1:6 | Expected an identifier.
+missing_identifier off=11 len=1 1:12 | Expected an identifier.
+expected_token off=13 len=1 1:14 | Expected to find ';'.
+missing_const_final_var_or_type off=13 len=1 1:14 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+### a23_enum_sem_nome.dart
+enum { a }
+--- diag
+missing_identifier off=5 len=1 1:6 | Expected an identifier.
+### a24_enum_valor_class.dart
+enum E { class }
+--- diag
+expected_token off=9 len=5 1:10 | Expected to find '}'.
+missing_identifier off=9 len=5 1:10 | Expected an identifier.
+### a25_enum_virgulas.dart
+enum E { a, , b }
+--- diag
+missing_identifier off=12 len=1 1:13 | Expected an identifier.
+### a26_break_class.dart
+void f() { while (true) { break class; } }
+--- diag
+expected_token off=26 len=5 1:27 | Expected to find ';'.
+dead_code off=32 len=6 1:33 | Dead code.
+expected_identifier_but_got_keyword off=32 len=5 1:33 | 'class' can't be used as an identifier because it's a keyword.
+missing_statement off=32 len=5 1:33 | Expected a statement.
+undefined_identifier off=32 len=5 1:33 | Undefined name 'class'.
+### a27_rotulo_class.dart
+void f() { class: while (true) {} }
+--- diag
+expected_identifier_but_got_keyword off=11 len=5 1:12 | 'class' can't be used as an identifier because it's a keyword.
+expected_token off=11 len=5 1:12 | Expected to find ';'.
+missing_statement off=11 len=5 1:12 | Expected a statement.
+undefined_identifier off=11 len=5 1:12 | Undefined name 'class'.
+missing_identifier off=16 len=1 1:17 | Expected an identifier.
+unexpected_token off=16 len=1 1:17 | Unexpected text ';'.
+### a28_import_as_class.dart
+import 'dart:core' as class;
+--- diag
+built_in_identifier_in_declaration off=22 len=5 1:23 | The built-in identifier 'class' can't be used as a prefix name.
+expected_identifier_but_got_keyword off=22 len=5 1:23 | 'class' can't be used as an identifier because it's a keyword.
+### a29_import_as_vazio.dart
+import 'dart:core' as;
+--- diag
+missing_identifier off=21 len=1 1:22 | Expected an identifier.
+### a30_import_as_show.dart
+import 'dart:core' as show;
+--- diag
+(nenhum)
+### a31_campo_class.dart
+class A { int class = 1; }
+--- diag
+expected_identifier_but_got_keyword off=14 len=5 1:15 | 'class' can't be used as an identifier because it's a keyword.
+### a32_topo_int_class.dart
+int class = 10;
+--- diag
+expected_identifier_but_got_keyword off=4 len=5 1:5 | 'class' can't be used as an identifier because it's a keyword.
+### a33_topo_var_pv.dart
+var;
+--- diag
+missing_identifier off=3 len=1 1:4 | Expected an identifier.
+### a34_topo_xyz.dart
+x y z;
+--- diag
+undefined_class off=0 len=1 1:1 | Undefined class 'x'.
+expected_token off=2 len=1 1:3 | Expected to find ';'.
+missing_const_final_var_or_type off=4 len=1 1:5 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+### a35_arg_nomeado_class.dart
+void g({int? x}) {}
+void f() { g(class: 1); }
+--- diag
+expected_identifier_but_got_keyword off=33 len=5 2:14 | 'class' can't be used as an identifier because it's a keyword.
+undefined_named_parameter off=33 len=5 2:14 | The named parameter 'class' isn't defined.
+### a36_arg_nomeado_vazio.dart
+void g({int? x}) {}
+void f() { g(: 1); }
+--- diag
+missing_identifier off=33 len=1 2:14 | Expected an identifier.
+undefined_named_parameter off=33 len=0 2:14 | The named parameter '' isn't defined.
+### a37_interp_class.dart
+var s = "$class";
+--- diag
+expected_identifier_but_got_keyword off=10 len=5 1:11 | 'class' can't be used as an identifier because it's a keyword.
+undefined_identifier off=10 len=5 1:11 | Undefined name 'class'.
+### a38_interp_is.dart
+var s = "a $is b";
+--- diag
+expected_identifier_but_got_keyword off=12 len=2 1:13 | 'is' can't be used as an identifier because it's a keyword.
+undefined_identifier off=12 len=2 1:13 | Undefined name 'is'.
+### a39_interp_vazio.dart
+var s = "$";
+--- diag
+missing_identifier off=10 len=1 1:11 | Expected an identifier.
+### a40_print_is.dart
+void f() { print(is String); }
+--- diag
+missing_identifier off=17 len=2 1:18 | Expected an identifier.
+### a41_var_igual_pv.dart
+void f() { var x = ; }
+--- diag
+unused_local_variable off=15 len=1 1:16 | The value of the local variable 'x' isn't used.
+missing_identifier off=19 len=1 1:20 | Expected an identifier.
+### a42_x_as.dart
+void f() { var x = as; }
+--- diag
+unused_local_variable off=15 len=1 1:16 | The value of the local variable 'x' isn't used.
+undefined_identifier off=19 len=2 1:20 | Undefined name 'as'.
+### a43_expr_class.dart
+void f() { var x = class; }
+--- diag
+unused_local_variable off=15 len=1 1:16 | The value of the local variable 'x' isn't used.
+expected_identifier_but_got_keyword off=19 len=5 1:20 | 'class' can't be used as an identifier because it's a keyword.
+undefined_identifier off=19 len=5 1:20 | Undefined name 'class'.
+### a44_expr_if.dart
+void f() { var x = if; }
+--- diag
+unused_local_variable off=15 len=1 1:16 | The value of the local variable 'x' isn't used.
+expected_token off=17 len=1 1:18 | Expected to find ';'.
+missing_identifier off=19 len=2 1:20 | Expected an identifier.
+expected_token off=21 len=1 1:22 | Expected to find '('.
+missing_identifier off=21 len=1 1:22 | Expected an identifier.
+### a45_ponto_class.dart
+void f(dynamic a) { a.class; }
+--- diag
+expected_identifier_but_got_keyword off=22 len=5 1:23 | 'class' can't be used as an identifier because it's a keyword.
+### a46_ponto_vazio.dart
+void f(dynamic a) { a.; }
+--- diag
+missing_identifier off=22 len=1 1:23 | Expected an identifier.
+### a47_metodo_sem_nome.dart
+class A { void () {} }
+--- diag
+missing_identifier off=15 len=1 1:16 | Expected an identifier.
+### a48_topo_fn_class.dart
+void class() {}
+--- diag
+missing_function_body off=5 len=5 1:6 | A function body must be provided.
+missing_function_parameters off=5 len=5 1:6 | Functions must have an explicit list of parameters.
+missing_identifier off=5 len=5 1:6 | Expected an identifier.
+expected_body off=10 len=1 1:11 | A class declaration must have a body, even if it is empty.
+expected_executable off=10 len=1 1:11 | Expected a method, getter, setter or operator declaration.
+missing_identifier off=10 len=1 1:11 | Expected an identifier.
+expected_executable off=11 len=1 1:12 | Expected a method, getter, setter or operator declaration.
+expected_executable off=13 len=1 1:14 | Expected a method, getter, setter or operator declaration.
+### a49_tipo_param_class.dart
+class A<class> {}
+--- diag
+conflicting_type_variable_and_member off=8 len=0 1:9 | '' can't be used to name both a type parameter and a member in this class.
+missing_identifier off=8 len=5 1:9 | Expected an identifier.
+### a50_tipo_param_vazio.dart
+class A<> {}
+--- diag
+conflicting_type_variable_and_member off=8 len=0 1:9 | '' can't be used to name both a type parameter and a member in this class.
+missing_identifier off=8 len=1 1:9 | Expected an identifier.
+### a51_catch_class.dart
+void f() { try {} catch (class) {} }
+--- diag
+catch_syntax off=25 len=5 1:26 | 'catch' must be followed by '(identifier)' or '(identifier, identifier)'.
+expected_identifier_but_got_keyword off=25 len=5 1:26 | 'class' can't be used as an identifier because it's a keyword.
+### a52_catch_vazio.dart
+void f() { try {} catch () {} }
+--- diag
+catch_syntax off=25 len=1 1:26 | 'catch' must be followed by '(identifier)' or '(identifier, identifier)'.
+### a53_show_class.dart
+import 'dart:core' show class;
+--- diag
+expected_identifier_but_got_keyword off=24 len=5 1:25 | 'class' can't be used as an identifier because it's a keyword.
+undefined_shown_name off=24 len=5 1:25 | The library 'dart:core' doesn't export a member with the shown name 'class'.
+### a54_show_vazio.dart
+import 'dart:core' show ;
+--- diag
+missing_identifier off=24 len=1 1:25 | Expected an identifier.
+undefined_shown_name off=24 len=0 1:25 | The library 'dart:core' doesn't export a member with the shown name ''.
+### a55_library_class.dart
+library class;
+--- diag
+expected_identifier_but_got_keyword off=8 len=5 1:9 | 'class' can't be used as an identifier because it's a keyword.
+### a56_simbolo_class.dart
+var s = #class;
+--- diag
+expected_identifier_but_got_keyword off=9 len=5 1:10 | 'class' can't be used as an identifier because it's a keyword.
+### a57_new_class.dart
+var x = new class();
+--- diag
+creation_with_non_type off=12 len=5 1:13 | The name 'class' isn't a class.
+expected_identifier_but_got_keyword off=12 len=5 1:13 | 'class' can't be used as an identifier because it's a keyword.
+### a58_anot_class.dart
+@class
+void f() {}
+--- diag
+non_constant_annotation_constructor off=0 len=1 1:1 | Annotation creation can only call a const constructor.
+missing_identifier off=1 len=5 1:2 | Expected an identifier.
+expected_body off=7 len=4 2:1 | A class declaration must have a body, even if it is empty.
+missing_identifier off=7 len=4 2:1 | Expected an identifier.
+### a59_local_fn_class.dart
+void f() { void class() {} }
+--- diag
+expected_identifier_but_got_keyword off=16 len=5 1:17 | 'class' can't be used as an identifier because it's a keyword.
+expected_token off=16 len=5 1:17 | Expected to find ';'.
+unused_local_variable off=16 len=5 1:17 | The value of the local variable 'class' isn't used.
+expected_token off=25 len=1 1:26 | Expected to find ';'.
+### a60_this_ponto.dart
+class A { int x; A(this.); }
+--- diag
+not_initialized_non_nullable_instance_field off=17 len=1 1:18 | Non-nullable instance field 'x' must be initialized.
+initializing_formal_for_non_existent_field off=19 len=5 1:20 | '' isn't a field in the enclosing class.
+missing_identifier off=24 len=1 1:25 | Expected an identifier.
+### a61_await_x.dart
+void f() { await x; }
+--- diag
+undefined_identifier_await off=11 len=5 1:12 | Undefined name 'await' in function body not marked with 'async'.
+unused_local_variable off=17 len=1 1:18 | The value of the local variable 'x' isn't used.
+### a62_topo_fn_sem_nome.dart
+void () {}
+--- diag
+missing_identifier off=5 len=1 1:6 | Expected an identifier.
+### a63_topo_int_pv.dart
+int;
+--- diag
+missing_const_final_var_or_type off=0 len=3 1:1 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+### a64_topo_as_campo.dart
+int as = 1;
+--- diag
+(nenhum)
+### a65_eof_class.dart
+class
+--- diag
+expected_body off=6 len=0 2:1 | A class declaration must have a body, even if it is empty.
+missing_identifier off=6 len=0 2:1 | Expected an identifier.
+### b01_C_vazio.dart
+class C<T> {}
+C<> x = C();
+--- diag
+expected_type_name off=16 len=1 2:3 | Expected a type name.
+### b02_list_int_x.dart
+List<int x = [];
+--- diag
+expected_token off=5 len=3 1:6 | Expected to find '>'.
+### b03_list_int_x_campo.dart
+class A { List<int x; }
+--- diag
+expected_token off=15 len=3 1:16 | Expected to find '>'.
+not_initialized_non_nullable_instance_field off=19 len=1 1:20 | Non-nullable instance field 'x' must be initialized.
+### b04_local_list_int_x.dart
+void f() { List<int x; }
+--- diag
+undefined_operator off=15 len=1 1:16 | The operator '<' isn't defined for the type 'Type'.
+expected_token off=16 len=3 1:17 | Expected to find ';'.
+undefined_identifier off=20 len=1 1:21 | Undefined name 'x'.
+### b05_param_list_int_x.dart
+void f(List<int x) {}
+--- diag
+expected_token off=11 len=1 1:12 | Expected to find ')'.
+### b06_map_virgula.dart
+Map<int, > m = {};
+--- diag
+expected_type_name off=9 len=1 1:10 | Expected a type name.
+### b07_void_args.dart
+void<int> f() {}
+--- diag
+void_with_type_arguments off=4 len=1 1:5 | Type 'void' can't have type arguments.
+### b08_extends_void.dart
+class A extends void {}
+--- diag
+expected_type_name off=16 len=4 1:17 | Expected a type name.
+extends_non_class off=16 len=4 1:17 | Classes can only extend other classes.
+### b09_mixin_on_void.dart
+mixin M on void {}
+--- diag
+expected_type_name off=11 len=4 1:12 | Expected a type name.
+mixin_super_class_constraint_non_interface off=11 len=4 1:12 | Only classes and mixins can be used as superclass constraints.
+### b10_tipo_param_extends_vazio.dart
+class A<T extends> {}
+--- diag
+expected_type_name off=17 len=1 1:18 | Expected a type name.
+### b11_tipo_param_sem_virgula.dart
+class A<T U> {}
+--- diag
+expected_token off=10 len=1 1:11 | Expected to find ','.
+### b12_import_tipo.dart
+import<int> x = [];
+--- diag
+built_in_identifier_as_type off=0 len=6 1:1 | The built-in identifier 'import' can't be used as a type.
+undefined_class off=0 len=6 1:1 | Undefined class 'import'.
+### b13_as_tipo.dart
+as<int> x = 1;
+--- diag
+built_in_identifier_as_type off=0 len=2 1:1 | The built-in identifier 'as' can't be used as a type.
+undefined_class off=0 len=2 1:1 | Undefined class 'as'.
+### b14_ponto_tipo.dart
+void f(.x y) {}
+--- diag
+expected_type_name off=7 len=1 1:8 | Expected a type name.
+undefined_class off=7 len=2 1:8 | Undefined class 'x'.
+### b15_prefixo_ponto.dart
+void f(p. y) {}
+--- diag
+undefined_class off=7 len=4 1:8 | Undefined class 'y'.
+missing_identifier off=11 len=1 1:12 | Expected an identifier.
+### b16_is_vazio.dart
+void f(Object o) { if (o is ) {} }
+--- diag
+expected_type_name off=28 len=1 1:29 | Expected a type name.
+### b17_as_void.dart
+void f(Object o) { o as void; }
+--- diag
+expected_type_name off=24 len=4 1:25 | Expected a type name.
+### b18_var_tipo.dart
+void f() { List<var> x = []; }
+--- diag
+non_type_as_type_argument off=16 len=3 1:17 | The name 'var' isn't a type, so it can't be used as a type argument.
+var_as_type_name off=16 len=3 1:17 | The keyword 'var' can't be used as a type name.
+unused_local_variable off=21 len=1 1:22 | The value of the local variable 'x' isn't used.
+### b19_gtgt.dart
+List<List<int>> x = [];
+--- diag
+(nenhum)
+### b20_falta_gt_eof.dart
+class A<T
+--- diag
+expected_token off=8 len=1 1:9 | Expected to find '>'.
+expected_body off=10 len=0 2:1 | A class declaration must have a body, even if it is empty.
+### b21_chamada_tipo.dart
+void f() { g<int(1); }
+--- diag
+undefined_identifier off=11 len=1 1:12 | Undefined name 'g'.
+new_with_undefined_constructor_default off=13 len=3 1:14 | The class 'int' doesn't have an unnamed constructor.
+### b22_typedef_L.dart
+typedef L = Function({x});
+--- diag
+undefined_class off=22 len=1 1:23 | Undefined class 'x'.
+missing_identifier off=23 len=1 1:24 | Expected an identifier.
+### b23_typedef_sem_gt.dart
+typedef F<T = void Function();
+--- diag
+expected_token off=10 len=1 1:11 | Expected to find '>'.
+### b24_dynamic_campo.dart
+class A { dynamic }
+--- diag
+expected_token off=10 len=7 1:11 | Expected to find ';'.
+missing_const_final_var_or_type off=10 len=7 1:11 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+### b25_nullable.dart
+int? ;
+--- diag
+expected_token off=0 len=3 1:1 | Expected to find ';'.
+missing_const_final_var_or_type off=0 len=3 1:1 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+expected_executable off=3 len=1 1:4 | Expected a method, getter, setter or operator declaration.
+unexpected_token off=5 len=1 1:6 | Unexpected text ';'.
+### b26_builtin_tipo_local.dart
+void f() { get x = 1; }
+--- diag
+expected_token off=11 len=3 1:12 | Expected to find ';'.
+undefined_identifier off=11 len=3 1:12 | Undefined name 'get'.
+undefined_identifier off=15 len=1 1:16 | Undefined name 'x'.
+### b27_funcao_tipo_param.dart
+void f(int Function( x) {}
+--- diag
+expected_token off=24 len=1 1:25 | Expected to find ')'.
+### b28_tipo_generico_builtin.dart
+void f(List<as> x) {}
+--- diag
+built_in_identifier_as_type off=12 len=2 1:13 | The built-in identifier 'as' can't be used as a type.
+non_type_as_type_argument off=12 len=2 1:13 | The name 'as' isn't a type, so it can't be used as a type argument.
+### b29_record.dart
+(int) x = (1,);
+--- diag
+record_type_one_positional_no_trailing_comma off=4 len=1 1:5 | A record type with exactly one positional field requires a trailing comma.
+### b30_record_vazio_nomeado.dart
+({}) x = ();
+--- diag
+empty_record_type_named_fields_list off=2 len=1 1:3 | The list of named fields in a record type can't be empty.
+### c01_return_sem_pv.dart
+f() { return 1 }
+--- diag
+expected_token off=13 len=1 1:14 | Expected to find ';'.
+### c02_if_sem_fecho.dart
+void f(bool x) { if (x {} }
+--- diag
+expected_token off=23 len=1 1:24 | Expected to find ')'.
+### c03_args_sem_virgula.dart
+void g(a, b) {}
+void f(a, b) { g(a b); }
+--- diag
+expected_token off=35 len=1 2:20 | Expected to find ','.
+### c04_args_sem_fecho.dart
+void g(a) {}
+void f() { g(1 ; }
+--- diag
+expected_token off=28 len=1 2:16 | Expected to find ')'.
+### c05_classe_sem_corpo.dart
+class A
+--- diag
+expected_body off=6 len=1 1:7 | A class declaration must have a body, even if it is empty.
+### c06_enum_sem_corpo.dart
+enum E
+--- diag
+enum_without_constants off=5 len=1 1:6 | The enum must have at least one constant.
+missing_enum_body off=7 len=0 2:1 | An enum definition must have a body with at least one constant name.
+### c07_fn_sem_corpo.dart
+void f()
+--- diag
+missing_function_body off=9 len=0 2:1 | A function body must be provided.
+### c08_seta_sem_pv.dart
+int f() => 1
+--- diag
+expected_token off=11 len=1 1:12 | Expected to find ';'.
+### c09_try_sem_corpo.dart
+void f() { try } 
+--- diag
+expected_body off=11 len=3 1:12 | A try statement must have a body, even if it is empty.
+missing_catch_or_finally off=11 len=3 1:12 | A try block must be followed by an 'on', 'catch', or 'finally' clause.
+### c10_import_vazio.dart
+import;
+--- diag
+expected_string_literal off=6 len=1 1:7 | Expected a string literal.
+unused_import off=6 len=0 1:7 | Unused import: ''.
+### c11_import_lixo.dart
+import 'dart:core' b;
+--- diag
+unexpected_token off=19 len=1 1:20 | Unexpected text 'b'.
+### c12_cond_sem_dois_pontos.dart
+var x = true ? 1;
+--- diag
+expected_token off=16 len=1 1:17 | Expected to find ':'.
+missing_identifier off=16 len=1 1:17 | Expected an identifier.
+### c13_mixin_sem_corpo.dart
+mixin M
+--- diag
+expected_body off=6 len=1 1:7 | A mixin declaration must have a body, even if it is empty.
+### c14_ext_sem_corpo.dart
+extension E on int
+--- diag
+expected_body off=15 len=3 1:16 | An extension declaration must have a body, even if it is empty.
+### c15_do_while.dart
+void f(bool x) { do {} while (x) }
+--- diag
+expected_token off=31 len=1 1:32 | Expected to find ';'.
+### c16_for_sem_fecho.dart
+void f() { for (;; }
+--- diag
+expected_token off=17 len=1 1:18 | Expected to find ';'.
+expected_token off=19 len=1 1:20 | Expected to find ')'.
+missing_identifier off=19 len=1 1:20 | Expected an identifier.
+### c17_switch_sem_corpo.dart
+void f(x) { switch (x) }
+--- diag
+expected_body off=21 len=1 1:22 | A switch statement must have a body, even if it is empty.
+### c18_catch_sem_corpo.dart
+void f() { try {} catch (e) }
+--- diag
+expected_body off=26 len=1 1:27 | A catch clause must have a body, even if it is empty.
+### c19_finally_sem_corpo.dart
+void f() { try {} finally }
+--- diag
+expected_body off=18 len=7 1:19 | A finally clause must have a body, even if it is empty.
+### c20_exttype_sem_corpo.dart
+extension type E(int i)
+--- diag
+expected_body off=22 len=1 1:23 | An extension type declaration must have a body, even if it is empty.
+### c21_var_sem_pv_topo.dart
+var x = 1
+var y = 2;
+--- diag
+expected_token off=8 len=1 1:9 | Expected to find ';'.
+### c22_new_C.dart
+class C {}
+void f() { new C(; }
+--- diag
+expected_token off=28 len=1 2:18 | Expected to find ')'.
+missing_identifier off=28 len=1 2:18 | Expected an identifier.
+### c23_if_sem_paren.dart
+void f(bool x) { if x {} }
+--- diag
+expected_token off=20 len=1 1:21 | Expected to find '('.
+expected_token off=20 len=1 1:21 | Expected to find ';'.
+missing_identifier off=20 len=1 1:21 | Expected an identifier.
+### c24_bloco_sem_fecho.dart
+void f() { 
+--- diag
+expected_token off=12 len=1 2:1 | Expected to find '}'.
+### c25_while_sem_paren.dart
+void f(bool x) { while x {} }
+--- diag
+expected_token off=23 len=1 1:24 | Expected to find '('.
+expected_token off=23 len=1 1:24 | Expected to find ';'.
+missing_identifier off=23 len=1 1:24 | Expected an identifier.
+### c26_lista_sem_fecho.dart
+var x = [1, 2;
+--- diag
+expected_token off=13 len=1 1:14 | Expected to find ']'.
+### c27_export_sem_uri.dart
+export ;
+--- diag
+expected_string_literal off=7 len=1 1:8 | Expected a string literal.
+### c28_part_sem_uri.dart
+part ;
+--- diag
+expected_string_literal off=5 len=1 1:6 | Expected a string literal.
+part_of_non_part off=5 len=0 1:6 | The included part 'file:///E:/dftemp/analise/spec-r4/casos/e2/c28_part_sem_uri.dart' must have a part-of directive.
+### c29_switch_expr.dart
+int f(x) => switch (x) ;
+--- diag
+non_exhaustive_switch_expression off=12 len=6 1:13 | The type 'dynamic' is not exhaustively matched by the switch cases since it doesn't match 'Object()'.
+expected_body off=21 len=1 1:22 | A switch expression must have a body, even if it is empty.
+### c30_campo_sem_pv.dart
+class A { int x }
+--- diag
+expected_token off=14 len=1 1:15 | Expected to find ';'.
+not_initialized_non_nullable_instance_field off=14 len=1 1:15 | Non-nullable instance field 'x' must be initialized.
+### c31_pv_linha_seguinte.dart
+void f() {
+  var a = 1
+
+  var b = 2;
+}
+--- diag
+unused_local_variable off=17 len=1 2:7 | The value of the local variable 'a' isn't used.
+expected_token off=21 len=1 2:11 | Expected to find ';'.
+unused_local_variable off=30 len=1 4:7 | The value of the local variable 'b' isn't used.
+### c32_assert_sem_pv.dart
+void f() { assert(true) }
+--- diag
+expected_token off=22 len=1 1:23 | Expected to find ';'.
+### c33_break_sem_pv.dart
+void f() { while (true) { break } }
+--- diag
+expected_token off=26 len=5 1:27 | Expected to find ';'.
+### c34_fn_seta_local.dart
+void f() { g() => 1 }
+--- diag
+unused_element off=11 len=1 1:12 | The declaration 'g' isn't referenced.
+expected_token off=18 len=1 1:19 | Expected to find ';'.
+### c35_caso_sem_dois_pontos.dart
+void f(x) { switch (x) { case 1 break; } }
+--- diag
+expected_token off=32 len=5 1:33 | Expected to find ':'.
+### c36_indice_sem_fecho.dart
+void f(List a) { a[0 ; }
+--- diag
+expected_token off=21 len=1 1:22 | Expected to find ']'.
+expected_token off=21 len=1 1:22 | Expected to find ']'.
+### c37_interp_sem_fecho.dart
+var s = "${1 + 2";
+--- diag
+expected_token off=16 len=2 1:17 | Expected to find '}'.
+unterminated_string_literal off=17 len=1 1:18 | Unterminated string literal.
+unterminated_string_literal off=18 len=1 1:19 | Unterminated string literal.
+expected_token off=19 len=0 2:1 | Expected to find ';'.
+expected_token off=19 len=1 2:1 | Expected to find '}'.
+### c38_param_sem_fecho.dart
+void f(int a {}
+--- diag
+expected_token off=13 len=1 1:14 | Expected to find ')'.
+### c39_named_aggregated.dart
+void f(a [b = 42]) {}
+--- diag
+expected_token off=9 len=1 1:10 | Expected to find ')'.
+### c40_named_sem_fecho.dart
+void f({int a ) {}
+--- diag
+missing_default_value_for_parameter off=12 len=1 1:13 | The parameter 'a' can't have a value of 'null' because of its type, but the implicit default value is 'null'.
+expected_token off=14 len=1 1:15 | Expected to find '}'.
+### d01_sealed_219.dart
+// @dart=2.19
+sealed class A {}
+--- diag
+experiment_not_enabled off=14 len=6 2:1 | This requires the 'sealed-class' language feature to be enabled.
+### d02_base_219.dart
+// @dart=2.19
+base class A {}
+--- diag
+experiment_not_enabled off=14 len=4 2:1 | This requires the 'class-modifiers' language feature to be enabled.
+### d03_final_219.dart
+// @dart=2.19
+final class A {}
+--- diag
+experiment_not_enabled off=14 len=5 2:1 | This requires the 'class-modifiers' language feature to be enabled.
+### d04_interface_219.dart
+// @dart=2.19
+interface class A {}
+--- diag
+experiment_not_enabled off=14 len=9 2:1 | This requires the 'class-modifiers' language feature to be enabled.
+### d05_mixin_class_219.dart
+// @dart=2.19
+mixin class A {}
+--- diag
+experiment_not_enabled off=14 len=5 2:1 | This requires the 'class-modifiers' language feature to be enabled.
+### d06_base_mixin_219.dart
+// @dart=2.19
+base mixin M {}
+--- diag
+experiment_not_enabled off=14 len=4 2:1 | This requires the 'class-modifiers' language feature to be enabled.
+### d07_typedef_212.dart
+// @dart=2.12
+typedef X = int;
+--- diag
+experiment_not_enabled off=24 len=1 2:11 | This requires the 'nonfunction-type-aliases' language feature to be enabled.
+### d08_anot_generica_213.dart
+// @dart=2.13
+class A<T> { const A(); }
+@A<int>()
+void f() {}
+--- diag
+experiment_not_enabled off=42 len=1 3:3 | This requires the 'generic-metadata' language feature to be enabled.
+### d09_gtgtgt_213.dart
+// @dart=2.13
+int f(int a) => a >>> 1;
+--- diag
+experiment_not_enabled off=32 len=0 2:19 | This requires the 'triple-shift' language feature to be enabled.
+experiment_not_enabled off=32 len=3 2:19 | This requires the 'triple-shift' language feature to be enabled.
+### d10_gtgtgt_eq_213.dart
+// @dart=2.13
+void f(int a) { a >>>= 1; }
+--- diag
+experiment_not_enabled off=32 len=0 2:19 | This requires the 'triple-shift' language feature to be enabled.
+experiment_not_enabled off=32 len=4 2:19 | This requires the 'triple-shift' language feature to be enabled.
+### d11_op_gtgtgt_213.dart
+// @dart=2.13
+class A { int operator >>>(int o) => 0; }
+--- diag
+experiment_not_enabled off=37 len=3 2:24 | This requires the 'triple-shift' language feature to be enabled.
+### d12_library_218.dart
+// @dart=2.18
+library;
+--- diag
+experiment_not_enabled off=14 len=7 2:1 | This requires the 'unnamed-libraries' language feature to be enabled.
+### d13_enum_216.dart
+// @dart=2.16
+enum E<T> with M implements I { a<int>(1), b.x(); const E(int x); const E.x(); }
+mixin M {}
+class I {}
+--- diag
+experiment_not_enabled off=24 len=4 2:11 | This requires the 'enhanced-enums' language feature to be enabled.
+experiment_not_enabled off=52 len=1 2:39 | This requires the 'enhanced-enums' language feature to be enabled.
+experiment_not_enabled off=60 len=1 2:47 | This requires the 'enhanced-enums' language feature to be enabled.
+experiment_not_enabled off=62 len=1 2:49 | This requires the 'enhanced-enums' language feature to be enabled.
+### d14_super_216.dart
+// @dart=2.16
+class A { A(int x); }
+class B extends A { B(super.x); }
+--- diag
+no_default_super_constructor off=56 len=1 3:21 | The superclass 'A' doesn't have a zero argument constructor.
+experiment_not_enabled off=58 len=5 3:23 | This requires the 'super-parameters' language feature to be enabled.
+### d15_new_214.dart
+// @dart=2.14
+class A {}
+var f = A.new;
+--- diag
+sdk_version_constructor_tearoffs off=33 len=5 3:9 | Tearing off a constructor requires the 'constructor-tearoffs' language feature.
+experiment_not_enabled off=35 len=3 3:11 | This requires the 'constructor-tearoffs' language feature to be enabled.
+### d16_tearoff_generico_214.dart
+// @dart=2.14
+T g<T>(T x) => x;
+var f = g<int>;
+--- diag
+experiment_not_enabled off=41 len=5 3:10 | This requires the 'constructor-tearoffs' language feature to be enabled.
+### d17_record_219.dart
+// @dart=2.19
+var r = (1, 2);
+(int, int) s = throw 0;
+--- diag
+experiment_not_enabled off=22 len=1 2:9 | This requires the 'records' language feature to be enabled.
+experiment_not_enabled off=30 len=1 3:1 | This requires the 'records' language feature to be enabled.
+### d18_exttype_32.dart
+// @dart=3.2
+extension type E(int i) {}
+--- diag
+experiment_not_enabled off=23 len=4 2:11 | This requires the 'inline-class' language feature to be enabled.
+### d19_digitos_35.dart
+// @dart=3.5
+var x = 1_000;
+var y = 1_0.5;
+var z = 0xFF_FF;
+--- diag
+experiment_not_enabled off=21 len=5 2:9 | This requires the 'digit-separators' language feature to be enabled.
+experiment_not_enabled off=36 len=5 3:9 | This requires the 'digit-separators' language feature to be enabled.
+experiment_not_enabled off=51 len=7 4:9 | This requires the 'digit-separators' language feature to be enabled.
+### d20_null_aware.dart
+var a = <int?>[];
+int? x;
+var l = [?x];
+var s = {?x};
+var m = {?x: 1};
+var m2 = {1: ?x};
+var m3 = {?x: ?x};
+--- diag
+experiment_not_enabled off=35 len=1 3:10 | This requires the 'null-aware-elements' language feature to be enabled.
+experiment_not_enabled off=49 len=1 4:10 | This requires the 'null-aware-elements' language feature to be enabled.
+experiment_not_enabled off=63 len=1 5:10 | This requires the 'null-aware-elements' language feature to be enabled.
+experiment_not_enabled off=84 len=1 6:14 | This requires the 'null-aware-elements' language feature to be enabled.
+experiment_not_enabled off=99 len=1 7:11 | This requires the 'null-aware-elements' language feature to be enabled.
+### d21_augment_class.dart
+augment class A {}
+--- diag
+expected_token off=0 len=7 1:1 | Expected to find ';'.
+missing_const_final_var_or_type off=0 len=7 1:1 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+### d22_variance.dart
+class A<out T> {}
+--- diag
+experiment_not_enabled_off_by_default off=8 len=3 1:9 | This requires the experimental 'variance' language feature to be enabled.
+### d23_import_augment.dart
+import augment 'a.dart';
+--- diag
+experiment_not_enabled off=7 len=7 1:8 | This requires the 'macros' language feature to be enabled.
+uri_does_not_exist off=15 len=8 1:16 | Target of URI doesn't exist: 'a.dart'.
+### d24_padrao_219.dart
+// @dart=2.19
+void f(Object o) {
+  var (a, b) = (1, 2);
+  switch (o) { case int x: break; }
+  if (o case int y) {}
+  var z = switch (o) { _ => 1 };
+}
+--- diag
+expected_token off=39 len=1 3:7 | Expected to find ';'.
+missing_identifier off=39 len=1 3:7 | Expected an identifier.
+expected_token off=40 len=1 3:8 | Expected to find ';'.
+undefined_identifier off=40 len=1 3:8 | Undefined name 'a'.
+missing_identifier off=41 len=1 3:9 | Expected an identifier.
+unexpected_token off=41 len=1 3:9 | Unexpected text ';'.
+expected_token off=43 len=1 3:11 | Expected to find ';'.
+undefined_identifier off=43 len=1 3:11 | Undefined name 'b'.
+missing_identifier off=44 len=1 3:12 | Expected an identifier.
+unexpected_token off=44 len=1 3:12 | Unexpected text ';'.
+missing_identifier off=46 len=1 3:14 | Expected an identifier.
+experiment_not_enabled off=48 len=1 3:16 | This requires the 'records' language feature to be enabled.
+expected_token off=80 len=1 4:25 | Expected to find ':'.
+unused_label off=80 len=2 4:25 | The label 'x' isn't used.
+non_bool_condition off=98 len=1 5:7 | Conditions must have a static type of 'bool'.
+expected_token off=100 len=4 5:9 | Expected to find ')'.
+unused_local_variable off=121 len=1 6:7 | The value of the local variable 'z' isn't used.
+expected_token off=123 len=1 6:9 | Expected to find ';'.
+missing_identifier off=125 len=6 6:11 | Expected an identifier.
+expected_token off=138 len=1 6:24 | Expected to find 'case'.
+### d25_part_if.dart
+part 'x.dart' if (dart.library.io) 'y.dart';
+--- diag
+uri_does_not_exist off=5 len=8 1:6 | Target of URI doesn't exist: 'file:///E:/dftemp/analise/spec-r4/casos/e2/x.dart'.
+experiment_not_enabled off=14 len=2 1:15 | This requires the 'enhanced-parts' language feature to be enabled.
+### d26_macro_class.dart
+macro class A {}
+--- diag
+experiment_not_enabled off=0 len=5 1:1 | This requires the 'macros' language feature to be enabled.
+### d27_named_anywhere_216.dart
+// @dart=2.16
+void g(int a, {int? b}) {}
+void f() { g(b: 1, 2); }
+--- diag
+positional_after_named_argument off=60 len=1 3:20 | Positional arguments must occur before named arguments.
+### d28_extension_25.dart
+// @dart=2.5
+extension E on int {}
+--- diag
+illegal_language_version_override off=0 len=12 1:1 | The language version must be >=2.12.0.
+experiment_not_enabled off=13 len=9 2:1 | This requires the 'extension-methods' language feature to be enabled.
+undefined_class off=13 len=9 2:1 | Undefined class 'extension'.
+undefined_class off=25 len=2 2:13 | Undefined class 'on'.
+missing_function_parameters off=28 len=3 2:16 | Functions must have an explicit list of parameters.
+### d29_nullable_211.dart
+// @dart=2.11
+int? x;
+--- diag
+illegal_language_version_override off=0 len=13 1:1 | The language version must be >=2.12.0.
+### d30_late_211.dart
+// @dart=2.11
+late int x;
+void f({required int a}) {}
+--- diag
+illegal_language_version_override off=0 len=13 1:1 | The language version must be >=2.12.0.
+unexpected_token off=14 len=4 2:1 | Unexpected text 'late'.
+unexpected_token off=34 len=8 3:9 | Unexpected text 'required'.
+missing_default_value_for_parameter off=47 len=1 3:22 | The parameter 'a' can't have a value of 'null' because of its type, but the implicit default value is 'null'.
+### d31_augment_typedef.dart
+augment typedef A = int;
+--- diag
+expected_token off=0 len=7 1:1 | Expected to find ';'.
+missing_const_final_var_or_type off=0 len=7 1:1 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+### d32_base_typedef.dart
+base typedef E = Enum;
+--- diag
+expected_token off=0 len=4 1:1 | Expected to find ';'.
+missing_const_final_var_or_type off=0 len=4 1:1 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+### d33_augment_fn.dart
+augment void f() {}
+--- diag
+expected_token off=0 len=7 1:1 | Expected to find ';'.
+missing_const_final_var_or_type off=0 len=7 1:1 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+### d34_wildcard_spread_15.dart
+// @dart=2.2
+var a = [...[1], if (true) 2];
+var s = {1};
+--- diag
+illegal_language_version_override off=0 len=12 1:1 | The language version must be >=2.12.0.
+### d35_mixin_class_219_b.dart
+// @dart=2.19
+abstract mixin class A {}
+sealed mixin M {}
+--- diag
+experiment_not_enabled off=23 len=5 2:10 | This requires the 'class-modifiers' language feature to be enabled.
+sealed_mixin off=40 len=6 3:1 | A mixin can't be declared 'sealed'.
+### d36_new_generic_214.dart
+// @dart=2.14
+class A<T> {}
+var f = A<int>.new;
+var g = List<int>;
+--- diag
+experiment_not_enabled off=37 len=5 3:10 | This requires the 'constructor-tearoffs' language feature to be enabled.
+experiment_not_enabled off=43 len=3 3:16 | This requires the 'constructor-tearoffs' language feature to be enabled.
+experiment_not_enabled off=60 len=5 4:13 | This requires the 'constructor-tearoffs' language feature to be enabled.
+### d37_enum_pv_216.dart
+// @dart=2.16
+enum E { a; }
+--- diag
+experiment_not_enabled off=24 len=1 2:11 | This requires the 'enhanced-enums' language feature to be enabled.
+### d38_enum_args_216.dart
+// @dart=2.16
+enum E { a(1) }
+--- diag
+experiment_not_enabled off=24 len=1 2:11 | This requires the 'enhanced-enums' language feature to be enabled.
+extra_positional_arguments off=25 len=1 2:12 | Too many positional arguments: 0 expected, but 1 found.
+### d39_named_mixin_219.dart
+// @dart=2.19
+class M {}
+base class B = Object with M;
+--- diag
+experiment_not_enabled off=25 len=4 3:1 | This requires the 'class-modifiers' language feature to be enabled.
+### d40_null_aware_min.dart
+int? x;
+var l = [?x];
+var m3 = {?x: ?x};
+--- diag
+experiment_not_enabled off=17 len=1 2:10 | This requires the 'null-aware-elements' language feature to be enabled.
+experiment_not_enabled off=32 len=1 3:11 | This requires the 'null-aware-elements' language feature to be enabled.
+### e01_augment_int_x.dart
+augment int x = 1;
+--- diag
+undefined_class off=0 len=7 1:1 | Undefined class 'augment'.
+expected_token off=8 len=3 1:9 | Expected to find ';'.
+missing_const_final_var_or_type off=12 len=1 1:13 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+### e02_super_const.dart
+class C {
+  C() : super.const();
+}
+--- diag
+invalid_super_in_initializer off=18 len=5 2:9 | Can only use 'super' in an initializer for calling the superclass constructor (e.g. 'super()' or 'super.namedConstructor()')
+expected_identifier_but_got_keyword off=24 len=5 2:15 | 'const' can't be used as an identifier because it's a keyword.
+missing_identifier off=24 len=5 2:15 | Expected an identifier.
+### e03_cascata_paren.dart
+void f(Never never) {
+  never..(_) => 1;
+}
+--- diag
+receiver_of_type_never off=24 len=5 2:3 | The receiver is of type 'Never', and will never complete with a value.
+dead_code off=29 len=11 2:8 | Dead code.
+missing_identifier off=31 len=1 2:10 | Expected an identifier.
+undefined_identifier off=32 len=1 2:11 | Undefined name '_'.
+expected_token off=33 len=1 2:12 | Expected to find ';'.
+expected_token off=35 len=2 2:14 | Expected to find ';'.
+missing_identifier off=35 len=2 2:14 | Expected an identifier.
+### e04_ponto_bloco.dart
+void f() {
+  StringBuffer('').{ return print('0'); }.toString();
+}
+--- diag
+missing_identifier off=30 len=1 2:20 | Expected an identifier.
+undefined_getter off=30 len=1 2:20 | The getter '{' isn't defined for the type 'StringBuffer'.
+unexpected_token off=32 len=6 2:22 | Unexpected text 'return'.
+expected_token off=49 len=1 2:39 | Expected to find '}'.
+### e05_factory_redir.dart
+class C {
+  factory C.foo() = C.bar();
+  C.bar();
+}
+--- diag
+expected_token off=32 len=3 2:23 | Expected to find ';'.
+concrete_class_with_abstract_member off=35 len=3 2:26 | '' must have a method body because 'C' isn't abstract.
+missing_identifier off=35 len=1 2:26 | Expected an identifier.
+### e06_typedef_M.dart
+typedef M = Function({int});
+--- diag
+missing_identifier off=25 len=1 1:26 | Expected an identifier.
+### e07_label8.dart
+main() {
+  int i = 0;
+  switch(i)
+    L:
+  {
+    case 111:
+      while (false) {
+        break L;
+      }
+      i++;
+  }
+}
+--- diag
+expected_body off=32 len=1 3:11 | A switch statement must have a body, even if it is empty.
+expected_identifier_but_got_keyword off=49 len=4 6:5 | 'case' can't be used as an identifier because it's a keyword.
+expected_token off=49 len=4 6:5 | Expected to find ';'.
+missing_statement off=49 len=4 6:5 | Expected a statement.
+undefined_identifier off=49 len=4 6:5 | Undefined name 'case'.
+expected_token off=54 len=3 6:10 | Expected to find ';'.
+missing_identifier off=57 len=1 6:13 | Expected an identifier.
+unexpected_token off=57 len=1 6:13 | Unexpected text ':'.
+dead_code off=79 len=26 7:21 | Dead code.
+### e08_augment_extension.dart
+extension on int {}
+
+augment extension {}
+--- diag
+undefined_class off=21 len=7 3:1 | Undefined class 'augment'.
+missing_function_parameters off=29 len=9 3:9 | Functions must have an explicit list of parameters.
+### e09_case_incremento.dart
+void f(x) {
+  var a = 0;
+  if (x case ++a) {}
+}
+--- diag
+constant_pattern_with_non_constant_expression off=40 len=1 3:16 | The expression of a constant pattern must be a valid constant.
+### e10_typedef_T10.dart
+typedef T10<X extends void Function({T10<Never> x})> = List<X>;
+--- diag
+type_alias_cannot_reference_itself off=8 len=3 1:9 | Typedefs can't reference themselves directly or recursively via another typedef.
+### e11_tres_iguais.dart
+class C {
+  m() {
+    print(super === null);
+  }
+}
+void main() {
+  print("foo" !== null);
+}
+--- diag
+unsupported_operator off=34 len=1 3:17 | The '===' operator is not supported.
+unsupported_operator off=79 len=1 7:15 | The '!==' operator is not supported.
+### e12_use_C_vazio.dart
+class C<T> {}
+void use(x) {}
+void f() {
+  use(C<>);
+}
+--- diag
+expected_type_name off=48 len=1 4:9 | Expected a type name.
+### e13_new_membros.dart
+class C3 {
+  int new() => 1;
+}
+class C4 {
+  int get new => 1;
+  void set new(int value) {}
+}
+class C5 {
+  int new = 1;
+}
+class C6 {
+  static void new() {}
+}
+class C2 {
+  factory new() => C2._();
+  C2._();
+}
+class C9 {
+  new();
+}
+--- diag
+expected_identifier_but_got_keyword off=17 len=3 2:7 | 'new' can't be used as an identifier because it's a keyword.
+expected_identifier_but_got_keyword off=52 len=3 5:11 | 'new' can't be used as an identifier because it's a keyword.
+expected_identifier_but_got_keyword off=73 len=3 6:12 | 'new' can't be used as an identifier because it's a keyword.
+expected_identifier_but_got_keyword off=110 len=3 9:7 | 'new' can't be used as an identifier because it's a keyword.
+expected_identifier_but_got_keyword off=146 len=3 12:15 | 'new' can't be used as an identifier because it's a keyword.
+expected_token off=146 len=3 12:15 | Expected to find ';'.
+missing_identifier off=149 len=1 12:18 | Expected an identifier.
+expected_token off=170 len=7 15:3 | Expected to find ';'.
+missing_const_final_var_or_type off=170 len=7 15:3 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+expected_class_member off=178 len=3 15:11 | Expected a class member.
+missing_identifier off=181 len=1 15:14 | Expected an identifier.
+expected_class_member off=220 len=3 19:3 | Expected a class member.
+concrete_class_with_abstract_member off=223 len=3 19:6 | '' must have a method body because 'C9' isn't abstract.
+missing_identifier off=223 len=1 19:6 | Expected an identifier.
+### e14_case_interrogacao.dart
+void f(o) {
+  switch (o) {
+    case 1 ?? 2:
+  }
+}
+--- diag
+expected_token off=38 len=2 3:12 | Expected to find ':'.
+missing_identifier off=38 len=2 3:12 | Expected an identifier.
+expected_token off=41 len=1 3:15 | Expected to find ';'.
+missing_identifier off=42 len=1 3:16 | Expected an identifier.
+unexpected_token off=42 len=1 3:16 | Unexpected text ':'.
+### e15_case_void_fun.dart
+void f(o) {
+  switch (o) {
+    case void fun() {}:
+  }
+}
+--- diag
+unused_local_variable off=41 len=3 3:15 | The value of the local variable 'fun' isn't used.
+expected_token off=44 len=1 3:18 | Expected to find ':'.
+expected_token off=48 len=1 3:22 | Expected to find ';'.
+missing_identifier off=49 len=1 3:23 | Expected an identifier.
+unexpected_token off=49 len=1 3:23 | Unexpected text ':'.
+### e16_case_assert.dart
+void f(o) {
+  switch (o) {
+    case assert(false):
+  }
+}
+--- diag
+constant_pattern_with_non_constant_expression off=36 len=13 3:10 | The expression of a constant pattern must be a valid constant.
+undefined_identifier off=36 len=6 3:10 | Undefined name 'assert'.
+### e17_async_return.dart
+void foo() {
+  var x = () async => return Future.value(null);
+}
+--- diag
+unused_local_variable off=19 len=1 2:7 | The value of the local variable 'x' isn't used.
+unexpected_token off=35 len=6 2:23 | Unexpected text 'return'.
+### e18_param_chave_dupla.dart
+class C {
+  final String x;
+  final bool y;
+  const C({
+    required this.x,
+    {this.y = false}
+  });
+}
+--- diag
+final_not_initialized_constructor off=52 len=1 4:9 | All final variables must be initialized, but 'y' isn't.
+expected_token off=81 len=1 6:5 | Expected to find '}'.
+missing_identifier off=81 len=1 6:5 | Expected an identifier.
+### e19_new_C_spread.dart
+class C {}
+main() {
+  new C(...;
+}
+--- diag
+missing_identifier off=28 len=3 3:9 | Expected an identifier.
+expected_token off=31 len=1 3:12 | Expected to find ')'.
+### e20_lista_dois_pontos.dart
+void f() {
+  <String>[0: ?""];
+}
+--- diag
+list_element_type_not_assignable off=22 len=1 2:12 | The element type 'int' can't be assigned to the list type 'String'.
+expected_token off=23 len=1 2:13 | Expected to find ']'.
+### e21_variance_local.dart
+void f() {
+  List<out String> bar;
+}
+--- diag
+undefined_operator off=17 len=1 2:7 | The operator '<' isn't defined for the type 'Type'.
+expected_token off=18 len=3 2:8 | Expected to find ';'.
+undefined_identifier off=18 len=3 2:8 | Undefined name 'out'.
+undefined_operator off=28 len=1 2:18 | The operator '>' isn't defined for the type 'Type'.
+undefined_identifier off=30 len=3 2:20 | Undefined name 'bar'.
+### e22_augment_core_int.dart
+import 'dart:core' as core;
+void foo() {}
+
+augment core.int foo();
+--- diag
+prefix_collides_with_top_level_member off=22 len=4 1:23 | The name 'core' is already used as an import prefix and can't be used to name a top-level element.
+undefined_class off=43 len=7 4:1 | Undefined class 'augment'.
+missing_function_parameters off=51 len=4 4:9 | Functions must have an explicit list of parameters.
+expected_executable off=55 len=1 4:13 | Expected a method, getter, setter or operator declaration.
+missing_function_body off=55 len=1 4:13 | A function body must be provided.
+undefined_class off=56 len=3 4:14 | Undefined class 'int'.
+duplicate_definition off=60 len=3 4:18 | The name 'foo' is already defined.
+missing_function_body off=65 len=1 4:23 | A function body must be provided.
+### e23_til_binario.dart
+var a = 5 ~ 3;
+--- diag
+not_binary_operator off=10 len=1 1:11 | '~' isn't a binary operator.
+### e24_const_ponto_a.dart
+abstract class Foo<T> {
+  const factory Foo.a() = _Foo;
+  const Foo();
+}
+class _Foo<T> extends Foo<T> {
+  const _Foo();
+}
+Foo<int> bar<T>() => const .a<int>();
+--- diag
+creation_with_non_type off=149 len=2 8:28 | The name 'a' isn't a class.
+missing_identifier off=149 len=1 8:28 | Expected an identifier.
+### e25_case_atribuicao.dart
+const ERROR_A = 0;
+const ERROR_B = 1;
+errorToString(error) {
+  switch (error) {
+    case ERROR_A:
+      return "ERROR_A";
+    case ERROR_B = 1:
+      return "ERROR_B";
+  }
+}
+--- diag
+expected_token off=139 len=1 7:18 | Expected to find ':'.
+missing_identifier off=139 len=1 7:18 | Expected an identifier.
+expected_token off=141 len=1 7:20 | Expected to find ';'.
+missing_identifier off=142 len=1 7:21 | Expected an identifier.
+unexpected_token off=142 len=1 7:21 | Unexpected text ':'.
+### e26_param_mixin.dart
+class A {
+  int bar(mixin int x);
+}
+--- diag
+concrete_class_with_abstract_member off=12 len=21 2:3 | 'bar' must have a method body because 'A' isn't abstract.
+expected_token off=26 len=3 2:17 | Expected to find ','.
+### e27_never_seta.dart
+void f(Never never) {
+  never.=> 1;
+}
+--- diag
+expected_token off=30 len=2 2:9 | Expected to find ';'.
+missing_identifier off=30 len=2 2:9 | Expected an identifier.
+dead_code off=33 len=2 2:12 | Dead code.
+### e28_null_cascata_seta.dart
+void f() {
+  null?..=> 1;
+}
+--- diag
+dead_code off=17 len=8 2:7 | Dead code.
+expected_token off=20 len=2 2:10 | Expected to find ';'.
+missing_identifier off=20 len=2 2:10 | Expected an identifier.
+### e29_igual_ponto.dart
+enum E { a }
+void f(E e) {
+  if (e == .a) {}
+}
+--- diag
+missing_identifier off=38 len=1 3:12 | Expected an identifier.
+### e30_class_keyword.dart
+main() {
+  int class = 10;
+  print("$class");
+}
+--- diag
+expected_token off=11 len=3 2:3 | Expected to find ';'.
+expected_identifier_but_got_keyword off=15 len=5 2:7 | 'class' can't be used as an identifier because it's a keyword.
+undefined_identifier off=15 len=5 2:7 | Undefined name 'class'.
+expected_identifier_but_got_keyword off=37 len=5 3:11 | 'class' can't be used as an identifier because it's a keyword.
+undefined_identifier off=37 len=5 3:11 | Undefined name 'class'.
+### e31_param_tipo_sem_nome_fn.dart
+typedef F = void Function(int, {String});
+--- diag
+missing_identifier off=38 len=1 1:39 | Expected an identifier.
+### e32_case_const_void.dart
+void f(o) {
+  switch (o) {
+    case const void fun() {}:
+    case const assert(false):
+  }
+}
+--- diag
+named_function_expression off=47 len=3 3:21 | Function expressions can't be named.
+constant_pattern_with_non_constant_expression off=50 len=5 3:24 | The expression of a constant pattern must be a valid constant.
+constant_pattern_with_non_constant_expression off=72 len=13 4:16 | The expression of a constant pattern must be a valid constant.
+undefined_identifier off=72 len=6 4:16 | Undefined name 'assert'.
+### e33_augment_metodo.dart
+class A {
+  augment void f() {}
+}
+--- diag
+expected_token off=12 len=7 2:3 | Expected to find ';'.
+missing_const_final_var_or_type off=12 len=7 2:3 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+### e34_sealed_typedef.dart
+sealed typedef T = int;
+--- diag
+expected_token off=0 len=6 1:1 | Expected to find ';'.
+missing_const_final_var_or_type off=0 len=6 1:1 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+### e35_expr_3457e.dart
+main() {
+  3457e
+}
+--- diag
+expected_token off=11 len=5 2:3 | Expected to find ';'.
+missing_digit off=15 len=1 2:7 | Decimal digit expected.
+### e36_0x.dart
+main() {
+  0x;
+  1e;
+}
+--- diag
+missing_hex_digit off=12 len=1 2:4 | Hexadecimal digit expected.
+missing_digit off=18 len=1 3:4 | Decimal digit expected.
+### e37_op_tres_iguais.dart
+class C {
+  operator ===(int index) {
+    return 0;
+  }
+}
+--- diag
+unsupported_operator off=21 len=1 2:12 | The '===' operator is not supported.
+### e38_base_como_nome.dart
+int base = 1;
+int sealed = 2;
+int on = 3;
+void f(int async, int await, int yield) {}
+--- diag
+(nenhum)
+### e39_get_class.dart
+class A {
+  int get class => 1;
+  void set if(int v) {}
+}
+--- diag
+expected_identifier_but_got_keyword off=20 len=5 2:11 | 'class' can't be used as an identifier because it's a keyword.
+expected_identifier_but_got_keyword off=43 len=2 3:12 | 'if' can't be used as an identifier because it's a keyword.
+### e40_fn_topo_reservada.dart
+int switch() => 1;
+int get while => 2;
+--- diag
+expected_identifier_but_got_keyword off=4 len=6 1:5 | 'switch' can't be used as an identifier because it's a keyword.
+expected_token off=19 len=3 2:1 | Expected to find ';'.
+expected_identifier_but_got_keyword off=23 len=3 2:5 | 'get' can't be used as an identifier because it's a keyword.
+expected_token off=23 len=3 2:5 | Expected to find ';'.
+missing_const_final_var_or_type off=23 len=3 2:5 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+missing_identifier off=23 len=3 2:5 | Expected an identifier.
+not_initialized_non_nullable_variable off=23 len=0 2:5 | The non-nullable variable '' must be initialized.
+expected_identifier_but_got_keyword off=27 len=5 2:9 | 'while' can't be used as an identifier because it's a keyword.
+missing_function_parameters off=27 len=5 2:9 | Functions must have an explicit list of parameters.
+### e41_tipo_reservado.dart
+class A {
+  int for = 1;
+  var while;
+  final if;
+}
+--- diag
+expected_identifier_but_got_keyword off=16 len=3 2:7 | 'for' can't be used as an identifier because it's a keyword.
+expected_identifier_but_got_keyword off=31 len=5 3:7 | 'while' can't be used as an identifier because it's a keyword.
+expected_identifier_but_got_keyword off=46 len=2 4:9 | 'if' can't be used as an identifier because it's a keyword.
+final_not_initialized off=46 len=2 4:9 | The final variable 'if' must be initialized.
+### e42_required_nome.dart
+void f({required}) {}
+void g({required int}) {}
+void h(int this) {}
+void i(this) {}
+--- diag
+expected_identifier_but_got_keyword off=59 len=4 3:12 | 'this' can't be used as an identifier because it's a keyword.
+expected_identifier_but_got_keyword off=75 len=4 4:8 | 'this' can't be used as an identifier because it's a keyword.
+### f01_arg_tipo_class.dart
+void f(List<class> x) {}
+--- diag
+expected_token off=11 len=1 1:12 | Expected to find ')'.
+### f02_extends_vazio.dart
+class A extends {}
+--- diag
+expected_type_name off=16 len=1 1:17 | Expected a type name.
+extends_non_class off=16 len=0 1:17 | Classes can only extend other classes.
+### f03_extends_class.dart
+class A extends class {}
+--- diag
+expected_body off=16 len=5 1:17 | A class declaration must have a body, even if it is empty.
+expected_type_name off=16 len=5 1:17 | Expected a type name.
+missing_identifier off=22 len=1 1:23 | Expected an identifier.
+### f04_is_class.dart
+void f(Object o) { o is class; }
+--- diag
+expected_token off=21 len=2 1:22 | Expected to find ';'.
+expected_identifier_but_got_keyword off=24 len=5 1:25 | 'class' can't be used as an identifier because it's a keyword.
+expected_type_name off=24 len=5 1:25 | Expected a type name.
+missing_statement off=24 len=5 1:25 | Expected a statement.
+undefined_identifier off=24 len=5 1:25 | Undefined name 'class'.
+### f05_lista_vazia_tipo.dart
+var x = <>[];
+--- diag
+expected_type_name off=9 len=1 1:10 | Expected a type name.
+### f06_arg_tipo_virgula_final.dart
+List<int,> x = [];
+--- diag
+wrong_number_of_type_arguments off=0 len=10 1:1 | The type 'List' is declared with 1 type parameters, but 2 type arguments were given.
+expected_type_name off=9 len=1 1:10 | Expected a type name.
+### f07_prefixo_class.dart
+import 'dart:core' as p;
+p.class x = 1;
+--- diag
+prefix_collides_with_top_level_member off=22 len=1 1:23 | The name 'p' is already used as an import prefix and can't be used to name a top-level element.
+missing_function_parameters off=25 len=1 2:1 | Functions must have an explicit list of parameters.
+expected_executable off=26 len=1 2:2 | Expected a method, getter, setter or operator declaration.
+missing_function_body off=26 len=1 2:2 | A function body must be provided.
+expected_token off=35 len=1 2:11 | Expected to find ';'.
+expected_executable off=37 len=1 2:13 | Expected a method, getter, setter or operator declaration.
+expected_token off=37 len=1 2:13 | Expected to find 'with'.
+expected_type_name off=37 len=1 2:13 | Expected a type name.
+mixin_of_non_class off=37 len=0 2:13 | Classes can only mix in mixins and classes.
+mixin_with_non_class_superclass off=37 len=0 2:13 | Mixin can only be applied to class.
+unexpected_token off=38 len=1 2:14 | Unexpected text ';'.
+### f08_tipo_param_as.dart
+class A<as> {}
+--- diag
+built_in_identifier_in_declaration off=8 len=2 1:9 | The built-in identifier 'as' can't be used as a type parameter name.
+### f09_tipo_param_void.dart
+class A<void> {}
+--- diag
+conflicting_type_variable_and_member off=8 len=0 1:9 | '' can't be used to name both a type parameter and a member in this class.
+missing_identifier off=8 len=4 1:9 | Expected an identifier.
+### f10_for_class.dart
+void f(List x) { for (class in x) {} }
+--- diag
+expected_identifier_but_got_keyword off=22 len=5 1:23 | 'class' can't be used as an identifier because it's a keyword.
+missing_identifier off=22 len=5 1:23 | Expected an identifier.
+undefined_identifier off=22 len=5 1:23 | Undefined name 'class'.
+### f11_final_pv.dart
+void f() { final; }
+--- diag
+missing_identifier off=16 len=1 1:17 | Expected an identifier.
+### f12_if_sem_comando.dart
+void f() { if (true) }
+--- diag
+expected_token off=19 len=1 1:20 | Expected to find ';'.
+missing_identifier off=21 len=1 1:22 | Expected an identifier.
+### f13_membro_void.dart
+class A { void }
+--- diag
+expected_token off=10 len=4 1:11 | Expected to find ';'.
+missing_identifier off=15 len=1 1:16 | Expected an identifier.
+### f14_membro_reservado_campo.dart
+class A { int class; }
+--- diag
+expected_identifier_but_got_keyword off=14 len=5 1:15 | 'class' can't be used as an identifier because it's a keyword.
+not_initialized_non_nullable_instance_field off=14 len=5 1:15 | Non-nullable instance field 'class' must be initialized.
+### f15_topo_reservado_fn.dart
+int class() => 1;
+--- diag
+expected_identifier_but_got_keyword off=4 len=5 1:5 | 'class' can't be used as an identifier because it's a keyword.
+### f16_param_reservado_topo.dart
+void f(int void) {}
+void g(int final) {}
+--- diag
+expected_identifier_but_got_keyword off=11 len=4 1:12 | 'void' can't be used as an identifier because it's a keyword.
+expected_identifier_but_got_keyword off=31 len=5 2:12 | 'final' can't be used as an identifier because it's a keyword.
+### f17_param_get.dart
+void f(int get) {}
+void g(get) {}
+--- diag
+(nenhum)
+### f18_typedef_antigo_class.dart
+typedef void class();
+--- diag
+built_in_identifier_in_declaration off=13 len=5 1:14 | The built-in identifier 'class' can't be used as a typedef name.
+expected_identifier_but_got_keyword off=13 len=5 1:14 | 'class' can't be used as an identifier because it's a keyword.
+### f19_local_builtin.dart
+void f() { int get = 1; int as = 2; print(get + as); }
+--- diag
+(nenhum)
+### f20_rotulo_await.dart
+void f() async { await: while (true) { break await; } }
+--- diag
+expected_token off=17 len=5 1:18 | Expected to find ';'.
+missing_identifier off=22 len=1 1:23 | Expected an identifier.
+unexpected_token off=22 len=1 1:23 | Unexpected text ';'.
+async_keyword_used_as_identifier off=45 len=5 1:46 | The keywords 'await' and 'yield' can't be used as identifiers in an asynchronous or generator function.
+label_undefined off=45 len=5 1:46 | Can't reference an undefined label 'await'.
+### f21_metadado_vazio.dart
+@
+class A {}
+--- diag
+undefined_annotation off=0 len=2 1:1 | Undefined name '' used as an annotation.
+missing_identifier off=2 len=5 2:1 | Expected an identifier.
+### f22_simbolo_vazio.dart
+var s = #;
+--- diag
+missing_identifier off=9 len=1 1:10 | Expected an identifier.
+### f23_new_vazio.dart
+var x = new ();
+--- diag
+missing_identifier off=12 len=1 1:13 | Expected an identifier.
+### f24_tipo_nulo_sem_nome.dart
+void f() { int? ; }
+--- diag
+non_bool_condition off=11 len=3 1:12 | Conditions must have a static type of 'bool'.
+expected_token off=16 len=1 1:17 | Expected to find ':'.
+missing_identifier off=16 len=1 1:17 | Expected an identifier.
+### f25_lt_decl_funcao.dart
+void f<T(T x) {}
+--- diag
+missing_function_parameters off=5 len=1 1:6 | Functions must have an explicit list of parameters.
+expected_token off=7 len=1 1:8 | Expected to find '>'.
+### f26_map_sem_gt_decl.dart
+class A { Map<String, int m = {}; }
+--- diag
+expected_token off=22 len=3 1:23 | Expected to find '>'.
+### f27_extends_tipo_sem_gt.dart
+class A<T extends List<int> {}
+--- diag
+expected_token off=26 len=1 1:27 | Expected to find '>'.
+### f28_fn_tipo_sem_nome.dart
+void f(void Function(int) ) {}
+--- diag
+(nenhum)
+### f29_campo_ponto.dart
+class A { int. x; }
+--- diag
+invalid_constructor_name off=10 len=3 1:11 | The name of a constructor must match the name of the enclosing class.
+missing_method_parameters off=10 len=3 1:11 | Methods must have an explicit list of parameters.
+### f30_enum_get.dart
+enum E { get, set, class }
+--- diag
+expected_token off=19 len=5 1:20 | Expected to find '}'.
+missing_identifier off=19 len=5 1:20 | Expected an identifier.
+### f31_string_esperada.dart
+import foo;
+--- diag
+expected_string_literal off=7 len=3 1:8 | Expected a string literal.
+unexpected_token off=7 len=3 1:8 | Unexpected text 'foo'.
+unused_import off=7 len=0 1:8 | Unused import: ''.
+### f32_interp_this.dart
+class A { String s() => "$this $super"; }
+--- diag
+expected_identifier_but_got_keyword off=32 len=5 1:33 | 'super' can't be used as an identifier because it's a keyword.
+undefined_identifier off=32 len=5 1:33 | Undefined name 'super'.
+### f33_campo_virgula.dart
+class A { int a, ; }
+--- diag
+not_initialized_non_nullable_instance_field off=14 len=1 1:15 | Non-nullable instance field 'a' must be initialized.
+missing_identifier off=17 len=1 1:18 | Expected an identifier.
+not_initialized_non_nullable_instance_field off=17 len=0 1:18 | Non-nullable instance field '' must be initialized.
+### f34_local_virgula.dart
+void f() { int a, ; }
+--- diag
+unused_local_variable off=15 len=1 1:16 | The value of the local variable 'a' isn't used.
+missing_identifier off=18 len=1 1:19 | Expected an identifier.
+### f35_tipo_var.dart
+void f(var<int> x) {}
+--- diag
+missing_identifier off=10 len=1 1:11 | Expected an identifier.
+expected_token off=11 len=3 1:12 | Expected to find ')'.
+### g01_ponto_bloco_break.dart
+void f() {
+  1.{
+    break;
+  };
+}
+--- diag
+missing_identifier off=15 len=1 2:5 | Expected an identifier.
+undefined_getter off=15 len=1 2:5 | The getter '{' isn't defined for the type 'int'.
+expected_token off=21 len=5 3:5 | Expected to find '}'.
+missing_identifier off=21 len=5 3:5 | Expected an identifier.
+### g02_ponto_seta.dart
+void f() {
+  StringBuffer('').=> 1;
+}
+--- diag
+expected_token off=30 len=2 2:20 | Expected to find ';'.
+missing_identifier off=30 len=2 2:20 | Expected an identifier.
+### g03_anon_expr.dart
+void f() {
+  StringBuffer('').(sb) => print(sb);
+}
+--- diag
+missing_identifier off=30 len=1 2:20 | Expected an identifier.
+undefined_getter off=30 len=1 2:20 | The getter '(' isn't defined for the type 'StringBuffer'.
+### g04_super_bloco.dart
+class A {
+  void m() {
+    super.{ print(1); };
+  }
+}
+--- diag
+missing_identifier off=33 len=1 3:11 | Expected an identifier.
+undefined_super_member off=33 len=1 3:11 | The getter '{' isn't defined in a superclass of 'A'.
+expected_token off=43 len=1 3:21 | Expected to find '}'.
+### g05_super_seta.dart
+class A {
+  void m() {
+    super.=> 1;
+  }
+}
+--- diag
+expected_token off=33 len=2 3:11 | Expected to find ';'.
+missing_identifier off=33 len=2 3:11 | Expected an identifier.
+undefined_super_member off=36 len=0 3:14 | The getter '' isn't defined in a superclass of 'A'.
+### g06_ponto_this.dart
+void f(dynamic a) { a.this; a.null; }
+--- diag
+missing_identifier off=22 len=4 1:23 | Expected an identifier.
+missing_identifier off=30 len=4 1:31 | Expected an identifier.
+### g07_paren_seta.dart
+void f() {
+  (StringBuffer('').=> print('0')).toString();
+}
+--- diag
+missing_identifier off=31 len=2 2:21 | Expected an identifier.
+expected_token off=34 len=5 2:24 | Expected to find ')'.
+### i01_late_x.dart
+void f() { late x; }
+--- diag
+missing_const_final_var_or_type off=16 len=1 1:17 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+unused_local_variable off=16 len=1 1:17 | The value of the local variable 'x' isn't used.
+### i02_anot_x.dart
+const a = 0;
+void f() { @a x; }
+--- diag
+missing_const_final_var_or_type off=27 len=1 2:15 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+unused_local_variable off=27 len=1 2:15 | The value of the local variable 'x' isn't used.
+### i03_topo_x_igual.dart
+x = 1;
+--- diag
+missing_const_final_var_or_type off=0 len=1 1:1 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+### i04_membro_x.dart
+class A { x; }
+--- diag
+missing_const_final_var_or_type off=10 len=1 1:11 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+### i05_tipo_interrogacao_pv.dart
+void f() { int? x }
+--- diag
+non_bool_condition off=11 len=3 1:12 | Conditions must have a static type of 'bool'.
+expected_token off=16 len=1 1:17 | Expected to find ';'.
+undefined_identifier off=16 len=1 1:17 | Undefined name 'x'.
+expected_token off=18 len=1 1:19 | Expected to find ':'.
+missing_identifier off=18 len=1 1:19 | Expected an identifier.
+### i06_param_abc.dart
+void f(int a b c) {}
+--- diag
+expected_token off=13 len=1 1:14 | Expected to find ','.
+undefined_class off=13 len=1 1:14 | Undefined class 'b'.
+### t01.dart
+int class = 10;
+--- diag
+expected_identifier_but_got_keyword off=4 len=5 1:5 | 'class' can't be used as an identifier because it's a keyword.

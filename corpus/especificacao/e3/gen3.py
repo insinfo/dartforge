@@ -1,0 +1,48 @@
+import os, sys
+C = {
+ 'e01': "class A { List<int> A(); }\n",
+ 'e02': "import 'dart:core' as core;\nclass A { core.int A(); }\n",
+ 'e03': "class A { get A.x() {} }\n",
+ 'e04': "class A { set A.x(v) {} }\n",
+ 'e05': "class A { external A(this.x, {this.y}); int x; int? y; }\n",
+ 'e06': "class A { external A(int this.x); int x; }\n",
+ 'e07': "mixin M { factory M() => throw 0; }\nextension E on int { factory E() => throw 0; }\n",
+ 'e09': "class A { factory A.b() = B.c d; }\nclass B extends A { B.c() : super._(); }\n",
+ 'e11': "class A { static A() {} }\n",
+ 'e12': "class A { const A() => 0; }\n",
+ 'e14': "extension type E(int i) { E.n() : i = 0; static E.s(int i) : this.i = i; }\n",
+ 'e16': "class A { external A(); external A.b() => throw 0; }\n",
+ 'e17': "class A { factory() => throw 0; }\nclass B { factory; }\n",
+ 'e18': "class A<T> { factory A<T>() => throw 0; }\n",
+ 'e22': "extension type E.(int i) {}\n",
+ 'e23': "extension type E<T> {}\n",
+ 'e25': "extension type E(int E) {}\n",
+ 'e26': "extension type E(final int i,) {}\n",
+ 'e27': "extension type E(var i, int j) {}\n",
+ 'e28': "extension type E(covariant final i) {}\n",
+ 'e29': "extension type E(int i) with A extends B implements C {}\nmixin A {}\nclass B {}\nclass C {}\n",
+ 'e30': "extension type E(int i) implements A, B extends C {}\nclass A {}\nclass B {}\nclass C {}\n",
+ 'e33': "class A { static const A(); }\n",
+ 'e34': "extension type E(int i) { void m; set s; static t => 0; }\n",
+ 'e35': "extension E on int { void m; }\n",
+ 'e36': "mixin M { void m {} }\nenum F { a; void m {} }\n",
+ 'e37': "class A { A() : x = 1 { } A.b() => 0; int x; }\n",
+ 'e38': "class A { void m() : x = 1 {} int x = 0; }\n",
+ 'e39': "class A { B.c(); }\n",
+ 'e40': "class A { external A() : super() {} }\n",
+ 'e41': "class A { covariant A(); abstract A.b(); late A.c(); final A.d(); var A.e(); }\n",
+ 'e42': "class A { const A.x() {} const factory A.y() => throw 0; }\n",
+ 'e43': "extension type E(int i) { factory E.f(int i) = E; external factory E.g(int i) = E; }\n",
+ 'e44': "void f() { static void g() {} }\n",
+ 'e45': "class A { operator +(a); static void m() async* {} static n() sync*; }\n",
+ 'e46': "typedef void F;\n",
+ 'e47': "void f(void g) {}\nvoid h(int k<T>) {}\n",
+ 'e48': "class A { A.b c() {} }\n",
+ 'e49': "class A { int get A => 0; static int get A => 0; }\n",
+ 'e50': "class A { final A(); const static A.b(); }\n",
+}
+d = sys.argv[1]
+os.makedirs(d, exist_ok=True)
+for k, v in C.items():
+    open(os.path.join(d, k + '.dart'), 'w', newline='\n').write(v)
+print(len(C))

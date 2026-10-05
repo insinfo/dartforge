@@ -251,7 +251,7 @@ fn novo_ponteiro(endereco: i64, tipo: Option<i64>) -> i64 {
     };
     // SAFETY: registrada pela sobreposição de `dart:ffi` com a assinatura
     // (`int`) → `Pointer`.
-    let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(f) };
+    let f = { let alvo_dart: usize = f; move |a0: i64| -> i64 { dart_r1(alvo_dart, a0) } };
     let p = f(endereco);
     if let Some(t) = tipo {
         HEAP.with(|h| h.borrow_mut().set_metadado(p, t + 1));

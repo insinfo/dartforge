@@ -37,6 +37,11 @@ const FRAGMENTOS: &[&str] = &[
     "nucleo",
     "gc_raizes",
     "excecoes",
+    // As portas Rust → Dart e a personalidade das exceções por tabelas.
+    "excecoes_tabelas",
+    "rastro",
+    // `DARTFORGE_EFEITOS=conferir`: a conferência da tabela de efeitos.
+    "efeitos_conferir",
     "saida",
     "strings",
     "colecoes",
@@ -145,14 +150,19 @@ fn main() {
         abi.push_str(&format!("include!({literal});\n"));
     }
 
-    let nomes = nomes_exportados(&texto);
+    let mut nomes = nomes_exportados(&texto);
     let mut ordenados = nomes.clone();
     ordenados.sort_unstable();
     ordenados.dedup();
     assert!(
-        ordenados.len() == nomes.len(),
+        nomes.len() - ordenados.len() == 1
+            && nomes.iter().filter(|nome| nome.as_str() == "dartforge_personalidade").count() == 2
+            || ordenados.len() == nomes.len(),
         "o runtime define algum símbolo #[unsafe(no_mangle)] duas vezes"
     );
+    // As duas assinaturas da personalidade são exclusivas por plataforma.
+    let mut vistos = std::collections::HashSet::new();
+    nomes.retain(|nome| vistos.insert(nome.clone()));
 
     let mut saida = String::from(
         "// GERADO por crates/runtime/build.rs a partir dos fragmentos de src/ — não editar.\n\n\
@@ -175,6 +185,9 @@ fn main() {
          pub fn tabela() -> Vec<(&'static str, usize)> {\n    vec![\n",
     );
     for nome in &nomes {
+        if nome == "dartforge_lancar_desenrolamento" {
+            saida.push_str("        #[cfg(unix)]\n");
+        }
         saida.push_str(&format!(
             "        (\"{nome}\", crate::abi::{nome} as *const () as usize),\n"
         ));
@@ -182,8 +195,66 @@ fn main() {
     saida.push_str("    ]\n}\n");
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
     std::fs::write(out.join("simbolos.rs"), saida).expect("gravar simbolos.rs");
+    std::fs::write(out.join("efeitos.rs"), tabela_de_efeitos(&manifesto, &nomes)).expect("gravar efeitos.rs");
     std::fs::write(out.join("runtime_main.rs"), texto).expect("gravar runtime_main.rs");
     std::fs::write(out.join("abi.rs"), abi).expect("gravar abi.rs");
+}
+
+/// A tabela de efeitos das externs (`efeitos.tsv`,
+/// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.8) como código para o
+/// emissor: `(nome, coleta, lança, roda Dart)`, em ordem alfabética.
+///
+/// O arquivo é a fonte única e tem de ter exatamente uma linha por função
+/// `#[unsafe(no_mangle)]` dos fragmentos: uma extern nova sem linha, uma
+/// linha de uma extern que saiu, um nome repetido ou uma marca fora de `0`/`1`
+/// derrubam o build — uma extern sem marca seria tratada no escuro.
+/// `roda_dart = 1` exige `coleta = 1` e `lanca = 1`.
+fn tabela_de_efeitos(manifesto: &std::path::Path, nomes: &[String]) -> String {
+    let caminho = manifesto.join("efeitos.tsv");
+    println!("cargo::rerun-if-changed={}", caminho.display());
+    let texto = std::fs::read_to_string(&caminho).unwrap_or_else(|e| panic!("ler {}: {e}", caminho.display()));
+    let mut linhas: Vec<(String, bool, bool, bool)> = Vec::new();
+    for (n, linha) in texto.lines().enumerate() {
+        let linha = linha.trim_end();
+        if linha.is_empty() || linha.starts_with('#') {
+            continue;
+        }
+        let campos: Vec<&str> = linha.split('\t').collect();
+        let marca = |i: usize| match campos.get(i).copied() {
+            Some("0") => false,
+            Some("1") => true,
+            _ => panic!("efeitos.tsv:{}: a linha é `nome<TAB>coleta<TAB>lanca<TAB>roda_dart`, com marcas 0 ou 1", n + 1),
+        };
+        assert!(campos.len() == 4, "efeitos.tsv:{}: quatro campos separados por TAB", n + 1);
+        let (coleta, lanca, roda_dart) = (marca(1), marca(2), marca(3));
+        assert!(!roda_dart || (coleta && lanca), "efeitos.tsv:{}: roda_dart = 1 exige coleta = 1 e lanca = 1", n + 1);
+        linhas.push((campos[0].to_string(), coleta, lanca, roda_dart));
+    }
+    linhas.sort();
+    for par in linhas.windows(2) {
+        assert!(par[0].0 != par[1].0, "efeitos.tsv: `{}` aparece duas vezes", par[0].0);
+    }
+    let na_tabela: std::collections::BTreeSet<&str> = linhas.iter().map(|l| l.0.as_str()).collect();
+    let no_runtime: std::collections::BTreeSet<&str> = nomes.iter().map(String::as_str).collect();
+    let sem_linha: Vec<&&str> = no_runtime.difference(&na_tabela).collect();
+    let sem_extern: Vec<&&str> = na_tabela.difference(&no_runtime).collect();
+    assert!(
+        sem_linha.is_empty() && sem_extern.is_empty(),
+        "crates/runtime/efeitos.tsv não casa com as externs do runtime.\n  \
+         sem linha na tabela (acrescente `nome<TAB>1<TAB>1<TAB>0`, a marca conservadora): {sem_linha:?}\n  \
+         na tabela e fora do runtime (tire a linha): {sem_extern:?}"
+    );
+    let mut saida = String::from(
+        "// GERADO por crates/runtime/build.rs a partir de efeitos.tsv — não editar.\n\n\
+         /// `(nome, coleta, lança, roda Dart)` de cada extern do runtime, em ordem\n\
+         /// alfabética do nome.\n\
+         pub const EFEITOS: &[(&str, bool, bool, bool)] = &[\n",
+    );
+    for (nome, coleta, lanca, roda_dart) in &linhas {
+        saida.push_str(&format!("    (\"{nome}\", {coleta}, {lanca}, {roda_dart}),\n"));
+    }
+    saida.push_str("];\n");
+    saida
 }
 
 /// Os arquivos de `src/` que são módulos Rust (e não fragmentos): o `lib.rs` os

@@ -1,0 +1,188 @@
+== a01.dart
+  unreachable_switch_case | offset 131, length 4 | 9:5 | WARNING | This case is covered by the previous cases.
+  constant_pattern_never_matches_value_type | offset 136, length 4 | 9:10 | WARNING | The matched value type 'bool' can never be equal to this constant of type 'Null'.
+== a02.dart
+  dead_code | offset 91, length 4 | 7:5 | WARNING | Dead code.
+  unreachable_switch_case | offset 91, length 4 | 7:5 | WARNING | This case is covered by the previous cases.
+  dead_code | offset 105, length 9 | 8:7 | WARNING | Dead code.
+  dead_code | offset 119, length 4 | 9:5 | WARNING | Dead code.
+  unreachable_switch_case | offset 119, length 4 | 9:5 | WARNING | This case is covered by the previous cases.
+  dead_code | offset 131, length 4 | 10:5 | WARNING | Dead code.
+  unreachable_switch_case | offset 131, length 4 | 10:5 | WARNING | This case is covered by the previous cases.
+  dead_code | offset 145, length 9 | 11:7 | WARNING | Dead code.
+  dead_code | offset 159, length 7 | 12:5 | WARNING | Dead code.
+  dead_code | offset 174, length 9 | 13:7 | WARNING | Dead code.
+== a03.dart
+  dead_code | offset 67, length 6 | 4:7 | WARNING | Dead code.
+  unreachable_switch_case | offset 69, length 2 | 4:9 | WARNING | This case is covered by the previous cases.
+  dead_code | offset 81, length 6 | 5:7 | WARNING | Dead code.
+  unreachable_switch_case | offset 83, length 2 | 5:9 | WARNING | This case is covered by the previous cases.
+== a04.dart
+  dead_code | offset 45, length 4 | 2:20 | WARNING | Dead code.
+  dead_code | offset 147, length 4 | 8:16 | WARNING | Dead code.
+  dead_code | offset 152, length 4 | 8:21 | WARNING | Dead code.
+  dead_code | offset 183, length 19 | 10:10 | WARNING | Dead code.
+== a05.dart
+  undefined_getter | offset 86, length 6 | 5:7 | ERROR | The getter 'isEven' isn't defined for the type 'Object'.
+== a06.dart
+  unused_local_variable | offset 70, length 1 | 3:12 | WARNING | The value of the local variable 's' isn't used.
+  invalid_assignment | offset 74, length 1 | 3:16 | ERROR | A value of type 'int' can't be assigned to a variable of type 'String'.
+  unused_local_variable | offset 125, length 1 | 6:12 | WARNING | The value of the local variable 's' isn't used.
+  invalid_assignment | offset 129, length 1 | 6:16 | ERROR | A value of type 'num' can't be assigned to a variable of type 'String'.
+  unused_local_variable | offset 170, length 1 | 9:12 | WARNING | The value of the local variable 's' isn't used.
+  invalid_assignment | offset 174, length 1 | 9:16 | ERROR | A value of type 'num' can't be assigned to a variable of type 'String'.
+  unused_local_variable | offset 188, length 1 | 10:12 | WARNING | The value of the local variable 't' isn't used.
+  invalid_assignment | offset 192, length 1 | 10:16 | ERROR | A value of type 'num' can't be assigned to a variable of type 'String'.
+  unused_local_variable | offset 242, length 1 | 13:12 | WARNING | The value of the local variable 's' isn't used.
+  invalid_assignment | offset 246, length 1 | 13:16 | ERROR | A value of type 'int' can't be assigned to a variable of type 'String'.
+  unused_local_variable | offset 288, length 1 | 16:12 | WARNING | The value of the local variable 's' isn't used.
+  invalid_assignment | offset 292, length 1 | 16:16 | ERROR | A value of type 'int' can't be assigned to a variable of type 'String'.
+== a07.dart
+  unused_local_variable | offset 48, length 1 | 2:18 | WARNING | The value of the local variable 'a' isn't used.
+  unnecessary_null_check_pattern | offset 49, length 1 | 2:19 | WARNING | The null-check pattern will have no effect because the matched type isn't nullable.
+  unused_local_variable | offset 72, length 1 | 3:18 | WARNING | The value of the local variable 'b' isn't used.
+  unnecessary_null_assert_pattern | offset 73, length 1 | 3:19 | WARNING | The null-assert pattern will have no effect because the matched type isn't nullable.
+  unnecessary_cast_pattern | offset 94, length 2 | 4:16 | WARNING | Unnecessary cast pattern.
+  unnecessary_cast_pattern | offset 120, length 2 | 5:16 | WARNING | Unnecessary cast pattern.
+  unused_local_variable | offset 148, length 1 | 6:18 | WARNING | The value of the local variable 'c' isn't used.
+  unused_local_variable | offset 158, length 1 | 6:28 | WARNING | The value of the local variable 'd' isn't used.
+  unnecessary_null_check_pattern | offset 159, length 1 | 6:29 | WARNING | The null-check pattern will have no effect because the matched type isn't nullable.
+  unused_local_variable | offset 182, length 1 | 7:18 | WARNING | The value of the local variable 'e' isn't used.
+  unused_local_variable | offset 192, length 1 | 7:28 | WARNING | The value of the local variable 'g' isn't used.
+  unnecessary_null_assert_pattern | offset 193, length 1 | 7:29 | WARNING | The null-assert pattern will have no effect because the matched type isn't nullable.
+  unnecessary_cast_pattern | offset 244, length 2 | 9:16 | WARNING | Unnecessary cast pattern.
+  unnecessary_cast_pattern | offset 257, length 2 | 9:29 | WARNING | Unnecessary cast pattern.
+  unused_local_variable | offset 275, length 1 | 10:8 | WARNING | The value of the local variable 'h' isn't used.
+  unnecessary_null_assert_pattern | offset 276, length 1 | 10:9 | WARNING | The null-assert pattern will have no effect because the matched type isn't nullable.
+  unused_local_variable | offset 291, length 1 | 11:8 | WARNING | The value of the local variable 'i' isn't used.
+  unnecessary_cast_pattern | offset 293, length 2 | 11:10 | WARNING | Unnecessary cast pattern.
+== a08.dart
+  dead_code | offset 46, length 19 | 2:22 | WARNING | Dead code.
+  dead_code | offset 108, length 19 | 7:18 | WARNING | Dead code.
+  dead_code | offset 130, length 104 | 10:3 | WARNING | Dead code.
+  cast_from_null_always_fails | offset 141, length 8 | 10:14 | WARNING | This cast always throws an exception because the expression always evaluates to 'null'.
+  pattern_never_matches_value_type | offset 146, length 3 | 10:19 | WARNING | The matched value type 'Null' can never match the required type 'int'.
+== a09.dart
+  unused_local_variable | offset 103, length 1 | 7:33 | WARNING | The value of the local variable 'y' isn't used.
+  dead_code | offset 107, length 19 | 7:37 | WARNING | Dead code.
+  dead_code | offset 129, length 9 | 10:3 | WARNING | Dead code.
+== a10.dart
+  unused_local_variable | offset 86, length 1 | 3:25 | WARNING | The value of the local variable 'b' isn't used.
+  dead_code | offset 110, length 4 | 5:5 | WARNING | Dead code.
+  unreachable_switch_case | offset 110, length 4 | 5:5 | WARNING | This case is covered by the previous cases.
+  dead_code | offset 129, length 9 | 6:7 | WARNING | Dead code.
+  unused_local_variable | offset 161, length 1 | 8:19 | WARNING | The value of the local variable 'a' isn't used.
+  unused_local_variable | offset 198, length 1 | 10:12 | WARNING | The value of the local variable 's' isn't used.
+  invalid_assignment | offset 202, length 1 | 10:16 | ERROR | A value of type '(int, Object?)' can't be assigned to a variable of type 'String'.
+  unused_local_variable | offset 286, length 1 | 15:22 | WARNING | The value of the local variable 'b' isn't used.
+  unused_local_variable | offset 303, length 1 | 16:14 | WARNING | The value of the local variable 's' isn't used.
+  invalid_assignment | offset 307, length 1 | 16:18 | ERROR | A value of type 'Object' can't be assigned to a variable of type 'String'.
+== a11.dart
+  dead_code | offset 103, length 4 | 5:5 | WARNING | Dead code.
+  unreachable_switch_case | offset 103, length 4 | 5:5 | WARNING | This case is covered by the previous cases.
+  dead_code | offset 118, length 9 | 6:7 | WARNING | Dead code.
+  dead_code | offset 253, length 4 | 15:5 | WARNING | Dead code.
+  unreachable_switch_case | offset 253, length 4 | 15:5 | WARNING | This case is covered by the previous cases.
+  dead_code | offset 267, length 9 | 16:7 | WARNING | Dead code.
+  dead_code | offset 367, length 4 | 23:5 | WARNING | Dead code.
+  unreachable_switch_case | offset 367, length 4 | 23:5 | WARNING | This case is covered by the previous cases.
+  dead_code | offset 381, length 9 | 24:7 | WARNING | Dead code.
+  unused_local_variable | offset 435, length 1 | 27:12 | WARNING | The value of the local variable 's' isn't used.
+  invalid_assignment | offset 439, length 1 | 27:16 | ERROR | A value of type 'List<Object?>' can't be assigned to a variable of type 'String'.
+  unused_local_variable | offset 453, length 1 | 28:12 | WARNING | The value of the local variable 't' isn't used.
+  invalid_assignment | offset 457, length 1 | 28:16 | ERROR | A value of type 'Object?' can't be assigned to a variable of type 'String'.
+  unused_local_variable | offset 504, length 1 | 31:12 | WARNING | The value of the local variable 's' isn't used.
+  invalid_assignment | offset 508, length 1 | 31:16 | ERROR | A value of type 'Map<Object?, Object?>' can't be assigned to a variable of type 'String'.
+  unused_local_variable | offset 522, length 1 | 32:12 | WARNING | The value of the local variable 't' isn't used.
+  invalid_assignment | offset 526, length 1 | 32:16 | ERROR | A value of type 'Object?' can't be assigned to a variable of type 'String'.
+== a12.dart
+  unreachable_switch_case | offset 156, length 4 | 13:5 | WARNING | This case is covered by the previous cases.
+  dead_code | offset 186, length 4 | 15:5 | WARNING | Dead code.
+  unreachable_switch_case | offset 186, length 4 | 15:5 | WARNING | This case is covered by the previous cases.
+  dead_code | offset 200, length 9 | 16:7 | WARNING | Dead code.
+  dead_code | offset 323, length 9 | 28:3 | WARNING | Dead code.
+== a13.dart
+  non_exhaustive_switch_statement | offset 37, length 6 | 2:3 | ERROR | The type 'num' is not exhaustively matched by the switch cases since it doesn't match 'double()'.
+  constant_pattern_never_matches_value_type | offset 88, length 3 | 5:10 | WARNING | The matched value type 'num' can never be equal to this constant of type 'String'.
+  unreachable_switch_case | offset 110, length 4 | 7:5 | WARNING | This case is covered by the previous cases.
+  unreachable_switch_case | offset 210, length 4 | 15:5 | WARNING | This case is covered by the previous cases.
+  unused_local_variable | offset 260, length 1 | 18:14 | WARNING | The value of the local variable 's' isn't used.
+  unused_local_variable | offset 376, length 1 | 26:14 | WARNING | The value of the local variable 's' isn't used.
+  invalid_assignment | offset 380, length 1 | 26:18 | ERROR | A value of type 'Object?' can't be assigned to a variable of type 'String'.
+== a14.dart
+  unused_local_variable | offset 92, length 1 | 6:14 | WARNING | The value of the local variable 's' isn't used.
+  invalid_assignment | offset 96, length 1 | 6:18 | ERROR | A value of type 'int' can't be assigned to a variable of type 'String'.
+  unused_local_variable | offset 178, length 1 | 12:14 | WARNING | The value of the local variable 's' isn't used.
+  invalid_assignment | offset 182, length 1 | 12:18 | ERROR | A value of type 'int?' can't be assigned to a variable of type 'String'.
+  unreachable_switch_case | offset 236, length 4 | 17:5 | WARNING | This case is covered by the previous cases.
+  constant_pattern_never_matches_value_type | offset 241, length 4 | 17:10 | WARNING | The matched value type 'int' can never be equal to this constant of type 'Null'.
+  unused_local_variable | offset 289, length 1 | 20:14 | WARNING | The value of the local variable 's' isn't used.
+  invalid_assignment | offset 293, length 1 | 20:18 | ERROR | A value of type 'int' can't be assigned to a variable of type 'String'.
+  unchecked_use_of_nullable_value | offset 324, length 1 | 23:10 | ERROR | The operator '>' can't be unconditionally invoked because the receiver can be 'null'.
+  unused_local_variable | offset 371, length 1 | 26:14 | WARNING | The value of the local variable 's' isn't used.
+  invalid_assignment | offset 375, length 1 | 26:18 | ERROR | A value of type 'int?' can't be assigned to a variable of type 'String'.
+  unused_local_variable | offset 428, length 1 | 30:12 | WARNING | The value of the local variable 's' isn't used.
+  invalid_assignment | offset 432, length 1 | 30:16 | ERROR | A value of type 'int' can't be assigned to a variable of type 'String'.
+  dead_code | offset 498, length 9 | 37:7 | WARNING | Dead code.
+  dead_code | offset 543, length 4 | 40:5 | WARNING | Dead code.
+  unreachable_switch_case | offset 543, length 4 | 40:5 | WARNING | This case is covered by the previous cases.
+  dead_code | offset 557, length 9 | 41:7 | WARNING | Dead code.
+== a15.dart
+  unused_local_variable | offset 70, length 1 | 6:10 | WARNING | The value of the local variable 'a' isn't used.
+  unchecked_use_of_nullable_value | offset 85, length 10 | 7:7 | ERROR | The property 'isNegative' can't be unconditionally accessed because the receiver can be 'null'.
+  unused_local_variable | offset 106, length 1 | 8:10 | WARNING | The value of the local variable 'b' isn't used.
+  unused_local_variable | offset 170, length 1 | 11:20 | WARNING | The value of the local variable 'c' isn't used.
+  unused_local_variable | offset 264, length 1 | 17:15 | WARNING | The value of the local variable 'd' isn't used.
+  unchecked_use_of_nullable_value | offset 286, length 10 | 18:9 | ERROR | The property 'isNegative' can't be unconditionally accessed because the receiver can be 'null'.
+  unused_local_variable | offset 313, length 1 | 20:10 | WARNING | The value of the local variable 'e' isn't used.
+== a16.dart
+  dead_code | offset 116, length 4 | 7:5 | WARNING | Dead code.
+  dead_code | offset 130, length 9 | 8:7 | WARNING | Dead code.
+  dead_code | offset 230, length 4 | 15:5 | WARNING | Dead code.
+  unreachable_switch_case | offset 230, length 4 | 15:5 | WARNING | This case is covered by the previous cases.
+  dead_code | offset 244, length 9 | 16:7 | WARNING | Dead code.
+  unused_local_variable | offset 264, length 1 | 18:7 | WARNING | The value of the local variable 'r' isn't used.
+  dead_code | offset 308, length 6 | 18:51 | WARNING | Dead code.
+  unreachable_switch_case | offset 310, length 2 | 18:53 | WARNING | This case is covered by the previous cases.
+== a17.dart
+  case_expression_type_is_not_switch_expression_subtype | offset 214, length 3 | 15:10 | ERROR | The switch case expression type 'String' must be a subtype of the switch expression type 'int'.
+== a18.dart
+  unnecessary_wildcard_pattern | offset 39, length 1 | 2:14 | WARNING | Unnecessary wildcard pattern.
+  unused_local_variable | offset 48, length 1 | 2:23 | WARNING | The value of the local variable 'a' isn't used.
+  unnecessary_wildcard_pattern | offset 76, length 1 | 3:23 | WARNING | Unnecessary wildcard pattern.
+  unnecessary_wildcard_pattern | offset 148, length 5 | 7:10 | WARNING | Unnecessary wildcard pattern.
+  unnecessary_wildcard_pattern | offset 184, length 1 | 9:10 | WARNING | Unnecessary wildcard pattern.
+  unnecessary_wildcard_pattern | offset 189, length 1 | 9:15 | WARNING | Unnecessary wildcard pattern.
+  unused_local_variable | offset 223, length 1 | 12:15 | WARNING | The value of the local variable 'b' isn't used.
+  unnecessary_wildcard_pattern | offset 290, length 1 | 14:27 | WARNING | Unnecessary wildcard pattern.
+== b01.dart
+  unused_local_variable | offset 98, length 1 | 6:14 | WARNING | The value of the local variable 's' isn't used.
+  unreachable_switch_case | offset 157, length 4 | 11:5 | WARNING | This case is covered by the previous cases.
+  unused_local_variable | offset 226, length 1 | 16:12 | WARNING | The value of the local variable 's' isn't used.
+  invalid_assignment | offset 230, length 1 | 16:16 | ERROR | A value of type 'Never?' can't be assigned to a variable of type 'String'.
+  unused_local_variable | offset 277, length 1 | 20:12 | WARNING | The value of the local variable 's' isn't used.
+  invalid_assignment | offset 281, length 1 | 20:16 | ERROR | A value of type 'Never?' can't be assigned to a variable of type 'String'.
+  unused_local_variable | offset 361, length 1 | 26:14 | WARNING | The value of the local variable 's' isn't used.
+  invalid_assignment | offset 365, length 1 | 26:18 | ERROR | A value of type 'num?' can't be assigned to a variable of type 'String'.
+  unused_local_variable | offset 445, length 1 | 32:14 | WARNING | The value of the local variable 's' isn't used.
+== b02.dart
+  unused_local_variable | offset 90, length 1 | 6:14 | WARNING | The value of the local variable 's' isn't used.
+  invalid_assignment | offset 94, length 1 | 6:18 | ERROR | A value of type 'Never?' can't be assigned to a variable of type 'String'.
+  unused_local_variable | offset 110, length 1 | 7:14 | WARNING | The value of the local variable 't' isn't used.
+  unused_local_variable | offset 149, length 1 | 9:20 | WARNING | The value of the local variable 'u' isn't used.
+  unused_local_variable | offset 224, length 1 | 13:12 | WARNING | The value of the local variable 't' isn't used.
+  unused_local_variable | offset 248, length 1 | 14:18 | WARNING | The value of the local variable 'u' isn't used.
+  unused_local_variable | offset 304, length 1 | 17:16 | WARNING | The value of the local variable 'u' isn't used.
+  list_element_type_not_assignable | offset 309, length 1 | 17:21 | ERROR | The element type 'int?' can't be assigned to the list type 'String'.
+== b03.dart
+  constant_pattern_never_matches_value_type | offset 123, length 4 | 8:17 | WARNING | The matched value type 'T & int' can never be equal to this constant of type 'bool'.
+  dead_code | offset 189, length 4 | 12:7 | WARNING | Dead code.
+  dead_code | offset 205, length 6 | 13:9 | WARNING | Dead code.
+== b04.dart
+  unused_local_variable | offset 87, length 1 | 5:14 | WARNING | The value of the local variable 's' isn't used.
+  invalid_pattern_variable_in_shared_case_scope | offset 91, length 1 | 5:18 | ERROR | The variable 'a' doesn't have the same type and/or finality in all cases that share this body.
+  unused_local_variable | offset 165, length 1 | 9:14 | WARNING | The value of the local variable 's' isn't used.
+  invalid_assignment | offset 169, length 1 | 9:18 | ERROR | A value of type 'Object' can't be assigned to a variable of type 'String'.
+  dead_code | offset 236, length 4 | 14:5 | WARNING | Dead code.
+  unreachable_switch_case | offset 236, length 4 | 14:5 | WARNING | This case is covered by the previous cases.
+  dead_code | offset 254, length 9 | 15:7 | WARNING | Dead code.

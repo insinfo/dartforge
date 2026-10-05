@@ -32,8 +32,18 @@ pub struct DiagJson {
     pub problem_message: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub correction_message: Option<String>,
+    /// As mensagens de contexto; a chave só existe quando há alguma.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub context_messages: Vec<ContextoJson>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub documentation: Option<String>,
+}
+
+/// Uma mensagem de contexto no JSON v1 (`analyze.dart:409-422`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextoJson {
+    pub location: Local,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -140,6 +150,19 @@ pub fn para_json(arquivo: &str, linhas: &Linhas<'_>, d: &Diagnostic, sintaxe: bo
         },
         problem_message: d.message.clone(),
         correction_message: d.correcao(),
+        // Linha e coluna saem do `lineInfo` do arquivo do ERRO, mesmo quando
+        // a mensagem aponta outro arquivo (`protocol_server.dart:185-191`).
+        context_messages: d
+            .contexto
+            .iter()
+            .map(|c| ContextoJson {
+                location: Local {
+                    file: c.arquivo.as_deref().unwrap_or(arquivo).to_string(),
+                    range: Faixa { start: linhas.ponto(c.span.start), end: linhas.ponto(c.span.end.max(c.span.start)) },
+                },
+                message: c.mensagem.to_string(),
+            })
+            .collect(),
         documentation: doc,
     }
 }

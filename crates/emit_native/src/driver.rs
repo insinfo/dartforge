@@ -176,7 +176,20 @@ pub fn compile_and_link(
         let mut extras: Vec<PathBuf> = objetos[1..].to_vec();
         extras.extend(sdk_objetos.iter().cloned());
         LIGACAO_EM_PARTES.set(true);
-        let ligou = ligar(&options.clang, &objetos[0], &extras, &ligar_com, output, options.depuracao, options.cpu);
+        // Raízes por mapas na produção em partes: a LTO sai do ligador (o
+        // `lld-link` não roda o passe dos mapas) e vira o ThinLTO
+        // distribuído, que entrega objetos nativos com o mapa compacto
+        // (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md, Etapa 3).
+        let distribuida = cfg!(feature = "llvm-embutido")
+            && producao
+            && !sem_lto
+            && matches!(crate::alvo::sistema(), Sistema::Windows | Sistema::Linux)
+            && crate::alvo::raizes_por_mapas()?;
+        let ligou = if distribuida {
+            ligar_distribuida(&options.clang, &objetos, &sdk_objetos, &ligar_com, output, options.depuracao, options.cpu, &staging, cache)
+        } else {
+            ligar(&options.clang, &objetos[0], &extras, &ligar_com, output, options.depuracao, options.cpu)
+        };
         LIGACAO_EM_PARTES.set(false);
         ligou?;
         if let Some(s) = sdk.as_ref().filter(|_| !producao) {
@@ -219,7 +232,24 @@ pub fn compile_and_link(
 
     // Fase 2: Link do objeto com o runtime estático
     let t_link = Instant::now();
-    let mut ligou = ligar(&options.clang, &obj_file, &sdk_objetos, &ligar_com, output, options.depuracao, options.cpu);
+    // Raízes por mapas na produção do Linux: o mapa do LLVM tem relocações
+    // absolutas numa seção só de leitura, que o `ld.lld` recusa no executável
+    // PIE, e a LTO do ligador não passa pelo conversor; o programa de um
+    // módulo só também vai pelo ThinLTO distribuído, que entrega objetos com
+    // o mapa compacto (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md, Etapa 4).
+    let distribuida_unica = cfg!(feature = "llvm-embutido")
+        && producao
+        && !sem_lto
+        && crate::alvo::sistema() == Sistema::Linux
+        && crate::alvo::raizes_por_mapas()?;
+    let ligar_objeto = |obj: &Path| {
+        if distribuida_unica {
+            ligar_distribuida(&options.clang, std::slice::from_ref(&obj.to_path_buf()), &sdk_objetos, &ligar_com, output, options.depuracao, options.cpu, &staging, cache)
+        } else {
+            ligar(&options.clang, obj, &sdk_objetos, &ligar_com, output, options.depuracao, options.cpu)
+        }
+    };
+    let mut ligou = ligar_objeto(&obj_file);
     if ligou.is_err()
         && let Some((c, chave, true)) = do_cache
     {
@@ -229,7 +259,7 @@ pub fn compile_and_link(
         obj_file = obj_staging()?;
         gerador.gerar(llvm_ir, geracao, &obj_file)?;
         do_cache = None;
-        ligou = ligar(&options.clang, &obj_file, &sdk_objetos, &ligar_com, output, options.depuracao, options.cpu);
+        ligou = ligar_objeto(&obj_file);
     }
     ligou?;
     if let Some(s) = sdk.as_ref().filter(|_| !producao) {
@@ -257,9 +287,60 @@ pub fn compile_and_link(
     })
 }
 
+/// A ligação da produção em partes com raízes por mapas: o ThinLTO
+/// distribuído (`lto_distribuida.rs`) troca cada bitcode pelo objeto nativo
+/// dele, e o ligador recebe só objetos, sem LTO. Os índices pedem a ligação
+/// inteira, então a biblioteca do runtime entra na lista e sai dela antes
+/// da ligação final (que a acrescenta de novo).
+#[cfg(feature = "llvm-embutido")]
+#[allow(clippy::too_many_arguments)]
+fn ligar_distribuida(
+    clang: &Path,
+    partes: &[PathBuf],
+    sdk: &[PathBuf],
+    ligacao: &Ligacao,
+    output: &Path,
+    depuracao: bool,
+    cpu: Option<crate::gerador::Cpu>,
+    staging: &Path,
+    cache: Option<&'static CacheObjeto>,
+) -> Result<(), String> {
+    let mut entradas: Vec<PathBuf> = partes.to_vec();
+    entradas.extend(sdk.iter().cloned());
+    entradas.push(ligacao.biblioteca().to_path_buf());
+    let mut nativos = crate::lto_distribuida::objetos(&crate::lto_distribuida::Pedido { clang, entradas: &entradas, cpu, staging, cache })?;
+    nativos.pop();
+    let Some((primeiro, resto)) = nativos.split_first() else {
+        return Err("a LTO distribuída não devolveu nenhum objeto".to_string());
+    };
+    SEM_LTO_NA_LIGACAO.set(true);
+    let r = ligar(clang, primeiro, resto, ligacao, output, depuracao, cpu);
+    SEM_LTO_NA_LIGACAO.set(false);
+    r
+}
+
+#[cfg(not(feature = "llvm-embutido"))]
+#[allow(clippy::too_many_arguments)]
+fn ligar_distribuida(
+    _clang: &Path,
+    _partes: &[PathBuf],
+    _sdk: &[PathBuf],
+    _ligacao: &Ligacao,
+    _output: &Path,
+    _depuracao: bool,
+    _cpu: Option<crate::gerador::Cpu>,
+    _staging: &Path,
+    _cache: Option<&'static CacheObjeto>,
+) -> Result<(), String> {
+    Err("a LTO distribuída exige o gerador embutido do dartforge".to_string())
+}
+
 thread_local! {
     /// A ligação em curso nesta thread é a do programa em partes (ThinLTO).
     static LIGACAO_EM_PARTES: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// A ligação em curso recebe objetos nativos já otimizados (o ThinLTO
+    /// distribuído, `lto_distribuida.rs`): o ligador não faz LTO.
+    static SEM_LTO_NA_LIGACAO: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// O nível de otimização da LTO da produção (`DARTFORGE_LTO_NIVEL`, 0–3):
@@ -409,7 +490,15 @@ fn ligar_no_windows(clang: &Path, obj: &Path, sdk: &[PathBuf], ligacao: &Ligacao
     lw::ligar(
         &lw::lld_link(clang),
         sysroot,
-        &lw::Ligacao { produto: lw::Produto::Executavel, entradas, lto: producao, cpu: cpu.map(crate::gerador::Cpu::nome), podar: producao, depuracao, saida: output },
+        &lw::Ligacao {
+            produto: lw::Produto::Executavel,
+            entradas,
+            lto: producao && !SEM_LTO_NA_LIGACAO.get(),
+            cpu: cpu.map(crate::gerador::Cpu::nome),
+            podar: producao,
+            depuracao,
+            saida: output,
+        },
     )
 }
 

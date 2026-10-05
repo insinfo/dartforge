@@ -396,7 +396,7 @@ fn invocar_no_such_method(recv: i64, codigo: i64, nome: i64, valores: &[i64], np
     let tipos = enraizar(dart_lista_fixa(&objetos));
     // SAFETY: registrado pelo `dart:core` com a assinatura
     // (Object?, int, String, List, List, List, List) -> Object?.
-    let g: extern "C" fn(i64, i64, i64, i64, i64, i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
+    let g = { let alvo_dart: usize = f; move |a0: i64, a1: i64, a2: i64, a3: i64, a4: i64, a5: i64, a6: i64| -> i64 { dart_r7(alvo_dart, a0, a1, a2, a3, a4, a5, a6) } };
     let r = g(recv, codigo, nome, pos, nomes, vals, tipos);
     HEAP.with(|h| h.borrow_mut().pop_frame(frame));
     Some(r)

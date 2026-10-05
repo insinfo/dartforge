@@ -216,7 +216,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.lower_expr_com(ast, expr_id, true);
     }
 
+    /// J05 e o rastro simbólico (§13.14): as instruções da expressão levam a
+    /// posição que a VM dá a ela (`posicao_da_expressao`); ao sair, volta a
+    /// de fora (as coerções de quem a usa são de quem a usa).
     fn lower_expr_com(&mut self, ast: &ast::Ast, expr_id: ExprId, descartada: bool) -> Operand {
+        if self.ctx.depuracao.is_none() {
+            return self.lower_expr_com_no_lugar(ast, expr_id, descartada);
+        }
+        let anterior = self.posicao;
+        if let Some(offset) = posicao_da_expressao(ast, &self.ctx.program.unit(self.unit_id).source, expr_id) {
+            self.marcar_posicao(ast, offset);
+        }
+        let r = self.lower_expr_com_no_lugar(ast, expr_id, descartada);
+        self.posicao = anterior;
+        r
+    }
+
+    fn lower_expr_com_no_lugar(&mut self, ast: &ast::Ast, expr_id: ExprId, descartada: bool) -> Operand {
         if self.receptor_pronto.as_ref().is_some_and(|(e, _)| *e == expr_id) {
             self.continuar_cadeia = false;
             return self.receptor_pronto.take().expect("verificado acima").1;
@@ -1433,5 +1449,44 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         }
         Some(self.propriedade_por_seletor(this, &nome, expr_id, span))
+    }
+}
+
+/// O deslocamento que a VM dá à expressão no rastro (o `fileOffset` do
+/// front_end, `offsetForToken(selector.token)`): o nome chamado em `f()`,
+/// `o.m()` e `o.p`; o operador em `a + b`, `a += b` e `e as T`; o `[` em
+/// `a[i]`; o `(` na chamada de uma expressão (`f()()`); o começo em
+/// `throw`, `await`, criação de instância, unário e identificador (o
+/// getter de topo). `None`: a expressão não chama nada por si, e fica a
+/// posição de fora. `fonte` é a da unidade da árvore (`marcar_posicao`
+/// descarta a posição de outra árvore).
+fn posicao_da_expressao(ast: &ast::Ast, fonte: &str, expr_id: ExprId) -> Option<usize> {
+    // O primeiro byte não branco a partir de `fim`: o operador depois do
+    // operando da esquerda.
+    let depois = |fim: usize| -> usize {
+        fonte
+            .as_bytes()
+            .get(fim..)
+            .and_then(|resto| resto.iter().position(|b| !b.is_ascii_whitespace()))
+            .map_or(fim, |k| fim + k)
+    };
+    let e = ast.expr(expr_id);
+    match &e.kind {
+        ExprKind::Call { target, .. } => match &ast.expr(*target).kind {
+            ExprKind::Property { name, .. } | ExprKind::Identifier(name) => Some(name.span.start),
+            _ => Some(depois(ast.expr(*target).span.end)),
+        },
+        ExprKind::Property { name, .. } => Some(name.span.start),
+        ExprKind::Index { target, .. } => Some(depois(ast.expr(*target).span.end)),
+        ExprKind::Binary { left, .. } | ExprKind::Assign { target: left, .. } | ExprKind::As { value: left, .. } => {
+            Some(depois(ast.expr(*left).span.end))
+        }
+        ExprKind::InstanceCreation { .. }
+        | ExprKind::Throw(_)
+        | ExprKind::Rethrow
+        | ExprKind::Await(_)
+        | ExprKind::Unary { .. }
+        | ExprKind::Identifier(_) => Some(e.span.start),
+        _ => None,
     }
 }

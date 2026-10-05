@@ -192,6 +192,16 @@ impl LlvmEmitter<'_> {
             self.out.push_str(&globais);
             writeln!(corpo, "  call void @dartforge_registrar_imagem(ptr {inicio}, ptr {fim})").unwrap();
         }
+        // Raízes por mapas: os mapas de pilha da imagem em que este módulo
+        // foi ligado (o registro é idempotente, por imagem), pelo formato
+        // dela. O JIT acha e registra o mapa de cada objeto.
+        if self.mapas && !self.mapas_no_jit {
+            corpo.push_str(Self::chamada_de_registro_dos_mapas());
+        }
+        // O rastro simbólico (§13.14): a tabela da imagem, idempotente.
+        if let Some(c) = self.chamada_de_registro_do_rastro() {
+            corpo.push_str(&c);
+        }
         // As classes do programa (e as formas de record) registram a tabela
         // na partida. `_StackTrace` do SDK também precisa: o runtime cria o
         // primeiro trace diretamente, sem passar por `object_new_t`, que é o
@@ -328,6 +338,10 @@ impl LlvmEmitter<'_> {
     /// inteiro, e nada sai aqui.
     pub(super) fn emitir_declaracoes_externas(&mut self) {
         self.emitir_nomes_do_rastro();
+        // `DARTFORGE_EFEITOS=conferir`: os nomes das externs conferidas.
+        for (k, s) in std::mem::take(&mut self.externs_conferidas).iter().enumerate() {
+            writeln!(self.out, "@df.efn.{k} = private unnamed_addr constant [{} x i8] c\"{}\"", s.len(), bytes_llvm(s)).unwrap();
+        }
         for c in std::mem::take(&mut self.comdats) {
             writeln!(self.out, "$\"{c}\" = comdat any").unwrap();
         }

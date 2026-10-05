@@ -354,8 +354,8 @@ pub extern "C" fn dartforge_nativo_Directory_FillWithDirectoryListing(
     };
     // SAFETY: registradas pela biblioteca `dart:io` da sobreposição com
     // estas assinaturas.
-    let entrada: extern "C" fn(i64, i64, i64) = unsafe { std::mem::transmute(entrada) };
-    let erro: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(erro) };
+    let entrada = { let alvo_dart: usize = entrada; move |a0: i64, a1: i64, a2: i64| { dart_v3(alvo_dart, a0, a1, a2) } };
+    let erro = { let alvo_dart: usize = erro; move |a0: i64, a1: i64| -> i64 { dart_r2(alvo_dart, a0, a1) } };
     let mut listagem = Listagem::nova(bytes_do_caminho(raw), recursivo != 0, seguir_links != 0);
     loop {
         match listagem.proxima() {

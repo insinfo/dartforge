@@ -1,0 +1,1 @@
+base typedef E = Enum;

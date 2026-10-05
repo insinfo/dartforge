@@ -1503,7 +1503,7 @@ fn dartforge_type_error_com_mensagem(mensagem: i64) -> i64 {
     if let Some(f) = ajudante("_dartforgeErroDeTipo") {
         // SAFETY: o helper registrado pelo `dart:core` recebe String e
         // devolve a instância concreta de `_TypeError`.
-        let g: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(f) };
+        let g = { let alvo_dart: usize = f; move |a0: i64| -> i64 { dart_r1(alvo_dart, a0) } };
         return com_raizes(&[mensagem], || g(mensagem));
     }
     alocar_erro_com_rastro(1011, vec![(mensagem, true)])

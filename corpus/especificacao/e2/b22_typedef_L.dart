@@ -1,0 +1,1 @@
+typedef L = Function({x});

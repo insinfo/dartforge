@@ -115,6 +115,7 @@ pub(crate) fn aplicar(f: &mut Fusao<'_>, pools: &mut ElementPools, unit_id: Unit
                 node: FunctionRef::Function { unit: unit_id, function: *fid },
                 variable: None,
                 patched_by: None,
+                declaracao_publica: None,
             });
             if ligar(f, pools, unit_id, antigo, novo, funcao_completa(func), n.span) {
                 let e = f.library.declared.entry(n.sym).or_default();
@@ -270,6 +271,7 @@ fn aplicar_membros(f: &mut Fusao<'_>, pools: &mut ElementPools, cid: ClassId, un
                     node: FunctionRef::Function { unit: unit_id, function: *fid },
                     variable: None,
                     patched_by: None,
+                    declaracao_publica: None,
                 });
                 if ligar(f, pools, unit_id, antigo, novo, funcao_completa(func), n.span) {
                     let c = &mut pools.classes[cid.0 as usize];
@@ -299,6 +301,7 @@ fn aplicar_membros(f: &mut Fusao<'_>, pools: &mut ElementPools, cid: ClassId, un
                     node: FunctionRef::Constructor { unit: unit_id, member: mid },
                     variable: None,
                     patched_by: None,
+                    declaracao_publica: None,
                 });
                 if ligar(f, pools, unit_id, antigo, novo, construtor_completo(k), span) {
                     pools.classes[cid.0 as usize].constructors.insert(sym, novo);

@@ -323,6 +323,10 @@ impl<'x, 'a> Percurso<'x, 'a> {
                 match init {
                     Some(ForInit::Variables(l)) => self.lista_de_variaveis(l),
                     Some(ForInit::Expression(e)) => self.expr(*e),
+                    Some(ForInit::Pattern { pattern, value, .. }) => {
+                        self.expr(*value);
+                        self.padrao(*pattern, true);
+                    }
                     None => {}
                 }
                 if let Some(c) = condition {
@@ -528,6 +532,10 @@ impl<'x, 'a> Percurso<'x, 'a> {
                 match init {
                     Some(ForInit::Variables(l)) => self.lista_de_variaveis(l),
                     Some(ForInit::Expression(e)) => self.expr(*e),
+                    Some(ForInit::Pattern { pattern, value, .. }) => {
+                        self.expr(*value);
+                        self.padrao(*pattern, true);
+                    }
                     None => {}
                 }
                 if let Some(c) = condition {

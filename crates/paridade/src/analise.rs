@@ -45,6 +45,19 @@ pub struct Arquivo {
     pub diags: Vec<Diagnostic>,
     /// Quantos dos primeiros `diags` são sintáticos (publicados sempre).
     pub sintaticos: usize,
+    /// Os achados das regras de lint que pedem o programa resolvido (a
+    /// hierarquia, os tipos): saem só se a regra estiver ligada nas opções.
+    pub lints_semanticos: Vec<LintSemantico>,
+}
+
+/// Um achado de regra de lint calculado com o programa resolvido.
+#[derive(Debug, Clone)]
+pub struct LintSemantico {
+    /// O nome único do código (`LinterLintCode`), que é também a chave em
+    /// `dartforge_analise::lints::codigos_g::TODOS`.
+    pub unico: &'static str,
+    pub span: dartforge_diagnostics::Span,
+    pub args: Vec<String>,
 }
 
 /// Resultado de uma análise: por caminho absoluto normalizado.
@@ -200,7 +213,7 @@ impl Motor {
             proprios.insert(chave(a), texto);
         }
         for (p, t) in &proprios {
-            analise.arquivos.insert(p.clone(), Arquivo { texto: t.clone(), diags: Vec::new(), sintaticos: 0 });
+            analise.arquivos.insert(p.clone(), Arquivo { texto: t.clone(), diags: Vec::new(), sintaticos: 0, lints_semanticos: Vec::new() });
         }
         if imports.is_empty() {
             return Some(analise);
@@ -292,12 +305,16 @@ impl Motor {
             }
         }
 
-        // Bibliotecas com sintaxe posterior ao 3.6: a referência é o
-        // analyzer 3.13.4 (docs/VERSOES-LINGUAGEM.md), com outro SDK.
-        let mut libs_com_sintaxe_nova: BTreeSet<LibraryId> = BTreeSet::new();
         // Bibliotecas com erro de sintaxe: o verificador de elementos não
         // usados não roda nelas.
         let mut libs_com_erro_de_sintaxe: BTreeSet<LibraryId> = BTreeSet::new();
+        // T5 (docs/ANALYZER-ESPECIFICACAO.md §G): com
+        // `DARTFORGE_PORTAS_DE_SINTAXE=pulados`, as portas por erro de
+        // sintaxe (biblioteca inteira, declaração executável, arquivo) dão
+        // lugar à regra dos trechos que o parser pulou. O padrão continua o
+        // das portas: a troca só pode virar padrão depois de medida no
+        // placar (nenhum FP novo em código publicado).
+        let por_pulados = std::env::var("DARTFORGE_PORTAS_DE_SINTAXE").is_ok_and(|v| v == "pulados");
         // 3. Nomes duplicados (`crates/analise`), por biblioteca do lote.
         for lib in &libs_proprias {
             let biblioteca = program.library(*lib);
@@ -314,17 +331,10 @@ impl Motor {
             let curinga = biblioteca.features.tem(dartforge_frontend::features::Feature::WildcardVariables);
             // O 6.11 junta declarações de mesmo nome; o 3.13.4 (referência
             // de uma biblioteca com sintaxe posterior ao 3.6) não.
-            let sintaxe_nova = ids.iter().any(|u| {
-                program
-                    .unit(*u)
-                    .path
-                    .as_ref()
-                    .and_then(|p| analise.arquivos.get(&chave(p)))
-                    .is_some_and(|a| dartforge_analise::duplicatas::usa_sintaxe_posterior_ao_3_6(&a.diags[..a.sintaticos]))
-            });
-            if sintaxe_nova {
-                libs_com_sintaxe_nova.insert(*lib);
-            }
+            // A referência da biblioteca é a maior das unidades dela (T2):
+            // o parser marca a unidade que usa sintaxe que o 3.6.2 não
+            // conhece, e a versão acima da 3.6 marca todas.
+            let sintaxe_nova = program.referencia_da_biblioteca(*lib) == dartforge_diagnostics::Referencia::V3_13;
             let mut achados = dartforge_analise::duplicatas::duplicatas(&unidades, &interner, curinga, !sintaxe_nova);
             achados.extend(dartforge_analise::enums::sem_constantes(&unidades));
             achados.extend(dartforge_analise::inicializacao::finais_nao_inicializados(&unidades, &interner));
@@ -337,10 +347,26 @@ impl Motor {
                     .and_then(|p| analise.arquivos.get(&chave(p)))
                     .map(|a| a.diags[..a.sintaticos].iter().filter(|d| recuperacao_do_parser(d, &a.texto)).map(|d| d.span).collect())
                     .unwrap_or_default();
-                achados.extend(
-                    dartforge_analise::locais::nao_usados(*u, &interner, curinga, &sintaticos).into_iter().map(|d| (i, d)),
-                );
+                if por_pulados {
+                    let pulados = dartforge_analise::Pulados { fonte: u.fonte, trechos: &program.unit(ids[i]).pulados };
+                    achados.extend(
+                        dartforge_analise::locais::nao_usados_com_pulados(*u, &interner, curinga, pulados).into_iter().map(|d| (i, d)),
+                    );
+                } else {
+                    achados.extend(
+                        dartforge_analise::locais::nao_usados(*u, &interner, curinga, &sintaticos).into_iter().map(|d| (i, d)),
+                    );
+                }
                 achados.extend(dartforge_analise::externos::inicializadores(*u).into_iter().map(|d| (i, d)));
+                achados.extend(dartforge_analise::a_contexto::verificar(*u).into_iter().map(|d| (i, d)));
+                achados.extend(dartforge_analise::a_doc::verificar(*u).into_iter().map(|d| (i, d)));
+                achados.extend(dartforge_analise::c2_sintaticos::verificar(*u, &interner).into_iter().map(|d| (i, d)));
+                achados.extend(dartforge_analise::fases::texto_bidirecional(*u).into_iter().map(|d| (i, d)));
+                achados.extend(dartforge_analise::todos::verificar(u.fonte).into_iter().map(|d| (i, d)));
+                achados.extend(
+                    dartforge_analise::fases::dois_pontos_no_padrao(*u, biblioteca.features.versao().major < 3).into_iter().map(|d| (i, d)),
+                );
+                achados.extend(dartforge_analise::fases::embutido_como_tipo(*u, &interner).into_iter().map(|d| (i, d)));
                 achados.extend(dartforge_analise::nativos::fora_do_sdk(*u).into_iter().map(|d| (i, d)));
                 achados.extend(dartforge_analise::operadores::aridade(*u, &interner).into_iter().map(|d| (i, d)));
             }
@@ -348,12 +374,46 @@ impl Motor {
             let com_erro = ids.iter().any(|u| {
                 program.unit(*u).path.as_ref().and_then(|p| analise.arquivos.get(&chave(p))).is_none_or(|a| a.diags[..a.sintaticos].iter().any(|d| recuperacao_do_parser(d, &a.texto)))
             });
-            if com_erro {
-                libs_com_erro_de_sintaxe.insert(*lib);
+            if por_pulados {
+                let pulados: Vec<dartforge_analise::Pulados<'_>> = ids
+                    .iter()
+                    .map(|u| dartforge_analise::Pulados { fonte: &program.unit(*u).source, trechos: &program.unit(*u).pulados })
+                    .collect();
+                achados.extend(dartforge_analise::privados::nao_usados_com_pulados(&unidades, &interner, &pulados));
+            } else {
+                if com_erro {
+                    libs_com_erro_de_sintaxe.insert(*lib);
+                }
+                achados.extend(dartforge_analise::privados::nao_usados(&unidades, &interner, com_erro));
             }
-            achados.extend(dartforge_analise::privados::nao_usados(&unidades, &interner, com_erro));
             for (i, d) in achados {
                 if let Some(p) = &program.unit(ids[i]).path {
+                    if let Some(a) = analise.arquivos.get_mut(&chave(p)) {
+                        a.diags.push(d);
+                    }
+                }
+            }
+            for (u, d) in dartforge_analise::importacoes::extensoes_adiadas(&program, *lib)
+                .into_iter()
+                .chain(dartforge_analise::importacoes::nomes_mostrados_indefinidos(&program, *lib, &interner))
+                .chain(dartforge_analise::importacoes::exports_ambiguos(&program, *lib, &interner))
+                // FASES NOVAS (INFRA etapa 6): os verificadores de aviso por biblioteca.
+                .chain(dartforge_analise::fases::diretivas_repetidas(&program, *lib, &interner))
+                // As anotações do `package:meta` (lote II.7). API pública:
+                // a biblioteca em `lib/`, fora de `lib/src/`.
+                .chain({
+                    let publica = program
+                        .library(*lib)
+                        .units
+                        .first()
+                        .and_then(|u| program.unit(*u).path.as_deref())
+                        .and_then(|p| p.strip_prefix(raiz).ok())
+                        .map(|p| p.to_string_lossy().replace('\\', "/"))
+                        .is_some_and(|rel| rel.starts_with("lib/") && !rel.starts_with("lib/src/"));
+                    dartforge_analise::meta::verificar(&program, *lib, &interner, publica)
+                })
+            {
+                if let Some(p) = &program.unit(u).path {
                     if let Some(a) = analise.arquivos.get_mut(&chave(p)) {
                         a.diags.push(d);
                     }
@@ -521,21 +581,83 @@ impl Motor {
                 &program, &interner, &mut table, &core, &outline, *lib, &classes,
             ));
             atribuidos.extend(dartforge_types::variancia::variancia(&program, &interner, &table, &outline, *lib));
+            atribuidos.extend(dartforge_types::a_main::funcao_main(&program, &interner, &mut table, &core, &outline, *lib));
+            // FASES NOVAS (INFRA etapa 6): `OverrideVerifier`.
+            atribuidos.extend(dartforge_types::fase_override::sem_sobrescrita(&program, &interner, &outline, *lib));
+            atribuidos.extend(dartforge_types::fase_override::sem_redeclaracao(&program, &interner, &outline, *lib));
+            // O lint `annotate_overrides`, guardado à parte: só sai com a
+            // regra ligada.
+            for (u, span, nome) in dartforge_types::fase_override::sem_anotacao_de_override(&program, &interner, &outline, *lib) {
+                if let Some(p) = &program.unit(u).path
+                    && let Some(a) = analise.arquivos.get_mut(&chave(p))
+                {
+                    a.lints_semanticos.push(LintSemantico { unico: "annotate_overrides", span, args: vec![nome] });
+                }
+            }
+            // `MustCallSuperVerifier`.
+            atribuidos.extend(dartforge_types::fase_super::sem_chamada_ao_super(&program, &interner, *lib));
             if let Some(corpos) = &corpos
                 && !libs_com_erro_de_sintaxe.contains(lib)
-                // O oráculo 3.13 (sintaxe nova) chama o código de
-                // `unused_element_parameter`.
-                && !libs_com_sintaxe_nova.contains(lib)
             {
+                // Roda também nas bibliotecas julgadas pelo 3.13.4: lá o
+                // código sai como `unused_element_parameter`, pela variante
+                // (`Diagnostic::na_referencia`, no laço final).
                 atribuidos.extend(dartforge_types::parametros::parametros_nao_usados(&program, &interner, &outline, corpos, *lib));
             }
         }
+        // `SdkConstraintVerifier`: só com `environment: sdk:` legível no
+        // `pubspec.yaml` da raiz.
+        let restricao_de_sdk = std::fs::read_to_string(raiz.join("pubspec.yaml"))
+            .ok()
+            .and_then(|t| yaml_rust2::YamlLoader::load_from_str(&t).ok())
+            .and_then(|docs| docs.into_iter().next())
+            .and_then(|y| y["environment"]["sdk"].as_str().and_then(dartforge_types::fase_sdk::RestricaoDeSdk::de_texto));
         // Argumentos de tipo fora dos limites, unidade a unidade.
         for &u in &unidades_proprias {
             for d in dartforge_types::limites::argumentos_fora_dos_limites(&program, &interner, &mut table, &core, &outline, u) {
                 atribuidos.push((u, d));
             }
+            // `DeprecatedMemberUseVerifier`: "mesmo pacote" é a biblioteca
+            // cujo arquivo fica dentro da raiz analisada.
+            let mesmo_pacote = |l: dartforge_elements::model::LibraryId| {
+                program.library(l).units.first().and_then(|x| program.unit(*x).path.as_deref()).is_some_and(|p| p.starts_with(raiz))
+            };
+            let corpo_da_unidade = corpos.as_ref().and_then(|c| c.units.get(u.0 as usize));
+            for d in dartforge_types::fase_deprecado::usos_de_deprecados(&program, &interner, corpo_da_unidade, u, &mesmo_pacote) {
+                atribuidos.push((u, d));
+            }
+            // `_InvalidAccessVerifier` e as classes `@sealed`.
+            for d in dartforge_types::fase_acesso::acessos_invalidos(&program, &interner, &outline, corpo_da_unidade, u, &mesmo_pacote) {
+                atribuidos.push((u, d));
+            }
+            if let Some(restricao) = &restricao_de_sdk {
+                for d in dartforge_types::fase_sdk::restricao_de_sdk(&program, &interner, corpo_da_unidade, u, restricao) {
+                    atribuidos.push((u, d));
+                }
+            }
             if let Some(corpo) = corpos.as_ref().and_then(|c| c.units.get(u.0 as usize)) {
+                // As regras de lint tipadas, guardadas à parte: só saem
+                // com a regra ligada.
+                let mut de_lint = dartforge_types::lints_tipados::achados(&program, &table, &core, &outline, corpo, u);
+                de_lint.extend(dartforge_types::lints_tipados2::achados(&program, &interner, &table, &core, &outline, corpo, u));
+                if !de_lint.is_empty()
+                    && let Some(p) = &program.unit(u).path
+                    && let Some(a) = analise.arquivos.get_mut(&chave(p))
+                {
+                    a.lints_semanticos.extend(de_lint.into_iter().map(|(span, unico, args)| LintSemantico { unico, span, args }));
+                }
+                // `RequiredParametersVerifier`: o `@required` do `package:meta`.
+                for d in dartforge_types::fase_requeridos::requeridos_ausentes(&program, &interner, corpo, u) {
+                    atribuidos.push((u, d));
+                }
+                // `FfiVerifier`: `NON_CONSTANT_TYPE_ARGUMENT`.
+                for d in dartforge_types::fase_ffi::argumentos_nao_constantes(&program, &interner, &table, corpo, u) {
+                    atribuidos.push((u, d));
+                }
+                // `UseResultVerifier`.
+                for d in dartforge_types::fase_resultado::resultados_nao_usados(&program, &interner, corpo, u) {
+                    atribuidos.push((u, d));
+                }
                 for d in dartforge_types::limites::argumentos_inferidos_fora_dos_limites(&program, &interner, &mut table, &core, &outline, corpo, u) {
                     atribuidos.push((u, d));
                 }
@@ -548,7 +670,7 @@ impl Motor {
             .iter()
             .flat_map(|lib| dartforge_analise::clausulas::nomes_de_clausulas(&program, *lib))
             .collect();
-        let mut vistos: BTreeSet<(UnitId, usize, usize, String)> = BTreeSet::new();
+        let mut vistos: BTreeSet<(UnitId, Option<dartforge_diagnostics::Codigo>, usize, usize, String)> = BTreeSet::new();
         for (unidade, d) in &atribuidos {
             let unidade = *unidade;
             if !unidades_proprias.contains(&unidade) {
@@ -569,7 +691,7 @@ impl Motor {
             // só existe depois do 3.6.2): numa biblioteca julgada pelo 3.13.4,
             // o nosso SDK 3.6.2 não decide.
             if cod.code.is_some_and(|c| matches!(c.info().nome, "invalid_annotation" | "undefined_annotation"))
-                && libs_com_sintaxe_nova.contains(&program.unit(unidade).library)
+                && program.referencia_da_biblioteca(program.unit(unidade).library) == dartforge_diagnostics::Referencia::V3_13
             {
                 continue;
             }
@@ -578,7 +700,7 @@ impl Motor {
             {
                 continue;
             }
-            if !vistos.insert((unidade, cod.span.start, cod.span.end, cod.message.clone())) {
+            if !vistos.insert((unidade, cod.code, cod.span.start, cod.span.end, cod.message.clone())) {
                 continue;
             }
             let k = chave(program.unit(unidade).path.as_deref().expect("próprio tem caminho"));
@@ -618,8 +740,47 @@ impl Motor {
             .iter()
             .filter_map(|u| u.path.as_ref().map(|p| (chave(p), u.source.as_str())))
             .collect();
+        // A regra dos trechos pulados (T5, estrutura (c)): "não definido" de
+        // um nome citado num trecho pulado da biblioteca; e os dois códigos
+        // de forma de declaração, quando o intervalo toca um trecho pulado.
+        if por_pulados {
+            let mut da_biblioteca: HashMap<PathBuf, Vec<UnitId>> = HashMap::new();
+            for lib in &libs_proprias {
+                let unidades: Vec<UnitId> = program.library(*lib).units.clone();
+                for u in &unidades {
+                    if let Some(p) = &program.unit(*u).path {
+                        da_biblioteca.insert(chave(p), unidades.clone());
+                    }
+                }
+            }
+            for (k, a) in analise.arquivos.iter_mut() {
+                let Some(unidades) = da_biblioteca.get(k) else { continue };
+                let Some(&propria) = unidade_de.get(k) else { continue };
+                let fonte = program.unit(propria).source.as_str();
+                let proprios_pulados = dartforge_analise::Pulados { fonte, trechos: &program.unit(propria).pulados };
+                let n = a.sintaticos;
+                let mut i = 0;
+                a.diags.retain(|d| {
+                    i += 1;
+                    if i <= n {
+                        return true;
+                    }
+                    let Some(c) = d.code.map(|c| c.info().nome) else { return true };
+                    if depende_de_declaracoes(c) {
+                        let nome = fonte.get(d.span.start..d.span.end).unwrap_or("");
+                        return !unidades.iter().any(|u| {
+                            dartforge_analise::Pulados { fonte: &program.unit(*u).source, trechos: &program.unit(*u).pulados }.cita(nome)
+                        });
+                    }
+                    if depende_da_linha(c) {
+                        return !proprios_pulados.intersecta(d.span);
+                    }
+                    true
+                });
+            }
+        }
         for (k, a) in analise.arquivos.iter_mut() {
-            if a.diags[..a.sintaticos].iter().any(|d| recuperacao_do_parser(d, &a.texto)) {
+            if !por_pulados && a.diags[..a.sintaticos].iter().any(|d| recuperacao_do_parser(d, &a.texto)) {
                 let n = a.sintaticos;
                 let erros: Vec<usize> =
                     a.diags[..n].iter().filter(|d| recuperacao_do_parser(d, &a.texto)).map(|d| d.span.start).collect();
@@ -639,14 +800,32 @@ impl Motor {
         // intervalo e mensagem) — o `_checkDuplicateIdentifier` de uma
         // variável mutável repetida pede o mesmo erro pelo getter e pelo
         // setter, e o resultado tem um só.
-        for a in analise.arquivos.values_mut() {
-            let mut vistos: BTreeSet<(Option<&'static str>, usize, usize, String)> = BTreeSet::new();
+        for (k, a) in analise.arquivos.iter_mut() {
+            // O ponto único do T2: cada diagnóstico sai com o nome, o texto
+            // e os argumentos do analyzer que é a referência do arquivo.
+            // Nenhum emissor consulta a referência; eles só passam, depois
+            // dos argumentos do molde 3.6, os que só o 3.13 usa.
+            let referencia = unidade_de.get(k).map_or(dartforge_diagnostics::Referencia::V3_6, |u| program.referencia(*u));
+            if referencia == dartforge_diagnostics::Referencia::V3_13 {
+                let n = a.sintaticos;
+                let mut sintaticos_fora = 0;
+                let antes = std::mem::take(&mut a.diags);
+                for (i, d) in antes.into_iter().enumerate() {
+                    match d.na_referencia(referencia) {
+                        Some(d) => a.diags.push(d),
+                        None if i < n => sintaticos_fora += 1,
+                        None => {}
+                    }
+                }
+                a.sintaticos -= sintaticos_fora;
+            }
+            let mut vistos: BTreeSet<(Option<dartforge_diagnostics::Codigo>, usize, usize, String)> = BTreeSet::new();
             let n = a.sintaticos;
             let mut i = 0;
             let mut removidos_sintaticos = 0;
             a.diags.retain(|d| {
                 i += 1;
-                let novo = vistos.insert((d.code.map(|c| c.info().nome), d.span.start, d.span.end, d.message.clone()));
+                let novo = vistos.insert((d.code, d.span.start, d.span.end, d.message.clone()));
                 if !novo && i <= n {
                     removidos_sintaticos += 1;
                 }

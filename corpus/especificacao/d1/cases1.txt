@@ -1,0 +1,377 @@
+=== c01
+const a = b;
+const b = a;
+=== c02
+const a = b + 1;
+const b = c + 1;
+const c = a + 1;
+const d = a;
+=== c03
+class C {
+  final x;
+  const C() : x = y;
+}
+const y = const C();
+const z = y;
+=== c04
+class A {
+  const A([x = const A()]);
+}
+const k = const A();
+=== c05
+const a = 1 ~/ 0;
+const b = 1 % 0;
+const c = 1 / 0;
+const d = 1.5 ~/ 0;
+const e = 1 << -1;
+const f = 1 >>> -1;
+=== c06
+const a = 'a' + 1;
+const b = 1 + 'a';
+const c = !1;
+const d = 1 && true;
+const e = true && 1;
+const f = null + 1;
+const g = -'a';
+const h = ~1.5;
+const i = true & 1;
+const j = 1 < 'a';
+const k = [] + [];
+const l = true + 1;
+=== c07
+const a = 'abc'.length;
+const b = [1].length;
+const s = 'x';
+const c = s.length;
+const d = s.isEmpty;
+const e = (1, 2).$1;
+const f = 1.isEven;
+=== c08
+class A {
+  final int f;
+  const A(this.f);
+}
+const a = const A(1).f;
+const o = const A(1);
+const b = o.f;
+int get x => 1;
+var v = 0;
+const c = x;
+const d = v;
+=== c09
+const a = identical(1, 1);
+const b = identical(1, 1.0);
+const c = identical(const [1], const [1]);
+int f(int x) => x;
+const d = f(1);
+const e = 'a'.toString();
+const g = identical(1);
+extension E on int { int get twice => this * 2; int m() => 0; int operator +(String s) => 0; }
+const h = 1.twice;
+const i = 1.m();
+=== c10
+const num n = 1;
+const a = n as String;
+const b = n as int;
+const c = n is int;
+const d = n is! int;
+const e = 1 as dynamic;
+const Object o = 'x';
+const g = (o as int) + 1;
+=== c11
+class A {
+  const A() : assert(false);
+}
+class B {
+  const B(int x) : assert(x > 0, 'must be positive');
+}
+class C {
+  const C(int x) : assert(x > 0, x);
+}
+const a = const A();
+const b = const B(0);
+const c = const C(0);
+var d = const B(-1);
+=== c12
+class A {
+  const A(int x);
+}
+class B<T> {
+  final T f;
+  const B(this.f);
+}
+const dynamic d = 'a';
+const a = const A(d);
+const b = const A('a');
+const c = const B<int>(d);
+=== c13
+class G<T> {
+  final T x = y;
+  const G();
+}
+const dynamic y = 1;
+const a = const G<String>();
+class H {
+  final int x;
+  const H(dynamic v) : x = v;
+}
+const b = const H('a');
+class I {
+  final int x;
+  const I(String v) : x = v;
+}
+const c = const I('a');
+=== c14
+class A {
+  const A() : x = throw '';
+  final int x;
+}
+class B {
+  final int x;
+  const B(int y) : x = y ~/ 0;
+}
+const b = const B(1);
+=== c15
+var x = true;
+var l = [1];
+const a = [if (x) 1];
+const b = [...l];
+const c = [for (var i = 0; i < 1; i++) i];
+const d = {...l};
+const e = {1: 2, ...l};
+const f = [...1];
+const g = [if (1) 1];
+const h = [l];
+void fn() {
+  const m = [for (var i = 0; i < 1; i++) i];
+}
+=== c16
+const a = bool.fromEnvironment('x');
+const b = int.fromEnvironment('x');
+const c = String.fromEnvironment('x');
+const d = bool.hasEnvironment('x');
+const e = a ? 1 : 'a';
+const f = bool.fromEnvironment(1);
+const g = int.fromEnvironment('x', defaultValue: 'a');
+const h = Symbol('a');
+const i = b ~/ 0;
+const j = !b;
+const k = a && 1;
+=== c17
+T id<T>(T x) => x;
+const int Function(int) a = id;
+const b = id<int>;
+class C<T> {
+  const C();
+  void m<U>() {
+    const c = C<T>();
+    const d = id<U>;
+    const T Function(T) e = id;
+    const f = T;
+    const g = <T>[];
+  }
+}
+const h = id<int, int>;
+=== c18
+import 'dart:math' deferred as m;
+const a = m.pi;
+void f([x = m.pi]) {}
+const b = [m.pi];
+const c = m.Random;
+=== c19
+int g() => 1;
+var v = 1;
+void f([int a = v, int b = g(), c = undefinedName, d = const [v]]) {}
+class A {
+  const A([this.x = v]);
+  final int x;
+}
+=== c20
+// @dart=2.19
+var v = 1;
+const k = 1;
+void f(int x) {
+  switch (x) {
+    case v:
+      break;
+    case k + 1:
+      break;
+    case 1 ~/ 0:
+      break;
+  }
+}
+=== c21
+class A {
+  final int x;
+  const A(int y) : x = y.foo;
+}
+class B extends A {
+  const B(int y) : super(y);
+}
+const a = const A(1);
+const b = const B(1);
+=== c22
+class A {
+  final int x;
+  const A(String s) : x = s.length ~/ 0;
+}
+class B extends A {
+  const B() : super('abc');
+}
+class C extends B {
+  const C();
+}
+const c = const C();
+=== c23
+var v = 1;
+class A { const A(Object? x, {Object? n}); A.nc(); }
+const a = const A(v);
+const b = const A(1, n: v);
+const c = A.nc();
+const d = const A.nc();
+const e = const A(const A(v));
+var f = const A(v);
+final g = const A(1 ~/ 0);
+=== c24
+const a = true ? 1 : 'x'.foo;
+const b = 1 ? 1 : 2;
+const c = null ? 1 : 2;
+const d = null ?? 1;
+const e = 1 ?? v;
+const f = false && v;
+const g = true || v;
+var v = true;
+const h = v ? 1 : 2;
+const i = true ? v : 2;
+=== c25
+class O { const O(); }
+const a = '${const O()}';
+const b = '${[1]}';
+const c = 'a' 'b' '${1}';
+const d = const O() == const O();
+const e = 1.0 == 1;
+const f = [1] == [1];
+class Q { const Q(); bool operator ==(Object o) => true; int get hashCode => 0; }
+const g = const Q() == const Q();
+const h = const Q() != null;
+=== c26
+enum E {
+  v1(v2), v2(v1);
+  const E(Object o);
+}
+enum F {
+  a(0), b('x');
+  final int i;
+  const F(Object o) : i = o as int;
+}
+enum G { g; const G() : assert(false); }
+=== c27
+class C { const C() : this.a(); const C.a() : this(); }
+const y = z;
+const z = const C();
+=== c28
+class A {
+  final m = const A();
+  const A();
+}
+class B {
+  final int x = v;
+  const B();
+}
+var v = 0;
+const b = const B();
+=== c29
+const int a = 'x' as dynamic;
+const String b = 1 as dynamic;
+const List<int> c = <num>[1] as dynamic;
+void f() {
+  const int d = 'x' as dynamic;
+}
+=== c30
+class A { const A(); static int sm() => 0; int im() => 0; static const k = 1; static var sv = 1; }
+const a = A.sm;
+const b = A.k;
+const c = A.sv;
+const d = const A().im;
+const e = A.new;
+const f = A;
+const g = #foo.bar;
+const h = (1, a: 'x');
+const i = List<int>;
+const j = A.undefinedThing;
+const k = undefinedTop;
+const l = dynamic;
+=== c31
+void f() {
+  const elems = const [1, elems];
+  const a = b;
+  const b = 1;
+  var v = 1;
+  const c = v;
+  const d = v + 1;
+}
+=== c32
+class A { const A(); }
+@A.x()
+class B {}
+var v = 1;
+class Ann { const Ann(Object o); Ann.nc(); }
+@Ann(v)
+class C {}
+@Ann.nc()
+class D {}
+@Ann(1 ~/ 0)
+class E {}
+@v
+class F {}
+=== c33
+const a = 1 + (2 * 'a'.foo);
+const b = ['a'.foo, 1 ~/ 0];
+const c = {1 ~/ 0: 'a'.foo};
+const d = ('a'.foo, 1 ~/ 0);
+const e = (1 ~/ 0) + 'a'.foo;
+=== c34
+var v = 1;
+const a = v++;
+const b = ++v;
+const c = -v;
+const d = v = 2;
+const e = () {};
+const f = [() {}];
+const h = v!;
+const j = (v);
+const k = v..toString();
+=== c35
+class S {
+  final int a;
+  const S({this.a = 0});
+}
+class B extends S {
+  const B({super.a});
+}
+const b = const B();
+class P { final int q; const P([this.q = 'x' as dynamic]); }
+const p = const P();
+class R { final String q; const R([this.q]); }
+const r = const R();
+=== c36
+class A {
+  final int x;
+  final int x2;
+  const A(this.x) : x = 1, x2 = 2;
+}
+const a = const A(1);
+class B { final x = 1; final x = 2; const B(); }
+const b = const B();
+=== c37
+extension type E(int i) { const E.c(this.i); int get twice => i * 2; }
+const a = E.c(1);
+const b = a.twice;
+const c = a + 1;
+const d = const E.c('x' as dynamic);
+=== c38
+class A { final int x; const A(this.x); }
+const List<A> l = [A(1 ~/ 0)];
+const m = [1, 'a'.foo, v];
+var v = 1;
+const n = <int>[null as dynamic];

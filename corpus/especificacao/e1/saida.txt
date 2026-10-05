@@ -1,0 +1,331 @@
+== a01 "void f() {\n  var s = 'abc;\n  print(s);\n}\n"
+  expected_token off=21 len=5 2:11 | Expected to find ';'.
+  unterminated_string_literal off=25 len=1 2:15 | Unterminated string literal.
+== a02 'void f(a) {\n  var s = "x${a;\n}\n'
+  expected_token off=27 len=1 2:16 | Expected to find '}'.
+  unterminated_string_literal off=29 len=1 3:1 | Unterminated string literal.
+  expected_token off=31 len=0 4:1 | Expected to find ';'.
+  expected_token off=31 len=1 4:1 | Expected to find '}'.
+  unused_local_variable off=18 len=1 2:7 | The value of the local variable 's' isn't used.
+== a03 'var s = "${a'
+  undefined_identifier off=11 len=1 1:12 | Undefined name 'a'.
+  unterminated_string_literal off=11 len=1 1:12 | Unterminated string literal.
+  expected_token off=12 len=0 1:13 | Expected to find ';'.
+  expected_token off=12 len=1 1:13 | Expected to find '}'.
+== a04 'void f() {}\n/* abc\n'
+  unterminated_multi_line_comment off=18 len=1 2:7 | Unterminated multi-line comment.
+== a05 'var a = 0x;\n'
+  missing_hex_digit off=9 len=1 1:10 | Hexadecimal digit expected.
+== a06 'var a = 1e;\n'
+  missing_digit off=9 len=1 1:10 | Decimal digit expected.
+== a07 'var a = 1e+;\n'
+  missing_digit off=10 len=1 1:11 | Decimal digit expected.
+== a08 'var a = 1.e;\n'
+  undefined_getter off=10 len=1 1:11 | The getter 'e' isn't defined for the type 'int'.
+== a09 'void f(a, b) {\n  a === b;\n  a !== b;\n}\n'
+  unsupported_operator off=19 len=1 2:5 | The '===' operator is not supported.
+  unsupported_operator off=30 len=1 3:5 | The '!==' operator is not supported.
+== a10 'void f() {\n  print(1;\n}\n'
+  expected_token off=20 len=1 2:10 | Expected to find ')'.
+== a11 'void f() {\n  if (true) {\n    print(1);\n}\n'
+  expected_token off=41 len=1 5:1 | Expected to find '}'.
+== a12 'var a = [ ( ];\n'
+  expected_token off=12 len=1 1:13 | Expected to find ')'.
+== a13 'var a = 1 < ;\n'
+  missing_identifier off=12 len=1 1:13 | Expected an identifier.
+== a14 'List<int a;\n'
+  expected_token off=5 len=3 1:6 | Expected to find '>'.
+  not_initialized_non_nullable_variable off=9 len=1 1:10 | The non-nullable variable 'a' must be initialized.
+== a15 'var a = §;\n'
+  illegal_character off=8 len=1 1:9 | Illegal character '167'.
+  undefined_identifier off=8 len=1 1:9 | Undefined name '§'.
+== a16 'var a = 😀;\n'
+  illegal_character off=8 len=1 1:9 | Illegal character '55357'.
+  undefined_identifier off=8 len=2 1:9 | Undefined name '😀'.
+  illegal_character off=9 len=1 1:10 | Illegal character '56832'.
+== a17 'var aé = 1;\n'
+  illegal_character off=5 len=1 1:6 | Illegal character '233'.
+== a18 'var a =\xa01;\n'
+  illegal_character off=7 len=1 1:8 | Illegal character '160'.
+== a19 'var a = \x01 1;\n'
+  illegal_character off=8 len=1 1:9 | Illegal character '1'.
+== a20 "var a = '\\u';\n"
+  invalid_unicode_escape_u_started off=9 len=2 1:10 | An escape sequence starting with '\u' must be followed by 4 hexadecimal digits or from 1 to 6 digits between '{' and '}'.
+== a21 "var a = '\\x1';\n"
+  invalid_hex_escape off=9 len=3 1:10 | An escape sequence starting with '\x' must be followed by 2 hexadecimal digits.
+== a22 "var a = '\\u{110000}';\n"
+  invalid_code_point off=9 len=9 1:10 | The escape sequence '\u{...}' isn't a valid code point.
+== a23 "var a = '\\u{}';\nvar b = '\\u12';\nvar c = '\\u{1234567}';\nvar d = '\\xZZ';\nvar e = '\\u{12';\n"
+  invalid_unicode_escape_u_bracket off=9 len=4 1:10 | An escape sequence starting with '\u{' must be followed by 1 to 6 hexadecimal digits followed by a '}'.
+  invalid_unicode_escape_u_no_bracket off=25 len=4 2:10 | An escape sequence starting with '\u' must be followed by 4 hexadecimal digits.
+  invalid_unicode_escape_u_bracket off=41 len=9 3:10 | An escape sequence starting with '\u{' must be followed by 1 to 6 hexadecimal digits followed by a '}'.
+  invalid_code_point off=41 len=9 3:10 | The escape sequence '\u{...}' isn't a valid code point.
+  invalid_hex_escape off=64 len=2 4:10 | An escape sequence starting with '\x' must be followed by 2 hexadecimal digits.
+  invalid_unicode_escape_u_bracket off=80 len=5 5:10 | An escape sequence starting with '\u{' must be followed by 1 to 6 hexadecimal digits followed by a '}'.
+== a24 "void f() {\n  print('abc\\\n');\n}\n"
+  invalid_unicode_escape_started off=23 len=1 2:13 | The string '\' can't stand alone.
+  unterminated_string_literal off=23 len=1 2:13 | Unterminated string literal.
+  expected_token off=25 len=3 3:1 | Expected to find ';'.
+  unterminated_string_literal off=27 len=1 3:3 | Unterminated string literal.
+  expected_token off=29 len=1 4:1 | Expected to find ')'.
+== a25 'var a = "$";\nvar b = "$1";\nvar c = "$$a";\n'
+  missing_identifier off=10 len=1 1:11 | Expected an identifier.
+  missing_identifier off=23 len=1 2:11 | Expected an identifier.
+  missing_identifier off=37 len=1 3:11 | Expected an identifier.
+== a26 "var a = '''abc\nvar b = 1;\n"
+  expected_token off=8 len=18 1:9 | Expected to find ';'.
+  unterminated_string_literal off=25 len=1 2:11 | Unterminated string literal.
+== a27 "var a = r'abc\nvar b = 1;\n"
+  expected_token off=8 len=5 1:9 | Expected to find ';'.
+  unterminated_string_literal off=12 len=1 1:13 | Unterminated string literal.
+== a28 'var a = 1_000;\nvar b = 100_;\nvar c = 0x_1;\nvar d = 1_.5;\nvar e = 1e_5;\nvar g = 1__0;\n'
+  unexpected_separator_in_number off=23 len=1 2:9 | Digit separators ('_') in a number literal can only be placed between two digits.
+  unexpected_separator_in_number off=37 len=1 3:9 | Digit separators ('_') in a number literal can only be placed between two digits.
+  unexpected_separator_in_number off=51 len=1 4:9 | Digit separators ('_') in a number literal can only be placed between two digits.
+  unexpected_separator_in_number off=65 len=1 5:9 | Digit separators ('_') in a number literal can only be placed between two digits.
+== a29 'void f() { } }\n'
+  expected_executable off=13 len=1 1:14 | Expected a method, getter, setter or operator declaration.
+== a30 'void f() { print(1)); }\n'
+  expected_token off=18 len=1 1:19 | Expected to find ';'.
+  missing_identifier off=19 len=1 1:20 | Expected an identifier.
+  unexpected_token off=19 len=1 1:20 | Unexpected text ';'.
+== a31 'void f() { g([ ('
+  undefined_function off=11 len=1 1:12 | The function 'g' isn't defined.
+  expected_token off=15 len=1 1:16 | Expected to find ';'.
+  expected_token off=16 len=1 1:17 | Expected to find ')'.
+  expected_token off=16 len=1 1:17 | Expected to find ']'.
+  expected_token off=16 len=1 1:17 | Expected to find '}'.
+== a32 'void f() { var a = [1; }\n'
+  expected_token off=21 len=1 1:22 | Expected to find ']'.
+  unused_local_variable off=15 len=1 1:16 | The value of the local variable 'a' isn't used.
+== a33 'var a = 0x'
+  expected_token off=8 len=2 1:9 | Expected to find ';'.
+  missing_hex_digit off=9 len=1 1:10 | Hexadecimal digit expected.
+== a34 'var a = 1e'
+  expected_token off=8 len=2 1:9 | Expected to find ';'.
+  missing_digit off=9 len=1 1:10 | Decimal digit expected.
+== a35 "var a = 'abc"
+  expected_token off=8 len=4 1:9 | Expected to find ';'.
+  unterminated_string_literal off=11 len=1 1:12 | Unterminated string literal.
+== a36 'var a = 1;\n#!shebang\n'
+  expected_executable off=11 len=1 2:1 | Expected a method, getter, setter or operator declaration.
+  expected_executable off=12 len=1 2:2 | Expected a method, getter, setter or operator declaration.
+  expected_token off=13 len=7 2:3 | Expected to find ';'.
+  missing_const_final_var_or_type off=13 len=7 2:3 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+== a37 '\ufeffvar a = §;\n'
+  illegal_character off=8 len=1 1:9 | Illegal character '167'.
+  undefined_identifier off=8 len=1 1:9 | Undefined name '§'.
+== a38 'var a = "a ${ \'b }";\nvar c = 2;\n'
+  unterminated_string_literal off=19 len=1 1:20 | Unterminated string literal.
+  expected_token off=21 len=3 2:1 | Expected to find '}'.
+  unterminated_string_literal off=31 len=1 2:11 | Unterminated string literal.
+  expected_token off=32 len=0 3:1 | Expected to find ';'.
+  expected_token off=32 len=1 3:1 | Expected to find '}'.
+== a39 'var a = "$this $class";\n'
+  invalid_reference_to_this off=10 len=4 1:11 | Invalid reference to 'this' expression.
+  expected_identifier_but_got_keyword off=16 len=5 1:17 | 'class' can't be used as an identifier because it's a keyword.
+  undefined_identifier off=16 len=5 1:17 | Undefined name 'class'.
+== a40 "var a = 'abc\\"
+  expected_token off=8 len=5 1:9 | Expected to find ';'.
+  invalid_unicode_escape_started off=12 len=1 1:13 | The string '\' can't stand alone.
+  unterminated_string_literal off=12 len=1 1:13 | Unterminated string literal.
+== a41 '/* a /* b */ c\nvar a = 1;\n'
+  unterminated_multi_line_comment off=25 len=1 2:11 | Unterminated multi-line comment.
+== a42 'var piskefløde = 1;\nvar a😀b = 2;\n'
+  illegal_character off=11 len=1 1:12 | Illegal character '248'.
+  illegal_character off=25 len=1 2:6 | Illegal character '55357'.
+  illegal_character off=26 len=1 2:7 | Illegal character '56832'.
+== a43 "void f() { var m = {'a': [1, 2}; }\n"
+  expected_token off=30 len=1 1:31 | Expected to find ']'.
+  unused_local_variable off=15 len=1 1:16 | The value of the local variable 'm' isn't used.
+== a44 'var a = [(])];\n'
+  missing_identifier off=10 len=1 1:11 | Expected an identifier.
+  expected_token off=10 len=1 1:11 | Expected to find ')'.
+== a45 'var s = "${a";\nvar t = 1;\n'
+  undefined_identifier off=11 len=1 1:12 | Undefined name 'a'.
+  expected_token off=12 len=2 1:13 | Expected to find '}'.
+  unterminated_string_literal off=13 len=1 1:14 | Unterminated string literal.
+  unterminated_string_literal off=25 len=1 2:11 | Unterminated string literal.
+  expected_token off=26 len=0 3:1 | Expected to find ';'.
+  expected_token off=26 len=1 3:1 | Expected to find '}'.
+== a46 'var a = �;\n'
+  SEM JSON: '' 'An unexpected error was encountered by the Analysis Server.\nPlease file an issue at https://github.com/dart-lang/sdk/issues/new/choose with the following details:\n\nInternal error: UnimplementedError: Encoding "null"\n#0      LegacyAnalysisServer.sendServerErrorNotification (package:analysis_server/src/legacy_analysis_server.dart:714:31)\n#1      ErrorNotifier.logException (package:analysis_server/src/server/error_notifier.dart:45:12)\n#2      MulticastInstrumentationService.logException (package:analyzer/instrumentation/multicast_service.dart:28:15)\n#3      Driver._captureExceptions.errorFunction (package:analysis_server/src/server/driver.dart:528:15)\n#4      _Zone._processUncaughtError (dart:async/zone.dart:1097:14)\n#5      _CustomZone.handleUncaughtError (dart:async/zone.dart:1301:5)\n#6      Future._propagateToListeners (dart:async/future_impl.dart:816:16)\n#7      Future._completeError (dart:async/future_impl.dart:715:5)\n<asynchronous suspension>\n\nUnhandled exception:\nUnimplementedError: Encoding "null"\n#0      translateErrorToken (package:_fe_analyzer_shared/src/scanner/errors.dart:90:7)\n#1      AstBuilder.handleErrorToken (package:analyzer/src/fasta/ast_builder.dart:4207:5)\n#2      Parser.reportAllErrorTokens (package:_fe_analyzer_shared/src/parser/parser_impl.dart:9455:16)\n#3      Parser.parseUnit (package:_fe_analyzer_shared/src/parser/parser_impl.dart:440:5)\n#4      Parser.parseCompilationUnit2 (package:analyzer/src/generated/parser.dart:97:32)\n#5      Parser.parseCompila'
+== a47 'var a = 1.5e;\nvar b = .e;\nvar c = 1.5e-;\n'
+  missing_digit off=11 len=1 1:12 | Decimal digit expected.
+  missing_identifier off=22 len=1 2:9 | Expected an identifier.
+  missing_digit off=38 len=1 3:13 | Decimal digit expected.
+== a48 'class C { operator ===(x) => true; }\n'
+  unsupported_operator off=19 len=1 1:20 | The '===' operator is not supported.
+== a49 "var a = 'ab\ncd';\n"
+  expected_token off=8 len=3 1:9 | Expected to find ';'.
+  unterminated_string_literal off=10 len=1 1:11 | Unterminated string literal.
+  expected_token off=12 len=2 2:1 | Expected to find ';'.
+  missing_const_final_var_or_type off=12 len=2 2:1 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+  expected_executable off=14 len=2 2:3 | Expected a method, getter, setter or operator declaration.
+  unterminated_string_literal off=15 len=1 2:4 | Unterminated string literal.
+== a50 'void f() {\n  var x = (1 + [2, 3;\n  print(x);\n}\n'
+  argument_type_not_assignable off=26 len=5 2:16 | The argument type 'List<int>' can't be assigned to the parameter type 'num'. 
+  expected_token off=31 len=1 2:21 | Expected to find ')'.
+  expected_token off=31 len=1 2:21 | Expected to find ']'.
+== a51 'var a = 0xg;\nvar b = 0X;\n'
+  expected_token off=8 len=2 1:9 | Expected to find ';'.
+  missing_hex_digit off=9 len=1 1:10 | Hexadecimal digit expected.
+  missing_const_final_var_or_type off=10 len=1 1:11 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+  missing_hex_digit off=22 len=1 2:10 | Hexadecimal digit expected.
+== a53 'void f() { print("${1 + }"); }\n'
+  missing_identifier off=24 len=1 1:25 | Expected an identifier.
+== a54 'var a = 1 \\ 2;\nvar b = `x`;\n'
+  expected_token off=8 len=1 1:9 | Expected to find ';'.
+  expected_executable off=10 len=1 1:11 | Expected a method, getter, setter or operator declaration.
+  expected_executable off=12 len=1 1:13 | Expected a method, getter, setter or operator declaration.
+  unexpected_token off=13 len=1 1:14 | Unexpected text ';'.
+  missing_identifier off=23 len=1 2:9 | Expected an identifier.
+  expected_token off=23 len=1 2:9 | Expected to find ';'.
+  expected_token off=24 len=1 2:10 | Expected to find ';'.
+  missing_const_final_var_or_type off=24 len=1 2:10 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+  expected_executable off=25 len=1 2:11 | Expected a method, getter, setter or operator declaration.
+  unexpected_token off=26 len=1 2:12 | Unexpected text ';'.
+== a55 "void f() {\r\n  var s = 'abc;\r\n}\r\n"
+  expected_token off=22 len=5 2:11 | Expected to find ';'.
+  unterminated_string_literal off=26 len=1 2:15 | Unterminated string literal.
+  unused_local_variable off=18 len=1 2:7 | The value of the local variable 's' isn't used.
+== a56 "var a = 'é\\x1';\nvar b = '''\n\\u{110000}''';\n"
+  invalid_hex_escape off=10 len=3 1:11 | An escape sequence starting with '\x' must be followed by 2 hexadecimal digits.
+  invalid_code_point off=25 len=9 2:10 | The escape sequence '\u{...}' isn't a valid code point.
+== a57 '#!/usr/bin/env dart\nvar a = 0x;\n'
+  missing_hex_digit off=29 len=1 2:10 | Hexadecimal digit expected.
+== a58 "var a = '\\"
+  expected_token off=8 len=2 1:9 | Expected to find ';'.
+  invalid_unicode_escape_started off=9 len=1 1:10 | The string '\' can't stand alone.
+  unterminated_string_literal off=9 len=1 1:10 | Unterminated string literal.
+== a59 'var a = "x $a \\u";\nvar b = \'${a}\\x1 \\u{}\';\n'
+  top_level_cycle off=4 len=1 1:5 | The type of 'a' can't be inferred because it depends on itself through the cycle: a.
+  invalid_unicode_escape_u_started off=15 len=2 1:16 | An escape sequence starting with '\u' must be followed by 4 hexadecimal digits or from 1 to 6 digits between '{' and '}'.
+  invalid_hex_escape off=33 len=3 2:15 | An escape sequence starting with '\x' must be followed by 2 hexadecimal digits.
+== a60 "var a = r'\\u \\x1';\nvar b = '\\q \\$';\n"
+== b01 'void f(a) { a < ( }\n'
+  expected_token off=16 len=1 1:17 | Expected to find ';'.
+  equality_cannot_be_equality_operand off=18 len=1 1:19 | A comparison expression can't be an operand of another comparison expression.
+  missing_identifier off=18 len=1 1:19 | Expected an identifier.
+  expected_token off=18 len=1 1:19 | Expected to find ')'.
+  expected_token off=18 len=1 1:19 | Expected to find '>'.
+== b02 'var a = b < ('
+  undefined_identifier off=8 len=1 1:9 | Undefined name 'b'.
+  expected_token off=12 len=1 1:13 | Expected to find ';'.
+  equality_cannot_be_equality_operand off=13 len=0 1:14 | A comparison expression can't be an operand of another comparison expression.
+  missing_identifier off=13 len=0 1:14 | Expected an identifier.
+  expected_token off=13 len=1 1:14 | Expected to find ')'.
+  expected_token off=13 len=1 1:14 | Expected to find '>'.
+== b03 'void f() {\n  g(1, [2, {3);\n}\n'
+  undefined_function off=13 len=1 2:3 | The function 'g' isn't defined.
+  expected_token off=24 len=1 2:14 | Expected to find ']'.
+  expected_token off=24 len=1 2:14 | Expected to find '}'.
+== b04 'class A {\n  void m() {\n    print(1);\n  \n  void n() {}\n}\n'
+  expected_token off=56 len=1 7:1 | Expected to find '}'.
+  unused_element off=47 len=1 5:8 | The declaration 'n' isn't referenced.
+== b05 "var a = '''x${1}\n"
+  expected_token off=16 len=1 1:17 | Expected to find ';'.
+  unterminated_string_literal off=16 len=1 1:17 | Unterminated string literal.
+== b06 'var a = 1.;\nvar b = 1..x;\nvar c = 1.0e5 + .5 + 1e-3;\n'
+  missing_identifier off=10 len=1 1:11 | Expected an identifier.
+  undefined_getter off=23 len=1 2:12 | The getter 'x' isn't defined for the type 'int'.
+== b07 "var a = 'x' 'y\n;\n"
+  unterminated_string_literal off=13 len=1 1:14 | Unterminated string literal.
+== b08 'void f() { var a = "${ {1: [2} }"; }\n'
+  expected_token off=29 len=1 1:30 | Expected to find ']'.
+  unused_local_variable off=15 len=1 1:16 | The value of the local variable 'a' isn't used.
+== b09 '// @dart=2.19\nvar a = 1_000;\nvar b = 1 >>> 2;\n'
+  experiment_not_enabled off=22 len=5 2:9 | This requires the 'digit-separators' language feature to be enabled.
+== b10 'var a = 0x_;\nvar b = 1._5;\nvar c = 1e5_;\nvar d = 1.5_e3;\n'
+  unexpected_separator_in_number off=8 len=1 1:9 | Digit separators ('_') in a number literal can only be placed between two digits.
+  integer_literal_out_of_range off=8 len=3 1:9 | The integer literal 0x_0 can't be represented in 64 bits.
+  missing_hex_digit off=10 len=1 1:11 | Hexadecimal digit expected.
+  undefined_getter off=23 len=2 2:11 | The getter '_5' isn't defined for the type 'int'.
+  unexpected_separator_in_number off=35 len=1 3:9 | Digit separators ('_') in a number literal can only be placed between two digits.
+  unexpected_separator_in_number off=49 len=1 4:9 | Digit separators ('_') in a number literal can only be placed between two digits.
+== b11 '\x00var a = 1;\n'
+  illegal_character off=0 len=1 1:1 | Illegal character '0'.
+== b12 'var a = "\x02";\nvar b = "${1 \x02 }";\n'
+  expected_token off=27 len=3 2:15 | Expected to find '}'.
+  expected_token off=30 len=1 2:18 | Expected to find ';'.
+  expected_string_literal off=32 len=0 3:1 | Expected a string literal.
+  expected_token off=32 len=1 3:1 | Expected to find '}'.
+== b13 'void f() {\n  print((1 + 2);\n  print([1, 2);\n}\n'
+  expected_token off=26 len=1 2:16 | Expected to find ')'.
+  expected_token off=41 len=1 3:14 | Expected to find ']'.
+== b14 'var a = <int>[1;\nvar b = 2;\n'
+  expected_token off=15 len=1 1:16 | Expected to find ']'.
+== b15 'void f() {\n  if (a {\n    b();\n  }\n}\n'
+  undefined_identifier off=17 len=1 2:7 | Undefined name 'a'.
+  expected_token off=19 len=1 2:9 | Expected to find ')'.
+  undefined_function off=25 len=1 3:5 | The function 'b' isn't defined.
+== b16 'var a = "abc\nvar b = \'x${\n'
+  expected_token off=8 len=4 1:9 | Expected to find ';'.
+  unterminated_string_literal off=11 len=1 1:12 | Unterminated string literal.
+  unterminated_string_literal off=25 len=1 2:13 | Unterminated string literal.
+  missing_identifier off=26 len=0 3:1 | Expected an identifier.
+  expected_token off=26 len=0 3:1 | Expected to find ';'.
+  expected_token off=26 len=1 3:1 | Expected to find '}'.
+== b17 "var a = 'éé;\nvar b = '😀\n"
+  expected_token off=8 len=4 1:9 | Expected to find ';'.
+  unterminated_string_literal off=11 len=1 1:12 | Unterminated string literal.
+  expected_token off=21 len=3 2:9 | Expected to find ';'.
+  unterminated_string_literal off=23 len=1 2:11 | Unterminated string literal.
+== b18 "var a = '$';\nvar b = '$"
+  missing_identifier off=10 len=1 1:11 | Expected an identifier.
+  unterminated_string_literal off=22 len=1 2:10 | Unterminated string literal.
+  missing_identifier off=23 len=1 2:11 | Expected an identifier.
+  expected_token off=23 len=0 2:11 | Expected to find ';'.
+== b19 '/**\n * doc\n'
+  unterminated_multi_line_comment off=10 len=1 2:7 | Unterminated multi-line comment.
+== b20 'var a = 1 ==== 2;\nvar b = 1 !=== 2;\n'
+  missing_assignable_selector off=8 len=5 1:9 | Missing selector such as '.identifier' or '[0]'.
+  unsupported_operator off=10 len=1 1:11 | The '===' operator is not supported.
+  missing_identifier off=13 len=1 1:14 | Expected an identifier.
+  missing_assignable_selector off=26 len=5 2:9 | Missing selector such as '.identifier' or '[0]'.
+  unsupported_operator off=28 len=1 2:11 | The '!==' operator is not supported.
+  missing_identifier off=31 len=1 2:14 | Expected an identifier.
+== c01 'void f(a) { a[1; }\n'
+  expected_token off=15 len=1 1:16 | Expected to find ']'.
+  expected_token off=15 len=1 1:16 | Expected to find ']'.
+== c02 'var a = 0x__1;\n'
+  unexpected_separator_in_number off=8 len=1 1:9 | Digit separators ('_') in a number literal can only be placed between two digits.
+== c03 'var a = \x1f;\nvar b = \x7f;\n'
+  illegal_character off=8 len=1 1:9 | Illegal character '31'.
+  undefined_identifier off=8 len=1 1:9 | Undefined name ''.
+  illegal_character off=19 len=1 2:9 | Illegal character '127'.
+  undefined_identifier off=19 len=1 2:9 | Undefined name ''.
+== c04 '('
+  expected_executable off=0 len=1 1:1 | Expected a method, getter, setter or operator declaration.
+  expected_executable off=1 len=0 1:2 | Expected a method, getter, setter or operator declaration.
+  expected_token off=1 len=1 1:2 | Expected to find ')'.
+== c05 '\x01'
+  illegal_character off=0 len=1 1:1 | Illegal character '1'.
+== c06 'void f() {\n  switch (1) {\n    case 1:\n      g(;\n  }\n}\n'
+  undefined_function off=44 len=1 4:7 | The function 'g' isn't defined.
+  missing_identifier off=46 len=1 4:9 | Expected an identifier.
+  expected_token off=46 len=1 4:9 | Expected to find ')'.
+== c07 'var a = [1, 2;\nvar b = {1: 2;\nvar c = (1, 2;\n'
+  expected_token off=13 len=1 1:14 | Expected to find ']'.
+  expected_token off=28 len=1 2:14 | Expected to find '}'.
+  expected_token off=43 len=1 3:14 | Expected to find ';'.
+  expected_token off=45 len=1 4:1 | Expected to find ')'.
+  expected_token off=45 len=1 4:1 | Expected to find '}'.
+== c08 "var x = '${"
+  unterminated_string_literal off=10 len=1 1:11 | Unterminated string literal.
+  missing_identifier off=11 len=0 1:12 | Expected an identifier.
+  expected_token off=11 len=0 1:12 | Expected to find ';'.
+  expected_token off=11 len=1 1:12 | Expected to find '}'.
+== c09 'var a = 1 >>>= 2;\nList<List<List<int>>> b = [];\nvar c = a?..x ?? b?.y ??= 1;\n'
+  missing_assignable_selector off=8 len=1 1:9 | Missing selector such as '.identifier' or '[0]'.
+  expected_token off=60 len=1 3:13 | Expected to find ';'.
+  expected_executable off=62 len=2 3:15 | Expected a method, getter, setter or operator declaration.
+  expected_token off=65 len=1 3:18 | Expected to find ';'.
+  duplicate_definition off=65 len=1 3:18 | The name 'b' is already defined.
+  missing_const_final_var_or_type off=65 len=1 3:18 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+  expected_executable off=66 len=2 3:19 | Expected a method, getter, setter or operator declaration.
+  expected_token off=68 len=1 3:21 | Expected to find ';'.
+  missing_const_final_var_or_type off=68 len=1 3:21 | Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+  expected_executable off=70 len=3 3:23 | Expected a method, getter, setter or operator declaration.
+  expected_executable off=74 len=1 3:27 | Expected a method, getter, setter or operator declaration.
+  unexpected_token off=75 len=1 3:28 | Unexpected text ';'.

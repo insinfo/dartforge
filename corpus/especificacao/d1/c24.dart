@@ -1,0 +1,10 @@
+const a = true ? 1 : 'x'.foo;
+const b = 1 ? 1 : 2;
+const c = null ? 1 : 2;
+const d = null ?? 1;
+const e = 1 ?? v;
+const f = false && v;
+const g = true || v;
+var v = true;
+const h = v ? 1 : 2;
+const i = true ? v : 2;

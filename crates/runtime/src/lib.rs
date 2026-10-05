@@ -45,6 +45,15 @@ pub mod simbolos {
     include!(concat!(env!("OUT_DIR"), "/simbolos.rs"));
 }
 
+/// A tabela de efeitos das externs — o que cada função do runtime pode fazer
+/// (coletar, deixar exceção pendente, rodar código Dart) —, gerada pelo
+/// `build.rs` de `efeitos.tsv` (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
+/// §13.8). O emissor decide por ela onde conferir a exceção pendente e o que
+/// é ponto de coleta.
+pub mod efeitos {
+    include!(concat!(env!("OUT_DIR"), "/efeitos.rs"));
+}
+
 /// Programa Rust 2024 completo: heap e harness ligados ao objeto LLVM.
 /// O compilador mantém referências vivas por frames e tags de campos explícitas.
 pub const RUNTIME_MAIN: &str = concat!(

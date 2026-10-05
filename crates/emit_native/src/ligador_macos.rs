@@ -937,6 +937,17 @@ pub fn ligar(ld: &Path, sysroot: &SysrootMacos, l: &Ligacao<'_>) -> Result<(), S
     }
     if l.lto {
         cmd.arg(format!("--lto-O{}", crate::driver::nivel_da_lto()));
+        // Raízes por mapas: o `ld64.lld` não separa os índices do ThinLTO
+        // (sem `--thinlto-index-only`), então o passe dos mapas roda na LTO
+        // dele, no fim da otimização de cada módulo — depois do inlining
+        // entre o programa e o SDK —, seguido do verificador
+        // (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.4, Etapa 4). O mapa
+        // sai no formato do LLVM e o `.no_dead_strip` de cada módulo o
+        // guarda do `-dead_strip` (`llvm/mod.rs`).
+        if crate::alvo::raizes_por_mapas().unwrap_or(false) {
+            let nivel = crate::driver::nivel_da_lto().max(1);
+            cmd.arg(format!("--lto-newpm-passes=lto<O{nivel}>,rewrite-statepoints-for-gc,verify"));
+        }
         cmd.arg(format!("--thinlto-jobs={}", crate::driver::tarefas_de_geracao()));
         if let Some(d) = crate::driver::cache_do_thinlto() {
             cmd.arg("-cache_path_lto").arg(d);

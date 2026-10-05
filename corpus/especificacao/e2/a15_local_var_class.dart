@@ -1,0 +1,1 @@
+void f() { var class; }

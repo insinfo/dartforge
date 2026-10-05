@@ -1,0 +1,28 @@
+=== g01_ponto_bloco_break
+void f() {
+  1.{
+    break;
+  };
+}
+=== g02_ponto_seta
+void f() {
+  StringBuffer('').=> 1;
+}
+=== g03_anon_expr
+void f() {
+  StringBuffer('').(sb) => print(sb);
+}
+=== g04_super_bloco
+class A {
+  void m() {
+    super.{ print(1); };
+  }
+}
+=== g05_super_seta
+class A {
+  void m() {
+    super.=> 1;
+  }
+}
+=== g06_ponto_this
+void f(dynamic a) { a.this; a.null; }

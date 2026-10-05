@@ -1188,6 +1188,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         format!("let {}", parts.join(", "))
                     }
                     Some(ast::ForInit::Expression(e)) => self.emit_expr(*e, None).0.code,
+                    Some(ast::ForInit::Pattern { pattern, value, .. }) => {
+                        self.emit_pattern_variables(*pattern, *value);
+                        String::new()
+                    }
                     None => String::new(),
                 };
                 let cond_js = match condition {

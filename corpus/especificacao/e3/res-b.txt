@@ -1,0 +1,322 @@
+### d01.dart | import 'dart:core' as core; \n void foo() {} \n  \n augment core.int foo();
+  prefix_collides_with_top_level_member off=22 len=4 1:23 [E] The name 'core' is already used as an import prefix and can't be used to name a top-level element.
+  undefined_class off=43 len=7 4:1 [E] Undefined class 'augment'.
+  missing_function_parameters off=51 len=4 4:9 [E] Functions must have an explicit list of parameters.
+  expected_executable off=55 len=1 4:13 [E] Expected a method, getter, setter or operator declaration.
+  missing_function_body off=55 len=1 4:13 [E] A function body must be provided.
+  undefined_class off=56 len=3 4:14 [E] Undefined class 'int'.
+  duplicate_definition off=60 len=3 4:18 [E] The name 'foo' is already defined.
+  missing_function_body off=65 len=1 4:23 [E] A function body must be provided.
+### d02.dart | import 'dart:core'; \n import 'dart:core' as core; \n  \n int foo() => 0; \n  \n augment core.int foo();
+  prefix_collides_with_top_level_member off=42 len=4 2:23 [E] The name 'core' is already used as an import prefix and can't be used to name a top-level element.
+  undefined_class off=66 len=7 6:1 [E] Undefined class 'augment'.
+  missing_function_parameters off=74 len=4 6:9 [E] Functions must have an explicit list of parameters.
+  expected_executable off=78 len=1 6:13 [E] Expected a method, getter, setter or operator declaration.
+  missing_function_body off=78 len=1 6:13 [E] A function body must be provided.
+  duplicate_definition off=83 len=3 6:18 [E] The name 'foo' is already defined.
+  missing_function_body off=88 len=1 6:23 [E] A function body must be provided.
+### d03.dart | class A { \n   A({required this.}) \n } \n  \n void f() { \n   A(); \n }
+  initializing_formal_for_non_existent_field off=15 len=14 2:6 [E] '' isn't a field in the enclosing class.
+  missing_identifier off=29 len=1 2:20 [E] Expected an identifier.
+  missing_function_body off=32 len=1 3:1 [E] A function body must be provided.
+  missing_required_argument off=48 len=1 6:3 [E] The named parameter '' is required, but there's no corresponding argument.
+### d04.dart | class Foo { \n   var x = -1; \n   external Foo.n24(this.x); \n   external factory Foo.n25(val) = Bar; \n } \n class Bar {}
+  external_constructor_with_field_initializers off=45 len=4 3:20 [E] An external constructor can't initialize fields.
+  external_factory_redirection off=86 len=1 4:33 [E] A redirecting factory can't be external.
+  redirect_to_invalid_return_type off=88 len=3 4:35 [E] The return type 'Bar' of the redirected constructor isn't a subtype of 'Foo'.
+### d05.dart | main() { \n   int i = 0; \n   switch(i) \n     L: \n   { \n     case 111: \n       while (false) { \n         break L; \n       } \n       i++; \n   } \n }
+  expected_body off=32 len=1 3:11 [E] A switch statement must have a body, even if it is empty.
+  expected_identifier_but_got_keyword off=49 len=4 6:5 [E] 'case' can't be used as an identifier because it's a keyword.
+  expected_token off=49 len=4 6:5 [E] Expected to find ';'.
+  missing_statement off=49 len=4 6:5 [E] Expected a statement.
+  undefined_identifier off=49 len=4 6:5 [E] Undefined name 'case'.
+  expected_token off=54 len=3 6:10 [E] Expected to find ';'.
+  missing_identifier off=57 len=1 6:13 [E] Expected an identifier.
+  unexpected_token off=57 len=1 6:13 [E] Unexpected text ':'.
+  dead_code off=79 len=26 7:21 [W] Dead code.
+### d06.dart | part of 'nao_existe.dart'; \n  \n class A
+  expected_body off=34 len=1 3:7 [E] A class declaration must have a body, even if it is empty.
+### d10.dart | class A { void m({required final covariant int a}) {} }
+  extraneous_modifier off=18 len=8 1:19 [E] Can't have modifier 'required' here.
+  modifier_out_of_order off=33 len=9 1:34 [E] The modifier 'covariant' should be before the modifier 'final'.
+### d11.dart | void f({required covariant int a}) {}
+  extraneous_modifier off=8 len=8 1:9 [E] Can't have modifier 'required' here.
+  extraneous_modifier off=17 len=9 1:18 [E] Can't have modifier 'covariant' here.
+### d12.dart | class A { void m({required covariant final int a}) {} }
+### d13.dart | void f({required static int a}) {}
+  extraneous_modifier off=8 len=8 1:9 [E] Can't have modifier 'required' here.
+  extraneous_modifier off=17 len=6 1:18 [E] Can't have modifier 'static' here.
+### d14.dart | void f({covariant required int a}) {} \n class A { void m({covariant required int? i2}) {} }
+  extraneous_modifier off=8 len=9 1:9 [E] Can't have modifier 'covariant' here.
+  modifier_out_of_order off=18 len=8 1:19 [E] The modifier 'required' should be before the modifier 'covariant'.
+  missing_default_value_for_parameter off=31 len=1 1:32 [E] The parameter 'a' can't have a value of 'null' because of its type, but the implicit default value is 'null'.
+  modifier_out_of_order off=66 len=8 2:29 [E] The modifier 'required' should be before the modifier 'covariant'.
+### d20.dart | extension type E00(int) {}
+  expected_representation_type off=19 len=3 1:20 [E] Expected a representation type.
+### d21.dart | extension type E03(var x) {}
+  expected_representation_type off=19 len=3 1:20 [E] Expected a representation type.
+  representation_field_modifier off=19 len=3 1:20 [E] Representation fields can't have modifiers.
+### d22.dart | extension type E07(int this.x) {}
+  expected_representation_field off=19 len=3 1:20 [E] Expected a representation field.
+### d23.dart | extension type E09(int super.x) {}
+  expected_representation_field off=19 len=3 1:20 [E] Expected a representation field.
+### d24.dart | const anno = 0; \n extension type E26(@anno int) {}
+  expected_representation_type off=35 len=1 2:20 [E] Expected a representation type.
+### d25.dart | const anno = 0; \n extension type E27(int @anno x) {}
+  expected_representation_type off=35 len=3 2:20 [E] Expected a representation type.
+  expected_token off=39 len=1 2:24 [E] Expected to find ')'.
+### d26.dart | extension type E13(int x = 0) {}
+  expected_representation_field off=19 len=3 1:20 [E] Expected a representation field.
+  named_parameter_outside_group off=25 len=1 1:26 [E] Named parameters must be enclosed in curly braces ('{' and '}').
+### d27.dart | extension type const E15(const int x) {}
+  extraneous_modifier off=25 len=5 1:26 [E] Can't have modifier 'const' here.
+### d28.dart | extension type E12(late int x) {} \n extension type E14(static int x) {}
+  extraneous_modifier off=19 len=4 1:20 [E] Can't have modifier 'late' here.
+  extraneous_modifier off=53 len=6 2:20 [E] Can't have modifier 'static' here.
+### d29.dart | extension type ET9(external final int i) {}
+  extraneous_modifier off=19 len=8 1:20 [E] Can't have modifier 'external' here.
+  representation_field_modifier off=28 len=5 1:29 [E] Representation fields can't have modifiers.
+### d30.dart | class A(covariant var int a);
+  expected_body off=6 len=1 1:7 [E] A class declaration must have a body, even if it is empty.
+  expected_executable off=7 len=1 1:8 [E] Expected a method, getter, setter or operator declaration.
+  extraneous_modifier off=8 len=9 1:9 [E] Can't have modifier 'covariant' here.
+  var_and_type off=18 len=3 1:19 [E] Variables can't be declared using both 'var' and a type name.
+  expected_token off=26 len=1 1:27 [E] Expected to find ';'.
+  not_initialized_non_nullable_variable off=26 len=1 1:27 [E] The non-nullable variable 'a' must be initialized.
+  expected_executable off=27 len=1 1:28 [E] Expected a method, getter, setter or operator declaration.
+  unexpected_token off=28 len=1 1:29 [E] Unexpected text ';'.
+### d31.dart | extension type const E(int it) { \n   this {} \n }
+  expected_class_member off=35 len=4 2:3 [E] Expected a class member.
+  missing_function_parameters off=40 len=1 2:8 [E] Functions must have an explicit list of parameters.
+  missing_identifier off=40 len=1 2:8 [E] Expected an identifier.
+### d32.dart | class C1 { \n   const new(); \n } \n class C2 { \n   factory new() => C2._(); \n   C2._(); \n } \n class C3 { \n   int new() => 1; \n }
+  const_instance_field off=13 len=5 2:3 [E] Only static fields can be declared as const.
+  const_not_initialized off=19 len=3 2:9 [E] The constant 'new' must be initialized.
+  expected_identifier_but_got_keyword off=19 len=3 2:9 [E] 'new' can't be used as an identifier because it's a keyword.
+  expected_token off=19 len=3 2:9 [E] Expected to find ';'.
+  missing_identifier off=22 len=1 2:12 [E] Expected an identifier.
+  concrete_class_with_abstract_member off=22 len=3 2:12 [E] '' must have a method body because 'C1' isn't abstract.
+  expected_token off=41 len=7 5:3 [E] Expected to find ';'.
+  missing_const_final_var_or_type off=41 len=7 5:3 [E] Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+  expected_class_member off=49 len=3 5:11 [E] Expected a class member.
+  missing_identifier off=52 len=1 5:14 [E] Expected an identifier.
+  expected_identifier_but_got_keyword off=95 len=3 9:7 [E] 'new' can't be used as an identifier because it's a keyword.
+### d33.dart | class C4 { \n   int get new => 1; \n   void set new(int value) {} \n } \n class C5 { \n   int new = 1; \n } \n class C6 { \n   static void new() {} \n }
+  expected_identifier_but_got_keyword off=21 len=3 2:11 [E] 'new' can't be used as an identifier because it's a keyword.
+  expected_identifier_but_got_keyword off=42 len=3 3:12 [E] 'new' can't be used as an identifier because it's a keyword.
+  expected_identifier_but_got_keyword off=79 len=3 6:7 [E] 'new' can't be used as an identifier because it's a keyword.
+  expected_identifier_but_got_keyword off=115 len=3 9:15 [E] 'new' can't be used as an identifier because it's a keyword.
+  expected_token off=115 len=3 9:15 [E] Expected to find ';'.
+  missing_identifier off=118 len=1 9:18 [E] Expected an identifier.
+### d34.dart | class C7 { \n   static int get new => 42; \n   static void set new(int x) {} \n } \n class C8 { \n   static int new = 1; \n }
+  expected_identifier_but_got_keyword off=28 len=3 2:18 [E] 'new' can't be used as an identifier because it's a keyword.
+  expected_identifier_but_got_keyword off=57 len=3 3:19 [E] 'new' can't be used as an identifier because it's a keyword.
+  expected_identifier_but_got_keyword off=97 len=3 6:14 [E] 'new' can't be used as an identifier because it's a keyword.
+### d35.dart | class S {} \n mixin M on S {} \n class C = S with M {}
+  expected_token off=44 len=1 3:18 [E] Expected to find ';'.
+  expected_executable off=46 len=1 3:20 [E] Expected a method, getter, setter or operator declaration.
+### d36.dart | required class C1 { \n   required int f2 = 0; \n }
+  extraneous_modifier off=0 len=8 1:1 [E] Can't have modifier 'required' here.
+  extraneous_modifier off=22 len=8 2:3 [E] Can't have modifier 'required' here.
+### d37.dart | enum const E3 { a }
+  enum_without_constants off=5 len=0 1:6 [E] The enum must have at least one constant.
+  extraneous_modifier off=5 len=5 1:6 [E] Can't have modifier 'const' here.
+  missing_enum_body off=5 len=5 1:6 [E] An enum definition must have a body with at least one constant name.
+  missing_identifier off=5 len=5 1:6 [E] Expected an identifier.
+  missing_function_parameters off=11 len=2 1:12 [E] Functions must have an explicit list of parameters.
+  expected_token off=16 len=1 1:17 [E] Expected to find ';'.
+  undefined_identifier off=16 len=1 1:17 [E] Undefined name 'a'.
+### d38.dart | extension type ET3(final i, final x) {}
+  expected_representation_type off=19 len=5 1:20 [E] Expected a representation type.
+  representation_field_modifier off=19 len=5 1:20 [E] Representation fields can't have modifiers.
+  multiple_representation_fields off=26 len=1 1:27 [E] Each extension type should have exactly one representation field.
+### d40.dart | class A {}} \n int x = 0;
+  expected_executable off=10 len=1 1:11 [E] Expected a method, getter, setter or operator declaration.
+### d41.dart | ) int x = 0;
+  expected_executable off=0 len=1 1:1 [E] Expected a method, getter, setter or operator declaration.
+### d42.dart | int x = 0; ] int y = 0;
+  expected_executable off=11 len=1 1:12 [E] Expected a method, getter, setter or operator declaration.
+### d43.dart | foo.bar() {}
+  missing_function_parameters off=0 len=3 1:1 [E] Functions must have an explicit list of parameters.
+  expected_executable off=3 len=1 1:4 [E] Expected a method, getter, setter or operator declaration.
+  missing_function_body off=3 len=1 1:4 [E] A function body must be provided.
+### d44.dart | int f() async;
+  missing_function_body off=13 len=1 1:14 [E] A function body must be provided.
+### d45.dart | const f() {}
+  extraneous_modifier off=0 len=5 1:1 [E] Can't have modifier 'const' here.
+### d46.dart | const int x; \n final y;
+  const_not_initialized off=10 len=1 1:11 [E] The constant 'x' must be initialized.
+  final_not_initialized off=19 len=1 2:7 [E] The final variable 'y' must be initialized.
+### d47.dart | var int x = 0;
+  var_and_type off=0 len=3 1:1 [E] Variables can't be declared using both 'var' and a type name.
+### d48.dart | int get x() => 0; \n class A { int get y() => 0; }
+  getter_with_parameters off=9 len=1 1:10 [E] Getters must be declared without a parameter list.
+  getter_with_parameters off=37 len=1 2:20 [E] Getters must be declared without a parameter list.
+### d49.dart | set x(v) async {}
+  invalid_modifier_on_setter off=9 len=5 1:10 [E] Setters can't use 'async', 'async*', or 'sync*'.
+### d50.dart | int get; \n int set = 1;
+  not_initialized_non_nullable_variable off=4 len=3 1:5 [E] The non-nullable variable 'get' must be initialized.
+### d51.dart | get = 1;
+  missing_const_final_var_or_type off=0 len=3 1:1 [E] Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+### d52.dart | void;
+  missing_identifier off=4 len=1 1:5 [E] Expected an identifier.
+### d53.dart | int;
+  missing_const_final_var_or_type off=0 len=3 1:1 [E] Variables must be declared using the keywords 'const', 'final', 'var' or a type name.
+### d54.dart | => 0;
+  expected_executable off=0 len=2 1:1 [E] Expected a method, getter, setter or operator declaration.
+  expected_executable off=3 len=1 1:4 [E] Expected a method, getter, setter or operator declaration.
+  unexpected_token off=4 len=1 1:5 [E] Unexpected text ';'.
+### d55.dart | class {}
+  missing_identifier off=6 len=1 1:7 [E] Expected an identifier.
+### d56.dart | class A { => 0; }
+  missing_identifier off=10 len=2 1:11 [E] Expected an identifier.
+  missing_method_parameters off=10 len=2 1:11 [E] Methods must have an explicit list of parameters.
+### d57.dart | class A { foo.bar = 1; }
+  invalid_constructor_name off=10 len=3 1:11 [E] The name of a constructor must match the name of the enclosing class.
+  missing_method_parameters off=10 len=3 1:11 [E] Methods must have an explicit list of parameters.
+  expected_token off=18 len=1 1:19 [E] Expected to find ';'.
+  redirection_in_non_factory_constructor off=18 len=1 1:19 [E] Only factory constructor can specify '=' redirection.
+  expected_class_member off=20 len=1 1:21 [E] Expected a class member.
+  missing_identifier off=20 len=1 1:21 [E] Expected an identifier.
+  expected_class_member off=21 len=1 1:22 [E] Expected a class member.
+### d58.dart | class A { A.foo; }
+  missing_method_parameters off=10 len=1 1:11 [E] Methods must have an explicit list of parameters.
+### d59.dart | class A { int A.foo; }
+  constructor_with_return_type off=10 len=3 1:11 [E] Constructors can't have a return type.
+  missing_method_parameters off=14 len=1 1:15 [E] Methods must have an explicit list of parameters.
+### d60.dart | class A { m() async; }
+  concrete_class_with_abstract_member off=10 len=10 1:11 [E] 'm' must have a method body because 'A' isn't abstract.
+  missing_function_body off=19 len=1 1:20 [E] A function body must be provided.
+### d61.dart | class A { static m(); external static n(); }
+  missing_function_body off=20 len=1 1:21 [E] A function body must be provided.
+### d62.dart | class A { covariant set x(int v) {} covariant int get y => 0; }
+  covariant_member off=36 len=9 1:37 [E] Getters, setters and methods can't be declared to be 'covariant'.
+### d63.dart | class A { external const A() : x = 1; final int x; }
+  external_constructor_with_initializer off=29 len=1 1:30 [E] An external constructor can't have any initializers.
+### d64.dart | class A { static const int x; final int y; A(); }
+  const_not_initialized off=27 len=1 1:28 [E] The constant 'x' must be initialized.
+  final_not_initialized_constructor off=43 len=1 1:44 [E] All final variables must be initialized, but 'y' isn't.
+### d65.dart | class C { operator ==(o) => true; int operator; operator<T>() {} }
+  not_initialized_non_nullable_instance_field off=38 len=8 1:39 [E] Non-nullable instance field 'operator' must be initialized.
+  duplicate_definition off=48 len=8 1:49 [E] The name 'operator' is already defined.
+### d66.dart | class C { operator ===(o) => true; }
+  unsupported_operator off=19 len=1 1:20 [E] The '===' operator is not supported.
+### d67.dart | class C { int operator foo(o) => 1; }
+  expected_token off=14 len=8 1:15 [E] Expected to find ';'.
+  not_initialized_non_nullable_instance_field off=14 len=8 1:15 [E] Non-nullable instance field 'operator' must be initialized.
+### d68.dart | class A { A.new(); } \n class B { new(); }
+  expected_class_member off=31 len=3 2:11 [E] Expected a class member.
+  missing_identifier off=34 len=1 2:14 [E] Expected an identifier.
+  concrete_class_with_abstract_member off=34 len=3 2:14 [E] '' must have a method body because 'B' isn't abstract.
+### d69.dart | enum E { a; const E(); factory E.f() => a; static E.g(); }
+  static_constructor off=43 len=6 1:44 [E] Constructors can't be static.
+  non_const_generative_enum_constructor off=50 len=3 1:51 [E] Generative enum constructors must be 'const'.
+  unused_element off=52 len=1 1:53 [W] The declaration 'E.g' isn't referenced.
+  missing_function_body off=55 len=1 1:56 [E] A function body must be provided.
+### d70.dart | void f() { late final x; var var y = 1; }
+  unused_local_variable off=22 len=1 1:23 [W] The value of the local variable 'x' isn't used.
+  duplicated_modifier off=29 len=3 1:30 [E] The modifier 'var' was already specified.
+  unused_local_variable off=33 len=1 1:34 [W] The value of the local variable 'y' isn't used.
+### d80.dart | class A extends B implements C with D {} \n class B {} \n class C {} \n mixin D {}
+  implements_before_with off=31 len=4 1:32 [E] The with clause must be before the implements clause.
+### d81.dart | mixin M implements A on B {} \n class A {} \n class B {}
+  implements_before_on off=21 len=2 1:22 [E] The on clause must be before the implements clause.
+### d82.dart | mixin M on A on B {} \n class A {} \n class B {}
+  multiple_on_clauses off=13 len=2 1:14 [E] Each mixin definition can have at most one on clause.
+### d83.dart | mixin M with A {} \n mixin A {}
+  mixin_with_clause off=8 len=4 1:9 [E] A mixin can't have a with clause.
+### d84.dart | extension E on int implements A {} \n class A {}
+  unexpected_token off=19 len=10 1:20 [E] Unexpected text 'implements'.
+### d85.dart | extension E on int, String {}
+  unexpected_token off=18 len=1 1:19 [E] Unexpected text ','.
+### d86.dart | extension type E(int i) implements A implements B {} \n class A {} \n class B {}
+  extension_type_implements_not_supertype off=35 len=1 1:36 [E] 'A' is not a supertype of 'int', the representation type.
+  multiple_implements_clauses off=37 len=10 1:38 [E] Each class or mixin definition can have at most one implements clause.
+### d87.dart | extension type E(int i) extends A implements B {} \n class A {} \n class B {}
+  extension_type_extends off=24 len=7 1:25 [E] An extension type declaration can't have an 'extends' clause.
+### d88.dart | enum E with A with B { a } \n mixin A {} \n mixin B {}
+  multiple_clauses off=14 len=4 1:15 [E] Each 'enum' definition can have at most one 'with' clause.
+### d89.dart | enum E implements A with B { a } \n class A {} \n mixin B {}
+  out_of_order_clauses off=20 len=4 1:21 [E] The 'with' clause must come before the 'implements' clause.
+### d90.dart | enum E extends A { a } \n class A {}
+  unexpected_tokens off=7 len=9 1:8 [E] Unexpected tokens.
+### d91.dart | class A implements B implements C {} \n class B {} \n class C {}
+  multiple_implements_clauses off=21 len=10 1:22 [E] Each class or mixin definition can have at most one implements clause.
+### d92.dart | class A extends B with C with D {} \n class B {} \n mixin C {} \n mixin D {}
+  multiple_with_clauses off=25 len=4 1:26 [E] Each class definition can have at most one with clause.
+### d93.dart | class A on B {} \n class B {}
+  expected_instead off=8 len=2 1:9 [E] Expected 'extends' instead of this.
+### d94.dart | class A extends B \n int x = 0;
+  expected_body off=16 len=1 1:17 [E] A class declaration must have a body, even if it is empty.
+  extends_non_class off=16 len=1 1:17 [E] Classes can only extend other classes.
+### d95.dart | class A = B with C \n class B {} \n mixin C {}
+  expected_token off=17 len=1 1:18 [E] Expected to find ';'.
+### d96.dart | class A<T extends {}
+  expected_type_name off=18 len=1 1:19 [E] Expected a type name.
+### d97.dart | class extends B {} \n class B {}
+  missing_identifier off=6 len=7 1:7 [E] Expected an identifier.
+### d98.dart | mixin class {}
+  missing_identifier off=12 len=1 1:13 [E] Expected an identifier.
+### d99.dart | extension type {}
+  extension_type_representation_depends_on_itself off=15 len=0 1:16 [E] The extension type representation can't depend on itself.
+  member_with_class_name off=15 len=0 1:16 [E] A class member can't have the same name as the enclosing class.
+  missing_identifier off=15 len=1 1:16 [E] Expected an identifier.
+  missing_primary_constructor off=15 len=1 1:16 [E] An extension type declaration must have a primary constructor declaration.
+### d100.dart | extension on {}
+  expected_type_name off=13 len=1 1:14 [E] Expected a type name.
+### d101.dart | class A { void m() {} } }
+  expected_executable off=24 len=1 1:25 [E] Expected a method, getter, setter or operator declaration.
+### d102.dart | abstract class A { external int get x; abstract int y; static abstract int z = 0; }
+  abstract_static_field off=62 len=8 1:63 [E] Static fields can't be declared 'abstract'.
+  abstract_field_initializer off=75 len=1 1:76 [E] Abstract fields can't have initializers.
+### d103.dart | class A { final const int x = 0; var const y = 0; }
+  const_and_final off=16 len=5 1:17 [E] Members can't be declared to be both 'const' and 'final'.
+  conflicting_modifiers off=37 len=5 1:38 [E] Members can't be declared to be both 'const' and 'var'.
+### d104.dart | class A { const covariant int x = 0; covariant const int y = 0; }
+  const_instance_field off=10 len=5 1:11 [E] Only static fields can be declared as const.
+  conflicting_modifiers off=16 len=9 1:17 [E] Members can't be declared to be both 'covariant' and 'const'.
+  conflicting_modifiers off=47 len=5 1:48 [E] Members can't be declared to be both 'const' and 'covariant'.
+### d105.dart | class A { external late int x; late external int y; abstract late int z; }
+  external_late_field off=10 len=8 1:11 [E] External fields cannot be late.
+  external_late_field off=36 len=8 1:37 [E] External fields cannot be late.
+  modifier_out_of_order off=36 len=8 1:37 [E] The modifier 'external' should be before the modifier 'late'.
+  abstract_late_field off=52 len=8 1:53 [E] Abstract fields cannot be late.
+  concrete_class_with_abstract_member off=52 len=20 1:53 [E] 'z' must have a method body because 'A' isn't abstract.
+### d106.dart | class A { factory static A() => throw 0; factory factory A.b() => throw 0; factory const A.c() => throw 0; factory external A.d(); }
+  extraneous_modifier off=18 len=6 1:19 [E] Can't have modifier 'static' here.
+  duplicated_modifier off=49 len=7 1:50 [E] The modifier 'factory' was already specified.
+  const_factory off=83 len=5 1:84 [E] Only redirecting factory constructors can be declared to be 'const'.
+  modifier_out_of_order off=83 len=5 1:84 [E] The modifier 'const' should be before the modifier 'factory'.
+  const_constructor_throws_exception off=98 len=7 1:99 [E] Const constructors can't throw exceptions.
+  modifier_out_of_order off=115 len=8 1:116 [E] The modifier 'external' should be before the modifier 'factory'.
+### d107.dart | class A { abstract factory A() => throw 0; int factory A.b() => throw 0; }
+  abstract_class_member off=10 len=8 1:11 [E] Members of classes can't be declared to be 'abstract'.
+  type_before_factory off=43 len=3 1:44 [E] Factory constructors cannot have a return type.
+### d108.dart | library a; \n library b;
+  multiple_library_directives off=11 len=7 2:1 [E] Only one library directive may be declared in a file.
+### d109.dart | import 'dart:core'; \n library a;
+  library_directive_not_first off=20 len=7 2:1 [E] The library directive must appear before all other directives.
+### d110.dart | part 'x.dart'; \n import 'dart:core'; \n export 'dart:core';
+  uri_does_not_exist off=5 len=8 1:6 [E] Target of URI doesn't exist: 'file:///E:/dftemp/analise/spec-r4/casos/e3/b/x.dart'.
+  import_directive_after_part_directive off=15 len=6 2:1 [E] Import directives must precede part directives.
+  export_directive_after_part_directive off=35 len=6 3:1 [E] Export directives must precede part directives.
+### d111.dart | external typedef F = int; \n external enum E { a } \n const enum G { a } \n final typedef H = int;
+  external_typedef off=0 len=8 1:1 [E] Typedefs can't be declared to be 'external'.
+  external_enum off=26 len=8 2:1 [E] Enums can't be declared to be 'external'.
+  expected_token off=48 len=5 3:1 [E] Expected to find ';'.
+  const_not_initialized off=54 len=0 3:7 [E] The constant '' must be initialized.
+  missing_identifier off=54 len=4 3:7 [E] Expected an identifier.
+  expected_token off=67 len=5 4:1 [E] Expected to find ';'.
+  final_not_initialized off=73 len=0 4:7 [E] The final variable '' must be initialized.
+  missing_identifier off=73 len=7 4:7 [E] Expected an identifier.
+### d112.dart | static import 'dart:core';
+  extraneous_modifier off=0 len=6 1:1 [E] Can't have modifier 'static' here.
+### d113.dart | typedef;
+  missing_identifier off=7 len=1 1:8 [E] Expected an identifier.
+  missing_typedef_parameters off=7 len=1 1:8 [E] Typedefs must have an explicit list of parameters.
+### d114.dart | class A { int x = 0;; int y = 0; }
+  expected_class_member off=20 len=1 1:21 [E] Expected a class member.
+### d115.dart | class A { int get x => 0 } \n class B {}
+  expected_token off=23 len=1 1:24 [E] Expected to find ';'.
+### d116.dart | void f() => 0 \n int x = 0;
+  expected_token off=12 len=1 1:13 [E] Expected to find ';'.

@@ -1,0 +1,12 @@
+const a = 'a' + 1;
+const b = 1 + 'a';
+const c = !1;
+const d = 1 && true;
+const e = true && 1;
+const f = null + 1;
+const g = -'a';
+const h = ~1.5;
+const i = true & 1;
+const j = 1 < 'a';
+const k = [] + [];
+const l = true + 1;

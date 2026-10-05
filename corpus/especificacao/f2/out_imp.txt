@@ -1,0 +1,112 @@
+== imp/i01.dart
+  unused_import | 28+12 | 2:8 | Unused import: 'lib_c.dart'.
+== imp/i02.dart
+  (nenhum)
+== imp/i03.dart
+  unnecessary_import | 7+12 | 1:8 | The import of 'lib_a.dart' is unnecessary because all of the used elements are also provided by the import of 'lib_b.dart'.
+== imp/i04.dart
+  duplicate_import | 28+12 | 2:8 | Duplicate import.
+== imp/i05.dart
+  unused_import | 7+12 | 1:8 | Unused import: 'lib_a.dart'.
+  duplicate_import | 28+12 | 2:8 | Duplicate import.
+  unused_import | 28+12 | 2:8 | Unused import: 'lib_a.dart'.
+== imp/i06.dart
+  unused_shown_name | 28+2 | 1:29 | The name A2 is shown, but isn't used.
+  unused_shown_name | 32+4 | 1:33 | The name topo is shown, but isn't used.
+== imp/i07.dart
+  unused_import | 7+12 | 1:8 | Unused import: 'lib_a.dart'.
+== imp/i08.dart
+  unused_import | 33+12 | 2:8 | Unused import: 'lib_c.dart'.
+  unused_import | 59+12 | 3:8 | Unused import: 'lib_b.dart'.
+== imp/i09.dart
+  unused_import | 28+12 | 2:8 | Unused import: 'lib_c.dart'.
+== imp/i10.dart
+  unused_import | 7+12 | 1:8 | Unused import: 'lib_e.dart'.
+== imp/i11.dart
+  (nenhum)
+== imp/i12.dart
+  (nenhum)
+== imp/i13.dart
+  deferred_import_of_extension | 7+12 | 1:8 | Imports of deferred libraries must hide all extensions.
+  unused_import | 7+12 | 1:8 | Unused import: 'lib_a.dart'.
+== imp/i14.dart
+  (nenhum)
+== imp/i15.dart
+  uri_does_not_exist | 7+17 | 1:8 | Target of URI doesn't exist: 'nao_existe.dart'.
+  unused_import | 33+12 | 2:8 | Unused import: 'lib_c.dart'.
+== imp/i16.dart
+  unused_import | 80+12 | 4:8 | Unused import: 'lib_e.dart'.
+== imp/i17.dart
+  undefined_identifier | 32+9 | 2:12 | Undefined name 'naoExiste'.
+== imp/i18.dart
+  unused_import | 33+12 | 2:8 | Unused import: 'lib_a.dart'.
+== imp/i19.dart
+  unused_import | 7+12 | 1:8 | Unused import: 'lib_a.dart'.
+== imp/i20.dart
+  unused_import | 7+12 | 1:8 | Unused import: 'lib_a.dart'.
+  duplicate_export | 49+12 | 3:8 | Duplicate export.
+== imp/i21.dart
+  (nenhum)
+== imp/i21b.dart
+  unused_import | 7+12 | 1:8 | Unused import: 'dart:async'.
+== imp/i21c.dart
+  (nenhum)
+== imp/i22.dart
+  (nenhum)
+== imp/i23.dart
+  (nenhum)
+== imp/i24.dart
+  unused_shown_name | 31+1 | 1:32 | The name A is shown, but isn't used.
+== imp/i25.dart
+  unused_import | 35+12 | 2:8 | Unused import: 'lib_c.dart'.
+== imp/i26.dart
+  unused_import | 7+12 | 1:8 | Unused import: 'lib_a.dart'.
+== imp/i27.dart
+  unused_import | 7+12 | 1:8 | Unused import: 'lib_c.dart'.
+== imp/i29.dart
+  (nenhum)
+== imp/i30.dart
+  prefix_identifier_not_followed_by_dot | 58+1 | 3:12 | The name 'p' refers to an import prefix, so it must be followed by '.'.
+== imp/i31.dart
+  unnecessary_import | 7+12 | 1:8 | The import of 'lib_a.dart' is unnecessary because all of the used elements are also provided by the import of 'lib_a.dart'.
+== imp/i32.dart
+  unused_import | 7+12 | 1:8 | Unused import: 'lib_a.dart'.
+== imp/i37.dart
+  unused_import | 7+12 | 1:8 | Unused import: 'lib_a.dart'.
+== imp/i38.dart
+  unused_import | 7+11 | 1:8 | Unused import: 'dart:math'.
+  unused_import | 27+18 | 2:8 | Unused import: 'dart:collection'.
+  unused_import | 54+20 | 3:8 | Unused import: 'dart:typed_data'.
+  unused_import | 83+18 | 4:8 | Unused import: 'dart:convert'.
+== imp/i39.dart
+  (nenhum)
+== imp/i40.dart
+  ambiguous_import | 70+1 | 4:8 | The name 'A' is defined in the libraries 'file:///E:/dftemp/analise/spec-r4/casos/f2/imp/lib_a.dart' and 'file:///E:/dftemp/analise/spec-r4/casos/f2/imp/lib_x.dart'.
+== imp/i41.dart
+  unused_import | 7+12 | 1:8 | Unused import: 'dart:async'.
+== imp/i42.dart
+  unused_import | 7+12 | 1:8 | Unused import: 'lib_a.dart'.
+  unused_import | 28+12 | 2:8 | Unused import: 'lib_c.dart'.
+  unused_local_variable | 59+1 | 4:7 | The value of the local variable 'x' isn't used.
+  expected_token | 63+1 | 4:11 | Expected to find ';'.
+== imp/i43.dart
+  unnecessary_import | 7+12 | 1:8 | The import of 'lib_a.dart' is unnecessary because all of the used elements are also provided by the import of 'lib_b.dart'.
+== imp/i44.dart
+  unused_import | 7+12 | 1:8 | Unused import: 'lib_a.dart'.
+  undefined_getter | 77+9 | 3:36 | The getter 'naoExiste' isn't defined for the type 'String'.
+== imp/i45.dart
+  unused_import | 28+12 | 2:8 | Unused import: 'lib_e.dart'.
+== imp/lib_a.dart
+  (nenhum)
+== imp/lib_b.dart
+  (nenhum)
+== imp/lib_c.dart
+  (nenhum)
+== imp/lib_e.dart
+  (nenhum)
+== imp/lib_f.dart
+  (nenhum)
+== imp/lib_s.dart
+  (nenhum)
+== imp/lib_x.dart
+  (nenhum)

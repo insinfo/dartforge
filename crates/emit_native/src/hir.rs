@@ -687,6 +687,8 @@ pub struct Function {
 pub struct DepuracaoDaFuncao {
     /// O caminho absoluto do arquivo `.dart` (ou o URI, sem arquivo).
     pub arquivo: String,
+    /// A url do script no rastro da VM (§13.14, `Context::url_do_rastro`).
+    pub url: String,
     /// A linha do primeiro comando com posição (a do `DISubprogram`).
     pub linha: u32,
     /// `(linha, coluna)` de cada instrução, a partir de 1.
@@ -750,9 +752,51 @@ pub struct CampoDoLayout {
     pub tipo: String,
 }
 
+/// Como um `Return` sai quando a exceção pode estar pendente, nas exceções por
+/// tabelas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13): uma função Dart
+/// nunca volta a quem a chamou com a exceção pendente — ela desenrola.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SaidaPorExcecao {
+    /// A exceção está pendente em todo caminho até este `Return`: desenrola
+    /// (`@df.lancar`) em vez de retornar.
+    Lanca,
+    /// Pode estar pendente: confere a pendência e desenrola ou retorna.
+    Guarda,
+}
+
+/// O que o passe das exceções por tabelas (`otimizar/tabelas.rs`) decidiu
+/// para uma função: quem é `invoke`, onde pousa e como cada `Return` sai. O
+/// emissor (`llvm/mod.rs`) só lê.
+#[derive(Debug, Clone, Default)]
+pub struct TabelasDaFuncao {
+    /// A instrução (chamada Dart) que vira `invoke`, e o bloco de pouso dela.
+    pub invocacoes: std::collections::HashMap<ValueId, BlockId>,
+    /// Os blocos de pouso: começam com o `landingpad` e a restauração do
+    /// topo da pilha-sombra; só o `invoke` chega a eles.
+    pub pousos: std::collections::HashSet<BlockId>,
+    /// Os blocos que terminam em `Return` com a exceção (talvez) pendente.
+    pub saidas: std::collections::HashMap<BlockId, SaidaPorExcecao>,
+    /// A função chama código Dart: confere a pilha no prólogo
+    /// (`StackOverflowError`). No modelo de conferência a leitura da
+    /// pendência depois de cada chamada já dava à função o contexto em que a
+    /// conferência da pilha mora; aqui a leitura some, e sem esta marca
+    /// `f() => f()` estouraria a pilha do sistema.
+    pub confere_pilha: bool,
+}
+
 /// Módulo HIR completo representando um programa Dart compilável.
 #[derive(Debug, Default)]
 pub struct Module {
+    /// J05: as posições das funções viram tabelas de linha (`--depuracao`).
+    /// Sem isto, as posições que houver são só do rastro simbólico (§13.14).
+    pub dwarf: bool,
+    /// As exceções do módulo são por tabelas (`--excecoes=tabelas`): o passe
+    /// `otimizar::tabelas` rodou e [`Module::tabelas`] vale. Falso: o modelo
+    /// de sempre (pendência conferida depois de cada chamada).
+    pub excecoes_por_tabelas: bool,
+    /// Com [`Module::excecoes_por_tabelas`], a decisão do passe para cada
+    /// função, na ordem de [`Module::functions`].
+    pub tabelas: Vec<TabelasDaFuncao>,
     /// `dart:ffi`: (id RTI da classe, letra do tipo C) de cada tipo nativo
     /// e (chave da assinatura, símbolo do trampolim) (`lower/ffi.rs`).
     pub ffi_tipos: Vec<(i64, char)>,

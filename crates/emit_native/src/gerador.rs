@@ -157,7 +157,7 @@ impl Cpu {
     }
 
     /// `-march=<cpu>` do Clang.
-    fn march(self) -> &'static str {
+    pub(crate) fn march(self) -> &'static str {
         match self {
             Cpu::X86_64 => "-march=x86-64",
             Cpu::X86_64V2 => "-march=x86-64-v2",
@@ -255,10 +255,29 @@ impl Gerador {
                     },
                     cpu: geracao.cpu.map(Cpu::nome),
                 };
-                let bytes = dartforge_llvm::gerar(&nome, ir, &opcoes)?;
+                #[allow(unused_mut)]
+                let mut bytes = dartforge_llvm::gerar(&nome, ir, &opcoes)?;
+                // Raízes por mapas: o mapa de pilha do objeto, do formato do
+                // LLVM (~98 bytes por registro) para o compacto (`gcmap.rs`).
+                // `DARTFORGE_SEM_MAPA_COMPACTO=1` deixa o do LLVM no COFF
+                // (medida); no ELF a conversão é obrigatória, e o Mach-O fica
+                // no formato do LLVM.
+                if geracao.formato == Formato::Objeto && ir.contains(dartforge_llvm::MARCA_DE_GC) && crate::gcmap::converter_aqui() {
+                    crate::gcmap::converter(&mut bytes)?;
+                }
                 std::fs::write(saida, bytes).map_err(|e| format!("falha ao gravar {}: {e}", saida.display()))
             }
             Gerador::Clang(clang) => {
+                // Raízes por mapas: o `clang -x ir` não roda o
+                // `rewrite-statepoints-for-gc`, e o objeto sairia sem mapa —
+                // raízes perdidas em silêncio.
+                // Em bitcode pode: é a parte de um programa grande na
+                // produção, e o passe roda no fecho do ThinLTO distribuído
+                // (`lto_distribuida.rs`), que é o único caminho que leva
+                // esse bitcode ao ligador.
+                if ir.contains("gc \"statepoint-example\"") && geracao.formato != Formato::Bitcode {
+                    return Err("as raízes por mapas (--raizes=mapas) exigem o gerador embutido do dartforge, não o Clang".to_string());
+                }
                 let ll = saida.with_extension("ll");
                 std::fs::write(&ll, ir).map_err(|e| format!("falha ao escrever LLVM IR em {}: {e}", ll.display()))?;
                 let dir = saida.parent().unwrap_or(Path::new("."));

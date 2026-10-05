@@ -157,6 +157,20 @@ pub fn ld_lld(clang: &Path) -> PathBuf {
 
 /// Liga com o `ld.lld` e o sysroot de ligação.
 pub fn ligar(ld: &Path, sysroot: &SysrootLinux, l: &Ligacao<'_>) -> Result<(), String> {
+    let mut cmd = comando(ld, sysroot, l)?;
+    let saida = cmd.output().map_err(|e| format!("falha ao executar {}: {e}", ld.display()))?;
+    if !saida.status.success() {
+        let texto = String::from_utf8_lossy(&saida.stderr);
+        let linhas: Vec<&str> = texto.lines().filter(|l| !l.trim().is_empty()).take(40).collect();
+        return Err(format!("o ld.lld falhou na ligação ({}):\n{}", saida.status, linhas.join("\n")));
+    }
+    Ok(())
+}
+
+/// O comando do `ld.lld` para a ligação `l`, pronto para rodar (o
+/// [`ligar`]) ou para receber mais opções (o `--thinlto-index-only` do
+/// ThinLTO distribuído, `lto_distribuida.rs`).
+pub fn comando(ld: &Path, sysroot: &SysrootLinux, l: &Ligacao<'_>) -> Result<Command, String> {
     let (carregador, emulacao) = carregador_e_emulacao();
     let mut cmd = Command::new(ld);
     cmd.args(["-z", "relro", "--hash-style=gnu", "--eh-frame-hdr", "-m", emulacao]);
@@ -167,6 +181,15 @@ pub fn ligar(ld: &Path, sysroot: &SysrootLinux, l: &Ligacao<'_>) -> Result<(), S
         }
         Produto::Compartilhada { soname, .. } => {
             cmd.args(["-shared", "-soname", soname]);
+            // Raízes por mapas: o índice do mapa compacto (`dfgcm`) aponta
+            // cada função por uma relocação relativa de 32 bits, que o
+            // `ld.lld` só resolve contra símbolo que não pode ser trocado na
+            // carga — numa biblioteca compartilhada, as funções exportadas
+            // passam a ligar-se a si mesmas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md,
+            // Etapa 4).
+            if crate::alvo::raizes_por_mapas().unwrap_or(false) {
+                cmd.arg("-Bsymbolic-functions");
+            }
         }
     }
     cmd.arg("-o").arg(l.saida);
@@ -224,13 +247,7 @@ pub fn ligar(ld: &Path, sysroot: &SysrootLinux, l: &Ligacao<'_>) -> Result<(), S
     cmd.arg("--as-needed").arg(sysroot.arquivo(CARREGADOR)).arg("--no-as-needed");
     cmd.arg(sysroot.arquivo("libgcc.a"));
     cmd.arg(sysroot.arquivo("crtendS.o")).arg(sysroot.arquivo("crtn.o"));
-    let saida = cmd.output().map_err(|e| format!("falha ao executar {}: {e}", ld.display()))?;
-    if !saida.status.success() {
-        let texto = String::from_utf8_lossy(&saida.stderr);
-        let linhas: Vec<&str> = texto.lines().filter(|l| !l.trim().is_empty()).take(40).collect();
-        return Err(format!("o ld.lld falhou na ligação ({}):\n{}", saida.status, linhas.join("\n")));
-    }
-    Ok(())
+    Ok(cmd)
 }
 
 /// `DARTFORGE_MAPA_DA_LIGACAO=1`: o mapa da ligação de um executável de

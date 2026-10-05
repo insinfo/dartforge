@@ -1,6 +1,8 @@
 # Mapas de pilha e exceções por tabelas no nativo: especificação da escolha chaveável
 
-Escrito em 2026-10-02. Especificação; nada aqui está implementado.
+Escrito em 2026-10-02; detalhado em 2026-10-04 com os experimentos da rodada 2 (§12) e o nível de
+implementação das Etapas 1 e 2 (§13 a §15). Especificação; nada aqui está implementado no produto.
+Onde o §12 em diante diverge das seções anteriores, vale o mais novo, e a divergência está dita no texto.
 
 Atalhos de caminho:
 
@@ -868,6 +870,24 @@ que o A1 **e** o tempo do `bench/desempenho` não for melhor. Os dois juntos; o 
 * JIT (§3.8).
 * Windows arm64 só com um percorredor testado.
 
+**Estado em 2026-10-05 (escrito, não compilado nem executado).** Das exceções por tabelas, o lado
+Itanium (Linux e macOS, x86-64 e aarch64) está escrito:
+
+* `crates/runtime/src/excecoes_tabelas.rs`: a personalidade Itanium da §13.11 (`dartforge_personalidade`
+  sob `cfg(unix)`, com a mesma `pouso_da_lsda`), `dartforge_lancar_desenrolamento` (o objeto
+  `_Unwind_Exception` é um por thread, em `thread_local`, e não um campo do `Contexto`) e os call sites
+  da LSDA também em `udata4` (0x03), para o caso do Mach-O;
+* `crates/emit_native/src/llvm/mod.rs`: `@df.lancar` chama `dartforge_lancar_desenrolamento` fora do
+  Windows (`EXCECOES_POR_TABELAS_ITANIUM`);
+* `crates/emit_native/src/sdk_modulo.rs` (`com_uwtable`) e `lib.rs`: `uwtable` em toda função do
+  programa e do SDK, para o desenrolador atravessar os quadros sem pouso;
+* `crates/emit_native/src/alvo.rs`: `--excecoes=tabelas` deixa de ser recusado nesses alvos.
+
+**Não verificado:** a codificação dos call sites no Mach-O; a ligação com o desenrolador do sistema no
+macOS; e tudo o que só a execução mostra. O runtime passou a ser compilado com
+`-C force-unwind-tables=yes` no Linux e no macOS. As raízes por mapas no Linux e no macOS estão escritas
+desde 2026-10-05 (§14.10); a cadeia `x29` como otimização medida, o JIT e o Windows arm64 continuam fora.
+
 Por alvo: **pronto** = corpus + `--gc-stress` + teste de conferência dos dois percorredores; **abandonar**
 o alvo = ele fica em sombra/checagem.
 
@@ -1149,5 +1169,1321 @@ número de linha são da tag `llvmorg-22.1.8`. Elas foram baixadas para `E:\dfte
 16. A relação entre as linhas de IR da §1.3 e os bytes de `.text`. Nunca foi medida, e é a primeira medida
     das Etapas 1 e 2.
 
+**Atualização de 2026-10-04.** Os itens 1, 2, 3, 4, 5 (no Windows) e 10 (no `lli`) foram resolvidos por
+experimento; a tabela está no §12.2. Continuam pendentes: 5 no Linux e no macOS, 6, 7, 8, 9, 11 a 16, e
+os dois experimentos não concluídos (`x8`, ELF; `x10`, ThinLTO).
+
 **Seções pendentes de escrita:** nenhuma. O documento está completo como especificação. A §3.9 (colocação
 tarde, como no Julia) está registrada como alternativa, fora do escopo.
+
+---
+
+## 12. Experimentos da rodada 2 (2026-10-04): o que passou a estar verificado
+
+Os casos ficam em `E:\dftemp\spec-mapas\r2\` (`x1`…`x16`, `efeitos\`, `ir-hoje\`). Todos usam o
+LLVM/Clang 22.1.8 de `E:\llvm` e rodam no Windows x86-64, salvo indicação. As saídas abaixo são as de uma
+reexecução dos binários em 2026-10-04; "verificado" passa a incluir estes casos.
+
+### 12.1 Resumo
+
+| caso | o que testa | resultado |
+|---|---|---|
+| `x1` | personalidade própria com LSDA Itanium sob SEH: `RaiseException` em IR, busca, `RtlUnwindEx` até o *landing pad*; `try` simples, aninhado com relançamento, `finally` que relança, exceção estrangeira | **passou**: `pega(0,5)=1102`, `pega(1000,7)=1126`, `aninhado(3)=2078`, `com_finally(2)=177`; a violação de acesso (`0xC0000005`) atravessa o quadro com a nossa personalidade e chega ao filtro de topo |
+| `x2` | o que o `llc` emite como LSDA em cinco alvos | COFF x64 e arm64: `.xdata` + `.pdata` (a LSDA vai no `.seh_handlerdata`, dentro do `.xdata`); ELF: `.gcc_except_table` + `.eh_frame`; Mach-O arm64: `__gcc_except_tab`, `__compact_unwind`, `__eh_frame` |
+| `x3` | rótulo do registro do stack map em relação à chamada | o registro aponta o rótulo logo depois do `callq` (`.Ltmp0-concat`) |
+| `x4` | o RS4GC mantém no `gc-live` o argumento que morre na chamada? | **sim**, nos três casos, com e sem O2 antes (§12.3) |
+| `x7` | B1 de ponta a ponta: `gc "statepoint-example"`, `O2 → RS4GC → llc`, coletor de brinquedo lendo `.llvm_stackmaps` da imagem, percurso por `RtlVirtualUnwind`, exceção atravessando quadros com raízes | **passou** com coleta em toda alocação: 351 coletas, 3.681 quadros percorridos, nenhum uso depois de liberar; a sabotagem é detectada |
+| `x8` | o mesmo do `x7` em ELF x86-64 | **não concluído**: o binário foi ligado, mas só há a primeira linha da saída registrada |
+| `x9` | `Smi`, null, objeto estático em `addrspace(1)` e campo por GEP sob `-ni:1`, com O2 e RS4GC | o `opt` aceita e o `llc` gera objeto; os `gc-live` só trazem valores `ptr addrspace(1)` (§12.4) |
+| `x10` | ThinLTO com statepoints no `lld-link` | **não concluído**: os objetos `full`/`thin` existem, o executável não foi produzido |
+| `x12` | conversor `.llvm_stackmaps` → mapa compacto no **objeto COFF**, e o runtime lendo o compacto | **passou**: 1.280 → 104 bytes (98,5 → 8,0 bytes por registro), ida e volta conferida, mesmas contagens do `x7` |
+| `x13` | pilha consumida pelo lançamento por SEH | 6.384 bytes até a primeira chamada da personalidade; com 32 KiB livres o lançamento completa, com 16 KiB o processo morre (§13.7) |
+| `x14` | o `lli` (LLJIT) registra o `.pdata` do código JIT? | **sim**: `RtlLookupFunctionEntry` acha a função JIT e o lançamento é pego (código de saída 42) |
+| `x16` | o lowering A1 inteiro das funções de `ir-hoje\exc.dart`, com pilha-sombra, porta Rust→Dart, `finally` com `break`/`continue`/exceção em laço | **passou** em O0 e O2, saída igual à esperada; a sabotagem (pouso sem restaurar o topo) é detectada |
+| `efeitos\` | classificação das externs do runtime em coleta/lança/roda Dart, por fecho transitivo do grafo de chamadas | 722 externs classificadas; 113 divergências contra a tabela do emissor, todas do lado conservador (§13.8) |
+
+### 12.2 Itens do §11 resolvidos
+
+| item do §11 | estado | evidência |
+|---|---|---|
+| 1 — argumento de chamada não folha entra no `gc-live` | **confirmado** em três formas | `x4` |
+| 2 — `llvm.fake.use` sobrevive ao O2 | confirmado que não atrapalha; **deixou de ser necessário** para o C1 | `x4`, função `concat_fake` |
+| 3 — global em `addrspace(1)` na seção `.dfimg$m` | **confirmado** (compila e liga como constante `linkonce_odr` com `comdat`) | `x9` |
+| 4 — fórmula SP para os locais `Indirect [SP+off]` no Windows x64 | **confirmado**: o SP é o `Rsp` do contexto **depois** de `RtlVirtualUnwind` desenrolar o quadro chamado, isto é, o SP do quadro Dart no ponto da chamada | `x7`, `x12` |
+| 5 — personalidade de ponta a ponta no `-msvc` | **confirmado** | `x1`, `x16` |
+| 5 — idem no Linux e no macOS | continua pendente | — |
+| 6 — ThinLTO distribuído na escala do backend | pendente | `x10` não concluído |
+| 7 — `--lto-newpm-passes` no `ld.lld` | pendente | — |
+| 10 — o LLJIT registra o `.pdata` no Windows | **confirmado para o `lli` 22.1.8**; a configuração do nosso `crates/jit` precisa do mesmo teste | `x14` |
+| 16 — relação linhas de IR × bytes de `.text` | pendente (primeira medida da Etapa 1) | — |
+
+Os itens 8, 9 e 11 a 15 continuam como estavam.
+
+### 12.3 `x4`: o argumento vivo durante a chamada (contrato C1)
+
+Entrada (`x4\args.ll`), com `gc "statepoint-example"` e `-ni:1`:
+
+```llvm
+define ptr addrspace(1) @concat(ptr addrspace(1) %a, ptr addrspace(1) %b) gc "statepoint-example" {
+  %r = call ptr addrspace(1) @rt_concat(ptr addrspace(1) %a, ptr addrspace(1) %b)
+  ret ptr addrspace(1) %r
+}
+```
+
+Depois de `opt -passes=rewrite-statepoints-for-gc` e também de `default<O2>,rewrite-statepoints-for-gc`
+(`args.rs.ll`, `args.o2rs.ll`), o statepoint de `@rt_concat` traz
+`"gc-live"(ptr addrspace(1) %a, ptr addrspace(1) %b)` e os dois `gc.relocate`, embora `%a` e `%b` não
+tenham uso depois da chamada. O mesmo vale para `arg_morto` (a segunda chamada mantém `%b.relocated`) e
+para `concat_fake`.
+
+Consequência para o §2 (C1) e o §3.3: **o argumento de uma chamada que é statepoint entra no mapa dessa
+chamada**. A "manutenção explícita" do §3.3 fica reduzida a uma conferência: o verificador do §7.4 exige
+que todo operando `ptr addrspace(1)` de uma chamada não folha apareça no `gc-live` dela. São três formas
+observadas, não uma prova para todo IR; a conferência é o que sustenta o contrato.
+
+### 12.4 `x9`: `Smi`, null e objeto estático
+
+O emissor pode manter as três construções de hoje, com o tipo trocado:
+
+* `Smi`: `inttoptr i64 ((v << 1) | 1) to ptr addrspace(1)`; teste e extração por `ptrtoint`;
+* null: `ptr addrspace(1) null`;
+* objeto estático: `getelementptr (i8, ptr addrspace(1) @"df.s.abc", i64 2)`, com o global declarado
+  `addrspace(1)` na seção `.dfimg$m`;
+* campo `k`: `getelementptr i8, ptr addrspace(1) %h, i64 (14 + 8k)`.
+
+Com `default<O2>,rewrite-statepoints-for-gc` o módulo passa no verificador e gera objeto. O conversor do
+mapa (`x12\gcmap.py`) descarta os locais `Constant`/`ConstIndex` (null, `Smi` constante). Um `Smi`
+**variável** vivo através de uma chamada entra no mapa como qualquer `ptr addrspace(1)`; o runtime o
+descarta na marcação pela regra do C2 (ímpar). Isso custa um slot, não a correção.
+
+Não verificado: o que o O2 faz com `ptrtoint`/`inttoptr` em laços grandes (o `-ni:1` proíbe as
+transformações que criariam ponteiros de inteiros; o caso observado é pequeno).
+
+---
+
+## 13. Etapa 1 em nível de implementação: exceções por tabelas com a pilha-sombra (A1)
+
+Esta seção detalha o §4 e o §6 (Etapa 1) até o ponto de implementar sem reler os experimentos. O
+desenho é o do `x16`, que roda.
+
+### 13.1 A ideia em uma frase
+
+O desenrolador nativo só **transfere o controle**. O valor da exceção, o rastro, o teste `on T`, o
+`capturavel`, o `finally` e o discriminador de razão continuam exatamente onde estão hoje: na pendência
+do runtime e em código Dart comum no bloco de destino. O par `{ptr, i32}` do *landing pad* é ignorado.
+
+### 13.2 Regra por chamada
+
+Para cada instrução da HIR que hoje passa por `emit_call_with_check`
+(`EN/lower/fn_builder.rs:940-992`):
+
+| quem é chamado | onde está a chamada | hoje (`checagem`) | em `tabelas` |
+|---|---|---|---|
+| função Dart | dentro de `try` (há `exception_targets`) | `call` + leitura da pendência + desvio ao alvo | `invoke … unwind label %<bloco>.lp`; sem leitura da pendência |
+| função Dart | dentro de `finally_scopes`, sem `catch` local | `call` + pendência + desvio à entrada do `finally` com razão 2 | `invoke`; o pouso desvia à entrada do `finally` com razão 2 |
+| função Dart | fora de qualquer `try` | `call` + pendência + `ret` do valor padrão | `call` puro |
+| extern do runtime que **lança** (§13.8) | dentro de `try` | `call` + pendência + desvio | igual a hoje (a extern não desenrola) |
+| extern do runtime que **lança** | fora de `try` | `call` + pendência + `ret` padrão | `call` + pendência + `call void @df.lancar()` + `unreachable` |
+| extern do runtime que **não lança** | qualquer | `call` + pendência (hoje é conservador) | `call` puro |
+| `throw e` com tratador na mesma função | — | `dartforge_exception_throw` + desvio | igual a hoje |
+| `throw e` sem tratador local | — | `dartforge_exception_throw` + `ret` padrão | `dartforge_exception_throw` + `call void @df.lancar()` + `unreachable` |
+| `rethrow` | dentro de `catch` | devolve a exceção guardada à pendência + desvio ou `ret` | idem, com `@df.lancar` quando não há tratador externo na função |
+
+A função que contém pelo menos um `invoke` ganha `personality ptr @dartforge_personalidade`. As demais
+não ganham nada: não têm *landing pad*, nem LSDA, nem limpeza.
+
+### 13.3 O pouso
+
+Cada `invoke` tem o **seu** bloco de pouso (o `landingpad` tem de ser a primeira instrução não-φ do
+bloco e só pode ser alcançado por arestas de desenrolamento):
+
+```llvm
+<bloco>.lp:
+  %lpN = landingpad { ptr, i32 } catch ptr null
+  store ptr <topo desta função>, ptr %ctxtopo, align 8
+  br label %<alvo de exceção da HIR>
+```
+
+* `catch ptr null` é "pega tudo". No modo mapas o tipo é `token` e a cláusula é `cleanup` (§4.4; é a
+  forma que o `x7` usa).
+* `<topo desta função>` é `%gcq` quando a função tem quadro de raízes, ou o `%topo0` lido na entrada
+  quando não tem (caso `df.aninhado` do `x16`). Uma função com `try` e sem quadro passa a ler o topo no
+  prólogo só para isso.
+* `<alvo de exceção da HIR>` é o mesmo bloco para onde a checagem de hoje desviava: o despacho do
+  `catch` ou a entrada do `finally`. Quando o alvo é a entrada do `finally`, o pouso entra nos φ de razão
+  e de valor de retorno com `(2, valor padrão)`, como a aresta `fin.incoming.push((curr_b, 2, default_ret))`
+  de hoje (`fn_builder.rs:968-970`).
+
+A sabotagem do `x16` (retirar o `store` do topo dos pousos e da porta) faz a coleta seguinte achar um
+quadro de raízes abaixo do SP e abortar. É o teste D3 do §7.3.
+
+### 13.4 Antes e depois: `try`/`on T catch (e, s)`
+
+Dart:
+
+```dart
+int converte(String s) {
+  try { return int.parse(s); }
+  on FormatException catch (e, s2) { print(e); print(s2); return -1; }
+}
+```
+
+**Hoje** (`ir-hoje\exc-agente-memoria-release.ll`, função `@df.exc$2edart..converte`; o prólogo do quadro
+de raízes é igual nos dois modos e foi omitido):
+
+```llvm
+  %v4 = call i64 @df.dart$3acore.int.parse(i64 %v0, i64 0, i64 0)
+  %v5 = load i8, ptr %ctx, align 8            ; pendência
+  %c0 = zext i8 %v5 to i64
+  %v6 = icmp ne i64 %c0, 0
+  br i1 %v6, label %b3, label %b4
+b3:                                           ; despacho do catch
+  %v8 = call i64 @dartforge_exception_peek_ref()
+  store i64 %v8, ptr %gcs0
+  %v9 = call i8 @dartforge_exception_capturavel()
+  ...
+b4:                                           ; caminho normal
+  %xcp7 = load i8, ptr %ctx, align 8          ; segunda leitura da pendência antes do ret
+  %xcn7 = icmp ne i8 %xcp7, 0
+  %xce7 = call i1 @llvm.expect.i1(i1 %xcn7, i1 false)
+  br i1 %xce7, label %xc7.limpar, label %xc7.fim
+xc7.limpar:
+  call void @dartforge_exception_clear()
+  br label %xc7.fim
+xc7.fim:
+  %gcvolta4 = load ptr, ptr %gcq, align 8
+  store ptr %gcvolta4, ptr %ctxtopo, align 8
+  ret i64 %v4
+b8:                                           ; corpo do catch
+  ...
+  call void @df.dart$3acore..print(i64 %v8)
+  %v26 = load i8, ptr %ctx, align 8           ; checagem depois de CADA chamada do corpo
+  %c5 = zext i8 %v26 to i64
+  %v27 = icmp ne i64 %c5, 0
+  br i1 %v27, label %b11, label %b10
+b11:                                          ; saída por exceção: ret do valor padrão
+  %gcvolta11 = load ptr, ptr %gcq, align 8
+  store ptr %gcvolta11, ptr %ctxtopo, align 8
+  ret i64 0
+```
+
+**Em `tabelas`** (`x16\a1.ll`, função `@df.converte`):
+
+```llvm
+define i64 @df.converte(i64 %v0) personality ptr @dartforge_personalidade {
+b0:
+  ; prólogo do quadro de raízes: igual
+  store i64 %v0, ptr %gcs0
+  %v4 = invoke i64 @df.int.parse(i64 %v0) to label %b4 unwind label %b0.lp
+b0.lp:
+  %lp0 = landingpad { ptr, i32 } catch ptr null
+  store ptr %gcq, ptr %ctxtopo, align 8
+  br label %b3
+b3:                                           ; despacho do catch: idêntico ao de hoje
+  %v8 = call i64 @dartforge_exception_peek_ref()
+  store i64 %v8, ptr %gcs0
+  %v9 = call i8 @dartforge_exception_capturavel()
+  %v10 = icmp ne i8 %v9, 0
+  br i1 %v10, label %b6, label %b9
+b4:                                           ; caminho normal: sem leitura da pendência
+  %gcvolta4 = load ptr, ptr %gcq, align 8
+  store ptr %gcvolta4, ptr %ctxtopo, align 8
+  ret i64 %v4
+b6:
+  %v17 = call i1 @rt_e_format(i64 %v8)        ; o teste `on T` (hoje df.classe + df.subclasse)
+  br i1 %v17, label %b8, label %b9
+b8:                                           ; corpo do catch (e, s2)
+  %v18 = call i64 @dartforge_stack_trace_get()
+  store i64 %v18, ptr %gcs1
+  call void @dartforge_exception_clear()
+  call void @df.print_txt(i64 %v8)            ; fora de try: call puro
+  call void @df.print_txt(i64 %v18)
+  %gcvolta12 = load ptr, ptr %gcq, align 8
+  store ptr %gcvolta12, ptr %ctxtopo, align 8
+  ret i64 -1
+b9:                                           ; nenhuma cláusula casou, ou não capturável: relança
+  call void @df.lancar()
+  unreachable
+}
+```
+
+O que some: as leituras da pendência depois de cada chamada Dart, as segundas leituras antes de cada
+`ret` (`xcp`/`xcn`/`xce`), os blocos `xc*.limpar` e as saídas por exceção com `ret` do valor padrão
+(`b11`, `b13` do IR de hoje). O que aparece: um bloco de pouso por `invoke` e a LSDA.
+
+Note em `b9`: a saída "ninguém pegou" **não** desempilha o quadro de raízes antes de `@df.lancar`. Quem
+pegar restaura o próprio topo.
+
+### 13.5 `finally`, `break`/`continue` e laço
+
+O `finally` continua uma sub-rotina com discriminador de razão (`EN/lower/comandos.rs:740-849`). A única
+mudança é a origem da razão 2. Caso do `x16\a1b.ll`:
+
+```dart
+int laco(int n, int k) { var soma = 0;
+  for (var i = 0; i < n; i++) {
+    try { if (i == 3) break; if (i == 1) continue; soma += fora(i * k); }
+    finally { soma += 100; }
+  }
+  return soma; }
+```
+
+```llvm
+t2:
+  %a = mul i64 %i, %k
+  %f = invoke i64 @df.fora(i64 %a) to label %t3 unwind label %t2.lp
+t2.lp:                                           ; exceção: razão 2
+  %lp = landingpad { ptr, i32 } catch ptr null
+  store ptr %gcq, ptr %ctxtopo, align 8
+  br label %fin
+fin:                                             ; entrada do finally
+  %razao = phi i64 [ 5, %sai_break ], [ 6, %sai_cont ], [ 2, %t2.lp ], [ 0, %t3 ]
+  %soma2 = phi i64 [ %soma, %sai_break ], [ %soma, %sai_cont ], [ %soma, %t2.lp ], [ %soma1, %t3 ]
+  %g = call i64 @dartforge_exception_peek_ref()  ; guardada (0 se a razão não é 2)
+  store i64 %g, ptr %gcs0
+  call void @dartforge_exception_clear()
+  %cap = call i8 @dartforge_exception_capturavel()
+  %ncap = icmp eq i8 %cap, 0
+  br i1 %ncap, label %desenrola, label %corpo_fin
+corpo_fin:
+  ; corpo do finally
+  switch i64 %razao, label %inc [ i64 0, label %inc
+                                  i64 2, label %relanca
+                                  i64 5, label %fim_break
+                                  i64 6, label %inc ]
+desenrola:                                       ; desenrolar de isolado: o corpo do finally não roda
+  call void @df.lancar()
+  unreachable
+relanca:                                         ; devolve a exceção à pendência e relança
+  call void @dartforge_exception_throw(i64 %g, i8 3)
+  call void @df.lancar()
+  unreachable
+```
+
+Regras que saem do exemplo:
+
+1. Um valor Dart vivo no pouso tem de ser o valor **antes** do `invoke` (`%soma`, não `%soma1`): o φ da
+   entrada do `finally` recebe do pouso o valor que dominava a chamada. É o que o LLVM exige de qualquer
+   φ com aresta de `invoke`, e o emissor já tem esse valor: é o mesmo que a aresta da checagem levava.
+2. A exceção guardada pelo `finally` fica num slot do quadro de raízes (`%gcs0`), como hoje.
+3. `relanca` e `desenrola` terminam em `@df.lancar`. Se o `finally` está dentro de outro `try` da mesma
+   função, o `call` vira `invoke void @df.lancar() to label %nunca unwind label %<externo>.lp`, com
+   `%nunca: unreachable` (caso `aninhado` do `x1`). Alternativa equivalente e mais barata, permitida:
+   desvio direto ao alvo externo, como hoje, já que a pendência está ligada. A regra do §4.1
+   ("`throw`/`rethrow` dentro de `try` na mesma função continuam como hoje") escolhe o desvio direto.
+4. O resultado medido: `laco(5,2)=406`, `aninhado(5,6)=-7`, `aninhado(5,2)=406`, iguais em O0 e O2.
+
+### 13.6 `@df.lancar` e a porta
+
+Gerados em IR, uma vez por módulo de ligação (`linkonce_odr`), nunca em Rust (C9):
+
+```llvm
+; Windows
+declare dllimport void @RaiseException(i32, i32, i32, ptr)
+define linkonce_odr void @df.lancar() noreturn noinline {
+  call void @RaiseException(i32 -532396462, i32 1, i32 0, ptr null)   ; 0xE0444652, EXCEPTION_NONCONTINUABLE
+  unreachable
+}
+```
+
+`noinline` importa: o endereço de retorno dentro da função que lança é o que a LSDA dela cobre, e uma
+só cópia do `RaiseException` mantém o `.text` menor.
+
+No Linux e no macOS (não executado aqui; desenho do §4.3):
+
+```llvm
+declare i32 @_Unwind_RaiseException(ptr)
+declare ptr @dartforge_objeto_de_desenrolamento()        ; campo do Contexto, classe "DARTFRGE"
+declare void @dartforge_desenrolamento_sem_tratador() noreturn
+define linkonce_odr void @df.lancar() noreturn noinline {
+  %o = call ptr @dartforge_objeto_de_desenrolamento()
+  %r = call i32 @_Unwind_RaiseException(ptr %o)
+  call void @dartforge_desenrolamento_sem_tratador()   ; só chega aqui com _URC_END_OF_STACK: defeito
+  unreachable
+}
+```
+
+A **porta**, uma por assinatura usada pelo runtime (`x16`, `@df.porta.r0` para `fn() -> i64`):
+
+```llvm
+define i64 @df.porta.r0(ptr %f) noinline personality ptr @dartforge_personalidade {
+entrada:
+  %ctx = call ptr @dartforge_contexto()
+  %ctxtopo = getelementptr inbounds i8, ptr %ctx, i64 8
+  %topo0 = load ptr, ptr %ctxtopo, align 8
+  %r = invoke i64 %f() to label %ok unwind label %lp
+ok:
+  ret i64 %r
+lp:
+  %e = landingpad { ptr, i32 } catch ptr null
+  store ptr %topo0, ptr %ctxtopo, align 8        ; desempilha de uma vez os quadros pulados
+  ret i64 0                                      ; a pendência continua ligada: o runtime a confere
+}
+```
+
+No `x16`, o `main` em C chama `df_porta_r0(dart_main)`; `dart_main` deixa escapar a segunda exceção, a
+porta a converte em pendência, e o runtime imprime `Unhandled exception:` e sai com 255. O topo da
+pilha-sombra termina nulo.
+
+### 13.7 Pilha: a margem do lançamento (`x13`)
+
+O lançamento por SEH roda **na pilha da thread que lança**. Medido no Windows x64 com quadros de 1 KiB:
+
+| pilha livre no lançamento | resultado |
+|---|---|
+| 64 KiB | pego; a personalidade rodou 6.384 bytes abaixo do SP do lançamento |
+| 32 KiB | pego |
+| 16 KiB, 12, 8, 4 | o processo termina sem chegar ao tratador |
+
+Consequências:
+
+* A folga do `StackOverflowError` é de 256 KiB hoje (`RT/gc_raizes.rs:39`). Ela cobre o lançamento com
+  sobra; **não reduzir abaixo de 64 KiB** sem repetir o `x13`.
+* A medida é de um caso (916 a 947 quadros de 1 KiB, sem quadros de sistema no meio). O custo do
+  `RtlUnwindEx` cresce com a profundidade em tempo (§13.11), não em pilha: o mesmo teste com 32 KiB
+  livres atravessou 947 quadros.
+* O teste D8 do §7.3 vira: recursão até o `StackOverflowError`, pego por um `try` no topo, mil vezes,
+  com e sem `--gc-stress`.
+
+### 13.8 A tabela de efeitos das externs
+
+Levantamento por script (`r2\efeitos\efeitos.py`): grafo de chamadas das funções do runtime fora de
+testes (2.137 funções, 7.466 arestas), sementes marcadas à mão, fecho transitivo. Métodos são resolvidos
+só pelo **nome**; onde um nome tem mais de um tipo dono, vale a união (lista em `resumo.txt`).
+
+| classe | externs citadas pelo emissor |
+|---|---:|
+| folha pura (não coleta, não lança, não roda Dart) | 285 |
+| só coleta | 169 |
+| coleta e lança | 18 |
+| roda código Dart do SDK (ajudantes registrados) | 215 |
+| roda código Dart do usuário | 7 |
+
+São 722 externs definidas, 694 delas citadas pelo emissor. Nenhuma extern só lança sem coletar: lançar
+aloca o erro.
+
+Contra a tabela que o emissor usa hoje, o script achou 113 linhas de divergência
+(`efeitos\divergencias.tsv`): 48 em que o emissor supõe coleta e a análise não acha, 65 em que supõe
+lançamento e a análise não acha. Todas do lado conservador; nenhuma em que o emissor suponha menos que a
+análise.
+
+Formato proposto, um arquivo versionado `crates/runtime/efeitos.tsv`, lido pelo `build.rs` do runtime e
+pelo emissor:
+
+```text
+# nome                          coleta  lanca  roda_dart
+dartforge_alocar                1       0       0
+dartforge_exception_throw       1       1       0
+dartforge_nativo_Function_apply 1       1       1
+```
+
+* `roda_dart = 1` implica `coleta = 1` e `lanca = 1`.
+* Uma extern ausente da tabela é erro de compilação do emissor, não "conservador por omissão".
+* O emissor usa `lanca` para decidir a checagem (§13.2) e `coleta` para o `"gc-leaf-function"` (§3.3).
+
+**Como a tabela é conferida** (a análise por nome não basta para confiar):
+
+1. `DARTFORGE_EFEITOS=conferir` no runtime de teste: cada extern marcada `coleta = 0` roda com a
+   coleta **proibida** (um contador no `Heap`; alocar com ele ligado aborta dizendo o nome da extern),
+   e cada extern marcada `lanca = 0` confere, na saída, que a pendência não mudou.
+2. O corpus nativo e o e2e do `new_sali/backend` rodam uma vez assim no Pesado.
+3. Sabotagem: marcar `dartforge_string_concat` como `coleta = 0` tem de abortar no primeiro programa.
+
+A primeira versão da tabela é a união conservadora: o que o emissor supõe hoje, **menos** as
+divergências do tipo `emissor_conservador_lanca` que passarem no item 1. É a medida E1.1 do §6: quantas
+das checagens somem só com a tabela, ainda no modo `checagem`.
+
+### 13.9 As portas: onde o runtime chama Dart
+
+Levantadas pelo mesmo script (`efeitos\sementes.tsv`). São três tipos.
+
+**Ponteiro de função recebido ou `transmute`** — código Dart do usuário entra por aqui:
+
+| ponto | arquivo:linha | o que chama |
+|---|---|---|
+| `dartforge_iniciar` | `RT/nucleo.rs:36` | a entrada do programa e o `para_texto` |
+| `dartforge_nativo_Function_apply` | `RT/closures.rs:171`, `transmute` em `:211` | o código de uma closure, `fn(i64, *const i64, *const i64) -> i64` |
+| `dartforge_laco_de_eventos` | `RT/eventos.rs:119` | `chamar: fn(i64) -> i64`, cada microtarefa e timer |
+| `rodar_laco_do_isolado`, `rodar_isolado` | `RT/isolados.rs:331`, `:386` (`transmute` em `:391-392`) | `preparar: fn()` e `chamar: fn(i64) -> i64` |
+| `dartforge_nativo_Isolate_spawnFunction` | `RT/isolados.rs:437` (ajudantes em `:418-419`) | `_dartforgeMensagemDePronto`, `_dartforgeIniciarIsolado` |
+| `despachar_proxima` | `RT/portas.rs:1230` | `chamar: fn(i64) -> i64`, a mensagem de uma porta |
+| `materializar` | `RT/portas.rs:626` (`transmute` em `:662`) | getters `fn() -> i64` de constantes |
+| `dartforge_ponto_seguro`, `dartforge_parar_isolados` | `RT/isolados.rs:353`, `RT/portas.rs:1106` | pedidos no ponto seguro |
+| `dartforge_publicar_geracao` | `RT/seletores.rs:212` | `area`, `registrar`, `rti` da geração nova (recarga) |
+| `dartforge_encaminhar_nsm`, `invocar_no_such_method` | `RT/seletores.rs:411`, `:374` (`transmute` em `:399`) | o `noSuchMethod` do usuário |
+| `dartforge_lista_de_tabela_g` | `RT/nativos_listas.rs:468` | getters de literais |
+| `finalizar_programa` | `RT/nucleo.rs:69` | `PARA_TEXTO` da exceção não tratada |
+| `relatar_erro_nao_tratado` | `RT/isolados.rs:270` (`transmute` em `:277`) | `_dartforgeDescreverErro` |
+| `refazer_indices_copiados` | `RT/portas.rs:791` (`transmute` em `:795`) | rehash depois de copiar entre isolados |
+
+**Ajudantes do SDK registrados por nome** — construtores de erro e conversões escritos em Dart, chamados
+pelo runtime para montar um objeto: `RT/excecoes.rs:311-548` (doze pontos: `FormatException`,
+`StateError`, `ArgumentError`, `RangeError`, `UnsupportedError`, `AssertionError`, `LateError`,
+`StackOverflowError`, `NoSuchMethodError`, e o genérico `erro_da_fonte_com_texto`), `RT/ffi.rs:248`,
+`RT/io_arquivos.rs:126`, `RT/io_diretorios.rs:345`, `RT/io_plataforma.rs:69`, `RT/io_processos.rs:61`,
+`RT/io_servico.rs:300`, `RT/io_soquetes.rs:566`, `:944`, `:962`, `:1054`, `:1073`,
+`RT/isolados.rs:519`, `RT/nativos_listas.rs:41`, `RT/tipos.rs:1502`.
+
+**Tabelas geradas, não Dart** (`fn() -> *const i64`): `RT/seletores.rs:147`, `:247`, `RT/ffi.rs:803`,
+`RT/typed_data.rs:85`, `:104`. Não lançam e **não** precisam de porta.
+
+O molde único no runtime:
+
+```rust
+// RT/chamar_dart.rs (novo)
+/// A única maneira de o runtime chamar código gerado. Em `tabelas`, a porta da assinatura pega
+/// qualquer desenrolamento e devolve com a pendência ligada; em `checagem`, chama direto.
+#[inline]
+pub fn chamar_dart1(f: usize, a: i64) -> i64 {
+    match portas_registradas().r1 {
+        Some(porta) => porta(f, a),                                     // extern "C" fn(usize, i64) -> i64
+        None => { let g: extern "C" fn(i64) -> i64 = unsafe { core::mem::transmute(f) }; g(a) }
+    }
+}
+// uma por assinatura: r0, r1, r2, r3, v0 (fn()), closure (i64, *const i64, *const i64), nsm (7 × i64)
+```
+
+As portas são registradas por `@df.preparar_isolado` numa tabela do runtime
+(`dartforge_registrar_portas(ptr)`), uma entrada por assinatura; em `checagem` a tabela fica vazia. O
+`grep` do CI recusa `transmute` para `extern "C" fn` fora de `chamar_dart.rs` e das cinco tabelas
+geradas acima.
+
+As assinaturas a gerar saem da tabela acima: `fn()`, `fn() -> i64`, `fn(i64) -> i64`,
+`fn(i64, i64) -> i64`, `fn(i64, i64)`, `fn(i64, i64, i64) -> i64`,
+`fn(i64, *const i64, *const i64) -> i64`, `fn(i64 × 7) -> i64`. Oito portas.
+
+### 13.10 A LSDA, byte a byte
+
+O que o `llc` 22.1.8 emite para a função `b_catch` do `x2\lsda.ll` (um `landingpad … catch ptr null`
+compartilhado por dois `invoke`, com uma chamada comum antes e outra depois), no COFF x64:
+
+```text
+GCC_except_table1:
+  .byte 255                 ; LPStart encoding = DW_EH_PE_omit: os pousos são relativos ao início da função
+  .byte 0                   ; TType encoding = DW_EH_PE_absptr  (ELF PIC: 155 = indirect|pcrel|sdata4)
+  .uleb128 ttbase-ref       ; distância até o fim da tabela de tipos (presente porque TType != omit)
+  .byte 1                   ; call-site encoding = DW_EH_PE_uleb128
+  .uleb128 tamanho          ; tamanho da tabela de call sites em bytes
+  ; tabela de call sites, ordenada por início; cada entrada = quatro uleb128
+  .uleb128 0                ;   início (relativo ao início da função)
+  .uleb128 Ltmp0-inicio     ;   comprimento
+  .byte 0                   ;   pouso = 0: sem landing pad
+  .byte 0                   ;   ação = 0
+  .uleb128 Ltmp0-inicio     ;   2ª faixa: do primeiro invoke ao fim do segundo
+  .uleb128 Ltmp3-Ltmp0
+  .uleb128 Ltmp4-inicio     ;   pouso (relativo ao início da função)
+  .byte 1                   ;   ação = 1 (índice+1 na tabela de ações)
+  .uleb128 Ltmp3-inicio     ;   3ª faixa: o resto
+  .uleb128 fim-Ltmp3
+  .byte 0
+  .byte 0
+  ; tabela de ações
+  .byte 1                   ;   filtro de tipo 1
+  .byte 0                   ;   sem próxima ação
+  .p2align 2
+  .quad 0                   ; tabela de tipos: TypeInfo 1 = null = pega tudo (ELF PIC: .long 0)
+ttbase:
+```
+
+Fatos para o decodificador:
+
+1. Com `catch ptr null` o segundo byte **não** é `0xff`; segue um uleb128 que o decodificador pula. Com
+   `cleanup` puro (modo mapas) o segundo byte é `0xff` e não há esse uleb128. O decodificador trata os
+   dois casos (é o que `achar_pad` do `x1` faz).
+2. O primeiro byte é sempre `0xff` e o terceiro campo é sempre `0x01` nos alvos testados. O decodificador
+   **aborta** com mensagem se achar outra coisa: é sinal de versão ou alvo não previsto.
+3. A busca é pelo endereço de retorno **menos 1** (o `ControlPc − 1` do `x1`): o endereço de retorno é
+   o da instrução seguinte ao `call`, que pode já estar na faixa seguinte.
+4. Uma função com personalidade e **sem** `invoke` (caso `a_sem_pad`) tem `.seh_handler` e uma tabela
+   vazia. O emissor não põe personalidade nessas funções (§13.2), então o caso não deve ocorrer; a
+   personalidade devolve "continue a busca" se ocorrer.
+5. Ações e tabela de tipos são ignoradas: todo pouso pega tudo.
+6. Onde fica: no COFF, dentro do `.xdata` (via `.seh_handlerdata`), apontada pelo `HandlerData` do
+   `DISPATCHER_CONTEXT`; no ELF, `.gcc_except_table`, apontada pelo `.cfi_lsda` da FDE
+   (`_Unwind_GetLanguageSpecificData`); no Mach-O, `__gcc_except_tab`.
+7. Personalidade no ELF: `.cfi_personality 155, DW.ref.dartforge_personalidade` em PIC (indireta, por um
+   símbolo `DW.ref.` em seção `.data` com `comdat`) e `.cfi_personality 3, dartforge_personalidade` em
+   código estático.
+
+### 13.11 A personalidade
+
+Uma função, em `RT/excecoes_tabelas.rs`, com o decodificador da §13.10 compartilhado.
+
+```rust
+/// Deslocamento do pouso para `ip_rel` (relativo ao início da função), ou 0.
+fn achar_pouso(mut p: *const u8, ip_rel: u64) -> u64 {
+    unsafe {
+        if ler_u8(&mut p) != 0xff { abortar("LSDA: LPStart inesperado"); }
+        if ler_u8(&mut p) != 0xff { let _ = uleb(&mut p); }
+        if ler_u8(&mut p) != 0x01 { abortar("LSDA: codificação de call site inesperada"); }
+        let tam = uleb(&mut p); let fim = p.add(tam as usize);
+        while p < fim {
+            let ini = uleb(&mut p); let len = uleb(&mut p); let pouso = uleb(&mut p); let _acao = uleb(&mut p);
+            if ip_rel < ini { break; }
+            if ip_rel < ini + len { return pouso; }
+        }
+        0
+    }
+}
+
+// Windows x64 e arm64
+const DF_CODIGO: u32 = 0xE044_4652;
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn dartforge_personalidade(
+    rec: *mut EXCEPTION_RECORD, quadro: *mut c_void, _ctx: *mut CONTEXT, disp: *mut DISPATCHER_CONTEXT,
+) -> EXCEPTION_DISPOSITION {
+    // 1. Exceção estrangeira (violação de acesso, C++): não é nossa.
+    if (*rec).ExceptionCode != DF_CODIGO { return ExceptionContinueSearch; }
+    // 2. Segunda passagem (EXCEPTION_UNWINDING | EXCEPTION_EXIT_UNWIND = 0x6): não há limpeza a fazer.
+    if (*rec).ExceptionFlags & 0x6 != 0 { return ExceptionContinueSearch; }
+    // 3. Busca: este quadro tem pouso para o ponto da chamada?
+    let inicio = (*disp).ImageBase + (*(*disp).FunctionEntry).BeginAddress as u64;
+    let pouso = achar_pouso((*disp).HandlerData as *const u8, (*disp).ControlPc - 1 - inicio);
+    if pouso == 0 { return ExceptionContinueSearch; }
+    // 4. Achou: desenrola até este quadro e continua no pouso. Não volta.
+    RtlUnwindEx(quadro, (inicio + pouso) as *mut c_void, rec, core::ptr::null_mut(),
+                (*disp).ContextRecord, (*disp).HistoryTable);
+    abortar("RtlUnwindEx voltou")
+}
+```
+
+Conferido no `x1`:
+
+* os contadores impressos (1 busca aceita, 0 chamadas de desenrolar em quadros intermediários, 1 chamada
+  com `EXCEPTION_TARGET_UNWIND` no quadro alvo) correspondem a **um** lançamento: quadros sem
+  personalidade no caminho não chamam nada. A
+  personalidade é chamada de novo no quadro alvo durante a segunda passagem; o item 2 a faz devolver
+  "continue", e o `RtlUnwindEx` transfere o controle;
+* o quarto argumento de `RtlUnwindEx` (`ReturnValue`) chega no `RAX`, que é o primeiro campo do par do
+  `landingpad` (`pega_e_rax(4)` devolveu `0xABCD`). Não é usado; passa-se nulo;
+* um valor vivo num registrador *callee-saved* da função que pega (`%aa` em `pega`) está correto no
+  pouso;
+* uma violação de acesso atravessando um quadro com a nossa personalidade chega intacta ao filtro de
+  topo do processo.
+
+Custo medido do lançar-e-pegar no `x1` (20.000 repetições por profundidade, máquina em uso; duas
+execuções deram números bem diferentes, então só a ordem de grandeza vale):
+
+| quadros atravessados | ns por lançar+pegar |
+|---:|---|
+| 1 | ~2.800 |
+| 10 | ~4.800 |
+| 100 | ~29.000 |
+| 1.000 | 65.000 a 223.000 |
+
+É o custo que o critério de abandono do §6 compara com o modo `checagem` ("mais de 50× mais lento"); a
+medida do modo `checagem` no mesmo programa ainda não foi feita.
+
+Itanium (Linux, macOS; **não executado aqui**):
+
+```rust
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_personalidade(
+    versao: c_int, acoes: c_int, classe: u64, _obj: *mut _Unwind_Exception, ctx: *mut _Unwind_Context,
+) -> _Unwind_Reason_Code {
+    if versao != 1 { return _URC_FATAL_PHASE1_ERROR; }
+    if classe != u64::from_be_bytes(*b"DARTFRGE") { return _URC_CONTINUE_UNWIND; }   // estrangeira
+    let mut antes: c_int = 0;
+    let ip = _Unwind_GetIPInfo(ctx, &mut antes) as u64;
+    let ip = if antes == 0 { ip - 1 } else { ip };
+    let inicio = _Unwind_GetRegionStart(ctx) as u64;
+    let pouso = achar_pouso(_Unwind_GetLanguageSpecificData(ctx) as *const u8, ip - inicio);
+    if pouso == 0 { return _URC_CONTINUE_UNWIND; }
+    if acoes & _UA_SEARCH_PHASE != 0 { return _URC_HANDLER_FOUND; }
+    // fase de limpeza, no quadro que a busca aceitou (_UA_HANDLER_FRAME) ou num desenrolar forçado
+    if acoes & _UA_FORCE_UNWIND != 0 { return _URC_CONTINUE_UNWIND; }   // pthread_cancel etc.: não paramos
+    _Unwind_SetGR(ctx, REG_DADO_0, 0); _Unwind_SetGR(ctx, REG_DADO_1, 0);
+    _Unwind_SetIP(ctx, (inicio + pouso) as usize);
+    _URC_INSTALL_CONTEXT
+}
+```
+
+`REG_DADO_0/1` são os registradores de dados da exceção do alvo (x86-64: 0 e 1; aarch64: 0 e 1). O
+runtime e o SDK precisam de tabelas de desenrolamento (`-C force-unwind-tables=yes`), como o §3.6 já diz.
+
+### 13.12 O que muda no runtime
+
+| arquivo | mudança |
+|---|---|
+| `RT/excecoes_tabelas.rs` (novo) | `achar_pouso`, a personalidade por sistema, `dartforge_objeto_de_desenrolamento`, `dartforge_desenrolamento_sem_tratador` |
+| `RT/chamar_dart.rs` (novo) | os ajudantes `chamar_dart*`, a tabela de portas registradas |
+| `RT/heap.rs` (`Contexto`, `:247-305`) | campo novo **no fim** para o `_Unwind_Exception` (só não-Windows); o `assert` de deslocamentos de `:315-332` ganha a linha; `pendente` em 0 e `topo` em 8 não mudam |
+| `RT/gc_raizes.rs:109-121` | `dartforge_estouro_de_pilha` não muda; quem muda é o prólogo gerado, que em `tabelas` chama `@df.lancar` depois dela |
+| os 14 pontos da §13.9 | trocar o `transmute` + chamada por `chamar_dart*` |
+| `RT/lib.rs` | marcador de ABI `dartforge_abi_excecoes` (0 = checagem, 1 = tabelas), conferido na ligação (§5.4) |
+
+Nada muda em `dartforge_exception_throw`, `peek_ref`, `capturavel`, `clear` e `stack_trace_get`
+(`RT/excecoes.rs:130`, `:208`, `:214`, `:231`, `:289`).
+
+### 13.13 `async`, isolados e JIT
+
+* **`async`.** O corpo `f$async` é chamado pelo laço de eventos por `chamar_dart1`. O `try` sintético do
+  topo (`EN/lower/async_sm.rs:333-352`) pega tudo, logo nenhuma exceção chega à porta em operação
+  normal; a porta é a garantia. A leitura do código de retomada (`código == 1`: a exceção chega por um
+  `await`) continua como hoje: é um `throw` local. **Não lido nesta rodada:** os pontos exatos de
+  `async_sm.rs` em que a máquina de estados reentra num `try` do usuário depois de um `await`; a regra
+  é que cada chamada dentro da região protegida, em qualquer estado, vira `invoke` para o pouso daquele
+  estado.
+* **Isolados.** Cada isolado é uma thread; a personalidade não tem estado global. O "não capturável"
+  (`Isolate.exit`) sobe de pouso em pouso por `@df.lancar` até a porta de `rodar_isolado`.
+* **JIT.** O `lli` 22.1.8 registra o `.pdata` do código JIT (`x14`). O `crates/jit` continua em
+  `checagem` na Etapa 1 (§6); o passo E4 repete o `x14` com a configuração do `crates/jit` (ORCv2,
+  camada de ligação própria) antes de ligar `tabelas` nele.
+
+### 13.14 Rastro no formato da VM
+
+Sete das doze divergências do placar do pub são o texto do rastro. Hoje `dartforge_stack_trace_get`
+devolve o rastro corrente ou o texto fixo `#0      main (dart:native)\n` (`RT/excecoes.rs:130-135`).
+
+O formato da VM, lido em `E:\references\dart-sdk\runtime\vm\object.cc` (ramo main; a tag 3.6.2 não tem
+`runtime/` na cópia local, então a igualdade com o 3.6.2 é **não verificada**):
+
+```text
+"#%-6" Pd  " %s (%s"  [":%" Pd  [":%" Pd]]  ")\n"
+   índice     função   url     linha   coluna
+```
+
+* o índice é alinhado à esquerda em 6 colunas depois do `#` (`PrintSymbolicStackFrameIndex`, `:26846`);
+* a função é o nome qualificado visível ao usuário (`QualifiedUserVisibleNameCString`): `Classe.metodo`,
+  `main`, `Classe.metodo.<anonymous closure>`;
+* a url é a do script (`package:x/y.dart`, `file:///…`, `dart:core`); uma url `data:application/dart;…`
+  vira `<data:application/dart>`;
+* a linha e a coluna só saem quando conhecidas; a coluna só com a linha;
+* entre trechos assíncronos sai a linha `<asynchronous suspension>` (`:27050`).
+
+O que a implementação precisa, em qualquer dos quatro modos:
+
+1. **Tabela pc → (função, linha, coluna)** por imagem, na seção `.dfpcl$m` (COFF), `SHF_GNU_RETAIN`
+   (ELF): por função, o símbolo, o índice do nome e da url numa tabela de textos, e um fluxo de
+   `(delta do endereço de retorno, delta da linha, coluna)` em varints, um por ponto de chamada. Os
+   pontos são os mesmos dos registros do mapa de pilha (§14); em `mapas`, as duas tabelas podem
+   compartilhar o índice de funções.
+2. **Captura** no `throw`: percorrer os quadros pelo desenrolador (o percorredor do §14.6, sem visitar
+   raízes) e guardar só os endereços de retorno, num vetor do objeto de rastro. Simbolizar só quando o
+   texto for pedido (`toString`). Em `sombra`/`checagem` no Windows x64 o percorredor é o mesmo
+   (`RtlVirtualUnwind`); ele não depende dos mapas.
+3. **Opção de omitir**: `--rastro=simbolico|nenhum`. Em `nenhum`, a tabela não é emitida e o texto é o
+   de hoje.
+
+Não medido: o tamanho da tabela no `new_sali/backend`. É a primeira medida do passo.
+
+---
+
+### 13.15 Estado da implementação (2026-10-04)
+
+A Etapa 1 está **escrita e não executada**: o código abaixo foi escrito por leitura e revisão, sem
+compilar nem rodar. O padrão continua `checagem`, com o IR de sempre byte a byte. No runtime, a única
+mudança que vale nos dois modos é a chamada a código Dart passar por `dart_r<n>`/`dart_v<n>`, que sem
+porta registrada chamam direto, como antes.
+
+**O que existe.**
+
+| peça | onde | passo |
+|---|---|---|
+| a chave: `--excecoes=checagem\|tabelas` em `compile-native` e `aot`, e a variável `DARTFORGE_EXCECOES` | `crates/cli/src/nativo.rs` (`definir_modelo_de_excecoes`), `EN/alvo.rs` (`excecoes_por_tabelas`) | E1.0 |
+| recusa por alvo (só Windows x86-64), recusa com `DARTFORGE_RASTRO=1`, recusa no JIT | `EN/alvo.rs`, `EN/lib.rs` (`emitir_ir_interno`) | E1.0 |
+| o modo na chave do SDK compilado (o padrão não entra na chave) | `EN/sdk_modulo.rs` (`chave_do_sdk`) | E1.0 |
+| o passe sobre a HIR já otimizada: sítios, pousos, saídas por exceção | `EN/otimizar/tabelas.rs`, `EN/hir.rs` (`TabelasDaFuncao`, `SaidaPorExcecao`, `Module::tabelas`) | E1.2 |
+| `invoke`/`landingpad`, restauração do topo, `@df.lancar`, a saída guardada, o estouro de pilha | `EN/llvm/mod.rs` (`tornar_invoke`, `EXCECOES_POR_TABELAS`, os terminadores) | E1.2 |
+| as 16 portas, a tabela `@df.portas`, o registro e a entrada do programa pelas portas | `EN/llvm/mod.rs` (`emitir_portas`, `chamada_de_entrada`, `emit_entry`, `chamar_main`) | E1.4 |
+| a entrada C do callback do `dart:ffi` com pouso próprio | `EN/llvm/mod.rs` (`emit_callbacks_ffi`) | E1.4 |
+| a personalidade SEH, o leitor da LSDA, o registro das portas e as chamadas `dart_r<n>`/`dart_v<n>` | `RT/excecoes_tabelas.rs` | E1.3, E1.4 |
+| os pontos em que o runtime chama Dart, todos pelas portas | os 34 `transmute` de ajudantes, `RT/closures.rs`, `RT/nucleo.rs`, `RT/eventos.rs`, `RT/portas.rs`, `RT/nativos_listas.rs` | E1.4 |
+| `RaiseException` e `RtlUnwindEx` nas importações do `kernel32` | `EN/ligador_windows.rs` | E1.2, E1.3 |
+| `optsize` antes da personalidade na linha do `define` | `EN/sdk_modulo.rs` (`com_optsize`) | E1.2 |
+
+**Como ficou diferente do texto acima.**
+
+1. **O lowering não muda.** O §15.1 previa `emit_call_with_check` seguindo a tabela do §13.2. Em vez
+   disso há um passe (`otimizar::excecoes_por_tabelas`) que roda **depois** de `otimizar::otimizar` e
+   reescreve a forma de conferência que sai dele. Os passes existentes (`efeitos`, `simplificar`,
+   `inline`, `escape`) continuam vendo só a forma de conferência, e a máquina de estados `async` (§13.13)
+   cai na regra geral sem código próprio. A decisão por chamada é a do §13.2, com um caso a mais:
+   * chamada direta (`CallStatic`, `ChamadaTipada`) conferida, tratador que só devolve o padrão:
+     a conferência some, `call` puro;
+   * chamada direta conferida, tratador de verdade: a conferência some, `invoke`, o pouso desvia ao
+     tratador (e entra nos φ dele no lugar do bloco da chamada);
+   * chamada de closure ou por seletor (podem voltar pendentes: a entrada inválida e a de
+     `noSuchMethod` são do runtime), tratador que só devolve o padrão: nada muda;
+   * **qualquer outra forma**: emulação exata. A chamada vira `invoke`, o pouso continua no ponto
+     seguinte à chamada, e um φ dá ao resultado o valor padrão no caminho do pouso — o que a chamada
+     devolvia em `checagem`, com a exceção pendente.
+2. **Como cada `Return` sai** é decidido por fluxo de dados da pendência (limpa, ligada, talvez), não
+   pela posição no lowering: ligada vira `@df.lancar`; talvez vira a leitura da pendência seguida de
+   `@df.lancar` ou `ret`. A entrada da função é "limpa" e a de um pouso, "ligada".
+3. **`dartforge_exception_clear` que não limpa** (o desenrolar do isolado) é seguido de `@df.lancar`:
+   é o `desenrola:` do §13.5, posto no próprio ponto da limpeza.
+4. **`@df.lancar` é `internal`**, uma cópia por módulo (e por parte de um módulo dividido), em vez de
+   `linkonce_odr`: não precisa de `comdat` nem de regra nova no particionador.
+5. **Dezesseis portas, por aridade**, em vez de oito por assinatura: `@df.porta.v<n>` e `@df.porta.r<n>`,
+   `n` de 0 a 7, no índice `2n + (1 se devolve)`. Ponteiros passam como palavras. As portas são
+   registradas uma vez, no começo de `dartforge_entry` (são endereços de código do processo inteiro).
+   O arquivo do runtime é um só (`excecoes_tabelas.rs`); não há `chamar_dart.rs`.
+6. **Sem features do Cargo e sem marcador de ABI** (§5.1, §5.4). O runtime é o mesmo nos dois modos: a
+   personalidade está sempre compilada e sem porta registrada as chamadas vão direto. A mistura de
+   modos entre o programa e o SDK é impedida pela chave do SDK.
+7. **O getter de tipo** (`df.rti.…`, chamado sem conferência em `lower/rti.rs`) fica `call` puro: se
+   lançar, o desenrolamento atravessa quem chamou.
+
+**O que falta da Etapa 1.**
+
+* **Rodar.** Nada foi compilado. A ordem de verificação é a do §15.1: os testes de unidade de
+  `pouso_da_lsda` (escritos em `RT/excecoes_tabelas.rs`), os programas dirigidos de E1.2 e E1.4, o corpus
+  nativo com e sem `--gc-stress`, o e2e do `new_sali/backend`, e as medidas do §8.
+* **E1.1** está escrito: `crates/runtime/efeitos.tsv` (uma linha por extern, conferida pelo `build.rs`
+  do runtime e lida pelo emissor), a conferência da pendência só depois da extern que lança
+  (`emit_call_with_check`; `DARTFORGE_SEM_EFEITOS_NA_CONFERENCIA=1` volta atrás) e o modo
+  `DARTFORGE_EFEITOS=conferir` (`RT/efeitos_conferir.rs`). As marcas são as que o emissor já supunha:
+  nenhuma passou de 1 para 0, porque isso exige a execução que a confere (§13.8).
+* No modo `tabelas`, a limpeza da pendência onde ela está comprovadamente limpa sai
+  (`EN/otimizar/tabelas.rs`), e a função que chama código Dart continua conferindo a pilha no prólogo
+  (`TabelasDaFuncao::confere_pilha`).
+* **O `grep` do CI** contra `transmute` para `extern "C" fn` fora de `excecoes_tabelas.rs`: não feito.
+* **Os perfis do diferencial** (`aot-tabelas`): não feitos; a variável `DARTFORGE_EXCECOES` já basta
+  para rodar o harness no modo.
+* **O rastro no formato da VM** (§13.14): não feito; não é passo do §15.1.
+* **Linux e macOS** (a personalidade Itanium do §13.11): Etapa 4.
+
+---
+
+## 14. Etapa 2 em nível de implementação: raízes por mapas (B0/B1)
+
+Detalha o §3. O desenho é o do `x7` (formato do LLVM) e do `x12` (formato compacto), que rodam.
+
+### 14.1 O IR que o emissor passa a gerar
+
+Cabeçalho do módulo e de cada função gerada:
+
+```llvm
+target datalayout = "…-S128-ni:1"                       ; -ni:1 = addrspace(1) é não integral
+define ptr addrspace(1) @f(ptr addrspace(1) %x) gc "statepoint-example" { … }
+declare void @rt_confere(ptr addrspace(1)) "gc-leaf-function"     ; extern com coleta = 0 na tabela de efeitos
+```
+
+Regras, cada uma exercitada no `x7` ou no `x9`:
+
+| valor | sombra (hoje) | mapas |
+|---|---|---|
+| referência (`Ref`) | `i64` | `ptr addrspace(1)` |
+| null | `i64 0` | `ptr addrspace(1) null` |
+| `Smi` de `v` | `(v << 1) \| 1` | `inttoptr i64 ((v << 1) \| 1) to ptr addrspace(1)` |
+| é `Smi`? | `and 1` | `ptrtoint` + `and 1` |
+| valor do `Smi` | `ashr 1` | `ptrtoint` + `ashr 1` |
+| objeto estático | `ptrtoint (@g) + 2` | `getelementptr (i8, ptr addrspace(1) @g, i64 2)`, com `@g` em `addrspace(1)` |
+| campo `k` | aritmética em `i64` + `inttoptr` | `getelementptr i8, ptr addrspace(1) %h, i64 (14 + 8k)` + `load` |
+| `identical` | `icmp eq i64` | `icmp eq ptr addrspace(1)` |
+| chamada que coleta | `call` + slots da pilha-sombra | `call` comum; o RS4GC a transforma em statepoint |
+| chamada que não coleta | `call` | `call` com `"gc-leaf-function"` no destino |
+
+`inttoptr` para `addrspace(1)` só aparece nos três casos do C2. Um verificador do IR do emissor confere
+(§7.4): varre o módulo antes do RS4GC e recusa qualquer outro.
+
+O emissor faz isso por **funções de conversão** (passo E2.0 do §6): cada ponto de `EN/llvm/*.rs` que
+hoje escreve `i64` para um `Ref` chama `ctx.tipo_ref()`, `ctx.smi(v)`, `ctx.campo(h, k)` etc., que no
+modo sombra devolvem exatamente o texto de hoje. O critério do passo é **IR idêntico byte a byte** no
+modo sombra, conferido pelo determinismo do corpus (`dartforge-diferencial determinismo --nativo`).
+
+### 14.2 O pipeline
+
+O do `x7\run.sh`, que roda:
+
+```sh
+opt -passes='default<O2>,rewrite-statepoints-for-gc,verify' prog.ll -o prog.rs.bc
+llc -O2 -filetype=obj prog.rs.bc -o prog.obj
+python gcmap.py prog.obj prog_v1.obj          # conversor do mapa (x12); no produto, em Rust
+clang rt.obj prog_v1.obj -o x.exe -fuse-ld=lld
+```
+
+* RS4GC **depois** do O2. As variantes `o0`/`o0b` do `x7` (sem O2 antes) também passam e deixam mais
+  raízes no mapa (3.251 visitas contra 3.201). A medida das duas ordens em programa real é o passo E2.3.
+* No produto, `opt` e `llc` são chamadas em processo pela API C (`crates/llvm`): `LLVMRunPasses` com a
+  mesma cadeia de passes e `LLVMTargetMachineEmitToMemoryBuffer`. **Não lido nesta rodada:** se
+  `crates/llvm` já expõe as duas chamadas.
+* ThinLTO: pendente (`x10` não concluído; item 6 do §11).
+
+### 14.3 `.llvm_stackmaps` versão 3, byte a byte
+
+Como o `llc` 22.1.8 o emite no COFF x64 (`llvm-readobj --stackmap x7\prog.obj`), little-endian:
+
+```text
+cabeçalho (16 bytes)
+  u8  versão = 3;  u8 reservado = 0;  u16 reservado = 0
+  u32 n_funcoes;   u32 n_constantes;  u32 n_registros
+n_funcoes × StkSizeRecord (24 bytes)
+  u64 endereço da função        ; relocação ADDR64 no objeto (IMAGE_REL_AMD64_ADDR64 = 1), uma por função
+  u64 tamanho do quadro         ; 0xFFFF…FFFF = dinâmico
+  u64 n_registros da função
+n_constantes × u64
+registros, na ordem das funções; cada um:
+  u64 id                        ; 2882400000 (0xABCDEF00), o id padrão do RS4GC; inútil
+  u32 deslocamento da instrução ; relativo ao início da função: o endereço de retorno
+  u16 reservado
+  u16 n_locais
+  n_locais × local (12 bytes)
+    u8 tipo; u8 reservado; u16 tamanho; u16 registrador DWARF; u16 reservado; i32 deslocamento ou constante
+  enchimento até múltiplo de 8
+  u16 enchimento; u16 n_live_outs
+  n_live_outs × { u16 registrador; u8 reservado; u8 tamanho }
+  enchimento até múltiplo de 8
+```
+
+Tipos de local: 1 `Register`, 2 `Direct`, 3 `Indirect` (`[reg + desloc]`), 4 `Constant`, 5 `ConstIndex`.
+
+Num registro de statepoint, os locais são:
+
+1. três `Constant`: convenção de chamada, bandeiras, **número de locais de `deopt`**;
+2. os locais de `deopt` (zero no nosso caso);
+3. pares **(base, derivado)**, um par por ponteiro vivo.
+
+Exemplo real (`constroi`, quadro 72): `Constant 0`, `Constant 0`, `Constant 0`, `Indirect [R#7 + 48]`,
+`Indirect [R#7 + 48]`, `Indirect [R#7 + 40]`, `Indirect [R#7 + 40]`. `R#7` é o RSP. São duas raízes,
+cada uma com base igual ao derivado.
+
+No módulo do `x7`: 5 funções, 13 registros, 1.280 bytes, **98,5 bytes por registro**.
+
+Vários objetos ligados deixam vários blobs concatenados na seção, com enchimento de zeros entre eles;
+o leitor do `x7` avança enquanto o byte é 0 e exige `versão == 3`. Na imagem PE o nome da seção sai
+cortado, `.llvm_st` (o `x7` a acha por esse prefixo).
+
+### 14.4 O mapa compacto DFGM v1 (substitui o layout do §3.5)
+
+O layout do §3.5 foi ajustado no `x12`: o tamanho do quadro e o número de registros foram para dentro do
+fluxo, e o cabeçalho ganhou o tamanho total do blob (para saltar de um blob ao seguinte). Vale este:
+
+```text
+cabeçalho (16 bytes)
+  "DFGM"
+  u8  versão = 1
+  u8  alvo                 ; 1 = x86-64
+  u16 bandeiras = 0
+  u32 tamanho total do blob em bytes (múltiplo de 4)
+  u32 n_funcoes
+índice: n_funcoes × 8 bytes
+  u32 rva da função        ; relocação relativa à base da imagem (COFF: IMAGE_REL_AMD64_ADDR32NB = 3)
+  u32 início no fluxo      ; relativo ao primeiro byte depois do índice
+fluxo de varints (LEB128 sem sinal), por função:
+  varint n_registros
+  varint tamanho_do_quadro / 8          ; 0 = dinâmico
+  n_registros ×
+    varint delta do deslocamento de retorno (em relação ao registro anterior da função; o 1º, ao início)
+    varint cabeçalho
+       bit 0 = 1: o conjunto de raízes é o do registro anterior (nada mais a ler)
+       bit 0 = 0: (cabeçalho >> 1) = n_raizes, seguido de
+          n_raizes × varint s
+             bit 0 de s = base: 0 = SP, 1 = FP
+             s >> 1 = zigzag(delta do slot em palavras de 8 bytes em relação ao slot anterior; o 1º, a 0)
+enchimento com zeros até múltiplo de 4
+```
+
+Regras do conversor (as do §3.5, agora exercitadas):
+
+* de cada par (base, derivado) só a base entra; bases repetidas no registro são deduplicadas;
+* locais `Constant` e `ConstIndex` são descartados;
+* local `Register` ou `Direct`, ou tamanho diferente de 8, ou registrador que não seja o SP nem o FP do
+  alvo: **erro de compilação** ("local recusado");
+* as raízes de um registro são ordenadas por (base, deslocamento) antes de codificar, o que maximiza a
+  repetição entre registros vizinhos;
+* dois registros no mesmo deslocamento de retorno: erro;
+* o deslocamento do slot tem de ser múltiplo de 8: erro se não for;
+* depois de codificar, decodifica e compara com o original (ida e volta); diferença é erro.
+
+Medido no `x7\prog.obj`: 1.280 → 104 bytes, **8,0 bytes por registro** (o módulo é pequeno; o índice de
+8 bytes por função pesa 40 dos 104).
+
+No objeto COFF, o conversor (`x12\gcmap.py`, a portar para Rust em `EN/gcmap.rs`):
+
+1. lê a seção `.llvm_stackmaps` e as relocações dela (uma `ADDR64` por função, no campo de endereço do
+   `StkSizeRecord`);
+2. sobrescreve o conteúdo com o blob (sempre menor) e ajusta `SizeOfRawData`;
+3. renomeia a seção para `.dfgcm$m` (8 bytes exatos) e põe alinhamento 4;
+4. troca cada relocação por uma `ADDR32NB` no campo `rva` da função correspondente no índice.
+
+O runtime declara os marcadores `.dfgcm$a` e `.dfgcm$z`; o `lld-link` ordena as contribuições entre
+eles. O leitor percorre de um marcador ao outro, salta de 4 em 4 bytes enquanto não acha `"DFGM"`
+(enchimento entre contribuições), e avança pelo campo de tamanho total.
+
+### 14.5 Índice e busca em tempo de execução
+
+```rust
+// RT/gc_mapas.rs (novo)
+struct Funcao { inicio: usize, fluxo: *const u8 }          // 16 bytes por função gerada
+struct Imagem { base: usize, funcoes: Vec<Funcao> }         // ordenado por `inicio`
+
+/// Visita as raízes do quadro da função que começa em `inicio`, parado no endereço de retorno `ret`.
+/// Devolve false se a função não tem mapa (runtime, C, sistema).
+fn visitar_quadro(img: &Imagem, inicio: usize, ret: usize, sp: usize, fp: usize, f: &mut dyn FnMut(*mut i64)) -> bool
+```
+
+* O índice é montado uma vez por imagem em `dartforge_registrar_mapa(inicio, fim)`; o fluxo é
+  decodificado sob demanda, por função.
+* A busca é por **início da função**, que o percorredor já tem (`ImageBase + FunctionEntry.BeginAddress`
+  no Windows; `_Unwind_GetRegionStart` no Itanium). Não há busca por endereço de retorno em tabela
+  global.
+* Dentro da função, percorre os registros somando os deltas até o deslocamento do retorno.
+* **A regra do `nop`.** No Windows x64 foi observado que, em parte das chamadas, o byte no endereço de
+  retorno é um `nop` (`0x90`) e o registro do mapa aponta **depois** dele (a causa, o `nop` que o backend
+  põe depois de certos `call` para o desenrolador do Windows, não foi lida na fonte do LLVM). O
+  leitor aceita `deslocamento == alvo`, ou `deslocamento == alvo + 1` quando o byte no endereço de
+  retorno é `0x90`. No `x12`, 50 das consultas casaram pela segunda forma. Sem ela, o `x12` aborta com
+  "função com mapa sem registro exato". Isto corrige o §3.5 ("registro exato, sem tolerância"): a
+  tolerância é de um byte e condicionada ao `nop`.
+* Função com mapa e sem registro para o endereço de retorno: aborta. É defeito do emissor ou do
+  conversor.
+
+### 14.6 O percorredor no Windows x64
+
+O do `x7`/`x12`, que roda:
+
+```rust
+#[inline(never)]
+fn percorrer_pilha(f: &mut dyn FnMut(*mut i64)) {
+    let mut ctx: CONTEXT = zeroed(); RtlCaptureContext(&mut ctx);
+    let (lo, hi) = limites_da_pilha();                       // GetCurrentThreadStackLimits
+    loop {
+        let mut base = 0u64;
+        let fe = RtlLookupFunctionEntry(ctx.Rip, &mut base, null_mut());
+        if fe.is_null() { break; }                           // folha sem .pdata ou fim da pilha
+        let sp_antes = ctx.Rsp;
+        RtlVirtualUnwind(UNW_FLAG_NHANDLER, base, ctx.Rip, fe, &mut ctx, &mut hd, &mut est, null_mut());
+        // agora ctx descreve o quadro CHAMADOR: Rip = endereço de retorno nele, Rsp = SP dele na chamada
+        if ctx.Rip == 0 || ctx.Rsp <= sp_antes || ctx.Rsp < lo || ctx.Rsp >= hi { break; }
+        let fe2 = RtlLookupFunctionEntry(ctx.Rip, &mut base2, null_mut());
+        if fe2.is_null() { continue; }
+        let inicio = base2 + (*fe2).BeginAddress as u64;
+        visitar_quadro(imagem_de(inicio), inicio, ctx.Rip, ctx.Rsp, ctx.Rbp, f);
+    }
+}
+```
+
+* Os locais `Indirect [RSP + d]` são relativos ao `Rsp` do quadro Dart **no ponto da chamada**, que é o
+  `ctx.Rsp` depois de desenrolar o quadro chamado. Foi isso que o `x7` usou e as 3.201 raízes visitadas
+  estavam todas corretas (nenhuma "raiz inválida", nenhum "uso depois de liberar").
+* Os quadros Rust do runtime entre a coleta e o primeiro quadro Dart não têm mapa: `visitar_quadro`
+  devolve `false` e o percurso segue.
+* As condições de parada são as do `x7`. Uma anomalia (SP que não cresce, fora dos limites) encerra o
+  percurso; no modo de verificação, aborta.
+* O quadro-sombra residual (§3.7) e os frames de `com_raizes` são visitados à parte, como hoje.
+
+No `x7`, com coleta em toda alocação: 351 coletas, 3.681 quadros percorridos, 1.876 com mapa, 3.201
+raízes visitadas, 300 objetos mortos e envenenados, nenhum acessado depois. Em B1 (`teste_excecao`), a
+exceção atravessa 50 quadros com raízes vivas, o pouso aloca (coleta) e depois usa a lista: resultado
+1.232, o esperado.
+
+### 14.7 As sabotagens que os testes têm de pegar
+
+| sabotagem | efeito observado |
+|---|---|
+| marcar `"gc-leaf-function"` numa extern que coleta (`x7\sab.ll`: `@rt_novo`) | o mapa cai de 13 para 9 registros e a primeira coleta aborta com "raiz para objeto morto" |
+| pouso sem restaurar o topo da pilha-sombra (`x16\a1_sab.ll`) | "quadro de raízes morto na pilha-sombra", código 3 |
+| leitor sem a regra do `nop` (`x12`, antes da correção) | "função com mapa sem registro exato", código 5 |
+
+Cada uma vira um teste do §7.3 que **tem de falhar** com a sabotagem ligada.
+
+### 14.8 A forma implementada: raízes por mapas sem trocar a representação (2026-10-04)
+
+O §14.1 troca a representação de `Ref` para `ptr addrspace(1)` no emissor inteiro. O que está escrito no
+código é uma forma menor, que chega ao mesmo mapa de pilha e **não** mexe na representação. Ela só é
+possível porque o coletor não move objetos.
+
+**A ideia.** O valor `Ref` continua `i64` em todo o código gerado. Cada valor SSA enraizado (vivo na
+entrada de algum ponto de coleta, a mesma análise de `EN/llvm/raizes.rs`) ganha, logo depois da
+definição, um ponteiro com os mesmos bits:
+
+```llvm
+%raiz7 = inttoptr i64 %v7 to ptr addrspace(1)
+```
+
+Depois de cada ponto de coleta, o emissor mantém vivo o que estava vivo na **entrada** dele (os
+operandos inclusive, que é o contrato C1):
+
+```llvm
+%v9 = call i64 @dartforge_string_concat(i64 %v7, i64 %v8)
+call void (...) @llvm.fake.use(ptr addrspace(1) %raiz7)
+call void (...) @llvm.fake.use(ptr addrspace(1) %raiz8)
+```
+
+A função com algum valor enraizado sai com `gc "statepoint-example"`. O `rewrite-statepoints-for-gc`
+vê `%raiz7` vivo através da chamada, transforma a chamada em statepoint e põe `%raiz7` no `gc-live`; o
+gerador de código o derrama num slot do quadro e o registra no `.llvm_stackmaps`. O código continua
+lendo `%v7`, que pode ficar em registrador preservado: o `gc.relocate` só alimenta o `fake.use`, que
+não gera instrução.
+
+**O experimento que sustenta a forma** (`E:\dftemp\spec-mapas\r3\h1`, LLVM 22.1.8, só `opt` e `llc`;
+é o experimento E2.1 do §15.2): com `default<O2>,rewrite-statepoints-for-gc,verify`, o `llvm.fake.use`
+sobrevive ao O2, o `inttoptr` para `addrspace(1)` com `-ni:1` passa pelo verificador, e os três
+statepoints do exemplo saem com os valores esperados no `gc-live`. O objeto COFF tem os registros com
+`Indirect [RSP + 32]` e `[RSP + 40]`. No código, cada raiz custa um `mov` para o slot antes da primeira
+chamada e uma carga morta depois de cada chamada; o valor usado pelo programa fica em `rsi`/`rdi`, sem
+recarga.
+
+**O que existe.**
+
+| peça | onde |
+|---|---|
+| a chave `--raizes=sombra\|mapas` e `DARTFORGE_RAIZES`; recusa fora do Windows x86-64, sem o gerador embutido e no JIT; o modo na chave do SDK | `crates/cli/src/nativo.rs`, `EN/alvo.rs` (`raizes_por_mapas`), `EN/lib.rs`, `EN/sdk_modulo.rs` |
+| a vivacidade por ponto de coleta, por fim de bloco e por entrada de bloco | `EN/llvm/raizes.rs` (`analisar`, `Raizes`) |
+| `-ni:1` no datalayout, `gc "statepoint-example"`, `%raiz<v>`, `llvm.fake.use`, `"gc-leaf-function"` nas externs que não coletam e em cinco ajudantes `@df.*`, `landingpad token cleanup` nas funções `gc` | `EN/llvm/mod.rs` (`raiz_no_mapa`, `manter_vivos`, `ajudantes_folha`) |
+| o passe depois do pipeline, com o verificador, e o gerador de código nunca em `-O0` nas funções `gc` | `crates/llvm/src/lib.rs` (`gerar`, `MARCA_DE_GC`) |
+| recusa do gerador Clang (não roda o passe: o objeto sairia sem mapa); o conversor do mapa no objeto | `EN/gerador.rs`, `EN/gcmap.rs` |
+| o registro da imagem (`dartforge_registrar_mapa(@__ImageBase)`) em cada módulo | `EN/llvm/seletores.rs` (`emitir_registro`), `RT/gc_raizes.rs` |
+| os leitores do mapa compacto (`.dfgcm`) e do `.llvm_stackmaps` v3 (`.llvm_st`) da imagem, e o percorredor (`RtlVirtualUnwind`), com a regra do `nop` | `RT/heap.rs` (`ler_dfgm`, `ler_stackmaps`, `visitar_quadros_por_mapas`) |
+
+**Regras da forma.**
+
+1. **Mistura por função.** Só os valores SSA vão para o mapa. Os `alloca` `Ref` (o local cujo endereço
+   escapa, e o que o `mem2reg` da HIR não promoveu) continuam no quadro da pilha-sombra da função, que é
+   o quadro residual do §3.7. A coleta visita as duas fontes sempre.
+2. **Folhas.** A extern com `coleta = 0` e `roda_dart = 0` em `efeitos.tsv` é declarada
+   `"gc-leaf-function"`; também `@df.corpo`, `@df.barreira`, `@df.barreira_elemento`, `@df.e_objeto`,
+   `@df.filho_jovem` e `@df.lancar`. Toda outra chamada numa função `gc` vira statepoint.
+3. **Pouso.** Numa função `gc` o pouso é `landingpad token cleanup` (a forma do `x7`), e os valores
+   vivos na entrada do pouso recebem `fake.use` nele: é o que os deixa vivos através do `invoke` no
+   caminho de exceção.
+4. **Sem inlining depois do passe.** Na produção com LTO o passe roda no fim do `lto-pre-link<O2>`; daí
+   em diante uma chamada que pode coletar é um statepoint e não é mais embutida. É correto (a chamada a
+   uma função sem `gc` também é statepoint em quem chama), e custa o inlining entre o programa e o SDK
+   na ligação. O ThinLTO distribuído do §3.4 é o que devolve isso.
+5. **O mapa compacto.** O objeto que o gerador embutido emite passa pelo conversor
+   (`EN/gcmap.rs`, o porte do `gcmap.py` do `x12`): o `.llvm_stackmaps` vira `.dfgcm$m` no formato DFGM v1
+   do §14.4, com a ida e volta conferida. O runtime lê a seção `.dfgcm` (`RT/heap.rs`, `ler_dfgm`) e
+   também a `.llvm_st` crua, que é o que sobra nos objetos que não passam pelo conversor: os que o
+   `lld` gera na LTO da produção (cerca de 98 bytes por registro, §14.3). Tirar isso da produção é o
+   ThinLTO distribuído da Etapa 3. `DARTFORGE_SEM_MAPA_COMPACTO=1` deixa o mapa do LLVM (medida).
+6. **Uma imagem compilada em `mapas` sem a seção `.llvm_st`** encerra o processo na partida, com
+   mensagem: sem o mapa, toda raiz daquela imagem estaria perdida.
+
+**O que falta da Etapa 2.**
+
+* **Rodar.** Nada foi compilado nem executado além do experimento `h1`.
+* O orçamento `vivos × safepoints` por função (§3.4) e a queda para a pilha-sombra acima do teto.
+* A conferência cruzada mapa × pilha-sombra do E2.5 e as sabotagens do §14.7.
+* O ThinLTO distribuído (Etapa 3) e os demais alvos (Etapa 4).
+
+---
+
+### 14.9 Etapa 3, E3.1: o ThinLTO distribuído (2026-10-04, escrito sem compilar)
+
+A produção em partes com `--raizes=mapas` deixou de ser recusada e passou a ter caminho próprio.
+
+| peça | onde |
+|---|---|
+| a entrada que recebe o bitcode **depois** do backend do ThinLTO e roda só `rewrite-statepoints-for-gc,verify` e o gerador de código (nunca o do `-O0`); `bitcode_com_mapas` | `crates/llvm/src/lib.rs` (`gerar_de_bitcode`, `Contexto::ler_bytes`) |
+| os quatro passos do §3.4: índices (`lld-link /thinlto-index-only` com a linha de ligação inteira), backend por parte (`clang -x ir <parte> -fthinlto-index=<índice> -emit-llvm -c`), fecho em processo com o conversor do mapa compacto, objetos nativos em paralelo (`tarefas_de_geracao`) | `EN/lto_distribuida.rs` (`objetos`, `Pedido`) |
+| o cache por parte, com a chave no bitcode depois da importação, na CPU e no modo do mapa | `EN/cache_objeto.rs` (`chave_de_bytes`), `EN/lto_distribuida.rs` |
+| o Clang aceita IR com `gc "statepoint-example"` quando a saída é bitcode (a parte que vai para o ThinLTO distribuído) | `EN/gerador.rs` |
+| a escolha do caminho e a ligação final só com objetos, sem LTO no ligador | `EN/driver.rs` (`ligar_distribuida`, `SEM_LTO_NA_LIGACAO`) |
+
+Com isso a produção em partes sai com o mapa compacto DFGM em todos os objetos (o conversor roda em
+cada um), e o passe dos mapas roda depois do inlining entre o programa e o SDK: são as duas perdas que a
+regra 4 e a regra 5 do §14.8 registravam.
+
+**Não verificado** (nada foi executado): que o `clang -x ir` preserva o `-ni:1` do datalayout do módulo
+no backend do ThinLTO; o que o `lld-link /thinlto-index-only` faz com um bitcode sem resumo (o do
+gerador embutido) — o fecho o trata sem índice, otimizado sozinho; o tempo com as dezenas de partes de
+um programa grande; o caminho pelo `/thinlto-distributor:`. O passo 2 não tem cache: o índice de uma
+parte não resume o conteúdo do que ela importa.
+
+**Continua faltando da Etapa 3:** E3.3 (as medidas no `new_sali/backend`, que decidem se o modo vira
+padrão). A decodificação preguiçosa foi escrita em 2026-10-05 (§14.10).
+
+### 14.10 Etapas 2, 3 e 4: o que foi escrito em 2026-10-05 (sem compilar nem executar)
+
+**Etapa 2, o que faltava.**
+
+| peça | onde |
+|---|---|
+| o orçamento `vivos × pontos de coleta` por função (§3.4): acima do teto a função fica inteira na pilha-sombra, sem `gc` (o quadro residual do §3.7); `DARTFORGE_ORCAMENTO_MAPAS=<n>` (padrão 250 000, na chave do SDK); `DARTFORGE_RELATORIO_MAPAS=1` lista as funções fora | `EN/llvm/mod.rs` (`emit_function`), `EN/alvo.rs` (`orcamento_dos_mapas`) |
+| o build de conferência do E2.5: com `DARTFORGE_RAIZES_CONFERIR=1` na compilação, cada função `gc` ganha, no fim do quadro da pilha-sombra, um slot por vivo do maior ponto de coleta, gravados com **exatamente** os vivos de cada ponto antes dele (zero nos demais); o campo `n` do quadro leva o número deles nos bits 40 em diante. Com `DARTFORGE_GC_PERCURSO=conferir` na execução, cada coleta exige que toda raiz desses slots esteja entre as que o percurso por mapas visitou, e uma anomalia do percurso aborta | `EN/llvm/mod.rs` (`gravar_conferencia`, `cabecalho_do_quadro`), `RT/heap.rs` (`conferir_percurso`, `visitar_slots_de_conferencia`) |
+| as sabotagens (`DARTFORGE_SABOTAGEM`, na chave do SDK): `folha:<extern>`, `pouso_sem_topo`, `sem_uso_ficticio`, `bruto_no_mapa` no emissor; `sem_nop` no runtime | `EN/alvo.rs` (`sabotagem`), `EN/llvm/mod.rs`, `RT/heap.rs` |
+| a recusa do conversor e do leitor para constante par não nula como raiz (§3.5) | `EN/gcmap.rs`, `RT/heap.rs` (`decodificar_funcao`) |
+| os instrumentos do §7.5: a prova de que coletou (`dartforge_gc_estatisticas`, e `DARTFORGE_GC_STATS=exigir`, que sai com 70 sem coleta ou sem raiz lida de mapa), a coleta agendada por semente (`DARTFORGE_GC_AGENDA=<semente>,<taxa>`) e o veneno com quarentena (`DARTFORGE_GC_VENENO=1` ou `=<n>` blocos) | `RT/gc_raizes.rs`, `RT/nucleo.rs`, `RT/heap.rs` (`Agenda`), `RT/espaco.rs` (`Quarentena`) |
+| os testes dirigidos D1, D2, D3, D4, D6, D7, D10, D11, D13 e D14, cada um com a saída calculada e, quando o §7.3 dá uma sabotagem implementável, o teste que exige a falha com ela; a conferência do E2.5 e a agenda | `corpus/nativo/gc_d*.dart`, `crates/cli/tests/mapas_dirigidos.rs` (com `DARTFORGE_TESTES_MAPAS=1`) |
+
+Do veneno: o bloco morto recebe a palavra `0xDFDF_DFDF_DFDF_DFDE` (o estado lido é `0xDE`, que a
+validação de handle recusa com "bloco envenenado") e só volta à lista livre depois que outros `n` blocos
+morreram; a varredura completa trata o bloco em quarentena como ocupado (não o devolve e segura a página).
+O veneno liga a validação de handle.
+
+Não ficou: D5 (a sabotagem `undef` no lugar de `null` não existe no emissor), D8 e D9 (as sabotagens
+"reduzir a folga" e "chamar Dart sem a porta"), D12 (o registro dos caches do runtime), e o contador por
+extern do D7 (o D7 usa a sabotagem `folha:` sobre o D1). O verificador do IR do §7.4 não foi escrito.
+
+**Etapa 3, E3.2: a decodificação preguiçosa.** O índice de cada imagem guarda, por função, o começo e onde
+está a descrição dela (o fluxo DFGM ou o primeiro registro do `.llvm_stackmaps`); os registros de uma
+função só são decodificados na primeira consulta a ela (`OnceLock`). A busca é pela função de maior começo
+que não passa do endereço de retorno; o percorredor passa também o começo exato que o desenrolador conhece
+(o `BeginAddress` do `.pdata`, o `_Unwind_GetRegionStart`), e uma função com mapa sem registro para o
+endereço aborta (§14.5), com a regra do `nop` no Windows x64.
+
+**Etapa 4, Linux e macOS (x86-64 e aarch64).**
+
+* **O percurso:** `_Unwind_Backtrace`; o SP de um quadro no ponto da chamada é o CFA do quadro anterior
+  do percurso (o chamado), o FP é o `x29`/`rbp` restaurado nele (`_Unwind_GetGR`), o começo da função é o
+  `_Unwind_GetRegionStart`. O runtime passa a ser compilado com `-C force-unwind-tables=yes` nesses alvos
+  (`EN/build.rs`), também nas variantes com `panic=abort`.
+* **Linux:** o conversor reescreve o objeto ELF (`EN/gcmap.rs`, `converter_elf`): a seção vira `dfgcm`
+  com `SHF_ALLOC | SHF_GNU_RETAIN`, alinhamento 4, e o índice passa a ter, por função, o endereço dela
+  menos o do próprio campo (bandeira 1 do DFGM; `R_X86_64_PC32`, `R_AARCH64_PREL32`), sem relocação
+  dinâmica no executável PIE. A conversão é obrigatória no ELF: o mapa do LLVM tem relocações absolutas de
+  64 bits numa seção só de leitura, que o `ld.lld` recusa no PIE. O módulo registra a seção com
+  `dartforge_registrar_mapa_secao(@__start_dfgcm, @__stop_dfgcm)`. A biblioteca compartilhada do SDK de
+  desenvolvimento liga com `-Bsymbolic-functions` (a relocação relativa contra função exportada exige
+  ligação local). A produção vai sempre pelo ThinLTO distribuído, que o `ld.lld` aceita
+  (`--thinlto-index-only`, conferido na ajuda do 22.1.8), inclusive o programa de um módulo só; no
+  bitcode da produção o passe dos mapas sai da pré-ligação e roda no fecho do ThinLTO distribuído.
+* **macOS:** o `ld64.lld` 22.1.8 não tem `--thinlto-index-only` (conferido na ajuda), mas tem
+  `--lto-newpm-passes`: a produção usa a LTO do ligador com `lto<On>,rewrite-statepoints-for-gc,verify`
+  (`EN/ligador_macos.rs`), e o passe sai da pré-ligação do bitcode. O mapa fica no formato do LLVM
+  (`__LLVM_STACKMAPS,__llvm_stackmaps`, com os endereços absolutos que o carregador ajusta), cada módulo
+  com função `gc` leva `module asm ".no_dead_strip __LLVM_StackMaps"` para o `-dead_strip` não o tirar (a
+  solução do Perry), e o módulo registra a seção com `dartforge_registrar_mapa_llvm` pelos símbolos
+  `section$start$…`/`section$end$…`. Custo conhecido: o mapa no macOS tem o tamanho do formato do LLVM.
+* **O `-ni:1`** entra também nos módulos sem cabeçalho (macOS, Linux aarch64), pelo gerador embutido,
+  quando o módulo tem função `gc` (`crates/llvm`, `completar_alvo`).
+* `alvo::raizes_por_mapas` aceita esses alvos.
+
+**Não verificado** (nada foi executado): a fórmula do SP pelo CFA nos quatro alvos (§3.6 pede derivá-la por
+teste); que o `.no_dead_strip` sobrevive à LTO do `ld64.lld`; que `lto<On>` vale em `--lto-newpm-passes` e
+roda nos módulos do ThinLTO; que o `ld.lld --thinlto-index-only` aceita a linha de ligação inteira do
+Linux; a codificação do `dfgcm` contra o `--icf=safe`; e tudo o que só a execução mostra.
+
+**Etapa 4, o JIT (§3.8).** Com `DARTFORGE_RAIZES=mapas`, a sessão do `LLJIT` (`crates/jit/src/ffi.rs`):
+
+* gera código com `CodeGenLevelLess` (nunca o FastISel do `-O0`);
+* roda `rewrite-statepoints-for-gc,verify` em cada módulo pela camada de transformação de IR, e no
+  objeto em cache (`compile_object`) antes da emissão;
+* liga os objetos pela camada RTDyld (`LLVMOrcCreateRTDyldObjectLinkingLayerWithMCJITMemoryManagerLikeCallbacks`)
+  com um gerenciador de memória próprio (`ObjetoNoJit`): uma região de 256 MiB de endereço por objeto, o
+  código numa metade e os dados na outra; acha a seção do mapa pelo nome na alocação (`.llvm_stackmaps`,
+  `__llvm_stackmaps`) e a registra no runtime depois das relocações (o formato do LLVM, com endereços
+  absolutos); no Windows x64 registra o `.pdata` do objeto (`RtlAddFunctionTable`, com a base da região,
+  que é o menor endereço das seções, como o RTDyld calcula a base da imagem), sem o que o percurso não
+  atravessa um quadro do JIT; ao soltar a memória do objeto (a geração aposentada da recarga) tira o mapa
+  (`dartforge_desregistrar_mapa`) e a tabela;
+* registra no runtime que coleta: o do processo, ou o da biblioteca do SDK da fonte, pelas funções que ela
+  exporta.
+
+O módulo do JIT sai sem o `-ni:1` (o `LLJIT` recusa um módulo com camada de dados diferente da dele; o JIT
+não roda otimização de IR) e sem a chamada de registro (`EN/llvm/mod.rs`, `mapas_no_jit`). As exceções por
+tabelas continuam recusadas no JIT, como o §3.8 pede até um teste provar uma exceção atravessando dois
+quadros do JIT. Não verificado: que a camada RTDyld da API C registra o `.eh_frame` no Linux e no macOS
+(o gerenciador herda o `RTDyldMemoryManager`); o `CreateContext` é chamado com a assinatura do cabeçalho C
+(o `llvm-sys` 221 declara o tipo sem o retorno, e o ponteiro de função é convertido).
+
+**Windows arm64.** Não há AOT nativo nesse alvo: o cabeçalho do módulo no Windows fixa o triple
+`x86_64-pc-windows-msvc` (`EN/alvo.rs`, `cabecalho_ir`). O percorredor por `RtlVirtualUnwind` com o
+`CONTEXT` do arm64 fica para quando o alvo existir; até lá `alvo::raizes_por_mapas` o recusa, como o §6
+pede.
+
+## 15. Roteiro de implementação detalhado
+
+Cada passo traz: arquivos e funções (linha atual), o que entra, o teste dirigido e a medida. A ordem é a
+dos commits. Nenhum passo muda o padrão (`sombra` + `checagem`).
+
+### 15.1 Etapa 1
+
+**E1.0 — a chave e o marcador de ABI.**
+
+* `EN/context.rs`: `pub enum ModoExcecoes { Checagem, Tabelas }` no `Context`; `EN/lib.rs`: a opção;
+  `crates/cli/src/nativo.rs`: `--excecoes=checagem|tabelas`.
+* `EN/alvo.rs`: recusa por alvo (só `x86_64-pc-windows-msvc` aceita `tabelas` na Etapa 1; os outros dão
+  erro com a mensagem "`--excecoes=tabelas` ainda não existe para <alvo>").
+* `EN/cache_objeto.rs`, `EN/sdk_modulo.rs`: o modo entra na chave do cache.
+* Teste: `compile-native --excecoes=tabelas --emit-ir` num alvo recusado dá o erro; no aceito, por
+  enquanto, IR idêntico ao de `checagem` (nada usa a chave ainda).
+
+**E1.1 — a tabela de efeitos, ainda em `checagem`.**
+
+* `crates/runtime/efeitos.tsv` (novo), gerado uma vez de `r2\efeitos\efeitos.tsv` e revisado.
+* `crates/runtime/build.rs`: confere que toda extern `#[no_mangle]` tem linha; gera a tabela para o
+  emissor.
+* `EN/lower/fn_builder.rs:940-992` (`emit_call_with_check`): só emite a leitura da pendência quando o
+  destino é função Dart ou extern com `lanca = 1`.
+* `RT/`: o modo `DARTFORGE_EFEITOS=conferir` (§13.8).
+* Teste: o corpus nativo inteiro com `DARTFORGE_EFEITOS=conferir`; a sabotagem do §13.8.
+* Medida: número de leituras da pendência no IR do `new_sali/backend` antes e depois; `.text` antes e
+  depois. É a medida que fica mesmo se a Etapa 1 for abandonada.
+
+**E1.2 — o lowering.**
+
+* `EN/hir.rs`: terminador novo `Invoke { chamada, normal, pouso }` e instrução `LandingPad`; ou, mais
+  simples, um atributo `pouso: Option<BlockId>` nas instruções de chamada, que o emissor de IR baixa
+  como `invoke`. A segunda forma não mexe nos consumidores da HIR e é a recomendada.
+* `EN/lower/fn_builder.rs`: `emit_call_with_check` segue a tabela do §13.2; cria o bloco de pouso
+  (`novo_pouso(alvo)`), que registra a aresta `(pouso, 2, default_ret)` no `finally_scopes` quando o
+  alvo é um `finally`.
+* `EN/lower/comandos.rs:579-861`: sem mudança de lógica; os "relança" sem tratador externo terminam em
+  `Lancar` em vez de `Return`.
+* `EN/llvm/mod.rs`: emissão de `invoke`/`landingpad`, do `store` do topo no pouso, de `@df.lancar`, das
+  oito portas e do `personality` nas funções com `invoke`; o prólogo de estouro de pilha
+  (`:2456-2481`) chama `@df.lancar` depois de `dartforge_estouro_de_pilha`.
+* `EN/lower/verificador.rs`: todo bloco de pouso tem um só predecessor, que é um `invoke`; nenhuma
+  função sem `invoke` tem personalidade; em `tabelas`, nenhum `Return` é alcançável só por caminho de
+  exceção.
+* Testes dirigidos (cada um um programa do `corpus/nativo`, comparado com a VM): os cinco de
+  `ir-hoje\exc.dart`; `laco`/`aninhado` do §13.5; exceção atravessando 1.000 quadros sem `try`; `throw`
+  dentro de `catch` dentro de `try`; `finally` que lança outra exceção; `return` dentro de `finally`;
+  `try` em função sem quadro de raízes; `try` em laço com alocação no `catch` sob `--gc-stress`.
+
+**E1.3 — a personalidade.**
+
+* `RT/excecoes_tabelas.rs` (§13.11), só Windows x64 nesta etapa.
+* Testes de unidade de `achar_pouso` com as LSDAs reais do `x2` (os bytes do `.xdata` de `b_catch`,
+  `c_cleanup`, `d_aninhado`, copiados para o teste) e com entradas truncadas.
+* Teste de exceção estrangeira: um programa que faz FFI para uma função C que provoca violação de
+  acesso dentro de um `try` Dart tem de morrer com o código do sistema, não entrar no `catch`.
+
+**E1.4 — as portas.**
+
+* `RT/chamar_dart.rs` e os 14 pontos da §13.9; `EN/lower/ffi.rs` e `RT/ffi_callbacks.rs`: a entrada C de
+  um callback FFI vira uma porta.
+* CI: o `grep` que recusa `transmute` para `extern "C" fn` fora dos lugares permitidos.
+* Testes: exceção não tratada em microtarefa, em timer, em mensagem de porta, em isolado filho, em
+  `noSuchMethod`, em comparador de `sort` chamado por `Function.apply`, em callback FFI; em todos, a
+  saída e o código de saída iguais aos da VM, e o topo da pilha-sombra nulo no fim
+  (`assert` em `desempilhar_quadro`, `RT/heap.rs:379-385`).
+
+**Fechamento da Etapa 1.** As medidas do §8 nas duas combinações (A0, A1) e a decisão pelos critérios
+do §6: `.text` + `.xdata` + `.pdata` do `new_sali/backend` pelo menos 3% menor; `bench/desempenho` sem
+piora; o lançar-e-pegar dentro do limite.
+
+### 15.2 Etapa 2
+
+**E2.0 — funções de conversão no emissor** (§14.1). Critério: IR idêntico em `sombra`.
+
+**E2.1 — experimentos.** Feitos: (a) a seção sai no COFF, com o nome `.llvm_stackmaps` no objeto e
+`.llvm_st` na imagem; (d) `landingpad token` com `invoke` de statepoint e personalidade própria no
+`x86_64-pc-windows-msvc` roda (`x7`). Restam: (b) não é mais necessário (§12.3); (c)
+`statepoint-max-registers-for-gc-values` no 22.1.8 — nos casos rodados nenhum local `Register` apareceu,
+e o conversor recusa se aparecer; o valor padrão da opção não foi lido na fonte.
+
+**E2.2 — emissão em `mapas`.** `EN/llvm/mod.rs`, `EN/llvm/externs.rs` (o atributo
+`"gc-leaf-function"` pela tabela de efeitos), `EN/alvo.rs` (`-ni:1`), `EN/llvm/raizes.rs` (não emite
+slots; mantém a análise para o verificador). O verificador do IR do §7.4: nenhum `inttoptr` fora dos três
+casos; todo operando `ptr addrspace(1)` de chamada não folha no `gc-live` (conferido **depois** do
+RS4GC).
+
+**E2.3 — pipeline em processo.** `EN/gerador.rs`, `crates/llvm`: a cadeia
+`default<O2>,rewrite-statepoints-for-gc,verify` e a emissão do objeto. Medir as duas ordens.
+
+**E2.4 — o conversor.** `EN/gcmap.rs`: porte de `x12\gcmap.py` sobre o crate `object` (COFF primeiro).
+Testes: ida e volta em todo objeto do corpus; os erros de "local recusado" com objetos fabricados.
+Nota: o §6 previa o mapa v0 "sem compactação" primeiro; como o DFGM v1 já roda no `x12`, o passo pode
+ir direto a ele.
+
+**E2.5 — o percorredor.** `RT/gc_mapas.rs` (§14.5, §14.6), `RT/gc_raizes.rs` (a fonte "quadros do
+código gerado" passa a ser o percorredor em `mapas`). `DARTFORGE_GC_PERCURSO=conferir` não tem segundo
+percorredor no Windows x64; lá a conferência é contra a **pilha-sombra**: um build de teste que emite as
+duas coisas (mapa e slots) e exige que o conjunto de handles visitados pelos mapas contenha o dos slots.
+
+**E2.6 — o quadro-sombra residual** (§3.7), para as funções que o modo mapas recusa.
+
+**Fechamento da Etapa 2.** Corpus nativo em B0 com e sem `--gc-stress`; as três sabotagens do §14.7
+falham; `bench/desempenho` nas quatro combinações; a decisão pelos critérios do §6.
+
+### 15.3 O que este roteiro não cobre
+
+* Linux, macOS e arm64 (Etapa 4): a personalidade Itanium está escrita no §13.11 e não foi executada.
+* ThinLTO com statepoints (Etapa 3): `x10` não concluído.
+* O JIT em `tabelas` ou `mapas`.
+* A máquina de estados `async` foi tratada só pela regra geral (§13.13).

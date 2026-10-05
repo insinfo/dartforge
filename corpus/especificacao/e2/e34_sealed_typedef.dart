@@ -1,0 +1,1 @@
+sealed typedef T = int;

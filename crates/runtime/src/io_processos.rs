@@ -64,7 +64,7 @@ fn falha_ao_iniciar(status: i64, codigo: i64, mensagem: &str) {
     };
     // SAFETY: registrada pela sobreposição de `dart:io` com a assinatura
     // (`_ProcessStartStatus`, `int`, `String`) → `void`.
-    let g: extern "C" fn(i64, i64, i64) = unsafe { std::mem::transmute(f) };
+    let g = { let alvo_dart: usize = f; move |a0: i64, a1: i64, a2: i64| { dart_v3(alvo_dart, a0, a1, a2) } };
     let m = alocar_str(mensagem);
     com_raizes(&[m], || g(status, codigo, m));
 }

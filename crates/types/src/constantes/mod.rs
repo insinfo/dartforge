@@ -8,7 +8,9 @@
 //! biblioteca.
 
 pub mod avaliador;
+pub mod ciclos;
 pub mod exaustividade;
+pub mod grafo;
 pub mod potencial;
 pub mod valor;
 pub mod verificador;

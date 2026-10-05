@@ -1,0 +1,1 @@
+base enum E { a }

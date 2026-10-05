@@ -485,6 +485,10 @@ fn for_init(m: &mut Motor<'_>, ctx: &Contexto, i: &ForInit) {
     match i {
         ForInit::Variables(l) => variaveis(m, ctx, l),
         ForInit::Expression(x) => expr(m, ctx, *x),
+        ForInit::Pattern { pattern, value, .. } => {
+            padrao(m, ctx, *pattern);
+            expr(m, ctx, *value);
+        }
     }
 }
 

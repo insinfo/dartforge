@@ -86,6 +86,45 @@ impl Simbolos {
     }
 }
 
+/// Um corpo inferível isoladamente (ver [`BodyInferrer::apenas_corpos`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CorpoRef {
+    /// Função de topo, método, construtor, getter/setter ou função local
+    /// declarada como elemento.
+    Funcao(FunctionElementId),
+    /// O inicializador de uma variável de topo ou de um campo.
+    Variavel(VariableId),
+}
+
+/// O corpo que contém o offset `pos` da unidade `u`: o executável ou o
+/// inicializador de variável cujo nó o envolve (o menor).
+pub fn corpo_no_offset(program: &Program, u: UnitId, pos: usize) -> Option<CorpoRef> {
+    use dartforge_elements::model::FunctionRef;
+    let a = &program.unit(u).ast;
+    let mut melhor: Option<(usize, CorpoRef)> = None;
+    for (i, fe) in program.functions.iter().enumerate() {
+        let span = match fe.node {
+            FunctionRef::Function { unit, function } if unit == u => a.function(function).span,
+            FunctionRef::Constructor { unit, member } if unit == u => a.member(member).span,
+            _ => continue,
+        };
+        if span.start <= pos && pos <= span.end && melhor.is_none_or(|(t, _)| span.end - span.start < t) {
+            melhor = Some((span.end - span.start, CorpoRef::Funcao(FunctionElementId(i as u32))));
+        }
+    }
+    for (i, v) in program.variables.iter().enumerate() {
+        let span = match v.node {
+            VariableRef::TopLevel { unit, decl, .. } if unit == u => a.decl(decl).span,
+            VariableRef::Field { unit, member, .. } if unit == u => a.member(member).span,
+            _ => continue,
+        };
+        if span.start <= pos && pos <= span.end && melhor.is_none_or(|(t, _)| span.end - span.start < t) {
+            melhor = Some((span.end - span.start, CorpoRef::Variavel(VariableId(i as u32))));
+        }
+    }
+    melhor.map(|(_, c)| c)
+}
+
 /// Contexto de inferência de corpos para o programa inteiro.
 pub struct BodyInferrer<'a> {
     pub program: &'a Program,
@@ -101,6 +140,11 @@ pub struct BodyInferrer<'a> {
     /// variáveis continuam sendo inferidos em todas as bibliotecas, porque o
     /// tipo inferido de uma variável (`var x = 1;`) é lido por quem a usa.
     pub apenas_bibliotecas: Option<HashSet<u32>>,
+    /// Inferência incremental (o completar do LSP): quando `Some`, só estes
+    /// corpos (funções/métodos/construtores e inicializadores de variáveis)
+    /// são inferidos; os tipos de variáveis de topo lidos por eles seguem sob
+    /// demanda. Os metadados das unidades não são visitados.
+    pub apenas_corpos: Option<HashSet<CorpoRef>>,
     estado_vars: Vec<EstadoVar>,
     /// Inicializadores já visitados para as tabelas laterais.
     inicializador_visitado: Vec<bool>,
@@ -126,6 +170,10 @@ pub struct BodyInferrer<'a> {
     /// de recuperação.
     pub(crate) locais_invalidos: HashSet<(UnitId, usize)>,
     pub(crate) nomes_posicionais: Option<Vec<String>>,
+    /// Alvo da próxima verificação de aridade (`chamadas::verificar_aridade`):
+    /// o nome citado nos `NOT_ENOUGH_POSITIONAL_ARGUMENTS_NAME_*` e o
+    /// intervalo do `MISSING_REQUIRED_ARGUMENT`; só quem conhece a chamada o define.
+    pub(crate) alvo_da_aridade: Option<chamadas::AlvoDaAridade>,
     /// Unidade de cada diagnóstico (paralelo a `diagnostics`), para quem
     /// precisa do arquivo (ferramentas; o LSP).
     pub unidades_dos_avisos: Vec<Option<UnitId>>,
@@ -151,7 +199,7 @@ pub struct BodyInferrer<'a> {
     /// A classe e a extensão cujos membros estão em escopo na anotação.
     pub(crate) conteiner_de_tipos: (Option<dartforge_elements::model::ClassId>, Option<ExtensionId>),
     /// Ambiguidade de extensão da última busca de membro: `(nome, lista)`.
-    pub(crate) ambiguidade_de_extensao: Option<(String, String)>,
+    pub(crate) ambiguidade_de_extensao: Option<(String, String, Option<(String, String)>)>,
     /// A anotação em resolução está num método ou campo estático.
     pub(crate) em_membro_estatico: bool,
 }
@@ -184,6 +232,7 @@ impl<'a> BodyInferrer<'a> {
             diagnostics: Vec::new(),
             body_types: BodyTypes { units },
             apenas_bibliotecas: None,
+            apenas_corpos: None,
             estado_vars: vec![EstadoVar::Pendente; nvars],
             inicializador_visitado: vec![false; nvars],
             extensoes: HashMap::new(),
@@ -196,6 +245,7 @@ impl<'a> BodyInferrer<'a> {
             entidade_da_inferencia: None,
             locais_invalidos: HashSet::new(),
             nomes_posicionais: None,
+            alvo_da_aridade: None,
             unidades_dos_avisos: Vec::new(),
             unidade_corrente: None,
             espalhamentos_inferidos: HashMap::new(),
@@ -240,6 +290,18 @@ impl<'a> BodyInferrer<'a> {
             }
         }
         self.completar_sobrescritas_de_campo();
+        if let Some(corpos) = self.apenas_corpos.clone() {
+            for c in corpos {
+                match c {
+                    CorpoRef::Variavel(vid) => {
+                        self.tipo_variavel(vid);
+                        self.visitar_inicializador(vid);
+                    }
+                    CorpoRef::Funcao(f) => funcoes::inferir_funcao_declarada(self, f),
+                }
+            }
+            return;
+        }
         for v in 0..self.program.variables.len() {
             let vid = VariableId(v as u32);
             // Sessão residente: variáveis de bibliotecas que não serão
@@ -544,6 +606,19 @@ impl<'a> BodyInferrer<'a> {
     /// argumentos (o desenho do T1): a ponte da paridade o deixa como está.
     pub(crate) fn aviso_com_codigo(&mut self, codigo: dartforge_diagnostics::Codigo, span: Span, args: &[&str]) {
         self.diagnostics.push(Diagnostic::com_codigo(codigo, span, args.iter().copied()));
+        self.unidades_dos_avisos.push(self.unidade_corrente);
+    }
+
+    /// Aviso com código cujos argumentos passam juntos pela conversão do
+    /// `ErrorReporter` ([`crate::exibicao::Exibidor::argumentos`], T7): os
+    /// tipos saem com alias, e dois tipos do mesmo relato com o mesmo texto
+    /// ganham o `(where X is defined in …)`.
+    pub(crate) fn aviso_com_args(&mut self, codigo: dartforge_diagnostics::Codigo, span: Span, args: &[crate::exibicao::Arg<'_>]) {
+        let textos = {
+            let exibidor = crate::exibicao::Exibidor { table: &*self.table, interner: self.interner, program: self.program };
+            exibidor.argumentos(args)
+        };
+        self.diagnostics.push(Diagnostic::com_codigo(codigo, span, textos));
         self.unidades_dos_avisos.push(self.unidade_corrente);
     }
 

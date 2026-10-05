@@ -167,6 +167,13 @@ impl Tipado {
         self.resultados.try_iter().collect()
     }
 
+    /// O trabalhador está ocioso agora (nada pedido, nada em curso), sem
+    /// esperar.
+    pub(crate) fn ocioso(&self) -> bool {
+        let e = self.estado();
+        (e.sujas.is_empty() || e.pausado) && e.rodando.is_none()
+    }
+
     /// Espera o trabalhador ficar ocioso (nada pedido, nada em curso), até
     /// `limite`. Verdadeiro se ficou.
     pub(crate) fn esperar_ocioso(&self, limite: Duration) -> bool {

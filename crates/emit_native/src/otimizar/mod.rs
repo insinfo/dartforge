@@ -22,6 +22,7 @@ mod inline;
 mod mem2reg;
 pub(crate) mod operandos;
 mod simplificar;
+mod tabelas;
 
 #[cfg(test)]
 mod testes;
@@ -108,6 +109,14 @@ fn em_paralelo(funcoes: &mut [Function], passe: &(dyn Fn(&mut Function) -> bool 
             .collect();
         tarefas.into_iter().fold(false, |acc, t| acc | t.join().expect("passe da HIR em pânico"))
     })
+}
+
+/// Passa o módulo para as exceções por tabelas (`--excecoes=tabelas`,
+/// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13): o último passe sobre a HIR,
+/// depois de [`otimizar`] e logo antes da emissão. Sem ele o módulo fica no
+/// modelo de sempre (a pendência conferida depois de cada chamada).
+pub fn excecoes_por_tabelas(module: &mut Module) {
+    tabelas::aplicar(module);
 }
 
 /// Otimiza as funções do módulo.

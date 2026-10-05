@@ -522,6 +522,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Some(ForInit::Expression(e)) => {
                         self.lower_expr(ast, *e);
                     }
+                    Some(ForInit::Pattern { pattern, value, .. }) => {
+                        let v = self.lower_expr(ast, *value);
+                        self.casar_irrefutavel(ast, *pattern, v, super::padroes::Ligacao::Declarar, *value);
+                    }
                     None => {}
                 }
                 let cabeca = self.new_block();

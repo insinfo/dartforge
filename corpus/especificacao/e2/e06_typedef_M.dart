@@ -1,0 +1,1 @@
+typedef M = Function({int});

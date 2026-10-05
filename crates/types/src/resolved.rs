@@ -102,6 +102,11 @@ pub struct UnitBodyTypes {
     /// Padrões cujo tipo escrito não resolve (`InvalidType`): o analyzer não
     /// verifica a exaustividade do `switch` que os contém.
     pub padroes_invalidos: std::collections::HashSet<ast::PatternId>,
+    /// O tipo casado (`matchedValueType`) de cada padrão, já promovido pelo
+    /// fluxo de padrões (casos anteriores do `switch`, `&&`, `?`): o que o
+    /// analyzer guarda em `DartPatternImpl.matchedValueType` e o
+    /// `ConstantVerifier` lê (`constant_pattern_never_matches_value_type`).
+    pub tipos_casados: std::collections::HashMap<ast::PatternId, TypeId>,
 }
 
 impl UnitBodyTypes {
@@ -119,6 +124,7 @@ impl UnitBodyTypes {
             tipos_de_padroes: std::collections::HashMap::new(),
             campos_de_extensao: std::collections::HashMap::new(),
             padroes_invalidos: std::collections::HashSet::new(),
+            tipos_casados: std::collections::HashMap::new(),
         }
     }
 

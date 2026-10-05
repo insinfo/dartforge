@@ -27,7 +27,7 @@ use llvm_sys::bit_writer::LLVMWriteBitcodeToMemoryBuffer;
 use llvm_sys::core::{
     LLVMContextCreate, LLVMContextDispose, LLVMCreateMemoryBufferWithMemoryRangeCopy, LLVMDisposeMemoryBuffer,
     LLVMDisposeMessage, LLVMDisposeModule, LLVMGetBufferSize, LLVMGetBufferStart, LLVMGetDataLayoutStr,
-    LLVMGetTarget, LLVMGetVersion, LLVMSetTarget,
+    LLVMGetTarget, LLVMGetVersion, LLVMSetDataLayout, LLVMSetTarget,
 };
 use llvm_sys::error::{LLVMDisposeErrorMessage, LLVMErrorRef, LLVMGetErrorMessage};
 use llvm_sys::ir_reader::LLVMParseIRInContext2;
@@ -165,8 +165,23 @@ pub fn gerar(nome: &str, ir: &str, opcoes: &Opcoes) -> Result<Vec<u8>, String> {
     let contexto = Contexto::novo();
     let modulo = contexto.ler(nome, ir)?;
     let triple = modulo.triple().unwrap_or_else(triple_padrao);
-    let maquina = MaquinaAlvo::do_triple(&triple, opcoes.otimizar, opcoes.cpu)?;
-    modulo.completar_alvo(&triple, &maquina);
+    // Raízes por mapas de pilha (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
+    // §14.8): o módulo com funções `gc "statepoint-example"` passa pelo
+    // `rewrite-statepoints-for-gc` — depois da otimização, para que o
+    // inlining e o resto do pipeline vejam chamadas comuns — e pelo
+    // verificador (o passe já produziu IR inválido que só morria na seleção
+    // de instruções). O gerador de código dessas funções nunca é o do `-O0`
+    // (o FastISel tem defeitos conhecidos com `gc.relocate`).
+    let com_mapas = ir.contains(MARCA_DE_GC);
+    let maquina = MaquinaAlvo::do_triple(&triple, opcoes.otimizar || com_mapas, opcoes.cpu)?;
+    modulo.completar_alvo(&triple, &maquina, com_mapas);
+    // O bitcode da produção só passa pelo passe dos mapas aqui no Windows,
+    // cuja LTO do `lld-link` não aceita passes. No Linux o passe roda no
+    // fecho do ThinLTO distribuído (`emit_native/src/lto_distribuida.rs`) e
+    // no Mach-O na LTO do `ld64.lld` (`--lto-newpm-passes`,
+    // `ligador_macos.rs`), depois do inlining da ligação
+    // (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.4).
+    let passe_no_ligador = opcoes.formato == Formato::Bitcode && !triple.contains("windows");
     // `DARTFORGE_PIPELINE_OBJETO` troca o pipeline do objeto otimizado
     // (medida de tempo e tamanho: `default<O1>`, `default<Os>`;
     // docs/NATIVO-PRODUCAO-GRANDE.md).
@@ -176,11 +191,54 @@ pub fn gerar(nome: &str, ir: &str, opcoes: &Opcoes) -> Result<Vec<u8>, String> {
         (Formato::Objeto, true) => escolhido.as_deref().unwrap_or("default<O2>"),
         (Formato::Objeto, false) => "default<O0>",
     };
-    modulo.otimizar(pipeline, &maquina)?;
+    if com_mapas && !passe_no_ligador {
+        modulo.otimizar(&format!("{pipeline},rewrite-statepoints-for-gc,verify"), &maquina)?;
+    } else {
+        modulo.otimizar(pipeline, &maquina)?;
+    }
     match opcoes.formato {
         Formato::Objeto => maquina.emitir_objeto(&modulo),
         Formato::Bitcode => Ok(modulo.bitcode()),
     }
+}
+
+/// O atributo das funções com raízes no mapa de pilha, como o emissor o
+/// escreve (`emit_native/src/llvm/mod.rs`).
+pub const MARCA_DE_GC: &str = "gc \"statepoint-example\"";
+
+/// O nome da estratégia de coleta, como aparece na tabela de textos de um
+/// módulo em **bitcode** (lá o atributo não está escrito por extenso).
+const ESTRATEGIA_DE_GC: &[u8] = b"statepoint-example";
+
+/// Se o módulo em bitcode tem alguma função com raízes no mapa de pilha.
+pub fn bitcode_com_mapas(bitcode: &[u8]) -> bool {
+    bitcode.windows(ESTRATEGIA_DE_GC.len()).any(|j| j == ESTRATEGIA_DE_GC)
+}
+
+/// O objeto nativo de uma parte do **ThinLTO distribuído**
+/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.4 e Etapa 3): `bitcode` é o
+/// módulo **depois** da importação e da otimização do backend do ThinLTO
+/// (`clang -x ir parte.o -fthinlto-index=… -emit-llvm -c`). Aqui só entra o
+/// que o `lld-link` não sabe rodar: o `rewrite-statepoints-for-gc`, no fim
+/// de toda a otimização — o inlining entre o programa e o SDK já aconteceu
+/// —, o verificador e a geração de código (nunca a do `-O0`).
+///
+/// # Erros
+/// Bitcode que o leitor recusa, falha do passe, do verificador ou do
+/// gerador de código — a mensagem é a do LLVM.
+pub fn gerar_de_bitcode(nome: &str, bitcode: &[u8], cpu: Option<&'static str>) -> Result<Vec<u8>, String> {
+    inicializar_alvo_nativo()?;
+    let contexto = Contexto::novo();
+    let modulo = contexto.ler_bytes(nome, bitcode)?;
+    let triple = modulo.triple().unwrap_or_else(triple_padrao);
+    let maquina = MaquinaAlvo::do_triple(&triple, true, cpu)?;
+    modulo.completar_alvo(&triple, &maquina, bitcode_com_mapas(bitcode));
+    if bitcode_com_mapas(bitcode) {
+        modulo.otimizar("rewrite-statepoints-for-gc,verify", &maquina)?;
+    } else {
+        modulo.otimizar("verify", &maquina)?;
+    }
+    maquina.emitir_objeto(&modulo)
 }
 
 /// O triple do hospedeiro, como o LLVM o descreve (no macOS, com a versão do
@@ -258,6 +316,12 @@ impl Contexto {
     /// Lê o IR em texto. O módulo devolvido vive dentro deste contexto (o
     /// `Modulo` empresta `self`).
     fn ler(&self, nome: &str, ir: &str) -> Result<Modulo<'_>, String> {
+        self.ler_bytes(nome, ir.as_bytes())
+    }
+
+    /// Lê o IR em texto ou em bitcode (o `LLVMParseIRInContext2` reconhece
+    /// os dois pelo começo do buffer).
+    fn ler_bytes(&self, nome: &str, ir: &[u8]) -> Result<Modulo<'_>, String> {
         let nome_c = CString::new(nome).map_err(|_| format!("nome de módulo com NUL: {nome:?}"))?;
         // SAFETY: o buffer copia os bytes do IR; `LLVMParseIRInContext2` não o
         // consome, e ele é liberado logo depois. O módulo criado é nosso e
@@ -300,9 +364,15 @@ impl Modulo<'_> {
     }
 
     /// Completa o triple e a camada de dados que o módulo não declara.
-    fn completar_alvo(&self, triple: &str, maquina: &MaquinaAlvo) {
+    /// Completa o triple e a camada de dados do módulo que não os escreve
+    /// (o emissor os omite no macOS e no Linux aarch64). Com raízes por
+    /// mapas (`com_mapas`), a camada de dados leva o `-ni:1`: o
+    /// `addrspace(1)` das raízes é de ponteiros não integrais, e o otimizador
+    /// não fabrica `ptrtoint`/`inttoptr` com elas (§14.8).
+    fn completar_alvo(&self, triple: &str, maquina: &MaquinaAlvo, com_mapas: bool) {
         // SAFETY: o módulo e a máquina estão vivos; a camada de dados criada
-        // é copiada para o módulo e liberada; o triple é copiado pelo LLVM.
+        // é copiada para o módulo e liberada; o triple e o texto da camada de
+        // dados são copiados pelo LLVM.
         unsafe {
             if self.triple().is_none()
                 && let Ok(t) = CString::new(triple)
@@ -313,6 +383,14 @@ impl Modulo<'_> {
                 let dados = LLVMCreateTargetDataLayout(maquina.0);
                 LLVMSetModuleDataLayout(self.m, dados);
                 LLVMDisposeTargetData(dados);
+            }
+            if com_mapas {
+                let atual = CStr::from_ptr(LLVMGetDataLayoutStr(self.m)).to_string_lossy().into_owned();
+                if !atual.split('-').any(|p| p.starts_with("ni:"))
+                    && let Ok(novo) = CString::new(format!("{atual}-ni:1"))
+                {
+                    LLVMSetDataLayout(self.m, novo.as_ptr());
+                }
             }
         }
     }

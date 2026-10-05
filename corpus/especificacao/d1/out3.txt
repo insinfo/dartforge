@@ -1,0 +1,457 @@
+c01.dart
+  recursive_compile_time_constant off=6 len=1 1:7 ERROR | The compile-time constant expression depends on itself.
+  recursive_compile_time_constant off=19 len=1 2:7 ERROR | The compile-time constant expression depends on itself.
+c02.dart
+  recursive_compile_time_constant off=6 len=1 1:7 ERROR | The compile-time constant expression depends on itself.
+  recursive_compile_time_constant off=23 len=1 2:7 ERROR | The compile-time constant expression depends on itself.
+  recursive_compile_time_constant off=40 len=1 3:7 ERROR | The compile-time constant expression depends on itself.
+c03.dart
+  recursive_constant_constructor off=29 len=1 3:9 ERROR | The constant constructor depends on itself.
+  recursive_compile_time_constant off=50 len=1 5:7 ERROR | The compile-time constant expression depends on itself.
+c04.dart
+  recursive_constant_constructor off=18 len=1 2:9 ERROR | The constant constructor depends on itself.
+c05.dart
+  const_eval_throws_idbze off=10 len=6 1:11 ERROR | Evaluation of this constant expression throws an IntegerDivisionByZeroException.
+  const_eval_throws_exception off=28 len=5 2:11 ERROR | Evaluation of this constant expression throws an exception.
+  const_eval_throws_exception off=62 len=8 4:11 ERROR | Evaluation of this constant expression throws an exception.
+  const_eval_throws_exception off=82 len=7 5:11 ERROR | Evaluation of this constant expression throws an exception.
+  const_eval_throws_exception off=101 len=8 6:11 ERROR | Evaluation of this constant expression throws an exception.
+c06.dart
+  const_eval_throws_exception off=10 len=7 1:11 ERROR | Evaluation of this constant expression throws an exception.
+  argument_type_not_assignable off=16 len=1 1:17 ERROR | The argument type 'int' can't be assigned to the parameter type 'String'. 
+  const_eval_type_num off=29 len=7 2:11 ERROR | In constant expressions, operands of this operator must be of type 'num'.
+  argument_type_not_assignable off=33 len=3 2:15 ERROR | The argument type 'String' can't be assigned to the parameter type 'num'. 
+  const_eval_type_bool off=48 len=2 3:11 ERROR | In constant expressions, operands of this operator must be of type 'bool'.
+  non_bool_negation_expression off=49 len=1 3:12 ERROR | A negation operand must have a static type of 'bool'.
+  const_eval_type_bool off=62 len=9 4:11 ERROR | In constant expressions, operands of this operator must be of type 'bool'.
+  non_bool_operand off=62 len=1 4:11 ERROR | The operands of the operator '&&' must be assignable to 'bool'.
+  const_eval_type_bool off=83 len=9 5:11 ERROR | In constant expressions, operands of this operator must be of type 'bool'.
+  non_bool_operand off=91 len=1 5:19 ERROR | The operands of the operator '&&' must be assignable to 'bool'.
+  const_eval_throws_exception off=104 len=8 6:11 ERROR | Evaluation of this constant expression throws an exception.
+  invalid_use_of_null_value off=109 len=1 6:16 ERROR | An expression whose value is always 'null' can't be dereferenced.
+  const_eval_type_num off=124 len=4 7:11 ERROR | In constant expressions, operands of this operator must be of type 'num'.
+  undefined_operator off=124 len=1 7:11 ERROR | The operator 'unary-' isn't defined for the type 'String'.
+  const_eval_type_int off=140 len=4 8:11 ERROR | In constant expressions, operands of this operator must be of type 'int'.
+  undefined_operator off=140 len=1 8:11 ERROR | The operator '~' isn't defined for the type 'double'.
+  const_eval_type_bool_int off=156 len=8 9:11 ERROR | In constant expressions, operands of this operator must be of type 'bool' or 'int'.
+  argument_type_not_assignable off=163 len=1 9:18 ERROR | The argument type 'int' can't be assigned to the parameter type 'bool'. 
+  const_eval_type_num off=176 len=7 10:11 ERROR | In constant expressions, operands of this operator must be of type 'num'.
+  argument_type_not_assignable off=180 len=3 10:15 ERROR | The argument type 'String' can't be assigned to the parameter type 'num'. 
+  const_eval_type_num_string off=195 len=7 11:11 ERROR | In constant expressions, operands of this operator must be of type 'num' or 'String'.
+  const_eval_type_num_string off=214 len=8 12:11 ERROR | In constant expressions, operands of this operator must be of type 'num' or 'String'.
+  undefined_operator off=219 len=1 12:16 ERROR | The operator '+' isn't defined for the type 'bool'.
+c07.dart
+  const_eval_property_access off=34 len=10 2:11 ERROR | The property 'length' can't be accessed on the type 'List<int>' in a constant expression.
+  const_eval_property_access off=91 len=9 5:11 ERROR | The property 'isEmpty' can't be accessed on the type 'String' in a constant expression.
+  const_eval_property_access off=112 len=9 6:11 ERROR | The property '$1' can't be accessed on the type '(int, int)' in a constant expression.
+  const_eval_property_access off=133 len=8 7:11 ERROR | The property 'isEven' can't be accessed on the type 'int' in a constant expression.
+c08.dart
+  const_eval_property_access off=56 len=12 5:11 ERROR | The property 'f' can't be accessed on the type 'A' in a constant expression.
+  const_eval_property_access off=102 len=3 7:11 ERROR | The property 'f' can't be accessed on the type 'A' in a constant expression.
+  const_initialized_with_non_constant_value off=144 len=1 10:11 ERROR | Const variables must be initialized with a constant value.
+  const_initialized_with_non_constant_value off=157 len=1 11:11 ERROR | Const variables must be initialized with a constant value.
+c09.dart
+  const_eval_method_invocation off=128 len=4 5:11 ERROR | Methods can't be invoked in constant expressions.
+  const_eval_method_invocation off=144 len=14 6:11 ERROR | Methods can't be invoked in constant expressions.
+  const_eval_method_invocation off=170 len=12 7:11 ERROR | Methods can't be invoked in constant expressions.
+  not_enough_positional_arguments off=181 len=1 7:22 ERROR | 2 positional arguments expected by 'identical', but 1 found.
+  const_eval_extension_method off=289 len=7 9:11 ERROR | Extension methods can't be used in constant expressions.
+  const_eval_method_invocation off=308 len=5 10:11 ERROR | Methods can't be invoked in constant expressions.
+c10.dart
+  const_eval_throws_exception off=27 len=11 2:11 ERROR | Evaluation of this constant expression throws an exception.
+  const_eval_throws_exception off=158 len=8 8:12 ERROR | Evaluation of this constant expression throws an exception.
+c11.dart
+  const_eval_throws_exception off=166 len=9 10:11 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=24 len=13 2:15 | The exception is 'The assertion in this constant expression failed.' and occurs here.
+  const_eval_throws_exception off=187 len=10 11:11 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=70 len=33 5:20 | The exception is 'An assertion failed with message 'must be positive'.' and occurs here.
+  const_eval_throws_exception off=209 len=10 12:11 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=136 len=16 8:20 | The exception is 'The assertion in this constant expression failed.' and occurs here.
+  const_eval_throws_exception off=229 len=11 13:9 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=70 len=33 5:20 | The exception is 'An assertion failed with message 'must be positive'.' and occurs here.
+c12.dart
+  const_eval_throws_exception off=110 len=10 9:11 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=118 len=1 9:19 | The exception is 'A value of type 'String' can't be assigned to a parameter of type 'int' in a const constructor.' and occurs here.
+  argument_type_not_assignable off=140 len=3 10:19 ERROR | The argument type 'String' can't be assigned to the parameter type 'int'. 
+  const_constructor_param_type_mismatch off=140 len=3 10:19 ERROR | A value of type 'String' can't be assigned to a parameter of type 'int' in a const constructor.
+  const_eval_throws_exception off=156 len=15 11:11 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=169 len=1 11:24 | The exception is 'A value of type 'String' can't be assigned to a parameter of type 'int' in a const constructor.' and occurs here.
+c13.dart
+  const_eval_throws_exception off=76 len=17 6:11 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=27 len=1 2:15 | The exception is 'In a const constructor, a value of type 'int' can't be assigned to the field 'x', which has type 'String'.' and occurs here.
+  const_eval_throws_exception off=162 len=12 11:11 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=147 len=1 9:28 | The exception is 'In a const constructor, a value of type 'String' can't be assigned to the field 'x', which has type 'int'.' and occurs here.
+  field_initializer_not_assignable off=227 len=1 14:27 ERROR | The initializer type 'String' can't be assigned to the field type 'int' in a const constructor.
+  const_constructor_field_type_mismatch off=242 len=12 16:11 ERROR | In a const constructor, a value of type 'String' can't be assigned to the field 'x', which has type 'int'.
+c14.dart
+  const_constructor_throws_exception off=28 len=8 2:19 ERROR | Const constructors can't throw exceptions.
+  invalid_constant off=28 len=8 2:19 ERROR | Invalid constant value.
+  const_eval_throws_exception off=123 len=10 9:11 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=103 len=6 7:24 | The exception is 'Evaluation of this constant expression throws an IntegerDivisionByZeroException.' and occurs here.
+c15.dart
+  const_initialized_with_non_constant_value off=42 len=1 3:16 ERROR | Const variables must be initialized with a constant value.
+  non_constant_list_element off=42 len=1 3:16 ERROR | The values in a const list literal must be constants.
+  const_initialized_with_non_constant_value off=63 len=1 4:15 ERROR | Const variables must be initialized with a constant value.
+  non_constant_list_element off=63 len=1 4:15 ERROR | The values in a const list literal must be constants.
+  const_initialized_with_non_constant_value off=77 len=31 5:11 ERROR | Const variables must be initialized with a constant value.
+  const_eval_for_element off=78 len=29 5:12 ERROR | Constant expressions don't support 'for' elements.
+  const_initialized_with_non_constant_value off=124 len=1 6:15 ERROR | Const variables must be initialized with a constant value.
+  non_constant_set_element off=124 len=1 6:15 ERROR | The values in a const set literal must be constants.
+  ambiguous_set_or_map_literal_both off=138 len=12 7:11 ERROR | The literal can't be either a map or a set because it contains at least one literal map entry or a spread operator spreading a 'Map', and at least one element which is neither of these.
+  const_spread_expected_list_or_set off=166 len=1 8:15 ERROR | A list or a set is expected in this spread.
+  not_iterable_spread off=166 len=1 8:15 ERROR | Spread elements in list or set literals must implement 'Iterable'.
+  non_bool_condition off=185 len=1 9:16 ERROR | Conditions must have a static type of 'bool'.
+  const_initialized_with_non_constant_value off=203 len=1 10:12 ERROR | Const variables must be initialized with a constant value.
+  non_constant_list_element off=203 len=1 10:12 ERROR | The values in a const list literal must be constants.
+  unused_local_variable off=227 len=1 12:9 WARNING | The value of the local variable 'm' isn't used.
+  const_eval_for_element off=232 len=29 12:14 ERROR | Constant expressions don't support 'for' elements.
+c16.dart
+  const_eval_throws_exception off=181 len=23 6:11 ERROR | Evaluation of this constant expression throws an exception.
+  argument_type_not_assignable off=202 len=1 6:32 ERROR | The argument type 'int' can't be assigned to the parameter type 'String'. 
+  const_eval_throws_exception off=216 len=43 7:11 ERROR | Evaluation of this constant expression throws an exception.
+  argument_type_not_assignable off=255 len=3 7:50 ERROR | The argument type 'String' can't be assigned to the parameter type 'int'. 
+  const_eval_throws_idbze off=294 len=6 9:11 ERROR | Evaluation of this constant expression throws an IntegerDivisionByZeroException.
+  const_eval_type_bool off=312 len=2 10:11 ERROR | In constant expressions, operands of this operator must be of type 'bool'.
+  non_bool_negation_expression off=313 len=1 10:12 ERROR | A negation operand must have a static type of 'bool'.
+  non_bool_operand off=331 len=1 11:16 ERROR | The operands of the operator '&&' must be assignable to 'bool'.
+c17.dart
+  unused_local_variable off=122 len=1 7:11 WARNING | The value of the local variable 'c' isn't used.
+  const_with_type_parameters off=128 len=1 7:17 ERROR | A constant creation can't use a type parameter as a type argument.
+  unused_local_variable off=144 len=1 8:11 WARNING | The value of the local variable 'd' isn't used.
+  const_with_type_parameters off=151 len=1 8:18 ERROR | A constant function tearoff can't use a type parameter as a type argument.
+  unused_local_variable off=179 len=1 9:25 WARNING | The value of the local variable 'e' isn't used.
+  const_with_type_parameters off=183 len=2 9:29 ERROR | A constant function tearoff can't use a type parameter as a type argument.
+  unused_local_variable off=197 len=1 10:11 WARNING | The value of the local variable 'f' isn't used.
+  const_type_parameter off=201 len=1 10:15 ERROR | Type parameters can't be used in a constant expression.
+  unused_local_variable off=214 len=1 11:11 WARNING | The value of the local variable 'g' isn't used.
+  invalid_type_argument_in_const_literal off=219 len=1 11:16 ERROR | Constant list literals can't use a type parameter in a type argument, such as 'T'.
+  wrong_number_of_type_arguments_function off=243 len=10 14:13 ERROR | The function 'id' is declared with 1 type parameters, but 2 type arguments were given.
+c18.dart
+  const_initialized_with_non_constant_value_from_deferred_library off=46 len=2 2:13 ERROR | Constant values from a deferred library can't be used to initialize a 'const' variable.
+  non_constant_default_value_from_deferred_library off=64 len=2 3:15 ERROR | Constant values from a deferred library can't be used as a default parameter value.
+  collection_element_from_deferred_library off=85 len=2 4:14 ERROR | Constant values from a deferred library can't be used as values in a 'const' list literal.
+  const_initialized_with_non_constant_value_from_deferred_library off=102 len=6 5:13 ERROR | Constant values from a deferred library can't be used to initialize a 'const' variable.
+c19.dart
+  non_constant_default_value off=41 len=1 3:17 ERROR | The default value of an optional parameter must be constant.
+  const_eval_method_invocation off=52 len=3 3:28 ERROR | Methods can't be invoked in constant expressions.
+  undefined_identifier off=61 len=13 3:37 ERROR | Undefined name 'undefinedName'.
+  non_constant_default_value off=87 len=1 3:63 ERROR | The default value of an optional parameter must be constant.
+  non_constant_list_element off=87 len=1 3:63 ERROR | The values in a const list literal must be constants.
+  non_constant_default_value off=125 len=1 5:21 ERROR | The default value of an optional parameter must be constant.
+c20.dart
+  non_constant_case_expression off=78 len=1 6:10 ERROR | Case expressions must be constant.
+  const_eval_throws_idbze off=132 len=6 10:10 ERROR | Evaluation of this constant expression throws an IntegerDivisionByZeroException.
+c21.dart
+  invalid_constant off=48 len=5 3:24 ERROR | Invalid constant value.
+  undefined_getter off=50 len=3 3:26 ERROR | The getter 'foo' isn't defined for the type 'int'.
+  const_eval_property_access off=118 len=10 8:11 ERROR | The property 'foo' can't be accessed on the type 'int' in a constant expression.
+      ctx off=48 len=5 3:24 | The error is in the field initializer of 'A', and occurs here.
+  const_eval_property_access off=140 len=10 9:11 ERROR | The property 'foo' can't be accessed on the type 'int' in a constant expression.
+      ctx off=48 len=5 3:24 | The error is in the field initializer of 'A', and occurs here.
+      ctx off=85 len=1 6:9 | The evaluated constructor 'A' is called by 'B' and 'B' is defined here.
+c22.dart
+  const_eval_throws_exception off=163 len=9 11:11 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=96 len=1 6:9 | The evaluated constructor 'A' is called by 'B' and 'B' is defined here.
+      ctx off=146 len=1 9:9 | The evaluated constructor 'B' is called by 'C' and 'C' is defined here.
+      ctx off=51 len=13 3:27 | The exception is 'Evaluation of this constant expression throws an IntegerDivisionByZeroException.' and occurs here.
+c23.dart
+  const_initialized_with_non_constant_value off=82 len=1 3:19 ERROR | Const variables must be initialized with a constant value.
+  const_with_non_constant_argument off=82 len=1 3:19 ERROR | Arguments of a constant creation must be constant expressions.
+  const_initialized_with_non_constant_value off=110 len=1 4:25 ERROR | Const variables must be initialized with a constant value.
+  invalid_constant off=110 len=1 4:25 ERROR | Invalid constant value.
+  const_initialized_with_non_constant_value off=124 len=6 5:11 ERROR | Const variables must be initialized with a constant value.
+  const_with_non_const off=124 len=6 5:11 ERROR | The constructor being called isn't a const constructor.
+  const_initialized_with_non_constant_value off=142 len=5 6:11 ERROR | Const variables must be initialized with a constant value.
+  const_with_non_const off=142 len=5 6:11 ERROR | The constructor being called isn't a const constructor.
+  const_initialized_with_non_constant_value off=182 len=1 7:27 ERROR | Const variables must be initialized with a constant value.
+  const_with_non_constant_argument off=182 len=1 7:27 ERROR | Arguments of a constant creation must be constant expressions.
+  const_with_non_constant_argument off=203 len=1 8:17 ERROR | Arguments of a constant creation must be constant expressions.
+  const_eval_throws_exception off=217 len=15 9:11 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=225 len=6 9:19 | The exception is 'Evaluation of this constant expression throws an IntegerDivisionByZeroException.' and occurs here.
+c24.dart
+  const_initialized_with_non_constant_value off=21 len=7 1:22 ERROR | Const variables must be initialized with a constant value.
+  dead_code off=21 len=7 1:22 WARNING | Dead code.
+  undefined_getter off=25 len=3 1:26 ERROR | The getter 'foo' isn't defined for the type 'String'.
+  const_eval_type_bool off=40 len=1 2:11 ERROR | In constant expressions, operands of this operator must be of type 'bool'.
+  non_bool_condition off=40 len=1 2:11 ERROR | Conditions must have a static type of 'bool'.
+  const_eval_type_bool off=61 len=4 3:11 ERROR | In constant expressions, operands of this operator must be of type 'bool'.
+  non_bool_condition off=61 len=4 3:11 ERROR | Conditions must have a static type of 'bool'.
+  const_initialized_with_non_constant_value off=111 len=1 5:16 ERROR | Const variables must be initialized with a constant value.
+  dead_null_aware_expression off=111 len=1 5:16 WARNING | The left operand can't be null, so the right operand is never executed.
+  dead_code off=130 len=4 6:17 WARNING | Dead code.
+  const_initialized_with_non_constant_value off=133 len=1 6:20 ERROR | Const variables must be initialized with a constant value.
+  dead_code off=151 len=4 7:16 WARNING | Dead code.
+  const_initialized_with_non_constant_value off=154 len=1 7:19 ERROR | Const variables must be initialized with a constant value.
+  const_initialized_with_non_constant_value off=181 len=1 9:11 ERROR | Const variables must be initialized with a constant value.
+  const_initialized_with_non_constant_value off=209 len=1 10:18 ERROR | Const variables must be initialized with a constant value.
+  dead_code off=213 len=1 10:22 WARNING | Dead code.
+c25.dart
+  const_eval_type_bool_num_string off=34 len=12 2:12 ERROR | In constant expressions, operands of this operator must be of type 'bool', 'num', 'String' or 'null'.
+  const_initialized_with_non_constant_value off=62 len=3 3:14 ERROR | Const variables must be initialized with a constant value.
+  const_eval_type_bool_num_string off=263 len=22 9:11 ERROR | In constant expressions, operands of this operator must be of type 'bool', 'num', 'String' or 'null'.
+  unnecessary_null_comparison off=307 len=7 10:21 WARNING | The operand can't be 'null', so the condition is always 'true'.
+c26.dart
+  recursive_compile_time_constant off=11 len=2 2:3 ERROR | The compile-time constant expression depends on itself.
+  recursive_compile_time_constant off=19 len=2 2:11 ERROR | The compile-time constant expression depends on itself.
+  const_eval_throws_exception off=67 len=6 6:9 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=116 len=8 8:27 | The error is in the field initializer of 'F', and occurs here.
+  const_eval_throws_exception off=137 len=1 10:10 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=152 len=13 10:25 | The exception is 'The assertion in this constant expression failed.' and occurs here.
+c27.dart
+  recursive_constant_constructor off=16 len=1 1:17 ERROR | The constant constructor depends on itself.
+  recursive_constructor_redirect off=22 len=8 1:23 ERROR | Constructors can't redirect to themselves either directly or indirectly.
+  recursive_constant_constructor off=38 len=1 1:39 ERROR | The constant constructor depends on itself.
+  recursive_constructor_redirect off=46 len=6 1:47 ERROR | Constructors can't redirect to themselves either directly or indirectly.
+  recursive_compile_time_constant off=62 len=1 2:7 ERROR | The compile-time constant expression depends on itself.
+  recursive_compile_time_constant off=75 len=1 3:7 ERROR | The compile-time constant expression depends on itself.
+c28.dart
+  recursive_compile_time_constant off=18 len=1 2:9 ERROR | The compile-time constant expression depends on itself.
+  recursive_constant_constructor off=41 len=1 3:9 ERROR | The constant constructor depends on itself.
+  const_constructor_with_field_initialized_by_non_const off=79 len=5 7:3 ERROR | Can't define the 'const' constructor because the field 'x' is initialized with a non-constant value.
+c29.dart
+  variable_type_mismatch off=14 len=14 1:15 ERROR | A value of type 'String' can't be assigned to a const variable of type 'int'.
+  variable_type_mismatch off=47 len=12 2:18 ERROR | A value of type 'int' can't be assigned to a const variable of type 'String'.
+  variable_type_mismatch off=81 len=19 3:21 ERROR | A value of type 'List<num>' can't be assigned to a const variable of type 'List<int>'.
+  unused_local_variable off=125 len=1 5:13 WARNING | The value of the local variable 'd' isn't used.
+  variable_type_mismatch off=129 len=14 5:17 ERROR | A value of type 'String' can't be assigned to a const variable of type 'int'.
+c30.dart
+  const_initialized_with_non_constant_value off=140 len=4 4:11 ERROR | Const variables must be initialized with a constant value.
+  const_eval_property_access off=156 len=12 5:11 ERROR | The property 'im' can't be accessed on the type 'A' in a constant expression.
+  const_initialized_with_non_constant_value off=274 len=16 11:11 ERROR | Const variables must be initialized with a constant value.
+  undefined_getter off=276 len=14 11:13 ERROR | The getter 'undefinedThing' isn't defined for the type 'A'.
+  const_initialized_with_non_constant_value off=302 len=12 12:11 ERROR | Const variables must be initialized with a constant value.
+  undefined_identifier off=302 len=12 12:11 ERROR | Undefined name 'undefinedTop'.
+c31.dart
+  recursive_compile_time_constant off=19 len=5 2:9 ERROR | The compile-time constant expression depends on itself.
+  referenced_before_declaration off=37 len=5 2:27 ERROR | Local variable 'elems' can't be referenced before it is declared.
+      ctx off=19 len=5 2:9 | The declaration of 'elems' is here.
+  unused_local_variable off=53 len=1 3:9 WARNING | The value of the local variable 'a' isn't used.
+  referenced_before_declaration off=57 len=1 3:13 ERROR | Local variable 'b' can't be referenced before it is declared.
+      ctx off=68 len=1 4:9 | The declaration of 'b' is here.
+  unused_local_variable off=96 len=1 6:9 WARNING | The value of the local variable 'c' isn't used.
+  const_initialized_with_non_constant_value off=100 len=1 6:13 ERROR | Const variables must be initialized with a constant value.
+  unused_local_variable off=111 len=1 7:9 WARNING | The value of the local variable 'd' isn't used.
+  const_initialized_with_non_constant_value off=115 len=1 7:13 ERROR | Const variables must be initialized with a constant value.
+c32.dart
+  invalid_annotation off=23 len=6 2:1 ERROR | Annotation must be either a const variable reference or const constructor invocation.
+  const_with_non_constant_argument off=102 len=1 6:6 ERROR | Arguments of a constant creation must be constant expressions.
+  non_constant_annotation_constructor off=116 len=9 8:1 ERROR | Annotation creation can only call a const constructor.
+  const_eval_throws_idbze off=142 len=6 10:6 ERROR | Evaluation of this constant expression throws an IntegerDivisionByZeroException.
+  invalid_annotation off=161 len=2 12:1 ERROR | Annotation must be either a const variable reference or const constructor invocation.
+c33.dart
+  const_eval_property_access off=19 len=7 1:20 ERROR | The property 'foo' can't be accessed on the type 'String' in a constant expression.
+  undefined_getter off=23 len=3 1:24 ERROR | The getter 'foo' isn't defined for the type 'String'.
+  const_eval_property_access off=40 len=7 2:12 ERROR | The property 'foo' can't be accessed on the type 'String' in a constant expression.
+  undefined_getter off=44 len=3 2:16 ERROR | The getter 'foo' isn't defined for the type 'String'.
+  const_eval_throws_idbze off=49 len=6 2:21 ERROR | Evaluation of this constant expression throws an IntegerDivisionByZeroException.
+  const_eval_throws_idbze off=69 len=6 3:12 ERROR | Evaluation of this constant expression throws an IntegerDivisionByZeroException.
+  const_eval_property_access off=77 len=7 3:20 ERROR | The property 'foo' can't be accessed on the type 'String' in a constant expression.
+  undefined_getter off=81 len=3 3:24 ERROR | The getter 'foo' isn't defined for the type 'String'.
+  const_eval_property_access off=98 len=7 4:12 ERROR | The property 'foo' can't be accessed on the type 'String' in a constant expression.
+  undefined_getter off=102 len=3 4:16 ERROR | The getter 'foo' isn't defined for the type 'String'.
+  const_eval_throws_idbze off=107 len=6 4:21 ERROR | Evaluation of this constant expression throws an IntegerDivisionByZeroException.
+  const_eval_throws_idbze off=127 len=6 5:12 ERROR | Evaluation of this constant expression throws an IntegerDivisionByZeroException.
+  undefined_getter off=141 len=3 5:26 ERROR | The getter 'foo' isn't defined for the type 'String'.
+c34.dart
+  const_initialized_with_non_constant_value off=21 len=3 2:11 ERROR | Const variables must be initialized with a constant value.
+  const_initialized_with_non_constant_value off=38 len=1 3:13 ERROR | Const variables must be initialized with a constant value.
+  const_initialized_with_non_constant_value off=52 len=1 4:12 ERROR | Const variables must be initialized with a constant value.
+  const_initialized_with_non_constant_value off=65 len=5 5:11 ERROR | Const variables must be initialized with a constant value.
+  const_initialized_with_non_constant_value off=82 len=5 6:11 ERROR | Const variables must be initialized with a constant value.
+  const_initialized_with_non_constant_value off=99 len=7 7:11 ERROR | Const variables must be initialized with a constant value.
+  non_constant_list_element off=100 len=5 7:12 ERROR | The values in a const list literal must be constants.
+  const_initialized_with_non_constant_value off=118 len=2 8:11 ERROR | Const variables must be initialized with a constant value.
+  unnecessary_non_null_assertion off=119 len=1 8:12 WARNING | The '!' will have no effect because the receiver can't be null.
+  const_initialized_with_non_constant_value off=133 len=1 9:12 ERROR | Const variables must be initialized with a constant value.
+  const_initialized_with_non_constant_value off=147 len=13 10:11 ERROR | Const variables must be initialized with a constant value.
+c35.dart
+  const_constructor_param_type_mismatch off=188 len=9 10:11 ERROR | A value of type 'String' can't be assigned to a parameter of type 'int' in a const constructor.
+  missing_default_value_for_parameter off=239 len=1 11:41 ERROR | The parameter 'q' can't have a value of 'null' because of its type, but the implicit default value is 'null'.
+  const_constructor_param_type_mismatch off=256 len=9 12:11 ERROR | A value of type 'Null' can't be assigned to a parameter of type 'String' in a const constructor.
+c36.dart
+  field_initialized_in_parameter_and_initializer off=61 len=1 4:21 ERROR | Fields can't be initialized in both the parameter list and the initializers.
+  const_eval_throws_exception off=88 len=10 6:11 ERROR | Evaluation of this constant expression throws an exception.
+  duplicate_definition off=129 len=1 7:30 ERROR | The name 'x' is already defined.
+      ctx off=116 len=1 7:17 | The first definition of this name.
+c37.dart
+  const_eval_extension_type_method off=99 len=7 3:11 ERROR | Extension type methods can't be used in constant expressions.
+  undefined_operator off=120 len=1 4:13 ERROR | The operator '+' isn't defined for the type 'E'.
+  const_eval_throws_exception off=135 len=25 5:11 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=145 len=14 5:21 | The exception is 'A value of type 'String' can't be assigned to a parameter of type 'int' in a const constructor.' and occurs here.
+c38.dart
+  const_eval_throws_exception off=61 len=9 2:20 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=63 len=6 2:22 | The exception is 'Evaluation of this constant expression throws an IntegerDivisionByZeroException.' and occurs here.
+  const_eval_property_access off=87 len=7 3:15 ERROR | The property 'foo' can't be accessed on the type 'String' in a constant expression.
+  undefined_getter off=91 len=3 3:19 ERROR | The getter 'foo' isn't defined for the type 'String'.
+  non_constant_list_element off=96 len=1 3:24 ERROR | The values in a const list literal must be constants.
+  list_element_type_not_assignable off=127 len=15 5:17 ERROR | The element type 'Null' can't be assigned to the list type 'int'.
+s01.dart
+  const_constructor_field_type_mismatch off=11 len=1 2:3 ERROR | In a const constructor, a value of type 'String' can't be assigned to the field 'x', which has type 'int'.
+  field_initializer_not_assignable off=47 len=2 4:19 ERROR | The initializer type 'String' can't be assigned to the field type 'int' in a const constructor.
+s02.dart
+  invalid_assignment off=27 len=1 2:15 ERROR | A value of type 'int' can't be assigned to a variable of type 'T'.
+  const_eval_throws_exception off=70 len=17 6:9 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=27 len=1 2:15 | The exception is 'In a const constructor, a value of type 'int' can't be assigned to the field 'x', which has type 'String'.' and occurs here.
+s04.dart
+  const_constructor_throws_exception off=45 len=8 2:36 ERROR | Const constructors can't throw exceptions.
+  invalid_constant off=45 len=8 2:36 ERROR | Invalid constant value.
+  dead_code off=54 len=3 2:45 WARNING | Dead code.
+  const_eval_throws_exception off=70 len=10 4:11 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=28 len=28 2:19 | The exception is 'The assertion in this constant expression failed.' and occurs here.
+s05.dart
+  const_eval_throws_exception off=103 len=21 7:3 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=51 len=12 3:28 | The error is in the field initializer of 'C', and occurs here.
+  const_eval_throws_exception off=128 len=18 8:3 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=51 len=12 3:28 | The error is in the field initializer of 'C', and occurs here.
+s06.dart
+  const_eval_throws_exception off=34 len=4 3:3 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=36 len=1 3:5 | The exception is 'A value of type 'String' can't be assigned to a parameter of type 'int' in a const constructor.' and occurs here.
+s07.dart
+  const_eval_throws_exception off=9 len=29 1:10 ERROR | Evaluation of this constant expression throws an exception.
+  argument_type_not_assignable off=36 len=1 1:37 ERROR | The argument type 'int' can't be assigned to the parameter type 'String'. 
+  const_eval_throws_exception off=49 len=48 2:10 ERROR | Evaluation of this constant expression throws an exception.
+  argument_type_not_assignable off=95 len=1 2:56 ERROR | The argument type 'int' can't be assigned to the parameter type 'bool'. 
+s08.dart
+  const_eval_throws_exception off=11 len=4 2:3 ERROR | Evaluation of this constant expression throws an exception.
+  field_initialized_in_parameter_and_initializer off=52 len=1 4:21 ERROR | Fields can't be initialized in both the parameter list and the initializers.
+s09.dart
+  const_eval_type_string off=69 len=4 5:11 ERROR | In constant expressions, operands of this operator must be of type 'String'.
+      ctx off=47 len=8 3:27 | The error is in the field initializer of 'B', and occurs here.
+  const_with_non_constant_argument off=71 len=1 5:13 ERROR | Arguments of a constant creation must be constant expressions.
+  undefined_identifier off=71 len=1 5:13 ERROR | Undefined name 'x'.
+s11.dart
+  const_with_type_parameters off=52 len=1 3:18 ERROR | A constant constructor tearoff can't use a type parameter as a type argument.
+s12.dart
+  recursive_compile_time_constant off=6 len=2 1:7 ERROR | The compile-time constant expression depends on itself.
+  recursive_compile_time_constant off=25 len=2 2:7 ERROR | The compile-time constant expression depends on itself.
+  recursive_compile_time_constant off=64 len=1 4:16 ERROR | The compile-time constant expression depends on itself.
+  recursive_constant_constructor off=101 len=2 7:9 ERROR | The constant constructor depends on itself.
+s13.dart
+  recursive_compile_time_constant off=17 len=5 2:9 ERROR | The compile-time constant expression depends on itself.
+  referenced_before_declaration off=60 len=5 5:7 ERROR | Local variable 'elems' can't be referenced before it is declared.
+      ctx off=17 len=5 2:9 | The declaration of 'elems' is here.
+s14.dart
+  concrete_class_with_abstract_member off=12 len=4 2:3 ERROR | 'B' must have a method body because 'A' isn't abstract.
+  const_initialized_with_non_constant_value off=40 len=9 3:24 ERROR | Const variables must be initialized with a constant value.
+  creation_with_non_type off=46 len=1 3:30 ERROR | The name 'B' isn't a class.
+s15.dart
+  invalid_constant off=51 len=1 3:27 ERROR | Invalid constant value.
+  invalid_type_argument_in_const_literal off=51 len=1 3:27 ERROR | Constant map literals can't use a type parameter in a type argument, such as 'X'.
+s16.dart
+  invalid_constant off=97 len=0 6:35 ERROR | Invalid constant value.
+  missing_identifier off=97 len=1 6:35 ERROR | Expected an identifier.
+s17.dart
+  assignment_to_const off=145 len=7 8:10 ERROR | Constant variables can't be assigned a value.
+  non_constant_case_expression off=145 len=11 8:10 ERROR | Case expressions must be constant.
+s18.dart
+  invalid_reference_to_generative_enum_constructor off=57 len=1 4:23 ERROR | Generative enum constructors can only be used as targets of redirection.
+s19.dart
+  recursive_compile_time_constant off=12 len=2 2:3 ERROR | The compile-time constant expression depends on itself.
+s20.dart
+  const_with_non_constant_argument off=34 len=1 2:4 ERROR | Arguments of a constant creation must be constant expressions.
+  const_with_non_constant_argument off=70 len=1 5:12 ERROR | Arguments of a constant creation must be constant expressions.
+  const_with_non_constant_argument off=109 len=3 7:4 ERROR | Arguments of a constant creation must be constant expressions.
+  undefined_identifier off=109 len=3 7:4 ERROR | Undefined name 'foo'.
+  const_with_non_constant_argument off=125 len=3 8:12 ERROR | Arguments of a constant creation must be constant expressions.
+  undefined_identifier off=125 len=3 8:12 ERROR | Undefined name 'foo'.
+s21.dart
+  const_initialized_with_non_constant_value_from_deferred_library off=94 len=1 3:16 ERROR | Constant values from a deferred library can't be used to initialize a 'const' variable.
+  const_deferred_class off=115 len=6 4:17 ERROR | Deferred classes can't be created with 'const'.
+  const_initialized_with_non_constant_value_from_deferred_library off=140 len=1 5:16 ERROR | Constant values from a deferred library can't be used to initialize a 'const' variable.
+s22.dart
+  undefined_identifier off=16 len=1 1:17 ERROR | Undefined name 'X'.
+  undefined_identifier off=39 len=1 2:17 ERROR | Undefined name 'X'.
+s23.dart
+  recursive_compile_time_constant off=18 len=1 2:9 ERROR | The compile-time constant expression depends on itself.
+  recursive_constant_constructor off=41 len=1 3:9 ERROR | The constant constructor depends on itself.
+  recursive_constant_constructor off=77 len=1 7:9 ERROR | The constant constructor depends on itself.
+  recursive_compile_time_constant off=98 len=1 9:7 ERROR | The compile-time constant expression depends on itself.
+  recursive_constant_constructor off=129 len=1 10:17 ERROR | The constant constructor depends on itself.
+  recursive_constructor_redirect off=135 len=8 10:23 ERROR | Constructors can't redirect to themselves either directly or indirectly.
+  recursive_constant_constructor off=151 len=1 10:39 ERROR | The constant constructor depends on itself.
+  recursive_constructor_redirect off=159 len=6 10:47 ERROR | Constructors can't redirect to themselves either directly or indirectly.
+  recursive_constant_constructor off=185 len=1 11:17 ERROR | The constant constructor depends on itself.
+  recursive_constant_constructor off=223 len=1 12:17 ERROR | The constant constructor depends on itself.
+  recursive_constructor_redirect off=229 len=6 12:23 ERROR | Constructors can't redirect to themselves either directly or indirectly.
+s24.dart
+  unchecked_use_of_nullable_value off=53 len=2 3:12 ERROR | A nullable expression can't be used as a condition.
+s26.dart
+  const_eval_property_access off=74 len=16 5:11 ERROR | The property 'length' can't be accessed on the type 'List<int>' in a constant expression.
+      ctx off=52 len=8 3:28 | The error is in the field initializer of 'A', and occurs here.
+s27.dart
+  const_eval_property_access off=69 len=8 3:11 ERROR | The property 'x' can't be accessed on the type 'A' in a constant expression.
+  undefined_getter off=145 len=3 7:19 ERROR | The getter 'new' isn't defined for the type 'A'.
+s28.dart
+  const_initialized_with_non_constant_value off=33 len=24 2:11 ERROR | Const variables must be initialized with a constant value.
+  recursive_constant_constructor off=110 len=1 6:17 ERROR | The constant constructor depends on itself.
+  recursive_constructor_redirect off=116 len=8 6:23 ERROR | Constructors can't redirect to themselves either directly or indirectly.
+  recursive_constant_constructor off=132 len=1 6:39 ERROR | The constant constructor depends on itself.
+  recursive_constructor_redirect off=140 len=6 6:47 ERROR | Constructors can't redirect to themselves either directly or indirectly.
+t01.dart
+  recursive_compile_time_constant off=6 len=1 1:7 ERROR | The compile-time constant expression depends on itself.
+  recursive_compile_time_constant off=36 len=1 2:24 ERROR | The compile-time constant expression depends on itself.
+t03.dart
+  recursive_compile_time_constant off=6 len=1 1:7 ERROR | The compile-time constant expression depends on itself.
+  recursive_constant_constructor off=37 len=1 2:17 ERROR | The constant constructor depends on itself.
+t06.dart
+  const_eval_type_bool_num_string off=67 len=2 4:12 ERROR | In constant expressions, operands of this operator must be of type 'bool', 'num', 'String' or 'null'.
+  const_eval_type_num_string off=82 len=5 5:11 ERROR | In constant expressions, operands of this operator must be of type 'num' or 'String'.
+  undefined_operator off=84 len=1 5:13 ERROR | The operator '+' isn't defined for the type 'Type'.
+t07.dart
+  unnecessary_type_check off=10 len=8 1:11 WARNING | Unnecessary type check; the result is always 'true'.
+  const_eval_throws_exception off=30 len=11 2:11 ERROR | Evaluation of this constant expression throws an exception.
+  const_eval_throws_exception off=150 len=17 8:11 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=130 len=6 6:40 | The error is in the field initializer of 'G', and occurs here.
+t08.dart
+  const_eval_type_num off=115 len=7 5:11 ERROR | In constant expressions, operands of this operator must be of type 'num'.
+t09.dart
+  const_eval_throws_exception off=86 len=9 7:11 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=69 len=1 5:9 | The evaluated constructor 'A' is called by 'B' and 'B' is defined here.
+      ctx off=24 len=13 2:15 | The exception is 'The assertion in this constant expression failed.' and occurs here.
+  invalid_constant off=144 len=5 8:48 ERROR | Invalid constant value.
+  undefined_getter off=146 len=3 8:50 ERROR | The getter 'foo' isn't defined for the type 'Object'.
+  const_eval_property_access off=207 len=9 10:11 ERROR | The property 'foo' can't be accessed on the type 'int' in a constant expression.
+      ctx off=144 len=5 8:48 | The error is in the field initializer of 'P', and occurs here.
+      ctx off=179 len=1 9:27 | The evaluated constructor 'P' is called by 'Q' and 'Q' is defined here.
+t10.dart
+  const_eval_throws_exception off=175 len=10 8:11 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=51 len=6 3:27 | The exception is 'Evaluation of this constant expression throws an IntegerDivisionByZeroException.' and occurs here.
+  const_eval_throws_exception off=197 len=12 9:11 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=82 len=13 4:23 | The exception is 'The assertion in this constant expression failed.' and occurs here.
+  const_eval_throws_exception off=221 len=12 10:11 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=82 len=13 4:23 | The exception is 'The assertion in this constant expression failed.' and occurs here.
+t14.dart
+  const_eval_property_access off=96 len=7 3:19 ERROR | The property 'foo' can't be accessed on the type 'String' in a constant expression.
+  undefined_getter off=100 len=3 3:23 ERROR | The getter 'foo' isn't defined for the type 'String'.
+  const_initialized_with_non_constant_value off=123 len=1 4:19 ERROR | Const variables must be initialized with a constant value.
+  const_initialized_with_non_constant_value off=147 len=7 6:11 ERROR | Const variables must be initialized with a constant value.
+  const_eval_throws_idbze off=199 len=6 9:15 ERROR | Evaluation of this constant expression throws an IntegerDivisionByZeroException.
+t15.dart
+  const_eval_throws_exception off=93 len=10 3:19 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=27 len=13 1:28 | The exception is 'The assertion in this constant expression failed.' and occurs here.
+  const_eval_property_access off=132 len=7 4:27 ERROR | The property 'foo' can't be accessed on the type 'String' in a constant expression.
+  undefined_getter off=136 len=3 4:31 ERROR | The getter 'foo' isn't defined for the type 'String'.
+  const_eval_throws_exception off=159 len=10 5:17 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=27 len=13 1:28 | The exception is 'The assertion in this constant expression failed.' and occurs here.
+t17.dart
+  const_eval_throws_exception off=99 len=10 4:11 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=-1 len=0 1:0 | The evaluated constructor 'S' is called by 'C' and 'C' is defined here.
+      ctx off=52 len=13 2:42 | The exception is 'The assertion in this constant expression failed.' and occurs here.
+  const_eval_throws_exception off=173 len=9 6:11 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=144 len=1 5:34 | The evaluated constructor 'S' is called by 'D' and 'D' is defined here.
+      ctx off=52 len=13 2:42 | The exception is 'The assertion in this constant expression failed.' and occurs here.
+t18.dart
+  const_eval_throws_exception off=67 len=26 5:11 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=75 len=17 5:19 | The exception is 'A value of type 'String' can't be assigned to a parameter of type 'int' in a const constructor.' and occurs here.
+  const_eval_throws_exception off=105 len=18 6:11 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=116 len=6 6:22 | The exception is 'Evaluation of this constant expression throws an IntegerDivisionByZeroException.' and occurs here.
+  const_initialized_with_non_constant_value off=146 len=1 7:22 ERROR | Const variables must be initialized with a constant value.
+  invalid_constant off=146 len=1 7:22 ERROR | Invalid constant value.
+t19.dart
+  const_eval_throws_exception off=123 len=9 3:11 ERROR | Evaluation of this constant expression throws an exception.
+      ctx off=88 len=21 2:42 | The exception is 'An assertion failed with message 'boom'.' and occurs here.
+  const_eval_property_access off=213 len=11 6:11 ERROR | The property 'inSeconds' can't be accessed on the type 'Duration' in a constant expression.
+t20.dart
+  recursive_compile_time_constant off=23 len=1 1:24 ERROR | The compile-time constant expression depends on itself.
+  recursive_compile_time_constant off=57 len=1 2:24 ERROR | The compile-time constant expression depends on itself.
+  recursive_compile_time_constant off=91 len=1 3:24 ERROR | The compile-time constant expression depends on itself.

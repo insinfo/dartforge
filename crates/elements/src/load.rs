@@ -237,6 +237,7 @@ fn carregar_leniente(
             scope: HashMap::new(),
             prefixes: HashMap::new(),
             pais: HashMap::new(),
+            representante: Default::default(),
             escopos_de_unidade: HashMap::new(),
             is_sdk: true,
             features: LibraryFeatures::piso(),
@@ -280,6 +281,7 @@ fn carregar_leniente(
                 scope: HashMap::new(),
                 prefixes: HashMap::new(),
                 pais: HashMap::new(),
+                representante: Default::default(),
                 escopos_de_unidade: HashMap::new(),
                 is_sdk,
                 features: if is_sdk { LibraryFeatures::piso() } else { LibraryFeatures::atual() },
@@ -362,6 +364,8 @@ fn carregar_leniente(
                         library: lib_id,
                         role: u.role,
                         features: LibraryFeatures::piso(),
+                        pulados: Vec::new(),
+                        referencia: dartforge_diagnostics::Referencia::V3_6,
                     });
                     program.libraries[lib_id.0 as usize].units.push(unit_id);
                 }
@@ -1052,6 +1056,8 @@ fn load_unit(
         library: lib_id,
         role,
         features,
+        pulados: parsed.pulados,
+        referencia: parsed.referencia,
     });
 
     Some(unit_id)
@@ -1079,6 +1085,7 @@ fn get_or_create_library(
             scope: HashMap::new(),
             prefixes: HashMap::new(),
             pais: HashMap::new(),
+            representante: Default::default(),
             escopos_de_unidade: HashMap::new(),
             is_sdk,
             features: if is_sdk { LibraryFeatures::piso() } else { LibraryFeatures::atual() },

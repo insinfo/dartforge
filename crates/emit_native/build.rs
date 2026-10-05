@@ -33,6 +33,11 @@ fn main() {
         println!("cargo::rerun-if-changed={}", dir.display());
         juntar(&dir, &mut arquivos);
     }
+    // A tabela de efeitos das externs decide onde a exceção pendente é
+    // conferida: muda o código do SDK como uma fonte.
+    let efeitos = raiz.join("../runtime/efeitos.tsv");
+    println!("cargo::rerun-if-changed={}", efeitos.display());
+    arquivos.push(efeitos);
     arquivos.sort();
     let mut h = blake3::Hasher::new();
     for a in &arquivos {
@@ -173,6 +178,15 @@ fn precompilar_runtime() {
         }
         let ws = workspace.canonicalize().unwrap_or_else(|_| workspace.clone());
         bandeiras.push_str(&format!("--remap-path-prefix={}=dartforge", ws.display()));
+        // Tabelas de desenrolamento em todo quadro do runtime nos alvos do
+        // desenrolador Itanium, também com `panic=abort`: o percurso das
+        // raízes por mapas (`_Unwind_Backtrace`, `runtime/src/heap.rs`) e o
+        // desenrolamento das exceções por tabelas atravessam os quadros do
+        // runtime; sem a tabela, o desenrolador para no primeiro deles
+        // (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.6).
+        if alvo.contains("linux") || alvo.contains("apple") {
+            bandeiras.push_str("\x1f-Cforce-unwind-tables=yes");
+        }
         cmd.env("CARGO_ENCODED_RUSTFLAGS", bandeiras).env_remove("RUSTFLAGS");
         if let Some(m) = &minimo_macos {
             cmd.env("MACOSX_DEPLOYMENT_TARGET", m);

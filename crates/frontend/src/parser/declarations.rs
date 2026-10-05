@@ -139,6 +139,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             let start_pos = self.pos;
             if self.parse_top_level_item(&mut unit).is_err() {
                 self.recover_top_level(start_pos);
+                self.registrar_pulado(start_pos);
             }
         }
         unit
@@ -1701,18 +1702,23 @@ impl<'s, 'i> Parser<'s, 'i> {
         let simples = params.first().is_some_and(|p| {
             p.kind == ParameterKind::Required && !p.this_ && !p.super_ && p.function_parameters.is_none() && p.name.is_some()
         });
-        // O analyzer novo (3.13.4, o único que lê bibliotecas depois da 3.6)
-        // relata mais de um parâmetro como `MULTIPLE_REPRESENTATION_FIELDS`
-        // na primeira vírgula, qualquer que seja a forma do primeiro.
+        // O analyzer 3.13.4 relata mais de um parâmetro como
+        // `MULTIPLE_REPRESENTATION_FIELDS` na primeira vírgula, qualquer que
+        // seja a forma do primeiro; o 3.6.2, o campo que falta. Qual dos
+        // dois fica depende da referência da unidade, que só se conhece no
+        // fim (`Parsed::referencia`): saem os dois, cada um marcado.
         let n = params.len();
-        if self.features.versao() > crate::features::LanguageVersion::PISO && n > 1 && !simples {
+        if n > 1 && !simples {
             let fim = params[0].span.end;
             if let Some(virgula) =
                 self.tokens[abre..self.pos].iter().find(|t| t.span.start >= fim && t.kind == Kind::Op(Op::Comma))
             {
                 let span = virgula.span;
                 self.erro_em(codigos::parser::MULTIPLE_REPRESENTATION_FIELDS, span, &[]);
+                self.so_3_13.push((codigos::parser::MULTIPLE_REPRESENTATION_FIELDS, span));
             }
+            self.erro_em(codigos::parser::EXPECTED_REPRESENTATION_FIELD, depois_abre, &[]);
+            self.so_3_6.push((codigos::parser::EXPECTED_REPRESENTATION_FIELD, depois_abre));
             let (ty, nome) = sintetico(self);
             return Ok((Vec::new(), ty, nome));
         }
@@ -1724,23 +1730,45 @@ impl<'s, 'i> Parser<'s, 'i> {
         let p = params.swap_remove(0);
         let ty = match p.ty {
             Some(ty) => ty,
-            // Com `final`/`var` o 3.13.4 (a forma declarante) aceita sem tipo.
-            None if p.final_ || p.var_ => sintetico(self).0,
+            // Com `final`/`var` e o recurso ligado, a forma é a declarante,
+            // que aceita sem tipo. Com ele desligado (caso c23 de
+            // `corpus/especificacao/t2/v`), o 3.6.2 relata o tipo que falta
+            // no token depois do `(` e o 3.13.4, no nome.
+            None if p.final_ || p.var_ => {
+                if !self.features.tem(Feature::PrimaryConstructors) {
+                    self.erro_em(codigos::parser::EXPECTED_REPRESENTATION_TYPE, depois_abre, &[]);
+                    self.so_3_6.push((codigos::parser::EXPECTED_REPRESENTATION_TYPE, depois_abre));
+                    if let Some(nome) = p.name {
+                        self.erro_em(codigos::parser::EXPECTED_REPRESENTATION_TYPE, nome.span, &[]);
+                        self.so_3_13.push((codigos::parser::EXPECTED_REPRESENTATION_TYPE, nome.span));
+                    }
+                }
+                sintetico(self).0
+            }
             None => {
                 self.erro_em(codigos::parser::EXPECTED_REPRESENTATION_TYPE, depois_abre, &[]);
                 sintetico(self).0
             }
         };
-        // O 3.13.4 com mais de um parâmetro só relata
-        // `MULTIPLE_REPRESENTATION_FIELDS` (`extension type E(final i, final x)`).
-        let varios_no_3_13 = self.features.versao() > crate::features::LanguageVersion::PISO && n > 1;
-        let modificador =
-            !varios_no_3_13 && (p.var_ || (p.final_ && !self.features.tem(Feature::PrimaryConstructors)));
+        // O argumento só entra no molde do 3.13.4, que escreve `var` também
+        // para o `final` (casos c02 e c23). Com mais de um parâmetro o
+        // 3.13.4 só relata `MULTIPLE_REPRESENTATION_FIELDS`
+        // (`extension type E(final i, final x)`): o do modificador é só do
+        // 3.6.2. O `var` com o recurso desligado é, no 3.13.4, uso de
+        // construtor primário (relatado pelo `AstBuilder`, versão `3.13`), e
+        // faz dele a referência da unidade.
+        let modificador = p.var_ || (p.final_ && !self.features.tem(Feature::PrimaryConstructors));
         if modificador {
             let alvo = if p.var_ { Keyword::Var } else { Keyword::Final };
             if let Some(t) = self.tokens[abre..self.pos].iter().find(|t| t.span.start >= p.span.start && t.kind == Kind::Keyword(alvo)) {
                 let span = t.span;
-                self.erro_em(codigos::parser::REPRESENTATION_FIELD_MODIFIER, span, &[]);
+                if p.var_ {
+                    self.exigir_no_ast(Feature::PrimaryConstructors, span);
+                }
+                self.erro_em(codigos::parser::REPRESENTATION_FIELD_MODIFIER, span, &["var"]);
+                if n > 1 {
+                    self.so_3_6.push((codigos::parser::REPRESENTATION_FIELD_MODIFIER, span));
+                }
             }
         }
         if let Some(virgula) = self.tokens[abre..self.pos].iter().find(|t| t.span.start >= p.span.end).filter(|t| t.kind == Kind::Op(Op::Comma)) {
@@ -2392,7 +2420,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             let start_pos = self.pos;
             match self.parse_member(class_name) {
                 Ok(id) => members.push(id),
-                Err(ParseError) => self.recover_member(start_pos, class_name, &mut members),
+                Err(ParseError) => {
+                    self.recover_member(start_pos, class_name, &mut members);
+                    self.registrar_pulado(start_pos);
+                }
             }
         }
     }
@@ -2831,6 +2862,20 @@ impl<'s, 'i> Parser<'s, 'i> {
         let parameters = self.parse_formal_parameters()?;
         let mut initializers = Vec::new();
         let mut redirect = None;
+        // `parseFactoryMethod` (`parser_impl.dart:5139-5145`): o modificador
+        // do corpo de uma factory é `NON_SYNC_FACTORY`, no token
+        // `async`/`sync`, antes do teste do `=` — vale também na factory
+        // redirecionadora, que não tem corpo (ali o modificador é só pulado).
+        if factory && (self.at_ident("async") || (self.at_ident("sync") && self.at_op_at(1, Op::Star))) {
+            let span = self.span();
+            self.erro_em(codigos::compile_time_error::NON_SYNC_FACTORY, span, &[]);
+            let tokens_do_modificador = if self.at_ident("sync") || self.at_op_at(1, Op::Star) { 2 } else { 1 };
+            if self.at_op_at(tokens_do_modificador, Op::Assign) {
+                for _ in 0..tokens_do_modificador {
+                    self.advance();
+                }
+            }
+        }
         let body = if self.at_op(Op::Assign) {
             let eq = self.advance();
             if !factory {
@@ -2873,6 +2918,15 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             let inicio_corpo = self.pos;
             let (modificador, body) = self.parse_function_body()?;
+            // `_checkForInvalidModifierOnBody` (`error_verifier.dart:4044-4053`):
+            // construtor (gerador ou factory) com `async`, `async*` ou
+            // `sync*`, no primeiro token do modificador; o argumento é o
+            // texto dele (`async` também para `async*`).
+            if modificador != AsyncModifier::None {
+                let span = self.tokens[inicio_corpo].span;
+                let palavra = if modificador == AsyncModifier::SyncStar { "sync" } else { "async" };
+                self.erro_em(codigos::compile_time_error::INVALID_MODIFIER_ON_CONSTRUCTOR, span, &[palavra]);
+            }
             self.conferir_corpo_externo(mods.external, factory, inicio_corpo, &body, None);
             // `parseFactoryMethod`: só a factory `external` dispensa o corpo;
             // o construtor gerador segue a regra dos métodos (`parseMethod`).
@@ -2922,6 +2976,14 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `this(...)`/`this.n(...)` (redirecionamento), `this.x = e`, `x = e`
     /// ou `assert(c, m)`.
     fn parse_initializer(&mut self) -> PResult<Initializer> {
+        // `parseInitializers` do fasta desliga `mayParseFunctionExpressions`.
+        let salvo = std::mem::replace(&mut self.sem_funcao_nomeada, true);
+        let lido = self.parse_initializer_interno();
+        self.sem_funcao_nomeada = salvo;
+        lido
+    }
+
+    fn parse_initializer_interno(&mut self) -> PResult<Initializer> {
         let start = self.span();
         if self.eat_kw(Keyword::Super) {
             // `super?.x()`: `INVALID_OPERATOR_QUESTIONMARK_PERIOD_FOR_SUPER`

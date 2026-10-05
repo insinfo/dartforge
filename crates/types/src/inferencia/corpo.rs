@@ -96,6 +96,14 @@ pub(crate) struct Corpo {
     /// Tipando o padrão de um `case`/`if-case` (refutável): o identificador
     /// solto é uma constante (`case _padrao:`), não uma variável nova.
     pub padrao_refutavel: bool,
+    /// O casamento de padrão em curso (T6: a referência do valor casado e o
+    /// estado "não casou"); `None` fora de padrão.
+    pub casamento: Option<super::padroes::Casamento>,
+    /// Dentro de um `switch` (instrução ou expressão): o escrutínio já
+    /// casado por um caso — a expressão, a chave de promoção do valor e a
+    /// versão de escrita da variável escrutinada —, que os casos seguintes
+    /// reusam. `None` fora de `switch`; `Some(None)` antes do primeiro caso.
+    pub escrutinio_de_switch: Option<Option<(ast::ExprId, LocalId, Option<u32>)>>,
     /// Corpo de um método ou inicializador de campo estático: os parâmetros
     /// de tipo da classe não valem ali (`TYPE_PARAMETER_REFERENCED_BY_STATIC`).
     pub membro_estatico: bool,
@@ -192,6 +200,8 @@ impl Corpo {
             funcoes: Vec::new(),
             cascatas: Vec::new(),
             padrao_refutavel: false,
+            casamento: None,
+            escrutinio_de_switch: None,
             membro_estatico: false,
             saltos: Vec::new(),
             tipo_this: None,

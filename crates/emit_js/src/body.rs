@@ -121,6 +121,24 @@ pub struct FnEmitter<'m, 'a> {
 }
 
 impl<'m, 'a> FnEmitter<'m, 'a> {
+    /// `var (a, b) = e;` / `final [x, y] = e;`: o valor num temporário, as
+    /// variáveis do padrão declaradas e o teste do padrão (irrefutável em
+    /// Dart; o teste só sobra onde o tipo estático não basta).
+    pub(crate) fn emit_pattern_variables(&mut self, pattern: ast::PatternId, value: ExprId) {
+        let (vjs, vty) = self.emit_expr(value, None);
+        let t = self.temp();
+        crate::linha!(self.w, "{t} = {};", vjs.code);
+        let mut binds = Vec::new();
+        let cond = self.pattern_cond(pattern, &t, &vty, &mut binds, true);
+        for (_, _, jsn) in &binds {
+            crate::linha!(self.w, "let {jsn} = null;");
+        }
+        if cond != "true" {
+            crate::linha!(self.w, "if (!({cond})) dart.throw(new core.StateError.new(\"Pattern matching error\"));");
+            self.m.use_sdk("core");
+        }
+    }
+
     pub fn new(ctx: &'m Ctx<'a>, m: &'m ModState, unit: UnitId, class: Option<ClassId>, is_static: bool) -> Self {
         let lib = ctx.program.unit(unit).library;
         FnEmitter {
@@ -1309,6 +1327,12 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                         format!("let {}", parts.join(", "))
                     }
                     Some(ast::ForInit::Expression(e)) => self.emit_expr(*e, None).0.code,
+                    // A declaração por padrão sai antes do laço, no escopo
+                    // dele: o `for` fica sem inicialização.
+                    Some(ast::ForInit::Pattern { pattern, value, .. }) => {
+                        self.emit_pattern_variables(*pattern, *value);
+                        String::new()
+                    }
                     None => String::new(),
                 };
                 let cond_js = match condition {

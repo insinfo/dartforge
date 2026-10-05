@@ -89,6 +89,9 @@ struct Verificador<'m, 'a> {
 
 /// Os erros de constantes das unidades de `lib`.
 pub fn verificar(m: &mut Motor<'_>, lib: LibraryId) -> Vec<(UnitId, Diagnostic)> {
+    // Os ciclos saem do grafo de dependências, antes de qualquer avaliação
+    // (`computeConstants`).
+    super::ciclos::computar(m, lib);
     let program = m.program;
     let mut campos = HashMap::new();
     let mut topo = HashMap::new();
@@ -258,8 +261,150 @@ impl Verificador<'_, '_> {
     }
 
     /// `visitConstructorDeclaration`.
+    /// As regras do `ErrorVerifier` sobre o cabeçalho de um construtor
+    /// (docs/ANALYZER-ESPECIFICACAO.md §D): `non_const_generative_enum_constructor`
+    /// (`error_verifier.dart:4710-4719`); e, para o construtor gerador
+    /// `const`, nesta ordem e parando no primeiro relato,
+    /// `const_constructor_with_mixin_with_field` (`:2807-2856`),
+    /// `const_constructor_with_non_const_super` (`:2858-2893`) e
+    /// `const_constructor_with_non_final_field` (`:2898-2916`); mais
+    /// `const_constructor_throws_exception` (`:2936-2943`) em cada `throw` dos
+    /// inicializadores. Escrito sem compilar nem executar (2026-10-04).
+    fn regras_do_construtor(&mut self, a: &ast::Ast, mid: ast::MemberId, k: &ast::Constructor) {
+        use dartforge_elements::model::ClassKind;
+        let Some(classe) = self.classe_de(a, mid) else { return };
+        let program = self.m.program;
+        let interner = self.m.interner;
+        let dados = program.class(classe);
+        // `atConstructorDeclaration`: do nome da classe ao fim do nome do
+        // construtor, quando há.
+        let cabecalho = Span { start: k.class_name.span.start, end: k.name.map_or(k.class_name.span.end, |n| n.span.end) };
+        if dados.kind == ClassKind::Enum && !k.const_ && !k.factory {
+            self.relatar(c::NON_CONST_GENERATIVE_ENUM_CONSTRUCTOR, cabecalho, Vec::new());
+        }
+        if !k.const_ || k.factory {
+            return;
+        }
+        for init in k.initializers.iter() {
+            let sp = match init {
+                ast::Initializer::Field { span, .. }
+                | ast::Initializer::Super { span, .. }
+                | ast::Initializer::Redirect { span, .. }
+                | ast::Initializer::Assert { span, .. } => *span,
+            };
+            let lancamentos: Vec<Span> = a
+                .exprs
+                .iter()
+                .filter(|x| matches!(x.kind, ExprKind::Throw(_)) && x.span.start >= sp.start && x.span.end <= sp.end)
+                .map(|x| x.span)
+                .collect();
+            for s in lancamentos {
+                self.relatar(c::CONST_CONSTRUCTOR_THROWS_EXCEPTION, s, Vec::new());
+            }
+        }
+        // Campos de instância dos mixins da cláusula `with`: todo campo que
+        // não é estático nem (`abstract` e `final`).
+        let mut campos_de_mixin: Vec<String> = Vec::new();
+        for &mx in dados.mixin_classes.iter() {
+            for &v in program.class(mx).fields.iter() {
+                let var = program.variable(v);
+                if var.static_ {
+                    continue;
+                }
+                let abstrato = match var.node {
+                    VariableRef::Field { unit, member, .. } => {
+                        matches!(&program.unit(unit).ast.member(member).kind, MemberKind::Field(l) if l.abstract_)
+                    }
+                    _ => false,
+                };
+                if abstrato && var.final_ {
+                    continue;
+                }
+                campos_de_mixin.push(format!("'{}.{}'", interner.resolve(program.class(mx).name), interner.resolve(var.name)));
+            }
+        }
+        if campos_de_mixin.len() == 1 {
+            self.relatar(c::CONST_CONSTRUCTOR_WITH_MIXIN_WITH_FIELD, k.class_name.span, campos_de_mixin);
+            return;
+        }
+        if campos_de_mixin.len() > 1 {
+            self.relatar(c::CONST_CONSTRUCTOR_WITH_MIXIN_WITH_FIELDS, k.class_name.span, vec![campos_de_mixin.join(", ")]);
+            return;
+        }
+        // O construtor da superclasse que este invoca (o escrito, ou o sem
+        // nome implícito) não é `const`. Um enum sempre chama um `const`; o
+        // redirecionador é conferido em outro lugar.
+        let redireciona = k.initializers.iter().any(|i| matches!(i, ast::Initializer::Redirect { .. }));
+        if dados.kind != ClassKind::Enum && !redireciona {
+            let escrito = k.initializers.iter().find_map(|i| match i {
+                ast::Initializer::Super { span, constructor, .. } => Some((*span, constructor.map(|n| n.sym))),
+                _ => None,
+            });
+            if let Some(sup) = super::ciclos::superclasse_declarada(program, classe) {
+                if Some(sup) != self.m.core.object_class {
+                    let nome_do_super = escrito.and_then(|(_, n)| n);
+                    let chave = nome_do_super.or_else(|| interner.lookup(""));
+                    let alvo = chave.and_then(|ch| program.class(sup).constructors.get(&ch).copied());
+                    let nao_const = match alvo {
+                        Some(g) => !program.function(program.publico(g)).const_,
+                        // Superclasse sem construtor declarado: o padrão
+                        // implícito, que não é `const`.
+                        None => program.class(sup).constructors.is_empty() && nome_do_super.is_none(),
+                    };
+                    if nao_const {
+                        let span = escrito.map_or(k.class_name.span, |(s, _)| s);
+                        // No 3.6.2 o argumento é a classe DO CONSTRUTOR; no
+                        // 3.13.4, a superclasse (o segundo argumento, que só
+                        // a variante 3.13 do código usa: T2, caso c04).
+                        let nome = interner.resolve(dados.name).to_string();
+                        let superior = interner.resolve(program.class(sup).name).to_string();
+                        self.relatar(c::CONST_CONSTRUCTOR_WITH_NON_CONST_SUPER, span, vec![nome, superior]);
+                        return;
+                    }
+                }
+            }
+        }
+        // `hasNonFinalField`: a classe, os mixins e as superclasses, em
+        // largura — algum campo de instância que não é `final` nem `const`.
+        if dados.kind == ClassKind::Class {
+            let mut fila: Vec<ClassId> = vec![classe];
+            let mut vistos: Vec<ClassId> = Vec::new();
+            let mut achou = false;
+            while let Some(x) = fila.pop() {
+                if vistos.contains(&x) {
+                    continue;
+                }
+                vistos.push(x);
+                let dx = program.class(x);
+                if dx.fields.iter().any(|&v| {
+                    let var = program.variable(v);
+                    !var.final_ && !var.const_ && !var.static_
+                }) {
+                    achou = true;
+                    break;
+                }
+                fila.extend(dx.mixin_classes.iter().copied());
+                fila.extend(dx.supertype_class);
+            }
+            if achou {
+                self.relatar(c::CONST_CONSTRUCTOR_WITH_NON_FINAL_FIELD, cabecalho, Vec::new());
+            }
+        }
+    }
+
     fn construtor(&mut self, a: &ast::Ast, mid: ast::MemberId, k: &ast::Constructor) {
+        self.regras_do_construtor(a, mid, k);
         if k.const_ {
+            // O construtor gerador de um ciclo (os de fábrica são do
+            // `ErrorVerifier`): no nome da classe do cabeçalho.
+            let em_ciclo = self
+                .m
+                .grafo
+                .construtor_de(self.unidade, mid)
+                .is_some_and(|f| self.m.grafo.construtores_em_ciclo.contains(&f));
+            if em_ciclo && !k.factory {
+                self.relatar(c::RECURSIVE_CONSTANT_CONSTRUCTOR, k.class_name.span, Vec::new());
+            }
             // `_validateConstructorInitializers`: potencialmente constantes.
             let cx = Ctx { lexico: None, ..self.cx() };
             for init in k.initializers.iter() {
@@ -454,6 +599,10 @@ impl Verificador<'_, '_> {
                         }
                     }
                     Some(ast::ForInit::Expression(e)) => self.expr(a, *e, false),
+                    Some(ast::ForInit::Pattern { pattern, value, .. }) => {
+                        self.expr(a, *value, false);
+                        self.padrao(a, *pattern);
+                    }
                     None => {}
                 }
                 if let Some(c) = condition {
@@ -772,7 +921,25 @@ impl Verificador<'_, '_> {
                 if deve && default.is_none() {
                     let codigo = if expressao { c::NON_EXHAUSTIVE_SWITCH_EXPRESSION } else { c::NON_EXHAUSTIVE_SWITCH_STATEMENT };
                     let tipo = self.m.formatar(t);
-                    self.relatar(codigo, Span { start: inicio_switch, end: inicio_switch + 6 }, vec![tipo, tw, co]);
+                    // O quarto argumento só existe para a variante "privado"
+                    // do 3.13.4 (`constant_verifier.dart` do main, caso c29
+                    // de `corpus/especificacao/t2/v`): o valor é de um enum
+                    // de outra biblioteca e o que falta é privado. O
+                    // original olha todas as testemunhas; aqui, a primeira.
+                    let privado = match self.m.table.get(t) {
+                        Type::Interface { class, .. } => {
+                            let k = self.m.program.class(*class);
+                            k.kind == dartforge_elements::model::ClassKind::Enum
+                                && k.library != self.lib
+                                && (self.m.interner.resolve(k.name).starts_with('_') || tw.contains("._"))
+                        }
+                        _ => false,
+                    };
+                    let mut args = vec![tipo, tw, co];
+                    if privado {
+                        args.push(String::new());
+                    }
+                    self.relatar(codigo, Span { start: inicio_switch, end: inicio_switch + 6 }, args);
                 }
             }
             _ => {

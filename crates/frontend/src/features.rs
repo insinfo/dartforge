@@ -11,6 +11,7 @@
 //! antes do parse; o parser e as fases seguintes só consultam um conjunto de
 //! bits ([`LibraryFeatures::tem`]). Nenhuma fase refaz a conta por nó.
 
+pub use dartforge_diagnostics::Referencia;
 use dartforge_diagnostics::Span;
 
 /// Versão de linguagem `maior.menor` (a de patch não existe para a linguagem).
@@ -149,6 +150,25 @@ impl Feature {
             Feature::PrivateNamedParameters => Some(LanguageVersion::new(3, 12)),
             Feature::PrimaryConstructors => Some(LanguageVersion::new(3, 13)),
             Feature::Augmentations | Feature::EnhancedParts | Feature::Macros => None,
+        }
+    }
+
+    /// Os recursos que o analyzer 3.6.2 não conhece: o arquivo que usa a
+    /// sintaxe de um deles, numa biblioteca em que ele está desligado, tem o
+    /// 3.13.4 como referência (docs/ANALYZER-ESPECIFICACAO.md, T2 §1.1).
+    pub const DESCONHECIDOS_NO_3_6: [Feature; 3] =
+        [Feature::DotShorthands, Feature::PrivateNamedParameters, Feature::PrimaryConstructors];
+
+    /// A versão que o analyzer 3.6.2 escreve na correção de
+    /// `experiment_not_enabled`, quando não é a de [`Feature::habilitado_em`]:
+    /// `releaseVersion ?? 3.6.0`, e no `experiments.g.dart` do 3.6.2 estes
+    /// recursos ainda não tinham versão de lançamento (T2 §1.2).
+    pub const fn versao_relatada_no_3_6(self) -> Option<LanguageVersion> {
+        match self {
+            Feature::NullAwareElements | Feature::WildcardVariables | Feature::InferenceUsingBounds => {
+                Some(LanguageVersion::PISO)
+            }
+            _ => None,
         }
     }
 
