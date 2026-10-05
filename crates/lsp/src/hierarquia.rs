@@ -24,6 +24,14 @@
 //!   classe em `data.ref`.
 
 use crate::arvore_analyzer::Marca;
+
+/// O elemento de que o `dart/textDocument/super` procura o "super".
+enum ElementoDoSuper {
+    Construtor(dartforge_elements::model::FunctionElementId),
+    Classe(ClassId),
+    /// O membro herdado de nome `nome` (o de setter com `=`) na `classe`.
+    Outro { nome: String, setter: bool, classe: ClassId },
+}
 use crate::projeto::{Alvo, Concreto, Dono, Projeto};
 use crate::refatoracoes::Contexto;
 use dartforge_diagnostics::Span;
@@ -58,6 +66,206 @@ impl Projeto {
                 }
             })
             .collect()
+    }
+
+    /// `dart/textDocument/super` (docs/LSP-ESPECIFICACAO.md §8.6; o
+    /// `_SuperComputer` de `handler_super.dart`): o "super" do elemento sob
+    /// o cursor — ou, sem elemento ali, o da declaração que o envolve —: o
+    /// construtor da superclasse que um construtor chama, a superclasse de
+    /// uma classe, ou o membro herdado do mesmo nome (`getInherited2`) na
+    /// classe que envolve o elemento. A posição é a do nome do elemento não
+    /// sintético (a classe, no construtor implícito; o campo, no acessor).
+    pub(crate) fn superior(&mut self, unidade: UnitId, offset: usize) -> Option<(UnitId, Span)> {
+        match self.elemento_do_super(unidade, offset)? {
+            ElementoDoSuper::Construtor(f) => {
+                let alvo = self.construtor_super(f)?;
+                self.nome_da_funcao(alvo)
+            }
+            ElementoDoSuper::Classe(c) => {
+                let s = self.superclasse_nao_sintetica(c)?;
+                self.nome_do_elemento_de_topo(Element::Class(s))
+            }
+            ElementoDoSuper::Outro { nome, setter, classe } => {
+                let membro = self.membro_herdado(classe, &nome, setter)?;
+                self.nome_da_funcao(membro)
+            }
+        }
+    }
+
+    /// O elemento de `offset` para o `super`: o que o nome ali denota, ou o
+    /// da declaração que o envolve (o `getElementOfNode` subindo pelos nós).
+    fn elemento_do_super(&self, unidade: UnitId, offset: usize) -> Option<ElementoDoSuper> {
+        let p = self.programa();
+        let eh_construtor = |f: dartforge_elements::model::FunctionElementId| matches!(p.function(f).kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor);
+        if let Ok(Some(d)) = self.identificar(unidade, offset) {
+            return match (&d.alvo, d.concreto) {
+                (_, Some(Concreto::Funcao(f))) if eh_construtor(f) => Some(ElementoDoSuper::Construtor(f)),
+                (Alvo::Construtor(f), _) => Some(ElementoDoSuper::Construtor(*f)),
+                (Alvo::Topo(Element::Class(c)), _) => {
+                    // A mixin não tem `supertype` (só as restrições `on`).
+                    (p.class(*c).kind != ClassKind::Mixin).then_some(ElementoDoSuper::Classe(*c))
+                }
+                (Alvo::Membro { dono: Dono::Classe(c), nome, .. }, concreto) => {
+                    let setter = matches!(concreto, Some(Concreto::Funcao(f)) if self.eh_setter(f));
+                    Some(ElementoDoSuper::Outro { nome: nome.clone(), setter, classe: *c })
+                }
+                // Um local ou um parâmetro de tipo: o nome dele na classe que
+                // o envolve (`thisOrAncestorOfType<InterfaceElement>`).
+                (Alvo::Local { .. } | Alvo::ParametroDeTipo { .. }, _) => {
+                    let classe = self.classe_que_envolve(unidade, offset)?;
+                    let fonte = &p.unit(unidade).source;
+                    Some(ElementoDoSuper::Outro { nome: fonte[d.nome.start..d.nome.end].to_string(), setter: false, classe })
+                }
+                _ => None,
+            };
+        }
+        self.declaracao_que_envolve(unidade, offset)
+    }
+
+    fn eh_setter(&self, f: dartforge_elements::model::FunctionElementId) -> bool {
+        let p = self.programa();
+        let e = p.function(f);
+        match e.kind {
+            FunctionKind::Setter => true,
+            FunctionKind::ImplicitAccessor => e.variable.is_some_and(|v| p.variable(v).setter == Some(f)),
+            _ => false,
+        }
+    }
+
+    /// A classe (de interface: classe, mixin, enum, extension type) cuja
+    /// declaração contém `offset`.
+    fn classe_que_envolve(&self, unidade: UnitId, offset: usize) -> Option<ClassId> {
+        let p = self.programa();
+        let ast = &p.unit(unidade).ast;
+        let decl = ast.decls.iter().position(|d| {
+            d.span.start <= offset
+                && offset <= d.span.end
+                && matches!(
+                    d.kind,
+                    dartforge_frontend::ast::DeclKind::Class(_)
+                        | dartforge_frontend::ast::DeclKind::Mixin(_)
+                        | dartforge_frontend::ast::DeclKind::Enum(_)
+                        | dartforge_frontend::ast::DeclKind::ExtensionType(_)
+                )
+        })?;
+        (0..p.classes.len())
+            .map(|i| ClassId(i as u32))
+            .find(|c| p.class(*c).decl.is_some_and(|d| d.unit == unidade && d.decl.0 as usize == decl))
+    }
+
+    /// Sem nome sob o cursor: a função (local, ou de expressão, que não tem
+    /// nome) mais interna que contém `offset`, o membro, ou a classe.
+    fn declaracao_que_envolve(&self, unidade: UnitId, offset: usize) -> Option<ElementoDoSuper> {
+        use dartforge_elements::model::FunctionRef;
+        use dartforge_frontend::ast::MemberKind;
+        let p = self.programa();
+        let ast = &p.unit(unidade).ast;
+        let contem = |s: Span| s.start <= offset && offset <= s.end;
+        // O membro que contém o offset.
+        let membro = ast.members.iter().enumerate().filter(|(_, m)| contem(m.span)).min_by_key(|(_, m)| m.span.end - m.span.start);
+        // A função mais interna (local ou de expressão) dentro do membro.
+        let funcao_do_membro = membro.and_then(|(_, m)| match m.kind {
+            MemberKind::Method(f) => Some(f),
+            _ => None,
+        });
+        let interna = ast
+            .functions
+            .iter()
+            .enumerate()
+            .filter(|(i, f)| contem(f.span) && Some(dartforge_frontend::ast::FunctionId(*i as u32)) != funcao_do_membro)
+            .filter(|(i, _)| !ast.decls.iter().any(|d| matches!(d.kind, dartforge_frontend::ast::DeclKind::Function(x) if x.0 as usize == *i)))
+            .min_by_key(|(_, f)| f.span.end - f.span.start);
+        if let Some((_, f)) = interna {
+            // A função de expressão tem nome vazio: nenhum membro herdado.
+            let nome = f.name?;
+            let classe = self.classe_que_envolve(unidade, offset)?;
+            return Some(ElementoDoSuper::Outro { nome: self.nome(nome.sym).to_string(), setter: false, classe });
+        }
+        if let Some((i, m)) = membro {
+            let classe = self.classe_que_envolve(unidade, offset);
+            return match &m.kind {
+                MemberKind::Constructor(_) => {
+                    let f = (0..p.functions.len())
+                        .map(|k| dartforge_elements::model::FunctionElementId(k as u32))
+                        .find(|f| matches!(p.function(*f).node, FunctionRef::Constructor { unit, member } if unit == unidade && member.0 as usize == i))?;
+                    Some(ElementoDoSuper::Construtor(f))
+                }
+                MemberKind::Method(fid) => {
+                    let f = ast.function(*fid);
+                    let setter = f.kind == dartforge_frontend::ast::FunctionKind::Setter;
+                    Some(ElementoDoSuper::Outro { nome: self.nome(f.name?.sym).to_string(), setter, classe: classe? })
+                }
+                MemberKind::Field(l) => {
+                    let v = l.variables.iter().find(|v| v.initializer.is_some_and(|e| contem(ast.expr(e).span)) || contem(v.name.span)).or_else(|| l.variables.first())?;
+                    Some(ElementoDoSuper::Outro { nome: self.nome(v.name.sym).to_string(), setter: false, classe: classe? })
+                }
+            };
+        }
+        let classe = self.classe_que_envolve(unidade, offset)?;
+        (p.class(classe).kind != ClassKind::Mixin).then_some(ElementoDoSuper::Classe(classe))
+    }
+
+    /// A superclasse de `c`, passando pelas aplicações de mixin sintéticas
+    /// (o analyzer não as tem: `supertype` de `C extends S with M` é `S`).
+    fn superclasse_nao_sintetica(&self, c: ClassId) -> Option<ClassId> {
+        let p = self.programa();
+        let mut s = p.class(c).supertype_class?;
+        let mut passos = 0;
+        while p.class(s).decl.is_none() && p.class(s).kind == ClassKind::MixinApplication && passos < 64 {
+            s = p.class(s).supertype_class?;
+            passos += 1;
+        }
+        Some(s)
+    }
+
+    /// `ConstructorElement.superConstructor`: o construtor da superclasse
+    /// que o construtor generativo `f` chama (o do `super(…)`/`super.nome(…)`
+    /// escrito, ou o sem nome); nenhum numa fábrica ou num redirecionador.
+    fn construtor_super(&self, f: dartforge_elements::model::FunctionElementId) -> Option<dartforge_elements::model::FunctionElementId> {
+        use dartforge_elements::model::FunctionRef;
+        use dartforge_frontend::ast::{Initializer, MemberKind};
+        let p = self.programa();
+        let fe = p.function(f);
+        if fe.factory {
+            return None;
+        }
+        let classe = fe.class?;
+        let nome = match fe.node {
+            FunctionRef::Constructor { unit, member } => match &p.unit(unit).ast.member(member).kind {
+                MemberKind::Constructor(k) => {
+                    if k.initializers.iter().any(|i| matches!(i, Initializer::Redirect { .. })) {
+                        return None;
+                    }
+                    k.initializers.iter().find_map(|i| match i {
+                        Initializer::Super { constructor, .. } => Some(constructor.map(|n| n.sym)),
+                        _ => None,
+                    })
+                }
+                _ => None,
+            }
+            .flatten(),
+            _ => None,
+        };
+        let s = self.superclasse_nao_sintetica(classe)?;
+        let chave = match nome {
+            Some(n) => n,
+            None => self.consulta.nomes.lookup("")?,
+        };
+        p.class(s).constructors.get(&chave).copied()
+    }
+
+    /// `InheritanceManager3.getInherited2(classe, Name(biblioteca da classe,
+    /// nome))`.
+    fn membro_herdado(&mut self, classe: ClassId, nome: &str, setter: bool) -> Option<dartforge_elements::model::FunctionElementId> {
+        let crate::consulta::Consulta { programa, nomes, core, outline, tabela, .. } = &mut self.consulta;
+        let simbolo = nomes.lookup(nome)?;
+        let mut n = dartforge_types::heranca::Nome::novo(nomes, programa.class(classe).library, simbolo);
+        if setter {
+            n = n.de_setter(nomes)?;
+        }
+        let mut provedor = dartforge_types::heranca::ProvedorDoOutline { program: programa, interner: nomes, core, outline, table: tabela };
+        let mut heranca = dartforge_types::heranca::Heranca::default();
+        heranca.herdado(&mut provedor, classe, n).map(|m| m.funcao)
     }
 
     /// As implementações do que `offset` denota: subtipos de uma classe, ou

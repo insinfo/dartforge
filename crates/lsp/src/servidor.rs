@@ -1504,6 +1504,17 @@ impl<A: Analisador> Servidor<A> {
                     .collect();
                 resposta(&id, json!(locais))
             }
+            // `dart/textDocument/super` (o "ir para o super" do Dart-Code).
+            "dart/textDocument/super" => {
+                let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {
+                    return resposta(&id, Value::Null);
+                };
+                let local = self
+                    .analisador
+                    .superior(&self.documentos, &u, offset)
+                    .and_then(|(alvo, s)| Some(json!({"uri": alvo, "range": self.faixa(&alvo, s)?})));
+                resposta(&id, local.unwrap_or(Value::Null))
+            }
             "textDocument/typeDefinition" => {
                 let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {
                     return resposta(&id, json!([]));

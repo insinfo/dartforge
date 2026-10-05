@@ -517,6 +517,12 @@ pub trait Analisador {
         Vec::new()
     }
 
+    /// `dart/textDocument/super`: o construtor, a classe ou o membro que o
+    /// que `offset` denota sobrescreve ou estende.
+    fn superior(&mut self, _documentos: &DocumentStore, _uri: &str, _offset: usize) -> Option<(String, dartforge_diagnostics::Span)> {
+        None
+    }
+
     /// A declaração do tipo estático do que `offset` denota
     /// (`textDocument/typeDefinition`).
     fn definicao_de_tipo(&mut self, _documentos: &DocumentStore, _uri: &str, _offset: usize) -> Option<(String, dartforge_diagnostics::Span)> {

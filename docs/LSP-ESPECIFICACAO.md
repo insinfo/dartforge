@@ -1772,6 +1772,19 @@ Ver a seção 13 (ações). Métodos próprios: `dart/textDocument/super`,
 **Estado no DartForge:** nenhum. **Pendente:** `dart/textDocument/super`
 (o "ir para o super" do Dart-Code) é o único usado pelo editor comum.
 
+**Estado em 2026-10-05 (escrito, não compilado):** `dart/textDocument/super`
+(`Projeto::superior`, `crates/lsp/src/hierarquia.rs`), o `_SuperComputer` do
+3.6.2: o elemento sob o cursor (o que `identificar` dá) ou, sem nome ali, o da
+função local ou de expressão mais interna, do membro ou da classe que
+envolve o offset; num construtor, o construtor da superclasse que ele chama
+(o do `super(…)` escrito ou o sem nome; nenhum na fábrica e no
+redirecionador); numa classe, a superclasse (passando pelas aplicações de
+mixin sintéticas; a mixin não tem); no resto, `getInherited2` na classe de
+interface que envolve o elemento, com o nome de setter quando é um. A
+resposta é a `Location` do nome do elemento não sintético, ou `null`.
+Desvio: subindo pelos nós, uma declaração de variável local não é parada
+(passa para a função que a contém).
+
 ## 9. `textDocument/hover`
 
 **Algoritmo** (`AS:src/lsp/handlers/handler_hover.dart:34-126`,

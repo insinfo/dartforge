@@ -487,6 +487,13 @@ impl Analisador for AnalisadorSemantico {
             .collect()
     }
 
+    fn superior(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<(String, Span)> {
+        let mut projeto = self.biblioteca(documentos, uri)?;
+        let unidade = projeto.unidade_do_uri(uri)?;
+        let (u, s) = projeto.superior(unidade, offset)?;
+        Some((projeto.uri_da_unidade(u)?, s))
+    }
+
     fn definicao_de_tipo(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<(String, Span)> {
         let projeto = self.biblioteca(documentos, uri)?;
         let unidade = projeto.unidade_do_uri(uri)?;
