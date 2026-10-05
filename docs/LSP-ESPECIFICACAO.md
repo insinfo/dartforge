@@ -113,8 +113,12 @@ desconhecido, `-32602` para parâmetros inválidos, `-32603` para pânico numa
 consulta (o Dart usa `-32001 UnhandledError`), `-32800` para cancelamento,
 `-32010` (`RenameNotValid`) no renomear. Um arquivo fora do projeto é
 carregado como biblioteca avulsa (como o "primeiro driver" do Dart).
-**Diverge:** o código do erro interno (`-32603` × `-32001`) e a mensagem; o
-transbordo de coluna. **Pendente:** usar `-32001` com a mensagem do Dart.
+**Diverge:** o transbordo de coluna. **Estado em 2026-10-05 (escrito, não
+compilado):** o pânico numa consulta responde `-32001` com a mensagem do Dart
+(`An error occurred while handling <método> request`) e manda o
+`window/logMessage` de erro com a causa (o `logException`); numa notificação,
+o `window/showMessage` com a mensagem e o mesmo `logMessage`
+(`lsp_analysis_server.dart`, `sendErrorResponse`).
 
 ### 1.1 Transporte e enquadramento
 
@@ -1739,6 +1743,16 @@ in examples/api/…dart`. `target` sempre `file:`.
 
 **Estado no DartForge:** não anuncia. **Oráculo:** 36 arquivos, o Dart
 devolve `[]` em todos (100% igual). **Pendente:** os links das diretivas.
+
+**Estado em 2026-10-05 (escrito, não compilado).** Conferido na tag 3.6.2: o
+`DartDocumentLinkVisitor` só liga os blocos `{@tool …}`/`{@end-tool}` dos
+comentários de documentação que citam `** See code in examples/api/…dart`
+(com a pasta ancestral que tem `examples/api`); as URIs das diretivas não
+são ligadas nessa versão. É o que `crates/lsp/src/links.rs` faz, nos
+comentários de documentação das declarações, membros, constantes de enum,
+diretivas e parâmetros (o `findDartDoc`). Desvio: um `.dart` antes do
+"See code in" faria o `substring` do Dart lançar (a resposta seria erro); o
+link só fica de fora.
 
 ### 8.5 `workspace/willRenameFiles`
 

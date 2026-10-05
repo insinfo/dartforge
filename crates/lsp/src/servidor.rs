@@ -622,8 +622,20 @@ impl<A: Analisador> Servidor<A> {
                 break;
             }
             let mensagem = self.fila.pop_front().expect("fila não vazia");
-            if let Some(saida) = self.tratar_notificacao(&mensagem) {
-                saidas.push(saida);
+            // Um pânico numa notificação: o `showMessage` e o `logMessage` do
+            // servidor do Dart (`lsp_analysis_server.dart`, `sendErrorResponse`
+            // e `logException`), e a sessão semântica cai.
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.tratar_notificacao(&mensagem))) {
+                Ok(Some(saida)) => saidas.push(saida),
+                Ok(None) => {}
+                Err(panico) => {
+                    self.analisador.documento_alterado("");
+                    let metodo = mensagem.get("method").and_then(Value::as_str).unwrap_or("?").to_string();
+                    let texto = format!("An error occurred while handling {metodo} notification");
+                    registrar(format!("pânico ao tratar {metodo}"));
+                    saidas.push(notificacao_de_mensagem("window/showMessage", 1, &texto));
+                    saidas.push(notificacao_de_mensagem("window/logMessage", 1, &format!("{texto}: {}", texto_do_panico(&*panico))));
+                }
             }
             if self.encerrar {
                 return saidas;
@@ -637,11 +649,17 @@ impl<A: Analisador> Servidor<A> {
             let resposta = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.tratar_requisicao(&requisicao)));
             match resposta {
                 Ok(r) => saidas.push(r),
-                Err(_) => {
+                Err(panico) => {
+                    // O `UnhandledError` (-32001) do servidor do Dart, com a
+                    // mensagem dele, e o `logException` (`window/logMessage`
+                    // do tipo erro, com a causa).
                     self.analisador.documento_alterado("");
                     let id = requisicao.get("id").cloned().unwrap_or(Value::Null);
-                    registrar(format!("pânico ao tratar {}", requisicao.get("method").and_then(Value::as_str).unwrap_or("?")));
-                    saidas.push(erro(&id, -32603, "erro interno ao tratar o pedido"));
+                    let metodo = requisicao.get("method").and_then(Value::as_str).unwrap_or("?").to_string();
+                    registrar(format!("pânico ao tratar {metodo}"));
+                    let texto = format!("An error occurred while handling {metodo} request");
+                    saidas.push(erro(&id, ERRO_NAO_TRATADO, texto.clone()));
+                    saidas.push(notificacao_de_mensagem("window/logMessage", 1, &format!("{texto}: {}", texto_do_panico(&*panico))));
                 }
             }
         }
@@ -1501,7 +1519,26 @@ impl<A: Analisador> Servidor<A> {
             // in examples/api/…" do Flutter; as URIs das diretivas não viram
             // link (o oráculo devolve `[]` nos 36 arquivos, todos com
             // imports). Fora do Flutter a resposta é sempre a lista vazia.
-            "textDocument/documentLink" => resposta(&id, json!([])),
+            "textDocument/documentLink" => {
+                // Os blocos `{@tool}` que citam o código de exemplo
+                // (`crate::links`, o visitor do 3.6.2).
+                let uri = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
+                let caminho = url::Url::parse(&uri).ok().and_then(|u| u.to_file_path().ok());
+                let (Some(texto), Some(caminho)) = (self.documentos.get(&uri).map(str::to_string), caminho) else {
+                    return resposta(&id, json!([]));
+                };
+                if caminho.extension().is_none_or(|e| e != "dart") {
+                    return resposta(&id, json!([]));
+                }
+                let links: Vec<Value> = crate::links::links(&texto, &caminho)
+                    .into_iter()
+                    .filter_map(|(s, alvo)| {
+                        let destino = url::Url::from_file_path(&alvo).ok()?;
+                        Some(json!({"range": self.faixa(&uri, s)?, "target": destino.as_str()}))
+                    })
+                    .collect();
+                resposta(&id, json!(links))
+            }
             // `handler_code_lens.dart:32-61` (§8.3): só há lentes de
             // augmentations, e só para o cliente que declara o comando
             // `dart.goToLocation`; sem augmentations, lista vazia.
@@ -2790,6 +2827,20 @@ fn resposta(id: &Value, resultado: Value) -> Value {
 /// Resposta de erro JSON-RPC.
 fn erro(id: &Value, codigo: i32, mensagem: impl Into<String>) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "error": {"code": codigo, "message": mensagem.into()}})
+}
+
+/// `window/showMessage` ou `window/logMessage` do `tipo` (1 = erro).
+fn notificacao_de_mensagem(metodo: &str, tipo: i32, texto: &str) -> Value {
+    json!({"jsonrpc": "2.0", "method": metodo, "params": {"type": tipo, "message": texto}})
+}
+
+/// A mensagem de um pânico (o `&str` ou a `String` do `panic!`).
+fn texto_do_panico(panico: &(dyn std::any::Any + Send)) -> String {
+    panico
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_string())
+        .or_else(|| panico.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "pânico sem mensagem".to_string())
 }
 
 /// A prioridade de uma correção ou assistência pela espécie

@@ -45,6 +45,7 @@ mod dartdoc;
 mod destaques;
 mod descricao;
 mod indice;
+mod links;
 mod inserir;
 mod item_completar;
 mod navegacao;
