@@ -4799,7 +4799,10 @@ construtores e tipos nomeados, e `subtype_of_sealed_class` com `mixin_on_sealed_
 declaração sem o comentário de documentação); fora dali os operadores, o import de biblioteca
 interna, os campos de padrão e o `@doNotSubmit`. O `invalid_annotation_target` geral (`_checkKinds`
 e `_isValidTarget`) entrou em `meta.rs` em 2026-10-05: lê o `@Target({...})` da classe da anotação
-(resolvida pelo escopo da unidade), sem visitar parâmetros nem parâmetros de tipo. Faltam do lote:
+(resolvida pelo escopo da unidade); no mesmo dia passou a visitar também os parâmetros (com o
+`isOptional` para `optionalParameter`), os parâmetros de tipo (de declarações, funções, tipos de
+função e parâmetros de tipo função), as funções e variáveis locais, as variáveis de `for-in` e a
+representação de tipo de extensão (`parameter`), com o mesmo despacho do `checkAnnotation`. Faltam do lote:
 `non_const_call_to_literal_constructor` (os dois `invalid_export_of_internal_element*`
 entraram em `meta.rs` em 2026-10-05, sem os limites dos parâmetros de tipo no caso indireto),
 `assignment_of_do_not_store`, `return_of_do_not_store`, os dois `inference_failure_on_*` e

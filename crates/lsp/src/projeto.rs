@@ -2192,6 +2192,44 @@ impl Projeto {
         vistos
     }
 
+    /// Os subtipos diretos de cada classe pelos supertipos **escritos**
+    /// (`_addSubtype`, index.dart:1047-1096): `extends`/`with`/`implements` de
+    /// classe e de alias de classe, `on`/`implements` de mixin,
+    /// `with`/`implements` de enum e `implements` de tipo de extensão; um
+    /// supertipo escrito por `typedef` e o `Object` implícito não contam.
+    pub(crate) fn subtipos_escritos(&self) -> std::collections::HashMap<ClassId, Vec<ClassId>> {
+        let p = self.programa();
+        let mut m: std::collections::HashMap<ClassId, Vec<ClassId>> = std::collections::HashMap::new();
+        for (i, c) in p.classes.iter().enumerate() {
+            let Some(d) = c.decl else { continue };
+            let unidade = p.unit(d.unit);
+            let ast = &unidade.ast;
+            let tipos: Vec<ast::TypeId> = match &ast.decl(d.decl).kind {
+                DeclKind::Class(x) => x.extends.iter().chain(x.with.iter()).chain(x.implements.iter()).copied().collect(),
+                DeclKind::Mixin(x) => x.on.iter().chain(x.implements.iter()).copied().collect(),
+                DeclKind::Enum(x) => x.with.iter().chain(x.implements.iter()).copied().collect(),
+                DeclKind::ExtensionType(x) => x.implements.to_vec(),
+                _ => Vec::new(),
+            };
+            for t in tipos {
+                let ast::TypeKind::Named { name, .. } = &ast.ty(t).kind else { continue };
+                let vinculo = match &name[..] {
+                    [n] => p.lookup_na_unidade(d.unit, n.sym),
+                    [pf, n] => p.lookup_prefixed_na_unidade(d.unit, pf.sym, n.sym),
+                    _ => None,
+                };
+                if let Some(Element::Class(s)) = vinculo.and_then(|b| b.getter) {
+                    let v = m.entry(s).or_default();
+                    let sub = ClassId(i as u32);
+                    if !v.contains(&sub) {
+                        v.push(sub);
+                    }
+                }
+            }
+        }
+        m
+    }
+
     /// Membros de `c` com nome base `nome` (de instância ou estáticos).
     pub(crate) fn declarados(
         &self,
@@ -2283,48 +2321,55 @@ impl Projeto {
                 vec![c]
             }
             Dono::Classe(c) => {
-                let declara = |x: ClassId| !self.declarados(x, nome, false).is_empty();
-                let mut raizes: HashSet<ClassId> = self
+                // `getHierarchyMembersAndParameters` (hierarchy.dart:106-181):
+                // uma subida pelos supertipos do dono e uma descida pelos
+                // subtipos escritos de cada um que declara o nome.
+                let biblioteca = p.class(c).library;
+                let privado = nome.starts_with('_');
+                let declara = |x: ClassId| !self.declarados(x, nome, false).is_empty() || !self.declarados(x, nome, true).is_empty();
+                let mut supers: Vec<ClassId> = self
                     .supertipos(c)
                     .into_iter()
-                    .chain([c])
-                    .filter(|x| declara(*x))
+                    .filter(|&s| !privado || p.class(s).library == biblioteca)
                     .collect();
-                let declarantes: Vec<ClassId> = (0..p.classes.len())
-                    .map(|i| ClassId(i as u32))
-                    .filter(|x| declara(*x))
-                    .collect();
-                let supers: Vec<(ClassId, HashSet<ClassId>)> = declarantes
-                    .iter()
-                    .map(|x| (*x, self.supertipos(*x)))
-                    .collect();
-                let familia = loop {
-                    let familia: Vec<ClassId> = supers
-                        .iter()
-                        .filter(|(x, s)| raizes.contains(x) || s.iter().any(|y| raizes.contains(y)))
-                        .map(|(x, _)| *x)
-                        .collect();
-                    let novas: HashSet<ClassId> = supers
-                        .iter()
-                        .filter(|(x, _)| familia.contains(x))
-                        .flat_map(|(x, s)| s.iter().copied().chain([*x]))
-                        .filter(|x| declara(*x))
-                        .collect();
-                    if novas.is_subset(&raizes) {
-                        break familia;
+                supers.sort_by_key(|s| s.0);
+                let diretos = self.subtipos_escritos();
+                let mut descida: Vec<ClassId> = Vec::new();
+                for x in supers.into_iter().chain([c]) {
+                    if !declara(x) {
+                        continue;
                     }
-                    raizes.extend(novas);
-                };
-                for x in &familia {
+                    // `appendAllSubtypes`: DFS pelos subtipos diretos.
+                    let mut pilha = vec![x];
+                    while let Some(y) = pilha.pop() {
+                        for &s in diretos.get(&y).map(|v| &v[..]).unwrap_or(&[]) {
+                            if !descida.contains(&s) {
+                                descida.push(s);
+                                pilha.push(s);
+                            }
+                        }
+                    }
+                    if !descida.contains(&x) {
+                        descida.push(x);
+                    }
+                }
+                if privado {
+                    descida.retain(|&s| p.class(s).library == biblioteca);
+                }
+                for x in &descida {
+                    let doses: Vec<FunctionElementId> = self.declarados(*x, nome, false).into_iter().chain(self.declarados(*x, nome, true)).collect();
+                    if doses.is_empty() {
+                        continue;
+                    }
                     recusar(p.class(*x).library)?;
-                    for f in self.declarados(*x, nome, false) {
+                    for f in doses {
                         funcoes.insert(f);
                         if let Some(v) = p.function(f).variable {
                             variaveis.insert(v);
                         }
                     }
                 }
-                familia
+                descida
             }
         };
         for v in variaveis.clone() {

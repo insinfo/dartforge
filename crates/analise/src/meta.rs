@@ -23,8 +23,10 @@
 //! para as de template), o construtor de `UseResult`/`Required` do `meta` e
 //! o de `Target` do `meta_meta` (`dartforge_types::anotacoes::e_getter_de`
 //! e `e_construtor_de`). O `invalid_annotation_target` geral (`_checkKinds`)
-//! lê o `@Target({...})` da classe da anotação; parâmetros e parâmetros de
-//! tipo não são visitados.
+//! lê o `@Target({...})` da classe da anotação, em todo alvo que o
+//! `BestPracticesVerifier` visita: declarações, membros, constantes,
+//! diretivas, parâmetros (`isOptional`), parâmetros de tipo, funções e
+//! variáveis locais e a representação de tipo de extensão.
 //! Escrito sem compilar nem executar (2026-10-04; reconhecimento pelo
 //! elemento em 2026-10-05).
 
@@ -43,6 +45,18 @@ enum Alvo<'a> {
     Membro { membro: &'a ast::Member, dono: &'a ast::Decl },
     Constante { constante: &'a ast::EnumConstant, dono: &'a ast::Decl },
     Diretiva,
+    /// `FormalParameter`; `opcional` é o `isOptional` (posicional opcional
+    /// ou nomeado sem `required`).
+    Parametro { opcional: bool },
+    /// `TypeParameter` (uma `Declaration` com o nome).
+    ParametroDeTipo(ast::Name),
+    /// `FunctionDeclaration` local.
+    FuncaoLocal(&'a ast::Function),
+    /// `RepresentationDeclaration` de um tipo de extensão.
+    Representacao,
+    /// Lista de variáveis locais, variável de `for-in`, declaração por
+    /// padrão: nenhuma espécie de alvo casa.
+    Outro,
 }
 
 struct Ctx<'a> {
@@ -116,7 +130,9 @@ impl<'a> Ctx<'a> {
                 MemberKind::Field(_) => None,
             },
             Alvo::Constante { constante, .. } => Some(self.texto(constante.name)),
-            Alvo::Diretiva => None,
+            Alvo::ParametroDeTipo(n) => Some(self.texto(n)),
+            Alvo::FuncaoLocal(f) => f.name.map(|n| self.texto(n)),
+            Alvo::Diretiva | Alvo::Parametro { .. } | Alvo::Representacao | Alvo::Outro => None,
         }
     }
 
@@ -473,8 +489,7 @@ impl<'a> Ctx<'a> {
 
     /// `_checkKinds` e `_isValidTarget` (`annotation_verifier.dart:160-185`,
     /// `:505-568`): a anotação cuja classe tem `@Target({...})` num alvo que
-    /// não é de nenhuma das espécies. Parâmetros e parâmetros de tipo não são
-    /// visitados aqui.
+    /// não é de nenhuma das espécies.
     fn especies(&mut self, m: &ast::Annotation, alvo: Alvo<'a>) {
         let Some((classe, nome)) = self.classe_da_anotacao(m) else { return };
         let especies = self.especies_da_classe(classe);
@@ -521,6 +536,15 @@ impl<'a> Ctx<'a> {
                 },
                 Alvo::Constante { .. } => tem("enumValue"),
                 Alvo::Diretiva => tem("directive") || (self.primeira_diretiva && tem("library")),
+                Alvo::Parametro { opcional } => tem("parameter") || (opcional && tem("optionalParameter")),
+                Alvo::ParametroDeTipo(_) => tem("typeParameter"),
+                Alvo::FuncaoLocal(f) => match f.kind {
+                    FunctionKind::Getter => tem("getter"),
+                    FunctionKind::Setter => tem("setter"),
+                    _ => tem("function"),
+                },
+                Alvo::Representacao => tem("parameter"),
+                Alvo::Outro => false,
             };
         if valido {
             return;
@@ -572,6 +596,34 @@ impl<'a> Ctx<'a> {
             self.fora_do_template(m, alvo);
         }
         self.especies(m, alvo);
+    }
+
+    /// As anotações dos parâmetros (e dos aninhados de um parâmetro de tipo
+    /// função, com os parâmetros de tipo dele).
+    fn anotacoes_de_parametros(&mut self, lista: &'a [ast::Parameter]) {
+        for p in lista {
+            let opcional = match p.kind {
+                ParameterKind::Optional => true,
+                ParameterKind::Named => !p.required,
+                ParameterKind::Required => false,
+            };
+            for m in p.metadata.iter() {
+                self.anotacao(m, Alvo::Parametro { opcional }, None);
+            }
+            self.anotacoes_de_parametros_de_tipo(&p.function_type_params);
+            if let Some(fs) = &p.function_parameters {
+                self.anotacoes_de_parametros(fs);
+            }
+        }
+    }
+
+    /// As anotações de uma lista de parâmetros de tipo.
+    fn anotacoes_de_parametros_de_tipo(&mut self, lista: &'a [ast::TypeParameter]) {
+        for tp in lista {
+            for m in tp.metadata.iter() {
+                self.anotacao(m, Alvo::ParametroDeTipo(tp.name), None);
+            }
+        }
     }
 
     /// `_checkRequiredParameter`: `@required` onde não faz sentido.
@@ -824,6 +876,64 @@ pub fn verificar(program: &Program, lib: LibraryId, interner: &Interner, em_api_
         for f in a.functions.iter() {
             if let Some(ps) = &f.parameters {
                 ctx.parametros(ps);
+            }
+        }
+        // `_checkKinds` nos alvos que não são membros nem declarações de
+        // topo: parâmetros, parâmetros de tipo, funções e variáveis locais, a
+        // representação de tipo de extensão.
+        for &d in unidade.unit.declarations.iter() {
+            let decl = a.decl(d);
+            match &decl.kind {
+                DeclKind::Class(x) => ctx.anotacoes_de_parametros_de_tipo(&x.type_params),
+                DeclKind::Mixin(x) => ctx.anotacoes_de_parametros_de_tipo(&x.type_params),
+                DeclKind::Enum(x) => ctx.anotacoes_de_parametros_de_tipo(&x.type_params),
+                DeclKind::Extension(x) => ctx.anotacoes_de_parametros_de_tipo(&x.type_params),
+                DeclKind::ExtensionType(x) => {
+                    ctx.anotacoes_de_parametros_de_tipo(&x.type_params);
+                    for m in x.representation_metadata.iter() {
+                        ctx.anotacao(m, Alvo::Representacao, None);
+                    }
+                }
+                DeclKind::Typedef(x) => {
+                    ctx.anotacoes_de_parametros_de_tipo(&x.type_params);
+                    if let ast::TypedefKind::Legacy { parameters, .. } = &x.kind {
+                        ctx.anotacoes_de_parametros(parameters);
+                    }
+                }
+                _ => {}
+            }
+            for &mid in membros_de(decl) {
+                if let MemberKind::Constructor(k) = &a.member(mid).kind {
+                    ctx.anotacoes_de_parametros(&k.parameters);
+                }
+            }
+        }
+        for f in a.functions.iter() {
+            ctx.anotacoes_de_parametros_de_tipo(&f.type_params);
+            if let Some(ps) = &f.parameters {
+                ctx.anotacoes_de_parametros(ps);
+            }
+        }
+        for t in a.types.iter() {
+            if let TypeKind::Function { type_params, parameters, .. } = &t.kind {
+                ctx.anotacoes_de_parametros_de_tipo(type_params);
+                ctx.anotacoes_de_parametros(parameters);
+            }
+        }
+        for (sid, meta) in a.metadados_locais.iter() {
+            let alvo = match &a.stmt(*sid).kind {
+                StmtKind::Function(f) => Alvo::FuncaoLocal(a.function(*f)),
+                _ => Alvo::Outro,
+            };
+            for m in meta.iter() {
+                ctx.anotacao(m, alvo, None);
+            }
+        }
+        for s in a.stmts.iter() {
+            if let StmtKind::ForIn { target: ast::ForInTarget::Declared { metadata, .. }, .. } = &s.kind {
+                for m in metadata.iter() {
+                    ctx.anotacao(m, Alvo::Outro, None);
+                }
             }
         }
         out.append(&mut ctx.out);
