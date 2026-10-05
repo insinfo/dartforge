@@ -2646,14 +2646,13 @@ fn erro(id: &Value, codigo: i32, mensagem: impl Into<String>) -> Value {
 /// servidor emite têm valor próprio; as demais ficam no padrão do grupo (50
 /// para correções, 40 para as `*.multi`, 30 para assistências).
 fn prioridade_da_acao(especie: &str) -> i32 {
+    // A tabela gerada das espécies do Dart (§13.7.2 e `DartAssistKind`).
+    if let Some(id) = id_da_acao(especie)
+        && let Some((p, _)) = crate::acoes::especie_do_dart(&id)
+    {
+        return i32::from(p);
+    }
     match especie {
-        "quickfix.import.librarySdk" => 54,
-        "quickfix.import.libraryProject1" => 53,
-        "quickfix.change.to" | "quickfix.create.missingOverrides" => 51,
-        "quickfix.create.field" | "quickfix.create.function" | "quickfix.create.noSuchMethod" => 49,
-        "quickfix.create.extension.getter" | "quickfix.create.extension.method" | "quickfix.ignore.line" => 30,
-        "quickfix.ignore.file" => 29,
-        "refactor.convert.bodyToAsync" | "refactor.remove.typeAnnotation" => 31,
         outra if outra.starts_with("quickfix") && outra.ends_with(".multi") => 40,
         outra if outra.starts_with("quickfix") => 50,
         _ => 30,

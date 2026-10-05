@@ -315,10 +315,15 @@ impl Analisador for AnalisadorSemantico {
             let b = texto[fim.min(texto.len())..].find('\n').map_or(texto.len(), |i| fim + i);
             (a, b)
         };
-        let mut saida = crate::acoes::corrigir_sintaxe(uri, &diagnosticos, linha_ini, linha_fim);
+        let mut saida = crate::acoes::corrigir_sintaxe(uri, texto, &diagnosticos, linha_ini, linha_fim);
+        // "Fix all in file" das sintáticas.
+        let todas = crate::acoes::corrigir_em_todo_o_arquivo(&saida, &diagnosticos, texto, |o, a, b| {
+            crate::acoes::corrigir_sintaxe(uri, texto, std::slice::from_ref(o), a, b)
+        });
+        saida.extend(todas);
         saida.push(crate::acoes::organizar_imports(uri, texto));
         // As de ignorar vêm por último, como a prioridade do Dart.
-        let ignorar = crate::correcoes::ignorar(uri, texto, &diagnosticos, linha_ini, linha_fim);
+        let ignorar = crate::ignorar::ignorar(uri, texto, &diagnosticos, linha_ini, linha_fim);
         if self.sdk.is_none() {
             saida.extend(ignorar);
             return saida;
@@ -335,10 +340,20 @@ impl Analisador for AnalisadorSemantico {
         if let Some(mut projeto) = sessao.obter(crate::sessao::Escopo::Biblioteca(arquivo), documentos, || {
             crate::projeto::carregar_biblioteca(sdk, documentos, uri)
         }) {
-            saida.extend(crate::acoes::corrigir_publicados(&projeto, uri, &diagnosticos, linha_ini, linha_fim));
+            let publicadas = crate::acoes::corrigir_publicados(&projeto, uri, &diagnosticos, linha_ini, linha_fim);
+            let todas = crate::acoes::corrigir_em_todo_o_arquivo(&publicadas, &diagnosticos, texto, |o, a, b| {
+                crate::acoes::corrigir_publicados(&projeto, uri, std::slice::from_ref(o), a, b)
+            });
+            saida.extend(publicadas);
+            saida.extend(todas);
             // Importar antes de criar: a prioridade das correções do Dart.
             saida.extend(crate::acoes::importar(&projeto, indice, indice_projeto, documentos, uri, inicio, fim));
-            saida.extend(crate::correcoes::corrigir(&mut projeto, uri, &diagnosticos, linha_ini, linha_fim));
+            let corrigidas = crate::correcoes::corrigir(&mut projeto, uri, &diagnosticos, linha_ini, linha_fim);
+            let todas = crate::acoes::corrigir_em_todo_o_arquivo(&corrigidas, &diagnosticos, texto, |o, a, b| {
+                crate::correcoes::corrigir(&mut projeto, uri, std::slice::from_ref(o), a, b)
+            });
+            saida.extend(corrigidas);
+            saida.extend(todas);
             if let Some(unidade) = projeto.unidade_do_uri(uri) {
                 let criadas = projeto.criar_indefinidos(uri, unidade, inicio, fim);
                 saida.extend(criadas);

@@ -22,16 +22,20 @@ mod assistencias2;
 mod assistencias3;
 mod chamadas;
 mod dicas;
+mod escrever_tipo;
+mod especies_g;
 mod estrutura;
 mod fonte_corrigir;
 mod fonte_imports;
 mod fonte_ordenar;
 mod hierarquia;
+mod ignorar;
 mod aproximado;
 mod completar;
 mod consulta;
 mod contorno;
 mod correcoes;
+mod correcoes_dart;
 mod criar;
 mod dartdoc;
 mod destaques;
@@ -415,7 +419,7 @@ pub trait Analisador {
     fn acoes(&mut self, documentos: &DocumentStore, uri: &str, inicio: usize, fim: usize, _publicados: &[Diagnostic]) -> Vec<AcaoDeCodigo> {
         let Some(texto) = documentos.get(uri) else { return Vec::new() };
         let diagnosticos = self.diagnosticar(uri, texto);
-        let mut saida = acoes::corrigir_sintaxe(uri, &diagnosticos, inicio, fim);
+        let mut saida = acoes::corrigir_sintaxe(uri, texto, &diagnosticos, inicio, fim);
         saida.push(acoes::organizar_imports(uri, texto));
         saida
     }

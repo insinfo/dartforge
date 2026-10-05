@@ -145,6 +145,33 @@ impl Arvore {
         }
     }
 
+    /// `NodeLocator2(ini, fim)`: o nó mais profundo com
+    /// `inicio <= ini` e `fim < no.fim` (o `coveringNode` das correções).
+    pub(crate) fn localizar2(&self, ini: usize, fim: usize) -> Option<usize> {
+        let mut achado = None;
+        self.visitar2(0, ini, fim, &mut achado);
+        achado
+    }
+
+    fn visitar2(&self, n: usize, ini: usize, fim: usize, achado: &mut Option<usize>) {
+        if achado.is_some() {
+            return;
+        }
+        let no = &self.nos[n];
+        if no.fim <= ini || no.inicio > fim {
+            return;
+        }
+        for &f in &no.filhos {
+            self.visitar2(f, ini, fim, achado);
+            if achado.is_some() {
+                return;
+            }
+        }
+        if no.inicio <= ini && fim < no.fim {
+            *achado = Some(n);
+        }
+    }
+
     /// O nó e os ancestrais, sem a `CompilationUnit`.
     pub(crate) fn cadeia(&self, n: usize) -> Vec<usize> {
         let mut v = Vec::new();

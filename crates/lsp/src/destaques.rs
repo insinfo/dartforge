@@ -425,7 +425,7 @@ fn campo_da_classe_em(p: &Projeto, cx: &Contexto<'_>, offset: usize, nome: &str)
 
 /// A variável (de topo, campo ou constante de enum) cujo nome começa em
 /// `offset` na unidade.
-fn variavel_declarada_em(p: &Projeto, u: UnitId, offset: usize) -> Option<VariableId> {
+pub(crate) fn variavel_declarada_em(p: &Projeto, u: UnitId, offset: usize) -> Option<VariableId> {
     let prog = p.programa();
     (0..prog.variables.len()).map(|i| VariableId(i as u32)).find(|&v| p.nome_da_variavel(v).is_some_and(|(uu, s)| uu == u && s.start == offset))
 }

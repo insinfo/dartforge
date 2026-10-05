@@ -50,9 +50,99 @@ pub struct AcaoDeCodigo {
     pub criar_arquivo: Option<(String, String)>,
 }
 
+/// A espécie do Dart pelo id (`dart.fix.…`, `dart.assist.…`): a
+/// prioridade e a mensagem (docs/LSP-ESPECIFICACAO.md §13.7.2, gerada em
+/// `especies_g.rs`).
+pub(crate) fn especie_do_dart(id: &str) -> Option<(u16, &'static str)> {
+    let t = crate::especies_g::ESPECIES;
+    t.binary_search_by(|(i, _, _)| (*i).cmp(id)).ok().map(|k| (t[k].1, t[k].2))
+}
+
+/// O intervalo das linhas de um diagnóstico: do começo da linha do início
+/// ao fim da linha do fim (o filtro por linhas do `dart.dart:160-171`).
+pub(crate) fn linhas_do_diagnostico(texto: &str, d: &Diagnostic) -> (usize, usize) {
+    let inicio = d.span.start.min(texto.len());
+    let fim = d.span.end.min(texto.len());
+    let a = texto[..inicio].rfind('\n').map_or(0, |i| i + 1);
+    let b = texto[fim..].find('\n').map_or(texto.len(), |i| fim + i);
+    (a, b)
+}
+
+/// O mesmo código de erro (`errorCode.name`).
+fn mesmo_codigo(a: &Diagnostic, b: &Diagnostic) -> bool {
+    match (a.code, b.code) {
+        (Some(x), Some(y)) => x.info().nome == y.info().nome,
+        _ => false,
+    }
+}
+
+/// `FixInFileProcessor.compute` (docs/LSP-ESPECIFICACAO.md §13.7.1 item
+/// 7): para cada correção isolada de um diagnóstico cuja espécie tem a
+/// `*.multi`, com 2+ diagnósticos do mesmo código na unidade, reaplica o
+/// produtor (`produzir(diagnóstico, linhas)`) a cada um dos outros na ordem
+/// da lista, acumulando as edições; a edição que se sobrepõe a uma
+/// acumulada descarta aquele diagnóstico (`ConflictingEditException`). Sai
+/// a `*.multi` (mensagem sem formatar, prioridade da tabela) quando há
+/// edições e o produtor rodou 2+ vezes sem conflito.
+pub(crate) fn corrigir_em_todo_o_arquivo(
+    isoladas: &[AcaoDeCodigo],
+    diagnosticos: &[Diagnostic],
+    texto: &str,
+    mut produzir: impl FnMut(&Diagnostic, usize, usize) -> Vec<AcaoDeCodigo>,
+) -> Vec<AcaoDeCodigo> {
+    let mut saida = Vec::new();
+    let mut feitos: Vec<(Span, String)> = Vec::new();
+    for a in isoladas {
+        let Some(d) = &a.diagnostico else { continue };
+        let Some(resto) = a.especie.strip_prefix("quickfix.") else { continue };
+        let multi = format!("dart.fix.{resto}.multi");
+        let Some((_, mensagem)) = especie_do_dart(&multi) else { continue };
+        if feitos.iter().any(|(s, e)| *s == d.span && *e == a.especie) {
+            continue;
+        }
+        feitos.push((d.span, a.especie.clone()));
+        let irmaos: Vec<&Diagnostic> = diagnosticos.iter().filter(|x| mesmo_codigo(x, d)).collect();
+        if irmaos.len() < 2 {
+            continue;
+        }
+        let mut edicoes: Vec<Edicao> = a.edicoes.clone();
+        let mut vezes = 1usize;
+        for o in irmaos {
+            if o.span == d.span && o.message == d.message {
+                continue;
+            }
+            let (la, lb) = linhas_do_diagnostico(texto, o);
+            let produzidas = produzir(o, la, lb);
+            let Some(p) = produzidas.into_iter().find(|p| p.especie == a.especie && p.diagnostico.as_ref().is_some_and(|x| x.span == o.span)) else {
+                vezes += 1;
+                continue;
+            };
+            let conflita = p.edicoes.iter().any(|e| {
+                edicoes.iter().any(|x| x.uri == e.uri && e.span.start < x.span.end && x.span.start < e.span.end)
+            });
+            if conflita {
+                continue;
+            }
+            vezes += 1;
+            edicoes.extend(p.edicoes);
+        }
+        if vezes > 1 && !edicoes.is_empty() {
+            saida.push(AcaoDeCodigo {
+                titulo: mensagem.to_string(),
+                especie: format!("quickfix.{resto}.multi"),
+                edicoes,
+                diagnostico: Some(d.clone()),
+                criar_arquivo: None,
+            });
+        }
+    }
+    saida
+}
+
 /// Correções dos diagnósticos sintáticos que tocam `inicio..fim`.
 pub(crate) fn corrigir_sintaxe(
     uri: &str,
+    texto: &str,
     diagnosticos: &[Diagnostic],
     inicio: usize,
     fim: usize,
@@ -60,8 +150,11 @@ pub(crate) fn corrigir_sintaxe(
     let mut saida = Vec::new();
     for d in diagnosticos {
         let toca = d.span.start <= fim && inicio <= d.span.end;
-        let ponto_e_virgula =
-            d.code.is_some_and(|c| c.info().nome == "expected_token") && d.message.contains("';'");
+        // `InsertSemicolon`: a mensagem cita `';'` e o `node` não é o
+        // identificador `await`.
+        let ponto_e_virgula = d.code.is_some_and(|c| c.info().nome == "expected_token")
+            && d.message.contains("';'")
+            && texto.get(d.span.start..d.span.end) != Some("await");
         if toca && ponto_e_virgula {
             saida.push(AcaoDeCodigo {
                 titulo: "Insert ';'".into(),
@@ -323,26 +416,6 @@ fn codigo(d: &Diagnostic) -> Option<&'static str> {
     d.code.map(|c| c.info().nome)
 }
 
-/// O trecho de `span` estendido à linha inteira quando ele é tudo o que há
-/// nela (só espaço antes e depois): apagar um comando não deixa linha vazia.
-fn linha_inteira(texto: &str, span: Span) -> Span {
-    let inicio_linha = texto[..span.start].rfind('\n').map_or(0, |i| i + 1);
-    let fim_linha = texto[span.end..]
-        .find('\n')
-        .map_or(texto.len(), |i| span.end + i);
-    let antes_vazio = texto[inicio_linha..span.start].trim().is_empty();
-    let depois_vazio = texto[span.end..fim_linha].trim().is_empty();
-    if antes_vazio && depois_vazio {
-        let fim = (fim_linha + 1).min(texto.len());
-        Span {
-            start: inicio_linha,
-            end: fim,
-        }
-    } else {
-        span
-    }
-}
-
 /// Uma ação de correção com uma edição só.
 fn correcao(
     uri: &str,
@@ -399,7 +472,10 @@ pub(crate) fn corrigir_publicados(
     let u = consulta.programa.unit(unidade);
     let ast = &u.ast;
     let texto = u.source.as_str();
-    let corpos = &consulta.corpos.units[unidade.0 as usize];
+    // A árvore do analyzer (o `node`/`coveringNode` do contexto do fix), só
+    // quando algum produtor precisa dela.
+    let arvore = std::cell::OnceCell::new();
+    let cx = || arvore.get_or_init(|| crate::refatoracoes::Contexto::novo(projeto, unidade));
     let mut saida = Vec::new();
     for d in diagnosticos {
         if !(d.span.start <= fim && inicio <= d.span.end) || d.span.end > texto.len() {
@@ -407,77 +483,40 @@ pub(crate) fn corrigir_publicados(
         }
         match codigo(d) {
             Some("unused_local_variable") => {
-                let Some(edicoes) = remover_local(ast, corpos, texto, d.span) else {
-                    continue;
-                };
-                saida.push(correcao(
-                    uri,
-                    "Remove unused local variable".into(),
-                    "quickfix.remove.unusedLocalVariable",
-                    edicoes,
-                    d,
-                ));
+                // `RemoveUnusedLocalVariable` (singleLocation).
+                let Some(edicoes) = cx().remover_variavel_local(d.span) else { continue };
+                saida.push(correcao(uri, "Remove unused local variable".into(), "quickfix.remove.unusedLocalVariable", edicoes, d));
             }
             Some("unused_element") => {
-                let funcao_local = ast.stmts.iter().find(|s| {
-                    matches!(&s.kind, ast::StmtKind::Function(f) if ast.function(*f).name.is_some_and(|n| n.span == d.span))
-                });
-                if let Some(s) = funcao_local {
-                    let span = linha_inteira(texto, s.span);
-                    saida.push(correcao(
-                        uri,
-                        "Remove unused element".into(),
-                        "quickfix.remove.unusedElement",
-                        vec![(span, String::new())],
-                        d,
-                    ));
-                }
+                // `RemoveUnusedElement`: sem referências na unidade.
+                let Some(faixas) = cx().remover_elemento(d.span) else { continue };
+                let edicoes = faixas.into_iter().map(|s| (s, String::new())).collect();
+                saida.push(correcao(uri, "Remove unused element".into(), "quickfix.remove.unusedElement", edicoes, d));
             }
             Some("unnecessary_cast") => {
-                let Some((id, valor)) =
-                    ast.exprs
-                        .iter()
-                        .enumerate()
-                        .find_map(|(i, e)| match &e.kind {
-                            ExprKind::As { value, .. } if e.span == d.span => {
-                                Some((ast::ExprId(i as u32), *value))
-                            }
-                            _ => None,
-                        })
-                else {
+                // `RemoveUnnecessaryCast`: o `coveringNode` é a `AsExpression`;
+                // apaga ` as T` e os parênteses em volta enquanto a
+                // precedência do pai do parêntese não passa da do `as`.
+                let cx = cx();
+                let Some(n) = cx.arvore.localizar2(d.span.start, d.span.end.saturating_sub(1)) else { continue };
+                if cx.especie(n) != "AsExpression" {
                     continue;
-                };
-                let v = ast.expr(valor).span;
-                // `(x as T).m()` → `x.m()` quando `x` é primária.
-                let primaria = matches!(
-                    ast.expr(valor).kind,
-                    ExprKind::Identifier(_)
-                        | ExprKind::Property { .. }
-                        | ExprKind::Call { .. }
-                        | ExprKind::Index { .. }
-                        | ExprKind::Parenthesized(_)
-                        | ExprKind::This
-                        | ExprKind::Int(_)
-                        | ExprKind::Double(_)
-                        | ExprKind::String(_)
-                        | ExprKind::Bool(_)
-                        | ExprKind::Null
-                );
-                let pai = ast
-                    .exprs
-                    .iter()
-                    .find(|p| matches!(p.kind, ExprKind::Parenthesized(x) if x == id));
-                let alvo = match pai {
-                    Some(p) if primaria => p.span,
-                    _ => d.span,
-                };
-                saida.push(correcao(
-                    uri,
-                    "Remove unnecessary cast".into(),
-                    "quickfix.remove.unnecessaryCast",
-                    vec![(alvo, texto[v.start..v.end].to_string())],
-                    d,
-                ));
+                }
+                let Some(&expressao) = cx.filhos(n).first() else { continue };
+                let mut edicoes = vec![(Span { start: cx.arvore.nos[expressao].fim, end: cx.arvore.nos[n].fim }, String::new())];
+                let mut atual = n;
+                while let Some(p) = cx.pai(atual)
+                    && cx.especie(p) == "ParenthesizedExpression"
+                {
+                    if cx.precedencia_do_pai(p) > cx.precedencia(n) {
+                        break;
+                    }
+                    let s = cx.arvore.span(p);
+                    edicoes.push((Span { start: s.start, end: s.start + 1 }, String::new()));
+                    edicoes.push((Span { start: s.end - 1, end: s.end }, String::new()));
+                    atual = p;
+                }
+                saida.push(correcao(uri, "Remove unnecessary cast".into(), "quickfix.remove.unnecessaryCast", edicoes, d));
             }
             Some("unnecessary_non_null_assertion") => {
                 if &texto[d.span.start..d.span.end] == "!" {
@@ -491,31 +530,31 @@ pub(crate) fn corrigir_publicados(
                 }
             }
             Some("invalid_null_aware_operator") => {
-                let trecho = &texto[d.span.start..d.span.end];
-                let novo = if trecho == "?." {
-                    "."
-                } else if trecho.starts_with('?') && trecho.ends_with('[') {
-                    "["
-                } else {
-                    continue;
-                };
-                saida.push(correcao(
-                    uri,
-                    format!("Replace with '{novo}'"),
-                    "quickfix.replace.withNotNullAware",
-                    vec![(d.span, novo.to_string())],
-                    d,
-                ));
+                // `ReplaceWithNotNullAware` sobre o `coveringNode`.
+                let cx = cx();
+                let Some(n) = cx.arvore.localizar2(d.span.start, d.span.end.saturating_sub(1)) else { continue };
+                if let Some((s, novo, titulo)) = cx.trocar_operador_null_aware(n) {
+                    saida.push(correcao(uri, format!("Replace with '{titulo}'"), "quickfix.replace.withNotNullAware", vec![(s, novo)], d));
+                }
             }
             Some("instance_access_to_static_member") => {
-                if let Some(acao) = acesso_estatico(projeto, unidade, d) {
-                    saida.push(correcao(
-                        uri,
-                        acao.0,
-                        "quickfix.change.toStaticAccess",
-                        vec![acao.1],
-                        d,
-                    ));
+                // `ChangeToStaticAccess`: o `node` é o nome de uma
+                // `MethodInvocation` ou o identificador de um
+                // `PrefixedIdentifier`.
+                let cx = cx();
+                if let Some((nome, s, texto_novo, importar)) = cx.acesso_estatico(d.span) {
+                    let mut m = crate::refatoracoes_exec::Mudanca::default();
+                    m.adicionar(uri, s, texto_novo);
+                    crate::refatoracoes_metodo::adicionar_imports(cx, &mut m, &importar);
+                    if m.conflito.is_none() {
+                        saida.push(AcaoDeCodigo {
+                            titulo: format!("Change access to static using '{nome}'"),
+                            especie: "quickfix.change.toStaticAccess".into(),
+                            edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+                            diagnostico: Some(d.clone()),
+                            criar_arquivo: None,
+                        });
+                    }
                 }
             }
             Some("record_literal_one_positional_no_trailing_comma") => {
@@ -541,22 +580,52 @@ pub(crate) fn corrigir_publicados(
                 }
             }
             Some("assignment_to_final") => {
+                // `MakeFieldNotFinal` e `AddLate`, nesta ordem.
                 if let Some(acao) = campo_nao_final(projeto, unidade, d) {
+                    saida.push(acao);
+                }
+                if let Some(acao) = campo_late(projeto, unidade, d) {
                     saida.push(acao);
                 }
             }
             Some("abstract_field_initializer") => {
-                saida.extend(campo_abstrato_inicializado(uri, ast, texto, d));
+                saida.extend(campo_abstrato_inicializado(projeto, unidade, uri, ast, texto, d));
             }
             Some("non_bool_condition") => {
-                // Como o `AddNeNull` do Dart: ` != null` depois da condição.
-                saida.push(correcao(
-                    uri,
-                    "Add != null".into(),
-                    "quickfix.add.neNull",
-                    vec![(Span { start: d.span.end, end: d.span.end }, " != null".into())],
-                    d,
-                ));
+                // `AddNeNull` (tipo estático sem `?` → nada) e
+                // `AddAwait.nonBool` (`Future<bool>` → `await `), nesta ordem.
+                let cx = cx();
+                let Some(n) = cx.arvore.localizar(d.span.start, d.span.end) else { continue };
+                if !cx.e_expressao(n) {
+                    continue;
+                }
+                let tipo = cx.tipo_do_no(n).map(|t| consulta.tabela.get(t).clone());
+                if tipo.as_ref().is_none_or(|t| t.is_declared_nullable()) {
+                    saida.push(correcao(
+                        uri,
+                        "Add != null".into(),
+                        "quickfix.add.neNull",
+                        vec![(Span { start: d.span.end, end: d.span.end }, " != null".into())],
+                        d,
+                    ));
+                }
+                let futuro_de_bool = match &tipo {
+                    Some(dartforge_types::Type::Interface { class, args, .. }) => {
+                        Some(*class) == consulta.core.future_class
+                            && args.len() == 1
+                            && matches!(consulta.tabela.get(args[0]), dartforge_types::Type::Interface { class: b, .. } if Some(*b) == consulta.core.bool_class)
+                    }
+                    _ => false,
+                };
+                if futuro_de_bool {
+                    saida.push(correcao(
+                        uri,
+                        "Add 'await' keyword".into(),
+                        "quickfix.add.await",
+                        vec![(Span { start: d.span.start, end: d.span.start }, "await ".into())],
+                        d,
+                    ));
+                }
             }
             Some("uri_does_not_exist") => {
                 if let Some(acao) = criar_arquivo(projeto, unidade, uri, d) {
@@ -564,20 +633,6 @@ pub(crate) fn corrigir_publicados(
                 }
             }
             _ => {}
-        }
-        // Declaração de topo ou membro de classe não usado (a função local
-        // foi tratada acima).
-        if codigo(d) == Some("unused_element")
-            && !saida.iter().any(|a| a.diagnostico.as_ref() == Some(d))
-            && let Some(span) = declaracao_nomeada(ast, d.span)
-        {
-            saida.push(correcao(
-                uri,
-                "Remove unused element".into(),
-                "quickfix.remove.unusedElement",
-                vec![(com_documentacao(texto, linha_inteira(texto, span)), String::new())],
-                d,
-            ));
         }
     }
     saida
@@ -605,61 +660,15 @@ fn com_espaco_depois(texto: &str, span: Span) -> Span {
     Span { start: span.start, end: span.end + n }
 }
 
-/// `span` estendido para cima pelas linhas de comentário de documentação
-/// (`///`) logo acima dele (o nó da declaração no analyzer as inclui).
-fn com_documentacao(texto: &str, span: Span) -> Span {
-    let mut inicio = span.start;
-    while inicio > 0 {
-        let fim_anterior = inicio - 1;
-        let comeco = texto[..fim_anterior].rfind('\n').map_or(0, |i| i + 1);
-        if texto[comeco..fim_anterior].trim_start().starts_with("///") {
-            inicio = comeco;
-        } else {
-            break;
-        }
-    }
-    Span { start: inicio, end: span.end }
-}
-
-/// O span da declaração de topo ou do membro de classe cujo nome está em
-/// `nome` (função, getter, setter, classe, `typedef`, ou campo/variável de
-/// topo sozinho na lista).
-fn declaracao_nomeada(ast: &ast::Ast, nome: Span) -> Option<Span> {
-    let funcao = |f: ast::FunctionId| ast.function(f).name.is_some_and(|n| n.span == nome);
-    let lista = |l: &ast::VariableList| l.variables.len() == 1 && l.variables[0].name.span == nome;
-    for decl in &ast.decls {
-        let casa = match &decl.kind {
-            DeclKind::Function(f) => funcao(*f),
-            DeclKind::Variables(l) => lista(l),
-            DeclKind::Class(c) => c.name.span == nome,
-            DeclKind::Mixin(m) => m.name.span == nome,
-            DeclKind::Enum(e) => e.name.span == nome,
-            DeclKind::Typedef(t) => t.name.span == nome,
-            _ => false,
-        };
-        if casa {
-            return Some(decl.span);
-        }
-    }
-    ast.members.iter().find_map(|m| {
-        let casa = match &m.kind {
-            ast::MemberKind::Method(f) => funcao(*f),
-            ast::MemberKind::Field(l) => lista(l),
-            ast::MemberKind::Constructor(c) => c.name.is_some_and(|n| n.span == nome),
-        };
-        casa.then_some(m.span)
-    })
-}
-
-/// `assignment_to_final` num campo → `Make field 'x' not final`, como o
-/// `MakeFieldNotFinal` do Dart: a declaração do campo perde o `final` (ou o
-/// troca por `var`, sem tipo), no arquivo dela.
-fn campo_nao_final(projeto: &Projeto, unidade: UnitId, d: &Diagnostic) -> Option<AcaoDeCodigo> {
+/// O campo escrito por `assignment_to_final`: o `writeOrReadElement` do
+/// identificador é o getter sintético (o acessor implícito) de um campo não
+/// sintético sem setter; o campo, a unidade e o nome dele, a lista e o
+/// membro que o declara.
+fn campo_escrito<'p>(projeto: &'p Projeto, unidade: UnitId, d: &Diagnostic) -> Option<(dartforge_elements::model::VariableId, UnitId, Span, &'p ast::VariableList, &'p ast::Member)> {
     let consulta = &projeto.consulta;
     let p = &consulta.programa;
     let u = p.unit(unidade);
     let corpos = &consulta.corpos.units[unidade.0 as usize];
-    // A expressão escrita: `y` ou o nome de `this.y`/`o.y`.
     let id = u.ast.exprs.iter().enumerate().find_map(|(i, e)| {
         let casa = match &e.kind {
             ExprKind::Identifier(n) => n.span == d.span,
@@ -668,38 +677,57 @@ fn campo_nao_final(projeto: &Projeto, unidade: UnitId, d: &Diagnostic) -> Option
         };
         casa.then_some(ast::ExprId(i as u32))
     })?;
-    // O campo escrito: a variável, ou a do acessor implícito dela.
-    let v = match corpos.get_resolved(id)? {
-        Resolved::Member { member: MemberRef::Variable(v), .. } | Resolved::Element(Element::Variable(v)) => *v,
-        Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::Element(Element::Function(f)) => {
-            p.function(*f).variable?
-        }
+    let f = match corpos.get_resolved(id)? {
+        Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::Element(Element::Function(f)) => *f,
+        Resolved::Member { member: MemberRef::Variable(v), .. } | Resolved::Element(Element::Variable(v)) => p.variable(*v).getter?,
         _ => return None,
     };
-    p.variable(v).class?;
+    let fe = p.function(f);
+    if fe.kind != dartforge_elements::model::FunctionKind::ImplicitAccessor || consulta.nome(fe.name).ends_with('=') {
+        return None;
+    }
+    let v = fe.variable?;
+    if p.variable(v).setter.is_some() {
+        return None;
+    }
     let (u_decl, nome) = projeto.nome_da_variavel(v)?;
     let ud = p.unit(u_decl);
-    let texto = ud.source.as_str();
     let membro = ud.ast.members.iter().find(|m| match &m.kind {
         ast::MemberKind::Field(l) => l.variables.iter().any(|x| x.name.span == nome),
         _ => false,
     })?;
     let ast::MemberKind::Field(l) = &membro.kind else { return None };
-    if !l.final_ || l.const_ {
+    Some((v, u_decl, nome, l, membro))
+}
+
+/// `MakeFieldNotFinal` (`make_field_not_final.dart`): campo de **classe**,
+/// lista de uma variável com `final`; com tipo, apaga `final `; sem tipo,
+/// troca por `var `. Edita o arquivo da declaração (o Dart registra o edit
+/// no arquivo do uso, defeito que só aparece entre arquivos e não é
+/// reproduzido).
+fn campo_nao_final(projeto: &Projeto, unidade: UnitId, d: &Diagnostic) -> Option<AcaoDeCodigo> {
+    let p = &projeto.consulta.programa;
+    let (v, u_decl, nome, l, membro) = campo_escrito(projeto, unidade, d)?;
+    let classe = p.variable(v).class?;
+    if !matches!(p.class(classe).kind, dartforge_elements::model::ClassKind::Class | dartforge_elements::model::ClassKind::MixinApplication) {
         return None;
     }
+    if l.variables.len() != 1 || !l.final_ || l.const_ {
+        return None;
+    }
+    let texto = p.unit(u_decl).source.as_str();
     let final_ = tokens(texto, membro.span.start, nome.start)
         .into_iter()
         .find(|t| t.kind == dartforge_frontend::token::Kind::Keyword(dartforge_frontend::token::Keyword::Final))?;
-    let (span, novo) = if l.ty.is_some() {
-        (com_espaco_depois(texto, final_.span), String::new())
-    } else {
-        (final_.span, "var".to_string())
+    let (span, novo) = match l.ty {
+        // `range.startStart(final, type)`.
+        Some(t) => (Span { start: final_.span.start, end: p.unit(u_decl).ast.ty(t).span.start }, String::new()),
+        // `range.startStart(final, variável)` por `var `.
+        None => (Span { start: final_.span.start, end: nome.start }, "var ".to_string()),
     };
     let uri_decl = projeto.uri_da_unidade(u_decl)?;
-    let campo = &texto[nome.start..nome.end];
     Some(AcaoDeCodigo {
-        titulo: format!("Make field '{campo}' not final"),
+        titulo: format!("Make field '{}' not final", &texto[nome.start..nome.end]),
         especie: "quickfix.makeFieldNotFinal".into(),
         edicoes: vec![Edicao { uri: uri_decl, span, texto: novo }],
         diagnostico: Some(d.clone()),
@@ -707,19 +735,60 @@ fn campo_nao_final(projeto: &Projeto, unidade: UnitId, d: &Diagnostic) -> Option
     })
 }
 
-/// `abstract_field_initializer` → `Remove initializer` e `Remove the
-/// 'abstract' keyword`, como o `RemoveInitializer` e o `RemoveAbstract` do
-/// Dart.
-fn campo_abstrato_inicializado(uri: &str, ast: &ast::Ast, texto: &str, d: &Diagnostic) -> Vec<AcaoDeCodigo> {
+/// `AddLate` (`add_late.dart:60-91`): o campo de classe, mixin, enum ou
+/// tipo de extensão, não `late`, numa `FieldDeclaration` de uma variável
+/// com `final`: `late ` antes do `final`, no arquivo do campo.
+fn campo_late(projeto: &Projeto, unidade: UnitId, d: &Diagnostic) -> Option<AcaoDeCodigo> {
+    let p = &projeto.consulta.programa;
+    let (v, u_decl, nome, l, membro) = campo_escrito(projeto, unidade, d)?;
+    p.variable(v).class?;
+    if p.variable(v).late || l.late || l.variables.len() != 1 || !l.final_ {
+        return None;
+    }
+    let texto = p.unit(u_decl).source.as_str();
+    let final_ = tokens(texto, membro.span.start, nome.start)
+        .into_iter()
+        .find(|t| t.kind == dartforge_frontend::token::Kind::Keyword(dartforge_frontend::token::Keyword::Final))?;
+    let uri_decl = projeto.uri_da_unidade(u_decl)?;
+    Some(AcaoDeCodigo {
+        titulo: "Add 'late' modifier".into(),
+        especie: "quickfix.add.late".into(),
+        edicoes: vec![Edicao { uri: uri_decl, span: Span { start: final_.span.start, end: final_.span.start }, texto: "late ".into() }],
+        diagnostico: Some(d.clone()),
+        criar_arquivo: None,
+    })
+}
+
+/// `abstract_field_initializer` → `Remove the 'abstract' keyword` e
+/// `Remove initializer`, nesta ordem (a do `RemoveAbstract` e do
+/// `RemoveInitializer` na lista de produtores do Dart). O `RemoveAbstract`
+/// pula a lista de várias variáveis cujo tipo não é anulável.
+fn campo_abstrato_inicializado(projeto: &Projeto, unidade: UnitId, uri: &str, ast: &ast::Ast, texto: &str, d: &Diagnostic) -> Vec<AcaoDeCodigo> {
     let mut saida = Vec::new();
-    let Some((membro, var)) = ast.members.iter().find_map(|m| match &m.kind {
+    let Some((membro, lista, var)) = ast.members.iter().find_map(|m| match &m.kind {
         ast::MemberKind::Field(l) if l.abstract_ => {
-            l.variables.iter().find(|x| x.name.span == d.span).map(|x| (m, x))
+            l.variables.iter().find(|x| x.name.span == d.span).map(|x| (m, l, x))
         }
         _ => None,
     }) else {
         return saida;
     };
+    let anulavel = || {
+        lista.ty.is_some()
+            && crate::destaques::variavel_declarada_em(projeto, unidade, var.name.span.start)
+                .and_then(|v| projeto.consulta.tipo_da_variavel(v))
+                .is_some_and(|t| projeto.consulta.tabela.get(t).is_declared_nullable())
+    };
+    if lista.variables.len() <= 1 || anulavel() {
+        let abstrato = tokens(texto, membro.span.start, var.name.span.start)
+            .into_iter()
+            .find(|t| t.kind == dartforge_frontend::token::Kind::Ident && &texto[t.span.start..t.span.end] == "abstract");
+        if let Some(t) = abstrato {
+            // `[abstract.offset, próximoToken.offset)`.
+            let proximo = tokens(texto, t.span.end, var.name.span.end).into_iter().find(|x| x.kind != dartforge_frontend::token::Kind::Eof).map_or(var.name.span.start, |x| x.span.start);
+            saida.push(correcao(uri, "Remove the 'abstract' keyword".into(), "quickfix.remove.abstract", vec![(Span { start: t.span.start, end: proximo }, String::new())], d));
+        }
+    }
     if let Some(init) = var.initializer {
         let fim = ast.expr(init).span.end;
         saida.push(correcao(
@@ -730,187 +799,66 @@ fn campo_abstrato_inicializado(uri: &str, ast: &ast::Ast, texto: &str, d: &Diagn
             d,
         ));
     }
-    let abstrato = tokens(texto, membro.span.start, var.name.span.start)
-        .into_iter()
-        .find(|t| t.kind == dartforge_frontend::token::Kind::Ident && &texto[t.span.start..t.span.end] == "abstract");
-    if let Some(t) = abstrato {
-        saida.push(correcao(
-            uri,
-            "Remove the 'abstract' keyword".into(),
-            "quickfix.remove.abstract",
-            vec![(com_espaco_depois(texto, t.span), String::new())],
-            d,
-        ));
-    }
     saida
 }
 
-/// `uri_does_not_exist` num `import`/`export`/`part` de arquivo relativo →
-/// `Create file 'x.dart'`, como o `CreateFile` do Dart: vazio, ou com o
-/// `part of` para uma parte.
-fn criar_arquivo(projeto: &Projeto, unidade: UnitId, uri: &str, d: &Diagnostic) -> Option<AcaoDeCodigo> {
-    let u = projeto.consulta.programa.unit(unidade);
+/// `uri_does_not_exist` → `Create file 'x.dart'` (`CreateFile`,
+/// `create_file.dart`): o `node` é o `SimpleStringLiteral` da URI; num
+/// `import`/`export` com fonte referida absoluta `.dart`, o arquivo com
+/// `// TODO Implement this library.`; numa `part`, `part of '<biblioteca
+/// relativa à pasta da parte>';` e duas quebras.
+fn criar_arquivo(projeto: &Projeto, unidade: UnitId, _uri: &str, d: &Diagnostic) -> Option<AcaoDeCodigo> {
+    let p = projeto.programa();
+    let u = p.unit(unidade);
     let (literal, parte) = u.unit.directives.iter().find_map(|dir| match &dir.kind {
         DirectiveKind::Import { uri, .. } | DirectiveKind::Export { uri, .. } if uri.span == d.span => Some((uri, false)),
         DirectiveKind::Part { uri } if uri.span == d.span => Some((uri, true)),
         _ => None,
     })?;
-    let relativo = literal.constant_value()?.as_str()?.to_string();
-    if relativo.contains(':') || !relativo.ends_with(".dart") {
+    // Só o literal simples (sem interpolação nem adjacência).
+    let simples = tokens(&u.source, literal.span.start, literal.span.end)
+        .iter()
+        .filter(|t| t.kind != dartforge_frontend::token::Kind::Eof)
+        .count()
+        == 1;
+    if !simples {
         return None;
     }
-    let base = Url::parse(uri).ok()?;
-    let alvo = base.join(&relativo).ok()?;
-    if alvo.to_file_path().ok()?.exists() {
+    let texto = literal.constant_value()?.as_str()?.to_string();
+    let atual = u.path.clone()?;
+    // `referencedSource`: `package:` pelo `package_config`, `file:`, ou
+    // relativo à unidade.
+    let destino: PathBuf = if texto.starts_with("package:") {
+        let configuracao = dartforge_elements::config::PackageConfig::discover(&atual)
+            .and_then(|c| dartforge_elements::config::PackageConfig::load(&c).ok())?;
+        configuracao.resolve_package_uri(&texto).ok()?
+    } else if texto.starts_with("file:") {
+        Url::parse(&texto).ok()?.to_file_path().ok()?
+    } else if texto.contains(':') {
         return None;
-    }
-    let nome = alvo.path_segments()?.next_back()?.to_string();
-    let conteudo = if parte {
-        let proprio = base.path_segments()?.next_back()?.to_string();
-        // O caminho da parte de volta para esta biblioteca.
-        let de_volta = relativo_entre(&alvo, &base).unwrap_or(proprio);
-        format!("part of '{de_volta}';\n")
     } else {
-        String::new()
+        Url::from_file_path(&atual).ok()?.join(&texto).ok()?.to_file_path().ok()?
+    };
+    let nome = destino.file_name()?.to_string_lossy().into_owned();
+    let conteudo = if parte {
+        let biblioteca = p.library(u.library).units.first().and_then(|&x| p.unit(x).path.clone())?;
+        let pasta = destino.parent()?;
+        let relativo = crate::refatoracoes_metodo::caminho_relativo(&biblioteca, pasta);
+        let eol = crate::refatoracoes_exec::Texto::novo(&u.source).eol();
+        format!("part of '{relativo}';{eol}{eol}")
+    } else {
+        if !destino.is_absolute() || destino.extension().and_then(|e| e.to_str()) != Some("dart") {
+            return None;
+        }
+        "// TODO Implement this library.".to_string()
     };
     Some(AcaoDeCodigo {
         titulo: format!("Create file '{nome}'"),
         especie: "quickfix.create.file".into(),
         edicoes: Vec::new(),
         diagnostico: Some(d.clone()),
-        criar_arquivo: Some((alvo.to_string(), conteudo)),
+        criar_arquivo: Some((Url::from_file_path(&destino).ok()?.to_string(), conteudo)),
     })
-}
-
-/// O caminho relativo de `de` (arquivo) até `para` (arquivo), com `/`.
-fn relativo_entre(de: &Url, para: &Url) -> Option<String> {
-    let a: Vec<&str> = de.path_segments()?.collect();
-    let b: Vec<&str> = para.path_segments()?.collect();
-    let comum = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
-    let mut partes: Vec<&str> = vec![".."; a.len().saturating_sub(comum + 1)];
-    partes.extend(&b[comum..]);
-    Some(partes.join("/"))
-}
-
-/// As edições que removem o local declarado em `nome` (a declaração ou a
-/// variável da lista) e os comandos que só atribuem a ele (`x = e;`,
-/// `x += e;`). `None` quando o nome não é de uma declaração de comando.
-fn remover_local(
-    ast: &ast::Ast,
-    corpos: &dartforge_types::UnitBodyTypes,
-    texto: &str,
-    nome: Span,
-) -> Option<Vec<(Span, String)>> {
-    let (comando, lista) = ast.stmts.iter().find_map(|s| match &s.kind {
-        ast::StmtKind::Variables(vl) if vl.variables.iter().any(|v| v.name.span == nome) => {
-            Some((s.span, vl))
-        }
-        _ => None,
-    })?;
-    let mut edicoes = Vec::new();
-    if lista.variables.len() == 1 {
-        edicoes.push((linha_inteira(texto, comando), String::new()));
-    } else {
-        let i = lista.variables.iter().position(|v| v.name.span == nome)?;
-        let fim_de = |v: &ast::Variable| {
-            v.initializer
-                .map_or(v.name.span.end, |e| ast.expr(e).span.end)
-        };
-        let span = if i + 1 < lista.variables.len() {
-            Span {
-                start: nome.start,
-                end: lista.variables[i + 1].name.span.start,
-            }
-        } else {
-            Span {
-                start: fim_de(&lista.variables[i - 1]),
-                end: fim_de(&lista.variables[i]),
-            }
-        };
-        edicoes.push((span, String::new()));
-    }
-    for s in &ast.stmts {
-        let ast::StmtKind::Expression(e) = &s.kind else {
-            continue;
-        };
-        let ExprKind::Assign { target, .. } = &ast.expr(*e).kind else {
-            continue;
-        };
-        if matches!(ast.expr(*target).kind, ExprKind::Identifier(_))
-            && corpos.declaracao_local(*target) == Some(nome.start)
-        {
-            edicoes.push((linha_inteira(texto, s.span), String::new()));
-        }
-    }
-    Some(edicoes)
-}
-
-/// `a.estatico` → `C.estatico`: o título e a troca do alvo pelo nome da
-/// classe como a biblioteca o enxerga (`C` ou `p.C`).
-fn acesso_estatico(
-    projeto: &Projeto,
-    unidade: UnitId,
-    d: &Diagnostic,
-) -> Option<(String, (Span, String))> {
-    let consulta = &projeto.consulta;
-    let p = &consulta.programa;
-    let u = p.unit(unidade);
-    let corpos = &consulta.corpos.units[unidade.0 as usize];
-    let (id, alvo) = u
-        .ast
-        .exprs
-        .iter()
-        .enumerate()
-        .find_map(|(i, e)| match &e.kind {
-            ExprKind::Property { target, name, .. } if name.span == d.span => {
-                Some((ast::ExprId(i as u32), *target))
-            }
-            _ => None,
-        })?;
-    let membro = match corpos.get_resolved(id).or_else(|| {
-        // Numa chamada, a resolução pode estar na chamada.
-        u.ast
-            .exprs
-            .iter()
-            .enumerate()
-            .find_map(|(i, e)| match &e.kind {
-                ExprKind::Call { target, .. } if *target == id => {
-                    corpos.get_resolved(ast::ExprId(i as u32))
-                }
-                _ => None,
-            })
-    }) {
-        Some(Resolved::Member {
-            member: MemberRef::Function(f),
-            ..
-        }) => p.function(*f).class,
-        Some(Resolved::Member {
-            member: MemberRef::Variable(v),
-            ..
-        }) => p.variable(*v).class,
-        _ => None,
-    };
-    // Sem resolução (o membro não existe na instância), pelo tipo do alvo.
-    let classe = membro.or_else(|| match consulta.tabela.get(corpos.get_type(alvo)?) {
-        dartforge_types::Type::Interface { class, .. } => Some(*class),
-        _ => None,
-    })?;
-    let nome = p.class(classe).name;
-    let lib = u.library;
-    let texto_classe = if p.lookup(lib, nome).and_then(|b| b.getter) == Some(Element::Class(classe))
-    {
-        consulta.nome(nome).to_string()
-    } else {
-        let prefixo = p.library(lib).prefixes.iter().find_map(|(pr, espaco)| {
-            (espaco.get(&nome).and_then(|b| b.getter) == Some(Element::Class(classe)))
-                .then_some(*pr)
-        })?;
-        format!("{}.{}", consulta.nome(prefixo), consulta.nome(nome))
-    };
-    Some((
-        format!("Change access to static using '{texto_classe}'"),
-        (u.ast.expr(alvo).span, texto_classe),
-    ))
 }
 
 /// Assistências no intervalo: `Add type annotation` para um local

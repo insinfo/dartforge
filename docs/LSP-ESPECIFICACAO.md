@@ -7301,6 +7301,30 @@ fixes ausentes (`Add missing switch cases`, `Add required argument`).
    `yaml_edit` precisa ser conferido no oráculo antes (estilo de bloco, ordem alfabética das
    chaves) — (não verificado).
 
+**Estado em 2026-10-05 (escrito, não compilado).** Itens 1 a 3 do plano abaixo:
+
+* prioridade e mensagem de toda espécie pela tabela gerada `crates/lsp/src/especies_g.rs`
+  (`scripts/gerar-especies-de-acao.py`, a partir de 13.7.2 e da tabela de `DartAssistKind`);
+* "Fix all in file" genérico (`acoes::corrigir_em_todo_o_arquivo`): reaplica o produtor de cada
+  correção isolada aos diagnósticos irmãos, com a detecção de conflito e a contagem do
+  `FixInFileProcessor`;
+* portados da fonte (`correcoes_dart.rs`, `ignorar.rs`, `escrever_tipo.rs`):
+  `RemoveUnusedLocalVariable` (padrões e referências), `RemoveUnusedElement` (sem referências na
+  unidade), `RemoveUnusedField` (declaração, `this.x`, inicializadores, comandos, faixas únicas),
+  `RemoveUnnecessaryCast` (parênteses pela precedência do pai), `AddNeNull` (só tipo com `?`) e
+  `AddAwait.nonBool`, `RemoveAbstract` antes de `RemoveInitializer`,
+  `ConvertIntoBlockBody.missingBody` no `concrete_class_with_abstract_member` (sem o
+  `noSuchMethod`), `CreateFile` (`// TODO Implement this library.`, `package:`, `part of` com
+  duas quebras), `AddAsync` com `convertFunctionFromSyncToAsync` e o `writeType` do
+  `DartEditBuilder` (imports agendados), `ReplaceWithNotNullAware` (`?..`, `?[`, `...?`),
+  `MakeFieldNotFinal` (só classe, lista de uma variável) e `AddLate`, `ChangeToStaticAccess`
+  (título sem prefixo, `writeReference`), `RemoveAssertion` (`nodeInList`), `MakeFinal`
+  (`late`), `InsertSemicolon` sem o `await`;
+* os três "ignore": classe do código, regex `//+[ ]*ignore:`, `cannot-ignore` e `errors: ignore`,
+  um conjunto por diagnóstico, e o terceiro no `analysis_options.yaml` com o `update` do
+  `yaml_edit` 2.2.3 portado (`_addToBlockMap`, `_replaceInBlockMap`, mapas em fluxo, recuo
+  detectado, ordem alfabética das chaves; o edit emitido como inserção, como o Dart).
+
 **Para implementar (ordem sugerida).**
 
 1. Estrutura: `AcaoDeCodigo { prioridade, id }`; função `kind_de(id)`; `command`

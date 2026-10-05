@@ -6,7 +6,7 @@
 //! | Código | Correções |
 //! | --- | --- |
 //! | `non_abstract_class_inherits_abstract_member` | `Create N missing override(s)`, `Create 'noSuchMethod' method`, `Make class 'C' abstract` |
-//! | `concrete_class_with_abstract_member` | `Create 'noSuchMethod' method`, `Make class 'C' abstract` |
+//! | `concrete_class_with_abstract_member` | `Convert to block body`, `Make class 'C' abstract` |
 //! | `unused_field` | `Remove unused field` |
 //! | `unused_catch_clause` / `unused_catch_stack` | `Remove unused 'catch' clause` / `Remove unused stack trace variable` |
 //! | `assignment_to_final_local` | `Make variable 'x' not final` |
@@ -78,23 +78,25 @@ pub(crate) fn corrigir(projeto: &mut Projeto, uri: &str, diagnosticos: &[Diagnos
                 }
             }
             "concrete_class_with_abstract_member" => {
-                let Some(decl) = classe_que_contem(projeto, unidade, d.span.start) else { continue };
-                if let Some(e) = no_such_method(projeto, unidade, decl) {
-                    saida.push(acao(uri, "Create 'noSuchMethod' method".into(), "quickfix.create.noSuchMethod", vec![e], d));
+                // `ConvertIntoBlockBody.missingBody`, `CreateNoSuchMethod`
+                // (só com `node` na `ClassDeclaration`: aqui o erro está no
+                // membro, nunca sai) e `MakeClassAbstract`.
+                let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
+                if let Some(e) = cx.converter_em_corpo_de_bloco(d.span) {
+                    saida.push(acao(uri, "Convert to block body".into(), "quickfix.convert.bodyToBlock", vec![e], d));
                 }
+                drop(cx);
+                let Some(decl) = classe_que_contem(projeto, unidade, d.span.start) else { continue };
                 if let Some((nome, e)) = classe_abstrata(projeto, unidade, decl) {
                     saida.push(acao(uri, format!("Make class '{nome}' abstract"), "quickfix.makeClassAbstract", vec![e], d));
                 }
             }
             "unused_field" => {
-                let ast = &projeto.programa().unit(unidade).ast;
-                let membro = ast.members.iter().find(|m| match &m.kind {
-                    MemberKind::Field(l) => l.variables.len() == 1 && l.variables[0].name.span == d.span,
-                    _ => false,
-                });
-                if let Some(m) = membro {
-                    let span = com_documentacao(&texto, linhas_inteiras(&texto, m.span));
-                    saida.push(acao(uri, "Remove unused field".into(), "quickfix.remove.unusedField", vec![(span, String::new())], d));
+                // `RemoveUnusedField`: a declaração e cada referência.
+                let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
+                if let Some(faixas) = cx.remover_campo(d.span) {
+                    let edicoes = faixas.into_iter().map(|s| (s, String::new())).collect();
+                    saida.push(acao(uri, "Remove unused field".into(), "quickfix.remove.unusedField", edicoes, d));
                 }
             }
             "unused_catch_clause" | "unused_catch_stack" => {
@@ -142,8 +144,25 @@ pub(crate) fn corrigir(projeto: &mut Projeto, uri: &str, diagnosticos: &[Diagnos
                 }
             }
             "await_in_wrong_context" => {
-                if let Some(e) = adicionar_async(projeto, unidade, d.span.start) {
-                    saida.push(acao(uri, "Add 'async' modifier".into(), "quickfix.add.async", e, d));
+                // `AddAsync` com o `convertFunctionFromSyncToAsync`; as
+                // bibliotecas que o `writeType` agendou entram como imports.
+                let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
+                if let Some((edicoes, importar)) = cx.adicionar_async(d.span) {
+                    let mut m = crate::refatoracoes_exec::Mudanca::default();
+                    for (s, x) in edicoes {
+                        m.adicionar(uri, s, x);
+                    }
+                    crate::refatoracoes_metodo::adicionar_imports(&cx, &mut m, &importar);
+                    if m.conflito.is_none() {
+                        let todas: Vec<Edicao> = m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect();
+                        saida.push(AcaoDeCodigo {
+                            titulo: "Add 'async' modifier".into(),
+                            especie: "quickfix.add.async".into(),
+                            edicoes: todas,
+                            diagnostico: Some(d.clone()),
+                            criar_arquivo: None,
+                        });
+                    }
                 }
             }
             "nullable_type_in_extends_clause" | "nullable_type_in_implements_clause" | "nullable_type_in_on_clause" | "nullable_type_in_with_clause" => {
@@ -163,20 +182,9 @@ pub(crate) fn corrigir(projeto: &mut Projeto, uri: &str, diagnosticos: &[Diagnos
                 }
             }
             "non_final_field_in_enum" => {
-                let ast = &projeto.programa().unit(unidade).ast;
-                if let Some(MemberKind::Field(l)) = ast.members.iter().find(|m| m.span.start <= d.span.start && d.span.end <= m.span.end).map(|m| &m.kind) {
-                    let edicao = if l.var_ {
-                        let ini = texto[..d.span.start].rfind("var").filter(|i| *i >= ast.members.iter().find(|m| m.span.start <= d.span.start && d.span.end <= m.span.end).map_or(0, |m| m.span.start));
-                        ini.map(|i| (Span { start: i, end: i + 3 }, "final".to_string()))
-                    } else {
-                        l.ty.map(|t| {
-                            let s = ast.ty(t).span.start;
-                            (Span { start: s, end: s }, "final ".to_string())
-                        })
-                    };
-                    if let Some(e) = edicao {
-                        saida.push(acao(uri, "Make final".into(), "quickfix.makeFinal", vec![e], d));
-                    }
+                let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
+                if let Some(e) = cx.tornar_final(d.span) {
+                    saida.push(acao(uri, "Make final".into(), "quickfix.makeFinal", vec![e], d));
                 }
             }
             "extension_declares_member_of_object" | "extension_type_declares_member_of_object" => {
@@ -187,26 +195,10 @@ pub(crate) fn corrigir(projeto: &mut Projeto, uri: &str, diagnosticos: &[Diagnos
                 }
             }
             "assert_in_redirecting_constructor" => {
-                let ast = &projeto.programa().unit(unidade).ast;
-                for m in &ast.members {
-                    let MemberKind::Constructor(k) = &m.kind else { continue };
-                    for (i, ini) in k.initializers.iter().enumerate() {
-                        let ast::Initializer::Assert { span, .. } = ini else { continue };
-                        if !(span.start <= d.span.start && d.span.end <= span.end) {
-                            continue;
-                        }
-                        // Com a vírgula que o separa do anterior (ou do seguinte).
-                        let apagar = if i > 0 {
-                            let antes = &texto[..span.start];
-                            let virgula = antes.trim_end().len().saturating_sub(1);
-                            Span { start: virgula, end: span.end }
-                        } else {
-                            let depois = &texto[span.end..];
-                            let n = depois.find(',').map_or(0, |j| j + 1 + (depois[j + 1..].len() - depois[j + 1..].trim_start().len()));
-                            Span { start: span.start, end: span.end + n }
-                        };
-                        saida.push(acao(uri, "Remove the assertion".into(), "quickfix.remove.assertion", vec![(apagar, String::new())], d));
-                    }
+                // `RemoveAssertion`.
+                let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
+                if let Some(s) = cx.remover_assercao(d.span) {
+                    saida.push(acao(uri, "Remove the assertion".into(), "quickfix.remove.assertion", vec![(s, String::new())], d));
                 }
             }
             _ => {}
@@ -314,35 +306,6 @@ fn local_nao_final(projeto: &Projeto, unidade: UnitId, uso: Span) -> Option<(Str
         None => (Span { start: f, end: f + 5 }, "var".to_string()),
     };
     Some((nome, vec![edicao]))
-}
-
-/// `async` no corpo da função que contém `offset` e `Future<…>` no retorno
-/// escrito (`convertFunctionFromSyncToAsync`).
-fn adicionar_async(projeto: &Projeto, unidade: UnitId, offset: usize) -> Option<Vec<(Span, String)>> {
-    let u = projeto.programa().unit(unidade);
-    let ast = &u.ast;
-    let f = ast
-        .functions
-        .iter()
-        .filter(|f| f.span.start <= offset && offset < f.span.end && f.modifier == ast::AsyncModifier::None)
-        .min_by_key(|f| f.span.end - f.span.start)?;
-    let corpo = match f.body {
-        ast::FunctionBody::Block(b) => ast.stmt(b).span.start,
-        ast::FunctionBody::Expression(e) => {
-            // O `=>` antes da expressão.
-            u.source[..ast.expr(e).span.start].rfind("=>")?
-        }
-        _ => return None,
-    };
-    let mut edicoes = vec![(Span { start: corpo, end: corpo }, "async ".to_string())];
-    if let Some(t) = f.return_type {
-        let s = ast.ty(t).span;
-        let escrito = &u.source[s.start..s.end];
-        if !escrito.starts_with("Future") {
-            edicoes.push((s, format!("Future<{escrito}>")));
-        }
-    }
-    Some(edicoes)
 }
 
 /// Um membro a sobrescrever: nome exibido, se é getter/setter e o elemento.
@@ -575,79 +538,3 @@ fn lista_de_parametros(projeto: &mut Projeto, f: FunctionElementId, mapa: Option
     format!("{tps}({})", partes.join(", "))
 }
 
-/// `Ignore 'código' for this line` e `Ignore 'código' for the whole file`
-/// (`ignore_diagnostic.dart` do Dart 3.6.2) para os diagnósticos que não
-/// são erro: `// ignore: código` na linha de cima (ou `, código` no fim do
-/// `// ignore:` que já está lá), e `// ignore_for_file: código` depois dos
-/// comentários de cabeçalho (ou no fim de um `ignore_for_file` existente).
-pub(crate) fn ignorar(uri: &str, texto: &str, diagnosticos: &[Diagnostic], inicio: usize, fim: usize) -> Vec<AcaoDeCodigo> {
-    let fim_de_linha = if texto.contains("\r\n") { "\r\n" } else { "\n" };
-    let inicio_de_linha = |o: usize| texto[..o.min(texto.len())].rfind('\n').map_or(0, |i| i + 1);
-    let indentacao = |o: usize| -> String { texto[o..].chars().take_while(|c| *c == ' ' || *c == '\t').collect() };
-    let mut saida = Vec::new();
-    let mut vistos = HashSet::new();
-    for d in diagnosticos {
-        if !(d.span.start <= fim && inicio <= d.span.end) || matches!(d.severity, dartforge_diagnostics::Severidade::Error) {
-            continue;
-        }
-        let Some(codigo) = d.code.map(|c| c.info().nome) else { continue };
-        if !vistos.insert(codigo) {
-            continue;
-        }
-        // Na linha.
-        let linha = inicio_de_linha(d.span.start);
-        let edicao = if linha == 0 {
-            (Span { start: 0, end: 0 }, format!("{}// ignore: {codigo}{fim_de_linha}", indentacao(0)))
-        } else {
-            let anterior = inicio_de_linha(linha - 1);
-            let texto_anterior = texto[anterior..linha].trim();
-            if texto_anterior.starts_with("// ignore:") {
-                let pos = linha - fim_de_linha.len();
-                (Span { start: pos, end: pos }, format!(", {codigo}"))
-            } else {
-                (Span { start: linha, end: linha }, format!("{}// ignore: {codigo}{fim_de_linha}", indentacao(linha)))
-            }
-        };
-        saida.push(acao(uri, format!("Ignore '{codigo}' for this line"), "quickfix.ignore.line", vec![edicao], d));
-        // No arquivo.
-        let linhas: Vec<(usize, &str)> = {
-            let mut v = Vec::new();
-            let mut o = 0;
-            for l in texto.split_inclusive('\n') {
-                v.push((o, l));
-                o += l.len();
-            }
-            v
-        };
-        let mut edicao_arquivo = None;
-        let mut ultima_em_branco = None;
-        let mut primeira_de_codigo = linhas.last().map_or(0, |(o, _)| *o);
-        if linhas.len() <= 1 {
-            edicao_arquivo = Some((Span { start: 0, end: 0 }, format!("// ignore_for_file: {codigo}{fim_de_linha}{fim_de_linha}")));
-        } else {
-            for (o, l) in linhas.iter().take(linhas.len() - 1) {
-                let t = l.trim();
-                if t.starts_with("// ignore_for_file:") {
-                    let pos = o + l.trim_end_matches(['\n', '\r']).len();
-                    edicao_arquivo = Some((Span { start: pos, end: pos }, format!(", {codigo}")));
-                    break;
-                }
-                if t.is_empty() {
-                    ultima_em_branco = Some(*o);
-                    continue;
-                }
-                if t.starts_with("#!") || t.starts_with("//") {
-                    continue;
-                }
-                primeira_de_codigo = *o;
-                break;
-            }
-        }
-        let edicao_arquivo = edicao_arquivo.unwrap_or_else(|| match ultima_em_branco {
-            Some(o) => (Span { start: o, end: o }, format!("{fim_de_linha}// ignore_for_file: {codigo}{fim_de_linha}")),
-            None => (Span { start: primeira_de_codigo, end: primeira_de_codigo }, format!("// ignore_for_file: {codigo}{fim_de_linha}{fim_de_linha}")),
-        });
-        saida.push(acao(uri, format!("Ignore '{codigo}' for the whole file"), "quickfix.ignore.file", vec![edicao_arquivo], d));
-    }
-    saida
-}
