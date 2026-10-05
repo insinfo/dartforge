@@ -658,6 +658,30 @@ fn funcao_resolvida(inf: &BodyInferrer<'_>, cx: &Corpo, e: ExprId) -> Option<Fun
 }
 
 /// `f(args)`, `r.m(args)`, `C(args)`, `C.nome(args)`...
+/// `ExtensionMemberResolver.resolveOverride`
+/// (`an611:src/dart/resolver/extension_member_resolver.dart:177-187`): o
+/// `E(x)` fora de um acesso — operando esquerdo de binária, função de uma
+/// invocação, alvo de índice, de método ou de propriedade, operando de
+/// prefixo — e fora de alvo de cascata: `EXTENSION_OVERRIDE_WITHOUT_ACCESS`
+/// no override inteiro.
+fn override_sem_acesso(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId) {
+    let valido = match inf.pai_de(cx.unit, e) {
+        dartforge_frontend::pais::Pai::Expr(p) => match &inf.program.unit(cx.unit).ast.expr(p).kind {
+            ExprKind::Binary { left, .. } => *left == e,
+            ExprKind::Call { target, .. } | ExprKind::Index { target, .. } | ExprKind::Property { target, .. } | ExprKind::Cascade { target, .. } => *target == e,
+            ExprKind::Unary { op, operand } => {
+                *operand == e && matches!(op, ast::UnaryOp::Neg | ast::UnaryOp::Not | ast::UnaryOp::BitNot | ast::UnaryOp::PrefixInc | ast::UnaryOp::PrefixDec)
+            }
+            _ => false,
+        },
+        _ => false,
+    };
+    if !valido {
+        let sp = inf.span_expr(cx.unit, e);
+        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::EXTENSION_OVERRIDE_WITHOUT_ACCESS, sp, &[]);
+    }
+}
+
 pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx: TypeId) -> (TypeId, bool) {
     let a = &inf.program.unit(cx.unit).ast;
     let ExprKind::Call { target, arguments } = &a.expr(e).kind else { unreachable!() };
@@ -737,6 +761,9 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
     let u = inf.core.unknown;
     // `E(a, b)` / `E()`: `INVALID_EXTENSION_ARGUMENT_COUNT` na lista de
     // argumentos (an611:src/dart/resolver/extension_member_resolver.dart:189-197).
+    if let Some(RefTipo::Extensao(_)) = referencia_a_tipo(inf, cx, target) {
+        override_sem_acesso(inf, cx, e);
+    }
     if let Some(RefTipo::Extensao(x)) = referencia_a_tipo(inf, cx, target)
         && !(args.args.len() == 1 && args.args[0].name.is_none())
         && args.args.iter().all(|a| a.name.is_none())

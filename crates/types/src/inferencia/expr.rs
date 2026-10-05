@@ -644,6 +644,22 @@ fn ler_local(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, id: LocalId, span: dart
     cx.fluxo.tipo_atual(id, l.tipo)
 }
 
+/// `EXTENSION_AS_EXPRESSION` (`simple_identifier_resolver.dart:315-323`,
+/// `prefixed_identifier_resolver.dart:160-184`): o nome (ou `p.E`) de uma
+/// extensão usado como valor — fora de alvo de método ou de acesso a
+/// propriedade. Com o relato o nó fica `dynamic`.
+fn extensao_como_expressao(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, sp: dartforge_diagnostics::Span) -> bool {
+    if let dartforge_frontend::pais::Pai::Expr(p) = inf.pai_de(cx.unit, e) {
+        match &ast(inf, cx).expr(p).kind {
+            ExprKind::Property { target, .. } | ExprKind::Call { target, .. } if *target == e => return false,
+            _ => {}
+        }
+    }
+    let texto = inf.program.unit(cx.unit).source[sp.start..sp.end].to_string();
+    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::EXTENSION_AS_EXPRESSION, sp, &[&texto]);
+    true
+}
+
 /// Tipo de uma leitura de elemento de topo.
 fn ler_elemento(inf: &mut BodyInferrer<'_>, el: Element) -> TypeId {
     match el {
@@ -706,6 +722,11 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
             if busca_lexica_de_leitura(inf, cx, n.sym) == Lexico::SetterSolto {
                 nome_lido_indefinido(inf, cx, n, Lexico::SetterSolto);
                 return inf.table.invalido(inf.core.dynamic_);
+            }
+            if let Element::Extension(_) = el
+                && extensao_como_expressao(inf, cx, e, n.span)
+            {
+                return inf.core.dynamic_;
             }
             ler_elemento(inf, el)
         }
@@ -1097,6 +1118,27 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
         ExprKind::Cascade { target, sections, null_aware } => {
             let t = inferir(inf, cx, *target, ctx);
             uso_de_void(inf, cx, *target, t);
+            // `EXTENSION_OVERRIDE_WITH_CASCADE`
+            // (`method_invocation_resolver.dart:431-437`,
+            // `property_element_resolver.dart:606-612`): no nome da extensão
+            // do `E(x)` alvo da cascata (um relato por cascata).
+            if cx.sobreposicoes.contains_key(target)
+                && let ExprKind::Call { target: f, .. } = &ast(inf, cx).expr(*target).kind
+            {
+                let nome = match &ast(inf, cx).expr(*f).kind {
+                    ExprKind::Identifier(n) => Some(n.span),
+                    ExprKind::Property { name, .. } => Some(name.span),
+                    ExprKind::TypeArguments { target: g, .. } => match &ast(inf, cx).expr(*g).kind {
+                        ExprKind::Identifier(n) => Some(n.span),
+                        ExprKind::Property { name, .. } => Some(name.span),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                if let Some(sp) = nome {
+                    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::EXTENSION_OVERRIDE_WITH_CASCADE, sp, &[]);
+                }
+            }
             // `c?..x` com `c` não anulável: relatado pela primeira seção
             // (`visitPropertyAccess`/`visitMethodInvocation`/`visitIndexExpression`
             // do `ErrorVerifier`).
@@ -1582,6 +1624,12 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
             match inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.getter.or(b.setter)) {
                 Some(el) => {
                     resolver(inf, cx, e, Resolved::Element(el));
+                    if let Element::Extension(_) = el {
+                        let sp = inf.span_expr(cx.unit, e);
+                        if extensao_como_expressao(inf, cx, e, sp) {
+                            return (inf.core.dynamic_, false);
+                        }
+                    }
                     return (ler_elemento(inf, el), false);
                 }
                 None => {

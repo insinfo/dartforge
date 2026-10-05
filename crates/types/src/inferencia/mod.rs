@@ -207,6 +207,9 @@ pub struct BodyInferrer<'a> {
     /// O `InheritanceManager3` (as interfaces das classes), com os tipos
     /// dos campos inferidos sob demanda.
     pub(crate) heranca: crate::heranca::Heranca,
+    /// Os pais das expressões de cada unidade, sob demanda (as regras que
+    /// dependem do lugar sintático de um nó).
+    pais: HashMap<UnitId, Rc<dartforge_frontend::pais::Pais>>,
 }
 
 impl<'a> BodyInferrer<'a> {
@@ -254,6 +257,7 @@ impl<'a> BodyInferrer<'a> {
             unidades_dos_avisos: Vec::new(),
             unidade_corrente: None,
             heranca: crate::heranca::Heranca::default(),
+            pais: HashMap::new(),
             espalhamentos_inferidos: HashMap::new(),
             registrar_locais: false,
             sonda_escopo: None,
@@ -591,6 +595,13 @@ impl<'a> BodyInferrer<'a> {
     // ---------------------------------------------------------------
     // Diagnósticos
     // ---------------------------------------------------------------
+
+    /// O pai sintático da expressão `e` da unidade `u`.
+    pub(crate) fn pai_de(&mut self, u: UnitId, e: ast::ExprId) -> dartforge_frontend::pais::Pai {
+        let program = self.program;
+        let pais = self.pais.entry(u).or_insert_with(|| Rc::new(crate::lints_tipados::pais_da_unidade(program, u))).clone();
+        pais.pai(e)
+    }
 
     pub(crate) fn aviso(&mut self, msg: String, span: Span) {
         self.diagnostics.push(Diagnostic::new(msg, span));

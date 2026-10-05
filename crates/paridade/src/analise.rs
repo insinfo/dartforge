@@ -633,6 +633,8 @@ impl Motor {
             atribuidos.extend(dartforge_types::variancia::variancia(&program, &interner, &table, &outline, *lib));
             atribuidos.extend(dartforge_types::variancia::posicoes_nao_covariantes_na_representacao(&program, &table, &outline, *lib));
             atribuidos.extend(dartforge_types::a_main::funcao_main(&program, &interner, &mut table, &core, &outline, *lib));
+            // Declarações `extension type`: ciclos, fundo, conflitos e `implements`.
+            atribuidos.extend(dartforge_types::tipos_de_extensao::verificar(&program, &interner, &mut table, &core, &outline, *lib));
             // FASES NOVAS (INFRA etapa 6): `OverrideVerifier`.
             atribuidos.extend(dartforge_types::fase_override::sem_sobrescrita(&program, &interner, &mut table, &core, &outline, *lib));
             atribuidos.extend(dartforge_types::fase_override::sem_redeclaracao(&program, &interner, &mut table, &core, &outline, *lib));

@@ -644,6 +644,16 @@ Base comum: a resolução de membro passa por `TypePropertyResolver.resolve` (`a
 
 Estes códigos são de **declaração** (não de corpo); o lugar natural no DartForge é `crates/analise/src/*.rs` (verificações por declaração), exceto os de FFI que dependem de tipos resolvidos de invocações (`crates/types`). Nenhum deles existe hoje, salvo `EXTENSION_TYPE_DECLARES_MEMBER_OF_OBJECT` (`crates/analise/src/membros.rs:948`).
 
+**Estado em 2026-10-05 (escrito, não compilado).** `crates/types/src/tipos_de_extensao.rs` (`verificar`,
+ligado em `paridade/src/analise.rs` depois de `funcao_main`) porta os ciclos do link com Tarjan e auto-laço:
+`extension_type_representation_depends_on_itself`, pelos tipos de extensão citados na representação como o
+`_DependenciesCollector`, e `extension_type_implements_itself`. Porta também
+`extension_type_representation_type_bottom`, `extension_type_inherited_member_conflict` (os conflitos da
+`Heranca`, com o setter `x=`) e os três do `_verifyExtensionElementImplements`:
+`implements_disallowed_type`, `implements_representation_not_supertype` e `implements_not_supertype`.
+Representação cíclica ou inválida cala o `implements` e o fundo. Um `dynamic` do outline que não foi escrito
+`dynamic` é tratado como nome que não resolveu. Desvio: alias de `dynamic` no `implements` não relata.
+
 ##### `extension_type_representation_depends_on_itself` (perda 8: FN 8)
 - **Emissão:** `ErrorVerifier._checkForExtensionTypeRepresentationDependsOnItself` (`analyzer/lib/src/generated/error_verifier.dart:3491-3500`), de `visitExtensionTypeDeclaration`; o sinal `hasRepresentationSelfReference` é calculado no link (`analyzer/lib/src/summary2/extension_type.dart:120-180`, `_Node`/`_Walker` — grafo de dependência).
 - **Condição exata:** o tipo da representação, percorrido por `_DependenciesCollector` (visita argumentos de tipo, tipos de função, records, e o próprio extension type), alcança um extension type da mesma componente fortemente conexa (ciclo, inclusive `extension type A(A it)` e ciclos mútuos A→B→A). Todos os da SCC são marcados, e a representação vira `InvalidType`.
@@ -1523,6 +1533,10 @@ foram rodados no oráculo vivo (`C:\tools\dartsdk-3.6.2\bin\dart analyze --forma
   (`:435-443`): operando esquerdo de binária, função de `FunctionExpressionInvocation`, alvo de índice,
   alvo de `MethodInvocation`, operando de `PrefixExpression`, alvo de `PropertyAccess`.
 - **Posição:** o override inteiro (`E(3)`, do nome ao `)`). **Mensagem:** `An extension override can only be used to access instance members.`
+- **Estado em 2026-10-05 (escrito, não compilado):** `chamadas.rs::override_sem_acesso` decide o contexto
+  pelo pai sintático (`BodyInferrer::pai_de`, o `Pais` da unidade sob demanda). A cascata sai em
+  `expr.rs` (`ExprKind::Cascade`), um relato por cascata, no nome da extensão. `extension_as_expression` sai
+  em `expr.rs::extensao_como_expressao`, no identificador ou no `p.E`, com o nó `dynamic`.
 - **Supressões e ordem:** o tipo do override vira `dynamic` (`:184`); a resolução continua (pode sair
   também `INVALID_EXTENSION_ARGUMENT_COUNT` ou `EXTENSION_OVERRIDE_ARGUMENT_NOT_ASSIGNABLE` no mesmo override).
 - **No DartForge:** inexistente. 1 FN. Exemplo: acima, linhas 5 e 6.

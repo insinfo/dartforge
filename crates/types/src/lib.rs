@@ -53,6 +53,7 @@ pub mod scope;
 pub mod sobrescritas;
 pub mod subtyping;
 pub mod table;
+pub mod tipos_de_extensao;
 pub mod variancia;
 
 pub use codes::*;
