@@ -169,6 +169,17 @@ const CASOS: &[Caso] = &[
         sabotagem_do_emissor: None,
         sabotagem_do_runtime: Some("sem_porta"),
     },
+    // D9: o callback da FFI que lança, chamado pelo `qsort` da libc (um
+    // quadro C) e pelo próprio Dart pelo ponteiro nativo. Sem o pouso da
+    // entrada do callback, a exceção atravessa o quadro C e chega ao `main`.
+    Caso {
+        arquivo: "gc_d09_callback_ffi.dart",
+        esperado: "[1, 1, 2, 3, 3, 3, 5, 8, 8, 9] 0 14 2000\n",
+        tabelas: true,
+        sombra: false,
+        sabotagem_do_emissor: Some("callback_sem_pouso"),
+        sabotagem_do_runtime: None,
+    },
 ];
 
 fn ligado() -> bool {

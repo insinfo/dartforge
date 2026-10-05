@@ -2752,8 +2752,9 @@ impl<'a> LlvmEmitter<'a> {
             };
             let r = tipo_ret.as_str();
             // Exceções por tabelas: a entrada pousa o desenrolamento do corpo
-            // (abaixo) — código C não é atravessado.
-            let por_tabelas = self.module.excecoes_por_tabelas;
+            // (abaixo) — código C não é atravessado. A sabotagem
+            // `callback_sem_pouso` (o D9 do §7.3) tira o pouso.
+            let por_tabelas = self.module.excecoes_por_tabelas && !crate::alvo::sabotagem("callback_sem_pouso");
             let personalidade = if por_tabelas { " personality ptr @dartforge_personalidade" } else { "" };
             writeln!(self.out, "define internal {ret_ext}{r} @df.ffi.cbentrada.{i}({}){personalidade} {{", decls.join(", "))
                 .unwrap();

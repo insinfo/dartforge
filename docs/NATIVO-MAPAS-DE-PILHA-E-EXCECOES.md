@@ -2503,8 +2503,13 @@ O D9 usa `Function.apply`, que o runtime faz pela porta `dart_r3` (`RT/closures.
 closure sai certamente por um quadro Rust. O `then` que lança fica no programa, mas o tratador da
 microtarefa é Dart e não prova a fronteira sozinho. O harness (`crates/cli/tests/mapas_dirigidos.rs`)
 ganhou o campo `sombra` e liga o conferidor do RS4GC em toda compilação em modo mapas, inclusive nas
-das sabotagens (onde ele pode ser o primeiro a acusar). Não feito: o callback da FFI que lança (pede
-uma biblioteca C no teste). O `Isolate.exit` dentro de `finally` está escrito desde 2026-10-05
+das sabotagens (onde ele pode ser o primeiro a acusar). O callback da FFI que lança está escrito
+desde 2026-10-05 sem biblioteca C própria: `gc_d09_callback_ffi.dart` (saída
+`[1, 1, 2, 3, 3, 3, 5, 8, 8, 9] 0 14 2000`, calculada à mão) passa ao `qsort` da libc um comparador que
+aloca e lança quando os dois valores são iguais (o retorno excepcional 0 diz "iguais", e a ordem final
+não depende de quais pares o `qsort` compara) e chama pelo ponteiro nativo um callback que lança; a
+sabotagem `callback_sem_pouso` (emissor, `EN/llvm/mod.rs`, `emit_callbacks_ffi`) tira o pouso da
+entrada do callback no modo `tabelas`, e a exceção atravessa o quadro C até o `main`. O `Isolate.exit` dentro de `finally` está escrito desde 2026-10-05
 (`gc_d09_isolate_exit_em_finally.dart`, saída `870`, calculada à mão: a soma de `0² + … + k² + k`
 para `k` de 0 a 9; mesma sabotagem `sem_porta`).
 
