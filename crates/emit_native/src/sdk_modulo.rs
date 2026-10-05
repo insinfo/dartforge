@@ -344,6 +344,8 @@ pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path, producao: bool) -> Result<Vec<B
             .emit_all();
         if raizes_por_mapas {
             crate::llvm::verificar_mapas::verificar(&ir).map_err(|e| format!("{uri}: {e}"))?;
+        } else if crate::llvm::verificar_sombra::ligada() {
+            crate::llvm::verificar_sombra::verificar(&ir).map_err(|e| format!("{uri}: {e}"))?;
         }
         let ir = if producao { com_optsize(&ir) } else { ir };
         let ir = if excecoes_por_tabelas && cfg!(unix) { com_uwtable(&ir) } else { ir };

@@ -204,7 +204,8 @@ fn dir_de_trabalho(nome: &str) -> PathBuf {
 
 /// Compila `arquivo` em modo mapas (ou na pilha-sombra, com `sombra`); o
 /// erro leva a mensagem do compilador. Em modo mapas, o conferidor das
-/// raízes depois do RS4GC (§7.4) roda em cada módulo.
+/// raízes depois do RS4GC (§7.4) roda em cada módulo; na pilha-sombra, o
+/// conferidor de dominância dos slots.
 fn compilar(arquivo: &str, tabelas: bool, sombra: bool, ambiente: &[(&str, &str)], saida: &Path) -> Result<(), String> {
     let mut c = Command::new(env!("CARGO_BIN_EXE_dartforge"));
     c.arg("compile-native").arg(fonte(arquivo)).arg("-o").arg(saida);
@@ -213,7 +214,10 @@ fn compilar(arquivo: &str, tabelas: bool, sombra: bool, ambiente: &[(&str, &str)
         c.arg("--excecoes=tabelas");
     }
     c.env_remove("DARTFORGE_SABOTAGEM").env_remove("DARTFORGE_RAIZES_CONFERIR");
-    if !sombra {
+    if sombra {
+        // O conferidor de dominância do modo sombra (§7.4).
+        c.env("DARTFORGE_CONFERIR_SOMBRA", "1");
+    } else {
         c.env("DARTFORGE_CONFERIR_RS4GC", "1");
     }
     for (k, v) in ambiente {

@@ -6,6 +6,7 @@ mod depuracao;
 mod raizes;
 mod rastro;
 pub mod verificar_mapas;
+pub mod verificar_sombra;
 mod simd;
 // As emissões que dependem da representação dos valores do runtime, uma por
 // pacote do espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md §4.2, passo 4).
@@ -767,6 +768,20 @@ impl<'a> LlvmEmitter<'a> {
         let (ligacao, comdat) = self.ligacao_de(&func.symbol);
         // Uma cópia por imagem (`linkonce_odr`): o rastro não a rotula.
         let compartilhada = !ligacao.is_empty();
+        // §7.4, modo sombra: os valores `Ref` da função (os candidatos de
+        // `raizes::analisar`) para o conferidor de dominância.
+        if !self.mapas && verificar_sombra::ligada() {
+            let mut refs: Vec<u32> = func.params.iter().filter(|(_, _, t)| *t == Type::Ref).map(|(v, _, _)| v.0).collect();
+            for b in &func.blocks {
+                for (v, inst, t) in &b.instructions {
+                    if *t == Type::Ref && !matches!(inst, Instruction::Const(Constant::Null) | Instruction::Alloca(_)) {
+                        refs.push(v.0);
+                    }
+                }
+            }
+            let lista: Vec<String> = refs.iter().map(|v| format!("v{v}")).collect();
+            writeln!(self.out, "{} {}", verificar_sombra::MARCA_DE_REFS, lista.join(" ")).unwrap();
+        }
         let inicio_da_funcao = self.out.len();
         let mut posicao_escrita: Option<(u32, u32)> = None;
         // A posição de uma instrução copiada pelo inlining (só o rastro).

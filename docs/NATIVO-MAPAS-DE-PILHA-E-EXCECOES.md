@@ -953,6 +953,17 @@ teste que não falha com a sabotagem não conta.
   * as violações plantadas (`--seeded-violations`) têm de ser todas achadas.
 * **No modo sombra:** o mesmo conferidor de dominância sobre o IR de hoje (o `store` no slot domina todo
   ponto de coleta em que o valor está vivo). Hoje isso não existe e vale para A0 também.
+
+  **Estado em 2026-10-05 (escrito, não compilado).** `EN/llvm/verificar_sombra.rs`, com
+  `DARTFORGE_CONFERIR_SOMBRA=1` (o harness `crates/cli/tests/mapas_dirigidos.rs` o liga nos casos da
+  pilha-sombra): o emissor escreve antes de cada `define` o comentário `; df.refs v1 v5 …` com os
+  valores `Ref` da HIR (os candidatos de `raizes::analisar`), e o conferidor calcula, só do texto do
+  módulo, a vivacidade de cada `%v<n>` (os `phi` no fim do predecessor) e o conteúdo de cada slot
+  para a frente (o `store i64 %v<n>, ptr %gcs<k>`, também pelo endereço de um local no quadro; outro
+  `store` apaga; na junção, só o que todos os caminhos concordam). Em cada chamada que pode coletar
+  (a extern que coleta ou chama Dart, a função Dart, a indireta), todo `Ref` vivo na entrada dela, os
+  operandos inclusive, tem de estar num slot. Pega a raiz esquecida, o slot compartilhado por dois
+  vivos e o `store` que não domina o ponto.
 * **No conversor do mapa:** recusa de `Register`, de constante par suspeita e de registro duplicado (§3.5);
   ida e volta.
 
@@ -2408,7 +2419,11 @@ O veneno liga a validação de handle.
 
 Não ficou: D5 (a sabotagem `undef` no lugar de `null` não existe no emissor), D8 e D9 (as sabotagens
 "reduzir a folga" e "chamar Dart sem a porta"), D12 (o registro dos caches do runtime), e o contador por
-extern do D7 (o D7 usa a sabotagem `folha:` sobre o D1). O verificador do IR do §7.4 não foi escrito.
+extern do D7 (o D7 usa a sabotagem `folha:` sobre o D1). O verificador do IR do §7.4 antes do RS4GC
+está em `EN/llvm/verificar_mapas.rs` (chamado em `EN/lib.rs` e `EN/sdk_modulo.rs` em todo módulo do modo
+mapas): a conversão para `ptr addrspace(1)` só na forma `%raiz<v>`, nenhum `undef`/`poison` desse tipo,
+nenhum `ptr addrspace(1)` gravado em memória, e toda extern `"gc-leaf-function"` sem coletar nem chamar
+Dart pela tabela de efeitos.
 
 **Etapa 3, E3.2: a decodificação preguiçosa.** O índice de cada imagem guarda, por função, o começo e onde
 está a descrição dela (o fluxo DFGM ou o primeiro registro do `.llvm_stackmaps`); os registros de uma

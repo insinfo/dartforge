@@ -495,6 +495,9 @@ fn emitir_ir_interno(
     // O verificador do modo mapas (§7.4), antes do passe dos mapas.
     if raizes_por_mapas {
         llvm::verificar_mapas::verificar(&llvm_ir)?;
+    } else if llvm::verificar_sombra::ligada() {
+        // O conferidor de dominância do modo sombra (§7.4).
+        llvm::verificar_sombra::verificar(&llvm_ir)?;
     }
     // Nos alvos Itanium, toda função precisa da tabela de desenrolamento.
     let llvm_ir = if excecoes_por_tabelas && cfg!(unix) { sdk_modulo::com_uwtable(&llvm_ir) } else { llvm_ir };
