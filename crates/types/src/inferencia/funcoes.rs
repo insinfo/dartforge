@@ -85,8 +85,16 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             let ret = dados.return_type;
             let ctx_ret = inf.contexto_de_retorno_declarado(ret, af.modifier);
             let executavel = inf.executavel_declarado(f);
-            cx.funcoes.push(CtxFuncao { modificador: af.modifier, retorno: Some(ret), contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, expressoes_retornadas: Vec::new(), executavel });
+            let retorno_legal = tipo_de_retorno_legal(inf, unit, af.return_type, af.modifier, ret);
+            cx.funcoes.push(CtxFuncao { modificador: af.modifier, retorno: Some(ret), contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, expressoes_retornadas: Vec::new(), executavel, retorno_legal });
             corpo_de_funcao(inf, &mut cx, &af.body, af.modifier, ret, None);
+            // `checkForBodyMayCompleteNormally` no nome da função/método.
+            if matches!(af.body, FunctionBody::Block(_))
+                && cx.fluxo.alcancavel
+                && let Some(n) = af.name
+            {
+                corpo_completa_normalmente(inf, Some(ret), Some(ctx_ret), af.modifier, n.span);
+            }
             cx.funcoes.pop();
             // `FunctionDeclaration` (de topo, não método) com retorno escrito.
             let fe = inf.program.function(f);
@@ -180,11 +188,17 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             let ctx_ret = ret;
             // Construtor gerador: `return e;` é `return_in_generative_constructor`.
             let executavel = if fe.factory { inf.executavel_declarado(f) } else { None };
-            cx2.funcoes.push(CtxFuncao { modificador: AsyncModifier::None, retorno: Some(ret), contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, expressoes_retornadas: Vec::new(), executavel });
+            cx2.funcoes.push(CtxFuncao { modificador: AsyncModifier::None, retorno: Some(ret), contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, expressoes_retornadas: Vec::new(), executavel, retorno_legal: true });
             // `flowEnd(ConstructorDeclaration)`: o analyzer não apara o
             // construtor na última instrução; o trecho vai até o fim dele.
             let fim = inf.program.unit(unit).ast.member(member).span.end;
             corpo_de_funcao(inf, &mut cx2, &ctor.body, AsyncModifier::None, ret, Some(fim));
+            // Factory: `atConstructorDeclaration`, do tipo de retorno ao fim do
+            // nome.
+            if fe.factory && matches!(ctor.body, FunctionBody::Block(_)) && cx2.fluxo.alcancavel {
+                let onde = dartforge_diagnostics::Span { start: ctor.class_name.span.start, end: ctor.name.map_or(ctor.class_name.span.end, |n| n.span.end) };
+                corpo_completa_normalmente(inf, Some(ret), Some(ret), AsyncModifier::None, onde);
+            }
         }
         FunctionRef::None => {}
     }
@@ -1199,6 +1213,102 @@ fn corpo_de_funcao(
     }
 }
 
+/// `ReturnTypeVerifier.verifyReturnType` (`an611:src/error/return_type_verifier.dart:79-130`,
+/// `_isLegalReturnType` `:297-322`): com o retorno escrito, `async` exige
+/// `Future<Never>` subtipo dele, `async*` `Stream<Never>`, `sync*`
+/// `Iterable<Never>`, e um gerador não pode ser `void`; o relato vai no tipo
+/// escrito. Devolve `hasLegalReturnType`.
+fn tipo_de_retorno_legal(inf: &mut BodyInferrer<'_>, unit: UnitId, escrito: Option<ast::TypeId>, m: AsyncModifier, ret: TypeId) -> bool {
+    use dartforge_diagnostics::codigos::compile_time_error as ce;
+    let Some(escrito) = escrito else { return true };
+    let (classe, codigo) = match m {
+        AsyncModifier::None => return true,
+        AsyncModifier::Async => (inf.core.future_class, ce::ILLEGAL_ASYNC_RETURN_TYPE),
+        AsyncModifier::AsyncStar => (inf.core.stream_class, ce::ILLEGAL_ASYNC_GENERATOR_RETURN_TYPE),
+        AsyncModifier::SyncStar => (inf.core.iterable_class, ce::ILLEGAL_SYNC_GENERATOR_RETURN_TYPE),
+    };
+    let gerador = matches!(m, AsyncModifier::AsyncStar | AsyncModifier::SyncStar);
+    let ilegal = if gerador && matches!(inf.table.get(ret), Type::Void) {
+        true
+    } else {
+        let n = inf.core.never;
+        let piso = inf.iface(classe, vec![n]);
+        !inf.sub(piso, ret)
+    };
+    if ilegal {
+        let sp = inf.program.unit(unit).ast.ty(escrito).span;
+        inf.aviso_com_codigo(codigo, sp, &[]);
+    }
+    !ilegal
+}
+
+/// `ResolverVisitor.checkForBodyMayCompleteNormally`
+/// (`an611:src/generated/resolver.dart:522-603`), com o fim do corpo de bloco
+/// alcançável: sem contexto de retorno, nada (o `catchError` é outra regra);
+/// gerador, nada; `async` com o imposto fora de `Future<Never>`, nada; o
+/// contexto potencialmente não anulável dá `BODY_MIGHT_COMPLETE_NORMALLY`; o
+/// anulável cuja base (`futureOrBase`) não é `dynamic`, `_`, `void` nem
+/// `Null`, `BODY_MIGHT_COMPLETE_NORMALLY_NULLABLE`.
+fn corpo_completa_normalmente(inf: &mut BodyInferrer<'_>, imposto: Option<TypeId>, contexto: Option<TypeId>, m: AsyncModifier, onde: dartforge_diagnostics::Span) {
+    use dartforge_diagnostics::codigos::{compile_time_error as ce, warning as w};
+    let Some(rt) = contexto else { return };
+    if matches!(m, AsyncModifier::SyncStar | AsyncModifier::AsyncStar) || inf.e_desconhecido(rt) {
+        return;
+    }
+    if m == AsyncModifier::Async
+        && let Some(i) = imposto
+    {
+        let n = inf.core.never;
+        let piso = inf.futuro(n);
+        if !inf.sub(piso, i) {
+            return;
+        }
+    }
+    if !inf.e_anulavel(rt) {
+        inf.aviso_com_args(ce::BODY_MIGHT_COMPLETE_NORMALLY, onde, &[crate::exibicao::Arg::Tipo(rt)]);
+        return;
+    }
+    let mut base = rt;
+    while let Type::FutureOr { arg, .. } = inf.table.get(base) {
+        base = *arg;
+    }
+    if inf.e_dynamic(base) || inf.table.e_invalido(base) || inf.e_desconhecido(base) || matches!(inf.table.get(base), Type::Void | Type::Null) {
+        return;
+    }
+    inf.aviso_com_args(w::BODY_MIGHT_COMPLETE_NORMALLY_NULLABLE, onde, &[crate::exibicao::Arg::Tipo(rt)]);
+}
+
+/// `_checkForFutureCatchErrorOnError` (`an611:src/generated/resolver.dart:3971-4006`):
+/// a expressão de função sem contexto de retorno, argumento posicional direto
+/// de `x.catchError(...)` com `x` um `Future<T>`: o `{` relata
+/// `BODY_MIGHT_COMPLETE_NORMALLY_CATCH_ERROR` com a base de `FutureOr<T>`.
+fn catch_error_sem_retorno(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, onde: dartforge_diagnostics::Span) {
+    let dartforge_frontend::pais::Pai::Expr(chamada) = inf.pai_de(cx.unit, e) else { return };
+    let a = &inf.program.unit(cx.unit).ast;
+    let ast::ExprKind::Call { target, arguments } = &a.expr(chamada).kind else { return };
+    if !arguments.args.iter().any(|x| x.value == e && x.name.is_none()) {
+        return;
+    }
+    let ast::ExprKind::Property { target: alvo, name, .. } = &a.expr(*target).kind else { return };
+    if inf.interner.resolve(name.sym) != "catchError" {
+        return;
+    }
+    let Some(recv) = inf.body_types.units[cx.unit.0 as usize].static_types.get(alvo.0 as usize).copied() else { return };
+    if !matches!(inf.table.get(recv), Type::Interface { .. }) {
+        return;
+    }
+    let Some(args) = inf.como_instancia_de(recv, inf.core.future_class) else { return };
+    let Some(&t) = args.first() else { return };
+    let mut base = t;
+    while let Type::FutureOr { arg, .. } = inf.table.get(base) {
+        base = *arg;
+    }
+    if inf.e_dynamic(base) || inf.e_desconhecido(base) || matches!(inf.table.get(base), Type::Void | Type::Null) {
+        return;
+    }
+    inf.aviso_com_args(dartforge_diagnostics::codigos::warning::BODY_MIGHT_COMPLETE_NORMALLY_CATCH_ERROR, onde, &[crate::exibicao::Arg::Tipo(base)]);
+}
+
 /// Tipo de uma variável de topo/campo sem tipo: sobreposição (campo que
 /// sobrepõe um getter) ou inicializador (`Null` vira `dynamic`).
 pub(crate) fn inferir_tipo_de_variavel_sem_tipo(inf: &mut BodyInferrer<'_>, vid: VariableId) -> TypeId {
@@ -1281,19 +1391,19 @@ fn funcao_do_contexto(inf: &mut BodyInferrer<'_>, ctx: TypeId) -> Option<TypeId>
 }
 
 /// Expressão de função (closure) no contexto `ctx`.
-pub(crate) fn expressao_de_funcao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::FunctionId, ctx: TypeId) -> TypeId {
+pub(crate) fn expressao_de_funcao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::FunctionId, ctx: TypeId, e: ExprId) -> TypeId {
     // `wasFunctionTypeSupplied` (`function_expression_resolver.dart:35`): o
     // contexto, como chegou, é um tipo de função.
     if matches!(inf.table.get(ctx), Type::Function { .. }) {
         inf.body_types.units[cx.unit.0 as usize].com_tipo_de_funcao.insert(fid);
     }
-    let (t, _) = funcao_literal(inf, cx, fid, ctx, None);
+    let (t, _) = funcao_literal(inf, cx, fid, ctx, None, Some(e));
     t
 }
 
 /// Infere uma função literal ou local. `local` é o id da função local
 /// (declarada antes, para chamadas recursivas).
-fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::FunctionId, ctx: TypeId, local: Option<crate::resolved::LocalId>) -> (TypeId, ()) {
+fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::FunctionId, ctx: TypeId, local: Option<crate::resolved::LocalId>, expressao: Option<ExprId>) -> (TypeId, ()) {
     let af = inf.program.unit(cx.unit).ast.function(fid);
     let u = inf.core.unknown;
     let ctx_fn = funcao_do_contexto(inf, ctx);
@@ -1477,7 +1587,12 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
         }),
         _ => None,
     };
-    cx.funcoes.push(CtxFuncao { modificador: m, retorno: declarado, contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, expressoes_retornadas: Vec::new(), executavel });
+    // `verifyReturnType` da função local nomeada (`visitFunctionDeclaration`).
+    let retorno_legal = match (local, declarado) {
+        (Some(_), Some(r)) => tipo_de_retorno_legal(inf, cx.unit, af.return_type, m, r),
+        _ => true,
+    };
+    cx.funcoes.push(CtxFuncao { modificador: m, retorno: declarado, contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, expressoes_retornadas: Vec::new(), executavel, retorno_legal });
     let saltos_salvos = std::mem::take(&mut cx.saltos);
     let cascatas_salvas = std::mem::take(&mut cx.cascatas);
     let (corpo_t, completa) = match &af.body {
@@ -1496,7 +1611,28 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
             instrucoes::entrar_fluxo(cx, fim);
             instrucoes::inferir_instrucao(inf, cx, *s);
             instrucoes::sair_fluxo(cx);
-            (None, cx.fluxo.alcancavel)
+            let alcancavel = cx.fluxo.alcancavel;
+            if alcancavel {
+                // `checkForBodyMayCompleteNormally`: a função local no nome,
+                // a expressão de função no `{`; o imposto é o retorno escrito
+                // ou o do contexto.
+                let imposto = declarado.or(cret);
+                let onde = match (local, af.name) {
+                    (Some(_), Some(n)) => n.span,
+                    _ => {
+                        let ini = inf.program.unit(cx.unit).ast.stmt(*s).span.start;
+                        dartforge_diagnostics::Span { start: ini, end: ini + 1 }
+                    }
+                };
+                corpo_completa_normalmente(inf, imposto, imposto.map(|_| ctx_ret), m, onde);
+                if imposto.is_none()
+                    && local.is_none()
+                    && let Some(ex) = expressao
+                {
+                    catch_error_sem_retorno(inf, cx, ex, onde);
+                }
+            }
+            (None, alcancavel)
         }
         _ => (None, false),
     };
@@ -1646,7 +1782,7 @@ pub(crate) fn funcao_local(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast:
     cx.funcoes_locais.insert(id);
     cx.fluxo.inicializar(id);
     let u = inf.core.unknown;
-    let (t, _) = funcao_literal(inf, cx, fid, u, Some(id));
+    let (t, _) = funcao_literal(inf, cx, fid, u, Some(id), None);
     cx.locais[id.0 as usize].tipo = t;
     cx.locais[id.0 as usize].funcao_local = false;
     inf.body_types.units[cx.unit.0 as usize].set_tipo_local(nome.span.start, t);
@@ -2160,6 +2296,10 @@ fn verificar_retorno_de_expressao(inf: &mut BodyInferrer<'_>, cx: &Corpo, fc: &C
 /// com `e` de tipo `S` num executável de retorno declarado `T`. Em geradores,
 /// closures e construtores geradores nada sai daqui.
 pub(crate) fn verificar_retorno(inf: &mut BodyInferrer<'_>, cx: &Corpo, fc: &CtxFuncao, e: ExprId, s: TypeId) {
+    // `_checkReturnExpression`: com o retorno declarado ilegal, nada.
+    if !fc.retorno_legal {
+        return;
+    }
     let (Some(t), Some(exe)) = (fc.retorno, fc.executavel.as_ref()) else { return };
     let e_void_dyn = |inf: &BodyInferrer<'_>, x: TypeId| matches!(inf.table.get(x), Type::Void | Type::Dynamic);
     let e_void_dyn_null = |inf: &BodyInferrer<'_>, x: TypeId| matches!(inf.table.get(x), Type::Void | Type::Dynamic | Type::Null);

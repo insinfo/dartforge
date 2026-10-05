@@ -3830,6 +3830,13 @@ chave igual a uma anterior (a igualdade do `DartObjectImpl`), relatada depois de
   `type_variable/static_context_test.dart:8:14`, `BodyMightCompleteNormallyNullable__func_6872f662.dart` (`int? f() {}` → no
   nome `f`), `…_a6a31a8d.dart` (`FutureOr<int?> f(Future f) async {}`), `getter/syntax_get_set_syntax_test.dart:113:13`,
   `BodyMayCompleteNormallyCatchError__noRe_67f177f2.dart:2:29` (`future.catchError((e, st) {})` → `{`).
+- **Estado em 2026-10-05 (escrito, não compilado):** `funcoes.rs::corpo_completa_normalmente` porta o
+  `checkForBodyMayCompleteNormally`, com o fim do bloco alcançável (`cx.fluxo.alcancavel` depois do corpo).
+  Funções e métodos declarados relatam no nome, com o imposto sendo o retorno do outline e o contexto o
+  `contexto_de_retorno_declarado`. A factory relata do nome da classe ao fim do nome. A função local
+  relata no nome. A expressão de função relata no `{`, com o imposto sendo o retorno escrito ou o do
+  contexto. Sem imposto, `catch_error_sem_retorno` olha o pai sintático: argumento posicional de
+  `x.catchError(...)` com `x` um `Future<T>`.
 
 ##### `switch_case_completes_normally` (perda 10: FN 10)
 
@@ -7178,6 +7185,10 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
   supressão de `return_of_invalid_type` correspondente na inferência
   (`crates/types/src/inferencia/`). Todas as amostras são funções/métodos simples (`int f() async*`,
   `void f() sync*`, `SubFuture<int> m() async`).
+- **Estado em 2026-10-05 (escrito, não compilado):** `funcoes.rs::tipo_de_retorno_legal` relata nas
+  funções e métodos declarados e nas funções locais nomeadas com retorno escrito. Devolve o
+  `hasLegalReturnType`, guardado em `CtxFuncao::retorno_legal`. `verificar_retorno` não confere as expressões
+  retornadas quando ele é falso; o `return_without_value` continua.
 
 ##### `type_parameter_supertype_of_its_bound` (perda 13: FN 13)
 - **Emissão:** `ErrorVerifier._checkForTypeParameterBoundRecursion`

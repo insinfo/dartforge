@@ -56,6 +56,9 @@ pub(crate) struct CtxFuncao {
     /// O executável que declara o retorno, para `return_of_invalid_type`;
     /// `None` em closures e construtores geradores (outras regras).
     pub executavel: Option<Executavel>,
+    /// `hasLegalReturnType`: falso depois de `illegal_*_return_type`, que
+    /// cala a conferência das expressões retornadas.
+    pub retorno_legal: bool,
 }
 
 /// Espécie e nome de exibição do executável (`EnclosingExecutableContext`

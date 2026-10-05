@@ -1039,7 +1039,7 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
             api_sem_nulo(inf, cx, e, t);
             t
         }
-        ExprKind::FunctionExpression(f) => funcoes::expressao_de_funcao(inf, cx, *f, ctx),
+        ExprKind::FunctionExpression(f) => funcoes::expressao_de_funcao(inf, cx, *f, ctx, e),
         ExprKind::Property { target, name, null_aware } => {
             let (t, c) = propriedade(inf, cx, e, *target, *name, *null_aware);
             curto = c;
