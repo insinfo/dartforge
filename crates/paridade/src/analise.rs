@@ -368,6 +368,8 @@ impl Motor {
             &outline,
             &libs_proprias,
         )));
+        // `computeSimplyBounded`, uma vez para o programa.
+        let limites_simples = dartforge_analise::limites_simples::calcular(&program);
         // 3. Nomes duplicados (`crates/analise`), por biblioteca do lote.
         for lib in &libs_proprias {
             let biblioteca = program.library(*lib);
@@ -495,6 +497,7 @@ impl Motor {
             for (u, d) in dartforge_analise::clausulas::verificar(&program, *lib, &interner)
                 .into_iter()
                 .chain(dartforge_analise::membros::verificar(&program, *lib, &interner))
+                .chain(dartforge_analise::limites_simples::verificar(&program, *lib, &interner, &limites_simples))
             {
                 if let Some(p) = &program.unit(u).path {
                     if let Some(a) = analise.arquivos.get_mut(&chave(p)) {

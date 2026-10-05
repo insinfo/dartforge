@@ -799,6 +799,12 @@ Representação cíclica ou inválida cala o `implements` e o fundo. Um `dynamic
 - **Posição:** o `NamedType` cru. **Mensagem:** `Type parameter bound types must be instantiated.`
 - **Supressões:** o TODO diz que relata mesmo com `TYPE_ALIAS_CANNOT_REFERENCE_ITSELF`.
 - **No DartForge:** inexistente. **Mudança:** calcular "simplesmente limitado" para classes/aliases (algoritmo da especificação, seção "Simply bounded") no outline e, nos limites de parâmetros de tipo, relatar cada tipo cru não simplesmente limitado (`crates/analise`/`crates/types`).
+- **Estado em 2026-10-05 (escrito, não compilado):** `crates/analise/src/limites_simples.rs` porta o
+  `computeSimplyBounded`: o `_visitType` e o `_TypeCollector` sobre o AST, dependências por tipos crus e
+  Tarjan com auto-laço. Roda uma vez por programa (`calcular`, na `paridade`). `verificar` relata
+  `not_instantiated_bound` em todas as listas de parâmetros de tipo da unidade: declarações, funções, métodos,
+  locais, tipos de função e parâmetros-função. Um nome é parâmetro de tipo quando alguma lista cujo dono
+  contém a posição o declara.
 
 ##### `wrong_number_of_type_arguments` (perda 32: FN 31, FP 1)
 - **Emissão:**
@@ -7189,6 +7195,9 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
   nome do limite para saber se é tipo de extensão cuja representação é um parâmetro). Lugar: um
   verificador em `crates/analise` que percorre todas as listas de parâmetros de tipo (`ast.decls`,
   `ast.functions`, `TypeKind::Function` em `ast.types`).
+- **Estado em 2026-10-05 (escrito, não compilado):** `limites_simples::verificar` segue os limites com a
+  mesma contagem de passos. O apagamento de tipo de extensão cobre a representação que é um parâmetro do tipo,
+  pelo argumento correspondente e recursivo.
 
 ##### `type_parameter_referenced_by_static` (perda 10: FN 10)
 - **Emissão:** `ErrorVerifier._checkForTypeParameterReferencedByStatic` (`error_verifier.dart:5419-5435`),
