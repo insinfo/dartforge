@@ -148,7 +148,28 @@ impl AnalisadorSemantico {
     /// pacotes) entram como declaração, mas os usos só são procurados no
     /// projeto.
     fn referencias_semanticas(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<Referencias> {
+        // Busca não local: a carga ampla, com o SDK e os pacotes que citam o
+        // nome (docs/LSP-ESPECIFICACAO.md §11.9 B); a local fica no projeto.
+        let nome = {
+            let projeto = self.projeto(documentos, uri)?;
+            let unidade = projeto.unidade_do_uri(uri)?;
+            let d = projeto.identificar(unidade, offset).ok()??;
+            projeto.nome_da_busca(&d.alvo)
+        };
+        if let Some(nome) = nome
+            && let Some(sdk) = self.sdk.as_ref()
+            && let Some(amplo) = crate::projeto::carregar_projeto_amplo(sdk, documentos, uri, &nome)
+        {
+            return referencias_em(&amplo, uri, offset);
+        }
         let projeto = self.projeto(documentos, uri)?;
+        referencias_em(&projeto, uri, offset)
+    }
+}
+
+/// As referências do que está em `offset` de `uri`, no projeto dado.
+fn referencias_em(projeto: &crate::projeto::Projeto, uri: &str, offset: usize) -> Option<Referencias> {
+    {
         let unidade = projeto.unidade_do_uri(uri)?;
         let d = projeto.identificar(unidade, offset).ok()??;
         if let crate::projeto::Alvo::Prefixo { biblioteca, nome } = d.alvo {

@@ -48,6 +48,7 @@ impl Consulta {
             let mut inferidor =
                 BodyInferrer::new(&programa, &nomes, &mut tabela, &core, &mut outline);
             inferidor.apenas_bibliotecas = Some(bibliotecas.iter().map(|l| l.0).collect());
+            inferidor.alocar_corpos_de(bibliotecas);
             inferidor.registrar_locais = registrar_locais;
             inferidor.sonda_escopo = sonda;
             let (corpos, _, escopo) = inferidor.infer_all_com_sonda();
@@ -62,6 +63,13 @@ impl Consulta {
             corpos,
             escopo,
         }
+    }
+
+    /// A mesma consulta sobre o mesmo programa, com os corpos de outras
+    /// bibliotecas (a busca de referências amplia a lista).
+    pub fn reinferir(self, bibliotecas: &[LibraryId]) -> Self {
+        let Consulta { programa, nomes, .. } = self;
+        Consulta::inferir(programa, nomes, bibliotecas, true, None)
     }
 
     /// Texto de um tipo como o Dart o escreve.

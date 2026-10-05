@@ -2950,6 +2950,18 @@ escrita composta = só o setter, `declaredParameterElement`).
    biblioteca no fim. **Não** corrigir os buracos (redirecionamento de
    fábrica, operadores só na biblioteca, sombra local): são paridade.
 
+**Estado em 2026-10-05 (escrito, não compilado), parte B com o SDK e os pacotes.**
+`projeto::carregar_projeto_amplo` carrega o projeto com um arquivo sintético (`.dartforge_conhecidos.dart`,
+fora das bibliotecas do projeto) que importa toda biblioteca do SDK e todo arquivo `lib/` dos pacotes do
+`package_config.json`. Assim entram os `knownFiles` da primeira busca não local. Os corpos inferidos passam
+a ser os do projeto e os das bibliotecas com arquivo que cita (`referencedNames`) ou declara o nome: a
+`Consulta` reinfere com a lista ampliada (`Consulta::reinferir`), e o `BodyInferrer` ganhou
+`alocar_corpos_de`, que dá tabelas às unidades do SDK pedidas. A `references` não local usa essa carga
+(`semantica::referencias_em`); os patches do SDK ficam fora dos candidatos. A carga ampla não é
+guardada na sessão: cada busca não local a refaz. O índice por unidade (A) e as buscas por chave (C)
+continuam como varredura das expressões resolvidas (`ocorrencias`), com o mesmo resultado sobre as
+unidades inferidas.
+
 **C. Busca** = tabela de 11.3 sobre `ChaveElem`; buscas por AST
 (`_LocalReferencesVisitor`, `ImportElementReferencesVisitor`) para local,
 rótulo, parâmetro, parâmetro de tipo, prefixo e import, com as raízes de

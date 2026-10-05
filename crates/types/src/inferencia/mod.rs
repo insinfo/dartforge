@@ -277,6 +277,17 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
+    /// Dá tabelas de corpo às unidades do SDK das bibliotecas `libs` (que
+    /// `new` deixa vazias): a busca de referências do LSP infere os corpos do
+    /// SDK que citam o nome procurado (docs/LSP-ESPECIFICACAO.md §11.9 B).
+    pub fn alocar_corpos_de(&mut self, libs: &[LibraryId]) {
+        for (i, u) in self.program.units.iter().enumerate() {
+            if libs.contains(&u.library) && self.program.library(u.library).is_sdk && self.body_types.units[i].static_types.is_empty() {
+                self.body_types.units[i] = UnitBodyTypes::new(u.ast.exprs.len(), self.core.dynamic_);
+            }
+        }
+    }
+
     /// Ponto de entrada: infere inicializadores de variáveis e corpos.
     pub fn infer_all(self) -> (BodyTypes, Vec<Diagnostic>) {
         let (b, d, _) = self.infer_all_com_unidades();

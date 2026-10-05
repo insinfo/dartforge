@@ -377,6 +377,10 @@ impl Projeto {
         }
         if !privado {
             for u in self.unidades() {
+                // O analyzer não vê os patches do SDK.
+                if p.unit(u).role == UnitRole::Patch {
+                    continue;
+                }
                 if self.nomes_referenciados_da_unidade(u).contains(nome) {
                     saida.insert(u);
                 }

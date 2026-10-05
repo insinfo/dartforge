@@ -180,9 +180,141 @@ pub(crate) fn carregar_projeto(
     documentos: &DocumentStore,
     uri: &str,
 ) -> Option<Projeto> {
+    carregar_projeto_com(sdk, documentos, uri, None)
+}
+
+/// O arquivo sintético da carga ampla: importa toda biblioteca do SDK e todo
+/// arquivo `lib/` dos pacotes, para que entrem no programa (os `knownFiles`
+/// do analyzer depois da primeira busca não local, §11.2).
+const CONHECIDOS: &str = ".dartforge_conhecidos.dart";
+
+/// `(nome, pasta lib/)` dos pacotes do `package_config.json` de `raiz`.
+fn pacotes_com_nome(raiz: &Path) -> Vec<(String, PathBuf)> {
+    let arquivo = raiz.join(".dart_tool").join("package_config.json");
+    let Ok(texto) = std::fs::read_to_string(&arquivo) else { return Vec::new() };
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&texto) else { return Vec::new() };
+    let Some(lista) = json.get("packages").and_then(|v| v.as_array()) else { return Vec::new() };
+    let Some(base) = arquivo.parent() else { return Vec::new() };
+    let resolver = |u: &str, relativo_a: &Path| -> Option<PathBuf> {
+        if let Ok(x) = Url::parse(u) {
+            return x.to_file_path().ok();
+        }
+        Some(relativo_a.join(u.trim_end_matches('/')))
+    };
+    let mut saida = Vec::new();
+    for p in lista {
+        let (Some(nome), Some(raiz_uri)) = (p.get("name").and_then(|v| v.as_str()), p.get("rootUri").and_then(|v| v.as_str())) else { continue };
+        let Some(raiz_do_pacote) = resolver(raiz_uri, base) else { continue };
+        let pacote_uri = p.get("packageUri").and_then(|v| v.as_str()).unwrap_or("lib/");
+        if let Some(lib) = resolver(pacote_uri, &raiz_do_pacote) {
+            saida.push((nome.to_string(), lib));
+        }
+    }
+    saida
+}
+
+/// A carga ampla da busca de referências não local (docs/LSP-ESPECIFICACAO.md
+/// §11.9 B): o projeto, mais toda biblioteca do SDK e todo arquivo `lib/` dos
+/// pacotes; os corpos inferidos são os do projeto e os das bibliotecas cujos
+/// arquivos citam ou declaram `nome` (os candidatos de `_addResults`).
+pub(crate) fn carregar_projeto_amplo(sdk: &SdkLayout, documentos: &DocumentStore, uri: &str, nome: &str) -> Option<Projeto> {
     let arquivo = arquivo_da_uri(uri)?;
     let raiz = raiz_do_projeto(&arquivo);
-    let gerador = AnalisadorSemantico::abertos(documentos);
+    let mut texto = String::new();
+    let mut bibliotecas_do_sdk: Vec<&String> = sdk.libraries.keys().collect();
+    bibliotecas_do_sdk.sort();
+    for b in bibliotecas_do_sdk {
+        texto.push_str(&format!("import 'dart:{b}' as _sdk_{};\n", b.replace(|c: char| !c.is_ascii_alphanumeric(), "_")));
+    }
+    for (i, (pacote, lib)) in pacotes_com_nome(&raiz).into_iter().enumerate() {
+        let mut pilha = vec![lib.clone()];
+        let mut arquivos = Vec::new();
+        while let Some(d) = pilha.pop() {
+            let Ok(r) = std::fs::read_dir(&d) else { continue };
+            for e in r.flatten() {
+                let c = e.path();
+                if c.is_dir() {
+                    pilha.push(c);
+                } else if c.extension().is_some_and(|x| x == "dart") {
+                    arquivos.push(c);
+                }
+            }
+        }
+        arquivos.sort();
+        for (k, a) in arquivos.into_iter().enumerate() {
+            if std::fs::read_to_string(&a).is_ok_and(|t| eh_parte(&t)) {
+                continue;
+            }
+            let Ok(rel) = a.strip_prefix(&lib) else { continue };
+            let rel = rel.to_string_lossy().replace('\\', "/");
+            texto.push_str(&format!("import 'package:{pacote}/{rel}' as _pkg_{i}_{k};\n"));
+        }
+    }
+    let projeto = carregar_projeto_com(sdk, documentos, uri, Some((raiz.join(CONHECIDOS), texto)))?;
+    // Os candidatos: as bibliotecas fora do projeto com arquivo que cita ou
+    // declara o nome.
+    let p = projeto.programa();
+    let mut extras: Vec<LibraryId> = Vec::new();
+    for i in 0..p.units.len() {
+        let u = UnitId(i as u32);
+        let unidade = p.unit(u);
+        if projeto.bibliotecas.contains(&unidade.library) || extras.contains(&unidade.library) || unidade.role == dartforge_elements::model::UnitRole::Patch {
+            continue;
+        }
+        if unidade.path.as_deref().is_some_and(|c| c.ends_with(CONHECIDOS)) {
+            continue;
+        }
+        if !unidade.source.contains(nome) {
+            continue;
+        }
+        if projeto.nomes_referenciados_da_unidade(u).contains(nome) || declara(unidade, &projeto.consulta.nomes, nome) {
+            extras.push(unidade.library);
+        }
+    }
+    if extras.is_empty() {
+        return Some(projeto);
+    }
+    let mut lista: Vec<LibraryId> = projeto.bibliotecas.iter().copied().chain(extras.iter().copied()).collect();
+    lista.sort();
+    let Projeto { consulta, raiz, mut bibliotecas, nomes_referenciados } = projeto;
+    bibliotecas.extend(extras);
+    Some(Projeto { consulta: consulta.reinferir(&lista), raiz, bibliotecas, nomes_referenciados })
+}
+
+/// A unidade declara (no topo ou como membro) algo chamado `nome`.
+fn declara(unidade: &dartforge_elements::model::Unit, nomes: &dartforge_intern::Interner, nome: &str) -> bool {
+    let a = &unidade.ast;
+    let n = |s: SymbolId| nomes.resolve(s) == nome;
+    a.decls.iter().any(|d| match &d.kind {
+        DeclKind::Class(x) => n(x.name.sym),
+        DeclKind::Mixin(x) => n(x.name.sym),
+        DeclKind::Enum(x) => n(x.name.sym) || x.constants.iter().any(|k| n(k.name.sym)),
+        DeclKind::Extension(x) => x.name.is_some_and(|k| n(k.sym)),
+        DeclKind::ExtensionType(x) => n(x.name.sym),
+        DeclKind::Typedef(x) => n(x.name.sym),
+        DeclKind::Variables(l) => l.variables.iter().any(|v| n(v.name.sym)),
+        _ => false,
+    }) || a.functions.iter().any(|f| f.name.is_some_and(|k| n(k.sym)))
+        || a.members.iter().any(|m| match &m.kind {
+            MemberKind::Field(l) => l.variables.iter().any(|v| n(v.name.sym)),
+            MemberKind::Constructor(k) => n(k.class_name.sym) || k.name.is_some_and(|x| n(x.sym)),
+            MemberKind::Method(_) => false,
+        })
+}
+
+fn carregar_projeto_com(
+    sdk: &SdkLayout,
+    documentos: &DocumentStore,
+    uri: &str,
+    sintetico: Option<(PathBuf, String)>,
+) -> Option<Projeto> {
+    let arquivo = arquivo_da_uri(uri)?;
+    let raiz = raiz_do_projeto(&arquivo);
+    let mut gerador = AnalisadorSemantico::abertos(documentos);
+    let caminho_sintetico = sintetico.as_ref().map(|(c, _)| c.clone());
+    if let Some((c, t)) = sintetico {
+        gerador.por(c, t, "lsp", vec![]);
+    }
     let mut entradas: Vec<PathBuf> = Vec::new();
     let texto_de = |caminho: &Path| -> Option<String> {
         let aberto = Url::from_file_path(caminho)
@@ -211,6 +343,9 @@ pub(crate) fn carregar_projeto(
             entradas.push(c);
         }
     }
+    if let Some(c) = &caminho_sintetico {
+        entradas.push(c.clone());
+    }
     if entradas.is_empty() {
         // Só partes: a biblioteca dona está fora da raiz.
         return None;
@@ -232,7 +367,7 @@ pub(crate) fn carregar_projeto(
         .iter()
         .filter(|u| {
             !programa.library(u.library).is_sdk
-                && u.path.as_deref().is_some_and(|p| dentro(p, &raiz))
+                && u.path.as_deref().is_some_and(|p| dentro(p, &raiz) && Some(p) != caminho_sintetico.as_deref())
         })
         .map(|u| u.library)
         .collect();
