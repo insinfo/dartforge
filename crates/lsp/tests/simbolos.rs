@@ -127,16 +127,26 @@ fn busca_workspace_usa_apenas_revisoes_abertas_e_ordem_estavel() {
     let buscar = |id: i32| json!({"jsonrpc":"2.0","id":id,"method":"workspace/symbol",
         "params":{"query":"ZZZ"}});
     // Consulta sem resultados e caixa indiferente.
+    // Só os dos documentos abertos (o SDK, quando encontrado, vem depois).
+    let abertos = |r: &serde_json::Value| -> Vec<serde_json::Value> {
+        r["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|s| matches!(s["location"]["uri"].as_str(), Some("file:///a.dart" | "file:///z.dart")))
+            .cloned()
+            .collect()
+    };
     servidor.receber(buscar(2));
-    assert!(servidor.bombear()[0]["result"].as_array().unwrap().is_empty());
+    assert!(abertos(&servidor.bombear()[0]).is_empty());
     servidor.receber(json!({"jsonrpc":"2.0","id":3,"method":"workspace/symbol",
         "params":{"query":"CAR"}}));
     let resposta = servidor.bombear();
-    let itens = resposta[0]["result"].as_array().unwrap();
+    let itens = abertos(&resposta[0]);
     assert_eq!(itens.len(), 2);
-    assert_eq!(itens[0]["name"], "carregarDados");
+    assert_eq!(itens[0]["name"], "carregarDados()");
     assert_eq!(itens[0]["location"]["uri"], "file:///a.dart");
-    assert_eq!(itens[1]["name"], "carregar");
+    assert_eq!(itens[1]["name"], "carregar()");
     assert_eq!(itens[1]["containerName"], "Caixa");
 
     servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didClose","params":{
@@ -146,5 +156,5 @@ fn busca_workspace_usa_apenas_revisoes_abertas_e_ordem_estavel() {
     servidor.receber(json!({"jsonrpc":"2.0","id":4,"method":"workspace/symbol",
         "params":{"query":"car"}}));
     let resposta = servidor.bombear();
-    assert_eq!(resposta[0]["result"].as_array().unwrap().len(), 1);
+    assert_eq!(abertos(&resposta[0]).len(), 1);
 }

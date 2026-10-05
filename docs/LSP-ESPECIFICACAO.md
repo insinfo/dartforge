@@ -1058,6 +1058,26 @@ feito, e é o que mantém as 24 consultas diferentes: o índice das declaraçõe
 o sufixo `()`/`(…)` no nome, o `location.range` como intervalo de código e o `containerName` só de
 classe e mixin.
 
+**Estado em 2026-10-05 (escrito, não compilado).** `crates/lsp/src/simbolos_workspace.rs` é o porte
+do `FindDeclarations`/`_FindCompilationUnitDeclarations` sobre um índice sintático (F4), em cache por
+biblioteca (refeito quando ela ou uma parte muda; os documentos abertos valem pelo texto do editor):
+bibliotecas na ordem do `OwnedFiles` (arquivos das raízes e documentos abertos fora delas; depois as
+bibliotecas do SDK na ordem do mapa `libraries` do `libraries.dart` e os `.dart` dos `lib/` dos
+pacotes do `package_config.json`, na ordem do sistema de arquivos); partes ficam de fora (entram pela
+biblioteca); pré-filtro `ElementNameUnion` (máscara por posição de letra, com os nomes de topo,
+campos, métodos e acessores, o `values` dos enums, sem construtores); por unidade a ordem do
+`_FindCompilationUnitDeclarations` (o campo de representação e o construtor primário antes dos
+membros de um extension type; as constantes antes dos campos de um enum); casamento pelo
+`FuzzyMatcher` `TEXT` (`casador.rs`); limite de 500; sufixo pelo primeiro `(` do
+`getDisplayString()` (retorno com tipo de função ou com `(` nos argumentos → `(…)`, retorno
+registro → nada, lista vazia → `()`; os `typedef` expandidos pela biblioteca e depois por nome entre
+todas); espécie pelo `declarationKindToSymbolKind` com os `symbolKind` de `workspace.symbol` do
+cliente; `location.range` = code range (documentação e anotações; a primeira variável de uma lista
+desde a declaração); `containerName` de classe, mixin e extension type. Diferenças que ficam: a
+ordem dos arquivos conhecidos criados pela análise antes do `discoverAvailableFiles` (o Dart os
+lista antes do SDK descoberto) e o retorno inferido de métodos sem tipo escrito (tratado como sem
+`(`).
+
 **Algoritmo** (`AS:src/lsp/handlers/handler_workspace_symbols.dart:28-123`;
 `AN:src/dart/analysis/search.dart:170-195`, `:1057-1135`, `:1246-1300`):
 query vazia → `[]`; limite de **500** resultados; com

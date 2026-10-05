@@ -436,24 +436,21 @@ fn simbolos_do_workspace_incluem_arquivos_fechados_do_projeto() {
     );
     p.gravar("lib/outro.dart", "int nada = 0;\n");
     p.abrir("lib/aberto.dart", "void carregarDados() {}\n");
+    // Só os do projeto (o SDK e os pacotes também entram, depois).
+    let do_projeto = |r: &serde_json::Value| -> Vec<String> {
+        r["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|s| s["location"]["uri"].as_str().unwrap().contains("nav-workspace"))
+            .map(|s| s["name"].as_str().unwrap().to_string())
+            .collect()
+    };
     let r = p.requisitar("workspace/symbol", json!({"query": "carregar"}));
-    let nomes: Vec<&str> = r["result"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|s| s["name"].as_str().unwrap())
-        .collect();
-    assert_eq!(
-        nomes,
-        vec!["carregarDados", "carregarTudo", "CarregadorRemoto"]
-    );
+    // Na ordem dos arquivos do projeto e, por arquivo, classes antes de
+    // funções; executáveis com o sufixo `()`.
+    assert_eq!(do_projeto(&r), vec!["carregarDados()", "CarregadorRemoto", "carregarTudo()"]);
     // Aproximado: iniciais de palavras.
     let r = p.requisitar("workspace/symbol", json!({"query": "cR"}));
-    let nomes: Vec<&str> = r["result"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|s| s["name"].as_str().unwrap())
-        .collect();
-    assert_eq!(nomes, vec!["CarregadorRemoto"]);
+    assert_eq!(do_projeto(&r), vec!["CarregadorRemoto"]);
 }

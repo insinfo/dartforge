@@ -244,6 +244,10 @@ pub struct Servidor<A = AnalisadorSintatico> {
     /// sem a lista, só os da primeira versão do protocolo (1 a 18), e
     /// `EnumMember` vira `Enum` como no servidor do Dart.
     tipos_de_simbolo: Option<Vec<u64>>,
+    /// `workspace.symbol.symbolKind.valueSet` do cliente.
+    tipos_de_simbolo_do_workspace: Option<Vec<u64>>,
+    /// O índice sintático das bibliotecas para o `workspace/symbol`.
+    indice_de_simbolos: crate::simbolos_workspace::Indice,
     /// O cliente aceita `labelDetails` nos itens do completar: o rótulo é
     /// só o nome, e a assinatura curta e a biblioteca a importar vão nos
     /// detalhes (como o servidor do Dart faz com esse cliente).
@@ -353,6 +357,8 @@ impl<A: Analisador> Servidor<A> {
             tokens_multilinha: false,
             rotulo_detalhes: false,
             tipos_de_simbolo: None,
+            tipos_de_simbolo_do_workspace: None,
+            indice_de_simbolos: Default::default(),
             configuracao_pedivel: false,
             dinamicas: Vec::new(),
             configuracao_dinamica: false,
@@ -893,6 +899,10 @@ impl<A: Analisador> Servidor<A> {
                     .unwrap_or(false);
                 self.tipos_de_simbolo = mensagem
                     .pointer("/params/capabilities/textDocument/documentSymbol/symbolKind/valueSet")
+                    .and_then(Value::as_array)
+                    .map(|l| l.iter().filter_map(Value::as_u64).collect());
+                self.tipos_de_simbolo_do_workspace = mensagem
+                    .pointer("/params/capabilities/workspace/symbol/symbolKind/valueSet")
                     .and_then(Value::as_array)
                     .map(|l| l.iter().filter_map(Value::as_u64).collect());
                 self.rotulo_detalhes = mensagem
@@ -2584,65 +2594,40 @@ impl<A: Analisador> Servidor<A> {
         if consulta.is_empty() {
             return Vec::new();
         }
-        let mut uris: std::collections::BTreeSet<String> = self.documentos.uris().map(str::to_string).collect();
         let mut raizes = self.raizes.clone();
-        for aberto in self.documentos.uris() {
-            if let Some(arquivo) = url::Url::parse(aberto).ok().and_then(|u| u.to_file_path().ok()) {
-                let raiz = crate::projeto::raiz_do_projeto(&arquivo);
-                if raiz.join("pubspec.yaml").is_file() && !raizes.contains(&raiz) {
-                    raizes.push(raiz);
-                }
-            }
-        }
-        for raiz in &raizes {
-            for arquivo in crate::projeto::arquivos_do_projeto(raiz) {
-                if let Ok(u) = url::Url::from_file_path(&arquivo) {
-                    uris.insert(u.to_string());
-                }
-            }
-        }
-        // O casamento do `FuzzyMatcher` com `MatchStyle.TEXT`: as letras da
-        // consulta em ordem, sem caixa (subsequência); os resultados saem na
-        // ordem da coleta, sem ordenar por pontuação, e param em 500.
-        let consulta_minuscula: Vec<char> = consulta.chars().flat_map(char::to_lowercase).collect();
-        let casa = |nome: &str| -> bool {
-            let mut falta = consulta_minuscula.iter();
-            let mut proxima = falta.next();
-            for c in nome.chars().flat_map(char::to_lowercase) {
-                match proxima {
-                    Some(p) if *p == c => proxima = falta.next(),
-                    Some(_) => {}
-                    None => break,
-                }
-            }
-            proxima.is_none()
+        // O caminho de cada documento aberto (o da URI `file:`; senão o
+        // caminho da URI, só para indexar o texto aberto).
+        let caminho_aberto = |u: &str| -> Option<std::path::PathBuf> {
+            let x = url::Url::parse(u).ok()?;
+            Some(x.to_file_path().unwrap_or_else(|_| std::path::PathBuf::from(x.path())))
         };
-        const LIMITE: usize = 500;
-        let mut achados: Vec<Value> = Vec::new();
-        for uri in uris {
-            let texto = match self.documentos.get(&uri) {
-                Some(t) => t.to_string(),
-                None => {
-                    let Some(caminho) = url::Url::parse(&uri).ok().and_then(|u| u.to_file_path().ok()) else { continue };
-                    let Ok(t) = std::fs::read_to_string(caminho) else { continue };
-                    t
-                }
-            };
-            let mut planos = Vec::new();
-            for mut simbolo in self.analisador.simbolos(&uri, &texto) {
-                ajustar_especies(&mut simbolo, self.tipos_de_simbolo.as_deref());
-                achatar_simbolos(&simbolo, &uri, None, &mut planos);
+        let mut textos_abertos: HashMap<std::path::PathBuf, (String, String)> = HashMap::new();
+        let mut soltos: Vec<std::path::PathBuf> = Vec::new();
+        for aberto in self.documentos.uris() {
+            let Some(arquivo) = caminho_aberto(aberto) else { continue };
+            let raiz = crate::projeto::raiz_do_projeto(&arquivo);
+            if raiz.join("pubspec.yaml").is_file() && !raizes.contains(&raiz) {
+                raizes.push(raiz);
             }
-            for s in planos {
-                if achados.len() >= LIMITE {
-                    return achados;
-                }
-                if s["name"].as_str().is_some_and(|n| casa(n)) {
-                    achados.push(s);
-                }
+            if let Some(texto) = self.documentos.get(aberto) {
+                textos_abertos.insert(dartforge_elements::gerado::chave(&arquivo), (aberto.to_string(), texto.to_string()));
+            }
+            if arquivo.extension().is_some_and(|x| x == "dart") {
+                soltos.push(arquivo);
             }
         }
-        achados
+        // `addedFiles`: os arquivos das raízes analisadas; os conhecidos:
+        // o SDK e os `lib/` dos pacotes de cada raiz.
+        let mut adicionados: Vec<std::path::PathBuf> = raizes.iter().flat_map(|r| crate::projeto::arquivos_do_projeto(r)).collect();
+        // Um documento aberto fora das raízes também é analisado (o
+        // servidor cria um contexto para ele).
+        soltos.retain(|c| !raizes.iter().any(|r| c.starts_with(r)));
+        soltos.sort();
+        adicionados.extend(soltos);
+        let pacotes: Vec<std::path::PathBuf> = raizes.iter().flat_map(|r| crate::simbolos_workspace::pastas_dos_pacotes(r)).collect();
+        let sdk = dartforge_elements::sdk::SdkLayout::discover();
+        let especies = self.tipos_de_simbolo_do_workspace.clone();
+        self.indice_de_simbolos.buscar(consulta, &adicionados, sdk.as_deref(), &pacotes, &textos_abertos, especies.as_deref())
     }
 
     /// URI e offset (bytes) de `params.textDocument` + `params.position`,
