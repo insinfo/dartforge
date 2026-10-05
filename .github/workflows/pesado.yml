@@ -802,6 +802,14 @@ jobs:
           name: relatorio-analise
           path: ${{ steps.rodar.outputs.dir }}
           retention-days: 14
+      # Etapa III.1 da docs/ANALYZER-ESPECIFICACAO-INFRA.md: a saída inteira do
+      # `analyze` (três formatos e código de saída) contra a gravada.
+      - name: dartforge-paridade saida (corpus/saida-analyze)
+        if: always()
+        shell: pwsh
+        run: |
+          & target/release/dartforge-paridade.exe saida corpus/saida-analyze
+          exit $LASTEXITCODE
 
 
   # Portão de TEMPO da regra de custo zero (PLANO.md, "geração de código e

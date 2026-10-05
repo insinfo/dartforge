@@ -1,0 +1,6 @@
+analyzer:
+  errors:
+    todo: warning
+    fixme: warning
+    hack: warning
+    undone: warning

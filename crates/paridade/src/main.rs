@@ -7,6 +7,7 @@
 //! dartforge-paridade sintaxe-nova [--grupo G]...     (3.13.4 nos arquivos com sintaxe que o 3.6.2 não conhece)
 //! dartforge-paridade gerar-corpus [--referencias DIR] [--pub-cache DIR]
 //! dartforge-paridade projetos [--oraculo] [--mutacoes N] [--regravar] [--trabalhadores N] [--lote N]
+//! dartforge-paridade saida [DIR] [--gravar]          (saída inteira do `analyze`, três formatos)
 //! ```
 //!
 //! Código de saída: 0 relatório completo; 1 oráculo ausente/desatualizado ou
@@ -76,7 +77,7 @@ struct Args {
 }
 
 fn uso() -> ExitCode {
-    eprintln!("{}", include_str!("main.rs").lines().skip(2).take(8).map(|l| l.trim_start_matches("//! ")).collect::<Vec<_>>().join("\n"));
+    eprintln!("{}", include_str!("main.rs").lines().skip(2).take(9).map(|l| l.trim_start_matches("//! ")).collect::<Vec<_>>().join("\n"));
     ExitCode::from(2)
 }
 
@@ -128,6 +129,13 @@ fn main() -> ExitCode {
     if brutos.first().is_some_and(|c| c == "_lote") {
         dartforge_paridade::silenciar_panicos();
         return lote_filho(&brutos[1..]);
+    }
+    // `saida [DIR] [--gravar]`: o harness de paridade de projeto (III.1).
+    if brutos.first().is_some_and(|c| c == "saida") {
+        let gravar = brutos.iter().any(|x| x == "--gravar");
+        let dir = brutos.iter().skip(1).find(|x| !x.starts_with("--")).map(PathBuf::from).unwrap_or_else(|| corpus::raiz_corpus().join("saida-analyze"));
+        let ok = if gravar { dartforge_paridade::saida::gravar(&dir) } else { dartforge_paridade::saida::comparar(&dir) };
+        return if ok { ExitCode::SUCCESS } else { ExitCode::from(1) };
     }
     let Some(a) = ler_args() else { return uso() };
     dartforge_paridade::silenciar_panicos();

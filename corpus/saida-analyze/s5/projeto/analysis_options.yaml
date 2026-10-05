@@ -1,0 +1,5 @@
+analyzer:
+  errors:
+    invalid_assignment: warning
+  cannot-ignore:
+    - error

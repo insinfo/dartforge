@@ -1,0 +1,5 @@
+linter:
+  rules:
+    - camel_case_types
+    - avoid_as
+    - prefer_const_constructors: true

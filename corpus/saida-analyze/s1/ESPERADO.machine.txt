@@ -1,0 +1,9 @@
+ERROR|COMPILE_TIME_ERROR|INVALID_ASSIGNMENT|<raiz>\\lib\\a.dart|5|11|3|A value of type 'String' can't be assigned to a variable of type 'int'.
+ERROR|COMPILE_TIME_ERROR|UNDEFINED_IDENTIFIER|<raiz>\\lib\\a.dart|6|11|9|Undefined name 'naoExiste'.
+ERROR|COMPILE_TIME_ERROR|DUPLICATE_DEFINITION|<raiz>\\lib\\a.dart|13|7|1|The name 'A' is already defined.
+ERROR|COMPILE_TIME_ERROR|INVALID_ASSIGNMENT|<raiz>\\lib\\b.dart|3|14|1|A value of type 'A' can't be assigned to a variable of type 'String'.
+WARNING|STATIC_WARNING|UNUSED_LOCAL_VARIABLE|<raiz>\\lib\\a.dart|5|7|1|The value of the local variable 'x' isn't used.
+WARNING|STATIC_WARNING|UNUSED_LOCAL_VARIABLE|<raiz>\\lib\\a.dart|6|7|1|The value of the local variable 'y' isn't used.
+WARNING|STATIC_WARNING|DEAD_CODE|<raiz>\\lib\\a.dart|8|3|9|Dead code.
+WARNING|STATIC_WARNING|DUPLICATE_IGNORE|<raiz>\\lib\\a.dart|10|35|21|The diagnostic 'unused_local_variable' doesn't need to be ignored here because it's already being ignored.
+WARNING|STATIC_WARNING|UNUSED_LOCAL_VARIABLE|<raiz>\\lib\\b.dart|3|10|1|The value of the local variable 's' isn't used.

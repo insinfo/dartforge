@@ -1,0 +1,14 @@
+Analyzing ....
+
+  error - lib\a.dart:5:11 - A value of type 'String' can't be assigned to a variable of type 'int'. Try changing the type of the variable, or casting the right-hand type to 'int'. - invalid_assignment
+  error - lib\a.dart:6:11 - Undefined name 'naoExiste'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\a.dart:13:7 - The name 'A' is already defined. Try renaming one of the declarations. - duplicate_definition
+           - The first definition of this name at lib\a.dart:12:7.
+  error - lib\b.dart:3:14 - A value of type 'A' can't be assigned to a variable of type 'String'. Try changing the type of the variable, or casting the right-hand type to 'String'. - invalid_assignment
+warning - lib\a.dart:5:7 - The value of the local variable 'x' isn't used. Try removing the variable or using it. - unused_local_variable
+warning - lib\a.dart:6:7 - The value of the local variable 'y' isn't used. Try removing the variable or using it. - unused_local_variable
+warning - lib\a.dart:8:3 - Dead code. Try removing the code, or fixing the code before it so that it can be reached. - dead_code
+warning - lib\a.dart:10:35 - The diagnostic 'unused_local_variable' doesn't need to be ignored here because it's already being ignored. Try removing the name from the list, or removing the whole comment if this is the only name in the list. - duplicate_ignore
+warning - lib\b.dart:3:10 - The value of the local variable 's' isn't used. Try removing the variable or using it. - unused_local_variable
+
+9 issues found.

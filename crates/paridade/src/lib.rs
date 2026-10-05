@@ -23,6 +23,7 @@ pub mod oraculo;
 pub mod placar;
 pub mod ponte;
 pub mod projetos;
+pub mod saida;
 
 use analise::{Analise, Motor};
 use oraculo::Registro;

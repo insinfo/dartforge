@@ -1,0 +1,7 @@
+analyzer:
+  errors:
+    unused_local_variable: error
+  foo: 1
+linter:
+  rules:
+    - nao_existe

@@ -4503,6 +4503,14 @@ comando**.
 **Pronto quando** o comando roda no CI (job `analise` do `pesado.yml`, sem
 SDK: contra o esperado gravado) e reprova qualquer diferença de byte.
 
+**Estado em 2026-10-05 (escrito, não compilado).** `crates/paridade/src/saida.rs` e o subcomando
+`dartforge-paridade saida [DIR] [--gravar]`: cada caso de `corpus/saida-analyze/` tem `projeto/`, `ARGS` e os
+esperados; a comparação roda o `dartforge` ao lado do executável, normaliza o caminho do projeto para
+`<raiz>` e o separador de caminho dos dois lados (o CI é Windows e Linux), e relata a primeira linha
+diferente por caso e formato, mais o código de saída quando há `ESPERADO.codigo`. As sondas `s1`–`s7` foram
+copiadas por `scripts/copiar_sondas_saida.py`. O `ESPERADO.codigo` sai na primeira regravação com
+`--gravar`. O passo entrou no job `analise` do `pesado.yml`.
+
 ## III.2 Etapa 2 — Supressões
 
 **Estado em 2026-10-04 (escrito, não compilado).** Feitos III.2.1 e III.2.3 em
