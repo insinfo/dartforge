@@ -3674,8 +3674,8 @@ escrita por `=`, `op=` e `++`/`--` em `expr.rs`). Em `instrucoes.rs`: as variáv
 casos que dividem o corpo (`juncoes_do_grupo`: `…_HAS_LABEL` com rótulo ou `default`,
 `…_NOT_ALL_CASES`, `…_DIFFERENT_FINALITY_OR_TYPE`), relatadas em cada referência no corpo, e
 `switch_case_completes_normally` (< 3.0, grupo que não é o último, na palavra do primeiro membro).
-Fica para depois: `equal_keys_in_map_pattern` (pede a avaliação das chaves no verificador de
-constantes).
+`equal_keys_in_map_pattern` no verificador de constantes (`constantes/verificador.rs`, `padrao`): a
+chave igual a uma anterior (a igualdade do `DartObjectImpl`), relatada depois de todas as chaves.
 
 #### §5 Fluxo e atribuição definitiva
 

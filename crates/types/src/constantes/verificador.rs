@@ -793,11 +793,28 @@ impl Verificador<'_, '_> {
                 }
             }
             PatternKind::Map { entries, .. } => {
+                // `visitMapPattern` (`constant_verifier.dart:311-358`): cada
+                // chave avaliada; uma igual (idêntica, ou `==` com igualdade
+                // primitiva) a uma anterior é `EQUAL_KEYS_IN_MAP_PATTERN`, na
+                // chave repetida, depois de todas.
+                let mut unicas: Vec<Valor> = Vec::new();
+                let mut repetidas: Vec<Span> = Vec::new();
                 for en in entries.iter() {
                     self.padrao(a, en.value);
                     if let Constante::Valor(v) = self.avaliar_e_relatar(en.key, false, c::NON_CONSTANT_MAP_PATTERN_KEY) {
+                        let conhecida = !(v.desconhecido_de_fato() || matches!(v.estado, Estado::Null { invalido: true }));
+                        if conhecida {
+                            if unicas.iter().any(|x| self.m.iguais(x, &v)) {
+                                repetidas.push(a.expr(en.key).span);
+                            } else {
+                                unicas.push(v.clone());
+                            }
+                        }
                         self.valores_de_chaves.insert(en.key, v);
                     }
+                }
+                for sp in repetidas {
+                    self.relatar(c::EQUAL_KEYS_IN_MAP_PATTERN, sp, Vec::new());
                 }
             }
             PatternKind::Record { fields } | PatternKind::Object { fields, .. } => {
