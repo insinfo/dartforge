@@ -9,7 +9,7 @@ use super::funcoes;
 use super::padroes;
 use super::BodyInferrer;
 use crate::codes::*;
-use crate::resolved::LocalId;
+use crate::resolved::{LocalId, MemberRef, Resolved};
 use crate::table::{Type, TypeId};
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::UnitId;
@@ -296,7 +296,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
             let alvo = cx.saltos.pop().unwrap();
             cx.escrutinio_de_switch = escrutinio_de_fora;
             saidas.extend(alvo.breaks);
-            if !tem_default && !switch_exaustivo(inf, t) {
+            if !tem_default && !switch_exaustivo(inf, cx, t, cases) {
                 saidas.push(nao_casou);
             }
             cx.fluxo = inf.juntar_todos(&depois_valor, &saidas);
@@ -576,11 +576,55 @@ fn stack_trace(inf: &mut BodyInferrer<'_>) -> TypeId {
     }
 }
 
-/// `switch` sem `default` exaustivo pelo tipo (enum, `bool`, selado): a
-/// saída "nenhum caso casou" é inalcançável. Aproximação: tipos cuja
-/// exaustividade o analyzer pode provar são tratados como exaustivos.
-fn switch_exaustivo(inf: &mut BodyInferrer<'_>, t: TypeId) -> bool {
-    sempre_exaustivo(inf, t, 0)
+/// O `isExhaustive` do `analyzeSwitchStatement`
+/// (`_fe_analyzer_shared/lib/src/type_inference/type_analyzer.dart:2017-2027`)
+/// de um `switch` sem `default`: com padrões (linguagem 3.0 ou mais), o
+/// `isAlwaysExhaustiveType` do tipo do escrutínio; antes, o
+/// `SwitchExhaustiveness` legado (`resolver.dart:5469-5557`): um enum cujas
+/// constantes aparecem todas em `case` sem guarda (constante, entre
+/// parênteses ou não), com o `null` coberto pelo tipo não anulável ou por um
+/// `case null`.
+fn switch_exaustivo(inf: &mut BodyInferrer<'_>, cx: &Corpo, t: TypeId, casos: &[ast::SwitchCase]) -> bool {
+    if inf.program.library(cx.lib).features.versao().major >= 3 {
+        return sempre_exaustivo(inf, t, 0);
+    }
+    let Type::Interface { class, nullable, .. } = inf.table.get(t).clone() else { return false };
+    let k = inf.program.class(class);
+    if k.kind != dartforge_elements::model::ClassKind::Enum {
+        return false;
+    }
+    let mut constantes: Vec<dartforge_elements::model::VariableId> = k.enum_constants.clone();
+    let mut nulo_coberto = !nullable;
+    let a = &inf.program.unit(cx.unit).ast;
+    let corpo = &inf.body_types.units[cx.unit.0 as usize];
+    let mut exaustivo = false;
+    for c in casos {
+        let Some(p) = c.pattern else { continue };
+        if c.guard.is_some() {
+            continue;
+        }
+        let ast::PatternKind::Constant(mut e) = a.pattern(p).kind else { continue };
+        while let ast::ExprKind::Parenthesized(i) = a.expr(e).kind {
+            e = i;
+        }
+        // `_referencedElement`: o getter da constante (a variável dele).
+        let variavel = match corpo.get_resolved(e) {
+            Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => Some(*v),
+            Some(Resolved::Member { member: MemberRef::Function(f), .. }) => inf.program.function(*f).variable,
+            Some(Resolved::Element(dartforge_elements::model::Element::Variable(v))) => Some(*v),
+            _ => None,
+        };
+        if let Some(v) = variavel {
+            constantes.retain(|x| *x != v);
+        }
+        if matches!(a.expr(e).kind, ast::ExprKind::Null) {
+            nulo_coberto = true;
+        }
+        if constantes.is_empty() && nulo_coberto {
+            exaustivo = true;
+        }
+    }
+    exaustivo
 }
 
 /// `TypeSystemImpl.isAlwaysExhaustive` (analyzer 7.7.1,
