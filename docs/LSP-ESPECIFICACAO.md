@@ -1763,6 +1763,26 @@ link só fica de fora.
 
 **Estado no DartForge:** não implementado. **Pendente.**
 
+**Estado em 2026-10-05 (escrito, não compilado):** `crates/lsp/src/mover_arquivo.rs`,
+o `MoveFileRefactoringImpl.multi` (`legacy/move_file.dart`): as condições
+fatais (renomear a raiz de análise, arquivo fora de exatamente uma raiz ou que
+não existe, raízes diferentes) respondem `null`; uma pasta vira os arquivos de
+dentro; as referências são as diretivas (`import`, `export`, `part`, e o
+`part of` relativo) dos arquivos da raiz que apontam a um arquivo Dart movido,
+e as relativas que saem de um arquivo cuja pasta muda; a URI nova mantém
+`package:` quando o alvo continua num `lib/` de pacote (o `pathToUri`), senão é
+o caminho relativo entre os lugares novos, com `/`; as aspas do literal ficam.
+A resposta é o `WorkspaceEdit` das trocas (as edições valem para os textos
+antes do renomear). A busca das referências é sintática (as diretivas
+resolvidas pelo caminho e pelo `package_config`), no lugar do `searchEngine`.
+O registro é o do Dart: `workspace.fileOperations.willRename` estático com os
+filtros `**/*.dart` (arquivo) e `**/` (pasta) quando `updateImportsOnRename`
+está ligado e o cliente não registra operações de arquivo dinamicamente;
+senão, o registro dinâmico (`crate::registro::registros`). As capacidades
+passam a anunciar `workspace.workspaceFolders` (`supported` e
+`changeNotifications`), e o `didChangeWorkspaceFolders` atualiza as raízes e
+as pastas.
+
 ### 8.6 `workspace/executeCommand` e métodos `dart/*`
 
 Ver a seção 13 (ações). Métodos próprios: `dart/textDocument/super`,

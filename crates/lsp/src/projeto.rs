@@ -189,7 +189,7 @@ pub(crate) fn carregar_projeto(
 const CONHECIDOS: &str = ".dartforge_conhecidos.dart";
 
 /// `(nome, pasta lib/)` dos pacotes do `package_config.json` de `raiz`.
-fn pacotes_com_nome(raiz: &Path) -> Vec<(String, PathBuf)> {
+pub(crate) fn pacotes_com_nome(raiz: &Path) -> Vec<(String, PathBuf)> {
     let arquivo = raiz.join(".dart_tool").join("package_config.json");
     let Ok(texto) = std::fs::read_to_string(&arquivo) else { return Vec::new() };
     let Ok(json) = serde_json::from_str::<serde_json::Value>(&texto) else { return Vec::new() };

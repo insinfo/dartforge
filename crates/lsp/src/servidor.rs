@@ -258,6 +258,9 @@ pub struct Servidor<A = AnalisadorSintatico> {
     /// quer o `workspace/didChangeConfiguration` registrado.
     dinamicas: Vec<&'static str>,
     configuracao_dinamica: bool,
+    /// O cliente registra as operações de arquivo dinamicamente
+    /// (`workspace.fileOperations.dynamicRegistration`).
+    operacoes_de_arquivo_dinamicas: bool,
     /// As capacidades estáticas completas (antes de tirar as dinâmicas): a
     /// fonte das opções de cada registro.
     capacidades_estaticas: Value,
@@ -362,6 +365,7 @@ impl<A: Analisador> Servidor<A> {
             configuracao_pedivel: false,
             dinamicas: Vec::new(),
             configuracao_dinamica: false,
+            operacoes_de_arquivo_dinamicas: false,
             capacidades_estaticas: Value::Null,
             registros: crate::registro::Registros::default(),
             pedido_de_configuracao: None,
@@ -387,7 +391,8 @@ impl<A: Analisador> Servidor<A> {
     /// `performDynamicRegistration` (§2.4): a diferença contra os registros
     /// vigentes, primeiro o que sai, depois o que entra; nada sem diferença.
     fn registrar_dinamicas(&mut self) {
-        let novos = crate::registro::registros(&self.capacidades_estaticas, &self.dinamicas, self.configuracao_dinamica);
+        let renomear_arquivos = self.operacoes_de_arquivo_dinamicas && self.configuracao.update_imports_on_rename;
+        let novos = crate::registro::registros(&self.capacidades_estaticas, &self.dinamicas, self.configuracao_dinamica, renomear_arquivos);
         let (sair, entrar) = self.registros.diferenca(novos);
         if !sair.is_empty() {
             self.proximo_pedido += 1;
@@ -791,7 +796,37 @@ impl<A: Analisador> Servidor<A> {
             // Notificações comuns dos editores que este servidor não usa:
             // aceitas em silêncio (o do Dart trata as duas primeiras e não
             // registra a terceira).
-            "workspace/didChangeWorkspaceFolders" | "workspace/didChangeWatchedFiles" => None,
+            // As pastas do workspace mudaram: as raízes de análise e as do
+            // pedido de configuração acompanham (o `changeNotifications`).
+            "workspace/didChangeWorkspaceFolders" => {
+                let de_uri = |v: &Value| v.as_str().and_then(|u| url::Url::parse(u).ok()).and_then(|u| u.to_file_path().ok());
+                let lista = |k: &str| mensagem.pointer(&format!("/params/event/{k}")).and_then(Value::as_array).cloned().unwrap_or_default();
+                for f in lista("removed") {
+                    if let Some(u) = f["uri"].as_str() {
+                        self.pastas.retain(|p| p != u);
+                    }
+                    if let Some(p) = de_uri(&f["uri"]) {
+                        self.raizes.retain(|r| *r != p);
+                    }
+                }
+                for f in lista("added") {
+                    if let Some(u) = f["uri"].as_str()
+                        && !self.pastas.iter().any(|p| p == u)
+                    {
+                        self.pastas.push(u.to_string());
+                    }
+                    if let Some(p) = de_uri(&f["uri"])
+                        && p.is_dir()
+                        && !self.raizes.contains(&p)
+                    {
+                        self.raizes.push(p);
+                    }
+                }
+                // O que a sessão retém pode depender das raízes.
+                self.analisador.documento_alterado("");
+                None
+            }
+            "workspace/didChangeWatchedFiles" => None,
             _ => {
                 registrar(format!("notificação desconhecida ignorada: {metodo}"));
                 // §2.3: `$/…` é ignorada; qualquer outra vira o erro
@@ -881,6 +916,10 @@ impl<A: Analisador> Servidor<A> {
                     crate::registro::dinamicas(mensagem.pointer("/params/capabilities").unwrap_or(&Value::Null));
                 self.dinamicas = dinamicas;
                 self.configuracao_dinamica = configuracao_dinamica;
+                self.operacoes_de_arquivo_dinamicas = mensagem
+                    .pointer("/params/capabilities/workspace/fileOperations/dynamicRegistration")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 // As pastas do workspace (ou a raiz), para o `scopeUri`.
                 self.pastas = match mensagem.pointer("/params/workspaceFolders").and_then(Value::as_array) {
                     Some(l) => l.iter().filter_map(|p| p.get("uri").and_then(Value::as_str)).map(str::to_string).collect(),
@@ -985,6 +1024,13 @@ impl<A: Analisador> Servidor<A> {
                         "version": env!("CARGO_PKG_VERSION"),
                     },
                 });
+                // `workspace`: as pastas e, sem o registro dinâmico das
+                // operações de arquivo, o `willRename` estático (com
+                // `updateImportsOnRename`, `server_capabilities_computer.dart:197-205`).
+                resultado["capabilities"]["workspace"] = json!({"workspaceFolders": {"supported": true, "changeNotifications": true}});
+                if !self.operacoes_de_arquivo_dinamicas && self.configuracao.update_imports_on_rename {
+                    resultado["capabilities"]["workspace"]["fileOperations"] = json!({"willRename": crate::registro::opcoes_das_operacoes_de_arquivo()});
+                }
                 if self.diagnosticos_puxados {
                     // Um documento depende de outros (imports): editar um
                     // muda os diagnósticos de quem o importa. Sem diagnóstico
@@ -1503,6 +1549,33 @@ impl<A: Analisador> Servidor<A> {
                     .filter_map(|(alvo, s)| Some(json!({"uri": alvo, "range": self.faixa(&alvo, s)?})))
                     .collect();
                 resposta(&id, json!(locais))
+            }
+            // `workspace/willRenameFiles` (`MoveFileRefactoringImpl.multi`,
+            // `crate::mover_arquivo`): as URIs das diretivas que chegam aos
+            // arquivos movidos e as relativas que saem deles; `null` numa
+            // condição fatal.
+            "workspace/willRenameFiles" => {
+                let mut mapa = Vec::new();
+                for f in mensagem.pointer("/params/files").and_then(Value::as_array).cloned().unwrap_or_default() {
+                    let caminho = |k: &str| f.get(k).and_then(Value::as_str).and_then(|u| url::Url::parse(u).ok()).and_then(|u| u.to_file_path().ok());
+                    let (Some(antigo), Some(novo)) = (caminho("oldUri"), caminho("newUri")) else {
+                        return erro(&id, -32602, "URI de arquivo inválida no willRenameFiles");
+                    };
+                    mapa.push((antigo, novo));
+                }
+                let mut raizes = self.raizes.clone();
+                for u in self.documentos.uris() {
+                    if let Some(p) = url::Url::parse(u).ok().and_then(|x| x.to_file_path().ok()) {
+                        let r = crate::projeto::raiz_do_projeto(&p);
+                        if r.join("pubspec.yaml").is_file() && !raizes.contains(&r) {
+                            raizes.push(r);
+                        }
+                    }
+                }
+                match crate::mover_arquivo::edicoes(&raizes, &self.documentos, &mapa) {
+                    Some(edicoes) => resposta(&id, self.edicao_de_workspace(&edicoes, None)),
+                    None => resposta(&id, Value::Null),
+                }
             }
             // `dart/textDocument/super` (o "ir para o super" do Dart-Code).
             "dart/textDocument/super" => {

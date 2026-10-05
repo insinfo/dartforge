@@ -82,10 +82,22 @@ pub fn tirar_dinamicas(capacidades: &mut Value, dinamicas: &[&str]) {
     }
 }
 
+/// `fileOperationRegistrationOptions` (`constants.dart:57-74`): os arquivos
+/// `.dart` e as pastas.
+pub fn opcoes_das_operacoes_de_arquivo() -> Value {
+    json!({"filters": [
+        {"scheme": "file", "pattern": {"glob": "**/*.dart", "matches": "file"}},
+        {"scheme": "file", "pattern": {"glob": "**/", "matches": "folder"}},
+    ]})
+}
+
 /// Os registros `(método, opções)` das features dinâmicas, a partir das
 /// capacidades estáticas que o servidor anunciaria (`registrations`,
-/// `server_capabilities_computer.dart:236-255`).
-pub fn registros(estaticas: &Value, dinamicas: &[&str], configuracao: bool) -> Vec<(String, Value)> {
+/// `server_capabilities_computer.dart:236-255`). `renomear_arquivos`: o
+/// `workspace/willRenameFiles` dinâmico (`WillRenameFilesRegistrations`: o
+/// cliente registra as operações de arquivo e `updateImportsOnRename` está
+/// ligado).
+pub fn registros(estaticas: &Value, dinamicas: &[&str], configuracao: bool, renomear_arquivos: bool) -> Vec<(String, Value)> {
     let mut v = Vec::new();
     for f in FEATURES.iter().filter(|f| dinamicas.contains(&f.cliente)) {
         if f.cliente == "synchronization" {
@@ -101,6 +113,9 @@ pub fn registros(estaticas: &Value, dinamicas: &[&str], configuracao: bool) -> V
         for m in f.metodos {
             v.push((m.to_string(), opcoes.clone()));
         }
+    }
+    if renomear_arquivos {
+        v.push(("workspace/willRenameFiles".to_string(), opcoes_das_operacoes_de_arquivo()));
     }
     if configuracao {
         v.push(("workspace/didChangeConfiguration".to_string(), Value::Null));
@@ -229,7 +244,7 @@ mod testes {
         assert_eq!(d, vec!["synchronization", "hover"]);
         assert!(!conf);
         let mut estaticas = json!({"hoverProvider": true, "textDocumentSync": 2, "definitionProvider": true});
-        let regs = registros(&estaticas, &d, conf);
+        let regs = registros(&estaticas, &d, conf, false);
         tirar_dinamicas(&mut estaticas, &d);
         assert!(estaticas.get("hoverProvider").is_none() && estaticas.get("definitionProvider").is_some());
         assert_eq!(regs.len(), 4);

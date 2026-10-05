@@ -46,6 +46,7 @@ mod destaques;
 mod descricao;
 mod indice;
 mod links;
+mod mover_arquivo;
 mod inserir;
 mod item_completar;
 mod navegacao;
