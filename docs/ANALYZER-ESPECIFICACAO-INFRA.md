@@ -4792,6 +4792,20 @@ da primeira escrita saíram; cada regra usa o mesmo dado que o emissor do analyz
   `var`/`final` de curinga, `const` de padrão constante, separador do valor padrão, limites de
   strings adjacentes e de interpolações). A metadata das declarações locais, que o parser
   descartava, agora fica em `Ast::metadados_locais` (o formato do cache do SDK subiu para 4).
+- `fase_nao_guardar.rs`: a metadata da biblioteca é a da diretiva `library` ou, sem ela, a da
+  primeira diretiva; a criação de instância sem `new` não conta como `MethodInvocation`; o
+  `_inDoNotStoreMember` é ligado só por classe, função (também local) e método marcados (não por
+  mixin, enum nem extensão); o elemento local (variável, parâmetro, função local) conta pela própria
+  metadata; os diretórios de teste são `test`, `integration_test`, `test_driver` e `testing`.
+- `lints_tipados3.rs`: `only_throw_errors` com o `typeForInterfaceCheck` (limite promovido ou
+  declarado); `no_runtimeType_toString` pula a extensão só quando o tipo estendido não é classe
+  concreta, aceita o `runtimeType` resolvido a getter e o `realTarget` da cascata;
+  `avoid_dynamic_calls` com o `realTarget` da cascata, as exclusões de `toString`/`noSuchMethod` só
+  com alvo escrito, o `call` sobre tipo de função e o `++`/`--` pela leitura;
+  `unrelated_type_equality_checks` com subtipagem normativa, `promoteToNonNull`, limites dos
+  parâmetros de tipo, records pela atribuição, `lookUpConcreteMethod('call')` e o padrão relacional;
+  `avoid_double_and_int_checks` pelo tipo resolvido da anotação
+  (`UnitBodyTypes::tipos_de_anotacoes`, novo) e também com `is!`.
 
 Cada verificador é um módulo novo em `crates/analise/src/`, chamado no ponto
 da ordem da §1.2. Os códigos de cada um estão nos lotes II.7 e II.8 (II.8 com

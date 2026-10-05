@@ -16,6 +16,7 @@ pub mod ast;
 pub mod features;
 pub mod fonte;
 pub mod lexer;
+pub mod pais;
 pub mod parser;
 pub mod text;
 pub mod token;

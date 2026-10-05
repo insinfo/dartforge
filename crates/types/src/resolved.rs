@@ -112,6 +112,10 @@ pub struct UnitBodyTypes {
     /// `FunctionExpressionResolver` do analyzer: `contextType is
     /// FunctionType`), pelo id da função.
     pub com_tipo_de_funcao: std::collections::HashSet<ast::FunctionId>,
+    /// O tipo resolvido de cada anotação de tipo dos corpos
+    /// (`TypeAnnotation.type` do analyzer): `is`, `as`, `catch`, variável
+    /// local, argumento de tipo.
+    pub tipos_de_anotacoes: std::collections::HashMap<ast::TypeId, TypeId>,
 }
 
 impl UnitBodyTypes {
@@ -123,6 +127,7 @@ impl UnitBodyTypes {
             tipos_de_locais: std::collections::HashMap::new(),
             declaracoes_de_locais: std::collections::HashMap::new(),
             com_tipo_de_funcao: std::collections::HashSet::new(),
+            tipos_de_anotacoes: std::collections::HashMap::new(),
             tipos_invalidos: std::collections::HashSet::new(),
             tipos_de_execucao_de_funcoes: std::collections::HashMap::new(),
             instanciacoes: std::collections::HashMap::new(),

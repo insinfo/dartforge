@@ -320,6 +320,8 @@ impl<'a> BodyInferrer<'a> {
         let r = self.resolver_anotacao(unit, lib, t, &escopo);
         self.conteiner_de_tipos = antes;
         self.em_membro_estatico = estatico_antes;
+        // `TypeAnnotation.type` do analyzer, para as regras que o leem.
+        self.body_types.units[unit.0 as usize].tipos_de_anotacoes.insert(t, r);
         r
     }
 

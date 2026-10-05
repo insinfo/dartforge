@@ -56,7 +56,7 @@ fn parte_de_identificador(c: u8) -> bool {
 }
 
 /// A fonte, a partir de `i`, começa com a palavra `p` inteira.
-fn palavra_em(fonte: &str, i: usize, p: &str) -> bool {
+pub fn palavra_em(fonte: &str, i: usize, p: &str) -> bool {
     let b = fonte.as_bytes();
     b.get(i..).is_some_and(|r| r.starts_with(p.as_bytes())) && !b.get(i + p.len()).is_some_and(|&c| parte_de_identificador(c))
 }

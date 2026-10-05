@@ -652,7 +652,7 @@ impl Motor {
                 // com a regra ligada.
                 let mut de_lint = dartforge_types::lints_tipados::achados(&program, &table, &core, &outline, corpo, u);
                 de_lint.extend(dartforge_types::lints_tipados2::achados(&program, &interner, &table, &core, &outline, corpo, u));
-                de_lint.extend(dartforge_types::lints_tipados3::achados(&program, &interner, &table, &core, &outline, corpo, u));
+                de_lint.extend(dartforge_types::lints_tipados3::achados(&program, &interner, &mut table, &core, &outline, corpo, u));
                 if !de_lint.is_empty()
                     && let Some(p) = &program.unit(u).path
                     && let Some(a) = analise.arquivos.get_mut(&chave(p))

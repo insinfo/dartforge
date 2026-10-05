@@ -91,7 +91,7 @@ fn anotado_acima(program: &Program, interner: &Interner, classe: ClassId, lib: L
 /// `lookUpConcrete…` a partir de `inicio`: a própria classe (com
 /// `com_a_propria`), os mixins dela do último para o primeiro, e assim pela
 /// cadeia de superclasses; o primeiro membro não abstrato da espécie pedida.
-fn concreto(program: &Program, inicio: ClassId, com_a_propria: bool, chave: SymbolId, lib: LibraryId, privado: bool, metodo: bool) -> bool {
+pub(crate) fn concreto(program: &Program, inicio: ClassId, com_a_propria: bool, chave: SymbolId, lib: LibraryId, privado: bool, metodo: bool) -> bool {
     let serve = |c: ClassId| {
         let e = program.class(c);
         if privado && e.library != lib {
