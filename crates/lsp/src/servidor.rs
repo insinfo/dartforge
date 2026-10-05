@@ -175,6 +175,9 @@ pub struct Servidor<A = AnalisadorSintatico> {
     /// Raízes do workspace anunciadas no `initialize` (`rootUri`,
     /// `workspaceFolders`), para o `workspace/symbol` varrer o disco.
     raizes: Vec<std::path::PathBuf>,
+    /// O documento do último `prepareTypeHierarchy` com resposta: o projeto
+    /// dos supertipos e subtipos de itens fora do workspace.
+    origem_da_hierarquia: Option<String>,
     /// Trabalhador dos diagnósticos tipados (`crate::tipado`), iniciado no
     /// primeiro documento aberto quando o analisador tem SDK.
     tipado: Option<crate::tipado::Tipado>,
@@ -325,6 +328,7 @@ impl<A: Analisador> Servidor<A> {
             nao_importados: HashMap::new(),
             documentacao_markdown: false,
             raizes: Vec::new(),
+            origem_da_hierarquia: None,
             tipado: None,
             tipado_tentado: false,
             despertar: None,
@@ -1630,25 +1634,44 @@ impl<A: Analisador> Servidor<A> {
                 resposta(&id, json!(saida))
             }
             "textDocument/prepareTypeHierarchy" => {
+                // `isDartDocument`: outro arquivo responde lista vazia.
+                let pedido = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or("");
+                if !pedido.ends_with(".dart") {
+                    return resposta(&id, json!([]));
+                }
                 let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {
                     return resposta(&id, Value::Null);
                 };
                 let item = self.analisador.preparar_hierarquia(&self.documentos, &u, offset);
-                let valor = item.and_then(|i| self.item_de_hierarquia(&i, &u));
+                if item.is_some() {
+                    self.origem_da_hierarquia = Some(u.clone());
+                }
+                // `toLspItem(target, unit.lineInfo)`: as posições do arquivo
+                // da classe convertidas com as linhas do documento atual.
+                let valor = item.and_then(|i| self.item_de_hierarquia(&i, Some(&u)));
                 resposta(&id, valor.map_or(Value::Null, |v| json!([v])))
             }
             "typeHierarchy/supertypes" | "typeHierarchy/subtypes" => {
-                let dados = mensagem.pointer("/params/item/data");
-                let alvo = dados.and_then(|d| d.get("uri")).and_then(Value::as_str).map(str::to_string);
-                let origem = dados.and_then(|d| d.get("origem")).and_then(Value::as_str).map(str::to_string);
-                let offset = dados.and_then(|d| d.get("offset")).and_then(Value::as_u64);
-                let (Some(alvo), Some(origem), Some(offset)) = (alvo, origem, offset) else {
-                    return erro(&id, -32602, "TypeHierarchyItem sem o campo data");
+                let item = mensagem.pointer("/params/item");
+                let uri = item.and_then(|i| i.get("uri")).and_then(Value::as_str).unwrap_or("").to_string();
+                let dados = item.and_then(|i| i.get("data")).filter(|d| !d.is_null());
+                let Some(referencia) = dados.and_then(|d| d.get("ref")).and_then(Value::as_str).map(str::to_string) else {
+                    return erro(&id, -32602, "TypeHierarchyItem is missing the data field");
                 };
+                let ancora: Option<(String, Vec<usize>)> = dados.and_then(|d| d.get("anchor")).filter(|a| !a.is_null()).and_then(|a| {
+                    let r = a.get("ref")?.as_str()?.to_string();
+                    let caminho = a.get("path")?.as_array()?.iter().filter_map(Value::as_u64).map(|x| x as usize).collect();
+                    Some((r, caminho))
+                });
+                let projeto = self.documento_da_hierarquia(&uri);
                 let supertipos = metodo == "typeHierarchy/supertypes";
-                let itens = self.analisador.hierarquia(&self.documentos, &origem, &alvo, offset as usize, supertipos);
-                let valores: Vec<Value> = itens.iter().filter_map(|i| self.item_de_hierarquia(i, &origem)).collect();
-                resposta(&id, json!(valores))
+                let itens = self.analisador.hierarquia(&self.documentos, &projeto, &referencia, ancora.as_ref().map(|(r, c)| (r.as_str(), c.as_slice())), supertipos);
+                match itens {
+                    None => resposta(&id, Value::Null),
+                    // `_convertItems`: cada item com as linhas do próprio
+                    // arquivo; o que não se lê fica de fora.
+                    Some(lista) => resposta(&id, json!(lista.iter().filter_map(|i| self.item_de_hierarquia(i, None)).collect::<Vec<_>>())),
+                }
             }
             METODO_DORMIR => {
                 let ms = mensagem
@@ -1708,17 +1731,72 @@ impl<A: Analisador> Servidor<A> {
         Some(tabela.offset_de_posicao(&fonte, linha, coluna))
     }
 
-    /// Um `TypeHierarchyItem` (espécie 5, classe, como o Dart), com o
-    /// arquivo e o offset do nome em `data` para os pedidos seguintes.
-    fn item_de_hierarquia(&self, item: &crate::ItemDeTipo, origem: &str) -> Option<Value> {
+    /// Um `TypeHierarchyItem` (`toLspItem`): espécie 5 (classe), `data` com
+    /// o `ElementLocation` (`ref`) e a âncora. Com `linhas_de`, os
+    /// intervalos são convertidos com as linhas desse documento.
+    fn item_de_hierarquia(&self, item: &crate::ItemDeTipo, linhas_de: Option<&str>) -> Option<Value> {
+        let (intervalo, selecao) = match linhas_de {
+            Some(origem) => (self.faixa_com_linhas_de(&item.uri, origem, item.intervalo)?, self.faixa_com_linhas_de(&item.uri, origem, item.selecao)?),
+            None => (self.faixa(&item.uri, item.intervalo)?, self.faixa(&item.uri, item.selecao)?),
+        };
+        let mut dados = json!({"ref": item.referencia});
+        if let Some((r, caminho)) = &item.ancora {
+            dados["anchor"] = json!({"ref": r, "path": caminho});
+        }
         Some(json!({
             "name": item.nome,
             "kind": 5,
             "uri": item.uri,
-            "range": self.faixa(&item.uri, item.intervalo)?,
-            "selectionRange": self.faixa(&item.uri, item.selecao)?,
-            "data": {"uri": item.uri, "offset": item.selecao.start, "origem": origem},
+            "range": intervalo,
+            "selectionRange": selecao,
+            "data": dados,
         }))
+    }
+
+    /// O documento cujo projeto atende `typeHierarchy/supertypes` e
+    /// `subtypes` do item em `uri`: o próprio arquivo quando está numa raiz
+    /// do workspace; senão (SDK, pacote) o do último `prepareTypeHierarchy`.
+    fn documento_da_hierarquia(&self, uri: &str) -> String {
+        let no_workspace = url::Url::parse(uri)
+            .ok()
+            .and_then(|u| u.to_file_path().ok())
+            .is_some_and(|c| self.raizes.iter().any(|r| c.starts_with(r)));
+        match &self.origem_da_hierarquia {
+            Some(origem) if !no_workspace => origem.clone(),
+            _ => uri.to_string(),
+        }
+    }
+
+    /// O texto de `uri`: o aberto, senão o do disco.
+    fn texto_do_arquivo(&self, uri: &str) -> Option<std::borrow::Cow<'_, str>> {
+        if let Some(texto) = self.documentos.get(uri) {
+            return Some(std::borrow::Cow::Borrowed(texto));
+        }
+        let caminho = url::Url::parse(uri).ok()?.to_file_path().ok()?;
+        std::fs::read_to_string(caminho).ok().map(std::borrow::Cow::Owned)
+    }
+
+    /// Um intervalo de `arquivo` convertido com o `LineInfo` de `origem`
+    /// (`sourceRangeToRange(unit.lineInfo, …)` do `prepareTypeHierarchy`):
+    /// os offsets UTF-16 do arquivo da classe, a linha pelo último início de
+    /// linha de `origem` que não passa deles e a coluna sem limite.
+    fn faixa_com_linhas_de(&self, arquivo: &str, origem: &str, span: dartforge_diagnostics::Span) -> Option<Value> {
+        if arquivo == origem {
+            return self.faixa(arquivo, span);
+        }
+        let texto = self.texto_do_arquivo(arquivo)?;
+        let alvo = self.texto_do_arquivo(origem)?;
+        let inicios = inicios_utf16(&alvo);
+        let posicao = |byte: usize| {
+            let mut b = byte.min(texto.len());
+            while !texto.is_char_boundary(b) {
+                b -= 1;
+            }
+            let o = texto[..b].encode_utf16().count();
+            let linha = inicios.partition_point(|&s| s <= o).saturating_sub(1);
+            json!({"line": linha, "character": o - inicios[linha]})
+        };
+        Some(json!({"start": posicao(span.start), "end": posicao(span.end)}))
     }
 
     /// `workspace/executeCommand` (docs/LSP-ESPECIFICACAO.md §13.12.2 a
@@ -2647,6 +2725,29 @@ impl<A: Analisador> Servidor<A> {
 
 /// Raízes do workspace no `initialize`: `workspaceFolders`, senão
 /// `rootUri`, senão `rootPath`; só diretórios existentes.
+/// Os inícios de linha (`LineInfo.lineStarts`) de `texto` em unidades
+/// UTF-16: depois de `\n`, de `\r\n` e de `\r` isolado.
+fn inicios_utf16(texto: &str) -> Vec<usize> {
+    let mut inicios = vec![0];
+    let mut o = 0usize;
+    let mut anterior_cr = false;
+    for ch in texto.chars() {
+        let largura = ch.len_utf16();
+        if anterior_cr && ch != '\n' {
+            inicios.push(o);
+        }
+        o += largura;
+        anterior_cr = ch == '\r';
+        if ch == '\n' {
+            inicios.push(o);
+        }
+    }
+    if anterior_cr {
+        inicios.push(o);
+    }
+    inicios
+}
+
 fn raizes_do_initialize(params: Option<&Value>) -> Vec<std::path::PathBuf> {
     let Some(params) = params else { return Vec::new() };
     let de_uri = |v: &Value| {

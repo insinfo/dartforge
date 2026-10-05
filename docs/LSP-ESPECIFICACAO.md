@@ -3998,6 +3998,39 @@ enum sem argumentos, implícita por classe/construtor de subclasse) em
   `NamedType`, `PropertyAccess` e identificadores de funções fora de contexto de declaração) no
   corpo do elemento, sem descer em funções locais, agrupadas pelo elemento chamado.
 
+**Estado em 2026-10-05 (escrito, não compilado)**: a type hierarchy (`hierarquia.rs`) é porte
+do `DartLazyTypeHierarchyComputer` e do `handler_type_hierarchy.dart`:
+
+* `alvo_da_hierarquia` é o `findTarget`: `nodeCovering` (`Contexto::cobertura`), o `NamedType`
+  ancestral com o tipo escrito (o da anotação, ou o tipo construído quando o `NamedType` é o
+  de uma criação de instância) e, sem `NamedType`, o `thisType` da classe, mixin, enum ou
+  extension type que contém o cursor; só tipos de interface (`FutureOr` e `Null` incluídos;
+  `InvalidType`, `Never?`, parâmetro de tipo, `dynamic`, `void`, função e registro → `null`);
+* nome = `getDisplayString()` sem alias (`List<String>`, `String?`, `B<T>`); `range` = a
+  declaração com documentação e anotações; `selectionRange` = o nome; `data.ref` = o
+  `ElementLocation.encoding` (biblioteca, unidade e nome; numa parte de `dart:` a unidade é
+  `dart:core/list.dart`);
+* `prepareTypeHierarchy` converte os intervalos com as linhas do documento atual (offsets
+  UTF-16 do arquivo da classe, sem limitar a coluna); `supertypes`/`subtypes` com as linhas
+  do arquivo de cada item; documento que não é `.dart` → `[]`; item sem `data` → `-32602`
+  `TypeHierarchyItem is missing the data field`; referência que não localiza classe → `null`;
+* supertipos (`_getSupertypes`): superclasse (`Object` sem `extends` válido, `Enum` num enum,
+  nenhuma em `Object`, mixin e extension type), restrições `on` (`[Object]` num mixin sem
+  elas), interfaces e mixins pelos filtros `_isInterfaceTypeClass`/`_isInterfaceTypeInterface`
+  (`isValidExtensionTypeSuperinterface` num extension type), com os argumentos do alvo; a
+  âncora (`data.anchor`, referência e caminho de índices) acompanha os supertipos com
+  argumentos e reconstrói o tipo (`_locateTargetFromAnchor`) nos pedidos seguintes;
+* subtipos (`searchSubtypes`): as relações do índice `IS_EXTENDED_BY` (inclusive a implícita
+  de `Object` numa classe sem `extends`), `IS_MIXED_IN_BY`, `IS_IMPLEMENTED_BY` e `CONSTRAINS`,
+  só com o nome escrito resolvendo direto para a classe (um `typedef` não conta), nos arquivos
+  que citam o nome (nome privado: só a biblioteca) mais os da biblioteca da classe; uma
+  entrada por relação, sem as declarações `augment`.
+
+Diferenças que ficam: a ordem dos arquivos é a do programa carregado, não a do `knownFiles`
+do driver; dentro de um arquivo, a ordem das cláusulas (o `List.sort` instável do índice do
+Dart pode trocar relações de um arquivo com mais de 32); itens de arquivos fora do workspace
+(SDK, pacotes) são atendidos pelo projeto do último `prepareTypeHierarchy`.
+
 ## 13. `textDocument/codeAction` e `workspace/executeCommand`
 
 ### 13.1 Fluxo

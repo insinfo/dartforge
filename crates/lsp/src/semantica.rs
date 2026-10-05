@@ -477,23 +477,15 @@ impl Analisador for AnalisadorSemantico {
     }
 
     fn preparar_hierarquia(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<crate::ItemDeTipo> {
-        let projeto = self.biblioteca(documentos, uri)?;
+        let mut projeto = self.biblioteca(documentos, uri)?;
         let unidade = projeto.unidade_do_uri(uri)?;
-        let c = projeto.classe_alvo_da_hierarquia(unidade, offset)?;
-        projeto.item_de_tipo(c, None)
+        let (c, tipo) = projeto.alvo_da_hierarquia(unidade, offset)?;
+        projeto.item_de_tipo(c, tipo)
     }
 
-    fn hierarquia(&mut self, documentos: &DocumentStore, origem: &str, uri: &str, offset: usize, supertipos: bool) -> Vec<crate::ItemDeTipo> {
-        // O projeto do documento de origem contém a classe (do projeto, de
-        // um pacote ou do SDK) e todos os subtipos do projeto.
-        let Some(projeto) = self.projeto(documentos, origem) else { return Vec::new() };
-        let Some(unidade) = projeto.unidade_do_uri(uri) else { return Vec::new() };
-        let Some(c) = projeto.classe_denotada(unidade, offset) else { return Vec::new() };
-        if supertipos {
-            projeto.itens_de_supertipos(c)
-        } else {
-            projeto.subtipos(c, true).into_iter().filter_map(|x| projeto.item_de_tipo(x, None)).collect()
-        }
+    fn hierarquia(&mut self, documentos: &DocumentStore, uri: &str, referencia: &str, ancora: Option<(&str, &[usize])>, supertipos: bool) -> Option<Vec<crate::ItemDeTipo>> {
+        let mut projeto = self.projeto(documentos, uri)?;
+        if supertipos { projeto.supertipos_da_referencia(referencia, ancora) } else { projeto.subtipos_da_referencia(referencia) }
     }
 
     fn definir_maximo_de_completar(&mut self, maximo: usize) {

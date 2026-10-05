@@ -564,22 +564,27 @@ pub trait Analisador {
         None
     }
 
-    /// Supertipos (`true`) ou subtipos diretos do item cuja classe tem o
-    /// nome em `offset` de `uri` (o `data` do item); `origem` é o documento
-    /// em que a hierarquia foi pedida (o projeto procurado).
-    fn hierarquia(&mut self, _documentos: &DocumentStore, _origem: &str, _uri: &str, _offset: usize, _supertipos: bool) -> Vec<ItemDeTipo> {
-        Vec::new()
+    /// Supertipos (`true`) ou subtipos diretos da classe cujo
+    /// `ElementLocation` é `referencia` (o `data.ref` do item), no projeto de
+    /// `uri`; `ancora` é o `data.anchor` (a referência e o caminho). `None`
+    /// quando a referência não localiza uma classe (resposta `null`).
+    fn hierarquia(&mut self, _documentos: &DocumentStore, _uri: &str, _referencia: &str, _ancora: Option<(&str, &[usize])>, _supertipos: bool) -> Option<Vec<ItemDeTipo>> {
+        None
     }
 }
 
 /// Um item da hierarquia de tipos: o nome exibido (`Base<int>`), o arquivo,
-/// a declaração inteira e o nome.
+/// a declaração inteira (com a documentação) e o nome, o `ElementLocation`
+/// da classe e a âncora (referência e caminho) dos supertipos com
+/// argumentos de tipo.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ItemDeTipo {
     pub nome: String,
     pub uri: String,
     pub intervalo: dartforge_diagnostics::Span,
     pub selecao: dartforge_diagnostics::Span,
+    pub referencia: String,
+    pub ancora: Option<(String, Vec<usize>)>,
 }
 
 /// Análise sintática: o parser novo, sem resolução (nomes e tipos chegam depois).
