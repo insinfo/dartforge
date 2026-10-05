@@ -1990,9 +1990,14 @@ porta registrada chamam direto, como antes.
 * No modo `tabelas`, a limpeza da pendência onde ela está comprovadamente limpa sai
   (`EN/otimizar/tabelas.rs`), e a função que chama código Dart continua conferindo a pilha no prólogo
   (`TabelasDaFuncao::confere_pilha`).
-* **O `grep` do CI** contra `transmute` para `extern "C" fn` fora de `excecoes_tabelas.rs`: não feito.
-* **Os perfis do diferencial** (`aot-tabelas`): não feitos; a variável `DARTFORGE_EXCECOES` já basta
-  para rodar o harness no modo.
+* **O `grep` do CI** contra `transmute` para `extern "C" fn` fora de `excecoes_tabelas.rs`: escrito em
+  2026-10-05 como teste do runtime (`crates/runtime/tests/portas_dart.rs`: todo `transmute` para
+  ponteiro de função fora das portas está numa lista com o motivo), que o `cargo test --workspace` do
+  `ci.yml` roda.
+* **Os perfis do diferencial** (`aot-tabelas`): o nome do perfil na matriz já sai do ambiente
+  (`aot-tabelas`, `aot-mapas`, `aot-mapas-tabelas`, com `-gc-stress`); **estado em 2026-10-05 (escrito,
+  não executado)**: o job `nativo-modos` do `pesado.yml` roda A1, B0 e B1, cada uma com e sem
+  `--gc-stress`, no corpus nativo inteiro (§7.1); A0 são os jobs `nativo` e `nativo-gc-stress`.
 * **O rastro no formato da VM** (§13.14): escrito em 2026-10-05, atrás de `--rastro=simbolico`
   (veja o estado no §13.14).
 * **Linux e macOS** (a personalidade Itanium do §13.11): Etapa 4.

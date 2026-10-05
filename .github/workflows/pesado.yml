@@ -428,6 +428,38 @@ jobs:
           nativo: 'true'
           aceitar-placar-parcial: 'true'
 
+  # As outras três combinações de raízes e exceções
+  # (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §0 e §7.1): A1 (sombra +
+  # tabelas), B0 (mapas + checagem) e B1 (mapas + tabelas), cada uma com e sem
+  # --gc-stress, no corpus nativo inteiro. A0 é o `nativo` e o
+  # `nativo-gc-stress` acima (o oráculo). O emissor lê o modo do ambiente.
+  nativo-modos:
+    name: nativo ${{ matrix.modo.id }}${{ matrix.estresse && ' --gc-stress' || '' }}
+    needs: compilar
+    if: contains(fromJSON('["todos","nativo"]'), needs.compilar.outputs.suite)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        modo:
+          - { id: A1, raizes: sombra, excecoes: tabelas }
+          - { id: B0, raizes: mapas, excecoes: checagem }
+          - { id: B1, raizes: mapas, excecoes: tabelas }
+        estresse: [false, true]
+    env:
+      DARTFORGE_RAIZES: ${{ matrix.modo.raizes }}
+      DARTFORGE_EXCECOES: ${{ matrix.modo.excecoes }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/harness
+        with:
+          nome: nativo-${{ matrix.modo.id }}${{ matrix.estresse && '-gc-stress' || '' }}
+          titulo: Nativo ${{ matrix.modo.id }} (raízes ${{ matrix.modo.raizes }}, exceções ${{ matrix.modo.excecoes }})${{ matrix.estresse && ' sob --gc-stress' || '' }}
+          args: --nativo --jobs 4 ${{ matrix.estresse && '--gc-stress --limite-exec 120' || '' }}
+          nativo: 'true'
+          aceitar-placar-parcial: 'true'
+
   nativo-placar:
     name: nativo (placar consolidado)
     needs: [compilar, nativo, nativo-gc-stress]
