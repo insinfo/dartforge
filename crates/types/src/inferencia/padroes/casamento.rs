@@ -281,6 +281,145 @@ fn palavra_as(inf: &BodyInferrer<'_>, cx: &Corpo, interno: PatternId, ty: ast::T
 /// Tipa o padrão `p` contra o valor casado do topo da pilha, declarando as
 /// variáveis. `de_e`: `p` é operando direto de `&&` (o único lugar em que um
 /// curinga que sempre casa é relatado como desnecessário).
+/// O padrão está num contexto irrefutável (declaração, atribuição, `for-in`)
+/// que nenhum padrão refutável de fora tornou refutável.
+fn irrefutavel_agora(cx: &Corpo) -> bool {
+    !cx.padrao_refutavel && !cx.refutavel_forcado
+}
+
+/// `refutablePatternInIrrefutableContext` (`shared_type_analyzer.dart:187-194`):
+/// relata o padrão refutável e torna o resto refutável. Devolve se relatou
+/// (quem chamou desfaz o `refutavel_forcado` no fim do padrão).
+fn refutavel_em_irrefutavel(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, sp: Span) -> bool {
+    if !irrefutavel_agora(cx) {
+        return false;
+    }
+    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::REFUTABLE_PATTERN_IN_IRREFUTABLE_CONTEXT, sp, &[]);
+    cx.refutavel_forcado = true;
+    true
+}
+
+/// `patternTypeMismatchInIrrefutableContext` (`shared_type_analyzer.dart:174-185`),
+/// no padrão inteiro, com o tipo casado e o requerido.
+fn tipo_errado_em_irrefutavel(inf: &mut BodyInferrer<'_>, casado: TypeId, requerido: TypeId, sp: Span) {
+    let a1 = inf.table.format(casado, inf.interner, inf.program);
+    let a2 = inf.table.format(requerido, inf.interner, inf.program);
+    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::PATTERN_TYPE_MISMATCH_IN_IRREFUTABLE_CONTEXT, sp, &[&a1, &a2]);
+}
+
+/// As variáveis que o padrão declara, na ordem do `VariableBinder` (um `||`
+/// junta as dos dois lados, a esquerda primeiro).
+fn variaveis_declaradas(inf: &BodyInferrer<'_>, cx: &Corpo, p: PatternId, saida: &mut Vec<ast::Name>) {
+    let a = &inf.program.unit(cx.unit).ast;
+    let mut por = |n: ast::Name, saida: &mut Vec<ast::Name>| {
+        if !saida.iter().any(|x| x.sym == n.sym) {
+            saida.push(n);
+        }
+    };
+    match &a.pattern(p).kind {
+        PatternKind::Variable { final_, var_, ty, name } => {
+            if !(cx.padrao_refutavel && !*var_ && !*final_ && ty.is_none()) {
+                por(*name, saida);
+            }
+        }
+        PatternKind::Wildcard { .. } | PatternKind::Constant(_) | PatternKind::Relational { .. } => {}
+        PatternKind::Or(x, y) | PatternKind::And(x, y) => {
+            let mut l = Vec::new();
+            variaveis_declaradas(inf, cx, *x, &mut l);
+            variaveis_declaradas(inf, cx, *y, &mut l);
+            for n in l {
+                por(n, saida);
+            }
+        }
+        PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => variaveis_declaradas(inf, cx, *x, saida),
+        PatternKind::Cast { pattern, .. } => variaveis_declaradas(inf, cx, *pattern, saida),
+        PatternKind::List { elements, .. } => {
+            for e in elements.iter() {
+                match e {
+                    ListPatternElement::Pattern(x) | ListPatternElement::Rest(Some(x)) => variaveis_declaradas(inf, cx, *x, saida),
+                    ListPatternElement::Rest(None) => {}
+                }
+            }
+        }
+        PatternKind::Map { entries, .. } => {
+            for en in entries.iter() {
+                variaveis_declaradas(inf, cx, en.value, saida);
+            }
+        }
+        PatternKind::Record { fields } => {
+            for f in fields.iter() {
+                variaveis_declaradas(inf, cx, f.pattern, saida);
+            }
+        }
+        PatternKind::Object { fields, .. } => {
+            for f in fields.iter() {
+                variaveis_declaradas(inf, cx, f.pattern, saida);
+            }
+        }
+    }
+}
+
+/// `logicalOrPatternBranchMissingVariable` (`resolution_visitor.dart:1992-2004`,
+/// `VariableBinder.logicalOrPatternFinish`): cada variável só da esquerda
+/// relata no operando direito; cada uma só da direita, no esquerdo.
+fn variaveis_ausentes_no_ou(inf: &mut BodyInferrer<'_>, cx: &Corpo, x: PatternId, y: PatternId) {
+    let mut esquerda = Vec::new();
+    variaveis_declaradas(inf, cx, x, &mut esquerda);
+    let mut direita = Vec::new();
+    variaveis_declaradas(inf, cx, y, &mut direita);
+    let (sx, sy) = {
+        let a = &inf.program.unit(cx.unit).ast;
+        (a.pattern(x).span, a.pattern(y).span)
+    };
+    let codigo = dartforge_diagnostics::codigos::compile_time_error::MISSING_VARIABLE_PATTERN;
+    for n in &esquerda {
+        if !direita.iter().any(|d| d.sym == n.sym) {
+            let nome = inf.interner.resolve(n.sym).to_string();
+            inf.aviso_com_codigo(codigo, sy, &[&nome]);
+        }
+    }
+    for n in &direita {
+        if !esquerda.iter().any(|e| e.sym == n.sym) {
+            let nome = inf.interner.resolve(n.sym).to_string();
+            inf.aviso_com_codigo(codigo, sx, &[&nome]);
+        }
+    }
+}
+
+/// `duplicateRestPattern` (`shared_type_analyzer.dart:83-96`): cada `...`
+/// depois do primeiro numa lista, no elemento (o `...` e o subpadrão).
+fn restos_duplicados(inf: &mut BodyInferrer<'_>, cx: &Corpo, p: PatternId) {
+    let a = &inf.program.unit(cx.unit).ast;
+    let PatternKind::List { type_args, elements } = &a.pattern(p).kind else { return };
+    let fonte = inf.program.unit(cx.unit).source.as_str();
+    let sp = a.pattern(p).span;
+    let depois_dos_tipos = type_args.last().map_or(sp.start, |x| a.ty(*x).span.end);
+    let Some(abre) = fonte.get(depois_dos_tipos..sp.end).and_then(|s| s.find('[')).map(|i| depois_dos_tipos + i) else { return };
+    let mut cursor = abre + 1;
+    let mut restos: Vec<Span> = Vec::new();
+    for (i, e) in elements.iter().enumerate() {
+        match e {
+            ListPatternElement::Pattern(x) => cursor = a.pattern(*x).span.end,
+            ListPatternElement::Rest(sub) => {
+                let limite = match sub {
+                    Some(x) => a.pattern(*x).span.start,
+                    None => elements.get(i + 1).map_or(sp.end, |prox| match prox {
+                        ListPatternElement::Pattern(y) | ListPatternElement::Rest(Some(y)) => a.pattern(*y).span.start,
+                        ListPatternElement::Rest(None) => sp.end,
+                    }),
+                };
+                let Some(ini) = fonte.get(cursor..limite.max(cursor)).and_then(|s| s.find("...")).map(|k| cursor + k) else { continue };
+                let fim = sub.map_or(ini + 3, |x| a.pattern(x).span.end);
+                restos.push(Span { start: ini, end: fim });
+                cursor = fim;
+            }
+        }
+    }
+    for s in restos.into_iter().skip(1) {
+        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::DUPLICATE_REST_ELEMENT_IN_PATTERN, s, &[]);
+    }
+}
+
 pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, final_: bool, atribuicao: bool, de_e: bool) {
     use dartforge_diagnostics::codigos::{static_warning as sw, warning as w};
     let a = &inf.program.unit(cx.unit).ast;
@@ -298,6 +437,9 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
             registrar_tipo_de_padrao(inf, cx, p, k, inv);
             let sp = inf.program.unit(cx.unit).ast.ty(x).span;
             nunca_casa(inf, cx, t, k, sp);
+            if irrefutavel_agora(cx) && !inf.atribuivel(t, k) {
+                tipo_errado_em_irrefutavel(inf, t, k, span_do_padrao);
+            }
             let cobre = promover_para_padrao(inf, cx, k, true, false);
             if cobre && de_e {
                 inf.aviso_com_codigo(w::UNNECESSARY_WILDCARD_PATTERN, span_do_padrao, &[]);
@@ -318,8 +460,24 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
                 return;
             }
             if atribuicao {
+                // `visitAssignedVariablePattern` (`resolution_visitor.dart:189-210`):
+                // o nome pelo escopo léxico; sem elemento, `UNDEFINED_IDENTIFIER`;
+                // elemento que não é local nem parâmetro,
+                // `PATTERN_ASSIGNMENT_NOT_LOCAL_VARIABLE`.
+                match expr::resolver_nome(inf, cx, name.sym, false) {
+                    expr::RefNome::Local(_) => {}
+                    expr::RefNome::ThisImplicito | expr::RefNome::Adiante | expr::RefNome::Nenhum => {
+                        expr::nome_indefinido_sem_this(inf, cx, name);
+                    }
+                    _ => {
+                        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::PATTERN_ASSIGNMENT_NOT_LOCAL_VARIABLE, name.span, &[]);
+                    }
+                }
                 if let Some(Nome::Local(id)) = cx.buscar(name.sym) {
                     let decl = cx.local(id).tipo;
+                    if irrefutavel_agora(cx) && !inf.e_dynamic(t) && !inf.sub(t, decl) {
+                        tipo_errado_em_irrefutavel(inf, t, decl, span_do_padrao);
+                    }
                     promover_para_padrao(inf, cx, decl, true, false);
                     let escrito = casado(cx, &r);
                     let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());
@@ -332,6 +490,9 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
                 Some(x) => {
                     let k = inf.tipo_de_anotacao(cx, x);
                     nunca_casa(inf, cx, t, k, inf.program.unit(cx.unit).ast.ty(x).span);
+                    if irrefutavel_agora(cx) && !inf.e_dynamic(t) && !inf.sub(t, k) {
+                        tipo_errado_em_irrefutavel(inf, t, k, span_do_padrao);
+                    }
                     k
                 }
                 // `variableTypeFromInitializerType`: um valor `Null`
@@ -356,8 +517,25 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
         }
         PatternKind::Constant(e) => {
             let e = *e;
+            let forcado = refutavel_em_irrefutavel(inf, cx, span_do_padrao);
             let c = inferir(inf, cx, e, t);
             constante_nunca_casa(inf, cx, p, e, c, t);
+            if forcado {
+                cx.refutavel_forcado = false;
+            }
+            // `caseExpressionTypeMismatch` (`shared_type_analyzer.dart:32-45`):
+            // sem padrões (< 3.0), a constante de um `case` cujo tipo não é
+            // subtipo do tipo do escrutínio.
+            if !padroes_da_linguagem(inf, cx) && cx.padrao_refutavel && !inf.e_dynamic(c) && !inf.sub(c, t) {
+                let sp = inf.span_expr(cx.unit, e);
+                let a1 = inf.table.format(c, inf.interner, inf.program);
+                let a2 = inf.table.format(t, inf.interner, inf.program);
+                inf.aviso_com_codigo(
+                    dartforge_diagnostics::codigos::compile_time_error::CASE_EXPRESSION_TYPE_IS_NOT_SWITCH_EXPRESSION_SUBTYPE,
+                    sp,
+                    &[&a1, &a2],
+                );
+            }
             if padroes_da_linguagem(inf, cx) {
                 igualdade(inf, cx, e, c, false);
             } else {
@@ -369,6 +547,9 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
         }
         PatternKind::Relational { op, value } => {
             let (op, value) = (*op, *value);
+            if refutavel_em_irrefutavel(inf, cx, span_do_padrao) {
+                cx.refutavel_forcado = false;
+            }
             let nome = match op {
                 ast::BinaryOp::Eq | ast::BinaryOp::NotEq => "==",
                 ast::BinaryOp::Lt => "<",
@@ -396,6 +577,10 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
         }
         PatternKind::Or(x, y) => {
             let (x, y) = (*x, *y);
+            if !atribuicao {
+                variaveis_ausentes_no_ou(inf, cx, x, y);
+            }
+            let forcado = refutavel_em_irrefutavel(inf, cx, span_do_padrao);
             // `logicalOrPattern_begin`: o operando esquerdo tem o seu
             // próprio "não casou", que é a entrada do direito.
             let vazio = cx.fluxo.inalcancavel();
@@ -426,6 +611,9 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
             super::super::instrucoes::sair_fluxo(cx);
             let casou_direito = cx.fluxo.clone();
             cx.fluxo = inf.juntar(&casou_esquerdo, &casou_direito);
+            if forcado {
+                cx.refutavel_forcado = false;
+            }
         }
         PatternKind::And(x, y) => {
             let (x, y) = (*x, *y);
@@ -435,6 +623,7 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
         PatternKind::NullCheck(x) | PatternKind::NullAssert(x) => {
             let x = *x;
             let afirmacao = matches!(a.pattern(p).kind, PatternKind::NullAssert(_));
+            let forcado = !afirmacao && refutavel_em_irrefutavel(inf, cx, span_do_padrao);
             match checar_nulo(inf, cx) {
                 Some(nao_nulo) => {
                     if !afirmacao {
@@ -446,7 +635,7 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
                 None => {
                     // O valor casado não pode ser nulo: o `?`/`!` não faz
                     // nada. O `?` num contexto irrefutável já é outro erro.
-                    if afirmacao || cx.padrao_refutavel {
+                    if afirmacao || (!forcado && !irrefutavel_agora(cx)) {
                         let token = Span { start: span_do_padrao.end.saturating_sub(1), end: span_do_padrao.end };
                         let codigo = if afirmacao { sw::UNNECESSARY_NULL_ASSERT_PATTERN } else { sw::UNNECESSARY_NULL_CHECK_PATTERN };
                         inf.aviso_com_codigo(codigo, token, &[]);
@@ -454,6 +643,9 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
                 }
             }
             tipar(inf, cx, x, final_, atribuicao, false);
+            if forcado {
+                cx.refutavel_forcado = false;
+            }
         }
         PatternKind::Parenthesized(x) => {
             let x = *x;
@@ -509,6 +701,10 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
                     ListPatternElement::Rest(None) => {}
                 }
             }
+            restos_duplicados(inf, cx, p);
+            if irrefutavel_agora(cx) && !inf.atribuivel(t, requerido) {
+                tipo_errado_em_irrefutavel(inf, t, requerido, span_do_padrao);
+            }
         }
         PatternKind::Map { type_args, entries, .. } => {
             let (k, v) = if type_args.len() == 2 {
@@ -521,6 +717,7 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
                     None => (inf.core.object_nullable, inf.core.object_nullable),
                 }
             };
+            let mut requerido_do_mapa = None;
             match inf.core.map_class {
                 Some(mc) => {
                     let requerido = inf.table.intern(Type::Interface { class: mc, args: vec![k, v].into_boxed_slice(), nullable: false });
@@ -528,6 +725,7 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
                     registrar_tipo_de_padrao(inf, cx, p, requerido, inv);
                     // Um mapa pode não ter a chave: falha mesmo com o tipo certo.
                     promover_para_padrao(inf, cx, requerido, true, true);
+                    requerido_do_mapa = Some(requerido);
                 }
                 None => {
                     let atual = cx.fluxo.clone();
@@ -538,6 +736,12 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
                 let (key, val) = (en.key, en.value);
                 inferir(inf, cx, key, k);
                 com_subpadrao(inf, cx, v, |inf, cx| tipar(inf, cx, val, final_, atribuicao, false));
+            }
+            if let Some(requerido) = requerido_do_mapa
+                && irrefutavel_agora(cx)
+                && !inf.atribuivel(t, requerido)
+            {
+                tipo_errado_em_irrefutavel(inf, t, requerido, span_do_padrao);
             }
         }
         PatternKind::Record { fields } => {
@@ -587,6 +791,9 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
             // pelos subpadrões; não falha por tipo.
             let demonstrado = montar(inf, &demonstrados);
             promover_para_padrao(inf, cx, demonstrado, false, false);
+            if irrefutavel_agora(cx) && !inf.atribuivel(t, requerido) {
+                tipo_errado_em_irrefutavel(inf, t, requerido, span_do_padrao);
+            }
         }
         PatternKind::Object { ty, fields } => {
             let ty = *ty;
@@ -624,6 +831,9 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
                     cx.fluxo.alcancavel = false;
                 }
                 com_subpadrao(inf, cx, ft, |inf, cx| tipar(inf, cx, x, final_, atribuicao, false));
+            }
+            if irrefutavel_agora(cx) && !inf.atribuivel(t, obj) {
+                tipo_errado_em_irrefutavel(inf, t, obj, span_do_padrao);
             }
         }
     }
@@ -663,10 +873,18 @@ pub(crate) fn caso(
     };
     let r = RefCasada { chave, tipo: t, alvo, propriedade, versao };
     let refutavel_antes = std::mem::replace(&mut cx.padrao_refutavel, true);
+    let forcado_antes = std::mem::replace(&mut cx.refutavel_forcado, false);
+    let primeiro_local = cx.locais.len();
     let mut nao = casar(inf, cx, r, |inf, cx| tipar(inf, cx, p, false, false, false));
     cx.padrao_refutavel = refutavel_antes;
+    cx.refutavel_forcado = forcado_antes;
+    cx.locais_do_ultimo_padrao = primeiro_local..cx.locais.len();
     if let Some(g) = guarda {
+        // `visitGuardedPattern`: as variáveis do padrão, durante a guarda.
+        let base = cx.variaveis_em_guarda.len();
+        cx.variaveis_em_guarda.extend((primeiro_local..cx.locais.len()).map(|i| LocalId(i as u32)));
         let (gv, gf) = expr::condicao_verificada(inf, cx, g);
+        cx.variaveis_em_guarda.truncate(base);
         cx.fluxo = gv;
         nao = inf.juntar(&nao, &gf);
     }

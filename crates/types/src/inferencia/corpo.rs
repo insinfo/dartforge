@@ -96,6 +96,21 @@ pub(crate) struct Corpo {
     /// Tipando o padrão de um `case`/`if-case` (refutável): o identificador
     /// solto é uma constante (`case _padrao:`), não uma variável nova.
     pub padrao_refutavel: bool,
+    /// Um padrão refutável já relatado num contexto irrefutável
+    /// (`refutablePatternInIrrefutableContext`): o que está abaixo dele é
+    /// analisado como refutável (`context.makeRefutable()`), sem relatar de
+    /// novo nem conferir o tipo requerido.
+    pub refutavel_forcado: bool,
+    /// As variáveis do padrão guardado cuja cláusula `when` está em análise
+    /// (`isVisitingWhenClause`): escrever nelas é
+    /// `PATTERN_VARIABLE_ASSIGNMENT_INSIDE_GUARD`.
+    pub variaveis_em_guarda: Vec<LocalId>,
+    /// Os locais declarados pelo padrão do último `case` (sem os da
+    /// guarda), para as variáveis de junção dos casos que dividem o corpo.
+    pub locais_do_ultimo_padrao: std::ops::Range<usize>,
+    /// Variáveis de junção inconsistentes dos casos que dividem um corpo,
+    /// com o código que cada referência relata (`finishJoinedPatternVariable`).
+    pub juncoes_inconsistentes: HashMap<LocalId, dartforge_diagnostics::Codigo>,
     /// O casamento de padrão em curso (T6: a referência do valor casado e o
     /// estado "não casou"); `None` fora de padrão.
     pub casamento: Option<super::padroes::Casamento>,
@@ -200,6 +215,10 @@ impl Corpo {
             funcoes: Vec::new(),
             cascatas: Vec::new(),
             padrao_refutavel: false,
+            refutavel_forcado: false,
+            variaveis_em_guarda: Vec::new(),
+            locais_do_ultimo_padrao: 0..0,
+            juncoes_inconsistentes: HashMap::new(),
             casamento: None,
             escrutinio_de_switch: None,
             membro_estatico: false,

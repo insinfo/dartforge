@@ -408,9 +408,30 @@ fn nome_lido_indefinido(inf: &mut BodyInferrer<'_>, cx: &Corpo, n: ast::Name, le
     nome_indefinido_sem_this(inf, cx, n);
 }
 
+/// `PATTERN_VARIABLE_ASSIGNMENT_INSIDE_GUARD` (`ScopeResolverVisitor.visitSimpleIdentifier`,
+/// `an611:src/generated/resolver.dart:5186-5193`): o identificador em
+/// contexto de escrita (`=`, `op=`, `++`/`--`) é uma variável do padrão
+/// guardado cuja cláusula `when` está em análise (também dentro de closures
+/// e de `if-case` da guarda).
+pub(crate) fn escrita_em_guarda(inf: &mut BodyInferrer<'_>, cx: &Corpo, id: LocalId, span: dartforge_diagnostics::Span) {
+    if cx.variaveis_em_guarda.contains(&id) {
+        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::PATTERN_VARIABLE_ASSIGNMENT_INSIDE_GUARD, span, &[]);
+    }
+}
+
+/// A referência (leitura ou escrita) a uma variável de junção inconsistente
+/// de casos que dividem o corpo (`ResolverVisitor.finishJoinedPatternVariable`,
+/// `an611:src/generated/resolver.dart:878-915`), com o nome.
+pub(crate) fn referencia_de_juncao(inf: &mut BodyInferrer<'_>, cx: &Corpo, id: LocalId, n: ast::Name) {
+    if let Some(&codigo) = cx.juncoes_inconsistentes.get(&id) {
+        let nome = inf.interner.resolve(n.sym).to_string();
+        inf.aviso_com_codigo(codigo, n.span, &[&nome]);
+    }
+}
+
 /// O fim de [`nome_lido_indefinido`]: `await` num corpo de função, nome
 /// ignorado ou `UNDEFINED_IDENTIFIER`.
-fn nome_indefinido_sem_this(inf: &mut BodyInferrer<'_>, cx: &Corpo, n: ast::Name) {
+pub(crate) fn nome_indefinido_sem_this(inf: &mut BodyInferrer<'_>, cx: &Corpo, n: ast::Name) {
     let texto = inf.interner.resolve(n.sym).to_string();
     let em_funcao = !matches!(cx.raiz, super::corpo::Raiz::Nada) || !cx.funcoes.is_empty();
     if texto == "await" && em_funcao {
@@ -664,6 +685,7 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
     match resolver_nome(inf, cx, n.sym, false) {
         RefNome::Local(id) => {
             resolver(inf, cx, e, Resolved::Local(id));
+            referencia_de_juncao(inf, cx, id, n);
             if inf.locais_invalidos.contains(&(cx.unit, cx.local(id).offset)) {
                 inf.body_types.units[cx.unit.0 as usize].tipos_invalidos.insert(e);
             }
@@ -2650,6 +2672,8 @@ fn ler_para_escrita(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, cu
             match resolver_nome(inf, cx, n.sym, true) {
                 RefNome::Local(id) => {
                     resolver(inf, cx, alvo, Resolved::Local(id));
+                    referencia_de_juncao(inf, cx, id, n);
+                    escrita_em_guarda(inf, cx, id, n.span);
                     let t = ler_local(inf, cx, id, n.span);
                     let decl = cx.local(id).tipo;
                     (t, decl, Some(id))
@@ -2848,6 +2872,8 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                     match resolver_nome(inf, cx, n.sym, true) {
                         RefNome::Local(id) => {
                             resolver(inf, cx, alvo, Resolved::Local(id));
+                            referencia_de_juncao(inf, cx, id, n);
+                            escrita_em_guarda(inf, cx, id, n.span);
                             let l = cx.local(id).clone();
                             if cx.funcoes_locais.contains(&id) {
                                 inf.aviso(ASSIGNMENT_TO_FUNCTION.template.to_string(), n.span);

@@ -3658,6 +3658,25 @@ argumentos), `UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE` ("The method '{0}' 
 - **No DartForge:** não implementado; `instrucoes::alvo_de_salto` (os rótulos de `SwitchCase.labels` não são alvos de
   `break`; hoje não são registrados como tal).
 
+**Estado em 2026-10-05 (escrito, não compilado), §4.** No caminho do analisador
+(`crates/types/src/inferencia/padroes/casamento.rs`, `tipar`): `refutable_pattern_in_irrefutable_context`
+(constante, relacional, `||` e `?`, que tornam o resto refutável por `Corpo::refutavel_forcado`, sem
+o `unnecessary_null_check_pattern` no `?` relatado); `pattern_type_mismatch_in_irrefutable_context`
+(variável declarada com tipo e variável atribuída por subtipo, fora de `dynamic`/inválido; curinga
+com tipo, lista, mapa, registro e objeto por atribuível, depois dos subpadrões);
+`missing_variable_pattern` (as variáveis de cada lado do `||`, na ordem do `VariableBinder`);
+`pattern_assignment_not_local_variable` e o `undefined_identifier` do padrão de atribuição (pelo
+escopo léxico: membro herdado só pelo `this` não está nele); `duplicate_rest_element_in_pattern`
+(cada `...` depois do primeiro, achado no texto entre os elementos);
+`case_expression_type_is_not_switch_expression_subtype` (sem padrões, < 3.0);
+`pattern_variable_assignment_inside_guard` (`Corpo::variaveis_em_guarda` durante a guarda; a
+escrita por `=`, `op=` e `++`/`--` em `expr.rs`). Em `instrucoes.rs`: as variáveis de junção dos
+casos que dividem o corpo (`juncoes_do_grupo`: `…_HAS_LABEL` com rótulo ou `default`,
+`…_NOT_ALL_CASES`, `…_DIFFERENT_FINALITY_OR_TYPE`), relatadas em cada referência no corpo, e
+`switch_case_completes_normally` (< 3.0, grupo que não é o último, na palavra do primeiro membro).
+Fica para depois: `equal_keys_in_map_pattern` (pede a avaliação das chaves no verificador de
+constantes).
+
 #### §5 Fluxo e atribuição definitiva
 
 ##### `invalid_use_of_null_value` (perda 12: FN 12)

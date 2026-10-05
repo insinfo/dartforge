@@ -211,8 +211,16 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                 let mut entradas: Vec<Fluxo> = Vec::new();
                 cx.empurrar_escopo();
                 let primeiro_local = cx.locais.len();
+                // As variáveis de cada membro do grupo (o `addAll` do
+                // `_SharedCaseScope`), e se há rótulo ou `default`.
+                let mut membros: Vec<Vec<(SymbolId, LocalId)>> = Vec::new();
+                let mut com_rotulo = false;
+                let mut com_default = false;
                 loop {
                     let c = &cases[j];
+                    if !c.labels.is_empty() {
+                        com_rotulo = true;
+                    }
                     cx.fluxo = nao_casou.clone();
                     // A cabeça de cada `case`/`default` é um bloco básico
                     // (`handleSwitchBeforeAlternative` e o `flowEnd` de
@@ -233,9 +241,18 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                             let (vf, ff) = padroes::caso(inf, cx, p, t, c.guard, Some(*value));
                             entradas.push(vf);
                             nao_casou = ff;
+                            let faixa = cx.locais_do_ultimo_padrao.clone();
+                            membros.push(
+                                faixa
+                                    .filter(|&k| cx.locais[k].offset != 0)
+                                    .map(|k| (cx.locais[k].nome, LocalId(k as u32)))
+                                    .collect(),
+                            );
                         }
                         None => {
                             tem_default = true;
+                            com_default = true;
+                            membros.push(Vec::new());
                             entradas.push(nao_casou.clone());
                             nao_casou = nao_casou.inalcancavel();
                         }
@@ -263,6 +280,10 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                         cx.fluxo.inicializar(id);
                     }
                 }
+                if com_rotulo {
+                    membros.push(Vec::new());
+                }
+                juncoes_do_grupo(inf, cx, &membros, com_rotulo || com_default);
                 let corpo: Vec<StmtId> = cases[j].body.to_vec();
                 // O corpo do grupo é um bloco básico (`resolver.dart:1126`):
                 // o trecho morto vai da primeira instrução inalcançável ao
@@ -286,6 +307,15 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                 }
                 if fluxo_de_padroes && fim_do_corpo.is_some() {
                     sair_fluxo(cx);
+                }
+                // `switchCaseCompletesNormally` (`shared_type_analyzer.dart:232-239`,
+                // `analyzeSwitchStatement`): sem padrões (< 3.0), o corpo de um
+                // grupo que não é o último não pode chegar ao fim; na palavra
+                // do primeiro membro do grupo.
+                let versao = inf.program.library(cx.lib).features.versao();
+                if cx.fluxo.alcancavel && j + 1 < n && versao < dartforge_frontend::features::LanguageVersion::new(3, 0) {
+                    let palavra = palavra_do_caso(inf, cx, &cases[i]);
+                    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::SWITCH_CASE_COMPLETES_NORMALLY, palavra, &[]);
                 }
                 if cx.fluxo.alcancavel {
                     saidas.push(cx.fluxo.clone());
@@ -526,6 +556,65 @@ pub(crate) fn sair_fluxo(cx: &mut Corpo) {
 
 /// A palavra `case` ou `default` de um membro de `switch`, depois dos
 /// rótulos (`rotulo: case 1:`).
+/// `switchStatementSharedCaseScopeFinish` (`variable_bindings.dart:177-202`) e
+/// `finishJoinedPatternVariable` (`resolver.dart:878-915`): as variáveis de
+/// um grupo de casos que divide o corpo. Uma variável que não está em todos
+/// os membros (um `default` ou um rótulo conta como membro vazio) é
+/// `…_HAS_LABEL` com rótulo ou `default`, senão `…_NOT_ALL_CASES`; presente em
+/// todos, mas com tipos ou `final` diferentes, `…_DIFFERENT_FINALITY_OR_TYPE`.
+/// O código vale para cada referência no corpo.
+fn juncoes_do_grupo(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, membros: &[Vec<(SymbolId, LocalId)>], com_rotulo: bool) {
+    use dartforge_diagnostics::codigos::compile_time_error as c;
+    let mut nomes: Vec<SymbolId> = Vec::new();
+    let mut componentes: std::collections::HashMap<SymbolId, (Vec<LocalId>, bool)> = std::collections::HashMap::new();
+    for (k, m) in membros.iter().enumerate() {
+        if k == 0 {
+            for &(n, id) in m {
+                if !componentes.contains_key(&n) {
+                    nomes.push(n);
+                    componentes.insert(n, (vec![id], true));
+                }
+            }
+            continue;
+        }
+        for n in nomes.clone() {
+            let entrada = componentes.get_mut(&n).unwrap();
+            match m.iter().find(|(x, _)| *x == n) {
+                Some(&(_, id)) => entrada.0.push(id),
+                None => entrada.1 = false,
+            }
+        }
+        for &(n, id) in m {
+            if !componentes.contains_key(&n) {
+                nomes.push(n);
+                componentes.insert(n, (vec![id], false));
+            }
+        }
+    }
+    for n in nomes {
+        let (ids, todos) = componentes.remove(&n).unwrap();
+        if todos && ids.len() == 1 {
+            continue;
+        }
+        let codigo = if !todos {
+            Some(if com_rotulo { c::PATTERN_VARIABLE_SHARED_CASE_SCOPE_HAS_LABEL } else { c::PATTERN_VARIABLE_SHARED_CASE_SCOPE_NOT_ALL_CASES })
+        } else {
+            let primeiro = cx.local(ids[0]).clone();
+            let tipo = inf.table.canonico(primeiro.tipo);
+            let diferente = ids[1..].iter().any(|&id| {
+                let l = cx.local(id);
+                inf.table.canonico(l.tipo) != tipo || l.final_ != primeiro.final_
+            });
+            diferente.then_some(c::PATTERN_VARIABLE_SHARED_CASE_SCOPE_DIFFERENT_FINALITY_OR_TYPE)
+        };
+        if let Some(codigo) = codigo {
+            for id in ids {
+                cx.juncoes_inconsistentes.insert(id, codigo);
+            }
+        }
+    }
+}
+
 fn palavra_do_caso(inf: &BodyInferrer<'_>, cx: &Corpo, c: &ast::SwitchCase) -> Span {
     let palavra: &[u8] = if c.pattern.is_some() { b"case" } else { b"default" };
     let fonte = inf.program.unit(cx.unit).source.as_bytes();
