@@ -29,6 +29,7 @@ mod colecoes;
 mod corpo;
 mod expr;
 mod fluxo;
+mod inteiros;
 mod funcoes;
 mod instrucoes;
 mod membros;

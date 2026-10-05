@@ -935,11 +935,13 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
         ExprKind::Int(_) => {
             let s = inf.fecho_maior(ctx);
             let (int, double) = (inf.core.int, inf.core.double);
-            if !inf.e_desconhecido(ctx) && inf.sub(double, s) && !inf.sub(int, s) {
-                double
-            } else {
-                int
+            let tipo = if !inf.e_desconhecido(ctx) && inf.sub(double, s) && !inf.sub(int, s) { double } else { int };
+            let negado = cx.literal_negado == Some(e);
+            if negado {
+                cx.literal_negado = None;
             }
+            super::inteiros::literal_fora_do_alcance(inf, cx, e, tipo, negado);
+            tipo
         }
         ExprKind::Double(_) => inf.core.double,
         ExprKind::Bool(_) => inf.core.bool_,
@@ -2548,6 +2550,9 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
             // `-1` com literal: o literal recebe o contexto (`double x = -1`).
             let literal = op == UnaryOp::Neg && matches!(inf.program.unit(cx.unit).ast.expr(operand).kind, ExprKind::Int(_));
             let c = if literal { ctx } else { inf.core.unknown };
+            if literal && op == UnaryOp::Neg {
+                cx.literal_negado = Some(operand);
+            }
             let t = inferir(inf, cx, operand, c);
             uso_de_void(inf, cx, operand, t);
             let sym = if op == UnaryOp::Neg { inf.sym.menos_unario } else { inf.sym.til };

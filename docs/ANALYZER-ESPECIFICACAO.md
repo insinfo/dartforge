@@ -7374,6 +7374,10 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
   without overflow or loss of precision: '{0}'." + {1} = o double mais próximo como BigInt.
 - **No DartForge:** não existe. Lugar: na inferência do literal inteiro
   (`crates/types/src/inferencia/`, onde se decide int vs double pelo contexto).
+- **Estado em 2026-10-05 (escrito, não compilado):** `crates/types/src/inferencia/inteiros.rs`, chamado
+  pelo literal inteiro depois de decidir `int`/`double` (o `-` unário marca `Corpo::literal_negado`):
+  os testes `isValidAsInteger`/`isValidAsDouble` e o `nearestValidDouble` com um natural de precisão
+  arbitrária, e as duas mensagens com o lexema original.
 
 ##### `not_iterable_spread` (perda 9: FN 9) e `not_map_spread` (perda 6: FN 6)
 - **Emissão:** `LiteralElementVerifier._verifySpreadForListOrSet` (`literal_element_verifier.dart:176-213`)

@@ -101,6 +101,9 @@ pub(crate) struct Corpo {
     /// analisado como refutável (`context.makeRefutable()`), sem relatar de
     /// novo nem conferir o tipo requerido.
     pub refutavel_forcado: bool,
+    /// O literal inteiro operando de um `-` unário em análise
+    /// (`IntegerLiteral.immediatelyNegated`).
+    pub literal_negado: Option<ast::ExprId>,
     /// As variáveis do padrão guardado cuja cláusula `when` está em análise
     /// (`isVisitingWhenClause`): escrever nelas é
     /// `PATTERN_VARIABLE_ASSIGNMENT_INSIDE_GUARD`.
@@ -216,6 +219,7 @@ impl Corpo {
             cascatas: Vec::new(),
             padrao_refutavel: false,
             refutavel_forcado: false,
+            literal_negado: None,
             variaveis_em_guarda: Vec::new(),
             locais_do_ultimo_padrao: 0..0,
             juncoes_inconsistentes: HashMap::new(),
