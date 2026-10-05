@@ -1731,6 +1731,24 @@ pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: Uni
                                 None => inf.aviso_com_codigo(ce::UNDEFINED_ENUM_CONSTRUCTOR_UNNAMED, k.name.span, &[]),
                             },
                         }
+                        // `TypeArgumentsVerifier.checkEnumConstantDeclaration`
+                        // (`type_arguments_verifier.dart:93-112`): com o
+                        // construtor resolvido, a lista `<…>` escrita com
+                        // contagem diferente da do enum.
+                        let resolvido = declarado.is_some() || sintetico;
+                        let esperados = inf.program.class(c).type_params.len();
+                        if resolvido
+                            && let (Some(&primeiro), Some(&ultimo)) = (k.type_args.first(), k.type_args.last())
+                            && k.type_args.len() != esperados
+                        {
+                            let fonte = &inf.program.unit(unit).source;
+                            let ini_arg = a.ty(primeiro).span.start;
+                            let fim_arg = a.ty(ultimo).span.end;
+                            let inicio = fonte[..ini_arg].rfind('<').unwrap_or(ini_arg);
+                            let fim = fonte[fim_arg..].find('>').map_or(fim_arg, |i| fim_arg + i + 1);
+                            let (e, d) = (esperados.to_string(), k.type_args.len().to_string());
+                            inf.aviso_com_codigo(ce::WRONG_NUMBER_OF_TYPE_ARGUMENTS_ENUM, dartforge_diagnostics::Span { start: inicio, end: fim }, &[&e, &d]);
+                        }
                     }
                     if let Some(args) = &k.arguments {
                         let mut cx = Corpo::novo(inf, unit, Some(c), None, true);

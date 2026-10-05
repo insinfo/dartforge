@@ -682,6 +682,31 @@ fn override_sem_acesso(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId) {
     }
 }
 
+/// A lista `<…>` escrita de argumentos de tipo: do `<` antes do primeiro
+/// ao `>` depois do último.
+pub(crate) fn faixa_da_lista_de_tipos(inf: &BodyInferrer<'_>, unit: dartforge_elements::model::UnitId, tipos: &[ast::TypeId]) -> Option<Span> {
+    let (primeiro, ultimo) = (tipos.first()?, tipos.last()?);
+    let unidade = inf.program.unit(unit);
+    let (de, ate) = (unidade.ast.ty(*primeiro).span.start, unidade.ast.ty(*ultimo).span.end);
+    let fonte = &unidade.source;
+    let inicio = fonte.get(..de).and_then(|t| t.rfind('<')).unwrap_or(de);
+    let fim = fonte.get(ate..).and_then(|t| t.find('>')).map_or(ate, |i| ate + i + 1);
+    Some(Span { start: inicio, end: fim })
+}
+
+/// `WRONG_NUMBER_OF_TYPE_ARGUMENTS_CONSTRUCTOR` (`ast_rewrite.dart:438-445`,
+/// `:604-611`; `named_type_resolver.dart:337-343`;
+/// `function_reference_resolver.dart:51-62`): argumentos de tipo depois do
+/// nome de um construtor, na lista `<…>`; `{0}` o tipo como escrito (com o
+/// prefixo), `{1}` o construtor.
+pub(crate) fn tipos_no_construtor(inf: &mut BodyInferrer<'_>, unit: dartforge_elements::model::UnitId, classe_escrita: Span, construtor: ast::Name, tipos: &[ast::TypeId]) {
+    let Some(sp) = faixa_da_lista_de_tipos(inf, unit, tipos) else { return };
+    let fonte = &inf.program.unit(unit).source;
+    let classe = fonte[classe_escrita.start..classe_escrita.end].split_whitespace().collect::<String>();
+    let nome = inf.interner.resolve(construtor.sym).to_string();
+    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS_CONSTRUCTOR, sp, &[&classe, &nome]);
+}
+
 pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx: TypeId) -> (TypeId, bool) {
     let a = &inf.program.unit(cx.unit).ast;
     let ExprKind::Call { target, arguments } = &a.expr(e).kind else { unreachable!() };
@@ -719,6 +744,15 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 let classe = ultimo_identificador(inf, cx, target).map(|s| inf.interner.resolve(s).to_string()).unwrap_or_default();
                 (format!("{classe}.new"), tipo_nomeado_da_criacao(inf, cx, target, &args.type_args))
             }
+        };
+        // `C.nome<T>()`: a lista é do construtor (erro) e não da classe.
+        let explicitos = match &a.expr(target).kind {
+            ExprKind::Property { target: t, name, .. } if !args.type_args.is_empty() && expr::referencia_a_tipo(inf, cx, *t).is_some() => {
+                let escrito = a.expr(*t).span;
+                tipos_no_construtor(inf, cx.unit, escrito, *name, &args.type_args);
+                None
+            }
+            _ => explicitos,
         };
         definir_alvo(inf, Some(nome), ent);
         let t = construir(inf, cx, Some(e), c, f, targs.or(explicitos), args, ctx);
@@ -1634,6 +1668,14 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
         }
     }
     let (c, explicitos) = match binding.and_then(|b| b.getter) {
+        // `new C.nome<T>()`: lido como `prefixo.Tipo<T>`; a lista é do
+        // construtor (`_rewriteToConstructorName`).
+        Some(Element::Class(c)) if ctor_do_nome && !targs.is_empty() => {
+            if let Some(n) = constructor {
+                tipos_no_construtor(inf, cx.unit, name[0].span, n, targs);
+            }
+            (c, None)
+        }
         Some(Element::Class(c)) => {
             let ex = if targs.is_empty() { None } else { Some(targs.iter().map(|&t| inf.tipo_de_argumento_de_tipo(cx, t)).collect::<Vec<_>>()) };
             (c, ex)

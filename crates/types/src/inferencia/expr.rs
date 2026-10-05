@@ -660,6 +660,24 @@ fn extensao_como_expressao(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, sp
     true
 }
 
+/// O nome com que `_resolve` relata a contagem de argumentos de tipo de um
+/// tear-off: o de uma função, método ou operador declarado (também a função
+/// local); `None` para variável, getter ou outra expressão.
+fn nome_de_funcao_referida(inf: &BodyInferrer<'_>, cx: &Corpo, alvo: ExprId) -> Option<String> {
+    use crate::resolved::{MemberRef, Resolved};
+    let funcao = |f: dartforge_elements::model::FunctionElementId| {
+        let fe = inf.program.function(f);
+        matches!(fe.kind, FunctionKind::Function | FunctionKind::Operator).then(|| inf.interner.resolve(fe.name).to_string())
+    };
+    match inf.body_types.units[cx.unit.0 as usize].get_resolved(alvo)? {
+        Resolved::Element(Element::Function(f)) => funcao(*f),
+        Resolved::Member { member: MemberRef::Function(f), .. } => funcao(*f),
+        Resolved::ExtensionMember { member, .. } => funcao(*member),
+        Resolved::Local(id) if cx.local(*id).funcao_local => Some(inf.interner.resolve(cx.local(*id).nome).to_string()),
+        _ => None,
+    }
+}
+
 /// Tipo de uma leitura de elemento de topo.
 fn ler_elemento(inf: &mut BodyInferrer<'_>, el: Element) -> TypeId {
     match el {
@@ -1047,14 +1065,84 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
                 registrar_ref_tipo(inf, cx, e);
                 inf.core.type_
             } else {
+                // `C.nome<T>` (tear-off de construtor com argumentos):
+                // `WRONG_NUMBER_OF_TYPE_ARGUMENTS_CONSTRUCTOR`, e a instanciação
+                // segue sobre o tipo do tear-off.
+                if let ExprKind::Property { target: r, name, .. } = &ast(inf, cx).expr(*target).kind
+                    && let Some(rt) = referencia_a_tipo(inf, cx, *r)
+                    && let RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) = rt
+                {
+                    let chave = if Some(name.sym) == inf.sym.new_ { inf.sym.vazio } else { Some(name.sym) };
+                    if chave.and_then(|k| inf.construtor_ou_primario(c, k)).is_some() {
+                        let escrito = ast(inf, cx).expr(*r).span;
+                        super::chamadas::tipos_no_construtor(inf, cx.unit, escrito, *name, type_args);
+                        // O `FunctionReference` de um `ConstructorReference`
+                        // fica `InvalidType` (`function_reference_resolver.dart:250-252`).
+                        inferir_livre(inf, cx, *target);
+                        for &x in type_args.iter() {
+                            inf.tipo_de_argumento_de_tipo(cx, x);
+                        }
+                        return inf.table.invalido(inf.core.dynamic_);
+                    }
+                }
                 let t = inferir_livre(inf, cx, *target);
                 let targs: Vec<TypeId> = type_args.iter().map(|&x| inf.tipo_de_argumento_de_tipo(cx, x)).collect();
-                match inf.table.get(t).clone() {
+                // `_resolve`: o parâmetro de tipo vale pelo limite.
+                let bruto = match inf.table.get(t).clone() {
+                    Type::TypeParameter { param, .. } => inf.table.param(param).bound,
+                    _ => t,
+                };
+                match inf.table.get(bruto).clone() {
                     Type::Function { type_params, .. } if type_params.len() == targs.len() => {
                         let mut env = inf.env();
-                        crate::constraints::instanciar_funcao(t, &targs, &mut env)
+                        crate::constraints::instanciar_funcao(bruto, &targs, &mut env)
                     }
-                    _ => inf.core.dynamic_,
+                    Type::Function { type_params, .. } => {
+                        // `_checkTypeArguments` (`function_reference_resolver.dart:115-150`):
+                        // com o nome de uma função ou método declarado,
+                        // `WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION`; de uma
+                        // variável, getter ou expressão, a variante anônima.
+                        // Os argumentos viram `dynamic`.
+                        if let Some(sp) = super::chamadas::faixa_da_lista_de_tipos(inf, cx.unit, type_args) {
+                            let (n, d) = (type_params.len().to_string(), targs.len().to_string());
+                            match nome_de_funcao_referida(inf, cx, *target) {
+                                Some(nome) => inf.aviso_com_codigo(
+                                    dartforge_diagnostics::codigos::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION,
+                                    sp,
+                                    &[&nome, &n, &d],
+                                ),
+                                None => inf.aviso_com_codigo(
+                                    dartforge_diagnostics::codigos::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS_ANONYMOUS_FUNCTION,
+                                    sp,
+                                    &[&n, &d],
+                                ),
+                            }
+                        }
+                        let dinamicos = vec![inf.core.dynamic_; type_params.len()];
+                        let mut env = inf.env();
+                        crate::constraints::instanciar_funcao(bruto, &dinamicos, &mut env)
+                    }
+                    _ if inf.table.e_invalido(bruto) => bruto,
+                    // `node<…>` de um objeto com `call`: `node.call<…>`
+                    // (`_resolveAsImplicitCallReference`), sem o relato.
+                    Type::Interface { .. }
+                        if inf.sym.call.is_some_and(|call| matches!(inf.buscar_membro(cx.lib, bruto, call, false), super::membros::Busca::Achado(_))) =>
+                    {
+                        inf.core.dynamic_
+                    }
+                    _ => {
+                        // `DISALLOWED_TYPE_INSTANTIATION_EXPRESSION`
+                        // (`function_reference_resolver.dart:270-278`), com
+                        // os tear-offs de construtor (2.15).
+                        let versao = inf.program.library(cx.lib).features.versao();
+                        if versao >= dartforge_frontend::features::LanguageVersion::new(2, 15) {
+                            let sp = inf.span_expr(cx.unit, *target);
+                            inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::DISALLOWED_TYPE_INSTANTIATION_EXPRESSION, sp, &[]);
+                            inf.table.invalido(inf.core.dynamic_)
+                        } else {
+                            inf.core.dynamic_
+                        }
+                    }
                 }
             }
         }

@@ -819,6 +819,14 @@ Representação cíclica ou inválida cala o `implements` e o fundo. Um `dynamic
 - **Condição:** argumentos de tipo aplicados ao **construtor** (`C.named<int>`), o que nunca é permitido.
 - **Posição:** a lista de argumentos de tipo. **Mensagem:** `The constructor '{0}.{1}' doesn't have type parameters.` (`{0}` classe, `{1}` construtor). Variante de dot shorthand (3.10, não 3.6.2) no oráculo novo.
 - **No DartForge:** inexistente; `chamadas.rs::alvo_construtor` (alvo `TypeArguments` sobre `C.named`).
+- **Estado em 2026-10-05 (escrito, não compilado):** `chamadas::tipos_no_construtor` relata na lista `<…>`
+  (`faixa_da_lista_de_tipos`), com `{0}` o tipo escrito com o prefixo. Cobre três formas. Em `C.nome<T>()`, a
+  `chamada` passa a não aplicar a lista à classe. Em `new C.nome<T>()`, o `instanciacao` cobre o ramo
+  `ctor_do_nome`. O tear-off `C.nome<T>` sai no `ExprKind::TypeArguments` do `expr.rs`, com o nó
+  `InvalidType`. No mesmo ramo saem `wrong_number_of_type_arguments_function`/`_anonymous_function`, conforme
+  `nome_de_funcao_referida` (função, método ou função local declarados dão o nome), com os argumentos
+  `dynamic`. Sai também `disallowed_type_instantiation_expression`, de 2.15 em diante, para tipo que não é
+  função nem objeto com `call`; o parâmetro de tipo vale pelo limite.
 
 ##### `wrong_number_of_type_arguments_method` (perda 6: FN 6)
 - **Emissão:** `FullInvocationInferrer._wrongNumberOfTypeArgumentsErrorCode` (`invocation_inferrer.dart:151-155`) via `_reportWrongNumberOfTypeArguments` (:316-327): `f<int>()`/`o.m<int, String>()` com contagem diferente da do tipo invocado.
@@ -834,6 +842,8 @@ Representação cíclica ou inválida cala o `implements` e o fundo. Um `dynamic
 ##### `wrong_number_of_type_arguments_enum` (perda 3: FN 3)
 - **Emissão:** `TypeArgumentsVerifier.checkEnumConstantDeclaration` (`type_arguments_verifier.dart:91-112`). **Posição:** a lista `<…>` da constante. **Mensagem:** `The enum is declared with {0} type parameters, but {1} type arguments were given.`
 - **No DartForge:** inexistente; em `funcoes.rs` (constantes de enum, onde `k.type_args` é lido).
+- **Estado em 2026-10-05 (escrito, não compilado):** `inferir_metadados_da_unidade` relata, com o
+  construtor resolvido (declarado ou o sintético), na lista `<…>` da constante.
 
 ##### `expected_one_list_type_arguments` (perda 1: FN 1)
 - **Emissão:** `TypeArgumentsVerifier.checkListLiteral` (`type_arguments_verifier.dart:160-172`). **Condição:** literal de lista com ≠ 1 argumento de tipo. **Posição:** a lista de argumentos de tipo. **Mensagem:** `List literals require one type argument or none, but {0} found.`
