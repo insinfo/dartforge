@@ -487,6 +487,37 @@ impl Analisador for AnalisadorSemantico {
             .collect()
     }
 
+    fn cores(&mut self, documentos: &DocumentStore, uri: &str) -> Vec<(Span, [u8; 4])> {
+        // As bibliotecas das constantes de cor (o `Colors` do Flutter) precisam
+        // dos corpos: sem elas inferidas, a carga própria com elas.
+        let extras = {
+            let Some(projeto) = self.biblioteca(documentos, uri) else { return Vec::new() };
+            let Some(unidade) = projeto.unidade_do_uri(uri) else { return Vec::new() };
+            projeto.bibliotecas_das_cores(unidade)
+        };
+        if extras.is_empty() {
+            let Some(mut projeto) = self.biblioteca(documentos, uri) else { return Vec::new() };
+            let Some(unidade) = projeto.unidade_do_uri(uri) else { return Vec::new() };
+            return projeto.cores(unidade);
+        }
+        let Some(sdk) = self.sdk.as_ref() else { return Vec::new() };
+        let Some(projeto) = crate::projeto::carregar_biblioteca(sdk, documentos, uri) else { return Vec::new() };
+        let crate::projeto::Projeto { consulta, raiz, mut bibliotecas, nomes_referenciados } = projeto;
+        let mut lista: Vec<dartforge_elements::model::LibraryId> = bibliotecas.iter().copied().chain(extras.iter().copied()).collect();
+        lista.sort();
+        lista.dedup();
+        bibliotecas.extend(extras);
+        let mut projeto = crate::projeto::Projeto { consulta: consulta.reinferir(&lista), raiz, bibliotecas, nomes_referenciados };
+        let Some(unidade) = projeto.unidade_do_uri(uri) else { return Vec::new() };
+        projeto.cores(unidade)
+    }
+
+    fn apresentacao_de_cor(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<bool> {
+        let projeto = self.biblioteca(documentos, uri)?;
+        let unidade = projeto.unidade_do_uri(uri)?;
+        projeto.tem_color_do_flutter().then(|| projeto.exige_const(unidade, offset))
+    }
+
     fn lentes_de_augmentation(&mut self, documentos: &DocumentStore, uri: &str, aumentados: bool, aumentacoes: bool) -> Vec<(Span, &'static str, String, Span)> {
         let Some(projeto) = self.biblioteca(documentos, uri) else { return Vec::new() };
         let Some(unidade) = projeto.unidade_do_uri(uri) else { return Vec::new() };

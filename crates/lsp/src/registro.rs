@@ -46,6 +46,7 @@ pub const FEATURES: &[Feature] = &[
     Feature { cliente: "codeLens", estatica: "codeLensProvider", metodos: &["textDocument/codeLens"], so_dart: true },
     Feature { cliente: "documentLink", estatica: "documentLinkProvider", metodos: &["textDocument/documentLink"], so_dart: true },
     Feature { cliente: "inlayHint", estatica: "inlayHintProvider", metodos: &["textDocument/inlayHint"], so_dart: true },
+    Feature { cliente: "colorProvider", estatica: "colorProvider", metodos: &["textDocument/documentColor"], so_dart: true },
 ];
 
 /// `dartFiles` (`constants.dart`): os arquivos Dart.

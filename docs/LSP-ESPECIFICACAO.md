@@ -1741,6 +1741,24 @@ Reconhece `Color(0xAARRGGBB)`, `Color.from(…)`, `Color.fromARGB`,
 projetos não usam Flutter). **Pendente** (só faz sentido com Flutter
 carregado).
 
+**Estado em 2026-10-05 (escrito, não compilado):** `crates/lsp/src/cores.rs`.
+O `ColorComputer`: as expressões de tipo estático `Color` do `dart:ui` (ou
+subtipo); a cor pelo valor constante (o avaliador de constantes de
+`crates/types`, com `inConstantContext` pelos pais da expressão), lendo o campo
+`color` se há e os `a`, `r`, `g`, `b` (o 3.6.2 lê esses), um membro do valor
+(e os `shadeNNN` pela `_swatch`) ou um índice de paleta, ou pelas chamadas
+conhecidas com literais (`Color(0x…)`, `Color.from`, `Color.fromARGB`,
+`Color.fromRGBO`, `ColorSwatch`, `MaterialAccentColor`); no índice, no
+identificador prefixado e no acesso a propriedade, a cor achada encerra a
+descida; na criação, não. As bibliotecas das constantes citadas e as de cor do
+Flutter que a sessão não inferiu são inferidas numa carga própria do pedido.
+O `colorPresentation` dá as quatro formas (`fromARGB`, `fromRGBO`, `from` com
+três casas, `Color(0x…)`), com `const ` quando a expressão em `range.start` é
+constante fora de contexto constante; nada fora das raízes ou sem o `Color`.
+O `colorProvider` é anunciado (`{}`) e entra no registro dinâmico. Desvio: o
+`import` que o `writeType` acrescentaria não sai (o `Color` já está
+importado onde há cor).
+
 ### 8.3 `textDocument/codeLens`
 
 **Algoritmo** (`handler_code_lens.dart:32-61`,

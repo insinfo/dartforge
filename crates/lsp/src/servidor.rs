@@ -1100,6 +1100,8 @@ impl<A: Analisador> Servidor<A> {
                         "typeHierarchyProvider": true,
                         "callHierarchyProvider": true,
                         "inlayHintProvider": {"resolveProvider": false},
+                        // `DocumentColorOptions()` (§8.2).
+                        "colorProvider": {},
                         "semanticTokensProvider": {
                             "legend": {"tokenTypes": crate::realce::TIPOS, "tokenModifiers": crate::realce::MODIFICADORES},
                             "full": true,
@@ -1736,6 +1738,50 @@ impl<A: Analisador> Servidor<A> {
                     })
                     .collect();
                 resposta(&id, json!(lentes))
+            }
+            // `textDocument/documentColor` (o `ColorComputer`, §8.2): as
+            // cores de 0 a 1.
+            "textDocument/documentColor" => {
+                let uri = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
+                if !uri.ends_with(".dart") {
+                    return resposta(&id, json!([]));
+                }
+                let cores: Vec<Value> = self
+                    .analisador
+                    .cores(&self.documentos, &uri)
+                    .into_iter()
+                    .filter_map(|(s, [a, r, g, b])| {
+                        let f = |x: u8| f64::from(x) / 255.0;
+                        Some(json!({"range": self.faixa(&uri, s)?, "color": {"alpha": f(a), "red": f(r), "green": f(g), "blue": f(b)}}))
+                    })
+                    .collect();
+                resposta(&id, json!(cores))
+            }
+            // `textDocument/colorPresentation`: as quatro formas, com `const`
+            // quando a expressão é constante fora de contexto constante; nada
+            // fora das raízes de análise ou sem o `Color` do Flutter.
+            "textDocument/colorPresentation" => {
+                let uri = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
+                let cor = mensagem.pointer("/params/color").cloned().unwrap_or(Value::Null);
+                let alcance = mensagem.pointer("/params/range").cloned().unwrap_or(Value::Null);
+                let n = |k: &str| cor.get(k).and_then(Value::as_f64).unwrap_or(0.0);
+                let dentro = url::Url::parse(&uri).ok().and_then(|u| u.to_file_path().ok()).is_some_and(|c| self.raizes.iter().any(|r| c.starts_with(r)));
+                if !uri.ends_with(".dart") || !dentro || self.excluido(&uri) {
+                    return resposta(&id, json!([]));
+                }
+                let inicio = alcance
+                    .pointer("/start")
+                    .and_then(|p| Some((p.get("line")?.as_u64()? as u32, p.get("character")?.as_u64()? as u32)))
+                    .and_then(|(l, c)| Some(self.documentos.linhas(&uri)?.offset_de_posicao(self.documentos.get(&uri)?, l, c)));
+                let Some(inicio) = inicio else { return resposta(&id, json!([])) };
+                let Some(com_const) = self.analisador.apresentacao_de_cor(&self.documentos, &uri, inicio) else {
+                    return resposta(&id, json!([]));
+                };
+                let lista: Vec<Value> = crate::cores::apresentacoes(n("alpha"), n("red"), n("green"), n("blue"), com_const)
+                    .into_iter()
+                    .map(|(rotulo, texto)| json!({"label": rotulo, "textEdit": {"range": alcance, "newText": texto}}))
+                    .collect();
+                resposta(&id, json!(lista))
             }
             // `dart/textDocument/augmented` e `augmentation` (§8.6).
             "dart/textDocument/augmented" | "dart/textDocument/augmentation" => {

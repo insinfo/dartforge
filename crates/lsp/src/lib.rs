@@ -46,6 +46,7 @@ mod destaques;
 mod descricao;
 mod indice;
 mod links;
+mod cores;
 mod augmentations;
 mod mover_arquivo;
 mod inserir;
@@ -517,6 +518,18 @@ pub trait Analisador {
     /// classe ou as sobrescritas de um membro, com a URI de cada uma.
     fn implementacoes(&mut self, _documentos: &DocumentStore, _uri: &str, _offset: usize) -> Vec<(String, dartforge_diagnostics::Span)> {
         Vec::new()
+    }
+
+    /// As cores de `uri` (`textDocument/documentColor`): o intervalo e o
+    /// ARGB de 0 a 255.
+    fn cores(&mut self, _documentos: &DocumentStore, _uri: &str) -> Vec<(dartforge_diagnostics::Span, [u8; 4])> {
+        Vec::new()
+    }
+
+    /// `textDocument/colorPresentation`: o `Color` do Flutter existe e a
+    /// expressão em `offset` exige `const` (`None`: sem o `Color`).
+    fn apresentacao_de_cor(&mut self, _documentos: &DocumentStore, _uri: &str, _offset: usize) -> Option<bool> {
+        None
     }
 
     /// As lentes de augmentation de `uri` (`AugmentationCodeLensProvider`):
