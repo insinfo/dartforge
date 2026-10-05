@@ -16,7 +16,7 @@ use crate::DocumentStore;
 use dartforge_elements::config::PackageConfig;
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_frontend::ast::{self, DeclKind, DirectiveKind};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use url::Url;
@@ -44,11 +44,22 @@ enum Impressao {
     Disco(Option<(SystemTime, u64)>),
 }
 
+/// Um nome público de topo: a espécie, o início da declaração e, numa
+/// função, se a lista de parâmetros é vazia.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Declarado {
+    pub especie: Especie,
+    pub inicio: usize,
+    pub sem_parametros: bool,
+}
+
 /// O resumo de um arquivo.
 #[derive(Debug, Clone, Default)]
 struct Resumo {
-    /// Nomes públicos de topo e espécies (um setter entra pelo nome-base).
-    declarados: HashMap<String, Especie>,
+    /// Nomes públicos de topo (um setter entra pelo nome-base).
+    declarados: HashMap<String, Declarado>,
+    /// Os nomes de `declarados` na ordem das declarações.
+    ordem: Vec<String>,
     /// As URIs das partes, como escritas.
     partes: Vec<String>,
     /// As URIs exportadas, com os combinadores (`true` = `show`).
@@ -60,36 +71,39 @@ fn resumir(texto: &str) -> Resumo {
     let mut nomes = dartforge_intern::Interner::new();
     let a = dartforge_frontend::parser::parse(texto, &mut nomes);
     let mut r = Resumo::default();
-    let mut por = |n: Option<ast::Name>, e: Especie, r: &mut Resumo| {
+    let mut por = |n: Option<ast::Name>, especie: Especie, inicio: usize, sem_parametros: bool, r: &mut Resumo| {
         if let Some(n) = n {
             let s = nomes.resolve(n.sym).to_string();
-            if !s.starts_with('_') {
-                r.declarados.entry(s).or_insert(e);
+            if !s.starts_with('_') && !r.declarados.contains_key(&s) {
+                r.ordem.push(s.clone());
+                r.declarados.insert(s, Declarado { especie, inicio, sem_parametros });
             }
         }
     };
     for &d in &a.unit.declarations {
-        match &a.ast.decl(d).kind {
-            DeclKind::Class(c) => por(Some(c.name), Especie::Classe, &mut r),
-            DeclKind::Mixin(m) => por(Some(m.name), Especie::Mixin, &mut r),
-            DeclKind::Enum(e) => por(Some(e.name), Especie::Enum, &mut r),
-            DeclKind::ExtensionType(e) => por(Some(e.name), Especie::TipoDeExtensao, &mut r),
+        let decl = a.ast.decl(d);
+        let inicio = decl.span.start;
+        match &decl.kind {
+            DeclKind::Class(c) => por(Some(c.name), Especie::Classe, inicio, false, &mut r),
+            DeclKind::Mixin(m) => por(Some(m.name), Especie::Mixin, inicio, false, &mut r),
+            DeclKind::Enum(e) => por(Some(e.name), Especie::Enum, inicio, false, &mut r),
+            DeclKind::ExtensionType(e) => por(Some(e.name), Especie::TipoDeExtensao, inicio, false, &mut r),
             DeclKind::Typedef(t) => {
                 let e = if matches!(t.kind, ast::TypedefKind::Legacy { .. }) { Especie::AliasDeFuncao } else { Especie::AliasDeTipo };
-                por(Some(t.name), e, &mut r)
+                por(Some(t.name), e, inicio, false, &mut r)
             }
-            DeclKind::Extension(x) => por(x.name, Especie::Extensao, &mut r),
+            DeclKind::Extension(x) => por(x.name, Especie::Extensao, inicio, false, &mut r),
             DeclKind::Function(f) => {
                 let func = a.ast.function(*f);
-                let e = match func.kind {
-                    ast::FunctionKind::Getter | ast::FunctionKind::Setter => Especie::Variavel,
-                    _ => Especie::Funcao,
+                let (e, sem) = match func.kind {
+                    ast::FunctionKind::Getter | ast::FunctionKind::Setter => (Especie::Variavel, false),
+                    _ => (Especie::Funcao, func.parameters.as_ref().is_none_or(|p| p.is_empty())),
                 };
-                por(func.name, e, &mut r)
+                por(func.name, e, inicio, sem, &mut r)
             }
             DeclKind::Variables(vl) => {
                 for v in vl.variables.iter() {
-                    por(Some(v.name), Especie::Variavel, &mut r);
+                    por(Some(v.name), Especie::Variavel, inicio, false, &mut r);
                 }
             }
         }
@@ -191,14 +205,14 @@ impl IndiceDeBibliotecas {
         let r = self.resumo(biblioteca, documentos)?.clone();
         // As declarações da biblioteca e das partes ganham dos exports.
         if let Some(e) = r.declarados.get(nome) {
-            return Some((biblioteca.to_path_buf(), *e));
+            return Some((biblioteca.to_path_buf(), e.especie));
         }
         for p in &r.partes {
             if let Some(cp) = resolvedor.caminho(biblioteca, p)
                 && let Some(rp) = self.resumo(&cp, documentos)
                 && let Some(e) = rp.declarados.get(nome)
             {
-                return Some((biblioteca.to_path_buf(), *e));
+                return Some((biblioteca.to_path_buf(), e.especie));
             }
         }
         let mut achado = None;
@@ -213,6 +227,54 @@ impl IndiceDeBibliotecas {
             }
         }
         achado
+    }
+
+    /// O `exportNamespace.definedNames` da biblioteca, em ordem: as
+    /// declarações da biblioteca e das partes, depois as dos `export` (com
+    /// `show`/`hide`) cujo nome ainda não entrou; cada nome com o arquivo
+    /// que o declara.
+    pub(crate) fn exportados(&mut self, biblioteca: &Path, resolvedor: &Resolvedor<'_>, documentos: &DocumentStore) -> Vec<(String, PathBuf, Declarado)> {
+        let mut saida = Vec::new();
+        let mut nomes = HashSet::new();
+        let mut vistos = BTreeSet::new();
+        self.exportados_em(biblioteca, resolvedor, documentos, &mut vistos, &|_: &str| true, &mut saida, &mut nomes);
+        saida
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn exportados_em(
+        &mut self,
+        biblioteca: &Path,
+        resolvedor: &Resolvedor<'_>,
+        documentos: &DocumentStore,
+        vistos: &mut BTreeSet<PathBuf>,
+        filtro: &dyn Fn(&str) -> bool,
+        saida: &mut Vec<(String, PathBuf, Declarado)>,
+        nomes: &mut HashSet<String>,
+    ) {
+        if !vistos.insert(biblioteca.to_path_buf()) {
+            return;
+        }
+        let Some(r) = self.resumo(biblioteca, documentos).cloned() else { return };
+        for n in &r.ordem {
+            if filtro(n) && nomes.insert(n.clone()) {
+                saida.push((n.clone(), biblioteca.to_path_buf(), r.declarados[n]));
+            }
+        }
+        for p in &r.partes {
+            let Some(cp) = resolvedor.caminho(biblioteca, p) else { continue };
+            let Some(rp) = self.resumo(&cp, documentos).cloned() else { continue };
+            for n in &rp.ordem {
+                if filtro(n) && nomes.insert(n.clone()) {
+                    saida.push((n.clone(), cp.clone(), rp.declarados[n]));
+                }
+            }
+        }
+        for (u, combinadores) in &r.exports {
+            let Some(alvo) = resolvedor.caminho(biblioteca, u) else { continue };
+            let passa = |n: &str| filtro(n) && combinadores.iter().all(|(show, ns)| if *show { ns.iter().any(|x| x == n) } else { !ns.iter().any(|x| x == n) });
+            self.exportados_em(&alvo, resolvedor, documentos, vistos, &passa, saida, nomes);
+        }
     }
 }
 

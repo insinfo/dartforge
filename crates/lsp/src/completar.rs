@@ -150,6 +150,9 @@ enum Sentinela {
 pub(crate) struct Indices<'a> {
     pub sdk: &'a IndiceSdk,
     pub projeto: &'a mut IndiceProjeto,
+    /// Os resumos das bibliotecas conhecidas (`FileStateFilter` e
+    /// `exportNamespace`) dos não importados.
+    pub conhecidas: &'a mut crate::conhecidas::IndiceDeBibliotecas,
 }
 
 mod grupo {
@@ -167,7 +170,6 @@ mod grupo {
 
 /// Teto de itens de bibliotecas não importadas numa resposta; acima dele a
 /// lista sai com `isIncomplete` e o editor pede de novo a cada tecla.
-const TETO_NAO_IMPORTADOS: usize = 200;
 
 const PALAVRAS_DE_EXPRESSAO: &[&str] = &["const", "false", "new", "null", "true"];
 const PALAVRAS_DE_COMANDO: &[&str] = &[
@@ -420,7 +422,7 @@ pub(crate) fn completar(
         && !parte
     {
         incompleta = coletor.nao_importados(
-            &consulta, unidade, texto, digitado, so_tipos, indices, documentos,
+            &consulta, unidade, texto, so_tipos, sdk, indices, documentos,
         );
     }
 
@@ -1185,117 +1187,114 @@ impl Coletor {
         self.palavras(&["dynamic", "void"]);
     }
 
-    /// Nomes públicos de bibliotecas ainda não importadas (SDK e projeto)
-    /// que casam com o digitado e não estão visíveis, cada um com o `import`
-    /// que o torna visível. Devolve se a lista foi cortada no teto.
+    /// O `NotImportedCompletionPass` (docs/LSP-ESPECIFICACAO.md §14.9) com
+    /// a `StaticMembersOperation`: para cada biblioteca conhecida que o
+    /// `FileStateFilter` aceita (na ordem de `conhecidas::candidatas`), que
+    /// não é a do pedido nem está importada sem combinadores pela unidade
+    /// definidora (`_ImportSummary`), as declarações do `exportNamespace`
+    /// (`_addExternalTopLevelDeclarations`: só tipos com `mustBeType`), cada
+    /// uma com o `import` que a torna visível. O `VisibilityTracker` esconde
+    /// as de nome já sugerido pelo escopo; o filtro pelo digitado é o do
+    /// coletor. Não corta: o `isIncomplete` do Dart vem só do orçamento.
     #[allow(clippy::too_many_arguments)]
     fn nao_importados(
         &mut self,
         consulta: &Consulta,
         unidade: dartforge_elements::model::UnitId,
         texto: &str,
-        digitado: &str,
         so_tipos: bool,
+        sdk: &SdkLayout,
         indices: Indices<'_>,
         documentos: &DocumentStore,
     ) -> bool {
+        use crate::conhecidas::Especie as E;
         let programa = &consulta.programa;
         let lib = programa.library(self.biblioteca);
         let Some(arquivo) = programa.unit(unidade).path.clone() else {
             return false;
         };
-        let visivel = |nome: &str| lib.scope.keys().any(|s| consulta.nome(*s) == nome);
-        let importadas: HashSet<String> = lib
+        let declarados: HashSet<String> = lib
+            .scope
+            .keys()
+            .map(|s| consulta.nome(*s).to_string())
+            .chain(self.itens.iter().map(|i| i.inserir.clone()))
+            .collect();
+        let definidora = lib.units.first().copied();
+        let chave = |c: &std::path::Path| dartforge_elements::gerado::chave(c);
+        let importadas: HashSet<PathBuf> = lib
             .imports
             .iter()
-            .map(|i| programa.library(i.library).uri.clone())
+            .filter(|i| Some(i.unit) == definidora && i.combinators.is_empty())
+            .filter_map(|i| programa.library(i.library).units.first())
+            .filter_map(|u| programa.unit(*u).path.as_deref().map(chave))
             .collect();
-        let mut candidatos: Vec<(u8, String, crate::indice::Declarado)> = Vec::new();
-        for (nome, por_uri) in &indices.sdk.por_nome {
-            let Some(q) = crate::aproximado::pontuar(digitado, nome) else {
-                continue;
-            };
-            if visivel(nome) {
-                continue;
-            }
-            for (uri, d) in por_uri {
-                if uri != "dart:core" && !importadas.contains(uri) && (!so_tipos || d.tipo) {
-                    candidatos.push((q, uri.clone(), d.clone()));
-                }
-            }
-        }
-        let raiz = crate::projeto::raiz_do_projeto(&arquivo);
-        let pacote = crate::indice::nome_do_pacote(&raiz);
         let proprias: HashSet<PathBuf> = lib
             .units
             .iter()
-            .filter_map(|u| programa.unit(*u).path.clone())
+            .filter_map(|u| programa.unit(*u).path.as_deref().map(chave))
             .collect();
-        for (caminho, nomes) in indices.projeto.atualizar(&raiz, documentos) {
-            if proprias.contains(caminho) {
+        let resolvedor = crate::conhecidas::Resolvedor {
+            sdk: Some(sdk),
+            pacotes: dartforge_elements::config::PackageConfig::discover(&arquivo)
+                .and_then(|c| dartforge_elements::config::PackageConfig::load(&c).ok()),
+        };
+        let raiz = crate::projeto::raiz_do_projeto(&arquivo);
+        let pacote = crate::indice::nome_do_pacote(&raiz);
+        let unit = &programa.unit(unidade).unit;
+        let conhecidas = indices.conhecidas;
+        for candidata in crate::conhecidas::candidatas(&arquivo, Some(sdk), conhecidas, documentos) {
+            let k = chave(&candidata.caminho);
+            if proprias.contains(&k) || importadas.contains(&k) {
                 continue;
             }
-            let Some(uri) =
-                crate::indice::uri_de_import(&arquivo, caminho, &raiz, pacote.as_deref())
-            else {
-                continue;
+            // O texto da URI no `import`: `dart:`/`package:` como estão; um
+            // arquivo do projeto fora de `lib/`, relativo.
+            let uri = if candidata.sdk || candidata.uri.starts_with("package:") {
+                candidata.uri.clone()
+            } else {
+                match crate::indice::uri_de_import(&arquivo, &candidata.caminho, &raiz, pacote.as_deref()) {
+                    Some(u) => u,
+                    None => continue,
+                }
             };
-            let absoluto = url::Url::from_file_path(caminho)
-                .map(|u| u.to_string())
-                .unwrap_or_default();
-            if importadas.contains(&uri) || importadas.contains(&absoluto) {
-                continue;
-            }
-            for d in nomes {
-                if let Some(q) = crate::aproximado::pontuar(digitado, &d.nome)
-                    && !visivel(&d.nome)
-                    && (!so_tipos || d.tipo)
-                {
-                    candidatos.push((q, uri.clone(), d.clone()));
+            for (nome, origem, d) in conhecidas.exportados(&candidata.caminho, &resolvedor, documentos) {
+                let tipo = crate::conhecidas::DE_TIPO.contains(&d.especie);
+                if (so_tipos && !tipo) || declarados.contains(&nome) {
+                    continue;
+                }
+                let (especie_lsp, rel) = match d.especie {
+                    E::Classe | E::TipoDeExtensao => (especie::CLASSE, crate::relevancia::Especie::Classe),
+                    E::Mixin => (especie::CLASSE, crate::relevancia::Especie::Mixin),
+                    E::Enum => (especie::ENUM, crate::relevancia::Especie::Enum),
+                    E::AliasDeFuncao => (especie::CLASSE, crate::relevancia::Especie::AliasDeFuncao),
+                    E::AliasDeTipo | E::Extensao => (especie::CLASSE, crate::relevancia::Especie::SemTabela),
+                    E::Funcao => (especie::FUNCAO, crate::relevancia::Especie::Funcao),
+                    E::Variavel => (especie::VARIAVEL, crate::relevancia::Especie::VariavelDeTopo),
+                };
+                let funcao = d.especie == E::Funcao;
+                let rotulo = match (funcao, d.sem_parametros) {
+                    (true, true) => format!("{nome}()"),
+                    (true, false) => format!("{nome}(…)"),
+                    _ => nome.clone(),
+                };
+                let (span, novo) = crate::acoes::inserir_import(texto, unit, &uri);
+                let item = self.empurrar(
+                    grupo::NAO_IMPORTADO,
+                    especie_lsp,
+                    rotulo,
+                    nome.clone(),
+                    Some(format!("Auto import from '{uri}'")),
+                );
+                item.importar = Some(ImportAutomatico { uri: uri.clone(), span, texto: novo });
+                item.origem = Some((origem, d.inicio));
+                item.rel.nao_importado = true;
+                item.rel.especie = Some(rel);
+                if funcao {
+                    item.chamada = Some(if d.sem_parametros { Chamada::Parametros(Vec::new()) } else { Chamada::Desconhecida });
                 }
             }
         }
-        candidatos.sort_by(|a, b| (a.0, &a.2.nome, &a.1).cmp(&(b.0, &b.2.nome, &b.1)));
-        let incompleta = candidatos.len() > TETO_NAO_IMPORTADOS;
-        let unit = &programa.unit(unidade).unit;
-        for (_, uri, d) in candidatos.into_iter().take(TETO_NAO_IMPORTADOS) {
-            let (span, novo) = crate::acoes::inserir_import(texto, unit, &uri);
-            let funcao = d.especie == especie::FUNCAO;
-            let rotulo = match (funcao, d.sem_parametros) {
-                (true, true) => format!("{}()", d.nome),
-                (true, false) => format!("{}(…)", d.nome),
-                _ => d.nome.clone(),
-            };
-            let item = self.empurrar(
-                grupo::NAO_IMPORTADO,
-                d.especie,
-                rotulo,
-                d.nome.clone(),
-                Some(format!("Auto import from '{uri}'")),
-            );
-            item.importar = Some(ImportAutomatico {
-                uri,
-                span,
-                texto: novo,
-            });
-            item.origem = Some((d.arquivo.clone(), d.inicio));
-            item.rel.nao_importado = true;
-            item.rel.especie = Some(if funcao {
-                crate::relevancia::Especie::Funcao
-            } else if d.tipo {
-                crate::relevancia::Especie::Classe
-            } else {
-                crate::relevancia::Especie::VariavelDeTopo
-            });
-            if funcao {
-                item.chamada = Some(if d.sem_parametros {
-                    Chamada::Parametros(Vec::new())
-                } else {
-                    Chamada::Desconhecida
-                });
-            }
-        }
-        incompleta
+        false
     }
 
     /// Nomes visíveis no identificador sondado.

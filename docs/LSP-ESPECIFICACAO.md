@@ -15047,6 +15047,14 @@ snippets de código de 14.8.9 pelo contexto do `CompletionTarget`, e o `resolve`
 "Auto import from", documentação). Continuam como antes: a escolha dos candidatos (contexto pelo
 sentinela, não pelos `visit*` de 14.14) e a ordem de chegada aproximada pelos grupos do coletor.
 
+Os não importados (14.9) seguem o `NotImportedCompletionPass` com a `StaticMembersOperation`: as
+bibliotecas de `conhecidas::candidatas` (o `FileStateFilter`), menos a do pedido e as importadas sem
+combinadores pela unidade definidora (`_ImportSummary`); de cada uma, o `exportNamespace` em ordem
+(declarações da biblioteca e das partes, depois os `export` com `show`/`hide`), só tipos com
+`mustBeType`; o `VisibilityTracker` esconde os nomes já sugeridos pelo escopo; sem teto nem
+ordenação próprios (o coletor filtra pelo `FuzzyMatcher` e trunca). Faltam a `ConstructorsOperation`
+e a `InstanceExtensionMembersOperation` (membros de extensão não importada aplicáveis ao receptor).
+
 O que cada divergência de 14.5 pede, e onde está a regra:
 
 | divergência | regra | o que implementar em `crates/lsp` |

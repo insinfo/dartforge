@@ -512,10 +512,10 @@ impl Analisador for AnalisadorSemantico {
         self.sdk.as_ref()?;
         self.indice_sdk();
         let self_maximo = self.maximo_de_completar;
-        let AnalisadorSemantico { sdk: Some(sdk), indice_sdk: Some(indice), indice_projeto, .. } = self else {
+        let AnalisadorSemantico { sdk: Some(sdk), indice_sdk: Some(indice), indice_projeto, conhecidas, .. } = self else {
             return None;
         };
-        let indices = crate::completar::Indices { sdk: indice, projeto: indice_projeto };
+        let indices = crate::completar::Indices { sdk: indice, projeto: indice_projeto, conhecidas };
         crate::completar::completar(sdk, indices, documentos, uri, texto, offset, features, self_maximo)
     }
 }
