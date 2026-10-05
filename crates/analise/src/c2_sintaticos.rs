@@ -16,6 +16,8 @@
 //!   `expected_one_list_pattern_type_arguments`,
 //!   `expected_two_map_pattern_type_arguments`;
 //! * família F: `unused_label` (`dead_code_verifier.dart:159-174`);
+//! * `yield_in_non_generator` no comando (`YieldStatementResolver`,
+//!   `yield_statement_resolver.dart:184-196`; o do parser fica no `yield`);
 //! * família B: `unnecessary_final` (`best_practices_verifier.dart:828-835`) e
 //!   `late_final_field_with_const_constructor` (`error_verifier.dart:4068-4091`).
 //!
@@ -485,7 +487,15 @@ impl<'a> Visita<'a> {
                 }
                 self.expr(*e);
             }
-            StmtKind::Yield { value, .. } => self.expr(*value),
+            StmtKind::Yield { star, value } => {
+                // `YieldStatementResolver._resolve_notGenerator`: no comando
+                // inteiro, `YIELD_EACH_IN_NON_GENERATOR` com `*`.
+                if !matches!(self.modificador, AsyncModifier::SyncStar | AsyncModifier::AsyncStar) {
+                    let codigo = if *star { c::YIELD_EACH_IN_NON_GENERATOR } else { c::YIELD_IN_NON_GENERATOR };
+                    self.relatar(codigo, no.span, &[]);
+                }
+                self.expr(*value)
+            }
             StmtKind::Try { body, catches, finally_ } => {
                 self.stmt(*body);
                 for k in catches.iter() {

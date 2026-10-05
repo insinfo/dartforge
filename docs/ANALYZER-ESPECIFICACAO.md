@@ -4848,6 +4848,14 @@ Esta parte foi **gerada por script** (`E:\dftemp\analise\spec-r4\final\guardas.p
 `yield_in_non_generator` (fora de gerador o `yield` não vira comando). O resto da família não foi
 tocado nesta data.
 
+**Estado em 2026-10-05 (escrito, não compilado).** `non_sync_factory` e
+`invalid_modifier_on_constructor` saem do parser (`parser/declarations.rs`, `parse_constructor_resto`).
+`yield_in_non_generator`: o parser só faz do `yield` comando onde o fasta faz (`looksLikeYieldStatement`)
+e então relata como o `parseYieldStatement`, no token `yield` (`YIELD_IN_NON_GENERATOR` também com
+`*`); o `c2_sintaticos` relata de novo no comando inteiro, como o `YieldStatementResolver`
+(`YIELD_EACH_IN_NON_GENERATOR` com `*`). São dois diagnósticos, de intervalos diferentes, como no
+analyzer.
+
 ### Parte A_heranca — herança, sobrescrita e conflitos de membros (analyzer 3.6.2)
 
 Fonte citada: `E:\references\dart-sdk-3.6.2\pkg\analyzer\lib` (prefixo `analyzer/lib/` omitido abaixo:

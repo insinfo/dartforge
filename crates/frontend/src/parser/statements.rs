@@ -857,10 +857,18 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// `yield e;` / `yield* e;`
     fn parse_yield(&mut self, start: Span) -> PResult<StmtId> {
+        let palavra = self.span();
         self.advance();
         let star = self.eat_op(Op::Star);
         let value = self.parse_expression()?;
         self.expect_semicolon()?;
+        // `parseYieldStatement`: fora de gerador, o `messageYieldNotGenerator`
+        // no `yield` (o `YIELD_IN_NON_GENERATOR` do analyzer, também com
+        // `*`); o comando continua na árvore, e o resolvedor relata de novo
+        // (`c2_sintaticos`).
+        if !self.in_generator {
+            self.erro_em(codigos::compile_time_error::YIELD_IN_NON_GENERATOR, palavra, &[]);
+        }
         Ok(self.push_stmt(start, StmtKind::Yield { star, value }))
     }
 
