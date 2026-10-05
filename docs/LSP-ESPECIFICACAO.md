@@ -1585,6 +1585,20 @@ cerca de 90% (soma das posições de causa única: 45 + 71 + 26 + 37 = 179 de
 
 ### 7.6 Para implementar: a árvore no formato do analyzer
 
+**Estado em 2026-10-05 (escrito, não compilado).** `crates/lsp/src/arvore_analyzer.rs` monta a árvore no
+formato do analyzer sobre a do parser e os tokens (etapas 1 a 6 da tabela abaixo de uma vez): os nós de
+7.3 com os intervalos e a ordem de visita, inclusive os sintetizados (`FormalParameterList` com os
+parênteses, `DefaultFormalParameter` em todo opcional e nomeado, `VariableDeclarationList` de campo, de
+topo, de comando e de `for`, `TypeArgumentList`/`TypeParameterList` pelos `<`/`>`, `BlockFunctionBody` com
+o `async`, `ExpressionFunctionBody` com o `;` nas declarações, `EmptyFunctionBody`, as cláusulas, os
+inicializadores, `ConstructorName`, os identificadores-nó (`returnType`, prefixo de import, nomes de
+`show`/`hide`, nome de anotação, rótulos), `Annotation` em todo lugar, `Comment` com as
+`CommentReference`, as partes de `for`, `DeclaredIdentifier`, `CaseClause`/`GuardedPattern`/`WhenClause`,
+os elementos de coleção, as seções de cascata a partir do `..`, `NamedExpression` com o `Label`, as
+strings interpoladas e adjacentes, os padrões), na forma não resolvida (`A()` é `MethodInvocation`). O
+`localizar` é o `NodeLocator` (fim inclusivo, primeiro filho que cobre, as sobrescritas em `name.end`), e
+`estrutura::selecoes` passa a ser a cadeia dele.
+
 **Estado no DartForge.** `crates/lsp/src/estrutura.rs:644-771` (vetor plano
 de spans, descrito em 7.4); 48% no oráculo; nenhuma outra parte do servidor
 tem um `NodeLocator` (os assists decidem pela árvore do parser:

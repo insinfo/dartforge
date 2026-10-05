@@ -15,6 +15,7 @@
 
 pub mod servidor;
 mod acoes;
+mod arvore_analyzer;
 mod assinatura;
 mod assistencias;
 mod assistencias2;
