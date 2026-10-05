@@ -1522,11 +1522,40 @@ fn prefixo_de_import_nao_resolvido(inf: &BodyInferrer<'_>, cx: &Corpo, p: dartfo
         })
 }
 
+/// `_checkForConstWithUndefinedConstructor` (`error_verifier.dart:3020-3045`):
+/// `const C.nome()` sem o construtor é `CONST_WITH_UNDEFINED_CONSTRUCTOR` no
+/// nome (com o nome qualificado escrito e o do construtor); `const C()` sem
+/// o sem nome, `CONST_WITH_UNDEFINED_CONSTRUCTOR_DEFAULT` no tipo nomeado
+/// inteiro.
+fn construtor_constante_indefinido(
+    inf: &mut BodyInferrer<'_>,
+    a: &ast::Ast,
+    ty: ast::TypeId,
+    name: &[ast::Name],
+    constructor: Option<ast::Name>,
+    ctor_do_nome: bool,
+) {
+    use dartforge_diagnostics::codigos::compile_time_error as c;
+    let partes = if ctor_do_nome { &name[..1] } else { name };
+    let qualificado = partes.iter().map(|n| inf.interner.resolve(n.sym)).collect::<Vec<_>>().join(".");
+    match constructor {
+        Some(n) => {
+            let nome = inf.interner.resolve(n.sym).to_string();
+            inf.aviso_com_codigo(c::CONST_WITH_UNDEFINED_CONSTRUCTOR, n.span, &[&qualificado, &nome]);
+        }
+        None => {
+            let sp = a.ty(ty).span;
+            inf.aviso_com_codigo(c::CONST_WITH_UNDEFINED_CONSTRUCTOR_DEFAULT, sp, &[&qualificado]);
+        }
+    }
+}
+
 /// `new C<T>.nome(args)` / `const C(args)`.
 pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx: TypeId) -> TypeId {
     let a = &inf.program.unit(cx.unit).ast;
-    let ExprKind::InstanceCreation { ty, constructor, arguments, .. } = &a.expr(e).kind else { unreachable!() };
+    let ExprKind::InstanceCreation { ty, constructor, arguments, keyword } = &a.expr(e).kind else { unreachable!() };
     let (ty, constructor, args): (ast::TypeId, Option<ast::Name>, &ast::Arguments) = (*ty, *constructor, arguments);
+    let constante = matches!(keyword, Some(ast::CreationKeyword::Const));
     let node = a.ty(ty);
     let ast::TypeKind::Named { name, args: targs } = &node.kind else {
         for x in args.args.iter() {
@@ -1597,6 +1626,9 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
     if inf.program.class(c).kind == ClassKind::Mixin {
         let sp = if constructor.is_some() && ctor_do_nome { name[0].span } else { a.ty(ty).span };
         inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::MIXIN_INSTANTIATE, sp, &[]);
+        if constante {
+            construtor_constante_indefinido(inf, a, ty, name, constructor, ctor_do_nome);
+        }
         for x in args.args.iter() {
             inferir_livre(inf, cx, x.value);
         }
@@ -1613,6 +1645,9 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
         return inf.core.dynamic_;
     }
     let Some(f) = f else {
+        if constante {
+            construtor_constante_indefinido(inf, a, ty, name, constructor, ctor_do_nome);
+        }
         // Sem construtor declarado: o padrão implícito (gerador).
         if constructor.is_none() && inf.program.class(c).constructors.is_empty() {
             let k = inf.program.class(c);

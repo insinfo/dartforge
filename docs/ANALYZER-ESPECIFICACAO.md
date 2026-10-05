@@ -14010,6 +14010,11 @@ const_with_undefined_constructor off=41 len=10 4:17 | The class 'A' doesn't have
 | 10: `const d = P.zz(1);` | `const_initialized_with_non_constant_value off=158 len=7 10:11` + `undefined_method off=160 len=2 10:13` |
 | 11: `const e = [P.nc(1), P.zz(2)];` | `const_initialized_with_non_constant_value off=178 len=7`, `const_with_non_const off=178 len=7`, `non_constant_list_element off=178 len=7` (11:12); `non_constant_list_element off=187 len=7 11:21` + `undefined_method off=189 len=2` |
 
+**Estado em 2026-10-05 (escrito, não compilado).** `const_with_undefined_constructor` e
+`…_default` em `chamadas::instanciacao` (criação com `const` escrito sem o construtor; também num
+mixin, junto do `mixin_instantiate`); `invalid_type_argument_in_const_literal` no verificador de
+constantes (`argumento_de_tipo_const`, pela forma escrita e o tipo resolvido de cada anotação).
+
 ##### `const_with_undefined_constructor_default` (perda 2: FN 2, FP 0, msg 0, pos 0)
 - **Emissão:** o mesmo método, ramo `name == null` (`error_verifier.dart:3036-3042`).
 - **Condição exata:** criação com `const` escrito, tipo `InterfaceType`, sem nome de construtor, `staticElement == null` (a classe só
@@ -20135,6 +20140,10 @@ Nome próprio só no 3.13; no 3.6.2 é `WarningCode.UNUSED_ELEMENT_PARAMETER` co
 - **Posição:** `directive.uri`. **Mensagem:** "The included part '{0}' must have a part-of directive." (`includedFile.uriStr`: `dart:…`, `package:…`, `file:///abs`).
 - **No DartForge:** não emitido (`elements/src/load.rs:572-580` pula a parte que já é unidade; `verify_part_of` (`:1398-1407`) gera diagnóstico sem código no span 0). Exemplos: `import/internal_library_test.dart`, `part/self_test.dart`. Proposta: fase 2 de `paridade/src/analise.rs` para `Part` com alvo existente sem `PartOf`.
 
+**Estado em 2026-10-05 (escrito, não compilado).** `part_of_non_part` na fase 2 de
+`crates/paridade/src/analise.rs` (`parte_sem_part_of`: o alvo existente sem `part of`, pelo texto aberto,
+pela unidade carregada ou pelo disco; a `uriStr` da unidade, ou a escrita, ou `file:///…`).
+
 ##### `type_test_with_undefined_name` (perda 2: FP 2)
 
 - **Emissão:** `reportNullOrNonTypeElement`, ramo `_isTypeInIsExpression` com `element == null` (`named_type_resolver.dart:555-573`).
@@ -20161,6 +20170,11 @@ Nome próprio só no 3.13; no 3.6.2 é `WarningCode.UNUSED_ELEMENT_PARAMETER` co
 - **Condição:** `type is NamedType && type.isDeferred` (`analyzer/lib/src/dart/ast/ast.dart:12695-12705`): prefixo `PrefixElement` com **exatamente um** import, e ele `deferred`; independe de o nome resolver.
 - **Posição:** o `NamedType` inteiro. **Mensagem:** `The deferred type '{0}' can't be used in a declaration, cast, or type test.` (`messages.yaml:16288`), `{0}` = `prefixo.Nome`.
 - **No DartForge:** não implementado; FN `regress/regress23408a_test.dart:17` (`factory C.l() = A<lib.K>;`). Proposta: verificador sintático em `crates/analise` nas posições acima (pode reaproveitar `Leitor::adiado`, `clausulas.rs:200-210`, exigindo `count == 1` e prefixo não escondido).
+
+**Estado em 2026-10-05 (escrito, não compilado).** `type_annotation_deferred_class` em
+`crates/analise/src/importacoes.rs` (`tipos_adiados`), sobre as arenas do AST: `as`/`is`, `on`, tipos de
+parâmetro (também dentro de tipos de função e da forma antiga), retornos de declaração, limites de
+parâmetro de tipo, listas de variáveis e os elementos de toda lista de argumentos de tipo.
 
 ##### `undefined_identifier_await` (perda 1: FN 1)
 

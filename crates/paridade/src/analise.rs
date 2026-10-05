@@ -306,6 +306,11 @@ impl Motor {
                 }
                 if let Some(d) = self.diretiva_sem_alvo(&texto, &base, config.as_ref(), lit.span, parte) {
                     analise.arquivos.get_mut(k).expect("próprio").diags.push(d);
+                } else if parte && let Some(uri_do_alvo) = self.parte_sem_part_of(&texto, &base, config.as_ref(), &program, &textos) {
+                    // `_resolvePartDirective` (`library_analyzer.dart:971-1032`):
+                    // o arquivo existe e não é parte.
+                    let d = Diagnostic::com_codigo(codigos::compile_time_error::PART_OF_NON_PART, lit.span, [uri_do_alvo.as_str()]);
+                    analise.arquivos.get_mut(k).expect("próprio").diags.push(d);
                 }
             }
         }
@@ -410,6 +415,7 @@ impl Motor {
                 .into_iter()
                 .chain(dartforge_analise::importacoes::nomes_mostrados_indefinidos(&program, *lib, &interner))
                 .chain(dartforge_analise::importacoes::exports_ambiguos(&program, *lib, &interner))
+                .chain(dartforge_analise::importacoes::tipos_adiados(&program, *lib, &interner))
                 // FASES NOVAS (INFRA etapa 6): os verificadores de aviso por biblioteca.
                 .chain(dartforge_analise::fases::diretivas_repetidas(&program, *lib, &interner))
                 // As anotações do `package:meta` (lote II.7). API pública:
@@ -908,6 +914,59 @@ impl Motor {
             a.sintaticos -= removidos_sintaticos;
         }
         Some(analise)
+    }
+
+    /// O alvo de uma `part` existe e não tem `part of` (o `kind` dele não é
+    /// `PartFileKind`): a `uriStr` dele (a da unidade carregada, senão
+    /// `dart:`/`package:` como escrita, senão `file:///…`).
+    fn parte_sem_part_of(
+        &self,
+        uri: &str,
+        base: &Path,
+        config: Option<&dartforge_elements::PackageConfig>,
+        program: &dartforge_elements::model::Program,
+        textos: &HashMap<std::path::PathBuf, String>,
+    ) -> Option<String> {
+        let caminho = if let Some(nome) = uri.strip_prefix("dart:") {
+            match nome.split_once('/') {
+                Some((lib, resto)) => self.sdk.libraries.get(lib)?.path.parent()?.join(resto),
+                None => self.sdk.libraries.get(nome)?.path.clone(),
+            }
+        } else if uri.starts_with("package:") {
+            config?.resolve_package_uri(uri).ok()?
+        } else if uri.contains(':') {
+            return None;
+        } else {
+            base.join(uri)
+        };
+        let k = chave(&caminho);
+        let carregada = program.units.iter().find(|u| u.path.as_deref().map(chave).as_ref() == Some(&k));
+        let tem_part_of = |diretivas: &[dartforge_frontend::ast::Directive]| diretivas.iter().any(|d| matches!(d.kind, DirectiveKind::PartOf { .. }));
+        let parte = match (textos.get(&k), carregada) {
+            (Some(texto), _) => {
+                let mut nomes = dartforge_intern::Interner::new();
+                tem_part_of(&dartforge_frontend::parser::parse(texto, &mut nomes).unit.directives)
+            }
+            (None, Some(u)) => tem_part_of(&u.unit.directives),
+            (None, None) => {
+                let texto = std::fs::read_to_string(&caminho).ok()?;
+                let mut nomes = dartforge_intern::Interner::new();
+                tem_part_of(&dartforge_frontend::parser::parse(&texto, &mut nomes).unit.directives)
+            }
+        };
+        if parte {
+            return None;
+        }
+        if let Some(u) = carregada
+            && !u.uri.is_empty()
+        {
+            return Some(u.uri.clone());
+        }
+        if uri.contains(':') {
+            return Some(uri.to_string());
+        }
+        let abs = k.to_string_lossy().replace('\\', "/");
+        Some(format!("file://{}{abs}", if abs.starts_with('/') { "" } else { "/" }))
     }
 
     /// `URI_DOES_NOT_EXIST` / `URI_HAS_NOT_BEEN_GENERATED`

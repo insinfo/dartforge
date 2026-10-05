@@ -43,6 +43,131 @@ fn suprime(d: &Diagnostic) -> bool {
 /// docs/ANALYZER-ESPECIFICACAO.md §A): um import `deferred` cujo namespace,
 /// depois de `show`/`hide`, ainda traz alguma extensão. Na URI do import.
 /// Escrito sem compilar nem executar (2026-10-04).
+/// Os tipos dos parâmetros formais (o de um parâmetro-função é o retorno
+/// dele), também os da forma antiga aninhados.
+fn tipos_de_parametros(ps: &[dartforge_frontend::ast::Parameter], saida: &mut Vec<dartforge_frontend::ast::TypeId>) {
+    for p in ps {
+        saida.extend(p.ty);
+        for tp in p.function_type_params.iter() {
+            saida.extend(tp.bound);
+        }
+        if let Some(fs) = &p.function_parameters {
+            tipos_de_parametros(fs, saida);
+        }
+    }
+}
+
+/// `TYPE_ANNOTATION_DEFERRED_CLASS` (`_checkForTypeAnnotationDeferredClass`,
+/// `an611:src/generated/error_verifier.dart:5369-5377`): um tipo nomeado
+/// `p.T` cujo prefixo tem exatamente um import, e ele `deferred`, numa das
+/// posições que o `ErrorVerifier` confere: `as`/`is`, o `on` de um `catch`,
+/// o tipo de um parâmetro formal, o retorno de função, método ou
+/// parâmetro-função, o limite de um parâmetro de tipo, o tipo de uma lista
+/// de variáveis e cada elemento de toda lista de argumentos de tipo. Fora:
+/// cláusulas, o `typedef` novo, o tipo de função e o registro em si, os
+/// padrões, o `for-in` e o tipo da criação (`new p.T()`). No tipo inteiro,
+/// com `p.T`.
+pub fn tipos_adiados(program: &Program, lib: LibraryId, nomes: &Interner) -> Vec<(dartforge_elements::model::UnitId, Diagnostic)> {
+    use dartforge_frontend::ast::{self, DeclKind, MemberKind, StmtKind};
+    let biblioteca = program.library(lib);
+    let mut por_prefixo: std::collections::HashMap<SymbolId, (usize, bool)> = std::collections::HashMap::new();
+    for i in &biblioteca.imports {
+        if let Some(p) = i.prefix {
+            let e = por_prefixo.entry(p).or_insert((0, false));
+            e.0 += 1;
+            e.1 = i.deferred;
+        }
+    }
+    let adiados: HashSet<SymbolId> = por_prefixo.into_iter().filter(|(_, (n, d))| *n == 1 && *d).map(|(p, _)| p).collect();
+    let mut saida = Vec::new();
+    if adiados.is_empty() {
+        return saida;
+    }
+    let limites = |tps: &[ast::TypeParameter], alvos: &mut Vec<ast::TypeId>| {
+        for tp in tps {
+            alvos.extend(tp.bound);
+        }
+    };
+    for &u in &biblioteca.units {
+        let a = &program.unit(u).ast;
+        let mut alvos: Vec<ast::TypeId> = Vec::new();
+        for ty in &a.types {
+            match &ty.kind {
+                TypeKind::Named { args, .. } => alvos.extend(args.iter().copied()),
+                TypeKind::Function { parameters, type_params, .. } => {
+                    tipos_de_parametros(parameters, &mut alvos);
+                    limites(type_params, &mut alvos);
+                }
+                _ => {}
+            }
+        }
+        for e in &a.exprs {
+            match &e.kind {
+                ExprKind::As { ty, .. } | ExprKind::Is { ty, .. } => alvos.push(*ty),
+                ExprKind::List { type_args, .. } | ExprKind::SetOrMap { type_args, .. } | ExprKind::TypeArguments { type_args, .. } => {
+                    alvos.extend(type_args.iter().copied())
+                }
+                ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => alvos.extend(arguments.type_args.iter().copied()),
+                _ => {}
+            }
+        }
+        for s in &a.stmts {
+            match &s.kind {
+                StmtKind::Variables(l) => alvos.extend(l.ty),
+                StmtKind::Try { catches, .. } => alvos.extend(catches.iter().filter_map(|c| c.on_type)),
+                _ => {}
+            }
+        }
+        for f in &a.functions {
+            if f.name.is_some() {
+                alvos.extend(f.return_type);
+            }
+            if let Some(ps) = &f.parameters {
+                tipos_de_parametros(ps, &mut alvos);
+            }
+            limites(&f.type_params, &mut alvos);
+        }
+        for m in &a.members {
+            match &m.kind {
+                MemberKind::Field(l) => alvos.extend(l.ty),
+                MemberKind::Constructor(c) => tipos_de_parametros(&c.parameters, &mut alvos),
+                MemberKind::Method(_) => {}
+            }
+        }
+        for d in &a.decls {
+            match &d.kind {
+                DeclKind::Variables(l) => alvos.extend(l.ty),
+                DeclKind::Class(k) => limites(&k.type_params, &mut alvos),
+                DeclKind::Mixin(k) => limites(&k.type_params, &mut alvos),
+                DeclKind::Enum(k) => limites(&k.type_params, &mut alvos),
+                DeclKind::Extension(k) => limites(&k.type_params, &mut alvos),
+                DeclKind::ExtensionType(k) => limites(&k.type_params, &mut alvos),
+                DeclKind::Typedef(k) => {
+                    limites(&k.type_params, &mut alvos);
+                    if let ast::TypedefKind::Legacy { return_type, parameters } = &k.kind {
+                        alvos.extend(*return_type);
+                        tipos_de_parametros(parameters, &mut alvos);
+                    }
+                }
+                DeclKind::Function(_) => {}
+            }
+        }
+        alvos.sort();
+        alvos.dedup();
+        for t in alvos {
+            let anotacao = a.ty(t);
+            let TypeKind::Named { name, .. } = &anotacao.kind else { continue };
+            let [p, n] = &name[..] else { continue };
+            if !adiados.contains(&p.sym) {
+                continue;
+            }
+            let texto = format!("{}.{}", nomes.resolve(p.sym), nomes.resolve(n.sym));
+            saida.push((u, Diagnostic::com_codigo(c::TYPE_ANNOTATION_DEFERRED_CLASS, anotacao.span, [texto.as_str()])));
+        }
+    }
+    saida
+}
+
 pub fn extensoes_adiadas(program: &Program, lib: LibraryId) -> Vec<(dartforge_elements::model::UnitId, Diagnostic)> {
     let mut out = Vec::new();
     for imp in &program.library(lib).imports {

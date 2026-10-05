@@ -851,10 +851,15 @@ impl Verificador<'_, '_> {
                     self.expr(a, x.value, em_const);
                 }
             }
-            ExprKind::List { const_, elements, .. } => {
+            ExprKind::List { const_, elements, type_args } => {
                 let c = *const_ || em_const;
                 for el in elements.iter() {
                     self.elemento_filho(a, el, c);
+                }
+                if c {
+                    for &x in type_args.iter() {
+                        self.argumento_de_tipo_const(a, x, c::INVALID_TYPE_ARGUMENT_IN_CONST_LIST);
+                    }
                 }
                 if c {
                     let tipo = self.m.estatico(u, e);
@@ -868,7 +873,7 @@ impl Verificador<'_, '_> {
                     }
                 }
             }
-            ExprKind::SetOrMap { const_, elements, .. } => {
+            ExprKind::SetOrMap { const_, elements, type_args } => {
                 let c = *const_ || em_const;
                 for el in elements.iter() {
                     self.elemento_filho(a, el, c);
@@ -879,6 +884,20 @@ impl Verificador<'_, '_> {
                         Type::Interface { class, args, .. } => (Some(*class), args.to_vec()),
                         _ => (None, Vec::new()),
                     };
+                    // `TypeArgumentsVerifier.checkMapLiteral`/`checkSetLiteral`:
+                    // só com a forma decidida.
+                    let codigo = if classe.is_some() && classe == self.m.core.map_class {
+                        Some(c::INVALID_TYPE_ARGUMENT_IN_CONST_MAP)
+                    } else if classe.is_some() && classe == self.m.core.set_class {
+                        Some(c::INVALID_TYPE_ARGUMENT_IN_CONST_SET)
+                    } else {
+                        None
+                    };
+                    if let Some(codigo) = codigo {
+                        for &x in type_args.iter() {
+                            self.argumento_de_tipo_const(a, x, codigo);
+                        }
+                    }
                     let tl = if classe.is_some() && classe == self.m.core.set_class && args.len() == 1 {
                         Some(TipoLiteral::Conjunto(args[0]))
                     } else if classe.is_some() && classe == self.m.core.map_class && args.len() == 2 {
@@ -1295,6 +1314,60 @@ impl Verificador<'_, '_> {
                     }
                 }
             }
+        }
+    }
+
+    /// O tipo resolvido de uma anotação de tipo da unidade.
+    fn tipo_da_anotacao(&self, x: ast::TypeId) -> Option<TypeId> {
+        let u = self.unidade;
+        self.m.body.units.get(u.0 as usize).and_then(|b| b.tipos_de_anotacoes.get(&x).copied()).or_else(|| self.m.outline.tipos_escritos.get(&(u, x)).copied())
+    }
+
+    /// `_checkTypeArgumentConst` (`type_arguments_verifier.dart:501-544`): um
+    /// argumento de tipo de literal constante que é parâmetro de tipo, no nó
+    /// do tipo; no tipo nomeado com o lexema, nos de função e registro com o
+    /// tipo exibido. Desce nos argumentos, nos parâmetros simples e no
+    /// retorno de um tipo de função e nos campos de um registro.
+    fn argumento_de_tipo_const(&mut self, a: &ast::Ast, x: ast::TypeId, codigo: Codigo) {
+        let e_parametro = |s: &Self, t: ast::TypeId| s.tipo_da_anotacao(t).filter(|r| matches!(s.m.table.get(*r), Type::TypeParameter { .. }));
+        let anotacao = a.ty(x);
+        match &anotacao.kind {
+            ast::TypeKind::Named { name, args } => {
+                if e_parametro(self, x).is_some() {
+                    let lexema = name.last().map(|n| self.m.interner.resolve(n.sym).to_string()).unwrap_or_default();
+                    self.relatar(codigo, anotacao.span, vec![lexema]);
+                } else {
+                    for &y in args.iter() {
+                        self.argumento_de_tipo_const(a, y, codigo);
+                    }
+                }
+            }
+            ast::TypeKind::Function { return_type, parameters, .. } => {
+                let mut filhos: Vec<ast::TypeId> = parameters.iter().filter(|p| p.function_parameters.is_none()).filter_map(|p| p.ty).collect();
+                filhos.extend(return_type.iter().copied());
+                for y in filhos {
+                    self.campo_de_tipo_const(a, y, codigo);
+                }
+            }
+            ast::TypeKind::Record { positional, named } => {
+                let filhos: Vec<ast::TypeId> = positional.iter().copied().chain(named.iter().map(|(_, t)| *t)).collect();
+                for y in filhos {
+                    self.campo_de_tipo_const(a, y, codigo);
+                }
+            }
+            ast::TypeKind::Void => {}
+        }
+    }
+
+    /// Um parâmetro, retorno ou campo de registro: parâmetro de tipo relata
+    /// com o tipo exibido; senão desce.
+    fn campo_de_tipo_const(&mut self, a: &ast::Ast, y: ast::TypeId, codigo: Codigo) {
+        match self.tipo_da_anotacao(y) {
+            Some(r) if matches!(self.m.table.get(r), Type::TypeParameter { .. }) => {
+                let exibido = self.m.formatar(r);
+                self.relatar(codigo, a.ty(y).span, vec![exibido]);
+            }
+            _ => self.argumento_de_tipo_const(a, y, codigo),
         }
     }
 
