@@ -40,9 +40,11 @@ struct Elem {
     /// O nome da primeira declaração, para a mensagem de contexto (vazio
     /// quando não é conhecido).
     onde: Span,
+    /// A unidade (índice em `unidades`) de `onde`.
+    unidade: usize,
 }
 
-const OUTRO: Elem = Elem { tipo: Tipo::Outro, de_campo: false, formal_campo: false, onde: Span { start: 0, end: 0 } };
+const OUTRO: Elem = Elem { tipo: Tipo::Outro, de_campo: false, formal_campo: false, onde: Span { start: 0, end: 0 }, unidade: 0 };
 
 type Escopo = HashMap<String, Elem>;
 
@@ -52,6 +54,9 @@ struct Relato<'a> {
     out: Vec<(usize, Diagnostic)>,
     /// Ver [`duplicatas`].
     juntar: bool,
+    /// O `source.fullName` de cada unidade, para o contexto que aponta outro
+    /// arquivo (vazio: sem esse contexto).
+    caminhos: &'a [String],
 }
 
 impl Relato<'_> {
@@ -61,6 +66,22 @@ impl Relato<'_> {
 
     fn por(&mut self, codigo: Codigo, span: Span, args: &[&str]) {
         self.out.push((self.unidade, Diagnostic::com_codigo(codigo, span, args.iter().copied())));
+    }
+
+    /// `DiagnosticFactory.duplicateDefinition`: a primeira definição vai como
+    /// mensagem de contexto, no nome dela (no arquivo dela, se é outro).
+    fn com_primeira(&self, d: Diagnostic, anterior: Elem) -> Diagnostic {
+        const TEXTO: &str = "The first definition of this name.";
+        if anterior.onde.start == anterior.onde.end {
+            return d;
+        }
+        if anterior.unidade == self.unidade {
+            return d.com_contexto(anterior.onde, TEXTO);
+        }
+        let Some(caminho) = self.caminhos.get(anterior.unidade) else { return d };
+        let mut d = d;
+        d.contexto.push(dartforge_diagnostics::Contexto { arquivo: Some(caminho.as_str().into()), span: anterior.onde, mensagem: TEXTO.into() });
+        d
     }
 
     /// `_checkDuplicateIdentifier` para um elemento que não induz propriedade.
@@ -79,25 +100,24 @@ impl Relato<'_> {
                     } else {
                         c::DUPLICATE_DEFINITION
                     };
-                    // `DiagnosticFactory.duplicateDefinition`: a primeira
-                    // definição vai como mensagem de contexto.
-                    let mut d = Diagnostic::com_codigo(codigo, span, [nome]);
-                    if codigo == c::DUPLICATE_DEFINITION && anterior.onde.start != anterior.onde.end {
-                        d = d.com_contexto(anterior.onde, "The first definition of this name.");
-                    }
+                    let d = self.com_primeira(Diagnostic::com_codigo(codigo, span, [nome]), anterior);
                     self.out.push((self.unidade, d));
                 }
             }
             None => {
-                getters.insert(nome.to_string(), Elem { onde: span, ..e });
+                getters.insert(nome.to_string(), Elem { onde: span, unidade: self.unidade, ..e });
             }
         }
         if let Some(setters) = setters {
             if e.tipo == Tipo::Setter {
-                if setters.contains_key(nome) {
-                    self.por(c::DUPLICATE_DEFINITION, span, &[nome]);
-                } else {
-                    setters.insert(nome.to_string(), e);
+                match setters.get(nome).copied() {
+                    Some(anterior) => {
+                        let d = self.com_primeira(Diagnostic::com_codigo(c::DUPLICATE_DEFINITION, span, [nome]), anterior);
+                        self.out.push((self.unidade, d));
+                    }
+                    None => {
+                        setters.insert(nome.to_string(), Elem { onde: span, unidade: self.unidade, ..e });
+                    }
                 }
             }
         }
@@ -146,7 +166,19 @@ pub fn duplicatas(
     curinga: bool,
     juntar_mesma_localizacao: bool,
 ) -> Vec<(usize, Diagnostic)> {
-    let mut rel = Relato { interner, unidade: 0, out: Vec::new(), juntar: juntar_mesma_localizacao };
+    duplicatas_com_caminhos(unidades, &[], interner, curinga, juntar_mesma_localizacao)
+}
+
+/// [`duplicatas`] com o caminho de cada unidade: a primeira definição numa
+/// unidade anterior da biblioteca vira contexto no arquivo dela.
+pub fn duplicatas_com_caminhos(
+    unidades: &[Unidade<'_>],
+    caminhos: &[String],
+    interner: &Interner,
+    curinga: bool,
+    juntar_mesma_localizacao: bool,
+) -> Vec<(usize, Diagnostic)> {
+    let mut rel = Relato { interner, unidade: 0, out: Vec::new(), juntar: juntar_mesma_localizacao, caminhos };
     let nomes_da_biblioteca = nomes_de_topo(unidades, interner);
     for (i, u) in unidades.iter().enumerate() {
         rel.unidade = i;
@@ -211,7 +243,9 @@ fn nomes_de_topo(unidades: &[Unidade<'_>], interner: &Interner) -> HashSet<Strin
 }
 
 /// `addWithoutChecking`: o que as unidades anteriores já declararam.
-fn sem_conferir(rel: &Relato<'_>, u: &Unidade<'_>, getters: &mut Escopo) {
+/// `j` é o índice da unidade, para o contexto da primeira definição.
+fn sem_conferir(rel: &Relato<'_>, j: usize, u: &Unidade<'_>, getters: &mut Escopo) {
+    let em = |n: ast::Name| Elem { onde: n.span, unidade: j, ..OUTRO };
     let mut variaveis = Vec::new();
     for &d in &u.unit.declarations {
         match &u.ast.decl(d).kind {
@@ -221,36 +255,36 @@ fn sem_conferir(rel: &Relato<'_>, u: &Unidade<'_>, getters: &mut Escopo) {
                 let nome = rel.nome(n);
                 match f.kind {
                     FunctionKind::Getter => {
-                        getters.insert(nome, Elem { tipo: Tipo::Getter, ..OUTRO });
+                        getters.insert(nome, Elem { tipo: Tipo::Getter, ..em(n) });
                     }
                     FunctionKind::Setter => {
-                        getters.insert(format!("{nome}="), Elem { tipo: Tipo::Setter, ..OUTRO });
+                        getters.insert(format!("{nome}="), Elem { tipo: Tipo::Setter, ..em(n) });
                     }
                     _ => {
-                        getters.insert(nome, OUTRO);
+                        getters.insert(nome, em(n));
                     }
                 }
             }
             DeclKind::Variables(vl) => variaveis.push(vl),
             DeclKind::Class(x) => {
-                getters.insert(rel.nome(x.name), OUTRO);
+                getters.insert(rel.nome(x.name), em(x.name));
             }
             DeclKind::Mixin(x) => {
-                getters.insert(rel.nome(x.name), OUTRO);
+                getters.insert(rel.nome(x.name), em(x.name));
             }
             DeclKind::Enum(x) => {
-                getters.insert(rel.nome(x.name), OUTRO);
+                getters.insert(rel.nome(x.name), em(x.name));
             }
             DeclKind::Extension(x) => {
                 if let Some(n) = x.name {
-                    getters.insert(rel.nome(n), OUTRO);
+                    getters.insert(rel.nome(n), em(n));
                 }
             }
             DeclKind::ExtensionType(x) => {
-                getters.insert(rel.nome(x.name), OUTRO);
+                getters.insert(rel.nome(x.name), em(x.name));
             }
             DeclKind::Typedef(x) => {
-                getters.insert(rel.nome(x.name), OUTRO);
+                getters.insert(rel.nome(x.name), em(x.name));
             }
         }
     }
@@ -259,9 +293,9 @@ fn sem_conferir(rel: &Relato<'_>, u: &Unidade<'_>, getters: &mut Escopo) {
         for v in vl.variables.iter() {
             let nome = rel.nome(v.name);
             if !vl.final_ && !vl.const_ {
-                getters.insert(format!("{nome}="), OUTRO);
+                getters.insert(format!("{nome}="), em(v.name));
             }
-            getters.insert(nome, OUTRO);
+            getters.insert(nome, em(v.name));
         }
     }
 }
@@ -282,8 +316,8 @@ fn unidade_de_topo(rel: &mut Relato<'_>, unidades: &[Unidade<'_>], i: usize, nom
     let mut getters = Escopo::new();
     let mut setters = Escopo::new();
     if i > 0 {
-        for anterior in &unidades[..i] {
-            sem_conferir(rel, anterior, &mut getters);
+        for (j, anterior) in unidades[..i].iter().enumerate() {
+            sem_conferir(rel, j, anterior, &mut getters);
         }
     }
     for &d in &u.unit.declarations {
@@ -609,7 +643,8 @@ fn membros_da_unidade(rel: &mut Relato<'_>, u: &Unidade<'_>) -> (Vec<Contexto>, 
             }
             DeclKind::ExtensionType(x) => {
                 ctx.construtores.insert(x.constructor.map(|n| rel.nome(n)).unwrap_or_default());
-                ctx.ig.insert(rel.nome(x.representation_name), Elem { tipo: Tipo::Getter, de_campo: true, ..OUTRO });
+                let n = x.representation_name;
+                ctx.ig.insert(rel.nome(n), Elem { tipo: Tipo::Getter, de_campo: true, onde: n.span, unidade: rel.unidade, ..OUTRO });
                 ctx.membros = x.members.clone();
             }
             DeclKind::Enum(x) => {

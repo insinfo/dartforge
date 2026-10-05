@@ -311,14 +311,24 @@ pub fn verificar(
             heranca.interface(&mut p, t)
         };
         for conflito in interface.conflitos.iter() {
-            let n = match conflito {
-                Conflito::Candidatos { nome, .. } | Conflito::ExtensaoENaoExtensao { nome, .. } | Conflito::ExtensaoNaoUnica { nome, .. } => nome,
+            // `_checkForExtensionTypeMemberConflicts`: os candidatos (os sem
+            // extensão antes dos de extensão) viram as mensagens de contexto.
+            let (n, candidatos): (_, Vec<&crate::heranca::Membro>) = match conflito {
+                Conflito::Candidatos { nome, candidatos } | Conflito::ExtensaoNaoUnica { nome, candidatos } => (nome, candidatos.iter().collect()),
+                Conflito::ExtensaoENaoExtensao { nome, nao_extensao, extensao } => (nome, nao_extensao.iter().chain(extensao.iter()).collect()),
                 Conflito::GetterMetodo { .. } => continue,
             };
             // O `Name.name` do setter é `x=`; a chave do modelo, `x_=`.
             let texto = interner.resolve(n.chave);
             let membro = texto.strip_suffix("_=").map_or_else(|| texto.to_string(), |s| format!("{s}="));
-            saida.push((u, Diagnostic::com_codigo(c::EXTENSION_TYPE_INHERITED_MEMBER_CONFLICT, et.name.span, [nome.as_str(), membro.as_str()])));
+            let mut d = Diagnostic::com_codigo(c::EXTENSION_TYPE_INHERITED_MEMBER_CONFLICT, et.name.span, [nome.as_str(), membro.as_str()]);
+            for m in candidatos {
+                let Some((mu, span)) = program.nome_nao_sintetico_da_funcao(m.funcao) else { continue };
+                let arquivo = (mu != u).then(|| program.caminho_da_unidade(mu).into());
+                let mensagem = format!("Inherited from '{}'", interner.resolve(program.class(m.classe).name));
+                d.contexto.push(dartforge_diagnostics::Contexto { arquivo, span, mensagem: mensagem.into() });
+            }
+            saida.push((u, d));
         }
     }
     saida

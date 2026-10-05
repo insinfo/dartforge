@@ -59,6 +59,16 @@ impl Exibidor<'_> {
 
     /// `_convertTypeNames`: o texto de cada argumento, na ordem.
     pub fn argumentos(&self, args: &[Arg<'_>]) -> Vec<String> {
+        self.argumentos_e_contexto(args).0
+    }
+
+    /// `_convertTypeNames` inteiro: os textos e as mensagens de contexto
+    /// (`listener.dart:408-413`): uma por elemento de cada tipo dos grupos
+    /// de dois ou mais argumentos com o mesmo texto — mesmo os elementos que
+    /// não colidem —, `<nome> is defined in <caminho>`, no nome do elemento,
+    /// no arquivo dele.
+    pub fn argumentos_e_contexto(&self, args: &[Arg<'_>]) -> (Vec<String>, Vec<dartforge_diagnostics::Contexto>) {
+        let mut contexto: Vec<dartforge_diagnostics::Contexto> = Vec::new();
         let mut saida: Vec<String> = args
             .iter()
             .map(|a| match a {
@@ -99,10 +109,15 @@ impl Exibidor<'_> {
                 let mut sufixo: Option<String> = None;
                 for &c in &elementos_de[k] {
                     let nome_do_elemento = self.program.class(c).name;
+                    let trecho = format!("{} is defined in {}", self.interner.resolve(nome_do_elemento), self.arquivo_de(c));
+                    // A mensagem de contexto sai para todo elemento (fora do
+                    // `if` no analyzer).
+                    if let Some(span) = self.nome_da_classe(c) {
+                        contexto.push(dartforge_diagnostics::Contexto { arquivo: Some(self.arquivo_de(c).into()), span, mensagem: trecho.clone().into() });
+                    }
                     if por_nome.get(&nome_do_elemento).is_none_or(|l| l.len() < 2) {
                         continue;
                     }
-                    let trecho = format!("{} is defined in {}", self.interner.resolve(nome_do_elemento), self.arquivo_de(c));
                     sufixo = Some(match sufixo {
                         None => format!("where {trecho}"),
                         Some(s) => format!("{s}, {trecho}"),
@@ -113,7 +128,22 @@ impl Exibidor<'_> {
                 }
             }
         }
-        saida
+        (saida, contexto)
+    }
+
+    /// O intervalo do nome da classe (`nameOffset`/`nameLength`); nenhum na
+    /// sintética.
+    fn nome_da_classe(&self, c: ClassId) -> Option<dartforge_diagnostics::Span> {
+        use dartforge_frontend::ast::DeclKind;
+        let d = self.program.class(c).decl?;
+        let n = match &self.program.unit(d.unit).ast.decl(d.decl).kind {
+            DeclKind::Class(x) => x.name,
+            DeclKind::Mixin(x) => x.name,
+            DeclKind::Enum(x) => x.name,
+            DeclKind::ExtensionType(x) => x.name,
+            _ => return None,
+        };
+        Some(n.span)
     }
 
     /// `_TypeToConvert.allElements`: as classes (enums, mixins, tipos de

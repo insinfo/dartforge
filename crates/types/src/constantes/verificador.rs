@@ -225,13 +225,25 @@ impl Verificador<'_, '_> {
         self.saida.push((self.unidade, Diagnostic::com_codigo(codigo, span, args)));
     }
 
-    /// `_reportError`.
+    /// O erro com o código dele e as `contextMessages` (no arquivo de cada
+    /// uma, quando não é o desta unidade).
+    fn relatar_com_contexto(&mut self, i: &Invalida) {
+        let mut d = Diagnostic::com_codigo(i.codigo, i.span, i.args.clone());
+        for (u, span, texto) in &i.contexto {
+            let arquivo = (*u != self.unidade).then(|| self.m.program.caminho_da_unidade(*u).into());
+            d.contexto.push(dartforge_diagnostics::Contexto { arquivo, span: *span, mensagem: texto.as_str().into() });
+        }
+        self.saida.push((self.unidade, d));
+    }
+
+    /// `_reportError`: o código específico leva as mensagens de contexto; o
+    /// padrão, não.
     fn relatar_invalida(&mut self, i: &Invalida, padrao: Option<Codigo>) {
         if i.evitar_relato || i.unidade != self.unidade {
             return;
         }
         if ESPECIFICOS.contains(&i.codigo) {
-            self.relatar(i.codigo, i.span, i.args.clone());
+            self.relatar_com_contexto(i);
         } else if let Some(p) = padrao {
             self.relatar(p, i.span, Vec::new());
         }
@@ -807,24 +819,26 @@ impl Verificador<'_, '_> {
                 // chave avaliada; uma igual (idêntica, ou `==` com igualdade
                 // primitiva) a uma anterior é `EQUAL_KEYS_IN_MAP_PATTERN`, na
                 // chave repetida, depois de todas.
-                let mut unicas: Vec<Valor> = Vec::new();
-                let mut repetidas: Vec<Span> = Vec::new();
+                let mut unicas: Vec<(Valor, Span)> = Vec::new();
+                let mut repetidas: Vec<(Span, Span)> = Vec::new();
                 for en in entries.iter() {
                     self.padrao(a, en.value);
                     if let Constante::Valor(v) = self.avaliar_e_relatar(en.key, false, c::NON_CONSTANT_MAP_PATTERN_KEY) {
                         let conhecida = !(v.desconhecido_de_fato() || matches!(v.estado, Estado::Null { invalido: true }));
                         if conhecida {
-                            if unicas.iter().any(|x| self.m.iguais(x, &v)) {
-                                repetidas.push(a.expr(en.key).span);
-                            } else {
-                                unicas.push(v.clone());
+                            let span = a.expr(en.key).span;
+                            match unicas.iter().find(|(x, _)| self.m.iguais(x, &v)) {
+                                Some(&(_, original)) => repetidas.push((span, original)),
+                                None => unicas.push((v.clone(), span)),
                             }
                         }
                         self.valores_de_chaves.insert(en.key, v);
                     }
                 }
-                for sp in repetidas {
-                    self.relatar(c::EQUAL_KEYS_IN_MAP_PATTERN, sp, Vec::new());
+                // `equalKeysInMapPattern`: o contexto é a primeira chave.
+                for (sp, original) in repetidas {
+                    let d = Diagnostic::com_codigo(c::EQUAL_KEYS_IN_MAP_PATTERN, sp, Vec::<String>::new()).com_contexto(original, "The first key with this value.");
+                    self.saida.push((self.unidade, d));
                 }
             }
             PatternKind::Record { fields } | PatternKind::Object { fields, .. } => {
@@ -920,9 +934,16 @@ impl Verificador<'_, '_> {
                         for el in elements.iter() {
                             self.verificar_elemento(a, &mut lv, el);
                         }
-                        let codigo = if matches!(lv.tipo, TipoLiteral::Mapa(..)) { c::EQUAL_KEYS_IN_CONST_MAP } else { c::EQUAL_ELEMENTS_IN_CONST_SET };
-                        for (dup, _) in std::mem::take(&mut lv.duplicados) {
-                            self.relatar(codigo, dup, Vec::new());
+                        // `equalKeysInConstMap`/`equalElementsInConstSet`: o
+                        // contexto é o primeiro com o mesmo valor.
+                        let (codigo, contexto) = if matches!(lv.tipo, TipoLiteral::Mapa(..)) {
+                            (c::EQUAL_KEYS_IN_CONST_MAP, "The first key with this value.")
+                        } else {
+                            (c::EQUAL_ELEMENTS_IN_CONST_SET, "The first element with this value.")
+                        };
+                        for (dup, original) in std::mem::take(&mut lv.duplicados) {
+                            let d = Diagnostic::com_codigo(codigo, dup, Vec::<String>::new()).com_contexto(original, contexto);
+                            self.saida.push((self.unidade, d));
                         }
                     }
                 } else {
@@ -1163,13 +1184,13 @@ impl Verificador<'_, '_> {
         let relatos: Vec<Invalida> = self.m.relatos.drain(antes..).collect();
         for i in relatos {
             if i.unidade == self.unidade && !i.evitar_relato {
-                self.relatar(i.codigo, i.span, i.args.clone());
+                self.relatar_com_contexto(&i);
             }
         }
         match r {
             Constante::Invalida(i) => {
                 if !i.evitar_relato && i.unidade == self.unidade {
-                    self.relatar(i.codigo, i.span, i.args.clone());
+                    self.relatar_com_contexto(&i);
                 }
             }
             Constante::Valor(_) => {

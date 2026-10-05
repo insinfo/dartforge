@@ -33,8 +33,9 @@ pub(crate) enum Nome {
     Local(LocalId),
     TipoParam(TypeParamId),
     /// Local declarado mais adiante no mesmo bloco: o escopo do bloco já o
-    /// contém, e usá-lo antes da declaração é erro.
-    Adiante,
+    /// contém, e usá-lo antes da declaração é erro. O intervalo do nome na
+    /// declaração.
+    Adiante(dartforge_diagnostics::Span),
 }
 
 /// Contexto da função (ou expressão de função) que envolve o ponto atual.
@@ -333,12 +334,12 @@ impl Corpo {
     }
 
     /// Registra um nome declarado adiante no bloco corrente.
-    pub fn declarar_adiante(&mut self, nome: SymbolId) {
+    pub fn declarar_adiante(&mut self, nome: SymbolId, span: dartforge_diagnostics::Span) {
         if self.curinga == Some(nome) {
             return;
         }
         if let Some(e) = self.escopos.last_mut() {
-            e.push((nome, Nome::Adiante));
+            e.push((nome, Nome::Adiante(span)));
         }
     }
 
@@ -390,7 +391,7 @@ impl Corpo {
                     Nome::Local(_) => {
                         m.remove(n);
                     }
-                    Nome::Adiante => {}
+                    Nome::Adiante(_) => {}
                 }
             }
         }
@@ -426,7 +427,7 @@ impl Corpo {
                     }
                     Nome::TipoParam(p) => saida.parametros_de_tipo.push((*n, *p)),
                     // Declarado adiante: ainda não pode ser usado aqui.
-                    Nome::Adiante => {}
+                    Nome::Adiante(_) => {}
                 }
             }
         }

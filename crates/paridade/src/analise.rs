@@ -403,7 +403,8 @@ impl Motor {
             // o parser marca a unidade que usa sintaxe que o 3.6.2 não
             // conhece, e a versão acima da 3.6 marca todas.
             let sintaxe_nova = program.referencia_da_biblioteca(*lib) == dartforge_diagnostics::Referencia::V3_13;
-            let mut achados = dartforge_analise::duplicatas::duplicatas(&unidades, &interner, curinga, !sintaxe_nova);
+            let caminhos: Vec<String> = ids.iter().map(|u| program.caminho_da_unidade(*u)).collect();
+            let mut achados = dartforge_analise::duplicatas::duplicatas_com_caminhos(&unidades, &caminhos, &interner, curinga, !sintaxe_nova);
             achados.extend(dartforge_analise::enums::sem_constantes(&unidades));
             achados.extend(dartforge_analise::inicializacao::finais_nao_inicializados(&unidades, &interner));
             achados.extend(dartforge_analise::construtores::verificar(&unidades, &interner));

@@ -415,8 +415,10 @@ fn restos_duplicados(inf: &mut BodyInferrer<'_>, cx: &Corpo, p: PatternId) {
             }
         }
     }
+    // `duplicateRestElementInPattern`: o contexto é o primeiro.
+    let Some(&primeiro) = restos.first() else { return };
     for s in restos.into_iter().skip(1) {
-        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::DUPLICATE_REST_ELEMENT_IN_PATTERN, s, &[]);
+        inf.aviso_com_contexto(dartforge_diagnostics::codigos::compile_time_error::DUPLICATE_REST_ELEMENT_IN_PATTERN, s, &[], vec![(None, primeiro, "The first rest element.".to_string())]);
     }
 }
 
@@ -466,7 +468,7 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
                 // `PATTERN_ASSIGNMENT_NOT_LOCAL_VARIABLE`.
                 match expr::resolver_nome(inf, cx, name.sym, false) {
                     expr::RefNome::Local(_) => {}
-                    expr::RefNome::ThisImplicito | expr::RefNome::Adiante | expr::RefNome::Nenhum => {
+                    expr::RefNome::ThisImplicito | expr::RefNome::Adiante(_) | expr::RefNome::Nenhum => {
                         expr::nome_indefinido_sem_this(inf, cx, name);
                     }
                     _ => {

@@ -293,8 +293,10 @@ impl<'a> V<'a> {
     }
 
     fn relatar(&mut self, codigo: Codigo, span: Span, args: &[Arg<'_>]) {
-        let textos = Exibidor { table: self.tabela_ref(), interner: self.interner, program: self.program }.argumentos(args);
-        self.out.push(Diagnostic::com_codigo(codigo, span, textos));
+        let (textos, contexto) = Exibidor { table: self.tabela_ref(), interner: self.interner, program: self.program }.argumentos_e_contexto(args);
+        let mut d = Diagnostic::com_codigo(codigo, span, textos);
+        d.contexto.extend(contexto);
+        self.out.push(d);
     }
 
     fn nome(&self, s: SymbolId) -> &'a str {

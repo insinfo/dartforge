@@ -93,8 +93,8 @@ pub(crate) enum RefNome {
     Prefixo,
     /// Não achado lexicamente, mas há `this`: `this.nome`.
     ThisImplicito,
-    /// Local do bloco declarado depois deste uso.
-    Adiante,
+    /// Local do bloco declarado depois deste uso (o nome na declaração).
+    Adiante(dartforge_diagnostics::Span),
     Nenhum,
 }
 
@@ -103,7 +103,7 @@ pub(crate) fn resolver_nome(inf: &mut BodyInferrer<'_>, cx: &Corpo, nome: Symbol
     match cx.buscar(nome) {
         Some(Nome::Local(id)) => return RefNome::Local(id),
         Some(Nome::TipoParam(p)) => return RefNome::TipoParam(p),
-        Some(Nome::Adiante) => return RefNome::Adiante,
+        Some(Nome::Adiante(s)) => return RefNome::Adiante(s),
         None => {}
     }
     // Membros declarados no corpo da classe/extensão.
@@ -713,6 +713,14 @@ fn resolved_de_membro_lexico(inf: &BodyInferrer<'_>, cx: &Corpo, f: dartforge_el
     Resolved::Member { class, member, via_super: false }
 }
 
+/// `referencedBeforeDeclaration` (`diagnostic_factory.dart:342`): o contexto
+/// é a declaração, no nome dela.
+fn aviso_antes_da_declaracao(inf: &mut BodyInferrer<'_>, n: ast::Name, msg: String, decl: dartforge_diagnostics::Span) {
+    let texto = format!("The declaration of '{}' is here.", inf.interner.resolve(n.sym));
+    inf.diagnostics.push(Diagnostic::new(msg, n.span).com_contexto(decl, texto));
+    inf.unidades_dos_avisos.push(inf.unidade_corrente);
+}
+
 /// Identificador como valor.
 fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::Name) -> TypeId {
     sondar_escopo(inf, cx, n);
@@ -725,7 +733,8 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
             }
             if n.span.start < cx.local(id).offset && !cx.local(id).funcao_local {
                 let msg = format!("{}: '{}'", REFERENCED_BEFORE_DECLARATION.template, inf.interner.resolve(n.sym));
-                inf.aviso(msg, n.span);
+                let decl = dartforge_diagnostics::Span { start: cx.local(id).offset, end: cx.local(id).offset + (n.span.end - n.span.start) };
+                aviso_antes_da_declaracao(inf, n, msg, decl);
             }
             ler_local(inf, cx, id, n.span)
         }
@@ -799,9 +808,9 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
                 }
             }
         }
-        RefNome::Adiante => {
+        RefNome::Adiante(decl) => {
             let msg = format!("{}: '{}'", REFERENCED_BEFORE_DECLARATION.template, inf.interner.resolve(n.sym));
-            inf.aviso(msg, n.span);
+            aviso_antes_da_declaracao(inf, n, msg, decl);
             inf.core.dynamic_
         }
         // Só curingas declaram `_` aqui (3.7): usar `_` é erro
@@ -1630,12 +1639,17 @@ fn relatar_operador_nulo(inf: &mut BodyInferrer<'_>, cx: &Corpo, r: ExprId, cade
         return;
     };
     let sp = dartforge_diagnostics::Span { start: pos, end: pos + tamanho };
-    let codigo = if cadeia && args[0] != "?.." && curto_anterior(inf, cx, r) {
-        w::INVALID_NULL_AWARE_OPERATOR_AFTER_SHORT_CIRCUIT
-    } else {
-        w::INVALID_NULL_AWARE_OPERATOR
-    };
-    inf.aviso_com_codigo(codigo, sp, &args);
+    // `invalidNullAwareAfterShortCircuit`: o contexto é o operador que
+    // encurta.
+    match (cadeia && args[0] != "?..").then(|| operador_curto_anterior(inf, cx, r)).flatten() {
+        Some((anterior, lexema)) => inf.aviso_com_contexto(
+            w::INVALID_NULL_AWARE_OPERATOR_AFTER_SHORT_CIRCUIT,
+            sp,
+            &args,
+            vec![(None, anterior, format!("The operator '{lexema}' is causing the short circuiting."))],
+        ),
+        None => inf.aviso_com_codigo(w::INVALID_NULL_AWARE_OPERATOR, sp, &args),
+    }
 }
 
 /// `...?e` com `e` estritamente não anulável: no `...?`.
@@ -1653,18 +1667,25 @@ pub(crate) fn espalhamento_nulo_desnecessario(inf: &mut BodyInferrer<'_>, cx: &C
     }
 }
 
-/// `previousShortCircuitingOperator`: o receptor é ele mesmo um acesso
-/// `?.`/`?[` (ou tem um, pelos alvos à esquerda).
-fn curto_anterior(inf: &BodyInferrer<'_>, cx: &Corpo, r: ExprId) -> bool {
+/// `previousShortCircuitingOperator` (`error_verifier.dart:5583-5605`): o
+/// operador `?.`/`?` (do `?[`) de `r` que encurta a cadeia, o mais fundo
+/// primeiro; só pelos acessos que são eles mesmos `?.`/`?[` (um `.` no meio
+/// encerra a busca). O intervalo e o lexema do token.
+fn operador_curto_anterior(inf: &BodyInferrer<'_>, cx: &Corpo, r: ExprId) -> Option<(dartforge_diagnostics::Span, &'static str)> {
+    let fonte = &inf.program.unit(cx.unit).source;
+    let token_depois = |alvo: ExprId, lexema: &'static str| -> Option<(dartforge_diagnostics::Span, &'static str)> {
+        let fim = inf.span_expr(cx.unit, alvo).end;
+        let pos = fim + pular_espacos_e_comentarios(fonte.get(fim..).unwrap_or(""));
+        fonte.get(pos..)?.starts_with(lexema).then_some((dartforge_diagnostics::Span { start: pos, end: pos + lexema.len() }, lexema))
+    };
     match &ast(inf, cx).expr(r).kind {
-        ExprKind::Property { target, null_aware, .. } | ExprKind::Index { target, null_aware, .. } => {
-            *null_aware || curto_anterior(inf, cx, *target)
-        }
+        ExprKind::Property { target, null_aware: true, .. } => operador_curto_anterior(inf, cx, *target).or_else(|| token_depois(*target, "?.")),
+        ExprKind::Index { target, null_aware: true, .. } => operador_curto_anterior(inf, cx, *target).or_else(|| token_depois(*target, "?")),
         ExprKind::Call { target, .. } => match &ast(inf, cx).expr(*target).kind {
-            ExprKind::Property { target: t2, null_aware, .. } => *null_aware || curto_anterior(inf, cx, *t2),
-            _ => false,
+            ExprKind::Property { target: t2, null_aware: true, .. } => operador_curto_anterior(inf, cx, *t2).or_else(|| token_depois(*t2, "?.")),
+            _ => None,
         },
-        _ => false,
+        _ => None,
     }
 }
 

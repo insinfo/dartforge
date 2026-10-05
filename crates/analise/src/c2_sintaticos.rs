@@ -534,7 +534,7 @@ impl<'a> Visita<'a> {
     /// As variáveis que o padrão declara (ou atribui), com o nome de cada
     /// ocorrência; os dois lados de um `||` declaram as mesmas e contam uma
     /// vez. Uma repetição fora disso é relatada na segunda ocorrência.
-    fn variaveis_do_padrao(&mut self, p: PatternId, ctx: Contexto, vistas: &mut Vec<SymbolId>) {
+    fn variaveis_do_padrao(&mut self, p: PatternId, ctx: Contexto, vistas: &mut Vec<(SymbolId, Span)>) {
         let a = self.a;
         match &a.pattern(p).kind {
             PatternKind::Variable { final_, var_, ty, name } => {
@@ -545,12 +545,19 @@ impl<'a> Visita<'a> {
                 if !declara {
                     return;
                 }
-                if vistas.contains(&name.sym) {
+                if let Some(&(_, primeira)) = vistas.iter().find(|(s, _)| *s == name.sym) {
                     let texto = self.nomes.resolve(name.sym).to_string();
-                    let codigo = if ctx == Contexto::Atribuicao { c::DUPLICATE_PATTERN_ASSIGNMENT_VARIABLE } else { c::DUPLICATE_VARIABLE_PATTERN };
-                    self.relatar(codigo, name.span, &[&texto]);
+                    // `DiagnosticFactory`: a atribuição aponta o primeiro
+                    // padrão atribuído; a declaração, a primeira definição
+                    // (`duplicateDefinitionForNodes`).
+                    let (codigo, contexto) = if ctx == Contexto::Atribuicao {
+                        (c::DUPLICATE_PATTERN_ASSIGNMENT_VARIABLE, "The first assigned variable pattern.")
+                    } else {
+                        (c::DUPLICATE_VARIABLE_PATTERN, "The first definition of this name.")
+                    };
+                    self.saida.push(Diagnostic::com_codigo(codigo, name.span, [texto.as_str()]).com_contexto(primeira, contexto));
                 } else {
-                    vistas.push(name.sym);
+                    vistas.push((name.sym, name.span));
                 }
             }
             PatternKind::Or(x, y) => {
@@ -559,7 +566,7 @@ impl<'a> Visita<'a> {
                 self.variaveis_do_padrao(*x, ctx, &mut esquerda);
                 self.variaveis_do_padrao(*y, ctx, &mut direita);
                 for n in esquerda.into_iter().chain(direita) {
-                    if !vistas.contains(&n) {
+                    if !vistas.iter().any(|(s, _)| *s == n.0) {
                         vistas.push(n);
                     }
                 }
@@ -626,7 +633,7 @@ impl<'a> Visita<'a> {
     /// repetido (no campo inteiro, quando o nome é implícito, `:var x`).
     fn campos_repetidos(&mut self, campos: &'a [ast::PatternField]) {
         let a = self.a;
-        let mut vistos: Vec<SymbolId> = Vec::new();
+        let mut vistos: Vec<(SymbolId, Span)> = Vec::new();
         for f in campos.iter() {
             let (nome, span) = match f.name {
                 Some(n) => (Some(n.sym), n.span),
@@ -642,15 +649,16 @@ impl<'a> Visita<'a> {
                             _ => break None,
                         }
                     };
-                    (if implicito { nome } else { None }, f.span)
+                    // O alvo do nome implícito é o `:` (`name ?? colon`).
+                    (if implicito { nome } else { None }, Span { start: f.span.start, end: f.span.start + 1 })
                 }
             };
             let Some(nome) = nome else { continue };
-            if vistos.contains(&nome) {
+            if let Some(&(_, primeiro)) = vistos.iter().find(|(s, _)| *s == nome) {
                 let texto = self.nomes.resolve(nome).to_string();
-                self.relatar(c::DUPLICATE_PATTERN_FIELD, span, &[&texto]);
+                self.saida.push(Diagnostic::com_codigo(c::DUPLICATE_PATTERN_FIELD, span, [texto.as_str()]).com_contexto(primeiro, "The first field."));
             } else {
-                vistos.push(nome);
+                vistos.push((nome, span));
             }
         }
     }

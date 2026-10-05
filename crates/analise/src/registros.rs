@@ -75,15 +75,18 @@ struct Campo {
 
 fn relatar(campos: &[Campo], n_posicionais: usize, curinga: bool, saida: &mut Vec<Diagnostic>) {
     // `reportDuplicateFieldDefinitions`.
-    let mut vistos: Vec<&str> = Vec::new();
+    let mut vistos: Vec<(&str, Span)> = Vec::new();
     for f in campos {
         if curinga && f.posicional.is_some() && f.nome == "_" {
             continue;
         }
-        if vistos.contains(&f.nome.as_str()) {
-            saida.push(Diagnostic::com_codigo(c::DUPLICATE_FIELD_NAME, f.span, [f.nome.as_str()]));
+        if let Some(&(_, primeiro)) = vistos.iter().find(|(n, _)| *n == f.nome.as_str()) {
+            // `duplicateFieldDefinitionIn{Literal,Type}`: o texto do analyzer é
+            // `'The first '`, no nome do primeiro, com o comprimento do nome.
+            let contexto = Span { start: primeiro.start, end: primeiro.start + f.nome.len() };
+            saida.push(Diagnostic::com_codigo(c::DUPLICATE_FIELD_NAME, f.span, [f.nome.as_str()]).com_contexto(contexto, "The first "));
         } else {
-            vistos.push(&f.nome);
+            vistos.push((&f.nome, f.span));
         }
     }
     // `reportInvalidFieldNames`.

@@ -88,7 +88,7 @@ pub fn argumentos_fora_dos_limites(
                 continue;
             }
             let id = ast::TypeId(i as u32);
-            v.conferir(name, args, !sem_super.contains(&id), &mut out);
+            v.conferir(t.span, name, args, !sem_super.contains(&id), &mut out);
         }
     }
     out
@@ -215,7 +215,9 @@ impl Verificador<'_> {
         }
     }
 
-    fn conferir(&mut self, name: &[ast::Name], args: &[ast::TypeId], super_permitido: bool, out: &mut Vec<Diagnostic>) {
+    /// `tipo` é o intervalo do `NamedType` inteiro (o das mensagens de
+    /// contexto).
+    fn conferir(&mut self, tipo: Span, name: &[ast::Name], args: &[ast::TypeId], super_permitido: bool, out: &mut Vec<Diagnostic>) {
         let Some(el) = self.elemento(name) else { return };
         let Some((params, alvo)) = self.parametros(el) else { return };
         if params.len() != args.len() || params.is_empty() {
@@ -256,11 +258,20 @@ impl Verificador<'_> {
         else {
             return;
         };
+        // `buildContextMessages(invertedTypeArguments:)`: os argumentos
+        // escritos (nunca cru aqui), então só a mensagem do tipo invertido, no
+        // tipo nomeado inteiro.
+        let elemento = name.last().map(|n| self.interner.resolve(n.sym).to_string()).unwrap_or_default();
+        let invertidos = inv.iter().map(|&x| self.formatar(x)).collect::<Vec<_>>().join(", ");
+        let contexto = format!("The inverted type '{elemento}<{invertidos}>' is also not regular-bounded, so the type is not well-bounded.");
         for (i, &p) in params.iter().enumerate() {
             let limite = self.table.param(p).bound;
             let limite = self.subst(limite, &params, &inv);
             if !self.sub(inv[i], limite) {
                 self.relatar(args[i], p, inv[i], limite, out);
+                if let Some(d) = out.last_mut() {
+                    d.contexto.push(dartforge_diagnostics::Contexto { arquivo: None, span: tipo, mensagem: contexto.as_str().into() });
+                }
             }
         }
     }

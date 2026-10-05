@@ -29,12 +29,12 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                 match &inf.program.unit(cx.unit).ast.stmt(x).kind {
                     StmtKind::Variables(vl) => {
                         for v in vl.variables.iter() {
-                            cx.declarar_adiante(v.name.sym);
+                            cx.declarar_adiante(v.name.sym, v.name.span);
                         }
                     }
                     StmtKind::Function(f) => {
                         if let Some(n) = inf.program.unit(cx.unit).ast.function(*f).name {
-                            cx.declarar_adiante(n.sym);
+                            cx.declarar_adiante(n.sym, n.span);
                         }
                     }
                     _ => {}

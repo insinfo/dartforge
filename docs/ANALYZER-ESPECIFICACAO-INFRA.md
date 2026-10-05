@@ -4647,6 +4647,42 @@ arquivo) já existia e passou a usar o código único (T5 do outro documento); o
 item 3 está em `crates/types/src/exibicao.rs` (T7), sem gerar a mensagem de contexto por tipo. Não
 feitos: os demais produtores de contexto e o `intervalo_de_relato` do item 4.
 
+**Estado em 2026-10-05 (escrito, não compilado).** Itens 2, 3 e 4 feitos, menos o why-not-promoted.
+Produtores de contexto, cada um com o texto e o intervalo do oficial e o arquivo quando é outro:
+
+- `DiagnosticFactory`: `duplicate_definition` e `duplicate_field_formal_parameter` também entre
+  unidades da biblioteca e no escopo de setters (`duplicatas_com_caminhos`, chamada pela paridade com o
+  caminho de cada unidade), `duplicate_field_name` ("The first "), `duplicate_pattern_field`,
+  `duplicate_variable_pattern`, `duplicate_pattern_assignment_variable`,
+  `duplicate_rest_element_in_pattern`, `equal_keys_in_map_pattern`, `equal_keys_in_const_map`,
+  `equal_elements_in_const_set`, `invalid_null_aware_operator_after_short_circuit` (pelo
+  `previousShortCircuitingOperator`, só nos elos `?.`/`?[`), `invalid_override` e
+  `invalid_override_setter` ("The member/setter being overridden."), `referenced_before_declaration`
+  (o `Nome::Adiante` do corpo guarda o intervalo do nome declarado).
+- `ErrorVerifier`: `conflicting_inherited_method_and_setter` (as duas mensagens "The method/setter is
+  inherited from the {kind} '{nome}'.") e `extension_type_inherited_member_conflict` ("Inherited from
+  'X'", um por candidato, os sem extensão antes).
+- `BaseOrFinalTypeVerifier`: "The type 'S' is a subtype of 'B', and 'B' is defined here." nos
+  `base_*_implemented_outside_of_library` vindos de uma `sealed` e nos `*_subtype_of_base/final_*`
+  quando o supertipo direto é `sealed`.
+- `TypeArgumentsVerifier`: a mensagem do tipo invertido no `type_argument_not_matching_bounds`
+  super-bounded (a do tipo cru não ocorre: tipo cru não é conferido em `crates/types/src/limites.rs`).
+- Avaliação de constantes: o `Invalida` leva `contexto` (unidade, intervalo, texto) e o verificador o
+  converte no relato com código específico (o padrão sai sem, como no `_reportError`): "The exception
+  is '…' and occurs here." (no arquivo da unidade definidora da biblioteca, como o `library.source`
+  do oficial), "The error is in the field initializer/assert initializer/super constructor invocation
+  of 'C', and occurs here." e a mensagem de pilha "The evaluated constructor 'S' is called by 'C' and
+  'C' is defined here.".
+- Item 3: `Exibidor::argumentos_e_contexto` gera "X is defined in <caminho>" para cada tipo dos grupos
+  homônimos; `aviso_com_args` e o `relatar` do FFI o anexam.
+- Item 4: `Program::nome_nao_sintetico_da_funcao` (com `nome_da_classe`, `nome_da_variavel` e
+  `caminho_da_unidade`), usado pelos produtores acima.
+
+Desvios: o construtor sintético não ganha a mensagem de pilha (o `nameOffset` dele é -1 no oficial,
+sem intervalo representável); `augmentation_extends_clause_already_present` não tem emissor (T1).
+Falta o why-not-promoted (`computeWhyNotPromotedMessages`): o histórico de não promoção do fluxo e os
+pontos que o consultam.
+
 Arquivos: `crates/diagnostics/src/lib.rs` (o `Diagnostic`),
 `crates/paridade/src/json.rs`, e os emissores que usam a fábrica.
 

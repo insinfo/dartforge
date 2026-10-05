@@ -320,7 +320,16 @@ impl Ctx<'_> {
                     self.interner.resolve(self.program.class(achado.dono).name).to_string(),
                     formatar(self.table, do_super, self.interner, self.program),
                 ];
-                saida.push(Diagnostic::com_codigo(codigo, m.span, args));
+                // `invalidOverride`: o membro sobrescrito, no nome não
+                // sintético dele (no arquivo dele, se é outro).
+                let mut d = Diagnostic::com_codigo(codigo, m.span, args);
+                if let Some((u, span)) = self.program.nome_nao_sintetico_da_funcao(achado.funcao) {
+                    let unidade_do_erro = self.program.nome_nao_sintetico_da_funcao(m.funcao).map(|(x, _)| x);
+                    let arquivo = (Some(u) != unidade_do_erro).then(|| self.program.caminho_da_unidade(u).into());
+                    let texto = if especie == Especie::Setter { "The setter being overridden." } else { "The member being overridden." };
+                    d.contexto.push(dartforge_diagnostics::Contexto { arquivo, span, mensagem: texto.into() });
+                }
+                saida.push(d);
             }
         }
     }
@@ -1303,10 +1312,24 @@ pub fn membros_em_conflito(
                     K::ExtensionType => "extension type",
                     _ => "class",
                 };
-                saida.push((
-                    decl.unit,
-                    Diagnostic::com_codigo(c::CONFLICTING_INHERITED_METHOD_AND_SETTER, nome_classe.span, [tipo, texto_classe.as_str(), nome.as_str()]),
-                ));
+                // As duas mensagens de contexto: de onde vêm o método e o
+                // setter (o tipo e o nome da classe dona, no nome do membro).
+                let mut d = Diagnostic::com_codigo(c::CONFLICTING_INHERITED_METHOD_AND_SETTER, nome_classe.span, [tipo, texto_classe.as_str(), nome.as_str()]);
+                for (a, molde) in [(metodo, "The method is inherited from the"), (setter, "The setter is inherited from the")] {
+                    let p = program;
+                    let (f, dono) = (a.funcao, a.dono);
+                    let especie_do_dono = match p.class(dono).kind {
+                        K::Mixin => "mixin",
+                        K::Enum => "enum",
+                        K::ExtensionType => "extension type",
+                        _ => "class",
+                    };
+                    let Some((u, span)) = p.nome_nao_sintetico_da_funcao(f) else { continue };
+                    let arquivo = (u != decl.unit).then(|| p.caminho_da_unidade(u).into());
+                    let texto = format!("{molde} {especie_do_dono} '{}'.", interner.resolve(p.class(dono).name));
+                    d.contexto.push(dartforge_diagnostics::Contexto { arquivo, span, mensagem: texto.into() });
+                }
+                saida.push((decl.unit, d));
             }
         }
     }

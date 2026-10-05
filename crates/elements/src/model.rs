@@ -9,6 +9,7 @@
 //! Regras de memória (docs/FRONTEND-ARQUITETURA.md §2): tudo em `Vec` indexado
 //! por id `u32`; nomes são [`SymbolId`]; nós da árvore são referenciados por
 //! `(UnitId, id na arena)`, nunca copiados.
+use dartforge_diagnostics::Span;
 use dartforge_frontend::LibraryFeatures;
 use dartforge_frontend::ast::{self, Ast, CompilationUnit, DeclId, FunctionId, MemberId};
 use dartforge_intern::SymbolId;
@@ -562,6 +563,75 @@ impl Program {
     /// a sua unidade. Um membro cuja declaração foi completada por outra da
     /// cadeia continua na lista; quem emite pega o elemento efetivo pelo mapa
     /// de membros e pula o membro cujo elemento não é o efetivo.
+    /// `source.fullName`: o caminho nativo do arquivo da unidade (a URI, sem
+    /// arquivo).
+    pub fn caminho_da_unidade(&self, u: UnitId) -> String {
+        let unit = self.unit(u);
+        match &unit.path {
+            Some(p) => p.display().to_string(),
+            None => unit.uri.clone(),
+        }
+    }
+
+    /// O nome declarado de uma classe (`nameOffset`/`nameLength`); nenhum na
+    /// sintética.
+    pub fn nome_da_classe(&self, c: ClassId) -> Option<(UnitId, Span)> {
+        let d = self.class(c).decl?;
+        let n = match &self.unit(d.unit).ast.decl(d.decl).kind {
+            ast::DeclKind::Class(x) => x.name,
+            ast::DeclKind::Mixin(x) => x.name,
+            ast::DeclKind::Enum(x) => x.name,
+            ast::DeclKind::ExtensionType(x) => x.name,
+            _ => return None,
+        };
+        Some((d.unit, n.span))
+    }
+
+    /// O nome declarado de uma variável (de topo, campo, constante de enum,
+    /// representação).
+    pub fn nome_da_variavel(&self, v: VariableId) -> Option<(UnitId, Span)> {
+        match self.variable(v).node {
+            VariableRef::TopLevel { unit, decl, index } => match &self.unit(unit).ast.decl(decl).kind {
+                ast::DeclKind::Variables(l) => Some((unit, l.variables.get(index)?.name.span)),
+                _ => None,
+            },
+            VariableRef::Field { unit, member, index } => match &self.unit(unit).ast.member(member).kind {
+                ast::MemberKind::Field(l) => Some((unit, l.variables.get(index)?.name.span)),
+                _ => None,
+            },
+            VariableRef::EnumConstant { unit, decl, index } => match &self.unit(unit).ast.decl(decl).kind {
+                ast::DeclKind::Enum(e) => Some((unit, e.constants.get(index)?.name.span)),
+                _ => None,
+            },
+            VariableRef::Representation { unit, decl } => match &self.unit(unit).ast.decl(decl).kind {
+                ast::DeclKind::ExtensionType(x) => Some((unit, x.representation_name.span)),
+                _ => None,
+            },
+            VariableRef::None => None,
+        }
+    }
+
+    /// `element.nonSynthetic` + `nameOffset`/`nameLength` de uma função
+    /// (docs/ANALYZER-ESPECIFICACAO-INFRA.md III.3 item 4, o
+    /// `intervalo_de_relato`): o acessor implícito vale pela variável; o
+    /// construtor sintético, pela classe; o construtor sem nome, pelo nome da
+    /// classe escrito nele.
+    pub fn nome_nao_sintetico_da_funcao(&self, f: FunctionElementId) -> Option<(UnitId, Span)> {
+        let fe = self.function(f);
+        match fe.node {
+            FunctionRef::Function { unit, function } => Some((unit, self.unit(unit).ast.function(function).name?.span)),
+            FunctionRef::Constructor { unit, member } => match &self.unit(unit).ast.member(member).kind {
+                ast::MemberKind::Constructor(k) => Some((unit, k.name.unwrap_or(k.class_name).span)),
+                _ => None,
+            },
+            FunctionRef::None => match (fe.variable, fe.class) {
+                (Some(v), _) => self.nome_da_variavel(v),
+                (None, Some(c)) => self.nome_da_classe(c),
+                _ => None,
+            },
+        }
+    }
+
     pub fn membros_da_classe(&self, id: ClassId) -> Vec<(UnitId, MemberId)> {
         let class = self.class(id);
         let Some(decl) = class.decl else { return Vec::new() };

@@ -852,16 +852,27 @@ impl<'a> BodyInferrer<'a> {
         self.unidades_dos_avisos.push(self.unidade_corrente);
     }
 
+    /// Aviso com código e mensagens de contexto (`DiagnosticFactory`):
+    /// `(arquivo, intervalo, texto)`, o arquivo quando não é o do aviso.
+    pub(crate) fn aviso_com_contexto(&mut self, codigo: dartforge_diagnostics::Codigo, span: Span, args: &[&str], contexto: Vec<(Option<String>, Span, String)>) {
+        let mut d = Diagnostic::com_codigo(codigo, span, args.iter().copied());
+        d.contexto.extend(contexto.into_iter().map(|(arquivo, span, mensagem)| dartforge_diagnostics::Contexto { arquivo: arquivo.map(Into::into), span, mensagem: mensagem.into() }));
+        self.diagnostics.push(d);
+        self.unidades_dos_avisos.push(self.unidade_corrente);
+    }
+
     /// Aviso com código cujos argumentos passam juntos pela conversão do
     /// `ErrorReporter` ([`crate::exibicao::Exibidor::argumentos`], T7): os
     /// tipos saem com alias, e dois tipos do mesmo relato com o mesmo texto
     /// ganham o `(where X is defined in …)`.
     pub(crate) fn aviso_com_args(&mut self, codigo: dartforge_diagnostics::Codigo, span: Span, args: &[crate::exibicao::Arg<'_>]) {
-        let textos = {
+        let (textos, contexto) = {
             let exibidor = crate::exibicao::Exibidor { table: &*self.table, interner: self.interner, program: self.program };
-            exibidor.argumentos(args)
+            exibidor.argumentos_e_contexto(args)
         };
-        self.diagnostics.push(Diagnostic::com_codigo(codigo, span, textos));
+        let mut d = Diagnostic::com_codigo(codigo, span, textos);
+        d.contexto.extend(contexto);
+        self.diagnostics.push(d);
         self.unidades_dos_avisos.push(self.unidade_corrente);
     }
 

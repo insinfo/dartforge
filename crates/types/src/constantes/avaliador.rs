@@ -34,6 +34,9 @@ pub struct Invalida {
     pub evitar_relato: bool,
     pub nao_resolvida: bool,
     pub excecao: bool,
+    /// `contextMessages`: unidade, intervalo e texto (a unidade decide o
+    /// arquivo da mensagem quando o erro é relatado).
+    pub contexto: Vec<(UnitId, Span, String)>,
 }
 
 /// `Constant`: um valor válido ou um erro.
@@ -268,7 +271,58 @@ impl<'a> Motor<'a> {
     // -- Erros ---------------------------------------------------------------
 
     pub fn erro(&self, u: UnitId, span: Span, codigo: Codigo) -> Invalida {
-        Invalida { codigo, unidade: u, span, args: Vec::new(), evitar_relato: false, nao_resolvida: false, excecao: false }
+        Invalida { codigo, unidade: u, span, args: Vec::new(), evitar_relato: false, nao_resolvida: false, excecao: false, contexto: Vec::new() }
+    }
+
+    /// `ConstructorElement.displayName`: `C` ou `C.nome`.
+    fn exibicao_do_construtor(&self, f: FunctionElementId) -> String {
+        let fe = self.program.function(f);
+        let classe = fe.class.map(|k| self.interner.resolve(self.program.class(k).name).to_string()).unwrap_or_default();
+        let nome = self.interner.resolve(fe.name);
+        if nome.is_empty() || nome == "new" {
+            classe
+        } else {
+            format!("{classe}.{nome}")
+        }
+    }
+
+    /// `_constructor.source`: a unidade da declaração do construtor (a da
+    /// classe, no sintético).
+    fn unidade_do_construtor(&self, f: FunctionElementId) -> Option<UnitId> {
+        let fe = self.program.function(f);
+        match fe.node {
+            FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => Some(unit),
+            FunctionRef::None => fe.class.and_then(|k| self.program.class(k).decl).map(|d| d.unit),
+        }
+    }
+
+    /// `_checkInitializers`: o erro (que não é de execução) no inicializador
+    /// passa ao nó da criação; sem contexto ainda, ganha o de onde ocorre.
+    fn erro_no_inicializador(&self, i: &Invalida, f: Option<FunctionElementId>, onde: &str, erro: ErroEm) -> Invalida {
+        let mut n = i.clone();
+        if n.contexto.is_empty() {
+            if let Some(f) = f {
+                if let Some(u) = self.unidade_do_construtor(f) {
+                    let texto = format!("The error is in the {onde} of '{}', and occurs here.", self.exibicao_do_construtor(f));
+                    n.contexto.push((u, i.span, texto));
+                }
+            }
+        }
+        n.unidade = erro.unidade;
+        n.span = erro.span;
+        n
+    }
+
+    /// `_stackTraceContextMessage`: no nome do construtor que chama (nenhum
+    /// no sintético, cujo `nameOffset` é -1).
+    fn pilha_de_construtores(&self, super_: FunctionElementId, f: FunctionElementId) -> Option<(UnitId, Span, String)> {
+        if !matches!(self.program.function(f).node, FunctionRef::Constructor { .. }) {
+            return None;
+        }
+        let (u, span) = self.program.nome_nao_sintetico_da_funcao(f)?;
+        let quem = self.exibicao_do_construtor(f);
+        let texto = format!("The evaluated constructor '{}' is called by '{quem}' and '{quem}' is defined here.", self.exibicao_do_construtor(super_));
+        Some((u, span, texto))
     }
 
     fn inv(&self, u: UnitId, e: ExprId, codigo: Codigo) -> R {
@@ -601,6 +655,12 @@ impl<'a> Motor<'a> {
             Constante::Invalida(i) if i.excecao => {
                 let mut n = self.erro(u, self.span(u, e), c::CONST_EVAL_THROWS_EXCEPTION);
                 n.evitar_relato = i.evitar_relato;
+                // O contexto da exceção, no arquivo da biblioteca
+                // (`library.source`), depois dos que o erro já tinha.
+                let texto = dartforge_diagnostics::Diagnostic::com_codigo(i.codigo, i.span, i.args.iter().map(|s| s.as_str())).message;
+                let definidora = self.program.library(self.program.unit(u).library).units.first().copied().unwrap_or(u);
+                n.contexto = i.contexto.clone();
+                n.contexto.push((definidora, i.span, format!("The exception is '{texto}' and occurs here.")));
                 Constante::Invalida(Box::new(n))
             }
             r => r,
@@ -2140,7 +2200,6 @@ impl<'a> Motor<'a> {
         lexico: HashMap<SymbolId, Valor>,
         mapa_tipos: HashMap<TypeParamId, TypeId>,
     ) -> Gerador {
-        let _ = f;
         let lexico = Rc::new(lexico);
         let tipos = Rc::new(mapa_tipos);
         let unidade_ctor = inits.as_ref().map(|(u, _)| *u).unwrap_or(erro.unidade);
@@ -2174,9 +2233,7 @@ impl<'a> Motor<'a> {
                                 campos.push((Campo::Nome(name.sym), v));
                             }
                             Constante::Invalida(i) if !i.excecao => {
-                                let mut n = (*i).clone();
-                                n.unidade = erro.unidade;
-                                n.span = erro.span;
+                                let n = self.erro_no_inicializador(&i, Some(f), "field initializer", erro);
                                 return Gerador::pronto(Constante::Invalida(Box::new(n)));
                             }
                             r => return Gerador::pronto(r),
@@ -2218,9 +2275,7 @@ impl<'a> Motor<'a> {
                                 }
                             }
                             Constante::Invalida(i) if !i.excecao => {
-                                let mut n = (*i).clone();
-                                n.unidade = erro.unidade;
-                                n.span = erro.span;
+                                let n = self.erro_no_inicializador(&i, Some(f), "assert initializer", erro);
                                 return Gerador::pronto(Constante::Invalida(Box::new(n)));
                             }
                             r => return Gerador::pronto(r),
@@ -2231,6 +2286,7 @@ impl<'a> Motor<'a> {
         }
         Gerador {
             motor_pronto: None,
+            f: Some(f),
             erro,
             k,
             tipo,
@@ -2248,7 +2304,7 @@ impl<'a> Motor<'a> {
         if let Some(r) = g.motor_pronto {
             return r;
         }
-        let Gerador { erro, k, tipo, mut campos, super_nome, super_args, super_posicionais, super_nomeados, cxi, .. } = g;
+        let Gerador { f, erro, k, tipo, mut campos, super_nome, super_args, super_posicionais, super_nomeados, cxi, .. } = g;
         let classe = self.program.class(k);
         if let Some(sup) = classe.supertype_class {
             if Some(sup) != self.core.object_class {
@@ -2296,12 +2352,27 @@ impl<'a> Motor<'a> {
                         match r {
                             Constante::Valor(v) => campos.push((Campo::Super, v)),
                             Constante::Invalida(i) if !i.excecao => {
-                                let mut n = (*i).clone();
-                                n.unidade = erro.unidade;
-                                n.span = erro.span;
+                                let mut n = if i.contexto.is_empty() {
+                                    self.erro_no_inicializador(&i, f, "super constructor invocation", erro)
+                                } else {
+                                    let mut n = (*i).clone();
+                                    n.unidade = erro.unidade;
+                                    n.span = erro.span;
+                                    n
+                                };
+                                if !i.contexto.is_empty() {
+                                    if let Some(x) = f.and_then(|f| self.pilha_de_construtores(g, f)) {
+                                        n.contexto.push(x);
+                                    }
+                                }
                                 return Constante::Invalida(Box::new(n));
                             }
-                            r => return r,
+                            Constante::Invalida(mut i) => {
+                                if let Some(x) = f.and_then(|f| self.pilha_de_construtores(g, f)) {
+                                    i.contexto.push(x);
+                                }
+                                return Constante::Invalida(i);
+                            }
                         }
                     }
                 }
@@ -2355,6 +2426,8 @@ enum Argumentos<'x> {
 /// O estado entre os inicializadores e a chamada ao super.
 struct Gerador {
     motor_pronto: Option<Constante>,
+    /// O construtor avaliado (`_constructor`), para as mensagens de contexto.
+    f: Option<FunctionElementId>,
     erro: ErroEm,
     k: ClassId,
     tipo: TypeId,
@@ -2370,6 +2443,7 @@ impl Gerador {
     fn pronto(r: Constante) -> Gerador {
         Gerador {
             motor_pronto: Some(r),
+            f: None,
             erro: ErroEm { unidade: UnitId(0), span: Span { start: 0, end: 0 } },
             k: ClassId(0),
             tipo: TypeId(0),

@@ -153,8 +153,9 @@ pub fn fora_da_biblioteca(programa: &Program, lib: LibraryId, nomes: &Interner) 
         // O analyzer descarta o erro repetido (mesmo código, intervalo e
         // mensagem): o `ErrorVerifier` e o `BaseOrFinalTypeVerifier` relatam
         // `class X implements SealedDeBase` cada um.
-        let mut por = |codigo: Codigo, sp: Span, args: &[&str]| {
-            let d = Diagnostic::com_codigo(codigo, sp, args.iter().copied());
+        let mut por = |codigo: Codigo, sp: Span, args: &[&str], contexto: Option<dartforge_diagnostics::Contexto>| {
+            let mut d = Diagnostic::com_codigo(codigo, sp, args.iter().copied());
+            d.contexto.extend(contexto);
             if !saida.iter().any(|(u, x): &(UnitId, Diagnostic)| *u == decl.unit && x.span == d.span && x.message == d.message) {
                 saida.push((decl.unit, d));
             }
@@ -169,9 +170,9 @@ pub fn fora_da_biblioteca(programa: &Program, lib: LibraryId, nomes: &Interner) 
                 for e in cx.todos(alvo) {
                     if cx.e_base(e) && cx.classe(e).library != lib && !cx.pode_ignorar(cx.classe(e).library, true) {
                         if cx.classe(e).kind != ClassKind::Mixin && !cx.e_selada(e) {
-                            por(c::BASE_CLASS_IMPLEMENTED_OUTSIDE_OF_LIBRARY, span(t), &[&cx.nome(e)]);
+                            por(c::BASE_CLASS_IMPLEMENTED_OUTSIDE_OF_LIBRARY, span(t), &[&cx.nome(e)], None);
                         } else if cx.e_mixin(e) {
-                            por(c::BASE_MIXIN_IMPLEMENTED_OUTSIDE_OF_LIBRARY, span(t), &[&cx.nome(e)]);
+                            por(c::BASE_MIXIN_IMPLEMENTED_OUTSIDE_OF_LIBRARY, span(t), &[&cx.nome(e)], None);
                         }
                         break;
                     }
@@ -188,13 +189,13 @@ pub fn fora_da_biblioteca(programa: &Program, lib: LibraryId, nomes: &Interner) 
                     && !cx.pode_ignorar(cx.classe(s).library, true)
                     && !sem_construtor_generativo(&cx, s)
                 {
-                    por(c::INTERFACE_CLASS_EXTENDED_OUTSIDE_OF_LIBRARY, span(t), &[&cx.nome(s)]);
+                    por(c::INTERFACE_CLASS_EXTENDED_OUTSIDE_OF_LIBRARY, span(t), &[&cx.nome(s)], None);
                 }
             }
             // final: estendida, implementada, restrição de mixin.
             if let Some((t, Some(s))) = cl.extends {
                 if cx.e_final(s) && !cx.e_selada(s) && cx.classe(s).library != lib && !cx.pode_ignorar(cx.classe(s).library, true) {
-                    por(c::FINAL_CLASS_EXTENDED_OUTSIDE_OF_LIBRARY, span(t), &[&cx.nome(s)]);
+                    por(c::FINAL_CLASS_EXTENDED_OUTSIDE_OF_LIBRARY, span(t), &[&cx.nome(s)], None);
                 }
             }
             for &(t, alvo) in &cl.implements {
@@ -206,7 +207,7 @@ pub fn fora_da_biblioteca(programa: &Program, lib: LibraryId, nomes: &Interner) 
                         if e != alvo && cx.com_modificadores(cx.classe(alvo).library) {
                             continue;
                         }
-                        por(c::FINAL_CLASS_IMPLEMENTED_OUTSIDE_OF_LIBRARY, span(t), &[&cx.nome(e)]);
+                        por(c::FINAL_CLASS_IMPLEMENTED_OUTSIDE_OF_LIBRARY, span(t), &[&cx.nome(e)], None);
                         break;
                     }
                 }
@@ -214,14 +215,14 @@ pub fn fora_da_biblioteca(programa: &Program, lib: LibraryId, nomes: &Interner) 
             for &(t, alvo) in &cl.on {
                 let Some(s) = alvo else { continue };
                 if cx.e_final(s) && !cx.e_selada(s) && cx.classe(s).library != lib && !cx.pode_ignorar(cx.classe(s).library, true) {
-                    por(c::FINAL_CLASS_USED_AS_MIXIN_CONSTRAINT_OUTSIDE_OF_LIBRARY, span(t), &[&cx.nome(s)]);
+                    por(c::FINAL_CLASS_USED_AS_MIXIN_CONSTRAINT_OUTSIDE_OF_LIBRARY, span(t), &[&cx.nome(s)], None);
                 }
             }
             // sealed: qualquer cláusula.
             for &(t, alvo) in cl.extends.iter().chain(cl.with.iter()).chain(cl.implements.iter()).chain(cl.on.iter()) {
                 let Some(s) = alvo else { continue };
                 if cx.e_selada(s) && cx.classe(s).library != lib {
-                    por(c::SEALED_CLASS_SUBTYPE_OUTSIDE_OF_LIBRARY, span(t), &[&cx.nome(s)]);
+                    por(c::SEALED_CLASS_SUBTYPE_OUTSIDE_OF_LIBRARY, span(t), &[&cx.nome(s)], None);
                 }
             }
         }
@@ -240,9 +241,16 @@ pub fn fora_da_biblioteca(programa: &Program, lib: LibraryId, nomes: &Interner) 
         for grupo in [supertipo, interfaces, mixins, on] {
             let mut relatou = false;
             for (implementado, sup) in grupo {
-                if let Some((codigo, sp, args)) = restricao(&cx, id, sup, implementado.map(span), nome_sp) {
+                if let Some((codigo, sp, args, contexto)) = restricao(&cx, id, sup, implementado.map(span), nome_sp) {
                     let args: Vec<&str> = args.iter().map(String::as_str).collect();
-                    por(codigo, sp, &args);
+                    // A mensagem de contexto aponta o arquivo da declaração
+                    // quando não é o do erro.
+                    let contexto = contexto.map(|(u, span, mensagem)| dartforge_diagnostics::Contexto {
+                        arquivo: (u != decl.unit).then(|| programa.caminho_da_unidade(u).into()),
+                        span,
+                        mensagem: mensagem.into(),
+                    });
+                    por(codigo, sp, &args, contexto);
                     relatou = true;
                     break;
                 }
@@ -255,8 +263,17 @@ pub fn fora_da_biblioteca(programa: &Program, lib: LibraryId, nomes: &Interner) 
     saida
 }
 
-/// `_reportRestrictionError`: o diagnóstico, se houver.
-fn restricao(cx: &Contexto<'_>, elemento: ClassId, sup: ClassId, implementado: Option<Span>, nome_sp: Span) -> Option<(Codigo, Span, Vec<String>)> {
+/// `_reportRestrictionError`: o diagnóstico, se houver, com a mensagem de
+/// contexto (unidade, intervalo e texto) que aponta o `base`/`final`
+/// explícito quando o supertipo direto o tem induzido (é `sealed`).
+#[allow(clippy::type_complexity)]
+fn restricao(
+    cx: &Contexto<'_>,
+    elemento: ClassId,
+    sup: ClassId,
+    implementado: Option<Span>,
+    nome_sp: Span,
+) -> Option<(Codigo, Span, Vec<String>, Option<(UnitId, Span, String)>)> {
     let lib_el = cx.classe(elemento).library;
     let lib_sup = cx.classe(sup).library;
     // Uma `sealed` que estende `base`/`final` herda o modificador (é
@@ -270,10 +287,15 @@ fn restricao(cx: &Contexto<'_>, elemento: ClassId, sup: ClassId, implementado: O
     if cx.pode_ignorar(lib_bf, false) {
         return None;
     }
+    let contexto = cx.programa.nome_da_classe(bf).map(|(u, span)| {
+        let (s, b) = (cx.nome(sup), cx.nome(bf));
+        (u, span, format!("The type '{s}' is a subtype of '{b}', and '{b}' is defined here."))
+    });
+    let se_selada = |x: Option<(UnitId, Span, String)>| if cx.e_selada(sup) { x } else { None };
     if let Some(sp) = implementado {
         if cx.e_selada(sup) && lib_bf != lib_el && cx.e_base(bf) {
             let codigo = if cx.e_mixin(bf) { c::BASE_MIXIN_IMPLEMENTED_OUTSIDE_OF_LIBRARY } else { c::BASE_CLASS_IMPLEMENTED_OUTSIDE_OF_LIBRARY };
-            return Some((codigo, sp, vec![cx.nome(bf)]));
+            return Some((codigo, sp, vec![cx.nome(bf)], contexto));
         }
     }
     if cx.e_base(elemento) || cx.e_final(elemento) || cx.e_selada(elemento) {
@@ -287,11 +309,11 @@ fn restricao(cx: &Contexto<'_>, elemento: ClassId, sup: ClassId, implementado: O
             return None;
         }
         let codigo = if mixin { c::MIXIN_SUBTYPE_OF_FINAL_IS_NOT_BASE } else { c::SUBTYPE_OF_FINAL_IS_NOT_BASE_FINAL_OR_SEALED };
-        return Some((codigo, nome_sp, vec![cx.nome(elemento), cx.nome(bf)]));
+        return Some((codigo, nome_sp, vec![cx.nome(elemento), cx.nome(bf)], se_selada(contexto)));
     }
     if cx.e_base(bf) {
         let codigo = if mixin { c::MIXIN_SUBTYPE_OF_BASE_IS_NOT_BASE } else { c::SUBTYPE_OF_BASE_IS_NOT_BASE_FINAL_OR_SEALED };
-        return Some((codigo, nome_sp, vec![cx.nome(elemento), cx.nome(bf)]));
+        return Some((codigo, nome_sp, vec![cx.nome(elemento), cx.nome(bf)], se_selada(contexto)));
     }
     None
 }
