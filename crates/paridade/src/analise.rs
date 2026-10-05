@@ -455,6 +455,7 @@ impl Motor {
             }
             for (u, d) in dartforge_analise::importacoes::extensoes_adiadas(&program, *lib)
                 .into_iter()
+                .chain(dartforge_analise::importacoes::diretivas_internas_e_adiadas(&program, *lib))
                 .chain(dartforge_analise::importacoes::nomes_mostrados_indefinidos(&program, *lib, &interner))
                 .chain(dartforge_analise::importacoes::exports_ambiguos(&program, *lib, &interner))
                 .chain(dartforge_analise::importacoes::tipos_adiados(&program, *lib, &interner))

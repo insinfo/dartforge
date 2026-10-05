@@ -195,6 +195,83 @@ pub fn extensoes_adiadas(program: &Program, lib: LibraryId) -> Vec<(dartforge_el
     out
 }
 
+/// As bibliotecas internas do SDK 3.6.2 (`isInternal`: `categories` vazio em
+/// `lib/_internal/sdk_library_metadata/lib/libraries.dart`).
+const INTERNAS: &[&str] = &[
+    "_http", "_native_typed_data", "_internal", "_js_helper", "_late_helper", "_rti", "_dart2js_only",
+    "_dart2js_runtime_metrics", "_interceptors", "_foreign_helper", "_js_names", "_js_primitives",
+    "_js_embedded_names", "_js_shared_embedded_names", "_js_types", "_async_status_codes",
+    "_invocation_mirror_constants", "_recipe_syntax", "_load_library_priority", "_metadata",
+    "_js_annotations", "_wasm", "_macros",
+];
+
+fn interna(uri: &str) -> bool {
+    uri.strip_prefix("dart:").is_some_and(|n| INTERNAS.contains(&n))
+}
+
+/// `_checkForImportInternalLibrary` (`error_verifier.dart:3800-3822`, na URI),
+/// `_checkForExportInternalLibrary` (`:3263-3302`, na diretiva inteira) e
+/// `_checkDeferredPrefixCollision` (`:1911-1923`: dois ou mais imports da
+/// unidade com o mesmo prefixo, cada `deferred` no seu token). Fora das
+/// bibliotecas `dart:`; `dart:_wasm` vale em `package:js/js.dart` e
+/// `package:ui/`, `dart:_macros` reexportado em `package:macros`.
+pub fn diretivas_internas_e_adiadas(program: &Program, lib: LibraryId) -> Vec<(dartforge_elements::model::UnitId, Diagnostic)> {
+    let mut out = Vec::new();
+    let biblioteca = program.library(lib);
+    let atual = biblioteca.uri.as_str();
+    let sistema = atual.starts_with("dart:");
+    if !sistema {
+        for imp in &biblioteca.imports {
+            let alvo = program.library(imp.library).uri.as_str();
+            if !interna(alvo) || program.library(imp.library).units.is_empty() {
+                continue;
+            }
+            if alvo == "dart:_wasm" && (atual == "package:js/js.dart" || atual.starts_with("package:ui/")) {
+                continue;
+            }
+            let Some(dir) = program.unit(imp.unit).unit.directives.get(imp.directive) else { continue };
+            let DirectiveKind::Import { uri, .. } = &dir.kind else { continue };
+            out.push((imp.unit, Diagnostic::com_codigo(c::IMPORT_INTERNAL_LIBRARY, uri.span, [alvo])));
+        }
+        for exp in &biblioteca.exports {
+            let alvo = program.library(exp.library).uri.as_str();
+            if !interna(alvo) || program.library(exp.library).units.is_empty() {
+                continue;
+            }
+            if alvo == "dart:_macros" && atual.starts_with("package:macros/") {
+                continue;
+            }
+            let Some(dir) = program.unit(exp.unit).unit.directives.get(exp.directive) else { continue };
+            out.push((exp.unit, Diagnostic::com_codigo(c::EXPORT_INTERNAL_LIBRARY, dir.span, [alvo])));
+        }
+    }
+    // `SHARED_DEFERRED_PREFIX`, unidade a unidade.
+    for &u in &biblioteca.units {
+        let unidade = program.unit(u);
+        let mut por_prefixo: std::collections::HashMap<SymbolId, Vec<usize>> = std::collections::HashMap::new();
+        for (i, d) in unidade.unit.directives.iter().enumerate() {
+            if let DirectiveKind::Import { prefix: Some(p), .. } = &d.kind {
+                por_prefixo.entry(p.sym).or_default().push(i);
+            }
+        }
+        let mut grupos: Vec<Vec<usize>> = por_prefixo.into_values().filter(|v| v.len() > 1).collect();
+        grupos.sort();
+        for g in grupos {
+            for i in g {
+                let d = &unidade.unit.directives[i];
+                let DirectiveKind::Import { uri, deferred: true, prefix: Some(p), .. } = &d.kind else { continue };
+                // O token `deferred`, entre a URI e o prefixo.
+                let trecho = unidade.source.get(uri.span.end..p.span.start).unwrap_or("");
+                if let Some(k) = trecho.find("deferred") {
+                    let ini = uri.span.end + k;
+                    out.push((u, Diagnostic::com_codigo(c::SHARED_DEFERRED_PREFIX, dartforge_diagnostics::Span { start: ini, end: ini + "deferred".len() }, [] as [&str; 0])));
+                }
+            }
+        }
+    }
+    out
+}
+
 /// `UNDEFINED_SHOWN_NAME` (`DeadCodeVerifier._checkCombinator`,
 /// `analyzer/lib/src/error/dead_code_verifier.dart:131-155`;
 /// docs/ANALYZER-ESPECIFICACAO.md §F): um nome de `show`, em `import` ou

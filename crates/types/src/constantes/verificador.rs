@@ -709,7 +709,17 @@ impl Verificador<'_, '_> {
                             // `_validateSwitchStatement_nullSafety`.
                             let e = desparentizar(a, *e);
                             self.expr(a, e, true);
-                            self.avaliar_e_relatar(e, true, c::NON_CONSTANT_CASE_EXPRESSION);
+                            // Sem padrões, o valor precisa de igualdade
+                            // primitiva: `CASE_EXPRESSION_TYPE_IMPLEMENTS_EQUALS`
+                            // com o tipo do valor (`constant_verifier.dart:1009-1030`).
+                            if let Constante::Valor(v) = self.avaliar_e_relatar(e, true, c::NON_CONSTANT_CASE_EXPRESSION)
+                                && !v.desconhecido_de_fato()
+                                && !self.m.igualdade_primitiva(&v, self.lib)
+                            {
+                                let sp = self.m.span(self.unidade, e);
+                                let tipo = self.m.formatar(v.tipo);
+                                self.relatar(c::CASE_EXPRESSION_TYPE_IMPLEMENTS_EQUALS, sp, vec![tipo]);
+                            }
                         }
                     }
                     if let Some(g) = caso.guard {
@@ -915,6 +925,8 @@ impl Verificador<'_, '_> {
                             self.relatar(codigo, dup, Vec::new());
                         }
                     }
+                } else {
+                    self.duplicados_em_literal_nao_constante(a, e, elements);
                 }
             }
             ExprKind::Record { const_, positional, named } => {
@@ -1368,6 +1380,50 @@ impl Verificador<'_, '_> {
                 self.relatar(codigo, a.ty(y).span, vec![exibido]);
             }
             _ => self.argumento_de_tipo_const(a, y, codigo),
+        }
+    }
+
+    /// `BestPracticesVerifier._checkForDuplications`
+    /// (`best_practices_verifier.dart:851-875`): num literal não constante,
+    /// os elementos (conjunto) ou as chaves (mapa) de primeiro nível que a
+    /// avaliação constante dá sem erro, iguais a um anterior:
+    /// `EQUAL_ELEMENTS_IN_SET`/`EQUAL_KEYS_IN_MAP` no repetido.
+    fn duplicados_em_literal_nao_constante(&mut self, _a: &ast::Ast, e: ExprId, elements: &[CollectionElement]) {
+        let u = self.unidade;
+        let tipo = self.m.estatico(u, e);
+        let classe = match self.m.table.get(tipo) {
+            Type::Interface { class, .. } => Some(*class),
+            _ => None,
+        };
+        let (mapa, codigo) = if classe.is_some() && classe == self.m.core.set_class {
+            (false, w::EQUAL_ELEMENTS_IN_SET)
+        } else if classe.is_some() && classe == self.m.core.map_class {
+            (true, w::EQUAL_KEYS_IN_MAP)
+        } else {
+            return;
+        };
+        let expressoes: Vec<ExprId> = elements
+            .iter()
+            .filter_map(|el| match el {
+                CollectionElement::Expression(x) if !mapa => Some(*x),
+                CollectionElement::MapEntry { key, .. } if mapa => Some(*key),
+                _ => None,
+            })
+            .collect();
+        let mut vistos: Vec<Valor> = Vec::new();
+        for x in expressoes {
+            let cx = self.cx();
+            let Constante::Valor(v) = self.m.avaliar(&cx, x, false) else { continue };
+            if v.desconhecido_de_fato() {
+                continue;
+            }
+            let repetido = vistos.iter().any(|y| self.m.iguais(y, &v));
+            if repetido {
+                let sp = self.m.span(u, x);
+                self.relatar(codigo, sp, Vec::new());
+            } else {
+                vistos.push(v);
+            }
         }
     }
 

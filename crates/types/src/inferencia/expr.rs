@@ -2026,6 +2026,13 @@ fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
         if !instancia_explicita && avisar_acesso_estatico_a_instancia(inf, cx, c, name, false) {
             return inf.core.dynamic_;
         }
+        // `PropertyElementResolver` (`property_element_resolver.dart:696-705`):
+        // num enum o código é `UNDEFINED_ENUM_CONSTANT`.
+        if inf.program.class(c).kind == dartforge_elements::model::ClassKind::Enum {
+            let (n, en) = (inf.interner.resolve(name.sym).to_string(), inf.interner.resolve(inf.program.class(c).name).to_string());
+            inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_ENUM_CONSTANT, name.span, &[&n, &en]);
+            return inf.core.dynamic_;
+        }
         let msg = format!("{}: getter '{}' não definido para a classe", UNDEFINED_GETTER.template, inf.interner.resolve(name.sym));
         inf.aviso(msg, name.span);
         return inf.core.dynamic_;

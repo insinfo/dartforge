@@ -64,6 +64,8 @@ fn forma_pelos_elementos(els: &[CollectionElement]) -> Option<bool> {
 /// Infere um literal de coleção.
 pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx: TypeId) -> TypeId {
     let a = &inf.program.unit(cx.unit).ast;
+    // `Some(ambos)`: o literal é ambíguo (`ambos`: o `_BOTH`).
+    let mut ambigua: Option<bool> = None;
     let (forma, type_args, elements, const_) = match &a.expr(e).kind {
         ExprKind::List { const_, type_args, elements } => (Forma::Lista, type_args, elements, *const_),
         ExprKind::SetOrMap { const_, type_args, elements } => {
@@ -73,7 +75,11 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 _ => match forma_pelos_elementos(elements) {
                     Some(true) => Forma::Mapa,
                     Some(false) => Forma::Conjunto,
-                    None => forma_pelo_contexto(inf, cx, elements, ctx),
+                    None => {
+                        let (f, amb) = forma_pelo_contexto(inf, cx, elements, ctx);
+                        ambigua = amb;
+                        f
+                    }
                 },
             };
             (forma, type_args, elements, *const_)
@@ -147,6 +153,19 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
     };
     if const_ {
         validar_colecao_const(inf, cx, e);
+    }
+    // `_inferSetOrMapLiteralType` (`typed_literal_resolver.dart:579-597`):
+    // ambíguo, o literal inteiro relata e fica `dynamic` (sem a verificação
+    // dos elementos, que só roda em mapa ou conjunto).
+    if let Some(ambos) = ambigua {
+        let sp = inf.span_expr(cx.unit, e);
+        let codigo = if ambos {
+            dartforge_diagnostics::codigos::compile_time_error::AMBIGUOUS_SET_OR_MAP_LITERAL_BOTH
+        } else {
+            dartforge_diagnostics::codigos::compile_time_error::AMBIGUOUS_SET_OR_MAP_LITERAL_EITHER
+        };
+        inf.aviso_com_codigo(codigo, sp, &[]);
+        return inf.core.dynamic_;
     }
     verificar_elementos(inf, cx, elements, forma, t, const_, false);
     t
@@ -314,34 +333,156 @@ fn tipo_final(inf: &mut BodyInferrer<'_>, forma: Forma, args: &[TypeId]) -> Type
     }
 }
 
-/// `{}` indeciso: pelo contexto (`Map`/`Iterable`), senão pelos
-/// espalhamentos inferidos; `{}` vazio sem contexto é mapa.
-fn forma_pelo_contexto(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, els: &[CollectionElement], ctx: TypeId) -> Forma {
-    if let Some(f) = forma_pelo_tipo_do_contexto(inf, ctx) {
-        return f;
+/// `_InferredCollectionElementTypeInformation`: o que um elemento admite
+/// (`Some` = tipo de elemento / chave / valor conhecido).
+#[derive(Clone, Copy)]
+struct Admite {
+    elemento: Option<TypeId>,
+    chave: Option<TypeId>,
+    valor: Option<TypeId>,
+}
+
+impl Admite {
+    fn pode_mapa(&self) -> bool {
+        self.chave.is_some() || self.valor.is_some()
     }
-    // Sem contexto que decida: os espalhamentos são inferidos sem contexto
-    // e o tipo deles decide (um `Iterable` faz o conjunto, um `Map` o
-    // mapa). O tipo fica guardado para a visita dos elementos.
-    let u = inf.core.unknown;
-    let mut forma = None;
-    for el in els {
-        if let CollectionElement::Spread { value, .. } = el {
-            let t = inferir(inf, cx, *value, u);
-            inf.espalhamentos_inferidos.insert(*value, t);
-            let t = inf.nao_nulo(t);
-            if forma.is_none() {
-                if inf.como_instancia_de(t, inf.core.iterable_class).is_some() {
-                    forma = Some(Forma::Conjunto);
-                } else if inf.como_instancia_de(t, inf.core.map_class).is_some()
-                    || matches!(inf.table.get(t), Type::Interface { class, .. } if Some(*class) == inf.core.map_class)
-                {
-                    forma = Some(Forma::Mapa);
+    fn pode_conjunto(&self) -> bool {
+        self.elemento.is_some()
+    }
+    fn deve_mapa(&self) -> bool {
+        self.pode_mapa() && self.elemento.is_none()
+    }
+    fn deve_conjunto(&self) -> bool {
+        self.pode_conjunto() && self.chave.is_none() && self.valor.is_none()
+    }
+}
+
+/// `_inferCollectionElementType` (`typed_literal_resolver.dart:344-430`) de
+/// um literal `{…}` só de espalhamentos (os tipos deles já inferidos sem
+/// contexto, em `espalhamentos_inferidos`).
+fn admite(inf: &mut BodyInferrer<'_>, el: &CollectionElement) -> Admite {
+    let nada = Admite { elemento: None, chave: None, valor: None };
+    match el {
+        CollectionElement::Spread { value, null_aware } => {
+            let Some(&t) = inf.espalhamentos_inferidos.get(value) else { return nada };
+            if let Some(a) = inf.como_instancia_de(t, inf.core.iterable_class) {
+                return Admite { elemento: a.first().copied(), chave: None, valor: None };
+            }
+            if let Some(a) = inf.como_instancia_de(t, inf.core.map_class) {
+                return Admite { elemento: None, chave: a.first().copied(), valor: a.get(1).copied() };
+            }
+            if inf.e_dynamic(t) {
+                return Admite { elemento: Some(t), chave: Some(t), valor: Some(t) };
+            }
+            let n = inf.core.never;
+            if inf.sub(t, n) || (*null_aware && matches!(inf.table.get(t), Type::Null)) {
+                return Admite { elemento: Some(n), chave: Some(n), valor: Some(n) };
+            }
+            nada
+        }
+        CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => admite(inf, body),
+        CollectionElement::If { then, else_, .. } => {
+            let a = admite(inf, then);
+            let Some(e) = else_ else { return a };
+            let b = admite(inf, e);
+            let dinamico = |x: &Admite, inf: &BodyInferrer<'_>| [x.elemento, x.chave, x.valor].iter().all(|t| t.is_some_and(|t| inf.e_dynamic(t)));
+            let ou_dinamico = |t: Option<TypeId>, d: TypeId| t.map(|_| d);
+            if dinamico(&a, inf) {
+                let d = a.elemento.expect("dinâmico");
+                return Admite { elemento: ou_dinamico(b.elemento, d), chave: ou_dinamico(b.chave, d), valor: ou_dinamico(b.valor, d) };
+            }
+            if dinamico(&b, inf) {
+                let d = b.elemento.expect("dinâmico");
+                return Admite { elemento: ou_dinamico(a.elemento, d), chave: ou_dinamico(a.chave, d), valor: ou_dinamico(a.valor, d) };
+            }
+            let mut juntar = |x: Option<TypeId>, y: Option<TypeId>| match (x, y) {
+                (None, y) => y,
+                (x, None) => x,
+                (Some(x), Some(y)) => Some(inf.up(x, y)),
+            };
+            Admite { elemento: juntar(a.elemento, b.elemento), chave: juntar(a.chave, b.chave), valor: juntar(a.valor, b.valor) }
+        }
+        _ => nada,
+    }
+}
+
+/// `{}` indeciso pela sintaxe: o contexto (`Map`/`Iterable`) decide; senão os
+/// espalhamentos, inferidos sem contexto (`_inferSetOrMapLiteralType`,
+/// `typed_literal_resolver.dart:516-597`): todos admitem conjunto e algum o
+/// exige, conjunto; todos admitem mapa e algum o exige, mapa; vazio, mapa;
+/// senão o literal é ambíguo (`Some(mustBeAMap && mustBeASet)` no segundo
+/// campo; a visita segue como mapa, e o tipo fica `dynamic`).
+fn forma_pelo_contexto(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, els: &[CollectionElement], ctx: TypeId) -> (Forma, Option<bool>) {
+    if let Some(f) = forma_pelo_tipo_do_contexto(inf, ctx) {
+        return (f, None);
+    }
+    if els.is_empty() {
+        return (Forma::Mapa, None);
+    }
+    // Os espalhamentos são inferidos sem contexto; o tipo fica guardado para
+    // a visita dos elementos. Só os que não dependem de variáveis do próprio
+    // elemento (fora de `for` e de `if-case`) podem ser inferidos antes.
+    fn antecipaveis(els: &[CollectionElement]) -> bool {
+        els.iter().all(|el| match el {
+            CollectionElement::If { case_pattern: None, then, else_, .. } => {
+                antecipaveis(std::slice::from_ref(then)) && else_.as_ref().is_none_or(|e| antecipaveis(std::slice::from_ref(e)))
+            }
+            CollectionElement::If { .. } | CollectionElement::For { .. } | CollectionElement::ForIn { .. } => false,
+            _ => true,
+        })
+    }
+    fn inferir_espalhamentos(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, els: &[CollectionElement]) {
+        let u = inf.core.unknown;
+        for el in els {
+            match el {
+                CollectionElement::Spread { value, .. } => {
+                    let t = inferir(inf, cx, *value, u);
+                    inf.espalhamentos_inferidos.insert(*value, t);
                 }
+                CollectionElement::If { then, else_, .. } => {
+                    inferir_espalhamentos(inf, cx, std::slice::from_ref(then));
+                    if let Some(e) = else_ {
+                        inferir_espalhamentos(inf, cx, std::slice::from_ref(e));
+                    }
+                }
+                _ => {}
             }
         }
     }
-    forma.unwrap_or(Forma::Mapa)
+    if !antecipaveis(els) {
+        // Espalhamento dentro de `for`/`if-case`: o primeiro de topo que é
+        // `Iterable` ou `Map` decide, sem relato de ambiguidade.
+        let u = inf.core.unknown;
+        let mut forma = None;
+        for el in els {
+            if let CollectionElement::Spread { value, .. } = el {
+                let t = inferir(inf, cx, *value, u);
+                inf.espalhamentos_inferidos.insert(*value, t);
+                let t = inf.nao_nulo(t);
+                if forma.is_none() {
+                    if inf.como_instancia_de(t, inf.core.iterable_class).is_some() {
+                        forma = Some(Forma::Conjunto);
+                    } else if inf.como_instancia_de(t, inf.core.map_class).is_some() {
+                        forma = Some(Forma::Mapa);
+                    }
+                }
+            }
+        }
+        return (forma.unwrap_or(Forma::Mapa), None);
+    }
+    inferir_espalhamentos(inf, cx, els);
+    let infos: Vec<Admite> = els.iter().map(|el| admite(inf, el)).collect();
+    let pode_conjunto = infos.iter().all(|a| a.pode_conjunto());
+    let deve_conjunto = infos.iter().any(|a| a.deve_conjunto());
+    let pode_mapa = infos.iter().all(|a| a.pode_mapa());
+    let deve_mapa = infos.iter().any(|a| a.deve_mapa());
+    if pode_conjunto && deve_conjunto {
+        return (Forma::Conjunto, None);
+    }
+    if pode_mapa && deve_mapa {
+        return (Forma::Mapa, None);
+    }
+    (Forma::Mapa, Some(deve_mapa && deve_conjunto))
 }
 
 /// A forma que o contexto (`Map`/`Iterable`) impõe, se impõe.

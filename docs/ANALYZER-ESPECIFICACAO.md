@@ -7476,6 +7476,8 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
 - **No DartForge:** não existe. Amostras: `const/switch2_legacy_test.dart` (`case 0.0:` em 2.19),
   `const/switch2_test.dart`, e classes com `==`. Lugar: `crates/types/src/constantes/verificador.rs`, na
   verificação de `switch` (precisa da versão de linguagem da biblioteca).
+- **Estado em 2026-10-05 (escrito, não compilado):** no ramo sem padrões do `switch` em `verificador.rs`, o
+  valor avaliado sem `igualdade_primitiva` relata com o tipo do valor.
 
 ##### `integer_literal_out_of_range` (perda 10: FN 10) e `integer_literal_imprecise_as_double` (perda 3: FN 3)
 - **Emissão:** `ErrorVerifier._checkForOutOfRange` (`analyzer/lib/src/generated/error_verifier.dart:4985-5021`),
@@ -7554,6 +7556,12 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
 - **No DartForge:** não existe. Amostras: `{...a, ...b}` com `a`,`b` dynamic, `{...set, ...map}`. Há um
   FP derivado: `non_bool_negation_expression` em `!{...a, ...b}` (o nosso dá tipo ≠ dynamic ao literal
   ambíguo; o analyzer, `dynamic`, e então não reclama da negação).
+- **Estado em 2026-10-05 (escrito, não compilado):** `colecoes::forma_pelo_contexto` porta o
+  `_inferSetOrMapLiteralType`, com o `_InferredCollectionElementTypeInformation` (`Admite`) dos espalhamentos
+  inferidos sem contexto, por `if` e `for`. Sai `Some(mustBeAMap && mustBeASet)` quando ambíguo. O `literal`
+  então relata `_both` ou `_either` no literal inteiro e devolve `dynamic`, sem verificar elementos. Fica fora
+  o espalhamento dentro de `for` ou `if-case`, que depende das variáveis do elemento e não se antecipa: aí
+  decide o primeiro espalhamento de topo, sem relato.
 
 ##### `collection_element_from_deferred_library` (perda 5: FN 5)
 - **Emissão:** `sharedName` de NON_CONSTANT_LIST_ELEMENT/…MAP_KEY/…MAP_VALUE/SET_ELEMENT_FROM_DEFERRED_LIBRARY
@@ -7582,6 +7590,10 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
 - **Mensagens:** "The library '{0}' is internal and can't be imported." / "…exported."
 - **No DartForge:** não existe. Lugar: a fase de diretivas (`crates/paridade/src/analise.rs` passo 2 /
   `crates/elements` carga), com a lista de bibliotecas internas do SDK (todas `dart:_*`).
+- **Estado em 2026-10-05 (escrito, não compilado):** `importacoes::diretivas_internas_e_adiadas`, com a
+  lista `isInternal` do SDK 3.6.2 (`categories` vazio no `libraries.dart`), as exceções de `dart:_wasm` e
+  `dart:_macros`, e nada em biblioteca `dart:`. Na mesma função sai `shared_deferred_prefix`, por unidade e
+  no token `deferred`.
 
 ##### `shared_deferred_prefix` (perda 4: FN 4)
 - **Emissão:** `ErrorVerifier._checkDeferredPrefixCollision` (`error_verifier.dart:1910-1923`).
@@ -7605,6 +7617,9 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
 - **No DartForge:** não existe (só os `const` com `equal_*_in_const_*`). Amostras: `{a, b}` com
   `const a = 1; const b = 1;`, `{1, one}`. Lugar: avaliador de constantes já existente
   (`crates/types/src/constantes/`), aplicado a literais não-const.
+- **Estado em 2026-10-05 (escrito, não compilado):**
+  `verificador.rs::duplicados_em_literal_nao_constante` avalia, sem relatar, os elementos (conjunto) ou as
+  chaves (mapa) de primeiro nível do literal não constante. Usa a igualdade de valores do motor.
 
 ##### `expression_in_map` (perda 3: FN 3)
 - **Emissão:** `LiteralElementVerifier._verifyElement` (`literal_element_verifier.dart:72-122`): expressão
@@ -7646,6 +7661,8 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
 - **Posição:** o nome `X`. **Mensagem:** "There's no constant named '{0}' in '{1}'." (nome, enum).
 - **No DartForge:** hoje sai `undefined_getter` (provavelmente) — trocar o código quando o alvo é enum.
   Amostras: `E.TWO`, `Enum2._A` de outra biblioteca (privado).
+- **Estado em 2026-10-05 (escrito, não compilado):** o fim de `tearoff_de_construtor` (o acesso estático
+  sem membro) relata este código quando a classe é enum.
 
 ##### `non_bool_negation_expression` (perda 1: FP 1)
 - `BoolExpressionVerifier` (`analyzer/lib/src/error/bool_expression_verifier.dart:82`). Único FP:
