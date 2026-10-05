@@ -46,7 +46,7 @@ fn acao_com_imports(
     for (s, x) in edicoes {
         m.adicionar(uri, s, x);
     }
-    crate::refatoracoes_metodo::adicionar_imports(cx, &mut m, importar);
+    crate::refatoracoes_mover::imports_do_builder(cx, &mut m, importar);
     if m.conflito.is_some() {
         return None;
     }
@@ -199,7 +199,7 @@ pub(crate) fn corrigir(projeto: &mut Projeto, uri: &str, diagnosticos: &[Diagnos
                     for (s, x) in edicoes {
                         m.adicionar(uri, s, x);
                     }
-                    crate::refatoracoes_metodo::adicionar_imports(&cx, &mut m, &importar);
+                    crate::refatoracoes_mover::imports_do_builder(&cx, &mut m, &importar);
                     if m.conflito.is_none() {
                         let todas: Vec<Edicao> = m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect();
                         saida.push(AcaoDeCodigo {

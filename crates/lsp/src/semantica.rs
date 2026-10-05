@@ -24,6 +24,9 @@ pub struct AnalisadorSemantico {
     indice_projeto: crate::indice::IndiceProjeto,
     /// O último programa carregado, reaproveitado enquanto nada mudou.
     sessao: crate::sessao::Sessao,
+    /// Os resumos das bibliotecas conhecidas (namespace de exportação) do
+    /// `ImportLibrary`.
+    conhecidas: crate::conhecidas::IndiceDeBibliotecas,
 }
 
 impl AnalisadorSemantico {
@@ -34,7 +37,7 @@ impl AnalisadorSemantico {
     /// assert_eq!(a.estatisticas_da_sessao().carregadas, 0);
     /// ```
     pub fn novo(sdk: Option<SdkLayout>) -> Self {
-        Self { sintatico: AnalisadorSintatico::new(), sdk, indice_sdk: None, indice_projeto: crate::indice::IndiceProjeto::default(), sessao: crate::sessao::Sessao::nova() }
+        Self { sintatico: AnalisadorSintatico::new(), sdk, indice_sdk: None, indice_projeto: crate::indice::IndiceProjeto::default(), sessao: crate::sessao::Sessao::nova(), conhecidas: Default::default() }
     }
 
     /// Troca o orçamento da sessão semântica (MiB de fonte retida; `0`
@@ -333,7 +336,7 @@ impl Analisador for AnalisadorSemantico {
             saida.extend(ignorar);
             return saida;
         };
-        let AnalisadorSemantico { sessao, sdk: Some(sdk), indice_sdk: Some(indice), indice_projeto, .. } = self else {
+        let AnalisadorSemantico { sessao, sdk: Some(sdk), indice_sdk: Some(_indice), conhecidas, .. } = self else {
             saida.extend(ignorar);
             return saida;
         };
@@ -347,7 +350,7 @@ impl Analisador for AnalisadorSemantico {
             saida.extend(publicadas);
             saida.extend(todas);
             // Importar antes de criar: a prioridade das correções do Dart.
-            saida.extend(crate::acoes::importar(&projeto, indice, indice_projeto, documentos, uri, inicio, fim));
+            saida.extend(crate::acoes::importar(&projeto, Some(&*sdk), conhecidas, documentos, uri, linha_ini, linha_fim));
             let corrigidas = crate::correcoes::corrigir(&mut projeto, uri, &diagnosticos, linha_ini, linha_fim);
             let todas = crate::acoes::corrigir_em_todo_o_arquivo(&corrigidas, &diagnosticos, texto, |o, a, b| {
                 crate::correcoes::corrigir(&mut projeto, uri, std::slice::from_ref(o), a, b)

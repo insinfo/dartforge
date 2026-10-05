@@ -23,14 +23,13 @@
 //! nenhuma correção é inventada.
 
 use crate::consulta::Consulta;
-use crate::indice::{IndiceProjeto, IndiceSdk, nome_do_pacote, uri_de_import};
-use crate::projeto::{Projeto, raiz_do_projeto};
+use crate::projeto::Projeto;
 use crate::{DocumentStore, Edicao};
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{Element, UnitId};
 use dartforge_frontend::ast::{self, DeclKind, DirectiveKind, ExprKind};
 use dartforge_types::{MemberRef, Resolved};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use url::Url;
 
@@ -260,45 +259,6 @@ pub(crate) fn inserir_import(
     )
 }
 
-/// Nomes indefinidos que tocam `inicio..fim`: identificadores sem resolução
-/// que o escopo da biblioteca não conhece e nomes de tipo não encontrados.
-fn indefinidos(
-    consulta: &Consulta,
-    unidade: dartforge_elements::model::UnitId,
-    inicio: usize,
-    fim: usize,
-) -> Vec<String> {
-    let u = consulta.programa.unit(unidade);
-    let corpos = &consulta.corpos.units[unidade.0 as usize];
-    let lib = u.library;
-    let toca = |s: Span| s.start <= fim && inicio <= s.end;
-    let mut saida = BTreeSet::new();
-    for (i, e) in u.ast.exprs.iter().enumerate() {
-        if let ExprKind::Identifier(n) = &e.kind
-            && toca(n.span)
-            && corpos.get_resolved(ast::ExprId(i as u32)).is_none()
-            && consulta.programa.lookup(lib, n.sym).is_none()
-        {
-            saida.insert(consulta.nome(n.sym).to_string());
-        }
-    }
-    for t in &u.ast.types {
-        if let ast::TypeKind::Named { name, .. } = &t.kind
-            && let [n] = &name[..]
-            && toca(n.span)
-            && consulta.programa.lookup(lib, n.sym).is_none()
-        {
-            let texto = consulta.nome(n.sym);
-            if !["dynamic", "Never", "void", "Function", "Record"].contains(&texto)
-                && !tipo_param(&u.ast, n)
-            {
-                saida.insert(texto.to_string());
-            }
-        }
-    }
-    saida.into_iter().filter(|n| !n.starts_with('_')).collect()
-}
-
 /// `n` é um parâmetro de tipo de alguma declaração que o contém.
 fn tipo_param(ast: &ast::Ast, n: &ast::Name) -> bool {
     let tem = |ps: &[ast::TypeParameter]| ps.iter().any(|t| t.name.sym == n.sym);
@@ -320,101 +280,219 @@ fn tipo_param(ast: &ast::Ast, n: &ast::Name) -> bool {
         .any(|f| dentro(f.span) && tem(&f.type_params))
 }
 
-/// Ações de importar biblioteca para os nomes indefinidos em `inicio..fim`,
-/// sobre a biblioteca do documento já carregada (`projeto`, da sessão):
-/// as bibliotecas do SDK (`indice`) e as do projeto (`indice_projeto`) que
-/// declaram o nome e ainda não são importadas.
+/// Um nome sem resolução no intervalo, com o código que o analyzer daria
+/// (o que escolhe as variantes do `ImportLibrary`) e o offset do nó.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Indefinido {
+    /// `UNDEFINED_CLASS` (anotação de tipo): `forType`.
+    Tipo(String, usize),
+    /// `UNDEFINED_FUNCTION` (`f()` sem alvo): `forExtension`,
+    /// `forExtensionType`, `forFunction`, `forType`.
+    Funcao(String, usize),
+    /// `UNDEFINED_IDENTIFIER`: `forExtension`, `forFunction`,
+    /// `forTopLevelVariable`, `forType`.
+    Identificador(String, usize),
+}
+
+/// Os nomes sem resolução em `inicio..fim` (sem os privados).
+fn indefinidos_com_contexto(consulta: &Consulta, unidade: UnitId, inicio: usize, fim: usize) -> Vec<Indefinido> {
+    let u = consulta.programa.unit(unidade);
+    let corpos = &consulta.corpos.units[unidade.0 as usize];
+    let lib = u.library;
+    let toca = |s: Span| s.start <= fim && inicio <= s.end;
+    let alvos_de_chamada: BTreeSet<u32> = u
+        .ast
+        .exprs
+        .iter()
+        .filter_map(|e| match &e.kind {
+            ExprKind::Call { target, .. } => Some(target.0),
+            _ => None,
+        })
+        .collect();
+    let mut saida = Vec::new();
+    for (i, e) in u.ast.exprs.iter().enumerate() {
+        if let ExprKind::Identifier(n) = &e.kind
+            && toca(n.span)
+            && corpos.get_resolved(ast::ExprId(i as u32)).is_none()
+            && consulta.programa.lookup(lib, n.sym).is_none()
+        {
+            let nome = consulta.nome(n.sym).to_string();
+            if nome.starts_with('_') {
+                continue;
+            }
+            if alvos_de_chamada.contains(&(i as u32)) {
+                saida.push(Indefinido::Funcao(nome, n.span.start));
+            } else {
+                saida.push(Indefinido::Identificador(nome, n.span.start));
+            }
+        }
+    }
+    for t in &u.ast.types {
+        if let ast::TypeKind::Named { name, .. } = &t.kind
+            && let [n] = &name[..]
+            && toca(n.span)
+            && consulta.programa.lookup(lib, n.sym).is_none()
+        {
+            let texto = consulta.nome(n.sym);
+            if !["dynamic", "Never", "void", "Function", "Record"].contains(&texto) && !tipo_param(&u.ast, n) && !texto.starts_with('_') {
+                saida.push(Indefinido::Tipo(texto.to_string(), n.span.start));
+            }
+        }
+    }
+    saida
+}
+
+/// A espécie (`ElementKind`) de um elemento do programa.
+fn especie_do_elemento(p: &dartforge_elements::model::Program, el: Element) -> Option<crate::conhecidas::Especie> {
+    use crate::conhecidas::Especie as E;
+    use dartforge_elements::model::ClassKind;
+    Some(match el {
+        Element::Class(c) => match p.class(c).kind {
+            ClassKind::Enum => E::Enum,
+            ClassKind::Mixin => E::Mixin,
+            ClassKind::ExtensionType => E::TipoDeExtensao,
+            _ => E::Classe,
+        },
+        Element::Typedef(_) => E::AliasDeTipo,
+        Element::Function(f) => match p.function(f).kind {
+            dartforge_elements::model::FunctionKind::Getter
+            | dartforge_elements::model::FunctionKind::Setter
+            | dartforge_elements::model::FunctionKind::ImplicitAccessor => E::Variavel,
+            _ => E::Funcao,
+        },
+        Element::Variable(_) => E::Variavel,
+        Element::Extension(_) => E::Extensao,
+        Element::Prefix(..) => return None,
+    })
+}
+
+/// `ImportLibrary` (`import_library.dart`) para os nomes sem resolução
+/// das linhas pedidas: as variantes de cada código, o
+/// `_importLibraryForElement` (prefixo e `show` dos imports existentes;
+/// depois as bibliotecas conhecidas, com `SDK`/`PROJECT1`/`2`/`3` e as
+/// variantes absoluta e relativa) e as edições do `DartFileEditBuilder`.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn importar(
     projeto: &Projeto,
-    indice: &IndiceSdk,
-    indice_projeto: &mut IndiceProjeto,
+    sdk: Option<&dartforge_elements::sdk::SdkLayout>,
+    conhecidas: &mut crate::conhecidas::IndiceDeBibliotecas,
     documentos: &DocumentStore,
     uri: &str,
     inicio: usize,
     fim: usize,
 ) -> Vec<AcaoDeCodigo> {
-    let Some(texto) = documentos.get(uri) else {
-        return Vec::new();
-    };
-    let Some(unidade) = projeto.unidade_do_uri(uri) else {
-        return Vec::new();
-    };
+    use crate::conhecidas::{DE_TIPO, Especie as E};
+    let Some(unidade) = projeto.unidade_do_uri(uri) else { return Vec::new() };
     let consulta = &projeto.consulta;
-    let lib = consulta.programa.unit(unidade).library;
-    let faltando = indefinidos(consulta, unidade, inicio, fim);
+    let p = &consulta.programa;
+    let lib = p.unit(unidade).library;
+    let faltando = indefinidos_com_contexto(consulta, unidade, inicio, fim);
     if faltando.is_empty() {
         return Vec::new();
     }
-    let importadas: BTreeSet<String> = consulta
-        .programa
-        .library(lib)
-        .imports
-        .iter()
-        .map(|i| consulta.programa.library(i.library).uri.clone())
-        .collect();
-    let unit = &consulta.programa.unit(unidade).unit;
-    let Some(arquivo) = crate::projeto::arquivo_da_uri(uri) else {
-        return Vec::new();
-    };
+    let Some(arquivo) = crate::projeto::arquivo_da_uri(uri) else { return Vec::new() };
+    let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
+    let resolvedor = crate::conhecidas::Resolvedor { sdk, pacotes: dartforge_elements::config::PackageConfig::discover(&arquivo).and_then(|c| dartforge_elements::config::PackageConfig::load(&c).ok()) };
+    let candidatas = crate::conhecidas::candidatas(&arquivo, sdk, conhecidas, documentos);
+    let uri_da_biblioteca = p.library(lib).uri.clone();
+    let regra = |r: &str| crate::refatoracoes_exec::regra_ligada(projeto, unidade, r);
+    let (pacote_sempre, relativo_sempre) = (regra("always_use_package_imports"), regra("prefer_relative_imports"));
+    let definidora = p.library(lib).units.first().copied();
     let mut saida = Vec::new();
-
-    // SDK.
-    let mut do_sdk: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for nome in &faltando {
-        for l in indice.por_nome.get(nome).into_iter().flat_map(|m| m.keys()) {
-            if l != "dart:core" && !importadas.contains(l) {
-                do_sdk.entry(nome.clone()).or_default().insert(l.clone());
+    for ind in &faltando {
+        let (nome, offset, variantes): (&str, usize, Vec<Vec<E>>) = match ind {
+            Indefinido::Tipo(n, o) => (n, *o, vec![DE_TIPO.to_vec()]),
+            Indefinido::Funcao(n, o) => (n, *o, vec![vec![E::Extensao], vec![E::TipoDeExtensao], vec![E::Funcao, E::Variavel], DE_TIPO.to_vec()]),
+            Indefinido::Identificador(n, o) => (n, *o, vec![vec![E::Extensao], vec![E::Funcao, E::Variavel], vec![E::Variavel], DE_TIPO.to_vec()]),
+        };
+        let simbolo = consulta.nomes.lookup(nome);
+        for especies in variantes {
+            // Os imports existentes (`libraryImports` da unidade definidora).
+            let mut por_show: BTreeSet<String> = BTreeSet::new();
+            for imp in p.library(lib).imports.iter().filter(|i| Some(i.unit) == definidora) {
+                let Some(s) = simbolo else { break };
+                let ligacao = p.library(imp.library).exported.get(&s).and_then(|b| b.getter.or(b.setter));
+                let Some(el) = ligacao else { continue };
+                if !especie_do_elemento(p, el).is_some_and(|e| especies.contains(&e)) {
+                    continue;
+                }
+                let uri_importada = p.library(imp.library).uri.clone();
+                if let Some(prefixo) = imp.prefix {
+                    let pr = consulta.nome(prefixo).to_string();
+                    saida.push(AcaoDeCodigo {
+                        titulo: format!("Use imported library '{uri_importada}' with prefix '{pr}'"),
+                        especie: "quickfix.import.libraryPrefix".into(),
+                        edicoes: vec![Edicao { uri: uri.to_string(), span: Span { start: offset, end: offset }, texto: format!("{pr}.") }],
+                        diagnostico: None,
+                        criar_arquivo: None,
+                    });
+                    continue;
+                }
+                if let [ast::Combinator::Show(ns)] = &imp.combinators[..] {
+                    let sdk_lib = p.library(imp.library).is_sdk;
+                    let nome_da_biblioteca = if sdk_lib {
+                        p.library(imp.library).units.first().and_then(|&x| p.unit(x).path.as_deref()).and_then(|c| c.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+                    } else {
+                        p.library(imp.library).units.first().and_then(|&x| projeto.uri_da_unidade(x)).unwrap_or(uri_importada.clone())
+                    };
+                    por_show.insert(uri_importada.clone());
+                    let fonte_imp = &p.unit(imp.unit).source;
+                    let mut nomes: BTreeSet<String> = ns.iter().map(|n| fonte_imp[n.span.start..n.span.end].to_string()).collect();
+                    nomes.insert(nome.to_string());
+                    let (Some(a), Some(b)) = (ns.first(), ns.last()) else { continue };
+                    let comeco = fonte_imp[..a.span.start].rfind("show").unwrap_or(a.span.start);
+                    if let Some(uri_def) = projeto.uri_da_unidade(imp.unit) {
+                        saida.push(AcaoDeCodigo {
+                            titulo: format!("Update library '{nome_da_biblioteca}' import"),
+                            especie: "quickfix.import.libraryShow".into(),
+                            edicoes: vec![Edicao { uri: uri_def, span: Span { start: comeco, end: b.span.end }, texto: format!("show {}", nomes.into_iter().collect::<Vec<_>>().join(", ")) }],
+                            diagnostico: None,
+                            criar_arquivo: None,
+                        });
+                    }
+                }
+            }
+            // As bibliotecas conhecidas.
+            for c in &candidatas {
+                if c.caminho == arquivo {
+                    continue;
+                }
+                let Some((declarante, especie)) = conhecidas.exportado(&c.caminho, nome, &resolvedor, documentos) else { continue };
+                if !especies.contains(&especie) || por_show.contains(&c.uri) || c.uri.ends_with(".template.dart") {
+                    continue;
+                }
+                let tipo = if c.sdk {
+                    "quickfix.import.librarySdk"
+                } else if crate::conhecidas::caminho_lib_src(&c.caminho) {
+                    "quickfix.import.libraryProject3"
+                } else if declarante != c.caminho {
+                    "quickfix.import.libraryProject2"
+                } else {
+                    "quickfix.import.libraryProject1"
+                };
+                // `canBeRelativeImport`: as duas `package:` do mesmo pacote.
+                let pacote = |s: &str| s.strip_prefix("package:").and_then(|r| r.split('/').next()).map(str::to_string);
+                let pode_relativo = pacote(&c.uri).is_some() && pacote(&c.uri) == pacote(&uri_da_biblioteca);
+                let modos: Vec<bool> = if !pode_relativo || pacote_sempre {
+                    vec![false]
+                } else if relativo_sempre {
+                    vec![true]
+                } else {
+                    vec![false, true]
+                };
+                for relativo in modos {
+                    if let Some((texto_uri, edicoes)) = crate::refatoracoes_mover::importar_uma(&cx, &c.uri, relativo) {
+                        saida.push(AcaoDeCodigo {
+                            titulo: format!("Import library '{texto_uri}'"),
+                            especie: tipo.into(),
+                            edicoes,
+                            diagnostico: None,
+                            criar_arquivo: None,
+                        });
+                    }
+                }
             }
         }
-    }
-    for bibliotecas in do_sdk.values() {
-        for l in bibliotecas {
-            let (span, novo) = inserir_import(texto, unit, l);
-            saida.push(AcaoDeCodigo {
-                titulo: format!("Import library '{l}'"),
-                especie: "quickfix.import.librarySdk".into(),
-                edicoes: vec![Edicao {
-                    uri: uri.to_string(),
-                    span,
-                    texto: novo,
-                }],
-                diagnostico: None,
-                criar_arquivo: None,
-            });
-        }
-    }
-
-    // Projeto.
-    let raiz = raiz_do_projeto(&arquivo);
-    let pacote = nome_do_pacote(&raiz);
-    let mut do_projeto: BTreeSet<PathBuf> = BTreeSet::new();
-    for (caminho, nomes) in indice_projeto.atualizar(&raiz, documentos) {
-        if caminho != arquivo && nomes.iter().any(|d| faltando.contains(&d.nome)) {
-            do_projeto.insert(caminho.to_path_buf());
-        }
-    }
-    for caminho in do_projeto {
-        let Some(uri_import) = uri_de_import(&arquivo, &caminho, &raiz, pacote.as_deref()) else {
-            continue;
-        };
-        let absoluto = Url::from_file_path(&caminho)
-            .map(|u| u.to_string())
-            .unwrap_or_default();
-        if importadas.contains(&uri_import) || importadas.contains(&absoluto) {
-            continue;
-        }
-        let (span, novo) = inserir_import(texto, unit, &uri_import);
-        saida.push(AcaoDeCodigo {
-            titulo: format!("Import library '{uri_import}'"),
-            especie: "quickfix.import.libraryProject1".into(),
-            edicoes: vec![Edicao {
-                uri: uri.to_string(),
-                span,
-                texto: novo,
-            }],
-            diagnostico: None,
-            criar_arquivo: None,
-        });
     }
     saida
 }
@@ -558,7 +636,7 @@ pub(crate) fn corrigir_publicados(
                 if let Some((nome, s, texto_novo, importar)) = cx.acesso_estatico(d.span) {
                     let mut m = crate::refatoracoes_exec::Mudanca::default();
                     m.adicionar(uri, s, texto_novo);
-                    crate::refatoracoes_metodo::adicionar_imports(cx, &mut m, &importar);
+                    crate::refatoracoes_mover::imports_do_builder(cx, &mut m, &importar);
                     if m.conflito.is_none() {
                         saida.push(AcaoDeCodigo {
                             titulo: format!("Change access to static using '{nome}'"),

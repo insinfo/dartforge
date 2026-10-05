@@ -233,6 +233,11 @@ impl Construtor {
 
     /// `_getLibraryUriText`.
     fn texto_da_uri(&self, cx: &Contexto<'_>, uri: &str) -> String {
+        self.texto_da_uri_forcado(cx, uri, false, false)
+    }
+
+    /// `_getLibraryUriText(uri, forceAbsolute, forceRelative)`.
+    fn texto_da_uri_forcado(&self, cx: &Contexto<'_>, uri: &str, absoluto: bool, relativo_forcado: bool) -> String {
         let pasta = self.caminho.as_deref().and_then(|c| c.parent()).map(Path::to_path_buf);
         if let Ok(u) = url::Url::parse(uri)
             && u.scheme() == "file"
@@ -240,8 +245,8 @@ impl Construtor {
         {
             return crate::refatoracoes_metodo::caminho_relativo(&alvo, pasta);
         }
-        let relativo = self.unidade.is_some_and(|u| regra_ligada(cx.p, u, "prefer_relative_imports"));
-        if relativo {
+        let preferir = self.unidade.is_some_and(|u| regra_ligada(cx.p, u, "prefer_relative_imports"));
+        if relativo_forcado || (preferir && !absoluto) {
             let proprio = uri_do_caminho(self.caminho.as_deref().unwrap_or(Path::new("")));
             let pacote = |s: &str| s.strip_prefix("package:").and_then(|r| r.split('/').next()).map(str::to_string);
             if let (Some(a), Some(b)) = (pacote(uri), pacote(&proprio))
@@ -266,6 +271,11 @@ impl Construtor {
 
     /// `_importLibrary(uri, prefix, shownName, useShow)`.
     fn importar_biblioteca(&mut self, cx: &Contexto<'_>, uri: &str, prefixo: Option<&str>, mostrar: Option<&str>, usar_show: bool) {
+        self.importar_forcado(cx, uri, prefixo, mostrar, usar_show, false, false);
+    }
+
+    /// `_importLibrary` com `forceAbsolute`/`forceRelative`: o `uriText`.
+    fn importar_forcado(&mut self, cx: &Contexto<'_>, uri: &str, prefixo: Option<&str>, mostrar: Option<&str>, usar_show: bool, absoluto: bool, relativo: bool) -> String {
         if let Some(i) = self.importar.iter_mut().find(|i| i.chave == uri) {
             if let Some(p) = prefixo
                 && !i.prefixos.iter().any(|x| x == p)
@@ -275,16 +285,16 @@ impl Construtor {
             if let Some(n) = mostrar {
                 i.garantir_mostrado(n, usar_show);
             }
-            return;
+            return i.texto.clone();
         }
-        let texto = self.texto_da_uri(cx, uri);
+        let texto = self.texto_da_uri_forcado(cx, uri, absoluto, relativo);
         // Os `show`/`hide` dos imports existentes com a mesma URI e prefixo.
         let (mut mostrados, mut ocultos): (Vec<Vec<String>>, Vec<Vec<String>>) = (Vec::new(), Vec::new());
         for d in self.diretivas.iter().filter(|d| d.especie == "import") {
             if d.prefixo != prefixo.unwrap_or("") {
                 continue;
             }
-            if self.texto_da_uri(cx, &self.uri_canonica(&d.uri)) != texto {
+            if self.texto_da_uri_forcado(cx, &self.uri_canonica(&d.uri), absoluto, relativo) != texto {
                 continue;
             }
             mostrados.extend(d.mostrados.iter().map(|(_, n)| n.clone()));
@@ -300,7 +310,9 @@ impl Construtor {
         if let Some(n) = mostrar {
             i.garantir_mostrado(n, usar_show);
         }
+        let texto = i.texto.clone();
         self.importar.push(i);
+        texto
     }
 
     /// `finalize`: os imports (`_addLibraryImports`) e o cabeçalho.
@@ -665,6 +677,51 @@ impl AnalisadorDeImports {
 }
 
 /// `dart.refactor.move_top_level_to_file` (`compute`).
+/// Os imports que um `DartFileEditBuilder` dos fixes agendou
+/// (`_writeLibraryReference` → `_importLibrary(uri)`), inseridos pelo
+/// `_addLibraryImports` na unidade definidora da biblioteca de `cx`.
+pub(crate) fn imports_do_builder(cx: &Contexto<'_>, m: &mut Mudanca, bibliotecas: &std::collections::BTreeSet<dartforge_elements::model::LibraryId>) {
+    imports_de_uris(cx, m, &bibliotecas.iter().map(|&b| cx.p.programa().library(b).uri.clone()).collect::<Vec<_>>());
+}
+
+/// `importLibraryWithAbsoluteUri`/`importLibraryWithRelativeUri` de uma URI
+/// na biblioteca de `cx`: o `uriText` e as edições (em ordem crescente).
+pub(crate) fn importar_uma(cx: &Contexto<'_>, uri: &str, relativo: bool) -> Option<(String, Vec<crate::Edicao>)> {
+    let prog = cx.p.programa();
+    let lib = prog.unit(cx.unidade).library;
+    let &definidora = prog.library(lib).units.first()?;
+    let uri_def = cx.p.uri_da_unidade(definidora)?;
+    let u = prog.unit(definidora);
+    let mut b = Construtor::novo(uri_def, u.path.clone(), u.source.clone(), Some(definidora), None);
+    let texto = b.importar_forcado(cx, uri, None, None, false, !relativo, relativo);
+    let mut m = Mudanca::default();
+    let eol = Texto::novo(&u.source).eol();
+    b.finalizar(cx, &mut m, eol);
+    if m.conflito.is_some() {
+        return None;
+    }
+    Some((texto, m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect()))
+}
+
+/// `importLibrary(uri)` de cada URI e o `finalize` do builder da unidade
+/// definidora da biblioteca de `cx`.
+pub(crate) fn imports_de_uris(cx: &Contexto<'_>, m: &mut Mudanca, uris: &[String]) {
+    if uris.is_empty() {
+        return;
+    }
+    let prog = cx.p.programa();
+    let lib = prog.unit(cx.unidade).library;
+    let Some(&definidora) = prog.library(lib).units.first() else { return };
+    let Some(uri_def) = cx.p.uri_da_unidade(definidora) else { return };
+    let u = prog.unit(definidora);
+    let mut b = Construtor::novo(uri_def, u.path.clone(), u.source.clone(), Some(definidora), None);
+    for x in uris {
+        b.importar_biblioteca(cx, x, None, None, false);
+    }
+    let eol = Texto::novo(&u.source).eol();
+    b.finalizar(cx, m, eol);
+}
+
 pub(crate) fn executar(cx: &Contexto<'_>, uri: &str, offset: usize, comprimento: usize, destino: &str) -> ResultadoDeRefatoracao {
     let p = cx.p;
     let prog = p.programa();

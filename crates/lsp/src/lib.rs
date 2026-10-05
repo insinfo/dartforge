@@ -32,6 +32,7 @@ mod hierarquia;
 mod ignorar;
 mod aproximado;
 mod completar;
+mod conhecidas;
 mod consulta;
 mod contorno;
 mod correcoes;
