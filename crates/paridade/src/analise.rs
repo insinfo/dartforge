@@ -293,6 +293,19 @@ impl Motor {
         for (k, u) in &unidade_de {
             let unit = program.unit(*u);
             let base = unit.path.as_deref().and_then(Path::parent).unwrap_or(raiz).to_path_buf();
+            // `_resolveLibraryDocImportDirective`: os `@docImport` do doc da
+            // diretiva `library` com alvo ausente (`URI_DOES_NOT_EXIST_IN_DOC_IMPORT`).
+            let arvore = dartforge_analise::Unidade { ast: &unit.ast, unit: &unit.unit, fonte: &unit.source };
+            for i in dartforge_analise::a_doc::imports_de_doc_da_biblioteca(arvore) {
+                let Some(uri) = i.uri else { continue };
+                if textos.contains_key(&chave(&base.join(&uri))) {
+                    continue;
+                }
+                if self.diretiva_sem_alvo(&uri, &base, config.as_ref(), i.literal, false).is_some() {
+                    let d = Diagnostic::com_codigo(codigos::warning::URI_DOES_NOT_EXIST_IN_DOC_IMPORT, i.literal, [uri.as_str()]);
+                    analise.arquivos.get_mut(k).expect("próprio").diags.push(d);
+                }
+            }
             for dir in &unit.unit.directives {
                 let (lit, parte) = match &dir.kind {
                     DirectiveKind::Import { uri, .. } | DirectiveKind::Export { uri, .. } => (uri, false),

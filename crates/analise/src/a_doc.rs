@@ -129,10 +129,12 @@ fn diretiva(conteudo: &str, base: usize, indice: usize, saida: &mut Vec<Diagnost
     let mut posicionais: Vec<Argumento<'_>> = Vec::new();
     let mut nomeados: Vec<Argumento<'_>> = Vec::new();
     let mut fim = n;
+    let mut fechou = false;
     while i < n {
         if b[i] == b'}' {
             i += 1;
             fim = i;
+            fechou = true;
             break;
         }
         // `_parseArgument`.
@@ -170,6 +172,10 @@ fn diretiva(conteudo: &str, base: usize, indice: usize, saida: &mut Vec<Diagnost
             i += 1;
         }
         fim = i;
+    }
+    // `_parseArguments`: o fim da linha sem `}`, no último caractere.
+    if !fechou && n > 0 {
+        saida.push(Diagnostic::com_codigo(w::DOC_DIRECTIVE_MISSING_CLOSING_BRACE, Span { start: base + n - 1, end: base + n }, Vec::<&str>::new()));
     }
     let tag = Span { start: base + inicio, end: base + fim };
     // `validateArgumentCount`.
@@ -213,6 +219,131 @@ fn diretiva(conteudo: &str, base: usize, indice: usize, saida: &mut Vec<Diagnost
         if !certo {
             saida.push(Diagnostic::com_codigo(w::DOC_DIRECTIVE_ARGUMENT_WRONG_FORMAT, a.span, [*nome_do_parametro, formato.exibicao()]));
         }
+    }
+}
+
+/// Um `@docImport` de uma linha `///` (`DocCommentBuilder._parseDocImport`):
+/// a URI (o valor e o literal), o `deferred` e as configurações, nos
+/// offsets da unidade.
+pub struct ImportDeDoc {
+    pub uri: Option<String>,
+    pub literal: Span,
+    pub adiado: Option<Span>,
+    pub configuracoes: Option<Span>,
+}
+
+/// `_parseDocImport`: `@docImport ` em `indice` do conteúdo da linha (que
+/// começa em `base`); o resto da linha é lido como `import …`.
+fn import_de_doc(conteudo: &str, base: usize, indice: usize) -> Option<ImportDeDoc> {
+    const DOC_IMPORT: &str = "@docImport ";
+    let depois = conteudo.get(indice..)?.strip_prefix(DOC_IMPORT)?;
+    let brancos = depois.len() - depois.trim_start_matches([' ', '\t']).len();
+    let idx = indice + DOC_IMPORT.len() + brancos;
+    let sintetico = format!("import {}", &conteudo[idx..]);
+    // O `sourceMap`: o começo do texto sintético fica 7 antes do resto.
+    let desloc = (base + idx) as isize - 7;
+    let mapa = |s: Span| Span { start: (s.start as isize + desloc) as usize, end: (s.end as isize + desloc) as usize };
+    let mut nomes = dartforge_intern::Interner::new();
+    let analisado = dartforge_frontend::parser::parse(&sintetico, &mut nomes);
+    let d = analisado.unit.directives.first()?;
+    let dartforge_frontend::ast::DirectiveKind::Import { uri, configurations, deferred, .. } = &d.kind else { return None };
+    let depois_das_uris = configurations.last().map_or(uri.span.end, |c| c.span.end);
+    let adiado = if *deferred {
+        sintetico.get(depois_das_uris..).and_then(|s| s.find("deferred")).map(|k| mapa(Span { start: depois_das_uris + k, end: depois_das_uris + k + 8 }))
+    } else {
+        None
+    };
+    let configuracoes = match (configurations.first(), configurations.last()) {
+        (Some(a), Some(b)) => Some(mapa(Span { start: a.span.start, end: b.span.end })),
+        _ => None,
+    };
+    Some(ImportDeDoc { uri: dartforge_elements::load::string_lit_value(uri).map(|s| s.to_string()), literal: mapa(uri.span), adiado, configuracoes })
+}
+
+/// Os `@docImport` do comentário de documentação da diretiva `library` (os
+/// únicos que o `LibraryAnalyzer` resolve).
+pub fn imports_de_doc_da_biblioteca(u: Unidade<'_>) -> Vec<ImportDeDoc> {
+    let Some(d) = u.unit.directives.iter().find(|d| matches!(d.kind, dartforge_frontend::ast::DirectiveKind::Library { .. })) else { return Vec::new() };
+    let fonte = u.fonte;
+    let comentarios = dartforge_frontend::comentarios::Comentarios::de(fonte);
+    let antes = d.metadata.first().map_or(d.span.start, |m| m.span.start.min(d.span.start));
+    let Some(doc) = comentarios.dart_doc(fonte, antes) else { return Vec::new() };
+    let mut saida = Vec::new();
+    let mut pos = doc.start;
+    for linha in fonte[doc.start..antes].split_inclusive('\n') {
+        let inicio = pos;
+        pos += linha.len();
+        let sem_fim = linha.trim_end_matches(['\n', '\r']);
+        let recuo = sem_fim.len() - sem_fim.trim_start().len();
+        let Some(conteudo) = sem_fim[recuo..].strip_prefix("///") else { continue };
+        let (conteudo, base) = match conteudo.strip_prefix(' ') {
+            Some(c) => (c, inicio + recuo + 4),
+            None => (conteudo, inicio + recuo + 3),
+        };
+        let brancos = conteudo.len() - conteudo.trim_start().len();
+        if let Some(i) = import_de_doc(conteudo, base, brancos) {
+            saida.push(i);
+        }
+    }
+    saida
+}
+
+/// `_isLinkText` do `DocCommentBuilder`: o `]` em `fim` é seguido de `(` ou
+/// `[` (ou de `:` numa definição de referência).
+fn e_texto_de_link(conteudo: &[u8], fim: usize, pode_ser_definicao: bool) -> bool {
+    match conteudo.get(fim + 1) {
+        Some(b'(') | Some(b'[') => true,
+        Some(b':') => pode_ser_definicao,
+        _ => false,
+    }
+}
+
+/// `_parseReferences` reduzido ao que o `BestPracticesVerifier` olha: o
+/// `new` que abre uma referência `[new A]`/`[new A.b]`
+/// (`DEPRECATED_NEW_IN_COMMENT_REFERENCE`, no `new`).
+fn referencias_com_new(conteudo: &str, base: usize, saida: &mut Vec<Diagnostic>) {
+    let b = conteudo.as_bytes();
+    let n = b.len();
+    let mut i = 0usize;
+    let mut so_brancos = true;
+    while i < n {
+        match b[i] {
+            b'[' => {
+                i += 1;
+                if i < n && b[i] == b':' {
+                    match conteudo[i + 1..].find(":]") {
+                        Some(k) => i = i + 1 + k + 1,
+                        None => break,
+                    }
+                } else {
+                    let inicio = i;
+                    let fim = conteudo[i..].find(']').map_or(n, |k| i + k);
+                    if !(fim < n && e_texto_de_link(b, fim, so_brancos)) {
+                        let texto = &conteudo[inicio..fim];
+                        let lider = texto.len() - texto.trim_start().len();
+                        let resto = &texto[lider..];
+                        if let Some(depois) = resto.strip_prefix("new")
+                            && depois.starts_with([' ', '\t'])
+                            && depois.trim_start().starts_with(|c: char| c.is_ascii_alphabetic() || c == '_' || c == '$')
+                        {
+                            let ini = base + inicio + lider;
+                            saida.push(Diagnostic::com_codigo(w::DEPRECATED_NEW_IN_COMMENT_REFERENCE, Span { start: ini, end: ini + 3 }, Vec::<&str>::new()));
+                        }
+                    }
+                    i = fim;
+                }
+                so_brancos = false;
+            }
+            b'`' => {
+                if let Some(k) = conteudo[i + 1..].find('`') {
+                    i = i + 1 + k;
+                }
+                so_brancos = false;
+            }
+            c if !e_branco(c) => so_brancos = false,
+            _ => {}
+        }
+        i += 1;
     }
 }
 
@@ -276,6 +407,18 @@ pub fn verificar(u: Unidade<'_>) -> Vec<Diagnostic> {
             anterior_vazia = false;
             continue;
         }
+        // `DocCommentVerifier.docImport` (`doc_comment_verifier.dart:35-51`).
+        if let Some(i) = import_de_doc(conteudo, base, brancos) {
+            if let Some(s) = i.adiado {
+                saida.push(Diagnostic::com_codigo(w::DOC_IMPORT_CANNOT_BE_DEFERRED, s, Vec::<&str>::new()));
+            }
+            if let Some(s) = i.configuracoes {
+                saida.push(Diagnostic::com_codigo(w::DOC_IMPORT_CANNOT_HAVE_CONFIGURATIONS, s, Vec::<&str>::new()));
+            }
+            anterior_vazia = false;
+            continue;
+        }
+        referencias_com_new(conteudo, base, &mut saida);
         anterior_vazia = conteudo.is_empty();
     }
     saida

@@ -7491,6 +7491,13 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
   em comentário, no `new`), `DocCommentVerifier` (`analyzer/lib/src/error/doc_comment_verifier.dart:40-48`,
   `deferred` e `if (…)` em `@docImport`).
 - **No DartForge:** não existe (comentários de doc não são analisados). Baixa prioridade.
+- **Estado em 2026-10-05 (escrito, não compilado):** `crates/analise/src/a_doc.rs` relata os cinco nas
+  linhas `///`: `doc_directive_missing_closing_brace` (fim da linha sem `}`, no último caractere),
+  `doc_import_cannot_be_deferred` e `doc_import_cannot_have_configurations` (o resto da linha do
+  `@docImport` lido como `import …`, com o mapa de offsets do `DocImportStringScanner`),
+  `deprecated_new_in_comment_reference` (o `new` que abre `[new A]`, fora de código e de link);
+  `uri_does_not_exist_in_doc_import` na fase 2 da paridade, para os `@docImport` do doc da diretiva
+  `library`.
 
 ##### `instance_access_to_static_member` (perda 2: FN 2)
 - **Emissão:** `PropertyElementResolver` (`property_element_resolver.dart:334-350`) e
