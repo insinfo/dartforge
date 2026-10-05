@@ -175,23 +175,56 @@ fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, fi
             constante_nunca_casa(inf, cx, p, e, c, t);
         }
         PatternKind::Relational { op, value } => {
+            // `analyzeRelationalPattern`
+            // (`_fe_analyzer_shared/lib/src/type_inference/type_analyzer.dart:1700-1760`):
+            // o operador pelo tipo casado (`==` para `==` e `!=`); o operando
+            // com o parâmetro dele como contexto (anulável na igualdade); o
+            // operando contra o parâmetro, e o retorno contra `bool`.
             let (op, value) = (*op, *value);
-            let nome = match op {
-                ast::BinaryOp::Eq | ast::BinaryOp::NotEq => "==",
-                ast::BinaryOp::Lt => "<",
-                ast::BinaryOp::Gt => ">",
-                ast::BinaryOp::LtEq => "<=",
-                ast::BinaryOp::GtEq => ">=",
-                _ => "",
+            let (nome, lexema, igualdade) = match op {
+                ast::BinaryOp::Eq => ("==", "==", true),
+                ast::BinaryOp::NotEq => ("==", "!=", true),
+                ast::BinaryOp::Lt => ("<", "<", false),
+                ast::BinaryOp::Gt => (">", ">", false),
+                ast::BinaryOp::LtEq => ("<=", "<=", false),
+                ast::BinaryOp::GtEq => (">=", ">=", false),
+                _ => ("", "", false),
             };
-            let ctx = match inf.interner.lookup(nome).map(|s| inf.buscar_membro(cx.lib, t, s, false)) {
-                Some(Busca::Achado(m)) => match inf.table.get(m.tipo) {
-                    Type::Function { positional, .. } => positional.first().copied().unwrap_or(u),
-                    _ => u,
+            let operador = match inf.interner.lookup(nome).map(|s| inf.buscar_membro(cx.lib, t, s, false)) {
+                Some(Busca::Achado(m)) => match inf.table.get(m.tipo).clone() {
+                    Type::Function { positional, ret, .. } => positional.first().copied().map(|p| (p, ret)),
+                    _ => None,
                 },
-                _ => u,
+                _ => None,
             };
-            inferir(inf, cx, value, ctx);
+            let ctx = match operador {
+                Some((p, _)) if igualdade => inf.anulavel(p),
+                Some((p, _)) => p,
+                None => u,
+            };
+            let tv = inferir(inf, cx, value, ctx);
+            if let Some((parametro, retorno)) = operador {
+                if !inf.atribuivel(tv, ctx) {
+                    let sp = inf.span_expr(cx.unit, value);
+                    let a1 = inf.table.format(tv, inf.interner, inf.program);
+                    let a2 = inf.table.format(parametro, inf.interner, inf.program);
+                    inf.aviso_com_codigo(
+                        dartforge_diagnostics::codigos::compile_time_error::RELATIONAL_PATTERN_OPERAND_TYPE_NOT_ASSIGNABLE,
+                        sp,
+                        &[&a1, &a2, lexema],
+                    );
+                }
+                let bool_ = inf.core.bool_;
+                if !inf.atribuivel(retorno, bool_) {
+                    let inicio = inf.program.unit(cx.unit).ast.pattern(p).span.start;
+                    let token = dartforge_diagnostics::Span { start: inicio, end: inicio + lexema.len() };
+                    inf.aviso_com_codigo(
+                        dartforge_diagnostics::codigos::compile_time_error::RELATIONAL_PATTERN_OPERATOR_RETURN_TYPE_NOT_ASSIGNABLE_TO_BOOL,
+                        token,
+                        &[],
+                    );
+                }
+            }
         }
         PatternKind::Or(x, y) => {
             let (x, y) = (*x, *y);

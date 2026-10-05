@@ -331,3 +331,83 @@ pub fn variancia(
     }
     saida
 }
+
+/// A variância do `NonCovariantTypeParameterPositionVisitor`
+/// (`analyzer/lib/src/dart/element/non_covariant_type_parameter_position.dart`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Posicao {
+    Covariante,
+    Contravariante,
+    Invariante,
+}
+
+impl Posicao {
+    /// `Variance.combine`.
+    fn com(self, outra: Posicao) -> Posicao {
+        if self == Posicao::Invariante || outra == Posicao::Invariante {
+            Posicao::Invariante
+        } else if self == outra {
+            Posicao::Covariante
+        } else {
+            Posicao::Contravariante
+        }
+    }
+}
+
+/// O parâmetro de tipo `x` aparece em `t` numa posição não covariante.
+fn em_posicao_nao_covariante(table: &TypeTable, x: TypeParamId, t: TypeId, v: Posicao, prof: u32) -> bool {
+    if prof > 64 {
+        return false;
+    }
+    match table.get(t) {
+        Type::TypeParameter { param, .. } => v != Posicao::Covariante && *param == x,
+        Type::Interface { args, .. } | Type::ExtensionType { args, .. } => args.iter().any(|a| em_posicao_nao_covariante(table, x, *a, v, prof + 1)),
+        Type::FutureOr { arg, .. } => em_posicao_nao_covariante(table, x, *arg, v, prof + 1),
+        Type::Record { positional, named, .. } => {
+            positional.iter().any(|a| em_posicao_nao_covariante(table, x, *a, v, prof + 1))
+                || named.iter().any(|(_, a)| em_posicao_nao_covariante(table, x, *a, v, prof + 1))
+        }
+        Type::Function { type_params, ret, positional, optional, named, .. } => {
+            if em_posicao_nao_covariante(table, x, *ret, v, prof + 1) {
+                return true;
+            }
+            // Os limites escritos dos parâmetros de tipo da função: invariante.
+            for tp in type_params.iter() {
+                let d = table.param(*tp);
+                if d.explicito && em_posicao_nao_covariante(table, x, d.bound, Posicao::Invariante, prof + 1) {
+                    return true;
+                }
+            }
+            let contra = v.com(Posicao::Contravariante);
+            positional.iter().chain(optional.iter()).any(|a| em_posicao_nao_covariante(table, x, *a, contra, prof + 1))
+                || named.iter().any(|(_, a, _)| em_posicao_nao_covariante(table, x, *a, contra, prof + 1))
+        }
+        _ => false,
+    }
+}
+
+/// `ErrorVerifier._checkForNonCovariantTypeParameterPositionInRepresentationType`
+/// (`analyzer/lib/src/generated/error_verifier.dart:4752-4780`): cada
+/// parâmetro de tipo de um tipo de extensão que aparece numa posição não
+/// covariante do tipo de representação, no nó do parâmetro de tipo.
+pub fn posicoes_nao_covariantes_na_representacao(program: &Program, table: &TypeTable, outline: &OutlineTypes, lib: LibraryId) -> Vec<(UnitId, Diagnostic)> {
+    let mut saida = Vec::new();
+    for (i, k) in program.classes.iter().enumerate() {
+        if k.library != lib || k.kind != dartforge_elements::model::ClassKind::ExtensionType {
+            continue;
+        }
+        let (Some(d), Some(rep)) = (k.decl, k.representation) else { continue };
+        let Some(t) = outline.variables.get(rep.0 as usize).and_then(|x| x.declared_type) else { continue };
+        let Some(formais) = outline.classes.get(i).map(|x| x.type_params.clone()) else { continue };
+        let a = &program.unit(d.unit).ast;
+        let DeclKind::ExtensionType(x) = &a.decl(d.decl).kind else { continue };
+        for (tp, &pid) in x.type_params.iter().zip(formais.iter()) {
+            if em_posicao_nao_covariante(table, pid, t, Posicao::Covariante, 0) {
+                let inicio = tp.metadata.first().map_or(tp.span.start, |m| m.span.start.min(tp.span.start));
+                let sp = Span { start: inicio, end: tp.span.end };
+                saida.push((d.unit, Diagnostic::com_codigo(c::NON_COVARIANT_TYPE_PARAMETER_POSITION_IN_REPRESENTATION_TYPE, sp, std::iter::empty::<&str>())));
+            }
+        }
+    }
+    saida
+}
