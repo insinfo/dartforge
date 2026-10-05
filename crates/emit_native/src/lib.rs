@@ -283,9 +283,11 @@ fn emitir_ir_interno(
     // gerenciador de memória da sessão (`crates/jit`, §3.8).
     let raizes_por_mapas = alvo::raizes_por_mapas()?;
     let mapas_no_jit = raizes_por_mapas && !podar;
-    // O rastro simbólico (§13.14). O JIT não emite a tabela: os objetos dele
-    // não passam pelo registro das seções da imagem.
-    let rastro_simbolico = alvo::rastro_simbolico()? && podar;
+    // O rastro simbólico (§13.14). No JIT a tabela de cada objeto é
+    // registrada pelo gerenciador de memória da sessão (`crates/jit`), e o
+    // módulo sai sem os símbolos do ligador e sem a chamada de registro.
+    let rastro_simbolico = alvo::rastro_simbolico()?;
+    let rastro_no_jit = rastro_simbolico && !podar;
     // 1. Carregamento e Inferência (Front-end)
     let t_front = Instant::now();
     let sdk_dir = match options.sdk {
@@ -490,7 +492,8 @@ fn emitir_ir_interno(
         .com_producao(options.optimize)
         .com_raizes_por_mapas(raizes_por_mapas)
         .com_mapas_no_jit(mapas_no_jit)
-        .com_rastro(rastro_simbolico);
+        .com_rastro(rastro_simbolico)
+        .com_rastro_no_jit(rastro_no_jit);
     let llvm_ir = emitter.emit_all();
     // O verificador do modo mapas (§7.4), antes do passe dos mapas.
     if raizes_por_mapas {

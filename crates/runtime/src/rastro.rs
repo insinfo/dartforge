@@ -34,10 +34,14 @@
 static SECOES_DO_RASTRO: std::sync::Mutex<Vec<(usize, usize)>> = std::sync::Mutex::new(Vec::new());
 /// Alguma imagem registrou a tabela: o `throw` guarda os endereços.
 static HA_TABELA_DE_RASTRO: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-/// O que as seções dizem, e quantas seções entraram: montado no primeiro
-/// pedido, refeito quando chega seção nova.
+/// O que as seções dizem, e a geração das seções com que foi montado:
+/// montado no primeiro pedido, refeito quando uma seção entra ou sai.
 static INDICE_DO_RASTRO: std::sync::RwLock<(usize, IndiceDoRastro)> =
     std::sync::RwLock::new((0, IndiceDoRastro { pontos: Vec::new(), funcoes: Vec::new() }));
+/// A geração das seções: cresce a cada registro e a cada retirada (o JIT
+/// retira a seção do objeto que solta). Começa em 1: o índice vazio é a
+/// geração 0.
+static GERACAO_DO_RASTRO: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
 /// Os campos do `dart:async` que a cadeia de quem espera lê:
 /// `(id da classe, "Classe.campo", posição)`.
 static CAMPOS_DO_RASTRO: std::sync::Mutex<Vec<(i64, String, usize)>> = std::sync::Mutex::new(Vec::new());
@@ -192,7 +196,21 @@ pub unsafe extern "C" fn dartforge_registrar_rastro(inicio: *const u8, fim: *con
         return;
     }
     secoes.push((inicio, fim));
+    GERACAO_DO_RASTRO.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
     HA_TABELA_DE_RASTRO.store(true, std::sync::atomic::Ordering::Release);
+}
+
+/// Retira a seção do rastro registrada com `inicio` (o objeto do JIT que a
+/// sessão solta, numa recarga). Não aloca no heap do coletor nem lança.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_desregistrar_rastro(inicio: *const u8) {
+    let inicio = inicio as usize;
+    let mut secoes = SECOES_DO_RASTRO.lock().unwrap_or_else(|e| e.into_inner());
+    let antes = secoes.len();
+    secoes.retain(|&(a, _)| a != inicio);
+    if secoes.len() != antes {
+        GERACAO_DO_RASTRO.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+    }
 }
 
 /// A posição de um campo do `dart:async` que a cadeia de quem espera lê
@@ -581,10 +599,13 @@ unsafe fn ler_secao_do_rastro(inicio: usize, fim: usize, pontos: &mut Vec<PontoD
 /// Chama `f` com o índice de todas as seções registradas.
 #[allow(unsafe_code)]
 fn com_indice_do_rastro<R>(f: impl FnOnce(&IndiceDoRastro) -> R) -> R {
-    let secoes = SECOES_DO_RASTRO.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let (secoes, geracao) = {
+        let s = SECOES_DO_RASTRO.lock().unwrap_or_else(|e| e.into_inner());
+        (s.clone(), GERACAO_DO_RASTRO.load(std::sync::atomic::Ordering::Acquire))
+    };
     {
         let indice = INDICE_DO_RASTRO.read().unwrap_or_else(|e| e.into_inner());
-        if indice.0 == secoes.len() {
+        if indice.0 == geracao {
             return f(&indice.1);
         }
     }
@@ -600,7 +621,7 @@ fn com_indice_do_rastro<R>(f: impl FnOnce(&IndiceDoRastro) -> R) -> R {
     funcoes.sort_by_key(|(e, _)| *e);
     funcoes.dedup_by_key(|(e, _)| *e);
     let mut indice = INDICE_DO_RASTRO.write().unwrap_or_else(|e| e.into_inner());
-    *indice = (secoes.len(), IndiceDoRastro { pontos, funcoes });
+    *indice = (geracao, IndiceDoRastro { pontos, funcoes });
     f(&indice.1)
 }
 

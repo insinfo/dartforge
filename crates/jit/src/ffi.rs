@@ -856,9 +856,12 @@ fn target_machine() -> Result<LLVMTargetMachineRef, String> {
 pub(crate) struct Lljit {
     handle: LLVMOrcLLJITRef,
     main: LLVMOrcJITDylibRef,
-    /// Com raízes por mapas, o contexto da camada de objetos (quem registra
-    /// os mapas); nulo sem elas.
+    /// Com raízes por mapas ou com o rastro simbólico, o contexto da camada
+    /// de objetos (quem registra os mapas e as seções do rastro); nulo sem
+    /// eles.
     camada: *mut ContextoDaCamada,
+    mapas: bool,
+    rastro: bool,
 }
 
 impl Lljit {
@@ -878,8 +881,15 @@ impl Lljit {
     pub(crate) fn new() -> Result<Self, String> {
         let machine = target_machine()?;
         let mapas = raizes_por_mapas();
-        let camada: *mut ContextoDaCamada =
-            if mapas { Box::into_raw(Box::new(ContextoDaCamada { registro: std::sync::Mutex::new(None) })) } else { ptr::null_mut() };
+        // O rastro simbólico (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
+        // §13.14): a seção `dfpcl` de cada objeto é registrada pelo
+        // gerenciador de memória da camada própria.
+        let rastro = rastro_simbolico();
+        let camada: *mut ContextoDaCamada = if mapas || rastro {
+            Box::into_raw(Box::new(ContextoDaCamada { registro: std::sync::Mutex::new(None), rastro: std::sync::Mutex::new(None) }))
+        } else {
+            ptr::null_mut()
+        };
         let soltar_camada = || {
             if !camada.is_null() {
                 // SAFETY: `camada` veio de `Box::into_raw` e não foi entregue
@@ -898,7 +908,7 @@ impl Lljit {
                 builder,
                 LLVMOrcJITTargetMachineBuilderCreateFromTargetMachine(machine),
             );
-            if mapas {
+            if mapas || rastro {
                 llvm_sys::orc2::lljit::LLVMOrcLLJITBuilderSetObjectLinkingLayerCreator(builder, criar_camada, camada.cast());
             }
             if let Some(message) = take_error(LLVMOrcCreateLLJIT(&mut handle, builder)) {
@@ -924,7 +934,7 @@ impl Lljit {
         // SAFETY: `handle` acabou de ser criado com sucesso; a dylib principal
         // pertence à `LLJIT` e é válida enquanto esta estrutura viver.
         let main = unsafe { LLVMOrcLLJITGetMainJITDylib(handle) };
-        Ok(Self { handle, main, camada })
+        Ok(Self { handle, main, camada, mapas, rastro })
     }
 
     /// Com raízes por mapas: os mapas dos objetos vão para o runtime deste
@@ -935,7 +945,12 @@ impl Lljit {
         }
         // SAFETY: a camada vive enquanto a sessão.
         let camada = unsafe { &*self.camada };
-        *camada.registro.lock().unwrap_or_else(|e| e.into_inner()) = Some((registrar_local, retirar_local));
+        if self.mapas {
+            *camada.registro.lock().unwrap_or_else(|e| e.into_inner()) = Some((registrar_local, retirar_local));
+        }
+        if self.rastro {
+            *camada.rastro.lock().unwrap_or_else(|e| e.into_inner()) = Some((registrar_rastro_local, retirar_rastro_local));
+        }
     }
 
     /// Com raízes por mapas: os mapas dos objetos vão para o runtime da
@@ -951,20 +966,37 @@ impl Lljit {
         if modulo.is_null() {
             return Err(format!("não foi possível carregar a biblioteca do SDK {}", dll.display()));
         }
-        let registrar = endereco_na_biblioteca(modulo, c"dartforge_registrar_mapa_llvm");
-        let retirar = endereco_na_biblioteca(modulo, c"dartforge_desregistrar_mapa");
-        if registrar.is_null() || retirar.is_null() {
-            return Err("a biblioteca do SDK não exporta o registro dos mapas de pilha (dartforge_registrar_mapa_llvm)".to_owned());
+        if self.mapas {
+            let registrar = endereco_na_biblioteca(modulo, c"dartforge_registrar_mapa_llvm");
+            let retirar = endereco_na_biblioteca(modulo, c"dartforge_desregistrar_mapa");
+            if registrar.is_null() || retirar.is_null() {
+                return Err("a biblioteca do SDK não exporta o registro dos mapas de pilha (dartforge_registrar_mapa_llvm)".to_owned());
+            }
+            // SAFETY: a camada vive enquanto a sessão; os símbolos são as
+            // funções do runtime com estas assinaturas (`gc_raizes.rs`), e a
+            // biblioteca nunca é descarregada.
+            unsafe {
+                let camada = &*self.camada;
+                *camada.registro.lock().unwrap_or_else(|e| e.into_inner()) = Some((
+                    std::mem::transmute::<*mut std::ffi::c_void, FuncaoDeRegistro>(registrar),
+                    std::mem::transmute::<*mut std::ffi::c_void, FuncaoDeRetirada>(retirar),
+                ));
+            }
         }
-        // SAFETY: a camada vive enquanto a sessão; os símbolos são as funções
-        // do runtime com estas assinaturas (`gc_raizes.rs`), e a biblioteca
-        // nunca é descarregada.
-        unsafe {
-            let camada = &*self.camada;
-            *camada.registro.lock().unwrap_or_else(|e| e.into_inner()) = Some((
-                std::mem::transmute::<*mut std::ffi::c_void, FuncaoDeRegistro>(registrar),
-                std::mem::transmute::<*mut std::ffi::c_void, FuncaoDeRetirada>(retirar),
-            ));
+        if self.rastro {
+            let registrar = endereco_na_biblioteca(modulo, c"dartforge_registrar_rastro");
+            let retirar = endereco_na_biblioteca(modulo, c"dartforge_desregistrar_rastro");
+            if registrar.is_null() || retirar.is_null() {
+                return Err("a biblioteca do SDK não exporta o registro do rastro (dartforge_registrar_rastro)".to_owned());
+            }
+            // SAFETY: como acima (`rastro.rs` do runtime).
+            unsafe {
+                let camada = &*self.camada;
+                *camada.rastro.lock().unwrap_or_else(|e| e.into_inner()) = Some((
+                    std::mem::transmute::<*mut std::ffi::c_void, FuncaoDeRegistro>(registrar),
+                    std::mem::transmute::<*mut std::ffi::c_void, FuncaoDeRetirada>(retirar),
+                ));
+            }
         }
         Ok(())
     }
@@ -2040,6 +2072,13 @@ pub(crate) fn raizes_por_mapas() -> bool {
     *SIM.get_or_init(|| std::env::var("DARTFORGE_RAIZES").is_ok_and(|v| v == "mapas"))
 }
 
+/// O rastro simbólico (`DARTFORGE_RASTRO_VM=simbolico`, o mesmo de
+/// `emit_native::alvo::rastro_simbolico`).
+pub(crate) fn rastro_simbolico() -> bool {
+    static SIM: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SIM.get_or_init(|| std::env::var("DARTFORGE_RASTRO_VM").is_ok_and(|v| v == "simbolico"))
+}
+
 /// Registra a seção do mapa `[inicio, fim)` no runtime.
 type FuncaoDeRegistro = unsafe extern "C" fn(*const u8, *const u8);
 /// Tira o mapa registrado com o mesmo `inicio`.
@@ -2050,6 +2089,17 @@ type FuncaoDeRetirada = unsafe extern "C" fn(*const u8);
 /// `LLJIT`, que solta os objetos antes).
 struct ContextoDaCamada {
     registro: std::sync::Mutex<Option<(FuncaoDeRegistro, FuncaoDeRetirada)>>,
+    /// O registro e a retirada da seção do rastro (§13.14).
+    rastro: std::sync::Mutex<Option<(FuncaoDeRegistro, FuncaoDeRetirada)>>,
+}
+
+unsafe extern "C" fn registrar_rastro_local(inicio: *const u8, fim: *const u8) {
+    // SAFETY: a seção relocada do objeto, viva enquanto ele.
+    unsafe { dartforge_runtime::abi::dartforge_registrar_rastro(inicio, fim) };
+}
+
+unsafe extern "C" fn retirar_rastro_local(inicio: *const u8) {
+    dartforge_runtime::abi::dartforge_desregistrar_rastro(inicio);
 }
 
 unsafe extern "C" fn registrar_local(inicio: *const u8, fim: *const u8) {
@@ -2227,6 +2277,10 @@ struct ObjetoNoJit {
     mapa_registrado: bool,
     #[cfg_attr(not(all(windows, target_arch = "x86_64")), allow(dead_code))]
     tabela_registrada: bool,
+    /// As seções do rastro (`.dfpcl$m`, `dfpcl`, `__dfpcl`; no ELF, uma
+    /// por grupo `comdat`).
+    rastro: Vec<(*const u8, usize)>,
+    rastro_registrado: bool,
     finalizado: bool,
 }
 
@@ -2241,6 +2295,8 @@ impl ObjetoNoJit {
             pdata: None,
             mapa_registrado: false,
             tabela_registrada: false,
+            rastro: Vec::new(),
+            rastro_registrado: false,
             finalizado: false,
         }
     }
@@ -2308,12 +2364,34 @@ impl ObjetoNoJit {
             unsafe { registrar(p, p.add(n)) };
             self.mapa_registrado = true;
         }
+        if !self.rastro.is_empty() {
+            // SAFETY: a camada vive mais que os objetos dela.
+            let camada = unsafe { &*self.camada };
+            if let Some((registrar, _)) = *camada.rastro.lock().unwrap_or_else(|e| e.into_inner()) {
+                for &(p, n) in &self.rastro {
+                    // SAFETY: a seção do rastro, relocada e viva enquanto o
+                    // objeto.
+                    unsafe { registrar(p, p.add(n)) };
+                }
+                self.rastro_registrado = true;
+            }
+        }
         Ok(())
     }
 }
 
 impl Drop for ObjetoNoJit {
     fn drop(&mut self) {
+        if self.rastro_registrado {
+            // SAFETY: a camada vive mais que os objetos dela.
+            let camada = unsafe { &*self.camada };
+            if let Some((_, retirar)) = *camada.rastro.lock().unwrap_or_else(|e| e.into_inner()) {
+                for &(p, _) in &self.rastro {
+                    // SAFETY: a seção foi registrada com este começo.
+                    unsafe { retirar(p) };
+                }
+            }
+        }
         if self.mapa_registrado
             && let Some((p, _)) = self.mapa
         {
@@ -2371,6 +2449,8 @@ extern "C" fn alocar_dados(
             o.mapa = Some((p, tamanho));
         } else if n == b".pdata" {
             o.pdata = Some((p, tamanho));
+        } else if n == b".dfpcl$m" || n == b"dfpcl" || n == b"__dfpcl" {
+            o.rastro.push((p, tamanho));
         }
     }
     p

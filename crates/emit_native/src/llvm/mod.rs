@@ -208,6 +208,10 @@ pub struct LlvmEmitter<'a> {
     /// O rastro no formato da VM (§13.14, `llvm/rastro.rs`): os rótulos das
     /// chamadas e a tabela da seção `dfpcl`. `None`: sem tabela.
     rastro_vm: Option<rastro::Rastro>,
+    /// O módulo vai para o JIT: a seção do rastro de cada objeto é
+    /// registrada pelo gerenciador de memória da sessão (`crates/jit`), e o
+    /// módulo não tem os símbolos do ligador nem a chamada de registro.
+    rastro_no_jit: bool,
 }
 
 impl<'a> LlvmEmitter<'a> {
@@ -277,11 +281,19 @@ impl<'a> LlvmEmitter<'a> {
             funcoes_gc: 0,
             mapas_no_jit: false,
             rastro_vm: None,
+            rastro_no_jit: false,
         }
     }
 
+    /// Veja [`LlvmEmitter::rastro_no_jit`].
+    pub fn com_rastro_no_jit(mut self, sim: bool) -> Self {
+        self.rastro_no_jit = sim;
+        self
+    }
+
     /// O rastro simbólico (§13.14): os rótulos antes das chamadas e a
-    /// tabela da imagem (`alvo::rastro_simbolico`; nunca no JIT).
+    /// tabela da imagem (`alvo::rastro_simbolico`; no JIT, com
+    /// [`LlvmEmitter::com_rastro_no_jit`]).
     pub fn com_rastro(mut self, sim: bool) -> Self {
         self.rastro_vm = sim.then(rastro::Rastro::novo);
         self
@@ -314,6 +326,9 @@ impl<'a> LlvmEmitter<'a> {
     /// A chamada de registro da tabela do rastro da imagem (§13.14).
     fn chamada_de_registro_do_rastro(&self) -> Option<String> {
         self.rastro_vm.as_ref()?;
+        if self.rastro_no_jit {
+            return None;
+        }
         let (_, inicio, fim) = rastro::marcadores();
         Some(format!("  call void @dartforge_registrar_rastro(ptr {inicio}, ptr {fim})\n"))
     }
@@ -589,7 +604,7 @@ impl<'a> LlvmEmitter<'a> {
         if self.mapas {
             self.out.push_str("declare void @llvm.fake.use(...)\n");
         }
-        if self.rastro_vm.is_some() {
+        if self.rastro_vm.is_some() && !self.rastro_no_jit {
             // O começo e o fim da seção do rastro da imagem (§13.14).
             self.out.push_str(rastro::marcadores().0);
         }

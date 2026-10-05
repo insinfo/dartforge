@@ -1925,9 +1925,18 @@ retorno acha a entrada do maior rótulo abaixo dele, que tem de estar na funçã
 desenrolador dá); o quadro sem entrada (o runtime, o sistema, função sem posição) fica de fora. Sem
 quadro nenhum, o texto de hoje. O `StackTrace.current` captura a pilha dele.
 
-*Não feito.* A forma compacta do item 1 (deltas por função, no conversor de objeto); a tabela no
-JIT. O `StackTrace.current` chamado pelo getter do SDK mostra o quadro do getter quando ele tem
-posição.
+*Não feito.* A forma compacta do item 1 (deltas por função, no conversor de objeto). O
+`StackTrace.current` chamado pelo getter do SDK mostra o quadro do getter quando ele tem posição.
+
+**A tabela no JIT (2026-10-05, escrito, não compilado).** Com `DARTFORGE_RASTRO_VM=simbolico` o JIT
+emite os rótulos e a seção como o AOT, sem os símbolos do ligador e sem a chamada de registro
+(`LlvmEmitter::com_rastro_no_jit`); a sessão (`crates/jit/src/ffi.rs`) usa a camada RTDyld com o
+gerenciador de memória próprio também sem os mapas, acha cada seção `.dfpcl$m`/`dfpcl`/`__dfpcl`
+do objeto (no ELF, uma por grupo `comdat`) e a registra depois das relocações
+(`dartforge_registrar_rastro`, do runtime do processo ou da biblioteca do SDK); ao soltar o objeto
+(a geração aposentada de uma recarga), a retira (`dartforge_desregistrar_rastro`). O índice do
+runtime passa a ser refeito pela geração das seções, que cresce a cada registro e retirada, e não
+pela contagem.
 
 **Estado em 2026-10-05 (escrito, não compilado): quadros embutidos e `<asynchronous suspension>`.**
 
