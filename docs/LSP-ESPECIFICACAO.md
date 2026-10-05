@@ -601,6 +601,23 @@ outras chaves lidas ficam em `Servidor::configuracao`. Não feitos: a configura�
 (`forResource`), a reconstrução das raízes com `analysisExcludedFolders`, o `showTodos` na análise e o
 `window/logMessage` quando o cliente recusa o registro.
 
+**Estado em 2026-10-05 (escrito, não compilado):** os quatro.
+* `forResource`: cada item da resposta do `workspace/configuration` vira a configuração da pasta
+  (`registro::configuracao_de_recurso`: só `enableSdkFormatter`, `enableSnippets`, `lineLength`,
+  `maxCompletionItems`, `renameFilesWithClasses` e `updateImportsOnRename` valem da pasta, o resto é
+  da global); `Servidor::configuracao_de(uri)` escolhe a da pasta mais funda que contém o arquivo. O
+  completar usa a do documento (`maxCompletionItems`, `enableSnippets`) e o renomear com arquivo, a
+  do arquivo (`renameFilesWithClasses`).
+* `analysisExcludedFolders`: absolutos como estão, relativos sob cada pasta do workspace; o documento
+  numa pasta excluída não é analisado e a publicação dele fica vazia (no fluxo empurrado e no puxado).
+* `showTodos`: `true` mostra todos os TODOs, uma lista mostra os tipos dela (em maiúsculas), e um
+  TODO com a severidade promovida acima de INFO sai sempre (o `_shouldSendError`); o trabalhador
+  tipado os tira de `publicaveis` sem a regra de verificados.
+* Mudar os TODOs ou as pastas excluídas (`affectsAnalysisResults`, `affectsAnalysisRoots`) refaz a
+  análise e a publicação dos documentos abertos.
+* A resposta de erro ao `client/registerCapability` vira `window/logMessage` de erro com
+  `Failed to register capabilities with client: (<código>) <mensagem>`.
+
 ### 2.6 Progresso, status e mensagens ao usuário
 
 * **Estado da análise** (`lsp_analysis_server.dart:836-871`), a cada transição

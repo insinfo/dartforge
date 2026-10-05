@@ -166,7 +166,10 @@ impl Registros {
 pub struct Configuracao {
     pub complete_function_calls: bool,
     pub enable_snippets: bool,
+    /// `showTodos: true` (`showAllTodos`).
     pub show_todos: bool,
+    /// `showTodos: [...]` (`showTodoTypes`), em maiúsculas.
+    pub show_todo_types: Vec<String>,
     pub max_completion_items: Option<u64>,
     pub line_length: Option<u64>,
     pub rename_files_with_classes: String,
@@ -183,6 +186,7 @@ impl Default for Configuracao {
             complete_function_calls: false,
             enable_snippets: true,
             show_todos: false,
+            show_todo_types: Vec::new(),
             max_completion_items: None,
             line_length: None,
             rename_files_with_classes: "never".to_string(),
@@ -203,11 +207,11 @@ pub fn ler_configuracao(v: &Value) -> Configuracao {
     }
     // `enableServerSnippets == false` (o nome antigo) também desliga.
     c.enable_snippets = b("enableSnippets").unwrap_or(true) && b("enableServerSnippets") != Some(false);
-    // `showTodos`: `true`, ou uma lista não vazia de tipos.
-    c.show_todos = match v.get("showTodos") {
-        Some(Value::Bool(x)) => *x,
-        Some(Value::Array(l)) => !l.is_empty(),
-        _ => false,
+    // `showTodos`: `true` (todos), ou a lista dos tipos (em maiúsculas).
+    c.show_todos = matches!(v.get("showTodos"), Some(Value::Bool(true)));
+    c.show_todo_types = match v.get("showTodos") {
+        Some(Value::Array(l)) => l.iter().filter_map(Value::as_str).map(str::to_uppercase).collect(),
+        _ => Vec::new(),
     };
     c.max_completion_items = v.get("maxCompletionItems").and_then(Value::as_u64);
     c.line_length = v.get("lineLength").and_then(Value::as_u64);
@@ -230,6 +234,37 @@ pub fn ler_configuracao(v: &Value) -> Configuracao {
         Some("summary") => "summary".to_string(),
         _ => "full".to_string(),
     };
+    c
+}
+
+/// A configuração de uma pasta do workspace (`LspResourceClientConfiguration`
+/// com a global de reserva, `client_configuration.dart`): só as chaves de
+/// recurso (`enableSdkFormatter`, `enableSnippets`, `lineLength`,
+/// `maxCompletionItems`, `renameFilesWithClasses`, `updateImportsOnRename`)
+/// valem da pasta; as outras são da global.
+pub fn configuracao_de_recurso(v: &Value, global: &Configuracao) -> Configuracao {
+    let mut c = global.clone();
+    let b = |k: &str| v.get(k).and_then(Value::as_bool);
+    if let Some(x) = b("enableSdkFormatter") {
+        c.enable_sdk_formatter = x;
+    }
+    if b("enableServerSnippets") == Some(false) {
+        c.enable_snippets = false;
+    } else if let Some(x) = b("enableSnippets") {
+        c.enable_snippets = x;
+    }
+    if let Some(x) = v.get("lineLength").and_then(Value::as_u64) {
+        c.line_length = Some(x);
+    }
+    if let Some(x) = v.get("maxCompletionItems").and_then(Value::as_u64) {
+        c.max_completion_items = Some(x);
+    }
+    if let Some(s) = v.get("renameFilesWithClasses").and_then(Value::as_str) {
+        c.rename_files_with_classes = s.to_string();
+    }
+    if let Some(x) = b("updateImportsOnRename") {
+        c.update_imports_on_rename = x;
+    }
     c
 }
 
@@ -261,7 +296,12 @@ mod testes {
     #[test]
     fn le_a_configuracao_com_padroes() {
         let c = ler_configuracao(&json!({"showTodos": ["fixme"], "enableServerSnippets": false, "analysisExcludedFolders": "gen"}));
-        assert!(c.show_todos && !c.enable_snippets);
+        assert!(!c.show_todos && !c.enable_snippets);
+        assert_eq!(c.show_todo_types, vec!["FIXME"]);
+        // A de uma pasta: só as chaves de recurso, o resto da global.
+        let pasta = configuracao_de_recurso(&json!({"maxCompletionItems": 7, "completeFunctionCalls": true}), &c);
+        assert_eq!(pasta.max_completion_items, Some(7));
+        assert!(!pasta.complete_function_calls && !pasta.enable_snippets);
         assert_eq!(c.analysis_excluded_folders, vec!["gen"]);
         assert_eq!(ler_configuracao(&Value::Null), Configuracao::default());
     }

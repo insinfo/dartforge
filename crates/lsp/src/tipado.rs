@@ -65,6 +65,11 @@ struct Estado {
     /// Gancho de teste: não inicia análise enquanto verdadeiro.
     pausado: bool,
     encerrar: bool,
+    /// `showTodos`: todos os TODOs, ou os destes tipos (em maiúsculas).
+    todos: bool,
+    tipos_de_todo: Vec<String>,
+    /// As pastas excluídas da análise (`analysisExcludedFolders`).
+    excluidas: Vec<PathBuf>,
 }
 
 type Partilhado = Arc<(Mutex<Estado>, Condvar)>;
@@ -150,6 +155,18 @@ impl Tipado {
         self.partilhado.1.notify_all();
     }
 
+    /// A configuração da análise (`showTodos`, `analysisExcludedFolders`); os
+    /// pacotes dos documentos abertos são analisados de novo.
+    pub(crate) fn configurar(&self, todos: bool, tipos_de_todo: Vec<String>, excluidas: Vec<PathBuf>) {
+        let mut e = self.estado();
+        e.todos = todos;
+        e.tipos_de_todo = tipos_de_todo;
+        e.excluidas = excluidas;
+        let raizes: Vec<PathBuf> = e.documentos.values().map(|d| d.raiz.clone()).collect();
+        e.sujas.extend(raizes);
+        self.partilhado.1.notify_all();
+    }
+
     /// O documento fechou: o texto sai da cópia e os que dependiam dele são
     /// reanalisados com o disco.
     pub(crate) fn fechado(&self, uri: &str) {
@@ -226,7 +243,7 @@ fn trabalhar(
     };
     let mut motor: Option<Motor> = None;
     loop {
-        let (raiz, abertos, textos) = {
+        let (raiz, abertos, textos, config) = {
             let mut e = bloquear();
             while !e.encerrar && (e.sujas.is_empty() || e.pausado) {
                 e = sinal
@@ -250,7 +267,8 @@ fn trabalhar(
                 .map(|d| (chave(&d.caminho), d.texto.clone()))
                 .collect();
             e.rodando = Some(raiz.clone());
-            (raiz, abertos, textos)
+            let config = ConfiguracaoDaAnalise { todos: e.todos, tipos_de_todo: e.tipos_de_todo.clone(), excluidas: e.excluidas.clone() };
+            (raiz, abertos, textos, config)
         };
         if motor.is_none() {
             match Motor::novo(sdk_lib) {
@@ -272,7 +290,7 @@ fn trabalhar(
             e.encerrar || e.sujas.contains(&raiz)
         };
         let resultados = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            analisar_pacote(motor_ref, &raiz, &abertos, &textos, &cancelado)
+            analisar_pacote(motor_ref, &raiz, &abertos, &textos, &cancelado, &config)
         }));
         let resultados = match resultados {
             Ok(r) => r,
@@ -299,6 +317,13 @@ fn trabalhar(
     }
 }
 
+/// O que da configuração do cliente muda a análise.
+struct ConfiguracaoDaAnalise {
+    todos: bool,
+    tipos_de_todo: Vec<String>,
+    excluidas: Vec<PathBuf>,
+}
+
 /// Analisa os documentos abertos `abertos` do pacote `raiz` num programa só.
 /// Vazio quando cancelada.
 fn analisar_pacote(
@@ -307,7 +332,21 @@ fn analisar_pacote(
     abertos: &[(String, i32, PathBuf, String)],
     textos: &HashMap<PathBuf, String>,
     cancelado: &dyn Fn() -> bool,
+    config: &ConfiguracaoDaAnalise,
 ) -> Vec<Resultado> {
+    // Os documentos nas pastas excluídas não são analisados: a publicação
+    // deles fica vazia.
+    let excluido = |c: &Path| config.excluidas.iter().any(|e| c.starts_with(e));
+    let mut saida_excluidos: Vec<Resultado> = abertos
+        .iter()
+        .filter(|(_, _, c, _)| excluido(c))
+        .map(|(u, v, _, _)| Resultado { uri: u.clone(), versao: *v, diagnosticos: Vec::new() })
+        .collect();
+    let abertos: Vec<(String, i32, PathBuf, String)> = abertos.iter().filter(|(_, _, c, _)| !excluido(c)).cloned().collect();
+    let abertos = &abertos[..];
+    if abertos.is_empty() {
+        return saida_excluidos;
+    }
     let mut arquivos: Vec<PathBuf> = Vec::new();
     for (_, _, caminho, texto) in abertos {
         // Uma parte entra pela biblioteca dona (o motor não importa partes).
@@ -347,6 +386,23 @@ fn analisar_pacote(
                 .filter(|(_, sintaxe)| !sintaxe)
                 .map(|(d, _)| d)
                 .collect();
+        // `showTodos` (`_shouldSendError`): os TODOs saem com a configuração
+        // (todos, ou os tipos pedidos), e sempre quando a severidade foi
+        // promovida acima de INFO pelo `analysis_options.yaml`.
+        {
+            for (d, _) in dartforge_paridade::publicaveis(arquivo, &opcoes, false) {
+                let Some(c) = d.code else { continue };
+                if c.info().tipo != dartforge_diagnostics::TipoErro::Todo {
+                    continue;
+                }
+                let mostrar = d.severity != dartforge_diagnostics::Severidade::Info
+                    || config.todos
+                    || config.tipos_de_todo.iter().any(|t| *t == c.info().nome.to_uppercase());
+                if mostrar && !semanticos.iter().any(|x| x.span == d.span && x.code == d.code) {
+                    semanticos.push(d);
+                }
+            }
+        }
         semanticos.sort_by_key(|d| (d.span.start, d.span.end));
         diagnosticos.extend(semanticos);
         saida.push(Resultado {
@@ -355,6 +411,7 @@ fn analisar_pacote(
             diagnosticos,
         });
     }
+    saida.append(&mut saida_excluidos);
     saida
 }
 

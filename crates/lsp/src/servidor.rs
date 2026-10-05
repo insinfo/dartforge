@@ -272,6 +272,9 @@ pub struct Servidor<A = AnalisadorSintatico> {
     pastas: Vec<String>,
     /// A configuração vigente do cliente (a global).
     configuracao: crate::registro::Configuracao,
+    /// A configuração de cada pasta do workspace (`forResource`), pelo
+    /// caminho da pasta.
+    configuracao_por_pasta: Vec<(std::path::PathBuf, crate::registro::Configuracao)>,
     /// O cliente aceita renomear arquivo numa edição (para o
     /// `renameFilesWithClasses: always` da configuração).
     renomeacao_de_arquivo_possivel: bool,
@@ -371,6 +374,7 @@ impl<A: Analisador> Servidor<A> {
             pedido_de_configuracao: None,
             pastas: Vec::new(),
             configuracao: crate::registro::Configuracao::default(),
+            configuracao_por_pasta: Vec::new(),
             renomeacao_de_arquivo_possivel: false,
             perguntas_ao_usuario: false,
             renomeacoes_pendentes: HashMap::new(),
@@ -422,9 +426,80 @@ impl<A: Analisador> Servidor<A> {
             } else if nova.rename_files_with_classes == "never" && self.configuracao.rename_files_with_classes != "never" {
                 self.renomear_arquivos = false;
             }
+            // `affectsAnalysisResults` e `affectsAnalysisRoots`: os TODOs ou
+            // as pastas excluídas mudaram, a análise refaz.
+            let refazer = nova.show_todos != self.configuracao.show_todos
+                || nova.show_todo_types != self.configuracao.show_todo_types
+                || nova.analysis_excluded_folders != self.configuracao.analysis_excluded_folders;
+            // As das pastas (a lista vem na ordem de `pastas`, a global por
+            // último).
+            self.configuracao_por_pasta = self
+                .pastas
+                .iter()
+                .zip(lista.iter())
+                .filter_map(|(u, v)| {
+                    let caminho = url::Url::parse(u).ok()?.to_file_path().ok()?;
+                    v.is_object().then(|| (caminho, crate::registro::configuracao_de_recurso(v, &nova)))
+                })
+                .collect();
             self.configuracao = nova;
+            if refazer {
+                self.reconfigurar_analise();
+            }
         }
         self.registrar_dinamicas();
+    }
+
+    /// A configuração de `uri` (`forResource`): a da pasta do workspace mais
+    /// funda que o contém, senão a global.
+    fn configuracao_de(&self, uri: &str) -> &crate::registro::Configuracao {
+        let Some(caminho) = url::Url::parse(uri).ok().and_then(|u| u.to_file_path().ok()) else { return &self.configuracao };
+        self.configuracao_por_pasta
+            .iter()
+            .filter(|(p, _)| caminho.starts_with(p))
+            .max_by_key(|(p, _)| p.as_os_str().len())
+            .map_or(&self.configuracao, |(_, c)| c)
+    }
+
+    /// As pastas excluídas da análise (`analysisExcludedFolders`): os
+    /// caminhos absolutos como estão; os relativos, sob cada pasta do
+    /// workspace (`_refreshAnalysisRoots`).
+    fn pastas_excluidas(&self) -> Vec<std::path::PathBuf> {
+        let mut v = Vec::new();
+        for e in &self.configuracao.analysis_excluded_folders {
+            let p = std::path::Path::new(e);
+            if p.is_absolute() {
+                v.push(p.to_path_buf());
+            } else {
+                v.extend(self.raizes.iter().map(|r| r.join(p)));
+            }
+        }
+        v
+    }
+
+    /// O documento está numa pasta excluída da análise.
+    fn excluido(&self, uri: &str) -> bool {
+        let excluidas = self.pastas_excluidas();
+        !excluidas.is_empty()
+            && url::Url::parse(uri).ok().and_then(|u| u.to_file_path().ok()).is_some_and(|c| excluidas.iter().any(|e| c.starts_with(e)))
+    }
+
+    /// Os TODOs mostrados ou as pastas excluídas mudaram: o trabalhador
+    /// tipado recebe a configuração nova e os documentos abertos são
+    /// analisados e publicados de novo.
+    fn reconfigurar_analise(&mut self) {
+        let excluidas = self.pastas_excluidas();
+        if let Some(t) = &self.tipado {
+            t.configurar(self.configuracao.show_todos, self.configuracao.show_todo_types.clone(), excluidas);
+        }
+        let uris: Vec<String> = self.documentos.uris().map(str::to_string).collect();
+        for u in uris {
+            if !self.diagnosticos_puxados {
+                let p = self.publicar(&u);
+                self.saidas_pendentes.push(p);
+            }
+            self.pedir_tipado(&u);
+        }
     }
 
     /// Registra o gancho chamado (de outra thread) quando a análise tipada
@@ -475,6 +550,13 @@ impl<A: Analisador> Servidor<A> {
         self.tipado_tentado = true;
         if let Some(sdk) = crate::tipado::sdk_do_analisador(&self.analisador) {
             self.tipado = crate::tipado::Tipado::iniciar(sdk, self.despertar.clone());
+        }
+        // A configuração vigente da análise (os TODOs, as pastas excluídas).
+        let excluidas = self.pastas_excluidas();
+        if let Some(t) = &self.tipado
+            && (self.configuracao.show_todos || !self.configuracao.show_todo_types.is_empty() || !excluidas.is_empty())
+        {
+            t.configurar(self.configuracao.show_todos, self.configuracao.show_todo_types.clone(), excluidas);
         }
     }
 
@@ -1205,7 +1287,10 @@ impl<A: Analisador> Servidor<A> {
                 resposta(&id, resultado.unwrap_or(Value::Null))
             }
             "textDocument/completion" => {
-                let maximo = self.configuracao.max_completion_items.map_or(crate::completar::MAXIMO_PADRAO, |m| m as usize);
+                // `maxCompletionItems` e `enableSnippets` são da pasta do
+                // documento (`forResource`).
+                let uri_do_pedido = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
+                let maximo = self.configuracao_de(&uri_do_pedido).max_completion_items.map_or(crate::completar::MAXIMO_PADRAO, |m| m as usize);
                 self.analisador.definir_maximo_de_completar(maximo);
                 let resultado = self.posicao_da_requisicao(mensagem).and_then(|(u, offset)| {
                     let completar = self.analisador.completar(&self.documentos, &u, offset)?;
@@ -1269,7 +1354,7 @@ impl<A: Analisador> Servidor<A> {
                     }
                     let mut incompleta = completar.incompleta;
                     // Os snippets (sem ranqueamento, no fim).
-                    if cap.snippet && self.configuracao.enable_snippets {
+                    if cap.snippet && self.configuracao_de(&u).enable_snippets {
                         let prefixo = &texto[completar.inicio..completar.fim];
                         if let Some(contexto) = crate::item_completar::contexto_de_snippet(&texto, offset) {
                             let recuo: String = {
@@ -2579,9 +2664,11 @@ impl<A: Analisador> Servidor<A> {
         if let Some(arquivo) = pendente.arquivo.take()
             && self.renomeacao_de_arquivo_possivel
         {
-            let renomeia = if pendente.pergunta_do_arquivo || self.renomear_arquivos {
+            // `renameFilesWithClasses` da pasta do arquivo (`forResource`).
+            let modo = self.configuracao_de(&arquivo.de).rename_files_with_classes.clone();
+            let renomeia = if pendente.pergunta_do_arquivo || modo == "always" || (self.renomear_arquivos && modo != "never" && modo != "prompt") {
                 true
-            } else if self.configuracao.rename_files_with_classes == "prompt" && self.perguntas_ao_usuario {
+            } else if modo == "prompt" && self.perguntas_ao_usuario {
                 let base = |u: &str| u.rsplit('/').next().unwrap_or(u).to_string();
                 let mensagem = format!("Rename '{}' to '{}'?", base(&arquivo.de), base(&arquivo.para));
                 pendente.pergunta_do_arquivo = true;
@@ -2643,6 +2730,15 @@ impl<A: Analisador> Servidor<A> {
         }
         if let Some(pendente) = self.renomeacoes_pendentes.remove(&chave) {
             return Some(self.resposta_do_rename(pendente, mensagem));
+        }
+        // O cliente recusou o registro dinâmico (`_applyRegistrations`): o
+        // erro vai ao log do cliente.
+        if mensagem.get("id").and_then(Value::as_str).is_some_and(|i| i.starts_with("dartforge/registerCapability/"))
+            && let Some(e) = mensagem.get("error").filter(|e| !e.is_null())
+        {
+            let codigo = e.get("code").map(|c| c.to_string()).unwrap_or_default();
+            let texto = e.get("message").and_then(Value::as_str).unwrap_or_default();
+            return Some(notificacao_de_mensagem("window/logMessage", 1, &format!("Failed to register capabilities with client: ({codigo}) {texto}")));
         }
         let (id, rotulo, edicao) = self.edicoes_pendentes.remove(&chave)?;
         if let Some(e) = mensagem.get("error").filter(|e| !e.is_null()) {
@@ -2779,6 +2875,10 @@ impl<A: Analisador> Servidor<A> {
         let Some(texto) = self.documentos.get(uri).map(str::to_string) else {
             return publicacao_vazia(uri);
         };
+        // Fora das raízes de análise (`analysisExcludedFolders`): nada.
+        if self.excluido(uri) {
+            return publicacao_vazia(uri);
+        }
         let diagnosticos = self.analisador.diagnosticar(uri, &texto);
         self.publicacao(uri, &diagnosticos)
     }
@@ -2793,6 +2893,9 @@ impl<A: Analisador> Servidor<A> {
         let Some(versao) = self.documentos.version(uri) else {
             return json!({"kind": "full", "items": []});
         };
+        if self.excluido(uri) {
+            return json!({"kind": "full", "items": []});
+        }
         let tipado = self.tipados_publicados.get(uri).is_some_and(|(v, _)| *v == versao);
         let id_do_resultado = format!("{versao}{}", if tipado { ".t" } else { "" });
         if anterior == Some(id_do_resultado.as_str()) {
