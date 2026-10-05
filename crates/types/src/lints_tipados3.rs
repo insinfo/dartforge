@@ -165,7 +165,7 @@ fn double_e_int(table: &mut TypeTable, core: &CoreTypes, corpo: &UnitBodyTypes, 
 
 /// O `typeForInterfaceCheck`: o parâmetro de tipo vira o limite promovido
 /// ou o declarado, até não ser mais parâmetro.
-fn para_interface(table: &TypeTable, core: &CoreTypes, mut t: TypeId) -> TypeId {
+pub(crate) fn para_interface(table: &TypeTable, core: &CoreTypes, mut t: TypeId) -> TypeId {
     for _ in 0..64 {
         match table.get(t) {
             Type::Intersection { bound, .. } => t = *bound,

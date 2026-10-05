@@ -80,19 +80,43 @@ pub fn executar(
     interner: &dartforge_intern::Interner,
     ligada: &dyn Fn(&str) -> bool,
 ) -> Vec<regras::RelatoDeLint> {
-    let mut out = regras::executar(u, interner, ligada);
-    out.extend(regras2::executar(u, interner, ligada));
-    out.extend(regras3::executar(u, interner, ligada));
-    out.extend(regras4::executar(u, interner, ligada));
-    out.extend(regras5::executar(u, interner, ligada));
-    out.extend(regras6::executar(u, interner, ligada));
-    out.extend(regras7::executar(u, interner, ligada));
-    out.extend(regras8::executar(u, interner, ligada));
-    out.extend(regras9::executar(u, interner, ligada));
-    out.extend(regras10::executar(u, interner, ligada));
-    out.extend(regras11::executar(u, interner, ligada));
-    out.extend(regras12::executar(u, interner, ligada));
-    out.extend(regras13::executar(u, interner, ligada));
+    executar_com(u, interner, ligada, None)
+}
+
+/// A semântica de uma unidade cuja árvore é a do programa resolvido: o que
+/// as regras que o original decide pelo elemento ou pelo tipo (e não pelo
+/// nome) leem. Sem ela, essas regras não relatam.
+#[derive(Clone, Copy)]
+pub struct Semantica<'a> {
+    pub program: &'a dartforge_elements::model::Program,
+    pub unidade: dartforge_elements::model::UnitId,
+    pub corpo: &'a dartforge_types::resolved::UnitBodyTypes,
+    pub table: &'a dartforge_types::table::TypeTable,
+    pub core: &'a dartforge_types::table::CoreTypes,
+    pub outline: &'a dartforge_types::resolve::OutlineTypes,
+}
+
+/// Como [`executar`], com a semântica da unidade (`u` tem de ser a árvore
+/// do programa de `sem`, com o `interner` dele).
+pub fn executar_com(
+    u: crate::Unidade<'_>,
+    interner: &dartforge_intern::Interner,
+    ligada: &dyn Fn(&str) -> bool,
+    sem: Option<&Semantica<'_>>,
+) -> Vec<regras::RelatoDeLint> {
+    let mut out = regras::executar(u, interner, ligada, sem);
+    out.extend(regras2::executar(u, interner, ligada, sem));
+    out.extend(regras3::executar(u, interner, ligada, sem));
+    out.extend(regras4::executar(u, interner, ligada, sem));
+    out.extend(regras5::executar(u, interner, ligada, sem));
+    out.extend(regras6::executar(u, interner, ligada, sem));
+    out.extend(regras7::executar(u, interner, ligada, sem));
+    out.extend(regras8::executar(u, interner, ligada, sem));
+    out.extend(regras9::executar(u, interner, ligada, sem));
+    out.extend(regras10::executar(u, interner, ligada, sem));
+    out.extend(regras11::executar(u, interner, ligada, sem));
+    out.extend(regras12::executar(u, interner, ligada, sem));
+    out.extend(regras13::executar(u, interner, ligada, sem));
     out.sort_by_key(|r| (r.span.start, r.span.end));
     out
 }

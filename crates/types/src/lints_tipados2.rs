@@ -11,30 +11,32 @@
 //! `use_is_even_rather_than_modulo`, `unnecessary_to_list_in_spreads`,
 //! `unnecessary_null_aware_assignments` e `await_only_futures`.
 //!
-//! Diferenças conhecidas:
-//! - `getIntValue` do original avalia uma constante inteira qualquer; aqui
-//!   só o literal, com `-` na frente.
-//! - O contexto constante de `use_is_even_rather_than_modulo` é aproximado
-//!   como em `lints_tipados` (variável `const`, anotação, coleção ou criação
-//!   `const`).
-//! - `prefer_is_not_empty` aceita o `isEmpty` de uma classe que declara
-//!   `isNotEmpty` nela ou num supertipo (o original pergunta ao elemento que
-//!   declara o `isEmpty`); o `isEmpty` de extensão fica fora.
-//! - `unnecessary_string_interpolations` reconhece o literal único pelo
-//!   texto (`'$x'`, `"${e}"`).
+//! Cada regra lê o mesmo dado do emissor:
+//! - `getIntValue(e, context)` (`prefer_contains`): o literal inteiro ou o
+//!   identificador simples avaliado como constante (o `Motor` de
+//!   constantes, o `computeConstantValue`), com `-` na frente;
+//! - o contexto constante é o `inConstantContext` (`dartforge_frontend::pais`);
+//! - o `implementsAnyInterface` desce pelos limites do parâmetro de tipo;
+//! - `prefer_is_not_empty` pergunta ao elemento que declara o `isEmpty`
+//!   (classe, mixin, enum, tipo de extensão ou extensão) se ele tem um filho
+//!   `isNotEmpty` (`getChildren`);
+//! - `unnecessary_string_interpolations` é o literal único (não adjacente)
+//!   com exatamente uma interpolação e os trechos de antes e de depois
+//!   vazios;
+//! - `unnecessary_null_aware_assignments` só cala quando a escrita vai para
+//!   um setter (o `[]=` não é setter).
 //! Escrito sem compilar nem executar (2026-10-05).
 
+use crate::constantes::avaliador::{Constante, Ctx, Motor};
 use crate::lints_tipados::Achado;
 use crate::resolve::OutlineTypes;
-use crate::resolved::{Resolved, UnitBodyTypes};
+use crate::resolved::{BodyTypes, MemberRef, Resolved, UnitBodyTypes};
 use crate::table::{CoreTypes, Type, TypeId, TypeTable};
 use dartforge_diagnostics::Span;
-use dartforge_elements::model::{ClassId, Program, UnitId};
-use dartforge_frontend::ast::{
-    self, AssignOp, BinaryOp, CollectionElement, CreationKeyword, DeclKind, ExprId, ExprKind, Initializer, MemberKind, StmtKind, StringPart,
-    UnaryOp,
-};
-use dartforge_intern::Interner;
+use dartforge_elements::model::{ClassId, LibraryId, Program, UnitId};
+use dartforge_frontend::ast::{self, AssignOp, BinaryOp, CollectionElement, ExprId, ExprKind, Initializer, MemberKind, StringPart, UnaryOp};
+use dartforge_intern::{Interner, SymbolId};
+use std::collections::{HashMap, HashSet};
 
 fn sem_parenteses(a: &ast::Ast, mut e: ExprId) -> ExprId {
     while let ExprKind::Parenthesized(x) = &a.expr(e).kind {
@@ -43,21 +45,43 @@ fn sem_parenteses(a: &ast::Ast, mut e: ExprId) -> ExprId {
     e
 }
 
-/// O valor de um literal inteiro (decimal ou `0x`), sem sinal.
+/// `IntegerLiteral.value`: o literal inteiro (decimal ou `0x`, até 64 bits
+/// no hexadecimal). Um literal que o parser tenha juntado com o `-` vale
+/// negativo.
 fn literal_inteiro(a: &ast::Ast, fonte: &str, e: ExprId) -> Option<i64> {
     let ExprKind::Int(s) = &a.expr(e).kind else { return None };
-    let texto: String = fonte.get(s.start..s.end)?.chars().filter(|c| *c != '_').collect();
-    match texto.strip_prefix("0x").or_else(|| texto.strip_prefix("0X")) {
-        Some(hex) => i64::from_str_radix(hex, 16).ok(),
+    let texto: String = fonte.get(s.start..s.end)?.chars().filter(|c| *c != '_' && !c.is_whitespace()).collect();
+    let (negativo, texto) = match texto.strip_prefix('-') {
+        Some(r) => (true, r.to_string()),
+        None => (false, texto),
+    };
+    let v = match texto.strip_prefix("0x").or_else(|| texto.strip_prefix("0X")) {
+        Some(hex) => u64::from_str_radix(hex, 16).ok().map(|v| v as i64),
         None => texto.parse::<i64>().ok(),
-    }
+    }?;
+    Some(if negativo { v.wrapping_neg() } else { v })
 }
 
-/// `getIntValue` pela forma: o literal, com `-` na frente.
-fn valor_inteiro(a: &ast::Ast, fonte: &str, e: ExprId) -> Option<i64> {
+/// O literal escrito sem sinal (`right is IntegerLiteral`).
+fn literal_sem_sinal(a: &ast::Ast, fonte: &str, e: ExprId) -> Option<i64> {
+    let ExprKind::Int(s) = &a.expr(e).kind else { return None };
+    if fonte.get(s.start..s.end).is_some_and(|t| t.starts_with('-')) {
+        return None;
+    }
+    literal_inteiro(a, fonte, e)
+}
+
+/// `getIntValue(e, context)`: o literal ou o identificador constante, com
+/// `-` na frente (só o `-`).
+fn valor_inteiro(a: &ast::Ast, fonte: &str, avaliados: &HashMap<ExprId, i64>, e: ExprId) -> Option<i64> {
+    let base = |x: ExprId| match &a.expr(x).kind {
+        ExprKind::Int(_) => literal_inteiro(a, fonte, x),
+        ExprKind::Identifier(_) => avaliados.get(&x).copied(),
+        _ => None,
+    };
     match &a.expr(e).kind {
-        ExprKind::Unary { op: UnaryOp::Neg, operand } => literal_inteiro(a, fonte, *operand).map(|v| -v),
-        _ => literal_inteiro(a, fonte, e),
+        ExprKind::Unary { op: UnaryOp::Neg, operand } => base(*operand).map(i64::wrapping_neg),
+        _ => base(e),
     }
 }
 
@@ -76,56 +100,132 @@ fn espalhados(el: &CollectionElement, saida: &mut Vec<ExprId>) {
     }
 }
 
+/// Os identificadores simples que o `getIntValue(…, context)` do
+/// `prefer_contains` pode consultar: os operandos das comparações e o
+/// segundo argumento de `indexOf`, também atrás de `-`.
+fn identificadores_consultados(interner: &Interner, a: &ast::Ast) -> Vec<ExprId> {
+    let mut v = Vec::new();
+    let mut considerar = |e: ExprId| {
+        let x = match &a.expr(e).kind {
+            ExprKind::Unary { op: UnaryOp::Neg, operand } => *operand,
+            _ => e,
+        };
+        if matches!(a.expr(x).kind, ExprKind::Identifier(_)) {
+            v.push(x);
+        }
+    };
+    for e in a.exprs.iter() {
+        match &e.kind {
+            ExprKind::Binary { op: BinaryOp::Eq | BinaryOp::NotEq | BinaryOp::Gt | BinaryOp::GtEq | BinaryOp::Lt | BinaryOp::LtEq, left, right } => {
+                considerar(*left);
+                considerar(*right);
+            }
+            ExprKind::Call { target, arguments } if arguments.args.len() == 2 => {
+                if let ExprKind::Property { name, .. } = &a.expr(*target).kind
+                    && interner.resolve(name.sym) == "indexOf"
+                {
+                    considerar(arguments.args[1].value);
+                }
+            }
+            _ => {}
+        }
+    }
+    v
+}
+
+/// Os filhos do elemento `getChildren(elemento, nome)` (pelo `displayName`:
+/// o setter `nome=` também conta).
+fn tem_filho(program: &Program, interner: &Interner, dono: Dono, nome: &str) -> bool {
+    let simbolos: Vec<SymbolId> = [interner.lookup(nome), interner.lookup(&format!("{nome}_="))].into_iter().flatten().collect();
+    let tem = |m: &HashMap<SymbolId, dartforge_elements::model::FunctionElementId>| simbolos.iter().any(|s| m.contains_key(s));
+    match dono {
+        Dono::Classe(c) => {
+            let e = program.class(c);
+            tem(&e.instance_members)
+                || tem(&e.static_members)
+                || e.fields.iter().chain(e.enum_constants.iter()).any(|v| interner.resolve(program.variable(*v).name) == nome)
+        }
+        Dono::Extensao(x) => {
+            let e = program.extension(x);
+            tem(&e.instance_members) || tem(&e.static_members) || e.fields.iter().any(|v| interner.resolve(program.variable(*v).name) == nome)
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Dono {
+    Classe(ClassId),
+    Extensao(dartforge_elements::model::ExtensionId),
+}
+
+/// O elemento que declara o membro resolvido (`enclosingElement3`).
+fn dono_do_membro(program: &Program, r: &Resolved) -> Option<Dono> {
+    let (classe, extensao) = match r {
+        Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } => {
+            let g = program.function(*f);
+            (g.class, g.extension)
+        }
+        Resolved::Member { member: MemberRef::Variable(v), .. } => {
+            let x = program.variable(*v);
+            (x.class, x.extension)
+        }
+        _ => return None,
+    };
+    classe.map(Dono::Classe).or(extensao.map(Dono::Extensao))
+}
+
 /// Os achados das regras tipadas deste módulo na unidade `u`.
+#[allow(clippy::too_many_arguments)]
 pub fn achados(
     program: &Program,
     interner: &Interner,
-    table: &TypeTable,
+    table: &mut TypeTable,
     core: &CoreTypes,
     outline: &OutlineTypes,
-    corpo: &UnitBodyTypes,
+    corpos: &BodyTypes,
+    inferidas: &HashSet<LibraryId>,
     u: UnitId,
 ) -> Vec<Achado> {
     let mut out: Vec<Achado> = Vec::new();
     let unidade = program.unit(u);
     let a = &unidade.ast;
     let fonte = unidade.source.as_str();
+    let Some(corpo) = corpos.units.get(u.0 as usize) else { return out };
 
-    let da_classe = |t: TypeId, alvo: Option<ClassId>| matches!(table.get(t), Type::Interface { class, .. } if Some(*class) == alvo);
-    // `bool` e `String` não anuláveis.
-    let nao_nula = |t: TypeId, alvo: Option<ClassId>| {
-        matches!(table.get(t), Type::Interface { class, nullable: false, .. } if Some(*class) == alvo)
-    };
-    // A classe do tipo é `alvo` ou o tem entre os supertipos.
+    // `computeConstantValue` dos identificadores consultados, com o motor de
+    // constantes (só se houver algum).
+    let mut avaliados: HashMap<ExprId, i64> = HashMap::new();
+    let consultados = identificadores_consultados(interner, a);
+    if !consultados.is_empty() {
+        let mut motor = Motor::novo(program, interner, table, core, outline, corpos, inferidas);
+        let cx = Ctx::simples(u, unidade.library);
+        for e in consultados {
+            if let Constante::Valor(v) = motor.avaliar(&cx, e, false)
+                && let crate::constantes::valor::Estado::Int(Some(i)) = v.estado
+            {
+                avaliados.insert(e, i);
+            }
+        }
+    }
+    let table: &TypeTable = table;
+
+    let nao_nula = |t: TypeId, alvo: Option<ClassId>| matches!(table.get(t), Type::Interface { class, nullable: false, .. } if Some(*class) == alvo);
+    // `implementsInterface`: a interface é `alvo` ou o tem entre os
+    // supertipos.
     let implementa = |t: TypeId, alvo: Option<ClassId>| match table.get(t) {
-        Type::Interface { class, .. } => alvo.is_some_and(|k| *class == k || outline.hierarchy.get(*class).is_some_and(|d| d.supertypes.contains_key(&k))),
+        Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => alvo.is_some_and(|k| {
+            *class == k || (program.class(*class).decl.is_some() && outline.hierarchy.get(*class).is_some_and(|d| d.supertypes.contains_key(&k)))
+        }),
         _ => false,
     };
-    let tipo = |e: ExprId| corpo.get_type(e).filter(|t| !core.is_unknown(table, *t));
-
-    // Os trechos em contexto constante (aproximado).
-    let mut constantes: Vec<Span> = Vec::new();
-    let mut de_lista = |l: &ast::VariableList| {
-        if l.const_ {
-            constantes.extend(l.variables.iter().filter_map(|v| v.initializer).map(|e| a.expr(e).span));
-        }
+    // `implementsAnyInterface`: pelo `typeForInterfaceCheck`.
+    let implementa_algum = |t: TypeId, alvos: &[Option<ClassId>]| {
+        let t = crate::lints_tipados3::para_interface(table, core, t);
+        alvos.iter().any(|k| implementa(t, *k))
     };
-    for d in a.decls.iter() {
-        if let DeclKind::Variables(l) = &d.kind {
-            de_lista(l);
-        }
-    }
-    for m in a.members.iter() {
-        if let MemberKind::Field(l) = &m.kind {
-            de_lista(l);
-        }
-    }
-    for s in a.stmts.iter() {
-        if let StmtKind::Variables(l) = &s.kind {
-            de_lista(l);
-        }
-    }
-    constantes.extend(a.decls.iter().flat_map(|d| d.metadata.iter()).chain(a.members.iter().flat_map(|m| m.metadata.iter())).map(|m| m.span));
+    let tipo = |e: ExprId| corpo.get_type(e).filter(|t| !core.is_unknown(table, *t));
+    let pais = crate::lints_tipados::pais_da_unidade(program, u);
+
     // Os `assert` da lista de inicializadores de construtor `const`.
     let mut asserts_const: Vec<Span> = Vec::new();
     for m in a.members.iter() {
@@ -138,17 +238,6 @@ pub fn achados(
             }));
         }
     }
-    for e in a.exprs.iter() {
-        let constante = match &e.kind {
-            ExprKind::List { const_, .. } | ExprKind::SetOrMap { const_, .. } | ExprKind::Record { const_, .. } => *const_,
-            ExprKind::InstanceCreation { keyword, .. } => *keyword == Some(CreationKeyword::Const),
-            _ => false,
-        };
-        if constante {
-            constantes.push(e.span);
-        }
-    }
-    let em_constante = |s: Span| constantes.iter().any(|k| k.start <= s.start && s.end <= k.end);
 
     // `_isUnassignedIndexOf`: `x.indexOf(v)` ou `x.indexOf(v, 0)` com `x`
     // um `Iterable` ou uma `String` (por dentro de parênteses e de `as`).
@@ -159,22 +248,25 @@ pub fn achados(
         }
         let e = sem_parenteses(a, e);
         let ExprKind::Call { target, arguments } = &a.expr(e).kind else { return false };
+        if matches!(corpo.get_resolved(e), Some(Resolved::Constructor(_))) {
+            return false;
+        }
         let ExprKind::Property { target: receptor, name, .. } = &a.expr(*target).kind else { return false };
         if interner.resolve(name.sym) != "indexOf" {
             return false;
         }
         let Some(t) = tipo(*receptor) else { return false };
-        if !implementa(t, core.iterable_class) && !implementa(t, core.string_class) {
+        if !implementa_algum(t, &[core.iterable_class, core.string_class]) {
             return false;
         }
         match &arguments.args[..] {
-            [_, inicio] => valor_inteiro(a, fonte, inicio.value) == Some(0),
+            [_, inicio] => valor_inteiro(a, fonte, &avaliados, inicio.value) == Some(0),
             _ => true,
         }
     };
-    let nao_vazio = interner.lookup("isNotEmpty");
 
-    for e in a.exprs.iter() {
+    for (k, e) in a.exprs.iter().enumerate() {
+        let id = ExprId(k as u32);
         match &e.kind {
             // `avoid_bool_literals_in_conditional_expressions`.
             ExprKind::Conditional { then, else_, .. } => {
@@ -197,10 +289,10 @@ pub fn achados(
                 }
                 // `prefer_contains`.
                 if matches!(op, BinaryOp::Eq | BinaryOp::NotEq | BinaryOp::Gt | BinaryOp::GtEq | BinaryOp::Lt | BinaryOp::LtEq) {
-                    // A comparação com a constante à direita.
-                    let comparacao = match valor_inteiro(a, fonte, *right) {
+                    let comparacao = match valor_inteiro(a, fonte, &avaliados, *right) {
                         Some(v) => (v <= 0 && de_indice(*left)).then_some((v, *op)),
-                        None => valor_inteiro(a, fonte, *left).filter(|v| *v <= 0 && de_indice(*right)).map(|v| {
+                        None => valor_inteiro(a, fonte, &avaliados, *left).filter(|v| *v <= 0 && de_indice(*right)).map(|v| {
+                            // `TokenType.inverted`.
                             let invertida = match op {
                                 BinaryOp::Gt => BinaryOp::Lt,
                                 BinaryOp::GtEq => BinaryOp::LtEq,
@@ -229,60 +321,68 @@ pub fn achados(
                         out.push((e.span, c, Vec::new()));
                     }
                 }
-                // `use_is_even_rather_than_modulo`: `x % 2 == n`, inteiros.
+                // `use_is_even_rather_than_modulo`: `x % 2 == n`, inteiros,
+                // com `n` literal sem sinal.
                 if *op == BinaryOp::Eq
-                    && let Some(valor) = literal_inteiro(a, fonte, *right)
+                    && !pais.em_contexto_constante(a, id)
+                    && let Some(valor) = literal_sem_sinal(a, fonte, *right)
                     && let ExprKind::Binary { op: BinaryOp::Rem, right: divisor, .. } = &a.expr(*left).kind
-                    && literal_inteiro(a, fonte, *divisor) == Some(2)
-                    && tipo(*left).is_some_and(|t| da_classe(t, core.int_class))
-                    && tipo(*right).is_some_and(|t| da_classe(t, core.int_class))
-                    && tipo(*divisor).is_some_and(|t| da_classe(t, core.int_class))
-                    && !em_constante(e.span)
+                    && literal_sem_sinal(a, fonte, *divisor) == Some(2)
+                    && tipo(*left).is_some_and(|t| nao_nula(t, core.int_class))
+                    && tipo(*right).is_some_and(|t| nao_nula(t, core.int_class))
+                    && tipo(*divisor).is_some_and(|t| nao_nula(t, core.int_class))
                     && !asserts_const.iter().any(|k| k.start <= e.span.start && e.span.end <= k.end)
                 {
                     out.push((e.span, "use_is_even_rather_than_modulo", vec![(if valor == 0 { "isEven" } else { "isOdd" }).to_string()]));
                 }
             }
-            // `unnecessary_string_interpolations`: `'$x'` com `x` uma `String`.
+            // `unnecessary_string_interpolations`: o literal único com uma
+            // interpolação só e os trechos de antes e de depois vazios.
             ExprKind::String(lit) => {
-                let mut interpolada: Option<ExprId> = None;
-                let mut so_uma = true;
-                for parte in lit.parts.iter() {
-                    match parte {
-                        StringPart::Interpolation(x) if interpolada.is_none() => interpolada = Some(*x),
-                        StringPart::Interpolation(_) => so_uma = false,
-                        StringPart::Text(_) => {}
-                    }
-                }
-                let Some(x) = interpolada.filter(|_| so_uma) else { continue };
+                let interpolacoes: Vec<ExprId> = lit
+                    .parts
+                    .iter()
+                    .filter_map(|p| match p {
+                        StringPart::Interpolation(x) => Some(*x),
+                        StringPart::Text(_) => None,
+                    })
+                    .collect();
+                let [x] = interpolacoes.as_slice() else { continue };
+                let x = *x;
                 let Some(texto) = fonte.get(e.span.start..e.span.end) else { continue };
-                let aspas = ["'''", "\"\"\"", "'", "\""].into_iter().find(|q| texto.starts_with(q));
-                let Some(aspas) = aspas else { continue };
+                let Some(aspas) = ["'''", "\"\"\"", "'", "\""].into_iter().find(|q| texto.starts_with(q)) else { continue };
                 let dentro = a.expr(x).span;
-                // Só `$`/`${` entre a aspa e a expressão, e só `}` e a aspa
-                // depois dela: um literal único de início e fim vazios.
-                let antes = fonte.get(e.span.start + aspas.len()..dentro.start).map(|t| t.trim());
-                let depois = fonte.get(dentro.end..e.span.end).map(|t| t.trim());
-                let (Some(antes), Some(depois)) = (antes, depois) else { continue };
-                let unico = (antes == "$" && depois == aspas) || (antes == "${" && depois.strip_prefix('}').is_some_and(|r| r == aspas));
+                let (Some(antes), Some(depois)) = (fonte.get(e.span.start + aspas.len()..dentro.start), fonte.get(dentro.end..e.span.end)) else {
+                    continue;
+                };
+                let unico = if antes == "$" {
+                    depois == aspas
+                } else if let Some(resto) = antes.strip_prefix("${") {
+                    // Só brancos e comentários entre `${` e a expressão, e
+                    // entre ela e o `}`; depois do `}`, só a aspa.
+                    let b = resto.as_bytes();
+                    let d = depois.as_bytes();
+                    let k = dartforge_frontend::fonte::pular_brancos(d, 0);
+                    dartforge_frontend::fonte::pular_brancos(b, 0) == b.len() && d.get(k) == Some(&b'}') && &depois[k + 1..] == aspas
+                } else {
+                    false
+                };
                 if unico && tipo(x).is_some_and(|t| nao_nula(t, core.string_class)) {
                     out.push((e.span, "unnecessary_string_interpolations", Vec::new()));
                 }
             }
-            // `prefer_is_not_empty`: `!x.isEmpty`.
+            // `prefer_is_not_empty`: `!x.isEmpty`, com o elemento que declara
+            // o `isEmpty` tendo um filho `isNotEmpty`.
             ExprKind::Unary { op: UnaryOp::Not, operand } => {
                 let alvo = sem_parenteses(a, *operand);
                 if let ExprKind::Property { target, name, .. } = &a.expr(alvo).kind
+                    && !matches!(a.expr(*target).kind, ExprKind::CascadeTarget)
                     && interner.resolve(name.sym) == "isEmpty"
-                    && let Some(simbolo) = nao_vazio
-                    && let Some(t) = tipo(*target)
-                    && let Type::Interface { class, .. } = table.get(t)
-                    && !matches!(corpo.get_resolved(alvo), Some(Resolved::ExtensionMember { .. }))
+                    && let Some(r) = corpo.get_resolved(alvo)
+                    && let Some(dono) = dono_do_membro(program, r)
+                    && tem_filho(program, interner, dono, "isNotEmpty")
                 {
-                    let declara = |k: ClassId| program.class(k).instance_members.contains_key(&simbolo);
-                    if declara(*class) || outline.hierarchy.get(*class).is_some_and(|d| d.supertypes.keys().any(|k| declara(*k))) {
-                        out.push((e.span, "prefer_is_not_empty", Vec::new()));
-                    }
+                    out.push((e.span, "prefer_is_not_empty", Vec::new()));
                 }
             }
             // `unnecessary_to_list_in_spreads`.
@@ -302,12 +402,15 @@ pub fn achados(
                 }
             }
             // `unnecessary_null_aware_assignments`: `x ??= null`, salvo
-            // quando a escrita vai para um setter (campo, variável de topo).
+            // quando a escrita vai para um setter (campo, variável de topo,
+            // setter de extensão; o `[]=` não é setter).
             ExprKind::Assign { op: AssignOp::Compound(BinaryOp::IfNull), target, value } => {
-                let para_setter = matches!(
-                    corpo.get_resolved(*target),
-                    Some(Resolved::Member { .. } | Resolved::Element(_) | Resolved::ExtensionMember { .. })
-                );
+                let alvo = a.expr(*target);
+                let para_setter = matches!(alvo.kind, ExprKind::Identifier(_) | ExprKind::Property { .. })
+                    && matches!(
+                        corpo.get_resolved(*target),
+                        Some(Resolved::Member { .. } | Resolved::Element(_) | Resolved::ExtensionMember { .. })
+                    );
                 if matches!(a.expr(sem_parenteses(a, *value)).kind, ExprKind::Null) && !para_setter {
                     out.push((e.span, "unnecessary_null_aware_assignments", Vec::new()));
                 }

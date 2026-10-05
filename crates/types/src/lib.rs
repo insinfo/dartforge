@@ -16,6 +16,7 @@
 //!   para vigilância de platô do LSP e medições do compilador.
 
 pub mod a_main;
+pub mod anotacoes;
 pub mod bounds;
 pub mod codes;
 pub mod constant;

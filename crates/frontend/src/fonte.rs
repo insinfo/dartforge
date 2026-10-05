@@ -96,6 +96,14 @@ pub fn de_anotacao(a: &Ast, fonte: &str, interner: &Interner, m: &Annotation) ->
     f.saida
 }
 
+/// O texto da lista de parâmetros de tipo `ps` (o `TypeParameterList`;
+/// vazio sem nenhum).
+pub fn de_parametros_de_tipo(a: &Ast, fonte: &str, interner: &Interner, ps: &[TypeParameter]) -> String {
+    let mut f = Impressor::novo(a, fonte, interner);
+    f.parametros_de_tipo(ps);
+    f.saida
+}
+
 /// O texto da lista de parâmetros `ps` (o `FormalParameterList`).
 pub fn de_parametros(a: &Ast, fonte: &str, interner: &Interner, ps: &[Parameter]) -> String {
     let mut f = Impressor::novo(a, fonte, interner);

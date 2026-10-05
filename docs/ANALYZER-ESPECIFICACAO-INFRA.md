@@ -4806,6 +4806,36 @@ da primeira escrita saíram; cada regra usa o mesmo dado que o emissor do analyz
   parâmetros de tipo, records pela atribuição, `lookUpConcreteMethod('call')` e o padrão relacional;
   `avoid_double_and_int_checks` pelo tipo resolvido da anotação
   (`UnitBodyTypes::tipos_de_anotacoes`, novo) e também com `is!`.
+- `crates/frontend/src/pais.rs` (novo): o pai de cada expressão no papel que o analyzer distingue e o
+  `inConstantContext` exato (`constantContext`, `ast.dart:6208`): atravessa expressões, argumentos,
+  `if`/`for` de coleção, entradas de mapa e `...`; verdadeiro na anotação, nos argumentos de
+  constante de enum, na criação/coleção/record com `const`, na lista `const`, no padrão constante com
+  `const` e no `case` antigo (antes da 3.0); falso na lista sem `const`, no padrão sem `const` e em
+  qualquer outro pai (interpolação, corpo de função, valor padrão, inicializador de construtor,
+  partes do `for`, `when`, `?e`). `lints_tipados::pais_da_unidade` o monta por unidade.
+- `lints_tipados.rs` (`prefer_is_empty`): contexto constante exato e o inicializador de construtor
+  `const` de fora (o `_check`); o hexadecimal até 64 bits.
+- `lints_tipados2.rs`: `prefer_contains` com o `getIntValue(…, context)` (identificador simples
+  avaliado pelo `Motor` de constantes) e o `implementsAnyInterface` pelos limites;
+  `use_is_even_rather_than_modulo` com o contexto constante exato e o literal sem sinal;
+  `prefer_is_not_empty` pelo elemento que declara o `isEmpty` (`getChildren`, extensão inclusive);
+  `unnecessary_string_interpolations` sem `trim` (o trecho de antes e o de depois têm de ser vazios);
+  `unnecessary_null_aware_assignments` não cala o `[]=`.
+- Lints da árvore com a semântica do motor: `dartforge_analise::lints::executar_com` recebe uma
+  `Semantica` (programa, unidade, corpo, tabela de tipos, outline). Em `paridade` (`analise.rs`) os
+  lints rodam sobre a árvore do programa, a mesma versão de linguagem da biblioteca e o `interner`
+  dele, e o resultado fica em `Arquivo::relatos_de_lint`; a publicação filtra pelas regras ligadas.
+  Sem semântica (arquivo fora do programa), as regras que o original decide pelo elemento não
+  relatam. O crate `analise` passou a depender de `dartforge-types`.
+- `crates/types/src/anotacoes.rs` (novo): o elemento de uma anotação pelos escopos do analyzer
+  (locais declarados antes no bloco, parâmetros e parâmetros de tipo das funções que a contêm,
+  membros declarados do tipo que a contém, unidade e prefixo); `anotacao_do_meta` e o
+  `isDeprecated` do `dart:core` usam ele.
+- `regras.rs`: `non_constant_identifier_names` com os doze visitantes (campos de record, construtor
+  de tipo de extensão, `for`/`for-in` de coleção, parâmetros de `Function(…)`, variável de padrão de
+  declaração sem palavra-chave, atalho `:nome` fora, augmentation só pulando os nomeados);
+  `prefer_generic_function_type_aliases` com o `toSource`; `provide_deprecation_message` pelo
+  elemento, em toda anotação da unidade (`pais::todas_as_anotacoes`).
 
 Cada verificador é um módulo novo em `crates/analise/src/`, chamado no ponto
 da ordem da §1.2. Os códigos de cada um estão nos lotes II.7 e II.8 (II.8 com

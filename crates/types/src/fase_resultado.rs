@@ -27,19 +27,12 @@ use dartforge_intern::Interner;
 /// A anotação `m`, escrita na unidade `unit`, é a constante `nome` do
 /// `package:meta` (o `isDoNotStore`, `isLiteral`… do analyzer comparam o
 /// elemento e a biblioteca `meta`): o nome, com ou sem prefixo, resolvido
-/// pelo escopo da unidade para uma variável de topo de uma biblioteca
-/// `package:meta/…`, e sem argumentos.
+/// pelos escopos com que o analyzer resolve a anotação (locais, parâmetros,
+/// membros do tipo que a contém, unidade) para uma variável de topo de uma
+/// biblioteca `package:meta/…`, e sem argumentos.
 pub(crate) fn anotacao_do_meta(program: &Program, interner: &Interner, unit: UnitId, m: &ast::Annotation, nome: &str) -> bool {
-    if m.arguments.is_some() || m.name.last().is_none_or(|n| interner.resolve(n.sym) != nome) {
-        return false;
-    }
-    let ligacao = match &m.name[..] {
-        [n] => program.lookup_na_unidade(unit, n.sym),
-        [p, n] => program.lookup_prefixed_na_unidade(unit, p.sym, n.sym),
-        _ => None,
-    };
-    let Some(Element::Variable(v)) = ligacao.and_then(|b| b.getter) else { return false };
-    program.library(program.variable(v).library).uri.starts_with("package:meta/")
+    // Pelos escopos do analyzer (locais, membros, unidade): `anotacoes`.
+    crate::anotacoes::anotacao_e_variavel(program, interner, unit, m, nome, &|uri| uri.starts_with("package:meta/"))
 }
 
 /// A unidade em que a função `f` está escrita.

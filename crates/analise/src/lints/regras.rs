@@ -10,11 +10,15 @@
 //! Escritas com os emissores do `main` do SDK abertos e depois conferidas
 //! contra os da 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\linter`, extraído
 //! da tag em 2026-10-05). Nenhuma das dez difere na regra.
-//! Diferenças conhecidas: em `non_constant_identifier_names` ficam
-//! de fora os campos de registro e o atalho `:nome` de padrão; em
-//! `prefer_generic_function_type_aliases` a sugestão usa o texto como está
-//! escrito, sem a normalização do `toSource`; `@deprecated` é reconhecido
-//! pelo nome.
+//! `non_constant_identifier_names` segue os doze visitantes do original
+//! (também os campos de record, o nome do construtor de tipo de extensão, a
+//! variável de `for`/`for-in` de coleção, os parâmetros de `Function(…)`, a
+//! variável de padrão de declaração sem palavra-chave, o atalho `:nome`
+//! fora e, em augmentation, só os parâmetros nomeados pulados);
+//! `prefer_generic_function_type_aliases` monta a sugestão com o `toSource`
+//! (`dartforge_frontend::fonte`); `provide_deprecation_message` pede o
+//! elemento da anotação (`dartforge_types::anotacoes`, só com a semântica
+//! da unidade) e olha toda anotação da unidade.
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
@@ -25,9 +29,10 @@ use dartforge_frontend::ast::{
     self, DeclKind, DirectiveKind, ForInTarget, FunctionKind, MemberKind, PatternKind, StmtId, StmtKind, TypedefKind,
 };
 use dartforge_intern::Interner;
+use std::collections::HashSet;
 
 /// Um relato de lint.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RelatoDeLint {
     pub codigo: &'static CodigoLint,
     pub span: Span,
@@ -153,29 +158,67 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    fn parametros(&mut self, lista: &'a [ast::Parameter]) {
+    /// `visitFormalParameterList`: os nomes de todo parâmetro que não é
+    /// `this.x` (o `super.x` conta), com os sublinhados valendo; numa lista de
+    /// augmentation, os nomeados ficam de fora. As listas aninhadas (de
+    /// parâmetro-função) são visitadas sem a regra de augmentation.
+    fn parametros(&mut self, lista: &'a [ast::Parameter], de_augmentation: bool) {
         for p in lista {
-            // Um `this.x` leva o nome do campo.
-            if let (false, Some(n)) = (p.this_, p.name) {
+            if !(de_augmentation && p.kind == ast::ParameterKind::Named)
+                && let (false, Some(n)) = (p.this_, p.name)
+            {
                 self.identificador(n, true);
             }
             if let Some(internos) = &p.function_parameters {
-                self.parametros(internos);
+                self.parametros(internos, false);
             }
         }
     }
 
-    /// `non_constant_identifier_names`.
+    /// O nome do campo posicional de tipo record escrito depois do tipo
+    /// `t` (a árvore não o guarda): o identificador que o parser consumiu.
+    fn nome_posicional(&self, t: ast::TypeId) -> Option<(Span, &'a str)> {
+        let fonte = self.u.fonte;
+        let b = fonte.as_bytes();
+        let i = dartforge_frontend::fonte::pular_brancos(b, self.u.ast.ty(t).span.end);
+        let identificador = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
+        if !b.get(i).is_some_and(|&c| identificador(c) && !c.is_ascii_digit()) {
+            return None;
+        }
+        let mut j = i;
+        while j < b.len() && identificador(b[j]) {
+            j += 1;
+        }
+        Some((Span { start: i, end: j }, &fonte[i..j]))
+    }
+
+    /// `non_constant_identifier_names`: os doze visitantes do original.
     fn nomes_nao_constantes(&mut self) {
         let a = self.u.ast;
+        // As funções de declarações `augment` (a lista de parâmetros delas
+        // pula os nomeados; o nome delas não é olhado).
+        let mut aumentadas: HashSet<ast::FunctionId> = HashSet::new();
+        for d in a.decls.iter().filter(|d| d.augment) {
+            if let DeclKind::Function(f) = &d.kind {
+                aumentadas.insert(*f);
+            }
+        }
+        for m in a.members.iter().filter(|m| m.augment) {
+            if let MemberKind::Method(f) = &m.kind {
+                aumentadas.insert(*f);
+            }
+        }
+        // `visitVariableDeclaration`/`visitVariableDeclarationStatement`:
+        // as listas sem `const`, fora de augmentation.
+        let mut listas: Vec<&'a ast::VariableList> = Vec::new();
+        // `visitForEachPartsWithDeclaration`: a variável do `for-in`.
+        let mut do_laco: Vec<ast::Name> = Vec::new();
         for s in a.stmts.iter() {
             match &s.kind {
-                StmtKind::Variables(l) if !l.const_ => {
-                    for v in l.variables.iter() {
-                        self.identificador(v.name, false);
-                    }
-                }
-                StmtKind::ForIn { target: ForInTarget::Declared { name, .. }, .. } => self.identificador(*name, false),
+                StmtKind::Variables(l) => listas.push(l),
+                StmtKind::For { init: Some(ast::ForInit::Variables(l)), .. } => listas.push(l),
+                StmtKind::ForIn { target: ForInTarget::Declared { name, .. }, .. } => do_laco.push(*name),
+                // `visitCatchClause`.
                 StmtKind::Try { catches, .. } => {
                     for k in catches.iter() {
                         for n in k.exception.iter().chain(k.stack_trace.iter()) {
@@ -186,44 +229,172 @@ impl<'a> Ctx<'a> {
                 _ => {}
             }
         }
-        for p in a.patterns.iter() {
-            if let PatternKind::Variable { final_, var_, ty, name } = &p.kind
-                && (*final_ || *var_ || ty.is_some())
-            {
-                self.identificador(*name, false);
+        // O `for` e o `for-in` de coleção.
+        fn de_colecao<'b>(el: &'b ast::CollectionElement, listas: &mut Vec<&'b ast::VariableList>, do_laco: &mut Vec<ast::Name>) {
+            match el {
+                ast::CollectionElement::For { init, body, .. } => {
+                    if let Some(ast::ForInit::Variables(l)) = init {
+                        listas.push(l);
+                    }
+                    de_colecao(body, listas, do_laco);
+                }
+                ast::CollectionElement::ForIn { target, body, .. } => {
+                    if let ForInTarget::Declared { name, .. } = target {
+                        do_laco.push(*name);
+                    }
+                    de_colecao(body, listas, do_laco);
+                }
+                ast::CollectionElement::If { then, else_, .. } => {
+                    de_colecao(then, listas, do_laco);
+                    if let Some(x) = else_ {
+                        de_colecao(x, listas, do_laco);
+                    }
+                }
+                _ => {}
+            }
+        }
+        for e in a.exprs.iter() {
+            if let ast::ExprKind::List { elements, .. } | ast::ExprKind::SetOrMap { elements, .. } = &e.kind {
+                for el in elements.iter() {
+                    de_colecao(el, &mut listas, &mut do_laco);
+                }
             }
         }
         for d in a.decls.iter().filter(|d| !d.augment) {
-            if let DeclKind::Variables(l) = &d.kind
-                && !l.const_
-            {
+            if let DeclKind::Variables(l) = &d.kind {
+                listas.push(l);
+            }
+        }
+        for m in a.members.iter().filter(|m| !m.augment) {
+            if let MemberKind::Field(l) = &m.kind {
+                listas.push(l);
+            }
+        }
+        for l in listas {
+            if !l.const_ {
                 for v in l.variables.iter() {
                     self.identificador(v.name, false);
                 }
             }
         }
-        for m in a.members.iter().filter(|m| !m.augment) {
-            match &m.kind {
-                MemberKind::Field(l) if !l.const_ => {
-                    for v in l.variables.iter() {
-                        self.identificador(v.name, false);
+        for n in do_laco {
+            self.identificador(n, false);
+        }
+        // `visitDeclaredVariablePattern` e `visitPatternField`: as variáveis
+        // de padrão de declaração (não as do padrão de atribuição), salvo a
+        // que é direto o padrão de um campo `:nome`.
+        let mut de_atribuicao: HashSet<ast::PatternId> = HashSet::new();
+        let mut pilha: Vec<ast::PatternId> = a
+            .exprs
+            .iter()
+            .filter_map(|e| match &e.kind {
+                ast::ExprKind::PatternAssign { pattern, .. } => Some(*pattern),
+                _ => None,
+            })
+            .collect();
+        while let Some(p) = pilha.pop() {
+            if !de_atribuicao.insert(p) {
+                continue;
+            }
+            match &a.pattern(p).kind {
+                PatternKind::Or(l, r) | PatternKind::And(l, r) => pilha.extend([*l, *r]),
+                PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) | PatternKind::Cast { pattern: x, .. } => {
+                    pilha.push(*x)
+                }
+                PatternKind::List { elements, .. } => pilha.extend(elements.iter().filter_map(|e| match e {
+                    ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) => Some(*x),
+                    ast::ListPatternElement::Rest(None) => None,
+                })),
+                PatternKind::Map { entries, .. } => pilha.extend(entries.iter().map(|e| e.value)),
+                PatternKind::Record { fields } | PatternKind::Object { fields, .. } => pilha.extend(fields.iter().map(|f| f.pattern)),
+                _ => {}
+            }
+        }
+        let mut atalhos: HashSet<ast::PatternId> = HashSet::new();
+        for p in a.patterns.iter() {
+            if let PatternKind::Record { fields } | PatternKind::Object { fields, .. } = &p.kind {
+                for f in fields.iter() {
+                    let sp = a.pattern(f.pattern).span;
+                    if f.name.is_some_and(|n| n.span.start >= sp.start && n.span.end <= sp.end) {
+                        atalhos.insert(f.pattern);
                     }
                 }
-                MemberKind::Constructor(k) => {
-                    if let Some(n) = k.name {
-                        self.identificador(n, true);
+            }
+        }
+        for (k, p) in a.patterns.iter().enumerate() {
+            let id = ast::PatternId(k as u32);
+            if let PatternKind::Variable { name, .. } = &p.kind
+                && !de_atribuicao.contains(&id)
+                && !atalhos.contains(&id)
+            {
+                self.identificador(*name, false);
+            }
+        }
+        // `visitExtensionTypeDeclaration`: o nome do construtor da
+        // representação.
+        for d in a.decls.iter() {
+            if let DeclKind::ExtensionType(x) = &d.kind
+                && let Some(n) = x.constructor
+            {
+                self.identificador(n, false);
+            }
+        }
+        // `visitConstructorDeclaration` (fora de augmentation) e a lista de
+        // parâmetros do construtor.
+        for m in a.members.iter() {
+            if let MemberKind::Constructor(k) = &m.kind {
+                if !m.augment
+                    && let Some(n) = k.name
+                {
+                    self.identificador(n, true);
+                }
+                self.parametros(&k.parameters, m.augment);
+            }
+        }
+        // `visitFunctionDeclaration` e `visitMethodDeclaration` (não
+        // operador, fora de augmentation), e as listas de parâmetros.
+        for (k, f) in a.functions.iter().enumerate() {
+            let aumentada = aumentadas.contains(&ast::FunctionId(k as u32));
+            if let (Some(n), false, false) = (f.name, f.kind == FunctionKind::Operator, aumentada) {
+                self.identificador(n, false);
+            }
+            if let Some(ps) = &f.parameters {
+                self.parametros(ps, aumentada);
+            }
+        }
+        // As listas dos typedefs antigos e dos tipos `Function(…)`;
+        // `visitRecordTypeAnnotation`: os nomes dos campos.
+        for d in a.decls.iter() {
+            if let DeclKind::Typedef(x) = &d.kind
+                && let TypedefKind::Legacy { parameters, .. } = &x.kind
+            {
+                self.parametros(parameters, false);
+            }
+        }
+        for t in a.types.iter() {
+            match &t.kind {
+                ast::TypeKind::Function { parameters, .. } => self.parametros(parameters, false),
+                ast::TypeKind::Record { positional, named } => {
+                    for &p in positional.iter() {
+                        if let Some((span, texto)) = self.nome_posicional(p)
+                            && !e_lower_camel_case(texto)
+                        {
+                            self.relatar(&c::NON_CONSTANT_IDENTIFIER_NAMES, span, &[texto]);
+                        }
                     }
-                    self.parametros(&k.parameters);
+                    for (n, _) in named.iter() {
+                        self.identificador(*n, false);
+                    }
                 }
                 _ => {}
             }
         }
-        for f in a.functions.iter() {
-            if let (Some(n), false) = (f.name, f.kind == FunctionKind::Operator) {
-                self.identificador(n, false);
-            }
-            if let Some(ps) = &f.parameters {
-                self.parametros(ps);
+        // `visitRecordLiteral`: os rótulos dos campos nomeados.
+        for e in a.exprs.iter() {
+            if let ast::ExprKind::Record { named, .. } = &e.kind {
+                for (n, _) in named.iter() {
+                    self.identificador(*n, false);
+                }
             }
         }
     }
@@ -331,43 +502,43 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    /// `prefer_generic_function_type_aliases`: o `typedef` da forma antiga.
+    /// `prefer_generic_function_type_aliases`: o `typedef` da forma antiga
+    /// (com o `;` escrito), com a sugestão montada pelo `toSource` do retorno,
+    /// dos parâmetros de tipo e dos parâmetros.
     fn typedefs_antigos(&mut self) {
+        let a = self.u.ast;
         let fonte = self.u.fonte;
+        let interner = self.interner;
         for &d in self.u.unit.declarations.iter() {
-            let decl = self.u.ast.decl(d);
+            let decl = a.decl(d);
             let DeclKind::Typedef(x) = &decl.kind else { continue };
-            if !matches!(x.kind, TypedefKind::Legacy { .. }) {
+            let TypedefKind::Legacy { return_type, parameters } = &x.kind else { continue };
+            // `node.semicolon.isSynthetic`: sem o `;`, nada.
+            if !fonte.get(..decl.span.end).is_some_and(|t| t.trim_end().ends_with(';')) {
                 continue;
             }
-            // `typedef R nome<T>(params);`: o retorno fica entre a palavra e
-            // o nome; os parâmetros, do nome ao `;`.
-            let antes = fonte.get(decl.span.start..x.name.span.start).unwrap_or("");
-            let retorno = antes.rfind("typedef").map_or("", |k| antes[k + "typedef".len()..].trim());
-            let depois = fonte.get(x.name.span.end..decl.span.end).unwrap_or("").trim_end();
-            let Some(resto) = depois.strip_suffix(';') else { continue };
-            let sugestao = if retorno.is_empty() { format!("Function{}", resto.trim()) } else { format!("{retorno} Function{}", resto.trim()) };
+            let retorno = match return_type {
+                Some(t) => format!("{} ", dartforge_frontend::fonte::de_tipo(a, fonte, interner, *t)),
+                None => String::new(),
+            };
+            let tipos = dartforge_frontend::fonte::de_parametros_de_tipo(a, fonte, interner, &x.type_params);
+            let lista = dartforge_frontend::fonte::de_parametros(a, fonte, interner, parameters);
+            let sugestao = format!("{retorno}Function{tipos}{lista}");
             self.relatar(&c::PREFER_GENERIC_FUNCTION_TYPE_ALIASES, x.name.span, &[sugestao.as_str()]);
         }
     }
 
-    /// `provide_deprecation_message`: `@deprecated` sem argumentos.
-    fn deprecados_sem_mensagem(&mut self) {
-        let a = self.u.ast;
-        let listas = a
-            .decls
-            .iter()
-            .map(|d| &d.metadata[..])
-            .chain(a.members.iter().map(|m| &m.metadata[..]))
-            .chain(self.u.unit.directives.iter().map(|d| &d.metadata[..]));
-        let mut achados: Vec<Span> = Vec::new();
-        for lista in listas {
-            for m in lista {
-                if m.arguments.is_none() && m.name.last().is_some_and(|n| self.texto(*n) == "deprecated") {
-                    achados.push(m.span);
-                }
-            }
-        }
+    /// `provide_deprecation_message`: toda anotação sem argumentos cujo
+    /// elemento é o `deprecated` do `dart:core` (`isDeprecated`). Pede a
+    /// semântica da unidade.
+    fn deprecados_sem_mensagem(&mut self, sem: Option<&super::Semantica<'_>>) {
+        let Some(sem) = sem else { return };
+        let interner = self.interner;
+        let achados: Vec<Span> = dartforge_frontend::pais::todas_as_anotacoes(self.u.ast, self.u.unit)
+            .into_iter()
+            .filter(|m| m.arguments.is_none() && dartforge_types::anotacoes::e_deprecated_do_core(sem.program, interner, sem.unidade, m))
+            .map(|m| m.span)
+            .collect();
         for span in achados {
             self.relatar(&c::PROVIDE_DEPRECATION_MESSAGE, span, &[]);
         }
@@ -375,7 +546,7 @@ impl<'a> Ctx<'a> {
 }
 
 /// Roda as regras ligadas (`ligada(nome)`) sobre uma unidade.
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool) -> Vec<RelatoDeLint> {
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
     let mut ctx = Ctx { u, interner, ligada, out: Vec::new() };
     if ligada("camel_case_types") || ligada("camel_case_extensions") {
         ctx.nomes_de_tipos();
@@ -393,7 +564,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         ctx.typedefs_antigos();
     }
     if ligada("provide_deprecation_message") {
-        ctx.deprecados_sem_mensagem();
+        ctx.deprecados_sem_mensagem(sem);
     }
     ctx.out.sort_by_key(|r| (r.span.start, r.span.end));
     ctx.out
@@ -408,7 +579,7 @@ mod testes {
         let mut nomes = Interner::new();
         let p = dartforge_frontend::parser::parse(fonte, &mut nomes);
         let u = Unidade { ast: &p.ast, unit: &p.unit, fonte };
-        executar(u, &nomes, &|_| true).into_iter().map(|r| (r.codigo.nome, fonte[r.span.start..r.span.end].to_string())).collect()
+        executar(u, &nomes, &|_| true, None).into_iter().map(|r| (r.codigo.nome, fonte[r.span.start..r.span.end].to_string())).collect()
     }
 
     #[test]
@@ -455,10 +626,11 @@ mod testes {
             let fonte = "typedef int F(int x);\n";
             let mut nomes = Interner::new();
             let p = dartforge_frontend::parser::parse(fonte, &mut nomes);
-            executar(Unidade { ast: &p.ast, unit: &p.unit, fonte }, &nomes, &|_| true)
+            executar(Unidade { ast: &p.ast, unit: &p.unit, fonte }, &nomes, &|_| true, None)
         };
         assert_eq!(relatos.len(), 1);
         assert_eq!(relatos[0].args, vec!["int Function(int x)".to_string()]);
-        assert_eq!(achados("@deprecated\nvoid f() {}\n"), vec![("provide_deprecation_message", "@deprecated".to_string())]);
+        // Sem a semântica da unidade, o elemento da anotação não é conhecido.
+        assert!(achados("@deprecated\nvoid f() {}\n").is_empty());
     }
 }

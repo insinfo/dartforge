@@ -30,7 +30,7 @@ use dartforge_frontend::ast::{
 use dartforge_intern::Interner;
 
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool) -> Vec<RelatoDeLint> {
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, _sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
     let mut out: Vec<RelatoDeLint> = Vec::new();
     let a = u.ast;
     let fonte = u.fonte;
@@ -209,7 +209,7 @@ mod testes {
         let mut nomes = Interner::new();
         let p = dartforge_frontend::parser::parse(fonte, &mut nomes);
         let u = Unidade { ast: &p.ast, unit: &p.unit, fonte };
-        let mut relatos = executar(u, &nomes, &|_| true);
+        let mut relatos = executar(u, &nomes, &|_| true, None);
         relatos.sort_by_key(|r| (r.span.start, r.span.end));
         relatos.into_iter().map(|r| (r.codigo.nome, fonte[r.span.start..r.span.end].to_string())).collect()
     }

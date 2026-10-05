@@ -20,6 +20,111 @@ use crate::ast::{
     Parameter, PatternId, PatternKind, StmtKind, TypeKind, TypeParameter, TypedefKind, VariableList,
 };
 
+/// Todas as anotações escritas na unidade (o que o `visitAnnotation` de um
+/// visitante recursivo veria): das diretivas, das declarações e dos
+/// membros, das constantes de enum, da representação de tipo de extensão,
+/// dos parâmetros de tipo, dos parâmetros (também os de tipos `Function` e
+/// os aninhados), das declarações locais e das variáveis de `for-in`.
+pub fn todas_as_anotacoes<'a>(a: &'a Ast, unidade: &'a CompilationUnit) -> Vec<&'a Annotation> {
+    let mut v: Vec<&'a Annotation> = Vec::new();
+    fn parametros<'a>(ps: &'a [Parameter], v: &mut Vec<&'a Annotation>) {
+        for p in ps {
+            v.extend(p.metadata.iter());
+            for t in p.function_type_params.iter() {
+                v.extend(t.metadata.iter());
+            }
+            if let Some(fs) = &p.function_parameters {
+                parametros(fs, v);
+            }
+        }
+    }
+    fn tipos<'a>(ts: &'a [TypeParameter], v: &mut Vec<&'a Annotation>) {
+        for t in ts {
+            v.extend(t.metadata.iter());
+        }
+    }
+    for d in unidade.directives.iter() {
+        v.extend(d.metadata.iter());
+    }
+    for d in a.decls.iter() {
+        v.extend(d.metadata.iter());
+        match &d.kind {
+            DeclKind::Class(x) => tipos(&x.type_params, &mut v),
+            DeclKind::Mixin(x) => tipos(&x.type_params, &mut v),
+            DeclKind::Enum(x) => {
+                tipos(&x.type_params, &mut v);
+                for c in x.constants.iter() {
+                    v.extend(c.metadata.iter());
+                }
+            }
+            DeclKind::Extension(x) => tipos(&x.type_params, &mut v),
+            DeclKind::ExtensionType(x) => {
+                tipos(&x.type_params, &mut v);
+                v.extend(x.representation_metadata.iter());
+            }
+            DeclKind::Typedef(t) => {
+                tipos(&t.type_params, &mut v);
+                if let TypedefKind::Legacy { parameters, .. } = &t.kind {
+                    parametros(parameters, &mut v);
+                }
+            }
+            DeclKind::Function(_) | DeclKind::Variables(_) => {}
+        }
+    }
+    for m in a.members.iter() {
+        v.extend(m.metadata.iter());
+        if let MemberKind::Constructor(k) = &m.kind {
+            parametros(&k.parameters, &mut v);
+        }
+    }
+    for f in a.functions.iter() {
+        tipos(&f.type_params, &mut v);
+        if let Some(ps) = &f.parameters {
+            parametros(ps, &mut v);
+        }
+    }
+    for t in a.types.iter() {
+        if let TypeKind::Function { type_params, parameters, .. } = &t.kind {
+            tipos(type_params, &mut v);
+            parametros(parameters, &mut v);
+        }
+    }
+    for (_, ms) in a.metadados_locais.iter() {
+        v.extend(ms.iter());
+    }
+    for s in a.stmts.iter() {
+        if let StmtKind::ForIn { target: ForInTarget::Declared { metadata, .. }, .. } = &s.kind {
+            v.extend(metadata.iter());
+        }
+    }
+    for e in a.exprs.iter() {
+        if let ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } = &e.kind {
+            fn de_elemento<'a>(el: &'a CollectionElement, v: &mut Vec<&'a Annotation>) {
+                match el {
+                    CollectionElement::ForIn { target, body, .. } => {
+                        if let ForInTarget::Declared { metadata, .. } = target {
+                            v.extend(metadata.iter());
+                        }
+                        de_elemento(body, v);
+                    }
+                    CollectionElement::For { body, .. } => de_elemento(body, v),
+                    CollectionElement::If { then, else_, .. } => {
+                        de_elemento(then, v);
+                        if let Some(x) = else_ {
+                            de_elemento(x, v);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            for el in elements.iter() {
+                de_elemento(el, &mut v);
+            }
+        }
+    }
+    v
+}
+
 /// O papel do pai de uma expressão.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pai {

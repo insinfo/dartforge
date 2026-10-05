@@ -68,12 +68,19 @@ pub fn diagnosticos_json(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoe
         // árvore do texto, com os comentários `// ignore:` e o `errors:` das
         // opções (que cala a regra ou troca a severidade).
         if opcoes.regras.values().any(|ligada| *ligada) {
-            let mut nomes = dartforge_intern::Interner::new();
-            let analisado = dartforge_frontend::parser::parse(&a.texto, &mut nomes);
-            let unidade = dartforge_analise::Unidade { ast: &analisado.ast, unit: &analisado.unit, fonte: &a.texto };
             let ligada = |regra: &str| opcoes.regras.get(regra).copied().unwrap_or(false);
             let ignorados = filtros::Ignorados::de_texto(&a.texto);
-            let mut relatos = dartforge_analise::lints::executar(unidade, &nomes, &ligada);
+            // Os relatos sobre a árvore do programa, com a semântica; sem
+            // ela (arquivo fora do programa), sobre a árvore do texto.
+            let mut relatos = match &a.relatos_de_lint {
+                Some(r) => r.iter().filter(|x| ligada(x.codigo.nome)).cloned().collect::<Vec<_>>(),
+                None => {
+                    let mut nomes = dartforge_intern::Interner::new();
+                    let analisado = dartforge_frontend::parser::parse(&a.texto, &mut nomes);
+                    let unidade = dartforge_analise::Unidade { ast: &analisado.ast, unit: &analisado.unit, fonte: &a.texto };
+                    dartforge_analise::lints::executar(unidade, &nomes, &ligada)
+                }
+            };
             // Os das regras que pedem o programa resolvido, já calculados
             // pelo motor.
             for l in &a.lints_semanticos {

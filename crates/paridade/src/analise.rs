@@ -48,6 +48,11 @@ pub struct Arquivo {
     /// Os achados das regras de lint que pedem o programa resolvido (a
     /// hierarquia, os tipos): saem só se a regra estiver ligada nas opções.
     pub lints_semanticos: Vec<LintSemantico>,
+    /// Os relatos de todas as regras de lint sobre a árvore do programa,
+    /// com a semântica do motor (`dartforge_analise::lints::executar_com`):
+    /// quem publica filtra pelas regras ligadas. `None` quando o arquivo
+    /// não é unidade do programa resolvido.
+    pub relatos_de_lint: Option<Vec<dartforge_analise::lints::regras::RelatoDeLint>>,
 }
 
 /// Um achado de regra de lint calculado com o programa resolvido.
@@ -213,7 +218,7 @@ impl Motor {
             proprios.insert(chave(a), texto);
         }
         for (p, t) in &proprios {
-            analise.arquivos.insert(p.clone(), Arquivo { texto: t.clone(), diags: Vec::new(), sintaticos: 0, lints_semanticos: Vec::new() });
+            analise.arquivos.insert(p.clone(), Arquivo { texto: t.clone(), diags: Vec::new(), sintaticos: 0, lints_semanticos: Vec::new(), relatos_de_lint: None });
         }
         if imports.is_empty() {
             return Some(analise);
@@ -625,6 +630,8 @@ impl Motor {
             .and_then(|docs| docs.into_iter().next())
             .and_then(|y| y["environment"]["sdk"].as_str().and_then(dartforge_types::fase_sdk::RestricaoDeSdk::de_texto));
         // Argumentos de tipo fora dos limites, unidade a unidade.
+        // As bibliotecas inferidas, para o motor de constantes dos lints.
+        let inferidas_dos_lints: HashSet<LibraryId> = libs_proprias.iter().copied().collect();
         for &u in &unidades_proprias {
             for d in dartforge_types::limites::argumentos_fora_dos_limites(&program, &interner, &mut table, &core, &outline, u) {
                 atribuidos.push((u, d));
@@ -647,17 +654,32 @@ impl Motor {
                     atribuidos.push((u, d));
                 }
             }
-            if let Some(corpo) = corpos.as_ref().and_then(|c| c.units.get(u.0 as usize)) {
+            if let Some(todos) = corpos.as_ref()
+                && let Some(corpo) = todos.units.get(u.0 as usize)
+            {
                 // As regras de lint tipadas, guardadas à parte: só saem
                 // com a regra ligada.
                 let mut de_lint = dartforge_types::lints_tipados::achados(&program, &table, &core, &outline, corpo, u);
-                de_lint.extend(dartforge_types::lints_tipados2::achados(&program, &interner, &table, &core, &outline, corpo, u));
+                de_lint.extend(dartforge_types::lints_tipados2::achados(&program, &interner, &mut table, &core, &outline, todos, &inferidas_dos_lints, u));
                 de_lint.extend(dartforge_types::lints_tipados3::achados(&program, &interner, &mut table, &core, &outline, corpo, u));
                 if !de_lint.is_empty()
                     && let Some(p) = &program.unit(u).path
                     && let Some(a) = analise.arquivos.get_mut(&chave(p))
                 {
                     a.lints_semanticos.extend(de_lint.into_iter().map(|(span, unico, args)| LintSemantico { unico, span, args }));
+                }
+                // As regras de lint da árvore, sobre a árvore do programa e
+                // com a semântica do motor.
+                {
+                    let un = program.unit(u);
+                    let sem = dartforge_analise::lints::Semantica { program: &program, unidade: u, corpo, table: &table, core: &core, outline: &outline };
+                    let arvore = dartforge_analise::Unidade { ast: &un.ast, unit: &un.unit, fonte: &un.source };
+                    let relatos = dartforge_analise::lints::executar_com(arvore, &interner, &|_| true, Some(&sem));
+                    if let Some(p) = &un.path
+                        && let Some(a) = analise.arquivos.get_mut(&chave(p))
+                    {
+                        a.relatos_de_lint = Some(relatos);
+                    }
                 }
                 // `RequiredParametersVerifier`: o `@required` do `package:meta`.
                 for d in dartforge_types::fase_requeridos::requeridos_ausentes(&program, &interner, corpo, u) {
