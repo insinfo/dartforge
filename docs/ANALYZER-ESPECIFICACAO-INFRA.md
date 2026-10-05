@@ -3251,6 +3251,8 @@ Esta tabela foi **gerada por script** (`E:\dftempnalise\spec-infrainal\gera2.p
 
 #### `analyzer/lib/src/generated/ffi_verifier.dart` (5)
 
+**Estado em 2026-10-05 (escrito, não compilado).** Os cinco desta tabela, e todo o resto do `FfiVerifier`, estão em `crates/types/src/fase_ffi.rs` (`verificar`), ligado na paridade por unidade; o "não implementado" da coluna DartForge abaixo vale para antes desse porte. O detalhe do porte está em `docs/ANALYZER-ESPECIFICACAO.md`, no `non_constant_type_argument`.
+
 | código | constante | emissor (arquivo:linha, método) | condição (mensagem oficial) | posição | DartForge |
 |---|---|---|---|---|---|
 | `abi_specific_integer_invalid` | `FfiCode.ABI_SPECIFIC_INTEGER_INVALID` | `analyzer/lib/src/generated/ffi_verifier.dart:962` `FfiVerifier._validateAbiSpecificIntegerAnnotation` | Classes extending 'AbiSpecificInteger' must have exactly one const constructor, no other members, and no type parameters. | não verificado | **não implementado** |

@@ -74,7 +74,7 @@ fn classe_de(program: &Program, interner: &Interner, lib: Option<LibraryId>, nom
 
 /// O `realTarget` de cada seção de cascata (o `CascadeTarget` aponta para o
 /// alvo da cascata).
-fn alvos_de_cascata(a: &ast::Ast) -> HashMap<ExprId, ExprId> {
+pub(crate) fn alvos_de_cascata(a: &ast::Ast) -> HashMap<ExprId, ExprId> {
     let mut m = HashMap::new();
     for e in a.exprs.iter() {
         let ExprKind::Cascade { target, sections, .. } = &e.kind else { continue };

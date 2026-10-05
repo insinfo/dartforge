@@ -14544,12 +14544,15 @@ const_constructor_with_field_initialized_by_non_const off=223 len=5 15:3 | Can't
   `crates/analise` e `crates/types/src/inferencia`). FN: `non_constant_type_argument/…ref_typ_cf5f5ff8.dart:4:5` (`p.ref`, len 5),
   `…asFunction_R.dart:5:18` (o `R`), `non_native_function_type_argument_to_pointer/…5c69d119.dart:5:5` (o alvo `p`). Mudança: pertence
   ao verificador FFI (família C); a parte de constantes não a implementa.
-- **Estado em 2026-10-05 (escrito, não compilado):** `crates/types/src/fase_ffi.rs`
-  (`argumentos_nao_constantes`), chamado pelo motor da paridade por unidade. Conservador: relata os nove pontos
-  só quando o tipo em questão é parâmetro de tipo (`T`, `Pointer<T>`, `NativeFunction<T>`), caso em que o
-  `_isValidFfiNativeType` do original sempre recusa; os outros tipos não nativos ficam sem relato. O índice é
-  reconhecido pelo tipo (`Pointer`/`Array` de `T` limitado por `Struct`/`Union`), porque a inferência não
-  registra a resolução do operador.
+- **Estado em 2026-10-05 (escrito, não compilado):** `crates/types/src/fase_ffi.rs` (`verificar`) porta o
+  `FfiVerifier` inteiro (os 48 códigos de `FfiCode`), chamado pela paridade por unidade. Os nove pontos deste
+  código usam o `_isValidFfiNativeType` completo (primitivos, `NativeFunction`, `Pointer`, compostos com o
+  `isEmptyStruct`, `Opaque`, `AbiSpecificInteger`, `Array`), não só o parâmetro de tipo. O índice, o `ref`, o
+  `address` e o `call` de `AllocatorAlloc` vão pelo elemento que a inferência registra (`ExtensionMember`).
+  Como no original, `visitIndexExpression` não visita os filhos: nada dentro de `a[i]` é verificado. O valor
+  das anotações `@Native`, `@Packed`, `@Array…`, `@AbiSpecificIntegerMapping` e `@DefaultAsset` é montado pelo
+  texto dos construtores do SDK 3.6.2, com os argumentos avaliados pelo motor de constantes (que não executa
+  construtores de bibliotecas não inferidas). Sem `strict-casts` (o motor não tem a opção).
 - **Exemplos (oráculo vivo 3.6.2):** `h01.dart`:
 
 ```dart

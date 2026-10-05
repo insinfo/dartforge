@@ -1451,6 +1451,63 @@ impl<'a> Motor<'a> {
         self.generico(u, erro_em, false)
     }
 
+    /// `ElementAnnotation.computeConstantValue` da anotação `m`, escrita na
+    /// unidade `u`: a invocação de construtor (`@C(…)`, `@C.n(…)`,
+    /// `@p.C(…)`, `@p.C.n(…)`, com os argumentos de tipo que a inferência
+    /// registrou para a lista de argumentos) ou a leitura de variável
+    /// (`@x`, `@p.x`, `@C.x`). `None` quando não resolve ou não é constante.
+    pub fn avaliar_anotacao(&mut self, u: UnitId, m: &ast::Annotation) -> Option<Valor> {
+        let lib = self.program.unit(u).library;
+        let cx = Ctx::simples(u, lib);
+        let nomes: Vec<SymbolId> = m.name.iter().map(|n| n.sym).collect();
+        let (alvo, membro) = match nomes.as_slice() {
+            [c] => (self.program.lookup_na_unidade(u, *c).and_then(|b| b.getter), None),
+            [a, b] => match self.program.lookup_na_unidade(u, *a).and_then(|x| x.getter) {
+                Some(el @ Element::Class(_)) => (Some(el), Some(*b)),
+                _ => (self.program.lookup_prefixed_na_unidade(u, *a, *b).and_then(|x| x.getter), None),
+            },
+            [p, c, n] => (self.program.lookup_prefixed_na_unidade(u, *p, *c).and_then(|x| x.getter), Some(*n)),
+            _ => (None, None),
+        };
+        match (alvo?, &m.arguments) {
+            (Element::Class(c), Some(args)) => {
+                let chave = membro.or_else(|| self.interner.lookup(""))?;
+                let f = *self.program.class(c).constructors.get(&chave)?;
+                let n = self.program.class(c).type_params.len();
+                let argumentos: Vec<TypeId> = match self.body.units.get(u.0 as usize).and_then(|b| b.instanciacao(args.span.start)) {
+                    Some(v) if v.len() == n => v.to_vec(),
+                    _ => vec![self.core.dynamic_; n],
+                };
+                let tipo = self.table.intern(Type::Interface { class: c, args: argumentos.into_boxed_slice(), nullable: false });
+                let erro = ErroEm { unidade: u, span: m.span };
+                match self.avaliar_chamada(&cx, erro, f, tipo, &Argumentos::Ast(args), None, true) {
+                    Constante::Valor(v) => Some(v),
+                    Constante::Invalida(_) => None,
+                }
+            }
+            (Element::Class(c), None) => {
+                let v = self.membro_estatico_variavel(c, membro?)?;
+                match self.valor_de_variavel(v)? {
+                    Constante::Valor(x) => Some(x),
+                    Constante::Invalida(_) => None,
+                }
+            }
+            (Element::Variable(v), None) => match self.valor_de_variavel(v)? {
+                Constante::Valor(x) => Some(x),
+                Constante::Invalida(_) => None,
+            },
+            (Element::Function(g), None) => {
+                // A leitura de uma variável de topo pelo getter sintético.
+                let v = self.program.function(g).variable?;
+                match self.valor_de_variavel(v)? {
+                    Constante::Valor(x) => Some(x),
+                    Constante::Invalida(_) => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// O valor de uma variável com inicializador constante (`const`, ou
     /// `final` de instância numa classe com construtor gerador `const`),
     /// calculado uma vez. `None` enquanto está em cálculo (ciclo).

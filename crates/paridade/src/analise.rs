@@ -709,8 +709,8 @@ impl Motor {
                 for d in dartforge_types::fase_catch_error::retornos_de_catch_error(&program, &interner, &mut table, &core, &outline, corpo, u) {
                     atribuidos.push((u, d));
                 }
-                // `FfiVerifier`: `NON_CONSTANT_TYPE_ARGUMENT`.
-                for d in dartforge_types::fase_ffi::argumentos_nao_constantes(&program, &interner, &table, corpo, u) {
+                // `FfiVerifier`.
+                for d in dartforge_types::fase_ffi::verificar(&program, &interner, &mut table, &core, &outline, todos, &inferidas_dos_lints, u) {
                     atribuidos.push((u, d));
                 }
                 // `BestPracticesVerifier`: `assignment_of_do_not_store` e `return_of_do_not_store`.
