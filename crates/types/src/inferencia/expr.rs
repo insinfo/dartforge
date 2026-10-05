@@ -17,7 +17,7 @@ use super::BodyInferrer;
 use crate::codes::*;
 use crate::resolved::{LocalId, MemberRef, Resolved};
 use crate::table::{Type, TypeId};
-use dartforge_elements::model::{ClassId, Element, ExtensionId, FunctionKind};
+use dartforge_elements::model::{ClassId, Element, ExtensionId, FunctionElementId, FunctionKind};
 use dartforge_frontend::ast::{self, AssignOp, BinaryOp, ExprId, ExprKind, UnaryOp};
 use dartforge_intern::SymbolId;
 
@@ -483,6 +483,16 @@ pub(crate) fn invocacao_sem_alvo_indefinida(inf: &mut BodyInferrer<'_>, cx: &Cor
         inf.aviso_com_codigo(c::UNDEFINED_METHOD, n.span, &[&nome, &tipo]);
         return true;
     }
+    // `this` potencialmente anulável onde vale (extensão sobre tipo
+    // anulável): o caminho comum resolve pelo `Object`/extensões ou relata
+    // o uso sem checagem (`ThisLookup` → `TypePropertyResolver`).
+    if let Some(t) = cx.tipo_this
+        && !cx.estatico
+        && !inf.e_dynamic(t)
+        && !inf.e_nao_anulavel(t)
+    {
+        return false;
+    }
     match buscar_pelo_this(inf, cx, this, n.sym, false) {
         // Membro de instância: onde `this` vale, o caminho comum o resolve.
         PeloThis::Instancia if cx.tipo_this.is_some() && !cx.estatico => false,
@@ -736,7 +746,11 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
                 let decl = dartforge_diagnostics::Span { start: cx.local(id).offset, end: cx.local(id).offset + (n.span.end - n.span.start) };
                 aviso_antes_da_declaracao(inf, n, msg, decl);
             }
-            ler_local(inf, cx, id, n.span)
+            let t = ler_local(inf, cx, id, n.span);
+            // `whyNotPromoted` desta leitura (o histórico de não promoção da
+            // variável neste ponto).
+            inf.registrar_nao_promocao_local(cx, e, id);
+            t
         }
         RefNome::TipoParam(p) => {
             resolver(inf, cx, e, Resolved::TypeParameter(p));
@@ -795,6 +809,25 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
         }
         RefNome::ThisImplicito => {
             let this = cx.tipo_this.unwrap();
+            // `ThisLookup.lookupGetter` com `this` potencialmente anulável
+            // (extensão sobre tipo anulável): o `TypePropertyResolver` relata
+            // o uso sem checagem, com o código pelo pai do nome, e recupera
+            // pela interface do tipo sem `?`.
+            if inf.exige_checagem_de_nulo(cx.lib, this, n.sym, false) {
+                let codigo = codigo_do_this_anulavel(inf, cx, e);
+                let nome = inf.interner.resolve(n.sym).to_string();
+                let desde = inf.diagnostics.len();
+                inf.aviso_de_nulo(this, codigo, n.span, &[&nome]);
+                inf.anexar_nao_promocao(desde, cx, None, n.span);
+                let nn = inf.nao_nulo(this);
+                return match inf.buscar_membro(cx.lib, nn, n.sym, false) {
+                    Busca::Achado(m) => {
+                        resolver(inf, cx, e, m.resolved.clone());
+                        m.tipo
+                    }
+                    _ => inf.core.dynamic_,
+                };
+            }
             match inf.buscar_membro(cx.lib, this, n.sym, false) {
                 Busca::Achado(m) => {
                     resolver(inf, cx, e, m.resolved.clone());
@@ -826,7 +859,42 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
     }
 }
 
-/// O alvo de promoção (variável local) que `e` denota, sem parênteses.
+/// O código do uso sem checagem pelo `this` implícito
+/// (`type_property_resolver.dart:107-140`): pelo pai do nome — a invocação
+/// de método, o operador binário (o pai de cascata vale pela primeira
+/// seção), senão o acesso a propriedade.
+fn codigo_do_this_anulavel(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId) -> dartforge_diagnostics::Codigo {
+    use dartforge_diagnostics::codigos::compile_time_error as c;
+    let a = ast(inf, cx);
+    let pai = match inf.pai_de(cx.unit, e) {
+        dartforge_frontend::pais::Pai::Expr(p) => p,
+        _ => return c::UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE,
+    };
+    // Alvo de cascata: vale a primeira seção (`..m()` é invocação).
+    if let ExprKind::Cascade { sections, .. } = &a.expr(pai).kind {
+        return match sections.first().map(|&s| &a.expr(s).kind) {
+            Some(ExprKind::Call { .. }) => c::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE,
+            _ => c::UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE,
+        };
+    }
+    match &a.expr(pai).kind {
+        ExprKind::Binary { .. } => c::UNCHECKED_OPERATOR_INVOCATION_OF_NULLABLE_VALUE,
+        // `nome()`: o `MethodInvocation` do nome.
+        ExprKind::Call { target, .. } if *target == e => c::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE,
+        // `nome.m()`: o nome é o alvo do `MethodInvocation`.
+        ExprKind::Property { target, .. } if *target == e => match inf.pai_de(cx.unit, pai) {
+            dartforge_frontend::pais::Pai::Expr(q) if matches!(&a.expr(q).kind, ExprKind::Call { target, .. } if *target == pai) => {
+                c::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE
+            }
+            _ => c::UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE,
+        },
+        _ => c::UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE,
+    }
+}
+
+/// O alvo de promoção que `e` denota, sem parênteses: a variável local, a
+/// propriedade (`_PropertyReference`: o sintético estável da promovível, ou
+/// a geração desta leitura da não promovível) ou `this`.
 pub(crate) fn alvo_de_promocao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId) -> Option<LocalId> {
     let a = &inf.program.unit(cx.unit).ast;
     match &a.expr(e).kind {
@@ -838,106 +906,140 @@ pub(crate) fn alvo_de_promocao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: Ex
             Some(Nome::Local(id)) if !cx.local(id).funcao_local => Some(id),
             Some(_) => None,
             // `_x` implícito: `this._x`.
-            None => alvo_de_campo(inf, cx, e, Base::This),
+            None => alvo_de_propriedade(inf, cx, e, Base::This),
         },
         ExprKind::Property { target, null_aware: false, .. } => {
             let t = *target;
-            let base = match &a.expr(t).kind {
-                ExprKind::This => Base::This,
-                ExprKind::Identifier(n) => match cx.buscar(n.sym) {
-                    Some(Nome::Local(id)) if !cx.local(id).funcao_local && !cx.local(id).late => Base::Local(id),
-                    _ => return None,
-                },
-                _ => return None,
-            };
-            alvo_de_campo(inf, cx, e, base)
+            let base = base_de_propriedade(inf, cx, t)?;
+            alvo_de_propriedade(inf, cx, e, base)
+        }
+        ExprKind::This => local_de_this(inf, cx),
+        _ => None,
+    }
+}
+
+/// A base de uma propriedade lida de `t` (o `PropertyTarget` com nó SSA):
+/// `this`, `super`, uma local (não `late`, não função local) ou outra
+/// propriedade promovível (estável).
+fn base_de_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, t: ExprId) -> Option<Base> {
+    let a = &inf.program.unit(cx.unit).ast;
+    match &a.expr(t).kind {
+        ExprKind::Parenthesized(i) => {
+            let i = *i;
+            base_de_propriedade(inf, cx, i)
+        }
+        ExprKind::This => Some(Base::This),
+        ExprKind::Super => Some(Base::Super),
+        ExprKind::Identifier(n) => match cx.buscar(n.sym) {
+            Some(Nome::Local(id)) if !cx.local(id).late && !cx.local(id).funcao_local => Some(Base::Local(id)),
+            Some(_) => None,
+            None => propriedade_estavel(inf, cx, t, Base::This).map(Base::Local),
+        },
+        ExprKind::Property { target, null_aware: false, .. } => {
+            let t2 = *target;
+            let b = base_de_propriedade(inf, cx, t2)?;
+            propriedade_estavel(inf, cx, t, b).map(Base::Local)
         }
         _ => None,
     }
 }
 
-/// Local sintético do campo promovível que `e` (já inferida) lê.
-fn alvo_de_campo(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, base: Base) -> Option<LocalId> {
-    let v = campo_promovivel(inf, cx, e)?;
-    if let Some(&id) = cx.campos.get(&(base, v)) {
+/// O membro de instância (getter, campo ou método, de classe ou de
+/// extensão) que a leitura `e` alcança, com o nome escrito: o
+/// `propertyMember` do `propertyGet`.
+fn membro_lido(inf: &BodyInferrer<'_>, cx: &Corpo, e: ExprId) -> Option<(FunctionElementId, SymbolId)> {
+    let nome = match &ast(inf, cx).expr(e).kind {
+        ExprKind::Identifier(n) => n.sym,
+        ExprKind::Property { name, .. } => name.sym,
+        _ => return None,
+    };
+    let f = match inf.body_types.units[cx.unit.0 as usize].get_resolved(e)? {
+        Resolved::Member { member: MemberRef::Function(f), .. } => *f,
+        Resolved::ExtensionMember { member, .. } => *member,
+        _ => return None,
+    };
+    if inf.program.function(f).static_ {
+        return None;
+    }
+    Some((f, nome))
+}
+
+/// O sintético estável de uma propriedade promovível lida em `e` (`None`
+/// se não é promovível).
+fn propriedade_estavel(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, base: Base) -> Option<LocalId> {
+    let (f, nome) = membro_lido(inf, cx, e)?;
+    if !inf.propriedade_promovivel(cx.lib, f) {
+        return None;
+    }
+    let chave = (base, cx.versao_da_base(base), nome);
+    if let Some(&id) = cx.campos.get(&chave) {
+        cx.garantir_modelo(id);
         return Some(id);
     }
-    // Tipo declarado do campo visto pelo receptor: o tipo da leitura antes
-    // de qualquer promoção (a primeira leitura, que criou nada ainda).
+    // O tipo declarado visto pelo receptor: o da leitura antes de qualquer
+    // promoção (a primeira leitura, que ainda não tinha o sintético).
     let t = inf.body_types.units[cx.unit.0 as usize].get_type(e).unwrap_or(inf.core.dynamic_);
-    let nome = inf.program.variable(v).name;
     let id = cx.declarar_sintetico(Local { nome, tipo: t, final_: true, late: false, const_: false, offset: 0, funcao_local: false });
-    cx.campos.insert((base, v), id);
+    cx.campos.insert(chave, id);
     Some(id)
 }
 
-/// O campo que `e` lê, se é promovível (Dart 3.2): de instância, `final`,
-/// privado, não `external`, e nenhuma outra declaração da biblioteca com o
-/// mesmo nome o impede (getter concreto ou campo não final).
-fn campo_promovivel(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId) -> Option<dartforge_elements::model::VariableId> {
-    // Só em biblioteca com versão de linguagem 3.2 ou mais (o recurso
-    // `inference-update-2`; pacote antigo como o built_collection não
-    // promove, e o `!` dele é necessário).
-    if inf.program.library(cx.lib).features.versao() < dartforge_frontend::LanguageVersion::new(3, 2) {
-        return None;
+/// A propriedade lida em `e` como alvo de promoção: a promovível pelo
+/// sintético estável; a não promovível ganha uma geração nova (o nó SSA
+/// fresco de cada acesso), que só o why-not-promoted das leituras seguintes
+/// consulta.
+fn alvo_de_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, base: Base) -> Option<LocalId> {
+    if let Some(id) = propriedade_estavel(inf, cx, e, base) {
+        return Some(id);
     }
-    let r = inf.body_types.units[cx.unit.0 as usize].get_resolved(e)?.clone();
-    let Resolved::Member { member: MemberRef::Function(f), .. } = r else { return None };
-    let fe = inf.program.function(f);
-    if fe.kind != FunctionKind::ImplicitAccessor {
-        return None;
+    let (_, nome) = membro_lido(inf, cx, e)?;
+    if let Some(&id) = cx.geracao_da_leitura.get(&e) {
+        cx.garantir_modelo(id);
+        return Some(id);
     }
-    let v = fe.variable?;
-    inf.campo_e_promovivel(v).then_some(v)
+    let chave = (base, cx.versao_da_base(base), nome);
+    let t = inf.body_types.units[cx.unit.0 as usize].get_type(e).unwrap_or(inf.core.dynamic_);
+    let id = cx.declarar_sintetico(Local { nome, tipo: t, final_: true, late: false, const_: false, offset: 0, funcao_local: false });
+    cx.geracoes.entry(chave).or_default().push(id);
+    cx.geracao_da_leitura.insert(e, id);
+    Some(id)
 }
 
-impl<'a> BodyInferrer<'a> {
-    /// Regra de promoção de campos (`inference-update-2`, Dart 3.2).
-    pub(crate) fn campo_e_promovivel(&mut self, v: dartforge_elements::model::VariableId) -> bool {
-        if let Some(&r) = self.promoviveis.get(&v.0) {
-            return r;
-        }
-        let ve = self.program.variable(v);
-        let nome = self.interner.resolve(ve.name);
-        let lib = ve.library;
-        let mut ok = ve.final_ && !ve.static_ && !ve.external && ve.class.is_some() && nome.starts_with('_');
-        if ok {
-            // Nenhuma outra declaração homônima na biblioteca que o impeça.
-            let sym = ve.name;
-            for (ci, c) in self.program.classes.iter().enumerate() {
-                if c.library != lib {
-                    continue;
-                }
-                if let Some(&g) = c.instance_members.get(&sym) {
-                    let ge = self.program.function(g);
-                    let impede = match (ge.kind, ge.variable) {
-                        (FunctionKind::ImplicitAccessor, Some(w)) => {
-                            let we = self.program.variable(w);
-                            !(we.final_ && !we.external)
-                        }
-                        (FunctionKind::Getter, _) => !ge.abstract_,
-                        _ => false,
-                    };
-                    if impede {
-                        ok = false;
-                        break;
-                    }
-                }
-                let _ = ci;
-            }
-        }
-        self.promoviveis.insert(v.0, ok);
-        ok
+/// O sintético de `this` (criado na primeira vez).
+pub(crate) fn local_de_this(inf: &mut BodyInferrer<'_>, cx: &mut Corpo) -> Option<LocalId> {
+    let tipo = cx.tipo_this?;
+    if let Some(id) = cx.local_this {
+        cx.garantir_modelo(id);
+        return Some(id);
     }
+    let nome = inf.sym.this_?;
+    let id = cx.declarar_sintetico(Local { nome, tipo, final_: true, late: false, const_: false, offset: 0, funcao_local: false });
+    cx.local_this = Some(id);
+    Some(id)
 }
 
-/// Tipo lido de um campo promovível (promovido pelo fluxo, se houver).
+/// Tipo lido de uma propriedade (`propertyGet` + `_handleProperty`): o
+/// promovido, quando a propriedade é promovível e o tipo promovido é
+/// subtipo do não promovido; a leitura da não promovível registra o
+/// why-not-promoted dela.
 fn leitura_de_campo(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, base: Base, t: TypeId) -> TypeId {
-    let Some(v) = campo_promovivel(inf, cx, e) else { return t };
-    match cx.campos.get(&(base, v)) {
-        Some(&id) => cx.fluxo.tipo_atual(id, t),
-        None => t,
+    let Some((f, nome)) = membro_lido(inf, cx, e) else { return t };
+    let chave = (base, cx.versao_da_base(base), nome);
+    if inf.propriedade_promovivel(cx.lib, f) {
+        return match cx.campos.get(&chave) {
+            Some(&id) => {
+                let p = cx.fluxo.tipo_atual(id, t);
+                if p != t && !inf.sub(p, t) {
+                    t
+                } else {
+                    p
+                }
+            }
+            None => t,
+        };
     }
+    inf.registrar_nao_promocao_de_propriedade(cx, e, chave, f);
+    t
 }
 
 /// Coerção de tear-off genérico para um contexto de função não genérico
@@ -1447,6 +1549,10 @@ pub(crate) fn verificar_atribuivel_expr_em(inf: &mut BodyInferrer<'_>, cx: &Corp
     }
     let no = if desembrulhar { sem_parenteses(inf, cx, e) } else { e };
     let sp = inf.span_expr(cx.unit, no);
+    // `checkForAssignableExpressionAtType`: o erro leva o why-not-promoted
+    // da expressão (`computeWhyNotPromotedMessages(expression, …)`).
+    let desde = inf.diagnostics.len();
+    let entidade = inf.span_expr(cx.unit, e);
     if template == ARGUMENT_TYPE_NOT_ASSIGNABLE.template {
         // `{2}`: só entre records (`error_detection_helpers.dart:109-139`).
         let mut info: Vec<String> = Vec::new();
@@ -1474,9 +1580,11 @@ pub(crate) fn verificar_atribuivel_expr_em(inf: &mut BodyInferrer<'_>, cx: &Corp
         let a2 = inf.table.format(para, inf.interner, inf.program);
         let a3 = info.join(" ");
         inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::ARGUMENT_TYPE_NOT_ASSIGNABLE, sp, &[&a1, &a2, &a3]);
+        inf.anexar_nao_promocao(desde, cx, Some(e), entidade);
         return;
     }
     inf.verificar_atribuivel(de, para, sp, template);
+    inf.anexar_nao_promocao(desde, cx, Some(e), entidade);
 }
 
 /// Um operando que fecha um bloco básico (o `flowEnd` do
@@ -1774,18 +1882,7 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
             return (inf.core.dynamic_, curto);
         }
     }
-    let base = if null_aware {
-        None
-    } else {
-        match &a.expr(target).kind {
-            ExprKind::This => Some(Base::This),
-            ExprKind::Identifier(n) => match cx.buscar(n.sym) {
-                Some(Nome::Local(id)) if !cx.local(id).late => Some(Base::Local(id)),
-                _ => None,
-            },
-            _ => None,
-        }
-    };
+    let base = if null_aware { None } else { base_de_propriedade(inf, cx, target) };
     // `void`: o valor não pode ser usado (analyzer: `use_of_void_result`, no nome).
     if matches!(inf.table.get(recv), Type::Void) {
         // Em `x..p`, o relato é no alvo da cascata (feito lá).
@@ -1800,12 +1897,15 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
     let checar_nulo = !cx.sobreposicoes.contains_key(&target) && inf.exige_checagem_de_nulo(cx.lib, recv, name.sym, false);
     if checar_nulo {
         let nome = inf.interner.resolve(name.sym).to_string();
+        let desde = inf.diagnostics.len();
         inf.aviso_de_nulo(
             recv,
             dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE,
             name.span,
             &[&nome],
         );
+        // `computeWhyNotPromotedMessages(nameErrorEntity, whyNotPromoted(receiver))`.
+        inf.anexar_nao_promocao(desde, cx, Some(target), name.span);
     }
     let busca = buscar_membro_do_alvo(inf, cx, target, recv, name.sym, false);
     inf.relatar_ambiguidade_de_extensao(name.span);
@@ -2271,6 +2371,10 @@ pub(crate) fn membro_super(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
         let (t, _) = inf.tipo_do_membro_declarado(f, setter);
         let t = inf.substituir_do_dono(this, classe, sup, t);
         resolver(inf, cx, e, Resolved::Member { class: sup, member: MemberRef::Function(f), via_super: true });
+        // `super._x`: a propriedade do `_superSsaNode`.
+        if uso == UsoDoSuper::Leitura {
+            return leitura_de_campo(inf, cx, e, Base::Super, t);
+        }
         return t;
     }
     // `late final x;` sem inicializador tem setter implícito (o modelo de
@@ -2480,7 +2584,19 @@ pub(crate) fn operador_binario(
         } else {
             dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_OPERATOR_INVOCATION_OF_NULLABLE_VALUE
         };
+        let desde = inf.diagnostics.len();
         inf.aviso_de_nulo(recv, codigo, posicoes.token, &[&texto]);
+        // O receptor do operador (`leftOperand`, o alvo do índice, o lado
+        // esquerdo da composta).
+        let receptor = no.and_then(|n| match &ast(inf, cx).expr(n).kind {
+            ExprKind::Binary { left, .. } => Some(*left),
+            ExprKind::Index { target, .. } => Some(*target),
+            ExprKind::Assign { target, .. } => Some(*target),
+            _ => None,
+        });
+        if let Some(r) = receptor {
+            inf.anexar_nao_promocao(desde, cx, Some(r), posicoes.token);
+        }
     }
     // `super[i]`, `super + x`: o operador é o da superclasse (como o
     // `super.m` de [`membro_super`]), não o que a própria classe sobrescreve.
@@ -2816,7 +2932,8 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
                 check_final_local(inf, cx, id, alvo_span);
                 let decl = cx.local(id).tipo;
                 let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());
-                inf.atribuir_fluxo(&mut f, id, decl, res);
+                let motivo = super::fluxo::MotivoDeNaoPromocao::Escrita { nome: cx.local(id).nome, span };
+                inf.atribuir_fluxo(&mut f, id, decl, res, Some(motivo));
                 cx.fluxo = f;
             }
             let _ = escrita;
@@ -3019,6 +3136,22 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
         }
         RefNome::ThisImplicito => {
             let this = cx.tipo_this.unwrap();
+            // `ThisLookup.lookupSetter` com `this` potencialmente anulável:
+            // o pai é a atribuição, então o código é o do acesso.
+            if inf.exige_checagem_de_nulo(cx.lib, this, n.sym, true) {
+                let nome = inf.interner.resolve(n.sym).to_string();
+                let desde = inf.diagnostics.len();
+                inf.aviso_de_nulo(this, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE, n.span, &[&nome]);
+                inf.anexar_nao_promocao(desde, cx, None, n.span);
+                let nn = inf.nao_nulo(this);
+                return match inf.buscar_membro(cx.lib, nn, n.sym, true) {
+                    Busca::Achado(m) => {
+                        resolver(inf, cx, alvo, m.resolved.clone());
+                        m.tipo
+                    }
+                    _ => inf.core.dynamic_,
+                };
+            }
             match inf.buscar_membro(cx.lib, this, n.sym, true) {
                 Busca::Achado(m) => {
                     resolver(inf, cx, alvo, m.resolved.clone());
@@ -3159,7 +3292,8 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
             if let Some(id) = local {
                 let decl = cx.local(id).tipo;
                 let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());
-                inf.atribuir_fluxo(&mut f, id, decl, tv);
+                let motivo = super::fluxo::MotivoDeNaoPromocao::Escrita { nome: cx.local(id).nome, span: inf.span_expr(cx.unit, e) };
+                inf.atribuir_fluxo(&mut f, id, decl, tv, Some(motivo));
                 cx.fluxo = f;
                 cx.esquecer_campos_de(id);
             }
@@ -3201,7 +3335,8 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                 if let Some(id) = local {
                     let decl = cx.local(id).tipo;
                     let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());
-                    inf.atribuir_fluxo(&mut f, id, decl, t);
+                    let motivo = super::fluxo::MotivoDeNaoPromocao::Escrita { nome: cx.local(id).nome, span: inf.span_expr(cx.unit, e) };
+                inf.atribuir_fluxo(&mut f, id, decl, t, Some(motivo));
                     cx.fluxo = f;
                 }
                 return t;
@@ -3224,7 +3359,8 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                 check_final_local(inf, cx, id, alvo_span);
                 let decl = cx.local(id).tipo;
                 let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());
-                inf.atribuir_fluxo(&mut f, id, decl, t);
+                let motivo = super::fluxo::MotivoDeNaoPromocao::Escrita { nome: cx.local(id).nome, span: inf.span_expr(cx.unit, e) };
+                inf.atribuir_fluxo(&mut f, id, decl, t, Some(motivo));
                 cx.fluxo = f;
             }
             t
@@ -3627,7 +3763,9 @@ fn verificar_bool(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, uso: UsoBoo
         _ => false,
     };
     if e_bool {
+        let desde = inf.diagnostics.len();
         inf.aviso_com_codigo(c::UNCHECKED_USE_OF_NULLABLE_VALUE_AS_CONDITION, sp, &[]);
+        inf.anexar_nao_promocao(desde, cx, Some(e), sp);
         return;
     }
     match uso {
@@ -3652,7 +3790,10 @@ pub(crate) fn desreferencia_anulavel(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: 
         return;
     }
     let sp = inf.span_expr(cx.unit, e);
+    let desde = inf.diagnostics.len();
     inf.aviso_de_nulo(t, codigo, sp, &[]);
+    // `_check`: `computeWhyNotPromotedMessages(errorNode, whyNotPromoted(errorNode))`.
+    inf.anexar_nao_promocao(desde, cx, Some(e), sp);
 }
 
 /// `isDoubleNan` (`an611:src/error/best_practices_verifier.dart:2093-2100`):

@@ -869,11 +869,13 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 let on = inf.subst(dados.on, &mapa);
                 if !inf.atribuivel(t, on) {
                     let sp = inf.span_expr(cx.unit, arg);
+                    let desde = inf.diagnostics.len();
                     inf.aviso_com_args(
                         dartforge_diagnostics::codigos::compile_time_error::EXTENSION_OVERRIDE_ARGUMENT_NOT_ASSIGNABLE,
                         sp,
                         &[crate::exibicao::Arg::Tipo(t), crate::exibicao::Arg::Tipo(on)],
                     );
+                    inf.anexar_nao_promocao(desde, cx, Some(arg), sp);
                 }
             }
         }
@@ -1024,12 +1026,14 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 !cx.sobreposicoes.contains_key(&recv) && inf.exige_checagem_de_nulo(cx.lib, r_ty, name.sym, false);
             if checar_nulo {
                 let nome = inf.interner.resolve(name.sym).to_string();
+                let desde = inf.diagnostics.len();
                 inf.aviso_de_nulo(
                     r_ty,
                     dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE,
                     name.span,
                     &[&nome],
                 );
+                inf.anexar_nao_promocao(desde, cx, Some(recv), name.span);
             }
             let mut busca = expr::buscar_membro_do_alvo(inf, cx, recv, r_ty, name.sym, false);
             inf.relatar_ambiguidade_de_extensao(name.span);

@@ -33,6 +33,7 @@ mod inteiros;
 mod funcoes;
 mod instrucoes;
 mod membros;
+mod nao_promocao;
 mod padroes;
 mod sobrescrita;
 mod tipos;
@@ -259,8 +260,12 @@ pub struct BodyInferrer<'a> {
     pub(crate) params_colecao_cache: Option<[crate::table::TypeParamId; 3]>,
     /// Parâmetros novos, por classe, da inferência de construtores.
     pub(crate) params_construtor: HashMap<u32, Vec<crate::table::TypeParamId>>,
-    /// Campos promovíveis já decididos.
-    pub(crate) promoviveis: HashMap<u32, bool>,
+    /// O `FieldPromotability` de cada biblioteca já consultada.
+    pub(crate) promocao_por_biblioteca: HashMap<LibraryId, std::rc::Rc<crate::promocao_de_campos::PromocaoDaBiblioteca>>,
+    /// O `whyNotPromoted` de cada leitura de referência (local ou
+    /// propriedade) que tem algum motivo: `tipo -> motivo`, na ordem do mapa
+    /// do fluxo.
+    pub(crate) nao_promocoes: HashMap<(UnitId, ast::ExprId), Vec<(TypeId, fluxo::MotivoDeNaoPromocao)>>,
     /// Contexto refinado dos argumentos de `clamp`/`remainder` para a
     /// próxima invocação.
     pub(crate) contexto_numerico_pendente: Option<TypeId>,
@@ -372,7 +377,8 @@ impl<'a> BodyInferrer<'a> {
             profundidade_topo: 0,
             params_colecao_cache: None,
             params_construtor: HashMap::new(),
-            promoviveis: HashMap::new(),
+            promocao_por_biblioteca: HashMap::new(),
+            nao_promocoes: HashMap::new(),
             contexto_numerico_pendente: None,
             entidade_da_inferencia: None,
             locais_invalidos: HashSet::new(),

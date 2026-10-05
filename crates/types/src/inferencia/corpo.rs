@@ -155,9 +155,19 @@ pub(crate) struct Corpo {
     pub escritos_no_corpo: Option<(Vec<super::instrucoes::Escrita>, Vec<super::instrucoes::Escrita>)>,
     /// O corpo de topo, para calcular `escritos_no_corpo` sob demanda.
     pub raiz: Raiz,
-    /// Campos promovíveis (Dart 3.2) já referidos: `(base, campo) -> local
-    /// sintético` que carrega o modelo de fluxo do campo.
-    pub campos: HashMap<(Base, VariableId), LocalId>,
+    /// Propriedades promovíveis (Dart 3.2) já referidas: `(base, versão de
+    /// escrita da base, nome) -> local sintético` que carrega o modelo de
+    /// fluxo da propriedade (o `_promotableProperties` do nó SSA da base).
+    pub campos: HashMap<(Base, u32, SymbolId), LocalId>,
+    /// Propriedades não promovíveis: as gerações (uma por leitura que virou
+    /// alvo de promoção), da mais antiga à mais nova (o
+    /// `_nonPromotableProperties` com o `previousSsaNode` de cada nó).
+    pub geracoes: HashMap<(Base, u32, SymbolId), Vec<LocalId>>,
+    /// A geração de cada leitura de propriedade não promovível.
+    pub geracao_da_leitura: HashMap<ast::ExprId, LocalId>,
+    /// O local sintético de `this` (a `thisPromotionKey`), que guarda as
+    /// promoções que `this` nunca usa (só o why-not-promoted as vê).
+    pub local_this: Option<LocalId>,
     /// Fluxos de antes de cada `?.` das cadeias em curso.
     pub cadeias: Vec<super::fluxo::Fluxo>,
     /// Variáveis de condição (§7.10): `(verdadeiro, falso, versão)` do
@@ -184,6 +194,9 @@ pub(crate) struct Corpo {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Base {
     This,
+    /// `super` (o `_superSsaNode`: as propriedades dele são outras que as
+    /// de `this`).
+    Super,
     Local(LocalId),
 }
 
@@ -240,6 +253,9 @@ impl Corpo {
             escritos_no_corpo: None,
             raiz: Raiz::Nada,
             campos: HashMap::new(),
+            geracoes: HashMap::new(),
+            geracao_da_leitura: HashMap::new(),
+            local_this: None,
             cadeias: Vec::new(),
             condicoes: HashMap::new(),
             sobreposicoes: HashMap::new(),
@@ -354,7 +370,30 @@ impl Corpo {
 
     /// Esquece os campos promovidos de uma local reatribuída.
     pub fn esquecer_campos_de(&mut self, base: LocalId) {
-        self.campos.retain(|(b, _), _| *b != Base::Local(base));
+        self.campos.retain(|(b, _, _), _| *b != Base::Local(base));
+    }
+
+    /// O local é o sintético de uma propriedade (estável ou geração).
+    pub fn e_propriedade(&self, id: LocalId) -> bool {
+        self.campos.values().any(|&v| v == id) || self.geracao_da_leitura.values().any(|&v| v == id)
+    }
+
+    /// `infoFor`: um sintético cujo modelo se perdeu numa junção (criado num
+    /// só dos ramos) volta como novo.
+    pub fn garantir_modelo(&mut self, id: LocalId) {
+        if self.fluxo.modelo(id).is_none() {
+            self.fluxo.declarar(id);
+            self.fluxo.inicializar(id);
+        }
+    }
+
+    /// A versão de escrita da base de uma propriedade: a da local (o nó SSA
+    /// dela); `this`, `super` e as propriedades estáveis não mudam.
+    pub fn versao_da_base(&self, base: Base) -> u32 {
+        match base {
+            Base::Local(id) if !self.e_propriedade(id) => self.fluxo.versao(id).unwrap_or(0),
+            _ => 0,
+        }
     }
 
     pub fn declarar_tipo_param(&mut self, nome: SymbolId, p: TypeParamId) {

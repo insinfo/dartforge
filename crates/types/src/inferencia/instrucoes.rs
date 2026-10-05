@@ -887,7 +887,7 @@ pub(crate) fn declaracao_de_variaveis(inf: &mut BodyInferrer<'_>, cx: &mut Corpo
             Some(t) if !vl.late => {
                 let toi = declarado.is_some() && !vl.final_;
                 let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());
-                inf.escrever_fluxo(&mut f, id, tipo, t, toi);
+                inf.escrever_fluxo(&mut f, id, tipo, t, toi, None);
                 cx.fluxo = f;
             }
             Some(_) => cx.fluxo.inicializar(id),
@@ -987,7 +987,10 @@ pub(crate) fn cabecalho_for_in(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, targe
                     let decl = cx.local(id).tipo;
                     expr::registrar(inf, cx, *e, decl);
                     let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());
-                    inf.atribuir_fluxo(&mut f, id, decl, el);
+                    // `DemoteViaExplicitWrite` no identificador
+                    // (`ForEachPartsWithIdentifier.identifier`).
+                    let motivo = super::fluxo::MotivoDeNaoPromocao::Escrita { nome: n.sym, span: n.span };
+                    inf.atribuir_fluxo(&mut f, id, decl, el, Some(motivo));
                     cx.fluxo = f;
                     return;
                 }

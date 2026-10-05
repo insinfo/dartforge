@@ -4678,10 +4678,33 @@ Produtores de contexto, cada um com o texto e o intervalo do oficial e o arquivo
 - Item 4: `Program::nome_nao_sintetico_da_funcao` (com `nome_da_classe`, `nome_da_variavel` e
   `caminho_da_unidade`), usado pelos produtores acima.
 
+- Why-not-promoted (`crates/types/src/inferencia/nao_promocao.rs`): o `ModeloVar` do fluxo leva o
+  `nonPromotionHistory` (cada tipo desfeito por uma escrita, com o nó dela; some nas junções que mudam
+  o modelo, na captura e na junção conservadora, como no `PromotionModel`); as propriedades não
+  promovíveis ganham uma geração por leitura que vira alvo de promoção (o `previousSsaNode`), e `this`
+  tem o seu sintético. Na leitura de cada local ou propriedade fica o mapa `tipo -> motivo`; os erros
+  que o oficial acompanha (`argument_type_not_assignable`, `invalid_assignment`, os `unchecked_*`, o
+  `invalid_use_of_null_value`, `unchecked_use_of_nullable_value_as_condition`,
+  `field_initializer_not_assignable` e a variante `const`, `extension_override_argument_not_assignable`)
+  anexam as mensagens do primeiro tipo não anulável: escrita, propriedade (getter, pública, externa,
+  não final, os conflitos do `fieldNameNonPromotabilityInfo` e a de recurso indisponível antes da 3.2)
+  e `this`.
+- A promoção de campos passou a ser o `FieldPromotability` inteiro (`crates/types/src/promocao_de_campos.rs`):
+  o conflito por encaminhador de `noSuchMethod`, o getter abstrato privado promovível, os tipos de
+  extensão fora da conta; a chave da propriedade leva a versão de escrita da base (uma escrita na
+  local base desfaz as promoções das propriedades dela), propriedades de propriedades estáveis e de
+  `super` promovem, e o sintético cujo modelo sumiu numa junção volta como novo (o `infoFor`). A
+  escrita que desfaz toda a promoção limpa os tipos testados, e a captura também.
+- O `this` implícito potencialmente anulável (extensão sobre tipo anulável) relata o uso sem checagem
+  na leitura, na escrita e na invocação (`ThisLookup` → `TypePropertyResolver`), com o código pelo pai
+  do nome e as mensagens do `whyNotPromotedImplicitThis`; antes a invocação não relatava nada e a
+  leitura caía em nome indefinido.
+
 Desvios: o construtor sintético não ganha a mensagem de pilha (o `nameOffset` dele é -1 no oficial,
-sem intervalo representável); `augmentation_extends_clause_already_present` não tem emissor (T1).
-Falta o why-not-promoted (`computeWhyNotPromotedMessages`): o histórico de não promoção do fluxo e os
-pontos que o consultam.
+sem intervalo representável); `augmentation_extends_clause_already_present` não tem emissor (T1). No
+why-not-promoted, o `url` das mensagens não é guardado (nem o JSON do CLI nem o LSP o mostram); a
+leitura do lado esquerdo de uma atribuição composta e o alvo de cascata não registram motivos; e o
+receptor nulo do padrão relacional não consulta o `this`.
 
 Arquivos: `crates/diagnostics/src/lib.rs` (o `Diagnostic`),
 `crates/paridade/src/json.rs`, e os emissores que usam a fábrica.

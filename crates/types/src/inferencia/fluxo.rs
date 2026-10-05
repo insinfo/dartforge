@@ -7,9 +7,38 @@
 //! `promote`.
 
 use super::BodyInferrer;
+use crate::promocao_de_campos::PorQueNaoPromove;
 use crate::resolved::LocalId;
 use crate::table::{Type, TypeId};
+use dartforge_diagnostics::Span;
+use dartforge_elements::model::FunctionElementId;
+use dartforge_intern::SymbolId;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicU32, Ordering};
+
+/// `NonPromotionReason`: por que um tipo não está (mais) promovido.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum MotivoDeNaoPromocao {
+    /// `DemoteViaExplicitWrite`: o nome da variável e o nó da escrita (a
+    /// atribuição, o `++`/`--`, o identificador do `for-in`, o padrão).
+    Escrita { nome: SymbolId, span: Span },
+    /// `PropertyNotPromotedForInherentReason` (com o motivo) ou
+    /// `PropertyNotPromotedForNonInherentReason` (sem): o nome, o membro
+    /// (`propertyMember`) e se a promoção de campos vale na biblioteca do
+    /// corpo (`fieldPromotionEnabled`).
+    Propriedade { nome: SymbolId, membro: FunctionElementId, inerente: Option<PorQueNaoPromove>, habilitada: bool },
+    /// `ThisNotPromoted`.
+    This,
+}
+
+/// `NonPromotionHistory`: a lista ligada (o mais recente primeiro) dos tipos
+/// que uma escrita desfez.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Historico {
+    pub tipo: TypeId,
+    pub motivo: MotivoDeNaoPromocao,
+    pub anterior: Option<Rc<Historico>>,
+}
 
 /// Versões de escrita (o SSA do `flow-analysis.md`): cada escrita e cada
 /// junção de versões diferentes ganha um número novo; só a igualdade importa.
@@ -32,6 +61,8 @@ pub(crate) struct ModeloVar {
     pub capturada: bool,
     /// Versão da última escrita (0: declarada e nunca escrita).
     pub versao: u32,
+    /// `nonPromotionHistory`.
+    pub historico: Option<Rc<Historico>>,
 }
 
 /// Estado de fluxo num ponto (`FlowModel`).
@@ -68,6 +99,7 @@ impl Fluxo {
             nao_atribuida: true,
             capturada: false,
             versao: 0,
+            historico: None,
         });
     }
 
@@ -107,21 +139,28 @@ impl Fluxo {
     /// atribuída.
     pub fn capturar(&mut self, id: LocalId) {
         if let Some(m) = self.slot(id) {
+            // `writeCapture`: sem promoções, sem tipos testados e sem
+            // histórico.
             m.capturada = true;
             m.cadeia.clear();
+            m.testados.clear();
             m.nao_atribuida = false;
             m.versao = nova_versao();
+            m.historico = None;
         }
     }
 
     /// Esquece promoções das variáveis dadas (junção conservadora de laços).
     pub fn juncao_conservadora(&mut self, escritas: &[LocalId], capturadas: &[LocalId]) {
+        // `discardPromotionsAndMarkNotUnassigned` (o modelo novo não leva o
+        // histórico).
         for &id in capturadas {
             if let Some(m) = self.slot(id) {
                 m.cadeia.clear();
                 m.nao_atribuida = false;
                 m.capturada = true;
                 m.versao = nova_versao();
+                m.historico = None;
             }
         }
         for &id in escritas {
@@ -129,6 +168,7 @@ impl Fluxo {
                 m.cadeia.clear();
                 m.nao_atribuida = false;
                 m.versao = nova_versao();
+                m.historico = None;
             }
         }
     }
@@ -276,6 +316,7 @@ impl<'a> BodyInferrer<'a> {
                 continue;
             }
             let mut c = c.clone();
+            let antes = (c.cadeia.len(), c.testados.len());
             for &t in &g.cadeia {
                 if !c.cadeia.contains(&t) && c.cadeia.last().is_none_or(|&l| self.sub(t, l)) {
                     c.cadeia.push(t);
@@ -286,33 +327,51 @@ impl<'a> BodyInferrer<'a> {
                     c.testados.push(t);
                 }
             }
+            // `_identicalOrNew`: um modelo novo não leva o histórico.
+            if (c.cadeia.len(), c.testados.len()) != antes {
+                c.historico = None;
+            }
             r.vars[i] = Some(c);
         }
         r
     }
 
     /// `assign(x, T)`: demove e aplica a promoção por tipo de interesse.
-    pub(crate) fn atribuir_fluxo(&mut self, fluxo: &mut Fluxo, id: LocalId, declarado: TypeId, escrito: TypeId) {
-        self.escrever_fluxo(fluxo, id, declarado, escrito, true);
+    /// `motivo`: o `DemoteViaExplicitWrite` da escrita, que entra no
+    /// histórico de cada tipo desfeito.
+    pub(crate) fn atribuir_fluxo(&mut self, fluxo: &mut Fluxo, id: LocalId, declarado: TypeId, escrito: TypeId, motivo: Option<MotivoDeNaoPromocao>) {
+        self.escrever_fluxo(fluxo, id, declarado, escrito, true, motivo);
     }
 
     /// Escrita com ou sem promoção por tipo de interesse (a inicialização de
     /// uma variável `final` ou sem tipo escrito não promove, `_initialize`).
-    pub(crate) fn escrever_fluxo(&mut self, fluxo: &mut Fluxo, id: LocalId, declarado: TypeId, escrito: TypeId, toi: bool) {
+    pub(crate) fn escrever_fluxo(&mut self, fluxo: &mut Fluxo, id: LocalId, declarado: TypeId, escrito: TypeId, toi: bool, motivo: Option<MotivoDeNaoPromocao>) {
         let Some(m) = fluxo.modelo(id).cloned() else { return };
         let mut m = m;
+        let atribuida_antes = m.atribuida;
         m.atribuida = true;
         m.nao_atribuida = false;
         m.versao = nova_versao();
-        if !m.capturada {
+        if m.capturada {
+            m.historico = None;
+        } else {
+            let cadeia_antes = m.cadeia.clone();
             // Escrita de `dynamic` num local tipado é cast implícito: o tipo
             // escrito efetivo é o declarado.
             let escrito = if self.e_dynamic(escrito) && !self.e_dynamic(declarado) { declarado } else { escrito };
-            // demote
+            // demote (`_demoteViaAssignment`): a cadeia é decrescente, então
+            // o que fica é um prefixo; cada tipo desfeito entra no histórico,
+            // do último ao primeiro (o primeiro desfeito fica na frente).
             let mut cadeia: Vec<TypeId> = Vec::new();
             for &t in &m.cadeia {
                 if self.sub(escrito, t) {
                     cadeia.push(t);
+                }
+            }
+            let mut historico = m.historico.clone();
+            if let Some(motivo) = &motivo {
+                for &t in m.cadeia[cadeia.len()..].iter().rev() {
+                    historico = Some(Rc::new(Historico { tipo: t, motivo: motivo.clone(), anterior: historico }));
                 }
             }
             // toi_promote
@@ -359,6 +418,17 @@ impl<'a> BodyInferrer<'a> {
             } else {
                 cadeia.clear();
             }
+            // `PromotionModel.write`: sem mudança na cadeia de uma variável já
+            // atribuída, o modelo novo não leva histórico; senão leva o da
+            // demoção. Os tipos testados caem quando a promoção some de vez.
+            if cadeia == cadeia_antes && atribuida_antes {
+                m.historico = None;
+            } else {
+                if cadeia.is_empty() && !cadeia_antes.is_empty() {
+                    m.testados.clear();
+                }
+                m.historico = historico;
+            }
             m.cadeia = cadeia;
         }
         *fluxo_slot(fluxo, id) = Some(m);
@@ -373,8 +443,25 @@ fn fluxo_slot(f: &mut Fluxo, id: LocalId) -> &mut Option<ModeloVar> {
     &mut f.vars[i]
 }
 
-/// `joinPM`: cadeias pela maior subsequência comum, testados pela união.
+/// `joinPM`: cadeias pela maior subsequência comum, testados pela união. O
+/// histórico só fica quando o resultado é um dos dois modelos
+/// (`PromotionModel.join` devolve `first` ou `second` sem mudança).
 fn juntar_modelo(a: &ModeloVar, b: &ModeloVar) -> ModeloVar {
+    let mut r = juntar_modelo_sem_historico(a, b);
+    let igual = |x: &ModeloVar, r: &ModeloVar| {
+        x.cadeia == r.cadeia && x.testados == r.testados && x.atribuida == r.atribuida && x.nao_atribuida == r.nao_atribuida && x.capturada == r.capturada && x.versao == r.versao
+    };
+    r.historico = if igual(a, &r) {
+        a.historico.clone()
+    } else if igual(b, &r) {
+        b.historico.clone()
+    } else {
+        None
+    };
+    r
+}
+
+fn juntar_modelo_sem_historico(a: &ModeloVar, b: &ModeloVar) -> ModeloVar {
     let cadeia: Vec<TypeId> = a.cadeia.iter().copied().filter(|t| b.cadeia.contains(t)).collect();
     let mut testados = a.testados.clone();
     for t in &b.testados {
@@ -389,5 +476,6 @@ fn juntar_modelo(a: &ModeloVar, b: &ModeloVar) -> ModeloVar {
         nao_atribuida: a.nao_atribuida && b.nao_atribuida,
         capturada: a.capturada || b.capturada,
         versao: if a.versao == b.versao { a.versao } else { nova_versao() },
+        historico: None,
     }
 }

@@ -152,7 +152,8 @@ fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, fi
                     }
                     let decl = cx.local(id).tipo;
                     let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());
-                    inf.atribuir_fluxo(&mut f, id, decl, t);
+                    let motivo = super::fluxo::MotivoDeNaoPromocao::Escrita { nome: name.sym, span: name.span };
+                    inf.atribuir_fluxo(&mut f, id, decl, t, Some(motivo));
                     cx.fluxo = f;
                 }
                 return;

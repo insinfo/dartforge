@@ -224,7 +224,9 @@ fn inicializador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, classe: Option<Clas
                     use dartforge_diagnostics::codigos::compile_time_error as c;
                     let codigo = if construtor_const { c::CONST_FIELD_INITIALIZER_NOT_ASSIGNABLE } else { c::FIELD_INITIALIZER_NOT_ASSIGNABLE };
                     let sp = inf.span_expr(cx.unit, *value);
+                    let desde = inf.diagnostics.len();
                     inf.aviso_com_args(codigo, sp, &[crate::exibicao::Arg::Tipo(tv), crate::exibicao::Arg::Tipo(t)]);
+                    inf.anexar_nao_promocao(desde, cx, Some(*value), sp);
                 }
             }
         }

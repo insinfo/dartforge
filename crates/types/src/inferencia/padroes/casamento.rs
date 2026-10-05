@@ -483,7 +483,8 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
                     promover_para_padrao(inf, cx, decl, true, false);
                     let escrito = casado(cx, &r);
                     let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());
-                    inf.atribuir_fluxo(&mut f, id, decl, escrito);
+                    let motivo = crate::inferencia::fluxo::MotivoDeNaoPromocao::Escrita { nome: name.sym, span: span_do_padrao };
+                    inf.atribuir_fluxo(&mut f, id, decl, escrito, Some(motivo));
                     cx.fluxo = f;
                 }
                 return;
@@ -857,7 +858,7 @@ pub(crate) fn caso(
     // O escrutínio é resolvido no escopo de fora, antes de o padrão
     // declarar as suas variáveis.
     let alvo = escrutinio.and_then(|e| expr::alvo_de_promocao(inf, cx, e));
-    let propriedade = alvo.is_some_and(|id| cx.campos.values().any(|&v| v == id));
+    let propriedade = alvo.is_some_and(|id| cx.e_propriedade(id));
     // Num `switch`, todos os casos casam a MESMA referência: as promoções
     // do "não casou" de um caso chegam ao seguinte.
     let reuso = match (cx.escrutinio_de_switch, escrutinio) {
@@ -912,7 +913,7 @@ pub(crate) fn irrefutavel(
 ) {
     let alvo = valor
         .and_then(|e| expr::alvo_de_promocao(inf, cx, e))
-        .filter(|id| cx.campos.values().any(|v| v == id));
+        .filter(|&id| cx.e_propriedade(id));
     let chave = nova_chave(inf, cx, t);
     let r = RefCasada { chave, tipo: t, alvo, propriedade: alvo.is_some(), versao: None };
     let _ = casar(inf, cx, r, |inf, cx| tipar(inf, cx, p, final_, atribuicao, false));
