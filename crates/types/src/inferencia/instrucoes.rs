@@ -875,6 +875,13 @@ pub(crate) fn declaracao_de_variaveis(inf: &mut BodyInferrer<'_>, cx: &mut Corpo
             if vl.const_ {
                 colecoes_const(inf, cx, init);
             }
+            // `DeadCodeVerifier.visitVariableDeclaration`
+            // (`dead_code_verifier.dart:114-128`): `late` local curinga (3.7)
+            // com inicializador, que nunca é avaliado.
+            if vl.late && cx.curinga == Some(v.name.sym) {
+                let sp = inf.span_expr(cx.unit, init);
+                inf.aviso_com_codigo(dartforge_diagnostics::codigos::warning::DEAD_CODE_LATE_WILDCARD_VARIABLE_INITIALIZER, sp, &[]);
+            }
         }
         let tipo = tipo.unwrap_or(inf.core.dynamic_);
         let id = declarar_local(

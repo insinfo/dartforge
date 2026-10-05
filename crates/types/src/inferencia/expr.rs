@@ -2741,6 +2741,17 @@ pub(crate) fn refinar_numerico(inf: &mut BodyInferrer<'_>, t: TypeId, m: &Membro
 fn binario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: BinaryOp, left: ExprId, right: ExprId, ctx: TypeId) -> TypeId {
     let span = inf.span_expr(cx.unit, e);
     match op {
+        // `BinaryExpressionResolver.resolve` (`binary_expression_resolver.dart:69-77`):
+        // o operador que não é binário, no token; `_resolveUnsupportedOperator`
+        // visita os dois lados sem contexto e o tipo é `InvalidType`.
+        BinaryOp::NaoBinario => {
+            let fim_esquerdo = inf.span_expr(cx.unit, left).end;
+            let token = token_de_operador(inf, cx, fim_esquerdo);
+            inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::NOT_BINARY_OPERATOR, token, &["~"]);
+            inferir_livre(inf, cx, left);
+            inferir_livre(inf, cx, right);
+            inf.table.invalido(inf.core.dynamic_)
+        }
         BinaryOp::And | BinaryOp::Or | BinaryOp::Eq | BinaryOp::NotEq => {
             let (vf, ff) = condicao_binaria(inf, cx, e, op, left, right);
             cx.fluxo = inf.juntar(&vf, &ff);

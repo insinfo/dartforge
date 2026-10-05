@@ -140,6 +140,7 @@ fn operador(op: BinaryOp) -> &'static str {
         BinaryOp::BitOr => "|",
         BinaryOp::BitXor => "^",
         BinaryOp::IfNull => "??",
+        BinaryOp::NaoBinario => "~",
     }
 }
 

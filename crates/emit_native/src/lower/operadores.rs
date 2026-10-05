@@ -363,6 +363,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             BinaryOp::And | BinaryOp::Or | BinaryOp::IfNull => {
                 unreachable!("curto-circuito tem lowering próprio")
             }
+            // `a ~ b` é erro de compilação (`not_binary_operator`).
+            BinaryOp::NaoBinario => unreachable!("operador não binário"),
         }
     }
 }

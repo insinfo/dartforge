@@ -870,6 +870,10 @@ pub enum BinaryOp {
     And,
     Or,
     IfNull,
+    /// `a ~ b`: o `~` (operador de prefixo) entre dois operandos, que o
+    /// fasta lê como expressão binária no nível de prefixo (sem erro de
+    /// sintaxe) e o analyzer relata como `NOT_BINARY_OPERATOR`.
+    NaoBinario,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

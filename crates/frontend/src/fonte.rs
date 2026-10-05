@@ -174,6 +174,7 @@ fn lexema_binario(op: BinaryOp) -> &'static str {
         BinaryOp::And => "&&",
         BinaryOp::Or => "||",
         BinaryOp::IfNull => "??",
+        BinaryOp::NaoBinario => "~",
     }
 }
 

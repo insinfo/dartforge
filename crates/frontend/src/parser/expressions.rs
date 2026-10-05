@@ -62,6 +62,8 @@ const LEVEL_BIT_AND: u8 = 7;
 const LEVEL_SHIFT: u8 = 8;
 const LEVEL_ADDITIVE: u8 = 9;
 const LEVEL_MULTIPLICATIVE: u8 = 10;
+/// `PREFIX_PRECEDENCE`: o `~` entre dois operandos (`a ~ b`).
+const LEVEL_PREFIX: u8 = 11;
 
 /// Operador binário encontrado no cursor, com seu nível e quantos tokens ocupa.
 #[derive(Debug, Clone, Copy)]
@@ -810,6 +812,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             Kind::Op(Op::Slash) => (LEVEL_MULTIPLICATIVE, BinaryOp::Div, 1),
             Kind::Op(Op::Percent) => (LEVEL_MULTIPLICATIVE, BinaryOp::Rem, 1),
             Kind::Op(Op::TildeSlash) => (LEVEL_MULTIPLICATIVE, BinaryOp::TruncDiv, 1),
+            // `parsePrecedenceExpression` (`parser_impl.dart:6077-6113`): um
+            // token de `PREFIX_PRECEDENCE` depois do operando cai no ramo da
+            // expressão binária.
+            Kind::Op(Op::Tilde) => (LEVEL_PREFIX, BinaryOp::NaoBinario, 1),
             _ => return None,
         };
         Some(BinaryHere::Op { level, op, len })

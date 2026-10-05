@@ -94,6 +94,120 @@ pub fn argumentos_fora_dos_limites(
     out
 }
 
+/// `ReplaceTopBottomVisitor.process` sobre um tipo já resolvido: topo vira
+/// `Never` fora das posições contravariantes; o que é subtipo de `Never` vira
+/// `Object?` nas contravariantes. Um alias leva cada argumento com a
+/// variância do parâmetro dele no alvo combinada com a de fora; classes (e
+/// `FutureOr`, tipos de extensão) levam a variância adiante; funções invertem
+/// nos parâmetros (os parâmetros de tipo ficam).
+fn trocar_topo_e_fundo(v: &mut Verificador<'_>, t: TypeId, va: Variancia) -> TypeId {
+    if va == Variancia::Contra {
+        let never = v.core.never;
+        if v.sub(t, never) {
+            return v.core.object_nullable;
+        }
+    } else if v.e_topo(t) {
+        return v.core.never;
+    }
+    let anulavel = v.table.get(t).is_declared_nullable();
+    if let Some(crate::table::Exibicao::Alias { typedef, args }) = v.table.exibicao(t).cloned() {
+        let d = &v.outline.typedefs[typedef.0 as usize];
+        let (params, alvo) = (d.type_params.to_vec(), d.target_type);
+        if params.len() == args.len() {
+            let mut novos = Vec::with_capacity(args.len());
+            for (&x, &p) in args.iter().zip(params.iter()) {
+                let vp = variancia_em(v.table, alvo, p, Variancia::Co);
+                novos.push(trocar_topo_e_fundo(v, x, vp.combinar(va)));
+            }
+            let r = v.subst(alvo, &params, &novos);
+            let r = if anulavel { crate::ops::nullable(r, v.table) } else { r };
+            return v.table.decorar(r, crate::table::Exibicao::Alias { typedef, args: novos.into_boxed_slice() });
+        }
+    }
+    match v.table.get(t).clone() {
+        Type::Interface { class, args, nullable } if !args.is_empty() => {
+            let novos: Vec<TypeId> = args.iter().map(|&x| trocar_topo_e_fundo(v, x, va)).collect();
+            v.table.intern(Type::Interface { class, args: novos.into_boxed_slice(), nullable })
+        }
+        Type::ExtensionType { decl, args, nullable } if !args.is_empty() => {
+            let novos: Vec<TypeId> = args.iter().map(|&x| trocar_topo_e_fundo(v, x, va)).collect();
+            v.table.intern(Type::ExtensionType { decl, args: novos.into_boxed_slice(), nullable })
+        }
+        Type::FutureOr { arg, nullable } => {
+            let arg = trocar_topo_e_fundo(v, arg, va);
+            v.table.intern(Type::FutureOr { arg, nullable })
+        }
+        Type::Function { type_params, ret, positional, optional, named, nullable } => {
+            let ret = trocar_topo_e_fundo(v, ret, va);
+            let contra = va.combinar(Variancia::Contra);
+            let positional: Vec<TypeId> = positional.iter().map(|&x| trocar_topo_e_fundo(v, x, contra)).collect();
+            let optional: Vec<TypeId> = optional.iter().map(|&x| trocar_topo_e_fundo(v, x, contra)).collect();
+            let named: Vec<(SymbolId, TypeId, bool)> = named.iter().map(|&(n, x, r)| (n, trocar_topo_e_fundo(v, x, contra), r)).collect();
+            v.table.intern(Type::Function {
+                type_params,
+                ret,
+                positional: positional.into_boxed_slice(),
+                optional: optional.into_boxed_slice(),
+                named: named.into_boxed_slice(),
+                nullable,
+            })
+        }
+        _ => t,
+    }
+}
+
+/// `enum_instantiated_to_bounds_is_not_well_bounded`
+/// (`ErrorVerifier._checkForEnumInstantiatedToBoundsIsNotWellBounded`,
+/// `analyzer/lib/src/generated/error_verifier.dart:3239-3256`): o argumento do
+/// tipo do campo `values` (`List<E<instanciado aos limites>>`) passa por
+/// `isWellBounded(…, allowSuperBounded: true)`, que só confere o invertido
+/// (`_isSuperBounded`: o resultado regular é descartado). No nome do enum.
+pub fn enum_instanciado_aos_limites(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    core: &CoreTypes,
+    outline: &OutlineTypes,
+    lib: dartforge_elements::model::LibraryId,
+) -> Vec<(UnitId, Diagnostic)> {
+    let mut saida = Vec::new();
+    for (i, ce) in program.classes.iter().enumerate() {
+        if ce.library != lib || ce.kind != dartforge_elements::model::ClassKind::Enum {
+            continue;
+        }
+        let Some(d) = ce.decl else { continue };
+        let a = &program.unit(d.unit).ast;
+        let decl = a.decl(d.decl);
+        let DeclKind::Enum(x) = &decl.kind else { continue };
+        if decl.augment {
+            continue;
+        }
+        let params = outline.classes[i].type_params.to_vec();
+        if params.is_empty() {
+            continue;
+        }
+        let args = crate::ops::instanciar_para_limites(&params, &[], table, core);
+        let mut v = Verificador { program, interner, table: &mut *table, core, outline, unit: d.unit, nomes_de_parametros: HashSet::new() };
+        let invertidos: Vec<TypeId> = args.iter().map(|&t| trocar_topo_e_fundo(&mut v, t, Variancia::Co)).collect();
+        let mut bem_limitado = true;
+        for (k, &p) in params.iter().enumerate() {
+            let dados = v.table.param(p).clone();
+            if !dados.explicito {
+                continue;
+            }
+            let limite = v.subst(dados.bound, &params, &invertidos);
+            if !v.sub(invertidos[k], limite) {
+                bem_limitado = false;
+                break;
+            }
+        }
+        if !bem_limitado {
+            saida.push((d.unit, Diagnostic::com_codigo(c::ENUM_INSTANTIATED_TO_BOUNDS_IS_NOT_WELL_BOUNDED, x.name.span, Vec::<String>::new())));
+        }
+    }
+    saida
+}
+
 /// Os `type_argument_not_matching_bounds` dos argumentos de tipo
 /// **inferidos** de uma criação de instância sem argumentos escritos
 /// (`C(x)`, `new C.nome(x)`): o analyzer confere o `NamedType` do

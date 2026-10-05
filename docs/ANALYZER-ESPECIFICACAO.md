@@ -1969,6 +1969,13 @@ foram rodados no oráculo vivo (`C:\tools\dartsdk-3.6.2\bin\dart analyze --forma
   `type_argument_not_matching_bounds` no nome — exemplo acima, 4:26); o caso que dispara é limite por
   alias de função invariante (amostra).
 - **No DartForge:** inexistente. FN `EnumInstantiatedToBoundsIsNotWellBounde_5319625b.dart:3:6`.
+- **Estado em 2026-10-05 (escrito, não compilado):** `limites::enum_instanciado_aos_limites`, chamado pela
+  paridade depois do `conflicting_generic_interfaces`: instancia os parâmetros do enum aos limites
+  (`ops::instanciar_para_limites`), aplica o `replaceTopAndBottom` sobre os tipos resolvidos
+  (`trocar_topo_e_fundo`, com o alias pela decoração de exibição e a variância do parâmetro no alvo) e
+  confere só o invertido, como o `isWellBounded(allowSuperBounded: true)` do 3.6.2 (que descarta o
+  resultado regular). Sem a decoração de alias (tabela sem exibição preservada) a função entra pela
+  estrutura e o caso da amostra não dispara.
 - **Exemplo (oráculo vivo 3.6.2):**
   ```dart
   typedef A<X> = X Function(X);
@@ -3270,6 +3277,11 @@ argumentos), `UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE` ("The method '{0}' 
 #### §2 Código morto
 
 ##### `dead_code` (perda 127: FN 118, FP 5, msg 0, pos 4)
+
+**Estado em 2026-10-05 (escrito, não compilado), a variante `DEAD_CODE_LATE_WILDCARD_VARIABLE_INITIALIZER`:**
+o `DeadCodeVerifier.visitVariableDeclaration` (`dead_code_verifier.dart:114-128`) está em
+`instrucoes::declaracao_de_variaveis`: local `late` chamado `_` com curingas (3.7) e inicializador relata no
+inicializador, com a mensagem própria do código.
 
 - **Emissão:** `WarningCode.DEAD_CODE` ("Dead code.", sem argumentos; correção "Try removing the code, or fixing the code
   before it so that it can be reached."), só pelo `NullSafetyDeadCodeVerifier` durante a resolução — modelo completo no
@@ -7694,6 +7706,11 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
 - **Emissão:** `BinaryExpressionResolver` (`analyzer/lib/src/dart/resolver/binary_expression_resolver.dart:73`):
   operador binário que não é operador binário de usuário (`5 ~ 3`, recuperação do parser). Posição: o
   operador; mensagem "'{0}' isn't a binary operator.".
+- **Estado em 2026-10-05 (escrito, não compilado):** o parser lê `a ~ b` como o fasta
+  (`parsePrecedenceExpression` cai no ramo binário com um token de `PREFIX_PRECEDENCE`), sem erro de
+  sintaxe, em `BinaryOp::NaoBinario` no nível acima do multiplicativo; o inferidor relata
+  `not_binary_operator` no token `~`, visita os dois lados sem contexto e dá `InvalidType`
+  (`_resolveUnsupportedOperator`). Os `match` exaustivos sobre `BinaryOp` ganharam o ramo novo.
 
 ##### `static_access_to_instance_member` (perda 1: FP 1)
 - FP em `augmentation_type_parameter_count/…class_s_a61207de.dart` (`A.foo<int>()` com `augment class A`
