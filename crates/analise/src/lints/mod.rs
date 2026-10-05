@@ -266,6 +266,59 @@ pub fn tipo_da_variavel(sem: &Semantica<'_>, v: dartforge_elements::model::Varia
     d.declared_type.or(d.inferred)
 }
 
+/// O elemento da função `f` da árvore da unidade (de topo, método,
+/// acessor).
+pub fn elemento_da_funcao(sem: &Semantica<'_>, f: dartforge_frontend::ast::FunctionId) -> Option<dartforge_elements::model::FunctionElementId> {
+    let i = sem.program.functions.iter().position(|e| {
+        matches!(e.node, dartforge_elements::model::FunctionRef::Function { unit, function } if unit == sem.unidade && function == f)
+    })?;
+    Some(dartforge_elements::model::FunctionElementId(i as u32))
+}
+
+/// A cadeia de implementação de `c` (`_implementationsOfGetter`): a classe,
+/// os mixins do último ao primeiro, e assim pela cadeia de superclasses.
+/// Com `setter_herdado`, há um setter `nome=` concreto, de instância e
+/// acessível numa classe da cadeia que não `c`
+/// (`lookUpInheritedConcreteSetter`); sem, há um getter `nome` acessível em
+/// alguma da cadeia (`lookUpGetter`, também estático ou abstrato).
+pub fn busca_na_cadeia(
+    sem: &Semantica<'_>,
+    interner: &dartforge_intern::Interner,
+    c: dartforge_elements::model::ClassId,
+    nome: dartforge_intern::SymbolId,
+    setter_herdado: bool,
+) -> bool {
+    use dartforge_elements::model::FunctionKind;
+    let p = sem.program;
+    let biblioteca = p.class(c).library;
+    let privado = interner.resolve(nome).starts_with('_');
+    let do_setter = interner.lookup(&format!("{}_=", interner.resolve(nome)));
+    let mut cadeia: Vec<dartforge_elements::model::ClassId> = Vec::new();
+    let mut vistos = std::collections::HashSet::new();
+    let mut atual = Some(c);
+    while let Some(k) = atual {
+        if !vistos.insert(k) {
+            break;
+        }
+        cadeia.push(k);
+        cadeia.extend(p.class(k).mixin_classes.iter().rev().copied());
+        atual = p.class(k).supertype_class;
+    }
+    cadeia.into_iter().any(|k| {
+        let e = p.class(k);
+        if privado && e.library != biblioteca {
+            return false;
+        }
+        if setter_herdado {
+            k != c && do_setter.and_then(|x| e.instance_members.get(&x)).is_some_and(|f| !p.function(*f).abstract_ && !p.function(*f).static_)
+        } else {
+            e.instance_members.get(&nome).or_else(|| e.static_members.get(&nome)).is_some_and(|f| {
+                matches!(p.function(*f).kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor)
+            })
+        }
+    })
+}
+
 /// A classe (classe, enum ou tipo de extensão) que declara o membro `m` da
 /// unidade.
 pub fn classe_do_membro(sem: &Semantica<'_>, m: dartforge_frontend::ast::MemberId) -> Option<dartforge_elements::model::ClassId> {

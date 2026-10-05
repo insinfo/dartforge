@@ -3,25 +3,23 @@
 //! da 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`):
 //! `avoid_shadowing_type_parameters` e `parameter_assignments`.
 //!
-//! Diferenças conhecidas:
-//! - `parameter_assignments` liga o identificador ao parâmetro pelo nome
-//!   (uma local de mesmo nome no corpo conta como o parâmetro), e o
-//!   "potencialmente mutado" é por nome no corpo.
-//! - `avoid_shadowing_type_parameters` não tem a isenção do `_` curinga
-//!   (o recurso é da 3.7).
+//! `parameter_assignments` liga o identificador e a variável do padrão ao
+//! parâmetro pelo elemento, e o "potencialmente mutado" é o do analyzer
+//! (`super::mutado`); pede a semântica da unidade. A isenção do `_` curinga
+//! de `avoid_shadowing_type_parameters` depende do recurso da 3.7, que uma
+//! biblioteca da 3.6 não liga.
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::codigos_g as c;
 use super::regras::RelatoDeLint;
-use super::regras9::variaveis_do_padrao;
 use super::CodigoLint;
 use crate::Unidade;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{
-    Ast, DeclKind, ExprKind, ForInTarget, FunctionBody, FunctionId, ListPatternElement, MemberKind, ParameterKind, PatternId, PatternKind,
-    StmtKind, TypeKind, TypeParameter, TypedefKind,
+    Ast, DeclKind, ExprKind, FunctionBody, FunctionId, ListPatternElement, MemberKind, ParameterKind, PatternId, PatternKind, StmtKind,
+    TypeKind, TypeParameter, TypedefKind,
 };
-use dartforge_intern::{Interner, SymbolId};
+use dartforge_intern::Interner;
 
 fn dentro(a: Span, b: Span) -> bool {
     a.start >= b.start && a.end <= b.end
@@ -68,13 +66,8 @@ fn ancestrais_de<'x>(
     v
 }
 
-/// O padrão é a variável `s` (o `AssignedVariablePattern` dela).
-fn e_a_variavel(a: &Ast, p: PatternId, s: SymbolId) -> bool {
-    matches!(&a.pattern(p).kind, PatternKind::Variable { name, .. } if name.sym == s)
-}
-
 /// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, _sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
+pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantica<'_>>) -> Vec<RelatoDeLint> {
     let mut out: Vec<RelatoDeLint> = Vec::new();
     let a = u.ast;
     let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
@@ -157,8 +150,17 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         }
     }
 
-    // `parameter_assignments`.
-    if ligada("parameter_assignments") {
+    // `parameter_assignments`: nas funções declaradas (de topo e locais) e
+    // nos métodos, o parâmetro que alguma escrita muda (pelo elemento) e que
+    // é o comum obrigatório posicional ou tem valor padrão (nunca nulo de
+    // início), ou não tem valor padrão (o opcional e o nomeado, também o
+    // `required`: nulo de início, e a primeira atribuição passa). Na ordem
+    // do texto: a atribuição ao identificador, o pós-fixo e o prefixo sobre
+    // ele (só o "nunca nulo"), e o padrão de atribuição com ele num campo ou
+    // elemento direto. Pede a semântica da unidade.
+    if ligada("parameter_assignments")
+        && let Some(sem) = sem
+    {
         let mut alvos: Vec<FunctionId> = Vec::new();
         for d in a.decls.iter() {
             if let DeclKind::Function(f) = &d.kind {
@@ -181,69 +183,54 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             let (Some(ps), Some(corpo)) = (&f.parameters, regiao_do_corpo(a, &f.body)) else { continue };
             for p in ps.iter() {
                 let Some(n) = p.name else { continue };
-                if p.this_ || p.super_ || p.function_parameters.is_some() && p.kind == ParameterKind::Required {
+                let decl = n.span.start;
+                if !super::mutado(sem, a, decl) {
                     continue;
                 }
-                let s = n.sym;
-                let identificador = |e: dartforge_frontend::ast::ExprId| matches!(&a.expr(e).kind, ExprKind::Identifier(x) if x.sym == s);
-                // `isPotentiallyMutatedInScope`.
-                let mutado = a.exprs.iter().filter(|e| dentro(e.span, corpo)).any(|e| match &e.kind {
-                    ExprKind::Assign { target, .. } => identificador(*target),
-                    ExprKind::Unary { op, operand } => {
-                        use dartforge_frontend::ast::UnaryOp as U;
-                        matches!(op, U::PrefixInc | U::PrefixDec | U::PostfixInc | U::PostfixDec) && identificador(*operand)
-                    }
-                    ExprKind::PatternAssign { pattern, .. } => {
-                        let mut vs: Vec<PatternId> = Vec::new();
-                        variaveis_do_padrao(a, *pattern, &mut vs);
-                        vs.iter().any(|&v| e_a_variavel(a, v, s))
-                    }
-                    _ => false,
-                }) || a.stmts.iter().any(|st| {
-                    dentro(st.span, corpo) && matches!(&st.kind, StmtKind::ForIn { target: ForInTarget::Expression(x), .. } if identificador(*x))
-                });
-                if !mutado {
-                    continue;
-                }
-                // `SimpleFormalParameter` (o obrigatório posicional comum) ou
-                // opcional com valor padrão: nunca nulo de início; opcional
-                // sem valor padrão: nulo de início, e a primeira atribuição
-                // passa.
-                let comum = p.kind == ParameterKind::Required && p.function_parameters.is_none();
+                // `SimpleFormalParameter` sem `DefaultFormalParameter` (o
+                // obrigatório posicional comum), ou com valor padrão: nunca
+                // nulo de início; `DefaultFormalParameter` sem valor padrão:
+                // nulo de início.
+                let comum = p.kind == ParameterKind::Required && p.function_parameters.is_none() && !p.this_ && !p.super_;
                 let nao_nulo = comum || (p.kind != ParameterKind::Required && p.default_value.is_some());
                 let comeca_nulo = p.kind != ParameterKind::Required && p.default_value.is_none();
                 if !nao_nulo && !comeca_nulo {
                     continue;
                 }
-                let nome = interner.resolve(s).to_string();
+                let o_parametro = |e: dartforge_frontend::ast::ExprId| {
+                    matches!(a.expr(e).kind, ExprKind::Identifier(_)) && sem.corpo.declaracao_local(e) == Some(decl)
+                };
+                let padrao_e_o_parametro = |q: PatternId| sem.corpo.declaracoes_de_padroes.get(&q) == Some(&decl);
+                let nome = interner.resolve(n.sym).to_string();
                 let mut ja_atribuido = false;
                 // Em ordem de fonte (o `RecursiveAstVisitor`).
-                let mut no_corpo: Vec<&dartforge_frontend::ast::Expr> = a.exprs.iter().filter(|e| dentro(e.span, corpo)).collect();
-                no_corpo.sort_by_key(|e| (e.span.start, std::cmp::Reverse(e.span.end)));
-                for e in no_corpo {
+                let mut no_corpo: Vec<(usize, &dartforge_frontend::ast::Expr)> =
+                    a.exprs.iter().enumerate().filter(|(_, e)| dentro(e.span, corpo)).collect();
+                no_corpo.sort_by_key(|(_, e)| (e.span.start, std::cmp::Reverse(e.span.end)));
+                for (_, e) in no_corpo {
                     match &e.kind {
-                        ExprKind::Assign { target, .. } if identificador(*target) => {
-                            if nao_nulo || ja_atribuido {
+                        ExprKind::Assign { target, .. } if o_parametro(*target) => {
+                            if nao_nulo {
                                 achados.push((e.span, nome.clone()));
-                            }
-                            if comeca_nulo {
+                            } else if comeca_nulo {
+                                if ja_atribuido {
+                                    achados.push((e.span, nome.clone()));
+                                }
                                 ja_atribuido = true;
                             }
                         }
-                        // Toda expressão pós-fixa e prefixa sobre o
-                        // parâmetro (`p++`, `p!`, `-p`, `!p`).
-                        ExprKind::Unary { operand, .. } if nao_nulo && identificador(*operand) => achados.push((e.span, nome.clone())),
+                        // Todo pós-fixo e prefixo sobre o parâmetro (`p++`,
+                        // `p!`, `-p`, `!p`).
+                        ExprKind::Unary { operand, .. } if nao_nulo && o_parametro(*operand) => achados.push((e.span, nome.clone())),
                         ExprKind::PatternAssign { pattern, .. } => {
                             let relata = match &a.pattern(*pattern).kind {
-                                PatternKind::Record { fields } | PatternKind::Object { fields, .. } => {
-                                    fields.iter().any(|f| e_a_variavel(a, f.pattern, s))
-                                }
+                                PatternKind::Record { fields } | PatternKind::Object { fields, .. } => fields.iter().any(|f| padrao_e_o_parametro(f.pattern)),
                                 PatternKind::List { elements, .. } => elements.iter().any(|el| match el {
-                                    ListPatternElement::Pattern(p) => e_a_variavel(a, *p, s),
-                                    ListPatternElement::Rest(Some(p)) => e_a_variavel(a, *p, s),
-                                    ListPatternElement::Rest(None) => false,
+                                    ListPatternElement::Pattern(q) => padrao_e_o_parametro(*q),
+                                    // O `RestPatternElement` não é a variável.
+                                    ListPatternElement::Rest(_) => false,
                                 }),
-                                PatternKind::Map { entries, .. } => entries.iter().any(|en| e_a_variavel(a, en.value, s)),
+                                PatternKind::Map { entries, .. } => entries.iter().any(|en| padrao_e_o_parametro(en.value)),
                                 _ => false,
                             };
                             if relata {

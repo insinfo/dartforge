@@ -4836,6 +4836,18 @@ da primeira escrita saíram; cada regra usa o mesmo dado que o emissor do analyz
   declaração sem palavra-chave, atalho `:nome` fora, augmentation só pulando os nomeados);
   `prefer_generic_function_type_aliases` com o `toSource`; `provide_deprecation_message` pelo
   elemento, em toda anotação da unidade (`pais::todas_as_anotacoes`).
+- Os lotes `regras2` a `regras13` sem as "diferenças conhecidas": cada regra que o original decide
+  pelo elemento, pelo tipo resolvido ou pelo `toSource` usa o mesmo dado (os auxiliares de
+  `analise::lints`: `mutado` — o `isPotentiallyMutatedInScope` por elemento —, `canonico` e
+  `mesmos_elementos`, `tipo_escrito`, `retorno_da_funcao`, `anulavel`, `tipo_da_variavel`,
+  `parametro_do_super`, `campo_da_classe`, `busca_na_cadeia`, `elemento_da_funcao`,
+  `versao_ao_menos`, `em_teste_do_pacote`; os comentários de `frontend::comentarios` com o
+  `findDartDoc`; os valores de string decodificados de `cordas`); sem a semântica da unidade, essas
+  regras não relatam. Vieram junto as lacunas achadas na revisão contra os emissores (o nome solto em
+  padrão refutável é constante, o atalho `:x?`, os `@docImport`, o argumento nomeado de `RegExp`, o
+  prefixo/alvo de chamada em `recursive_getters`, o conjunto da última classe em
+  `prefer_asserts_in_initializer_lists`, o `required` nomeado sem padrão em `parameter_assignments`).
+  Novos dados do motor: `OutlineTypes::tipos_escritos`, `UnitBodyTypes::declaracoes_de_padroes`.
 
 Cada verificador é um módulo novo em `crates/analise/src/`, chamado no ponto
 da ordem da §1.2. Os códigos de cada um estão nos lotes II.7 e II.8 (II.8 com
