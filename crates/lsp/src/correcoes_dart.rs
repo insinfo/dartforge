@@ -62,6 +62,11 @@ impl Contexto<'_> {
         None
     }
 
+    /// `thisOrAncestorOfType` pela espécie.
+    pub(crate) fn este_ou_ancestral_pub(&self, n: usize, especie: &str) -> Option<usize> {
+        self.este_ou_ancestral(n, |e| e == especie)
+    }
+
     /// `range.nodeInList(list, item)`.
     pub(crate) fn no_em_lista(&self, lista: &[usize], item: usize) -> Span {
         let s = self.arvore.span(item);

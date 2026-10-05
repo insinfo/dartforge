@@ -248,9 +248,24 @@ pub(crate) fn corrigir(projeto: &mut Projeto, uri: &str, diagnosticos: &[Diagnos
                     saida.push(acao(uri, "Remove the assertion".into(), "quickfix.remove.assertion", vec![(s, String::new())], d));
                 }
             }
+            "cast_to_non_type" | "not_a_type" => {
+                saida.extend(projeto.criar_para_diagnostico(unidade, d, crate::criar::Codigo::NaoTipo));
+            }
+            "implements_non_class" | "mixin_of_non_class" | "new_with_non_type" => {
+                saida.extend(projeto.criar_para_diagnostico(unidade, d, crate::criar::Codigo::NaoClasse));
+            }
+            "invalid_annotation" | "undefined_annotation" => {
+                saida.extend(projeto.criar_para_diagnostico(unidade, d, crate::criar::Codigo::Anotacao));
+            }
+            "undefined_extension_getter" => saida.extend(projeto.criar_para_diagnostico(unidade, d, crate::criar::Codigo::GetterDeExtensao)),
+            "undefined_extension_method" => saida.extend(projeto.criar_para_diagnostico(unidade, d, crate::criar::Codigo::MetodoDeExtensao)),
+            "undefined_extension_setter" => saida.extend(projeto.criar_para_diagnostico(unidade, d, crate::criar::Codigo::SetterDeExtensao)),
             "implements_repeated" | "implements_super_class" | "mixin_super_class_constraint_non_interface" | "subtype_of_disallowed_type" | "invalid_use_of_type_outside_library" | "extends_non_class" => {
                 // `RemoveNameFromDeclarationClause` (no `extends_non_class`,
-                // depois dos de nome indefinido).
+                // depois de `ChangeTo.classOrMixin` e `CreateClass`).
+                if codigo == "extends_non_class" {
+                    saida.extend(projeto.criar_para_diagnostico(unidade, d, crate::criar::Codigo::NaoClasse));
+                }
                 let cx = crate::refatoracoes::Contexto::novo(projeto, unidade);
                 if let Some((titulo, s)) = cx.remover_nome_da_clausula(d.span) {
                     saida.push(acao(uri, titulo, "quickfix.remove.nameFromDeclarationClause", vec![(s, String::new())], d));

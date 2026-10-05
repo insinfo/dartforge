@@ -359,7 +359,7 @@ impl Analisador for AnalisadorSemantico {
             saida.extend(todas);
             saida.extend(crate::correcoes::argumentos_requeridos(&projeto, uri, linha_ini, linha_fim));
             if let Some(unidade) = projeto.unidade_do_uri(uri) {
-                let criadas = projeto.criar_indefinidos(uri, unidade, inicio, fim);
+                let criadas = projeto.criar_indefinidos(uri, unidade, linha_ini, linha_fim);
                 saida.extend(criadas);
             }
             saida.extend(crate::acoes::assistencias(&projeto, uri, inicio, fim));
