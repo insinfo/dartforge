@@ -316,6 +316,31 @@ fn percurso_conferido_contra_a_pilha_sombra() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// D7 por extern (§7.3, §7.5): com a conferência da tabela de efeitos
+/// (`DARTFORGE_EFEITOS=conferir`), cada extern marcada folha roda vigiada, e
+/// uma coleta dentro dela encerra o processo dizendo o nome. O D1 passa; com
+/// a folha falsa (`folha:dartforge_string_concat`), cai, e a mensagem diz a
+/// extern.
+#[test]
+fn folha_que_coleta_e_achada_pelo_nome() {
+    if !ligado() {
+        return;
+    }
+    let dir = dir_de_trabalho("efeitos");
+    let caso = &CASOS[0];
+    let exe = dir.join(format!("efeitos{}", std::env::consts::EXE_SUFFIX));
+    compilar(caso.arquivo, false, false, &[("DARTFORGE_EFEITOS", "conferir")], &exe).unwrap_or_else(|e| panic!("não compilou:\n{e}"));
+    let r = rodar(&exe, &[]);
+    assert!(saida_certa(&r, caso.esperado), "com a conferência: {}", String::from_utf8_lossy(&r.stderr));
+    let sab = dir.join(format!("efeitos-sab{}", std::env::consts::EXE_SUFFIX));
+    compilar(caso.arquivo, false, false, &[("DARTFORGE_EFEITOS", "conferir"), ("DARTFORGE_SABOTAGEM", "folha:dartforge_string_concat")], &sab)
+        .unwrap_or_else(|e| panic!("não compilou com a sabotagem:\n{e}"));
+    let r = rodar(&sab, &[]);
+    let stderr = String::from_utf8_lossy(&r.stderr).into_owned();
+    assert!(!r.status.success() && stderr.contains("dartforge_string_concat"), "a folha falsa não foi achada ({}):\n{stderr}", r.status);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// §7.5: a coleta agendada por semente, no lugar do estresse total.
 #[test]
 fn coleta_agendada_por_semente() {

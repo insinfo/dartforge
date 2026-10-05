@@ -761,7 +761,10 @@ pub fn marcas_a_conferir(nome: &str) -> i64 {
         return 0;
     }
     let e = efeitos_de(nome);
-    i64::from(!e.aloca && !e.chama_dart) | (i64::from(!e.lanca && !e.chama_dart) << 1)
+    // A folha sabotada (`folha:<nome>`, o D7 do §7.3) é conferida como
+    // folha: a coleta dentro dela encerra o processo, dizendo o nome.
+    let aloca = e.aloca && !crate::alvo::folha_sabotada(nome);
+    i64::from(!aloca && !e.chama_dart) | (i64::from(!e.lanca && !e.chama_dart) << 1)
 }
 
 #[cfg(test)]

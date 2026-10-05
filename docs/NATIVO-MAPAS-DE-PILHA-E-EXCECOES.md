@@ -2419,7 +2419,11 @@ O veneno liga a validação de handle.
 
 Não ficou: D5 (a sabotagem `undef` no lugar de `null` não existe no emissor), D8 e D9 (as sabotagens
 "reduzir a folga" e "chamar Dart sem a porta"), D12 (o registro dos caches do runtime), e o contador por
-extern do D7 (o D7 usa a sabotagem `folha:` sobre o D1). O verificador do IR do §7.4 antes do RS4GC
+extern do D7 (o D7 usa a sabotagem `folha:` sobre o D1). **Estado em 2026-10-05:** o D7 por extern está
+escrito sobre a conferência da tabela de efeitos (`DARTFORGE_EFEITOS=conferir`, `RT/efeitos_conferir.rs`):
+a folha sabotada passa a ser conferida como folha (`externs::marcas_a_conferir`), e o teste
+`folha_que_coleta_e_achada_pelo_nome` exige que o D1 passe com a conferência e que, com
+`folha:dartforge_string_concat`, o processo caia dizendo o nome da extern. O verificador do IR do §7.4 antes do RS4GC
 está em `EN/llvm/verificar_mapas.rs` (chamado em `EN/lib.rs` e `EN/sdk_modulo.rs` em todo módulo do modo
 mapas): a conversão para `ptr addrspace(1)` só na forma `%raiz<v>`, nenhum `undef`/`poison` desse tipo,
 nenhum `ptr addrspace(1)` gravado em memória, e toda extern `"gc-leaf-function"` sem coletar nem chamar
