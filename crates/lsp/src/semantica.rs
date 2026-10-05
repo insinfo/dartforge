@@ -457,15 +457,23 @@ impl Analisador for AnalisadorSemantico {
     fn preparar_chamadas(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<crate::ItemDeChamada> {
         let projeto = self.biblioteca(documentos, uri)?;
         let unidade = projeto.unidade_do_uri(uri)?;
-        let f = projeto.executavel_em(unidade, offset)?;
-        projeto.item_de_chamada(f)
+        let e = projeto.alvo_de_chamada(unidade, offset)?;
+        projeto.item_de_chamada(e)
     }
 
-    fn chamadas(&mut self, documentos: &DocumentStore, origem: &str, uri: &str, offset: usize, recebidas: bool) -> Vec<(crate::ItemDeChamada, Vec<Span>)> {
-        let Some(projeto) = self.projeto(documentos, origem) else { return Vec::new() };
+    fn chamadas(&mut self, documentos: &DocumentStore, uri: &str, offset: usize, nome: &str, construtor: bool, recebidas: bool) -> Vec<(crate::ItemDeChamada, Vec<Span>)> {
+        let Some(projeto) = self.projeto(documentos, uri) else { return Vec::new() };
         let Some(unidade) = projeto.unidade_do_uri(uri) else { return Vec::new() };
-        let Some(f) = projeto.executavel_em(unidade, offset) else { return Vec::new() };
-        if recebidas { projeto.chamadas_recebidas(f) } else { projeto.chamadas_feitas(f) }
+        let Some((e, _)) = projeto.alvo_do_item(unidade, offset, nome, construtor) else { return Vec::new() };
+        if recebidas {
+            // Só executáveis recebem chamadas.
+            if !matches!(e, crate::chamadas::ElemDeChamada::Funcao(_) | crate::chamadas::ElemDeChamada::Local(..)) {
+                return Vec::new();
+            }
+            projeto.chamadas_recebidas(e)
+        } else {
+            projeto.chamadas_feitas(unidade, offset)
+        }
     }
 
     fn preparar_hierarquia(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<crate::ItemDeTipo> {

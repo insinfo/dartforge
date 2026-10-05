@@ -3975,6 +3975,29 @@ enum sem argumentos, implícita por classe/construtor de subclasse) em
 `[A.n]`); namespace por diretiva de import (qual import traz cada elemento usado);
 `VisibleRangesComputer` (12.9) para as checagens de sombra com os mesmos intervalos.
 
+### 12.12 Call hierarchy e type hierarchy: estado
+
+**Estado em 2026-10-05 (escrito, não compilado)**: `chamadas.rs` reescrito como porte do
+`DartCallHierarchyComputer`:
+
+* `alvo_de_chamada` é o `_findTargetNode` (`localizar2` no offset; `SimpleIdentifier` cujo pai
+  não é `VariableDeclaration` nem `AssignmentExpression` sobe para o pai) seguido do
+  `_getElementOfNode` (`ElementLocator`, construtor implícito pela classe, accessor sintético
+  → nada) e do filtro `_isValidTargetElement` (executáveis, construtores, funções locais);
+* o item (`item_de_chamada`) segue o `CallHierarchyItem` do servidor: nome de exibição (`get x`,
+  `set x`, `A.named`, `A`, nome do arquivo), espécie, `detail` = nome do contêiner, `range` =
+  código com a documentação, `selectionRange` = nome; o handler mapeia a espécie pelo
+  `toSymbolKindMapping` com o recuo do Dart (`File` → `Module`; não anunciada → `Object`);
+* `incomingCalls`/`outgoingCalls` reconstroem o elemento a partir do item do cliente (arquivo,
+  início de `selectionRange`, `name` e `kind`), sem `data`, como o `toServerItem`; elemento
+  não encontrado ou de outro nome → `-32801` `Content was modified since Call Hierarchy node
+  was produced`;
+* recebidas: referências do elemento agrupadas pelo contêiner (`_getContainer`: executável,
+  classe, extensão ou arquivo), na ordem de descoberta; feitas: o `_OutboundCallVisitor`
+  (`ConstructorName`, `FunctionReference`, `MethodInvocation`, `PrefixedIdentifier` fora de
+  `NamedType`, `PropertyAccess` e identificadores de funções fora de contexto de declaração) no
+  corpo do elemento, sem descer em funções locais, agrupadas pelo elemento chamado.
+
 ## 13. `textDocument/codeAction` e `workspace/executeCommand`
 
 ### 13.1 Fluxo

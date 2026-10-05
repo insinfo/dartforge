@@ -1593,26 +1593,38 @@ impl<A: Analisador> Servidor<A> {
                     return resposta(&id, Value::Null);
                 };
                 let item = self.analisador.preparar_chamadas(&self.documentos, &u, offset);
-                let valor = item.and_then(|i| self.item_de_chamada(&i, &u));
+                let valor = item.and_then(|i| self.item_de_chamada(&i));
                 resposta(&id, valor.map_or(Value::Null, |v| json!([v])))
             }
             "callHierarchy/incomingCalls" | "callHierarchy/outgoingCalls" => {
-                let dados = mensagem.pointer("/params/item/data");
-                let alvo = dados.and_then(|d| d.get("uri")).and_then(Value::as_str).map(str::to_string);
-                let origem = dados.and_then(|d| d.get("origem")).and_then(Value::as_str).map(str::to_string);
-                let offset = dados.and_then(|d| d.get("offset")).and_then(Value::as_u64);
-                let (Some(alvo), Some(origem), Some(offset)) = (alvo, origem, offset) else {
-                    return erro(&id, -32602, "CallHierarchyItem sem o campo data");
+                // `toServerItem`: o arquivo, o nome em `selectionRange` e o
+                // nome exibido do item do cliente.
+                let item = mensagem.pointer("/params/item");
+                let uri = item.and_then(|i| i.get("uri")).and_then(Value::as_str).map(str::to_string);
+                let nome = item.and_then(|i| i.get("name")).and_then(Value::as_str).unwrap_or("").to_string();
+                let construtor = item.and_then(|i| i.get("kind")).and_then(Value::as_u64) == Some(9);
+                let inicio = item.and_then(|i| i.pointer("/selectionRange/start")).cloned();
+                let Some(uri) = uri else { return resposta(&id, json!([])) };
+                if !uri.ends_with(".dart") {
+                    return resposta(&id, json!([]));
+                }
+                let offset = inicio.and_then(|p| {
+                    let linha = p.get("line")?.as_u64()? as u32;
+                    let coluna = p.get("character")?.as_u64()? as u32;
+                    self.offset_no_arquivo(&uri, linha, coluna)
+                });
+                let Some(offset) = offset else {
+                    return erro(&id, CONTEUDO_MODIFICADO, "Content was modified since Call Hierarchy node was produced");
                 };
                 let recebidas = metodo == "callHierarchy/incomingCalls";
-                let chamadas = self.analisador.chamadas(&self.documentos, &origem, &alvo, offset as usize, recebidas);
+                let chamadas = self.analisador.chamadas(&self.documentos, &uri, offset, &nome, construtor, recebidas);
                 let mut saida = Vec::new();
                 for (item, spans) in chamadas {
                     // Recebidas: intervalos no arquivo de quem chama; feitas:
                     // no arquivo do item pedido.
-                    let arquivo = if recebidas { item.uri.clone() } else { alvo.clone() };
+                    let arquivo = if recebidas { item.uri.clone() } else { uri.clone() };
                     let faixas: Vec<Value> = spans.iter().filter_map(|s| self.faixa(&arquivo, *s)).collect();
-                    let Some(v) = self.item_de_chamada(&item, &origem) else { continue };
+                    let Some(v) = self.item_de_chamada(&item) else { continue };
                     saida.push(if recebidas { json!({"from": v, "fromRanges": faixas}) } else { json!({"to": v, "fromRanges": faixas}) });
                 }
                 resposta(&id, json!(saida))
@@ -1662,20 +1674,38 @@ impl<A: Analisador> Servidor<A> {
         }
     }
 
-    /// Um `CallHierarchyItem`, com o arquivo e o offset do nome em `data`.
-    fn item_de_chamada(&self, item: &crate::ItemDeChamada, origem: &str) -> Option<Value> {
+    /// Um `CallHierarchyItem` (`toLspItem`): a espécie pelo
+    /// `toSymbolKindMapping` com o recuo (`File` → `Module`; outra não
+    /// anunciada ou desconhecida → `Object`), sem `data`.
+    fn item_de_chamada(&self, item: &crate::ItemDeChamada) -> Option<Value> {
+        let aceitas: Vec<u64> = self.tipos_de_simbolo.clone().unwrap_or_else(|| (1..=18).collect());
+        let especie = match item.especie.simbolo() {
+            Some(k) if aceitas.contains(&u64::from(k)) => u64::from(k),
+            Some(1) => 2,
+            _ => 19,
+        };
         let mut v = json!({
             "name": item.nome,
-            "kind": item.especie,
+            "kind": especie,
             "uri": item.uri,
             "range": self.faixa(&item.uri, item.intervalo)?,
             "selectionRange": self.faixa(&item.uri, item.selecao)?,
-            "data": {"uri": item.uri, "offset": item.selecao.start, "origem": origem},
         });
         if let Some(d) = &item.detalhe {
             v["detail"] = json!(d);
         }
         Some(v)
+    }
+
+    /// O offset (bytes) de uma posição LSP de `uri` (aberto ou no disco).
+    fn offset_no_arquivo(&self, uri: &str, linha: u32, coluna: u32) -> Option<usize> {
+        if let (Some(texto), Some(tabela)) = (self.documentos.get(uri), self.documentos.linhas(uri)) {
+            return Some(tabela.offset_de_posicao(texto, linha, coluna));
+        }
+        let caminho = url::Url::parse(uri).ok()?.to_file_path().ok()?;
+        let fonte = std::fs::read_to_string(caminho).ok()?;
+        let tabela = crate::utf16::TabelaLinhas::construir(&fonte);
+        Some(tabela.offset_de_posicao(&fonte, linha, coluna))
     }
 
     /// Um `TypeHierarchyItem` (espécie 5, classe, como o Dart), com o

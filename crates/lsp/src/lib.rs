@@ -77,7 +77,7 @@ pub use renomear::{Edicao, RenomearArquivo, Renomeacao};
 pub use acoes::AcaoDeCodigo;
 pub use refatoracoes::{ComandoDeRefatoracao, PedidoDeRefatoracao, Refatoracao, ResultadoDeRefatoracao};
 pub use assinatura::Assinatura;
-pub use chamadas::ItemDeChamada;
+pub use chamadas::{EspecieDeChamada, ItemDeChamada};
 pub use dicas::Dica;
 pub use estrutura::Dobra;
 pub use sessao::EstatisticasSessao;
@@ -550,10 +550,11 @@ pub trait Analisador {
         None
     }
 
-    /// Chamadas recebidas (`true`) ou feitas pelo executável cujo nome está
-    /// em `offset` de `uri`, com os intervalos de cada uma (no arquivo de
-    /// quem chama); `origem` é o documento em que a hierarquia foi pedida.
-    fn chamadas(&mut self, _documentos: &DocumentStore, _origem: &str, _uri: &str, _offset: usize, _recebidas: bool) -> Vec<(ItemDeChamada, Vec<dartforge_diagnostics::Span>)> {
+    /// Chamadas recebidas (`true`) ou feitas pelo item do cliente: o nome
+    /// em `offset` de `uri`, o nome exibido (o `_isMatchingElement`) e se a
+    /// espécie é construtor (o construtor sem nome implícito da classe); os
+    /// intervalos de cada uma (no arquivo de quem chama, nas recebidas).
+    fn chamadas(&mut self, _documentos: &DocumentStore, _uri: &str, _offset: usize, _nome: &str, _construtor: bool, _recebidas: bool) -> Vec<(ItemDeChamada, Vec<dartforge_diagnostics::Span>)> {
         Vec::new()
     }
 
