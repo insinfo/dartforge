@@ -799,9 +799,22 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     /// `try {} (on T (catch (e, st))? {})* (catch (e, st) {})* (finally {})?`
+    /// `ensureBlock(token, kind)` de um `try`/`catch`/`finally`: sem `{`, o
+    /// `EXPECTED_*_BODY` no token anterior e um bloco vazio sintético no
+    /// lugar do seguinte.
+    fn bloco_exigido(&mut self, codigo: dartforge_diagnostics::Codigo) -> PResult<StmtId> {
+        if self.at_op(Op::LBrace) {
+            return self.parse_block();
+        }
+        let anterior = self.tokens[self.pos.saturating_sub(1)].span;
+        self.erro_em(codigo, anterior, &[]);
+        let aqui = self.span().start;
+        Ok(self.ast.push_stmt(crate::ast::Stmt { span: Span { start: aqui, end: aqui }, kind: StmtKind::Block(Vec::new().into_boxed_slice()) }))
+    }
+
     fn parse_try(&mut self, start: Span) -> PResult<StmtId> {
         self.advance();
-        let body = self.parse_block()?;
+        let body = self.bloco_exigido(codigos::parser::EXPECTED_TRY_STATEMENT_BODY)?;
         let mut catches = Vec::new();
         loop {
             let clause_start = self.span();
@@ -820,7 +833,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             } else {
                 break;
             }
-            let body = self.parse_block()?;
+            let body = self.bloco_exigido(codigos::parser::EXPECTED_CATCH_CLAUSE_BODY)?;
             catches.push(CatchClause {
                 span: self.span_from(clause_start),
                 on_type,
@@ -830,7 +843,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             });
         }
         let finally_ = if self.eat_kw(Keyword::Finally) {
-            Some(self.parse_block()?)
+            Some(self.bloco_exigido(codigos::parser::EXPECTED_FINALLY_CLAUSE_BODY)?)
         } else {
             None
         };
