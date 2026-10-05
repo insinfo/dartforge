@@ -229,6 +229,15 @@ fn verificar_elementos(
                     continue;
                 }
                 let sp = inf.span_expr(cx.unit, *value);
+                // `_verifySpreadForListOrSet`/`_verifySpreadForMap`
+                // (`literal_element_verifier.dart:176-213`, `:267-303`): o que
+                // não é `Iterable`/`Map`.
+                let classe = if forma == Forma::Mapa { inf.core.map_class } else { inf.core.iterable_class };
+                if inf.como_instancia_de(tx, classe).is_none() {
+                    let codigo = if forma == Forma::Mapa { ce::NOT_MAP_SPREAD } else { ce::NOT_ITERABLE_SPREAD };
+                    inf.aviso_com_codigo(codigo, sp, &[]);
+                    continue;
+                }
                 if forma == Forma::Mapa {
                     let Some(m) = inf.como_instancia_de(tx, inf.core.map_class) else { continue };
                     if args.len() < 2 || m.len() < 2 {
@@ -421,6 +430,9 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, f
             };
             if *null_aware {
                 super::expr::espalhamento_nulo_desnecessario(inf, cx, *value, t);
+            } else {
+                // `ResolverVisitor.visitSpreadElement` (`resolver.dart:3673-3692`).
+                super::expr::desreferencia_anulavel(inf, cx, *value, t, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_USE_OF_NULLABLE_VALUE_IN_SPREAD);
             }
             let t = inf.nao_nulo(t);
             if inf.e_dynamic(t) {

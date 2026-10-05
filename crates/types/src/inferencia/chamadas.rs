@@ -531,6 +531,13 @@ fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, t: TypeI
     }
     match inf.table.get(t_nn).clone() {
         Type::Function { .. } => {
+            // `FunctionExpressionInvocationResolver.resolve`
+            // (`function_expression_invocation_resolver.dart:52-58`): a função
+            // de tipo de função anulável, no nó da função.
+            if let ExprKind::Call { target, .. } = &inf.program.unit(cx.unit).ast.expr(e).kind {
+                let funcao = *target;
+                expr::desreferencia_anulavel(inf, cx, funcao, t, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_INVOCATION_OF_NULLABLE_VALUE);
+            }
             inf.alvo_da_aridade = alvo;
             invocar(inf, cx, t_nn, args, ctx, explicitos)
         }

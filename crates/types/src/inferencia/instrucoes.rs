@@ -360,6 +360,10 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                 let ctx = if m == AsyncModifier::AsyncStar { inf.fluxo_de(k) } else { inf.iteravel(k) };
                 let t = inferir(inf, cx, *value, ctx);
                 expr::uso_de_void(inf, cx, *value, t);
+                // `YieldStatementResolver._resolve_generator` (`:171-175`).
+                if matches!(m, AsyncModifier::SyncStar | AsyncModifier::AsyncStar) {
+                    expr::desreferencia_anulavel(inf, cx, *value, t, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_USE_OF_NULLABLE_VALUE_IN_YIELD_EACH);
+                }
                 yield_invalido(inf, cx, *value, t, declarado, true, m);
                 let classe = if m == AsyncModifier::AsyncStar { inf.core.stream_class } else { inf.core.iterable_class };
                 let el = if inf.e_dynamic(t) { inf.core.dynamic_ } else { inf.como_instancia_de(t, classe).map(|a| a[0]).unwrap_or(inf.core.dynamic_) };
@@ -942,6 +946,8 @@ pub(crate) fn cabecalho_for_in(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, targe
     };
     let t = inferir(inf, cx, iterable, ctx);
     expr::uso_de_void(inf, cx, iterable, t);
+    // `ForResolver._forEachParts` (`for_resolver.dart:164-169`).
+    expr::desreferencia_anulavel(inf, cx, iterable, t, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_USE_OF_NULLABLE_VALUE_AS_ITERATOR);
     for_in_tipo_invalido(inf, cx, target, iterable, t, escrito, await_);
     // `_computeForEachElementType` (`for_resolver.dart:92-116`): iterável
     // `dynamic` dá `dynamic`; o que não é `Iterable`/`Stream` (inclusive o

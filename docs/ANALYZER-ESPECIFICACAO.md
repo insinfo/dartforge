@@ -7388,6 +7388,12 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
   literals must implement 'Iterable'." / "Spread elements in map literals must implement 'Map'."
 - **No DartForge:** não existe. Mesmo lugar do `map_entry_not_in_map`; amostras `[...a]` com `a` int,
   dentro de `for`/`if` elementos, `<int,int>{...a}`.
+- **Estado em 2026-10-05 (escrito, não compilado):** `colecoes::verificar_elementos` relata os dois
+  (o tipo não nulo sem instância de `Iterable`/`Map`, fora de `dynamic`, `Never`, `Null` e `void`). As
+  variantes `…_AS_ITERATOR`, `…_IN_SPREAD`, `…_IN_YIELD_EACH` e `UNCHECKED_INVOCATION_OF_NULLABLE_VALUE`
+  do `unchecked_use_of_nullable_value` saem por `expr::desreferencia_anulavel` (o
+  `NullableDereferenceVerifier`), no `for-in`, no espalhamento sem `?`, no `yield*` de gerador e na
+  invocação de tipo de função anulável.
 
 ##### `unqualified_reference_to_non_local_static_member` (perda 9: FN 9) e `unqualified_reference_to_static_member_of_extended_type` (perda 8: FN 8)
 - **Emissão:** `ErrorVerifier._checkForUnqualifiedReferenceToNonLocalStaticMember`

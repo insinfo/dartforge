@@ -3455,6 +3455,17 @@ fn verificar_bool(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, uso: UsoBoo
 /// do operador ao `null`; e, no resolvedor (`binary_expression_resolver.dart:
 /// 128-160`), uma local definitivamente não atribuída comparada com `null`
 /// (`ALWAYS_NULL`).
+/// `NullableDereferenceVerifier.expression` (`an611:src/error/nullable_dereference_verifier.dart:33-90`):
+/// na expressão inteira, quando o tipo não é `dynamic`, inválido nem não
+/// anulável; com o tipo `Null`, o `INVALID_USE_OF_NULL_VALUE`.
+pub(crate) fn desreferencia_anulavel(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, t: TypeId, codigo: dartforge_diagnostics::Codigo) {
+    if inf.e_dynamic(t) || inf.table.e_invalido(t) || inf.e_nao_anulavel(t) {
+        return;
+    }
+    let sp = inf.span_expr(cx.unit, e);
+    inf.aviso_de_nulo(t, codigo, sp, &[]);
+}
+
 /// `isDoubleNan` (`an611:src/error/best_practices_verifier.dart:2093-2100`):
 /// o `PrefixedIdentifier` `double.nan`, só pela forma escrita.
 pub(crate) fn e_double_nan(inf: &BodyInferrer<'_>, cx: &Corpo, x: ExprId) -> bool {
