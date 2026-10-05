@@ -15879,6 +15879,16 @@ chamadas genéricas (`<int>` em `math.max`) e de tipos crus (`<dynamic>`,
 `dynamic`); três argumentos de tipo a mais em criações cujo tipo já tem
 argumentos implícitos.
 
+**Estado em 2026-10-05 (escrito, não compilado), M3 e o resto do visitor.** `crates/lsp/src/dicas.rs`
+lê os argumentos de tipo escolhidos de cada invocação genérica na tabela `instanciacoes` da inferência,
+pelo início da lista de argumentos. A dica `<…>` vai antes do `(` quando não há argumentos escritos e a
+chamada não é criação implícita. O `visitNamedType` percorre todo tipo nomeado escrito sem argumentos
+(`tipos_de_anotacoes` do corpo, senão `tipos_escritos` do outline), fora o das criações, que já têm a dica
+pela criação. Os cabeçalhos de `for (var i = 0; …)`, de instrução e de coleção, entram como
+`VariableDeclarationList`. Os nomes de parâmetro vêm da declaração pública (`declaracao_publica`) dos
+membros de patch do SDK. Os rótulos de tipo saem sem alias (`_appendTypePart` usa o nome do elemento).
+Fica de fora o `InvalidType` (M2), que a inferência guarda como `dynamic`.
+
 ## 16. Latência do completar e arquitetura incremental no DartForge
 
 **Medido** (release, Windows; oráculo e `crates/lsp/examples/latencia_recursos.rs`):

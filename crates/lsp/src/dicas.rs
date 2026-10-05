@@ -13,7 +13,15 @@
 //!   declarados;
 //! * argumentos de tipo inferidos (`<int>`) antes do `[`/`{` de literal de
 //!   coleção sem argumentos escritos, e depois do nome da classe numa
-//!   criação de instância sem argumentos escritos.
+//!   criação de instância sem argumentos escritos;
+//! * os argumentos de tipo escolhidos de uma invocação genérica sem
+//!   argumentos escritos (`visitInvocationExpression`, os `typeArgumentTypes`),
+//!   antes do `(`;
+//! * os argumentos de um tipo nomeado escrito sem eles (`visitNamedType`:
+//!   `List` cru dá `<dynamic>`), depois do tipo.
+//!
+//! Os nomes de parâmetro de uma função do SDK são os da declaração pública,
+//! não os do patch (o analyzer não aplica patches).
 //!
 //! O analyzer devolve as dicas do arquivo inteiro, sem olhar o intervalo
 //! pedido; aqui também. Tipos vêm da inferência comum (`tipo_local`,
@@ -105,6 +113,15 @@ impl Projeto {
                         }
                     }
                 }
+                // `for (var i = 0; …)`: a lista do cabeçalho também é
+                // `VariableDeclarationList` (`visitVariableDeclaration`).
+                StmtKind::For { init: Some(ast::ForInit::Variables(vl)), .. } if vl.ty.is_none() => {
+                    for var in vl.variables.iter() {
+                        if let Some(t) = corpos.tipo_local(var.name.span.start) {
+                            tipo(var.name.span.start, t, &mut saida);
+                        }
+                    }
+                }
                 StmtKind::ForIn { target: ast::ForInTarget::Declared { ty: None, name, .. }, .. } => {
                     if let Some(t) = corpos.tipo_local(name.span.start) {
                         tipo(name.span.start, t, &mut saida);
@@ -145,10 +162,76 @@ impl Projeto {
                 }
             }
         }
+        // Os tipos nomeados das criações (`new C()`) têm a dica pela criação.
+        let mut de_criacao: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        for e in ast.exprs.iter() {
+            match &e.kind {
+                ExprKind::InstanceCreation { ty, .. } => {
+                    de_criacao.insert(ty.0);
+                }
+                // `[for (var i = 0; …) i]`: o cabeçalho do `for` de coleção.
+                ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } => {
+                    fn varrer(els: &[ast::CollectionElement], corpos: &dartforge_types::UnitBodyTypes, f: &mut dyn FnMut(usize, TypeId)) {
+                        for el in els {
+                            match el {
+                                ast::CollectionElement::For { init, body, .. } => {
+                                    if let Some(ast::ForInit::Variables(vl)) = init
+                                        && vl.ty.is_none()
+                                    {
+                                        for var in vl.variables.iter() {
+                                            if let Some(t) = corpos.tipo_local(var.name.span.start) {
+                                                f(var.name.span.start, t);
+                                            }
+                                        }
+                                    }
+                                    varrer(std::slice::from_ref(body), corpos, f);
+                                }
+                                ast::CollectionElement::ForIn { body, .. } => varrer(std::slice::from_ref(body), corpos, f),
+                                ast::CollectionElement::If { then, else_, .. } => {
+                                    varrer(std::slice::from_ref(then), corpos, f);
+                                    if let Some(x) = else_ {
+                                        varrer(std::slice::from_ref(x), corpos, f);
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    let mut achados: Vec<(usize, TypeId)> = Vec::new();
+                    varrer(elements, corpos, &mut |o, t| achados.push((o, t)));
+                    for (o, t) in achados {
+                        tipo(o, t, &mut saida);
+                    }
+                }
+                _ => {}
+            }
+        }
+        // `visitNamedType`: tipo escrito sem argumentos cujo tipo os tem.
+        for (i, ty) in ast.types.iter().enumerate() {
+            let ast::TypeKind::Named { args, .. } = &ty.kind else { continue };
+            if !args.is_empty() || de_criacao.contains(&(i as u32)) {
+                continue;
+            }
+            let id = ast::TypeId(i as u32);
+            let resolvido = corpos.tipos_de_anotacoes.get(&id).or_else(|| self.consulta.outline.tipos_escritos.get(&(unidade, id))).copied();
+            self.argumentos_de_tipo(resolvido, ty.span.end, &mut saida);
+        }
         for (i, e) in ast.exprs.iter().enumerate() {
             let id = ast::ExprId(i as u32);
             match &e.kind {
                 ExprKind::Call { target, arguments } => {
+                    // `visitInvocationExpression`: os argumentos de tipo
+                    // escolhidos, antes do `(`, sem argumentos escritos (a
+                    // criação implícita não é invocação).
+                    if arguments.type_args.is_empty()
+                        && !matches!(corpos.get_resolved(id), Some(Resolved::Constructor(_)))
+                        && let Some(escolhidos) = corpos.instanciacao(arguments.span.start)
+                        && !escolhidos.is_empty()
+                    {
+                        let abre = u.source[arguments.span.start..].find('(').map_or(arguments.span.start, |k| arguments.span.start + k);
+                        let textos: Vec<String> = escolhidos.iter().map(|a| self.texto_de_tipo(*a)).collect();
+                        saida.push(Dica { offset: abre, rotulo: format!("<{}>", textos.join(", ")), especie: 1, espaco_depois: false });
+                    }
                     let f = match corpos.get_resolved(id) {
                         Some(Resolved::Constructor(f)) => Some(*f),
                         _ => match corpos.get_resolved(*target) {
@@ -226,9 +309,11 @@ impl Projeto {
         saida.push(Dica { offset, rotulo: self.consulta.formatar(t), especie: 1, espaco_depois: true });
     }
 
-    /// Nomes dos parâmetros posicionais de `f`, na ordem.
+    /// Nomes dos parâmetros posicionais de `f`, na ordem (os da declaração
+    /// pública de um membro de patch do SDK).
     fn nomes_posicionais(&self, f: FunctionElementId) -> Vec<String> {
         let p = self.programa();
+        let f = p.function(f).declaracao_publica.unwrap_or(f);
         let (unit, ps): (UnitId, &[ast::Parameter]) = match p.function(f).node {
             FunctionRef::Function { unit, function } => (unit, p.unit(unit).ast.function(function).parameters.as_deref().unwrap_or(&[])),
             FunctionRef::Constructor { unit, member } => match &p.unit(unit).ast.member(member).kind {
@@ -268,8 +353,14 @@ impl Projeto {
         if args.is_empty() {
             return;
         }
-        let textos: Vec<String> = args.iter().map(|a| self.consulta.formatar(*a)).collect();
+        let textos: Vec<String> = args.iter().map(|a| self.texto_de_tipo(*a)).collect();
         saida.push(Dica { offset, rotulo: format!("<{}>", textos.join(", ")), especie: 1, espaco_depois: false });
+    }
+
+    /// `_appendTypePart`: o nome do elemento (não o do alias), os argumentos
+    /// e o `?`; o resto pelo `getDisplayString`.
+    fn texto_de_tipo(&self, t: TypeId) -> String {
+        self.consulta.tabela.format_sem_alias(t, &self.consulta.nomes, &self.consulta.programa)
     }
 }
 
