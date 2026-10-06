@@ -512,6 +512,12 @@ Base comum: a resolução de membro passa por `TypePropertyResolver.resolve` (`a
 - **Supressões e ordem:** `super` → `UNDEFINED_SUPER_OPERATOR`; override de extensão → `UNDEFINED_EXTENSION_OPERATOR`; `dynamic`/`Never` nada.
 - **No DartForge:** binário em `expr.rs` (:2185-2215, já com código); falta índice (`[]=` sai como `UNDEFINED_METHOD`, `[]` sem relato), prefixo/pósfixo (`++a`, `-a`, `~s`). Causas: **11 FN índice** (`UndefinedOperator__index*`, `static_extension_getter_setter_conflicts` 9, `string_test`, `first_class_types_literals`), **8 FN `++`/`--`/`-`** (`prefix/postfixExpression*`, `string/no_operator_test`), **2 FN `variance/syntax`** (experimento); **10 FP `number_operator_error_test`** (`O extends num?` promovido a `O & int` — o operador deve ser procurado no limite **promovido** `int`, não em `O`).
   **Mudança:** índice com o span `[..]` e os dois nomes; pré/pós-fixos no token; buscar operadores em tipos interseção pelo limite promovido.
+- **Correções e estado (2026-10-06):** (1) prefixo/sufixo (`-x`, `~x`, `++x`, `x--`) sem o operador no tipo:
+  `UNDEFINED_OPERATOR` no token do operador (`'unary-'`, `'~'`, `'+'`, `'-'`), salvo receptor anulável (é o
+  `unchecked_*`), `void`, tipo de função, inválido, e o operando que é tipo (`C++`, `dynamic++`: só
+  `assignment_to_type`); (2) `x[i]++` procura também o `[]=` e relata os dois quando faltam; (3) a regra do par do
+  `TypePropertyResolver` (INFERENCIA §8.1, passo 5a): `[]` de extensão não vale se a interface tem `[]=`, e
+  vice-versa. 59 de 62.
 
 ##### `undefined_function` (perda 25: FN 25)
 - **Emissão:** `MethodInvocationResolver._reportUndefinedFunction` (`analyzer/lib/src/dart/resolver/method_invocation_resolver.dart:296-310`), de `_resolveReceiverNull` (sem elemento no escopo **e** `thisType == null`, :620-629) e `_resolveReceiverPrefix` (`p.f()` sem `f` no prefixo, :718-724); também `library_analyzer.dart:600-608` (`loadLibrary`?).

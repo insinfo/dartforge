@@ -379,6 +379,20 @@ impl<'a> BodyInferrer<'a> {
         if let Some(m) = self.membro_de_interface(recv, nome, setter) {
             return Busca::Achado(m);
         }
+        // `_lookupInterfaceType` procura também o par (o setter `nome=` de um
+        // getter, o getter de um setter; `[]=` de `[]` e vice-versa): se a
+        // interface tem um dos dois, `_hasGetterOrSetter` e as extensões não
+        // são consultadas (`type_property_resolver.dart:181-185, 251-281`).
+        let par = if Some(nome) == self.sym.indice {
+            self.sym.indice_set.and_then(|s| self.membro_de_interface(recv, s, false))
+        } else if Some(nome) == self.sym.indice_set {
+            self.sym.indice.and_then(|s| self.membro_de_interface(recv, s, false))
+        } else {
+            self.membro_de_interface(recv, nome, !setter)
+        };
+        if par.is_some() {
+            return Busca::Ausente;
+        }
         if let Some(m) = self.membro_de_extensao(lib, recv, nome, setter) {
             return Busca::Achado(m);
         }

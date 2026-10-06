@@ -1351,7 +1351,7 @@ padrão relacional, getter de padrão de objeto) passa por aqui
 | 3 | anulabilidade: tipo de extensão só é anulável se escrito `V?`; os outros por `isPotentiallyNullable` | | 92-97 |
 | 4 | receptor **anulável**: (a) membros de `Object`; (b) senão extensões aplicáveis ao tipo anulável; (c) senão erro `UNCHECKED_*_OF_NULLABLE_VALUE` e recuperação por `resolveToBound` | | 99-177 |
 | 5 | não anulável: `resolveToBound(receptor)` | | 179 |
-| 5a | interface | `_lookupInterfaceType`; **membro da interface vence extensão** | 181-185 |
+| 5a | interface | `_lookupInterfaceType`; **membro da interface vence extensão** — e basta o **par** existir: a busca de `x` procura também `x=` (e a de `[]`, o `[]=`; o nome do par é `'$_name='`), e com qualquer dos dois na interface (`_hasGetterOrSetter`) as extensões não são consultadas: ler `x` com só `set x` na interface é `undefined_getter`/`undefined_identifier`, mesmo com extensão que declara `get x` | 181-185, 251-281 |
 | 5b | `Function` e nome `call` | sem erro, sem elemento | 186-191 |
 | 5c | tipo de função e nome `call` | o próprio tipo de função | 194-201 |
 | 5d | `Never` | busca em `Object`, erros suprimidos | 203-208 |

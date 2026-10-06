@@ -3135,7 +3135,7 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
             let Some(sym) = sym else { return inf.core.dynamic_ };
             let nome = if op == UnaryOp::Neg { "unary-" } else { "~" };
             let sp_op = dartforge_diagnostics::Span { start: span.start, end: span.start + 1 };
-            nulo_em_unario(inf, cx, t, sym, nome, sp_op, operand);
+            let nulo = nulo_em_unario(inf, cx, t, sym, nome, sp_op, operand);
             match inf.buscar_membro(cx.lib, t, sym, false) {
                 Busca::Achado(m) => {
                     resolver(inf, cx, e, m.resolved.clone());
@@ -3145,6 +3145,10 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
                     }
                 }
                 Busca::Nunca => inf.core.never,
+                Busca::Ausente if !nulo => {
+                    operador_unario_indefinido(inf, t, nome, sp_op);
+                    inf.table.invalido(inf.core.dynamic_)
+                }
                 _ => inf.core.dynamic_,
             }
         }
@@ -3162,7 +3166,14 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
                     dartforge_diagnostics::Span { start: span.end.saturating_sub(2), end: span.end }
                 };
                 let nome = if bop == BinaryOp::Add { "+" } else { "-" };
-                nulo_em_unario(inf, cx, leitura, s, nome, sp_op, operand);
+                let nulo = nulo_em_unario(inf, cx, leitura, s, nome, sp_op, operand);
+                // `C++` com `C` tipo: só o `ASSIGNMENT_TO_TYPE` da escrita.
+                let de_tipo = referencia_a_tipo(inf, cx, operand).is_some()
+                    || matches!(&ast(inf, cx).expr(operand).kind, ExprKind::Identifier(n)
+                        if matches!(resolver_nome(inf, cx, n.sym, false), RefNome::TipoEmbutido | RefNome::TipoParam(_)));
+                if !nulo && !de_tipo && matches!(inf.buscar_membro(cx.lib, leitura, s, false), Busca::Ausente) {
+                    operador_unario_indefinido(inf, leitura, nome, sp_op);
+                }
             }
             let res = match sym.map(|s| inf.buscar_membro(cx.lib, leitura, s, false)) {
                 Some(Busca::Achado(m)) => {
@@ -3220,13 +3231,25 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
 /// potencialmente anulável: `UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE`
 /// no token do operador, pelo `TypePropertyResolver` (o `Null` puro é
 /// `INVALID_USE_OF_NULL_VALUE`), com as mensagens de não promoção do operando.
-fn nulo_em_unario(inf: &mut BodyInferrer<'_>, cx: &Corpo, recv: TypeId, sym: SymbolId, nome: &str, sp: dartforge_diagnostics::Span, operand: ExprId) {
+fn nulo_em_unario(inf: &mut BodyInferrer<'_>, cx: &Corpo, recv: TypeId, sym: SymbolId, nome: &str, sp: dartforge_diagnostics::Span, operand: ExprId) -> bool {
     if !inf.exige_checagem_de_nulo(cx.lib, recv, sym, false) {
-        return;
+        return false;
     }
     let desde = inf.diagnostics.len();
     inf.aviso_de_nulo(recv, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE, sp, &[nome]);
     inf.anexar_nao_promocao(desde, cx, Some(operand), sp);
+    true
+}
+
+/// O operador de prefixo/sufixo que o tipo do operando não tem
+/// (`TypePropertyResolver` sem membro): `UNDEFINED_OPERATOR` no token do
+/// operador (`prefix_expression_resolver.dart`, `postfix_expression_resolver.dart`).
+fn operador_unario_indefinido(inf: &mut BodyInferrer<'_>, recv: TypeId, nome: &str, sp: dartforge_diagnostics::Span) {
+    if matches!(inf.table.get(recv), Type::Void | Type::Function { .. }) || inf.table.e_invalido(recv) {
+        return;
+    }
+    let tipo = inf.table.format(recv, inf.interner, inf.program);
+    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_OPERATOR, sp, &[nome, &tipo]);
 }
 
 fn check_final_local(inf: &mut BodyInferrer<'_>, cx: &Corpo, id: LocalId, span: dartforge_diagnostics::Span) {
@@ -3327,11 +3350,28 @@ fn ler_para_escrita(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, cu
             let u = inf.core.unknown;
             let (t, c) = ler_indice(inf, cx, alvo, target, index, null_aware, u);
             *curto_saida = c;
-            if let Some((x, args)) = cx.sobreposicoes.get(&target).cloned()
-                && inf.sym.indice_set.and_then(|s| inf.membro_de_extensao_explicita(x, &args, s, false)).is_none()
+            if let Some((x, args)) = cx.sobreposicoes.get(&target).cloned() {
+                if inf.sym.indice_set.and_then(|s| inf.membro_de_extensao_explicita(x, &args, s, false)).is_none() {
+                    let span = span_indice(inf, cx, alvo, target);
+                    avisar_operador_de_extensao(inf, x, "[]=", span);
+                }
+            } else if let Some(op) = inf.sym.indice_set
+                && let Some(recv) = inf.body_types.units[cx.unit.0 as usize].get_type(target)
+                && !matches!(ast(inf, cx).expr(target).kind, ExprKind::Super)
             {
-                let span = span_indice(inf, cx, alvo, target);
-                avisar_operador_de_extensao(inf, x, "[]=", span);
+                // `x[i]++`: o `[]=` também é procurado (o `writeElement` do
+                // `PropertyElementResolver`); ausente, `UNDEFINED_OPERATOR`
+                // no `[…]` (`_reportUnresolvedIndex`).
+                let r = if null_aware { inf.nao_nulo(recv) } else { recv };
+                let invalido = inf.table.e_invalido(r) || matches!(inf.table.get(r), Type::Dynamic | Type::Never | Type::Void);
+                if !invalido
+                    && !inf.exige_checagem_de_nulo(cx.lib, r, op, false)
+                    && matches!(inf.buscar_membro(cx.lib, r, op, false), Busca::Ausente)
+                {
+                    let span = span_indice(inf, cx, alvo, target);
+                    let tipo = inf.table.format(r, inf.interner, inf.program);
+                    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_OPERATOR, span, &["[]=", &tipo]);
+                }
             }
             registrar(inf, cx, alvo, t);
             (t, t, None)
