@@ -46,7 +46,9 @@ abstract class List<E> implements Iterable<E> {
   void add(E value);
   E removeLast();
 }
-abstract class Map<K, V> {}
+abstract class Map<K, V> {
+  external factory Map();
+}
 abstract class Set<E> implements Iterable<E> {}
 abstract class Function {}
 abstract class Record {}

@@ -8,6 +8,7 @@
 //! | `Convert to a spread`, `Inline invocation of 'addAll'` | `refactor.convert.toSpread`, `refactor.inline` | `ConvertAddAllToSpread` |
 //! | `Inline invocation of 'add'` | `refactor.inline` | `InlineInvocation` |
 //! | `Convert to an 'if' element` | `refactor.convert.toIfElement` | `ConvertConditionalExpressionToIfElement` |
+//! | `Convert to map literal` | `refactor.convert.toMapLiteral` | `ConvertToMapLiteral` |
 
 use crate::acoes::AcaoDeCodigo;
 use crate::refatoracoes::Contexto;
@@ -352,5 +353,65 @@ impl Contexto<'_> {
             }
         }
         Some(self.acao_simples(uri, "Convert to line documentation comment", "refactor.convert.lineComment", vec![(self.arvore.span(comentario), novas.concat())]))
+    }
+
+    /// `ConvertToMapLiteral` (convert_to_map_literal.dart): `Map()` ou
+    /// `LinkedHashMap()` sem argumentos vira `{}`, com os argumentos de tipo
+    /// escritos ou, fora de declaração tipada, os do tipo estático.
+    pub(crate) fn converter_em_literal_de_mapa(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
+        let no = self.arvore.localizar(inicio, fim)?;
+        let criacao = self.com_pais(no).find(|&k| self.especie(k) == "InstanceCreationExpression")?;
+        let argumentos = self.filhos(criacao).iter().copied().find(|&k| self.especie(k) == "ArgumentList")?;
+        let nome_do_construtor = self.filhos(criacao).iter().copied().find(|&k| self.especie(k) == "ConstructorName")?;
+        if self.arvore.nos[no].inicio > self.arvore.nos[argumentos].inicio || self.filhos(nome_do_construtor).len() > 1 || !self.filhos(argumentos).is_empty() {
+            return None;
+        }
+        let tipo = self.expr_do_no(criacao).and_then(|x| self.corpos.get_type(x))?;
+        let consulta = &self.p.consulta;
+        let prog = self.p.programa();
+        let dartforge_types::Type::Interface { class, args, .. } = consulta.tabela.get(tipo) else { return None };
+        let e_mapa = Some(*class) == consulta.core.map_class
+            || (self.p.nome(prog.class(*class).name) == "LinkedHashMap" && prog.library(prog.class(*class).library).uri == "dart:collection");
+        if !e_mapa {
+            return None;
+        }
+        let tipo_do_construtor = *self.filhos(nome_do_construtor).first()?;
+        let argumentos_escritos = self.filhos(tipo_do_construtor).iter().copied().find(|&k| self.especie(k) == "TypeArgumentList");
+        let mut texto = String::new();
+        let mut importar = std::collections::BTreeSet::new();
+        match argumentos_escritos {
+            Some(a) => texto.push_str(self.texto_do_no(a)),
+            None => {
+                let lista = self.com_pais(criacao).find(|&k| self.especie(k) == "VariableDeclarationList");
+                let lista_tipada = lista.is_some_and(|l| {
+                    self.filhos(l).iter().any(|&f| matches!(self.especie(f), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation"))
+                });
+                let todos_dynamic = args.first().is_some_and(|&a| matches!(consulta.tabela.get(a), dartforge_types::Type::Dynamic))
+                    && args.last().is_some_and(|&a| matches!(consulta.tabela.get(a), dartforge_types::Type::Dynamic));
+                if !lista_tipada && !args.is_empty() && !todos_dynamic {
+                    // `writeTypes`: cada um pelo `writeType`, com ", ".
+                    let mut escritor = crate::escrever_tipo::Escritor::novo(self, self.arvore.nos[criacao].inicio);
+                    let escritos: Vec<String> = args.iter().map(|&a| escritor.escrever_tipo(Some(a), false).unwrap_or_default()).collect();
+                    importar = escritor.importar;
+                    texto.push('<');
+                    texto.push_str(&escritos.join(", "));
+                    texto.push('>');
+                }
+            }
+        }
+        texto.push_str("{}");
+        let mut m = crate::refatoracoes_exec::Mudanca::default();
+        m.adicionar(uri, self.arvore.span(criacao), texto);
+        crate::refatoracoes_mover::imports_do_builder(self, &mut m, &importar);
+        if m.conflito.is_some() {
+            return None;
+        }
+        Some(AcaoDeCodigo {
+            titulo: "Convert to map literal".into(),
+            especie: "refactor.convert.toMapLiteral".into(),
+            edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            diagnostico: None,
+            criar_arquivo: None,
+        })
     }
 }

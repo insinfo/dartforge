@@ -25,7 +25,7 @@ fn acoes(p: &mut Projeto, relativo: &str, de: (u32, u32), ate: (u32, u32), extra
     let fora = |k: &str| {
         k.starts_with("source")
             || k.starts_with("quickfix.ignore")
-            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment", "refactor.convert.relativeToPackageImport", "refactor.convert.packageToRelativeImport", "refactor.convert.partOfToPartUri"].contains(&k))
+            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment", "refactor.convert.relativeToPackageImport", "refactor.convert.packageToRelativeImport", "refactor.convert.partOfToPartUri", "refactor.convert.toMapLiteral"].contains(&k))
             || k == "quickfix.change.to"
             || ["method", "function", "class", "mixin", "getter", "field", "localVariable", "parameter"]
                 .iter()
@@ -736,4 +736,17 @@ fn assistencia_de_uris_de_import() {
     let r = acoes(&mut p, "lib/a.dart", pos, pos, json!({}));
     assert_eq!(aplicar(&acao(&r, "Convert to a relative import")["edit"], &p.uri("lib/a.dart"), texto), texto.replace("'package:projeto/c.dart'", "'c.dart'"));
     assert!(!titulos(&r).contains(&"Convert to 'package:' import".to_string()));
+}
+
+#[test]
+fn assistencia_de_literal_de_mapa() {
+    let mut p = Projeto::com_literais("acoes-mapa");
+    let texto = "void f() {\n  var a = Map<String, int>();\n  Map<int, int> b = Map();\n  print([a, b]);\n}\n";
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "Map<String");
+    let a = acao(&r, "Convert to map literal");
+    assert_eq!(a["kind"], "refactor.convert.toMapLiteral");
+    assert_eq!(aplicar(&a["edit"], &p.uri("lib/a.dart"), texto), texto.replace("Map<String, int>()", "<String, int>{}"));
+    let pos = onde(texto, "Map();", 0);
+    let r = acoes(&mut p, "lib/a.dart", pos, pos, json!({}));
+    assert_eq!(aplicar(&acao(&r, "Convert to map literal")["edit"], &p.uri("lib/a.dart"), texto), texto.replace("= Map();", "= {};"));
 }
