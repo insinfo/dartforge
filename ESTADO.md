@@ -20,26 +20,28 @@ Frentes desta rodada: as quatro especificações (`docs/ANALYZER-ESPECIFICACAO.m
 | Casos s01–s12 do T5 (`corpus/especificacao/t2/t5`) | — | 12/12 iguais |
 
 Oráculo do LSP (`crates/lsp/oraculo`, `dart language-server` 3.6.2 contra o `dartforge-lsp`,
-projetos `app`, `args`, `path`, `string_scanner`; rodada `m1` de 2026-10-06):
+projetos `app`, `args`, `path`, `string_scanner`; rodada `r6` de 2026-10-06, com as reprises por
+método depois dela; a métrica do top-5 do completar passou a contar lista vazia contra lista vazia
+como igual):
 
 | recurso | 2026-10-01 | agora |
 | --- | ---: | ---: |
 | documentSymbol / foldingRange / semanticTokens / documentLink | 97 / 100 / 100 / 100% | 100 / 100 / 100 / 100% |
 | correções (quickfix) | 75% | 100% |
 | ações de fonte (Sort Members, Organize Imports, Fix All) | 0% | 99% |
-| hover (texto / assinatura) | 86 / 97% | 87 / 97% |
-| definition / typeDefinition | 96 / 95% | 97 / 93% |
-| implementation | 77% | 77% (cobertura 55/120 na m1; consertado depois, a medir) |
-| references | 58% | 77% |
-| documentHighlight | 95% | 94% |
-| prepareRename / rename | 96 / 89% | 100 / 94% |
-| assistências (refactor) | 26% | 64% (antes dos portes de 2026-10-06, a medir) |
+| hover (texto / assinatura) | 86 / 97% | 100 / 100% |
+| definition / typeDefinition | 96 / 95% | 98 / 100% |
+| implementation | 77% | 96% (o resto é a busca de subtipos no SDK) |
+| references | 58% | 96% |
+| documentHighlight | 95% | 100% |
+| prepareRename / rename | 96 / 89% | 100 / 100% |
+| assistências (refactor) | 26% | 98% |
 | selectionRange | 48% | 100% |
-| prepareCallHierarchy / prepareTypeHierarchy | 86 / 76% | 96 / 100% |
-| completion: alvo / top-1 / top-5 | 98 / 63 / 52% | 99 / 97 / 74% |
+| prepareCallHierarchy / prepareTypeHierarchy | 86 / 76% | 99 / 100% |
+| completion: alvo / top-1 / top-5 | 98 / 63 / 52% | 100 / 97 / 97% |
 | signatureHelp | 99% | 100% |
 | workspace/symbol | 0% | 100% |
-| inlayHint (arquivos) | 50% | 69% |
+| inlayHint (arquivos) | 50% | 97% |
 | formatting | 0% | 0% (fora do escopo: porte do `dart_style`) |
 
 ### O que foi feito, por especificação
@@ -136,13 +138,12 @@ projetos `app`, `args`, `path`, `string_scanner`; rodada `m1` de 2026-10-06):
    * T5 passo 8 (o `importacoes::nao_usados` pelo `Coletor`): refatoração sem mudança de regra.
    * INFRA III.9 e os itens de precisão restantes das famílias.
 2. **LSP.**
-   * Assistências que faltam (dos 73 produtores do `assist_internal.dart`): `ImportAddShow` (em
-     andamento), `ConvertIntoForIndex`, `ReplaceConditionalWithIfElse`,
-     `DestructureLocalVariableAssignment`, `EncapsulateField`, `AddReturnType`, `ConvertClassToEnum`,
-     `ConvertIfStatementToSwitchStatement`, os de documentação, de aspas, de imports, de super
-     parâmetros, de switch, os Flutter e o `SurroundWith`; a moldura com `SnippetTextEdit` e grupos.
-   * inlayHint 69%, references 77% (e a latência: 476 ms de mediana pela carga ampla), implementation,
-     typeDefinition 93%, hover 87%, completion top-5 74%.
+   * Os 73 produtores de assistência registrados no `assist_internal.dart` do 3.6.2 estão portados
+     (o `UnwrapIf` tem espécie mas não é registrado). Falta a moldura com `SnippetTextEdit` e os grupos
+     de edição ligada (os produtores escrevem o texto padrão, como num cliente sem snippets).
+   * Latência de references e implementation (≈290 e 227 ms de mediana contra 3 e 2 ms do Dart, que
+     responde do índice); inlayHint com o nome de parâmetro vindo de tipo de função (os tipos de
+     função não guardam os nomes dos posicionais).
    * Incremental I5 (cache por corpo com offsets relativos, diagnósticos tipados incrementais) e I6
      (edição de assinatura sem recarga total).
    * Importação condicional no LSP: o servidor do Dart não declara `dart.library.*`; o
@@ -155,6 +156,28 @@ projetos `app`, `args`, `path`, `string_scanner`; rodada `m1` de 2026-10-06):
    estado medido.
 5. Trabalho e pendências de 2026-10-02 que seguem abaixo (CI sem MSVC, JS, pub) não foram retomados
    nesta rodada.
+
+### Continuação de 2026-10-06
+
+* **Assistências:** `ConvertClassToEnum` (constantes deduplicadas pelo avaliador),
+  `ConvertToSwitchExpression` (com o `isAlwaysExhaustive` e o `throw` seguinte), as 13 do Flutter
+  (embrulhar, mover, remover, trocar, `children`, filho por último, `StatefulWidget` e
+  `StatelessWidget`) e o `AddDiagnosticPropertyReference`, com os casos de teste do
+  `analysis_server` portados e um pacote `flutter` reduzido nos testes.
+* **Analisador:** o campo `late` em inferência fica provisório na interface da própria classe (o
+  falso `top_level_cycle` de `late final a = m();` sumiu e o tipo deixou de ser `dynamic`); o receptor
+  literal de tipo de `C.m()` com `m` indefinido fica resolvido; o SDK como o analyzer usa o
+  `dart2jsPath` do `html_common`. Placar estável (21.176 acertos, FP 588).
+* **Documentação:** porte do `DocCommentBuilder` (linhas, blocos indentados e cercados, diretivas
+  `{@…}`, `@docImport`, `@nodoc`, texto de link e o scanner do Dart nas referências), usado pela
+  árvore e pelo LSP.
+* **LSP:** dicas de anotações, `super(…)`/`this(…)`, setter de método, padrão objeto, `for-in` de
+  coleção e tipos crus aninhados; hover com o `computeDocumentation` (`Copied from`, parâmetro pelo
+  executável, acessor sintético sem comentário) e o `Member` substituído; typeDefinition e
+  documentHighlight como os do Dart; references e rename pelo índice (construtor de `[A.ctor]` sem o
+  prefixo, operador em `[int.+]`, `new A.n()`, `extends Object` implícito, arquivos candidatos,
+  `getImportElement`, `super.x` e argumentos de comprimento 0 dos `this.x`); implementation pelo
+  `findMemberElement`; completar no nome de `A.n()` e `C.m()`.
 
 ### Ferramentas desta rodada
 
