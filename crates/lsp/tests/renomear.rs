@@ -314,6 +314,20 @@ fn familia_pelo_extends_object_implicito() {
 }
 
 #[test]
+fn redirecionamento_de_fabrica_fora_dos_candidatos() {
+    // O arquivo que só cita a classe no `ConstructorName` de um
+    // redirecionamento de fábrica não é candidato da busca (o Dart deixa a
+    // referência como está).
+    let mut p = Projeto::novo("renomear-redirecionamento");
+    p.gravar("lib/x.dart", "import 'b.dart';\nabstract class X {\n  factory X() = B;\n}\n");
+    let b = "import 'x.dart';\nclass B implements X {\n  B();\n}\n";
+    p.abrir("lib/b.dart", b);
+    let r = renomear_em(&mut p, "lib/b.dart", b, "B implements", 0, "C");
+    assert!(aplicar(&r["result"], &p.uri("lib/b.dart"), b).contains("class C implements X"), "{r}");
+    assert!(!r["result"].to_string().contains("x.dart"), "{r}");
+}
+
+#[test]
 fn construtor_nomeado() {
     let mut p = Projeto::novo("renomear-construtor");
     let a = "/// Crie com [Caixa.vazia].\nclass Caixa {\n  final int v;\n  Caixa(this.v);\n  Caixa.vazia() : this(0);\n  Caixa.outra() : this.vazia();\n  factory Caixa.fab() = Caixa.vazia;\n}\nclass Sub extends Caixa {\n  Sub() : super.vazia();\n}\nvoid f() {\n  var x = Caixa.vazia();\n  var y = new Caixa.vazia();\n  print([x, y, Caixa(1)]);\n}\n";

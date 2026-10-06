@@ -661,7 +661,19 @@ impl Projeto {
     fn referencias_do_alvo(&self, alvo: &Alvo) -> Vec<(UnitId, Span)> {
         let declaracoes = self.declaracoes(alvo);
         let Ok(oc) = self.ocorrencias(alvo, false) else { return Vec::new() };
-        oc.into_iter().filter(|o| !declaracoes.contains(o)).map(|(u, a, b)| (u, Span { start: a, end: b })).collect()
+        // `searchReferences` passa pelo `Search._addResults`: só os arquivos
+        // candidatos (os que citam o nome e os da biblioteca), com os
+        // buracos do Dart (o redirecionamento de fábrica não cita o nome).
+        let candidatos = self.nome_da_busca(alvo).map(|nome| {
+            let mut unidades: Vec<UnitId> = declaracoes.iter().map(|(u, _, _)| *u).collect();
+            unidades.dedup();
+            self.arquivos_candidatos(&nome, &unidades)
+        });
+        oc.into_iter()
+            .filter(|o| !declaracoes.contains(o))
+            .filter(|(u, _, _)| candidatos.as_ref().is_none_or(|c| c.contains(u)))
+            .map(|(u, a, b)| (u, Span { start: a, end: b }))
+            .collect()
     }
 
     /// O caminho da biblioteca relativo à raiz (`getElementQualifiedName`
