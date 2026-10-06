@@ -480,6 +480,7 @@ impl Analisador for AnalisadorSemantico {
                     saida.extend(cx.documentacao_em_linhas(uri, inicio, fim));
                     saida.extend(cx.converter_em_literal_de_mapa(uri, inicio, fim));
                     saida.extend(cx.converter_em_literal_de_conjunto(uri, inicio, fim));
+                    saida.extend(cx.map_from_iterable_em_for(uri, inicio, fim));
                 }
                 saida.extend(projeto.assistencias_de_reescrita(uri, unidade, inicio, fim));
                 saida.extend(projeto.assistencias_sintaticas(uri, unidade, inicio));

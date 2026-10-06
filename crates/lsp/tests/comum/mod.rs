@@ -48,6 +48,7 @@ abstract class List<E> implements Iterable<E> {
 }
 abstract class Map<K, V> {
   external factory Map();
+  external factory Map.fromIterable(Iterable iterable, {K Function(dynamic element)? key, V Function(dynamic element)? value});
 }
 abstract class Set<E> implements Iterable<E> {
   external factory Set();

@@ -1908,6 +1908,10 @@ impl<'a> Construtor<'a> {
     fn criacao_sem_new(&mut self, s: Span, alvo: ExprId, tipos: &'a [TypeId], arguments: &'a Arguments) -> Option<usize> {
         let a = self.a;
         let e_prefixo = |x: ExprId| self.prefixos.is_some_and(|p| p.contains(&x));
+        // `A<T>.n()` e `p.A<T>.n()` (`parseImplicitCreationExpression`): os
+        // argumentos de tipo vêm entre o tipo e o nome do construtor e ficam
+        // no `NamedType`.
+        let mut tipos_do_tipo: Option<&'a [TypeId]> = None;
         // (prefixo, tipo, construtor nomeado)
         let (prefixo, tipo, nome): (Option<ast::Name>, ast::Name, Option<(ast::Name, ExprId)>) = match &a.expr(alvo).kind {
             ExprKind::Identifier(n) => (None, *n, None),
@@ -1918,6 +1922,17 @@ impl<'a> Construtor<'a> {
                     ExprKind::Identifier(p) if e_prefixo(*t2) => (Some(*p), *c, Some((*name, alvo))),
                     _ => return None,
                 },
+                ExprKind::TypeArguments { target: interno, type_args } => {
+                    tipos_do_tipo = Some(&type_args[..]);
+                    match &a.expr(*interno).kind {
+                        ExprKind::Identifier(c) => (None, *c, Some((*name, alvo))),
+                        ExprKind::Property { target: t2, name: c, .. } => match &a.expr(*t2).kind {
+                            ExprKind::Identifier(p) if e_prefixo(*t2) => (Some(*p), *c, Some((*name, alvo))),
+                            _ => return None,
+                        },
+                        _ => return None,
+                    }
+                }
                 _ => return None,
             },
             _ => return None,
@@ -1931,10 +1946,10 @@ impl<'a> Construtor<'a> {
         // Os argumentos de tipo ficam no tipo quando vêm logo depois dele
         // (`A<T>()`, `p.A<T>()`); depois do nome do construtor
         // (`A.n<T>()`, erro) ficam na criação.
-        let args_no_tipo = nome.is_none() && !tipos.is_empty();
+        let args_no_tipo = (nome.is_none() && !tipos.is_empty()) || tipos_do_tipo.is_some();
         let mut fim_do_tipo = tipo.span.end;
         if args_no_tipo {
-            let n = self.argumentos_de_tipo(tipos);
+            let n = self.argumentos_de_tipo(tipos_do_tipo.unwrap_or(tipos));
             if let Some(k) = n {
                 fim_do_tipo = self.nos[k].fim;
             }
@@ -1951,7 +1966,7 @@ impl<'a> Construtor<'a> {
         }
         let nome_do_construtor = self.no("ConstructorName", inicio_do_tipo, fim_cn, cn);
         let mut filhos: Vec<usize> = nome_do_construtor.into_iter().collect();
-        if !args_no_tipo {
+        if !args_no_tipo || (tipos_do_tipo.is_some() && !tipos.is_empty()) {
             filhos.extend(self.argumentos_de_tipo(tipos));
         }
         filhos.extend(self.lista_de_argumentos(arguments));

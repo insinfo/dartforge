@@ -10,6 +10,7 @@
 //! | `Convert to an 'if' element` | `refactor.convert.toIfElement` | `ConvertConditionalExpressionToIfElement` |
 //! | `Convert to map literal` | `refactor.convert.toMapLiteral` | `ConvertToMapLiteral` |
 //! | `Convert to set literal` | `refactor.convert.toSetLiteral` | `ConvertToSetLiteral` |
+//! | `Convert to a 'for' element` | `refactor.convert.toForElement` | `ConvertMapFromIterableToForLiteral` |
 
 use crate::acoes::AcaoDeCodigo;
 use crate::refatoracoes::Contexto;
@@ -17,6 +18,7 @@ use crate::Edicao;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::FunctionElementId;
 use dartforge_types::{MemberRef, Resolved};
+use std::collections::HashSet;
 
 impl Contexto<'_> {
     fn acao_simples(&self, uri: &str, titulo: &str, especie: &str, edicoes: Vec<(Span, String)>) -> AcaoDeCodigo {
@@ -566,5 +568,158 @@ impl Contexto<'_> {
     /// O literal tem argumentos de tipo escritos.
     fn argumentos_de_tipo_do_literal(&self, n: usize) -> bool {
         self.filhos(n).iter().any(|&k| self.especie(k) == "TypeArgumentList")
+    }
+
+    /// `_extractClosure(nome, argumento)`: `nome: (p) => e` (ou com um bloco
+    /// de um só `return e`): o parâmetro (o nó e o nome) e o corpo `e`.
+    fn closure_nomeada(&self, nome: &str, arg: usize) -> Option<(usize, Span, usize)> {
+        if self.especie(arg) != "NamedExpression" {
+            return None;
+        }
+        let f = self.filhos(arg);
+        let rotulo = *f.first()?;
+        if self.texto_do_no(rotulo).trim_end_matches(':').trim() != nome {
+            return None;
+        }
+        let expressao = self.sem_parenteses(*f.get(1)?);
+        if self.especie(expressao) != "FunctionExpression" {
+            return None;
+        }
+        let fe = self.filhos(expressao);
+        let lista = fe.iter().copied().find(|&k| self.especie(k) == "FormalParameterList")?;
+        let [parametro] = self.filhos(lista)[..] else { return None };
+        if self.especie(parametro) != "SimpleFormalParameter" {
+            return None;
+        }
+        let nome_p = self.token_anterior(self.arvore.nos[parametro].fim)?;
+        let corpo = *fe.last()?;
+        let corpo = match self.especie(corpo) {
+            "ExpressionFunctionBody" => *self.filhos(corpo).first()?,
+            "BlockFunctionBody" => {
+                let bloco = *self.filhos(corpo).first()?;
+                let [r] = self.filhos(bloco)[..] else { return None };
+                if self.especie(r) != "ReturnStatement" {
+                    return None;
+                }
+                *self.filhos(r).first()?
+            }
+            _ => return None,
+        };
+        Some((parametro, nome_p, corpo))
+    }
+
+    /// `SimpleIdentifier.isQualified`.
+    fn qualificado(&self, n: usize) -> bool {
+        let Some(p) = self.pai(n) else { return false };
+        match self.especie(p) {
+            "PrefixedIdentifier" | "PropertyAccess" => self.filhos(p).last() == Some(&n) && self.filhos(p).len() > 1,
+            "MethodInvocation" => self.nome_do_metodo(p) == Some(n) && self.filhos(p).first() != Some(&n),
+            _ => false,
+        }
+    }
+
+    /// `_ParameterReferenceFinder`: as citações do parâmetro (nome em
+    /// `nome`) e os outros nomes não qualificados de `corpo`.
+    fn citacoes_do_parametro(&self, corpo: usize, nome: Span) -> (Vec<usize>, HashSet<String>) {
+        let mut refs = Vec::new();
+        let mut outros = HashSet::new();
+        let nome_texto = &self.fonte[nome.start..nome.end];
+        let mut pilha = vec![corpo];
+        while let Some(k) = pilha.pop() {
+            if self.especie(k) == "SimpleIdentifier" {
+                let do_parametro = match self.arvore.nos[k].marca {
+                    crate::arvore_analyzer::Marca::Expr(x) => match self.corpos.get_resolved(x) {
+                        Some(Resolved::Parameter { name, .. }) => self.p.nome(*name) == nome_texto,
+                        Some(Resolved::Local(_)) => self.corpos.declaracao_local(x) == Some(nome.start),
+                        _ => false,
+                    },
+                    _ => false,
+                };
+                if do_parametro {
+                    refs.push(self.arvore.nos[k].inicio);
+                } else if !self.qualificado(k) {
+                    outros.insert(self.texto_do_no(k).to_string());
+                }
+            }
+            pilha.extend(self.filhos(k).iter().copied());
+        }
+        refs.sort_unstable();
+        (refs, outros)
+    }
+
+    /// `ConvertMapFromIterableToForLiteral`
+    /// (convert_map_from_iterable_to_for_literal.dart): `Map.fromIterable(i,
+    /// key: (k) => …, value: (v) => …)` vira `{ for (var e in i) … : … }`.
+    pub(crate) fn map_from_iterable_em_for(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
+        let no = self.arvore.localizar(inicio, fim)?;
+        let criacao = self.com_pais(no).find(|&k| self.especie(k) == "InstanceCreationExpression")?;
+        let nome_do_construtor = self.filhos(criacao).iter().copied().find(|&k| self.especie(k) == "ConstructorName")?;
+        if self.filhos(nome_do_construtor).get(1).map(|&n| self.texto_do_no(n)) != Some("fromIterable") {
+            return None;
+        }
+        let tipo = self.expr_do_no(criacao).and_then(|x| self.corpos.get_type(x))?;
+        if !matches!(self.p.consulta.tabela.get(tipo), dartforge_types::Type::Interface { class, .. } if Some(*class) == self.p.consulta.core.map_class) {
+            return None;
+        }
+        let argumentos = self.argumentos_da_lista(criacao);
+        if argumentos.len() != 3 {
+            return None;
+        }
+        let iterador = self.sem_parenteses(argumentos[0]);
+        let chave = self.closure_nomeada("key", argumentos[1]).or_else(|| self.closure_nomeada("key", argumentos[2]))?;
+        let valor = self.closure_nomeada("value", argumentos[2]).or_else(|| self.closure_nomeada("value", argumentos[1]))?;
+        let (_, nome_k, corpo_k) = chave;
+        let (_, nome_v, corpo_v) = valor;
+        let nk = self.fonte[nome_k.start..nome_k.end].to_string();
+        let nv = self.fonte[nome_v.start..nome_v.end].to_string();
+        let mut texto_k = self.texto_do_no(corpo_k).to_string();
+        let mut texto_v = self.texto_do_no(corpo_v).to_string();
+        let trocar = |texto: &str, refs: &[usize], base: usize, velho: usize, novo: &str| -> String {
+            let mut s = texto.to_string();
+            for &r in refs.iter().rev() {
+                let o = r - base;
+                s.replace_range(o..o + velho, novo);
+            }
+            s
+        };
+        let variavel = if nk == nv {
+            nk
+        } else {
+            let (refs_k, outros_k) = self.citacoes_do_parametro(corpo_k, nome_k);
+            let (refs_v, outros_v) = self.citacoes_do_parametro(corpo_v, nome_v);
+            let livre = || {
+                let mut c = "e".to_string();
+                let mut i = 1;
+                while outros_k.contains(&c) || outros_v.contains(&c) {
+                    c = format!("e{i}");
+                    i += 1;
+                }
+                c
+            };
+            if refs_v.is_empty() {
+                if outros_v.contains(&nk) {
+                    let n = livre();
+                    texto_k = trocar(&texto_k, &refs_k, self.arvore.nos[corpo_k].inicio, nk.len(), &n);
+                    n
+                } else {
+                    nk
+                }
+            } else if refs_k.is_empty() {
+                if outros_k.contains(&nv) {
+                    let n = livre();
+                    texto_v = trocar(&texto_v, &refs_v, self.arvore.nos[corpo_v].inicio, nv.len(), &n);
+                    n
+                } else {
+                    nv
+                }
+            } else {
+                let n = livre();
+                texto_k = trocar(&texto_k, &refs_k, self.arvore.nos[corpo_k].inicio, nk.len(), &n);
+                texto_v = trocar(&texto_v, &refs_v, self.arvore.nos[corpo_v].inicio, nv.len(), &n);
+                n
+            }
+        };
+        let texto = format!("{{ for (var {variavel} in {}) {texto_k} : {texto_v} }}", self.texto_do_no(iterador));
+        Some(self.acao_simples(uri, "Convert to a 'for' element", "refactor.convert.toForElement", vec![(self.arvore.span(criacao), texto)]))
     }
 }
