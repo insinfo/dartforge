@@ -330,6 +330,11 @@ Base comum (vale para vários códigos abaixo):
   (`generated/resolver.dart:1709-1761`) só dá tipo de escrita a setter (o do parâmetro, ou o da variável no sintético)
   e a variável; para método, getter recuperado ou nada, o `writeType` é `InvalidType` (`dynamic` só num alvo dinâmico).
   Daí `a.foo = 0` com `foo` método sai só `assignment_to_method`, sem `invalid_assignment`.
+- **Correções (2026-10-06, continuação):** (1) objeto com `call` **genérico** num contexto de função (`int
+  Function(int) f = C()` com `T call<T extends num>(T)`): depois do `ImplicitCallReference`, o
+  `insertGenericFunctionInstantiation` instancia o `call` pelo contexto (o `flatten` sem `?`, INFERENCIA §8.4) antes
+  da atribuibilidade; (2) `x?[0]++`/`a?.b++`: o `_checkForInvalidAssignmentIncDec` confere o **retorno do operador**
+  (`int`), sem o `?` do encurtamento nulo, contra o tipo de escrita.
 
 ##### `argument_type_not_assignable_to_error_handler` (perda 33: FN 33)
 - **Emissão:** `ErrorHandlerVerifier.verifyMethodInvocation` (`analyzer/lib/src/error/error_handler_verifier.dart:43-150`), chamado do `BestPracticesVerifier.visitMethodInvocation` (`analyzer/lib/src/error/best_practices_verifier.dart:630`) — fase de avisos (WarningCode).

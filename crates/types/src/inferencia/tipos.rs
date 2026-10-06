@@ -229,12 +229,39 @@ impl<'a> BodyInferrer<'a> {
             if let Some(call) = self.sym.call {
                 if let Some(m) = self.membro_de_interface(de, call, false) {
                     if m.metodo {
-                        return self.sub(m.tipo, para);
+                        // O `ImplicitCallReference` e, sendo o `call` genérico, a
+                        // instanciação pelo contexto (`insertGenericFunctionInstantiation`,
+                        // INFERENCIA §8.4).
+                        let t = self.instanciar_funcao_pelo_contexto(m.tipo, para);
+                        return self.sub(t, para);
                     }
                 }
             }
         }
         false
+    }
+
+    /// A instanciação implícita de um tipo de função genérico `f` por um
+    /// contexto cujo `flatten`, sem `?`, é tipo de função não genérico
+    /// (`insertGenericFunctionInstantiation`, `resolver.dart:1171-1224`); senão
+    /// o próprio `f`.
+    pub(crate) fn instanciar_funcao_pelo_contexto(&mut self, f: TypeId, ctx: TypeId) -> TypeId {
+        let Type::Function { type_params, ret, positional, optional, named, nullable } = self.table.get(f).clone() else { return f };
+        if type_params.is_empty() || self.e_desconhecido(ctx) {
+            return f;
+        }
+        let k = self.flatten(ctx);
+        let k = self.nao_nulo(k);
+        let Type::Function { type_params: tp_ctx, .. } = self.table.get(k).clone() else { return f };
+        if !tp_ctx.is_empty() {
+            return f;
+        }
+        let sem = self.table.intern(Type::Function { type_params: Box::new([]), ret, positional, optional, named, nullable });
+        let mut gi = crate::constraints::GenericInferrer::new(&type_params);
+        let mut env = self.env();
+        gi.constrain_return(sem, k, &mut env);
+        let args = gi.choose_final(&mut env);
+        crate::constraints::instanciar_funcao(f, &args, &mut env)
     }
 
     /// Coerção por `call` (*implicit call tearoff*): um objeto de tipo de

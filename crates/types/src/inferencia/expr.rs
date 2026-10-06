@@ -3197,9 +3197,10 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
                         // Getter e setter de tipos diferentes (`int get x`, `set
                         // x(String)`): o oráculo 3.6.2 não relata (conferido no
                         // corpus, `InvalidAssignment__postfixExpression_in_*`).
+                        // O retorno do operador (`operatorReturnType`), sem o
+                        // `?` do encurtamento nulo (`x?[0]++`).
                         if !inf.e_dynamic(escrita) && (local.is_some() || leitura == escrita) {
-                            let rr = if *curto { inf.anulavel(r) } else { r };
-                            inf.verificar_atribuivel(rr, escrita, span, INVALID_ASSIGNMENT.template);
+                            inf.verificar_atribuivel(r, escrita, span, INVALID_ASSIGNMENT.template);
                         }
                     }
                     r
