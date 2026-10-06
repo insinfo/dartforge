@@ -1305,3 +1305,1155 @@ class _MyWidgetState extends State<MyWidget> {
         assert_eq!(aplicar(&acao(&r, "Convert to StatefulWidget")["edit"], &uri, antes), *depois, "{nome}");
     }
 }
+
+/// Os casos de `flutter_convert_to_stateless_widget_test.dart` do 3.6.2
+/// (`None`: `assertNoAssist`).
+#[test]
+fn flutter_para_stateless_como_o_analysis_server() {
+    let mut p = Projeto::com_literais("acoes-flutter-stateless");
+    p.instalar_flutter();
+    let casos: &[(&str, &str, &str, Option<&str>)] = &[
+        ("test_comment", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatefulWidget {
+  const MyWidget();
+
+  @override
+  State<MyWidget> createState() => _MyWidgetState();
+
+  /// some m
+  void m() {}
+}
+
+/// comment for state
+class _MyWidgetState extends State<MyWidget> {
+  // something for a
+  final bool a = false;
+
+  // another for b
+  final bool b = true;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+
+  /// some m
+  void m() {}
+}
+"#, r#"yWidget exte"#, Some(r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatelessWidget {
+  const MyWidget();
+
+  // something for a
+  final bool a = false;
+
+  // another for b
+  final bool b = true;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+
+  /// some m
+  void m() {}
+}
+"#)),
+        ("test_default_override", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatefulWidget {
+  const MyWidget({super.key});
+
+  @override
+  State<MyWidget> createState() => _MyWidgetState();
+}
+
+class _MyWidgetState extends State<MyWidget> {
+
+  @override
+  void initState() {
+    // some comment
+    super.initState();
+  }
+
+  @override
+  void dispose() => super.dispose();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#, r#"yWidget exte"#, Some(r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatelessWidget {
+  const MyWidget({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#)),
+        ("test_empty", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatefulWidget {
+  const MyWidget({super.key});
+
+  @override
+  State<MyWidget> createState() => _MyWidgetState();
+}
+
+class _MyWidgetState extends State<MyWidget> {
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#, r#"yWidget exte"#, Some(r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatelessWidget {
+  const MyWidget({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#)),
+        ("test_fields", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatefulWidget {
+  static String staticField1 = '';
+  final String instanceField1;
+  final String instanceField2;
+  String instanceField3 = '';
+  final void Function(bool) onHover;
+  static String staticField2 = '';
+  static String staticField3 = '';
+
+  MyWidget(this.instanceField1, this.onHover) : instanceField2 = '' {
+    instanceField3 = '';
+  }
+
+  @override
+  State<MyWidget> createState() => _MyWidgetState();
+}
+
+class _MyWidgetState extends State<MyWidget> {
+  String instanceField4 = '';
+
+  String instanceField5 = '';
+
+  @override
+  Widget build(BuildContext context) {
+    instanceField4 = widget.instanceField1;
+    return Row(
+      children: [
+        Text(widget.instanceField1),
+        Text(widget.instanceField2),
+        Text(widget.instanceField3),
+        Text(instanceField4),
+        InkResponse(
+          onHover: (_) => widget.onHover(true),
+          child: Text(instanceField5),
+        ),
+        Text(MyWidget.staticField1),
+        Text(MyWidget.staticField2),
+        Text(MyWidget.staticField3),
+      ],
+    );
+  }
+}
+"#, r#"yWidget exte"#, Some(r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatelessWidget {
+  static String staticField1 = '';
+  final String instanceField1;
+  final String instanceField2;
+  String instanceField3 = '';
+  final void Function(bool) onHover;
+  static String staticField2 = '';
+  static String staticField3 = '';
+
+  MyWidget(this.instanceField1, this.onHover) : instanceField2 = '' {
+    instanceField3 = '';
+  }
+
+  String instanceField4 = '';
+
+  String instanceField5 = '';
+
+  @override
+  Widget build(BuildContext context) {
+    instanceField4 = instanceField1;
+    return Row(
+      children: [
+        Text(instanceField1),
+        Text(instanceField2),
+        Text(instanceField3),
+        Text(instanceField4),
+        InkResponse(
+          onHover: (_) => onHover(true),
+          child: Text(instanceField5),
+        ),
+        Text(staticField1),
+        Text(staticField2),
+        Text(staticField3),
+      ],
+    );
+  }
+}
+"#)),
+        ("test_getters", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatefulWidget {
+  @override
+  State<MyWidget> createState() => _MyWidgetState();
+
+  static String get staticGetter1 => '';
+
+  static String get staticGetter2 => '';
+}
+
+class _MyWidgetState extends State<MyWidget> {
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(MyWidget.staticGetter1),
+        Text(MyWidget.staticGetter2),
+        Text(instanceGetter1),
+        Text(instanceGetter2),
+      ],
+    );
+  }
+
+  String get instanceGetter1 => '';
+
+  String get instanceGetter2 => '';
+}
+"#, r#"yWidget exte"#, Some(r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(staticGetter1),
+        Text(staticGetter2),
+        Text(instanceGetter1),
+        Text(instanceGetter2),
+      ],
+    );
+  }
+
+  String get instanceGetter1 => '';
+
+  String get instanceGetter2 => '';
+
+  static String get staticGetter1 => '';
+
+  static String get staticGetter2 => '';
+}
+"#)),
+        ("test_methods", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatefulWidget {
+  static String staticField = '';
+  final String instanceField1;
+
+  MyWidget(this.instanceField1);
+
+  @override
+  State<MyWidget> createState() => _MyWidgetState();
+
+  static void staticMethod1() {
+    print('static 1');
+  }
+
+  static void staticMethod2() {
+    print('static 2');
+  }
+}
+
+class _MyWidgetState extends State<MyWidget> {
+  String instanceField2 = '';
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(widget.instanceField1),
+        Text(instanceField2),
+        Text(MyWidget.staticField),
+      ],
+    );
+  }
+
+  void instanceMethod1() {
+    instanceMethod1();
+    instanceMethod2();
+    MyWidget.staticMethod1();
+  }
+
+  void instanceMethod2() {
+    print('instance 2');
+  }
+}
+"#, r#"yWidget exte"#, Some(r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatelessWidget {
+  static String staticField = '';
+  final String instanceField1;
+
+  MyWidget(this.instanceField1);
+
+  String instanceField2 = '';
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(instanceField1),
+        Text(instanceField2),
+        Text(staticField),
+      ],
+    );
+  }
+
+  void instanceMethod1() {
+    instanceMethod1();
+    instanceMethod2();
+    staticMethod1();
+  }
+
+  void instanceMethod2() {
+    print('instance 2');
+  }
+
+  static void staticMethod1() {
+    print('static 1');
+  }
+
+  static void staticMethod2() {
+    print('static 2');
+  }
+}
+"#)),
+        ("test_override", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatefulWidget {
+  const MyWidget({super.key});
+
+  @override
+  State<MyWidget> createState() => _MyWidgetState();
+}
+
+class _MyWidgetState extends State<MyWidget> {
+
+  @override
+  void initState() {
+    print('');
+    super.initState();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#, r#"yWidget exte"#, None),
+        ("test_public", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatefulWidget {
+  const MyWidget({super.key});
+
+  @override
+  State<MyWidget> createState() => MyWidgetState();
+}
+
+class MyWidgetState extends State<MyWidget> {
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#, r#"yWidget exte"#, None),
+        ("test_simple", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatefulWidget {
+  final String aaa;
+  final String $bbb;
+
+  const MyWidget(this.aaa, this.$bbb);
+
+  @override
+  State<MyWidget> createState() => _MyWidgetState();
+}
+
+class _MyWidgetState extends State<MyWidget> {
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(widget.aaa),
+        Text(widget.$bbb),
+        Text('${widget.aaa}'),
+        Text('${widget.$bbb}'),
+      ],
+    );
+  }
+}
+"#, r#"yWidget exte"#, Some(r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatelessWidget {
+  final String aaa;
+  final String $bbb;
+
+  const MyWidget(this.aaa, this.$bbb);
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(aaa),
+        Text($bbb),
+        Text('$aaa'),
+        Text('${$bbb}'),
+      ],
+    );
+  }
+}
+"#)),
+        ("test_state_first", r#"
+import 'package:flutter/widgets.dart';
+
+class _MyWidgetState extends State<MyWidget> {
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(widget.aaa),
+        Text(widget.$bbb),
+        Text('${widget.aaa}'),
+        Text('${widget.$bbb}'),
+      ],
+    );
+  }
+}
+
+class MyWidget extends StatefulWidget {
+  final String aaa;
+  final String $bbb;
+
+  const MyWidget(this.aaa, this.$bbb);
+
+  @override
+  State<MyWidget> createState() => _MyWidgetState();
+}
+"#, r#"yWidget exte"#, Some(r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatelessWidget {
+  final String aaa;
+  final String $bbb;
+
+  const MyWidget(this.aaa, this.$bbb);
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(aaa),
+        Text($bbb),
+        Text('$aaa'),
+        Text('${$bbb}'),
+      ],
+    );
+  }
+}
+"#)),
+        ("test_state_used_anotherWidget", r#"
+import 'package:flutter/widgets.dart';
+
+class FirstWidget extends StatefulWidget {
+  const FirstWidget({super.key});
+
+  @override
+  createState() => _MyWidgetState();
+}
+
+class SecondWidget extends StatefulWidget {
+  const SecondWidget({super.key});
+
+  @override
+  createState() => _MyWidgetState();
+}
+
+class _MyWidgetState extends State<FirstWidget> {
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#, r#"irstWidget e"#, None),
+        ("test_state_used_createState", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatefulWidget {
+  const MyWidget({super.key});
+
+  @override
+  State<MyWidget> createState() => _MyWidgetState();
+
+  State<MyWidget> another() => createState();
+}
+
+class _MyWidgetState extends State<MyWidget> {
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#, r#"yWidget exte"#, None),
+        ("test_state_used_createState_return_stateClass", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatefulWidget {
+  const MyWidget({super.key});
+
+  @override
+  _MyWidgetState createState() => _MyWidgetState();
+
+  _MyWidgetState another() => createState();
+}
+
+class _MyWidgetState extends State<MyWidget> {
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#, r#"yWidget exte"#, None),
+        ("test_state_used_instanceCreationExpression", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatefulWidget {
+  const MyWidget({super.key});
+
+  @override
+  State<MyWidget> createState() => _MyWidgetState();
+
+  State<MyWidget> another() => _MyWidgetState();
+}
+
+class _MyWidgetState extends State<MyWidget> {
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#, r#"yWidget exte"#, None),
+        ("test_static_field", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatefulWidget {
+  const MyWidget({super.key});
+
+  @override
+  State<MyWidget> createState() => _MyWidgetState();
+}
+
+class _MyWidgetState extends State<MyWidget> {
+  static var field = 1;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#, r#"yWidget exte"#, None),
+        ("test_static_method", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatefulWidget {
+  const MyWidget({super.key});
+
+  @override
+  State<MyWidget> createState() => _MyWidgetState();
+}
+
+class _MyWidgetState extends State<MyWidget> {
+
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+
+  static void staticMethod1() {
+    print('static 1');
+  }
+}
+"#, r#"yWidget exte"#, None),
+        ("test_typeParam_bound", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget<T extends String> extends StatefulWidget {
+  @override
+  State<MyWidget<T>> createState() => _MyWidgetState<T>();
+}
+
+class _MyWidgetState<T extends String> extends State<MyWidget<T>> {
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#, r#"yWidget<T ex"#, Some(r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget<T extends String> extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#)),
+        ("test_typeParam_different_bound", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget<T extends String> extends StatefulWidget {
+  @override
+  State createState() => _MyWidgetState();
+}
+
+class _MyWidgetState<T extends List> extends State<MyWidget> {
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#, r#"yWidget<T ex"#, None),
+        ("test_typeParam_different_name", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget<T> extends StatefulWidget {
+  @override
+  State<MyWidget<T>> createState() => _MyWidgetState<T>();
+}
+
+class _MyWidgetState<S> extends State<MyWidget<S>> {
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#, r#"yWidget<T> e"#, None),
+        ("test_typeParam_empty", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget<T> extends StatefulWidget {
+  @override
+  State<MyWidget<T>> createState() => _MyWidgetState<T>();
+}
+
+class _MyWidgetState<T> extends State<MyWidget<T>> {
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#, r#"yWidget<T> e"#, Some(r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget<T> extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#)),
+    ];
+    let mut falhas = Vec::new();
+    for (i, (nome, antes, agulha, depois)) in casos.iter().enumerate() {
+        let rel = format!("lib/s{i}.dart");
+        let uri = p.uri(&rel);
+        let r = acoes_em(&mut p, &rel, antes, agulha);
+        let achada = r.as_array().unwrap().iter().find(|a| a["title"] == "Convert to StatelessWidget").cloned();
+        match (depois, achada) {
+            (None, None) => {}
+            (Some(d), Some(a)) => {
+                let obtido = aplicar(&a["edit"], &uri, antes);
+                if obtido != *d {
+                    falhas.push(format!("{nome}: obtido\n{obtido}\nesperado\n{d}"));
+                }
+            }
+            (d, a) => falhas.push(format!("{nome}: esperado {} e obtido {}", d.is_some(), a.is_some())),
+        }
+    }
+    assert!(falhas.is_empty(), "{}", falhas.join("\n----\n"));
+}
+
+/// Os casos de `flutter_convert_to_stateful_widget_test.dart` do 3.6.2
+/// (`None`: `assertNoAssist`).
+#[test]
+fn flutter_para_stateful_completo() {
+    let mut p = Projeto::com_literais("acoes-flutter-stateful-3");
+    p.instalar_flutter();
+    let casos: &[(&str, &str, &str, Option<&str>)] = &[
+        ("test_comment", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatelessWidget {
+  // something for a
+  final bool a = false;
+
+  const MyWidget();
+
+  // another for b
+  final bool b = true;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#, r#"yWidget exte"#, Some(r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatefulWidget {
+
+  const MyWidget();
+
+  @override
+  State<MyWidget> createState() => _MyWidgetState();
+}
+
+class _MyWidgetState extends State<MyWidget> {
+  // something for a
+  final bool a = false;
+
+  // another for b
+  final bool b = true;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#)),
+        ("test_comment_documentation", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatelessWidget {
+  /// something for a
+  final bool a = false;
+
+  const MyWidget();
+
+  /// another for b
+  final bool b = true;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#, r#"yWidget exte"#, Some(r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatefulWidget {
+
+  const MyWidget();
+
+  @override
+  State<MyWidget> createState() => _MyWidgetState();
+}
+
+class _MyWidgetState extends State<MyWidget> {
+  /// something for a
+  final bool a = false;
+
+  /// another for b
+  final bool b = true;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#)),
+        ("test_empty", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#, r#"yWidget exte"#, Some(r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatefulWidget {
+  @override
+  State<MyWidget> createState() => _MyWidgetState();
+}
+
+class _MyWidgetState extends State<MyWidget> {
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#)),
+        ("test_empty_typeParam", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget<T> extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#, r#"yWidget<T> e"#, Some(r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget<T> extends StatefulWidget {
+  @override
+  State<MyWidget<T>> createState() => _MyWidgetState<T>();
+}
+
+class _MyWidgetState<T> extends State<MyWidget<T>> {
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#)),
+        ("test_fields", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatelessWidget {
+  static String staticField1 = '';
+  final String instanceField1;
+  final String instanceField2;
+  String instanceField3 = '';
+  static String staticField2 = '';
+  String instanceField4 = '';
+  String instanceField5 = '';
+  static String staticField3 = '';
+
+  MyWidget(this.instanceField1) : instanceField2 = '' {
+    instanceField3 = '';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    instanceField4 = instanceField1;
+    return Row(
+      children: [
+        Text(instanceField1),
+        Text(instanceField2),
+        Text(instanceField3),
+        Text(instanceField4),
+        Text(instanceField5),
+        Text(staticField1),
+        Text(staticField2),
+        Text(staticField3),
+      ],
+    );
+  }
+}
+"#, r#"yWidget exte"#, Some(r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatefulWidget {
+  static String staticField1 = '';
+  final String instanceField1;
+  final String instanceField2;
+  String instanceField3 = '';
+  static String staticField2 = '';
+  static String staticField3 = '';
+
+  MyWidget(this.instanceField1) : instanceField2 = '' {
+    instanceField3 = '';
+  }
+
+  @override
+  State<MyWidget> createState() => _MyWidgetState();
+}
+
+class _MyWidgetState extends State<MyWidget> {
+  String instanceField4 = '';
+
+  String instanceField5 = '';
+
+  @override
+  Widget build(BuildContext context) {
+    instanceField4 = widget.instanceField1;
+    return Row(
+      children: [
+        Text(widget.instanceField1),
+        Text(widget.instanceField2),
+        Text(widget.instanceField3),
+        Text(instanceField4),
+        Text(instanceField5),
+        Text(MyWidget.staticField1),
+        Text(MyWidget.staticField2),
+        Text(MyWidget.staticField3),
+      ],
+    );
+  }
+}
+"#)),
+        ("test_getters", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(staticGetter1),
+        Text(staticGetter2),
+        Text(instanceGetter1),
+        Text(instanceGetter2),
+      ],
+    );
+  }
+
+  static String get staticGetter1 => '';
+
+  String get instanceGetter1 => '';
+
+  static String get staticGetter2 => '';
+
+  String get instanceGetter2 => '';
+}
+"#, r#"yWidget exte"#, Some(r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatefulWidget {
+  @override
+  State<MyWidget> createState() => _MyWidgetState();
+
+  static String get staticGetter1 => '';
+
+  static String get staticGetter2 => '';
+}
+
+class _MyWidgetState extends State<MyWidget> {
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(MyWidget.staticGetter1),
+        Text(MyWidget.staticGetter2),
+        Text(instanceGetter1),
+        Text(instanceGetter2),
+      ],
+    );
+  }
+
+  String get instanceGetter1 => '';
+
+  String get instanceGetter2 => '';
+}
+"#)),
+        ("test_methods", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatelessWidget {
+  static String staticField = '';
+  final String instanceField1;
+  String instanceField2 = '';
+
+  MyWidget(this.instanceField1);
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(instanceField1),
+        Text(instanceField2),
+        Text(staticField),
+      ],
+    );
+  }
+
+  void instanceMethod1() {
+    instanceMethod1();
+    instanceMethod2();
+    staticMethod1();
+  }
+
+  static void staticMethod1() {
+    print('static 1');
+  }
+
+  void instanceMethod2() {
+    print('instance 2');
+  }
+
+  static void staticMethod2() {
+    print('static 2');
+  }
+}
+"#, r#"yWidget exte"#, Some(r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatefulWidget {
+  static String staticField = '';
+  final String instanceField1;
+
+  MyWidget(this.instanceField1);
+
+  @override
+  State<MyWidget> createState() => _MyWidgetState();
+
+  static void staticMethod1() {
+    print('static 1');
+  }
+
+  static void staticMethod2() {
+    print('static 2');
+  }
+}
+
+class _MyWidgetState extends State<MyWidget> {
+  String instanceField2 = '';
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(widget.instanceField1),
+        Text(instanceField2),
+        Text(MyWidget.staticField),
+      ],
+    );
+  }
+
+  void instanceMethod1() {
+    instanceMethod1();
+    instanceMethod2();
+    MyWidget.staticMethod1();
+  }
+
+  void instanceMethod2() {
+    print('instance 2');
+  }
+}
+"#)),
+        ("test_noExtraUnderscore", r#"
+import 'package:flutter/widgets.dart';
+
+class _MyWidget extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#, r#"MyWidget ext"#, Some(r#"
+import 'package:flutter/widgets.dart';
+
+class _MyWidget extends StatefulWidget {
+  @override
+  State<_MyWidget> createState() => _MyWidgetState();
+}
+
+class _MyWidgetState extends State<_MyWidget> {
+  @override
+  Widget build(BuildContext context) {
+    return Container();
+  }
+}
+"#)),
+        ("test_simple", r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatelessWidget {
+  final String aaa;
+  final String bbb;
+
+  const MyWidget(this.aaa, this.bbb);
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(aaa),
+        Text(bbb),
+        Text('$aaa'),
+        Text('${bbb}'),
+      ],
+    );
+  }
+}
+"#, r#"yWidget exte"#, Some(r#"
+import 'package:flutter/widgets.dart';
+
+class MyWidget extends StatefulWidget {
+  final String aaa;
+  final String bbb;
+
+  const MyWidget(this.aaa, this.bbb);
+
+  @override
+  State<MyWidget> createState() => _MyWidgetState();
+}
+
+class _MyWidgetState extends State<MyWidget> {
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(widget.aaa),
+        Text(widget.bbb),
+        Text('${widget.aaa}'),
+        Text('${widget.bbb}'),
+      ],
+    );
+  }
+}
+"#)),
+    ];
+    let mut falhas = Vec::new();
+    for (i, (nome, antes, agulha, depois)) in casos.iter().enumerate() {
+        let rel = format!("lib/s{i}.dart");
+        let uri = p.uri(&rel);
+        let r = acoes_em(&mut p, &rel, antes, agulha);
+        let achada = r.as_array().unwrap().iter().find(|a| a["title"] == "Convert to StatefulWidget").cloned();
+        match (depois, achada) {
+            (None, None) => {}
+            (Some(d), Some(a)) => {
+                let obtido = aplicar(&a["edit"], &uri, antes);
+                if obtido != *d {
+                    falhas.push(format!("{nome}: obtido\n{obtido}\nesperado\n{d}"));
+                }
+            }
+            (d, a) => falhas.push(format!("{nome}: esperado {} e obtido {}", d.is_some(), a.is_some())),
+        }
+    }
+    assert!(falhas.is_empty(), "{}", falhas.join("\n----\n"));
+}
