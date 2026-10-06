@@ -25,7 +25,7 @@ fn acoes(p: &mut Projeto, relativo: &str, de: (u32, u32), ate: (u32, u32), extra
     let fora = |k: &str| {
         k.starts_with("source")
             || k.starts_with("quickfix.ignore")
-            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment", "refactor.convert.relativeToPackageImport", "refactor.convert.packageToRelativeImport", "refactor.convert.partOfToPartUri", "refactor.convert.toMapLiteral", "refactor.convert.toSetLiteral", "refactor.encapsulateField", "refactor.convert.toConstructorFieldParameter", "refactor.shadowField", "refactor.convert.toGenericFunctionSyntax", "refactor.destructureLocalVariableAssignment", "refactor.convert.ifCaseStatement", "refactor.convert.ifCaseStatementChain", "refactor.convert.switchStatement", "refactor.convert.toForElement", "refactor.convert.toSuperParameters"].contains(&k) && !k.starts_with("refactor.surround."))
+            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment", "refactor.convert.relativeToPackageImport", "refactor.convert.packageToRelativeImport", "refactor.convert.partOfToPartUri", "refactor.convert.toMapLiteral", "refactor.convert.toSetLiteral", "refactor.encapsulateField", "refactor.convert.toConstructorFieldParameter", "refactor.shadowField", "refactor.convert.toGenericFunctionSyntax", "refactor.destructureLocalVariableAssignment", "refactor.convert.ifCaseStatement", "refactor.convert.ifCaseStatementChain", "refactor.convert.switchStatement", "refactor.convert.toForElement", "refactor.convert.toSuperParameters", "refactor.convert.classToEnum"].contains(&k) && !k.starts_with("refactor.surround."))
             || k == "quickfix.change.to"
             || ["method", "function", "class", "mixin", "getter", "field", "localVariable", "parameter"]
                 .iter()
@@ -927,5 +927,27 @@ fn assistencia_de_super_parametros() {
     assert_eq!(
         aplicar(&a["edit"], &p.uri("lib/a.dart"), texto),
         texto.replace("B(int x, {int y = 0}) : super(x, y: y);", "B(super.x, {super.y});")
+    );
+}
+
+#[test]
+fn assistencia_de_classe_em_enum() {
+    let mut p = Projeto::com_literais("acoes-enum");
+    let texto = "class _E {\n  static const _E c0 = _E(0, 'a');\n  static const _E c1 = _E(1, 'b');\n\n  final int index;\n\n  final String code;\n\n  const _E(this.index, this.code);\n}\n";
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "_E {");
+    let a = acao(&r, "Convert class to an enum");
+    assert_eq!(a["kind"], "refactor.convert.classToEnum");
+    assert_eq!(
+        aplicar(&a["edit"], &p.uri("lib/a.dart"), texto),
+        "enum _E {\n  c0('a'),\n  c1('b');\n\n  final String code;\n\n  const _E(this.code);\n}\n"
+    );
+    let texto = "class _E {\n  static const _E c0 = _E();\n  static const _E c1 = _E();\n}\nvoid f() {}\n";
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "_E {");
+    assert!(r.as_array().unwrap().iter().all(|a| a["title"] != "Convert class to an enum"));
+    let texto = "class _E {\n  static const a = _E._('a');\n  static const b = _E._('b');\n  final String s;\n  const _E._(this.s);\n}\n";
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "_E {");
+    assert_eq!(
+        aplicar(&acao(&r, "Convert class to an enum")["edit"], &p.uri("lib/a.dart"), texto),
+        "enum _E {\n  a._('a'),\n  b._('b');\n\n  final String s;\n  const _E._(this.s);\n}\n"
     );
 }

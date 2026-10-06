@@ -19,6 +19,7 @@ pub(crate) use dartforge_analise::arvore_analyzer;
 mod assinatura;
 mod assist_condicionais;
 mod assist_desestruturar;
+mod assist_enum;
 mod assist_envolver;
 mod assist_expressoes;
 mod assist_funcoes;

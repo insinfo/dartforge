@@ -21,7 +21,7 @@ use dartforge_types::{MemberRef, Resolved};
 use std::collections::HashSet;
 
 impl Contexto<'_> {
-    fn acao_simples(&self, uri: &str, titulo: &str, especie: &str, edicoes: Vec<(Span, String)>) -> AcaoDeCodigo {
+    pub(crate) fn acao_simples(&self, uri: &str, titulo: &str, especie: &str, edicoes: Vec<(Span, String)>) -> AcaoDeCodigo {
         AcaoDeCodigo {
             titulo: titulo.into(),
             especie: especie.into(),
