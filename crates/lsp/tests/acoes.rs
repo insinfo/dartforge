@@ -25,7 +25,7 @@ fn acoes(p: &mut Projeto, relativo: &str, de: (u32, u32), ate: (u32, u32), extra
     let fora = |k: &str| {
         k.starts_with("source")
             || k.starts_with("quickfix.ignore")
-            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment", "refactor.convert.relativeToPackageImport", "refactor.convert.packageToRelativeImport", "refactor.convert.partOfToPartUri", "refactor.convert.toMapLiteral", "refactor.convert.toSetLiteral", "refactor.encapsulateField", "refactor.convert.toConstructorFieldParameter", "refactor.shadowField", "refactor.convert.toGenericFunctionSyntax"].contains(&k))
+            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment", "refactor.convert.relativeToPackageImport", "refactor.convert.packageToRelativeImport", "refactor.convert.partOfToPartUri", "refactor.convert.toMapLiteral", "refactor.convert.toSetLiteral", "refactor.encapsulateField", "refactor.convert.toConstructorFieldParameter", "refactor.shadowField", "refactor.convert.toGenericFunctionSyntax"].contains(&k) && !k.starts_with("refactor.surround."))
             || k == "quickfix.change.to"
             || ["method", "function", "class", "mixin", "getter", "field", "localVariable", "parameter"]
                 .iter()
@@ -813,4 +813,29 @@ fn assistencia_de_sintaxe_de_funcao() {
     // `k(x)`: o parâmetro sem tipo impede.
     let pos = onde(texto, "k(x)", 0);
     assert!(!titulos(&acoes(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Convert into 'Function' syntax".to_string()));
+}
+
+#[test]
+fn assistencia_de_envolver() {
+    let mut p = Projeto::com_literais("acoes-envolver");
+    let texto = "void f() {\n  print(1);\n  print(2);\n}\n";
+    p.abrir("lib/a.dart", texto);
+    p.servidor.aguardar_diagnosticos(std::time::Duration::from_secs(120));
+    let de = onde(texto, "print(1)", 0);
+    let ate = onde(texto, "\n}", 0);
+    let r = acoes(&mut p, "lib/a.dart", de, ate, json!({}));
+    let a = acao(&r, "Surround with 'if'");
+    assert_eq!(a["kind"], "refactor.surround.if");
+    assert_eq!(
+        aplicar(&a["edit"], &p.uri("lib/a.dart"), texto),
+        "void f() {\n  if (condition) {\n    print(1);\n    print(2);\n  }\n}\n"
+    );
+    assert_eq!(
+        aplicar(&acao(&r, "Surround with 'try-catch'")["edit"], &p.uri("lib/a.dart"), texto),
+        "void f() {\n  try {\n    print(1);\n    print(2);\n  } on Exception catch (e) {\n    // TODO\n  }\n}\n"
+    );
+    assert!(!titulos(&r).contains(&"Surround with 'setState'".to_string()));
+    // Sem seleção, nada.
+    let pos = onde(texto, "print(1)", 0);
+    assert!(!titulos(&acoes(&mut p, "lib/a.dart", pos, pos, json!({}))).iter().any(|t| t.starts_with("Surround with")));
 }
