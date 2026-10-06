@@ -25,7 +25,7 @@ fn acoes(p: &mut Projeto, relativo: &str, de: (u32, u32), ate: (u32, u32), extra
     let fora = |k: &str| {
         k.starts_with("source")
             || k.starts_with("quickfix.ignore")
-            || (k.starts_with("refactor.") && k != "refactor.add.typeAnnotation")
+            || (k.starts_with("refactor.") && !["refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse"].contains(&k))
             || k == "quickfix.change.to"
             || ["method", "function", "class", "mixin", "getter", "field", "localVariable", "parameter"]
                 .iter()
@@ -489,4 +489,100 @@ fn criar_arquivo_da_uri_ausente() {
 
 fn common_pos(texto: &str, agulha: &str) -> (u32, u32) {
     onde(texto, agulha, 0)
+}
+
+#[test]
+fn assistencia_de_show_no_import() {
+    let mut p = Projeto::com_literais("acoes-show");
+    p.gravar("lib/b.dart", "int um = 1;\nclass B {}\nvoid g() {}\nextension E on int {\n  int get dobro => this * 2;\n}\nvoid naoUsada() {}\n");
+    let texto = "import 'b.dart';\n\nvoid f() {\n  B();\n  g();\n  print(um + 1.dobro);\n}\n";
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "b.dart'");
+    let a = acao(&r, "Add explicit 'show' combinator");
+    assert_eq!(a["kind"], "refactor.add.showCombinator");
+    assert_eq!(aplicar(&a["edit"], &p.uri("lib/a.dart"), texto), texto.replace("'b.dart';", "'b.dart' show B, E, g, um;"));
+}
+
+#[test]
+fn assistencia_de_for_com_indice() {
+    let mut p = Projeto::com_literais("acoes-for-indice");
+    let texto = "void f(List<String> nomes) {
+  for (final nome in nomes) {
+    print(nome);
+  }
+}
+";
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "for (");
+    let a = acao(&r, "Convert to for-index loop");
+    assert_eq!(a["kind"], "refactor.convert.forEachToForIndex");
+    assert_eq!(
+        aplicar(&a["edit"], &p.uri("lib/a.dart"), texto),
+        "void f(List<String> nomes) {
+  for (int i = 0; i < nomes.length; i++) {
+    final nome = nomes[i];
+    print(nome);
+  }
+}
+"
+    );
+    // Dentro do corpo, fora do cabeçalho, não.
+    let pos = onde(texto, "print", 0);
+    assert!(!titulos(&acoes(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Convert to for-index loop".to_string()));
+}
+
+#[test]
+fn assistencia_de_condicional_em_if_else() {
+    let mut p = Projeto::com_literais("acoes-if-else");
+    let texto = "int f(bool c) {
+  var x = c ? 1 : 2;
+  x = c ? 3 : 4;
+  return c ? x : 5;
+}
+";
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "var x");
+    let a = acao(&r, "Replace conditional with 'if-else'");
+    assert_eq!(a["kind"], "refactor.convert.conditionalToIfElse");
+    assert_eq!(
+        aplicar(&a["edit"], &p.uri("lib/a.dart"), texto),
+        "int f(bool c) {
+  int x;
+  if (c) {
+    x = 1;
+  } else {
+    x = 2;
+  }
+  x = c ? 3 : 4;
+  return c ? x : 5;
+}
+"
+    );
+    let pos = onde(texto, "x = c ? 3", 0);
+    let r = acoes(&mut p, "lib/a.dart", pos, pos, json!({}));
+    assert_eq!(
+        aplicar(&acao(&r, "Replace conditional with 'if-else'")["edit"], &p.uri("lib/a.dart"), texto),
+        "int f(bool c) {
+  var x = c ? 1 : 2;
+  if (c) {
+    x = 3;
+  } else {
+    x = 4;
+  }
+  return c ? x : 5;
+}
+"
+    );
+    let pos = onde(texto, "return", 0);
+    let r = acoes(&mut p, "lib/a.dart", pos, pos, json!({}));
+    assert_eq!(
+        aplicar(&acao(&r, "Replace conditional with 'if-else'")["edit"], &p.uri("lib/a.dart"), texto),
+        "int f(bool c) {
+  var x = c ? 1 : 2;
+  x = c ? 3 : 4;
+  if (c) {
+    return x;
+  } else {
+    return 5;
+  }
+}
+"
+    );
 }

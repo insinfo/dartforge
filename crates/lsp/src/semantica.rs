@@ -431,6 +431,7 @@ impl Analisador for AnalisadorSemantico {
             if let Some(unidade) = projeto.unidade_do_uri(uri) {
                 {
                     let cx = crate::refatoracoes::Contexto::novo(&projeto, unidade);
+                    saida.extend(cx.import_add_show(uri, inicio, fim));
                     saida.extend(cx.adicionar_anotacao_de_tipo(uri, inicio, fim));
                     saida.extend(cx.converter_classe_em_mixin(uri, inicio, fim));
                     saida.extend(cx.converter_em_corpo_assincrono(uri, inicio, fim));
@@ -446,9 +447,11 @@ impl Analisador for AnalisadorSemantico {
                         });
                     }
                     saida.extend(cx.converter_em_campo_final(uri, inicio, fim));
+                    saida.extend(cx.converter_em_for_com_indice(uri, inicio, fim));
                     saida.extend(cx.converter_em_getter(uri, inicio, fim));
                     saida.extend(cx.converter_em_parametro_normal(uri, inicio, fim));
                     saida.extend(cx.remover_anotacao_de_tipo(uri, inicio, fim));
+                    saida.extend(cx.condicional_em_if_else(uri, inicio, fim));
                 }
                 saida.extend(projeto.assistencias_de_reescrita(uri, unidade, inicio, fim));
                 saida.extend(projeto.assistencias_sintaticas(uri, unidade, inicio));

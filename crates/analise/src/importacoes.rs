@@ -369,6 +369,176 @@ pub fn exports_ambiguos(program: &Program, lib: LibraryId, interner: &Interner) 
     out
 }
 
+/// `ImportAddShow` (`import_add_show.dart`, o `_ReferenceFinder`): os nomes
+/// que a unidade `u` usa do import da diretiva `diretiva` — cada busca de
+/// nome cujo elemento, no escopo de imports, é o que esse import fornece
+/// sob o nome. O elemento do escopo segue o `PrefixScope._merge`: dois
+/// imports com elementos diferentes sob o mesmo nome dão o de fora do SDK
+/// quando só um é do SDK, e senão o elemento múltiplo, que não é de nenhum.
+/// Um import com prefixo não tem nome nenhum (o namespace dele é indexado
+/// por `p.x`). As extensões usadas sem nome ficam com quem chama, que tem os
+/// corpos da unidade. `None`: a diretiva não é um import com alvo.
+pub fn nomes_usados_do_import(program: &Program, u: dartforge_elements::model::UnitId, diretiva: usize, interner: &Interner) -> Option<Vec<SymbolId>> {
+    let lib = program.unit(u).library;
+    let biblioteca = program.library(lib);
+    let mut imps: Vec<Imp<'_>> = Vec::new();
+    let mut este = None;
+    for imp in &biblioteca.imports {
+        let unit = program.unit(imp.unit);
+        let Some(dir) = unit.unit.directives.get(imp.directive) else { continue };
+        let DirectiveKind::Import { uri, combinators, .. } = &dir.kind else { continue };
+        let Some(texto) = dartforge_elements::load::string_lit_value(uri) else { continue };
+        if imp.unit == u && imp.directive == diretiva {
+            este = Some(imps.len());
+        }
+        imps.push(Imp { unit: imp.unit, prefix: imp.prefix, deferred: imp.deferred, alvo: imp.library, combinators, uri: uri.span, texto });
+    }
+    let este = este?;
+    if imps[este].prefix.is_some() {
+        return Some(Vec::new());
+    }
+    let prefixos: HashSet<SymbolId> = imps.iter().filter_map(|i| i.prefix).collect();
+    let declarados = &biblioteca.declared;
+    let e_sdk = |e: Element| biblioteca_do_elemento(program, e).is_some_and(|l| program.library(l).is_sdk);
+    // `_merge` sobre os elementos que os imports sem prefixo fornecem.
+    // (o elemento múltiplo não é do SDK e absorve o que vier depois).
+    let do_escopo = |elementos: &mut dyn Iterator<Item = Element>| -> Option<Element> {
+        let mut atual: Option<Element> = None;
+        for e in elementos {
+            match atual {
+                None => atual = Some(e),
+                Some(a) if a == e => {}
+                Some(a) if e_sdk(a) && !e_sdk(e) => atual = Some(e),
+                Some(a) if !e_sdk(a) && e_sdk(e) => {}
+                Some(_) => return None,
+            }
+        }
+        atual
+    };
+    let mut nomes: Vec<SymbolId> = Vec::new();
+    let e_prefixo = |a: &dartforge_frontend::ast::Ast, pos: usize, p: SymbolId| {
+        prefixos.contains(&p) && !declarados.contains_key(&p) && !dartforge_types::anotacoes::sombreado(a, interner, pos, p)
+    };
+    let unit = program.unit(u);
+    buscas_da_unidade(unit, interner, &e_prefixo, &|p| prefixos.contains(&p) && !declarados.contains_key(&p), &mut |b| {
+        let Busca::Nome(n) = b else { return };
+        if declarados.contains_key(&n) || prefixos.contains(&n) || nomes.contains(&n) {
+            return;
+        }
+        let Some(proprio) = fornece(program, &imps[este], n) else { return };
+        let sem_prefixo = || imps.iter().filter(|i| i.prefix.is_none()).filter_map(|i| fornece(program, i, n));
+        let getter = do_escopo(&mut sem_prefixo().filter_map(|b| b.getter));
+        let setter = do_escopo(&mut sem_prefixo().filter_map(|b| b.setter));
+        if (proprio.getter.is_some() && proprio.getter == getter) || (proprio.setter.is_some() && proprio.setter == setter) {
+            nomes.push(n);
+        }
+    });
+    Some(nomes)
+}
+
+/// Uma busca léxica de nome que chega ao escopo de imports
+/// ([`buscas_da_unidade`]).
+enum Busca {
+    /// Um nome sem prefixo, já fora dos escopos locais.
+    Nome(SymbolId),
+    /// `p.x` com `p` prefixo de import.
+    Prefixado(SymbolId, SymbolId),
+    /// `[p]`: o prefixo citado num comentário de documentação.
+    PrefixoEmComentario(SymbolId),
+}
+
+/// As buscas de nome de uma unidade que o rastreio de uso dos imports vê
+/// (`ImportsTrackingOfPrefix`): identificadores de expressão, nomes de tipo,
+/// nomes de anotação, padrões constantes soltos e as referências dos
+/// comentários de documentação. `e_prefixo(ast, pos, p)`: `p` é um prefixo
+/// de import nesse lugar; `prefixo_simples(p)`: `p` é prefixo (nos
+/// comentários, que não têm posição de escopo própria).
+fn buscas_da_unidade(
+    unit: &dartforge_elements::model::Unit,
+    interner: &Interner,
+    e_prefixo: &dyn Fn(&dartforge_frontend::ast::Ast, usize, SymbolId) -> bool,
+    prefixo_simples: &dyn Fn(SymbolId) -> bool,
+    f: &mut dyn FnMut(Busca),
+) {
+    let a = &unit.ast;
+    let fonte = unit.source.as_str();
+    // Os identificadores que são o prefixo de um `p.x`.
+    let mut de_prefixo: HashSet<dartforge_frontend::ast::ExprId> = HashSet::new();
+    for e in a.exprs.iter() {
+        if let ExprKind::Property { target, name, .. } = &e.kind
+            && let ExprKind::Identifier(p) = &a.expr(*target).kind
+            && e_prefixo(a, p.span.start, p.sym)
+        {
+            de_prefixo.insert(*target);
+            f(Busca::Prefixado(p.sym, name.sym));
+        }
+    }
+    // Os identificadores de expressão.
+    for (k, e) in a.exprs.iter().enumerate() {
+        if let ExprKind::Identifier(n) = &e.kind
+            && !de_prefixo.contains(&dartforge_frontend::ast::ExprId(k as u32))
+            && !dartforge_types::anotacoes::sombreado(a, interner, n.span.start, n.sym)
+        {
+            f(Busca::Nome(n.sym));
+        }
+    }
+    // Os nomes de tipo.
+    for t in a.types.iter() {
+        if let TypeKind::Named { name, .. } = &t.kind {
+            match &name[..] {
+                [p, n, ..] if e_prefixo(a, p.span.start, p.sym) => f(Busca::Prefixado(p.sym, n.sym)),
+                [n, ..] => {
+                    if !dartforge_types::anotacoes::sombreado(a, interner, n.span.start, n.sym) {
+                        f(Busca::Nome(n.sym));
+                    }
+                }
+                [] => {}
+            }
+        }
+    }
+    // Os nomes de anotação.
+    for m in dartforge_frontend::pais::todas_as_anotacoes(a, &unit.unit) {
+        match &m.name[..] {
+            [p, n, ..] if e_prefixo(a, m.span.start, p.sym) => f(Busca::Prefixado(p.sym, n.sym)),
+            [n, ..] => {
+                if !dartforge_types::anotacoes::sombreado(a, interner, m.span.start, n.sym) {
+                    f(Busca::Nome(n.sym));
+                }
+            }
+            [] => {}
+        }
+    }
+    // O nome solto num padrão refutável: um padrão constante.
+    for n in constantes_de_padrao(a) {
+        if !dartforge_types::anotacoes::sombreado(a, interner, n.span.start, n.sym) {
+            f(Busca::Nome(n.sym));
+        }
+    }
+    // As referências dos comentários de documentação, no escopo da
+    // declaração documentada.
+    let comentarios = dartforge_frontend::comentarios::Comentarios::de(fonte);
+    for (doc, pos, extras) in documentacoes(a, &unit.unit, fonte, &comentarios) {
+        for partes in referencias_do_doc(&fonte[doc.start..doc.end]) {
+            let simbolos: Vec<Option<SymbolId>> = partes.iter().map(|x| interner.lookup(x)).collect();
+            let Some(primeiro) = simbolos[0] else { continue };
+            if extras.contains(&primeiro) || dartforge_types::anotacoes::sombreado(a, interner, pos, primeiro) {
+                continue;
+            }
+            let prefixo = prefixo_simples(primeiro);
+            if prefixo {
+                match simbolos.get(1) {
+                    Some(Some(n)) => f(Busca::Prefixado(primeiro, *n)),
+                    Some(None) => {}
+                    // `[p]`: o prefixo citado num comentário.
+                    None => f(Busca::PrefixoEmComentario(primeiro)),
+                }
+            } else {
+                f(Busca::Nome(primeiro));
+            }
+        }
+    }
+}
+
 /// Um import da biblioteca, com o que o verificador lê dele.
 struct Imp<'a> {
     unit: dartforge_elements::model::UnitId,
@@ -598,85 +768,13 @@ pub fn nao_usados(
         if unit.role == UnitRole::Patch {
             continue;
         }
-        let a = &unit.ast;
-        let fonte = unit.source.as_str();
-        // Os identificadores que são o prefixo de um `p.x`.
-        let mut de_prefixo: HashSet<dartforge_frontend::ast::ExprId> = HashSet::new();
-        for e in a.exprs.iter() {
-            if let ExprKind::Property { target, name, .. } = &e.kind
-                && let ExprKind::Identifier(p) = &a.expr(*target).kind
-                && e_prefixo(a, p.span.start, p.sym)
-            {
-                de_prefixo.insert(*target);
-                marcar_prefixado(&mut usados, p.sym, name.sym);
+        buscas_da_unidade(unit, interner, &e_prefixo, &|p| prefixos.contains(&p) && !declarados.contains_key(&p), &mut |b| match b {
+            Busca::Nome(n) => marcar(&mut usados, n),
+            Busca::Prefixado(p, n) => marcar_prefixado(&mut usados, p, n),
+            Busca::PrefixoEmComentario(p) => {
+                prefixo_em_comentario.insert(p);
             }
-        }
-        // Os identificadores de expressão.
-        for (k, e) in a.exprs.iter().enumerate() {
-            if let ExprKind::Identifier(n) = &e.kind
-                && !de_prefixo.contains(&dartforge_frontend::ast::ExprId(k as u32))
-                && !dartforge_types::anotacoes::sombreado(a, interner, n.span.start, n.sym)
-            {
-                marcar(&mut usados, n.sym);
-            }
-        }
-        // Os nomes de tipo.
-        for t in a.types.iter() {
-            if let TypeKind::Named { name, .. } = &t.kind {
-                match &name[..] {
-                    [p, n, ..] if e_prefixo(a, p.span.start, p.sym) => marcar_prefixado(&mut usados, p.sym, n.sym),
-                    [n, ..] => {
-                        if !dartforge_types::anotacoes::sombreado(a, interner, n.span.start, n.sym) {
-                            marcar(&mut usados, n.sym);
-                        }
-                    }
-                    [] => {}
-                }
-            }
-        }
-        // Os nomes de anotação.
-        for m in dartforge_frontend::pais::todas_as_anotacoes(a, &unit.unit) {
-            match &m.name[..] {
-                [p, n, ..] if e_prefixo(a, m.span.start, p.sym) => marcar_prefixado(&mut usados, p.sym, n.sym),
-                [n, ..] => {
-                    if !dartforge_types::anotacoes::sombreado(a, interner, m.span.start, n.sym) {
-                        marcar(&mut usados, n.sym);
-                    }
-                }
-                [] => {}
-            }
-        }
-        // O nome solto num padrão refutável: um padrão constante.
-        for n in constantes_de_padrao(a) {
-            if !dartforge_types::anotacoes::sombreado(a, interner, n.span.start, n.sym) {
-                marcar(&mut usados, n.sym);
-            }
-        }
-        // As referências dos comentários de documentação, no escopo da
-        // declaração documentada.
-        let comentarios = dartforge_frontend::comentarios::Comentarios::de(fonte);
-        for (doc, pos, extras) in documentacoes(a, &unit.unit, fonte, &comentarios) {
-            for partes in referencias_do_doc(&fonte[doc.start..doc.end]) {
-                let simbolos: Vec<Option<SymbolId>> = partes.iter().map(|x| interner.lookup(x)).collect();
-                let Some(primeiro) = simbolos[0] else { continue };
-                if extras.contains(&primeiro) || dartforge_types::anotacoes::sombreado(a, interner, pos, primeiro) {
-                    continue;
-                }
-                let prefixo = prefixos.contains(&primeiro) && !declarados.contains_key(&primeiro);
-                if prefixo {
-                    match simbolos.get(1) {
-                        Some(Some(n)) => marcar_prefixado(&mut usados, primeiro, *n),
-                        Some(None) => {}
-                        // `[p]`: o prefixo citado num comentário.
-                        None => {
-                            prefixo_em_comentario.insert(primeiro);
-                        }
-                    }
-                } else {
-                    marcar(&mut usados, primeiro);
-                }
-            }
-        }
+        });
     }
     // `notifyExtensionUsed`.
     match corpos {
