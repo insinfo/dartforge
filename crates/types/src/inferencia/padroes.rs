@@ -147,6 +147,7 @@ fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, fi
             // (`DeclaredVariablePattern`).
             if atribuicao && !*var_ && !f2 && ty.is_none() {
                 if let Some(Nome::Local(id)) = cx.buscar(name.sym) {
+                    super::expr::escrita_em_primario(inf, cx, id, name.span);
                     if inf.registrar_locais {
                         let offset = cx.local(id).offset;
                         inf.body_types.units[cx.unit.0 as usize].declaracoes_de_padroes.insert(p, offset);

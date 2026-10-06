@@ -191,6 +191,11 @@ pub(crate) struct Corpo {
     /// aberto, é onde o trecho morto de uma expressão termina (o
     /// `flowEnd` do corpo, aparado na última instrução).
     pub fins_de_bloco: Vec<usize>,
+    /// Os parâmetros do construtor primário vistos nos inicializadores dele
+    /// e nos de campo não `late` (o `_thisContext` `constructorInitializers`
+    /// e `instanceFieldDeclaration` do `ErrorVerifier` 3.13): escrever num
+    /// deles ali é `ASSIGNMENT_TO_PRIMARY_CONSTRUCTOR_PARAMETER`.
+    pub parametros_primarios: HashSet<LocalId>,
     /// Profundidade em `fins_de_fluxo` onde começou o trecho morto em curso
     /// (`_firstDeadNode`): enquanto houver um, outro nó inalcançável é parte
     /// do mesmo trecho.
@@ -274,6 +279,7 @@ impl Corpo {
             sobreposicoes: HashMap::new(),
             fins_de_fluxo: Vec::new(),
             fins_de_bloco: Vec::new(),
+            parametros_primarios: HashSet::new(),
             trecho_morto: None,
             origem_do_morto: None,
         };
@@ -318,6 +324,13 @@ impl Corpo {
             if let Some(c) = classe {
                 cx.tipo_this = Some(inf.tipo_this_classe(c));
             }
+        }
+        // O campo de instância não `late` vê os parâmetros do construtor
+        // primário.
+        if !v.static_ && !v.late
+            && let Some(c) = classe
+        {
+            inf.declarar_parametros_do_primario(&mut cx, c);
         }
         cx
     }

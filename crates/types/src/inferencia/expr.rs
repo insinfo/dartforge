@@ -440,6 +440,16 @@ fn nome_lido_indefinido(inf: &mut BodyInferrer<'_>, cx: &Corpo, n: ast::Name, le
 /// contexto de escrita (`=`, `op=`, `++`/`--`) é uma variável do padrão
 /// guardado cuja cláusula `when` está em análise (também dentro de closures
 /// e de `if-case` da guarda).
+/// `_checkForAssignmentToPrimaryConstructorParameter` (3.13,
+/// `error_verifier.dart:3302-3327` do checkout main): escrita num parâmetro
+/// do construtor primário dentro dos inicializadores dele ou de um campo de
+/// instância (também numa função dentro deles), no nome escrito.
+pub(crate) fn escrita_em_primario(inf: &mut BodyInferrer<'_>, cx: &Corpo, id: LocalId, span: dartforge_diagnostics::Span) {
+    if cx.parametros_primarios.contains(&id) {
+        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::ASSIGNMENT_TO_PRIMARY_CONSTRUCTOR_PARAMETER, span, &[]);
+    }
+}
+
 pub(crate) fn escrita_em_guarda(inf: &mut BodyInferrer<'_>, cx: &Corpo, id: LocalId, span: dartforge_diagnostics::Span) {
     if cx.variaveis_em_guarda.contains(&id) {
         inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::PATTERN_VARIABLE_ASSIGNMENT_INSIDE_GUARD, span, &[]);
@@ -3363,6 +3373,7 @@ fn ler_para_escrita(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, cu
                     resolver(inf, cx, alvo, Resolved::Local(id));
                     referencia_de_juncao(inf, cx, id, n);
                     escrita_em_guarda(inf, cx, id, n.span);
+                    escrita_em_primario(inf, cx, id, n.span);
                     let t = ler_local(inf, cx, id, n.span);
                     let decl = cx.local(id).tipo;
                     (t, decl, Some(id))
@@ -3598,6 +3609,7 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                             resolver(inf, cx, alvo, Resolved::Local(id));
                             referencia_de_juncao(inf, cx, id, n);
                             escrita_em_guarda(inf, cx, id, n.span);
+                            escrita_em_primario(inf, cx, id, n.span);
                             let l = cx.local(id).clone();
                             if cx.funcoes_locais.contains(&id) {
                                 inf.aviso(ASSIGNMENT_TO_FUNCTION.template.to_string(), n.span);

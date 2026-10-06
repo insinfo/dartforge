@@ -117,6 +117,17 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             // Escopo dos inicializadores: todos os parâmetros.
             cx.empurrar_escopo();
             declarar_parametros(inf, &mut cx, &ctor.parameters, &tipos, false);
+            // Os parâmetros do primário, protegidos nos inicializadores (o
+            // corpo declara locais novos).
+            if e_construtor_primario(inf.program, f)
+                && let Some(escopo) = cx.escopos.last()
+            {
+                let ids: Vec<_> = escopo.iter().filter_map(|(_, n)| match n {
+                    super::corpo::Nome::Local(id) => Some(*id),
+                    _ => None,
+                }).collect();
+                cx.parametros_primarios.extend(ids);
+            }
             // Inicializadores não veem `this` (salvo o acesso ao campo inicializado).
             let this_salvo = cx.tipo_this.take();
             let estatico_salvo = cx.estatico;

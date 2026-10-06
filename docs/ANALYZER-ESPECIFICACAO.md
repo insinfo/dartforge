@@ -660,11 +660,13 @@ Base comum: a resolução de membro passa por `TypePropertyResolver.resolve` (`a
 - **Posição:** o nome. **Mensagem:** `'{0}' can't be used as a setter because it's final.`
 - **No DartForge:** existe (66). FN `static_extension_internal_basename_shadowing:402-410`: campo `final` estático de **extensão** atribuído por nome implícito dentro de membro da extensão. **Mudança:** procurar os campos estáticos da extensão envolvente no lookup de escrita.
 
-##### `assignment_to_primary_constructor_parameter` (perda 40: FN 40)
+##### `assignment_to_primary_constructor_parameter` (perda 40: FN 40; feito, 40/40)
 - **Não existe no analyzer 3.6.2** (ausente de `analyzer/messages.yaml` e de `codes.g.dart` da 3.6.2). Todos os casos vêm de arquivos com **construtores primários** (sintaxe nova, `primary_constructors/*`, `AssignmentToPrimaryConstructorParameter_*`), classificados em `corpus/diagnosticos/sintaxe-nova.json` e julgados pelo oráculo 3.13.4.
 - **Mensagem (3.13):** `A primary constructor parameter can't be assigned to in an initializer.` — o parâmetro de construtor primário (declarado no cabeçalho `class C(int x)`) atribuído (`x = …`, `x++`, `x += …`) dentro de inicializador de campo/inicializador do construtor.
 - **Posição (pelo oráculo):** o identificador atribuído (ou a expressão de atribuição; `2:27`, `65:6`/`65:11` = duas atribuições na mesma linha).
-- **No DartForge:** inexistente; depende do suporte a construtores primários no parser (`crates/frontend`) e da fonte do analyzer 3.13 para a regra exata (não está em `E:\references\dart-sdk-3.6.2`; usar `E:\references\dart-sdk` só como referência da linguagem nova). **Mudança:** fora do escopo da paridade 3.6.2; tratar junto com a família de construtores primários.
+- **Emissor (checkout main, `pkg/analyzer/lib/src/generated/error_verifier.dart:3302-3327`):** `_checkForAssignmentToPrimaryConstructorParameter(node, element)`: o elemento escrito (o `writeElement` da atribuição, do `++`/`--` e do `??=`, ou o do `AssignedVariablePattern`) é um `FormalParameterElement` cujo dono é o construtor primário, e `_thisContext` é `constructorInitializers` ou `instanceFieldDeclaration`. O contexto não muda ao entrar numa função dentro do inicializador (`var f = () { x = 0; };` e `this : f = (() { x = 0; })` relatam). O corpo `this { x = 0; }` não relata; o campo `late` não vê o parâmetro (`undefined_identifier`). Chamadas: `visitAssignedVariablePattern` (`:443-446`), `visitAssignmentExpression` (`:456-457`), atribuição composta e `??=` (`:725-735`, `:948-956`, `:1598-1608`) e `++`/`--` (`:1712-1719`).
+- **Posição:** o nome escrito (`x` em `x = 0`, `x++`, `++x`, `x += 1`, `x ??= 0`, `(x) = 0`, `(x!) = 2`, `[x] = [2]`; `(x && z) = 2` dá dois).
+- **No DartForge (feito, 40/40):** `Corpo.parametros_primarios` guarda os `LocalId` dos parâmetros do primário: no escopo dos inicializadores do construtor primário (`funcoes.rs`; o corpo declara locais novos) e no inicializador de campo de instância não `late` (`Corpo::para_variavel` chama `declarar_parametros_do_primario`, agora também no campo sem tipo, que antes dava `undefined_identifier`). `expr.rs::escrita_em_primario` relata nas escritas de local da atribuição simples, de `ler_para_escrita` (composta, `??=`, `++`/`--`) e no `AssignedVariablePattern` (`padroes.rs` e `padroes/casamento.rs`).
 
 #### Grupo 4 — declarações de extension type, `main`, diretivas de documentação e FFI
 
@@ -2119,7 +2121,7 @@ foram rodados no oráculo vivo (`C:\tools\dartsdk-3.6.2\bin\dart analyze --forma
 Esta parte foi **gerada por script** (`E:\dftemp\analise\spec-r4\final\guardas.py`) para os códigos que a auditoria (§0.A) achou sem o campo "Supressões e ordem" e que não receberam complemento escrito à mão. Para cada código ela traz os pontos de emissão (arquivo:linha na tag 3.6.2, com a classe e o método que os contêm) e os **desvios do método emissor que antecedem o relato** (`if`, `return`, `continue`, `case`), copiados da fonte com o número da linha. É a matéria-prima do campo "Supressões": cada `return` antes do relato é uma condição em que o código não sai. O script não interpreta os desvios; quem implementar o código lê o trecho citado. As supressões gerais (tipo inválido, ordem das fases, homônimos) estão nos planos T1, T4 e T5 (§G).
 
 ##### `assignment_to_primary_constructor_parameter` — guardas do emissor (perda 40: FN 40, FP 0, msg 0, pos 0)
-- **Emissão:** o código não existe no analyzer 3.6.2 (nenhuma constante com esse nome; auditoria §0.A, item 2). É do oráculo 3.13.4; a especificação só pode vir do checkout main e não foi escrita.
+- **Emissão:** o código não existe no analyzer 3.6.2 (nenhuma constante com esse nome; auditoria §0.A, item 2). É do oráculo 3.13.4; a regra, tirada do checkout main, está na seção `assignment_to_primary_constructor_parameter` do grupo 3 (feito, 40/40).
 
 ##### `invocation_of_non_function` — guardas do emissor (perda 28: FN 28, FP 0, msg 0, pos 0)
 - **Emissão:** `analyzer/lib/src/dart/resolver/method_invocation_resolver.dart:267` em `MethodInvocationResolver._reportInvocationOfNonFunction` (começa em `:258`).
@@ -28638,7 +28640,7 @@ Gerado por `E:\dftemp\analise\spec-r4\indice.py` sobre este arquivo. Colunas:
 | `assignment_to_final` | A | 603, 1407 | CompileTimeErrorCode.ASSIGNMENT_TO_FINAL — `error/assignment_verifier.dart:91` +2 | 69/66/66; FN 3; pub |
 | `assignment_to_final_local` | B | 3636 | CompileTimeErrorCode.ASSIGNMENT_TO_FINAL_LOCAL — `dart/resolver/assignment_expression_resolver.dart:379` +1 | 60/49/49; FN 11; pub |
 | `assignment_to_final_no_setter` | A | 588, 2105 | CompileTimeErrorCode.ASSIGNMENT_TO_FINAL_NO_SETTER — `error/assignment_verifier.dart:85` +1 | 60/44/44; FN 16; pub |
-| `assignment_to_primary_constructor_parameter` | A | 609, 1995 | não existe no 3.6.2 (main: `analyzer/lib/src/diagnostic/diagnostic.g.dart:849`) | 40/0/0; FN 40; sem emissão |
+| `assignment_to_primary_constructor_parameter` | A | 609, 1995 | não existe no 3.6.2 (main: `analyzer/lib/src/diagnostic/diagnostic.g.dart:849`) | 40/40/40; feito |
 | `async_for_in_wrong_context` | A | 395, 1419 | CompileTimeErrorCode.ASYNC_FOR_IN_WRONG_CONTEXT — `fe:parser/parser_impl.dart:8544` | 3/0/0; FN 3; sem emissão |
 | `await_in_late_local_variable_initializer` | A | 415, 1644 | CompileTimeErrorCode.AWAIT_IN_LATE_LOCAL_VARIABLE_INITIALIZER — `generated/error_verifier.dart:2209` | 2/0/0; FN 2; sem emissão |
 | `await_of_incompatible_type` | A | 359 | CompileTimeErrorCode.AWAIT_OF_INCOMPATIBLE_TYPE — `generated/error_verifier.dart:2220` | 16/0/0; FN 16; sem emissão |

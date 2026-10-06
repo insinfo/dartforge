@@ -476,7 +476,7 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
                 // elemento que não é local nem parâmetro,
                 // `PATTERN_ASSIGNMENT_NOT_LOCAL_VARIABLE`.
                 match expr::resolver_nome(inf, cx, name.sym, false) {
-                    expr::RefNome::Local(_) => {}
+                    expr::RefNome::Local(id) => expr::escrita_em_primario(inf, cx, id, name.span),
                     expr::RefNome::ThisImplicito | expr::RefNome::Adiante(_) | expr::RefNome::Nenhum => {
                         expr::nome_indefinido_sem_this(inf, cx, name);
                     }
