@@ -109,6 +109,9 @@ fn trechos_de_comentario(fonte: &str) -> Vec<(usize, usize)> {
     saida
 }
 
+/// Os operadores definíveis (`TokenType.isUserDefinableOperator`).
+const OPERADORES: &[&str] = &["==", "~", "[]", "[]=", "*", "/", "%", "~/", "+", "-", "<<", ">>", ">>>", ">=", ">", "<=", "<", "&", "^", "|"];
+
 /// Byte que pode compor um identificador Dart.
 fn eh_ident(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
@@ -148,16 +151,19 @@ fn referencias_em(fonte: &str, span: Span) -> Vec<Vec<(Span, String)>> {
         let depois = b.get(fecha + 1).copied();
         let dentro = &fonte[i + 1..fecha];
         // `[texto](url)`, `[texto][rótulo]` e o próprio `[rótulo]` são links.
-        let valido = !dentro.is_empty()
-            && !matches!(depois, Some(b'(') | Some(b'['))
-            && (i == 0 || b[i - 1] != b']')
-            && dentro.split('.').all(|p| {
-                !p.is_empty() && !p.as_bytes()[0].is_ascii_digit() && p.bytes().all(eh_ident)
-            });
+        let ident = |p: &str| !p.is_empty() && !p.as_bytes()[0].is_ascii_digit() && p.bytes().all(eh_ident);
+        let link = matches!(depois, Some(b'(') | Some(b'[')) || (i > 0 && b[i - 1] == b']');
+        // `_parseOneCommentReference`: até dois prefixos e um nome, ou um
+        // operador definível (`[int.+]`, `[operator ==]`) no lugar do nome.
+        let mut nomes: Vec<&str> = dentro.split('.').collect();
+        let ultimo = nomes.pop().unwrap_or("");
+        let operador = ultimo.strip_prefix("operator").map_or(ultimo, |r| if r.starts_with(char::is_whitespace) { r.trim_start() } else { ultimo });
+        let e_operador = OPERADORES.contains(&operador);
+        let valido = !dentro.is_empty() && !link && nomes.len() <= 2 && nomes.iter().all(|p| ident(p)) && (ident(ultimo) || e_operador);
         if valido {
             let mut partes = Vec::new();
             let mut inicio = i + 1;
-            for parte in dentro.split('.') {
+            for parte in nomes {
                 partes.push((
                     Span {
                         start: inicio,
@@ -167,6 +173,14 @@ fn referencias_em(fonte: &str, span: Span) -> Vec<Vec<(Span, String)>> {
                 ));
                 inicio += parte.len() + 1;
             }
+            let deslocamento = ultimo.len() - operador.len();
+            partes.push((
+                Span {
+                    start: inicio + deslocamento,
+                    end: inicio + ultimo.len(),
+                },
+                operador.to_string(),
+            ));
             saida.push(partes);
         }
         i = fecha + 1;

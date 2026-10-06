@@ -170,7 +170,21 @@ impl SdkLayout {
                 continue;
             }
             let Some(fim) = texto[j + 1..].find(q as char) else { break };
-            let caminho = &texto[j + 1..j + 1 + fim];
+            let mut caminho = &texto[j + 1..j + 1 + fim];
+            // `dart2jsPath:` troca o caminho (o `_LibraryBuilder` do
+            // `SdkLibrariesReader` grava o argumento nomeado por cima do
+            // posicional): `dart:html_common` é o `html_common_dart2js.dart`.
+            if let Some(fecha) = texto[j..].find(')') {
+                let args = &texto[j..j + fecha];
+                if let Some(k) = args.find("dart2jsPath:") {
+                    let resto = args[k + "dart2jsPath:".len()..].trim_start();
+                    if let Some(q2) = resto.chars().next().filter(|c| *c == '\'' || *c == '"')
+                        && let Some(f2) = resto[1..].find(q2)
+                    {
+                        caminho = &resto[1..1 + f2];
+                    }
+                }
+            }
             libraries.insert(
                 nome.clone(),
                 SdkLibrary { name: nome, path: lib_dir.join(caminho), patches: Vec::new(), supported: true },

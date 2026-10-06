@@ -1747,7 +1747,15 @@ impl Projeto {
             }
             for c in dartdoc::comentarios(fonte) {
                 for r in &c.referencias {
+                    // `visitCommentReference` do índice: `[A]`/`[A.b]` que
+                    // resolve para construtor só cita o construtor (o
+                    // prefixo não é visitado).
+                    let so_o_construtor = r.len() <= 2
+                        && matches!(self.resolver_referencia_doc(u, c.span, r), Some((Alvo::Construtor(_), _)));
                     for i in 0..r.len() {
+                        if so_o_construtor && i + 1 < r.len() {
+                            continue;
+                        }
                         if let Some((a, _)) = self.resolver_referencia_doc(u, c.span, &r[..=i])
                             && self.mesmo_alvo(&a, alvo)
                         {

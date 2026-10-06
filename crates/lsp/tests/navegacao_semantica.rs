@@ -407,6 +407,22 @@ fn referencias_sem_falsos_por_sombra_homonimo_e_biblioteca() {
 }
 
 #[test]
+fn referencias_de_documentacao_como_o_indice() {
+    // `[A.n]` resolve para o construtor: o índice do analyzer não cita o
+    // `A` dela; `[A.+]` (operador) e `[A]` citam.
+    let mut p = Projeto::novo("nav-referencias-doc");
+    let a = "class A {\n  A.n();\n  A operator +(A o) => this;\n}\n/// [A.n], [A.+] e [A].\nvoid h() {}\n";
+    p.abrir("lib/a.dart", a);
+    let refs = referencias(&mut p, "lib/a.dart", a, "A {", 0, false);
+    assert!(refs.contains(&("lib/a.dart".to_string(), 4, 12)), "{refs:?}");
+    assert!(refs.contains(&("lib/a.dart".to_string(), 4, 20)), "{refs:?}");
+    assert!(!refs.contains(&("lib/a.dart".to_string(), 4, 5)), "{refs:?}");
+    // O construtor: do fim do prefixo ao fim.
+    let refs = referencias(&mut p, "lib/a.dart", a, "n();", 0, false);
+    assert!(refs.contains(&("lib/a.dart".to_string(), 4, 6)), "{refs:?}");
+}
+
+#[test]
 fn referencias_de_membro_pela_familia_e_do_sdk() {
     let mut p = Projeto::novo("nav-ref-membro");
     let a = "class A { void m() {} }\nclass B extends A { void m() {} }\nclass D { void m() {} }\nvoid t(A a, B b, D d) { a.m(); b.m(); d.m(); print(1); }\n";
