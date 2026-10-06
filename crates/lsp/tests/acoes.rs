@@ -25,7 +25,7 @@ fn acoes(p: &mut Projeto, relativo: &str, de: (u32, u32), ate: (u32, u32), extra
     let fora = |k: &str| {
         k.starts_with("source")
             || k.starts_with("quickfix.ignore")
-            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment"].contains(&k))
+            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment", "refactor.convert.relativeToPackageImport", "refactor.convert.packageToRelativeImport", "refactor.convert.partOfToPartUri"].contains(&k))
             || k == "quickfix.change.to"
             || ["method", "function", "class", "mixin", "getter", "field", "localVariable", "parameter"]
                 .iter()
@@ -719,4 +719,21 @@ fn assistencia_de_elementos_e_documentacao() {
     let pos = onde(texto, "? 1", 0);
     let r = acoes(&mut p, "lib/a.dart", pos, pos, json!({}));
     assert_eq!(aplicar(&acao(&r, "Convert to an 'if' element")["edit"], &p.uri("lib/a.dart"), texto), texto.replace("[c ? 1 : 2]", "[if (c) 1 else 2]"));
+}
+
+#[test]
+fn assistencia_de_uris_de_import() {
+    let mut p = Projeto::com_literais("acoes-uris");
+    p.gravar("lib/src/b.dart", "int b = 1;\n");
+    p.gravar("lib/c.dart", "int c = 2;\n");
+    let texto = "import 'src/b.dart';\nimport 'package:projeto/c.dart';\n\nvoid f() => print([b, c]);\n";
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "src/b");
+    let a = acao(&r, "Convert to 'package:' import");
+    assert_eq!(a["kind"], "refactor.convert.relativeToPackageImport");
+    assert_eq!(aplicar(&a["edit"], &p.uri("lib/a.dart"), texto), texto.replace("'src/b.dart'", "'package:projeto/src/b.dart'"));
+    assert!(!titulos(&r).contains(&"Convert to a relative import".to_string()));
+    let pos = onde(texto, "projeto/c", 0);
+    let r = acoes(&mut p, "lib/a.dart", pos, pos, json!({}));
+    assert_eq!(aplicar(&acao(&r, "Convert to a relative import")["edit"], &p.uri("lib/a.dart"), texto), texto.replace("'package:projeto/c.dart'", "'c.dart'"));
+    assert!(!titulos(&r).contains(&"Convert to 'package:' import".to_string()));
 }

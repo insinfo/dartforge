@@ -432,6 +432,9 @@ impl Analisador for AnalisadorSemantico {
                 {
                     let cx = crate::refatoracoes::Contexto::novo(&projeto, unidade);
                     saida.extend(cx.import_add_show(uri, inicio, fim));
+                    saida.extend(cx.converter_em_import_de_pacote(uri, inicio, fim));
+                    saida.extend(cx.converter_em_import_relativo(uri, inicio, fim));
+                    saida.extend(cx.converter_part_of_em_uri(uri, inicio, fim));
                     saida.extend(cx.adicionar_tipo_de_retorno(uri, inicio, fim));
                     saida.extend(cx.adicionar_anotacao_de_tipo(uri, inicio, fim));
                     saida.extend(cx.converter_classe_em_mixin(uri, inicio, fim));
