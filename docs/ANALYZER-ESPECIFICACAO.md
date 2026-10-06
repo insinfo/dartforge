@@ -552,6 +552,12 @@ Base comum: a resolução de membro passa por `TypePropertyResolver.resolve` (`a
 - **Emissão:** `_reportInvocationOfNonFunction` (`method_invocation_resolver.dart:257-270`), de `_resolveReceiverNull` (:575-600) quando o elemento achado no escopo não é executável, variável nem prefixo: **parâmetro de tipo** (`T()`), alias de tipo (`typedef T = dynamic; T()`), `dynamic`; e do tipo literal com elemento não executável (:902-915).
 - **Posição:** o nome (`methodName`). **Mensagem:** `'{0}' isn't a function.` (`{0}` o nome).
 - **No DartForge:** `chamadas.rs::invocar_valor` deixa de fora (comentário :389-396). **Mudança:** em `chamada`, ramo `Identifier` que resolve a parâmetro de tipo/alias não-classe/`dynamic` → `INVOCATION_OF_NON_FUNCTION [nome]` no nome, inferindo os argumentos livres.
+- **Estado (2026-10-06):** 28 de 28. A regra que decide (`_resolveReceiverNull`,
+  `method_invocation_resolver.dart:563-600`): o elemento achado para `nome(…)` que não é acessor, executável, variável
+  nem prefixo relata no nome. Chegam aqui os aliases cujo alvo **não** é `InterfaceType` (o `AstRewriter` só reescreve
+  como criação o alias de interface, `ast_rewrite.dart:154-160`): `typedef T<X> = dynamic`, `= void`, `= X`. Para o
+  analyzer, `Null` e `FutureOr<…>` **são** `InterfaceType`: `typedef T<X> = Null` vira criação (`T()` →
+  `new_with_undefined_constructor_default`, `T<Null>.named()` → `new_with_undefined_constructor`).
 
 ##### `invocation_of_non_function_expression` (perda 12: FN 12)
 - **Emissão:** `FunctionExpressionInvocationResolver.resolve` (`analyzer/lib/src/dart/resolver/function_expression_invocation_resolver.dart:72-104`) e `resolver.dart:2015-2025`.
@@ -1001,6 +1007,11 @@ Forma da invocação no analyzer (decide nome citado e entidade):
 - **Posição:** o `constructorName` (para `new C()`/`C()`: o tipo nomeado com prefixo e argumentos de tipo; `C.new()` implícito: o `new`). **Mensagem:** `The class '{0}' doesn't have an unnamed constructor.` — `{0}` = `namedType.qualifiedName` (`'p.C'` com prefixo; o nome do **alias** quando via typedef: `'T'`); no caminho `C.new`, `receiver.displayName`.
 - **No DartForge:** só `C.new` (`expr.rs:1681-1683`). FN: `new A()`/`A()` sem construtor sem nome (`call/nonexistent_constructor_error_test`, `constructor/unresolved_default_constructor_test`), **aplicação de mixin** sem construtor encaminhado (`mixin_constructor_forwarding/*`, 8: só construtores geradores da superclasse são encaminhados, e com parâmetros opcionais não… regra de encaminhamento), **alias de `FutureOr`/`Null`** (`T()` com `typedef T = FutureOr<…>`/`Null`, 16: o elemento aliasado não tem construtor).
   **Mudança:** em `chamadas.rs::instanciacao`, no `let Some(f) = f else` (construtor não achado e classe com construtores declarados ou alias de classe sem construtor), relatar; em `chamada` (criação implícita via `referencia_a_tipo`) idem. **Código publicado** (`verificados.txt`): cuidado com FP.
+- **Estado (2026-10-06):** 28 de 28. Pontos que faltavam: (1) a criação sem `new` (`C()`, `T<X>()` por alias, também
+  de `Null`/`FutureOr`) sem construtor sem nome — no tipo nomeado da reescrita, com o nome escrito; (2) aplicação de
+  mixin: os construtores são só os **geradores** encaminhados da superclasse (`Base()` factory não conta), e o sem
+  nome implícito só existe se a superclasse (recursivamente) não declara construtor; (3) `A.new()` declarado numa
+  versão sem `constructor-tearoffs` é o sem nome.
 
 ##### `new_with_undefined_constructor` (perda 14: FN 14)
 - **Emissão:** a mesma função (`error_verifier.dart:4612-4618`) com nome de construtor. **Posição:** o nome do construtor. **Mensagem:** `The class '{0}' doesn't have a constructor named '{1}'.` — `{0}` `qualifiedName` (`'private.Class'` com prefixo), `{1}` o nome.
@@ -20314,6 +20325,12 @@ Só existe no 3.13 (o 3.6.2 não tem construtor primário); oráculo 3.13 (bibli
 - **Mensagem:** `The name '{0}' isn't a class.`, `{0}` = `node.name2.lexeme` (a última parte do nome do tipo).
 - **Supressões:** `shouldIgnoreUndefinedNamedType` (`element.dart:1240-1245`): prefixo de import inexistente sem `show`, `show` que cita o nome, `_$` de parte gerada inexistente — só quando o elemento é nulo. Nome sintético (`name2.isSynthetic`) não sai.
 - **No DartForge:** `crates/types/src/inferencia/chamadas.rs::criacao_sem_classe` (chamada de `instanciacao` para `new`/`const` e de `chamada` para `A<T>.x()`). Os **16 FP** são todos `new/const prefix.X…` com `import 'test.dart' as prefix` inexistente: o `elements` registra o prefixo mesmo sem biblioteca, então `prefixo_de_import_nao_resolvido` não dispara e o código sai. Mudança (feita): consultar `scope::deve_ignorar_indefinido(Some(p), X)` quando `p` é prefixo e, sem prefixo, quando o nome não resolve. **FN 6:** `UnresolvedClass<int>.named()`, `A<int>.named()`, `T<Null>.named()` (alias de tipo não interface — `generic_usage_dynamic/void_error`), `A<B>.foo()` (`regress34495`), `const B()` em inicializador estático (`method/not_found` — o inicializador de campo estático é inferido? confirmar): a forma `a<T>.b()` sem `new` chega como `Call{Property{TypeArguments{Identifier}}}` e não passa por `criacao_sem_classe` quando `a` não resolve; precisa do caminho do `ast_rewrite` (nome indefinido/alias não-interface → criação).
+- **Correção (2026-10-06):** `T<X>.nome()` lido pelo fasta como criação implícita (`criacoes_implicitas`) com `T`
+  alias: o `AstRewriter` (`ast_rewrite.dart:43-62`) o troca por **chamada de método no literal de tipo** só quando o
+  alias é de **tipo de função** (`aliasedElement is GenericFunctionTypeElement`: `Fn<int>.foo()` →
+  `undefined_method_on_function_type`); alias de `dynamic`/`void` fica criação (`creation_with_non_type` no nome);
+  alias de parâmetro de tipo (`typedef T<X> = X`) é `instantiate_type_alias_expands_to_type_parameter`; alias de
+  interface, `Null` ou `FutureOr`, criação comum.
 
 ##### `unused_element_parameter` (perda 21: FN 21, FP 0, msg 0, pos 0)
 

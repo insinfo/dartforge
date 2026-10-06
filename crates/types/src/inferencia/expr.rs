@@ -615,6 +615,66 @@ pub(crate) fn alias_sem_classe(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId
     !d.type_params.is_empty() && !matches!(inf.table.get(d.target_type), Type::Interface { .. } | Type::ExtensionType { .. })
 }
 
+/// `e` (identificador simples) nomeia um alias de tipo cujo alvo não é classe
+/// nem tipo de extensão (genérico ou não): o `nome(…)` dele é
+/// `MethodInvocation` de um elemento que não é função
+/// (`_resolveReceiverNull`, `method_invocation_resolver.dart:599`).
+pub(crate) fn alias_de_tipo_nao_classe(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId) -> bool {
+    let ExprKind::Identifier(n) = &ast(inf, cx).expr(e).kind else { return false };
+    let RefNome::Elemento(Element::Typedef(td)) = resolver_nome(inf, cx, n.sym, false) else { return false };
+    let d = &inf.outline.typedefs[td.0 as usize];
+    // `Null` e `FutureOr` são `InterfaceType` no analyzer.
+    !matches!(inf.table.get(d.target_type), Type::Interface { .. } | Type::ExtensionType { .. } | Type::Null | Type::FutureOr { .. })
+}
+
+/// `e` nomeia um alias de tipo de função.
+pub(crate) fn alias_de_tipo_de_funcao(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId) -> bool {
+    alvo_do_alias_nomeado(inf, cx, e).is_some_and(|t| matches!(inf.table.get(t), Type::Function { .. }))
+}
+
+/// `e` nomeia um alias cujo alvo é um parâmetro de tipo (`typedef T<X> = X`).
+pub(crate) fn alias_de_parametro_de_tipo(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId) -> bool {
+    alvo_do_alias_nomeado(inf, cx, e).is_some_and(|t| matches!(inf.table.get(t), Type::TypeParameter { .. }))
+}
+
+/// O alvo do alias que `e` (`T` ou `p.T`) nomeia.
+fn alvo_do_alias_nomeado(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId) -> Option<TypeId> {
+    let el = match &ast(inf, cx).expr(e).kind {
+        ExprKind::Identifier(n) => match resolver_nome(inf, cx, n.sym, false) {
+            RefNome::Elemento(el) => el,
+            _ => return None,
+        },
+        ExprKind::Property { target, name, .. } => match &ast(inf, cx).expr(*target).kind {
+            ExprKind::Identifier(p) => inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.getter)?,
+            _ => return None,
+        },
+        _ => return None,
+    };
+    let Element::Typedef(td) = el else { return None };
+    Some(inf.outline.typedefs[td.0 as usize].target_type)
+}
+
+/// `e` nomeia um alias cujo alvo é `Null` ou `FutureOr<…>` (classes para o
+/// analyzer, que reescreve `T<X>.nome()` como criação).
+pub(crate) fn alias_de_null_ou_futureor(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId) -> bool {
+    let el = match &ast(inf, cx).expr(e).kind {
+        ExprKind::Identifier(n) => match resolver_nome(inf, cx, n.sym, false) {
+            RefNome::Elemento(el) => el,
+            _ => return false,
+        },
+        ExprKind::Property { target, name, .. } => match &ast(inf, cx).expr(*target).kind {
+            ExprKind::Identifier(p) => match inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.getter) {
+                Some(el) => el,
+                None => return false,
+            },
+            _ => return false,
+        },
+        _ => return false,
+    };
+    let Element::Typedef(td) = el else { return false };
+    matches!(inf.table.get(inf.outline.typedefs[td.0 as usize].target_type), Type::Null | Type::FutureOr { .. })
+}
+
 /// Classe e argumentos de um typedef usado como classe, com os argumentos
 /// explícitos do typedef (ou sem eles).
 fn alias_de(inf: &mut BodyInferrer<'_>, td: dartforge_elements::model::TypedefId, explicitos: Option<Vec<TypeId>>) -> Option<RefTipo> {
@@ -622,6 +682,14 @@ fn alias_de(inf: &mut BodyInferrer<'_>, td: dartforge_elements::model::TypedefId
     let params = inf.outline.typedefs[td.0 as usize].type_params.clone();
     let (class, args) = match inf.table.get(alvo).clone() {
         Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } => (class, args),
+        // `Null` e `FutureOr<T>` são `InterfaceType` no analyzer.
+        Type::Null => (inf.core.null_class?, Box::new([]) as Box<[TypeId]>),
+        Type::FutureOr { arg, .. } => {
+            let lib = inf.core.async_library?;
+            let nome = inf.interner.lookup("FutureOr")?;
+            let Some(Element::Class(c)) = inf.program.library(lib).declared.get(&nome).and_then(|b| b.getter) else { return None };
+            (c, Box::new([arg]) as Box<[TypeId]>)
+        }
         _ => return None,
     };
     if params.is_empty() {

@@ -867,7 +867,28 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
         && let ExprKind::Property { target: recv, .. } = &a.expr(target).kind
         && let ExprKind::TypeArguments { target: base, type_args } = &a.expr(*recv).kind
         && expr::alias_sem_classe(inf, cx, *base)
+        && !expr::alias_de_null_ou_futureor(inf, cx, *base)
+        && !expr::alias_de_tipo_de_funcao(inf, cx, *base)
     {
+        // (O alias de tipo de função o `AstRewriter` reescreve como chamada
+        // no literal de tipo, `ast_rewrite.dart:55-62`: segue o caminho comum.)
+        let nomes: Vec<ast::Name> = match &a.expr(*base).kind {
+            ExprKind::Identifier(n) => vec![*n],
+            ExprKind::Property { target: p, name, .. } => match &a.expr(*p).kind {
+                ExprKind::Identifier(p) => vec![*p, *name],
+                _ => Vec::new(),
+            },
+            _ => Vec::new(),
+        };
+        if expr::alias_de_parametro_de_tipo(inf, cx, *base) {
+            // `_verifyTypeAliasForContext`: no nome, sem os argumentos.
+            if let (Some(p), Some(u)) = (nomes.first(), nomes.last()) {
+                let sp = Span { start: p.span.start, end: u.span.end };
+                inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::INSTANTIATE_TYPE_ALIAS_EXPANDS_TO_TYPE_PARAMETER, sp, &[]);
+            }
+        } else if !nomes.is_empty() {
+            criacao_sem_classe(inf, cx, &nomes);
+        }
         for &x in type_args.iter() {
             inf.tipo_de_argumento_de_tipo(cx, x);
         }
@@ -989,6 +1010,35 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 inferir_livre(inf, cx, arg.value);
             }
             return (inf.core.dynamic_, false);
+        }
+        // `C()` reescrita como criação (`ast_rewrite.dart`) sem o construtor
+        // sem nome, nem o implícito: `NEW_WITH_UNDEFINED_CONSTRUCTOR_DEFAULT`
+        // no tipo nomeado (`_checkForNewWithUndefinedConstructor`).
+        if matches!(inf.program.class(c).kind, ClassKind::Class | ClassKind::MixinApplication)
+            && inf.sym.vazio.is_some_and(|v| inf.construtor_de(c, v).is_none())
+            // `A.new()` declarado (sem `constructor-tearoffs` o modelo guarda
+            // a chave `new`) é o sem nome.
+            && inf.sym.new_.is_none_or(|n| inf.construtor_de(c, n).is_none())
+            && !super::funcoes::sem_nome_implicito(inf, c)
+        {
+            let sp = tipo_nomeado_da_criacao(inf, cx, target, &args.type_args);
+            let base = match &a.expr(target).kind {
+                ExprKind::TypeArguments { target: b, .. } => *b,
+                _ => target,
+            };
+            let qualificado = match &a.expr(base).kind {
+                ExprKind::Identifier(n) => inf.interner.resolve(n.sym).to_string(),
+                ExprKind::Property { target: p, name, .. } => match &a.expr(*p).kind {
+                    ExprKind::Identifier(p) => format!("{}.{}", inf.interner.resolve(p.sym), inf.interner.resolve(name.sym)),
+                    _ => inf.interner.resolve(name.sym).to_string(),
+                },
+                _ => String::new(),
+            };
+            inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::NEW_WITH_UNDEFINED_CONSTRUCTOR_DEFAULT, sp, &[&qualificado]);
+            for arg in args.args.iter() {
+                inferir_livre(inf, cx, arg.value);
+            }
+            return (inf.table.invalido(inf.core.dynamic_), false);
         }
     }
     let u = inf.core.unknown;
@@ -1457,7 +1507,8 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             // executável nem variável. No nome; o resultado é inválido.
             if !de_assert
                 && let ExprKind::Identifier(n) = &a.expr(target).kind
-                && matches!(cx.buscar(n.sym), Some(super::corpo::Nome::TipoParam(_)))
+                && (matches!(cx.buscar(n.sym), Some(super::corpo::Nome::TipoParam(_)))
+                    || (cx.buscar(n.sym).is_none() && expr::alias_de_tipo_nao_classe(inf, cx, target)))
             {
                 let nome = inf.interner.resolve(n.sym).to_string();
                 inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::INVOCATION_OF_NON_FUNCTION, n.span, &[&nome]);
@@ -2037,7 +2088,20 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
     let Some(f) = f else {
         // Sem construtor declarado, o sem nome implícito existe (o elemento
         // sintético): nada a relatar por ele.
-        let implicito = constructor.is_none() && inf.program.class(c).constructors.is_empty();
+        // Numa aplicação de mixin os construtores são os geradores
+        // encaminhados da superclasse: o sem nome implícito só existe se a
+        // superclasse (recursivamente) não declara construtor.
+        let mut dona = c;
+        let mut voltas = 0;
+        while inf.program.class(dona).kind == ClassKind::MixinApplication
+            && inf.program.class(dona).constructors.is_empty()
+            && let Some(s) = inf.program.class(dona).supertype_class
+            && voltas < 32
+        {
+            dona = s;
+            voltas += 1;
+        }
+        let implicito = constructor.is_none() && inf.program.class(dona).constructors.is_empty();
         if !implicito {
             construtor_indefinido(inf, a, ty, name, constructor, ctor_do_nome, constante);
         }
