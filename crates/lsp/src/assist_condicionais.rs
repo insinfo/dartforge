@@ -7,6 +7,7 @@
 //! | `Split && condition` | `refactor.splitIfConjunction` | `SplitAndCondition` |
 //! | `Convert to use '?.'` | `refactor.convert.toNullAware` | `ConvertToNullAware` |
 //! | `Convert to 'if-case' statement` | `refactor.convert.ifCaseStatement` | `ConvertToIfCaseStatement` |
+//! | `Convert to 'if-case' statement chain` | `refactor.convert.ifCaseStatementChain` | `ConvertToIfCaseStatementChain` |
 
 use crate::acoes::AcaoDeCodigo;
 use crate::Edicao;
@@ -416,6 +417,94 @@ impl Contexto<'_> {
             titulo: "Convert to 'if-case' statement".into(),
             especie: "refactor.convert.ifCaseStatement".into(),
             edicoes,
+            diagnostico: None,
+            criar_arquivo: None,
+        })
+    }
+
+    /// `SwitchStatement.memberGroups`: os membros juntados até o primeiro que
+    /// tem comandos; cada grupo com os comandos dele.
+    pub(crate) fn grupos_de_membros(&self, switch: usize) -> Vec<(Vec<usize>, Vec<usize>)> {
+        let mut grupos = Vec::new();
+        let mut membros = Vec::new();
+        for &m in self.filhos(switch).iter().filter(|&&k| matches!(self.especie(k), "SwitchCase" | "SwitchDefault" | "SwitchPatternCase")) {
+            membros.push(m);
+            let comandos: Vec<usize> = self.filhos(m).iter().copied().filter(|&k| self.e_comando(k)).collect();
+            if !comandos.is_empty() {
+                grupos.push((std::mem::take(&mut membros), comandos));
+            }
+        }
+        if !membros.is_empty() {
+            grupos.push((membros, Vec::new()));
+        }
+        grupos
+    }
+
+    /// `_writeStatements`: os comandos (sem o `break` final), recuados para
+    /// um nível dentro de `recuo`.
+    pub(crate) fn comandos_recuados(&self, comandos: &[usize], recuo: &str) -> String {
+        let mut comandos = comandos;
+        if comandos.last().is_some_and(|&c| self.especie(c) == "BreakStatement") {
+            comandos = &comandos[..comandos.len() - 1];
+        }
+        let (Some(&primeiro), Some(&ultimo)) = (comandos.first(), comandos.last()) else { return String::new() };
+        let tx = Texto::novo(self.fonte);
+        let faixa = tx.faixa_de_linhas(self.arvore.nos[primeiro].inicio, self.arvore.nos[ultimo].fim);
+        let primeiro_recuo = tx.prefixo_da_linha(self.arvore.nos[primeiro].inicio);
+        tx.trocar_recuo(&self.fonte[faixa.start..faixa.end], primeiro_recuo, &format!("{recuo}{UM_RECUO}"), true, true)
+    }
+
+    /// `ConvertToIfCaseStatementChain`: um `switch` de casos de padrão vira uma
+    /// cadeia de `if-case`, com o `default` como `else`.
+    pub(crate) fn switch_em_cadeia_de_if_case(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
+        let switch = self.arvore.localizar(inicio, fim)?;
+        if self.especie(switch) != "SwitchStatement" {
+            return None;
+        }
+        let grupos = self.grupos_de_membros(switch);
+        if grupos.is_empty() {
+            return None;
+        }
+        let tx = Texto::novo(self.fonte);
+        let eol = tx.eol();
+        let recuo = tx.prefixo_da_linha(self.arvore.nos[switch].inicio).to_string();
+        let expressao = self.texto_do_no(*self.filhos(switch).first()?).to_string();
+        let mut s = String::new();
+        for (i, (membros, comandos)) in grupos.iter().enumerate() {
+            if i > 0 {
+                s.push_str(" else ");
+            }
+            if membros.iter().any(|&m| self.especie(m) == "SwitchDefault") {
+                if membros.len() != 1 {
+                    return None;
+                }
+                s.push_str(&format!("{{{eol}"));
+            } else {
+                let guardados: Vec<usize> = membros
+                    .iter()
+                    .filter(|&&m| self.especie(m) == "SwitchPatternCase")
+                    .filter_map(|&m| self.filhos(m).iter().copied().find(|&k| self.especie(k) == "GuardedPattern"))
+                    .collect();
+                if guardados.len() != membros.len() {
+                    return None;
+                }
+                let padrao = if let [g] = guardados[..] {
+                    self.texto_do_no(g).to_string()
+                } else {
+                    if guardados.iter().any(|&g| self.filhos(g).iter().any(|&k| self.especie(k) == "WhenClause")) {
+                        return None;
+                    }
+                    guardados.iter().filter_map(|&g| self.filhos(g).first().map(|&p| self.texto_do_no(p).to_string())).collect::<Vec<_>>().join(" || ")
+                };
+                s.push_str(&format!("if ({expressao} case {padrao}) {{{eol}"));
+            }
+            s.push_str(&self.comandos_recuados(comandos, &recuo));
+            s.push_str(&format!("{recuo}}}"));
+        }
+        Some(AcaoDeCodigo {
+            titulo: "Convert to 'if-case' statement chain".into(),
+            especie: "refactor.convert.ifCaseStatementChain".into(),
+            edicoes: vec![Edicao { uri: uri.to_string(), span: self.arvore.span(switch), texto: s }],
             diagnostico: None,
             criar_arquivo: None,
         })
