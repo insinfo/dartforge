@@ -2747,10 +2747,32 @@ impl Projeto {
     pub(crate) fn subtipos_escritos(&self) -> std::collections::HashMap<ClassId, Vec<ClassId>> {
         let p = self.programa();
         let mut m: std::collections::HashMap<ClassId, Vec<ClassId>> = std::collections::HashMap::new();
+        // `visitClassDeclaration` do índice: a classe sem `extends` tem o
+        // `IS_EXTENDED_BY` implícito de `Object`, que a busca de subtipos
+        // (`Search._addResults`) acha nos arquivos que citam o nome
+        // `Object` e nos da biblioteca dele.
+        let object = self.consulta.core.object_class;
+        let mut elegivel: std::collections::HashMap<UnitId, bool> = std::collections::HashMap::new();
         for (i, c) in p.classes.iter().enumerate() {
             let Some(d) = c.decl else { continue };
             let unidade = p.unit(d.unit);
             let ast = &unidade.ast;
+            if let (Some(o), DeclKind::Class(x)) = (object, &ast.decl(d.decl).kind)
+                && x.extends.is_none()
+                && !x.mixin_application
+                && ClassId(i as u32) != o
+                && *elegivel.entry(d.unit).or_insert_with(|| {
+                    unidade.library == p.class(o).library
+                        || (unidade.role != dartforge_elements::model::UnitRole::Patch
+                            && unidade.source.contains("Object")
+                            && self.nomes_referenciados_da_unidade(d.unit).contains("Object"))
+                })
+            {
+                let v = m.entry(o).or_default();
+                if !v.contains(&ClassId(i as u32)) {
+                    v.push(ClassId(i as u32));
+                }
+            }
             let tipos: Vec<ast::TypeId> = match &ast.decl(d.decl).kind {
                 DeclKind::Class(x) => x.extends.iter().chain(x.with.iter()).chain(x.implements.iter()).copied().collect(),
                 DeclKind::Mixin(x) => x.on.iter().chain(x.implements.iter()).copied().collect(),

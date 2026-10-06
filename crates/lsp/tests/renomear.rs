@@ -298,6 +298,22 @@ fn renomear_em(p: &mut Projeto, rel: &str, texto: &str, agulha: &str, n: usize, 
 }
 
 #[test]
+fn familia_pelo_extends_object_implicito() {
+    // `getHierarchyMembers` sobe até `Object` e desce pelos subtipos que o
+    // índice acha: a classe sem `extends` num arquivo que cita `Object`
+    // entra; a de um arquivo que não cita, não.
+    let mut p = Projeto::novo("renomear-object");
+    p.gravar("lib/c.dart", "class C {\n  @override\n  String toString() => 'c';\n}\n");
+    let a = "import 'c.dart';\nclass A {\n  @override\n  String toString() => 'a';\n}\nclass B {\n  @override\n  String toString() => 'b';\n}\nvoid f(A a, B b, C c, Object o) {\n  a.toString();\n  b.toString();\n  c.toString();\n}\n";
+    p.abrir("lib/a.dart", a);
+    let uri = p.uri("lib/a.dart");
+    let r = renomear_em(&mut p, "lib/a.dart", a, "toString() => 'a'", 0, "texto");
+    let novo = aplicar(&r["result"], &uri, a);
+    assert!(novo.contains("String texto() => 'a'") && novo.contains("String texto() => 'b'"), "{novo}");
+    assert!(novo.contains("a.texto();\n  b.texto();\n  c.toString();"), "{novo}");
+}
+
+#[test]
 fn construtor_nomeado() {
     let mut p = Projeto::novo("renomear-construtor");
     let a = "/// Crie com [Caixa.vazia].\nclass Caixa {\n  final int v;\n  Caixa(this.v);\n  Caixa.vazia() : this(0);\n  Caixa.outra() : this.vazia();\n  factory Caixa.fab() = Caixa.vazia;\n}\nclass Sub extends Caixa {\n  Sub() : super.vazia();\n}\nvoid f() {\n  var x = Caixa.vazia();\n  var y = new Caixa.vazia();\n  print([x, y, Caixa(1)]);\n}\n";
