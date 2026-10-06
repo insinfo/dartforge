@@ -575,14 +575,33 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, f
                 // `ResolverVisitor.visitSpreadElement` (`resolver.dart:3673-3692`).
                 super::expr::desreferencia_anulavel(inf, cx, *value, t, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_USE_OF_NULLABLE_VALUE_IN_SPREAD);
             }
+            // `_computeElementType` / `_inferCollectionElementType`
+            // (`typed_literal_resolver.dart:203-226, 380-425`), pelo tipo da
+            // expressão: a instância de `Iterable`/`Map`; `dynamic`;
+            // subtipo de `Never` → `Never`; subtipo de `Null` → `Never` com
+            // `...?` (sem, `dynamic` na lista e nada no mapa); o resto,
+            // `dynamic` na lista.
+            let t0 = t;
             let t = inf.nao_nulo(t);
+            let (never, null) = (inf.core.never, inf.core.null);
+            let abaixo_de_never = inf.sub(t0, never);
+            let abaixo_de_null = !abaixo_de_never && inf.sub(t0, null);
+            let uma = |inf: &mut BodyInferrer<'_>, gi: &mut _, x: TypeId| {
+                restringir(inf, gi, x, 0);
+                if forma == Forma::Mapa {
+                    restringir(inf, gi, x, 1);
+                }
+            };
             if inf.e_dynamic(t) {
                 let d = inf.core.dynamic_;
-                restringir(inf, &mut gi, d, 0);
-                if forma == Forma::Mapa {
-                    restringir(inf, &mut gi, d, 1);
+                uma(inf, &mut gi, d);
+            } else if abaixo_de_never || (abaixo_de_null && *null_aware) {
+                uma(inf, &mut gi, never);
+            } else if abaixo_de_null {
+                if forma != Forma::Mapa {
+                    let d = inf.core.dynamic_;
+                    restringir(inf, &mut gi, d, 0);
                 }
-            } else if matches!(inf.table.get(t), Type::Null | Type::Never) {
             } else if forma == Forma::Mapa {
                 if let Some(args) = inf.como_instancia_de(t, inf.core.map_class) {
                     restringir(inf, &mut gi, args[0], 0);
@@ -590,6 +609,9 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, f
                 }
             } else if let Some(args) = inf.como_instancia_de(t, inf.core.iterable_class) {
                 restringir(inf, &mut gi, args[0], 0);
+            } else {
+                let d = inf.core.dynamic_;
+                restringir(inf, &mut gi, d, 0);
             }
         }
         CollectionElement::If { condition, case_pattern, guard, then, else_ } => {

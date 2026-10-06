@@ -479,7 +479,11 @@ spreads recebem `Iterable<E>`; para cima, cada elemento restringido contra
 628-658`). Tipo contribuído por elemento (`:183-233`): expressão → seu tipo;
 `for` → o corpo; `if` → UP dos dois ramos; spread → argumento de
 `asInstanceOf(Iterable)`, `dynamic` se dinâmico, `Never` se `Never` ou `...?`
-de `Null`. `<T>[]` explícito → `List<T>`.
+de `Null`. `<T>[]` explícito → `List<T>`. Precisão (`:203-226`): os testes são
+de **subtipo** sobre o tipo da expressão **antes** de qualquer promoção —
+`T <: Never` → `Never` (inclui `X extends Never` e `X & Never`); `T <: Null`
+→ `Never` com `...?`, `dynamic` sem; qualquer outro tipo que não é
+`Iterable` → `dynamic`. Ex.: `[...?x]` com `X extends Null` é `List<Never>`.
 
 Oráculo (lit02): `[]` → `List<dynamic>`; `[1, 2.5]` → `List<num>`; `[1,
 null]` → `List<int?>`; `<num>[1]` → o `1` é `int`; `List<Object?> e = [1]` →
