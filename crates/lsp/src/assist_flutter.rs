@@ -223,6 +223,174 @@ impl Contexto<'_> {
         v
     }
 
+    /// O nome declarado (`library a.b;`) da biblioteca da classe.
+    fn nome_da_biblioteca_da_classe(&self, c: ClassId) -> String {
+        let p = self.p.programa();
+        p.library(p.class(c).library).name.as_ref().map(|ns| ns.iter().map(|&s| self.p.nome(s)).collect::<Vec<_>>().join(".")).unwrap_or_default()
+    }
+
+    /// O tipo e os supertipos (`[self, ...allSupertypes]`) têm a classe
+    /// `nome` (pelo critério `aceita`).
+    fn tipo_ou_supertipo(&self, t: TypeId, aceita: &dyn Fn(ClassId) -> bool) -> bool {
+        let Some(c) = self.classe_do_tipo_flutter(t) else { return false };
+        aceita(c) || self.p.supertipos(c).into_iter().any(aceita)
+    }
+
+    /// `AddDiagnosticPropertyReference` (o assist, sem o modo em lote).
+    pub(crate) fn adicionar_referencia_de_diagnostico(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
+        let p = self.p.programa();
+        let consulta = &self.p.consulta;
+        let no = self.arvore.localizar(inicio, fim)?;
+        // O nome e o tipo (`_getReturnType`: o getter declarado ou o campo).
+        let (nome, tipo, tipo_escrito): (String, TypeId, Option<usize>) = match self.especie(no) {
+            "MethodDeclaration" => {
+                let crate::arvore_analyzer::Marca::Funcao(fid) = self.arvore.nos[no].marca else { return None };
+                let func = self.ast.function(fid);
+                let n = func.name?;
+                if func.kind != dartforge_frontend::ast::FunctionKind::Getter {
+                    return None;
+                }
+                let f = self.p.funcao_do_no(self.unidade, fid)?;
+                let ret = consulta.outline.functions.get(f.0 as usize)?.return_type;
+                let anotacao = self.filhos(no).iter().copied().find(|&k| matches!(self.especie(k), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation"));
+                (self.p.nome(n.sym).to_string(), ret, anotacao)
+            }
+            "VariableDeclaration" => {
+                let lista = self.pai(no).filter(|&l| self.especie(l) == "VariableDeclarationList")?;
+                self.pai(lista).filter(|&d| self.especie(d) == "FieldDeclaration")?;
+                let nome = crate::refatoracoes_exec::nome_no_inicio_pub(self.texto_do_no(no)).to_string();
+                let classe_no = self.com_pais(no).find(|&k| self.especie(k) == "ClassDeclaration")?;
+                let crate::arvore_analyzer::Marca::Decl(d) = self.arvore.nos[classe_no].marca else { return None };
+                let classe = self.classe_da_declaracao(self.unidade, d)?;
+                let v = p.class(classe).fields.iter().copied().find(|&v| self.p.nome(p.variable(v).name) == nome)?;
+                let tipo = consulta.tipo_da_variavel(v)?;
+                let anotacao = self.filhos(lista).iter().copied().find(|&k| matches!(self.especie(k), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation"));
+                (nome, tipo, anotacao)
+            }
+            _ => return None,
+        };
+        let classe_no = self.com_pais(no).find(|&k| self.especie(k) == "ClassDeclaration")?;
+        let crate::arvore_analyzer::Marca::Decl(d) = self.arvore.nos[classe_no].marca else { return None };
+        let classe = self.classe_da_declaracao(self.unidade, d)?;
+        let diagnosticavel = |c: ClassId| self.p.nome(p.class(c).name) == "Diagnosticable" && p.class(c).decl.is_some_and(|x| p.unit(x.unit).uri == "package:flutter/src/foundation/diagnostics.dart");
+        if !(diagnosticavel(classe) || self.p.supertipos(classe).into_iter().any(diagnosticavel)) {
+            return None;
+        }
+        let tabela = &consulta.tabela;
+        let dinamico = matches!(tabela.get(tipo), Type::Dynamic) || tabela.e_invalido(tipo);
+        let mut argumentos: Option<Vec<TypeId>> = None;
+        let mut nome_do_construtor = "";
+        let id = if matches!(tabela.get(tipo), Type::Function { .. }) {
+            argumentos = Some(vec![tipo]);
+            nome_do_construtor = ".has";
+            "ObjectFlagProperty"
+        } else if self.classe_do_tipo_flutter(tipo) == consulta.core.int_class && consulta.core.int_class.is_some() {
+            "IntProperty"
+        } else if self.classe_do_tipo_flutter(tipo) == consulta.core.double_class && consulta.core.double_class.is_some() {
+            "DoubleProperty"
+        } else if self.classe_do_tipo_flutter(tipo) == consulta.core.string_class && consulta.core.string_class.is_some() {
+            "StringProperty"
+        } else if self.classe_do_tipo_flutter(tipo).is_some_and(|c| p.class(c).kind == ClassKind::Enum) {
+            argumentos = Some(vec![tipo]);
+            "EnumProperty"
+        } else if let Some(iteravel) = consulta.core.iterable_class
+            && self.tipo_ou_supertipo(tipo, &|c| c == iteravel)
+        {
+            argumentos = Some(match tabela.get(tipo) {
+                Type::Interface { args, .. } => args.to_vec(),
+                _ => Vec::new(),
+            });
+            "IterableProperty"
+        } else if self.tipo_ou_supertipo(tipo, &|c| self.p.nome(p.class(c).name) == "Color" && self.nome_da_biblioteca_da_classe(c) == "dart.ui") {
+            "ColorProperty"
+        } else if self.tipo_ou_supertipo(tipo, &|c| self.p.nome(p.class(c).name) == "Matrix4" && self.nome_da_biblioteca_da_classe(c) == "vector_math_64") {
+            "TransformProperty"
+        } else {
+            if !dinamico {
+                argumentos = Some(vec![tipo]);
+            }
+            "DiagnosticsProperty"
+        };
+        let tx = Texto::novo(self.fonte);
+        let eol = tx.eol();
+        let mut escritor = crate::escrever_tipo::Escritor::novo(self, self.arvore.nos[no].inicio);
+        let mut referencia = |prefixo: &str, construtor: &str| -> Option<String> {
+            let mut s = format!("{prefixo}{construtor}.add({id}");
+            match &argumentos {
+                Some(args) => {
+                    let textos: Vec<String> = args.iter().map(|&a| escritor.escrever(a, false).unwrap_or_default()).collect();
+                    s.push_str(&format!("<{}>", textos.join(", ")));
+                }
+                None if dinamico => {
+                    if let Some(a) = tipo_escrito {
+                        let texto = self.texto_do_no(a);
+                        if texto != "dynamic" {
+                            s.push_str(&format!("<{texto}>"));
+                        }
+                    }
+                }
+                None => {}
+            }
+            s.push_str(&format!("{nome_do_construtor}('{nome}', {nome}));{eol}"));
+            Some(s)
+        };
+        let mut m = Mudanca::default();
+        let membros = self.membros_do_conteiner(classe_no);
+        let preencher: Vec<usize> = membros
+            .iter()
+            .copied()
+            .filter(|&k| self.especie(k) == "MethodDeclaration" && matches!(self.arvore.nos[k].marca, crate::arvore_analyzer::Marca::Funcao(f) if self.ast.function(f).name.is_some_and(|n| self.p.nome(n.sym) == "debugFillProperties")))
+            .collect();
+        match preencher[..] {
+            [] => {
+                let recuo1 = UM_RECUO;
+                let recuo2 = format!("{UM_RECUO}{UM_RECUO}");
+                let corpo = referencia(&recuo2, "properties")?;
+                let texto = format!("@override{eol}{recuo1}void debugFillProperties(DiagnosticPropertiesBuilder properties) {{{eol}{recuo2}super.debugFillProperties(properties);{eol}{corpo}{recuo1}}}");
+                let (offset, inserido) = self.inserir_no_membro(classe_no, crate::inserir::Filtro::Metodo, &texto)?;
+                m.adicionar(uri, Span { start: offset, end: offset }, inserido);
+            }
+            [metodo] => {
+                let corpo = *self.filhos(metodo).last()?;
+                if self.especie(corpo) != "BlockFunctionBody" {
+                    return None;
+                }
+                let bloco = *self.filhos(corpo).first()?;
+                let comandos = self.filhos(bloco).to_vec();
+                let (offset, prefixo) = match comandos.last() {
+                    None => {
+                        let o = self.arvore.nos[bloco].inicio;
+                        (o, format!("{}{UM_RECUO}", tx.prefixo_da_linha(o)))
+                    }
+                    Some(&c) => {
+                        let o = self.token_anterior(self.arvore.nos[c].fim)?.start;
+                        (o, tx.prefixo_da_linha(o).to_string())
+                    }
+                };
+                // O parâmetro `DiagnosticPropertiesBuilder x`.
+                let lista = self.filhos(metodo).iter().copied().find(|&k| self.especie(k) == "FormalParameterList")?;
+                let construtor = self.filhos(lista).iter().copied().find_map(|q| {
+                    if self.especie(q) != "SimpleFormalParameter" {
+                        return None;
+                    }
+                    let tipo = self.filhos(q).iter().copied().find(|&k| self.especie(k) == "NamedType")?;
+                    let nome_tipo = crate::refatoracoes_exec::nome_no_inicio_pub(self.texto_do_no(tipo).rsplit('.').next().unwrap_or(""));
+                    if nome_tipo != "DiagnosticPropertiesBuilder" {
+                        return None;
+                    }
+                    let n = self.token_anterior(self.arvore.nos[q].fim)?;
+                    Some(self.fonte[n.start..n.end].to_string())
+                })?;
+                let texto = referencia(&prefixo, &construtor)?;
+                let proxima = tx.proxima_linha(offset);
+                m.adicionar(uri, Span { start: proxima, end: proxima }, texto);
+            }
+            _ => return None,
+        }
+        crate::refatoracoes_mover::imports_do_builder(self, &mut m, &escritor.importar);
+        self.acao_com_mudanca("Add a debug reference to this property", "refactor.add.diagnosticPropertyReference", m)
+    }
+
     /// `FlutterConvertToChildren`.
     fn flutter_para_children(&self, uri: &str, n: usize) -> Option<AcaoDeCodigo> {
         if self.especie(n) != "SimpleIdentifier" || self.texto_do_no(n) != "child" {

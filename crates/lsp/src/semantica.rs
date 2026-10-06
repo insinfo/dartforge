@@ -439,6 +439,7 @@ impl Analisador for AnalisadorSemantico {
                     saida.extend(cx.adicionar_anotacao_de_tipo(uri, inicio, fim));
                     saida.extend(cx.converter_classe_em_mixin(uri, inicio, fim));
                     saida.extend(cx.converter_classe_em_enum(uri, inicio, fim));
+                    saida.extend(cx.adicionar_referencia_de_diagnostico(uri, inicio, fim));
                     saida.extend(cx.assistencias_flutter(uri, inicio, fim));
                     saida.extend(cx.flutter_para_stateful(uri, inicio, fim));
                     saida.extend(cx.flutter_para_stateless(uri, inicio, fim));

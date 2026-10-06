@@ -25,7 +25,7 @@ fn acoes(p: &mut Projeto, relativo: &str, de: (u32, u32), ate: (u32, u32), extra
     let fora = |k: &str| {
         k.starts_with("source")
             || k.starts_with("quickfix.ignore")
-            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment", "refactor.convert.relativeToPackageImport", "refactor.convert.packageToRelativeImport", "refactor.convert.partOfToPartUri", "refactor.convert.toMapLiteral", "refactor.convert.toSetLiteral", "refactor.encapsulateField", "refactor.convert.toConstructorFieldParameter", "refactor.shadowField", "refactor.convert.toGenericFunctionSyntax", "refactor.destructureLocalVariableAssignment", "refactor.convert.ifCaseStatement", "refactor.convert.ifCaseStatementChain", "refactor.convert.switchStatement", "refactor.convert.toForElement", "refactor.convert.toSuperParameters", "refactor.convert.classToEnum", "refactor.convert.switchExpression", "refactor.sort.child.properties.last"].contains(&k) && !k.starts_with("refactor.surround.") && !k.starts_with("refactor.flutter."))
+            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment", "refactor.convert.relativeToPackageImport", "refactor.convert.packageToRelativeImport", "refactor.convert.partOfToPartUri", "refactor.convert.toMapLiteral", "refactor.convert.toSetLiteral", "refactor.encapsulateField", "refactor.convert.toConstructorFieldParameter", "refactor.shadowField", "refactor.convert.toGenericFunctionSyntax", "refactor.destructureLocalVariableAssignment", "refactor.convert.ifCaseStatement", "refactor.convert.ifCaseStatementChain", "refactor.convert.switchStatement", "refactor.convert.toForElement", "refactor.convert.toSuperParameters", "refactor.convert.classToEnum", "refactor.convert.switchExpression", "refactor.sort.child.properties.last", "refactor.add.diagnosticPropertyReference"].contains(&k) && !k.starts_with("refactor.surround.") && !k.starts_with("refactor.flutter."))
             || k == "quickfix.change.to"
             || ["method", "function", "class", "mixin", "getter", "field", "localVariable", "parameter"]
                 .iter()
@@ -2444,6 +2444,490 @@ class _MyWidgetState extends State<MyWidget> {
         let uri = p.uri(&rel);
         let r = acoes_em(&mut p, &rel, antes, agulha);
         let achada = r.as_array().unwrap().iter().find(|a| a["title"] == "Convert to StatefulWidget").cloned();
+        match (depois, achada) {
+            (None, None) => {}
+            (Some(d), Some(a)) => {
+                let obtido = aplicar(&a["edit"], &uri, antes);
+                if obtido != *d {
+                    falhas.push(format!("{nome}: obtido\n{obtido}\nesperado\n{d}"));
+                }
+            }
+            (d, a) => falhas.push(format!("{nome}: esperado {} e obtido {}", d.is_some(), a.is_some())),
+        }
+    }
+    assert!(falhas.is_empty(), "{}", falhas.join("\n----\n"));
+}
+
+/// Os casos de `add_diagnostic_property_reference_test.dart` do 3.6.2 (o
+/// assist e os do fix, com o cursor no nome da propriedade).
+#[test]
+fn referencia_de_diagnostico_como_o_analysis_server() {
+    let mut p = Projeto::com_literais("acoes-diagnostico");
+    p.instalar_flutter();
+    let casos: &[(&str, &str, &str, Option<&str>)] = &[
+        ("test_boolField_debugFillProperties", r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class W extends Widget {
+  bool property = true;
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+  }
+}
+"#, r#"property"#, Some(r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class W extends Widget {
+  bool property = true;
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(DiagnosticsProperty<bool>('property', property));
+  }
+}
+"#)),
+        ("test_notAvailable_mixin", r#"
+mixin MyMixin {
+  String get foo() {}
+}
+"#, r#"() {}
+}
+"#, None),
+        ("test_notAvailable_outsideDiagnosticable", r#"
+class C {
+  String get f => '';
+}
+"#, r#" => '';
+"#, None),
+        ("fix_test_boolField", r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  bool get absorbing => _absorbing;
+  bool _absorbing = false;
+  bool ignoringSemantics = false;
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(DiagnosticsProperty<bool>('absorbing', absorbing));
+  }
+}
+"#, r#"ignoringSemantics ="#, Some(r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  bool get absorbing => _absorbing;
+  bool _absorbing = false;
+  bool ignoringSemantics = false;
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(DiagnosticsProperty<bool>('absorbing', absorbing));
+    properties.add(DiagnosticsProperty<bool>('ignoringSemantics', ignoringSemantics));
+  }
+}
+"#)),
+        ("fix_test_boolField_empty", r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  bool ignoringSemantics = false;
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+  }
+}
+"#, r#"ignoringSemantics ="#, Some(r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  bool ignoringSemantics = false;
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    properties.add(DiagnosticsProperty<bool>('ignoringSemantics', ignoringSemantics));
+  }
+}
+"#)),
+        ("fix_test_boolField_empty_customParamName", r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  bool ignoringSemantics = false;
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder props) {
+  }
+}
+"#, r#"ignoringSemantics ="#, Some(r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  bool ignoringSemantics = false;
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder props) {
+    props.add(DiagnosticsProperty<bool>('ignoringSemantics', ignoringSemantics));
+  }
+}
+"#)),
+        ("fix_test_boolGetter", r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  bool get absorbing => _absorbing;
+  bool _absorbing = false;
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+  }
+}
+"#, r#"absorbing ="#, Some(r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  bool get absorbing => _absorbing;
+  bool _absorbing = false;
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(DiagnosticsProperty<bool>('absorbing', absorbing));
+  }
+}
+"#)),
+        ("fix_test_doubleField", r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  double field = 4.2;
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+  }
+}
+"#, r#"field ="#, Some(r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  double field = 4.2;
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(DoubleProperty('field', field));
+  }
+}
+"#)),
+        ("fix_test_dynamicField", r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  dynamic field;
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+  }
+}
+"#, r#"field;
+"#, Some(r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  dynamic field;
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(DiagnosticsProperty('field', field));
+  }
+}
+"#)),
+        ("fix_test_enumField", r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  Foo field = Foo.bar;
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+  }
+}
+enum Foo {bar}
+"#, r#"field ="#, Some(r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  Foo field = Foo.bar;
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(EnumProperty<Foo>('field', field));
+  }
+}
+enum Foo {bar}
+"#)),
+        ("fix_test_functionField", r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  ValueChanged<double> onChanged = (d) {};
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+  }
+}
+typedef ValueChanged<T> = void Function(T value);
+"#, r#"onChanged ="#, Some(r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  ValueChanged<double> onChanged = (d) {};
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(ObjectFlagProperty<ValueChanged<double>>.has('onChanged', onChanged));
+  }
+}
+typedef ValueChanged<T> = void Function(T value);
+"#)),
+        ("fix_test_intField", r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  int field = 0;
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+  }
+}
+"#, r#"field ="#, Some(r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  int field = 0;
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(IntProperty('field', field));
+  }
+}
+"#)),
+        ("fix_test_iterableField", r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  Iterable<String> field = [];
+}
+"#, r#"field ="#, Some(r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  Iterable<String> field = [];
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(IterableProperty<String>('field', field));
+  }
+}
+"#)),
+        ("fix_test_listField", r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  List<List<String>> field = [];
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+  }
+}
+"#, r#"field ="#, Some(r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  List<List<String>> field = [];
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(IterableProperty<List<String>>('field', field));
+  }
+}
+"#)),
+        ("fix_test_objectField", r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  Object field = '';
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+  }
+}
+"#, r#"field ="#, Some(r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  Object field = '';
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(DiagnosticsProperty<Object>('field', field));
+  }
+}
+"#)),
+        ("fix_test_stringField", r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  String field = '';
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+  }
+}
+"#, r#"field ="#, Some(r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  String field = '';
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(StringProperty('field', field));
+  }
+}
+"#)),
+        ("fix_test_stringField_noDebugFillProperties", r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  String field = '';
+}
+"#, r#"field ="#, Some(r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  String field = '';
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(StringProperty('field', field));
+  }
+}
+"#)),
+        ("fix_test_typeOutOfScopeField", r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  ClassNotInScope<bool> onChanged;
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+  }
+}
+"#, r#"onChanged;
+"#, Some(r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  ClassNotInScope<bool> onChanged;
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(DiagnosticsProperty<ClassNotInScope<bool>>('onChanged', onChanged));
+  }
+}
+"#)),
+        ("fix_test_typeOutOfScopeGetter", r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  ClassNotInScope<bool> get onChanged => null;
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+  }
+}
+"#, r#"onChanged ="#, Some(r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  ClassNotInScope<bool> get onChanged => null;
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(DiagnosticsProperty<ClassNotInScope<bool>>('onChanged', onChanged));
+  }
+}
+"#)),
+        ("fix_test_varField", r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  var field;
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+  }
+}
+"#, r#"field;
+"#, Some(r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  var field;
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(DiagnosticsProperty('field', field));
+  }
+}
+"#)),
+    ];
+    let mut falhas = Vec::new();
+    for (i, (nome, antes, agulha, depois)) in casos.iter().enumerate() {
+        let rel = format!("lib/d{i}.dart");
+        let uri = p.uri(&rel);
+        let r = acoes_em(&mut p, &rel, antes, agulha);
+        let achada = r.as_array().unwrap().iter().find(|a| a["title"] == "Add a debug reference to this property").cloned();
         match (depois, achada) {
             (None, None) => {}
             (Some(d), Some(a)) => {

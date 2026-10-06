@@ -167,6 +167,7 @@ impl Projeto {
     pub fn instalar_flutter(&self) {
         let lib = self.raiz.join("flutter/lib");
         let arquivos: &[(&str, &str)] = &[
+            ("foundation.dart", "export 'src/foundation/diagnostics.dart';\n"),
             (
                 "widgets.dart",
                 "export 'src/widgets/framework.dart';\nexport 'src/widgets/basic.dart';\nexport 'src/widgets/container.dart';\nexport 'src/widgets/async.dart';\nexport 'src/widgets/text.dart';\nexport 'src/painting/edge_insets.dart';\nexport 'src/foundation/diagnostics.dart';\n",
