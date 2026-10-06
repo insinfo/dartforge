@@ -29,6 +29,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
             // Sem bloco básico em curso, o trecho vai até a última instrução
             // deste bloco.
             let fim_do_bloco = stmts.last().map(|&x| inf.program.unit(cx.unit).ast.stmt(x).span.end).unwrap_or(span.end);
+            cx.fins_de_bloco.push(fim_do_bloco);
             for &x in stmts.iter() {
                 if !cx.fluxo.alcancavel && cx.trecho_morto.is_none() {
                     let sx = inf.program.unit(cx.unit).ast.stmt(x).span;
@@ -39,6 +40,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                 }
                 inferir_instrucao(inf, cx, x);
             }
+            cx.fins_de_bloco.pop();
             cx.tirar_escopo();
         }
         StmtKind::Variables(vl) => declaracao_de_variaveis(inf, cx, vl),

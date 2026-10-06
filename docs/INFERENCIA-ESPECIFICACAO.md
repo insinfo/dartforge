@@ -1137,7 +1137,10 @@ A escrita/inicialização guarda na versão nova a `ExpressionInfo` não trivial
 do lado direito; a leitura a restaura (`rebaseForward`), salvo se a variável
 foi capturada ou escrita depois (FA:5849-5934, 8078-8107; [3.6]
 `addPreviousInfo`, F76:4080-4111). `late` nunca guarda (FA:8810-8813).
-Oráculo (flu03): `var t = x != null && …; if (t) x` → `int`.
+Oráculo (flu03): `var t = x != null && …; if (t) x` → `int`. O literal
+`true`/`false` também dá `ExpressionInfo` não trivial (`booleanLiteral`: o
+ramo oposto inalcançável): `bool c = true; c ? a : b` deixa `b` morto
+(`dead_code` em `variance/variance_upper_lower_bounds_error_test`).
 
 ### 7.11 Closures e captura (R-FLU-07)
 

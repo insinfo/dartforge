@@ -626,13 +626,19 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, f
                 None => expr::condicao_verificada(inf, cx, *condition),
             };
             cx.fluxo = vf;
+            // `visitIfElement`: cada ramo fecha um bloco básico
+            // (`nullSafetyDeadCodeVerifier.flowEnd(ifTrue/ifFalse)`).
+            let abre = entrar_ramo(inf, cx, then);
             reborrow_visitar(inf, cx, then, forma, ctxs, &mut gi);
+            sair_ramo(cx, abre);
             if case_pattern.is_some() {
                 cx.tirar_escopo();
             }
             let depois_then = std::mem::replace(&mut cx.fluxo, ff);
             if let Some(e) = else_ {
+                let abre = entrar_ramo(inf, cx, e);
                 reborrow_visitar(inf, cx, e, forma, ctxs, &mut gi);
+                sair_ramo(cx, abre);
             }
             let depois_else = std::mem::replace(&mut cx.fluxo, antes);
             cx.fluxo = inf.juntar(&depois_then, &depois_else);
@@ -759,4 +765,53 @@ pub(crate) fn validar_colecao_const(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: E
     for s in subs {
         validar_colecao_const(inf, cx, s);
     }
+}
+
+/// A faixa de um elemento de coleção (o nó do `flowEnd`).
+fn faixa_do_elemento(inf: &BodyInferrer<'_>, cx: &Corpo, el: &CollectionElement) -> dartforge_diagnostics::Span {
+    let a = &inf.program.unit(cx.unit).ast;
+    let fonte = inf.program.unit(cx.unit).source.as_str();
+    let antes = |inicio: usize, palavra: &str| -> usize {
+        fonte.get(..inicio).and_then(|s| s.rfind(palavra)).unwrap_or(inicio)
+    };
+    match el {
+        CollectionElement::Expression(e) => a.expr(*e).span,
+        CollectionElement::NullAwareExpression(e) => {
+            let s = a.expr(*e).span;
+            dartforge_diagnostics::Span { start: antes(s.start, "?"), end: s.end }
+        }
+        CollectionElement::MapEntry { key, value, .. } => dartforge_diagnostics::Span { start: a.expr(*key).span.start, end: a.expr(*value).span.end },
+        CollectionElement::Spread { value, .. } => {
+            let s = a.expr(*value).span;
+            dartforge_diagnostics::Span { start: antes(s.start, "..."), end: s.end }
+        }
+        CollectionElement::If { condition, then, else_, .. } => {
+            let fim = faixa_do_elemento(inf, cx, else_.as_deref().unwrap_or(then)).end;
+            dartforge_diagnostics::Span { start: antes(a.expr(*condition).span.start, "if"), end: fim }
+        }
+        CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => {
+            let b = faixa_do_elemento(inf, cx, body);
+            let ini = fonte.get(..b.start).and_then(|s| s.rfind("for")).unwrap_or(b.start);
+            dartforge_diagnostics::Span { start: ini, end: b.end }
+        }
+    }
+}
+
+/// Entra no ramo de um `if` de coleção como bloco básico: se ele começa
+/// inalcançável e não há trecho aberto, o trecho é o ramo inteiro.
+fn entrar_ramo(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement) -> bool {
+    let sp = faixa_do_elemento(inf, cx, el);
+    let abre = !cx.fluxo.alcancavel && cx.trecho_morto.is_none();
+    if abre {
+        inf.aviso(crate::codes::DEAD_CODE.template.to_string(), sp);
+    }
+    super::instrucoes::entrar_fluxo(cx, sp.end);
+    if abre {
+        cx.trecho_morto = Some(cx.fins_de_fluxo.len());
+    }
+    abre
+}
+
+fn sair_ramo(cx: &mut Corpo, _abre: bool) {
+    super::instrucoes::sair_fluxo(cx);
 }

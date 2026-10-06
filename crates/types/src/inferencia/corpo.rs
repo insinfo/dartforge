@@ -187,6 +187,10 @@ pub(crate) struct Corpo {
     /// `NullSafetyDeadCodeVerifier`: corpo de função, ramo de `if`, corpo de
     /// laço, `try`/`catch`), já aparados na última instrução do bloco.
     pub fins_de_fluxo: Vec<usize>,
+    /// O fim da última instrução de cada bloco em curso: sem bloco básico
+    /// aberto, é onde o trecho morto de uma expressão termina (o
+    /// `flowEnd` do corpo, aparado na última instrução).
+    pub fins_de_bloco: Vec<usize>,
     /// Profundidade em `fins_de_fluxo` onde começou o trecho morto em curso
     /// (`_firstDeadNode`): enquanto houver um, outro nó inalcançável é parte
     /// do mesmo trecho.
@@ -269,6 +273,7 @@ impl Corpo {
             condicoes: HashMap::new(),
             sobreposicoes: HashMap::new(),
             fins_de_fluxo: Vec::new(),
+            fins_de_bloco: Vec::new(),
             trecho_morto: None,
             origem_do_morto: None,
         };

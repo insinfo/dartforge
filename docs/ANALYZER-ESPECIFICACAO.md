@@ -3422,6 +3422,14 @@ inicializador, com a mensagem própria do código.
   `ForInOfInvalidType__forIn_never.dart`/`__awaitForIn_never.dart` (iterável `Never`: o primeiro morto é a **variável do laço**
   `var id` (`visitDeclaredIdentifier`), e o `flowEnd(body)` não a contém → o trecho vai até o fim do bloco de fora: 20/77;
   o DartForge começa no corpo); `never_error_test.dart:73:26` (argumentos `()` de `x.neverMethod()`, grupo 1).
+- **Correções e estado (2026-10-06):** o `checkUnreachableNode` vale para **toda expressão** visitada num fluxo
+  inalcançável (não só instruções e operandos de `&&`/`||`/`?:`): ela é o primeiro nó morto, e o trecho vai até o fim do
+  bloco básico em curso (sem bloco básico aberto, o fim da última instrução do bloco, com o `;`). Casos: a **lista de
+  argumentos** depois de receptor `Never` (`invocation_inferrer.dart:530`, do `(`); o **índice** de `x[i]`; o operando
+  direito de binário, relatado do **operador** ao fim do operando direito (`dead_code_verifier.dart:316-318`, pai
+  `BinaryExpression`); os ramos de `if` de coleção fecham bloco básico (`visitIfElement`, `flowEnd(ifTrue/ifFalse)`);
+  e a variável de condição inicializada com literal booleano (INFERENCIA §7.10). 237 de 255; restam `for` de coleção,
+  `switch` legado, recuperação de parser e `void`.
 
 #### §3 Referência antes da declaração
 

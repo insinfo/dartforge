@@ -1217,6 +1217,15 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
     let a = ast(inf, cx);
     let expr = a.expr(e);
     let span = expr.span;
+    // `checkUnreachableNode` (`NullSafetyDeadCodeVerifier.visitNode`): a
+    // primeira expressão visitada num fluxo inalcançável é o primeiro nó
+    // morto; o trecho vai até o fim do bloco básico em curso (ou da última
+    // instrução do bloco).
+    if !cx.fluxo.alcancavel && cx.trecho_morto.is_none() {
+        let fim = cx.fins_de_fluxo.last().copied().or(cx.fins_de_bloco.last().copied()).unwrap_or(span.end).max(span.end);
+        inf.aviso(DEAD_CODE.template.to_string(), dartforge_diagnostics::Span { start: span.start, end: fim });
+        cx.trecho_morto = Some(cx.fins_de_fluxo.len());
+    }
     let mut curto = false;
     atalhos::registrar_cadeia(inf, cx, e, ctx);
     let t = match &expr.kind {
@@ -3014,6 +3023,7 @@ fn binario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: BinaryOp, 
             let k_q = if inf.e_desconhecido(ctx) { ctx } else { inf.anulavel(ctx) };
             let t1 = inferir(inf, cx, left, k_q);
             uso_de_void(inf, cx, left, t1);
+            morto_no_operando_direito(inf, cx, left, right);
             avisar_nulo_morto(inf, cx, t1, right);
             let j = if inf.e_desconhecido(ctx) || inf.e_dynamic(ctx) { t1 } else { ctx };
             // Ramo em que `e1` não é nulo: `e1` promove a não nulo; no outro
@@ -3034,6 +3044,7 @@ fn binario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: BinaryOp, 
             let u = inf.core.unknown;
             let l = inferir(inf, cx, left, u);
             uso_de_void(inf, cx, left, l);
+            morto_no_operando_direito(inf, cx, left, right);
             if receptor_nunca(inf, cx, left, l) {
                 inferir_livre(inf, cx, right);
                 return inf.core.never;
@@ -3070,6 +3081,19 @@ fn binario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: BinaryOp, 
             t
         }
     }
+}
+
+/// O operando direito de um binário que começa inalcançável: o primeiro nó
+/// morto tem pai `BinaryExpression`, e o trecho vai do operador ao fim do
+/// operando direito (`dead_code_verifier.dart:316-318`).
+fn morto_no_operando_direito(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, left: ExprId, right: ExprId) {
+    if cx.fluxo.alcancavel || cx.trecho_morto.is_some() {
+        return;
+    }
+    let token = token_de_operador(inf, cx, inf.span_expr(cx.unit, left).end);
+    let fim = inf.span_expr(cx.unit, right).end;
+    inf.aviso(DEAD_CODE.template.to_string(), dartforge_diagnostics::Span { start: token.start, end: fim });
+    cx.trecho_morto = Some(cx.fins_de_fluxo.len());
 }
 
 /// Unários (`!`, `-`, `~`, `++`, `--`, `!` pós-fixo).
@@ -4100,6 +4124,10 @@ pub(crate) fn e_forma_de_condicao(inf: &BodyInferrer<'_>, cx: &Corpo, e: ExprId)
         ExprKind::Parenthesized(i) => e_forma_de_condicao(inf, cx, *i),
         ExprKind::Unary { op: UnaryOp::Not, .. } | ExprKind::Is { .. } => true,
         ExprKind::Binary { op, .. } => matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::Eq | BinaryOp::NotEq),
+        // `booleanLiteral`: o ramo oposto é inalcançável (informação não
+        // trivial, guardada na variável de condição: `bool c = true; c ? a
+        // : b` tem o `b` morto).
+        ExprKind::Bool(_) => true,
         _ => false,
     }
 }
@@ -4344,6 +4372,7 @@ fn condicao_binaria(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: B
             uso_de_void(inf, cx, left, tl);
             // `e == .x`: o atalho à direita usa o tipo de `e` (3.10).
             atalhos::registrar_igualdade(inf, cx, right, tl);
+            morto_no_operando_direito(inf, cx, left, right);
             let tr = inferir(inf, cx, right, u);
             // O lado direito é o argumento de `operator ==(Object)`.
             uso_de_void(inf, cx, right, tr);

@@ -403,6 +403,19 @@ fn menciona_livre(table: &crate::table::TypeTable, t: TypeId, permitidos: &std::
     }
 }
 
+/// `resolver.checkUnreachableNode(argumentList)` (`invocation_inferrer.dart:530`):
+/// a lista de argumentos (do `(`) é o primeiro nó morto quando a invocação
+/// chega inalcançável; o trecho vai ao fim do bloco básico em curso.
+pub(crate) fn morto_na_lista(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, args: &ast::Arguments) {
+    if cx.fluxo.alcancavel || cx.trecho_morto.is_some() {
+        return;
+    }
+    let sp = args.span;
+    let fim = cx.fins_de_fluxo.last().copied().or(cx.fins_de_bloco.last().copied()).unwrap_or(sp.end).max(sp.end);
+    inf.aviso(DEAD_CODE.template.to_string(), Span { start: sp.start, end: fim });
+    cx.trecho_morto = Some(cx.fins_de_fluxo.len());
+}
+
 /// Invoca um tipo de função com os argumentos; devolve `(retorno, função instanciada)`.
 pub(crate) fn invocar(
     inf: &mut BodyInferrer<'_>,
@@ -413,6 +426,7 @@ pub(crate) fn invocar(
     explicitos: Option<Vec<TypeId>>,
 ) -> (TypeId, TypeId) {
     let alvo = inf.alvo_da_aridade.take();
+    morto_na_lista(inf, cx, args);
     let Type::Function { type_params, ret, positional, optional, named, .. } = inf.table.get(f).clone() else {
         inf.entidade_da_inferencia = None;
         inf.nomes_posicionais = None;
@@ -613,6 +627,7 @@ fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, t: TypeI
     if let ExprKind::Call { target, .. } = &inf.program.unit(cx.unit).ast.expr(e).kind {
         let alvo = *target;
         if !matches!(inf.program.unit(cx.unit).ast.expr(alvo).kind, ExprKind::Property { .. }) && expr::receptor_nunca(inf, cx, alvo, t) {
+            morto_na_lista(inf, cx, args);
             for a in args.args.iter() {
                 inferir_livre(inf, cx, a.value);
             }
@@ -1299,6 +1314,7 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             }
             let (r_ty, curto) = receptor(inf, cx, recv, null_aware);
             if !null_aware && !cx.sobreposicoes.contains_key(&recv) && expr::receptor_nunca(inf, cx, recv, r_ty) {
+                morto_na_lista(inf, cx, args);
                 for arg in args.args.iter() {
                     inferir_livre(inf, cx, arg.value);
                 }
