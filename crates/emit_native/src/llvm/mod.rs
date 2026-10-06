@@ -190,6 +190,10 @@ pub struct LlvmEmitter<'a> {
     raizes_da_funcao: raizes::Raizes,
     /// Com [`Self::mapas`], os valores enraizados da função em emissão.
     enraizados: std::collections::HashSet<ValueId>,
+    /// Raízes por mapas: as definições de `@df.vararg.<k>`, os intermediários
+    /// das chamadas C variádicas feitas por uma função `gc`
+    /// ([`Self::texto_da_chamada_c`]); vão ao módulo depois das funções.
+    variadicas: Vec<String>,
     /// O build de conferência do percurso (`DARTFORGE_RAIZES_CONFERIR=1`
     /// com `--raizes=mapas`, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §15.2,
     /// E2.5): numa função `gc`, o primeiro dos slots de conferência no fim
@@ -277,6 +281,7 @@ impl<'a> LlvmEmitter<'a> {
             mapas: false,
             raizes_da_funcao: raizes::Raizes::default(),
             enraizados: std::collections::HashSet::new(),
+            variadicas: Vec::new(),
             conferencia: None,
             funcoes_gc: 0,
             mapas_no_jit: false,
@@ -461,6 +466,9 @@ impl<'a> LlvmEmitter<'a> {
             self.emit_function(func);
         }
         self.tab = None;
+        for d in std::mem::take(&mut self.variadicas) {
+            self.out.push_str(&d);
+        }
 
         if self.module.biblioteca_sdk {
             // Uma biblioteca do SDK da fonte (P5c): sem entrada nem despacho
@@ -2564,6 +2572,35 @@ impl<'a> LlvmEmitter<'a> {
         format!("{} {}{x}", tc.llvm(), tc.extensao())
     }
 
+    /// O texto `call …` de uma chamada C por `%fn<v>`. Numa variádica feita por
+    /// uma função `gc` (raízes por mapas), a chamada passa por um intermediário
+    /// `@df.vararg.<k>` de assinatura fixa, `noinline` e fora da estratégia de
+    /// coleta: o `rewrite-statepoints-for-gc` não embrulha chamadas variádicas
+    /// que devolvem valor (`gc.statepoint doesn't support wrapping non-void
+    /// vararg functions yet`), e a chamada ao intermediário vira um statepoint
+    /// comum, com as raízes vivas no mapa dela. O intermediário repassa os
+    /// argumentos com os mesmos tipos e atributos.
+    fn texto_da_chamada_c(&mut self, v: u32, ret: &str, tipo: &str, partes: &[String], variadica: bool) -> String {
+        let lista = partes.join(", ");
+        if !variadica || self.enraizados.is_empty() {
+            return format!("call {tipo} %fn{v}({lista})");
+        }
+        let nome = format!("df.vararg.{}", self.variadicas.len());
+        let mut params = vec!["ptr %f".to_string()];
+        let mut repasse = Vec::with_capacity(partes.len());
+        for (j, p) in partes.iter().enumerate() {
+            let cabeca = p.rsplit_once(' ').map_or(p.as_str(), |(c, _)| c);
+            params.push(format!("{cabeca} %p{j}"));
+            repasse.push(format!("{cabeca} %p{j}"));
+        }
+        let interna = format!("call {tipo} %f({})", repasse.join(", "));
+        let corpo = if ret == "void" { format!("  {interna}\n  ret void\n") } else { format!("  %r = {interna}\n  ret {ret} %r\n") };
+        self.variadicas.push(format!("define internal {ret} @{nome}({}) noinline {{\n{corpo}}}\n\n", params.join(", ")));
+        let mut args = vec![format!("ptr %fn{v}")];
+        args.extend(partes.iter().cloned());
+        format!("call {ret} @{nome}({})", args.join(", "))
+    }
+
     /// Uma chamada C com structs/unions por valor (`llvm/abi_c.rs`): cada
     /// composto é copiado dos bytes do operando para uma temporária alinhada
     /// da pilha (liberada por `stackrestore` depois da chamada), e passado
@@ -2672,15 +2709,21 @@ impl<'a> LlvmEmitter<'a> {
                 }
             }
         }
-        let lista = partes.join(", ");
         // O tipo da chamada: numa variádica, `ret (fixos, ...)`.
         let tipo_da_chamada = |ret: &str| match variadica {
             Some(_) if tipos_fixos.is_empty() => format!("{ret} (...)"),
             Some(_) => format!("{ret} ({}, ...)", tipos_fixos.join(", ")),
             None => ret.to_string(),
         };
+        let tipo_de_retorno = match (ret, &passagem_ret) {
+            (TipoNativo::Prim(TipoC::Void), _) | (TipoNativo::Composto(_), Some((PassagemRet::Sret { .. }, _))) => "void".to_string(),
+            (TipoNativo::Prim(tc), _) => tc.llvm().to_string(),
+            (TipoNativo::Composto(_), Some((PassagemRet::Direta(pecas), _))) => abi_c::tipo_do_retorno(pecas),
+            (TipoNativo::Composto(_), None) => unreachable!("retorno composto sem passagem"),
+        };
+        let chamada = self.texto_da_chamada_c(v, &tipo_de_retorno, &tipo_da_chamada(&tipo_de_retorno), &partes, variadica.is_some());
         match (ret, &passagem_ret) {
-            (TipoNativo::Prim(TipoC::Void), _) => writeln!(self.out, "  call {} %fn{v}({lista})", tipo_da_chamada("void")).unwrap(),
+            (TipoNativo::Prim(TipoC::Void), _) => writeln!(self.out, "  {chamada}").unwrap(),
             (TipoNativo::Prim(tc), _) => {
                 let conv_ret = match tc {
                     TipoC::I8 | TipoC::I16 | TipoC::I32 => Some(format!("sext {} %nr{v} to i64", tc.llvm())),
@@ -2691,19 +2734,19 @@ impl<'a> LlvmEmitter<'a> {
                 };
                 match conv_ret {
                     Some(c) => {
-                        writeln!(self.out, "  %nr{v} = call {} %fn{v}({lista})", tipo_da_chamada(tc.llvm())).unwrap();
+                        writeln!(self.out, "  %nr{v} = {chamada}").unwrap();
                         writeln!(self.out, "  %v{v} = {c}").unwrap();
                     }
-                    None => writeln!(self.out, "  %v{v} = call {} %fn{v}({lista})", tipo_da_chamada(tc.llvm())).unwrap(),
+                    None => writeln!(self.out, "  %v{v} = {chamada}").unwrap(),
                 }
             }
             (TipoNativo::Composto(_), Some((PassagemRet::Sret { .. }, _))) => {
-                writeln!(self.out, "  call {} %fn{v}({lista})", tipo_da_chamada("void")).unwrap();
+                writeln!(self.out, "  {chamada}").unwrap();
             }
             (TipoNativo::Composto(_), Some((PassagemRet::Direta(pecas), l))) => {
                 let tipo = abi_c::tipo_do_retorno(pecas);
                 let tam = l.tamanho.div_ceil(16) * 16;
-                writeln!(self.out, "  %rr{v} = call {} %fn{v}({lista})", tipo_da_chamada(&tipo)).unwrap();
+                writeln!(self.out, "  %rr{v} = {chamada}").unwrap();
                 writeln!(self.out, "  %rt{v} = alloca [{tam} x i8], align 16").unwrap();
                 for (k, p) in pecas.iter().enumerate() {
                     let val = if pecas.len() == 1 {
