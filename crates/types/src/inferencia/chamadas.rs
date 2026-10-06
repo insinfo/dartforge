@@ -1980,6 +1980,21 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
         }
         return inf.core.dynamic_;
     };
+    // `NamedTypeResolver.resolve` (`named_type_resolver.dart:89-121`): o
+    // primeiro nome de `p.N` que, no escopo, não é prefixo, classe nem alias
+    // (um local, um parâmetro de tipo, um membro, uma função de topo).
+    if name.len() == 2 && name[0].span.start != name[0].span.end {
+        let p = name[0].sym;
+        let local = cx.parametros_de_tipo_visiveis().contains_key(&p) || cx.locais_visiveis(inf.interner).contains_key(&p);
+        if crate::resolve::prefixo_sombreado(inf.program, inf.interner, cx.unit, p, local, cx.classe, cx.extensao) {
+            let nome = inf.interner.resolve(p).to_string();
+            inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::PREFIX_SHADOWED_BY_LOCAL_DECLARATION, name[0].span, &[&nome]);
+            for x in args.args.iter() {
+                inferir_livre(inf, cx, x.value);
+            }
+            return inf.table.invalido(inf.core.dynamic_);
+        }
+    }
     let binding = if name.len() == 2 {
         inf.program.lookup_prefixed_na_unidade(cx.unit, name[0].sym, name[1].sym)
     } else {

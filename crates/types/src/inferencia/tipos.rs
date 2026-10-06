@@ -412,6 +412,16 @@ impl<'a> BodyInferrer<'a> {
                     self.diagnostics.push(dartforge_diagnostics::Diagnostic::new(msg, name[0].span).com_contexto(decl, contexto_msg));
                     self.unidades_dos_avisos.push(self.unidade_corrente);
                 }
+                if name.len() == 2 && name[0].span.start != name[0].span.end {
+                    let p = name[0].sym;
+                    let (classe, extensao) = self.conteiner_de_tipos;
+                    let local = escopo.contains_key(&p) || self.locais_como_tipo.contains_key(&p);
+                    if crate::resolve::prefixo_sombreado(self.program, self.interner, unit, p, local, classe, extensao) {
+                        let nome = self.interner.resolve(p).to_string();
+                        self.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::PREFIX_SHADOWED_BY_LOCAL_DECLARATION, name[0].span, &[&nome]);
+                        return self.table.invalido(self.core.dynamic_);
+                    }
+                }
                 let binding = if name.len() == 2 {
                     self.program.lookup_prefixed_na_unidade(unit, name[0].sym, name[1].sym)
                 } else {
@@ -471,11 +481,9 @@ impl<'a> BodyInferrer<'a> {
                                 self.relatar_nome_de_tipo(contexto, true, &texto, faixa);
                                 return self.table.invalido(self.core.dynamic_);
                             }
-                            Some(crate::resolve::NoConteiner::SoSetter) => {
-                                self.relatar_nome_de_tipo(contexto, false, &texto, faixa);
-                                return self.table.invalido(self.core.dynamic_);
-                            }
-                            None => {}
+                            // Só setter: o `LocalScope` do `ResolutionVisitor`
+                            // o guarda sob `x=`; a busca segue para fora.
+                            Some(crate::resolve::NoConteiner::SoSetter) | None => {}
                         }
                     }
                     self.program.lookup_na_unidade(unit, sym)

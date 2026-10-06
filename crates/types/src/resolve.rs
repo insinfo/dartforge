@@ -259,6 +259,52 @@ pub(crate) fn nome_no_conteiner(
     setter.then_some(NoConteiner::SoSetter)
 }
 
+/// `NamedTypeResolver.resolve` (`named_type_resolver.dart:89-121`): o
+/// primeiro nome de `p.N` busca no escopo do `ResolutionVisitor`; se o
+/// elemento achado não é prefixo, classe nem alias, é
+/// `PREFIX_SHADOWED_BY_LOCAL_DECLARATION` no prefixo, e o tipo é inválido.
+/// O escopo, de dentro para fora: os parâmetros de tipo e os locais
+/// (`local`, decidido por quem chama), os membros declarados do contêiner
+/// (o `LocalScope` em que o `ResolutionVisitor` define `accessors` e
+/// `methods` pelo nome deles: um setter fica sob `x=` e não esconde `x`) e
+/// o escopo de topo ([`prefixo_sombreado_no_topo`]).
+pub(crate) fn prefixo_sombreado(
+    program: &Program,
+    interner: &Interner,
+    unit: UnitId,
+    p: SymbolId,
+    local: bool,
+    classe: Option<ClassId>,
+    extensao: Option<ExtensionId>,
+) -> bool {
+    local
+        || matches!(nome_no_conteiner(program, interner, classe, extensao, p), Some(NoConteiner::Getter))
+        || prefixo_sombreado_no_topo(program, unit, p)
+}
+
+/// `LibraryFragmentScope.lookup` (`scope.dart:424-440`): as declarações da
+/// biblioteca vêm antes dos prefixos e dos imports. Uma função, variável ou
+/// extensão (ou um nome ambíguo, o `MultiplyDefinedElement`) com o nome do
+/// prefixo o esconde; só setter é `getter` nulo (tipo indefinido, não
+/// sombra).
+pub(crate) fn prefixo_sombreado_no_topo(program: &Program, unit: UnitId, p: SymbolId) -> bool {
+    let lib = program.library(program.unit(unit).library);
+    let b = match lib.declared.get(&p) {
+        Some(b) => *b,
+        None if program.prefixos_na_unidade(unit).contains_key(&p) => return false,
+        None => match program.lookup_na_unidade(unit, p) {
+            Some(b) => b,
+            None => return false,
+        },
+    };
+    b.ambiguous || matches!(b.getter, Some(Element::Function(_) | Element::Variable(_) | Element::Extension(_)))
+}
+
+/// `PREFIX_SHADOWED_BY_LOCAL_DECLARATION` no prefixo, com o nome dele.
+pub fn diagnostico_de_prefixo_sombreado(nome: &str, faixa: dartforge_diagnostics::Span) -> Diagnostic {
+    Diagnostic::com_codigo(dartforge_diagnostics::codigos::compile_time_error::PREFIX_SHADOWED_BY_LOCAL_DECLARATION, faixa, [nome])
+}
+
 /// Declaração cujos membros formam um escopo (o `InstanceScope` do analyzer).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Conteiner {
@@ -271,7 +317,9 @@ pub(crate) enum NoConteiner {
     /// Getter (inclusive o implícito de campo e de constante de enum) ou
     /// método: o resultado da busca tem `getter`, e não é tipo.
     Getter,
-    /// Só setter: a busca para aqui, sem `getter` — tipo indefinido.
+    /// Só setter: a busca do `InstanceScope` (a do vinculador, que dá o
+    /// tipo do elemento) para aqui, sem `getter`: tipo inválido. A do
+    /// `ResolutionVisitor` (a que relata) não o vê e segue para fora.
     SoSetter,
 }
 
@@ -1543,7 +1591,9 @@ impl<'a> OutlineResolver<'a> {
                             return self.table.invalido(self.core.dynamic_);
                         }
                         Some(NoConteiner::SoSetter) => {
-                            self.avisar_nome_de_tipo(unit_id, contexto, false, &texto, faixa);
+                            // O vinculador não acha o tipo (inválido, sem
+                            // aviso); o `ResolutionVisitor`, que relata, acha
+                            // o de fora.
                             return self.table.invalido(self.core.dynamic_);
                         }
                         None => {}
@@ -1659,6 +1709,22 @@ impl<'a> OutlineResolver<'a> {
                 } else if name.len() == 2 {
                     let prefix = name[0].sym;
                     let member = name[1].sym;
+                    if name[0].span.start != name[0].span.end {
+                        let (classe, extensao) = match self.conteiner {
+                            Some(Conteiner::Classe(c)) => (Some(c), None),
+                            Some(Conteiner::Extensao(e)) => (None, Some(e)),
+                            None => (None, None),
+                        };
+                        let local = type_param_scope.contains_key(&prefix);
+                        if prefixo_sombreado(self.program, self.interner, unit_id, prefix, local, classe, extensao) {
+                            let nome = self.interner.resolve(prefix).to_string();
+                            self.avisar(unit_id, diagnostico_de_prefixo_sombreado(&nome, name[0].span));
+                            return self.table.invalido(self.core.dynamic_);
+                        }
+                        if matches!(self.no_conteiner(prefix), Some(NoConteiner::SoSetter)) {
+                            return self.table.invalido(self.core.dynamic_);
+                        }
+                    }
                     let binding = self.program.lookup_prefixed_na_unidade(unit_id, prefix, member);
                     match binding {
                         Some(b) => match b.getter {
