@@ -1090,85 +1090,6 @@ impl Projeto {
                 for (u, a, b) in self.declaracoes(alvo) {
                     por(u, Span { start: a, end: b }, novo, &mut edicoes);
                 }
-                // `fillChange`: com nome novo público, as referências de cada
-                // `this.x` do campo nos construtores da classe dele; as do
-                // posicional opcional são os inícios dos argumentos (o
-                // `visitExpression` do índice), de comprimento 0.
-                if !novo.starts_with('_')
-                    && let Alvo::Membro { dono, nome, estatico: false } = alvo
-                    && let Ok(fam) = self.familia(*dono, nome, false, false)
-                {
-                    // Os `this.x` (posição entre os posicionais, ou nome) de
-                    // cada construtor da classe de cada campo da família,
-                    // inclusive fora do projeto (as edições ficam no
-                    // workspace).
-                    let mut parametros: Vec<(FunctionElementId, Option<usize>)> = Vec::new();
-                    let mut vistas: Vec<dartforge_elements::model::ClassId> = Vec::new();
-                    for v in fam.variaveis.iter() {
-                        let Some(c) = p.variable(*v).class else { continue };
-                        if vistas.contains(&c) {
-                            continue;
-                        }
-                        vistas.push(c);
-                        for (u, m) in p.membros_da_classe(c) {
-                            let ast::MemberKind::Constructor(k) = &p.unit(u).ast.member(m).kind else { continue };
-                            let Some(f) = self.construtor_do_no(u, m) else { continue };
-                            let posicionais: Vec<&ast::Parameter> = k.parameters.iter().filter(|q| q.kind != ast::ParameterKind::Named).collect();
-                            for (i, q) in posicionais.iter().enumerate() {
-                                if q.this_ && q.name.is_some_and(|n| self.nome(n.sym) == nome.as_str()) {
-                                    parametros.push((f, Some(i)));
-                                    if q.kind == ast::ParameterKind::Optional {
-                                        for (x, s) in self.argumentos_posicionais(f, i) {
-                                            por(x, s, novo, &mut edicoes);
-                                        }
-                                    }
-                                }
-                            }
-                            if k.parameters.iter().any(|q| q.kind == ast::ParameterKind::Named && q.this_ && q.name.is_some_and(|n| self.nome(n.sym) == nome.as_str())) {
-                                parametros.push((f, None));
-                            }
-                        }
-                    }
-                    // Os `super.x` que apontam para esses parâmetros
-                    // (`superConstructorParameter`): o posicional pela posição
-                    // entre os `super.` posicionais, o nomeado pelo nome.
-                    if !parametros.is_empty() {
-                        for u in self.unidades() {
-                            if !self.no_workspace(Some(u)) {
-                                continue;
-                            }
-                            let ast = &p.unit(u).ast;
-                            for (mi, m) in ast.members.iter().enumerate() {
-                                let ast::MemberKind::Constructor(k) = &m.kind else { continue };
-                                if !k.parameters.iter().any(|q| q.super_) {
-                                    continue;
-                                }
-                                let Some(sub) = self.construtor_do_no(u, ast::MemberId(mi as u32)) else { continue };
-                                let Some(sup) = self.construtor_super(sub) else { continue };
-                                let mut posicao = 0usize;
-                                for q in k.parameters.iter() {
-                                    let nomeado = q.kind == ast::ParameterKind::Named;
-                                    if q.super_ {
-                                        let alvo_q = if nomeado { None } else { Some(posicao) };
-                                        let casa = parametros.iter().any(|&(f, i)| {
-                                            f == sup && match (i, alvo_q) {
-                                                (Some(a), Some(b)) => a == b,
-                                                (None, None) => q.name.is_some_and(|n| self.nome(n.sym) == nome.as_str()),
-                                                _ => false,
-                                            }
-                                        });
-                                        if casa && let Some(n) = q.name {
-                                            por(u, n.span, novo, &mut edicoes);
-                                        }
-                                    }
-                                    if q.super_ && !nomeado {
-                                        posicao += 1;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
                 for (u, s) in self.referencias_do_alvo(alvo) {
                     // O `this.x` nomeado que vira privado: `{T x}` e o
                     // inicializador `_novo = x`.
@@ -1178,9 +1099,13 @@ impl Projeto {
                         edicoes.extend(e);
                         continue;
                     }
-                    // A referência implícita de comprimento 0 (o argumento
-                    // posicional de um `this.x`, pelo `visitExpression` do
-                    // índice) vira inserção do nome novo, como no Dart.
+                    // As referências dos `this.x` (o início de um argumento
+                    // posicional opcional, de comprimento 0, que vira
+                    // inserção, e os `super.x`) só entram com nome novo
+                    // público (`fillChange`).
+                    if novo.starts_with('_') && (s.start == s.end || self.e_super_formal(u, s)) {
+                        continue;
+                    }
                     por(u, s, novo, &mut edicoes);
                 }
             }

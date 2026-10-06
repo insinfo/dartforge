@@ -2096,6 +2096,73 @@ impl Projeto {
             if !construtores_nomeados.is_empty() {
                 self.rotulos_de_argumento(&construtores_nomeados, simbolo, por);
             }
+            // As referências dos `this.x` (`includeParametersForFields`):
+            // o início de cada argumento posicional opcional (comprimento 0,
+            // o `visitExpression` do índice) e os `super.x` que apontam
+            // para eles (`superConstructorParameter`).
+            let mut parametros: Vec<(FunctionElementId, Option<usize>)> = Vec::new();
+            let mut classes: Vec<ClassId> = fam.classes.clone();
+            for v in fam.variaveis.iter() {
+                if let Some(c) = self.programa().variable(*v).class
+                    && !classes.contains(&c)
+                {
+                    classes.push(c);
+                }
+            }
+            for c in classes {
+                for (u, m) in self.programa().membros_da_classe(c) {
+                    let MemberKind::Constructor(k) = &self.programa().unit(u).ast.member(m).kind else { continue };
+                    let Some(f) = self.construtor_do_no(u, m) else { continue };
+                    let posicionais: Vec<&ast::Parameter> = k.parameters.iter().filter(|q| q.kind != ast::ParameterKind::Named).collect();
+                    for (i, q) in posicionais.iter().enumerate() {
+                        if q.this_ && q.name.is_some_and(|n| self.nome(n.sym) == nome) {
+                            parametros.push((f, Some(i)));
+                            if q.kind == ast::ParameterKind::Optional {
+                                for (x, s) in self.argumentos_posicionais(f, i) {
+                                    por(x, s);
+                                }
+                            }
+                        }
+                    }
+                    if k.parameters.iter().any(|q| q.kind == ast::ParameterKind::Named && q.this_ && q.name.is_some_and(|n| self.nome(n.sym) == nome)) {
+                        parametros.push((f, None));
+                    }
+                }
+            }
+            if !parametros.is_empty() {
+                for u in self.unidades() {
+                    let ast = &self.programa().unit(u).ast;
+                    for (mi, m) in ast.members.iter().enumerate() {
+                        let MemberKind::Constructor(k) = &m.kind else { continue };
+                        if !k.parameters.iter().any(|q| q.super_) {
+                            continue;
+                        }
+                        let Some(sub) = self.construtor_do_no(u, ast::MemberId(mi as u32)) else { continue };
+                        let Some(sup) = self.construtor_super(sub) else { continue };
+                        let mut posicao = 0usize;
+                        for q in k.parameters.iter() {
+                            let nomeado = q.kind == ast::ParameterKind::Named;
+                            if q.super_ {
+                                let alvo_q = if nomeado { None } else { Some(posicao) };
+                                let casa = parametros.iter().any(|&(f, i)| {
+                                    f == sup
+                                        && match (i, alvo_q) {
+                                            (Some(a), Some(b)) => a == b,
+                                            (None, None) => q.name.is_some_and(|n| self.nome(n.sym) == nome),
+                                            _ => false,
+                                        }
+                                });
+                                if casa && let Some(n) = q.name {
+                                    por(u, n.span);
+                                }
+                                if !nomeado {
+                                    posicao += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -2470,7 +2537,23 @@ impl Projeto {
                     usos.push((x, ate_o_proximo(pr.span)));
                 }
             }
+            // `[p.x]` na documentação: o índice também cita o import.
+            if fx.contains('[') {
+                let texto_do_prefixo = self.nome(nome);
+                for c in dartdoc::comentarios(fx) {
+                    for r in &c.referencias {
+                        if r.len() >= 2
+                            && r[0].1 == texto_do_prefixo
+                            && self.consulta.nomes.lookup(&r[1].1).is_some_and(visivel)
+                        {
+                            usos.push((x, ate_o_proximo(r[0].0)));
+                        }
+                    }
+                }
+            }
         }
+        usos.sort_by_key(|(u, s)| (*u, s.start));
+        usos.dedup();
         Some((declaracao, usos))
     }
 
