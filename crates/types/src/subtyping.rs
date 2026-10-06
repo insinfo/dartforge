@@ -486,6 +486,13 @@ fn check_right_object(_t0_id: TypeId, t0: &Type, t1_id: TypeId, env: &mut Subtyp
     if matches!(t0, Type::Null | Type::Dynamic | Type::Void) || t0.is_declared_nullable() {
         return false;
     }
+    // - um tipo de extensão sem superinterface que leve a uma classe só é
+    //   subtipo de `Object?`.
+    if let Type::ExtensionType { decl, .. } = t0
+        && env.hierarchy.extensoes_sem_object.contains(decl)
+    {
+        return false;
+    }
     // - Otherwise T0 <: T1 is true
     true
 }

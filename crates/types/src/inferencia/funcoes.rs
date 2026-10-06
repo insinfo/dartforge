@@ -29,6 +29,17 @@ impl<'a> BodyInferrer<'a> {
     }
 }
 
+/// `ErrorVerifier.visitDefaultFormalParameter` (3.6.2,
+/// `error_verifier.dart:640-651`): o valor padrão contra o tipo do parâmetro
+/// (`checkForAssignableExpressionAtType`, `INVALID_ASSIGNMENT`; o `void` do
+/// valor é `USE_OF_VOID_RESULT`).
+fn valor_padrao_atribuivel(inf: &mut BodyInferrer<'_>, cx: &Corpo, d: ast::ExprId, td: TypeId, t: TypeId) {
+    if matches!(inf.table.get(t), Type::Void) {
+        return;
+    }
+    expr::verificar_atribuivel_expr(inf, cx, d, td, t, crate::codes::INVALID_ASSIGNMENT.template);
+}
+
 /// Declara os parâmetros de uma lista escrita, com os tipos dados; infere
 /// os valores padrão. `so_inicializadores` marca `this.x`/`super.x`.
 fn declarar_parametros(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, params: &[ast::Parameter], tipos: &[TypeId], pular_inicializadores: bool) {
@@ -36,9 +47,7 @@ fn declarar_parametros(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, params: &[ast
         let t = tipos.get(i).copied().unwrap_or(inf.core.dynamic_);
         if let Some(d) = p.default_value {
             let td = inferir(inf, cx, d, t);
-            if !matches!(inf.table.get(t), Type::Void) {
-                expr::uso_de_void(inf, cx, d, td);
-            }
+            valor_padrao_atribuivel(inf, cx, d, td, t);
         }
         if pular_inicializadores && (p.this_ || p.super_) {
             continue;
@@ -116,7 +125,17 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             let tipos: Vec<TypeId> = dados.parameters.iter().map(|p| p.ty).collect();
             // Escopo dos inicializadores: todos os parâmetros.
             cx.empurrar_escopo();
+            // O cabeçalho do primário (3.13) fica fora do corpo da classe: o
+            // `this` de um valor padrão ali não tem o tipo da classe
+            // (`dynamic`; o oráculo 3.13.4 não relata `invalid_assignment`).
+            let primario = e_construtor_primario(inf.program, f);
+            let this_do_cabecalho = if primario { cx.tipo_this.take() } else { None };
+            cx.this_sem_tipo = primario;
             declarar_parametros(inf, &mut cx, &ctor.parameters, &tipos, false);
+            cx.this_sem_tipo = false;
+            if primario {
+                cx.tipo_this = this_do_cabecalho;
+            }
             // Os parâmetros do primário, protegidos nos inicializadores (o
             // corpo declara locais novos).
             if e_construtor_primario(inf.program, f)
@@ -132,9 +151,11 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             let this_salvo = cx.tipo_this.take();
             let estatico_salvo = cx.estatico;
             cx.estatico = true;
+            cx.this_sem_tipo = true;
             for init in ctor.initializers.iter() {
                 inicializador(inf, &mut cx, fe.class, init, &ctor.parameters, fe.const_, f);
             }
+            cx.this_sem_tipo = false;
             // `_checkForRecursiveConstructorRedirect` (`error_verifier.dart:5047-5066`):
             // no primeiro `this(...)` de um construtor gerador em ciclo.
             if !fe.factory
@@ -1591,9 +1612,7 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
             };
             if let Some(d) = p.default_value {
                 let td = inferir(inf, cx, d, t);
-                if !matches!(inf.table.get(t), Type::Void) {
-                    expr::uso_de_void(inf, cx, d, td);
-                }
+                valor_padrao_atribuivel(inf, cx, d, td, t);
             }
             match p.kind {
                 ast::ParameterKind::Required => pos.push(t),

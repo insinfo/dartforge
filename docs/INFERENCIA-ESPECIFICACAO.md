@@ -589,6 +589,25 @@ experimento `variance` desligado (`summary2/variance_builder.dart:240-252`),
 então `Contravariant<Lower> <: Contravariant<Middle>` é falso também no 3.6
 com o modificador escrito. Vale para tipos de extensão da mesma declaração.
 
+**Tipo de extensão e `Object` (correção de 2026-10-06).** O tipo de extensão sem superinterface que leve a uma
+classe (sem `implements`, ou só com tipos de extensão que também não levem) é subtipo de `Object?`, **não** de
+`Object` (spec de extension types, "Static analysis of extension types"; o `isSubtypeOf` do analyzer pela regra
+*Right Object*: `extension type E(int it)` não é atribuível a `Object`). O fechamento da hierarquia continua
+pondo `Object` no topo de todo tipo (é por ele que `toString`/`hashCode` são achados), então a exceção fica no
+`check_right_object` (`subtyping.rs`), pelo conjunto `ClassHierarchy.extensoes_sem_object` que o
+`resolve_classes_and_hierarchy` calcula pelas superinterfaces escritas. Consequências: `isNullable(E)` é falso e
+`isPotentiallyNonNullable(E)` é verdadeiro (a leitura de local não atribuída usa `!(Null <: T)`, não
+`T <: Object`), mas o `TypePropertyResolver` trata o receptor de tipo de extensão como anulável **só** pelo `?`
+escrito (`type_property_resolver.dart:91-96`): `exige_checagem_de_nulo` e a busca por `this` implícito não
+relatam uso sem checagem num `E` sem `?`.
+
+**`this` fora de contexto de instância.** O `_thisType` do `ResolverVisitor` vale no corpo inteiro da declaração
+(membros estáticos, inicializadores de campo, `factory`): o `this` ali é `INVALID_REFERENCE_TO_THIS`, mas tem o tipo
+da classe (ou o estendido da extensão), e o valor padrão `[Object p = this]` num tipo de extensão dá
+`invalid_assignment`. Exceções medidas: o cabeçalho do construtor primário (3.13, fora do corpo; `dynamic`) e a
+lista de inicialização (mantida `dynamic`: a recuperação do parser do analyzer em `this?.x()` não deixa a
+expressão para a inferência).
+
 ### 4.2 UP — casos na ordem exata em que o analyzer os testa
 
 O primeiro caso que casa decide. Linhas de `least_upper_bound.dart`.

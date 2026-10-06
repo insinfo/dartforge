@@ -27,6 +27,11 @@ pub struct ClassHierarchyData {
 #[derive(Debug, Default, Clone)]
 pub struct ClassHierarchy {
     classes: Vec<Option<ClassHierarchyData>>,
+    /// Os tipos de extensão que não são subtipos de `Object` (nenhuma
+    /// superinterface leva a uma classe): o `Object` que o fechamento põe no
+    /// topo deles é só o de `Object?` (spec de extension types, "Static
+    /// analysis of extension types": sem `implements`, `E <: Object?` apenas).
+    pub extensoes_sem_object: HashSet<ClassId>,
 }
 
 impl ClassHierarchy {
@@ -34,7 +39,7 @@ impl ClassHierarchy {
     pub fn new(num_classes: usize) -> Self {
         let mut classes = Vec::with_capacity(num_classes);
         classes.resize_with(num_classes, || None);
-        Self { classes }
+        Self { classes, extensoes_sem_object: HashSet::new() }
     }
 
     /// Retorna os dados da hierarquia para uma dada classe, se existirem.

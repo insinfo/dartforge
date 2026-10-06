@@ -336,6 +336,12 @@ Base comum (vale para vários códigos abaixo):
   da atribuibilidade; (2) `x?[0]++`/`a?.b++`: o `_checkForInvalidAssignmentIncDec` confere o **retorno do operador**
   (`int`), sem o `?` do encurtamento nulo, contra o tipo de escrita.
 
+- **Correções de 2026-10-06 (263/274; msg 17 para 5, FN 21 para 11):**
+  - Referência implícita a `call` (`_insertImplicitCallReference`, `resolver.dart:4085-4142`): a mensagem mostra o tipo do `call` instanciado pelo contexto (`void Function(int, dynamic)`, `dynamic Function(dynamic)`), não o da classe (`expr.rs::verificar_atribuivel_expr_em`, com `tipo_do_call_implicito` e `instanciar_funcao_pelo_contexto`).
+  - `?.` sobre literal de tipo: o 3.6.2 só dispensa o encurtamento quando o alvo é um `SimpleIdentifier` que nomeia um `InterfaceElement` (`resolver.dart:1777-1794`, `:3215-3226`); `h.D?.x = e`, `C<int>?.x`, alias e extensão encurtam, e o tipo fica anulável (`E?`). `expr.rs::encurtamento_dispensado`, usado em `propriedade`, `escrita_propriedade` e na invocação estática de `chamadas.rs`.
+  - Valor padrão: `ErrorVerifier.visitDefaultFormalParameter` (`error_verifier.dart:640-651`) confere o valor contra o tipo do parâmetro (`INVALID_ASSIGNMENT`), também no `this.x = 'foo'` (tipo do campo). Não existia (`funcoes.rs::valor_padrao_atribuivel`).
+  - Tipo de extensão sem `Object` e `this` em contexto estático: ver INFERENCIA §4.1.
+
 ##### `argument_type_not_assignable_to_error_handler` (perda 33: FN 33)
 - **Emissão:** `ErrorHandlerVerifier.verifyMethodInvocation` (`analyzer/lib/src/error/error_handler_verifier.dart:43-150`), chamado do `BestPracticesVerifier.visitMethodInvocation` (`analyzer/lib/src/error/best_practices_verifier.dart:630`) — fase de avisos (WarningCode).
 - **Condição exata:** com alvo `t` não nulo e argumentos não vazios:
@@ -3882,6 +3888,8 @@ chave igual a uma anterior (a igualdade do `DartObjectImpl`), relatada depois de
   `nnbd/definite_assignment/definite_assignment_error_test.dart:50:9` depois de `return;`): o DartForge não relata quando
   `!fluxo.alcancavel` (o modelo deve manter `atribuida`/`nao_atribuida` ao tornar inalcançável e consultá-los mesmo assim).
   Cuidado: no analyzer `join` de um ramo inalcançável devolve o outro (`juntar` já faz).
+
+- **Correção de 2026-10-06:** a condição é `isPotentiallyNonNullable` (`!(Null <: T)`), não `T <: Object`: o parâmetro de tipo de limite `Object?` (`T v; v;`) e o tipo de extensão sem `Object` também relatam (`expr.rs::ler_local`).
 
 ##### `read_potentially_unassigned_final` (perda 2: FN 2) — publicado
 

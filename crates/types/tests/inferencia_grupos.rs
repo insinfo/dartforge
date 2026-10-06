@@ -581,7 +581,10 @@ extension type C._(Object _) implements B { C(B b) : _ = b; }
 A f(C c) => c;
 "#
     ));
-    assert!(r.avisos.is_empty(), "avisos: {:?}", r.avisos);
+    // `C <: A` pelo `implements`; `B` não é subtipo de `Object` (nenhuma
+    // superinterface leva a uma classe), e o analyzer 3.6.2 relata o
+    // inicializador `_ = b` (conferido com `dart analyze`).
+    assert_eq!(r.avisos, vec!["The initializer type 'B' can't be assigned to the field type 'Object'.".to_string()], "avisos: {:?}", r.avisos);
 }
 
 /// Objeto com `call` passado a um parâmetro de tipo função de uma chamada

@@ -523,10 +523,12 @@ pub(crate) fn invocacao_sem_alvo_indefinida(inf: &mut BodyInferrer<'_>, cx: &Cor
     // `this` potencialmente anulável onde vale (extensão sobre tipo
     // anulável): o caminho comum resolve pelo `Object`/extensões ou relata
     // o uso sem checagem (`ThisLookup` → `TypePropertyResolver`).
+    // (O tipo de extensão é anulável só pelo `?`, `type_property_resolver.dart:91-96`.)
     if let Some(t) = cx.tipo_this
         && !cx.estatico
         && !inf.e_dynamic(t)
         && !inf.e_nao_anulavel(t)
+        && !matches!(inf.table.get(t), Type::ExtensionType { nullable: false, .. })
     {
         return false;
     }
@@ -776,7 +778,10 @@ fn ler_local(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, id: LocalId, span: dart
                     span,
                     &[&nome],
                 );
-            } else if inf.e_nao_anulavel(l.tipo) && !inf.e_dynamic(l.tipo) {
+            } else if !inf.e_anulavel(l.tipo) && !inf.e_dynamic(l.tipo) {
+                // `isPotentiallyNonNullable`: `Null` não é subtipo do tipo
+                // (o parâmetro de tipo de limite `Object?` e o tipo de
+                // extensão sem `Object` também).
                 let msg = format!("{}: '{}'", DEFINITELY_UNASSIGNED_VARIABLE.template, nome);
                 inf.aviso(msg, span);
             }
@@ -1270,7 +1275,15 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
             let t = identificador(inf, cx, e, *n);
             instanciar_em_contexto(inf, cx, e, t, ctx)
         }
-        ExprKind::This => cx.tipo_this.unwrap_or(inf.core.dynamic_),
+        // O `_thisType` do `ResolverVisitor` vale no corpo inteiro da
+        // declaração, também nos membros estáticos, nos inicializadores de
+        // campo e nas `factory` (o `this` ali é `INVALID_REFERENCE_TO_THIS`,
+        // mas tem o tipo dela).
+        ExprKind::This => match cx.tipo_this {
+            Some(t) => t,
+            None if !cx.this_sem_tipo => tipo_this_do_analyzer(inf, cx).unwrap_or(inf.core.dynamic_),
+            None => inf.core.dynamic_,
+        },
         ExprKind::Super => cx.tipo_this.unwrap_or(inf.core.dynamic_),
         ExprKind::Parenthesized(i) => {
             let marca = cx.cadeias.len();
@@ -1724,6 +1737,17 @@ pub(crate) fn verificar_atribuivel_expr_em(inf: &mut BodyInferrer<'_>, cx: &Corp
     }
     let no = if desembrulhar { sem_parenteses(inf, cx, e) } else { e };
     let sp = inf.span_expr(cx.unit, no);
+    // `_insertImplicitCallReference` (`resolver.dart:4085-4142`): a
+    // expressão virou a referência implícita ao `call`, cujo tipo é o do
+    // método instanciado pelo contexto; é ele que a mensagem mostra.
+    let implicita = {
+        let tabela = &inf.body_types.units[cx.unit.0 as usize].chamadas_implicitas;
+        tabela.contains(&e) || tabela.contains(&no)
+    };
+    let de = match implicita.then(|| inf.tipo_do_call_implicito(de, para)).flatten() {
+        Some(f) => inf.instanciar_funcao_pelo_contexto(f, para),
+        None => de,
+    };
     // `checkForAssignableExpressionAtType`: o erro leva o why-not-promoted
     // da expressão (`computeWhyNotPromotedMessages(expression, …)`).
     let desde = inf.diagnostics.len();
@@ -2009,6 +2033,15 @@ pub(crate) fn buscar_membro_do_alvo(inf: &mut BodyInferrer<'_>, cx: &Corpo, targ
 }
 
 /// `target.name` (leitura).
+/// `startNullAwarePropertyAccess`/`visitMethodInvocation` (3.6.2,
+/// `resolver.dart:1777-1794`, `:3215-3226`): o `?.` sobre um literal de tipo
+/// só deixa de encurtar quando o alvo é um `SimpleIdentifier` que nomeia um
+/// `InterfaceElement` (`C?.x` é `C.x`); `p.C?.x`, `C<int>?.x`, um alias ou
+/// uma extensão encurtam (o resultado fica anulável).
+pub(crate) fn encurtamento_dispensado(inf: &BodyInferrer<'_>, cx: &Corpo, target: ExprId, rt: &RefTipo) -> bool {
+    matches!(ast(inf, cx).expr(target).kind, ExprKind::Identifier(_)) && matches!(rt, RefTipo::Classe(..))
+}
+
 fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: ExprId, name: ast::Name, null_aware: bool) -> (TypeId, bool) {
     let a = ast(inf, cx);
     // `p.nome` com prefixo de import.
@@ -2042,7 +2075,8 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
         if null_aware {
             operador_nulo_em_tipo(inf, cx, target);
         }
-        return (acesso_estatico(inf, cx, e, rt, name), false);
+        let curto = null_aware && !encurtamento_dispensado(inf, cx, target, &rt);
+        return (acesso_estatico(inf, cx, e, rt, name), curto);
     }
     // `super.x`.
     if matches!(a.expr(target).kind, ExprKind::Super) {
@@ -3787,6 +3821,9 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
     }
     if let Some(rt) = referencia_a_tipo(inf, cx, target) {
         registrar_ref_tipo(inf, cx, target);
+        if null_aware && !encurtamento_dispensado(inf, cx, target, &rt) {
+            *curto = true;
+        }
         let instancia_explicita = matches!(&ast(inf, cx).expr(target).kind, ExprKind::TypeArguments { .. });
         if instancia_explicita {
             if let RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) = &rt {

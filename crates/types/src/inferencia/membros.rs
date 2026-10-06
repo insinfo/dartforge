@@ -425,6 +425,10 @@ impl<'a> BodyInferrer<'a> {
     pub(crate) fn exige_checagem_de_nulo(&mut self, lib: LibraryId, recv: TypeId, nome: SymbolId, setter: bool) -> bool {
         match self.table.get(recv) {
             Type::Dynamic | Type::Never | Type::Void => return false,
+            // `type_property_resolver.dart:91-96`: o tipo de extensão é
+            // anulável só pelo `?` escrito (não por não ser subtipo de
+            // `Object`).
+            Type::ExtensionType { nullable: false, .. } => return false,
             _ => {}
         }
         if self.e_desconhecido(recv) || self.e_nao_anulavel(recv) {

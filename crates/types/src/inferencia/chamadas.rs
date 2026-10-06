@@ -1255,6 +1255,9 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             // tipo `Type`, e o método é procurado nele.
             let instanciado = matches!(inf.program.unit(cx.unit).ast.expr(recv).kind, ExprKind::TypeArguments { .. });
             if !instanciado && let Some(rt) = referencia_a_tipo(inf, cx, recv) {
+                // `T?.m()` encurta salvo com `T` identificador simples de
+                // classe (`expr::encurtamento_dispensado`).
+                let curto_tipo = null_aware && !expr::encurtamento_dispensado(inf, cx, recv, &rt);
                 if let RefTipo::Extensao(x) = rt {
                     if inf.membro_estatico_de_extensao(x, name.sym, false).is_none() {
                         if inf.program.extension(x).instance_members.contains_key(&name.sym) {
@@ -1314,13 +1317,14 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                     return (d, false);
                 }
                 let t = inferir(inf, cx, target, u);
+                let t = if curto_tipo { inf.nao_nulo(t) } else { t };
                 let f = funcao_resolvida(inf, cx, target);
                 preparar_entidade(inf, name.span, f);
                 alvo_de_metodo(inf, f, name, span);
                 let (r, _) = invocar_valor(inf, cx, e, t, args, ctx, explicitos, span);
                 inf.entidade_da_inferencia = None;
                 inf.alvo_da_aridade = None;
-                return (r, false);
+                return (r, curto_tipo);
             }
             // `super.m(args)`.
             if matches!(a.expr(recv).kind, ExprKind::Super) {

@@ -196,6 +196,11 @@ pub(crate) struct Corpo {
     /// e `instanceFieldDeclaration` do `ErrorVerifier` 3.13): escrever num
     /// deles ali é `ASSIGNMENT_TO_PRIMARY_CONSTRUCTOR_PARAMETER`.
     pub parametros_primarios: HashSet<LocalId>,
+    /// O `this` sem o tipo da declaração: o cabeçalho de um construtor
+    /// primário (3.13, fora do corpo da classe) e a lista de inicialização
+    /// (onde a recuperação do parser do analyzer difere da nossa em
+    /// `this?.x()`).
+    pub this_sem_tipo: bool,
     /// Profundidade em `fins_de_fluxo` onde começou o trecho morto em curso
     /// (`_firstDeadNode`): enquanto houver um, outro nó inalcançável é parte
     /// do mesmo trecho.
@@ -280,6 +285,7 @@ impl Corpo {
             fins_de_fluxo: Vec::new(),
             fins_de_bloco: Vec::new(),
             parametros_primarios: HashSet::new(),
+            this_sem_tipo: false,
             trecho_morto: None,
             origem_do_morto: None,
         };

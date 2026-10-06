@@ -718,12 +718,49 @@ impl<'a> OutlineResolver<'a> {
                 hierarchy_inputs[i] = hierarchy_inputs[dono.0 as usize].clone();
             }
         }
-        let hierarchy = build_class_hierarchy(
+        let mut hierarchy = build_class_hierarchy(
             self.program.classes.len(),
             &hierarchy_inputs,
             self.table,
             self.core,
         );
+        // O tipo de extensão é subtipo de `Object` só se alguma
+        // superinterface (o `implements`) o for: uma classe, ou outro tipo
+        // de extensão que o seja.
+        let mut memo: HashMap<usize, bool> = HashMap::new();
+        fn com_object(
+            i: usize,
+            dados: &[ClassTypeData],
+            program: &Program,
+            table: &TypeTable,
+            memo: &mut HashMap<usize, bool>,
+            prof: u32,
+        ) -> bool {
+            if program.classes[i].kind != ClassKind::ExtensionType {
+                return true;
+            }
+            if let Some(&r) = memo.get(&i) {
+                return r;
+            }
+            if prof > 64 {
+                return true;
+            }
+            memo.insert(i, true);
+            let r = dados[i].interfaces.iter().any(|&t| match table.get(t) {
+                Type::Interface { .. } => true,
+                Type::ExtensionType { decl, .. } => com_object(decl.0 as usize, dados, program, table, memo, prof + 1),
+                _ => false,
+            });
+            memo.insert(i, r);
+            r
+        }
+        for i in 0..self.program.classes.len() {
+            if self.program.classes[i].kind == ClassKind::ExtensionType
+                && !com_object(i, &class_type_data, self.program, self.table, &mut memo, 0)
+            {
+                hierarchy.extensoes_sem_object.insert(ClassId(i as u32));
+            }
+        }
 
         (class_type_data, hierarchy)
     }
