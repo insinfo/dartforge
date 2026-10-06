@@ -127,7 +127,7 @@ impl Contexto<'_> {
     }
 
     /// Os argumentos de uma `ArgumentList`.
-    fn argumentos_da_lista(&self, invocacao: usize) -> Vec<usize> {
+    pub(crate) fn argumentos_da_lista(&self, invocacao: usize) -> Vec<usize> {
         self.filhos(invocacao)
             .iter()
             .copied()

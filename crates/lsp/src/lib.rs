@@ -24,6 +24,7 @@ mod assist_expressoes;
 mod assist_funcoes;
 mod assist_imports;
 mod assist_lacos;
+mod assist_super;
 mod assist_switch;
 mod assist_membros;
 mod assist_textos;

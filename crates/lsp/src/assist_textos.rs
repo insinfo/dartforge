@@ -32,7 +32,7 @@ impl Contexto<'_> {
         let no = self.arvore.localizar(inicio, fim)?;
         let mut m = Mudanca::default();
         // O `token` do produtor (`_tokenAt(node, selectionOffset)`).
-        let mut token: Option<Span> = None;
+        let token: Option<Span>;
         match self.especie(no) {
             "SimpleStringLiteral" => {
                 let span = self.arvore.span(no);

@@ -457,6 +457,7 @@ impl Analisador for AnalisadorSemantico {
                     saida.extend(cx.encapsular_campo(uri, inicio, fim));
                     saida.extend(cx.converter_em_parametro_de_campo(uri, inicio, fim));
                     saida.extend(cx.sombrear_campo(uri, inicio, fim));
+                    saida.extend(cx.converter_em_super_parametros(uri, inicio, fim));
                     saida.extend(cx.remover_anotacao_de_tipo(uri, inicio, fim));
                     saida.extend(cx.condicional_em_if_else(uri, inicio, fim));
                     saida.extend(cx.converter_aspas_de_texto(uri, inicio, fim));

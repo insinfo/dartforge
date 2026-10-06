@@ -207,7 +207,7 @@ impl Projeto {
 
     /// A superclasse de `c`, passando pelas aplicações de mixin sintéticas
     /// (o analyzer não as tem: `supertype` de `C extends S with M` é `S`).
-    fn superclasse_nao_sintetica(&self, c: ClassId) -> Option<ClassId> {
+    pub(crate) fn superclasse_nao_sintetica(&self, c: ClassId) -> Option<ClassId> {
         let p = self.programa();
         let mut s = p.class(c).supertype_class?;
         let mut passos = 0;
@@ -221,7 +221,7 @@ impl Projeto {
     /// `ConstructorElement.superConstructor`: o construtor da superclasse
     /// que o construtor generativo `f` chama (o do `super(…)`/`super.nome(…)`
     /// escrito, ou o sem nome); nenhum numa fábrica ou num redirecionador.
-    fn construtor_super(&self, f: dartforge_elements::model::FunctionElementId) -> Option<dartforge_elements::model::FunctionElementId> {
+    pub(crate) fn construtor_super(&self, f: dartforge_elements::model::FunctionElementId) -> Option<dartforge_elements::model::FunctionElementId> {
         use dartforge_elements::model::FunctionRef;
         use dartforge_frontend::ast::{Initializer, MemberKind};
         let p = self.programa();
