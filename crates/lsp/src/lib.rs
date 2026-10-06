@@ -23,6 +23,7 @@ mod assist_enum;
 mod assist_envolver;
 mod assist_expressoes;
 mod assist_flutter;
+mod assist_flutter_widget;
 mod assist_funcoes;
 mod assist_imports;
 mod assist_lacos;
