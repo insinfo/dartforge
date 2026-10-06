@@ -178,6 +178,16 @@ fn destaques_do_nome_da_classe_no_construtor() {
 }
 
 #[test]
+fn hierarquia_de_chamadas_de_operador() {
+    let mut p = Projeto::novo("chamadas-operador");
+    let texto = "class A {\n  @override\n  bool operator ==(Object o) => true;\n  @override\n  int get hashCode => 0;\n}\nbool f(A a, A b) => a == b;\n";
+    p.abrir("lib/o.dart", texto);
+    let (l, c) = onde(texto, "== b", 0, 0);
+    let r = p.na_posicao("textDocument/prepareCallHierarchy", "lib/o.dart", l, c, json!({}))["result"].clone();
+    assert_eq!(r[0]["name"], "==", "{r}");
+}
+
+#[test]
 fn hierarquia_de_tipos() {
     let mut p = projeto("hierarquia", json!({}));
     let (l, c) = onde(MODELO, "Quadrado", 0, 1);

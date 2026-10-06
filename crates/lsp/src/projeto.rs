@@ -432,8 +432,9 @@ pub(crate) fn palavra(fonte: &str, offset: usize) -> Option<Span> {
 
 /// Nome base de um membro: o setter é guardado como `x=` (ou `x_=`).
 pub(crate) fn nome_base(nome: &str) -> &str {
+    // Só o `=` de um setter (`x=`): os operadores `==` e `[]=` ficam.
     nome.strip_suffix("_=")
-        .or_else(|| nome.strip_suffix('='))
+        .or_else(|| nome.strip_suffix('=').filter(|r| !r.is_empty() && r.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$')))
         .unwrap_or(nome)
 }
 
