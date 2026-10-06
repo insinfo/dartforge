@@ -4,6 +4,7 @@
 //! | Título | Espécie | Produtor |
 //! |---|---|---|
 //! | `Replace conditional with 'if-else'` | `refactor.convert.conditionalToIfElse` | `ReplaceConditionalWithIfElse` |
+//! | `Split && condition` | `refactor.splitIfConjunction` | `SplitAndCondition` |
 
 use crate::acoes::AcaoDeCodigo;
 use crate::refatoracoes::Contexto;
@@ -101,6 +102,97 @@ impl Contexto<'_> {
         Some(AcaoDeCodigo {
             titulo: "Replace conditional with 'if-else'".into(),
             especie: "refactor.convert.conditionalToIfElse".into(),
+            edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            diagnostico: None,
+            criar_arquivo: None,
+        })
+    }
+
+    /// `isOperatorSelected` (`CorrectionProducer`): a seleção fica entre os
+    /// operandos, ou é exatamente a expressão quando nenhum operando é
+    /// binário.
+    pub(crate) fn operador_selecionado(&self, binaria: usize, inicio: usize, fim: usize) -> bool {
+        let f = self.filhos(binaria);
+        let (Some(&esquerda), Some(&direita)) = (f.first(), f.get(1)) else { return false };
+        let (e, d) = (&self.arvore.nos[esquerda], &self.arvore.nos[direita]);
+        if inicio >= e.fim && fim <= d.inicio {
+            return true;
+        }
+        if inicio == e.inicio && fim == d.fim {
+            return self.especie(esquerda) != "BinaryExpression" && self.especie(direita) != "BinaryExpression";
+        }
+        false
+    }
+
+    /// O operador de uma expressão binária (o texto entre os operandos).
+    pub(crate) fn operador_binario(&self, binaria: usize) -> Option<&str> {
+        let f = self.filhos(binaria);
+        let (e, d) = (*f.first()?, *f.get(1)?);
+        Some(self.fonte[self.arvore.nos[e].fim..self.arvore.nos[d].inicio].trim())
+    }
+
+    /// `SplitAndCondition` (split_and_condition.dart): com o `&&` de primeiro
+    /// nível da condição de um `if` sem `else` selecionado, a parte direita
+    /// vira um `if` aninhado em volta do `then`, que ganha um recuo.
+    pub(crate) fn dividir_condicao_e(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
+        let binaria = self.arvore.localizar(inicio, fim)?;
+        if self.especie(binaria) != "BinaryExpression" || !self.operador_selecionado(binaria, inicio, fim) || self.operador_binario(binaria)? != "&&" {
+            return None;
+        }
+        let comando = self.com_pais(binaria).find(|&k| self.e_comando(k))?;
+        if self.especie(comando) != "IfStatement" {
+            return None;
+        }
+        let comandos_do_if: Vec<usize> = self.filhos(comando).iter().copied().filter(|&k| self.e_comando(k)).collect();
+        if comandos_do_if.len() != 1 {
+            // Sem suporte a `else`.
+            return None;
+        }
+        let entao = comandos_do_if[0];
+        // A condição de primeiro nível: sobe pelos `&&`.
+        let mut condicao = binaria;
+        while let Some(p) = self.pai(condicao) {
+            if self.especie(p) == "BinaryExpression" && self.operador_binario(p) == Some("&&") {
+                condicao = p;
+            } else {
+                break;
+            }
+        }
+        if self.filhos(comando).first() != Some(&condicao) {
+            return None;
+        }
+        let tx = Texto::novo(self.fonte);
+        let eol = tx.eol();
+        let prefixo = self.prefixo_do_no(comando);
+        let f = self.filhos(binaria);
+        let (esquerda, direita) = (f[0], f[1]);
+        let direita_fonte = &self.fonte[self.arvore.nos[direita].inicio..self.arvore.nos[condicao].fim];
+        let mut m = Mudanca::default();
+        // Tira "&& direita".
+        m.adicionar(uri, Span { start: self.arvore.nos[esquerda].fim, end: self.arvore.nos[condicao].fim }, String::new());
+        let comandos: Vec<usize> = if self.especie(entao) == "Block" {
+            let bloco = self.arvore.span(entao);
+            m.adicionar(uri, Span { start: bloco.start + 1, end: bloco.start + 1 }, format!("{eol}{prefixo}{UM_RECUO}if ({direita_fonte}) {{"));
+            m.adicionar(uri, Span { start: bloco.end - 1, end: bloco.end - 1 }, format!("{UM_RECUO}}}{eol}{prefixo}"));
+            self.filhos(entao).to_vec()
+        } else {
+            let fecha = self.token_anterior(self.arvore.nos[entao].inicio)?;
+            m.adicionar(uri, Span { start: fecha.start + 1, end: fecha.start + 1 }, format!("{eol}{prefixo}{UM_RECUO}if ({direita_fonte})"));
+            vec![entao]
+        };
+        // O recuo dos comandos do `then` (`getLinesRangeStatements`, que
+        // falha sem comandos).
+        let (&primeiro, &ultimo) = (comandos.first()?, comandos.last()?);
+        let linhas = tx.faixa_de_linhas(self.arvore.nos[primeiro].inicio, self.arvore.nos[ultimo].fim);
+        let velho = format!("{prefixo}{UM_RECUO}");
+        let novo = format!("{velho}{UM_RECUO}");
+        m.adicionar(uri, linhas, tx.trocar_recuo(&self.fonte[linhas.start..linhas.end], &velho, &novo, true, true));
+        if m.conflito.is_some() {
+            return None;
+        }
+        Some(AcaoDeCodigo {
+            titulo: "Split && condition".into(),
+            especie: "refactor.splitIfConjunction".into(),
             edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
             diagnostico: None,
             criar_arquivo: None,

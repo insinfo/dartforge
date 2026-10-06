@@ -25,7 +25,7 @@ fn acoes(p: &mut Projeto, relativo: &str, de: (u32, u32), ate: (u32, u32), extra
     let fora = |k: &str| {
         k.starts_with("source")
             || k.starts_with("quickfix.ignore")
-            || (k.starts_with("refactor.") && !["refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar"].contains(&k))
+            || (k.starts_with("refactor.") && !["refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction"].contains(&k))
             || k == "quickfix.change.to"
             || ["method", "function", "class", "mixin", "getter", "field", "localVariable", "parameter"]
                 .iter()
@@ -637,4 +637,20 @@ fn assistencia_de_trocar_por_var() {
     // `num` com inicializador `int`: os tipos diferem.
     let pos = onde(texto, "num n", 0);
     assert!(!titulos(&acoes(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Replace type annotation with 'var'".to_string()));
+}
+
+#[test]
+fn assistencia_de_dividir_condicao_e() {
+    let mut p = Projeto::com_literais("acoes-split-and");
+    let texto = "void f(bool a, bool b) {\n  if (a && b) {\n    print(1);\n  }\n}\n";
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "&&");
+    let a = acao(&r, "Split && condition");
+    assert_eq!(a["kind"], "refactor.splitIfConjunction");
+    assert_eq!(
+        aplicar(&a["edit"], &p.uri("lib/a.dart"), texto),
+        "void f(bool a, bool b) {\n  if (a) {\n    if (b) {\n      print(1);\n    }\n  }\n}\n"
+    );
+    // Fora do operador, não.
+    let pos = onde(texto, "a &&", 0);
+    assert!(!titulos(&acoes(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Split && condition".to_string()));
 }
