@@ -223,9 +223,20 @@ impl GenericInferrer {
                 Type::Interface { class: c1, args: a1, .. } | Type::ExtensionType { decl: c1, args: a1, .. },
             ) => {
                 if c0 == c1 && a0.len() == a1.len() {
+                    // `_interfaceTypeArguments` (`type_analyzer_operations.dart:1230-1261`):
+                    // pela variância declarada de cada parâmetro (contravariante
+                    // troca os lados e o esquema; invariante, os dois).
+                    let params: Vec<crate::table::TypeParamId> = env.hierarchy.get(*c0).map(|d| d.type_params.to_vec()).unwrap_or_default();
                     let mark = self.restricoes.len();
-                    for (x, y) in a0.iter().zip(a1.iter()) {
-                        if !self.try_match(*x, *y, left, env) {
+                    for (i, (x, y)) in a0.iter().zip(a1.iter()).enumerate() {
+                        let variancia = params.get(i).map(|&p| env.table.param(p).variance).unwrap_or_default();
+                        let co = !matches!(variancia, crate::table::Variance::Contravariant);
+                        let contra = matches!(variancia, crate::table::Variance::Contravariant | crate::table::Variance::Invariant);
+                        if co && !self.try_match(*x, *y, left, env) {
+                            self.restricoes.truncate(mark);
+                            return false;
+                        }
+                        if contra && !self.try_match(*y, *x, !left, env) {
                             self.restricoes.truncate(mark);
                             return false;
                         }

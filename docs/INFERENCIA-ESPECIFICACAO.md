@@ -280,7 +280,7 @@ Cláusulas na ordem; a primeira que casa decide.
 | R-RES-11 | Q é `Object`: casa só se P não anulável | 277-281 | 918-919 |
 | R-RES-12 | P é `Null`: casa só se Q anulável | 283-288 | 920-921 |
 | R-RES-13 | P é variável de tipo (ou `X & B`) fora de L: usa o limite (promovido) | 290-300 | 923-927 |
-| R-RES-14 | mesma classe: argumentos pela variância | `fas76:…:1118-1158, 1230-1261` | 929-941 |
+| R-RES-14 | mesma classe: argumentos pela variância **declarada** (`in`/`out`/`inout`, guardada mesmo sem o experimento): covariante `Mᵢ <# Nᵢ` com o mesmo esquema; contravariante `Nᵢ <# Mᵢ` com o esquema **trocado** (`leftSchema: !leftSchema`); invariante, os dois | `fas76:…:1118-1158, 1230-1261` | 929-941 |
 | R-RES-15 | classes diferentes: `asInstanceOf(P, classe de Q)` e R-RES-14 | `fas76:…:1270-1308` | 943-953 |
 | R-RES-16 | Q é `Function` e P função: casa | 309-315 | 955-956 |
 | R-RES-17 | funções não genéricas: retorno covariante; posicionais contravariantes (P.obrigatórios ≤ Q.obrigatórios, P.posicionais ≥ Q.posicionais); nomeados na ordem, nomeado obrigatório a mais em P falha | `fas76:…:913-1042` | 958-967 |
