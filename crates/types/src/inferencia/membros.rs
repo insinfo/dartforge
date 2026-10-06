@@ -71,6 +71,15 @@ impl<'a> crate::heranca::Provedor<'a> for BodyInferrer<'a> {
                 self.heranca_provisoria = true;
                 self.core.dynamic_
             }
+            // O campo em inferência (`late final a = m();` busca `m` na
+            // interface da própria classe): a interface do analyzer guarda
+            // o elemento, e o tipo dele só é pedido por quem o lê. Aqui a
+            // interface o leva provisório (sai do cache depois da busca), e
+            // quem o lê de fato passa pelo `tipo_variavel` (o ciclo).
+            Some(v) if self.program.function(f).kind == FunctionKind::ImplicitAccessor && matches!(self.estado_vars[v.0 as usize], super::EstadoVar::EmCurso) => {
+                self.heranca_provisoria = true;
+                self.core.dynamic_
+            }
             Some(v) if self.program.function(f).kind == FunctionKind::ImplicitAccessor => self.tipo_variavel(v),
             _ => self.core.dynamic_,
         };
@@ -99,7 +108,27 @@ impl<'a> BodyInferrer<'a> {
         let mut h = std::mem::take(&mut self.heranca);
         let achado = h.membro(self, classe, nome, concreto, None, para_super);
         self.heranca = h;
+        self.depois_da_busca_provisoria(achado.as_ref());
         achado
+    }
+
+    /// Depois de uma busca que montou interfaces com um campo em inferência
+    /// provisório: fora da busca de sobrescritos (que limpa sozinha), as
+    /// interfaces saem do cache; e o membro achado que é o próprio campo em
+    /// inferência pede o tipo dele (o `TOP_LEVEL_CYCLE` de quem o lê).
+    fn depois_da_busca_provisoria(&mut self, achado: Option<&crate::heranca::Membro>) {
+        if !self.heranca_provisoria || self.declarados_sem_tipar.is_some() {
+            return;
+        }
+        self.heranca = crate::heranca::Heranca::default();
+        self.heranca_provisoria = false;
+        if let Some(m) = achado
+            && self.program.function(m.funcao).kind == FunctionKind::ImplicitAccessor
+            && let Some(v) = self.program.function(m.funcao).variable
+            && matches!(self.estado_vars[v.0 as usize], super::EstadoVar::EmCurso)
+        {
+            self.tipo_variavel(v);
+        }
     }
 
     /// `getInherited2` na interface de `classe`.
@@ -112,6 +141,7 @@ impl<'a> BodyInferrer<'a> {
         let mut h = std::mem::take(&mut self.heranca);
         let achado = h.herdado(self, classe, nome);
         self.heranca = h;
+        self.depois_da_busca_provisoria(achado.as_ref());
         achado
     }
 

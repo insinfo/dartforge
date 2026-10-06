@@ -46,8 +46,14 @@ abstract class List<E> implements Iterable<E> {
   void add(E value);
   E removeLast();
 }
+class MapEntry<K, V> {
+  final K key;
+  final V value;
+  const MapEntry._(this.key, this.value);
+}
 abstract class Map<K, V> {
   external factory Map();
+  Iterable<MapEntry<K, V>> get entries;
   external factory Map.fromIterable(Iterable iterable, {K Function(dynamic element)? key, V Function(dynamic element)? value});
 }
 abstract class Set<E> implements Iterable<E> {

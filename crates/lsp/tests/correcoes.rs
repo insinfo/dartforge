@@ -123,6 +123,37 @@ fn dicas_embutidas_de_tipo_e_parametro() {
 }
 
 #[test]
+fn dicas_de_anotacao_inicializador_setter_e_padrao() {
+    let mut p = Projeto::com_literais("correcoes-dicas-2");
+    let texto = "class A {\n  const A(this.m, [int? n]);\n  final String m;\n  A.b(int x) : this(x.toString());\n  set s(v) {}\n}\nclass B extends A {\n  B(String q) : super(q);\n  factory B.f(q) = B;\n}\n@A('x')\nvoid g() {\n  var c = C<int>();\n  for (var MapEntry(key: k, value: v) in {1: 'a'}.entries) {}\n}\nclass C<T> {}\nclass _U {\n  late final _w = _calc();\n  final _v = 1;\n  List<int> _calc() => [1];\n  late final _x = 1;\n  late final _y = this._calc();\n  late var _z = _calc();\n}\n";
+    p.abrir("lib/a.dart", texto);
+    let r = p.requisitar(
+        "textDocument/inlayHint",
+        json!({"textDocument": {"uri": p.uri("lib/a.dart")}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 16, "character": 0}}}),
+    )["result"]
+        .clone();
+    let dicas: Vec<(u64, u64, String)> = r
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| (d["position"]["line"].as_u64().unwrap(), d["position"]["character"].as_u64().unwrap(), d["label"].as_array().unwrap().iter().map(|x| x["value"].as_str().unwrap()).collect::<String>()))
+        .collect();
+    assert!(dicas.contains(&(3, 20, "m:".into())), "{dicas:?}");
+    assert!(dicas.contains(&(4, 6, "void".into())), "{dicas:?}");
+    assert!(dicas.contains(&(7, 22, "m:".into())), "{dicas:?}");
+    assert!(dicas.contains(&(8, 14, "dynamic".into())), "{dicas:?}");
+    assert!(dicas.contains(&(10, 3, "m:".into())), "{dicas:?}");
+    assert!(!dicas.contains(&(12, 11, "<int>".into())), "{dicas:?}");
+    assert!(dicas.contains(&(13, 19, "<int, String>".into())), "{dicas:?}");
+    assert!(dicas.contains(&(17, 13, "List<int>".into())), "{dicas:?}");
+    assert!(dicas.contains(&(18, 8, "int".into())), "{dicas:?}");
+    // `late` com inicializador que chama método da própria classe: o tipo
+    // do método, sem falso ciclo de inferência.
+    assert!(dicas.contains(&(21, 13, "List<int>".into())), "{dicas:?}");
+    assert!(dicas.contains(&(22, 11, "List<int>".into())), "{dicas:?}");
+}
+
+#[test]
 fn tokens_semanticos_basicos() {
     let mut p = Projeto::com_literais("correcoes-tokens");
     let r = p.inicializacao.clone();

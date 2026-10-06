@@ -6,11 +6,13 @@
 //!   `final`, `const`, campos e variáveis de topo), de variável de `for-in`
 //!   sem tipo, de variável de padrão sem tipo e de parâmetro sem tipo (o de
 //!   *closure* inclusive; `this.x`, `super.x` e parâmetros-função não);
-//! * tipo de retorno antes do nome (ou do `get`) de função ou método
-//!   declarado sem tipo de retorno (setter não);
+//! * tipo de retorno antes do nome de método declarado sem tipo de retorno
+//!   (o setter inclusive, com `void`), e antes do nome (ou do `get`) de
+//!   função sem ele (setter de topo não);
 //! * nome do parâmetro (espécie 2, `nome:`) antes de cada argumento
-//!   posicional cuja chamada resolve para uma função com parâmetros
-//!   declarados;
+//!   posicional de toda lista de argumentos que resolve para uma função com
+//!   parâmetros declarados: chamadas, criações, anotações e os `super(…)` e
+//!   `this(…)` de construtores;
 //! * argumentos de tipo inferidos (`<int>`) antes do `[`/`{` de literal de
 //!   coleção sem argumentos escritos, e depois do nome da classe numa
 //!   criação de instância sem argumentos escritos;
@@ -87,7 +89,7 @@ impl Projeto {
                         }
                     }
                 }
-                DeclKind::Function(f) => self.retorno(unidade, *f, funcoes.get(&f.0).copied(), &mut saida),
+                DeclKind::Function(f) => self.retorno(unidade, *f, funcoes.get(&f.0).copied(), false, &mut saida),
                 _ => {}
             }
         }
@@ -100,8 +102,85 @@ impl Projeto {
                         }
                     }
                 }
-                MemberKind::Method(f) => self.retorno(unidade, *f, funcoes.get(&f.0).copied(), &mut saida),
+                MemberKind::Method(f) => self.retorno(unidade, *f, funcoes.get(&f.0).copied(), true, &mut saida),
+                MemberKind::Constructor(k) => {
+                    let elemento = self.construtor_do_no(unidade, ast::MemberId(i as u32));
+                    // Parâmetros sem tipo (`SimpleFormalParameter` sem tipo
+                    // escrito); o redirecionador não tem corpo, o tipo vem
+                    // do outline.
+                    for (j, prm) in k.parameters.iter().enumerate() {
+                        if prm.ty.is_none()
+                            && !prm.this_
+                            && !prm.super_
+                            && prm.function_parameters.is_none()
+                            && let Some(n) = prm.name
+                            && let Some(t) = corpos.tipo_local(n.span.start).or_else(|| {
+                                elemento.and_then(|f| self.consulta.outline.functions.get(f.0 as usize)).and_then(|d| d.parameters.get(j)).map(|d| d.ty)
+                            })
+                        {
+                            tipo(n.span.start, t, &mut saida);
+                        }
+                    }
+                    // `super(…)` e `this(…)`: os nomes dos parâmetros do
+                    // construtor chamado.
+                    for ini in k.initializers.iter() {
+                        let (chamado, argumentos) = match ini {
+                            ast::Initializer::Super { arguments, .. } => (elemento.and_then(|f| self.construtor_super(f)), arguments),
+                            ast::Initializer::Redirect { constructor, arguments, .. } => {
+                                let chamado = elemento.and_then(|f| p.function(f).class).and_then(|c| {
+                                    let nome = match constructor {
+                                        Some(n) => Some(n.sym),
+                                        None => self.consulta.nomes.lookup(""),
+                                    }?;
+                                    p.class(c).constructors.get(&nome).copied()
+                                });
+                                (chamado, arguments)
+                            }
+                            _ => continue,
+                        };
+                        if let Some(f) = chamado {
+                            let nomes = self.nomes_posicionais(f);
+                            self.nomes_de_argumentos(ast, &u.source, argumentos, &nomes, &mut saida);
+                        }
+                    }
+                }
                 _ => {}
+            }
+        }
+        // Os argumentos das anotações (`visitArgumentList`).
+        let mut anotacoes: Vec<&ast::Annotation> = Vec::new();
+        for d in ast.decls.iter() {
+            anotacoes.extend(d.metadata.iter());
+            if let DeclKind::Enum(e) = &d.kind {
+                for k in e.constants.iter() {
+                    anotacoes.extend(k.metadata.iter());
+                }
+            }
+        }
+        for m in ast.members.iter() {
+            anotacoes.extend(m.metadata.iter());
+        }
+        for d in u.unit.directives.iter() {
+            anotacoes.extend(d.metadata.iter());
+        }
+        for f in ast.functions.iter() {
+            for prm in f.parameters.iter().flatten() {
+                anotacoes.extend(prm.metadata.iter());
+            }
+        }
+        for m in ast.members.iter() {
+            if let MemberKind::Constructor(k) = &m.kind {
+                for prm in k.parameters.iter() {
+                    anotacoes.extend(prm.metadata.iter());
+                }
+            }
+        }
+        for a in anotacoes {
+            if let Some(argumentos) = &a.arguments
+                && let Some(f) = self.construtor_da_anotacao(unidade, a)
+            {
+                let nomes = self.nomes_posicionais(f);
+                self.nomes_de_argumentos(ast, &u.source, argumentos, &nomes, &mut saida);
             }
         }
         for s in &ast.stmts {
@@ -206,6 +285,16 @@ impl Projeto {
                 _ => {}
             }
         }
+        // O tipo de um padrão objeto é o requerido, com os argumentos
+        // inferidos (`MapEntry(key: k)` dá `MapEntry<K, V>`).
+        let mut de_padrao: HashMap<u32, TypeId> = HashMap::new();
+        for (i, pt) in ast.patterns.iter().enumerate() {
+            if let ast::PatternKind::Object { ty, .. } = &pt.kind
+                && let Some(&t) = corpos.tipos_de_padroes.get(&ast::PatternId(i as u32))
+            {
+                de_padrao.insert(ty.0, t);
+            }
+        }
         // `visitNamedType`: tipo escrito sem argumentos cujo tipo os tem.
         for (i, ty) in ast.types.iter().enumerate() {
             let ast::TypeKind::Named { args, .. } = &ty.kind else { continue };
@@ -213,7 +302,11 @@ impl Projeto {
                 continue;
             }
             let id = ast::TypeId(i as u32);
-            let resolvido = corpos.tipos_de_anotacoes.get(&id).or_else(|| self.consulta.outline.tipos_escritos.get(&(unidade, id))).copied();
+            let resolvido = de_padrao
+                .get(&(i as u32))
+                .or_else(|| corpos.tipos_de_anotacoes.get(&id))
+                .or_else(|| self.consulta.outline.tipos_escritos.get(&(unidade, id)))
+                .copied();
             self.argumentos_de_tipo(resolvido, ty.span.end, &mut saida);
         }
         for (i, e) in ast.exprs.iter().enumerate() {
@@ -249,7 +342,9 @@ impl Projeto {
                     self.nomes_de_argumentos(ast, &u.source, arguments, &nomes, &mut saida);
                     // `Caixa('a')` sem `new`: os argumentos de tipo inferidos
                     // depois do nome da classe.
-                    if let Some(Resolved::Constructor(_)) = corpos.get_resolved(id) {
+                    if let Some(Resolved::Constructor(_)) = corpos.get_resolved(id)
+                        && arguments.type_args.is_empty()
+                    {
                         let classe = match &ast.expr(*target).kind {
                             ExprKind::Identifier(n) => Some(n.span.end),
                             ExprKind::Property { target: t, .. } => match &ast.expr(*t).kind {
@@ -289,24 +384,49 @@ impl Projeto {
         saida
     }
 
-    /// Tipo de retorno de uma função ou método sem tipo escrito.
-    fn retorno(&self, unidade: UnitId, f: ast::FunctionId, elemento: Option<FunctionElementId>, saida: &mut Vec<Dica>) {
+    /// Tipo de retorno de uma função ou método sem tipo escrito: o método
+    /// (`visitMethodDeclaration`) sempre antes do nome, o setter inclusive;
+    /// a função (`visitFunctionDeclaration`) antes do `get`, e o setter não.
+    fn retorno(&self, unidade: UnitId, f: ast::FunctionId, elemento: Option<FunctionElementId>, metodo: bool, saida: &mut Vec<Dica>) {
         let p = self.programa();
         let Some(fe) = elemento else { return };
         let func = p.unit(unidade).ast.function(f);
-        if func.return_type.is_some() || func.kind == ast::FunctionKind::Setter || p.function(fe).kind == FunctionKind::Setter {
+        if func.return_type.is_some() || (!metodo && (func.kind == ast::FunctionKind::Setter || p.function(fe).kind == FunctionKind::Setter)) {
             return;
         }
         let Some(n) = func.name else { return };
-        // Getter: antes do `get`.
+        // Getter de topo: antes do `get`.
         let fonte = &p.unit(unidade).source;
-        let offset = if func.kind == ast::FunctionKind::Getter {
+        let offset = if !metodo && func.kind == ast::FunctionKind::Getter {
             fonte[..n.span.start].trim_end().strip_suffix("get").map_or(n.span.start, str::len)
         } else {
             n.span.start
         };
         let t = self.consulta.outline.functions[fe.0 as usize].return_type;
         saida.push(Dica { offset, rotulo: self.consulta.formatar(t), especie: 1, espaco_depois: true });
+    }
+
+    /// O construtor que a anotação `@C(…)`, `@C.n(…)`, `@p.C(…)` ou
+    /// `@p.C.n(…)` invoca.
+    fn construtor_da_anotacao(&self, unidade: UnitId, a: &ast::Annotation) -> Option<FunctionElementId> {
+        let p = self.programa();
+        let lib = p.unit(unidade).library;
+        let classe_de = |b: Option<dartforge_elements::model::Binding>| match b.and_then(|b| b.getter) {
+            Some(dartforge_elements::model::Element::Class(c)) => Some(c),
+            _ => None,
+        };
+        let (classe, nome) = match a.name.as_slice() {
+            [c] => (classe_de(p.lookup_na_unidade(unidade, c.sym))?, None),
+            [x, y] if crate::projeto::eh_prefixo(p, lib, x.sym) => (classe_de(p.lookup_prefixed_na_unidade(unidade, x.sym, y.sym))?, None),
+            [x, y] => (classe_de(p.lookup_na_unidade(unidade, x.sym))?, Some(y.sym)),
+            [x, y, z] => (classe_de(p.lookup_prefixed_na_unidade(unidade, x.sym, y.sym))?, Some(z.sym)),
+            _ => return None,
+        };
+        let nome = match nome {
+            Some(n) => n,
+            None => self.consulta.nomes.lookup("")?,
+        };
+        p.class(classe).constructors.get(&nome).copied()
     }
 
     /// Nomes dos parâmetros posicionais de `f`, na ordem (os da declaração
