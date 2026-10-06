@@ -637,8 +637,14 @@ fn alvo_de_factory_redirecionadora(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, r
         ast::TypeKind::Named { args, .. } => args.to_vec(),
         _ => Vec::new(),
     };
-    for x in escritos {
+    for &x in escritos.iter() {
         inf.tipo_de_argumento_de_tipo(cx, x);
+    }
+    let n_params = inf.outline.classes[classe.0 as usize].type_params.len();
+    if !escritos.is_empty() && escritos.len() != n_params {
+        let texto = inf.interner.resolve(inf.program.class(classe).name).to_string();
+        let sp = inf.program.unit(cx.unit).ast.ty(red.ty).span;
+        inf.relatar_argumentos_de_tipo(&texto, n_params, escritos.len(), sp);
     }
     let achado = achar_construtor(inf, classe, alvo.construtor, lib);
     // 1. `_checkForRedirectingConstructorErrorCodes`.
@@ -2294,6 +2300,7 @@ fn anotacao_sem_validar(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option
     let u = inf.core.unknown;
     // `@B<T>()` com `B` alias de classe: os argumentos contra os parâmetros
     // de tipo do alias (o `AnnotationInferrer` com o construtor do alias).
+    let c_original = c;
     let (c, params_do_alias) = match c {
         Some(Element::Typedef(td)) => {
             let alvo = inf.outline.typedefs[td.0 as usize].target_type;
@@ -2315,6 +2322,30 @@ fn anotacao_sem_validar(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option
             // `_needsTypeArgumentBoundsCheck` do `AnnotationInferrer`.
             if let Some(ex) = &explicitos {
                 let params = params_do_alias.clone().unwrap_or_else(|| inf.outline.classes[c.0 as usize].type_params.to_vec());
+                // `_reportWrongNumberOfTypeArguments` (`invocation_inferrer.dart:316-327`)
+                // com o código do `AnnotationInferrer`: `{0}` é o tipo de
+                // função cru do construtor, na lista `<…>`.
+                if ex.len() != params.len()
+                    && let Some(sp) = super::chamadas::faixa_da_lista_de_tipos(inf, unit, &m.type_args)
+                {
+                    // O tipo do construtor como função genérica nos parâmetros
+                    // de tipo da classe (ou do alias, com o alvo dele).
+                    let mut cru = inf.assinatura_construtor(c, f);
+                    if params_do_alias.is_some()
+                        && let Some(Element::Typedef(td)) = c_original
+                        && let Type::Interface { args: alvo_args, .. } = inf.table.get(inf.outline.typedefs[td.0 as usize].target_type).clone()
+                    {
+                        let formais = inf.outline.classes[c.0 as usize].type_params.to_vec();
+                        let mapa = inf.mapa(&formais, &alvo_args);
+                        cru = inf.subst(cru, &mapa);
+                    }
+                    if let Type::Function { ret, positional, optional, named, .. } = inf.table.get(cru).clone() {
+                        cru = inf.table.intern(Type::Function { type_params: params.clone().into_boxed_slice(), ret, positional, optional, named, nullable: false });
+                    }
+                    let texto = inf.table.format(cru, inf.interner, inf.program);
+                    let (n, d) = (params.len().to_string(), ex.len().to_string());
+                    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS, sp, &[&texto, &n, &d]);
+                }
                 if ex.len() == params.len() {
                     let (ex, nos) = (ex.clone(), m.type_args.to_vec());
                     super::chamadas::conferir_limites_explicitos(inf, unit, &params, &ex, &nos, m.span, None);

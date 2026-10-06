@@ -422,6 +422,12 @@ impl<'a> BodyInferrer<'a> {
                         self.unidades_dos_avisos.push(self.unidade_corrente);
                         return self.table.invalido(self.core.dynamic_);
                     }
+                    if matches!(self.interner.resolve(sym), "dynamic" | "Never")
+                        && self.program.lookup_na_unidade(unit, sym).and_then(|b| b.getter).is_none()
+                        && !args.is_empty()
+                    {
+                        self.relatar_argumentos_de_tipo(&texto, 0, args.len(), span);
+                    }
                     match self.interner.resolve(sym) {
                         "dynamic" if self.program.lookup_na_unidade(unit, sym).is_none() => return self.core.dynamic_,
                         "void" => return self.core.void_,
@@ -581,7 +587,7 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// `WRONG_NUMBER_OF_TYPE_ARGUMENTS` no tipo inteiro.
-    fn relatar_argumentos_de_tipo(&mut self, nome: &str, parametros: usize, argumentos: usize, span: dartforge_diagnostics::Span) {
+    pub(crate) fn relatar_argumentos_de_tipo(&mut self, nome: &str, parametros: usize, argumentos: usize, span: dartforge_diagnostics::Span) {
         let (p, a) = (parametros.to_string(), argumentos.to_string());
         self.aviso_com_codigo(
             dartforge_diagnostics::codigos::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS,

@@ -922,6 +922,37 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             }
             _ => explicitos,
         };
+        // A contagem dos argumentos de tipo escritos na classe (`C<T>()`,
+        // `C<T>.nome()`): o `NamedType` da criação reescrita, com a
+        // contagem errada do `_buildTypeArguments` e os argumentos
+        // `InvalidType`.
+        let mut targs = targs;
+        let mut explicitos = explicitos;
+        let a = &inf.program.unit(cx.unit).ast;
+        let escritos: Option<(usize, Span)> = match &a.expr(target).kind {
+            ExprKind::Property { target: t, .. } => match &a.expr(*t).kind {
+                ExprKind::TypeArguments { target: base, type_args } if matches!(referencia_a_tipo(inf, cx, *base), Some(RefTipo::Classe(..))) => {
+                    let n = type_args.len();
+                    let sp = tipo_nomeado_da_criacao(inf, cx, *t, &[]);
+                    Some((n, sp))
+                }
+                _ => None,
+            },
+            _ if !args.type_args.is_empty() && matches!(referencia_a_tipo(inf, cx, target), Some(RefTipo::Classe(..))) => {
+                Some((args.type_args.len(), tipo_nomeado_da_criacao(inf, cx, target, &args.type_args)))
+            }
+            _ => None,
+        };
+        let n_params = inf.outline.classes[c.0 as usize].type_params.len();
+        if let Some((n, sp)) = escritos
+            && n != n_params
+        {
+            let texto = inf.interner.resolve(inf.program.class(c).name).to_string();
+            inf.relatar_argumentos_de_tipo(&texto, n_params, n, sp);
+            let invalidos = vec![inf.table.invalido(inf.core.dynamic_); n_params];
+            targs = Some(invalidos);
+            explicitos = None;
+        }
         definir_alvo(inf, Some(nome), ent);
         let t = construir(inf, cx, Some(e), c, f, targs.or(explicitos), args, ctx);
         inf.alvo_da_aridade = None;
@@ -1928,7 +1959,16 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
             (c, None)
         }
         Some(Element::Class(c)) => {
-            let ex = if targs.is_empty() { None } else { Some(targs.iter().map(|&t| inf.tipo_de_argumento_de_tipo(cx, t)).collect::<Vec<_>>()) };
+            let mut ex = if targs.is_empty() { None } else { Some(targs.iter().map(|&t| inf.tipo_de_argumento_de_tipo(cx, t)).collect::<Vec<_>>()) };
+            // `NamedTypeResolver._buildTypeArguments`
+            // (`named_type_resolver.dart:137-148`): contagem errada no tipo
+            // nomeado inteiro, e os argumentos viram `InvalidType`.
+            let n_params = inf.outline.classes[c.0 as usize].type_params.len();
+            if !targs.is_empty() && targs.len() != n_params {
+                let texto = inf.interner.resolve(name[name.len() - 1].sym).to_string();
+                inf.relatar_argumentos_de_tipo(&texto, n_params, targs.len(), node.span);
+                ex = Some(vec![inf.table.invalido(inf.core.dynamic_); n_params]);
+            }
             (c, ex)
         }
         Some(Element::Typedef(_)) => {

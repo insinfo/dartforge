@@ -1488,7 +1488,13 @@ impl<'a> OutlineResolver<'a> {
                         });
                     }
 
-                    // 2. Verificar tipos especiais do sistema
+                    // 2. Verificar tipos especiais do sistema (`dynamic<int>`,
+                    // `Never<int>`: a contagem errada do `_buildTypeArguments`,
+                    // no tipo inteiro).
+                    let embutido = self.interner.lookup("dynamic") == Some(sym) || self.interner.lookup("Never") == Some(sym);
+                    if embutido && !args.is_empty() {
+                        self.avisar(unit_id, diagnostico_de_argumentos_de_tipo(&texto, 0, args.len(), span));
+                    }
                     if self.interner.lookup("dynamic") == Some(sym) {
                         return self.core.dynamic_;
                     }

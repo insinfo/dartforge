@@ -835,6 +835,12 @@ Representação cíclica ou inválida cala o `implements` e o fundo. Um `dynamic
 - **Mensagem:** `The type '{0}' is declared with {1} type parameters, but {2} type arguments were given.`
 - **No DartForge:** existe para tipos nomeados em anotações de tipo (36). FN: **`new`/`const` com contagem errada** (`new_*`, `const_*`, `factory*_test`, `unsorted/invalid_type_argument_count_test`), **anotações** (`metadata_*`, `messageText_ca92c414`/`afc9f656`), `dynamic<int>`/`Never<int>` (`messageText_dynamic`/`never`), `mixin/type_parameters_errors_test` (em `with`/`on`), `type_object/explicit_instantiated_type_literal…`. FP: `augmentation_type_parameter_count/*` (augmentation — outro código).
   **Mudança:** em `chamadas.rs::instanciacao` (tipo da criação) e no caminho de anotações (`funcoes.rs::anotacao_sem_validar`, com o tipo de função do construtor), e no resolvedor de tipos para `dynamic`/`Never`.
+- **Correção e estado (2026-10-06):** o `{0}` da variante de anotação é o tipo do construtor **como função genérica
+  nos parâmetros de tipo** da classe — `'A<T, U> Function<T, U>()'` — e, por alias (`@B<int>()` com `typedef B<T, U> =
+  A`), nos do alias, com o retorno pelo alvo (`'A Function<T, U>()'`). Todos os pontos portados (67 de 67): o tipo da
+  criação `new`/`const` (contagem no `NamedType` inteiro, argumentos `InvalidType`), a criação sem `new` (`Map<int>()`,
+  `C<T>.nome()`: o `NamedType` da reescrita), o alvo de `factory … = C<T>.nome`, `dynamic<int>`/`Never<int>` e a
+  anotação.
 
 ##### `wrong_number_of_type_arguments_function` (perda 13: FN 13)
 - **Emissão:** variantes `WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION` (`'The function '{0}' is declared with {1} type parameters, but {2} type arguments were given.'`) e `…_ANONYMOUS_FUNCTION` (`'This function is declared with {0} type parameters, but {1} type arguments were given.'`), em `FunctionReferenceResolver` (`analyzer/lib/src/dart/resolver/function_reference_resolver.dart:110-130`, :255-300): tear-off `f<int, String>` (função nomeada; `{0}` = nome, inclusive `'call'` para `o.call<…>`) ou expressão de função (`(f)<int>`, `fn<int>` de variável de tipo função → anônima). Também nas constantes (`constant/evaluation.dart:2315-2332`).
