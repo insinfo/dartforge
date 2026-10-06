@@ -151,17 +151,36 @@ pub fn diretivas_repetidas(program: &Program, lib: LibraryId, interner: &Interne
 /// (`TypeReferenceIdentifierContext`, `identifier_context_impl.dart`), e o
 /// `NamedTypeResolver` no nome depois de um prefixo (`p.import`). Aqui o
 /// relato sai da árvore: no nome sem prefixo, ou no nome depois do prefixo.
-/// Uma palavra embutida seguida de `.` é prefixo, não tipo.
-pub fn embutido_como_tipo(u: Unidade<'_>, interner: &Interner) -> Vec<Diagnostic> {
+/// Uma palavra embutida seguida de `.` é prefixo, não tipo. Num nome de
+/// duas partes, só depois de um prefixo de import (`A.factory` de
+/// `new A.factory()` é a classe e o construtor, cujo nome aceita embutidas).
+/// `augment` só é embutida com `augmentations` ligado (`augmentacoes`): sem
+/// ele o scanner a lê como identificador comum (`abstract_scanner.dart`).
+pub fn embutido_como_tipo(u: Unidade<'_>, interner: &Interner, augmentacoes: bool) -> Vec<Diagnostic> {
     const EMBUTIDAS: [&str; 22] = [
         "abstract", "as", "augment", "covariant", "deferred", "export", "extension", "external", "factory", "get", "implements",
         "import", "interface", "late", "library", "mixin", "operator", "part", "required", "set", "static", "typedef",
     ];
+    let prefixos: Vec<dartforge_intern::SymbolId> = u
+        .unit
+        .directives
+        .iter()
+        .filter_map(|d| match &d.kind {
+            ast::DirectiveKind::Import { prefix: Some(p), .. } => Some(p.sym),
+            _ => None,
+        })
+        .collect();
     let mut out = Vec::new();
     for t in u.ast.types.iter() {
         let ast::TypeKind::Named { name, .. } = &t.kind else { continue };
         let Some(ultimo) = name.last() else { continue };
+        if name.len() >= 2 && !prefixos.contains(&name[0].sym) {
+            continue;
+        }
         let texto = interner.resolve(ultimo.sym);
+        if texto == "augment" && !augmentacoes {
+            continue;
+        }
         if EMBUTIDAS.contains(&texto) {
             out.push(Diagnostic::com_codigo(
                 dartforge_diagnostics::codigos::compile_time_error::BUILT_IN_IDENTIFIER_AS_TYPE,
@@ -317,7 +336,7 @@ mod testes {
 ";
         let mut nomes = Interner::new();
         let p = dartforge_frontend::parser::parse(fonte, &mut nomes);
-        assert!(embutido_como_tipo(Unidade { ast: &p.ast, unit: &p.unit, fonte }, &nomes).is_empty());
+        assert!(embutido_como_tipo(Unidade { ast: &p.ast, unit: &p.unit, fonte }, &nomes, false).is_empty());
     }
 
     #[test]

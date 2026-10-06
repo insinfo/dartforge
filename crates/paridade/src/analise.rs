@@ -556,7 +556,13 @@ impl Motor {
                 achados.extend(com_fase(fase::PARSER, 
                     dartforge_analise::fases::dois_pontos_no_padrao(*u, biblioteca.features.versao().major < 3).into_iter().map(|d| (i, d)),
                 ));
-                achados.extend(com_fase(fase::RESOLUTION_VISITOR, dartforge_analise::fases::embutido_como_tipo(*u, &interner).into_iter().map(|d| (i, d))));
+                achados.extend(com_fase(fase::RESOLUTION_VISITOR, dartforge_analise::fases::embutido_como_tipo(
+                    *u,
+                    &interner,
+                    biblioteca.features.tem(dartforge_frontend::features::Feature::Augmentations)
+                        || biblioteca.features.tem(dartforge_frontend::features::Feature::Macros),
+                )
+                .into_iter().map(|d| (i, d))));
                 achados.extend(com_fase(fase::PARSER, dartforge_analise::nativos::fora_do_sdk(*u).into_iter().map(|d| (i, d))));
                 achados.extend(com_fase(fase::ERROR_VERIFIER, dartforge_analise::operadores::aridade(*u, &interner).into_iter().map(|d| (i, d))));
             }
