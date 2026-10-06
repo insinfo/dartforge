@@ -87,6 +87,34 @@ projetos `app`, `args`, `path`, `string_scanner`; rodada `m1` de 2026-10-06):
   em `finally`), as combinações A1/B0/B1 no pesado do CI.
 * Etapa 1 (exceções por tabelas) escrita conforme o §13.15 e compilando no workspace.
 
+**Nativo, depois do fechamento (2026-10-06, `abcaf6fc`…`a14d2270`).**
+* Testes do `dartforge-jit` e do `dartforge-llvm` verdes, inclusive os ignorados (era só o `bin` do LLVM
+  fora do `PATH`); `reload_estado` e `io_regressao` 7/7.
+* **Etapa 1 (A1) verificada e arquivada** (§13.16): corpus/js 238/238, corpus/nativo igual a A0 com e
+  sem `--gc-stress`; no `new_sali/backend` o `.text` não cai e as tabelas somam 1,57 MB (+3,2% contra a
+  meta de −3%). O padrão segue `checagem` com o E1.1.
+* **Etapa 2 (B0) verificada e arquivada** (§14.11): corpus B0 com e sem `--gc-stress` igual a A0, os 4
+  testes dirigidos de `mapas_dirigidos` verdes com cada sabotagem pegando, produção B0 correta (ThinLTO
+  distribuído, o passe depois da otimização); no mesmo pipeline o `.text` do `bench/desempenho` em B0
+  é 25% maior, mais 100 KB de mapa. As raízes por mapas ficam experimentais.
+* Defeitos achados ao rodar e consertados: pouso com `fake.use` fora dos mapas, chamada C variádica em
+  função `gc`, conferidores do RS4GC e da sombra (apelidos de raiz, ajudantes, parâmetros), quadro morto
+  e exceção que atravessa Rust sem porta (agora acusados), `__tmp_use` e RS4GC antes da LTO.
+* CI: produção sem o Clang (N15: o gerador embutido e a LTO completa do `lld`), `__Unwind_GetGR` na
+  `libSystem.tbd` do macOS, o placar consolidado do Pesado sem os relatórios dos modos e o job dos modos
+  com o harness do gerador embutido.
+
+**JS de produção (2026-10-06, `518e5388`).**
+* `this` repetido como local (§8.4 de `JS-PRODUCAO-TAMANHO.md`): `new_sali` 12.361.194 → 12.082.759
+  bytes, `limitless_ui` 6.946.316 → 6.693.718; corpus `--producao` 238/238, `limitless_ui` 26/26 no e2e,
+  `new_sali` com o `fluxo.mjs` nos 11 passos sem erro.
+* `@pragma('dart2js:as:trust')`/`tryInline`: avaliados e **sem efeito no nosso contrato**. Os
+  `as:trust` do SDK estão só nas bibliotecas do runtime do `dart2js` (`js_runtime`, `js_shared`), que
+  não compilamos; o `tryInline` é dica a um *inliner* que o emissor no contrato do DDC não tem.
+* Construtor sem `.new`: 30.280 citações no `new_sali` (~60 KB com um nome curto). O runtime do DDC lê
+  `new` por texto (`defineNamedConstructor`, tear-offs de construtor), então é mudança de contrato, do
+  grupo da §7 (emissor no estilo do `dart2js`, spec nova), não um passo de compactação.
+
 ### O que falta
 
 1. **Analisador.**
@@ -119,12 +147,9 @@ projetos `app`, `args`, `path`, `string_scanner`; rodada `m1` de 2026-10-06):
      (edição de assinatura sem recarga total).
    * Importação condicional no LSP: o servidor do Dart não declara `dart.library.*`; o
      `load_como_analyzer` marca todas as bibliotecas como suportadas.
-3. **Nativo.**
-   * Etapa 1: rodar a verificação do §15.1 (testes de `pouso_da_lsda`, programas dirigidos E1.2/E1.4,
-     corpus nativo com e sem `--gc-stress`, e2e do `new_sali/backend`) e as medidas do §8; o critério de
-     abandono (`.text` + tabelas cair ≥ 3%).
-   * Os testes de `dartforge-jit` e `dartforge-llvm` não rodam nesta máquina
-     (`STATUS_DLL_NOT_FOUND`): ambiente, não código.
+3. **Nativo.** As Etapas 1 e 2 foram verificadas, medidas e arquivadas (acima). Falta conferir no CI
+   os consertos de 2026-10-06 (sem toolchain, macOS, Pesado) e o e2e do `new_sali/backend`, que precisa
+   do banco.
 4. **Documentação.** As notas "escrito, não compilado" das especificações estão desatualizadas: o
    código compila e os testes do workspace passam (fora jit/llvm por DLL). Atualizar cada nota com o
    estado medido.
