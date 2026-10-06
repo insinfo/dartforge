@@ -5,6 +5,7 @@
 //! |---|---|---|
 //! | `Remove type annotation` | `refactor.remove.typeAnnotation` | `RemoveTypeAnnotation.other` |
 //! | `Add type annotation` | `refactor.add.typeAnnotation` | `AddTypeAnnotation.bulkFixable` |
+//! | `Replace type annotation with 'var'` | `refactor.replace.withVar` | `ReplaceWithVar` |
 
 use crate::acoes::AcaoDeCodigo;
 use crate::refatoracoes::Contexto;
@@ -369,5 +370,173 @@ impl Contexto<'_> {
             .map(|tk| tk.span);
         let _ = StmtKind::Empty;
         self.aplicar_tipo(palavra, nome, t)
+    }
+
+    /// `ReplaceWithVar._findType`: a lista de declaração dá o tipo dela; senão
+    /// a anotação de tipo mais próxima.
+    fn tipo_a_trocar(&self, no: usize) -> Option<usize> {
+        const ANOTACOES: &[&str] = &["NamedType", "GenericFunctionType", "RecordTypeAnnotation"];
+        if self.especie(no) == "VariableDeclarationList" {
+            return self.filhos(no).iter().copied().find(|&k| ANOTACOES.contains(&self.especie(k)));
+        }
+        self.com_pais(no).find(|&k| ANOTACOES.contains(&self.especie(k)))
+    }
+
+    /// O tipo declarado do local cujo nome começa em `nome` (`dynamic` não
+    /// conta: `staticType is DynamicType`).
+    fn tipo_declarado_do_local(&self, nome: usize) -> Option<TypeId> {
+        let t = *self.corpos.tipos_de_locais.get(&nome)?;
+        (!matches!(self.p.consulta.tabela.get(t), Type::Dynamic)).then_some(t)
+    }
+
+    /// `_canConvertVariableDeclarationList`.
+    fn lista_trocavel_por_var(&self, lista: usize) -> bool {
+        // `node.type?.type`: sem anotação, nada.
+        if !self.filhos(lista).iter().any(|&f| matches!(self.especie(f), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation")) {
+            return false;
+        }
+        let variaveis: Vec<usize> = self.filhos(lista).iter().copied().filter(|&k| self.especie(k) == "VariableDeclaration").collect();
+        let Some(&primeira) = variaveis.first() else { return false };
+        let Some(nome) = self.token_seguinte(self.arvore.nos[primeira].inicio) else { return false };
+        let Some(declarado) = self.tipo_declarado_do_local(nome.start) else { return false };
+        variaveis.iter().all(|&v| {
+            self.filhos(v).first().and_then(|&i| self.expr_do_no(i)).and_then(|x| self.corpos.get_type(x)) == Some(declarado)
+        })
+    }
+
+    /// `_canReplaceWithVar`, a partir do pai do nó da seleção.
+    fn trocavel_por_var(&self, no: usize) -> bool {
+        let Some(pai) = self.pai(no) else { return false };
+        for k in self.com_pais(pai) {
+            match self.especie(k) {
+                "VariableDeclarationStatement" | "ForPartsWithDeclarations" => {
+                    let Some(&lista) = self.filhos(k).iter().find(|&&f| self.especie(f) == "VariableDeclarationList") else { return false };
+                    return self.lista_trocavel_por_var(lista);
+                }
+                "ForEachPartsWithDeclaration" => {
+                    let filhos = self.filhos(k);
+                    let Some(&variavel) = filhos.iter().find(|&&f| self.especie(f) == "DeclaredIdentifier") else { return false };
+                    let Some(&iteravel) = filhos.last() else { return false };
+                    let Some(nome) = self.token_anterior(self.arvore.nos[variavel].fim) else { return false };
+                    let Some(declarado) = self.tipo_declarado_do_local(nome.start) else { return false };
+                    // `loopVariable.type?.type`: sem anotação, nada.
+                    if !self.filhos(variavel).iter().any(|&f| matches!(self.especie(f), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation")) {
+                        return false;
+                    }
+                    let Some(t) = self.expr_do_no(iteravel).and_then(|x| self.corpos.get_type(x)) else { return false };
+                    let Some(iteravel_classe) = self.p.consulta.core.iterable_class else { return false };
+                    let consulta = &self.p.consulta;
+                    let mut tabela = consulta.tabela.clone();
+                    let t = dartforge_types::ops::non_nullable(t, &mut tabela);
+                    let Some(instancia) = consulta.outline.hierarchy.supertype_of(t, iteravel_classe, &mut tabela, &consulta.core) else { return false };
+                    return matches!(tabela.get(instancia), Type::Interface { args, .. } if args.first() == Some(&declarado));
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
+    /// Os argumentos de tipo (`TypeArgumentList`) filhos de `n`.
+    fn argumentos_de_tipo(&self, n: usize) -> Option<usize> {
+        self.filhos(n).iter().copied().find(|&k| self.especie(k) == "TypeArgumentList")
+    }
+
+    /// `ReplaceWithVar` (replace_with_var.dart): o tipo de uma declaração local
+    /// (comando, `for` ou `for-in`) igual ao do inicializador vira `var` (ou
+    /// some, com `final`/`const`), e os argumentos de tipo passam para o
+    /// literal ou a criação sem eles.
+    pub(crate) fn trocar_por_var(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
+        let no = self.arvore.localizar(inicio, fim)?;
+        let tipo = self.tipo_a_trocar(no)?;
+        if !self.trocavel_por_var(no) {
+            return None;
+        }
+        let pai = self.pai(tipo)?;
+        let avo = self.pai(pai)?;
+        let palavra_final_ou_const = |lista: usize| -> bool {
+            let mut k = self.token_seguinte(self.arvore.nos[lista].inicio);
+            while let Some(s) = k {
+                if s.start >= self.arvore.nos[tipo].inicio {
+                    return false;
+                }
+                if matches!(&self.fonte[s.start..s.end], "final" | "const") {
+                    return true;
+                }
+                k = self.token_seguinte(s.end);
+            }
+            false
+        };
+        let mut edicoes: Vec<(Span, String)> = Vec::new();
+        let args_do_tipo = (self.especie(tipo) == "NamedType").then(|| self.argumentos_de_tipo(tipo)).flatten();
+        if self.especie(pai) == "VariableDeclarationList" && matches!(self.especie(avo), "VariableDeclarationStatement" | "ForPartsWithDeclarations") {
+            let variaveis: Vec<usize> = self.filhos(pai).iter().copied().filter(|&k| self.especie(k) == "VariableDeclaration").collect();
+            if variaveis.len() != 1 {
+                return None;
+            }
+            let mut inicializador = self.filhos(variaveis[0]).first().copied();
+            let mut transferir: Option<(String, usize)> = None;
+            if let Some(args) = args_do_tipo {
+                if let Some(i) = inicializador
+                    && self.especie(i) == "CascadeExpression"
+                {
+                    inicializador = self.filhos(i).first().copied();
+                }
+                if let Some(i) = inicializador {
+                    match self.especie(i) {
+                        "ListLiteral" | "SetOrMapLiteral" => {
+                            if self.argumentos_de_tipo(i).is_none() {
+                                // `leftBracket.offset`.
+                                let abre = self.tokens.iter().find(|t| t.span.start >= self.arvore.nos[i].inicio && matches!(&self.fonte[t.span.start..t.span.end], "[" | "{"))?;
+                                transferir = Some((self.texto_do_no(args).to_string(), abre.span.start));
+                            }
+                        }
+                        "InstanceCreationExpression" => {
+                            let nome_do_construtor = self.filhos(i).iter().copied().find(|&k| self.especie(k) == "ConstructorName")?;
+                            let tipo_do_construtor = *self.filhos(nome_do_construtor).first()?;
+                            if self.argumentos_de_tipo(tipo_do_construtor).is_none() {
+                                transferir = Some((self.texto_do_no(args).to_string(), self.arvore.nos[tipo_do_construtor].fim));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            if let Some(i) = inicializador
+                && self.especie(i) == "SetOrMapLiteral"
+                && self.argumentos_de_tipo(i).is_none()
+                && transferir.is_none()
+            {
+                return None;
+            }
+            if palavra_final_ou_const(pai) {
+                edicoes.push((Span { start: self.arvore.nos[tipo].inicio, end: self.arvore.nos[variaveis[0]].inicio }, String::new()));
+            } else {
+                edicoes.push((self.arvore.span(tipo), "var".into()));
+            }
+            if let Some((texto, em)) = transferir {
+                edicoes.push((Span { start: em, end: em }, texto));
+            }
+        } else if self.especie(pai) == "DeclaredIdentifier" && self.especie(avo) == "ForEachPartsWithDeclaration" {
+            let mut transferir: Option<(String, usize)> = None;
+            if let Some(args) = args_do_tipo {
+                let iteravel = *self.filhos(avo).last()?;
+                if matches!(self.especie(iteravel), "ListLiteral" | "SetOrMapLiteral") && self.argumentos_de_tipo(iteravel).is_none() {
+                    transferir = Some((self.texto_do_no(args).to_string(), self.arvore.nos[iteravel].inicio));
+                }
+            }
+            let nome = self.token_anterior(self.arvore.nos[pai].fim)?;
+            if palavra_final_ou_const(pai) {
+                edicoes.push((Span { start: self.arvore.nos[tipo].inicio, end: nome.start }, String::new()));
+            } else {
+                edicoes.push((self.arvore.span(tipo), "var".into()));
+            }
+            if let Some((texto, em)) = transferir {
+                edicoes.push((Span { start: em, end: em }, texto));
+            }
+        } else {
+            return None;
+        }
+        Some(self.acao_de_tipo(uri, "Replace type annotation with 'var'", "refactor.replace.withVar", edicoes))
     }
 }

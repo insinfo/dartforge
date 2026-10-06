@@ -25,7 +25,7 @@ fn acoes(p: &mut Projeto, relativo: &str, de: (u32, u32), ate: (u32, u32), extra
     let fora = |k: &str| {
         k.starts_with("source")
             || k.starts_with("quickfix.ignore")
-            || (k.starts_with("refactor.") && !["refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral"].contains(&k))
+            || (k.starts_with("refactor.") && !["refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar"].contains(&k))
             || k == "quickfix.change.to"
             || ["method", "function", "class", "mixin", "getter", "field", "localVariable", "parameter"]
                 .iter()
@@ -618,4 +618,23 @@ fn assistencia_de_is_not_empty_e_literal_int() {
     assert_eq!(aplicar(&acao(&r, "Convert to an int literal")["edit"], &p.uri("lib/a.dart"), texto), texto.replace("2e3", "2000"));
     let pos = onde(texto, "1.5", 0);
     assert!(!titulos(&acoes(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Convert to an int literal".to_string()));
+}
+
+#[test]
+fn assistencia_de_trocar_por_var() {
+    let mut p = Projeto::com_literais("acoes-var");
+    let texto = "void f(List<int> l) {\n  List<int> a = [1];\n  final String s = 'x';\n  for (int x in l) {\n    print([a, s, x]);\n  }\n  num n = 1;\n  print(n);\n}\n";
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "List<int> a");
+    let a = acao(&r, "Replace type annotation with 'var'");
+    assert_eq!(a["kind"], "refactor.replace.withVar");
+    assert_eq!(aplicar(&a["edit"], &p.uri("lib/a.dart"), texto), texto.replace("List<int> a = [1]", "var a = <int>[1]"));
+    let pos = onde(texto, "String s", 0);
+    let r = acoes(&mut p, "lib/a.dart", pos, pos, json!({}));
+    assert_eq!(aplicar(&acao(&r, "Replace type annotation with 'var'")["edit"], &p.uri("lib/a.dart"), texto), texto.replace("final String s", "final s"));
+    let pos = onde(texto, "int x", 0);
+    let r = acoes(&mut p, "lib/a.dart", pos, pos, json!({}));
+    assert_eq!(aplicar(&acao(&r, "Replace type annotation with 'var'")["edit"], &p.uri("lib/a.dart"), texto), texto.replace("int x in", "var x in"));
+    // `num` com inicializador `int`: os tipos diferem.
+    let pos = onde(texto, "num n", 0);
+    assert!(!titulos(&acoes(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Replace type annotation with 'var'".to_string()));
 }
