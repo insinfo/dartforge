@@ -1633,7 +1633,10 @@ impl<A: Analisador> Servidor<A> {
                     // da mudança, e nunca `isPreferred`. As duas refatorações
                     // legadas (`Inline`/`Extract Local Variable`) não são
                     // assistências e ficam como estavam.
-                    let refatoracao = matches!(acao.especie.as_str(), "refactor.inline" | "refactor.extract");
+                    // A assistência `Inline invocation of '…'` (`dart.assist.inline`)
+                    // tem a mesma espécie e é assistência.
+                    let refatoracao = matches!(acao.especie.as_str(), "refactor.inline" | "refactor.extract")
+                        && !acao.titulo.starts_with("Inline invocation of");
                     let mut valor = json!({"title": acao.titulo, "kind": acao.especie, "edit": edicao});
                     if let (Some(d), Some(texto), Some(tabela)) =
                         (&acao.diagnostico, self.documentos.get(&u), self.documentos.linhas(&u))

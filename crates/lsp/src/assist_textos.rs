@@ -5,6 +5,7 @@
 //! |---|---|---|
 //! | `Convert to single quoted string` | `refactor.convert.toSingleQuotedString` | `ConvertToSingleQuotes` |
 //! | `Convert to double quoted string` | `refactor.convert.toDoubleQuotedString` | `ConvertToDoubleQuotes` |
+//! | `Convert to multiline string` | `refactor.convert.toMultilineString` | `ConvertToMultilineString` |
 
 use crate::acoes::AcaoDeCodigo;
 use crate::refatoracoes::Contexto;
@@ -127,5 +128,36 @@ impl Contexto<'_> {
             }
         }
         saida
+    }
+
+    /// `ConvertToMultilineString` (convert_to_multiline_string.dart): o
+    /// literal de uma linha ganha as aspas triplas, com uma quebra de linha
+    /// depois das de abertura (`writeln`).
+    pub(crate) fn converter_em_multilinha(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
+        let mut no = self.arvore.localizar(inicio, fim)?;
+        if matches!(self.especie(no), "InterpolationString" | "InterpolationExpression") {
+            no = self.pai(no)?;
+        }
+        if !matches!(self.especie(no), "SimpleStringLiteral" | "StringInterpolation") {
+            return None;
+        }
+        let span = self.arvore.span(no);
+        let a = aspas_de(&self.fonte[span.start..span.end]);
+        if a.multilinha || span.end <= span.start + 1 {
+            return None;
+        }
+        let nova = if a.simples { "\'\'\'" } else { "\"\"\"" };
+        let eol = crate::refatoracoes_exec::Texto::novo(self.fonte).eol();
+        let abre = span.start + usize::from(a.cru);
+        let mut m = Mudanca::default();
+        m.adicionar(uri, Span { start: abre, end: abre + 1 }, format!("{nova}{eol}"));
+        m.adicionar(uri, Span { start: span.end - 1, end: span.end }, nova.to_string());
+        Some(AcaoDeCodigo {
+            titulo: "Convert to multiline string".into(),
+            especie: "refactor.convert.toMultilineString".into(),
+            edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            diagnostico: None,
+            criar_arquivo: None,
+        })
     }
 }
