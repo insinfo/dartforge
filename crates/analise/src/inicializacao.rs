@@ -333,9 +333,10 @@ mod testes {
     }
 
     #[test]
-    fn construtor_primario_nao_gera_codigo_semantico_no_corpus_36() {
+    fn construtor_primario_relata_no_nome_da_classe_como_o_oraculo_313() {
+        // Arquivo de sintaxe nova: o oráculo é o 3.13, que confere o primário.
         let fonte = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/variable_not_initialized/VariableNotInitialized__class_instanceF_01f4790b.dart"));
-        assert!(testar(fonte).is_empty());
+        assert_eq!(testar(fonte), vec![("A".into(), "All final variables must be initialized, but 'v2' isn't.".into())]);
     }
 
     #[test]
