@@ -453,6 +453,17 @@ fn referencias_de_documentacao_como_o_indice() {
 }
 
 #[test]
+fn referencias_da_classe_em_criacoes_com_new_e_const() {
+    let mut p = Projeto::novo("nav-referencias-criacao");
+    let a = "class A {\n  const A.n();\n}\nvoid f() {\n  new A.n();\n  const A.n();\n  A.n();\n}\n";
+    p.abrir("lib/a.dart", a);
+    let refs = referencias(&mut p, "lib/a.dart", a, "A {", 0, false);
+    assert!(refs.contains(&("lib/a.dart".to_string(), 4, 6)), "{refs:?}");
+    assert!(refs.contains(&("lib/a.dart".to_string(), 5, 8)), "{refs:?}");
+    assert!(refs.contains(&("lib/a.dart".to_string(), 6, 2)), "{refs:?}");
+}
+
+#[test]
 fn referencias_de_membro_pela_familia_e_do_sdk() {
     let mut p = Projeto::novo("nav-ref-membro");
     let a = "class A { void m() {} }\nclass B extends A { void m() {} }\nclass D { void m() {} }\nvoid t(A a, B b, D d) { a.m(); b.m(); d.m(); print(1); }\n";

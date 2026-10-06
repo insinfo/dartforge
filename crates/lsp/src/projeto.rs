@@ -2688,7 +2688,15 @@ impl Projeto {
                     {
                         p.lookup(unidade.library, n.sym).map(|b| (b, *n))
                     }
-                    [pr, n] if n.sym == simbolo => p
+                    [pr, n] if n.sym == simbolo && eh_prefixo(p, unidade.library, pr.sym) => p
+                        .lookup_prefixed(unidade.library, pr.sym, n.sym)
+                        .map(|b| (b, *n)),
+                    // `new A.n()`/`const A.n()` (o nome de duas partes do
+                    // parser) e `new p.A.n()`: o `NamedType` é o `A`.
+                    [c, _] if c.sym == simbolo && !eh_prefixo(p, unidade.library, c.sym) => {
+                        p.lookup(unidade.library, c.sym).map(|b| (b, *c))
+                    }
+                    [pr, n, _] if n.sym == simbolo => p
                         .lookup_prefixed(unidade.library, pr.sym, n.sym)
                         .map(|b| (b, *n)),
                     _ => None,
