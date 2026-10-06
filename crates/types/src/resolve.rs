@@ -341,6 +341,15 @@ impl<'a> OutlineResolver<'a> {
     }
 
     /// Registra um diagnóstico relatado em `unidade`.
+
+    /// `reportNullOrNonTypeElement` (named_type_resolver.dart:518-521): o
+    /// nome sintético (vazio, da recuperação do parser) não é relatado.
+    fn avisar_nome_de_tipo(&mut self, unit_id: UnitId, contexto: ContextoDeTipo, achou: bool, texto: &str, faixa: dartforge_diagnostics::Span) {
+        if texto.is_empty() {
+            return;
+        }
+        self.avisar(unit_id, diagnostico_de_nome_de_tipo(contexto, achou, texto, faixa));
+    }
     fn avisar(&mut self, unidade: UnitId, d: Diagnostic) {
         self.diagnostics.push(d);
         self.unidades_dos_avisos.push(unidade);
@@ -1524,11 +1533,11 @@ impl<'a> OutlineResolver<'a> {
                     // (Nome sintético da recuperação, sem largura: nada.)
                     match if span.start == span.end { None } else { self.no_conteiner(sym) } {
                         Some(NoConteiner::Getter) => {
-                            self.avisar(unit_id, diagnostico_de_nome_de_tipo(contexto, true, &texto, faixa));
+                            self.avisar_nome_de_tipo(unit_id, contexto, true, &texto, faixa);
                             return self.table.invalido(self.core.dynamic_);
                         }
                         Some(NoConteiner::SoSetter) => {
-                            self.avisar(unit_id, diagnostico_de_nome_de_tipo(contexto, false, &texto, faixa));
+                            self.avisar_nome_de_tipo(unit_id, contexto, false, &texto, faixa);
                             return self.table.invalido(self.core.dynamic_);
                         }
                         None => {}
@@ -1627,7 +1636,7 @@ impl<'a> OutlineResolver<'a> {
                                     }
                                 }
                                 _ => {
-                                    self.avisar(unit_id, diagnostico_de_nome_de_tipo(contexto, true, &texto, faixa));
+                                    self.avisar_nome_de_tipo(unit_id, contexto, true, &texto, faixa);
                                     self.table.invalido(self.core.dynamic_)
                                 }
                             }
@@ -1636,7 +1645,7 @@ impl<'a> OutlineResolver<'a> {
                             // Nome sintético da recuperação do parser (vazio,
                             // sem largura): o analyzer não o relata.
                             if span.start != span.end {
-                                self.avisar(unit_id, diagnostico_de_nome_de_tipo(contexto, false, &texto, faixa));
+                                self.avisar_nome_de_tipo(unit_id, contexto, false, &texto, faixa);
                             }
                             self.table.invalido(self.core.dynamic_)
                         }
@@ -1731,12 +1740,12 @@ impl<'a> OutlineResolver<'a> {
                                 }
                             }
                             _ => {
-                                self.avisar(unit_id, diagnostico_de_nome_de_tipo(contexto, true, &texto, faixa));
+                                self.avisar_nome_de_tipo(unit_id, contexto, true, &texto, faixa);
                                 self.table.invalido(self.core.dynamic_)
                             }
                         },
                         None => {
-                            self.avisar(unit_id, diagnostico_de_nome_de_tipo(contexto, false, &texto, faixa));
+                            self.avisar_nome_de_tipo(unit_id, contexto, false, &texto, faixa);
                             self.table.invalido(self.core.dynamic_)
                         }
                     }

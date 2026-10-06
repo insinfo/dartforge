@@ -522,6 +522,10 @@ impl<'a> BodyInferrer<'a> {
 
     /// Nome de tipo que não resolve para tipo, no código do contexto.
     fn relatar_nome_de_tipo(&mut self, contexto: crate::resolve::ContextoDeTipo, achou: bool, nome: &str, faixa: dartforge_diagnostics::Span) {
+        // O nome sintético não é relatado (`reportNullOrNonTypeElement`).
+        if nome.is_empty() {
+            return;
+        }
         let d = crate::resolve::diagnostico_de_nome_de_tipo(contexto, achou, nome, faixa);
         let args: Vec<&str> = d.args.iter().map(|a| &**a).collect();
         let codigo = d.code.expect("com código");

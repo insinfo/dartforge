@@ -2063,7 +2063,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             return Ok(FunctionOrVariables::Variables(VariableList {
                 external: mods.external,
                 static_: mods.static_,
-                abstract_: mods.abstract_,
+                abstract_: mods.abstract_ && !topo,
                 covariant: mods.covariant,
                 late: mods.late,
                 final_: mods.final_,
@@ -2090,7 +2090,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             return Ok(FunctionOrVariables::Variables(VariableList {
                 external: mods.external,
                 static_: mods.static_,
-                abstract_: mods.abstract_,
+                abstract_: mods.abstract_ && !topo,
                 covariant: mods.covariant,
                 late: mods.late,
                 final_: mods.final_,
@@ -2137,18 +2137,15 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `const`, `var`, `void`): `final abstract class C {}` e
         // `final final class C {}` são um campo sem nome (`;` que falta no
         // último modificador) seguido da classe.
-        let palavra_reservada_de_topo = matches!(
-            self.kind(),
-            Kind::Keyword(Keyword::Class | Keyword::Enum | Keyword::Final | Keyword::Const | Keyword::Var | Keyword::Void)
-        );
+        // `looksLikeStartOfNextTopLevelDeclaration`
+        // (identifier_context_impl.dart:1330): `isTopLevelKeyword`, ou
+        // `const`, `get`, `final`, `set`, `var`, `void`.
+        let texto = self.text_of(self.pos);
+        let proxima_declaracao = matches!(self.kind(), Kind::Ident | Kind::Keyword(_))
+            && (super::fasta::e_palavra_de_topo(texto) || matches!(texto, "const" | "get" | "final" | "set" | "var" | "void"));
         if topo
-            && (ty.is_some() || (mods.algum() && palavra_reservada_de_topo))
-            && ((self.kind() == Kind::Ident
-                && matches!(
-                    self.text_of(self.pos),
-                    "extension" | "export" | "import" | "library" | "mixin" | "part" | "typedef" | "get" | "set"
-                ))
-                || palavra_reservada_de_topo)
+            && (ty.is_some() || mods.algum())
+            && proxima_declaracao
             // Seguida de parâmetros é o nome de uma função (`String
             // extension(String path)` do `package:path`), como no Fasta.
             // Os `followingValues` do contexto: `;`, `=`, `,` no de variável;
@@ -2156,9 +2153,27 @@ impl<'s, 'i> Parser<'s, 'i> {
             // decide qual é).
             && !matches!(self.kind_at(1), Kind::Op(Op::Semicolon | Op::Assign | Op::Comma | Op::LParen | Op::Lt | Op::LBrace | Op::Arrow))
         {
+            // `insertSyntheticIdentifier` antes da palavra: a variável fica,
+            // com o nome sintético (o analyzer ainda relata o que falta nela,
+            // `FINAL_NOT_INITIALIZED` e afins, com o nome vazio), e o
+            // `ensureSemicolon` relata o `;` que falta no token anterior.
             let palavra = self.span();
             self.erro_em(codigos::parser::MISSING_IDENTIFIER, palavra, &[]);
-            return Err(self.erro_esperado(";"));
+            let _ = self.erro_esperado(";");
+            let nome = self.name_from("", Span { start: palavra.start, end: palavra.start });
+            self.relatar_modificadores_de_campo(mods, topo, nome.span);
+            return Ok(FunctionOrVariables::Variables(VariableList {
+                external: mods.external,
+                static_: mods.static_,
+                abstract_: mods.abstract_ && !topo,
+                covariant: mods.covariant,
+                late: mods.late,
+                final_: mods.final_,
+                const_: mods.const_,
+                var_: mods.var_,
+                ty,
+                variables: vec![crate::ast::Variable { name: nome, initializer: None }].into_boxed_slice(),
+            }));
         }
         // `recoverFromInvalidMember`: num membro, `(` ou `{` no lugar do nome
         // é método de nome sintético (`MISSING_IDENTIFIER` no token).
@@ -2223,7 +2238,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         Ok(FunctionOrVariables::Variables(VariableList {
             external: mods.external,
             static_: mods.static_,
-            abstract_: mods.abstract_,
+            abstract_: mods.abstract_ && !topo,
             covariant: mods.covariant,
             late: mods.late,
             final_: mods.final_,

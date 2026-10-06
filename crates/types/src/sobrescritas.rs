@@ -1079,10 +1079,8 @@ pub fn variaveis_nao_inicializadas(
         if anulavel(table, t) {
             continue;
         }
+        // Também no nome sintético (vazio), como o analyzer.
         let nome = var.name;
-        if nome.span.start == nome.span.end {
-            continue;
-        }
         saida.push((unit, Diagnostic::com_codigo(c::NOT_INITIALIZED_NON_NULLABLE_VARIABLE, nome.span, [interner.resolve(nome.sym)])));
     }
     saida
