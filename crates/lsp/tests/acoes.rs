@@ -25,7 +25,7 @@ fn acoes(p: &mut Projeto, relativo: &str, de: (u32, u32), ate: (u32, u32), extra
     let fora = |k: &str| {
         k.starts_with("source")
             || k.starts_with("quickfix.ignore")
-            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment", "refactor.convert.relativeToPackageImport", "refactor.convert.packageToRelativeImport", "refactor.convert.partOfToPartUri", "refactor.convert.toMapLiteral", "refactor.convert.toSetLiteral"].contains(&k))
+            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment", "refactor.convert.relativeToPackageImport", "refactor.convert.packageToRelativeImport", "refactor.convert.partOfToPartUri", "refactor.convert.toMapLiteral", "refactor.convert.toSetLiteral", "refactor.encapsulateField"].contains(&k))
             || k == "quickfix.change.to"
             || ["method", "function", "class", "mixin", "getter", "field", "localVariable", "parameter"]
                 .iter()
@@ -768,4 +768,17 @@ fn assistencia_de_literal_de_conjunto() {
     let pos = onde(texto, "Set();\n  print", 0);
     let r = acoes(&mut p, "lib/a.dart", pos, pos, json!({}));
     assert_eq!(aplicar(&acao(&r, "Convert to set literal")["edit"], &p.uri("lib/a.dart"), texto), texto.replace("var d = Set();", "var d = <dynamic>{};"));
+}
+
+#[test]
+fn assistencia_de_encapsular_campo() {
+    let mut p = Projeto::com_literais("acoes-encapsular");
+    let texto = "class A {\n  int x = 0;\n  A(this.x);\n}\n";
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "x = 0");
+    let a = acao(&r, "Encapsulate field");
+    assert_eq!(a["kind"], "refactor.encapsulateField");
+    assert_eq!(
+        aplicar(&a["edit"], &p.uri("lib/a.dart"), texto),
+        "class A {\n  int _x = 0;\n\n  int get x => _x;\n\n  set x(int value) {\n    _x = value;\n  }\n  A(this._x);\n}\n"
+    );
 }

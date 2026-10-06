@@ -7,6 +7,7 @@
 //! | `Convert to getter` | `refactor.convert.finalFieldToGetter` | `ConvertIntoGetter` |
 //! | `Convert to normal parameter` | `refactor.convert.toConstructorNormalParameter` | `ConvertToNormalParameter` |
 //! | `Convert class to a mixin` | `refactor.convert.classToMixin` | `ConvertClassToMixin` |
+//! | `Encapsulate field` | `refactor.encapsulateField` | `EncapsulateField` |
 
 use crate::acoes::AcaoDeCodigo;
 use crate::arvore_analyzer::Marca;
@@ -355,6 +356,172 @@ impl Contexto<'_> {
         Some(AcaoDeCodigo {
             titulo: "Convert class to a mixin".into(),
             especie: "refactor.convert.classToMixin".into(),
+            edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            diagnostico: None,
+            criar_arquivo: None,
+        })
+    }
+
+    /// `inheritanceManager.getOverridden4(classe, Name(nome))`: algum
+    /// supertipo (superclasse, mixins, interfaces, restrições `on`, de forma
+    /// transitiva) declara um membro de instância com esse nome — o getter ou
+    /// o método (`setter` falso), ou o setter (`nome=`).
+    fn membro_sobrescrito(&self, classe: dartforge_elements::model::ClassId, nome: &str, setter: bool) -> bool {
+        let prog = self.p.programa();
+        let chave = if setter { format!("{nome}_=") } else { nome.to_string() };
+        let mut vistos = std::collections::HashSet::new();
+        let ce = prog.class(classe);
+        let mut pilha: Vec<dartforge_elements::model::ClassId> =
+            ce.supertype_class.iter().chain(&ce.mixin_classes).chain(&ce.interface_classes).chain(&ce.on_classes).copied().collect();
+        while let Some(c) = pilha.pop() {
+            if !vistos.insert(c) {
+                continue;
+            }
+            let e = prog.class(c);
+            if e.instance_members.keys().any(|k| self.p.nome(*k) == chave) {
+                return true;
+            }
+            pilha.extend(e.supertype_class.iter().chain(&e.mixin_classes).chain(&e.interface_classes).chain(&e.on_classes).copied());
+        }
+        false
+    }
+
+    /// `EncapsulateField` (encapsulate_field.dart): no nome de um campo de
+    /// instância público, não final, único na declaração, de classe ou mixin,
+    /// o campo vira privado e ganha getter e setter com o nome dele.
+    pub(crate) fn encapsular_campo(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
+        let no = self.arvore.localizar(inicio, fim)?;
+        let declaracao = self.com_pais(no).find(|&k| self.especie(k) == "FieldDeclaration")?;
+        let lista = self.filhos(declaracao).iter().copied().find(|&k| self.especie(k) == "VariableDeclarationList")?;
+        // As palavras antes da lista (`static`, `covariant`…) e as da lista.
+        let palavras = |de: usize, ate: usize| -> Vec<&str> {
+            self.tokens.iter().filter(|t| t.span.start >= de && t.span.end <= ate).map(|t| &self.fonte[t.span.start..t.span.end]).collect()
+        };
+        let anotacoes: Vec<usize> = self.filhos(declaracao).iter().copied().filter(|&k| self.especie(k) == "Annotation").collect();
+        let depois_dos_metadados = anotacoes.last().map_or(self.arvore.nos[declaracao].inicio, |&a| self.arvore.nos[a].fim);
+        let antes = palavras(depois_dos_metadados, self.arvore.nos[lista].inicio);
+        if antes.contains(&"static") {
+            return None;
+        }
+        let tipo = self.filhos(lista).iter().copied().find(|&k| TIPOS.contains(&self.especie(k)));
+        let variaveis: Vec<usize> = self.filhos(lista).iter().copied().filter(|&k| self.especie(k) == "VariableDeclaration").collect();
+        let ate_o_nome = variaveis.first().map_or(self.arvore.nos[lista].fim, |&v| self.arvore.nos[v].inicio);
+        let da_lista = palavras(self.arvore.nos[lista].inicio, ate_o_nome);
+        let palavra = da_lista.iter().find(|w| matches!(**w, "var" | "final" | "const")).copied();
+        if palavra.is_none() && tipo.is_none() {
+            return None;
+        }
+        if palavra == Some("final") || variaveis.len() != 1 {
+            return None;
+        }
+        let nome_tk = self.token_seguinte(self.arvore.nos[variaveis[0]].inicio)?;
+        let nome = &self.fonte[nome_tk.start..nome_tk.end];
+        if nome.starts_with('_') {
+            return None;
+        }
+        // `nameToken != token`: o token da seleção é o nome.
+        if !(nome_tk.start <= inicio && inicio <= nome_tk.end) {
+            return None;
+        }
+        let corpo_da_classe = self.pai(declaracao)?;
+        if !matches!(self.especie(corpo_da_classe), "ClassDeclaration" | "MixinDeclaration") {
+            return None;
+        }
+        let Marca::Decl(d) = self.arvore.nos[corpo_da_classe].marca else { return None };
+        let classe = self.classe_da_declaracao(self.unidade, d)?;
+        let tx = crate::refatoracoes_exec::Texto::novo(self.fonte);
+        let eol = tx.eol();
+        let mut m = crate::refatoracoes_exec::Mudanca::default();
+        // Sem as anotações no campo.
+        if let (Some(&primeira), Some(&ultima)) = (anotacoes.first(), anotacoes.last()) {
+            m.adicionar(uri, tx.faixa_de_linhas(self.arvore.nos[primeira].inicio, self.arvore.nos[ultima].fim), String::new());
+        }
+        m.adicionar(uri, nome_tk, format!("_{nome}"));
+        let codigo_do_tipo = tipo.map_or(String::new(), |t| self.texto_do_no(t).to_string());
+        // Os construtores: os `this.x` e os inicializadores do campo.
+        for &membro in self.filhos(corpo_da_classe) {
+            if self.especie(membro) != "ConstructorDeclaration" {
+                continue;
+            }
+            let Some(&parametros) = self.filhos(membro).iter().find(|&&k| self.especie(k) == "FormalParameterList") else { continue };
+            let inicializadores: Vec<usize> = self
+                .filhos(membro)
+                .iter()
+                .copied()
+                .filter(|&k| matches!(self.especie(k), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
+                .collect();
+            for &parametro in self.filhos(parametros) {
+                let (interno, nomeado) = if self.especie(parametro) == "DefaultFormalParameter" {
+                    let Some(&i) = self.filhos(parametro).first() else { continue };
+                    // `isNamed`: entre `{ }`.
+                    let antes_do_parametro = &self.fonte[self.arvore.nos[parametros].inicio..self.arvore.nos[parametro].inicio];
+                    (i, antes_do_parametro.contains('{'))
+                } else {
+                    (parametro, false)
+                };
+                if self.especie(interno) != "FieldFormalParameter" {
+                    continue;
+                }
+                let Some(identificador) = self.token_anterior(self.arvore.nos[interno].fim) else { continue };
+                if &self.fonte[identificador.start..identificador.end] != nome {
+                    continue;
+                }
+                if nomeado {
+                    // `this.` sai (com o tipo do campo no lugar) e o campo é
+                    // inicializado na lista.
+                    let this_ = self.tokens.iter().find(|t| t.span.start >= self.arvore.nos[interno].inicio && &self.fonte[t.span.start..t.span.end] == "this")?.span;
+                    let ponto = self.token_seguinte(this_.end)?;
+                    let texto = if codigo_do_tipo.is_empty() { String::new() } else { format!("{codigo_do_tipo} ") };
+                    m.adicionar(uri, Span { start: this_.start, end: ponto.end }, texto);
+                    if inicializadores.is_empty() {
+                        let fim_dos_parametros = self.arvore.nos[parametros].fim;
+                        m.adicionar(uri, Span { start: fim_dos_parametros, end: fim_dos_parametros }, format!(" : _{nome} = {nome}"));
+                    } else {
+                        let separador = self.token_anterior(self.arvore.nos[inicializadores[0]].inicio)?;
+                        m.adicionar(uri, Span { start: separador.end, end: separador.end }, format!(" _{nome} = {nome},"));
+                    }
+                    break;
+                }
+                m.adicionar(uri, identificador, format!("_{nome}"));
+            }
+            for &i in &inicializadores {
+                if self.especie(i) != "ConstructorFieldInitializer" {
+                    continue;
+                }
+                let Some(&campo) = self.filhos(i).first() else { continue };
+                if self.texto_do_no(campo) == nome {
+                    m.adicionar(uri, self.arvore.span(campo), format!("_{nome}"));
+                }
+            }
+        }
+        // O getter e o setter, depois da declaração.
+        let documentacao = self.filhos(declaracao).iter().copied().find(|&k| self.especie(k) == "Comment").map(|c| self.texto_do_no(c).to_string());
+        let codigo = if codigo_do_tipo.is_empty() { String::new() } else { format!("{codigo_do_tipo} ") };
+        let cabecalho = |preservar_override: bool| -> String {
+            let mut s = format!("{eol}{eol}");
+            if let Some(doc) = &documentacao {
+                s.push_str(&format!("  {doc}{eol}"));
+            }
+            for &a in &anotacoes {
+                let texto = self.texto_do_no(a);
+                if texto != "@override" || preservar_override {
+                    s.push_str(&format!("  {texto}{eol}"));
+                }
+            }
+            s
+        };
+        let mut s = cabecalho(self.membro_sobrescrito(classe, nome, false));
+        s.push_str(&format!("  {codigo}get {nome} => _{nome};"));
+        s.push_str(&cabecalho(self.membro_sobrescrito(classe, nome, true)));
+        s.push_str(&format!("  set {nome}({codigo}value) {{{eol}    _{nome} = value;{eol}  }}"));
+        let fim_da_declaracao = self.arvore.nos[declaracao].fim;
+        m.adicionar(uri, Span { start: fim_da_declaracao, end: fim_da_declaracao }, s);
+        if m.conflito.is_some() {
+            return None;
+        }
+        Some(AcaoDeCodigo {
+            titulo: "Encapsulate field".into(),
+            especie: "refactor.encapsulateField".into(),
             edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
             diagnostico: None,
             criar_arquivo: None,
