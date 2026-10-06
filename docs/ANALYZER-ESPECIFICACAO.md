@@ -5963,6 +5963,9 @@ ou `undefined_class 'augment'`) e o resto é **outra declaração homônima** (`
   false}}` — o fasta mantém o construtor com `this.x`; o nosso perde o construtor, daí também 2 FP de
   `final_not_initialized`). **3 FP NOVA AUG** (`ConstructorBody__class_primaryConstruct_*`: `augment A(int x);` na
   segunda `A`): a chave por nome funde as duas `A` (achado 4). O rascunho não trata este código.
+- **Correção (2026-10-06):** os arquivos com construtor primário são do grupo de sintaxe nova (oráculo 3.13): o
+  primário elaborado é conferido como os outros construtores geradores, e o relato vai no nome da classe
+  (`class A(this.v1) { final int v1; final int v2; this; }` → `'v2'` em `A`).
 
 ##### `invalid_factory_name_not_a_class` (perda 23: FN 23; acerto 21/44)
 - **Emissão:** `SimpleIdentifierResolver` (`analyzer/lib/src/dart/resolver/simple_identifier_resolver.dart:189-197`),

@@ -213,10 +213,10 @@ pub fn finais_nao_inicializados(unidades: &[Unidade<'_>], nomes: &Interner) -> V
                             DeclKind::Enum(x) => (chave_de(true, x.name.sym, i, id), x.primary_constructor),
                             _ => continue,
                         };
-                        // O corpus `analyzer` usa SDK 3.6.2: nele a sintaxe
-                        // de construtor primário é recuperada como erro de
-                        // parser, sem diagnóstico semântico de inicialização.
-                        if primario == Some(m) { continue; }
+                        // O construtor primário (sintaxe 3.13, conferida pelo
+                        // oráculo 3.13) também inicializa: relata no nome da
+                        // classe, como os outros.
+                        let _ = primario;
                         if k.initializers.iter().any(|x| matches!(x, Initializer::Redirect { .. })) { continue; }
                         let inicializado = |nome: &SymbolId| {
                             k.parameters.iter().any(|p| p.this_ && p.name.is_some_and(|n| n.sym == *nome))
