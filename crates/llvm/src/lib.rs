@@ -27,9 +27,11 @@ pub mod conferir_rs4gc;
 
 use llvm_sys::bit_writer::LLVMWriteBitcodeToMemoryBuffer;
 use llvm_sys::core::{
-    LLVMContextCreate, LLVMContextDispose, LLVMCreateMemoryBufferWithMemoryRangeCopy, LLVMDisposeMemoryBuffer,
-    LLVMDisposeMessage, LLVMDisposeModule, LLVMGetBufferSize, LLVMGetBufferStart, LLVMGetDataLayoutStr,
-    LLVMGetTarget, LLVMGetVersion, LLVMPrintModuleToString, LLVMSetDataLayout, LLVMSetTarget,
+    LLVMContextCreate, LLVMContextDispose, LLVMCreateMemoryBufferWithMemoryRangeCopy, LLVMDeleteFunction,
+    LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMDisposeModule, LLVMGetBufferSize, LLVMGetBufferStart,
+    LLVMGetDataLayoutStr, LLVMGetFirstFunction, LLVMGetFirstUse, LLVMGetGC, LLVMGetNamedFunction, LLVMGetNextFunction,
+    LLVMGetTarget, LLVMGetVersion,
+    LLVMPrintModuleToString, LLVMSetDataLayout, LLVMSetTarget,
 };
 use llvm_sys::error::{LLVMDisposeErrorMessage, LLVMErrorRef, LLVMGetErrorMessage};
 use llvm_sys::ir_reader::LLVMParseIRInContext2;
@@ -177,13 +179,14 @@ pub fn gerar(nome: &str, ir: &str, opcoes: &Opcoes) -> Result<Vec<u8>, String> {
     let com_mapas = ir.contains(MARCA_DE_GC);
     let maquina = MaquinaAlvo::do_triple(&triple, opcoes.otimizar || com_mapas, opcoes.cpu)?;
     modulo.completar_alvo(&triple, &maquina, com_mapas);
-    // O bitcode da produção só passa pelo passe dos mapas aqui no Windows,
-    // cuja LTO do `lld-link` não aceita passes. No Linux o passe roda no
-    // fecho do ThinLTO distribuído (`emit_native/src/lto_distribuida.rs`) e
-    // no Mach-O na LTO do `ld64.lld` (`--lto-newpm-passes`,
-    // `ligador_macos.rs`), depois do inlining da ligação
-    // (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.4).
-    let passe_no_ligador = opcoes.formato == Formato::Bitcode && !triple.contains("windows");
+    // O bitcode da produção nunca passa pelo passe dos mapas aqui: ele roda
+    // depois de toda a otimização da ligação — no Windows e no Linux no fecho
+    // do ThinLTO distribuído (`emit_native/src/lto_distribuida.rs`), no
+    // Mach-O na LTO do `ld64.lld` (`--lto-newpm-passes`, `ligador_macos.rs`)
+    // (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.4). Reescrito antes, o IR
+    // seria otimizado de novo na LTO com os statepoints já postos, e o
+    // otimizador não conhece as raízes deles: o executável perde raízes.
+    let passe_no_ligador = opcoes.formato == Formato::Bitcode;
     // `DARTFORGE_PIPELINE_OBJETO` troca o pipeline do objeto otimizado
     // (medida de tempo e tamanho: `default<O1>`, `default<Os>`;
     // docs/NATIVO-PRODUCAO-GRANDE.md).
@@ -195,6 +198,11 @@ pub fn gerar(nome: &str, ir: &str, opcoes: &Opcoes) -> Result<Vec<u8>, String> {
     };
     if com_mapas && !passe_no_ligador {
         modulo.otimizar(&format!("{pipeline},rewrite-statepoints-for-gc,verify"), &maquina)?;
+        // O passe declara `@__tmp_use` para os usos provisórios que ele mesmo
+        // apaga. A declaração que sobra não muda um objeto, mas no bitcode da
+        // produção (a LTO do `lld-link`) ela entra na tabela de símbolos como
+        // indefinida, e a ligação falha.
+        modulo.remover_declaracao_sem_uso("__tmp_use");
         conferir_depois_do_rs4gc(nome, &modulo)?;
     } else {
         modulo.otimizar(pipeline, &maquina)?;
@@ -209,14 +217,6 @@ pub fn gerar(nome: &str, ir: &str, opcoes: &Opcoes) -> Result<Vec<u8>, String> {
 /// escreve (`emit_native/src/llvm/mod.rs`).
 pub const MARCA_DE_GC: &str = "gc \"statepoint-example\"";
 
-/// O nome da estratégia de coleta, como aparece na tabela de textos de um
-/// módulo em **bitcode** (lá o atributo não está escrito por extenso).
-const ESTRATEGIA_DE_GC: &[u8] = b"statepoint-example";
-
-/// Se o módulo em bitcode tem alguma função com raízes no mapa de pilha.
-pub fn bitcode_com_mapas(bitcode: &[u8]) -> bool {
-    bitcode.windows(ESTRATEGIA_DE_GC.len()).any(|j| j == ESTRATEGIA_DE_GC)
-}
 
 /// O objeto nativo de uma parte do **ThinLTO distribuído**
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.4 e Etapa 3): `bitcode` é o
@@ -226,23 +226,30 @@ pub fn bitcode_com_mapas(bitcode: &[u8]) -> bool {
 /// de toda a otimização — o inlining entre o programa e o SDK já aconteceu
 /// —, o verificador e a geração de código (nunca a do `-O0`).
 ///
+/// Devolve o objeto e se o módulo tinha funções com raízes no mapa (o
+/// objeto então traz o `.llvm_stackmaps`, que quem chama converte). A
+/// pergunta é feita ao módulo lido: no bitcode o nome da estratégia de
+/// coleta pode estar codificado, e procurá-lo nos bytes falha (o do Clang).
+///
 /// # Erros
 /// Bitcode que o leitor recusa, falha do passe, do verificador ou do
 /// gerador de código — a mensagem é a do LLVM.
-pub fn gerar_de_bitcode(nome: &str, bitcode: &[u8], cpu: Option<&'static str>) -> Result<Vec<u8>, String> {
+pub fn gerar_de_bitcode(nome: &str, bitcode: &[u8], cpu: Option<&'static str>) -> Result<(Vec<u8>, bool), String> {
     inicializar_alvo_nativo()?;
     let contexto = Contexto::novo();
     let modulo = contexto.ler_bytes(nome, bitcode)?;
     let triple = modulo.triple().unwrap_or_else(triple_padrao);
     let maquina = MaquinaAlvo::do_triple(&triple, true, cpu)?;
-    modulo.completar_alvo(&triple, &maquina, bitcode_com_mapas(bitcode));
-    if bitcode_com_mapas(bitcode) {
+    let com_mapas = modulo.tem_funcao_gc();
+    modulo.completar_alvo(&triple, &maquina, com_mapas);
+    if com_mapas {
         modulo.otimizar("rewrite-statepoints-for-gc,verify", &maquina)?;
+        modulo.remover_declaracao_sem_uso("__tmp_use");
         conferir_depois_do_rs4gc(nome, &modulo)?;
     } else {
         modulo.otimizar("verify", &maquina)?;
     }
-    maquina.emitir_objeto(&modulo)
+    Ok((maquina.emitir_objeto(&modulo)?, com_mapas))
 }
 
 /// `DARTFORGE_CONFERIR_RS4GC=1`: o conferidor das raízes depois do
@@ -425,6 +432,33 @@ impl Modulo<'_> {
         match tomar_erro(erro) {
             Some(e) => Err(format!("o pipeline {pipeline} do LLVM falhou: {e}")),
             None => Ok(()),
+        }
+    }
+
+    /// Alguma função do módulo tem estratégia de coleta (`gc "…"`).
+    fn tem_funcao_gc(&self) -> bool {
+        // SAFETY: módulo vivo; a lista de funções é percorrida sem mudança.
+        unsafe {
+            let mut f = LLVMGetFirstFunction(self.m);
+            while !f.is_null() {
+                if !LLVMGetGC(f).is_null() {
+                    return true;
+                }
+                f = LLVMGetNextFunction(f);
+            }
+        }
+        false
+    }
+
+    /// Apaga a declaração `nome`, se ela existir e não tiver uso.
+    fn remover_declaracao_sem_uso(&self, nome: &str) {
+        let Ok(c) = CString::new(nome) else { return };
+        // SAFETY: módulo vivo; a função só é apagada sem usos.
+        unsafe {
+            let f = LLVMGetNamedFunction(self.m, c.as_ptr());
+            if !f.is_null() && LLVMGetFirstUse(f).is_null() {
+                LLVMDeleteFunction(f);
+            }
         }
     }
 

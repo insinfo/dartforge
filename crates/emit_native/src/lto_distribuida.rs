@@ -176,8 +176,8 @@ pub fn objetos(p: &Pedido<'_>) -> Result<Vec<PathBuf>, String> {
         let bitcode = std::fs::read(&pos).map_err(|e| format!("{}: {e}", pos.display()))?;
         let nome = format!("parte{i}");
         let fechar = |destino: &Path| -> Result<(), String> {
-            let mut objeto = dartforge_llvm::gerar_de_bitcode(&nome, &bitcode, p.cpu.map(Cpu::nome))?;
-            if dartforge_llvm::bitcode_com_mapas(&bitcode) && converter_mapa {
+            let (mut objeto, com_mapas) = dartforge_llvm::gerar_de_bitcode(&nome, &bitcode, p.cpu.map(Cpu::nome))?;
+            if com_mapas && converter_mapa {
                 crate::gcmap::converter(&mut objeto)?;
             }
             // A tabela do rastro, quando o objeto a tem (a seção é achada pelo

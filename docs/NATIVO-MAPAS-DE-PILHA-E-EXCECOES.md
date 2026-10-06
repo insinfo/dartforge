@@ -2490,6 +2490,9 @@ padrão). A decodificação preguiçosa foi escrita em 2026-10-05 (§14.10).
 
 ### 14.10 Etapas 2, 3 e 4: o que foi escrito em 2026-10-05 (sem compilar nem executar)
 
+> **2026-10-06:** a Etapa 2 foi compilada, verificada e medida no Windows x86-64, e arquivada pelo
+> critério de tamanho; veja o §14.11.
+
 **Etapa 2, o que faltava.**
 
 | peça | onde |
@@ -2628,6 +2631,71 @@ sabotagem `tipo_sem_raiz` (runtime, `RT/tipos.rs`) tira o registro da raiz: a vo
 do cache um handle de bloco liberado, que o veneno e a validação de handle recusam. Os demais caches
 com handle levantados (`LITERAIS_POR_ENDERECO`, `DESPACHANTE`, `ATUAL` de `portas.rs`,
 `CURRENT_STACK_TRACE`) seguem a mesma regra e não têm sabotagem própria.
+
+### 14.11 Etapa 2: verificação e decisão (2026-10-06)
+
+Nesta máquina (Windows 11, x86-64, LLVM 22.1.8), com o gerador embutido.
+
+**Correção.**
+
+| verificação | resultado |
+|---|---|
+| `corpus/js` em B0, com e sem `--gc-stress` | 238/238 e 238/238 |
+| `corpus/nativo` em B0, com e sem `--gc-stress` | 128/130 e 128/130 (as duas diferenças são do ambiente, iguais em A0: §13.16) |
+| `mapas_dirigidos` (`DARTFORGE_TESTES_MAPAS=1`): os casos do §7.3 passam e cada um cai com a sua sabotagem; o percurso conferido contra a pilha-sombra; a folha que coleta achada pelo nome; a coleta agendada | 4/4 |
+| `aot --optimize` em B0 dos programas do `bench/desempenho`, com `--gc-stress` | roda |
+
+Defeitos achados ao rodar, todos consertados:
+
+* a chamada C variádica de uma função `gc` (o RS4GC não embrulha variádica que devolve valor): passa
+  por um intermediário `@df.vararg.<k>` de assinatura fixa, fora da estratégia de coleta;
+* o conferidor do RS4GC não reconhecia a raiz pelo `phi` do laço (a raiz relocada a cada volta,
+  inclusive `phi` em ciclo) nem as outras raízes do mesmo valor depois do *inlining*;
+* a moldura de `DARTFORGE_EFEITOS=conferir` virava statepoint (não é folha na tabela);
+* o conferidor da sombra tratava todo ajudante `df.*` como ponto de coleta e pedia slot para os
+  parâmetros (raízes de quem chama, C1), também pelo `phi`;
+* a conferência do percurso contava `Smi` como raiz;
+* faltavam ao runtime a acusação do quadro morto na pilha-sombra (o efeito do pouso sem o topo) e a da
+  exceção que atravessa quadros Rust sem porta (D9); os casos D3 e da regra do `nop` (o D15 novo)
+  passaram a exercitar as sabotagens deles;
+* na produção do Windows o RS4GC rodava antes da LTO do `lld-link`, que reotimizava o IR já reescrito
+  e o executável perdia raízes ("handle já coletado"); a declaração `@__tmp_use` que o passe deixa ia
+  como símbolo indefinido no bitcode. Agora o programa de um módulo só vai pelo ThinLTO distribuído,
+  como as partes: o bitcode sai do Clang (com o resumo do ThinLTO) e o passe roda no fecho, depois da
+  otimização da ligação. A detecção das funções `gc` no bitcode pergunta ao módulo lido (o Clang
+  codifica o nome da estratégia, e a procura nos bytes falhava).
+
+**Medidas do §8** (`scripts/medir-mapas.sh`, `bench/desempenho`, produção `aot --optimize`). A0 vai
+pela LTO completa do ligador e B0 pelo ThinLTO distribuído; para isolar o modo de raízes, A0 também foi
+medido pelo distribuído (`DISTRIBUIDA=1`, `DARTFORGE_LTO_DISTRIBUIDA=1`):
+
+| programa | `.text` A0 (LTO do ligador) | `.text` A0 (distribuído) | `.text` B0 | mapa B0 (`.dfgcm`) |
+|---|---:|---:|---:|---:|
+| chamadas | 2.850.230 | 2.884.854 | 3.621.814 | 99.972 |
+| colecoes | 3.158.118 | 3.196.726 | 4.020.470 | 111.644 |
+| json | 3.153.302 | 3.192.118 | 3.975.542 | 112.896 |
+| numerico | 2.843.270 | 2.877.878 | 3.615.030 | 99.760 |
+| objetos_em_colecoes | 3.091.622 | 3.129.206 | 3.940.086 | 108.688 |
+| objetos_escapam | 2.845.030 | 2.879.606 | 3.616.630 | 99.864 |
+| objetos_temporarios | 2.845.910 | 2.880.118 | 3.616.950 | 99.868 |
+| textos | 2.855.414 | 2.890.102 | 3.626.678 | 100.404 |
+| tipados | 2.846.790 | 2.882.614 | 3.619.830 | 99.956 |
+
+No mesmo pipeline, o `.text` de B0 é **25% maior** que o de A0 (+737 KB em `chamadas`), e o mapa soma
+mais 100 KB. O que sai com o quadro da pilha-sombra volta como derramamentos e recargas em volta dos
+statepoints, e o otimizador perde o que o `gc.relocate` esconde (§3.4); é o lado do Perry no §8.3.
+
+No desenvolvimento (só o programa, o SDK numa DLL) o `.text` de B0 é 30–40% menor, mas lá os geradores
+diferem (A0 em `-O0` com FastISel, B0 sem FastISel), e o critério é o da produção.
+
+O tempo de compilação de desenvolvimento (objetos frios, SDK em cache) vai de 0,3–0,4 s a 0,4–0,8 s
+(`json`: 2×), e a compilação do SDK, de 14,5 s para 60 s.
+
+**Decisão.** Pelos critérios de abandono da Etapa 2 (§6: o `.text` dos programas do `bench/desempenho`
+em B0 não ficou menor que em A0 com o mapa incluído, e o tempo de desenvolvimento passou de 1,5×), as
+raízes por mapas ficam **arquivadas como experimentais**: o código continua atrás de `--raizes=mapas`,
+corrigido e com os testes dirigidos verdes, sem custo para o padrão (pilha-sombra). As Etapas 3 e 4 não
+seguem enquanto o saldo de tamanho for este.
 
 ## 15. Roteiro de implementação detalhado
 

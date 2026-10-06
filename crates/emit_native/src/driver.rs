@@ -209,6 +209,28 @@ pub fn compile_and_link(
         return Ok(TemposLigacao { clang: clang_duration, link: t_link.elapsed(), objeto_do_cache: false });
     }
 
+    // Raízes por mapas na produção de um módulo só, pelo ThinLTO distribuído,
+    // que roda o passe dos mapas depois da otimização da ligação e entrega
+    // objetos com o mapa compacto (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
+    // §3.4): no Windows, porque a LTO do `lld-link` não roda o passe; no
+    // Linux, também porque o mapa do LLVM tem relocações absolutas numa seção
+    // só de leitura, que o `ld.lld` recusa no executável PIE (Etapa 4).
+    // `DARTFORGE_LTO_DISTRIBUIDA=1` (medida, §8): o mesmo caminho com a
+    // pilha-sombra, para comparar os modos de raízes no mesmo pipeline.
+    let distribuida_unica = cfg!(feature = "llvm-embutido")
+        && producao
+        && !sem_lto
+        && matches!(crate::alvo::sistema(), Sistema::Windows | Sistema::Linux)
+        && (crate::alvo::raizes_por_mapas()? || std::env::var("DARTFORGE_LTO_DISTRIBUIDA").is_ok_and(|v| v == "1"));
+    // O bitcode que vai ao ThinLTO distribuído tem de levar o resumo do
+    // ThinLTO, que só o Clang escreve: sem ele, o backend com o índice da
+    // ligação devolve o módulo vazio. `DARTFORGE_GERADOR` escolhe à mão.
+    let gerador = if distribuida_unica && std::env::var_os("DARTFORGE_GERADOR").is_none() {
+        Gerador::Clang(options.clang.clone())
+    } else {
+        gerador
+    };
+
     // Fase 1: o gerador compila LLVM IR -> objeto, ou o cache já tem o
     // objeto deste IR com este gerador e esta geração.
     let obj_staging = || -> Result<PathBuf, String> {
@@ -232,16 +254,6 @@ pub fn compile_and_link(
 
     // Fase 2: Link do objeto com o runtime estático
     let t_link = Instant::now();
-    // Raízes por mapas na produção do Linux: o mapa do LLVM tem relocações
-    // absolutas numa seção só de leitura, que o `ld.lld` recusa no executável
-    // PIE, e a LTO do ligador não passa pelo conversor; o programa de um
-    // módulo só também vai pelo ThinLTO distribuído, que entrega objetos com
-    // o mapa compacto (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md, Etapa 4).
-    let distribuida_unica = cfg!(feature = "llvm-embutido")
-        && producao
-        && !sem_lto
-        && crate::alvo::sistema() == Sistema::Linux
-        && crate::alvo::raizes_por_mapas()?;
     let ligar_objeto = |obj: &Path| {
         if distribuida_unica {
             ligar_distribuida(&options.clang, std::slice::from_ref(&obj.to_path_buf()), &sdk_objetos, &ligar_com, output, options.depuracao, options.cpu, &staging, cache)
