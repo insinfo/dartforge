@@ -143,6 +143,11 @@ pub struct TypeTable {
     /// O parâmetro sentinela do desconhecido `_` ([`CoreTypes::unknown_param`]),
     /// exibido `_` como no analyzer (`B<_>`).
     pub param_desconhecido: Option<TypeParamId>,
+    /// Os formais frescos de um tipo de função genérico cujos limites mudam
+    /// numa substituição (`crate::ops::substitute`), pelos formais
+    /// originais e os limites substituídos: a mesma substituição dá os
+    /// mesmos formais.
+    pub(crate) formais_frescos: HashMap<(Box<[TypeParamId]>, Box<[TypeId]>), Box<[TypeParamId]>>,
 }
 
 /// A decoração de exibição de um tipo (ver [`TypeTable`]).
@@ -177,6 +182,7 @@ impl TypeTable {
             canonicos: HashMap::new(),
             preservar_exibicao: false,
             param_desconhecido: None,
+            formais_frescos: HashMap::new(),
         }
     }
 

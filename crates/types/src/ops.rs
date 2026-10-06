@@ -375,7 +375,7 @@ pub fn substitute(
             nullable: is_null,
         } => {
             // Parâmetros de tipo genéricos locais sombreiam o mapeamento
-            let active_mapping: HashMap<TypeParamId, TypeId> = if type_params.is_empty() {
+            let mut active_mapping: HashMap<TypeParamId, TypeId> = if type_params.is_empty() {
                 mapping.clone()
             } else {
                 let mut m = mapping.clone();
@@ -384,6 +384,49 @@ pub fn substitute(
                 }
                 m
             };
+            // Limites dos formais que mudam com a substituição (`m<T extends X>`
+            // de `C<num>`): formais frescos com os limites substituídos, como o
+            // `FunctionTypeImpl` substituído do analyzer.
+            let mut type_params = type_params;
+            let mut formais_mudaram = false;
+            if !type_params.is_empty() && !active_mapping.is_empty() {
+                let limites: Vec<TypeId> = type_params.iter().map(|&p| table.param(p).bound).collect();
+                let novos_limites: Vec<TypeId> = limites.iter().map(|&b| substitute(b, &active_mapping, table)).collect();
+                if novos_limites != limites {
+                    let chave = (type_params.clone(), novos_limites.into_boxed_slice());
+                    let frescos = match table.formais_frescos.get(&chave) {
+                        Some(f) => f.clone(),
+                        None => {
+                            let frescos: Box<[TypeParamId]> = type_params
+                                .iter()
+                                .map(|&p| {
+                                    let d = table.param(p).clone();
+                                    let n = table.alloc_type_param(d.name, d.owner.clone(), d.bound, d.variance);
+                                    table.param_mut(n).explicito = d.explicito;
+                                    n
+                                })
+                                .collect();
+                            let mut renomeio = active_mapping.clone();
+                            for (&o, &n) in type_params.iter().zip(frescos.iter()) {
+                                let tn = table.intern(Type::TypeParameter { param: n, nullable: false });
+                                renomeio.insert(o, tn);
+                            }
+                            for (&b, &n) in limites.iter().zip(frescos.iter()) {
+                                let nb = substitute(b, &renomeio, table);
+                                table.param_mut(n).bound = nb;
+                            }
+                            table.formais_frescos.insert(chave, frescos.clone());
+                            frescos
+                        }
+                    };
+                    for (&o, &n) in type_params.iter().zip(frescos.iter()) {
+                        let tn = table.intern(Type::TypeParameter { param: n, nullable: false });
+                        active_mapping.insert(o, tn);
+                    }
+                    type_params = frescos;
+                    formais_mudaram = true;
+                }
+            }
 
             let new_ret = substitute(ret, &active_mapping, table);
             let mut pos_changed = false;
@@ -416,7 +459,7 @@ pub fn substitute(
                 new_named.push((sym, s, req));
             }
 
-            if new_ret != ret || pos_changed || opt_changed || named_changed {
+            if new_ret != ret || pos_changed || opt_changed || named_changed || formais_mudaram {
                 table.intern(Type::Function {
                     type_params,
                     ret: new_ret,

@@ -225,12 +225,7 @@ fn is_subtype_inner(t0_id: TypeId, t1_id: TypeId, env: &mut SubtypeEnv) -> bool 
     {
         if c0 == c1 {
             if args0.len() == args1.len() {
-                for (&a0, &a1) in args0.iter().zip(args1.iter()) {
-                    if !is_subtype(a0, a1, env) {
-                        return false;
-                    }
-                }
-                return true;
+                return argumentos_da_interface(*c0, args0, args1, env);
             }
         } else if let Some(super_t) = env.hierarchy.supertype_of(t0_id, *c1, env.table, env.core) {
             return is_subtype(super_t, t1_id, env);
@@ -252,12 +247,7 @@ fn is_subtype_inner(t0_id: TypeId, t1_id: TypeId, env: &mut SubtypeEnv) -> bool 
             && e0 == e1
             && args0.len() == args1.len()
         {
-            for (&a0, &a1) in args0.iter().zip(args1.iter()) {
-                if !is_subtype(a0, a1, env) {
-                    return false;
-                }
-            }
-            return true;
+            return argumentos_da_interface(*e0, args0, args1, env);
         }
         // Subinterfaces declaradas no implements do extension type (classes
         // ou outros extension types, como `JSObject implements JSAny`).
@@ -563,4 +553,23 @@ fn strip_nullability(ty_id: TypeId, ty: &Type, table: &mut TypeTable) -> TypeId 
         }),
         _ => ty_id,
     }
+}
+
+/// `_interfaceArguments` (`analyzer/lib/src/dart/element/subtype.dart`): os
+/// argumentos de `C<S…>` contra `C<T…>` pela variância declarada de cada
+/// parâmetro (`in`, `out`, `inout`; sem modificador, covariante).
+fn argumentos_da_interface(c: dartforge_elements::model::ClassId, args0: &[TypeId], args1: &[TypeId], env: &mut SubtypeEnv) -> bool {
+    let params: Vec<crate::table::TypeParamId> = env.hierarchy.get(c).map(|d| d.type_params.to_vec()).unwrap_or_default();
+    for (i, (&a0, &a1)) in args0.iter().zip(args1.iter()).enumerate() {
+        let variancia = params.get(i).map(|&p| env.table.param(p).variance).unwrap_or_default();
+        let ok = match variancia {
+            crate::table::Variance::Contravariant => is_subtype(a1, a0, env),
+            crate::table::Variance::Invariant => is_subtype(a0, a1, env) && is_subtype(a1, a0, env),
+            crate::table::Variance::Covariant | crate::table::Variance::Unspecified => is_subtype(a0, a1, env),
+        };
+        if !ok {
+            return false;
+        }
+    }
+    true
 }

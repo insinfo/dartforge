@@ -1173,11 +1173,12 @@ pub fn valores_padrao(
 }
 
 /// `ErrorVerifier._checkForConflictingClassMembers` (classes, mixins e tipos
-/// de extensão da biblioteca), menos o `conflicting_static_and_instance`, que
-/// `analise::heranca` relata: método declarado contra campo herdado
-/// (`conflicting_method_and_field`), acessor declarado contra método herdado
-/// (`conflicting_field_and_method`), e método e setter herdados com o mesmo
-/// nome (`conflicting_inherited_method_and_setter`), pelo `getInherited2`.
+/// de extensão da biblioteca): estático declarado contra membro herdado
+/// (`conflicting_static_and_instance`, com a classe dona do herdado), método
+/// declarado contra campo herdado (`conflicting_method_and_field`), acessor
+/// declarado contra método herdado (`conflicting_field_and_method`), e método
+/// e setter herdados com o mesmo nome
+/// (`conflicting_inherited_method_and_setter`), pelo `getInherited2`.
 pub fn membros_em_conflito(
     program: &Program,
     interner: &Interner,
@@ -1236,7 +1237,13 @@ pub fn membros_em_conflito(
             let nome = interner.resolve(n.sym).to_string();
             let getter = herdado_visivel(&mut cx, &nome);
             let setter = herdado_visivel(&mut cx, &format!("{nome}_="));
-            if af.static_ && (getter.is_some() || setter.is_some()) {
+            if af.static_
+                && let Some(a) = getter.or(setter)
+            {
+                saida.push((
+                    decl.unit,
+                    Diagnostic::com_codigo(c::CONFLICTING_STATIC_AND_INSTANCE, n.span, [texto_classe.clone(), nome.clone(), dono(a)]),
+                ));
                 continue;
             }
             if classe.kind == K::ExtensionType {
@@ -1276,7 +1283,11 @@ pub fn membros_em_conflito(
             }
             for (nome, span, estatico) in acessores {
                 let herdado = herdado_visivel(&mut cx, &nome).or_else(|| herdado_visivel(&mut cx, &format!("{nome}_=")));
-                if estatico && herdado.is_some() {
+                if estatico && let Some(a) = herdado {
+                    saida.push((
+                        decl.unit,
+                        Diagnostic::com_codigo(c::CONFLICTING_STATIC_AND_INSTANCE, span, [texto_classe.clone(), nome.clone(), dono(a)]),
+                    ));
                     conflitantes.push(nome);
                 } else if let Some(a) = herdado
                     && cx.especie(a.funcao) == Some(Especie::Metodo)
@@ -1328,6 +1339,82 @@ pub fn membros_em_conflito(
                     d.contexto.push(dartforge_diagnostics::Contexto { arquivo, span, mensagem: texto.into() });
                 }
                 saida.push((decl.unit, d));
+            }
+        }
+    }
+    saida
+}
+
+/// `DuplicateDefinitionVerifier._checkEnumStatic`: cada acessor estático (os
+/// das constantes e dos campos, getters e setters declarados; menos
+/// `values`) e cada método estático de um enum cujo nome está na interface
+/// dele (`getMember2` do nome ou do setter, com os membros herdados de
+/// `Enum` e `Object`), no nome, com o enum como dono.
+pub fn estaticos_de_enum(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    core: &CoreTypes,
+    outline: &OutlineTypes,
+    lib: dartforge_elements::model::LibraryId,
+) -> Vec<(UnitId, Diagnostic)> {
+    use dartforge_elements::model::ClassKind as K;
+    let mut cx = Ctx { program, interner, table, core, outline, heranca: crate::heranca::Heranca::default(), biblioteca: lib };
+    let mut saida = Vec::new();
+    for (ci, classe) in program.classes.iter().enumerate() {
+        if classe.library != lib || classe.kind != K::Enum {
+            continue;
+        }
+        let Some(decl) = classe.decl else { continue };
+        let ast_ = &program.unit(decl.unit).ast;
+        let DeclKind::Enum(d) = &ast_.decl(decl.decl).kind else { continue };
+        let dono = program.dono_da_classe(ClassId(ci as u32));
+        let texto_enum = interner.resolve(program.class(dono).name).to_string();
+        let na_interface = |cx: &mut Ctx<'_>, nome: &str| -> bool {
+            let achou = |cx: &mut Ctx<'_>, texto: &str| interner.lookup(texto).is_some_and(|k| cx.membro_da_heranca(dono, k, false).is_some());
+            achou(cx, nome) || achou(cx, &format!("{nome}_="))
+        };
+        // Os acessores: as constantes (getters), os campos estáticos (getter
+        // e, se não final, setter) e os getters e setters declarados.
+        let mut acessores: Vec<(String, Span)> = Vec::new();
+        for k in d.constants.iter() {
+            acessores.push((interner.resolve(k.name.sym).to_string(), k.name.span));
+        }
+        let mut metodos: Vec<(String, Span)> = Vec::new();
+        for &m in d.members.iter() {
+            match &ast_.member(m).kind {
+                MemberKind::Field(vl) if vl.static_ => {
+                    for v in vl.variables.iter() {
+                        let nome = interner.resolve(v.name.sym).to_string();
+                        acessores.push((nome.clone(), v.name.span));
+                        if !vl.final_ && !vl.const_ {
+                            acessores.push((nome, v.name.span));
+                        }
+                    }
+                }
+                MemberKind::Method(f) => {
+                    let af = ast_.function(*f);
+                    if !af.static_ {
+                        continue;
+                    }
+                    let Some(n) = af.name else { continue };
+                    let nome = interner.resolve(n.sym).to_string();
+                    match af.kind {
+                        ast::FunctionKind::Getter | ast::FunctionKind::Setter => acessores.push((nome, n.span)),
+                        _ => metodos.push((nome, n.span)),
+                    }
+                }
+                _ => {}
+            }
+        }
+        for (nome, span) in acessores {
+            if nome != "values" && na_interface(&mut cx, &nome) {
+                saida.push((decl.unit, Diagnostic::com_codigo(c::CONFLICTING_STATIC_AND_INSTANCE, span, [texto_enum.as_str(), nome.as_str(), texto_enum.as_str()])));
+            }
+        }
+        for (nome, span) in metodos {
+            if na_interface(&mut cx, &nome) {
+                saida.push((decl.unit, Diagnostic::com_codigo(c::CONFLICTING_STATIC_AND_INSTANCE, span, [texto_enum.as_str(), nome.as_str(), texto_enum.as_str()])));
             }
         }
     }

@@ -11,10 +11,13 @@
 //! por `Object?` nas contravariantes) é conferido do mesmo jeito, e são os
 //! argumentos e limites invertidos que o diagnóstico mostra.
 //!
-//! **Pelo lado seguro.** A resolução aqui é a do escopo da biblioteca, sem
-//! o escopo léxico: um tipo escrito que menciona um nome que é parâmetro de
-//! tipo em algum lugar da unidade, um tipo cru genérico ou um tipo de
-//! função genérico não é conferido (falta diagnóstico, nunca sobra).
+//! O tipo de cada `NamedType` é o resolvido (`NamedType.type`): o
+//! `tipos_escritos` do esboço ou o `tipos_de_anotacoes` dos corpos, com os
+//! tipos crus instanciados para os limites. Os tipos nomeados que o
+//! analyzer cria a partir de expressões (literal de tipo `C<T>`, criação
+//! `C<T>()` sem `new`, referência de construtor `C<T>.new`) entram pela
+//! árvore de expressões. Um nó que nenhuma resolução registrou cai na
+//! resolução no escopo da biblioteca, que pula nomes de parâmetro de tipo.
 
 use crate::resolve::OutlineTypes;
 use crate::subtyping::{is_subtype, SubtypeEnv};
@@ -57,6 +60,16 @@ impl Variancia {
     }
 }
 
+/// O elemento de um tipo nomeado e os argumentos dele.
+struct Partes {
+    nome: String,
+    params: Vec<TypeParamId>,
+    tipos: Vec<TypeId>,
+    de_extensao: bool,
+    /// O alvo do alias (as variâncias dos parâmetros na inversão).
+    alvo_do_alias: Option<TypeId>,
+}
+
 struct Verificador<'a> {
     program: &'a Program,
     interner: &'a Interner,
@@ -66,6 +79,8 @@ struct Verificador<'a> {
     unit: UnitId,
     /// Nomes de parâmetros de tipo declarados em algum lugar da unidade.
     nomes_de_parametros: HashSet<SymbolId>,
+    /// Os tipos resolvidos dos corpos da unidade.
+    corpo: Option<&'a crate::resolved::UnitBodyTypes>,
 }
 
 /// Os `type_argument_not_matching_bounds` dos tipos escritos numa unidade.
@@ -75,21 +90,40 @@ pub fn argumentos_fora_dos_limites(
     table: &mut TypeTable,
     core: &CoreTypes,
     outline: &OutlineTypes,
+    corpo: Option<&crate::resolved::UnitBodyTypes>,
     unit: UnitId,
 ) -> Vec<Diagnostic> {
     let a = &program.unit(unit).ast;
-    let mut v = Verificador { program, interner, table, core, outline, unit, nomes_de_parametros: HashSet::new() };
+    let mut v = Verificador { program, interner, table, core, outline, unit, nomes_de_parametros: HashSet::new(), corpo };
     v.nomes_de_parametros = nomes_de_parametros(a, &program.unit(unit).unit);
     let sem_super = sem_super_limite(a, &program.unit(unit).unit);
+    // A criação sem argumentos escritos é conferida com os inferidos
+    // (`argumentos_inferidos_fora_dos_limites`).
+    let criacoes_cruas: HashSet<ast::TypeId> = a
+        .exprs
+        .iter()
+        .filter_map(|e| match &e.kind {
+            ExprKind::InstanceCreation { ty, .. } if matches!(&a.ty(*ty).kind, TypeKind::Named { args, .. } if args.is_empty()) => Some(*ty),
+            _ => None,
+        })
+        .collect();
     let mut out = Vec::new();
     for (i, t) in a.types.iter().enumerate() {
         if let TypeKind::Named { name, args } = &t.kind {
-            if args.is_empty() {
+            let id = ast::TypeId(i as u32);
+            if t.span.start == t.span.end || criacoes_cruas.contains(&id) {
                 continue;
             }
-            let id = ast::TypeId(i as u32);
-            v.conferir(t.span, name, args, !sem_super.contains(&id), &mut out);
+            let super_permitido = !sem_super.contains(&id);
+            match v.registrado(id) {
+                Some(r) => v.conferir_tipo(r, t.span, args, super_permitido, &mut out),
+                None if !args.is_empty() => v.conferir(t.span, name, args, super_permitido, &mut out),
+                None => {}
+            }
         }
+    }
+    if corpo.is_some() {
+        v.tipos_nomeados_de_expressoes(&mut out);
     }
     out
 }
@@ -187,7 +221,7 @@ pub fn enum_instanciado_aos_limites(
             continue;
         }
         let args = crate::ops::instanciar_para_limites(&params, &[], table, core);
-        let mut v = Verificador { program, interner, table: &mut *table, core, outline, unit: d.unit, nomes_de_parametros: HashSet::new() };
+        let mut v = Verificador { program, interner, table: &mut *table, core, outline, unit: d.unit, nomes_de_parametros: HashSet::new(), corpo: None };
         let invertidos: Vec<TypeId> = args.iter().map(|&t| trocar_topo_e_fundo(&mut v, t, Variancia::Co)).collect();
         let mut bem_limitado = true;
         for (k, &p) in params.iter().enumerate() {
@@ -224,7 +258,7 @@ pub fn argumentos_inferidos_fora_dos_limites(
     unit: UnitId,
 ) -> Vec<Diagnostic> {
     let a = &program.unit(unit).ast;
-    let mut v = Verificador { program, interner, table, core, outline, unit, nomes_de_parametros: HashSet::new() };
+    let mut v = Verificador { program, interner, table, core, outline, unit, nomes_de_parametros: HashSet::new(), corpo: Some(corpo) };
     let mut out = Vec::new();
     for (i, e) in a.exprs.iter().enumerate() {
         let id = ast::ExprId(i as u32);
@@ -301,6 +335,215 @@ impl Verificador<'_> {
         self.table.format(t, self.interner, self.program)
     }
 
+    /// O tipo que a resolução registrou para o nó (`NamedType.type`).
+    fn registrado(&self, t: ast::TypeId) -> Option<TypeId> {
+        self.outline
+            .tipos_escritos
+            .get(&(self.unit, t))
+            .or_else(|| self.corpo.and_then(|c| c.tipos_de_anotacoes.get(&t)))
+            .copied()
+    }
+
+    /// O tipo de um argumento escrito: o registrado, ou o resolvido aqui.
+    fn tipo_do_no(&mut self, t: ast::TypeId) -> Option<TypeId> {
+        match self.registrado(t) {
+            Some(r) => Some(r),
+            None => self.resolver(t),
+        }
+    }
+
+    /// `_checkForTypeArgumentNotMatchingBounds` sobre o tipo resolvido `t`
+    /// de um `NamedType` de intervalo `tipo`, com os argumentos escritos
+    /// `escritos` (vazio: tipo cru).
+    fn conferir_tipo(&mut self, t: TypeId, tipo: Span, escritos: &[ast::TypeId], super_permitido: bool, out: &mut Vec<Diagnostic>) {
+        if self.table.e_invalido(t) {
+            return;
+        }
+        let Some(partes) = self.partes(t) else { return };
+        self.conferir_partes(t, partes, tipo, escritos, super_permitido, out);
+    }
+
+    /// O mesmo, com o elemento e os argumentos já conhecidos (o tipo montado
+    /// aqui, que sem a decoração de exibição não guarda o alias).
+    fn conferir_partes(&mut self, t: TypeId, partes: Partes, tipo: Span, escritos: &[ast::TypeId], super_permitido: bool, out: &mut Vec<Diagnostic>) {
+        let Partes { nome, params, tipos, de_extensao, alvo_do_alias } = partes;
+        if params.is_empty() || params.len() != tipos.len() {
+            return;
+        }
+        let mut problemas = Vec::new();
+        for (i, &p) in params.iter().enumerate() {
+            let dados = self.table.param(p).clone();
+            if !dados.explicito {
+                continue;
+            }
+            let limite = self.subst(dados.bound, &params, &tipos);
+            if !self.sub(tipos[i], limite) {
+                problemas.push((i, tipos[i], limite));
+            }
+        }
+        if problemas.is_empty() {
+            return;
+        }
+        let lista = |v: &mut Self, xs: &[TypeId]| xs.iter().map(|&x| v.formatar(x)).collect::<Vec<_>>().join(", ");
+        let mut contexto: Vec<String> = Vec::new();
+        if escritos.is_empty() {
+            contexto.push(format!("The raw type was instantiated as '{nome}<{}>', and is not regular-bounded.", lista(self, &tipos)));
+        }
+        let no_do_erro = |i: usize| escritos.get(i).copied();
+        if !super_permitido || de_extensao {
+            for (i, arg, limite) in problemas {
+                self.relatar_em(no_do_erro(i), tipo, params[i], arg, limite, &contexto, out);
+            }
+            return;
+        }
+        // `replaceTopAndBottom(type)`: o tipo inteiro topo vira `Never` (nem
+        // alias nem interface); senão cada argumento pela variância do
+        // parâmetro no alvo do alias (numa classe, covariante).
+        if self.e_topo(t) {
+            return;
+        }
+        let mut inv = Vec::with_capacity(tipos.len());
+        for (&x, &p) in tipos.iter().zip(params.iter()) {
+            let va = match alvo_do_alias {
+                Some(alvo) => variancia_em(self.table, alvo, p, Variancia::Co).combinar(Variancia::Co),
+                None => Variancia::Co,
+            };
+            inv.push(trocar_topo_e_fundo(self, x, va));
+        }
+        contexto.push(format!("The inverted type '{nome}<{}>' is also not regular-bounded, so the type is not well-bounded.", lista(self, &inv)));
+        for (i, &p) in params.iter().enumerate() {
+            let dados = self.table.param(p).clone();
+            if !dados.explicito {
+                continue;
+            }
+            let limite = self.subst(dados.bound, &params, &inv);
+            if !self.sub(inv[i], limite) {
+                self.relatar_em(no_do_erro(i), tipo, p, inv[i], limite, &contexto, out);
+            }
+        }
+    }
+
+    /// O nome do elemento, os parâmetros e os argumentos de tipo de `t`
+    /// (`type.alias` antes de `InterfaceType`), e se é tipo de extensão.
+    fn partes(&self, t: TypeId) -> Option<Partes> {
+        if let Some(crate::table::Exibicao::Alias { typedef, args }) = self.table.exibicao(t) {
+            return Some(self.partes_do_alias(*typedef, args.to_vec(), t));
+        }
+        match self.table.get(t) {
+            Type::Interface { class, args, .. } => Some(self.partes_da_classe(*class, args.to_vec())),
+            Type::ExtensionType { decl, args, .. } => Some(self.partes_da_classe(*decl, args.to_vec())),
+            // `FutureOr<T>`: o `T` não tem limite.
+            _ => None,
+        }
+    }
+
+    fn partes_do_alias(&self, typedef: dartforge_elements::model::TypedefId, tipos: Vec<TypeId>, t: TypeId) -> Partes {
+        let d = &self.outline.typedefs[typedef.0 as usize];
+        Partes {
+            nome: self.interner.resolve(self.program.typedef(typedef).name).to_string(),
+            params: d.type_params.to_vec(),
+            tipos,
+            de_extensao: matches!(self.table.get(t), Type::ExtensionType { .. }),
+            alvo_do_alias: Some(d.target_type),
+        }
+    }
+
+    fn partes_da_classe(&self, c: dartforge_elements::model::ClassId, tipos: Vec<TypeId>) -> Partes {
+        Partes {
+            nome: self.interner.resolve(self.program.class(c).name).to_string(),
+            params: self.outline.classes[c.0 as usize].type_params.to_vec(),
+            tipos,
+            de_extensao: self.program.class(c).kind == dartforge_elements::model::ClassKind::ExtensionType,
+            alvo_do_alias: None,
+        }
+    }
+
+    fn relatar_em(
+        &mut self,
+        no: Option<ast::TypeId>,
+        tipo: Span,
+        p: TypeParamId,
+        arg: TypeId,
+        limite: TypeId,
+        contexto: &[String],
+        out: &mut Vec<Diagnostic>,
+    ) {
+        let span = no.map(|x| self.ast().ty(x).span).unwrap_or(tipo);
+        let a = self.formatar(arg);
+        let nome = self.interner.resolve(self.table.param(p).name).to_string();
+        let l = self.formatar(limite);
+        let mut d = Diagnostic::com_codigo(c::TYPE_ARGUMENT_NOT_MATCHING_BOUNDS, span, [a.as_str(), nome.as_str(), l.as_str()]);
+        for m in contexto {
+            d.contexto.push(dartforge_diagnostics::Contexto { arquivo: None, span: tipo, mensagem: m.as_str().into() });
+        }
+        out.push(d);
+    }
+
+    /// Os `NamedType` que o analyzer cria de expressões: o literal de tipo
+    /// `C<T>` (aceita *super-bounded*), a referência de construtor
+    /// `C<T>.nome` e a criação `C<T>()` sem `new` (`ConstructorName`: não
+    /// aceita).
+    fn tipos_nomeados_de_expressoes(&mut self, out: &mut Vec<Diagnostic>) {
+        let Some(corpo) = self.corpo else { return };
+        let a = &self.program.unit(self.unit).ast;
+        // Os `C<T>` que são alvo de `.nome`.
+        let mut de_construtor: HashSet<ast::ExprId> = HashSet::new();
+        for e in a.exprs.iter() {
+            if let ExprKind::Property { target, .. } = &e.kind
+                && matches!(a.expr(*target).kind, ExprKind::TypeArguments { .. })
+            {
+                de_construtor.insert(*target);
+            }
+        }
+        for (i, e) in a.exprs.iter().enumerate() {
+            let id = ast::ExprId(i as u32);
+            let (alvo, escritos, super_permitido, span) = match &e.kind {
+                ExprKind::TypeArguments { target, type_args } => {
+                    let construtor = de_construtor.contains(&id);
+                    // O literal tem o tipo `Type`; a referência de função não.
+                    if !construtor && corpo.get_type(id) != Some(self.core.type_) {
+                        continue;
+                    }
+                    (*target, type_args.to_vec(), !construtor, e.span)
+                }
+                ExprKind::Call { target, arguments } if !arguments.type_args.is_empty() => {
+                    if !matches!(corpo.get_resolved(id), Some(crate::resolved::Resolved::Constructor(_))) {
+                        continue;
+                    }
+                    let fim = a.ty(*arguments.type_args.last().unwrap()).span.end;
+                    let fonte = self.program.unit(self.unit).source.as_str();
+                    let fim = fonte.get(fim..).and_then(|r| r.find('>')).map_or(fim, |k| fim + k + 1);
+                    (*target, arguments.type_args.to_vec(), false, Span { start: a.expr(*target).span.start, end: fim })
+                }
+                _ => continue,
+            };
+            let el = match &a.expr(alvo).kind {
+                ExprKind::Identifier(n) => self.program.lookup_na_unidade(self.unit, n.sym).filter(|b| !b.ambiguous).and_then(|b| b.getter),
+                ExprKind::Property { target: p, name, .. } => match &a.expr(*p).kind {
+                    ExprKind::Identifier(p) if self.program.prefixos_na_unidade(self.unit).contains_key(&p.sym) => {
+                        self.program.lookup_prefixed_na_unidade(self.unit, p.sym, name.sym).filter(|b| !b.ambiguous).and_then(|b| b.getter)
+                    }
+                    _ => None,
+                },
+                _ => None,
+            };
+            // O nome resolvido no corpo tem de ser o mesmo elemento.
+            if let Some(crate::resolved::Resolved::Element(r)) = corpo.get_resolved(alvo)
+                && Some(*r) != el
+            {
+                continue;
+            }
+            let Some(el) = el else { continue };
+            let Some((params, alvo_do_alias)) = self.parametros(el) else { continue };
+            if params.len() != escritos.len() || params.is_empty() {
+                continue;
+            }
+            let Some(tipos) = escritos.iter().map(|&x| self.tipo_do_no(x)).collect::<Option<Vec<TypeId>>>() else { continue };
+            let Some((t, partes)) = self.montar(el, alvo_do_alias, &params, tipos) else { continue };
+            self.conferir_partes(t, partes, span, &escritos, super_permitido, out);
+        }
+    }
+
     /// O elemento que o nome escrito designa no escopo da unidade.
     fn elemento(&self, name: &[ast::Name]) -> Option<Element> {
         if name.iter().any(|n| self.nomes_de_parametros.contains(&n.sym)) {
@@ -329,73 +572,44 @@ impl Verificador<'_> {
         }
     }
 
-    /// `tipo` é o intervalo do `NamedType` inteiro (o das mensagens de
-    /// contexto).
+    /// Um `NamedType` com argumentos escritos que nenhuma resolução
+    /// registrou: o elemento pelo escopo da unidade (`Tipo.construtor` pelo
+    /// primeiro nome) e os argumentos registrados ou resolvidos aqui.
     fn conferir(&mut self, tipo: Span, name: &[ast::Name], args: &[ast::TypeId], super_permitido: bool, out: &mut Vec<Diagnostic>) {
-        let Some(el) = self.elemento(name) else { return };
+        let el = match self.elemento(name) {
+            Some(el) => Some(el),
+            None if name.len() == 2 => self.elemento(&name[..1]),
+            None => None,
+        };
+        let Some(el) = el else { return };
         let Some((params, alvo)) = self.parametros(el) else { return };
         if params.len() != args.len() || params.is_empty() {
             return;
         }
-        // Tipo de extensão nunca é super-bounded.
-        let super_permitido = super_permitido
-            && !matches!(el, Element::Class(c) if self.program.class(c).kind == dartforge_elements::model::ClassKind::ExtensionType);
-        let Some(tipos) = args.iter().map(|&x| self.resolver(x)).collect::<Option<Vec<TypeId>>>() else { return };
-        let mut problemas = Vec::new();
-        for (i, &p) in params.iter().enumerate() {
-            let limite = self.table.param(p).bound;
-            let limite = self.subst(limite, &params, &tipos);
-            if !self.sub(tipos[i], limite) {
-                problemas.push((i, tipos[i], limite));
-            }
-        }
-        if problemas.is_empty() {
-            return;
-        }
-        if !super_permitido {
-            for (i, arg, limite) in problemas {
-                self.relatar(args[i], params[i], arg, limite, out);
-            }
-            return;
-        }
-        // Super-bounded: os argumentos invertidos, com a variância de cada
-        // parâmetro no alias (numa classe, a posição de fora, covariante).
-        let variancias: Vec<Variancia> = match alvo {
-            Some(t) => params.iter().map(|&p| variancia_em(self.table, t, p, Variancia::Co)).collect(),
-            None => vec![Variancia::Co; params.len()],
-        };
-        let Some(inv) = args
-            .iter()
-            .zip(variancias.iter())
-            .map(|(&x, &va)| self.invertido(x, va))
-            .collect::<Option<Vec<TypeId>>>()
-        else {
-            return;
-        };
-        // `buildContextMessages(invertedTypeArguments:)`: os argumentos
-        // escritos (nunca cru aqui), então só a mensagem do tipo invertido, no
-        // tipo nomeado inteiro.
-        let elemento = name.last().map(|n| self.interner.resolve(n.sym).to_string()).unwrap_or_default();
-        let invertidos = inv.iter().map(|&x| self.formatar(x)).collect::<Vec<_>>().join(", ");
-        let contexto = format!("The inverted type '{elemento}<{invertidos}>' is also not regular-bounded, so the type is not well-bounded.");
-        for (i, &p) in params.iter().enumerate() {
-            let limite = self.table.param(p).bound;
-            let limite = self.subst(limite, &params, &inv);
-            if !self.sub(inv[i], limite) {
-                self.relatar(args[i], p, inv[i], limite, out);
-                if let Some(d) = out.last_mut() {
-                    d.contexto.push(dartforge_diagnostics::Contexto { arquivo: None, span: tipo, mensagem: contexto.as_str().into() });
-                }
-            }
-        }
+        let Some(tipos) = args.iter().map(|&x| self.tipo_do_no(x)).collect::<Option<Vec<TypeId>>>() else { return };
+        let Some((t, partes)) = self.montar(el, alvo, &params, tipos) else { return };
+        self.conferir_partes(t, partes, tipo, args, super_permitido, out);
     }
 
-    fn relatar(&mut self, no: ast::TypeId, p: TypeParamId, arg: TypeId, limite: TypeId, out: &mut Vec<Diagnostic>) {
-        let span: Span = self.ast().ty(no).span;
-        let a = self.formatar(arg);
-        let nome = self.interner.resolve(self.table.param(p).name).to_string();
-        let l = self.formatar(limite);
-        out.push(Diagnostic::com_codigo(c::TYPE_ARGUMENT_NOT_MATCHING_BOUNDS, span, [a.as_str(), nome.as_str(), l.as_str()]));
+    /// O tipo `el<tipos>` e as partes dele.
+    fn montar(&mut self, el: Element, alvo: Option<TypeId>, params: &[TypeParamId], tipos: Vec<TypeId>) -> Option<(TypeId, Partes)> {
+        match (el, alvo) {
+            (Element::Typedef(td), Some(alvo)) => {
+                let r = self.subst(alvo, params, &tipos);
+                let t = self.table.decorar(r, crate::table::Exibicao::Alias { typedef: td, args: tipos.clone().into_boxed_slice() });
+                let partes = self.partes_do_alias(td, tipos, t);
+                Some((t, partes))
+            }
+            (Element::Class(c), _) => {
+                let t = if self.program.class(c).kind == dartforge_elements::model::ClassKind::ExtensionType {
+                    self.table.intern(Type::ExtensionType { decl: c, args: tipos.clone().into_boxed_slice(), nullable: false })
+                } else {
+                    self.table.intern(Type::Interface { class: c, args: tipos.clone().into_boxed_slice(), nullable: false })
+                };
+                Some((t, self.partes_da_classe(c, tipos)))
+            }
+            _ => None,
+        }
     }
 
     /// O tipo escrito, resolvido no escopo da biblioteca; `None` se depender
@@ -497,107 +711,6 @@ impl Verificador<'_> {
                 }
                 self.table.intern(Type::Record { positional: pos.into_boxed_slice(), named: nm.into_boxed_slice(), nullable: false })
             }
-        };
-        Some(if anulavel { crate::ops::nullable(r, self.table) } else { r })
-    }
-
-    /// `replaceTopAndBottom` sobre o tipo escrito, numa posição de variância
-    /// `va`: topo vira `Never` fora das posições contravariantes; o que é
-    /// subtipo de `Never` vira `Object?` nas contravariantes. Classes levam a
-    /// variância adiante; aliases a combinam com a do parâmetro no alvo;
-    /// funções invertem nos parâmetros.
-    fn invertido(&mut self, t: ast::TypeId, va: Variancia) -> Option<TypeId> {
-        let inteiro = self.resolver(t)?;
-        if va == Variancia::Contra {
-            let never = self.core.never;
-            if self.sub(inteiro, never) {
-                return Some(self.core.object_nullable);
-            }
-        } else if self.e_topo(inteiro) {
-            return Some(self.core.never);
-        }
-        let no = self.ast().ty(t);
-        let anulavel = no.nullable;
-        let r = match &no.kind {
-            TypeKind::Named { name, args } if !args.is_empty() => {
-                let (name, args) = (name.clone(), args.clone());
-                let el = self.elemento(&name)?;
-                match el {
-                    Element::Class(cid) if Some(cid) != self.core.null_class => {
-                        let cl = self.program.class(cid);
-                        if self.interner.resolve(cl.name) == "FutureOr" && self.program.library(cl.library).is_sdk {
-                            let [a] = args[..] else { return None };
-                            let arg = self.invertido(a, va)?;
-                            self.table.intern(Type::FutureOr { arg, nullable: false })
-                        } else {
-                            let tipos = args.iter().map(|&x| self.invertido(x, va)).collect::<Option<Vec<TypeId>>>()?;
-                            match self.table.get(inteiro).clone() {
-                                Type::ExtensionType { .. } => {
-                                    self.table.intern(Type::ExtensionType { decl: cid, args: tipos.into_boxed_slice(), nullable: false })
-                                }
-                                _ => self.table.intern(Type::Interface { class: cid, args: tipos.into_boxed_slice(), nullable: false }),
-                            }
-                        }
-                    }
-                    Element::Typedef(tid) => {
-                        let d = &self.outline.typedefs[tid.0 as usize];
-                        let (params, alvo) = (d.type_params.to_vec(), d.target_type);
-                        if params.len() != args.len() {
-                            return None;
-                        }
-                        let mut tipos = Vec::new();
-                        for (&x, &p) in args.iter().zip(params.iter()) {
-                            let vp = variancia_em(self.table, alvo, p, Variancia::Co);
-                            tipos.push(self.invertido(x, vp.combinar(va))?);
-                        }
-                        let r = self.subst(alvo, &params, &tipos);
-                        self.table.decorar(r, crate::table::Exibicao::Alias { typedef: tid, args: tipos.into_boxed_slice() })
-                    }
-                    _ => return Some(inteiro),
-                }
-            }
-            TypeKind::Function { return_type, type_params, parameters } => {
-                if !type_params.is_empty() {
-                    return Some(inteiro);
-                }
-                let (ret, parameters) = (*return_type, parameters.clone_params());
-                let ret = match ret {
-                    Some(r) => self.invertido(r, va)?,
-                    None => {
-                        let d = self.core.dynamic_;
-                        if va == Variancia::Contra { d } else { self.core.never }
-                    }
-                };
-                let contra = va.combinar(Variancia::Contra);
-                let mut pos = Vec::new();
-                let mut opt = Vec::new();
-                let mut named = Vec::new();
-                for (kind, ty, nome, req) in parameters {
-                    let t = match ty {
-                        Some(x) => self.invertido(x, contra)?,
-                        None => {
-                            // `dynamic` implícito numa posição contravariante:
-                            // não é fundo, fica.
-                            let d = self.core.dynamic_;
-                            if contra == Variancia::Contra { d } else { self.core.never }
-                        }
-                    };
-                    match kind {
-                        ParameterKind::Required => pos.push(t),
-                        ParameterKind::Optional => opt.push(t),
-                        ParameterKind::Named => named.push((nome?, t, req)),
-                    }
-                }
-                self.table.intern(Type::Function {
-                    type_params: Box::new([]),
-                    ret,
-                    positional: pos.into_boxed_slice(),
-                    optional: opt.into_boxed_slice(),
-                    named: named.into_boxed_slice(),
-                    nullable: false,
-                })
-            }
-            _ => return Some(inteiro),
         };
         Some(if anulavel { crate::ops::nullable(r, self.table) } else { r })
     }
@@ -724,6 +837,13 @@ fn sem_super_limite(a: &ast::Ast, unit: &ast::CompilationUnit) -> HashSet<ast::T
     for e in &a.exprs {
         if let ExprKind::InstanceCreation { ty, .. } = &e.kind {
             s.insert(*ty);
+        }
+    }
+    for m in &a.members {
+        if let ast::MemberKind::Constructor(k) = &m.kind
+            && let Some(r) = &k.redirect
+        {
+            s.insert(r.ty);
         }
     }
     s

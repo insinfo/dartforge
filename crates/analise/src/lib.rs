@@ -38,7 +38,6 @@ pub mod duplicatas;
 pub mod enums;
 pub mod externos;
 pub mod fases;
-pub mod heranca;
 pub mod importacoes;
 pub mod inicializacao;
 pub mod lints;

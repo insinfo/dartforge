@@ -609,11 +609,6 @@ impl Motor {
                     analise.por(&chave(p), d, f);
                 }
             }
-            for (u, d, f) in com_fase(fase::ERROR_VERIFIER, dartforge_analise::heranca::estatico_contra_super(&program, *lib, &interner)) {
-                if let Some(p) = &program.unit(u).path {
-                    analise.por(&chave(p), d, f);
-                }
-            }
             for (u, d, f) in com_fase(fase::RESOLVER_VISITOR, dartforge_analise::modificadores::fora_da_biblioteca(&program, *lib, &interner)) {
                 if let Some(p) = &program.unit(u).path {
                     analise.por(&chave(p), d, f);
@@ -771,6 +766,7 @@ impl Motor {
                 &program, &interner, &mut table, &core, &outline, &classes,
             )));
             atribuidos.extend(com_fase(fase::INHERITANCE_OVERRIDE, dartforge_types::sobrescritas::membros_em_conflito(&program, &interner, &mut table, &core, &outline, *lib)));
+            atribuidos.extend(com_fase(fase::ERROR_VERIFIER, dartforge_types::sobrescritas::estaticos_de_enum(&program, &interner, &mut table, &core, &outline, *lib)));
             atribuidos.extend(com_fase(fase::INHERITANCE_OVERRIDE, dartforge_types::sobrescritas::valores_padrao(&program, &interner, &mut table, &outline, *lib)));
             atribuidos.extend(com_fase(fase::ERROR_VERIFIER, dartforge_types::sobrescritas::variaveis_nao_inicializadas(&program, &interner, &table, &outline, *lib)));
             // `BestPracticesVerifier` sobre declarações e tipos escritos.
@@ -848,7 +844,8 @@ impl Motor {
         // As bibliotecas inferidas, para o motor de constantes dos lints.
         let inferidas_dos_lints: HashSet<LibraryId> = libs_proprias.iter().copied().collect();
         for &u in &unidades_proprias {
-            for d in dartforge_types::limites::argumentos_fora_dos_limites(&program, &interner, &mut table, &core, &outline, u) {
+            let corpo_da_unidade = corpos.as_ref().and_then(|c| c.units.get(u.0 as usize));
+            for d in dartforge_types::limites::argumentos_fora_dos_limites(&program, &interner, &mut table, &core, &outline, corpo_da_unidade, u) {
                 atribuidos.push((u, d, fase::ERROR_VERIFIER));
             }
             // `DeprecatedMemberUseVerifier`: "mesmo pacote" é a biblioteca

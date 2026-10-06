@@ -1728,7 +1728,7 @@ fn argumentos_de_tipo_fora_dos_limites() {
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let unit = prog.library(prog.entry.unwrap()).units[0];
-    let diags = dartforge_types::limites::argumentos_fora_dos_limites(&prog, &interner, &mut table, &core, &outline, unit);
+    let diags = dartforge_types::limites::argumentos_fora_dos_limites(&prog, &interner, &mut table, &core, &outline, None, unit);
     let v: Vec<(&str, &str)> = diags.iter().map(|d| (&fonte[d.span.start..d.span.end], d.message.as_str())).collect();
     assert_eq!(
         v,

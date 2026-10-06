@@ -134,6 +134,9 @@ pub struct UnitBodyTypes {
     /// O `writeType` de cada atribuição (simples e composta), pela
     /// expressão da atribuição.
     pub tipos_de_escrita: std::collections::HashMap<ast::ExprId, TypeId>,
+    /// O `PatternField.element` de cada campo de padrão objeto que achou um
+    /// membro, pelo subpadrão do campo.
+    pub elementos_de_campos: std::collections::HashMap<ast::PatternId, Resolved>,
 }
 
 impl UnitBodyTypes {
@@ -158,6 +161,7 @@ impl UnitBodyTypes {
             chamadas_implicitas: std::collections::HashSet::new(),
             tipos_de_parametros: std::collections::HashMap::new(),
             tipos_de_escrita: std::collections::HashMap::new(),
+            elementos_de_campos: std::collections::HashMap::new(),
         }
     }
 

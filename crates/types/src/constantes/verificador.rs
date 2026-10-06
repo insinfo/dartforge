@@ -85,6 +85,10 @@ struct Verificador<'m, 'a> {
     /// unidade (`_withConstantPatternValues`), para a exaustividade.
     valores_de_padroes: HashMap<PatternId, Valor>,
     valores_de_chaves: HashMap<ExprId, Valor>,
+    /// `inConstantExpression`: dentro de um valor padrão de parâmetro ou do
+    /// inicializador de um campo de instância de uma classe com construtor
+    /// gerador `const` (expressão constante sem contexto constante).
+    em_expressao_constante: bool,
 }
 
 /// Os erros que o `_ConstantAnalysisErrorListener` do linter do analyzer
@@ -157,6 +161,7 @@ pub fn criacao_pode_ser_const(m: &mut Motor<'_>, lib: LibraryId, unidade: UnitId
         padroes_ligados,
         valores_de_padroes: HashMap::new(),
         valores_de_chaves: HashMap::new(),
+        em_expressao_constante: false,
     };
     v.criacao_constante(a, e, argumentos);
     !v.saida.iter().any(|(_, d)| d.code.is_some_and(|c| ERROS_DE_CONSTANTE.contains(&c.info().unico)))
@@ -176,6 +181,7 @@ fn verificador_avulso<'v, 'm>(m: &'v mut Motor<'m>, lib: LibraryId, unidade: Uni
         padroes_ligados,
         valores_de_padroes: HashMap::new(),
         valores_de_chaves: HashMap::new(),
+        em_expressao_constante: false,
     }
 }
 
@@ -281,6 +287,7 @@ pub fn verificar(m: &mut Motor<'_>, lib: LibraryId) -> Vec<(UnitId, Diagnostic)>
         padroes_ligados,
         valores_de_padroes: HashMap::new(),
         valores_de_chaves: HashMap::new(),
+        em_expressao_constante: false,
     };
     for &u in &program.library(lib).units {
         if program.unit(u).role == dartforge_elements::model::UnitRole::Patch {
@@ -392,7 +399,13 @@ impl Verificador<'_, '_> {
                 MemberKind::Field(l) => {
                     for (i, var) in l.variables.iter().enumerate() {
                         let Some(init) = var.initializer else { continue };
+                        let classe_const = !l.static_
+                            && self.classe_de_membro.get(&(self.unidade, mid)).copied().is_some_and(|k| {
+                                self.m.program.class(k).kind == dartforge_elements::model::ClassKind::Class && self.tem_construtor_gerador_const(k)
+                            });
+                        let antes = std::mem::replace(&mut self.em_expressao_constante, classe_const);
                         self.expr(a, init, l.const_);
+                        self.em_expressao_constante = antes;
                         if !(l.const_ || l.final_) {
                             continue;
                         }
@@ -697,7 +710,9 @@ impl Verificador<'_, '_> {
     fn valores_padrao(&mut self, a: &ast::Ast, ps: &[ast::Parameter]) {
         for p in ps {
             let Some(d) = p.default_value else { continue };
+            let antes = std::mem::replace(&mut self.em_expressao_constante, true);
             self.expr(a, d, false);
+            self.em_expressao_constante = antes;
             if self.m.body.units[self.unidade.0 as usize].tipos_invalidos.contains(&d) {
                 continue;
             }
@@ -852,6 +867,128 @@ impl Verificador<'_, '_> {
 
     // -- Padrões ---------------------------------------------------------------
 
+    /// `extensionTypeErasure`.
+    fn apagar_extensao(&mut self, t: TypeId) -> TypeId {
+        let outline = self.m.outline;
+        let program = self.m.program;
+        let rep = |decl: ClassId, args: &[TypeId], table: &mut crate::table::TypeTable| -> Option<TypeId> {
+            let v = program.class(decl).representation?;
+            let t = outline.variables[v.0 as usize].declared_type?;
+            let params = &outline.classes[decl.0 as usize].type_params;
+            if params.is_empty() || params.len() != args.len() {
+                return Some(t);
+            }
+            let mapa: HashMap<crate::table::TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
+            Some(crate::ops::substitute(t, &mapa, table))
+        };
+        crate::ops::erase_extension_type(t, self.m.table, &rep)
+    }
+
+    /// `_canBeEqual(constantType, valueType)`
+    /// (an611:src/dart/constant/constant_verifier.dart:517-546). `Null` é
+    /// `InterfaceType` no analyzer (`NullTypeImpl`).
+    fn pode_ser_igual(&mut self, c: TypeId, v: TypeId, prof: u32) -> bool {
+        if prof > 16 {
+            return true;
+        }
+        let interface = |t: &Type| matches!(t, Type::Interface { .. } | Type::Null);
+        let tc = self.m.table.get(c).clone();
+        if !interface(&tc) {
+            return true;
+        }
+        let tv = self.m.table.get(v).clone();
+        match tv {
+            Type::Interface { .. } | Type::Null => {
+                let c_int = matches!(tc, Type::Interface { class, .. } if Some(class) == self.m.core.int_class);
+                let v_double = matches!(tv, Type::Interface { class, .. } if Some(class) == self.m.core.double_class);
+                if c_int && v_double {
+                    return true;
+                }
+                let maior = self.fecho_maior(v, true, &[]);
+                let mut env = crate::subtyping::SubtypeEnv::new(&mut *self.m.table, &self.m.outline.hierarchy, self.m.core);
+                crate::subtyping::is_subtype(c, maior, &mut env)
+            }
+            Type::TypeParameter { param, nullable } => {
+                let dados = self.m.table.param(param).clone();
+                if !dados.explicito || referencia_parametro(self.m.table, dados.bound) {
+                    return true;
+                }
+                let b = if nullable { crate::ops::nullable(dados.bound, self.m.table) } else { dados.bound };
+                self.pode_ser_igual(c, b, prof + 1)
+            }
+            // `promotedBound`: o limite promovido (a anulabilidade é a do
+            // parâmetro, sem `?`).
+            Type::Intersection { bound, .. } => {
+                if referencia_parametro(self.m.table, bound) {
+                    return true;
+                }
+                self.pode_ser_igual(c, bound, prof + 1)
+            }
+            Type::Function { .. } => {
+                if matches!(tc, Type::Null) {
+                    self.m.table.get(v).is_declared_nullable()
+                } else {
+                    false
+                }
+            }
+            _ => true,
+        }
+    }
+
+    /// `PatternGreatestClosureHelper.eliminateToGreatest`: cada parâmetro de
+    /// tipo vira `Object?` nas posições covariantes e `Never` nas
+    /// contravariantes (com a anulabilidade unida); os formais do próprio
+    /// tipo de função ficam.
+    fn fecho_maior(&mut self, t: TypeId, co: bool, formais: &[crate::table::TypeParamId]) -> TypeId {
+        let tabela = &mut *self.m.table;
+        match tabela.get(t).clone() {
+            Type::TypeParameter { param, .. } | Type::Intersection { param, .. } if !formais.contains(&param) => {
+                let anulavel = matches!(tabela.get(t), Type::TypeParameter { nullable: true, .. });
+                if co {
+                    self.m.core.object_nullable
+                } else if anulavel {
+                    self.m.core.null
+                } else {
+                    self.m.core.never
+                }
+            }
+            Type::Interface { class, args, nullable } if !args.is_empty() => {
+                let novos: Vec<TypeId> = args.iter().map(|&x| self.fecho_maior(x, co, formais)).collect();
+                self.m.table.intern(Type::Interface { class, args: novos.into_boxed_slice(), nullable })
+            }
+            Type::ExtensionType { decl, args, nullable } if !args.is_empty() => {
+                let novos: Vec<TypeId> = args.iter().map(|&x| self.fecho_maior(x, co, formais)).collect();
+                self.m.table.intern(Type::ExtensionType { decl, args: novos.into_boxed_slice(), nullable })
+            }
+            Type::FutureOr { arg, nullable } => {
+                let arg = self.fecho_maior(arg, co, formais);
+                self.m.table.intern(Type::FutureOr { arg, nullable })
+            }
+            Type::Record { positional, named, nullable } => {
+                let pos: Vec<TypeId> = positional.iter().map(|&x| self.fecho_maior(x, co, formais)).collect();
+                let nm: Vec<(dartforge_intern::SymbolId, TypeId)> = named.iter().map(|&(n, x)| (n, self.fecho_maior(x, co, formais))).collect();
+                self.m.table.intern(Type::Record { positional: pos.into_boxed_slice(), named: nm.into_boxed_slice(), nullable })
+            }
+            Type::Function { type_params, ret, positional, optional, named, nullable } => {
+                let mut dentro: Vec<crate::table::TypeParamId> = formais.to_vec();
+                dentro.extend(type_params.iter().copied());
+                let ret = self.fecho_maior(ret, co, &dentro);
+                let pos: Vec<TypeId> = positional.iter().map(|&x| self.fecho_maior(x, !co, &dentro)).collect();
+                let opt: Vec<TypeId> = optional.iter().map(|&x| self.fecho_maior(x, !co, &dentro)).collect();
+                let nm: Vec<(dartforge_intern::SymbolId, TypeId, bool)> = named.iter().map(|&(n, x, r)| (n, self.fecho_maior(x, !co, &dentro), r)).collect();
+                self.m.table.intern(Type::Function {
+                    type_params,
+                    ret,
+                    positional: pos.into_boxed_slice(),
+                    optional: opt.into_boxed_slice(),
+                    named: nm.into_boxed_slice(),
+                    nullable,
+                })
+            }
+            _ => t,
+        }
+    }
+
     fn padrao(&mut self, a: &ast::Ast, p: PatternId) {
         match &a.pattern(p).kind {
             PatternKind::Constant(e) => {
@@ -861,6 +998,26 @@ impl Verificador<'_, '_> {
                 }
                 let r = self.avaliar_e_relatar(e, false, c::CONSTANT_PATTERN_WITH_NON_CONSTANT_EXPRESSION);
                 if let Constante::Valor(v) = r {
+                    // `CONSTANT_PATTERN_NEVER_MATCHES_VALUE_TYPE`
+                    // (an611:src/dart/constant/constant_verifier.dart:141-158):
+                    // valor de igualdade primitiva cujo tipo não pode ser
+                    // igual a um valor do tipo casado (sem os tipos de
+                    // extensão).
+                    if self.padroes_ligados
+                        && self.m.igualdade_primitiva(&v, self.lib)
+                        && let Some(&casado) = self.m.body.units[self.unidade.0 as usize].tipos_casados.get(&p)
+                    {
+                        let casado = self.apagar_extensao(casado);
+                        if !self.pode_ser_igual(v.tipo, casado, 0) {
+                            let exibidor = crate::exibicao::Exibidor { table: &*self.m.table, interner: self.m.interner, program: self.m.program };
+                            let (textos, contexto) = exibidor.argumentos_e_contexto(&[crate::exibicao::Arg::Tipo(casado), crate::exibicao::Arg::Tipo(v.tipo)]);
+                            let mut d = Diagnostic::com_codigo(dartforge_diagnostics::codigos::warning::CONSTANT_PATTERN_NEVER_MATCHES_VALUE_TYPE, a.pattern(p).span, textos);
+                            d.contexto.extend(contexto);
+                            self.saida.push((self.unidade, d));
+                            self.valores_de_padroes.insert(p, v);
+                            return;
+                        }
+                    }
                     self.valores_de_padroes.insert(p, v);
                     self.expr(a, e, false);
                 }
@@ -936,8 +1093,13 @@ impl Verificador<'_, '_> {
     fn expr(&mut self, a: &ast::Ast, e: ExprId, em_const: bool) {
         let u = self.unidade;
         match &a.expr(e).kind {
-            ExprKind::InstanceCreation { keyword, arguments, .. } => {
+            ExprKind::InstanceCreation { keyword, arguments, ty, .. } => {
                 let const_ = matches!(keyword, Some(ast::CreationKeyword::Const));
+                // `visitInstanceCreationExpression` (`isConst`: `const`, ou
+                // sem palavra num contexto constante).
+                if const_ || (keyword.is_none() && em_const) {
+                    self.sem_parametros_de_tipo(a, *ty, c::CONST_WITH_TYPE_PARAMETERS, &[]);
+                }
                 if const_ {
                     self.criacao_constante(a, e, arguments);
                 } else {
@@ -948,6 +1110,17 @@ impl Verificador<'_, '_> {
             }
             ExprKind::Call { target, arguments } => {
                 if em_const && matches!(self.m.resolvido(u, e), Some(Resolved::Constructor(_))) {
+                    // O `NamedType` da criação sem `new`: os argumentos de
+                    // tipo da chamada ou os do `C<T>` antes de `.nome`.
+                    let mut escritos: Vec<ast::TypeId> = arguments.type_args.to_vec();
+                    if let ExprKind::Property { target: r, .. } = &a.expr(*target).kind
+                        && let ExprKind::TypeArguments { type_args, .. } = &a.expr(*r).kind
+                    {
+                        escritos.extend(type_args.iter().copied());
+                    }
+                    for x in escritos {
+                        self.sem_parametros_de_tipo(a, x, c::CONST_WITH_TYPE_PARAMETERS, &[]);
+                    }
                     self.criacao_constante(a, e, arguments);
                     return;
                 }
@@ -1051,12 +1224,34 @@ impl Verificador<'_, '_> {
                 }
             }
             ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => self.expr(a, *x, em_const),
-            ExprKind::Property { target, .. } => self.expr(a, *target, em_const),
+            ExprKind::Property { target, name, .. } => {
+                // `visitConstructorReference`: `C<T>.nome` de um construtor.
+                if (em_const || self.em_expressao_constante)
+                    && let ExprKind::TypeArguments { target: base, type_args } = &a.expr(*target).kind
+                    && self.construtor_referido(a, *base, *name)
+                {
+                    for &x in type_args.iter() {
+                        self.sem_parametros_de_tipo(a, x, c::CONST_WITH_TYPE_PARAMETERS_CONSTRUCTOR_TEAROFF, &[]);
+                    }
+                    self.expr(a, *base, em_const);
+                    return;
+                }
+                self.expr(a, *target, em_const)
+            }
             ExprKind::Index { target, index, .. } => {
                 self.expr(a, *target, em_const);
                 self.expr(a, *index, em_const);
             }
-            ExprKind::TypeArguments { target, .. } => self.expr(a, *target, em_const),
+            ExprKind::TypeArguments { target, type_args } => {
+                // `visitFunctionReference`: a instanciação de uma função (não
+                // o literal de tipo, de tipo `Type`).
+                if (em_const || self.em_expressao_constante) && self.m.estatico(u, e) != self.m.core.type_ {
+                    for &x in type_args.iter() {
+                        self.sem_parametros_de_tipo(a, x, c::CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF, &[]);
+                    }
+                }
+                self.expr(a, *target, em_const)
+            }
             ExprKind::Unary { operand, .. } => self.expr(a, *operand, em_const),
             ExprKind::Binary { left, right, .. } => {
                 self.expr(a, *left, em_const);
@@ -1067,7 +1262,14 @@ impl Verificador<'_, '_> {
                 self.expr(a, *then, em_const);
                 self.expr(a, *else_, em_const);
             }
-            ExprKind::Is { value, .. } | ExprKind::As { value, .. } => self.expr(a, *value, em_const),
+            ExprKind::Is { value, ty, .. } | ExprKind::As { value, ty } => {
+                // `visitGenericFunctionType` sob `is`/`as` num contexto
+                // constante.
+                if em_const && matches!(a.ty(*ty).kind, ast::TypeKind::Function { .. }) {
+                    self.sem_parametros_de_tipo(a, *ty, c::CONST_WITH_TYPE_PARAMETERS, &[]);
+                }
+                self.expr(a, *value, em_const)
+            }
             ExprKind::Assign { target, value, .. } => {
                 self.expr(a, *target, em_const);
                 self.expr(a, *value, em_const);
@@ -1432,6 +1634,89 @@ impl Verificador<'_, '_> {
     }
 
     /// O tipo resolvido de uma anotação de tipo da unidade.
+    /// `_checkForConstWithTypeParameters`
+    /// (an611:src/dart/constant/constant_verifier.dart:554-605): um
+    /// `NamedType` que nomeia um parâmetro de tipo de fora (no nó, sem
+    /// descer), e os argumentos dele; num tipo de função, os formais dele
+    /// são permitidos, e os limites, o retorno e os parâmetros simples são
+    /// conferidos.
+    fn sem_parametros_de_tipo(&mut self, a: &ast::Ast, x: ast::TypeId, codigo: Codigo, permitidos: &[crate::table::TypeParamId]) {
+        let anotacao = a.ty(x);
+        match &anotacao.kind {
+            ast::TypeKind::Named { args, .. } => {
+                let parametro = self.tipo_da_anotacao(x).and_then(|r| {
+                    if matches!(self.m.table.exibicao(r), Some(crate::table::Exibicao::Alias { .. })) {
+                        return None;
+                    }
+                    match self.m.table.get(r) {
+                        Type::TypeParameter { param, .. } => Some(*param),
+                        _ => None,
+                    }
+                });
+                if let Some(p) = parametro
+                    && !permitidos.contains(&p)
+                {
+                    self.relatar(codigo, anotacao.span, Vec::new());
+                    return;
+                }
+                for &y in args.iter() {
+                    self.sem_parametros_de_tipo(a, y, codigo, permitidos);
+                }
+            }
+            ast::TypeKind::Function { return_type, type_params, parameters } => {
+                let mut dentro: Vec<crate::table::TypeParamId> = permitidos.to_vec();
+                if let Some(r) = self.tipo_da_anotacao(x)
+                    && let Type::Function { type_params: formais, .. } = self.m.table.get(r)
+                {
+                    dentro.extend(formais.iter().copied());
+                }
+                for tp in type_params.iter() {
+                    if let Some(b) = tp.bound {
+                        self.sem_parametros_de_tipo(a, b, codigo, &dentro);
+                    }
+                }
+                if let Some(r) = return_type {
+                    self.sem_parametros_de_tipo(a, *r, codigo, &dentro);
+                }
+                for p in parameters.iter() {
+                    if p.function_parameters.is_none()
+                        && let Some(y) = p.ty
+                    {
+                        self.sem_parametros_de_tipo(a, y, codigo, &dentro);
+                    }
+                }
+            }
+            ast::TypeKind::Record { .. } | ast::TypeKind::Void => {}
+        }
+    }
+
+    /// `base.nome` designa um construtor (`C.new`, `C.nome`, `p.C.nome`,
+    /// pelo alias também).
+    fn construtor_referido(&self, a: &ast::Ast, base: ExprId, nome: ast::Name) -> bool {
+        let program = self.m.program;
+        let u = self.unidade;
+        let el = match &a.expr(base).kind {
+            ExprKind::Identifier(n) => program.lookup_na_unidade(u, n.sym).and_then(|b| b.getter),
+            ExprKind::Property { target: p, name: n, .. } => match &a.expr(*p).kind {
+                ExprKind::Identifier(p) => program.lookup_prefixed_na_unidade(u, p.sym, n.sym).and_then(|b| b.getter),
+                _ => None,
+            },
+            _ => None,
+        };
+        let classe = match el {
+            Some(dartforge_elements::model::Element::Class(c)) => Some(c),
+            Some(dartforge_elements::model::Element::Typedef(td)) => match self.m.table.get(self.m.outline.typedefs[td.0 as usize].target_type) {
+                Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => Some(*class),
+                _ => None,
+            },
+            _ => None,
+        };
+        let Some(c) = classe else { return false };
+        let texto = self.m.interner.resolve(nome.sym);
+        let chave = if texto == "new" { self.m.interner.lookup("") } else { Some(nome.sym) };
+        chave.is_some_and(|k| program.class(c).constructors.contains_key(&k))
+    }
+
     fn tipo_da_anotacao(&self, x: ast::TypeId) -> Option<TypeId> {
         let u = self.unidade;
         self.m.body.units.get(u.0 as usize).and_then(|b| b.tipos_de_anotacoes.get(&x).copied()).or_else(|| self.m.outline.tipos_escritos.get(&(u, x)).copied())
@@ -1630,4 +1915,22 @@ fn desparentizar(a: &ast::Ast, mut e: ExprId) -> ExprId {
         e = x;
     }
     e
+}
+
+/// `hasTypeParameterReference`.
+fn referencia_parametro(table: &crate::table::TypeTable, t: TypeId) -> bool {
+    match table.get(t) {
+        Type::TypeParameter { .. } | Type::Intersection { .. } => true,
+        Type::Interface { args, .. } | Type::ExtensionType { args, .. } => args.iter().any(|&a| referencia_parametro(table, a)),
+        Type::FutureOr { arg, .. } => referencia_parametro(table, *arg),
+        Type::Function { ret, positional, optional, named, .. } => {
+            referencia_parametro(table, *ret)
+                || positional.iter().chain(optional.iter()).any(|&a| referencia_parametro(table, a))
+                || named.iter().any(|(_, a, _)| referencia_parametro(table, *a))
+        }
+        Type::Record { positional, named, .. } => {
+            positional.iter().any(|&a| referencia_parametro(table, a)) || named.iter().any(|(_, a)| referencia_parametro(table, *a))
+        }
+        _ => false,
+    }
 }

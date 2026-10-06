@@ -587,6 +587,32 @@ pub(crate) fn referencia_a_tipo(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprI
     }
 }
 
+/// `e` nomeia (sem ou com prefixo) um alias de tipo genérico cujo alvo não
+/// é classe nem tipo de extensão.
+pub(crate) fn alias_sem_classe(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId) -> bool {
+    let a = ast(inf, cx);
+    let el = match &a.expr(e).kind {
+        ExprKind::Identifier(n) => match resolver_nome(inf, cx, n.sym, false) {
+            RefNome::Elemento(el) => el,
+            _ => return false,
+        },
+        ExprKind::Property { target, name, null_aware: false } => {
+            let ExprKind::Identifier(p) = &a.expr(*target).kind else { return false };
+            if !matches!(resolver_nome(inf, cx, p.sym, false), RefNome::Prefixo) {
+                return false;
+            }
+            match inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.getter) {
+                Some(el) => el,
+                None => return false,
+            }
+        }
+        _ => return false,
+    };
+    let Element::Typedef(td) = el else { return false };
+    let d = &inf.outline.typedefs[td.0 as usize];
+    !d.type_params.is_empty() && !matches!(inf.table.get(d.target_type), Type::Interface { .. } | Type::ExtensionType { .. })
+}
+
 /// Classe e argumentos de um typedef usado como classe, com os argumentos
 /// explícitos do typedef (ou sem eles).
 fn alias_de(inf: &mut BodyInferrer<'_>, td: dartforge_elements::model::TypedefId, explicitos: Option<Vec<TypeId>>) -> Option<RefTipo> {
@@ -1201,6 +1227,15 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
                 conferir_argumentos_do_literal(inf, cx, e, false);
                 registrar_ref_tipo(inf, cx, e);
                 inf.core.type_
+            } else if alias_sem_classe(inf, cx, *target) {
+                // `Cb<String>` com `Cb` alias de um tipo que não é classe
+                // (`typedef Cb<T> = void Function()`): também `TypeLiteral`.
+                conferir_argumentos_do_literal(inf, cx, e, false);
+                for &x in type_args.iter() {
+                    inf.tipo_de_argumento_de_tipo(cx, x);
+                }
+                registrar_ref_tipo(inf, cx, e);
+                inf.core.type_
             } else {
                 // `C.nome<T>` (tear-off de construtor com argumentos):
                 // `WRONG_NUMBER_OF_TYPE_ARGUMENTS_CONSTRUCTOR`, e a instanciação
@@ -1231,6 +1266,11 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
                 };
                 match inf.table.get(bruto).clone() {
                     Type::Function { type_params, .. } if type_params.len() == targs.len() => {
+                        // `checkFunctionReference` do `ErrorVerifier`.
+                        let nos = type_args.to_vec();
+                        let sp = inf.span_expr(cx.unit, e);
+                        let visiveis: Vec<crate::table::TypeParamId> = cx.parametros_de_tipo_visiveis().into_values().collect();
+                        chamadas::conferir_limites_explicitos(inf, cx.unit, &type_params, &targs, &nos, sp, Some(&visiveis));
                         let mut env = inf.env();
                         crate::constraints::instanciar_funcao(bruto, &targs, &mut env)
                     }

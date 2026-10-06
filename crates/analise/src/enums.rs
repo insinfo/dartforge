@@ -9,13 +9,19 @@ use dartforge_intern::SymbolId;
 use std::collections::HashSet;
 
 /// Retorna o índice da unidade junto de cada diagnóstico.
+///
+/// `element.augmented.constants`: as da própria declaração e as das
+/// `augment enum` de mesmo nome. Uma segunda declaração sem `augment` (o
+/// `augment` lido como identificador sem o experimento) é outro elemento,
+/// com só as suas.
 pub fn sem_constantes(unidades: &[Unidade<'_>]) -> Vec<(usize, Diagnostic)> {
-    let mut com_constantes = HashSet::<SymbolId>::new();
+    let mut aumentadas_com_constantes = HashSet::<SymbolId>::new();
     for unidade in unidades {
         for &id in &unidade.unit.declarations {
-            if let DeclKind::Enum(e) = &unidade.ast.decl(id).kind {
-                if !e.constants.is_empty() {
-                    com_constantes.insert(e.name.sym);
+            let decl = unidade.ast.decl(id);
+            if let DeclKind::Enum(e) = &decl.kind {
+                if decl.augment && !e.constants.is_empty() {
+                    aumentadas_com_constantes.insert(e.name.sym);
                 }
             }
         }
@@ -26,7 +32,7 @@ pub fn sem_constantes(unidades: &[Unidade<'_>]) -> Vec<(usize, Diagnostic)> {
         for &id in &unidade.unit.declarations {
             let decl = unidade.ast.decl(id);
             if let DeclKind::Enum(e) = &decl.kind {
-                if !decl.augment && !com_constantes.contains(&e.name.sym) {
+                if !decl.augment && e.constants.is_empty() && !aumentadas_com_constantes.contains(&e.name.sym) {
                     out.push((
                         i,
                         Diagnostic::com_codigo(

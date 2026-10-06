@@ -325,6 +325,84 @@ fn estagios_horizontais(
     ordem
 }
 
+/// `TYPE_ARGUMENT_NOT_MATCHING_BOUNDS` de argumentos de tipo explícitos
+/// contra os parâmetros de tipo `params` (o `_checkInvocationTypeArguments`
+/// do `TypeArgumentsVerifier`, o `_checkTypeArgumentsMatchingBounds` do
+/// `ExtensionMemberResolver` e o do `AnnotationInferrer`): só os primeiros
+/// `min(params, tipos)`, com a substituição desses; parâmetro sem limite
+/// escrito fica de fora. O erro vai no argumento escrito `nos[i]`, ou em
+/// `alternativo`.
+///
+/// `visiveis`: os parâmetros de tipo em escopo na chamada. A substituição
+/// de um tipo de função não troca os limites dos parâmetros de tipo dele
+/// (o `m<T extends X>` de `C<num>` guarda o `X`), então um limite que ainda
+/// menciona parâmetro de tipo fora do escopo e fora de `params` não é
+/// conferido.
+pub(crate) fn conferir_limites_explicitos(
+    inf: &mut BodyInferrer<'_>,
+    unit: dartforge_elements::model::UnitId,
+    params: &[TypeParamId],
+    tipos: &[TypeId],
+    nos: &[ast::TypeId],
+    alternativo: Span,
+    visiveis: Option<&[TypeParamId]>,
+) {
+    let n = params.len().min(tipos.len());
+    let mapa = inf.mapa(&params[..n], &tipos[..n]);
+    let mut permitidos: std::collections::HashSet<TypeParamId> = params.iter().copied().collect();
+    if let Some(v) = visiveis {
+        permitidos.extend(v.iter().copied());
+    }
+    for i in 0..n {
+        let dados = inf.table.param(params[i]).clone();
+        if !dados.explicito {
+            continue;
+        }
+        if visiveis.is_some() && menciona_livre(&inf.table, dados.bound, &permitidos, 0) {
+            continue;
+        }
+        let limite = inf.subst(dados.bound, &mapa);
+        let ok = {
+            let mut env = inf.env();
+            crate::subtyping::is_subtype(tipos[i], limite, &mut env)
+        };
+        if ok {
+            continue;
+        }
+        let sp = nos.get(i).map(|&x| inf.program.unit(unit).ast.ty(x).span).unwrap_or(alternativo);
+        let a = inf.table.format(tipos[i], inf.interner, inf.program);
+        let nome = inf.interner.resolve(dados.name).to_string();
+        let l = inf.table.format(limite, inf.interner, inf.program);
+        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::TYPE_ARGUMENT_NOT_MATCHING_BOUNDS, sp, &[&a, &nome, &l]);
+    }
+}
+
+/// `t` menciona um parâmetro de tipo que não está em `permitidos` nem é
+/// formal de um tipo de função dentro de `t`.
+fn menciona_livre(table: &crate::table::TypeTable, t: TypeId, permitidos: &std::collections::HashSet<TypeParamId>, prof: u32) -> bool {
+    if prof > 32 {
+        return false;
+    }
+    match table.get(t) {
+        Type::TypeParameter { param, .. } => !permitidos.contains(param),
+        Type::Intersection { param, bound } => !permitidos.contains(param) || menciona_livre(table, *bound, permitidos, prof + 1),
+        Type::Interface { args, .. } | Type::ExtensionType { args, .. } => args.iter().any(|&a| menciona_livre(table, a, permitidos, prof + 1)),
+        Type::FutureOr { arg, .. } => menciona_livre(table, *arg, permitidos, prof + 1),
+        Type::Record { positional, named, .. } => {
+            positional.iter().any(|&a| menciona_livre(table, a, permitidos, prof + 1)) || named.iter().any(|(_, a)| menciona_livre(table, *a, permitidos, prof + 1))
+        }
+        Type::Function { type_params, ret, positional, optional, named, .. } => {
+            let mut dentro = permitidos.clone();
+            dentro.extend(type_params.iter().copied());
+            type_params.iter().any(|&p| menciona_livre(table, table.param(p).bound, &dentro, prof + 1))
+                || menciona_livre(table, *ret, &dentro, prof + 1)
+                || positional.iter().chain(optional.iter()).any(|&a| menciona_livre(table, a, &dentro, prof + 1))
+                || named.iter().any(|(_, a, _)| menciona_livre(table, *a, &dentro, prof + 1))
+        }
+        _ => false,
+    }
+}
+
 /// Invoca um tipo de função com os argumentos; devolve `(retorno, função instanciada)`.
 pub(crate) fn invocar(
     inf: &mut BodyInferrer<'_>,
@@ -365,6 +443,16 @@ pub(crate) fn invocar(
         let f2 = inf.table.intern(Type::Function { type_params: novos.into_boxed_slice(), ret, positional, optional, named, nullable: false });
         inf.alvo_da_aridade = alvo;
         return invocar(inf, cx, f2, args, ctx, explicitos);
+    }
+    // `checkMethodInvocation` / `checkFunctionExpressionInvocation` do
+    // `ErrorVerifier`: os explícitos contra os parâmetros de tipo do tipo
+    // invocado.
+    if let Some(ex) = &explicitos
+        && !type_params.is_empty()
+    {
+        let ex = ex.clone();
+        let visiveis: Vec<TypeParamId> = cx.parametros_de_tipo_visiveis().into_values().collect();
+        conferir_limites_explicitos(inf, cx.unit, &type_params, &ex, &args.type_args, args.span, Some(&visiveis));
     }
     // O `errorEntity` vale só para esta invocação (os argumentos têm as suas).
     let entidade = inf.entidade_da_inferencia.take();
@@ -772,6 +860,22 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
         }
         return (inf.tipo_de_classe_com_args(c, targs), false);
     }
+    // `T<X>.nome(…)` lido como criação com `T` alias de um tipo que não é
+    // classe: o `CREATION_WITH_NON_TYPE` da criação, e nada do literal.
+    if construtor.is_none()
+        && implicita
+        && let ExprKind::Property { target: recv, .. } = &a.expr(target).kind
+        && let ExprKind::TypeArguments { target: base, type_args } = &a.expr(*recv).kind
+        && expr::alias_sem_classe(inf, cx, *base)
+    {
+        for &x in type_args.iter() {
+            inf.tipo_de_argumento_de_tipo(cx, x);
+        }
+        for x in args.args.iter() {
+            inferir_livre(inf, cx, x.value);
+        }
+        return (inf.table.invalido(inf.core.dynamic_), false);
+    }
     // Construtor sem `new`.
     if let Some((c, f, targs)) = construtor {
         if inf.program.class(c).kind == ClassKind::Enum
@@ -913,9 +1017,46 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
         };
         let t = inferir(inf, cx, args.args[0].value, ctx_arg);
         let explicitos_ok = ext_args.is_some();
-        let ext_args = match ext_args {
-            Some(ex) => ex,
-            None => inf.extensao_aplicavel(x, t).unwrap_or_else(|| inf.instanciar_para_limites(&dados.type_params)),
+        if let Some(ex) = &ext_args {
+            let ex = ex.clone();
+            conferir_limites_explicitos(inf, cx.unit, &dados.type_params, &ex, &args.type_args, args.span, None);
+        }
+        // `_inferTypeArguments` (an611:src/dart/resolver/extension_member_resolver.dart:321-367):
+        // os explícitos; com contagem errada, `dynamic`; sem eles, o
+        // `GenericInferrer` com o `errorEntity` no nome da extensão e a
+        // restrição `constrainArgument(receptor, extendedType)`.
+        let ext_args = match (ext_args, &explicitos) {
+            (Some(ex), _) => ex,
+            (None, Some(_)) => vec![inf.core.dynamic_; dados.type_params.len()],
+            (None, None) if dados.type_params.is_empty() => Vec::new(),
+            (None, None) => {
+                // Parâmetros novos: dentro da própria extensão o receptor
+                // menciona os parâmetros dela.
+                let novos = inf.parametros_novos(&dados.type_params);
+                let tipos: Vec<TypeId> = novos.iter().map(|&p| inf.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
+                let m0 = inf.mapa(&dados.type_params, &tipos);
+                let on_novo = inf.subst(dados.on, &m0);
+                let entidade = match &a.expr(target).kind {
+                    ExprKind::Property { name, .. } => name.span,
+                    _ => a.expr(target).span,
+                };
+                let mut gi = GenericInferrer::new(&novos);
+                gi.com_origem(crate::constraints::Origem::Argumento { parametro: "extendedType".to_string(), declarado: on_novo, argumento: t, prefixo: None });
+                let usar_limites = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::InferenceUsingBounds);
+                let (interner, program) = (inf.interner, inf.program);
+                let mut env = inf.env();
+                gi.constrain_argument(t, on_novo, &mut env);
+                if usar_limites {
+                    gi.restringir_pelos_limites(&mut env);
+                }
+                let finais = gi.choose_final(&mut env);
+                let falhas = gi.falhas(&finais, &mut env, interner, program);
+                drop(env);
+                for (nome, sufixo) in falhas {
+                    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::COULD_NOT_INFER, entidade, &[&nome, &sufixo]);
+                }
+                finais
+            }
         };
         // `EXTENSION_OVERRIDE_ARGUMENT_NOT_ASSIGNABLE` no argumento
         // (an611:src/dart/resolver/extension_member_resolver.dart:227-243);

@@ -23,7 +23,7 @@ use super::super::fluxo::Fluxo;
 use super::super::membros::Busca;
 use super::super::BodyInferrer;
 use super::{
-    anotacao_invalida, campo_nomeado_implicito, constante_nunca_casa, nome_implicito, nunca_casa, registrar_tipo_de_padrao,
+    anotacao_invalida, campo_nomeado_implicito, nome_implicito, nunca_casa, registrar_tipo_de_padrao,
     tipo_do_padrao_objeto,
 };
 use crate::resolved::LocalId;
@@ -531,7 +531,6 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
             }
             let forcado = refutavel_em_irrefutavel(inf, cx, span_do_padrao);
             let c = inferir(inf, cx, e, t);
-            constante_nunca_casa(inf, cx, p, e, c, t);
             if forcado {
                 cx.refutavel_forcado = false;
             }
@@ -831,6 +830,7 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
                             if m.de_extensao || de_tipo_de_extensao {
                                 inf.body_types.units[cx.unit.0 as usize].campos_de_extensao.insert(x, m.tipo);
                             }
+                            inf.body_types.units[cx.unit.0 as usize].elementos_de_campos.insert(x, m.resolved.clone());
                             m.tipo
                         }
                         Busca::Nunca => inf.core.never,

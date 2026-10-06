@@ -338,7 +338,22 @@ impl<'a> BodyInferrer<'a> {
         self.tipo_no_contexto(cx, t, crate::resolve::ContextoDeTipo::ArgumentoDeTipo)
     }
 
+    /// Resolve uma anotação e guarda o tipo dela e o de cada tipo aninhado
+    /// (argumentos de tipo, partes de função e de registro) no
+    /// `tipos_de_anotacoes` (o `NamedType.type` de cada nó do analyzer).
     pub(crate) fn resolver_anotacao(
+        &mut self,
+        unit: UnitId,
+        lib: dartforge_elements::model::LibraryId,
+        t: ast::TypeId,
+        escopo: &HashMap<dartforge_intern::SymbolId, TypeParamId>,
+    ) -> TypeId {
+        let r = self.resolver_anotacao_sem_registro(unit, lib, t, escopo);
+        self.body_types.units[unit.0 as usize].tipos_de_anotacoes.insert(t, r);
+        r
+    }
+
+    fn resolver_anotacao_sem_registro(
         &mut self,
         unit: UnitId,
         lib: dartforge_elements::model::LibraryId,
@@ -378,7 +393,7 @@ impl<'a> BodyInferrer<'a> {
                         "dynamic" if self.program.lookup_na_unidade(unit, sym).is_none() => return self.core.dynamic_,
                         "void" => return self.core.void_,
                         "Never" if self.program.lookup_na_unidade(unit, sym).and_then(|b| b.getter).is_none() => {
-                            return if anulavel { self.core.null } else { self.core.never };
+                            return if anulavel { self.table.decorar(self.core.null, crate::table::Exibicao::NeverAnulavel) } else { self.core.never };
                         }
                         _ => {}
                     }

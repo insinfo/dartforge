@@ -604,6 +604,21 @@ pub fn elementos_nao_usados(
             }
         }
 
+        // `visitPatternField`: `addMember` e `addReadMember` do elemento do
+        // campo.
+        for p in a.patterns.iter() {
+            let ast::PatternKind::Object { fields, .. } = &p.kind else { continue };
+            for f in fields.iter() {
+                let el = match corpo.elementos_de_campos.get(&f.pattern) {
+                    Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => El::Getter(*v),
+                    Some(Resolved::Member { member: MemberRef::Function(g), .. }) | Some(Resolved::ExtensionMember { member: g, .. }) => cx.da_funcao(*g),
+                    _ => continue,
+                };
+                usados.membros.insert(el);
+                membro_lido(&mut usados, el);
+            }
+        }
+
         // `visitNamedType`.
         let sem_interface = tipos_sem_uso_de_interface(a);
         for (ti, t) in a.types.iter().enumerate() {

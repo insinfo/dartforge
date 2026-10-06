@@ -631,6 +631,15 @@ fn alvo_de_factory_redirecionadora(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, r
         }
         TipoDoAlvo::Dinamico | TipoDoAlvo::Nada => return,
     };
+    // Os argumentos de tipo escritos do alvo (`= B<T>.nome`), no escopo do
+    // construtor: o `NamedType.type` que o `TypeArgumentsVerifier` lê.
+    let escritos: Vec<ast::TypeId> = match &inf.program.unit(cx.unit).ast.ty(red.ty).kind {
+        ast::TypeKind::Named { args, .. } => args.to_vec(),
+        _ => Vec::new(),
+    };
+    for x in escritos {
+        inf.tipo_de_argumento_de_tipo(cx, x);
+    }
     let achado = achar_construtor(inf, classe, alvo.construtor, lib);
     // 1. `_checkForRedirectingConstructorErrorCodes`.
     if let Some(c) = achado {
@@ -1932,6 +1941,16 @@ pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: Uni
                             super::chamadas::definir_alvo(inf, Some(nome_enum), k.name.span);
                             super::chamadas::construir(inf, &mut cx, None, c, Some(f), explicitos, args, u);
                             inf.alvo_da_aridade = None;
+                            // `checkEnumConstantDeclaration` do `TypeArgumentsVerifier`:
+                            // os argumentos de tipo do construtor (escritos ou
+                            // inferidos), no argumento escrito ou no nome.
+                            let params = inf.outline.classes[c.0 as usize].type_params.to_vec();
+                            if let Some(tipos) = inf.body_types.units[unit.0 as usize].instanciacao(args.span.start).map(|x| x.to_vec())
+                                && tipos.len() == params.len()
+                            {
+                                let nos = k.type_args.to_vec();
+                                super::chamadas::conferir_limites_explicitos(inf, unit, &params, &tipos, &nos, k.name.span, None);
+                            }
                         } else if chave == inf.sym.vazio && inf.program.class(c).constructors.is_empty() {
                             // Construtor sem nome implícito `const E()`: os
                             // argumentos passam pela aridade dele (sem
@@ -1950,6 +1969,14 @@ pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: Uni
                             let u = inf.core.unknown;
                             super::chamadas::invocar(inf, &mut cx, sig, args, u, None);
                             inf.alvo_da_aridade = None;
+                            // `checkEnumConstantDeclaration`: os argumentos
+                            // escritos do construtor implícito.
+                            let params = inf.outline.classes[c.0 as usize].type_params.to_vec();
+                            if !k.type_args.is_empty() && k.type_args.len() == params.len() {
+                                let nos = k.type_args.to_vec();
+                                let tipos: Vec<TypeId> = nos.iter().map(|&t| inf.tipo_de_argumento_de_tipo(&cx, t)).collect();
+                                super::chamadas::conferir_limites_explicitos(inf, unit, &params, &tipos, &nos, k.name.span, None);
+                            }
                         } else {
                             for x in args.args.iter() {
                                 inferir_livre(inf, &mut cx, x.value);
@@ -2236,14 +2263,40 @@ fn anotacao_sem_validar(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option
         _ => (None, None),
     };
     let u = inf.core.unknown;
+    // `@B<T>()` com `B` alias de classe: os argumentos contra os parâmetros
+    // de tipo do alias (o `AnnotationInferrer` com o construtor do alias).
+    let (c, params_do_alias) = match c {
+        Some(Element::Typedef(td)) => {
+            let alvo = inf.outline.typedefs[td.0 as usize].target_type;
+            match inf.table.get(alvo).clone() {
+                Type::Interface { class, .. } => (Some(Element::Class(class)), Some(inf.outline.typedefs[td.0 as usize].type_params.to_vec())),
+                _ => (c, None),
+            }
+        }
+        _ => (c, None),
+    };
     if let Some(Element::Class(c)) = c {
         let chave = ctor.or(inf.sym.vazio);
         if let Some(f) = chave.and_then(|k| inf.program.class(c).constructors.get(&k).copied()) {
-            let explicitos = if m.type_args.is_empty() {
+            let explicitos: Option<Vec<TypeId>> = if m.type_args.is_empty() {
                 None
             } else {
                 Some(m.type_args.iter().map(|&t| inf.tipo_de_argumento_de_tipo(&cx, t)).collect())
             };
+            // `_needsTypeArgumentBoundsCheck` do `AnnotationInferrer`.
+            if let Some(ex) = &explicitos {
+                let params = params_do_alias.clone().unwrap_or_else(|| inf.outline.classes[c.0 as usize].type_params.to_vec());
+                if ex.len() == params.len() {
+                    let (ex, nos) = (ex.clone(), m.type_args.to_vec());
+                    super::chamadas::conferir_limites_explicitos(inf, unit, &params, &ex, &nos, m.span, None);
+                }
+            }
+            if params_do_alias.is_some() {
+                for x in args.args.iter() {
+                    inferir_livre(inf, &mut cx, x.value);
+                }
+                return;
+            }
             // `_reportNotEnoughPositionalArguments` com `Annotation`: o
             // `identifier` do nome prefixado (`@A.nome` → `nome`, `@p.A` →
             // `A`), ou `<nome>.new`; o `MISSING_REQUIRED_ARGUMENT` vai no

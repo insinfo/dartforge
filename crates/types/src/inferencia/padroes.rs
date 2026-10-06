@@ -174,8 +174,7 @@ fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, fi
         }
         PatternKind::Constant(e) => {
             let e = *e;
-            let c = inferir(inf, cx, e, t);
-            constante_nunca_casa(inf, cx, p, e, c, t);
+            inferir(inf, cx, e, t);
         }
         PatternKind::Relational { op, value } => {
             // `analyzeRelationalPattern`
@@ -392,103 +391,6 @@ fn anotacao_invalida(inf: &BodyInferrer<'_>, cx: &Corpo, x: ast::TypeId, r: Type
     match &inf.program.unit(cx.unit).ast.ty(x).kind {
         ast::TypeKind::Named { name, .. } => !name.last().is_some_and(|n| inf.interner.resolve(n.sym) == "dynamic"),
         _ => true,
-    }
-}
-
-/// `CONSTANT_PATTERN_NEVER_MATCHES_VALUE_TYPE` (`visitConstantPattern` do
-/// `ConstantVerifier`, `an611:src/dart/constant/constant_verifier.dart:130-160`,
-/// com o `_canBeEqual` de `:517-546`): constante de igualdade primitiva que
-/// não pode ser igual a nenhum valor do tipo casado. O tipo da constante é o
-/// estático da expressão, só nos casos em que ele é o do valor (literais e
-/// constantes de `int`, `double`, `String`, `bool`, `Null` e enums).
-fn constante_nunca_casa(inf: &mut BodyInferrer<'_>, cx: &Corpo, p: PatternId, e: ExprId, c: TypeId, casado: TypeId) {
-    let a = &inf.program.unit(cx.unit).ast;
-    // Só literais e nomes de constantes (o valor é avaliável e o tipo dele é
-    // o estático).
-    let mut x = e;
-    while let ast::ExprKind::Parenthesized(i) = &a.expr(x).kind {
-        x = *i;
-    }
-    let simples = matches!(
-        &a.expr(x).kind,
-        ast::ExprKind::Int(_) | ast::ExprKind::Double(_) | ast::ExprKind::Bool(_) | ast::ExprKind::Null | ast::ExprKind::String(_)
-    );
-    let primitivo = match inf.table.get(c).clone() {
-        Type::Null => true,
-        Type::Interface { class, nullable: false, .. } => {
-            // `double` não tem igualdade primitiva (NaN).
-            [inf.core.int_class, inf.core.string_class, inf.core.bool_class].contains(&Some(class))
-                || inf.program.class(class).kind == dartforge_elements::model::ClassKind::Enum
-        }
-        _ => false,
-    };
-    if !primitivo || !(simples || matches!(inf.table.get(c), Type::Interface { class, .. } if inf.program.class(*class).kind == dartforge_elements::model::ClassKind::Enum)) {
-        return;
-    }
-    let valor = inf.apagar_extensao(casado);
-    if pode_ser_igual(inf, c, valor, 0) {
-        return;
-    }
-    let sp = inf.program.unit(cx.unit).ast.pattern(p).span;
-    inf.aviso_com_args(
-        dartforge_diagnostics::codigos::warning::CONSTANT_PATTERN_NEVER_MATCHES_VALUE_TYPE,
-        sp,
-        &[crate::exibicao::Arg::Tipo(valor), crate::exibicao::Arg::Tipo(c)],
-    );
-}
-
-/// `_canBeEqual(constantType, valueType)`.
-fn pode_ser_igual(inf: &mut BodyInferrer<'_>, c: TypeId, v: TypeId, prof: u32) -> bool {
-    if prof > 8 {
-        return true;
-    }
-    match inf.table.get(v).clone() {
-        Type::Interface { class, .. } => {
-            let c_int = matches!(inf.table.get(c), Type::Interface { class: k, .. } if Some(*k) == inf.core.int_class);
-            if c_int && Some(class) == inf.core.double_class {
-                return true;
-            }
-            // `eliminateToGreatest`: o fecho maior do tipo casado; com
-            // parâmetro de tipo dentro, pelo lado seguro (pode ser igual).
-            if referencia_parametro(inf, v) {
-                return true;
-            }
-            inf.sub(c, v)
-        }
-        Type::TypeParameter { param, nullable } => {
-            let b = inf.table.param(param).bound;
-            if referencia_parametro(inf, b) {
-                return true;
-            }
-            let b = if nullable { inf.anulavel(b) } else { b };
-            pode_ser_igual(inf, c, b, prof + 1)
-        }
-        Type::Function { .. } => {
-            if matches!(inf.table.get(c), Type::Null) {
-                inf.e_anulavel(v)
-            } else {
-                false
-            }
-        }
-        _ => true,
-    }
-}
-
-/// O tipo menciona algum parâmetro de tipo (`hasTypeParameterReference`).
-fn referencia_parametro(inf: &BodyInferrer<'_>, t: TypeId) -> bool {
-    match inf.table.get(t) {
-        Type::TypeParameter { .. } | Type::Intersection { .. } => true,
-        Type::Interface { args, .. } | Type::ExtensionType { args, .. } => args.iter().any(|&a| referencia_parametro(inf, a)),
-        Type::FutureOr { arg, .. } => referencia_parametro(inf, *arg),
-        Type::Function { ret, positional, optional, named, .. } => {
-            referencia_parametro(inf, *ret)
-                || positional.iter().chain(optional.iter()).any(|&a| referencia_parametro(inf, a))
-                || named.iter().any(|(_, a, _)| referencia_parametro(inf, *a))
-        }
-        Type::Record { positional, named, .. } => {
-            positional.iter().any(|&a| referencia_parametro(inf, a)) || named.iter().any(|(_, a)| referencia_parametro(inf, *a))
-        }
-        _ => false,
     }
 }
 

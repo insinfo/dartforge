@@ -757,8 +757,8 @@ fn membros(rel: &mut Relato<'_>, ast: &Ast, ctx: &mut Contexto) {
 }
 
 /// `_checkClassStatic` / `_checkExtensionStatic`: estático com o nome de um
-/// membro de instância declarado ali. (O do enum consulta a interface
-/// herdada e fica para quando houver o gerente de herança.)
+/// membro de instância declarado ali. (O `_checkEnumStatic`, pela interface
+/// do enum, é o `types::sobrescritas::estaticos_de_enum`.)
 fn estaticos_da_unidade(rel: &mut Relato<'_>, u: &Unidade<'_>, contextos: &[Contexto], elementos: &HashMap<ChaveDeElemento, Escopos>) {
     let vazio = Escopos::default();
     for ctx in contextos {
