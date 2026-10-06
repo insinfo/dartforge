@@ -425,7 +425,6 @@ fn restos_duplicados(inf: &mut BodyInferrer<'_>, cx: &Corpo, p: PatternId) {
 pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, final_: bool, atribuicao: bool, de_e: bool) {
     use dartforge_diagnostics::codigos::{static_warning as sw, warning as w};
     let a = &inf.program.unit(cx.unit).ast;
-    let u = inf.core.unknown;
     let Some(r) = topo(cx) else { return };
     // O tipo casado é o da ENTRADA do padrão, antes de ele mesmo promover.
     let t = casado(cx, &r);
@@ -566,22 +565,9 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
             if refutavel_em_irrefutavel(inf, cx, span_do_padrao) {
                 cx.refutavel_forcado = false;
             }
-            let nome = match op {
-                ast::BinaryOp::Eq | ast::BinaryOp::NotEq => "==",
-                ast::BinaryOp::Lt => "<",
-                ast::BinaryOp::Gt => ">",
-                ast::BinaryOp::LtEq => "<=",
-                ast::BinaryOp::GtEq => ">=",
-                _ => "",
-            };
-            let ctx = match inf.interner.lookup(nome).map(|s| inf.buscar_membro(cx.lib, t, s, false)) {
-                Some(Busca::Achado(m)) => match inf.table.get(m.tipo) {
-                    Type::Function { positional, .. } => positional.first().copied().unwrap_or(u),
-                    _ => u,
-                },
-                _ => u,
-            };
-            let tv = inferir(inf, cx, value, ctx);
+            // `analyzeRelationalPattern`: operador, contexto do operando e as
+            // conferências (operando contra o parâmetro, retorno contra `bool`).
+            let tv = super::padrao_relacional(inf, cx, p, op, value, t);
             match op {
                 ast::BinaryOp::Eq => igualdade(inf, cx, value, tv, false),
                 ast::BinaryOp::NotEq => igualdade(inf, cx, value, tv, true),

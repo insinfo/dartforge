@@ -122,7 +122,6 @@ fn campo_nomeado_implicito(inf: &BodyInferrer<'_>, cx: &Corpo, pai: PatternId, f
 /// tipo casado); em atribuição, os identificadores são variáveis existentes.
 fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, final_: bool, atribuicao: bool) {
     let a = &inf.program.unit(cx.unit).ast;
-    let u = inf.core.unknown;
     // O tipo casado de cada padrão, lido pelo verificador de constantes
     // (`UnitBodyTypes::tipos_casados`); ainda sem a promoção do fluxo de
     // padrões (T6 da especificação).
@@ -177,56 +176,8 @@ fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, fi
             inferir(inf, cx, e, t);
         }
         PatternKind::Relational { op, value } => {
-            // `analyzeRelationalPattern`
-            // (`_fe_analyzer_shared/lib/src/type_inference/type_analyzer.dart:1700-1760`):
-            // o operador pelo tipo casado (`==` para `==` e `!=`); o operando
-            // com o parâmetro dele como contexto (anulável na igualdade); o
-            // operando contra o parâmetro, e o retorno contra `bool`.
             let (op, value) = (*op, *value);
-            let (nome, lexema, igualdade) = match op {
-                ast::BinaryOp::Eq => ("==", "==", true),
-                ast::BinaryOp::NotEq => ("==", "!=", true),
-                ast::BinaryOp::Lt => ("<", "<", false),
-                ast::BinaryOp::Gt => (">", ">", false),
-                ast::BinaryOp::LtEq => ("<=", "<=", false),
-                ast::BinaryOp::GtEq => (">=", ">=", false),
-                _ => ("", "", false),
-            };
-            let operador = match inf.interner.lookup(nome).map(|s| inf.buscar_membro(cx.lib, t, s, false)) {
-                Some(Busca::Achado(m)) => match inf.table.get(m.tipo).clone() {
-                    Type::Function { positional, ret, .. } => positional.first().copied().map(|p| (p, ret)),
-                    _ => None,
-                },
-                _ => None,
-            };
-            let ctx = match operador {
-                Some((p, _)) if igualdade => inf.anulavel(p),
-                Some((p, _)) => p,
-                None => u,
-            };
-            let tv = inferir(inf, cx, value, ctx);
-            if let Some((parametro, retorno)) = operador {
-                if !inf.atribuivel(tv, ctx) {
-                    let sp = inf.span_expr(cx.unit, value);
-                    let a1 = inf.table.format(tv, inf.interner, inf.program);
-                    let a2 = inf.table.format(parametro, inf.interner, inf.program);
-                    inf.aviso_com_codigo(
-                        dartforge_diagnostics::codigos::compile_time_error::RELATIONAL_PATTERN_OPERAND_TYPE_NOT_ASSIGNABLE,
-                        sp,
-                        &[&a1, &a2, lexema],
-                    );
-                }
-                let bool_ = inf.core.bool_;
-                if !inf.atribuivel(retorno, bool_) {
-                    let inicio = inf.program.unit(cx.unit).ast.pattern(p).span.start;
-                    let token = dartforge_diagnostics::Span { start: inicio, end: inicio + lexema.len() };
-                    inf.aviso_com_codigo(
-                        dartforge_diagnostics::codigos::compile_time_error::RELATIONAL_PATTERN_OPERATOR_RETURN_TYPE_NOT_ASSIGNABLE_TO_BOOL,
-                        token,
-                        &[],
-                    );
-                }
-            }
+            padrao_relacional(inf, cx, p, op, value, t);
         }
         PatternKind::Or(x, y) => {
             let (x, y) = (*x, *y);
@@ -819,4 +770,59 @@ pub(crate) fn expressao_switch(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, valor
         }
     }
     acc
+}
+
+/// `analyzeRelationalPattern`
+/// (`_fe_analyzer_shared/lib/src/type_inference/type_analyzer.dart:1700-1760`):
+/// o operador pelo tipo casado `t` (`==` para `==` e `!=`); o operando com o
+/// parâmetro dele como contexto (anulável na igualdade); o operando contra o
+/// parâmetro (`RELATIONAL_PATTERN_OPERAND_TYPE_NOT_ASSIGNABLE`) e o retorno
+/// contra `bool`. Devolve o tipo do operando.
+pub(crate) fn padrao_relacional(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, op: ast::BinaryOp, value: ExprId, t: TypeId) -> TypeId {
+    let u = inf.core.unknown;
+    let (nome, lexema, igualdade) = match op {
+        ast::BinaryOp::Eq => ("==", "==", true),
+        ast::BinaryOp::NotEq => ("==", "!=", true),
+        ast::BinaryOp::Lt => ("<", "<", false),
+        ast::BinaryOp::Gt => (">", ">", false),
+        ast::BinaryOp::LtEq => ("<=", "<=", false),
+        ast::BinaryOp::GtEq => (">=", ">=", false),
+        _ => ("", "", false),
+    };
+    let operador = match inf.interner.lookup(nome).map(|s| inf.buscar_membro(cx.lib, t, s, false)) {
+        Some(Busca::Achado(m)) => match inf.table.get(m.tipo).clone() {
+            Type::Function { positional, ret, .. } => positional.first().copied().map(|p| (p, ret)),
+            _ => None,
+        },
+        _ => None,
+    };
+    let ctx = match operador {
+        Some((p, _)) if igualdade => inf.anulavel(p),
+        Some((p, _)) => p,
+        None => u,
+    };
+    let tv = inferir(inf, cx, value, ctx);
+    if let Some((parametro, retorno)) = operador {
+        if !inf.atribuivel(tv, ctx) {
+            let sp = inf.span_expr(cx.unit, value);
+            let a1 = inf.table.format(tv, inf.interner, inf.program);
+            let a2 = inf.table.format(parametro, inf.interner, inf.program);
+            inf.aviso_com_codigo(
+                dartforge_diagnostics::codigos::compile_time_error::RELATIONAL_PATTERN_OPERAND_TYPE_NOT_ASSIGNABLE,
+                sp,
+                &[&a1, &a2, lexema],
+            );
+        }
+        let bool_ = inf.core.bool_;
+        if !inf.atribuivel(retorno, bool_) {
+            let inicio = inf.program.unit(cx.unit).ast.pattern(p).span.start;
+            let token = dartforge_diagnostics::Span { start: inicio, end: inicio + lexema.len() };
+            inf.aviso_com_codigo(
+                dartforge_diagnostics::codigos::compile_time_error::RELATIONAL_PATTERN_OPERATOR_RETURN_TYPE_NOT_ASSIGNABLE_TO_BOOL,
+                token,
+                &[],
+            );
+        }
+    }
+    tv
 }

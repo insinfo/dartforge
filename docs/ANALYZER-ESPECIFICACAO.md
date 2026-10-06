@@ -3550,6 +3550,9 @@ inicializador, com a mensagem própria do código.
   parâmetro, mas não confere. Acrescentar a conferência (`atribuivel(tipo_do_operando, anulável-se-igualdade(param))`).
   Amostras `RelationalPatternArgumentTypeNotAssigna_00a67d12.dart` (`case > 0` com `A.operator >(A)`), `extension_type/relational_pattern_error_test.dart:29:19`
   (6, operando de tipo de extensão `E` contra `int`).
+- **Estado (2026-10-06):** 18 de 18 (e `relational_pattern_operator_return_type_not_assignable_to_bool`, 2 de 2). O
+  `analyzeRelationalPattern` vale em **todo** contexto de padrão, inclusive os `case` (o caminho refutável do casamento,
+  que antes só inferia o operando).
 
 ##### `pattern_variable_assignment_inside_guard` (perda 15: FN 15)
 
