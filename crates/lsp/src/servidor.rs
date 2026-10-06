@@ -3010,7 +3010,7 @@ impl<A: Analisador> Servidor<A> {
     /// `.dart` dos projetos do workspace (raízes do `initialize` e o projeto,
     /// com `pubspec.yaml`, de cada documento aberto). O texto aberto vale
     /// mais que o disco; cada árvore é descartada antes da próxima. Casa por
-    /// aproximação (`crate::aproximado`): os que contêm a consulta primeiro,
+    /// aproximação (`crate::casador`): os que contêm a consulta primeiro,
     /// depois as subsequências; entre iguais, a ordem de (URI, posição).
     fn simbolos_do_workspace(&mut self, consulta: &str) -> Vec<Value> {
         // `handler_workspace_symbols.dart:28-123` (docs/LSP-ESPECIFICACAO.md

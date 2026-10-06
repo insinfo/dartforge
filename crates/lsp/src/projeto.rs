@@ -31,7 +31,7 @@ use dartforge_elements::model::{
     Program, UnitId, VariableId, VariableRef,
 };
 use dartforge_elements::sdk::SdkLayout;
-use dartforge_frontend::ast::{self, Ast, DeclKind, ExprKind, MemberKind, Parameter, StmtKind};
+use dartforge_frontend::ast::{self, Ast, DeclKind, ExprKind, MemberKind, Parameter};
 use dartforge_intern::SymbolId;
 use dartforge_types::{MemberRef, Resolved};
 use std::collections::{BTreeSet, HashSet};
@@ -3071,52 +3071,3 @@ pub(crate) fn declaracao_de_parametro_de_tipo(
     melhor.map(|(_, d)| d)
 }
 
-/// O escopo léxico de um local declarado em `offset`: o bloco, o `for`, a
-/// cláusula `catch` ou a função mais interno que o contém. O bloco do corpo
-/// de uma função é o mesmo escopo dos parâmetros (no Dart, `var x` no corpo
-/// de `f(int x)` é declaração duplicada), então conta como a função.
-pub(crate) fn escopo_do_local(ast: &Ast, offset: usize) -> Span {
-    let mut corpos: HashSet<(usize, usize)> = ast
-        .functions
-        .iter()
-        .filter_map(|f| match &f.body {
-            ast::FunctionBody::Block(s) => Some(ast.stmt(*s).span),
-            _ => None,
-        })
-        .map(|s| (s.start, s.end))
-        .collect();
-    for m in &ast.members {
-        if let MemberKind::Constructor(k) = &m.kind
-            && let ast::FunctionBody::Block(s) = &k.body
-        {
-            let s = ast.stmt(*s).span;
-            corpos.insert((s.start, s.end));
-        }
-    }
-    let mut candidatos: Vec<Span> = Vec::new();
-    for s in &ast.stmts {
-        match &s.kind {
-            StmtKind::Block(_) if corpos.contains(&(s.span.start, s.span.end)) => {}
-            StmtKind::Block(_) | StmtKind::For { .. } | StmtKind::ForIn { .. } => {
-                candidatos.push(s.span)
-            }
-            StmtKind::Try { catches, .. } => candidatos.extend(catches.iter().map(|c| c.span)),
-            _ => {}
-        }
-    }
-    candidatos.extend(ast.functions.iter().map(|f| f.span));
-    candidatos.extend(
-        ast.members
-            .iter()
-            .filter(|m| matches!(m.kind, MemberKind::Constructor(_)))
-            .map(|m| m.span),
-    );
-    candidatos
-        .into_iter()
-        .filter(|s| contem(*s, offset))
-        .min_by_key(|s| s.end - s.start)
-        .unwrap_or(Span {
-            start: 0,
-            end: usize::MAX,
-        })
-}

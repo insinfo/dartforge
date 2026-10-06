@@ -786,13 +786,6 @@ fn tokens(texto: &str, inicio: usize, fim: usize) -> Vec<dartforge_frontend::tok
         .unwrap_or_default()
 }
 
-/// O trecho de um token e do espaço em branco que o segue (apagar `final `).
-fn com_espaco_depois(texto: &str, span: Span) -> Span {
-    let resto = &texto[span.end..];
-    let n = resto.len() - resto.trim_start_matches([' ', '\t']).len();
-    Span { start: span.start, end: span.end + n }
-}
-
 /// O campo escrito por `assignment_to_final`: o `writeOrReadElement` do
 /// identificador é o getter sintético (o acessor implícito) de um campo não
 /// sintético sem setter; o campo, a unidade e o nome dele, a lista e o
@@ -992,112 +985,6 @@ fn criar_arquivo(projeto: &Projeto, unidade: UnitId, _uri: &str, d: &Diagnostic)
         diagnostico: Some(d.clone()),
         criar_arquivo: Some((Url::from_file_path(&destino).ok()?.to_string(), conteudo)),
     })
-}
-
-/// Assistências no intervalo: `Add type annotation` para um local
-/// `var x = e;` ou `final x = e;` com o cursor no nome ou na palavra-chave,
-/// com o tipo inferido pela inferência comum — só quando todo nome do tipo
-/// é visível na biblioteca (senão a anotação não compilaria) e o tipo não é
-/// `dynamic`.
-pub(crate) fn assistencias(
-    projeto: &Projeto,
-    uri: &str,
-    inicio: usize,
-    fim: usize,
-) -> Vec<AcaoDeCodigo> {
-    let Some(unidade) = projeto.unidade_do_uri(uri) else {
-        return Vec::new();
-    };
-    let consulta = &projeto.consulta;
-    let u = consulta.programa.unit(unidade);
-    let ast = &u.ast;
-    let corpos = &consulta.corpos.units[unidade.0 as usize];
-    let mut saida = Vec::new();
-    for s in &ast.stmts {
-        let ast::StmtKind::Variables(vl) = &s.kind else {
-            continue;
-        };
-        if vl.ty.is_some()
-            || vl.variables.len() != 1
-            || !(s.span.start <= fim && inicio <= s.span.end)
-        {
-            continue;
-        }
-        let v = &vl.variables[0];
-        // O cursor na palavra-chave ou no nome, não no inicializador.
-        if inicio > v.name.span.end {
-            continue;
-        }
-        let Some(tipo) = corpos.tipo_local(v.name.span.start) else {
-            continue;
-        };
-        let texto_tipo = consulta.formatar(tipo);
-        if texto_tipo == "dynamic"
-            || !tipo_escrevivel(projeto, unidade, v.name.span.start, &texto_tipo)
-        {
-            continue;
-        }
-        let palavra = &u.source[s.span.start..v.name.span.start];
-        let edicao = if vl.var_ && palavra.trim_start().starts_with("var") {
-            let de = s.span.start + palavra.find("var").unwrap_or(0);
-            (
-                Span {
-                    start: de,
-                    end: de + 3,
-                },
-                texto_tipo,
-            )
-        } else if vl.final_ {
-            (
-                Span {
-                    start: v.name.span.start,
-                    end: v.name.span.start,
-                },
-                format!("{texto_tipo} "),
-            )
-        } else {
-            continue;
-        };
-        saida.push(AcaoDeCodigo {
-            titulo: "Add type annotation".into(),
-            especie: "refactor.add.typeAnnotation".into(),
-            edicoes: vec![Edicao {
-                uri: uri.to_string(),
-                span: edicao.0,
-                texto: edicao.1,
-            }],
-            diagnostico: None,
-            criar_arquivo: None,
-        });
-    }
-    saida
-}
-
-/// Todo identificador do texto do tipo nomeia, no ponto `offset` da unidade,
-/// uma classe ou typedef visível na biblioteca, um parâmetro de tipo em
-/// escopo ou um tipo embutido.
-fn tipo_escrevivel(projeto: &Projeto, unidade: UnitId, offset: usize, texto_tipo: &str) -> bool {
-    let consulta = &projeto.consulta;
-    let u = consulta.programa.unit(unidade);
-    texto_tipo
-        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'))
-        .filter(|p| !p.is_empty() && !p.as_bytes()[0].is_ascii_digit())
-        .all(|nome| {
-            if ["dynamic", "void", "Never", "Function", "Null", "required"].contains(&nome) {
-                return true;
-            }
-            let Some(simbolo) = consulta.nomes.lookup(nome) else {
-                return false;
-            };
-            crate::projeto::declaracao_de_parametro_de_tipo(&u.ast, offset, simbolo).is_some()
-                || matches!(
-                    consulta
-                        .programa
-                        .lookup(u.library, simbolo)
-                        .and_then(|b| b.getter),
-                    Some(Element::Class(_) | Element::Typedef(_))
-                )
-        })
 }
 
 /// `Organize Imports` (`source.organizeImports`) sobre a unidade só

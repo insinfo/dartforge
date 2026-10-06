@@ -105,26 +105,11 @@ impl Projeto {
             let _ = metodos.contains(&(i as u32));
         }
 
-        // Convert to block body / expression body: a função mais interna.
+        // Convert to expression body: a função mais interna.
         if let Some((_, f)) = interna {
             match f.body {
-                FunctionBody::Expression(e) if f.modifier != ast::AsyncModifier::SyncStar && f.modifier != ast::AsyncModifier::AsyncStar => {
-                    let es = ast.expr(e).span;
-                    if let Some(seta) = fonte[..es.start].rfind("=>") {
-                        let fim_corpo = fonte[es.end..].find(';').filter(|k| fonte[es.end..es.end + k].trim().is_empty()).map_or(es.end, |k| es.end + k + 1);
-                        let prefixo = indentacao(fonte, f.span.start);
-                        let vazio = f.return_type.is_some_and(|t| &fonte[ast.ty(t).span.start..ast.ty(t).span.end] == "void");
-                        let codigo = &fonte[es.start..es.end];
-                        let linha = if vazio { format!("{codigo};") } else { format!("return {codigo};") };
-                        let inicio_seta = fonte[..seta].trim_end().len();
-                        let fecho = if f.name.is_some() || fonte.as_bytes().get(fim_corpo.saturating_sub(1)) == Some(&b';') { "" } else { "" };
-                        let novo = format!(" {{\n{prefixo}  {linha}\n{prefixo}}}{fecho}");
-                        // O `;` do corpo de expressão sai junto (só em
-                        // declarações; num *closure* não há `;`).
-                        let fim_trocado = if f.name.is_some() { fim_corpo } else { es.end };
-                        saida.push(acao(uri, "Convert to block body", "refactor.convert.bodyToBlock", vec![(Span { start: inicio_seta, end: fim_trocado }, novo)]));
-                    }
-                }
+                // `Convert to block body` sai pelo porte do produtor do Dart
+                // (`Contexto::converter_em_corpo_de_bloco`).
                 FunctionBody::Block(b) if f.modifier != ast::AsyncModifier::SyncStar && f.modifier != ast::AsyncModifier::AsyncStar => {
                     if let StmtKind::Block(cmds) = &ast.stmt(b).kind
                         && cmds.len() == 1
@@ -169,20 +154,7 @@ impl Projeto {
             let s = ast.stmt(cid);
             match &s.kind {
                 StmtKind::Variables(l) => {
-                    // Remove type annotation.
-                    if let (Some(t), Some(v)) = (l.ty, l.variables.first())
-                        && v.initializer.is_some()
-                        && offset <= v.name.span.end
-                    {
-                        let ts = ast.ty(t).span;
-                        let edicao = if l.final_ || l.const_ {
-                            let resto = &fonte[ts.end..];
-                            (Span { start: ts.start, end: ts.end + (resto.len() - resto.trim_start().len()) }, String::new())
-                        } else {
-                            (ts, "var".to_string())
-                        };
-                        saida.push(acao(uri, "Remove type annotation", "refactor.remove.typeAnnotation", vec![edicao]));
-                    }
+                    // `Remove type annotation`: `assist_tipo` (o produtor do Dart).
                     // Split variable declaration.
                     if !l.final_ && !l.const_
                         && l.variables.len() == 1

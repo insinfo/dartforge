@@ -76,24 +76,6 @@ impl Projeto {
     }
 }
 
-/// O nome declarado (token) e o offset dele.
-fn nome_em(cx: &Contexto<'_>, inicio: usize, nome: &str) -> Option<usize> {
-    let fim = cx.arvore.nos.iter().map(|k| k.fim).max().unwrap_or(cx.fonte.len());
-    let resto = &cx.fonte[inicio..fim.min(cx.fonte.len())];
-    let mut i = 0;
-    while let Some(k) = resto[i..].find(nome) {
-        let a = i + k;
-        let antes = resto[..a].chars().next_back();
-        let depois = resto[a + nome.len()..].chars().next();
-        let limite = |c: Option<char>| c.is_none_or(|c| !(c.is_alphanumeric() || c == '_' || c == '$'));
-        if limite(antes) && limite(depois) {
-            return Some(inicio + a);
-        }
-        i = a + nome.len();
-    }
-    None
-}
-
 /// Os registros (`chave`, `nameLength`, offset) que o nó `n` faz.
 fn registros(p: &Projeto, cx: &Contexto<'_>, n: usize) -> Vec<(Chave, usize, usize)> {
     let no = &cx.arvore.nos[n];

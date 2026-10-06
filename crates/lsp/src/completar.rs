@@ -21,7 +21,7 @@
 //! `import` (`additionalTextEdits`), como a importação automática do Dart;
 //! não em partes (o `import` iria para outro arquivo).
 //!
-//! O filtro é aproximado ([`crate::aproximado`]): prefixo, contém,
+//! O filtro é o `FuzzyMatcher` do Dart ([`crate::casador`]): prefixo, contém,
 //! iniciais de palavras e subsequência que abre como o nome. A ordem é por
 //! relevância e estável: o que começa com o digitado vem antes do que só
 //! casa por aproximação; depois o grupo (argumentos nomeados, locais,

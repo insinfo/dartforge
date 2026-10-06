@@ -131,6 +131,63 @@ impl SdkLayout {
         })
     }
 
+    /// O SDK como o analyzer o enxerga (`FolderBasedDartSdk`): cada
+    /// biblioteca de `_internal/sdk_library_metadata/lib/libraries.dart`
+    /// pelo caminho declarado no `LibraryInfo`, **sem patches** (o analyzer
+    /// não os aplica: as declarações `external` ficam como estão, e as
+    /// bibliotecas internas são as do dart2js, `_internal/js_runtime`). Sem o
+    /// arquivo (um SDK reduzido), o perfil `dartdevc` de `libraries.json`.
+    ///
+    /// # Erros
+    /// Os de [`SdkLayout::load`], quando cai nele.
+    pub fn load_como_analyzer(lib_dir: &Path) -> Result<Self, String> {
+        let metadados = lib_dir.join("_internal/sdk_library_metadata/lib/libraries.dart");
+        let Ok(texto) = std::fs::read_to_string(&metadados) else {
+            return Self::load(lib_dir, "dartdevc");
+        };
+        let mut libraries = HashMap::new();
+        // `'nome': const LibraryInfo(\n    'caminho',` (aspas simples ou duplas).
+        let bytes = texto.as_bytes();
+        let mut i = 0usize;
+        while let Some(rel) = texto[i..].find("const LibraryInfo(") {
+            let pos = i + rel;
+            i = pos + "const LibraryInfo(".len();
+            // O nome: a última string antes de `:` que precede o `const`.
+            let antes = texto[..pos].trim_end();
+            let Some(antes) = antes.strip_suffix(':') else { continue };
+            let antes = antes.trim_end();
+            let Some(aspa) = antes.chars().last().filter(|c| *c == '\'' || *c == '"') else { continue };
+            let corpo = &antes[..antes.len() - 1];
+            let Some(ini) = corpo.rfind(aspa) else { continue };
+            let nome = corpo[ini + 1..].to_string();
+            // O caminho: a primeira string depois do `(`.
+            let mut j = i;
+            while j < bytes.len() && (bytes[j] as char).is_whitespace() {
+                j += 1;
+            }
+            let Some(&q) = bytes.get(j) else { break };
+            if q != b'\'' && q != b'"' {
+                continue;
+            }
+            let Some(fim) = texto[j + 1..].find(q as char) else { break };
+            let caminho = &texto[j + 1..j + 1 + fim];
+            libraries.insert(
+                nome.clone(),
+                SdkLibrary { name: nome, path: lib_dir.join(caminho), patches: Vec::new(), supported: true },
+            );
+        }
+        if libraries.is_empty() {
+            return Self::load(lib_dir, "dartdevc");
+        }
+        Ok(SdkLayout {
+            root: lib_dir.to_path_buf(),
+            libraries,
+            versao_corrente: LanguageVersion::ATUAL,
+            experimentos: Vec::new(),
+            substituicoes: HashMap::new(),
+        })
+    }
+
     /// A seção `base` do SDK com arquivos trocados pela sobreposição de
     /// `dir_sobreposicao` (o `sdk_nativo/` do backend nativo,
     /// docs/NATIVO-PLANO.md §7, P5a).

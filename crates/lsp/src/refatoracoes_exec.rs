@@ -1424,7 +1424,3 @@ fn metodo_para_getter(cx: &Contexto<'_>, pedido: &PedidoDeRefatoracao, comando: 
     })
 }
 
-/// Tipos de retorno não escritos de uma declaração (`Type::Void`).
-pub(crate) fn e_void(p: &Projeto, t: TypeId) -> bool {
-    matches!(p.consulta.tabela.get(t), Type::Void)
-}

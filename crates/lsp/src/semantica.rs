@@ -100,7 +100,9 @@ impl AnalisadorSemantico {
 
     /// Descobre o SDK pelos mesmos caminhos usados pelo compilador.
     pub fn descobrir() -> Self {
-        let sdk = SdkLayout::discover().and_then(|p| SdkLayout::load(&p, "dartdevc").ok());
+        // O SDK como o analyzer o enxerga (M1): sem patches, com as
+        // bibliotecas internas do dart2js.
+        let sdk = SdkLayout::discover().and_then(|p| SdkLayout::load_como_analyzer(&p).ok());
         Self::novo(sdk)
     }
 
@@ -426,8 +428,23 @@ impl Analisador for AnalisadorSemantico {
                 let criadas = projeto.criar_indefinidos(uri, unidade, linha_ini, linha_fim);
                 saida.extend(criadas);
             }
-            saida.extend(crate::acoes::assistencias(&projeto, uri, inicio, fim));
             if let Some(unidade) = projeto.unidade_do_uri(uri) {
+                {
+                    let cx = crate::refatoracoes::Contexto::novo(&projeto, unidade);
+                    saida.extend(cx.adicionar_anotacao_de_tipo(uri, inicio, fim));
+                    // `ConvertIntoBlockBody.missingBody` como assistência: o
+                    // nó da seleção (`NodeLocator`).
+                    if let Some((span, texto)) = cx.converter_em_corpo_de_bloco(dartforge_diagnostics::Span { start: inicio, end: fim }) {
+                        saida.push(crate::acoes::AcaoDeCodigo {
+                            titulo: "Convert to block body".into(),
+                            especie: "refactor.convert.bodyToBlock".into(),
+                            edicoes: vec![crate::Edicao { uri: uri.to_string(), span, texto }],
+                            diagnostico: None,
+                            criar_arquivo: None,
+                        });
+                    }
+                    saida.extend(cx.remover_anotacao_de_tipo(uri, inicio, fim));
+                }
                 saida.extend(projeto.assistencias_de_reescrita(uri, unidade, inicio, fim));
                 saida.extend(projeto.assistencias_sintaticas(uri, unidade, inicio));
                 saida.extend(projeto.assistencias_de_condicao(uri, unidade, inicio));
@@ -479,6 +496,21 @@ impl Analisador for AnalisadorSemantico {
     }
 
     fn implementacoes(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Vec<(String, Span)> {
+        // `searchAllSubtypes` procura em todo arquivo conhecido, inclusive o
+        // SDK inteiro (`JSString` de `dart:_interceptors` implementa
+        // `String`): a carga ampla, como a das referências.
+        let nome = self.projeto(documentos, uri).and_then(|projeto| {
+            let unidade = projeto.unidade_do_uri(uri)?;
+            let d = projeto.identificar(unidade, offset).ok()??;
+            projeto.nome_da_busca(&d.alvo)
+        });
+        if let Some(nome) = nome
+            && let Some(sdk) = self.sdk.as_ref()
+            && let Some(amplo) = crate::projeto::carregar_projeto_amplo(sdk, documentos, uri, &nome)
+            && let Some(unidade) = amplo.unidade_do_uri(uri)
+        {
+            return amplo.implementacoes(unidade, offset).into_iter().filter_map(|(u, s)| Some((amplo.uri_da_unidade(u)?, s))).collect();
+        }
         let Some(projeto) = self.projeto(documentos, uri) else { return Vec::new() };
         let Some(unidade) = projeto.unidade_do_uri(uri) else { return Vec::new() };
         projeto
