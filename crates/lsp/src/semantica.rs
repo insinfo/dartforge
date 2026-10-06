@@ -452,6 +452,7 @@ impl Analisador for AnalisadorSemantico {
                     saida.extend(cx.converter_em_parametro_normal(uri, inicio, fim));
                     saida.extend(cx.remover_anotacao_de_tipo(uri, inicio, fim));
                     saida.extend(cx.condicional_em_if_else(uri, inicio, fim));
+                    saida.extend(cx.converter_aspas_de_texto(uri, inicio, fim));
                 }
                 saida.extend(projeto.assistencias_de_reescrita(uri, unidade, inicio, fim));
                 saida.extend(projeto.assistencias_sintaticas(uri, unidade, inicio));

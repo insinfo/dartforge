@@ -22,6 +22,7 @@ mod assist_funcoes;
 mod assist_imports;
 mod assist_lacos;
 mod assist_membros;
+mod assist_textos;
 mod assist_tipo;
 mod assistencias;
 mod assistencias2;

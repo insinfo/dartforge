@@ -25,7 +25,7 @@ fn acoes(p: &mut Projeto, relativo: &str, de: (u32, u32), ate: (u32, u32), extra
     let fora = |k: &str| {
         k.starts_with("source")
             || k.starts_with("quickfix.ignore")
-            || (k.starts_with("refactor.") && !["refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse"].contains(&k))
+            || (k.starts_with("refactor.") && !["refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString"].contains(&k))
             || k == "quickfix.change.to"
             || ["method", "function", "class", "mixin", "getter", "field", "localVariable", "parameter"]
                 .iter()
@@ -585,4 +585,18 @@ fn assistencia_de_condicional_em_if_else() {
 }
 "
     );
+}
+
+#[test]
+fn assistencia_de_aspas() {
+    let mut p = Projeto::com_literais("acoes-aspas");
+    let texto = "void f(int n) {\n  print('it\\'s \"x\"');\n  print(\"a $n b\");\n}\n";
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "it");
+    let a = acao(&r, "Convert to double quoted string");
+    assert_eq!(a["kind"], "refactor.convert.toDoubleQuotedString");
+    assert_eq!(aplicar(&a["edit"], &p.uri("lib/a.dart"), texto), texto.replace("'it\\'s \"x\"'", "\"it's \\\"x\\\"\""));
+    assert!(!titulos(&r).contains(&"Convert to single quoted string".to_string()));
+    let pos = onde(texto, "a $n", 0);
+    let r = acoes(&mut p, "lib/a.dart", pos, pos, json!({}));
+    assert_eq!(aplicar(&acao(&r, "Convert to single quoted string")["edit"], &p.uri("lib/a.dart"), texto), texto.replace("\"a $n b\"", "'a $n b'"));
 }
