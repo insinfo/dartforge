@@ -1325,6 +1325,16 @@ impl<'s, 'i> Parser<'s, 'i> {
                 let inits = std::mem::take(&mut c.initializers);
                 let body = std::mem::replace(&mut c.body, FunctionBody::Empty);
                 let corpo = self.corpos_primarios.get(&c.class_name.span.start).copied();
+                // `this : this.nome()`: o primário não redireciona
+                // (`PRIMARY_CONSTRUCTOR_CANNOT_REDIRECT` no `this` do
+                // redirecionamento). O inicializador fica (conta para o ciclo
+                // constante e para o uso do alvo); o ciclo gerador o ignora.
+                for i in inits.iter() {
+                    if let Initializer::Redirect { span: sp, .. } = i {
+                        let s = Span { start: sp.start, end: sp.start + 4 };
+                        self.diagnostics.push(Diagnostic::com_codigo(codigos::compile_time_error::PRIMARY_CONSTRUCTOR_CANNOT_REDIRECT, s, Vec::<&str>::new()));
+                    }
+                }
                 (inits, body, Some(span), corpo)
             }
             None => (Vec::new().into_boxed_slice(), FunctionBody::Empty, None, None),

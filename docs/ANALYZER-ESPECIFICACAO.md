@@ -5888,6 +5888,9 @@ ou `undefined_class 'augment'`) e o resto é **outra declaração homônima** (`
   `Redirect` (certo). Erros: (1) pula homônimas e unidades com `augment` (achado 3); (2) `alvo_da_fabrica` resolve o
   nome pelo escopo do DartForge (última vence, achado 2); (3) `classe_escrita` devolve `None` em binding ambíguo e
   para nomes que não são classe — certo (sem elemento não há ciclo). Falta registrar o módulo.
+- **Correção (2026-10-06, oráculo 3.13):** o redirecionamento escrito na parte `this :` do construtor **primário**
+  é `primary_constructor_cannot_redirect` (no `this`) e não entra na cadeia de `recursive_constructor_redirect`; conta,
+  porém, para o ciclo constante (`recursive_constant_constructor`) e para o uso do construtor alvo (`unused_element`).
 
 ##### `redirect_to_invalid_return_type` (perda 26: FN 26)
 - **Emissão:** `_checkForAllRedirectConstructorErrorCodes` (EV:2025-2075, erro em EV:2064), chamado de

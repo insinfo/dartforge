@@ -127,6 +127,7 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             // `_checkForRecursiveConstructorRedirect` (`error_verifier.dart:5047-5066`):
             // no primeiro `this(...)` de um construtor gerador em ciclo.
             if !fe.factory
+                && !e_construtor_primario(inf.program, f)
                 && let Some(sp) = ctor.initializers.iter().find_map(|i| match i {
                     ast::Initializer::Redirect { span, .. } => Some(*span),
                     _ => None,
@@ -552,7 +553,7 @@ pub(crate) fn construtor_redirecionado(inf: &mut BodyInferrer<'_>, f: FunctionEl
             Construtor::Implicito => None,
         };
     }
-    if ctor.factory {
+    if ctor.factory || e_construtor_primario(inf.program, f) {
         return None;
     }
     let nome = ctor.initializers.iter().find_map(|i| match i {
@@ -566,6 +567,18 @@ pub(crate) fn construtor_redirecionado(inf: &mut BodyInferrer<'_>, f: FunctionEl
         None => inf.sym.vazio,
     }?;
     inf.construtor_de(c, chave)
+}
+
+/// `f` é o construtor primário (elaborado) de uma classe ou enum: o
+/// redirecionamento dele é `PRIMARY_CONSTRUCTOR_CANNOT_REDIRECT` e não entra
+/// na cadeia de `RECURSIVE_CONSTRUCTOR_REDIRECT`.
+fn e_construtor_primario(program: &dartforge_elements::model::Program, f: FunctionElementId) -> bool {
+    let FunctionRef::Constructor { unit, member } = program.function(f).node else { return false };
+    program.unit(unit).ast.decls.iter().any(|d| match &d.kind {
+        ast::DeclKind::Class(x) => x.primary_constructor == Some(member),
+        ast::DeclKind::Enum(x) => x.primary_constructor == Some(member),
+        _ => false,
+    })
 }
 
 /// `_hasRedirectingFactoryConstructorCycle`
