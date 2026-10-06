@@ -1867,9 +1867,27 @@ pub(crate) fn conjunto_desnecessario(inf: &mut BodyInferrer<'_>, unit: UnitId, f
 pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: UnitId) {
     let a = &inf.program.unit(unit).ast;
     for d in a.decls.iter() {
-        let (classe, extensao) = classe_da_decl(inf, unit, d);
+        let (classe, _) = classe_da_decl(inf, unit, d);
+        // A anotação da declaração é resolvida no escopo de fora dela (o da
+        // biblioteca): os membros do contêiner não estão nele.
         for m in d.metadata.iter() {
-            anotacao(inf, unit, classe, extensao, m);
+            anotacao(inf, unit, None, None, m);
+        }
+        // As anotações dos parâmetros de tipo: no escopo dos parâmetros de
+        // tipo, cujo pai é o da biblioteca (os membros do contêiner não).
+        let tps: &[ast::TypeParameter] = match &d.kind {
+            ast::DeclKind::Class(x) => &x.type_params,
+            ast::DeclKind::Mixin(x) => &x.type_params,
+            ast::DeclKind::Enum(x) => &x.type_params,
+            ast::DeclKind::Extension(x) => &x.type_params,
+            ast::DeclKind::ExtensionType(x) => &x.type_params,
+            ast::DeclKind::Typedef(x) => &x.type_params,
+            ast::DeclKind::Function(_) | ast::DeclKind::Variables(_) => &[],
+        };
+        for tp in tps.iter() {
+            for m in tp.metadata.iter() {
+                anotacao(inf, unit, None, None, m);
+            }
         }
         match &d.kind {
             ast::DeclKind::Enum(en) => {
@@ -2006,17 +2024,28 @@ pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: Uni
     }
     // Funções de topo e métodos (as locais e os literais veem locais que a
     // anotação pode citar: ficam sem a validação de nomes).
-    let declaradas: std::collections::HashSet<u32> = inf
+    let declaradas: std::collections::HashMap<u32, (Option<ClassId>, Option<dartforge_elements::model::ExtensionId>)> = inf
         .program
         .functions
         .iter()
         .filter_map(|fe| match fe.node {
-            dartforge_elements::model::FunctionRef::Function { unit: u, function } if u == unit => Some(function.0),
+            dartforge_elements::model::FunctionRef::Function { unit: u, function } if u == unit => Some((function.0, (fe.class, fe.extension))),
             _ => None,
         })
         .collect();
     for (i, f) in a.functions.iter().enumerate() {
-        let validar = declaradas.contains(&(i as u32));
+        let validar = declaradas.contains_key(&(i as u32));
+        // Os parâmetros de tipo de um método veem o escopo do contêiner.
+        let (dona, ext_dona) = declaradas.get(&(i as u32)).copied().unwrap_or((None, None));
+        for tp in f.type_params.iter() {
+            for m in tp.metadata.iter() {
+                if validar {
+                    anotacao(inf, unit, dona, ext_dona, m);
+                } else {
+                    anotacao_sem_validar(inf, unit, None, m);
+                }
+            }
+        }
         if let Some(ps) = &f.parameters {
             for p in ps.iter() {
                 for m in p.metadata.iter() {

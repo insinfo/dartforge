@@ -169,7 +169,9 @@ pub(crate) fn resolver_nome(inf: &mut BodyInferrer<'_>, cx: &Corpo, nome: Symbol
     }
     // Membros declarados no corpo da classe/extensão.
     if cx.classe.is_some() || cx.extensao.is_some() {
-        let chave_setter = if setter { inf.chave_setter(nome) } else { None };
+        // O escopo do contêiner guarda getter e setter pelo nome base: a
+        // leitura que só acha o setter para ali (`LexicalLookup.resolveGetter`).
+        let chave_setter = inf.chave_setter(nome);
         let ordem: Vec<Option<SymbolId>> = if setter { vec![chave_setter, Some(nome)] } else { vec![Some(nome), chave_setter] };
         for chave in ordem.into_iter().flatten() {
             if let Some((f, estatico)) = inf.membro_declarado_lexico(cx.classe, cx.extensao, chave, None) {

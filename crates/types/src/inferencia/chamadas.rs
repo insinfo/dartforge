@@ -882,6 +882,11 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             && f.is_some_and(|f| !inf.program.function(f).factory)
         {
             inf.aviso(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template.to_string(), a.expr(target).span);
+            // O construtor fica resolvido (`constructorName.staticElement`):
+            // a avaliação constante segue pela chamada dele.
+            if let Some(f) = f {
+                resolver(inf, cx, e, Resolved::Constructor(f));
+            }
             for arg in args.args.iter() {
                 inferir_livre(inf, cx, arg.value);
             }

@@ -300,11 +300,50 @@ pub fn verificar(m: &mut Motor<'_>, lib: LibraryId) -> Vec<(UnitId, Diagnostic)>
         for &d in &program.unit(u).unit.declarations {
             v.declaracao(a, d);
         }
+        // `visitAnnotation`: os argumentos da anotação que cria com um
+        // construtor `const` (`_validateConstantArguments`).
+        for m in dartforge_frontend::pais::todas_as_anotacoes(a, &program.unit(u).unit) {
+            v.anotacao(m);
+        }
     }
     v.saida
 }
 
 impl Verificador<'_, '_> {
+    /// `ConstantVerifier.visitAnnotation`: o elemento é um construtor
+    /// `const` com lista de argumentos; cada argumento é avaliado, e o que
+    /// não é constante é `CONST_WITH_NON_CONSTANT_ARGUMENT`.
+    fn anotacao(&mut self, m: &ast::Annotation) {
+        let Some(args) = &m.arguments else { return };
+        let program = self.m.program;
+        let interner = self.m.interner;
+        let Some(el) = crate::anotacoes::elemento_da_anotacao(program, interner, self.unidade, m) else { return };
+        let classe = match el {
+            dartforge_elements::model::Element::Class(c) => c,
+            dartforge_elements::model::Element::Typedef(td) => match self.m.table.get(self.m.outline.typedefs[td.0 as usize].target_type) {
+                Type::Interface { class, .. } => *class,
+                _ => return,
+            },
+            _ => return,
+        };
+        // O construtor: o último nome, se for um construtor da classe; senão
+        // o sem nome.
+        let ultimo = m.name.last().map(|n| n.sym);
+        let nomeado = (m.name.len() >= 2)
+            .then_some(ultimo)
+            .flatten()
+            .filter(|&s| interner.resolve(s) != "new" && interner.resolve(s) != interner.resolve(program.class(classe).name))
+            .and_then(|s| program.class(classe).constructors.get(&s).copied());
+        let f = nomeado.or_else(|| interner.lookup("").and_then(|k| program.class(classe).constructors.get(&k).copied()));
+        let Some(f) = f else { return };
+        if !program.function(program.publico(f)).const_ {
+            return;
+        }
+        for x in args.args.iter() {
+            self.avaliar_e_relatar(x.value, true, c::CONST_WITH_NON_CONSTANT_ARGUMENT);
+        }
+    }
+
     fn cx(&self) -> Ctx {
         Ctx::simples(self.unidade, self.lib)
     }
@@ -373,6 +412,10 @@ impl Verificador<'_, '_> {
                     if let Some(args) = &cst.arguments {
                         for arg in args.args.iter() {
                             self.expr(a, arg.value, true);
+                        }
+                        // `visitEnumConstantDeclaration`: `_validateConstantArguments`.
+                        for arg in args.args.iter() {
+                            self.avaliar_e_relatar(arg.value, true, c::CONST_WITH_NON_CONSTANT_ARGUMENT);
                         }
                     }
                 }

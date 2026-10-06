@@ -456,7 +456,12 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
             let (f2, ty, name) = (*f2, *ty, *name);
             if cx.padrao_refutavel && !*var_ && !f2 && ty.is_none() {
                 // `case limite:` é o padrão constante de uma `const`: pode
-                // casar ou não, sem informação.
+                // casar ou não, sem informação. O nome é um
+                // `SimpleIdentifier` (`ConstantPattern`): sem elemento,
+                // `UNDEFINED_IDENTIFIER`.
+                if matches!(expr::resolver_nome(inf, cx, name.sym, false), expr::RefNome::Nenhum) {
+                    expr::nome_indefinido_sem_this(inf, cx, name);
+                }
                 let atual = cx.fluxo.clone();
                 juntar_nao_casou(inf, cx, &atual);
                 return;
