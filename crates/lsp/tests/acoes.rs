@@ -25,7 +25,7 @@ fn acoes(p: &mut Projeto, relativo: &str, de: (u32, u32), ate: (u32, u32), extra
     let fora = |k: &str| {
         k.starts_with("source")
             || k.starts_with("quickfix.ignore")
-            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment", "refactor.convert.relativeToPackageImport", "refactor.convert.packageToRelativeImport", "refactor.convert.partOfToPartUri", "refactor.convert.toMapLiteral", "refactor.convert.toSetLiteral", "refactor.encapsulateField", "refactor.convert.toConstructorFieldParameter", "refactor.shadowField", "refactor.convert.toGenericFunctionSyntax"].contains(&k) && !k.starts_with("refactor.surround."))
+            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment", "refactor.convert.relativeToPackageImport", "refactor.convert.packageToRelativeImport", "refactor.convert.partOfToPartUri", "refactor.convert.toMapLiteral", "refactor.convert.toSetLiteral", "refactor.encapsulateField", "refactor.convert.toConstructorFieldParameter", "refactor.shadowField", "refactor.convert.toGenericFunctionSyntax", "refactor.destructureLocalVariableAssignment"].contains(&k) && !k.starts_with("refactor.surround."))
             || k == "quickfix.change.to"
             || ["method", "function", "class", "mixin", "getter", "field", "localVariable", "parameter"]
                 .iter()
@@ -838,4 +838,20 @@ fn assistencia_de_envolver() {
     // Sem seleção, nada.
     let pos = onde(texto, "print(1)", 0);
     assert!(!titulos(&acoes(&mut p, "lib/a.dart", pos, pos, json!({}))).iter().any(|t| t.starts_with("Surround with")));
+}
+
+#[test]
+fn assistencia_de_desestruturar() {
+    let mut p = Projeto::com_literais("acoes-desestruturar");
+    let texto = "class P {\n  int x = 1;\n  int y = 2;\n}\nvoid f((int, {String n}) r, P q) {\n  var a = r;\n  var b = q;\n  print(b.x + b.y);\n  print(a);\n}\n";
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "a = r");
+    let a = acao(&r, "Destructure variable assignment");
+    assert_eq!(a["kind"], "refactor.destructureLocalVariableAssignment");
+    assert_eq!(aplicar(&a["edit"], &p.uri("lib/a.dart"), texto), texto.replace("var a = r;", "var ($1, :n) = r;"));
+    let pos = onde(texto, "b = q", 0);
+    let r = acoes(&mut p, "lib/a.dart", pos, pos, json!({}));
+    assert_eq!(
+        aplicar(&acao(&r, "Destructure variable assignment")["edit"], &p.uri("lib/a.dart"), texto),
+        texto.replace("var b = q;", "var P(:x, :y) = q;").replace("print(b.x + b.y);", "print(x + y);")
+    );
 }
