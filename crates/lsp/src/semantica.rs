@@ -432,6 +432,7 @@ impl Analisador for AnalisadorSemantico {
                 {
                     let cx = crate::refatoracoes::Contexto::novo(&projeto, unidade);
                     saida.extend(cx.adicionar_anotacao_de_tipo(uri, inicio, fim));
+                    saida.extend(cx.converter_em_corpo_assincrono(uri, inicio, fim));
                     // `ConvertIntoBlockBody.missingBody` como assistência: o
                     // nó da seleção (`NodeLocator`).
                     if let Some((span, texto)) = cx.converter_em_corpo_de_bloco(dartforge_diagnostics::Span { start: inicio, end: fim }) {
@@ -443,6 +444,9 @@ impl Analisador for AnalisadorSemantico {
                             criar_arquivo: None,
                         });
                     }
+                    saida.extend(cx.converter_em_campo_final(uri, inicio, fim));
+                    saida.extend(cx.converter_em_getter(uri, inicio, fim));
+                    saida.extend(cx.converter_em_parametro_normal(uri, inicio, fim));
                     saida.extend(cx.remover_anotacao_de_tipo(uri, inicio, fim));
                 }
                 saida.extend(projeto.assistencias_de_reescrita(uri, unidade, inicio, fim));

@@ -56,22 +56,7 @@ impl Projeto {
         let offset = inicio;
         let _ = fim;
 
-        // A função declarada (não *closure*) que contém o cursor, e a
-        // expressão de função mais interna.
-        let metodos: HashSet<u32> = ast
-            .members
-            .iter()
-            .filter_map(|m| match m.kind {
-                ast::MemberKind::Method(f) => Some(f.0),
-                _ => None,
-            })
-            .collect();
-        let declarada = ast
-            .functions
-            .iter()
-            .enumerate()
-            .filter(|(_, f)| f.name.is_some() && f.span.start <= offset && offset <= f.span.end)
-            .min_by_key(|(_, f)| f.span.end - f.span.start);
+        // A expressão de função mais interna que contém o cursor.
         let interna = ast
             .functions
             .iter()
@@ -79,31 +64,7 @@ impl Projeto {
             .filter(|(_, f)| f.span.start <= offset && offset <= f.span.end)
             .min_by_key(|(_, f)| f.span.end - f.span.start);
 
-        // Convert to async function body.
-        if let Some((i, f)) = declarada
-            && interna.is_some_and(|(j, _)| j == i)
-            && f.modifier == ast::AsyncModifier::None
-        {
-            let corpo_inicio = match f.body {
-                FunctionBody::Block(b) => Some(ast.stmt(b).span.start),
-                FunctionBody::Expression(e) => fonte[..ast.expr(e).span.start].rfind("=>"),
-                _ => None,
-            };
-            if let Some(c) = corpo_inicio
-                && offset <= c + if matches!(f.body, FunctionBody::Expression(_)) { 2 } else { 1 }
-            {
-                let mut edicoes = vec![(Span { start: c, end: c }, "async ".to_string())];
-                if let Some(t) = f.return_type {
-                    let s = ast.ty(t).span;
-                    let escrito = &fonte[s.start..s.end];
-                    if !escrito.starts_with("Future") && !escrito.starts_with("FutureOr") {
-                        edicoes.push((s, format!("Future<{escrito}>")));
-                    }
-                }
-                saida.push(acao(uri, "Convert to async function body", "refactor.convert.bodyToAsync", edicoes));
-            }
-            let _ = metodos.contains(&(i as u32));
-        }
+        // `Convert to async function body`: `assist_funcoes` (o produtor do Dart).
 
         // Convert to expression body: a função mais interna.
         if let Some((_, f)) = interna {

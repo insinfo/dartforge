@@ -17,6 +17,8 @@ pub mod servidor;
 mod acoes;
 pub(crate) use dartforge_analise::arvore_analyzer;
 mod assinatura;
+mod assist_funcoes;
+mod assist_membros;
 mod assist_tipo;
 mod assistencias;
 mod assistencias2;

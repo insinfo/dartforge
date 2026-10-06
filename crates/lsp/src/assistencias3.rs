@@ -195,23 +195,16 @@ impl Projeto {
             }
         }
 
-        // `Invert conditional expression`: a condicional mais interna que
-        // contém o cursor, fora dos argumentos de uma chamada dentro dela.
-        let condicional = a
-            .exprs
-            .iter()
-            .filter(|e| matches!(e.kind, ExprKind::Conditional { .. }) && e.span.start <= offset && offset <= e.span.end)
-            .min_by_key(|e| e.span.end - e.span.start);
-        if let Some(e) = condicional
+        // `Invert conditional expression`: a condicional do
+        // `_getConditionalExpressionAncestor`, sobre a árvore do analyzer.
+        let condicional = {
+            let cx = crate::refatoracoes::Contexto::novo(self, unidade);
+            cx.condicional_proxima(offset).and_then(|n| cx.expr_do_no(n))
+        };
+        if let Some(e) = condicional.map(|x| a.expr(x))
             && let ExprKind::Conditional { condition, then, else_ } = &e.kind
         {
-            let em_argumentos = a.exprs.iter().any(|x| match &x.kind {
-                ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => {
-                    e.span.start <= x.span.start && x.span.end <= e.span.end && arguments.span.start < offset && offset < arguments.span.end
-                }
-                _ => false,
-            });
-            if !em_argumentos {
+            {
                 let trecho = |x: ExprId| {
                     let s = a.expr(x).span;
                     (s, fonte.get(s.start..s.end).unwrap_or("").to_string())
@@ -370,5 +363,36 @@ impl Projeto {
             }
         }
         saida
+    }
+}
+
+impl crate::refatoracoes::Contexto<'_> {
+    /// `_thisOrParentOfType`: o nó, ou o pai, se for de uma das espécies.
+    fn este_ou_pai_de(&self, n: usize, especies: &[&str]) -> Option<usize> {
+        if especies.contains(&self.especie(n)) {
+            return Some(n);
+        }
+        self.pai(n).filter(|&p| especies.contains(&self.especie(p)))
+    }
+
+    /// `InvertConditionalExpression._getConditionalExpressionAncestor`
+    /// (invert_conditional_expression.dart): a condicional "perto o
+    /// bastante" do nó da seleção.
+    pub(crate) fn condicional_proxima(&self, offset: usize) -> Option<usize> {
+        let mut no = self.arvore.localizar(offset, offset)?;
+        no = self.este_ou_pai_de(no, &["MethodInvocation"]).unwrap_or(no);
+        no = self.este_ou_pai_de(no, &["AwaitExpression"]).unwrap_or(no);
+        let booleanas = ["IsExpression", "BinaryExpression", "BooleanLiteral"];
+        let booleana = if booleanas.contains(&self.especie(no)) {
+            Some(no)
+        } else if let Some(p) = self.pai(no).filter(|&p| booleanas.contains(&self.especie(p))) {
+            Some(p)
+        } else {
+            self.este_ou_pai_de(no, &["PrefixExpression"])
+        };
+        no = booleana.unwrap_or(no);
+        no = self.este_ou_pai_de(no, &["ParenthesizedExpression"]).unwrap_or(no);
+        no = self.este_ou_pai_de(no, &["AwaitExpression"]).unwrap_or(no);
+        self.este_ou_pai_de(no, &["ConditionalExpression"])
     }
 }
