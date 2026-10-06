@@ -32,15 +32,12 @@ fn erro(resposta: &Value) -> String {
 #[test]
 fn anuncia_prepare_quando_o_cliente_aceita() {
     let mut p = Projeto::novo("renomear-cap");
-    let r = p.requisitar(
-        "initialize",
-        json!({"capabilities": {"textDocument": {"rename": {"prepareSupport": true}}}}),
-    );
+    let r = p.reiniciar(json!({"capabilities": {"textDocument": {"rename": {"prepareSupport": true}}}}));
     assert_eq!(
         r["result"]["capabilities"]["renameProvider"],
         json!({"prepareProvider": true})
     );
-    let r = p.requisitar("initialize", json!({"capabilities": {}}));
+    let r = p.reiniciar(json!({"capabilities": {}}));
     assert_eq!(r["result"]["capabilities"]["renameProvider"], json!(true));
 }
 
@@ -111,7 +108,7 @@ fn membro_com_sobrescritas_e_usos_por_instancia_em_outro_arquivo() {
     );
     // Conflito com um membro existente na família.
     let r = renomear(&mut p, "lib/a.dart", 6, 8, "usa");
-    assert!(erro(&r).contains("já tem um membro chamado 'usa'"), "{r}");
+    assert_eq!(erro(&r), "Renamed method will shadow method 'A.usa'.", "{r}");
 }
 
 #[test]
@@ -156,8 +153,8 @@ fn topo_entre_arquivos_com_tipos_construtores_e_show() {
             .last(),
         Some("int total = 0;")
     );
-    // Nome de tipo não pode ser identificador embutido.
-    assert!(erro(&renomear(&mut p, "lib/b.dart", 2, 1, "dynamic")).contains("embutido"));
+    // Nome de classe não pode ser palavra-chave (mensagem do Dart 3.6.2).
+    assert_eq!(erro(&renomear(&mut p, "lib/b.dart", 2, 1, "dynamic")), "Class name must not be a keyword.");
 }
 
 #[test]
@@ -169,26 +166,29 @@ fn recusas() {
     );
     let fonte = "class A {\n  @override\n  String toString() => '';\n}\nvoid publica() {}\nvoid f(int x) {\n  var y = 1;\n  print(x + y);\n}\n";
     abrir(&mut p, "lib/a.dart", &format!("{fonte}▮"));
+    // As mensagens do `dart language-server` 3.6.2 nos mesmos pedidos.
     // Elemento do SDK.
     let prep = p.na_posicao("textDocument/prepareRename", "lib/a.dart", 7, 3, json!({}));
-    assert!(
-        prep["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("dart:core"),
-        "{prep}"
-    );
-    assert!(erro(&renomear(&mut p, "lib/a.dart", 7, 3, "imprimir")).contains("fora do projeto"));
-    // Sobrescrita de membro do SDK.
-    assert!(erro(&renomear(&mut p, "lib/a.dart", 2, 10, "texto")).contains("fora do projeto"));
+    assert_eq!(prep["error"]["message"], "The function 'print' is defined in the SDK, so cannot be renamed.", "{prep}");
+    assert_eq!(erro(&renomear(&mut p, "lib/a.dart", 7, 3, "imprimir")), "The function 'print' is defined in the SDK, so cannot be renamed.");
+    // A sobrescrita de um membro do SDK renomeia só ela.
+    let r = renomear(&mut p, "lib/a.dart", 2, 10, "texto");
+    let edicoes = r["result"]["changes"].as_object().expect("changes").values().next().unwrap().clone();
+    assert_eq!(edicoes, json!([{"newText": "texto", "range": {"start": {"line": 2, "character": 9}, "end": {"line": 2, "character": 17}}}]), "{r}");
     // Nomes inválidos.
-    assert!(erro(&renomear(&mut p, "lib/a.dart", 6, 7, "class")).contains("palavra reservada"));
-    assert!(erro(&renomear(&mut p, "lib/a.dart", 6, 7, "1y")).contains("identificador válido"));
-    assert!(erro(&renomear(&mut p, "lib/a.dart", 6, 7, "a-b")).contains("identificador válido"));
+    assert_eq!(erro(&renomear(&mut p, "lib/a.dart", 6, 7, "class")), "Variable name must not be a keyword.");
+    assert_eq!(erro(&renomear(&mut p, "lib/a.dart", 6, 7, "1y")), "Variable name must begin with a lowercase letter or underscore.");
+    assert_eq!(erro(&renomear(&mut p, "lib/a.dart", 6, 7, "a-b")), "Variable name must not contain '-'.");
     // Conflito com parâmetro no mesmo corpo.
-    assert!(erro(&renomear(&mut p, "lib/a.dart", 6, 7, "x")).contains("'x'"));
+    assert_eq!(
+        erro(&renomear(&mut p, "lib/a.dart", 6, 7, "x")),
+        "Usage of parameter \"x\" declared in \"a.dart\" will be shadowed by renamed local variable."
+    );
     // Público que viraria privado com uso em outra biblioteca.
-    assert!(erro(&renomear(&mut p, "lib/a.dart", 4, 6, "_privada")).contains("outras bibliotecas"));
+    assert_eq!(
+        erro(&renomear(&mut p, "lib/a.dart", 4, 6, "_privada")),
+        format!("Renamed function will be invisible in '{}'.", std::path::Path::new("lib").join("outra.dart").display())
+    );
     // Palavra-chave sob o cursor: nada a renomear.
     let prep = p.na_posicao("textDocument/prepareRename", "lib/a.dart", 5, 1, json!({}));
     assert_eq!(prep["result"], Value::Null);
@@ -208,15 +208,16 @@ fn codigo_incompleto_no_arquivo() {
         novo,
         "void f(int x) {\n  var total = x;\n  x.\n  print(total);\n}\n"
     );
-    // Um comando que não analisa some da árvore (a recuperação pula até o
-    // `;`): o uso dentro dele não é visto, mas o resto do corpo é renomeado.
+    // O operando que falta vira um identificador sintético (o
+    // `ensureIdentifier` do fasta): o comando fica na árvore e o uso dentro
+    // dele também é renomeado.
     let fonte = "void f(int x) {\n  var so▮ma = x;\n  var q = soma + ;\n  print(soma);\n}\n";
     let (texto, l, c) = abrir(&mut p, "lib/b.dart", fonte);
     let r = renomear(&mut p, "lib/b.dart", l, c, "total");
     let novo = aplicar(&r["result"], &p.uri("lib/b.dart"), &texto);
     assert_eq!(
         novo,
-        "void f(int x) {\n  var total = x;\n  var q = soma + ;\n  print(total);\n}\n"
+        "void f(int x) {\n  var total = x;\n  var q = total + ;\n  print(total);\n}\n"
     );
 }
 
@@ -312,8 +313,11 @@ fn construtor_nomeado() {
     // A partir de um uso, o mesmo resultado.
     let r2 = renomear_em(&mut p, "lib/a.dart", a, "vazia();\n  var y", 0, "nova");
     assert_eq!(r2["result"], r["result"]);
-    // Conflito com outro construtor.
-    assert!(erro(&renomear_em(&mut p, "lib/a.dart", a, "vazia() :", 0, "outra")).contains("construtor chamado 'outra'"));
+    // Conflito com outro construtor (a mensagem do servidor do Dart 3.6.2).
+    assert_eq!(
+        erro(&renomear_em(&mut p, "lib/a.dart", a, "vazia() :", 0, "outra")),
+        "Class 'Caixa' already declares constructor with name 'outra'."
+    );
 }
 
 #[test]
@@ -325,12 +329,17 @@ fn prefixo_de_import() {
     let uri = p.uri("lib/b.dart");
     let r = renomear_em(&mut p, "lib/b.dart", b, "pa.Caixa f", 0, "q");
     assert_eq!(aplicar(&r["result"], &uri, b), b.replace("pa", "q").replace("qb", "pb"), "{r}");
-    // A partir da diretiva.
+    // A partir da diretiva: o `RenameImportRefactoring` do Dart troca o
+    // `pa.` inteiro de cada uso (o mesmo texto final).
     let r2 = renomear_em(&mut p, "lib/b.dart", b, "pa;", 0, "q");
-    assert_eq!(r2["result"], r["result"]);
-    // O nome novo colidiria com uma declaração da biblioteca.
-    assert!(erro(&renomear_em(&mut p, "lib/b.dart", b, "pa;", 0, "pb")).contains("colidiria"));
-    assert!(erro(&renomear_em(&mut p, "lib/b.dart", b, "pa;", 0, "dynamic")).contains("embutido"));
+    assert_eq!(aplicar(&r2["result"], &uri, b), aplicar(&r["result"], &uri, b));
+    let mudancas = r2["result"]["changes"].as_object().unwrap().values().next().unwrap().clone();
+    assert_eq!(mudancas[1], json!({"newText": "q.", "range": {"start": {"line": 1, "character": 1}, "end": {"line": 1, "character": 4}}}));
+    // Pelo uso, o prefixo é membro da biblioteca: o nome de um topo dela
+    // é conflito; pela diretiva, não (só a validação do nome do prefixo).
+    assert_eq!(erro(&renomear_em(&mut p, "lib/b.dart", b, "pa.Caixa f", 0, "pb")), "Library already declares getter with name 'pb'.");
+    assert!(renomear_em(&mut p, "lib/b.dart", b, "pa;", 0, "pb")["result"]["changes"].is_object());
+    assert_eq!(erro(&renomear_em(&mut p, "lib/b.dart", b, "pa;", 0, "dynamic")), "Import prefix name must not be a keyword.");
 }
 
 #[test]
@@ -351,9 +360,15 @@ fn parametro_de_tipo_respeita_sombra() {
         aplicar(&r["result"], &uri, a),
         "class Caixa<T> {\n  T v;\n  Caixa(this.v);\n  S pegar<S, U>(U x, S s) => s;\n  List<T> lista() => [v];\n}\n"
     );
-    // Conflitos: irmão na mesma lista e tipo usado no escopo.
-    assert!(erro(&renomear_em(&mut p, "lib/a.dart", a, "T x", 0, "S")).contains("Já existe"));
-    assert!(erro(&renomear_em(&mut p, "lib/a.dart", a, "T v", 0, "List")).contains("passaria a denotar"));
+    // O irmão na mesma lista é conflito; o nome de um tipo usado no escopo
+    // não (o servidor do Dart 3.6.2 renomeia `T` para `List`).
+    assert_eq!(erro(&renomear_em(&mut p, "lib/a.dart", a, "T x", 0, "S")), "Duplicate type parameter 'S'.");
+    let r = renomear_em(&mut p, "lib/a.dart", a, "T v", 0, "List");
+    assert_eq!(
+        aplicar(&r["result"], &uri, a),
+        "class Caixa<List> {\n  List v;\n  Caixa(this.v);\n  S pegar<S, T>(T x, S s) => s;\n  List<List> lista() => [v];\n}\n",
+        "{r}"
+    );
 }
 
 #[test]
@@ -383,16 +398,16 @@ fn arquivo_da_classe_com_documentchanges_versionado() {
     p.gravar("lib/minha_classe.dart", classe);
     p.gravar("bin/main.dart", main);
     p.abrir("lib/usa.dart", usa);
-    let capacidades = json!({"workspace": {"workspaceEdit": {"documentChanges": true, "resourceOperations": ["create", "rename"]}}});
-    p.requisitar(
-        "initialize",
-        json!({"capabilities": capacidades, "initializationOptions": {"renameFilesWithClasses": "always"}}),
-    );
+    // `dart.renameFilesWithClasses` é da configuração do cliente
+    // (`LspClientConfiguration`), pedida por `workspace/configuration`.
+    let capacidades = json!({"workspace": {"configuration": true, "workspaceEdit": {"documentChanges": true, "resourceOperations": ["create", "rename"]}}});
+    p.reiniciar(json!({"capabilities": capacidades}));
+    p.configurar(json!({"renameFilesWithClasses": "always"}));
     let r = renomear_em(&mut p, "lib/usa.dart", usa, "MinhaClasse?", 0, "OutraClasse");
     let mudancas = r["result"]["documentChanges"].as_array().unwrap_or_else(|| panic!("{r}")).clone();
     // A operação de arquivo vem depois das edições de texto.
     let ultima = mudancas.last().unwrap();
-    assert_eq!(ultima["kind"], "rename");
+    assert_eq!(ultima["kind"], "rename", "{r}");
     assert_eq!(ultima["oldUri"], p.uri("lib/minha_classe.dart"));
     assert_eq!(ultima["newUri"], p.uri("lib/outra_classe.dart"));
     let edicoes = |uri: &str| -> (Value, Value) {
@@ -405,9 +420,11 @@ fn arquivo_da_classe_com_documentchanges_versionado() {
     assert_eq!(versao, json!(1));
     let mut mapa = serde_json::Map::new();
     mapa.insert(uri_usa.clone(), e);
+    // O `rename` do servidor do Dart 3.6.2 não reescreve os `import` (o
+    // cliente os pede no `workspace/willRenameFiles`).
     assert_eq!(
         aplicar(&json!({"changes": mapa}), &uri_usa, usa),
-        "import 'outra_classe.dart';\nOutraClasse? x;\n"
+        "import 'minha_classe.dart';\nOutraClasse? x;\n"
     );
     let uri_main = p.uri("bin/main.dart");
     let (versao, e) = edicoes(&uri_main);
@@ -416,10 +433,14 @@ fn arquivo_da_classe_com_documentchanges_versionado() {
     mapa.insert(uri_main.clone(), e);
     assert_eq!(
         aplicar(&json!({"changes": mapa}), &uri_main, main),
-        "import 'package:projeto/outra_classe.dart';\nvoid main() { OutraClasse(); }\n"
+        "import 'package:projeto/minha_classe.dart';\nvoid main() { OutraClasse(); }\n"
     );
+    // A ordem do `SourceChange`: o arquivo da declaração e os outros pelo
+    // caminho; a operação de arquivo no fim.
+    let ordem: Vec<String> = mudancas.iter().filter_map(|d| d["textDocument"]["uri"].as_str().map(str::to_string)).collect();
+    assert_eq!(ordem, vec![p.uri("lib/minha_classe.dart"), uri_main.clone(), uri_usa.clone()]);
     // Sem a opção, a classe muda e o arquivo fica.
-    p.requisitar("initialize", json!({"capabilities": capacidades}));
+    p.reiniciar(json!({"capabilities": capacidades}));
     let r = renomear_em(&mut p, "lib/usa.dart", usa, "MinhaClasse?", 0, "OutraClasse");
     let mudancas = r["result"]["documentChanges"].as_array().unwrap();
     assert!(mudancas.iter().all(|m| m.get("kind").is_none()), "{r}");
@@ -436,16 +457,26 @@ fn conflitos_por_escopo() {
     // Blocos disjuntos: permitido.
     let r = renomear_em(&mut p, "lib/a.dart", a, "b = 2", 0, "a");
     assert!(aplicar(&r["result"], &uri, a).contains("{ var a = 2; print(a); }"), "{r}");
+    // As respostas do `dart language-server` 3.6.2 nos mesmos pedidos.
     // Local que sombrearia o uso do topo.
-    assert!(erro(&renomear_em(&mut p, "lib/a.dart", a, "x = 1", 0, "topo")).contains("sombreado"));
-    // Topo que passaria a ser sombreado pelo local.
-    assert!(erro(&renomear_em(&mut p, "lib/a.dart", a, "topo = 0", 0, "x")).contains("sombreado pelo local 'x'"));
-    // Referência que ficaria dentro do escopo de outro local aninhado.
-    assert!(erro(&renomear_em(&mut p, "lib/a.dart", a, "c = 1", 0, "d")).contains("sombrear"));
-    // Membro que capturaria o uso de um topo no corpo da classe.
-    assert!(erro(&renomear_em(&mut p, "lib/a.dart", a, "campo = 1", 0, "valor")).contains("passaria a denotar"));
+    assert_eq!(
+        erro(&renomear_em(&mut p, "lib/a.dart", a, "x = 1", 0, "topo")),
+        "Usage of top level variable \"topo\" declared in \"a.dart\" will be shadowed by renamed local variable."
+    );
+    // Topo renomeado para o nome de um local: o Dart renomeia (a declaração
+    // e o uso).
+    let r = renomear_em(&mut p, "lib/a.dart", a, "topo = 0", 0, "x");
+    assert_eq!(aplicar(&r["result"], &uri, a), a.replace("topo", "x"), "{r}");
+    // Local que já existe num bloco aninhado do escopo.
+    assert_eq!(erro(&renomear_em(&mut p, "lib/a.dart", a, "c = 1", 0, "d")), "Duplicate local variable 'd'.");
+    // Campo com o nome de um topo usado na classe: renomeia.
+    let r = renomear_em(&mut p, "lib/a.dart", a, "campo = 1", 0, "valor");
+    assert_eq!(aplicar(&r["result"], &uri, a), a.replace("int campo = 1", "int valor = 1").replace("=> campo +", "=> valor +"), "{r}");
     // Topo que passaria a ser o membro dentro da classe.
-    assert!(erro(&renomear_em(&mut p, "lib/a.dart", a, "valor = 0", 0, "campo")).contains("passaria a denotar o membro"));
+    assert_eq!(
+        erro(&renomear_em(&mut p, "lib/a.dart", a, "valor = 0", 0, "campo")),
+        "Reference to renamed top level variable will be shadowed by getter 'campo'."
+    );
 }
 
 #[test]

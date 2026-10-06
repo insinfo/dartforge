@@ -62,6 +62,9 @@ impl Consulta {
         sonda: Option<(UnitId, usize)>,
     ) -> Self {
         let mut tabela = TypeTable::new();
+        // O modo do analisador (M2): o `InvalidType`, o `Never?` e os aliases
+        // escritos ficam na exibição, e o fluxo de padrões é o do analyzer.
+        tabela.preservar_exibicao = true;
         let core = CoreTypes::init(&mut tabela, &programa, &nomes);
         let (mut outline, _) = resolve_outline(&programa, &nomes, &mut tabela, &core);
         let (corpos, escopo) = {
@@ -138,8 +141,10 @@ impl Consulta {
     }
 
     /// Texto de um tipo como o Dart o escreve.
+    /// `DartType.getDisplayString()` (sem `preferTypeAlias`): o alias não
+    /// aparece; o `InvalidType` e o `Never?`, sim.
     pub fn formatar(&self, tipo: TypeId) -> String {
-        self.tabela.format(tipo, &self.nomes, &self.programa)
+        self.tabela.format_sem_alias(tipo, &self.nomes, &self.programa)
     }
 
     /// Texto de um símbolo.

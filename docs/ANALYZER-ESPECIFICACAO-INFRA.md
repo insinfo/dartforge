@@ -4811,6 +4811,19 @@ Arquivo: `crates/paridade/src/analise.rs`.
 **Pronto quando** o placar do corpus não regride em nenhum código publicado e
 as amostras de FN atribuídas a "porta de sintaxe" no T5 viram acerto.
 
+**Estado em 2026-10-05 (escrito, não compilado): itens 1 e 3.** Item 1: o lote continua uma carga
+só, e uma parte cuja biblioteca não é conhecida (o `part of 'uri'` não aponta para uma biblioteca
+existente que a inclua por `part`; ou, por nome, nenhuma biblioteca do lote com esse nome a inclui)
+entra na entrada sintética como biblioteca própria (`parte_com_biblioteca`, o `FileKind.asLibrary`),
+em vez de ficar sem resultado. As fases já corriam por biblioteca dentro de cada etapa; o que muda a
+saída é a ordem, que é o item 3: cada relato leva a fase do emissor no `LibraryAnalyzer`
+(`analise::fase`: scanner, parser, diretivas, B1–B3, constantes, C1a–C1d, C2, C3, C4a–C4j, C7), e
+antes das portas finais a lista de cada arquivo (fora os sintáticos, que vêm primeiro) fica na ordem
+das fases, estável dentro de cada uma (`Analise::ordenar_pelas_fases`); a deduplicação do fim fica com
+o primeiro de dois relatos iguais, e o LSP publica nessa ordem (§3.6; `tipado.rs` deixou de ordenar por
+posição, e os TODOs entram na posição da fase deles). A fase de cada emissor do DartForge é a do
+verificador do Dart que ele porta; a inferência inteira conta como B3 e o outline como B1.
+
 ## III.6 Etapa 6 — Fases ausentes
 
 **Estado em 2026-10-04 (escrito, não compilado).** Entraram, em `crates/analise/src/fases.rs` e ligados
@@ -5009,6 +5022,70 @@ de descartar do oráculo o que não é `.dart`
 
 **Pronto quando** os casos dirigidos de II.10 (cada especificação completa
 traz os seus) passam pela etapa 1.
+
+
+**Lotes 14 a 33, escritos em 2026-10-05 direto da fonte 3.6.2 (escrito, não compilado).** Com isto,
+todas as regras da 3.6.2 que têm emissor estão escritas; as diferenças conhecidas de cada uma estão no
+cabeçalho do arquivo dela. Na árvore (`crates/analise/src/lints/`): `regras14.rs` (`dangling_library_doc_comments`,
+`unintended_html_in_doc_comment`, `file_names`, `valid_regexps` pelo porte do analisador de expressão
+regular da VM em `regexp_vm.rs` com as tabelas Unicode de `regexp_unicode_g.rs`, geradas por
+`scripts/gerar-regexp-unicode.py`, `library_annotations`, `no_wildcard_variable_uses`,
+`type_literal_in_constant_pattern`, `avoid_types_as_parameter_names` pelo `resolveNameInScope` de
+`escopo.rs`, `depend_on_referenced_packages`); `regras15.rs` (`implicit_call_tearoffs`,
+`prefer_iterable_whereType`, `null_check_on_nullable_type_parameter`); `regras16.rs`
+(`avoid_function_literals_in_foreach_calls`, `avoid_renaming_method_parameters`, `implementation_imports`,
+`null_closures`, `prefer_collection_literals`, `prefer_interpolation_to_compose_strings`,
+`unnecessary_nullable_for_final_variable_declarations`, `unnecessary_this`, `prefer_final_fields`,
+`overridden_fields`); `regras17.rs` (`library_private_types_in_public_api`, `package_prefixed_library_names`,
+`avoid_js_rounded_ints`, `cancel_subscriptions`, `close_sinks`, `erase_dart_type_extension_types`,
+`conditional_uri_does_not_exist`, `missing_code_block_language_in_doc_comment`, `prefer_mixin`,
+`avoid_catching_errors`, `avoid_web_libraries_in_flutter`, `cast_nullable_to_non_nullable`);
+`regras18.rs` (`avoid_equals_and_hash_code_on_mutable_classes`, `package_api_docs`, `unnecessary_null_checks`,
+`avoid_unnecessary_containers`, `avoid_implementing_value_types`, `use_full_hex_values_for_flutter_colors`,
+`use_test_throws_matchers`, `do_not_use_environment`, `use_if_null_to_convert_nulls_to_bools`,
+`annotate_redeclares`, `avoid_types_on_closure_parameters`, `deprecated_consistency`); `regras19.rs`
+(`prefer_const_constructors`, `prefer_const_literals_to_create_immutables`,
+`prefer_const_constructors_in_immutables`, pelo `canBeConst` do verificador de constantes em
+`crates/types/src/lints_tipados6.rs`, `use_to_and_as_if_applicable`, `use_decorated_box`,
+`use_colored_box`, `sized_box_for_whitespace`, `no_logic_in_create_state`,
+`use_setters_to_change_properties`); `regras20.rs` (`document_ignores`, `sort_child_properties_last`,
+`test_types_in_equals`, `matching_super_parameters`, `unnecessary_null_aware_operator_on_extension_on_nullable`,
+`avoid_slow_async_io`, `tighten_type_of_initializing_formals`); `regras21.rs`
+(`omit_obvious_local_variable_types`, `prefer_constructors_over_static_methods`, `invalid_case_patterns`,
+`avoid_null_checks_in_equality_operators`, `sized_box_shrink_expand`, `implicit_reopen`,
+`noop_primitive_operations`, `unawaited_futures`, `avoid_returning_this`); `regras22.rs`
+(`avoid_positional_boolean_parameters`, `omit_local_variable_types`, `use_key_in_widget_constructors`,
+`avoid_type_to_string`, `prefer_int_literals`); `regras23.rs` (`comment_references`, `prefer_void_to_null`,
+`type_annotate_public_apis`); `regras24.rs` (`specify_nonobvious_local_variable_types`, `use_string_buffers`,
+`use_enums`); `regras25.rs` (`discarded_futures`, `diagnostic_describe_all_properties`); `regras26.rs`
+(`unnecessary_statements`, `unnecessary_parenthesis` pelo pai que o analyzer dá aos parênteses);
+`regras27.rs` (`cascade_invocations`, `require_trailing_commas` pelos tokens do léxico); `regras28.rs`
+(`public_member_api_docs`, só em pacote pub e no `lib/`); `regras29.rs` (`unreachable_from_main`, com as
+dependências de cada declaração pela varredura das regiões aninhadas); `regras30.rs`
+(`use_late_for_private_fields_and_variables`, pela biblioteca inteira); `regras31.rs` (`always_specify_types`,
+os quatro códigos); `regras32.rs` (`unsafe_html`, com os `SecurityLintCode` do próprio emissor, de mensagem
+diferente da do `messages.yaml`, e `analyzer_use_new_elements`, a interna, com o
+`analyzer_use_new_elements.txt`); `regras33.rs` (`use_build_context_synchronously`, o `AsyncStateVisitor`
+inteiro sobre a árvore no formato do analyzer). Para esta última, a árvore do LSP
+(`arvore_analyzer.rs`) e o `ExitDetector` dela (`saida.rs`) passaram para `crates/analise/src/`, e o LSP os usa
+de lá. No `pubspec.yaml` (`lints/pubspec.rs`, ligado em `diagnosticos_do_pubspec` da paridade):
+`package_names`, `secure_pubspec_urls` e `sort_pub_dependencies`, com os `# ignore:` do YAML
+(`IgnoreInfo.forYaml`). Com os tipos da inferência (`crates/types/src/`, pelo canal de
+`Arquivo::lints_semanticos`): `lints_tipados4.rs` (`collection_methods_unrelated_type`, `void_checks`,
+`unnecessary_overrides`, `no_duplicate_case_values`), `lints_tipados5.rs` (`exhaustive_cases`,
+`no_default_cases`, `use_named_constants`, `prefer_const_declarations`, `use_super_parameters`,
+`invalid_runtime_check_with_js_interop_types`), `lints_tipados7.rs` (`unnecessary_await_in_return`),
+`lints_tipados8.rs` (`avoid_futureor_void` com a variância dos parâmetros de tipo, `unnecessary_lambdas`),
+`lints_tipados9.rs` (`avoid_redundant_argument_values`, com o motor de constantes, a cadeia de factory
+redirecionadora e o padrão herdado do `super.x`) e `fase_deprecado.rs` (`deprecated_member_use_from_same_package`,
+o mesmo `DeprecatedMemberUseVerifier` do aviso com o visitante do linter; o verificador ganhou os
+operadores, os argumentos de parâmetros depreciados, os nomes de `show`, o `call` implícito, os
+`super(…)`/`this(…)`, os campos de padrão do aviso e o `@deprecated` só do `dart:core`). Para os tipos,
+`UnitBodyTypes` passou a guardar o tipo de cada argumento (`tipos_de_parametros`) e o de escrita das
+atribuições (`tipos_de_escrita`). Divergências registradas nos cabeçalhos: as referências de comentário
+de documentação não entram em `unreachable_from_main` nem em `use_late_for_private_fields_and_variables`;
+o `@pragma('vm:entry-point')` só vale escrito com a string literal; o `constantBoolValue` do
+`use_build_context_synchronously` só lê literais, `!`, parênteses e constantes de inicializador literal.
 
 ## III.8 Etapa 8 — Lints
 

@@ -377,6 +377,11 @@ impl Contexto<'_> {
 /// (`analysis_options.yaml` da subpasta ou da raiz).
 pub(crate) fn regra_ligada(p: &Projeto, unidade: UnitId, nome: &str) -> bool {
     let Some(caminho) = p.programa().unit(unidade).path.as_deref() else { return false };
+    regra_ligada_em(caminho, nome)
+}
+
+/// Como [`regra_ligada`], pelo caminho do arquivo.
+pub(crate) fn regra_ligada_em(caminho: &std::path::Path, nome: &str) -> bool {
     let raiz = crate::projeto::raiz_do_projeto(caminho);
     let arquivo = dartforge_paridade::filtros::Opcoes::de_subpasta(caminho, &raiz).unwrap_or_else(|| raiz.join("analysis_options.yaml"));
     dartforge_paridade::filtros::Opcoes::ler_arquivo(&arquivo).regras.get(nome).copied().unwrap_or(false)

@@ -459,8 +459,8 @@ _AsyncStarStreamController<T> _makeAsyncStarController<T>() {
 /// Liga o corpo ao controlador e devolve o stream (o gerador só roda quando
 /// alguém escuta).
 @pragma("vm:entry-point", "call")
-Stream _asyncStarStart(
-    _AsyncStarStreamController controlador, _WrappedAsyncBody corpo) {
+Stream _asyncStarStart(_AsyncStarStreamController controlador,
+    @pragma('vm:awaiter-link') _WrappedAsyncBody corpo) {
   controlador.asyncStarBody = (cancelado) {
     corpo(_SUCESSO, cancelado);
   };

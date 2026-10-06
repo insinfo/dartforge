@@ -278,6 +278,7 @@ dependencies = [
  "dartforge-elements",
  "dartforge-frontend",
  "dartforge-intern",
+ "dartforge-types",
  "yaml-rust2",
 ]
 

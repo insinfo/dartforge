@@ -113,10 +113,18 @@ impl<'a> BodyInferrer<'a> {
         r
     }
 
-    /// O nó da função na árvore.
+    /// O nó da função na árvore. Um membro `augment` não é nó de
+    /// inferência: os tipos omitidos dele são os da declaração que ele
+    /// aumenta (o fragmento do analyzer), já postos pelo esboço.
     fn no_da_funcao(&self, f: FunctionElementId) -> Option<&'a ast::Function> {
         match self.program.function(f).node {
-            FunctionRef::Function { unit, function } => Some(self.program.unit(unit).ast.function(function)),
+            FunctionRef::Function { unit, function } => {
+                let a = &self.program.unit(unit).ast;
+                if a.members.iter().any(|m| m.augment && matches!(m.kind, ast::MemberKind::Method(g) if g == function)) {
+                    return None;
+                }
+                Some(a.function(function))
+            }
             _ => None,
         }
     }

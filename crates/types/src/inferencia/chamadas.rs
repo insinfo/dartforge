@@ -174,6 +174,14 @@ fn verificar_aridade(
             proximo_token(fonte, abre)
         }
     };
+    // O `)` sintético do scanner (comprimento zero no fim dos argumentos):
+    // quando o token seguinte é ele, o erro sai ali com comprimento zero.
+    let fecho_sintetico = args.span.end > args.span.start && fonte.as_bytes().get(args.span.end - 1) != Some(&b')');
+    let token_poucos = if fecho_sintetico && token_poucos.start >= args.span.end {
+        Span { start: args.span.end, end: args.span.end }
+    } else {
+        token_poucos
+    };
     let total_pos = npos + alvo.super_posicionais;
     let mut usados: Vec<dartforge_intern::SymbolId> = alvo.super_nomeados.clone();
     let mut avisos: Vec<(dartforge_diagnostics::Codigo, Span, Vec<String>)> = Vec::new();
@@ -411,6 +419,7 @@ pub(crate) fn invocar(
             };
             let t = inferir(inf, cx, a.value, c);
             if let Some(p) = p {
+                inf.body_types.units[cx.unit.0 as usize].tipos_de_parametros.insert(a.value, *p);
                 expr::verificar_atribuivel_expr(inf, cx, a.value, t, *p, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
                 closure_com_conjunto(inf, cx, a.value, *p);
             }
@@ -489,6 +498,7 @@ pub(crate) fn invocar(
         let ips = parametros_dos_argumentos(inf, &ip, &io, &inm, args);
         for (i, a) in args.args.iter().enumerate() {
             if let Some(p) = ips[i] {
+                inf.body_types.units[cx.unit.0 as usize].tipos_de_parametros.insert(a.value, p);
                 expr::verificar_atribuivel_expr(inf, cx, a.value, tipos[i], p, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
                 closure_com_conjunto(inf, cx, a.value, p);
             }
@@ -1048,6 +1058,11 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                         );
                         busca = Busca::Achado(m);
                     }
+                } else if let Some(m) = inf.acesso_de_instancia_a_estatico(cx.lib, r_ty, name.sym, false, name.span) {
+                    // O estático recuperado é o alvo da invocação
+                    // (`method_invocation_resolver.dart:841-857`): um getter
+                    // vira `FunctionExpressionInvocation` do tipo de retorno.
+                    busca = Busca::Achado(m);
                 }
             }
             match busca {
@@ -1159,14 +1174,12 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                         }
                         return (d, curto);
                     }
-                    if !inf.acesso_de_instancia_a_estatico(r_ty, name.sym, false, name.span) {
-                        // `{1}` é o nome do elemento, não o tipo
-                        // (`_resolveReceiverType`,
-                        // an611:src/dart/resolver/method_invocation_resolver.dart:862-873).
-                        let nome = inf.interner.resolve(name.sym).to_string();
-                        let tipo = nome_do_receptor(inf, r_ty);
-                        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_METHOD, name.span, &[&nome, &tipo]);
-                    }
+                    // `{1}` é o nome do elemento, não o tipo
+                    // (`_resolveReceiverType`,
+                    // an611:src/dart/resolver/method_invocation_resolver.dart:862-873).
+                    let nome = inf.interner.resolve(name.sym).to_string();
+                    let tipo = nome_do_receptor(inf, r_ty);
+                    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_METHOD, name.span, &[&nome, &tipo]);
                     // `_setInvalidTypeResolution`
                     // (`method_invocation_resolver.dart:1062-1068`).
                     let d = inf.table.invalido(inf.core.dynamic_);

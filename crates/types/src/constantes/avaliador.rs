@@ -1007,13 +1007,19 @@ impl<'a> Motor<'a> {
         if let Some(codigo) = self.e_de_extensao(u, e) {
             return self.inv(u, e, codigo);
         }
-        if !matches!(op, UnaryOp::Neg | UnaryOp::Not | UnaryOp::BitNot) {
+        // Pós-fixos (`a++`, `a!`) não têm visita própria (`visitNode`): o
+        // erro genérico no nó. `visitPrefixExpression`: o operando primeiro
+        // (o erro dele vence); só então `++`/`--` são o erro genérico.
+        if matches!(op, UnaryOp::PostfixInc | UnaryOp::PostfixDec | UnaryOp::NullAssert) {
             return self.generico(u, e, false);
         }
         let v = match self.avaliar(cx, operand, em_const) {
             Constante::Valor(v) => v,
             i => return i,
         };
+        if !matches!(op, UnaryOp::Neg | UnaryOp::Not | UnaryOp::BitNot) {
+            return self.generico(u, e, false);
+        }
         let r = match op {
             UnaryOp::Not => v.estado.nao_logico().map(|s| (self.core.bool_, s)),
             UnaryOp::BitNot => v.estado.negar_bits().map(|s| (self.core.int, s)),
@@ -1968,14 +1974,24 @@ impl<'a> Motor<'a> {
         let ast::MemberKind::Constructor(k) = &self.ast(unit).member(member).kind else { return None };
         let r = k.redirect.as_ref()?;
         let ast::TypeKind::Named { name, .. } = &self.ast(unit).ty(r.ty).kind else { return None };
+        // `C.nome` sem prefixo de import é a classe `C` e o construtor `nome`
+        // (o parser não distingue de um tipo prefixado).
+        let mut construtor = r.constructor.map(|n| n.sym);
         let b = match &name[..] {
             [n] => self.program.lookup_na_unidade(unit, n.sym),
-            [p, n] => self.program.lookup_prefixed_na_unidade(unit, p.sym, n.sym),
+            [p, n] => match self.program.lookup_prefixed_na_unidade(unit, p.sym, n.sym) {
+                Some(b) => Some(b),
+                None if construtor.is_none() => {
+                    construtor = Some(n.sym);
+                    self.program.lookup_na_unidade(unit, p.sym)
+                }
+                None => None,
+            },
             _ => None,
         }?;
         let Some(Element::Class(alvo)) = b.getter else { return None };
-        let chave = match r.constructor {
-            Some(n) => n.sym,
+        let chave = match construtor {
+            Some(n) => n,
             None => self.interner.lookup("")?,
         };
         let g = *self.program.class(alvo).constructors.get(&chave)?;

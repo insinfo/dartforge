@@ -3741,6 +3741,8 @@ pub fn binop_name(op: BinaryOp) -> &'static str {
         BinaryOp::And => "&&",
         BinaryOp::Or => "||",
         BinaryOp::IfNull => "??",
+        // `a ~ b`: erro de compilação (`NOT_BINARY_OPERATOR`); não chega à emissão.
+        BinaryOp::NaoBinario => "~",
     }
 }
 

@@ -27,7 +27,7 @@ fn acoes(p: &mut Projeto, relativo: &str, de: (u32, u32), ate: (u32, u32), extra
             || k.starts_with("quickfix.ignore")
             || (k.starts_with("refactor.") && k != "refactor.add.typeAnnotation")
             || k == "quickfix.change.to"
-            || ["method", "function", "class", "mixin", "getter", "field", "localVariable"]
+            || ["method", "function", "class", "mixin", "getter", "field", "localVariable", "parameter"]
                 .iter()
                 .any(|s| k == format!("quickfix.create.{s}"))
     };
@@ -48,7 +48,7 @@ fn titulos(r: &Value) -> Vec<String> {
 #[test]
 fn anuncia_a_capacidade() {
     let mut p = Projeto::novo("acoes-cap");
-    let r = p.requisitar("initialize", json!({"capabilities": {}}));
+    let r = p.inicializacao.clone();
     assert_eq!(
         r["result"]["capabilities"]["codeActionProvider"],
         json!(true)
@@ -57,7 +57,7 @@ fn anuncia_a_capacidade() {
 
 #[test]
 fn inserir_ponto_e_virgula_no_diagnostico_publicado() {
-    let mut p = Projeto::novo("acoes-pv");
+    let mut p = Projeto::com_literais("acoes-pv");
     let texto = "void f() {\n  var x = 1\n  print(x);\n}\n";
     let publicado = p.abrir("lib/a.dart", texto);
     let diagnostico = publicado["params"]["diagnostics"][0].clone();
@@ -101,7 +101,7 @@ fn inserir_ponto_e_virgula_no_diagnostico_publicado() {
 
 #[test]
 fn importar_biblioteca_do_sdk_e_do_projeto() {
-    let mut p = Projeto::novo("acoes-importar");
+    let mut p = Projeto::com_literais("acoes-importar");
     p.gravar(
         "lib/util/soma.dart",
         "class Soma {}\nint _privada() => 0;\n",
@@ -124,32 +124,37 @@ fn importar_biblioteca_do_sdk_e_do_projeto() {
     // Tipo indefinido: biblioteca do projeto (parte não conta), relativa.
     // (O `s` não usado da mesma linha também tem a sua correção.)
     let r = acoes(&mut p, "lib/a.dart", (4, 3), (4, 3), json!({}));
-    assert_eq!(titulos(&r).into_iter().filter(|t| t.starts_with("Import")).collect::<Vec<_>>(), vec!["Import library 'util/soma.dart'"]);
+    // As duas formas, como o `dart language-server` 3.6.2.
+    assert_eq!(
+        titulos(&r).into_iter().filter(|t| t.starts_with("Import")).collect::<Vec<_>>(),
+        vec!["Import library 'package:projeto/util/soma.dart'", "Import library 'util/soma.dart'"]
+    );
     let importar = acao(&r, "Import library 'util/soma.dart'");
     assert_eq!(importar["kind"], "quickfix.import.libraryProject1");
     assert!(
         aplicar(&importar["edit"], &uri, texto)
-            .starts_with("import 'dart:core';\nimport 'util/soma.dart';\n")
+            .starts_with("import 'dart:core';\n\nimport 'util/soma.dart';\n")
     );
     // Variável de topo do SDK declarada na biblioteca, não numa parte.
     assert_eq!(
         titulos(&acoes(&mut p, "lib/a.dart", (5, 9), (5, 9), json!({}))),
         vec!["Import library 'dart:math'"]
     );
-    // Nome privado nunca é importável; nome definido não pede import.
+    // Nome privado nunca é importável. Num nome definido da mesma linha,
+    // as correções são as dos diagnósticos da linha (o `pi`), como no Dart.
     assert_eq!(
         acoes(&mut p, "lib/a.dart", (6, 4), (6, 4), json!({})),
         json!([])
     );
     assert_eq!(
-        acoes(&mut p, "lib/a.dart", (5, 4), (5, 4), json!({})),
-        json!([])
+        titulos(&acoes(&mut p, "lib/a.dart", (5, 4), (5, 4), json!({}))),
+        vec!["Import library 'dart:math'"]
     );
 }
 
 #[test]
 fn importar_de_fora_de_lib_usa_package_e_sem_diretivas_insere_no_topo() {
-    let mut p = Projeto::novo("acoes-pacote");
+    let mut p = Projeto::com_literais("acoes-pacote");
     p.gravar("lib/soma.dart", "int somar(int a, int b) => a + b;\n");
     let texto = "void main() {\n  print(somar(1, 2));\n}\n";
     p.abrir("bin/main.dart", texto);
@@ -174,7 +179,7 @@ fn importar_de_fora_de_lib_usa_package_e_sem_diretivas_insere_no_topo() {
 
 #[test]
 fn codigo_incompleto_ainda_importa() {
-    let mut p = Projeto::novo("acoes-incompleto");
+    let mut p = Projeto::com_literais("acoes-incompleto");
     // O comando com `Random` está bem formado; outro, quebrado, não o impede.
     let texto = "void f() {\n  var r = Random();\n  r.\n}\n";
     p.abrir("lib/a.dart", texto);
@@ -211,7 +216,7 @@ fn acao<'a>(r: &'a Value, titulo: &str) -> &'a Value {
 
 #[test]
 fn remove_local_nao_usado_e_as_atribuicoes() {
-    let mut p = Projeto::novo("acoes-local");
+    let mut p = Projeto::com_literais("acoes-local");
     let texto = "void f() {\n  var x = 1;\n  var y = 2;\n  x = 3;\n  print(y);\n}\n";
     let r = acoes_em(&mut p, "lib/a.dart", texto, "x = 1");
     let a = acao(&r, "Remove unused local variable");
@@ -243,7 +248,7 @@ fn remove_local_nao_usado_e_as_atribuicoes() {
 
 #[test]
 fn remove_funcao_local_nao_usada() {
-    let mut p = Projeto::novo("acoes-elemento");
+    let mut p = Projeto::com_literais("acoes-elemento");
     let texto = "void f() {\n  int g() => 1;\n  print(2);\n}\n";
     let r = acoes_em(&mut p, "lib/a.dart", texto, "g()");
     let a = acao(&r, "Remove unused element");
@@ -253,7 +258,7 @@ fn remove_funcao_local_nao_usada() {
 
 #[test]
 fn correcoes_dos_diagnosticos_tipados_publicados() {
-    let mut p = Projeto::novo("acoes-tipados");
+    let mut p = Projeto::com_literais("acoes-tipados");
     let casos: &[(&str, &str, &str, &str, &str, &str)] = &[
         (
             "lib/cast.dart",
@@ -261,7 +266,8 @@ fn correcoes_dos_diagnosticos_tipados_publicados() {
             "as int",
             "Remove unnecessary cast",
             "quickfix.remove.unnecessaryCast",
-            "void f(int x) {\n  print(x.isEven);\n}\n",
+            // Só o ` as int` sai; os parênteses ficam (servidor do Dart 3.6.2).
+            "void f(int x) {\n  print((x).isEven);\n}\n",
         ),
         (
             "lib/excl.dart",
@@ -307,7 +313,7 @@ fn correcoes_dos_diagnosticos_tipados_publicados() {
 
 #[test]
 fn diagnostico_tipado_de_versao_velha_nao_gera_correcao() {
-    let mut p = Projeto::novo("acoes-versao");
+    let mut p = Projeto::com_literais("acoes-versao");
     let texto = "void f(int x) {\n  print((x as int).isEven);\n}\n";
     let r = acoes_em(&mut p, "lib/a.dart", texto, "as int");
     assert!(titulos(&r).contains(&"Remove unnecessary cast".to_string()));
@@ -329,11 +335,11 @@ fn diagnostico_tipado_de_versao_velha_nao_gera_correcao() {
 
 #[test]
 fn edicao_versionada_quando_o_cliente_aceita() {
-    let mut p = Projeto::novo("acoes-versionada");
-    p.requisitar(
-        "initialize",
-        json!({"capabilities": {"workspace": {"workspaceEdit": {"documentChanges": true}}}}),
-    );
+    let mut p = Projeto::com_literais("acoes-versionada");
+    p.reiniciar(json!({"capabilities": {
+        "workspace": {"workspaceEdit": {"documentChanges": true}},
+        "textDocument": {"codeAction": {"codeActionLiteralSupport": {"codeActionKind": {"valueSet": ["quickfix", "refactor", "source"]}}}}
+    }}));
     let texto = "void f() {\n  var x = 1;\n}\n";
     p.abrir("lib/a.dart", texto);
     p.mudar("lib/a.dart", 5, texto);
@@ -347,7 +353,7 @@ fn edicao_versionada_quando_o_cliente_aceita() {
 
 #[test]
 fn assistencia_de_anotacao_de_tipo() {
-    let mut p = Projeto::novo("acoes-tipo");
+    let mut p = Projeto::com_literais("acoes-tipo");
     let texto = "void f() {\n  var nome = 'x';\n  final n = 1;\n  var d;\n  var lista = <int>[n];\n  print([nome, n, d, lista]);\n}\n";
     let r = acoes_em(&mut p, "lib/a.dart", texto, "nome =");
     let a = acao(&r, "Add type annotation");
@@ -377,7 +383,7 @@ fn assistencia_de_anotacao_de_tipo() {
 /// títulos e as edições do `analysis_server`.
 #[test]
 fn correcoes_de_campo_final_abstrato_condicao_e_elemento() {
-    let mut p = Projeto::novo("acoes-l06");
+    let mut p = Projeto::com_literais("acoes-l06");
     let casos: &[(&str, &str, &str, &str, &str, &str)] = &[
         (
             "lib/final_tipado.dart",
@@ -453,25 +459,30 @@ fn correcoes_de_campo_final_abstrato_condicao_e_elemento() {
 /// aceita a operação `create`; a parte nasce com o `part of`.
 #[test]
 fn criar_arquivo_da_uri_ausente() {
-    let capacidades = json!({"workspace": {"workspaceEdit": {"documentChanges": true, "resourceOperations": ["create"]}}});
+    let capacidades = json!({
+        "workspace": {"workspaceEdit": {"documentChanges": true, "resourceOperations": ["create"]}},
+        "textDocument": {"codeAction": {"codeActionLiteralSupport": {"codeActionKind": {"valueSet": ["quickfix", "refactor", "source"]}}}}
+    });
     let mut p = Projeto::com_capacidades("acoes-criar", capacidades);
     let texto = "import 'novo.dart';\npart 'parte.dart';\n";
     let r = acoes_em(&mut p, "lib/a.dart", texto, "'novo.dart'");
     let a = acao(&r, "Create file 'novo.dart'");
     assert_eq!(a["kind"], "quickfix.create.file");
     let mudancas = a["edit"]["documentChanges"].as_array().expect("documentChanges");
-    assert_eq!(mudancas[0]["kind"], "create");
-    assert_eq!(mudancas[0]["uri"], p.uri("lib/novo.dart"));
-    assert_eq!(mudancas.len(), 1, "{mudancas:?}");
+    // Como o `dart language-server` 3.6.2: o `create` (sem opções) e o
+    // conteúdo numa edição à parte.
+    assert_eq!(mudancas[0], json!({"kind": "create", "uri": p.uri("lib/novo.dart")}));
+    assert_eq!(mudancas.len(), 2, "{mudancas:?}");
+    assert_eq!(mudancas[1]["edits"][0]["newText"], "// TODO Implement this library.");
     let pos = common_pos(texto, "'parte.dart'");
     let r = acoes(&mut p, "lib/a.dart", pos, pos, json!({}));
     let a = acao(&r, "Create file 'parte.dart'");
     let mudancas = a["edit"]["documentChanges"].as_array().expect("documentChanges");
     assert_eq!(mudancas[0]["uri"], p.uri("lib/parte.dart"));
-    assert_eq!(mudancas[1]["edits"][0]["newText"], "part of 'a.dart';\n");
+    assert_eq!(mudancas[1]["edits"][0]["newText"], "part of 'a.dart';\n\n");
 
     // Sem a operação `create` no cliente, a correção não é oferecida.
-    let mut p = Projeto::novo("acoes-criar-sem");
+    let mut p = Projeto::com_literais("acoes-criar-sem");
     let r = acoes_em(&mut p, "lib/a.dart", texto, "'novo.dart'");
     assert!(!titulos(&r).iter().any(|t| t.starts_with("Create file")), "{r}");
 }

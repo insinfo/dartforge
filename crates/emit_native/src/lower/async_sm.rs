@@ -313,8 +313,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.ctx.rastro {
             self.rastro.marcas |= crate::hir::marcas_do_rastro::OCULTA;
             b.rastro.token = self.rastro.token;
-            if tipo == TipoCorpo::Async {
+            if matches!(tipo, TipoCorpo::Async | TipoCorpo::AsyncStar) {
                 b.rastro.marcas |= crate::hir::marcas_do_rastro::CORPO_ASYNC;
+                if tipo == TipoCorpo::AsyncStar {
+                    b.rastro.marcas |= crate::hir::marcas_do_rastro::GERADOR_ASYNC;
+                }
                 b.rastro.pilha = Some((0, quadro.clone()));
             }
         }
@@ -436,7 +439,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             (super::closures::hash_nome(&format!("{tamanho}|{:?}", b.func.blocks)) as u64) as u32
         );
         b.func.symbol = simbolo_corpo.clone();
-        if self.ctx.rastro && tipo == TipoCorpo::Async {
+        if self.ctx.rastro && matches!(tipo, TipoCorpo::Async | TipoCorpo::AsyncStar) {
             let n = est.retomadas.iter().map(|(k, _)| *k).max().unwrap_or(0).max(0) as usize;
             let mut esperas = vec![(0u32, 0u32); n];
             for (k, p) in &est.esperas {
@@ -729,6 +732,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.set_block(sair);
             self.route_return(None);
             self.set_block(suspender);
+            // A posição do `yield` (a do comando): a do quadro do gerador
+            // suspenso aqui, no rastro.
+            let posicao = self.posicao.unwrap_or((0, 0));
+            if let Some(e) = self.async_estado.as_mut() {
+                e.esperas.push((k, posicao));
+            }
             self.gravar_posicao(quadro, Q_ESTADO, Operand::Constant(Constant::Int(k)));
             let suspende = self.current_block;
             self.terminar_cru(Operand::Constant(Constant::Null));

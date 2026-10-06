@@ -1361,6 +1361,17 @@ pub(crate) fn inferir_tipo_de_variavel_sem_tipo(inf: &mut BodyInferrer<'_>, vid:
 /// `final`, e num não `final` o tipo só quando os dois coincidem. Sem nada
 /// (ou sem coincidência), o inicializador decide.
 fn tipo_sobreposto(inf: &mut BodyInferrer<'_>, c: ClassId, vid: VariableId) -> Option<TypeId> {
+    let antes = inf.declarados_sem_tipar.replace(c);
+    let r = tipo_sobreposto_em(inf, c, vid);
+    inf.declarados_sem_tipar = antes;
+    if inf.heranca_provisoria && antes.is_none() {
+        inf.heranca = crate::heranca::Heranca::default();
+        inf.heranca_provisoria = false;
+    }
+    r
+}
+
+fn tipo_sobreposto_em(inf: &mut BodyInferrer<'_>, c: ClassId, vid: VariableId) -> Option<TypeId> {
     let v = inf.program.variable(vid);
     let final_ = v.final_ || v.const_;
     let (getters, setters, n_getter, n_setter) = inf.getters_e_setters_sobrescritos(c, v.library, v.name);
@@ -1597,6 +1608,7 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
     cx.funcoes.push(CtxFuncao { modificador: m, retorno: declarado, contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, expressoes_retornadas: Vec::new(), executavel, retorno_legal });
     let saltos_salvos = std::mem::take(&mut cx.saltos);
     let cascatas_salvas = std::mem::take(&mut cx.cascatas);
+    let alvos_salvos = std::mem::take(&mut cx.alvos_de_cascata);
     let (corpo_t, completa) = match &af.body {
         FunctionBody::Expression(e) => {
             let t = inferir(inf, cx, *e, ctx_ret);
@@ -1640,6 +1652,7 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
     };
     cx.saltos = saltos_salvos;
     cx.cascatas = cascatas_salvas;
+    cx.alvos_de_cascata = alvos_salvos;
     let fc = cx.funcoes.pop().unwrap();
     cx.tirar_escopo();
     cx.fluxo = fluxo_antes;

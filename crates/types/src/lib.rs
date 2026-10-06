@@ -42,6 +42,12 @@ pub mod limites;
 pub mod lints_tipados;
 pub mod lints_tipados2;
 pub mod lints_tipados3;
+pub mod lints_tipados4;
+pub mod lints_tipados5;
+pub mod lints_tipados6;
+pub mod lints_tipados7;
+pub mod lints_tipados8;
+pub mod lints_tipados9;
 pub mod fase_catch_error;
 pub mod fase_nao_guardar;
 pub mod fase_nao_usados;
@@ -64,7 +70,7 @@ pub use codes::*;
 pub use constant::{ConstValue, ConstantEvaluator};
 pub use constraints::GenericInferrer;
 pub use hierarchy::{build_class_hierarchy, ClassHierarchy, ClassHierarchyData};
-pub use inferencia::{corpo_no_offset, corpos_da_unidade, inferir_corpos, BodyInferrer, CorpoRef, CorposInferidos};
+pub use inferencia::{corpo_no_offset, corpos_da_unidade, extensoes_aplicaveis, extensoes_aplicaveis_dentre, inferir_corpos, BodyInferrer, CorpoRef, CorposInferidos};
 pub use ops::{erase_extension_type, glb, lub, non_nullable, normalize, nullable, substitute};
 pub use resolve::{
     ClassTypeData, ExtensionTypeData, FunctionTypeData, OutlineResolver, OutlineTypes,

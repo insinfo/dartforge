@@ -355,7 +355,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             }
         }
         let mut achados: Vec<Span> = Vec::new();
-        let mut da_lista = |l: &VariableList, tipo: &dyn Fn(usize, ast::Name) -> Option<dartforge_types::table::TypeId>, achados: &mut Vec<Span>| {
+        let da_lista = |l: &VariableList, tipo: &dyn Fn(usize, ast::Name) -> Option<dartforge_types::table::TypeId>, achados: &mut Vec<Span>| {
             if l.final_ || l.const_ {
                 return;
             }

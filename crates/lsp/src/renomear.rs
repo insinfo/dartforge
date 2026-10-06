@@ -348,21 +348,36 @@ impl Projeto {
             }
         }
         let d = self.identificar(unidade, offset).ok()??;
-        // O prefixo numa expressão ou no `as p`: o `LibraryImportElement`.
+        // O prefixo usado numa expressão: o `PrefixElement`, membro da
+        // unidade (`RenameUnitMemberRefactoringImpl`); o `as p` da diretiva
+        // fica com o `LibraryImportElement` (o ramo `ImportDirective`).
         if let Alvo::Prefixo { biblioteca, nome } = d.alvo {
-            let (decl, _) = self.referencias_de_prefixo(unidade, offset, biblioteca, nome)?;
-            let (du, ds) = decl?;
-            let indice = p
-                .library(biblioteca)
-                .imports
-                .iter()
-                .position(|i| i.unit == du && p.unit(i.unit).unit.directives.get(i.directive).is_some_and(|x| x.span.start == ds.start))?;
+            let antigo = self.nome(nome).to_string();
+            // No `as p` da própria diretiva: o `LibraryImportElement`.
+            let na_diretiva = p.library(biblioteca).imports.iter().position(|i| {
+                i.unit == unidade
+                    && matches!(
+                        p.unit(i.unit).unit.directives.get(i.directive).map(|x| &x.kind),
+                        Some(ast::DirectiveKind::Import { prefix: Some(pr), .. }) if pr.span.start <= offset && offset <= pr.span.end
+                    )
+            });
+            if let Some(indice) = na_diretiva {
+                return Some(Pedido {
+                    classe: Classe::Import { biblioteca, indice },
+                    faixa: d.nome,
+                    antigo,
+                    especie: "import directive".to_string(),
+                    qualificado: String::new(),
+                    biblioteca: Some(biblioteca),
+                    unidade: Some(unidade),
+                });
+            }
             return Some(Pedido {
-                classe: Classe::Import { biblioteca, indice },
+                classe: Classe::MembroDeUnidade(Alvo::Prefixo { biblioteca, nome }),
                 faixa: d.nome,
-                antigo: self.nome(nome).to_string(),
-                especie: "import directive".to_string(),
-                qualificado: String::new(),
+                antigo: antigo.clone(),
+                especie: "import prefix".to_string(),
+                qualificado: antigo,
                 biblioteca: Some(biblioteca),
                 unidade: Some(unidade),
             });
@@ -655,7 +670,8 @@ impl Projeto {
         let p = self.programa();
         let Some(&u) = p.library(l).units.first() else { return String::new() };
         match p.unit(u).path.as_deref() {
-            Some(c) => c.strip_prefix(&self.raiz).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_else(|_| c.to_string_lossy().into_owned()),
+            // `pathContext.relative`: com o separador da plataforma.
+            Some(c) => c.strip_prefix(&self.raiz).map(|r| r.to_string_lossy().into_owned()).unwrap_or_else(|_| c.to_string_lossy().into_owned()),
             None => p.library(l).uri.clone(),
         }
     }
@@ -666,7 +682,10 @@ impl Projeto {
         let mut e = Estado::default();
         match &pedido.classe {
             Classe::MembroDeUnidade(alvo) => {
-                let Alvo::Topo(_) = alvo else { return e };
+                // O prefixo (`PrefixElement`) também é membro da unidade.
+                if !matches!(alvo, Alvo::Topo(_) | Alvo::Prefixo { .. }) {
+                    return e;
+                }
                 let lib = pedido.biblioteca.unwrap_or(LibraryId(0));
                 // `_validateWillConflict`.
                 for &u in p.library(lib).units.iter() {
@@ -1008,8 +1027,14 @@ impl Projeto {
                     };
                     (especie, novo.to_string(), arquivo_de(self.nome_do_elemento_de_topo(*el).map(|(u, _)| u)))
                 }
-                Some(dartforge_types::Resolved::Local(_)) | Some(dartforge_types::Resolved::Parameter { .. }) => {
-                    ("local variable", novo.to_string(), arquivo_de(Some(u)))
+                Some(dartforge_types::Resolved::Parameter { .. }) => ("parameter", novo.to_string(), arquivo_de(Some(u))),
+                Some(dartforge_types::Resolved::Local(_)) => {
+                    // `ElementKind.displayName`: o local declarado numa lista de
+                    // parâmetros é `parameter`.
+                    let parametro = corpos.declaracao_local(id).is_some_and(|d| {
+                        un.ast.functions.iter().any(|f| f.parameters.iter().flatten().any(|q| q.name.is_some_and(|x| x.span.start == d)))
+                    });
+                    (if parametro { "parameter" } else { "local variable" }, novo.to_string(), arquivo_de(Some(u)))
                 }
                 _ => continue,
             };
@@ -1085,7 +1110,18 @@ impl Projeto {
                     let nomeado = crate::projeto::parametro_em(&un.ast, *declaracao).is_some_and(|(q, _)| q.kind == ast::ParameterKind::Named);
                     let fim = palavra(&un.source, *declaracao).map_or(*declaracao, |s| s.end);
                     por(*unidade, Span { start: *declaracao, end: fim }, novo, &mut edicoes);
-                    for (u, s) in self.referencias_do_alvo(&alvo) {
+                    // `RenameParameterRefactoringImpl._getElements`: o nomeado
+                    // das sobrescritas é renomeado com a declaração (o modo de
+                    // renomear das ocorrências, que inclui os homônimos).
+                    let referencias: Vec<(UnitId, Span)> = match self.ocorrencias(&alvo, true) {
+                        Ok(oc) => oc
+                            .into_iter()
+                            .filter(|&(u, a, _)| !(u == *unidade && a == *declaracao))
+                            .map(|(u, a, b)| (u, Span { start: a, end: b }))
+                            .collect(),
+                        Err(_) => self.referencias_do_alvo(&alvo),
+                    };
+                    for (u, s) in referencias {
                         // Sem as implícitas de comprimento 0; num posicional,
                         // sem os `super.x`.
                         if s.start == s.end {
@@ -1240,24 +1276,38 @@ impl Projeto {
                 })
         };
         let substituto = if novo.is_empty() { String::new() } else { format!("{novo}.") };
+        let da_diretiva = v.len();
         for &x in p.library(lib).units.iter() {
             let ux = p.unit(x);
             let Some(uri_x) = self.uri_da_unidade(x) else { continue };
             let fx = ux.source.as_str();
             match prefix {
                 Some(pr) => {
+                    // `RenameImportRefactoringImpl`: o `p.` de cada uso (com o
+                    // ponto) vira `novo.` (ou some).
                     let ate_o_proximo = |s: Span| {
                         let ponto = fx[s.end..].find('.').map_or(s.end, |k| s.end + k + 1);
                         let espacos = fx[ponto..].len() - fx[ponto..].trim_start().len();
                         Span { start: s.start, end: ponto + espacos }
                     };
+                    let usar = |pn: &ast::Name, v: &mut Vec<Edicao>| {
+                        v.push(Edicao { uri: uri_x.clone(), span: ate_o_proximo(pn.span), texto: substituto.clone() });
+                    };
+                    for anotacao in dartforge_frontend::pais::todas_as_anotacoes(&ux.ast, &ux.unit) {
+                        if let [pn, n, ..] = &anotacao.name[..]
+                            && pn.sym == pr.sym
+                            && visivel(n.sym)
+                        {
+                            usar(pn, &mut v);
+                        }
+                    }
                     for e in ux.ast.exprs.iter() {
                         if let ExprKind::Property { target, name, .. } = &e.kind
                             && let ExprKind::Identifier(pn) = &ux.ast.expr(*target).kind
                             && pn.sym == pr.sym
                             && visivel(name.sym)
                         {
-                            v.push(Edicao { uri: uri_x.clone(), span: ate_o_proximo(pn.span), texto: substituto.clone() });
+                            usar(pn, &mut v);
                         }
                     }
                     for t in ux.ast.types.iter() {
@@ -1266,7 +1316,7 @@ impl Projeto {
                             && pn.sym == pr.sym
                             && visivel(n.sym)
                         {
-                            v.push(Edicao { uri: uri_x.clone(), span: ate_o_proximo(pn.span), texto: substituto.clone() });
+                            usar(pn, &mut v);
                         }
                     }
                 }
@@ -1299,6 +1349,8 @@ impl Projeto {
                 }
             }
         }
+        // Os usos na ordem da busca: por unidade e pela posição.
+        v[da_diretiva..].sort_by_key(|e| e.span.start);
         v
     }
 

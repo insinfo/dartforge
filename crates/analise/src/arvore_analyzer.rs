@@ -27,7 +27,7 @@ use std::collections::HashMap;
 
 /// De onde o nó veio na árvore do parser (para achar o elemento dele).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Marca {
+pub enum Marca {
     Nenhuma,
     /// Um `SimpleIdentifier` cujo elemento é o resolvido nesta expressão
     /// (o próprio identificador, a propriedade de que é o nome, o alvo da
@@ -47,9 +47,53 @@ pub(crate) enum Marca {
     Operador(ExprId),
 }
 
+/// A entidade do AST do DartForge que o nó representa (o completar lê as
+/// partes dela). As que não têm id na árvore do parser vão pelo endereço
+/// (só comparado, nunca seguido).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ligacao {
+    Nenhuma,
+    Expr(ExprId),
+    Stmt(StmtId),
+    Decl(ast::DeclId),
+    Membro(ast::MemberId),
+    Funcao(ast::FunctionId),
+    Tipo(TypeId),
+    Padrao(PatternId),
+    /// `ast::Parameter`.
+    Parametro(usize),
+    /// `ast::Initializer`.
+    Inicializador(usize),
+    /// `ast::EnumConstant`.
+    ConstanteDeEnum(usize),
+    /// `ast::SwitchCase`.
+    Caso(usize),
+    /// `ast::Directive`.
+    Diretiva(usize),
+    /// `ast::CatchClause`.
+    Catch(usize),
+    /// `ast::Arguments`.
+    Argumentos(usize),
+    /// `ast::CollectionElement`.
+    Elemento(usize),
+    /// `ast::Combinator`.
+    Combinador(usize),
+    /// `ast::Annotation`.
+    Anotacao(usize),
+    /// `ast::TypeParameter`.
+    ParametroDeTipo(usize),
+    /// O `SwitchExpressionCase` de índice `.1` da expressão `switch` `.0`.
+    CasoDeSwitchExpr(ExprId, usize),
+}
+
+/// O endereço de uma entidade do AST, para a [`Ligacao`].
+pub fn endereco<T>(x: &T) -> usize {
+    x as *const T as usize
+}
+
 /// Um nó do analyzer.
 #[derive(Debug, Clone)]
-pub(crate) struct No {
+pub struct No {
     pub especie: &'static str,
     pub inicio: usize,
     pub fim: usize,
@@ -59,19 +103,20 @@ pub(crate) struct No {
     /// função, método, construtor).
     pub sobrescrita: Option<usize>,
     pub marca: Marca,
+    pub ligacao: Ligacao,
 }
 
 /// As partes de um `ForParts` (`initialization`/`variables`, `condition`,
 /// `updaters`), pelos nós.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct PartesDeFor {
+pub struct PartesDeFor {
     pub inicio: Option<usize>,
     pub condicao: Option<usize>,
     pub atualizacoes: Vec<usize>,
 }
 
 /// A árvore; o nó 0 é a `CompilationUnit`.
-pub(crate) struct Arvore {
+pub struct Arvore {
     pub nos: Vec<No>,
     /// As partes de cada `ForPartsWith*`, pelo nó.
     pub partes_de_for: HashMap<usize, PartesDeFor>,
@@ -79,7 +124,7 @@ pub(crate) struct Arvore {
 
 impl Arvore {
     /// `NodeLocator(ini, fim).searchWithin(unit)`.
-    pub(crate) fn localizar(&self, ini: usize, fim: usize) -> Option<usize> {
+    pub fn localizar(&self, ini: usize, fim: usize) -> Option<usize> {
         let mut achado = None;
         self.visitar(0, ini, fim, &mut achado);
         achado
@@ -114,7 +159,7 @@ impl Arvore {
     /// `NodeLocator2` (fim exclusivo): o nó mais profundo com
     /// `inicio <= pos < fim`, primeiro filho que cobre, com as sobrescritas de
     /// `name.end`.
-    pub(crate) fn localizar_exclusivo(&self, pos: usize) -> Option<usize> {
+    pub fn localizar_exclusivo(&self, pos: usize) -> Option<usize> {
         let mut achado = None;
         self.visitar_exclusivo(0, pos, &mut achado);
         achado
@@ -147,7 +192,7 @@ impl Arvore {
 
     /// `NodeLocator2(ini, fim)`: o nó mais profundo com
     /// `inicio <= ini` e `fim < no.fim` (o `coveringNode` das correções).
-    pub(crate) fn localizar2(&self, ini: usize, fim: usize) -> Option<usize> {
+    pub fn localizar2(&self, ini: usize, fim: usize) -> Option<usize> {
         let mut achado = None;
         self.visitar2(0, ini, fim, &mut achado);
         achado
@@ -173,7 +218,7 @@ impl Arvore {
     }
 
     /// O nó e os ancestrais, sem a `CompilationUnit`.
-    pub(crate) fn cadeia(&self, n: usize) -> Vec<usize> {
+    pub fn cadeia(&self, n: usize) -> Vec<usize> {
         let mut v = Vec::new();
         let mut atual = Some(n);
         while let Some(k) = atual {
@@ -186,7 +231,7 @@ impl Arvore {
         v
     }
 
-    pub(crate) fn span(&self, n: usize) -> Span {
+    pub fn span(&self, n: usize) -> Span {
         Span { start: self.nos[n].inicio, end: self.nos[n].fim }
     }
 }
@@ -313,14 +358,14 @@ struct Construtor<'a> {
 }
 
 /// Monta a árvore do texto já analisado.
-pub(crate) fn construir(fonte: &str, a: &Ast, unidade: &CompilationUnit, antes_de_3: bool) -> Arvore {
+pub fn construir(fonte: &str, a: &Ast, unidade: &CompilationUnit, antes_de_3: bool) -> Arvore {
     construir_com(fonte, a, unidade, antes_de_3, None, None)
 }
 
 /// A árvore na forma resolvida: `construtores` são as chamadas (`Call` ou
 /// `InstanceCreation` sem palavra-chave) que invocam construtor, e
 /// `prefixos` os identificadores que denotam prefixo de import.
-pub(crate) fn construir_resolvida(
+pub fn construir_resolvida(
     fonte: &str,
     a: &Ast,
     unidade: &CompilationUnit,
@@ -352,7 +397,7 @@ fn construir_com<'a>(
         partes_de_for: HashMap::new(),
     };
     // A raiz primeiro (índice 0), os filhos depois.
-    c.nos.push(No { especie: "CompilationUnit", inicio: 0, fim: fonte.len(), filhos: Vec::new(), pai: None, sobrescrita: None, marca: Marca::Nenhuma });
+    c.nos.push(No { especie: "CompilationUnit", inicio: 0, fim: fonte.len(), filhos: Vec::new(), pai: None, sobrescrita: None, marca: Marca::Nenhuma, ligacao: Ligacao::Nenhuma });
     let mut filhos = Vec::new();
     if let Some(s) = unidade.script_tag {
         filhos.extend(c.folha("ScriptTag", s));
@@ -383,7 +428,7 @@ impl<'a> Construtor<'a> {
             return None;
         }
         let id = self.nos.len();
-        self.nos.push(No { especie, inicio, fim, filhos: Vec::new(), pai: None, sobrescrita: None, marca: Marca::Nenhuma });
+        self.nos.push(No { especie, inicio, fim, filhos: Vec::new(), pai: None, sobrescrita: None, marca: Marca::Nenhuma, ligacao: Ligacao::Nenhuma });
         self.ligar(id, filhos);
         Some(id)
     }
@@ -400,7 +445,30 @@ impl<'a> Construtor<'a> {
     }
 
     fn identificador(&mut self, n: ast::Name) -> Option<usize> {
+        // O identificador sintético da recuperação (`b.` antes de `}`) fica
+        // na árvore com comprimento zero, como no analyzer.
+        if n.span.start == n.span.end {
+            let id = self.nos.len();
+            self.nos.push(No {
+                especie: "SimpleIdentifier",
+                inicio: n.span.start,
+                fim: n.span.end,
+                filhos: Vec::new(),
+                pai: None,
+                sobrescrita: None,
+                marca: Marca::Nenhuma,
+                ligacao: Ligacao::Nenhuma,
+            });
+            return Some(id);
+        }
         self.folha("SimpleIdentifier", n.span)
+    }
+
+    fn ligar_a(&mut self, n: Option<usize>, l: Ligacao) -> Option<usize> {
+        if let Some(k) = n {
+            self.nos[k].ligacao = l;
+        }
+        n
     }
 
     fn marcar(&mut self, n: Option<usize>, m: Marca) -> Option<usize> {
@@ -519,6 +587,11 @@ impl<'a> Construtor<'a> {
 
     /// `Annotation`: `@` → argumentos ?? nome do construtor ?? nome.
     fn anotacao(&mut self, m: &'a Annotation) -> Option<usize> {
+        let n = self.anotacao_bruta(m);
+        self.ligar_a(n, Ligacao::Anotacao(endereco(m)))
+    }
+
+    fn anotacao_bruta(&mut self, m: &'a Annotation) -> Option<usize> {
         let mut filhos = Vec::new();
         // `@A<T>.b(…)`: o nome é `A` e o construtor `b`; `@p.A<T>(…)`: o nome
         // é `p.A`.
@@ -570,6 +643,11 @@ impl<'a> Construtor<'a> {
     }
 
     fn combinador(&mut self, c: &'a Combinator) -> Option<usize> {
+        let n = self.combinador_bruta(c);
+        self.ligar_a(n, Ligacao::Combinador(endereco(c)))
+    }
+
+    fn combinador_bruta(&mut self, c: &'a Combinator) -> Option<usize> {
         let (especie, nomes) = match c {
             Combinator::Show(n) => ("ShowCombinator", n),
             Combinator::Hide(n) => ("HideCombinator", n),
@@ -581,6 +659,11 @@ impl<'a> Construtor<'a> {
     }
 
     fn diretiva(&mut self, d: &'a ast::Directive) -> Option<usize> {
+        let n = self.diretiva_bruta(d);
+        self.ligar_a(n, Ligacao::Diretiva(endereco(d)))
+    }
+
+    fn diretiva_bruta(&mut self, d: &'a ast::Directive) -> Option<usize> {
         let (inicio, doc) = self.doc_e_anotacoes(d.span.start, &d.metadata);
         let mut filhos = Vec::new();
         let especie = match &d.kind {
@@ -651,6 +734,7 @@ impl<'a> Construtor<'a> {
 
     fn declaracao(&mut self, did: ast::DeclId) -> Option<usize> {
         let n = self.declaracao_sem_marca(did);
+        let n = self.ligar_a(n, Ligacao::Decl(did));
         // A função de topo guarda a marca da função.
         match n {
             Some(k) if self.nos[k].marca == Marca::Nenhuma => self.marcar(n, Marca::Decl(did)),
@@ -771,6 +855,7 @@ impl<'a> Construtor<'a> {
         }
         filhos.extend(self.expressao_de_funcao(fid, de_declaracao));
         let n = self.no("FunctionDeclaration", inicio, f.span.end, filhos);
+        let n = self.ligar_a(n, Ligacao::Funcao(fid));
         self.marcar(n, Marca::Funcao(fid))
     }
 
@@ -790,6 +875,7 @@ impl<'a> Construtor<'a> {
         let inicio = filhos.first().map_or(f.span.start, |&n| self.nos[n].inicio);
         let fim = corpo.map_or(f.span.end, |n| self.nos[n].fim);
         let n = self.no("FunctionExpression", inicio, fim, filhos);
+        let n = self.ligar_a(n, Ligacao::Funcao(fid));
         self.marcar(n, Marca::Funcao(fid))
     }
 
@@ -845,6 +931,11 @@ impl<'a> Construtor<'a> {
     }
 
     fn constante_de_enum(&mut self, k: &'a ast::EnumConstant) -> Option<usize> {
+        let n = self.constante_de_enum_bruta(k);
+        self.ligar_a(n, Ligacao::ConstanteDeEnum(endereco(k)))
+    }
+
+    fn constante_de_enum_bruta(&mut self, k: &'a ast::EnumConstant) -> Option<usize> {
         let (inicio, mut filhos) = self.doc_e_anotacoes(k.span.start, &k.metadata);
         let mut args = Vec::new();
         let tas = self.argumentos_de_tipo(&k.type_args);
@@ -864,6 +955,11 @@ impl<'a> Construtor<'a> {
     }
 
     fn membro(&mut self, mid: ast::MemberId) -> Option<usize> {
+        let n = self.membro_bruta(mid);
+        self.ligar_a(n, Ligacao::Membro(mid))
+    }
+
+    fn membro_bruta(&mut self, mid: ast::MemberId) -> Option<usize> {
         let a = self.a;
         let m = a.member(mid);
         let (inicio, mut filhos) = self.doc_e_anotacoes(m.span.start, &m.metadata);
@@ -920,6 +1016,11 @@ impl<'a> Construtor<'a> {
     }
 
     fn inicializador(&mut self, i: &'a Initializer) -> Option<usize> {
+        let n = self.inicializador_bruta(i);
+        self.ligar_a(n, Ligacao::Inicializador(endereco(i)))
+    }
+
+    fn inicializador_bruta(&mut self, i: &'a Initializer) -> Option<usize> {
         match i {
             Initializer::Field { span, name, value, .. } => {
                 let mut f = Vec::new();
@@ -1016,6 +1117,11 @@ impl<'a> Construtor<'a> {
     }
 
     fn parametro(&mut self, p: &'a Parameter) -> Option<usize> {
+        let n = self.parametro_bruta(p);
+        self.ligar_a(n, Ligacao::Parametro(endereco(p)))
+    }
+
+    fn parametro_bruta(&mut self, p: &'a Parameter) -> Option<usize> {
         let inicio = p.metadata.first().map_or(p.span.start, |m| m.span.start.min(p.span.start));
         let mut filhos = Vec::new();
         for m in p.metadata.iter() {
@@ -1061,6 +1167,7 @@ impl<'a> Construtor<'a> {
             (especie, fim)
         };
         let interno = self.no(especie, inicio, fim, filhos);
+        let interno = self.ligar_a(interno, Ligacao::Parametro(endereco(p)));
         if p.kind == ParameterKind::Required {
             return interno;
         }
@@ -1086,7 +1193,8 @@ impl<'a> Construtor<'a> {
             if let Some(b) = tp.bound {
                 f.extend(self.tipo(b));
             }
-            filhos.extend(self.no("TypeParameter", inicio, tp.span.end, f));
+            let n = self.no("TypeParameter", inicio, tp.span.end, f);
+            filhos.extend(self.ligar_a(n, Ligacao::ParametroDeTipo(endereco(tp))));
         }
         self.no("TypeParameterList", self.t.span(lt).start, self.t.span(gt).end, filhos)
     }
@@ -1105,6 +1213,11 @@ impl<'a> Construtor<'a> {
     /// `ArgumentList` com os parênteses; `nome: e` é `NamedExpression` com o
     /// `Label`.
     fn lista_de_argumentos(&mut self, args: &'a Arguments) -> Option<usize> {
+        let n = self.lista_de_argumentos_bruta(args);
+        self.ligar_a(n, Ligacao::Argumentos(endereco(args)))
+    }
+
+    fn lista_de_argumentos_bruta(&mut self, args: &'a Arguments) -> Option<usize> {
         let mut filhos = Vec::new();
         for x in args.args.iter() {
             filhos.extend(self.argumento(x.name, x.value));
@@ -1129,6 +1242,11 @@ impl<'a> Construtor<'a> {
     // -- Tipos ---------------------------------------------------------------
 
     fn tipo(&mut self, t: TypeId) -> Option<usize> {
+        let n = self.tipo_bruta(t);
+        self.ligar_a(n, Ligacao::Tipo(t))
+    }
+
+    fn tipo_bruta(&mut self, t: TypeId) -> Option<usize> {
         let ty = self.a.ty(t);
         match &ty.kind {
             TypeKind::Named { name, args } => {
@@ -1200,6 +1318,11 @@ impl<'a> Construtor<'a> {
     // -- Comandos --------------------------------------------------------------
 
     fn comando(&mut self, sid: StmtId) -> Option<usize> {
+        let n = self.comando_bruta(sid);
+        self.ligar_a(n, Ligacao::Stmt(sid))
+    }
+
+    fn comando_bruta(&mut self, sid: StmtId) -> Option<usize> {
         let a = self.a;
         let s = a.stmt(sid);
         match &s.kind {
@@ -1303,7 +1426,8 @@ impl<'a> Construtor<'a> {
                         f.extend(self.folha("CatchClauseParameter", st.span));
                     }
                     f.extend(self.comando(c.body));
-                    filhos.extend(self.no("CatchClause", c.span.start, c.span.end, f));
+                    let cc = self.no("CatchClause", c.span.start, c.span.end, f);
+                    filhos.extend(self.ligar_a(cc, Ligacao::Catch(endereco(c))));
                 }
                 if let Some(fi) = finally_ {
                     filhos.extend(self.comando(*fi));
@@ -1365,6 +1489,11 @@ impl<'a> Construtor<'a> {
     }
 
     fn caso(&mut self, c: &'a ast::SwitchCase) -> Option<usize> {
+        let n = self.caso_bruta(c);
+        self.ligar_a(n, Ligacao::Caso(endereco(c)))
+    }
+
+    fn caso_bruta(&mut self, c: &'a ast::SwitchCase) -> Option<usize> {
         let mut filhos = Vec::new();
         for l in c.labels.iter() {
             filhos.extend(self.rotulo(*l));
@@ -1537,6 +1666,11 @@ impl<'a> Construtor<'a> {
     }
 
     fn expressao(&mut self, e: ExprId) -> Option<usize> {
+        let n = self.expressao_bruta(e);
+        self.ligar_a(n, Ligacao::Expr(e))
+    }
+
+    fn expressao_bruta(&mut self, e: ExprId) -> Option<usize> {
         let a = self.a;
         let x = a.expr(e);
         let s = Span { start: self.inicio(e), end: x.span.end };
@@ -1687,12 +1821,13 @@ impl<'a> Construtor<'a> {
             ExprKind::Switch { value, cases } => {
                 let mut f = Vec::new();
                 f.extend(self.expressao(*value));
-                for c in cases.iter() {
+                for (k, c) in cases.iter().enumerate() {
                     let gp = self.padrao_guardado(c.pattern, c.guard);
                     let b = self.expressao(c.body);
                     let ini = self.a.pattern(c.pattern).span.start;
                     let fim = self.a.expr(c.body).span.end;
-                    f.extend(self.no("SwitchExpressionCase", ini, fim, gp.into_iter().chain(b).collect()));
+                    let n = self.no("SwitchExpressionCase", ini, fim, gp.into_iter().chain(b).collect());
+                    f.extend(self.ligar_a(n, Ligacao::CasoDeSwitchExpr(e, k)));
                 }
                 self.no("SwitchExpression", s.start, s.end, f)
             }
@@ -1820,6 +1955,11 @@ impl<'a> Construtor<'a> {
 
     /// Um elemento de coleção.
     fn elemento(&mut self, el: &'a CollectionElement) -> Option<usize> {
+        let n = self.elemento_bruta(el);
+        self.ligar_a(n, Ligacao::Elemento(endereco(el)))
+    }
+
+    fn elemento_bruta(&mut self, el: &'a CollectionElement) -> Option<usize> {
         match el {
             CollectionElement::Expression(e) => self.expressao(*e),
             CollectionElement::NullAwareExpression(e) => {
@@ -2013,6 +2153,11 @@ impl<'a> Construtor<'a> {
     // -- Padrões ---------------------------------------------------------------
 
     fn padrao(&mut self, p: PatternId) -> Option<usize> {
+        let n = self.padrao_bruta(p);
+        self.ligar_a(n, Ligacao::Padrao(p))
+    }
+
+    fn padrao_bruta(&mut self, p: PatternId) -> Option<usize> {
         let a = self.a;
         let x = a.pattern(p);
         let s = x.span;
@@ -2188,7 +2333,7 @@ fn referencias_de_doc(texto: &str) -> Vec<(usize, usize)> {
 /// As faixas de seleção em `offset`: o nó do `NodeLocator` e os ancestrais,
 /// sem a unidade, sem repetir o intervalo anterior
 /// (`DartSelectionRangeComputer`).
-pub(crate) fn selecoes(texto: &str, features: dartforge_frontend::LibraryFeatures, offset: usize) -> Vec<Span> {
+pub fn selecoes(texto: &str, features: dartforge_frontend::LibraryFeatures, offset: usize) -> Vec<Span> {
     let antes_de_3 = features.versao().major < 3;
     let mut nomes = dartforge_intern::Interner::new();
     let analisado = dartforge_frontend::parser::parse_com(texto, &mut nomes, features);
@@ -2245,4 +2390,78 @@ mod testes {
         assert_eq!(c[0], "override");
         assert_eq!(c[1], "@override");
     }
+}
+
+/// As subclasses de `Expression` que a árvore produz.
+pub const EXPRESSOES: &[&str] = &[
+    "SimpleIdentifier",
+    "PrefixedIdentifier",
+    "MethodInvocation",
+    "PropertyAccess",
+    "IntegerLiteral",
+    "DoubleLiteral",
+    "BooleanLiteral",
+    "NullLiteral",
+    "SimpleStringLiteral",
+    "StringInterpolation",
+    "AdjacentStrings",
+    "SymbolLiteral",
+    "ListLiteral",
+    "SetOrMapLiteral",
+    "RecordLiteral",
+    "InstanceCreationExpression",
+    "FunctionExpression",
+    "FunctionExpressionInvocation",
+    "FunctionReference",
+    "IndexExpression",
+    "PrefixExpression",
+    "PostfixExpression",
+    "BinaryExpression",
+    "ConditionalExpression",
+    "IsExpression",
+    "AsExpression",
+    "AssignmentExpression",
+    "PatternAssignment",
+    "CascadeExpression",
+    "AwaitExpression",
+    "ThrowExpression",
+    "RethrowExpression",
+    "ThisExpression",
+    "SuperExpression",
+    "SwitchExpression",
+    "ParenthesizedExpression",
+    "NamedExpression",
+    "DotShorthand",
+];
+
+/// As subclasses de `Statement`.
+pub const COMANDOS: &[&str] = &[
+    "Block",
+    "ExpressionStatement",
+    "VariableDeclarationStatement",
+    "PatternVariableDeclarationStatement",
+    "ReturnStatement",
+    "IfStatement",
+    "ForStatement",
+    "WhileStatement",
+    "DoStatement",
+    "SwitchStatement",
+    "TryStatement",
+    "BreakStatement",
+    "ContinueStatement",
+    "YieldStatement",
+    "LabeledStatement",
+    "EmptyStatement",
+    "AssertStatement",
+    "FunctionDeclarationStatement",
+];
+
+/// A espécie é uma subclasse de `Statement`.
+pub fn e_comando(especie: &str) -> bool {
+    COMANDOS.contains(&especie)
+}
+
+/// A espécie é uma subclasse de `Expression`.
+pub fn e_expressao(especie: &str) -> bool {
+    EXPRESSOES.contains(&especie)
 }

@@ -341,9 +341,9 @@ fn stdout_limpo() {
     ));
     let segunda = sessao.diagnosticos(uri);
     assert!(itens(&segunda).is_empty());
+    // O fechamento não republica: o cliente já tem a lista vazia (o
+    // servidor do Dart só publica vazio sobre erros publicados antes).
     sessao.enviar(&fechar(uri));
-    let terceira = sessao.diagnosticos(uri);
-    assert!(itens(&terceira).is_empty());
 
     assert_eq!(sessao.encerrar(10), 0);
     // `encerrar` já afirmou: nenhum byte fora de `Content-Length` no stdout.

@@ -178,6 +178,10 @@ fn main() {
          pub const NOMES: &[&str] = &[\n",
     );
     for nome in &nomes {
+        // Só de unix, como na [`tabela`].
+        if nome == "dartforge_lancar_desenrolamento" {
+            saida.push_str("    #[cfg(unix)]\n");
+        }
         saida.push_str(&format!("    \"{nome}\",\n"));
     }
     saida.push_str(

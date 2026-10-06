@@ -881,6 +881,18 @@ arquitetura incremental, seção 16, para não reinferir tudo a cada tecla);
 DartForge é cancelar a análise tipada em curso quando chega nova versão
 (hoje o resultado velho é descartado depois de calculado).
 
+**Estado em 2026-10-05 (escrito, não compilado).** Os itens (1) e (2) estão escritos (I7 de 16.10:
+`tipado.rs` e `servidor.rs`); o (3) já valia: a análise em curso consulta, entre as fases do motor, se o
+pacote foi marcado de novo e para.
+
+**Estado em 2026-10-05 (escrito, não compilado): os YAML.** A análise de um pacote (`tipado.rs`,
+`analisar_pacote`) valida e publica também o `analysis_options.yaml` (`diagnosticos_das_opcoes`) e o
+`pubspec.yaml` (`diagnosticos_do_pubspec`, o `PubspecValidator` e os lints de pubspec ligados, sem os
+calados por `# ignore:`) da raiz, pelo texto do disco: na primeira análise do pacote, depois de mudar a
+configuração e quando um deles mudou no disco (o pubspec também quando mudaram as opções). O
+`Resultado` leva os diagnósticos no JSON do analyzer, e o servidor os publica com as faixas dele
+(`publicacao_do_yaml`). O `AndroidManifest.xml` e os `fix_data.yaml` continuam fora.
+
 ### 3.3 Raízes, observador de arquivos e reconstrução de contextos
 
 * **Raízes** (`_refreshAnalysisRoots`, `lsp_analysis_server.dart:1101-1137`):
@@ -943,6 +955,13 @@ suficiente para o editor, registrar `workspace/didChangeWatchedFiles` com
 dinâmico — divergência de mecanismo, mesmo efeito); (3) a tabela acima como
 regra de invalidação (YAML/pacotes → recarregar o projeto; `.dart` sem
 documento aberto → trocar o texto da unidade, seção 16 E2).
+
+**Estado em 2026-10-05 (escrito, não compilado).** O item (2) pela saída simples: com
+`workspace.didChangeWatchedFiles.dynamicRegistration`, o servidor registra os quatro padrões junto dos
+outros registros dinâmicos (`registro::registros`, `observar_arquivos`), e cada mudança vai ao
+trabalhador tipado (`Trabalhador::arquivo_no_disco`): YAML e `package_config.json` reanalisam e
+republicam o pacote inteiro (os YAML também); um `.dart` não aberto entra nos alterados e os dependentes
+são reanalisados.
 
 ### 3.4 Notificações `dart/*` de arquivo aberto
 
@@ -1626,7 +1645,10 @@ cerca de 90% (soma das posições de causa única: 45 + 71 + 26 + 37 = 179 de
 
 ### 7.6 Para implementar: a árvore no formato do analyzer
 
-**Estado em 2026-10-05 (escrito, não compilado).** `crates/lsp/src/arvore_analyzer.rs` monta a árvore no
+**Estado em 2026-10-05 (escrito, não compilado).** A árvore e o `ExitDetector` dela passaram para
+`crates/analise/src/arvore_analyzer.rs` e `crates/analise/src/saida.rs` (o lint
+`use_build_context_synchronously` os usa); o LSP os usa de lá, e o `_elementExits` vem do contexto dele
+(`refatoracoes_metodo.rs`, `elemento_sai`). `crates/lsp/src/arvore_analyzer.rs` (hoje no `analise`) monta a árvore no
 formato do analyzer sobre a do parser e os tokens (etapas 1 a 6 da tabela abaixo de uma vez): os nós de
 7.3 com os intervalos e a ordem de visita, inclusive os sintetizados (`FormalParameterList` com os
 parênteses, `DefaultFormalParameter` em todo opcional e nomeado, `VariableDeclarationList` de campo, de
@@ -15155,6 +15177,32 @@ snippets de código de 14.8.9 pelo contexto do `CompletionTarget`, e o `resolve`
 "Auto import from", documentação). Continuam como antes: a escolha dos candidatos (contexto pelo
 sentinela, não pelos `visit*` de 14.14) e a ordem de chegada aproximada pelos grupos do coletor.
 
+**Estado em 2026-10-05 (escrito, não compilado), o passe por contexto.** A escolha dos candidatos
+passou a ser a do Dart: `crates/lsp/src/completar/` porta o `InScopeCompletionPass` sobre a árvore do
+**texto real** (`arvore_analyzer.rs`, agora com a `Ligacao` de cada nó à entidade do AST):
+`alvo.rs` (o `CompletionTarget.forOffset` de 14.13.1 com o corte de comentário, o
+`computeReplacementRange` de 14.13.2, o `droppedToken` e os dois prefixos de 14.13.3),
+`isp.rs` (o `coveringNode` com as duas exceções de fronteira e o `_completionNode` de 14.13.4, as
+propriedades de contexto: `inStaticContext`, `inConstantContext`, `inLoop`/`inSwitch`/`inCatchClause`
+sem parar em funções, o modificador do `FunctionBody`), `isp_visitas.rs` (os 140 `visit*` e os
+`_forX`), `isp_palavras.rs` (o `KeywordHelper` inteiro), `isp_declaracoes.rs` (o `DeclarationHelper`
+inteiro, com o `VisibilityTracker` e a tradução dos candidatos em itens), `isp_outros.rs`
+(`IdentifierHelper`, `LabelHelper`, `OverrideHelper` com o `writeOverride` do `analyzer_plugin` sobre o
+`Escritor` de `escrever_tipo.rs`, `UriHelper` com a lista de `libraries.dart` do SDK 3.6.2, as
+closures, os argumentos nomeados e os campos de record), `contexto.rs` (o `_ContextTypeVisitor` de
+14.6.5 com o `bodyContext.contextType` do `BodyInferenceContext`) e `isp_nao_importados.rs` (as três
+operações do `NotImportedCompletionPass` sobre as bibliotecas que a consulta carregou; as outras vão
+pelo resumo de nomes de `conhecidas.rs`, só com a `StaticMembersOperation`). O sentinela continua só
+para a semântica: os offsets do texto real são levados ao texto analisado com início e fim de trecho
+mapeados à parte (`Isp::mapear`/`mapear_fim`). A ordem de chegada ao coletor é a das visitas; a
+relevância usa o `completionLocation` gravado pelo passe, o tipo de contexto do visitante e as
+características que faltavam (`hasDeprecated` com a herança, `isConstant` com o `preferConstants`,
+`superMatches`); o mapa de sugestões tem a regra do construtor sombreado. Divergências que ficam:
+a ordem dentro de um espaço de nomes (o `HashMap` de `String` do Dart itera pelo hash da VM; aqui
+pelo nome) e a das bibliotecas `dart:` e dos pacotes no `UriHelper` (idem, `HashMap`), que só mudam
+a ordem entre candidatos de mesmo `matcherScore`; os construtores e os campos estáticos das classes
+de bibliotecas não importadas que a consulta não carregou (o resumo só tem nomes).
+
 Os não importados (14.9) seguem o `NotImportedCompletionPass` com a `StaticMembersOperation`: as
 bibliotecas de `conhecidas::candidatas` (o `FileStateFilter`), menos a do pedido e as importadas sem
 combinadores pela unidade definidora (`_ImportSummary`); de cada uma, o `exportNamespace` em ordem
@@ -16610,6 +16658,18 @@ permite analisar o workspace inteiro em fundo.
   esboço, `dynamic`, é mantido, mas as tabelas do inicializador podem
   diferir das da inferência completa).
 
+**Estado em 2026-10-05 (escrito, não compilado): I7.** O trabalhador tipado (`tipado.rs`) recebe as
+pastas do workspace no `initialized` e a cada `didChangeWorkspaceFolders`; cada pacote delas (o
+`pubspec.yaml` mais próximo, ou a pasta) é analisado inteiro (`projetos::arquivos`, fora das exclusões
+do `analysis_options.yaml` e das `analysisExcludedFolders`), com os documentos abertos valendo mais que o
+disco. Saem sempre os abertos; dos não abertos, todos na primeira análise do pacote (e depois de mudar a
+configuração), e depois os afetados pelos arquivos alterados (eles e os que dependem deles pelas
+diretivas, transitivamente: os que o driver do Dart reanalisa). O `didClose` dentro das pastas não
+limpa: o arquivo volta a ser analisado pelo disco e é republicado; fora delas, a lista vazia. O servidor
+guarda os URIs com diagnósticos no cliente (`_filesWithClientDiagnostics`) e não manda a lista vazia
+repetida. Continuam: a publicação sintática imediata do documento editado (uma a mais que o Dart) e a
+reanálise do pacote inteiro a cada mudança (I5/I6 a tornariam proporcional ao que mudou).
+
 ## 17. Maiores divergências (por número de posições do oráculo)
 
 | # | Requisição / recurso | Atual | Posições diferentes | Causa principal | Onde se resolve | Especificado em |
@@ -16643,6 +16703,12 @@ permite analisar o workspace inteiro em fundo.
   Alternativa no LSP: mapear cada elemento do patch para a declaração
   `external` homônima da biblioteca pública (mesma classe, mesmo nome).
 * **M2 — `InvalidType` distinto de `dynamic`** (hover, inlay hints).
+  **Estado em 2026-10-05 (escrito, não compilado).** A `Consulta` do LSP liga
+  `preservar_exibicao` na tabela de tipos (`consulta.rs`, `Consulta::inferir`): o tipo
+  inválido, o `Never?` e o alias escrito ficam registrados na exibição de cada tipo, e
+  `Consulta::formatar` escreve como o `getDisplayString()` do analyzer (sem `preferTypeAlias`:
+  `InvalidType`, `Never?`, o tipo expandido do alias); o `Escritor` de `escrever_tipo.rs`
+  distingue o inválido (só `dynamic` com `required`) e o alias (pelo nome do alias).
 * **M3 — argumentos de tipo inferidos das invocações genéricas**
   (`typeArgumentTypes`; inlay hints `<int>` e o `Type:` de tear-offs).
 * **E1/E2** (seção 16).

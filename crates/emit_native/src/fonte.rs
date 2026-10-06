@@ -100,6 +100,7 @@ pub fn separar_partes_do_core(program: &mut Program) -> Option<LibraryId> {
         // unidades que vêm para a biblioteca nova.
         pais: origem.pais.iter().filter(|(u, _)| unidades.contains(u)).map(|(u, p)| (*u, *p)).collect(),
         representante: Default::default(),
+        dono_do_grupo: Default::default(),
         escopos_de_unidade: origem
             .escopos_de_unidade
             .iter()

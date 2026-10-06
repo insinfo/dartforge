@@ -37,14 +37,22 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
-/// Resultado de uma análise para um documento aberto.
+/// Resultado de uma análise para um arquivo: um documento aberto (com a
+/// versão do texto analisado) ou um arquivo das raízes que não está aberto
+/// (sem versão, com o texto do disco para as faixas).
 #[derive(Debug)]
 pub(crate) struct Resultado {
     pub uri: String,
-    /// Versão do texto analisado.
-    pub versao: i32,
+    /// Versão do texto analisado; `None` num arquivo não aberto.
+    pub versao: Option<i32>,
+    /// O texto analisado de um arquivo não aberto.
+    pub texto: Option<String>,
     /// Lista completa a publicar: sintaxe (parser) + semântica publicada.
     pub diagnosticos: Vec<Diagnostic>,
+    /// Os diagnósticos de um arquivo YAML do pacote (`analysis_options.yaml`,
+    /// `pubspec.yaml`), já no JSON do analyzer (§3.2: os arquivos não-Dart
+    /// validados na criação dos contextos e a cada evento do observador).
+    pub yaml: Vec<dartforge_paridade::json::DiagJson>,
 }
 
 /// Documento aberto como o trabalhador o vê.
@@ -70,6 +78,13 @@ struct Estado {
     tipos_de_todo: Vec<String>,
     /// As pastas excluídas da análise (`analysisExcludedFolders`).
     excluidas: Vec<PathBuf>,
+    /// As pastas do workspace (as raízes incluídas, §3.3).
+    pastas: Vec<PathBuf>,
+    /// Por pacote, os arquivos alterados desde a última análise dele.
+    alterados: HashMap<PathBuf, BTreeSet<PathBuf>>,
+    /// Pacotes cuja próxima análise publica todos os arquivos (a primeira,
+    /// ou depois de mudar a configuração).
+    publicar_todos: BTreeSet<PathBuf>,
 }
 
 type Partilhado = Arc<(Mutex<Estado>, Condvar)>;
@@ -97,8 +112,20 @@ impl std::fmt::Debug for Tipado {
 }
 
 /// A raiz do pacote: o diretório mais próximo, subindo, com `pubspec.yaml`
-/// (a mesma regra do `dartforge analyze`).
-fn raiz_do_pacote(arquivo: &Path) -> PathBuf {
+/// (a mesma regra do `dartforge analyze`); sem `pubspec.yaml` até a pasta do
+/// workspace que contém o arquivo, a pasta (o contexto da raiz incluída).
+fn raiz_do_pacote(arquivo: &Path, pastas: &[PathBuf]) -> PathBuf {
+    let mut atual = arquivo.parent();
+    let pasta = pastas.iter().filter(|p| arquivo.starts_with(p)).max_by_key(|p| p.components().count());
+    while let Some(dir) = atual {
+        if dir.join("pubspec.yaml").is_file() {
+            return dir.to_path_buf();
+        }
+        if pasta.is_some_and(|p| dir == p.as_path()) {
+            return dir.to_path_buf();
+        }
+        atual = dir.parent();
+    }
     crate::projeto::raiz_do_projeto(arquivo)
 }
 
@@ -140,9 +167,10 @@ impl Tipado {
         if caminho.extension().is_none_or(|e| e != "dart") {
             return;
         }
-        let raiz = raiz_do_pacote(&caminho);
         let mut e = self.estado();
+        let raiz = raiz_do_pacote(&caminho, &e.pastas);
         e.sujas.insert(raiz.clone());
+        e.alterados.entry(raiz.clone()).or_default().insert(chave(&caminho));
         e.documentos.insert(
             uri.to_string(),
             Documento {
@@ -162,8 +190,54 @@ impl Tipado {
         e.todos = todos;
         e.tipos_de_todo = tipos_de_todo;
         e.excluidas = excluidas;
-        let raizes: Vec<PathBuf> = e.documentos.values().map(|d| d.raiz.clone()).collect();
+        let raizes: Vec<PathBuf> = e.documentos.values().map(|d| d.raiz.clone()).chain(pacotes_das_pastas(&e.pastas)).collect();
+        e.publicar_todos.extend(raizes.iter().cloned());
         e.sujas.extend(raizes);
+        self.partilhado.1.notify_all();
+    }
+
+    /// As pastas do workspace (§3.3): todo `.dart` delas é analisado e
+    /// publicado (§3.2, I7 de §16.10), pacote a pacote; a primeira análise de
+    /// cada pacote publica todos os arquivos.
+    pub(crate) fn pastas(&self, pastas: Vec<PathBuf>) {
+        let mut e = self.estado();
+        e.pastas = pastas;
+        let pacotes = pacotes_das_pastas(&e.pastas);
+        e.publicar_todos.extend(pacotes.iter().cloned());
+        e.sujas.extend(pacotes);
+        self.partilhado.1.notify_all();
+    }
+
+    /// Um arquivo mudou no disco (`workspace/didChangeWatchedFiles`, o
+    /// observador do Dart, §3.3): um `.dart` não aberto passa a valer pelo
+    /// disco, e os que dependem dele são reanalisados; o
+    /// `analysis_options.yaml`, o `pubspec.yaml` e o `package_config.json`
+    /// reconstroem os contextos (o pacote inteiro é analisado e publicado de
+    /// novo, os YAML também).
+    pub(crate) fn arquivo_no_disco(&self, caminho: &Path) {
+        let mut e = self.estado();
+        let raiz = raiz_do_pacote(caminho, &e.pastas);
+        let dentro = e.pastas.iter().any(|p| caminho.starts_with(p)) || e.documentos.values().any(|o| o.raiz == raiz);
+        if !dentro {
+            return;
+        }
+        let nome = caminho.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if matches!(nome, "analysis_options.yaml" | "pubspec.yaml" | "package_config.json") {
+            e.publicar_todos.insert(raiz.clone());
+            e.alterados.entry(raiz.clone()).or_default().insert(chave(caminho));
+            e.sujas.insert(raiz);
+            self.partilhado.1.notify_all();
+            return;
+        }
+        if caminho.extension().is_none_or(|x| x != "dart") {
+            return;
+        }
+        // O documento aberto vale pelo editor.
+        if e.documentos.values().any(|d| chave(&d.caminho) == chave(caminho)) {
+            return;
+        }
+        e.alterados.entry(raiz.clone()).or_default().insert(chave(caminho));
+        e.sujas.insert(raiz);
         self.partilhado.1.notify_all();
     }
 
@@ -171,11 +245,15 @@ impl Tipado {
     /// reanalisados com o disco.
     pub(crate) fn fechado(&self, uri: &str) {
         let mut e = self.estado();
-        if let Some(d) = e.documentos.remove(uri)
-            && e.documentos.values().any(|o| o.raiz == d.raiz)
-        {
-            e.sujas.insert(d.raiz);
-            self.partilhado.1.notify_all();
+        if let Some(d) = e.documentos.remove(uri) {
+            // Sem o texto do editor, vale o do disco: o arquivo mudou para a
+            // análise (o `removeOverlay` do Dart), e os que dependem dele.
+            let dentro = e.pastas.iter().any(|p| d.caminho.starts_with(p));
+            if dentro || e.documentos.values().any(|o| o.raiz == d.raiz) {
+                e.alterados.entry(d.raiz.clone()).or_default().insert(chave(&d.caminho));
+                e.sujas.insert(d.raiz);
+                self.partilhado.1.notify_all();
+            }
         }
     }
 
@@ -243,7 +321,7 @@ fn trabalhar(
     };
     let mut motor: Option<Motor> = None;
     loop {
-        let (raiz, abertos, textos, config) = {
+        let (raiz, abertos, textos, config, alterados) = {
             let mut e = bloquear();
             while !e.encerrar && (e.sujas.is_empty() || e.pausado) {
                 e = sinal
@@ -268,7 +346,12 @@ fn trabalhar(
                 .collect();
             e.rodando = Some(raiz.clone());
             let config = ConfiguracaoDaAnalise { todos: e.todos, tipos_de_todo: e.tipos_de_todo.clone(), excluidas: e.excluidas.clone() };
-            (raiz, abertos, textos, config)
+            // Os arquivos não abertos só entram com o pacote numa pasta do
+            // workspace.
+            let no_workspace = e.pastas.iter().any(|p| raiz.starts_with(p) || p.starts_with(&raiz));
+            let todos = no_workspace && e.publicar_todos.remove(&raiz);
+            let mudados = e.alterados.remove(&raiz).unwrap_or_default();
+            (raiz, abertos, textos, config, (no_workspace, todos, mudados))
         };
         if motor.is_none() {
             match Motor::novo(sdk_lib) {
@@ -290,7 +373,7 @@ fn trabalhar(
             e.encerrar || e.sujas.contains(&raiz)
         };
         let resultados = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            analisar_pacote(motor_ref, &raiz, &abertos, &textos, &cancelado, &config)
+            analisar_pacote(motor_ref, &raiz, &abertos, &textos, &cancelado, &config, &alterados)
         }));
         let resultados = match resultados {
             Ok(r) => r,
@@ -302,6 +385,15 @@ fn trabalhar(
                 Vec::new()
             }
         };
+        if resultados.is_empty() && alterados.0 {
+            let mut e = bloquear();
+            if e.sujas.contains(&raiz) {
+                e.alterados.entry(raiz.clone()).or_default().extend(alterados.2.iter().cloned());
+                if alterados.1 {
+                    e.publicar_todos.insert(raiz.clone());
+                }
+            }
+        }
         let houve = !resultados.is_empty();
         for r in resultados {
             let _ = tx.send(r);
@@ -324,8 +416,64 @@ struct ConfiguracaoDaAnalise {
     excluidas: Vec<PathBuf>,
 }
 
-/// Analisa os documentos abertos `abertos` do pacote `raiz` num programa só.
-/// Vazio quando cancelada.
+/// Os pacotes das pastas do workspace: o de cada `.dart` delas.
+fn pacotes_das_pastas(pastas: &[PathBuf]) -> Vec<PathBuf> {
+    let mut v: BTreeSet<PathBuf> = BTreeSet::new();
+    for p in pastas {
+        for a in dartforge_paridade::corpus::arquivos_dart(p) {
+            v.insert(raiz_do_pacote(&a, pastas));
+        }
+    }
+    v.into_iter().collect()
+}
+
+/// Os arquivos `afetados` por uma mudança em `alterados`: eles e, pelas
+/// diretivas (`import`, `export`, `part`, `part of`), os que dependem deles,
+/// transitivamente (os que o driver do Dart reanalisa e republica).
+fn afetados(arquivos: &std::collections::BTreeMap<PathBuf, dartforge_paridade::analise::Arquivo>, alterados: &BTreeSet<PathBuf>, pacotes: Option<&dartforge_elements::PackageConfig>) -> BTreeSet<PathBuf> {
+    let mut dependentes: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
+    for (caminho, a) in arquivos {
+        let mut nomes = dartforge_intern::Interner::new();
+        let analisado = dartforge_frontend::parser::parse(&a.texto, &mut nomes);
+        let base = caminho.parent().map(Path::to_path_buf).unwrap_or_default();
+        for d in &analisado.unit.directives {
+            use dartforge_frontend::ast::DirectiveKind as K;
+            let lit = match &d.kind {
+                K::Import { uri, .. } | K::Export { uri, .. } | K::Part { uri } => Some(uri),
+                K::PartOf { uri: Some(uri), .. } => Some(uri),
+                _ => None,
+            };
+            let Some(texto) = lit.and_then(dartforge_elements::load::string_lit_value) else { continue };
+            let alvo = if let Some(resto) = texto.strip_prefix("package:") {
+                let Some((pacote, rel)) = resto.split_once('/') else { continue };
+                let Some(dir) = pacotes.and_then(|c| c.package_dirs.iter().find(|(n, _)| n == pacote).map(|(_, d)| d.clone())) else { continue };
+                dir.join(rel)
+            } else if texto.contains(':') {
+                continue;
+            } else {
+                base.join(&*texto)
+            };
+            dependentes.entry(chave(&alvo)).or_default().push(caminho.clone());
+        }
+    }
+    let mut saida: BTreeSet<PathBuf> = alterados.iter().cloned().collect();
+    let mut pilha: Vec<PathBuf> = alterados.iter().cloned().collect();
+    while let Some(x) = pilha.pop() {
+        for d in dependentes.get(&x).into_iter().flatten() {
+            if saida.insert(d.clone()) {
+                pilha.push(d.clone());
+            }
+        }
+    }
+    saida
+}
+
+/// Analisa o pacote `raiz` num programa só: os documentos abertos dele e,
+/// com o pacote numa pasta do workspace, todos os `.dart` que o `dart
+/// analyze` veria (§3.2, I7). Os abertos sempre saem; os não abertos, na
+/// primeira análise do pacote (ou depois de mudar a configuração) todos, e
+/// depois os afetados pelos arquivos alterados. Vazio quando cancelada.
+#[allow(clippy::type_complexity)]
 fn analisar_pacote(
     motor: &Motor,
     raiz: &Path,
@@ -333,21 +481,31 @@ fn analisar_pacote(
     textos: &HashMap<PathBuf, String>,
     cancelado: &dyn Fn() -> bool,
     config: &ConfiguracaoDaAnalise,
+    alterados: &(bool, bool, BTreeSet<PathBuf>),
 ) -> Vec<Resultado> {
+    let (no_workspace, todos, alterados) = (alterados.0, alterados.1, &alterados.2);
     // Os documentos nas pastas excluídas não são analisados: a publicação
     // deles fica vazia.
     let excluido = |c: &Path| config.excluidas.iter().any(|e| c.starts_with(e));
     let mut saida_excluidos: Vec<Resultado> = abertos
         .iter()
         .filter(|(_, _, c, _)| excluido(c))
-        .map(|(u, v, _, _)| Resultado { uri: u.clone(), versao: *v, diagnosticos: Vec::new() })
+        .map(|(u, v, _, _)| Resultado { uri: u.clone(), versao: Some(*v), texto: None, diagnosticos: Vec::new(), yaml: Vec::new() })
         .collect();
     let abertos: Vec<(String, i32, PathBuf, String)> = abertos.iter().filter(|(_, _, c, _)| !excluido(c)).cloned().collect();
     let abertos = &abertos[..];
-    if abertos.is_empty() {
+    let opcoes = dartforge_paridade::filtros::Opcoes::ler(raiz);
+    // Os `.dart` do pacote que o `dart analyze` veria (fora das exclusões do
+    // `analysis_options.yaml` e das `analysisExcludedFolders`).
+    let do_pacote: Vec<PathBuf> = if no_workspace {
+        dartforge_paridade::projetos::arquivos(raiz, &opcoes).into_iter().filter(|a| !excluido(a)).collect()
+    } else {
+        Vec::new()
+    };
+    if abertos.is_empty() && do_pacote.is_empty() {
         return saida_excluidos;
     }
-    let mut arquivos: Vec<PathBuf> = Vec::new();
+    let mut arquivos: Vec<PathBuf> = do_pacote.clone();
     for (_, _, caminho, texto) in abertos {
         // Uma parte entra pela biblioteca dona (o motor não importa partes).
         if e_parte(texto)
@@ -359,16 +517,33 @@ fn analisar_pacote(
     }
     arquivos.sort_by_key(|a| chave(a));
     arquivos.dedup_by_key(|a| chave(a));
-    let config = raiz.join(".dart_tool").join("package_config.json");
-    let config = config.is_file().then_some(config);
-    let Some(analise) = motor.analisar_com(raiz, &arquivos, config.as_deref(), textos, cancelado)
+    let config_dos_pacotes = raiz.join(".dart_tool").join("package_config.json");
+    let config_dos_pacotes = config_dos_pacotes.is_file().then_some(config_dos_pacotes);
+    let pacotes = config_dos_pacotes.as_deref().and_then(|c| dartforge_elements::PackageConfig::load(c).ok());
+    let Some(analise) = motor.analisar_com(raiz, &arquivos, config_dos_pacotes.as_deref(), textos, cancelado)
     else {
         return Vec::new();
     };
-    let opcoes = dartforge_paridade::filtros::Opcoes::ler(raiz);
     let mut sintatico = AnalisadorSintatico::new();
     let mut saida = Vec::new();
-    for (uri, versao, caminho, texto) in abertos {
+    // Os não abertos a publicar.
+    let abertos_chaves: BTreeSet<PathBuf> = abertos.iter().map(|(_, _, c, _)| chave(c)).collect();
+    let publicar: BTreeSet<PathBuf> = if todos {
+        do_pacote.iter().map(|a| chave(a)).collect()
+    } else {
+        afetados(&analise.arquivos, alterados, pacotes.as_ref())
+    };
+    let mut alvos: Vec<(String, Option<i32>, PathBuf, String)> = abertos.iter().map(|(u, v, c, t)| (u.clone(), Some(*v), c.clone(), t.clone())).collect();
+    for a in &do_pacote {
+        let k = chave(a);
+        if abertos_chaves.contains(&k) || !publicar.contains(&k) {
+            continue;
+        }
+        let Some(arq) = analise.arquivos.get(&k) else { continue };
+        let Ok(u) = url::Url::from_file_path(a) else { continue };
+        alvos.push((u.to_string(), None, a.clone(), arq.texto.clone()));
+    }
+    for (uri, versao, caminho, texto) in &alvos {
         let Some(arquivo) = analise.arquivos.get(&chave(caminho)) else {
             continue;
         };
@@ -380,36 +555,69 @@ fn analisar_pacote(
         // Sintaxe pelo mesmo parser do fluxo imediato (sem piscar); a
         // semântica, toda do motor, pela regra de publicação comum.
         let mut diagnosticos = sintatico.sintaxe(uri, texto);
-        let mut semanticos: Vec<Diagnostic> =
+        // Os publicados e, com o `showTodos` (`_shouldSendError`), os TODOs
+        // (todos, ou os tipos pedidos; sempre quando a severidade foi
+        // promovida acima de INFO pelo `analysis_options.yaml`), cada um na
+        // posição em que o analisador o relatou.
+        let publicados: Vec<Diagnostic> =
             dartforge_paridade::publicaveis(arquivo, &opcoes, true)
                 .into_iter()
                 .filter(|(_, sintaxe)| !sintaxe)
                 .map(|(d, _)| d)
                 .collect();
-        // `showTodos` (`_shouldSendError`): os TODOs saem com a configuração
-        // (todos, ou os tipos pedidos), e sempre quando a severidade foi
-        // promovida acima de INFO pelo `analysis_options.yaml`.
-        {
-            for (d, _) in dartforge_paridade::publicaveis(arquivo, &opcoes, false) {
-                let Some(c) = d.code else { continue };
-                if c.info().tipo != dartforge_diagnostics::TipoErro::Todo {
-                    continue;
-                }
-                let mostrar = d.severity != dartforge_diagnostics::Severidade::Info
-                    || config.todos
-                    || config.tipos_de_todo.iter().any(|t| *t == c.info().nome.to_uppercase());
-                if mostrar && !semanticos.iter().any(|x| x.span == d.span && x.code == d.code) {
-                    semanticos.push(d);
-                }
+        let mut semanticos: Vec<Diagnostic> = Vec::new();
+        for (d, sintaxe) in dartforge_paridade::publicaveis(arquivo, &opcoes, false) {
+            if sintaxe {
+                continue;
+            }
+            let publicado = publicados.iter().any(|x| x.span == d.span && x.code == d.code && x.message == d.message);
+            let todo = d.code.is_some_and(|c| {
+                c.info().tipo == dartforge_diagnostics::TipoErro::Todo
+                    && (d.severity != dartforge_diagnostics::Severidade::Info
+                        || config.todos
+                        || config.tipos_de_todo.iter().any(|t| *t == c.info().nome.to_uppercase()))
+            });
+            if (publicado || todo) && !semanticos.iter().any(|x: &Diagnostic| x.span == d.span && x.code == d.code && x.message == d.message) {
+                semanticos.push(d);
             }
         }
-        semanticos.sort_by_key(|d| (d.span.start, d.span.end));
+        // Um publicado que a lista sem filtro não traz (o `IgnoreValidator`
+        // relata à parte) vai no fim, como no analisador.
+        for d in publicados {
+            if !semanticos.iter().any(|x| x.span == d.span && x.code == d.code && x.message == d.message) {
+                semanticos.push(d);
+            }
+        }
+        // A ordem é a do `LibraryAnalyzer` (as fases, §1.2 da INFRA): o
+        // servidor do Dart manda a lista na ordem de inserção (§3.6).
         diagnosticos.extend(semanticos);
         saida.push(Resultado {
             uri: uri.clone(),
             versao: *versao,
+            texto: versao.is_none().then(|| texto.clone()),
             diagnosticos,
+            yaml: Vec::new(),
         });
+    }
+    // Os arquivos YAML do pacote: na primeira análise (e depois de mudar a
+    // configuração) e quando um deles mudou no disco. O texto é o do disco,
+    // como o observador do Dart o lê.
+    if no_workspace {
+        let opcoes_yaml = raiz.join("analysis_options.yaml");
+        let pubspec_yaml = raiz.join("pubspec.yaml");
+        let mudou = |p: &Path| todos || alterados.contains(&chave(p));
+        let mut yaml: Vec<(PathBuf, Vec<dartforge_paridade::json::DiagJson>)> = Vec::new();
+        if opcoes_yaml.is_file() && mudou(&opcoes_yaml) {
+            yaml.push((opcoes_yaml.clone(), dartforge_paridade::diagnosticos_das_opcoes(raiz)));
+        }
+        if pubspec_yaml.is_file() && (mudou(&pubspec_yaml) || mudou(&opcoes_yaml)) {
+            yaml.push((pubspec_yaml.clone(), dartforge_paridade::diagnosticos_do_pubspec(raiz, &opcoes)));
+        }
+        for (caminho, diagnosticos) in yaml {
+            let Ok(texto) = std::fs::read_to_string(&caminho) else { continue };
+            let Ok(u) = url::Url::from_file_path(&caminho) else { continue };
+            saida.push(Resultado { uri: u.to_string(), versao: None, texto: Some(texto), diagnosticos: Vec::new(), yaml: diagnosticos });
+        }
     }
     saida.append(&mut saida_excluidos);
     saida

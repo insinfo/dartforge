@@ -12,6 +12,7 @@
 //! Desenho de memória, conforme a meta de cadeia de ferramentas própria:
 //! nós vivem em arenas indexadas por `u32` ([`ast::Ast`]), identificadores são
 //! [`dartforge_intern::SymbolId`], e nenhum nó empresta da fonte.
+pub mod agrupamento;
 pub mod ast;
 pub mod comentarios;
 pub mod features;

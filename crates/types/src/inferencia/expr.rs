@@ -26,12 +26,73 @@ pub(crate) fn inferir(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
     let marca = cx.cadeias.len();
     let (t, curto) = inferir_no(inf, cx, e, ctx, false);
     fechar_cadeia(inf, cx, marca);
-    if curto {
+    let t = if curto {
         let t = inf.anulavel(t);
         registrar(inf, cx, e, t);
         t
     } else {
         t
+    };
+    registrar_chamada_implicita(inf, cx, e, t, ctx);
+    t
+}
+
+/// `_insertImplicitCallReference` (`resolver.dart:4085-4142`) nas espécies
+/// de expressão cujo `visit…` o chama: com o `getImplicitCallMethod`
+/// (`error_detection_helpers.dart:312-334`), a expressão vira `.call`.
+fn registrar_chamada_implicita(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, t: TypeId, ctx: TypeId) {
+    let especie_que_insere = matches!(
+        &ast(inf, cx).expr(e).kind,
+        ExprKind::As { .. }
+            | ExprKind::Assign { .. }
+            | ExprKind::Await(_)
+            | ExprKind::Binary { .. }
+            | ExprKind::Cascade { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::InstanceCreation { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::Identifier(_)
+            | ExprKind::Property { .. }
+            | ExprKind::This
+    );
+    if !especie_que_insere || inf.e_desconhecido(ctx) {
+        return;
+    }
+    // `acceptsFunctionType(context)`: tipo de função, `Function`, ou
+    // `FutureOr` de um deles.
+    let mut contexto = ctx;
+    for _ in 0..8 {
+        match inf.table.get(contexto).clone() {
+            Type::FutureOr { arg, .. } => contexto = arg,
+            _ => break,
+        }
+    }
+    let aceita = matches!(inf.table.get(contexto), Type::Function { .. }) || contexto == inf.core.function;
+    if !aceita {
+        return;
+    }
+    // Parâmetro de tipo não anulável: o limite.
+    let mut tipo = t;
+    let mut vistos = std::collections::HashSet::new();
+    loop {
+        match inf.table.get(tipo).clone() {
+            Type::TypeParameter { param, nullable } => {
+                if nullable || !vistos.insert(param) {
+                    return;
+                }
+                tipo = inf.table.param(param).bound;
+            }
+            Type::Intersection { bound, .. } => tipo = bound,
+            _ => break,
+        }
+    }
+    if !matches!(inf.table.get(tipo), Type::Interface { nullable: false, .. }) || tipo == inf.core.function {
+        return;
+    }
+    let Some(call) = inf.sym.call else { return };
+    if inf.membro_de_interface(tipo, call, false).is_some_and(|m| m.metodo) {
+        inf.body_types.units[cx.unit.0 as usize].chamadas_implicitas.insert(e);
     }
 }
 
@@ -231,47 +292,11 @@ fn buscar_pelo_this(inf: &mut BodyInferrer<'_>, cx: &Corpo, this: TypeId, nome: 
     match inf.buscar_membro(cx.lib, this, nome, setter) {
         Busca::Achado(_) => PeloThis::Instancia,
         Busca::Dinamico | Busca::Nunca => PeloThis::Incerto,
-        Busca::Ausente => match estatico_na_cadeia(inf, cx, classe, nome, setter) {
+        Busca::Ausente => match inf.recuperacao_estatica(cx.lib, classe, nome, setter) {
             Some((dono, metodo)) => PeloThis::Estatico(dono, metodo),
             None => PeloThis::Ausente,
         },
     }
-}
-
-/// `lookupStaticGetter`/`lookupStaticMethod`/`lookupStaticSetter`
-/// (`an611:src/dart/element/element.dart:5383-5408`): o membro estático
-/// acessível de nome `nome` na classe, nos seus mixins (o último primeiro) e
-/// na cadeia de superclasses. `(classe que o declara, é método)`.
-fn estatico_na_cadeia(inf: &BodyInferrer<'_>, cx: &Corpo, classe: ClassId, nome: SymbolId, setter: bool) -> Option<(ClassId, bool)> {
-    let chave = if setter { inf.chave_setter(nome)? } else { nome };
-    let privado = inf.interner.resolve(nome).starts_with('_');
-    let mut vistos = std::collections::HashSet::new();
-    let mut atual = Some(classe);
-    while let Some(c) = atual {
-        if !vistos.insert(c) {
-            break;
-        }
-        let ce = inf.program.class(c);
-        let ordem: Vec<ClassId> = std::iter::once(c).chain(ce.mixin_classes.iter().rev().copied()).collect();
-        for k in ordem {
-            let ke = inf.program.class(k);
-            if privado && ke.library != cx.lib {
-                continue;
-            }
-            if let Some(&f) = ke.static_members.get(&chave) {
-                let fe = inf.program.function(f);
-                let e_setter = fe.kind == FunctionKind::Setter || (fe.kind == FunctionKind::ImplicitAccessor && setter);
-                if e_setter == setter {
-                    return Some((k, fe.kind == FunctionKind::Function));
-                }
-            }
-            if !setter && ke.enum_constants.iter().any(|&v| inf.program.variable(v).name == nome) {
-                return Some((k, false));
-            }
-        }
-        atual = ce.supertype_class;
-    }
-    None
 }
 
 /// O erro de acessar um membro de instância sem `this`
@@ -727,7 +752,7 @@ fn resolved_de_membro_lexico(inf: &BodyInferrer<'_>, cx: &Corpo, f: dartforge_el
 /// é a declaração, no nome dela.
 fn aviso_antes_da_declaracao(inf: &mut BodyInferrer<'_>, n: ast::Name, msg: String, decl: dartforge_diagnostics::Span) {
     let texto = format!("The declaration of '{}' is here.", inf.interner.resolve(n.sym));
-    inf.diagnostics.push(Diagnostic::new(msg, n.span).com_contexto(decl, texto));
+    inf.diagnostics.push(dartforge_diagnostics::Diagnostic::new(msg, n.span).com_contexto(decl, texto));
     inf.unidades_dos_avisos.push(inf.unidade_corrente);
 }
 
@@ -1193,7 +1218,7 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
                         for &x in type_args.iter() {
                             inf.tipo_de_argumento_de_tipo(cx, x);
                         }
-                        return inf.table.invalido(inf.core.dynamic_);
+                        return (inf.table.invalido(inf.core.dynamic_), false);
                     }
                 }
                 let t = inferir_livre(inf, cx, *target);
@@ -1350,10 +1375,12 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
             }
             let r = if *null_aware { inf.nao_nulo(t) } else { t };
             cx.cascatas.push(r);
+            cx.alvos_de_cascata.push(*target);
             let secs = sections.to_vec();
             for s in secs {
                 inferir_livre(inf, cx, s);
             }
+            cx.alvos_de_cascata.pop();
             cx.cascatas.pop();
             t
         }
@@ -1675,6 +1702,8 @@ pub(crate) fn receptor_nunca(inf: &mut BodyInferrer<'_>, cx: &Corpo, r: ExprId, 
     if !matches!(inf.table.get(t), Type::Never) || matches!(ast(inf, cx).expr(r).kind, ExprKind::Super) {
         return false;
     }
+    // Numa seção de cascata, o receptor é o alvo da cascata (`realTarget`).
+    let r = if matches!(ast(inf, cx).expr(r).kind, ExprKind::CascadeTarget) { cx.alvos_de_cascata.last().copied().unwrap_or(r) } else { r };
     let sp = inf.span_expr(cx.unit, r);
     inf.aviso_com_codigo(dartforge_diagnostics::codigos::warning::RECEIVER_OF_TYPE_NEVER, sp, &[]);
     true
@@ -1917,7 +1946,13 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
                 None => m.tipo,
             }
         }
-        Busca::Ausente if checar_nulo => inf.core.dynamic_,
+        Busca::Ausente if checar_nulo => match inf.acesso_de_instancia_a_estatico(cx.lib, recv, name.sym, false, name.span) {
+            Some(m) => {
+                resolver(inf, cx, e, m.resolved.clone());
+                m.tipo
+            }
+            None => inf.core.dynamic_,
+        },
         // Receptor `InvalidType`: nenhum membro é procurado, e o resultado
         // é o próprio inválido (`property_element_resolver`, T4.1 item 2).
         Busca::Dinamico if inf.table.e_invalido(recv) => {
@@ -1960,15 +1995,17 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
                 inf.aviso(msg, name.span);
                 return (inf.core.dynamic_, curto);
             }
-            if !inf.acesso_de_instancia_a_estatico(recv, name.sym, false, name.span) {
-                let msg = format!(
-                    "{}: getter '{}' não definido para o tipo '{}'",
-                    UNDEFINED_GETTER.template,
-                    inf.interner.resolve(name.sym),
-                    inf.table.format(recv, inf.interner, inf.program)
-                );
-                inf.aviso(msg, name.span);
+            if let Some(m) = inf.acesso_de_instancia_a_estatico(cx.lib, recv, name.sym, false, name.span) {
+                resolver(inf, cx, e, m.resolved.clone());
+                return (m.tipo, curto);
             }
+            let msg = format!(
+                "{}: getter '{}' não definido para o tipo '{}'",
+                UNDEFINED_GETTER.template,
+                inf.interner.resolve(name.sym),
+                inf.table.format(recv, inf.interner, inf.program)
+            );
+            inf.aviso(msg, name.span);
             // Leitura sem elemento num alvo que não é dinâmico: o tipo de
             // recuperação (`generated/resolver.dart:1668`).
             inf.table.invalido(inf.core.dynamic_)
@@ -2067,6 +2104,10 @@ fn avisar_instanciacao_estatica(inf: &mut BodyInferrer<'_>, cx: &Corpo, expr: Ex
 }
 
 fn avisar_instanciacao_desconhecida(inf: &mut BodyInferrer<'_>, cx: &Corpo, expr: ExprId, classe: ClassId, name: ast::Name) {
+    // O identificador sintético da recuperação (`A<int>.;`) não é resolvido.
+    if name.span.start == name.span.end {
+        return;
+    }
     let classe = inf.interner.resolve(inf.program.class(classe).name);
     let membro = inf.interner.resolve(name.sym);
     let msg = format!("{}: '{classe}', '{membro}'", CLASS_INSTANTIATION_ACCESS_TO_UNKNOWN_MEMBER.template);
@@ -3299,6 +3340,7 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                     (t, t, None)
                 }
             };
+            inf.body_types.units[cx.unit.0 as usize].tipos_de_escrita.insert(e, escrita);
             let tv = inferir(inf, cx, valor, contexto);
             if let Some(id) = local {
                 let decl = cx.local(id).tipo;
@@ -3317,6 +3359,7 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
         }
         AssignOp::Compound(bop) => {
             let (leitura, escrita, local) = ler_para_escrita(inf, cx, alvo, curto);
+            inf.body_types.units[cx.unit.0 as usize].tipos_de_escrita.insert(e, escrita);
             // `x += 1` / `x ??= 3` com `x` de tipo `void`: no operador.
             if matches!(inf.table.get(leitura), Type::Void) {
                 let token = token_de_operador(inf, cx, inf.span_expr(cx.unit, alvo).end);
@@ -3493,6 +3536,9 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
         registrar(inf, cx, target, this);
         return membro_super(inf, cx, alvo, name, UsoDoSuper::Escrita);
     }
+    // Na escrita composta (`x.p += 1`) o receptor já foi lido, e a checagem
+    // de nulo saiu na leitura (uma só resolução no analyzer).
+    let composta = recv_lido.is_some();
     let (recv, c) = recv_lido.unwrap_or_else(|| receptor(inf, cx, target, null_aware));
     *curto = c;
     // `E(valor).m` força a extensão nomeada: na falta de setter ela emite
@@ -3520,6 +3566,25 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
         inf.aviso(msg, name.span);
         return inf.core.dynamic_;
     }
+    // Receptor anulável sem o getter nem o setter em `Object` ou numa
+    // extensão do tipo anulável: `UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE`
+    // (o `_hasGetterOrSetter` do `TypePropertyResolver.resolve`,
+    // an362:src/dart/resolver/type_property_resolver.dart:99-180), e então
+    // nada de `undefined_setter`; a resolução segue pelo tipo não anulável.
+    let checar_nulo = !composta
+        && inf.exige_checagem_de_nulo(cx.lib, recv, name.sym, false)
+        && inf.exige_checagem_de_nulo(cx.lib, recv, name.sym, true);
+    if checar_nulo {
+        let nome = inf.interner.resolve(name.sym).to_string();
+        let desde = inf.diagnostics.len();
+        inf.aviso_de_nulo(
+            recv,
+            dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE,
+            name.span,
+            &[&nome],
+        );
+        inf.anexar_nao_promocao(desde, cx, Some(target), name.span);
+    }
     // Um método da interface da classe prevalece sobre setter de extensão homônimo.
     if let Some(m) = inf.membro_de_interface(recv, name.sym, false) {
         if m.metodo && m.funcao.is_some_and(|f| inf.program.function(f).kind == FunctionKind::Function) {
@@ -3536,12 +3601,46 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
             m.tipo
         }
         Busca::Ausente => {
+            // O setter estático recuperado (`lookupStaticSetter`).
+            if let Some(m) = inf.acesso_de_instancia_a_estatico(cx.lib, recv, name.sym, true, name.span) {
+                resolver(inf, cx, alvo, m.resolved);
+                return m.tipo;
+            }
+            if checar_nulo {
+                return inf.core.dynamic_;
+            }
             // O analyzer recupera o getter quando a escrita não encontra um
-            // setter. Um getter declarado numa classe tem diagnóstico próprio;
-            // sem getter, continua sendo um setter indefinido.
-            if let Busca::Achado(getter) = inf.buscar_membro(cx.lib, recv, name.sym, false) {
+            // setter (`AssignmentVerifier.verify` com o `result.getter`, que
+            // pode ser o estático recuperado). Um getter declarado numa classe
+            // tem diagnóstico próprio; sem getter, continua sendo um setter
+            // indefinido.
+            let getter = match inf.buscar_membro(cx.lib, recv, name.sym, false) {
+                Busca::Achado(getter) => Some(getter),
+                Busca::Ausente => match inf.recuperacao_estatica_do_receptor(cx.lib, recv, name.sym, false) {
+                    Some((dono, true)) => {
+                        let m = inf.membro_estatico(dono, name.sym, false);
+                        avisar_escrita_em_metodo(inf, name);
+                        if let Some(m) = m {
+                            resolver(inf, cx, alvo, m.resolved);
+                            return m.tipo;
+                        }
+                        return inf.core.dynamic_;
+                    }
+                    Some((dono, false)) => inf.membro_estatico(dono, name.sym, false),
+                    None => None,
+                },
+                _ => None,
+            };
+            if let Some(getter) = getter {
                 if let Some(f) = getter.funcao {
                     if avisar_membro_sem_setter(inf, name, f) {
+                        resolver(inf, cx, alvo, getter.resolved);
+                        return getter.tipo;
+                    }
+                } else if let Resolved::Member { member: MemberRef::Variable(v), .. } = getter.resolved {
+                    // A constante de enum (`static const`): `ASSIGNMENT_TO_CONST`.
+                    if inf.program.variable(v).const_ {
+                        inf.aviso(ASSIGNMENT_TO_CONST.template.to_string(), name.span);
                         resolver(inf, cx, alvo, getter.resolved);
                         return getter.tipo;
                     }

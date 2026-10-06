@@ -401,7 +401,7 @@ pub enum FunctionRef {
     None,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FunctionElement {
     pub name: SymbolId,
     pub library: LibraryId,
@@ -459,7 +459,7 @@ pub enum VariableRef {
     None,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VariableElement {
     pub name: SymbolId,
     pub library: LibraryId,

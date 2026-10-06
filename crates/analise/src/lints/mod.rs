@@ -11,6 +11,7 @@
 pub mod andar;
 pub mod codigos_g;
 pub mod cordas;
+pub mod escopo;
 pub mod regras;
 pub mod regras2;
 pub mod regras3;
@@ -23,7 +24,32 @@ pub mod regras10;
 pub mod regras11;
 pub mod regras12;
 pub mod regras13;
+pub mod regras14;
+pub mod regras15;
+pub mod regras16;
+pub mod regras17;
+pub mod regras18;
+pub mod regras19;
+pub mod regras20;
+pub mod regras21;
+pub mod regras22;
+pub mod regras23;
+pub mod regras24;
+pub mod regras25;
+pub mod regras26;
+pub mod regras27;
+pub mod regras28;
+pub mod regras29;
+pub mod regras30;
+pub mod regras31;
+pub mod regras32;
+pub mod regras33;
+pub mod obvio;
+pub mod flutter;
+pub mod pubspec;
 pub mod regras9;
+pub mod regexp_unicode_g;
+pub mod regexp_vm;
 pub mod tabela_g;
 
 /// O `state:` de uma regra (`linter/lib/src/analyzer.dart`, `State`).
@@ -97,6 +123,9 @@ pub struct Semantica<'a> {
     pub table: &'a dartforge_types::table::TypeTable,
     pub core: &'a dartforge_types::table::CoreTypes,
     pub outline: &'a dartforge_types::resolve::OutlineTypes,
+    /// O `canBeConst` das criações, literais e construtores da unidade
+    /// (`dartforge_types::lints_tipados6`), quando calculado.
+    pub pode_ser_const: Option<&'a dartforge_types::lints_tipados6::PodemSerConst>,
 }
 
 /// `FunctionBody.isPotentiallyMutatedInScope` do local declarado em
@@ -416,7 +445,7 @@ pub fn retorno_da_funcao(sem: &Semantica<'_>, f: dartforge_frontend::ast::Functi
 }
 
 /// A biblioteca da unidade tem a versão de linguagem `maior.menor` ou mais.
-pub fn versao_ao_menos(sem: &Semantica<'_>, maior: u32, menor: u32) -> bool {
+pub fn versao_ao_menos(sem: &Semantica<'_>, maior: u16, menor: u16) -> bool {
     let p = sem.program;
     p.library(p.unit(sem.unidade).library).features.versao() >= dartforge_frontend::features::LanguageVersion::new(maior, menor)
 }
@@ -453,6 +482,26 @@ pub fn executar_com(
     out.extend(regras11::executar(u, interner, ligada, sem));
     out.extend(regras12::executar(u, interner, ligada, sem));
     out.extend(regras13::executar(u, interner, ligada, sem));
+    out.extend(regras14::executar(u, interner, ligada, sem));
+    out.extend(regras15::executar(u, interner, ligada, sem));
+    out.extend(regras16::executar(u, interner, ligada, sem));
+    out.extend(regras17::executar(u, interner, ligada, sem));
+    out.extend(regras18::executar(u, interner, ligada, sem));
+    out.extend(regras19::executar(u, interner, ligada, sem));
+    out.extend(regras20::executar(u, interner, ligada, sem));
+    out.extend(regras21::executar(u, interner, ligada, sem));
+    out.extend(regras22::executar(u, interner, ligada, sem));
+    out.extend(regras23::executar(u, interner, ligada, sem));
+    out.extend(regras24::executar(u, interner, ligada, sem));
+    out.extend(regras25::executar(u, interner, ligada, sem));
+    out.extend(regras26::executar(u, interner, ligada, sem));
+    out.extend(regras27::executar(u, interner, ligada, sem));
+    out.extend(regras28::executar(u, interner, ligada, sem));
+    out.extend(regras29::executar(u, interner, ligada, sem));
+    out.extend(regras30::executar(u, interner, ligada, sem));
+    out.extend(regras31::executar(u, interner, ligada, sem));
+    out.extend(regras32::executar(u, interner, ligada, sem));
+    out.extend(regras33::executar(u, interner, ligada, sem));
     out.sort_by_key(|r| (r.span.start, r.span.end));
     out
 }

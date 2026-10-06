@@ -486,8 +486,9 @@ mod testes {
         let (blob, relocacoes) = codificar(&entradas, FORMA_ELF, false);
         assert_eq!(blob.len() % 4, 0);
         assert_eq!(&blob[..4], b"DFPC");
-        // Duas funções e três registros distintos.
-        assert_eq!(relocacoes.len(), 5);
+        // Duas funções e quatro registros distintos (o da cadeia embutida,
+        // `(3, 32)`, é outro).
+        assert_eq!(relocacoes.len(), 6);
         assert_eq!(relocacoes[0].1, 7);
         assert_eq!(relocacoes[1].1, 9);
         assert!(conferir_ida_e_volta(&blob, &entradas, &relocacoes).is_ok());

@@ -30,7 +30,7 @@
 use crate::constantes::avaliador::{Constante, Ctx, Motor};
 use crate::lints_tipados::Achado;
 use crate::resolve::OutlineTypes;
-use crate::resolved::{BodyTypes, MemberRef, Resolved, UnitBodyTypes};
+use crate::resolved::{BodyTypes, MemberRef, Resolved};
 use crate::table::{CoreTypes, Type, TypeId, TypeTable};
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, LibraryId, Program, UnitId};

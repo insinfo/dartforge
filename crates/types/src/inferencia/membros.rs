@@ -57,6 +57,20 @@ impl<'a> crate::heranca::Provedor<'a> for BodyInferrer<'a> {
     }
     fn tipo_do_membro(&mut self, f: FunctionElementId) -> TypeId {
         let tv = match self.program.function(f).variable {
+            // Na busca dos sobrescritos de um campo da classe `c` (o
+            // `getOverridden2` do `_inferAccessorOrField`), os membros
+            // declarados em `c` não são tipados: a interface do analyzer
+            // guarda elementos, e o tipo do campo em curso não entra (aqui
+            // ele faria um falso ciclo de inferência). A interface montada
+            // assim é provisória e sai do cache depois da busca.
+            Some(v)
+                if self.program.function(f).kind == FunctionKind::ImplicitAccessor
+                    && self.declarados_sem_tipar.is_some()
+                    && self.program.variable(v).class == self.declarados_sem_tipar =>
+            {
+                self.heranca_provisoria = true;
+                self.core.dynamic_
+            }
             Some(v) if self.program.function(f).kind == FunctionKind::ImplicitAccessor => self.tipo_variavel(v),
             _ => self.core.dynamic_,
         };
@@ -578,25 +592,97 @@ impl<'a> BodyInferrer<'a> {
         Some(Membro { resolved: Resolved::ExtensionMember { extension: e, member: f }, tipo: t, metodo, funcao: Some(f), de_extensao: true })
     }
 
-    /// Membro estático de uma classe (literal de classe como receptor):
-    /// estáticos declarados, constantes de enum e tear-off de construtor.
+    /// `lookupStaticGetter` (e, sem ele, `lookupStaticMethod`) ou
+    /// `lookupStaticSetter` de `classe`
+    /// (an362:src/dart/element/element.dart:5378-5403): o primeiro membro
+    /// estático acessível em `lib` na cadeia de implementações (a classe, os
+    /// mixins do último ao primeiro, a superclasse). `(classe que o declara,
+    /// é método)`.
+    pub(crate) fn recuperacao_estatica(&mut self, lib: LibraryId, classe: ClassId, nome: SymbolId, setter: bool) -> Option<(ClassId, bool)> {
+        let cadeia = crate::heranca::Heranca::cadeia_de_implementacoes(self, classe);
+        let privado = self.interner.resolve(nome).starts_with('_');
+        let acessiveis: Vec<ClassId> = cadeia.into_iter().filter(|&k| !privado || self.program.class(k).library == lib).collect();
+        if setter {
+            let chave = self.chave_setter(nome)?;
+            return acessiveis.into_iter().find_map(|k| {
+                let &f = self.program.class(k).static_members.get(&chave)?;
+                matches!(self.program.function(f).kind, FunctionKind::Setter | FunctionKind::ImplicitAccessor).then_some((k, false))
+            });
+        }
+        let getter = acessiveis.iter().copied().find(|&k| {
+            let ke = self.program.class(k);
+            ke.enum_constants.iter().any(|&v| self.program.variable(v).name == nome)
+                || ke.static_members.get(&nome).is_some_and(|&f| matches!(self.program.function(f).kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor))
+        });
+        if let Some(k) = getter {
+            return Some((k, false));
+        }
+        acessiveis.into_iter().find(|&k| {
+            self.program.class(k).static_members.get(&nome).is_some_and(|&f| {
+                !matches!(self.program.function(f).kind, FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor)
+            })
+        }).map(|k| (k, true))
+    }
+
+    /// A recuperação estática do `TypePropertyResolver.resolve` para um
+    /// receptor que não tem o membro: no anulável, a de `Object` vem
+    /// primeiro; depois a da classe do receptor resolvido ao limite (se for
+    /// de interface); por fim a do `_lookupInterfaceType(objectType)` final
+    /// (an362:src/dart/resolver/type_property_resolver.dart:97-245). O
+    /// `_getterRecovery ??=` guarda a primeira.
+    pub(crate) fn recuperacao_estatica_do_receptor(&mut self, lib: LibraryId, recv: TypeId, nome: SymbolId, setter: bool) -> Option<(ClassId, bool)> {
+        let objeto = self.core.object_class;
+        let mut classes = Vec::new();
+        if self.e_anulavel(recv) {
+            classes.extend(objeto);
+        }
+        classes.extend(self.classe_do_limite(recv));
+        classes.extend(objeto);
+        classes.into_iter().find_map(|c| self.recuperacao_estatica(lib, c, nome, setter))
+    }
+
+    /// A classe de `resolveToBound(recv)` quando ele é um tipo de interface
+    /// (classe, enum, mixin ou tipo de extensão), sem o `?`.
+    fn classe_do_limite(&mut self, recv: TypeId) -> Option<ClassId> {
+        let mut t = self.nao_nulo(recv);
+        for _ in 0..64 {
+            match self.table.get(t).clone() {
+                Type::Interface { class, .. } => return Some(class),
+                Type::ExtensionType { decl, .. } => return Some(decl),
+                Type::Intersection { bound, .. } => t = bound,
+                Type::TypeParameter { param, .. } if param != self.core.unknown_param => {
+                    let b = self.table.param(param).bound;
+                    if b == t {
+                        return None;
+                    }
+                    t = b;
+                }
+                _ => return None,
+            }
+            t = self.nao_nulo(t);
+        }
+        None
+    }
+
     /// `INSTANCE_ACCESS_TO_STATIC_MEMBER`: o membro que não existe na
-    /// interface do receptor é estático na própria classe (ou mixin) dele
-    /// (`c.a()` com `static a()`). Emite o diagnóstico em `span` e diz se
-    /// emitiu; o analyzer relata isso em vez de `undefined_*`.
-    pub(crate) fn acesso_de_instancia_a_estatico(&mut self, recv: TypeId, nome: SymbolId, setter: bool, span: dartforge_diagnostics::Span) -> bool {
-        let recv = self.nao_nulo(recv);
-        let Type::Interface { class, .. } = self.table.get(recv).clone() else { return false };
-        let c = self.program.class(class);
-        let chave = if setter { self.chave_setter(nome) } else { Some(nome) };
-        let Some(&f) = chave.and_then(|k| c.static_members.get(&k)) else { return false };
-        let especie = match self.program.function(f).kind {
-            _ if setter => "setter",
-            FunctionKind::Getter | FunctionKind::ImplicitAccessor => "getter",
-            FunctionKind::Setter => "setter",
-            _ => "method",
+    /// interface do receptor é recuperado como estático
+    /// ([`Self::recuperacao_estatica_do_receptor`]); o analyzer resolve o
+    /// nome para ele (o tipo é o dele) e relata o acesso pela instância em
+    /// `span` (`_checkForStaticMember`,
+    /// an362:src/dart/resolver/property_element_resolver.dart:316-358;
+    /// `_reportInstanceAccessToStaticMember`,
+    /// an362:src/dart/resolver/method_invocation_resolver.dart:208-256).
+    pub(crate) fn acesso_de_instancia_a_estatico(&mut self, lib: LibraryId, recv: TypeId, nome: SymbolId, setter: bool, span: dartforge_diagnostics::Span) -> Option<Membro> {
+        let (dono, metodo) = self.recuperacao_estatica_do_receptor(lib, recv, nome, setter)?;
+        let especie = if setter {
+            "setter"
+        } else if metodo {
+            "method"
+        } else {
+            "getter"
         };
-        let dono = match c.kind {
+        let c = self.program.class(dono);
+        let tipo_do_dono = match c.kind {
             dartforge_elements::model::ClassKind::Mixin => "mixin",
             dartforge_elements::model::ClassKind::Enum => "enum",
             dartforge_elements::model::ClassKind::ExtensionType => "extension type",
@@ -607,11 +693,13 @@ impl<'a> BodyInferrer<'a> {
         self.aviso_com_codigo(
             dartforge_diagnostics::codigos::compile_time_error::INSTANCE_ACCESS_TO_STATIC_MEMBER,
             span,
-            &[&texto, especie, &classe, dono],
+            &[&texto, especie, &classe, tipo_do_dono],
         );
-        true
+        self.membro_estatico(dono, nome, setter)
     }
 
+    /// Membro estático de uma classe (literal de classe como receptor):
+    /// estáticos declarados, constantes de enum e tear-off de construtor.
     pub(crate) fn membro_estatico(&mut self, classe: ClassId, nome: SymbolId, setter: bool) -> Option<Membro> {
         let c = self.program.class(classe);
         if !setter {

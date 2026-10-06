@@ -209,16 +209,21 @@ pub fn diagnosticos_das_opcoes(raiz: &Path) -> Vec<json::DiagJson> {
 }
 
 /// Os diagnósticos do `pubspec.yaml` de `raiz` (o `PubspecValidator` do
-/// analyzer, `dartforge_analise::naodart::pubspec`), no JSON v1. Sem o
-/// arquivo, nada. O `analysis_options.yaml` da raiz aplica `errors:`? Não:
-/// estes códigos ainda não estão no catálogo, e saem como o validador os dá.
-pub fn diagnosticos_do_pubspec(raiz: &Path) -> Vec<json::DiagJson> {
+/// analyzer, `dartforge_analise::naodart::pubspec`, e os lints de pubspec
+/// ligados nas opções, `dartforge_analise::lints::pubspec`), no JSON v1,
+/// sem os calados por `# ignore:`/`# ignore_for_file:` (o
+/// `IgnoreInfo.forYaml` do fim de `validatePubspec`). Sem o arquivo, nada.
+/// Os avisos do validador saem como ele os dá; os lints levam o `errors:`
+/// das opções.
+pub fn diagnosticos_do_pubspec(raiz: &Path, opcoes: &filtros::Opcoes) -> Vec<json::DiagJson> {
     let arquivo = raiz.join("pubspec.yaml");
     let Ok(texto) = std::fs::read_to_string(&arquivo) else { return Vec::new() };
     let linhas = json::Linhas::new(&texto);
     let caminho = arquivo.to_string_lossy();
-    dartforge_analise::naodart::pubspec::validar(&texto, raiz)
+    let ignorados = dartforge_analise::lints::pubspec::IgnoradosYaml::de(&texto);
+    let mut saida: Vec<json::DiagJson> = dartforge_analise::naodart::pubspec::validar(&texto, raiz)
         .into_iter()
+        .filter(|r| !ignorados.ignora(r.codigo.nome, r.codigo.nome, r.span.start))
         .map(|r| json::DiagJson {
             code: r.codigo.nome.to_string(),
             severity: r.codigo.severidade.nome().to_string(),
@@ -232,7 +237,34 @@ pub fn diagnosticos_do_pubspec(raiz: &Path) -> Vec<json::DiagJson> {
             context_messages: Vec::new(),
             documentation: r.codigo.documentado.then(|| format!("https://dart.dev/diagnostics/{}", r.codigo.nome)),
         })
-        .collect()
+        .collect();
+    if opcoes.regras.values().any(|ligada| *ligada) {
+        let ligada = |regra: &str| opcoes.regras.get(regra).copied().unwrap_or(false);
+        for r in dartforge_analise::lints::pubspec::executar(&texto, &ligada) {
+            if ignorados.ignora(r.codigo.nome, r.codigo.unico, r.span.start) {
+                continue;
+            }
+            let severidade = match opcoes.errors.get(r.codigo.nome) {
+                Some(None) => continue,
+                Some(Some(s)) => s.nome(),
+                None => "INFO",
+            };
+            saida.push(json::DiagJson {
+                code: r.codigo.nome.to_string(),
+                severity: severidade.to_string(),
+                tipo: "LINT".to_string(),
+                location: json::Local {
+                    file: caminho.to_string(),
+                    range: json::Faixa { start: linhas.ponto(r.span.start), end: linhas.ponto(r.span.end.max(r.span.start)) },
+                },
+                problem_message: r.mensagem(),
+                correction_message: r.correcao(),
+                context_messages: Vec::new(),
+                documentation: r.codigo.documentado.then(|| format!("https://dart.dev/diagnostics/{}", r.codigo.nome)),
+            });
+        }
+    }
+    saida
 }
 
 /// Os diagnósticos de um arquivo que saem para o usuário, com a marca de

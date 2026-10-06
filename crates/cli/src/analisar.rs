@@ -140,7 +140,7 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dy
                 let opcoes = dartforge_paridade::filtros::Opcoes::ler(&raiz);
                 // O `pubspec.yaml` do pacote, quando o alvo é a pasta dele.
                 if alvo.is_dir() && *alvo == raiz {
-                    v.extend(dartforge_paridade::diagnosticos_do_pubspec(&raiz));
+                    v.extend(dartforge_paridade::diagnosticos_do_pubspec(&raiz, &opcoes));
                     v.extend(dartforge_paridade::diagnosticos_das_opcoes(&raiz));
                     v.extend(dartforge_paridade::diagnosticos_do_manifesto(&raiz, &opcoes));
                 }

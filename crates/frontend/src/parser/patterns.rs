@@ -334,7 +334,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // `.x` é atalho de ponto constante (3.10).
                 self.parse_constant_pattern(start)
             }
-            _ => Err(self.erro_identificador()),
+            // `parsePrimaryPattern`: o resto é padrão constante
+            // (`parsePrecedenceExpression`), com a recuperação da expressão.
+            _ => self.parse_constant_pattern(start),
         }
     }
 
@@ -676,6 +678,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.object_pattern_paren(pos).is_some() {
             return self.parse_object_pattern(start);
         }
+        // `await e` num contexto refutável: o identificador solto vai para o
+        // padrão constante (`parsePrecedenceExpression`), que lê o `await`.
+        if self.text() == "await" && (self.in_async || self.parece_expressao_apos_await(pos, true)) && self.contexto_padrao == ContextoDePadrao::Correspondencia {
+            return self.parse_constant_pattern(start);
+        }
         // `a--`/`a++`: o fasta lê a `unaryExpression` inteira como padrão
         // constante (e o analyzer a recusa como não constante).
         if matches!(
@@ -986,7 +993,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    fn push_pattern(&mut self, start: Span, kind: PatternKind) -> PatternId {
+    pub(crate) fn push_pattern(&mut self, start: Span, kind: PatternKind) -> PatternId {
         let span = self.span_from(start);
         self.ast.push_pattern(Pattern { span, kind })
     }
@@ -1406,8 +1413,9 @@ mod tests {
 
     #[test]
     fn erros() {
+        // `parsePrimaryPattern`: padrão constante, com o identificador
+        // sintético da expressão.
         let out = pattern(")");
-        assert!(out.result.is_err());
         assert!(out.diagnostics.iter().any(|d| {
             d.code
                 .is_some_and(|c| c.info().nome == "missing_identifier")

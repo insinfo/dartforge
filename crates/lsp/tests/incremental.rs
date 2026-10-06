@@ -32,11 +32,16 @@ fn posicao(texto: &str, agulha: &str, n: usize, delta: u32) -> (u32, u32) {
     (linha, coluna + delta)
 }
 
-/// As respostas comparadas numa posição.
+/// As respostas comparadas numa posição, com a raiz do projeto (que
+/// muda de um projeto temporário para o outro, com o SDK ao lado) trocada
+/// por `RAIZ/`.
 fn respostas(p: &mut Projeto, l: u32, c: u32) -> Vec<Value> {
+    let projeto = p.uri("");
+    let raiz = projeto.trim_end_matches('/').trim_end_matches("projeto");
     let mut v = Vec::new();
     for metodo in ["textDocument/hover", "textDocument/definition", "textDocument/documentHighlight", "textDocument/completion"] {
-        v.push(p.na_posicao(metodo, "lib/a.dart", l, c, json!({}))["result"].clone());
+        let r = p.na_posicao(metodo, "lib/a.dart", l, c, json!({}))["result"].clone();
+        v.push(serde_json::from_str(&r.to_string().replace(raiz, "RAIZ/")).unwrap());
     }
     v
 }

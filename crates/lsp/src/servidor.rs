@@ -165,6 +165,9 @@ pub struct Servidor<A = AnalisadorSintatico> {
     /// `completeFunctionCalls: false`: chamadas saem com os parênteses e os
     /// parâmetros obrigatórios como marcadores.
     completar_chamadas: bool,
+    /// `suggestFromUnimportedLibraries` (padrão `true`) e o cliente aceita
+    /// `workspace/applyEdit`: o completar traz os não importados.
+    completar_nao_importados: bool,
     /// O cliente aceita Markdown na documentação dos itens.
     documentacao_markdown: bool,
     /// As capacidades do completar do cliente (§14.8.2).
@@ -175,6 +178,9 @@ pub struct Servidor<A = AnalisadorSintatico> {
     /// Raízes do workspace anunciadas no `initialize` (`rootUri`,
     /// `workspaceFolders`), para o `workspace/symbol` varrer o disco.
     raizes: Vec<std::path::PathBuf>,
+    /// `_filesWithClientDiagnostics`: os URIs cujos diagnósticos no
+    /// cliente não estão vazios.
+    com_diagnosticos_no_cliente: std::collections::HashSet<String>,
     /// O documento do último `prepareTypeHierarchy` com resposta: o projeto
     /// dos supertipos e subtipos de itens fora do workspace.
     origem_da_hierarquia: Option<String>,
@@ -258,6 +264,8 @@ pub struct Servidor<A = AnalisadorSintatico> {
     /// quer o `workspace/didChangeConfiguration` registrado.
     dinamicas: Vec<&'static str>,
     configuracao_dinamica: bool,
+    /// O cliente registra dinamicamente o `workspace/didChangeWatchedFiles`.
+    observar_arquivos: bool,
     /// O cliente registra as operações de arquivo dinamicamente
     /// (`workspace.fileOperations.dynamicRegistration`).
     operacoes_de_arquivo_dinamicas: bool,
@@ -290,6 +298,7 @@ pub struct Servidor<A = AnalisadorSintatico> {
 }
 
 /// O `rename` à espera da resposta do usuário.
+#[derive(Debug)]
 struct RenomeacaoPendente {
     /// O id do `textDocument/rename`.
     id: Value,
@@ -337,10 +346,12 @@ impl<A: Analisador> Servidor<A> {
             renomear_arquivos: false,
             criar_arquivos: false,
             completar_chamadas: false,
+            completar_nao_importados: false,
             capacidades_de_completar: Default::default(),
             nao_importados: HashMap::new(),
             documentacao_markdown: false,
             raizes: Vec::new(),
+            com_diagnosticos_no_cliente: std::collections::HashSet::new(),
             origem_da_hierarquia: None,
             tipado: None,
             tipado_tentado: false,
@@ -371,6 +382,7 @@ impl<A: Analisador> Servidor<A> {
             configuracao_pedivel: false,
             dinamicas: Vec::new(),
             configuracao_dinamica: false,
+            observar_arquivos: false,
             operacoes_de_arquivo_dinamicas: false,
             capacidades_estaticas: Value::Null,
             registros: crate::registro::Registros::default(),
@@ -400,7 +412,13 @@ impl<A: Analisador> Servidor<A> {
     /// vigentes, primeiro o que sai, depois o que entra; nada sem diferença.
     fn registrar_dinamicas(&mut self) {
         let renomear_arquivos = self.operacoes_de_arquivo_dinamicas && self.configuracao.update_imports_on_rename;
-        let novos = crate::registro::registros(&self.capacidades_estaticas, &self.dinamicas, self.configuracao_dinamica, renomear_arquivos);
+        let novos = crate::registro::registros(
+            &self.capacidades_estaticas,
+            &self.dinamicas,
+            self.configuracao_dinamica,
+            renomear_arquivos,
+            self.observar_arquivos,
+        );
         let (sair, entrar) = self.registros.diferenca(novos);
         if !sair.is_empty() {
             self.proximo_pedido += 1;
@@ -564,6 +582,17 @@ impl<A: Analisador> Servidor<A> {
         }
     }
 
+    /// As pastas do workspace para o trabalhador tipado: todo `.dart` delas
+    /// é analisado e publicado (§3.2, I7).
+    fn analisar_pastas(&mut self) {
+        self.garantir_tipado();
+        let Some(t) = &self.tipado else { return };
+        t.pastas(self.raizes.clone());
+        if !self.raizes.is_empty() {
+            self.marcar_analisando();
+        }
+    }
+
     /// Pede a análise tipada do texto vigente de `uri`.
     fn pedir_tipado(&mut self, uri: &str) {
         self.garantir_tipado();
@@ -571,7 +600,11 @@ impl<A: Analisador> Servidor<A> {
             return;
         };
         t.documento(uri, versao, texto);
-        // O estado da análise (§2.6): ociosa → trabalhando.
+        self.marcar_analisando();
+    }
+
+    /// O estado da análise (§2.6): ociosa → trabalhando.
+    fn marcar_analisando(&mut self) {
         if !self.analisando {
             self.analisando = true;
             if self.progresso_de_trabalho {
@@ -596,18 +629,43 @@ impl<A: Analisador> Servidor<A> {
     /// Publica os resultados tipados prontos que ainda são da versão vigente;
     /// os demais são descartados.
     fn drenar_tipados(&mut self) -> Vec<Value> {
-        let Some(t) = &self.tipado else { return Vec::new() };
+        let Some(resultados) = self.tipado.as_ref().map(|t| t.receber()) else { return Vec::new() };
         let mut saidas = Vec::new();
         let mut novos = false;
         let mut recebeu = false;
-        for r in t.receber() {
+        for r in resultados {
             recebeu = true;
-            if self.documentos.version(&r.uri) != Some(r.versao) {
+            // Um arquivo das raízes que não está aberto (I7): publica com o
+            // texto analisado (do disco); se abriu nesse meio tempo, vale a
+            // análise do documento.
+            let Some(versao) = r.versao else {
+                if self.documentos.version(&r.uri).is_some() {
+                    self.tipados_descartados += 1;
+                    continue;
+                }
+                if !self.diagnosticos_puxados
+                    && let Some(texto) = &r.texto
+                {
+                    let p = if r.uri.ends_with(".yaml") {
+                        self.publicacao_do_yaml(&r.uri, texto, &r.yaml)
+                    } else {
+                        self.publicacao_do_texto(&r.uri, texto, &r.diagnosticos)
+                    };
+                    if let Some(p) = p {
+                        saidas.push(p);
+                    }
+                }
+                continue;
+            };
+            if self.documentos.version(&r.uri) != Some(versao) {
                 self.tipados_descartados += 1;
                 continue;
             }
             if !self.diagnosticos_puxados {
-                saidas.push(self.publicacao(&r.uri, &r.diagnosticos));
+                let p = self.publicacao(&r.uri, &r.diagnosticos);
+                if let Some(p) = self.filtrar_vazio_repetido(&r.uri, p) {
+                    saidas.push(p);
+                }
             }
             // A unidade acabou de ser resolvida para a versão vigente: é o
             // ponto em que o servidor do Dart manda os rótulos de fechamento
@@ -634,7 +692,7 @@ impl<A: Analisador> Servidor<A> {
                     "params": {"uri": r.uri, "outline": crate::contorno::do_documento(texto)},
                 }));
             }
-            self.tipados_publicados.insert(r.uri, (r.versao, r.diagnosticos));
+            self.tipados_publicados.insert(r.uri, (versao, r.diagnosticos));
             novos = true;
         }
         // Puxados: um pedido de `refresh` por lote, e o cliente puxa de novo
@@ -650,7 +708,8 @@ impl<A: Analisador> Servidor<A> {
         // O estado da análise (§2.6): trabalhando → ociosa. O resultado
         // chega um instante antes de o trabalhador se declarar ocioso; a
         // espera curta cobre essa janela.
-        if self.analisando && (t.ocioso() || (recebeu && t.esperar_ocioso(std::time::Duration::from_millis(20)))) {
+        let ocioso = self.tipado.as_ref().is_some_and(|t| t.ocioso() || (recebeu && t.esperar_ocioso(std::time::Duration::from_millis(20))));
+        if self.analisando && ocioso {
             self.analisando = false;
             // Na frente das publicações desta passada: quem lê a última
             // mensagem continua achando a publicação.
@@ -814,6 +873,10 @@ impl<A: Analisador> Servidor<A> {
                 } else {
                     self.registrar_dinamicas();
                 }
+                // Os arquivos das raízes são analisados e publicados desde o
+                // começo (o driver do Dart os adiciona ao criar os
+                // contextos, §3.2).
+                self.analisar_pastas();
                 None
             }
             "$/cancelRequest" => None,
@@ -846,7 +909,8 @@ impl<A: Analisador> Servidor<A> {
                 if self.diagnosticos_puxados {
                     return None;
                 }
-                Some(self.publicar(uri))
+                let p = self.publicar(uri);
+                self.filtrar_vazio_repetido(uri, p)
             }
             "textDocument/didChange" => {
                 let params = mensagem.get("params")?;
@@ -862,7 +926,8 @@ impl<A: Analisador> Servidor<A> {
                 if self.diagnosticos_puxados {
                     return None;
                 }
-                Some(self.publicar(uri))
+                let p = self.publicar(uri);
+                self.filtrar_vazio_repetido(uri, p)
             }
             "textDocument/didClose" => {
                 let params = mensagem.get("params")?;
@@ -877,7 +942,15 @@ impl<A: Analisador> Servidor<A> {
                 if self.diagnosticos_puxados {
                     return None;
                 }
-                Some(publicacao_vazia(uri))
+                // Dentro das pastas do workspace o `didClose` não limpa: o
+                // arquivo volta a ser analisado pelo disco e é republicado
+                // (§3.2). Fora delas, a raiz do arquivo some e os resultados
+                // dele são limpos (`flushResults`).
+                let dentro = url::Url::parse(uri).ok().and_then(|u| u.to_file_path().ok()).is_some_and(|c| self.raizes.iter().any(|r| c.starts_with(r)));
+                if dentro && self.tipado.is_some() {
+                    return None;
+                }
+                self.filtrar_vazio_repetido(uri, publicacao_vazia(uri))
             }
             // Notificações comuns dos editores que este servidor não usa:
             // aceitas em silêncio (o do Dart trata as duas primeiras e não
@@ -910,9 +983,32 @@ impl<A: Analisador> Servidor<A> {
                 }
                 // O que a sessão retém pode depender das raízes.
                 self.analisador.documento_alterado("");
+                // As pastas novas entram na análise do trabalhador (I7).
+                if self.tipado_tentado {
+                    self.analisar_pastas();
+                }
                 None
             }
-            "workspace/didChangeWatchedFiles" => None,
+            "workspace/didChangeWatchedFiles" => {
+                // O observador de arquivos (§3.3): o que mudou no disco.
+                if let Some(t) = &self.tipado
+                    && let Some(mudancas) = mensagem.pointer("/params/changes").and_then(Value::as_array)
+                {
+                    for m in mudancas {
+                        let Some(caminho) = m
+                            .get("uri")
+                            .and_then(Value::as_str)
+                            .and_then(|u| url::Url::parse(u).ok())
+                            .filter(|u| u.scheme() == "file")
+                            .and_then(|u| u.to_file_path().ok())
+                        else {
+                            continue;
+                        };
+                        t.arquivo_no_disco(&caminho);
+                    }
+                }
+                None
+            }
             _ => {
                 registrar(format!("notificação desconhecida ignorada: {metodo}"));
                 // §2.3: `$/…` é ignorada; qualquer outra vira o erro
@@ -1007,6 +1103,10 @@ impl<A: Analisador> Servidor<A> {
                     crate::registro::dinamicas(mensagem.pointer("/params/capabilities").unwrap_or(&Value::Null));
                 self.dinamicas = dinamicas;
                 self.configuracao_dinamica = configuracao_dinamica;
+                self.observar_arquivos = mensagem
+                    .pointer("/params/capabilities/workspace/didChangeWatchedFiles/dynamicRegistration")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 self.operacoes_de_arquivo_dinamicas = mensagem
                     .pointer("/params/capabilities/workspace/fileOperations/dynamicRegistration")
                     .and_then(Value::as_bool)
@@ -1027,6 +1127,8 @@ impl<A: Analisador> Servidor<A> {
                     .and_then(Value::as_bool)
                     .unwrap_or(false)
                     && mensagem.pointer("/params/initializationOptions/completeFunctionCalls").and_then(Value::as_bool) != Some(false);
+                self.completar_nao_importados = mensagem.pointer("/params/initializationOptions/suggestFromUnimportedLibraries").and_then(Value::as_bool) != Some(false)
+                    && mensagem.pointer("/params/capabilities/workspace/applyEdit").and_then(Value::as_bool).unwrap_or(false);
                 self.capacidades_de_completar = crate::item_completar::Capacidades::do_initialize(mensagem.pointer("/params/capabilities").unwrap_or(&Value::Null));
                 self.documentacao_markdown = mensagem
                     .pointer("/params/capabilities/textDocument/completion/completionItem/documentationFormat")
@@ -1233,10 +1335,17 @@ impl<A: Analisador> Servidor<A> {
                     let tabela = self.documentos.linhas(u)?;
                     let offset = tabela.offset_de_posicao(&texto, p.linha, p.coluna);
                     let achados = self.analisador.referencias_em(&self.documentos, u, offset)?;
-                    // A declaração vai no fim (`_getDeclarations`, §11.5).
+                    // A ordem do `SearchEngine` do servidor do Dart (sondado no
+                    // 3.6.2): os outros arquivos pelo caminho, depois o que
+                    // declara; em cada um, pela posição. A declaração vai no
+                    // fim (`_getDeclarations`, §11.5).
+                    let dono = achados.declaracao.as_ref().map(|(alvo, _)| alvo.clone());
+                    let mut usos = achados.usos.clone();
+                    usos.sort_by(|(a, sa), (b, sb)| {
+                        (Some(a) == dono.as_ref(), a, sa.start).cmp(&(Some(b) == dono.as_ref(), b, sb.start))
+                    });
                     let declaracao = achados.declaracao.filter(|_| incluir_declaracao);
-                    let locais: Vec<Value> = achados
-                        .usos
+                    let locais: Vec<Value> = usos
                         .iter()
                         .chain(declaracao.iter())
                         .filter_map(|(alvo, s)| {
@@ -1303,16 +1412,19 @@ impl<A: Analisador> Servidor<A> {
                 let uri_do_pedido = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
                 let maximo = self.configuracao_de(&uri_do_pedido).max_completion_items.map_or(crate::completar::MAXIMO_PADRAO, |m| m as usize);
                 self.analisador.definir_maximo_de_completar(maximo);
+                self.analisador.definir_nao_importados_no_completar(self.completar_nao_importados);
                 let resultado = self.posicao_da_requisicao(mensagem).and_then(|(u, offset)| {
                     let completar = self.analisador.completar(&self.documentos, &u, offset)?;
                     let texto = self.documentos.get(&u)?.to_string();
                     let tabela = self.documentos.linhas(&u)?;
                     // `computeReplacementRange`: a palavra inteira; `insert`
                     // até o cursor.
-                    let fim_da_palavra = texto[completar.fim.min(texto.len())..]
-                        .char_indices()
-                        .find(|(_, c)| !(c.is_ascii_alphanumeric() || *c == '_' || *c == '$'))
-                        .map_or(texto.len(), |(i, _)| completar.fim + i);
+                    let fim_da_palavra = completar.fim_da_substituicao.unwrap_or_else(|| {
+                        texto[completar.fim.min(texto.len())..]
+                            .char_indices()
+                            .find(|(_, c)| !(c.is_ascii_alphanumeric() || *c == '_' || *c == '$'))
+                            .map_or(texto.len(), |(i, _)| completar.fim + i)
+                    });
                     let substituir = intervalo_lsp(&texto, tabela, completar.inicio, fim_da_palavra);
                     let inserir = intervalo_lsp(&texto, tabela, completar.inicio, completar.fim);
                     let iguais = fim_da_palavra == completar.fim;
@@ -1502,7 +1614,7 @@ impl<A: Analisador> Servidor<A> {
                         // edição inteira ou nada.
                         Some(_) if !self.criar_arquivos => continue,
                         Some((novo, conteudo)) => {
-                            let mut e = self.edicao_de_workspace(&acao.edicoes, Some(json!({"kind": "create", "uri": novo, "options": {"ignoreIfExists": true}})));
+                            let mut e = self.edicao_de_workspace(&acao.edicoes, Some(json!({"kind": "create", "uri": novo})));
                             if !conteudo.is_empty()
                                 && let Some(l) = e["documentChanges"].as_array_mut()
                             {
@@ -1545,6 +1657,12 @@ impl<A: Analisador> Servidor<A> {
                 // refatorações, nesta ordem; correções e assistências passam
                 // cada grupo pelo `_CodeActionSorter`.
                 let coluna_do_pedido = i64::from(de.coluna);
+                // `getFixActions`/`getAssistActions`: só como `CodeAction`
+                // literal; sem `codeActionLiteralSupport`, nenhuma.
+                if !self.acoes_literais {
+                    correcoes.clear();
+                    assistencias.clear();
+                }
                 saida.extend(ordenar_acoes(correcoes, coluna_do_pedido));
                 saida.extend(ordenar_acoes(assistencias, coluna_do_pedido));
                 saida.extend(refatoracoes);
@@ -2168,7 +2286,7 @@ impl<A: Analisador> Servidor<A> {
     }
 
     /// O texto vigente do arquivo (o aberto, senão o do disco).
-    fn texto_do_arquivo(&self, uri: &str, caminho: &str) -> Option<String> {
+    fn texto_vigente(&self, uri: &str, caminho: &str) -> Option<String> {
         self.documentos.get(uri).map(str::to_string).or_else(|| std::fs::read_to_string(caminho).ok())
     }
 
@@ -2205,7 +2323,7 @@ impl<A: Analisador> Servidor<A> {
         };
         // `requireResolvedUnit(path)`.
         let uri = url::Url::from_file_path(caminho).ok().map(|u| u.to_string());
-        let texto = uri.as_deref().and_then(|u| self.texto_do_arquivo(u, caminho));
+        let texto = uri.as_deref().and_then(|u| self.texto_vigente(u, caminho));
         let (Some(uri), Some(texto)) = (uri, texto) else {
             return erro(id, ARQUIVO_NAO_ANALISADO, "File is not being analyzed");
         };
@@ -2267,7 +2385,7 @@ impl<A: Analisador> Servidor<A> {
                 }
                 let edicao = match criar {
                     Some((novo, conteudo)) => {
-                        let mut e = self.edicao_de_workspace(&edicoes, Some(json!({"kind": "create", "uri": novo, "options": {"ignoreIfExists": true}})));
+                        let mut e = self.edicao_de_workspace(&edicoes, Some(json!({"kind": "create", "uri": novo})));
                         if !conteudo.is_empty()
                             && let Some(l) = e["documentChanges"].as_array_mut()
                         {
@@ -2310,7 +2428,7 @@ impl<A: Analisador> Servidor<A> {
             return invalidos();
         };
         let uri = url::Url::from_file_path(caminho).ok().map(|u| u.to_string());
-        let texto = uri.as_deref().and_then(|u| self.texto_do_arquivo(u, caminho));
+        let texto = uri.as_deref().and_then(|u| self.texto_vigente(u, caminho));
         let (Some(uri), Some(texto)) = (uri, texto) else {
             return erro(id, ARQUIVO_NAO_ANALISADO, "File is not being analyzed");
         };
@@ -2763,10 +2881,16 @@ impl<A: Analisador> Servidor<A> {
             } else {
                 false
             };
+            // Só a operação de arquivo: o servidor do Dart não reescreve as
+            // diretivas no `rename` (o cliente pede `willRenameFiles`).
             if renomeia {
-                pendente.edicoes.extend(arquivo.diretivas);
                 recurso = Some(json!({"kind": "rename", "oldUri": arquivo.de, "newUri": arquivo.para}));
             }
+        }
+        // A ordem do `SourceChange`: o arquivo da declaração (a primeira
+        // edição) e os outros na ordem da busca (pelo caminho).
+        if let Some(primeira) = pendente.edicoes.first().map(|e| e.uri.clone()) {
+            pendente.edicoes.sort_by(|a, b| (a.uri != primeira, &a.uri).cmp(&(b.uri != primeira, &b.uri)));
         }
         resposta(&pendente.id, self.edicao_de_workspace(&pendente.edicoes, recurso))
     }
@@ -2964,6 +3088,67 @@ impl<A: Analisador> Servidor<A> {
         }
         let diagnosticos = self.analisador.diagnosticar(uri, &texto);
         self.publicacao(uri, &diagnosticos)
+    }
+
+    /// `_filesWithClientDiagnostics` (`lsp_analysis_server.dart:709-729`):
+    /// uma lista vazia para um arquivo que o cliente já tem vazio não é
+    /// enviada; as outras atualizam o registro.
+    fn filtrar_vazio_repetido(&mut self, uri: &str, publicacao: Value) -> Option<Value> {
+        let vazia = publicacao.pointer("/params/diagnostics").and_then(Value::as_array).is_none_or(|l| l.is_empty());
+        if vazia {
+            if !self.com_diagnosticos_no_cliente.remove(uri) {
+                return None;
+            }
+        } else {
+            self.com_diagnosticos_no_cliente.insert(uri.to_string());
+        }
+        Some(publicacao)
+    }
+
+    /// `publishDiagnostics` de um arquivo não aberto, com o texto analisado.
+    /// A publicação dos diagnósticos de um YAML (no JSON do analyzer: linha e
+    /// coluna a partir de 1, deslocamento UTF-16): as faixas pelo texto lido.
+    fn publicacao_do_yaml(&mut self, uri: &str, texto: &str, diagnosticos: &[dartforge_paridade::json::DiagJson]) -> Option<Value> {
+        let itens: Vec<Value> = diagnosticos
+            .iter()
+            .map(|d| {
+                let ponto = |p: &dartforge_paridade::json::Ponto| json!({"line": p.line.saturating_sub(1), "character": p.column.saturating_sub(1)});
+                let severidade = match d.severity.as_str() {
+                    "ERROR" => SEVERIDADE_ERRO,
+                    "WARNING" => 2,
+                    _ => 3,
+                };
+                let mensagem = match &d.correction_message {
+                    Some(c) => format!("{}\n{c}", d.problem_message),
+                    None => d.problem_message.clone(),
+                };
+                json!({
+                    "range": {"start": ponto(&d.location.range.start), "end": ponto(&d.location.range.end)},
+                    "severity": severidade,
+                    "source": FONTE,
+                    "message": mensagem,
+                    "code": d.code,
+                })
+            })
+            .collect();
+        let _ = texto;
+        let p = json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/publishDiagnostics",
+            "params": {"uri": uri, "diagnostics": itens},
+        });
+        self.filtrar_vazio_repetido(uri, p)
+    }
+
+    fn publicacao_do_texto(&mut self, uri: &str, texto: &str, diagnosticos: &[dartforge_diagnostics::Diagnostic]) -> Option<Value> {
+        let tabela = crate::utf16::TabelaLinhas::construir(texto);
+        let itens: Vec<Value> = diagnosticos.iter().map(|d| converter_diagnostico(texto, &tabela, d)).collect();
+        let p = json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/publishDiagnostics",
+            "params": {"uri": uri, "diagnostics": itens},
+        });
+        self.filtrar_vazio_repetido(uri, p)
     }
 
     /// O relatório de `textDocument/diagnostic` de `uri`: o resultado tipado

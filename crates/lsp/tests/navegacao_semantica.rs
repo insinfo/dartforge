@@ -260,10 +260,7 @@ fn hover_por_forma_com_documentacao() {
     let construtor = hover(&mut p, "lib/uso.dart", USO, "vazia(3", 0);
     assert!(construtor.ends_with("Caixa.vazia(T v)"), "{construtor}");
     // Markdown: bloco de código, tipo e documentação depois de `---`.
-    p.requisitar(
-        "initialize",
-        json!({"capabilities": {"textDocument": {"hover": {"contentFormat": ["markdown"]}}}}),
-    );
+    p.reiniciar(json!({"capabilities": {"textDocument": {"hover": {"contentFormat": ["markdown"]}}}}));
     let r = pedir(
         &mut p,
         "textDocument/hover",
@@ -359,19 +356,21 @@ fn referencias_sem_falsos_por_sombra_homonimo_e_biblioteca() {
     p.gravar("lib/d.dart", d);
     p.abrir("lib/a.dart", a);
     let refs = referencias(&mut p, "lib/a.dart", a, "f()", 0, true);
+    // A ordem do servidor do Dart: os outros arquivos pelo caminho, o que
+    // declara e a declaração no fim.
     let esperado: Vec<(String, u32, u32)> = vec![
-        ("lib/a.dart".into(), 0, 4),
-        ("lib/a.dart".into(), 1, 11),
-        ("lib/a.dart".into(), 1, 16),
-        ("lib/a.dart".into(), 2, 10),
         ("lib/b.dart".into(), 1, 18),
         ("lib/d.dart".into(), 1, 21),
         ("lib/d.dart".into(), 2, 13),
+        ("lib/a.dart".into(), 1, 11),
+        ("lib/a.dart".into(), 1, 16),
+        ("lib/a.dart".into(), 2, 10),
+        ("lib/a.dart".into(), 0, 4),
     ];
     assert_eq!(refs, esperado);
     // Sem a declaração.
     let sem = referencias(&mut p, "lib/a.dart", a, "f()", 0, false);
-    assert_eq!(sem, esperado[1..].to_vec());
+    assert_eq!(sem, esperado[..esperado.len() - 1].to_vec());
     // A partir de um uso num arquivo fechado dá o mesmo conjunto.
     p.abrir("lib/b.dart", b);
     assert_eq!(
@@ -383,8 +382,8 @@ fn referencias_sem_falsos_por_sombra_homonimo_e_biblioteca() {
     assert_eq!(
         referencias(&mut p, "lib/c.dart", c, "f()", 1, true),
         vec![
-            ("lib/c.dart".to_string(), 0, 4),
-            ("lib/c.dart".to_string(), 1, 18)
+            ("lib/c.dart".to_string(), 1, 18),
+            ("lib/c.dart".to_string(), 0, 4)
         ]
     );
     // O local que sombreia só vê a si mesmo.
@@ -392,16 +391,17 @@ fn referencias_sem_falsos_por_sombra_homonimo_e_biblioteca() {
     assert_eq!(
         referencias(&mut p, "lib/d.dart", d, "f = 0", 0, true),
         vec![
-            ("lib/d.dart".to_string(), 2, 22),
-            ("lib/d.dart".to_string(), 2, 35)
+            ("lib/d.dart".to_string(), 2, 35),
+            ("lib/d.dart".to_string(), 2, 22)
         ]
     );
-    // O prefixo: a declaração e o uso.
+    // O prefixo: o uso e a declaração, que o servidor do Dart 3.6.2 dá no
+    // começo do arquivo (0:0).
     assert_eq!(
         referencias(&mut p, "lib/d.dart", d, "p.f", 0, true),
         vec![
-            ("lib/d.dart".to_string(), 0, 19),
-            ("lib/d.dart".to_string(), 2, 11)
+            ("lib/d.dart".to_string(), 2, 11),
+            ("lib/d.dart".to_string(), 0, 0)
         ]
     );
 }
@@ -415,16 +415,16 @@ fn referencias_de_membro_pela_familia_e_do_sdk() {
     assert_eq!(
         refs,
         vec![
-            ("lib/a.dart".to_string(), 0, 15),
             ("lib/a.dart".to_string(), 3, 26),
             ("lib/a.dart".to_string(), 3, 33),
+            ("lib/a.dart".to_string(), 0, 15),
         ]
     );
     // Elemento do SDK: a declaração no SDK e os usos só no projeto.
     let refs = referencias(&mut p, "lib/a.dart", a, "print", 0, true);
     assert_eq!(refs.len(), 2, "{refs:?}");
-    assert!(refs[0].0.ends_with("sdk/lib/core/core.dart"), "{refs:?}");
-    assert_eq!(refs[1], ("lib/a.dart".to_string(), 3, 45));
+    assert!(refs[1].0.ends_with("sdk/lib/core/core.dart"), "{refs:?}");
+    assert_eq!(refs[0], ("lib/a.dart".to_string(), 3, 45));
 }
 
 #[test]

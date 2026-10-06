@@ -208,8 +208,15 @@ pub fn parse_lexed_com(
             };
         }
     };
-    let do_scanner = erros_recuperaveis_do_scanner(source, &tokens);
+    let mut do_scanner = erros_recuperaveis_do_scanner(source, &tokens);
+    // Os fechos que faltam (e o erro de cada um), como o scanner do fasta.
+    let (tokens, de_grupo, mut fechos) = crate::agrupamento::agrupar(source, tokens);
+    for f in &mut fechos {
+        f.erro += do_scanner.len();
+    }
+    do_scanner.extend(de_grupo);
     let mut parser = Parser::new(source, tokens, interner);
+    parser.fechos_sinteticos = fechos;
     parser.features = features;
     parser.diagnostics.extend(do_scanner);
     let unit = parser.parse_compilation_unit();
@@ -235,6 +242,16 @@ pub fn parse_lexed_com(
         pulados: parser.pulados,
         referencia,
     }
+}
+
+/// Uma reescrita do fluxo de tokens, para as tentativas a desfazerem.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Emenda {
+    /// `n` tokens inseridos em `em`.
+    Insercao { em: usize, n: usize },
+    /// O fecho sintético `fecho` saiu de `de` (onde era `token`, em `em`)
+    /// para `para`; o erro dele tinha `span_do_erro`.
+    Movimento { de: usize, para: usize, token: Token, fecho: usize, em: usize, span_do_erro: Option<Span> },
 }
 
 /// Cursor sobre os tokens de uma unidade mais as arenas em construção.
@@ -272,6 +289,14 @@ pub struct Parser<'s, 'i> {
     /// construtor primário, pelo início do `this`: a elaboração, que sabe se
     /// o construtor é `const`, relata ali os erros de corpo do analyzer.
     pub(crate) corpos_primarios: std::collections::HashMap<usize, Span>,
+    /// As reinserções de tokens no fluxo (o `rewriter.insertToken` do
+    /// fasta), como `(índice, quantidade)`, na ordem em que foram feitas:
+    /// as tentativas especulativas as desfazem ao recuar
+    /// ([`Parser::desfazer_emendas`]).
+    pub(crate) emendas: Vec<Emenda>,
+    /// Os fechos sintéticos do scanner ([`crate::agrupamento::agrupar`]);
+    /// o `erro` de cada um é o índice em `diagnostics`.
+    pub(crate) fechos_sinteticos: Vec<crate::agrupamento::FechoSintetico>,
     /// Numa tentativa de `operador_por_extenso` (o `_currentlyRecovering` do
     /// fasta): não se tenta outra dentro dela.
     pub(crate) recuperando_operador: bool,
@@ -357,6 +382,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             features: LibraryFeatures::atual(),
             em_construtor_primario: false,
             corpos_primarios: std::collections::HashMap::new(),
+            emendas: Vec::new(),
+            fechos_sinteticos: Vec::new(),
             recuperando_operador: false,
             dono: DonoDeMembros::Classe,
             params_de: modificadores::DonoDeParametros::Outro,
@@ -543,6 +570,62 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     /// Span do início dado até o fim do último token consumido.
+    /// Reinsere no cursor cópias dos tokens de `indices`, nessa ordem (o
+    /// `rewriter.insertToken` do fasta): são os próximos a serem lidos.
+    pub(crate) fn reinjetar(&mut self, indices: &[usize]) {
+        let copias: Vec<Token> = indices.iter().map(|&i| Token { glued: false, ..self.tokens[i] }).collect();
+        let n = copias.len();
+        self.tokens.splice(self.pos..self.pos, copias);
+        self.emendas.push(Emenda::Insercao { em: self.pos, n });
+    }
+
+    /// `rewriter.moveSynthetic` (`token_stream_rewriter.dart:80`): se o fecho
+    /// do abridor em `abre` é sintético, ele (e o erro do scanner dele) vai
+    /// para o cursor, na posição do token corrente, e é o próximo a ser lido.
+    pub(crate) fn mover_fecho_sintetico(&mut self, abre: usize) -> bool {
+        let Some(inicio) = self.tokens.get(abre).map(|t| t.span.start) else { return false };
+        let Some(k) = self.fechos_sinteticos.iter().position(|f| f.abre == inicio) else { return false };
+        let f = self.fechos_sinteticos[k];
+        let Some(j) = (self.pos..self.tokens.len())
+            .find(|&j| self.tokens[j].span.start == f.em && self.tokens[j].span.end == f.em && self.tokens[j].kind != Kind::Eof)
+        else {
+            return false;
+        };
+        if j == self.pos {
+            return true;
+        }
+        let token = self.tokens.remove(j);
+        let novo = self.tokens[self.pos].span.start;
+        self.tokens.insert(self.pos, Token { span: Span { start: novo, end: novo }, ..token });
+        let span_do_erro = self.diagnostics.get(f.erro).map(|d| d.span);
+        if let Some(d) = self.diagnostics.get_mut(f.erro) {
+            d.span = Span { start: novo, end: novo + 1 };
+        }
+        self.fechos_sinteticos[k].em = novo;
+        self.emendas.push(Emenda::Movimento { de: j, para: self.pos, token, fecho: k, em: f.em, span_do_erro });
+        true
+    }
+
+    /// Desfaz as emendas feitas depois que havia `marca` delas.
+    pub(crate) fn desfazer_emendas(&mut self, marca: usize) {
+        while self.emendas.len() > marca {
+            match self.emendas.pop().expect("emenda") {
+                Emenda::Insercao { em, n } => {
+                    self.tokens.drain(em..em + n);
+                }
+                Emenda::Movimento { de, para, token, fecho, em, span_do_erro } => {
+                    self.tokens.remove(para);
+                    self.tokens.insert(de, token);
+                    self.fechos_sinteticos[fecho].em = em;
+                    let erro = self.fechos_sinteticos[fecho].erro;
+                    if let (Some(d), Some(s)) = (self.diagnostics.get_mut(erro), span_do_erro) {
+                        d.span = s;
+                    }
+                }
+            }
+        }
+    }
+
     pub(crate) fn span_from(&self, start: Span) -> Span {
         let end = if self.pos == 0 {
             start.end
@@ -575,7 +658,12 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// `codigo` no token corrente — onde o fasta reporta o que falta ou sobra.
     pub(crate) fn erro(&mut self, codigo: Codigo, args: &[&str]) -> ParseError {
-        let span = self.span();
+        // `findNonZeroLengthToken`: o erro num fecho sintético vai para o
+        // primeiro token de verdade depois dele.
+        let i = (self.pos..self.tokens.len())
+            .find(|&i| self.tokens[i].span.start < self.tokens[i].span.end || self.tokens[i].kind == Kind::Eof)
+            .unwrap_or(self.pos);
+        let span = if i == self.pos { self.span() } else { self.tokens[i].span };
         self.erro_em(codigo, span, args)
     }
 
@@ -585,7 +673,9 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// (`translateErrorToken`); o resto, no token corrente.
     pub(crate) fn erro_esperado(&mut self, texto: &str) -> ParseError {
         if texto == ";" && self.pos > 0 {
-            let span = self.tokens[self.pos - 1].span;
+            // `findPreviousNonZeroLengthToken`: os sintéticos não contam.
+            let anterior = (0..self.pos).rev().find(|&i| self.tokens[i].span.start < self.tokens[i].span.end).unwrap_or(self.pos - 1);
+            let span = self.tokens[anterior].span;
             return self.erro_em(codigos::parser::EXPECTED_TOKEN, span, &[";"]);
         }
         if matches!(texto, ")" | "]" | "}") && self.kind() == Kind::Eof {
@@ -618,20 +708,11 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `ensureSemicolon` do fasta: sem `;`, `EXPECTED_TOKEN` (`;`) no último
     /// token lido e a análise segue como se ele estivesse ali (o fasta
     /// insere um `;` sintético), sem pular nada.
-    ///
-    /// Só quando o token seguinte pode começar a próxima declaração ou
-    /// comando (identificador, palavra-chave, `@`, `}`, fim): diante de um
-    /// operador, o mais provável é que a expressão anterior tenha parado
-    /// antes do que o fasta leria (`5 ~ 3`, recuperações de expressão que
-    /// ainda não foram portadas), e a recuperação antiga (pular até o `;`)
-    /// fica mais perto do analyzer do que continuar no meio da expressão.
     pub(crate) fn garantir_ponto_e_virgula(&mut self) -> PResult<()> {
-        if self.eat_op(Op::Semicolon) {
-            return Ok(());
+        if !self.eat_op(Op::Semicolon) {
+            self.erro_esperado(";");
         }
-        let seguro = matches!(self.kind(), Kind::Ident | Kind::Keyword(_) | Kind::Op(Op::RBrace | Op::At) | Kind::Eof);
-        let e = self.erro_esperado(";");
-        if seguro { Ok(()) } else { Err(e) }
+        Ok(())
     }
 
     /// `ensureSemicolon` sem a prudência de [`Parser::garantir_ponto_e_virgula`]:
@@ -673,6 +754,12 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// erro de sempre.
     pub(crate) fn garantir_fecha_parenteses(&mut self, abre: usize) -> PResult<()> {
         if self.eat_op(Op::RParen) {
+            return Ok(());
+        }
+        // `ensureCloseParen`: o `)` sintético fora do lugar vem para cá (o
+        // erro é o do scanner).
+        if self.mover_fecho_sintetico(abre) {
+            self.advance();
             return Ok(());
         }
         match self.matching_close(abre) {

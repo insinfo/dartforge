@@ -57,8 +57,18 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// `{ stmts }` com as chaves, recuperando de statements malformados.
     pub(crate) fn parse_block(&mut self) -> PResult<StmtId> {
+        self.parse_block_com(false)
+    }
+
+    /// O bloco de um corpo de função (`parseFunctionBody`), cujo laço relata
+    /// o comando sem progresso pelo último token lido.
+    pub(crate) fn parse_block_de_corpo(&mut self) -> PResult<StmtId> {
+        self.parse_block_com(true)
+    }
+
+    fn parse_block_com(&mut self, corpo: bool) -> PResult<StmtId> {
         let start = self.expect_op(Op::LBrace)?.span;
-        let stmts = self.parse_statement_list(false);
+        let stmts = self.parse_statement_list_com(false, corpo);
         if !self.at_op(Op::RBrace) {
             return Err(self.erro_esperado("}"));
         }
@@ -182,6 +192,10 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// Statements até `}`/fim (ou até o próximo `case`/`default` quando
     /// `in_switch`), com recuperação por statement.
     fn parse_statement_list(&mut self, in_switch: bool) -> Vec<StmtId> {
+        self.parse_statement_list_com(in_switch, false)
+    }
+
+    fn parse_statement_list_com(&mut self, in_switch: bool, corpo: bool) -> Vec<StmtId> {
         let mut stmts = Vec::new();
         loop {
             if self.at_eof() || self.at_op(Op::RBrace) {
@@ -192,7 +206,18 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             let inicio_do_comando = self.pos;
             match self.parse_statement() {
-                Ok(id) => stmts.push(id),
+                Ok(id) => {
+                    stmts.push(id);
+                    // `parseBlock`/`parseFunctionBody`/`parseStatementsInSwitchCase`:
+                    // sem progresso, `UNEXPECTED_TOKEN` e o token é pulado. No
+                    // corpo de função o texto é o do último token lido (o `;`
+                    // sintético do comando); nos outros, o do token pulado.
+                    if self.pos == inicio_do_comando && !self.at_eof() {
+                        let texto = if corpo { ";".to_string() } else { self.text().to_string() };
+                        self.erro(codigos::parser::UNEXPECTED_TOKEN, &[&texto]);
+                        self.advance();
+                    }
+                }
                 Err(ParseError) => {
                     self.synchronize_statement(in_switch);
                     self.registrar_pulado(inicio_do_comando);
@@ -287,7 +312,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                     self.parse_expression_statement(start)
                 }
             }
-            Kind::Op(Op::RParen | Op::RBracket | Op::RBrace) | Kind::Eof | Kind::ScriptTag => {
+            // `)` e `]`: comando de expressão com o identificador sintético
+            // (o laço do bloco pula o token sem progresso).
+            Kind::Op(Op::RParen | Op::RBracket) => self.parse_expression_statement(start),
+            Kind::Op(Op::RBrace) | Kind::Eof | Kind::ScriptTag => {
                 Err(self.erro_statement())
             }
             Kind::Keyword(kw) => self.parse_keyword_statement(start, kw),
@@ -364,6 +392,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
             }
             Keyword::Void => self.parse_typed_declaration(start),
+            // `parseStatementX` não as trata: comando de expressão, em que o
+            // `ensureIdentifier` usa a palavra como nome (ou insere um
+            // sintético, para as que começam comando e para `is`) e o
+            // `handleExpressionStatement` relata `MISSING_STATEMENT`.
             Keyword::Case
             | Keyword::Catch
             | Keyword::Class
@@ -374,7 +406,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             | Keyword::Finally
             | Keyword::In
             | Keyword::Is
-            | Keyword::With => Err(self.erro_statement()),
+            | Keyword::With => self.parse_expression_statement(start),
             _ => self.parse_expression_statement(start),
         }
     }
@@ -430,6 +462,14 @@ impl<'s, 'i> Parser<'s, 'i> {
         // atribuição a alvo não atribuível (este, além do
         // `MISSING_ASSIGNABLE_SELECTOR` da atribuição).
         self.conferir_super_solto(expr);
+        // `handleExpressionStatement`: o comando que é só uma palavra
+        // reservada usada como nome é `MISSING_STATEMENT` nela.
+        if let crate::ast::ExprKind::Identifier(n) = self.ast.expr(expr).kind
+            && n.span.start < n.span.end
+            && crate::token::Keyword::from_text(&self.source[n.span.start..n.span.end]).is_some()
+        {
+            self.erro_em(codigos::parser::MISSING_STATEMENT, n.span, &[]);
+        }
         if let crate::ast::ExprKind::Assign { target, .. } = self.ast.expr(expr).kind
             && !self.e_atribuivel(target)
         {
@@ -561,8 +601,64 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
         }
         list.variables = variables.into_boxed_slice();
+        if !self.at_op(Op::Semicolon)
+            && let Some(s) = self.prefixo_sem_ponto_e_virgula(start, &list)
+        {
+            return Ok(s);
+        }
         self.expect_semicolon()?;
         Ok(self.push_stmt(start, StmtKind::Variables(list)))
+    }
+
+    /// `endVariablesDeclaration` do `AstBuilder` (`ast_builder.dart:3601`,
+    /// issue 53964): a declaração de uma variável só, de tipo prefixado, sem
+    /// o `;` (que o `ensureSemicolon` insere) é o código incompleto
+    /// `x.foo` seguido de outro comando na linha de baixo. Vira o comando
+    /// de expressão `x.foo;` e o nome volta ao fluxo de tokens; com `await`
+    /// no lugar do nome do tipo (`x.` e, embaixo, `await y.foo();`), a
+    /// expressão é `x.` com um identificador sintético e voltam o `await` e
+    /// o nome. Os modificadores, o `?`, os argumentos de tipo e o
+    /// inicializador já lidos se perdem, como lá.
+    fn prefixo_sem_ponto_e_virgula(&mut self, start: Span, list: &VariableList) -> Option<StmtId> {
+        let [variavel] = &*list.variables else {
+            return None;
+        };
+        let crate::ast::TypeKind::Named { name, .. } = &self.ast.ty(list.ty?).kind else {
+            return None;
+        };
+        let [prefixo, nome] = **name else {
+            return None;
+        };
+        let indice = |p: &Self, span: Span| (0..p.pos).rev().find(|&i| p.tokens[i].span == span);
+        let i_tipo = indice(self, nome.span)?;
+        let i_var = indice(self, variavel.name.span)?;
+        let (membro, reinjetados) = if self.text_of(i_tipo) == "await" {
+            let s = self.tokens[i_tipo].span.start;
+            (self.name_from("", Span { start: s, end: s }), vec![i_tipo, i_var])
+        } else if self.e_identificador_puro(i_var) || self.text_of(i_var) == "await" {
+            (nome, vec![i_var])
+        } else {
+            return None;
+        };
+        self.erro_esperado(";");
+        let alvo = self.ast.push_expr(Expr {
+            span: prefixo.span,
+            kind: ExprKind::Identifier(prefixo),
+        });
+        let expr = self.ast.push_expr(Expr {
+            span: Span {
+                start: prefixo.span.start,
+                end: membro.span.end,
+            },
+            kind: ExprKind::Property {
+                target: alvo,
+                name: membro,
+                null_aware: false,
+            },
+        });
+        let s = self.push_stmt(start, StmtKind::Expression(expr));
+        self.reinjetar(&reinjetados);
+        Some(s)
     }
 
     /// `checkAsyncAwaitYieldAsIdentifier` (`identifier_context_impl.dart:1387`):
@@ -776,16 +872,24 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             viu_default |= self.at_kw(Keyword::Default);
             let (pattern, guard) = if self.eat_kw(Keyword::Case) {
-                let pattern = self.parse_pattern()?;
+                // Antes da 3.0 (`allowPatterns` falso), o `case` leva uma
+                // expressão (`parseSwitchCase`: `parseExpression`).
+                let pattern = if self.features.versao() < crate::features::LanguageVersion::new(3, 0) {
+                    let inicio = self.span();
+                    let e = self.parse_expression()?;
+                    self.push_pattern(inicio, crate::ast::PatternKind::Constant(e))
+                } else {
+                    self.parse_pattern()?
+                };
                 let guard = if self.eat_ident("when") {
                     Some(self.parse_expression()?)
                 } else {
                     None
                 };
-                self.expect_op(Op::Colon)?;
+                self.garantir_dois_pontos();
                 (Some(pattern), guard)
             } else if self.eat_kw(Keyword::Default) {
-                self.expect_op(Op::Colon)?;
+                self.garantir_dois_pontos();
                 (None, None)
             } else {
                 return Err(self.erro(codigos::parser::EXPECTED_CASE_OR_DEFAULT, &[]));
@@ -1114,6 +1218,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// e profundidade. Serve para decidir uma ambiguidade olhando adiante.
     pub(crate) fn speculate<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
         let pos = self.pos;
+        let emendas = self.emendas.len();
         let depth = self.depth;
         let diagnostics = self.diagnostics.len();
         let exprs = self.ast.exprs.len();
@@ -1127,6 +1232,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let in_generator = self.in_generator;
         let in_type_args = self.in_type_args;
         let result = f(self);
+        self.desfazer_emendas(emendas);
         self.pos = pos;
         self.depth = depth;
         self.diagnostics.truncate(diagnostics);
@@ -1144,6 +1250,14 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     // -- Utilidades -------------------------------------------------------
+
+    /// `ensureColon`: o `:` que falta é `EXPECTED_TOKEN` no token seguinte
+    /// (`rewriteAndRecover`) e um `:` sintético segue no lugar.
+    fn garantir_dois_pontos(&mut self) {
+        if !self.eat_op(Op::Colon) {
+            self.erro(codigos::parser::EXPECTED_TOKEN, &[":"]);
+        }
+    }
 
     /// `ensureSemicolon` do fasta: o `;` que falta é relatado e inserido.
     fn expect_semicolon(&mut self) -> PResult<()> {
@@ -1377,11 +1491,14 @@ mod tests {
 
     #[test]
     fn recuperacao_em_bloco() {
-        // `)` não começa statement: pula até o `;` e continua.
+        // `)` no começo: comando de expressão com identificador sintético
+        // (`;` que falta no `{`, `MISSING_IDENTIFIER` no `)`) e, sem
+        // progresso, `UNEXPECTED_TOKEN` no `)`, que é pulado; depois o `;`
+        // vazio e o `break` (sondado no SDK 3.6.2).
         let out = stmt("{ ) ; break; }");
         assert!(out.result.is_ok());
-        assert_eq!(out.diagnostics.len(), 1);
-        assert!(matches!(out.kind(), StmtKind::Block(s) if s.len() == 1));
+        assert_eq!(out.diagnostics.len(), 3, "{:?}", out.diagnostics);
+        assert!(matches!(out.kind(), StmtKind::Block(s) if s.len() == 3));
         assert!(out.at_eof);
 
         // Falta `;`: o `ensureSemicolon` do fasta o insere; o `break` fica
@@ -1392,11 +1509,11 @@ mod tests {
         assert!(matches!(out.kind(), StmtKind::Block(s) if s.len() == 1));
         assert!(out.at_eof);
 
-        // Grupos aninhados são pulados inteiros durante a sincronização.
+        // O mesmo, com a lista `[ ; { ; } ]` lida como literal (os erros do
+        // SDK 3.6.2: os três do `)` e, no `;`, o elemento e o `]` que faltam).
         let out = stmt("{ ) [ ; { ; } ] ; break; }");
         assert!(out.result.is_ok());
-        assert_eq!(out.diagnostics.len(), 1);
-        assert!(matches!(out.kind(), StmtKind::Block(s) if s.len() == 1));
+        assert_eq!(out.diagnostics.len(), 5, "{:?}", out.diagnostics);
 
         // Bloco sem fechamento.
         let out = stmt("{ break;");
@@ -1406,11 +1523,15 @@ mod tests {
 
     #[test]
     fn palavras_reservadas_que_nao_comecam_statement() {
-        for src in ["else;", "case 1:", "class A {}", "finally {}"] {
+        // Comando de expressão com a palavra como nome (`MISSING_STATEMENT`
+        // do `handleExpressionStatement`), como no fasta.
+        for src in ["case 1:", "class A {}", "finally {}"] {
             let out = stmt(src);
-            assert!(out.result.is_err(), "{src}");
-            assert!(out.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().nome == "missing_statement")));
+            assert!(out.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().nome == "missing_statement")), "{src}");
         }
+        // `else` começa comando: identificador sintético antes dele.
+        let out = stmt("else;");
+        assert!(out.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().nome == "missing_identifier")));
     }
 
     #[test]

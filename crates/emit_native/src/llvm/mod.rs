@@ -320,6 +320,14 @@ impl<'a> LlvmEmitter<'a> {
             let idx = self.string_const_index(nome.as_bytes()).unwrap_or(0);
             writeln!(s, "  call void @dartforge_registrar_campo_do_rastro(i64 {cid}, ptr @.str.{idx}, i64 {}, i64 {posicao})", nome.len()).unwrap();
         }
+        // As entradas de tear-off dos ramos de stream.
+        // Só as que sobraram da poda (a entrada some com quem a criava).
+        for (simbolo, especie) in &self.module.tearoffs_do_rastro {
+            if !self.module.functions.iter().any(|f| f.symbol == *simbolo) {
+                continue;
+            }
+            writeln!(s, "  call void @dartforge_registrar_tearoff_do_rastro(ptr @{simbolo}, i64 {especie})").unwrap();
+        }
         s
     }
 

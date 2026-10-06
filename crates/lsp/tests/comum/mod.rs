@@ -66,12 +66,28 @@ pub struct Projeto {
     pub raiz: PathBuf,
     pub servidor: Servidor<AnalisadorSemantico>,
     proximo_id: i64,
+    /// A resposta do `initialize` do servidor (o servidor recusa um segundo
+    /// `initialize`, como o do Dart: `serverAlreadyInitialized`).
+    #[allow(dead_code)]
+    pub inicializacao: Value,
+    /// Os documentos abertos, para [`Projeto::reiniciar`].
+    abertos: Vec<(String, String)>,
 }
 
 impl Projeto {
     /// Cria `target/tmp-agent/<nome>-<pid>` com `pubspec.yaml` e SDK.
     pub fn novo(nome: &str) -> Self {
         Self::com_capacidades(nome, json!({}))
+    }
+
+    /// [`Projeto::novo`] com `CodeAction` literal (sem ela, o servidor do
+    /// Dart não oferece correções nem assistências).
+    #[allow(dead_code)]
+    pub fn com_literais(nome: &str) -> Self {
+        Self::com_capacidades(
+            nome,
+            json!({"textDocument": {"codeAction": {"codeActionLiteralSupport": {"codeActionKind": {"valueSet": ["quickfix", "refactor", "source"]}}}}}),
+        )
     }
 
     /// [`Projeto::novo`] com as capacidades de cliente dadas no `initialize`.
@@ -121,19 +137,36 @@ impl Projeto {
             r#"{"configVersion":2,"packages":[{"name":"projeto","rootUri":"../","packageUri":"lib/","languageVersion":"3.6"}]}"#,
         )
         .unwrap();
-        let mut servidor = Servidor::com_analisador(AnalisadorSemantico::novo(Some(sdk)));
-        servidor.receber(
-            json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{
-                "rootUri": url::Url::from_file_path(raiz.join("projeto")).unwrap().to_string(),
-                "capabilities": capacidades
-            }}),
-        );
-        servidor.bombear();
-        Self {
+        let servidor = Servidor::com_analisador(AnalisadorSemantico::novo(Some(sdk)));
+        let mut p = Self {
             raiz,
             servidor,
             proximo_id: 1,
+            inicializacao: Value::Null,
+            abertos: Vec::new(),
+        };
+        p.inicializacao = p.inicializar(json!({"capabilities": capacidades}));
+        p
+    }
+
+    /// O `initialize` (com o `rootUri` do projeto acrescentado aos `params`).
+    fn inicializar(&mut self, mut params: Value) -> Value {
+        params["rootUri"] = json!(url::Url::from_file_path(self.raiz.join("projeto")).unwrap().to_string());
+        self.servidor.receber(json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":params}));
+        self.servidor.bombear().into_iter().find(|m| m["id"] == json!(0)).unwrap_or(Value::Null)
+    }
+
+    /// Um servidor novo, inicializado com `params`, com os documentos que
+    /// estavam abertos reabertos; devolve a resposta do `initialize`.
+    #[allow(dead_code)]
+    pub fn reiniciar(&mut self, params: Value) -> Value {
+        let sdk = SdkLayout::load(&self.raiz.join("sdk/lib"), "dartdevc").unwrap();
+        self.servidor = Servidor::com_analisador(AnalisadorSemantico::novo(Some(sdk)));
+        self.inicializacao = self.inicializar(params);
+        for (rel, texto) in std::mem::take(&mut self.abertos) {
+            self.abrir(&rel, &texto);
         }
+        self.inicializacao.clone()
     }
 
     /// Caminho de um arquivo do projeto.
@@ -156,12 +189,22 @@ impl Projeto {
     }
 
     /// Grava no disco e abre no editor; devolve os diagnósticos publicados.
+    /// Sem publicação (como o servidor do Dart, nenhuma lista vazia sai
+    /// para um arquivo que não tinha erros publicados), a lista vazia.
     pub fn abrir(&mut self, relativo: &str, texto: &str) -> Value {
         self.gravar(relativo, texto);
+        self.abertos.retain(|(r, _)| r != relativo);
+        self.abertos.push((relativo.to_string(), texto.to_string()));
+        let uri = self.uri(relativo);
         self.servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
-            "textDocument":{"uri":self.uri(relativo),"languageId":"dart","version":1,"text":texto}
+            "textDocument":{"uri":uri,"languageId":"dart","version":1,"text":texto}
         }}));
-        self.servidor.bombear().pop().unwrap_or(Value::Null)
+        self.servidor
+            .bombear()
+            .into_iter()
+            .rev()
+            .find(|m| m["method"] == "textDocument/publishDiagnostics" && m["params"]["uri"] == uri)
+            .unwrap_or_else(|| json!({"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": {"uri": uri, "diagnostics": []}}))
     }
 
     /// Substitui o texto do documento aberto (versão nova), sem gravar.
@@ -186,6 +229,24 @@ impl Projeto {
             .into_iter()
             .find(|m| m["id"] == json!(id))
             .expect("resposta")
+    }
+
+    /// Responde aos `workspace/configuration` do servidor com a seção `dart`
+    /// dada (o servidor os pede no `initialized` e a cada
+    /// `workspace/didChangeConfiguration`; o cliente precisa ter anunciado
+    /// `workspace.configuration`).
+    #[allow(dead_code)]
+    pub fn configurar(&mut self, dart: Value) {
+        self.servidor
+            .receber(json!({"jsonrpc":"2.0","method":"workspace/didChangeConfiguration","params":{"settings":{}}}));
+        let mut saidas = self.servidor.bombear();
+        while let Some(pedido) = saidas.iter().find(|m| m["method"] == "workspace/configuration").cloned() {
+            let n = pedido["params"]["items"].as_array().map_or(1, |a| a.len());
+            let resultado: Vec<Value> = (0..n).map(|_| dart.clone()).collect();
+            self.servidor
+                .receber(json!({"jsonrpc":"2.0","id":pedido["id"].clone(),"result":resultado}));
+            saidas = self.servidor.bombear();
+        }
     }
 
     /// Requisição com `textDocument` + `position` na posição do marcador

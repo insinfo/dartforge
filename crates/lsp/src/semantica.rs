@@ -29,6 +29,7 @@ pub struct AnalisadorSemantico {
     conhecidas: crate::conhecidas::IndiceDeBibliotecas,
     /// O `maxCompletionItems` vigente.
     maximo_de_completar: usize,
+    nao_importados_no_completar: bool,
     /// O caminho incremental (docs/LSP-ESPECIFICACAO.md §16.10 I3 e I4):
     /// `didChange` só de corpos troca a unidade retida no lugar, e o
     /// completar infere só o corpo do sentinela. Desligado por
@@ -45,7 +46,7 @@ impl AnalisadorSemantico {
     /// assert_eq!(a.estatisticas_da_sessao().carregadas, 0);
     /// ```
     pub fn novo(sdk: Option<SdkLayout>) -> Self {
-        Self { sintatico: AnalisadorSintatico::new(), sdk, indice_sdk: None, indice_projeto: crate::indice::IndiceProjeto::default(), sessao: crate::sessao::Sessao::nova(), conhecidas: Default::default(), maximo_de_completar: crate::completar::MAXIMO_PADRAO, incremental: std::env::var("DARTFORGE_LSP_INCREMENTAL").map(|v| v.trim() != "0").unwrap_or(true) }
+        Self { sintatico: AnalisadorSintatico::new(), sdk, indice_sdk: None, indice_projeto: crate::indice::IndiceProjeto::default(), sessao: crate::sessao::Sessao::nova(), conhecidas: Default::default(), maximo_de_completar: crate::completar::MAXIMO_PADRAO, nao_importados_no_completar: true, incremental: std::env::var("DARTFORGE_LSP_INCREMENTAL").map(|v| v.trim() != "0").unwrap_or(true) }
     }
 
     /// Troca o orçamento da sessão semântica (MiB de fonte retida; `0`
@@ -608,12 +609,17 @@ impl Analisador for AnalisadorSemantico {
         self.maximo_de_completar = maximo;
     }
 
+    fn definir_nao_importados_no_completar(&mut self, sim: bool) {
+        self.nao_importados_no_completar = sim;
+    }
+
     fn completar(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<crate::Completar> {
         let texto = documentos.get(uri)?;
         let features = self.sintatico.features(uri, texto);
         self.sdk.as_ref()?;
         self.indice_sdk();
         let self_maximo = self.maximo_de_completar;
+        let nao_importados = self.nao_importados_no_completar;
         let AnalisadorSemantico { sdk: Some(sdk), indice_sdk: Some(indice), indice_projeto, conhecidas, sessao, incremental, .. } = self else {
             return None;
         };
@@ -628,6 +634,6 @@ impl Analisador for AnalisadorSemantico {
         } else {
             None
         };
-        crate::completar::completar(sdk, indices, documentos, uri, texto, offset, features, self_maximo, retido.as_deref_mut())
+        crate::completar::completar(sdk, indices, documentos, uri, texto, offset, features, self_maximo, nao_importados, retido.as_deref_mut())
     }
 }

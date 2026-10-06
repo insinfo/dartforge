@@ -108,8 +108,9 @@ fn uri_de_pacote(alvo: &Path, pacotes: &[(String, PathBuf)]) -> Option<String> {
 /// O caminho relativo de `pasta` até `alvo`, com `/` (o `pathContext.relative`
 /// e o `posix.joinAll` do Dart).
 fn relativo(alvo: &Path, pasta: &Path) -> String {
-    let a: Vec<Component> = normalizar(alvo).components().collect();
-    let b: Vec<Component> = normalizar(pasta).components().collect();
+    let (alvo_normal, pasta_normal) = (normalizar(alvo), normalizar(pasta));
+    let a: Vec<Component> = alvo_normal.components().collect();
+    let b: Vec<Component> = pasta_normal.components().collect();
     // O `pathContext` do Windows compara sem caixa.
     let igual = |x: &Component, y: &Component| {
         if cfg!(windows) {

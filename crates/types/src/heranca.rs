@@ -519,6 +519,30 @@ impl Heranca {
         }
     }
 
+    /// As classes que `InterfaceElementImpl._implementationsOfGetter` (e os
+    /// de método e setter) percorre: a própria, os mixins de trás para a
+    /// frente e então a superclasse, até `Object`
+    /// (an362:src/dart/element/element.dart:5423-5470).
+    pub fn cadeia_de_implementacoes<'p>(p: &mut dyn Provedor<'p>, c: ClassId) -> Vec<ClassId> {
+        let mut cadeia = Vec::new();
+        let mut vistas = std::collections::HashSet::new();
+        let mut atual = Some(c);
+        while let Some(k) = atual {
+            if !vistas.insert(k) {
+                break;
+            }
+            cadeia.push(k);
+            let dados = p.dados_da_classe(k);
+            for &mt in dados.mixins.iter().rev() {
+                if let Some((m, _)) = Self::substituicao(p, mt) {
+                    cadeia.push(m);
+                }
+            }
+            atual = Self::supertipo(p, k, &dados).and_then(|st| Self::substituicao(p, st)).map(|(s, _)| s);
+        }
+        cadeia
+    }
+
     /// Os membros de instância declarados (`_getTypeMembers`): métodos,
     /// depois acessores, na ordem da fonte, com a covariância escrita e a
     /// herdada dos `candidatos` (`_inferParameterCovariance`).

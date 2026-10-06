@@ -26,6 +26,8 @@
 //!   (`ErrorVerifier`).
 
 pub mod a_contexto;
+pub mod arvore_analyzer;
+pub mod saida;
 pub mod a_doc;
 pub mod c2_sintaticos;
 pub mod clausulas;

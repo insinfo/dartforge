@@ -811,6 +811,10 @@ pub mod marcas_do_rastro {
     /// `_FutureListener.handleValue`: o ouvinte dela começa a cadeia
     /// (`MethodRecognizer::kFutureListenerHandleValue`).
     pub const ESCUTA: u8 = 4;
+    /// Com [`CORPO_ASYNC`], o corpo de um gerador `async*`: o quadro dele na
+    /// pilha conta sempre como já suspenso (`WasPreviouslySuspended`), e o
+    /// próximo da cadeia é o controlador.
+    pub const GERADOR_ASYNC: u8 = 8;
 }
 
 /// Definição de classe na HIR.
@@ -964,6 +968,10 @@ pub struct Module {
     /// (§13.14): `(id da classe, "Classe.campo", posição)`, registrados na
     /// partida com o rastro simbólico.
     pub campos_do_rastro: Vec<(u32, String, usize)>,
+    /// As entradas de tear-off que o rastro reconhece nos ramos de stream
+    /// (§13.14): `(símbolo da entrada, espécie)`, a espécie 1 para o
+    /// `_StreamIterator._onData` e 2 para o `_StreamController._add`.
+    pub tearoffs_do_rastro: Vec<(String, i64)>,
     /// Os ids das classes do programa, `(id, biblioteca, classe)`: escritos
     /// no IR (`; df.classe …`) para que a geração seguinte de uma recarga do
     /// JIT dê o mesmo id à mesma classe (J03, `Context::com_ids_anteriores`).

@@ -46,11 +46,57 @@ enum Impressao {
 
 /// Um nome público de topo: a espécie, o início da declaração e, numa
 /// função, se a lista de parâmetros é vazia.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct Declarado {
     pub especie: Especie,
     pub inicio: usize,
     pub sem_parametros: bool,
+    /// Numa função, a assinatura como o `detail` do completar a mostra
+    /// (`(int a, int b) → int`), com os tipos como escritos (`dynamic` onde
+    /// faltam): o resumo não tem os tipos resolvidos.
+    pub assinatura: Option<std::sync::Arc<str>>,
+}
+
+/// O texto de um tipo como escrito, com os espaços normalizados.
+fn tipo_escrito(texto: &str, a: &ast::Ast, t: Option<ast::TypeId>) -> String {
+    match t {
+        Some(t) => {
+            let s = a.ty(t).span;
+            texto.get(s.start..s.end).map_or_else(|| "dynamic".to_string(), |x| x.split_whitespace().collect::<Vec<_>>().join(" "))
+        }
+        None => "dynamic".to_string(),
+    }
+}
+
+/// `(int a, [int b], {required int c}) → R` de uma função pela fonte.
+fn assinatura_escrita(texto: &str, a: &ast::Ast, f: &ast::Function) -> String {
+    let nome_de = |n: Option<ast::Name>| n.and_then(|n| texto.get(n.span.start..n.span.end)).unwrap_or("").to_string();
+    let mut obrigatorios = Vec::new();
+    let mut opcionais = Vec::new();
+    let mut nomeados = Vec::new();
+    for p in f.parameters.iter().flat_map(|ps| ps.iter()) {
+        let tipo = if let Some(fp) = &p.function_parameters {
+            let ret = tipo_escrito(texto, a, p.ty);
+            let params: Vec<String> = fp.iter().map(|q| tipo_escrito(texto, a, q.ty)).collect();
+            format!("{ret} Function({})", params.join(", "))
+        } else {
+            tipo_escrito(texto, a, p.ty)
+        };
+        let item = format!("{tipo} {}", nome_de(p.name));
+        match p.kind {
+            ast::ParameterKind::Required => obrigatorios.push(item),
+            ast::ParameterKind::Optional => opcionais.push(item),
+            ast::ParameterKind::Named => nomeados.push(if p.required { format!("required {item}") } else { item }),
+        }
+    }
+    let mut partes = obrigatorios;
+    if !opcionais.is_empty() {
+        partes.push(format!("[{}]", opcionais.join(", ")));
+    }
+    if !nomeados.is_empty() {
+        partes.push(format!("{{{}}}", nomeados.join(", ")));
+    }
+    format!("({}) → {}", partes.join(", "), tipo_escrito(texto, a, f.return_type))
 }
 
 /// O resumo de um arquivo.
@@ -71,12 +117,12 @@ fn resumir(texto: &str) -> Resumo {
     let mut nomes = dartforge_intern::Interner::new();
     let a = dartforge_frontend::parser::parse(texto, &mut nomes);
     let mut r = Resumo::default();
-    let mut por = |n: Option<ast::Name>, especie: Especie, inicio: usize, sem_parametros: bool, r: &mut Resumo| {
+    let por = |n: Option<ast::Name>, especie: Especie, inicio: usize, sem_parametros: bool, assinatura: Option<String>, r: &mut Resumo| {
         if let Some(n) = n {
             let s = nomes.resolve(n.sym).to_string();
             if !s.starts_with('_') && !r.declarados.contains_key(&s) {
                 r.ordem.push(s.clone());
-                r.declarados.insert(s, Declarado { especie, inicio, sem_parametros });
+                r.declarados.insert(s, Declarado { especie, inicio, sem_parametros, assinatura: assinatura.map(std::sync::Arc::from) });
             }
         }
     };
@@ -84,26 +130,26 @@ fn resumir(texto: &str) -> Resumo {
         let decl = a.ast.decl(d);
         let inicio = decl.span.start;
         match &decl.kind {
-            DeclKind::Class(c) => por(Some(c.name), Especie::Classe, inicio, false, &mut r),
-            DeclKind::Mixin(m) => por(Some(m.name), Especie::Mixin, inicio, false, &mut r),
-            DeclKind::Enum(e) => por(Some(e.name), Especie::Enum, inicio, false, &mut r),
-            DeclKind::ExtensionType(e) => por(Some(e.name), Especie::TipoDeExtensao, inicio, false, &mut r),
+            DeclKind::Class(c) => por(Some(c.name), Especie::Classe, inicio, false, None, &mut r),
+            DeclKind::Mixin(m) => por(Some(m.name), Especie::Mixin, inicio, false, None, &mut r),
+            DeclKind::Enum(e) => por(Some(e.name), Especie::Enum, inicio, false, None, &mut r),
+            DeclKind::ExtensionType(e) => por(Some(e.name), Especie::TipoDeExtensao, inicio, false, None, &mut r),
             DeclKind::Typedef(t) => {
                 let e = if matches!(t.kind, ast::TypedefKind::Legacy { .. }) { Especie::AliasDeFuncao } else { Especie::AliasDeTipo };
-                por(Some(t.name), e, inicio, false, &mut r)
+                por(Some(t.name), e, inicio, false, None, &mut r)
             }
-            DeclKind::Extension(x) => por(x.name, Especie::Extensao, inicio, false, &mut r),
+            DeclKind::Extension(x) => por(x.name, Especie::Extensao, inicio, false, None, &mut r),
             DeclKind::Function(f) => {
                 let func = a.ast.function(*f);
-                let (e, sem) = match func.kind {
-                    ast::FunctionKind::Getter | ast::FunctionKind::Setter => (Especie::Variavel, false),
-                    _ => (Especie::Funcao, func.parameters.as_ref().is_none_or(|p| p.is_empty())),
+                let (e, sem, assinatura) = match func.kind {
+                    ast::FunctionKind::Getter | ast::FunctionKind::Setter => (Especie::Variavel, false, None),
+                    _ => (Especie::Funcao, func.parameters.as_ref().is_none_or(|p| p.is_empty()), Some(assinatura_escrita(texto, &a.ast, func))),
                 };
-                por(func.name, e, inicio, sem, &mut r)
+                por(func.name, e, inicio, sem, assinatura, &mut r)
             }
             DeclKind::Variables(vl) => {
                 for v in vl.variables.iter() {
-                    por(Some(v.name), Especie::Variavel, inicio, false, &mut r);
+                    por(Some(v.name), Especie::Variavel, inicio, false, None, &mut r);
                 }
             }
         }
@@ -258,7 +304,7 @@ impl IndiceDeBibliotecas {
         let Some(r) = self.resumo(biblioteca, documentos).cloned() else { return };
         for n in &r.ordem {
             if filtro(n) && nomes.insert(n.clone()) {
-                saida.push((n.clone(), biblioteca.to_path_buf(), r.declarados[n]));
+                saida.push((n.clone(), biblioteca.to_path_buf(), r.declarados[n].clone()));
             }
         }
         for p in &r.partes {
@@ -266,7 +312,7 @@ impl IndiceDeBibliotecas {
             let Some(rp) = self.resumo(&cp, documentos).cloned() else { continue };
             for n in &rp.ordem {
                 if filtro(n) && nomes.insert(n.clone()) {
-                    saida.push((n.clone(), cp.clone(), rp.declarados[n]));
+                    saida.push((n.clone(), cp.clone(), rp.declarados[n].clone()));
                 }
             }
         }

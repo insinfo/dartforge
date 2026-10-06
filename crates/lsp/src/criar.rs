@@ -626,7 +626,7 @@ fn todos_os_supertipos(p: &Projeto, c: ClassId) -> Vec<ClassId> {
         pilha.push(c);
         let mut v: Vec<ClassId> = Vec::new();
         let (sup, on, interfaces, mixins) = diretos(p, c);
-        let mut juntar = |t: ClassId, v: &mut Vec<ClassId>, memo: &mut std::collections::HashMap<ClassId, Vec<ClassId>>, pilha: &mut Vec<ClassId>| {
+        let juntar = |t: ClassId, v: &mut Vec<ClassId>, memo: &mut std::collections::HashMap<ClassId, Vec<ClassId>>, pilha: &mut Vec<ClassId>| {
             if !v.contains(&t) {
                 v.push(t);
             }
@@ -1307,7 +1307,7 @@ impl Projeto {
             s.push('(');
             let mut i = 0usize;
             let mut usados: BTreeSet<String> = named.iter().map(|(n, _, _)| self.nome(*n).to_string()).collect();
-            let mut gerar = |usados: &mut BTreeSet<String>| {
+            let gerar = |usados: &mut BTreeSet<String>| {
                 let mut k = 1;
                 while usados.contains(&format!("p{k}")) {
                     k += 1;
@@ -1602,7 +1602,7 @@ impl Projeto {
                         continue;
                     }
                     let Some(pai) = cx.pai(n) else { continue };
-                    let qualificado = alvo_qualificado(cx, n);
+                    let qualificado = alvo_qualificado(&cx, n);
                     let codigo = if cx.especie(pai) == "MethodInvocation" && cx.nome_do_metodo(pai) == Some(n) {
                         match cx.filhos(pai).first().copied().filter(|&a| a != n) {
                             None => {
@@ -1641,7 +1641,7 @@ impl Projeto {
                             continue;
                         }
                         let ext = cx.extensao_do_alvo(a).is_some();
-                        match (em_contexto_de_escrita(cx, n), ext) {
+                        match (em_contexto_de_escrita(&cx, n), ext) {
                             (true, true) => Codigo::SetterDeExtensao,
                             (true, false) => Codigo::Setter,
                             (false, true) => Codigo::GetterDeExtensao,

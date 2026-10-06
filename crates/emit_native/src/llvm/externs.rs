@@ -105,6 +105,12 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
+        // As entradas de tear-off que os ramos de stream do rastro
+        // reconhecem (§13.14). Não aloca no heap do coletor nem lança.
+        decl: "declare void @dartforge_registrar_tearoff_do_rastro(ptr, i64)",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
         // A pilha do rastro (§13.14): o quadro de um corpo `async` ou o
         // ouvinte de `handleValue`, empurrado na entrada; devolve a
         // profundidade. Não aloca no heap do coletor nem lança.

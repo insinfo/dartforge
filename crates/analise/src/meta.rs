@@ -804,6 +804,26 @@ fn exports_de_internos(program: &Program, lib: LibraryId, interner: &Interner, o
 /// Os relatos das anotações do `package:meta` na biblioteca `lib`.
 /// `em_api_publica`: a biblioteca é da API pública do pacote (está em
 /// `lib/`, fora de `lib/src/`).
+/// `ElementAnnotation.targetKinds` de uma anotação da unidade `u`: as
+/// espécies do `@Target({...})` da classe da anotação (a do construtor
+/// chamado, ou a do valor da constante), sem repetição.
+pub(crate) fn especies_da_anotacao(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> Vec<String> {
+    let ctx = Ctx { program, interner, a: &program.unit(u).ast, unidade: u, em_api_publica: false, primeira_diretiva: false, out: Vec::new() };
+    let Some((classe, _)) = ctx.classe_da_anotacao(m) else { return Vec::new() };
+    let mut v: Vec<String> = Vec::new();
+    for k in ctx.especies_da_classe(classe) {
+        if exibicao_conhecida(k) && !v.iter().any(|x| x == k) {
+            v.push(k.to_string());
+        }
+    }
+    v
+}
+
+/// O nome é de um `TargetKind` (o `_targetKindsByName` descarta os outros).
+fn exibicao_conhecida(nome: &str) -> bool {
+    Ctx::exibicao_da_especie(nome).is_some()
+}
+
 pub fn verificar(program: &Program, lib: LibraryId, interner: &Interner, em_api_publica: bool) -> Vec<(UnitId, Diagnostic)> {
     let biblioteca = program.library(lib);
     let mut out: Vec<(UnitId, Diagnostic)> = Vec::new();

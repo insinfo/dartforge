@@ -98,9 +98,9 @@ fn sinteticos() -> Vec<(String, String)> {
         .collect()
 }
 
-/// Abre os documentos pelo protocolo e aplica K rodadas de edição incremental
-/// em cada um, devolvendo os bytes vivos após cada rodada.
-fn editar(servidor: &mut Servidor, docs: &[(String, String)]) -> Vec<usize> {
+/// O `initialize`/`initialized`: o estado da sessão (capacidades,
+/// configuração) é do servidor, não dos documentos, e fica na base.
+fn inicializar(servidor: &mut Servidor) {
     trocar(
         servidor,
         &json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
@@ -109,6 +109,11 @@ fn editar(servidor: &mut Servidor, docs: &[(String, String)]) -> Vec<usize> {
         servidor,
         &json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}),
     );
+}
+
+/// Abre os documentos pelo protocolo e aplica K rodadas de edição incremental
+/// em cada um, devolvendo os bytes vivos após cada rodada.
+fn editar(servidor: &mut Servidor, docs: &[(String, String)]) -> Vec<usize> {
     for (uri, texto) in docs {
         trocar(
             servidor,
@@ -164,7 +169,8 @@ fn fechar(servidor: &mut Servidor, docs: &[(String, String)]) {
 }
 
 /// `live_bytes` estabiliza ao longo das rodadas, e fechar tudo devolve ao
-/// nível inicial: nada das edições, versões ou diagnósticos sobrevive.
+/// nível de logo depois do `initialize`: nada das edições, versões ou
+/// diagnósticos sobrevive.
 ///
 /// Num só `#[test]`: ver o comentário no topo do arquivo.
 #[test]
@@ -179,10 +185,13 @@ fn plato_pelo_protocolo() {
     // edição, não inicialização do processo.
     {
         let mut aquecimento = Servidor::new();
+        inicializar(&mut aquecimento);
         editar(&mut aquecimento, &docs[..1]);
         fechar(&mut aquecimento, &docs[..1]);
     }
     let mut servidor = Servidor::new();
+    let vazio = dartforge_instrument::live_bytes();
+    inicializar(&mut servidor);
     let antes = dartforge_instrument::live_bytes();
 
     let vivos = editar(&mut servidor, &docs);
@@ -204,7 +213,7 @@ fn plato_pelo_protocolo() {
     // servidor antes de afirmar o retorno ao nível inicial.
     drop(docs);
     drop(servidor);
-    assert!(dartforge_instrument::live_bytes() <= antes.saturating_add(64));
+    assert!(dartforge_instrument::live_bytes() <= vazio.saturating_add(64));
 
     if !docs_reais {
         eprintln!("aviso: corpus indisponível, platô medido com documentos sintéticos");

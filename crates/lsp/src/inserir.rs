@@ -128,9 +128,9 @@ impl Contexto<'_> {
     }
 
     /// `_getBaseNameFromExpression`.
-    fn nome_base_da_expressao(&self, e: usize) -> Option<String> {
+    fn nome_base_da_expressao_ins(&self, e: usize) -> Option<String> {
         match self.especie(e) {
-            "AsExpression" | "ParenthesizedExpression" => self.nome_base_da_expressao(*self.filhos(e).first()?),
+            "AsExpression" | "ParenthesizedExpression" => self.nome_base_da_expressao_ins(*self.filhos(e).first()?),
             _ => self.nome_base_desembrulhado(e),
         }
     }
@@ -152,7 +152,7 @@ impl Contexto<'_> {
                 return Some(self.fonte[s.start..s.end].to_string());
             }
             "IndexExpression" => {
-                nome = self.nome_base_da_expressao(*self.filhos(e).first()?);
+                nome = self.nome_base_da_expressao_ins(*self.filhos(e).first()?);
                 if let Some(n) = &nome {
                     if let Some(x) = n.strip_suffix("es") {
                         nome = Some(x.to_string());
@@ -180,7 +180,7 @@ impl Contexto<'_> {
     /// `_getParameterNameSuggestions(usedNames, type, expression, index)`.
     fn sugestoes_de_parametro(&self, usados: &HashSet<String>, tipo: Option<&Type>, arg: usize, indice: usize) -> Vec<String> {
         let mut res: Vec<String> = Vec::new();
-        if let Some(n) = self.nome_base_da_expressao(arg) {
+        if let Some(n) = self.nome_base_da_expressao_ins(arg) {
             let n = n.strip_prefix('_').unwrap_or(&n).to_string();
             adicionar_todos(usados, &mut res, combinacoes_camel(&n), None);
         }

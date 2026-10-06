@@ -752,7 +752,7 @@ fn inicio_com_documentacao(fonte: &str, inicio: usize) -> usize {
     resultado
 }
 
-
+impl Ctx<'_> {
     /// `getMember2(d, nome, concrete: true)`: o `implemented` da interface
     /// (com os encaminhadores de `noSuchMethod` e a covariância herdada).
     fn implementado(&mut self, d: ClassId, chave: SymbolId, _prof: u32) -> Option<Achado> {
@@ -1411,13 +1411,23 @@ pub fn membros_de_enum(
         if classe.kind != K::Mixin {
             for n in ["hashCode", "==", "index"] {
                 let Some(chave) = interner.lookup(n) else { continue };
-                let herdado = classe
-                    .mixin_classes
-                    .iter()
-                    .rev()
-                    .filter(|&&m| !cx.fora_da_hierarquia(cid, m))
-                    .find_map(|&m| cx.implementado(m, chave, 1).filter(|a| !cx.de_object(a.dono)))
-                    .or_else(|| cx.superclasse(cid).and_then(|s| cx.implementado(s, chave, 1)));
+                let mut herdado = None;
+                for &m in classe.mixin_classes.iter().rev() {
+                    if cx.fora_da_hierarquia(cid, m) {
+                        continue;
+                    }
+                    if let Some(a) = cx.implementado(m, chave, 1)
+                        && !cx.de_object(a.dono)
+                    {
+                        herdado = Some(a);
+                        break;
+                    }
+                }
+                if herdado.is_none()
+                    && let Some(s) = cx.superclasse(cid)
+                {
+                    herdado = cx.implementado(s, chave, 1);
+                }
                 let Some(a) = herdado else { continue };
                 let dono = program.class(a.dono);
                 let conta = if dono.kind != K::Class && dono.kind != K::MixinApplication {

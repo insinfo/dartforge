@@ -386,7 +386,20 @@ impl<'s, 'i> Parser<'s, 'i> {
                     self.erro_em(codigos::parser::ANNOTATION_ON_TYPE_ARGUMENT, a.span, &[]);
                 }
             }
-            args.push(self.parse_type()?);
+            // `NoType.ensureTypeOrVoid`: o que não começa tipo é
+            // `EXPECTED_TYPE_NAME` nele e um tipo sintético vazio.
+            if !matches!(self.kind(), Kind::Ident | Kind::Keyword(Keyword::Void) | Kind::Op(Op::LParen)) {
+                self.erro(codigos::parser::EXPECTED_TYPE_NAME, &[]);
+                let s = self.span().start;
+                let nome = self.name_from("", Span { start: s, end: s });
+                args.push(self.ast.push_type(TypeAnnotation {
+                    span: Span { start: s, end: s },
+                    nullable: false,
+                    kind: TypeKind::Named { name: vec![nome].into_boxed_slice(), args: Box::default() },
+                }));
+            } else {
+                args.push(self.parse_type()?);
+            }
             if !self.eat_op(Op::Comma) {
                 break;
             }
@@ -654,6 +667,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             std::mem::replace(&mut self.params_de, DonoDeParametros::Outro)
         };
         self.params_de = DonoDeParametros::Outro;
+        let abre = self.pos;
         self.expect_op(Op::LParen)?;
         let mut params = Vec::new();
         loop {
@@ -668,6 +682,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 None
             };
             if let Some((kind, close)) = group {
+                let abre_grupo = self.pos;
                 self.advance();
                 // Grupo vazio (`({})`, `([])`): `MISSING_IDENTIFIER` no fecho
                 // (o fasta insere um parâmetro sintético).
@@ -678,8 +693,27 @@ impl<'s, 'i> Parser<'s, 'i> {
                     if self.eat_op(close) {
                         break;
                     }
-                    params.push(self.parse_formal_parameter(kind, in_function_type, dono)?);
+                    // Um grupo dentro do grupo (`{a, {b}}`): o `ensureIdentifier`
+                    // do parâmetro relata `MISSING_IDENTIFIER` no token e põe
+                    // um parâmetro sintético (aqui omitido).
+                    if matches!(self.kind(), Kind::Op(Op::LBrace | Op::LBracket)) {
+                        self.erro(codigos::parser::MISSING_IDENTIFIER, &[]);
+                    } else {
+                        params.push(self.parse_formal_parameter(kind, in_function_type, dono)?);
+                    }
                     if !self.eat_op(Op::Comma) {
+                        // `parseOptionalNamedParameters`/`…PositionalParameters`:
+                        // sem `,` nem fecho, `EXPECTED_TOKEN` (o fecho) no token
+                        // e o grupo acaba no fecho casado com o abridor.
+                        if !self.at_op(close)
+                            && let Some(fecha) = self.matching_close(abre_grupo)
+                            && fecha > self.pos
+                        {
+                            self.erro(codigos::parser::EXPECTED_TOKEN, &[close.text()]);
+                            let de = self.pos;
+                            self.pos = fecha;
+                            self.registrar_pulado(de);
+                        }
                         self.expect_op(close)?;
                         break;
                     }
@@ -690,6 +724,22 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             params.push(self.parse_formal_parameter(ParameterKind::Required, in_function_type, dono)?);
             if !self.eat_op(Op::Comma) {
+                // `parseFormalParametersRest`: o `)` sintético fora do lugar
+                // vem para cá; dois identificadores seguidos são a vírgula
+                // que falta (`EXPECTED_TOKEN` no segundo); o resto é o
+                // `ensureCloseParen`, até o `)` casado.
+                if !self.at_op(Op::RParen) {
+                    if self.mover_fecho_sintetico(abre) {
+                        // O `)` agora é o token corrente.
+                    } else if self.e_identificador_puro(self.pos) && self.e_identificador_puro(self.pos + 1) {
+                        self.erro(codigos::parser::EXPECTED_TOKEN, &[","]);
+                        continue;
+                    } else {
+                        self.garantir_fecha_parenteses(abre)?;
+                        self.conferir_nomes_publicos(&params);
+                        return Ok(params);
+                    }
+                }
                 self.expect_op(Op::RParen)?;
                 self.conferir_nomes_publicos(&params);
                 return Ok(params);
@@ -927,6 +977,16 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// validados como tipos, e `?` final. Conservador em `<`: se os argumentos
     /// não formam uma lista bem formada, o tipo termina antes do `<`
     /// (`a < b` fica como expressão).
+    /// `looksLikeName` (`type_info.dart`): identificador, `this` ou `super`;
+    /// `typedef` seguido de identificador não (é outra declaração).
+    pub(crate) fn parece_nome(&self, pos: usize) -> bool {
+        match self.kind_of(pos) {
+            Kind::Ident => !(self.text_of(pos) == "typedef" && self.kind_of(pos + 1) == Kind::Ident),
+            Kind::Keyword(Keyword::This | Keyword::Super) => true,
+            _ => false,
+        }
+    }
+
     pub(crate) fn skip_type(&self, pos: usize) -> Option<usize> {
         self.skip_type_at(pos, 0)
     }
@@ -944,8 +1004,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             Kind::Op(Op::LParen) => self.skip_record_type(pos, depth)?,
             Kind::Ident if self.at_function_tail(pos) => pos,
             Kind::Ident => {
+                // `computeType`: embutido seguido de `<…>` e de um nome é
+                // tipo (recuperação, `import<int> x = [];`).
                 if is_builtin_identifier(self.text_of(pos))
                     && self.kind_of(pos + 1) != Kind::Op(Op::Dot)
+                    && !self.skip_type_arguments_at(pos + 1, depth).is_some_and(|d| self.parece_nome(d))
                 {
                     return None;
                 }
@@ -1086,9 +1149,18 @@ impl<'s, 'i> Parser<'s, 'i> {
             return None;
         }
         let mut p = pos + 1;
+        let mut primeiro = true;
         loop {
             p = self.skip_metadata(p, depth + 1);
-            p = self.skip_type_at(p, depth + 1)?;
+            // `ComplexTypeParamOrArgInfo.compute`: sem tipo (`<>`, `<int,>`)
+            // a lista ainda vale, com o tipo sintético que o
+            // `ensureTypeOrVoid` põe; na primeira posição, só diante do `>`.
+            p = match self.skip_type_at(p, depth + 1) {
+                Some(d) => d,
+                None if self.kind_of(p) == Kind::Op(Op::Gt) || (!primeiro && self.kind_of(p) == Kind::Op(Op::Comma)) => p,
+                None => return None,
+            };
+            primeiro = false;
             if self.kind_of(p) == Kind::Keyword(Keyword::Extends) {
                 p = self.skip_type_at(p + 1, depth + 1)?;
             }
@@ -1129,7 +1201,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         let Some(end) = self.skip_type(pos) else {
             return false;
         };
-        if self.kind_of(end) != Kind::Ident {
+        // `looksLikeName`: `typedef` seguido de identificador não é nome
+        // (`base typedef E = Enum;`: `base` é o nome de um campo).
+        if self.kind_of(end) != Kind::Ident || !self.parece_nome(end) {
             return false;
         }
         // `T operator +(...)` é operador; `final O operator;` usa `operator`
@@ -1942,10 +2016,12 @@ mod tests {
         assert_eq!(skip_args("<int Function(int)>"), Some(7));
         assert_eq!(skip_args("< b"), None);
         assert_eq!(skip_args("< b, c > d"), Some(5));
-        assert_eq!(skip_args("<>"), None);
+        // `ComplexTypeParamOrArgInfo.compute`: a lista vazia e a vírgula
+        // final valem (o tipo que falta é recuperação do `parseArguments`).
+        assert_eq!(skip_args("<>"), Some(2));
         assert_eq!(skip_args("<1>"), None);
         assert_eq!(skip_args("<a + b>"), None);
-        assert_eq!(skip_args("<T,>"), None);
+        assert_eq!(skip_args("<T,>"), Some(4));
         assert_eq!(skip_args("x"), None);
     }
 

@@ -195,6 +195,7 @@ fn preferencia(k: u32) -> Vec<u64> {
         20 => vec![20, 13],
         25 => vec![25, 6],
         17 => vec![17, 9],
+        19 => vec![19, 9],
         0 => Vec::new(),
         k => vec![u64::from(k)],
     }
@@ -203,8 +204,8 @@ fn preferencia(k: u32) -> Vec<u64> {
 /// O `CompletionItem` de um item do servidor.
 pub(crate) fn item(cap: &Capacidades, p: &Pedido<'_>, i: &ItemCompletar, documentacao: Option<String>) -> Value {
     let chamavel = i.chamada.is_some();
-    // `label`, `filterText`.
-    let mut rotulo = i.inserir.clone();
+    // `label` (o `displayText ?? completion`), `filterText`.
+    let mut rotulo = i.exibicao.clone().unwrap_or_else(|| i.inserir.clone());
     let comeca_com_padrao = rotulo.starts_with("=>") || rotulo.starts_with('(');
     let filtro = if comeca_com_padrao {
         rotulo.clone()
@@ -218,13 +219,15 @@ pub(crate) fn item(cap: &Capacidades, p: &Pedido<'_>, i: &ItemCompletar, documen
         rotulo.pop();
     }
     let (truncados, assinatura) = assinaturas(i.detalhe.as_deref(), chamavel);
-    if !cap.detalhes_do_rotulo {
+    // Os parâmetros curtos só sem `displayText` (`MAP:1069-1073`).
+    if !cap.detalhes_do_rotulo && i.exibicao.is_none() {
         rotulo.push_str(&truncados);
     }
     // `_buildInsertText`.
     let mut texto = i.inserir.clone();
     let mut snippet = false;
-    let mut chamadas = p.chamadas && chamavel && !i.inserir.contains('(');
+    // `isInvocation`: o `IDENTIFIER` (tear-off, redirecionamento) não chama.
+    let mut chamadas = p.chamadas && chamavel && !i.identificador && !i.inserir.contains('(');
     if i.inserir.contains('(') {
         chamadas = false;
     }
@@ -239,6 +242,14 @@ pub(crate) fn item(cap: &Capacidades, p: &Pedido<'_>, i: &ItemCompletar, documen
             None => String::new(),
         };
         texto = format!("{}({sufixo})", escapar(&i.inserir));
+    } else if cap.snippet
+        && let Some((o, l)) = i.selecao
+        && o != 0
+        && o != i.inserir.encode_utf16().count()
+    {
+        // A seleção antes do fim vira uma parada (`buildSnippetStringWithTabStops`).
+        snippet = true;
+        texto = snippet_com_paradas(&i.inserir, &[(o, l)]);
     }
     let mut v = json!({"label": rotulo});
     if let Some(k) = cap.especie(&preferencia(i.especie)) {
@@ -287,6 +298,9 @@ pub(crate) fn item(cap: &Capacidades, p: &Pedido<'_>, i: &ItemCompletar, documen
         if texto != v["label"].as_str().unwrap_or("") {
             v["textEditText"] = json!(texto);
         }
+    } else if i.substituir_vazio {
+        // `replacementLength: 0`: insere no cursor sem trocar nada.
+        v["textEdit"] = json!({"range": p.inserir, "newText": texto});
     } else if cap.inserir_substituir && !p.iguais {
         v["textEdit"] = json!({"insert": p.inserir, "replace": p.substituir, "newText": texto});
     } else {

@@ -80,6 +80,7 @@ enum BinaryHere {
 /// referencia os nós novos, truncar é suficiente.
 struct Checkpoint {
     pos: usize,
+    emendas: usize,
     exprs: usize,
     stmts: usize,
     types: usize,
@@ -504,7 +505,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                     },
                 )
             } else {
-                let name = self.member_name()?;
+                // `parseCascadeExpression`: o nome da seção é `parseSend`.
+                let name = self.member_name(false)?;
                 self.push(
                     section_start,
                     ExprKind::Property {
@@ -514,7 +516,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     },
                 )
             };
-            section = self.parse_selectors(section_start, section, false)?;
+            section = self.parse_selectors_em(section_start, section, false, true)?;
             if let Some((op, len)) = self.assignment_op_here() {
                 for _ in 0..len {
                     self.advance();
@@ -941,7 +943,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn parse_postfix(&mut self, constant_pattern: bool) -> PResult<ExprId> {
         let start = self.span();
         let primary = self.parse_primary()?;
-        let expr = self.parse_selectors(start, primary, constant_pattern)?;
+        let expr = self.parse_selectors_em(start, primary, constant_pattern, false)?;
         let op = match self.kind() {
             Kind::Op(Op::PlusPlus) => UnaryOp::PostfixInc,
             Kind::Op(Op::MinusMinus) => UnaryOp::PostfixDec,
@@ -958,18 +960,21 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// Cadeia de seletores sobre `expr`: `.x`, `?.x`, `[i]`, `?[i]`,
     /// `(args)`, `<T>(args)`, `<T>` e `!`.
-    fn parse_selectors(
+    /// Com `cascata`, os seletores de uma seção de cascata, cujos `.`/`?.`
+    /// leem o nome por `parseSend` (no resto, por `parsePrimary`).
+    fn parse_selectors_em(
         &mut self,
         start: Span,
         mut expr: ExprId,
         constant_pattern: bool,
+        cascata: bool,
     ) -> PResult<ExprId> {
         loop {
             match self.kind() {
                 Kind::Op(Op::Dot) | Kind::Op(Op::QuestionDot) => {
                     let null_aware = self.at_op(Op::QuestionDot);
                     self.advance();
-                    let name = self.member_name()?;
+                    let name = self.member_name(!cascata)?;
                     expr = self.push(
                         start,
                         ExprKind::Property {
@@ -1080,7 +1085,24 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     /// Nome após `.`/`?.`/`..`: identificador ou `new` (tearoff de construtor).
-    fn member_name(&mut self) -> PResult<Name> {
+    /// Com `primaria`, o nome de um seletor `.`/`?.` fora de cascata, que o
+    /// fasta lê com `parsePrimary` (`parsePrecedenceExpression`): um
+    /// literal, `(…)`, `[…]`, `{…}` ou `<…>` é lido inteiro e o
+    /// `AstBuilder.doDotExpression` (`ast_builder.dart:851`) o recusa com
+    /// `MISSING_IDENTIFIER` no primeiro token, que vira o nome.
+    pub(crate) fn member_name(&mut self, primaria: bool) -> PResult<Name> {
+        if primaria
+            && (matches!(
+                self.kind(),
+                Kind::Int | Kind::Double | Kind::Str(_) | Kind::StrBegin(..) | Kind::Op(Op::Hash | Op::LParen | Op::LBracket | Op::LBrace | Op::Lt)
+            ) || matches!(self.kind(), Kind::Keyword(Keyword::Const | Keyword::Switch)))
+        {
+            let token = self.peek();
+            let texto = self.text().to_string();
+            self.parse_primary()?;
+            self.erro_em(codigos::parser::MISSING_IDENTIFIER, token.span, &[]);
+            return Ok(self.name_from(&texto, token.span));
+        }
         if self.at_identifier() {
             return Ok(self.identifier());
         }
@@ -1101,7 +1123,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.erro_em(codigos::parser::MISSING_IDENTIFIER, token.span, &[]);
             return Ok(self.name_from(&texto, token.span));
         }
-        Err(self.erro_identificador())
+        // Outro token (`b.` antes de `}`, `)`, `;`, `=>`…): o
+        // `IdentifierContext.expressionContinuation.ensureIdentifier`.
+        Ok(self.nome_de_recuperacao(true))
     }
 
     /// O `<` corrente abre argumentos de tipo de um seletor: a lista é bem
@@ -1146,6 +1170,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn checkpoint(&self) -> Checkpoint {
         Checkpoint {
             pos: self.pos,
+            emendas: self.emendas.len(),
             exprs: self.ast.exprs.len(),
             stmts: self.ast.stmts.len(),
             types: self.ast.types.len(),
@@ -1162,6 +1187,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     fn restore(&mut self, checkpoint: Checkpoint) {
+        self.desfazer_emendas(checkpoint.emendas);
         self.pos = checkpoint.pos;
         self.ast.exprs.truncate(checkpoint.exprs);
         self.ast.stmts.truncate(checkpoint.stmts);
@@ -1316,8 +1342,70 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
             }
             Kind::Keyword(Keyword::Switch) => self.parse_switch_expression(start),
-            _ => Err(self.erro_identificador()),
+            // `parsePrimary`/`parseAssert(Assert.Expression)`: `assert(…)`
+            // como expressão; o `AssertAsExpression` do fasta não tem código
+            // no analyzer, e o `AstBuilder` monta a invocação de `assert`.
+            Kind::Keyword(Keyword::Assert) if self.at_op_at(1, Op::LParen) => {
+                let token = self.advance();
+                let nome = self.name_from("assert", token.span);
+                let alvo = self.ast.push_expr(Expr { span: token.span, kind: ExprKind::Identifier(nome) });
+                let arguments = self.parse_arguments()?;
+                Ok(self.push(start, ExprKind::Call { target: alvo, arguments: Box::new(arguments) }))
+            }
+            // `parsePrimary`: `return` no lugar de uma expressão é
+            // `UNEXPECTED_TOKEN` e a primária seguinte é lida.
+            Kind::Keyword(Keyword::Return) => {
+                let token = self.advance();
+                self.erro_em(codigos::parser::UNEXPECTED_TOKEN, token.span, &["return"]);
+                self.parse_primary()
+            }
+            _ => Ok(self.identificador_de_recuperacao()),
         }
+    }
+
+    /// `ExpressionIdentifierContext.ensureIdentifier`
+    /// (`identifier_context_impl.dart:324`) quando o token não é
+    /// identificador: a palavra reservada que não começa comando vira o nome
+    /// (`EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD`); senão `MISSING_IDENTIFIER` e
+    /// um identificador sintético vazio, depois de consumir o token quando
+    /// ele não é operador, pontuação de grupo nem começo de comando.
+    fn identificador_de_recuperacao(&mut self) -> ExprId {
+        let name = self.nome_de_recuperacao(false);
+        self.ast.push_expr(Expr { span: name.span, kind: ExprKind::Identifier(name) })
+    }
+
+    /// O nome do `ExpressionIdentifierContext.ensureIdentifier` sobre um
+    /// token que não é identificador; `continuacao` é o contexto
+    /// `expressionContinuation` (depois de `.`), em que `as` e `is` também
+    /// viram nome.
+    fn nome_de_recuperacao(&mut self, continuacao: bool) -> Name {
+        let comeca_comando = self.parece_inicio_de_comando(self.pos);
+        if !comeca_comando
+            && let Kind::Keyword(_) = self.kind()
+            && (continuacao || !matches!(self.text(), "as" | "is"))
+        {
+            let texto = self.text().to_string();
+            let token = self.advance();
+            self.erro_em(codigos::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, token.span, &[&texto]);
+            return self.name_from(&texto, token.span);
+        }
+        // `!identifier.isOperator` e fora da pontuação da lista: na dúvida,
+        // o token é consumido (o identificador sintético vem depois dele).
+        // `StrMid`/`StrEnd` começam com a `}` que fecha a interpolação (a
+        // `}` da lista do fasta): não são consumidos.
+        let consumir = !comeca_comando
+            && !matches!(self.kind(), Kind::Ident | Kind::Keyword(_) | Kind::Eof | Kind::StrMid(..) | Kind::StrEnd(_))
+            && match self.kind() {
+                Kind::Op(op) => matches!(op, Op::At | Op::Hash | Op::Arrow | Op::Ellipsis | Op::EllipsisQuestion),
+                _ => true,
+            };
+        self.erro(codigos::parser::MISSING_IDENTIFIER, &[]);
+        if consumir {
+            self.advance();
+        }
+        // `insertSyntheticIdentifier`: no início do token seguinte.
+        let s = self.span().start;
+        self.name_from("", Span { start: s, end: s })
     }
 
     /// O *head* de um atalho de ponto, com o `.` corrente (Dart 3.10,
@@ -1333,9 +1421,15 @@ impl<'s, 'i> Parser<'s, 'i> {
         } else {
             return Err(self.erro_identificador());
         };
-        // O analyzer 3.13.4 relata no `.` (ou no `const` de `const .x(…)`).
-        self.exigir(Feature::DotShorthands, if const_ { start } else { ponto.span });
-        if const_ && !self.at_op(Op::LParen) {
+        // O analyzer 3.13.4 relata no `.` (`handleDotShorthandHead` e
+        // `handleDotShorthandContext`) e, em `const .x(…)`, também no `const`
+        // (`endConstDotShorthand`).
+        self.exigir(Feature::DotShorthands, ponto.span);
+        if const_ {
+            self.exigir(Feature::DotShorthands, start);
+        }
+        // `const .x<T>(…)`: os argumentos de tipo vêm antes dos parênteses.
+        if const_ && !self.at_op(Op::LParen) && !(self.at_op(Op::Lt) && self.method_type_arguments_ahead()) {
             return Err(self.erro_esperado("("));
         }
         Ok(self.push(start, ExprKind::DotShorthand { name, const_ }))
@@ -1399,8 +1493,29 @@ impl<'s, 'i> Parser<'s, 'i> {
         let abre = self.pos.saturating_sub(1);
         let mut elements = Vec::new();
         while !self.at_op(close) {
-            elements.push(self.parse_collection_element()?);
+            let elemento = self.parse_collection_element()?;
+            let ifs = ifs_abertos(&elemento);
+            elements.push(elemento);
             if !self.eat_op(Op::Comma) {
+                if self.at_op(close) {
+                    break;
+                }
+                // `parseLiteralListSuffix`/`parseLiteralSetOrMapSuffix`: o que
+                // parece outro elemento é um elemento depois de uma vírgula que
+                // falta (`rewriteAndRecover`, o erro no token).
+                if self.parece_entrada_de_literal(self.pos) {
+                    if ifs > 0 {
+                        self.erro(codigos::parser::EXPECTED_ELSE_OR_COMMA, &[]);
+                    } else {
+                        self.erro(codigos::parser::EXPECTED_TOKEN, &[","]);
+                    }
+                    continue;
+                }
+                // A lista leva o `]` sintético para cá (`moveSynthetic`).
+                if close == Op::RBracket && self.mover_fecho_sintetico(abre) {
+                    self.advance();
+                    return Ok(elements);
+                }
                 break;
             }
         }
@@ -1419,6 +1534,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         self.expect_op(close)?;
         Ok(elements)
+    }
+
+    /// `looksLikeLiteralEntry` (`literal_entry_info.dart:75`).
+    fn parece_entrada_de_literal(&self, pos: usize) -> bool {
+        self.parece_inicio_de_expressao(pos)
+            || matches!(self.kind_of(pos), Kind::Op(Op::Ellipsis | Op::EllipsisQuestion) | Kind::Keyword(Keyword::If | Keyword::For))
+            || (self.text_of(pos) == "await" && self.kind_of(pos + 1) == Kind::Keyword(Keyword::For))
     }
 
     /// `element`: expressão, `k: v`, `...e`, `...?e`, `if (...) e else e`,
@@ -1698,7 +1820,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             },
         });
         let constructor = if self.eat_op(Op::Dot) {
-            Some(self.member_name()?)
+            Some(self.member_name(false)?)
         } else {
             None
         };
@@ -2021,6 +2143,17 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 }
 
+
+/// A soma dos `ifConditionDelta` das entradas de um elemento: `+1` por
+/// `if`, `-1` por `else`.
+fn ifs_abertos(e: &CollectionElement) -> i32 {
+    match e {
+        CollectionElement::If { then, else_, .. } => 1 + ifs_abertos(then) + else_.as_ref().map_or(0, |e| ifs_abertos(e) - 1),
+        CollectionElement::For { body, .. } => ifs_abertos(body),
+        _ => 0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::ast::{
@@ -2138,7 +2271,11 @@ mod tests {
         let src = "a > > b";
         let tokens = crate::lexer::lex(src).unwrap();
         let mut p = Parser::new(src, tokens, nomes);
-        assert!(p.parse_expression().is_err());
+        // O segundo `>` não tem operando à esquerda: `MISSING_IDENTIFIER` e
+        // identificador sintético, não `>>`.
+        let id = p.parse_expression().unwrap();
+        assert!(!p.diagnostics.is_empty());
+        assert_eq!(binary(&p, id).0, BinaryOp::Gt);
     }
 
     #[test]
@@ -2623,7 +2760,9 @@ mod tests {
         for src in [")", "", "a +", "class"] {
             let tokens = crate::lexer::lex(src).unwrap();
             let mut p = Parser::new(src, tokens, nomes);
-            assert!(p.parse_expression().is_err(), "{src}");
+            // `ensureIdentifier`: o erro sai e a expressão segue com um
+            // identificador sintético (ou com a palavra reservada como nome).
+            let _ = p.parse_expression();
             assert!(!p.diagnostics.is_empty(), "{src}");
         }
     }

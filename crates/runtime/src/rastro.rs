@@ -26,6 +26,11 @@
 // espera, pelos elos das capturas marcadas `@pragma('vm:awaiter-link')`, até
 // o quadro do próximo corpo suspenso. Cada um sai como
 // `<asynchronous suspension>` seguido do quadro dele, na posição do `await`.
+// Os ramos de stream também (`UnwindFrameToStreamController`): o corpo
+// `async*` vai ao controlador dele (`_AsyncStarStreamController.controller`),
+// e o controlador inscrito, ao `onData` da inscrição; o `await for` segue o
+// `_Future` do `moveNext` pelo `_StreamIterator` do tear-off `_onData`, e o
+// `yield*`, o `asyncStarBody` do controlador de destino pelo `addStreamFuture`.
 //
 // Fragmento do runtime: sem `use` (os fragmentos são um programa só).
 // Escrito sem compilar nem executar (2026-10-05).
@@ -58,6 +63,25 @@ const RASTRO_SEM_TABELA: &str = "#0      main (dart:native)\n";
 const MARCA_CORPO_ASYNC: u8 = 1;
 const MARCA_OCULTA: u8 = 2;
 const MARCA_ESCUTA: u8 = 4;
+/// O corpo é de um gerador `async*` (com [`MARCA_CORPO_ASYNC`]): o quadro
+/// dele na pilha já foi suspenso (`WasPreviouslySuspended` do gerador).
+const MARCA_GERADOR_ASYNC: u8 = 8;
+
+/// Os estados de `_StreamController` e de `_BufferingStreamSubscription`
+/// (`stream_controller.dart`, `stream_impl.dart`).
+const CONTROLADOR_INSCRITO: i64 = 1;
+const MASCARA_DA_INSCRICAO: i64 = 3;
+const CONTROLADOR_ADD_STREAM: i64 = 8;
+const INSCRICAO_COM_ERRO: i64 = 1 << 5;
+
+/// As espécies de tear-off que o percurso reconhece (o `Owner` da função
+/// implícita na VM): o `_onData` de um `_StreamIterator` e o `_add` de um
+/// `_StreamController`.
+const TEAROFF_ON_DATA_DO_ITERADOR: i64 = 1;
+const TEAROFF_ADD_DO_CONTROLADOR: i64 = 2;
+
+/// As entradas dos tear-offs reconhecidos: `(entrada, espécie)`.
+static TEAROFFS_DO_RASTRO: std::sync::Mutex<Vec<(usize, i64)>> = std::sync::Mutex::new(Vec::new());
 
 /// O id de classe do quadro de uma função `async` (`lower/async_sm.rs`,
 /// `ID_QUADRO_ASYNC`): `[estado, completer, corpo, …]`.
@@ -231,6 +255,21 @@ pub unsafe extern "C" fn dartforge_registrar_campo_do_rastro(classe: i64, nome: 
     let mut campos = CAMPOS_DO_RASTRO.lock().unwrap_or_else(|e| e.into_inner());
     if !campos.iter().any(|(c, x, _)| *c == classe && x == nome) {
         campos.push((classe, nome.to_string(), posicao));
+    }
+}
+
+/// A entrada do tear-off de espécie `especie` (o `_onData` de
+/// `_StreamIterator`, o `_add` de `_StreamController`) que a imagem tem.
+/// Idempotente; não aloca no heap do coletor nem lança.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_registrar_tearoff_do_rastro(entrada: *const u8, especie: i64) {
+    let entrada = entrada as usize;
+    if entrada == 0 {
+        return;
+    }
+    let mut v = TEAROFFS_DO_RASTRO.lock().unwrap_or_else(|e| e.into_inner());
+    if !v.iter().any(|&(e, _)| e == entrada) {
+        v.push((entrada, especie));
     }
 }
 
@@ -433,6 +472,148 @@ fn ate_o_ouvinte(indice: &IndiceDoRastro, heap: &crate::heap::Heap, q: &mut Quem
     }
 }
 
+/// Um `bool` guardado num campo (cru ou em caixa).
+fn booleano_do_campo(heap: &crate::heap::Heap, c: crate::heap::Campo) -> Option<bool> {
+    match c {
+        (b, false) => Some(b != 0),
+        (r, true) => heap.bool_de(r),
+    }
+}
+
+/// O campo inteiro `campo` de `h`.
+fn inteiro_do_rastro(heap: &crate::heap::Heap, h: i64, campo: &str) -> Option<i64> {
+    campo_do_rastro(heap, h, campo).and_then(|c| inteiro_do_campo(heap, c))
+}
+
+/// A espécie e o receptor de um tear-off reconhecido.
+fn tearoff_de(heap: &crate::heap::Heap, c: i64) -> Option<(i64, Option<i64>)> {
+    let clo = heap.closure(c)?;
+    let especie = {
+        let v = TEAROFFS_DO_RASTRO.lock().unwrap_or_else(|e| e.into_inner());
+        v.iter().find(|&&(e, _)| e as i64 == clo.codigo).map(|&(_, k)| k)?
+    };
+    // O ambiente do tear-off guarda o receptor na posição 0.
+    let receptor = if clo.contexto.1 {
+        heap.objeto(clo.contexto.0).and_then(|o| o.get(0)).and_then(|v| (v.1 && v.0 != 0).then_some(v.0))
+    } else {
+        None
+    };
+    Some((especie, receptor))
+}
+
+/// `FollowAwaiterLinks`: segue os elos de `closure` enquanto o elo é outra
+/// closure; devolve o último elo (que não é closure), ou nada.
+fn seguir_elos_de(indice: &IndiceDoRastro, heap: &crate::heap::Heap, closure: &mut Option<i64>) -> Option<i64> {
+    let mut elo: Option<i64> = None;
+    let mut passos = 0;
+    while let Some(c) = *closure {
+        elo = None;
+        let Some(l) = elo_da_closure(indice, heap, c) else { break };
+        elo = l;
+        match l {
+            Some(x) if heap.closure(x).is_some() && passos < 64 => {
+                *closure = Some(x);
+                passos += 1;
+            }
+            _ => break,
+        }
+    }
+    elo.filter(|&x| heap.closure(x).is_none())
+}
+
+/// A função da closure `c` tem elo com quem espera (`HasAwaiterLink`).
+fn tem_elo(indice: &IndiceDoRastro, heap: &crate::heap::Heap, c: Option<i64>) -> bool {
+    c.is_some_and(|c| elo_da_closure(indice, heap, c).is_some())
+}
+
+/// `UnwindFrameToStreamController`: o controlador em `q.proximo`.
+fn ate_o_controlador(indice: &IndiceDoRastro, heap: &crate::heap::Heap, q: &mut QuemEspera) {
+    let Some(controlador) = q.proximo else {
+        *q = QuemEspera::default();
+        return;
+    };
+    *q = QuemEspera::default();
+    let estado = inteiro_do_rastro(heap, controlador, "_state").unwrap_or(0);
+    if estado & MASCARA_DA_INSCRICAO != CONTROLADOR_INSCRITO {
+        return;
+    }
+    let mut inscricao = ref_do_rastro(heap, controlador, "_varData");
+    if estado & CONTROLADOR_ADD_STREAM != 0 {
+        inscricao = inscricao.and_then(|s| ref_do_rastro(heap, s, "_varData"));
+    }
+    let Some(inscricao) = inscricao else { return };
+    let mut closure = ref_do_rastro(heap, inscricao, "_onData").filter(|&c| heap.closure(c).is_some());
+    let estado_da_inscricao = inteiro_do_rastro(heap, inscricao, "_state").unwrap_or(0);
+    // O tear-off do `_StreamIterator._onData` (o `await for`) e o do
+    // `_StreamController._add` (o `yield*`).
+    if let Some((especie, receptor)) = closure.and_then(|c| tearoff_de(heap, c)) {
+        if especie == TEAROFF_ON_DATA_DO_ITERADOR {
+            let Some(iterador) = receptor.filter(|&r| classe_de(heap, r).as_deref() == Some("_StreamIterator")) else { return };
+            // Com `_hasValue`, o `_stateData` é o valor: não segue.
+            if campo_do_rastro(heap, iterador, "_hasValue").and_then(|c| booleano_do_campo(heap, c)) == Some(true) {
+                return;
+            }
+            // O `_Future` do `await iterador.moveNext()`.
+            if let Some(f) = ref_do_rastro(heap, iterador, "_stateData")
+                && classe_de(heap, f).as_deref() == Some("_Future")
+            {
+                q.proximo = Some(f);
+            }
+            return;
+        }
+        if especie == TEAROFF_ADD_DO_CONTROLADOR
+            && let Some(destino) = receptor
+        {
+            let estado_do_destino = inteiro_do_rastro(heap, destino, "_state").unwrap_or(0);
+            if estado_do_destino & CONTROLADOR_ADD_STREAM != 0 {
+                let ouvinte = ref_do_rastro(heap, destino, "_varData")
+                    .and_then(|s| ref_do_rastro(heap, s, "addStreamFuture"))
+                    .and_then(|f| ref_do_rastro(heap, f, "_resultOrListeners"));
+                if let Some(o) = ouvinte
+                    && classe_de(heap, o).as_deref() == Some("_FutureListener")
+                    && inteiro_do_rastro(heap, o, "state") == Some(OUVINTE_THEN)
+                {
+                    let mut tratador = ref_do_rastro(heap, o, "callback").filter(|&c| heap.closure(c).is_some());
+                    let elo = seguir_elos_de(indice, heap, &mut tratador);
+                    if let Some(c) = elo
+                        && classe_de(heap, c).as_deref() == Some("_AsyncStarStreamController")
+                    {
+                        q.closure = ref_do_rastro(heap, c, "asyncStarBody").filter(|&x| heap.closure(x).is_some());
+                        return;
+                    }
+                }
+            }
+        }
+    }
+    q.closure = closure;
+    let mut irmao_com_elo = false;
+    let mut com_elo = tem_elo(indice, heap, closure);
+    if !com_elo {
+        // O `onError` ou o `onDone` com elo.
+        closure = ref_do_rastro(heap, inscricao, "_onError").filter(|&c| heap.closure(c).is_some());
+        com_elo = tem_elo(indice, heap, closure);
+        irmao_com_elo = com_elo;
+    }
+    if !com_elo {
+        closure = ref_do_rastro(heap, inscricao, "_onDone").filter(|&c| heap.closure(c).is_some());
+        com_elo = tem_elo(indice, heap, closure);
+        irmao_com_elo = com_elo;
+    }
+    let tem_tratador_de_erro = estado_da_inscricao & INSCRICAO_COM_ERRO != 0;
+    let mut objeto = None;
+    if tem_tratador_de_erro || irmao_com_elo {
+        objeto = seguir_elos_de(indice, heap, &mut closure);
+    }
+    if irmao_com_elo {
+        let classe = objeto.and_then(|o| classe_de(heap, o));
+        if matches!(classe.as_deref(), Some("_AsyncStarStreamController" | "_SyncStreamController")) {
+            q.closure = closure;
+        } else {
+            q.proximo = objeto;
+        }
+    }
+}
+
 /// `UnwindAwaiterFrame`: do quadro suspenso ao `Future` dele (pelo
 /// `Completer`), e do `Future` ao ouvinte.
 fn desenrolar_quem_espera(indice: &IndiceDoRastro, heap: &crate::heap::Heap, q: &mut QuemEspera) {
@@ -440,20 +621,34 @@ fn desenrolar_quem_espera(indice: &IndiceDoRastro, heap: &crate::heap::Heap, q: 
     if let Some(p) = proximo
         && e_quadro_async(heap, p)
     {
-        // O `completer` do quadro (posição 1).
+        // O `completer` do quadro (posição 1); num gerador `async*`, o
+        // controlador (o `function_data` do `SuspendState` da VM).
         proximo = heap.objeto(p).and_then(|o| o.get(1)).and_then(|c| (c.1 && c.0 != 0).then_some(c.0));
-    }
-    if let Some(p) = proximo {
+    } else if let Some(p) = proximo {
         match classe_de(heap, p).as_deref() {
-            Some("_AsyncAwaitCompleter") => proximo = ref_do_rastro(heap, p, "_future"),
             Some("_SyncCompleter" | "_AsyncCompleter") => proximo = ref_do_rastro(heap, p, "future"),
             _ => {}
         }
     }
-    match proximo {
-        Some(f) if classe_de(heap, f).as_deref() == Some("_Future") => {
-            q.proximo = Some(f);
+    if let Some(p) = proximo
+        && classe_de(heap, p).as_deref() == Some("_AsyncAwaitCompleter")
+    {
+        proximo = ref_do_rastro(heap, p, "_future");
+    }
+    if let Some(p) = proximo
+        && classe_de(heap, p).as_deref() == Some("_AsyncStarStreamController")
+    {
+        proximo = ref_do_rastro(heap, p, "controller");
+    }
+    match proximo.and_then(|p| classe_de(heap, p)).as_deref() {
+        Some("_Future") => {
+            q.proximo = proximo;
             ate_o_ouvinte(indice, heap, q);
+        }
+        Some("_SyncStreamController") => {
+            q.proximo = proximo;
+            ate_o_controlador(indice, heap, q);
+            seguir_elos(indice, heap, q);
         }
         _ => *q = QuemEspera::default(),
     }
@@ -502,9 +697,10 @@ fn desenrolar(indice: &IndiceDoRastro, heap: &crate::heap::Heap, quadros: &[(u64
             let marcas = marcas_do_registro(p.registro);
             if marcas & MARCA_CORPO_ASYNC != 0 {
                 // `InitializeAwaiterFrameFromSuspendState`: o corpo retomado
-                // (já suspenso uma vez) segue pela cadeia.
+                // (já suspenso uma vez; o de um gerador `async*` sempre)
+                // segue pela cadeia.
                 if let Some(quadro) = casar(pilha, &mut topo, 0, sp)
-                    && estado_do_quadro(heap, quadro) != 0
+                    && (marcas & MARCA_GERADOR_ASYNC != 0 || estado_do_quadro(heap, quadro) != 0)
                 {
                     q = QuemEspera { closure: None, proximo: Some(quadro) };
                     ate_quem_espera(indice, heap, &mut q);

@@ -91,9 +91,11 @@ fn disco_alterado_ou_arquivo_novo_recarrega() {
     let a = "int f() => 1;\n";
     p.gravar("lib/b.dart", "import 'a.dart';\nint h() => f();\n");
     p.abrir("lib/a.dart", a);
+    // A ordem do servidor do Dart: os outros arquivos, e o da declaração
+    // (com ela por último) no fim.
     assert_eq!(
         referencias(&mut p, "lib/a.dart", 0, 4),
-        vec!["lib/a.dart:0:4", "lib/b.dart:1:11"]
+        vec!["lib/b.dart:1:11", "lib/a.dart:0:4"]
     );
     // O mesmo pedido reaproveita.
     referencias(&mut p, "lib/a.dart", 0, 4);
@@ -102,17 +104,17 @@ fn disco_alterado_ou_arquivo_novo_recarrega() {
     p.gravar("lib/b.dart", "import 'a.dart';\nint h() => f() + f();\n");
     assert_eq!(
         referencias(&mut p, "lib/a.dart", 0, 4),
-        vec!["lib/a.dart:0:4", "lib/b.dart:1:11", "lib/b.dart:1:17"]
+        vec!["lib/b.dart:1:11", "lib/b.dart:1:17", "lib/a.dart:0:4"]
     );
     // Arquivo novo no projeto.
     p.gravar("lib/c.dart", "import 'a.dart';\nvar x = f();\n");
     assert_eq!(
         referencias(&mut p, "lib/a.dart", 0, 4),
         vec![
-            "lib/a.dart:0:4",
             "lib/b.dart:1:11",
             "lib/b.dart:1:17",
-            "lib/c.dart:1:8"
+            "lib/c.dart:1:8",
+            "lib/a.dart:0:4"
         ]
     );
     let e = est(&p);

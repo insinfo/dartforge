@@ -98,7 +98,11 @@ pub fn opcoes_das_operacoes_de_arquivo() -> Value {
 /// `workspace/willRenameFiles` dinâmico (`WillRenameFilesRegistrations`: o
 /// cliente registra as operações de arquivo e `updateImportsOnRename` está
 /// ligado).
-pub fn registros(estaticas: &Value, dinamicas: &[&str], configuracao: bool, renomear_arquivos: bool) -> Vec<(String, Value)> {
+///
+/// `observar_arquivos`: o `workspace/didChangeWatchedFiles` dos `.dart`, dos
+/// YAML do pacote e do `package_config.json` (o servidor do Dart observa o
+/// disco ele mesmo; aqui é o cliente quem observa, §3.3: mesmo efeito).
+pub fn registros(estaticas: &Value, dinamicas: &[&str], configuracao: bool, renomear_arquivos: bool, observar_arquivos: bool) -> Vec<(String, Value)> {
     let mut v = Vec::new();
     for f in FEATURES.iter().filter(|f| dinamicas.contains(&f.cliente)) {
         if f.cliente == "synchronization" {
@@ -121,11 +125,22 @@ pub fn registros(estaticas: &Value, dinamicas: &[&str], configuracao: bool, reno
     if configuracao {
         v.push(("workspace/didChangeConfiguration".to_string(), Value::Null));
     }
+    if observar_arquivos {
+        v.push((
+            "workspace/didChangeWatchedFiles".to_string(),
+            json!({"watchers": [
+                {"globPattern": "**/*.dart"},
+                {"globPattern": "**/pubspec.yaml"},
+                {"globPattern": "**/analysis_options.yaml"},
+                {"globPattern": "**/.dart_tool/package_config.json"},
+            ]}),
+        ));
+    }
     v
 }
 
 /// Os registros vigentes e o contador dos ids.
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Registros {
     vigentes: Vec<(String, String, Value)>,
     proximo: u64,
@@ -300,7 +315,7 @@ mod testes {
         assert_eq!(d, vec!["synchronization", "hover"]);
         assert!(!conf);
         let mut estaticas = json!({"hoverProvider": true, "textDocumentSync": 2, "definitionProvider": true});
-        let regs = registros(&estaticas, &d, conf, false);
+        let regs = registros(&estaticas, &d, conf, false, false);
         tirar_dinamicas(&mut estaticas, &d);
         assert!(estaticas.get("hoverProvider").is_none() && estaticas.get("definitionProvider").is_some());
         assert_eq!(regs.len(), 4);

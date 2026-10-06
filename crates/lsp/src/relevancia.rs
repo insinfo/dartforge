@@ -65,6 +65,13 @@ pub(crate) struct Rel {
     pub fixa: Option<i32>,
     pub comeca_com_dolar: bool,
     pub no_such_method: bool,
+    /// `hasOrInheritsDeprecated` (`hasDeprecated`, peso 0,5).
+    pub obsoleto: bool,
+    /// `isConstantFeature`: construtor `const`, campo estático `const`,
+    /// variável de topo `const` (só vale com `preferConstants`).
+    pub constante: bool,
+    /// `superMatches`: o nome é o do método que contém o `super.▮`.
+    pub super_corresponde: bool,
 }
 
 /// `distanceToPercent`.
@@ -96,21 +103,26 @@ fn caracteristica_de_palavra(palavra: &str, local: Option<&str>) -> f64 {
 }
 
 /// A relevância (`0..1000`) de um item.
-pub(crate) fn relevancia(rel: &Rel, local: Option<&str>, tipo_de_contexto: f64) -> i32 {
+pub(crate) fn relevancia(rel: &Rel, local: Option<&str>, tipo_de_contexto: f64, preferir_constantes: bool) -> i32 {
     if let Some(f) = rel.fixa {
         return f;
     }
     let distancia = rel.distancia.map(|d| porcentagem(d as usize));
-    let especie = rel.especie.map_or(0.0, |e| caracteristica_de_especie(e, local, distancia));
+    // `_computeFormalParameterRelevance`: a espécie do parâmetro é sem a
+    // distância (só o local a usa, `_computeLocalVariableRelevance`).
+    let especie = rel.especie.map_or(0.0, |e| caracteristica_de_especie(e, local, if e == Especie::Parametro { None } else { distancia }));
     let palavra = rel.palavra.map_or(0.0, |p| caracteristica_de_palavra(p, local));
     let nao_importado = if rel.nao_importado { -1.0 } else { 0.0 };
     let dolar = if rel.comeca_com_dolar { -1.0 } else { 0.0 };
     let nsm = if rel.no_such_method { -1.0 } else { 0.0 };
     let distancia_local = if rel.local { distancia.unwrap_or(0.0) } else { 0.0 };
+    let obsoleto = if rel.obsoleto { -1.0 } else { 0.0 };
+    let constante = if preferir_constantes && rel.constante { 1.0 } else { 0.0 };
+    let super_corresponde = if rel.super_corresponde { 1.0 } else { 0.0 };
     // Pesos do Dart: contexto 1, espécie 1, depreciado 0,5, constante 1,
     // noSuchMethod 1, não importado 1, palavra 1, `$` 0,5, super 1,
     // distância do local 1 — total 9.
-    let soma = tipo_de_contexto + especie + nsm + nao_importado + palavra + 0.5 * dolar + distancia_local;
+    let soma = tipo_de_contexto + especie + 0.5 * obsoleto + constante + nsm + nao_importado + palavra + 0.5 * dolar + super_corresponde + distancia_local;
     let media = soma / 9.0;
     (((media + 1.0) / 2.0) * 1000.0) as i32
 }

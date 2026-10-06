@@ -120,6 +120,20 @@ pub struct UnitBodyTypes {
     /// padrão de atribuição escreve (`AssignedVariablePattern.element`), com
     /// o registro de locais ligado.
     pub declaracoes_de_padroes: std::collections::HashMap<ast::PatternId, usize>,
+    /// As expressões que o resolvedor do analyzer troca por um
+    /// `ImplicitCallReference` (`_insertImplicitCallReference`,
+    /// `resolver.dart:4085-4142`): objeto de tipo de interface não anulável
+    /// com método `call`, num contexto que aceita função. A forma (alvo de
+    /// cascata, ramo de `?:`, operando de `??`) fica para quem lê, pela
+    /// árvore.
+    pub chamadas_implicitas: std::collections::HashSet<ast::ExprId>,
+    /// O tipo do parâmetro que recebe cada argumento (o
+    /// `staticParameterElement.type`), pela expressão do argumento (o valor
+    /// de um argumento nomeado): o do tipo invocado já instanciado.
+    pub tipos_de_parametros: std::collections::HashMap<ast::ExprId, TypeId>,
+    /// O `writeType` de cada atribuição (simples e composta), pela
+    /// expressão da atribuição.
+    pub tipos_de_escrita: std::collections::HashMap<ast::ExprId, TypeId>,
 }
 
 impl UnitBodyTypes {
@@ -141,6 +155,9 @@ impl UnitBodyTypes {
             campos_de_extensao: std::collections::HashMap::new(),
             padroes_invalidos: std::collections::HashSet::new(),
             tipos_casados: std::collections::HashMap::new(),
+            chamadas_implicitas: std::collections::HashSet::new(),
+            tipos_de_parametros: std::collections::HashMap::new(),
+            tipos_de_escrita: std::collections::HashMap::new(),
         }
     }
 

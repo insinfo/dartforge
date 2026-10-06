@@ -38,9 +38,25 @@ fn acao<'a>(r: &'a Value, titulo: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("sem {titulo:?} em {:?}", titulos(r)))
 }
 
+/// Executa o comando de uma ação (as refatorações do Dart vêm como
+/// `dart.edit.refactor`) e devolve a edição do `workspace/applyEdit` que o
+/// servidor pede.
+fn edicao_do_comando(p: &mut Projeto, acao: &Value) -> Value {
+    let comando = &acao["command"];
+    p.servidor.receber(json!({"jsonrpc": "2.0", "id": 9000, "method": "workspace/executeCommand", "params": {
+        "command": comando["command"], "arguments": comando["arguments"],
+    }}));
+    let saidas = p.servidor.bombear();
+    saidas
+        .into_iter()
+        .find(|m| m["method"] == "workspace/applyEdit")
+        .unwrap_or_else(|| panic!("sem workspace/applyEdit para {acao}"))["params"]["edit"]
+        .clone()
+}
+
 #[test]
 fn sobrescritas_ausentes_classe_abstrata_e_no_such_method() {
-    let mut p = Projeto::novo("correcoes-sobrescritas");
+    let mut p = Projeto::com_literais("correcoes-sobrescritas");
     let texto = "abstract class Forma {\n  double area();\n  double get perimetro;\n}\n\nclass Quadrado extends Forma {\n  final double lado;\n  Quadrado(this.lado);\n}\n";
     p.abrir("lib/a.dart", texto);
     p.servidor.aguardar_diagnosticos(std::time::Duration::from_secs(120));
@@ -60,7 +76,7 @@ fn sobrescritas_ausentes_classe_abstrata_e_no_such_method() {
 
 #[test]
 fn criar_metodo_funcao_classe_e_getter_para_nomes_indefinidos() {
-    let mut p = Projeto::novo("correcoes-criar");
+    let mut p = Projeto::com_literais("correcoes-criar");
     let texto = "class Ponto {\n  int x = 0;\n}\n\nvoid usar(Ponto q) {\n  q.escalar(2);\n  print(q.raio);\n  var r = Retangulo(2, 3);\n  q.y;\n}\n";
     p.abrir("lib/a.dart", texto);
     let r = acoes(&mut p, "lib/a.dart", onde(texto, "escalar", 0));
@@ -85,7 +101,7 @@ fn criar_metodo_funcao_classe_e_getter_para_nomes_indefinidos() {
 
 #[test]
 fn dicas_embutidas_de_tipo_e_parametro() {
-    let mut p = Projeto::novo("correcoes-dicas");
+    let mut p = Projeto::com_literais("correcoes-dicas");
     let texto = "int soma(int a, int b) => a + b;\nvoid f() {\n  var t = soma(1, 2);\n  final l = [1, 2];\n  print(t + l.length);\n}\n";
     p.abrir("lib/a.dart", texto);
     let r = p.requisitar(
@@ -108,8 +124,8 @@ fn dicas_embutidas_de_tipo_e_parametro() {
 
 #[test]
 fn tokens_semanticos_basicos() {
-    let mut p = Projeto::novo("correcoes-tokens");
-    let r = p.requisitar("initialize", json!({"capabilities": {}}));
+    let mut p = Projeto::com_literais("correcoes-tokens");
+    let r = p.inicializacao.clone();
     let legenda = r["result"]["capabilities"]["semanticTokensProvider"]["legend"].clone();
     let tipos: Vec<String> = legenda["tokenTypes"].as_array().unwrap().iter().map(|t| t.as_str().unwrap().to_string()).collect();
     let texto = "/// Doc.\nclass A {\n  int x = 1;\n  void m(int y) {\n    print(y + x);\n  }\n}\n";
@@ -143,7 +159,15 @@ fn tokens_semanticos_basicos() {
 
 #[test]
 fn assistencias_de_reescrita() {
-    let mut p = Projeto::novo("correcoes-assistencias");
+    // As refatorações (`Inline Local Variable`) exigem `workspace.applyEdit`
+    // no cliente, como no `dart language-server` 3.6.2.
+    let mut p = Projeto::com_capacidades(
+        "correcoes-assistencias",
+        json!({
+            "workspace": {"applyEdit": true},
+            "textDocument": {"codeAction": {"codeActionLiteralSupport": {"codeActionKind": {"valueSet": ["quickfix", "refactor", "source"]}}}}
+        }),
+    );
     let texto = "int dobro(int v) => v * 2;\nvoid f(int a) {\n  var x = dobro(a);\n  if (x > 1) print(x);\n  dobro(3);\n}\n";
     p.abrir("lib/a.dart", texto);
     let uri = p.uri("lib/a.dart");
@@ -160,7 +184,9 @@ fn assistencias_de_reescrita() {
     let (l, c) = onde(texto, "print(x)", 0);
     let r = acoes(&mut p, "lib/a.dart", (l, c + 6));
     let a = acao(&r, "Inline Local Variable");
-    assert!(aplicar(&a["edit"], &uri, texto).contains("  if (dobro(a) > 1) print(dobro(a));\n"));
+    assert_eq!(a["kind"], "refactor.inline");
+    let edicao = edicao_do_comando(&mut p, a);
+    assert!(aplicar(&edicao, &uri, texto).contains("  if (dobro(a) > 1) print(dobro(a));\n"));
     // `if` sem chaves.
     let a = acao(&r, "Use curly braces");
     assert!(aplicar(&a["edit"], &uri, texto).contains("  if (x > 1) {\n    print(x);\n  }\n"));

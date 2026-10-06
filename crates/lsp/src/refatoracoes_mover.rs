@@ -401,7 +401,7 @@ impl Construtor {
                     let substitui = i.texto == e.uri && i.prefixos.first().map(String::as_str).unwrap_or("") == e.prefixo;
                     let antes = i.texto.as_str() < e.uri.as_str();
                     // `insert(prev, replace, next, trailingNewLine)`.
-                    let mut inserir = |anterior: Option<usize>, proximo: usize, linha_depois: bool, m: &mut Mudanca| {
+                    let inserir = |anterior: Option<usize>, proximo: usize, linha_depois: bool, m: &mut Mudanca| {
                         if let Some(a) = anterior {
                             let d = &imports[a];
                             let mut offset = d.fim;

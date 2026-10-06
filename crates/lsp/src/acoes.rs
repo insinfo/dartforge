@@ -182,24 +182,12 @@ pub(crate) fn corrigir_sintaxe(
     saida
 }
 
-/// Grupo de ordenação das diretivas (`dart:`, `package:`, relativas).
-fn grupo_de_uri(uri: &str) -> u8 {
-    if uri.starts_with("dart:") {
-        0
-    } else if uri.starts_with("package:") {
-        1
-    } else {
-        2
-    }
-}
-
 /// Edição que acrescenta `import 'uri';` na ordem das diretivas existentes.
 pub(crate) fn inserir_import(
     texto: &str,
     unit: &ast::CompilationUnit,
     uri_novo: &str,
 ) -> (Span, String) {
-    let chave_nova = (grupo_de_uri(uri_novo), uri_novo.to_string());
     let imports: Vec<(&ast::Directive, String)> = unit
         .directives
         .iter()
@@ -210,26 +198,80 @@ pub(crate) fn inserir_import(
             _ => None,
         })
         .collect();
-    if let Some((d, _)) = imports
-        .iter()
-        .find(|(_, u)| (grupo_de_uri(u), u.clone()) > chave_nova)
-    {
-        let inicio = texto[..d.span.start].rfind('\n').map_or(0, |i| i + 1);
+    // `_addLibraryImports` (`change_builder_dart.dart`), para um import sem
+    // prefixo nem combinadores: entre os existentes, pelo grupo (`dart:`,
+    // `package:`, relativo) e pela ordem do texto da URI.
+    if !imports.is_empty() {
+        // `preferredQuoteForUris`: a aspa das diretivas existentes.
+        let aspa = imports
+            .iter()
+            .find_map(|(d, _)| texto.get(d.span.start..d.span.end).and_then(|s| s.find(['\'', '"']).map(|i| &s[i..=i])))
+            .unwrap_or("'");
+        let linha = format!("import {aspa}{uri_novo}{aspa};");
+        let e_dart = uri_novo.starts_with("dart:");
+        let e_pacote = uri_novo.starts_with("package:");
+        // `insert(prev:)`: depois do anterior (e de um comentário na mesma
+        // linha); `insert(next:)`: antes do seguinte.
+        let depois_de = |d: &ast::Directive| -> (Span, String) {
+            let mut fim = d.span.end;
+            let resto = &texto[fim..];
+            let espacos = resto.len() - resto.trim_start_matches([' ', '\t']).len();
+            let r = &resto[espacos..];
+            if r.starts_with("//") {
+                fim += espacos + r.find('\n').unwrap_or(r.len());
+            } else if r.starts_with("/*")
+                && let Some(f) = r.find("*/")
+                && !r[..f].contains('\n')
+            {
+                fim += espacos + f + 2;
+            }
+            (Span { start: fim, end: fim }, format!("\n{linha}"))
+        };
+        let antes_de = |d: &ast::Directive, linha_vazia: bool| -> (Span, String) {
+            let inicio = d.span.start;
+            (Span { start: inicio, end: inicio }, format!("{linha}\n{}", if linha_vazia { "\n" } else { "" }))
+        };
+        let mut ultimo: Option<&ast::Directive> = None;
+        let mut ultimo_dart: Option<&ast::Directive> = None;
+        let mut ultimo_pacote: Option<&ast::Directive> = None;
+        let mut ultimo_e_dart = false;
+        let mut ultimo_e_pacote = false;
+        for (d, u) in &imports {
+            let existente_dart = u.starts_with("dart:");
+            let existente_pacote = u.starts_with("package:");
+            let existente_relativo = !u.contains(':');
+            let novo_antes = uri_novo < u.as_str();
+            if e_dart {
+                if !existente_dart || novo_antes {
+                    return match ultimo_dart {
+                        Some(p) => depois_de(p),
+                        None => antes_de(d, !existente_dart),
+                    };
+                }
+            } else if e_pacote {
+                if existente_relativo || novo_antes {
+                    return match ultimo_pacote {
+                        Some(p) => depois_de(p),
+                        None => antes_de(d, existente_relativo),
+                    };
+                }
+            } else if !existente_dart && !existente_pacote && novo_antes {
+                return antes_de(d, false);
+            }
+            ultimo = Some(d);
+            if existente_dart {
+                ultimo_dart = Some(d);
+            } else if existente_pacote {
+                ultimo_pacote = Some(d);
+            }
+            ultimo_e_dart = existente_dart;
+            ultimo_e_pacote = existente_pacote;
+        }
+        let d = ultimo.expect("há imports");
+        let linha_vazia = if e_pacote { ultimo_e_dart } else { !e_dart && (ultimo_e_dart || ultimo_e_pacote) };
         return (
-            Span {
-                start: inicio,
-                end: inicio,
-            },
-            format!("import '{uri_novo}';\n"),
-        );
-    }
-    if let Some((d, _)) = imports.last() {
-        return (
-            Span {
-                start: d.span.end,
-                end: d.span.end,
-            },
-            format!("\nimport '{uri_novo}';"),
+            Span { start: d.span.end, end: d.span.end },
+            format!("{}\n{linha}", if linha_vazia { "\n" } else { "" }),
         );
     }
     if let Some(d) = unit

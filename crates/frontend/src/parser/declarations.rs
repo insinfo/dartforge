@@ -326,6 +326,16 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// token.
     fn recover_top_level(&mut self, start_pos: usize) {
         if self.pos == start_pos && !self.at_eof() {
+            // `parseInvalidTopLevelDeclaration`: um `{` leva o bloco inteiro
+            // (`parseInvalidBlock`, até o `endGroup`).
+            if self.at_op(Op::LBrace)
+                && let Some(fecha) = self.matching_close(self.pos)
+            {
+                let de = self.pos;
+                self.pos = fecha + 1;
+                self.registrar_pulado(de);
+                return;
+            }
             self.advance();
             return;
         }
@@ -1836,7 +1846,9 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn parse_typedef(&mut self) -> PResult<TypedefDecl> {
         self.expect_ident("typedef")?;
         if self.at_identifier() {
-            let after = self.skip_angles(self.pos + 1);
+            // `computeTypeParamOrArg(inDeclaration: true)`: a lista inteira,
+            // inclusive limites com tipos de função de parâmetros nomeados.
+            let after = self.skip_type_arguments(self.pos + 1).unwrap_or_else(|| self.skip_angles(self.pos + 1));
             if self.kind_of(after) == Kind::Op(Op::Assign) {
                 let name = self.identifier();
                 let type_params = self.parse_type_parameters_opt()?;
@@ -1909,16 +1921,38 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// `get nome`, `set nome`, `operator op` começam aqui? Devolve o tipo do
     /// acessor sem consumir nada.
-    fn accessor_follows(&self) -> Option<FunctionKind> {
-        if self.at_ident("get") && self.at_identifier_at(1) {
+    /// Com `!topo` (membro), também `get`/`set` seguido de palavra
+    /// reservada que indica método ou campo (`parseClassOrMixin…MemberImpl`:
+    /// "Getter or setter followed by a reserved word (name)").
+    fn accessor_follows_em(&self, topo: bool) -> Option<FunctionKind> {
+        let nome_depois = |p: &Self| p.at_identifier_at(1) || (!topo && matches!(p.kind_at(1), Kind::Keyword(_)) && p.indica_metodo_ou_campo(p.pos + 2));
+        if self.at_ident("get") && nome_depois(self) {
             Some(FunctionKind::Getter)
-        } else if self.at_ident("set") && self.at_identifier_at(1) {
+        } else if self.at_ident("set") && nome_depois(self) {
             Some(FunctionKind::Setter)
         } else if self.at_ident("operator") && self.operator_follows() {
             Some(FunctionKind::Operator)
         } else {
             None
         }
+    }
+
+    /// `indicatesMethodOrField` (`parser_impl.dart`).
+    pub(crate) fn indica_metodo_ou_campo(&self, pos: usize) -> bool {
+        matches!(self.kind_of(pos), Kind::Op(Op::Semicolon | Op::Assign | Op::LParen | Op::LBrace | Op::Arrow | Op::Lt))
+    }
+
+    /// O nome de uma declaração: identificador, ou a palavra reservada que
+    /// a recuperação do fasta toma como nome quando o que segue indica
+    /// método ou campo (`EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` nela).
+    fn nome_de_declaracao_ou_reservada(&mut self) -> PResult<Name> {
+        if !self.at_identifier() && matches!(self.kind(), Kind::Keyword(_)) && self.indica_metodo_ou_campo(self.pos + 1) {
+            let texto = self.text().to_string();
+            let token = self.advance();
+            self.erro_em(codigos::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, token.span, &[&texto]);
+            return Ok(self.name_from(&texto, token.span));
+        }
+        self.expect_identifier()
     }
 
     /// O token após `operator` é um operador declarável? `operator<T>()` é
@@ -1988,10 +2022,17 @@ impl<'s, 'i> Parser<'s, 'i> {
         external_topo: Option<Span>,
         topo: bool,
     ) -> PResult<FunctionOrVariables> {
-        if let Some(kind) = self.accessor_follows() {
+        if let Some(kind) = self.accessor_follows_em(topo) {
             let id = self.parse_accessor(mods, start, None, kind, external_topo, topo)?;
             return Ok(FunctionOrVariables::Function(id));
         }
+        // A palavra reservada seguida do que indica método ou campo é o nome,
+        // e o identificador, o tipo (`int new() => 1;`), sem `var`/`final`/`const`.
+        let reservada_como_nome = !mods.var_
+            && !mods.final_
+            && !mods.const_
+            && matches!(self.kind_at(1), Kind::Keyword(_))
+            && self.indica_metodo_ou_campo(self.pos + 2);
         // `foo;`, `foo = e;`, `foo, ...` (também `static = 1;`, `external;`,
         // `C;`): o identificador é o NOME do campo sem tipo — `modifier_ok`
         // já recusou o papel de modificador onde cabia. O fasta 3.6.2 relata
@@ -2003,6 +2044,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         // (`computeType` do fasta devolve `noType`), e o `;` que falta é
         // relatado depois dele.
         if self.at_identifier()
+            && !reservada_como_nome
             && matches!(
                 self.kind_at(1),
                 Kind::Op(Op::Semicolon | Op::Assign | Op::Comma) | Kind::Keyword(_)
@@ -2060,12 +2102,19 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         let ty = if mods.var_ {
             None
-        } else if self.at_kw(Keyword::Void) || self.looks_like_type_then_identifier_em_declaracao(self.pos) {
+        } else if self.at_kw(Keyword::Void)
+            || self.looks_like_type_then_identifier_em_declaracao(self.pos)
+            // "<return type>? <reserved word> <token indicating method or
+            // field>": a palavra reservada é o nome (`int new() => 1;`).
+            || (!mods.final_
+                && !mods.const_
+                && self.skip_type(self.pos).is_some_and(|fim| matches!(self.kind_of(fim), Kind::Keyword(_)) && self.indica_metodo_ou_campo(fim + 1)))
+        {
             Some(self.parse_type()?)
         } else {
             None
         };
-        if let Some(kind) = self.accessor_follows() {
+        if let Some(kind) = self.accessor_follows_em(topo) {
             let id = self.parse_accessor(mods, start, ty, kind, external_topo, topo)?;
             return Ok(FunctionOrVariables::Function(id));
         }
@@ -2073,7 +2122,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         // pediria um nome depois do `)`. É lixo no topo, e o fasta relata
         // `expected_executable` e continua no token seguinte (ver
         // `recover_top_level`), em vez do `missing_identifier` genérico.
-        if ty.is_none() && !mods.algum() && self.at_op(Op::LParen) {
+        if topo && ty.is_none() && !mods.algum() && self.at_op(Op::LParen) {
             return Err(self.erro(codigos::parser::EXPECTED_EXECUTABLE, &[]));
         }
         // Fasta `TopLevelDeclarationIdentifierContext`: no topo, uma palavra
@@ -2102,18 +2151,31 @@ impl<'s, 'i> Parser<'s, 'i> {
                 || palavra_reservada_de_topo)
             // Seguida de parâmetros é o nome de uma função (`String
             // extension(String path)` do `package:path`), como no Fasta.
-            && !matches!(self.kind_at(1), Kind::Op(Op::Semicolon | Op::Assign | Op::Comma | Op::LParen | Op::Lt))
+            // Os `followingValues` do contexto: `;`, `=`, `,` no de variável;
+            // `<`, `(`, `{`, `=>` no de função (o que vem depois do nome
+            // decide qual é).
+            && !matches!(self.kind_at(1), Kind::Op(Op::Semicolon | Op::Assign | Op::Comma | Op::LParen | Op::Lt | Op::LBrace | Op::Arrow))
         {
             let palavra = self.span();
             self.erro_em(codigos::parser::MISSING_IDENTIFIER, palavra, &[]);
             return Err(self.erro_esperado(";"));
         }
-        let name = self.expect_identifier()?;
+        // `recoverFromInvalidMember`: num membro, `(` ou `{` no lugar do nome
+        // é método de nome sintético (`MISSING_IDENTIFIER` no token).
+        let name = if !topo && matches!(self.kind(), Kind::Op(Op::LParen | Op::LBrace)) {
+            let s = self.span();
+            self.erro_em(codigos::parser::MISSING_IDENTIFIER, s, &[]);
+            self.name_from("", Span { start: s.start, end: s.start })
+        } else {
+            self.nome_de_declaracao_ou_reservada()?
+        };
         // `parseTopLevelMemberImpl`/`parseClassOrMixin...MemberImpl`: nome
         // seguido de `{` ou `=>` é método sem parâmetros
         // (`parseGetterOrFormalParameters`: `MISSING_FUNCTION_PARAMETERS`, ou
         // `MISSING_METHOD_PARAMETERS` em classe, no nome) e o corpo é lido.
-        let sem_parametros = self.at_op(Op::LBrace) || self.at_op(Op::Arrow);
+        // Com `.` depois do nome também (`augment core.int foo();` sem o
+        // experimento: `augment` é o tipo e `core`, a função).
+        let sem_parametros = self.at_op(Op::LBrace) || self.at_op(Op::Arrow) || self.at_op(Op::Dot);
         if self.at_op(Op::LParen) || self.at_op(Op::Lt) || sem_parametros {
             self.relatar_modificadores_de_metodo(mods, topo, FunctionKind::Function);
             let type_params = self.parse_type_parameters_opt()?;
@@ -2124,7 +2186,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 } else {
                     codigos::parser::MISSING_FUNCTION_PARAMETERS
                 };
-                self.erro_em(codigo, name.span, &[]);
+                // No nome sintético, o erro vai para o token seguinte.
+                let alvo = if name.span.start == name.span.end { self.span() } else { name.span };
+                self.erro_em(codigo, alvo, &[]);
                 Vec::new()
             } else {
                 self.parse_formal_parameters()?
@@ -2208,7 +2272,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let mut type_params = Vec::new();
         let (name, parameters) = match kind {
             FunctionKind::Getter => {
-                let name = self.expect_identifier()?;
+                let name = self.nome_de_declaracao_ou_reservada()?;
                 self.conferir_nome_de_membro(name.span);
                 // `parseGetterOrFormalParameters`: `get x(...)` é
                 // `GETTER_WITH_PARAMETERS` no `(`, e a lista é lida.
@@ -2220,7 +2284,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 (name, None)
             }
             FunctionKind::Setter => {
-                let name = self.expect_identifier()?;
+                let name = self.nome_de_declaracao_ou_reservada()?;
                 self.conferir_nome_de_membro(name.span);
                 // `parseGetterOrFormalParameters`: sem `(`, o erro de
                 // parâmetros que faltam no nome (`missingParameterMessage`:
@@ -3033,11 +3097,54 @@ impl<'s, 'i> Parser<'s, 'i> {
                 let span = self.span();
                 self.erro_em(codigos::parser::INVALID_OPERATOR_QUESTIONMARK_PERIOD_FOR_SUPER, span, &[]);
             }
+            let mut via_primaria = false;
             let constructor = if self.eat_op(Op::Dot) || self.eat_op(Op::QuestionDot) {
-                Some(self.identifier_or_new()?)
+                // `parseSuperInitializerExpression`: o `ensureIdentifier`
+                // (`expressionContinuation`) e, no `parseInitializerExpressionRest`,
+                // a releitura como expressão. Uma palavra reservada leva os
+                // dois erros (`super.const()`: a palavra como nome e, relida
+                // pela `parsePrimary`, o `const ()` recusado como nome).
+                if self.at_kw(Keyword::New) || self.at_identifier() {
+                    Some(self.identifier_or_new()?)
+                } else if matches!(self.kind(), Kind::Keyword(_)) && !self.parece_inicio_de_comando(self.pos) {
+                    let texto = self.text().to_string();
+                    let span = self.span();
+                    self.erro_em(codigos::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, span, &[&texto]);
+                    via_primaria = true;
+                    Some(self.member_name(true)?)
+                } else {
+                    Some(self.member_name(false)?)
+                }
             } else {
                 None
             };
+            // `super.x` sem `(` nem `=`: `EXPECTED_TOKEN` (`(`) no token
+            // seguinte e parênteses sintéticos (`insertParens`).
+            if constructor.is_some() && !via_primaria && !self.at_op(Op::LParen) && !self.at_op(Op::Assign) {
+                self.erro(codigos::parser::EXPECTED_TOKEN, &["("]);
+                let s = self.span().start;
+                return Ok(Initializer::Super {
+                    span: self.span_from(start),
+                    constructor,
+                    arguments: crate::ast::Arguments { span: Span { start: s, end: s }, type_args: Box::default(), args: Box::default() },
+                });
+            }
+            // `buildInitializer`: relido pela `parsePrimary`, `super.x` sem
+            // argumentos não é chamada do construtor da superclasse
+            // (`INVALID_SUPER_IN_INITIALIZER`).
+            if via_primaria && !self.at_op(Op::LParen) {
+                self.erro_em(codigos::parser::INVALID_SUPER_IN_INITIALIZER, Span { start: start.start, end: start.start + 5 }, &[]);
+                self.pular_resto_do_inicializador();
+                let s = self.span().start;
+                // Não é invocação de construtor no `AstBuilder`: sem o nome,
+                // para a análise não procurar o construtor `const`.
+                let _ = constructor;
+                return Ok(Initializer::Super {
+                    span: self.span_from(start),
+                    constructor: None,
+                    arguments: crate::ast::Arguments { span: Span { start: s, end: s }, type_args: Box::default(), args: Box::default() },
+                });
+            }
             let arguments = self.parse_arguments()?;
             // `buildInitializer`: `super(…)`/`super.n(…)` seguido de mais
             // seletores não é chamada do construtor da superclasse:
@@ -3287,7 +3394,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// O corpo propriamente dito, após o modificador.
     fn parse_body_after_modifier(&mut self, expect_semicolon: bool) -> PResult<FunctionBody> {
         if self.at_op(Op::LBrace) {
-            return Ok(FunctionBody::Block(self.parse_block()?));
+            return Ok(FunctionBody::Block(self.parse_block_de_corpo()?));
         }
         if self.eat_op(Op::Arrow) {
             let expr = self.parse_expression()?;
@@ -4115,7 +4222,7 @@ mod tests {
             .collect();
         assert_eq!(
             codigos,
-            [(Some(c::EXPERIMENT_NOT_ENABLED), (12, 15), vec!["primary-constructors".to_string(), "3.13".to_string()])],
+            [(Some(c::EXPERIMENT_NOT_ENABLED), (12, 15), vec!["primary-constructors".to_string(), "3.13".to_string(), "3.13".to_string()])],
             "{:?}",
             out.diagnostics
         );

@@ -311,7 +311,7 @@ fn tipo_errado_em_irrefutavel(inf: &mut BodyInferrer<'_>, casado: TypeId, requer
 /// junta as dos dois lados, a esquerda primeiro).
 fn variaveis_declaradas(inf: &BodyInferrer<'_>, cx: &Corpo, p: PatternId, saida: &mut Vec<ast::Name>) {
     let a = &inf.program.unit(cx.unit).ast;
-    let mut por = |n: ast::Name, saida: &mut Vec<ast::Name>| {
+    let por = |n: ast::Name, saida: &mut Vec<ast::Name>| {
         if !saida.iter().any(|x| x.sym == n.sym) {
             saida.push(n);
         }

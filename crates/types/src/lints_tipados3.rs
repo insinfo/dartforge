@@ -527,14 +527,14 @@ fn igualdade_sem_relacao(
 }
 
 /// `typesAreUnrelated` do linter (`util/dart_type_utilities.dart:150`).
-struct Relacao<'a> {
-    program: &'a Program,
-    table: &'a mut TypeTable,
-    core: &'a CoreTypes,
-    outline: &'a OutlineTypes,
-    future_or: Option<ClassId>,
+pub(crate) struct Relacao<'a> {
+    pub(crate) program: &'a Program,
+    pub(crate) table: &'a mut TypeTable,
+    pub(crate) core: &'a CoreTypes,
+    pub(crate) outline: &'a OutlineTypes,
+    pub(crate) future_or: Option<ClassId>,
     /// O símbolo `call` (sem ele, nenhuma classe tem `call`).
-    call: Option<dartforge_intern::SymbolId>,
+    pub(crate) call: Option<dartforge_intern::SymbolId>,
 }
 
 impl Relacao<'_> {
@@ -588,7 +588,7 @@ impl Relacao<'_> {
         Some(crate::ops::sem_exibicao(s, self.table))
     }
 
-    fn sem_relacao(&mut self, l: TypeId, r: TypeId) -> bool {
+    pub(crate) fn sem_relacao(&mut self, l: TypeId, r: TypeId) -> bool {
         let dinamico = |t: &Type| matches!(t, Type::Dynamic);
         if self.fundo(l) || dinamico(self.table.get(l)) || self.fundo(r) || dinamico(self.table.get(r)) {
             return false;

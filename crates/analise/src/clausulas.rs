@@ -1976,8 +1976,8 @@ mod testes {
             .map(|(a, b, c)| (a.as_str(), b.as_str(), c.as_str()))
             .collect();
         // `class G = String with M`: a porta fecha e `class_used_as_mixin` não
-        // sai. `with P<int>` é `supertype_expands_to_type_parameter` (outro
-        // verificador), não tipo proibido.
+        // sai. `with P<int>` é `supertype_expands_to_type_parameter`, não
+        // tipo proibido.
         assert_eq!(
             v,
             vec![
@@ -2010,6 +2010,11 @@ mod testes {
                     "subtype_of_disallowed_type",
                     "int",
                     "Classes can't extend 'int'."
+                ),
+                (
+                    "supertype_expands_to_type_parameter",
+                    "P",
+                    "A type alias that expands to a type parameter can't be mixed in."
                 ),
             ]
         );

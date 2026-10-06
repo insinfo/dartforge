@@ -1989,9 +1989,26 @@ que o percurso lê são registrados pelo emissor na partida (`dartforge_registra
 `Module::campos_do_rastro`). Os pares do objeto `_StackTrace` codificam a lacuna como `(0, 0)` e os
 quadros de quem espera com os bits 62 e 61.
 
-*Desvios conhecidos.* Os ramos de stream da VM (`_SyncStreamController`, `async*`, `await for`,
-`yield*`) e a conta de "erro tratado" (`encountered_async_catch_error`) não foram portados; o corpo
-`async*` sai como quadro síncrono. O estado do quadro já é o do `await` durante o registro da
+**Estado em 2026-10-05 (escrito, não compilado): os ramos de stream.** Conferidos contra o
+`runtime/vm/stack_trace.cc` da tag 3.6.2 (não o do ramo main). O corpo `async*` tem a marca do corpo
+`async` e a de gerador (`hir::marcas_do_rastro::GERADOR_ASYNC`), empurra o quadro na pilha do rastro e
+guarda a posição de cada suspensão, a do `yield` também (`lower/async_sm.rs`). No runtime
+(`RT/rastro.rs`), o quadro de gerador na pilha conta sempre como já suspenso (`WasPreviouslySuspended`);
+o `UnwindAwaiterFrame` vai do quadro ao controlador (`_AsyncStarStreamController.controller`, posição 1
+do quadro) e do `_SyncStreamController` ao `UnwindFrameToStreamController`: o controlador inscrito, a
+inscrição (pelo `_StreamControllerAddStreamState` quando adiciona um stream), o `onData`; o tear-off
+`_StreamIterator._onData` leva ao `_Future` do `moveNext` (o `await for`), o `_StreamController._add` leva
+ao `asyncStarBody` do controlador de destino pelo `addStreamFuture` (o `yield*`), e os irmãos `onError`
+e `onDone` com elo seguem os elos. O `asyncStarBody` do DartForge tem elo até o corpo
+(`@pragma('vm:awaiter-link')` no `corpo` de `_asyncStarStart`), como a closure do
+`_createAsyncStarCallback` da VM tem até o `_SuspendState`. Os campos lidos são registrados também para
+as subclasses (o runtime acha o campo pela classe exata do objeto), e as entradas dos dois tear-offs, por
+`dartforge_registrar_tearoff_do_rastro`, só as que a poda deixou. O `encountered_async_catch_error` não
+foi portado de propósito: na VM ele só decide a parada do depurador em exceção não tratada e não muda o
+texto do rastro nem o comportamento do programa.
+
+*Desvios conhecidos.* O tear-off de um método qualquer como `onData` (fora dos dois reconhecidos) não tem
+a identidade da função, e não sai como quadro de quem espera. O estado do quadro já é o do `await` durante o registro da
 continuação (a VM ainda coleta o rastro síncrono nesse intervalo). Um tear-off que escuta um `Future`
 não é achado (a entrada de tear-off não tem a identidade). O casamento pela pilha usa uma janela de
 16 KiB abaixo do topo do quadro.

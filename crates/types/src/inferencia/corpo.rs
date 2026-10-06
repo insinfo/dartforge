@@ -97,6 +97,8 @@ pub(crate) struct Corpo {
     pub fluxo: Fluxo,
     pub funcoes: Vec<CtxFuncao>,
     pub cascatas: Vec<TypeId>,
+    /// O alvo de cada cascata aberta (o `realTarget` das seções).
+    pub alvos_de_cascata: Vec<ast::ExprId>,
     /// Tipando o padrão de um `case`/`if-case` (refutável): o identificador
     /// solto é uma constante (`case _padrao:`), não uma variável nova.
     pub padrao_refutavel: bool,
@@ -234,6 +236,7 @@ impl Corpo {
             fluxo: Fluxo::alcancavel(),
             funcoes: Vec::new(),
             cascatas: Vec::new(),
+            alvos_de_cascata: Vec::new(),
             padrao_refutavel: false,
             refutavel_forcado: false,
             literal_negado: None,

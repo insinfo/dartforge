@@ -108,69 +108,7 @@ const DIRETIVAS: &[&str] = &[
 
 const PARTES_DE_FOR: &[&str] = &["ForPartsWithDeclarations", "ForPartsWithExpression", "ForPartsWithPattern"];
 
-/// As subclasses de `Expression` que a árvore produz.
-const EXPRESSOES: &[&str] = &[
-    "SimpleIdentifier",
-    "PrefixedIdentifier",
-    "MethodInvocation",
-    "PropertyAccess",
-    "IntegerLiteral",
-    "DoubleLiteral",
-    "BooleanLiteral",
-    "NullLiteral",
-    "SimpleStringLiteral",
-    "StringInterpolation",
-    "AdjacentStrings",
-    "SymbolLiteral",
-    "ListLiteral",
-    "SetOrMapLiteral",
-    "RecordLiteral",
-    "InstanceCreationExpression",
-    "FunctionExpression",
-    "FunctionExpressionInvocation",
-    "FunctionReference",
-    "IndexExpression",
-    "PrefixExpression",
-    "PostfixExpression",
-    "BinaryExpression",
-    "ConditionalExpression",
-    "IsExpression",
-    "AsExpression",
-    "AssignmentExpression",
-    "PatternAssignment",
-    "CascadeExpression",
-    "AwaitExpression",
-    "ThrowExpression",
-    "RethrowExpression",
-    "ThisExpression",
-    "SuperExpression",
-    "SwitchExpression",
-    "ParenthesizedExpression",
-    "NamedExpression",
-    "DotShorthand",
-];
-
-/// As subclasses de `Statement`.
-const COMANDOS: &[&str] = &[
-    "Block",
-    "ExpressionStatement",
-    "VariableDeclarationStatement",
-    "PatternVariableDeclarationStatement",
-    "ReturnStatement",
-    "IfStatement",
-    "ForStatement",
-    "WhileStatement",
-    "DoStatement",
-    "SwitchStatement",
-    "TryStatement",
-    "BreakStatement",
-    "ContinueStatement",
-    "YieldStatement",
-    "LabeledStatement",
-    "EmptyStatement",
-    "AssertStatement",
-    "FunctionDeclarationStatement",
-];
+use dartforge_analise::arvore_analyzer::{COMANDOS, EXPRESSOES};
 
 /// As subclasses de `FunctionBody`.
 const CORPOS: &[&str] = &["BlockFunctionBody", "ExpressionFunctionBody", "EmptyFunctionBody", "NativeFunctionBody"];

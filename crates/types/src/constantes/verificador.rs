@@ -162,6 +162,87 @@ pub fn criacao_pode_ser_const(m: &mut Motor<'_>, lib: LibraryId, unidade: UnitId
     !v.saida.iter().any(|(_, d)| d.code.is_some_and(|c| ERROS_DE_CONSTANTE.contains(&c.info().unico)))
 }
 
+/// Um verificador sem as tabelas da biblioteca (as consultas de lint).
+fn verificador_avulso<'v, 'm>(m: &'v mut Motor<'m>, lib: LibraryId, unidade: UnitId) -> Verificador<'v, 'm> {
+    let padroes_ligados = m.program.library(lib).features.versao() >= dartforge_frontend::features::LanguageVersion::new(3, 0);
+    Verificador {
+        m,
+        lib,
+        unidade,
+        saida: Vec::new(),
+        campos: HashMap::new(),
+        topo: HashMap::new(),
+        classe_de_membro: HashMap::new(),
+        padroes_ligados,
+        valores_de_padroes: HashMap::new(),
+        valores_de_chaves: HashMap::new(),
+    }
+}
+
+/// `canBeConst` de um literal tipado (`_canBeConstTypedLiteral`): o
+/// `ConstantVerifier` sobre o literal com `const` não relata nenhum dos
+/// [`ERROS_DE_CONSTANTE`].
+pub fn literal_pode_ser_const(m: &mut Motor<'_>, lib: LibraryId, unidade: UnitId, e: ExprId) -> bool {
+    let a = m.ast(unidade);
+    let mut v = verificador_avulso(m, lib, unidade);
+    v.expr(a, e, true);
+    !v.saida.iter().any(|(_, d)| d.code.is_some_and(|c| ERROS_DE_CONSTANTE.contains(&c.info().unico)))
+}
+
+/// `ConstructorDeclaration.canBeConst` (`analyzer/lib/src/lint/linter.dart`):
+/// a classe não tem campo de instância que não é `final`, e o
+/// `ConstantVerifier` sobre o construtor marcado `const` não relata nenhum
+/// dos [`ERROS_DE_CONSTANTE`]: inicializadores potencialmente constantes,
+/// campos de instância com inicializador constante e valores padrão
+/// constantes.
+pub fn construtor_pode_ser_const(m: &mut Motor<'_>, lib: LibraryId, unidade: UnitId, mid: ast::MemberId) -> bool {
+    let a = m.ast(unidade);
+    let MemberKind::Constructor(k) = &a.member(mid).kind else { return false };
+    let mut v = verificador_avulso(m, lib, unidade);
+    let Some(classe) = v.classe_de(a, mid) else { return false };
+    let program = v.m.program;
+    // `hasNonFinalField`.
+    let nao_final = program.class(classe).fields.iter().any(|f| {
+        let x = program.variable(*f);
+        !x.static_ && !x.final_ && !x.const_
+    });
+    if nao_final {
+        return false;
+    }
+    let cx = Ctx { lexico: None, ..v.cx() };
+    for init in k.initializers.iter() {
+        let exprs: Vec<ExprId> = match init {
+            ast::Initializer::Field { value, .. } => vec![*value],
+            ast::Initializer::Assert { condition, message, .. } => std::iter::once(*condition).chain(*message).collect(),
+            ast::Initializer::Super { arguments, .. } | ast::Initializer::Redirect { arguments, .. } => arguments.args.iter().map(|x| x.value).collect(),
+        };
+        for x in exprs {
+            let mut nos = Vec::new();
+            super::potencial::coletar_em(v.m, &cx, x, true, false, &mut nos);
+            if !nos.is_empty() {
+                return false;
+            }
+        }
+    }
+    if !k.factory {
+        for fm in v.membros_da_classe(a, classe) {
+            let MemberKind::Field(l) = &a.member(fm).kind else { continue };
+            if l.static_ {
+                continue;
+            }
+            for var in l.variables.iter() {
+                let Some(init) = var.initializer else { continue };
+                let cx = v.cx();
+                if matches!(v.m.avaliar(&cx, init, l.const_), Constante::Invalida(_)) {
+                    return false;
+                }
+            }
+        }
+    }
+    v.valores_padrao(a, &k.parameters);
+    !v.saida.iter().any(|(_, d)| d.code.is_some_and(|c| ERROS_DE_CONSTANTE.contains(&c.info().unico)))
+}
+
 /// Os erros de constantes das unidades de `lib`.
 pub fn verificar(m: &mut Motor<'_>, lib: LibraryId) -> Vec<(UnitId, Diagnostic)> {
     // Os ciclos saem do grafo de dependências, antes de qualquer avaliação

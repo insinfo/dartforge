@@ -322,6 +322,49 @@ pub struct BodyInferrer<'a> {
     /// As variáveis num ciclo de inferência (`dependencyCycle`): o tipo é
     /// `dynamic`, e o relato já saiu.
     em_ciclo: HashSet<VariableId>,
+    /// Na busca dos sobrescritos de um campo sem tipo, a classe dele: os
+    /// campos declarados nela não são tipados ao montar a interface
+    /// ([`crate::heranca::Provedor::tipo_do_membro`]).
+    pub(crate) declarados_sem_tipar: Option<dartforge_elements::model::ClassId>,
+    /// Alguma interface do cache foi montada com um campo não tipado.
+    pub(crate) heranca_provisoria: bool,
+}
+
+/// As extensões acessíveis em `lib` (as da biblioteca e as que os imports
+/// trazem, [`BodyInferrer::extensoes_acessiveis`]) que se aplicam a `recv`,
+/// com os argumentos de tipo inferidos (`applicableTo` do analyzer, usado
+/// pelo completar: `InstanceExtensionMembersOperation` e os membros de
+/// extensão do `DeclarationHelper`). O receptor é tomado como está: quem
+/// chama já o promoveu a não anulável (`promoteToNonNull`).
+pub fn extensoes_aplicaveis(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    core: &CoreTypes,
+    outline: &mut crate::resolve::OutlineTypes,
+    lib: LibraryId,
+    recv: TypeId,
+) -> Vec<(ExtensionId, Vec<TypeId>)> {
+    // Sem tabelas de corpo: só a aplicabilidade é consultada.
+    let mut inf = BodyInferrer::com_tabelas(program, interner, table, core, outline, Some(UnitId(u32::MAX)));
+    let exts = inf.extensoes_acessiveis(lib);
+    exts.iter().filter_map(|&e| inf.extensao_aplicavel(e, recv).map(|a| (e, a))).collect()
+}
+
+/// Como [`extensoes_aplicaveis`], para uma lista de extensões dada (as do
+/// `exportNamespace` de uma biblioteca ainda não importada,
+/// `addNotImportedExtensionMethods`).
+pub fn extensoes_aplicaveis_dentre(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    core: &CoreTypes,
+    outline: &mut crate::resolve::OutlineTypes,
+    candidatas: &[ExtensionId],
+    recv: TypeId,
+) -> Vec<(ExtensionId, Vec<TypeId>)> {
+    let mut inf = BodyInferrer::com_tabelas(program, interner, table, core, outline, Some(UnitId(u32::MAX)));
+    candidatas.iter().filter_map(|&e| inf.extensao_aplicavel(e, recv).map(|a| (e, a))).collect()
 }
 
 impl<'a> BodyInferrer<'a> {
@@ -387,6 +430,8 @@ impl<'a> BodyInferrer<'a> {
             unidades_dos_avisos: Vec::new(),
             unidade_corrente: None,
             heranca: crate::heranca::Heranca::default(),
+            declarados_sem_tipar: None,
+            heranca_provisoria: false,
             pais: HashMap::new(),
             pilha_de_variaveis: Vec::new(),
             em_ciclo: HashSet::new(),

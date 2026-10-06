@@ -31,12 +31,14 @@ fn variavel_de_topo_lista_declaracao_e_uso() {
     abrir(&mut servidor, uri, texto);
     let resultado = pedir(&mut servidor, 1, uri, 1, 22, true);
     let lista = resultado.as_array().expect("lista de locais");
+    // Como o `dart language-server` 3.6.2: os usos e, por último, a
+    // declaração.
     assert_eq!(lista.len(), 2, "{lista:?}");
-    assert_eq!(lista[0]["uri"], uri);
-    assert_eq!(lista[0]["range"]["start"], json!({"line":0,"character":4}));
-    assert_eq!(lista[0]["range"]["end"], json!({"line":0,"character":12}));
-    assert_eq!(lista[1]["range"]["start"], json!({"line":1,"character":20}));
-    assert_eq!(lista[1]["range"]["end"], json!({"line":1,"character":28}));
+    assert_eq!(lista[1]["uri"], uri);
+    assert_eq!(lista[1]["range"]["start"], json!({"line":0,"character":4}));
+    assert_eq!(lista[1]["range"]["end"], json!({"line":0,"character":12}));
+    assert_eq!(lista[0]["range"]["start"], json!({"line":1,"character":20}));
+    assert_eq!(lista[0]["range"]["end"], json!({"line":1,"character":28}));
     // A partir da declaração também resolve.
     let da_decl = pedir(&mut servidor, 2, uri, 0, 5, true);
     assert_eq!(da_decl.as_array().expect("lista").len(), 2);
@@ -55,7 +57,7 @@ fn funcao_de_topo_lista_declaracao_e_chamada() {
     let resultado = pedir(&mut servidor, 1, uri, 1, 22, true);
     let lista = resultado.as_array().expect("lista");
     assert_eq!(lista.len(), 2, "{lista:?}");
-    assert_eq!(lista[0]["range"]["start"], json!({"line":0,"character":4}));
+    assert_eq!(lista[1]["range"]["start"], json!({"line":0,"character":4}));
 }
 
 #[test]
@@ -66,8 +68,8 @@ fn tipo_local_unico_lista_declaracao_e_usos() {
     let resultado = pedir(&mut servidor, 1, uri, 1, 2, true);
     let lista = resultado.as_array().expect("lista");
     assert_eq!(lista.len(), 3, "{lista:?}");
-    assert_eq!(lista[0]["range"]["start"], json!({"line":0,"character":6}));
-    assert_eq!(lista[0]["range"]["end"], json!({"line":0,"character":11}));
+    assert_eq!(lista[2]["range"]["start"], json!({"line":0,"character":6}));
+    assert_eq!(lista[2]["range"]["end"], json!({"line":0,"character":11}));
 }
 
 #[test]
@@ -107,15 +109,17 @@ fn variavel_entre_abertos_lista_declaracao_e_usos() {
     let linha_b = texto_b.lines().nth(1).unwrap();
     let resultado = pedir(&mut servidor, 1, USA_B, 1, coluna_em(linha_b, "resposta"), true);
     let lista = resultado.as_array().expect("lista de locais");
+    // O uso no arquivo do pedido, o do dono e a declaração por último
+    // (`dart language-server` 3.6.2).
     assert_eq!(lista.len(), 3, "{lista:?}");
-    assert_eq!(lista[0]["uri"], DONO_A);
-    assert_eq!(lista[0]["range"]["start"], json!({"line":0,"character":4}));
-    assert_eq!(lista[0]["range"]["end"], json!({"line":0,"character":12}));
+    assert_eq!(lista[2]["uri"], DONO_A);
+    assert_eq!(lista[2]["range"]["start"], json!({"line":0,"character":4}));
+    assert_eq!(lista[2]["range"]["end"], json!({"line":0,"character":12}));
     assert_eq!(lista[1]["uri"], DONO_A);
     let linha_a = texto_a.lines().nth(1).unwrap();
     assert_eq!(lista[1]["range"]["start"], json!({"line":1,"character":coluna_em(linha_a, "resposta")}));
-    assert_eq!(lista[2]["uri"], USA_B);
-    assert_eq!(lista[2]["range"]["start"], json!({"line":1,"character":coluna_em(linha_b, "resposta")}));
+    assert_eq!(lista[0]["uri"], USA_B);
+    assert_eq!(lista[0]["range"]["start"], json!({"line":1,"character":coluna_em(linha_b, "resposta")}));
     // A partir da declaração no dono agrega os abertos.
     let da_decl = pedir(&mut servidor, 2, DONO_A, 0, 5, true);
     assert_eq!(da_decl.as_array().expect("lista").len(), 3);
@@ -123,8 +127,8 @@ fn variavel_entre_abertos_lista_declaracao_e_usos() {
     let sem_decl = pedir(&mut servidor, 3, USA_B, 1, coluna_em(linha_b, "resposta"), false);
     let usos = sem_decl.as_array().expect("lista");
     assert_eq!(usos.len(), 2, "{usos:?}");
-    assert_eq!(usos[0]["uri"], DONO_A);
-    assert_eq!(usos[1]["uri"], USA_B);
+    assert_eq!(usos[0]["uri"], USA_B);
+    assert_eq!(usos[1]["uri"], DONO_A);
 }
 
 #[test]
@@ -135,11 +139,11 @@ fn tipo_entre_abertos_lista_declaracao_e_usos() {
     let resultado = pedir(&mut servidor, 1, USA_B, 1, 2, true);
     let lista = resultado.as_array().expect("lista");
     assert_eq!(lista.len(), 3, "{lista:?}");
-    assert_eq!(lista[0]["uri"], DONO_A);
-    assert_eq!(lista[0]["range"]["start"], json!({"line":0,"character":6}));
-    assert_eq!(lista[0]["range"]["end"], json!({"line":0,"character":11}));
+    assert_eq!(lista[2]["uri"], DONO_A);
+    assert_eq!(lista[2]["range"]["start"], json!({"line":0,"character":6}));
+    assert_eq!(lista[2]["range"]["end"], json!({"line":0,"character":11}));
     assert_eq!(lista[1], json!({"uri": DONO_A, "range": {"start": {"line":1,"character":0}, "end": {"line":1,"character":5}}}));
-    assert_eq!(lista[2], json!({"uri": USA_B, "range": {"start": {"line":1,"character":0}, "end": {"line":1,"character":5}}}));
+    assert_eq!(lista[0], json!({"uri": USA_B, "range": {"start": {"line":1,"character":0}, "end": {"line":1,"character":5}}}));
 }
 
 #[test]
@@ -151,8 +155,8 @@ fn funcao_entre_abertos_lista_declaracao_e_chamadas() {
     let resultado = pedir(&mut servidor, 1, USA_B, 1, coluna_em(linha_b, "somar"), true);
     let lista = resultado.as_array().expect("lista");
     assert_eq!(lista.len(), 3, "{lista:?}");
-    assert_eq!(lista[0]["uri"], DONO_A);
-    assert_eq!(lista[0]["range"]["start"], json!({"line":0,"character":4}));
+    assert_eq!(lista[2]["uri"], DONO_A);
+    assert_eq!(lista[2]["range"]["start"], json!({"line":0,"character":4}));
 }
 
 #[test]

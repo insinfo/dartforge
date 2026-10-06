@@ -84,12 +84,15 @@ fn fechar_e_reabrir_rele_configuracao_de_pacotes() {
         }}));
         servidor.bombear()
     };
-    assert_eq!(abrir(&mut servidor, 1)[0]["params"]["diagnostics"].as_array().unwrap().len(), 0);
+    // Sem erros, nada é publicado (como no servidor do Dart).
+    assert!(abrir(&mut servidor, 1).iter().all(|m| m["method"] != "textDocument/publishDiagnostics"));
     servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didClose","params":{
         "textDocument":{"uri":uri.clone()}
     }}));
     servidor.bombear();
     gravar("3.13");
-    assert_eq!(abrir(&mut servidor, 2)[0]["params"]["diagnostics"].as_array().unwrap().len(), 1);
+    let saidas = abrir(&mut servidor, 2);
+    let publicacao = saidas.iter().find(|m| m["method"] == "textDocument/publishDiagnostics").expect("publicação");
+    assert_eq!(publicacao["params"]["diagnostics"].as_array().unwrap().len(), 1);
     let _ = std::fs::remove_dir_all(&raiz);
 }

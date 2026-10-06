@@ -15,7 +15,7 @@
 
 pub mod servidor;
 mod acoes;
-mod arvore_analyzer;
+pub(crate) use dartforge_analise::arvore_analyzer;
 mod assinatura;
 mod assistencias;
 mod assistencias2;
@@ -380,6 +380,11 @@ pub trait Analisador {
     /// O `maxCompletionItems` da configuração do cliente (o `maxSuggestions`
     /// do coletor e do truncamento).
     fn definir_maximo_de_completar(&mut self, _maximo: usize) {}
+
+    /// Se o completar sugere declarações de bibliotecas não importadas (o
+    /// `suggestFromUnimportedLibraries && capabilities.applyEdit` do
+    /// `handler_completion.dart:367`).
+    fn definir_nao_importados_no_completar(&mut self, _sim: bool) {}
 
     /// `prepareRename`: intervalo (bytes) e texto do nome renomeável sob o
     /// cursor; `Ok(None)` quando não há nome ali.

@@ -97,18 +97,19 @@ fn so_codigos_publicados_e_ignore_respeitado() {
     let tipada = ultima(&saidas, &p.uri("lib/a.dart"))
         .expect("publicação tipada")
         .clone();
+    // A ordem do `dart language-server` 3.6.2: os erros antes dos avisos.
     assert_eq!(
         codigos(&tipada),
-        vec!["unused_local_variable", "non_bool_condition"],
+        vec!["non_bool_condition", "unused_local_variable"],
         "{tipada}"
     );
     assert_eq!(
         tipada["params"]["diagnostics"][0]["range"]["start"]["line"],
-        4
+        5
     );
     assert_eq!(
         tipada["params"]["diagnostics"][1]["range"]["start"]["line"],
-        5
+        4
     );
     let publicados = dartforge_analise::publicacao::verificados();
     for c in codigos(&tipada) {
@@ -136,15 +137,15 @@ fn resultado_de_versao_velha_e_descartado() {
     );
     let saidas = p.servidor.bombear();
     assert!(
-        saidas.iter().all(|m| m["params"]["version"] == 2),
+        saidas.iter().filter(|m| m["method"] == "textDocument/publishDiagnostics").all(|m| m["params"]["version"] == 2),
         "publicou versão velha: {saidas:?}"
     );
     assert_eq!(p.servidor.tipados_descartados(), 1);
+    // A versão 2 não tem erros, e os da 1 nunca chegaram ao cliente: nada
+    // a publicar (o servidor do Dart não publica lista vazia nesse caso).
     let mut depois = saidas;
     depois.extend(p.servidor.aguardar_diagnosticos(LIMITE));
-    let tipada = ultima(&depois, &uri).expect("publicação da versão 2");
-    assert_eq!(tipada["params"]["version"], 2);
-    assert!(codigos(tipada).is_empty(), "{tipada}");
+    assert!(ultima(&depois, &uri).is_none(), "{depois:?}");
 }
 
 #[test]
@@ -153,8 +154,10 @@ fn edicoes_rapidas_viram_uma_analise() {
     let uri = p.uri("lib/a.dart");
     p.servidor.pausar_analise_tipada(true);
     p.abrir("lib/a.dart", "void f() {\n  if (1) {}\n}\n");
+    // A última versão tem o erro: uma lista vazia sem erros publicados
+    // antes não seria publicada (como no servidor do Dart).
     for v in 2..=10 {
-        let cond = if v % 2 == 0 { "true" } else { "1" };
+        let cond = if v % 2 == 0 { "1" } else { "true" };
         p.mudar(
             "lib/a.dart",
             v,
@@ -170,7 +173,7 @@ fn edicoes_rapidas_viram_uma_analise() {
     // Uma análise para a rajada inteira, da última versão.
     assert_eq!(tipadas.len(), 1, "{saidas:?}");
     assert_eq!(tipadas[0]["params"]["version"], 10);
-    assert!(codigos(tipadas[0]).is_empty());
+    assert_eq!(codigos(tipadas[0]), vec!["non_bool_condition"]);
 }
 
 #[test]
@@ -192,7 +195,8 @@ fn editar_importado_atualiza_quem_importa() {
         ultima(&saidas, &uri_a).unwrap_or_else(|| panic!("a.dart não foi republicado: {saidas:?}"));
     assert_eq!(a["params"]["version"], 1);
     assert!(codigos(a).is_empty(), "{a}");
-    assert!(ultima(&saidas, &uri_b).is_some());
+    // `b.dart` segue sem erros: nada a publicar para ele.
+    assert!(ultima(&saidas, &uri_b).is_none());
     // E volta o erro quando `b.dart` volta a `int`.
     let saidas = mudar_e_esperar(&mut p, "lib/b.dart", 3, "int x = 0;\n");
     let a = ultima(&saidas, &uri_a).expect("a.dart republicado");
@@ -212,9 +216,10 @@ fn fechar_descarta_resultado_pendente() {
             "textDocument":{"uri":uri}
         }}),
     );
+    // O resultado com o erro é descartado, e nada fora publicado antes:
+    // o fechamento não publica.
     let saidas = p.servidor.bombear();
-    assert_eq!(saidas.len(), 1, "{saidas:?}");
-    assert!(codigos(&saidas[0]).is_empty());
+    assert!(ultima(&saidas, &uri).is_none(), "{saidas:?}");
     assert_eq!(p.servidor.tipados_descartados(), 1);
 }
 
@@ -253,7 +258,11 @@ fn diagnosticos_puxados_no_lugar_dos_empurrados() {
     let texto_do_documento = json!({"uri": uri});
     p.servidor.pausar_analise_tipada(true);
     // Abrir não empurra nada.
-    assert_eq!(p.abrir("lib/a.dart", "void f() {\n  if (1) {}\n}\n"), Value::Null);
+    p.gravar("lib/a.dart", "void f() {\n  if (1) {}\n}\n");
+    p.servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+        "textDocument":{"uri":uri,"languageId":"dart","version":1,"text":"void f() {\n  if (1) {}\n}\n"}
+    }}));
+    assert!(ultima(&p.servidor.bombear(), &uri).is_none());
     // O fluxo imediato (sintático) por pedido; o mesmo `resultId` volta
     // `unchanged`.
     let imediato = p.requisitar("textDocument/diagnostic", json!({"textDocument": texto_do_documento}));

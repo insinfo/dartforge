@@ -218,17 +218,67 @@ fn campos_do_rastro(ctx: &Context, module: &mut Module) {
         ("_FutureListener", "callback"),
         ("_FutureListener", "result"),
         ("_FutureListener", "_nextListener"),
+        ("_AsyncStarStreamController", "asyncStarBody"),
+        ("_AsyncStarStreamController", "controller"),
+        ("_BufferingStreamSubscription", "_onData"),
+        ("_BufferingStreamSubscription", "_onDone"),
+        ("_BufferingStreamSubscription", "_onError"),
+        ("_BufferingStreamSubscription", "_state"),
+        ("_StreamController", "_state"),
+        ("_StreamController", "_varData"),
+        ("_StreamControllerAddStreamState", "_varData"),
+        ("_StreamIterator", "_hasValue"),
+        ("_StreamIterator", "_stateData"),
+        ("_AddStreamState", "addStreamFuture"),
     ];
+    // O runtime acha o campo pela classe exata do objeto: a declarante e as
+    // subclasses dela (o `_SyncStreamController` de um `_StreamController`,
+    // o `_ControllerSubscription` de uma `_BufferingStreamSubscription`),
+    // como o `Instance::GetField` da VM.
     for (classe, campo) in CAMPOS {
-        let Some(c) = ctx.classe_do_sdk("async", classe) else { continue };
-        if !ctx.biblioteca_no_modulo(ctx.program.class(c).library) {
-            continue;
+        let Some(declarante) = ctx.classe_do_sdk("async", classe) else { continue };
+        for (k, _) in ctx.program.classes.iter().enumerate() {
+            let c = dartforge_elements::model::ClassId(k as u32);
+            let mut ancestral = Some(c);
+            let mut desce = false;
+            for _ in 0..64 {
+                match ancestral {
+                    Some(x) if x == declarante => {
+                        desce = true;
+                        break;
+                    }
+                    Some(x) => ancestral = ctx.program.class(x).supertype_class,
+                    None => break,
+                }
+            }
+            if !desce || !ctx.biblioteca_no_modulo(ctx.program.class(c).library) {
+                continue;
+            }
+            let Some(id) = ctx.id_de_classe(c) else { continue };
+            let Some(i) = membros::layout(ctx, c).iter().position(|&v| ctx.symbol_name(ctx.program.variables[v.0 as usize].name) == *campo) else {
+                continue;
+            };
+            module.campos_do_rastro.push((id, format!("{classe}.{campo}"), i + enums::base_do_layout(ctx, c)));
         }
-        let Some(id) = ctx.id_de_classe(c) else { continue };
-        let Some(i) = membros::layout(ctx, c).iter().position(|&v| ctx.symbol_name(ctx.program.variables[v.0 as usize].name) == *campo) else {
-            continue;
-        };
-        module.campos_do_rastro.push((id, format!("{classe}.{campo}"), i + enums::base_do_layout(ctx, c)));
+    }
+}
+
+/// As entradas de tear-off dos ramos de stream do rastro (§13.14) que este
+/// módulo definiu: o `_StreamIterator._onData` (o `await for`) e o
+/// `_StreamController._add` (o `yield*`).
+fn tearoffs_do_rastro(ctx: &Context, module: &mut Module) {
+    if !ctx.rastro {
+        return;
+    }
+    const TEAROFFS: &[(&str, &str, i64)] = &[("_StreamIterator", "_onData", 1), ("_StreamController", "_add", 2)];
+    for (classe, metodo, especie) in TEAROFFS {
+        let Some(c) = ctx.classe_do_sdk("async", classe) else { continue };
+        let Some(nome) = ctx.interner.lookup(metodo) else { continue };
+        let Some(&fid) = ctx.program.class(c).instance_members.get(&nome) else { continue };
+        let simbolo = format!("{}$tearm", simbolo_de(ctx, fid.0 as usize));
+        if module.functions.iter().any(|f| f.symbol == simbolo) {
+            module.tearoffs_do_rastro.push((simbolo, *especie));
+        }
     }
 }
 
@@ -292,6 +342,7 @@ fn lower_classes_e_funcoes(ctx: &Context, mut module: Module) -> Module {
     if !ctx.biblioteca_sdk {
         ffi::lower_ffi(ctx, &mut module);
     }
+    tearoffs_do_rastro(ctx, &mut module);
     module
 }
 
