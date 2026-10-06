@@ -25,7 +25,7 @@ fn acoes(p: &mut Projeto, relativo: &str, de: (u32, u32), ate: (u32, u32), extra
     let fora = |k: &str| {
         k.starts_with("source")
             || k.starts_with("quickfix.ignore")
-            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment", "refactor.convert.relativeToPackageImport", "refactor.convert.packageToRelativeImport", "refactor.convert.partOfToPartUri", "refactor.convert.toMapLiteral", "refactor.convert.toSetLiteral", "refactor.encapsulateField", "refactor.convert.toConstructorFieldParameter", "refactor.shadowField", "refactor.convert.toGenericFunctionSyntax", "refactor.destructureLocalVariableAssignment", "refactor.convert.ifCaseStatement", "refactor.convert.ifCaseStatementChain"].contains(&k) && !k.starts_with("refactor.surround."))
+            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment", "refactor.convert.relativeToPackageImport", "refactor.convert.packageToRelativeImport", "refactor.convert.partOfToPartUri", "refactor.convert.toMapLiteral", "refactor.convert.toSetLiteral", "refactor.encapsulateField", "refactor.convert.toConstructorFieldParameter", "refactor.shadowField", "refactor.convert.toGenericFunctionSyntax", "refactor.destructureLocalVariableAssignment", "refactor.convert.ifCaseStatement", "refactor.convert.ifCaseStatementChain", "refactor.convert.switchStatement"].contains(&k) && !k.starts_with("refactor.surround."))
             || k == "quickfix.change.to"
             || ["method", "function", "class", "mixin", "getter", "field", "localVariable", "parameter"]
                 .iter()
@@ -879,5 +879,27 @@ fn assistencia_de_cadeia_de_if_case() {
     assert_eq!(
         aplicar(&a["edit"], &p.uri("lib/a.dart"), texto),
         "void f(Object o) {\n  if (o case int x when x > 0) {\n    print(x);\n  } else if (o case String _ || double _) {\n    print(1);\n  } else {\n    print(2);\n  }\n}\n"
+    );
+}
+
+#[test]
+fn assistencia_de_switch_statement() {
+    let mut p = Projeto::com_literais("acoes-switch");
+    let texto = "int f(Object o, int n) {\n  if (o is int) {\n    print(1);\n  } else if (o is String) {\n    print(2);\n  } else {\n    print(3);\n  }\n  return switch (n) {\n    1 => 10,\n    _ => 20,\n  };\n}\n";
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "if (o");
+    let a = acao(&r, "Convert to switch statement");
+    assert_eq!(a["kind"], "refactor.convert.switchStatement");
+    assert_eq!(
+        aplicar(&a["edit"], &p.uri("lib/a.dart"), texto),
+        texto.replace(
+            "if (o is int) {\n    print(1);\n  } else if (o is String) {\n    print(2);\n  } else {\n    print(3);\n  }",
+            "switch (o) {\n    case int():\n      print(1);\n    case String():\n      print(2);\n    default:\n      print(3);\n  }"
+        )
+    );
+    let pos = onde(texto, "switch (n)", 0);
+    let r = acoes(&mut p, "lib/a.dart", pos, pos, json!({}));
+    assert_eq!(
+        aplicar(&acao(&r, "Convert to switch statement")["edit"], &p.uri("lib/a.dart"), texto),
+        texto.replace("  return switch (n) {\n    1 => 10,\n    _ => 20,\n  };", "  switch (n) {\n    case 1:\n      return 10;\n    default:\n      return 20;\n  }")
     );
 }
