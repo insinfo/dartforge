@@ -558,6 +558,11 @@ Base comum: a resolução de membro passa por `TypePropertyResolver.resolve` (`a
 - **Mensagem:** `A member named '{0}' is defined in {1}, and none are more specific.` — `{1}`: lista de `"extension 'E'"` ou `"unnamed extension on 'T'"` (`extendedType.getDisplayString()`), juntadas com `, ` e ` and ` no último (`analyzer/lib/src/dart/resolver/extension_member_resolver.dart:122-135`, `StringUtilities.commaSeparatedWithAnd`?).
 - **No DartForge:** `inf.relatar_ambiguidade_de_extensao` (54 acertos). FN: operadores (`+`, `unary-`, `[]`), getter+setter (`getter_setter`), membros em `static_extension_getter_setter_conflicts` e `internal_resolution_4`. **msg**: `'Iterable<InvalidType>'` — tipo inválido exibido como `InvalidType`.
   **Mudança:** consultar a ambiguidade também nos caminhos de operador/índice/atribuição.
+- **Correções e estado (2026-10-06):** (1) `findExtension` torna candidata a extensão que declara o membro **ou o
+  par** dele — getter/setter do nome base, `[]`/`[]=` no índice —; a mais específica sem o membro pedido não resolve
+  (`E { get a }` e `E2 { set a }` → `0.a` ambíguo); (2) operadores relatam a ambiguidade: binário no nó inteiro
+  (`a + a`), prefixo no operando (`-a`), índice no alvo (`a[0]`), composta no token (`a += 0`). 68 de 73; restam os
+  membros de extensão alcançados pelo `this` implícito dentro de outra extensão.
 
 ##### `invocation_of_non_function` (perda 28: FN 28)
 - **Emissão:** `_reportInvocationOfNonFunction` (`method_invocation_resolver.dart:257-270`), de `_resolveReceiverNull` (:575-600) quando o elemento achado no escopo não é executável, variável nem prefixo: **parâmetro de tipo** (`T()`), alias de tipo (`typedef T = dynamic; T()`), `dynamic`; e do tipo literal com elemento não executável (:902-915).

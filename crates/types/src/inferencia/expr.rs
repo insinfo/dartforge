@@ -2846,6 +2846,18 @@ pub(crate) fn operador_binario(
     // `super[i]`, `super + x`: o operador é o da superclasse (como o
     // `super.m` de [`membro_super`]), não o que a própria classe sobrescreve.
     let busca = if posicoes.super_ { buscar_operador_super(inf, cx, op) } else { inf.buscar_membro(cx.lib, recv, op, false) };
+    // `AMBIGUOUS_EXTENSION_MEMBER_ACCESS` do operador: no binário inteiro;
+    // no índice, no alvo (`extension_member_resolver.dart:115-128`).
+    {
+        let sp = match no.map(|n| &ast(inf, cx).expr(n).kind) {
+            Some(ExprKind::Index { target, .. }) => inf.span_expr(cx.unit, *target),
+            // A composta (`a += 0`): no operador.
+            Some(ExprKind::Assign { .. }) => posicoes.token,
+            Some(_) => inf.span_expr(cx.unit, no.unwrap()),
+            None => posicoes.token,
+        };
+        inf.relatar_ambiguidade_de_extensao(sp);
+    }
     match busca {
         Busca::Achado(m) => operador_binario_com_membro_alvo(inf, cx, recv, posicoes.alvo_numerico.unwrap_or(recv), op, arg, ctx, no, m),
         Busca::Ausente if checar_nulo => {
@@ -3160,7 +3172,11 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
             let nome = if op == UnaryOp::Neg { "unary-" } else { "~" };
             let sp_op = dartforge_diagnostics::Span { start: span.start, end: span.start + 1 };
             let nulo = nulo_em_unario(inf, cx, t, sym, nome, sp_op, operand);
-            match inf.buscar_membro(cx.lib, t, sym, false) {
+            let busca = inf.buscar_membro(cx.lib, t, sym, false);
+            // A ambiguidade de extensão do prefixo, no operando.
+            let sp_operando = inf.span_expr(cx.unit, operand);
+            inf.relatar_ambiguidade_de_extensao(sp_operando);
+            match busca {
                 Busca::Achado(m) => {
                     resolver(inf, cx, e, m.resolved.clone());
                     match inf.table.get(m.tipo) {

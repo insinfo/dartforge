@@ -476,10 +476,26 @@ impl<'a> BodyInferrer<'a> {
     /// Membro de extensão aplicável ao receptor, com desempate por especificidade.
     pub(crate) fn membro_de_extensao(&mut self, lib: LibraryId, recv: TypeId, nome: SymbolId, setter: bool) -> Option<Membro> {
         let chave = if setter { self.chave_setter(nome)? } else { nome };
+        // `findExtension`: a extensão é candidata se declara o getter **ou**
+        // o setter do nome base (`extension_member_resolver.dart:70-110`); a
+        // escolhida sem o membro pedido não resolve. Operadores só por si.
+        let identificador = self.interner.resolve(nome).chars().next().is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$');
+        let par = if Some(nome) == self.sym.indice {
+            self.sym.indice_set
+        } else if Some(nome) == self.sym.indice_set {
+            self.sym.indice
+        } else if !identificador {
+            None
+        } else if setter {
+            Some(nome)
+        } else {
+            self.chave_setter(nome)
+        };
         let exts = self.extensoes_acessiveis(lib);
         let mut candidatos: Vec<(ExtensionId, FunctionElementId, Vec<TypeId>, TypeId)> = Vec::new();
         for &e in exts.iter() {
-            let Some(&f) = self.program.extension(e).instance_members.get(&chave) else { continue };
+            let membros = &self.program.extension(e).instance_members;
+            let Some(&f) = membros.get(&chave).or_else(|| par.and_then(|k| membros.get(&k))) else { continue };
             if let Some(args) = self.extensao_aplicavel(e, recv) {
                 let dados = self.outline.extensions[e.0 as usize].clone();
                 let mapa = self.mapa(&dados.type_params, &args);
@@ -565,6 +581,9 @@ impl<'a> BodyInferrer<'a> {
             return None;
         };
         let (e, f, args, _) = candidatos.swap_remove(melhor);
+        if self.program.extension(e).instance_members.get(&chave) != Some(&f) {
+            return None;
+        }
         // `notifyExtensionUsed`: a extensão escolhida usa os imports dela.
         self.body_types.extensoes_usadas.insert((lib, e));
         let (t, metodo) = self.tipo_do_membro_declarado(f, setter);

@@ -1428,6 +1428,11 @@ e getter por nome (`lang:accepted/3.0/records/feature-specification.md:
 
 ### 8.2 Extensões (R-EXT-01..04)
 
+Candidatas (`ExtensionMemberResolver.findExtension`): as extensões acessíveis
+aplicáveis ao receptor que declaram o membro **ou o par** dele (o setter de
+um getter e vice-versa pelo nome base; `[]`/`[]=`). Escolhida a mais
+específica, se ela não tem o membro pedido, a busca não resolve.
+
 **Aplicabilidade** (texto `static-extension-methods/feature-specification.md:
 251-260`; `nnbd/…:908-917`): acesso de instância; o tipo não tem membro com
 o nome-base (`dynamic` "tem todos"; `Never`/`void` nunca têm extensão);
