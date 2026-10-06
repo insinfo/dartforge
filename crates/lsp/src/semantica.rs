@@ -472,6 +472,7 @@ impl Analisador for AnalisadorSemantico {
                     saida.extend(cx.switch_em_cadeia_de_if_case(uri, inicio, fim));
                     saida.extend(cx.if_em_switch(uri, inicio, fim));
                     saida.extend(cx.expressao_switch_em_comando(uri, inicio, fim));
+                    saida.extend(cx.switch_em_expressao(uri, inicio, fim));
                     saida.extend(cx.dividir_condicao_e(uri, inicio, fim));
                     saida.extend(cx.converter_em_null_aware(uri, inicio, fim));
                     saida.extend(cx.converter_em_multilinha(uri, inicio, fim));

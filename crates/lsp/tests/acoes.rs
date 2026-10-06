@@ -25,7 +25,7 @@ fn acoes(p: &mut Projeto, relativo: &str, de: (u32, u32), ate: (u32, u32), extra
     let fora = |k: &str| {
         k.starts_with("source")
             || k.starts_with("quickfix.ignore")
-            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment", "refactor.convert.relativeToPackageImport", "refactor.convert.packageToRelativeImport", "refactor.convert.partOfToPartUri", "refactor.convert.toMapLiteral", "refactor.convert.toSetLiteral", "refactor.encapsulateField", "refactor.convert.toConstructorFieldParameter", "refactor.shadowField", "refactor.convert.toGenericFunctionSyntax", "refactor.destructureLocalVariableAssignment", "refactor.convert.ifCaseStatement", "refactor.convert.ifCaseStatementChain", "refactor.convert.switchStatement", "refactor.convert.toForElement", "refactor.convert.toSuperParameters", "refactor.convert.classToEnum"].contains(&k) && !k.starts_with("refactor.surround."))
+            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment", "refactor.convert.relativeToPackageImport", "refactor.convert.packageToRelativeImport", "refactor.convert.partOfToPartUri", "refactor.convert.toMapLiteral", "refactor.convert.toSetLiteral", "refactor.encapsulateField", "refactor.convert.toConstructorFieldParameter", "refactor.shadowField", "refactor.convert.toGenericFunctionSyntax", "refactor.destructureLocalVariableAssignment", "refactor.convert.ifCaseStatement", "refactor.convert.ifCaseStatementChain", "refactor.convert.switchStatement", "refactor.convert.toForElement", "refactor.convert.toSuperParameters", "refactor.convert.classToEnum", "refactor.convert.switchExpression"].contains(&k) && !k.starts_with("refactor.surround."))
             || k == "quickfix.change.to"
             || ["method", "function", "class", "mixin", "getter", "field", "localVariable", "parameter"]
                 .iter()
@@ -949,5 +949,36 @@ fn assistencia_de_classe_em_enum() {
     assert_eq!(
         aplicar(&acao(&r, "Convert class to an enum")["edit"], &p.uri("lib/a.dart"), texto),
         "enum _E {\n  a._('a'),\n  b._('b');\n\n  final String s;\n  const _E._(this.s);\n}\n"
+    );
+}
+
+#[test]
+fn assistencia_de_switch_expression() {
+    let mut p = Projeto::com_literais("acoes-switch-expr");
+    let texto = "int f(bool b) {\n  switch (b) {\n    case true:\n      return 1;\n    case false:\n      return 0;\n  }\n}\n";
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "switch (b)");
+    let a = acao(&r, "Convert to switch expression");
+    assert_eq!(a["kind"], "refactor.convert.switchExpression");
+    assert_eq!(
+        aplicar(&a["edit"], &p.uri("lib/a.dart"), texto),
+        "int f(bool b) {\n  return switch (b) {\n    true => 1,\n    false => 0\n  };\n}\n"
+    );
+    let texto = "void f(String s) {\n  switch (s) {\n    case 'foo':\n      print('foo');\n    case 'bar':\n      print('bar');\n    default:\n      throw 'unrecognized';\n  }\n}\n";
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "(s)");
+    assert_eq!(
+        aplicar(&acao(&r, "Convert to switch expression")["edit"], &p.uri("lib/a.dart"), texto),
+        "void f(String s) {\n  print(switch (s) {\n    'foo' => 'foo',\n    'bar' => 'bar',\n    _ => throw 'unrecognized'\n  });\n}\n"
+    );
+    let texto = "String f(String s) {\n  var name = '';\n  switch (s) {\n    case 'foo':\n      name = 'foo';\n    case 'bar':\n      name = 'bar';\n    default:\n      throw 'unrecognized';\n  }\n  return name;\n}\n";
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "(s)");
+    assert_eq!(
+        aplicar(&acao(&r, "Convert to switch expression")["edit"], &p.uri("lib/a.dart"), texto),
+        "String f(String s) {\n  var name = '';\n  name = switch (s) {\n    'foo' => 'foo',\n    'bar' => 'bar',\n    _ => throw 'unrecognized'\n  };\n  return name;\n}\n"
+    );
+    let texto = "int f(String name) {\n  switch (name) {\n    case 'red':\n      return 1;\n  }\n  throw 'Only'\n    ' supports'\n    ' red';\n}\n";
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "switch (name)");
+    assert_eq!(
+        aplicar(&acao(&r, "Convert to switch expression")["edit"], &p.uri("lib/a.dart"), texto),
+        "int f(String name) {\n  return switch (name) {\n    'red' => 1,\n    _ => throw 'Only'\n      ' supports'\n      ' red',\n  };\n}\n"
     );
 }

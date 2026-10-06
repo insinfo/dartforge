@@ -864,7 +864,7 @@ impl Contexto<'_> {
 
     /// Os comentários entre o token anterior e o token `t`
     /// (`precedingComments`, em ordem).
-    fn comentarios_antes(&self, t: Span) -> Vec<Span> {
+    pub(crate) fn comentarios_antes(&self, t: Span) -> Vec<Span> {
         let a = self.token_anterior(t.start).map_or(0, |p| p.end);
         self.comentarios.iter().copied().filter(|c| c.start >= a && c.end <= t.start).collect()
     }
