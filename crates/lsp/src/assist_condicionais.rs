@@ -6,8 +6,10 @@
 //! | `Replace conditional with 'if-else'` | `refactor.convert.conditionalToIfElse` | `ReplaceConditionalWithIfElse` |
 //! | `Split && condition` | `refactor.splitIfConjunction` | `SplitAndCondition` |
 //! | `Convert to use '?.'` | `refactor.convert.toNullAware` | `ConvertToNullAware` |
+//! | `Convert to 'if-case' statement` | `refactor.convert.ifCaseStatement` | `ConvertToIfCaseStatement` |
 
 use crate::acoes::AcaoDeCodigo;
+use crate::Edicao;
 use crate::refatoracoes::Contexto;
 use crate::refatoracoes_exec::{Mudanca, Texto, UM_RECUO};
 use dartforge_diagnostics::Span;
@@ -313,6 +315,107 @@ impl Contexto<'_> {
             titulo: "Convert to use '?.'".into(),
             especie: "refactor.convert.toNullAware".into(),
             edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            diagnostico: None,
+            criar_arquivo: None,
+        })
+    }
+
+    /// A biblioteca tem padrões (Dart 3.0).
+    pub(crate) fn com_padroes(&self) -> bool {
+        let prog = self.p.programa();
+        prog.library(prog.unit(self.unidade).library).features.versao() >= dartforge_frontend::features::LanguageVersion::new(3, 0)
+    }
+
+    /// Algum identificador de `n` lê o local declarado em `nome`.
+    pub(crate) fn cita_local(&self, n: usize, nome: usize) -> bool {
+        let mut pilha = vec![n];
+        while let Some(k) = pilha.pop() {
+            if self.especie(k) == "SimpleIdentifier"
+                && let crate::arvore_analyzer::Marca::Expr(x) = self.arvore.nos[k].marca
+                && matches!(self.corpos.get_resolved(x), Some(dartforge_types::Resolved::Local(_)))
+                && self.corpos.declaracao_local(x) == Some(nome)
+            {
+                return true;
+            }
+            pilha.extend(self.filhos(k).iter().copied());
+        }
+        false
+    }
+
+    /// `asSingleVariableDeclaration`: o comando declara um só local com
+    /// inicializador; o nome, o inicializador e se é `final`.
+    pub(crate) fn declaracao_unica(&self, comando: usize) -> Option<(Span, usize, bool)> {
+        if self.especie(comando) != "VariableDeclarationStatement" {
+            return None;
+        }
+        let lista = *self.filhos(comando).first()?;
+        let variaveis: Vec<usize> = self.filhos(lista).iter().copied().filter(|&k| self.especie(k) == "VariableDeclaration").collect();
+        let [variavel] = variaveis[..] else { return None };
+        let nome = self.token_seguinte(self.arvore.nos[variavel].inicio)?;
+        self.corpos.tipos_de_locais.get(&nome.start)?;
+        let inicializador = *self.filhos(variavel).first()?;
+        let final_ = self.tokens.iter().any(|t| {
+            t.span.start >= self.arvore.nos[lista].inicio && t.span.end <= nome.start && matches!(&self.fonte[t.span.start..t.span.end], "final" | "const")
+        });
+        Some((nome, inicializador, final_))
+    }
+
+    /// `ConvertToIfCaseStatement` (convert_to_if_case_statement.dart): o local
+    /// declarado no comando anterior ao `if` e testado com `is T` ou
+    /// `!= null`, sem leitura depois do `then`, passa para o `if-case`.
+    pub(crate) fn converter_em_if_case(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
+        if !self.com_padroes() {
+            return None;
+        }
+        let comando = self.arvore.localizar(inicio, fim)?;
+        if self.especie(comando) != "IfStatement" {
+            return None;
+        }
+        let bloco = self.pai(comando)?;
+        if self.especie(bloco) != "Block" {
+            return None;
+        }
+        let comandos = self.filhos(bloco);
+        let indice = comandos.iter().position(|&c| c == comando)?;
+        let anterior = *comandos.get(indice.checked_sub(1)?)?;
+        let (nome, inicializador, final_) = self.declaracao_unica(anterior)?;
+        let nome_texto = &self.fonte[nome.start..nome.end];
+        let filhos_do_if = self.filhos(comando);
+        let condicao = *filhos_do_if.first()?;
+        let ramos: Vec<usize> = filhos_do_if.iter().copied().filter(|&k| self.e_comando(k)).collect();
+        let referencias_depois = || ramos.get(1).is_some_and(|&e| self.cita_local(e, nome.start)) || comandos[indice + 1..].iter().any(|&c| self.cita_local(c, nome.start));
+        let padrao = match self.especie(condicao) {
+            "IsExpression" => {
+                let f = self.filhos(condicao);
+                let (esquerda, tipo) = (*f.first()?, *f.get(1)?);
+                if self.especie(esquerda) != "SimpleIdentifier" || self.texto_do_no(esquerda) != nome_texto || referencias_depois() {
+                    return None;
+                }
+                format!("{}{} {nome_texto}", if final_ { "final " } else { "" }, self.texto_do_no(tipo))
+            }
+            "BinaryExpression" => {
+                let f = self.filhos(condicao);
+                let (esquerda, direita) = (*f.first()?, *f.get(1)?);
+                if self.operador_binario(condicao)? != "!="
+                    || self.especie(direita) != "NullLiteral"
+                    || self.especie(esquerda) != "SimpleIdentifier"
+                    || self.texto_do_no(esquerda) != nome_texto
+                    || referencias_depois()
+                {
+                    return None;
+                }
+                format!("{} {nome_texto}?", if final_ { "final" } else { "var" })
+            }
+            _ => return None,
+        };
+        let edicoes = vec![
+            Edicao { uri: uri.to_string(), span: self.arvore.span(condicao), texto: format!("{} case {padrao}", self.texto_do_no(inicializador)) },
+            Edicao { uri: uri.to_string(), span: Span { start: self.arvore.nos[anterior].inicio, end: self.arvore.nos[comando].inicio }, texto: String::new() },
+        ];
+        Some(AcaoDeCodigo {
+            titulo: "Convert to 'if-case' statement".into(),
+            especie: "refactor.convert.ifCaseStatement".into(),
+            edicoes,
             diagnostico: None,
             criar_arquivo: None,
         })
