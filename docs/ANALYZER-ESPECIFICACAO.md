@@ -20220,7 +20220,7 @@ Fonte: `analyzer/lib/...` do `E:\references\dart-sdk-3.6.2\pkg\analyzer` (idênt
   - **Argumentos de tipo de constante de enum sem os parâmetros do enum (FP 1)** — `TypeParameterReferencedByStatic__enum_c_742d0786.dart` (`v<T>()`); `resolve.rs:~703` usa `&HashMap::new()`/`Normal`; o analyzer usa o escopo do enum (`resolution_visitor.dart:496-543`). Passar o escopo de parâmetros de tipo, o contêiner e `ArgumentoDeTipo` (sem `membro_estatico`).
   - Lacuna (sem amostra): `resolve_annotation` não resolve os argumentos de tipo quando a cabeça é parâmetro de tipo ou não resolve (ver `non_type_as_type_argument`).
 
-##### `unused_element` (perda 74: FN 74, FP 0, msg 0, pos 0)
+##### `unused_element` (perda 74: FN 74, FP 0, msg 0, pos 0; em 2026-10-06, 269/279, FP 0, FN 8)
 
 Citações `analyzer/lib/...` do 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\analyzer\lib`), salvo as marcadas **[3.13]** (`E:\references\dart-sdk\pkg\analyzer\lib`). `unused_field_from_primary_constructor` e `unused_element_parameter` (como nome próprio) só existem no 3.13; no 3.6.2, `UNUSED_ELEMENT_PARAMETER` tem `sharedName: UNUSED_ELEMENT` e sai como `unused_element`. Os 166 FN das amostras foram classificados um a um; nenhum FP/msg/pos.
 
@@ -20269,6 +20269,17 @@ Citações `analyzer/lib/...` do 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\analyz
   10. **`super.e` posicional obrigatório marca o do super (1)** — `UnusedElement__classPrivate_secondaryCo_2f78d312.dart`; só `DefaultFormalParameter` marca (`:114-121`). Mudança: `parametros.rs:291` só com `p.kind != Required`.
   11. **Artefato 3.13 `'<unnamed>'` em 1:1 (2)** — `augmentation_modifier_{extra,missing}/...`: FN conhecido.
 
+- **Correções de 2026-10-06 (FP 29 para 0, FN 32 para 8; verificador ativo `crates/types/src/fase_nao_usados.rs`, locais em `crates/analise/src/locais.rs`):**
+  - Atalho de ponto (3.13, checkout main `unused_local_elements_verifier.dart:203-238`): a declaração do contexto é usada por `addElement` (sem a regra da própria classe); o membro estático pelo nome vira membro usado e lido; o construtor pela chamada (alvo `DotShorthand` conta como nome escrito).
+  - Escrita de acessor (3.6.2 `:284-286`, `_useIdentifierElement` de `readElement`, `writeElement` e `staticElement`): a composta e o `++`/`--` usam também o getter (`readElement`); a escrita simples sem setter usa o getter da recuperação (`writeElement`). Vale para acessor de topo e para membro.
+  - `visitNamedType` passa o próprio `NamedType` como `parent` (3.6.2 `:221-224`), então a regra de não uso vale para toda a subárvore do tipo de uma lista de variáveis que não é de campo e do tipo do `is` (`_enclosingVariableDeclaration` só durante o tipo da lista, `:336-347`; `_enclosingIsExpression`, `:189-198`): `List<_A>? v;`, `p is List<_A>`, `p is void Function<T extends _A>()`, `final List<_A> x = []` de topo.
+  - Função local: `_isNamedWildcard` só a tira com o recurso de curingas e o nome `_` (`_visitFunctionElement`, `:1033-1040`); sem o recurso, `_` e `__` são relatadas. A referência a ela de dentro dela não a usa (`_enclosingExec`, que só muda numa `FunctionDeclaration`; `locais.rs::funcao_local`).
+  - O `returnType` do `ConstructorDeclaration` é um identificador do tipo dono: fora de `ClassDeclaration` (o `_enclosingClass` só é posto nela), ele usa o enum ou o tipo de extensão. O primário (3.13) não tem esse identificador.
+  - O construtor da representação de um tipo de extensão conta para "mais de um construtor"; o `typedef` público de um tipo de extensão expõe os construtores públicos dele, como o de classe.
+  - `const C.n()` chega como tipo de duas partes sem `constructor`: o ramo de criação aceita qualquer `InstanceCreation`.
+  - Alias de classe (`class _A = S with M;`): o 3.6.2 não tem `visitClassTypeAlias` no verificador, nunca é relatado.
+  - `visitRelationalPattern` (3.6.2 `:247-251`): o operador do padrão relacional é membro usado e lido; a inferência grava `UnitBodyTypes.operadores_relacionais`.
+- **Restam (8 FN):** o `call` de extensão chamado implicitamente (3), o operador de extensão sem nome (1), extensões sem nome em arquivos de `augment` (2), o parâmetro opcional nunca passado de construtor secundário (1) e um primário de enum 3.13 (1).
 ##### `unused_local_variable` (perda 43: FN 43, FP 0, msg 0, pos 0)
 
 - **Emissão:** `UnusedLocalElementsVerifier._visitLocalVariableElement` (`analyzer/lib/src/error/unused_local_elements_verifier.dart:1045-1057`), de `visitVariableDeclarationStatement` (`:738-746`), `visitForPartsWithDeclarations` (`:613`), `visitDeclaredIdentifier` (`:544`, for-in), `visitCatchClauseParameter` (`:520`), `visitDeclaredVariablePattern` (`:550-564`, sem `_patternVariableElements` ativo) e `visitPatternVariableDeclaration` (`:672-699`, agrupa). Caminho: `LibraryAnalyzer._computeDiagnostics` (`analyzer/lib/src/dart/analysis/library_analyzer.dart:315-330`) roda `GatherUsedLocalElementsVisitor` em todas as unidades (`UsedLocalElements.merge`), e `_computeWarnings` (`:459`, `:512-520`) roda o verificador por arquivo.

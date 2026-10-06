@@ -73,6 +73,10 @@ struct Visita<'a> {
     regiao_compartilhada: Option<usize>,
     /// As variáveis do padrão do caso cuja guarda está sendo visitada.
     da_guarda: Vec<usize>,
+    /// A função local cujo corpo está sendo visitado (o `_enclosingExec`
+    /// do `GatherUsedLocalElementsVisitor`, que só muda numa
+    /// `FunctionDeclaration`): a referência a ela de dentro dela não a usa.
+    executavel: Option<usize>,
     /// Início (índice em `locais`) das variáveis do padrão sendo declarado.
     inicio_padrao: Option<usize>,
 }
@@ -125,6 +129,11 @@ impl<'a> Visita<'a> {
             return;
         }
         if let Some(i) = self.achar(n.sym).map(|i| self.raiz(i)) {
+            // `identical(element, _enclosingExec)`
+            // (`unused_local_elements_verifier.dart:383-385`).
+            if Some(i) == self.executavel {
+                return;
+            }
             let l = &mut self.locais[i];
             if leitura || l.especie == Especie::Funcao {
                 l.lido = true;
@@ -588,11 +597,19 @@ impl<'a> Visita<'a> {
                         }
                     }
                 }
-                StmtKind::Function(f) => self.funcao(*f, false),
+                StmtKind::Function(f) => self.funcao_local(*f),
                 StmtKind::PatternVariables { value, .. } => self.expr(*value),
                 _ => self.stmt(s),
             }
         }
+    }
+
+    /// O corpo de uma função local, com ela como `_enclosingExec`.
+    fn funcao_local(&mut self, f: ast::FunctionId) {
+        let i = self.ast.function(f).name.and_then(|n| self.achar(n.sym));
+        let salvo = std::mem::replace(&mut self.executavel, i);
+        self.funcao(f, false);
+        self.executavel = salvo;
     }
 
     fn stmt(&mut self, s: StmtId) {
@@ -609,7 +626,7 @@ impl<'a> Visita<'a> {
                 if let Some(n) = ast.function(*f).name {
                     self.declarar(n, Especie::Funcao, None);
                 }
-                self.funcao(*f, false);
+                self.funcao_local(*f);
             }
             StmtKind::Expression(x) => self.expr_ctx(*x, true),
             StmtKind::If { condition, case_pattern, guard, then, else_ } => {
@@ -859,7 +876,7 @@ pub fn nao_usados(u: Unidade<'_>, interner: &Interner, curinga: bool) -> Vec<Dia
 
 fn nao_usados_sem_filtro(u: Unidade<'_>, interner: &Interner, curinga: bool) -> Vec<Diagnostic> {
     let ast = u.ast;
-    let mut v = Visita { ast, interner, curinga, fonte: u.fonte, locais: Vec::new(), escopos: vec![Vec::new()], grupos: 0, refutavel: false, regiao_compartilhada: None, inicio_padrao: None, da_guarda: Vec::new() };
+    let mut v = Visita { ast, interner, curinga, fonte: u.fonte, locais: Vec::new(), escopos: vec![Vec::new()], grupos: 0, refutavel: false, regiao_compartilhada: None, inicio_padrao: None, da_guarda: Vec::new(), executavel: None };
     for &d in &u.unit.declarations {
         match &ast.decl(d).kind {
             DeclKind::Function(f) => v.funcao(*f, true),
@@ -897,7 +914,12 @@ fn nao_usados_sem_filtro(u: Unidade<'_>, interner: &Interner, curinga: bool) -> 
     for (i, l) in v.locais.iter().enumerate() {
         let nome = interner.resolve(l.nome);
         // `_isNamedWildcard`: só `_`s (com o recurso, só `_`, que nem declara).
-        let so_sublinhados = nome.bytes().all(|b| b == b'_') && !(curinga && nome.len() > 1);
+        // A função local só fica de fora com o recurso
+        // (`_visitFunctionElement`, `unused_local_elements_verifier.dart:1033-1040`).
+        let so_sublinhados = match l.especie {
+            Especie::Funcao => curinga && nome == "_",
+            _ => nome.bytes().all(|b| b == b'_') && !(curinga && nome.len() > 1),
+        };
         if lidos[i] || so_sublinhados || l.grupo.is_some_and(|g| grupos_lidos.contains(&g)) {
             continue;
         }

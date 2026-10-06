@@ -791,7 +791,10 @@ pub(crate) fn padrao_relacional(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: P
         _ => ("", "", false),
     };
     let operador = match inf.interner.lookup(nome).map(|s| inf.buscar_membro(cx.lib, t, s, false)) {
-        Some(Busca::Achado(m)) => match inf.table.get(m.tipo).clone() {
+        Some(Busca::Achado(m)) => match {
+            inf.body_types.units[cx.unit.0 as usize].operadores_relacionais.insert(p, m.resolved.clone());
+            inf.table.get(m.tipo).clone()
+        } {
             Type::Function { positional, ret, .. } => positional.first().copied().map(|p| (p, ret)),
             _ => None,
         },

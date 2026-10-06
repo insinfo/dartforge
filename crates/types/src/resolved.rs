@@ -137,6 +137,9 @@ pub struct UnitBodyTypes {
     /// O `PatternField.element` de cada campo de padrão objeto que achou um
     /// membro, pelo subpadrão do campo.
     pub elementos_de_campos: std::collections::HashMap<ast::PatternId, Resolved>,
+    /// O `RelationalPattern.element` (o operador achado no tipo casado),
+    /// pelo padrão relacional.
+    pub operadores_relacionais: std::collections::HashMap<ast::PatternId, Resolved>,
 }
 
 impl UnitBodyTypes {
@@ -162,6 +165,7 @@ impl UnitBodyTypes {
             tipos_de_parametros: std::collections::HashMap::new(),
             tipos_de_escrita: std::collections::HashMap::new(),
             elementos_de_campos: std::collections::HashMap::new(),
+            operadores_relacionais: std::collections::HashMap::new(),
         }
     }
 

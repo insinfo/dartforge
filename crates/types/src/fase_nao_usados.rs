@@ -244,10 +244,73 @@ fn sobrescreve_usado(
     false
 }
 
-/// Os tipos escritos direto numa lista de variáveis que não é de campo e no
-/// `is`: neles o tipo de interface nomeado não conta como uso (o pai do
-/// `NamedType` é a lista ou o `IsExpression`).
+/// Os tipos escritos numa lista de variáveis que não é de campo e no `is`,
+/// com toda a subárvore (argumentos de tipo, partes de tipo de função e de
+/// registro): neles o tipo de interface nomeado não conta como uso. O
+/// `visitNamedType` passa o próprio `NamedType` como `parent`, então a regra
+/// vale enquanto `_enclosingVariableDeclaration` (só durante o tipo da
+/// lista, `visitVariableDeclarationList`) ou `_enclosingIsExpression` (só
+/// durante o tipo do `is`) estiver posto (3.6.2,
+/// `unused_local_elements_verifier.dart:189-198`, `:336-347`, `:386-400`).
 fn tipos_sem_uso_de_interface(a: &ast::Ast) -> HashSet<ast::TypeId> {
+    let raizes = tipos_sem_uso_de_interface_raizes(a);
+    let mut v = HashSet::new();
+    fn descer(a: &ast::Ast, t: ast::TypeId, v: &mut HashSet<ast::TypeId>) {
+        if !v.insert(t) {
+            return;
+        }
+        match &a.ty(t).kind {
+            TypeKind::Named { args, .. } => {
+                for &x in args.iter() {
+                    descer(a, x, v);
+                }
+            }
+            TypeKind::Void => {}
+            TypeKind::Function { return_type, type_params, parameters } => {
+                if let Some(r) = return_type {
+                    descer(a, *r, v);
+                }
+                for tp in type_params.iter() {
+                    if let Some(b) = tp.bound {
+                        descer(a, b, v);
+                    }
+                }
+                parametros(a, parameters, v);
+            }
+            TypeKind::Record { positional, named } => {
+                for &x in positional.iter() {
+                    descer(a, x, v);
+                }
+                for (_, x) in named.iter() {
+                    descer(a, *x, v);
+                }
+            }
+        }
+    }
+    fn parametros(a: &ast::Ast, ps: &[ast::Parameter], v: &mut HashSet<ast::TypeId>) {
+        for p in ps.iter() {
+            if let Some(x) = p.ty {
+                descer(a, x, v);
+            }
+            for tp in p.function_type_params.iter() {
+                if let Some(b) = tp.bound {
+                    descer(a, b, v);
+                }
+            }
+            if let Some(f) = &p.function_parameters {
+                parametros(a, f, v);
+            }
+        }
+    }
+    for t in raizes {
+        descer(a, t, &mut v);
+    }
+    v
+}
+
+/// As raízes de [`tipos_sem_uso_de_interface`]: o tipo escrito da lista e o
+/// do `is`.
+fn tipos_sem_uso_de_interface_raizes(a: &ast::Ast) -> HashSet<ast::TypeId> {
     let mut v = HashSet::new();
     fn lista(l: &ast::VariableList, v: &mut HashSet<ast::TypeId>) {
         if let Some(t) = l.ty {
@@ -469,8 +532,31 @@ pub fn elementos_nao_usados(
                     }
                     continue;
                 }
-                // A criação: o construtor nomeado (o identificador dele).
-                ExprKind::InstanceCreation { constructor: Some(_), .. } | ExprKind::Call { .. } => {
+                // `visitDotShorthandConstructorInvocation`,
+                // `visitDotShorthandInvocation` e
+                // `visitDotShorthandPropertyAccess` (3.13, checkout main
+                // `unused_local_elements_verifier.dart:203-238`): a declaração
+                // do contexto é usada (`addElement`, sem a regra da própria
+                // classe); o membro estático pelo nome (`visitSimpleIdentifier`
+                // do `memberName`/`propertyName`). O construtor fica na chamada.
+                ExprKind::DotShorthand { name, .. } => {
+                    if let Some(Resolved::Element(Element::Class(d))) = corpo.get_resolved(id) {
+                        if cx.biblioteca(El::Classe(*d)) == lib {
+                            usados.elementos.insert(El::Classe(*d));
+                        }
+                        if let Some(&f) = program.class(*d).static_members.get(&name.sym) {
+                            let el = cx.da_funcao(f);
+                            usar(&mut usados, el, ex.span);
+                            usados.membros.insert(el);
+                            membro_lido(&mut usados, el);
+                        }
+                    }
+                    continue;
+                }
+                // A criação: o construtor nomeado (o identificador dele; em
+                // `const C.n()` o parser deixa `C.n` como tipo de duas partes,
+                // sem `constructor`).
+                ExprKind::InstanceCreation { .. } | ExprKind::Call { .. } => {
                     // `visitFunctionExpressionInvocation`: o `call` implícito
                     // (`addElement`).
                     if matches!(ex.kind, ExprKind::Call { .. })
@@ -481,7 +567,7 @@ pub fn elementos_nao_usados(
                     if let Some(Resolved::Constructor(f)) = corpo.get_resolved(id) {
                         let escrito = match &ex.kind {
                             ExprKind::InstanceCreation { .. } => true,
-                            ExprKind::Call { target, .. } => matches!(a.expr(*target).kind, ExprKind::Property { .. }),
+                            ExprKind::Call { target, .. } => matches!(a.expr(*target).kind, ExprKind::Property { .. } | ExprKind::DotShorthand { .. }),
                             _ => false,
                         };
                         let nomeado = !interner.resolve(program.function(*f).name).is_empty();
@@ -537,10 +623,21 @@ pub fn elementos_nao_usados(
                                 membro_lido(&mut usados, el);
                             }
                             if escrito {
-                                // O `writeElement`: o setter de mesmo nome.
+                                // O `writeElement`: o setter de mesmo nome, ou
+                                // o getter da recuperação (sem setter).
                                 let setter = program.library(program.function(f).library).declared.get(&program.function(f).name).and_then(|b| b.setter);
-                                if let Some(Element::Function(g)) = setter {
-                                    usar(&mut usados, El::Funcao(g), ex.span);
+                                match setter {
+                                    Some(Element::Function(g)) => usar(&mut usados, El::Funcao(g), ex.span),
+                                    _ => usar(&mut usados, el, ex.span),
+                                }
+                                // O `readElement` da composta e do `++`/`--`:
+                                // o getter (`_useIdentifierElement`, 3.6.2
+                                // `unused_local_elements_verifier.dart:284`).
+                                if !atribuicao_simples {
+                                    let getter = if program.function(f).kind == FunctionKind::Getter { Some(el) } else { cx.getter_de(el) };
+                                    if let Some(g) = getter {
+                                        usar(&mut usados, g, ex.span);
+                                    }
                                 }
                             }
                             if !lido && !escrito {
@@ -575,6 +672,10 @@ pub fn elementos_nao_usados(
                     }
                     if escrito {
                         alvos.push(el_escrita);
+                        // O `readElement` da composta e do `++`/`--`.
+                        if !atribuicao_simples && !(lido || !escrito) {
+                            alvos.push(cx.getter_de(el_escrita).unwrap_or(el_leitura));
+                        }
                     }
                     for el in alvos {
                         usar(&mut usados, el, ex.span);
@@ -619,6 +720,17 @@ pub fn elementos_nao_usados(
             }
         }
 
+        // `visitRelationalPattern` (`unused_local_elements_verifier.dart:247-251`):
+        // `addMember` e `addReadMember` do operador.
+        for el in corpo.operadores_relacionais.values() {
+            let el = match el {
+                Resolved::Member { member: MemberRef::Function(g), .. } | Resolved::ExtensionMember { member: g, .. } => cx.da_funcao(*g),
+                _ => continue,
+            };
+            usados.membros.insert(el);
+            membro_lido(&mut usados, el);
+        }
+
         // `visitNamedType`.
         let sem_interface = tipos_sem_uso_de_interface(a);
         for (ti, t) in a.types.iter().enumerate() {
@@ -659,6 +771,24 @@ pub fn elementos_nao_usados(
         }
         for (mi, m) in a.members.iter().enumerate() {
             let MemberKind::Constructor(k) = &m.kind else { continue };
+            // O `returnType` do `ConstructorDeclaration` é um
+            // `SimpleIdentifier` com o tipo dono: fora de uma
+            // `ClassDeclaration` (o `_enclosingClass` só é posto nela), ele
+            // usa o enum ou o tipo de extensão (3.6.2,
+            // `unused_local_elements_verifier.dart:255-286`, `:380-382`). O
+            // primário (3.13) não tem esse identificador.
+            let primario = a.decls.iter().any(|d| match &d.kind {
+                DeclKind::Class(x) => x.primary_constructor == Some(ast::MemberId(mi as u32)),
+                DeclKind::Enum(x) => x.primary_constructor == Some(ast::MemberId(mi as u32)),
+                _ => false,
+            });
+            if !primario
+                && let Some(eu) = construtor_do_membro(u, ast::MemberId(mi as u32))
+                && let Some(classe) = program.function(eu).class
+                && matches!(program.class(classe).kind, ClassKind::Enum | ClassKind::ExtensionType)
+            {
+                usados.elementos.insert(El::Classe(classe));
+            }
             let mut marcar = |c: ClassId, n: Option<ast::Name>| {
                 let Some(n) = n else { return };
                 if let Some(&f) = program.class(c).constructors.get(&n.sym) {
@@ -696,7 +826,7 @@ pub fn elementos_nao_usados(
                 continue;
             }
             let Some(alvo) = outline.tipos_escritos.get(&(u, *ty)) else { continue };
-            if let crate::table::Type::Interface { class, .. } = table.get(*alvo) {
+            if let crate::table::Type::Interface { class, .. } | crate::table::Type::ExtensionType { decl: class, .. } = table.get(*alvo) {
                 for (n, f) in program.class(*class).constructors.iter() {
                     if !privado(interner, *n) {
                         usados.elementos.insert(El::Funcao(*f));
@@ -804,7 +934,11 @@ pub fn elementos_nao_usados(
             match &d.kind {
                 DeclKind::Class(x) => {
                     membros = &x.members;
+                    // O alias de classe (`class _A = S with M;`) não é
+                    // visitado pelo verificador do 3.6.2 (não há
+                    // `visitClassTypeAlias`): nunca é relatado.
                     if let Some(c) = classe_da_decl(u, did)
+                        && !x.mixin_application
                         && privado(interner, x.name.sym)
                         && !usado_elemento(El::Classe(c), &d.metadata, u, &mut motor)
                         && !marcado(&cx, &mut motor, u, &d.metadata, true)
@@ -943,7 +1077,10 @@ pub fn elementos_nao_usados(
                             continue;
                         }
                         let Some(c) = program.function(e).class else { continue };
-                        if program.class(c).constructors.len() > 1 && !usado_membro(El::Funcao(e), n.sym, &membro.metadata, u, &mut motor) {
+                        // O construtor da representação de um tipo de
+                        // extensão não está no modelo, mas conta.
+                        let representacao = usize::from(program.class(c).kind == ClassKind::ExtensionType);
+                        if program.class(c).constructors.len() + representacao > 1 && !usado_membro(El::Funcao(e), n.sym, &membro.metadata, u, &mut motor) {
                             relatar(u, w::UNUSED_ELEMENT, n, format!("{nome_do_tipo}.{}", interner.resolve(n.sym)));
                         }
                     }
