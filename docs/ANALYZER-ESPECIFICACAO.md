@@ -20313,7 +20313,7 @@ Citações `analyzer/lib/...` do 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\analyz
   5. **FP nosso suprimindo (1)**: `primary_constructors/wildcard_declaring_parameters_error_test.dart` (`undefined_identifier '_'` falso).
   - **FP:** `static_extension_internal_resolution_4_error_test.dart:24` — o oráculo tem `undefined_identifier` (236, 242, 248) que nós não emitíamos (leitura de nome só com setter, corrigida na seção de `undefined_identifier`), então a porta não suprimia.
 
-##### `unused_field_from_primary_constructor` (perda 39: FN 39, FP 0, msg 0, pos 0)
+##### `unused_field_from_primary_constructor` (perda 39: FN 39, FP 0, msg 0, pos 0; feito, 30/39)
 
 Só existe no 3.13 (o 3.6.2 não tem construtor primário); oráculo 3.13 (bibliotecas em `sintaxe-nova.json`).
 
@@ -20326,7 +20326,8 @@ Só existe no 3.13 (o 3.6.2 não tem construtor primário); oráculo 3.13 (bibli
   ```
   Na prática só privados; dois declarantes de mesmo nome são ambos relatados; `_` no inicializador de campo não lê (`wildcard_declaring_parameters_error_test.dart:33,45`).
 - **Posição:** o nome do parâmetro. **Mensagem [3.13]:** `messages.yaml:31462` "The value of the field '#fieldName' isn't used." (correção com `#keyword` = `final`/`var`); WARNING.
-- **No DartForge:** não existe; `privados.rs:174` exclui os campos `de_primario`, enums com primário pulam membros (`:297`). 39/39 não implementado (classe com `_` duplicado 3, enum 3, `private_optional_parameter/...class_primary_*` 5, `unused_field_from_primary_constructor/*` 5, `wildcard_declaring_parameters_error_test.dart` 9, `declaring_parameter_collision_error_test.dart` 14). Mudança: entrada em `SUPLEMENTO_3_13` (`crates/paridade/examples/gerar_codigos.rs:37`) com dois argumentos e regenerar `codigos_g.rs`; regra `CampoDePrimario` (classe e enum) com o critério de `Campo`, `[nome, final|var]`, só em biblioteca de sintaxe nova; depende da causa 1 de `unused_field`.
+- **No DartForge (feito, 30/39):** o verificador ativo é `crates/types/src/fase_nao_usados.rs` (o `privados.rs` é a camada antiga, pelo nome). Os campos que o parser elabora de um parâmetro declarante (`declarations.rs::elaborar_construtor_primario`: membro `Field` com o nome e o intervalo do parâmetro, que vira `this.x`) são reconhecidos pelo início do nome entre os parâmetros `this.` do primário de classe ou enum; não lidos (o mesmo `_isReadMember` do `unused_field`), saem como `UNUSED_FIELD_FROM_PRIMARY_CONSTRUCTOR` com `[nome, final|var]` (a palavra é `final` se o campo é final, senão `var`) em vez de `UNUSED_FIELD`. Isso também tirou 30 FP de `unused_field`.
+- **Pendente (9 FN, um arquivo):** `primary_constructors/wildcard_declaring_parameters_error_test.dart`. Os campos `_` contam como lidos porque um `_` não resolvido em outro ponto da biblioteca entra em `unresolvedReadMembers` (`unused_local_elements_verifier.dart:451-453`). No oráculo 3.13.4 (experimento `primary-constructors` desligado) o `_` dos inicializadores (`int x = _;` em `class E(int _, int _)`, `this : assert(_ > 0)` em `extension type Ext(int _)`) não dá `undefined_identifier` nem `implicit_this_reference_in_initializer`: resolve para algum elemento, e então nenhum `_` fica não resolvido. Falta descobrir no 3.13.4 a que o `_` resolve com o experimento desligado (o `curinga` do `Corpo` vem de `Feature::WildcardVariables`); o mesmo arquivo tem FP de `duplicate_field_formal_parameter` e de `implicit_this_reference_in_initializer` (`:87:17`) pela mesma causa.
 
 ##### `unused_field` (perda 27: FN 27, FP 0, msg 0, pos 0)
 
@@ -29036,7 +29037,7 @@ Gerado por `E:\dftemp\analise\spec-r4\indice.py` sobre este arquivo. Colunas:
 | `unused_element` | F | 19729 | UNUSED_ELEMENT, UNUSED_ELEMENT_PARAMETER — `error/unused_local_elements_verifier.dart:489` +8 | 279/205/205; FN 74; pub |
 | `unused_element_parameter` | F | 19875 | não existe no 3.6.2 (main: `analyzer/lib/src/diagnostic/diagnostic.g.dart:18007`) | 21/0/0; FN 21; sem emissão |
 | `unused_field` | F | 19836 | WarningCode.UNUSED_FIELD — `error/unused_local_elements_verifier.dart:490` +1 | 122/95/95; FN 27; pub |
-| `unused_field_from_primary_constructor` | F | 19821 | não existe no 3.6.2 (main: `analyzer/lib/src/diagnostic/diagnostic.g.dart:18043`) | 39/0/0; FN 39; sem emissão |
+| `unused_field_from_primary_constructor` | F | 19821 | não existe no 3.6.2 (main: `analyzer/lib/src/diagnostic/diagnostic.g.dart:18043`) | 39/30/30; FN 9 (curingas) |
 | `unused_import` | F | 19799 | WarningCode.UNUSED_IMPORT — `error/imports_verifier.dart:237` +1 | 155/115/114; FN 41, FP 1 |
 | `unused_label` | F | 19935 | WarningCode.UNUSED_LABEL — `error/dead_code_verifier.dart:168` | 5/0/0; FN 5; sem emissão |
 | `unused_local_variable` | F | 19778 | WarningCode.UNUSED_LOCAL_VARIABLE — `error/unused_local_elements_verifier.dart:491` +2 | 2283/2240/2240; FN 43; pub |

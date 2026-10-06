@@ -744,6 +744,9 @@ pub fn elementos_nao_usados(
         motor = Some(Motor::novo(program, interner, table, core, outline, corpos, inferidas));
     }
     let mut saida: Vec<(UnitId, Diagnostic)> = Vec::new();
+    // Os campos declarados por parâmetro do construtor primário (3.13), com
+    // dois argumentos: juntados a `saida` no fim.
+    let mut de_primario: Vec<(UnitId, Diagnostic)> = Vec::new();
     let mut relatar = |u: UnitId, codigo, n: ast::Name, exibido: String| {
         saida.push((u, Diagnostic::com_codigo(codigo, n.span, [exibido.as_str()])));
     };
@@ -890,6 +893,18 @@ pub fn elementos_nao_usados(
                 DeclKind::Extension(x) => x.name.map(|n| interner.resolve(n.sym).to_string()).unwrap_or_default(),
                 _ => String::new(),
             };
+            // `visitPrimaryConstructorDeclaration` (3.13,
+            // `unused_local_elements_verifier.dart:1022-1057` do checkout
+            // main): o campo de um parâmetro declarante (`final`/`var`) de
+            // classe ou enum não lido é `UNUSED_FIELD_FROM_PRIMARY_CONSTRUCTOR`
+            // no nome do parâmetro, com o nome e a palavra; o tipo de extensão
+            // nunca relata. O parser elabora o campo com o nome do parâmetro.
+            let nomes_declarantes: HashSet<usize> = match primario.map(|m| &a.member(m).kind) {
+                Some(MemberKind::Constructor(k)) if matches!(d.kind, DeclKind::Class(_) | DeclKind::Enum(_)) => {
+                    k.parameters.iter().filter(|p| p.this_).filter_map(|p| p.name).map(|n| n.span.start).collect()
+                }
+                _ => HashSet::new(),
+            };
             for &mid in membros {
                 if Some(mid) == primario {
                     continue;
@@ -910,7 +925,15 @@ pub fn elementos_nao_usados(
                             if let Some(&id) = vs.get(&i)
                                 && !lido(id)
                             {
-                                relatar(u, w::UNUSED_FIELD, v.name, interner.resolve(v.name.sym).to_string());
+                                if nomes_declarantes.contains(&v.name.span.start) {
+                                    let palavra = if l.final_ { "final" } else { "var" };
+                                    de_primario.push((
+                                        u,
+                                        Diagnostic::com_codigo(w::UNUSED_FIELD_FROM_PRIMARY_CONSTRUCTOR, v.name.span, [interner.resolve(v.name.sym), palavra]),
+                                    ));
+                                } else {
+                                    relatar(u, w::UNUSED_FIELD, v.name, interner.resolve(v.name.sym).to_string());
+                                }
                             }
                         }
                     }
@@ -928,6 +951,7 @@ pub fn elementos_nao_usados(
             }
         }
     }
+    saida.extend(de_primario);
     saida.sort_by_key(|(u, d)| (u.0, d.span.start));
     saida.dedup_by(|x, y| x.0 == y.0 && x.1.span == y.1.span && x.1.code == y.1.code);
     saida
