@@ -133,8 +133,11 @@ impl<'p> Cx<'_, 'p> {
         Some(Param { dono: Some(g), unidade: gu, p: &gps[alvo], indice: alvo })
     }
 
-    /// `checkArgument`.
-    fn checar(&mut self, u: UnitId, pais: &dartforge_frontend::pais::Pais, valor: ExprId, param: Option<Param<'p>>, out: &mut Vec<Achado>) {
+    /// `checkArgument`. `relato`: o nó relatado, quando não é o valor (o
+    /// `NamedExpression` inteiro no caminho da fábrica redirecionadora, que
+    /// não o desembrulha).
+    #[allow(clippy::too_many_arguments)]
+    fn checar(&mut self, u: UnitId, pais: &dartforge_frontend::pais::Pais, valor: ExprId, param: Option<Param<'p>>, relato: Option<dartforge_diagnostics::Span>, out: &mut Vec<Achado>) {
         let Some(q) = param else { return };
         if q.p.kind != ParameterKind::Optional && q.p.kind != ParameterKind::Named {
             return;
@@ -154,7 +157,7 @@ impl<'p> Cx<'_, 'p> {
             return;
         }
         if self.motor.iguais(&v, &padrao) {
-            out.push((a.expr(valor).span, "avoid_redundant_argument_values", Vec::new()));
+            out.push((relato.unwrap_or(a.expr(valor).span), "avoid_redundant_argument_values", Vec::new()));
         }
     }
 
@@ -172,7 +175,7 @@ impl<'p> Cx<'_, 'p> {
                 };
                 indice.map(|j| Param { dono, unidade: pu, p: &ps[j], indice: j })
             });
-            self.checar(u, pais, x.value, param, out);
+            self.checar(u, pais, x.value, param, None, out);
             if param.is_some_and(|q| q.p.kind == ParameterKind::Optional) {
                 break;
             }
@@ -218,7 +221,8 @@ impl<'p> Cx<'_, 'p> {
                 }
             };
             let param = indice.map(|j| Param { dono, unidade: pu, p: &ps[j], indice: j });
-            self.checar(u, pais, x.value, param, out);
+            let relato = x.name.map(|n| dartforge_diagnostics::Span { start: n.span.start, end: self.program.unit(u).ast.expr(x.value).span.end });
+            self.checar(u, pais, x.value, param, relato, out);
             if param.is_some_and(|q| q.p.kind == ParameterKind::Optional) {
                 break;
             }

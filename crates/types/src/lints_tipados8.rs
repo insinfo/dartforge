@@ -520,13 +520,19 @@ fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: 
         let ExprKind::Call { target, arguments } = &a.expr(inv).kind else { continue };
         // `argumentsMatchParameters`: o `canonicalElement` de cada argumento
         // é o parâmetro de mesma posição (ou de mesmo nome) da closure.
-        let elemento_do_argumento = |x: ExprId| -> Option<dartforge_intern::SymbolId> {
-            let x = sem_parenteses(x);
-            match (&a.expr(x).kind, corpo.get_resolved(x)) {
-                (ExprKind::Identifier(n), Some(Resolved::Parameter { .. })) if ps.iter().any(|p| p.name.is_some_and(|q| q.sym == n.sym)) => Some(n.sym),
+        // O parâmetro da closure a que `x` resolve: os parâmetros de uma
+        // expressão de função ficam no escopo como locais declarados no nome
+        // deles.
+        let parametro_da_closure = |x: ExprId| -> Option<dartforge_intern::SymbolId> {
+            let ExprKind::Identifier(n) = &a.expr(x).kind else { return None };
+            let p = ps.iter().find(|p| p.name.is_some_and(|q| q.sym == n.sym))?;
+            match corpo.get_resolved(x) {
+                Some(Resolved::Parameter { .. }) => Some(n.sym),
+                Some(Resolved::Local(_)) if corpo.declaracao_local(x) == p.name.map(|q| q.span.start) => Some(n.sym),
                 _ => None,
             }
         };
+        let elemento_do_argumento = |x: ExprId| -> Option<dartforge_intern::SymbolId> { parametro_da_closure(sem_parenteses(x)) };
         let posicionais: Vec<dartforge_intern::SymbolId> = ps.iter().filter(|p| p.kind != ParameterKind::Named).filter_map(|p| p.name.map(|n| n.sym)).collect();
         let nomeados: Vec<dartforge_intern::SymbolId> = ps.iter().filter(|p| p.kind == ParameterKind::Named).filter_map(|p| p.name.map(|n| n.sym)).collect();
         let mut args_pos = Vec::new();
@@ -554,7 +560,8 @@ fn lambdas(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: 
         let params: HashSet<dartforge_intern::SymbolId> = ps.iter().filter_map(|p| p.name.map(|n| n.sym)).collect();
         // O identificador que referencia um parâmetro da closure.
         let e_parametro = |x: ExprId| -> bool {
-            matches!((&a.expr(x).kind, corpo.get_resolved(x)), (ExprKind::Identifier(n), Some(Resolved::Parameter { .. })) if params.contains(&n.sym))
+            matches!(&a.expr(x).kind, ExprKind::Identifier(n) if params.contains(&n.sym))
+                && parametro_da_closure(x).is_some()
                 && a.expr(x).span.start >= f.span.start
                 && a.expr(x).span.end <= f.span.end
         };

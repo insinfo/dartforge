@@ -4302,7 +4302,12 @@ fn teste_de_tipo(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, value: ExprId, ty: 
         let decl = cx.local(id).tipo;
         inf.promover(&mut sim, id, decl, t);
         let fatorado = fator(inf, v, t);
-        inf.promover_testado(&mut nao, id, decl, fatorado, t);
+        // `tryPromoteForTypeCheck` (flow_analysis.dart:2544-2557): o fator
+        // `Never` não promove (marcaria o ramo como inalcançável, e a
+        // unsoundness de modo misto pode alcançá-lo), nem o fator igual ao
+        // tipo anterior; o tipo testado é registrado de todo jeito.
+        let promove = !matches!(inf.table.get(fatorado), Type::Never) && fatorado != v;
+        inf.promover_testado(&mut nao, id, decl, if promove { fatorado } else { v }, t);
     }
     // `e is Never` nunca é verdadeiro: o ramo "sim" é inalcançável (sem
     // promover o alvo).
