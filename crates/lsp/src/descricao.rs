@@ -19,6 +19,19 @@ use dartforge_types::{Type, TypeId};
 impl Projeto {
     /// O hover do que `d` denota na unidade `unidade`.
     pub(crate) fn hover(&self, unidade: UnitId, d: &Denotado) -> Option<Hover> {
+        // `_targetNode`: o nome do tipo de `A.n(…)` (o `NamedType` de um
+        // `ConstructorName` de criação) mostra a criação, o construtor.
+        let ajustado;
+        let d = match (&d.alvo, d.concreto, d.expr) {
+            (Alvo::Topo(Element::Class(_)), None, Some(e)) => match self.construtor_pelo_tipo(unidade, e) {
+                Some(f) => {
+                    ajustado = Denotado { concreto: Some(Concreto::Funcao(f)), ..d.clone() };
+                    &ajustado
+                }
+                None => d,
+            },
+            _ => d,
+        };
         // Declaração de constante de enum: o analyzer não tem hover ali.
         if d.expr.is_none()
             && let Some(Concreto::Variavel(v)) = d.concreto
@@ -38,6 +51,9 @@ impl Projeto {
                 let (descricao, tipo) = self.descrever_local(*u, *declaracao, d.expr, unidade)?;
                 (descricao, tipo, None)
             }
+            // A declaração do parâmetro de tipo (`TypeParameter`) não é nó
+            // com hover no analyzer.
+            (Alvo::ParametroDeTipo { unidade: u, declaracao }, _) if *u == unidade && d.nome.start == *declaracao => return None,
             (
                 Alvo::ParametroDeTipo {
                     unidade: u,
@@ -195,6 +211,33 @@ impl Projeto {
             return None;
         }
         Some((params.iter().copied().zip(args.iter().copied()).collect(), tabela))
+    }
+
+    /// O construtor de `A.n(…)`, `A<T>.n(…)` ou `p.A.n(…)` quando `e` é o
+    /// nome do tipo (`A`).
+    fn construtor_pelo_tipo(&self, unidade: UnitId, e: ast::ExprId) -> Option<FunctionElementId> {
+        let ast = &self.programa().unit(unidade).ast;
+        let corpos = self.consulta.corpos.units.get(unidade.0 as usize)?;
+        let pai = |x: ast::ExprId| {
+            ast.exprs.iter().position(|y| match &y.kind {
+                ast::ExprKind::Property { target, .. } | ast::ExprKind::TypeArguments { target, .. } => *target == x,
+                _ => false,
+            })
+        };
+        let mut atual = ast::ExprId(pai(e)? as u32);
+        if matches!(ast.expr(atual).kind, ast::ExprKind::TypeArguments { .. }) {
+            atual = ast::ExprId(pai(atual)? as u32);
+        }
+        if !matches!(ast.expr(atual).kind, ast::ExprKind::Property { .. }) {
+            return None;
+        }
+        ast.exprs.iter().enumerate().find_map(|(i, y)| match &y.kind {
+            ast::ExprKind::Call { target, .. } if *target == atual => match corpos.get_resolved(ast::ExprId(i as u32)) {
+                Some(dartforge_types::Resolved::Constructor(f)) => Some(*f),
+                _ => None,
+            },
+            _ => None,
+        })
     }
 
     /// O tipo de `this.x` (o do parâmetro no outline do construtor).
@@ -450,6 +493,9 @@ impl Projeto {
     fn biblioteca_exibida(&self, d: &Denotado) -> Option<String> {
         let p = self.programa();
         let lib = match (&d.alvo, d.concreto) {
+            // A variável de um `for` de coleção não tem executável como
+            // `enclosingElement3`: o analyzer mostra a biblioteca.
+            (Alvo::Local { unidade, declaracao }, _) if em_for_de_colecao(&p.unit(*unidade).ast, *declaracao) => p.unit(*unidade).library,
             (Alvo::Local { .. }, _) | (Alvo::Prefixo { .. }, _) => return None,
             (Alvo::ParametroDeTipo { unidade, declaracao }, _) => {
                 // Parâmetro de tipo de método ou função: local.
@@ -511,11 +557,17 @@ impl Projeto {
     /// O tipo estático da expressão (com promoções), quando o cursor está
     /// num uso.
     fn tipo_da_referencia(&self, unidade: UnitId, expr: Option<ast::ExprId>) -> Option<TypeId> {
-        self.consulta
-            .corpos
-            .units
-            .get(unidade.0 as usize)?
-            .get_type(expr?)
+        let e = expr?;
+        let corpos = self.consulta.corpos.units.get(unidade.0 as usize)?;
+        // O alvo de uma atribuição (`x = …`, `x += …`, `o.x = …`): o
+        // `writeType` dela (`_getTypeOfDeclarationOrReference`).
+        let ast = &self.programa().unit(unidade).ast;
+        if let Some(i) = ast.exprs.iter().position(|x| matches!(&x.kind, ast::ExprKind::Assign { target, .. } if *target == e))
+            && let Some(&t) = corpos.tipos_de_escrita.get(&ast::ExprId(i as u32))
+        {
+            return Some(t);
+        }
+        corpos.get_type(e)
     }
 
     /// Local, parâmetro ou função local.
@@ -956,3 +1008,40 @@ enum Documentavel {
 /// Os parâmetros de tipo da classe pelos argumentos do receptor, com a
 /// cópia da tabela em que esses argumentos existem.
 type Substituicao = (std::collections::HashMap<dartforge_types::TypeParamId, TypeId>, dartforge_types::TypeTable);
+
+/// A declaração em `declaracao` é variável de um `for` de coleção
+/// (`[for (var i = 0; …) …]`, `{for (var x in l) …}`, inclusive por padrão).
+fn em_for_de_colecao(ast: &ast::Ast, declaracao: usize) -> bool {
+    fn no_padrao(ast: &ast::Ast, p: ast::PatternId, d: usize) -> bool {
+        let s = ast.pattern(p).span;
+        s.start <= d && d < s.end
+    }
+    fn varrer(ast: &ast::Ast, els: &[ast::CollectionElement], d: usize) -> bool {
+        els.iter().any(|el| match el {
+            ast::CollectionElement::For { init, body, .. } => {
+                let aqui = match init {
+                    Some(ast::ForInit::Variables(vl)) => vl.variables.iter().any(|v| v.name.span.start == d),
+                    Some(ast::ForInit::Pattern { pattern, .. }) => no_padrao(ast, *pattern, d),
+                    _ => false,
+                };
+                aqui || varrer(ast, std::slice::from_ref(body), d)
+            }
+            ast::CollectionElement::ForIn { target, body, .. } => {
+                let aqui = match target {
+                    ast::ForInTarget::Declared { name, .. } => name.span.start == d,
+                    ast::ForInTarget::Pattern { pattern, .. } => no_padrao(ast, *pattern, d),
+                    ast::ForInTarget::Expression(_) => false,
+                };
+                aqui || varrer(ast, std::slice::from_ref(body), d)
+            }
+            ast::CollectionElement::If { then, else_, .. } => {
+                varrer(ast, std::slice::from_ref(then), d) || else_.as_ref().is_some_and(|x| varrer(ast, std::slice::from_ref(x), d))
+            }
+            _ => false,
+        })
+    }
+    ast.exprs.iter().any(|e| match &e.kind {
+        ast::ExprKind::List { elements, .. } | ast::ExprKind::SetOrMap { elements, .. } => varrer(ast, elements, declaracao),
+        _ => false,
+    })
+}

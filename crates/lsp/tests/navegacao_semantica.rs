@@ -237,6 +237,17 @@ fn hover_documentacao_como_o_compute_documentation() {
     let uso = "void f(List<String> l) {\n  l.add('a');\n}\n";
     p.abrir("lib/b.dart", uso);
     assert_eq!(hover(&mut p, "lib/b.dart", uso, "add(", 0), "void add(String value)\nType: void Function(String)");
+    // O nome da classe em `A.n(…)` mostra o construtor; a declaração de um
+    // parâmetro de tipo não tem hover; o alvo de `x += …` mostra o
+    // `writeType`.
+    let uso = "class A<T> {\n  A.n(T v);\n}\nvoid g<V>(V v) {\n  var a = A.n(1);\n  num x = 1;\n  x += 2;\n  print([a, x]);\n}\n";
+    p.abrir("lib/c.dart", uso);
+    assert_eq!(hover(&mut p, "lib/c.dart", uso, "A.n(1", 0), "(new) A<int> A.n(int v)");
+    assert_eq!(
+        pedir(&mut p, "textDocument/hover", "lib/c.dart", uso, "V>(V", 0, json!({})),
+        Value::Null
+    );
+    assert_eq!(hover(&mut p, "lib/c.dart", uso, "x += 2", 0), "num x\nType: num");
 }
 
 #[test]
