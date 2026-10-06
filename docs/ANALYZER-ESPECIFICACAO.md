@@ -20249,6 +20249,12 @@ Citações `analyzer/lib/...` do 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\analyz
   4. **`for (var (p) = e; …)` (3)**: não existe `ForInit::Pattern` (`frontend/src/parser/statements.rs:78-87`): `UnusedLocalVariable__forPartsWithPattern_notUsed.dart`, `DeadCode__flowEnd_forParts_*`, `…forElementParts_*`. Proposta: o parser (outro dono) aceitar o padrão; `for_init` como `PatternVariables`.
   5. **Guarda em `case` compartilhado (2)**: `UnusedLocalVariable__switchStatement_sh_{8d5b3b84,b7ecf69a}.dart`. Proposta: join sintética como raiz; a guarda marca só a variável do caso.
   6. **Corpo não-bloco sem escopo (1)**: `while (false) var x = 0;` (`variable/ref_before_declaration_test.dart:109`). Proposta: escopo em volta do corpo de `while`/`do`/`else`/`Labeled` que não é `Block`.
+- **Correções (2026-10-06):** (1) `_isReadIdentifier` (`unused_local_elements_verifier.dart`): o identificador
+  operando de **qualquer** `PrefixExpression`/`PostfixExpression` que é a instrução inteira não é leitura — `-x;`,
+  `~x;`, `!x;`, `x!;`, além de `++x;`/`x--;`; (2) casos que dividem o corpo: a guarda de cada `case` lê a variável
+  do **próprio** caso; só o corpo lê a junção, e o uso da junção marca todas as componentes (`addElement` com
+  `JoinPatternVariableElementImpl.transitiveVariables`). Restam nomes que são palavras contextuais (`when`, `as`,
+  `int`, `enum`) em padrões e declarações — recuperação do parser.
 
 ##### `unused_import` (perda 42: FN 41, FP 1, msg 0, pos 0)
 

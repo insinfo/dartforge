@@ -27,7 +27,7 @@ use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_frontend::ast::{
     self, AssignOp, Ast, BinaryOp, CollectionElement, DeclKind, ExprId, ExprKind, ForInTarget, ForInit,
     FunctionBody, FunctionId, Initializer, ListPatternElement, MemberKind, Parameter, PatternId, PatternKind,
-    StmtId, StmtKind, StringPart, UnaryOp,
+    StmtId, StmtKind, StringPart,
 };
 use dartforge_intern::{Interner, SymbolId};
 
@@ -54,6 +54,9 @@ struct Local {
     grupo: Option<usize>,
     /// Mesma variável que outra (padrões compartilhados).
     alias: Option<usize>,
+    /// Lida pela guarda do próprio caso (antes da junção): só ela, não a
+    /// junção (`JoinPatternVariableElement.transitiveVariables` só no corpo).
+    lido_proprio: bool,
 }
 
 struct Visita<'a> {
@@ -68,6 +71,8 @@ struct Visita<'a> {
     refutavel: bool,
     /// Início (índice em `locais`) de uma região de padrões compartilhados.
     regiao_compartilhada: Option<usize>,
+    /// As variáveis do padrão do caso cuja guarda está sendo visitada.
+    da_guarda: Vec<usize>,
     /// Início (índice em `locais`) das variáveis do padrão sendo declarado.
     inicio_padrao: Option<usize>,
 }
@@ -86,7 +91,7 @@ impl<'a> Visita<'a> {
             return;
         }
         let i = self.locais.len();
-        self.locais.push(Local { nome: n.sym, span: n.span, especie, lido: false, grupo, alias: None });
+        self.locais.push(Local { nome: n.sym, span: n.span, especie, lido: false, grupo, alias: None, lido_proprio: false });
         if let Some(e) = self.escopos.last_mut() {
             // `for (int i = 0, i = 0; …)`, `var a; var a;`: a redeclaração
             // (`duplicate_definition`) não entra no escopo — os usos são da
@@ -112,6 +117,13 @@ impl<'a> Visita<'a> {
     }
 
     fn referir(&mut self, n: ast::Name, leitura: bool) {
+        // Na guarda, o nome é a variável do próprio caso.
+        if let Some(&i) = self.da_guarda.iter().rev().find(|&&i| self.locais[i].nome == n.sym) {
+            if leitura {
+                self.locais[i].lido_proprio = true;
+            }
+            return;
+        }
         if let Some(i) = self.achar(n.sym).map(|i| self.raiz(i)) {
             let l = &mut self.locais[i];
             if leitura || l.especie == Especie::Funcao {
@@ -159,12 +171,13 @@ impl<'a> Visita<'a> {
             }
             ExprKind::TypeArguments { target, .. } => self.expr(*target),
             ExprKind::Unary { op, operand } => {
-                let incremento = matches!(op, UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec);
-                if incremento {
-                    if let ExprKind::Identifier(n) = &ast.expr(*operand).kind {
-                        self.referir(*n, !comando);
-                        return;
-                    }
+                // `_isReadIdentifier`: o identificador de **qualquer**
+                // `PrefixExpression`/`PostfixExpression` (`-x`, `~x`, `!x`,
+                // `x!`, `++x`, `x--`) que é a instrução inteira não é leitura.
+                let _ = op;
+                if let ExprKind::Identifier(n) = &ast.expr(*operand).kind {
+                    self.referir(*n, !comando);
+                    return;
                 }
                 self.expr(*operand);
             }
@@ -316,7 +329,7 @@ impl<'a> Visita<'a> {
                 if self.curinga && self.interner.resolve(n.sym) == "_" {
                     return;
                 }
-                self.locais.push(Local { nome: n.sym, span: n.span, especie: Especie::Variavel, lido: false, grupo, alias: Some(raiz) });
+                self.locais.push(Local { nome: n.sym, span: n.span, especie: Especie::Variavel, lido: false, grupo, alias: Some(raiz), lido_proprio: false });
                 return;
             }
         }
@@ -651,11 +664,14 @@ impl<'a> Visita<'a> {
                     let antes = self.regiao_compartilhada;
                     self.regiao_compartilhada = Some(self.locais.len());
                     for c in &cases[i..=j] {
+                        let primeiro = self.locais.len();
                         if let Some(p) = c.pattern {
                             self.padrao_de_caso(p);
                         }
                         if let Some(g) = c.guard {
+                            let guarda = std::mem::replace(&mut self.da_guarda, (primeiro..self.locais.len()).collect());
                             self.expr(g);
+                            self.da_guarda = guarda;
                         }
                     }
                     self.regiao_compartilhada = antes;
@@ -843,7 +859,7 @@ pub fn nao_usados(u: Unidade<'_>, interner: &Interner, curinga: bool) -> Vec<Dia
 
 fn nao_usados_sem_filtro(u: Unidade<'_>, interner: &Interner, curinga: bool) -> Vec<Diagnostic> {
     let ast = u.ast;
-    let mut v = Visita { ast, interner, curinga, fonte: u.fonte, locais: Vec::new(), escopos: vec![Vec::new()], grupos: 0, refutavel: false, regiao_compartilhada: None, inicio_padrao: None };
+    let mut v = Visita { ast, interner, curinga, fonte: u.fonte, locais: Vec::new(), escopos: vec![Vec::new()], grupos: 0, refutavel: false, regiao_compartilhada: None, inicio_padrao: None, da_guarda: Vec::new() };
     for &d in &u.unit.declarations {
         match &ast.decl(d).kind {
             DeclKind::Function(f) => v.funcao(*f, true),
@@ -870,7 +886,7 @@ fn nao_usados_sem_filtro(u: Unidade<'_>, interner: &Interner, curinga: bool) -> 
         }
     }
     // Lida é a variável cuja raiz (a declaração que ela compartilha) foi lida.
-    let lidos: Vec<bool> = (0..v.locais.len()).map(|i| v.locais[v.raiz(i)].lido).collect();
+    let lidos: Vec<bool> = (0..v.locais.len()).map(|i| v.locais[v.raiz(i)].lido || v.locais[i].lido_proprio).collect();
     let mut grupos_lidos = std::collections::HashSet::new();
     for (i, l) in v.locais.iter().enumerate() {
         if let (Some(g), true) = (l.grupo, lidos[i]) {
