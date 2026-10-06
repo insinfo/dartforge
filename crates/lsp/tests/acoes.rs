@@ -25,7 +25,7 @@ fn acoes(p: &mut Projeto, relativo: &str, de: (u32, u32), ate: (u32, u32), extra
     let fora = |k: &str| {
         k.starts_with("source")
             || k.starts_with("quickfix.ignore")
-            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment", "refactor.convert.relativeToPackageImport", "refactor.convert.packageToRelativeImport", "refactor.convert.partOfToPartUri", "refactor.convert.toMapLiteral", "refactor.convert.toSetLiteral", "refactor.encapsulateField", "refactor.convert.toConstructorFieldParameter", "refactor.shadowField", "refactor.convert.toGenericFunctionSyntax", "refactor.destructureLocalVariableAssignment", "refactor.convert.ifCaseStatement", "refactor.convert.ifCaseStatementChain", "refactor.convert.switchStatement", "refactor.convert.toForElement", "refactor.convert.toSuperParameters", "refactor.convert.classToEnum", "refactor.convert.switchExpression"].contains(&k) && !k.starts_with("refactor.surround."))
+            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment", "refactor.convert.relativeToPackageImport", "refactor.convert.packageToRelativeImport", "refactor.convert.partOfToPartUri", "refactor.convert.toMapLiteral", "refactor.convert.toSetLiteral", "refactor.encapsulateField", "refactor.convert.toConstructorFieldParameter", "refactor.shadowField", "refactor.convert.toGenericFunctionSyntax", "refactor.destructureLocalVariableAssignment", "refactor.convert.ifCaseStatement", "refactor.convert.ifCaseStatementChain", "refactor.convert.switchStatement", "refactor.convert.toForElement", "refactor.convert.toSuperParameters", "refactor.convert.classToEnum", "refactor.convert.switchExpression", "refactor.sort.child.properties.last"].contains(&k) && !k.starts_with("refactor.surround.") && !k.starts_with("refactor.flutter."))
             || k == "quickfix.change.to"
             || ["method", "function", "class", "mixin", "getter", "field", "localVariable", "parameter"]
                 .iter()
@@ -981,4 +981,34 @@ fn assistencia_de_switch_expression() {
         aplicar(&acao(&r, "Convert to switch expression")["edit"], &p.uri("lib/a.dart"), texto),
         "int f(String name) {\n  return switch (name) {\n    'red' => 1,\n    _ => throw 'Only'\n      ' supports'\n      ' red',\n  };\n}\n"
     );
+}
+
+#[test]
+fn assistencias_do_flutter() {
+    let mut p = Projeto::com_literais("acoes-flutter");
+    p.instalar_flutter();
+    let texto = "import 'package:flutter/widgets.dart';\n\nclass A extends StatelessWidget {\n  const A({super.key});\n  @override\n  Widget build(BuildContext context) {\n    return Center(child: Text('a'));\n  }\n}\n";
+    let uri = p.uri("lib/a.dart");
+    // No `Text`: os embrulhos.
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "Text(");
+    assert_eq!(aplicar(&acao(&r, "Wrap with Center")["edit"], &uri, texto), texto.replace("child: Text('a')", "child: Center(child: Text('a'))"));
+    assert_eq!(
+        aplicar(&acao(&r, "Wrap with Padding")["edit"], &uri, texto),
+        texto.replace("child: Text('a')", "child: Padding(\n      padding: const EdgeInsets.all(8.0),\n      child: Text('a'),\n    )")
+    );
+    assert_eq!(acao(&r, "Wrap with widget...")["kind"], "refactor.flutter.wrap.generic");
+    acao(&r, "Wrap with Column");
+    acao(&r, "Wrap with Builder");
+    // No `Center`: remover (o filho fica no lugar).
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "Center(");
+    assert_eq!(aplicar(&acao(&r, "Remove this widget")["edit"], &uri, texto), texto.replace("Center(child: Text('a'))", "Text('a')"));
+    // No rótulo `child`: `children: [...]`.
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "child:");
+    assert_eq!(aplicar(&acao(&r, "Convert to children:")["edit"], &uri, texto), texto.replace("child: Text('a')", "children: [Text('a')]"));
+    // Mover na lista de `children`.
+    let lista = "import 'package:flutter/widgets.dart';\n\nWidget f() => Column(children: [Text('a'), Text('b')]);\n";
+    let uri2 = p.uri("lib/b.dart");
+    let r = acoes_em(&mut p, "lib/b.dart", lista, "Text('b')");
+    assert_eq!(aplicar(&acao(&r, "Move widget up")["edit"], &uri2, lista), lista.replace("[Text('a'), Text('b')]", "[Text('b'), Text('a')]"));
+    assert!(r.as_array().unwrap().iter().all(|a| a["title"] != "Move widget down"));
 }

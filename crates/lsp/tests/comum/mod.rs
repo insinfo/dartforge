@@ -161,6 +161,57 @@ impl Projeto {
         p
     }
 
+    /// Um pacote `flutter` reduzido ao lado do projeto (as classes que as
+    /// assistências do Flutter reconhecem pela URI do arquivo), no
+    /// `package_config.json`.
+    pub fn instalar_flutter(&self) {
+        let lib = self.raiz.join("flutter/lib");
+        let arquivos: &[(&str, &str)] = &[
+            (
+                "widgets.dart",
+                "export 'src/widgets/framework.dart';\nexport 'src/widgets/basic.dart';\nexport 'src/widgets/container.dart';\nexport 'src/widgets/async.dart';\nexport 'src/widgets/text.dart';\nexport 'src/painting/edge_insets.dart';\nexport 'src/foundation/diagnostics.dart';\n",
+            ),
+            (
+                "src/widgets/framework.dart",
+                "import '../foundation/diagnostics.dart';\nabstract class Key {}\nabstract class BuildContext {}\nabstract class Widget with Diagnosticable {\n  final Key? key;\n  const Widget({this.key});\n}\nabstract class StatelessWidget extends Widget {\n  const StatelessWidget({super.key});\n  Widget build(BuildContext context);\n}\nabstract class StatefulWidget extends Widget {\n  const StatefulWidget({super.key});\n  State createState();\n}\nabstract class State<T extends StatefulWidget> with Diagnosticable {\n  T get widget => throw 0;\n  BuildContext get context => throw 0;\n  void initState() {}\n  void setState(void Function() fn) {}\n  Widget build(BuildContext context);\n}\n",
+            ),
+            (
+                "src/widgets/basic.dart",
+                "import 'framework.dart';\nimport '../painting/edge_insets.dart';\nclass Center extends StatelessWidget {\n  const Center({super.key, this.child});\n  final Widget? child;\n  @override\n  Widget build(BuildContext context) => this;\n}\nclass Align extends StatelessWidget {\n  const Align({super.key, this.child});\n  final Widget? child;\n  @override\n  Widget build(BuildContext context) => this;\n}\nclass Padding extends StatelessWidget {\n  const Padding({super.key, required this.padding, this.child});\n  final EdgeInsetsGeometry padding;\n  final Widget? child;\n  @override\n  Widget build(BuildContext context) => this;\n}\nclass SizedBox extends StatelessWidget {\n  const SizedBox({super.key, this.width, this.height, this.child});\n  final double? width;\n  final double? height;\n  final Widget? child;\n  @override\n  Widget build(BuildContext context) => this;\n}\nclass Column extends StatelessWidget {\n  const Column({super.key, this.children = const []});\n  final List<Widget> children;\n  @override\n  Widget build(BuildContext context) => this;\n}\nclass Row extends StatelessWidget {\n  const Row({super.key, this.children = const []});\n  final List<Widget> children;\n  @override\n  Widget build(BuildContext context) => this;\n}\nclass Builder extends StatelessWidget {\n  const Builder({super.key, required this.builder});\n  final Widget Function(BuildContext context) builder;\n  @override\n  Widget build(BuildContext context) => this;\n}\n",
+            ),
+            (
+                "src/widgets/container.dart",
+                "import 'framework.dart';\nclass Container extends StatelessWidget {\n  Container({super.key, this.child});\n  final Widget? child;\n  @override\n  Widget build(BuildContext context) => this;\n}\n",
+            ),
+            (
+                "src/widgets/async.dart",
+                "import 'framework.dart';\nclass StreamBuilder<T> extends StatefulWidget {\n  const StreamBuilder({super.key, this.stream, required this.builder});\n  final Object? stream;\n  final Widget Function(BuildContext context, Object? snapshot) builder;\n  @override\n  State createState() => throw 0;\n}\n",
+            ),
+            (
+                "src/widgets/text.dart",
+                "import 'framework.dart';\nclass Text extends StatelessWidget {\n  const Text(this.data, {super.key});\n  final String data;\n  @override\n  Widget build(BuildContext context) => this;\n}\n",
+            ),
+            (
+                "src/painting/edge_insets.dart",
+                "abstract class EdgeInsetsGeometry {\n  const EdgeInsetsGeometry();\n}\nclass EdgeInsets extends EdgeInsetsGeometry {\n  const EdgeInsets.all(double value);\n}\n",
+            ),
+            (
+                "src/foundation/diagnostics.dart",
+                "class DiagnosticPropertiesBuilder {\n  void add(DiagnosticsNode property) {}\n}\nabstract class DiagnosticsNode {}\nclass DiagnosticsProperty<T> extends DiagnosticsNode {\n  DiagnosticsProperty(String name, T? value);\n}\nclass IntProperty extends DiagnosticsNode {\n  IntProperty(String name, int? value);\n}\nclass DoubleProperty extends DiagnosticsNode {\n  DoubleProperty(String name, double? value);\n}\nclass StringProperty extends DiagnosticsNode {\n  StringProperty(String name, String? value);\n}\nclass FlagProperty extends DiagnosticsNode {\n  FlagProperty(String name, {required bool? value});\n}\nmixin Diagnosticable {\n  void debugFillProperties(DiagnosticPropertiesBuilder properties) {}\n}\n",
+            ),
+        ];
+        for (rel, texto) in arquivos {
+            let c = lib.join(rel);
+            fs::create_dir_all(c.parent().unwrap()).unwrap();
+            fs::write(c, texto).unwrap();
+        }
+        fs::write(
+            self.raiz.join("projeto/.dart_tool/package_config.json"),
+            r#"{"configVersion":2,"packages":[{"name":"projeto","rootUri":"../","packageUri":"lib/","languageVersion":"3.6"},{"name":"flutter","rootUri":"../../flutter","packageUri":"lib/","languageVersion":"3.6"}]}"#,
+        )
+        .unwrap();
+    }
+
     /// O `initialize` (com o `rootUri` do projeto acrescentado aos `params`).
     fn inicializar(&mut self, mut params: Value) -> Value {
         params["rootUri"] = json!(url::Url::from_file_path(self.raiz.join("projeto")).unwrap().to_string());

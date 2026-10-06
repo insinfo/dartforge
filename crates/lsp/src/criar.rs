@@ -1705,7 +1705,7 @@ fn exige_const_construtor(cx: &Contexto<'_>, n: usize) -> bool {
 
 /// `inConstantContext`: dentro de criação `const`, literal `const`,
 /// inicializador de variável `const`, anotação ou padrão constante.
-fn em_contexto_constante(cx: &Contexto<'_>, n: usize) -> bool {
+pub(crate) fn em_contexto_constante(cx: &Contexto<'_>, n: usize) -> bool {
     let mut atual = cx.pai(n);
     while let Some(k) = atual {
         match cx.especie(k) {
