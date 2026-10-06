@@ -432,6 +432,7 @@ impl Analisador for AnalisadorSemantico {
                 {
                     let cx = crate::refatoracoes::Contexto::novo(&projeto, unidade);
                     saida.extend(cx.adicionar_anotacao_de_tipo(uri, inicio, fim));
+                    saida.extend(cx.converter_classe_em_mixin(uri, inicio, fim));
                     saida.extend(cx.converter_em_corpo_assincrono(uri, inicio, fim));
                     // `ConvertIntoBlockBody.missingBody` como assistência: o
                     // nó da seleção (`NodeLocator`).

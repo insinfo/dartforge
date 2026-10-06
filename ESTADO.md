@@ -1,4 +1,147 @@
-# Estado do DartForge — 2026-10-02
+# Estado do DartForge — 2026-10-06
+
+## Fechamento de 2026-10-06
+
+Frentes desta rodada: as quatro especificações (`docs/ANALYZER-ESPECIFICACAO.md`,
+`docs/ANALYZER-ESPECIFICACAO-INFRA.md`, `docs/LSP-ESPECIFICACAO.md`,
+`docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md`), implementadas com fidelidade ao analyzer e ao
+`analysis_server` 3.6.2, sem aproximações. Tudo está na `main` (83 commits desde `fa8cfa96`,
+2026-10-02 → 2026-10-06; o último é `0ab14440`).
+
+### Números
+
+| medida | 2026-10-02 | agora |
+| --- | ---: | ---: |
+| Placar do analisador (corpus, posição exata) | 80,5% (19.015 na r8, não publicada) | **91,9%** — 21.176/23.030 |
+| FP do placar | 493 → 339 (r8) | **624** (o corpus cresceu; era 1.339 no começo de 2026-10-05) |
+| FN do placar | — | **1.710** (era 2.095 no começo de 2026-10-05) |
+| Projetos reais (`new_sali` core e frontend, `limitless_ui`): diagnósticos sem par no `dart analyze` | 61 | **0** |
+| Lints novos (`E:\dftemp\lints_novos`, 14 regras) | — | 211/211 iguais ao `dart analyze` |
+| Casos s01–s12 do T5 (`corpus/especificacao/t2/t5`) | — | 12/12 iguais |
+
+Oráculo do LSP (`crates/lsp/oraculo`, `dart language-server` 3.6.2 contra o `dartforge-lsp`,
+projetos `app`, `args`, `path`, `string_scanner`; rodada `m1` de 2026-10-06):
+
+| recurso | 2026-10-01 | agora |
+| --- | ---: | ---: |
+| documentSymbol / foldingRange / semanticTokens / documentLink | 97 / 100 / 100 / 100% | 100 / 100 / 100 / 100% |
+| correções (quickfix) | 75% | 100% |
+| ações de fonte (Sort Members, Organize Imports, Fix All) | 0% | 99% |
+| hover (texto / assinatura) | 86 / 97% | 87 / 97% |
+| definition / typeDefinition | 96 / 95% | 97 / 93% |
+| implementation | 77% | 77% (cobertura 55/120 na m1; consertado depois, a medir) |
+| references | 58% | 77% |
+| documentHighlight | 95% | 94% |
+| prepareRename / rename | 96 / 89% | 100 / 94% |
+| assistências (refactor) | 26% | 64% (antes dos portes de 2026-10-06, a medir) |
+| selectionRange | 48% | 100% |
+| prepareCallHierarchy / prepareTypeHierarchy | 86 / 76% | 96 / 100% |
+| completion: alvo / top-1 / top-5 | 98 / 63 / 52% | 99 / 97 / 74% |
+| signatureHelp | 99% | 100% |
+| workspace/symbol | 0% | 100% |
+| inlayHint (arquivos) | 50% | 69% |
+| formatting | 0% | 0% (fora do escopo: porte do `dart_style`) |
+
+### O que foi feito, por especificação
+
+**Analisador (ANALYZER-ESPECIFICACAO e INFRA).**
+* Parser com a recuperação do fasta: agrupamento do scanner (`discardBeginGroupUntil`,
+  `insertSyntheticClosers`, o quirk do `<`), `moveSynthetic`, `ensureIdentifier` por contexto,
+  seletores pela `parsePrimary`, laços de progresso com `UNEXPECTED_TOKEN`, `ensureColon`,
+  criação implícita `C<T>.n(…)` (`parseImplicitCreationExpression`), `assert(…)` como
+  `FunctionExpressionInvocation`, `super` sem parênteses num inicializador, `}`/fim no lugar de um
+  comando, declaração de topo com nome sintético (`TopLevelDeclarationIdentifierContext`).
+* T5 fechado: as portas de sintaxe (`libs_com_erro_de_sintaxe`, `recuperacao_do_parser`) saíram; a regra
+  é a dos trechos pulados, no CLI, na paridade e no LSP. O `UnusedLocalElementsVerifier` roda em
+  toda biblioteca, com os ramos de operador, índice, `call` e redirecionamento do coletor de usos.
+* Recuperação estática do `TypePropertyResolver` (`c.s` estático pela instância, na leitura, na
+  chamada e na escrita), escrita anulável com `UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE`,
+  `NEW_WITH_UNDEFINED_CONSTRUCTOR`/`_DEFAULT` (faltavam), `WRONG_NUMBER_OF_TYPE_ARGUMENTS` em literais de
+  tipo, `E.values` constante, contexto numérico da atribuição composta, `isNullable` do analyzer no
+  `body_might_complete_normally`, `tryPromoteForTypeCheck` sem promoção a `Never`,
+  `built_in_identifier_as_type` só onde o fasta relata, nomes de tipo sintéticos sem relato.
+* INFRA: mensagens de contexto (III.3), saída do CLI (III.4), pipeline por biblioteca e ordem das
+  fases (III.5, itens 1–3), fases ausentes (III.6), harness da saída inteira (s1–s7).
+* Lints: as regras novas pelo elemento e pelo tipo resolvido; o placar e o `projetos` filtram os TODOs
+  como o `dart analyze`; as extensões usadas de cada passada se juntam (os `unused_import` falsos).
+
+**LSP (LSP-ESPECIFICACAO).**
+* Árvore no formato do analyzer com `NodeLocator`; correções, ações de fonte, refatorações (Extract
+  Method/Local, Inline Local/Method, Convert Getter/Method, Move to file), rename, references com o
+  SDK e os pacotes, documentHighlight, call/type hierarchy, workspace/symbol, completar com o
+  `FuzzyMatcher`, o coletor e os não importados, dicas, cores, lentes de augmentation, `dart/` métodos,
+  `willRenameFiles`, configuração por pasta, diagnósticos tipados no fluxo contínuo (I7).
+* Incremental I1–I4: troca de unidade por assinatura de API, inferência de corpos isolados,
+  completar especulativo e `didChange` de corpo sem recarga.
+* M1: o SDK como o analyzer vê (`SdkLayout::load_como_analyzer`, sem patches, internas do dart2js);
+  implementation pela carga ampla.
+* Assistências portadas dos produtores: Convert to block body, Add/Remove type annotation, Convert to
+  async function body, Convert to final field, Convert to getter, Convert to normal parameter, Convert
+  class to a mixin, Invert conditional expression (pela regra do produtor), e as anteriores
+  (`assistencias*.rs`).
+
+**Nativo (NATIVO-MAPAS-DE-PILHA-E-EXCECOES).**
+* Rastro no formato da VM (§13.14) com quadros embutidos e `<asynchronous suspension>`, a forma
+  compacta DFPC no conversor COFF/ELF, a tabela do rastro no JIT, o conferidor de dominância das raízes
+  no modo sombra, D7 por extern pela tabela de efeitos, D9 (callback da FFI que lança, `Isolate.exit`
+  em `finally`), as combinações A1/B0/B1 no pesado do CI.
+* Etapa 1 (exceções por tabelas) escrita conforme o §13.15 e compilando no workspace.
+
+### O que falta
+
+1. **Analisador.**
+   * FN por código (placar `pl_d1`): `type_argument_not_matching_bounds` 97, `enum_without_constants`
+     62, `dead_code` 59, `experiment_not_enabled` 59, `conflicting_static_and_instance` 55,
+     `constant_pattern_never_matches_value_type` 48, `undefined_identifier` 47,
+     `unchecked_use_of_nullable_value` 45, `assignment_to_primary_constructor_parameter` 40,
+     `unused_field_from_primary_constructor` 39, `const_with_type_parameters` 39, `invalid_assignment`
+     36, `unused_element` 32, `const_with_non_const` 31, `referenced_before_declaration` 29,
+     `wrong_number_of_type_arguments` 29, `argument_type_not_assignable` 29, `invocation_of_non_function`
+     26, `could_not_infer` 26, `new_with_undefined_constructor_default` 24.
+   * FP por código: `invalid_assignment` 45, `unused_field` 37, `unused_element` 34,
+     `unchecked_use_of_nullable_value` 33, `experiment_not_enabled` 33,
+     `record_literal_one_positional_no_trailing_comma` 33, `conflicting_generic_interfaces` 32,
+     `recursive_constructor_redirect` 25, `disallowed_type_instantiation_expression` 25.
+   * Recuperação do parser com palavras embutidas em posições de tipo e de declaração (sondas em
+     `E:\dftemp\stm\lib\bi.dart`: `List<abstract>`, `abstract y = 1;` local, `factory f;` em classe,
+     `typedef abstract T(…)`).
+   * T5 passo 8 (o `importacoes::nao_usados` pelo `Coletor`): refatoração sem mudança de regra.
+   * INFRA III.9 e os itens de precisão restantes das famílias.
+2. **LSP.**
+   * Assistências que faltam (dos 73 produtores do `assist_internal.dart`): `ImportAddShow` (em
+     andamento), `ConvertIntoForIndex`, `ReplaceConditionalWithIfElse`,
+     `DestructureLocalVariableAssignment`, `EncapsulateField`, `AddReturnType`, `ConvertClassToEnum`,
+     `ConvertIfStatementToSwitchStatement`, os de documentação, de aspas, de imports, de super
+     parâmetros, de switch, os Flutter e o `SurroundWith`; a moldura com `SnippetTextEdit` e grupos.
+   * inlayHint 69%, references 77% (e a latência: 476 ms de mediana pela carga ampla), implementation,
+     typeDefinition 93%, hover 87%, completion top-5 74%.
+   * Incremental I5 (cache por corpo com offsets relativos, diagnósticos tipados incrementais) e I6
+     (edição de assinatura sem recarga total).
+   * Importação condicional no LSP: o servidor do Dart não declara `dart.library.*`; o
+     `load_como_analyzer` marca todas as bibliotecas como suportadas.
+3. **Nativo.**
+   * Etapa 1: rodar a verificação do §15.1 (testes de `pouso_da_lsda`, programas dirigidos E1.2/E1.4,
+     corpus nativo com e sem `--gc-stress`, e2e do `new_sali/backend`) e as medidas do §8; o critério de
+     abandono (`.text` + tabelas cair ≥ 3%).
+   * Os testes de `dartforge-jit` e `dartforge-llvm` não rodam nesta máquina
+     (`STATUS_DLL_NOT_FOUND`): ambiente, não código.
+4. **Documentação.** As notas "escrito, não compilado" das especificações estão desatualizadas: o
+   código compila e os testes do workspace passam (fora jit/llvm por DLL). Atualizar cada nota com o
+   estado medido.
+5. Trabalho e pendências de 2026-10-02 que seguem abaixo (CI sem MSVC, JS, pub) não foram retomados
+   nesta rodada.
+
+### Ferramentas desta rodada
+
+* `scripts/comparar-placares.py` (dois placares, código a código) e
+  `scripts/remover-funcao.py`.
+* Oráculos em `E:\dftemp`: `cmp.py` (corpus contra `dartforge analyze`), `oraculo_lsp.py`,
+  `oraculo_multi.py`, `oraculo_diag.py` (publicações de diagnóstico), `lsp\dif_metodo.py`
+  (diferenças por amostra de um método do oráculo do LSP).
+* Placar: `DARTFORGE_PARIDADE_AMOSTRAS=100000 ./target/release/dartforge-paridade placar --detalhes`;
+  projetos reais: `dartforge-paridade projetos`.
+
+---
 
 ## Fechamento do dia 2026-10-02
 
