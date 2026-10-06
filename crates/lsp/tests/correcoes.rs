@@ -154,6 +154,28 @@ fn dicas_de_anotacao_inicializador_setter_e_padrao() {
 }
 
 #[test]
+fn dicas_de_tipo_aninhado_e_for_in_de_colecao() {
+    let mut p = Projeto::com_literais("correcoes-dicas-3");
+    let texto = "class C<T> {}\nvoid f(List<String> l) {\n  var m = Map<String, List<C>>();\n  var n = [for (var s in l) s];\n  print([m, n]);\n}\n";
+    p.abrir("lib/a.dart", texto);
+    let r = p.requisitar(
+        "textDocument/inlayHint",
+        json!({"textDocument": {"uri": p.uri("lib/a.dart")}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 6, "character": 0}}}),
+    )["result"]
+        .clone();
+    let dicas: Vec<(u64, u64, String)> = r
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| (d["position"]["line"].as_u64().unwrap(), d["position"]["character"].as_u64().unwrap(), d["label"].as_array().unwrap().iter().map(|x| x["value"].as_str().unwrap()).collect::<String>()))
+        .collect();
+    // `C` cru dentro de `List<C>`: `<dynamic>` depois dele.
+    assert!(dicas.contains(&(2, 28, "<dynamic>".into())), "{dicas:?}");
+    // A variável do `for-in` de coleção.
+    assert!(dicas.contains(&(3, 20, "String".into())), "{dicas:?}");
+}
+
+#[test]
 fn tokens_semanticos_basicos() {
     let mut p = Projeto::com_literais("correcoes-tokens");
     let r = p.inicializacao.clone();

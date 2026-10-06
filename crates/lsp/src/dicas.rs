@@ -265,7 +265,15 @@ impl Projeto {
                                     }
                                     varrer(std::slice::from_ref(body), corpos, f);
                                 }
-                                ast::CollectionElement::ForIn { body, .. } => varrer(std::slice::from_ref(body), corpos, f),
+                                ast::CollectionElement::ForIn { target, body, .. } => {
+                                    // `[for (var x in l) …]`: o `DeclaredIdentifier` sem tipo.
+                                    if let ast::ForInTarget::Declared { ty: None, name, .. } = target
+                                        && let Some(t) = corpos.tipo_local(name.span.start)
+                                    {
+                                        f(name.span.start, t);
+                                    }
+                                    varrer(std::slice::from_ref(body), corpos, f)
+                                }
                                 ast::CollectionElement::If { then, else_, .. } => {
                                     varrer(std::slice::from_ref(then), corpos, f);
                                     if let Some(x) = else_ {
@@ -295,18 +303,46 @@ impl Projeto {
                 de_padrao.insert(ty.0, t);
             }
         }
+        // Um argumento de tipo aninhado (`Command` em `List<Command>`) não
+        // tem registro próprio: o tipo vem do argumento do pai.
+        let mut pai_de: HashMap<u32, (u32, usize)> = HashMap::new();
+        for (i, ty) in ast.types.iter().enumerate() {
+            if let ast::TypeKind::Named { args, .. } = &ty.kind {
+                for (k, a) in args.iter().enumerate() {
+                    pai_de.insert(a.0, (i as u32, k));
+                }
+            }
+        }
+        let direto = |i: u32| -> Option<TypeId> {
+            let id = ast::TypeId(i);
+            de_padrao.get(&i).or_else(|| corpos.tipos_de_anotacoes.get(&id)).or_else(|| self.consulta.outline.tipos_escritos.get(&(unidade, id))).copied()
+        };
+        let resolver = |i: u32| -> Option<TypeId> {
+            let mut caminho: Vec<usize> = Vec::new();
+            let mut atual = i;
+            let mut base = direto(atual);
+            while base.is_none() {
+                let &(pai, k) = pai_de.get(&atual)?;
+                caminho.push(k);
+                atual = pai;
+                base = direto(atual);
+            }
+            let mut t = base?;
+            for &k in caminho.iter().rev() {
+                t = match self.consulta.tabela.get(t) {
+                    Type::Interface { args, .. } | Type::ExtensionType { args, .. } => *args.get(k)?,
+                    _ => return None,
+                };
+            }
+            Some(t)
+        };
         // `visitNamedType`: tipo escrito sem argumentos cujo tipo os tem.
         for (i, ty) in ast.types.iter().enumerate() {
             let ast::TypeKind::Named { args, .. } = &ty.kind else { continue };
             if !args.is_empty() || de_criacao.contains(&(i as u32)) {
                 continue;
             }
-            let id = ast::TypeId(i as u32);
-            let resolvido = de_padrao
-                .get(&(i as u32))
-                .or_else(|| corpos.tipos_de_anotacoes.get(&id))
-                .or_else(|| self.consulta.outline.tipos_escritos.get(&(unidade, id)))
-                .copied();
+            let resolvido = resolver(i as u32);
             self.argumentos_de_tipo(resolvido, ty.span.end, &mut saida);
         }
         for (i, e) in ast.exprs.iter().enumerate() {
