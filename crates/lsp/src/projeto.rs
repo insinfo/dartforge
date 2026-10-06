@@ -1279,6 +1279,17 @@ impl Projeto {
         comentario: Span,
         partes: &[(Span, String)],
     ) -> Option<(Alvo, Option<Concreto>)> {
+        // `[A.new]`: o `new` depois do ponto vira identificador, o
+        // construtor sem nome (`_parseOneCommentReference`).
+        if let [primeira, segunda] = partes
+            && segunda.1 == "new"
+        {
+            let (alvo, _) = self.resolver_referencia_doc(unidade, comentario, std::slice::from_ref(primeira))?;
+            let Alvo::Topo(Element::Class(c)) = alvo else { return None };
+            let vazio = self.consulta.nomes.lookup("")?;
+            let f = *self.programa().class(c).constructors.get(&vazio)?;
+            return Some((Alvo::Construtor(f), Some(Concreto::Funcao(f))));
+        }
         let u = self.programa().unit(unidade);
         let ast = &u.ast;
         let simbolos: Vec<SymbolId> = partes
@@ -1918,12 +1929,10 @@ impl Projeto {
                         .contains(&self.programa().unit(unit).library)
                     {
                         usos_de(unit, n.span.start, &mut saida, recusar_externos);
-                        // Nas referências, o `[nome]` do doc do membro
-                        // homônimo (a busca local tem o membro inteiro como
-                        // raiz).
-                        if !recusar_externos {
-                            saida.extend(self.docs_que_referem(&Alvo::Local { unidade: unit, declaracao: n.span.start }));
-                        }
+                        // O `[nome]` do doc do membro homônimo (a busca
+                        // local tem o membro inteiro como raiz), nas
+                        // referências e no rename.
+                        saida.extend(self.docs_que_referem(&Alvo::Local { unidade: unit, declaracao: n.span.start }));
                     }
                 }
             }

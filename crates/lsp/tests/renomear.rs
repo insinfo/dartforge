@@ -347,6 +347,39 @@ fn campo_com_argumento_posicional_de_this_e_docs_por_declaracao() {
 }
 
 #[test]
+fn parametro_nomeado_pela_hierarquia() {
+    // `getHierarchyNamedParameters`: o homônimo nomeado de cada método da
+    // hierarquia, com a declaração e as referências.
+    let mut p = Projeto::novo("renomear-nomeado-hierarquia");
+    p.gravar("lib/p.dart", "class P {\n  void add(String n, {Iterable<String>? allowed}) {\n    print(allowed);\n  }\n}\n");
+    let q = "import 'p.dart';\nclass Q implements P {\n  @override\n  void add(String n, {Iterable<String>? allowed}) {}\n}\nvoid f(P p) => p.add('a', allowed: []);\n";
+    p.abrir("lib/q.dart", q);
+    let r = renomear_em(&mut p, "lib/q.dart", q, "allowed}", 0, "permitidos");
+    let texto = r["result"].to_string();
+    assert!(texto.contains("p.dart"), "{r}");
+    assert_eq!(
+        aplicar(&r["result"], &p.uri("lib/q.dart"), q),
+        q.replace("allowed", "permitidos"),
+        "{r}"
+    );
+}
+
+#[test]
+fn campo_pelo_super_formal_e_doc_de_construtor_sem_nome() {
+    // O `super.x` aponta para o `this.x` do construtor da superclasse: o
+    // rename do campo o inclui. `[A.new]` cita o construtor, não a classe.
+    let mut p = Projeto::novo("renomear-super-formal");
+    let a = "/// Veja [A.new].\nclass A {\n  final int x;\n  A(this.x);\n}\nclass B extends A {\n  B(super.x);\n}\n";
+    p.abrir("lib/a.dart", a);
+    let uri = p.uri("lib/a.dart");
+    let r = renomear_em(&mut p, "lib/a.dart", a, "x;", 0, "y");
+    assert_eq!(aplicar(&r["result"], &uri, a), a.replace("this.x", "this.y").replace("int x", "int y").replace("super.x", "super.y"), "{r}");
+    let r = renomear_em(&mut p, "lib/a.dart", a, "A {", 0, "C");
+    let novo = aplicar(&r["result"], &uri, a);
+    assert!(novo.starts_with("/// Veja [A.new].\nclass C {"), "{novo}");
+}
+
+#[test]
 fn construtor_nomeado() {
     let mut p = Projeto::novo("renomear-construtor");
     let a = "/// Crie com [Caixa.vazia].\nclass Caixa {\n  final int v;\n  Caixa(this.v);\n  Caixa.vazia() : this(0);\n  Caixa.outra() : this.vazia();\n  factory Caixa.fab() = Caixa.vazia;\n}\nclass Sub extends Caixa {\n  Sub() : super.vazia();\n}\nvoid f() {\n  var x = Caixa.vazia();\n  var y = new Caixa.vazia();\n  print([x, y, Caixa(1)]);\n}\n";
