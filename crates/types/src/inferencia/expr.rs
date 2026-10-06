@@ -1071,6 +1071,19 @@ pub(crate) fn local_de_this(inf: &mut BodyInferrer<'_>, cx: &mut Corpo) -> Optio
     Some(id)
 }
 
+/// O tipo lido da propriedade `e` (`alvo.nome`, já resolvida) de tipo
+/// declarado `t`, com a promoção da propriedade quando o alvo é uma base
+/// promovível: a função de `this._f()` (`FunctionExpressionInvocation` do
+/// `PropertyAccess`).
+pub(crate) fn tipo_lido_de_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, t: TypeId) -> TypeId {
+    let ExprKind::Property { target, null_aware: false, .. } = &inf.program.unit(cx.unit).ast.expr(e).kind else { return t };
+    let alvo = *target;
+    match base_de_propriedade(inf, cx, alvo) {
+        Some(base) => leitura_de_campo(inf, cx, e, base, t),
+        None => t,
+    }
+}
+
 /// Tipo lido de uma propriedade (`propertyGet` + `_handleProperty`): o
 /// promovido, quando a propriedade é promovível e o tipo promovido é
 /// subtipo do não promovido; a leitura da não promovível registra o
@@ -3047,6 +3060,9 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
                 return inf.core.dynamic_;
             }
             let Some(sym) = sym else { return inf.core.dynamic_ };
+            let nome = if op == UnaryOp::Neg { "unary-" } else { "~" };
+            let sp_op = dartforge_diagnostics::Span { start: span.start, end: span.start + 1 };
+            nulo_em_unario(inf, cx, t, sym, nome, sp_op, operand);
             match inf.buscar_membro(cx.lib, t, sym, false) {
                 Busca::Achado(m) => {
                     resolver(inf, cx, e, m.resolved.clone());
@@ -3065,6 +3081,16 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
             let (leitura, escrita, local) = ler_para_escrita(inf, cx, operand, curto);
             let sym = simbolo_operador(inf, bop);
             let int = inf.core.int;
+            if let Some(s) = sym {
+                // O token `++`/`--`, antes ou depois do operando.
+                let sp_op = if prefixo {
+                    dartforge_diagnostics::Span { start: span.start, end: span.start + 2 }
+                } else {
+                    dartforge_diagnostics::Span { start: span.end.saturating_sub(2), end: span.end }
+                };
+                let nome = if bop == BinaryOp::Add { "+" } else { "-" };
+                nulo_em_unario(inf, cx, leitura, s, nome, sp_op, operand);
+            }
             let res = match sym.map(|s| inf.buscar_membro(cx.lib, leitura, s, false)) {
                 Some(Busca::Achado(m)) => {
                     resolver(inf, cx, e, m.resolved.clone());
@@ -3115,6 +3141,19 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
             }
         }
     }
+}
+
+/// O operador de prefixo ou sufixo (`-x`, `~x`, `++x`, `x--`) num receptor
+/// potencialmente anulável: `UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE`
+/// no token do operador, pelo `TypePropertyResolver` (o `Null` puro é
+/// `INVALID_USE_OF_NULL_VALUE`), com as mensagens de não promoção do operando.
+fn nulo_em_unario(inf: &mut BodyInferrer<'_>, cx: &Corpo, recv: TypeId, sym: SymbolId, nome: &str, sp: dartforge_diagnostics::Span, operand: ExprId) {
+    if !inf.exige_checagem_de_nulo(cx.lib, recv, sym, false) {
+        return;
+    }
+    let desde = inf.diagnostics.len();
+    inf.aviso_de_nulo(recv, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE, sp, &[nome]);
+    inf.anexar_nao_promocao(desde, cx, Some(operand), sp);
 }
 
 fn check_final_local(inf: &mut BodyInferrer<'_>, cx: &Corpo, id: LocalId, span: dartforge_diagnostics::Span) {
@@ -3282,7 +3321,9 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
             let fe = inf.program.function(f);
             if fe.kind == FunctionKind::Function && fe.class.is_some() {
                 avisar_escrita_em_metodo(inf, n);
-                return inf.outline.functions[f.0 as usize].signature;
+                // `setWriteElement`: o tipo de escrita só vem de setter ou
+                // variável; de um método é `InvalidType`.
+                return inf.table.invalido(inf.core.dynamic_);
             }
             if let (FunctionKind::ImplicitAccessor, Some(v)) = (fe.kind, fe.variable) {
                 let ve = inf.program.variable(v);
@@ -3710,7 +3751,8 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
         if m.metodo && m.funcao.is_some_and(|f| inf.program.function(f).kind == FunctionKind::Function) {
             avisar_escrita_em_metodo(inf, name);
             resolver(inf, cx, alvo, m.resolved);
-            return m.tipo;
+            // `setWriteElement`: escrita num método tem tipo `InvalidType`.
+            return inf.table.invalido(inf.core.dynamic_);
         }
     }
     let busca = inf.buscar_membro(cx.lib, recv, name.sym, true);
@@ -3742,7 +3784,7 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
                         avisar_escrita_em_metodo(inf, name);
                         if let Some(m) = m {
                             resolver(inf, cx, alvo, m.resolved);
-                            return m.tipo;
+                            return inf.table.invalido(inf.core.dynamic_);
                         }
                         return inf.core.dynamic_;
                     }

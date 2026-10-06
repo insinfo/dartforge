@@ -1308,7 +1308,8 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                         r
                     } else {
                         definir_alvo(inf, None, span);
-                        let r = invocar_valor(inf, cx, e, m.tipo, args, ctx, explicitos, span);
+                        let lido = expr::tipo_lido_de_propriedade(inf, cx, target, m.tipo);
+                        let r = invocar_valor(inf, cx, e, lido, args, ctx, explicitos, span);
                         inf.alvo_da_aridade = None;
                         r
                     };

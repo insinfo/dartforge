@@ -576,6 +576,15 @@ A subtipagem do analyzer trata `_` como topo **e** fundo ao mesmo tempo
 (`an611:lib/src/dart/element/subtype.dart:41-44`; `sdk:…/subtype.dart:268-271`)
 — várias regras abaixo dependem disso.
 
+**Interfaces da mesma classe** (`_interfaceArguments`,
+`an611:lib/src/dart/element/subtype.dart:305-344`): os argumentos são
+comparados pela **variância declarada** de cada parâmetro (`in` →
+contravariante, `inout` → invariante, `out` ou sem modificador →
+covariante). A variância vem do `varianceKeyword` guardado mesmo com o
+experimento `variance` desligado (`summary2/variance_builder.dart:240-252`),
+então `Contravariant<Lower> <: Contravariant<Middle>` é falso também no 3.6
+com o modificador escrito. Vale para tipos de extensão da mesma declaração.
+
 ### 4.2 UP — casos na ordem exata em que o analyzer os testa
 
 O primeiro caso que casa decide. Linhas de `least_upper_bound.dart`.
@@ -733,10 +742,23 @@ testes `<:` usam os fechos menores, dentro de DOWN os maiores. Analyzer:
 | `FutureOr<T>`: S = NORM(T); TOP(S) → S; `Object` → S; `Never` → `Future<Never>`; `Null` → `Future<Null>?`; senão `FutureOr<S>` | 61-99 | 66-104 |
 | `T?`: S = NORM(T); TOP(S) → S; `Never` → `Null`; `Null` → `Null`; `FutureOr<R>` com R anulável → S; senão `S?` | 166-200 | 168-203 |
 | `X & T`: S = NORM(T); `Never` → `Never`; TOP(S) → `X`; S é X → `X`; S é `Object` e NORM(limite) é `Object` → `X`; senão `X & S` | 204-, 240- | 207-216, 241-279 |
+| `X extends B` (sem promoção): S = NORM(B) (com guarda contra ciclo de limites); `Never` → `Never`; senão `X` | 204-237 | — |
 | `C<T0..Tn>` → `C<NORM(Ti)>`; registros e funções campo a campo | ~136-142 | 140-165 |
+| função: limites dos formais normalizados (formais **frescos**, `getFreshTypeParameters`), parâmetros e retorno normalizados | 36-56 | — |
 
 Divergência do texto (`normalization.md:91-97` diz "se NORM(B) <: S então
-X"): o analyzer só implementa o caso `S = Object`. Onde o analyzer
+X"): o analyzer só implementa o caso `S = Object`.
+
+Fusão de superinterfaces (`InterfacesMerger`/`_ClassInterfaceType.update`,
+`an611:…/class_hierarchy.dart:125-213`): a primeira instanciação de cada
+ancestral fica como está; na segunda **diferente**, o resultado passa a ser
+`topMerge(NORM(primeira), NORM(nova))`, e cada nova é juntada assim; se o
+`topMerge` lança (tipos não estruturalmente iguais), fica o último resultado
+e o erro (`conflicting_generic_interfaces`). Ex.: `class D extends
+A<FutureOr<dynamic>> implements B<Object?>` (com `B<T> extends A<T>`) tem
+`A<Object?>` como supertipo; o tipo de membro combinado normaliza
+`FutureOr<void> Function()` para `void Function()` antes do `topMerge`
+(`inheritance_manager3.dart:1116-1120`). Onde o analyzer
 normaliza: igualdade de tipos em tempo de execução, fusão de superinterfaces
 (`an611:…/class_hierarchy.dart:183,187`), combinação de assinaturas de membros
 (`an611:…/inheritance_manager3.dart:1118`), igualdade de constantes, e o
@@ -1309,6 +1331,15 @@ regra é a mesma (as diferenças estão em §12).
 
 ### 8.1 O despachante: `TypePropertyResolver.resolve` (R-MEM-01..04)
 
+**Antes do despachante, a busca léxica** de um nome simples
+(`LexicalLookup.resolveGetter`/`resolveSetter`,
+`an611:lib/src/dart/resolver/lexical_lookup.dart:17-60`): cada escopo guarda
+getter e setter pelo **nome base**. Na leitura, o primeiro escopo que tem o
+getter **ou** o setter encerra a busca: num contêiner que declara só `set x`,
+ler `x` acha o setter do contêiner (não o `x` de topo) e segue pelo `this`
+implícito; sem getter nele, o resultado é `UNDEFINED_IDENTIFIER`
+(`extension_methods/static_extension_internal_basename_shadowing_error_test`).
+
 Todo acesso a membro de instância (leitura, escrita, chamada, operador,
 padrão relacional, getter de padrão de objeto) passa por aqui
 (`an611:…/type_property_resolver.dart:62-231`; `sdk:…:64-243`), nesta ordem:
@@ -1470,6 +1501,13 @@ Function(String) g = f` fica com tipo `F`. `f('a')` →
   literais de função (RV 1867-3658).
 * **Explícita** `f<int>` (`an611:…/function_reference_resolver.dart:39-150,
   225-285`): contagem errada → `dynamic`.
+* **Substituição num tipo de função genérico** (`FunctionTypeImpl` com
+  `Substitution`, `an611:…/type_algebra.dart`): quando a substituição muda o
+  limite de algum formal (`m<T extends X>` visto por `C<num>`, `R extends
+  Exactly<T>` de uma extensão instanciada), o resultado tem formais **novos**
+  com os limites substituídos. É esse limite (`num`, `Exactly<int>`) que a
+  conferência de limites de `o.m<String>()` usa (`TypeArgumentsVerifier.
+  _checkInvocationTypeArguments`), não o declarado.
 * **Tear-off de construtor** (`an611:…/constructor_reference_resolver.dart:
   88-146`; `invocation_inference_helper.dart:126-149`): classe genérica sem
   argumentos → instanciada só se K é tipo de função; senão fica genérico.
@@ -1486,6 +1524,14 @@ válido (subtipagem de funções genéricas com renomeação dos parâmetros de
 tipo).
 
 ### 8.5 Operadores (R-MEM-07..10)
+
+* **Unários e incremento num receptor anulável** (`-x`, `~x`, `++x`, `x--`):
+  o operador (`unary-`, `~`, `+`, `-`) passa pelo `TypePropertyResolver` com
+  `propertyErrorEntity` no **token do operador** (`prefix_expression_resolver.
+  dart`, `postfix_expression_resolver.dart`): receptor potencialmente anulável
+  → `UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE` (`'unary-'`, `'~'`, `'+'`,
+  `'-'`), `Null` puro → `INVALID_USE_OF_NULL_VALUE`, com as mensagens de não
+  promoção do operando.
 
 * **Binário** = chamada do operador do operando esquerdo
   (`spec:DartLangSpecDraft.txt:10838-10845`); esquerda com contexto `_`,

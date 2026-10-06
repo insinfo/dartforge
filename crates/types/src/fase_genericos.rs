@@ -15,7 +15,7 @@ use dartforge_diagnostics::codigos::compile_time_error as c;
 use dartforge_diagnostics::Diagnostic;
 use dartforge_elements::model::{ClassId, ClassKind, LibraryId, Program, UnitId};
 use dartforge_frontend::ast::{self, DeclKind};
-use dartforge_intern::{Interner, SymbolId};
+use dartforge_intern::Interner;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -38,175 +38,13 @@ struct Coletor {
 }
 
 impl Contexto<'_, '_> {
-    fn e_objeto_anulavel(&self, t: TypeId) -> bool {
-        matches!(self.table.get(t), Type::Interface { class, nullable: true, .. } if Some(*class) == self.core.object_class)
-    }
-
     fn anulavel(&self, t: TypeId) -> bool {
         self.table.get(t).is_declared_nullable()
     }
 
-    fn sem_interrogacao(&mut self, t: TypeId, nullable: bool) -> TypeId {
-        let novo = match self.table.get(t).clone() {
-            Type::Interface { class, args, .. } => Type::Interface { class, args, nullable },
-            Type::Function { type_params, ret, positional, optional, named, .. } => Type::Function { type_params, ret, positional, optional, named, nullable },
-            Type::Record { positional, named, .. } => Type::Record { positional, named, nullable },
-            Type::TypeParameter { param, .. } => Type::TypeParameter { param, nullable },
-            Type::FutureOr { arg, .. } => Type::FutureOr { arg, nullable },
-            Type::ExtensionType { decl, args, .. } => Type::ExtensionType { decl, args, nullable },
-            _ => return t,
-        };
-        self.table.intern(novo)
-    }
-
     /// `TopMergeHelper.topMerge`; `None` onde o original lança.
-    fn top_merge(&mut self, t: TypeId, s: TypeId, prof: u32) -> Option<TypeId> {
-        if prof > 32 {
-            return None;
-        }
-        let (tt, st) = (self.table.get(t).clone(), self.table.get(s).clone());
-        let (t_oq, s_oq) = (self.e_objeto_anulavel(t), self.e_objeto_anulavel(s));
-        if t_oq && s_oq {
-            return Some(t);
-        }
-        let (t_inv, s_inv) = (self.table.e_invalido(t), self.table.e_invalido(s));
-        let t_dyn = matches!(tt, Type::Dynamic) && !t_inv;
-        let s_dyn = matches!(st, Type::Dynamic) && !s_inv;
-        if t_dyn && s_dyn {
-            return Some(self.core.dynamic_);
-        }
-        if t_inv || s_inv {
-            return Some(if t_inv { t } else { s });
-        }
-        if matches!(tt, Type::Never) && matches!(st, Type::Never) {
-            return Some(self.core.never);
-        }
-        let (t_void, s_void) = (matches!(tt, Type::Void), matches!(st, Type::Void));
-        if t_void && s_void {
-            return Some(self.core.void_);
-        }
-        if (t_oq && s_void) || (t_void && s_oq) || (t_dyn && s_void) || (t_void && s_dyn) {
-            return Some(self.core.object_nullable);
-        }
-        if t_oq && s_dyn {
-            return Some(t);
-        }
-        if t_dyn && s_oq {
-            return Some(s);
-        }
-        let (tq, sq) = (self.anulavel(t), self.anulavel(s));
-        if tq && sq {
-            let tn = self.sem_interrogacao(t, false);
-            let sn = self.sem_interrogacao(s, false);
-            let r = self.top_merge(tn, sn, prof + 1)?;
-            return Some(self.sem_interrogacao(r, true));
-        } else if tq || sq {
-            return None;
-        }
-        match (tt, st) {
-            (Type::Interface { class: a, args: xa, .. }, Type::Interface { class: b, args: xb, .. }) => {
-                if a != b {
-                    return None;
-                }
-                if xa.is_empty() {
-                    return Some(t);
-                }
-                let mut args = Vec::with_capacity(xa.len());
-                for (x, y) in xa.iter().zip(xb.iter()) {
-                    args.push(self.top_merge(*x, *y, prof + 1)?);
-                }
-                Some(self.table.intern(Type::Interface { class: a, args: args.into_boxed_slice(), nullable: false }))
-            }
-            (Type::ExtensionType { decl: a, args: xa, .. }, Type::ExtensionType { decl: b, args: xb, .. }) => {
-                if a != b {
-                    return None;
-                }
-                if xa.is_empty() {
-                    return Some(t);
-                }
-                let mut args = Vec::with_capacity(xa.len());
-                for (x, y) in xa.iter().zip(xb.iter()) {
-                    args.push(self.top_merge(*x, *y, prof + 1)?);
-                }
-                Some(self.table.intern(Type::ExtensionType { decl: a, args: args.into_boxed_slice(), nullable: false }))
-            }
-            (Type::FutureOr { arg: a, .. }, Type::FutureOr { arg: b, .. }) => {
-                let r = self.top_merge(a, b, prof + 1)?;
-                Some(self.table.intern(Type::FutureOr { arg: r, nullable: false }))
-            }
-            (Type::Function { type_params: tp_a, ret: ra, positional: pa, optional: oa, named: na, .. }, Type::Function { type_params: tp_b, ret: rb, positional: pb, optional: ob, named: nb, .. }) => {
-                if tp_a.len() != tp_b.len() || pa.len() != pb.len() || oa.len() != ob.len() || na.len() != nb.len() {
-                    return None;
-                }
-                // Os parâmetros de tipo de `s` renomeados para os de `t`
-                // (os limites têm de existir nos dois ou em nenhum e se
-                // juntar).
-                let mut mapa: HashMap<TypeParamId, TypeId> = HashMap::new();
-                for (x, y) in tp_b.iter().zip(tp_a.iter()) {
-                    let ty = self.table.intern(Type::TypeParameter { param: *y, nullable: false });
-                    mapa.insert(*x, ty);
-                }
-                for (x, y) in tp_a.iter().zip(tp_b.iter()) {
-                    let (dx, dy) = (self.table.param(*x).clone(), self.table.param(*y).clone());
-                    if dx.explicito != dy.explicito {
-                        return None;
-                    }
-                    if dx.explicito {
-                        let by = ops::substitute(dy.bound, &mapa, self.table);
-                        self.top_merge(dx.bound, by, prof + 1)?;
-                    }
-                }
-                let sub = |cx: &mut Self, x: TypeId| ops::substitute(x, &mapa, cx.table);
-                let rb = sub(self, rb);
-                let ret = self.top_merge(ra, rb, prof + 1)?;
-                let mut pos = Vec::new();
-                for (x, y) in pa.iter().zip(pb.iter()) {
-                    let y = sub(self, *y);
-                    pos.push(self.top_merge(*x, y, prof + 1)?);
-                }
-                let mut opc = Vec::new();
-                for (x, y) in oa.iter().zip(ob.iter()) {
-                    let y = sub(self, *y);
-                    opc.push(self.top_merge(*x, y, prof + 1)?);
-                }
-                let mut nomeados: Vec<(SymbolId, TypeId, bool)> = Vec::new();
-                for ((n1, x, r1), (n2, y, r2)) in na.iter().zip(nb.iter()) {
-                    if n1 != n2 {
-                        return None;
-                    }
-                    let y = sub(self, *y);
-                    nomeados.push((*n1, self.top_merge(*x, y, prof + 1)?, *r1 || *r2));
-                }
-                Some(self.table.intern(Type::Function {
-                    type_params: tp_a,
-                    ret,
-                    positional: pos.into_boxed_slice(),
-                    optional: opc.into_boxed_slice(),
-                    named: nomeados.into_boxed_slice(),
-                    nullable: false,
-                }))
-            }
-            (Type::Record { positional: pa, named: na, .. }, Type::Record { positional: pb, named: nb, .. }) => {
-                if pa.len() != pb.len() || na.len() != nb.len() {
-                    return None;
-                }
-                let mut pos = Vec::new();
-                for (x, y) in pa.iter().zip(pb.iter()) {
-                    pos.push(self.top_merge(*x, *y, prof + 1)?);
-                }
-                let mut nomeados = Vec::new();
-                for ((n1, x), (n2, y)) in na.iter().zip(nb.iter()) {
-                    if n1 != n2 {
-                        return None;
-                    }
-                    nomeados.push((*n1, self.top_merge(*x, *y, prof + 1)?));
-                }
-                Some(self.table.intern(Type::Record { positional: pos.into_boxed_slice(), named: nomeados.into_boxed_slice(), nullable: false }))
-            }
-            (Type::TypeParameter { param: a, .. }, Type::TypeParameter { param: b, .. }) if a == b => Some(t),
-            (Type::Null, Type::Null) => Some(t),
-            _ => None,
-        }
+    fn top_merge(&mut self, t: TypeId, s: TypeId, _prof: u32) -> Option<TypeId> {
+        ops::top_merge(self.table, self.core, t, s)
     }
 
     /// `_ClassInterfaceType.update`.

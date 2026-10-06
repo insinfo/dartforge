@@ -4,7 +4,7 @@
 //! com argumentos de tipo substituídos (`List<int>` visto como `Iterable` é
 //! `Iterable<int>`), incluindo aplicações de mixin (`S with M`) e cláusulas `on`.
 
-use crate::ops::{nullable, substitute};
+use crate::ops::{normalize, nullable, substitute};
 use crate::table::{CoreTypes, Type, TypeId, TypeParamId, TypeTable};
 use dartforge_elements::model::ClassId;
 use std::collections::{HashMap, HashSet};
@@ -201,6 +201,43 @@ fn compute_class_hierarchy(
     let mut supertypes_map = HashMap::new();
     let mut all_supertypes = Vec::new();
     let mut max_depth = 0;
+    // `_ClassInterfaceType` de cada ancestral: o resultado da junção (os
+    // normalizados pelo `topMerge`) e se já deu erro.
+    let mut juncoes: HashMap<ClassId, (Option<TypeId>, bool)> = HashMap::new();
+    let mut juntar = |supertypes_map: &mut HashMap<ClassId, TypeId>, all_supertypes: &mut Vec<TypeId>, table: &mut TypeTable, c: ClassId, ty: TypeId| {
+        let Some(&anterior) = supertypes_map.get(&c) else {
+            supertypes_map.insert(c, ty);
+            all_supertypes.push(ty);
+            return;
+        };
+        let estado = juncoes.entry(c).or_insert((None, false));
+        if estado.1 {
+            return;
+        }
+        let atual = match estado.0 {
+            Some(a) => a,
+            None => {
+                if ty == anterior {
+                    return;
+                }
+                normalize(anterior, table, core)
+            }
+        };
+        let n = normalize(ty, table, core);
+        match crate::ops::top_merge(table, core, atual, n) {
+            Some(r) => {
+                estado.0 = Some(r);
+                if let Some(pos) = all_supertypes.iter().position(|&x| x == anterior) {
+                    all_supertypes[pos] = r;
+                }
+                supertypes_map.insert(c, r);
+            }
+            None => {
+                estado.0 = Some(atual);
+                estado.1 = true;
+            }
+        }
+    };
 
     for &direct in direct_supertypes.iter() {
         let direct_type = table.get(direct).clone();
@@ -213,11 +250,8 @@ fn compute_class_hierarchy(
         // Garante que o supertipo direto teve sua hierarquia computada
         compute_class_hierarchy(direct_class, immediate, hierarchy, visiting, table, core);
 
-        // Insere o próprio supertipo direto
-        if let std::collections::hash_map::Entry::Vacant(e) = supertypes_map.entry(direct_class) {
-            e.insert(direct);
-            all_supertypes.push(direct);
-        }
+        // Insere o próprio supertipo direto (junto ao que já houver)
+        juntar(&mut supertypes_map, &mut all_supertypes, table, direct_class, direct);
 
         if let Some(parent_data) = hierarchy.get(direct_class).cloned() {
             if parent_data.depth + 1 > max_depth {
@@ -242,13 +276,8 @@ fn compute_class_hierarchy(
             let mut herdados: Vec<(&ClassId, &TypeId)> = parent_data.supertypes.iter().collect();
             herdados.sort_by_key(|(c, _)| c.0);
             for (&ancestor_class, &ancestor_ty) in herdados {
-                if let std::collections::hash_map::Entry::Vacant(e) =
-                    supertypes_map.entry(ancestor_class)
-                {
-                    let substituted = substitute(ancestor_ty, &parent_subst, table);
-                    e.insert(substituted);
-                    all_supertypes.push(substituted);
-                }
+                let substituted = substitute(ancestor_ty, &parent_subst, table);
+                juntar(&mut supertypes_map, &mut all_supertypes, table, ancestor_class, substituted);
             }
         }
     }

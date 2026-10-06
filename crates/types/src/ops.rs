@@ -521,102 +521,412 @@ pub fn substitute(
 /// - `dynamic?` → `dynamic`
 /// - `void?` → `void`
 pub fn normalize(ty: TypeId, table: &mut TypeTable, core: &CoreTypes) -> TypeId {
+    let mut em_curso: Vec<TypeParamId> = Vec::new();
+    normalizar(ty, table, core, &mut em_curso)
+}
+
+/// `NormalizeHelper` (`analyzer/lib/src/dart/element/normalize.dart` do
+/// 3.6.2): `NORM(T)`.
+fn normalizar(ty: TypeId, table: &mut TypeTable, core: &CoreTypes, em_curso: &mut Vec<TypeParamId>) -> TypeId {
+    if table.e_invalido(ty) {
+        return ty;
+    }
+    let t = table.get(ty).clone();
+    if t.is_declared_nullable() && !matches!(t, Type::Null) {
+        return normalizar_anulavel(ty, table, core, em_curso);
+    }
+    match t {
+        // Primitivos.
+        Type::Dynamic | Type::Void | Type::Never | Type::Null => ty,
+        Type::Interface { ref args, .. } if args.is_empty() => ty,
+        Type::FutureOr { arg, .. } => {
+            // `NORM(FutureOr<T>)`.
+            let s = normalizar(arg, table, core, em_curso);
+            if e_topo_norm(table, core, s) {
+                return s;
+            }
+            if s == core.object {
+                return s;
+            }
+            if matches!(table.get(s), Type::Never) {
+                if let Some(future_class) = core.future_class {
+                    return table.intern(Type::Interface { class: future_class, args: Box::new([core.never]), nullable: false });
+                }
+            }
+            if matches!(table.get(s), Type::Null) {
+                if let Some(future_class) = core.future_class {
+                    return table.intern(Type::Interface { class: future_class, args: Box::new([core.null]), nullable: true });
+                }
+            }
+            if s == arg {
+                return ty;
+            }
+            table.intern(Type::FutureOr { arg: s, nullable: false })
+        }
+        Type::TypeParameter { param, .. } => {
+            // `NORM(X extends T)`.
+            let dados = table.param(param).clone();
+            if !dados.explicito {
+                return ty;
+            }
+            if em_curso.contains(&param) {
+                return ty;
+            }
+            em_curso.push(param);
+            let s = normalizar(dados.bound, table, core, em_curso);
+            em_curso.pop();
+            if matches!(table.get(s), Type::Never) { core.never } else { ty }
+        }
+        Type::Intersection { param, bound } => {
+            // `NORM(X & T)`.
+            let s = normalizar(bound, table, core, em_curso);
+            if matches!(table.get(s), Type::Never) {
+                return core.never;
+            }
+            let x = table.intern(Type::TypeParameter { param, nullable: false });
+            if e_topo_norm(table, core, s) {
+                return x;
+            }
+            if matches!(table.get(s), Type::TypeParameter { param: q, nullable: false } if *q == param) {
+                return x;
+            }
+            if s == core.object {
+                let dados = table.param(param).clone();
+                if dados.explicito {
+                    let b = normalizar(dados.bound, table, core, em_curso);
+                    if b == core.object {
+                        return x;
+                    }
+                }
+            }
+            if s == bound {
+                return ty;
+            }
+            table.intern(Type::Intersection { param, bound: s })
+        }
+        Type::Interface { class, args, .. } => {
+            let novos: Vec<TypeId> = args.iter().map(|&a| normalizar(a, table, core, em_curso)).collect();
+            if novos[..] == args[..] {
+                return ty;
+            }
+            table.intern(Type::Interface { class, args: novos.into_boxed_slice(), nullable: false })
+        }
+        Type::ExtensionType { decl, args, .. } => {
+            let novos: Vec<TypeId> = args.iter().map(|&a| normalizar(a, table, core, em_curso)).collect();
+            if novos[..] == args[..] {
+                return ty;
+            }
+            table.intern(Type::ExtensionType { decl, args: novos.into_boxed_slice(), nullable: false })
+        }
+        Type::Record { positional, named, .. } => {
+            let pos: Vec<TypeId> = positional.iter().map(|&a| normalizar(a, table, core, em_curso)).collect();
+            let nm: Vec<(dartforge_intern::SymbolId, TypeId)> = named.iter().map(|&(n, a)| (n, normalizar(a, table, core, em_curso))).collect();
+            if pos[..] == positional[..] && nm[..] == named[..] {
+                return ty;
+            }
+            table.intern(Type::Record { positional: pos.into_boxed_slice(), named: nm.into_boxed_slice(), nullable: false })
+        }
+        Type::Function { type_params, ret, positional, optional, named, .. } => {
+            // `NORM(R Function<X extends B>(S))`: os limites, os parâmetros e
+            // o retorno normalizados (formais frescos quando um limite muda).
+            let mut formais = type_params.clone();
+            let mut mapa: HashMap<TypeParamId, TypeId> = HashMap::new();
+            if !type_params.is_empty() {
+                let limites: Vec<TypeId> = type_params.iter().map(|&p| table.param(p).bound).collect();
+                let novos: Vec<TypeId> = type_params
+                    .iter()
+                    .zip(limites.iter())
+                    .map(|(&p, &b)| if table.param(p).explicito { normalizar(b, table, core, em_curso) } else { b })
+                    .collect();
+                if novos != limites {
+                    let chave = (type_params.clone(), novos.clone().into_boxed_slice());
+                    let frescos = match table.formais_frescos.get(&chave) {
+                        Some(f) => f.clone(),
+                        None => {
+                            let frescos: Box<[TypeParamId]> = type_params
+                                .iter()
+                                .map(|&p| {
+                                    let d = table.param(p).clone();
+                                    let n = table.alloc_type_param(d.name, d.owner.clone(), d.bound, d.variance);
+                                    table.param_mut(n).explicito = d.explicito;
+                                    n
+                                })
+                                .collect();
+                            let mut renomeio: HashMap<TypeParamId, TypeId> = HashMap::new();
+                            for (&o, &n) in type_params.iter().zip(frescos.iter()) {
+                                let tn = table.intern(Type::TypeParameter { param: n, nullable: false });
+                                renomeio.insert(o, tn);
+                            }
+                            for (&b, &n) in novos.iter().zip(frescos.iter()) {
+                                let nb = substitute(b, &renomeio, table);
+                                table.param_mut(n).bound = nb;
+                            }
+                            table.formais_frescos.insert(chave, frescos.clone());
+                            frescos
+                        }
+                    };
+                    for (&o, &n) in type_params.iter().zip(frescos.iter()) {
+                        let tn = table.intern(Type::TypeParameter { param: n, nullable: false });
+                        mapa.insert(o, tn);
+                    }
+                    formais = frescos;
+                }
+            }
+            let norm = |x: TypeId, table: &mut TypeTable, em_curso: &mut Vec<TypeParamId>| {
+                let x = if mapa.is_empty() { x } else { substitute(x, &mapa, table) };
+                normalizar(x, table, core, em_curso)
+            };
+            let r = norm(ret, table, em_curso);
+            let pos: Vec<TypeId> = positional.iter().map(|&a| norm(a, table, em_curso)).collect();
+            let opt: Vec<TypeId> = optional.iter().map(|&a| norm(a, table, em_curso)).collect();
+            let nm: Vec<(dartforge_intern::SymbolId, TypeId, bool)> = named.iter().map(|&(n, a, req)| (n, norm(a, table, em_curso), req)).collect();
+            if formais == type_params && r == ret && pos[..] == positional[..] && opt[..] == optional[..] && nm[..] == named[..] {
+                return ty;
+            }
+            table.intern(Type::Function {
+                type_params: formais,
+                ret: r,
+                positional: pos.into_boxed_slice(),
+                optional: opt.into_boxed_slice(),
+                named: nm.into_boxed_slice(),
+                nullable: false,
+            })
+        }
+    }
+}
+
+/// `NORM(T?)`.
+fn normalizar_anulavel(ty: TypeId, table: &mut TypeTable, core: &CoreTypes, em_curso: &mut Vec<TypeParamId>) -> TypeId {
+    let sem = sem_anulavel(ty, table);
+    let s = normalizar(sem, table, core, em_curso);
+    if e_topo_norm(table, core, s) {
+        return s;
+    }
+    match table.get(s) {
+        Type::Never | Type::Null => return core.null,
+        Type::FutureOr { arg, nullable: false } => {
+            let r = *arg;
+            if anulavel_norm(table, r) {
+                return s;
+            }
+        }
+        _ => {}
+    }
+    nullable(s, table)
+}
+
+/// `T` sem o `?` (`withNullability(none)`).
+fn sem_anulavel(ty: TypeId, table: &mut TypeTable) -> TypeId {
     let t = table.get(ty).clone();
     match t {
-        Type::Dynamic | Type::Void | Type::Null => ty,
-        Type::Never => ty,
-        Type::FutureOr {
-            arg,
-            nullable: is_null,
-        } => {
-            let norm_arg = normalize(arg, table, core);
-            if norm_arg == core.never {
-                if let Some(future_class) = core.future_class {
-                    let fut = table.intern(Type::Interface {
-                        class: future_class,
-                        args: Box::new([core.never]),
-                        nullable: is_null,
-                    });
-                    return fut;
-                }
-            } else if norm_arg == core.object {
-                return if is_null {
-                    core.object_nullable
-                } else {
-                    core.object
-                };
-            } else if table.e_invalido(norm_arg) {
-                // `NORM(FutureOr<InvalidType>)` é o próprio `InvalidType`
-                // (`normalize.dart:106`).
-                return norm_arg;
-            } else if norm_arg == core.dynamic_ {
-                return core.dynamic_;
-            } else if norm_arg == core.void_ {
-                return core.void_;
-            } else if norm_arg == core.object_nullable {
-                return core.object_nullable;
-            }
-
-            if norm_arg != arg {
-                table.intern(Type::FutureOr {
-                    arg: norm_arg,
-                    nullable: is_null,
-                })
-            } else {
-                ty
-            }
-        }
-        Type::Interface {
-            class,
-            args,
-            nullable: is_null,
-        } => {
-            let mut changed = false;
-            let mut new_args = Vec::with_capacity(args.len());
-            for &a in args.iter() {
-                let n = normalize(a, table, core);
-                if n != a {
-                    changed = true;
-                }
-                new_args.push(n);
-            }
-            if changed {
-                table.intern(Type::Interface {
-                    class,
-                    args: new_args.into_boxed_slice(),
-                    nullable: is_null,
-                })
-            } else {
-                ty
-            }
-        }
-        Type::ExtensionType {
-            decl,
-            args,
-            nullable: is_null,
-        } => {
-            let mut changed = false;
-            let mut new_args = Vec::with_capacity(args.len());
-            for &a in args.iter() {
-                let n = normalize(a, table, core);
-                if n != a {
-                    changed = true;
-                }
-                new_args.push(n);
-            }
-            if changed {
-                table.intern(Type::ExtensionType {
-                    decl,
-                    args: new_args.into_boxed_slice(),
-                    nullable: is_null,
-                })
-            } else {
-                ty
-            }
+        Type::Interface { class, args, nullable: true } => table.intern(Type::Interface { class, args, nullable: false }),
+        Type::ExtensionType { decl, args, nullable: true } => table.intern(Type::ExtensionType { decl, args, nullable: false }),
+        Type::FutureOr { arg, nullable: true } => table.intern(Type::FutureOr { arg, nullable: false }),
+        Type::TypeParameter { param, nullable: true } => table.intern(Type::TypeParameter { param, nullable: false }),
+        Type::Record { positional, named, nullable: true } => table.intern(Type::Record { positional, named, nullable: false }),
+        Type::Function { type_params, ret, positional, optional, named, nullable: true } => {
+            table.intern(Type::Function { type_params, ret, positional, optional, named, nullable: false })
         }
         _ => ty,
     }
 }
+
+/// `TypeSystem.isTop`.
+fn e_topo_norm(table: &TypeTable, core: &CoreTypes, t: TypeId) -> bool {
+    match table.get(t) {
+        Type::Dynamic | Type::Void => true,
+        Type::Interface { class, nullable, .. } => *nullable && Some(*class) == core.object_class,
+        Type::FutureOr { arg, nullable } => e_topo_norm(table, core, *arg) || (*nullable && table.canonico(*arg) == core.object),
+        _ => table.e_invalido(t),
+    }
+}
+
+/// `TypeSystem.isNullable`.
+fn anulavel_norm(table: &TypeTable, t: TypeId) -> bool {
+    match table.get(t) {
+        Type::Dynamic | Type::Void | Type::Null => true,
+        Type::FutureOr { arg, nullable } => *nullable || anulavel_norm(table, *arg),
+        other => other.is_declared_nullable() || table.e_invalido(t),
+    }
+}
+
+/// `TopMergeHelper.topMerge` (`analyzer/lib/src/dart/element/top_merge.dart`):
+/// `NNBD_TOP_MERGE(t, s)`; `None` onde o original lança (tipos que não são
+/// estruturalmente iguais).
+pub fn top_merge(table: &mut TypeTable, core: &CoreTypes, t: TypeId, s: TypeId) -> Option<TypeId> {
+    top_merge_rec(table, core, t, s, 0)
+}
+
+fn objeto_anulavel_tm(table: &TypeTable, core: &CoreTypes, t: TypeId) -> bool {
+    matches!(table.get(t), Type::Interface { class, nullable: true, .. } if Some(*class) == core.object_class)
+}
+
+fn anulavel_tm(table: &TypeTable, t: TypeId) -> bool {
+    table.get(t).is_declared_nullable()
+}
+
+fn com_anulavel_tm(table: &mut TypeTable, t: TypeId, nullable: bool) -> TypeId {
+    let novo = match table.get(t).clone() {
+        Type::Interface { class, args, .. } => Type::Interface { class, args, nullable },
+        Type::Function { type_params, ret, positional, optional, named, .. } => Type::Function { type_params, ret, positional, optional, named, nullable },
+        Type::Record { positional, named, .. } => Type::Record { positional, named, nullable },
+        Type::TypeParameter { param, .. } => Type::TypeParameter { param, nullable },
+        Type::FutureOr { arg, .. } => Type::FutureOr { arg, nullable },
+        Type::ExtensionType { decl, args, .. } => Type::ExtensionType { decl, args, nullable },
+        _ => return t,
+    };
+    table.intern(novo)
+}
+
+fn top_merge_rec(table: &mut TypeTable, core: &CoreTypes, t: TypeId, s: TypeId, prof: u32) -> Option<TypeId> {
+    if prof > 32 {
+        return None;
+    }
+    let (tt, st) = (table.get(t).clone(), table.get(s).clone());
+    let (t_oq, s_oq) = (objeto_anulavel_tm(table, core, t), objeto_anulavel_tm(table, core, s));
+    if t_oq && s_oq {
+        return Some(t);
+    }
+    let (t_inv, s_inv) = (table.e_invalido(t), table.e_invalido(s));
+    let t_dyn = matches!(tt, Type::Dynamic) && !t_inv;
+    let s_dyn = matches!(st, Type::Dynamic) && !s_inv;
+    if t_dyn && s_dyn {
+        return Some(core.dynamic_);
+    }
+    if t_inv || s_inv {
+        return Some(if t_inv { t } else { s });
+    }
+    if matches!(tt, Type::Never) && matches!(st, Type::Never) {
+        return Some(core.never);
+    }
+    let (t_void, s_void) = (matches!(tt, Type::Void), matches!(st, Type::Void));
+    if t_void && s_void {
+        return Some(core.void_);
+    }
+    if (t_oq && s_void) || (t_void && s_oq) || (t_dyn && s_void) || (t_void && s_dyn) {
+        return Some(core.object_nullable);
+    }
+    if t_oq && s_dyn {
+        return Some(t);
+    }
+    if t_dyn && s_oq {
+        return Some(s);
+    }
+    let (tq, sq) = (anulavel_tm(table, t), anulavel_tm(table, s));
+    if tq && sq {
+        let tn = com_anulavel_tm(table, t, false);
+        let sn = com_anulavel_tm(table, s, false);
+        let r = top_merge_rec(table, core, tn, sn, prof + 1)?;
+        return Some(com_anulavel_tm(table, r, true));
+    } else if tq || sq {
+        return None;
+    }
+    match (tt, st) {
+        (Type::Interface { class: a, args: xa, .. }, Type::Interface { class: b, args: xb, .. }) => {
+            if a != b {
+                return None;
+            }
+            if xa.is_empty() {
+                return Some(t);
+            }
+            let mut args = Vec::with_capacity(xa.len());
+            for (x, y) in xa.iter().zip(xb.iter()) {
+                args.push(top_merge_rec(table, core, *x, *y, prof + 1)?);
+            }
+            Some(table.intern(Type::Interface { class: a, args: args.into_boxed_slice(), nullable: false }))
+        }
+        (Type::ExtensionType { decl: a, args: xa, .. }, Type::ExtensionType { decl: b, args: xb, .. }) => {
+            if a != b {
+                return None;
+            }
+            if xa.is_empty() {
+                return Some(t);
+            }
+            let mut args = Vec::with_capacity(xa.len());
+            for (x, y) in xa.iter().zip(xb.iter()) {
+                args.push(top_merge_rec(table, core, *x, *y, prof + 1)?);
+            }
+            Some(table.intern(Type::ExtensionType { decl: a, args: args.into_boxed_slice(), nullable: false }))
+        }
+        (Type::FutureOr { arg: a, .. }, Type::FutureOr { arg: b, .. }) => {
+            let r = top_merge_rec(table, core, a, b, prof + 1)?;
+            Some(table.intern(Type::FutureOr { arg: r, nullable: false }))
+        }
+        (Type::Function { type_params: tp_a, ret: ra, positional: pa, optional: oa, named: na, .. }, Type::Function { type_params: tp_b, ret: rb, positional: pb, optional: ob, named: nb, .. }) => {
+            if tp_a.len() != tp_b.len() || pa.len() != pb.len() || oa.len() != ob.len() || na.len() != nb.len() {
+                return None;
+            }
+            // Os parâmetros de tipo de `s` renomeados para os de `t`
+            // (os limites têm de existir nos dois ou em nenhum e se
+            // juntar).
+            let mut mapa: HashMap<TypeParamId, TypeId> = HashMap::new();
+            for (x, y) in tp_b.iter().zip(tp_a.iter()) {
+                let ty = table.intern(Type::TypeParameter { param: *y, nullable: false });
+                mapa.insert(*x, ty);
+            }
+            for (x, y) in tp_a.iter().zip(tp_b.iter()) {
+                let (dx, dy) = (table.param(*x).clone(), table.param(*y).clone());
+                if dx.explicito != dy.explicito {
+                    return None;
+                }
+                if dx.explicito {
+                    let by = substitute(dy.bound, &mapa, table);
+                    top_merge_rec(table, core, dx.bound, by, prof + 1)?;
+                }
+            }
+            let sub = |table: &mut TypeTable, x: TypeId| substitute(x, &mapa, table);
+            let rb = sub(table, rb);
+            let ret = top_merge_rec(table, core, ra, rb, prof + 1)?;
+            let mut pos = Vec::new();
+            for (x, y) in pa.iter().zip(pb.iter()) {
+                let y = sub(table, *y);
+                pos.push(top_merge_rec(table, core, *x, y, prof + 1)?);
+            }
+            let mut opc = Vec::new();
+            for (x, y) in oa.iter().zip(ob.iter()) {
+                let y = sub(table, *y);
+                opc.push(top_merge_rec(table, core, *x, y, prof + 1)?);
+            }
+            let mut nomeados: Vec<(dartforge_intern::SymbolId, TypeId, bool)> = Vec::new();
+            for ((n1, x, r1), (n2, y, r2)) in na.iter().zip(nb.iter()) {
+                if n1 != n2 {
+                    return None;
+                }
+                let y = sub(table, *y);
+                nomeados.push((*n1, top_merge_rec(table, core, *x, y, prof + 1)?, *r1 || *r2));
+            }
+            Some(table.intern(Type::Function {
+                type_params: tp_a,
+                ret,
+                positional: pos.into_boxed_slice(),
+                optional: opc.into_boxed_slice(),
+                named: nomeados.into_boxed_slice(),
+                nullable: false,
+            }))
+        }
+        (Type::Record { positional: pa, named: na, .. }, Type::Record { positional: pb, named: nb, .. }) => {
+            if pa.len() != pb.len() || na.len() != nb.len() {
+                return None;
+            }
+            let mut pos = Vec::new();
+            for (x, y) in pa.iter().zip(pb.iter()) {
+                pos.push(top_merge_rec(table, core, *x, *y, prof + 1)?);
+            }
+            let mut nomeados = Vec::new();
+            for ((n1, x), (n2, y)) in na.iter().zip(nb.iter()) {
+                if n1 != n2 {
+                    return None;
+                }
+                nomeados.push((*n1, top_merge_rec(table, core, *x, *y, prof + 1)?));
+            }
+            Some(table.intern(Type::Record { positional: pos.into_boxed_slice(), named: nomeados.into_boxed_slice(), nullable: false }))
+        }
+        (Type::TypeParameter { param: a, .. }, Type::TypeParameter { param: b, .. }) if a == b => Some(t),
+        (Type::Null, Type::Null) => Some(t),
+        _ => None,
+    }
+}
+
 
 /// Função de consulta para o tipo de representação instanciado de um extension type.
 pub type ExtensionTypeEraser<'a> = &'a dyn Fn(ClassId, &[TypeId], &mut TypeTable) -> Option<TypeId>;

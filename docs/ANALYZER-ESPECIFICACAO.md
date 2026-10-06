@@ -326,6 +326,10 @@ Base comum (vale para vários códigos abaixo):
   10. **pos `cascadeExpression`/`parenthesizedExpression`/`null_aware/assignment_test` (6)**: falta `getErrorNode` nas declarações e, em `?.` atribuição, o span.
   11. **msg `regress1363_test`**: falta a desambiguação `(where C is defined in …)`.
   **Mudança:** completar os quatro pontos de emissão com as regras acima, emitir com `aviso_com_codigo`, trocar o código do inicializador de campo, e implementar a tear-off implícita de `call` na inferência de expressões com contexto de função.
+- **Correção desta especificação (2026-10-06): o tipo de escrita.** `ResolverVisitor.setWriteElement`
+  (`generated/resolver.dart:1709-1761`) só dá tipo de escrita a setter (o do parâmetro, ou o da variável no sintético)
+  e a variável; para método, getter recuperado ou nada, o `writeType` é `InvalidType` (`dynamic` só num alvo dinâmico).
+  Daí `a.foo = 0` com `foo` método sai só `assignment_to_method`, sem `invalid_assignment`.
 
 ##### `argument_type_not_assignable_to_error_handler` (perda 33: FN 33)
 - **Emissão:** `ErrorHandlerVerifier.verifyMethodInvocation` (`analyzer/lib/src/error/error_handler_verifier.dart:43-150`), chamado do `BestPracticesVerifier.visitMethodInvocation` (`analyzer/lib/src/error/best_practices_verifier.dart:630`) — fase de avisos (WarningCode).
@@ -782,6 +786,21 @@ Representação cíclica ou inválida cala o `implements` e o fundo. Um `dynamic
 - **Mensagem:** `'{0}' doesn't conform to the bound '{2}' of the type parameter '{1}'.` — `{0}` argumento (DartType), `{1}` nome do parâmetro, `{2}` limite substituído (DartType).
 - **No DartForge:** `crates/types` (outline/tipos; 1078 acertos). Causas das FN: **34 `generic/super_bounded_types_error*_test`** (o teste de super-bounded: tipos que não são regular- nem super-bounded em contextos onde super-bounded não é aceito — `new`, `extends`, argumentos de construtor), **14 `variance/*`** (experimento), **8 `inference/issue_61370*`** e **`closure/partial_instantiation_static_bounds_check`** (instanciação implícita de tear-off genérico), **3 `extension_methods/static_extension_bounds_error_test`** + `TypeArgumentNotMatchingBounds__extensio_*` (override de extensão), **enum** (`enum_inferred`, `enum_wit…`: argumentos inferidos de constante de enum), **`methodIn_*`** (`o.m<String>()`), **`function*`/`functionReference`** (`f<String>`), **`typeLiteral_*`/`typeLite_*`** (`C<String>` como expressão), **`metadata_*`** (`@A<String>()`), `extends__…` (`T extends U` com `U` não conforme), `null_aware_elements/flow_analysis_test` (3), `type_variable/bounds2-4`, `regress34532/18628`. FP: `type_alias_cannot_reference_itself/*` (alias cíclico: o analyzer não checa limites de alias inválido).
   **Mudança:** completar cada ponto de emissão (invocações com argumentos explícitos em `chamadas.rs::invocar`/`argumentos_de_tipo`, overrides de extensão em `chamada`, constantes de enum em `funcoes.rs`, literais de tipo em `expr.rs`) e o teste de super-bounded no verificador de tipos nomeados.
+- **Correções desta especificação (2026-10-06):**
+  - os `variance/*` não dependem do experimento: a subtipagem de interfaces usa a variância declarada
+    (`subtype.dart:305-344`, ver INFERENCIA §4.1), e é ela que faz `Contravariant<Lower>` violar o limite
+    `Contravariant<Middle>`;
+  - o limite comparado em `_checkInvocationTypeArguments` é o do tipo **invocado já substituído** (`node.function.
+    staticType`): em `x.expectStaticType<Exactly<int>>()` o limite `Exactly<T>` da extensão sai `Exactly<int?>` pelo
+    tipo inferido de `T` (formais frescos na substituição, INFERENCIA §8.4);
+  - `checkNamedType` lê o `NamedType.type` de **todo** nó, inclusive os aninhados (argumentos de tipo, partes de
+    função e de registro) e os crus (instanciados aos limites, com a mensagem de contexto "The raw type was
+    instantiated as …"); o alvo de `factory … = B<T>.nome` e a criação sem `new` (`Alias<A>()`, `C<T>.nome()`) são
+    `ConstructorName` (sem super-bounded); `Cb<String>` com `Cb` alias de tipo de função é literal de tipo;
+  - `@B<T>()` com `B` alias: os argumentos contra os parâmetros **do alias** (`AnnotationInferrer`);
+  - constante de enum sem construtor declarado (`v<String>()` com o `const E()` sintético): os escritos.
+- **Estado (2026-10-06):** 1174 acertos, FN 1, FP 17. Os FP restantes são diferenças de promoção nossas expostas pela
+  conferência (`Exactly<…>` em cascatas, variável booleana de condição, registros) e os 2 de alias cíclico.
 
 ##### `could_not_infer` (perda 45: FN 26, msg 16, pos 3)
 - **Emissão:** `GenericInferrer.chooseFinalTypes`/`_chooseTypes` (`analyzer/lib/src/dart/element/generic_inferrer.dart:250-370`) e `_checkArgumentsNotMatchingBounds` (:390-420), com o `errorEntity` dado pelo chamador (`InvocationInferrer._errorEntity`: o nó da invocação; para `MethodInvocation` o `methodName`; para criação de instância o `constructorName`; tear-off/`FunctionReference` o nó).
@@ -3273,6 +3292,9 @@ argumentos), `UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE` ("The method '{0}' 
       `top_merge.dart:27`); o DartForge escolhe uma das duas e erra o tipo de `deconstruct(this)` (sai `dynamic`/`void` onde é
       `Object?` e vice-versa). Não é deste código: consertar no cálculo das superinterfaces (crates/types, hierarquia).
       As 3 `posição` de `nnbd/operator_type_test.dart:98/103/110` são o mesmo FN de iterável/espalhamento pareado com outra linha.
+- **Estado (2026-10-06):** operadores de prefixo e sufixo (`-x`, `~x`, `++x`, `x--`) relatam no token do operador
+  (INFERENCIA §8.5); `this._f()` com `_f` promovido usa o tipo promovido da propriedade (o `PropertyAccess` da
+  `FunctionExpressionInvocation`). 356 de 384, FP 15.
 
 #### §2 Código morto
 
@@ -4143,6 +4165,12 @@ interesse (`nao_nulo_promocao(declarado)` quando o declarado é anulável).
   `G<int>` (literal de tipo → `Type`), `!false`, `1 == 2` (`ConstantPatternNeverMatchesValueType__c_*`, `patterns/invalid_const_pattern_test.dart`
   ~30×) — o tipo do valor (estático da criação/literal) e a igualdade primitiva por classe (busca concreta de `==`/`hashCode`).
   Cuidado (publicado): só relatar quando a constante avalia sem erro (o avaliador `crate::constant::ConstantEvaluator`).
+- **Estado (2026-10-06):** a regra saiu da inferência para o verificador de constantes
+  (`constantes/verificador.rs::padrao`), como no `ConstantVerifier.visitConstantPattern`: o tipo da constante é o
+  `value.type` do valor **avaliado** (não o estático da expressão), a guarda é o `hasPrimitiveEquality` do valor, o tipo
+  casado é o `matchedValueType` (`tipos_casados`) sem tipos de extensão, e `_canBeEqual` usa o
+  `PatternGreatestClosureHelper.eliminateToGreatest` (parâmetro de tipo → `Object?` covariante / `Never`
+  contravariante) e o `promotedBound` de `X & T`. Relatado, o padrão não tem os filhos visitados. 71 de 71.
 
 #### Apêndice A — análise de fluxo de padrões (o que o DartForge não modela)
 
@@ -5062,6 +5090,8 @@ relatos iguais do analyzer contam um.
     `enum E1;`, `enum E2(final int x);`, `enum const E3;`, `enum const E4(final int x);` — corpo vazio
     `;` (construtores primários, 3.13). Posição: o nome (`E1`, col 6; com `const`, col 12). Precisa o
     parser aceitar o corpo `;` de enum e `sem_constantes` vê-lo com 0 constantes, e a mensagem 3.13.
+- **Estado (2026-10-06):** a correção descrita entrou (`enums.rs`: só `augment enum` completa as constantes do
+  alvo); 63 de 67. Faltam os 4 de corpo `;` (construtores primários, 3.13).
 
 ##### `conflicting_static_and_instance` (perda 55: FN 55, FP 0, msg 0, pos 0)
 - **Emissão (três caminhos):**
@@ -5150,6 +5180,9 @@ relatos iguais do analyzer contam um.
        `herdado` não devolve membros de `Object` para extension type sem `implements` (senão
        `static String toString()` num extension type vira FP).
     4. O filtro "linha `augment `"/nome repetido (`:1358-1364`) mantém os FN do §0.1.
+- **Estado (2026-10-06):** (3) em `types::sobrescritas::membros_em_conflito` (o `getInherited2` do porte do
+  `InheritanceManager3`) e (2) em `types::sobrescritas::estaticos_de_enum` (`getMember2`); o recorte antigo
+  `analise::heranca` (cadeia linear, uma interface) saiu. 262 de 262; 1 FP num arquivo de construtor primário (3.13).
 
 ##### `concrete_class_with_abstract_member` (perda 26: FN 26)
 - **Emissão:** `_ClassVerifier._reportConcreteClassWithAbstractMember`
@@ -5251,6 +5284,9 @@ relatos iguais do analyzer contam um.
   `private_name_duplicate_interface_error_test`, `regress22976_test` com `'A<S>'`/`'A<T>'`, enum ×2,
   extension type, mixin `on`), **9 dependem da inferência de mixin** (`mixin_declaration_inference_invalid_03…11`:
   `with M0` sem argumentos → `M0<dynamic>`).
+- **Estado (2026-10-06):** 26 de 26, FP 0. O `topMerge` virou função de `types::ops` e a hierarquia de classes
+  (`hierarchy.rs`) junta as instanciações repetidas de um ancestral como o `_ClassInterfaceType.update` (INFERENCIA
+  §4.5); a normalização (`ops::normalize`) é o `NormalizeHelper` inteiro (funções, registros, `X extends B`, `T?`).
 
 ##### `inconsistent_inheritance_getter_and_method` (perda 26: FN 26; nada emitido)
 - **Emissão:** `_ClassVerifier._reportInconsistentInheritance` (`src/error/inheritance_override.dart:847-863`),
@@ -11104,6 +11140,12 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
   gerador const) e em `avaliador.rs` (`TypeArguments` avalia os argumentos;
   `instanciacao_implicita` usa `UnitBodyTypes::instanciacoes_de_tearoff` + `cx.tipos`).
   Atenção: o alvo de `Call` não é Constructor/FunctionReference (pular).
+- **Estado (2026-10-06):** `_checkForConstWithTypeParameters` portado no verificador de constantes, com os quatro
+  pontos (`visitInstanceCreationExpression` com `isConst`, incluindo a criação sem `new` num contexto constante;
+  `visitConstructorReference` e `visitFunctionReference` com `inConstantContext || inConstantExpression`;
+  `visitGenericFunctionType` sob `is`/`as`). `inConstantExpression` (`constant_verifier.dart:1417-1450`): valor padrão
+  de parâmetro e inicializador de campo de instância de classe com construtor gerador `const`. 30 de 39; faltam os
+  tear-offs implícitos (`void Function(T) p = f` com `f` genérico): `evaluation.dart:874,894`.
 
 ##### `const_with_non_const` (perda 37: FN 31, FP 6)
 - **Emissão:** dois caminhos iguais (deduplicados): `ErrorVerifier._checkForConstWithNonConst`
@@ -11251,6 +11293,11 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
   a inferência resolver as expressões dos argumentos de anotação (`Resolved`/`tipos_invalidos`) —
   conferir se `BodyTypes` cobre `ast::Annotation.arguments` (o `undefined_identifier` do oráculo
   sugere que sim no analyzer; nós também emitimos? ver amostras de `undefined_identifier`).
+- **Estado (2026-10-06):** `visitAnnotation` (construtor `const` com lista de argumentos: cada argumento por
+  `_evaluateAndReportError`) e `visitEnumConstantDeclaration` (`_validateConstantArguments`) portados. As anotações
+  são resolvidas no escopo de **fora** da declaração anotada (os membros do contêiner não entram: `@A(foo) mixin M
+  { static foo }` → `undefined_identifier`); as dos parâmetros de tipo de classe/extensão/typedef também no de fora,
+  as de parâmetros de tipo de **método** no escopo do contêiner. 23 de 24.
 
 ##### `invalid_constant` (perda 17: FN 3, FP 6, pos 8)
 - **Emissão:** `_reportNotPotentialConstants` (`constant_verifier.dart:749-763`) em
