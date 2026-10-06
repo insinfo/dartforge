@@ -22,42 +22,42 @@ pub(crate) struct Comentario {
 /// comuns não são confundidos com documentação (a varredura usa o lexer).
 pub(crate) fn comentarios(fonte: &str) -> Vec<Comentario> {
     let mut saida: Vec<Comentario> = Vec::new();
-    for (inicio, fim) in trechos_de_comentario(fonte) {
-        let texto = &fonte[inicio..fim];
-        let linha_doc = texto.starts_with("///") && !texto.starts_with("////");
-        let bloco_doc = texto.starts_with("/**") && texto != "/**/";
-        if !linha_doc && !bloco_doc {
-            continue;
+    // Cada lacuna entre tokens é uma cadeia `precedingComments`; o
+    // `findDartDoc` acha o começo do comentário de documentação nela (o
+    // último `/**`, ou o primeiro `///` depois dele), e o comentário vai até
+    // o último `///` da cadeia (`DocCommentBuilder.build`).
+    for cadeia in cadeias_de_comentario(fonte) {
+        let mut doc: Option<usize> = None;
+        let mut multilinha = false;
+        for (k, &(i, f)) in cadeia.iter().enumerate() {
+            let lexema = &fonte[i..f];
+            if lexema.starts_with("///") {
+                if !multilinha {
+                    doc = Some(k);
+                    multilinha = true;
+                }
+            } else if lexema.starts_with("/**") {
+                doc = Some(k);
+                multilinha = false;
+            }
         }
-        // Linhas `///` separadas só por espaço formam um bloco.
-        if linha_doc
-            && let Some(anterior) = saida.last_mut()
-            && fonte[anterior.span.start..].starts_with("///")
-            && fonte[anterior.span.end..inicio]
-                .chars()
-                .all(char::is_whitespace)
-            && fonte[anterior.span.end..inicio].matches('\n').count() <= 1
-        {
-            anterior.span.end = fim;
-            continue;
-        }
-        saida.push(Comentario {
-            span: Span {
-                start: inicio,
-                end: fim,
-            },
-            referencias: Vec::new(),
-        });
-    }
-    for c in &mut saida {
-        c.referencias = referencias_em(fonte, c.span);
+        let Some(k) = doc else { continue };
+        let tokens: Vec<Span> = cadeia[k..].iter().map(|&(i, f)| Span { start: i, end: f }).collect();
+        let (inicio, fim_do_primeiro) = cadeia[k];
+        let fim = if fonte[inicio..].starts_with("///") {
+            tokens.iter().filter(|s| fonte[s.start..s.end].starts_with("///")).map(|s| s.end).last().unwrap_or(fim_do_primeiro)
+        } else {
+            fim_do_primeiro
+        };
+        let referencias = dartforge_frontend::doc_referencias::referencias(fonte, &tokens).into_iter().map(|r| r.partes).collect();
+        saida.push(Comentario { span: Span { start: inicio, end: fim }, referencias });
     }
     saida
 }
 
-/// Intervalos dos comentários de `fonte` (fora de strings), pelo que o lexer
-/// deixa entre os tokens.
-fn trechos_de_comentario(fonte: &str) -> Vec<(usize, usize)> {
+/// Os comentários de `fonte` (fora de strings) agrupados por lacuna entre
+/// tokens, pelo que o lexer deixa entre eles.
+fn cadeias_de_comentario(fonte: &str) -> Vec<Vec<(usize, usize)>> {
     let Ok(tokens) = dartforge_frontend::lexer::lex(fonte) else {
         return Vec::new();
     };
@@ -72,8 +72,9 @@ fn trechos_de_comentario(fonte: &str) -> Vec<(usize, usize)> {
     if anterior < fonte.len() {
         lacunas.push((anterior, fonte.len()));
     }
-    let mut saida = Vec::new();
+    let mut cadeias = Vec::new();
     for (de, ate) in lacunas {
+        let mut saida = Vec::new();
         let b = fonte.as_bytes();
         let mut i = de;
         while i + 1 < ate {
@@ -105,87 +106,11 @@ fn trechos_de_comentario(fonte: &str) -> Vec<(usize, usize)> {
                 i += 1;
             }
         }
+        if !saida.is_empty() {
+            cadeias.push(saida);
+        }
     }
-    saida
-}
-
-/// Os operadores definíveis (`TokenType.isUserDefinableOperator`).
-const OPERADORES: &[&str] = &["==", "~", "[]", "[]=", "*", "/", "%", "~/", "+", "-", "<<", ">>", ">>>", ">=", ">", "<=", "<", "&", "^", "|"];
-
-/// Byte que pode compor um identificador Dart.
-fn eh_ident(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
-}
-
-/// As referências `[a]`, `[a.b]`, `[a.b.c]` dentro de `span`, fora de
-/// trechos de código (`` `…` `` e blocos cercados por ```` ``` ````). Links
-/// Markdown (`[texto](url)`, `[texto][ref]`) não são referências.
-fn referencias_em(fonte: &str, span: Span) -> Vec<Vec<(Span, String)>> {
-    let b = fonte.as_bytes();
-    let mut saida = Vec::new();
-    let mut i = span.start;
-    let mut em_cerca = false;
-    let mut em_codigo = false;
-    while i < span.end {
-        if b[i..span.end].starts_with(b"```") {
-            em_cerca = !em_cerca;
-            i += 3;
-            continue;
-        }
-        let c = b[i];
-        if c == b'\n' {
-            em_codigo = false;
-        }
-        if c == b'`' && !em_cerca {
-            em_codigo = !em_codigo;
-            i += 1;
-            continue;
-        }
-        if c != b'[' || em_cerca || em_codigo {
-            i += 1;
-            continue;
-        }
-        let Some(fecha) = fonte[i + 1..span.end].find(']').map(|n| i + 1 + n) else {
-            break;
-        };
-        let depois = b.get(fecha + 1).copied();
-        let dentro = &fonte[i + 1..fecha];
-        // `[texto](url)`, `[texto][rótulo]` e o próprio `[rótulo]` são links.
-        let ident = |p: &str| !p.is_empty() && !p.as_bytes()[0].is_ascii_digit() && p.bytes().all(eh_ident);
-        let link = matches!(depois, Some(b'(') | Some(b'[')) || (i > 0 && b[i - 1] == b']');
-        // `_parseOneCommentReference`: até dois prefixos e um nome, ou um
-        // operador definível (`[int.+]`, `[operator ==]`) no lugar do nome.
-        let mut nomes: Vec<&str> = dentro.split('.').collect();
-        let ultimo = nomes.pop().unwrap_or("");
-        let operador = ultimo.strip_prefix("operator").map_or(ultimo, |r| if r.starts_with(char::is_whitespace) { r.trim_start() } else { ultimo });
-        let e_operador = OPERADORES.contains(&operador);
-        let valido = !dentro.is_empty() && !link && nomes.len() <= 2 && nomes.iter().all(|p| ident(p)) && (ident(ultimo) || e_operador);
-        if valido {
-            let mut partes = Vec::new();
-            let mut inicio = i + 1;
-            for parte in nomes {
-                partes.push((
-                    Span {
-                        start: inicio,
-                        end: inicio + parte.len(),
-                    },
-                    parte.to_string(),
-                ));
-                inicio += parte.len() + 1;
-            }
-            let deslocamento = ultimo.len() - operador.len();
-            partes.push((
-                Span {
-                    start: inicio + deslocamento,
-                    end: inicio + ultimo.len(),
-                },
-                operador.to_string(),
-            ));
-            saida.push(partes);
-        }
-        i = fecha + 1;
-    }
-    saida
+    cadeias
 }
 
 /// O comentário de documentação imediatamente antes de `inicio` (o começo
@@ -266,9 +191,11 @@ mod testes {
             Some("Primeira.\n\nSegunda [x].")
         );
         assert_eq!(documentacao(fonte, fonte.find("class C").unwrap()), None);
-        // Link Markdown não é referência.
+        // O texto do link Markdown não é referência; o rótulo de `[t][r]`
+        // é (`_parseReferences` lê o `[r]` à parte).
         let cs = comentarios("/// [texto](http://x) e [ref][r].\nvar x;\n");
-        assert!(cs[0].referencias.is_empty());
+        let refs: Vec<&str> = cs[0].referencias.iter().map(|r| r[0].1.as_str()).collect();
+        assert_eq!(refs, vec!["r"]);
     }
 
     #[test]

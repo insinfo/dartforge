@@ -488,48 +488,37 @@ impl<'a> Construtor<'a> {
     // -- Comentário de documentação e anotações ---------------------------------
 
     /// O `Comment` de documentação antes de `pos` (o `findDartDoc`): o `/**`,
-    /// ou a sequência de `///` a partir do primeiro.
-    fn doc(&mut self, pos: usize) -> Option<(usize, usize)> {
+    /// ou os `///` da cadeia a partir do primeiro (os comentários comuns no
+    /// meio não entram: `DocCommentBuilder.build`), com os tokens da cadeia
+    /// a partir dele.
+    fn doc(&mut self, pos: usize) -> Option<(usize, usize, Vec<Span>)> {
         let inicio = self.comentarios.dart_doc(self.fonte, pos)?;
-        let todos = self.comentarios.antes_de(self.fonte, pos);
+        let cadeia: Vec<Span> = self.comentarios.antes_de(self.fonte, pos).into_iter().filter(|s| s.start >= inicio.start).collect();
         let texto = &self.fonte[inicio.start..inicio.end];
         let mut fim = inicio.end;
         if texto.starts_with("///") {
-            let mut dentro = false;
-            for s in todos {
-                if s.start == inicio.start {
-                    dentro = true;
-                }
-                if dentro {
-                    if self.fonte[s.start..s.end].starts_with("///") {
-                        fim = s.end;
-                    } else {
-                        break;
-                    }
+            for s in &cadeia {
+                if self.fonte[s.start..s.end].starts_with("///") {
+                    fim = s.end;
                 }
             }
         }
-        Some((inicio.start, fim))
+        Some((inicio.start, fim, cadeia))
     }
 
-    /// O nó `Comment` com as `CommentReference`.
-    fn no_de_comentario(&mut self, ini: usize, fim: usize) -> Option<usize> {
-        let fonte = self.fonte;
+    /// O nó `Comment` com as `CommentReference` (o `DocCommentBuilder`).
+    fn no_de_comentario(&mut self, ini: usize, fim: usize, cadeia: &[Span]) -> Option<usize> {
         let mut refs = Vec::new();
-        for (a, b) in referencias_de_doc(&fonte[ini..fim]) {
-            let (a, b) = (ini + a, ini + b);
-            let conteudo = &fonte[a..b];
-            // `new A.b`: a expressão começa depois do `new`.
-            let (inicio_expr, partes) = match conteudo.strip_prefix("new ") {
-                Some(resto) => (b - resto.trim_start().len(), resto.trim_start()),
-                None => (a, conteudo),
+        for r in dartforge_frontend::doc_referencias::referencias(self.fonte, cadeia) {
+            let nomes: Vec<Span> = r.partes.iter().map(|(s, _)| *s).collect();
+            let (Some(primeiro), Some(ultimo)) = (nomes.first().copied(), nomes.last().copied()) else { continue };
+            // A `CommentReference` vai do `new` (quando há) ao fim do nome.
+            let a = if r.novo {
+                self.fonte[..primeiro.start].trim_end().strip_suffix("new").map_or(primeiro.start, str::len)
+            } else {
+                primeiro.start
             };
-            let mut nomes: Vec<Span> = Vec::new();
-            let mut pos = inicio_expr;
-            for p in partes.split('.') {
-                nomes.push(Span { start: pos, end: pos + p.len() });
-                pos += p.len() + 1;
-            }
+            let b = ultimo.end;
             let expr = match nomes.as_slice() {
                 [x] => self.folha("SimpleIdentifier", *x),
                 [x, y] => {
@@ -574,9 +563,9 @@ impl<'a> Construtor<'a> {
             comeco = comeco.min(m.span.start);
         }
         let mut itens: Vec<(usize, Option<usize>)> = Vec::new();
-        if let Some((a, b)) = doc {
+        if let Some((a, b, cadeia)) = doc {
             comeco = comeco.min(a);
-            itens.push((a, self.no_de_comentario(a, b)));
+            itens.push((a, self.no_de_comentario(a, b, &cadeia)));
         }
         for m in metadata {
             itens.push((m.span.start, self.anotacao(m)));
@@ -2286,68 +2275,6 @@ impl<'a> Construtor<'a> {
         f.extend(self.padrao(c.pattern));
         self.no("PatternField", c.span.start, c.span.end, f)
     }
-}
-
-/// As referências `[ref]` de um comentário de documentação: o conteúdo de
-/// `[…]` que é um identificador (com `.` e um `new ` opcional), fora de
-/// código entre crases e de blocos cercados, e que não é link
-/// (`[texto](url)`, `[texto][ref]`, `[ref]:`). Devolve os intervalos do
-/// conteúdo, sem os colchetes.
-fn referencias_de_doc(texto: &str) -> Vec<(usize, usize)> {
-    let b = texto.as_bytes();
-    let mut v = Vec::new();
-    let mut i = 0;
-    let mut em_bloco = false;
-    let mut inicio_da_linha = true;
-    while i < b.len() {
-        // Blocos cercados (```) começam numa linha (depois do `///`).
-        if inicio_da_linha {
-            let resto = &texto[i..];
-            let sem_marca = resto.trim_start_matches(['/', '*', ' ', '\t']);
-            if sem_marca.starts_with("```") {
-                em_bloco = !em_bloco;
-            }
-        }
-        inicio_da_linha = b[i] == b'\n';
-        if em_bloco {
-            i += 1;
-            continue;
-        }
-        match b[i] {
-            b'`' => {
-                // Código em linha até a crase seguinte na mesma linha.
-                let fim = texto[i + 1..].find(['`', '\n']).map_or(b.len(), |k| i + 1 + k);
-                i = fim + 1;
-            }
-            b'[' => {
-                let Some(k) = texto[i + 1..].find([']', '\n', '[']) else { break };
-                let fim = i + 1 + k;
-                if b.get(fim) != Some(&b']') {
-                    i += 1;
-                    continue;
-                }
-                let conteudo = &texto[i + 1..fim];
-                let seguinte = b.get(fim + 1).copied();
-                let link = matches!(seguinte, Some(b'(') | Some(b'[') | Some(b':'));
-                let valido = {
-                    let c = conteudo.strip_prefix("new ").map(str::trim_start).unwrap_or(conteudo);
-                    !c.is_empty()
-                        && c.split('.').all(|p| {
-                            let mut cs = p.chars();
-                            cs.next().is_some_and(|x| x.is_ascii_alphabetic() || x == '_' || x == '$')
-                                && cs.all(|x| x.is_ascii_alphanumeric() || x == '_' || x == '$')
-                        })
-                        && c.split('.').count() <= 3
-                };
-                if valido && !link {
-                    v.push((i + 1, fim));
-                }
-                i = fim + 1;
-            }
-            _ => i += 1,
-        }
-    }
-    v
 }
 
 /// As faixas de seleção em `offset`: o nó do `NodeLocator` e os ancestrais,

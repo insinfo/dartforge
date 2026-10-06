@@ -15,6 +15,7 @@
 pub mod agrupamento;
 pub mod ast;
 pub mod comentarios;
+pub mod doc_referencias;
 pub mod features;
 pub mod fonte;
 pub mod lexer;
