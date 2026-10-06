@@ -5,6 +5,7 @@
 //! |---|---|---|
 //! | `Replace conditional with 'if-else'` | `refactor.convert.conditionalToIfElse` | `ReplaceConditionalWithIfElse` |
 //! | `Split && condition` | `refactor.splitIfConjunction` | `SplitAndCondition` |
+//! | `Convert to use '?.'` | `refactor.convert.toNullAware` | `ConvertToNullAware` |
 
 use crate::acoes::AcaoDeCodigo;
 use crate::refatoracoes::Contexto;
@@ -193,6 +194,124 @@ impl Contexto<'_> {
         Some(AcaoDeCodigo {
             titulo: "Split && condition".into(),
             especie: "refactor.splitIfConjunction".into(),
+            edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            diagnostico: None,
+            criar_arquivo: None,
+        })
+    }
+
+    /// `unParenthesized`.
+    pub(crate) fn sem_parenteses(&self, mut n: usize) -> usize {
+        while self.especie(n) == "ParenthesizedExpression" {
+            match self.filhos(n).first() {
+                Some(&f) => n = f,
+                None => break,
+            }
+        }
+        n
+    }
+
+    /// O `toString` de uma expressão (o `toSource`).
+    fn como_texto(&self, n: usize) -> String {
+        crate::assist_lacos::como_fonte(self.texto_do_no(n))
+    }
+
+    /// O operador de acesso (`.`, `?.`, `..`) entre o alvo `alvo` e o nome
+    /// seguinte.
+    fn operador_de_acesso(&self, alvo: usize) -> Option<Span> {
+        let s = self.token_seguinte(self.arvore.nos[alvo].fim)?;
+        matches!(&self.fonte[s.start..s.end], "." | "?." | ".." | "?..").then_some(s)
+    }
+
+    /// `ConvertToNullAware` (convert_to_null_aware.dart): `x == null ? null :
+    /// x.y` (ou com `!=`) vira `x?.y`.
+    pub(crate) fn converter_em_null_aware(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
+        let no = self.arvore.localizar(inicio, fim)?;
+        let mut alvo = no;
+        if let Some(p) = self.pai(no)
+            && self.especie(p) == "BinaryExpression"
+            && let Some(a) = self.pai(p)
+            && self.especie(a) == "ConditionalExpression"
+        {
+            alvo = a;
+        }
+        if self.especie(alvo) != "ConditionalExpression" {
+            return None;
+        }
+        let f = self.filhos(alvo);
+        let (condicao, entao, senao) = (self.sem_parenteses(*f.first()?), *f.get(1)?, *f.get(2)?);
+        if self.especie(condicao) != "BinaryExpression" {
+            return None;
+        }
+        let fc = self.filhos(condicao);
+        let (esquerda, direita) = (*fc.first()?, *fc.get(1)?);
+        let nulo = |k: usize| self.especie(k) == "NullLiteral";
+        let texto_da_condicao = if nulo(esquerda) && !nulo(direita) {
+            self.como_texto(direita)
+        } else if nulo(direita) && !nulo(esquerda) {
+            self.como_texto(esquerda)
+        } else {
+            return None;
+        };
+        let (expressao_nula, nao_nula) = match self.operador_binario(condicao)? {
+            "==" => (entao, senao),
+            "!=" => (senao, entao),
+            _ => return None,
+        };
+        if !nulo(self.sem_parenteses(expressao_nula)) {
+            return None;
+        }
+        let mut resultado = self.sem_parenteses(nao_nula);
+        let mut operador: Option<Span> = None;
+        loop {
+            match self.especie(resultado) {
+                "PrefixedIdentifier" => {
+                    let prefixo = *self.filhos(resultado).first()?;
+                    operador = Some(self.operador_de_acesso(prefixo)?);
+                    resultado = prefixo;
+                }
+                "MethodInvocation" | "PropertyAccess" => {
+                    // Sem alvo, o `default` do produtor.
+                    let primeiro = *self.filhos(resultado).first()?;
+                    let op = self.operador_de_acesso(primeiro)?;
+                    if op.start < self.arvore.nos[primeiro].fim {
+                        return None;
+                    }
+                    if self.especie(resultado) == "MethodInvocation" && self.nome_do_metodo(resultado) == Some(primeiro) {
+                        return None;
+                    }
+                    operador = Some(op);
+                    resultado = primeiro;
+                }
+                "PostfixExpression" if self.fonte[self.arvore.nos[resultado].inicio..self.arvore.nos[resultado].fim].ends_with('!') => {
+                    resultado = *self.filhos(resultado).first()?;
+                }
+                _ => return None,
+            }
+            if self.como_texto(resultado) == texto_da_condicao {
+                break;
+            }
+        }
+        let (faixa, interrogacao) = match operador {
+            Some(op) => {
+                let q = if &self.fonte[op.start..op.end] == "." { "?" } else { "" };
+                (Span { start: self.arvore.nos[resultado].fim, end: op.start }, q)
+            }
+            None if self.pai(resultado).is_some_and(|p| self.especie(p) == "PostfixExpression") => {
+                (Span { start: self.arvore.nos[resultado].fim, end: self.arvore.nos[self.pai(resultado)?].fim }, "")
+            }
+            None => return None,
+        };
+        let mut m = Mudanca::default();
+        m.adicionar(uri, Span { start: self.arvore.nos[alvo].inicio, end: self.arvore.nos[nao_nula].inicio }, String::new());
+        m.adicionar(uri, faixa, interrogacao.to_string());
+        m.adicionar(uri, Span { start: self.arvore.nos[nao_nula].fim, end: self.arvore.nos[alvo].fim }, String::new());
+        if m.conflito.is_some() {
+            return None;
+        }
+        Some(AcaoDeCodigo {
+            titulo: "Convert to use '?.'".into(),
+            especie: "refactor.convert.toNullAware".into(),
             edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
             diagnostico: None,
             criar_arquivo: None,

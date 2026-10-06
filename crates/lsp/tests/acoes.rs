@@ -25,7 +25,7 @@ fn acoes(p: &mut Projeto, relativo: &str, de: (u32, u32), ate: (u32, u32), extra
     let fora = |k: &str| {
         k.starts_with("source")
             || k.starts_with("quickfix.ignore")
-            || (k.starts_with("refactor.") && !["refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType"].contains(&k))
+            || (k.starts_with("refactor.") && !["refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware"].contains(&k))
             || k == "quickfix.change.to"
             || ["method", "function", "class", "mixin", "getter", "field", "localVariable", "parameter"]
                 .iter()
@@ -671,4 +671,17 @@ fn assistencia_de_tipo_de_retorno() {
     assert_eq!(aplicar(&acao(&r, "Add return type")["edit"], &p.uri("lib/a.dart"), texto), texto.replace("h(bool b)", "Future<int> h(bool b)"));
     let pos = onde(texto, "k()", 0);
     assert!(!titulos(&acoes(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Add return type".to_string()));
+}
+
+#[test]
+fn assistencia_de_null_aware() {
+    let mut p = Projeto::com_literais("acoes-null-aware");
+    let texto = "class A {\n  int get n => 1;\n  int m() => 2;\n}\nvoid f(A? a) {\n  print(a == null ? null : a.n);\n  print(a != null ? a.m() : null);\n}\n";
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "? null");
+    let a = acao(&r, "Convert to use '?.'");
+    assert_eq!(a["kind"], "refactor.convert.toNullAware");
+    assert_eq!(aplicar(&a["edit"], &p.uri("lib/a.dart"), texto), texto.replace("a == null ? null : a.n", "a?.n"));
+    let pos = onde(texto, "? a.m", 0);
+    let r = acoes(&mut p, "lib/a.dart", pos, pos, json!({}));
+    assert_eq!(aplicar(&acao(&r, "Convert to use '?.'")["edit"], &p.uri("lib/a.dart"), texto), texto.replace("a != null ? a.m() : null", "a?.m()"));
 }

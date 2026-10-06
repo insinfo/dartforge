@@ -458,6 +458,7 @@ impl Analisador for AnalisadorSemantico {
                     saida.extend(cx.converter_em_literal_int(uri, inicio, fim));
                     saida.extend(cx.trocar_por_var(uri, inicio, fim));
                     saida.extend(cx.dividir_condicao_e(uri, inicio, fim));
+                    saida.extend(cx.converter_em_null_aware(uri, inicio, fim));
                 }
                 saida.extend(projeto.assistencias_de_reescrita(uri, unidade, inicio, fim));
                 saida.extend(projeto.assistencias_sintaticas(uri, unidade, inicio));

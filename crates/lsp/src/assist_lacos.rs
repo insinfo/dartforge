@@ -17,7 +17,7 @@ use dartforge_types::{Resolved, Type};
 /// nome separados por um espaço), a partir do texto: os brancos viram um
 /// espaço, e os de dentro dos argumentos de tipo somem como no
 /// `ToSourceVisitor` (`<`, `>` e `, `).
-fn como_fonte(texto: &str) -> String {
+pub(crate) fn como_fonte(texto: &str) -> String {
     let mut s = texto.split_whitespace().collect::<Vec<_>>().join(" ");
     for (de, para) in [("< ", "<"), (" <", "<"), (" >", ">"), (" ,", ","), (" ?", "?")] {
         while s.contains(de) {
