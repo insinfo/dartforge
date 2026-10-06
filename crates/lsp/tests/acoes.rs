@@ -25,7 +25,7 @@ fn acoes(p: &mut Projeto, relativo: &str, de: (u32, u32), ate: (u32, u32), extra
     let fora = |k: &str| {
         k.starts_with("source")
             || k.starts_with("quickfix.ignore")
-            || (k.starts_with("refactor.") && !["refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString"].contains(&k))
+            || (k.starts_with("refactor.") && !["refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral"].contains(&k))
             || k == "quickfix.change.to"
             || ["method", "function", "class", "mixin", "getter", "field", "localVariable", "parameter"]
                 .iter()
@@ -599,4 +599,23 @@ fn assistencia_de_aspas() {
     let pos = onde(texto, "a $n", 0);
     let r = acoes(&mut p, "lib/a.dart", pos, pos, json!({}));
     assert_eq!(aplicar(&acao(&r, "Convert to single quoted string")["edit"], &p.uri("lib/a.dart"), texto), texto.replace("\"a $n b\"", "'a $n b'"));
+}
+
+#[test]
+fn assistencia_de_is_not_empty_e_literal_int() {
+    let mut p = Projeto::com_literais("acoes-isnotempty");
+    let texto = "class C {\n  bool get isEmpty => true;\n  bool get isNotEmpty => false;\n}\nclass D {\n  bool get isEmpty => true;\n}\nvoid f(C c, D d) {\n  print(!c.isEmpty);\n  print(!d.isEmpty);\n  print(1_000.0 + 2e3 + 1.5);\n}\n";
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "isEmpty);\n  print(!d");
+    let a = acao(&r, "Convert to 'isNotEmpty'");
+    assert_eq!(aplicar(&a["edit"], &p.uri("lib/a.dart"), texto), texto.replace("!c.isEmpty", "c.isNotEmpty"));
+    let pos = onde(texto, "isEmpty);\n  print(1", 0);
+    assert!(!titulos(&acoes(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Convert to 'isNotEmpty'".to_string()));
+    let pos = onde(texto, "1_000.0", 0);
+    let r = acoes(&mut p, "lib/a.dart", pos, pos, json!({}));
+    assert_eq!(aplicar(&acao(&r, "Convert to an int literal")["edit"], &p.uri("lib/a.dart"), texto), texto.replace("1_000.0", "1_000"));
+    let pos = onde(texto, "2e3", 0);
+    let r = acoes(&mut p, "lib/a.dart", pos, pos, json!({}));
+    assert_eq!(aplicar(&acao(&r, "Convert to an int literal")["edit"], &p.uri("lib/a.dart"), texto), texto.replace("2e3", "2000"));
+    let pos = onde(texto, "1.5", 0);
+    assert!(!titulos(&acoes(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Convert to an int literal".to_string()));
 }

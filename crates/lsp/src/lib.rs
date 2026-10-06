@@ -18,6 +18,7 @@ mod acoes;
 pub(crate) use dartforge_analise::arvore_analyzer;
 mod assinatura;
 mod assist_condicionais;
+mod assist_expressoes;
 mod assist_funcoes;
 mod assist_imports;
 mod assist_lacos;
