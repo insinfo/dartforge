@@ -25,7 +25,7 @@ fn acoes(p: &mut Projeto, relativo: &str, de: (u32, u32), ate: (u32, u32), extra
     let fora = |k: &str| {
         k.starts_with("source")
             || k.starts_with("quickfix.ignore")
-            || (k.starts_with("refactor.") && !["refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread"].contains(&k))
+            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment"].contains(&k))
             || k == "quickfix.change.to"
             || ["method", "function", "class", "mixin", "getter", "field", "localVariable", "parameter"]
                 .iter()
@@ -699,4 +699,24 @@ fn assistencia_de_multilinha_e_espalhamento() {
     let pos = onde(texto, "addAll(b", 0);
     let r = acoes(&mut p, "lib/a.dart", pos, pos, json!({}));
     assert_eq!(aplicar(&acao(&r, "Convert to a spread")["edit"], &p.uri("lib/a.dart"), texto), texto.replace("<int>[]..addAll(b ?? [])", "<int>[...?b]"));
+}
+
+#[test]
+fn assistencia_de_elementos_e_documentacao() {
+    let mut p = Projeto::com_literais("acoes-doc");
+    let texto = "/// Um.\n/// Dois.\nvoid f(bool c) {\n  print([1]..add(2));\n  print([c ? 1 : 2]);\n}\n\n/** Tres. */\nvoid g() {}\n";
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "Um.");
+    let a = acao(&r, "Convert to block documentation comment");
+    assert_eq!(aplicar(&a["edit"], &p.uri("lib/a.dart"), texto), texto.replace("/// Um.\n/// Dois.", "/**\n * Um.\n * Dois.\n */"));
+    let pos = onde(texto, "Tres", 0);
+    let r = acoes(&mut p, "lib/a.dart", pos, pos, json!({}));
+    assert_eq!(aplicar(&acao(&r, "Convert to line documentation comment")["edit"], &p.uri("lib/a.dart"), texto), texto.replace("/** Tres. */", "/// Tres."));
+    let pos = onde(texto, "add(2", 0);
+    let r = acoes(&mut p, "lib/a.dart", pos, pos, json!({}));
+    let a = acao(&r, "Inline invocation of 'add'");
+    assert_eq!(a["kind"], "refactor.inline");
+    assert_eq!(aplicar(&a["edit"], &p.uri("lib/a.dart"), texto), texto.replace("[1]..add(2)", "[1, 2]"));
+    let pos = onde(texto, "? 1", 0);
+    let r = acoes(&mut p, "lib/a.dart", pos, pos, json!({}));
+    assert_eq!(aplicar(&acao(&r, "Convert to an 'if' element")["edit"], &p.uri("lib/a.dart"), texto), texto.replace("[c ? 1 : 2]", "[if (c) 1 else 2]"));
 }

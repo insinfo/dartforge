@@ -461,6 +461,10 @@ impl Analisador for AnalisadorSemantico {
                     saida.extend(cx.converter_em_null_aware(uri, inicio, fim));
                     saida.extend(cx.converter_em_multilinha(uri, inicio, fim));
                     saida.extend(cx.converter_add_all_em_espalhamento(uri, inicio, fim));
+                    saida.extend(cx.embutir_invocacao_add(uri, inicio, fim));
+                    saida.extend(cx.condicional_em_elemento_if(uri, inicio, fim));
+                    saida.extend(cx.documentacao_em_bloco(uri, inicio, fim));
+                    saida.extend(cx.documentacao_em_linhas(uri, inicio, fim));
                 }
                 saida.extend(projeto.assistencias_de_reescrita(uri, unidade, inicio, fim));
                 saida.extend(projeto.assistencias_sintaticas(uri, unidade, inicio));

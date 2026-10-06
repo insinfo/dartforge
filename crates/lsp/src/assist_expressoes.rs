@@ -6,6 +6,8 @@
 //! | `Convert to 'isNotEmpty'` | `refactor.convert.isNotEmpty` | `ConvertIntoIsNotEmpty` |
 //! | `Convert to an int literal` | `refactor.convert.toIntLiteral` | `ConvertToIntLiteral` |
 //! | `Convert to a spread`, `Inline invocation of 'addAll'` | `refactor.convert.toSpread`, `refactor.inline` | `ConvertAddAllToSpread` |
+//! | `Inline invocation of 'add'` | `refactor.inline` | `InlineInvocation` |
+//! | `Convert to an 'if' element` | `refactor.convert.toIfElement` | `ConvertConditionalExpressionToIfElement` |
 
 use crate::acoes::AcaoDeCodigo;
 use crate::refatoracoes::Contexto;
@@ -203,5 +205,152 @@ impl Contexto<'_> {
             ("Convert to a spread", "refactor.convert.toSpread")
         };
         Some(self.acao_simples(uri, titulo, especie, vec![insercao, (self.arvore.span(invocacao), String::new())]))
+    }
+
+    /// `InlineInvocation` (inline_invocation.dart): no nome do primeiro
+    /// `..add(e)` de uma cascata sobre um literal de lista, `e` entra na lista.
+    pub(crate) fn embutir_invocacao_add(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
+        let nome = self.arvore.localizar(inicio, fim)?;
+        if self.especie(nome) != "SimpleIdentifier" || self.texto_do_no(nome) != "add" {
+            return None;
+        }
+        let invocacao = self.pai(nome)?;
+        if self.especie(invocacao) != "MethodInvocation" || self.nome_do_metodo(invocacao) != Some(nome) {
+            return None;
+        }
+        let operador = self.token_anterior(self.arvore.nos[nome].inicio)?;
+        if !matches!(&self.fonte[operador.start..operador.end], ".." | "?..") {
+            return None;
+        }
+        let argumentos = self.argumentos_da_lista(invocacao);
+        if argumentos.len() != 1 {
+            return None;
+        }
+        let cascata = self.pai(invocacao)?;
+        if self.especie(cascata) != "CascadeExpression" {
+            return None;
+        }
+        let fc = self.filhos(cascata);
+        let (alvo, primeira) = (*fc.first()?, *fc.get(1)?);
+        if self.especie(alvo) != "ListLiteral" || primeira != invocacao {
+            return None;
+        }
+        let texto = self.texto_do_no(argumentos[0]).to_string();
+        let insercao = match self.elementos_da_lista(alvo).last() {
+            Some(&u) => (Span { start: self.arvore.nos[u].fim, end: self.arvore.nos[u].fim }, format!(", {texto}")),
+            None => {
+                let abre = self.tokens.iter().find(|t| t.span.start >= self.arvore.nos[alvo].inicio && &self.fonte[t.span.start..t.span.end] == "[")?.span;
+                (Span { start: abre.end, end: abre.end }, texto)
+            }
+        };
+        Some(self.acao_simples(uri, "Inline invocation of 'add'", "refactor.inline", vec![insercao, (self.arvore.span(invocacao), String::new())]))
+    }
+
+    /// `ConvertConditionalExpressionToIfElement`: a condicional elemento de um
+    /// literal de lista ou de conjunto (através de parênteses) vira
+    /// `if (c) a else b`.
+    pub(crate) fn condicional_em_elemento_if(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
+        let no = self.arvore.localizar(inicio, fim)?;
+        let condicional = self.com_pais(no).find(|&k| self.especie(k) == "ConditionalExpression")?;
+        let mut trocar = condicional;
+        let mut pai = self.pai(condicional)?;
+        while self.especie(pai) == "ParenthesizedExpression" {
+            trocar = pai;
+            pai = self.pai(pai)?;
+        }
+        let e_conjunto = || {
+            // `SetOrMapLiteral.isSet`: o tipo estático é um `Set`.
+            let Some(x) = self.expr_do_no(pai) else { return false };
+            let Some(t) = self.corpos.get_type(x) else { return false };
+            matches!(self.p.consulta.tabela.get(t), dartforge_types::Type::Interface { class, .. } if Some(*class) == self.p.consulta.core.set_class)
+        };
+        if !(self.especie(pai) == "ListLiteral" || (self.especie(pai) == "SetOrMapLiteral" && e_conjunto())) {
+            return None;
+        }
+        let f = self.filhos(condicional);
+        let (c, a, b) = (self.sem_parenteses(*f.first()?), self.sem_parenteses(*f.get(1)?), self.sem_parenteses(*f.get(2)?));
+        let texto = format!("if ({}) {} else {}", self.texto_do_no(c), self.texto_do_no(a), self.texto_do_no(b));
+        Some(self.acao_simples(uri, "Convert to an 'if' element", "refactor.convert.toIfElement", vec![(self.arvore.span(trocar), texto)]))
+    }
+
+    /// Os tokens de um `Comment` de documentação: cada linha `///` ou o
+    /// `/** … */` inteiro, com o tipo (`true`: de uma linha).
+    fn tokens_do_comentario(&self, comentario: usize) -> Vec<(Span, bool)> {
+        let span = self.arvore.span(comentario);
+        let texto = &self.fonte[span.start..span.end];
+        let mut v = Vec::new();
+        let mut i = 0;
+        while i < texto.len() {
+            let resto = &texto[i..];
+            if resto.starts_with("/*") {
+                let fim = resto.find("*/").map_or(resto.len(), |k| k + 2);
+                v.push((Span { start: span.start + i, end: span.start + i + fim }, false));
+                i += fim;
+            } else if resto.starts_with("//") {
+                let fim = resto.find(['\r', '\n']).unwrap_or(resto.len());
+                v.push((Span { start: span.start + i, end: span.start + i + fim }, true));
+                i += fim;
+            } else {
+                i += resto.chars().next().map_or(1, char::len_utf8);
+            }
+        }
+        v
+    }
+
+    /// `ConvertDocumentationIntoBlock`: o comentário de documentação feito
+    /// só de linhas `///` vira `/** … */`.
+    pub(crate) fn documentacao_em_bloco(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
+        let no = self.arvore.localizar(inicio, fim)?;
+        let comentario = self.com_pais(no).find(|&k| self.especie(k) == "Comment")?;
+        let tokens = self.tokens_do_comentario(comentario);
+        if tokens.is_empty() || tokens.iter().any(|&(s, linha)| !linha || !self.fonte[s.start..s.end].starts_with("///")) {
+            return None;
+        }
+        let prefixo = self.prefixo_do_no(comentario);
+        let eol = crate::refatoracoes_exec::Texto::novo(self.fonte).eol();
+        let mut s = format!("/**{eol}");
+        for (t, _) in &tokens {
+            s.push_str(&format!("{prefixo} *{}{eol}", &self.fonte[t.start + 3..t.end]));
+        }
+        s.push_str(&format!("{prefixo} */"));
+        Some(self.acao_simples(uri, "Convert to block documentation comment", "refactor.convert.blockComment", vec![(self.arvore.span(comentario), s)]))
+    }
+
+    /// `ConvertDocumentationIntoLine`: o `/** … */` vira linhas `///`.
+    pub(crate) fn documentacao_em_linhas(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
+        let no = self.arvore.localizar(inicio, fim)?;
+        let comentario = self.com_pais(no).find(|&k| self.especie(k) == "Comment")?;
+        let tokens = self.tokens_do_comentario(comentario);
+        let [(token, false)] = tokens[..] else { return None };
+        let eol = crate::refatoracoes_exec::Texto::novo(self.fonte).eol();
+        let prefixo = self.prefixo_do_no(comentario);
+        let mut novas: Vec<String> = Vec::new();
+        let mut primeira = true;
+        let mut prefixo_da_linha = String::new();
+        for linha in self.fonte[token.start..token.end].split(eol) {
+            if primeira {
+                primeira = false;
+                let mut l = linha.strip_prefix("/**")?.trim();
+                if let Some(x) = l.strip_suffix("*/") {
+                    l = x.trim();
+                }
+                if !l.is_empty() {
+                    novas.push(format!("/// {l}"));
+                    prefixo_da_linha = format!("{eol}{prefixo}");
+                }
+            } else {
+                let l = linha.trim_start();
+                if l.starts_with("*/") {
+                    break;
+                }
+                let mut l = l.strip_prefix('*')?;
+                if let Some(x) = l.strip_suffix("*/") {
+                    l = x.trim_end();
+                }
+                novas.push(format!("{prefixo_da_linha}///{l}"));
+                prefixo_da_linha = format!("{eol}{prefixo}");
+            }
+        }
+        Some(self.acao_simples(uri, "Convert to line documentation comment", "refactor.convert.lineComment", vec![(self.arvore.span(comentario), novas.concat())]))
     }
 }
