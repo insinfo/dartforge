@@ -538,3 +538,20 @@ fn aproximado_e_relevancia() {
     let pos = |n: &str| r_rotulos.iter().position(|x| x == n).unwrap();
     assert!(pos("marcado") < pos("toString()") && pos("campo") < pos("hashCode"), "{r_rotulos:?}");
 }
+
+#[test]
+fn estaticos_e_construtores_depois_do_nome_da_classe_no_meio_do_nome() {
+    // O cursor dentro do nome já escrito (`A.v▮azio()`): os construtores e
+    // os estáticos da classe, não os membros de instância.
+    let mut p = Projeto::novo("completar-estatico-meio");
+    let texto = format!("{CLASSES}void f() {{\n  var x = A.v▮azio();\n  var y = A.contar();\n}}\n");
+    let r = completar(&mut p, "lib/a.dart", &texto);
+    let nomes = rotulos(&r);
+    assert!(nomes.iter().any(|n| n == "vazio()"), "{nomes:?}");
+    assert!(!nomes.iter().any(|n| n == "toString"), "{nomes:?}");
+    // `A.c▮ontar()`: o estático (o receptor resolve para a classe mesmo com
+    // o nome trocado pelo sentinela).
+    let texto = format!("{CLASSES}void f() {{\n  A.c▮ontar();\n}}\n");
+    let nomes = rotulos(&completar(&mut p, "lib/b.dart", &texto));
+    assert!(nomes.iter().any(|n| n == "contar()"), "{nomes:?}");
+}

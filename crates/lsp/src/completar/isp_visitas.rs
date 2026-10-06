@@ -718,7 +718,14 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// O tipo resolvido de um nó de tipo (`type.typeOrThrow`): o dos corpos
     /// (`tipos_de_anotacoes`) ou o do outline (`tipos_escritos`).
     pub(super) fn tipo_do_no_de_tipo(&self, t: usize) -> Option<TypeId> {
-        let Ligacao::Tipo(tid) = self.lig(t) else { return None };
+        let Ligacao::Tipo(tid) = self.lig(t) else {
+            // O `NamedType` que a árvore monta para a criação sem `new`
+            // (`A()`, `A.n()`): o tipo criado.
+            let nome = self.pai(t).filter(|&p| self.especie(p) == "ConstructorName")?;
+            let criacao = self.pai(nome).filter(|&p| self.especie(p) == "InstanceCreationExpression")?;
+            let Ligacao::Expr(e) = self.lig(criacao) else { return None };
+            return self.tipo_estatico(e);
+        };
         let s = self.a.ty(tid).span;
         let (ini, fim) = (self.mapear(s.start), self.mapear_fim(s.end));
         let ast_c = &self.consulta.programa.unit(self.unidade).ast;

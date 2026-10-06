@@ -1030,6 +1030,16 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                     let nome = inf.interner.resolve(name.sym).to_string();
                     let tipo = inf.interner.resolve(inf.program.class(c).name).to_string();
                     inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_METHOD, name.span, &[&nome, &tipo]);
+                    // O receptor já foi resolvido pelo `ResolverVisitor`
+                    // antes do `MethodInvocationResolver`: o elemento (a
+                    // classe ou o alias) e o tipo `Type` do literal de tipo.
+                    let elemento = match &rt {
+                        RefTipo::Alias(_, _, t) => Element::Typedef(*t),
+                        _ => Element::Class(c),
+                    };
+                    expr::resolver(inf, cx, recv, Resolved::Element(elemento));
+                    let tipo_type = inf.core.type_;
+                    registrar(inf, cx, recv, tipo_type);
                     // `_setInvalidTypeResolution`: a invocação que não
                     // resolve tem o tipo de recuperação.
                     let d = inf.table.invalido(inf.core.dynamic_);
