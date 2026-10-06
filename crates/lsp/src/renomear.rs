@@ -361,6 +361,10 @@ impl Projeto {
                         Some(ast::DirectiveKind::Import { prefix: Some(pr), .. }) if pr.span.start <= offset && offset <= pr.span.end
                     )
             });
+            // Usado numa expressão (um `SimpleIdentifier` com o
+            // `PrefixElement`): `getElementOfNode` troca pelo import
+            // (`getImportElement`), e o rename é o do import.
+            let na_diretiva = na_diretiva.or_else(|| self.import_do_prefixo(unidade, offset, biblioteca, nome));
             if let Some(indice) = na_diretiva {
                 return Some(Pedido {
                     classe: Classe::Import { biblioteca, indice },
@@ -1086,6 +1090,38 @@ impl Projeto {
                 for (u, a, b) in self.declaracoes(alvo) {
                     por(u, Span { start: a, end: b }, novo, &mut edicoes);
                 }
+                // `fillChange`: com nome novo público, as referências de cada
+                // `this.x` do campo nos construtores da classe dele; as do
+                // posicional opcional são os inícios dos argumentos (o
+                // `visitExpression` do índice), de comprimento 0.
+                if !novo.starts_with('_')
+                    && let Alvo::Membro { dono, nome, estatico: false } = alvo
+                    && let Ok(fam) = self.familia(*dono, nome, false, false)
+                {
+                    let mut vistas: Vec<dartforge_elements::model::ClassId> = Vec::new();
+                    for v in fam.variaveis.iter() {
+                        let Some(c) = p.variable(*v).class else { continue };
+                        if vistas.contains(&c) || !self.bibliotecas.contains(&p.class(c).library) {
+                            continue;
+                        }
+                        vistas.push(c);
+                        for (u, m) in p.membros_da_classe(c) {
+                            let ast::MemberKind::Constructor(k) = &p.unit(u).ast.member(m).kind else { continue };
+                            let posicionais: Vec<&ast::Parameter> = k.parameters.iter().filter(|q| q.kind != ast::ParameterKind::Named).collect();
+                            for (i, q) in posicionais.iter().enumerate() {
+                                if q.this_
+                                    && q.kind == ast::ParameterKind::Optional
+                                    && q.name.is_some_and(|n| self.nome(n.sym) == nome.as_str())
+                                    && let Some(f) = self.construtor_do_no(u, m)
+                                {
+                                    for (x, s) in self.argumentos_posicionais(f, i) {
+                                        por(x, s, novo, &mut edicoes);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 for (u, s) in self.referencias_do_alvo(alvo) {
                     // O `this.x` nomeado que vira privado: `{T x}` e o
                     // inicializador `_novo = x`.
@@ -1095,12 +1131,9 @@ impl Projeto {
                         edicoes.extend(e);
                         continue;
                     }
-                    // A referência implícita de comprimento 0 de um `this.x`
-                    // posicional opcional viraria inserção (defeito do Dart,
-                    // não reproduzido).
-                    if s.start == s.end {
-                        continue;
-                    }
+                    // A referência implícita de comprimento 0 (o argumento
+                    // posicional de um `this.x`, pelo `visitExpression` do
+                    // índice) vira inserção do nome novo, como no Dart.
                     por(u, s, novo, &mut edicoes);
                 }
             }
@@ -1112,9 +1145,7 @@ impl Projeto {
                         por(u, s, novo, &mut edicoes);
                     }
                     for (u, s) in self.referencias_do_alvo(&alvo) {
-                        if s.start != s.end {
-                            por(u, s, novo, &mut edicoes);
-                        }
+                        por(u, s, novo, &mut edicoes);
                     }
                 } else {
                     let alvo = Alvo::Local { unidade: *unidade, declaracao: *declaracao };
@@ -1212,19 +1243,28 @@ impl Projeto {
                 if r.len() != 1 || r[0].1 != nome {
                     continue;
                 }
-                // O comentário documenta o membro logo depois dele, que
-                // declara o parâmetro.
-                let funcao = u
-                    .ast
-                    .functions
-                    .iter()
-                    .filter(|f| f.span.start >= c.span.end)
-                    .min_by_key(|f| f.span.start)
-                    .is_some_and(|f| f.parameters.iter().flatten().any(|q| q.name.is_some_and(|n| n.span.start == declaracao)));
-                let construtor = u.ast.members.iter().filter(|m| m.span.start >= c.span.end).min_by_key(|m| m.span.start).is_some_and(|m| {
-                    matches!(&m.kind, ast::MemberKind::Constructor(k) if k.parameters.iter().any(|q| q.name.is_some_and(|n| n.span.start == declaracao)))
-                });
-                if funcao || construtor {
+                // O comentário documenta a declaração logo depois dele
+                // (membro, declaração de topo ou função local), que declara
+                // o parâmetro.
+                let declara = |ps: &[ast::Parameter]| ps.iter().any(|q| q.name.is_some_and(|n| n.span.start == declaracao));
+                let membro = u.ast.members.iter().filter(|m| m.span.start >= c.span.end).min_by_key(|m| m.span.start);
+                let topo = u.ast.decls.iter().filter(|d| d.span.start >= c.span.end).min_by_key(|d| d.span.start);
+                let funcao = u.ast.functions.iter().filter(|f| f.span.start >= c.span.end).min_by_key(|f| f.span.start);
+                let pm = membro.map_or(usize::MAX, |m| m.span.start);
+                let pt = topo.map_or(usize::MAX, |d| d.span.start);
+                let pf = funcao.map_or(usize::MAX, |f| f.span.start);
+                let documenta = if pm <= pt && pm <= pf {
+                    membro.is_some_and(|m| match &m.kind {
+                        ast::MemberKind::Constructor(k) => declara(&k.parameters),
+                        ast::MemberKind::Method(f) => declara(u.ast.function(*f).parameters.as_deref().unwrap_or(&[])),
+                        ast::MemberKind::Field(_) => false,
+                    })
+                } else if pt <= pf {
+                    topo.is_some_and(|d| matches!(&d.kind, ast::DeclKind::Function(f) if declara(u.ast.function(*f).parameters.as_deref().unwrap_or(&[]))))
+                } else {
+                    funcao.is_some_and(|f| declara(f.parameters.as_deref().unwrap_or(&[])))
+                };
+                if documenta {
                     v.push((unidade, r[0].0));
                 }
             }
@@ -1329,6 +1369,20 @@ impl Projeto {
                             && visivel(n.sym)
                         {
                             usar(pn, &mut v);
+                        }
+                    }
+                    // `[p.x]` na documentação: o índice também cita o import.
+                    let nome_do_prefixo = &un.source[pr.span.start..pr.span.end];
+                    if fx.contains('[') {
+                        for c in crate::dartdoc::comentarios(fx) {
+                            for r in &c.referencias {
+                                if r.len() >= 2
+                                    && r[0].1 == nome_do_prefixo
+                                    && self.consulta.nomes.lookup(&r[1].1).is_some_and(visivel)
+                                {
+                                    v.push(Edicao { uri: uri_x.clone(), span: ate_o_proximo(r[0].0), texto: substituto.clone() });
+                                }
+                            }
                         }
                     }
                 }

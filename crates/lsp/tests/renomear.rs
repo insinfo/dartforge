@@ -328,6 +328,25 @@ fn redirecionamento_de_fabrica_fora_dos_candidatos() {
 }
 
 #[test]
+fn campo_com_argumento_posicional_de_this_e_docs_por_declaracao() {
+    // O argumento posicional de um `this.x` é referência de comprimento 0 no
+    // índice: o rename do campo insere o nome novo antes dele (como o Dart).
+    let mut p = Projeto::novo("renomear-campo-posicional");
+    let a = "class A {\n  final int? x;\n  A([this.x]);\n}\nvoid f(A a) {\n  A(a.x);\n}\n";
+    p.abrir("lib/a.dart", a);
+    let uri = p.uri("lib/a.dart");
+    let r = renomear_em(&mut p, "lib/a.dart", a, "x;", 0, "y");
+    assert_eq!(aplicar(&r["result"], &uri, a), "class A {\n  final int? y;\n  A([this.y]);\n}\nvoid f(A a) {\n  A(ya.y);\n}\n", "{r}");
+    // O `[c]` da documentação só muda no comentário da declaração que
+    // declara o parâmetro renomeado.
+    let b = "class B {\n  /// Usa [c].\n  B.um(int c);\n  /// Usa [c].\n  B.dois(int c);\n}\n";
+    p.abrir("lib/b.dart", b);
+    let uri_b = p.uri("lib/b.dart");
+    let r = renomear_em(&mut p, "lib/b.dart", b, "c);", 1, "d");
+    assert_eq!(aplicar(&r["result"], &uri_b, b), "class B {\n  /// Usa [c].\n  B.um(int c);\n  /// Usa [d].\n  B.dois(int d);\n}\n", "{r}");
+}
+
+#[test]
 fn construtor_nomeado() {
     let mut p = Projeto::novo("renomear-construtor");
     let a = "/// Crie com [Caixa.vazia].\nclass Caixa {\n  final int v;\n  Caixa(this.v);\n  Caixa.vazia() : this(0);\n  Caixa.outra() : this.vazia();\n  factory Caixa.fab() = Caixa.vazia;\n}\nclass Sub extends Caixa {\n  Sub() : super.vazia();\n}\nvoid f() {\n  var x = Caixa.vazia();\n  var y = new Caixa.vazia();\n  print([x, y, Caixa(1)]);\n}\n";
@@ -370,6 +389,17 @@ fn prefixo_de_import() {
     assert_eq!(erro(&renomear_em(&mut p, "lib/b.dart", b, "pa.Caixa f", 0, "pb")), "Library already declares getter with name 'pb'.");
     assert!(renomear_em(&mut p, "lib/b.dart", b, "pa;", 0, "pb")["result"]["changes"].is_object());
     assert_eq!(erro(&renomear_em(&mut p, "lib/b.dart", b, "pa;", 0, "dynamic")), "Import prefix name must not be a keyword.");
+    // Pelo uso numa expressão (`pa.criar()`), `getElementOfNode` dá o
+    // import: o `pa.` de cada uso vira `q.`, e o `[pa.criar]` da
+    // documentação também.
+    let c = "import 'a.dart' as pa;\n/// Veja [pa.criar].\nvoid g() => pa.criar();\n";
+    p.abrir("lib/c.dart", c);
+    let uri_c = p.uri("lib/c.dart");
+    let r3 = renomear_em(&mut p, "lib/c.dart", c, "pa.criar()", 0, "q");
+    assert_eq!(aplicar(&r3["result"], &uri_c, c), c.replace("pa", "q"), "{r3}");
+    let mudancas = r3["result"]["changes"].as_object().unwrap().values().next().unwrap().clone();
+    assert!(mudancas.as_array().unwrap().iter().all(|e| e["newText"] == "q" || e["newText"] == "q."), "{r3}");
+    assert!(mudancas.as_array().unwrap().iter().any(|e| e["newText"] == "q." && e["range"]["start"] == json!({"line": 1, "character": 10})), "{r3}");
 }
 
 #[test]

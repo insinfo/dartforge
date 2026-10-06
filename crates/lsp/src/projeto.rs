@@ -1957,7 +1957,7 @@ impl Projeto {
 
     /// O `i`-ésimo argumento posicional de cada chamada de `f`, quando ele
     /// passa pelo `visitExpression` do índice: o intervalo vazio no começo.
-    fn argumentos_posicionais(&self, f: FunctionElementId, indice: usize) -> Vec<(UnitId, Span)> {
+    pub(crate) fn argumentos_posicionais(&self, f: FunctionElementId, indice: usize) -> Vec<(UnitId, Span)> {
         let mut v = Vec::new();
         for u in self.unidades() {
             let corpos = &self.consulta.corpos.units[u.0 as usize];
@@ -2307,6 +2307,27 @@ impl Projeto {
         lib: LibraryId,
         nome: SymbolId,
     ) -> Option<(Option<(UnitId, Span)>, Vec<(UnitId, Span)>)> {
+        self.referencias_de_prefixo_com(unidade, offset, lib, nome, false)
+    }
+
+    /// O `LibraryImportElement` que `getElementOfNode` dá para o prefixo
+    /// usado numa expressão em `offset` (`getImportElement`): o índice dele
+    /// em `imports` da biblioteca. `None` num tipo (`p.T`, o
+    /// `PrefixElement`) ou quando o elemento usado não resolve.
+    pub(crate) fn import_do_prefixo(&self, unidade: UnitId, offset: usize, lib: LibraryId, nome: SymbolId) -> Option<usize> {
+        let (declaracao, _) = self.referencias_de_prefixo_com(unidade, offset, lib, nome, true)?;
+        let (_, s) = declaracao?;
+        (s.start == s.end).then_some(s.start)
+    }
+
+    fn referencias_de_prefixo_com(
+        &self,
+        unidade: UnitId,
+        offset: usize,
+        lib: LibraryId,
+        nome: SymbolId,
+        so_o_import: bool,
+    ) -> Option<(Option<(UnitId, Span)>, Vec<(UnitId, Span)>)> {
         let p = self.programa();
         let u = p.unit(unidade);
         let ast = &u.ast;
@@ -2315,6 +2336,9 @@ impl Projeto {
             _ => false,
         });
         if em_tipo {
+            if so_o_import {
+                return None;
+            }
             let mut usos = Vec::new();
             for &x in &p.library(lib).units {
                 let un = p.unit(x);
@@ -2396,6 +2420,10 @@ impl Projeto {
         let imp = imports.get(escolhido?)?;
         let diretiva = p.unit(imp.unit).unit.directives.get(imp.directive)?;
         let declaracao = Some((imp.unit, Span { start: diretiva.span.start, end: diretiva.span.start }));
+        if so_o_import {
+            let indice = p.library(lib).imports.iter().position(|i| std::ptr::eq(i, *imp))?;
+            return Some((Some((imp.unit, Span { start: indice, end: indice })), Vec::new()));
+        }
         // Os usos `p.` de elementos do namespace deste import.
         let namespace = &p.library(imp.library).exported;
         let visivel = |s: SymbolId| {
