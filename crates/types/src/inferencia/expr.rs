@@ -1198,6 +1198,7 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
         }
         ExprKind::TypeArguments { target, type_args } => {
             if referencia_a_tipo(inf, cx, e).is_some() {
+                conferir_argumentos_do_literal(inf, cx, e, false);
                 registrar_ref_tipo(inf, cx, e);
                 inf.core.type_
             } else {
@@ -2014,9 +2015,62 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
     (t, curto)
 }
 
+/// `WRONG_NUMBER_OF_TYPE_ARGUMENTS` de uma classe ou alias instanciado
+/// como expressão (`e` é o `TypeArguments`). Como literal de tipo
+/// (`_resolveDirectTypeLiteral`/`_resolveTypeAlias`,
+/// `function_reference_resolver.dart:115-150, 316-327, 821-835`), na lista
+/// de argumentos; com `no_tipo_nomeado` (o `NamedType` de `C<T>.x` e da
+/// criação implícita, `NamedTypeResolver._buildTypeArguments`), do nome ao
+/// `>`. O nome é o escrito (o do alias, se for um).
+pub(crate) fn conferir_argumentos_do_literal(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, no_tipo_nomeado: bool) {
+    let a = ast(inf, cx);
+    let ExprKind::TypeArguments { target, type_args } = &a.expr(e).kind else { return };
+    let (target, n_args) = (*target, type_args.len());
+    let ultimo_fim = type_args.last().map(|&t| a.ty(t).span.end);
+    let (el, nome) = match &a.expr(target).kind {
+        ExprKind::Identifier(n) => match resolver_nome(inf, cx, n.sym, false) {
+            RefNome::Elemento(el) => (el, *n),
+            _ => return,
+        },
+        ExprKind::Property { target: p, name, null_aware: false } => {
+            let ExprKind::Identifier(p) = &a.expr(*p).kind else { return };
+            if !matches!(resolver_nome(inf, cx, p.sym, false), RefNome::Prefixo) {
+                return;
+            }
+            let Some(el) = inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.getter) else { return };
+            (el, *name)
+        }
+        _ => return,
+    };
+    let parametros = match el {
+        Element::Class(c) => inf.outline.classes[c.0 as usize].type_params.len(),
+        Element::Typedef(td) => inf.outline.typedefs[td.0 as usize].type_params.len(),
+        _ => return,
+    };
+    if parametros == n_args {
+        return;
+    }
+    let fonte = &inf.program.unit(cx.unit).source;
+    let alvo = a.expr(target).span;
+    let depois_do_nome = alvo.end;
+    let abre = fonte.get(depois_do_nome..).and_then(|r| r.find('<')).map(|i| depois_do_nome + i).unwrap_or(depois_do_nome);
+    let fim_args = ultimo_fim.unwrap_or(abre + 1);
+    let fecha = fonte.get(fim_args..).and_then(|r| r.find('>')).map(|i| fim_args + i + 1).unwrap_or(fim_args);
+    let span = if no_tipo_nomeado {
+        dartforge_diagnostics::Span { start: alvo.start, end: fecha }
+    } else {
+        dartforge_diagnostics::Span { start: abre, end: fecha }
+    };
+    let (texto, p, n) = (inf.interner.resolve(nome.sym).to_string(), parametros.to_string(), n_args.to_string());
+    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS, span, &[&texto, &p, &n]);
+}
+
 /// Acesso estático `C.x` / `E.x` / `C.new`.
 fn acesso_estatico(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, rt: RefTipo, name: ast::Name) -> TypeId {
     let instancia_explicita = receptor_de_instanciacao_explicita(inf, cx, e);
+    if instancia_explicita && let ExprKind::Property { target, .. } = &ast(inf, cx).expr(e).kind {
+        conferir_argumentos_do_literal(inf, cx, *target, true);
+    }
     match rt {
         RefTipo::Extensao(x) => match inf.membro_estatico_de_extensao(x, name.sym, false) {
             Some(m) => {
@@ -2045,7 +2099,7 @@ fn acesso_estatico(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, rt: Re
                 return m.tipo;
             }
             let args = targs.map(|v| v.iter().map(|&t| inf.tipo_de_argumento_de_tipo(cx, t)).collect::<Vec<_>>());
-            tearoff_de_construtor(inf, cx, e, c, args, name, true)
+            tearoff_de_construtor(inf, cx, e, c, args, name, true, false)
         }
         RefTipo::Alias(c, args, td) => {
             if let Some(m) = inf.membro_estatico(c, name.sym, false) {
@@ -2059,7 +2113,9 @@ fn acesso_estatico(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, rt: Re
             if !instancia_explicita && args.is_some() && !inf.outline.typedefs[td.0 as usize].type_params.is_empty() {
                 return tearoff_generico_de_alias(inf, cx, e, c, td, name);
             }
-            tearoff_de_construtor(inf, cx, e, c, args, name, false)
+            // `X<T>.m` instanciado explicitamente: o mesmo
+            // `CLASS_INSTANTIATION_ACCESS_TO_MEMBER` da classe.
+            tearoff_de_construtor(inf, cx, e, c, args, name, instancia_explicita, true)
         }
     }
 }
@@ -2117,7 +2173,11 @@ fn avisar_instanciacao_desconhecida(inf: &mut BodyInferrer<'_>, cx: &Corpo, expr
 
 /// `C.nome` / `C.new` como valor: tipo de função do construtor (genérico
 /// sobre os parâmetros da classe se não instanciado).
-fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, c: ClassId, args: Option<Vec<TypeId>>, name: ast::Name, diagnosticar_ausencia: bool) -> TypeId {
+/// `de_alias`: o receptor é um alias de tipo; instanciado (`X<T>.new`), o
+/// `AstRewriter` não o reescreve em referência de construtor, e o `new`
+/// ausente é membro desconhecido da instanciação como qualquer outro nome.
+#[allow(clippy::too_many_arguments)]
+fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, c: ClassId, args: Option<Vec<TypeId>>, name: ast::Name, diagnosticar_ausencia: bool, de_alias: bool) -> TypeId {
     let instancia_explicita = receptor_de_instanciacao_explicita(inf, cx, e);
     let chave = if Some(name.sym) == inf.sym.new_ { inf.sym.vazio } else { Some(name.sym) };
     let Some(chave) = chave else { return inf.core.dynamic_ };
@@ -2168,7 +2228,7 @@ fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
         // `C<T>.new` ainda é uma referência ao construtor sem nome. A
         // ausência dele tem diagnóstico no token `new`, mesmo quando o
         // receptor foi instanciado explicitamente.
-        if diagnosticar_ausencia && Some(name.sym) == inf.sym.new_ {
+        if diagnosticar_ausencia && Some(name.sym) == inf.sym.new_ && !(de_alias && instancia_explicita) {
             let classe = inf.interner.resolve(inf.program.class(c).name);
             let msg = if instancia_explicita {
                 format!("{}: '{classe}', 'new'", NEW_WITH_UNDEFINED_CONSTRUCTOR.template)
@@ -2195,8 +2255,11 @@ fn tearoff_de_construtor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
             inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_ENUM_CONSTANT, name.span, &[&n, &en]);
             return inf.core.dynamic_;
         }
-        let msg = format!("{}: getter '{}' não definido para a classe", UNDEFINED_GETTER.template, inf.interner.resolve(name.sym));
-        inf.aviso(msg, name.span);
+        // `[propertyName.name, typeReference.name]`
+        // (`property_element_resolver.dart:697-705`): o nome da classe, também
+        // pelo alias.
+        let (n, classe) = (inf.interner.resolve(name.sym).to_string(), inf.interner.resolve(inf.program.class(c).name).to_string());
+        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_GETTER, name.span, &[&n, &classe]);
         return inf.core.dynamic_;
     };
     if inf.program.function(f).class == Some(c) {
@@ -2240,7 +2303,7 @@ fn tearoff_generico_de_alias(
         inf.table.param_mut(p).explicito = inf.table.param(o).explicito;
     }
     let args: Vec<TypeId> = alvo_args.iter().map(|a| inf.subst(*a, &mapa)).collect();
-    let t = tearoff_de_construtor(inf, cx, e, c, Some(args), name, false);
+    let t = tearoff_de_construtor(inf, cx, e, c, Some(args), name, false, true);
     match inf.table.get(t).clone() {
         Type::Function { type_params, ret, positional, optional, named, nullable } if type_params.is_empty() => {
             inf.table.intern(Type::Function { type_params: novos.into_boxed_slice(), ret, positional, optional, named, nullable })
@@ -2562,7 +2625,7 @@ fn ler_indice(
     let indefinido = span_indice(inf, cx, alvo, target);
     let token = dartforge_diagnostics::Span { start: indefinido.start, end: indefinido.start + 1 };
     let super_ = matches!(ast(inf, cx).expr(target).kind, ExprKind::Super);
-    let posicoes = PosicoesDeOperador { token, indefinido, composta: false, super_ };
+    let posicoes = PosicoesDeOperador { token, indefinido, composta: false, super_, alvo_numerico: None };
     (operador_binario(inf, cx, recv, op, index, ctx, posicoes, Some(alvo)).0, curto)
 }
 
@@ -2579,6 +2642,10 @@ pub(crate) struct PosicoesDeOperador {
     pub composta: bool,
     /// O receptor é `super` (`undefined_super_operator`, outra regra).
     pub super_: bool,
+    /// O alvo do refinamento numérico do contexto do operando, quando não é
+    /// o receptor: na atribuição composta, o tipo de escrita
+    /// (`_computeRhsContext`, assignment_expression_resolver.dart:184-201).
+    pub alvo_numerico: Option<TypeId>,
 }
 
 /// Operadores de Dart, do mais longo para o mais curto.
@@ -2643,7 +2710,7 @@ pub(crate) fn operador_binario(
     // `super.m` de [`membro_super`]), não o que a própria classe sobrescreve.
     let busca = if posicoes.super_ { buscar_operador_super(inf, cx, op) } else { inf.buscar_membro(cx.lib, recv, op, false) };
     match busca {
-        Busca::Achado(m) => operador_binario_com_membro(inf, cx, recv, op, arg, ctx, no, m),
+        Busca::Achado(m) => operador_binario_com_membro_alvo(inf, cx, recv, posicoes.alvo_numerico.unwrap_or(recv), op, arg, ctx, no, m),
         Busca::Ausente if checar_nulo => {
             inferir_livre(inf, cx, arg);
             (inf.core.dynamic_, None)
@@ -2692,6 +2759,16 @@ fn operador_binario_com_membro(
     inf: &mut BodyInferrer<'_>, cx: &mut Corpo, recv: TypeId, op: SymbolId,
     arg: ExprId, ctx: TypeId, no: Option<ExprId>, m: Membro,
 ) -> (TypeId, Option<Membro>) {
+    operador_binario_com_membro_alvo(inf, cx, recv, recv, op, arg, ctx, no, m)
+}
+
+/// Como [`operador_binario_com_membro`], com o alvo do refinamento numérico
+/// do contexto do operando à parte do receptor.
+#[allow(clippy::too_many_arguments)]
+fn operador_binario_com_membro_alvo(
+    inf: &mut BodyInferrer<'_>, cx: &mut Corpo, recv: TypeId, alvo_numerico: TypeId, op: SymbolId,
+    arg: ExprId, ctx: TypeId, no: Option<ExprId>, m: Membro,
+) -> (TypeId, Option<Membro>) {
     if let Some(n) = no {
         resolver(inf, cx, n, m.resolved.clone());
     }
@@ -2700,7 +2777,7 @@ fn operador_binario_com_membro(
         _ => (None, inf.core.dynamic_),
     };
     let ctx_arg = match param {
-        Some(p) => contexto_numerico(inf, recv, &m, op, ctx, p),
+        Some(p) => contexto_numerico(inf, alvo_numerico, &m, op, ctx, p),
         None => inf.core.unknown,
     };
     let ta = inferir(inf, cx, arg, ctx_arg);
@@ -2860,7 +2937,7 @@ fn binario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: BinaryOp, 
             let token = token_de_operador(inf, cx, inf.span_expr(cx.unit, left).end);
             let _ = span;
             let super_ = matches!(ast(inf, cx).expr(left).kind, ExprKind::Super);
-            let posicoes = PosicoesDeOperador { token, indefinido: token, composta: false, super_ };
+            let posicoes = PosicoesDeOperador { token, indefinido: token, composta: false, super_, alvo_numerico: None };
             let (t, _) = operador_binario(inf, cx, l, sym, right, ctx, posicoes, Some(e));
             t
         }
@@ -3396,10 +3473,11 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                 return t;
             }
             let sym = simbolo_operador(inf, bop);
-            let u = inf.core.unknown;
             let token = token_de_operador(inf, cx, inf.span_expr(cx.unit, alvo).end);
-            let posicoes = PosicoesDeOperador { token, indefinido: token, composta: true, super_: false };
-            let (t, _) = operador_binario(inf, cx, leitura, sym, valor, u, posicoes, Some(e));
+            // O contexto do lado direito: `refineNumericInvocationContext`
+            // com o tipo de escrita como alvo e como contexto.
+            let posicoes = PosicoesDeOperador { token, indefinido: token, composta: true, super_: false, alvo_numerico: Some(escrita) };
+            let (t, _) = operador_binario(inf, cx, leitura, sym, valor, escrita, posicoes, Some(e));
             // `x op= e`: o retorno do operador contra o tipo de escrita, no
             // lado direito (`_resolveTypes` + `_checkForInvalidAssignment`,
             // an611:src/dart/resolver/assignment_expression_resolver.dart:117-155, 272-290).

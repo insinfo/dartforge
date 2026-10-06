@@ -578,7 +578,10 @@ fn new_ausente_apos_tipo_instanciado_preserva_diagnostico_de_construtor() {
         let offset = fonte.find(expr).unwrap() + expr.find(".new").unwrap() + 1;
         let no_alvo: Vec<_> = diags.iter().filter(|d| d.span.start as usize == offset).collect();
         assert_eq!(no_alvo.len(), 1, "{expr}: {diags:?}");
-        assert!(no_alvo[0].message.starts_with(codigo.template), "{expr}: {diags:?}");
+        // Pelo código do analyzer (o relato traz a mensagem dele, não o texto
+        // legado de `codes.rs`); ou, sem código, pelo texto legado.
+        let pelo_codigo = no_alvo[0].code.is_some_and(|c| c.info().nome == codigo.name);
+        assert!(pelo_codigo || no_alvo[0].message.starts_with(codigo.template), "{expr}: {diags:?}");
         assert_eq!(no_alvo[0].span.end as usize, offset + 3);
     }
 }

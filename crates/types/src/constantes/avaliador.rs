@@ -1422,6 +1422,19 @@ impl<'a> Motor<'a> {
             }
             Some(Resolved::Element(Element::Function(f))) | Some(Resolved::Member { member: MemberRef::Function(f), .. }) => {
                 let fe = self.program.function(f);
+                // `values` de um enum: o campo `const` sintético cujo
+                // inicializador é a lista das constantes
+                // (`LibraryBuilder.buildEnumChildren`); no modelo, um getter
+                // estático sem nó.
+                if fe.node == FunctionRef::None
+                    && fe.static_
+                    && fe.kind == FunctionKind::Getter
+                    && let Some(k) = fe.class
+                    && self.program.class(k).kind == ClassKind::Enum
+                    && self.interner.resolve(fe.name) == "values"
+                {
+                    return self.valores_do_enum(u, erro_em, k);
+                }
                 if fe.kind == FunctionKind::ImplicitAccessor {
                     if let Some(v) = fe.variable {
                         return self.valor_de_referencia_a_variavel(cx, erro_em, v);
@@ -1486,6 +1499,23 @@ impl<'a> Motor<'a> {
             return self.generico(u, erro_em, true);
         }
         self.generico(u, erro_em, false)
+    }
+
+    /// O valor de `E.values`: `List<E>` com o valor de cada constante, na
+    /// ordem; uma constante inválida invalida a lista (sem relato próprio).
+    fn valores_do_enum(&mut self, u: UnitId, erro_em: ExprId, k: ClassId) -> R {
+        let n = self.program.class(k).type_params.len();
+        let elemento = self.table.intern(Type::Interface { class: k, args: vec![self.core.dynamic_; n].into_boxed_slice(), nullable: false });
+        let elemento = self.apagar(elemento);
+        let tipo = self.interface(self.core.list_class, vec![elemento]);
+        let mut lista = Vec::new();
+        for v in self.program.class(k).enum_constants.clone() {
+            match self.valor_de_variavel(v) {
+                Some(Constante::Valor(x)) => lista.push(x),
+                _ => return self.generico(u, erro_em, true),
+            }
+        }
+        Constante::Valor(self.valor(tipo, Estado::Lista { elemento, elementos: Rc::new(lista), desconhecida: false }))
     }
 
     /// O membro estático variável `nome` de `d` (constante de enum ou campo

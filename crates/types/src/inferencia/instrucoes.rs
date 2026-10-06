@@ -1289,8 +1289,10 @@ impl<'a> Varredura<'a> {
         use ast::PatternKind as P;
         let a = self.a;
         match &a.pattern(p).kind {
-            P::Variable { name, .. } => {
-                if declara {
+            P::Variable { name, var_, final_, ty } => {
+                // `var`/`final`/tipo numa atribuição também declara
+                // (`DeclaredVariablePattern`).
+                if declara || *var_ || *final_ || ty.is_some() {
                     self.declarar(*name);
                 } else {
                     self.escrever(*name, dentro);

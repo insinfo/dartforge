@@ -461,7 +461,12 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
                 juntar_nao_casou(inf, cx, &atual);
                 return;
             }
-            if atribuicao {
+            // Com `var`, `final` ou tipo, mesmo numa atribuição o padrão é
+            // `DeclaredVariablePattern` (o parser só relata
+            // `PATTERN_ASSIGNMENT_DECLARES_VARIABLE`), e o
+            // `visitDeclaredVariablePattern` declara o local
+            // (`resolution_visitor.dart:408-433`).
+            if atribuicao && !*var_ && !f2 && ty.is_none() {
                 // `visitAssignedVariablePattern` (`resolution_visitor.dart:189-210`):
                 // o nome pelo escopo léxico; sem elemento, `UNDEFINED_IDENTIFIER`;
                 // elemento que não é local nem parâmetro,

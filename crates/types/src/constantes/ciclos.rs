@@ -405,14 +405,8 @@ impl<'a> G<'_, 'a> {
 fn alvo_de_redirecionamento(m: &Motor<'_>, unit: UnitId, k: &ast::Constructor) -> Option<FunctionElementId> {
     let program = m.program;
     let r = k.redirect.as_ref()?;
-    let ast::TypeKind::Named { name, .. } = &m.ast(unit).ty(r.ty).kind else { return None };
-    let b = match &name[..] {
-        [n] => program.lookup_na_unidade(unit, n.sym),
-        [p, n] => program.lookup_prefixed_na_unidade(unit, p.sym, n.sym),
-        _ => None,
-    }?;
-    let Some(Element::Class(alvo)) = b.getter else { return None };
-    let chave = match r.constructor {
+    let (alvo, construtor) = crate::redirecionamento::classe_e_construtor(program, unit, r)?;
+    let chave = match construtor {
         Some(n) => n.sym,
         None => m.interner.lookup("")?,
     };

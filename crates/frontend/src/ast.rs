@@ -54,6 +54,19 @@ pub struct Ast {
     /// e o `FunctionDeclaration.metadata` do analyzer).
     #[serde(default)]
     pub metadados_locais: Vec<(StmtId, Box<[Annotation]>)>,
+    /// As chamadas `assert(…)` lidas como expressão
+    /// (`parseAssert(Assert.Expression)`): o `AstBuilder.endAssert` as monta
+    /// como `FunctionExpressionInvocation` de um `SimpleIdentifier` `assert`,
+    /// não como `MethodInvocation`.
+    #[serde(default)]
+    pub invocacoes_de_assert: Vec<ExprId>,
+    /// As chamadas `C<T>.nome(…)` e `p.C<T>.nome(…)` que o
+    /// `parseUnaryExpression` do fasta lê como criação implícita
+    /// (`parseImplicitCreationExpression`, `parser_impl.dart:6426-6447`): no
+    /// analyzer são `InstanceCreationExpression`, que o `AstRewriter` só
+    /// desfaz quando o nome não é tipo.
+    #[serde(default)]
+    pub criacoes_implicitas: Vec<ExprId>,
 }
 
 impl Ast {

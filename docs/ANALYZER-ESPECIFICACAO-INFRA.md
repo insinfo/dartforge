@@ -4824,6 +4824,10 @@ o primeiro de dois relatos iguais, e o LSP publica nessa ordem (§3.6; `tipado.r
 posição, e os TODOs entram na posição da fase deles). A fase de cada emissor do DartForge é a do
 verificador do Dart que ele porta; a inferência inteira conta como B3 e o outline como B1.
 
+**Estado em 2026-10-05 (compilado e testado): item 2.** As portas de sintaxe saíram depois da
+medição (o T5 do outro documento tem os números): a regra é a dos trechos pulados, sem
+`libs_com_erro_de_sintaxe` nem `recuperacao_do_parser`, e o placar não ganhou FP em código nenhum.
+
 ## III.6 Etapa 6 — Fases ausentes
 
 **Estado em 2026-10-04 (escrito, não compilado).** Entraram, em `crates/analise/src/fases.rs` e ligados

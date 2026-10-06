@@ -413,10 +413,13 @@ impl<'a> Visita<'a> {
             PatternKind::Wildcard { .. } => {}
         }
     }
-    /// Padrão de atribuição: as variáveis são escritas, não declaradas.
+    /// Padrão de atribuição: as variáveis são escritas, não declaradas; com
+    /// `var`, `final` ou tipo, o `DeclaredVariablePattern` declara o local no
+    /// escopo do bloco (`ResolutionVisitor.visitDeclaredVariablePattern`).
     fn padrao_de_atribuicao(&mut self, p: PatternId) {
         let ast = self.ast;
         match &ast.pattern(p).kind {
+            PatternKind::Variable { name, var_, final_, ty } if *var_ || *final_ || ty.is_some() => self.declarar_de_padrao(*name, None),
             PatternKind::Variable { name, .. } => self.referir(*name, false),
             PatternKind::Constant(x) | PatternKind::Relational { value: x, .. } => self.expr(*x),
             PatternKind::Or(a, b) | PatternKind::And(a, b) => {
@@ -832,21 +835,10 @@ pub fn nao_usados_com_pulados(u: Unidade<'_>, interner: &Interner, curinga: bool
     out
 }
 
-pub fn nao_usados(u: Unidade<'_>, interner: &Interner, curinga: bool, erros_sintaticos: &[Span]) -> Vec<Diagnostic> {
-    let mut out = nao_usados_sem_filtro(u, interner, curinga);
-    if !erros_sintaticos.is_empty() {
-        // Uma leitura vem sempre depois da declaração: só um erro depois
-        // dela, na mesma declaração executável, pode ter escondido uma.
-        let execs = executaveis(u);
-        out.retain(|d| {
-            !execs.iter().any(|e| {
-                d.span.start >= e.start
-                    && d.span.end <= e.end
-                    && erros_sintaticos.iter().any(|x| x.start >= d.span.start && x.start <= e.end)
-            })
-        });
-    }
-    out
+/// Os locais não usados da unidade, sem a regra dos trechos pulados (uma
+/// unidade que o parser leu inteira).
+pub fn nao_usados(u: Unidade<'_>, interner: &Interner, curinga: bool) -> Vec<Diagnostic> {
+    nao_usados_sem_filtro(u, interner, curinga)
 }
 
 fn nao_usados_sem_filtro(u: Unidade<'_>, interner: &Interner, curinga: bool) -> Vec<Diagnostic> {
@@ -913,7 +905,7 @@ mod testes {
         let p = dartforge_frontend::parser::parse(fonte, &mut interner);
         assert!(p.diagnostics.is_empty(), "{:?}", p.diagnostics);
         let u = Unidade { ast: &p.ast, unit: &p.unit, fonte };
-        let mut v: Vec<_> = nao_usados(u, &interner, false, &[])
+        let mut v: Vec<_> = nao_usados(u, &interner, false)
             .into_iter()
             .map(|d| (d.code.unwrap().info().nome.to_string(), fonte[d.span.start..d.span.end].to_string()))
             .collect();
@@ -960,23 +952,26 @@ mod testes {
         let mut interner = Interner::new();
         let p = dartforge_frontend::parser::parse(f, &mut interner);
         let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: f };
-        let r: Vec<usize> = nao_usados(u, &interner, false, &[]).iter().map(|d| d.span.start).collect();
+        let r: Vec<usize> = nao_usados(u, &interner, false).iter().map(|d| d.span.start).collect();
         assert_eq!(r, vec![f.find(", i").unwrap() + 2]);
     }
 
     #[test]
-    fn corpo_com_erro_de_sintaxe_nao_relata() {
-        let f = "void f() {\n  var a = 1;\n}\nvoid g() {\n  var b = 1;\n}\n";
+    fn trecho_pulado_que_cita_o_nome_nao_relata() {
+        let f = "void f() {\n  var a = 1;\n  // a b c\n}\nvoid g() {\n  var b = 1;\n}\n";
         let mut interner = Interner::new();
         let p = dartforge_frontend::parser::parse(f, &mut interner);
         let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: f };
-        // Erro depois de `a`, no corpo de `f`: `a` não se relata; `b`, sim.
-        let erro = Span { start: f.find("1;").unwrap(), end: f.find("1;").unwrap() + 1 };
-        let r: Vec<usize> = nao_usados(u, &interner, false, &[erro]).iter().map(|d| d.span.start).collect();
-        assert_eq!(r, vec![f.find("b =").unwrap()]);
-        // Erro antes da declaração não esconde leitura dela.
-        let antes = Span { start: f.find("void f").unwrap(), end: f.find("void f").unwrap() + 1 };
-        assert_eq!(nao_usados(u, &interner, false, &[antes]).len(), 2);
+        // Um trecho pulado no corpo de `f` que cita `a`: `a` não se relata
+        // (o fasta teria lido a leitura); `b`, de `g`, sim.
+        let trecho = Span { start: f.find("a b c").unwrap(), end: f.find("a b c").unwrap() + 5 };
+        let pulados = crate::Pulados { fonte: f, trechos: &[trecho] };
+        let r: Vec<usize> = nao_usados_com_pulados(u, &interner, false, pulados).iter().map(|d| d.span.start).collect();
+        assert_eq!(r, vec![f.find("b = 1;\n}\n").unwrap()]);
+        // O trecho só vale dentro da declaração executável que ele toca.
+        let fora = Span { start: f.find("void g").unwrap(), end: f.find("void g").unwrap() + 4 };
+        let pulados = crate::Pulados { fonte: f, trechos: &[fora] };
+        assert_eq!(nao_usados_com_pulados(u, &interner, false, pulados).len(), 2);
     }
 
     #[test]

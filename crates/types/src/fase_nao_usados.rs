@@ -446,13 +446,38 @@ pub fn elementos_nao_usados(
             _ => None,
         };
 
+        // O executável de uma resolução de operador ou de `call` (o
+        // `staticElement` do nó).
+        let executavel = |r: Option<&Resolved>| match r {
+            Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::ExtensionMember { member: f, .. }) => {
+                Some(cx.da_funcao(*f))
+            }
+            _ => None,
+        };
         for (k, ex) in a.exprs.iter().enumerate() {
             let id = ExprId(k as u32);
             let (nome, propriedade) = match &ex.kind {
                 ExprKind::Identifier(n) => (*n, false),
                 ExprKind::Property { name, .. } => (*name, true),
+                // `visitBinaryExpression`, `visitPrefixExpression`,
+                // `visitPostfixExpression`, `visitIndexExpression` e
+                // `visitAssignmentExpression`: o operador resolvido é membro
+                // usado (`addMember`).
+                ExprKind::Binary { .. } | ExprKind::Unary { .. } | ExprKind::Index { .. } | ExprKind::Assign { .. } => {
+                    if let Some(el) = executavel(corpo.get_resolved(id)) {
+                        usados.membros.insert(el);
+                    }
+                    continue;
+                }
                 // A criação: o construtor nomeado (o identificador dele).
                 ExprKind::InstanceCreation { constructor: Some(_), .. } | ExprKind::Call { .. } => {
+                    // `visitFunctionExpressionInvocation`: o `call` implícito
+                    // (`addElement`).
+                    if matches!(ex.kind, ExprKind::Call { .. })
+                        && let Some(el) = executavel(corpo.get_resolved(id))
+                    {
+                        usados.elementos.insert(el);
+                    }
                     if let Some(Resolved::Constructor(f)) = corpo.get_resolved(id) {
                         let escrito = match &ex.kind {
                             ExprKind::InstanceCreation { .. } => true,
@@ -619,8 +644,6 @@ pub fn elementos_nao_usados(
         }
         for (mi, m) in a.members.iter().enumerate() {
             let MemberKind::Constructor(k) = &m.kind else { continue };
-            let Some(eu) = construtor_do_membro(u, ast::MemberId(mi as u32)) else { continue };
-            let Some(classe) = program.function(eu).class else { continue };
             let mut marcar = |c: ClassId, n: Option<ast::Name>| {
                 let Some(n) = n else { return };
                 if let Some(&f) = program.class(c).constructors.get(&n.sym) {
@@ -628,6 +651,15 @@ pub fn elementos_nao_usados(
                     usados.membros.insert(El::Funcao(f));
                 }
             };
+            // O redirecionamento é resolvido mesmo num construtor duplicado
+            // (que também tem elemento no analyzer, e não no nosso modelo).
+            if let Some(r) = &k.redirect
+                && let Some((c, construtor)) = crate::redirecionamento::classe_e_construtor(program, u, r)
+            {
+                marcar(c, construtor);
+            }
+            let Some(eu) = construtor_do_membro(u, ast::MemberId(mi as u32)) else { continue };
+            let Some(classe) = program.function(eu).class else { continue };
             for i in k.initializers.iter() {
                 match i {
                     Initializer::Redirect { constructor, .. } => marcar(classe, *constructor),
@@ -637,18 +669,6 @@ pub fn elementos_nao_usados(
                         }
                     }
                     _ => {}
-                }
-            }
-            if let Some(r) = &k.redirect
-                && let TypeKind::Named { name, .. } = &a.ty(r.ty).kind
-            {
-                let alvo = match &name[..] {
-                    [n] => program.lookup_na_unidade(u, n.sym).and_then(|b| b.getter),
-                    [p, n, ..] => program.lookup_prefixed_na_unidade(u, p.sym, n.sym).and_then(|b| b.getter),
-                    [] => None,
-                };
-                if let Some(Element::Class(c)) = alvo {
-                    marcar(c, r.constructor);
                 }
             }
         }

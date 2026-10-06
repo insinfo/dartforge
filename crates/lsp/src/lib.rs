@@ -646,7 +646,8 @@ pub struct ItemDeTipo {
 /// use dartforge_lsp::{Analisador, AnalisadorSintatico};
 /// let mut a = AnalisadorSintatico::new();
 /// assert!(a.diagnosticar("file:///a.dart", "void main() {}").is_empty());
-/// assert_eq!(a.diagnosticar("file:///b.dart", "void a() { int x = ; }").len(), 1);
+/// // O identificador que falta e, como no `dart analyze`, o local não usado.
+/// assert_eq!(a.diagnosticar("file:///b.dart", "void a() { int x = ; }").len(), 2);
 /// ```
 #[derive(Debug, Default)]
 pub struct AnalisadorSintatico {
@@ -724,13 +725,10 @@ impl Analisador for AnalisadorSintatico {
         let mut nomes = dartforge_intern::Interner::new();
         let parsed = dartforge_frontend::parser::parse_com(texto, &mut nomes, features);
         let mut saida = parsed.diagnostics;
-        // `experiment_not_enabled` não desmonta a árvore (o recurso é lido inteiro).
-        let erros_sintaticos: Vec<dartforge_diagnostics::Span> = saida
-            .iter()
-            .filter(|d| !d.code.is_some_and(|c| c.info().nome == "experiment_not_enabled"))
-            .map(|d| d.span)
-            .collect();
         let unidade = dartforge_analise::Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: texto };
+        // Os locais não usados pela regra dos trechos pulados (T5), como no
+        // `dartforge analyze`: sem porta por erro de sintaxe.
+        let pulados = dartforge_analise::Pulados { fonte: texto, trechos: &parsed.pulados };
         let curinga = features.tem(dartforge_frontend::features::Feature::WildcardVariables);
         let referencia = parsed.referencia;
         let juntar = referencia == dartforge_diagnostics::Referencia::V3_6;
@@ -739,7 +737,7 @@ impl Analisador for AnalisadorSintatico {
             .map(|(_, d)| d)
             .chain(dartforge_analise::enums::sem_constantes(&[unidade]).into_iter().map(|(_, d)| d))
             .chain(dartforge_analise::inicializacao::finais_nao_inicializados(&[unidade], &nomes).into_iter().map(|(_, d)| d))
-            .chain(dartforge_analise::locais::nao_usados(unidade, &nomes, curinga, &erros_sintaticos))
+            .chain(dartforge_analise::locais::nao_usados_com_pulados(unidade, &nomes, curinga, pulados))
             .chain(dartforge_analise::externos::inicializadores(unidade))
             .chain(dartforge_analise::operadores::aridade(unidade, &nomes));
         // `// ignore:` como no `dartforge analyze` (o mesmo filtro).

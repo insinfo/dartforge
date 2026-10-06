@@ -336,7 +336,10 @@ impl<'a> Visita<'a> {
         for r in fechados {
             if !r.usado {
                 let texto = self.nomes.resolve(r.nome).to_string();
-                self.relatar(w::UNUSED_LABEL, r.span, &[&texto]);
+                // No nó `Label` inteiro: o nome e os dois-pontos.
+                let resto = self.fonte.get(r.span.end..).unwrap_or("");
+                let fim = resto.find(':').filter(|&i| resto[..i].trim().is_empty()).map_or(r.span.end, |i| r.span.end + i + 1);
+                self.relatar(w::UNUSED_LABEL, Span { start: r.span.start, end: fim }, &[&texto]);
             }
         }
     }
@@ -939,7 +942,7 @@ mod testes {
     #[test]
     fn rotulo_nao_usado_e_de_membro() {
         // void f() { L: while (true) {} }
-        assert_eq!(codigos("void f() { L: while (true) {} }"), vec![("unused_label", 11, 12)]);
+        assert_eq!(codigos("void f() { L: while (true) {} }"), vec![("unused_label", 11, 13)]); // o nó `Label`: `L:`
         let r = codigos("void f(x) { switch (x) { L: case 1: break L; } }");
         assert_eq!(r[0].0, "break_label_on_switch_member");
     }

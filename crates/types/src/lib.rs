@@ -57,6 +57,7 @@ pub mod fase_estrita;
 pub mod ops;
 pub mod parametros;
 pub mod promocao_de_campos;
+pub mod redirecionamento;
 pub mod resolve;
 pub mod resolved;
 pub mod scope;

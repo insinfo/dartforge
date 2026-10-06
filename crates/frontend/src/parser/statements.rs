@@ -315,9 +315,12 @@ impl<'s, 'i> Parser<'s, 'i> {
             // `)` e `]`: comando de expressão com o identificador sintético
             // (o laço do bloco pula o token sem progresso).
             Kind::Op(Op::RParen | Op::RBracket) => self.parse_expression_statement(start),
-            Kind::Op(Op::RBrace) | Kind::Eof | Kind::ScriptTag => {
-                Err(self.erro_statement())
-            }
+            // `}` e o fim no lugar de um comando (o corpo de `if (x) }`, o
+            // comando de um rótulo): `parseExpressionStatement` com o
+            // identificador sintético (`MISSING_IDENTIFIER` no token) e o `;`
+            // que falta no token anterior, sem consumir o `}`.
+            Kind::Op(Op::RBrace) | Kind::Eof => self.parse_expression_statement(start),
+            Kind::ScriptTag => Err(self.erro_statement()),
             Kind::Keyword(kw) => self.parse_keyword_statement(start, kw),
             Kind::Ident => self.parse_identifier_statement(start),
             _ => self.parse_expression_statement(start),
@@ -1237,6 +1240,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.depth = depth;
         self.diagnostics.truncate(diagnostics);
         self.ast.exprs.truncate(exprs);
+        self.ast.invocacoes_de_assert.retain(|e| (e.0 as usize) < exprs);
+        self.ast.criacoes_implicitas.retain(|e| (e.0 as usize) < exprs);
         self.ast.stmts.truncate(stmts);
         self.ast.types.truncate(types);
         self.ast.patterns.truncate(patterns);

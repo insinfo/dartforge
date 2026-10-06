@@ -144,7 +144,9 @@ fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, t: TypeId, fi
                 // variável que esconde a constante e fica sem valor.
                 return;
             }
-            if atribuicao {
+            // Com `var`, `final` ou tipo, é declaração mesmo em atribuição
+            // (`DeclaredVariablePattern`).
+            if atribuicao && !*var_ && !f2 && ty.is_none() {
                 if let Some(Nome::Local(id)) = cx.buscar(name.sym) {
                     if inf.registrar_locais {
                         let offset = cx.local(id).offset;

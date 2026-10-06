@@ -49,14 +49,8 @@ fn redirecionado(program: &Program, interner: &Interner, f: FunctionElementId) -
         return None;
     }
     let r = k.redirect.as_ref()?;
-    let ast::TypeKind::Named { name, .. } = &a.ty(r.ty).kind else { return None };
-    let b = match &name[..] {
-        [n] => program.lookup_na_unidade(unit, n.sym),
-        [p, n] => program.lookup_prefixed_na_unidade(unit, p.sym, n.sym),
-        _ => None,
-    }?;
-    let Some(Element::Class(alvo)) = b.getter else { return None };
-    let chave = match r.constructor {
+    let (alvo, construtor) = crate::redirecionamento::classe_e_construtor(program, unit, r)?;
+    let chave = match construtor {
         Some(n) => n.sym,
         None => interner.lookup("")?,
     };

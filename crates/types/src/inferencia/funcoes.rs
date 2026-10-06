@@ -1266,7 +1266,24 @@ fn corpo_completa_normalmente(inf: &mut BodyInferrer<'_>, imposto: Option<TypeId
             return;
         }
     }
-    if !inf.e_anulavel(rt) {
+    // `isPotentiallyNonNullable` é `!isNullable` (type_system.dart:1242-1284):
+    // `dynamic`, inválido, o desconhecido `_`, `void` e `Null` são anuláveis,
+    // e `FutureOr<T>` é anulável se `T` for (`FutureOr<_>`, o contexto de uma
+    // closure passada a `Future.delayed`, é anulável).
+    fn anulavel(inf: &mut BodyInferrer<'_>, t: TypeId, fundo: u32) -> bool {
+        if fundo > 32 {
+            return false;
+        }
+        if inf.e_dynamic(t) || inf.table.e_invalido(t) || inf.e_desconhecido(t) || matches!(inf.table.get(t), Type::Void | Type::Null) {
+            return true;
+        }
+        match inf.table.get(t).clone() {
+            Type::FutureOr { arg, nullable } => nullable || anulavel(inf, arg, fundo + 1),
+            Type::Intersection { bound, .. } => anulavel(inf, bound, fundo + 1),
+            _ => inf.e_anulavel(t),
+        }
+    }
+    if !anulavel(inf, rt, 0) {
         inf.aviso_com_args(ce::BODY_MIGHT_COMPLETE_NORMALLY, onde, &[crate::exibicao::Arg::Tipo(rt)]);
         return;
     }

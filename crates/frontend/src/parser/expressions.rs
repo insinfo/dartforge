@@ -942,8 +942,19 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// Primária, seletores e `++`/`--`/`!` pós-fixos.
     fn parse_postfix(&mut self, constant_pattern: bool) -> PResult<ExprId> {
         let start = self.span();
+        let criacao = self.criacao_implicita_adiante();
+        let marca = self.ast.exprs.len();
         let primary = self.parse_primary()?;
         let expr = self.parse_selectors_em(start, primary, constant_pattern, false)?;
+        if let Some(parenteses) = criacao {
+            let inicio = self.tokens[parenteses].span.start;
+            let chamada = (marca..self.ast.exprs.len()).find(|&i| {
+                matches!(&self.ast.exprs[i].kind, ExprKind::Call { arguments, .. } if arguments.span.start == inicio)
+            });
+            if let Some(i) = chamada {
+                self.ast.criacoes_implicitas.push(ExprId(i as u32));
+            }
+        }
         let op = match self.kind() {
             Kind::Op(Op::PlusPlus) => UnaryOp::PostfixInc,
             Kind::Op(Op::MinusMinus) => UnaryOp::PostfixDec,
@@ -956,6 +967,28 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         self.advance();
         Ok(self.push(start, ExprKind::Unary { op, operand: expr }))
+    }
+
+    /// `parseUnaryExpression` (`parser_impl.dart:6426-6447`): no começo da
+    /// expressão unária, `id ('.' id)? <tipos> '.' (new|id) '('` é criação
+    /// implícita. Devolve a posição do `(`.
+    fn criacao_implicita_adiante(&self) -> Option<usize> {
+        if self.kind_of(self.pos) != Kind::Ident {
+            return None;
+        }
+        let mut i = self.pos + 1;
+        if self.kind_of(i) == Kind::Op(Op::Dot) && self.kind_of(i + 1) == Kind::Ident {
+            i += 2;
+        }
+        let depois = self.skip_type_arguments(i)?;
+        if self.kind_of(depois) != Kind::Op(Op::Dot) {
+            return None;
+        }
+        let nome = depois + 1;
+        if !matches!(self.kind_of(nome), Kind::Ident | Kind::Keyword(Keyword::New)) {
+            return None;
+        }
+        (self.kind_of(nome + 1) == Kind::Op(Op::LParen)).then_some(nome + 1)
     }
 
     /// Cadeia de seletores sobre `expr`: `.x`, `?.x`, `[i]`, `?[i]`,
@@ -1190,6 +1223,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.desfazer_emendas(checkpoint.emendas);
         self.pos = checkpoint.pos;
         self.ast.exprs.truncate(checkpoint.exprs);
+        self.ast.invocacoes_de_assert.retain(|e| (e.0 as usize) < checkpoint.exprs);
+        self.ast.criacoes_implicitas.retain(|e| (e.0 as usize) < checkpoint.exprs);
         self.ast.stmts.truncate(checkpoint.stmts);
         self.ast.types.truncate(checkpoint.types);
         self.ast.patterns.truncate(checkpoint.patterns);
@@ -1350,7 +1385,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 let nome = self.name_from("assert", token.span);
                 let alvo = self.ast.push_expr(Expr { span: token.span, kind: ExprKind::Identifier(nome) });
                 let arguments = self.parse_arguments()?;
-                Ok(self.push(start, ExprKind::Call { target: alvo, arguments: Box::new(arguments) }))
+                let chamada = self.push(start, ExprKind::Call { target: alvo, arguments: Box::new(arguments) });
+                self.ast.invocacoes_de_assert.push(chamada);
+                Ok(chamada)
             }
             // `parsePrimary`: `return` no lugar de uma expressão é
             // `UNEXPECTED_TOKEN` e a primária seguinte é lida.

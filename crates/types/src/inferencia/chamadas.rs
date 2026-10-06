@@ -723,8 +723,57 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
     let (target, args): (ExprId, &ast::Arguments) = (*target, arguments);
     let span = a.expr(e).span;
     let explicitos = argumentos_de_tipo(inf, cx, args);
+    // `C<T>.nome(…)` é criação só quando o fasta a lê como criação implícita
+    // (`criacoes_implicitas`); com argumentos de tipo depois do nome
+    // (`C<T>.nome<U>()`) é método do literal de tipo, que o `AstRewriter` não
+    // reescreve.
+    let implicita = a.criacoes_implicitas.contains(&e);
+    let sobre_instanciacao = matches!(&a.expr(target).kind, ExprKind::Property { target: r, .. } if matches!(a.expr(*r).kind, ExprKind::TypeArguments { .. }));
+    let construtor = if sobre_instanciacao && !implicita { None } else { alvo_construtor(inf, cx, target) };
+    if implicita && let ExprKind::Property { target: recv, .. } = &a.expr(target).kind {
+        expr::conferir_argumentos_do_literal(inf, cx, *recv, true);
+    }
+    if construtor.is_none()
+        && implicita
+        && let ExprKind::Property { target: recv, name, .. } = &a.expr(target).kind
+        && let Some(rt) = referencia_a_tipo(inf, cx, *recv)
+        && !matches!(rt, RefTipo::Extensao(_))
+    {
+        // A criação implícita sem o construtor: `InstanceCreationExpression`
+        // de construtor não resolvido (`NEW_WITH_UNDEFINED_CONSTRUCTOR`, no
+        // nome, com o tipo como escrito); o tipo é o do tipo nomeado e os
+        // argumentos ficam sem contexto.
+        let (recv, name) = (*recv, *name);
+        let (c, targs) = match &rt {
+            RefTipo::Classe(c, Some(ts)) => (*c, ts.iter().map(|&t| inf.tipo_de_argumento_de_tipo(cx, t)).collect::<Vec<_>>()),
+            RefTipo::Classe(c, None) => (*c, Vec::new()),
+            RefTipo::Alias(c, args, _) => (*c, args.clone().unwrap_or_default()),
+            RefTipo::Extensao(_) => unreachable!(),
+        };
+        registrar_referencia(inf, cx, recv);
+        if !matches!(inf.program.class(c).kind, ClassKind::Enum | ClassKind::Mixin) {
+            let base = match &a.expr(recv).kind {
+                ExprKind::TypeArguments { target: b, .. } => *b,
+                _ => recv,
+            };
+            let qualificado = match &a.expr(base).kind {
+                ExprKind::Identifier(n) => inf.interner.resolve(n.sym).to_string(),
+                ExprKind::Property { target: p, name: n, .. } => match &a.expr(*p).kind {
+                    ExprKind::Identifier(p) => format!("{}.{}", inf.interner.resolve(p.sym), inf.interner.resolve(n.sym)),
+                    _ => inf.interner.resolve(n.sym).to_string(),
+                },
+                _ => String::new(),
+            };
+            let nome = inf.interner.resolve(name.sym).to_string();
+            inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::NEW_WITH_UNDEFINED_CONSTRUCTOR, name.span, &[&qualificado, &nome]);
+        }
+        for x in args.args.iter() {
+            inferir_livre(inf, cx, x.value);
+        }
+        return (inf.tipo_de_classe_com_args(c, targs), false);
+    }
     // Construtor sem `new`.
-    if let Some((c, f, targs)) = alvo_construtor(inf, cx, target) {
+    if let Some((c, f, targs)) = construtor {
         if inf.program.class(c).kind == ClassKind::Enum
             && f.is_some_and(|f| !inf.program.function(f).factory)
         {
@@ -936,8 +985,12 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                     return (r, false);
                 }
             }
-            // `C.m(args)` estático / `E.m(args)`.
-            if let Some(rt) = referencia_a_tipo(inf, cx, recv) {
+            // `C.m(args)` estático / `E.m(args)`. Só um receptor identificador
+            // (`receiver is IdentifierImpl`, method_invocation_resolver.dart:129-143):
+            // o literal de tipo instanciado (`C<T>.m<U>()`) é expressão de
+            // tipo `Type`, e o método é procurado nele.
+            let instanciado = matches!(inf.program.unit(cx.unit).ast.expr(recv).kind, ExprKind::TypeArguments { .. });
+            if !instanciado && let Some(rt) = referencia_a_tipo(inf, cx, recv) {
                 if let RefTipo::Extensao(x) = rt {
                     if inf.membro_estatico_de_extensao(x, name.sym, false).is_none() {
                         if inf.program.extension(x).instance_members.contains_key(&name.sym) {
@@ -1192,10 +1245,15 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             }
         }
         _ => {
+            // `assert(…)` como expressão: `FunctionExpressionInvocation` do
+            // identificador `assert`, lido como nome (`UNDEFINED_IDENTIFIER`)
+            // e invocado como valor.
+            let de_assert = a.invocacoes_de_assert.contains(&e);
             // `nome(args)` sem getter no escopo léxico: o erro é o da
             // invocação (`UNDEFINED_FUNCTION`/`UNDEFINED_METHOD`…), não o
             // de nome indefinido (ver `expr::invocacao_sem_alvo_indefinida`).
-            if let ExprKind::Identifier(n) = &a.expr(target).kind
+            if !de_assert
+                && let ExprKind::Identifier(n) = &a.expr(target).kind
                 && expr::invocacao_sem_alvo_indefinida(inf, cx, *n)
             {
                 let d = inf.table.invalido(inf.core.dynamic_);
@@ -1209,7 +1267,8 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             // `method_invocation_resolver.dart:257-270`, de
             // `_resolveReceiverNull`): o elemento achado no escopo não é
             // executável nem variável. No nome; o resultado é inválido.
-            if let ExprKind::Identifier(n) = &a.expr(target).kind
+            if !de_assert
+                && let ExprKind::Identifier(n) = &a.expr(target).kind
                 && matches!(cx.buscar(n.sym), Some(super::corpo::Nome::TipoParam(_)))
             {
                 let nome = inf.interner.resolve(n.sym).to_string();
@@ -1249,7 +1308,7 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 }
                 return (inf.core.dynamic_, false);
             }
-            if let ExprKind::Identifier(n) = &a.expr(target).kind {
+            if !de_assert && let ExprKind::Identifier(n) = &a.expr(target).kind {
                 let f = funcao_resolvida(inf, cx, target);
                 preparar_entidade(inf, a.expr(target).span, f);
                 // Função (de topo, método, local) é `MethodInvocation` (a
@@ -1620,17 +1679,35 @@ fn construtor_constante_indefinido(
     constructor: Option<ast::Name>,
     ctor_do_nome: bool,
 ) {
+    construtor_indefinido(inf, a, ty, name, constructor, ctor_do_nome, true);
+}
+
+/// `_checkForConstWithUndefinedConstructor` e
+/// `_checkForNewWithUndefinedConstructor` (`error_verifier.dart:4595-4625`):
+/// no nome do construtor (`[namedType.qualifiedName, nome]`), ou, sem nome,
+/// no `constructorName` inteiro, que é o tipo.
+fn construtor_indefinido(
+    inf: &mut BodyInferrer<'_>,
+    a: &ast::Ast,
+    ty: ast::TypeId,
+    name: &[ast::Name],
+    constructor: Option<ast::Name>,
+    ctor_do_nome: bool,
+    constante: bool,
+) {
     use dartforge_diagnostics::codigos::compile_time_error as c;
     let partes = if ctor_do_nome { &name[..1] } else { name };
     let qualificado = partes.iter().map(|n| inf.interner.resolve(n.sym)).collect::<Vec<_>>().join(".");
     match constructor {
         Some(n) => {
             let nome = inf.interner.resolve(n.sym).to_string();
-            inf.aviso_com_codigo(c::CONST_WITH_UNDEFINED_CONSTRUCTOR, n.span, &[&qualificado, &nome]);
+            let codigo = if constante { c::CONST_WITH_UNDEFINED_CONSTRUCTOR } else { c::NEW_WITH_UNDEFINED_CONSTRUCTOR };
+            inf.aviso_com_codigo(codigo, n.span, &[&qualificado, &nome]);
         }
         None => {
             let sp = a.ty(ty).span;
-            inf.aviso_com_codigo(c::CONST_WITH_UNDEFINED_CONSTRUCTOR_DEFAULT, sp, &[&qualificado]);
+            let codigo = if constante { c::CONST_WITH_UNDEFINED_CONSTRUCTOR_DEFAULT } else { c::NEW_WITH_UNDEFINED_CONSTRUCTOR_DEFAULT };
+            inf.aviso_com_codigo(codigo, sp, &[&qualificado]);
         }
     }
 }
@@ -1761,8 +1838,11 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
         return inf.core.dynamic_;
     }
     let Some(f) = f else {
-        if constante {
-            construtor_constante_indefinido(inf, a, ty, name, constructor, ctor_do_nome);
+        // Sem construtor declarado, o sem nome implícito existe (o elemento
+        // sintético): nada a relatar por ele.
+        let implicito = constructor.is_none() && inf.program.class(c).constructors.is_empty();
+        if !implicito {
+            construtor_indefinido(inf, a, ty, name, constructor, ctor_do_nome, constante);
         }
         // Sem construtor declarado: o padrão implícito (gerador).
         if constructor.is_none() && inf.program.class(c).constructors.is_empty() {

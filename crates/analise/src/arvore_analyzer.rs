@@ -1872,6 +1872,11 @@ impl<'a> Construtor<'a> {
         }
         let mut filhos = Vec::new();
         let especie = match &a.expr(alvo).kind {
+            // `assert(…)` como expressão (`AstBuilder.endAssert`).
+            ExprKind::Identifier(_) if a.invocacoes_de_assert.contains(&e) => {
+                filhos.extend(self.expressao(alvo));
+                "FunctionExpressionInvocation"
+            }
             ExprKind::Identifier(n) => {
                 let id = self.identificador(*n);
                 filhos.extend(self.marcar(id, Marca::Expr(alvo)));

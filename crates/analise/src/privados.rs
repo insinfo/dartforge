@@ -211,20 +211,16 @@ impl Coleta<'_> {
     }
 }
 
-/// Os diagnósticos de declarações privadas não usadas da biblioteca
-/// formada por `unidades` (na ordem da biblioteca), com o índice da unidade.
-/// `com_erro_de_sintaxe`: alguma unidade teve erro de sintaxe (a biblioteca
-/// fica de fora).
-/// Como [`nao_usados`], com a regra do T5 no lugar da porta por biblioteca:
-/// uma declaração privada só fica de fora quando o nome dela é citado em
-/// algum trecho que o parser pulou em qualquer unidade da biblioteca
-/// (`pulados`, um por unidade, na mesma ordem).
+/// Como [`nao_usados`], com a regra do T5: uma declaração privada só fica
+/// de fora quando o nome dela é citado em algum trecho que o parser pulou em
+/// qualquer unidade da biblioteca (`pulados`, um por unidade, na mesma
+/// ordem).
 pub fn nao_usados_com_pulados(
     unidades: &[Unidade<'_>],
     nomes: &Interner,
     pulados: &[crate::Pulados<'_>],
 ) -> Vec<(usize, Diagnostic)> {
-    let mut saida = nao_usados(unidades, nomes, false);
+    let mut saida = nao_usados(unidades, nomes);
     if pulados.iter().any(|p| !p.vazio()) {
         saida.retain(|(i, d)| {
             let nome = unidades.get(*i).and_then(|u| u.fonte.get(d.span.start..d.span.end)).unwrap_or("");
@@ -234,14 +230,9 @@ pub fn nao_usados_com_pulados(
     saida
 }
 
-pub fn nao_usados(
-    unidades: &[Unidade<'_>],
-    nomes: &Interner,
-    com_erro_de_sintaxe: bool,
-) -> Vec<(usize, Diagnostic)> {
-    if com_erro_de_sintaxe {
-        return Vec::new();
-    }
+/// Os diagnósticos de declarações privadas não usadas da biblioteca
+/// formada por `unidades` (na ordem da biblioteca), com o índice da unidade.
+pub fn nao_usados(unidades: &[Unidade<'_>], nomes: &Interner) -> Vec<(usize, Diagnostic)> {
     // `visitGenericTypeAlias`: o tipo de um `typedef` público, pelo nome.
     let mut expostos = HashSet::new();
     for un in unidades {
@@ -450,7 +441,7 @@ mod testes {
             unit: &p.unit,
             fonte,
         };
-        let mut v: Vec<_> = nao_usados(&[u], &interner, false)
+        let mut v: Vec<_> = nao_usados(&[u], &interner)
             .into_iter()
             .map(|(_, d)| {
                 (

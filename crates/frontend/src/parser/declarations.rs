@@ -2586,7 +2586,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             // Sem isso, `augment A(...) : inits` caía no caminho de método
             // e a cauda falhava em cascata.
             let tstart = self.span();
+            // O tipo não fica na árvore (o `AstBuilder` o descarta): nem os
+            // verificadores dos tipos escritos o veem.
+            let tipos_antes = self.ast.types.len();
             let _ty = self.parse_type()?;
+            self.ast.types.truncate(tipos_antes);
             self.erro_em(
                 codigos::parser::CONSTRUCTOR_WITH_RETURN_TYPE,
                 self.span_from(tstart),
@@ -3118,9 +3122,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             } else {
                 None
             };
-            // `super.x` sem `(` nem `=`: `EXPECTED_TOKEN` (`(`) no token
-            // seguinte e parênteses sintéticos (`insertParens`).
-            if constructor.is_some() && !via_primaria && !self.at_op(Op::LParen) && !self.at_op(Op::Assign) {
+            // `super` ou `super.x` sem `(` nem `=`: `EXPECTED_TOKEN` (`(`) no
+            // token seguinte e parênteses sintéticos (`insertParens`, em
+            // `parseSuperInitializerExpression`).
+            if !via_primaria && !self.at_op(Op::LParen) && !self.at_op(Op::Assign) {
                 self.erro(codigos::parser::EXPECTED_TOKEN, &["("]);
                 let s = self.span().start;
                 return Ok(Initializer::Super {

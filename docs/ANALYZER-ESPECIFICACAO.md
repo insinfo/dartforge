@@ -27428,6 +27428,27 @@ continuam no arquivo, porque a troca do padrão exige a medição que o próprio
 passo 7 (`crates/lsp/src/lib.rs` ainda repete a porta antiga) e o 8 (`importacoes::nao_usados` ainda
 recebe a lista de diagnósticos).
 
+**Estado em 2026-10-05 (compilado e testado): a regra dos trechos pulados é a única.** Com a
+recuperação do parser alinhada à do fasta (agrupamento do scanner, `ensureIdentifier`,
+`moveSynthetic`, laços de progresso), a troca foi medida e feita: `libs_com_erro_de_sintaxe`,
+`recuperacao_do_parser` e `ponto_e_virgula_inserido` saíram de `crates/paridade/src/analise.rs`, e
+`DARTFORGE_PORTAS_DE_SINTAXE` não existe mais. O `UnusedLocalElementsVerifier` roda em toda
+biblioteca (`library_analyzer.dart:513-521`), o semântico (`fase_nao_usados`) inclusive nas que têm
+erro de sintaxe, com o filtro dos nomes citados em trechos pulados; `privados::nao_usados` e
+`locais::nao_usados` perderam o parâmetro da porta. Passo 7 feito: o LSP (`AnalisadorSintatico`) usa
+`locais::nao_usados_com_pulados`. O passo 8 fica como está (sem `Coletor`, a lista de diagnósticos
+já é a do `_hasDiagnosticReportedThatPreventsImportWarnings`; não muda regra). Critério de pronto: (1)
+a busca não acha nada; (2) os casos s01–s12 saem iguais ao `dart analyze` 3.6.2 (inclusive o
+`if (` seguido de `}` do s11, agora comando de expressão com o identificador sintético, e o
+`UNUSED_LABEL` no nó `Label`); (3) no placar, nenhum FP novo: 21057 acertos, FP 1079, FN 1829,
+posição errada 144 (antes da troca: 20941, 1268, 1942, 147); nos projetos reais, zero FP. A medição
+trouxe consertos fiéis que as portas escondiam: os ramos de operador, índice, `call` implícito e
+redirecionamento do `GatherUsedLocalElementsVisitor`; o `var int y` numa atribuição por padrão, que
+declara o local; o `assert(…)` como expressão (`FunctionExpressionInvocation`); a criação implícita
+`C<T>.n(…)` (`parseImplicitCreationExpression`) com `NEW_WITH_UNDEFINED_CONSTRUCTOR` e a aridade dos
+argumentos de tipo; o `super` sem parênteses num inicializador; e, no placar e no `projetos`, o filtro
+dos TODOs do `dart analyze` (`analyze.dart:191-192`) e a junção das extensões usadas de cada passada.
+
 #### T7 — Plano de implementação detalhado
 
 Fontes (3.6.2): `analyzer/lib/error/listener.dart` (lido inteiro),

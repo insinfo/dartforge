@@ -477,21 +477,14 @@ impl Motor {
             }
         }
 
-        // Bibliotecas com erro de sintaxe: o verificador de elementos não
-        // usados não roda nelas.
-        let mut libs_com_erro_de_sintaxe: BTreeSet<LibraryId> = BTreeSet::new();
-        // Bibliotecas sem erro de sintaxe: o `UnusedLocalElementsVerifier`
-        // roda pelo elemento depois da inferência
-        // (`dartforge_types::fase_nao_usados`); o relato pelo nome fica
-        // guardado para quando não houver corpos.
+        // O `UnusedLocalElementsVerifier` roda pelo elemento depois da
+        // inferência (`dartforge_types::fase_nao_usados`); o relato pelo nome
+        // fica guardado para quando não houver corpos.
         let mut privados_adiados: HashMap<LibraryId, Vec<(UnitId, dartforge_diagnostics::Diagnostic, u16)>> = HashMap::new();
-        // T5 (docs/ANALYZER-ESPECIFICACAO.md §G): com
-        // `DARTFORGE_PORTAS_DE_SINTAXE=pulados`, as portas por erro de
-        // sintaxe (biblioteca inteira, declaração executável, arquivo) dão
-        // lugar à regra dos trechos que o parser pulou. O padrão continua o
-        // das portas: a troca só pode virar padrão depois de medida no
-        // placar (nenhum FP novo em código publicado).
-        let por_pulados = std::env::var("DARTFORGE_PORTAS_DE_SINTAXE").is_ok_and(|v| v == "pulados");
+        // T5 (docs/ANALYZER-ESPECIFICACAO.md §G): não há portas por erro de
+        // sintaxe (biblioteca inteira, declaração executável, arquivo); a
+        // regra é a dos trechos que o parser pulou, onde a recuperação do
+        // fasta teria lido o que a nossa descartou.
         // O outline sai antes das verificações de declaração: a porta das
         // cláusulas (`analise::clausulas`) usa as decisões dos mixins, que
         // precisam de tipos (`dartforge_types::fase_mixins`).
@@ -546,24 +539,11 @@ impl Motor {
             achados.extend(com_fase(fase::ERROR_VERIFIER, dartforge_analise::inicializacao::finais_nao_inicializados(&unidades, &interner)));
             achados.extend(com_fase(fase::ERROR_VERIFIER, dartforge_analise::construtores::verificar(&unidades, &interner)));
             for (i, u) in unidades.iter().enumerate() {
-                // Os erros de sintaxe da unidade (a fase 1 já os pôs no arquivo).
-                let sintaticos: Vec<Span> = program
-                    .unit(ids[i])
-                    .path
-                    .as_ref()
-                    .and_then(|p| analise.arquivos.get(&chave(p)))
-                    .map(|a| a.diags[..a.sintaticos].iter().filter(|d| recuperacao_do_parser(d, &a.texto)).map(|d| d.span).collect())
-                    .unwrap_or_default();
-                if por_pulados {
-                    let pulados = dartforge_analise::Pulados { fonte: u.fonte, trechos: &program.unit(ids[i]).pulados };
-                    achados.extend(com_fase(fase::UNUSED_LOCAL_ELEMENTS, 
-                        dartforge_analise::locais::nao_usados_com_pulados(*u, &interner, curinga, pulados).into_iter().map(|d| (i, d)),
-                    ));
-                } else {
-                    achados.extend(com_fase(fase::UNUSED_LOCAL_ELEMENTS, 
-                        dartforge_analise::locais::nao_usados(*u, &interner, curinga, &sintaticos).into_iter().map(|d| (i, d)),
-                    ));
-                }
+                let pulados = dartforge_analise::Pulados { fonte: u.fonte, trechos: &program.unit(ids[i]).pulados };
+                achados.extend(com_fase(
+                    fase::UNUSED_LOCAL_ELEMENTS,
+                    dartforge_analise::locais::nao_usados_com_pulados(*u, &interner, curinga, pulados).into_iter().map(|d| (i, d)),
+                ));
                 achados.extend(com_fase(fase::ERROR_VERIFIER, dartforge_analise::externos::inicializadores(*u).into_iter().map(|d| (i, d))));
                 achados.extend(com_fase(fase::ERROR_VERIFIER, dartforge_analise::a_contexto::verificar(*u).into_iter().map(|d| (i, d))));
                 achados.extend(com_fase(fase::BEST_PRACTICES, dartforge_analise::a_doc::verificar(*u).into_iter().map(|d| (i, d))));
@@ -580,25 +560,18 @@ impl Motor {
                 achados.extend(com_fase(fase::PARSER, dartforge_analise::nativos::fora_do_sdk(*u).into_iter().map(|d| (i, d))));
                 achados.extend(com_fase(fase::ERROR_VERIFIER, dartforge_analise::operadores::aridade(*u, &interner).into_iter().map(|d| (i, d))));
             }
-            // Privados não usados: pela biblioteca inteira, sem erro de sintaxe.
-            let com_erro = ids.iter().any(|u| {
-                program.unit(*u).path.as_ref().and_then(|p| analise.arquivos.get(&chave(p))).is_none_or(|a| a.diags[..a.sintaticos].iter().any(|d| recuperacao_do_parser(d, &a.texto)))
-            });
-            if por_pulados {
-                let pulados: Vec<dartforge_analise::Pulados<'_>> = ids
-                    .iter()
-                    .map(|u| dartforge_analise::Pulados { fonte: &program.unit(*u).source, trechos: &program.unit(*u).pulados })
-                    .collect();
-                achados.extend(com_fase(fase::UNUSED_LOCAL_ELEMENTS, dartforge_analise::privados::nao_usados_com_pulados(&unidades, &interner, &pulados)));
-            } else {
-                if com_erro {
-                    libs_com_erro_de_sintaxe.insert(*lib);
-                    achados.extend(com_fase(fase::UNUSED_LOCAL_ELEMENTS, dartforge_analise::privados::nao_usados(&unidades, &interner, com_erro)));
-                } else {
-                    let adiados = dartforge_analise::privados::nao_usados(&unidades, &interner, com_erro);
-                    privados_adiados.insert(*lib, adiados.into_iter().map(|(i, d)| (ids[i], d, fase::UNUSED_LOCAL_ELEMENTS)).collect());
-                }
-            }
+            // Privados não usados: o `UnusedLocalElementsVerifier` roda em
+            // toda biblioteca, com ou sem erro de sintaxe (`_computeWarnings`,
+            // library_analyzer.dart:513-521): o semântico depois da
+            // inferência, e o relato pelo nome guardado para quando não houver
+            // corpos. Um nome citado num trecho que o parser pulou não é
+            // relatado (o fasta o teria lido).
+            let pulados: Vec<dartforge_analise::Pulados<'_>> = ids
+                .iter()
+                .map(|u| dartforge_analise::Pulados { fonte: &program.unit(*u).source, trechos: &program.unit(*u).pulados })
+                .collect();
+            let adiados = dartforge_analise::privados::nao_usados_com_pulados(&unidades, &interner, &pulados);
+            privados_adiados.insert(*lib, adiados.into_iter().map(|(i, d)| (ids[i], d, fase::UNUSED_LOCAL_ELEMENTS)).collect());
             for (i, d, f) in achados {
                 if let Some(p) = &program.unit(ids[i]).path {
                     analise.por(&chave(p), d, f);
@@ -698,6 +671,9 @@ impl Motor {
                             c.units[i] = std::mem::take(&mut bt.units[i]);
                         }
                     }
+                    // As extensões que esta passada escolheu (o
+                    // `notifyExtensionUsed` do `unused_import`).
+                    c.extensoes_usadas.extend(bt.extensoes_usadas.drain());
                 }
             }
             let inicio = if ds.len() >= diags_init.len() && ds[..diags_init.len()] == diags_init[..] {
@@ -828,9 +804,7 @@ impl Motor {
             }
             // `MustCallSuperVerifier`.
             atribuidos.extend(com_fase(fase::BEST_PRACTICES, dartforge_types::fase_super::sem_chamada_ao_super(&program, &interner, *lib)));
-            if let Some(corpos) = &corpos
-                && !libs_com_erro_de_sintaxe.contains(lib)
-            {
+            if let Some(corpos) = &corpos {
                 // Roda também nas bibliotecas julgadas pelo 3.13.4: lá o
                 // código sai como `unused_element_parameter`, pela variante
                 // (`Diagnostic::na_referencia`, no laço final).
@@ -841,9 +815,17 @@ impl Motor {
                 match &corpos {
                     Some(corpos) => {
                         let inferidas: HashSet<LibraryId> = libs_proprias.iter().copied().collect();
-                        atribuidos.extend(com_fase(fase::UNUSED_LOCAL_ELEMENTS, dartforge_types::fase_nao_usados::elementos_nao_usados(
+                        let mut nao_usados = dartforge_types::fase_nao_usados::elementos_nao_usados(
                             &program, &interner, &mut table, &core, &outline, corpos, &inferidas, *lib,
-                        )));
+                        );
+                        let unidades = &program.library(*lib).units;
+                        nao_usados.retain(|(u, d)| {
+                            let nome = program.unit(*u).source.get(d.span.start..d.span.end).unwrap_or("");
+                            !unidades.iter().any(|x| {
+                                dartforge_analise::Pulados { fonte: &program.unit(*x).source, trechos: &program.unit(*x).pulados }.cita(nome)
+                            })
+                        });
+                        atribuidos.extend(com_fase(fase::UNUSED_LOCAL_ELEMENTS, nao_usados));
                     }
                     None => atribuidos.extend(adiados),
                 }
@@ -1021,24 +1003,10 @@ impl Motor {
         // primeiro) e a ordem que o LSP publica.
         analise.ordenar_pelas_fases();
 
-        // 6. Num arquivo com erro de sintaxe, a recuperação do nosso parser
-        // pode perder declarações que a do fasta mantém (`class E<inout T>`
-        // sem o recurso, `native`…): um nome que não resolve ali não é
-        // prova de nome indefinido. Os códigos de resolução de nome saem só
-        // de arquivos sem erro de sintaxe (depois dos imports, que usam
-        // esses diagnósticos para a supressão deles).
-        // Os códigos que comparam declarações entre si (tipos de getter e
-        // setter) saem de uma linha em que o parser se recuperou: a
-        // declaração ali não é a do analyzer.
-        let fontes: HashMap<PathBuf, &str> = program
-            .units
-            .iter()
-            .filter_map(|u| u.path.as_ref().map(|p| (chave(p), u.source.as_str())))
-            .collect();
-        // A regra dos trechos pulados (T5, estrutura (c)): "não definido" de
+        // 6. A regra dos trechos pulados (T5, estrutura (c)): "não definido" de
         // um nome citado num trecho pulado da biblioteca; e os dois códigos
         // de forma de declaração, quando o intervalo toca um trecho pulado.
-        if por_pulados {
+        {
             let mut da_biblioteca: HashMap<PathBuf, Vec<UnitId>> = HashMap::new();
             for lib in &libs_proprias {
                 let unidades: Vec<UnitId> = program.library(*lib).units.clone();
@@ -1071,23 +1039,6 @@ impl Motor {
                         return !proprios_pulados.intersecta(d.span);
                     }
                     true
-                });
-            }
-        }
-        for (k, a) in analise.arquivos.iter_mut() {
-            if !por_pulados && a.diags[..a.sintaticos].iter().any(|d| recuperacao_do_parser(d, &a.texto)) {
-                let n = a.sintaticos;
-                let erros: Vec<usize> =
-                    a.diags[..n].iter().filter(|d| recuperacao_do_parser(d, &a.texto)).map(|d| d.span.start).collect();
-                let fonte = fontes.get(k).copied().unwrap_or("");
-                let linha = |pos: usize| fonte.get(..pos).map_or(0, |t| t.matches('\n').count());
-                let mut i = 0;
-                a.diags.retain(|d| {
-                    i += 1;
-                    let Some(c) = d.code.map(|c| c.info().nome) else { return true };
-                    i <= n
-                        || !(depende_de_declaracoes(c)
-                            || depende_da_linha(c) && erros.iter().any(|&e| linha(e) == linha(d.span.start)))
                 });
             }
         }
@@ -1248,96 +1199,6 @@ impl Motor {
             return Some(Diagnostic::com_codigo(codigo, span, [uri_arquivo.as_str()]));
         }
         Some(Diagnostic::com_codigo(codigo, span, [uri]))
-    }
-}
-
-/// Erro de sintaxe do qual o parser se recuperou descartando ou remontando
-/// trechos (`fonte` é o texto do arquivo). Não são: `experiment_not_enabled`
-/// e `experiment_not_enabled_off_by_default` (a sintaxe do recurso desligado
-/// foi lida inteira, a árvore é a mesma do recurso ligado) e
-/// `missing_function_body` num `;` (o corpo vazio fica na árvore, como no
-/// fasta), `unexpected_separator_in_number` (o literal é lido inteiro) e o
-/// `;` que falta diante do começo de outra declaração ou comando (o
-/// `ensureSemicolon` do fasta o insere, e `Parser::garantir_ponto_e_virgula`
-/// também: a árvore segue a do analyzer).
-pub fn recuperacao_do_parser(d: &Diagnostic, fonte: &str) -> bool {
-    match d.code.map(|c| c.info().nome) {
-        Some("experiment_not_enabled" | "experiment_not_enabled_off_by_default" | "unexpected_separator_in_number") => false,
-        // Erros que o fasta relata sem descartar nem inventar código (o
-        // nome, o modificador e a expressão continuam na árvore).
-        Some(
-            "async_keyword_used_as_identifier"
-            | "extraneous_modifier"
-            | "extraneous_modifier_in_extension_type"
-            | "extraneous_modifier_in_primary_constructor"
-            | "modifier_out_of_order"
-            | "duplicated_modifier"
-            | "missing_assignable_selector"
-            | "illegal_assignment_to_non_assignable"
-            | "equality_cannot_be_equality_operand"
-            | "invalid_operator_questionmark_period_for_super"
-            | "var_return_type"
-            | "extension_declares_abstract_member"
-            | "extension_declares_constructor"
-            | "extension_declares_instance_field"
-            | "mixin_declares_constructor"
-            | "member_with_class_name"
-            | "const_class"
-            | "static_constructor"
-            | "static_operator"
-            | "getter_with_parameters"
-            | "covariant_member"
-            | "invalid_use_of_covariant_in_extension"
-            | "pattern_assignment_declares_variable"
-            | "variable_pattern_keyword_in_declaration_context"
-            | "illegal_pattern_variable_name"
-            | "illegal_pattern_assignment_variable_name"
-            | "illegal_pattern_identifier_name"
-            | "switch_has_case_after_default_case"
-            | "switch_has_multiple_default_cases",
-        ) => false,
-        Some("missing_function_body") => fonte.get(d.span.start..d.span.end) != Some(";"),
-        Some("expected_token") if d.args.first().is_some_and(|a| &**a == ";") => !ponto_e_virgula_inserido(fonte, d.span.end),
-        _ => true,
-    }
-}
-
-/// O token depois de `fim` é o que `garantir_ponto_e_virgula` aceita para
-/// inserir o `;` que falta: identificador ou palavra-chave, `}`, `@` ou o fim.
-fn ponto_e_virgula_inserido(fonte: &str, fim: usize) -> bool {
-    let b = fonte.as_bytes();
-    let mut i = fim.min(b.len());
-    loop {
-        while i < b.len() && b[i].is_ascii_whitespace() {
-            i += 1;
-        }
-        if b[i..].starts_with(b"//") {
-            while i < b.len() && b[i] != b'\n' {
-                i += 1;
-            }
-        } else if b[i..].starts_with(b"/*") {
-            let mut prof = 0usize;
-            while i < b.len() {
-                if b[i..].starts_with(b"/*") {
-                    prof += 1;
-                    i += 2;
-                } else if b[i..].starts_with(b"*/") {
-                    prof -= 1;
-                    i += 2;
-                    if prof == 0 {
-                        break;
-                    }
-                } else {
-                    i += 1;
-                }
-            }
-        } else {
-            break;
-        }
-    }
-    match b.get(i) {
-        None => true,
-        Some(&c) => c.is_ascii_alphabetic() || c == b'_' || c == b'$' || c == b'}' || c == b'@',
     }
 }
 

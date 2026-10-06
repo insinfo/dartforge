@@ -307,10 +307,13 @@ pub fn publicaveis(a: &analise::Arquivo, opcoes: &filtros::Opcoes, so_publicados
     out
 }
 
-/// Como [`diagnosticos_json`], em registros relativos a `raiz`.
+/// Como [`diagnosticos_json`], em registros relativos a `raiz`, com o que o
+/// `dart analyze` (o oráculo) imprime: um `TODO` só sai quando o `errors:`
+/// o promoveu (`analyze.dart:191-192`, o mesmo filtro do nosso CLI).
 pub fn registros(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoes, so_publicados: bool) -> Vec<Registro> {
     let mut out: Vec<Registro> = diagnosticos_json(analise, raiz, opcoes, so_publicados)
         .iter()
+        .filter(|j| !(j.tipo == "TODO" && j.severity == "INFO"))
         .filter_map(|j| Registro::de_json(j, raiz))
         .collect();
     out.sort();
