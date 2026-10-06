@@ -328,6 +328,39 @@ impl Projeto {
 
     /// A declaração do tipo estático do que `offset` denota.
     pub(crate) fn definicao_de_tipo(&self, unidade: UnitId, offset: usize) -> Option<(UnitId, Span)> {
+        let p = self.programa();
+        let ast = &p.unit(unidade).ast;
+        let dentro = |s: Span| s.start <= offset && offset <= s.end;
+        // O nome de uma anotação: o `SimpleIdentifier` da classe dá o
+        // `thisType`; o de uma variável constante (`@override`), o prefixo e
+        // o nome do construtor não têm tipo estático.
+        for a in crate::projeto::metadados(ast, &p.unit(unidade).unit) {
+            let Some(i) = a.name.iter().position(|n| dentro(n.span)) else { continue };
+            let lib = p.unit(unidade).library;
+            let prefixado = a.name.len() >= 2 && crate::projeto::eh_prefixo(p, lib, a.name[0].sym);
+            let (indice_da_classe, binding) = if prefixado {
+                (1, p.lookup_prefixed_na_unidade(unidade, a.name[0].sym, a.name[1].sym))
+            } else {
+                (0, p.lookup_na_unidade(unidade, a.name[0].sym))
+            };
+            return match binding.and_then(|b| b.getter) {
+                Some(Element::Class(c)) if i == indice_da_classe => self.nome_do_elemento_de_topo(Element::Class(c)),
+                _ => None,
+            };
+        }
+        // O `returnType` da declaração de construtor (`A(…)`, o `A` de
+        // `A.n(…)`) é a classe; o nome do construtor (`n`) não é nó com tipo;
+        // o campo de um inicializador (`x = …`) também não.
+        for (i, m) in ast.members.iter().enumerate() {
+            let ast::MemberKind::Constructor(k) = &m.kind else { continue };
+            if dentro(k.class_name.span) {
+                let f = self.construtor_do_no(unidade, ast::MemberId(i as u32))?;
+                return self.nome_do_elemento_de_topo(Element::Class(p.function(f).class?));
+            }
+            if k.initializers.iter().any(|x| matches!(x, ast::Initializer::Field { name, .. } if dentro(name.span))) {
+                return None;
+            }
+        }
         let d = self.identificar(unidade, offset).ok()??;
         // O nome de uma declaração de classe, função, método ou constante
         // de enum não é um nó com tipo para o analyzer.
@@ -358,6 +391,16 @@ impl Projeto {
                 return None;
             }
             _ => match d.expr {
+                // `inSetterContext`: o tipo da variável do `writeElement`.
+                Some(e) if self.alvo_de_escrita(unidade, e) && !matches!(d.alvo, Alvo::Local { .. }) => match d.concreto {
+                    Some(Concreto::Variavel(v)) => self.consulta.tipo_da_variavel(v)?,
+                    Some(Concreto::Funcao(f)) => match (self.programa().function(f).kind, self.programa().function(f).variable) {
+                        (FunctionKind::ImplicitAccessor, Some(v)) => self.consulta.tipo_da_variavel(v)?,
+                        (FunctionKind::Setter, _) => self.consulta.outline.functions[f.0 as usize].parameters.first()?.ty,
+                        _ => corpos.get_type(e)?,
+                    },
+                    None => corpos.get_type(e)?,
+                },
                 Some(e) => corpos.get_type(e)?,
                 None => match (&d.alvo, d.concreto) {
                     (Alvo::Local { unidade: u, declaracao }, _) => self.consulta.corpos.units[u.0 as usize].tipo_local(*declaracao)?,
@@ -373,6 +416,16 @@ impl Projeto {
             _ => return None,
         };
         self.nome_do_elemento_de_topo(Element::Class(classe))
+    }
+
+    /// `e` é escrito: o alvo de uma atribuição ou de `++`/`--`.
+    fn alvo_de_escrita(&self, unidade: UnitId, e: dartforge_frontend::ast::ExprId) -> bool {
+        use dartforge_frontend::ast::{ExprKind, UnaryOp};
+        self.programa().unit(unidade).ast.exprs.iter().any(|x| match &x.kind {
+            ExprKind::Assign { target, .. } => *target == e,
+            ExprKind::Unary { op: UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec, operand } => *operand == e,
+            _ => false,
+        })
     }
 
     // -- Hierarquia de tipos (`DartLazyTypeHierarchyComputer`) ---------------

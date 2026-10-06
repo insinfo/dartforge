@@ -133,6 +133,31 @@ fn destaques_implementacoes_e_tipo() {
 }
 
 #[test]
+fn definicao_de_tipo_como_o_handler_do_dart() {
+    let mut p = Projeto::novo("tipo-def");
+    let texto = "class A {\n  int x = 0;\n  A(int v) : x = v;\n  @override\n  String toString() => '';\n  @Deprecated('m')\n  void m() {\n    x = 1;\n  }\n}\n";
+    p.abrir("lib/td.dart", texto);
+    let mut td = |agulha: &str| {
+        let (l, c) = onde(texto, agulha, 0, 0);
+        p.na_posicao("textDocument/typeDefinition", "lib/td.dart", l, c, json!({}))["result"].clone()
+    };
+    let vazio = |r: &Value| r.is_null() || r.as_array().is_some_and(|a| a.is_empty());
+    // O `returnType` da declaração de construtor: a classe.
+    assert_eq!(td("A(int")["range"]["start"], json!({"line": 0, "character": 6}));
+    // O campo do inicializador e `@override`: nada.
+    let r = td("x = v");
+    assert!(vazio(&r), "{r}");
+    let r = td("override");
+    assert!(vazio(&r), "{r}");
+    // `@Deprecated(…)`: a classe.
+    let r = td("Deprecated");
+    assert!(r["uri"].as_str().is_some_and(|u| u.contains("core")), "{r}");
+    // O alvo de uma escrita de campo: o tipo do campo.
+    let r = td("x = 1");
+    assert!(r["uri"].as_str().is_some_and(|u| u.contains("core")), "{r}");
+}
+
+#[test]
 fn hierarquia_de_tipos() {
     let mut p = projeto("hierarquia", json!({}));
     let (l, c) = onde(MODELO, "Quadrado", 0, 1);
