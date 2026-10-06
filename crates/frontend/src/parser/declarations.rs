@@ -3228,9 +3228,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         if self.eat_kw(Keyword::Assert) {
             self.expect_op(Op::LParen)?;
-            let condition = self.parse_expression()?;
+            // `parseAssert` religa as funções literais.
+            let condition = self.com_funcoes(|p| p.parse_expression())?;
             let message = if self.eat_op(Op::Comma) && !self.at_op(Op::RParen) {
-                Some(self.parse_expression()?)
+                Some(self.com_funcoes(|p| p.parse_expression())?)
             } else {
                 None
             };

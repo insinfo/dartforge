@@ -1081,6 +1081,18 @@ mod tests {
         assert_eq!(caso("> 1?"), e("invalid_inside_unary_pattern", "> 1"));
     }
 
+    /// `parseInitializers` desliga `mayParseFunctionExpressions`: `(v == null) {`
+    /// num inicializador é expressão seguida do corpo; dentro de argumentos
+    /// a função literal volta.
+    #[test]
+    fn inicializador_sem_funcao_literal() {
+        assert_eq!(
+            erros_da_unidade("class A { bool b; A(Object? v, {bool? c}) : b = c ?? (v == null) { print(1); } }"),
+            vec![]
+        );
+        assert_eq!(erros_da_unidade("class A { var f; A() : f = g((x) { return x; }) {} }"), vec![]);
+    }
+
     /// `ensureCloseParen`: o `)` que falta é relatado no token corrente e o
     /// resto até o `)` casado é pulado; os comandos seguintes continuam.
     #[test]

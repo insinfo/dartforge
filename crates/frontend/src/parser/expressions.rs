@@ -235,6 +235,21 @@ impl<'s, 'i> Parser<'s, 'i> {
     ///
     /// Um argumento é nomeado quando é um identificador seguido de `:`.
     pub(crate) fn parse_arguments(&mut self) -> PResult<Arguments> {
+        self.com_funcoes(|p| p.parse_arguments_interno())
+    }
+
+    /// `mayParseFunctionExpressions = true` em volta de `f`: o fasta religa as
+    /// funções literais dentro de argumentos, parênteses, índices, coleções e
+    /// `assert` (`parseArgumentsRest`, `parseParenthesizedExpressionOrRecordLiteral`,
+    /// `parseLiteralListSuffix`, `parseLiteralSetOrMapSuffix`, `parseAssert`).
+    pub(crate) fn com_funcoes<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        let salvo = std::mem::replace(&mut self.sem_funcao_nomeada, false);
+        let r = f(self);
+        self.sem_funcao_nomeada = salvo;
+        r
+    }
+
+    fn parse_arguments_interno(&mut self) -> PResult<Arguments> {
         let abre = self.pos;
         let start = self.expect_op(Op::LParen)?.span;
         // Os argumentos vão para o rascunho compartilhado a partir de `base`
@@ -1019,7 +1034,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
                 Kind::Op(Op::LBracket) => {
                     self.advance();
-                    let index = self.parse_expression()?;
+                    let index = self.com_funcoes(|p| p.parse_expression())?;
                     self.expect_op(Op::RBracket)?;
                     expr = self.push(
                         start,
@@ -1036,7 +1051,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     }
                     self.advance();
                     self.advance();
-                    let index = self.parse_expression()?;
+                    let index = self.com_funcoes(|p| p.parse_expression())?;
                     self.expect_op(Op::RBracket)?;
                     expr = self.push(
                         start,
@@ -1310,7 +1325,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // `(params) {…}` é função só se a lista de parâmetros for
                 // válida: `x = (v as T?) { … }` num inicializador de construtor
                 // é expressão parentizada seguida do corpo.
-                if self.function_expression_ahead(self.pos)
+                if !self.sem_funcao_nomeada
+                    && self.function_expression_ahead(self.pos)
                     && self.speculate(|p| p.parse_formal_parameters().is_ok())
                 {
                     return self.parse_function_expression(start);
@@ -1527,6 +1543,10 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// Elementos separados por vírgula (com vírgula final opcional) até
     /// `close`, que é consumido.
     fn parse_collection_elements(&mut self, close: Op) -> PResult<Vec<CollectionElement>> {
+        self.com_funcoes(|p| p.parse_collection_elements_interno(close))
+    }
+
+    fn parse_collection_elements_interno(&mut self, close: Op) -> PResult<Vec<CollectionElement>> {
         let abre = self.pos.saturating_sub(1);
         let mut elements = Vec::new();
         while !self.at_op(close) {
@@ -1689,6 +1709,10 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// fasta lê sem `constKeywordForRecord` (`parsePrimaryPattern`): `(e)` é
     /// expressão entre parênteses; um record sai constante, como o contexto.
     pub(crate) fn parse_parenthesized_or_record(&mut self, start: Span, const_: bool, de_padrao: bool) -> PResult<ExprId> {
+        self.com_funcoes(|p| p.parse_parenthesized_or_record_interno(start, const_, de_padrao))
+    }
+
+    fn parse_parenthesized_or_record_interno(&mut self, start: Span, const_: bool, de_padrao: bool) -> PResult<ExprId> {
         let abre = self.pos;
         self.expect_op(Op::LParen)?;
         let mut positional = Vec::new();

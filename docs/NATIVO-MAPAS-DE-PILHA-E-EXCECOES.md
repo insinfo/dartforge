@@ -2017,8 +2017,11 @@ não é achado (a entrada de tear-off não tem a identidade). O casamento pela p
 
 ### 13.15 Estado da implementação (2026-10-04)
 
-A Etapa 1 está **escrita e não executada**: o código abaixo foi escrito por leitura e revisão, sem
-compilar nem rodar. O padrão continua `checagem`, com o IR de sempre byte a byte. No runtime, a única
+> **2026-10-06:** compilado, verificado e medido; a Etapa 1 foi arquivada pelo critério de tamanho. Veja o
+> §13.16.
+
+A Etapa 1 estava **escrita e não executada** em 2026-10-04: o código abaixo foi escrito por leitura e
+revisão, sem compilar nem rodar. O padrão continua `checagem`, com o IR de sempre byte a byte. No runtime, a única
 mudança que vale nos dois modos é a chamada a código Dart passar por `dart_r<n>`/`dart_v<n>`, que sem
 porta registrada chamam direto, como antes.
 
@@ -2095,6 +2098,53 @@ porta registrada chamam direto, como antes.
 * **O rastro no formato da VM** (§13.14): escrito em 2026-10-05, atrás de `--rastro=simbolico`
   (veja o estado no §13.14).
 * **Linux e macOS** (a personalidade Itanium do §13.11): Etapa 4.
+
+### 13.16 Verificação e decisão (2026-10-06)
+
+O código acima compila e roda desde 2026-10-05. A verificação do §15.1, nesta máquina (Windows 11,
+x86-64, LLVM 22.1.8):
+
+| verificação | resultado |
+|---|---|
+| testes do workspace, inclusive `dartforge-jit` e `dartforge-llvm` com os ignorados (o `bin` do LLVM no `PATH`) | verdes |
+| `reload_estado` e `io_regressao` (`--features nativo,jit`, release) | 7/7 e 7/7 |
+| `corpus/js` em A0 e em A1 | 238/238 e 238/238 |
+| `corpus/nativo` em A0, em A1 e em A1 com `--gc-stress` | 129/129, 127/129 e 127/129 |
+
+As duas diferenças do `corpus/nativo` (`02_io_assincrono`, `03_processos`) são do ambiente, iguais em A0:
+o cache do oráculo foi gravado com outro `HOME` e outro `TEMP`; sem o cache (`--sem-cache`) as duas batem.
+
+Dois defeitos apareceram e foram consertados:
+
+* o pouso emitia `llvm.fake.use` das raízes também com a pilha-sombra, e o LLVM recusava o IR do SDK
+  (`%raiz<n>` sem definição): o uso fictício só existe numa função `gc` dos mapas, como nos outros pontos
+  de coleta;
+* `case const (e)` saía como record de um campo com `record_literal_one_positional_no_trailing_comma`
+  (do parser, não do modo de exceções).
+
+**Medidas do §8, `new_sali/backend`, `aot --optimize`:**
+
+| seção | A0 (`checagem`) | A1 (`tabelas`) | Δ |
+|---|---:|---:|---:|
+| arquivo | 57.040.384 | 58.582.016 | +1.541.632 (+2,7%) |
+| `.text` | 48.323.334 | 48.328.198 | +4.864 |
+| `.rdata` (com o `.xdata` e as LSDAs) | 5.822.328 | 7.389.916 | +1.567.588 |
+| `.pdata` | 602.388 | 571.236 | −31.152 |
+| `.text` + `.rdata` + `.pdata` | 54.748.050 | 56.289.350 | +1.541.300 |
+
+O `.text` não cai: o que sai com as checagens da pendência volta nos blocos de pouso e no `invoke`. As
+tabelas (LSDA e `.xdata` dos pousos) somam 1,57 MB. Contra a base `.text` + `.pdata` de A0, o saldo é
+**+3,2%**, contra a meta de −3%.
+
+O tempo de geração de objetos não é comparável nesta medida: em A0 parte dos objetos veio do cache
+(82 s), e em A1 todos foram gerados frios (1.371 s). O LLVM IR passou de 12 s para 57 s e o HIR, de 52 s
+para 71 s, pelo passe `otimizar::excecoes_por_tabelas`.
+
+**Decisão.** Pelo critério de abandono da Etapa 1 (§6: o `.text` + `.xdata` + LSDA do backend em A1
+não cai pelo menos 3%), a Etapa 1 fica **arquivada**: o código permanece atrás de `--excecoes=tabelas`,
+sem custo para o padrão, que continua `checagem` com o E1.1. O e2e do backend em A1 e o
+`bench/desempenho` não foram rodados, porque o critério de tamanho já decide. A Etapa 2 segue em B0;
+B1 deixa de ser candidato a padrão.
 
 ---
 
