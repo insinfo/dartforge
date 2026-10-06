@@ -137,4 +137,122 @@ impl Contexto<'_> {
             criar_arquivo: None,
         })
     }
+
+    /// `_ReturnTypeComputer`: o `leastUpperBound` dos tipos dos `return` com
+    /// valor do corpo (sem os de funções aninhadas), sem os de tipo `Never`;
+    /// e se houve algum `return`.
+    fn tipo_dos_retornos(&self, corpo: usize) -> (Option<TypeId>, bool) {
+        let mut tipo: Option<TypeId> = None;
+        let mut houve = false;
+        let mut pilha: Vec<usize> = self.filhos(corpo).to_vec();
+        let consulta = &self.p.consulta;
+        let mut tabela = consulta.tabela.clone();
+        while let Some(k) = pilha.pop() {
+            match self.especie(k) {
+                "FunctionExpression" | "FunctionDeclarationStatement" | "BlockFunctionBody" => continue,
+                "ReturnStatement" => {
+                    houve = true;
+                    if let Some(t) = self.filhos(k).first().and_then(|&e| self.expr_do_no(e)).and_then(|x| self.corpos.get_type(x))
+                        && !matches!(tabela.get(t), Type::Never)
+                    {
+                        tipo = Some(match tipo {
+                            None => t,
+                            Some(atual) => {
+                                let mut env = dartforge_types::subtyping::SubtypeEnv::new(&mut tabela, &consulta.outline.hierarchy, &consulta.core);
+                                dartforge_types::bounds::up(atual, t, &mut env)
+                            }
+                        });
+                    }
+                }
+                _ => {}
+            }
+            pilha.extend(self.filhos(k).iter().copied());
+        }
+        // Só vale um tipo que a tabela da consulta já tem (o escritor lê esta).
+        (tipo.filter(|t| (t.0 as usize) < consulta.tabela.len()), houve)
+    }
+
+    /// `AddReturnType` (add_return_type.dart): no nome de um método ou função
+    /// sem tipo de retorno (nem setter), o tipo inferido do corpo antes do
+    /// `operator`/`get` ou do nome.
+    pub(crate) fn adicionar_tipo_de_retorno(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
+        let no = self.arvore.localizar(inicio, fim)?;
+        let declaracao = match self.especie(no) {
+            "MethodDeclaration" | "FunctionDeclaration" => no,
+            _ => return None,
+        };
+        let Marca::Funcao(fid) = self.arvore.nos[declaracao].marca else { return None };
+        let funcao = self.ast.function(fid);
+        let nome = funcao.name?.span;
+        // `executable.name == token`: a seleção está no nome.
+        if !(nome.start <= inicio && inicio <= nome.end) {
+            return None;
+        }
+        if funcao.return_type.is_some() {
+            return None;
+        }
+        // Setter e as palavras antes do nome.
+        let anterior = self.token_anterior(nome.start);
+        let palavra = anterior.map(|s| &self.fonte[s.start..s.end]);
+        if palavra == Some("set") {
+            return None;
+        }
+        let antes = match palavra {
+            Some("get" | "operator") => anterior?.start,
+            _ => nome.start,
+        };
+        // O corpo.
+        let corpo = if self.especie(declaracao) == "FunctionDeclaration" {
+            let expressao = self.filhos(declaracao).iter().copied().find(|&k| self.especie(k) == "FunctionExpression")?;
+            *self.filhos(expressao).last()?
+        } else {
+            *self.filhos(declaracao).last()?
+        };
+        let consulta = &self.p.consulta;
+        let base = match self.especie(corpo) {
+            "ExpressionFunctionBody" => self.filhos(corpo).first().and_then(|&e| self.expr_do_no(e)).and_then(|x| self.corpos.get_type(x))?,
+            "BlockFunctionBody" => match self.tipo_dos_retornos(corpo) {
+                (Some(t), _) => t,
+                (None, true) => consulta.core.void_,
+                (None, false) => return None,
+            },
+            _ => return None,
+        };
+        let mut escritor = crate::escrever_tipo::Escritor::novo(self, antes);
+        let escrito = if matches!(consulta.tabela.get(base), Type::Dynamic) {
+            "dynamic".to_string()
+        } else {
+            let texto = escritor.escrever(base, false)?;
+            // `instantiate(typeArguments: [base], nullabilitySuffix: base.nullabilitySuffix)`.
+            let anulavel = matches!(
+                consulta.tabela.get(base),
+                Type::Interface { nullable: true, .. }
+                    | Type::Function { nullable: true, .. }
+                    | Type::Record { nullable: true, .. }
+                    | Type::TypeParameter { nullable: true, .. }
+                    | Type::FutureOr { nullable: true, .. }
+                    | Type::ExtensionType { nullable: true, .. }
+            );
+            let sufixo = if anulavel { "?" } else { "" };
+            match funcao.modifier {
+                ast::AsyncModifier::Async => format!("Future<{texto}>{sufixo}"),
+                ast::AsyncModifier::AsyncStar => format!("Stream<{texto}>{sufixo}"),
+                ast::AsyncModifier::SyncStar => format!("Iterable<{texto}>{sufixo}"),
+                _ => texto,
+            }
+        };
+        let mut m = crate::refatoracoes_exec::Mudanca::default();
+        m.adicionar(uri, Span { start: antes, end: antes }, format!("{escrito} "));
+        crate::refatoracoes_mover::imports_do_builder(self, &mut m, &escritor.importar);
+        if m.conflito.is_some() {
+            return None;
+        }
+        Some(AcaoDeCodigo {
+            titulo: "Add return type".into(),
+            especie: "refactor.add.returnType".into(),
+            edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            diagnostico: None,
+            criar_arquivo: None,
+        })
+    }
 }
