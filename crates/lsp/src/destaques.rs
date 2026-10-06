@@ -201,6 +201,14 @@ fn chave_de_funcao(p: &Projeto, f: FunctionElementId) -> Option<Chave> {
 /// argumento, o `returnType` do construtor), ou o rótulo de um comando.
 fn chave_do_identificador(p: &Projeto, cx: &Contexto<'_>, n: usize) -> Option<Chave> {
     let no = &cx.arvore.nos[n];
+    // O `returnType` de uma declaração de construtor (o `A` de `A(…)` e de
+    // `A.n(…)`): o `staticElement` dele é a classe.
+    if let Some(pai) = cx.pai(n)
+        && cx.especie(pai) == "ConstructorDeclaration"
+    {
+        let f = construtor_declarado_em(p, cx.unidade, cx.arvore.nos[pai].inicio, cx.arvore.nos[pai].fim)?;
+        return p.programa().function(f).class.map(Chave::Classe);
+    }
     // Rótulos de comando e `break`/`continue`.
     if let Some(pai) = cx.pai(n) {
         if cx.especie(pai) == "Label" && cx.pai(pai).is_some_and(|g| matches!(cx.especie(g), "LabeledStatement" | "SwitchCase" | "SwitchDefault" | "SwitchPatternCase")) {

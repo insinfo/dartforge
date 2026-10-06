@@ -158,6 +158,26 @@ fn definicao_de_tipo_como_o_handler_do_dart() {
 }
 
 #[test]
+fn destaques_do_nome_da_classe_no_construtor() {
+    let mut p = Projeto::novo("destaques-construtor");
+    let texto = "class A {\n  A();\n  A.n();\n}\nA f() => A.n();\n";
+    p.abrir("lib/d.dart", texto);
+    let mut linhas_e_colunas = |agulha: &str, n: usize| {
+        let (l, c) = onde(texto, agulha, n, 0);
+        let r = p.na_posicao("textDocument/documentHighlight", "lib/d.dart", l, c, json!({}))["result"].clone();
+        let mut v: Vec<(u64, u64)> = r.as_array().unwrap().iter().map(|h| (h["range"]["start"]["line"].as_u64().unwrap(), h["range"]["start"]["character"].as_u64().unwrap())).collect();
+        v.sort();
+        v
+    };
+    // O `A` de `A();` e de `A.n();` é a classe: o grupo dela.
+    let esperado = vec![(0, 6), (1, 2), (2, 2), (4, 0), (4, 9)];
+    assert_eq!(linhas_e_colunas("A();", 0), esperado);
+    assert_eq!(linhas_e_colunas("A.n();", 0), esperado);
+    // O `n` declarado: o construtor e o uso.
+    assert_eq!(linhas_e_colunas("n();", 0), vec![(2, 4), (4, 11)]);
+}
+
+#[test]
 fn hierarquia_de_tipos() {
     let mut p = projeto("hierarquia", json!({}));
     let (l, c) = onde(MODELO, "Quadrado", 0, 1);
