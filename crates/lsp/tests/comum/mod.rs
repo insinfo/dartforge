@@ -49,7 +49,10 @@ abstract class List<E> implements Iterable<E> {
 abstract class Map<K, V> {
   external factory Map();
 }
-abstract class Set<E> implements Iterable<E> {}
+abstract class Set<E> implements Iterable<E> {
+  external factory Set();
+  external factory Set.of(Iterable<E> elements);
+}
 abstract class Function {}
 abstract class Record {}
 abstract class Enum {

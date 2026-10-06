@@ -9,6 +9,7 @@
 //! | `Inline invocation of 'add'` | `refactor.inline` | `InlineInvocation` |
 //! | `Convert to an 'if' element` | `refactor.convert.toIfElement` | `ConvertConditionalExpressionToIfElement` |
 //! | `Convert to map literal` | `refactor.convert.toMapLiteral` | `ConvertToMapLiteral` |
+//! | `Convert to set literal` | `refactor.convert.toSetLiteral` | `ConvertToSetLiteral` |
 
 use crate::acoes::AcaoDeCodigo;
 use crate::refatoracoes::Contexto;
@@ -413,5 +414,157 @@ impl Contexto<'_> {
             diagnostico: None,
             criar_arquivo: None,
         })
+    }
+
+    /// `_isUnambiguousElement`: o elemento faz do literal um conjunto (uma
+    /// expressão, através de `for` e `if`).
+    fn elemento_inequivoco(&self, e: usize) -> bool {
+        match self.especie(e) {
+            "ForElement" => self.filhos(e).last().is_some_and(|&b| self.elemento_inequivoco(b)),
+            "IfElement" => {
+                // Os ramos: os filhos depois da condição (e do `case`).
+                self.filhos(e).iter().skip(1).filter(|&&k| self.especie(k) != "CaseClause").any(|&k| self.elemento_inequivoco(k))
+            }
+            "SpreadElement" | "MapLiteralEntry" | "NullAwareElement" => false,
+            _ => crate::refatoracoes::e_expressao_especie(self.especie(e)),
+        }
+    }
+
+    /// `_listHasUnambiguousElement`.
+    fn lista_inequivoca(&self, n: usize) -> bool {
+        self.especie(n) == "ListLiteral" && self.elementos_da_lista(n).iter().any(|&e| self.elemento_inequivoco(e))
+    }
+
+    /// O tipo é `Set<…>` (a classe `Set` do `dart:core`).
+    fn e_tipo_set(&self, t: dartforge_types::TypeId) -> bool {
+        matches!(self.p.consulta.tabela.get(t), dartforge_types::Type::Interface { class, .. } if Some(*class) == self.p.consulta.core.set_class)
+    }
+
+    /// O tipo do `correspondingParameter` do argumento `arg` de uma
+    /// invocação de método ou de função.
+    fn tipo_do_parametro_correspondente(&self, arg: usize, invocacao: usize) -> Option<dartforge_types::TypeId> {
+        let lista = self.pai(arg)?;
+        let prog = self.p.programa();
+        let x = self.expr_do_no(invocacao)?;
+        let f = match self.corpos.get_resolved(x)? {
+            Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } => *f,
+            Resolved::Element(dartforge_elements::model::Element::Function(f)) => *f,
+            _ => return None,
+        };
+        let _ = prog;
+        let parametros = &self.p.consulta.outline.functions.get(f.0 as usize)?.parameters;
+        let posicionais = self.filhos(lista).iter().take_while(|&&k| k != arg).filter(|&&k| self.especie(k) != "NamedExpression").count();
+        if self.especie(arg) == "NamedExpression" {
+            let nome = self.texto_do_no(*self.filhos(arg).first()?).trim_end_matches(':').trim().to_string();
+            return parametros
+                .iter()
+                .find(|p| p.kind == dartforge_frontend::ast::ParameterKind::Named && p.externo.or(p.name).is_some_and(|n| self.p.nome(n) == nome))
+                .map(|p| p.ty);
+        }
+        parametros.iter().filter(|p| p.kind != dartforge_frontend::ast::ParameterKind::Named).nth(posicionais).map(|p| p.ty)
+    }
+
+    /// `ConvertToSetLiteral` (convert_to_set_literal.dart): `[…].toSet()`,
+    /// `Set()`, `Set.from([…])` e `Set.of([…])` viram literal de conjunto, com
+    /// `<dynamic>` quando o literal sem argumentos de tipo seria mapa.
+    pub(crate) fn converter_em_literal_de_conjunto(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
+        let no = self.arvore.localizar(inicio, fim)?;
+        let inicio_do_no = self.arvore.nos[no].inicio;
+        let abre_e_fecha = |lista: usize| -> Option<(Span, Span)> {
+            let span = self.arvore.span(lista);
+            let abre = self.tokens.iter().find(|t| t.span.start >= span.start && &self.fonte[t.span.start..t.span.end] == "[")?.span;
+            let fecha = self.token_anterior(span.end)?;
+            Some((abre, fecha))
+        };
+        // `_findInvocationOfToSet`.
+        if let Some(invocacao) = self.com_pais(no).find(|&k| self.especie(k) == "MethodInvocation")
+            && let Some(args) = self.filhos(invocacao).iter().copied().find(|&k| self.especie(k) == "ArgumentList")
+            && inicio_do_no <= self.arvore.nos[args].inicio
+            && self.nome_do_metodo(invocacao).is_some_and(|n| self.texto_do_no(n) == "toSet")
+            && let Some(&alvo) = self.filhos(invocacao).first()
+            && self.especie(alvo) == "ListLiteral"
+            && self.nome_do_metodo(invocacao) != Some(alvo)
+        {
+            let (abre, fecha) = abre_e_fecha(alvo)?;
+            let com_tipo = self.argumentos_de_tipo_do_literal(alvo);
+            let nova = if com_tipo || self.lista_inequivoca(alvo) { "{" } else { "<dynamic>{" };
+            return Some(self.acao_simples(
+                uri,
+                "Convert to set literal",
+                "refactor.convert.toSetLiteral",
+                vec![(abre, nova.into()), (Span { start: fecha.start, end: self.arvore.nos[invocacao].fim }, "}".into())],
+            ));
+        }
+        // `_findSetCreation`.
+        let criacao = self.com_pais(no).find(|&k| self.especie(k) == "InstanceCreationExpression")?;
+        let argumentos = self.filhos(criacao).iter().copied().find(|&k| self.especie(k) == "ArgumentList")?;
+        if inicio_do_no > self.arvore.nos[argumentos].inicio {
+            return None;
+        }
+        let tipo = self.expr_do_no(criacao).and_then(|x| self.corpos.get_type(x))?;
+        if !self.e_tipo_set(tipo) {
+            return None;
+        }
+        let nome_do_construtor = self.filhos(criacao).iter().copied().find(|&k| self.especie(k) == "ConstructorName")?;
+        let tipo_do_construtor = *self.filhos(nome_do_construtor).first()?;
+        let argumentos_do_construtor = self.filhos(tipo_do_construtor).iter().copied().find(|&k| self.especie(k) == "TypeArgumentList");
+        let mut argumentos_dos_elementos: Option<usize> = None;
+        let mut elementos: Option<Span> = None;
+        match self.filhos(nome_do_construtor).get(1).map(|&n| self.texto_do_no(n)) {
+            None => {}
+            Some("from" | "of") => {
+                let a = self.filhos(argumentos);
+                if a.len() != 1 || self.especie(a[0]) != "ListLiteral" {
+                    return None;
+                }
+                argumentos_dos_elementos = self.filhos(a[0]).iter().copied().find(|&k| self.especie(k) == "TypeArgumentList");
+                let (abre, fecha) = abre_e_fecha(a[0])?;
+                elementos = Some(Span { start: abre.end, end: fecha.start });
+            }
+            Some(_) => return None,
+        }
+        // `_setWouldBeInferred`.
+        let seria_inferido = || -> bool {
+            let Some(pai) = self.pai(criacao) else { return false };
+            if self.especie(pai) == "VariableDeclaration" {
+                if let Some(lista) = self.pai(pai)
+                    && self.especie(lista) == "VariableDeclarationList"
+                    && let Some(&anotacao) = self.filhos(lista).iter().find(|&&f| self.especie(f) == "NamedType")
+                    && let Some(&primeira) = self.filhos(lista).iter().find(|&&f| self.especie(f) == "VariableDeclaration")
+                    && let Some(nome) = self.token_seguinte(self.arvore.nos[primeira].inicio)
+                    && let Some(&t) = self.corpos.tipos_de_locais.get(&nome.start)
+                    && self.e_tipo_set(t)
+                {
+                    let _ = anotacao;
+                    return true;
+                }
+            } else if let Some(avo) = self.pai(pai)
+                && matches!(self.especie(avo), "MethodInvocation" | "FunctionExpressionInvocation")
+                && let Some(t) = self.tipo_do_parametro_correspondente(criacao, avo)
+                && self.e_tipo_set(t)
+            {
+                return true;
+            }
+            self.filhos(argumentos).first().is_some_and(|&a| self.lista_inequivoca(a))
+        };
+        let mut texto = String::new();
+        if let Some(a) = argumentos_do_construtor {
+            texto.push_str(self.texto_do_no(a));
+        } else if let Some(a) = argumentos_dos_elementos {
+            texto.push_str(self.texto_do_no(a));
+        } else if !seria_inferido() {
+            texto.push_str("<dynamic>");
+        }
+        texto.push('{');
+        if let Some(e) = elementos {
+            texto.push_str(&self.fonte[e.start..e.end]);
+        }
+        texto.push('}');
+        Some(self.acao_simples(uri, "Convert to set literal", "refactor.convert.toSetLiteral", vec![(self.arvore.span(criacao), texto)]))
+    }
+
+    /// O literal tem argumentos de tipo escritos.
+    fn argumentos_de_tipo_do_literal(&self, n: usize) -> bool {
+        self.filhos(n).iter().any(|&k| self.especie(k) == "TypeArgumentList")
     }
 }
