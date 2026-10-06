@@ -25,7 +25,7 @@ fn acoes(p: &mut Projeto, relativo: &str, de: (u32, u32), ate: (u32, u32), extra
     let fora = |k: &str| {
         k.starts_with("source")
             || k.starts_with("quickfix.ignore")
-            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment", "refactor.convert.relativeToPackageImport", "refactor.convert.packageToRelativeImport", "refactor.convert.partOfToPartUri", "refactor.convert.toMapLiteral", "refactor.convert.toSetLiteral", "refactor.encapsulateField"].contains(&k))
+            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment", "refactor.convert.relativeToPackageImport", "refactor.convert.packageToRelativeImport", "refactor.convert.partOfToPartUri", "refactor.convert.toMapLiteral", "refactor.convert.toSetLiteral", "refactor.encapsulateField", "refactor.convert.toConstructorFieldParameter", "refactor.shadowField"].contains(&k))
             || k == "quickfix.change.to"
             || ["method", "function", "class", "mixin", "getter", "field", "localVariable", "parameter"]
                 .iter()
@@ -780,5 +780,21 @@ fn assistencia_de_encapsular_campo() {
     assert_eq!(
         aplicar(&a["edit"], &p.uri("lib/a.dart"), texto),
         "class A {\n  int _x = 0;\n\n  int get x => _x;\n\n  set x(int value) {\n    _x = value;\n  }\n  A(this._x);\n}\n"
+    );
+}
+
+#[test]
+fn assistencia_de_parametro_de_campo_e_sombra() {
+    let mut p = Projeto::com_literais("acoes-campo");
+    let texto = "class A {\n  int x;\n  num? y;\n  A(int v) : x = v;\n  void f() {\n    if (y is int) {\n      print(y);\n    }\n  }\n}\n";
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "v) :");
+    let a = acao(&r, "Convert to field formal parameter");
+    assert_eq!(a["kind"], "refactor.convert.toConstructorFieldParameter");
+    assert_eq!(aplicar(&a["edit"], &p.uri("lib/a.dart"), texto), texto.replace("A(int v) : x = v;", "A(this.x);"));
+    let pos = onde(texto, "y is", 0);
+    let r = acoes(&mut p, "lib/a.dart", pos, pos, json!({}));
+    assert_eq!(
+        aplicar(&acao(&r, "Create a local variable that shadows the field")["edit"], &p.uri("lib/a.dart"), texto),
+        texto.replace("    if (y is int)", "    var y = this.y;\n    if (y is int)")
     );
 }

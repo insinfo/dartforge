@@ -8,6 +8,8 @@
 //! | `Convert to normal parameter` | `refactor.convert.toConstructorNormalParameter` | `ConvertToNormalParameter` |
 //! | `Convert class to a mixin` | `refactor.convert.classToMixin` | `ConvertClassToMixin` |
 //! | `Encapsulate field` | `refactor.encapsulateField` | `EncapsulateField` |
+//! | `Convert to field formal parameter` | `refactor.convert.toConstructorFieldParameter` | `ConvertToFieldParameter` |
+//! | `Create a local variable that shadows the field` | `refactor.shadowField` | `ShadowField` |
 
 use crate::acoes::AcaoDeCodigo;
 use crate::arvore_analyzer::Marca;
@@ -523,6 +525,185 @@ impl Contexto<'_> {
             titulo: "Encapsulate field".into(),
             especie: "refactor.encapsulateField".into(),
             edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            diagnostico: None,
+            criar_arquivo: None,
+        })
+    }
+
+    /// `ConvertToFieldParameter._findParameter`: o parâmetro simples (direto
+    /// na lista de um construtor) da seleção, ou o citado pela expressão de
+    /// um inicializador de campo.
+    fn parametro_para_campo(&self, no: usize) -> Option<(usize, Span, usize)> {
+        let pai = self.pai(no)?;
+        if self.especie(no) == "SimpleFormalParameter" {
+            let nome = self.token_anterior(self.arvore.nos[no].fim)?;
+            if self.especie(pai) != "FormalParameterList" {
+                return None;
+            }
+            let construtor = self.pai(pai)?;
+            return (self.especie(construtor) == "ConstructorDeclaration").then_some((no, nome, construtor));
+        }
+        if self.especie(no) == "SimpleIdentifier" && self.especie(pai) == "ConstructorFieldInitializer" {
+            let construtor = self.pai(pai)?;
+            if self.especie(construtor) != "ConstructorDeclaration" || self.filhos(pai).get(1) != Some(&no) {
+                return None;
+            }
+            let lista = self.filhos(construtor).iter().copied().find(|&k| self.especie(k) == "FormalParameterList")?;
+            let texto = self.texto_do_no(no);
+            for &f in self.filhos(lista) {
+                if self.especie(f) == "SimpleFormalParameter"
+                    && let Some(nome) = self.token_anterior(self.arvore.nos[f].fim)
+                    && &self.fonte[nome.start..nome.end] == texto
+                {
+                    return Some((f, nome, construtor));
+                }
+            }
+        }
+        None
+    }
+
+    /// `ConvertToFieldParameter` (convert_to_field_parameter.dart): o
+    /// parâmetro citado uma só vez nos inicializadores, num `campo = p`, vira
+    /// `this.campo` e o inicializador sai.
+    pub(crate) fn converter_em_parametro_de_campo(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
+        let no = self.arvore.localizar(inicio, fim)?;
+        let (parametro, nome, construtor) = self.parametro_para_campo(no)?;
+        let nome_do_parametro = &self.fonte[nome.start..nome.end];
+        let inicializadores: Vec<usize> = self
+            .filhos(construtor)
+            .iter()
+            .copied()
+            .filter(|&k| matches!(self.especie(k), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
+            .collect();
+        // `_ReferenceCounter`: os identificadores dos inicializadores cujo
+        // elemento é o parâmetro.
+        let mut contagem = 0;
+        let mut pilha = inicializadores.clone();
+        while let Some(k) = pilha.pop() {
+            if self.especie(k) == "SimpleIdentifier"
+                && let Marca::Expr(x) = self.arvore.nos[k].marca
+                && match self.corpos.get_resolved(x) {
+                    Some(dartforge_types::Resolved::Parameter { name, .. }) => self.p.nome(*name) == nome_do_parametro,
+                    // Nos inicializadores o parâmetro é um local declarado no nome dele.
+                    Some(dartforge_types::Resolved::Local(_)) => self.corpos.declaracao_local(x) == Some(nome.start),
+                    _ => false,
+                }
+            {
+                contagem += 1;
+            }
+            pilha.extend(self.filhos(k).iter().copied());
+        }
+        if contagem != 1 {
+            return None;
+        }
+        let inicializador = inicializadores.iter().copied().filter(|&i| {
+            self.especie(i) == "ConstructorFieldInitializer"
+                && self.filhos(i).get(1).is_some_and(|&e| self.especie(e) == "SimpleIdentifier" && self.texto_do_no(e) == nome_do_parametro)
+        }).last()?;
+        let campo = self.texto_do_no(*self.filhos(inicializador).first()?).to_string();
+        let mut edicoes = vec![(self.arvore.span(parametro), format!("this.{campo}"))];
+        let indice = inicializadores.iter().position(|&i| i == inicializador)?;
+        let lista = self.filhos(construtor).iter().copied().find(|&k| self.especie(k) == "FormalParameterList")?;
+        if inicializadores.len() == 1 {
+            edicoes.push((Span { start: self.arvore.nos[lista].fim, end: self.arvore.nos[inicializador].fim }, String::new()));
+        } else if indice == 0 {
+            edicoes.push((Span { start: self.arvore.nos[inicializador].inicio, end: self.arvore.nos[inicializadores[1]].inicio }, String::new()));
+        } else {
+            edicoes.push((Span { start: self.arvore.nos[inicializadores[indice - 1]].fim, end: self.arvore.nos[inicializador].fim }, String::new()));
+        }
+        Some(AcaoDeCodigo {
+            titulo: "Convert to field formal parameter".into(),
+            especie: "refactor.convert.toConstructorFieldParameter".into(),
+            edicoes: edicoes.into_iter().rev().map(|(span, texto)| Edicao { uri: uri.to_string(), span, texto }).collect(),
+            diagnostico: None,
+            criar_arquivo: None,
+        })
+    }
+
+    /// `ShadowField` (shadow_field.dart): o campo testado com `is` ou com
+    /// `==`/`!=` na condição de um `if` (através de `&&`) dentro de um bloco
+    /// que não escreve nele ganha um local de mesmo nome antes do `if`.
+    pub(crate) fn sombrear_campo(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
+        use dartforge_types::{MemberRef, Resolved};
+        let no = self.arvore.localizar(inicio, fim)?;
+        if self.especie(no) != "SimpleIdentifier" {
+            return None;
+        }
+        let Marca::Expr(x) = self.arvore.nos[no].marca else { return None };
+        let prog = self.p.programa();
+        // O getter de uma classe (o acessor do campo ou o declarado).
+        let (variavel, getter, classe) = match self.corpos.get_resolved(x)? {
+            Resolved::Member { member: MemberRef::Variable(v), .. } => (Some(*v), None, prog.variable(*v).class?),
+            Resolved::Member { member: MemberRef::Function(f), .. } => {
+                let fe = prog.function(*f);
+                match fe.kind {
+                    dartforge_elements::model::FunctionKind::Getter => (None, Some(*f), fe.class?),
+                    // O getter sintético de um campo.
+                    dartforge_elements::model::FunctionKind::ImplicitAccessor => {
+                        let v = fe.variable?;
+                        if prog.variable(v).getter != Some(*f) {
+                            return None;
+                        }
+                        (Some(v), None, fe.class?)
+                    }
+                    _ => return None,
+                }
+            }
+            _ => return None,
+        };
+        if self.escritas.contains(&x) {
+            return None;
+        }
+        // `_getStatement`.
+        let pai = self.pai(no)?;
+        let condicao = match self.especie(pai) {
+            "IsExpression" if self.filhos(pai).first() == Some(&no) => pai,
+            "BinaryExpression" if matches!(self.operador_binario(pai), Some("==" | "!=")) => pai,
+            _ => return None,
+        };
+        let mut acima = self.pai(condicao)?;
+        while self.especie(acima) == "BinaryExpression" && self.operador_binario(acima) == Some("&&") {
+            acima = self.pai(acima)?;
+        }
+        if self.especie(acima) != "IfStatement" {
+            return None;
+        }
+        let comando = acima;
+        let bloco = self.pai(comando)?;
+        if self.especie(bloco) != "Block" {
+            return None;
+        }
+        // `correspondingSetter2`.
+        let nome = self.texto_do_no(no).to_string();
+        let setter: Option<dartforge_elements::model::FunctionElementId> = match (variavel, getter) {
+            (Some(v), _) => prog.variable(v).setter,
+            (None, Some(_)) => prog.class(classe).instance_members.iter().find(|(k, _)| self.p.nome(**k) == format!("{nome}_=")).map(|(_, f)| *f),
+            _ => None,
+        };
+        let setter = setter?;
+        // `_ReferenceFinder`: uma escrita no setter dentro do bloco.
+        let span_do_bloco = self.arvore.span(bloco);
+        let escreve = self.escritas.iter().any(|&e| {
+            let s = self.ast.expr(e).span;
+            s.start >= span_do_bloco.start
+                && s.end <= span_do_bloco.end
+                && match self.corpos.get_resolved(e) {
+                    Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => prog.variable(*v).setter == Some(setter),
+                    Some(Resolved::Member { member: MemberRef::Function(f), .. }) => *f == setter,
+                    _ => false,
+                }
+        });
+        if escreve {
+            return None;
+        }
+        let tx = crate::refatoracoes_exec::Texto::novo(self.fonte);
+        let offset = self.arvore.nos[comando].inicio;
+        let prefixo = tx.prefixo_da_linha(offset);
+        let eol = tx.eol();
+        Some(AcaoDeCodigo {
+            titulo: "Create a local variable that shadows the field".into(),
+            especie: "refactor.shadowField".into(),
+            edicoes: vec![Edicao { uri: uri.to_string(), span: Span { start: offset, end: offset }, texto: format!("var {nome} = this.{nome};{eol}{prefixo}") }],
             diagnostico: None,
             criar_arquivo: None,
         })
