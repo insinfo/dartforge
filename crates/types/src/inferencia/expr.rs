@@ -3283,7 +3283,17 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
 /// no token do operador, pelo `TypePropertyResolver` (o `Null` puro é
 /// `INVALID_USE_OF_NULL_VALUE`), com as mensagens de não promoção do operando.
 fn nulo_em_unario(inf: &mut BodyInferrer<'_>, cx: &Corpo, recv: TypeId, sym: SymbolId, nome: &str, sp: dartforge_diagnostics::Span, operand: ExprId) -> bool {
-    if !inf.exige_checagem_de_nulo(cx.lib, recv, sym, false) {
+    // `void` é potencialmente anulável e não é limitado por `dynamic`: o
+    // `TypePropertyResolver` (`type_property_resolver.dart:80-150`) relata o
+    // operador que nem `Object` nem uma extensão tem (além do
+    // `USE_OF_VOID_RESULT` no operando).
+    let exige = if matches!(inf.table.get(recv), Type::Void) {
+        let o = inf.core.object;
+        inf.membro_de_interface(o, sym, false).is_none() && inf.membro_de_extensao(cx.lib, recv, sym, false).is_none()
+    } else {
+        inf.exige_checagem_de_nulo(cx.lib, recv, sym, false)
+    };
+    if !exige {
         return false;
     }
     let desde = inf.diagnostics.len();
@@ -4013,6 +4023,22 @@ fn escrita_indice(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, recv
             inferir_livre(inf, cx, index);
             return inf.core.dynamic_;
         };
+        // `resolveIndexExpression` (`property_element_resolver.dart:80-115`):
+        // o `TypePropertyResolver` com o nome `[]` (que procura `[]` e
+        // `[]=`); receptor potencialmente anulável é
+        // `UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE` `['[]']` no `[`
+        // (o `IndexExpression` é `MethodReferenceExpression`).
+        if let Some(t) = target
+            && let Some(ler) = inf.interner.lookup("[]")
+            && inf.exige_checagem_de_nulo(cx.lib, recv, ler, false)
+            && inf.exige_checagem_de_nulo(cx.lib, recv, op, false)
+        {
+            let inicio = span_indice(inf, cx, alvo, t).start;
+            let sp = dartforge_diagnostics::Span { start: inicio, end: inicio + 1 };
+            let desde = inf.diagnostics.len();
+            inf.aviso_de_nulo(recv, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE, sp, &["[]"]);
+            inf.anexar_nao_promocao(desde, cx, Some(t), sp);
+        }
         inf.buscar_membro(cx.lib, recv, op, false)
     };
     match busca {

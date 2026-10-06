@@ -3331,6 +3331,12 @@ argumentos), `UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE` ("The method '{0}' 
   (INFERENCIA §8.5); `this._f()` com `_f` promovido usa o tipo promovido da propriedade (o `PropertyAccess` da
   `FunctionExpressionInvocation`). 356 de 384, FP 15.
 
+- **Correções de 2026-10-06 (375/384, FN 28 para 9):** quatro pontos do `TypePropertyResolver` (`type_property_resolver.dart:80-150`: receptor potencialmente anulável, sem o membro em `Object` nem extensão aplicável, relata sempre, e o código sai do pai do receptor) que faltavam:
+  - operador unário (`-x`, `~x`, `++x`) em `void`: `void` é potencialmente anulável e não é limitado por `dynamic`, então sai `UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE` no operador além do `USE_OF_VOID_RESULT` no operando (`expr.rs::nulo_em_unario`; `exige_checagem_de_nulo` continua falso para `void` nos outros usos);
+  - chamada de valor que não é tipo de função (`F?` com `F extends Function`, `Function?`, classe com `call` anulável): `FunctionExpressionInvocationResolver.resolve` (`function_expression_invocation_resolver.dart:72-78`) passa o `call` ao `TypePropertyResolver`, cujo pai é `FunctionExpressionInvocation`: `UNCHECKED_INVOCATION_OF_NULLABLE_VALUE` na função, com as mensagens de não promoção (`chamadas.rs::invocar_valor`);
+  - padrão relacional fora da igualdade: `UNCHECKED_OPERATOR_INVOCATION_OF_NULLABLE_VALUE` no operador (o pai é `RelationalPattern`), em `padroes.rs::padrao_relacional`;
+  - escrita indexada (`x[0] = 1`, `x..[0] = 1`, `Never?`): `resolveIndexExpression` (`property_element_resolver.dart:80-115`) usa o nome `[]` (procurando `[]` e `[]=`), e o `IndexExpression` é `MethodReferenceExpression`: `UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE` `['[]']` no `[` (`expr.rs::escrita_indice`).
+- **Restam:** a promoção de campo do alvo de cascata (`c?.._field()` depois de `c._field as int Function()`, `cascaded_field_promotion_unnecessary_null_aware_error_test.dart`), membros de extensão por `this` implícito, `call` de extensão, padrões objeto anuláveis e records (`records/type_inference_error_test.dart`).
 #### §2 Código morto
 
 ##### `dead_code` (perda 127: FN 118, FP 5, msg 0, pos 4)

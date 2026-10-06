@@ -667,12 +667,34 @@ fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, t: TypeI
             (inf.core.never, t)
         }
         Type::Interface { class, .. } if Some(class) == inf.core.function_class => {
+            // `Function?`: o `call` pelo `TypePropertyResolver`, com o
+            // receptor anulável relatado na função.
+            if let Some(call) = inf.sym.call
+                && inf.exige_checagem_de_nulo(cx.lib, t, call, false)
+                && let ExprKind::Call { target, .. } = &inf.program.unit(cx.unit).ast.expr(e).kind
+            {
+                let funcao = *target;
+                expr::desreferencia_anulavel(inf, cx, funcao, t, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_INVOCATION_OF_NULLABLE_VALUE);
+            }
             for a in args.args.iter() {
                 inferir_livre(inf, cx, a.value);
             }
             (inf.core.dynamic_, t)
         }
         _ => {
+            // `FunctionExpressionInvocationResolver.resolve`
+            // (`function_expression_invocation_resolver.dart:72-78`): fora do
+            // tipo de função, o `call` pelo `TypePropertyResolver`; receptor
+            // potencialmente anulável é `UNCHECKED_INVOCATION_OF_NULLABLE_VALUE`
+            // na função (o pai é `FunctionExpressionInvocation`), e a
+            // recuperação segue pelo limite.
+            if let Some(call) = inf.sym.call
+                && inf.exige_checagem_de_nulo(cx.lib, t, call, false)
+                && let ExprKind::Call { target, .. } = &inf.program.unit(cx.unit).ast.expr(e).kind
+            {
+                let funcao = *target;
+                expr::desreferencia_anulavel(inf, cx, funcao, t, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_INVOCATION_OF_NULLABLE_VALUE);
+            }
             if let Some(call) = inf.sym.call {
                 if let Some(m) = inf.membro_de_interface(t_nn, call, false) {
                     inf.alvo_da_aridade = alvo;

@@ -790,6 +790,18 @@ pub(crate) fn padrao_relacional(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: P
         ast::BinaryOp::GtEq => (">=", ">=", false),
         _ => ("", "", false),
     };
+    // `resolveRelationalPatternOperator`: fora da igualdade, o
+    // `TypePropertyResolver` com o tipo casado; potencialmente anulável é
+    // `UNCHECKED_OPERATOR_INVOCATION_OF_NULLABLE_VALUE` no operador (o pai é
+    // `RelationalPattern`, `type_property_resolver.dart:127-130`).
+    if !igualdade
+        && let Some(s) = inf.interner.lookup(nome)
+        && inf.exige_checagem_de_nulo(cx.lib, t, s, false)
+    {
+        let inicio = inf.program.unit(cx.unit).ast.pattern(p).span.start;
+        let token = dartforge_diagnostics::Span { start: inicio, end: inicio + lexema.len() };
+        inf.aviso_de_nulo(t, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_OPERATOR_INVOCATION_OF_NULLABLE_VALUE, token, &[nome]);
+    }
     let operador = match inf.interner.lookup(nome).map(|s| inf.buscar_membro(cx.lib, t, s, false)) {
         Some(Busca::Achado(m)) => match {
             inf.body_types.units[cx.unit.0 as usize].operadores_relacionais.insert(p, m.resolved.clone());
