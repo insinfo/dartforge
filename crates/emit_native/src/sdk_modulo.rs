@@ -556,9 +556,10 @@ pub fn sdk_compilado_no_perfil(lib_dir: &Path, clang: &Path, perfil: PerfilDoSdk
     // (como as partes do programa, `driver.rs`): do gerador embutido ele
     // não tem o resumo, e o `lld` fazia a LTO completa do SDK num módulo
     // só, numa thread, antes das partes (docs/NATIVO-PRODUCAO-GRANDE.md).
-    // `DARTFORGE_GERADOR` escolhe à mão.
+    // `DARTFORGE_GERADOR` escolhe à mão. Sem o Clang (a distribuição sem o
+    // toolchain do sistema), o gerador embutido.
     let gerador = if perfil == PerfilDoSdk::Producao && std::env::var_os("DARTFORGE_GERADOR").is_none() {
-        Gerador::Clang(clang.to_path_buf())
+        Gerador::clang_se_houver(clang)
     } else {
         Gerador::escolher(clang)
     };

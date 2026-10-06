@@ -452,12 +452,22 @@ jobs:
       DARTFORGE_EXCECOES: ${{ matrix.modo.excecoes }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # O cache do job `compilar`: o harness é recompilado com o gerador
+      # embutido (`preparar` abaixo), que os mapas exigem.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: pesado-release
+          save-if: 'false'
       - uses: ./.github/actions/harness
         with:
           nome: nativo-${{ matrix.modo.id }}${{ matrix.estresse && '-gc-stress' || '' }}
           titulo: Nativo ${{ matrix.modo.id }} (raízes ${{ matrix.modo.raizes }}, exceções ${{ matrix.modo.excecoes }})${{ matrix.estresse && ' sob --gc-stress' || '' }}
           args: --nativo --jobs 4 ${{ matrix.estresse && '--gc-stress --limite-exec 120' || '' }}
           nativo: 'true'
+          # O LLVM de desenvolvimento (LLVM-C.dll e as bibliotecas do
+          # llvm-sys) para o harness com o gerador embutido.
+          jit: 'true'
+          preparar: ./scripts/harness-com-gerador.ps1
           aceitar-placar-parcial: 'true'
 
   nativo-placar:
@@ -480,13 +490,15 @@ jobs:
           # O relatório do --gc-stress vem no mesmo padrão de artefato, mas
           # não é fragmento: fica de fora da soma e é comparado abaixo.
           $todos = @(Get-ChildItem fragmentos -Recurse -Filter relatorio.txt | Sort-Object FullName)
-          $rels = @($todos | Where-Object { $_.FullName -notmatch 'relatorio-nativo-gc-stress' })
+          # Os relatórios dos modos de raízes e de exceções (`nativo-modos`:
+          # A1, B0, B1) também não são fragmentos do corpus.
+          $rels = @($todos | Where-Object { $_.FullName -notmatch 'relatorio-nativo-(gc-stress|A1|B0|B1)' })
           $estresse = $todos | Where-Object { $_.FullName -match 'relatorio-nativo-gc-stress' } | Select-Object -First 1
           New-Item -ItemType Directory -Force placar | Out-Null
           $md = & ./scripts/ci-placar.ps1 -Relatorio $rels -Titulo "Nativo — corpus inteiro ($($rels.Count) de $env:N fragmentos)" -Esperados ([int]$env:N)
           $uma = & ./scripts/ci-placar.ps1 -Relatorio $rels -Linha -Esperados ([int]$env:N)
           # Tempo de cada fragmento, para dimensionar N (ver ESTADO.md §3.2).
-          $tempos = foreach ($f in Get-ChildItem fragmentos -Recurse -Filter placar.md | Where-Object { $_.FullName -notmatch 'relatorio-nativo-gc-stress' } | Sort-Object FullName) {
+          $tempos = foreach ($f in Get-ChildItem fragmentos -Recurse -Filter placar.md | Where-Object { $_.FullName -notmatch 'relatorio-nativo-(gc-stress|A1|B0|B1)' } | Sort-Object FullName) {
             $t = (Get-Content $f -Encoding utf8) -join ' '
             if ($t -match 'Tempo do harness no runner: (.+?)\. Memória livre mínima: (.+? GB)') { "| $($f.Directory.Name) | $($Matches[1]) | $($Matches[2]) |" }
           }

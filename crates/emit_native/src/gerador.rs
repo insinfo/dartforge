@@ -220,6 +220,19 @@ impl Gerador {
         Gerador::Clang(clang.to_path_buf())
     }
 
+    /// O Clang, para o bitcode com o resumo do ThinLTO, quando ele existe;
+    /// senão o gerador de sempre ([`Gerador::escolher`]). A distribuição sem
+    /// o toolchain do sistema (`dartforge empacotar`, N15/N16) não traz o
+    /// Clang: a produção usa o gerador embutido, e o `lld` faz a LTO completa
+    /// (mais lenta, o mesmo programa).
+    pub fn clang_se_houver(clang: &Path) -> Gerador {
+        if crate::cache_objeto::identidade_clang(clang).is_ok() {
+            Gerador::Clang(clang.to_path_buf())
+        } else {
+            Gerador::escolher(clang)
+        }
+    }
+
     /// Se o bitcode deste gerador leva o resumo do ThinLTO. O embutido emite
     /// bitcode sem resumo (a API C do LLVM não escreve o índice): o `lld`
     /// faz a LTO completa, dividida em partições paralelas na geração de

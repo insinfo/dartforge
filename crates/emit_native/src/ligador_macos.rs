@@ -116,6 +116,8 @@ pub const BIBLIOTECAS_DO_SISTEMA: &[BibliotecaDoSistema] = &[
             "__Unwind_Backtrace",
             "__Unwind_DeleteException",
             "__Unwind_GetDataRelBase",
+            // O FP de cada quadro no percurso das raízes por mapas (`heap.rs`).
+            "__Unwind_GetGR",
             "__Unwind_GetIP",
             "__Unwind_GetIPInfo",
             "__Unwind_GetLanguageSpecificData",

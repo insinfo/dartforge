@@ -165,7 +165,7 @@ pub fn compile_and_link(
         // new_sali/backend, docs/NATIVO-PRODUCAO-GRANDE.md §1.2).
         // `DARTFORGE_GERADOR` escolhe à mão.
         let gerador_das_partes = if producao && !sem_lto && std::env::var_os("DARTFORGE_GERADOR").is_none() {
-            Gerador::Clang(options.clang.clone())
+            Gerador::clang_se_houver(&options.clang)
         } else {
             gerador.clone()
         };

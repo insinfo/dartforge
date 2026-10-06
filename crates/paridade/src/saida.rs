@@ -15,8 +15,6 @@
 //! ou `DARTFORGE_DART`) com o estado do analisador numa pasta temporária de
 //! `E:` e regrava os esperados.
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -136,7 +134,10 @@ pub fn comparar(dir: &Path) -> bool {
         for f in FORMATOS {
             let Ok(esperado) = std::fs::read_to_string(caso.join(format!("ESPERADO.{f}.txt"))) else { continue };
             let esperado = separadores(&esperado.replace("\r\n", "\n"));
-            let Some(obtido) = rodar(&dartforge(), &["analyze"], f, &args, &projeto, None) else {
+            // `--todos`: a saída inteira, sem a regra de publicação (que só
+            // deixa no CLI os códigos verificados); é o formato, a ordem, os
+            // caminhos e o resumo que se comparam aqui.
+            let Some(obtido) = rodar(&dartforge(), &["analyze", "--todos"], f, &args, &projeto, None) else {
                 println!("{nome} [{f}]: o dartforge não rodou");
                 tudo = false;
                 continue;
