@@ -57,7 +57,7 @@ impl Projeto {
                 ) =>
             {
                 (
-                    self.descrever_funcao(f),
+                    self.descrever_funcao_com(f, self.substituicao_do_membro(unidade, d, f)),
                     None,
                     self.consulta.inicio_da_funcao(f),
                 )
@@ -72,7 +72,7 @@ impl Projeto {
                     })
                     .map(|t| self.consulta.formatar(t));
                 (
-                    self.descrever_funcao(f),
+                    self.descrever_funcao_com(f, self.substituicao_do_membro(unidade, d, f)),
                     tipo,
                     self.consulta.inicio_da_funcao(f),
                 )
@@ -102,10 +102,10 @@ impl Projeto {
             ),
             (Alvo::Membro { .. }, None) => return None,
         };
-        let documentacao = inicio_doc
-            .and_then(|(u, inicio)| dartdoc::documentacao(&self.programa().unit(u).source, inicio))
-            .or_else(|| self.documentacao_herdada(d))
-            .or_else(|| self.documentacao_do_parametro(d));
+        // `this.x` num construtor: o elemento do hover é o parâmetro.
+        let campo_formal = d.expr.is_none()
+            && crate::projeto::parametro_em(&self.programa().unit(unidade).ast, d.nome.start).is_some_and(|(x, _)| x.this_);
+        let documentacao = self.documentacao_computada(unidade, d, inicio_doc, campo_formal);
         // Sem expressão e fora da declaração (metadados, `show`/`hide`,
         // `[ref]`): o analyzer não tem tipo estático para mostrar.
         let tipo = if d.expr.is_none() && !matches!(d.alvo, Alvo::Local { .. }) && !self.declaracao(d).is_some_and(|(u, s)| u == unidade && s == d.nome) {
@@ -113,9 +113,9 @@ impl Projeto {
         } else {
             tipo
         };
-        // `this.x` num construtor: o elemento do hover é o parâmetro.
-        let campo_formal = d.expr.is_none()
-            && crate::projeto::parametro_em(&self.programa().unit(unidade).ast, d.nome.start).is_some_and(|(x, _)| x.this_);
+        // `this.x`: o `type` do `FieldFormalParameterElement` (um
+        // `VariableElement`), como na declaração de um parâmetro.
+        let tipo = if campo_formal { tipo.or_else(|| self.tipo_do_campo_formal(unidade, d.nome.start)) } else { tipo };
         // Chamada: o tipo da invocação (`staticInvokeType`), como o Dart.
         let tipo = tipo.or_else(|| match d.concreto {
             Some(Concreto::Funcao(f))
@@ -155,26 +155,281 @@ impl Projeto {
         })
     }
 
-    /// Um parâmetro (inclusive o rótulo `nome:` de um argumento) mostra a
-    /// documentação da função dele, como o `computeDocumentation` do
-    /// analyzer.
-    fn documentacao_do_parametro(&self, d: &Denotado) -> Option<String> {
-        let Alvo::Local { unidade: u, declaracao } = d.alvo else { return None };
+    /// A substituição do `Member` que o hover mostra: um método ou operador
+    /// de instância lido por `alvo.m`, pelos argumentos do tipo do alvo; um
+    /// construtor, pelos do tipo criado. Getters, setters e campos passam
+    /// pelo `nonSynthetic` e ficam como declarados.
+    fn substituicao_do_membro(&self, unidade: UnitId, d: &Denotado, f: FunctionElementId) -> Option<Substituicao> {
         let p = self.programa();
-        let ast = &p.unit(u).ast;
-        let inicio = match crate::projeto::parametro_em(ast, declaracao)?.1 {
-            crate::projeto::DonoParametro::Funcao(f) => {
-                ast.function(f).name?;
-                ast.decls
-                    .iter()
-                    .find(|x| matches!(x.kind, DeclKind::Function(g) if g == f))
-                    .map(|x| x.span.start)
-                    .or_else(|| ast.members.iter().find(|m| matches!(m.kind, MemberKind::Method(g) if g == f)).map(|m| m.span.start))
-                    .unwrap_or(ast.function(f).span.start)
+        let fe = p.function(f);
+        let classe = fe.class?;
+        let e = d.expr?;
+        let ast = &p.unit(unidade).ast;
+        let corpos = self.consulta.corpos.units.get(unidade.0 as usize)?;
+        let tipo = match fe.kind {
+            FunctionKind::Function | FunctionKind::Operator if !fe.static_ => match &ast.expr(e).kind {
+                ast::ExprKind::Property { target, .. } => corpos.get_type(*target)?,
+                _ => return None,
+            },
+            FunctionKind::Constructor | FunctionKind::SyntheticConstructor => {
+                // A criação: `C(…)`, `C.n(…)`, `p.C(…)` (a chamada cujo alvo
+                // é o nome, ou a propriedade sobre ele).
+                let chamada = ast.exprs.iter().enumerate().find_map(|(i, x)| match &x.kind {
+                    ast::ExprKind::Call { target, .. } if *target == e => Some(i),
+                    ast::ExprKind::Call { target, .. } => match &ast.expr(*target).kind {
+                        ast::ExprKind::Property { target: t2, .. } if *t2 == e => Some(i),
+                        ast::ExprKind::TypeArguments { target: t2, .. } if *t2 == e => Some(i),
+                        _ => None,
+                    },
+                    _ => None,
+                })?;
+                corpos.get_type(ast::ExprId(chamada as u32))?
             }
-            crate::projeto::DonoParametro::Construtor(m) => ast.member(m).span.start,
+            _ => return None,
         };
-        dartdoc::documentacao(&p.unit(u).source, inicio)
+        let mut tabela = self.consulta.tabela.clone();
+        let visto = self.consulta.outline.hierarchy.supertype_of(tipo, classe, &mut tabela, &self.consulta.core)?;
+        let Type::Interface { args, .. } = tabela.get(visto).clone() else { return None };
+        let params = &self.consulta.outline.classes.get(classe.0 as usize)?.type_params;
+        if params.len() != args.len() || params.is_empty() {
+            return None;
+        }
+        Some((params.iter().copied().zip(args.iter().copied()).collect(), tabela))
+    }
+
+    /// O tipo de `this.x` (o do parâmetro no outline do construtor).
+    fn tipo_do_campo_formal(&self, unidade: UnitId, nome: usize) -> Option<String> {
+        let p = self.programa();
+        let ast = &p.unit(unidade).ast;
+        let (_, crate::projeto::DonoParametro::Construtor(m)) = crate::projeto::parametro_em(ast, nome)? else { return None };
+        let MemberKind::Constructor(k) = &ast.member(m).kind else { return None };
+        let i = k.parameters.iter().position(|x| x.name.is_some_and(|n| n.span.start == nome))?;
+        let f = self.construtor_do_no(unidade, m)?;
+        let t = self.consulta.outline.functions.get(f.0 as usize)?.parameters.get(i)?.ty;
+        Some(self.consulta.formatar(t))
+    }
+
+    /// `DartUnitHoverComputer.computeDocumentation`: o elemento (o campo de
+    /// `this.x`; o executável dono de um parâmetro), ele e os membros que ele
+    /// sobrescreve (`findOverriddenElements`: as superclasses e os mixins,
+    /// depois as interfaces), o primeiro com comentário de documentação; um
+    /// setter sem ela usa a do getter correspondente. Vinda de outra classe,
+    /// a documentação ganha o `Copied from` dela. Acessor sintético de campo
+    /// não tem comentário.
+    fn documentacao_computada(&self, unidade: UnitId, d: &Denotado, inicio_doc: Option<(UnitId, usize)>, campo_formal: bool) -> Option<String> {
+        let p = self.programa();
+        let semente: Option<Documentavel> = if campo_formal {
+            let (prm, dono) = crate::projeto::parametro_em(&p.unit(unidade).ast, d.nome.start)?;
+            let crate::projeto::DonoParametro::Construtor(m) = dono else { return None };
+            let classe = p.function(self.construtor_do_no(unidade, m)?).class?;
+            let nome = prm.name?.sym;
+            Some(Documentavel::Variavel(p.class(classe).fields.iter().copied().find(|&v| p.variable(v).name == nome)?))
+        } else {
+            match (&d.alvo, d.concreto) {
+                (Alvo::Local { unidade: u, declaracao }, _) => {
+                    let ast = &p.unit(*u).ast;
+                    match crate::projeto::parametro_em(ast, *declaracao)?.1 {
+                        crate::projeto::DonoParametro::Funcao(fid) => match self.funcao_do_no(*u, fid) {
+                            Some(f) => Some(Documentavel::Funcao(f)),
+                            // Função local: o comentário dela; closure não tem.
+                            None => {
+                                ast.function(fid).name?;
+                                return dartdoc::documentacao(&p.unit(*u).source, ast.function(fid).span.start);
+                            }
+                        },
+                        crate::projeto::DonoParametro::Construtor(m) => Some(Documentavel::Funcao(self.construtor_do_no(*u, m)?)),
+                    }
+                }
+                (_, Some(Concreto::Funcao(f))) => match (p.function(f).kind, p.function(f).variable) {
+                    (FunctionKind::ImplicitAccessor, Some(v)) => Some(Documentavel::Variavel(v)),
+                    _ => Some(Documentavel::Funcao(f)),
+                },
+                (_, Some(Concreto::Variavel(v))) => Some(Documentavel::Variavel(v)),
+                _ => None,
+            }
+        };
+        let Some(semente) = semente else {
+            return inicio_doc.and_then(|(u, inicio)| dartdoc::documentacao(&p.unit(u).source, inicio));
+        };
+        let dono = |x: Documentavel| match x {
+            Documentavel::Funcao(f) => p.function(f).class,
+            Documentavel::Variavel(v) => p.variable(v).class,
+        };
+        let comentario = |x: Documentavel| -> Option<String> {
+            let (u, inicio) = match x {
+                Documentavel::Funcao(f) if p.function(f).kind == FunctionKind::ImplicitAccessor => return None,
+                Documentavel::Funcao(f) => self.consulta.inicio_da_funcao(f)?,
+                Documentavel::Variavel(v) => self.consulta.inicio_da_variavel(v)?,
+            };
+            dartdoc::documentacao(&p.unit(u).source, inicio)
+        };
+        let mut candidatos = vec![semente];
+        if let Some(classe) = dono(semente) {
+            let biblioteca = match semente {
+                Documentavel::Funcao(f) => p.function(f).library,
+                Documentavel::Variavel(v) => p.variable(v).library,
+            };
+            let (nome, especies): (String, Vec<FunctionKind>) = match semente {
+                Documentavel::Variavel(v) => {
+                    let var = p.variable(v);
+                    let mut e = vec![FunctionKind::Getter];
+                    if !var.final_ && !var.const_ {
+                        e.push(FunctionKind::Setter);
+                    }
+                    (self.nome(var.name).to_string(), e)
+                }
+                Documentavel::Funcao(f) => {
+                    let fe = p.function(f);
+                    let nome = self.nome(fe.name);
+                    match fe.kind {
+                        FunctionKind::Function | FunctionKind::Operator => (nome.to_string(), vec![FunctionKind::Function]),
+                        FunctionKind::Getter => (nome.to_string(), vec![FunctionKind::Getter]),
+                        FunctionKind::Setter => (nome.trim_end_matches("_=").trim_end_matches('=').to_string(), vec![FunctionKind::Setter]),
+                        _ => (nome.to_string(), Vec::new()),
+                    }
+                }
+            };
+            if !especies.is_empty() {
+                let mut supers = Vec::new();
+                let mut vistos = std::collections::HashSet::new();
+                self.supers_da_sobrescrita(classe, false, &mut vistos, &mut supers);
+                let mut interfaces = Vec::new();
+                vistos.clear();
+                self.interfaces_da_sobrescrita(classe, false, &mut vistos, &mut interfaces);
+                let mut achados_super: Vec<FunctionElementId> = Vec::new();
+                for s in supers {
+                    if let Some(m) = self.membro_da_sobrescrita(s, &nome, &especies, biblioteca)
+                        && !achados_super.contains(&m)
+                    {
+                        achados_super.push(m);
+                    }
+                }
+                let mut achados_interface: Vec<FunctionElementId> = Vec::new();
+                for s in interfaces {
+                    if let Some(m) = self.membro_da_sobrescrita(s, &nome, &especies, biblioteca)
+                        && !achados_interface.contains(&m)
+                        && !achados_super.contains(&m)
+                    {
+                        achados_interface.push(m);
+                    }
+                }
+                candidatos.extend(achados_super.into_iter().chain(achados_interface).map(Documentavel::Funcao));
+            }
+        }
+        let mut documentado: Option<(Documentavel, String)> = None;
+        let mut do_getter: Option<(Documentavel, String)> = None;
+        for &c in candidatos.iter() {
+            if let Some(texto) = comentario(c) {
+                documentado = Some((c, texto));
+                break;
+            }
+            if do_getter.is_none()
+                && let Documentavel::Funcao(f) = c
+                && p.function(f).kind == FunctionKind::Setter
+                && let Some(classe) = p.function(f).class
+                && let Some(chave) = self.consulta.nomes.lookup(self.nome(p.function(f).name).trim_end_matches("_=").trim_end_matches('='))
+                && let Some(&g) = p.class(classe).instance_members.get(&chave).or_else(|| p.class(classe).static_members.get(&chave))
+                && let Some(texto) = comentario(Documentavel::Funcao(g))
+            {
+                do_getter = Some((Documentavel::Funcao(g), texto));
+            }
+        }
+        let (elemento, mut texto) = documentado.or(do_getter)?;
+        if let Some(c) = dono(elemento)
+            && dono(elemento) != dono(semente)
+        {
+            texto = format!("{texto}\n\nCopied from `{}`.", self.nome(p.class(c).name));
+        }
+        Some(texto)
+    }
+
+    /// A superclasse declarada (pulando as aplicações de mixin sintéticas) e
+    /// os mixins na ordem escrita.
+    fn super_e_mixins(&self, c: ClassId) -> (Option<ClassId>, Vec<ClassId>) {
+        let p = self.programa();
+        let mut sintetico: Vec<ClassId> = Vec::new();
+        let mut s = p.class(c).supertype_class;
+        let mut passos = 0;
+        while let Some(x) = s
+            && p.class(x).decl.is_none()
+            && p.class(x).kind == ClassKind::MixinApplication
+            && passos < 64
+        {
+            sintetico.extend(p.class(x).mixin_classes.iter().rev());
+            s = p.class(x).supertype_class;
+            passos += 1;
+        }
+        sintetico.reverse();
+        sintetico.extend(p.class(c).mixin_classes.iter().copied());
+        (s, sintetico)
+    }
+
+    /// `_addSuperOverrides`.
+    fn supers_da_sobrescrita(&self, c: ClassId, com_este: bool, vistos: &mut std::collections::HashSet<ClassId>, saida: &mut Vec<ClassId>) {
+        if !vistos.insert(c) {
+            return;
+        }
+        if com_este {
+            saida.push(c);
+        }
+        let (s, mixins) = self.super_e_mixins(c);
+        if let Some(s) = s {
+            self.supers_da_sobrescrita(s, true, vistos, saida);
+        }
+        for m in mixins {
+            self.supers_da_sobrescrita(m, true, vistos, saida);
+        }
+        if self.programa().class(c).kind == ClassKind::Mixin {
+            for o in self.programa().class(c).on_classes.clone() {
+                self.supers_da_sobrescrita(o, true, vistos, saida);
+            }
+        }
+    }
+
+    /// `_addInterfaceOverrides`.
+    fn interfaces_da_sobrescrita(&self, c: ClassId, verificar: bool, vistos: &mut std::collections::HashSet<ClassId>, saida: &mut Vec<ClassId>) {
+        if !vistos.insert(c) {
+            return;
+        }
+        if verificar {
+            saida.push(c);
+        }
+        for i in self.programa().class(c).interface_classes.clone() {
+            self.interfaces_da_sobrescrita(i, true, vistos, saida);
+        }
+        if let (Some(s), _) = self.super_e_mixins(c) {
+            self.interfaces_da_sobrescrita(s, verificar, vistos, saida);
+        }
+    }
+
+    /// `_lookupMember`: o método, o getter ou o setter declarado em `c` com
+    /// o nome (privado só na mesma biblioteca).
+    fn membro_da_sobrescrita(&self, c: ClassId, nome: &str, especies: &[FunctionKind], biblioteca: dartforge_elements::model::LibraryId) -> Option<FunctionElementId> {
+        let p = self.programa();
+        let k = p.class(c);
+        if nome.starts_with('_') && k.library != biblioteca {
+            return None;
+        }
+        let achar = |chave: &str, aceita: &dyn Fn(FunctionKind) -> bool| -> Option<FunctionElementId> {
+            let s = self.consulta.nomes.lookup(chave)?;
+            [k.instance_members.get(&s), k.static_members.get(&s)].into_iter().flatten().copied().find(|&f| aceita(p.function(f).kind))
+        };
+        if especies.contains(&FunctionKind::Function)
+            && let Some(f) = achar(nome, &|e| matches!(e, FunctionKind::Function | FunctionKind::Operator))
+        {
+            return Some(f);
+        }
+        if especies.contains(&FunctionKind::Getter)
+            && let Some(f) = achar(nome, &|e| matches!(e, FunctionKind::Getter | FunctionKind::ImplicitAccessor))
+        {
+            return Some(f);
+        }
+        if especies.contains(&FunctionKind::Setter)
+            && let Some(f) = achar(&format!("{nome}_="), &|e| matches!(e, FunctionKind::Setter | FunctionKind::ImplicitAccessor))
+        {
+            return Some(f);
+        }
+        None
     }
 
     /// `e` é o alvo de uma chamada (`e(…)`).
@@ -365,6 +620,17 @@ impl Projeto {
         ps: &[ast::Parameter],
         tipos: &[Option<TypeId>],
     ) -> String {
+        self.lista_de_parametros_com(u, ps, tipos, &|t| self.consulta.formatar(t))
+    }
+
+    /// [`Projeto::lista_de_parametros`] com os tipos formatados por `fmt`.
+    fn lista_de_parametros_com(
+        &self,
+        u: Option<UnitId>,
+        ps: &[ast::Parameter],
+        tipos: &[Option<TypeId>],
+        fmt: &dyn Fn(TypeId) -> String,
+    ) -> String {
         let (fonte, arvore) = match u {
             Some(u) => (
                 self.programa().unit(u).source.as_str(),
@@ -381,7 +647,7 @@ impl Projeto {
                 .get(i)
                 .copied()
                 .flatten()
-                .map_or_else(|| "dynamic".to_string(), |t| self.consulta.formatar(t));
+                .map_or_else(|| "dynamic".to_string(), fmt);
             let nome = p
                 .public_name
                 .or(p.name)
@@ -443,11 +709,31 @@ impl Projeto {
 
     /// Assinatura de uma função, método, getter, setter ou construtor.
     pub(crate) fn descrever_funcao(&self, f: FunctionElementId) -> String {
+        self.descrever_funcao_com(f, None)
+    }
+
+    /// [`Projeto::descrever_funcao`] do `Member` substituído (`mapa`: os
+    /// parâmetros de tipo da classe pelos argumentos do receptor).
+    fn descrever_funcao_com(&self, f: FunctionElementId, substituicao: Option<Substituicao>) -> String {
         let p = self.programa();
         let fe = p.function(f);
         let dados = &self.consulta.outline.functions[f.0 as usize];
         let nome = nome_base(self.nome(fe.name)).to_string();
-        let retorno = self.consulta.formatar(dados.return_type);
+        let (mapa, mut copia) = match substituicao {
+            Some((m, tb)) => (Some(m), Some(tb)),
+            None => (None, None),
+        };
+        let mut sub = |t: TypeId| -> TypeId {
+            match (copia.as_mut(), mapa.as_ref()) {
+                (Some(tb), Some(m)) => dartforge_types::ops::substitute(t, m, tb),
+                _ => t,
+            }
+        };
+        let retorno_t = sub(dados.return_type);
+        let tipos: Vec<Option<TypeId>> = dados.parameters.iter().map(|q| Some(sub(q.ty))).collect();
+        let tabela = copia.as_ref().unwrap_or(&self.consulta.tabela);
+        let fmt = |t: TypeId| tabela.format_sem_alias(t, &self.consulta.nomes, &self.consulta.programa);
+        let retorno = fmt(retorno_t);
         let (unidade, parametros, tipos_escritos): (
             Option<UnitId>,
             &[ast::Parameter],
@@ -470,8 +756,7 @@ impl Projeto {
             FunctionRef::None => (None, &[], &[]),
         };
         let fonte = unidade.map_or("", |u| p.unit(u).source.as_str());
-        let tipos: Vec<Option<TypeId>> = dados.parameters.iter().map(|q| Some(q.ty)).collect();
-        let lista = self.lista_de_parametros(unidade, parametros, &tipos);
+        let lista = self.lista_de_parametros_com(unidade, parametros, &tipos, &fmt);
         match fe.kind {
             FunctionKind::Getter => format!("{retorno} get {nome}"),
             FunctionKind::Setter => format!("set {nome}{lista}"),
@@ -659,29 +944,15 @@ impl Projeto {
             })?;
         Some(unidade.source[span.start..span.end].to_string())
     }
-
-    /// Membro de instância sem documentação própria: a do primeiro membro
-    /// sobrescrito que a tem (como o analyzer faz no hover).
-    fn documentacao_herdada(&self, d: &Denotado) -> Option<String> {
-        let Alvo::Membro {
-            nome,
-            estatico: false,
-            ..
-        } = &d.alvo
-        else {
-            return None;
-        };
-        let c = match d.concreto? {
-            Concreto::Funcao(f) => self.programa().function(f).class?,
-            Concreto::Variavel(v) => self.programa().variable(v).class?,
-        };
-        let mut supers: Vec<ClassId> = self.supertipos(c).into_iter().collect();
-        supers.sort();
-        supers.into_iter().find_map(|s| {
-            self.declarados(s, nome, false).into_iter().find_map(|f| {
-                let (u, inicio) = self.consulta.inicio_da_funcao(f)?;
-                dartdoc::documentacao(&self.programa().unit(u).source, inicio)
-            })
-        })
-    }
 }
+
+/// O elemento cuja documentação o hover procura.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Documentavel {
+    Funcao(FunctionElementId),
+    Variavel(dartforge_elements::model::VariableId),
+}
+
+/// Os parâmetros de tipo da classe pelos argumentos do receptor, com a
+/// cópia da tabela em que esses argumentos existem.
+type Substituicao = (std::collections::HashMap<dartforge_types::TypeParamId, TypeId>, dartforge_types::TypeTable);

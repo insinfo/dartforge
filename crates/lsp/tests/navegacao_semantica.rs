@@ -222,6 +222,24 @@ fn definicao_por_forma() {
 }
 
 #[test]
+fn hover_documentacao_como_o_compute_documentation() {
+    let mut p = Projeto::novo("nav-hover-doc");
+    let texto = "class Base {\n  /// Faz algo com [x].\n  void met(int x) {}\n  final String campo = '';\n}\nclass Filho extends Base {\n  /// O valor.\n  final int valor;\n  Filho(this.valor);\n  @override\n  void met(int x) {}\n  @override\n  String get campo => '';\n}\n";
+    p.abrir("lib/a.dart", texto);
+    // O parâmetro mostra a documentação do método dono, herdada.
+    assert_eq!(hover(&mut p, "lib/a.dart", texto, "x) {}", 1), "int x\nType: int\n\nFaz algo com [x].\n\nCopied from `Base`.");
+    // `this.x`: o tipo e a documentação do campo.
+    assert_eq!(hover(&mut p, "lib/a.dart", texto, "valor);", 0), "int valor\nType: int\n\nO valor.");
+    // O getter que sobrescreve um campo: o acessor sintético não tem
+    // documentação.
+    assert_eq!(hover(&mut p, "lib/a.dart", texto, "campo =>", 0), "String get campo");
+    // O método lido pelo receptor é o `Member` substituído.
+    let uso = "void f(List<String> l) {\n  l.add('a');\n}\n";
+    p.abrir("lib/b.dart", uso);
+    assert_eq!(hover(&mut p, "lib/b.dart", uso, "add(", 0), "void add(String value)\nType: void Function(String)");
+}
+
+#[test]
 fn hover_por_forma_com_documentacao() {
     let mut p = Projeto::novo("nav-hover");
     p.gravar("lib/modelo.dart", MODELO);
@@ -233,7 +251,7 @@ fn hover_por_forma_com_documentacao() {
             0,
             // Três parâmetros: um por linha, como o `multiline` do analyzer;
             // numa chamada, o tipo da invocação.
-            "void met(\n  int x, {\n  int y = 0,\n  required String nome,\n})\nType: void Function(int, {required String nome, int y})\n\nFaz algo com [x].",
+            "void met(\n  int x, {\n  int y = 0,\n  required String nome,\n})\nType: void Function(int, {required String nome, int y})\n\nFaz algo com [x].\n\nCopied from `Base`.",
         ),
         ("valor + c", 0, "T valor\nType: int\n\nO valor guardado."),
         ("dobro;", 0, "int get dobro\nType: int"),
@@ -258,7 +276,8 @@ fn hover_por_forma_com_documentacao() {
         );
     }
     let construtor = hover(&mut p, "lib/uso.dart", USO, "vazia(3", 0);
-    assert!(construtor.ends_with("Caixa.vazia(T v)"), "{construtor}");
+    // O `ConstructorMember`: os argumentos do tipo criado.
+    assert_eq!(construtor, "(new) Caixa<int> Caixa.vazia(int v)");
     // Markdown: bloco de código, tipo e documentação depois de `---`.
     p.reiniciar(json!({"capabilities": {"textDocument": {"hover": {"contentFormat": ["markdown"]}}}}));
     let r = pedir(
