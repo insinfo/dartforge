@@ -532,3 +532,33 @@ Medido no `new_sali`:
 A opção tira só 70 KB. No `dart2js`, a distância entre `-O2` e `-O4`
 (406 KB) vem também de `--trust-primitives` e do *inlining* que o
 `-O4` libera.
+
+### 8.4 `this` repetido como local
+
+O que o `dart2js` faz: o receptor de um método que o cita muito vai para um
+local de uma letra (a variável do receptor em `ssa/codegen.dart`), e cada
+citação custa um byte em vez dos quatro de `this`, que nenhum minificador
+encurta.
+
+A regra (`emit_js_producao/src/aliasthis.rs`, antes da minificação): numa
+função (não flecha) cujo corpo cita `this` `k` vezes, com `3k > 11` (cada
+citação economiza 3 bytes, contra os ~11 de `let t=this;` depois da troca de
+nomes), o corpo ganha `let t$this = this;` no começo, e cada `this` dele vira
+`t$this`, inclusive dentro das flechas, que herdam o mesmo `this`. Ficam como
+estão o `constructor` de classe (antes do `super()` o `this` não existe), os
+corpos com diretivas, o `this` dos valores padrão de parâmetro (roda antes da
+declaração) e o dos inicializadores de campo de classe, que não é o da função
+envolvente. `DARTFORGE_JSPROD_THIS=0` desliga.
+
+O limiar foi medido: com `2k > 13` o `new_sali` sai com 12.103.052 bytes; com
+`3k > 11`, 12.082.759.
+
+| projeto | antes | depois |
+| --- | ---: | ---: |
+| `new_sali/frontend` | 12.361.194 | **12.082.759** |
+| `limitless_ui/example` | 6.946.316 | **6.693.718** |
+| `01_print` | 156.012 | **155.403** |
+
+Validação (2026-10-06): corpus `--producao` 238/238, `limitless_ui` 26/26 no
+e2e, `new_sali` com o `fluxo.mjs` nos 11 passos sem erro, igual ao controle
+sem o passo.

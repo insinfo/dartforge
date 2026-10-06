@@ -462,6 +462,8 @@ pub fn minificar_com_propriedades(js: &str, nomes: &crate::propriedades::Nomes) 
     use oxc_span::SourceType;
     let fonte = format!("(function () {{\n{js}\n}})();\n");
     // `DARTFORGE_JSPROD_DEDUP=0` desliga a deduplicação de strings.
+    // `this` repetido vira local (`aliasthis.rs`); `DARTFORGE_JSPROD_THIS=0` desliga.
+    let fonte = if std::env::var("DARTFORGE_JSPROD_THIS").map_or(true, |v| v != "0") { crate::aliasthis::aplicar(&fonte) } else { fonte };
     let fonte = if std::env::var("DARTFORGE_JSPROD_DEDUP").map_or(true, |v| v != "0") { deduplicar_strings(&fonte)? } else { fonte };
     let alocador = Allocator::default();
     let lido = Parser::new(&alocador, &fonte, SourceType::cjs()).parse();

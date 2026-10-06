@@ -15,6 +15,7 @@
 //! cita e o mundo podou volta como raiz, e o mundo é recalculado.
 
 pub mod alcance;
+pub mod aliasthis;
 pub mod bundle;
 pub mod cache;
 pub mod filtro;

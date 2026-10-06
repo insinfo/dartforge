@@ -401,6 +401,7 @@ dependencies = [
  "oxc_minifier",
  "oxc_parser",
  "oxc_span",
+ "oxc_syntax",
  "postcard",
  "serde",
  "serde_json",
