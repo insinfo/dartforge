@@ -25,7 +25,7 @@ fn acoes(p: &mut Projeto, relativo: &str, de: (u32, u32), ate: (u32, u32), extra
     let fora = |k: &str| {
         k.starts_with("source")
             || k.starts_with("quickfix.ignore")
-            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment", "refactor.convert.relativeToPackageImport", "refactor.convert.packageToRelativeImport", "refactor.convert.partOfToPartUri", "refactor.convert.toMapLiteral", "refactor.convert.toSetLiteral", "refactor.encapsulateField", "refactor.convert.toConstructorFieldParameter", "refactor.shadowField"].contains(&k))
+            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment", "refactor.convert.relativeToPackageImport", "refactor.convert.packageToRelativeImport", "refactor.convert.partOfToPartUri", "refactor.convert.toMapLiteral", "refactor.convert.toSetLiteral", "refactor.encapsulateField", "refactor.convert.toConstructorFieldParameter", "refactor.shadowField", "refactor.convert.toGenericFunctionSyntax"].contains(&k))
             || k == "quickfix.change.to"
             || ["method", "function", "class", "mixin", "getter", "field", "localVariable", "parameter"]
                 .iter()
@@ -797,4 +797,20 @@ fn assistencia_de_parametro_de_campo_e_sombra() {
         aplicar(&acao(&r, "Create a local variable that shadows the field")["edit"], &p.uri("lib/a.dart"), texto),
         texto.replace("    if (y is int)", "    var y = this.y;\n    if (y is int)")
     );
+}
+
+#[test]
+fn assistencia_de_sintaxe_de_funcao() {
+    let mut p = Projeto::com_literais("acoes-funcao");
+    let texto = "typedef int F<T>(T x);\nvoid g(int h(String s), void k(x)) {}\n";
+    let r = acoes_em(&mut p, "lib/a.dart", texto, "F<T>");
+    let a = acao(&r, "Convert into 'Function' syntax");
+    assert_eq!(a["kind"], "refactor.convert.toGenericFunctionSyntax");
+    assert_eq!(aplicar(&a["edit"], &p.uri("lib/a.dart"), texto), texto.replace("typedef int F<T>(T x);", "typedef F<T> = int Function(T x);"));
+    let pos = onde(texto, "h(String", 0);
+    let r = acoes(&mut p, "lib/a.dart", pos, pos, json!({}));
+    assert_eq!(aplicar(&acao(&r, "Convert into 'Function' syntax")["edit"], &p.uri("lib/a.dart"), texto), texto.replace("int h(String s)", "int Function(String s) h"));
+    // `k(x)`: o parâmetro sem tipo impede.
+    let pos = onde(texto, "k(x)", 0);
+    assert!(!titulos(&acoes(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Convert into 'Function' syntax".to_string()));
 }

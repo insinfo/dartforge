@@ -6,6 +6,7 @@
 //! | `Remove type annotation` | `refactor.remove.typeAnnotation` | `RemoveTypeAnnotation.other` |
 //! | `Add type annotation` | `refactor.add.typeAnnotation` | `AddTypeAnnotation.bulkFixable` |
 //! | `Replace type annotation with 'var'` | `refactor.replace.withVar` | `ReplaceWithVar` |
+//! | `Convert into 'Function' syntax` | `refactor.convert.toGenericFunctionSyntax` | `ConvertToGenericFunctionSyntax` |
 
 use crate::acoes::AcaoDeCodigo;
 use crate::refatoracoes::Contexto;
@@ -539,4 +540,95 @@ impl Contexto<'_> {
         }
         Some(self.acao_de_tipo(uri, "Replace type annotation with 'var'", "refactor.replace.withVar", edicoes))
     }
+
+    /// `_allParametersHaveTypes`: todo parâmetro (sem o valor padrão) é
+    /// simples com tipo ou função tipada.
+    fn parametros_tipados(&self, lista: usize) -> bool {
+        self.filhos(lista).iter().all(|&p| {
+            let p = if self.especie(p) == "DefaultFormalParameter" { self.filhos(p).first().copied().unwrap_or(p) } else { p };
+            match self.especie(p) {
+                "SimpleFormalParameter" => self.filhos(p).iter().any(|&k| matches!(self.especie(k), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation")),
+                "FunctionTypedFormalParameter" => true,
+                _ => false,
+            }
+        })
+    }
+
+    /// `ConvertToGenericFunctionSyntax` (convert_to_generic_function_syntax.dart):
+    /// `typedef R F(P);` vira `typedef F = R Function(P);` e o parâmetro
+    /// `R f(P)` vira `R Function(P) f`; dentro de uma lista de parâmetros, só
+    /// o próprio parâmetro.
+    pub(crate) fn converter_em_sintaxe_de_funcao(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
+        let no = self.arvore.localizar(inicio, fim)?;
+        let alvo = self.com_pais(no).find(|&k| matches!(self.especie(k), "FunctionTypeAlias" | "FunctionTypedFormalParameter" | "FormalParameterList"))?;
+        let filhos = self.filhos(alvo).to_vec();
+        let lista = *filhos.iter().rev().find(|&&k| self.especie(k) == "FormalParameterList")?;
+        let tipos_de_parametro = filhos.iter().copied().find(|&k| self.especie(k) == "TypeParameterList");
+        let retorno = filhos.iter().copied().find(|&k| TIPOS_DE_RETORNO.contains(&self.especie(k)) && self.arvore.nos[k].fim <= self.arvore.nos[lista].inicio);
+        let parametros = self.texto_do_no(lista).to_string();
+        match self.especie(alvo) {
+            "FunctionTypeAlias" => {
+                if !self.parametros_tipados(lista) {
+                    return None;
+                }
+                // O nome: o token antes dos parâmetros de tipo ou da lista.
+                let depois_do_nome = tipos_de_parametro.map_or(self.arvore.nos[lista].inicio, |t| self.arvore.nos[t].inicio);
+                let nome = self.token_anterior(depois_do_nome)?;
+                let fim_do_nome = tipos_de_parametro.map_or(nome.end, |t| self.arvore.nos[t].fim);
+                let nome_da_funcao = &self.fonte[nome.start..fim_do_nome];
+                let troca = match retorno {
+                    None => format!("{nome_da_funcao} = Function{parametros}"),
+                    Some(r) => format!("{nome_da_funcao} = {} Function{parametros}", self.texto_do_no(r)),
+                };
+                let typedef = self.token_seguinte(self.arvore.nos[alvo].inicio)?;
+                let typedef = if &self.fonte[typedef.start..typedef.end] == "typedef" {
+                    typedef
+                } else {
+                    self.tokens.iter().find(|t| t.span.start >= self.arvore.nos[alvo].inicio && &self.fonte[t.span.start..t.span.end] == "typedef")?.span
+                };
+                let depois_do_typedef = self.token_seguinte(typedef.end)?;
+                let ponto_e_virgula = self.token_anterior(self.arvore.nos[alvo].fim)?;
+                Some(self.acao_de_tipo(
+                    uri,
+                    "Convert into 'Function' syntax",
+                    "refactor.convert.toGenericFunctionSyntax",
+                    vec![(Span { start: depois_do_typedef.start, end: ponto_e_virgula.start }, troca)],
+                ))
+            }
+            "FunctionTypedFormalParameter" => {
+                if !self.parametros_tipados(lista) {
+                    return None;
+                }
+                let antes_do_tipo = retorno.map_or_else(
+                    || {
+                        let depois = tipos_de_parametro.map_or(self.arvore.nos[lista].inicio, |t| self.arvore.nos[t].inicio);
+                        self.token_anterior(depois).map_or(self.arvore.nos[alvo].inicio, |s| s.start)
+                    },
+                    |r| self.arvore.nos[r].inicio,
+                );
+                let palavras: Vec<&str> = self
+                    .tokens
+                    .iter()
+                    .filter(|t| t.span.start >= self.arvore.nos[alvo].inicio && t.span.end <= antes_do_tipo)
+                    .map(|t| &self.fonte[t.span.start..t.span.end])
+                    .collect();
+                let required = if palavras.contains(&"required") { "required " } else { "" };
+                let covariant = if palavras.contains(&"covariant") { "covariant " } else { "" };
+                let tipo_de_retorno = retorno.map_or(String::new(), |r| format!("{} ", self.texto_do_no(r)));
+                let depois_do_nome = tipos_de_parametro.map_or(self.arvore.nos[lista].inicio, |t| self.arvore.nos[t].inicio);
+                let nome = self.token_anterior(depois_do_nome)?;
+                let tp = tipos_de_parametro.map_or(String::new(), |t| self.texto_do_no(t).to_string());
+                let interrogacao = if self.fonte[self.arvore.nos[lista].fim..self.arvore.nos[alvo].fim].trim() == "?" { "?" } else { "" };
+                let troca = format!(
+                    "{required}{covariant}{tipo_de_retorno}Function{tp}{parametros}{interrogacao} {}",
+                    &self.fonte[nome.start..nome.end]
+                );
+                Some(self.acao_de_tipo(uri, "Convert into 'Function' syntax", "refactor.convert.toGenericFunctionSyntax", vec![(self.arvore.span(alvo), troca)]))
+            }
+            _ => None,
+        }
+    }
 }
+
+/// As espécies de `TypeAnnotation`, que podem ser o tipo de retorno.
+const TIPOS_DE_RETORNO: &[&str] = &["NamedType", "GenericFunctionType", "RecordTypeAnnotation"];
