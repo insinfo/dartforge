@@ -25,21 +25,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
         StmtKind::Block(stmts) => {
             cx.empurrar_escopo();
             // O escopo do bloco contém todas as suas declarações locais.
-            for &x in stmts.iter() {
-                match &inf.program.unit(cx.unit).ast.stmt(x).kind {
-                    StmtKind::Variables(vl) => {
-                        for v in vl.variables.iter() {
-                            cx.declarar_adiante(v.name.sym, v.name.span);
-                        }
-                    }
-                    StmtKind::Function(f) => {
-                        if let Some(n) = inf.program.unit(cx.unit).ast.function(*f).name {
-                            cx.declarar_adiante(n.sym, n.span);
-                        }
-                    }
-                    _ => {}
-                }
-            }
+            declarar_adiantes(inf, cx, stmts);
             // Sem bloco básico em curso, o trecho vai até a última instrução
             // deste bloco.
             let fim_do_bloco = stmts.last().map(|&x| inf.program.unit(cx.unit).ast.stmt(x).span.end).unwrap_or(span.end);
@@ -295,6 +281,11 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                         entrar_fluxo(cx, fim);
                     }
                 }
+                // As instruções do membro formam um escopo local com as
+                // declarações delas (o `LocalScope` das `statements` do
+                // `SwitchMember`): usar antes de declarar é
+                // `REFERENCED_BEFORE_DECLARATION`.
+                declarar_adiantes(inf, cx, &corpo);
                 for s in corpo {
                     if fluxo_de_padroes && !cx.fluxo.alcancavel && cx.trecho_morto.is_none() {
                         if let Some(fim) = fim_do_corpo {
@@ -507,6 +498,35 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
             cx.fluxo = antes;
         }
         StmtKind::Empty => {}
+    }
+}
+
+/// Pré-declara (como "adiante") os locais de uma lista de instruções:
+/// variáveis, funções locais e as variáveis das declarações de padrão.
+fn declarar_adiantes(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, stmts: &[StmtId]) {
+    for &x in stmts.iter() {
+        match &inf.program.unit(cx.unit).ast.stmt(x).kind {
+            StmtKind::Variables(vl) => {
+                for v in vl.variables.iter() {
+                    cx.declarar_adiante(v.name.sym, v.name.span);
+                }
+            }
+            StmtKind::Function(f) => {
+                if let Some(n) = inf.program.unit(cx.unit).ast.function(*f).name {
+                    cx.declarar_adiante(n.sym, n.span);
+                }
+            }
+            StmtKind::PatternVariables { pattern, .. } => {
+                let refutavel = std::mem::replace(&mut cx.padrao_refutavel, false);
+                let mut nomes = Vec::new();
+                padroes::variaveis_declaradas(inf, cx, *pattern, &mut nomes);
+                cx.padrao_refutavel = refutavel;
+                for n in nomes {
+                    cx.declarar_adiante(n.sym, n.span);
+                }
+            }
+            _ => {}
+        }
     }
 }
 

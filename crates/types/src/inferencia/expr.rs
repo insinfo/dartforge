@@ -787,6 +787,11 @@ fn aviso_antes_da_declaracao(inf: &mut BodyInferrer<'_>, n: ast::Name, msg: Stri
 /// Identificador como valor.
 fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::Name) -> TypeId {
     sondar_escopo(inf, cx, n);
+    if let Some(&(_, decl)) = cx.ocultas_do_padrao.iter().find(|(s, _)| *s == n.sym) {
+        let msg = format!("{}: '{}'", REFERENCED_BEFORE_DECLARATION.template, inf.interner.resolve(n.sym));
+        aviso_antes_da_declaracao(inf, n, msg, decl);
+        return inf.core.dynamic_;
+    }
     match resolver_nome(inf, cx, n.sym, false) {
         RefNome::Local(id) => {
             resolver(inf, cx, e, Resolved::Local(id));

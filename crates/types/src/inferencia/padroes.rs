@@ -13,7 +13,7 @@ use dartforge_elements::model::{ClassId, Element};
 use dartforge_frontend::ast::{self, ExprId, ListPatternElement, PatternId, PatternKind};
 
 mod casamento;
-pub(crate) use casamento::Casamento;
+pub(crate) use casamento::{variaveis_declaradas, Casamento};
 
 /// O fluxo de padrões do analyzer (T6) está em uso neste corpo.
 pub(crate) fn fluxo_de_padroes_ligado(inf: &BodyInferrer<'_>) -> bool {

@@ -317,7 +317,10 @@ impl<'a> BodyInferrer<'a> {
         let escopo = cx.parametros_de_tipo_visiveis();
         let antes = std::mem::replace(&mut self.conteiner_de_tipos, (cx.classe, cx.extensao));
         let estatico_antes = std::mem::replace(&mut self.em_membro_estatico, cx.membro_estatico);
+        let locais = cx.locais_visiveis(self.interner);
+        let locais_antes = std::mem::replace(&mut self.locais_como_tipo, locais);
         let r = self.resolver_anotacao(unit, lib, t, &escopo);
+        self.locais_como_tipo = locais_antes;
         self.conteiner_de_tipos = antes;
         self.em_membro_estatico = estatico_antes;
         // `TypeAnnotation.type` do analyzer, para as regras que o leem.
@@ -371,6 +374,17 @@ impl<'a> BodyInferrer<'a> {
                 // (`_getErrorRange`); o número de argumentos vai no tipo todo.
                 let faixa = dartforge_diagnostics::Span { start: name[0].span.start, end: name[name.len() - 1].span.end };
                 let texto = self.interner.resolve(name[name.len() - 1].sym).to_string();
+                // `visitImportPrefixReference`: o prefixo que nomeia um local
+                // ainda não declarado do bloco (`_checkForReferenceBeforeDeclaration`).
+                if name.len() == 2
+                    && let Some(&(decl, true)) = self.locais_como_tipo.get(&name[0].sym)
+                {
+                    let texto_nome = self.interner.resolve(name[0].sym).to_string();
+                    let msg = format!("{}: '{}'", crate::codes::REFERENCED_BEFORE_DECLARATION.template, texto_nome);
+                    let contexto_msg = format!("The declaration of '{texto_nome}' is here.");
+                    self.diagnostics.push(dartforge_diagnostics::Diagnostic::new(msg, name[0].span).com_contexto(decl, contexto_msg));
+                    self.unidades_dos_avisos.push(self.unidade_corrente);
+                }
                 let binding = if name.len() == 2 {
                     self.program.lookup_prefixed_na_unidade(unit, name[0].sym, name[1].sym)
                 } else {
@@ -388,6 +402,25 @@ impl<'a> BodyInferrer<'a> {
                         }
                         let tp = self.table.intern(Type::TypeParameter { param: pid, nullable: false });
                         return if anulavel { self.anulavel(tp) } else { tp };
+                    }
+                    // Um local (variável ou função local) com esse nome no
+                    // escopo do corpo: o elemento do tipo é ele.
+                    // `as`, `is` e argumento de tipo têm os códigos deles
+                    // antes (`named_type_resolver.dart:544-596`).
+                    if let Some(&(decl, _)) = self.locais_como_tipo.get(&sym)
+                        && matches!(contexto, crate::resolve::ContextoDeTipo::As | crate::resolve::ContextoDeTipo::Is | crate::resolve::ContextoDeTipo::ArgumentoDeTipo)
+                    {
+                        let _ = decl;
+                        self.relatar_nome_de_tipo(contexto, true, &texto, faixa);
+                        return self.table.invalido(self.core.dynamic_);
+                    }
+                    if let Some(&(decl, _)) = self.locais_como_tipo.get(&sym) {
+                        let texto_nome = self.interner.resolve(sym).to_string();
+                        let msg = format!("{}: '{}'", crate::codes::REFERENCED_BEFORE_DECLARATION.template, texto_nome);
+                        let contexto = format!("The declaration of '{texto_nome}' is here.");
+                        self.diagnostics.push(dartforge_diagnostics::Diagnostic::new(msg, faixa).com_contexto(decl, contexto));
+                        self.unidades_dos_avisos.push(self.unidade_corrente);
+                        return self.table.invalido(self.core.dynamic_);
                     }
                     match self.interner.resolve(sym) {
                         "dynamic" if self.program.lookup_na_unidade(unit, sym).is_none() => return self.core.dynamic_,

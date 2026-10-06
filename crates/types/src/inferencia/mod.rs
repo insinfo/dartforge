@@ -304,6 +304,9 @@ pub struct BodyInferrer<'a> {
     /// O contexto da próxima anotação resolvida (lido e zerado por
     /// `resolver_anotacao`).
     pub(crate) contexto_de_tipo: crate::resolve::ContextoDeTipo,
+    /// Os locais do corpo visíveis na anotação em resolução (ver
+    /// [`Corpo::locais_visiveis`](corpo::Corpo::locais_visiveis)).
+    pub(crate) locais_como_tipo: HashMap<SymbolId, (Span, bool)>,
     /// A classe e a extensão cujos membros estão em escopo na anotação.
     pub(crate) conteiner_de_tipos: (Option<dartforge_elements::model::ClassId>, Option<ExtensionId>),
     /// Ambiguidade de extensão da última busca de membro: `(nome, lista)`.
@@ -440,6 +443,7 @@ impl<'a> BodyInferrer<'a> {
             sonda_escopo: None,
             escopo_sondado: None,
             contexto_de_tipo: crate::resolve::ContextoDeTipo::Normal,
+            locais_como_tipo: HashMap::new(),
             conteiner_de_tipos: (None, None),
             ambiguidade_de_extensao: None,
             em_membro_estatico: false,

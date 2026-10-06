@@ -309,7 +309,7 @@ fn tipo_errado_em_irrefutavel(inf: &mut BodyInferrer<'_>, casado: TypeId, requer
 
 /// As variáveis que o padrão declara, na ordem do `VariableBinder` (um `||`
 /// junta as dos dois lados, a esquerda primeiro).
-fn variaveis_declaradas(inf: &BodyInferrer<'_>, cx: &Corpo, p: PatternId, saida: &mut Vec<ast::Name>) {
+pub(crate) fn variaveis_declaradas(inf: &BodyInferrer<'_>, cx: &Corpo, p: PatternId, saida: &mut Vec<ast::Name>) {
     let a = &inf.program.unit(cx.unit).ast;
     let por = |n: ast::Name, saida: &mut Vec<ast::Name>| {
         if !saida.iter().any(|x| x.sym == n.sym) {
@@ -892,7 +892,14 @@ pub(crate) fn caso(
     let refutavel_antes = std::mem::replace(&mut cx.padrao_refutavel, true);
     let forcado_antes = std::mem::replace(&mut cx.refutavel_forcado, false);
     let primeiro_local = cx.locais.len();
+    // `visitGuardedPattern`: as variáveis do padrão ficam escondidas durante
+    // o padrão inteiro (não na guarda).
+    let mut ocultas = Vec::new();
+    variaveis_declaradas(inf, cx, p, &mut ocultas);
+    let base_ocultas = cx.ocultas_do_padrao.len();
+    cx.ocultas_do_padrao.extend(ocultas.iter().map(|n| (n.sym, n.span)));
     let mut nao = casar(inf, cx, r, |inf, cx| tipar(inf, cx, p, false, false, false));
+    cx.ocultas_do_padrao.truncate(base_ocultas);
     cx.padrao_refutavel = refutavel_antes;
     cx.refutavel_forcado = forcado_antes;
     cx.locais_do_ultimo_padrao = primeiro_local..cx.locais.len();

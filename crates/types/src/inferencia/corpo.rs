@@ -114,6 +114,11 @@ pub(crate) struct Corpo {
     /// (`isVisitingWhenClause`): escrever nelas é
     /// `PATTERN_VARIABLE_ASSIGNMENT_INSIDE_GUARD`.
     pub variaveis_em_guarda: Vec<LocalId>,
+    /// As variáveis do padrão guardado em curso (nome e declaração), que
+    /// ficam escondidas durante todo o padrão
+    /// (`HiddenElements.forGuardedPattern`, `error_verifier.dart:6570-6575`):
+    /// lê-las dentro do padrão é `REFERENCED_BEFORE_DECLARATION`.
+    pub ocultas_do_padrao: Vec<(SymbolId, dartforge_diagnostics::Span)>,
     /// Os locais declarados pelo padrão do último `case` (sem os da
     /// guarda), para as variáveis de junção dos casos que dividem o corpo.
     pub locais_do_ultimo_padrao: std::ops::Range<usize>,
@@ -241,6 +246,7 @@ impl Corpo {
             refutavel_forcado: false,
             literal_negado: None,
             variaveis_em_guarda: Vec::new(),
+            ocultas_do_padrao: Vec::new(),
             locais_do_ultimo_padrao: 0..0,
             juncoes_inconsistentes: HashMap::new(),
             casamento: None,
@@ -419,6 +425,32 @@ impl Corpo {
 
     pub fn local(&self, id: LocalId) -> &Local {
         &self.locais[id.0 as usize]
+    }
+
+    /// Os locais visíveis (declarados ou adiante no bloco) por nome, com o
+    /// nome da declaração e se ainda não foi declarado (escondido): um tipo escrito que nomeia um deles é
+    /// `REFERENCED_BEFORE_DECLARATION` (`NamedTypeResolver`,
+    /// `named_type_resolver.dart:611-621`).
+    pub fn locais_visiveis(&self, interner: &dartforge_intern::Interner) -> HashMap<SymbolId, (dartforge_diagnostics::Span, bool)> {
+        let mut m = HashMap::new();
+        for e in self.escopos.iter() {
+            for (n, r) in e.iter() {
+                match r {
+                    Nome::TipoParam(_) => {
+                        m.remove(n);
+                    }
+                    Nome::Local(id) => {
+                        let l = &self.locais[id.0 as usize];
+                        let inicio = l.offset;
+                        m.insert(*n, (dartforge_diagnostics::Span { start: inicio, end: inicio + interner.resolve(*n).len() }, false));
+                    }
+                    Nome::Adiante(s) => {
+                        m.insert(*n, (*s, true));
+                    }
+                }
+            }
+        }
+        m
     }
 
     /// Parâmetros de tipo visíveis por nome (para resolver anotações).

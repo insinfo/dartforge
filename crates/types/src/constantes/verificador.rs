@@ -310,6 +310,75 @@ pub fn verificar(m: &mut Motor<'_>, lib: LibraryId) -> Vec<(UnitId, Diagnostic)>
 }
 
 impl Verificador<'_, '_> {
+    /// `const C.nome()` com `C` aplicação de mixin (`class C = S with M;`):
+    /// o construtor encaminhado é `const` só se o da superclasse for e
+    /// nenhum mixin declarar campo (`ConstructorElementImpl.isConst` dos
+    /// encaminhados, `analyzer/lib/src/dart/element/element.dart:612-614`);
+    /// não sendo, `CONST_WITH_NON_CONST` na palavra `const`.
+    fn encaminhado_nao_const(&mut self, ty: ast::TypeId, mut construtor: Option<ast::Name>, span: Span) {
+        let program = self.m.program;
+        let u = self.unidade;
+        let class = match self.tipo_da_anotacao(ty).map(|t| self.m.table.get(t).clone()) {
+            Some(Type::Interface { class, .. }) => class,
+            _ => {
+                // O tipo da criação não fica registrado: o nome escrito.
+                let ast::TypeKind::Named { name, .. } = &program.unit(u).ast.ty(ty).kind else { return };
+                // `C.nome` sai do parser como nome de duas partes (`p.C` ou
+                // `C.nome`): a primeira parte classe é `C`, com o construtor.
+                let (el, ctor) = match &name[..] {
+                    [n] => (program.lookup_na_unidade(u, n.sym).and_then(|b| b.getter), construtor),
+                    [a1, b1] => match program.lookup_na_unidade(u, a1.sym).and_then(|b| b.getter) {
+                        Some(el @ dartforge_elements::model::Element::Class(_)) => (Some(el), Some(*b1)),
+                        _ => (program.lookup_prefixed_na_unidade(u, a1.sym, b1.sym).and_then(|b| b.getter), construtor),
+                    },
+                    [p, c, n] => (program.lookup_prefixed_na_unidade(u, p.sym, c.sym).and_then(|b| b.getter), Some(*n)),
+                    _ => (None, None),
+                };
+                construtor = ctor;
+                match el {
+                    Some(dartforge_elements::model::Element::Class(c)) => c,
+                    _ => return,
+                }
+            }
+        };
+        let class = &class;
+        if program.class(*class).kind != dartforge_elements::model::ClassKind::MixinApplication {
+            return;
+        }
+        let interner = self.m.interner;
+        let chave = match construtor {
+            Some(n) if interner.resolve(n.sym) != "new" => Some(n.sym),
+            _ => interner.lookup(""),
+        };
+        let Some(chave) = chave else { return };
+        let Some(e_const) = self.construtor_encaminhado_const(*class, chave, 0) else { return };
+        if !e_const {
+            self.relatar(c::CONST_WITH_NON_CONST, Span { start: span.start, end: span.start + 5 }, Vec::new());
+        }
+    }
+
+    /// `isConst` do construtor `chave` visto pela classe `c` (encaminhado nas
+    /// aplicações de mixin); `None` sem construtor.
+    fn construtor_encaminhado_const(&self, c: ClassId, chave: dartforge_intern::SymbolId, prof: u32) -> Option<bool> {
+        if prof > 32 {
+            return None;
+        }
+        let program = self.m.program;
+        let k = program.class(c);
+        if k.kind != dartforge_elements::model::ClassKind::MixinApplication {
+            let f = *k.constructors.get(&chave)?;
+            let f = program.publico(f);
+            if program.function(f).factory {
+                return None;
+            }
+            return Some(program.function(f).const_);
+        }
+        let s = k.supertype_class?;
+        let do_super = self.construtor_encaminhado_const(s, chave, prof + 1)?;
+        let mixin_com_campo = k.mixin_classes.iter().any(|&m| !program.class(m).fields.is_empty());
+        Some(do_super && !mixin_com_campo)
+    }
+
     /// `ConstantVerifier.visitAnnotation`: o elemento é um construtor
     /// `const` com lista de argumentos; cada argumento é avaliado, e o que
     /// não é constante é `CONST_WITH_NON_CONSTANT_ARGUMENT`.
@@ -1136,8 +1205,13 @@ impl Verificador<'_, '_> {
     fn expr(&mut self, a: &ast::Ast, e: ExprId, em_const: bool) {
         let u = self.unidade;
         match &a.expr(e).kind {
-            ExprKind::InstanceCreation { keyword, arguments, ty, .. } => {
+            ExprKind::InstanceCreation { keyword, arguments, ty, constructor } => {
                 let const_ = matches!(keyword, Some(ast::CreationKeyword::Const));
+                // `_checkForConstWithNonConst` com o construtor encaminhado de
+                // uma aplicação de mixin (a inferência não o resolve).
+                if const_ && !matches!(self.m.resolvido(u, e), Some(Resolved::Constructor(_))) {
+                    self.encaminhado_nao_const(*ty, *constructor, a.expr(e).span);
+                }
                 // `visitInstanceCreationExpression` (`isConst`: `const`, ou
                 // sem palavra num contexto constante).
                 if const_ || (keyword.is_none() && em_const) {

@@ -3453,6 +3453,18 @@ inicializador, com a mensagem própria do código.
     `a` local declarado adiante e prefixo de import `a`): o caminho 1 via `visitImportPrefixReference` — o nome do prefixo
     resolve para o local escondido.
   Não há FP hoje; manter a condição estrita (o local tem de estar no mesmo bloco/grupo/padrão e ainda não declarado).
+- **Correções e estado (2026-10-06):** quatro fontes, todas portadas (51 de 51):
+  1. `ErrorVerifier._checkForReferenceBeforeDeclaration` com `HiddenElements`
+     (`generated/error_verifier.dart:5155-5170`, `:6551-6598`): os elementos de um bloco **e das instruções de cada
+     membro de `switch`** (`_withHiddenElements(node.statements)`, `:1507-1529`) ficam escondidos até a declaração —
+     inclusive as variáveis de **declaração de padrão** (`var [v] = …`, `BlockScope.elementsInStatements`);
+  2. `HiddenElements.forGuardedPattern` (`:6570-6575`, `visitGuardedPattern:1057-1062`): as variáveis de um padrão
+     guardado ficam escondidas durante o **padrão inteiro** (nunca são "declaradas" nele) e reaparecem na guarda —
+     `case var a && == a` e `case == b && var b` relatam;
+  3. `NamedTypeResolver` (`dart/resolver/named_type_resolver.dart:611-621`): tipo escrito cujo elemento é variável
+     local ou função local, **declarada ou não**, depois dos códigos de `as`/`is`/argumento de tipo/criação
+     (`:544-600`), que têm prioridade (`a is aa` com `aa` local é `type_test_with_non_type`);
+  4. `visitImportPrefixReference` (`:1080-1086`): o prefixo `a` de `a.Future` que é um local ainda escondido.
 
 #### §4 Padrões
 
@@ -11177,6 +11189,9 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
   (ou o resolve para outro); o analyzer mantém o construtor const. Investigar na sonda; se
   for o parser, é de outro dono — no mínimo não relatar CONST_WITH_NON_CONST quando o construtor
   alvo tem erro de sintaxe na lista de parâmetros.
+- **Estado (2026-10-06):** a correção proposta entrou (`verificador.rs::encaminhado_nao_const`). Detalhe que faltava:
+  o tipo da criação `const C.nome()` não fica registrado e o parser guarda `C.nome` como nome de duas partes; a classe
+  sai do nome escrito (primeira parte classe → `C` com o construtor `nome`; senão `p.C`). 40 de 40.
 
 ##### `const_not_initialized` (perda 29: FN 29)
 - **Emissão:** (a) parser: `parseFieldInitializerOpt` (`_fe_analyzer_shared/lib/src/parser/parser_impl.dart:3943-3948`)
