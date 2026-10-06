@@ -429,7 +429,12 @@ impl<'s, 'i> Parser<'s, 'i> {
                         &[],
                     );
                 }
-                self.parse_unary(true)
+                // `parsePrecedenceExpression` depois do `const`: o `(` é o
+                // primário, sem o `const` de record.
+                self.advance();
+                let inicio = self.span();
+                let e = self.parse_parenthesized_or_record(inicio, false, true)?;
+                self.parse_selectors_em(inicio, e, true, false)
             }
             Kind::Keyword(Keyword::Const) => {
                 let segundo = self.tokens[depois].span;
@@ -1065,6 +1070,9 @@ mod tests {
             caso("const ()"),
             e("invalid_constant_pattern_empty_record_literal", "(")
         );
+        // `const (e)`: expressão entre parênteses, sem o erro de record.
+        assert_eq!(caso("const (b * 2)"), vec![]);
+        assert_eq!(caso("const (1, 2)"), vec![]);
         assert_eq!(caso("A<int>"), e("invalid_constant_pattern_generic", "<"));
         assert_eq!(
             caso("_ as int as num"),

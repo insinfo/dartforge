@@ -995,7 +995,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `(args)`, `<T>(args)`, `<T>` e `!`.
     /// Com `cascata`, os seletores de uma seção de cascata, cujos `.`/`?.`
     /// leem o nome por `parseSend` (no resto, por `parsePrimary`).
-    fn parse_selectors_em(
+    pub(crate) fn parse_selectors_em(
         &mut self,
         start: Span,
         mut expr: ExprId,
@@ -1315,7 +1315,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 {
                     return self.parse_function_expression(start);
                 }
-                self.parse_parenthesized_or_record(start, false)
+                self.parse_parenthesized_or_record(start, false, false)
             }
             Kind::Keyword(Keyword::New) => {
                 let novo = self.advance().span;
@@ -1368,7 +1368,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     Kind::Op(Op::Dot) => self.parse_dot_shorthand(start, true),
                     Kind::Op(Op::LBracket) => self.parse_list_literal(start, true, Vec::new()),
                     Kind::Op(Op::LBrace) => self.parse_set_or_map_literal(start, true, Vec::new()),
-                    Kind::Op(Op::LParen) => self.parse_parenthesized_or_record(start, true),
+                    Kind::Op(Op::LParen) => self.parse_parenthesized_or_record(start, true, false),
                     Kind::Op(Op::Lt) => {
                         let type_args = self.parse_type_arguments_opt()?;
                         self.parse_typed_collection(start, true, type_args)
@@ -1685,7 +1685,10 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     /// `(e)`, `(a, b)`, `(a,)`, `(nome: e)`, `()`; `const_` força record.
-    fn parse_parenthesized_or_record(&mut self, start: Span, const_: bool) -> PResult<ExprId> {
+    /// `de_padrao`: o `(` depois do `const` de um padrão constante, que o
+    /// fasta lê sem `constKeywordForRecord` (`parsePrimaryPattern`): `(e)` é
+    /// expressão entre parênteses; um record sai constante, como o contexto.
+    pub(crate) fn parse_parenthesized_or_record(&mut self, start: Span, const_: bool, de_padrao: bool) -> PResult<ExprId> {
         let abre = self.pos;
         self.expect_op(Op::LParen)?;
         let mut positional = Vec::new();
@@ -1727,7 +1730,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             return Ok(self.push(
                 start,
                 ExprKind::Record {
-                    const_,
+                    const_: const_ || de_padrao,
                     positional: positional.into_boxed_slice(),
                     named: named.into_boxed_slice(),
                 },

@@ -936,8 +936,9 @@ impl<'a> LlvmEmitter<'a> {
                 if !crate::alvo::sabotagem("pouso_sem_topo") {
                     writeln!(self.out, "  store ptr {topo}, ptr %ctxtopo, align 8").unwrap();
                 }
-                // O que o tratador ainda lê estava vivo através do `invoke`.
-                if let Some(vivos) = self.raizes_da_funcao.vivos_na_entrada.get(&block.id).cloned() {
+                // Raízes por mapas: o que o tratador ainda lê estava vivo
+                // através do `invoke`.
+                if tem_gc && let Some(vivos) = self.raizes_da_funcao.vivos_na_entrada.get(&block.id).cloned() {
                     self.manter_vivos(&vivos);
                 }
             }
