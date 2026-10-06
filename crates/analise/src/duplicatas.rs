@@ -505,7 +505,10 @@ fn parametros(rel: &mut Relato<'_>, ps: &[Parameter], curinga: bool) {
             let nome = rel.nome(n);
             // `super._` com curinga; e `_` comum, que não declara nada.
             if !(e_curinga(curinga, &nome) && !p.this_) {
-                let e = Elem { formal_campo: p.this_, ..OUTRO };
+                // `getDiagnostic` (3.13, `duplicate_definition_verifier.dart:442-451`
+                // do checkout main): só dois `FieldFormalParameter`
+                // sintáticos; o declarante é `SimpleFormalParameter`.
+                let e = Elem { formal_campo: p.this_ && !p.declarante, ..OUTRO };
                 rel.conferir(&mut escopo, None, &nome, n.span, e);
             }
         }

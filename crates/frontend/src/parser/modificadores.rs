@@ -104,7 +104,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             && self.kind_of(pos + 1) == Kind::Op(Op::Dot)
     }
 
-    fn span_de(&self, pos: usize) -> Span {
+    pub(crate) fn span_de(&self, pos: usize) -> Span {
         self.tokens[pos.min(self.tokens.len() - 1)].span
     }
 
@@ -447,8 +447,12 @@ impl<'s, 'i> Parser<'s, 'i> {
                     self.erro_em(codigos::parser::EXTRANEOUS_MODIFIER_IN_EXTENSION_TYPE, span, &["covariant"]);
                 }
             }
+            // `modifier_context.dart:234-249` (checkout main): sem o recurso,
+            // todo `covariant`; com ele, o que não acompanha `var`.
             DonoDeParametros::ConstrutorPrimario => {
-                if let Some(c) = f.covariant {
+                if let Some(c) = f.covariant
+                    && (!self.features.tem(crate::Feature::PrimaryConstructors) || f.var_.is_none())
+                {
                     let span = self.span_de(c);
                     self.erro_em(codigos::parser::EXTRANEOUS_MODIFIER_IN_PRIMARY_CONSTRUCTOR, span, &["covariant"]);
                 }

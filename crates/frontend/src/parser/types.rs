@@ -818,6 +818,27 @@ impl<'s, 'i> Parser<'s, 'i> {
             function_nullable = self.eat_op(Op::Question);
         }
 
+        // `parseFormalParameterRest` (`parser_impl.dart:2228-2300` do
+        // checkout main), no cabeçalho primário com o recurso desligado: o
+        // `var`/`final`/`const` de um parâmetro de forma de função, e o `var`
+        // seguido de tipo, são o recurso desligado (fora do primário, são
+        // `FUNCTION_TYPED_PARAMETER_VAR` e `VAR_AND_TYPE`).
+        if dono == DonoDeParametros::ConstrutorPrimario && !self.em_representacao && !self.features.tem(Feature::PrimaryConstructors) {
+            let palavra = if function_parameters.is_some() {
+                f.var_final_ou_const()
+            } else if ty.is_some() {
+                f.var_
+            } else {
+                None
+            };
+            if let Some(tk) = palavra {
+                // A correção do oráculo 3.13.4 leva `3.13` (a forma do
+                // `AstBuilder`), não `3.13.0`.
+                let sp = self.span_de(tk);
+                self.exigir_no_ast(Feature::PrimaryConstructors, sp);
+            }
+        }
+
         let default_value =
             if self.at_op(Op::Assign) || (kind == ParameterKind::Named && self.at_op(Op::Colon)) {
                 // `parseFormalParameter` (`parser_impl.dart:2170`): default em
@@ -864,6 +885,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             function_nullable,
             default_value,
             public_name,
+            declarante: false,
         })
     }
 
@@ -877,7 +899,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         let texto = &self.source[n.span.start..n.span.end];
         let resto = texto.strip_prefix('_')?;
         let inicializa_campo = this_ || (declarante && self.em_construtor_primario);
-        if !inicializa_campo {
+        // `_checkPrivateOptionalParameter` (`error_verifier.dart:8622-8661`
+        // do checkout main): com o recurso desligado, só o `this._x`
+        // sintático (`FieldFormalParameter`) é o recurso desligado; o
+        // declarante (`final`/`var`, sintaticamente simples) e os demais são
+        // `PRIVATE_OPTIONAL_PARAMETER`.
+        if !inicializa_campo || (!this_ && !self.features.tem(Feature::PrivateNamedParameters)) {
             self.diagnostics.push(Diagnostic::com_codigo(
                 codigos::compile_time_error::PRIVATE_OPTIONAL_PARAMETER,
                 n.span,

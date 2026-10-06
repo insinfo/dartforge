@@ -6162,6 +6162,7 @@ ou `undefined_class 'augment'`) e o resto é **outra declaração homônima** (`
   e o oráculo dá `duplicate_definition` (inclusive declarante × `this._foo` escrito: `C8`, `C12`). O parser
   converte o declarante em `this.p` (`declarations.rs:1306`) sem deixar marca; é preciso um campo no `Parameter`
   (ex. `declarante: bool`) e `formal_campo = p.this_ && !p.declarante`.
+- **Feito (28/28, FP 0):** `ast::Parameter.declarante` marca o parâmetro que o parser reescreveu como `this.x` (`elaborar_construtor_primario`), e `duplicatas.rs` usa `formal_campo = p.this_ && !p.declarante` (`getDiagnostic` do checkout main, `duplicate_definition_verifier.dart:442-451`: só dois `FieldFormalParameter` sintáticos).
 
 ##### `field_initialized_in_parameter_and_initializer` (perda 8: FN 8)
 - **Emissão/condição:** CFV:220-225 — `x = e` com estado `initInFieldFormal` (o campo veio de `this.x` do mesmo
@@ -7217,6 +7218,8 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
   `PrimaryConstructors` para conseguir ler a sintaxe (o 3.13 lê e só reclama do experimento), e a
   condição então trata o declarante como "inicializa campo". A regra deve usar o recurso **habilitado
   pela biblioteca** (não o usado para recuperar) — conferir com a sonda num `class A({final int _p})`.
+- **Feito (41/41):** `_checkPrivateOptionalParameter` (checkout main, `error_verifier.dart:8622-8661`): com `private-named-parameters` desligado, só o `FieldFormalParameter` sintático (`this._x`) dá `experiment_not_enabled`; o declarante (sintaticamente `SimpleFormalParameter`) e os demais dão `PRIVATE_OPTIONAL_PARAMETER`. Em `types.rs::nome_publico_do_nomeado`, `!inicializa_campo || (!this_ && !features.tem(PrivateNamedParameters))` relata `PRIVATE_OPTIONAL_PARAMETER`. Com o recurso ligado e sem campo, o main dá `PRIVATE_NAMED_NON_FIELD_PARAMETER`, código que o 3.13.4 não tem (fica `PRIVATE_OPTIONAL_PARAMETER`).
+
 ##### `invalid_use_of_type_outside_library` (perda 20: FN 20)
 - **Emissão:** é o `sharedName` de BASE_/FINAL_/INTERFACE_/SEALED_CLASS_…_OUTSIDE_OF_LIBRARY. Os do
   ErrorVerifier: `_checkForFinalSupertypeOutsideOfLibrary`
@@ -15110,6 +15113,7 @@ interpolação `$palavra` sempre `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` (:347-353
   FP `unnamed_new_error_test:35:11` (`factory new()` em 3.6): fasta lê a factory chamada `new`
   (`parseFactoryMethod`, `fe:parser_impl.dart:5104`; o ErrorVerifier relata `FACTORY_CONSTRUCTOR_NEW_NAME`)
   — corrigido em `parse_member`/`parse_constructor`.
+- **Feito em 2026-10-06 (FN 60 para 26):** (1) o declarante privado com `private-named-parameters` desligado não dá mais o recurso desligado (ver `private_optional_parameter`); (2) `parseFormalParameterRest` (checkout main, `parser_impl.dart:2228-2300`) no cabeçalho primário com `primary-constructors` desligado: o `var`/`final`/`const` de parâmetro de forma de função e o `var` seguido de tipo são o recurso desligado na palavra (`types.rs::parse_formal_parameter`); a correção do oráculo 3.13.4 leva `3.13`, a forma do `AstBuilder` (`exigir_no_ast`). Restam: `class-modifiers`, `sealed-class`, `generic-metadata` e `nonfunction-type-aliases` em bibliotecas antigas, `empty_body_error_test.dart` e `mixin_error_test.dart` (corpo `;` e mixin com cabeçalho), FP de `dot-shorthands` num arquivo que o oráculo não analisou (`equality_extension_override_error_test.dart`, sem nenhuma entrada) e de `null-aware-elements`.
 
 ##### `expected_token` (perda 85: FN 49, FP 33, msg 1, pos 2)
 - **Emissão:** `ensureSemicolon` (`fe:parser_impl.dart:4293`, no token anterior), `ensureCloseParen` (:4234),
@@ -18601,6 +18605,7 @@ gerado; `this` não abre membro: `d31`). É do `ErrorVerifier` posterior ([main]
   ```
   `extraneous_modifier_in_primary_constructor` · 17+9 · 1:18 · Can't have modifier 'covariant' in a
   primary constructor. (`c74`).
+- **Feito (24/24):** o cabeçalho primário de classe e enum agora passa `DonoDeParametros::ConstrutorPrimario` (antes só o de extension type), e `relatar_modificadores_de_parametro` relata o `covariant` sem o recurso, ou com ele quando não há `var`; a regra solta de `elaborar_construtor_primario` (`covariant` sem `var`) saiu.
 
 #### E.3.8 Exemplos mínimos (oráculo vivo 3.6.2)
 

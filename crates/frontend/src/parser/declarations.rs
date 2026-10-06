@@ -1105,6 +1105,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         };
         let salvo = self.em_construtor_primario;
         self.em_construtor_primario = true;
+        self.params_de = DonoDeParametros::ConstrutorPrimario;
         let params = self.parse_formal_parameters();
         self.em_construtor_primario = salvo;
         let params = params?;
@@ -1265,13 +1266,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         let mut campos: Vec<MemberId> = Vec::new();
         let mut parametros = cab.params;
         for p in parametros.iter_mut() {
-            if p.covariant && !p.var_ {
-                // `covariant` sem `var`: o modificador sobra (no `covariant`).
-                let texto = &self.source[p.span.start..p.span.end];
-                let inicio = p.span.start + texto.find("covariant").unwrap_or(0);
-                let span = Span { start: inicio, end: inicio + "covariant".len() };
-                self.erro_em(codigos::parser::EXTRANEOUS_MODIFIER_IN_PRIMARY_CONSTRUCTOR, span, &["covariant"]);
-            }
+            // O `covariant` sobrando é do `parseFormalParameterModifiers`
+            // (`relatar_modificadores_de_parametro`, `ConstrutorPrimario`).
             if p.required && p.default_value.is_some() {
                 self.diagnostics.push(Diagnostic::com_codigo(
                     codigos::compile_time_error::DEFAULT_VALUE_ON_REQUIRED_PARAMETER,
@@ -1310,6 +1306,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             campos.push(self.ast.push_member(campo));
             // `var T p` → `T this.p` (com o tipo, se escrito).
             p.this_ = true;
+            p.declarante = true;
             p.var_ = false;
             p.final_ = false;
             p.covariant = false;
@@ -1727,7 +1724,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         let salvo = self.em_construtor_primario;
         self.em_construtor_primario = true;
         self.params_de = DonoDeParametros::ConstrutorPrimario;
+        let repr_salvo = std::mem::replace(&mut self.em_representacao, true);
         let params = self.parse_formal_parameters();
+        self.em_representacao = repr_salvo;
         self.em_construtor_primario = salvo;
         let mut params = params?;
         let depois_abre = self.tokens[abre + 1].span;

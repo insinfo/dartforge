@@ -613,6 +613,10 @@ pub struct Parameter {
     /// `{this._x}`): o nome **externo** — o da assinatura e da chamada — é
     /// este (`x`); `name` continua o local e o do campo (`_x`).
     pub public_name: Option<Name>,
+    /// Parâmetro declarante (`var`/`final` de construtor primário, 3.13)
+    /// que o parser reescreveu como `this.x`: sintaticamente é um
+    /// `SimpleFormalParameter`, não um `FieldFormalParameter`.
+    pub declarante: bool,
 }
 
 impl Parameter {
