@@ -390,19 +390,33 @@ pub unsafe fn desempilhar_quadro(q: *const QuadroDeRaizes) {
 const SLOTS_DO_QUADRO: u64 = (1 << 40) - 1;
 
 /// Visita as raízes de todos os quadros da pilha-sombra desta thread.
+///
+/// Os quadros são `alloca` do código gerado na pilha nativa da thread, que
+/// cresce para baixo: cada quadro anterior está num endereço maior. Um
+/// anterior abaixo do atual é um quadro morto, de uma função que já saiu —
+/// o topo que um desenrolamento deixou de restaurar (o pouso de
+/// `--excecoes=tabelas` sem o `store` do topo, a sabotagem `pouso_sem_topo`
+/// do §14.7) e que um quadro novo encadeou. Ler os slots dele seria ler
+/// lixo; o processo encerra com o código 3.
 #[allow(unsafe_code)]
 fn visitar_quadros(mut f: impl FnMut(i64)) {
     let mut q = CONTEXTO.with(|c| c.topo.get());
     while !q.is_null() {
         // SAFETY: cada quadro encadeado está no stack de uma função ainda
-        // ativa desta thread, com `n` slots depois do cabeçalho.
+        // ativa desta thread, com `n` slots depois do cabeçalho (a ordem dos
+        // endereços, conferida abaixo antes de seguir, o garante).
         unsafe {
             let n = ((*q).n as u64 & SLOTS_DO_QUADRO) as usize;
             let slots = std::ptr::addr_of!((*q).slots) as *const i64;
             for i in 0..n {
                 f(*slots.add(i));
             }
-            q = (*q).anterior;
+            let anterior = (*q).anterior;
+            if !anterior.is_null() && (anterior as usize) <= (q as usize) {
+                eprintln!("dartforge: quadro de raízes morto na pilha-sombra");
+                std::process::exit(3);
+            }
+            q = anterior;
         }
     }
 }
@@ -1228,7 +1242,9 @@ fn conferir_percurso(dos_mapas: &[i64]) {
     let vistos: crate::hash::HashSet<i64> = dos_mapas.iter().copied().collect();
     let mut conferidas = 0u64;
     visitar_slots_de_conferencia(|h| {
-        if h == 0 {
+        // Só os objetos: um `Smi` (ou o nulo) no slot não é raiz, e o RS4GC
+        // não põe no mapa o valor que o otimizador sabe ser constante.
+        if !crate::layout::e_objeto(h) {
             return;
         }
         conferidas += 1;

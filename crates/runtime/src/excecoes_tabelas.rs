@@ -47,6 +47,7 @@ static PORTAS_DART: [std::sync::atomic::AtomicUsize; 16] = [
 /// `tabela` aponta para `n` endereços de função (uma constante do módulo).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_registrar_portas(tabela: *const usize, n: i64) {
+    MODO_TABELAS.store(true, std::sync::atomic::Ordering::Release);
     // A sabotagem `sem_porta` (D9, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
     // §7.3): o runtime chama Dart direto, e uma exceção Dart atravessa os
     // quadros Rust.
@@ -59,6 +60,42 @@ pub unsafe extern "C" fn dartforge_registrar_portas(tabela: *const usize, n: i64
         let endereco = unsafe { *tabela.add(i) };
         porta.store(endereco, std::sync::atomic::Ordering::Release);
     }
+}
+
+/// O programa foi compilado com `--excecoes=tabelas` (a entrada registrou as
+/// portas, ou tentou: a sabotagem `sem_porta` volta antes de registrar).
+static MODO_TABELAS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+thread_local! {
+    /// As chamadas diretas Rust → Dart em curso nesta thread no modo
+    /// `tabelas` (só a sabotagem `sem_porta` as produz): o endereço de um
+    /// local do quadro Rust de cada uma.
+    static CHAMADAS_DIRETAS: std::cell::RefCell<Vec<usize>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Uma chamada direta a código Dart, sem porta. No modo `tabelas` ela fica
+/// registrada enquanto roda: um desenrolamento que pouse acima dela teria
+/// atravessado o quadro Rust (D9), e a personalidade encerra o processo em
+/// vez de deixá-lo seguir com o estado do runtime pela metade.
+#[inline(never)]
+fn direta<T>(chamar: impl FnOnce() -> T) -> T {
+    if !MODO_TABELAS.load(std::sync::atomic::Ordering::Acquire) {
+        return chamar();
+    }
+    let marca = 0u8;
+    let endereco = std::ptr::addr_of!(marca) as usize;
+    CHAMADAS_DIRETAS.with(|c| c.borrow_mut().push(endereco));
+    let r = chamar();
+    CHAMADAS_DIRETAS.with(|c| c.borrow_mut().pop());
+    std::hint::black_box(&marca);
+    r
+}
+
+/// O pouso no quadro `quadro` (o `EstablisherFrame`) passa por cima de uma
+/// chamada direta Rust → Dart em curso: o quadro Rust dela está entre o
+/// lançamento (mais fundo) e o pouso.
+fn pouso_atravessa_rust(quadro: usize) -> bool {
+    CHAMADAS_DIRETAS.with(|c| c.borrow().iter().any(|&m| m < quadro))
 }
 
 /// A porta de índice `i`, ou 0 no modo `checagem`.
@@ -82,7 +119,7 @@ fn dart_r0(f: usize) -> i64 {
     }
     // SAFETY: `f` é uma função gerada sem parâmetros que devolve uma palavra.
     let g: extern "C" fn() -> i64 = unsafe { std::mem::transmute(f) };
-    g()
+    direta(|| g())
 }
 
 fn dart_r1(f: usize, a: i64) -> i64 {
@@ -94,7 +131,7 @@ fn dart_r1(f: usize, a: i64) -> i64 {
     }
     // SAFETY: `f` é uma função gerada com um parâmetro de uma palavra.
     let g: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(f) };
-    g(a)
+    direta(|| g(a))
 }
 
 fn dart_r2(f: usize, a: i64, b: i64) -> i64 {
@@ -106,7 +143,7 @@ fn dart_r2(f: usize, a: i64, b: i64) -> i64 {
     }
     // SAFETY: `f` é uma função gerada com dois parâmetros de uma palavra.
     let g: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
-    g(a, b)
+    direta(|| g(a, b))
 }
 
 fn dart_r3(f: usize, a: i64, b: i64, c: i64) -> i64 {
@@ -118,7 +155,7 @@ fn dart_r3(f: usize, a: i64, b: i64, c: i64) -> i64 {
     }
     // SAFETY: `f` é uma função gerada com três parâmetros de uma palavra.
     let g: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
-    g(a, b, c)
+    direta(|| g(a, b, c))
 }
 
 fn dart_r4(f: usize, a: i64, b: i64, c: i64, d: i64) -> i64 {
@@ -130,7 +167,7 @@ fn dart_r4(f: usize, a: i64, b: i64, c: i64, d: i64) -> i64 {
     }
     // SAFETY: `f` é uma função gerada com quatro parâmetros de uma palavra.
     let g: extern "C" fn(i64, i64, i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
-    g(a, b, c, d)
+    direta(|| g(a, b, c, d))
 }
 
 fn dart_r5(f: usize, a: i64, b: i64, c: i64, d: i64, e: i64) -> i64 {
@@ -142,7 +179,7 @@ fn dart_r5(f: usize, a: i64, b: i64, c: i64, d: i64, e: i64) -> i64 {
     }
     // SAFETY: `f` é uma função gerada com cinco parâmetros de uma palavra.
     let g: extern "C" fn(i64, i64, i64, i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
-    g(a, b, c, d, e)
+    direta(|| g(a, b, c, d, e))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -155,7 +192,7 @@ fn dart_r7(f: usize, a: i64, b: i64, c: i64, d: i64, e: i64, g6: i64, h: i64) ->
     }
     // SAFETY: `f` é uma função gerada com sete parâmetros de uma palavra.
     let g: extern "C" fn(i64, i64, i64, i64, i64, i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
-    g(a, b, c, d, e, g6, h)
+    direta(|| g(a, b, c, d, e, g6, h))
 }
 
 fn dart_v0(f: usize) {
@@ -167,7 +204,7 @@ fn dart_v0(f: usize) {
     }
     // SAFETY: `f` é uma função gerada `void` sem parâmetros.
     let g: extern "C" fn() = unsafe { std::mem::transmute(f) };
-    g()
+    direta(|| g())
 }
 
 fn dart_v1(f: usize, a: i64) {
@@ -179,7 +216,7 @@ fn dart_v1(f: usize, a: i64) {
     }
     // SAFETY: `f` é uma função gerada `void` com um parâmetro de uma palavra.
     let g: extern "C" fn(i64) = unsafe { std::mem::transmute(f) };
-    g(a)
+    direta(|| g(a))
 }
 
 fn dart_v2(f: usize, a: i64, b: i64) {
@@ -191,7 +228,7 @@ fn dart_v2(f: usize, a: i64, b: i64) {
     }
     // SAFETY: `f` é uma função gerada `void` com dois parâmetros de uma palavra.
     let g: extern "C" fn(i64, i64) = unsafe { std::mem::transmute(f) };
-    g(a, b)
+    direta(|| g(a, b))
 }
 
 fn dart_v3(f: usize, a: i64, b: i64, c: i64) {
@@ -203,7 +240,7 @@ fn dart_v3(f: usize, a: i64, b: i64, c: i64) {
     }
     // SAFETY: `f` é uma função gerada `void` com três parâmetros de uma palavra.
     let g: extern "C" fn(i64, i64, i64) = unsafe { std::mem::transmute(f) };
-    g(a, b, c)
+    direta(|| g(a, b, c))
 }
 
 // ---------------------------------------------------------------------------
@@ -401,6 +438,9 @@ unsafe fn personalidade_seh(registro: *mut u8, quadro: *mut u8, despacho: *mut u
         let pouso = pouso_da_lsda((*despacho).handler_data, ip_relativo);
         if pouso == 0 {
             return CONTINUAR_A_BUSCA;
+        }
+        if pouso_atravessa_rust(quadro as usize) {
+            abortar_desenrolamento("uma exceção Dart atravessou quadros Rust (chamada do runtime a código Dart sem porta)");
         }
         RtlUnwindEx(
             quadro,

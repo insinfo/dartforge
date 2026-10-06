@@ -16,10 +16,15 @@
 //!   %gcs<k>, i64 0`); outro `store` no slot o apaga; na junção de caminhos
 //!   o slot só vale se todos concordam;
 //! * os pontos de coleta: toda chamada que não é folha (a extern que coleta
-//!   ou chama Dart pela tabela de efeitos, a função Dart, a indireta).
+//!   ou chama Dart pela tabela de efeitos, a função Dart, a indireta). Um
+//!   ajudante interno do módulo (`define internal … @df.*`, os `alwaysinline`
+//!   de textos, caixas, listas) coleta se o corpo dele tem uma chamada que
+//!   coleta, pelo próprio texto do módulo.
 //!
 //! Em cada ponto de coleta, todo valor `Ref` vivo na entrada dele (os
-//! operandos inclusive, o contrato C1) tem de estar em algum slot. É o
+//! operandos inclusive, o contrato C1) tem de estar em algum slot. Os
+//! parâmetros da função não entram: pelo mesmo C1, quem chama os mantém
+//! vivos enquanto a chamada roda. É o
 //! defeito da raiz esquecida, do slot compartilhado por dois vivos e do
 //! `store` que não domina o ponto.
 //!
@@ -95,14 +100,18 @@ struct Bloco<'a> {
     sucessores: Vec<&'a str>,
 }
 
-/// A chamada da linha pode coletar.
-fn coleta(linha: &str) -> bool {
+/// A chamada da linha pode coletar. `ajudantes`: os ajudantes internos do
+/// módulo, cada um com o que o corpo dele decide ([`ajudantes_que_coletam`]).
+fn coleta(linha: &str, ajudantes: &HashMap<&str, bool>) -> bool {
     match super::rastro::alvo_da_chamada(linha) {
         None => false,
         Some(None) => true,
         Some(Some(nome)) => {
             if nome.starts_with("llvm.") {
                 return false;
+            }
+            if let Some(&c) = ajudantes.get(nome) {
+                return c;
             }
             if matches!(nome, "df.corpo" | "df.barreira" | "df.barreira_elemento" | "df.e_objeto" | "df.filho_jovem" | "df.lancar") {
                 return false;
@@ -112,6 +121,48 @@ fn coleta(linha: &str) -> bool {
             }
             let ef = super::externs::efeitos_de(nome);
             ef.aloca || ef.chama_dart
+        }
+    }
+}
+
+/// Os ajudantes internos do módulo (`define internal … @df.<nome>(`) e se
+/// cada um coleta: algum `call`/`invoke` do corpo coleta, pela regra de
+/// [`coleta`] e pelos outros ajudantes. Ponto fixo a partir de "não coleta"
+/// (o que só sobe), para os que se chamam entre si.
+fn ajudantes_que_coletam<'a>(linhas: &[&'a str]) -> HashMap<&'a str, bool> {
+    let mut corpos: Vec<(&str, &[&str])> = Vec::new();
+    let mut i = 0;
+    while i < linhas.len() {
+        let l = linhas[i];
+        if let Some(resto) = l.strip_prefix("define internal ")
+            && let Some(nome) = resto.split('@').nth(1).and_then(|x| x.split('(').next())
+            && nome.starts_with("df.")
+        {
+            let ini = i + 1;
+            let mut fim = ini;
+            while fim < linhas.len() && linhas[fim] != "}" {
+                fim += 1;
+            }
+            corpos.push((nome.trim_matches('"'), &linhas[ini..fim]));
+            i = fim + 1;
+            continue;
+        }
+        i += 1;
+    }
+    let mut ajudantes: HashMap<&str, bool> = corpos.iter().map(|(n, _)| (*n, false)).collect();
+    loop {
+        let mut mudou = false;
+        for (nome, corpo) in &corpos {
+            if ajudantes[nome] {
+                continue;
+            }
+            if corpo.iter().any(|l| coleta(l.trim(), &ajudantes)) {
+                ajudantes.insert(nome, true);
+                mudou = true;
+            }
+        }
+        if !mudou {
+            return ajudantes;
         }
     }
 }
@@ -127,7 +178,7 @@ fn rotulo(linha: &str) -> Option<&str> {
 }
 
 /// Divide o corpo de uma função em blocos.
-fn blocos<'a>(corpo: &[&'a str]) -> Vec<Bloco<'a>> {
+fn blocos<'a>(corpo: &[&'a str], ajudantes: &HashMap<&str, bool>) -> Vec<Bloco<'a>> {
     let mut v: Vec<Bloco<'a>> = Vec::new();
     let mut em_switch = false;
     for &l in corpo {
@@ -186,7 +237,7 @@ fn blocos<'a>(corpo: &[&'a str]) -> Vec<Bloco<'a>> {
             }
         } else {
             linha.usos = nomes(resto).into_iter().filter_map(numero_de_v).collect();
-            linha.coleta = coleta(t);
+            linha.coleta = coleta(t, ajudantes);
         }
         b.linhas.push(linha);
     }
@@ -199,6 +250,7 @@ fn blocos<'a>(corpo: &[&'a str]) -> Vec<Bloco<'a>> {
 /// A primeira violação: a função, o ponto de coleta e o valor vivo sem slot.
 pub fn verificar(ir: &str) -> Result<(), String> {
     let linhas: Vec<&str> = ir.lines().collect();
+    let ajudantes = ajudantes_que_coletam(&linhas);
     let mut i = 0;
     let mut refs: Option<HashSet<u32>> = None;
     while i < linhas.len() {
@@ -218,8 +270,13 @@ pub fn verificar(ir: &str) -> Result<(), String> {
         while fim < linhas.len() && linhas[fim] != "}" {
             fim += 1;
         }
-        if let Some(r) = refs.take() {
-            conferir_funcao(&linhas[ini..fim], &r).map_err(|e| format!("conferidor do modo sombra, `{nome}`: {e}"))?;
+        if let Some(mut r) = refs.take() {
+            // Os parâmetros (`define … @f(i64 %v0, i64 %v3)`): raízes de quem chama.
+            let params = l.split_once('(').map_or("", |(_, x)| x);
+            for n in nomes(params).into_iter().filter_map(numero_de_v) {
+                r.remove(&n);
+            }
+            conferir_funcao(&linhas[ini..fim], &r, &ajudantes).map_err(|e| format!("conferidor do modo sombra, `{nome}`: {e}\n  {l}"))?;
         }
         i = fim + 1;
     }
@@ -227,8 +284,8 @@ pub fn verificar(ir: &str) -> Result<(), String> {
 }
 
 /// Confere uma função: em cada ponto de coleta, todo `Ref` vivo está num slot.
-fn conferir_funcao(corpo: &[&str], refs: &HashSet<u32>) -> Result<(), String> {
-    let bs = blocos(corpo);
+fn conferir_funcao(corpo: &[&str], refs: &HashSet<u32>, ajudantes: &HashMap<&str, bool>) -> Result<(), String> {
+    let bs = blocos(corpo, ajudantes);
     if bs.is_empty() {
         return Ok(());
     }
@@ -252,7 +309,7 @@ fn conferir_funcao(corpo: &[&str], refs: &HashSet<u32>) -> Result<(), String> {
         mudou = false;
         for i in (0..n).rev() {
             let b = &bs[i];
-            let mut vivo = vivo_na_saida(&bs, &indice, &vivo_na_entrada, i);
+            let mut vivo = vivo_na_saida(&bs, &indice, &vivo_na_entrada, i, refs);
             for l in b.linhas.iter().rev() {
                 if let Some(d) = l.def {
                     vivo.remove(&d);
@@ -330,7 +387,7 @@ fn conferir_funcao(corpo: &[&str], refs: &HashSet<u32>) -> Result<(), String> {
     for (i, b) in bs.iter().enumerate() {
         let Some(mut slots) = na_entrada[i].clone() else { continue };
         // A vivacidade antes de cada linha, de trás para a frente.
-        let mut vivo = vivo_na_saida(&bs, &indice, &vivo_na_entrada, i);
+        let mut vivo = vivo_na_saida(&bs, &indice, &vivo_na_entrada, i, refs);
         let mut vivo_antes: Vec<HashSet<u32>> = vec![HashSet::new(); b.linhas.len()];
         for (k, l) in b.linhas.iter().enumerate().rev() {
             if let Some(d) = l.def {
@@ -367,7 +424,7 @@ fn conferir_funcao(corpo: &[&str], refs: &HashSet<u32>) -> Result<(), String> {
 
 /// O que está vivo no fim do bloco `i`: o vivo na entrada de cada sucessor
 /// (menos os `phi` dele) e os operandos dos `phi` que vêm deste bloco.
-fn vivo_na_saida(bs: &[Bloco<'_>], indice: &HashMap<&str, usize>, vivo_na_entrada: &[HashSet<u32>], i: usize) -> HashSet<u32> {
+fn vivo_na_saida(bs: &[Bloco<'_>], indice: &HashMap<&str, usize>, vivo_na_entrada: &[HashSet<u32>], i: usize, refs: &HashSet<u32>) -> HashSet<u32> {
     let mut vivo = HashSet::new();
     for s in &bs[i].sucessores {
         let Some(&j) = indice.get(s) else { continue };
@@ -375,7 +432,7 @@ fn vivo_na_saida(bs: &[Bloco<'_>], indice: &HashMap<&str, usize>, vivo_na_entrad
         vivo.extend(vivo_na_entrada[j].iter().copied().filter(|v| !defs_de_phi.contains(v)));
         for l in &bs[j].linhas {
             for (v, origem) in &l.phi {
-                if *origem == bs[i].nome {
+                if *origem == bs[i].nome && refs.contains(v) {
                     vivo.insert(*v);
                 }
             }
@@ -389,7 +446,14 @@ mod testes {
     use super::*;
 
     fn modulo(corpo: &str) -> String {
-        format!("; df.refs v1 v2 v3\ndefine i64 @df.lib.f(i64 %v1) {{\n{corpo}}}\n")
+        format!("; df.refs v1 v2 v3\ndefine i64 @df.lib.f(i64 %v9) {{\n{corpo}}}\n")
+    }
+
+    /// O parâmetro é raiz de quem chama (C1): não precisa de slot.
+    #[test]
+    fn o_parametro_nao_precisa_de_slot() {
+        let ir = "; df.refs v1 v2\ndefine i64 @df.lib.f(i64 %v1) {\nb0:\n  %v2 = call i64 @df.lib.g()\n  br label %b1\nb1:\n  %v3 = phi i64 [ %v1, %b0 ]\n  ret i64 %v1\n}\n";
+        assert_eq!(verificar(ir), Ok(()));
     }
 
     #[test]

@@ -1,13 +1,23 @@
 // D3 (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.3): exceção profunda e o
 // topo da pilha-sombra. Uma recursão de mil níveis lança no fundo e pega no
-// meio; o tratador percorre a lista, e depois o programa aloca muito. Com
-// `--excecoes=tabelas`, a sabotagem `pouso_sem_topo` (o pouso não restaura o
-// topo da pilha-sombra) o derruba.
+// meio; o tratador percorre a lista chamando uma função com quadro que
+// aloca, e depois o programa aloca muito. Com `--excecoes=tabelas` e a
+// pilha-sombra, a sabotagem `pouso_sem_topo` (o pouso não restaura o topo
+// da pilha-sombra) o derruba: o quadro da chamada no tratador encadeia o
+// topo morto, e a coleta o acusa.
 
 class No {
   final int v;
   final No? prox;
   No(this.v, this.prox);
+}
+
+// Recursiva (fica fora de linha): um quadro próprio e uma alocação com `n`
+// vivo. Devolve sempre 1.
+int pesa(No n, int k) {
+  final t = No(n.v, n);
+  if (k > 0) return pesa(t, k - 1);
+  return t.prox == null ? 0 : 1;
 }
 
 int desce(int n, No? acc) {
@@ -20,7 +30,7 @@ int desce(int n, No? acc) {
       var c = 0;
       No? p = aqui;
       while (p != null) {
-        c++;
+        c += pesa(p, 1);
         p = p.prox;
       }
       return c;

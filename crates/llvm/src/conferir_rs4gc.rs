@@ -16,7 +16,11 @@
 //! statepoint do mesmo bloco, de um valor que não foi definido depois dele.
 //! O valor que atravessa o statepoint para um `phi` de outro bloco não é
 //! conferido. Só os pares `%v<n>`/`%raiz<n>` com os nomes do emissor
-//! entram (o otimizador pode ter renomeado o resto).
+//! entram (o otimizador pode ter renomeado o resto). No `"gc-live"`, a raiz
+//! pode aparecer com outro nome: num laço, o RS4GC reloca a raiz em cada
+//! statepoint e a iteração seguinte lê um `phi` (`%.0 = phi ptr
+//! addrspace(1) [ %raiz0, … ], [ %.0.relocated, … ]`); um `phi` cujas
+//! entradas são todas a mesma raiz (ou ele mesmo, relocado) conta como ela.
 //!
 //! Escrito sem compilar nem executar (2026-10-05).
 
@@ -80,6 +84,112 @@ fn definido(linha: &str) -> Option<&str> {
     Some(&l[..fim])
 }
 
+/// As entradas de um `phi` (`phi <tipo> [ %a, %b0 ], [ null, %b1 ]`): os
+/// valores, sem os blocos; `None` para uma constante.
+fn entradas_do_phi(corpo: &str) -> Vec<Option<&str>> {
+    corpo
+        .split('[')
+        .skip(1)
+        .map(|par| {
+            let valor = par.trim_start().split(',').next().unwrap_or_default().trim();
+            valor.strip_prefix('%')
+        })
+        .collect()
+}
+
+/// Os apelidos das raízes: cada `%raiz<n>` para si mesma e cada `phi` de
+/// `ptr addrspace(1)` cujas entradas (pela base, sem o `.relocated`) são
+/// todas a mesma raiz, diretamente ou por outros `phi`. Os `phi` dos laços
+/// formam ciclos entre si, então a resolução é otimista: cada `phi` começa
+/// sem informação, passa a uma raiz quando as entradas conhecidas concordam
+/// e fica inválido quando discordam ou citam outra coisa (o reticulado só
+/// desce, e o laço termina).
+///
+/// `raizes` leva cada nome de raiz à raiz canônica do valor (`%raiz<n>` de
+/// `%v<n>`): depois do *inlining* o mesmo valor pode ter outras, com outro
+/// número (`%raiz134 = inttoptr i64 %v2 …`).
+fn apelidos<'a>(linhas: &[&'a str], raizes: &HashMap<&'a str, &'a str>) -> HashMap<&'a str, &'a str> {
+    #[derive(Clone, Copy, PartialEq)]
+    enum Estado<'a> {
+        Nada,
+        Raiz(&'a str),
+        Invalido,
+    }
+    let phis: Vec<(&str, Vec<Option<&str>>)> = linhas
+        .iter()
+        .filter_map(|l| {
+            let t = l.trim_start();
+            let d = definido(t)?;
+            let corpo = &t[t.find(" = ")? + 3..];
+            corpo.starts_with("phi ptr addrspace(1)").then(|| (d, entradas_do_phi(corpo)))
+        })
+        .collect();
+    let mut estado: HashMap<&str, Estado<'_>> = phis.iter().map(|(d, _)| (*d, Estado::Nada)).collect();
+    loop {
+        let mut mudou = false;
+        for (d, entradas) in &phis {
+            if estado[d] == Estado::Invalido {
+                continue;
+            }
+            let mut novo = Estado::Nada;
+            for e in entradas {
+                let Some(nome) = e else { continue };
+                let b = base(nome);
+                if b == *d {
+                    continue;
+                }
+                let desta = if let Some(r) = raizes.get(b) {
+                    Estado::Raiz(*r)
+                } else {
+                    estado.get(b).copied().unwrap_or(Estado::Invalido)
+                };
+                novo = match (novo, desta) {
+                    (x, Estado::Nada) | (Estado::Nada, x) => x,
+                    (Estado::Raiz(a), Estado::Raiz(c)) if a == c => Estado::Raiz(a),
+                    _ => Estado::Invalido,
+                };
+                if novo == Estado::Invalido {
+                    break;
+                }
+            }
+            if novo != Estado::Nada && novo != estado[d] {
+                estado.insert(d, novo);
+                mudou = true;
+            }
+        }
+        if !mudou {
+            break;
+        }
+    }
+    let mut apelido: HashMap<&str, &str> = raizes.clone();
+    for (d, e) in estado {
+        if let Estado::Raiz(r) = e {
+            apelido.insert(d, r);
+        }
+    }
+    apelido
+}
+
+/// O diagnóstico de um statepoint: a linha dele, as definições dos nomes do
+/// `"gc-live"` e, por eles, as entradas dos `phi` (até 12 linhas).
+fn cadeia_do_statepoint(linhas: &[&str], corpo: &str) -> String {
+    let mut defs: Vec<&str> = Vec::new();
+    let mut fila: Vec<&str> = vivos_do_statepoint(corpo).into_iter().collect();
+    let mut vistos: HashSet<&str> = HashSet::new();
+    while let Some(v) = fila.pop() {
+        if defs.len() >= 12 || !vistos.insert(v) {
+            continue;
+        }
+        if let Some(l) = linhas.iter().map(|l| l.trim_start()).find(|l| definido(l) == Some(v)) {
+            defs.push(l);
+            if l.contains("= phi ") {
+                fila.extend(entradas_do_phi(l).into_iter().flatten().map(base));
+            }
+        }
+    }
+    defs.join("\n  ")
+}
+
 /// Um statepoint já visto no bloco: as raízes vivas nele e os nomes
 /// definidos depois dele.
 struct Ponto<'a> {
@@ -129,6 +239,19 @@ fn conferir_funcao(linhas: &[&str], deslocamento: usize) -> Result<(), String> {
     if raiz_de.is_empty() {
         return Ok(());
     }
+    // Todas as raízes de cada valor conferido, cada uma para a canônica.
+    let mut raizes: HashMap<&str, &str> = raiz_de.values().map(|r| (*r, *r)).collect();
+    for l in linhas {
+        let t = l.trim_start();
+        if let Some(r) = definido(t)
+            && r.starts_with("raiz")
+            && let Some(k) = t.find("inttoptr i64 %")
+            && let Some(canonica) = raiz_de.get(usos(&t[k + "inttoptr i64 ".len()..]).next().unwrap_or_default())
+        {
+            raizes.insert(r, canonica);
+        }
+    }
+    let apelido = apelidos(linhas, &raizes);
     let mut pontos: Vec<Ponto<'_>> = Vec::new();
     for (k, l) in linhas.iter().enumerate().skip(1) {
         let n = deslocamento + k + 1;
@@ -154,16 +277,19 @@ fn conferir_funcao(linhas: &[&str], deslocamento: usize) -> Result<(), String> {
                 let Some(raiz) = raiz_de.get(nome) else { continue };
                 for p in &pontos {
                     if !p.depois.contains(nome) && !p.vivos.contains(raiz) {
+                        let sp = linhas[p.linha - deslocamento - 1].trim_start();
+                        let corpo_sp = sp.find(" = ").map_or(sp, |k| &sp[k + 3..]);
                         return Err(format!(
-                            "conferidor do RS4GC, linha {n}: `%{nome}` usado depois do statepoint da linha {} sem a raiz `%{raiz}` no \"gc-live\": `{t}`",
-                            p.linha
+                            "conferidor do RS4GC, linha {n}: `%{nome}` usado depois do statepoint da linha {} sem a raiz `%{raiz}` no \"gc-live\": `{t}`\n  {sp}\n  {}",
+                            p.linha,
+                            cadeia_do_statepoint(linhas, corpo_sp)
                         ));
                     }
                 }
             }
         }
         if e_statepoint {
-            let vivos = vivos_do_statepoint(corpo);
+            let vivos: HashSet<&str> = vivos_do_statepoint(corpo).into_iter().map(|b| apelido.get(b).copied().unwrap_or(b)).collect();
             // C1: o argumento `Ref` está vivo na chamada.
             let args = corpo.find("[ \"gc-live\"").map_or(corpo, |p| &corpo[..p]);
             for nome in usos(args) {
@@ -171,7 +297,8 @@ fn conferir_funcao(linhas: &[&str], deslocamento: usize) -> Result<(), String> {
                     && !vivos.contains(raiz)
                 {
                     return Err(format!(
-                        "conferidor do RS4GC, linha {n}: o argumento `%{nome}` não está vivo na chamada (sem `%{raiz}` no \"gc-live\"): `{t}`"
+                        "conferidor do RS4GC, linha {n}: o argumento `%{nome}` não está vivo na chamada (sem `%{raiz}` no \"gc-live\"): `{t}`\n  {}",
+                        cadeia_do_statepoint(linhas, corpo)
                     ));
                 }
             }
@@ -189,6 +316,31 @@ fn conferir_funcao(linhas: &[&str], deslocamento: usize) -> Result<(), String> {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    /// A raiz relocada num laço chega ao `"gc-live"` como o `phi` do laço.
+    #[test]
+    fn raiz_pelo_phi_do_laco() {
+        let ir = r#"define i64 @f(i64 %v0) gc "statepoint-example" {
+b0:
+  %raiz0 = inttoptr i64 %v0 to ptr addrspace(1)
+  br label %b1
+b1:
+  %.0 = phi ptr addrspace(1) [ %raiz0, %b0 ], [ %.0.relocated, %b1 ]
+  %sp = call token (i64, i32, ptr, i32, i32, ...) @llvm.experimental.gc.statepoint.p0(i64 0, i32 0, ptr elementtype(i64 (i64)) @g, i32 1, i32 0, i64 %v0, i32 0, i32 0) [ "gc-live"(ptr addrspace(1) %.0) ]
+  %.0.relocated = call coldcc ptr addrspace(1) @llvm.experimental.gc.relocate.p1(token %sp, i32 0, i32 0)
+  br label %b1
+}
+"#;
+        assert_eq!(conferir(ir), Ok(()));
+        // Dois `phi` em ciclo, os dois da mesma raiz.
+        let ciclo = ir.replace(
+            "  %.0 = phi ptr addrspace(1) [ %raiz0, %b0 ], [ %.0.relocated, %b1 ]",
+            "  %.0 = phi ptr addrspace(1) [ %raiz0, %b0 ], [ %.1, %b1 ]\n  %.1 = phi ptr addrspace(1) [ %.0.relocated, %b1 ], [ %.0, %b0 ]",
+        );
+        assert_eq!(conferir(&ciclo), Ok(()));
+        let sem = ir.replace("[ \"gc-live\"(ptr addrspace(1) %.0) ]", "[ \"gc-live\"() ]");
+        assert!(conferir(&sem).is_err());
+    }
 
     // Strings cruas: a indentação das instruções é o que separa uma
     // instrução de um rótulo.

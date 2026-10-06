@@ -689,7 +689,15 @@ impl<'a> LlvmEmitter<'a> {
             self.out.push_str(if cfg!(windows) { EXCECOES_POR_TABELAS } else { EXCECOES_POR_TABELAS_ITANIUM });
         }
         if externs::conferir_efeitos() {
-            self.out.push_str("declare void @dartforge_efeitos_antes(ptr, i64, i64)\ndeclare void @dartforge_efeitos_depois()\n");
+            // A moldura da conferência não coleta: com as raízes por mapas, é
+            // folha (sem statepoint em volta dela).
+            if self.mapas {
+                self.out.push_str(
+                    "declare void @dartforge_efeitos_antes(ptr, i64, i64) \"gc-leaf-function\"\ndeclare void @dartforge_efeitos_depois() \"gc-leaf-function\"\n",
+                );
+            } else {
+                self.out.push_str("declare void @dartforge_efeitos_antes(ptr, i64, i64)\ndeclare void @dartforge_efeitos_depois()\n");
+            }
         }
         self.out.push('\n');
     }

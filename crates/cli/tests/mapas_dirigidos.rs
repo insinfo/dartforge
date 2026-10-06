@@ -51,10 +51,11 @@ const CASOS: &[Caso] = &[
         sabotagem_do_emissor: Some("folha:dartforge_string_concat"),
         sabotagem_do_runtime: None,
     },
-    // §14.7: o leitor sem a regra do `nop` (só o Windows x64 a tem).
+    // §14.7: o leitor sem a regra do `nop` (só o Windows x64 a tem). O D1
+    // não para coleta nenhuma num retorno com `nop`; o D15 para.
     Caso {
-        arquivo: "gc_d01_argumento_vivo.dart",
-        esperado: "18335 1999000 2000\n",
+        arquivo: "gc_d15_retorno_no_nop.dart",
+        esperado: "double\nString\n",
         tabelas: false, sombra: false,
         sabotagem_do_emissor: None,
         sabotagem_do_runtime: if cfg!(windows) { Some("sem_nop") } else { None },
@@ -66,10 +67,13 @@ const CASOS: &[Caso] = &[
         sabotagem_do_emissor: Some("sem_uso_ficticio"),
         sabotagem_do_runtime: None,
     },
+    // O pouso sem restaurar o topo da pilha-sombra (§14.7, `x16\a1_sab.ll`) é
+    // da combinação A1: com os mapas a função não tem quadro na pilha-sombra
+    // e o topo não muda.
     Caso {
         arquivo: "gc_d03_excecao_profunda.dart",
         esperado: "32255\n",
-        tabelas: true, sombra: false,
+        tabelas: true, sombra: true,
         sabotagem_do_emissor: Some("pouso_sem_topo"),
         sabotagem_do_runtime: None,
     },
