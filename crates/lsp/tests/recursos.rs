@@ -188,6 +188,24 @@ fn hierarquia_de_chamadas_de_operador() {
 }
 
 #[test]
+fn implementacao_pela_especie_do_membro() {
+    // O getter lido não é implementado por um setter homônimo; o campo
+    // declarado acha o getter ou, não final, o setter.
+    let mut p = Projeto::novo("implementacao-especie");
+    let texto = "class A {\n  int get v => 0;\n  set v(int x) {}\n  int w = 0;\n}\nclass B extends A {\n  @override\n  set v(int x) {}\n  @override\n  set w(int x) {}\n}\nvoid f(A a) => print(a.v);\n";
+    p.abrir("lib/i.dart", texto);
+    let mut imp = |agulha: &str, d: u32| {
+        let (l, c) = onde(texto, agulha, 0, d);
+        p.na_posicao("textDocument/implementation", "lib/i.dart", l, c, json!({}))["result"].clone()
+    };
+    let r = imp("v);", 0);
+    assert!(r.as_array().is_some_and(|a| a.is_empty()), "{r}");
+    let r = imp("w = 0", 0);
+    let linhas: Vec<u64> = r.as_array().unwrap().iter().map(|x| x["range"]["start"]["line"].as_u64().unwrap()).collect();
+    assert_eq!(linhas, vec![9], "{r}");
+}
+
+#[test]
 fn hierarquia_de_tipos() {
     let mut p = projeto("hierarquia", json!({}));
     let (l, c) = onde(MODELO, "Quadrado", 0, 1);

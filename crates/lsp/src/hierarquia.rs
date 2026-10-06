@@ -295,27 +295,52 @@ impl Projeto {
         let eh_extension_type = |c: ClassId| {
             p.class(c).decl.is_some_and(|dr| matches!(p.unit(dr.unit).ast.decl(dr.decl).kind, dartforge_frontend::ast::DeclKind::ExtensionType(_)))
         };
+        // `TypeHierarchyComputerHelper`: a espécie do pivô (o elemento do
+        // nó: o getter de uma leitura, o setter de uma escrita, o campo na
+        // declaração) e a biblioteca dele.
+        let especie = match d.concreto {
+            Some(Concreto::Funcao(f)) => {
+                let fe = p.function(f);
+                match fe.kind {
+                    FunctionKind::Getter => EspecieDoPivo::Getter,
+                    FunctionKind::Setter => EspecieDoPivo::Setter,
+                    FunctionKind::ImplicitAccessor if self.nome(fe.name).ends_with('=') => EspecieDoPivo::Setter,
+                    FunctionKind::ImplicitAccessor => EspecieDoPivo::Getter,
+                    _ => EspecieDoPivo::Metodo,
+                }
+            }
+            Some(Concreto::Variavel(v)) => match d.expr {
+                Some(e) if self.alvo_de_escrita(unidade, e) => EspecieDoPivo::Setter,
+                Some(_) => EspecieDoPivo::Getter,
+                None => EspecieDoPivo::Campo { final_: p.variable(v).final_ || p.variable(v).const_ },
+            },
+            None => EspecieDoPivo::Metodo,
+        };
+        let pivo = match d.concreto {
+            Some(Concreto::Funcao(f)) => Some(f),
+            _ => None,
+        };
+        let biblioteca_do_pivo = match d.concreto {
+            Some(Concreto::Funcao(f)) => p.function(f).library,
+            Some(Concreto::Variavel(v)) => p.variable(v).library,
+            None => p.class(classe).library,
+        };
+        // `needsMember`: o pivô tem o membro na própria classe.
+        let precisa_do_membro = match &membro {
+            Some((nome, _)) => self.membro_de_implementacao(classe, nome, especie, biblioteca_do_pivo, pivo).is_some() || {
+                // O próprio pivô (o lookup acha ele mesmo, sem mixin).
+                pivo.is_some_and(|f| p.function(f).class == Some(classe))
+                    || matches!(d.concreto, Some(Concreto::Variavel(v)) if p.variable(v).class == Some(classe))
+            },
+            None => false,
+        };
         let mut vistos = BTreeSet::new();
         let mut saida = Vec::new();
         for x in self.subtipos(classe, false) {
             let local = match &membro {
-                None => self.nome_do_elemento_de_topo(Element::Class(x)),
-                Some(_) if eh_extension_type(classe) || eh_extension_type(x) => None,
-                Some((nome, estatico)) => {
-                    let cl = p.class(x);
-                    // No próprio subtipo; senão no último mixin que o declara.
-                    let funcoes = self.declarados(x, nome, *estatico);
-                    let campo = cl.fields.iter().copied().find(|v| self.nome(p.variable(*v).name) == nome && !p.variable(*v).static_);
-                    match (campo, funcoes.first()) {
-                        (Some(v), _) => self.nome_da_variavel(v),
-                        (None, Some(f)) => self.nome_da_funcao(*f),
-                        (None, None) => cl
-                            .mixin_classes
-                            .iter()
-                            .rev()
-                            .find_map(|m| self.declarados(*m, nome, *estatico).first().and_then(|f| self.nome_da_funcao(*f))),
-                    }
-                }
+                Some(_) if precisa_do_membro && (eh_extension_type(classe) || eh_extension_type(x)) => None,
+                Some((nome, _)) if precisa_do_membro => self.membro_de_implementacao(x, nome, especie, biblioteca_do_pivo, pivo),
+                _ => self.nome_do_elemento_de_topo(Element::Class(x)),
             };
             if let Some((u, s)) = local
                 && vistos.insert((u, s.start))
@@ -324,6 +349,49 @@ impl Projeto {
             }
         }
         saida
+    }
+
+    /// `findMemberElement`: o membro da espécie do pivô declarado em `c`
+    /// (acessível na biblioteca do pivô), senão no último mixin que o
+    /// declara; a localização do não sintético (o campo de um acessor
+    /// implícito).
+    fn membro_de_implementacao(&self, c: ClassId, nome: &str, especie: EspecieDoPivo, biblioteca: LibraryId, pivo: Option<dartforge_elements::model::FunctionElementId>) -> Option<(UnitId, Span)> {
+        let p = self.programa();
+        let achar = |x: ClassId| -> Option<dartforge_elements::model::FunctionElementId> {
+            let k = p.class(x);
+            let declarado = |chave: &str, aceita: &dyn Fn(FunctionKind) -> bool| -> Option<dartforge_elements::model::FunctionElementId> {
+                let s = self.consulta.nomes.lookup(chave)?;
+                [k.instance_members.get(&s), k.static_members.get(&s)].into_iter().flatten().copied().find(|&f| aceita(p.function(f).kind))
+            };
+            let metodo = |_: ()| declarado(nome, &|e| matches!(e, FunctionKind::Function | FunctionKind::Operator));
+            let getter = |_: ()| declarado(nome, &|e| matches!(e, FunctionKind::Getter | FunctionKind::ImplicitAccessor));
+            let setter = |_: ()| declarado(&format!("{nome}_="), &|e| matches!(e, FunctionKind::Setter | FunctionKind::ImplicitAccessor));
+            match especie {
+                EspecieDoPivo::Metodo => metodo(()),
+                EspecieDoPivo::Getter => getter(()),
+                EspecieDoPivo::Setter => setter(()),
+                EspecieDoPivo::Campo { final_ } => getter(()).or_else(|| if final_ { None } else { setter(()) }),
+            }
+        };
+        let acessivel = |x: ClassId| !nome.starts_with('_') || p.class(x).library == biblioteca;
+        let local = |f: dartforge_elements::model::FunctionElementId| match (p.function(f).kind, p.function(f).variable) {
+            (FunctionKind::ImplicitAccessor, Some(v)) => self.nome_da_variavel(v),
+            _ => self.nome_da_funcao(f),
+        };
+        if let Some(f) = achar(c)
+            && acessivel(c)
+        {
+            return local(f);
+        }
+        for &m in p.class(c).mixin_classes.iter().rev() {
+            if let Some(f) = achar(m).filter(|_| acessivel(m)) {
+                if Some(f) == pivo {
+                    return None;
+                }
+                return local(f);
+            }
+        }
+        None
     }
 
     /// A declaração do tipo estático do que `offset` denota.
@@ -832,4 +900,13 @@ fn decodificar_referencia(texto: &str) -> Vec<String> {
     }
     componentes.push(atual);
     componentes
+}
+
+/// A espécie do elemento-pivô da busca de implementações (`pivotKind`).
+#[derive(Clone, Copy)]
+enum EspecieDoPivo {
+    Metodo,
+    Getter,
+    Setter,
+    Campo { final_: bool },
 }
