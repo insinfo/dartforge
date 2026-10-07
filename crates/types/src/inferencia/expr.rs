@@ -1377,15 +1377,28 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
             let u = inf.core.unknown;
             let positional = positional.to_vec();
             let named: Vec<(ast::Name, ExprId)> = named.to_vec();
+            // `_resolveField` (3.6.2 `record_literal_resolver.dart:134-158`):
+            // o campo `void` relata no campo (o nomeado, do nome ao valor).
             let mut pos = Vec::new();
             for (i, p) in positional.iter().enumerate() {
                 let c = ctx_pos.as_ref().map(|v| v[i]).unwrap_or(u);
-                pos.push(inferir(inf, cx, *p, c));
+                let tp = inferir(inf, cx, *p, c);
+                if matches!(inf.table.get(tp), Type::Void) {
+                    let sp = inf.span_expr(cx.unit, *p);
+                    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, sp, &[]);
+                }
+                pos.push(tp);
             }
             let mut nm = Vec::new();
             for (n, x) in named.iter() {
                 let c = ctx_nom.as_ref().and_then(|v| v.iter().find(|(s, _)| *s == n.sym).map(|(_, t)| *t)).unwrap_or(u);
-                nm.push((n.sym, inferir(inf, cx, *x, c)));
+                let tx = inferir(inf, cx, *x, c);
+                if matches!(inf.table.get(tx), Type::Void) {
+                    let fim = inf.span_expr(cx.unit, *x).end;
+                    let sp = dartforge_diagnostics::Span { start: n.span.start, end: fim };
+                    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, sp, &[]);
+                }
+                nm.push((n.sym, tx));
             }
             inf.table.intern(Type::Record { positional: pos.into_boxed_slice(), named: nm.into_boxed_slice(), nullable: false })
         }
@@ -2922,6 +2935,30 @@ fn ler_indice(
         return (inf.core.dynamic_, curto);
     }
     let indefinido = span_indice(inf, cx, alvo, target);
+    // Alvo `void` (pelo limite): `USE_OF_VOID_RESULT` no `[…]`
+    // (`property_element_resolver.dart:81-90`, `_reportUnresolvedIndex`).
+    let limite = {
+        let mut b = recv;
+        for _ in 0..16 {
+            match inf.table.get(b) {
+                Type::TypeParameter { param, nullable: false } => {
+                    let l = inf.table.param(*param).bound;
+                    if l == b {
+                        break;
+                    }
+                    b = l;
+                }
+                Type::Intersection { bound, .. } => b = *bound,
+                _ => break,
+            }
+        }
+        b
+    };
+    if matches!(inf.table.get(limite), Type::Void) {
+        inferir_livre(inf, cx, index);
+        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, indefinido, &[]);
+        return (inf.core.dynamic_, curto);
+    }
     let token = dartforge_diagnostics::Span { start: indefinido.start, end: indefinido.start + 1 };
     let super_ = matches!(ast(inf, cx).expr(target).kind, ExprKind::Super);
     let posicoes = PosicoesDeOperador { token, indefinido, composta: false, super_, alvo_numerico: None };
@@ -3304,7 +3341,13 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
                 inf.promover_nao_nulo(&mut f, id, decl);
                 cx.fluxo = f;
             }
-            inf.nao_nulo_promocao(t)
+            // `visitPostfixExpression` com `!`: `checkForUseOfVoidResult(node)`
+            // (3.6.2 `error_verifier.dart:1310-1316`), no `e!` inteiro.
+            let r = inf.nao_nulo_promocao(t);
+            if matches!(inf.table.get(r), Type::Void) {
+                inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, span, &[]);
+            }
+            r
         }
         UnaryOp::Neg | UnaryOp::BitNot => {
             // `-1` com literal: o literal recebe o contexto (`double x = -1`).
@@ -4108,6 +4151,11 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
     let composta = recv_lido.is_some();
     let (recv, c) = recv_lido.unwrap_or_else(|| receptor(inf, cx, target, null_aware));
     *curto = c;
+    // Receptor `void` (`property_element_resolver.dart:449-455`): no nome.
+    if !cx.sobreposicoes.contains_key(&target) && matches!(inf.table.get(recv), Type::Void) {
+        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, name.span, &[]);
+        return inf.core.dynamic_;
+    }
     // `x.new = v` (`type_property_resolver.dart:75-79`): sem setter `new`.
     if !cx.sobreposicoes.contains_key(&target) && inf.interner.resolve(name.sym) == "new" {
         let msg = format!(

@@ -533,6 +533,10 @@ Base comum: a resolução de membro passa por `TypePropertyResolver.resolve` (`a
   4. **FP/pos `type_promotion/functions_test`**: chamada de **variável local** de tipo função (`funcDynToVoid(…)`) é `FunctionExpressionInvocation` → span da invocação inteira; nós usamos o nome (`cx.funcoes_locais` mal classificado).
   5. **FP `mapLiteralEntry_keyAnd…`**: parar depois da chave; **FP `control_flow_collections/void_error_test:92`**, **pos `extensionOverride_argu…`** (`E(v).g` com `v` void: no argumento `v`, `extension_member_resolver.dart:227-231`).
   **Mudança:** os pontos acima; manter `aviso_com_codigo`.
+- **Feito em 2026-10-07 (473/479):** `e!` com `e` `void` (`visitPostfixExpression`, no nó inteiro); campo `void`
+  de record (`record_literal_resolver.dart:134-158`, no campo; o nomeado do nome ao valor); escrita de
+  propriedade com receptor `void` (`property_element_resolver.dart:449-455`, no nome, no lugar do
+  `undefined_setter`); índice com alvo `void` pelo limite (`:81-90`, no `[…]`).
 
 ##### `undefined_operator` (perda 40: FN 30, FP 10)
 - **Emissão:** binário `BinaryExpressionResolver._resolveUserDefinableElement` (`analyzer/lib/src/dart/resolver/binary_expression_resolver.dart:440-460`, no **operador**); prefixo (`prefix_expression_resolver.dart:180-206`, no token do operador, nome `unary-`/`~`/`+`/`-` para `++`/`--`); pósfixo (`postfix_expression_resolver.dart:130-158`, no operador, `+`/`-`); índice (`property_element_resolver.dart:109-133` + `_reportUnresolvedIndex` :365-381: **do `[` até o `]` inclusive**, `'[]'` para leitura e `'[]='` para escrita — ambos podem sair na composta); composta (`assignment_expression_resolver.dart:240-256`, no operador `+=`); `resolver.dart:1635-1642` (`==` em extensão?).
