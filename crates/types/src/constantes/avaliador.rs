@@ -1378,6 +1378,11 @@ impl<'a> Motor<'a> {
             i => return i,
         };
         let e_interface = alvo_simples && matches!(res_alvo, Some(Resolved::Element(Element::Class(_) | Element::Typedef(_))));
+        // `C<T>.new`, `C.nome`: o `ConstructorReference` (tear-off de
+        // construtor), não um acesso a propriedade do `Type`.
+        if matches!(self.resolvido(u, e), Some(Resolved::Constructor(_))) {
+            return self.valor_constante(cx, e, e, true);
+        }
         if !e_interface {
             if let Some(r) = self.acesso_a_propriedade(u, e, &prefixo, nome) {
                 return r;

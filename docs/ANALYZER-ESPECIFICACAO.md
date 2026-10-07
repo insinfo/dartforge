@@ -11510,6 +11510,7 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
   — exige avaliar o construtor primário (fora de escopo agora).
 - **Mensagem:** "The property '{0}' can't be accessed on the type '{1}' in a constant
   expression." {1} = `targetType.getDisplayString()` (String já formatada: sem alias).
+- **Correção de 2026-10-06 (FP 11 para 0):** `C<T>.new` e `C.nome` resolvidos para construtor são `ConstructorReference` (tear-off), não acesso a propriedade do `Type`: o avaliador (`constantes/avaliador.rs::propriedade`) os avalia pelo elemento.
 
 ##### `constant_pattern_with_non_constant_expression` (perda 12: FN 10, pos 2)
 - **Emissão:** `visitConstantPattern` (`constant_verifier.dart:131-141`).
