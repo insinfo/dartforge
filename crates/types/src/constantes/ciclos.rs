@@ -51,6 +51,10 @@ pub enum Alvo {
     Local(UnitId, usize),
     /// Anotação: o índice em [`Estado::anotacoes`].
     Anot(u32),
+    /// O campo `const` sintético `values` de um enum, cujo inicializador é
+    /// a lista das constantes (`LibraryBuilder.buildEnumChildren`): depende
+    /// de todas elas, e `e1(values)` fecha um ciclo.
+    Values(ClassId),
 }
 
 /// Os índices das declarações do programa, pelo nó da árvore.
@@ -426,6 +430,7 @@ impl Grafo for G<'_, '_> {
                 _ => Vec::new(),
             },
             Alvo::Anot(i) => self.est.anotacoes[i as usize].clone(),
+            Alvo::Values(k) => self.m.program.class(k).enum_constants.iter().map(|&v| Alvo::Var(v)).collect(),
         };
         deps.into_iter().filter_map(|d| self.no(d)).collect()
     }
@@ -445,7 +450,7 @@ impl Grafo for G<'_, '_> {
             }
             // Só o construtor `const` fica computado.
             Alvo::Ctor(f) => m.program.function(m.program.publico(f)).const_,
-            Alvo::Param(..) | Alvo::Anot(_) => true,
+            Alvo::Param(..) | Alvo::Anot(_) | Alvo::Values(_) => true,
             Alvo::Local(u, offset) => matches!(self.est.inicializador_local(m, u, offset), Some(Some(_))),
         };
         if pronto {
@@ -471,7 +476,8 @@ impl Grafo for G<'_, '_> {
                 }
                 // O parâmetro é uma variável para `generateCycleError`: fica
                 // com o inválido guardado.
-                Alvo::Param(..) | Alvo::Anot(_) => self.est.avaliados[no] = true,
+                // O `values` sintético não tem nome a relatar.
+                Alvo::Param(..) | Alvo::Anot(_) | Alvo::Values(_) => self.est.avaliados[no] = true,
             }
         }
     }
@@ -978,10 +984,22 @@ impl<'p, 'a> Passeio<'p, 'a> {
                 if fe.kind == FunctionKind::ImplicitAccessor {
                     fe.variable
                 } else {
+                    // O getter `values` sintético do enum.
+                    if fe.node == FunctionRef::None
+                        && fe.variable.is_none()
+                        && fe.static_
+                        && let Some(k) = fe.class
+                        && program.class(k).kind == ClassKind::Enum
+                        && m.interner.resolve(fe.name) == "values"
+                    {
+                        self.saida.push(Alvo::Values(k));
+                    }
                     None
                 }
             }
-            Some(Resolved::Local(_)) => {
+            // O local (ou o local declarado adiante, sem resolução na
+            // inferência, mas com a declaração registrada).
+            Some(Resolved::Local(_)) | None => {
                 let offset = m.body.units.get(self.u.0 as usize).and_then(|b| b.declaracao_local(e));
                 if let Some(offset) = offset {
                     if self.est.inicializador_local(m, self.u, offset).is_some() {

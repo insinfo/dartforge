@@ -11613,6 +11613,12 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
   (bad_initializer1_test:8:9). Nós só detectamos ciclo variável→variável durante a avaliação.
 - **Mensagem:** "The compile-time constant expression depends on itself."
 - **No DartForge:** mesmo grafo de `recursive_constant_constructor`.
+- **Feito em 2026-10-07 (20/20):** no grafo (`ciclos.rs`), o `values` sintético de cada enum é um alvo
+  (`Alvo::Values`) que depende de todas as constantes, e a referência ao getter `values` aponta para ele;
+  a constante de enum em ciclo recebe o erro no nome dela (`avaliador.rs`, `span_do_nome_da_variavel`
+  inclui a constante de enum), e ler um `values` com constante inválida é inválido calado (como a variável
+  `const` de resultado inválido). O local declarado adiante (`const elems = [… elems …]`) fica com a
+  declaração registrada na inferência (`declaracoes_de_locais`), e o `ReferenceFinder` vê a dependência.
 
 ##### `const_constructor_with_non_const_super` (perda 11: FN 11)
 - **Emissão:** mesmo método (`error_verifier.dart:2858-2893`), depois do teste de mixins.

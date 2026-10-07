@@ -1000,6 +1000,12 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
         RefNome::Adiante(decl) => {
             let msg = format!("{}: '{}'", REFERENCED_BEFORE_DECLARATION.template, inf.interner.resolve(n.sym));
             aviso_antes_da_declaracao(inf, n, msg, decl);
+            // O analyzer resolve o nome para o local declarado adiante (o
+            // escopo do bloco já o tem): o `ReferenceFinder` vê a dependência
+            // (`const x = [x];` é ciclo).
+            if inf.registrar_locais {
+                inf.body_types.units[cx.unit.0 as usize].declaracoes_de_locais.insert(e, decl.start);
+            }
             inf.core.dynamic_
         }
         // Só curingas declaram `_` aqui (3.7): usar `_` é erro

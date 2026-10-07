@@ -1547,7 +1547,17 @@ impl<'a> Motor<'a> {
         for v in self.program.class(k).enum_constants.clone() {
             match self.valor_de_variavel(v) {
                 Some(Constante::Valor(x)) => lista.push(x),
-                _ => return self.generico(u, erro_em, true),
+                // Uma constante inválida (num ciclo com o próprio `values`,
+                // `e1(values)`): o `values` fica inválido como variável `const`
+                // de resultado inválido, calado (`avoidReporting`,
+                // `evaluation.dart:1867-1878`).
+                Some(Constante::Invalida(_)) => {
+                    let mut i = self.erro(u, self.span(u, erro_em), c::INVALID_CONSTANT);
+                    i.nao_resolvida = true;
+                    i.evitar_relato = true;
+                    return Constante::Invalida(Box::new(i));
+                }
+                None => return self.generico(u, erro_em, true),
             }
         }
         Constante::Valor(self.valor(tipo, Estado::Lista { elemento, elementos: Rc::new(lista), desconhecida: false }))
@@ -1663,8 +1673,9 @@ impl<'a> Motor<'a> {
         // tem ciclo (`generateCycleError`): o resultado guardado é o
         // inválido no nome dela, e quem a lê recebe um inválido calado.
         if self.grafo.variaveis_em_ciclo.contains(&v) {
+            // A constante de enum também: o erro no nome dela.
             let unidade = match self.program.variable(v).node {
-                VariableRef::TopLevel { unit, .. } | VariableRef::Field { unit, .. } => Some(unit),
+                VariableRef::TopLevel { unit, .. } | VariableRef::Field { unit, .. } | VariableRef::EnumConstant { unit, .. } => Some(unit),
                 _ => None,
             };
             if let (Some(unidade), Some(nome)) = (unidade, self.span_do_nome_da_variavel(v)) {
@@ -1744,6 +1755,10 @@ impl<'a> Motor<'a> {
             },
             VariableRef::Field { unit, member, index } => match &self.ast(unit).member(member).kind {
                 ast::MemberKind::Field(l) => l.variables.get(index).map(|x| x.name.span),
+                _ => None,
+            },
+            VariableRef::EnumConstant { unit, decl, index } => match &self.ast(unit).decl(decl).kind {
+                ast::DeclKind::Enum(en) => en.constants.get(index).map(|x| x.name.span),
                 _ => None,
             },
             _ => None,
