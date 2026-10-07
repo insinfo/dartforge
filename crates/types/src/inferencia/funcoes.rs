@@ -2003,7 +2003,7 @@ pub(crate) fn conjunto_desnecessario(inf: &mut BodyInferrer<'_>, unit: UnitId, f
 /// Metadados (anotações) e argumentos de constantes de enum de uma unidade.
 pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: UnitId) {
     let a = &inf.program.unit(unit).ast;
-    for d in a.decls.iter() {
+    for (di, d) in a.decls.iter().enumerate() {
         let (classe, _) = classe_da_decl(inf, unit, d);
         // A anotação da declaração é resolvida no escopo de fora dela (o da
         // biblioteca): os membros do contêiner não estão nele.
@@ -2021,9 +2021,40 @@ pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: Uni
             ast::DeclKind::Typedef(x) => &x.type_params,
             ast::DeclKind::Function(_) | ast::DeclKind::Variables(_) => &[],
         };
+        // Os elementos dos parâmetros de tipo da declaração, que estão no
+        // escopo das anotações deles (`@A(T) U` resolve `T` para o parâmetro
+        // de tipo; avaliado, é `CONST_TYPE_PARAMETER`).
+        let ids: Vec<TypeParamId> = if tps.iter().any(|tp| !tp.metadata.is_empty()) {
+            let decl = ast::DeclId(di as u32);
+            let mesma = |r: &dartforge_elements::model::DeclRef| r.unit == unit && r.decl == decl;
+            match &d.kind {
+                ast::DeclKind::Extension(_) => inf
+                    .program
+                    .extensions
+                    .iter()
+                    .position(|x| mesma(&x.decl))
+                    .and_then(|i| inf.outline.extensions.get(i))
+                    .map(|x| x.type_params.to_vec())
+                    .unwrap_or_default(),
+                ast::DeclKind::Typedef(_) => inf
+                    .program
+                    .typedefs
+                    .iter()
+                    .position(|x| mesma(&x.decl))
+                    .and_then(|i| inf.outline.typedefs.get(i))
+                    .map(|x| x.type_params.to_vec())
+                    .unwrap_or_default(),
+                _ => classe.and_then(|c| inf.outline.classes.get(c.0 as usize)).map(|x| x.type_params.to_vec()).unwrap_or_default(),
+            }
+        } else {
+            Vec::new()
+        };
+        let escopo: Vec<(dartforge_intern::SymbolId, TypeParamId)> =
+            if ids.len() == tps.len() { tps.iter().map(|tp| tp.name.sym).zip(ids.iter().copied()).collect() } else { Vec::new() };
         for tp in tps.iter() {
             for m in tp.metadata.iter() {
-                anotacao(inf, unit, None, None, m);
+                validar_anotacao(inf, unit, None, m);
+                anotacao_sem_validar_com(inf, unit, None, m, &escopo);
             }
         }
         match &d.kind {
@@ -2177,13 +2208,28 @@ pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: Uni
     for (i, f) in a.functions.iter().enumerate() {
         let validar = declaradas.contains_key(&(i as u32));
         // Os parâmetros de tipo de um método veem o escopo do contêiner.
-        let (dona, ext_dona) = declaradas.get(&(i as u32)).copied().unwrap_or((None, None));
+        let (dona, _) = declaradas.get(&(i as u32)).copied().unwrap_or((None, None));
+        // Os parâmetros de tipo da própria função também estão no escopo.
+        let escopo: Vec<(dartforge_intern::SymbolId, TypeParamId)> = if f.type_params.iter().any(|tp| !tp.metadata.is_empty()) {
+            let fid = inf.program.functions.iter().position(|fe| {
+                matches!(fe.node, dartforge_elements::model::FunctionRef::Function { unit: u, function } if u == unit && function.0 == i as u32)
+            });
+            match fid.and_then(|x| inf.outline.functions.get(x)) {
+                Some(dados) if dados.type_params.len() == f.type_params.len() => {
+                    f.type_params.iter().map(|tp| tp.name.sym).zip(dados.type_params.iter().copied()).collect()
+                }
+                _ => Vec::new(),
+            }
+        } else {
+            Vec::new()
+        };
         for tp in f.type_params.iter() {
             for m in tp.metadata.iter() {
                 if validar {
-                    anotacao(inf, unit, dona, ext_dona, m);
+                    validar_anotacao(inf, unit, dona, m);
+                    anotacao_sem_validar_com(inf, unit, dona, m, &escopo);
                 } else {
-                    anotacao_sem_validar(inf, unit, None, m);
+                    anotacao_sem_validar_com(inf, unit, None, m, &escopo);
                 }
             }
         }
@@ -2419,8 +2465,17 @@ fn anotacao(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option<ClassId>, _
 
 /// Os argumentos da anotação (inferência), sem a validação dos nomes.
 fn anotacao_sem_validar(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option<ClassId>, m: &ast::Annotation) {
+    anotacao_sem_validar_com(inf, unit, classe, m, &[]);
+}
+
+/// Como [`anotacao_sem_validar`], com parâmetros de tipo a mais no escopo
+/// (os da declaração cujo parâmetro de tipo a anotação marca).
+fn anotacao_sem_validar_com(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option<ClassId>, m: &ast::Annotation, tipos: &[(dartforge_intern::SymbolId, TypeParamId)]) {
     let Some(args) = &m.arguments else { return };
     let mut cx = Corpo::novo(inf, unit, classe, None, true);
+    for &(nome, p) in tipos {
+        cx.declarar_tipo_param(nome, p);
+    }
     let nomes: Vec<dartforge_intern::SymbolId> = m.name.iter().map(|n| n.sym).collect();
     // Classe e construtor.
     let (c, ctor) = match nomes.as_slice() {

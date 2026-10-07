@@ -458,8 +458,16 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
                 // casar ou não, sem informação. O nome é um
                 // `SimpleIdentifier` (`ConstantPattern`): sem elemento,
                 // `UNDEFINED_IDENTIFIER`.
-                if matches!(expr::resolver_nome(inf, cx, name.sym, false), expr::RefNome::Nenhum) {
-                    expr::nome_indefinido_sem_this(inf, cx, name);
+                match expr::resolver_nome(inf, cx, name.sym, false) {
+                    expr::RefNome::Nenhum => expr::nome_indefinido_sem_this(inf, cx, name),
+                    // O parâmetro de tipo como literal de tipo constante: fora
+                    // de um construtor `const` não há ambiente léxico, e o
+                    // `_getConstantValue` dá `CONST_TYPE_PARAMETER` no nome
+                    // (3.6.2 `evaluation.dart:1847-1859`).
+                    expr::RefNome::TipoParam(_) => {
+                        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::CONST_TYPE_PARAMETER, name.span, &[]);
+                    }
+                    _ => {}
                 }
                 let atual = cx.fluxo.clone();
                 juntar_nao_casou(inf, cx, &atual);

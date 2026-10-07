@@ -11286,6 +11286,9 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
      léxico → `CONST_TYPE_PARAMETER`, `:1847-1859`) e convertido para `…_FUNCTION_TEAROFF` no
      argumento. Sai pelo `_reportError` (código específico, `:672`), no inicializador de const,
      valor padrão etc.
+     **Feito em 2026-10-07 (5a, 39/39):** `avaliador.rs::instanciacao_com_parametro` lê os argumentos da
+     instanciação implícita (`instanciacoes_de_tearoff`) da função estática ou de topo e da variável que
+     guarda uma função genérica (o valor primeiro), com o ambiente léxico do construtor aplicado.
 - **Condição `_checkForConstWithTypeParameters`** (`:554-602`): NamedType cujo elemento é
   `TypeParameterElement` não permitido → reporta e para; senão recursão nos argumentos de tipo;
   GenericFunctionType: acrescenta os próprios parâmetros de tipo aos permitidos, checa limites,
@@ -11661,6 +11664,16 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
   `const (List<T>)`: `TypeArguments` em padrão constante — no avaliador, literal de tipo
   genérico dentro de padrão constante com argumento que é parâmetro de tipo →
   `CONST_TYPE_PARAMETER` no tipo (usar `Motor::parametro_de_tipo`).
+- **Feito em 2026-10-07 (15/15):**
+  - `case T` (identificador solto de padrão refutável que resolve para parâmetro de tipo): relatado em
+    `padroes/casamento.rs` no nome, junto da resolução do nome (fora de construtor `const` não há ambiente
+    léxico de tipos).
+  - `const (List<T>)`: `verificador.rs` (`PatternKind::Constant`) confere o literal de tipo logo dentro dos
+    parênteses do padrão; a inferência registra o tipo de cada argumento de tipo do literal
+    (`expr.rs`, `TypeArguments` que é referência a tipo), sem relatos novos.
+  - Anotações dos parâmetros de tipo (`class C<T, @A(T) U>`, função, método, extensão, mixin, typedefs):
+    os parâmetros de tipo da declaração entram no escopo dos argumentos da anotação
+    (`funcoes.rs::anotacao_sem_validar_com`), e `T` avaliado dá o erro.
 
 ##### `const_constructor_field_type_mismatch` (perda 8: FN 1, FP 7)
 - **Emissão:** `_checkFields` (`evaluation.dart:2619-2650`, erro no inicializador do campo,

@@ -1382,6 +1382,15 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
         ExprKind::TypeArguments { target, type_args } => {
             if referencia_a_tipo(inf, cx, e).is_some() {
                 conferir_argumentos_do_literal(inf, cx, e, false);
+                // O `NamedType.type` de cada argumento (o verificador de
+                // constantes lê o do `const (List<T>)`); os relatos já saíram
+                // na conferência acima.
+                let antes = inf.diagnostics.len();
+                for &x in type_args.iter() {
+                    inf.tipo_de_argumento_de_tipo(cx, x);
+                }
+                inf.diagnostics.truncate(antes);
+                inf.unidades_dos_avisos.truncate(antes);
                 registrar_ref_tipo(inf, cx, e);
                 inf.core.type_
             } else if alias_sem_classe(inf, cx, *target) {

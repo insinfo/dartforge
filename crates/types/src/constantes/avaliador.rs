@@ -619,7 +619,7 @@ impl<'a> Motor<'a> {
         }
     }
 
-    fn menciona_parametro(&self, t: TypeId) -> bool {
+    pub(crate) fn menciona_parametro(&self, t: TypeId) -> bool {
         match self.table.get(t) {
             Type::TypeParameter { .. } | Type::Intersection { .. } => true,
             Type::Interface { args, .. } | Type::ExtensionType { args, .. } => args.iter().any(|a| self.menciona_parametro(*a)),
@@ -1415,6 +1415,22 @@ impl<'a> Motor<'a> {
         Some(Constante::Invalida(Box::new(i)))
     }
 
+    /// A instanciação implícita do tear-off `e` (`typeArgumentTypes` de um
+    /// `FunctionReference` sem argumentos escritos) com algum argumento que
+    /// menciona parâmetro de tipo depois do ambiente léxico do construtor
+    /// (3.6.2 `evaluation.dart:862-876`).
+    fn instanciacao_com_parametro(&mut self, cx: &Ctx, e: ExprId) -> bool {
+        let inferidos: Option<Vec<TypeId>> = self.body.units.get(cx.unidade.0 as usize).and_then(|b| b.instanciacao_de_tearoff(e)).map(|a| a.to_vec());
+        let Some(args) = inferidos else { return false };
+        args.iter().any(|&a| {
+            let a = match &cx.tipos {
+                Some(m) => crate::ops::substitute(a, m, self.table),
+                None => a,
+            };
+            self.menciona_parametro(a)
+        })
+    }
+
     /// `_getConstantValue` do elemento a que `e` resolve (`erro_em` é o nó
     /// do erro).
     fn valor_constante(&mut self, cx: &Ctx, e: ExprId, erro_em: ExprId, com_identificador: bool) -> R {
@@ -1423,7 +1439,13 @@ impl<'a> Motor<'a> {
         let _ = com_identificador;
         match res {
             Some(Resolved::Element(Element::Variable(v))) | Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => {
-                return self.valor_de_referencia_a_variavel(cx, erro_em, v);
+                // A variável que guarda uma função genérica, instanciada
+                // implicitamente: o valor primeiro, depois os argumentos.
+                let r = self.valor_de_referencia_a_variavel(cx, erro_em, v);
+                if matches!(r, Constante::Valor(_)) && self.instanciacao_com_parametro(cx, e) {
+                    return self.inv(u, e, c::CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF);
+                }
+                return r;
             }
             Some(Resolved::Element(Element::Function(f))) | Some(Resolved::Member { member: MemberRef::Function(f), .. }) => {
                 let fe = self.program.function(f);
@@ -1447,6 +1469,14 @@ impl<'a> Motor<'a> {
                 }
                 let estatica = fe.class.is_none() && fe.extension.is_none() || fe.static_;
                 if estatica && matches!(fe.kind, FunctionKind::Function | FunctionKind::Operator) {
+                    // Instanciação implícita do tear-off genérico
+                    // (`visitFunctionReference` sem argumentos escritos, 3.6.2
+                    // `evaluation.dart:862-876`): um argumento inferido que
+                    // menciona parâmetro de tipo (depois do ambiente léxico do
+                    // construtor) é `CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF`.
+                    if self.instanciacao_com_parametro(cx, e) {
+                        return self.inv(u, e, c::CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF);
+                    }
                     let t = self.outline.functions.get(f.0 as usize).map(|d| d.signature).unwrap_or(self.core.dynamic_);
                     let t = if self.inferida(u) { self.estatico(u, e) } else { t };
                     return Constante::Valor(self.valor(t, Estado::Funcao { elemento: Funcao::Elemento(f), args: None }));

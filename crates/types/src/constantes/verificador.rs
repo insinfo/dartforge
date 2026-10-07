@@ -1115,6 +1115,22 @@ impl Verificador<'_, '_> {
     fn padrao(&mut self, a: &ast::Ast, p: PatternId) {
         match &a.pattern(p).kind {
             PatternKind::Constant(e) => {
+                // `const (List<T>)`: o literal de tipo logo dentro dos
+                // parênteses do padrão constante
+                // (`isTypeLiteralInConstantPattern`, 3.6.2
+                // `evaluation.dart:1066-1072`, `:3197-3201`) que menciona
+                // parâmetro de tipo é `CONST_TYPE_PARAMETER` no tipo.
+                if let ExprKind::Parenthesized(x) = a.expr(*e).kind
+                    && let ExprKind::TypeArguments { target, type_args } = &a.expr(x).kind
+                    && matches!(
+                        self.m.body.units[self.unidade.0 as usize].get_resolved(*target),
+                        Some(crate::resolved::Resolved::Element(dartforge_elements::model::Element::Class(_) | dartforge_elements::model::Element::Typedef(_)))
+                    )
+                    && type_args.iter().any(|&t| self.tipo_da_anotacao(t).is_some_and(|r| self.m.menciona_parametro(r)))
+                {
+                    self.relatar(c::CONST_TYPE_PARAMETER, a.expr(x).span, Vec::new());
+                    return;
+                }
                 let e = desparentizar(a, *e);
                 if self.m.body.units[self.unidade.0 as usize].tipos_invalidos.contains(&e) {
                     return;
