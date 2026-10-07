@@ -605,8 +605,10 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
             // próprio "não casou", que é a entrada do direito.
             let vazio = cx.fluxo.inalcancavel();
             let previo = cx.casamento.as_mut().map(|c| std::mem::replace(&mut c.nao_casou, vazio));
+            let inicio_x = cx.locais.len();
             tipar(inf, cx, x, final_, atribuicao, false);
-            let casou_esquerdo = cx.fluxo.clone();
+            let inicio_y = cx.locais.len();
+            let mut casou_esquerdo = cx.fluxo.clone();
             let falhou = match (cx.casamento.as_mut(), previo) {
                 (Some(c), Some(previo)) => std::mem::replace(&mut c.nao_casou, previo),
                 _ => cx.fluxo.clone(),
@@ -630,6 +632,21 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
             tipar(inf, cx, y, final_, atribuicao, false);
             super::super::instrucoes::sair_fluxo(cx);
             let casou_direito = cx.fluxo.clone();
+            // A variável de junção (a do operando direito, que o escopo
+            // enxerga) tem, no ramo do esquerdo, o estado da cópia do esquerdo
+            // (`logicalOrPattern_end` junta as variáveis pelo nome): com o
+            // direito morto, fica a do esquerdo, atribuída.
+            for d in inicio_y..cx.locais.len() {
+                let nome = cx.locais[d].nome;
+                if let Some(e) = (inicio_x..inicio_y).find(|&e| cx.locais[e].nome == nome && cx.locais[e].offset != 0)
+                    && let Some(m) = casou_esquerdo.modelo(LocalId(e as u32)).cloned()
+                {
+                    if casou_esquerdo.vars.len() <= d {
+                        casou_esquerdo.vars.resize(d + 1, None);
+                    }
+                    casou_esquerdo.vars[d] = Some(m);
+                }
+            }
             cx.fluxo = inf.juntar(&casou_esquerdo, &casou_direito);
             if forcado {
                 cx.refutavel_forcado = false;

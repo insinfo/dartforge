@@ -3959,6 +3959,11 @@ chave igual a uma anterior (a igualdade do `DartObjectImpl`), relatada depois de
   `nnbd/definite_assignment/definite_assignment_error_test.dart:50:9` depois de `return;`): o DartForge não relata quando
   `!fluxo.alcancavel` (o modelo deve manter `atribuida`/`nao_atribuida` ao tornar inalcançável e consultá-los mesmo assim).
   Cuidado: no analyzer `join` de um ramo inalcançável devolve o outro (`juntar` já faz).
+- **Feito em 2026-10-07 (128/129, FP 0):** (a) a leitura no código inalcançável também confere (o código morto
+  herda o estado dos caminhos que levam a ele: `return; use(x);` e o que vem depois de `while (true) {}`
+  relatam; vale para o `late` e o `final`); (b) no padrão `p1 || p2`, a variável de junção (a cópia do
+  direito, que o escopo enxerga) recebe no ramo do esquerdo o estado da cópia do esquerdo antes da junção
+  (`casamento.rs`): com o direito morto (`var a || var a`), fica atribuída.
 
 - **Correção de 2026-10-06:** a condição é `isPotentiallyNonNullable` (`!(Null <: T)`), não `T <: Object`: o parâmetro de tipo de limite `Object?` (`T v; v;`) e o tipo de extensão sem `Object` também relatam (`expr.rs::ler_local`).
 

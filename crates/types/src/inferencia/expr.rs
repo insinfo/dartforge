@@ -768,8 +768,10 @@ fn registrar_ref_tipo(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId) {
 fn ler_local(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, id: LocalId, span: dartforge_diagnostics::Span) -> TypeId {
     let l = cx.local(id).clone();
     // `checkReadOfNotAssignedLocalVariable`
-    // (`an611:src/generated/resolver.dart:643-690`).
-    if !l.funcao_local && cx.fluxo.alcancavel {
+    // (`an611:src/generated/resolver.dart:643-690`). Também no código
+    // inalcançável, que herda o estado dos caminhos que levam a ele
+    // (`return; use(x);` relata).
+    if !l.funcao_local {
         let nome = inf.interner.resolve(l.nome).to_string();
         if l.late {
             if cx.fluxo.nao_atribuida(id) {
