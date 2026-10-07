@@ -18,7 +18,7 @@
 //! invocados por `super` no mixin), ela responde [`Porta::Incerta`] e nada
 //! do que depende dela é emitido.
 
-use dartforge_diagnostics::{Codigo, Diagnostic, codigos::compile_time_error as c};
+use dartforge_diagnostics::{Codigo, Diagnostic, Span, codigos::compile_time_error as c};
 use dartforge_elements::model::{
     ClassId, ClassKind, Element, FunctionKind, LibraryId, Program, UnitId,
 };
@@ -1017,10 +1017,38 @@ fn classe_mixin(
         let escrito = fonte
             .get(k.class_name.span.start..k.class_name.span.end)
             .unwrap_or("");
-        let nova_sintaxe = d.primary_constructor == Some(mid) || escrito != l.nome(d.name.sym);
-        if k.factory || k.parte_primaria || nova_sintaxe {
+        if k.factory || k.parte_primaria {
             continue;
         }
+        // `_checkForMixinClassErrorCodes` do 3.13 (checkout main,
+        // `error_verifier.dart:6657-6712`): o primário com parâmetros, no
+        // nome (`A` ou `A.nome`); sem parâmetros, a parte `this` com
+        // inicializadores (no `:`) ou com corpo bloco (no `{`). Sai com o
+        // código 3.6, que a tradução do 3.13 troca pelo
+        // `MIXIN_CLASS_DECLARES_NON_TRIVIAL_GENERATIVE_CONSTRUCTOR`.
+        if d.primary_constructor == Some(mid) {
+            let sp = if !k.parameters.is_empty() {
+                Some(Span { start: k.class_name.span.start, end: k.name.map_or(k.class_name.span.end, |n| n.span.end) })
+            } else {
+                let parte = ast_.member(mid).span;
+                let texto = fonte.get(parte.start..parte.end).unwrap_or("");
+                if !texto.starts_with("this") {
+                    None
+                } else if !k.initializers.is_empty() {
+                    texto.find(':').map(|i| Span { start: parte.start + i, end: parte.start + i + 1 })
+                } else if matches!(k.body, ast::FunctionBody::Block(_)) {
+                    texto.find('{').map(|i| Span { start: parte.start + i, end: parte.start + i + 1 })
+                } else {
+                    None
+                }
+            };
+            if let Some(sp) = sp {
+                saida.push(Diagnostic::com_codigo(c::MIXIN_CLASS_DECLARES_CONSTRUCTOR, sp, [nome]));
+            }
+            continue;
+        }
+        // O membro `new(…)` (3.13) tem o mesmo teste de trivialidade, no `new`.
+        let _ = escrito;
         // `ConstructorDeclaration.isTrivial`: `A();` sem nada mais.
         let trivial = k.redirect.is_none()
             && k.parameters.is_empty()

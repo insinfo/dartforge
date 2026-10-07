@@ -6106,6 +6106,7 @@ ou `undefined_class 'augment'`) e o resto é **outra declaração homônima** (`
   (`nova_sintaxe`). Todos os 16 são NOVA. Para cobrir: na biblioteca de sintaxe nova, emitir o código novo (a
   acrescentar à tabela) com as posições acima, inclusive para o k2 elaborado (não trivial se tem parâmetros, lista,
   corpo de bloco).
+- **Feito (16/16):** `_checkForMixinClassErrorCodes` do checkout main (`error_verifier.dart:6657-6712`): membro `new(…)` não trivial no `new`; primário com parâmetros no nome (`A` ou `A.nome`); primário sem parâmetros com a parte `this` com inicializadores no `:` ou com corpo bloco no `{`. `clausulas.rs::classe_mixin` emite o código 3.6 (`MIXIN_CLASS_DECLARES_CONSTRUCTOR`) e a tradução do 3.13 (`gerar_codigos.rs`) troca o código.
 
 ##### `final_not_initialized` (perda 13: FN 6, FP 7)
 - **Emissão:** `_checkForFinalNotInitialized` (EV:3576-3615), chamado em `visitTopLevelVariableDeclaration`
@@ -20452,6 +20453,7 @@ Nome próprio só no 3.13; no 3.6.2 é `WarningCode.UNUSED_ELEMENT_PARAMETER` co
 - **Posição:** o identificador. **Mensagem:** `The name '{0}' refers to an import prefix, so it must be followed by '.'.` (`messages.yaml:13755`).
 - **Supressões:** sintético; tipo inválido sem erros de membro; um por ocorrência; suprime avisos de import (já em `importacoes.rs:37`).
 - **No DartForge:** não emitido. Valor/alvo genérico (FN 6: `FfiFromFunctionInvalidCode__fromFunctio_bd83e62a.dart`, `prefix/unqualified_invocation_test.dart`, `unsorted/illegal_invocation_test.dart`, `if_null/assignment_behavior_test.dart:203`): braço `RefNome::Prefixo` de `identificador` (`expr.rs`) só devolve `dynamic` → emitir. Atribuição (FN 4: `prefix/assignment_test.dart`, `PrefixIdentifierNotFollowedByDot__assig_3598171e.dart`, `h ??= null`): braços `Prefixo` em `ler_para_escrita`, `tipo_de_escrita_nome` e atribuição simples. `?.` tratado como `p.x` (FN 5: `null_aware/{access,assignment,invocation}_test.dart`): exigir `!null_aware` em `propriedade`, `escrita_propriedade` e no `p.f(args)` de `chamadas.rs`. Testar contra FP: `p.x`, `p.f()`, `p.C()`, `p.C<T>.n()`, `p.E.v`, `p.loadLibrary()`, `@p.x`, `p.C.new`.
+- **Feito (15/15):** leitura no ramo `RefNome::Prefixo` de `expr.rs::identificador` (`p()`, argumento, `p[0]`, cascata), escrita em `tipo_de_escrita_nome` (`p = 1`, `h ??= null`; o relato repetido da leitura da composta é o mesmo diagnóstico e sai uma vez), e `p?.x`, `p?.x = v` e `p?.f()` (`PropertyAccess`/alvo com `?.`, que `_isValidAsPrefix` recusa) em `propriedade`, `escrita_propriedade` e `chamadas.rs`, que seguem resolvendo pelo prefixo. O prefixo léxico vence o membro herdado (`p()` em subclasse de `Base { void p() {} }`). Tirou também 6 FP de `unused_import`.
 
 ##### `not_a_type` (perda 8: FN 8; código PUBLICADO)
 

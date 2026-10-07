@@ -1216,6 +1216,11 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             // `p.f(args)`
             if let ExprKind::Identifier(p) = &a.expr(recv).kind {
                 if matches!(resolver_nome(inf, cx, p.sym, false), RefNome::Prefixo) {
+                    // `p?.f()`: o alvo de `MethodInvocation` só vale como
+                    // prefixo com `.` (`_isValidAsPrefix`).
+                    if null_aware {
+                        expr::prefixo_sem_ponto(inf, *p);
+                    }
                     // `p.f(args)` sem getter `f` no prefixo
                     // (`_resolveReceiverPrefix`,
                     // `an611:src/dart/resolver/method_invocation_resolver.dart:666-722`):

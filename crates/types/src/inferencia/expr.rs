@@ -951,7 +951,11 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
             inf.tipo_variavel(v)
         }
         RefNome::Prefixo => {
+            // `SimpleIdentifierResolver._resolve1` (3.6.2,
+            // `simple_identifier_resolver.dart:199-205`): o prefixo fora de
+            // `p.x` e de `p.f()` (argumento, `p?.x`, `p[0]`, cascata, `p()`).
             resolver(inf, cx, e, Resolved::Prefix(cx.lib));
+            prefixo_sem_ponto(inf, n);
             inf.core.dynamic_
         }
         RefNome::ThisImplicito => {
@@ -2070,11 +2074,22 @@ pub(crate) fn encurtamento_dispensado(inf: &BodyInferrer<'_>, cx: &Corpo, target
     matches!(ast(inf, cx).expr(target).kind, ExprKind::Identifier(_)) && matches!(rt, RefTipo::Classe(..))
 }
 
+/// `PREFIX_IDENTIFIER_NOT_FOLLOWED_BY_DOT` no nome do prefixo.
+pub(crate) fn prefixo_sem_ponto(inf: &mut BodyInferrer<'_>, n: ast::Name) {
+    let nome = inf.interner.resolve(n.sym).to_string();
+    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::PREFIX_IDENTIFIER_NOT_FOLLOWED_BY_DOT, n.span, &[&nome]);
+}
+
 fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: ExprId, name: ast::Name, null_aware: bool) -> (TypeId, bool) {
     let a = ast(inf, cx);
     // `p.nome` com prefixo de import.
     if let ExprKind::Identifier(p) = &a.expr(target).kind {
         if matches!(resolver_nome(inf, cx, p.sym, false), RefNome::Prefixo) {
+            // `p?.x` é `PropertyAccess`, não `PrefixedIdentifier`: o prefixo
+            // não vale ali (`_isValidAsPrefix`).
+            if null_aware {
+                prefixo_sem_ponto(inf, *p);
+            }
             resolver(inf, cx, target, Resolved::Prefix(cx.lib));
             match inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.getter.or(b.setter)) {
                 Some(el) => {
@@ -3552,6 +3567,12 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
             inf.aviso(ASSIGNMENT_TO_TYPE.template.to_string(), n.span);
             inf.core.dynamic_
         }
+        // `AssignmentVerifier.verify` (`assignment_verifier.dart:66-71`): a
+        // recuperação da escrita é o prefixo.
+        RefNome::Prefixo => {
+            prefixo_sem_ponto(inf, n);
+            inf.core.dynamic_
+        }
         RefNome::MembroLexico(f, estatico) => {
             let r = resolved_de_membro_lexico(inf, cx, f, estatico);
             resolver(inf, cx, alvo, r);
@@ -3826,6 +3847,9 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
     let a = ast(inf, cx);
     if let ExprKind::Identifier(p) = &a.expr(target).kind {
         if matches!(resolver_nome(inf, cx, p.sym, false), RefNome::Prefixo) {
+            if null_aware {
+                prefixo_sem_ponto(inf, *p);
+            }
             resolver(inf, cx, target, Resolved::Prefix(cx.lib));
             if let Some(el) = inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.setter.or(b.getter)) {
                 resolver(inf, cx, alvo, Resolved::Element(el));
