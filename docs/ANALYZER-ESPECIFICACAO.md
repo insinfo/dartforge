@@ -5838,6 +5838,17 @@ relatos iguais do analyzer contam um.
   quando há `noSuchMethod` não-`Object` (`:1044-1050`); no analyzer os encaminhadores só preenchem nomes
   **sem** implementação, e `index` tem a de `Enum` → a comparação continua. Trocar o `continue` por "nome
   sem implementação conta como implementado (encaminhador)".
+- **Estado em 2026-10-07 (placar 21/25):** os dois casos de `Enum.index` saíram, com três mudanças.
+  * `heranca::abstrato`: o `int get index;` do `Enum` de `dart:core` é concreto (`element_builder.dart:968-974`).
+    Isso também tirou o FP `enum_with_abstract_member` de `DeclaresNeverIndex` (615:3).
+  * `heranca::declarados`: o `index` sintético que o outline põe no enum não entra como membro declarado,
+    porque no analyzer ele vem de `Enum`.
+  * `membros_abstratos`: com `noSuchMethod` próprio, só o nome sem implementação vira encaminhador. A
+    implementação concreta que existe continua conferida.
+  * O `name` sintético segue no modelo. Tirá-lo também, já que no analyzer é a extensão `EnumName`, custou 6 no
+    placar: `conflicting_static_and_instance`, `getter_not_subtype_setter_types` e `undefined_getter` ainda
+    dependem dele.
+  * Restam os 4 com `augment`, onde o 3.6.2 lê membros homônimos como duplicados.
 
 ##### `concrete_class_has_enum_superinterface` (perda 2: FN 2)
 - **Emissão:** direto: `_checkDirectSuperTypeNode` (`inheritance_override.dart:459-481`, no `NamedType`);

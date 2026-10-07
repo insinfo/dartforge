@@ -51,6 +51,9 @@ fn mock_sdk(dir: &Path) -> SdkLayout {
             bool operator ==(Object other) => true;
             String toString() => "";
         }
+        abstract interface class Enum {
+            int get index;
+        }
         class int extends num {
             int operator +(int other) => this;
             int operator -(int other) => this;

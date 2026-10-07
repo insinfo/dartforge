@@ -316,9 +316,19 @@ fn lista_do_campo(program: &Program, v: dartforge_elements::model::VariableId) -
     }
 }
 
-/// `isAbstract`.
-fn abstrato(program: &Program, f: FunctionElementId) -> bool {
+/// `isAbstract`. O `int get index;` do `Enum` de `dart:core` conta como
+/// concreto (3.6.2 `element_builder.dart:968-974`: a especificação diz que a
+/// superclasse de fato é outra classe que implementa `Enum`).
+fn abstrato(program: &Program, interner: &dartforge_intern::Interner, f: FunctionElementId) -> bool {
     let e = program.function(f);
+    if e.kind == FunctionKind::Getter
+        && interner.resolve(e.name) == "index"
+        && let Some(k) = e.class
+        && interner.resolve(program.class(k).name) == "Enum"
+        && program.library(program.class(k).library).uri == "dart:core"
+    {
+        return false;
+    }
     if e.kind == FunctionKind::ImplicitAccessor {
         return e.variable.and_then(|v| lista_do_campo(program, v)).is_some_and(|l| l.abstract_);
     }
@@ -550,7 +560,15 @@ impl Heranca {
         let prog = p.programa();
         let interner = p.interner();
         let k = prog.class(c);
-        let mut membros: Vec<(SymbolId, FunctionElementId)> = k.instance_members.iter().map(|(&s, &f)| (s, f)).collect();
+        // O `index` sintético que o outline põe num enum não é membro do
+        // elemento do analyzer: vem de `Enum` (concreto, ver `abstrato`).
+        let e_enum = k.kind == ClassKind::Enum;
+        let mut membros: Vec<(SymbolId, FunctionElementId)> = k
+            .instance_members
+            .iter()
+            .filter(|&(&s, &f)| !(e_enum && matches!(prog.function(f).node, FunctionRef::None) && interner.resolve(s) == "index"))
+            .map(|(&s, &f)| (s, f))
+            .collect();
         membros.sort_by_key(|&(_, f)| (especie_de(prog, f) != Especie::Metodo, f));
         let mut mapa = Mapa::default();
         for (chave, f) in membros {
@@ -579,7 +597,7 @@ impl Heranca {
                     classe: c,
                     tipo,
                     especie: especie_de(prog, f),
-                    abstrato: abstrato(prog, f),
+                    abstrato: abstrato(prog, interner, f),
                     covariantes: covariantes.into(),
                     sintetico: false,
                 },

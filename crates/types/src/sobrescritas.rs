@@ -1025,13 +1025,14 @@ pub fn membros_abstratos(
         // da própria declaração (`_reportConcreteClassWithAbstractMember`).
         let intf = program.dono_da_classe(cid);
         let Some(este) = cx.tipo_proprio(intf) else { continue };
-        // `noSuchMethod` implementado que não é o de `Object`: encaminha.
-        if let Some(n) = nsm
-            && let Some(a) = cx.implementado(intf, n, 0)
-            && program.library(program.class(a.dono).library).uri != "dart:core"
-        {
-            continue;
-        }
+        // `noSuchMethod` implementado que não é o de `Object`: o nome sem
+        // implementação concreta ganha o encaminhador (o membro da interface
+        // vira o `implemented`, 3.6.2 `inheritance_manager3.dart`), então nada
+        // sai por ele; a implementação concreta que existe continua conferida
+        // (`Enum.index` contra um `Never get index` da interface).
+        let encaminha = nsm.is_some_and(|n| {
+            cx.implementado(intf, n, 0).is_some_and(|a| program.library(program.class(a.dono).library).uri != "dart:core")
+        });
         // `_isNotImplementedInConcreteSuperClass`: a superclasse declarada,
         // se concreta.
         let superclasse_concreta = program.class(intf).supertype_class.filter(|&s| {
@@ -1064,6 +1065,7 @@ pub fn membros_abstratos(
             let Some(especie) = cx.especie(membro.funcao) else { continue };
             let exibido = texto.strip_suffix("_=").unwrap_or(&texto).to_string();
             match cx.implementado(intf, chave, 0) {
+                None if encaminha => {}
                 None => {
                     // `_reportConcreteClassWithAbstractMember`.
                     let declarado = membros.iter().find(|&&m| match &ast_.member(m).kind {
