@@ -1060,6 +1060,44 @@ fn for_in_tipo_invalido(
 ) -> bool {
     use dartforge_diagnostics::codigos::compile_time_error as ce;
     let Some(classe) = (if await_ { inf.core.stream_class } else { inf.core.iterable_class }) else { return false };
+    // `for (var (p) in e)`: o `_checkForEachParts` não roda (só as partes com
+    // declaração e com identificador); o `analyzePatternForIn` compartilhado
+    // (3.6.2 `type_analyzer.dart:1445-1463`) relata se `asInstanceOf` do
+    // tipo (sem olhar o `?`, parâmetro de tipo pelo limite) não acha
+    // `Iterable`/`Stream`, fora `dynamic` e o tipo inválido; os argumentos
+    // são o tipo e sempre `'Iterable'` (`shared_type_analyzer.dart:161-171`).
+    if matches!(target, ast::ForInTarget::Pattern { .. }) {
+        if inf.e_dynamic(t) || inf.table.e_invalido(t) || inf.e_desconhecido(t) {
+            return false;
+        }
+        let mut b = t;
+        for _ in 0..16 {
+            match inf.table.get(b) {
+                Type::TypeParameter { param, .. } => {
+                    let l = inf.table.param(*param).bound;
+                    if l == b {
+                        break;
+                    }
+                    b = l;
+                }
+                Type::Intersection { bound, .. } => b = *bound,
+                _ => break,
+            }
+        }
+        let acha = match inf.table.get(b) {
+            Type::Interface { .. } | Type::ExtensionType { .. } => {
+                let nn = inf.nao_nulo(b);
+                inf.como_instancia_de(nn, Some(classe)).is_some()
+            }
+            _ => false,
+        };
+        if !acha {
+            let sp = inf.span_expr(cx.unit, iterable);
+            let tt = inf.table.format(t, inf.interner, inf.program);
+            inf.aviso_com_codigo(ce::FOR_IN_OF_INVALID_TYPE, sp, &[&tt, "Iterable"]);
+        }
+        return false;
+    }
     if matches!(inf.table.get(t), Type::Void | Type::Null) || inf.table.get(t).is_declared_nullable() {
         return false;
     }

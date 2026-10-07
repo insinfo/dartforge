@@ -217,9 +217,9 @@ impl<'a> BodyInferrer<'a> {
     /// falso de `x is T` testa `T` e promove para `factor(S, T)`;
     /// `_finishTypeTest` do analisador).
     pub(crate) fn promover_testado(&mut self, fluxo: &mut Fluxo, id: LocalId, declarado: TypeId, t: TypeId, testado: TypeId) {
-        if !fluxo.alcancavel {
-            return;
-        }
+        // Também no código inalcançável: o `tryPromoteForTypeCheck` do
+        // modelo não olha a alcançabilidade (`flow_analysis.dart`), e o
+        // código morto continua resolvido com as promoções.
         let Some(m) = fluxo.modelo(id).cloned() else { return };
         if m.capturada {
             return;

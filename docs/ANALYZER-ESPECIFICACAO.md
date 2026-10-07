@@ -421,6 +421,7 @@ Base comum (vale para vários códigos abaixo):
 - **Posição:** a expressão iterável.
 - **Mensagem:** `The type '{0}' used in the 'for' loop must implement '{1}'.` — `{0}` o tipo **depois** de `resolveToBound`; `{1}` a string literal `'Iterable'` ou `'Stream'` (com `await`).
 - **No DartForge:** `instrucoes.rs::cabecalho_for_in` (:703) não relata; o mesmo para `for` em coleções (`colecoes.rs`, `CollectionElement::ForIn`). **Mudança:** implementar a regra no cabeçalho de `for-in` de instrução e de elemento de coleção.
+- **Padrão (2026-10-07, 17/17 sem FP):** `for (var (p) in e)` não passa por `_checkForEachParts`; o `analyzePatternForIn` (`type_analyzer.dart:1445-1463`) relata só se `asInstanceOf(Iterable/Stream)` falha, e `asInstanceOf` ignora o `?` e vai pelo limite do parâmetro de tipo: `T extends Iterable<int>?` não relata (o erro é o do nulo). Argumentos: o tipo sem `resolveToBound` e sempre `'Iterable'`. Em `instrucoes.rs::for_in_tipo_invalido`.
 
 ##### `for_in_of_invalid_element_type` (perda 14: FN 14)
 - **Emissão:** mesma função (`error_verifier.dart:3172-3233`).
@@ -524,6 +525,7 @@ Base comum: a resolução de membro passa por `TypePropertyResolver.resolve` (`a
 - **Supressões e ordem:** `super` → `UNDEFINED_SUPER_OPERATOR`; override de extensão → `UNDEFINED_EXTENSION_OPERATOR`; `dynamic`/`Never` nada.
 - **No DartForge:** binário em `expr.rs` (:2185-2215, já com código); falta índice (`[]=` sai como `UNDEFINED_METHOD`, `[]` sem relato), prefixo/pósfixo (`++a`, `-a`, `~s`). Causas: **11 FN índice** (`UndefinedOperator__index*`, `static_extension_getter_setter_conflicts` 9, `string_test`, `first_class_types_literals`), **8 FN `++`/`--`/`-`** (`prefix/postfixExpression*`, `string/no_operator_test`), **2 FN `variance/syntax`** (experimento); **10 FP `number_operator_error_test`** (`O extends num?` promovido a `O & int` — o operador deve ser procurado no limite **promovido** `int`, não em `O`).
   **Mudança:** índice com o span `[..]` e os dois nomes; pré/pós-fixos no token; buscar operadores em tipos interseção pelo limite promovido.
+- **FP de `number_operator_error_test` resolvidos em 2026-10-07:** a causa era outra: o código depois de `x += never` é inalcançável e a promoção por `is` era descartada ali; agora promove (ver INFERENCIA R-FLU-P1).
 - **Correções e estado (2026-10-06):** (1) prefixo/sufixo (`-x`, `~x`, `++x`, `x--`) sem o operador no tipo:
   `UNDEFINED_OPERATOR` no token do operador (`'unary-'`, `'~'`, `'+'`, `'-'`), salvo receptor anulável (é o
   `unchecked_*`), `void`, tipo de função, inválido, e o operando que é tipo (`C++`, `dynamic++`: só
@@ -5831,6 +5833,11 @@ relatos iguais do analyzer contam um.
     `nome_publico_do_nomeado`) devolve o nome público mesmo sem o recurso (só os nomes inválidos são tratados
     à parte, `:823-833`); sem o recurso devolver `None`. Os 2 `posição:` (`declaring_parameter_collision_error_test.dart:69:44`,
     `:104:54`, `'_foo'`) são a mesma raiz (relatamos a colisão no outro parâmetro).
+  - **Feito em 2026-10-07 (FP 9 → 1):** sem o recurso, `nome_publico_do_nomeado` relata o recurso desligado e
+    devolve `None`: o parâmetro fica com o nome privado (`this._foo` e `foo` não colidem; dois `this._foo`
+    colidem como `_foo`, `duplicate_field_formal_parameter`). Somem também os FP derivados de
+    `undefined_named_parameter`, `super_formal_parameter_without_associated_named` e
+    `implicit_super_initializer_missing_arguments`.
   - **FP 1** `DuplicateVariablePattern__variableDeclaration.dart:2:11` (`var [a, a] = …`): o analyzer só dá
     `duplicate_variable_pattern`; não relatar `duplicate_definition` para variáveis de padrão repetidas.
   - **FN 2** `class_modifiers/base/base_class_syntax_error_test.dart:78:1` e
@@ -7914,6 +7921,12 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
   — o 3.13 não relata `dot_shorthand_undefined_member` quando o lado esquerdo do `==` é uma
   sobreposição de extensão (o contexto não é tipo de interface utilizável); nós resolvemos o shorthand
   contra `int`. Descrever pelo corpus: ver os `// [analyzer]` do arquivo.
+- **Diagnóstico de 2026-10-07:** o arquivo não está no `sintaxe-nova.json` (o 3.13.4 não o classificou, embora
+  o nosso parser o marque: é o "só nosso 1" da linha de referência 3.13.4 de `linguagem`), então o oráculo é o
+  3.6.2, que recupera `.member` como acesso a um identificador sintético (`MISSING_IDENTIFIER` no `.`, e
+  `.new()` como `UNDEFINED_METHOD` em `'<unknown>'`). Nas outras unidades a regra `super == .member` do 3.13.4
+  é atalho; a diferença está no oráculo, não numa regra do analyzer. Fica pendente regravar o oráculo desse
+  arquivo com o 3.13.4 (`dartforge-paridade sintaxe-nova`).
 
 ### Rodada 4 — família C
 

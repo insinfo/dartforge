@@ -1003,6 +1003,11 @@ insolidez" (`:265-266`, sem detalhe).
   válido, `T` entra em `tested` e S1 na cadeia. `ifFalse`: `factor(atual, T)`;
   fator fundo → sem promoção ([3.6] ainda alcançável; [3.9+] ramo
   **inalcançável**); senão promove ao fator; `T` sempre entra em `tested`.
+  A promoção vale também no código inalcançável (o modelo não olha a
+  alcançabilidade): `late var never = throw …; x += never;` deixa o resto
+  morto, e `if (o is int) { o + d; }` ali ainda vê `O & int` (correção de
+  2026-10-07, `fluxo.rs::promover_testado`; eram 10 FP de `undefined_operator`
+  e 6 FN de `invalid_assignment` em `number_operator_error_test`).
 * **R-FLU-P2 `tryPromoteToType(para, de)`** (`an611:lib/src/dart/element/
   type_system.dart:1751-1782`; `sdk:…:1771-1802`): `para <: de` → `para`;
   senão, se `de` é variável de tipo e `para <: limite(de)` → **`X & para`**

@@ -913,6 +913,12 @@ impl<'s, 'i> Parser<'s, 'i> {
             return None;
         }
         self.exigir(Feature::PrivateNamedParameters, n.span);
+        // Com o recurso desligado, o parâmetro fica com o nome privado (o
+        // oráculo 3.13.4 não renomeia: `this._foo` e `foo` não colidem, e dois
+        // `this._foo` colidem como `_foo`).
+        if !self.features.tem(Feature::PrivateNamedParameters) {
+            return None;
+        }
         let valido = resto
             .chars()
             .next()
