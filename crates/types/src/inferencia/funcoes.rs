@@ -1801,15 +1801,14 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
                 }
             };
             let estatico = embrulhar(inf, t);
-            // O retorno inferido não cabe no do contexto e foi trocado por
-            // ele: cada `return` confere contra esse tipo
-            // (`RETURN_OF_INVALID_TYPE_FROM_CLOSURE`).
-            // Closure `async` em contexto de retorno `void`: o retorno dela é
-            // `Future<void>` e todo `return e;` com `flatten(e)` fora de
-            // `void`/`dynamic`/`Null` é erro (`return_type_verifier.dart:245-256`).
-            let async_void = m == AsyncModifier::Async && matches!(inf.table.get(r), Type::Void);
-            if fc.executavel.is_none() && !gerador && ((!inf.sub(t, r) && !matches!(inf.table.get(r), Type::Void | Type::Dynamic) && !inf.e_desconhecido(r)) || async_void) {
-                retornos_da_closure(inf, cx, &fc, r, estatico);
+            // O `ReturnTypeVerifier` confere todo `return` da closure contra o
+            // tipo de retorno dela (o inferido, já ajustado ao contexto); o
+            // `=> e` com retorno achatado `void` aceita qualquer expressão
+            // (`verifyExpressionFunctionBody`, `return_type_verifier.dart:45-52`).
+            let achatado = if m == AsyncModifier::Async { inf.flatten(estatico) } else { estatico };
+            let seta_void = matches!(af.body, FunctionBody::Expression(_)) && matches!(inf.table.get(achatado), Type::Void);
+            if fc.executavel.is_none() && !gerador && !seta_void {
+                retornos_da_closure(inf, cx, &fc, estatico, estatico);
             }
             // O tipo de execução do gerador (a regra do CFE, conferida contra
             // a VM 3.6.2 e a 3.13.4): o elemento é o limite superior dos
