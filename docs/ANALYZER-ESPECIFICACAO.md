@@ -6283,6 +6283,13 @@ ou `undefined_class 'augment'`) e o resto é **outra declaração homônima** (`
   SuperFormalParameterWithoutAssociatedPo_3c060505/b10e2def, not_enough_positional_arguments_error_test:15,
   private/super_constructor_test e regress20394_test — privados de outra biblioteca —, super/call3_test:46/50);
   **8 NOVA** (4 PRIM+THIS `this : super.named()`, 2 primário implícito, `new foo()`, `super.new()`).
+- **Estado em 2026-10-07 (placar 18/18):** a faixa do super implícito segue a referência do arquivo
+  (`funcoes::faixa_do_super_implicito`).
+  * No 3.6.2, é o nome da classe.
+  * No 3.13.4, o construtor comum vai do nome do tipo, ou do `new`, até o nome dele (`ConstructorDeclaration.errorRange`).
+    O primário fica no `this` da parte de corpo quando há uma, senão vai do primeiro token, o `const` se escrito,
+    até o nome (`PrimaryConstructorDeclaration.errorRange`; `error_verifier.dart:2124-2129` e `:7997-8002`).
+  * A mesma faixa fechou `implicit_super_initializer_missing_arguments` (22/22).
 
 ##### `initializing_formal_for_non_existent_field` (perda 17: FN 17)
 - **Emissão:** `ErrorVerifier.visitFieldFormalParameter` → `_checkForValidField` (EV:895-896, EV:5702-5760).
@@ -6753,6 +6760,9 @@ percorre classes.
   "todas factory"). Amostras 3.6.2: `66a12fc0` (explícito, 13 col.), `b104a23b` (implícito, `B.foo();` →
   posição `B`). SN (3): `0f4ecc5d` (`this : super.named()`), `c8a8e648` (`new foo();` → 7 col.),
   `e2af2d88` (`this;` → 4 col.), com mensagem 3.13 sem tipo de retorno.
+- **Estado em 2026-10-07 (placar 5/5):** com a faixa do 3.13 (ver `undefined_constructor_in_initializer`). No
+  3.13.4, a exibição do construtor no `{0}` não tem o tipo de retorno: `'A.named()'`, não `'A A.named()'`
+  (`exibir_construtor(…, sem_retorno)`).
 
 ##### `redirect_to_missing_constructor` (perda 5: FN 5)
 - **Emissão:** `visitConstructorDeclaration` (`:603-605`): se `!_checkForRecursiveFactoryRedirect`

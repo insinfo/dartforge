@@ -187,7 +187,7 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
                 alvo_de_factory_redirecionadora(inf, &mut cx, red, f, ctor);
             }
             if let Some(c) = fe.class {
-                super_implicito(inf, c, ctor);
+                super_implicito(inf, c, ctor, unit, member);
                 parametros_super(inf, c, ctor, &tipos);
             }
             // `_checkForValidField` (`error_verifier.dart:5702-5760`): o tipo
@@ -918,9 +918,14 @@ fn obrigatorios_do_construtor(inf: &BodyInferrer<'_>, k: Construtor) -> (usize, 
 /// `:531-553`): `Tipo Classe.nome(int a, [int b = 0], {required int c})`,
 /// com o tipo e os parâmetros do construtor visto pelo tipo `tipo` (o
 /// `ConstructorMember` substituído).
-fn exibir_construtor(inf: &mut BodyInferrer<'_>, alvo: ClassId, k: Construtor, tipo: TypeId) -> String {
-    let mut s = inf.table.format(tipo, inf.interner, inf.program);
-    s.push(' ');
+/// `sem_retorno`: a exibição do elemento no 3.13.4 não traz o tipo de retorno
+/// (`'A.named()'`, não `'A A.named()'`).
+fn exibir_construtor(inf: &mut BodyInferrer<'_>, alvo: ClassId, k: Construtor, tipo: TypeId, sem_retorno: bool) -> String {
+    let mut s = String::new();
+    if !sem_retorno {
+        s.push_str(&inf.table.format(tipo, inf.interner, inf.program));
+        s.push(' ');
+    }
     s.push_str(inf.interner.resolve(inf.program.class(alvo).name));
     if let Construtor::Declarado(f) = k {
         let nome = inf.program.function(f).name;
@@ -1023,7 +1028,8 @@ fn inicializador_super(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, classe: Optio
         return;
     };
     if fabrica_e_const(inf, s, k).0 && !so_fabricas(inf, s) {
-        let exibido = exibir_construtor(inf, s, k, st);
+        let v313 = inf.program.referencia(cx.unit) == dartforge_diagnostics::Referencia::V3_13;
+        let exibido = exibir_construtor(inf, s, k, st, v313);
         inf.aviso_com_codigo(ce::NON_GENERATIVE_CONSTRUCTOR, span, &[&exibido]);
     }
     if extends_ignorado(inf, c) {
@@ -1214,6 +1220,45 @@ fn parametros_super(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Construc
     }
 }
 
+/// O `errorRange` de `_checkForUndefinedConstructorInInitializerImplicit`. No
+/// 3.6.2, o nome da classe (`returnType`). No 3.13.4 (`error_verifier.dart:2124-2129`,
+/// `:7997-8002` do checkout main): o construtor comum vai do nome do tipo (ou do
+/// `new`) ao nome dele (`ConstructorDeclaration.errorRange`); o primário, o
+/// `this` da parte de corpo quando há uma, senão do primeiro token (o `const`,
+/// se escrito) ao nome do construtor (`PrimaryConstructorDeclaration.errorRange`).
+fn faixa_do_super_implicito(inf: &BodyInferrer<'_>, ctor: &ast::Constructor, unit: UnitId, member: ast::MemberId) -> dartforge_diagnostics::Span {
+    use dartforge_diagnostics::Span;
+    if inf.program.referencia(unit) != dartforge_diagnostics::Referencia::V3_13 {
+        return ctor.class_name.span;
+    }
+    let u = inf.program.unit(unit);
+    let primario = u.ast.decls.iter().any(|d| match &d.kind {
+        ast::DeclKind::Class(x) => x.primary_constructor == Some(member),
+        ast::DeclKind::Enum(x) => x.primary_constructor == Some(member),
+        _ => false,
+    });
+    if !primario {
+        let fim = ctor.name.map_or(ctor.class_name.span.end, |n| n.span.end);
+        return Span { start: ctor.class_name.span.start, end: fim };
+    }
+    let ms = u.ast.member(member).span;
+    if ms.start != ctor.class_name.span.start && u.source[ms.start..].starts_with("this") {
+        return Span { start: ms.start, end: ms.start + 4 };
+    }
+    let inicio = if ctor.const_ {
+        let antes = u.source[..ctor.class_name.span.start].trim_end();
+        if antes.ends_with("const") { antes.len() - "const".len() } else { ctor.class_name.span.start }
+    } else {
+        ctor.class_name.span.start
+    };
+    let fim = match ctor.name {
+        Some(n) => n.span.end,
+        None if inicio < ctor.class_name.span.start => inicio + "const".len(),
+        None => ctor.class_name.span.end,
+    };
+    Span { start: inicio, end: fim }
+}
+
 /// `_checkForUndefinedConstructorInInitializerImplicit`
 /// (`an611:src/generated/error_verifier.dart:5444-5551`): construtor
 /// gerador, não `external`, sem `super(...)` nem `this(...)`, numa classe
@@ -1223,7 +1268,7 @@ fn parametros_super(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Construc
 /// `super.x` dão (`implicit_super_initializer_missing_arguments`; sem
 /// `super-parameters`, `no_default_super_constructor`). No nome da classe
 /// (até o nome do construtor nos dois últimos).
-fn super_implicito(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Constructor) {
+fn super_implicito(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Constructor, unit: UnitId, member: ast::MemberId) {
     use dartforge_diagnostics::codigos::compile_time_error as ce;
     if ctor.factory || ctor.external {
         return;
@@ -1235,7 +1280,7 @@ fn super_implicito(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Construct
     if so_fabricas(inf, s) {
         return;
     }
-    let tipo = ctor.class_name.span;
+    let tipo = faixa_do_super_implicito(inf, ctor, unit, member);
     let lib = inf.program.class(c).library;
     // `superElement.unnamedConstructor`: sem o teste de acessibilidade.
     let Some(k) = achar_construtor(inf, s, None, inf.program.class(s).library) else {
@@ -1247,7 +1292,8 @@ fn super_implicito(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Construct
         // `{0}` = o elemento: `superElement.unnamedConstructor`, sem
         // substituição (o tipo é o da classe com os próprios parâmetros).
         let proprio = inf.tipo_this_classe(s);
-        let exibido = exibir_construtor(inf, s, k, proprio);
+        let v313 = inf.program.referencia(unit) == dartforge_diagnostics::Referencia::V3_13;
+        let exibido = exibir_construtor(inf, s, k, proprio, v313);
         inf.aviso_com_codigo(ce::NON_GENERATIVE_CONSTRUCTOR, tipo, &[&exibido]);
         return;
     }
