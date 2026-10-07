@@ -362,6 +362,16 @@ fn clausulas(programa: &Program, u: UnitId, ast: &ast::Ast, k: &DeclKind) -> Opt
 
 /// A classe (ou mixin) que o tipo escrito nomeia no escopo da unidade `u`.
 fn classe_do_tipo(programa: &Program, u: UnitId, ast: &ast::Ast, t: ast::TypeId) -> Option<ClassId> {
+    classe_do_tipo_em(programa, u, ast, t, 0)
+}
+
+/// O elemento do tipo de uma cláusula é o da interface já expandida: o
+/// alias (`typedef T = FinalClass;`, também de outra biblioteca) leva à
+/// classe que ele nomeia; o que se expande num parâmetro de tipo, não.
+fn classe_do_tipo_em(programa: &Program, u: UnitId, ast: &ast::Ast, t: ast::TypeId, prof: u32) -> Option<ClassId> {
+    if prof > 8 {
+        return None;
+    }
     let TypeKind::Named { name, .. } = &ast.ty(t).kind else { return None };
     let b = match &name[..] {
         [n] => programa.lookup_na_unidade(u, n.sym),
@@ -373,6 +383,19 @@ fn classe_do_tipo(programa: &Program, u: UnitId, ast: &ast::Ast, t: ast::TypeId)
     }
     match b.getter? {
         Element::Class(c) if matches!(programa.class(c).kind, ClassKind::Class | ClassKind::Mixin | ClassKind::MixinApplication) => Some(c),
+        Element::Typedef(tid) => {
+            let td = programa.typedef(tid);
+            let ast_td = &programa.unit(td.decl.unit).ast;
+            let DeclKind::Typedef(d) = &ast_td.decl(td.decl.decl).kind else { return None };
+            let ast::TypedefKind::Alias(corpo) = d.kind else { return None };
+            if let TypeKind::Named { name: n2, .. } = &ast_td.ty(corpo).kind
+                && let [unico] = &n2[..]
+                && d.type_params.iter().any(|p| p.name.sym == unico.sym)
+            {
+                return None;
+            }
+            classe_do_tipo_em(programa, td.decl.unit, ast_td, corpo, prof + 1)
+        }
         _ => None,
     }
 }

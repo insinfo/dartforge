@@ -256,10 +256,21 @@ pub(crate) fn construcao(
     if class.static_members.contains_key(&nome) {
         return None;
     }
-    let Some(fid) = chave_de_construtor(inf, nome).and_then(|k| class.constructors.get(&k)).copied() else {
-        // A criação `const .id(…)` sem o construtor é o
-        // `CONST_WITH_UNDEFINED_CONSTRUCTOR` do caminho comum.
+    // `ConstructorInvocationResolver.resolveDotShorthand` (checkout main,
+    // `constructor_invocation_resolver.dart:60-95`): `const .id(…)` sem
+    // construtor `id` acessível na declaração do contexto é
+    // `CONST_WITH_UNDEFINED_CONSTRUCTOR` no nome, com o nome da classe.
+    let acessivel = |inf: &BodyInferrer<'_>, f: dartforge_elements::model::FunctionElementId| {
+        let fe = inf.program.function(f);
+        !inf.interner.resolve(fe.name).starts_with('_') || fe.library == cx.lib
+    };
+    let achado = chave_de_construtor(inf, nome).and_then(|k| class.constructors.get(&k)).copied();
+    let achado = if const_ { achado.filter(|&f| acessivel(inf, f)) } else { achado };
+    let Some(fid) = achado else {
         if const_ {
+            let (texto, span) = nome_e_span(inf, cx, alvo);
+            let classe = inf.interner.resolve(inf.program.class(d).name).to_string();
+            relatar(inf, "CompileTimeErrorCode.CONST_WITH_UNDEFINED_CONSTRUCTOR", span, &[&classe, &texto]);
             cx.atalhos_relatados.insert(alvo.0);
         } else if !tem_membro(inf, d, nome) {
             let (texto, span) = nome_e_span(inf, cx, alvo);

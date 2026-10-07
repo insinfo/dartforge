@@ -7267,6 +7267,7 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
   cujo alvo, sem argumentos ou com, é uma classe) até a classe, mantendo o span do nome escrito e o nome
   da classe na mensagem; conferir `Function` (classe `final` de `dart:core`) e a regra
   `_mayIgnoreClassModifiers` (SDK + biblioteca < 3.0).
+- **Feito (350/350):** o elemento da cláusula é o da interface já expandida; `modificadores.rs::classe_do_tipo` segue o `typedef` (também de outra biblioteca) até a classe que ele nomeia, e o alias que se expande num parâmetro de tipo não conta. Era a causa dos 20 FN (`extends FinalClassTypeDef`, `implements F` com `typedef F = Function`).
 
 ##### `invalid_language_version_override` (perda 19: FN 19; 2 acertos)
 - **Emissão:** `LanguageVersionOverrideVerifier.verify`
@@ -11305,6 +11306,7 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
   (classe) e o construtor não: usar `program.lookup_na_unidade`/prefixo no `ty` e
   `class.constructors`. Para atalhos de ponto (`DotShorthand { const_: true }`) a classe é o
   `Resolved::Element(Class)` do nó.
+- **Feito (25/25):** o atalho de ponto constante (`const .id(...)`) segue `ConstructorInvocationResolver.resolveDotShorthand` (checkout main, `constructor_invocation_resolver.dart:60-95`): sem construtor `id` acessível na declaração do contexto, `CONST_WITH_UNDEFINED_CONSTRUCTOR` no nome, com o nome da classe (`atalhos.rs::construcao`; antes se esperava o caminho comum, que não passa por ali).
 
 ##### `const_eval_throws_exception` (perda 21: FN 20, FP 1)
 - **Emissão:** `evaluateAndFormatErrorsInConstructorCall` (`evaluation.dart:335-373`): erro com
