@@ -1,0 +1,80 @@
+# CI no CircleCI: um pipeline por commit, os grupos de crates em jobs paralelos.
+# Os mesmos grupos do .gitlab-ci.yml (analisador e LSP, em release); o Windows,
+# que é o alvo, segue no .github/workflows/ci.yml. O Rust vem do
+# rust-toolchain.toml (o rustup da imagem instala o 1.98.1).
+version: 2.1
+
+executors:
+  rust:
+    docker:
+      - image: cimg/rust:1.86
+    resource_class: large
+    environment:
+      CARGO_INCREMENTAL: '0'
+      CARGO_TERM_COLOR: always
+
+commands:
+  preparar:
+    steps:
+      - checkout
+      - run:
+          name: SDK Dart 3.6.2
+          command: |
+            curl -sSfL -o /tmp/dart.zip https://storage.googleapis.com/dart-archive/channels/stable/release/3.6.2/sdk/dartsdk-linux-x64-release.zip
+            sudo unzip -q /tmp/dart.zip -d /opt
+            echo 'export PATH="/opt/dart-sdk/bin:$PATH"' >> "$BASH_ENV"
+            echo 'export DARTFORGE_DART_SDK=/opt/dart-sdk DART_SDK=/opt/dart-sdk DARTFORGE_SDK_LIB=/opt/dart-sdk/lib' >> "$BASH_ENV"
+      - run:
+          name: Rust fixado
+          command: rustup show active-toolchain || rustup toolchain install 1.98.1 --profile minimal
+      - restore_cache:
+          keys:
+            - cargo-{{ .Environment.CIRCLE_JOB }}-{{ checksum "Cargo.lock" }}
+            - cargo-{{ .Environment.CIRCLE_JOB }}-
+
+  guardar:
+    steps:
+      - save_cache:
+          key: cargo-{{ .Environment.CIRCLE_JOB }}-{{ checksum "Cargo.lock" }}-{{ .Revision }}
+          paths:
+            - ~/.cargo/registry
+            - target
+
+jobs:
+  mensagens:
+    docker:
+      - image: cimg/base:stable
+    resource_class: small
+    steps:
+      - checkout
+      - run: sh scripts/sem-trailer-ia.sh --historico HEAD
+
+  analisador:
+    executor: rust
+    steps:
+      - preparar
+      - run:
+          name: testes do analisador
+          no_output_timeout: 60m
+          command: >-
+            cargo test --locked --release --no-fail-fast
+            -p dartforge-frontend -p dartforge-types -p dartforge-analise
+            -p dartforge-diagnostics -p dartforge-paridade
+      - guardar
+
+  lsp:
+    executor: rust
+    steps:
+      - preparar
+      - run:
+          name: testes do LSP
+          no_output_timeout: 60m
+          command: cargo test --locked --release --no-fail-fast -p dartforge-lsp
+      - guardar
+
+workflows:
+  testes:
+    jobs:
+      - mensagens
+      - analisador
+      - lsp
