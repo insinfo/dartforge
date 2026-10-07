@@ -453,13 +453,27 @@ fn covariant_fora_de_lugar(cx: &mut Ctx<'_>, ast_: &ast::Ast) {
         }
         aninhadas(cx, ps);
     }
-    for m in &ast_.members {
+    // Os construtores primários (3.13): a lista do cabeçalho o parser
+    // confere (`INVALID_COVARIANT_MODIFIER_IN_PRIMARY_CONSTRUCTOR`/
+    // `EXTRANEOUS_MODIFIER_IN_PRIMARY_CONSTRUCTOR`), e o verificador sai
+    // (`parent is PrimaryConstructorDeclaration`).
+    let primarios: std::collections::HashSet<u32> = ast_
+        .decls
+        .iter()
+        .filter_map(|d| match &d.kind {
+            DeclKind::Class(x) => x.primary_constructor,
+            DeclKind::Enum(x) => x.primary_constructor,
+            _ => None,
+        })
+        .map(|m| m.0)
+        .collect();
+    for (mi, m) in ast_.members.iter().enumerate() {
         let MemberKind::Constructor(k) = &m.kind else { continue };
         if dentro(&extensoes, m.span) {
             continue;
         }
         // No tipo de extensão o parser relata (`EXTRANEOUS_MODIFIER_IN_EXTENSION_TYPE`).
-        if !dentro(&tipos_de_extensao, m.span) {
+        if !dentro(&tipos_de_extensao, m.span) && !primarios.contains(&(mi as u32)) {
             relatar_lista(cx, &k.parameters);
         }
         aninhadas(cx, &k.parameters);

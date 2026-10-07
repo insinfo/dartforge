@@ -5853,6 +5853,8 @@ relatos iguais do analyzer contam um.
   fonte do parâmetro. Percorre as listas das funções que não são método nem de topo, os construtores fora de
   tipo de extensão (lá o parser relata), os tipos de função, os `typedef` antigos e os parâmetros-função
   aninhados em qualquer lista. Tudo dentro de extensão fica de fora.
+- **Feito em 2026-10-06 (7/7, FP 12 para 0):** `_checkUseOfCovariantInParameters` sai na lista do construtor primário (`parent is PrimaryConstructorDeclaration`: o parser já relata `INVALID_COVARIANT_MODIFIER_IN_PRIMARY_CONSTRUCTOR` ou `EXTRANEOUS_MODIFIER_IN_PRIMARY_CONSTRUCTOR`); `analise/src/membros.rs::covariant_fora_de_lugar` pula o membro que é o primário de classe ou enum.
+
 ### Parte B_construtores1 — construtores, redirecionamentos e inicialização de campos
 
 Grupo: 22 códigos, perda somada 292. Citações do fonte 3.6.2: `analyzer/lib/src/...:linha`
