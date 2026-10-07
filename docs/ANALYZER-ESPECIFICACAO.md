@@ -11711,8 +11711,8 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
     `NON_CONSTANT_LIST_ELEMENT` no elemento.
   * O `const` local e o valor padrão de parâmetro não passam por isso. Conferido com o 3.6.2 em sondas.
   * No DartForge: `Motor::nao_serializavel`, em `valor_de_variavel`.
-  * Resta `method/not_found_test.dart:11:24`: o `const B()` dentro de uma classe com o método `B`, onde o
-    membro esconde a classe de topo.
+  * O `const B()` de `method/not_found_test.dart:11:24` fecha com a regra de `creation_with_non_type` sobre o
+    escopo léxico.
 
 ##### `const_with_non_constant_argument` (perda 19: FN 19)
 - **Emissão:** `_validateConstantArguments` (`constant_verifier.dart:779-787`) com
@@ -20847,6 +20847,11 @@ Só existe no 3.13 (o 3.6.2 não tem construtor primário); oráculo 3.13 (bibli
     tipo e o membro herdado, que o escopo da classe não tem.
   * Com `p.X`, só fica criação se `p` é prefixo de import e `X` não é função. `Foo.bar<int>.baz()` e
     `nonPrefix.Class<int>.named()` seguem o caminho comum.
+- **Estado em 2026-10-07 (placar 66/66):** em `new X()` e `const X()` com nome simples, o `X` é procurado no
+  escopo léxico, o `nameScope` do `NamedTypeResolver`. Um local, um parâmetro de tipo, um membro declarado da
+  classe ou extensão ou uma constante de enum esconde o tipo de topo, e a criação é de um não tipo
+  (`chamadas::instanciacao`). Exemplo: `const B()` numa classe com o método `B`. A avaliação dá inválido, e o
+  `CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE` sai na criação.
 
 ##### `unused_element_parameter` (perda 21: FN 21, FP 0, msg 0, pos 0)
 

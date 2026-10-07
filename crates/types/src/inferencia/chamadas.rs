@@ -2213,6 +2213,25 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
             return inf.table.invalido(inf.core.dynamic_);
         }
     }
+    // O nome simples é procurado no escopo léxico (`nameScope`): um local, um
+    // parâmetro de tipo ou um membro da classe ou extensão (`const B()` com o
+    // método `B`) esconde o tipo de topo, e a criação é de um não tipo
+    // (`_isInstanceCreation`, `named_type_resolver.dart:274-276`).
+    if name.len() == 1
+        && matches!(
+            resolver_nome(inf, cx, name[0].sym, false),
+            RefNome::Local(_) | RefNome::TipoParam(_) | RefNome::MembroLexico(..) | RefNome::ConstanteEnum(_)
+        )
+    {
+        criacao_sem_classe(inf, cx, name);
+        for &x in targs.iter() {
+            inf.tipo_de_argumento_de_tipo(cx, x);
+        }
+        for x in args.args.iter() {
+            inferir_livre(inf, cx, x.value);
+        }
+        return inf.table.invalido(inf.core.dynamic_);
+    }
     let binding = if name.len() == 2 {
         inf.program.lookup_prefixed_na_unidade(cx.unit, name[0].sym, name[1].sym)
     } else {
