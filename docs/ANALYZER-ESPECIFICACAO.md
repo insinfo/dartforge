@@ -363,6 +363,13 @@ Base comum (vale para vários códigos abaixo):
 - **Supressões e ordem:** closures são o código `…_FROM_CLOSURE`.
 - **No DartForge:** `funcoes.rs::verificar_retorno_de_expressao` e `instrucoes.rs` (return). Causas: **9 FN `constructor_body/*`** são de sintaxe nova (corpos de construtor secundário com `return null`, oráculo 3.13 — construtores de classe/enum/extension type com `return expr`: o retorno `Null` contra o tipo da classe); **2 FN `enum/enhanced_enums_error_test`** (retorno em construtor que conflita com membro); **1 `NotMapSpread…`** (`{...iterable}` em contexto de Map infere `Set<int>`); **1 `UndefinedGetter__propertyAccess_functio…`** (`Function` retornado de `void`). **4 msg `extension_type/combined_member_signature_error_test`**: tipo combinado `(Object?, Object?)` vs nosso `(Object?, dynamic)` — mesmo top-merge do `argument_type_not_assignable`.
   **Mudança:** retornos em corpos de construtor (para 3.13: só quando a sintaxe nova está ativa), top-merge, e o caso `{...x}` em contexto de mapa.
+- **Feito em 2026-10-07 (165/167):** construtor gerador com `=> e` (`funcoes.rs`, depois do corpo): o
+  `verifyExpressionFunctionBody` confere `e` contra o `returnType` do construtor, o tipo da classe nos próprios
+  parâmetros de tipo, com `RETURN_OF_INVALID_TYPE_FROM_CONSTRUCTOR` e o nome `C`/`C.nome`; vale para classe,
+  enum e tipo de extensão, inclusive o construtor externo, o redirecionador e o `static int C() => 37`
+  recuperado como construtor. O corpo `this => e` do construtor primário (o k2 elaborado da classe e do
+  enum, ou a parte `this` com `parte_primaria` no tipo de extensão) fica de fora: o erro ali é o do corpo
+  primário com `=>`.
 
 ##### `return_of_invalid_type_from_closure` (perda 17: FN 16, msg 1)
 - **Emissão:** `return_type_verifier.dart:160-166` (`enclosingExecutable.isClosure`).

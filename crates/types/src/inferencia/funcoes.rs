@@ -241,6 +241,39 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             // construtor na última instrução; o trecho vai até o fim dele.
             let fim = inf.program.unit(unit).ast.member(member).span.end;
             corpo_de_funcao(inf, &mut cx2, &ctor.body, AsyncModifier::None, ret, Some(fim));
+            // Construtor gerador com `=> e`: o `verifyExpressionFunctionBody`
+            // (3.6.2 `return_type_verifier.dart:45-52`, `:134-200`) confere `e`
+            // contra o `returnType` do construtor, o tipo da classe nos
+            // próprios parâmetros de tipo (`RETURN_OF_INVALID_TYPE_FROM_CONSTRUCTOR`).
+            // O corpo `this => e` do construtor primário é outro erro
+            // (`PRIMARY_CONSTRUCTOR_BODY_WITH_EXPRESSION_BODY`), sem a conferência.
+            // (A parte `this` sem elaboração, no tipo de extensão, guarda a
+            // marca `parte_primaria`; na classe e no enum é o k2 elaborado.)
+            let primario = ctor.parte_primaria
+                || fe.class.and_then(|c| inf.program.class(c).decl).is_some_and(|d| match &inf.program.unit(d.unit).ast.decl(d.decl).kind {
+                    ast::DeclKind::Class(k) => k.primary_constructor == Some(member),
+                    ast::DeclKind::Enum(k) => k.primary_constructor == Some(member),
+                    _ => false,
+                });
+            if !fe.factory
+                && !primario
+                && let FunctionBody::Expression(x) = ctor.body
+                && let Some(c) = fe.class
+                && let Some(tx) = inf.body_types.units[unit.0 as usize].get_type(x)
+            {
+                let tc = inf.tipo_this_classe(c);
+                let fc = CtxFuncao {
+                    modificador: AsyncModifier::None,
+                    retorno: Some(tc),
+                    contexto_retorno: tc,
+                    retornados: Vec::new(),
+                    retorno_vazio: false,
+                    expressoes_retornadas: Vec::new(),
+                    executavel: inf.executavel_declarado(f),
+                    retorno_legal: true,
+                };
+                verificar_retorno_de_expressao(inf, &cx2, &fc, x, tx);
+            }
             // Factory: `atConstructorDeclaration`, do tipo de retorno ao fim do
             // nome.
             if fe.factory && matches!(ctor.body, FunctionBody::Block(_)) && cx2.fluxo.alcancavel {
