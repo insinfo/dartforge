@@ -1612,6 +1612,15 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 };
                 let ent = if funcao { n.span } else { span };
                 { let t = inf.interner.resolve(n.sym).to_string(); definir_alvo(inf, Some(t), ent); }
+            } else if let ExprKind::DotShorthand { name, .. } = &a.expr(target).kind
+                && let Some(Resolved::Element(Element::Class(d))) = inf.body_types.units[cx.unit.0 as usize].get_resolved(target).cloned()
+                && let Some(&f) = inf.program.class(d).static_members.get(&name.sym)
+                && matches!(inf.program.function(f).kind, FunctionKind::Function)
+            {
+                // `.m(…)` de método estático é `DotShorthandInvocation`, com o
+                // nome do método e a entidade no nome.
+                let (nome, sp) = (inf.interner.resolve(name.sym).to_string(), name.span);
+                definir_alvo(inf, Some(nome), sp);
             } else {
                 definir_alvo(inf, None, span);
             }

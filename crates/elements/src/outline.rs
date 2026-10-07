@@ -1496,7 +1496,10 @@ pub(crate) fn extract_members(
                     patched_by: None,
                     declaracao_publica: None,
                 });
-                elem.constructors.insert(ctor_sym, fn_id);
+                // Construtor repetido (`DUPLICATE_CONSTRUCTOR`): o nome
+                // resolve para o primeiro declarado
+                // (`InterfaceElement.getNamedConstructor`, o primeiro da lista).
+                elem.constructors.entry(ctor_sym).or_insert(fn_id);
             }
             MemberKind::Field(vars) => {
                 for (idx, var) in vars.variables.iter().enumerate() {

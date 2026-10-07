@@ -18,11 +18,11 @@
 
 use super::BodyInferrer;
 use super::corpo::Corpo;
-use super::expr::{inferir, resolver};
+use super::expr::resolver;
 use crate::resolved::Resolved;
 use crate::table::{Type, TypeId};
 use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionKind};
-use dartforge_frontend::ast::{self, ExprId, ExprKind};
+use dartforge_frontend::ast::{ExprId, ExprKind};
 use dartforge_intern::SymbolId;
 
 /// Nó externo de uma cadeia `.id…`: registra o contexto dela para a raiz.
@@ -229,7 +229,7 @@ pub(crate) fn construcao(
     ctx: TypeId,
 ) -> Option<TypeId> {
     let a = &inf.program.unit(cx.unit).ast;
-    let ExprKind::Call { target, arguments } = &a.expr(e).kind else {
+    let ExprKind::Call { target, .. } = &a.expr(e).kind else {
         return None;
     };
     let alvo = *target;
@@ -280,47 +280,20 @@ pub(crate) fn construcao(
         }
         return None;
     };
-    let args_ast: Vec<(bool, ExprId)> = arguments
-        .args
-        .iter()
-        .map(|x: &ast::Argument| (x.name.is_none(), x.value))
-        .collect();
+    // A invocação do construtor pelo caminho comum da criação
+    // (`InstanceCreationExpression` com o tipo do contexto): os argumentos
+    // de tipo pelo contexto e a conferência dos argumentos (aridade, tipos).
     cx.contexto_atalho.remove(&alvo.0);
     resolver(inf, cx, alvo, Resolved::Element(Element::Class(d)));
-    resolver(inf, cx, e, Resolved::Constructor(fid));
-    let params = inf.outline.classes[d.0 as usize].type_params.clone();
-    let args: Vec<TypeId> = match inf.table.get(ctx).clone() {
-        Type::Interface {
-            class: cc, args, ..
-        } if cc == d && args.len() == params.len() => args.to_vec(),
-        _ => params.iter().map(|_| inf.core.dynamic_).collect(),
+    let program = inf.program;
+    let ExprKind::Call { arguments, .. } = &program.unit(cx.unit).ast.expr(e).kind else {
+        return None;
     };
-    let esperados: Vec<TypeId> = inf.outline.functions[fid.0 as usize]
-        .parameters
-        .iter()
-        .map(|p| p.ty)
-        .collect();
-    let u = inf.core.unknown;
-    for (i, (posicional, valor)) in args_ast.into_iter().enumerate() {
-        let esperado = if posicional {
-            esperados.get(i).copied().unwrap_or(u)
-        } else {
-            u
-        };
-        inferir(inf, cx, valor, esperado);
-    }
-    let e_ext = inf.program.class(d).kind == ClassKind::ExtensionType;
-    Some(if e_ext {
-        inf.table.intern(Type::ExtensionType {
-            decl: d,
-            args: args.into_boxed_slice(),
-            nullable: false,
-        })
-    } else {
-        inf.table.intern(Type::Interface {
-            class: d,
-            args: args.into_boxed_slice(),
-            nullable: false,
-        })
-    })
+    // A entidade e o nome dos erros de aridade: o nome do construtor
+    // (`'new'`, `'named'`).
+    let (texto, span) = nome_e_span(inf, cx, alvo);
+    super::chamadas::definir_alvo(inf, Some(texto), span);
+    let r = super::chamadas::construir(inf, cx, Some(e), d, Some(fid), None, arguments, ctx);
+    inf.alvo_da_aridade = None;
+    Some(r)
 }

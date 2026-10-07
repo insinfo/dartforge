@@ -1595,6 +1595,15 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
     let mut ipos = 0usize;
     if let Some(ps) = &af.parameters {
         for p in ps.iter() {
+            // `ResolutionVisitor.visitFieldFormalParameter`/
+            // `visitSuperFormalParameter` sem `ElementWalker` (função local,
+            // closure; 3.6.2 `resolution_visitor.dart:614-635`, `:1263`): o
+            // `this.x`/`super.x` obrigatório só é encerrado, não entra nos
+            // parâmetros (nem no tipo nem no escopo); o opcional entra pelo
+            // `DefaultFormalParameter` (`:440-467`).
+            if p.kind == ast::ParameterKind::Required && (p.this_ || p.super_) {
+                continue;
+            }
             let escopo = cx.parametros_de_tipo_visiveis();
             let escrito = inf.tipo_de_parametro_escrito(cx.unit, cx.lib, p, &escopo);
             let do_ctx = match p.kind {
