@@ -12,9 +12,9 @@ Frentes desta rodada: as quatro especificações (`docs/ANALYZER-ESPECIFICACAO.m
 
 | medida | 2026-10-02 | agora |
 | --- | ---: | ---: |
-| Placar do analisador (corpus, posição exata) | 80,5% (19.015 na r8, não publicada) | **97,0%** — 22.335/23.030 |
-| FP do placar | 493 → 339 (r8) | **346** (era 1.339 no começo de 2026-10-05) |
-| FN do placar | — | **583** (era 2.095 no começo de 2026-10-05) |
+| Placar do analisador (corpus, posição exata) | 80,5% (19.015 na r8, não publicada) | **98,2%** — 22.617/23.030 |
+| FP do placar | 493 → 339 (r8) | **228** (era 1.339 no começo de 2026-10-05) |
+| FN do placar | — | **343** (era 2.095 no começo de 2026-10-05) |
 | Projetos reais (`new_sali` core e frontend, `limitless_ui`): diagnósticos sem par no `dart analyze` | 61 | **0** |
 | Lints novos (`E:\dftemp\lints_novos`, 14 regras) | — | 211/211 iguais ao `dart analyze` |
 | Casos s01–s12 do T5 (`corpus/especificacao/t2/t5`) | — | 12/12 iguais |
@@ -119,15 +119,14 @@ como igual):
 
 ### O que falta
 
-1. **Analisador** (placar `placar_det97`, 22.335/23.030).
-   * FN por código: `unused_local_variable` 15, `argument_type_not_assignable` 12,
-     `return_of_invalid_type` 13, `non_abstract_class_inherits_abstract_member` 13,
-     `undefined_super_member` 12, `not_initialized_non_nullable_instance_field` 12, `missing_identifier`
-     12, `missing_default_value_for_parameter` 12, `invocation_of_non_function_expression` 12,
-     `const_eval_throws_exception` 10.
-   * FP por código: `type_argument_not_matching_bounds` 17, `undefined_enum_constructor` 16,
-     `unchecked_use_of_nullable_value` 16, `experiment_not_enabled` 13, `invalid_use_of_covariant` 12,
-     `const_eval_property_access` 11, `undefined_operator` 10.
+1. **Analisador** (placar `placar_det160`, 22.617/23.030).
+   * Maiores perdas: `unchecked_use_of_nullable_value` (FP 10, FN 9), `dead_code` (posição 10, FP 6,
+     FN 8), `concrete_class_with_abstract_member` (posição 10, FP 6), `undefined_identifier` (FP 8, FN 8),
+     `experiment_not_enabled` (FP 10, FN 6), `use_of_void_result` (FN 9), `invalid_assignment`
+     (mensagem 4, FP 5, FN 5), `unnecessary_null_comparison` (FN 8), `recursive_constant_constructor`
+     (posição 7, FP 5), `not_assigned_potentially_non_nullable_local_variable` (FP 7, FN 5).
+   * `dot_shorthands/equality/equality_extension_override_error_test.dart` tem oráculo 3.6.2 num
+     arquivo que o nosso parser marca 3.13 (o "só nosso 1" da referência 3.13.4): regravar com o 3.13.4.
    * Recuperação do parser com palavras embutidas em posições de tipo e de declaração (sondas em
      `E:\dftemp\stm\lib\bi.dart`: `List<abstract>`, `abstract y = 1;` local, `factory f;` em classe,
      `typedef abstract T(…)`).
@@ -174,6 +173,28 @@ como igual):
   prefixo, operador em `[int.+]`, `new A.n()`, `extends Object` implícito, arquivos candidatos,
   `getImportElement`, `super.x` e argumentos de comprimento 0 dos `this.x`); implementation pelo
   `findMemberElement`; completar no nome de `A.n()` e `C.m()`.
+
+### Continuação de 2026-10-07, analisador (placar 22.335 → 22.617)
+
+Cada correção saiu da fonte do analyzer 3.6.2 (ou do checkout main, para os códigos do 3.13), foi
+medida no placar e registrada na seção do código na especificação. Em resumo:
+
+* **Mensagens e posições:** supertipo da variância pelo alias escrito; diretivas de doc pelo
+  deslocamento do `_DirectiveParser`; atalhos de ponto potencialmente constantes; tipos desambiguados
+  (`(where C is defined in …)`) na atribuição.
+* **Constantes:** instanciação implícita de tear-off com parâmetro de tipo; `CONST_TYPE_PARAMETER` em
+  padrão, `case T` e anotação de parâmetro de tipo; ciclos de constante de enum e do `values`; local
+  declarado adiante; criação pelo primário de tipo de extensão; `as` com o ambiente de tipos do
+  construtor.
+* **Fluxo e inferência:** promoção por `is` no código inalcançável; promoção de campo pelo alvo de
+  cascata; variável de padrão promovida pelo tipo casado e junção de casos compartilhados; `??=` com a
+  escrita só no ramo do nulo; formais de campo e de `super` finais.
+* **Verificações:** entradas fora de mapa e expressões em mapa (com o parser de listas do fasta);
+  `final` no `for-in`; `call` que não é método; `==` em override de extensão; getter/setter de enum,
+  extensão e tipo de extensão; parâmetro de tipo em membro estático; anotações locais, de alias e de
+  tipos de função; `this` implícito em inicializador de campo; setter estático indefinido; `x.new`;
+  retorno de construtor gerador com `=>`; índice de escrita composta contra o `[]=`; final não
+  inicializado com campo repetido e na representação.
 
 ### Continuação de 2026-10-06, analisador (placar 21.974 → 22.335)
 
