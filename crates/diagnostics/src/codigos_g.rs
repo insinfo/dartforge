@@ -9,7 +9,7 @@
 // ScannerErrorCode: 12
 // TodoCode: 4
 // suplemento 3.13.4 (códigos novos e formas novas de códigos da 6.11): 34
-// variantes 3.13.4: 19
+// variantes 3.13.4: 20
 #![allow(missing_docs)]
 
 use crate::{Codigo, InfoCodigo, Severidade, TipoErro, Variante313};
@@ -2149,7 +2149,7 @@ pub(crate) static POR_UNICO: [(&str, u16); 1064] = [
 ];
 
 /// Ordenada por `de`; ver `Codigo::variantes_3_13`.
-pub(crate) static VARIANTES_3_13: [Variante313; 19] = [
+pub(crate) static VARIANTES_3_13: [Variante313; 20] = [
     Variante313 { de: Codigo(4), para: Some(Codigo(1062)), args: &[0, 2, 3], exige: 4 },
     Variante313 { de: Codigo(10), para: Some(Codigo(1053)), args: &[], exige: 0 },
     Variante313 { de: Codigo(79), para: Some(Codigo(79)), args: &[1], exige: 2 },
@@ -2164,6 +2164,7 @@ pub(crate) static VARIANTES_3_13: [Variante313; 19] = [
     Variante313 { de: Codigo(393), para: Some(Codigo(1054)), args: &[], exige: 0 },
     Variante313 { de: Codigo(424), para: Some(Codigo(424)), args: &[0, 2], exige: 3 },
     Variante313 { de: Codigo(463), para: Some(Codigo(1055)), args: &[], exige: 0 },
+    Variante313 { de: Codigo(530), para: Some(Codigo(1061)), args: &[2, 0, 1], exige: 3 },
     Variante313 { de: Codigo(535), para: Some(Codigo(1060)), args: &[3, 4, 1, 2], exige: 5 },
     Variante313 { de: Codigo(535), para: Some(Codigo(1061)), args: &[0, 1, 2], exige: 3 },
     Variante313 { de: Codigo(683), para: Some(Codigo(1050)), args: &[0], exige: 1 },

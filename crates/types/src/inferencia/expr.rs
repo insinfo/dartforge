@@ -839,7 +839,11 @@ fn nome_de_funcao_referida(inf: &BodyInferrer<'_>, cx: &Corpo, alvo: ExprId) -> 
         Resolved::Element(Element::Function(f)) => funcao(*f),
         Resolved::Member { member: MemberRef::Function(f), .. } => funcao(*f),
         Resolved::ExtensionMember { member, .. } => funcao(*member),
-        Resolved::Local(id) if cx.local(*id).funcao_local => Some(inf.interner.resolve(cx.local(*id).nome).to_string()),
+        // A função local (declarada antes: a marca `funcao_local` some depois
+        // da inferência dela, e fica o conjunto `funcoes_locais`).
+        Resolved::Local(id) if cx.local(*id).funcao_local || cx.funcoes_locais.contains(id) => {
+            Some(inf.interner.resolve(cx.local(*id).nome).to_string())
+        }
         _ => None,
     }
 }
@@ -1515,11 +1519,16 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
                                     sp,
                                     &[&nome, &n, &d],
                                 ),
-                                None => inf.aviso_com_codigo(
-                                    dartforge_diagnostics::codigos::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS_ANONYMOUS_FUNCTION,
-                                    sp,
-                                    &[&n, &d],
-                                ),
+                                // O tipo da função vai depois: só o texto do
+                                // 3.13.4 o usa (`The type of this function is …`).
+                                None => {
+                                    let tipo = inf.table.format(bruto, inf.interner, inf.program);
+                                    inf.aviso_com_codigo(
+                                        dartforge_diagnostics::codigos::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS_ANONYMOUS_FUNCTION,
+                                        sp,
+                                        &[&n, &d, &tipo],
+                                    )
+                                }
                             }
                         }
                         let dinamicos = vec![inf.core.dynamic_; type_params.len()];
@@ -1537,12 +1546,39 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
                     {
                         inf.table.invalido(inf.core.dynamic_)
                     }
-                    // `node<…>` de um objeto com `call`: `node.call<…>`
-                    // (`_resolveAsImplicitCallReference`), sem o relato.
+                    // `node<…>` de um objeto com o método `call`: `node.call<…>`
+                    // (`_resolveAsImplicitCallReference`, 3.6.2
+                    // `function_reference_resolver.dart:287-306`): a contagem
+                    // confere com os parâmetros de tipo do `call`, com o nome
+                    // `call`, e o tipo é o do método instanciado.
                     Type::Interface { .. }
-                        if inf.sym.call.is_some_and(|call| matches!(inf.buscar_membro(cx.lib, bruto, call, false), super::membros::Busca::Achado(_))) =>
+                        if inf.sym.call.is_some_and(|call| matches!(inf.buscar_membro(cx.lib, bruto, call, false), super::membros::Busca::Achado(m) if m.metodo)) =>
                     {
-                        inf.core.dynamic_
+                        let call = inf.sym.call.expect("call");
+                        let tipo_call = match inf.buscar_membro(cx.lib, bruto, call, false) {
+                            super::membros::Busca::Achado(m) => m.tipo,
+                            _ => unreachable!(),
+                        };
+                        match inf.table.get(tipo_call).clone() {
+                            Type::Function { type_params, .. } => {
+                                let usados = if type_params.len() == targs.len() {
+                                    targs.clone()
+                                } else {
+                                    if let Some(sp) = super::chamadas::faixa_da_lista_de_tipos(inf, cx.unit, type_args) {
+                                        let (n, d) = (type_params.len().to_string(), targs.len().to_string());
+                                        inf.aviso_com_codigo(
+                                            dartforge_diagnostics::codigos::compile_time_error::WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION,
+                                            sp,
+                                            &["call", &n, &d],
+                                        );
+                                    }
+                                    vec![inf.core.dynamic_; type_params.len()]
+                                };
+                                let mut env = inf.env();
+                                crate::constraints::instanciar_funcao(tipo_call, &usados, &mut env)
+                            }
+                            _ => inf.core.dynamic_,
+                        }
                     }
                     _ => {
                         // `DISALLOWED_TYPE_INSTANTIATION_EXPRESSION`

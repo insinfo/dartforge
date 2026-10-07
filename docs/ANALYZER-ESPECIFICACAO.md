@@ -940,6 +940,16 @@ Representação cíclica ou inválida cala o `implements` e o fundo. Um `dynamic
 - **Emissão:** variantes `WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION` (`'The function '{0}' is declared with {1} type parameters, but {2} type arguments were given.'`) e `…_ANONYMOUS_FUNCTION` (`'This function is declared with {0} type parameters, but {1} type arguments were given.'`), em `FunctionReferenceResolver` (`analyzer/lib/src/dart/resolver/function_reference_resolver.dart:110-130`, :255-300): tear-off `f<int, String>` (função nomeada; `{0}` = nome, inclusive `'call'` para `o.call<…>`) ou expressão de função (`(f)<int>`, `fn<int>` de variável de tipo função → anônima). Também nas constantes (`constant/evaluation.dart:2315-2332`).
 - **Posição:** a lista de argumentos de tipo.
 - **No DartForge:** inexistente (tear-offs com argumentos de tipo em `expr.rs`, `ExprKind::TypeArguments`). **Mudança:** checar a contagem nas instanciações explícitas de tear-off.
+- **Estado em 2026-10-07 (placar 13/13):** o `ExprKind::TypeArguments` do `expr.rs` relata na lista `<…>`.
+  * O nome vem de `nome_de_funcao_referida`. A função local conta pelo conjunto `funcoes_locais`, porque a
+    marca `funcao_local` some depois da inferência dela (`foo<int, int>` de uma função local leva `'foo'`).
+  * A variante anônima tem três argumentos: `[declarados, dados, tipo da função]`. O texto do 3.13.4 é
+    `The type of this function is '{2}', which has {0} type parameters, but {1} type arguments were given.`,
+    e a variante sai pelo `VARIANTES_3_13` do `gerar_codigos.rs`.
+  * O objeto com o método `call` (`c<int>`, `_resolveAsImplicitCallReference`, `:287-306`) confere a contagem
+    com os parâmetros de tipo do `call`, com `{0}` = `'call'`. O tipo é o do `call` instanciado, com `dynamic`
+    nos argumentos quando a contagem erra. Um `call` que é getter ou campo não entra nesse ramo
+    (`_getCallMethod` só aceita `MethodElement`) e cai no `_resolveDisallowedExpression`.
 
 ##### `wrong_number_of_type_arguments_constructor` (perda 12: FN 12)
 - **Emissão:** `ast_rewrite.dart:430-445` e :600-612 (`C.named<int>()` reescrito para criação: argumentos de tipo **depois** do nome do construtor), `named_type_resolver.dart:333-345` (`p.C<int>` onde `C` é construtor? — `prefix.Class<…>` reinterpretado), `function_reference_resolver.dart:52-62` (`C.named<int>` tear-off).

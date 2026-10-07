@@ -417,6 +417,8 @@ const VARIANTES_3_13: &[(&str, &str, &[u8], u8)] = &[
     // `espécie` (`method`, `function`) e nome.
     ("CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_METHOD", "CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_ELEMENT", &[3, 4, 1, 2], 0),
     ("CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_METHOD", "CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION_3_13", &[0, 1, 2], 0),
+    // A variante anônima: `[declarados, dados, tipo da função]` (o tipo só no 3.13.4).
+    ("CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_ANONYMOUS_FUNCTION", "CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION_3_13", &[2, 0, 1], 3),
     // `[membro, lista 3.6]` e, só quando são exatamente duas, as duas
     // extensões na exibição do 3.13 (`extension E1 on int`).
     ("CompileTimeErrorCode.AMBIGUOUS_EXTENSION_MEMBER_ACCESS", "CompileTimeErrorCode.AMBIGUOUS_EXTENSION_MEMBER_ACCESS_TWO", &[0, 2, 3], 0),
