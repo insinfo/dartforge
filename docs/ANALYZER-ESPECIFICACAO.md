@@ -7903,6 +7903,22 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
 - **No DartForge:** existe em `crates/types/src/constantes/verificador.rs`; FN só em
   `deferred/load_constants_test.dart` (`const [foo.c]` DENTRO DE UMA CLOSURE argumento de
   `Expect.throws`) — conferir se os literais const dentro de closures são verificados.
+- **Estado em 2026-10-07 (placar 5/5):** o problema não era a closure: o avaliador não tinha o
+  `_getDeferredLibraryError`. Agora `avaliador.rs::propriedade` faz assim:
+  * Com o alvo um prefixo de import, confere o `PrefixedIdentifier.isDeferred` (`prefixo_adiado`): exatamente
+    um import da unidade com o prefixo, e `deferred`.
+  * Nesse caso devolve o erro no nome (`erro_de_biblioteca_adiada`). O mesmo vale para `p.Ext.m`, no nome da
+    extensão.
+  * O código sai de `codigo_de_biblioteca_adiada`, que sobe pelos pais de `dartforge_frontend::pais`, na ordem
+    do `:1880-1925`:
+    * anotação, variável, `case` de `switch` de instrução (`SwitchCase` antes da 3.0, `SwitchPatternCase`
+      depois) e valor padrão;
+    * nas expressões, criação (também a implícita, `Call` com `Resolved::Constructor`), record, e lista ou
+      conjunto/mapa. Na coleção, o elemento mais fundo que contém o filho decide primeiro: `...` dá
+      `SPREAD_EXPRESSION`, a entrada dá a chave ou o valor, e o `if` só conta quando a condição é o próprio nó.
+  * Onde o pai não é expressão (instrução, padrão fora de `switch` de instrução, valor que não é padrão), a
+    subida segue pela menor expressão que contém o trecho.
+  * Sem ancestral que decida, o erro é `INVALID_CONSTANT` no nó, como na constante de enum.
 
 ##### `receiver_of_type_never` (perda 4: FN 4)
 - **Emissão:** os resolvedores de binário/postfix/prefix/propriedade/invocação
@@ -11897,6 +11913,8 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
   `CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE_FROM_DEFERRED_LIBRARY`) no identificador final
   (`f` em `self.E.f`, 7:16). Nós: precisamos saber que o prefixo é `deferred`
   (`Import.deferred`) em `propriedade`/`valor_constante`.
+- **Estado em 2026-10-07 (placar 1/1):** feito junto com `collection_element_from_deferred_library`
+  (`avaliador.rs::codigo_de_biblioteca_adiada`).
 
 ##### `non_constant_list_element` (perda 1: FP 1)
 - `variable/bad_initializer1_test.dart:17:7` — `elems` dentro do próprio inicializador local:

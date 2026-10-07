@@ -1375,11 +1375,27 @@ impl<'a> Motor<'a> {
         let alvo_simples = matches!(a.expr(alvo).kind, ExprKind::Identifier(_));
         let res_alvo = self.resolvido(u, alvo).cloned();
         match res_alvo {
-            // Constante de topo importada com prefixo.
+            // Constante de topo importada com prefixo; do prefixo adiado,
+            // o erro de biblioteca adiada no nome (`visitPrefixedIdentifier`,
+            // 3.6.2 `evaluation.dart:1108-1115`).
             Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..))) => {
+                if self.prefixo_adiado(u, alvo) {
+                    return self.erro_de_biblioteca_adiada(u, e, nome.span);
+                }
                 return self.valor_constante(cx, e, e, true);
             }
-            Some(Resolved::Element(Element::Extension(_))) => return self.valor_constante(cx, e, e, true),
+            // `p.Ext.m` (`visitPropertyAccess`, `:1176-1185`): com `p`
+            // adiado, o erro no nome da extensão.
+            Some(Resolved::Element(Element::Extension(_))) => {
+                if let ExprKind::Property { target: p, name: nome_ext, .. } = &a.expr(alvo).kind
+                    && matches!(self.resolvido(u, *p), Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..))))
+                    && self.prefixo_adiado(u, *p)
+                {
+                    let sp = nome_ext.span;
+                    return self.erro_de_biblioteca_adiada(u, e, sp);
+                }
+                return self.valor_constante(cx, e, e, true);
+            }
             _ => {}
         }
         if let Some(Resolved::Element(Element::Class(k))) = &res_alvo {
@@ -1403,6 +1419,192 @@ impl<'a> Motor<'a> {
             }
         }
         self.valor_constante(cx, e, e, true)
+    }
+
+    /// `PrefixedIdentifier.isDeferred` (3.6.2 `ast.dart:14386-14396`): o
+    /// prefixo `p` (um identificador) é de exatamente um import da unidade, e
+    /// esse import é `deferred`.
+    fn prefixo_adiado(&self, u: UnitId, p: ExprId) -> bool {
+        let ExprKind::Identifier(n) = &self.ast(u).expr(p).kind else {
+            return false;
+        };
+        let lib = self.program.unit(u).library;
+        let mut imports = self.program.library(lib).imports.iter().filter(|i| i.unit == u && i.prefix == Some(n.sym));
+        match (imports.next(), imports.next()) {
+            (Some(i), None) => i.deferred,
+            _ => false,
+        }
+    }
+
+    /// `_getDeferredLibraryError` (3.6.2 `evaluation.dart:1873-1933`): o código
+    /// pelo primeiro ancestral de `no` que o decide, no `alvo`; sem nenhum,
+    /// `INVALID_CONSTANT` no próprio `no`.
+    fn erro_de_biblioteca_adiada(&self, u: UnitId, no: ExprId, alvo: Span) -> R {
+        match self.codigo_de_biblioteca_adiada(u, no) {
+            Some(codigo) => Constante::Invalida(Box::new(self.erro(u, alvo, codigo))),
+            None => self.inv(u, no, c::INVALID_CONSTANT),
+        }
+    }
+
+    /// A subida do `_getDeferredLibraryError`: `Annotation`, `DefaultFormalParameter`,
+    /// `IfElement` cuja condição é o próprio `no`, `InstanceCreationExpression`,
+    /// `ListLiteral`, `MapLiteralEntry` (chave ou valor, pelo filho), `RecordLiteral`,
+    /// `SetOrMapLiteral`, `SpreadElement`, `SwitchCase` (o antigo), `SwitchPatternCase`
+    /// e `VariableDeclaration`. Os pais vêm de `dartforge_frontend::pais`; onde o
+    /// pai não é expressão (instrução, padrão, valor padrão…), a subida continua
+    /// pela menor expressão que contém o trecho (uma expressão de função, um
+    /// `switch` de expressão, a coleção do `if (… case …)`).
+    fn codigo_de_biblioteca_adiada(&self, u: UnitId, no: ExprId) -> Option<Codigo> {
+        let a = self.ast(u);
+        let pais = crate::lints_tipados::pais_da_unidade(self.program, u);
+        let lib = self.program.unit(u).library;
+        let antes_de_3 = self.program.library(lib).features.versao() < dartforge_frontend::features::LanguageVersion::new(3, 0);
+        let contem = |de: Span, sp: Span| de.start <= sp.start && sp.end <= de.end;
+        let mut atual = no;
+        for _ in 0..a.exprs.len() + 1 {
+            let sp = a.expr(atual).span;
+            let proximo = match pais.pai(atual) {
+                dartforge_frontend::pais::Pai::Expr(p) => Some(p),
+                dartforge_frontend::pais::Pai::Anotacao => return Some(c::INVALID_ANNOTATION_CONSTANT_VALUE_FROM_DEFERRED_LIBRARY),
+                dartforge_frontend::pais::Pai::Variavel { .. } => return Some(c::CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE_FROM_DEFERRED_LIBRARY),
+                // `EnumConstantArguments` → `EnumConstantDeclaration` →
+                // `EnumDeclaration`: nenhum decide.
+                dartforge_frontend::pais::Pai::ConstanteDeEnum => return None,
+                dartforge_frontend::pais::Pai::PadraoConstante { .. } => {
+                    // No `case` de um `switch` de instrução, o código do caso.
+                    let em_caso = a.stmts.iter().any(|s| match &s.kind {
+                        ast::StmtKind::Switch { cases, .. } => {
+                            cases.iter().any(|k| k.pattern.is_some_and(|p| contem(a.pattern(p).span, sp)))
+                        }
+                        _ => false,
+                    });
+                    if em_caso {
+                        return Some(if antes_de_3 {
+                            c::NON_CONSTANT_CASE_EXPRESSION_FROM_DEFERRED_LIBRARY
+                        } else {
+                            c::PATTERN_CONSTANT_FROM_DEFERRED_LIBRARY
+                        });
+                    }
+                    None
+                }
+                dartforge_frontend::pais::Pai::Fronteira => {
+                    let padrao = |ps: &[ast::Parameter]| ps.iter().any(|p| p.default_value == Some(atual));
+                    fn aninhado(ps: &[ast::Parameter], atual: ExprId) -> bool {
+                        ps.iter().any(|p| {
+                            p.default_value == Some(atual) || p.function_parameters.as_deref().is_some_and(|fs| aninhado(fs, atual))
+                        })
+                    }
+                    let e_padrao = a.members.iter().any(|m| matches!(&m.kind, ast::MemberKind::Constructor(k) if padrao(&k.parameters) || aninhado(&k.parameters, atual)))
+                        || a.functions.iter().any(|f| f.parameters.as_deref().is_some_and(|ps| aninhado(ps, atual)))
+                        || a.types.iter().any(|t| matches!(&t.kind, ast::TypeKind::Function { parameters, .. } if aninhado(parameters, atual)));
+                    if e_padrao {
+                        return Some(c::NON_CONSTANT_DEFAULT_VALUE_FROM_DEFERRED_LIBRARY);
+                    }
+                    None
+                }
+            };
+            // O pai que não é expressão: a menor expressão que contém o trecho.
+            let p = match proximo {
+                Some(p) => p,
+                None => {
+                    let mut melhor: Option<(usize, ExprId)> = None;
+                    for (i, x) in a.exprs.iter().enumerate() {
+                        let id = ExprId(i as u32);
+                        if id == atual || !contem(x.span, sp) || x.span == sp {
+                            continue;
+                        }
+                        let tam = x.span.end - x.span.start;
+                        if melhor.is_none_or(|(t, _)| tam < t) {
+                            melhor = Some((tam, id));
+                        }
+                    }
+                    match melhor {
+                        Some((_, id)) => id,
+                        None => return None,
+                    }
+                }
+            };
+            if let Some(codigo) = self.papel_na_subida(u, p, sp, no) {
+                return Some(codigo);
+            }
+            atual = p;
+        }
+        None
+    }
+
+    /// O código que a expressão `p`, pai do trecho `filho`, decide na subida.
+    fn papel_na_subida(&self, u: UnitId, p: ExprId, filho: Span, no: ExprId) -> Option<Codigo> {
+        let a = self.ast(u);
+        let contem = |de: Span, sp: Span| de.start <= sp.start && sp.end <= de.end;
+        // O elemento de coleção que contém o filho, do mais fundo ao mais raso.
+        fn elemento(a: &ast::Ast, el: &ast::CollectionElement, filho: Span, no: ExprId, contem: &dyn Fn(Span, Span) -> bool) -> Option<Option<Codigo>> {
+            let span = |e: ExprId| a.expr(e).span;
+            match el {
+                ast::CollectionElement::Expression(e) | ast::CollectionElement::NullAwareExpression(e) => {
+                    contem(span(*e), filho).then_some(None)
+                }
+                ast::CollectionElement::MapEntry { key, value, .. } => {
+                    if contem(span(*key), filho) {
+                        Some(Some(c::NON_CONSTANT_MAP_KEY_FROM_DEFERRED_LIBRARY))
+                    } else if contem(span(*value), filho) {
+                        Some(Some(c::NON_CONSTANT_MAP_VALUE_FROM_DEFERRED_LIBRARY))
+                    } else {
+                        None
+                    }
+                }
+                ast::CollectionElement::Spread { value, .. } => {
+                    contem(span(*value), filho).then_some(Some(c::SPREAD_EXPRESSION_FROM_DEFERRED_LIBRARY))
+                }
+                ast::CollectionElement::If { condition, case_pattern, guard, then, else_ } => {
+                    for sub in std::iter::once(&**then).chain(else_.as_deref()) {
+                        if let Some(r) = elemento(a, sub, filho, no, contem) {
+                            return Some(r);
+                        }
+                    }
+                    let dentro = contem(span(*condition), filho)
+                        || case_pattern.is_some_and(|p| contem(a.pattern(p).span, filho))
+                        || guard.is_some_and(|g| contem(span(g), filho));
+                    if !dentro {
+                        return None;
+                    }
+                    Some((*condition == no).then_some(c::IF_ELEMENT_CONDITION_FROM_DEFERRED_LIBRARY))
+                }
+                ast::CollectionElement::For { condition, updates, body, .. } => {
+                    if let Some(r) = elemento(a, body, filho, no, contem) {
+                        return Some(r);
+                    }
+                    let dentro = condition.is_some_and(|x| contem(span(x), filho)) || updates.iter().any(|x| contem(span(*x), filho));
+                    dentro.then_some(None)
+                }
+                ast::CollectionElement::ForIn { iterable, body, .. } => {
+                    if let Some(r) = elemento(a, body, filho, no, contem) {
+                        return Some(r);
+                    }
+                    contem(span(*iterable), filho).then_some(None)
+                }
+            }
+        }
+        match &a.expr(p).kind {
+            ExprKind::InstanceCreation { .. } => Some(c::CONST_CONSTRUCTOR_CONSTANT_FROM_DEFERRED_LIBRARY),
+            ExprKind::Call { .. } if matches!(self.resolvido(u, p), Some(Resolved::Constructor(_))) => {
+                Some(c::CONST_CONSTRUCTOR_CONSTANT_FROM_DEFERRED_LIBRARY)
+            }
+            ExprKind::Record { .. } => Some(c::NON_CONSTANT_RECORD_FIELD_FROM_DEFERRED_LIBRARY),
+            ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } => {
+                let do_literal = if matches!(a.expr(p).kind, ExprKind::List { .. }) {
+                    c::NON_CONSTANT_LIST_ELEMENT_FROM_DEFERRED_LIBRARY
+                } else {
+                    c::SET_ELEMENT_FROM_DEFERRED_LIBRARY
+                };
+                for el in elements.iter() {
+                    if let Some(r) = elemento(a, el, filho, no, &contem) {
+                        return Some(r.unwrap_or(do_literal));
+                    }
+                }
+                Some(do_literal)
+            }
+            _ => None,
+        }
     }
 
     /// `_evaluatePropertyAccess`.
