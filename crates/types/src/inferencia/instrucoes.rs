@@ -18,6 +18,7 @@ use dartforge_intern::SymbolId;
 
 /// Infere uma instrução.
 pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: StmtId) {
+    validar_anotacoes_locais(inf, cx, s);
     let a = &inf.program.unit(cx.unit).ast;
     let st = a.stmt(s);
     let span = st.span;
@@ -1065,6 +1066,35 @@ pub(crate) fn cabecalho_for_in(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, targe
             }
             inferir_livre(inf, cx, *e);
         }
+    }
+}
+
+/// As anotações de uma declaração local (`Ast::metadados_locais`), pelo
+/// `AnnotationResolver` no escopo local: o nome que resolve para uma local
+/// (`_localVariable`, 3.6.2 `annotation_resolver.dart:170-184`) é
+/// `INVALID_ANNOTATION` se ela não é `const` ou se há argumentos; a função
+/// local também (não é variável nem acessor); o resto pelo escopo da
+/// biblioteca, como as anotações de declaração.
+fn validar_anotacoes_locais(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: StmtId) {
+    let a = &inf.program.unit(cx.unit).ast;
+    let Some((_, ms)) = a.metadados_locais.iter().find(|(x, _)| *x == s) else { return };
+    for m in ms.iter() {
+        validar_anotacao_local(inf, cx, m);
+    }
+}
+
+/// Uma anotação no escopo local (ver [`validar_anotacoes_locais`]).
+pub(crate) fn validar_anotacao_local(inf: &mut BodyInferrer<'_>, cx: &Corpo, m: &ast::Annotation) {
+    let Some(n1) = m.name.first() else { return };
+    match cx.buscar(n1.sym) {
+        Some(Nome::Local(id)) => {
+            let l = cx.local(id);
+            if cx.funcoes_locais.contains(&id) || !l.const_ || m.arguments.is_some() || m.name.len() > 1 {
+                inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::INVALID_ANNOTATION, m.span, &[]);
+            }
+        }
+        Some(_) => {}
+        None => super::funcoes::validar_anotacao(inf, cx.unit, cx.classe, m),
     }
 }
 

@@ -1672,6 +1672,23 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
     let mut opt = Vec::new();
     let mut named = Vec::new();
     let mut ipos = 0usize;
+    // As anotações dos parâmetros de uma função local ou literal, no escopo
+    // de fora (a validação do `AnnotationResolver` com as locais visíveis).
+    if let Some(ps) = &af.parameters {
+        fn anotacoes<'b>(ps: &'b [ast::Parameter], saida: &mut Vec<&'b ast::Annotation>) {
+            for q in ps.iter() {
+                saida.extend(q.metadata.iter());
+                if let Some(fs) = &q.function_parameters {
+                    anotacoes(fs, saida);
+                }
+            }
+        }
+        let mut todas = Vec::new();
+        anotacoes(ps, &mut todas);
+        for m in todas {
+            super::instrucoes::validar_anotacao_local(inf, cx, m);
+        }
+    }
     if let Some(ps) = &af.parameters {
         for p in ps.iter() {
             // `ResolutionVisitor.visitFieldFormalParameter`/
@@ -2216,6 +2233,18 @@ pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: Uni
             _ => {}
         }
     }
+    // As anotações dos parâmetros de um tipo de função escrito
+    // (`void Function([@A() int p])`): o `AnnotationResolver` visita toda
+    // anotação da árvore.
+    for ty in a.types.iter() {
+        if let ast::TypeKind::Function { parameters, .. } = &ty.kind {
+            for p in parameters.iter() {
+                for m in p.metadata.iter() {
+                    anotacao(inf, unit, None, None, m);
+                }
+            }
+        }
+    }
     for mb in a.members.iter() {
         for m in mb.metadata.iter() {
             // Classe dona desconhecida aqui: resolve no escopo da biblioteca.
@@ -2270,6 +2299,23 @@ pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: Uni
         }
         if let Some(ps) = &f.parameters {
             for p in ps.iter() {
+                // Os parâmetros de um parâmetro de função à moda antiga
+                // (`void f(void cb([@A() int p]))`) também são visitados.
+                if validar {
+                    fn aninhados(inf: &mut BodyInferrer<'_>, unit: UnitId, ps: &[ast::Parameter]) {
+                        for q in ps.iter() {
+                            for m in q.metadata.iter() {
+                                anotacao(inf, unit, None, None, m);
+                            }
+                            if let Some(fs) = &q.function_parameters {
+                                aninhados(inf, unit, fs);
+                            }
+                        }
+                    }
+                    if let Some(fs) = &p.function_parameters {
+                        aninhados(inf, unit, fs);
+                    }
+                }
                 for m in p.metadata.iter() {
                     if validar {
                         anotacao(inf, unit, None, None, m);
@@ -2303,7 +2349,7 @@ enum NaAnotacao {
     Prefixo,
     Classe(ClassId),
     Extensao(dartforge_elements::model::ExtensionId),
-    Alias,
+    Alias(dartforge_elements::model::TypedefId),
     /// Getter: o implícito de uma variável (`Some(const)`) ou um escrito (`None`).
     Getter(Option<bool>),
     Outro,
@@ -2316,7 +2362,7 @@ fn classificar_na_anotacao(inf: &BodyInferrer<'_>, b: Option<dartforge_elements:
         Some(Element::Prefix(..)) => NaAnotacao::Prefixo,
         Some(Element::Class(c)) => NaAnotacao::Classe(c),
         Some(Element::Extension(x)) => NaAnotacao::Extensao(x),
-        Some(Element::Typedef(_)) => NaAnotacao::Alias,
+        Some(Element::Typedef(td)) => NaAnotacao::Alias(td),
         Some(Element::Variable(v)) => NaAnotacao::Getter(Some(inf.program.variable(v).const_)),
         Some(Element::Function(f)) => {
             let fe = inf.program.function(f);
@@ -2375,7 +2421,7 @@ fn getter_estatico(
 /// `INVALID_ANNOTATION` na anotação que não é referência a constante nem
 /// invocação de construtor constante. Os nomes são resolvidos no escopo da
 /// biblioteca (o da classe, só quando ela é conhecida).
-fn validar_anotacao(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option<ClassId>, m: &ast::Annotation) {
+pub(crate) fn validar_anotacao(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option<ClassId>, m: &ast::Annotation) {
     use dartforge_diagnostics::codigos::compile_time_error as c;
     let span = m.span;
     let Some(&n1) = m.name.first() else { return };
@@ -2483,8 +2529,29 @@ fn validar_anotacao(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option<Cla
             None => true,
         },
         NaAnotacao::Getter(g) => g != Some(true) || args,
-        // Alias: o tipo apelidado decide; fica sem relato.
-        NaAnotacao::Alias => false,
+        // Alias (`_typeAliasConstructorInvocation`/`_typeAliasGetter`, 3.6.2
+        // `annotation_resolver.dart:274-285`, `:307-318`, `:383-413`): com
+        // argumentos e alvo classe, é criação (o construtor decide, sem
+        // relato aqui); senão o getter do alvo pelo segundo nome: sem ele
+        // (`@V`, ou alias de função), `INVALID_ANNOTATION`.
+        NaAnotacao::Alias(td) => {
+            let alvo = inf.outline.typedefs.get(td.0 as usize).map(|d| d.target_type);
+            let classe_alvo = alvo.and_then(|t| match inf.table.get(t) {
+                Type::Interface { class, .. } => Some(*class),
+                _ => None,
+            });
+            if args && classe_alvo.is_some() {
+                false
+            } else {
+                match (classe_alvo, membro) {
+                    (Some(k), Some(n)) => match getter_estatico(inf, Some(k), None, n.sym) {
+                        Some(g) => g != Some(true) || args,
+                        None => true,
+                    },
+                    _ => true,
+                }
+            }
+        }
         NaAnotacao::Prefixo | NaAnotacao::Outro => true,
     };
     if invalida {

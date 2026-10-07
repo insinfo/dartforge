@@ -7550,6 +7550,15 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
      no SDK 3.6.2 `Deprecated.optional` não existe → construtor nulo → INVALID_ANNOTATION; as anotações
      de parâmetros de `TypeKind::Function` não são visitadas pela nossa validação.
 
+- **Feito em 2026-10-07 (108/108):**
+  - anotações de declarações locais (`Ast::metadados_locais`) e dos parâmetros de funções locais e literais
+    são validadas no escopo local (`instrucoes.rs::validar_anotacao_local`): o nome que é local relata se ela
+    não é `const`, se há argumentos ou se é função local; o resto pelo escopo da biblioteca;
+  - alias (`_typeAliasGetter`): `@V` sem segundo nome, ou alias de função, é `INVALID_ANNOTATION`; com
+    argumentos e alvo classe é criação; `@V.x` usa o getter estático do alvo;
+  - os parâmetros de tipos de função escritos (`void Function([@A() int p])`) e os de parâmetros de função à
+    moda antiga (`void cb([@A() int p])`) também são visitados.
+
 ##### `undefined_annotation` (perda 1: FN 1)
 - **Emissão:** `AnnotationResolver` (`annotation_resolver.dart:287-295` e análogos), "Undefined name
   '{0}' used as an annotation." na anotação inteira.
