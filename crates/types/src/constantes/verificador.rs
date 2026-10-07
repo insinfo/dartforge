@@ -706,8 +706,24 @@ impl Verificador<'_, '_> {
                 .grafo
                 .construtor_de(self.unidade, mid)
                 .is_some_and(|f| self.m.grafo.construtores_em_ciclo.contains(&f));
-            if em_ciclo && !k.factory {
-                self.relatar(c::RECURSIVE_CONSTANT_CONSTRUCTOR, k.class_name.span, Vec::new());
+            // O construtor primário (3.13) é um `PrimaryConstructorDeclaration`:
+            // o `visitConstructorDeclaration` não passa por ele. No 3.13.4 o
+            // relato vai do nome do tipo (ou do `new`) ao fim do nome
+            // (`errorRange`); no 3.6.2, só o `returnType`.
+            let primario = k.parte_primaria
+                || a.decls.iter().any(|d| match &d.kind {
+                    ast::DeclKind::Class(x) => x.primary_constructor == Some(mid),
+                    ast::DeclKind::Enum(x) => x.primary_constructor == Some(mid),
+                    _ => false,
+                });
+            if em_ciclo && !k.factory && !primario {
+                let span = match k.name {
+                    Some(n) if self.m.program.referencia(self.unidade) == dartforge_diagnostics::Referencia::V3_13 => {
+                        Span { start: k.class_name.span.start, end: n.span.end }
+                    }
+                    _ => k.class_name.span,
+                };
+                self.relatar(c::RECURSIVE_CONSTANT_CONSTRUCTOR, span, Vec::new());
             }
             // `_validateConstructorInitializers`: potencialmente constantes.
             let cx = Ctx { lexico: None, ..self.cx() };

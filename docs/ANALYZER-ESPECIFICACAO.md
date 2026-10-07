@@ -11648,6 +11648,9 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
   construtores fora de ciclo. Casos: auto-redirecionamento `this()`, `this.named()` entre
   construtores de enum (primário 3.13), `final m = const A()` no próprio A, `const C(): x = y`
   com `y = const C()`.
+- **Feito em 2026-10-07 (14/14):** o construtor primário (3.13, `PrimaryConstructorDeclaration`) não passa pelo
+  `visitConstructorDeclaration` e não relata, mesmo no ciclo; o lugar é o `returnType` no 3.6.2 e, no 3.13.4, o
+  `errorRange` (do nome do tipo ou do `new` ao fim do nome: `E.named`, `new named`).
 
 ##### `const_constructor_with_mixin_with_field` (perda 13: FN 13)
 - **Emissão:** `ErrorVerifier._checkForConstConstructorWithNonConstSuper`
