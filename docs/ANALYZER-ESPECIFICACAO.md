@@ -577,6 +577,7 @@ Base comum: a resolução de membro passa por `TypePropertyResolver.resolve` (`a
 - **Condição exata:** `E(x) op y` com o override de extensão sem o operador; para `==` também (`E(x) == y` sem `==` declarado na extensão).
 - **Posição:** o operador. **Mensagem:** `The operator '{0}' isn't defined for the extension '{1}'.` (`{1}` nome da extensão).
 - **No DartForge:** existe para operadores comuns (13); falta `==` (8 FN em `equality_extension_override_error_test`). **Mudança:** no `==`, quando o operando esquerdo é override de extensão.
+- **Feito em 2026-10-07 (21/21):** `expr.rs::condicao_binaria` procura o `==` só na extensão do override esquerdo; ausente, relata no token do operador com o nome `==` (também para `!=`).
 
 ##### `ambiguous_extension_member_access` (perda 20: FN 19, msg 1)
 - **Emissão:** `ExtensionMemberResolver.findExtension` (`analyzer/lib/src/dart/resolver/extension_member_resolver.dart:87-140`).
@@ -730,6 +731,10 @@ Representação cíclica ou inválida cala o `implements` e o fundo. Um `dynamic
 - **Emissão:** `error_verifier.dart:3384-3390` (método/getter/setter com nome de membro de `Object`: `==`, `hashCode`, `toString`, `noSuchMethod`, `runtimeType`), no token do nome.
 - **Mensagem:** `Extension types can't declare members with the same name as a member declared by 'Object'.`
 - **No DartForge:** `crates/analise/src/membros.rs:948` (48 acertos). As **7 FN** são de `primary_constructors/header/extension_type_error_test.dart` — **construtor primário com parâmetros nomeados** (`extension type ET12({required final int hashCode})`), sintaxe nova julgada pelo 3.13: o campo declarado no cabeçalho é membro. **Mudança:** quando o parser aceitar o cabeçalho com parâmetros nomeados (3.13), aplicar a regra aos campos do cabeçalho.
+- **Feito em 2026-10-07 (55/55):** o 3.13.4 confere o nome do único parâmetro da representação contra os membros
+  de `Object` (checkout main `error_verifier.dart:5641-5655`), qualquer que seja a forma do parâmetro (nomeado,
+  opcional, `final`); o 3.6.2 não confere (o oráculo de `ExtensionTypeDeclaresMemberOfObject__re_6471d06e.dart`
+  é vazio). O parser relata no nome e marca o relato como só do 3.13.4 (`so_3_13`).
 
 ##### `extension_type_implements_disallowed_type` (perda 7: FN 7)
 - **Emissão:** `ResolutionVisitor._verifyExtensionElementImplements` (`analyzer/lib/src/dart/resolver/resolution_visitor.dart:1786-1800`), para cada tipo da cláusula `implements`.

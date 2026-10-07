@@ -4639,6 +4639,18 @@ fn condicao_binaria(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: B
                 let this = cx.tipo_this.unwrap_or(inf.core.dynamic_);
                 registrar(inf, cx, left, this);
             }
+            // `E(x) == y`: o `==` só na extensão (`_resolveUserDefinableElement`
+            // com `ExtensionOverride`); ausente, `UNDEFINED_EXTENSION_OPERATOR`
+            // no operador, com o nome `==` também para `!=`.
+            if let Some((x, args)) = cx.sobreposicoes.get(&left).cloned()
+                && let Some(eq) = inf.sym.igual
+                && inf.membro_de_extensao_explicita(x, &args, eq, false).is_none()
+            {
+                let token = token_de_operador(inf, cx, inf.span_expr(cx.unit, left).end);
+                let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
+                let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_OPERATOR.template, "==", extensao);
+                inf.aviso(msg, token);
+            }
             if let Some(eq) = inf.sym.igual {
                 if let Busca::Achado(m) = inf.buscar_membro(cx.lib, tl, eq, false) {
                     // O lado direito contra o parâmetro de `operator ==`

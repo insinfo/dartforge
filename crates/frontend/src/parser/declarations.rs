@@ -1817,6 +1817,20 @@ impl<'s, 'i> Parser<'s, 'i> {
         // dois fica depende da referência da unidade, que só se conhece no
         // fim (`Parsed::referencia`): saem os dois, cada um marcado.
         let n = params.len();
+        // O 3.13.4 confere o nome do único parâmetro da representação contra
+        // os membros de `Object` (`EXTENSION_TYPE_DECLARES_MEMBER_OF_OBJECT`
+        // no nome, `error_verifier.dart` do checkout main, `:5641-5655`),
+        // qualquer que seja a forma do parâmetro; o 3.6.2 não confere.
+        if n == 1
+            && let Some(p) = params.first()
+            && !p.this_
+            && !p.super_
+            && let Some(nome) = p.name
+            && matches!(&self.source[nome.span.start..nome.span.end], "hashCode" | "noSuchMethod" | "runtimeType" | "toString" | "==")
+        {
+            self.erro_em(codigos::compile_time_error::EXTENSION_TYPE_DECLARES_MEMBER_OF_OBJECT, nome.span, &[]);
+            self.so_3_13.push((codigos::compile_time_error::EXTENSION_TYPE_DECLARES_MEMBER_OF_OBJECT, nome.span));
+        }
         if n > 1 && !simples {
             let fim = params[0].span.end;
             if let Some(virgula) =
