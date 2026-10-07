@@ -253,6 +253,32 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                     }
                     j += 1;
                 }
+                // A variável de junção (a que o corpo enxerga, a cópia do
+                // último caso) tem, em cada alternativa, o estado da cópia
+                // daquela alternativa: a junção dos fluxos guarda a promoção
+                // comum a todas (`switchStatement_endAlternatives` junta as
+                // variáveis de junção, `case int? x?: case int? x?:` → `int`).
+                if j > i && membros.len() == entradas.len() {
+                    if let Some(primeiro) = membros.first() {
+                        for &(n, _) in primeiro {
+                            let ids: Option<Vec<LocalId>> = membros.iter().map(|m| m.iter().find(|(x, _)| *x == n).map(|(_, id)| *id)).collect();
+                            let Some(ids) = ids else { continue };
+                            let Some(&rep) = ids.last() else { continue };
+                            for (k, &idk) in ids.iter().enumerate() {
+                                if idk == rep {
+                                    continue;
+                                }
+                                if let Some(m) = entradas[k].modelo(idk).cloned() {
+                                    let r = rep.0 as usize;
+                                    if entradas[k].vars.len() <= r {
+                                        entradas[k].vars.resize(r + 1, None);
+                                    }
+                                    entradas[k].vars[r] = Some(m);
+                                }
+                            }
+                        }
+                    }
+                }
                 let base = depois_valor.clone();
                 cx.fluxo = inf.juntar_todos(&base, &entradas);
                 // Casos que dividem o corpo: as variáveis dos padrões são

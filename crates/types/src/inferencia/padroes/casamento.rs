@@ -528,12 +528,22 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
             promover_para_padrao(inf, cx, k, true, false);
             let inv = ty.is_some_and(|x| anotacao_invalida(inf, cx, x, k));
             registrar_tipo_de_padrao(inf, cx, p, k, inv);
-            declarar_local(
+            let id = declarar_local(
                 inf,
                 cx,
                 Local { nome: name.sym, tipo: k, final_: final_ || f2, late: false, const_: false, offset: name.span.start, funcao_local: false },
                 true,
             );
+            // `declaredVariablePattern` + `assignMatchedPatternVariable`
+            // (3.6.2 `flow_analysis.dart:4528-4544`, `_initialize` `:5931-5962`):
+            // a variável começa com a escrita do tipo casado, que promove pelo
+            // tipo de interesse (o não anulável do declarado) se ela tem tipo
+            // escrito e não é `final` (`case int? x?:` deixa `x` como `int`).
+            if ty.is_some() && !(final_ || f2) && !inf.e_dynamic(t) && inf.sub(t, k) {
+                let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());
+                inf.escrever_fluxo(&mut f, id, k, t, true, None);
+                cx.fluxo = f;
+            }
         }
         PatternKind::Constant(e) => {
             let e = *e;

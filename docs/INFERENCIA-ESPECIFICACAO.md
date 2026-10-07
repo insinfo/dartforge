@@ -1277,6 +1277,18 @@ modelo "não casado" dos anteriores (FA:7797-7842); rótulo em caso →
 nenhum, o que vem depois é inalcançável. Variáveis que dividem um corpo de
 caso são fundidas e sempre atribuídas.
 
+**Variáveis declaradas e de junção (2026-10-07).** `declaredVariablePattern`
+(FA 3.6.2 `:4528-4544`) inicializa uma chave temporária com o **tipo casado**
+pelo `_initialize` (`:5931-5962`), com `promoteToTypeOfInterest` quando a
+variável tem tipo escrito e não é `final`, e o `assignMatchedPatternVariable`
+copia o modelo para a variável: `case int? x?:` deixa `x` promovida a `int`
+(o não anulável do declarado é tipo de interesse); `final int? x?` e `var x?`
+não promovem pela escrita. No DartForge, `padroes/casamento.rs` faz a escrita
+depois de declarar. A variável de junção de casos que dividem o corpo tem, em
+cada alternativa, o modelo da cópia daquela alternativa antes da junção dos
+fluxos (`instrucoes.rs`, antes do `juntar_todos`): a promoção comum a todas as
+alternativas fica (`case int? x? when g: case int? x?: x` → `int`).
+
 Oráculo (flu14): `if (o case int i)` → `i: int` e `o: int`; `if (x case var
 v?)` → `v: int`, `x: int`; `switch (o) { case String s: … }` → `s`, `o`:
 `String`; `if (x case != null) x` → `int`.
