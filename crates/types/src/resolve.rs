@@ -836,6 +836,19 @@ impl<'a> OutlineResolver<'a> {
                             DeclKind::Enum(en) => en.constants.get(index).map(|k| k.type_args.to_vec()).unwrap_or_default(),
                             _ => Vec::new(),
                         };
+                        let com_argumentos = match &self.program.unit(unit).ast.decl(decl).kind {
+                            DeclKind::Enum(en) => en.constants.get(index).is_some_and(|k| k.arguments.is_some()),
+                            _ => false,
+                        };
+                        // A constante de enum é implicitamente tipada: o tipo
+                        // é o da criação `E(args)` inferida (os argumentos de
+                        // tipo pelos argumentos, `enum E<T> { v('') }` dá
+                        // `E<String>`). Genérica, sem argumentos de tipo
+                        // escritos e com argumentos, fica para a inferência
+                        // (`funcoes.rs::inferir_tipo_de_variavel_sem_tipo`).
+                        if n > 0 && escritos.is_empty() && com_argumentos {
+                            (None, None)
+                        } else {
                         let args: Vec<TypeId> = if n == 0 {
                             Vec::new()
                         } else if escritos.len() == n {
@@ -850,6 +863,7 @@ impl<'a> OutlineResolver<'a> {
                             nullable: false,
                         });
                         (Some(ty), Some(ty))
+                        }
                     } else {
                         (None, None)
                     }

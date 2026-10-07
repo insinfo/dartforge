@@ -1428,7 +1428,10 @@ pub(crate) fn inferir_tipo_de_variavel_sem_tipo(inf: &mut BodyInferrer<'_>, vid:
         None => match v.node {
             // O tipo da constante vem do outline (a instanciação escrita ou a
             // dos limites); o tipo `this` da classe (`E<T>`) vazaria o `T`.
-            VariableRef::EnumConstant { .. } => {
+            VariableRef::EnumConstant { unit, decl, index } => {
+                if let Some(t) = tipo_da_constante_de_enum(inf, vid, unit, decl, index) {
+                    return t;
+                }
                 let d = &inf.outline.variables[vid.0 as usize];
                 match d.declared_type.or(d.inferred) {
                     Some(t) => t,
@@ -1437,6 +1440,37 @@ pub(crate) fn inferir_tipo_de_variavel_sem_tipo(inf: &mut BodyInferrer<'_>, vid:
             }
             _ => inf.core.dynamic_,
         },
+    }
+}
+
+/// O tipo implícito de uma constante de enum genérica sem argumentos de tipo
+/// escritos: o da criação `E.nome(args)` inferida sem contexto (a
+/// inicialização sintética do `ElementBuilder`, tipada como um campo sem
+/// tipo). A inferência é especulativa: os avisos dela saem na visita da
+/// declaração do enum.
+fn tipo_da_constante_de_enum(inf: &mut BodyInferrer<'_>, vid: VariableId, unit: UnitId, decl: ast::DeclId, index: usize) -> Option<TypeId> {
+    let c = inf.program.variable(vid).class?;
+    let program = inf.program;
+    let ast::DeclKind::Enum(en) = &program.unit(unit).ast.decl(decl).kind else { return None };
+    let k = en.constants.get(index)?;
+    let args = k.arguments.as_ref()?;
+    let chave = match k.constructor.map(|n| n.sym) {
+        Some(x) if Some(x) == inf.sym.new_ => inf.sym.vazio,
+        Some(x) => Some(x),
+        None => inf.sym.vazio,
+    };
+    let f = chave.and_then(|ch| program.class(c).constructors.get(&ch).copied())?;
+    let antes = inf.diagnostics.len();
+    let alvo_salvo = inf.alvo_da_aridade.take();
+    let mut cx = Corpo::novo(inf, unit, Some(c), None, true);
+    let u = inf.core.unknown;
+    let t = super::chamadas::construir(inf, &mut cx, None, c, Some(f), None, args, u);
+    inf.alvo_da_aridade = alvo_salvo;
+    inf.diagnostics.truncate(antes);
+    inf.unidades_dos_avisos.truncate(antes);
+    match inf.table.get(t) {
+        Type::Interface { class, .. } if *class == c => Some(t),
+        _ => None,
     }
 }
 

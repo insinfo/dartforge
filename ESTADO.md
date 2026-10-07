@@ -204,8 +204,8 @@ com o código.
   constante de enum avaliada como criação (`const_eval_throws_exception` 36 → 43,
   `const_constructor_param_type_mismatch` e `const_constructor_field_type_mismatch` completos).
 * **Pendente conhecido:** promoção de campo do alvo de cascata (`c?.._field()`), curingas com o
-  experimento `primary-constructors` desligado, criação por alias com limite F, tipo inferido da
-  constante de enum genérica.
+  experimento `primary-constructors` desligado, criação por alias com limite F. O tipo
+  inferido da constante de enum genérica foi resolvido (a constante é tipada pela criação inferida).
 
 ### Ferramentas desta rodada
 
