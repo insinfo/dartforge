@@ -12402,7 +12402,7 @@ verificador (`_validateConstantArguments`, `constant_verifier.dart:779-786`).
 | `PrefixExpression` | `:1142-1173` | 1º: operador de extensão/extension type → `CONST_EVAL_EXTENSION_METHOD` / `CONST_EVAL_EXTENSION_TYPE_METHOD` @ nó; 2º: **o operando** (erro dele volta antes de olhar o operador) | `!` → `logicalNot`; `~` → `bitNot`; `-` → `negated`; outro (`++`, `--`) → genérico @ nó. Exceção @ nó inteiro |
 | `BinaryExpression` | `:636-745` | §2.3 | §2.3 |
 | `ConditionalExpression` | `:757-801` | condição | `!isBool` → `CONST_EVAL_TYPE_BOOL` @ **condição**; `true`: `_reportNotPotentialConstants(else)` (1º nó não potencialmente constante → `INVALID_CONSTANT` nele), depois avalia `then`; `false`: simétrico; **desconhecida**: avalia `then` e `else` (erro de qualquer um volta) e devolve `validWithUnknownValue(node.staticType)` |
-| `AsExpression` | `:623-633` | expressão, depois o tipo | `castToType` (§4.3) @ nó `x as T` inteiro |
+| `AsExpression` | `:623-633` | expressão, depois o tipo | `castToType` (§4.3) @ nó `x as T` inteiro; o tipo é o **escrito** (`node.type.type`), não o estático do nó, que a instanciação implícita pode ter trocado |
 | `IsExpression` | `:988-998` | expressão, depois o tipo | `hasType` + `logicalNot` se `is!` (§4.3) |
 | `NamedType` | `:1066-1088` | — | literal de tipo em padrão constante com parâmetro de tipo → `CONST_TYPE_PARAMETER` @ nó; `isDeferred` → erro de deferred (§2.6) @ `name2`; senão `_getConstantValue(element: node.element, givenType: tipo com _substitution aplicada)` |
 | `TypeLiteral` | `:1352` | `node.type` | idem `NamedType` |
@@ -12413,7 +12413,7 @@ verificador (`_validateConstantArguments`, `constant_verifier.dart:779-786`).
 | `MethodInvocation` | `:1023-1059` | — | `identical` de `dart:core` com exatamente 2 argumentos: avalia arg0, arg1, `isIdentical2`; `staticType is InvalidType` → `INVALID_CONSTANT` @ nó com `isUnresolved`; qualquer outra → `CONST_EVAL_METHOD_INVOCATION` @ nó (sem avaliar alvo nem argumentos) |
 | `InstanceCreationExpression` | `:923-946` | — | `!isConst` → genérico @ nó; construtor não resolvido → `INVALID_CONSTANT` @ nó; senão `evaluateAndFormatErrorsInConstructorCall` (§3) |
 | `ConstructorReference` | `:804-840` | — | tipo não é função ou construtor não resolvido → `INVALID_CONSTANT` @ nó; senão `FunctionState(construtor, typeArguments do tipo de retorno, viaTypeAlias se o alias não é renome próprio)` com tipo `node.staticType` |
-| `FunctionReference` | `:852-911` | a função | sem argumentos escritos: algum `typeArgumentTypes` (com `_lexicalTypeEnvironment` aplicado aos que são parâmetro de tipo) com referência a parâmetro de tipo → `CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF` @ nó; senão `_instantiateFunctionType` (`:1939-1961`, aplica `_substitution`). Com argumentos escritos: avalia cada um; `CONST_TYPE_PARAMETER` é trocado por `…_FUNCTION_TEAROFF` @ o argumento; não-tipo → `INVALID_CONSTANT` @ argumento; nº errado → `WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION` (função é `SimpleIdentifier`; args `[nome, formais, dados]`) ou `…_ANONYMOUS_FUNCTION` @ a lista `<…>` (`typeInstantiate`, `:2308-2338`) |
+| `FunctionReference` | `:852-911` | a função | sem argumentos escritos: algum `typeArgumentTypes` (com `_lexicalTypeEnvironment` aplicado aos que são parâmetro de tipo) com referência a parâmetro de tipo → `CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF` @ nó; senão `_instantiateFunctionType` (`:1939-1961`): se o valor é função de elemento cujo tipo **do elemento** é genérico, instancia esse tipo com `typeArgumentTypes` e aplica `_substitution` (o tipo do valor sai, por exemplo, `void Function(double, …)` dentro de `const A<double>(…)`). O `FunctionReference` implícito embrulha qualquer expressão que o `ResolverVisitor` instanciou (identificador, `as`, invocação, índice, operadores, `await`, `=`, literal de função), não só identificadores; o tear-off de construtor é `ConstructorReference` e não passa por aqui. No DartForge: `Motor::instanciar_referencia`, no despachante `avaliar`. Com argumentos escritos: avalia cada um; `CONST_TYPE_PARAMETER` é trocado por `…_FUNCTION_TEAROFF` @ o argumento; não-tipo → `INVALID_CONSTANT` @ argumento; nº errado → `WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION` (função é `SimpleIdentifier`; args `[nome, formais, dados]`) ou `…_ANONYMOUS_FUNCTION` @ a lista `<…>` (`typeInstantiate`, `:2308-2338`) |
 | `ListLiteral` | `:1001-1020` | elementos (§2.7) | `!isConst` → `MISSING_CONST_IN_LIST_LITERAL` @ nó |
 | `SetOrMapLiteral` | `:1255-1303` | elementos | mapa = `!node.isSet`. `!isConst` → `MISSING_CONST_IN_MAP_LITERAL` / `…_SET_LITERAL` @ nó. Erro em literal que não é `isMap` nem `isSet` (ambíguo): `avoidReporting = true` |
 | `RecordLiteral` | `:1215-1243` | campos na ordem escrita | `RecordState`; tipo = registro dos **tipos dos valores**. Não há checagem de `const` (registro em contexto não constante avalia igual) |
@@ -16179,7 +16179,12 @@ O scanner não valida escapes: só pula o caractere depois da `\`. Quem decodifi
 durante o parse: `endLiteralString` (`an:fasta/ast_builder.dart:2390-2446`) chama `unescapeString`
 (string sem interpolação, :2395), `unescapeFirstStringPart` (:2411), `unescape` (trechos do meio, :2420) e
 `unescapeLastStringPart` (:2436) de `fe:parser/quote.dart`. `unescape` (:151-182) só chama
-`unescapeCodeUnits` se o trecho contém `\` (ou CR, nas multilinhas); strings cruas não decodificam.
+`unescapeCodeUnits` se o trecho contém `\` (ou CR, nas multilinhas); strings cruas não decodificam,
+salvo a multilinha crua com CR (`isRaw = true`). Em todo trecho decodificado, `\r` e `\r\n` viram `\n`
+(:194-198): as multilinhas de arquivos com quebra CR ou CRLF têm o mesmo valor que as de LF
+(`string/multiline_newline_test.dart`). A primeira linha da multilinha (`lengthOfOptionalWhitespacePrefix`,
+:62-86) aceita espaços e tabs, cada um opcionalmente depois de `\`, até `\r`, `\r\n` ou `\n`. No DartForge:
+`lexer::decode_string`.
 O erro sai por `listener.handleUnescapeError(message, location, stringOffset, length)` →
 `StackListener.handleUnescapeError` (`fe:parser/stack_listener.dart:413-416`):
 `addProblem(message, token.charOffset + stringOffset, length)` → `FastaErrorReporter.reportMessage`

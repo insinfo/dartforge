@@ -474,6 +474,17 @@ aparece na saída. Ela importa em quatro pontos:
      O detalhe por código está na Parte II.
   5. *Deduplicação*: não há um conjunto por arquivo equivalente ao
      `RecordingErrorListener` (§3.5); a deduplicação é local a cada verificador.
+  6. *Constantes de bibliotecas de fora do lote*: o oficial resolve os
+     inicializadores constantes de toda biblioteca no link
+     (`ConstantInitializersResolver`) e avalia qualquer constante sob demanda
+     (`computeConstantValue`). O motor infere, depois dos corpos do lote, as
+     bibliotecas de fora dele cujas variáveis ou construtores `const` as
+     expressões já inferidas citam, em fecho (`bibliotecas_de_constantes_citadas`),
+     sem relatar nada delas; as do SDK ficam opacas, com valor desconhecido
+     válido (o avaliador não prova erro sobre ele, nem sobre o desconhecido de
+     tipo anulável, que tem o estado do tipo de base). Vale também para o
+     `dartforge analyze` de um arquivo só: `import 'z.dart'; const c = i == 4
+     ? true : null;` avalia o `i` de `z.dart`.
 
 ## 2. Linking (`summary2`): elementos, inferência de topo, ciclos
 

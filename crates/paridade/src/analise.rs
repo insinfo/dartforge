@@ -725,10 +725,44 @@ impl Motor {
         for (d, u) in diags_outline.iter().zip(&unidades_outline) {
             atribuidos.push((*u, d.clone(), fase::RESOLUTION_VISITOR));
         }
-        // Constantes (`ConstantVerifier`): as bibliotecas do lote são as
-        // inferidas; as outras (SDK, pacotes) ficam opacas.
+        // As bibliotecas de fora do lote cujas constantes a avaliação lê
+        // (variáveis e construtores `const` citados, em fecho): o analyzer
+        // resolve os inicializadores constantes de toda biblioteca no link
+        // (`ConstantInitializersResolver`) e os avalia sob demanda
+        // (`computeConstantValue`); aqui elas são inferidas, sem relatar
+        // nada delas. O SDK fica opaco (valor desconhecido válido).
+        let mut inferidas: HashSet<LibraryId> = libs_proprias.iter().copied().collect();
+        if let Some(c) = &mut corpos {
+            loop {
+                let novas = bibliotecas_de_constantes_citadas(&program, c, &inferidas);
+                if novas.is_empty() {
+                    break;
+                }
+                for lib in novas {
+                    if cancelado() {
+                        return None;
+                    }
+                    let (mut bt, _, _) = dartforge_types::infer_bodies_das_bibliotecas_com_unidades(
+                        &program,
+                        &interner,
+                        &mut table,
+                        &core,
+                        &mut outline,
+                        std::slice::from_ref(&lib),
+                        true,
+                    );
+                    for u in &program.library(lib).units {
+                        let i = u.0 as usize;
+                        if i < c.units.len() && i < bt.units.len() {
+                            c.units[i] = std::mem::take(&mut bt.units[i]);
+                        }
+                    }
+                    inferidas.insert(lib);
+                }
+            }
+        }
+        // Constantes (`ConstantVerifier`), relatadas só nas do lote.
         if let Some(corpos) = &corpos {
-            let inferidas: HashSet<LibraryId> = libs_proprias.iter().copied().collect();
             atribuidos.extend(com_fase(fase::CONSTANT_VERIFIER, dartforge_types::constantes::verificar(
                 &program,
                 &interner,
@@ -1266,6 +1300,46 @@ fn depende_de_declaracoes(codigo: &str) -> bool {
 /// em que o parser se recuperou.
 fn depende_da_linha(codigo: &str) -> bool {
     matches!(codigo, "getter_not_subtype_setter_types" | "not_initialized_non_nullable_variable")
+}
+
+/// As bibliotecas de fora de `inferidas` (e do SDK) das variáveis `const` e
+/// dos construtores `const` que as expressões das inferidas citam.
+fn bibliotecas_de_constantes_citadas(program: &Program, corpos: &dartforge_types::BodyTypes, inferidas: &HashSet<LibraryId>) -> Vec<LibraryId> {
+    use dartforge_elements::model::Element;
+    use dartforge_types::{MemberRef, Resolved};
+    let mut novas = BTreeSet::new();
+    for &lib in inferidas {
+        for &u in &program.library(lib).units {
+            let Some(b) = corpos.units.get(u.0 as usize) else { continue };
+            for i in 0..program.unit(u).ast.exprs.len() {
+                let e = dartforge_frontend::ast::ExprId(i as u32);
+                let alvo = match b.get_resolved(e) {
+                    Some(Resolved::Element(Element::Variable(v))) | Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => {
+                        let var = program.variable(*v);
+                        var.const_.then_some(var.library)
+                    }
+                    Some(Resolved::Element(Element::Function(f))) | Some(Resolved::Member { member: MemberRef::Function(f), .. }) => {
+                        match program.function(*f).variable {
+                            Some(v) if program.variable(v).const_ => Some(program.variable(v).library),
+                            _ => None,
+                        }
+                    }
+                    Some(Resolved::Constructor(f)) => {
+                        let fe = program.function(*f);
+                        fe.const_.then_some(fe.library)
+                    }
+                    _ => None,
+                };
+                if let Some(l) = alvo
+                    && !inferidas.contains(&l)
+                    && !program.library(l).uri.starts_with("dart:")
+                {
+                    novas.insert(l.0);
+                }
+            }
+        }
+    }
+    novas.into_iter().map(LibraryId).collect()
 }
 
 /// `(unidade, intervalo do inicializador)` das variáveis fora do SDK, na

@@ -566,13 +566,22 @@ impl Valor {
             Type::Interface { class, nullable: false, .. } => Some(*class),
             _ => None,
         };
-        let estado = if tipo == core.bool_ {
+        // O desconhecido de tipo anulável (`bool?`, `int?`) tem o estado do
+        // tipo de base: pelo lado seguro, nenhum erro de tipo é provado sobre
+        // ele (`c ? 1 : 2` com `c` desconhecido de tipo `bool?` não é
+        // `CONST_EVAL_TYPE_BOOL`).
+        let base = match table.get(tipo) {
+            Type::Interface { class, .. } => Some(*class),
+            _ => None,
+        };
+        let de = |k: Option<ClassId>| base.is_some() && base == k;
+        let estado = if tipo == core.bool_ || de(core.bool_class) {
             Estado::Bool(None)
-        } else if tipo == core.double {
+        } else if tipo == core.double || de(core.double_class) {
             Estado::Double(None)
-        } else if tipo == core.int {
+        } else if tipo == core.int || de(core.int_class) {
             Estado::Int(None)
-        } else if tipo == core.string {
+        } else if tipo == core.string || de(core.string_class) {
             Estado::Str(None)
         } else if classe.is_some() && classe == core.list_class {
             Estado::Lista { elemento: elemento_de_lista.unwrap_or(core.dynamic_), elementos: Rc::new(Vec::new()), desconhecida: true }

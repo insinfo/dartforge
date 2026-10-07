@@ -1449,7 +1449,16 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
             api_sem_nulo(inf, cx, e, t);
             t
         }
-        ExprKind::FunctionExpression(f) => funcoes::expressao_de_funcao(inf, cx, *f, ctx, e),
+        // `insertGenericFunctionInstantiation` (3.6.2 `resolver.dart:1171`)
+        // depois de `visitFunctionExpression` (`:2833`), das invocações
+        // (`:2855`, `:3244`), do índice (`:3035`), dos operadores
+        // (`:2094`, `:3414`, `:3455`), de `as` (`:1867`), da atribuição
+        // (`:1933`) e de `await` (`:2081`), além dos identificadores e
+        // propriedades.
+        ExprKind::FunctionExpression(f) => {
+            let t = funcoes::expressao_de_funcao(inf, cx, *f, ctx, e);
+            instanciar_em_contexto(inf, cx, e, t, ctx)
+        }
         ExprKind::Property { target, name, null_aware } => {
             let (t, c) = propriedade(inf, cx, e, *target, *name, *null_aware);
             curto = c;
@@ -1458,7 +1467,7 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
         ExprKind::Index { target, index, null_aware } => {
             let (t, c) = ler_indice(inf, cx, e, *target, *index, *null_aware, ctx);
             curto = c;
-            t
+            instanciar_em_contexto(inf, cx, e, t, ctx)
         }
         ExprKind::Call { .. } => {
             if let Some(t) = atalhos::construcao(inf, cx, e, ctx) {
@@ -1467,7 +1476,7 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
                 let (t, c) = chamadas::chamada(inf, cx, e, ctx);
                 curto = c;
                 api_sem_nulo(inf, cx, e, t);
-                t
+                instanciar_em_contexto(inf, cx, e, t, ctx)
             }
         }
         ExprKind::TypeArguments { target, type_args } => {
@@ -1622,8 +1631,14 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
                 }
             }
         }
-        ExprKind::Unary { op, operand } => unario(inf, cx, e, *op, *operand, ctx, &mut curto),
-        ExprKind::Binary { op, left, right } => binario(inf, cx, e, *op, *left, *right, ctx),
+        ExprKind::Unary { op, operand } => {
+            let t = unario(inf, cx, e, *op, *operand, ctx, &mut curto);
+            instanciar_em_contexto(inf, cx, e, t, ctx)
+        }
+        ExprKind::Binary { op, left, right } => {
+            let t = binario(inf, cx, e, *op, *left, *right, ctx);
+            instanciar_em_contexto(inf, cx, e, t, ctx)
+        }
         ExprKind::Conditional { condition, then, else_ } => {
             let (then, else_) = (*then, *else_);
             let (vf, ff) = condicao_verificada(inf, cx, *condition);
@@ -1675,9 +1690,12 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
                 inf.promover(&mut f, id, decl, t);
                 cx.fluxo = f;
             }
-            t
+            instanciar_em_contexto(inf, cx, e, t, ctx)
         }
-        ExprKind::Assign { op, target, value } => atribuicao(inf, cx, e, *op, *target, *value, &mut curto),
+        ExprKind::Assign { op, target, value } => {
+            let t = atribuicao(inf, cx, e, *op, *target, *value, &mut curto);
+            instanciar_em_contexto(inf, cx, e, t, ctx)
+        }
         ExprKind::PatternAssign { pattern, value } => padroes::atribuicao_de_padrao(inf, cx, *pattern, *value),
         ExprKind::Cascade { target, sections, null_aware } => {
             let t = inferir(inf, cx, *target, ctx);
@@ -1751,7 +1769,8 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
                 let sp = dartforge_diagnostics::Span { start: ini, end: ini + 5 };
                 inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::AWAIT_OF_INCOMPATIBLE_TYPE, sp, &[]);
             }
-            inf.flatten(t1)
+            let t = inf.flatten(t1);
+            instanciar_em_contexto(inf, cx, e, t, ctx)
         }
         ExprKind::Throw(i) => {
             let t = inferir_livre(inf, cx, *i);

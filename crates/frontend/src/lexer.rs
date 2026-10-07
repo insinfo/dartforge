@@ -584,28 +584,51 @@ pub fn decode_string(
 ) -> Result<DartStr, String> {
     let mut content = content;
     if strip_leading_newline {
-        // §17.7: a primeira linha é removida se só tem espaços/tabs,
-        // opcionalmente um `\`, e a quebra de linha.
+        // §17.7, `lengthOfOptionalWhitespacePrefix` (`quote.dart:62-86`): a
+        // primeira linha sai se só tem espaços e tabs, cada um opcionalmente
+        // depois de um `\`, até a quebra (`\r`, `\r\n` ou `\n`).
         let bytes = content.as_bytes();
         let mut i = 0;
-        while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
-            i += 1;
-        }
-        if i < bytes.len() && bytes[i] == b'\\' {
-            i += 1;
-        }
-        if content[i..].starts_with("\r\n") {
-            content = &content[i + 2..];
-        } else if content[i..].starts_with('\n') {
-            content = &content[i + 1..];
+        while i < bytes.len() {
+            let mut b = bytes[i];
+            if b == b'\\' {
+                i += 1;
+                let Some(&d) = bytes.get(i) else { break };
+                b = d;
+            }
+            if b == b' ' || b == b'\t' {
+                i += 1;
+                continue;
+            }
+            if b == b'\r' {
+                if bytes.get(i + 1) == Some(&b'\n') {
+                    i += 1;
+                }
+                content = &content[i + 1..];
+            } else if b == b'\n' {
+                content = &content[i + 1..];
+            }
+            break;
         }
     }
+    // `unescapeCodeUnits` (`quote.dart:186-198`): `\r` e `\r\n` no corpo
+    // viram `\n`, também na string crua.
     if raw {
-        return Ok(DartStr::from(content));
+        if !content.contains('\r') {
+            return Ok(DartStr::from(content));
+        }
+        return Ok(DartStr::from(content.replace("\r\n", "\n").replace('\r', "\n").as_str()));
     }
     let mut out = DartStrBuilder::with_capacity(content.len());
     let mut chars = content.chars().peekable();
     while let Some(c) = chars.next() {
+        if c == '\r' {
+            if chars.peek() == Some(&'\n') {
+                chars.next();
+            }
+            out.push_char('\n');
+            continue;
+        }
         if c != '\\' {
             out.push_char(c);
             continue;

@@ -396,7 +396,7 @@ fn regravar_oraculo(a: &Args) -> ExitCode {
         if g.sdk == oraculo::SdkOraculo::V362 && !lista.is_empty() {
             if oraculo::SdkOraculo::V3134.disponivel() {
                 eprintln!("oráculo 3.13.4 em {nome} ({} arquivo(s) com sintaxe nova)…", lista.len());
-                let novos = oraculo_313_do_grupo(&dir);
+                let (novos, _) = oraculo_313_do_grupo(&dir);
                 substituir_arquivos(&mut regs, novos, &lista);
             } else {
                 // Sem o 3.13.4 nesta máquina: os arquivos com sintaxe nova
@@ -437,17 +437,15 @@ fn regravar_oraculo(a: &Args) -> ExitCode {
 }
 
 /// O 3.13.4 sobre o grupo inteiro, com o pacote do grupo como está
-/// (a linguagem continua a do grupo): as mesmas fatias do `oraculo`.
-fn oraculo_313_do_grupo(dir: &Path) -> Vec<Registro> {
+/// (a linguagem continua a do grupo): as mesmas fatias do `oraculo`. Devolve
+/// também os arquivos que o derrubam (relativos a `dir`).
+fn oraculo_313_do_grupo(dir: &Path) -> (Vec<Registro>, Vec<String>) {
     let mut regs = Vec::new();
     let mut excluidos = Vec::new();
     for alvo in fatias(dir, 2500) {
         bissectar(oraculo::SdkOraculo::V3134, dir, alvo, &mut regs, &mut excluidos);
     }
-    for e in &excluidos {
-        eprintln!("  o 3.13.4 cai em {e}; o arquivo fica com o registro do 3.6.2");
-    }
-    regs
+    (regs, excluidos)
 }
 
 /// Troca, em `regs`, os registros dos arquivos de `lista` pelos de `novos`.
@@ -477,7 +475,21 @@ fn classificar_sintaxe_nova(a: &Args) -> ExitCode {
         }
         let t = Instant::now();
         eprintln!("oráculo 3.13.4 em {nome} (linguagem {})…", g.sdk.linguagem());
-        let novos = oraculo_313_do_grupo(&dir);
+        let (novos, caidos) = oraculo_313_do_grupo(&dir);
+        // Um arquivo em que o 3.13.4 cai e que o nosso parser marca com a
+        // referência 3.13.4 não tem comportamento de referência: sai do
+        // grupo, como o que derruba o oráculo do 3.6.2 (`oraculo`). Os
+        // demais ficam com o registro do 3.6.2.
+        let fontes: Vec<PathBuf> = caidos.iter().map(|e| dir.join(e)).collect();
+        let marcados = oraculo::marcador_3_13(&dir, &fontes);
+        for e in &caidos {
+            if marcados.contains(e) {
+                eprintln!("  o 3.13.4 cai em {e}, de sintaxe nova; retirado do grupo");
+                let _ = std::fs::remove_file(dir.join(e));
+            } else {
+                eprintln!("  o 3.13.4 cai em {e}; o arquivo fica com o registro do 3.6.2");
+            }
+        }
         let mut por_arquivo: std::collections::BTreeMap<&str, Vec<&Registro>> = std::collections::BTreeMap::new();
         for r in &novos {
             por_arquivo.entry(r.arquivo.as_str()).or_default().push(r);
@@ -493,6 +505,14 @@ fn classificar_sintaxe_nova(a: &Args) -> ExitCode {
             }
         };
         substituir_arquivos(&mut regs, novos.clone(), &escolhidos);
+        regs.retain(|r| !marcados.contains(&r.arquivo));
+        meta.excluidos.extend(marcados.iter().cloned());
+        meta.excluidos.sort();
+        meta.excluidos.dedup();
+        if !marcados.is_empty() {
+            meta.hash = corpus::hash_fontes(&dir);
+            meta.arquivos = corpus::arquivos_dart(&dir).len();
+        }
         regs.sort();
         regs.dedup();
         meta.diagnosticos = regs.len();

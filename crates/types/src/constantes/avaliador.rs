@@ -357,7 +357,46 @@ impl<'a> Motor<'a> {
         self.profundidade += 1;
         let r = self.avaliar_no(cx, e, em_const);
         self.profundidade -= 1;
-        r
+        self.instanciar_referencia(cx, e, r)
+    }
+
+    /// `visitFunctionReference` sem argumentos escritos (3.6.2
+    /// `evaluation.dart:852-882`): a instanciação implícita de qualquer
+    /// expressão (`instanciacao_de_tearoff`). Argumento inferido que menciona
+    /// parâmetro de tipo é `CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF`; senão
+    /// `_instantiateFunctionType` (`:1939-1959`): o valor cuja função é
+    /// genérica (o tipo **do elemento**) fica com esse tipo instanciado pelos
+    /// argumentos e depois substituído pelo ambiente do construtor.
+    fn instanciar_referencia(&mut self, cx: &Ctx, e: ExprId, r: R) -> R {
+        let Constante::Valor(mut val) = r else { return r };
+        let u = cx.unidade;
+        // O tear-off de construtor é `ConstructorReference`
+        // (`visitConstructorReference`), não `FunctionReference`.
+        if matches!(self.resolvido(u, e), Some(Resolved::Constructor(_))) {
+            return Constante::Valor(val);
+        }
+        let Some(args) = self.body.units.get(u.0 as usize).and_then(|b| b.instanciacao_de_tearoff(e)).map(|a| a.to_vec()) else {
+            return Constante::Valor(val);
+        };
+        if self.instanciacao_com_parametro(cx, e) {
+            return self.inv(u, e, c::CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF);
+        }
+        let Estado::Funcao { elemento: Funcao::Elemento(f), .. } = val.estado else { return Constante::Valor(val) };
+        let Some(sig) = self.outline.functions.get(f.0 as usize).map(|d| d.signature) else { return Constante::Valor(val) };
+        let Type::Function { type_params, ret, positional, optional, named, nullable } = self.table.get(sig).clone() else {
+            return Constante::Valor(val);
+        };
+        if type_params.is_empty() || args.is_empty() || type_params.len() != args.len() {
+            return Constante::Valor(val);
+        }
+        let sem = self.table.intern(Type::Function { type_params: Box::new([]), ret, positional, optional, named, nullable });
+        let m: HashMap<TypeParamId, TypeId> = type_params.iter().copied().zip(args.iter().copied()).collect();
+        let t = crate::ops::substitute(sem, &m, self.table);
+        val.tipo = match &cx.tipos {
+            Some(m) => crate::ops::substitute(t, m, self.table),
+            None => t,
+        };
+        Constante::Valor(val)
     }
 
     fn avaliar_no(&mut self, cx: &Ctx, e: ExprId, em_const: bool) -> R {
@@ -549,7 +588,13 @@ impl<'a> Motor<'a> {
                     Constante::Valor(v) => match v.estado {
                         Estado::Tipo(_) => Constante::Valor(Valor::novo(self.core.type_, Estado::Tipo(None))),
                         Estado::Funcao { elemento, .. } => {
+                            // `_instantiateFunctionType`: o tipo instanciado
+                            // passa pela substituição do construtor.
                             let t = self.estatico(u, e);
+                            let t = match &cx.tipos {
+                                Some(m) => crate::ops::substitute(t, m, self.table),
+                                None => t,
+                            };
                             Constante::Valor(self.valor(t, Estado::Funcao { elemento, args: None }))
                         }
                         _ => self.inv(u, e, c::INVALID_CONSTANT),
@@ -602,12 +647,21 @@ impl<'a> Motor<'a> {
                 let _ = (v, negated);
                 Constante::Valor(Valor::bool_(self.core, None))
             }
-            ExprKind::As { value, .. } => {
+            ExprKind::As { value, ty } => {
+                let ty = *ty;
                 let v = match self.avaliar(cx, *value, em_const) {
                     Constante::Valor(v) => v,
                     i => return i,
                 };
-                let alvo = self.estatico(u, e);
+                // `node.type.type` (`visitAsExpression`): o tipo escrito, não
+                // o estático do `as` (que a instanciação implícita muda).
+                let alvo = self
+                    .body
+                    .units
+                    .get(u.0 as usize)
+                    .and_then(|b| b.tipos_de_anotacoes.get(&ty).copied())
+                    .or_else(|| self.outline.tipos_escritos.get(&(u, ty)).copied())
+                    .unwrap_or_else(|| self.estatico(u, e));
                 // O tipo do `as` com o ambiente léxico do construtor aplicado
                 // (`_substitution`, `x as List<T>` em `C<int>`): só o que
                 // ainda menciona parâmetro de tipo fica sem conferir.
@@ -1677,10 +1731,12 @@ impl<'a> Motor<'a> {
     fn instanciacao_com_parametro(&mut self, cx: &Ctx, e: ExprId) -> bool {
         let inferidos: Option<Vec<TypeId>> = self.body.units.get(cx.unidade.0 as usize).and_then(|b| b.instanciacao_de_tearoff(e)).map(|a| a.to_vec());
         let Some(args) = inferidos else { return false };
+        // Só o argumento que é ele mesmo um parâmetro de tipo passa pelo
+        // `_lexicalTypeEnvironment` (`:866-871`); `List<U>` fica como está.
         args.iter().any(|&a| {
-            let a = match &cx.tipos {
-                Some(m) => crate::ops::substitute(a, m, self.table),
-                None => a,
+            let a = match (self.table.get(a), &cx.tipos) {
+                (Type::TypeParameter { param, .. }, Some(m)) => m.get(param).copied().unwrap_or(a),
+                _ => a,
             };
             self.menciona_parametro(a)
         })
@@ -1734,6 +1790,12 @@ impl<'a> Motor<'a> {
                     }
                     let t = self.outline.functions.get(f.0 as usize).map(|d| d.signature).unwrap_or(self.core.dynamic_);
                     let t = if self.inferida(u) { self.estatico(u, e) } else { t };
+                    // `_instantiateFunctionType` (`evaluation.dart:1939-1959`):
+                    // o tipo instanciado passa pela substituição do construtor.
+                    let t = match &cx.tipos {
+                        Some(m) => crate::ops::substitute(t, m, self.table),
+                        None => t,
+                    };
                     return Constante::Valor(self.valor(t, Estado::Funcao { elemento: Funcao::Elemento(f), args: None }));
                 }
             }
