@@ -983,6 +983,37 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
         }
         return (inf.table.invalido(inf.core.dynamic_), false);
     }
+    // `X<T>.nome(…)` lido como criação com `X` que não é tipo (indefinido,
+    // local, função, parâmetro de tipo): o `NamedTypeResolver` relata
+    // `CREATION_WITH_NON_TYPE` pela criação (`_isInstanceCreation`, 3.6.2
+    // `named_type_resolver.dart:230-232, 274-276`), e não o nome indefinido.
+    if construtor.is_none()
+        && implicita
+        && let ExprKind::Property { target: recv, .. } = &a.expr(target).kind
+        && let ExprKind::TypeArguments { target: base, type_args } = &a.expr(*recv).kind
+        && referencia_a_tipo(inf, cx, *base).is_none()
+        && !expr::alias_de_tipo_de_funcao(inf, cx, *base)
+        && fica_criacao_implicita(inf, cx, *base)
+    {
+        let nomes: Vec<ast::Name> = match &a.expr(*base).kind {
+            ExprKind::Identifier(n) => vec![*n],
+            ExprKind::Property { target: p, name, .. } => match &a.expr(*p).kind {
+                ExprKind::Identifier(p) => vec![*p, *name],
+                _ => Vec::new(),
+            },
+            _ => Vec::new(),
+        };
+        if !nomes.is_empty() {
+            criacao_sem_classe(inf, cx, &nomes);
+            for &x in type_args.iter() {
+                inf.tipo_de_argumento_de_tipo(cx, x);
+            }
+            for x in args.args.iter() {
+                inferir_livre(inf, cx, x.value);
+            }
+            return (inf.table.invalido(inf.core.dynamic_), false);
+        }
+    }
     // Construtor sem `new`.
     if let Some((c, f, targs)) = construtor {
         if inf.program.class(c).kind == ClassKind::Enum
@@ -2009,6 +2040,37 @@ pub(crate) fn construir(
     let (r, _) = invocar(inf, cx, generica, args, ctx, None);
     inf.entidade_da_inferencia = None;
     r
+}
+
+/// O `AstRewriter.instanceCreationExpression` (3.6.2 `ast_rewrite.dart:38-118`)
+/// sobre a criação implícita `X<T>.nome(…)`: fica criação salvo quando o `X`
+/// sem prefixo é função, método ou acessor no escopo (vira invocação da
+/// referência), ou quando o `p.X` tem `p` que não é prefixo de import, ou `X`
+/// função no prefixo. (O alias de tipo de função o chamador já separou.)
+fn fica_criacao_implicita(inf: &mut BodyInferrer<'_>, cx: &Corpo, base: ExprId) -> bool {
+    let a = &inf.program.unit(cx.unit).ast;
+    match &a.expr(base).kind {
+        ExprKind::Identifier(n) => match resolver_nome(inf, cx, n.sym, false) {
+            RefNome::MembroLexico(..) => false,
+            RefNome::Elemento(Element::Function(_)) => false,
+            RefNome::Local(id) => {
+                let l = cx.local(id);
+                !(l.funcao_local || cx.funcoes_locais.contains(&id))
+            }
+            _ => true,
+        },
+        ExprKind::Property { target: p, name, .. } => {
+            let ExprKind::Identifier(p) = &a.expr(*p).kind else { return false };
+            if !matches!(resolver_nome(inf, cx, p.sym, false), RefNome::Prefixo) {
+                return false;
+            }
+            !matches!(
+                inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.getter),
+                Some(Element::Function(f)) if inf.program.function(f).kind == FunctionKind::Function
+            )
+        }
+        _ => false,
+    }
 }
 
 /// `CREATION_WITH_NON_TYPE` (`new X()`, `const X()`, `X<T>.nome()`): o nome

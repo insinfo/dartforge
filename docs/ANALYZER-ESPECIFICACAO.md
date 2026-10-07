@@ -20768,6 +20768,15 @@ Só existe no 3.13 (o 3.6.2 não tem construtor primário); oráculo 3.13 (bibli
   `undefined_method_on_function_type`); alias de `dynamic`/`void` fica criação (`creation_with_non_type` no nome);
   alias de parâmetro de tipo (`typedef T<X> = X`) é `instantiate_type_alias_expands_to_type_parameter`; alias de
   interface, `Null` ou `FutureOr`, criação comum.
+- **Estado em 2026-10-07 (placar 65/66):** a criação implícita com argumentos de tipo (`X<T>.nome(…)`,
+  `criacoes_implicitas`) cujo `X` não é tipo agora relata `CREATION_WITH_NON_TYPE` pela criação
+  (`chamadas::criacao_sem_classe`), e não o nome indefinido.
+  * O ramo segue o `AstRewriter.instanceCreationExpression` (`ast_rewrite.dart:38-118`, `fica_criacao_implicita`).
+  * Sem prefixo, a função, o método ou o acessor no escopo léxico viram invocação da referência
+    (`NonType<int>.named()` dá `UNDEFINED_METHOD`). O resto continua criação: indefinido, variável, parâmetro de
+    tipo e o membro herdado, que o escopo da classe não tem.
+  * Com `p.X`, só fica criação se `p` é prefixo de import e `X` não é função. `Foo.bar<int>.baz()` e
+    `nonPrefix.Class<int>.named()` seguem o caminho comum.
 
 ##### `unused_element_parameter` (perda 21: FN 21, FP 0, msg 0, pos 0)
 
