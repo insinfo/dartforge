@@ -15714,6 +15714,10 @@ interpolação `$palavra` sempre `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` (:347-353
 - `expected_body`: `switch(i) L: {` (`EXPECTED_SWITCH_STATEMENT_BODY` no `)`) e
   `test_runner/impl/*part*.dart` (`class X` sem `{`, part — arquivo de part não analisado como
   biblioteca? conferir o grupo).
+- **Estado em 2026-10-07 (placar 16/16):** a parte de corpo `this …` do primário do tipo de extensão passou pela
+  mesma conferência da classe, em `parse_extension_type`. O tipo de extensão não tem elaboração de primário.
+  * `const` com bloco ou com `=>` dá o código `const` correspondente, no `{` ou no `=>`.
+  * Fora do `const`, o `=>` dá `primary_constructor_body_with_expression_body` (2/2).
 
 ##### `missing_function_body` (perda 3)
 - `augment Object? foo();` (FN 4:13): depende de `?` solto + função `foo()` no topo (já ok no v4?) —

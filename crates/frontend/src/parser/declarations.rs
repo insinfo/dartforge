@@ -1783,6 +1783,25 @@ impl<'s, 'i> Parser<'s, 'i> {
         let implements = self.parse_implements_opt()?;
         self.dono = super::DonoDeMembros::ExtensionType;
         let members = self.parse_class_body_ou_vazio(Some(name_text))?;
+        // A parte de corpo `this …` do primário do tipo de extensão (a
+        // representação), como a de classe (`elaborar_construtor_primario`):
+        // `const` não aceita corpo nenhum; fora dele, `=>` é o erro.
+        for &mid in members.iter() {
+            let MemberKind::Constructor(c) = &self.ast.member(mid).kind else { continue };
+            if !c.parte_primaria {
+                continue;
+            }
+            let Some(span) = self.corpos_primarios.get(&c.class_name.span.start).copied() else { continue };
+            let codigo = match (&c.body, const_) {
+                (FunctionBody::Block(_), true) => Some(codigos::parser::CONST_PRIMARY_CONSTRUCTOR_WITH_BLOCK_BODY),
+                (FunctionBody::Expression(_), true) => Some(codigos::parser::CONST_PRIMARY_CONSTRUCTOR_WITH_EXPRESSION_BODY),
+                (FunctionBody::Expression(_), false) => Some(codigos::compile_time_error::PRIMARY_CONSTRUCTOR_BODY_WITH_EXPRESSION_BODY),
+                _ => None,
+            };
+            if let Some(codigo) = codigo {
+                self.erro_em(codigo, span, &[]);
+            }
+        }
         Ok(ExtensionTypeDecl {
             const_,
             name,
