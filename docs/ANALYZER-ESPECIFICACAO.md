@@ -7335,6 +7335,9 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
   `'Covariant<T Function()>'`. Todas as 27 divergências são isto. Correção: na resolução dos tipos das
   cláusulas, decorar os argumentos escritos com alias (como `limites.rs::resolver` já faz com
   `table.decorar(r, Exibicao::Alias{..})`), ou reresolver o tipo escrito da cláusula só para a mensagem.
+- **Feito em 2026-10-07 (52/52 e 16/16, mensagem 100%):** `variancia.rs` exibe a anotação da cláusula
+  (`extends`, `with`, `implements`, `on`, pelo `tipos_escritos` do esboço) de mesma estrutura que o
+  supertipo da hierarquia (comparada pela exibição sem alias); sem ela, o tipo da hierarquia.
 
 ##### `illegal_async_generator_return_type` (13), `illegal_sync_generator_return_type` (13), `illegal_async_return_type` (8) — todos FN
 - **Emissão:** `ReturnTypeVerifier.verifyReturnType` (`analyzer/lib/src/error/return_type_verifier.dart:79-130`),

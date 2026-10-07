@@ -303,6 +303,26 @@ pub fn variancia(
             .chain(dados.on.iter())
             .copied()
             .collect();
+        // O supertipo exibido é o do elemento (`supertype`, `interfaces`,
+        // `mixins`, `superclassConstraints`), que guarda o alias escrito nos
+        // argumentos (`Covariant<CovFunction<T>>`): a anotação da cláusula
+        // de mesma estrutura.
+        let escritos: Vec<TypeId> = {
+            let (e, w, i, o): (Option<ast::TypeId>, &[ast::TypeId], &[ast::TypeId], &[ast::TypeId]) =
+                match &ast_.decl(decl.decl).kind {
+                    DeclKind::Class(d) => (d.extends, &d.with, &d.implements, &[]),
+                    DeclKind::Mixin(d) => (None, &[], &d.implements, &d.on),
+                    DeclKind::Enum(d) => (None, &d.with, &d.implements, &[]),
+                    DeclKind::ExtensionType(d) => (None, &[], &d.implements, &[]),
+                    _ => (None, &[], &[], &[]),
+                };
+            e.iter()
+                .chain(w.iter())
+                .chain(i.iter())
+                .chain(o.iter())
+                .filter_map(|x| outline.tipos_escritos.get(&(decl.unit, *x)).copied())
+                .collect()
+        };
         for &s in &supers {
             for (tp, &x) in tps.iter().zip(dados.type_params.iter()) {
                 let v = variancia_em(table, outline, x, s);
@@ -311,7 +331,14 @@ pub fn variancia(
                     continue;
                 }
                 let nome = interner.resolve(tp.name.sym);
-                let exibido = formatar(table, s, interner, program);
+                let estrutura = table.format_sem_alias(s, interner, program);
+                let exibido = match escritos
+                    .iter()
+                    .find(|&&w| table.format_sem_alias(w, interner, program) == estrutura)
+                {
+                    Some(&w) => table.format(w, interner, program),
+                    None => formatar(table, s, interner, program),
+                };
                 if table.param(x).variance == Declarada::Unspecified {
                     diags.push(Diagnostic::com_codigo(
                         c::WRONG_TYPE_PARAMETER_VARIANCE_IN_SUPERINTERFACE,
