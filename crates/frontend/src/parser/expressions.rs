@@ -2173,6 +2173,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             head += 1;
         }
         let tail = match token.kind {
+            // Sem o fecho (`StrFlags::aberta`): o conteúdo vai até o fim.
+            Kind::Str(f) | Kind::StrEnd(f) if f.aberta => 0,
             Kind::Str(_) | Kind::StrEnd(_) => quote_len,
             Kind::StrBegin(_, Interp::Brace) | Kind::StrMid(_, Interp::Brace) => 2,
             _ => 1,

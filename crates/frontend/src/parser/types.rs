@@ -720,6 +720,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
                 self.expect_op(Op::RParen)?;
                 self.conferir_nomes_publicos(&params);
+                self.conferir_padrao_de_obrigatorio(&params);
                 return Ok(params);
             }
             params.push(self.parse_formal_parameter(ParameterKind::Required, in_function_type, dono)?);
@@ -982,6 +983,24 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// Nome público de nomeado privado que repete o de outro parâmetro é
     /// erro, mesmo contra posicional (spec da 3.12).
+    /// `_checkUseOfDefaultValuesInParameters` (3.6.2 `error_verifier.dart:6211-6221`,
+    /// no `visitFormalParameterList`, toda lista, inclusive a de tipo de função e
+    /// a de método abstrato): o nomeado `required` com valor padrão relata
+    /// `DEFAULT_VALUE_ON_REQUIRED_PARAMETER` no nome (`_parameterName`) ou, sem
+    /// nome, no parâmetro.
+    fn conferir_padrao_de_obrigatorio(&mut self, params: &[Parameter]) {
+        for p in params {
+            if p.kind == ParameterKind::Named && p.required && p.default_value.is_some() {
+                let sp = p.name.map(|n| n.span).unwrap_or(p.span);
+                self.diagnostics.push(Diagnostic::com_codigo(
+                    codigos::compile_time_error::DEFAULT_VALUE_ON_REQUIRED_PARAMETER,
+                    sp,
+                    Vec::<&str>::new(),
+                ));
+            }
+        }
+    }
+
     fn conferir_nomes_publicos(&mut self, params: &[Parameter]) {
         for (i, p) in params.iter().enumerate() {
             let Some(publico) = p.public_name else {

@@ -340,6 +340,12 @@ pub struct StrFlags {
     pub triple: bool,
     /// Aspa usada: `'` ou `"`.
     pub quote: u8,
+    /// O trecho acaba sem a aspa de fechamento (quebra de linha numa string
+    /// simples, fim do arquivo): o `unterminatedString` do scanner do fasta
+    /// põe o fecho sintético e segue, e o erro
+    /// (`UNTERMINATED_STRING_LITERAL`) sai deste token
+    /// (`parser::erros_recuperaveis_do_scanner`). Só o último trecho a tem.
+    pub aberta: bool,
 }
 
 /// Classe do token. Texto de identificadores e literais vem de `&source[span]`.

@@ -7575,6 +7575,10 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
   ser `p.name.span`). FN: funções, métodos (inclusive abstratos) e o teste
   `nnbd/syntax/class_member_declarations_error_test.dart` — falta a regra geral (sintática; pode ficar no
   parser ou em `crates/analise`).
+- **Estado em 2026-10-07 (placar 7/7):** a regra geral fica no parser (`types.rs::conferir_padrao_de_obrigatorio`),
+  no fim de toda lista com grupo `{…}`: inclusive tipo de função e método abstrato, porque o `visitFormalParameterList`
+  vê todas. O relato vai no nome, ou no parâmetro quando não há nome. A cópia que a elaboração do construtor
+  primário fazia (em `p.span`) saiu.
 
 ##### `invalid_modifier_on_setter` (perda 6: FN 6)
 - **Emissão:** parser fasta, `messageSetterNotSync` (`_fe_analyzer_shared/lib/src/parser/parser_impl.dart:3887-3889`
@@ -15470,6 +15474,7 @@ interpolação `$palavra` sempre `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` (:347-353
 - `abstract_scanner.dart:2055 unterminatedString`: token STRING sintético (o texto até o fim da
   linha + aspa sintética) e `UnterminatedString` em `errorStart`; relato em `endOffset - 1` (T3).
 - Hoje o arquivo inteiro aborta no 1º erro léxico (`parse_lexed_com` devolve unidade vazia).
+- **Estado em 2026-10-07:** o lexer não aborta mais (ver a seção seguinte do mesmo código).
 
 ##### `expected_representation_type` (perda 5) / `expected_representation_field` (perda 4)
 - **Emissão:** `endPrimaryConstructor` :2871-2877 (`leftParenthesis.next`, primeiro parâmetro sem tipo)
@@ -16124,6 +16129,13 @@ ver E.1.13). O lexer não tem pilha de grupos nem tokens sintéticos.
   (3) não há token sintético. Mudança: modo de recuperação que emite `Str`/`StrEnd` até a quebra (sem aspa
   de fecho), registra o diagnóstico e segue na linha seguinte.
 - **Exemplos (oráculo vivo 3.6.2):** a01, a24, a26, a27, a35, a49, a55, b07, b16, b17 em E.1.11.
+- **Estado em 2026-10-07 (placar 8/8):** o lexer segue como o scanner.
+  * O trecho sem fecho sai com `StrFlags::aberta`. Ele acaba no LF, no CR ou no fim do arquivo; numa string
+    simples, a quebra depois de uma `\` também acaba.
+  * O parser lê o conteúdo sem tirar a aspa final.
+  * O erro sai em `parser::erros_recuperaveis_do_scanner`, no caractere antes do fim do token, que é o
+    `endOffset - 1`.
+  * Com isso o resto do arquivo é analisado. Antes, a unidade inteira ficava vazia.
 
 ##### `unsupported_operator` (perda 5: FN 5)
 - **Emissão:** scanner — `tokenizeEquals` (:1182-1185) e `tokenizeExclamation` (:1157-1160):
@@ -16207,6 +16219,17 @@ do número), sem interromper a análise; `operator ===` tem o nome `===`; o valo
   representável em bytes: exige decisão no `Span`/conversor — hoje sem amostra no placar); recuperação
   com fusão de identificador.
 - **Exemplos:** a15, a16, a17, a18, a19, a37, a42, b11, c03.
+- **Estado em 2026-10-07 (placar 1/1):** o `lexer::inesperado` segue o `unexpected`.
+  * Os caracteres de `caractere_pulado` (controle `< 0x1f` e os espaços não ASCII da tabela) só são pulados.
+  * Qualquer outro caractere funde com o `Ident` colado antes e com os caracteres de identificador ASCII
+    depois, num só `Ident`.
+  * O parser (`erros_recuperaveis_do_scanner`) relata um `ILLEGAL_CHARACTER` por caractere fora de
+    `[A-Za-z0-9_$]` no lexema de um `Ident`. Os pulados são achados entre os tokens (`lacuna`, que pula
+    comentários), e lá também o comentário de bloco sem fecho, com `UNTERMINATED_MULTI_LINE_COMMENT` no
+    último caractere.
+  * O span cobre o caractere inteiro em bytes, o que dá length 1 em UTF-16 no BMP.
+  * **Desvio que resta:** fora do BMP o analyzer relata duas unidades (`55357` e `56832`), e nós relatamos
+    um erro com o ponto de código. O span em bytes não representa meia unidade.
 
 ##### `invalid_unicode_escape_started` (perda 1: FN 1)
 - **Emissão:** **não é do scanner**: `unescapeCodeUnits` (`fe:parser/quote.dart:199-205`) via

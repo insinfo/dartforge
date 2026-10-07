@@ -217,6 +217,11 @@ pub struct Unidade {
 /// ```
 pub fn analisar(fonte: &str) -> Option<Unidade> {
     let tokens = dartforge_frontend::lexer::lex(fonte).ok()?;
+    // A fonte com erro do scanner (a string sem fecho; o lexer segue, como o
+    // do fasta) fica sem análise: quem chama dispara por precaução.
+    if tokens.iter().any(|t| matches!(t.kind, Kind::Str(f) | Kind::StrEnd(f) if f.aberta)) {
+        return None;
+    }
     let texto = |i: usize| tokens[i].text(fonte);
     let e_ident = |i: usize, t: &str| tokens[i].kind == Kind::Ident && texto(i) == t;
     let e_string = |i: usize| matches!(tokens[i].kind, Kind::Str(_) | Kind::StrBegin(..));

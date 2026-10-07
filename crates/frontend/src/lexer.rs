@@ -16,7 +16,7 @@
 //!   como qualquer comentário (a árvore não os guarda por enquanto).
 use crate::text::{DartStr, DartStrBuilder};
 use crate::token::{Interp, Keyword, Kind, Op, StrFlags, Token};
-use dartforge_diagnostics::{Diagnostic, Span, Codigo, codigos};
+use dartforge_diagnostics::{Diagnostic, Span};
 
 /// Literal suspenso por `${`, aguardando a chave correspondente.
 #[derive(Debug, Clone, Copy)]
@@ -45,8 +45,11 @@ struct Lexer<'s> {
 /// ```
 ///
 /// # Erros
-/// Devolve o primeiro diagnóstico léxico: caractere inesperado, comentário de
-/// bloco ou string não terminados, quebra de linha em string simples.
+/// Hoje não falha: como o scanner do fasta, o lexer segue depois de cada
+/// erro (a string não terminada sai com [`StrFlags::aberta`], o caractere
+/// inesperado entra num identificador ou é pulado, o comentário de bloco
+/// aberto vai até o fim), e os erros saem no parser
+/// (`parser::erros_recuperaveis_do_scanner`).
 pub fn lex(source: &str) -> Result<Vec<Token>, Diagnostic> {
     let mut lexer = Lexer {
         source,
@@ -85,33 +88,6 @@ impl<'s> Lexer<'s> {
             },
             glued: false,
         });
-    }
-
-    /// Erro do `ScannerErrorCode` do analyzer em `[inicio, inicio + 1)`: o
-    /// scanner do fasta relata com comprimento 1 (`translateErrorToken`).
-    fn erro(&self, codigo: Codigo, inicio: usize, args: &[&str]) -> Diagnostic {
-        Diagnostic::com_codigo(codigo, Span { start: inicio, end: inicio + 1 }, args.iter().copied())
-    }
-
-    /// `ILLEGAL_CHARACTER` com o ponto de código em decimal (o argumento do
-    /// analyzer é `token.character`, um inteiro).
-    fn caractere_ilegal(&self, inicio: usize, ch: char) -> Diagnostic {
-        let n = (ch as u32).to_string();
-        self.erro(codigos::scanner::ILLEGAL_CHARACTER, inicio, &[&n])
-    }
-
-    /// Onde o fasta põe `UNTERMINATED_STRING_LITERAL`: no último caractere da
-    /// string, antes da quebra de linha ou do fim do arquivo (`endOffset - 1`).
-    fn string_nao_terminada(&self) -> Diagnostic {
-        let mut fim = self.pos;
-        if fim > 0 && self.bytes.get(fim) == Some(&b'\n') && self.bytes[fim - 1] == b'\r' {
-            fim -= 1;
-        }
-        let mut ultimo = fim.saturating_sub(1);
-        while ultimo > 0 && !self.source.is_char_boundary(ultimo) {
-            ultimo -= 1;
-        }
-        self.erro(codigos::scanner::UNTERMINATED_STRING_LITERAL, ultimo, &[])
     }
 
     fn run(&mut self) -> Result<(), Diagnostic> {
@@ -190,13 +166,14 @@ impl<'s> Lexer<'s> {
                 self.suspended[top].depth += 1;
             }
             if b >= 0x80 {
-                // Dart só aceita identificadores ASCII; qualquer outro byte
-                // fora de string ou comentário é erro.
+                // Dart só aceita identificadores ASCII; qualquer outro
+                // caractere fora de string ou comentário é o `unexpected` do
+                // scanner do fasta, que não para.
                 let ch = self.source[start..].chars().next().unwrap_or('\u{FFFD}');
-                self.pos += ch.len_utf8();
-                return Err(self.caractere_ilegal(start, ch));
+                self.inesperado(start, ch);
+                continue;
             }
-            self.operator(start)?;
+            self.operator(start);
         }
         if let Some(last) = self.tokens.last_mut() {
             last.glued = false;
@@ -233,10 +210,10 @@ impl<'s> Lexer<'s> {
                 self.pos += 1;
             }
         }
-        if depth != 0 {
-            let _ = start;
-            return Err(self.erro(codigos::scanner::UNTERMINATED_MULTI_LINE_COMMENT, self.bytes.len().saturating_sub(1), &[]));
-        }
+        // Sem o fecho, o comentário vai até o fim do arquivo e o
+        // `UNTERMINATED_MULTI_LINE_COMMENT` sai no parser
+        // (`parser::erros_recuperaveis_do_scanner`).
+        let _ = (start, depth);
         Ok(())
     }
 
@@ -308,7 +285,7 @@ impl<'s> Lexer<'s> {
         let quote = self.bytes[self.pos];
         let triple = self.at(1) == quote && self.at(2) == quote;
         self.pos += if triple { 3 } else { 1 };
-        let flags = StrFlags { raw, triple, quote };
+        let flags = StrFlags { raw, triple, quote, aberta: false };
         self.string_body(start, flags, true)
     }
 
@@ -327,9 +304,14 @@ impl<'s> Lexer<'s> {
         flags: StrFlags,
         first: bool,
     ) -> Result<(), Diagnostic> {
+        // `unterminatedString` (`abstract_scanner.dart:2055-2067`): no fim do
+        // arquivo, ou na quebra de linha (LF ou CR) de uma string simples, o
+        // trecho acaba ali com o fecho sintético e a leitura segue na quebra.
+        let mut aberta = false;
         loop {
             let Some(&b) = self.bytes.get(self.pos) else {
-                return Err(self.string_nao_terminada());
+                aberta = true;
+                break;
             };
             if b == flags.quote {
                 if flags.triple {
@@ -343,14 +325,17 @@ impl<'s> Lexer<'s> {
                 self.pos += 1;
                 break;
             }
-            if b == b'\n' && !flags.triple {
-                return Err(self.string_nao_terminada());
+            if (b == b'\n' || b == b'\r') && !flags.triple {
+                aberta = true;
+                break;
             }
             if b == b'\\' && !flags.raw {
                 // Um escape nunca termina a string: pula o par inteiro. Escapes
-                // `\u{...}` são validados na decodificação, não aqui.
+                // `\u{...}` são validados na decodificação, não aqui. A
+                // quebra depois da barra ainda acaba a string simples
+                // (`tokenizeSingleLineString` confere o caractere seguinte).
                 self.pos += 1;
-                if self.pos < self.bytes.len() && self.bytes[self.pos] != b'\n' {
+                if self.pos < self.bytes.len() && (flags.triple || !matches!(self.bytes[self.pos], b'\n' | b'\r')) {
                     self.pos += 1;
                 }
                 continue;
@@ -430,6 +415,7 @@ impl<'s> Lexer<'s> {
             }
             self.pos += 1;
         }
+        let flags = StrFlags { aberta, ..flags };
         self.tokens.push(Token {
             kind: if first {
                 Kind::Str(flags)
@@ -445,7 +431,7 @@ impl<'s> Lexer<'s> {
         Ok(())
     }
 
-    fn operator(&mut self, start: usize) -> Result<(), Diagnostic> {
+    fn operator(&mut self, start: usize) {
         // Do mais longo ao mais curto; `>` nunca se combina.
         const TABLE: &[(&str, Op)] = &[
             ("...?", Op::EllipsisQuestion),
@@ -511,13 +497,65 @@ impl<'s> Lexer<'s> {
             if self.starts_with(text) {
                 self.pos += text.len();
                 self.push(Kind::Op(*op), start);
-                return Ok(());
+                return;
             }
         }
         let ch = self.source[start..].chars().next().unwrap_or('\u{FFFD}');
-        self.pos += ch.len_utf8();
-        Err(self.caractere_ilegal(start, ch))
+        self.inesperado(start, ch);
     }
+
+    /// `unexpected` (`abstract_scanner.dart:2020-2048`) com o
+    /// `buildUnexpectedCharacterToken` (`error_token.dart:25-60`). O
+    /// caractere de controle e o espaço não ASCII são só pulados; qualquer
+    /// outro vira parte de um identificador, junto do identificador colado
+    /// antes (um `Ident`, não palavra-chave) e dos caracteres de
+    /// identificador ASCII depois. O `ILLEGAL_CHARACTER` de cada um sai no
+    /// parser (`parser::erros_recuperaveis_do_scanner`).
+    fn inesperado(&mut self, start: usize, ch: char) {
+        self.pos += ch.len_utf8();
+        if caractere_pulado(ch) {
+            self.unglue();
+            return;
+        }
+        let mut inicio = start;
+        if let Some(t) = self.tokens.last()
+            && t.kind == Kind::Ident
+            && t.span.end == start
+        {
+            inicio = t.span.start;
+            self.tokens.pop();
+        }
+        while self.pos < self.bytes.len() && is_ident_part(self.bytes[self.pos]) {
+            self.pos += 1;
+        }
+        self.push(Kind::Ident, inicio);
+    }
+}
+
+/// O caractere inesperado que o scanner do fasta só pula (o erro sem token):
+/// controle ASCII (`AsciiControlCharacterToken`) e os espaços não ASCII
+/// (`NonAsciiWhitespaceToken`). Os outros viram `NonAsciiIdentifierToken`.
+pub(crate) fn caractere_pulado(ch: char) -> bool {
+    (ch as u32) < 0x1f
+        || matches!(
+            ch as u32,
+            0x00A0
+                | 0x1680
+                | 0x180E
+                | 0x2000..=0x200B
+                | 0x2028
+                | 0x2029
+                | 0x202F
+                | 0x205F
+                | 0x3000
+                | 0xFEFF
+        )
+}
+
+/// O caractere que entra num identificador sem erro (`_isIdentifierChar`
+/// com o `$`).
+pub(crate) fn caractere_de_identificador(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_' || ch == '$'
 }
 
 /// Decodifica o conteúdo de um trecho de string (sem as aspas), resolvendo
@@ -696,7 +734,8 @@ d''' "e" "##)
             Kind::Str(StrFlags {
                 raw: false,
                 triple: false,
-                quote: b'\''
+                quote: b'\'',
+                aberta: false
             })
         ));
         assert!(matches!(
@@ -724,7 +763,8 @@ d''' "e" "##)
                 StrFlags {
                     raw: false,
                     triple: false,
-                    quote: b'\''
+                    quote: b'\'',
+                    aberta: false
                 },
                 Interp::Ident
             )
@@ -758,11 +798,23 @@ d''' "e" "##)
     }
 
     #[test]
-    fn erros_lexicos() {
-        assert!(lex("'abc").is_err());
-        assert!(lex("/* abc").is_err());
-        assert!(lex("'a\nb'").is_err());
-        assert!(lex("`").is_err());
+    fn erros_lexicos_nao_interrompem() {
+        // A string sem fecho acaba na quebra de linha ou no fim do arquivo.
+        let t = lex("'abc").unwrap();
+        assert!(matches!(t[0].kind, Kind::Str(StrFlags { aberta: true, .. })));
+        assert_eq!(t[0].span, Span { start: 0, end: 4 });
+        let t = lex("'a\r\nb'").unwrap();
+        assert!(matches!(t[0].kind, Kind::Str(StrFlags { aberta: true, .. })));
+        assert_eq!(t[0].span, Span { start: 0, end: 2 });
+        assert_eq!(t[1].kind, Kind::Ident);
+        assert!(matches!(t[2].kind, Kind::Str(StrFlags { aberta: true, .. })));
+        // O comentário de bloco aberto vai até o fim.
+        assert_eq!(lex("a /* abc").unwrap().len(), 2);
+        // O caractere inesperado entra no identificador; o de controle some.
+        let s = "pisk\u{f8}de `x \u{1}y";
+        let t = lex(s).unwrap();
+        let textos: Vec<_> = t.iter().map(|k| k.text(s)).collect();
+        assert_eq!(textos, ["pisk\u{f8}de", "`x", "y", ""]);
     }
 
     #[test]

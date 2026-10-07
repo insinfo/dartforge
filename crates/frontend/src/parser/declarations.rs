@@ -1327,13 +1327,6 @@ impl<'s, 'i> Parser<'s, 'i> {
         for p in parametros.iter_mut() {
             // O `covariant` sobrando é do `parseFormalParameterModifiers`
             // (`relatar_modificadores_de_parametro`, `ConstrutorPrimario`).
-            if p.required && p.default_value.is_some() {
-                self.diagnostics.push(Diagnostic::com_codigo(
-                    codigos::compile_time_error::DEFAULT_VALUE_ON_REQUIRED_PARAMETER,
-                    p.span,
-                    Vec::<&str>::new(),
-                ));
-            }
             if !(p.var_ || p.final_) || p.this_ || p.super_ {
                 continue;
             }

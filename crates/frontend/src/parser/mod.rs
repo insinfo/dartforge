@@ -117,7 +117,7 @@ pub struct Parsed {
 /// Analisa uma unidade de compilação inteira na versão de linguagem corrente
 /// ([`LibraryFeatures::atual`]); ver [`parse_com`].
 ///
-/// Diagnósticos léxicos interrompem a análise; diagnósticos sintáticos ficam
+/// Os erros do scanner não interrompem a leitura (o lexer segue como o do fasta); todos ficam
 /// em [`Parsed::diagnostics`], e a unidade devolvida contém o que foi lido
 /// até o ponto de recuperação mais recente. Lista vazia significa que a
 /// unidade inteira foi aceita pela gramática.
@@ -166,6 +166,30 @@ fn erros_recuperaveis_do_scanner(source: &str, tokens: &[Token]) -> Vec<Diagnost
                     }
                 }
             }
+            // `translateErrorToken` (`errors.dart:36`): no caractere antes do
+            // `endOffset`, que é a quebra de linha ou o fim do arquivo.
+            Kind::Str(f) | Kind::StrEnd(f) if f.aberta => {
+                let mut ultimo = t.span.end.saturating_sub(1);
+                while ultimo > 0 && !source.is_char_boundary(ultimo) {
+                    ultimo -= 1;
+                }
+                saida.push(Diagnostic::com_codigo(dartforge_diagnostics::codigos::scanner::UNTERMINATED_STRING_LITERAL, um(ultimo), Vec::<&str>::new()));
+            }
+            // `NonAsciiIdentifierToken`: cada caractere fora do
+            // identificador ASCII, com o ponto de código.
+            Kind::Ident if !lexema.chars().all(crate::lexer::caractere_de_identificador) => {
+                for (i, ch) in lexema.char_indices() {
+                    if !crate::lexer::caractere_de_identificador(ch) {
+                        let inicio = t.span.start + i;
+                        let n = (ch as u32).to_string();
+                        saida.push(Diagnostic::com_codigo(
+                            dartforge_diagnostics::codigos::scanner::ILLEGAL_CHARACTER,
+                            Span { start: inicio, end: inicio + ch.len_utf8() },
+                            [n.as_str()],
+                        ));
+                    }
+                }
+            }
             Kind::Int => {
                 if (lexema.starts_with("0x") || lexema.starts_with("0X")) && !lexema[2..].bytes().any(|b| b.is_ascii_hexdigit()) {
                     saida.push(Diagnostic::com_codigo(dartforge_diagnostics::codigos::scanner::MISSING_HEX_DIGIT, um(t.span.end - 1), Vec::<&str>::new()));
@@ -174,7 +198,66 @@ fn erros_recuperaveis_do_scanner(source: &str, tokens: &[Token]) -> Vec<Diagnost
             _ => {}
         }
     }
+    // Entre os tokens só há espaço e comentário, mais o que o scanner pulou
+    // (controle ASCII, espaço não ASCII) e o comentário de bloco sem fecho
+    // (`UNTERMINATED_MULTI_LINE_COMMENT` no último caractere, `errors.dart:39-44`).
+    let mut fim_anterior = 0usize;
+    for t in tokens {
+        lacuna(source, fim_anterior, t.span.start, &mut saida);
+        fim_anterior = fim_anterior.max(t.span.end);
+    }
     saida
+}
+
+/// Os erros do scanner no trecho `[de, ate)` entre dois tokens.
+fn lacuna(source: &str, de: usize, ate: usize, saida: &mut Vec<Diagnostic>) {
+    if de >= ate {
+        return;
+    }
+    let bytes = source.as_bytes();
+    let mut i = de;
+    while i < ate {
+        if bytes[i..].starts_with(b"//") {
+            while i < ate && bytes[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if bytes[i..].starts_with(b"/*") {
+            let mut prof = 1usize;
+            i += 2;
+            while i < bytes.len() && prof != 0 {
+                if bytes[i..].starts_with(b"/*") {
+                    prof += 1;
+                    i += 2;
+                } else if bytes[i..].starts_with(b"*/") {
+                    prof -= 1;
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            if prof != 0 {
+                let fim = bytes.len().saturating_sub(1);
+                saida.push(Diagnostic::com_codigo(
+                    dartforge_diagnostics::codigos::scanner::UNTERMINATED_MULTI_LINE_COMMENT,
+                    Span { start: fim, end: fim + 1 },
+                    Vec::<&str>::new(),
+                ));
+            }
+            continue;
+        }
+        let Some(ch) = source[i..].chars().next() else { break };
+        if !ch.is_ascii_whitespace() && crate::lexer::caractere_pulado(ch) {
+            let n = (ch as u32).to_string();
+            saida.push(Diagnostic::com_codigo(
+                dartforge_diagnostics::codigos::scanner::ILLEGAL_CHARACTER,
+                Span { start: i, end: i + ch.len_utf8() },
+                [n.as_str()],
+            ));
+        }
+        i += ch.len_utf8();
+    }
 }
 
 /// Como [`parse`], com a fonte já lexada. O lexer é puro (não interna nomes),
