@@ -1240,6 +1240,18 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             if !expr::uso_de_void(inf, cx, arg, t) {
                 let mapa = inf.mapa(&dados.type_params, &ext_args);
                 let on = inf.subst(dados.on, &mapa);
+                // Override alvo de `?.`/`?[`/`?..` (`isNullAware`): o tipo do
+                // argumento conferido é o não anulável.
+                let null_aware = match inf.pai_de(cx.unit, e) {
+                    dartforge_frontend::pais::Pai::Expr(pai) => match &inf.program.unit(cx.unit).ast.expr(pai).kind {
+                        ExprKind::Property { target: alvo, null_aware: true, .. }
+                        | ExprKind::Index { target: alvo, null_aware: true, .. }
+                        | ExprKind::Cascade { target: alvo, null_aware: true, .. } => *alvo == e,
+                        _ => false,
+                    },
+                    _ => false,
+                };
+                let t = if null_aware { inf.nao_nulo(t) } else { t };
                 if !inf.atribuivel(t, on) {
                     let sp = inf.span_expr(cx.unit, arg);
                     let desde = inf.diagnostics.len();

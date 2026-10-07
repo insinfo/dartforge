@@ -416,6 +416,8 @@ Base comum (vale para vários códigos abaixo):
 - **Posição:** a expressão do argumento (`E(arg)` → `arg`).
 - **Mensagem:** `The type of the argument to the extension override '{0}' isn't assignable to the extended type '{1}'.` (`{0}` tipo do argumento, `{1}` tipo estendido).
 - **No DartForge:** `chamadas.rs::chamada` (ramo `RefTipo::Extensao`, :515-539) infere o argumento e não checa. **Mudança:** após `extensao_aplicavel`, checar atribuibilidade ao `on` substituído e relatar no argumento.
+- **Corrigido em 2026-10-07 (4/4, FP 0):** o override alvo de `?.`, `?[` ou `?..` (`isNullAware`) confere o tipo
+  não anulável do argumento (`E(a)?.foo()` com `a: int?` e `on int` não relata).
 
 ##### `await_of_incompatible_type` (perda 16: FN 16)
 - **Emissão:** `ErrorVerifier.visitAwaitExpression` → `_checkForAwaitOfIncompatibleType` (`analyzer/lib/src/generated/error_verifier.dart:2214-2223`).
@@ -992,6 +994,8 @@ Representação cíclica ou inválida cala o `implements` e o fundo. Um `dynamic
 
 ##### `disallowed_type_instantiation_expression` (perda 2: FN 2)
 - **Emissão:** `function_reference_resolver.dart:270-280`, :336-345, :490-497, :562-570: argumentos de tipo aplicados a uma expressão que não é tipo genérico, função genérica, método genérico nem construtor genérico (ex.: `(f)<int>` com `f` não genérica de tipo não função, getter, etc.). **Posição:** a expressão alvo (`function`). **Mensagem:** `Only a generic type, generic function, generic instance method, or generic constructor can have type arguments.`
+- **Corrigido em 2026-10-07 (2/2, FP 0):** `p.nome<…>` com `nome` que não resolve no prefixo (import ausente,
+  `shouldIgnoreUndefined`) não chega ao `_resolve` da referência: tipo inválido, sem relato.
 
 ##### `instantiate_type_alias_expands_to_type_parameter` (perda 7: FN 7)
 - **Emissão:** `NamedTypeResolver._verifyTypeAliasForContext` (`analyzer/lib/src/dart/resolver/named_type_resolver.dart:420-450`). **Condição:** alias cujo `aliasedType` é parâmetro de tipo (`typedef T<X> = X;`) usado em `new`/`const T<…>()` (criação) ou como alvo de redirecionamento de factory. **Posição:** `_ErrorHelper._getErrorRange(node)` — o nome do tipo **com prefixo e argumentos de tipo** (do início do nome ao fim dos argumentos). **Mensagem:** `Type aliases that expand to a type parameter can't be instantiated.`
@@ -11803,7 +11807,8 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
   Correção na origem (`crates/frontend`, `ast::StringPart::Text` de `'''`/`"""`) ou em
   `avaliador.rs::string` para literais multilinha.
 - **2026-10-07:** o parser normaliza as quebras de linha da fonte (CR LF e CR) para LF nas strings de três aspas
-  (`expressions.rs::push_string_text`), crua ou não; um `` escrito como escape fica. Os 6 FP continuam: as
+  (`expressions.rs::push_string_text`), crua ou não; um `
+` escrito como escape fica. Os 6 FP continuam: as
   constantes de `multiline_newline_cr.dart`/`_crlf`/`_lf` vêm de bibliotecas importadas cujos corpos não são
   inferidos no lote (`Motor::inferidas`), e o `==` entre elas sai desconhecido; o analyzer avalia os
   inicializadores das bibliotecas importadas. Pendente: avaliar as constantes de bibliotecas importadas.

@@ -1517,6 +1517,16 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
                         crate::constraints::instanciar_funcao(bruto, &dinamicos, &mut env)
                     }
                     _ if inf.table.e_invalido(bruto) => bruto,
+                    // `p.nome<…>` com `nome` que não resolve no prefixo (o
+                    // import ausente, `shouldIgnoreUndefined`): o resolvedor do
+                    // nome prefixado para sem chegar ao `_resolve` da
+                    // referência, e o tipo é inválido, sem relato.
+                    _ if matches!(&ast(inf, cx).expr(*target).kind, ExprKind::Property { target: p, .. }
+                        if matches!(inf.body_types.units[cx.unit.0 as usize].get_resolved(*p), Some(Resolved::Prefix(_))))
+                        && inf.body_types.units[cx.unit.0 as usize].get_resolved(*target).is_none() =>
+                    {
+                        inf.table.invalido(inf.core.dynamic_)
+                    }
                     // `node<…>` de um objeto com `call`: `node.call<…>`
                     // (`_resolveAsImplicitCallReference`), sem o relato.
                     Type::Interface { .. }
