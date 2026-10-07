@@ -272,6 +272,26 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
+    /// O ramo falso de `x is T` (`tryPromoteForTypeCheck`, 3.6.2
+    /// `flow_analysis.dart:2544-2557`, com o `_finishTypeTest` de `:2633-2664`):
+    /// o tipo fatorado entra direto na cadeia, sem o `tryPromoteToType` do ramo
+    /// verdadeiro (`FutureOr<void>` menos `Future` é `void`, que é supertipo),
+    /// e `T` fica registrado como testado.
+    pub(crate) fn promover_fatorado(&mut self, fluxo: &mut Fluxo, id: LocalId, fatorado: Option<TypeId>, testado: TypeId) {
+        let Some(m) = fluxo.modelo(id) else { return };
+        if m.capturada {
+            return;
+        }
+        if let Some(Some(mm)) = fluxo.vars.get_mut(id.0 as usize) {
+            if !mm.testados.contains(&testado) {
+                mm.testados.push(testado);
+            }
+            if let Some(t) = fatorado {
+                mm.cadeia.push(t);
+            }
+        }
+    }
+
     /// `promoteToNonNull(x)`.
     pub(crate) fn promover_nao_nulo(&mut self, fluxo: &mut Fluxo, id: LocalId, declarado: TypeId) {
         let atual = fluxo.tipo_atual(id, declarado);

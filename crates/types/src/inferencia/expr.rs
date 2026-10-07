@@ -5056,7 +5056,7 @@ fn teste_de_tipo(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, value: ExprId, ty: 
         // unsoundness de modo misto pode alcançá-lo), nem o fator igual ao
         // tipo anterior; o tipo testado é registrado de todo jeito.
         let promove = !matches!(inf.table.get(fatorado), Type::Never) && fatorado != v;
-        inf.promover_testado(&mut nao, id, decl, if promove { fatorado } else { v }, t);
+        inf.promover_fatorado(&mut nao, id, promove.then_some(fatorado), t);
     }
     // `e is Never` nunca é verdadeiro: o ramo "sim" é inalcançável (sem
     // promover o alvo).

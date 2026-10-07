@@ -1028,6 +1028,10 @@ insolidez" (`:265-266`, sem detalhe).
   válido, `T` entra em `tested` e S1 na cadeia. `ifFalse`: `factor(atual, T)`;
   fator fundo → sem promoção ([3.6] ainda alcançável; [3.9+] ramo
   **inalcançável**); senão promove ao fator; `T` sempre entra em `tested`.
+  No `ifFalse` o fator entra **direto** na cadeia (`_finishTypeTest`, F76:2633-2664), sem o
+  `tryPromoteToType` do `ifTrue`. Assim `FutureOr<void>` menos `Future` promove para `void`, que é
+  supertipo do anterior, e `x.toString()` depois de `if (x is Future) throw 0;` é `USE_OF_VOID_RESULT`
+  (`fluxo.rs::promover_fatorado`, correção de 2026-10-07).
   A promoção vale também no código inalcançável (o modelo não olha a
   alcançabilidade): `late var never = throw …; x += never;` deixa o resto
   morto, e `if (o is int) { o + d; }` ali ainda vê `O & int` (correção de
