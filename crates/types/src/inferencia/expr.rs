@@ -901,6 +901,11 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
         }
         RefNome::TipoParam(p) => {
             resolver(inf, cx, e, Resolved::TypeParameter(p));
+            // `_checkForTypeParameterReferencedByStatic` do
+            // `visitSimpleIdentifier` (3.6.2, `error_verifier.dart:5419-5434`).
+            if cx.membro_estatico && crate::resolve::param_da_classe(inf.table, p) {
+                inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::TYPE_PARAMETER_REFERENCED_BY_STATIC, n.span, &[]);
+            }
             inf.core.type_
         }
         RefNome::TipoEmbutido => inf.core.type_,

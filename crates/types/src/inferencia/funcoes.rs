@@ -1646,7 +1646,12 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
                 continue;
             }
             let escopo = cx.parametros_de_tipo_visiveis();
+            // Dentro de um membro estático (`_inStaticMethod` sobe pelos
+            // elementos que envolvem a closure), o parâmetro de tipo da classe
+            // no tipo do parâmetro é `TYPE_PARAMETER_REFERENCED_BY_STATIC`.
+            let estatico_antes = std::mem::replace(&mut inf.em_membro_estatico, cx.membro_estatico);
             let escrito = inf.tipo_de_parametro_escrito(cx.unit, cx.lib, p, &escopo);
+            inf.em_membro_estatico = estatico_antes;
             let do_ctx = match p.kind {
                 ast::ParameterKind::Named => p.name.and_then(|n| cnamed.iter().find(|(s, _, _)| *s == n.sym).map(|(_, t, _)| *t)),
                 _ => {

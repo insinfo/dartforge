@@ -5525,6 +5525,17 @@ relatos iguais do analyzer contam um.
   - `augment` (2 `augmentation_variable_different_getter_setter_types`, 1 `executable_body`): §0.1. 3 FN.
   - Observação: `depende_da_linha` (`paridade/src/analise.rs:831`) descarta este código em linhas com erro
     de recuperação do parser — no analyzer o código sai normalmente; conferir se o filtro ainda é necessário.
+- **Feito em 2026-10-07 (54/57; restam os 3 de `augment`):** `sobrescritas.rs::getters_e_setters`
+  - Os grupos locais guardam `Acessor` (função, variável ou o `values` sintético): as constantes de enum
+    (getter estático, no nome da constante), a representação do tipo de extensão (getter de instância; o
+    lugar é o setter) e os campos de extensão (getter, e setter se não é `final` nem `const`) entram como
+    variáveis, pois o modelo não lhes dá função de acesso; o `values` do enum entra com o tipo `List<E>`
+    e o lugar no nome do enum.
+  - Na interface, o getter sintético `index`/`name` do enum é o de `Enum` do `dart:core` (`'Enum.index'`,
+    lugar no setter declarado).
+  - Os tipos de extensão da biblioteca entram na conferência da interface (`checkExtensionType`), sem
+    repetir o par que a conferência local já viu (getter e setter declarados no próprio tipo); o lugar de
+    reserva é o nome do tipo.
 
 ##### `mixin_application_no_concrete_super_invoked_member` (perda 11: FN 11; nada emitido)
 - **Emissão:** `ErrorVerifier._checkForMixinSuperInvokedMembers` (`src/generated/error_verifier.dart:4428-4489`),
@@ -7396,6 +7407,11 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
   `crates/types/src/inferencia/tipos.rs:367` (tipos nos corpos). FN: os usos em expressão (`T;`,
   `new T()`, closures `(T a) {}` dentro de corpo estático, `reify_typevar_static_test`), isto é, os
   identificadores e os tipos de parâmetro de closures resolvidos na inferência sem o contexto estático.
+- **Feito em 2026-10-07 (27/27):** `_inStaticMethod` sobe pelos elementos que envolvem a closure, então
+  o tipo escrito de parâmetro de closure ou função local num membro estático é conferido
+  (`funcoes.rs::funcao_literal` liga `em_membro_estatico` pelo corpo); o identificador `T` numa expressão
+  (`expr.rs`, `RefNome::TipoParam`), o `T` de `new T()` (`chamadas.rs::criacao_sem_classe`, depois do
+  `NEW_WITH_NON_TYPE`) e o `T()` invocado (depois do `INVOCATION_OF_NON_FUNCTION`) relatam no nome.
 
 ##### `wrong_type_parameter_variance_position` (perda 9: FN 9)
 - **Emissão:** `ErrorVerifier._checkForWrongTypeParameterVarianceInField/InMethod` →
@@ -20581,6 +20597,7 @@ pela unidade carregada ou pelo disco; a `uriStr` da unidade, ou a escrita, ou `f
 - **Condição:** todo `SimpleIdentifier` fora de declaração, inclusive nome de `show` (`hide` excluído, `:136-139`); elemento `@Deprecated`; não relata dentro de declaração depreciada; mesmo pacote → `…_FROM_SAME_PACKAGE`.
 - **Posição:** o identificador. **Mensagem:** "'{0}' is deprecated and shouldn't be used." ou, com mensagem, `…_WITH_MESSAGE` "'{0}' is deprecated and shouldn't be used. {1}".
 - **No DartForge:** não existe; exemplo `type_promotion/closure_test.dart:7` (`show virtual`). Proposta mínima: nomes de `show` cujo elemento é depreciado.
+- **Anotação que não resolve (2026-10-07):** `isDeprecated` exige o elemento da anotação resolvido para a variável `deprecated` ou um construtor EXISTENTE de `Deprecated` do `dart:core` (`ElementAnnotationImpl.isDeprecated`). `@Deprecated.extend()`, `@Deprecated.optional()` etc. (3.10+) não existem no 3.6.2: a anotação é `INVALID_ANNOTATION` e o elemento não é depreciado. `fase_deprecado.rs::anotacao_deprecada` confere o construtor nomeado (`Deprecated.nome`, `p.Deprecated.nome`; `new` é o sem nome); eram 10 FP de `deprecated_member_use_from_same_package`.
 
 ##### `type_annotation_deferred_class` (perda 1: FN 1)
 

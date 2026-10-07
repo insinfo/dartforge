@@ -68,16 +68,25 @@ fn anotacao_deprecada(program: &Program, interner: &Interner, u: UnitId, m: &ast
         };
         (program.library(lib).uri == "dart:core").then_some(e)
     };
-    let (elemento, nome) = match &m.name[..] {
-        [n] => (do_core(program.lookup_na_unidade(u, n.sym)), n.sym),
+    // O construtor nomeado (`Deprecated.nome(…)`): só conta se existe na
+    // classe; senão a anotação não resolve (`INVALID_ANNOTATION`, sem
+    // `isDeprecated`), como `@Deprecated.extend()` no 3.6.2.
+    let (elemento, nome, construtor) = match &m.name[..] {
+        [n] => (do_core(program.lookup_na_unidade(u, n.sym)), n.sym, None),
         [p, n] => match do_core(program.lookup_prefixed_na_unidade(u, p.sym, n.sym)) {
-            Some(e) => (Some(e), n.sym),
-            // `Deprecated.new(…)`.
-            None => (do_core(program.lookup_na_unidade(u, p.sym)), p.sym),
+            Some(e) => (Some(e), n.sym, None),
+            // `Deprecated.new(…)`, `Deprecated.nome(…)`.
+            None => (do_core(program.lookup_na_unidade(u, p.sym)), p.sym, Some(n.sym)),
         },
-        [p, c, _] => (do_core(program.lookup_prefixed_na_unidade(u, p.sym, c.sym)), c.sym),
+        [p, c, k] => (do_core(program.lookup_prefixed_na_unidade(u, p.sym, c.sym)), c.sym, Some(k.sym)),
         _ => return None,
     };
+    if let (Some(Element::Class(c)), Some(k)) = (elemento, construtor) {
+        let chave = if interner.resolve(k) == "new" { interner.lookup("") } else { Some(k) };
+        if !chave.is_some_and(|ch| program.class(c).constructors.contains_key(&ch)) {
+            return None;
+        }
+    }
     let texto = interner.resolve(nome);
     match elemento? {
         Element::Variable(_) if texto == "deprecated" && m.arguments.is_none() => Some(None),

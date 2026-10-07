@@ -478,7 +478,16 @@ fn nome_de(program: &Program, f: FunctionElementId) -> Option<(UnitId, Span)> {
         FunctionRef::Function { unit, function } => {
             Some((unit, program.unit(unit).ast.functions[function.0 as usize].name?.span))
         }
-        FunctionRef::None => match program.variable(func.variable?).node {
+        FunctionRef::None => nome_da_variavel(program, func.variable?),
+        FunctionRef::Constructor { .. } => None,
+    }
+}
+
+/// O nome declarado de uma variável (campo, de topo, constante de enum,
+/// representação).
+fn nome_da_variavel(program: &Program, v: dartforge_elements::model::VariableId) -> Option<(UnitId, Span)> {
+    {
+        match program.variable(v).node {
             VariableRef::Field { unit, member, index } => match &program.unit(unit).ast.member(member).kind {
                 MemberKind::Field(vl) => Some((unit, vl.variables.get(index)?.name.span)),
                 _ => None,
@@ -496,8 +505,7 @@ fn nome_de(program: &Program, f: FunctionElementId) -> Option<(UnitId, Span)> {
                 _ => None,
             },
             VariableRef::None => None,
-        },
-        FunctionRef::Constructor { .. } => None,
+        }
     }
 }
 
@@ -569,7 +577,17 @@ pub fn getters_e_setters(
         Instancia(ClassId),
         Extensao(u32),
     }
-    let mut grupos: HashMap<(Recipiente, SymbolId), (Vec<FunctionElementId>, Vec<FunctionElementId>)> = HashMap::new();
+    // Um acessor local: função (getter/setter escrito ou implícito de campo
+    // de classe), variável sem função de acesso no modelo (constante de
+    // enum, representação, campo de extensão) ou o `values` sintético do
+    // enum.
+    #[derive(PartialEq, Eq, Clone, Copy, Debug)]
+    enum Acessor {
+        Funcao(FunctionElementId),
+        Variavel(dartforge_elements::model::VariableId),
+        Values(ClassId),
+    }
+    let mut grupos: HashMap<(Recipiente, SymbolId), (Vec<Acessor>, Vec<Acessor>)> = HashMap::new();
     // Acessores de `augment` (e o que eles aumentam) ficam de fora: a
     // recuperação do parser sem o experimento os lê de outro jeito.
     let mut aumentados: std::collections::HashSet<(UnitId, u32)> = std::collections::HashSet::new();
@@ -605,6 +623,18 @@ pub fn getters_e_setters(
             continue;
         }
         let id = FunctionElementId(i as u32);
+        // Os sintéticos do enum: `values` é o getter estático (no nome do
+        // enum); `index` e `name` vêm de `Enum` pela interface.
+        if matches!(f.node, FunctionRef::None) && f.variable.is_none() {
+            if f.static_
+                && let Some(c) = f.class
+                && program.class(c).kind == dartforge_elements::model::ClassKind::Enum
+                && interner.resolve(f.name) == "values"
+            {
+                grupos.entry((Recipiente::Classe(c), f.name)).or_default().0.push(Acessor::Values(c));
+            }
+            continue;
+        }
         let Some(especie) = cx.especie(id) else { continue };
         if especie == Especie::Metodo {
             continue;
@@ -630,31 +660,112 @@ pub fn getters_e_setters(
             },
         };
         let g = grupos.entry((recipiente, f.name)).or_default();
-        if especie == Especie::Getter { g.0.push(id) } else { g.1.push(id) }
+        if especie == Especie::Getter { g.0.push(Acessor::Funcao(id)) } else { g.1.push(Acessor::Funcao(id)) }
     }
+    // As variáveis sem função de acesso: a constante de enum (getter
+    // estático), a representação (getter de instância do tipo de extensão)
+    // e o campo de extensão (getter, e setter se não é `final` nem `const`).
+    for (i, v) in program.variables.iter().enumerate() {
+        if v.library != lib || v.getter.is_some() {
+            continue;
+        }
+        let vid = dartforge_elements::model::VariableId(i as u32);
+        match (v.node, v.class, v.extension) {
+            (VariableRef::EnumConstant { .. }, Some(c), _) => {
+                grupos.entry((Recipiente::Classe(c), v.name)).or_default().0.push(Acessor::Variavel(vid));
+            }
+            (VariableRef::Representation { .. }, Some(c), _) => {
+                grupos.entry((Recipiente::Instancia(c), v.name)).or_default().0.push(Acessor::Variavel(vid));
+            }
+            (VariableRef::Field { .. }, None, Some(e)) => {
+                let g = grupos.entry((Recipiente::Extensao(e.0), v.name)).or_default();
+                g.0.push(Acessor::Variavel(vid));
+                if !v.final_ && !v.const_ {
+                    g.1.push(Acessor::Variavel(vid));
+                }
+            }
+            _ => {}
+        }
+    }
+    let tipo_this = |table: &mut TypeTable, c: ClassId| -> TypeId {
+        let params = outline.classes.get(c.0 as usize).map(|d| d.type_params.clone()).unwrap_or_default();
+        let args: Box<[TypeId]> = params.iter().map(|&p| table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
+        table.intern(Type::Interface { class: c, args, nullable: false })
+    };
     let mut chaves: Vec<_> = grupos.keys().copied().collect();
     chaves.sort_by_key(|(r, n)| (interner.resolve(*n).to_string(), format!("{r:?}")));
     for k in chaves {
         let (gs, ss) = &grupos[&k];
         let ([g], [s]) = (gs.as_slice(), ss.as_slice()) else { continue };
-        let (Some(tg), Some(ts)) = (cx.tipo_de_acessor(*g, true), cx.tipo_de_acessor(*s, false)) else { continue };
+        let tipo = |cx: &mut Ctx<'_>, a: Acessor, getter: bool| -> Option<TypeId> {
+            match a {
+                Acessor::Funcao(f) => cx.tipo_de_acessor(f, getter),
+                Acessor::Variavel(v) => outline.variables.get(v.0 as usize).and_then(|d| d.declared_type.or(d.inferred)),
+                Acessor::Values(c) => {
+                    let lista = core.list_class?;
+                    let e = tipo_this(cx.table, c);
+                    Some(cx.table.intern(Type::Interface { class: lista, args: Box::new([e]), nullable: false }))
+                }
+            }
+        };
+        let (Some(tg), Some(ts)) = (tipo(&mut cx, *g, true), tipo(&mut cx, *s, false)) else { continue };
         let ok = {
             let mut env = SubtypeEnv::new(cx.table, &outline.hierarchy, core);
             is_subtype(tg, ts, &mut env)
         };
         // Num tipo de extensão, o getter da representação cede o lugar ao setter.
         let representacao = matches!(k.0, Recipiente::Instancia(_))
-            && program.function(*g).variable.is_some_and(|v| matches!(program.variable(v).node, VariableRef::Representation { .. }));
-        let lugar = if representacao { nome_de(program, *s) } else { nome_de(program, *g) };
+            && matches!(*g, Acessor::Variavel(v) if matches!(program.variable(v).node, VariableRef::Representation { .. }));
+        let lugar_de = |a: Acessor| -> Option<(UnitId, Span)> {
+            match a {
+                Acessor::Funcao(f) => nome_de(program, f),
+                Acessor::Variavel(v) => nome_da_variavel(program, v),
+                // O `values` sintético está no nome do enum.
+                Acessor::Values(c) => {
+                    let d = program.class(c).decl?;
+                    match &program.unit(d.unit).ast.decl(d.decl).kind {
+                        DeclKind::Enum(e) => Some((d.unit, e.name.span)),
+                        _ => None,
+                    }
+                }
+            }
+        };
+        let lugar = if representacao { lugar_de(*s) } else { lugar_de(*g) };
         if !ok && let Some((u, span)) = lugar {
             let nome = interner.resolve(k.1).to_string();
             let args = [nome.clone(), formatar(cx.table, tg, interner, program), formatar(cx.table, ts, interner, program), nome];
             saida.push((u, Diagnostic::com_codigo(c::GETTER_NOT_SUBTYPE_SETTER_TYPES, span, args)));
         }
     }
-    // A interface de cada classe.
-    for &cid in classes {
+    // O `Enum` do `dart:core`: os getters sintéticos `index` e `name` de um
+    // enum são, na interface, os dele (`'Enum.index'`).
+    let enum_do_core = program
+        .classes
+        .iter()
+        .position(|k| interner.resolve(k.name) == "Enum" && program.library(k.library).uri == "dart:core")
+        .map(|i| ClassId(i as u32));
+    let sintetico_de_enum = |f: FunctionElementId| {
+        let func = program.function(f);
+        matches!(func.node, FunctionRef::None)
+            && func.variable.is_none()
+            && !func.static_
+            && func.class.is_some_and(|c| program.class(c).kind == dartforge_elements::model::ClassKind::Enum)
+    };
+    // A interface de cada classe (`checkInterface` do
+    // `InheritanceOverrideVerifier`) e de cada tipo de extensão
+    // (`checkExtensionType`, do `ErrorVerifier`); no tipo de extensão, o par
+    // declarado nele mesmo já saiu na conferência local acima.
+    let extensoes: Vec<ClassId> = program
+        .classes
+        .iter()
+        .enumerate()
+        .filter(|(_, k)| k.library == lib && k.kind == dartforge_elements::model::ClassKind::ExtensionType)
+        .map(|(i, _)| ClassId(i as u32))
+        .filter(|c| !classes.contains(c))
+        .collect();
+    for &cid in classes.iter().chain(extensoes.iter()) {
         let classe = program.class(cid);
+        let de_extensao = classe.kind == dartforge_elements::model::ClassKind::ExtensionType;
         cx.biblioteca = classe.library;
         let Some(decl) = classe.decl else { continue };
         let Some(dados_h) = outline.hierarchy.get(cid) else { continue };
@@ -673,8 +784,16 @@ pub fn getters_e_setters(
         for nome in nomes {
             let texto = interner.resolve(nome).to_string();
             let Some(chave_setter) = interner.lookup(&format!("{texto}_=")) else { continue };
-            let Some((g, tg)) = cx.na_interface(este, nome, 0) else { continue };
+            let Some((mut g, tg)) = cx.na_interface(este, nome, 0) else { continue };
             let Some((s, ts)) = cx.na_interface(este, chave_setter, 0) else { continue };
+            if de_extensao && g.dono == cid && s.dono == cid {
+                continue;
+            }
+            if sintetico_de_enum(g.funcao)
+                && let Some(e) = enum_do_core
+            {
+                g.dono = e;
+            }
             if texto.starts_with('_')
                 && (program.class(g.dono).library != classe.library || program.class(s.dono).library != classe.library)
             {
@@ -709,6 +828,7 @@ pub fn getters_e_setters(
                     DeclKind::Class(d) => Some((decl.unit, d.name.span)),
                     DeclKind::Enum(d) => Some((decl.unit, d.name.span)),
                     DeclKind::Mixin(d) => Some((decl.unit, d.name.span)),
+                    DeclKind::ExtensionType(d) => Some((decl.unit, d.name.span)),
                     _ => None,
                 }
             };

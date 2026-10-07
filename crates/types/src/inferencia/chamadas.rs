@@ -1561,6 +1561,15 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             {
                 let nome = inf.interner.resolve(n.sym).to_string();
                 inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::INVOCATION_OF_NON_FUNCTION, n.span, &[&nome]);
+                // O `methodName` fica com o parâmetro de tipo como elemento:
+                // o `visitSimpleIdentifier` relata o da classe num membro
+                // estático (`error_verifier.dart:1421`).
+                if cx.membro_estatico
+                    && let Some(super::corpo::Nome::TipoParam(p)) = cx.buscar(n.sym)
+                    && crate::resolve::param_da_classe(inf.table, p)
+                {
+                    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::TYPE_PARAMETER_REFERENCED_BY_STATIC, n.span, &[]);
+                }
                 let d = inf.table.invalido(inf.core.dynamic_);
                 registrar(inf, cx, target, d);
                 for x in args.args.iter() {
@@ -1949,6 +1958,16 @@ fn criacao_sem_classe(inf: &mut BodyInferrer<'_>, cx: &Corpo, name: &[ast::Name]
         Span { start: inicio, end: ultimo.span.end },
         &[&texto],
     );
+    // O `NamedType` da criação resolve para o parâmetro de tipo: o
+    // `visitNamedType` do `ErrorVerifier` relata o da classe num membro
+    // estático (`error_verifier.dart:1266-1275`, `:5419-5434`).
+    if name.len() == 1
+        && cx.membro_estatico
+        && let Some(&p) = cx.parametros_de_tipo_visiveis().get(&primeiro.sym)
+        && crate::resolve::param_da_classe(inf.table, p)
+    {
+        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::TYPE_PARAMETER_REFERENCED_BY_STATIC, primeiro.span, &[]);
+    }
 }
 
 /// `p` é o prefixo de alguma diretiva `import … as p` da biblioteca, mas
