@@ -1,0 +1,75 @@
+# CI no GitLab: um pipeline por commit, os grupos de crates em jobs paralelos.
+# Complementa o .github/workflows/ci.yml (Windows, o alvo); aqui é Linux, nos
+# runners compartilhados do GitLab.com.
+#
+# * Nenhum job é `interruptible` e o projeto tem o auto-cancelamento desligado:
+#   cada commit testa até o fim, mesmo com commits mais novos na mesma branch.
+# * Os grupos de crates seguem o gate local (memória "gate rápido e CI"): o
+#   analisador (frontend, types, analise, diagnostics, paridade) e o LSP, em
+#   release. O workspace inteiro fica no job manual `resto`: o ci.yml registra
+#   falhas conhecidas no Linux (dartforge-dev, emit-js, elements sdk_cache).
+# * O Rust vem do rust-toolchain.toml (o rustup da imagem instala o 1.98.1).
+
+default:
+  image: rust:bookworm
+  interruptible: false
+
+variables:
+  CARGO_HOME: $CI_PROJECT_DIR/.cargo-home
+  CARGO_INCREMENTAL: '0'
+  CARGO_TERM_COLOR: always
+  DART_VERSAO: '3.6.2'
+
+stages:
+  - test
+
+.dart_e_cache:
+  cache:
+    key: $CI_JOB_NAME
+    paths:
+      - .cargo-home/registry/index/
+      - .cargo-home/registry/cache/
+      - target/
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq unzip > /dev/null
+    - curl -sSfL -o /tmp/dart.zip "https://storage.googleapis.com/dart-archive/channels/stable/release/${DART_VERSAO}/sdk/dartsdk-linux-x64-release.zip"
+    - unzip -q /tmp/dart.zip -d /opt
+    - export PATH="/opt/dart-sdk/bin:$PATH"
+    - export DARTFORGE_DART_SDK=/opt/dart-sdk DART_SDK=/opt/dart-sdk DARTFORGE_SDK_LIB=/opt/dart-sdk/lib
+    - dart --version
+    - rustc --version
+
+mensagens:
+  stage: test
+  image: alpine:3.20
+  before_script:
+    - apk add --no-cache git > /dev/null
+  script:
+    - git fetch --unshallow 2>/dev/null || true
+    - sh scripts/sem-trailer-ia.sh --historico HEAD
+
+analisador:
+  stage: test
+  extends: .dart_e_cache
+  timeout: 90m
+  script:
+    - >-
+      cargo test --locked --release --no-fail-fast
+      -p dartforge-frontend -p dartforge-types -p dartforge-analise
+      -p dartforge-diagnostics -p dartforge-paridade
+
+lsp:
+  stage: test
+  extends: .dart_e_cache
+  timeout: 90m
+  script:
+    - cargo test --locked --release --no-fail-fast -p dartforge-lsp
+
+resto:
+  stage: test
+  extends: .dart_e_cache
+  timeout: 3h
+  when: manual
+  allow_failure: true
+  script:
+    - cargo test --locked --workspace --no-fail-fast
