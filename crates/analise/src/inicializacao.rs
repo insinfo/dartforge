@@ -181,15 +181,13 @@ pub fn finais_nao_inicializados_com(unidades: &[Unidade<'_>], nomes: &Interner, 
     // de duplicata já é emitido por outro verificador.
     let mut pendentes = HashMap::<Chave, Vec<SymbolId>>::new();
     let mut pendentes_nao_finais = HashMap::<Chave, Vec<SymbolId>>::new();
+    // Um nome repetido conta uma vez (o oráculo 3.6.2 relata `'v'` uma vez
+    // para `final int v; final int v;` sem inicializar), pelo primeiro.
     for (chave, campos) in campos {
-        let mut contagem = HashMap::<SymbolId, usize>::new();
-        for (nome, _, _) in &campos { *contagem.entry(*nome).or_default() += 1; }
-        pendentes.insert(chave, campos.iter().filter_map(|(nome, falta, _)| {
-            (*falta && contagem[nome] == 1).then_some(*nome)
-        }).collect());
-        pendentes_nao_finais.insert(chave, campos.iter().filter_map(|(nome, _, falta)| {
-            (*falta && contagem[nome] == 1).then_some(*nome)
-        }).collect());
+        let mut vistos = std::collections::HashSet::<SymbolId>::new();
+        let primeiros: Vec<&(SymbolId, bool, bool)> = campos.iter().filter(|(nome, _, _)| vistos.insert(*nome)).collect();
+        pendentes.insert(chave, primeiros.iter().filter_map(|(nome, falta, _)| falta.then_some(*nome)).collect());
+        pendentes_nao_finais.insert(chave, primeiros.iter().filter_map(|(nome, _, falta)| falta.then_some(*nome)).collect());
     }
 
     let mut out = Vec::new();
@@ -232,6 +230,23 @@ pub fn finais_nao_inicializados_com(unidades: &[Unidade<'_>], nomes: &Interner, 
                         }
                     }
                     MemberKind::Constructor(k) if !k.factory && !k.external && k.redirect.is_none() => {
+                        // Tipo de extensão: a representação é o campo final
+                        // que todo construtor gerador não redirecionador
+                        // inicializa (`this.it` ou `it = …`); a parte `this`
+                        // do primário é o próprio primário.
+                        if let DeclKind::ExtensionType(x) = &unidade.ast.decl(id).kind {
+                            if k.parte_primaria || k.initializers.iter().any(|y| matches!(y, Initializer::Redirect { .. })) {
+                                continue;
+                            }
+                            let rep = x.representation_name.sym;
+                            let inicializa = k.parameters.iter().any(|p| p.this_ && p.name.is_some_and(|n| n.sym == rep))
+                                || k.initializers.iter().any(|y| matches!(y, Initializer::Field { name, .. } if name.sym == rep));
+                            if !inicializa && !nomes.resolve(rep).is_empty() {
+                                let nome = nomes.resolve(rep).to_string();
+                                out.push((i, Diagnostic::com_codigo(c::FINAL_NOT_INITIALIZED_CONSTRUCTOR_1, k.class_name.span, [nome])));
+                            }
+                            continue;
+                        }
                         let (chave, primario) = match &unidade.ast.decl(id).kind {
                             DeclKind::Class(x) => (chave_de(false, x.name.sym, i, id), x.primary_constructor),
                             DeclKind::Enum(x) => (chave_de(true, x.name.sym, i, id), x.primary_constructor),

@@ -6065,6 +6065,12 @@ ou `undefined_class 'augment'`) e o resto é **outra declaração homônima** (`
   primário elaborado é conferido como os outros construtores geradores, e o relato vai no nome da classe
   (`class A(this.v1) { final int v1; final int v2; this; }` → `'v2'` em `A`).
 
+- **Feito em 2026-10-07 (38/40; restam dois `'<empty>'` de recuperação):** (a) um nome de campo repetido
+  conta uma vez, pelo primeiro (`final int v; final int v;` com `A();` relata `'v'`; antes os repetidos
+  ficavam de fora); (b) no tipo de extensão, a representação é o campo final que todo construtor gerador
+  não redirecionador do corpo inicializa (`this.it` ou `it = …`): `A.named();` e `const E(int it) : super._(it)`
+  relatam `'it'` no nome da classe; a parte `this` do primário fica de fora.
+
 ##### `invalid_factory_name_not_a_class` (perda 23: FN 23; acerto 21/44)
 - **Emissão:** `SimpleIdentifierResolver` (`analyzer/lib/src/dart/resolver/simple_identifier_resolver.dart:189-197`),
   ao resolver o `returnType` do construtor (`ResolverVisitor.visitConstructorDeclaration`,
