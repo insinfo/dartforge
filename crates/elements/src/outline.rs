@@ -1475,7 +1475,9 @@ pub(crate) fn extract_members(
                 }
             }
             MemberKind::Constructor(ctor) => {
-                let ctor_sym = ctor.name.map(|n| n.sym).unwrap_or(empty_sym);
+                // `C.new(…)` declara o construtor sem nome (o nome `new` é o
+                // `''` do elemento).
+                let ctor_sym = ctor.name.map(|n| n.sym).filter(|s| interner.resolve(*s) != "new").unwrap_or(empty_sym);
                 let fn_id = FunctionElementId(pools.functions.len() as u32);
                 pools.functions.push(FunctionElement {
                     name: ctor_sym,
@@ -1667,7 +1669,9 @@ fn merge_class_patch(
                 }
             }
             MemberKind::Constructor(ctor) => {
-                let ctor_sym = ctor.name.map(|n| n.sym).unwrap_or(empty_sym);
+                // `C.new(…)` declara o construtor sem nome (o nome `new` é o
+                // `''` do elemento).
+                let ctor_sym = ctor.name.map(|n| n.sym).filter(|s| interner.resolve(*s) != "new").unwrap_or(empty_sym);
                 let fn_id = FunctionElementId(pools.functions.len() as u32);
                 pools.functions.push(FunctionElement {
                     name: ctor_sym,

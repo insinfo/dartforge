@@ -1443,6 +1443,13 @@ pub(crate) fn inferir_tipo_de_variavel_sem_tipo(inf: &mut BodyInferrer<'_>, vid:
     }
 }
 
+/// O enum `c` tem o construtor sem nome sintético: nenhum declarado é
+/// gerador nem sem nome (`buildEnumSyntheticConstructors`).
+fn enum_tem_sintetico(inf: &BodyInferrer<'_>, c: ClassId) -> bool {
+    let k = inf.program.class(c);
+    !k.constructors.iter().any(|(nome, &f)| !inf.program.function(f).factory || inf.interner.resolve(*nome).is_empty())
+}
+
 /// O tipo implícito de uma constante de enum genérica sem argumentos de tipo
 /// escritos: o da criação `E.nome(args)` inferida sem contexto (a
 /// inicialização sintética do `ElementBuilder`, tipada como um campo sem
@@ -2030,7 +2037,11 @@ pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: Uni
                         use dartforge_diagnostics::codigos::compile_time_error as ce;
                         let ce_enum = inf.program.class(c);
                         let declarado = chave.and_then(|ch| ce_enum.constructors.get(&ch).copied());
-                        let sintetico = chave == inf.sym.vazio && ce_enum.constructors.is_empty();
+                        // `buildEnumSyntheticConstructors` (`library_builder.dart:238-260`):
+                        // o sem nome sintético existe quando nenhum construtor
+                        // é gerador nem sem nome (só fábricas nomeadas contam
+                        // como ausência).
+                        let sintetico = chave == inf.sym.vazio && enum_tem_sintetico(inf, c);
                         match declarado {
                             Some(f) if inf.program.function(f).factory => {
                                 let sp = k.constructor.map_or(k.name.span, |n| n.span);
@@ -2089,7 +2100,7 @@ pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: Uni
                                 let nos = k.type_args.to_vec();
                                 super::chamadas::conferir_limites_explicitos(inf, unit, &params, &tipos, &nos, k.name.span, None);
                             }
-                        } else if chave == inf.sym.vazio && inf.program.class(c).constructors.is_empty() {
+                        } else if chave == inf.sym.vazio && enum_tem_sintetico(inf, c) {
                             // Construtor sem nome implícito `const E()`: os
                             // argumentos passam pela aridade dele (sem
                             // parâmetros).

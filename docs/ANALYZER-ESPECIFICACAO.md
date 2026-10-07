@@ -6596,6 +6596,7 @@ percorre classes.
 - **No DartForge:** não emitido. Em `funcoes.rs:791-812` o `else` (`f == None`) e o caminho sem
   argumentos só calam; atenção ao achado 2 (enum sem construtor declarado não tem sintético no modelo:
   não relatar). 3 amostras 3.6.2; 1 SN (`enum E2.named(...)` com `e(1)`, primário nomeado).
+- **Feito em 2026-10-06 (4/4, FP 16 para 0):** o construtor sem nome sintético do enum existe quando nenhum construtor declarado é gerador nem sem nome (`buildEnumSyntheticConstructors`, `library_builder.dart:238-260`): um enum só com fábricas nomeadas tem o sintético, e `v;` resolve (antes exigíamos zero construtores). E o construtor declarado como `E.new()` é o sem nome (chave `''` no modelo de elementos, `outline.rs`).
 
 ##### `field_initialized_in_declaration_and_initializer_of_primary_constructor` (perda 3: FN 3) — **só SN**
 - Variante 3.13 de `field_initialized_in_initializer_and_declaration` para a lista da parte `this`:
