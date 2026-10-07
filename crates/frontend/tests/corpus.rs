@@ -46,7 +46,11 @@ fn versao_do_pacote(arquivo: &Path) -> Option<dartforge_frontend::LanguageVersio
     Some(dartforge_frontend::LanguageVersion::new(maior, menor))
 }
 
-fn medir(raiz: &Path) -> (usize, usize, Vec<String>) {
+/// `por_pacote`: a versão de cada arquivo sem marcador vem do pubspec do
+/// pacote. No SDK não: as bibliotecas `dart:` são lidas na versão corrente
+/// do SDK, mesmo com o `pubspec.yaml` de desenvolvimento que algumas pastas
+/// trazem (`_internal/js_runtime`: `sdk: '>=2.2.2'`).
+fn medir(raiz: &Path, por_pacote: bool) -> (usize, usize, Vec<String>) {
     let mut arquivos = Vec::new();
     coletar(raiz, &mut arquivos);
     arquivos.sort();
@@ -64,7 +68,7 @@ fn medir(raiz: &Path) -> (usize, usize, Vec<String>) {
         // de `environment: sdk:` no pubspec; senão o piso 3.6 (o SDK).
         let versao = dartforge_frontend::features::marcador_versao(&fonte)
             .map(|m| m.0)
-            .or_else(|| versao_do_pacote(arquivo))
+            .or_else(|| if por_pacote { versao_do_pacote(arquivo) } else { None })
             .unwrap_or(dartforge_frontend::LanguageVersion::PISO);
         let features = dartforge_frontend::LibraryFeatures::new(versao, &[]);
         let saida = dartforge_frontend::parser::parse_com(&fonte, &mut nomes, features);
@@ -83,7 +87,7 @@ fn medir(raiz: &Path) -> (usize, usize, Vec<String>) {
 #[ignore = "depende do SDK 3.6.2 e do corpus em references/pub"]
 fn sdk_lib_inteiro_e_aceito() {
     let sdk = std::env::var("DARTFORGE_SDK_LIB").unwrap_or("C:/tools/dartsdk-3.6.2/lib".into());
-    let (aceitos, total, falhas) = medir(Path::new(&sdk));
+    let (aceitos, total, falhas) = medir(Path::new(&sdk), false);
     assert!(total > 0, "SDK não encontrado em {sdk}");
     assert_eq!(
         aceitos,
@@ -101,7 +105,7 @@ fn corpus_pub_inteiro_e_aceito() {
     let raiz = std::env::var("DARTFORGE_PUB_CORPUS")
         .map(PathBuf::from)
         .unwrap_or_else(|_| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../references/pub"));
-    let (aceitos, total, falhas) = medir(&raiz);
+    let (aceitos, total, falhas) = medir(&raiz, true);
     assert!(total > 0, "corpus não encontrado em {}", raiz.display());
     assert_eq!(
         aceitos,

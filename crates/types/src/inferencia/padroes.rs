@@ -682,12 +682,40 @@ pub(crate) fn declarar_por_tipo(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fina
 /// `(a, b) = e` — atribuição por padrão a variáveis existentes.
 pub(crate) fn atribuicao_de_padrao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, valor: ExprId) -> TypeId {
     let s = esquema_de_atribuicao(inf, cx, p);
-    let t = inferir(inf, cx, valor, s);
+    // `patternAssignment_afterRhs` empurra o escrutínio com a informação do
+    // lado direito (`_pushScrutinee`, `addPreviousInfo`); a variável no nível
+    // de cima (só parênteses em volta) a escreve com ela
+    // (`assignedVariablePattern` → `_write`): `(b) = x != null` guarda a
+    // condição em `b`. Num subpadrão o valor casado é outro, sem a condição.
+    let mut q = p;
+    while let PatternKind::Parenthesized(i) = &inf.program.unit(cx.unit).ast.pattern(q).kind {
+        q = *i;
+    }
+    let local = match &inf.program.unit(cx.unit).ast.pattern(q).kind {
+        PatternKind::Variable { name, ty: None, .. } => match cx.buscar(name.sym) {
+            Some(Nome::Local(id)) => Some(id),
+            _ => None,
+        },
+        _ => None,
+    };
+    let (t, condicao_guardada) = if local.is_some() && expr::e_forma_de_condicao(inf, cx, valor) {
+        let (sim, nao) = expr::condicao(inf, cx, valor);
+        cx.fluxo = inf.juntar(&sim, &nao);
+        let t = inf.body_types.units[cx.unit.0 as usize].get_type(valor).unwrap_or(inf.core.bool_);
+        (t, Some((sim, nao)))
+    } else {
+        (inferir(inf, cx, valor, s), None)
+    };
     if casamento::ligado(inf) {
         casamento::irrefutavel(inf, cx, p, t, false, true, None);
-        return t;
+    } else {
+        tipar(inf, cx, p, t, false, true);
     }
-    tipar(inf, cx, p, t, false, true);
+    if let (Some(id), Some((sim, nao))) = (local, condicao_guardada)
+        && let Some(versao) = cx.fluxo.versao(id)
+    {
+        cx.condicoes.insert(id, (sim, nao, versao));
+    }
     t
 }
 

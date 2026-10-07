@@ -178,7 +178,7 @@ em 3.14 quando indicado; o resto é igual em 3.14 salvo §12.
 | `late T x = e;` | igual, entre `lateInitializer_begin/end` | `variable_declaration_resolver.dart:47-49, 70-71` | |
 | campo/topo **com tipo** | e → tipo declarado | `variable_declaration_resolver.dart:51-54`; `lib/src/dart/element/element.dart:9034-9036` | |
 | campo/topo **sem tipo** (inferência de topo) | inicializador com `_`; `Null` → `dynamic`; ciclo → `dynamic` + TOP_LEVEL_CYCLE; campo cujo tipo veio de *override inference* usa esse tipo como contexto | `lib/src/summary2/ast_resolver.dart:104-118`; `lib/src/summary2/top_level_inference.dart:215-287`; `element.dart:9128-9129` | `var lista = [1, 2.5]` → `List<num>`; `var t = null` → `dynamic` (ctx09, ctx10) |
-| *override inference* (membro sem tipo que sobrescreve) | retorno e parâmetros da assinatura combinada dos supertipos (`combineSignatures(doTopMerge: true)`); parâmetro posicional casa por **posição**; sem assinatura combinada → `dynamic` + erro; o corpo usa o tipo herdado como contexto | `lib/src/task/strong_mode.dart:403-483` (retorno 459-465, parâmetros 543-559) | `valor(x) => x` herda `num valor(int)`: `x: int`; `get itens => [1]` → `List<num>`; `m(b, [t])` → `b: int`, `t: String?` (ctx10, ctx11) |
+| *override inference* (membro sem tipo que sobrescreve) | retorno e parâmetros da assinatura combinada dos supertipos (`combineSignatures(doTopMerge: true)`); parâmetro posicional casa por **posição**; sem assinatura combinada → `dynamic` + erro; o corpo usa o tipo herdado como contexto; método genérico: `_toOverriddenFunctionType` troca os formais do sobrescrito pelos do próprio método (`R bar<R>(R x)` herdado por `bar<Q>(x)` dá `x: Q`), e a troca vai no tipo **sem** os formais (no genérico eles sombreiam a substituição) | `lib/src/task/strong_mode.dart:403-483` (retorno 459-465, parâmetros 543-559) | `valor(x) => x` herda `num valor(int)`: `x: int`; `get itens => [1]` → `List<num>`; `m(b, [t])` → `b: int`, `t: String?` (ctx10, ctx11) |
 | `x = e` | e → tipo de escrita; para variável local é o tipo **promovido** atual (`promotedType`), senão o declarado | `lib/src/dart/resolver/assignment_expression_resolver.dart:80-87`; `lib/src/dart/resolver/flow_analysis_visitor.dart:1136-1145` | `if (o is List<num>) o = [1]` → `List<num>` (flu19); `d = 1` (`double d`) → `double` (ctx02) |
 | `x op= e` | e → tipo do parâmetro do operador, com o refinamento numérico (§8.5) | `assignment_expression_resolver.dart:193-202` | `d += 1` (`double d`): o `1` é `int` (parâmetro `num`), a expressão `double` (ctx02) |
 | `x &&= e`, `x \|\|= e` | e → `bool` | `assignment_expression_resolver.dart:190-192` | |
@@ -1202,6 +1202,16 @@ Oráculo (flu03): `var t = x != null && …; if (t) x` → `int`. O literal
 `true`/`false` também dá `ExpressionInfo` não trivial (`booleanLiteral`: o
 ramo oposto inalcançável): `bool c = true; c ? a : b` deixa `b` morto
 (`dead_code` em `variance/variance_upper_lower_bounds_error_test`).
+
+Vale para **toda** escrita, não só o inicializador: a atribuição `b = x !=
+null` (`flow.write(…, rhs)`, `_write` 3.6.2 `flow_analysis.dart:6133-6149`)
+e a atribuição de padrão cuja variável está no nível de cima, só com
+parênteses em volta: `(b) = x != null` (`patternAssignment_afterRhs` empurra
+o escrutínio com a informação do lado direito, `_pushScrutinee` +
+`addPreviousInfo` `:6077-6092`, e o `assignedVariablePattern` escreve com
+ela). Num subpadrão (`bool(foo: b) = …`) o valor casado é outro e nada fica
+guardado. No DartForge: `expr::atribuicao` e `padroes::atribuicao_de_padrao`
+guardam em `cx.condicoes`, como `declaracao_de_variaveis`.
 
 ### 7.11 Closures e captura (R-FLU-07)
 

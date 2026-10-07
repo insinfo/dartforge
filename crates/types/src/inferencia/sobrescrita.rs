@@ -322,8 +322,16 @@ impl<'a> BodyInferrer<'a> {
             s.insert(*o, tp);
         }
         // O corpo do tipo com os parâmetros próprios; a lista de parâmetros
-        // de tipo passa a ser a do método.
-        let corpo = crate::ops::substitute(t, &s, self.table);
+        // de tipo passa a ser a do método. A substituição vai no tipo **sem**
+        // os formais: no genérico, eles sombreiam o mapeamento e nada muda
+        // (`R bar<R>(R x)` herdado por `bar<Q>(x)` deixava `x: R`).
+        let sem_formais = match self.table.get(t).clone() {
+            Type::Function { ret, positional, optional, named, nullable, .. } => {
+                self.table.intern(Type::Function { type_params: Box::new([]), ret, positional, optional, named, nullable })
+            }
+            _ => return None,
+        };
+        let corpo = crate::ops::substitute(sem_formais, &s, self.table);
         match self.table.get(corpo).clone() {
             Type::Function { ret, positional, optional, named, nullable, .. } => Some(self.table.intern(Type::Function {
                 type_params: proprios.into_boxed_slice(),

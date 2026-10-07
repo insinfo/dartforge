@@ -4054,7 +4054,17 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                 }
             };
             inf.body_types.units[cx.unit.0 as usize].tipos_de_escrita.insert(e, escrita);
-            let tv = inferir(inf, cx, valor, contexto);
+            // `flow.write(…, rhs)` (`_write`, `flow_analysis.dart:6133-6149`):
+            // a escrita de uma condição numa local guarda os modelos
+            // verdadeiro/falso dela no nó SSA, como o inicializador (§7.10).
+            let (tv, condicao_guardada) = if local.is_some() && e_forma_de_condicao(inf, cx, valor) {
+                let (sim, nao) = condicao(inf, cx, valor);
+                cx.fluxo = inf.juntar(&sim, &nao);
+                let t = inf.body_types.units[cx.unit.0 as usize].get_type(valor).unwrap_or(inf.core.bool_);
+                (t, Some((sim, nao)))
+            } else {
+                (inferir(inf, cx, valor, contexto), None)
+            };
             if let Some(id) = local {
                 let decl = cx.local(id).tipo;
                 let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());
@@ -4062,6 +4072,9 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                 inf.atribuir_fluxo(&mut f, id, decl, tv, Some(motivo));
                 cx.fluxo = f;
                 cx.esquecer_campos_de(id);
+                if let (Some((sim, nao)), Some(versao)) = (condicao_guardada, cx.fluxo.versao(id)) {
+                    cx.condicoes.insert(id, (sim, nao, versao));
+                }
             }
             if !inf.e_dynamic(escrita) {
                 verificar_atribuivel_expr_em(inf, cx, valor, tv, escrita, INVALID_ASSIGNMENT.template, false);
