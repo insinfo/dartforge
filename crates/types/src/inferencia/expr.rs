@@ -1073,7 +1073,10 @@ pub(crate) fn alvo_de_promocao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: Ex
         ExprKind::Property { target, null_aware: false, .. } => {
             let t = *target;
             let base = base_de_propriedade(inf, cx, t)?;
-            alvo_de_propriedade(inf, cx, e, base)
+            let antes = forcar_versao_de_cascata(inf, cx, t);
+            let r = alvo_de_propriedade(inf, cx, e, base);
+            cx.versao_forcada = antes;
+            r
         }
         ExprKind::This => local_de_this(inf, cx),
         _ => None,
@@ -1092,6 +1095,16 @@ fn base_de_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, t: ExprId) ->
         }
         ExprKind::This => Some(Base::This),
         ExprKind::Super => Some(Base::Super),
+        // A seção de cascata lê do alvo da cascata, cuja referência é a da
+        // expressão alvo (`cascadeExpression_afterTarget` guarda o
+        // `_getExpressionReference(target)`): `c?.._field` vê a promoção de
+        // `c._field`.
+        ExprKind::CascadeTarget => cx.bases_de_cascata.last().copied().flatten().map(|(b, _)| b),
+        // O valor da cascata é o do alvo (a mesma referência).
+        ExprKind::Cascade { target, .. } => {
+            let alvo = *target;
+            base_de_propriedade(inf, cx, alvo)
+        }
         ExprKind::Identifier(n) => match cx.buscar(n.sym) {
             Some(Nome::Local(id)) if !cx.local(id).late && !cx.local(id).funcao_local => Some(Base::Local(id)),
             Some(_) => None,
@@ -1100,10 +1113,25 @@ fn base_de_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, t: ExprId) ->
         ExprKind::Property { target, null_aware: false, .. } => {
             let t2 = *target;
             let b = base_de_propriedade(inf, cx, t2)?;
-            propriedade_estavel(inf, cx, t, b).map(Base::Local)
+            let antes = forcar_versao_de_cascata(inf, cx, t2);
+            let r = propriedade_estavel(inf, cx, t, b).map(Base::Local);
+            cx.versao_forcada = antes;
+            r
         }
         _ => None,
     }
+}
+
+/// Com `t` o alvo de cascata, força a versão da base dele à do início da
+/// cascata; devolve a forçada anterior, para restaurar.
+fn forcar_versao_de_cascata(inf: &BodyInferrer<'_>, cx: &mut Corpo, t: ExprId) -> Option<(Base, u32)> {
+    let antes = cx.versao_forcada;
+    if matches!(ast(inf, cx).expr(t).kind, ExprKind::CascadeTarget)
+        && let Some(Some(bv)) = cx.bases_de_cascata.last().copied()
+    {
+        cx.versao_forcada = Some(bv);
+    }
+    antes
 }
 
 /// O membro de instância (getter, campo ou método, de classe ou de
@@ -1589,10 +1617,25 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
             let r = if *null_aware { inf.nao_nulo(t) } else { t };
             cx.cascatas.push(r);
             cx.alvos_de_cascata.push(*target);
+            // Alvo que não é referência (`getC()?..`): o temporário da
+            // cascata é um nó SSA novo, cujas propriedades promovem entre as
+            // seções.
+            // A local capturada por escrita não promove, mas o temporário
+            // sim: ganha base própria.
+            let capturada = |cx: &Corpo, b: Base| matches!(b, Base::Local(id) if cx.fluxo.modelo(id).is_some_and(|m| m.capturada));
+            let bv = match base_de_propriedade(inf, cx, *target).filter(|&b| !capturada(cx, b)) {
+                Some(b) => Some((b, cx.versao_da_base(b))),
+                None => inf.sym.vazio.map(|nome| {
+                    let id = cx.declarar_sintetico(Local { nome, tipo: r, final_: true, late: false, const_: false, offset: 0, funcao_local: false });
+                    (Base::Local(id), cx.versao_da_base(Base::Local(id)))
+                }),
+            };
+            cx.bases_de_cascata.push(bv);
             let secs = sections.to_vec();
             for s in secs {
                 inferir_livre(inf, cx, s);
             }
+            cx.bases_de_cascata.pop();
             cx.alvos_de_cascata.pop();
             cx.cascatas.pop();
             t

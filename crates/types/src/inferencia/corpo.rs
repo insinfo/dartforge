@@ -99,6 +99,14 @@ pub(crate) struct Corpo {
     pub cascatas: Vec<TypeId>,
     /// O alvo de cada cascata aberta (o `realTarget` das seções).
     pub alvos_de_cascata: Vec<ast::ExprId>,
+    /// A base de promoção de cada alvo de cascata e a versão dela no início
+    /// da cascata: o alvo vive num temporário implícito com o nó SSA da
+    /// expressão (`cascadeExpression_afterTarget`), que uma escrita na
+    /// variável durante as seções não muda.
+    pub bases_de_cascata: Vec<Option<(Base, u32)>>,
+    /// A versão forçada de uma base enquanto se lê uma propriedade pelo
+    /// alvo de cascata ([`Corpo::versao_da_base`]).
+    pub versao_forcada: Option<(Base, u32)>,
     /// Tipando o padrão de um `case`/`if-case` (refutável): o identificador
     /// solto é uma constante (`case _padrao:`), não uma variável nova.
     pub padrao_refutavel: bool,
@@ -256,6 +264,8 @@ impl Corpo {
             funcoes: Vec::new(),
             cascatas: Vec::new(),
             alvos_de_cascata: Vec::new(),
+            bases_de_cascata: Vec::new(),
+            versao_forcada: None,
             padrao_refutavel: false,
             refutavel_forcado: false,
             literal_negado: None,
@@ -403,6 +413,17 @@ impl Corpo {
 
     /// Esquece os campos promovidos de uma local reatribuída.
     pub fn esquecer_campos_de(&mut self, base: LocalId) {
+        // Numa cascata sobre esta local, o temporário do alvo continua com o
+        // nó SSA antigo: os campos da versão de antes ficam para as seções.
+        if self.bases_de_cascata.iter().any(|x| matches!(x, Some((Base::Local(b), _)) if *b == base)) {
+            let atual = self.versao_da_base(Base::Local(base));
+            let guardadas: Vec<u32> = self.bases_de_cascata.iter().filter_map(|x| match x {
+                Some((Base::Local(b), v)) if *b == base => Some(*v),
+                _ => None,
+            }).collect();
+            self.campos.retain(|(b, v, _), _| *b != Base::Local(base) || (guardadas.contains(v) && *v != atual));
+            return;
+        }
         self.campos.retain(|(b, _, _), _| *b != Base::Local(base));
     }
 
@@ -423,6 +444,11 @@ impl Corpo {
     /// A versão de escrita da base de uma propriedade: a da local (o nó SSA
     /// dela); `this`, `super` e as propriedades estáveis não mudam.
     pub fn versao_da_base(&self, base: Base) -> u32 {
+        if let Some((b, v)) = self.versao_forcada
+            && b == base
+        {
+            return v;
+        }
         match base {
             Base::Local(id) if !self.e_propriedade(id) => self.fluxo.versao(id).unwrap_or(0),
             _ => 0,

@@ -1619,6 +1619,19 @@ Cascata: alvo com o contexto da cascata, seções com `_`, tipo = tipo do alvo
 `StringBuffer`; `super.nome()` → `String` (nó `SuperExpression` com tipo da
 classe atual `B`); `this` → `B`.
 
+**Promoção pelo alvo da cascata (2026-10-07).** `cascadeExpression_afterTarget`
+guarda o alvo num temporário com o nó SSA da expressão alvo: as seções leem
+propriedades desse nó. No DartForge (`expr.rs`, `Corpo::bases_de_cascata`):
+o `CascadeTarget` tem a base de promoção do alvo com a **versão do início da
+cascata** (uma escrita na variável durante as seções não tira as promoções do
+temporário; `esquecer_campos_de` guarda os campos da versão antiga enquanto a
+cascata dura); `c?.._field` vê a promoção de `c._field` e `.._field!` promove
+para as seções seguintes e para depois da cascata. Um alvo que não é
+referência (`getC()?..`) ou uma local capturada por escrita (que não promove)
+ganha um sintético próprio como base. O valor da cascata (`(c?..f())._field`)
+tem a base do alvo. Pendente: depois de uma cascata `?..` com escrita no alvo
+numa seção, a junção ainda deixa a promoção antiga visível na variável.
+
 ## 9. Null safety: `!`, `??`, `??=`, encurtamento nulo, `Never`/`Null`
 
 ### 9.1 NonNull e `e!` (R-NUL-01)

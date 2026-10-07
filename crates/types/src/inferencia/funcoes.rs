@@ -1806,6 +1806,7 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
     let saltos_salvos = std::mem::take(&mut cx.saltos);
     let cascatas_salvas = std::mem::take(&mut cx.cascatas);
     let alvos_salvos = std::mem::take(&mut cx.alvos_de_cascata);
+    let bases_salvas = std::mem::take(&mut cx.bases_de_cascata);
     let (corpo_t, completa) = match &af.body {
         FunctionBody::Expression(e) => {
             let t = inferir(inf, cx, *e, ctx_ret);
@@ -1850,6 +1851,7 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
     cx.saltos = saltos_salvos;
     cx.cascatas = cascatas_salvas;
     cx.alvos_de_cascata = alvos_salvos;
+    cx.bases_de_cascata = bases_salvas;
     let fc = cx.funcoes.pop().unwrap();
     cx.tirar_escopo();
     cx.fluxo = fluxo_antes;
