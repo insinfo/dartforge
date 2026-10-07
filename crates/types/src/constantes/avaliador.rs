@@ -196,9 +196,12 @@ impl<'a> Motor<'a> {
         self.body.units.get(u.0 as usize).and_then(|b| b.get_resolved(e))
     }
 
-    /// O tipo estático de `e` é o de recuperação (`InvalidType`).
+    /// O tipo estático de `e` é o de recuperação (`InvalidType`): o tipo
+    /// registrado inválido, ou o local de inicializador inválido.
     fn tipo_invalido(&self, u: UnitId, e: ExprId) -> bool {
-        self.body.units.get(u.0 as usize).is_some_and(|b| b.tipos_invalidos.contains(&e))
+        self.body.units.get(u.0 as usize).is_some_and(|b| {
+            b.tipos_invalidos.contains(&e) || b.get_type(e).is_some_and(|t| self.table.e_invalido(t))
+        })
     }
 
     pub fn sub(&mut self, a: TypeId, b: TypeId) -> bool {
@@ -472,11 +475,17 @@ impl<'a> Motor<'a> {
                 });
                 Constante::Valor(Valor::novo(tipo, Estado::Registro { posicionais: Rc::new(pos), nomeados: Rc::new(nom) }))
             }
-            ExprKind::InstanceCreation { keyword, arguments, .. } => {
+            ExprKind::InstanceCreation { keyword, arguments, constructor, .. } => {
                 if !matches!(keyword, Some(ast::CreationKeyword::Const)) && !(keyword.is_none() && em_const) {
                     return self.generico(u, e, false);
                 }
                 let Some(Resolved::Constructor(f)) = self.resolvido(u, e) else {
+                    // O construtor encaminhado de uma aplicação de mixin.
+                    if let Some((f, tipo)) = self.construtor_encaminhado(u, e, constructor.map(|n| n.sym)) {
+                        let kw = self.palavra_de_criacao(u, e, keyword.is_some());
+                        let r = self.chamar_construtor(cx, e, f, arguments, kw, Some(tipo));
+                        return self.formatar_erro_de_construtor(u, e, r);
+                    }
                     return self.inv(u, e, c::INVALID_CONSTANT);
                 };
                 let kw = self.palavra_de_criacao(u, e, keyword.is_some());
@@ -2251,6 +2260,34 @@ impl<'a> Motor<'a> {
 
     /// `_InstanceCreationEvaluator.evaluate` para uma criação escrita
     /// (`e` é o nó do erro; `palavra`, o `new`/`const` escrito).
+    /// O construtor encaminhado de `class B = A with M` (sem elemento no
+    /// modelo): o de mesmo nome da primeira superclasse que não é aplicação de
+    /// mixin, com o tipo da criação (`B`). A avaliação do encaminhador é a do
+    /// construtor da superclasse com os mesmos argumentos.
+    fn construtor_encaminhado(&self, u: UnitId, e: ExprId, nome: Option<SymbolId>) -> Option<(FunctionElementId, TypeId)> {
+        let tipo = self.estatico(u, e);
+        let Type::Interface { class, .. } = self.table.get(tipo) else { return None };
+        if self.program.class(*class).kind != ClassKind::MixinApplication {
+            return None;
+        }
+        // `C.new` e `C()` são o construtor sem nome (o símbolo vazio).
+        let vazio = self.interner.lookup("");
+        let chave = match nome {
+            Some(n) if self.interner.resolve(n) != "new" => Some(n),
+            _ => vazio,
+        };
+        let mut atual = self.program.class(*class).supertype_class;
+        for _ in 0..64 {
+            let k = atual?;
+            let classe = self.program.class(k);
+            if classe.kind != ClassKind::MixinApplication {
+                return chave.and_then(|k| classe.constructors.get(&k).copied()).map(|f| (f, tipo));
+            }
+            atual = classe.supertype_class;
+        }
+        None
+    }
+
     fn chamar_construtor(
         &mut self,
         cx: &Ctx,

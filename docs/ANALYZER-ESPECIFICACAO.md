@@ -11713,6 +11713,14 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
   * No DartForge: `Motor::nao_serializavel`, em `valor_de_variavel`.
   * O `const B()` de `method/not_found_test.dart:11:24` fecha com a regra de `creation_with_non_type` sobre o
     escopo léxico.
+- **Depois (placar 121/121, FP 0):** duas correções no avaliador.
+  * O construtor encaminhado de `class B = A with M`, que não tem elemento no modelo, é avaliado pelo construtor de
+    mesmo nome da primeira superclasse que não é aplicação de mixin, com o tipo da criação
+    (`Motor::construtor_encaminhado`). `const B()` deixou de ser inválido.
+  * O "não resolvido" do `_getConstantValue` (`evaluation.dart:1862-1866`, `expression.staticType is InvalidType`)
+    olha o tipo registrado da expressão, além dos locais de inicializador inválido (`Motor::tipo_invalido`).
+    * Em `B(x)` com `x` indefinido, o `_valueOf` relata o argumento e segue com o objeto desconhecido.
+    * O erro final sai do inicializador de campo: `CONST_EVAL_TYPE_STRING` na criação.
 
 ##### `const_with_non_constant_argument` (perda 19: FN 19)
 - **Emissão:** `_validateConstantArguments` (`constant_verifier.dart:779-787`) com
