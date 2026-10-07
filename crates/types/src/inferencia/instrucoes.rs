@@ -233,6 +233,8 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
             cx.saltos.push(AlvoSalto { rotulos, laco: false, e_switch: true, breaks: Vec::new(), continues: Vec::new() });
             let mut tem_default = false;
             let mut i = 0;
+            // O índice do grupo de casos (os que dividem o corpo contam um).
+            let mut grupo = 0usize;
             let n = cases.len();
             let mut saidas: Vec<Fluxo> = Vec::new();
             while i < n {
@@ -373,9 +375,13 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                 // `analyzeSwitchStatement`): sem padrões (< 3.0), o corpo de um
                 // grupo que não é o último não pode chegar ao fim; na palavra
                 // do primeiro membro do grupo.
+                // O analisador do 3.6.2 recebe o índice do GRUPO e o usa na lista
+                // de membros (`node.members[caseIndex].keyword`,
+                // `shared_type_analyzer.dart:232-239`): com casos que dividem o
+                // corpo antes, o relato cai num membro anterior.
                 let versao = inf.program.library(cx.lib).features.versao();
                 if cx.fluxo.alcancavel && j + 1 < n && versao < dartforge_frontend::features::LanguageVersion::new(3, 0) {
-                    let palavra = palavra_do_caso(inf, cx, &cases[i]);
+                    let palavra = palavra_do_caso(inf, cx, &cases[grupo]);
                     inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::SWITCH_CASE_COMPLETES_NORMALLY, palavra, &[]);
                 }
                 if cx.fluxo.alcancavel {
@@ -383,6 +389,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                 }
                 cx.tirar_escopo();
                 i = j + 1;
+                grupo += 1;
             }
             let alvo = cx.saltos.pop().unwrap();
             cx.escrutinio_de_switch = escrutinio_de_fora;

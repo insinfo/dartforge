@@ -4114,6 +4114,13 @@ chave igual a uma anterior (a igualdade do `DartObjectImpl`), relatada depois de
   quando a versão da linguagem da biblioteca < 3.0. Amostras `switch/case_fallthrough_legacy_error_test.dart:203:9` (7),
   `switch/fallthru_legacy_test.dart:15:5`, `switch/empty_block_case_test.dart:20:7` (`{}` vazio completa),
   `switch/fallthru_test.dart:16:5` — conferir a versão (`@dart=2.19`).
+- **Estado em 2026-10-07 (placar 10/10):** o 3.6.2 tem um defeito aqui que nós reproduzimos.
+  * O `analyzeSwitchStatement` passa o índice do grupo de casos (`caseIndex`), e o
+    `switchCaseCompletesNormally` o usa na lista de membros (`node.members[caseIndex].keyword`,
+    `shared_type_analyzer.dart:232-239`).
+  * Com casos que dividem o corpo antes (`case 0: case 1:`), o relato cai num membro anterior: o grupo do `case 10`
+    relata no `case 9`.
+  * No DartForge: o contador `grupo` em `instrucoes.rs`, com a palavra de `cases[grupo]`.
 
 ##### `dead_code_on_catch_subtype` / `dead_code_catch_following_catch` (perda 3 / 1: só FN)
 
