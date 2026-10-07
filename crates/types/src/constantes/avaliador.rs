@@ -198,7 +198,7 @@ impl<'a> Motor<'a> {
 
     /// O tipo estático de `e` é o de recuperação (`InvalidType`): o tipo
     /// registrado inválido, ou o local de inicializador inválido.
-    fn tipo_invalido(&self, u: UnitId, e: ExprId) -> bool {
+    pub(crate) fn tipo_invalido(&self, u: UnitId, e: ExprId) -> bool {
         self.body.units.get(u.0 as usize).is_some_and(|b| {
             b.tipos_invalidos.contains(&e) || b.get_type(e).is_some_and(|t| self.table.e_invalido(t))
         })

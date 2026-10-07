@@ -1213,6 +1213,14 @@ ela). Num subpadrão (`bool(foo: b) = …`) o valor casado é outro e nada fica
 guardado. No DartForge: `expr::atribuicao` e `padroes::atribuicao_de_padrao`
 guardam em `cx.condicoes`, como `declaracao_de_variaveis`.
 
+### 7.10b `case` com rótulo
+
+`switchStatement_endAlternatives` com `hasLabels` (3.6.2 `flow_analysis.dart:5414-5433`): o corpo do grupo
+com rótulo começa do estado depois do escrutínio com a junção conservadora das variáveis escritas ou
+capturadas no `switch` inteiro (um `continue L` chega de qualquer caso): `x = 0` depois do rótulo
+despromove `x` já na entrada do corpo (`x.isEven` é `UNDEFINED_GETTER` em `Object`). No DartForge, o laço
+de grupos do `switch` em `instrucoes.rs`.
+
 ### 7.11 Closures e captura (R-FLU-07)
 
 Pré-passe (`sdk:pkg/_fe_analyzer_shared/lib/src/type_inference/

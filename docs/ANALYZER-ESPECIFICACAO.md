@@ -12105,6 +12105,11 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
   (primário 3.13: `d` parâmetro do construtor primário — escopo de inicializador primário).
 
 ##### `non_constant_default_value` (perda 3: FP 3)
+
+**Feito em 2026-10-07:** o `_validateDefaultValues` (3.6.2 `constant_verifier.dart:811-836`) pula o valor
+padrão cujo tipo estático é `InvalidType` ("We have already reported an error"): `void f({int x = X})` com
+`X` indefinido só dá `UNDEFINED_IDENTIFIER`. No DartForge, `Motor::tipo_invalido` (o conjunto e o tipo
+registrado), não só `tipos_invalidos`.
 - **Emissão:** `_validateDefaultValues` (`constant_verifier.dart:811-840`): se o tipo estático
   do padrão é `InvalidType` não avalia.
 - **FP:** `{int x = X}` com `X` indefinido (2): o analyzer não relata (InvalidType) — nosso
@@ -20916,6 +20921,10 @@ Só existe no 3.13 (o 3.6.2 não tem construtor primário); oráculo 3.13 (bibli
   mesmo com `int x = _;` e `assert(_ > 0)` na classe, o que só acontece se o `_isReadMember` do campo é falso
   (sem getter, `field.getter == null`, `:1205-1209`); um `_` não resolvido não o marca como lido.
 ##### `unused_field` (perda 27: FN 27, FP 0, msg 0, pos 0)
+
+**Feito em 2026-10-07:** o campo estático de extensão lido pelo nome (`_baz` dentro da extensão, `_A.f1`
+fora) é a leitura do getter sintético do campo (`_useIdentifierElement`); no modelo ele resolve para a
+variável, e `fase_nao_usados` registra `El::Getter(v)` como membro lido, não como variável de topo.
 
 - **Emissão:** `UnusedLocalElementsVerifier._visitFieldElement` (`unused_local_elements_verifier.dart:1027-1032`), de `visitFieldDeclaration` (`:591`) e `visitEnumConstantDeclaration` (`:567`); mesmo caminho de `unused_element`, sem portão de sintaxe.
 - **Condição exata (`_isReadMember`, `:827-858`):**

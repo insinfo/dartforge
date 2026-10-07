@@ -2124,6 +2124,15 @@ impl<'s, 'i> Parser<'s, 'i> {
                 }
                 Interp::Ident => {
                     let start = self.span();
+                    // `parseIdentifierExpression` (`parser_impl.dart:7584-7593`):
+                    // fora o `this`, o `ensureIdentifier` do contexto
+                    // `expression` (`identifier_context_impl.dart:346-354`)
+                    // relata a palavra reservada depois do `$`
+                    // (`"$class"`) e a usa como identificador.
+                    let texto = self.text().to_string();
+                    if texto != "this" && matches!(super::fasta::estilo(&texto), Some(super::fasta::Estilo::Reservada)) {
+                        self.erro(codigos::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, &[&texto]);
+                    }
                     let name = self.identifier();
                     Some(self.push(start, ExprKind::Identifier(name)))
                 }

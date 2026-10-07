@@ -610,6 +610,20 @@ pub fn elementos_nao_usados(
                 Some(Resolved::Element(e)) => {
                     let Some(el) = cx.do_elemento(*e) else { continue };
                     match el {
+                        // O campo estático de extensão (no modelo, lido pela
+                        // variável): o getter sintético do campo é o membro
+                        // lido (`_A.f1`, `_baz` dentro da extensão).
+                        El::Variavel(v) | El::Getter(v) | El::Setter(v)
+                            if program.variable(v).class.is_none() && program.variable(v).extension.is_some() =>
+                        {
+                            if lido {
+                                usados.membros.insert(El::Getter(v));
+                                membro_lido(&mut usados, El::Getter(v));
+                            }
+                            if escrito {
+                                usar(&mut usados, El::Setter(v), ex.span);
+                            }
+                        }
                         // A variável de topo (acessores sintéticos).
                         El::Variavel(v) | El::Getter(v) | El::Setter(v) if program.variable(v).class.is_none() => {
                             if lido {

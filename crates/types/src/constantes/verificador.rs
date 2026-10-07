@@ -879,7 +879,10 @@ impl Verificador<'_, '_> {
             let antes = std::mem::replace(&mut self.em_expressao_constante, true);
             self.expr(a, d, false);
             self.em_expressao_constante = antes;
-            if self.m.body.units[self.unidade.0 as usize].tipos_invalidos.contains(&d) {
+            // `defaultValue.typeOrThrow is InvalidType` (3.6.2
+            // `constant_verifier.dart:825-826`): o erro já saiu (o nome
+            // indefinido, por exemplo).
+            if self.m.tipo_invalido(self.unidade, d) {
                 continue;
             }
             let r = self.m.resultado_padrao(self.unidade, self.lib, d);

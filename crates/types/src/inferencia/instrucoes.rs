@@ -350,6 +350,18 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                 }
                 let base = depois_valor.clone();
                 cx.fluxo = inf.juntar_todos(&base, &entradas);
+                // Grupo com rótulo (`switchStatement_endAlternatives` com
+                // `hasLabels`, 3.6.2 `flow_analysis.dart:5421-5425`): um
+                // `continue L` pode chegar de qualquer ponto do `switch`; o
+                // corpo começa do estado depois do escrutínio, com a junção
+                // conservadora das variáveis escritas ou capturadas no
+                // `switch` inteiro (a escrita depois do rótulo despromove).
+                if com_rotulo {
+                    let (escritas, capturadas) = escritas_em(inf, cx, &[Parte::Stmt(s)]);
+                    let mut f = depois_valor.clone();
+                    f.juncao_conservadora(&escritas, &capturadas);
+                    cx.fluxo = f;
+                }
                 // Casos que dividem o corpo: as variáveis dos padrões são
                 // variáveis de junção, atribuídas em qualquer caminho que
                 // chegue ao corpo (cada `case` declarou a sua cópia; a
