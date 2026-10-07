@@ -1013,6 +1013,19 @@ pub(crate) fn cabecalho_for_in(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, targe
             if let ExprKind::Identifier(n) = &a.expr(*e).kind {
                 if let Some(Nome::Local(id)) = cx.buscar(n.sym) {
                     expr::resolver(inf, cx, *e, crate::resolved::Resolved::Local(id));
+                    // `checkFinalAlreadyAssigned(identifier, isForEachIdentifier:
+                    // true)` (3.6.2 `for_resolver.dart:131-136`,
+                    // `assignment_expression_resolver.dart:354-388`): o local
+                    // `final` relata sempre, sem olhar a atribuição definida.
+                    let l = cx.local(id);
+                    if l.final_ && !l.const_ && !cx.funcoes_locais.contains(&id) {
+                        if l.late {
+                            inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::LATE_FINAL_LOCAL_ALREADY_ASSIGNED, n.span, &[]);
+                        } else {
+                            let msg = format!("{}: '{}'", crate::codes::ASSIGNMENT_TO_FINAL_LOCAL.template, inf.interner.resolve(l.nome));
+                            inf.aviso(msg, n.span);
+                        }
+                    }
                     let decl = cx.local(id).tipo;
                     expr::registrar(inf, cx, *e, decl);
                     let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());

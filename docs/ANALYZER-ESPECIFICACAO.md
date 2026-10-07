@@ -588,6 +588,15 @@ Base comum: a resolução de membro passa por `TypePropertyResolver.resolve` (`a
 - **Condição exata:** o tipo do alvo não é função/`dynamic`/`Never`/`Function`, e `call` não é achado (`needsGetterError`), **ou** `call` existe mas não é método (getter/campo `call`, :92-101).
 - **Posição:** a expressão alvo (`function`). **Mensagem:** `The expression doesn't evaluate to a function, so it can't be invoked.`
 - **No DartForge:** `chamadas.rs::invocar_valor` (:386-414) — 9 acertos. FN: `call` como getter (`call/through_getter_test`), extensões sombreadas (`static_extension_internal_basename_shadowing` 6, `issue_45551`), `type_variable/conflict2`, `why_not_promoted/nullable_expression_call` (anulável?), `patterns/invalid_const_pattern`. Hoje excluímos "nome solto que não é local" e "receptor anulável"; rever cada exclusão contra o analyzer (o anulável é `UNCHECKED_INVOCATION_OF_NULLABLE_VALUE`, mas `null` literal/`Null` não).
+- **Feito em 2026-10-07 (20/21; resta `case super():` em padrão):** em `chamadas.rs::invocar_valor`
+  - o `call` achado que não é método (getter ou campo `call`, da classe ou de extensão) relata na função e
+    dá o resultado inválido, também com receptor anulável (junto do relato do nulo);
+  - com receptor anulável, a extensão só fornece o `call` se se aplica ao tipo anulável; senão não há
+    `call` nem este relato (`needsGetterError` falso);
+  - o nome solto que resolve para getter ou variável (de topo, estático, membro pelo `this` implícito, de
+    extensão) é reescrito em `FunctionExpressionInvocation` (`method_invocation_resolver.dart:585-592`,
+    `:900-905`) e relata; só o nome sem getter fica de fora;
+  - `Type` entre parênteses (`(T)()`) relata; só o literal de tipo direto (`T<Null>()`) é outro código.
 
 ##### `class_instantiation_access_to_member` (perda 2: FN 1, FP 1)
 - **Emissão:** `ConstructorReferenceResolver` (`analyzer/lib/src/dart/resolver/constructor_reference_resolver.dart:55-85`): `C<int>.x` onde `x` não é construtor: estático → `…_STATIC_MEMBER [x]`, instância → `…_INSTANCE_MEMBER [x]`, nada → `…_UNKNOWN_MEMBER [C, x]`.
@@ -3874,6 +3883,11 @@ chave igual a uma anterior (a igualdade do `DartObjectImpl`), relatada depois de
   ser `true` para `this.`/`super.`; (c) `??=` sobre `final` possivelmente atribuída (`if_null/assignment_behavior_test.dart:187:5`,
   `nnbd/definite_assignment/read_error_test.dart:890:5`, `write_error_test.dart:550:5`) — o caminho de `AssignOp::IfNull`
   não passa por `check_final_local`.
+- **Feito em 2026-10-07 (60/60; `late_final_local_already_assigned` 19/19):** (a) o identificador de `for-in`
+  que é local `final` relata sempre (`late final`: `LATE_FINAL_LOCAL_ALREADY_ASSIGNED`); (b) `this.x` e `super.x`
+  entram como locais finais na lista de inicializadores; (c) `??=` confere o final antes do lado direito, e a
+  escrita fica só no ramo do nulo: depois da junção (com o alvo promovido a não nulo no outro ramo) o local
+  `late final` antes não atribuído fica só possivelmente atribuído, sem o FP da escrita seguinte.
 
 ##### `late_final_local_already_assigned` (perda 2: FN 1, FP 1)
 

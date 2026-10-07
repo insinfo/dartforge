@@ -696,8 +696,25 @@ fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, t: TypeI
                 let funcao = *target;
                 expr::desreferencia_anulavel(inf, cx, funcao, t, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_INVOCATION_OF_NULLABLE_VALUE);
             }
+            // O `call` achado que não é método (getter ou campo `call`, da
+            // classe ou de extensão): `callElement.kind != METHOD`
+            // (`function_expression_invocation_resolver.dart:96-103`),
+            // relatado na função, com o resultado inválido.
+            let call_nao_metodo = |inf: &mut BodyInferrer<'_>, cx: &mut Corpo| -> (TypeId, TypeId) {
+                if let ExprKind::Call { target, .. } = &inf.program.unit(cx.unit).ast.expr(e).kind {
+                    let sp = inf.span_expr(cx.unit, *target);
+                    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::INVOCATION_OF_NON_FUNCTION_EXPRESSION, sp, &[]);
+                }
+                for a in args.args.iter() {
+                    inferir_livre(inf, cx, a.value);
+                }
+                (inf.table.invalido(inf.core.dynamic_), t)
+            };
             if let Some(call) = inf.sym.call {
                 if let Some(m) = inf.membro_de_interface(t_nn, call, false) {
+                    if !m.metodo {
+                        return call_nao_metodo(inf, cx);
+                    }
                     inf.alvo_da_aridade = alvo;
                     return invocar(inf, cx, m.tipo, args, ctx, explicitos);
                 }
@@ -717,6 +734,18 @@ fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, t: TypeI
                     return (inf.core.dynamic_, t);
                 }
                 if let Busca::Achado(m) = busca {
+                    // Receptor anulável: a extensão só vale se se aplica ao
+                    // tipo anulável; senão não há `call` (o nulo já foi
+                    // relatado, e o `needsGetterError` fica falso).
+                    if m.de_extensao && t != t_nn && !matches!(inf.buscar_membro(cx.lib, t, call, false), Busca::Achado(_)) {
+                        for a in args.args.iter() {
+                            inferir_livre(inf, cx, a.value);
+                        }
+                        return (inf.core.dynamic_, t);
+                    }
+                    if !m.metodo {
+                        return call_nao_metodo(inf, cx);
+                    }
                     // `valor(args)` com o `call` de uma extensão
                     // (`calloc<Int32>(4)`, o `AllocatorAlloc.call`): a
                     // chamada registra o membro, que o lowering invoca com
@@ -745,11 +774,30 @@ fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, t: TypeI
                 ExprKind::Call { target, .. } => Some(*target),
                 _ => None,
             };
+            // O nome que resolve para um getter ou variável (de topo,
+            // estática, membro pelo `this` implícito, de extensão) é reescrito
+            // em `FunctionExpressionInvocation` e relata
+            // (`method_invocation_resolver.dart:585-592`, `:900-905`); o nome
+            // sem getter (só setter) é `undefined_method`.
+            let tipos = &inf.body_types.units[cx.unit.0 as usize];
+            let getter = |x: ExprId| match tipos.get_resolved(x) {
+                Some(Resolved::Element(Element::Variable(_))) | Some(Resolved::Member { member: crate::resolved::MemberRef::Variable(_), .. }) => true,
+                Some(Resolved::Element(Element::Function(f)))
+                | Some(Resolved::Member { member: crate::resolved::MemberRef::Function(f), .. })
+                | Some(Resolved::ExtensionMember { member: f, .. }) => {
+                    matches!(inf.program.function(*f).kind, dartforge_elements::model::FunctionKind::Getter | dartforge_elements::model::FunctionKind::ImplicitAccessor)
+                }
+                _ => false,
+            };
             let nome_nao_local = alvo.is_some_and(|x| match &a.expr(x).kind {
-                ExprKind::Identifier(n) => !matches!(cx.buscar(n.sym), Some(super::corpo::Nome::Local(_))),
+                ExprKind::Identifier(n) => !matches!(cx.buscar(n.sym), Some(super::corpo::Nome::Local(_))) && !getter(x),
                 _ => false,
             });
-            let fora = t_nn == inf.core.type_
+            // `Type` de um literal de tipo invocado (`T<Null>()`) é outro
+            // código; entre parênteses (`(T)()`) é `FunctionExpressionInvocation`
+            // sem `call` em `Type`, e relata.
+            let entre_parenteses = alvo.is_some_and(|x| matches!(a.expr(x).kind, ExprKind::Parenthesized(_)));
+            let fora = (t_nn == inf.core.type_ && !entre_parenteses)
                 || t != t_nn
                 || nome_nao_local
                 || matches!(inf.table.get(t_nn), Type::Void | Type::TypeParameter { .. } | Type::Intersection { .. });

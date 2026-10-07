@@ -3801,6 +3801,13 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                 inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, token, &[]);
             }
             if bop == BinaryOp::IfNull {
+                // `checkFinalAlreadyAssigned(left)` antes do lado direito
+                // (3.6.2 `assignment_expression_resolver.dart:79`), com o
+                // estado de antes da escrita.
+                if let Some(id) = local {
+                    let alvo_span = inf.span_expr(cx.unit, alvo);
+                    check_final_local(inf, cx, id, alvo_span);
+                }
                 // O lado direito só roda se o alvo for nulo: o que ele promove
                 // ou atribui não vale depois (`origin ??= element!.library;`
                 // não promove `element`).
@@ -3817,17 +3824,27 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                     let sp = inf.span_expr(cx.unit, valor);
                     inf.verificar_atribuivel(tv, escrita, sp, INVALID_ASSIGNMENT.template);
                 }
-                let depois = cx.fluxo.clone();
-                cx.fluxo = inf.juntar(&antes, &depois);
                 let nn = inf.nao_nulo(leitura);
                 let t = inf.up(nn, tv);
+                // A escrita acontece só no ramo do nulo (`ifNullExpression_
+                // rightBegin` … `write` … `ifNullExpression_end`): depois da
+                // junção o local fica só potencialmente atribuído se não
+                // estava antes.
                 if let Some(id) = local {
                     let decl = cx.local(id).tipo;
                     let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());
                     let motivo = super::fluxo::MotivoDeNaoPromocao::Escrita { nome: cx.local(id).nome, span: inf.span_expr(cx.unit, e) };
-                inf.atribuir_fluxo(&mut f, id, decl, t, Some(motivo));
+                    inf.atribuir_fluxo(&mut f, id, decl, tv, Some(motivo));
                     cx.fluxo = f;
                 }
+                let depois = cx.fluxo.clone();
+                // No ramo sem o lado direito o alvo não é nulo.
+                let mut antes = antes;
+                if let Some(id) = local {
+                    let decl = cx.local(id).tipo;
+                    inf.promover_nao_nulo(&mut antes, id, decl);
+                }
+                cx.fluxo = inf.juntar(&antes, &depois);
                 return t;
             }
             let sym = simbolo_operador(inf, bop);

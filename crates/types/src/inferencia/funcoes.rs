@@ -73,10 +73,15 @@ fn declarar_parametros(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, params: &[ast
                     }
                 }
             }
+            // `this.x` e `super.x` introduzem locais finais na lista de
+            // inicializadores (`FieldFormalParameterElementImpl.isFinal`,
+            // `SuperFormalParameterElementImpl.isFinal`, 3.6.2
+            // `element.dart:3992-3995`, `:9282-9285`).
+            let final_ = p.final_ || p.this_ || p.super_;
             declarar_local(
                 inf,
                 cx,
-                Local { nome: n.sym, tipo: t, final_: p.final_, late: false, const_: false, offset: n.span.start, funcao_local: false },
+                Local { nome: n.sym, tipo: t, final_, late: false, const_: false, offset: n.span.start, funcao_local: false },
                 true,
             );
         }
