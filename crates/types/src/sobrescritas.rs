@@ -1693,6 +1693,77 @@ pub fn estaticos_de_enum(
                 saida.push((decl.unit, Diagnostic::com_codigo(c::CONFLICTING_STATIC_AND_INSTANCE, span, [texto_enum.as_str(), nome.as_str(), texto_enum.as_str()])));
             }
         }
+        // `_checkEnum` (3.6.2 `duplicate_definition_verifier.dart:600-640`): o
+        // acessor de instância declarado (getter, setter, os do campo) contra
+        // o método herdado, e o método de instância contra o acessor herdado
+        // (`_getInheritedMember`: o getter herdado, senão o setter; o nome
+        // privado de outra biblioteca não é visto). Com um enum homônimo na
+        // mesma unidade (o `augment enum E` que o 3.6.2 lê como outra
+        // declaração, ou um `enum E` repetido), o 3.6.2 não relata nada, em
+        // qualquer ordem: os dois elementos são iguais pela localização.
+        let homonimo = program.classes.iter().enumerate().any(|(j, k)| {
+            j != ci && k.kind == K::Enum && k.name == classe.name && k.decl.is_some_and(|x| x.unit == decl.unit)
+        });
+        if homonimo {
+            continue;
+        }
+        let Some(este) = cx.tipo_proprio(dono) else { continue };
+        let herdado = |cx: &mut Ctx<'_>, nome: &str| -> Option<Achado> {
+            let visivel = |cx: &mut Ctx<'_>, texto: &str| -> Option<Achado> {
+                let chave = interner.lookup(texto)?;
+                let (a, _) = cx.herdado(este, chave)?;
+                if texto.starts_with('_') && program.class(a.dono).library != lib {
+                    return None;
+                }
+                Some(a)
+            };
+            visivel(cx, nome).or_else(|| visivel(cx, &format!("{nome}_=")))
+        };
+        let mut acessores: Vec<(String, Span)> = Vec::new();
+        let mut metodos: Vec<(String, Span)> = Vec::new();
+        for &m in d.members.iter() {
+            match &ast_.member(m).kind {
+                MemberKind::Field(vl) if !vl.static_ => {
+                    for v in vl.variables.iter() {
+                        let nome = interner.resolve(v.name.sym).to_string();
+                        acessores.push((nome.clone(), v.name.span));
+                        if !vl.final_ && !vl.const_ {
+                            acessores.push((nome, v.name.span));
+                        }
+                    }
+                }
+                MemberKind::Method(f) => {
+                    let af = ast_.function(*f);
+                    if af.static_ {
+                        continue;
+                    }
+                    let Some(n) = af.name else { continue };
+                    let nome = interner.resolve(n.sym).to_string();
+                    match af.kind {
+                        ast::FunctionKind::Getter | ast::FunctionKind::Setter => acessores.push((nome, n.span)),
+                        _ => metodos.push((nome, n.span)),
+                    }
+                }
+                _ => {}
+            }
+        }
+        let dono_de = |a: &Achado| interner.resolve(program.class(a.dono).name).to_string();
+        for (nome, span) in acessores {
+            if let Some(a) = herdado(&mut cx, &nome)
+                && cx.especie(a.funcao) == Some(Especie::Metodo)
+            {
+                let d_ = dono_de(&a);
+                saida.push((decl.unit, Diagnostic::com_codigo(c::CONFLICTING_FIELD_AND_METHOD, span, [texto_enum.as_str(), nome.as_str(), d_.as_str()])));
+            }
+        }
+        for (nome, span) in metodos {
+            if let Some(a) = herdado(&mut cx, &nome)
+                && cx.especie(a.funcao).is_some_and(|e| e != Especie::Metodo)
+            {
+                let d_ = dono_de(&a);
+                saida.push((decl.unit, Diagnostic::com_codigo(c::CONFLICTING_METHOD_AND_FIELD, span, [texto_enum.as_str(), nome.as_str(), d_.as_str()])));
+            }
+        }
     }
     saida
 }

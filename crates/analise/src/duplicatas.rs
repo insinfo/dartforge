@@ -547,6 +547,10 @@ struct Contexto {
     sg: Escopo,
     ss: Escopo,
     membros: Vec<MemberId>,
+    /// O nome do construtor primário de um tipo de extensão
+    /// (`extension type A.foo(int it)`), que é um dos `constructors` do
+    /// elemento para o `_checkConflictingConstructorAndStatic`.
+    primario_nomeado: Option<(String, Span)>,
 }
 
 /// Os nomes de membros de um elemento (`_InstanceElementContext`).
@@ -646,6 +650,12 @@ fn membros_da_unidade(rel: &mut Relato<'_>, u: &Unidade<'_>) -> (Vec<Contexto>, 
             }
             DeclKind::ExtensionType(x) => {
                 ctx.construtores.insert(x.constructor.map(|n| rel.nome(n)).unwrap_or_default());
+                if let Some(n) = x.constructor {
+                    let nome = rel.nome(n);
+                    if nome != "new" {
+                        ctx.primario_nomeado = Some((nome, n.span));
+                    }
+                }
                 let n = x.representation_name;
                 ctx.ig.insert(rel.nome(n), Elem { tipo: Tipo::Getter, de_campo: true, onde: n.span, unidade: rel.unidade, ..OUTRO });
                 ctx.membros = x.members.clone();
@@ -686,7 +696,7 @@ fn membros_da_unidade(rel: &mut Relato<'_>, u: &Unidade<'_>) -> (Vec<Contexto>, 
 /// `_checkClassMembers`.
 fn membros(rel: &mut Relato<'_>, ast: &Ast, ctx: &mut Contexto) {
     let e_enum = ctx.especie == Especie::Enum;
-    let mut nomeados: Vec<(String, Span)> = Vec::new();
+    let mut nomeados: Vec<(String, Span)> = ctx.primario_nomeado.take().into_iter().collect();
     for &m in &ctx.membros {
         match &ast.member(m).kind {
             MemberKind::Constructor(k) => {

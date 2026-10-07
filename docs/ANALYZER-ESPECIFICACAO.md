@@ -5777,6 +5777,16 @@ relatos iguais do analyzer contam um.
   `ConflictingMethodAndField__enum_inMixin_field`, `enhanced_enums_error_test:143:11`) — falta a parte de
   `_checkEnum` (pode entrar em `estaticos_de_enum` ou numa função irmã); **2** homônimos `augment class B`
   /`augment mixin B` (§0.1).
+- **Estado em 2026-10-07 (placar 21/21):** `sobrescritas::estaticos_de_enum` passou a fazer a parte de
+  instância do `_checkEnum`.
+  * Os acessores declarados entram contra o método herdado: getter, setter e o getter e o setter de cada
+    campo de instância.
+  * Os métodos de instância entram contra o acessor herdado.
+  * A busca segue o `_getInheritedMember`, com o getter primeiro e depois o setter. O nome privado de outra
+    biblioteca não é visto.
+  * Com outro enum de mesmo nome na mesma unidade, nada sai. Isso vale para um `enum E` repetido ou para o
+    `augment enum E` que o 3.6.2 lê como outra declaração. Conferido com o 3.6.2 nas duas ordens: os
+    elementos são iguais pela localização.
 
 ##### `enum_with_abstract_member` (perda 7: FN 7)
 - **Emissão/condição/posição:** idênticas a `concrete_class_with_abstract_member` com `classElement is
@@ -5795,6 +5805,8 @@ relatos iguais do analyzer contam um.
   with the same name.".
 - **No DartForge:** `sobrescritas.rs:1419-1425` (sem enums). FN: **4 enums** (`…enum_inMixin_getter/setter`,
   `enhanced_enums_error_test:278:7,286:7`), **2** homônimos `augment class B` (§0.1).
+- **Estado em 2026-10-07 (placar 12/12):** feito junto com `conflicting_field_and_method`
+  (`estaticos_de_enum`).
 
 ##### `conflicting_constructor_and_static_member` (perda 5: FN 5)
 - **Emissão:** `_checkConflictingConstructorAndStatic` (`duplicate_definition_verifier.dart:463-496`), do fim
@@ -5810,6 +5822,9 @@ relatos iguais do analyzer contam um.
   `nomeados` → 4 FN (`ConflictingConstructorAndStatic{Field,Method}__e_*`). 1 FN em sintaxe nova
   (`primary_constructors/header/static_member_conflict_error_test.dart:59:20`, construtor primário de classe
   3.13).
+- **Estado em 2026-10-07 (placar 42/42):** o nome do primário do tipo de extensão entra em `nomeados`, por
+  `Contexto::primario_nomeado`, a menos que seja `new`. O FN de 59:20 era o `extension type ET1.name`, e não o
+  primário de classe.
 
 ##### `invalid_implementation_override` (perda 5: FN 5)
 - **Emissão:** `verify()` `inheritance_override.dart:314-345` (`CorrectOverrideHelper` com `thisMember =
