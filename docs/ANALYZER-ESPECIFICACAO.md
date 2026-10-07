@@ -5602,6 +5602,7 @@ relatos iguais do analyzer contam um.
   `unused_element/…83bf2fbf:4:7`); **1** `NonAbstractClassInheritsAbstractMember__ae339b2b.dart:4:7`
   (`class C implements I { noSuchMethod(v); }`, `I.m(p)`): pela leitura `implementado(noSuchMethod)` cai no de
   `Object` (o de `C` é abstrato) e não deveria pular; causa não identificada — reproduzir com teste.
+- **Feito em 2026-10-06 (62/63):** todo `enum` era "incerto" porque a chave privada `_name` (de `_Enum`, em `dart:core`) não está na interface que uma classe de outra biblioteca vê (é outro `Name`); as chaves privadas só declaradas fora da biblioteca saem da conferência (`sobrescritas.rs::privado_da_biblioteca`). E a classe que implementa um enum (`implements_non_class`) perde o supertipo inteiro, inclusive `Enum`/`_Enum` (`fora_da_hierarquia`). Resta `class C implements I { noSuchMethod(v); }` (o `noSuchMethod` abstrato não encaminha; o caso não sai).
 
 ##### `recursive_interface_inheritance` (perda 10: FN 4, msg 6)
 - **Emissão:** `_checkForRecursiveInterfaceInheritance` (`src/error/inheritance_override.dart:582-658`),

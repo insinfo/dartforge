@@ -790,7 +790,16 @@ impl Ctx<'_> {
     /// ou enum (o analyzer o descarta da cláusula).
     fn fora_da_hierarquia(&self, d: ClassId, s: ClassId) -> bool {
         use dartforge_elements::model::ClassKind as K;
-        self.program.class(d).kind != K::ExtensionType && matches!(self.program.class(s).kind, K::Enum | K::ExtensionType)
+        if self.program.class(d).kind != K::ExtensionType && matches!(self.program.class(s).kind, K::Enum | K::ExtensionType) {
+            return true;
+        }
+        // Uma classe (não enum) só chega a `Enum`/`_Enum` do `dart:core` pelo
+        // `implements` de um enum, que é `implements_non_class`: o tipo sai
+        // da cláusula, e com ele os supertipos dele.
+        let sc = self.program.class(s);
+        self.program.class(d).kind != K::Enum
+            && matches!(self.interner.resolve(sc.name), "Enum" | "_Enum")
+            && self.program.library(sc.library).uri == "dart:core"
     }
 
     fn de_object(&self, c: ClassId) -> bool {
@@ -805,6 +814,13 @@ impl Ctx<'_> {
             dartforge_elements::model::Element::Class(c) => Some(c),
             _ => None,
         }
+    }
+
+    /// O nome privado `k` é declarado por `c` ou por um supertipo da
+    /// biblioteca `lib`.
+    fn privado_da_biblioteca(&self, c: ClassId, k: SymbolId, lib: dartforge_elements::model::LibraryId) -> bool {
+        let supers = self.outline.hierarchy.get(c).map(|d| d.supertypes.keys().copied().collect::<Vec<_>>()).unwrap_or_default();
+        std::iter::once(c).chain(supers).any(|s| self.program.class(s).library == lib && self.program.class(s).instance_members.contains_key(&k))
     }
 
     /// Todas as chaves de membros de instância de `c` e dos supertipos.
@@ -909,6 +925,12 @@ pub fn membros_abstratos(
         let mut incerto = false;
         for chave in cx.chaves_da_hierarquia(intf) {
             let texto = interner.resolve(chave).to_string();
+            // Um nome privado só declarado em outras bibliotecas (`_name` de
+            // `_Enum`) é outro `Name` para esta classe: não está na interface
+            // que ela vê.
+            if texto.starts_with('_') && !cx.privado_da_biblioteca(intf, chave, classe.library) {
+                continue;
+            }
             let Some((membro, tipo_membro)) = cx.na_interface(este, chave, 0) else {
                 // Conflito ou assinatura combinada que não se decide aqui.
                 if !program.class(intf).instance_members.contains_key(&chave) {
