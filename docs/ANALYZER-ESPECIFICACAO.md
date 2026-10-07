@@ -4275,6 +4275,9 @@ interesse (`nao_nulo_promocao(declarado)` quando o declarado é anulável).
 - **No DartForge:** `crates/analise/src/clausulas.rs` (~l. 1247): FN em **tipo de extensão** (`extension type E(A _) implements A?`,
   `implements B` com `typedef B = A?`; `ExtensionTypeImplementsDisallowedType___c43dde67.dart`) — o ramo dos tipos de
   extensão não confere a nulidade (nem a do alias).
+- **Estado em 2026-10-07 (placar 10/10):** o ramo do tipo de extensão em `clausulas::verificar` confere cada tipo do
+  `implements` como o das classes. A regra é `anulavel`, que segue o alias, com o tipo resolvido a uma
+  classe, mixin, enum ou tipo de extensão. O relato vai no nó inteiro.
 
 ##### `unnecessary_question_mark` (perda 4: FN 4)
 

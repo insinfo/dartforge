@@ -1516,6 +1516,16 @@ pub fn verificar(
         if let DeclKind::ExtensionType(x) = &ast_.decl(decl.decl).kind {
             // `visitExtensionTypeDeclaration`: `implements` repetido, sem porta.
             repetidos(&l, u, ast_, &x.implements, c::IMPLEMENTS_REPEATED, &mut saida);
+            // `_resolveImplementsClause` → `_resolveType` → `_verifyNullability`
+            // (3.6.2 `named_type_resolver.dart:388-414`): o tipo anulável (o
+            // `?` escrito ou o alias anulável) no `implements`, no nó inteiro.
+            let params: Vec<SymbolId> = x.type_params.iter().map(|p| p.name.sym).collect();
+            for &t in x.implements.iter() {
+                let resolvido = l.resolver(u, ast_, t, &params, 0, true);
+                if l.anulavel(u, ast_, t, 0) && matches!(resolvido, Resolvido::Classe(_)) {
+                    saida.push((u, Diagnostic::com_codigo(c::NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE, ast_.ty(t).span, [] as [&str; 0])));
+                }
+            }
             continue;
         }
         let Some(cl) = clausulas(&ast_.decl(decl.decl).kind) else {
