@@ -11802,6 +11802,11 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
   multilinha; nosso texto não normaliza → `==` falso → `c1 = null` → condição não-bool.
   Correção na origem (`crates/frontend`, `ast::StringPart::Text` de `'''`/`"""`) ou em
   `avaliador.rs::string` para literais multilinha.
+- **2026-10-07:** o parser normaliza as quebras de linha da fonte (CR LF e CR) para LF nas strings de três aspas
+  (`expressions.rs::push_string_text`), crua ou não; um `` escrito como escape fica. Os 6 FP continuam: as
+  constantes de `multiline_newline_cr.dart`/`_crlf`/`_lf` vêm de bibliotecas importadas cujos corpos não são
+  inferidos no lote (`Motor::inferidas`), e o `==` entre elas sai desconhecido; o analyzer avalia os
+  inicializadores das bibliotecas importadas. Pendente: avaliar as constantes de bibliotecas importadas.
 
 ##### `const_constructor_param_type_mismatch` (perda 4: FN 2, FP 2)
 - **Emissão:** `_checkParameters` (`evaluation.dart:2870-2960`).

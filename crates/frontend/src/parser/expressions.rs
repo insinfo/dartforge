@@ -2180,6 +2180,15 @@ impl<'s, 'i> Parser<'s, 'i> {
         let content = text
             .get(head..text.len().saturating_sub(tail))
             .unwrap_or("");
+        // Na string de três aspas as quebras de linha da fonte (CR LF e CR)
+        // valem LF (o `multiline_newline_test`: a mesma constante em arquivos
+        // CR, CRLF e LF); um `\r` escrito como escape fica.
+        let normalizado: std::borrow::Cow<'_, str> = if flags.triple && content.contains('\r') {
+            std::borrow::Cow::Owned(content.replace("\r\n", "\n").replace('\r', "\n"))
+        } else {
+            std::borrow::Cow::Borrowed(content)
+        };
+        let content: &str = &normalizado;
         match crate::lexer::decode_string(content, flags.raw, first && flags.triple) {
             Ok(decoded) => {
                 self.scratch_parts.push(StringPart::Text(decoded));
