@@ -860,10 +860,44 @@ pub fn nao_usados_com_pulados(u: Unidade<'_>, interner: &Interner, curinga: bool
     let mut out = nao_usados_sem_filtro(u, interner, curinga);
     if !pulados.vazio() {
         let execs = executaveis(u);
+        let blocos = escopos_de_bloco(u.ast);
         out.retain(|d| {
             let nome = u.fonte.get(d.span.start..d.span.end).unwrap_or("");
-            !execs.iter().any(|e| d.span.start >= e.start && d.span.end <= e.end && pulados.cita_em(nome, *e))
+            // Só um trecho dentro do escopo do local e depois do nome
+            // declarado pode ter um uso dele: o menor bloco, caso de `switch`,
+            // laço, `if` ou `try` que contém a declaração.
+            !execs.iter().any(|e| {
+                if !(d.span.start >= e.start && d.span.end <= e.end) {
+                    return false;
+                }
+                let fim = blocos
+                    .iter()
+                    .filter(|b| b.start <= d.span.start && d.span.end <= b.end && e.start <= b.start && b.end <= e.end)
+                    .min_by_key(|b| b.end - b.start)
+                    .map_or(e.end, |b| b.end);
+                pulados.cita_em(nome, dartforge_diagnostics::Span { start: d.span.end, end: fim })
+            })
         });
+    }
+    out
+}
+
+/// Os intervalos que delimitam escopos de locais dentro de um corpo: blocos,
+/// casos de `switch` (padrão, guarda e corpo), laços, `if` e `try`.
+fn escopos_de_bloco(ast: &Ast) -> Vec<Span> {
+    let mut out = Vec::new();
+    for s in ast.stmts.iter() {
+        match &s.kind {
+            StmtKind::Block(_)
+            | StmtKind::For { .. }
+            | StmtKind::ForIn { .. }
+            | StmtKind::If { .. }
+            | StmtKind::Try { .. }
+            | StmtKind::While { .. }
+            | StmtKind::DoWhile { .. } => out.push(s.span),
+            StmtKind::Switch { cases, .. } => out.extend(cases.iter().map(|c| c.span)),
+            _ => {}
+        }
     }
     out
 }

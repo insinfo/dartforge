@@ -27721,6 +27721,13 @@ continuam no arquivo, porque a troca do padrão exige a medição que o próprio
 passo 7 (`crates/lsp/src/lib.rs` ainda repete a porta antiga) e o 8 (`importacoes::nao_usados` ainda
 recebe a lista de diagnósticos).
 
+**Refinamento de 2026-10-07 (`unused_local_variable` 2.272 → 2.277, sem FP novos):** em
+`locais::nao_usados_com_pulados`, a citação do nome só conta num trecho pulado que fica **depois do nome
+declarado** e **dentro do escopo** do local: o menor bloco, caso de `switch` (padrão, guarda e corpo),
+laço, `if` ou `try` que contém a declaração (`escopos_de_bloco`), ou a declaração executável. Um trecho
+antes da declaração ou fora do escopo não pode ter uma leitura do local (`case var when:` com outro
+`case int when:` recuperado no mesmo `main`).
+
 **Estado em 2026-10-05 (compilado e testado): a regra dos trechos pulados é a única.** Com a
 recuperação do parser alinhada à do fasta (agrupamento do scanner, `ensureIdentifier`,
 `moveSynthetic`, laços de progresso), a troca foi medida e feita: `libs_com_erro_de_sintaxe`,
