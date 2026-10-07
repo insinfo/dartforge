@@ -327,6 +327,10 @@ pub struct Parser<'s, 'i> {
     /// A unidade usa sintaxe de um recurso desligado que o analyzer 3.6.2
     /// não conhece: a referência dela é o 3.13.4 ([`Parsed::referencia`]).
     pub(crate) sintaxe_nova: bool,
+    /// Lendo os elementos de um literal de lista: o elemento comum não lê
+    /// `: valor` (`parseLiteralListSuffix` lê as entradas com
+    /// `parseExpression`); só o null-aware `?k: v` vira entrada.
+    pub(crate) em_lista: bool,
     /// Os diagnósticos (código e lugar) que só o analyzer 3.6.2 relata; saem
     /// da lista se a referência da unidade acabar sendo o 3.13.4. Guardados
     /// por código e lugar, não por índice: as tentativas especulativas
@@ -397,6 +401,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             especulando: false,
             nome_sintetico: None,
             sintaxe_nova: false,
+            em_lista: false,
             so_3_6: Vec::new(),
             so_3_13: Vec::new(),
             sem_funcao_nomeada: false,

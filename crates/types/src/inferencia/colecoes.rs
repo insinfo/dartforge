@@ -9,6 +9,7 @@ use super::BodyInferrer;
 use crate::codes::*;
 use crate::constraints::GenericInferrer;
 use crate::table::{Type, TypeId, TypeParamId};
+use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{CollectionElement, ExprId, ExprKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -297,9 +298,40 @@ fn verificar_elementos(
             CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => {
                 verificar_elementos(inf, cx, std::slice::from_ref(&**body), forma, t, const_, true);
             }
-            _ => {}
+            // Entrada `k: v` numa lista ou num conjunto (o `forList`/`forSet`
+            // do `LiteralElementVerifier`, `literal_element_verifier.dart:93-100`):
+            // relatada sempre, const ou não (o verificador de constantes não
+            // relata a entrada fora de mapa).
+            CollectionElement::MapEntry { key, value, null_aware_key, .. } => {
+                if args.len() != 1 {
+                    continue;
+                }
+                let k = inf.span_expr(cx.unit, *key);
+                let v = inf.span_expr(cx.unit, *value);
+                let inicio = if *null_aware_key { recuar_interrogacao(inf, cx, k.start) } else { k.start };
+                inf.aviso_com_codigo(ce::MAP_ENTRY_NOT_IN_MAP, Span { start: inicio, end: v.end }, &[]);
+            }
+            // Expressão (ou `?e`) num mapa (`:79-85`, `:107-114`).
+            CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => {
+                if args.len() != 2 {
+                    continue;
+                }
+                let s = inf.span_expr(cx.unit, *x);
+                let inicio = if matches!(el, CollectionElement::NullAwareExpression(_)) { recuar_interrogacao(inf, cx, s.start) } else { s.start };
+                inf.aviso_com_codigo(ce::EXPRESSION_IN_MAP, Span { start: inicio, end: s.end }, &[]);
+            }
         }
     }
+}
+
+/// O início do elemento null-aware: o `?` antes de `i`, saltando brancos.
+fn recuar_interrogacao(inf: &BodyInferrer<'_>, cx: &Corpo, i: usize) -> usize {
+    let fonte = inf.program.unit(cx.unit).source.as_bytes();
+    let mut j = i;
+    while j > 0 && fonte[j - 1].is_ascii_whitespace() {
+        j -= 1;
+    }
+    if j > 0 && fonte[j - 1] == b'?' { j - 1 } else { i }
 }
 
 /// As variáveis de tipo que aparecem em `t`.
@@ -543,8 +575,10 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, f
             let c = if forma == Forma::Mapa { u } else { ctxs[0] };
             let t = inferir(inf, cx, *x, c);
             // Com argumentos de tipo escritos (sem inferência) e elemento
-            // não `void`: valor `void` é `use_of_void_result`.
-            if gi.is_none() && !matches!(inf.table.get(c), Type::Void) {
+            // não `void`: valor `void` é `use_of_void_result`
+            // (`LiteralElementVerifier._verifyElement`, só em lista e
+            // conjunto; no mapa a expressão é `EXPRESSION_IN_MAP`).
+            if gi.is_none() && forma != Forma::Mapa && !matches!(inf.table.get(c), Type::Void) {
                 super::expr::uso_de_void(inf, cx, *x, t);
             }
             if forma != Forma::Mapa {
@@ -554,6 +588,10 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, f
         CollectionElement::NullAwareExpression(x) => {
             let c = if forma == Forma::Mapa || inf.e_desconhecido(ctxs[0]) { u } else { inf.anulavel(ctxs[0]) };
             let t = inferir(inf, cx, *x, c);
+            // O `void` do valor antes da promoção (`:107-112`).
+            if gi.is_none() && forma != Forma::Mapa && !matches!(inf.table.get(ctxs[0]), Type::Void) {
+                super::expr::uso_de_void(inf, cx, *x, t);
+            }
             let t = inf.nao_nulo(t);
             if forma != Forma::Mapa {
                 restringir(inf, &mut gi, t, 0);
@@ -564,11 +602,11 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, f
             let cv = if *null_aware_value && !inf.e_desconhecido(ctxs[2]) { inf.anulavel(ctxs[2]) } else { ctxs[2] };
             let tk = inferir(inf, cx, *key, ck);
             let tv = inferir(inf, cx, *value, cv);
+            // `_verifyMapLiteralEntry` (`literal_element_verifier.dart:130-141`):
+            // a chave `void` encerra a entrada, sem olhar o valor.
             if gi.is_none() {
-                if !matches!(inf.table.get(ck), Type::Void) {
-                    super::expr::uso_de_void(inf, cx, *key, tk);
-                }
-                if !matches!(inf.table.get(cv), Type::Void) {
+                let chave_void = !matches!(inf.table.get(ck), Type::Void) && super::expr::uso_de_void(inf, cx, *key, tk);
+                if !chave_void && !matches!(inf.table.get(cv), Type::Void) {
                     super::expr::uso_de_void(inf, cx, *value, tv);
                 }
             }

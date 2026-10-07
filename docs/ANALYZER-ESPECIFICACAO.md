@@ -765,6 +765,7 @@ Representação cíclica ou inválida cala o `implements` e o fundo. Um `dynamic
 - **Posição:** a tag inteira (`tag.offset` a `tag.end`: do `{@` ao `}`).
 - **Mensagem:** `The '{0}' directive is missing a '{1}' argument.` / `… a '{1}' and a '{2}' argument.` / `… a '{1}', a '{2}', and a '{3}' argument.`
 - **No DartForge:** inexistente; exige um analisador de comentários de documentação (`///` e `/** */`) que reconheça as diretivas. Lugar: um módulo novo em `crates/analise`.
+- **Feito (`crates/analise/src/a_doc.rs`), posição corrigida em 2026-10-07 (10/10, e `doc_directive_missing_closing_brace` 2/2):** o `_DirectiveParser` do 3.6.2 (`doc_comment_builder.dart:1084-1200`) guarda em `_offset` o offset do `{@` e soma a ele o ÍNDICE NO CONTEÚDO DA LINHA (tudo depois do `///`, com o espaço inicial): o fim da tag é `_offset + index` e a chave ausente fica em `_offset + _length - 1`. Os dois saem deslocados pelo que precede o `{@` na linha (`/// {@youtube 600 400` dá tag de comprimento 18 e a chave ausente uma coluna depois do fim da linha), e reproduzimos o deslocamento. A diretiva sem nada depois do nome (`/// {@youtube`) termina no fim da linha, sem argumentos e SEM `DOC_DIRECTIVE_MISSING_CLOSING_BRACE` (`directive` fixa `_end` quando `index == _length`, e `_parseArguments` retorna antes).
 
 ##### `doc_directive_argument_wrong_format` (perda 5: FN 5)
 - **Emissão:** `doc_comment_verifier.dart:121-150`. **Condição:** argumento posicional com formato esperado `integer` que não é inteiro (`width`, `height` de `animation`/`youtube`), ou `uri` inválida. **Posição:** o argumento. **Mensagem:** `The '{0}' argument must be formatted as {1}.` — `{1}` = `displayString` do formato (`an integer`, `a URI`, …).
@@ -7642,6 +7643,21 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
   (`crates/types/src/constantes/verificador.rs:1055-1063`) ou na inferência de literais
   (`crates/types/src/inferencia/`). As 11 amostras: `<int>{1:2}`, `const <int>{1:2}`, `[1:2]`,
   `new Map<int>{…}` (map/literal13_test).
+- **Feito em 2026-10-07 (11/11; `expression_in_map` 4/4, `list_element_type_not_assignable` 29/29,
+  `set_element_type_not_assignable` 13/13):**
+  - `inferencia/colecoes.rs::verificar_elementos` relata a entrada numa lista ou conjunto (tipo com 1
+    argumento) e a expressão (ou `?e`) num mapa (tipo com 2), sempre, const ou não: o verificador de
+    constantes não relata esses dois (`_ConstLiteralVerifier._validateMapLiteralEntry` sai sem
+    `mapConfig`), e o relato repetido do caminho de constantes some na deduplicação.
+  - O parser segue o `parseLiteralListSuffix`: numa LISTA o elemento comum é lido com `parseExpression`
+    e não lê `: valor` (`[0: ?""]` é `0` e `EXPECTED_TOKEN ']'` no `:`); só a entrada null-aware
+    (`NullAwareEntry`, `literal_entry_info_impl.dart:325-350`) vira `k: v` numa lista (`[?"": 0]`).
+  - Com `null-aware-elements` desligado, o `AstBuilder` relata `EXPERIMENT_NOT_ENABLED` uma vez (no `?`
+    da chave, senão no do valor) e descarta os `?` (`handleLiteralMapEntry`, `ast_builder.dart:4812-4835`;
+    `handleNullAwareElement`, `:5127-5142`): a entrada começa na chave e o `?e` é elemento comum.
+  - `use_of_void_result` nos elementos (`_verifyElement`, `_verifyMapLiteralEntry`): só em lista e
+    conjunto (também no valor de `?e`, antes da promoção); na entrada, a chave `void` encerra a
+    conferência sem olhar o valor.
 
 ##### `case_expression_type_implements_equals` (perda 10: FN 10)
 - **Emissão:** `ConstantVerifier._validateSwitchStatement_nullSafety`
@@ -7803,6 +7819,8 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
   solta (ou `?e` null-aware) num literal de MAPA.
 - **No DartForge:** só no caminho de constantes. FN: `<String,int>{'a', 'b' : 2}` não-const e os
   `{0: ?""}` de `null_aware_elements` (sintaxe 3.8 — oráculo 3.13).
+- **Feito em 2026-10-07 (4/4):** ver `map_entry_not_in_map`; com o recurso desligado o `?` sai do
+  elemento, e a posição é a da expressão.
 
 ##### `doc_directive_missing_closing_brace` (perda 2), `uri_does_not_exist_in_doc_import` (2), `deprecated_new_in_comment_reference` (1), `doc_import_cannot_be_deferred` (1), `doc_import_cannot_have_configurations` (1)
 - **Emissão:** comentários de documentação: `DocCommentBuilder` (`analyzer/lib/src/fasta/doc_comment_builder.dart:1196,1231`,
@@ -11432,6 +11450,13 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
   `potencial.rs` não trata `ExprKind::DotShorthand { const_: true }` (é `InstanceCreationExpression`
   const no analyzer → potencialmente constante); só o não-const é nó ruim.
 - **pos (8):** atalho de ponto não resolvido — posição no identificador sem o ponto (ver acima).
+- **Feito em 2026-10-07 (52/55, FP 0, pos 0; também `const_initialized_with_non_constant_value`
+  pos 8 → 0):** `potencial.rs` segue o `_Collector` do 3.13 para os atalhos de ponto:
+  `const .id(…)` é `DotShorthandConstructorInvocation` constante pela palavra (resolvido ou não),
+  nunca nó ruim; o nome sozinho (`DotShorthandNameExpression`) é potencialmente constante se é o
+  getter de uma variável `const` (constante de enum, campo estático `const`) ou o tear-off de um
+  método estático, e senão acusa o `propertyName` (o identificador depois do ponto). Restam os FN
+  de (a)-(c).
 
 ##### `invalid_type_argument_in_const_literal` (perda 16: FN 16)
 - **Emissão:** `TypeArgumentsVerifier.checkListLiteral/checkMapLiteral/checkSetLiteral`
@@ -11461,6 +11486,8 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
 - **pos (12):** atalhos de ponto (dot shorthand) em condicional: (a) posição do identificador
   sem ponto; (b) com condição `true`, `potencial.rs` acusa o ramo `else` (`const .constNamed`)
   porque não trata `DotShorthand` const → corrigir `potencial.rs`.
+- **Feito em 2026-10-07 (50/50):** as duas causas dos 12 de posição, pela regra de
+  `invalid_constant` acima.
 
 ##### `recursive_constant_constructor` (perda 14: FN 14)
 - **Emissão:** `visitConstructorDeclaration` (`constant_verifier.dart:165-189`): construtor com

@@ -37,6 +37,12 @@ pub fn coletar_em(m: &Motor<'_>, cx: &Ctx, e: ExprId, parametros: bool, em_const
             }
         }
         ExprKind::Call { target, arguments } => {
+            // `const .id(…)` é sempre um `DotShorthandConstructorInvocation`
+            // constante (`isConst` pela palavra), resolvido ou não
+            // (`potentially_constant.dart`, 3.13).
+            if matches!(a.expr(*target).kind, ExprKind::DotShorthand { const_: true, .. }) {
+                return;
+            }
             if let Some(Resolved::Constructor(_)) = m.resolvido(u, e) {
                 if !em_const {
                     nos.push(span);
@@ -119,6 +125,37 @@ pub fn coletar_em(m: &Motor<'_>, cx: &Ctx, e: ExprId, parametros: bool, em_const
             nos.push(span);
         }
         ExprKind::As { value, .. } | ExprKind::Is { value, .. } => coletar_em(m, cx, *value, parametros, em_const, nos),
+        // `DotShorthandNameExpression` (3.13): o getter de uma variável
+        // `const` (a constante de enum, o campo estático `const`) e o tear-off
+        // de um método estático são potencialmente constantes; o resto
+        // (getter, variável não constante, nome que não resolve) acusa o
+        // nome depois do ponto (`propertyName`).
+        ExprKind::DotShorthand { name, .. } => {
+            let ok = match m.resolvido(u, e) {
+                Some(Resolved::Element(Element::Class(d))) => {
+                    let k = m.program.class(*d);
+                    match k.static_members.get(&name.sym) {
+                        Some(f) => {
+                            let fe = m.program.function(*f);
+                            match fe.kind {
+                                FunctionKind::ImplicitAccessor => fe.variable.is_some_and(|v| m.program.variable(v).const_),
+                                FunctionKind::Getter | FunctionKind::Setter => false,
+                                _ => true,
+                            }
+                        }
+                        None => k
+                            .enum_constants
+                            .iter()
+                            .chain(k.fields.iter())
+                            .any(|&v| m.program.variable(v).name == name.sym && m.program.variable(v).static_ && m.program.variable(v).const_),
+                    }
+                }
+                _ => false,
+            };
+            if !ok {
+                nos.push(name.span);
+            }
+        }
         ExprKind::TypeArguments { target, .. } => {
             // `FunctionReference`/`TypeLiteral`: os argumentos de tipo são
             // aceitos; a função é coletada.

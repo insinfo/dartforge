@@ -107,8 +107,18 @@ fn e_uri(s: &str) -> bool {
 }
 
 /// Lê e valida a diretiva que abre em `indice` (o `{@`) de `conteudo`, cujo
-/// primeiro byte está em `base` na fonte.
-fn diretiva(conteudo: &str, base: usize, indice: usize, saida: &mut Vec<Diagnostic>) {
+/// primeiro byte está em `base` na fonte. `antes` é quantos bytes o conteúdo
+/// da linha do analyzer (tudo depois do `///`) tem antes de `conteudo` (o
+/// espaço retirado).
+///
+/// O `_DirectiveParser` (3.6.2, `doc_comment_builder.dart:1084-1200`) soma o
+/// índice no conteúdo da linha ao offset do `{@` (`_offset + index`) para o
+/// fim da diretiva e a posição de `DOC_DIRECTIVE_MISSING_CLOSING_BRACE`: os
+/// dois ficam deslocados pelo que precede o `{@` na linha, e reproduzimos
+/// isso. A diretiva sem nada depois do nome (`{@youtube`) termina no fim da
+/// linha sem argumentos e sem o aviso da chave (`directive`, `:1086-1088`,
+/// e o retorno antecipado de `_parseArguments`).
+fn diretiva(conteudo: &str, base: usize, antes: usize, indice: usize, saida: &mut Vec<Diagnostic>) {
     let b = conteudo.as_bytes();
     let n = b.len();
     let inicio = indice;
@@ -125,11 +135,14 @@ fn diretiva(conteudo: &str, base: usize, indice: usize, saida: &mut Vec<Diagnost
         i += 1;
     }
     let Some(tipo) = TIPOS.iter().find(|t| t.nome == nome) else { return };
+    // `_offset + index`: o offset do `{@` mais o índice no conteúdo da linha.
+    let no_analyzer = |indice_no_conteudo: usize| base + inicio + antes + indice_no_conteudo;
     // `_parseArguments`.
     let mut posicionais: Vec<Argumento<'_>> = Vec::new();
     let mut nomeados: Vec<Argumento<'_>> = Vec::new();
     let mut fim = n;
-    let mut fechou = false;
+    let vazia = i >= n;
+    let mut fechou = vazia;
     while i < n {
         if b[i] == b'}' {
             i += 1;
@@ -175,9 +188,10 @@ fn diretiva(conteudo: &str, base: usize, indice: usize, saida: &mut Vec<Diagnost
     }
     // `_parseArguments`: o fim da linha sem `}`, no último caractere.
     if !fechou && n > 0 {
-        saida.push(Diagnostic::com_codigo(w::DOC_DIRECTIVE_MISSING_CLOSING_BRACE, Span { start: base + n - 1, end: base + n }, Vec::<&str>::new()));
+        let p = no_analyzer(n) - 1;
+        saida.push(Diagnostic::com_codigo(w::DOC_DIRECTIVE_MISSING_CLOSING_BRACE, Span { start: p, end: p + 1 }, Vec::<&str>::new()));
     }
-    let tag = Span { start: base + inicio, end: base + fim };
+    let tag = Span { start: base + inicio, end: no_analyzer(fim) };
     // `validateArgumentCount`.
     let exigidos = tipo.posicionais.len();
     if posicionais.len() < exigidos {
@@ -403,7 +417,7 @@ pub fn verificar(u: Unidade<'_>) -> Vec<Diagnostic> {
             continue;
         }
         if texto.starts_with("{@") {
-            diretiva(conteudo, base, brancos, &mut saida);
+            diretiva(conteudo, base, base - (inicio_da_linha + recuo + 3), brancos, &mut saida);
             anterior_vazia = false;
             continue;
         }
@@ -464,7 +478,9 @@ class A {}\n";
     #[test]
     fn faltas_e_formato() {
         let r = relatos("/// {@youtube 600}\nclass A {}\n");
-        assert_eq!(r, vec![("doc_directive_missing_argument", 4, 14)]);
+        // O fim da tag é o offset do `{@` mais o índice no conteúdo da
+        // linha (com o espaço depois do `///`): comprimento 15 no dart 3.6.2.
+        assert_eq!(r, vec![("doc_directive_missing_argument", 4, 15)]);
         let r = relatos("/// {@animation x 400 http://a}\nclass A {}\n");
         assert_eq!(r, vec![("doc_directive_argument_wrong_format", 16, 1)]);
     }

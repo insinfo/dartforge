@@ -1510,7 +1510,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         type_args: Vec<TypeId>,
     ) -> PResult<ExprId> {
         self.expect_op(Op::LBracket)?;
-        let elements = self.parse_collection_elements(Op::RBracket)?;
+        let antes = std::mem::replace(&mut self.em_lista, true);
+        let elements = self.parse_collection_elements(Op::RBracket);
+        self.em_lista = antes;
+        let elements = elements?;
         Ok(self.push(
             start,
             ExprKind::List {
@@ -1529,7 +1532,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         type_args: Vec<TypeId>,
     ) -> PResult<ExprId> {
         self.expect_op(Op::LBrace)?;
-        let elements = self.parse_collection_elements(Op::RBrace)?;
+        let antes = std::mem::replace(&mut self.em_lista, false);
+        let elements = self.parse_collection_elements(Op::RBrace);
+        self.em_lista = antes;
+        let elements = elements?;
         Ok(self.push(
             start,
             ExprKind::SetOrMap {
@@ -1676,28 +1682,31 @@ impl<'s, 'i> Parser<'s, 'i> {
             });
         }
         // `?e` é elemento null-aware (Dart 3.8); `?` nunca inicia expressão,
-        // então não há ambiguidade com a condicional.
-        let null_aware_key = self.at_op(Op::Question);
-        if null_aware_key {
-            let q = self.advance();
-            self.exigir(Feature::NullAwareElements, q.span);
-        }
+        // então não há ambiguidade com a condicional (`NullAwareEntry`).
+        // Com o recurso desligado, o `AstBuilder` relata uma vez (no `?` da
+        // chave, ou no do valor) e descarta os `?`: o elemento é comum
+        // (`handleNullAwareElement`, `handleLiteralMapEntry`).
+        let ligado = self.features.tem(Feature::NullAwareElements);
+        let q_chave = if self.at_op(Op::Question) { Some(self.advance().span) } else { None };
         let key = self.parse_expression()?;
-        if self.eat_op(Op::Colon) {
-            let null_aware_value = self.at_op(Op::Question);
-            if null_aware_value {
-                let q = self.advance();
-                self.exigir(Feature::NullAwareElements, q.span);
+        // Numa lista, só a entrada null-aware lê `:`.
+        if (q_chave.is_some() || !self.em_lista) && self.eat_op(Op::Colon) {
+            let q_valor = if self.at_op(Op::Question) { Some(self.advance().span) } else { None };
+            if let Some(q) = q_chave.or(q_valor) {
+                self.exigir(Feature::NullAwareElements, q);
             }
             let value = self.parse_expression()?;
             return Ok(CollectionElement::MapEntry {
                 key,
                 value,
-                null_aware_key,
-                null_aware_value,
+                null_aware_key: ligado && q_chave.is_some(),
+                null_aware_value: ligado && q_valor.is_some(),
             });
         }
-        Ok(if null_aware_key {
+        if let Some(q) = q_chave {
+            self.exigir(Feature::NullAwareElements, q);
+        }
+        Ok(if ligado && q_chave.is_some() {
             CollectionElement::NullAwareExpression(key)
         } else {
             CollectionElement::Expression(key)
