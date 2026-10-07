@@ -3417,6 +3417,11 @@ argumentos), `UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE` ("The method '{0}' 
 o `DeadCodeVerifier.visitVariableDeclaration` (`dead_code_verifier.dart:114-128`) está em
 `instrucoes::declaracao_de_variaveis`: local `late` chamado `_` com curingas (3.7) e inicializador relata no
 inicializador, com a mensagem própria do código.
+- **Feito em 2026-10-07 (241/255):** (a) `for (init; c; u)` com a inicialização que não completa: o primeiro nó
+  morto é a condição, e o `flowEnd` das partes vai dela ao fim da última atualização
+  (`dead_code_verifier.dart:309-310`); sem atualizações o `updaters.last` lança e o verificador não relata mais
+  nada no corpo (o trecho fica aberto até o fim dele); (b) `x?.m(args)` com o lado direito morto começa na lista
+  de argumentos (o `(`); (c) `for (var x in e)` com `e` que não completa (`Never`) começa na variável do laço.
 
 - **Emissão:** `WarningCode.DEAD_CODE` ("Dead code.", sem argumentos; correção "Try removing the code, or fixing the code
   before it so that it can be reached."), só pelo `NullSafetyDeadCodeVerifier` durante a resolução — modelo completo no

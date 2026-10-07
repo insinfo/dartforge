@@ -1394,6 +1394,11 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 return (r, false);
             }
             let (r_ty, curto) = receptor(inf, cx, recv, null_aware);
+            // `x?.m(args)` com `x` sempre nulo: o lado direito é morto, e o
+            // primeiro nó morto é a lista de argumentos (do `(`).
+            if null_aware {
+                morto_na_lista(inf, cx, args);
+            }
             if !null_aware && !cx.sobreposicoes.contains_key(&recv) && expr::receptor_nunca(inf, cx, recv, r_ty) {
                 morto_na_lista(inf, cx, args);
                 for arg in args.args.iter() {

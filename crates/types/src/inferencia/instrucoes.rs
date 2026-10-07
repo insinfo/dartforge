@@ -108,6 +108,21 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
             if let Some(i) = init {
                 inicializacao_de_for(inf, cx, i);
             }
+            // Inicialização que não completa (`for (var i = throw 0; c; u)`):
+            // o primeiro nó morto é a condição, e o `flowEnd` das partes vai
+            // dela ao fim da última atualização (`node = parent.updaters.last`,
+            // `dead_code_verifier.dart:309-310`); sem atualizações o
+            // `updaters.last` lança e nada sai. O resto do laço fica no mesmo
+            // trecho.
+            let morto_no_inicio = !cx.fluxo.alcancavel && cx.trecho_morto.is_none();
+            if morto_no_inicio {
+                let a = &inf.program.unit(cx.unit).ast;
+                if let (Some(c), Some(u)) = (condition, updates.last()) {
+                    let sp = Span { start: a.expr(*c).span.start, end: a.expr(*u).span.end };
+                    inf.aviso(DEAD_CODE.template.to_string(), sp);
+                }
+                cx.trecho_morto = Some(usize::MAX);
+            }
             let mut partes = vec![Parte::Stmt(*body)];
             if let Some(c) = condition {
                 partes.push(Parte::Expr(*c));
@@ -160,13 +175,39 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
             let mut saidas = vec![ff];
             saidas.extend(alvo.breaks);
             cx.fluxo = inf.juntar_todos(&base, &saidas);
+            // Sem atualizações, o `updaters.last` do analyzer lança e o
+            // verificador de código morto não segue no corpo: o trecho fica
+            // aberto até o fim dele.
+            if morto_no_inicio {
+                // Profundidade 0: nenhum `sair_fluxo` o fecha.
+                cx.trecho_morto = if condition.is_some() && updates.is_empty() { Some(0) } else { None };
+            }
             cx.tirar_escopo();
         }
         StmtKind::ForIn { await_, target, iterable, body } => {
             let rotulos = rotulos_pendentes(cx);
             cx.empurrar_escopo();
             let antes_do_corpo = {
+                let alcancavel_antes = cx.fluxo.alcancavel;
                 cabecalho_for_in(inf, cx, target, *iterable, *await_);
+                // Iterável que não completa (`Never`): o primeiro nó morto é a
+                // variável do laço (o `DeclaredIdentifier`, depois do
+                // iterável na ordem do fluxo), e o trecho vai dela ao fim do
+                // bloco básico.
+                if alcancavel_antes && !cx.fluxo.alcancavel && cx.trecho_morto.is_none() {
+                    let fonte = inf.program.unit(cx.unit).source.as_bytes();
+                    let mut i = span.start;
+                    while i < span.end && fonte[i] != b'(' {
+                        i += 1;
+                    }
+                    i += 1;
+                    while i < span.end && fonte[i].is_ascii_whitespace() {
+                        i += 1;
+                    }
+                    let fim = cx.fins_de_fluxo.last().copied().or(cx.fins_de_bloco.last().copied()).unwrap_or(span.end).max(span.end);
+                    inf.aviso(DEAD_CODE.template.to_string(), Span { start: i, end: fim });
+                    cx.trecho_morto = Some(cx.fins_de_fluxo.len());
+                }
                 let (escritas, capturadas) = escritas_em(inf, cx, &[Parte::Stmt(*body)]);
                 cx.fluxo.juncao_conservadora(&escritas, &capturadas);
                 cx.fluxo.clone()
