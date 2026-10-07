@@ -507,6 +507,13 @@ Base comum: a resolução de membro passa por `TypePropertyResolver.resolve` (`a
   3. **9 FP `[]=`/`call`**: `a[i] = v` com `[]=` ausente é `UNDEFINED_OPERATOR ['[]=', tipo]` no `[...]` (ver `undefined_operator`); `f.call()`/`f()` com `f: Function` não relata (o tipo `Function` tem `call` dinâmico, `property_element_resolver.dart:440-446`).
   4. **FN restantes**: `constructor/reference_test` (5, `C.m` sobre construtor), `extension_methods/static_extension_internal_basename_shadowing` (6, nome de extensão sombreado por membro), `this_promotion/*` (5), `type_variable/conflict2`, `private/member3`, `UndefinedMethod__localSetterShadowingEx…` (`noGetterIsPossible`: setter de topo/estático/de extensão no escopo sem getter → `UNDEFINED_METHOD` com `thisType`), `…extensionMethodHidden/Shadowi…`, `…functionAlias_typeInstantiated` (variante `_ON_FUNCTION_TYPE`).
   **Mudança:** emitir com `aviso_com_codigo(UNDEFINED_METHOD, name.span, [m, nome_para_mensagem(r_ty)])` com a função de nome acima.
+- **Estado em 2026-10-07 (placar 112/115):** duas regras novas em `chamadas.rs`.
+  * O `_resolveElement` (`:340-355`) só aceita o membro acessível: `C.m()` com `m` privado de outra biblioteca
+    relata `UNDEFINED_METHOD`, inclusive pelo alias não genérico (`PublicClass._privateStaticMethod()`).
+  * O literal de tipo instanciado de um alias de função (`Fn<int>.foo()`) relata
+    `UNDEFINED_METHOD_ON_FUNCTION_TYPE` no nome, com `{1}` o texto do tipo. Também vale com `?.`.
+  * Restam os 2 do oráculo de `equality_extension_override_error_test` e o de
+    `static_extension_internal_basename_shadowing_error_test:290:5`.
 
 ##### `undefined_getter` (perda 79: FN 42, FP 31, msg 6)
 - **Emissão:** `PropertyElementResolver._resolve` (`analyzer/lib/src/dart/resolver/property_element_resolver.dart:383-540`; relato :505-512) para `x.g`, `x?.g`, cascata, implícito `g` em classe (`resolver.dart:1580-1590` via `SimpleIdentifierResolver`); estático `_resolveTargetInterfaceElement` (:640-705, relato :697-704).

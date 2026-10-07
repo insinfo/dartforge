@@ -1321,6 +1321,30 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             // o literal de tipo instanciado (`C<T>.m<U>()`) é expressão de
             // tipo `Type`, e o método é procurado nele.
             let instanciado = matches!(inf.program.unit(cx.unit).ast.expr(recv).kind, ExprKind::TypeArguments { .. });
+            // O literal de tipo instanciado de um alias de tipo de função
+            // (`Fn<int>.foo()`, 3.6.2 `method_invocation_resolver.dart:169-182`):
+            // nenhuma resolução possível, `UNDEFINED_METHOD_ON_FUNCTION_TYPE`
+            // no nome com o `qualifiedName` do tipo, e o tipo de recuperação.
+            if let ExprKind::TypeArguments { target: base, .. } = &inf.program.unit(cx.unit).ast.expr(recv).kind
+                && expr::alias_de_tipo_de_funcao(inf, cx, *base)
+            {
+                let base = *base;
+                inferir_livre(inf, cx, recv);
+                let sp_base = inf.span_expr(cx.unit, base);
+                let qualificado = inf.program.unit(cx.unit).source[sp_base.start..sp_base.end].to_string();
+                let nome = inf.interner.resolve(name.sym).to_string();
+                inf.aviso_com_codigo(
+                    dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_METHOD_ON_FUNCTION_TYPE,
+                    name.span,
+                    &[&nome, &qualificado],
+                );
+                let d = inf.table.invalido(inf.core.dynamic_);
+                registrar(inf, cx, target, d);
+                for x in args.args.iter() {
+                    inferir_livre(inf, cx, x.value);
+                }
+                return (d, false);
+            }
             if !instanciado && let Some(rt) = referencia_a_tipo(inf, cx, recv) {
                 // `T?.m()` encurta salvo com `T` identificador simples de
                 // classe (`expr::encurtamento_dispensado`).
@@ -1355,11 +1379,17 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                     RefTipo::Classe(c, _) | RefTipo::Alias(c, _, _) => Some(*c),
                     _ => None,
                 };
+                // `_resolveElement` (`:340-355`) só aceita o membro acessível
+                // na biblioteca que chama (`isAccessibleIn`): o privado de
+                // outra biblioteca não existe ali.
+                let inacessivel = |inf: &BodyInferrer<'_>, c: ClassId| {
+                    inf.interner.resolve(name.sym).starts_with('_') && inf.program.class(c).library != cx.lib
+                };
                 if let Some(c) = classe
                     && !matches!(a.expr(recv).kind, ExprKind::TypeArguments { .. })
                     && Some(name.sym) != inf.sym.new_
-                    && inf.membro_estatico(c, name.sym, false).is_none()
-                    && !inf.program.class(c).instance_members.contains_key(&name.sym)
+                    && (inacessivel(inf, c)
+                        || (inf.membro_estatico(c, name.sym, false).is_none() && !inf.program.class(c).instance_members.contains_key(&name.sym)))
                 {
                     let nome = inf.interner.resolve(name.sym).to_string();
                     let tipo = inf.interner.resolve(inf.program.class(c).name).to_string();
