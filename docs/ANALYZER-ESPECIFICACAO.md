@@ -11920,6 +11920,13 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
   (`avaliador.rs::unario`). (c) `const void fun() {}` (305:26: a função literal depois do nome
   descartado) e `const assert(false)` (316:18) — recuperação do parser.
 - **pos (2):** idem (c), pareamento por mensagem.
+- **Estado em 2026-10-07 (placar 27/29):** o nome solto em contexto refutável (`if (x case a)`, `case a:`) é o
+  `ConstantPattern` de um `SimpleIdentifier`. O parser o guarda como padrão de variável sem `var`, `final` nem tipo.
+  * A inferência (`casamento::tipar`) aplica o `_getConstantValue` ao nome. Local ou variável sem `const`, membro
+    de instância, getter, ou o `this` implícito dão o erro genérico, e o padrão entra em
+    `padroes_de_nome_nao_constante`.
+  * O verificador relata `CONSTANT_PATTERN_WITH_NON_CONSTANT_EXPRESSION` no nome. No `switch` anterior à 3.0
+    relata `NON_CONSTANT_CASE_EXPRESSION`, a expressão do `SwitchCase`.
 
 ##### `recursive_compile_time_constant` (perda 12: FN 12)
 - **Emissão:** `ConstantEvaluationEngine.generateCycleError` (`evaluation.dart:406-440`), via

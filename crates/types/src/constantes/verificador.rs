@@ -979,6 +979,11 @@ impl Verificador<'_, '_> {
                     if let Some(p) = caso.pattern {
                         if self.padroes_ligados {
                             self.padrao(a, p);
+                        } else if let PatternKind::Variable { name, .. } = &a.pattern(p).kind
+                            && self.m.body.units[self.unidade.0 as usize].padroes_de_nome_nao_constante.contains(&p)
+                        {
+                            // O `case nome:` antigo (a expressão do `SwitchCase`).
+                            self.relatar(c::NON_CONSTANT_CASE_EXPRESSION, name.span, Vec::new());
                         } else if let PatternKind::Constant(e) = &a.pattern(p).kind {
                             // `_validateSwitchStatement_nullSafety`.
                             let e = desparentizar(a, *e);
@@ -1207,6 +1212,10 @@ impl Verificador<'_, '_> {
             // `case nome:` (o parser guarda como variável): a constante de
             // topo com esse nome, para a exaustividade.
             PatternKind::Variable { final_: false, var_: false, ty: None, name } if self.padroes_ligados => {
+                if self.m.body.units[self.unidade.0 as usize].padroes_de_nome_nao_constante.contains(&p) {
+                    self.relatar(c::CONSTANT_PATTERN_WITH_NON_CONSTANT_EXPRESSION, name.span, Vec::new());
+                    return;
+                }
                 let program = self.m.program;
                 if let Some(dartforge_elements::model::Element::Variable(v)) =
                     program.lookup_na_unidade(self.unidade, name.sym).and_then(|b| b.getter)

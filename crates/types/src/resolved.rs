@@ -107,6 +107,11 @@ pub struct UnitBodyTypes {
     /// analyzer guarda em `DartPatternImpl.matchedValueType` e o
     /// `ConstantVerifier` lê (`constant_pattern_never_matches_value_type`).
     pub tipos_casados: std::collections::HashMap<ast::PatternId, TypeId>,
+    /// Os padrões de nome solto em contexto refutável (o `ConstantPattern` de um
+    /// `SimpleIdentifier`) cujo nome não é constante: local ou variável sem
+    /// `const`, membro de instância, getter (o `_getConstantValue` do 3.6.2 dá
+    /// o erro genérico). O `ConstantVerifier` relata no nome.
+    pub padroes_de_nome_nao_constante: std::collections::HashSet<ast::PatternId>,
     /// As expressões de função cujo tipo de contexto era um tipo de função
     /// (`FunctionExpressionImpl.wasFunctionTypeSupplied`, o
     /// `FunctionExpressionResolver` do analyzer: `contextType is
@@ -161,6 +166,7 @@ impl UnitBodyTypes {
             campos_de_extensao: std::collections::HashMap::new(),
             padroes_invalidos: std::collections::HashSet::new(),
             tipos_casados: std::collections::HashMap::new(),
+            padroes_de_nome_nao_constante: std::collections::HashSet::new(),
             chamadas_implicitas: std::collections::HashSet::new(),
             tipos_de_parametros: std::collections::HashMap::new(),
             tipos_de_escrita: std::collections::HashMap::new(),

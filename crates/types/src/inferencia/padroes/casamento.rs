@@ -465,6 +465,31 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
                 // casar ou não, sem informação. O nome é um
                 // `SimpleIdentifier` (`ConstantPattern`): sem elemento,
                 // `UNDEFINED_IDENTIFIER`.
+                // O valor do nome como constante (`_getConstantValue`,
+                // 3.6.2 `evaluation.dart:1790-1870`): sem `const`, o erro
+                // genérico, que o `ConstantVerifier` relata no nome.
+                let nao_constante = match expr::resolver_nome(inf, cx, name.sym, false) {
+                    expr::RefNome::Local(id) => !cx.local(id).const_,
+                    expr::RefNome::Elemento(dartforge_elements::model::Element::Variable(v)) => !inf.program.variable(v).const_,
+                    expr::RefNome::Elemento(dartforge_elements::model::Element::Function(f)) => {
+                        !matches!(inf.program.function(f).kind, dartforge_elements::model::FunctionKind::Function)
+                    }
+                    expr::RefNome::MembroLexico(f, estatico) => {
+                        let fe = inf.program.function(f);
+                        match fe.kind {
+                            dartforge_elements::model::FunctionKind::Function => !estatico,
+                            dartforge_elements::model::FunctionKind::ImplicitAccessor => {
+                                !estatico || !fe.variable.is_some_and(|v| inf.program.variable(v).const_)
+                            }
+                            _ => true,
+                        }
+                    }
+                    expr::RefNome::ThisImplicito => true,
+                    _ => false,
+                };
+                if nao_constante {
+                    inf.body_types.units[cx.unit.0 as usize].padroes_de_nome_nao_constante.insert(p);
+                }
                 match expr::resolver_nome(inf, cx, name.sym, false) {
                     expr::RefNome::Nenhum => expr::nome_indefinido_sem_this(inf, cx, name),
                     // O parâmetro de tipo como literal de tipo constante: fora
