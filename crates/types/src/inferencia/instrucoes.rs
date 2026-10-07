@@ -1303,6 +1303,9 @@ fn retorno(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: Option<ExprId>, span: 
             }
             if let Some(f) = cx.funcoes.last_mut() {
                 f.retorno_vazio = true;
+                if f.executavel.is_none() {
+                    f.retornos_sem_valor.push(dartforge_diagnostics::Span { start: span.start, end: span.start + "return".len() });
+                }
             }
         }
     }

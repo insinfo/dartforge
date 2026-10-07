@@ -7798,6 +7798,12 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
   `invalid_returns/async_invalid_return_0x_test.dart` (closures/funções `async`). Precisa do tipo de
   retorno inferido da closure (o do contexto, ou o inferido dos `return` com valor) — atenção à ordem:
   a inferência do retorno da closure usa os próprios `return`s.
+- **Estado em 2026-10-07 (placar 25/25):** a closure, cujo tipo de retorno é inferido, também é conferida.
+  * Cada `return;` dela guarda a palavra `return` (`CtxFuncao::retornos_sem_valor`).
+  * Ao fechar a closure, o `_checkReturnWithoutValue` (`return_type_verifier.dart:278-295`) roda com o tipo
+    estático inferido, já ajustado ao contexto. O valor futuro vale em `async`.
+  * Exemplos: `(int y) { if (…) return; return 0; }` infere `int?`, e
+    `Future<int> Function() f = () async { return; }` infere `Future<int>`. Os dois relatam.
 
 ##### `return_in_generator` (perda 10: FN 10)
 - **Emissão:** parser fasta, `messageGeneratorReturnsValue` (analyzerCode RETURN_IN_GENERATOR,

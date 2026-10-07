@@ -110,7 +110,7 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             let ctx_ret = inf.contexto_de_retorno_declarado(ret, af.modifier);
             let executavel = inf.executavel_declarado(f);
             let retorno_legal = tipo_de_retorno_legal(inf, unit, af.return_type, af.modifier, ret);
-            cx.funcoes.push(CtxFuncao { modificador: af.modifier, retorno: Some(ret), contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, expressoes_retornadas: Vec::new(), executavel, retorno_legal });
+            cx.funcoes.push(CtxFuncao { modificador: af.modifier, retorno: Some(ret), contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, retornos_sem_valor: Vec::new(), expressoes_retornadas: Vec::new(), executavel, retorno_legal });
             corpo_de_funcao(inf, &mut cx, &af.body, af.modifier, ret, None);
             // `checkForBodyMayCompleteNormally` no nome da função/método.
             if matches!(af.body, FunctionBody::Block(_))
@@ -236,7 +236,7 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             let ctx_ret = ret;
             // Construtor gerador: `return e;` é `return_in_generative_constructor`.
             let executavel = if fe.factory { inf.executavel_declarado(f) } else { None };
-            cx2.funcoes.push(CtxFuncao { modificador: AsyncModifier::None, retorno: Some(ret), contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, expressoes_retornadas: Vec::new(), executavel, retorno_legal: true });
+            cx2.funcoes.push(CtxFuncao { modificador: AsyncModifier::None, retorno: Some(ret), contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, retornos_sem_valor: Vec::new(), expressoes_retornadas: Vec::new(), executavel, retorno_legal: true });
             // `flowEnd(ConstructorDeclaration)`: o analyzer não apara o
             // construtor na última instrução; o trecho vai até o fim dele.
             let fim = inf.program.unit(unit).ast.member(member).span.end;
@@ -267,7 +267,7 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
                     retorno: Some(tc),
                     contexto_retorno: tc,
                     retornados: Vec::new(),
-                    retorno_vazio: false,
+                    retorno_vazio: false, retornos_sem_valor: Vec::new(),
                     expressoes_retornadas: Vec::new(),
                     executavel: inf.executavel_declarado(f),
                     retorno_legal: true,
@@ -1942,7 +1942,7 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
         (Some(_), Some(r)) => tipo_de_retorno_legal(inf, cx.unit, af.return_type, m, r),
         _ => true,
     };
-    cx.funcoes.push(CtxFuncao { modificador: m, retorno: declarado, contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, expressoes_retornadas: Vec::new(), executavel, retorno_legal });
+    cx.funcoes.push(CtxFuncao { modificador: m, retorno: declarado, contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, retornos_sem_valor: Vec::new(), expressoes_retornadas: Vec::new(), executavel, retorno_legal });
     let saltos_salvos = std::mem::take(&mut cx.saltos);
     let cascatas_salvas = std::mem::take(&mut cx.cascatas);
     let alvos_salvos = std::mem::take(&mut cx.alvos_de_cascata);
@@ -2063,6 +2063,17 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
             let seta_void = matches!(af.body, FunctionBody::Expression(_)) && matches!(inf.table.get(achatado), Type::Void);
             if fc.executavel.is_none() && !gerador && !seta_void {
                 retornos_da_closure(inf, cx, &fc, estatico, estatico);
+            }
+            // `_checkReturnWithoutValue` (`return_type_verifier.dart:278-295`)
+            // com o tipo de retorno da closure, o inferido: `return;` onde ele
+            // (o valor futuro, em `async`) não é `void`, `dynamic` nem `Null`.
+            if fc.executavel.is_none() && !gerador && !fc.retornos_sem_valor.is_empty() {
+                let tv = if m == AsyncModifier::Async { inf.tipo_valor_futuro(estatico) } else { estatico };
+                if !matches!(inf.table.get(tv), Type::Void | Type::Dynamic | Type::Null) {
+                    for &sp in &fc.retornos_sem_valor {
+                        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::RETURN_WITHOUT_VALUE, sp, &[]);
+                    }
+                }
             }
             // O tipo de execução do gerador (a regra do CFE, conferida contra
             // a VM 3.6.2 e a 3.13.4): o elemento é o limite superior dos

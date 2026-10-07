@@ -51,6 +51,9 @@ pub(crate) struct CtxFuncao {
     pub retornados: Vec<TypeId>,
     /// Há `return;` sem valor.
     pub retorno_vazio: bool,
+    /// As palavras `return` dos `return;` sem valor de uma closure, para o
+    /// `_checkReturnWithoutValue` depois de inferido o tipo de retorno dela.
+    pub retornos_sem_valor: Vec<dartforge_diagnostics::Span>,
     /// As expressões de `return e;` (e o corpo `=> e`) com os tipos, para a
     /// conferência de uma closure cujo retorno acaba sendo o do contexto.
     pub expressoes_retornadas: Vec<(ast::ExprId, TypeId)>,
