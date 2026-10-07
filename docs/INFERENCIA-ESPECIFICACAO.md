@@ -1582,8 +1582,14 @@ Function(String) g = f` fica com tipo `F`. `f('a')` →
   tipo estático **genérico** de função e `flatten(K)` tipo de função **não
   genérico** → casa o tipo sem os parâmetros de tipo com K e `chooseFinalTypes`;
   embrulha num `FunctionReference`. Aplicado depois de identificadores,
-  acesso a propriedade, invocações, `as`, `await`, `=`, binárias, índice e
-  literais de função (RV 1867-3658).
+  acesso a propriedade, invocações, `as`, `await`, `=`, binárias, prefixo e
+  sufixo, índice e literais de função (RV 1867-3658). No DartForge,
+  `instanciar_em_contexto` em cada um desses braços de `expr::inferir_no`.
+* **`super?.x` e `super?.m()`**: o `?.` sobre `super` é erro de sintaxe
+  (`INVALID_OPERATOR_QUESTIONMARK_PERIOD_FOR_SUPER`), mas o acesso continua
+  null-aware: o tipo sai anulável no fim da cadeia (`int y = super?.x` é
+  `INVALID_ASSIGNMENT` de `int?`; `-super?.x` é
+  `UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE`).
 * **Explícita** `f<int>` (`an611:…/function_reference_resolver.dart:39-150,
   225-285`): contagem errada → `dynamic`.
 * **Substituição num tipo de função genérico** (`FunctionTypeImpl` com

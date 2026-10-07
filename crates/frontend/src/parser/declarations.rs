@@ -1975,6 +1975,24 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     /// `typedef F<T> = tipo;` ou a forma antiga `typedef ret? F<T>(params);`.
+    /// `ensureIdentifierPotentiallyRecovered(…, typedefDeclaration,
+    /// isRecovered: true)` (`identifier_context_impl.dart:1166-1189`): o nome
+    /// do typedef de estilo novo (antes do `=`), ou do antigo seguido de `(`,
+    /// que é palavra embutida (ou o `Function`, pseudo) é
+    /// `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` no nome; a outra pseudo-palavra
+    /// passa. O `BUILT_IN_IDENTIFIER_IN_DECLARATION` sai do `ErrorVerifier`.
+    fn nome_de_typedef_recuperado(&mut self) {
+        let texto = self.text().to_string();
+        let relata = match super::fasta::estilo(&texto) {
+            Some(super::fasta::Estilo::Embutida) => true,
+            Some(super::fasta::Estilo::Pseudo) => texto == "Function",
+            _ => false,
+        };
+        if relata {
+            self.erro(codigos::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, &[&texto]);
+        }
+    }
+
     fn parse_typedef(&mut self) -> PResult<TypedefDecl> {
         self.expect_ident("typedef")?;
         if self.at_identifier() {
@@ -1982,6 +2000,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             // inclusive limites com tipos de função de parâmetros nomeados.
             let after = self.skip_type_arguments(self.pos + 1).unwrap_or_else(|| self.skip_angles(self.pos + 1));
             if self.kind_of(after) == Kind::Op(Op::Assign) {
+                self.nome_de_typedef_recuperado();
                 let name = self.identifier();
                 let type_params = self.parse_type_parameters_opt()?;
                 let igual = self.span();
@@ -2000,6 +2019,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                 });
             }
             if self.kind_of(after) == Kind::Op(Op::LParen) {
+                self.nome_de_typedef_recuperado();
                 let name = self.identifier();
                 let type_params = self.parse_type_parameters_opt()?;
                 self.params_de = DonoDeParametros::AliasDeTipo;
@@ -2016,6 +2036,12 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
         }
         let return_type = Some(self.parse_type()?);
+        if self.at_identifier() {
+            let after = self.skip_type_arguments(self.pos + 1).unwrap_or_else(|| self.skip_angles(self.pos + 1));
+            if self.kind_of(after) == Kind::Op(Op::LParen) {
+                self.nome_de_typedef_recuperado();
+            }
+        }
         let name = self.expect_identifier()?;
         let type_params = self.parse_type_parameters_opt()?;
         self.params_de = DonoDeParametros::AliasDeTipo;

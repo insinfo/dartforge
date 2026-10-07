@@ -785,8 +785,17 @@ Representação cíclica ou inválida cala o `implements` e o fundo. Um `dynamic
 - **Emissão:** `ResolutionVisitor._verifyExtensionElementImplements` (`analyzer/lib/src/dart/resolver/resolution_visitor.dart:1786-1800`), para cada tipo da cláusula `implements`.
 - **Condição exata:** `!isValidExtensionTypeSuperinterface(type)` (`analyzer/lib/src/dart/element/type_system.dart:1361-1378`): não é `InterfaceType` (parâmetro de tipo `X`, `dynamic`, tipo de função, record…), ou é anulável (`T?`), ou é `FutureOr`, `Function`, `Null`, `Record`.
 - **Posição:** o `NamedType` na cláusula. **Mensagem:** `Extension types can't implement '{0}'.` — `{0}` DartType (`'X'`, `'dynamic'`, `'Function'`, `'int?'`).
-- **Supressões e ordem:** sai e **para** (não checa supertipo da representação).
-- **No DartForge:** inexistente. **Mudança:** em `crates/analise/src/heranca.rs` (cláusula implements de extension type).
+- **Supressões e ordem:** sai e **para** (não checa supertipo da representação). Só o `hasErrorReported`
+  do `NamedTypeResolver` (o alias que expande a parâmetro de tipo, `named_type_resolver.dart:449-475`) pula a
+  verificação. O tipo chega depois do `_verifyNullability` (`:388-414`), que relata
+  `NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE` e **tira o `?`**: `implements A?` e `typedef X = num?` não dão este
+  código. O nome indefinido não é relatado na cláusula (`reportNullOrNonTypeElement`, `:601-608`: "reported
+  elsewhere") e chega como `InvalidType`: `implements Unresolved` e `implements FutureOr<int>` sem importar
+  `dart:async` dão `Extension types can't implement 'InvalidType'.`. `{0}` sem o alias: `typedef X = void`
+  dá `'void'`, `typedef X = dynamic` dá `'dynamic'`.
+- **No DartForge:** `tipos_de_extensao::verificar`; o nome indefinido na cláusula, pelo contexto
+  `ContextoDeTipo::Hierarquia` de `resolve.rs`; o `FutureOr` só é o especial de `dart:async` quando está no
+  escopo.
 
 ##### `extension_type_implements_not_supertype` (perda 6: FN 6)
 - **Emissão:** `resolution_visitor.dart:1802-1838`.
@@ -3491,6 +3500,18 @@ argumentos), `UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE` ("The method '{0}' 
     invocação de valor `Never?`.
 
 ##### `dead_code` (perda 127: FN 118, FP 5, msg 0, pos 4)
+
+**Feito em 2026-10-07 (247/255):** (a) o `default` que não é o último membro do `switch`: o `parseSwitchBlock`
+(`parser_impl.dart:8975-9030`) mantém o `defaultKeyword` nos grupos seguintes e o `AstBuilder.endSwitchCase`
+(`ast_builder.dart:3210-3247`) acrescenta ao fim de cada grupo de `case` depois dele um `SwitchDefault` com a
+**mesma palavra** e as instruções do grupo; o `default` original casa sempre, os membros seguintes ficam
+inalcançáveis e o `flowEnd` de cada um relata na palavra dele (`dead_code_verifier.dart:228-235`): o `case`
+e, pela cópia, o `default` original (`switch/switch1_test.dart` 13:5 e 14:5). No DartForge, o parser emite o
+membro sintético (`parse_switch_cases`). (b) A condição do `do … while` como primeiro nó morto (o corpo não
+completa): o `flowEnd` com pai `DoStatement` (`dead_code_verifier.dart:281-301`) relata do `do` ao `{` do corpo
+bloco (ou só o `do`), e do `}` do corpo bloco (ou do `while`) ao `;`; o resto vai do token depois do `;` ao
+fim do nó que fecha o fluxo (o membro do `switch` pelo `handleMergedStatementCase`), e não sai com `break` no
+laço (`hasBreakStatement`). No DartForge, `instrucoes.rs`, braço `DoWhile`.
 
 **Estado em 2026-10-05 (escrito, não compilado), a variante `DEAD_CODE_LATE_WILDCARD_VARIABLE_INITIALIZER`:**
 o `DeadCodeVerifier.visitVariableDeclaration` (`dead_code_verifier.dart:114-128`) está em
@@ -15655,9 +15676,12 @@ interpolação `$palavra` sempre `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` (:347-353
   `dot_shorthand_undefined_member`).
 ##### `expected_identifier_but_got_keyword` (perda 15: FN 9, FP 5, pos 1)
 - **Emissão:** T4 (`identifier_context_impl.dart`, vários contextos).
-- **Casos:** `typedef void as();`, `typedef as = …;`, `typedef Function = …;` (FN 5): contexto
-  `typedefDeclaration` relata `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` para builtin como nome (além do
-  `BUILT_IN_IDENTIFIER_IN_DECLARATION` do verificador); `"$class"` (interpolação, T4 :347);
+- **Casos:** `typedef void as();`, `typedef as = …;`, `typedef Function = …;` (feito em 2026-10-07): o
+  `parseTypedef` chama `ensureIdentifierPotentiallyRecovered(…, isRecovered: true)` no estilo novo (antes do
+  `=`) e no antigo com o nome seguido de `(` (`parser_impl.dart:1404`, `:1477-1484`); o contexto
+  `typedefDeclaration` (`identifier_context_impl.dart:1166-1189`) relata `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD`
+  para palavra embutida e para o `Function` (as outras pseudo passam), além do
+  `BUILT_IN_IDENTIFIER_IN_DECLARATION` do verificador. No DartForge, `nome_de_typedef_recuperado`; `"$class"` (interpolação, T4 :347);
   `int class = 10;` (FN); `case` dentro de bloco (`label8`, FN); FP `() async => return x`
   (`parsePrimary` :6659: `return` → `UNEXPECTED_TOKEN` e segue, não este código); FP `case assert(false):`
   (`parsePrimary` → `parseAssert(Assert.Expression)`; `AssertAsExpression` não é relatado pelo

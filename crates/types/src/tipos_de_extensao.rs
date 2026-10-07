@@ -236,20 +236,32 @@ pub fn verificar(
             let interfaces = outline.classes[t.0 as usize].interfaces.clone();
             for (k, &escrito) in et.implements.iter().enumerate() {
                 let Some(&tipo) = interfaces.get(k) else { continue };
-                // `hasErrorReported`: o nome não resolveu a tipo.
-                if table.e_invalido(tipo) || (matches!(table.get(tipo), Type::Dynamic) && !escrito_dynamic(interner, a, escrito)) {
-                    continue;
-                }
+                // `_verifyNullability` (`named_type_resolver.dart:388-414`): o
+                // tipo de hierarquia perde o `?` depois do
+                // `NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE`. O `hasErrorReported`
+                // só vale para o alias que expande a parâmetro de tipo: o nome
+                // indefinido é `InvalidType`, e `isValidExtensionTypeSuperinterface`
+                // (`type_system.dart:1361-1378`) o recusa.
+                let invalido = table.e_invalido(tipo);
+                let tipo = if invalido { tipo } else { crate::ops::non_nullable(tipo, table) };
                 let sp = a.ty(escrito).span;
-                let valido = match table.get(tipo).clone() {
-                    Type::Interface { class, nullable: false, .. } => {
-                        Some(class) != core.function_class && Some(class) != core.null_class && Some(class) != core.record_class
-                    }
-                    Type::ExtensionType { nullable: false, .. } => true,
-                    _ => false,
-                };
+                let valido = !invalido
+                    && match table.get(tipo).clone() {
+                        Type::Interface { class, nullable: false, .. } => {
+                            Some(class) != core.function_class && Some(class) != core.null_class && Some(class) != core.record_class
+                        }
+                        Type::ExtensionType { nullable: false, .. } => true,
+                        _ => false,
+                    };
                 if !valido {
-                    let texto = table.format(tipo, interner, program);
+                    // O tipo como o analyzer o escreve: sem o alias (`void`,
+                    // `dynamic`), e `InvalidType` para o que não resolveu.
+                    let texto = if invalido {
+                        "InvalidType".to_string()
+                    } else {
+                        let s = crate::ops::sem_exibicao(tipo, table);
+                        table.format(s, interner, program)
+                    };
                     saida.push((u, Diagnostic::com_codigo(c::EXTENSION_TYPE_IMPLEMENTS_DISALLOWED_TYPE, sp, [texto.as_str()])));
                     continue;
                 }

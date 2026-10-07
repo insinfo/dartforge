@@ -155,6 +155,12 @@ pub enum ContextoDeTipo {
     As,
     /// O tipo de `e is T` / `e is! T`.
     Is,
+    /// Um tipo de `extends`, `implements` ou `with` (de classe, enum, mixin,
+    /// alias de classe ou tipo de extensão): o `reportNullOrNonTypeElement`
+    /// não relata nome indefinido nem nome que não é tipo ali ("The error
+    /// will be reported elsewhere", `named_type_resolver.dart:601-608`), só o
+    /// `boolean`, que vem antes.
+    Hierarquia,
 }
 
 /// O código e os argumentos do analyzer para um nome de tipo que não
@@ -175,7 +181,7 @@ pub fn codigo_de_nome_de_tipo(contexto: ContextoDeTipo, achou: bool, nome: &str)
         ContextoDeTipo::ArgumentoDeTipo => c::NON_TYPE_AS_TYPE_ARGUMENT,
         ContextoDeTipo::Normal if achou => c::NOT_A_TYPE,
         ContextoDeTipo::Normal if nome == "await" => c::UNDEFINED_IDENTIFIER_AWAIT,
-        ContextoDeTipo::Normal => c::UNDEFINED_CLASS,
+        ContextoDeTipo::Normal | ContextoDeTipo::Hierarquia => c::UNDEFINED_CLASS,
     }
 }
 
@@ -393,7 +399,7 @@ impl<'a> OutlineResolver<'a> {
     /// `reportNullOrNonTypeElement` (named_type_resolver.dart:518-521): o
     /// nome sintético (vazio, da recuperação do parser) não é relatado.
     fn avisar_nome_de_tipo(&mut self, unit_id: UnitId, contexto: ContextoDeTipo, achou: bool, texto: &str, faixa: dartforge_diagnostics::Span) {
-        if texto.is_empty() {
+        if texto.is_empty() || contexto == ContextoDeTipo::Hierarquia && texto != "boolean" {
             return;
         }
         self.avisar(unit_id, diagnostico_de_nome_de_tipo(contexto, achou, texto, faixa));
@@ -658,20 +664,27 @@ impl<'a> OutlineResolver<'a> {
                 scope.insert(p_elem.name, pid);
             }
 
-            let supertype = class
-                .supertype
-                .map(|(unit, ast_id)| self.resolve_annotation(unit, ast_id, class.library, &scope));
+            let supertype = class.supertype.map(|(unit, ast_id)| {
+                self.contexto_de_tipo = ContextoDeTipo::Hierarquia;
+                self.resolve_annotation(unit, ast_id, class.library, &scope)
+            });
 
             let mixins: Vec<TypeId> = class
                 .mixins
                 .iter()
-                .map(|&(unit, ast_id)| self.resolve_annotation(unit, ast_id, class.library, &scope))
+                .map(|&(unit, ast_id)| {
+                    self.contexto_de_tipo = ContextoDeTipo::Hierarquia;
+                    self.resolve_annotation(unit, ast_id, class.library, &scope)
+                })
                 .collect();
 
             let interfaces: Vec<TypeId> = class
                 .interfaces
                 .iter()
-                .map(|&(unit, ast_id)| self.resolve_annotation(unit, ast_id, class.library, &scope))
+                .map(|&(unit, ast_id)| {
+                    self.contexto_de_tipo = ContextoDeTipo::Hierarquia;
+                    self.resolve_annotation(unit, ast_id, class.library, &scope)
+                })
                 .collect();
 
             let on: Vec<TypeId> = class
@@ -1756,7 +1769,14 @@ impl<'a> OutlineResolver<'a> {
                     if self.interner.lookup("Null") == Some(sym) {
                         return self.core.null;
                     }
-                    if self.interner.lookup("FutureOr") == Some(sym) {
+                    // `FutureOr` só é o de `dart:async` quando está no escopo
+                    // (o `dart:core` não o exporta): sem import, o nome é
+                    // indefinido como qualquer outro.
+                    let futureor_no_escopo = matches!(
+                        self.program.lookup_na_unidade(unit_id, sym).and_then(|b| b.getter),
+                        Some(Element::Class(c)) if self.program.library(self.program.class(c).library).uri == "dart:async"
+                    );
+                    if self.interner.lookup("FutureOr") == Some(sym) && futureor_no_escopo {
                         if args.len() == 1 {
                             let arg_ty = self.resolve_annotation(
                                 unit_id,

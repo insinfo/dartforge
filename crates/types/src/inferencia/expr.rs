@@ -2343,11 +2343,13 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
         let curto = null_aware && !encurtamento_dispensado(inf, cx, target, &rt);
         return (acesso_estatico(inf, cx, e, rt, name), curto);
     }
-    // `super.x`.
+    // `super.x`. Com `super?.x` (`INVALID_OPERATOR_QUESTIONMARK_PERIOD_FOR_SUPER`
+    // no parser), o acesso continua null-aware: o tipo sai anulável no fim
+    // da cadeia (`int y = super?.x` é `INVALID_ASSIGNMENT` de `int?`).
     if matches!(a.expr(target).kind, ExprKind::Super) {
         let this = cx.tipo_this.unwrap_or(inf.core.dynamic_);
         registrar(inf, cx, target, this);
-        return (membro_super(inf, cx, e, name, UsoDoSuper::Leitura), false);
+        return (membro_super(inf, cx, e, name, UsoDoSuper::Leitura), null_aware);
     }
     let (recv, curto) = receptor(inf, cx, target, null_aware);
     // `x.new` com `x` valor: o `TypePropertyResolver` nunca acha `new`

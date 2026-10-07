@@ -97,6 +97,31 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
             conts.extend(alvo.continues);
             let base = cx.fluxo.clone();
             cx.fluxo = inf.juntar_todos(&base, &conts);
+            // A condição é o primeiro nó morto (o corpo não chega ao fim nem
+            // continua): o `flowEnd` com pai `DoStatement`
+            // (`dead_code_verifier.dart:281-301`) relata o `do` (até o `{` do
+            // corpo bloco) e do `while` (do `}` do corpo bloco) ao `;`; o resto
+            // começa no token depois do `;`, e não sai se o laço tem `break`
+            // (`hasBreakStatement`).
+            if !cx.fluxo.alcancavel && cx.trecho_morto.is_none() {
+                let ast_ = &inf.program.unit(cx.unit).ast;
+                let corpo = ast_.stmt(*body);
+                let bloco = matches!(corpo.kind, StmtKind::Block(_));
+                let corpo_span = corpo.span;
+                let fonte = inf.program.unit(cx.unit).source.as_bytes();
+                let do_fim = if bloco { corpo_span.start + 1 } else { span.start + 2 };
+                let while_ini = if bloco { corpo_span.end.saturating_sub(1) } else { proximo_token(fonte, corpo_span.end) };
+                inf.aviso(DEAD_CODE.template.to_string(), Span { start: span.start, end: do_fim });
+                inf.aviso(DEAD_CODE.template.to_string(), Span { start: while_ini, end: span.end });
+                if alvo.breaks.is_empty() {
+                    let ini = proximo_token(fonte, span.end);
+                    let fim = cx.fins_de_fluxo.last().copied().or(cx.fins_de_bloco.last().copied()).unwrap_or(span.end);
+                    if fim > ini {
+                        inf.aviso(DEAD_CODE.template.to_string(), Span { start: ini, end: fim });
+                    }
+                }
+                cx.trecho_morto = Some(cx.fins_de_fluxo.len());
+            }
             let (_vf, ff) = expr::condicao_verificada(inf, cx, *condition);
             let mut saidas = vec![ff];
             saidas.extend(alvo.breaks);
@@ -712,6 +737,40 @@ fn juncoes_do_grupo(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, membros: &[Vec<(
             for id in ids {
                 cx.juncoes_inconsistentes.insert(id, codigo);
             }
+        }
+    }
+}
+
+/// O início do primeiro token em `fonte` a partir de `de` (pula espaços e
+/// comentários).
+fn proximo_token(fonte: &[u8], de: usize) -> usize {
+    let mut i = de;
+    loop {
+        while i < fonte.len() && fonte[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if fonte[i..].starts_with(b"//") {
+            while i < fonte.len() && fonte[i] != b'\n' {
+                i += 1;
+            }
+        } else if fonte[i..].starts_with(b"/*") {
+            let mut prof = 0usize;
+            while i < fonte.len() {
+                if fonte[i..].starts_with(b"/*") {
+                    prof += 1;
+                    i += 2;
+                } else if fonte[i..].starts_with(b"*/") {
+                    prof -= 1;
+                    i += 2;
+                    if prof == 0 {
+                        break;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+        } else {
+            return i.min(fonte.len());
         }
     }
 }

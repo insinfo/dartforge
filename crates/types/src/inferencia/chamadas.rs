@@ -1464,7 +1464,8 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 alvo_de_metodo(inf, f, name, span);
                 let (r, _) = invocar_valor(inf, cx, e, t, args, ctx, explicitos, span);
                 inf.alvo_da_aridade = None;
-                return (r, false);
+                // `super?.m()`: null-aware como em `super?.x`.
+                return (r, null_aware);
             }
             let (r_ty, curto) = receptor(inf, cx, recv, null_aware);
             // `x?.m(args)` com `x` sempre nulo: o lado direito é morto, e o

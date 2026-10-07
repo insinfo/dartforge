@@ -858,6 +858,13 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     fn parse_switch_cases(&mut self, cases: &mut Vec<SwitchCase>) -> PResult<()> {
         let mut viu_default = false;
+        // O `default` mais recente (início da palavra): o `parseSwitchBlock`
+        // (`parser_impl.dart:8975-9030`) o mantém depois do grupo dele e o
+        // passa ao `endSwitchCase` de cada grupo seguinte; o `AstBuilder`
+        // (`ast_builder.dart:3210-3247`) acrescenta então ao fim de cada
+        // grupo de `case` um `SwitchDefault` com essa mesma palavra, que leva
+        // as instruções do grupo.
+        let mut ultimo_default: Option<usize> = None;
         while !self.at_op(Op::RBrace) && !self.at_eof() {
             let case_start = self.span();
             let mut labels = Vec::new();
@@ -874,6 +881,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.erro(codigos::parser::SWITCH_HAS_MULTIPLE_DEFAULT_CASES, &[]);
             }
             viu_default |= self.at_kw(Keyword::Default);
+            if self.at_kw(Keyword::Default) {
+                ultimo_default = Some(self.span().start);
+            }
             let (pattern, guard) = if self.eat_kw(Keyword::Case) {
                 // Antes da 3.0 (`allowPatterns` falso), o `case` leva uma
                 // expressão (`parseSwitchCase`: `parseExpression`).
@@ -897,6 +907,34 @@ impl<'s, 'i> Parser<'s, 'i> {
             } else {
                 return Err(self.erro(codigos::parser::EXPECTED_CASE_OR_DEFAULT, &[]));
             };
+            // Fim de um grupo de `case` depois de um `default`: o próximo
+            // membro (depois dos rótulos) não é `case` nem `default`.
+            let fim_de_grupo_apos_default = pattern.is_some() && ultimo_default.is_some() && {
+                let mut k = 0;
+                while self.at_identifier_at(k) && self.at_op_at(k + 1, Op::Colon) {
+                    k += 2;
+                }
+                !matches!(self.kind_at(k), Kind::Keyword(Keyword::Case | Keyword::Default))
+            };
+            if let (true, Some(d)) = (fim_de_grupo_apos_default, ultimo_default) {
+                cases.push(SwitchCase {
+                    span: self.span_from(case_start),
+                    labels: labels.into_boxed_slice(),
+                    pattern,
+                    guard,
+                    body: Box::default(),
+                });
+                let body = self.parse_statement_list(true);
+                let fim = self.last_end().max(d);
+                cases.push(SwitchCase {
+                    span: Span { start: d, end: fim },
+                    labels: Box::default(),
+                    pattern: None,
+                    guard: None,
+                    body: body.into_boxed_slice(),
+                });
+                continue;
+            }
             let body = self.parse_statement_list(true);
             cases.push(SwitchCase {
                 span: self.span_from(case_start),
