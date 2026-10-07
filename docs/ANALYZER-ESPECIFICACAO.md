@@ -11701,6 +11701,18 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
   → genérico); `ExperimentalMemberUse` (recuperação); `variable/bad_initializer1_test.dart:17:7`
   (`elems` lido dentro do próprio inicializador: ciclo → só `recursive_compile_time_constant`
   no nome e o uso devolve `InvalidConstant(avoidReporting)`).
+- **Estado em 2026-10-07 (placar 120/121):** o `evaluationResult` da constante de topo ou de campo vem do
+  inicializador destacado pelo `DetachNodes._detachConstVariable` (`summary2/detach_nodes.dart:103-115`).
+  * O `replaceNotSerializableNode` (`:18-51`) troca o inicializador inteiro por um identificador sintético quando
+    há `for` de coleção, expressão de função, atribuição de padrão ou `switch` de expressão em qualquer
+    profundidade.
+  * A avaliação falha, e o `visitVariableDeclaration` relata `CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE` no
+    inicializador. O verificador ainda visita a árvore original e relata `CONST_EVAL_FOR_ELEMENT` ou
+    `NON_CONSTANT_LIST_ELEMENT` no elemento.
+  * O `const` local e o valor padrão de parâmetro não passam por isso. Conferido com o 3.6.2 em sondas.
+  * No DartForge: `Motor::nao_serializavel`, em `valor_de_variavel`.
+  * Resta `method/not_found_test.dart:11:24`: o `const B()` dentro de uma classe com o método `B`, onde o
+    membro esconde a classe de topo.
 
 ##### `const_with_non_constant_argument` (perda 19: FN 19)
 - **Emissão:** `_validateConstantArguments` (`constant_verifier.dart:779-787`) com

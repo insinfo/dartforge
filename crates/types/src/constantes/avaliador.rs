@@ -1903,6 +1903,39 @@ impl<'a> Motor<'a> {
     /// O valor de uma variável com inicializador constante (`const`, ou
     /// `final` de instância numa classe com construtor gerador `const`),
     /// calculado uma vez. `None` enquanto está em cálculo (ciclo).
+    /// O `_IsSerializableNodeVisitor` sobre `init`: algum nó da subárvore é
+    /// `ForElement`, `FunctionExpression`, `PatternAssignment` ou
+    /// `SwitchExpression`. Os nós de uma expressão nascem antes dela, em ids
+    /// contíguos e dentro do intervalo dela.
+    fn nao_serializavel(&self, u: UnitId, init: ExprId) -> bool {
+        fn tem_for(el: &ast::CollectionElement) -> bool {
+            match el {
+                ast::CollectionElement::For { .. } | ast::CollectionElement::ForIn { .. } => true,
+                ast::CollectionElement::If { then, else_, .. } => tem_for(then) || else_.as_deref().is_some_and(tem_for),
+                _ => false,
+            }
+        }
+        let a = self.ast(u);
+        let sp = a.expr(init).span;
+        let mut i = init.0 as usize + 1;
+        while i > 0 {
+            i -= 1;
+            let x = &a.exprs[i];
+            if x.span.start < sp.start || x.span.end > sp.end {
+                break;
+            }
+            let ruim = match &x.kind {
+                ExprKind::FunctionExpression(_) | ExprKind::PatternAssign { .. } | ExprKind::Switch { .. } => true,
+                ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } => elements.iter().any(tem_for),
+                _ => false,
+            };
+            if ruim {
+                return true;
+            }
+        }
+        false
+    }
+
     pub fn valor_de_variavel(&mut self, v: VariableId) -> Option<Constante> {
         match self.vars.get(&v) {
             Some(EstadoVar::Pronta(r)) => return Some(r.clone()),
@@ -1959,6 +1992,17 @@ impl<'a> Motor<'a> {
         };
         if !self.inferidas.contains(&lib) {
             let r = Constante::Valor(self.desconhecido(tipo_var));
+            self.vars.insert(v, EstadoVar::Pronta(r.clone()));
+            return Some(r);
+        }
+        // `DetachNodes._detachConstVariable` (3.6.2 `summary2/detach_nodes.dart:103-115`,
+        // `replaceNotSerializableNode` em `:18-51`): o inicializador da
+        // constante de topo ou de campo que tem `for` de coleção, expressão de
+        // função, atribuição de padrão ou `switch` de expressão vira um
+        // identificador sintético; o `evaluationResult` é inválido, no
+        // inicializador.
+        if self.nao_serializavel(unidade, init) {
+            let r = Constante::Invalida(Box::new(self.erro(unidade, self.span(unidade, init), c::INVALID_CONSTANT)));
             self.vars.insert(v, EstadoVar::Pronta(r.clone()));
             return Some(r);
         }
