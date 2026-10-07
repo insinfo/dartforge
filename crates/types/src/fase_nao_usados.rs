@@ -1056,8 +1056,12 @@ pub fn elementos_nao_usados(
                     MemberKind::Field(l) => {
                         let vs = variaveis_de(u, None, Some(mid));
                         for (i, v) in l.variables.iter().enumerate() {
+                            // O campo de um parâmetro declarante `_` é curinga:
+                            // não tem getter, e o `_isReadMember` dele é falso
+                            // (`field.getter == null`) mesmo com leituras de `_`.
+                            let curinga = nomes_declarantes.contains(&v.name.span.start) && interner.resolve(v.name.sym) == "_";
                             if let Some(&id) = vs.get(&i)
-                                && !lido(id)
+                                && (curinga || !lido(id))
                             {
                                 if nomes_declarantes.contains(&v.name.span.start) {
                                     let palavra = if l.final_ { "final" } else { "var" };
