@@ -364,6 +364,32 @@ impl<'a> BodyInferrer<'a> {
         if self.e_desconhecido(recv) {
             return Busca::Dinamico;
         }
+        // Parâmetro de tipo de limite `dynamic` (`isDynamicBounded`,
+        // `type_property_resolver.dart:81-90`): só os membros de `Object`, e o
+        // resto sem erro (dinâmico).
+        if matches!(self.table.get(recv), Type::TypeParameter { .. } | Type::Intersection { .. }) {
+            let mut b = recv;
+            for _ in 0..16 {
+                match self.table.get(b) {
+                    Type::TypeParameter { param, .. } => {
+                        let l = self.table.param(*param).bound;
+                        if l == b {
+                            break;
+                        }
+                        b = l;
+                    }
+                    Type::Intersection { bound, .. } => b = *bound,
+                    _ => break,
+                }
+            }
+            if matches!(self.table.get(b), Type::Dynamic) {
+                let o = self.core.object;
+                if let Some(m) = self.membro_de_interface(o, nome, setter) {
+                    return Busca::Achado(m);
+                }
+                return Busca::Dinamico;
+            }
+        }
         let anulavel = self.e_anulavel(recv) && !matches!(self.table.get(recv), Type::Null);
         // Receptor anulável: só membros de `Object` pela interface; o resto
         // pode vir de extensões sobre o tipo anulável.
@@ -430,6 +456,27 @@ impl<'a> BodyInferrer<'a> {
             // `Object`).
             Type::ExtensionType { nullable: false, .. } => return false,
             _ => {}
+        }
+        // `isDynamicBounded`/`isInvalidBounded` (`type_property_resolver.dart:81-90`):
+        // parâmetro de tipo cujo limite (resolvido) é `dynamic` ou inválido.
+        {
+            let mut b = recv;
+            for _ in 0..16 {
+                match self.table.get(b) {
+                    Type::TypeParameter { param, .. } => {
+                        let l = self.table.param(*param).bound;
+                        if l == b {
+                            break;
+                        }
+                        b = l;
+                    }
+                    Type::Intersection { bound, .. } => b = *bound,
+                    _ => break,
+                }
+            }
+            if b != recv && (matches!(self.table.get(b), Type::Dynamic) || self.table.e_invalido(b)) {
+                return false;
+            }
         }
         if self.e_desconhecido(recv) || self.e_nao_anulavel(recv) {
             return false;

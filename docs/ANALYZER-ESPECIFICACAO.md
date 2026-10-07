@@ -3271,6 +3271,11 @@ argumentos), `UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE` ("The method '{0}' 
 ("The operator '{0}' …"), `UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE` ("The property '{0}' …"), `…_AS_CONDITION`,
 `…_AS_ITERATOR`, `…_IN_SPREAD`, `…_IN_YIELD_EACH` (sem argumentos). `{0}` é o nome do membro como String (`'unary-'`, `'[]'`,
 `'+'` para `++`, `'-'` para `--`).
+- **Feito em 2026-10-07 (FP 16 → 6):** (a) o parâmetro de tipo de limite `dynamic` (`isDynamicBounded`,
+  `type_property_resolver.dart:81-90`) não exige checagem de nulo e só acha membros de `Object`, o resto é
+  dinâmico (`field1 * field2` com `T extends dynamic`); (b) o receptor de `?.`/`?..`/`?[` é o
+  `promoteToNonNull` do alvo (o parâmetro de tipo de limite anulável vira `T & NonNull(limite)`); (c) a
+  promoção pelo alvo de cascata e `x.new` (ver INFERENCIA §8.6 e `undefined_setter`).
 
 - **Emissão (dois mecanismos):**
   1. `NullableDereferenceVerifier.expression` → `_check` (`analyzer/lib/src/error/nullable_dereference_verifier.dart:33-37`,

@@ -2127,7 +2127,13 @@ pub(crate) fn receptor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, r: ExprId, nu
             inf.promover_nao_nulo(&mut f, id, decl);
             cx.fluxo = f;
         }
-        let nn = inf.nao_nulo(t);
+        // `promoteToNonNull` do alvo (o parâmetro de tipo de limite anulável
+        // vira `T & NonNull(limite)`: `nn?.toRadixString(16)` com
+        // `NN extends int?`).
+        let nn = match inf.table.get(t) {
+            Type::TypeParameter { nullable: false, .. } => inf.nao_nulo_promocao(t),
+            _ => inf.nao_nulo(t),
+        };
         (nn, true)
     } else {
         (t, c)
