@@ -577,6 +577,7 @@ pub(crate) fn invocar(
         }
     }
     let usar_limites = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::InferenceUsingBounds);
+    gi.metadados_genericos = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::GenericMetadata);
     let (interner, program) = (inf.interner, inf.program);
     let mut env = inf.env();
     if usar_limites {
@@ -1166,6 +1167,7 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 let mut gi = GenericInferrer::new(&novos);
                 gi.com_origem(crate::constraints::Origem::Argumento { parametro: "extendedType".to_string(), declarado: on_novo, argumento: t, prefixo: None });
                 let usar_limites = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::InferenceUsingBounds);
+                gi.metadados_genericos = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::GenericMetadata);
                 let (interner, program) = (inf.interner, inf.program);
                 let mut env = inf.env();
                 gi.constrain_argument(t, on_novo, &mut env);

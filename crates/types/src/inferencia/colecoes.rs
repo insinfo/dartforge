@@ -21,13 +21,16 @@ enum Forma {
 impl<'a> BodyInferrer<'a> {
     /// Três parâmetros de tipo auxiliares (E, K, V) para os literais.
     fn params_colecao(&mut self) -> [TypeParamId; 3] {
-        let nome = self.table.param(self.core.unknown_param).name;
         let o = self.core.object_nullable;
         if let Some(p) = self.params_colecao_cache {
             return p;
         }
-        let mk = |t: &mut crate::table::TypeTable| t.alloc_type_param(nome, crate::table::TypeParamOwner::GenericFunctionType, o, crate::table::Variance::Unspecified);
-        let p = [mk(self.table), mk(self.table), mk(self.table)];
+        // Os nomes do SDK (`List<E>`/`Set<E>`, `Map<K, V>`): aparecem no
+        // `COULD_NOT_INFER` do literal.
+        let sem_nome = self.table.param(self.core.unknown_param).name;
+        let nomes = ["E", "K", "V"].map(|n| self.interner.lookup(n).unwrap_or(sem_nome));
+        let mk = |t: &mut crate::table::TypeTable, nome| t.alloc_type_param(nome, crate::table::TypeParamOwner::GenericFunctionType, o, crate::table::Variance::Unspecified);
+        let p = [mk(self.table, nomes[0]), mk(self.table, nomes[1]), mk(self.table, nomes[2])];
         self.params_colecao_cache = Some(p);
         p
     }
@@ -131,7 +134,9 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
         let vars: Vec<TypeId> = params.iter().map(|&x| inf.table.intern(Type::TypeParameter { param: x, nullable: false })).collect();
         let ret = tipo_final(inf, forma, &vars);
         let mut gi = GenericInferrer::new(&params);
+        gi.metadados_genericos = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::GenericMetadata);
         if !inf.e_desconhecido(ctx) {
+            gi.com_origem(crate::constraints::Origem::Retorno { declarado: ret, contexto: ctx });
             let mut env = inf.env();
             gi.constrain_return(ret, ctx, &mut env);
         }
@@ -146,9 +151,16 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
         for el in elements {
             visitar(inf, cx, el, forma, ctxs, Some((&mut gi, &params[..])));
         }
+        let (interner, program) = (inf.interner, inf.program);
         let mut env = inf.env();
         let finais = gi.choose_final(&mut env);
+        // O `chooseFinalTypes` com o relator e o literal como entidade.
+        let falhas = gi.falhas(&finais, &mut env, interner, program);
         drop(env);
+        let sp = inf.span_expr(cx.unit, e);
+        for (nome, sufixo) in falhas {
+            inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::COULD_NOT_INFER, sp, &[&nome, &sufixo]);
+        }
         tipo_final(inf, forma, &finais)
     };
     if const_ {
@@ -512,6 +524,12 @@ type Inferidor<'g> = Option<(&'g mut GenericInferrer, &'g [TypeParamId])>;
 fn restringir(inf: &mut BodyInferrer<'_>, gi: &mut Inferidor<'_>, t: TypeId, i: usize) {
     if let Some((g, params)) = gi {
         let v = inf.table.intern(Type::TypeParameter { param: params[i], nullable: false });
+        // `_toListType`/`_toSetType`/`_toMapType`
+        // (`typed_literal_resolver.dart:460-490`, `:740-815`): parâmetros
+        // sintéticos `element`, `key` e `value`, sem `genericClass` (a origem
+        // é `Parameter '…'`).
+        let parametro = if params.len() == 2 { ["key", "value"][i] } else { "element" };
+        g.com_origem(crate::constraints::Origem::Argumento { parametro: parametro.to_string(), declarado: v, argumento: t, prefixo: None });
         let mut env = inf.env();
         g.constrain_argument(t, v, &mut env);
     }

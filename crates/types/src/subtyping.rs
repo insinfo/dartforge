@@ -40,6 +40,12 @@ pub fn is_subtype(t0: TypeId, t1: TypeId, env: &mut SubtypeEnv) -> bool {
         return true;
     }
 
+    // `_` é topo e fundo durante a inferência (`subtype.dart:41-45`): só o
+    // `_` inteiro (não aninhado).
+    if env.core.is_unknown(env.table, t0) || env.core.is_unknown(env.table, t1) {
+        return true;
+    }
+
     // O `InvalidType` (o tipo de recuperação de um nome que não resolve) é
     // subtipo e supertipo de tudo (`subtype.dart:46-50`): o erro do nome já
     // foi relatado, e nada que dependa do tipo é relatado de novo. Só existe

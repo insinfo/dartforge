@@ -717,6 +717,12 @@ impl<'s, 'i> Parser<'s, 'i> {
                 name.push(self.identifier());
             }
             let com_tipos = self.at_op(Op::Lt);
+            // `endMetadata` (`ast_builder.dart:2512-2518`): argumentos de tipo
+            // sem `generic-metadata`, no `<`.
+            if com_tipos {
+                let menor = self.span();
+                self.exigir(Feature::GenericMetadata, menor);
+            }
             let type_args = if com_tipos {
                 self.parse_type_arguments_opt()?
             } else {
@@ -983,6 +989,58 @@ impl<'s, 'i> Parser<'s, 'i> {
             || (self.at_ident("base") && self.at_ident_at(1, "mixin") && abre(self.pos + 2))
     }
 
+    /// `AstBuilder.beginClassDeclaration`/`beginNamedMixinApplication`
+    /// (3.6.2, `ast_builder.dart:261-300`, `:525-570`): sem `sealed-class`,
+    /// o `sealed`; sem `class-modifiers`, o `base`, o `interface`, o `final`
+    /// e o `mixin` são `EXPERIMENT_NOT_ENABLED` no token, e o modificador é
+    /// esquecido. Os tokens são os que precedem o `class` corrente.
+    fn modificadores_de_classe_sem_recurso(&mut self, m: &mut ClassModifiers) {
+        let selado = self.features.tem(Feature::SealedClass);
+        let modificadores = self.features.tem(Feature::ClassModifiers);
+        if selado && modificadores {
+            return;
+        }
+        let mut achados: Vec<(String, Span)> = Vec::new();
+        let mut i = self.pos.saturating_sub(1);
+        while i > 0 {
+            i -= 1;
+            let tk = &self.tokens[i];
+            let texto = &self.source[tk.span.start..tk.span.end];
+            match texto {
+                "abstract" | "base" | "interface" | "final" | "sealed" | "mixin" | "macro" | "augment" => {
+                    achados.push((texto.to_string(), tk.span));
+                }
+                _ => break,
+            }
+        }
+        achados.reverse();
+        for (texto, sp) in achados {
+            match texto.as_str() {
+                "sealed" if !selado => {
+                    self.exigir(Feature::SealedClass, sp);
+                    m.sealed = false;
+                }
+                "base" if !modificadores => {
+                    self.exigir(Feature::ClassModifiers, sp);
+                    m.base = false;
+                }
+                "interface" if !modificadores => {
+                    self.exigir(Feature::ClassModifiers, sp);
+                    m.interface = false;
+                }
+                "final" if !modificadores => {
+                    self.exigir(Feature::ClassModifiers, sp);
+                    m.final_ = false;
+                }
+                "mixin" if !modificadores => {
+                    self.exigir(Feature::ClassModifiers, sp);
+                    m.mixin = false;
+                }
+                _ => {}
+            }
+        }
+    }
+
     /// `classDeclaration`, inclusive a forma `class C = S with M;`.
     fn parse_class(&mut self, pre: ClassModifiers) -> PResult<ClassDecl> {
         let mut modifiers = pre;
@@ -1012,6 +1070,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
         }
         let class_token = self.expect_kw(Keyword::Class)?;
+        self.modificadores_de_classe_sem_recurso(&mut modifiers);
         // `parseClassOrNamedMixinApplication`: `abstract` com `sealed` é
         // `ABSTRACT_SEALED_CLASS` no `sealed` (em qualquer ordem).
         if modifiers.abstract_
@@ -1443,7 +1502,16 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// `mixinDeclaration`.
     fn parse_mixin(&mut self) -> PResult<MixinDecl> {
-        let base = self.eat_ident("base");
+        let base_span = self.at_ident("base").then(|| self.span());
+        let mut base = self.eat_ident("base");
+        // `beginMixinDeclaration` (`ast_builder.dart:488-497`): sem
+        // `class-modifiers`, o `base` é o recurso desligado e é esquecido.
+        if let Some(sp) = base_span
+            && !self.features.tem(Feature::ClassModifiers)
+        {
+            self.exigir(Feature::ClassModifiers, sp);
+            base = false;
+        }
         self.expect_ident("mixin")?;
         let (name_text, name) = self.nome_de_declaracao()?;
         let type_params = self.parse_type_parameters_opt_variancia()?;
@@ -1861,8 +1929,14 @@ impl<'s, 'i> Parser<'s, 'i> {
             if self.kind_of(after) == Kind::Op(Op::Assign) {
                 let name = self.identifier();
                 let type_params = self.parse_type_parameters_opt()?;
+                let igual = self.span();
                 self.expect_op(Op::Assign)?;
                 let ty = self.parse_type()?;
+                // `endTypedef` (`ast_builder.dart:3496-3501`): o alvo que não é
+                // `GenericFunctionType` sem `nonfunction-type-aliases`, no `=`.
+                if !matches!(self.ast.ty(ty).kind, TypeKind::Function { .. }) {
+                    self.exigir(Feature::NonfunctionTypeAliases, igual);
+                }
                 self.garantir_ponto_e_virgula()?;
                 return Ok(TypedefDecl {
                     name,

@@ -14,18 +14,28 @@ use dartforge_frontend::ast::{self, AsyncModifier, ExprId, FunctionBody};
 use std::collections::HashMap;
 
 impl<'a> BodyInferrer<'a> {
-    /// Contexto das expressões de `return` para um retorno declarado `r`.
+    /// Contexto das expressões de `return` para um retorno declarado `r`
+    /// (`BodyInferenceContext._contextTypeForImposed`, 3.6.2
+    /// `body_inference_context.dart:168-214`). O retorno `dynamic` (escrito
+    /// ou implícito) não é imposto (`resolver.dart:2325`, `:3185`,
+    /// `function_expression_resolver.dart:46`): o contexto é `_`. Gerador
+    /// cujo retorno não é `Iterable<S>`/`Stream<S>` cai, como o assíncrono,
+    /// em `FutureOr<futureValueTypeSchema(r)>`.
     pub(crate) fn contexto_de_retorno_declarado(&mut self, r: TypeId, m: AsyncModifier) -> TypeId {
-        let u = self.core.unknown;
-        match m {
-            AsyncModifier::None => r,
-            AsyncModifier::Async => {
-                let fv = self.tipo_valor_futuro_esquema(r);
-                self.futuro_ou(fv)
-            }
-            AsyncModifier::SyncStar => self.como_instancia_de(r, self.core.iterable_class).map(|a| a[0]).unwrap_or(u),
-            AsyncModifier::AsyncStar => self.como_instancia_de(r, self.core.stream_class).map(|a| a[0]).unwrap_or(u),
+        if matches!(self.table.get(r), Type::Dynamic) || self.e_desconhecido(r) {
+            return self.core.unknown;
         }
+        let elemento = match m {
+            AsyncModifier::None => return r,
+            AsyncModifier::Async => None,
+            AsyncModifier::SyncStar => self.como_instancia_de(r, self.core.iterable_class).map(|a| a[0]),
+            AsyncModifier::AsyncStar => self.como_instancia_de(r, self.core.stream_class).map(|a| a[0]),
+        };
+        if let Some(e) = elemento {
+            return e;
+        }
+        let fv = self.tipo_valor_futuro_esquema(r);
+        self.futuro_ou(fv)
     }
 }
 

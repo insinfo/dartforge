@@ -23,6 +23,9 @@ use dartforge_intern::SymbolId;
 
 /// Infere `e` no contexto `ctx` (o desconhecido `_` = sem contexto).
 pub(crate) fn inferir(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx: TypeId) -> TypeId {
+    // `TypeAnalyzer.analyzeExpression` (`type_analyzer.dart:557-561`): o
+    // esquema `dynamic` vira `_` (o `InvalidType` não).
+    let ctx = if matches!(inf.table.get(ctx), Type::Dynamic) && !inf.table.e_invalido(ctx) { inf.core.unknown } else { ctx };
     let marca = cx.cadeias.len();
     let (t, curto) = inferir_no(inf, cx, e, ctx, false);
     fechar_cadeia(inf, cx, marca);
@@ -91,8 +94,11 @@ fn registrar_chamada_implicita(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId
         return;
     }
     let Some(call) = inf.sym.call else { return };
-    if inf.membro_de_interface(tipo, call, false).is_some_and(|m| m.metodo) {
+    if let Some(m) = inf.membro_de_interface(tipo, call, false).filter(|m| m.metodo) {
         inf.body_types.units[cx.unit.0 as usize].chamadas_implicitas.insert(e);
+        // O `call` genérico num contexto de função: a instanciação pelo
+        // contexto, com os `COULD_NOT_INFER` na expressão.
+        let _ = instanciar_em_contexto_com(inf, cx, e, m.tipo, contexto, false);
     }
 }
 
@@ -1199,6 +1205,12 @@ fn leitura_de_campo(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, base: Bas
 /// Coerção de tear-off genérico para um contexto de função não genérico
 /// (instanciação implícita).
 fn instanciar_em_contexto(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, t: TypeId, ctx: TypeId) -> TypeId {
+    instanciar_em_contexto_com(inf, cx, e, t, ctx, true)
+}
+
+/// [`instanciar_em_contexto`]; `registrar` grava a instanciação do tear-off
+/// (a referência implícita a `call` não é tear-off do nó).
+fn instanciar_em_contexto_com(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, t: TypeId, ctx: TypeId, registrar: bool) -> TypeId {
     let Type::Function { type_params, ret, positional, optional, named, nullable } = inf.table.get(t).clone() else { return t };
     if type_params.is_empty() || inf.e_desconhecido(ctx) {
         return t;
@@ -1217,12 +1229,28 @@ fn instanciar_em_contexto(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, t: 
         named: named.clone(),
         nullable,
     });
+    // `inferFunctionTypeInstantiation` (3.6.2 `type_system.dart`): o
+    // `GenericInferrer` com o relator e a expressão como entidade
+    // (`constrainGenericFunctionInContext`, origem "Function type declared
+    // as … used where … is required."); o `chooseFinalTypes` relata
+    // `COULD_NOT_INFER`.
     let mut gi = crate::constraints::GenericInferrer::new(&type_params);
+    gi.com_origem(crate::constraints::Origem::Funcao { declarado: t, contexto: k });
+    gi.metadados_genericos = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::GenericMetadata);
+    let (interner, program) = (inf.interner, inf.program);
     let mut env = inf.env();
     gi.constrain_return(sem, k, &mut env);
     let args = gi.choose_final(&mut env);
+    let falhas = gi.falhas(&args, &mut env, interner, program);
     let r = crate::constraints::instanciar_funcao(t, &args, &mut env);
-    inf.body_types.units[cx.unit.0 as usize].instanciacoes_de_tearoff.insert(e, args.into_boxed_slice());
+    drop(env);
+    let sp = inf.span_expr(cx.unit, e);
+    for (nome, sufixo) in falhas {
+        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::COULD_NOT_INFER, sp, &[&nome, &sufixo]);
+    }
+    if registrar {
+        inf.body_types.units[cx.unit.0 as usize].instanciacoes_de_tearoff.insert(e, args.into_boxed_slice());
+    }
     r
 }
 

@@ -50,11 +50,14 @@ pub struct GenericInferrer {
     fixados: Vec<Option<TypeId>>,
     origens: Vec<Origem>,
     origem_atual: Option<usize>,
+    /// `genericMetadataIsEnabled` (2.14): sem ele, o candidato que é tipo de
+    /// função genérico é `COULD_NOT_INFER` (`generic_inferrer.dart:302-322`).
+    pub metadados_genericos: bool,
 }
 
 impl GenericInferrer {
     pub fn new(params: &[TypeParamId]) -> Self {
-        Self { params: params.to_vec(), restricoes: Vec::new(), fixados: vec![None; params.len()], origens: Vec::new(), origem_atual: None }
+        Self { params: params.to_vec(), restricoes: Vec::new(), fixados: vec![None; params.len()], origens: Vec::new(), origem_atual: None, metadados_genericos: true }
     }
 
     /// A origem das restrições geradas a seguir.
@@ -69,6 +72,8 @@ impl GenericInferrer {
         let ok = self.try_match(arg, param, false, env);
         if !ok {
             self.restricoes.truncate(mark);
+        } else {
+            self.descartar_fixados(mark);
         }
         ok
     }
@@ -79,6 +84,8 @@ impl GenericInferrer {
         let ok = self.try_match(declared, context, true, env);
         if !ok {
             self.restricoes.truncate(mark);
+        } else {
+            self.descartar_fixados(mark);
         }
         ok
     }
@@ -434,6 +441,25 @@ impl GenericInferrer {
             let mark = self.restricoes.len();
             if !self.try_match(lower, b, false, env) {
                 self.restricoes.truncate(mark);
+            } else {
+                self.descartar_fixados(mark);
+            }
+        }
+    }
+
+    /// `_tryMatchSubtypeOf` (3.6.2 `generic_inferrer.dart:880-906`): das
+    /// restrições do casamento bem-sucedido, as de um parâmetro já fixado
+    /// pela inferência preliminar (`_typesInferredSoFar`) não entram
+    /// (`Future<Future<String>> v = Future.value(Future<String>.value(''))`:
+    /// o `String <: T` do argumento é descartado, `T` já é `Future<String>`).
+    fn descartar_fixados(&mut self, mark: usize) {
+        let fixados = &self.fixados;
+        let mut i = mark;
+        while i < self.restricoes.len() {
+            if fixados[self.restricoes[i].param].is_some() {
+                self.restricoes.remove(i);
+            } else {
+                i += 1;
             }
         }
     }
@@ -537,47 +563,40 @@ impl GenericInferrer {
             };
             inferidos[i] = t;
         }
-        // Dois vetores: `rec`, a escolha do analyzer (`_chooseTypes` final:
-        // a inferior conhecida vence, a cláusula `extends` com os já
-        // escolhidos), que dá o "Tried to infer" da mensagem; e `fin`, o
-        // escolhido de fato (`choose_final`), que decide se há erro (pelo
-        // lado seguro: a nossa escolha pode divergir da do analyzer).
-        let rec = inferidos.clone();
-        let mut fin = inferidos;
-        for i in 0..n.min(finais.len()) {
-            if !env.core.is_unknown(env.table, finais[i]) && !has_unknown(finais[i], env) {
-                fin[i] = finais[i];
-            }
-        }
+        // `tryChooseFinalTypes` (`generic_inferrer.dart:250-300`): cada
+        // parâmetro é conferido contra as próprias restrições e o `extends`
+        // com a escolha do `_chooseTypes` final (`rec`); só sem erro os tipos
+        // finais (instanciados para os limites) passam pela conferência dos
+        // limites (`_checkArgumentsNotMatchingBounds`).
+        let rec = inferidos;
         for i in 0..n {
-            let t = fin[i];
-            // Argumento `dynamic` (ou inválido) que leva o escolhido a
-            // `dynamic`: o analyzer não acusa.
-            if matches!(env.table.get(t), Type::Dynamic)
-                && self.restricoes.iter().any(|r| r.param == i && matches!(env.table.get(r.lower), Type::Dynamic))
-            {
-                continue;
-            }
-            // Parâmetro `FutureOr<T>`: o casamento do analyzer escolhe entre
-            // `Future<T>` e `T` de um jeito que o nosso não reproduz em todos
-            // os casos; pelo lado seguro, não acusa.
-            let de_future_or = self.restricoes.iter().any(|r| {
-                r.param == i
-                    && matches!(r.origem.and_then(|o| self.origens.get(o)), Some(Origem::Argumento { declarado, .. })
-                        if matches!(env.table.get(*declarado), Type::FutureOr { .. }))
-            });
-            if de_future_or {
-                continue;
-            }
-            if self.mensagem_de_falha(i, &fin, env, interner, program).is_none() {
-                continue;
-            }
             let nome = interner.resolve(env.table.param(self.params[i]).name).to_string();
-            let msg = self
-                .mensagem_de_falha(i, &rec, env, interner, program)
-                .or_else(|| self.mensagem_de_falha(i, &fin, env, interner, program))
-                .unwrap_or_default();
-            saida.push((nome, msg));
+            if let Some(msg) = self.mensagem_de_falha(i, &rec, env, interner, program) {
+                saida.push((nome.clone(), msg));
+            }
+            // Candidato tipo de função genérico sem `generic-metadata`
+            // (`generic_inferrer.dart:302-322`).
+            if !self.metadados_genericos
+                && let Type::Function { type_params, .. } = env.table.get(rec[i]).clone()
+                && !type_params.is_empty()
+            {
+                let formais: Vec<String> = type_params
+                    .iter()
+                    .map(|&p| {
+                        let d = env.table.param(p).clone();
+                        let n = interner.resolve(d.name).to_string();
+                        if d.explicito { format!("{n} extends {}", fmt(env, d.bound)) } else { n }
+                    })
+                    .collect();
+                saida.push((
+                    nome,
+                    format!(
+                        " Inferred candidate type {} has type parameters [{}], but a function with type parameters cannot be used as a type argument.",
+                        fmt(env, rec[i]),
+                        formais.join(", ")
+                    ),
+                ));
+            }
         }
         if saida.is_empty() {
             for i in 0..n.min(finais.len()) {
@@ -621,14 +640,7 @@ impl GenericInferrer {
     ) -> Option<String> {
         let fmt = |env: &SubtypeEnv, t: TypeId| env.table.format_sem_alias(t, interner, program);
         let t = vetor[i];
-        // Um argumento `dynamic` não restringe (o analyzer não acusa
-        // `max(d, 2.0)` com `d` dinâmico).
-        let proprias: Vec<Restricao> = self
-            .restricoes
-            .iter()
-            .filter(|r| r.param == i && !matches!(env.table.get(r.lower), Type::Dynamic))
-            .copied()
-            .collect();
+        let proprias: Vec<Restricao> = self.restricoes.iter().filter(|r| r.param == i).copied().collect();
         let satisfaz = |r: &Restricao, env: &mut SubtypeEnv| {
             let ok_l = env.core.is_unknown(env.table, r.lower) || {
                 let l = schema_least(r.lower, env);
@@ -645,7 +657,10 @@ impl GenericInferrer {
         if sucesso {
             if let Some(b) = self.limite_escrito(i, vetor, env) {
                 let bruto = env.table.param(self.params[i]).bound;
-                let ok = is_subtype(t, b, env);
+                // `isSatisfiedBy` (`type_constraint.dart:128-135`): o tipo
+                // contra o fecho maior do esquema (`A<_>` vale `A<Object?>`).
+                let fecho = schema_greatest(b, env);
+                let ok = is_subtype(t, fecho, env);
                 extends = Some((fmt(env, bruto), fmt(env, b), ok));
                 sucesso = ok;
             }

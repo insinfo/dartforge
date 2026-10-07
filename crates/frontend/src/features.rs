@@ -99,11 +99,20 @@ pub enum Feature {
     EnhancedParts,
     /// Experimento: macros.
     Macros,
+    /// 2.13 — `typedef X = T;` com `T` que não é tipo de função.
+    NonfunctionTypeAliases,
+    /// 2.14 — argumentos de tipo em anotação; tipo de função genérico como
+    /// argumento de tipo.
+    GenericMetadata,
+    /// 3.0 — `base`, `interface`, `final` e `mixin` em classes (e `base mixin`).
+    ClassModifiers,
+    /// 3.0 — `sealed class`.
+    SealedClass,
 }
 
 impl Feature {
     /// Todos, na ordem da declaração (o índice é o bit em [`LibraryFeatures`]).
-    pub const TODOS: [Feature; 11] = [
+    pub const TODOS: [Feature; 15] = [
         Feature::WildcardVariables,
         Feature::InferenceUsingBounds,
         Feature::NullAwareElements,
@@ -115,6 +124,10 @@ impl Feature {
         Feature::Augmentations,
         Feature::EnhancedParts,
         Feature::Macros,
+        Feature::NonfunctionTypeAliases,
+        Feature::GenericMetadata,
+        Feature::ClassModifiers,
+        Feature::SealedClass,
     ];
 
     /// Nome do experimento em `tools/experimental_features.yaml` (é também o
@@ -132,6 +145,10 @@ impl Feature {
             Feature::Augmentations => "augmentations",
             Feature::EnhancedParts => "enhanced-parts",
             Feature::Macros => "macros",
+            Feature::NonfunctionTypeAliases => "nonfunction-type-aliases",
+            Feature::GenericMetadata => "generic-metadata",
+            Feature::ClassModifiers => "class-modifiers",
+            Feature::SealedClass => "sealed-class",
         }
     }
 
@@ -150,6 +167,9 @@ impl Feature {
             Feature::PrivateNamedParameters => Some(LanguageVersion::new(3, 12)),
             Feature::PrimaryConstructors => Some(LanguageVersion::new(3, 13)),
             Feature::Augmentations | Feature::EnhancedParts | Feature::Macros => None,
+            Feature::NonfunctionTypeAliases => Some(LanguageVersion::new(2, 13)),
+            Feature::GenericMetadata => Some(LanguageVersion::new(2, 14)),
+            Feature::ClassModifiers | Feature::SealedClass => Some(LanguageVersion::new(3, 0)),
         }
     }
 
@@ -445,7 +465,15 @@ mod testes {
     #[test]
     fn recursos_pela_versao() {
         let f36 = LibraryFeatures::new(v(3, 6), &[]);
-        assert!(Feature::TODOS.iter().all(|f| !f36.tem(*f)));
+        // Os posteriores ao piso estão desligados na 3.6; os anteriores
+        // (2.13, 2.14, 3.0), ligados.
+        let antigos = [Feature::NonfunctionTypeAliases, Feature::GenericMetadata, Feature::ClassModifiers, Feature::SealedClass];
+        assert!(Feature::TODOS.iter().filter(|f| !antigos.contains(f)).all(|f| !f36.tem(*f)));
+        assert!(antigos.iter().all(|f| f36.tem(*f)));
+        let f212 = LibraryFeatures::new(v(2, 12), &[]);
+        assert!(antigos.iter().all(|f| !f212.tem(*f)));
+        let f214 = LibraryFeatures::new(v(2, 14), &[]);
+        assert!(f214.tem(Feature::GenericMetadata) && f214.tem(Feature::NonfunctionTypeAliases) && !f214.tem(Feature::ClassModifiers));
         let f310 = LibraryFeatures::new(v(3, 10), &[]);
         assert!(
             f310.tem(Feature::WildcardVariables)
