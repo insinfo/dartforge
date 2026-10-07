@@ -852,8 +852,26 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
             promover_para_padrao(inf, cx, obj, true, false);
             for (n, x) in campos {
                 let nome = n.map(|n| n.sym).or_else(|| nome_implicito(inf, cx, x));
+                // `resolveObjectPatternPropertyGet` (3.6.2 `resolver.dart:1562-1580`):
+                // o `TypePropertyResolver` com `propertyErrorEntity` no tipo do
+                // padrão; com o tipo potencialmente anulável, o uso sem
+                // checagem no tipo e a busca no tipo sem `?`.
+                let obj_busca = match nome {
+                    Some(nm) if inf.exige_checagem_de_nulo(cx.lib, obj, nm, false) => {
+                        let sp = inf.program.unit(cx.unit).ast.ty(ty).span;
+                        let texto = inf.interner.resolve(nm).to_string();
+                        inf.aviso_de_nulo(
+                            obj,
+                            dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE,
+                            sp,
+                            &[&texto],
+                        );
+                        inf.nao_nulo(obj)
+                    }
+                    _ => obj,
+                };
                 let ft = match nome {
-                    Some(nm) => match inf.buscar_membro(cx.lib, obj, nm, false) {
+                    Some(nm) => match inf.buscar_membro(cx.lib, obj_busca, nm, false) {
                         Busca::Achado(m) => {
                             let de_tipo_de_extensao = matches!(
                                 &m.resolved,

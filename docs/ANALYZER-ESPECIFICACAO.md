@@ -3457,6 +3457,17 @@ argumentos), `UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE` ("The method '{0}' 
   - escrita indexada (`x[0] = 1`, `x..[0] = 1`, `Never?`): `resolveIndexExpression` (`property_element_resolver.dart:80-115`) usa o nome `[]` (procurando `[]` e `[]=`), e o `IndexExpression` é `MethodReferenceExpression`: `UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE` `['[]']` no `[` (`expr.rs::escrita_indice`).
 - **Restam:** a promoção de campo do alvo de cascata (`c?.._field()` depois de `c._field as int Function()`, `cascaded_field_promotion_unnecessary_null_aware_error_test.dart`), membros de extensão por `this` implícito, `call` de extensão, padrões objeto anuláveis e records (`records/type_inference_error_test.dart`).
 #### §2 Código morto
+- **Estado em 2026-10-07 (placar 380/384):** três correções.
+  * O campo de padrão objeto sobre tipo potencialmente anulável (`case A(isEven: true)` com `typedef A = int?`)
+    relata `UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE` no tipo do padrão e busca no tipo sem `?`. É o
+    `resolveObjectPatternPropertyGet` com `propertyErrorEntity` no tipo (`resolver.dart:1562-1580`).
+  * O `super` dentro de `extension` tem tipo inválido (`static_type_analyzer.dart:240-252`). Nada sai de
+    `super + 1` além do `super_in_extension`.
+  * O campo `dynamic` de record com contexto conhecido vale o fecho maior do contexto
+    (`record_literal_resolver.dart:135-148`, INFERENCIA §3.4).
+  * Restam: a promoção separada de `super._f` (`inference_update_2/super_this_distinction*`), o `toRadixString` de
+    `nnbd/operator_type_test`, os operadores prefixos sobre `super` em `super/conditional_operator_test` e a
+    invocação de valor `Never?`.
 
 ##### `dead_code` (perda 127: FN 118, FP 5, msg 0, pos 4)
 

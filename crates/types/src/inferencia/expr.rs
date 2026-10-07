@@ -1392,7 +1392,12 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
             None if !cx.this_sem_tipo => tipo_this_do_analyzer(inf, cx).unwrap_or(inf.core.dynamic_),
             None => inf.core.dynamic_,
         },
-        ExprKind::Super => cx.tipo_this.unwrap_or(inf.core.dynamic_),
+        // `visitSuperExpression` (3.6.2 `static_type_analyzer.dart:240-252`):
+        // sem `this` ou dentro de `extension`, o tipo é inválido.
+        ExprKind::Super => match cx.tipo_this {
+            Some(t) if cx.extensao.is_none() => t,
+            _ => inf.table.invalido(inf.core.dynamic_),
+        },
         ExprKind::Parenthesized(i) => {
             let marca = cx.cadeias.len();
             let (t, c) = inferir_no(inf, cx, *i, ctx, false);
@@ -1418,6 +1423,7 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
             for (i, p) in positional.iter().enumerate() {
                 let c = ctx_pos.as_ref().map(|v| v[i]).unwrap_or(u);
                 let tp = inferir(inf, cx, *p, c);
+                let tp = cast_de_dynamic_no_campo(inf, tp, c);
                 if matches!(inf.table.get(tp), Type::Void) {
                     let sp = inf.span_expr(cx.unit, *p);
                     inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, sp, &[]);
@@ -1428,6 +1434,7 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
             for (n, x) in named.iter() {
                 let c = ctx_nom.as_ref().and_then(|v| v.iter().find(|(s, _)| *s == n.sym).map(|(_, t)| *t)).unwrap_or(u);
                 let tx = inferir(inf, cx, *x, c);
+                let tx = cast_de_dynamic_no_campo(inf, tx, c);
                 if matches!(inf.table.get(tx), Type::Void) {
                     let fim = inf.span_expr(cx.unit, *x).end;
                     let sp = dartforge_diagnostics::Span { start: n.span.start, end: fim };
@@ -2068,6 +2075,17 @@ pub(crate) fn receptor_nunca(inf: &mut BodyInferrer<'_>, cx: &Corpo, r: ExprId, 
     let sp = inf.span_expr(cx.unit, r);
     inf.aviso_com_codigo(dartforge_diagnostics::codigos::warning::RECEIVER_OF_TYPE_NEVER, sp, &[]);
     true
+}
+
+/// `RecordLiteralResolver._resolveField` (3.6.2 `record_literal_resolver.dart:135-148`):
+/// o campo `dynamic` com contexto conhecido vale o fecho maior do contexto,
+/// quando `dynamic` não é subtipo dele (o cast implícito).
+fn cast_de_dynamic_no_campo(inf: &mut BodyInferrer<'_>, t: TypeId, contexto: TypeId) -> TypeId {
+    if contexto == inf.core.unknown || !matches!(inf.table.get(t), Type::Dynamic) {
+        return t;
+    }
+    let fecho = inf.fecho_maior(contexto);
+    if inf.sub(t, fecho) { t } else { fecho }
 }
 
 /// `DEAD_NULL_AWARE_EXPRESSION` (`_checkForDeadNullCoalesce`,

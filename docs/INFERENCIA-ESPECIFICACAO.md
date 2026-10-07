@@ -566,6 +566,10 @@ feature-specification.md:516-539`; `record_literal_resolver.dart:44-76,
 `(1, [2], n: null)` → `(int, List<int>, {Null n})`; `a.$1` → `int`; `b.y` →
 `double`.
 
+Cast implícito por campo (`_resolveField`, `record_literal_resolver.dart:135-148`): o campo de tipo `dynamic` com
+contexto conhecido vale o fecho maior do contexto (`List<_>` → `List<Object?>`), salvo quando `dynamic` já é
+subtipo dele. No DartForge: `expr::cast_de_dynamic_no_campo`.
+
 ### 3.5 Outros (R-LIT-06)
 
 `double` → `double`; `true`/`false` → `bool`; `null` → `Null`; string,
