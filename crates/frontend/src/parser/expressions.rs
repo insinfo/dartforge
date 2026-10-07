@@ -684,7 +684,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `ensureTypeNotVoid`): o que não pode começar um tipo é
     /// `EXPECTED_TYPE_NAME` nele, com um tipo sintético vazio, e a expressão
     /// continua (`a is "A"`).
-    fn tipo_depois_de_is_ou_as(&mut self) -> PResult<TypeId> {
+    pub(crate) fn tipo_depois_de_is_ou_as(&mut self) -> PResult<TypeId> {
         if matches!(self.kind(), Kind::Ident | Kind::Keyword(Keyword::Void) | Kind::Op(Op::LParen)) {
             return self.parse_type_after_is_or_as();
         }

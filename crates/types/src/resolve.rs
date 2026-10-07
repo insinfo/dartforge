@@ -1680,6 +1680,20 @@ impl<'a> OutlineResolver<'a> {
         let t = self.resolver_anotacao_escrita(unit_id, ast_ty_id, library, type_param_scope);
         // `TypeAnnotation.type`, para as regras que o leem.
         self.tipos_escritos.insert((unit_id, ast_ty_id), t);
+        // O `ResolutionVisitor.visitNamedType` resolve os argumentos de tipo
+        // antes do nome, seja ele o que for (parâmetro de tipo, `dynamic`,
+        // nome indefinido ou que não é tipo): os que o caminho do nome não
+        // resolveu são resolvidos aqui, com os erros deles.
+        let args: Vec<ast::TypeId> = match &self.program.unit(unit_id).ast.ty(ast_ty_id).kind {
+            ast::TypeKind::Named { args, .. } => args.to_vec(),
+            _ => Vec::new(),
+        };
+        for a in args {
+            if !self.tipos_escritos.contains_key(&(unit_id, a)) {
+                self.contexto_de_tipo = ContextoDeTipo::ArgumentoDeTipo;
+                self.resolve_annotation(unit_id, a, library, type_param_scope);
+            }
+        }
         t
     }
 

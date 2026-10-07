@@ -1210,7 +1210,11 @@ rodados no oráculo vivo (`dart analyze --format=json` do 3.6.2), casos em
   - Contagem errada de argumentos: `NamedTypeResolver._buildTypeArguments` devolve `InvalidType` para
     todos (`named_type_resolver.dart:137-147`) e sai só `WRONG_NUMBER_OF_TYPE_ARGUMENTS` (linha 18).
   - Argumento não resolvido: sai `NON_TYPE_AS_TYPE_ARGUMENT` e o argumento vira `InvalidType`, subtipo de
-    tudo — sem este código (linha 19).
+    tudo — sem este código (linha 19). O `ResolutionVisitor.visitNamedType` visita `typeArguments` **antes**
+    de resolver o nome, seja ele o que for: em `class C7<A> extends A<Unresolved>` (o nome é parâmetro de
+    tipo), `dynamic<X>`, nome indefinido ou que não é tipo, os argumentos são resolvidos e relatam os
+    próprios erros. No DartForge: `resolve_annotation` resolve os argumentos que o caminho do nome não
+    resolveu (os que não estão em `tipos_escritos`), em contexto `ArgumentoDeTipo`.
   - Tipo cru (`B` sem argumentos) em anotação: instanciado aos limites; se a instanciação não é
     regular-bounded mas é super-bounded, nada (linha 9); em `new B()` os argumentos vêm da inferência e
     saem **os dois**: este código (no nome do tipo, por não haver nó de argumento — `_typeArgumentErrorNode`
@@ -15607,6 +15611,11 @@ interpolação `$palavra` sempre `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` (:347-353
     tipo recuperado; hoje lemos função `import<int>`.
   - `new C(;` (FN `)` no `;`, 3 casos): `(` sem `)` casado no scanner → `)` sintético mal posto,
     `ensureCloseParen` o move e o relato sai no token corrente (`parser_impl.dart:4239-4245`).
+  - Padrão entre parênteses (`parseParenthesizedPatternOrRecordPattern`, :10123-10192): sem `,` depois
+    do campo o laço para e o `ensureCloseParen` relata `)` no token corrente e pula até o `)` casado
+    (`var (int when) = e;` é o padrão `(int)`, com `when` pulado). O padrão de conversão lê o tipo como a
+    expressão `as` (`computeTypeAfterIsOrAs` + `ensureTypeNotVoid`, :9621-9626): `(int as)` é
+    `EXPECTED_TYPE_NAME` no `)` e um tipo sintético vazio, e a declaração segue.
   - `X<out String> bar;` (variance): expressão `X < out`, `;` que falta no `out`.
   - `int class = 10;` local: `;` no `int`, depois `class = 10` como expressão (T4).
   - `case 1 ?? 2:` / `case void fun() {}:` (pos): padrão constante recupera até a igualdade

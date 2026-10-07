@@ -275,7 +275,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             } else if self.eat_op(Op::Bang) {
                 pattern = self.push_pattern(start, PatternKind::NullAssert(pattern));
             } else if self.eat_ident("as") {
-                let ty = self.parse_type()?;
+                // `computeTypeAfterIsOrAs` + `ensureTypeNotVoid`, como na
+                // expressão `as`: sem tipo, `EXPECTED_TYPE_NAME` e um vazio.
+                let ty = self.tipo_depois_de_is_ou_as()?;
                 pattern = self.push_pattern(start, PatternKind::Cast { pattern, ty });
             } else {
                 return Ok(pattern);
@@ -767,6 +769,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             let name = self.expect_identifier()?;
             return Ok(self.finish_variable(start, false, false, Some(ty), name));
         }
+        let abre = self.pos;
         self.expect_op(Op::LParen)?;
         if self.eat_op(Op::RParen) {
             return Ok(self.push_pattern(
@@ -776,9 +779,11 @@ impl<'s, 'i> Parser<'s, 'i> {
                 },
             ));
         }
+        // `parseParenthesizedPatternOrRecordPattern`: sem vírgula depois do
+        // campo, o laço para e o `ensureCloseParen` pula até o `)` casado.
         let first = self.parse_pattern_field()?;
-        if first.name.is_none() && self.at_op(Op::RParen) {
-            self.advance();
+        if first.name.is_none() && !self.at_op(Op::Comma) {
+            self.garantir_fecha_parenteses(abre)?;
             return Ok(self.push_pattern(start, PatternKind::Parenthesized(first.pattern)));
         }
         let mut fields = vec![first];
@@ -788,7 +793,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             fields.push(self.parse_pattern_field()?);
         }
-        self.expect_op(Op::RParen)?;
+        self.garantir_fecha_parenteses(abre)?;
         Ok(self.push_pattern(
             start,
             PatternKind::Record {
