@@ -5257,6 +5257,8 @@ relatos iguais do analyzer contam um.
     parser aceitar o corpo `;` de enum e `sem_constantes` vê-lo com 0 constantes, e a mensagem 3.13.
 - **Estado (2026-10-06):** a correção descrita entrou (`enums.rs`: só `augment enum` completa as constantes do
   alvo); 63 de 67. Faltam os 4 de corpo `;` (construtores primários, 3.13).
+- **2026-10-07 (66/67):** o enum de corpo vazio `;` (3.13, `enum E1;`, `enum E2(final int x);`) é lido pelo parser
+  sem constantes nem membros, com `EXPERIMENT_NOT_ENABLED` no `;` (`exigir_no_ast`); antes saía `EXPECTED_TOKEN`.
 
 ##### `conflicting_static_and_instance` (perda 55: FN 55, FP 0, msg 0, pos 0)
 - **Emissão (três caminhos):**

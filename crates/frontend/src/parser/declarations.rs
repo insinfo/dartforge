@@ -1576,6 +1576,23 @@ impl<'s, 'i> Parser<'s, 'i> {
             Vec::new()
         };
         let implements = self.parse_implements_opt()?;
+        // Corpo vazio `;` (3.13, construtores primários): sem constantes nem
+        // membros (o `ENUM_WITHOUT_CONSTANTS` sai depois).
+        if self.at_op(Op::Semicolon) {
+            let t = self.advance();
+            self.exigir_no_ast(Feature::PrimaryConstructors, t.span);
+            let mut members = Vec::new();
+            let primary_constructor = self.elaborar_construtor_primario(name, primario, &mut members, Elaborando::Enum);
+            return Ok(EnumDecl {
+                name,
+                type_params: type_params.into_boxed_slice(),
+                with: with.into_boxed_slice(),
+                implements: implements.into_boxed_slice(),
+                constants: Vec::new(),
+                members,
+                primary_constructor,
+            });
+        }
         let abre = self.pos;
         self.expect_op(Op::LBrace)?;
         let mut constants = Vec::new();
