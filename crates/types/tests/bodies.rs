@@ -2091,7 +2091,8 @@ fn augmentation_de_enum_acrescenta_valores_e_membros() {
         .map(|d| format!("{} @ {}", d.message, principal.get(d.span.start..d.span.end).unwrap_or("?")))
         .collect();
     assert_eq!(erros.len(), 1, "{erros:?}");
-    assert!(erros[0].starts_with(INVALID_ASSIGNMENT.template) && erros[0].ends_with("@ Cor.azul.index"), "{erros:?}");
+    // `invalid_assignment` sai com o código e o texto do analyzer.
+    assert!(erros[0].starts_with("A value of type 'int' can't be assigned to a variable of type 'String'.") && erros[0].ends_with("@ Cor.azul.index"), "{erros:?}");
 }
 
 #[test]

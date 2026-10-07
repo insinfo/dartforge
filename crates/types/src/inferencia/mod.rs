@@ -947,6 +947,19 @@ impl<'a> BodyInferrer<'a> {
         if self.atribuivel(de, para) {
             return;
         }
+        // Os códigos com tipos nos argumentos passam pela conversão do
+        // `ErrorReporter` (alias e a desambiguação `(where C is defined in …)`
+        // de dois tipos com o mesmo nome).
+        use crate::exibicao::Arg;
+        use dartforge_diagnostics::codigos::compile_time_error as c;
+        if template == crate::codes::INVALID_ASSIGNMENT.template {
+            self.aviso_com_args(c::INVALID_ASSIGNMENT, span, &[Arg::Tipo(de), Arg::Tipo(para)]);
+            return;
+        }
+        if template == crate::codes::ARGUMENT_TYPE_NOT_ASSIGNABLE.template {
+            self.aviso_com_args(c::ARGUMENT_TYPE_NOT_ASSIGNABLE, span, &[Arg::Tipo(de), Arg::Tipo(para), Arg::Texto("".into())]);
+            return;
+        }
         let msg = format!(
             "{}: '{}' não é atribuível a '{}'",
             template,

@@ -1827,10 +1827,12 @@ pub(crate) fn verificar_atribuivel_expr_em(inf: &mut BodyInferrer<'_>, cx: &Corp
                 }
             }
         }
-        let a1 = inf.table.format(de, inf.interner, inf.program);
-        let a2 = inf.table.format(para, inf.interner, inf.program);
         let a3 = info.join(" ");
-        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::ARGUMENT_TYPE_NOT_ASSIGNABLE, sp, &[&a1, &a2, &a3]);
+        inf.aviso_com_args(
+            dartforge_diagnostics::codigos::compile_time_error::ARGUMENT_TYPE_NOT_ASSIGNABLE,
+            sp,
+            &[crate::exibicao::Arg::Tipo(de), crate::exibicao::Arg::Tipo(para), crate::exibicao::Arg::Texto(a3.into())],
+        );
         inf.anexar_nao_promocao(desde, cx, Some(e), entidade);
         return;
     }
@@ -3534,13 +3536,28 @@ fn ler_para_escrita(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, cu
                 // no `[…]` (`_reportUnresolvedIndex`).
                 let r = if null_aware { inf.nao_nulo(recv) } else { recv };
                 let invalido = inf.table.e_invalido(r) || matches!(inf.table.get(r), Type::Dynamic | Type::Never | Type::Void);
-                if !invalido
-                    && !inf.exige_checagem_de_nulo(cx.lib, r, op, false)
-                    && matches!(inf.buscar_membro(cx.lib, r, op, false), Busca::Ausente)
-                {
-                    let span = span_indice(inf, cx, alvo, target);
-                    let tipo = inf.table.format(r, inf.interner, inf.program);
-                    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_OPERATOR, span, &["[]=", &tipo]);
+                if !invalido && !inf.exige_checagem_de_nulo(cx.lib, r, op, false) {
+                    match inf.buscar_membro(cx.lib, r, op, false) {
+                        Busca::Ausente => {
+                            let span = span_indice(inf, cx, alvo, target);
+                            let tipo = inf.table.format(r, inf.interner, inf.program);
+                            inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_OPERATOR, span, &["[]=", &tipo]);
+                        }
+                        // `checkIndexExpressionIndex` com o `writeElement`
+                        // (3.6.2 `error_detection_helpers.dart:257-287`,
+                        // `resolver.dart:1443`): o índice também contra o
+                        // primeiro parâmetro do `[]=`.
+                        Busca::Achado(m) if m.metodo => {
+                            if let Type::Function { positional, .. } = inf.table.get(m.tipo).clone()
+                                && let Some(&p0) = positional.first()
+                                && let Some(ti) = inf.body_types.units[cx.unit.0 as usize].get_type(index)
+                            {
+                                let sp = inf.span_expr(cx.unit, index);
+                                inf.verificar_atribuivel(ti, p0, sp, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
+                            }
+                        }
+                        _ => {}
+                    }
                 }
             }
             registrar(inf, cx, alvo, t);

@@ -300,6 +300,16 @@ Base comum (vale para vários códigos abaixo):
   8. FP `records/type_inference_error_test.dart:130/137` (inferência de record com `dynamic`), `function/call_via_bound…` e `referenced_before_declaration…localFunction` (tipo de função local usada antes da declaração): casos isolados de inferência.
   **Mudança:** (a) emitir com `aviso_com_codigo(ARGUMENT_TYPE_NOT_ASSIGNABLE, getErrorNode(e), [atual, esperado, info])` com a regra de `{2}`; (b) `RecordType` exibido com nomeados ordenados (em `table.format`); (c) `==`: depois de inferir o operando direito, achar `operator ==` do tipo esquerdo promovido a não nulo e checar contra `nullable(param)`; (d) `++/--`: checar `int` contra o 1º parâmetro do operador resolvido, no span do operando; (e) composta: lado direito contra o parâmetro do operador; índice contra `[]` e `[]=`; (f) top-merge das assinaturas combinadas (fora deste arquivo: `membros.rs`/outline).
 
+- **Feito em 2026-10-07 (índice de escrita composta, 364/368):** `checkIndexExpressionIndex` (3.6.2
+  `error_detection_helpers.dart:257-287`, chamado de `resolveForWrite`, `resolver.dart:1443`) confere o índice
+  contra o primeiro parâmetro do `[]` (com leitura) **e** do `[]=`: em `a[i] += v`, `++a[i]`, `a[i]++` e
+  `m[k] ??= v`, `expr.rs::ler_para_escrita` agora confere também o `[]=` achado (`m['x'] ??= 0` em
+  `Map<int, int>`: `'String'` para `'int'`).
+- **Desambiguação (2026-10-07):** `verificar_atribuivel` (`INVALID_ASSIGNMENT` e `ARGUMENT_TYPE_NOT_ASSIGNABLE`)
+  e o caminho de argumento com `{2}` saem por `aviso_com_args`: os tipos passam pela conversão do
+  `ErrorReporter`, com alias e o `(where C is defined in …)` quando dois tipos do relato têm o mesmo nome
+  (`regress/regress1363_test.dart:25:16`).
+
 ##### `invalid_assignment` (perda 126: FN 68, FP 33, msg 14, pos 11)
 - **Emissão:**
   - declaração de variável com inicializador: `VariableDeclarationResolver.resolve` → `checkForAssignableExpressionAtType(initializer, type, element.type, INVALID_ASSIGNMENT)` (`analyzer/lib/src/dart/resolver/variable_declaration_resolver.dart:80-87`) — com `getErrorNode` (parênteses/cascata);
