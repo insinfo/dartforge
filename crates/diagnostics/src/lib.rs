@@ -449,13 +449,13 @@ mod testes {
 
     /// A tabela do analyzer 6.11 mais o suplemento 3.13.4 do gerador
     /// (`SUPLEMENTO_3_13`): 4 `CompileTimeErrorCode` e 3 `ParserErrorCode`
-    /// de construtores primários, 3 `CompileTimeErrorCode` de atalhos de
-    /// ponto, os 10 códigos que só o 3.13.4 tem (5, 3 e 2 `WarningCode`) e
+    /// de construtores primários, 4 `CompileTimeErrorCode` de atalhos de
+    /// ponto (com o dos argumentos de tipo no construtor), os 10 códigos que só o 3.13.4 tem (5, 3 e 2 `WarningCode`) e
     /// as 14 formas novas de códigos da 6.11 (12, 1 e 1).
     #[test]
     fn tabela_tem_as_contagens_do_analyzer_6_11_e_do_suplemento() {
         let conta = |prefixo: &str| Codigo::todos().filter(|c| c.info().unico.starts_with(prefixo)).count();
-        assert_eq!(conta("CompileTimeErrorCode."), 542 + 4 + 3 + 5 + 12);
+        assert_eq!(conta("CompileTimeErrorCode."), 542 + 4 + 4 + 5 + 12);
         assert_eq!(conta("StaticWarningCode."), 7);
         assert_eq!(conta("WarningCode."), 144 + 2 + 1);
         assert_eq!(conta("ParserErrorCode."), 265 + 3 + 3 + 1);

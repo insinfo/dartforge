@@ -164,6 +164,13 @@ fn promover_nao(inf: &mut BodyInferrer<'_>, f: &mut Fluxo, id: LocalId, declarad
 
 /// `promoteForPattern` (`:5191-5258`): devolve se `K` cobre o tipo casado.
 fn promover_para_padrao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, k: TypeId, falha: bool, pode: bool) -> bool {
+    // O tipo conhecido inválido (`Unresolved()`, `:5196-5199`): o estado
+    // atual vai para o "não casou", sem promoção, e não cobre.
+    if inf.table.e_invalido(k) {
+        let atual = cx.fluxo.clone();
+        juntar_nao_casou(inf, cx, &atual);
+        return false;
+    }
     let Some(r) = topo(cx) else { return true };
     let t = casado(cx, &r);
     let cobre = inf.sub(t, k);

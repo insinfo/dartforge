@@ -180,6 +180,25 @@ pub(crate) fn valor(
     match declaracao(inf, cx, ctx, nome) {
         Some(d) => {
             resolver(inf, cx, e, Resolved::Element(Element::Class(d)));
+            // `PropertyElementResolver.resolveDotShorthand` (checkout main,
+            // `property_element_resolver.dart:281-305`): o tear-off de
+            // construtor gerador (declarado, ou o implícito de `.new` sem
+            // construtores) de classe abstrata, no nó.
+            let k = inf.program.class(d);
+            if !relatado && k.kind == dartforge_elements::model::ClassKind::Class && k.modifiers.abstract_ {
+                let gerador = match chave_de_construtor(inf, nome).and_then(|c| k.constructors.get(&c)) {
+                    Some(&f) => !inf.program.function(f).factory,
+                    None => Some(nome) == inf.sym.new_ && k.constructors.is_empty(),
+                };
+                if gerador {
+                    let span = inf.program.unit(cx.unit).ast.expr(e).span;
+                    inf.aviso_com_codigo(
+                        dartforge_diagnostics::codigos::compile_time_error::TEAROFF_OF_GENERATIVE_CONSTRUCTOR_OF_ABSTRACT_CLASS,
+                        span,
+                        &[],
+                    );
+                }
+            }
             match tipo_do_membro(inf, d, nome) {
                 Some(t) => t,
                 None => {
@@ -267,6 +286,20 @@ pub(crate) fn construcao(
     let achado = chave_de_construtor(inf, nome).and_then(|k| class.constructors.get(&k)).copied();
     let achado = if const_ { achado.filter(|&f| acessivel(inf, f)) } else { achado };
     let Some(fid) = achado else {
+        // `.new()` de classe abstrata sem construtor declarado: o construtor
+        // implícito é gerador (`resolveDotShorthand`, `:107-112`), no nó.
+        let k = inf.program.class(d);
+        if !const_
+            && Some(nome) == inf.sym.new_
+            && k.kind == dartforge_elements::model::ClassKind::Class
+            && k.modifiers.abstract_
+            && k.constructors.is_empty()
+        {
+            let span = inf.program.unit(cx.unit).ast.expr(e).span;
+            inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::INSTANTIATE_ABSTRACT_CLASS, span, &[]);
+            // O alvo segue pelo caminho comum (`valor`), que não é tear-off.
+            cx.atalhos_relatados.insert(alvo.0);
+        }
         if const_ {
             let (texto, span) = nome_e_span(inf, cx, alvo);
             let classe = inf.interner.resolve(inf.program.class(d).name).to_string();
@@ -280,6 +313,26 @@ pub(crate) fn construcao(
         }
         return None;
     };
+    // `resolveDotShorthand` (checkout main,
+    // `constructor_invocation_resolver.dart:96-117`): a classe abstrata com
+    // construtor que não é fábrica é `INSTANTIATE_ABSTRACT_CLASS` no nó
+    // inteiro; senão os argumentos de tipo escritos são
+    // `WRONG_NUMBER_OF_TYPE_ARGUMENTS_DOT_SHORTHAND_CONSTRUCTOR` na lista.
+    {
+        let program = inf.program;
+        let ExprKind::Call { arguments, .. } = &program.unit(cx.unit).ast.expr(e).kind else {
+            return None;
+        };
+        let k = inf.program.class(d);
+        if k.kind == dartforge_elements::model::ClassKind::Class && k.modifiers.abstract_ && !inf.program.function(fid).factory {
+            let span = program.unit(cx.unit).ast.expr(e).span;
+            inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::INSTANTIATE_ABSTRACT_CLASS, span, &[]);
+        } else if let Some(sp) = super::chamadas::faixa_da_lista_de_tipos(inf, cx.unit, &arguments.type_args) {
+            let (texto, _) = nome_e_span(inf, cx, alvo);
+            let classe = inf.interner.resolve(k.name).to_string();
+            relatar(inf, "CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_DOT_SHORTHAND_CONSTRUCTOR", sp, &[&classe, &texto]);
+        }
+    }
     // A invocação do construtor pelo caminho comum da criação
     // (`InstanceCreationExpression` com o tipo do contexto): os argumentos
     // de tipo pelo contexto e a conferência dos argumentos (aridade, tipos).

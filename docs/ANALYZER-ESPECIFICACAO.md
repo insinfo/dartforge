@@ -982,6 +982,10 @@ Representação cíclica ou inválida cala o `implements` e o fundo. Um `dynamic
   `nome_de_funcao_referida` (função, método ou função local declarados dão o nome), com os argumentos
   `dynamic`. Sai também `disallowed_type_instantiation_expression`, de 2.15 em diante, para tipo que não é
   função nem objeto com `call`; o parâmetro de tipo vale pelo limite.
+- **Estado em 2026-10-07 (placar 12/12):** a variante do atalho de ponto (3.13) entrou como código novo do
+  suplemento, `WRONG_NUMBER_OF_TYPE_ARGUMENTS_DOT_SHORTHAND_CONSTRUCTOR` no `gerar_codigos.rs`.
+  * A mensagem é `The dot shorthand resolves to the constructor '{0}.{1}', …`.
+  * Sai na lista `<…>` de `.a<T>()` quando a classe não é a abstrata do código anterior.
 
 ##### `wrong_number_of_type_arguments_method` (perda 6: FN 6)
 - **Emissão:** `FullInvocationInferrer._wrongNumberOfTypeArgumentsErrorCode` (`invocation_inferrer.dart:151-155`) via `_reportWrongNumberOfTypeArguments` (:316-327): `f<int>()`/`o.m<int, String>()` com contagem diferente da do tipo invocado.
@@ -1143,6 +1147,12 @@ Forma da invocação no analyzer (decide nome citado e entidade):
 ##### `instantiate_abstract_class` (perda 4: FN 4)
 - **Emissão:** `error_verifier.dart:2950-2973`. **Condição:** `ClassElement` abstrata, construtor resolvido não factory. **Posição:** o `NamedType`. **Mensagem:** `Abstract classes can't be instantiated.`
 - **No DartForge:** existe (29). As 4 FN são `dot_shorthands/*` (3.10, sintaxe nova) — fora do 3.6.2.
+- **Estado em 2026-10-07 (placar 33/33):** os 4 FN eram de atalho de ponto (3.13). Agora
+  `atalhos::construcao` segue o `resolveDotShorthand` (`constructor_invocation_resolver.dart:96-117` do
+  checkout main).
+  * Classe abstrata com construtor que não é fábrica dá o erro no nó inteiro (`.new()`, `.new<T>()`).
+  * Vale também o construtor implícito: `.new()` de uma classe abstrata sem construtor declarado, como
+    `Function`.
 
 ##### `mixin_instantiate` (perda 2: FN 2)
 - **Emissão:** `error_verifier.dart:2976-2984`. **Condição:** criação cujo tipo é `MixinElement` — `new M()`/`const M()`, e também a implícita `M()`/`M.n()` (o `AstRewriter` reescreve qualquer `InterfaceElement`, `analyzer/lib/src/dart/resolver/ast_rewrite.dart:139`, :168, :228). O construtor indefinido do mixin fica mudo (`_checkForNewWithUndefinedConstructor` pula mixin). **Posição:** o `NamedType`. **Mensagem:** `Mixins can't be instantiated.`
@@ -3559,6 +3569,10 @@ inicializador, com a mensagem própria do código.
   `switch` legado, recuperação de parser e `void`.
 
 #### §3 Referência antes da declaração
+- **Estado em 2026-10-07:** o padrão de tipo conhecido inválido (`case Unresolved():`) não cobre o tipo casado.
+  `promoteForPattern` (`flow_analysis.dart:5196-5199`) junta o estado atual ao "não casou" e devolve falso
+  (`casamento::promover_para_padrao`). Os casos seguintes deixam de ser código morto, o que tirou 3 FP de
+  `unreachable_switch_case/*`.
 
 ##### `referenced_before_declaration` (perda 29: FN 29, FP 0, msg 0, pos 0) — publicado
 
@@ -6835,6 +6849,12 @@ percorre classes.
 - **No DartForge:** não emitido; `tearoff_de_construtor` (`types/src/inferencia/expr.rs:1652`), depois de
   achar `f` — e o caso `construtor == None` de classe abstrata sem construtor declarado (achado 2) deve
   contar como sintético gerador. 1 amostra 3.6.2; 1 SN (atalho de ponto `.new`).
+- **Estado em 2026-10-07 (placar 2/2):** o tear-off por atalho de ponto (`.new` de classe abstrata) agora
+  relata, seguindo `property_element_resolver.dart:281-305` do checkout main.
+  * O relato sai em `atalhos::valor`, no nó, quando o construtor é gerador: o declarado, ou o implícito de
+    `.new` sem construtores.
+  * O alvo de uma invocação `.new()` que já relatou `INSTANTIATE_ABSTRACT_CLASS` fica marcado em
+    `atalhos_relatados`, para não sair como tear-off.
 
 ##### `factory_constructor_new_name` (perda 1: FN 1) — **só SN**
 - Não existe no 3.6.2. 3.13 (`constructor/unnamed_new_error_test.dart:35`): `factory new()` → este código

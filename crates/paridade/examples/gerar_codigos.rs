@@ -190,6 +190,16 @@ const SUPLEMENTO_3_13: &[(&str, &str, &str, &str, &str, &str, &str, &str)] = &[
         "COMPILE_TIME_ERROR",
     ),
     (
+        "CompileTimeErrorCode",
+        "compile_time_error",
+        "WRONG_NUMBER_OF_TYPE_ARGUMENTS_DOT_SHORTHAND_CONSTRUCTOR",
+        "wrong_number_of_type_arguments_constructor",
+        "CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_DOT_SHORTHAND_CONSTRUCTOR",
+        "The dot shorthand resolves to the constructor '{0}.{1}', and type parameters can't be applied to dot shorthand constructor invocations.",
+        "Try removing the type arguments, or adding a class name, followed by the type arguments, then the constructor name.",
+        "COMPILE_TIME_ERROR",
+    ),
+    (
         "ParserErrorCode",
         "parser",
         "INITIALIZING_DECLARING_PARAMETER",
