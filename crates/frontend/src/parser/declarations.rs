@@ -1526,7 +1526,19 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             if self.at_op(Op::LParen) {
                 match self.matching_close(self.pos) {
-                    Some(f) if self.kind_of(f) == Kind::Op(Op::RParen) => self.pos = f + 1,
+                    Some(f) if self.kind_of(f) == Kind::Op(Op::RParen) => {
+                        // O 3.13.4 ainda lê os parâmetros: o `var` de um
+                        // parâmetro (declarante) é o recurso desligado; o
+                        // `final` era permitido antes.
+                        let vars: Vec<Span> = (self.pos + 1..f)
+                            .filter(|&i| self.kind_of(i) == Kind::Keyword(Keyword::Var))
+                            .map(|i| self.tokens[i].span)
+                            .collect();
+                        for sp in vars {
+                            self.exigir_no_ast(Feature::PrimaryConstructors, sp);
+                        }
+                        self.pos = f + 1;
+                    }
                     _ => {}
                 }
             }
