@@ -730,9 +730,7 @@ fn alvo_de_factory_redirecionadora(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, r
         ast::TypeKind::Named { args, .. } => args.to_vec(),
         _ => Vec::new(),
     };
-    for &x in escritos.iter() {
-        inf.tipo_de_argumento_de_tipo(cx, x);
-    }
+    let args_escritos: Vec<TypeId> = escritos.iter().map(|&x| inf.tipo_de_argumento_de_tipo(cx, x)).collect();
     let n_params = inf.outline.classes[classe.0 as usize].type_params.len();
     if !escritos.is_empty() && escritos.len() != n_params {
         let texto = inf.interner.resolve(inf.program.class(classe).name).to_string();
@@ -775,14 +773,51 @@ fn alvo_de_factory_redirecionadora(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, r
         inf.aviso_com_codigo(ce::REDIRECT_TO_MISSING_CONSTRUCTOR, red.span, &[&alvo.nome_citado, &exibido]);
         return;
     };
-    // Os testes de tipo só sem inferência de argumentos de tipo
-    // (`_inferRedirectedConstructor` não é portado): alvo sem parâmetros de
-    // tipo.
     let Some(dona) = dona else { return };
-    if !inf.program.class(classe).type_params.is_empty() {
+    // O tipo do alvo (`NamedTypeResolver._instantiateElement`, 3.6.2
+    // `named_type_resolver.dart:202-262`): com argumentos escritos, a classe
+    // instanciada com eles (`dynamic` em todos se a contagem erra); sem eles,
+    // `_inferRedirectedConstructor` (`:172-200`): a própria classe ou a sem
+    // parâmetros de tipo vale o `thisType`; senão os argumentos saem da
+    // inferência de `C<X…> <: Dona<T…>` (o `thisType` da dona como contexto),
+    // pelos tipos finais. O alias escrito (`= Alias.nome`) fica de fora: a
+    // instanciação dele é a do alias, ainda não portada aqui.
+    let params_alvo = inf.outline.classes[classe.0 as usize].type_params.clone();
+    let escrito_por_alias = match &inf.program.unit(cx.unit).ast.ty(red.ty).kind {
+        ast::TypeKind::Named { name, .. } => {
+            let binding = if name.len() == 2 {
+                inf.program.lookup_prefixed_na_unidade(cx.unit, name[0].sym, name[1].sym)
+            } else {
+                name.first().and_then(|n| inf.program.lookup_na_unidade(cx.unit, n.sym))
+            };
+            matches!(binding.and_then(|b| b.getter), Some(Element::Typedef(_)))
+        }
+        _ => false,
+    };
+    if escrito_por_alias && !params_alvo.is_empty() {
         return;
     }
+    let args_alvo: Vec<TypeId> = if params_alvo.is_empty() || (escritos.is_empty() && classe == dona) {
+        params_alvo.iter().map(|&p| inf.table.intern(Type::TypeParameter { param: p, nullable: false })).collect()
+    } else if !escritos.is_empty() {
+        if args_escritos.len() == params_alvo.len() {
+            args_escritos
+        } else {
+            vec![inf.core.dynamic_; params_alvo.len()]
+        }
+    } else {
+        let this_alvo = inf.tipo_this_classe(classe);
+        let this_dona = inf.tipo_this_classe(dona);
+        let mut gi = crate::constraints::GenericInferrer::new(&params_alvo);
+        let mut env = inf.env();
+        gi.constrain_return(this_alvo, this_dona, &mut env);
+        let r = gi.choose_final(&mut env);
+        drop(env);
+        r
+    };
+    let mapa_alvo = inf.mapa(&params_alvo, &args_alvo);
     let de = tipo_do_construtor(inf, classe, c);
+    let de = inf.subst(de, &mapa_alvo);
     let para = tipo_do_construtor(inf, dona, Construtor::Declarado(f_atual));
     let (Type::Function { ret: ret_de, .. }, Type::Function { ret: ret_para, .. }) = (inf.table.get(de).clone(), inf.table.get(para).clone()) else { return };
     if !inf.atribuivel(ret_de, ret_para) {

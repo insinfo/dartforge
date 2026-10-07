@@ -6078,6 +6078,14 @@ ou `undefined_class 'augment'`) e o resto é **outra declaração homônima** (`
 - **Mensagem:** "The return type '{0}' of the redirected constructor isn't a subtype of '{1}'." — ambos DartType
   (display com argumentos: `X<B>`/`X<T>`, `LinkFactory<T>`/`Link<T>`, `AFactory` quando a classe não é genérica).
 - **Supressões:** ciclo de factory (RECURSIVE_FACTORY_REDIRECT) suprime; alvo não resolvido suprime.
+- **Estado em 2026-10-07 (placar 26/26):** `funcoes.rs::alvo_de_factory_redirecionadora` instancia a classe
+  alvo antes de comparar, e não pula mais o alvo genérico.
+  * Com argumentos escritos, usa esses argumentos. Se a contagem erra, todos viram `dynamic`.
+  * Sem argumentos, a própria classe ou a classe sem parâmetros de tipo vale o `thisType`.
+  * Senão, os argumentos saem do `GenericInferrer` com `C<X…> <: Dona<T…>` e `choose_final`.
+  * O tipo do construtor alvo é substituído por esse mapa.
+  * **Resta fora:** o alvo genérico escrito por alias (`= Alias.nome`). A instanciação pelo alias não está
+    portada, então ele continua sem os testes de tipo.
 - **No DartForge:** não emitido em lugar nenhum. O lugar natural é `types/src/inferencia/funcoes.rs`
   (`alvo_de_factory_redirecionadora`, que já resolve o alvo) ou uma passada de outline em `types`. Amostras:
   **14 AUG** (13 em `DefaultValueInRedirectingFactoryConstru_*` + `InvalidFactoryNameNotAClass__valid_inAu`):
