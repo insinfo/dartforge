@@ -252,9 +252,24 @@ fn verificar_elementos(
                 // `...e` (sem `?`) com `e` de tipo `Null`
                 // (`literal_element_verifier.dart:180-200`, `:275-292`): na
                 // expressão espalhada.
-                if !*null_aware && matches!(inf.table.get(tx), Type::Null) {
-                    let sp = inf.span_expr(cx.unit, *value);
-                    inf.aviso_com_codigo(ce::NOT_NULL_AWARE_NULL_SPREAD, sp, &[]);
+                // `_verifySpreadForListOrSet`/`_verifySpreadForMap`: subtipo de
+                // `Never` não relata; subtipo de `Null` (inclusive o parâmetro
+                // de tipo de limite `Null`) só sem `?`; o resto pelo
+                // `asInstanceOf` (sem o `?`, parâmetro de tipo pelo limite).
+                if inf.e_dynamic(tx) {
+                    continue;
+                }
+                let never = inf.core.never;
+                if inf.sub(tx, never) {
+                    continue;
+                }
+                let nulo = inf.core.null;
+                if inf.sub(tx, nulo) {
+                    if !*null_aware {
+                        let sp = inf.span_expr(cx.unit, *value);
+                        inf.aviso_com_codigo(ce::NOT_NULL_AWARE_NULL_SPREAD, sp, &[]);
+                    }
+                    continue;
                 }
                 let tx = inf.nao_nulo(tx);
                 if inf.e_dynamic(tx) || matches!(inf.table.get(tx), Type::Never | Type::Null | Type::Void) {

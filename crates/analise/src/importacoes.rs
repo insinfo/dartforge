@@ -287,6 +287,11 @@ pub fn nomes_mostrados_indefinidos(program: &Program, lib: LibraryId, interner: 
         .map(|i| (i.unit, i.library, &i.combinators))
         .chain(biblioteca.exports.iter().map(|e| (e.unit, e.library, &e.combinators)));
     for (unidade, alvo, combinadores) in diretivas {
+        // Alvo que não existe (`importedLibrary == null`, só
+        // `URI_DOES_NOT_EXIST`): a biblioteca fica sem unidades.
+        if program.library(alvo).units.is_empty() {
+            continue;
+        }
         let exportado = &program.library(alvo).exported;
         let uri = program.library(alvo).uri.as_str();
         for k in combinadores.iter() {

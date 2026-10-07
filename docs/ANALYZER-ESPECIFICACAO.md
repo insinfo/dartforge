@@ -7815,6 +7815,10 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
   do `unchecked_use_of_nullable_value` saem por `expr::desreferencia_anulavel` (o
   `NullableDereferenceVerifier`), no `for-in`, no espalhamento sem `?`, no `yield*` de gerador e na
   invocação de tipo de função anulável.
+- **Corrigido em 2026-10-07 (FP 9 → 3):** a ordem do `_verifySpreadForListOrSet`/`_verifySpreadForMap`
+  (`literal_element_verifier.dart:176-212`): `dynamic` não relata; subtipo de `Never` não relata; subtipo de
+  `Null` (inclusive o parâmetro de tipo de limite `Null`, `X extends Null` em `...?x`) só relata
+  `NOT_NULL_AWARE_NULL_SPREAD` sem o `?`; o resto pelo `asInstanceOf`.
 
 ##### `unqualified_reference_to_non_local_static_member` (perda 9: FN 9) e `unqualified_reference_to_static_member_of_extended_type` (perda 8: FN 8)
 - **Emissão:** `ErrorVerifier._checkForUnqualifiedReferenceToNonLocalStaticMember`
@@ -20759,6 +20763,8 @@ parâmetro de tipo, listas de variáveis e os elementos de toda lista de argumen
 - **Condição:** biblioteca alvo existe e não é sintética; nome de `show` (`hide` → `UNDEFINED_HIDDEN_NAME`) sem `n` nem `n=` no `exportNamespace`. Não depende de uso nem da porta de supressão.
 - **Posição:** o identificador do combinador. **Mensagem:** "The library '{0}' doesn't export a member with the shown name '{1}'." (`{0}` = URI da biblioteca).
 - **No DartForge:** não existe (`importacoes.rs:173-174` só pula); exemplo `UnusedShownName__unresolved.dart`. Proposta: em `importacoes`, fora da porta, emitir para nomes ausentes de `alvo.exported`.
+- **Corrigido em 2026-10-07 (FP 6 → 0):** a diretiva cujo alvo não existe (`importedLibrary == null`, só
+  `URI_DOES_NOT_EXIST`) não confere os nomes do `show`: a biblioteca ausente fica sem unidades no modelo.
 
 ##### Códigos vizinhos que a correção de `undefined_identifier` passa a emitir
 
