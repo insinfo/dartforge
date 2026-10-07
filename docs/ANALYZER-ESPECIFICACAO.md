@@ -15342,6 +15342,11 @@ interpolação `$palavra` sempre `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` (:347-353
   `parse_function_or_variables` (lista de palavras de topo — remover `typedef` quando seguido de
   identificador, T5).
 
+- **Feito em 2026-10-07 (245/253):** num tipo de função, o parâmetro **nomeado** sem nome (`Function({int})`,
+  `Function({x})`) lê o tipo e relata `MISSING_IDENTIFIER` no token seguinte, com nome sintético
+  (`parseFormalParameter` exige o nome do nomeado); o posicional sem nome continua válido. Restam os 8 de
+  `equality_extension_override_error_test` (oráculo 3.6.2 num arquivo que marcamos 3.13; ver
+  `dot_shorthand_undefined_member`).
 ##### `expected_identifier_but_got_keyword` (perda 15: FN 9, FP 5, pos 1)
 - **Emissão:** T4 (`identifier_context_impl.dart`, vários contextos).
 - **Casos:** `typedef void as();`, `typedef as = …;`, `typedef Function = …;` (FN 5): contexto

@@ -794,6 +794,13 @@ impl<'s, 'i> Parser<'s, 'i> {
             Some(self.expect_identifier()?)
         } else if self.at_identifier() {
             Some(self.identifier())
+        } else if in_function_type && ty.is_some() && kind == ParameterKind::Named {
+            // Nomeado num tipo de função sem nome (`Function({int})`): o tipo
+            // lido e `MISSING_IDENTIFIER` no token seguinte (o nome é exigido,
+            // `parseFormalParameter`), com um nome sintético.
+            self.erro(codigos::parser::MISSING_IDENTIFIER, &[]);
+            let s = self.span().start;
+            Some(self.name_from("", Span { start: s, end: s }))
         } else if in_function_type && ty.is_some() {
             None
         } else if matches!(self.kind(), Kind::Op(Op::Comma | Op::RParen | Op::RBracket | Op::RBrace)) {
