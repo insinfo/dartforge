@@ -1067,22 +1067,23 @@ pub fn membros_abstratos(
             match cx.implementado(intf, chave, 0) {
                 None if encaminha => {}
                 None => {
-                    // `_reportConcreteClassWithAbstractMember`.
+                    // `_reportConcreteClassWithAbstractMember` (3.6.2
+                    // `inheritance_override.dart:809-845`): o primeiro membro
+                    // da declaração com o nome, estático ou não; o campo dá
+                    // também o `nome=` quando não é `final` (o `isFinal` do
+                    // nó não conta o `const`).
                     let declarado = membros.iter().find(|&&m| match &ast_.member(m).kind {
                         MemberKind::Method(f) => {
                             let af = ast_.function(*f);
                             af.name.is_some_and(|n| {
                                 let base = interner.resolve(n.sym);
                                 if af.kind == ast::FunctionKind::Setter { format!("{base}_=") == texto } else { base == texto && af.kind != ast::FunctionKind::Setter }
-                            }) && !af.static_
+                            })
                         }
-                        MemberKind::Field(vl) => {
-                            !vl.static_
-                                && vl.variables.iter().any(|v| {
-                                    let n = interner.resolve(v.name.sym);
-                                    n == texto || (!vl.final_ && !vl.const_ && format!("{n}_=") == texto)
-                                })
-                        }
+                        MemberKind::Field(vl) => vl.variables.iter().any(|v| {
+                            let n = interner.resolve(v.name.sym);
+                            n == texto || (!vl.final_ && format!("{n}_=") == texto)
+                        }),
                         MemberKind::Constructor(_) => false,
                     });
                     if let Some(&m) = declarado {

@@ -5472,6 +5472,16 @@ relatos iguais do analyzer contam um.
   (`isCorrectOverrideOf`, com os covariantes como `Object?`). As decisões entram na porta de
   `analise::clausulas` por `definir_decisoes_de_mixins`. A `paridade` resolve o outline antes das
   verificações de declaração e limpa as decisões ao sair. Sem decisão, a porta fica incerta como antes.
+- **Estado em 2026-10-07 (placar 43/45):** duas correções.
+  * O `_reportConcreteClassWithAbstractMember` (`inheritance_override.dart:809-845`) relata no primeiro membro com o
+    nome, estático ou não. O campo dá também o `nome=` quando não é `final`, e o `isFinal` do nó não conta `const`.
+    Isso corrigiu as posições dos casos com `augment`, que vinham no homônimo errado.
+  * O `implemented` da herança (`heranca::homonimos_concretos`) segue o `_addImplemented` com homônimos: todo
+    membro de instância concreto da declaração, métodos e depois acessores, com o último vencendo.
+    * O outline guarda no mapa só o último homônimo. Os outros elementos são achados na faixa de ids da classe,
+      estendida enquanto os vizinhos forem dela.
+    * Os acessores implícitos de campo entram.
+    * `void foo() {}` seguido de `augment void foo();` não relata mais nada.
 
 ##### `conflicting_generic_interfaces` (perda 26: FN 26; nada emitido hoje)
 - **Emissão:** `ErrorVerifier._checkForConflictingGenerics` (`src/generated/error_verifier.dart:2652-2678`),
@@ -5899,6 +5909,8 @@ relatos iguais do analyzer contam um.
     placar: `conflicting_static_and_instance`, `getter_not_subtype_setter_types` e `undefined_getter` ainda
     dependem dele.
   * Restam os 4 com `augment`, onde o 3.6.2 lê membros homônimos como duplicados.
+- **Estado em 2026-10-07, depois:** com o `implemented` por homônimos (ver `concrete_class_with_abstract_member`),
+  saíram 3 dos 4 casos com `augment`. Resta o de `ExecutableBody__class_instanceGetter_no_c0e80a48` (24/25).
 
 ##### `concrete_class_has_enum_superinterface` (perda 2: FN 2)
 - **Emissão:** direto: `_checkDirectSuperTypeNode` (`inheritance_override.dart:459-481`, no `NamedType`);

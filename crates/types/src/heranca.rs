@@ -553,6 +553,45 @@ impl Heranca {
         cadeia
     }
 
+    /// Os membros de instância concretos da declaração de `c` na ordem do
+    /// `_addImplemented` (métodos, depois acessores, cada grupo na ordem dos
+    /// elementos), quando algum deles ficou fora do mapa `instance_members`
+    /// (homônimo); vazio quando não há homônimo.
+    fn homonimos_concretos<'p>(p: &mut dyn Provedor<'p>, c: ClassId) -> Vec<FunctionElementId> {
+        let prog = p.programa();
+        let interner = p.interner();
+        let k = prog.class(c);
+        let ids = k.instance_members.values().chain(k.static_members.values()).chain(k.constructors.values()).map(|f| f.0);
+        let (Some(mut min), Some(mut max)) = (ids.clone().min(), ids.max()) else { return Vec::new() };
+        // Os homônimos sobrescritos no mapa podem ficar antes do menor id
+        // que restou (ou depois do maior): a faixa cresce enquanto os
+        // elementos vizinhos forem da classe.
+        let total = prog.functions.len() as u32;
+        while min > 0 && prog.function(FunctionElementId(min - 1)).class == Some(c) {
+            min -= 1;
+        }
+        while max + 1 < total && prog.function(FunctionElementId(max + 1)).class == Some(c) {
+            max += 1;
+        }
+        let no_mapa: HashSet<FunctionElementId> = k.instance_members.values().copied().collect();
+        let mut todos: Vec<FunctionElementId> = (min..=max)
+            .map(FunctionElementId)
+            .filter(|&f| {
+                let e = prog.function(f);
+                e.class == Some(c)
+                    && !e.static_
+                    && (!matches!(e.node, FunctionRef::None) || e.kind == FunctionKind::ImplicitAccessor)
+                    && matches!(e.kind, FunctionKind::Function | FunctionKind::Getter | FunctionKind::Setter | FunctionKind::Operator | FunctionKind::ImplicitAccessor)
+            })
+            .collect();
+        if todos.iter().all(|f| no_mapa.contains(f)) {
+            return Vec::new();
+        }
+        todos.retain(|&f| !abstrato(prog, interner, f));
+        todos.sort_by_key(|&f| (especie_de(prog, f) != Especie::Metodo, f));
+        todos
+    }
+
     /// Os membros de instância declarados (`_getTypeMembers`): métodos,
     /// depois acessores, na ordem da fonte, com a covariância escrita e a
     /// herdada dos `candidatos` (`_inferParameterCovariance`).
@@ -674,10 +713,47 @@ impl Heranca {
             Self::adicionar_candidatos(p, &mut candidatos, &s, &ii);
         }
         let declarados = Self::declarados(p, c, &candidatos);
-        // `_addImplemented`.
+        // `_addImplemented` (3.6.2 `inheritance_manager3.dart:455-470`): todo
+        // método e acessor de instância concreto da declaração, na ordem
+        // (métodos, depois acessores), o último vencendo. Com homônimos (o
+        // `augment` que o 3.6.2 lê como outra declaração), o mapa do outline
+        // guarda só o último; os outros elementos estão na faixa de ids dos
+        // membros da classe.
         for (n, m) in declarados.iter() {
             if !m.abstrato {
                 implementados.insert(*n, m.clone());
+            }
+        }
+        let homonimos = Self::homonimos_concretos(p, c);
+        if !homonimos.is_empty() {
+            let interner = p.interner();
+            let lib = prog.class(c).library;
+            for f in homonimos {
+                let e = prog.function(f);
+                let especie = especie_de(prog, f);
+                let texto = interner.resolve(e.name);
+                let chave = if especie == Especie::Setter && !texto.ends_with("_=") {
+                    match interner.lookup(&format!("{texto}_=")) {
+                        Some(s) => s,
+                        None => continue,
+                    }
+                } else {
+                    e.name
+                };
+                let nome = Nome::novo(interner, lib, chave);
+                let m = match declarados.get(&nome) {
+                    Some(d) if d.funcao == f => d.clone(),
+                    _ => Membro {
+                        funcao: f,
+                        classe: c,
+                        tipo: p.tipo_do_membro(f),
+                        especie,
+                        abstrato: false,
+                        covariantes: covariancia_escrita(prog, f).into(),
+                        sintetico: false,
+                    },
+                };
+                implementados.insert(nome, m);
             }
         }
         let mut mapa = declarados.clone();
