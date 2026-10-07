@@ -545,6 +545,7 @@ Base comum: a resolução de membro passa por `TypePropertyResolver.resolve` (`a
 - **Posição:** o nome (getter/método/setter); o operador; para índice, `[`…`]`.
 - **Mensagem:** `The {getter|method|operator|setter} '{0}' isn't defined in a superclass of '{1}'.` — `{1}` DartType de `this` da classe que contém (`'B'`, `'E'`).
 - **No DartForge:** `expr.rs::membro_super` cobre getter/método (15 acertos). Faltam **4 índice `[]=`** e **9 setter** (`super.x = v`). **Mudança:** em `escrita_propriedade`/`escrita_indice` com alvo `super`.
+- **Feito em 2026-10-06 (28/28):** `super.m = v` saía sem aviso quando a chave `m=` nunca tinha sido internada (`chave_setter` só faz `lookup`): sem a chave, nenhuma declaração tem o setter, e `membro_super` segue para o relato. `super[i] = v` e `super[i]++` procuram o `[]=` pela cadeia de `super` (`buscar_operador_super`), não no tipo de `this` (que achava o `[]=` da própria classe), e relatam `UNDEFINED_SUPER_OPERATOR` com o tipo de `this`.
 
 ##### `undefined_setter` (perda 11: FN 7, FP 4)
 - **Emissão:** `AssignmentVerifier.verify` (`analyzer/lib/src/error/assignment_verifier.dart:28-110`, relato :100-108), chamado de `PropertyElementResolver` quando `needsSetterError`; estático em `_resolveTargetInterfaceElement` (setter estático ausente → `UNDEFINED_SETTER [nome, typeReference.name]`); `UNDEFINED_SETTER_ON_FUNCTION_TYPE` (:470-476).

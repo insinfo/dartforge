@@ -2676,9 +2676,10 @@ pub(crate) fn membro_super(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
     if inf.program.class(classe).kind == dartforge_elements::model::ClassKind::ExtensionType {
         return inf.core.dynamic_;
     }
+    // Sem a chave do setter no interner, nenhuma declaração tem esse
+    // setter: a busca não acha nada e segue para o relato.
     let chave = if setter { inf.chave_setter(name.sym) } else { Some(name.sym) };
-    let Some(chave) = chave else { return inf.core.dynamic_ };
-    let achado = match membro_alcancado_pelo_super(inf, classe, chave) {
+    let achado = match chave.map(|k| membro_alcancado_pelo_super(inf, classe, k)).unwrap_or(Err(None)) {
         Ok(x) => Some(x),
         Err(Some((sup, f))) => {
             let fe = &inf.program.functions[f.0 as usize];
@@ -3495,6 +3496,16 @@ fn ler_para_escrita(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, cu
                     avisar_operador_de_extensao(inf, x, "[]=", span);
                 }
             } else if let Some(op) = inf.sym.indice_set
+                && matches!(ast(inf, cx).expr(target).kind, ExprKind::Super)
+            {
+                // `super[i]++`: o `[]=` também pela cadeia de `super`.
+                if matches!(buscar_operador_super(inf, cx, op), Busca::Ausente) {
+                    let span = span_indice(inf, cx, alvo, target);
+                    let this = cx.tipo_this.unwrap_or(inf.core.dynamic_);
+                    let tipo = inf.table.format(this, inf.interner, inf.program);
+                    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_SUPER_OPERATOR, span, &["[]=", &tipo]);
+                }
+            } else if let Some(op) = inf.sym.indice_set
                 && let Some(recv) = inf.body_types.units[cx.unit.0 as usize].get_type(target)
                 && !matches!(ast(inf, cx).expr(target).kind, ExprKind::Super)
             {
@@ -4128,7 +4139,12 @@ fn escrita_indice(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, recv
             inf.aviso_de_nulo(recv, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE, sp, &["[]"]);
             inf.anexar_nao_promocao(desde, cx, Some(t), sp);
         }
-        inf.buscar_membro(cx.lib, recv, op, false)
+        // `super[i] = v`: o `[]=` da cadeia de `super`.
+        if target.is_some_and(|t| matches!(ast(inf, cx).expr(t).kind, ExprKind::Super)) {
+            buscar_operador_super(inf, cx, op)
+        } else {
+            inf.buscar_membro(cx.lib, recv, op, false)
+        }
     };
     match busca {
         Busca::Achado(m) => {
