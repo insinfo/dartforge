@@ -802,7 +802,7 @@ impl Motor {
             )));
             atribuidos.extend(com_fase(fase::INHERITANCE_OVERRIDE, dartforge_types::sobrescritas::membros_em_conflito(&program, &interner, &mut table, &core, &outline, *lib)));
             atribuidos.extend(com_fase(fase::ERROR_VERIFIER, dartforge_types::sobrescritas::estaticos_de_enum(&program, &interner, &mut table, &core, &outline, *lib)));
-            atribuidos.extend(com_fase(fase::INHERITANCE_OVERRIDE, dartforge_types::sobrescritas::valores_padrao(&program, &interner, &mut table, &outline, *lib)));
+            atribuidos.extend(com_fase(fase::INHERITANCE_OVERRIDE, dartforge_types::sobrescritas::valores_padrao_com(&program, &interner, &mut table, Some(&core), &outline, corpos.as_ref(), *lib)));
             atribuidos.extend(com_fase(fase::ERROR_VERIFIER, dartforge_types::sobrescritas::variaveis_nao_inicializadas(&program, &interner, &table, &outline, *lib)));
             // `BestPracticesVerifier` sobre declarações e tipos escritos.
             atribuidos.extend(com_fase(fase::BEST_PRACTICES, dartforge_types::boas_praticas::parametro_de_igualdade_anulavel(&program, &interner, &table, &core, &outline, *lib)));

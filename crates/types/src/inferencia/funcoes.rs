@@ -1666,6 +1666,25 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
             if let Some(d) = p.default_value {
                 let td = inferir(inf, cx, d, t);
                 valor_padrao_atribuivel(inf, cx, d, td, t);
+            } else if p.kind != ast::ParameterKind::Required
+                && !p.required
+                && let Some(nome) = p.name
+                && !inf.e_anulavel(t)
+            {
+                // `_checkUseOfDefaultValuesInParameters` (3.6.2,
+                // `error_verifier.dart:6180-6250`) também nas expressões de
+                // função e funções locais: o opcional sem padrão de tipo
+                // potencialmente não anulável (o do elemento, inferido do
+                // contexto se não escrito).
+                use dartforge_diagnostics::codigos::compile_time_error as ce;
+                let anotado = p.metadata.iter().any(|a| a.name.last().is_some_and(|n| inf.interner.resolve(n.sym) == "required"));
+                if anotado {
+                    inf.aviso_com_codigo(ce::MISSING_DEFAULT_VALUE_FOR_PARAMETER_WITH_ANNOTATION, nome.span, &[]);
+                } else {
+                    let codigo = if p.kind == ast::ParameterKind::Optional { ce::MISSING_DEFAULT_VALUE_FOR_PARAMETER_POSITIONAL } else { ce::MISSING_DEFAULT_VALUE_FOR_PARAMETER };
+                    let texto = inf.interner.resolve(nome.sym).to_string();
+                    inf.aviso_com_codigo(codigo, nome.span, &[&texto]);
+                }
             }
             match p.kind {
                 ast::ParameterKind::Required => pos.push(t),

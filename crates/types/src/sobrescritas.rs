@@ -1123,6 +1123,128 @@ pub fn valores_padrao(
     outline: &OutlineTypes,
     lib: dartforge_elements::model::LibraryId,
 ) -> Vec<(UnitId, Diagnostic)> {
+    valores_padrao_com(program, interner, table, None, outline, None, lib)
+}
+
+/// O parâmetro `super.x` (de índice `i` em `f`) e o parâmetro do construtor
+/// da superclasse que ele encaminha (`superConstructorParameter`, 3.6.2
+/// `element.dart:9291-9310`): pelo nome, se nomeado; senão pela posição
+/// entre os `super.x` do construtor, nos posicionais do construtor da
+/// superclasse (o do `super.nome(…)`, ou o sem nome).
+fn parametro_do_super(program: &Program, interner: &Interner, f: FunctionElementId, i: usize) -> Option<(FunctionElementId, usize)> {
+    let FunctionRef::Constructor { unit, member } = program.function(f).node else { return None };
+    let MemberKind::Constructor(k) = &program.unit(unit).ast.member(member).kind else { return None };
+    let p = k.parameters.get(i)?;
+    let c = program.function(f).class?;
+    let s = program.class(c).supertype_class?;
+    let nome_super = k.initializers.iter().find_map(|x| match x {
+        ast::Initializer::Super { constructor, .. } => Some(*constructor),
+        _ => None,
+    });
+    let chave = match nome_super {
+        Some(Some(n)) if interner.resolve(n.sym) != "new" => Some(n.sym),
+        _ => interner.lookup(""),
+    }?;
+    let fs = *program.class(s).constructors.get(&chave)?;
+    let FunctionRef::Constructor { unit: su, member: sm } = program.function(fs).node else { return None };
+    let MemberKind::Constructor(sk) = &program.unit(su).ast.member(sm).kind else { return None };
+    if p.kind == ast::ParameterKind::Named {
+        let nome = p.nome_externo()?.sym;
+        let j = sk.parameters.iter().position(|q| q.kind == ast::ParameterKind::Named && q.nome_externo().is_some_and(|n| n.sym == nome))?;
+        return Some((fs, j));
+    }
+    let indice = k.parameters[..i].iter().filter(|q| q.super_).count();
+    let posicionais: Vec<usize> = sk.parameters.iter().enumerate().filter(|(_, q)| q.kind != ast::ParameterKind::Named).map(|(j, _)| j).collect();
+    posicionais.get(indice).map(|&j| (fs, j))
+}
+
+/// O tipo do valor padrão do parâmetro `i` de `f` (o `computeConstantValue`
+/// dele: o valor escrito, ou o encaminhado pela cadeia de `super.x`), se
+/// houver; `None` sem valor. O tipo do valor é o estático do padrão escrito
+/// (dos corpos), ou o do parâmetro sem eles.
+fn valor_padrao_do_parametro(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    core: Option<&CoreTypes>,
+    outline: &OutlineTypes,
+    corpos: Option<&crate::resolved::BodyTypes>,
+    f: FunctionElementId,
+    i: usize,
+    prof: u32,
+) -> Option<TypeId> {
+    if prof > 32 {
+        return None;
+    }
+    let FunctionRef::Constructor { unit, member } = program.function(f).node else { return None };
+    let MemberKind::Constructor(k) = &program.unit(unit).ast.member(member).kind else { return None };
+    let p = k.parameters.get(i)?;
+    let tipo_p = outline.functions.get(f.0 as usize)?.parameters.get(i)?.ty;
+    if let Some(d) = p.default_value {
+        return Some(corpos.and_then(|c| c.units.get(unit.0 as usize)).and_then(|u| u.get_type(d)).unwrap_or(tipo_p));
+    }
+    if !p.super_ {
+        return None;
+    }
+    // `_superConstructorParameterDefaultValue`: o valor do parâmetro da
+    // superclasse, se o tipo dele cabe no deste.
+    let (fs, j) = parametro_do_super(program, interner, f, i)?;
+    let v = valor_padrao_do_parametro(program, interner, table, core, outline, corpos, fs, j, prof + 1)?;
+    let core = core?;
+    let mut env = SubtypeEnv::new(table, &outline.hierarchy, core);
+    is_subtype(v, tipo_p, &mut env).then_some(v)
+}
+
+/// `defaultValueCode != null` do parâmetro `i` de `f` (o `hasDefaultValue`):
+/// o padrão escrito; num `super.x` opcional sem padrão, o do parâmetro da
+/// superclasse, se o valor encaminhado existir
+/// (`DefaultSuperFormalParameterElementImpl.defaultValueCode`,
+/// `element.dart:1732-1748`); o `required` nunca tem.
+#[allow(clippy::too_many_arguments)]
+fn tem_padrao(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    core: Option<&CoreTypes>,
+    outline: &OutlineTypes,
+    corpos: Option<&crate::resolved::BodyTypes>,
+    f: FunctionElementId,
+    i: usize,
+    prof: u32,
+) -> bool {
+    if prof > 32 {
+        return false;
+    }
+    let FunctionRef::Constructor { unit, member } = program.function(f).node else { return false };
+    let MemberKind::Constructor(k) = &program.unit(unit).ast.member(member).kind else { return false };
+    let Some(p) = k.parameters.get(i) else { return false };
+    if p.default_value.is_some() {
+        return true;
+    }
+    if !p.super_ || p.required || p.kind == ast::ParameterKind::Required {
+        return false;
+    }
+    if valor_padrao_do_parametro(program, interner, table, core, outline, corpos, f, i, prof).is_none() {
+        return false;
+    }
+    match parametro_do_super(program, interner, f, i) {
+        Some((fs, j)) => tem_padrao(program, interner, table, core, outline, corpos, fs, j, prof + 1),
+        None => false,
+    }
+}
+
+/// Como [`valores_padrao`], com os tipos núcleo e os corpos (o tipo do valor
+/// padrão encaminhado por `super.x`).
+#[allow(clippy::too_many_arguments)]
+pub fn valores_padrao_com(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    core: Option<&CoreTypes>,
+    outline: &OutlineTypes,
+    corpos: Option<&crate::resolved::BodyTypes>,
+    lib: dartforge_elements::model::LibraryId,
+) -> Vec<(UnitId, Diagnostic)> {
     let mut saida = Vec::new();
     for (i, f) in program.functions.iter().enumerate() {
         if f.library != lib || f.patched_by.is_some() {
@@ -1165,12 +1287,24 @@ pub fn valores_padrao(
         if aumentada {
             continue;
         }
-        for (p, pd) in params.iter().zip(dados.parameters.iter()) {
-            if p.kind == ast::ParameterKind::Required || p.required || p.default_value.is_some() || p.super_ {
+        for (idx, (p, pd)) in params.iter().zip(dados.parameters.iter()).enumerate() {
+            if p.kind == ast::ParameterKind::Required || p.required || p.default_value.is_some() {
                 continue;
             }
-            if p.ty.is_none() && !p.this_ {
-                continue;
+            // `super.x` opcional: o padrão encaminhado do construtor da
+            // superclasse conta (`hasDefaultValue`); o curinga posicional
+            // `_` com o recurso fica de fora
+            // (`_isWildcardSuperFormalPositionalParameter`).
+            if p.super_ {
+                if tem_padrao(program, interner, table, core, outline, corpos, FunctionElementId(i as u32), idx, 0) {
+                    continue;
+                }
+                let curinga = p.kind == ast::ParameterKind::Optional
+                    && p.name.is_some_and(|n| interner.resolve(n.sym) == "_")
+                    && program.library(lib).features.tem(dartforge_frontend::Feature::WildcardVariables);
+                if curinga {
+                    continue;
+                }
             }
             // Tipo escrito que não resolve (`dynamic` no outline): nada.
             if anulavel(table, pd.ty) {

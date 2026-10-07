@@ -7234,6 +7234,8 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
      /`augment C([int a]) {}` como outra declaração e relata normalmente. Precisa conferir com a sonda a
      forma que o nosso parser dá a essas linhas antes de tirar o filtro.
   4. 2 de sintaxe nova (construtor primário `class C([int x])` e o teste de inferência de override).
+- **Feito em 2026-10-06 (55/57):** `_checkUseOfDefaultValuesInParameters` (`error_verifier.dart:6180-6250`) também nas expressões de função e funções locais (`funcoes.rs`, com o tipo do elemento, inferido do contexto se não escrito); o parâmetro sem tipo escrito usa o tipo do elemento (herdado pela inferência de sobrescrita, `CInvalid9/10/11`); o `super.x` opcional tem padrão quando o parâmetro encaminhado do construtor da superclasse tem (`DefaultSuperFormalParameterElementImpl.defaultValueCode` e `_superConstructorParameterDefaultValue`, `element.dart:1732-1786`, com o `superConstructorParameter` de `:9291-9310`: pelo nome, ou pela posição entre os `super.x`), com o tipo do valor (estático, dos corpos) cabendo no do parâmetro; o curinga posicional `_` com o recurso fica de fora. `sobrescritas.rs::valores_padrao_com`.
+- **Restam (2):** `C(this.c, super._, [super._])` com o `_` duplicado: o oráculo relata o segundo, embora o `y` da superclasse tenha padrão.
 
 ##### `private_optional_parameter` (perda 21: FN 21, todos de sintaxe nova → oráculo 3.13.4)
 - **Emissão (3.6.2):** `ErrorVerifier._checkForPrivateOptionalParameter`
