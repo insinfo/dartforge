@@ -494,6 +494,13 @@ impl<'a> Motor<'a> {
                     return self.formatar_erro_de_construtor(u, e, r);
                 }
                 let alvo = *target;
+                // O construtor primário de um tipo de extensão (`A(true)`,
+                // `A.n(1)`), que o modelo não guarda como função: a criação
+                // vale a representação (`_fieldMap[representation]`, 3.6.2
+                // `evaluation.dart:2573-2578`), o argumento avaliado.
+                if let Some(r) = self.criacao_por_primario_de_extensao(cx, e, alvo, arguments, em_const) {
+                    return r;
+                }
                 let e_metodo = matches!(a.expr(alvo).kind, ExprKind::Identifier(_) | ExprKind::Property { .. });
                 if !e_metodo {
                     return self.generico(u, e, false);
@@ -592,6 +599,13 @@ impl<'a> Motor<'a> {
                     i => return i,
                 };
                 let alvo = self.estatico(u, e);
+                // O tipo do `as` com o ambiente léxico do construtor aplicado
+                // (`_substitution`, `x as List<T>` em `C<int>`): só o que
+                // ainda menciona parâmetro de tipo fica sem conferir.
+                let alvo = match &cx.tipos {
+                    Some(m) => crate::ops::substitute(alvo, m, self.table),
+                    None => alvo,
+                };
                 if v.tipo == self.core.dynamic_ || alvo == self.core.dynamic_ || self.menciona_parametro(alvo) {
                     return Constante::Valor(v);
                 }
@@ -1413,6 +1427,36 @@ impl<'a> Motor<'a> {
         let mut i = self.erro(u, self.span(u, e), c::CONST_EVAL_PROPERTY_ACCESS);
         i.args = vec![self.interner.resolve(nome.sym).to_string(), self.formatar(alvo.tipo)];
         Some(Constante::Invalida(Box::new(i)))
+    }
+
+    /// `alvo(args)` que cria pelo construtor primário de um tipo de extensão:
+    /// o alvo é o tipo (`A`) ou `A.nome` com o nome do primário. Fora de
+    /// contexto constante é o genérico; o primário sem `const`, também.
+    fn criacao_por_primario_de_extensao(&mut self, cx: &Ctx, e: ExprId, alvo: ExprId, arguments: &ast::Arguments, em_const: bool) -> Option<R> {
+        let u = cx.unidade;
+        let a = self.ast(u);
+        let (classe, nome) = match &a.expr(alvo).kind {
+            ExprKind::Identifier(_) => (self.resolvido(u, alvo).cloned(), None),
+            ExprKind::Property { target, name, .. } => (self.resolvido(u, *target).cloned(), Some(name.sym)),
+            _ => return None,
+        };
+        let Some(Resolved::Element(Element::Class(k))) = classe else { return None };
+        let d = self.program.class(k).decl?;
+        let ast::DeclKind::ExtensionType(et) = &self.ast(d.unit).decl(d.decl).kind else { return None };
+        let do_primario = match (nome, et.constructor) {
+            (None, None) => true,
+            (Some(n), Some(c)) => n == c.sym,
+            (Some(n), None) => self.interner.resolve(n) == "new",
+            (None, Some(_)) => false,
+        };
+        if !do_primario {
+            return None;
+        }
+        if !em_const || !et.const_ {
+            return Some(self.generico(u, e, false));
+        }
+        let x = arguments.args.iter().find(|x| x.name.is_none())?;
+        Some(self.avaliar(cx, x.value, true))
     }
 
     /// A instanciação implícita do tear-off `e` (`typeArgumentTypes` de um

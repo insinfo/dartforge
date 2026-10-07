@@ -11419,6 +11419,10 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
   - `_checkParameters`: só o parâmetro opcional (`isOptional`) recebe o padrão; o nomeado `required` ausente fica sem valor (`evaluation.dart:2890-2900`).
   - O primário (3.13) numa biblioteca sem o recurso não é avaliado (o oráculo 3.13.4 não relata).
   - **Enum genérico** (`enum E<T extends int> { v(''); }`): a constante é implicitamente tipada pela criação inferida (`E<String>`), como um campo sem tipo. O outline deixa sem tipo a constante genérica sem argumentos de tipo escritos e com argumentos, e `funcoes.rs::tipo_da_constante_de_enum` infere a criação (especulativa: os avisos saem na visita do enum); antes o outline instanciava pelos limites (`E<int>`) e saía um FP de `const_constructor_param_type_mismatch`. Restam `as` com parâmetro de tipo substituído (`x as List<T>`), inicializador de campo genérico e `potentially_constant_types_error_test`.
+  - **Feito em 2026-10-07 (52/53):** o `as` aplica o ambiente léxico de tipos do construtor (`Ctx::tipos`,
+    o `_substitution` do analyzer) antes de conferir: `x as T` e `x as List<T>` em `C<int>` conferem contra
+    `int`/`List<int>` (`"hello"`, `null` e `<num>[0]` lançam); só o tipo que ainda menciona parâmetro
+    fica sem conferir. Resta `ConstConstructorFieldTypeMismatchContex_0a10b92c.dart:9:9`.
 
 ##### `const_initialized_with_non_constant_value` (perda 20: FN 6, FP 6, pos 8)
 - **Emissão:** `ConstantVerifier.visitVariableDeclaration` (`constant_verifier.dart:476-511`):
@@ -11704,6 +11708,11 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
   erro de avaliação. Correção no avaliador: `Call` cujo alvo resolve para classe
   (`Element::Class` de extension type/enum, ou tipo estático do nó = esse tipo) é criação;
   para extension type devolver o valor do argumento da representação.
+- **Feito em 2026-10-07 (FP 8 → 3):** `avaliador.rs::criacao_por_primario_de_extensao`: `A(args)` ou
+  `A.nome(args)` com o nome do primário de um tipo de extensão é criação; em contexto constante e com o
+  primário `const`, vale o argumento posicional avaliado (a representação); senão, o genérico. Restam os
+  dois `case assert(false)` (recuperação do parser) e `fn(p)` no inicializador de campo de classe com
+  construtor primário `const` (3.13).
 
 ##### `const_eval_type_bool` (perda 6: FP 6)
 - **Emissão:** `visitConditionalExpression` (`evaluation.dart:757-800`).
