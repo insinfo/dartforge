@@ -1,4 +1,4 @@
-# Estado do DartForge — 2026-10-06
+# Estado do DartForge — 2026-10-07
 
 ## Fechamento de 2026-10-06
 
@@ -12,9 +12,9 @@ Frentes desta rodada: as quatro especificações (`docs/ANALYZER-ESPECIFICACAO.m
 
 | medida | 2026-10-02 | agora |
 | --- | ---: | ---: |
-| Placar do analisador (corpus, posição exata) | 80,5% (19.015 na r8, não publicada) | **98,2%** — 22.617/23.030 |
-| FP do placar | 493 → 339 (r8) | **228** (era 1.339 no começo de 2026-10-05) |
-| FN do placar | — | **343** (era 2.095 no começo de 2026-10-05) |
+| Placar do analisador (corpus, posição exata) | 80,5% (19.015 na r8, não publicada) | **98,8%** — 22.759/23.030 |
+| FP do placar | 493 → 339 (r8) | **146** (era 1.339 no começo de 2026-10-05) |
+| FN do placar | — | **217** (era 2.095 no começo de 2026-10-05) |
 | Projetos reais (`new_sali` core e frontend, `limitless_ui`): diagnósticos sem par no `dart analyze` | 61 | **0** |
 | Lints novos (`E:\dftemp\lints_novos`, 14 regras) | — | 211/211 iguais ao `dart analyze` |
 | Casos s01–s12 do T5 (`corpus/especificacao/t2/t5`) | — | 12/12 iguais |
@@ -119,12 +119,14 @@ como igual):
 
 ### O que falta
 
-1. **Analisador** (placar `placar_det160`, 22.617/23.030).
-   * Maiores perdas: `unchecked_use_of_nullable_value` (FP 10, FN 9), `dead_code` (posição 10, FP 6,
-     FN 8), `concrete_class_with_abstract_member` (posição 10, FP 6), `undefined_identifier` (FP 8, FN 8),
-     `experiment_not_enabled` (FP 10, FN 6), `use_of_void_result` (FN 9), `invalid_assignment`
-     (mensagem 4, FP 5, FN 5), `unnecessary_null_comparison` (FN 8), `recursive_constant_constructor`
-     (posição 7, FP 5), `not_assigned_potentially_non_nullable_local_variable` (FP 7, FN 5).
+1. **Analisador** (placar `placar_det219`, 22.759/23.030; perda 271 em 111 códigos, quase todos com 1 a 5).
+   * Maiores perdas: `dead_code` 14, `concrete_class_with_abstract_member` 12,
+     `unchecked_use_of_nullable_value` 9, `missing_identifier` 8, `unused_element` 7, `use_of_void_result` 6,
+     `expected_identifier_but_got_keyword` 6, `const_initialized_with_non_constant_value` 6.
+   * Arquivos com `augment` (o 3.6.2 os lê como declarações homônimas): parte de `concrete_class_with_abstract_member`,
+     `invalid_implementation_override` e `enum_with_abstract_member`.
+   * Só do 3.13: `deprecated_optional` (porta do `DeprecatedFunctionalityVerifier`), restos de atalhos de ponto e de
+     construtores primários.
    * `dot_shorthands/equality/equality_extension_override_error_test.dart` tem oráculo 3.6.2 num
      arquivo que o nosso parser marca 3.13 (o "só nosso 1" da referência 3.13.4): regravar com o 3.13.4.
    * Recuperação do parser com palavras embutidas em posições de tipo e de declaração (sondas em
@@ -173,6 +175,25 @@ como igual):
   prefixo, operador em `[int.+]`, `new A.n()`, `extends Object` implícito, arquivos candidatos,
   `getImportElement`, `super.x` e argumentos de comprimento 0 dos `this.x`); implementation pelo
   `findMemberElement`; completar no nome de `A.n()` e `C.m()`.
+
+### Continuação de 2026-10-07, analisador (placar 22.617 → 22.759)
+
+Cada correção saiu da fonte do analyzer 3.6.2 (ou do checkout main, para os códigos do 3.13), foi
+medida no placar e registrada na seção do código na especificação. Em resumo:
+
+* **Scanner:** a string sem fecho, o caractere inesperado e o comentário de bloco sem fecho não interrompem
+  mais a leitura. O lexer segue como o do fasta, e os erros saem dos tokens.
+* **Tipos:** inferência de mixin no outline (`_MixinInference`, com o `topMerge` do `InterfacesMerger`); alvo
+  genérico ou por alias da factory redirecionadora; `index` do `Enum` concreto; `noSuchMethod` só encaminha o
+  que falta; `isStrictlyNonNullable` inteiro.
+* **Verificações:** padrão em nomeado `required` em toda lista; erro de biblioteca adiada nas constantes pelo
+  ancestral; campo e método de enum contra herdados; primário de tipo de extensão contra estáticos; tipo
+  anulável no `implements` de tipo de extensão; campo inicializado na declaração e no construtor primário;
+  contagem de argumentos de tipo no `call` implícito.
+* **Resolução:** estático privado de outra biblioteca; método em literal de alias de função instanciado;
+  extensões ambíguas pelo `this` implícito; setter de extensão sem getter possível; criação implícita com
+  nome que não é classe pela regra do `AstRewriter`; atalhos de ponto com classe abstrata e argumentos de tipo;
+  padrão de tipo inválido que não cobre o casado; `readType` inválido no `??=` sem getter.
 
 ### Continuação de 2026-10-07, analisador (placar 22.335 → 22.617)
 
