@@ -872,8 +872,15 @@ impl<'a> BodyInferrer<'a> {
 
     /// Membro estático de uma extensão (`Ext.m`).
     pub(crate) fn membro_estatico_de_extensao(&mut self, e: ExtensionId, nome: SymbolId, setter: bool) -> Option<Membro> {
-        // Campos de extensão (sempre estáticos) não têm acessores no modelo.
-        if let Some(&v) = self.program.extension(e).fields.iter().find(|&&v| self.program.variable(v).name == nome) {
+        // Os campos estáticos de extensão não têm acessores no modelo (os de
+        // instância têm, entre os membros de instância).
+        if let Some(&v) = self
+            .program
+            .extension(e)
+            .fields
+            .iter()
+            .find(|&&v| self.program.variable(v).name == nome && self.program.variable(v).static_)
+        {
             let t = self.tipo_variavel(v);
             return Some(Membro {
                 resolved: Resolved::Element(dartforge_elements::model::Element::Variable(v)),

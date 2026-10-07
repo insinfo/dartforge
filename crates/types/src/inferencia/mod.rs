@@ -282,6 +282,11 @@ pub struct BodyInferrer<'a> {
     /// o nome citado nos `NOT_ENOUGH_POSITIONAL_ARGUMENTS_NAME_*` e o
     /// intervalo do `MISSING_REQUIRED_ARGUMENT`; só quem conhece a chamada o define.
     pub(crate) alvo_da_aridade: Option<chamadas::AlvoDaAridade>,
+    /// A próxima [`chamadas::invocar`] é a de um `call` implícito: a função
+    /// invocada tem tipo de interface, e o `_checkInvocationTypeArguments`
+    /// (`type_arguments_verifier.dart`) não confere os limites dos
+    /// argumentos de tipo escritos (o tipo genérico não é `FunctionType`).
+    pub(crate) call_implicito: bool,
     /// Unidade de cada diagnóstico (paralelo a `diagnostics`), para quem
     /// precisa do arquivo (ferramentas; o LSP).
     pub unidades_dos_avisos: Vec<Option<UnitId>>,
@@ -430,6 +435,7 @@ impl<'a> BodyInferrer<'a> {
             locais_invalidos: HashSet::new(),
             nomes_posicionais: None,
             alvo_da_aridade: None,
+            call_implicito: false,
             unidades_dos_avisos: Vec::new(),
             unidade_corrente: None,
             heranca: crate::heranca::Heranca::default(),

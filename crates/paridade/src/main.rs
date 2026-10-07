@@ -475,7 +475,25 @@ fn classificar_sintaxe_nova(a: &Args) -> ExitCode {
         }
         let t = Instant::now();
         eprintln!("oráculo 3.13.4 em {nome} (linguagem {})…", g.sdk.linguagem());
-        let (novos, caidos) = oraculo_313_do_grupo(&dir);
+        let (novos, mut caidos) = oraculo_313_do_grupo(&dir);
+        // A queda do servidor numa rodada de vários arquivos nem sempre
+        // falha a rodada: o arquivo só fica sem registros. Os que o nosso
+        // parser marca com a referência 3.13.4 e que o 3.13.4 não escolheu
+        // rodam um a um; o que derruba o oráculo sozinho conta como caído.
+        let escolhidos_313: std::collections::BTreeSet<&str> = novos
+            .iter()
+            .filter(|r| r.code == "experiment_not_enabled")
+            .map(|r| r.arquivo.as_str())
+            .collect();
+        let todos = corpus::arquivos_dart(&dir);
+        for e in oraculo::marcador_3_13(&dir, &todos) {
+            if !escolhidos_313.contains(e.as_str())
+                && !caidos.contains(&e)
+                && oraculo::rodar(oraculo::SdkOraculo::V3134, &dir, &[dir.join(&e)], &cache_oraculo()).is_err()
+            {
+                caidos.push(e);
+            }
+        }
         // Um arquivo em que o 3.13.4 cai e que o nosso parser marca com a
         // referência 3.13.4 não tem comportamento de referência: sai do
         // grupo, como o que derruba o oráculo do 3.6.2 (`oraculo`). Os

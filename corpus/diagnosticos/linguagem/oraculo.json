@@ -1,9 +1,10 @@
 {
   "sdk": "3.6.2",
-  "hash": "1f4cb0aeed45596c",
-  "arquivos": 1180,
-  "diagnosticos": 12283,
+  "hash": "9e09ea643e19eb8f",
+  "arquivos": 1179,
+  "diagnosticos": 12265,
   "excluidos": [
+    "dot_shorthands/equality/equality_extension_override_error_test.dart",
     "number/separators_error_test.dart"
   ]
 }

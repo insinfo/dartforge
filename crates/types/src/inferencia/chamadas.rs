@@ -426,6 +426,7 @@ pub(crate) fn invocar(
     explicitos: Option<Vec<TypeId>>,
 ) -> (TypeId, TypeId) {
     let alvo = inf.alvo_da_aridade.take();
+    let call_implicito = std::mem::take(&mut inf.call_implicito);
     morto_na_lista(inf, cx, args);
     let Type::Function { type_params, ret, positional, optional, named, .. } = inf.table.get(f).clone() else {
         inf.entidade_da_inferencia = None;
@@ -456,13 +457,15 @@ pub(crate) fn invocar(
         let named: Box<[_]> = named.iter().map(|&(n, t, r)| (n, inf.subst(t, &mapa), r)).collect();
         let f2 = inf.table.intern(Type::Function { type_params: novos.into_boxed_slice(), ret, positional, optional, named, nullable: false });
         inf.alvo_da_aridade = alvo;
+        inf.call_implicito = call_implicito;
         return invocar(inf, cx, f2, args, ctx, explicitos);
     }
     // `checkMethodInvocation` / `checkFunctionExpressionInvocation` do
     // `ErrorVerifier`: os explícitos contra os parâmetros de tipo do tipo
-    // invocado.
+    // invocado (não no `call` implícito: o tipo da função é de interface).
     if let Some(ex) = &explicitos
         && !type_params.is_empty()
+        && !call_implicito
     {
         let ex = ex.clone();
         let visiveis: Vec<TypeParamId> = cx.parametros_de_tipo_visiveis().into_values().collect();
@@ -716,6 +719,7 @@ fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, t: TypeI
                         return call_nao_metodo(inf, cx);
                     }
                     inf.alvo_da_aridade = alvo;
+                    inf.call_implicito = true;
                     return invocar(inf, cx, m.tipo, args, ctx, explicitos);
                 }
                 let busca = inf.buscar_membro(cx.lib, t_nn, call, false);
@@ -754,6 +758,7 @@ fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, t: TypeI
                         super::expr::resolver(inf, cx, e, m.resolved.clone());
                     }
                     inf.alvo_da_aridade = alvo;
+                    inf.call_implicito = true;
                     return invocar(inf, cx, m.tipo, args, ctx, explicitos);
                 }
             }

@@ -318,6 +318,13 @@ Base comum (vale para vários códigos abaixo):
   - `++x`/`x++`: `_checkForInvalidAssignmentIncDec` (`analyzer/lib/src/dart/resolver/prefix_expression_resolver.dart:96-110`, `postfix_expression_resolver.dart:73-88`) — o retorno do operador `+`/`-` contra o `writeType` do operando, **no nó inteiro** (`++a`, `a++`); nos `?.` o tipo do resultado é anulável (`E?`).
   - também pelo conversor do CFE (`analyzer/lib/src/fasta/error_converter.dart:184-190`), só para erros de parser — irrelevante.
 - **Condição exata:** void primeiro (`USE_OF_VOID_RESULT`), record de 1 campo (`RECORD_LITERAL_ONE_POSITIONAL_NO_TRAILING_COMMA`), senão `!isAssignableTo(right, write)`.
+- **O `writeType`** (`ResolverVisitor.setWriteElement`, 3.6.2 `resolver.dart:1709-1747`): `InvalidType` (ou
+  `dynamic` em alvo `dynamic`) salvo quando o elemento de escrita é um setter (o sintético dá o tipo da
+  variável) ou um `VariableElement` (local, parâmetro); no índice, o 2º parâmetro do `[]=`. A escrita que
+  cai no elemento de recuperação (campo `final` ou getter sem setter, variável de topo `final`/`const`,
+  receptor `Never` sem `[]=`) tem `InvalidType` e não dá este código (`finalOne ??= null` só relata
+  `ASSIGNMENT_TO_FINAL`; `x[0] ??= 1` com `x: Never`, nada). No DartForge, `tipo_de_escrita_nome` e o braço
+  `Index` de `ler_para_escrita`.
 - **Posição:** acima; inicializador/padrão sem parênteses e cascata; atribuição no lado direito como escrito.
 - **Mensagem:** `A value of type '{0}' can't be assigned to a variable of type '{1}'.` — DartTypes; quando dois tipos exibem o mesmo nome e são elementos diferentes, o ErrorReporter acrescenta `' (where C is defined in <uri>)'` a cada um (`analyzer/lib/error/listener.dart:362-425`, `_convertTypeNames`: só quando dois argumentos DartType da mesma mensagem têm o mesmo display e elementos distintos com o mesmo nome; o caminho é `source.fullName`): `'C (where C is defined in <raiz>/regress/regress1363_lib.dart)'`.
   Tear-off implícita de `call`: quando o valor é de classe com `call` e o contexto é tipo de função, a inferência insere `.call` (`ImplicitCallReference`); o `{0}` é o tipo da tear-off (`'void Function(int)'`, genérico instanciado se `constructor-tearoffs` habilitado — senão o genérico cru, `'T Function<T>(T)'`).
@@ -522,6 +529,10 @@ Base comum: a resolução de membro passa por `TypePropertyResolver.resolve` (`a
 - **Posição:** o nome da propriedade.
 - **Mensagem:** `The getter '{0}' isn't defined for the type '{1}'.` — instância: `{1}` = **DartType** do alvo (promovido a não nulo em `?.`), com argumentos de tipo; estático: `{1}` = `typeReference.name` (String, nome da classe/mixin).
 - **Supressões e ordem:** ver base; em atribuição composta lê o getter (relata getter e, se faltar o setter, `UNDEFINED_SETTER` também).
+- **Campo de instância de extensão:** o `external` (o `IntAddress.address` do `dart:ffi` 3.6.2, `external Pointer<Never>
+  address;` em `extension IntAddress on int`) tem getter e setter sintéticos, membros de instância da extensão:
+  `arr[0].address` não relata. No DartForge, `elements::outline::extension_members` cria os acessores
+  implícitos (o lookup estático de `membro_estatico_de_extensao` só vê os campos estáticos).
 - **No DartForge:** `expr.rs::propriedade`/`membros.rs`. Causas:
   1. **~25 FP com `{1}` vazio**: chamadas estáticas indefinidas (`C.m()`) — mesma causa do item 2 de `undefined_method`; e `E.TWO` de enum (`UNDEFINED_ENUM_CONSTANT`).
   2. **6 msg** (`static_undefined`, `static_definedInSuperclass`, `typeLiteral_conditionalAccess`, `compoundAssignment…`, `null_aware/access_test`): estático sem `{1}` — falta o nome da classe.
@@ -1231,7 +1242,9 @@ rodados no oráculo vivo (`dart analyze --format=json` do 3.6.2), casos em
   - Invocações com argumentos explícitos (`_checkInvocationTypeArguments`, `:404-…`): só se
     `typeArgumentList != null` e os tipos genérico/instanciado são `FunctionType`; a contagem é
     truncada ao mínimo (`:421-423`: "the mismatch in size is reported elsewhere"); **sem** desconto de
-    super-bounded (`g<dynamic>()` relata — linha 17).
+    super-bounded (`g<dynamic>()` relata — linha 17). O genérico é o tipo estático de `node.function`: no
+    `call` implícito (`c<String>()` com `c` de uma classe com `call<T extends num>`) ele é o tipo de
+    interface e nada é conferido. No DartForge, `BodyInferrer::call_implicito` antes do `invocar`.
 - **Confere com §A:** emissão, condição, posição e mensagem certas (`{0}` e `{2}` DartType, `{1}` nome).
 - **Exemplo (oráculo vivo 3.6.2):**
   ```dart

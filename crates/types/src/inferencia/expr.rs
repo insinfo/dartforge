@@ -3751,20 +3751,43 @@ fn ler_para_escrita(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, cu
             let u = inf.core.unknown;
             let (t, c) = ler_indice(inf, cx, alvo, target, index, null_aware, u);
             *curto_saida = c;
+            // O tipo de escrita (`setWriteElement` com `IndexExpression`, 3.6.2
+            // `resolver.dart:1722-1728`): o 2º parâmetro do `[]=`; sem ele,
+            // `InvalidType` (`dynamic` em alvo `dynamic`).
+            let segundo = |inf: &BodyInferrer<'_>, f: TypeId| match inf.table.get(f) {
+                Type::Function { positional, .. } if positional.len() == 2 => Some(positional[1]),
+                _ => None,
+            };
+            let mut escrita = inf.table.invalido(inf.core.dynamic_);
             if let Some((x, args)) = cx.sobreposicoes.get(&target).cloned() {
-                if inf.sym.indice_set.and_then(|s| inf.membro_de_extensao_explicita(x, &args, s, false)).is_none() {
-                    let span = span_indice(inf, cx, alvo, target);
-                    avisar_operador_de_extensao(inf, x, "[]=", span);
+                match inf.sym.indice_set.and_then(|s| inf.membro_de_extensao_explicita(x, &args, s, false)) {
+                    Some(m) => {
+                        if let Some(p1) = segundo(inf, m.tipo) {
+                            escrita = p1;
+                        }
+                    }
+                    None => {
+                        let span = span_indice(inf, cx, alvo, target);
+                        avisar_operador_de_extensao(inf, x, "[]=", span);
+                    }
                 }
             } else if let Some(op) = inf.sym.indice_set
                 && matches!(ast(inf, cx).expr(target).kind, ExprKind::Super)
             {
                 // `super[i]++`: o `[]=` também pela cadeia de `super`.
-                if matches!(buscar_operador_super(inf, cx, op), Busca::Ausente) {
-                    let span = span_indice(inf, cx, alvo, target);
-                    let this = cx.tipo_this.unwrap_or(inf.core.dynamic_);
-                    let tipo = inf.table.format(this, inf.interner, inf.program);
-                    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_SUPER_OPERATOR, span, &["[]=", &tipo]);
+                match buscar_operador_super(inf, cx, op) {
+                    Busca::Ausente => {
+                        let span = span_indice(inf, cx, alvo, target);
+                        let this = cx.tipo_this.unwrap_or(inf.core.dynamic_);
+                        let tipo = inf.table.format(this, inf.interner, inf.program);
+                        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_SUPER_OPERATOR, span, &["[]=", &tipo]);
+                    }
+                    Busca::Achado(m) => {
+                        if let Some(p1) = segundo(inf, m.tipo) {
+                            escrita = p1;
+                        }
+                    }
+                    _ => {}
                 }
             } else if let Some(op) = inf.sym.indice_set
                 && let Some(recv) = inf.body_types.units[cx.unit.0 as usize].get_type(target)
@@ -3775,6 +3798,16 @@ fn ler_para_escrita(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, cu
                 // no `[…]` (`_reportUnresolvedIndex`).
                 let r = if null_aware { inf.nao_nulo(recv) } else { recv };
                 let invalido = inf.table.e_invalido(r) || matches!(inf.table.get(r), Type::Dynamic | Type::Never | Type::Void);
+                if matches!(inf.table.get(r), Type::Dynamic) && !inf.table.e_invalido(r) {
+                    escrita = inf.core.dynamic_;
+                }
+                if !invalido {
+                    if let Busca::Achado(m) = inf.buscar_membro(cx.lib, r, op, false)
+                        && let Some(p1) = segundo(inf, m.tipo)
+                    {
+                        escrita = p1;
+                    }
+                }
                 if !invalido && !inf.exige_checagem_de_nulo(cx.lib, r, op, false) {
                     match inf.buscar_membro(cx.lib, r, op, false) {
                         Busca::Ausente => {
@@ -3800,7 +3833,7 @@ fn ler_para_escrita(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, cu
                 }
             }
             registrar(inf, cx, alvo, t);
-            (t, t, None)
+            (t, escrita, None)
         }
         _ => {
             let t = inferir_livre(inf, cx, alvo);
@@ -3816,15 +3849,24 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
         RefNome::Elemento(el) => {
             resolver(inf, cx, alvo, Resolved::Element(el));
             match el {
+                // `setWriteElement` (3.6.2 `resolver.dart:1709-1747`): o tipo
+                // de escrita só vem de um setter (o sintético, pela variável)
+                // ou de um `VariableElement`; a variável de topo ou estática
+                // `final`/`const` não tem setter, a escrita cai no getter de
+                // recuperação e o tipo é `InvalidType` (sem
+                // `INVALID_ASSIGNMENT`).
                 Element::Variable(v) => {
                     let ve = inf.program.variable(v);
                     if ve.const_ {
                         inf.aviso(ASSIGNMENT_TO_CONST.template.to_string(), n.span);
+                        inf.table.invalido(inf.core.dynamic_)
                     } else if ve.final_ && !(ve.late && inf.inicializador(v).is_none()) {
                         let msg = format!("{}: '{}'", ASSIGNMENT_TO_FINAL.template, inf.interner.resolve(n.sym));
                         inf.aviso(msg, n.span);
+                        inf.table.invalido(inf.core.dynamic_)
+                    } else {
+                        inf.tipo_variavel(v)
                     }
-                    inf.tipo_variavel(v)
                 }
                 Element::Function(f) => {
                     let fe = inf.program.function(f);
@@ -3834,7 +3876,7 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
                         (FunctionKind::Getter, _) => {
                             let msg = format!("{}: '{}'", ASSIGNMENT_TO_FINAL.template, inf.interner.resolve(n.sym));
                             inf.aviso(msg, n.span);
-                            inf.outline.functions[f.0 as usize].return_type
+                            inf.table.invalido(inf.core.dynamic_)
                         }
                         (FunctionKind::Function, _) => {
                             inf.aviso(ASSIGNMENT_TO_FUNCTION.template.to_string(), n.span);
@@ -3889,7 +3931,9 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
                 }
             }
             avisar_membro_sem_setter(inf, n, f);
-            inf.tipo_do_membro_declarado(f, true).0
+            // Sem setter, o elemento de escrita é o de recuperação (o getter):
+            // `InvalidType` (`setWriteElement`).
+            inf.table.invalido(inf.core.dynamic_)
         }
         RefNome::ThisImplicito => {
             let this = cx.tipo_this.unwrap();

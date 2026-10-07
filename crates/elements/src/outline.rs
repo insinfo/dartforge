@@ -1291,6 +1291,47 @@ fn extension_members(
             MemberKind::Field(vars) => {
                 for (idx, var) in vars.variables.iter().enumerate() {
                     let var_id = VariableId(pools.variables.len() as u32);
+                    // O campo de instância (o `external`, como o
+                    // `IntAddress.address` do `dart:ffi`; o outro é
+                    // `EXTENSION_DECLARES_INSTANCE_FIELD`) tem getter e, se não
+                    // é `final`, setter implícitos, membros de instância da
+                    // extensão (`FieldElementImpl` com acessores sintéticos).
+                    // Os estáticos seguem lidos pela variável.
+                    let (getter, setter) = if vars.static_ {
+                        (None, None)
+                    } else {
+                        let acessor = |pools: &mut ElementPools| {
+                            let id = FunctionElementId(pools.functions.len() as u32);
+                            pools.functions.push(FunctionElement {
+                                name: var.name.sym,
+                                library: lib_id,
+                                class: None,
+                                extension: Some(ext_id),
+                                kind: FunctionKind::ImplicitAccessor,
+                                static_: false,
+                                abstract_: false,
+                                external: vars.external,
+                                const_: vars.const_,
+                                factory: false,
+                                node: FunctionRef::None,
+                                variable: Some(var_id),
+                                patched_by: None,
+                                declaracao_publica: None,
+                            });
+                            id
+                        };
+                        let g = acessor(pools);
+                        ext_elem.instance_members.insert(var.name.sym, g);
+                        let s = if !vars.final_ && !vars.const_ {
+                            let s = acessor(pools);
+                            let chave = interner.intern(&format!("{}_=", interner.resolve(var.name.sym)));
+                            ext_elem.instance_members.insert(chave, s);
+                            Some(s)
+                        } else {
+                            None
+                        };
+                        (Some(g), s)
+                    };
                     pools.variables.push(VariableElement {
                         name: var.name.sym,
                         library: lib_id,
@@ -1306,8 +1347,8 @@ fn extension_members(
                             member: member_id,
                             index: idx,
                         },
-                        getter: None,
-                        setter: None,
+                        getter,
+                        setter,
                     });
                     ext_elem.fields.push(var_id);
                 }

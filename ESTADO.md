@@ -12,9 +12,9 @@ Frentes desta rodada: as quatro especificações (`docs/ANALYZER-ESPECIFICACAO.m
 
 | medida | 2026-10-02 | agora |
 | --- | ---: | ---: |
-| Placar do analisador (corpus, posição exata) | 80,5% (19.015 na r8, não publicada) | **98,8%** — 22.759/23.030 |
-| FP do placar | 493 → 339 (r8) | **146** (era 1.339 no começo de 2026-10-05) |
-| FN do placar | — | **217** (era 2.095 no começo de 2026-10-05) |
+| Placar do analisador (corpus, posição exata) | 80,5% (19.015 na r8, não publicada) | **99,3%** — 22.841/23.012 (sem o arquivo em que o 3.13.4 cai) |
+| FP do placar | 493 → 339 (r8) | **78** (era 1.339 no começo de 2026-10-05) |
+| FN do placar | — | **146** (era 2.095 no começo de 2026-10-05) |
 | Projetos reais (`new_sali` core e frontend, `limitless_ui`): diagnósticos sem par no `dart analyze` | 61 | **0** |
 | Lints novos (`E:\dftemp\lints_novos`, 14 regras) | — | 211/211 iguais ao `dart analyze` |
 | Casos s01–s12 do T5 (`corpus/especificacao/t2/t5`) | — | 12/12 iguais |
