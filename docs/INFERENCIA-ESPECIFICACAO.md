@@ -1025,7 +1025,11 @@ insolidez" (`:265-266`, sem detalhe).
 
 * **R-FLU-P1 `tryPromoteForTypeCheck(ref, T)`** (F76:2536-2572; FA:4000-4067):
   capturada → trivial. `ifTrue`: S1 = `tryPromoteToType(T, atual)`; se passo
-  válido, `T` entra em `tested` e S1 na cadeia. `ifFalse`: `factor(atual, T)`;
+  válido, `T` entra em `tested` e S1 na cadeia. "Válido" é só S1 diferente do tipo
+  anterior (F76:2538): subtipos mútuos distintos promovem (`dynamic Function()` testado
+  com `void Function()`; `(dynamic,)` com o requerido `(Object?,)` de um padrão de
+  record). Antes havia aqui a guarda "anterior já é subtipo de T", que o original não
+  tem (`fluxo.rs::promover_testado`, 2026-10-07). `ifFalse`: `factor(atual, T)`;
   fator fundo → sem promoção ([3.6] ainda alcançável; [3.9+] ramo
   **inalcançável**); senão promove ao fator; `T` sempre entra em `tested`.
   No `ifFalse` o fator entra **direto** na cadeia (`_finishTypeTest`, F76:2633-2664), sem o

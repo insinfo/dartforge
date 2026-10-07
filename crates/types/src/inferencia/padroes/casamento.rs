@@ -809,8 +809,10 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
             };
             let requerido = montar(inf, &vec![topo_dos_campos; campos.len()]);
             promover_para_padrao(inf, cx, requerido, true, false);
-            // Os tipos dos campos vêm do tipo casado já promovido.
-            let promovido = casado(cx, &r);
+            // Os tipos dos campos vêm do tipo casado na ENTRADA do padrão
+            // (`matchedValueType`, 3.6.2 `type_analyzer.dart:1608-1625`), não
+            // do promovido para `(Object?, …)`.
+            let promovido = t;
             let rec = match inf.table.get(promovido).clone() {
                 Type::Record { positional, named, .. } => Some((positional, named)),
                 _ => None,

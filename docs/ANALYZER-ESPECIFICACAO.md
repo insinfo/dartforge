@@ -550,6 +550,11 @@ Base comum: a resolução de membro passa por `TypePropertyResolver.resolve` (`a
 - **Estado em 2026-10-07 (placar 477/479):** o ramo falso de `x is T` promove direto ao fator, como o
   `_finishTypeTest` (INFERENCIA R-FLU-P1). Saíram os 4 FN de `least_upper_bound_futureor_test`, onde
   `FutureOr<void>` menos `Future` é `void`.
+- **Depois (478/479):** a promoção do ramo verdadeiro só falha quando o tipo novo é igual ao anterior
+  (INFERENCIA R-FLU-P1). Com isso o `if (f is FuncDynToVoid)` sobre `FuncDynToDyn` promove no 3.6.2, e os FP de
+  `type_promotion/functions_test` saíram.
+  * O padrão de record passou a tipar os campos pelo tipo casado na entrada (`matchedValueType`,
+    `type_analyzer.dart:1608-1625`), e não pelo promovido para `(Object?, …)`.
 
 ##### `undefined_operator` (perda 40: FN 30, FP 10)
 - **Emissão:** binário `BinaryExpressionResolver._resolveUserDefinableElement` (`analyzer/lib/src/dart/resolver/binary_expression_resolver.dart:440-460`, no **operador**); prefixo (`prefix_expression_resolver.dart:180-206`, no token do operador, nome `unary-`/`~`/`+`/`-` para `++`/`--`); pósfixo (`postfix_expression_resolver.dart:130-158`, no operador, `+`/`-`); índice (`property_element_resolver.dart:109-133` + `_reportUnresolvedIndex` :365-381: **do `[` até o `]` inclusive**, `'[]'` para leitura e `'[]='` para escrita — ambos podem sair na composta); composta (`assignment_expression_resolver.dart:240-256`, no operador `+=`); `resolver.dart:1635-1642` (`==` em extensão?).

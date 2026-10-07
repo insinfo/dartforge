@@ -225,8 +225,12 @@ impl<'a> BodyInferrer<'a> {
             return;
         }
         let s = m.cadeia.last().copied().unwrap_or(declarado);
-        if self.sub(s, t) {
-            // Já é subtipo: não promove, mas registra o tipo de interesse.
+        // `tryPromoteForTypeCheck` (3.6.2 `flow_analysis.dart:2534-2542`): o
+        // `tryPromoteToType` dá `T` quando `T <: S`, e só não promove quando o
+        // resultado é o próprio tipo anterior. Subtipos mútuos e diferentes
+        // (`dynamic Function()` e `void Function()`) promovem.
+        if t == s {
+            // O mesmo tipo: não promove, mas registra o tipo de interesse.
             if !m.testados.contains(&testado) {
                 if let Some(Some(mm)) = fluxo.vars.get_mut(id.0 as usize) {
                     mm.testados.push(testado);
