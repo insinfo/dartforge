@@ -574,6 +574,17 @@ impl Verificador<'_, '_> {
     /// `const_constructor_with_non_final_field` (`:2898-2916`); mais
     /// `const_constructor_throws_exception` (`:2936-2943`) em cada `throw` dos
     /// inicializadores. Escrito sem compilar nem executar (2026-10-04).
+    /// O construtor é o primário (3.13) da classe ou do enum, ou a parte de
+    /// corpo dele.
+    fn e_primario(&self, a: &ast::Ast, mid: ast::MemberId, k: &ast::Constructor) -> bool {
+        k.parte_primaria
+            || a.decls.iter().any(|d| match &d.kind {
+                ast::DeclKind::Class(x) => x.primary_constructor == Some(mid),
+                ast::DeclKind::Enum(x) => x.primary_constructor == Some(mid),
+                _ => false,
+            })
+    }
+
     fn regras_do_construtor(&mut self, a: &ast::Ast, mid: ast::MemberId, k: &ast::Constructor) {
         use dartforge_elements::model::ClassKind;
         let Some(classe) = self.classe_de(a, mid) else { return };
@@ -627,12 +638,33 @@ impl Verificador<'_, '_> {
                 campos_de_mixin.push(format!("'{}.{}'", interner.resolve(program.class(mx).name), interner.resolve(var.name)));
             }
         }
+        // `implicitErrorRange`: no construtor primário (3.13) é o `errorRange`
+        // do `PrimaryConstructorDeclaration` (`ast.dart:45420-45424`), do
+        // primeiro token (o `const`, quando escrito) ao nome do construtor, ou
+        // só o primeiro token.
+        let faixa = if self.e_primario(a, mid, k) {
+            let fonte = &program.unit(self.unidade).source;
+            let inicio = if k.const_ {
+                let antes = fonte[..k.class_name.span.start].trim_end();
+                if antes.ends_with("const") { antes.len() - "const".len() } else { k.class_name.span.start }
+            } else {
+                k.class_name.span.start
+            };
+            let fim = match k.name {
+                Some(n) => n.span.end,
+                None if inicio < k.class_name.span.start => inicio + "const".len(),
+                None => k.class_name.span.end,
+            };
+            Span { start: inicio, end: fim }
+        } else {
+            k.class_name.span
+        };
         if campos_de_mixin.len() == 1 {
-            self.relatar(c::CONST_CONSTRUCTOR_WITH_MIXIN_WITH_FIELD, k.class_name.span, campos_de_mixin);
+            self.relatar(c::CONST_CONSTRUCTOR_WITH_MIXIN_WITH_FIELD, faixa, campos_de_mixin);
             return;
         }
         if campos_de_mixin.len() > 1 {
-            self.relatar(c::CONST_CONSTRUCTOR_WITH_MIXIN_WITH_FIELDS, k.class_name.span, vec![campos_de_mixin.join(", ")]);
+            self.relatar(c::CONST_CONSTRUCTOR_WITH_MIXIN_WITH_FIELDS, faixa, vec![campos_de_mixin.join(", ")]);
             return;
         }
         // O construtor da superclasse que este invoca (o escrito, ou o sem
@@ -710,12 +742,7 @@ impl Verificador<'_, '_> {
             // o `visitConstructorDeclaration` não passa por ele. No 3.13.4 o
             // relato vai do nome do tipo (ou do `new`) ao fim do nome
             // (`errorRange`); no 3.6.2, só o `returnType`.
-            let primario = k.parte_primaria
-                || a.decls.iter().any(|d| match &d.kind {
-                    ast::DeclKind::Class(x) => x.primary_constructor == Some(mid),
-                    ast::DeclKind::Enum(x) => x.primary_constructor == Some(mid),
-                    _ => false,
-                });
+            let primario = self.e_primario(a, mid, k);
             if em_ciclo && !k.factory && !primario {
                 let span = match k.name {
                     Some(n) if self.m.program.referencia(self.unidade) == dartforge_diagnostics::Referencia::V3_13 => {

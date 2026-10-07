@@ -11851,6 +11851,10 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
 - **No DartForge:** não existe. Lugar: `verificador.rs::construtor` (k.const_ && !k.factory),
   classe via `classe_de`, mixins `program.class(k).mixin_classes`, campos `fields` + flags;
   `abstract` do campo só no AST (`VariableList.abstract_`).
+- **Estado em 2026-10-07 (placar 13/13):** no construtor primário (3.13), o `implicitErrorRange` é o `errorRange`
+  do `PrimaryConstructorDeclaration` (`ast.dart:45420-45424`). Ele vai do primeiro token, o `const` quando
+  escrito, até o nome do construtor; sem nome, é só o primeiro token. Em `class const B() … with A`, o relato
+  fica no `const` (`verificador::e_primario`).
 
 ##### `const_eval_property_access` (perda 12: FN 1, FP 11)
 - **Emissão:** `_evaluatePropertyAccess` (`evaluation.dart:1686-1730`).
