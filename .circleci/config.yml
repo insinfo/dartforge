@@ -1,7 +1,8 @@
 # CI no CircleCI: um pipeline por commit, os grupos de crates em jobs paralelos.
 # Os mesmos grupos do .gitlab-ci.yml (analisador e LSP, em release); o Windows,
 # que é o alvo, segue no .github/workflows/ci.yml. O Rust vem do
-# rust-toolchain.toml (o rustup da imagem instala o 1.98.1).
+# rust-toolchain.toml (o rustup da imagem instala o 1.98.1). O sccache
+# (mozilla/sccache) guarda a compilação de cada crate entre pipelines.
 version: 2.1
 
 executors:
@@ -12,6 +13,8 @@ executors:
     environment:
       CARGO_INCREMENTAL: '0'
       CARGO_TERM_COLOR: always
+      SCCACHE_DIR: /home/circleci/.sccache
+      SCCACHE_CACHE_SIZE: 4G
 
 commands:
   preparar:
@@ -25,6 +28,12 @@ commands:
             echo 'export PATH="/opt/dart-sdk/bin:$PATH"' >> "$BASH_ENV"
             echo 'export DARTFORGE_DART_SDK=/opt/dart-sdk DART_SDK=/opt/dart-sdk DARTFORGE_SDK_LIB=/opt/dart-sdk/lib' >> "$BASH_ENV"
       - run:
+          name: sccache
+          command: |
+            curl -sSfL https://github.com/mozilla/sccache/releases/download/v0.18.0/sccache-v0.18.0-x86_64-unknown-linux-musl.tar.gz | tar xz -C /tmp
+            sudo install /tmp/sccache-v0.18.0-x86_64-unknown-linux-musl/sccache /usr/local/bin/sccache
+            echo 'export RUSTC_WRAPPER=/usr/local/bin/sccache' >> "$BASH_ENV"
+      - run:
           name: Rust fixado
           command: rustup show active-toolchain || rustup toolchain install 1.98.1 --profile minimal
       - restore_cache:
@@ -34,11 +43,15 @@ commands:
 
   guardar:
     steps:
+      - run:
+          name: estatísticas do sccache
+          when: always
+          command: sccache --show-stats || true
       - save_cache:
           key: cargo-{{ .Environment.CIRCLE_JOB }}-{{ checksum "Cargo.lock" }}-{{ .Revision }}
           paths:
             - ~/.cargo/registry
-            - target
+            - ~/.sccache
 
 jobs:
   mensagens:

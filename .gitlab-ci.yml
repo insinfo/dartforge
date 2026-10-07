@@ -9,6 +9,8 @@
 #   release. O workspace inteiro fica no job manual `resto`: o ci.yml registra
 #   falhas conhecidas no Linux (dartforge-dev, emit-js, elements sdk_cache).
 # * O Rust vem do rust-toolchain.toml (o rustup da imagem instala o 1.98.1).
+# * O sccache (mozilla/sccache) guarda a compilação de cada crate entre
+#   pipelines, no cache do job; menor que guardar o target/ inteiro.
 
 default:
   image: rust:bookworm
@@ -19,6 +21,9 @@ variables:
   CARGO_INCREMENTAL: '0'
   CARGO_TERM_COLOR: always
   DART_VERSAO: '3.6.2'
+  SCCACHE_VERSAO: 'v0.18.0'
+  SCCACHE_DIR: $CI_PROJECT_DIR/.sccache
+  SCCACHE_CACHE_SIZE: 4G
 
 stages:
   - test
@@ -29,7 +34,7 @@ stages:
     paths:
       - .cargo-home/registry/index/
       - .cargo-home/registry/cache/
-      - target/
+      - .sccache/
   before_script:
     - apt-get update -qq && apt-get install -y -qq unzip > /dev/null
     - curl -sSfL -o /tmp/dart.zip "https://storage.googleapis.com/dart-archive/channels/stable/release/${DART_VERSAO}/sdk/dartsdk-linux-x64-release.zip"
@@ -37,7 +42,12 @@ stages:
     - export PATH="/opt/dart-sdk/bin:$PATH"
     - export DARTFORGE_DART_SDK=/opt/dart-sdk DART_SDK=/opt/dart-sdk DARTFORGE_SDK_LIB=/opt/dart-sdk/lib
     - dart --version
+    - curl -sSfL "https://github.com/mozilla/sccache/releases/download/${SCCACHE_VERSAO}/sccache-${SCCACHE_VERSAO}-x86_64-unknown-linux-musl.tar.gz" | tar xz -C /tmp
+    - install /tmp/sccache-${SCCACHE_VERSAO}-x86_64-unknown-linux-musl/sccache /usr/local/bin/sccache
+    - export RUSTC_WRAPPER=/usr/local/bin/sccache
     - rustc --version
+  after_script:
+    - /usr/local/bin/sccache --show-stats || true
 
 mensagens:
   stage: test
