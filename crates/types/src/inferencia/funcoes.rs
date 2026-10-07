@@ -780,8 +780,10 @@ fn alvo_de_factory_redirecionadora(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, r
     // `_inferRedirectedConstructor` (`:172-200`): a própria classe ou a sem
     // parâmetros de tipo vale o `thisType`; senão os argumentos saem da
     // inferência de `C<X…> <: Dona<T…>` (o `thisType` da dona como contexto),
-    // pelos tipos finais. O alias escrito (`= Alias.nome`) fica de fora: a
-    // instanciação dele é a do alias, ainda não portada aqui.
+    // pelos tipos finais. O alias escrito (`= Alias.nome`) não infere: é a
+    // instanciação do alias (com os argumentos escritos, ou pelos limites,
+    // `instantiateTypeAliasToBounds`), o tipo da própria anotação (os relatos
+    // dela já saíram na resolução do alvo).
     let params_alvo = inf.outline.classes[classe.0 as usize].type_params.clone();
     let escrito_por_alias = match &inf.program.unit(cx.unit).ast.ty(red.ty).kind {
         ast::TypeKind::Named { name, .. } => {
@@ -794,10 +796,16 @@ fn alvo_de_factory_redirecionadora(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, r
         }
         _ => false,
     };
-    if escrito_por_alias && !params_alvo.is_empty() {
-        return;
-    }
-    let args_alvo: Vec<TypeId> = if params_alvo.is_empty() || (escritos.is_empty() && classe == dona) {
+    let args_alvo: Vec<TypeId> = if escrito_por_alias && !params_alvo.is_empty() {
+        let (n_diag, n_unid) = (inf.diagnostics.len(), inf.unidades_dos_avisos.len());
+        let t = inf.tipo_de_anotacao(cx, red.ty);
+        inf.diagnostics.truncate(n_diag);
+        inf.unidades_dos_avisos.truncate(n_unid);
+        match inf.table.get(t).clone() {
+            Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } if class == classe => args.to_vec(),
+            _ => return,
+        }
+    } else if params_alvo.is_empty() || (escritos.is_empty() && classe == dona) {
         params_alvo.iter().map(|&p| inf.table.intern(Type::TypeParameter { param: p, nullable: false })).collect()
     } else if !escritos.is_empty() {
         if args_escritos.len() == params_alvo.len() {

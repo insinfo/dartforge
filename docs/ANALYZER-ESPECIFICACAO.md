@@ -6084,8 +6084,10 @@ ou `undefined_class 'augment'`) e o resto é **outra declaração homônima** (`
   * Sem argumentos, a própria classe ou a classe sem parâmetros de tipo vale o `thisType`.
   * Senão, os argumentos saem do `GenericInferrer` com `C<X…> <: Dona<T…>` e `choose_final`.
   * O tipo do construtor alvo é substituído por esse mapa.
-  * **Resta fora:** o alvo genérico escrito por alias (`= Alias.nome`). A instanciação pelo alias não está
-    portada, então ele continua sem os testes de tipo.
+  * O alvo genérico escrito por alias (`= Alias.nome`) não passa por inferência. Usa a instanciação do alias:
+    com os argumentos escritos, ou pelos limites (`instantiateTypeAliasToBounds`). É o tipo da própria anotação,
+    com os relatos dela descartados, porque já saíram na resolução do alvo.
+  * Conferido com o 3.6.2 em `typedef Al<X> = B<X>`: `= Al<String>` dá `'B<String>'`, e `= Al` dá `'B<dynamic>'`.
 - **No DartForge:** não emitido em lugar nenhum. O lugar natural é `types/src/inferencia/funcoes.rs`
   (`alvo_de_factory_redirecionadora`, que já resolve o alvo) ou uma passada de outline em `types`. Amostras:
   **14 AUG** (13 em `DefaultValueInRedirectingFactoryConstru_*` + `InvalidFactoryNameNotAClass__valid_inAu`):
