@@ -846,27 +846,37 @@ impl<'a> OutlineResolver<'a> {
                 _ => None,
             })
             .collect();
-        // `InterfacesMerger.typeList` da superclasse e dos mixins anteriores:
-        // por elemento, o tipo único (ou o normalizado igual dos dois lados).
+        // `InterfacesMerger.typeList` da superclasse e dos mixins anteriores,
+        // por elemento como o `_ClassInterfaceType.update`
+        // (`class_hierarchy.dart:170-196`): o primeiro tipo; outro diferente
+        // passa a juntar os normalizados pelo `topMerge`, e o que falha deixa
+        // o resultado anterior.
         let fontes: Vec<TypeId> = dados[i].supertype.into_iter().chain(dados[i].mixins[..j].iter().copied()).collect();
         let mut alvos: Vec<TypeId> = Vec::new();
         for &(_, rc) in restricoes.iter() {
-            let mut achado: Option<TypeId> = None;
+            let (mut unico, mut atual, mut erro): (Option<TypeId>, Option<TypeId>, bool) = (None, None, false);
             for &f in fontes.iter() {
                 let Some(t) = hierarquia.supertype_of(f, rc, self.table, self.core) else { continue };
-                achado = match achado {
-                    None => Some(t),
-                    Some(a) if a == t => Some(a),
-                    Some(a) => {
-                        let (na, nt) = (crate::ops::normalize(a, self.table, self.core), crate::ops::normalize(t, self.table, self.core));
-                        if na != nt {
-                            return None;
+                if erro {
+                    continue;
+                }
+                if atual.is_none() {
+                    match unico {
+                        None => {
+                            unico = Some(t);
+                            continue;
                         }
-                        Some(na)
+                        Some(u) if u == t => continue,
+                        Some(u) => atual = Some(crate::ops::normalize(u, self.table, self.core)),
                     }
-                };
+                }
+                let nt = crate::ops::normalize(t, self.table, self.core);
+                match crate::ops::top_merge(self.table, self.core, atual.expect("posto acima"), nt) {
+                    Some(r) => atual = Some(r),
+                    None => erro = true,
+                }
             }
-            alvos.push(achado?);
+            alvos.push(atual.or(unico)?);
         }
         let mut gi = crate::constraints::GenericInferrer::new(&params);
         let tipos = {

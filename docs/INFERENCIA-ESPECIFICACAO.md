@@ -442,9 +442,11 @@ recebe os argumentos assim:
    `mixin_application_not_implemented_interface` com `'M<dynamic>'`.
 
 No DartForge: `resolve::inferir_mixin`, numa passada depois da primeira hierarquia. A hierarquia é refeita
-quando algum mixin muda, e a passada se repete até 4 vezes, porque a superclasse pode ter mixins inferidos. Quando
-dois supertipos dão tipos diferentes para o mesmo elemento, vale o normalizado se for igual nos dois lados. Se
-diferirem mesmo assim, a inferência não é feita. O `topMerge` do original para esse caso não é chamado aqui.
+quando algum mixin muda, e a passada se repete até 4 vezes, porque a superclasse pode ter mixins inferidos. O
+alvo por elemento segue o `_ClassInterfaceType.update` (`class_hierarchy.dart:170-196`):
+- Vale o primeiro tipo.
+- Um tipo diferente passa a juntar os normalizados com `ops::top_merge`.
+- Uma junção que falha deixa o resultado anterior.
 
 ### 2.8 *Inference-using-bounds* (3.7) — **desligado no 3.6**
 
