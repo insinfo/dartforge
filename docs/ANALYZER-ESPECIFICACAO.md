@@ -6738,6 +6738,15 @@ percorre classes.
 - **No DartForge:** código ausente da tabela. Lugar: rascunho `construtores.rs` (bloco `Estado`,
   `e_primario` já existe): no ramo `Estado::NaDeclaracao` dos formais, se `e_primario` relatar este e
   passar a `NoFormal`.
+- **Estado em 2026-10-07 (placar 4/4):** feito em `construtores::verificar`, seguindo o 3.13.4
+  (`constructor_fields_verifier.dart:262-322`).
+  * `e_primario` é o construtor primário elaborado da classe ou do enum. No tipo de extensão, é a parte de
+    corpo `this : …`, que começa com a representação já no estado "no parâmetro".
+  * No primário, o campo com inicializador na declaração relata a variante própria e passa ao novo estado:
+    pelo parâmetro (`…_PARAMETER_OF_PRIMARY_CONSTRUCTOR`, no nome) ou pelo inicializador
+    (`…_INITIALIZER_OF_PRIMARY_CONSTRUCTOR`, no nome do campo).
+  * Isso fez sair também os FN de `field_initialized_in_parameter_and_initializer` e os FP de
+    `field_initialized_in_initializer_and_declaration` e `final_initialized_in_declaration_and_constructor`.
 
 ##### `super_initializing_declaring_parameter` (perda 4: FN 4) — **só SN**
 - Como `initializing_declaring_parameter`, para `var super.x`/`final super.x` no cabeçalho primário.
@@ -6762,6 +6771,7 @@ percorre classes.
   `int v = 0`). Posição: o nome do campo no inicializador. Mensagem "Fields can't be initialized in both
   the primary constructor and at their declaration.". Mesmo lugar do anterior (`Estado::NaDeclaracao` dos
   inicializadores com `e_primario`).
+- **Estado em 2026-10-07 (placar 3/3):** feito junto com a variante do parâmetro (ver a seção dela).
 
 ##### `non_sync_factory` (perda 3: FN 3)
 - **Emissão:** parser, `parseFactoryMethod` (`_fe_analyzer_shared/lib/src/parser/parser_impl.dart:5139-5145`):

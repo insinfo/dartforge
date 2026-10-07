@@ -174,9 +174,20 @@ pub fn verificar(unidades: &[Unidade<'_>], nomes: &Interner) -> Vec<(usize, Diag
                     }
                 })
                 .collect();
+            // O construtor primário (3.13, `isPrimary` do verificador): o
+            // elaborado da classe ou do enum, e no tipo de extensão a parte de
+            // corpo `this : …`, cujo primário já inicializou a representação
+            // pelo parâmetro.
+            let (primario, de_extensao) = match &decl.kind {
+                DeclKind::Class(k) => (k.primary_constructor, false),
+                DeclKind::Enum(k) => (k.primary_constructor, false),
+                DeclKind::ExtensionType(_) => (None, true),
+                _ => (None, false),
+            };
             for &mid in dono.membros {
                 let m = a.member(mid);
                 let MemberKind::Constructor(k) = &m.kind else { continue };
+                let e_primario = primario == Some(mid) || (de_extensao && k.parte_primaria);
                 // `_checkForValidField`: todo construtor.
                 for p in k.parameters.iter().filter(|p| p.this_ && !p.super_) {
                     let nome = p.name.map(|n| nomes.resolve(n.sym).to_string()).unwrap_or_default();
@@ -213,12 +224,27 @@ pub fn verificar(unidades: &[Unidade<'_>], nomes: &Interner) -> Vec<(usize, Diag
                     continue;
                 }
                 let mut estados = inicial.clone();
+                if de_extensao && e_primario {
+                    // A representação (o primeiro campo do dono).
+                    estados[0] = Some(Estado::NoParametro);
+                }
                 if !m.augment {
                     for p in k.parameters.iter().filter(|p| p.this_ && !p.super_) {
                         let Some(n) = p.name else { continue };
                         let Achado::Declarado(i) = dono.achar(n.sym) else { continue };
                         match estados[i] {
                             Some(Estado::NaoIniciado) => estados[i] = Some(Estado::NoParametro),
+                            // `updateWithParameters` do 3.13.4
+                            // (`constructor_fields_verifier.dart:296-322`): no
+                            // primário, o código próprio no nome, e o campo
+                            // passa a inicializado pelo parâmetro.
+                            Some(Estado::NaDeclaracao) if e_primario => {
+                                saida.push((
+                                    iu,
+                                    Diagnostic::com_codigo(c::FIELD_INITIALIZED_IN_DECLARATION_AND_PARAMETER_OF_PRIMARY_CONSTRUCTOR, n.span, Vec::<&str>::new()),
+                                ));
+                                estados[i] = Some(Estado::NoParametro);
+                            }
                             Some(Estado::NaDeclaracao) if dono.campos[i].final_ou_const => {
                                 saida.push((
                                     iu,
@@ -234,6 +260,14 @@ pub fn verificar(unidades: &[Unidade<'_>], nomes: &Interner) -> Vec<(usize, Diag
                     let Achado::Declarado(i) = dono.achar(name.sym) else { continue };
                     match estados[i] {
                         Some(Estado::NaoIniciado) => estados[i] = Some(Estado::NoInicializador),
+                        // `updateWithInitializers` do 3.13.4 (`:262-281`).
+                        Some(Estado::NaDeclaracao) if e_primario => {
+                            saida.push((
+                                iu,
+                                Diagnostic::com_codigo(c::FIELD_INITIALIZED_IN_DECLARATION_AND_INITIALIZER_OF_PRIMARY_CONSTRUCTOR, name.span, Vec::<&str>::new()),
+                            ));
+                            estados[i] = Some(Estado::NoInicializador);
+                        }
                         Some(Estado::NaDeclaracao) => {
                             if dono.campos[i].final_ou_const {
                                 saida.push((iu, Diagnostic::com_codigo(c::FIELD_INITIALIZED_IN_INITIALIZER_AND_DECLARATION, name.span, Vec::<&str>::new())));
