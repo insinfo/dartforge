@@ -254,7 +254,10 @@ fn busca_lexica_de_leitura(inf: &mut BodyInferrer<'_>, cx: &Corpo, nome: SymbolI
         RefNome::Nenhum | RefNome::ThisImplicito => Lexico::Nada,
         RefNome::MembroLexico(f, estatico) => {
             if inf.program.function(f).kind == FunctionKind::Setter {
-                if estatico {
+                // `noGetterIsPossible` (3.6.2 `method_invocation_resolver.dart:616-628`):
+                // o setter estático ou declarado numa extensão (também o de
+                // instância) é a propriedade acessada; não se procura getter.
+                if estatico || inf.program.function(f).extension.is_some() {
                     Lexico::SetterSolto
                 } else {
                     Lexico::SetterDeInstancia
@@ -550,7 +553,14 @@ pub(crate) fn invocacao_sem_alvo_indefinida(inf: &mut BodyInferrer<'_>, cx: &Cor
     {
         return false;
     }
+    inf.ambiguidade_de_extensao = None;
     match buscar_pelo_this(inf, cx, this, n.sym, false) {
+        // Extensões ambíguas (`_resolveReceiverNull` → `TypePropertyResolver`):
+        // só a ambiguidade, no nome.
+        PeloThis::Incerto if inf.ambiguidade_de_extensao.is_some() => {
+            inf.relatar_ambiguidade_de_extensao(n.span);
+            true
+        }
         // Membro de instância: onde `this` vale, o caminho comum o resolve.
         PeloThis::Instancia if cx.tipo_this.is_some() && !cx.estatico => false,
         PeloThis::Instancia => {
@@ -1006,6 +1016,15 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
                 Busca::Achado(m) => {
                     resolver(inf, cx, e, m.resolved.clone());
                     leitura_de_campo(inf, cx, e, Base::This, m.tipo)
+                }
+                // Extensões ambíguas (`ThisLookup.lookupGetter` →
+                // `TypePropertyResolver`): a ambiguidade no nome, e sem
+                // getter o `UNDEFINED_IDENTIFIER` também
+                // (`simple_identifier_resolver.dart:208-221`).
+                Busca::Dinamico if inf.ambiguidade_de_extensao.is_some() => {
+                    inf.relatar_ambiguidade_de_extensao(n.span);
+                    nome_indefinido_sem_this(inf, cx, n);
+                    inf.table.invalido(inf.core.dynamic_)
                 }
                 Busca::Dinamico => inf.core.dynamic_,
                 Busca::Nunca => inf.core.never,
@@ -3844,6 +3863,13 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
                         }
                     }
                     nome_escrito_indefinido(inf, cx, n);
+                    inf.core.dynamic_
+                }
+                // Extensões ambíguas (`ThisLookup.lookupSetter`): a
+                // ambiguidade e, sem setter, o nome indefinido.
+                Busca::Dinamico if inf.ambiguidade_de_extensao.is_some() => {
+                    inf.relatar_ambiguidade_de_extensao(n.span);
+                    nome_indefinido_sem_this(inf, cx, n);
                     inf.core.dynamic_
                 }
                 _ => inf.core.dynamic_,

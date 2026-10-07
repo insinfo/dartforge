@@ -512,8 +512,9 @@ Base comum: a resolução de membro passa por `TypePropertyResolver.resolve` (`a
     relata `UNDEFINED_METHOD`, inclusive pelo alias não genérico (`PublicClass._privateStaticMethod()`).
   * O literal de tipo instanciado de um alias de função (`Fn<int>.foo()`) relata
     `UNDEFINED_METHOD_ON_FUNCTION_TYPE` no nome, com `{1}` o texto do tipo. Também vale com `?.`.
-  * Restam os 2 do oráculo de `equality_extension_override_error_test` e o de
-    `static_extension_internal_basename_shadowing_error_test:290:5`.
+  * Restam os 2 do oráculo de `equality_extension_override_error_test`. O de
+    `static_extension_internal_basename_shadowing_error_test:290:5` saiu com o `noGetterIsPossible` (ver
+    `ambiguous_extension_member_access`).
 
 ##### `undefined_getter` (perda 79: FN 42, FP 31, msg 6)
 - **Emissão:** `PropertyElementResolver._resolve` (`analyzer/lib/src/dart/resolver/property_element_resolver.dart:383-540`; relato :505-512) para `x.g`, `x?.g`, cascata, implícito `g` em classe (`resolver.dart:1580-1590` via `SimpleIdentifierResolver`); estático `_resolveTargetInterfaceElement` (:640-705, relato :697-704).
@@ -612,6 +613,16 @@ Base comum: a resolução de membro passa por `TypePropertyResolver.resolve` (`a
   (`E { get a }` e `E2 { set a }` → `0.a` ambíguo); (2) operadores relatam a ambiguidade: binário no nó inteiro
   (`a + a`), prefixo no operando (`-a`), índice no alvo (`a[0]`), composta no token (`a += 0`). 68 de 73; restam os
   membros de extensão alcançados pelo `this` implícito dentro de outra extensão.
+- **Estado em 2026-10-07 (placar 72/73):** o nome sozinho num membro de classe, sem nada no escopo léxico e com
+  duas extensões aplicáveis ao `this`, agora relata. Antes, `buscar_membro` devolvia `Dinamico` em silêncio.
+  * Na leitura (`ThisLookup.lookupGetter`): a ambiguidade e, sem getter, `UNDEFINED_IDENTIFIER` no mesmo nome
+    (`simple_identifier_resolver.dart:208-221`).
+  * Na escrita (`lookupSetter`): a ambiguidade e o nome indefinido.
+  * Na invocação (`_resolveReceiverNull`): só a ambiguidade.
+  * O setter achado no escopo léxico, quando é estático ou declarado numa extensão (também o de instância),
+    é o `noGetterIsPossible` (`method_invocation_resolver.dart:616-628`): `m()` relata `UNDEFINED_METHOD`.
+    Antes saía a ambiguidade, em `static_extension_internal_basename_shadowing_error_test:290:5`.
+  * Resta o índice `[]` de `static_extension_getter_setter_conflicts_test:172:3`.
 
 ##### `invocation_of_non_function` (perda 28: FN 28)
 - **Emissão:** `_reportInvocationOfNonFunction` (`method_invocation_resolver.dart:257-270`), de `_resolveReceiverNull` (:575-600) quando o elemento achado no escopo não é executável, variável nem prefixo: **parâmetro de tipo** (`T()`), alias de tipo (`typedef T = dynamic; T()`), `dynamic`; e do tipo literal com elemento não executável (:902-915).
