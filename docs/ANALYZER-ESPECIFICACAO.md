@@ -4044,6 +4044,7 @@ interesse (`nao_nulo_promocao(declarado)` quando o declarado é anulável).
   `var v;` herdando tipo não anulável (`…_ac43854d.dart`), `augment abstract int foo;` (3, augmentations — fora de escopo),
   `could_not_infer/CouldNotInfer__constructors_inferenceFBounded.dart:7:3` (dois campos `t`, `u` no construtor `P._()`).
   Ver as 2 FP e a posição no placar (não analisadas aqui: fora do fluxo).
+- **Feito em 2026-10-06 (35/35):** `_checkForNotInitializedNonNullableInstanceFields` (`error_verifier.dart:4837-4862`, chamado por `_checkForFinalNotInitializedInClass` em classe, enum, extensão e mixin sem construtor gerador explícito) decide pelo **tipo do elemento** (`isPotentiallyNonNullable`), não pela forma escrita: parâmetro de tipo (`T v;`), campo `const` (o `isFinal` da lista é só a palavra `final`), campo sem tipo inferido pela sobrescrita (`var v;` sobre `int get v`), extensão. `crates/analise/src/inicializacao.rs::finais_nao_inicializados_com` recebe o predicado (`!(Null <: T)` pelo tipo escrito ou inferido); a paridade o chama depois da inferência dos corpos. Sem o predicado (LSP, testes), a evidência sintática de antes.
 
 ##### `unnecessary_set_literal` (perda 12: FN 12)
 

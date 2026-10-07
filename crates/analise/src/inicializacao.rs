@@ -39,13 +39,24 @@ fn tipo_certo_nao_nulo(ast: &Ast, id: TypeId, nomes: &Interner, aliases: &HashSe
     }
 }
 
-fn instancia_nao_final_nao_nula(v: &VariableList, ast: &Ast, nomes: &Interner, aliases: &HashSet<SymbolId>, out: &mut Vec<(usize, Diagnostic)>, unidade: usize, enum_index: bool) {
-    if v.static_ || v.final_ || v.const_ || v.late || v.external || v.abstract_ {
+/// `_checkForNotInitializedNonNullableInstanceFields` (3.6.2,
+/// `error_verifier.dart:4837-4862`): a lista não estática, não `late` e não
+/// `final` (a `const` entra: o `isFinal` da lista é só a palavra `final`);
+/// cada variável sem inicializador, não abstrata nem externa, de tipo
+/// potencialmente não anulável. `nao_anulavel` é o predicado pelo tipo do
+/// elemento (unidade, início do nome); sem ele, a evidência sintática.
+fn instancia_nao_final_nao_nula(v: &VariableList, ast: &Ast, nomes: &Interner, aliases: &HashSet<SymbolId>, out: &mut Vec<(usize, Diagnostic)>, unidade: usize, enum_index: bool, nao_anulavel: &dyn Fn(usize, usize) -> Option<bool>) {
+    if v.static_ || v.final_ || v.late || v.external || v.abstract_ {
         return;
     }
-    let Some(tipo) = v.ty else { return };
-    if !tipo_certo_nao_nulo(ast, tipo, nomes, aliases) { return; }
     for var in v.variables.iter().filter(|var| var.initializer.is_none()) {
+        let potencial = match nao_anulavel(unidade, var.name.span.start) {
+            Some(b) => b,
+            None => !v.const_ && v.ty.is_some_and(|t| tipo_certo_nao_nulo(ast, t, nomes, aliases)),
+        };
+        if !potencial {
+            continue;
+        }
         if enum_index && nomes.resolve(var.name.sym) == "index" { continue; }
         out.push((unidade, Diagnostic::com_codigo(
             c::NOT_INITIALIZED_NON_NULLABLE_INSTANCE_FIELD,
@@ -97,6 +108,14 @@ pub fn constantes_nao_inicializadas(u: &Unidade<'_>, nomes: &Interner) -> Vec<Di
 }
 
 pub fn finais_nao_inicializados(unidades: &[Unidade<'_>], nomes: &Interner) -> Vec<(usize, Diagnostic)> {
+    finais_nao_inicializados_com(unidades, nomes, &|_, _| None)
+}
+
+/// Como [`finais_nao_inicializados`], com o predicado semântico
+/// "potencialmente não anulável" do tipo de cada campo (pela unidade, na
+/// ordem de `unidades`, e pelo início do nome); `None` cai na evidência
+/// sintática.
+pub fn finais_nao_inicializados_com(unidades: &[Unidade<'_>], nomes: &Interner, nao_anulavel: &dyn Fn(usize, usize) -> Option<bool>) -> Vec<(usize, Diagnostic)> {
     let aliases: HashSet<_> = unidades.iter().flat_map(|u| u.unit.declarations.iter().filter_map(|&id| {
         match &u.ast.decl(id).kind {
             DeclKind::Typedef(x) => Some(x.name.sym),
@@ -147,7 +166,10 @@ pub fn finais_nao_inicializados(unidades: &[Unidade<'_>], nomes: &Interner) -> V
                             v.final_ && !v.const_ && !v.late && !v.external && !v.abstract_ && var.initializer.is_none(),
                             !ffi && !v.final_ && !v.const_ && !v.late && !v.external && !v.abstract_
                                 && var.initializer.is_none()
-                                && v.ty.is_some_and(|t| tipo_certo_nao_nulo(unidade.ast, t, nomes, &aliases)),
+                                && match nao_anulavel(ui, var.name.span.start) {
+                                    Some(b) => b,
+                                    None => v.ty.is_some_and(|t| tipo_certo_nao_nulo(unidade.ast, t, nomes, &aliases)),
+                                },
                         ));
                     }
                 }
@@ -198,11 +220,13 @@ pub fn finais_nao_inicializados(unidades: &[Unidade<'_>], nomes: &Interner) -> V
                                             name.last().is_some_and(|n| matches!(nomes.resolve(n.sym), "Struct" | "Union"))
                                         } else { false }
                                     }),
-                                    DeclKind::Enum(_) | DeclKind::Mixin(_) => true,
+                                    // Classe, enum, extensão e mixin
+                                    // (`_checkForFinalNotInitializedInClass`).
+                                    DeclKind::Enum(_) | DeclKind::Mixin(_) | DeclKind::Extension(_) => true,
                                     _ => false,
                                 };
                                 if valido {
-                                    instancia_nao_final_nao_nula(v, unidade.ast, nomes, &aliases, &mut out, i, enum_index);
+                                    instancia_nao_final_nao_nula(v, unidade.ast, nomes, &aliases, &mut out, i, enum_index, nao_anulavel);
                                 }
                             }
                         }

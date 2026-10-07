@@ -536,7 +536,9 @@ impl Motor {
             let mut achados: Vec<(usize, Diagnostic, u16)> =
                 com_fase(fase::ERROR_VERIFIER, dartforge_analise::duplicatas::duplicatas_com_caminhos(&unidades, &caminhos, &interner, curinga, !sintaxe_nova)).collect();
             achados.extend(com_fase(fase::ERROR_VERIFIER, dartforge_analise::enums::sem_constantes(&unidades)));
-            achados.extend(com_fase(fase::ERROR_VERIFIER, dartforge_analise::inicializacao::finais_nao_inicializados(&unidades, &interner)));
+            // `finais_nao_inicializados` sai depois da inferência dos corpos
+            // (o tipo de um campo sem tipo vem dela).
+
             achados.extend(com_fase(fase::ERROR_VERIFIER, dartforge_analise::construtores::verificar(&unidades, &interner)));
             for (i, u) in unidades.iter().enumerate() {
                 let pulados = dartforge_analise::Pulados { fonte: u.fonte, trechos: &program.unit(ids[i]).pulados };
@@ -749,6 +751,39 @@ impl Motor {
                 &inferidas,
                 &libs_proprias,
             )));
+        }
+        // `_checkForFinalNotInitializedInClass` e o `ConstructorFieldsVerifier`
+        // (`crates/analise`), com o `isPotentiallyNonNullable` do tipo de cada
+        // campo de instância (o escrito ou o inferido, já com os corpos).
+        for lib in &libs_proprias {
+            let ids: Vec<UnitId> = program
+                .library(*lib)
+                .units
+                .iter()
+                .copied()
+                .filter(|u| program.unit(*u).role != dartforge_elements::model::UnitRole::Patch)
+                .collect();
+            let unidades: Vec<dartforge_analise::Unidade<'_>> = ids
+                .iter()
+                .map(|u| dartforge_analise::Unidade { ast: &program.unit(*u).ast, unit: &program.unit(*u).unit, fonte: &program.unit(*u).source })
+                .collect();
+            let mut nao_anulaveis: std::collections::HashMap<(usize, usize), bool> = std::collections::HashMap::new();
+            for (vi, var) in program.variables.iter().enumerate() {
+                if var.library != *lib || var.static_ {
+                    continue;
+                }
+                let dartforge_elements::model::VariableRef::Field { unit, member, index } = var.node else { continue };
+                let Some(ui) = ids.iter().position(|u| *u == unit) else { continue };
+                let dartforge_frontend::ast::MemberKind::Field(vl) = &program.unit(unit).ast.member(member).kind else { continue };
+                let Some(v) = vl.variables.get(index) else { continue };
+                let od = &outline.variables[vi];
+                let Some(t) = od.declared_type.or(od.inferred) else { continue };
+                let mut env = dartforge_types::subtyping::SubtypeEnv::new(&mut table, &outline.hierarchy, &core);
+                let anulavel = dartforge_types::subtyping::is_subtype(core.null, t, &mut env);
+                nao_anulaveis.insert((ui, v.name.span.start), !anulavel);
+            }
+            let achados = dartforge_analise::inicializacao::finais_nao_inicializados_com(&unidades, &interner, &|u, s| nao_anulaveis.get(&(u, s)).copied());
+            atribuidos.extend(com_fase(fase::ERROR_VERIFIER, achados.into_iter().map(|(i, d)| (ids[i], d))));
         }
         // Sobrescritas inválidas, nas classes em que o `verify()` do
         // `InheritanceOverrideVerifier` chega a conferi-las.
