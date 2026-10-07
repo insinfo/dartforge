@@ -5627,6 +5627,13 @@ relatos iguais do analyzer contam um.
 - **No DartForge:** inexistente. Pode ir em `crates/types` (usa os candidatos dos supertipos diretos,
   `na_interface` por supertipo direto) após o resto. 21 FN em `override_on_non_overriding_{field,getter,
   method,setter}/*` (classe, enum, mixin, extensão, estáticos, construtor primário 3.13).
+- **Estado em 2026-10-07 (placar 21/21):** duas correções.
+  * O parâmetro declarante do construtor primário (3.13) com `@override` é conferido como campo, no nome do
+    parâmetro (`fase_override::sem_sobrescrita`). A elaboração cria o campo sem metadata, e copiá-la faria os
+    argumentos da anotação serem analisados duas vezes.
+  * Na lista de variáveis, depois de `,` vindo de `;`, `=`, `,`, `}` ou do fim, o parser segue o `ensureIdentifier`
+    do fasta: relata `MISSING_IDENTIFIER` e insere uma variável de nome vazio, em vez de descartar o membro.
+    Assim `@override Object? foo,;` relata nas duas variáveis, `foo` e a vazia.
 
 ##### `supertype_expands_to_type_parameter` (perda 21: FN 21; nada emitido)
 - **Emissão:** `NamedTypeResolver._verifyTypeAliasForContext` (`src/dart/resolver/named_type_resolver.dart:420-476`),

@@ -108,8 +108,33 @@ pub fn sem_sobrescrita(
             DeclKind::Class(_) | DeclKind::Enum(_) | DeclKind::Mixin(_) => classe,
             _ => None,
         };
+        let primario = match &d.kind {
+            DeclKind::Class(x) => x.primary_constructor,
+            DeclKind::Enum(x) => x.primary_constructor,
+            _ => None,
+        };
         for &mid in membros(d) {
             let membro = a.member(mid);
+            // O parâmetro declarante do construtor primário (3.13) é o campo:
+            // a anotação dele vale para o campo, que a elaboração cria sem
+            // metadata. No nome do parâmetro.
+            if primario == Some(mid)
+                && let MemberKind::Constructor(k) = &membro.kind
+            {
+                for par in k.parameters.iter().filter(|x| x.declarante) {
+                    let Some(nome) = par.name else { continue };
+                    if !com_override(program, interner, u, &par.metadata) {
+                        continue;
+                    }
+                    let pelo_getter = corrente.is_some_and(|c| sobrescreve(&mut h, &mut p, c, lib, Some(nome.sym)));
+                    let pelo_setter = !pelo_getter
+                        && !par.final_
+                        && corrente.is_some_and(|c| sobrescreve(&mut h, &mut p, c, lib, chave_do_setter(interner, nome.sym)));
+                    if !pelo_getter && !pelo_setter {
+                        saida.push((u, Diagnostic::com_codigo(w::OVERRIDE_ON_NON_OVERRIDING_FIELD, nome.span, vazio)));
+                    }
+                }
+            }
             if !com_override(program, interner, u, &membro.metadata) {
                 continue;
             }

@@ -2598,6 +2598,16 @@ impl<'s, 'i> Parser<'s, 'i> {
             if !self.eat_op(Op::Comma) {
                 break;
             }
+            // `ensureIdentifier` no contexto de declaração de campo/variável:
+            // diante de `;`, `=`, `,` ou `}` (e do fim), o fasta relata
+            // `MISSING_IDENTIFIER` e insere um identificador sintético, e a
+            // lista segue com a variável sem nome (`Object? foo,;`).
+            if matches!(self.kind(), Kind::Op(Op::Semicolon | Op::Assign | Op::Comma | Op::RBrace) | Kind::Eof) {
+                self.erro(codigos::parser::MISSING_IDENTIFIER, &[]);
+                let inicio = self.span().start;
+                name = self.name_from("", Span { start: inicio, end: inicio });
+                continue;
+            }
             name = self.expect_identifier()?;
             self.conferir_nome_de_membro(name.span);
         }
