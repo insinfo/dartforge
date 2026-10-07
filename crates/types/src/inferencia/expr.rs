@@ -4664,6 +4664,11 @@ fn comparacao_com_nulo(inf: &mut BodyInferrer<'_>, cx: &Corpo, op: BinaryOp, lef
     let nulo = |x: ExprId| matches!(a.expr(x).kind, ExprKind::Null);
     let (sl, sr) = (inf.span_expr(cx.unit, left), inf.span_expr(cx.unit, right));
     let operador = token_de_operador(inf, cx, sl.end);
+    // `===`/`!==` (`UNSUPPORTED_OPERATOR`): o nó não é uma comparação de
+    // igualdade para o `_checkForUnnecessaryNullComparison`.
+    if inf.program.unit(cx.unit).source.get(operador.start..).is_some_and(|s| s.starts_with("===") || s.starts_with("!==")) {
+        return;
+    }
     let diferente = op == BinaryOp::NotEq;
     let local_nao_atribuida = |inf: &mut BodyInferrer<'_>, x: ExprId| match &ast(inf, cx).expr(x).kind {
         ExprKind::Identifier(_) => match inf.body_types.units[cx.unit.0 as usize].get_resolved(x) {

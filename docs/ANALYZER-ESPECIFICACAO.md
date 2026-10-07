@@ -4149,6 +4149,8 @@ interesse (`nao_nulo_promocao(declarado)` quando o declarado é anulável).
   (`executable_body/ExecutableBody__class_staticField_abstr_*`): o DartForge pula campos `abstract` (só deve pular `external`).
 
 ##### `unnecessary_null_comparison` (perda 8: FN 8)
+- **Feito em 2026-10-07 (54/54):** a escrita de `InvalidType` promove ao não anulável do declarado (INFERENCIA
+  §7.8), e `===`/`!==` (`UNSUPPORTED_OPERATOR`) não são comparação de igualdade para esta regra.
 
 - **Emissão:** `BestPracticesVerifier._checkForInvariantNullComparison` (`analyzer/lib/src/error/best_practices_verifier.dart:1059-1092`;
   "never null" `NEVER_NULL_TRUE/FALSE`) e `BinaryExpressionResolver` (`analyzer/lib/src/dart/resolver/binary_expression_resolver.dart:123-150`;

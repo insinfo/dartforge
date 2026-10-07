@@ -356,9 +356,17 @@ impl<'a> BodyInferrer<'a> {
             m.historico = None;
         } else {
             let cadeia_antes = m.cadeia.clone();
-            // Escrita de `dynamic` num local tipado é cast implícito: o tipo
-            // escrito efetivo é o declarado.
-            let escrito = if self.e_dynamic(escrito) && !self.e_dynamic(declarado) { declarado } else { escrito };
+            // O `InvalidType` escrito é subtipo de tudo (promove ao não
+            // anulável do declarado como um `Never`); a escrita de `dynamic`
+            // num local tipado é cast implícito: o tipo escrito efetivo é o
+            // declarado.
+            let escrito = if self.table.e_invalido(escrito) && !self.e_dynamic(declarado) {
+                self.core.never
+            } else if self.e_dynamic(escrito) && !self.e_dynamic(declarado) {
+                declarado
+            } else {
+                escrito
+            };
             // demote (`_demoteViaAssignment`): a cadeia é decrescente, então
             // o que fica é um prefixo; cada tipo desfeito entra no histórico,
             // do último ao primeiro (o primeiro desfeito fica na frente).

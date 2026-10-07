@@ -1111,6 +1111,10 @@ x` → `int` (§7.10).
    <: C`, `C <: atual` e passo válido; igualdade exata ao tipo escrito vence;
    senão o único subtipo de todos os outros; senão nenhum. [3.14] também exige
    `C <: declarado` e tipo escrito não inválido.
+   [3.6] o `InvalidType` escrito é subtipo de tudo: `int? i = o.x;` com `o` de
+   classe indefinida promove `i` a `int` (e `i == null` sai
+   `unnecessary_null_comparison`); no DartForge a escrita inválida conta como
+   `Never` (`fluxo.rs::escrever_fluxo`), e a de `dynamic`, como o declarado.
 4. **Demoção total** (cadeia vai de não vazia a vazia): [3.6] **limpa
    `tested`** (F76:3120-3125); [3.9+] mantém (issue #4380).
 
