@@ -486,6 +486,16 @@ pub(crate) fn nome_indefinido_sem_this(inf: &mut BodyInferrer<'_>, cx: &Corpo, n
     if crate::scope::deve_ignorar_indefinido(inf.program, inf.interner, cx.unit, None, n.sym) {
         return;
     }
+    // O prefixo de um import cujo alvo não existe (`import 'dart:foo' as foo;`):
+    // o `PrefixElement` existe mesmo assim, e `foo.bar` é um nome prefixado
+    // que não resolve, sem relato aqui.
+    let lib = inf.program.unit(cx.unit).library;
+    let e_prefixo = inf.program.library(lib).units.iter().any(|&u| {
+        inf.program.unit(u).unit.directives.iter().any(|d| matches!(&d.kind, ast::DirectiveKind::Import { prefix: Some(p), .. } if p.sym == n.sym))
+    });
+    if e_prefixo {
+        return;
+    }
     let msg = format!("{}: '{}'", UNDEFINED_IDENTIFIER.template, texto);
     inf.aviso(msg, n.span);
 }

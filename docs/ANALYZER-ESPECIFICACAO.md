@@ -20389,6 +20389,8 @@ Autor: r3-f. Fonte: `E:\references\dart-sdk-3.6.2\pkg\analyzer\lib` (citado como
 **Estado do código:** antes da mudança de método, r3-f já tinha implementado (compilando, build release ok, sem placar) a parte de `undefined_identifier`/`undefined_prefixed_name`/`undefined_identifier_await`/`creation_with_non_type` descrita em "Mudança (feita)" nas seções — arquivos `crates/types/src/scope.rs` (`deve_ignorar_indefinido`), `crates/types/src/inferencia/expr.rs` e duas edições atômicas em `crates/types/src/inferencia/chamadas.rs` (`chamada`, `criacao_sem_classe`). Ainda não validado no placar.
 
 ##### `undefined_identifier` (perda 169: FN 73, FP 95, msg 1, pos 0)
+- **Corrigido em 2026-10-07 (FP 8 → 5):** o prefixo de um import cujo alvo não existe continua sendo um
+  `PrefixElement` (`import 'dart:foo' as foo; foo.bar();`): o identificador não relata.
 
 Fonte: `analyzer/lib/...` do `E:\references\dart-sdk-3.6.2\pkg\analyzer` (idêntico ao analyzer 6.11 do pub-cache nos arquivos citados, salvo `element.dart`, cujas linhas citadas conferem).
 
@@ -20428,6 +20430,10 @@ Fonte: `analyzer/lib/...` do `E:\references\dart-sdk-3.6.2\pkg\analyzer` (idênt
   - Mudança (já parcialmente no código desta rodada, compilando — ver relatório): `expr.rs` ganhou `tipo_this_do_analyzer`, `busca_lexica_de_leitura` (getter / só setter de instância / só setter solto / nada), `buscar_pelo_this` (+ `estatico_na_cadeia`, recuperação estática), `nome_lido_indefinido`, `nome_escrito_indefinido`, `invocacao_sem_alvo_indefinida`, `load_library`, `avisar_nome_prefixado_indefinido`, `erro_de_instancia_sem_this`; `crates/types/src/scope.rs::deve_ignorar_indefinido` (porta de `shouldIgnoreUndefined`); `chamadas.rs::chamada` intercepta `nome(args)` e `p.nome(args)` antes de inferir o alvo. Falta: anotações de parâmetro de tipo, padrões (`visitAssignedVariablePattern`, constante), privacidade na busca pelo `this`, o `show` de `dart:core`, `x.a<T>` (5) e o relacional `== b && var b`.
 
 ##### `undefined_class` (perda 124: FN 116, FP 8, msg 0, pos 0)
+- **Corrigido em 2026-10-07 (FP 8 → 3):** os tipos do esboço (`resolve.rs`) também passam pelo
+  `shouldIgnoreUndefinedNamedType` (`scope::deve_ignorar_indefinido`): o nome que pode vir de um import ou de
+  uma parte que não existe (`p.A a;` com `import 'a.dart' as p;` ausente, `_$A` com `part 'a.template.dart'`)
+  não relata.
 
 - **Emissão:** `NamedTypeResolver.resolve` (`analyzer/lib/src/dart/resolver/named_type_resolver.dart:84-131`), chamado por `ResolutionVisitor.visitNamedType` (`analyzer/lib/src/dart/resolver/resolution_visitor.dart:1096-1105`; argumentos de tipo visitados **antes** do nome, `:1097`), na passada `ResolutionVisitor` de `LibraryAnalyzer._resolveFile` (`analyzer/lib/src/dart/analysis/library_analyzer.dart:811-863`) sobre a AST recuperada pelo fasta. Sai em `_resolveToElement` (`named_type_resolver.dart:304-322`) → `_ErrorHelper.reportNullOrNonTypeElement` (`:518-651`).
 - **Condição exata:**

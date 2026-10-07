@@ -1750,8 +1750,12 @@ impl<'a> OutlineResolver<'a> {
                         }
                         None => {
                             // Nome sintético da recuperação do parser (vazio,
-                            // sem largura): o analyzer não o relata.
-                            if span.start != span.end {
+                            // sem largura): o analyzer não o relata; nem o que
+                            // pode vir de um import ou parte que não existe
+                            // (`shouldIgnoreUndefinedNamedType`).
+                            if span.start != span.end
+                                && !crate::scope::deve_ignorar_indefinido(self.program, self.interner, unit_id, None, name[0].sym)
+                            {
                                 self.avisar_nome_de_tipo(unit_id, contexto, false, &texto, faixa);
                             }
                             self.table.invalido(self.core.dynamic_)
@@ -1868,7 +1872,9 @@ impl<'a> OutlineResolver<'a> {
                             }
                         },
                         None => {
-                            self.avisar_nome_de_tipo(unit_id, contexto, false, &texto, faixa);
+                            if !crate::scope::deve_ignorar_indefinido(self.program, self.interner, unit_id, Some(name[0].sym), name[1].sym) {
+                                self.avisar_nome_de_tipo(unit_id, contexto, false, &texto, faixa);
+                            }
                             self.table.invalido(self.core.dynamic_)
                         }
                     }
