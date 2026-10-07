@@ -202,13 +202,18 @@ pub fn finais_nao_inicializados_com(unidades: &[Unidade<'_>], nomes: &Interner, 
                 DeclKind::Enum(x) => (&x.members, com_gerador.contains(&chave_de(true, x.name.sym, i, id))),
                 DeclKind::Mixin(x) => (&x.members, false),
                 DeclKind::Extension(x) => (&x.members, false),
-                DeclKind::ExtensionType(x) => (&x.members, false),
+                // O primário do tipo de extensão é um construtor gerador escrito.
+                DeclKind::ExtensionType(x) => (&x.members, true),
                 _ => continue,
             };
             for &m in membros.0 {
                 match &unidade.ast.member(m).kind {
                     MemberKind::Field(v) => {
-                        if v.static_ || !membros.1 {
+                        // `_checkForFinalNotInitializedInClass` (3.6.2
+                        // `error_verifier.dart:3624-3643`): com um construtor
+                        // gerador escrito, retorna antes; nem os `static final`
+                        // são conferidos.
+                        if !membros.1 {
                             let enum_index = !v.static_ && matches!(&unidade.ast.decl(id).kind, DeclKind::Enum(_));
                             final_sem_inicializador(v, nomes, &mut out, i, enum_index);
                             if !membros.1 {
@@ -342,7 +347,6 @@ mod testes {
     fn tres_fontes_do_corpus_oficial() {
         for (fonte, nome) in [
             (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/variable_not_initialized/VariableNotInitialized__topLevelVariabl_dd6c7267.dart")), "v"),
-            (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/variable_not_initialized/VariableNotInitialized__class_staticFie_99366e40.dart")), "v2"),
             (include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/variable_not_initialized/VariableNotInitialized__class_instanceF_5d207b49.dart")), "v"),
         ] {
             assert_eq!(testar(fonte), vec![(
@@ -350,6 +354,15 @@ mod testes {
                 format!("The final variable '{nome}' must be initialized."),
             )]);
         }
+    }
+
+    /// Com um construtor gerador escrito, o `_checkForFinalNotInitializedInClass`
+    /// retorna antes e o `static final` sem inicializador não é relatado aqui
+    /// (o oráculo 3.6.2 só tem o `not_initialized_non_nullable_variable`).
+    #[test]
+    fn estatico_com_construtor_gerador_nao_relata() {
+        let fonte = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnosticos/analyzer/variable_not_initialized/VariableNotInitialized__class_staticFie_99366e40.dart"));
+        assert!(testar(fonte).iter().all(|(_, m)| !m.starts_with("The final variable")));
     }
 
     #[test]

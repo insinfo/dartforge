@@ -6233,6 +6233,9 @@ ou `undefined_class 'augment'`) e o resto é **outra declaração homônima** (`
   sem olhar o contexto — 3 deles AUG por acaso); **2** recuperação (`final final class X {}` e
   `final abstract class X {}` — o fasta cria variável `final` de nome sintético ''/tipo `abstract`, length 0 no
   token seguinte).
+- **Corrigido em 2026-10-07 (36/36):** `_checkForFinalNotInitializedInClass` (3.6.2 `error_verifier.dart:3624-3643`)
+  retorna antes quando o tipo tem um construtor gerador escrito: nem os `static final` sem inicializador são
+  conferidos; o tipo de extensão sempre tem o primário (gerador), e os dele também não.
 
 ##### `field_initialized_by_multiple_initializers` (perda 12: FN 12)
 - **Emissão:** CFV `updateWithInitializers` (CFV:197-236, erro CFV:226-231), durante `addConstructors`.
@@ -6593,6 +6596,9 @@ percorre classes.
   (`declarations.rs:1276`: `if !(p.var_||p.final_) || p.this_ || p.super_ { continue }`). Emitir lá,
   como `parser`, no `this` (achar o offset do `this` no texto do parâmetro). `const this.x` é outro erro
   (`extraneous_modifier`, já sai).
+- **Feito em 2026-10-07 (5/5, e `super_initializing_declaring_parameter` 4/4):** no construtor primário,
+  `final`/`var` com `this.`/`super.` relata no `this`/`super` (`types.rs::parse_formal_parameter`); o
+  `UNNECESSARY_FINAL` do `final this.x` fica só para os construtores comuns (`c2_sintaticos.rs`).
 
 ##### `non_generative_constructor` (perda 5: FN 5)
 - **Emissão (duas):**

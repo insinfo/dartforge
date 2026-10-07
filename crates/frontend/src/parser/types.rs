@@ -789,6 +789,18 @@ impl<'s, 'i> Parser<'s, 'i> {
         let name = if self.at_field_formal(self.pos) {
             this_ = self.at_kw(Keyword::This);
             super_ = !this_;
+            // `final`/`var` com `this.`/`super.` no construtor primário: o
+            // parâmetro seria declarante e inicializador (o parser do 3.13.4
+            // relata no `this`/`super`).
+            if self.em_construtor_primario && (final_ || var_) {
+                let codigo = if this_ {
+                    codigos::parser::INITIALIZING_DECLARING_PARAMETER
+                } else {
+                    codigos::parser::SUPER_INITIALIZING_DECLARING_PARAMETER
+                };
+                let sp = self.span();
+                self.erro_em(codigo, sp, &[]);
+            }
             self.advance();
             self.advance();
             Some(self.expect_identifier()?)

@@ -76,6 +76,8 @@ struct Visita<'a> {
     nivel_de_catch: u32,
     modificador: AsyncModifier,
     laco: Laco,
+    /// O construtor primário do tipo cujos membros estão sendo visitados.
+    primario: Option<MemberId>,
 }
 
 /// Os diagnósticos sintáticos de uma unidade.
@@ -90,6 +92,7 @@ pub fn verificar(u: Unidade<'_>, nomes: &Interner) -> Vec<Diagnostic> {
         nivel_de_catch: 0,
         modificador: AsyncModifier::None,
         laco: Laco::Fora,
+        primario: None,
     };
     // As URIs das diretivas não podem ter interpolação.
     for d in u.unit.directives.iter() {
@@ -144,7 +147,9 @@ impl<'a> Visita<'a> {
                     self.relatar(c::MAIN_IS_NOT_FUNCTION, sp, &[]);
                 }
                 let com_const = k.members.iter().any(|m| matches!(&a.member(*m).kind, MemberKind::Constructor(x) if x.const_ && !x.factory));
+                self.primario = k.primary_constructor;
                 self.membros(&k.members, com_const);
+                self.primario = None;
             }
             DeclKind::Mixin(k) => {
                 if let Some(sp) = nao_funcao(k.name) {
@@ -164,7 +169,9 @@ impl<'a> Visita<'a> {
                     }
                 }
                 // Os construtores de um enum são sempre `const`.
+                self.primario = k.primary_constructor;
                 self.membros(&k.members, true);
+                self.primario = None;
             }
             DeclKind::Extension(k) => self.membros(&k.members, false),
             DeclKind::ExtensionType(k) => self.membros(&k.members, false),
@@ -198,7 +205,19 @@ impl<'a> Visita<'a> {
                 }
                 MemberKind::Method(f) => self.funcao(*f),
                 MemberKind::Constructor(k) => {
-                    self.parametros(&k.parameters);
+                    // No construtor primário o `final`/`var` com `this.`/`super.`
+                    // é o erro do parser (`INITIALIZING_DECLARING_PARAMETER`),
+                    // não este aviso.
+                    let primario = self.primario == Some(mid) || k.parte_primaria;
+                    if !primario {
+                        self.parametros(&k.parameters);
+                    } else {
+                        for p in k.parameters.iter() {
+                            if let Some(d) = p.default_value {
+                                self.expr(d);
+                            }
+                        }
+                    }
                     for init in k.initializers.iter() {
                         match init {
                             ast::Initializer::Field { value, .. } => self.expr(*value),
@@ -223,8 +242,10 @@ impl<'a> Visita<'a> {
 
     fn parametros(&mut self, ps: &'a [ast::Parameter]) {
         for p in ps {
-            // `final this.x` / `final super.x`: o parâmetro já é final.
-            if p.final_ && (p.this_ || p.super_) {
+            // `final this.x` / `final super.x`: o parâmetro já é final. No
+            // construtor primário o `final` faz dele declarante, e o erro é
+            // `INITIALIZING_DECLARING_PARAMETER` (sem este aviso).
+            if p.final_ && (p.this_ || p.super_) && !p.declarante {
                 let fim = p.name.map_or(p.span.end, |n| n.span.start);
                 if let Some(i) = self.fonte.get(p.span.start..fim).and_then(|t| primeira_palavra(t, "final")) {
                     self.relatar(w::UNNECESSARY_FINAL, Span { start: p.span.start + i, end: p.span.start + i + 5 }, &[]);
