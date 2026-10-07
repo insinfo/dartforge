@@ -571,6 +571,10 @@ Base comum: a resolução de membro passa por `TypePropertyResolver.resolve` (`a
 - **Condição exata:** sem setter; se houver getter final/método no lugar, `AssignmentVerifier` relata outro código (`ASSIGNMENT_TO_FINAL`, `ASSIGNMENT_TO_FINAL_NO_SETTER`, `ASSIGNMENT_TO_METHOD`…).
 - **Posição:** o nome. **Mensagem:** `The setter '{0}' isn't defined for the type '{1}'.` (instância DartType; estático nome da classe).
 - **No DartForge:** `expr.rs::escrita_propriedade`. **FN**: `C.s = v` estático (2), `x.new = …` (2), `…functionAlias…`, `if_null/assignment_behavior_test`, `regress13494`. **FP**: receptor `void` (deve ser só `USE_OF_VOID_RESULT`), `instance_access_to_static_member` (estático acessado por instância: outro código), `getter/no_setter*_test` (getter sem setter de `this` implícito → `ASSIGNMENT_TO_FINAL_NO_SETTER`).
+- **Feito em 2026-10-07 (25/29):** escrita estática pela classe (`A.B = 0`, `C.s = 1` com `s` estático só na
+  superclasse, `C.new = 1`) sem setter nem getter (estático ou de instância, o `augmented.getGetter`): o
+  `AssignmentVerifier` relata `UNDEFINED_SETTER` com o `thisType` da classe (`property_element_resolver.dart:708-731`,
+  `assignment_verifier.dart:96-106`), em `expr.rs::escrita_propriedade`.
 
 ##### `undefined_extension_operator` (perda 8: FN 8)
 - **Emissão:** `binary_expression_resolver.dart:405-414` (e prefixo :160-168, índice `property_element_resolver.dart:52-70`).
@@ -657,6 +661,11 @@ Base comum: a resolução de membro passa por `TypePropertyResolver.resolve` (`a
 - **Mensagem:** `The instance member '{0}' can't be accessed in an initializer.` — `{0}` o nome do identificador.
 - **Supressões e ordem:** `this.x` explícito é outro código (`INVALID_REFERENCE_TO_THIS`); parâmetros de inicialização (`this.f`) e parâmetros de construtor com o mesmo nome sombreiam o membro (não relata). Campo `late` não relata.
 - **No DartForge:** inexistente. **Mudança:** marcar no `Corpo` o contexto "inicializador" (em `funcoes.rs::inicializador` e no inicializador de campo não `late`/estático em `mod.rs`) e relatar em `expr.rs` quando um identificador implícito resolve a membro de instância.
+- **Feito em 2026-10-07 (17/17; restam 3 FP de construtor primário):** `_checkForInvalidInstanceMemberAccess`
+  vale também em `_isInInstanceNotLateVariableDeclaration` e `_isInStaticVariableDeclaration` (3.6.2
+  `error_verifier.dart:3976-3986`): o inicializador de campo de instância não `late` e o de variável estática de
+  classe ou extensão (inclusive dentro de closures nele) relatam o membro de instância sem `this`
+  (`Corpo::inicializador_de_variavel`); os argumentos de constante de enum e as anotações continuam de fora.
 
 ##### `super_in_invalid_context` (perda 20: FN 20)
 - **Emissão:** `ElementResolver.visitSuperExpression` (`analyzer/lib/src/generated/element_resolver.dart:404-424`) com `SuperContext.of` (`analyzer/lib/src/generated/super_context.dart`); os resolvedores (`method_invocation_resolver.dart:738`, `property_element_resolver.dart:795`, `binary_expression_resolver.dart:329`) apenas param de resolver o membro quando o contexto não é válido (não relatam `UNDEFINED_SUPER_*`).

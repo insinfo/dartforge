@@ -329,9 +329,11 @@ fn erro_de_instancia_sem_this(inf: &BodyInferrer<'_>, cx: &Corpo) -> Option<dart
             ast::MemberKind::Constructor(_) => Some(c::IMPLICIT_THIS_REFERENCE_IN_INITIALIZER),
             _ => None,
         },
-        // Inicializador de campo, mas também argumentos de constante de enum
-        // e anotações, que usam o mesmo corpo sem raiz e onde o analyzer não
-        // relata nada: na dúvida, nada.
+        // Inicializador de campo de instância não `late` ou de variável
+        // estática (3.6.2 `error_verifier.dart:3976-4038`); os argumentos de
+        // constante de enum e as anotações usam o mesmo corpo sem raiz e
+        // ficam de fora.
+        super::corpo::Raiz::Nada if cx.inicializador_de_variavel => Some(c::IMPLICIT_THIS_REFERENCE_IN_INITIALIZER),
         super::corpo::Raiz::Nada => None,
     }
 }
@@ -4060,6 +4062,30 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
                     let extensao = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
                     let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_SETTER.template, inf.interner.resolve(name.sym), extensao);
                     inf.aviso(msg, name.span);
+                }
+                // `_resolveTargetInterfaceElement` sem setter nem getter
+                // (`augmented.getGetter`, que também vê os de instância): o
+                // `AssignmentVerifier` relata `UNDEFINED_SETTER` com o
+                // `thisType` da classe (3.6.2 `property_element_resolver.dart:708-731`,
+                // `assignment_verifier.dart:96-106`); os estáticos da
+                // superclasse não contam (`C.s = 1`), e `C.new = 1` também.
+                if getter_ausente
+                    && !instancia_explicita
+                    && let RefTipo::Classe(c, _) = rt
+                {
+                    let classe = inf.program.class(c);
+                    let de_instancia = classe.instance_members.contains_key(&name.sym)
+                        || inf.chave_setter(name.sym).is_some_and(|ch| classe.instance_members.contains_key(&ch));
+                    if !de_instancia && name.span.start != name.span.end {
+                        let this = inf.tipo_this_classe(c);
+                        let msg = format!(
+                            "{}: setter '{}' não definido para o tipo '{}'",
+                            UNDEFINED_SETTER.template,
+                            inf.interner.resolve(name.sym),
+                            inf.table.format(this, inf.interner, inf.program),
+                        );
+                        inf.aviso(msg, name.span);
+                    }
                 }
                 inf.core.dynamic_
             }

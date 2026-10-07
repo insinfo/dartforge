@@ -104,6 +104,11 @@ pub(crate) struct Corpo {
     /// expressão (`cascadeExpression_afterTarget`), que uma escrita na
     /// variável durante as seções não muda.
     pub bases_de_cascata: Vec<Option<(Base, u32)>>,
+    /// No inicializador de um campo de instância não `late` ou de uma
+    /// variável estática de classe ou extensão (`_isInInstanceNotLateVariableDeclaration`,
+    /// `_isInStaticVariableDeclaration`): o membro de instância sem `this` é
+    /// `IMPLICIT_THIS_REFERENCE_IN_INITIALIZER`.
+    pub inicializador_de_variavel: bool,
     /// A versão forçada de uma base enquanto se lê uma propriedade pelo
     /// alvo de cascata ([`Corpo::versao_da_base`]).
     pub versao_forcada: Option<(Base, u32)>,
@@ -265,6 +270,7 @@ impl Corpo {
             cascatas: Vec::new(),
             alvos_de_cascata: Vec::new(),
             bases_de_cascata: Vec::new(),
+            inicializador_de_variavel: false,
             versao_forcada: None,
             padrao_refutavel: false,
             refutavel_forcado: false,
@@ -335,6 +341,7 @@ impl Corpo {
         let estatico = v.static_ || (classe.is_none() && extensao.is_none()) || !v.late;
         let mut cx = Corpo::novo(inf, unit, classe, extensao, estatico);
         cx.membro_estatico = v.static_ && (classe.is_some() || extensao.is_some());
+        cx.inicializador_de_variavel = (classe.is_some() || extensao.is_some()) && (v.static_ || !v.late);
         if !v.static_ && v.late {
             cx.estatico = false;
             if let Some(c) = classe {
