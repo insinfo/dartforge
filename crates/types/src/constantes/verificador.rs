@@ -477,7 +477,9 @@ impl Verificador<'_, '_> {
             DeclKind::Class(k) => self.membros(a, &k.members),
             DeclKind::Mixin(k) => self.membros(a, &k.members),
             DeclKind::Enum(k) => {
-                for cst in k.constants.iter() {
+                let unidade = self.unidade;
+                let classe = self.m.program.classes.iter().position(|c| c.decl.is_some_and(|r| r.unit == unidade && r.decl == d));
+                for (i, cst) in k.constants.iter().enumerate() {
                     if let Some(args) = &cst.arguments {
                         for arg in args.args.iter() {
                             self.expr(a, arg.value, true);
@@ -486,6 +488,15 @@ impl Verificador<'_, '_> {
                         for arg in args.args.iter() {
                             self.avaliar_e_relatar(arg.value, true, c::CONST_WITH_NON_CONSTANT_ARGUMENT);
                         }
+                    }
+                    // `visitEnumConstantDeclaration` (`constant_verifier.dart:204-217`):
+                    // o `evaluationResult` inválido da constante, sem código
+                    // padrão (a exceção de avaliação vira
+                    // `CONST_EVAL_THROWS_EXCEPTION` na constante).
+                    if let Some(ci) = classe
+                        && let Some(&v) = self.m.program.classes[ci].enum_constants.get(i)
+                    {
+                        self.resultado_de_variavel(v, false);
                     }
                 }
                 self.membros(a, &k.members);

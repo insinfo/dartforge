@@ -12,9 +12,9 @@ Frentes desta rodada: as quatro especificações (`docs/ANALYZER-ESPECIFICACAO.m
 
 | medida | 2026-10-02 | agora |
 | --- | ---: | ---: |
-| Placar do analisador (corpus, posição exata) | 80,5% (19.015 na r8, não publicada) | **96,6%** — 22.257/23.030 |
-| FP do placar | 493 → 339 (r8) | **358** (era 1.339 no começo de 2026-10-05) |
-| FN do placar | — | **661** (era 2.095 no começo de 2026-10-05) |
+| Placar do analisador (corpus, posição exata) | 80,5% (19.015 na r8, não publicada) | **97,0%** — 22.335/23.030 |
+| FP do placar | 493 → 339 (r8) | **346** (era 1.339 no começo de 2026-10-05) |
+| FN do placar | — | **583** (era 2.095 no começo de 2026-10-05) |
 | Projetos reais (`new_sali` core e frontend, `limitless_ui`): diagnósticos sem par no `dart analyze` | 61 | **0** |
 | Lints novos (`E:\dftemp\lints_novos`, 14 regras) | — | 211/211 iguais ao `dart analyze` |
 | Casos s01–s12 do T5 (`corpus/especificacao/t2/t5`) | — | 12/12 iguais |
@@ -119,17 +119,15 @@ como igual):
 
 ### O que falta
 
-1. **Analisador** (placar `placar_det88`, 22.257/23.030).
-   * FN por código: `const_eval_throws_exception` 17, `return_of_invalid_type_from_closure` 16,
-     `mixin_class_declares_non_trivial_generative_constructor` 16, `extra_positional_arguments` 16,
-     `unused_local_variable` 15, `prefix_identifier_not_followed_by_dot` 15,
-     `argument_type_not_assignable` 14, `return_of_invalid_type` 13,
-     `non_abstract_class_inherits_abstract_member` 13, `undefined_super_member` 12,
-     `not_initialized_non_nullable_instance_field` 12, `missing_identifier` 12,
-     `missing_default_value_for_parameter` 12, `invocation_of_non_function_expression` 12.
+1. **Analisador** (placar `placar_det97`, 22.335/23.030).
+   * FN por código: `unused_local_variable` 15, `argument_type_not_assignable` 12,
+     `return_of_invalid_type` 13, `non_abstract_class_inherits_abstract_member` 13,
+     `undefined_super_member` 12, `not_initialized_non_nullable_instance_field` 12, `missing_identifier`
+     12, `missing_default_value_for_parameter` 12, `invocation_of_non_function_expression` 12,
+     `const_eval_throws_exception` 10.
    * FP por código: `type_argument_not_matching_bounds` 17, `undefined_enum_constructor` 16,
      `unchecked_use_of_nullable_value` 16, `experiment_not_enabled` 13, `invalid_use_of_covariant` 12,
-     `const_eval_property_access` 11, `undefined_operator` 10, `deprecated_member_use_from_same_package` 10.
+     `const_eval_property_access` 11, `undefined_operator` 10.
    * Recuperação do parser com palavras embutidas em posições de tipo e de declaração (sondas em
      `E:\dftemp\stm\lib\bi.dart`: `List<abstract>`, `abstract y = 1;` local, `factory f;` em classe,
      `typedef abstract T(…)`).
@@ -177,7 +175,7 @@ como igual):
   `getImportElement`, `super.x` e argumentos de comprimento 0 dos `this.x`); implementation pelo
   `findMemberElement`; completar no nome de `A.n()` e `C.m()`.
 
-### Continuação de 2026-10-06, analisador (placar 21.974 → 22.257)
+### Continuação de 2026-10-06, analisador (placar 21.974 → 22.335)
 
 Cada correção saiu da fonte do analyzer 3.6.2 (ou do checkout main, para os códigos do 3.13), foi
 conferida com o `dart analyze` 3.6.2 quando a fonte deixava dúvida, e entrou na especificação junto
@@ -198,8 +196,16 @@ com o código.
 * **Subtipagem:** tipo de extensão sem `implements` que leve a classe não é subtipo de `Object`;
   `this` fora de contexto de instância tem o tipo da declaração; local potencialmente não anulável
   por `!(Null <: T)`.
+* **Segunda leva (22.257 → 22.335):** `mixin_class_declares_non_trivial_generative_constructor` (16/16,
+  regra do 3.13), `prefix_identifier_not_followed_by_dot` (15/15), `return_of_invalid_type_from_closure`
+  (32/32: toda closure conferida contra o retorno inferido e ajustado ao contexto),
+  `extra_positional_arguments` e `not_enough_positional_arguments` (100%: construtor do atalho de ponto
+  pela criação comum, primeiro construtor repetido, `this.x` obrigatório fora de construtor), e a
+  constante de enum avaliada como criação (`const_eval_throws_exception` 36 → 43,
+  `const_constructor_param_type_mismatch` e `const_constructor_field_type_mismatch` completos).
 * **Pendente conhecido:** promoção de campo do alvo de cascata (`c?.._field()`), curingas com o
-  experimento `primary-constructors` desligado, criação por alias com limite F.
+  experimento `primary-constructors` desligado, criação por alias com limite F, tipo inferido da
+  constante de enum genérica.
 
 ### Ferramentas desta rodada
 

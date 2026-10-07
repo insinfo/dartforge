@@ -11339,6 +11339,11 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
   analyzer dá `recursive_compile_time_constant` no nome e o construtor em ciclo devolve
   desconhecido (`evaluation.dart:3090-3099`); nós avaliamos e lançamos. Resolve com o grafo de dependências.
 - **Posição/mensagem:** nó da criação (ou da constante de enum); "Evaluation of this constant expression throws an exception."
+- **Feito em 2026-10-06 (43/53; também `const_constructor_param_type_mismatch` 20/20 e `const_constructor_field_type_mismatch` 5/5 nos acertos):**
+  - A constante de enum é avaliada como a criação `E.nome(args)` (antes só se montavam `index` e `_name`), com a declaração da constante como nó de erro (`_errorNodes`, `evaluation.dart:39-61`); a exceção de avaliação vira `CONST_EVAL_THROWS_EXCEPTION` nela (`:350-376`), e o `ConstantVerifier.visitEnumConstantDeclaration` relata o `evaluationResult` inválido (`constant_verifier.dart:204-217`). A constante entra em curso na pilha de variáveis (ciclos entre constantes).
+  - `_checkParameters`: só o parâmetro opcional (`isOptional`) recebe o padrão; o nomeado `required` ausente fica sem valor (`evaluation.dart:2890-2900`).
+  - O primário (3.13) numa biblioteca sem o recurso não é avaliado (o oráculo 3.13.4 não relata).
+  - **Pendente:** o enum genérico sem argumentos de tipo escritos (`enum E<T extends int> { v(''); }`): o analyzer infere o tipo da constante pelos argumentos (`E<String>`), e o nosso outline instancia pelos limites (`E<int>`), o que dá um FP de `const_constructor_param_type_mismatch`. Restam `as` com parâmetro de tipo substituído (`x as List<T>`), inicializador de campo genérico e `potentially_constant_types_error_test`.
 
 ##### `const_initialized_with_non_constant_value` (perda 20: FN 6, FP 6, pos 8)
 - **Emissão:** `ConstantVerifier.visitVariableDeclaration` (`constant_verifier.dart:476-511`):

@@ -1652,7 +1652,10 @@ impl<'a> Motor<'a> {
                 _ => (unit, None),
             },
             VariableRef::EnumConstant { unit, decl, index } => {
+                self.vars.insert(v, EstadoVar::EmCurso);
+                self.pilha_vars.push(v);
                 let r = self.valor_de_enum(v, unit, decl, index);
+                self.pilha_vars.pop();
                 self.vars.insert(v, EstadoVar::Pronta(r.clone()));
                 return Some(r);
             }
@@ -1729,10 +1732,63 @@ impl<'a> Motor<'a> {
             }
         };
         let nome = self.interner.resolve(self.program.variable(v).name);
-        let campos = vec![
+        let mut campos = vec![
             (Campo::Indice, Valor::novo(self.core.int, Estado::Int(Some(index as i64)))),
             (Campo::NomeDoEnum, Valor::novo(self.core.string, Estado::Str(Some(texto(nome))))),
         ];
+        // O inicializador da constante é a criação `E.nome(args)` com a
+        // declaração da constante como nó de erro (`_errorNodes`,
+        // `evaluation.dart:39-61`); a exceção de avaliação vira
+        // `CONST_EVAL_THROWS_EXCEPTION` nela (`:350-376`).
+        let lib = self.program.class(k).library;
+        if self.inferidas.contains(&lib)
+            && let ast::DeclKind::Enum(en) = &self.ast(unit).decl(decl).kind
+            && let Some(cst) = en.constants.get(index)
+        {
+            let chave = match cst.constructor {
+                Some(n) if self.interner.resolve(n.sym) != "new" => Some(n.sym),
+                _ => self.interner.lookup(""),
+            };
+            // O primário (3.13) numa biblioteca sem o recurso: o oráculo 3.13.4
+            // não o avalia.
+            let primario_desligado = |f: FunctionElementId| {
+                matches!(self.program.function(f).node, FunctionRef::Constructor { member, .. } if en.primary_constructor == Some(member))
+                    && !self.program.library(lib).features.tem(dartforge_frontend::Feature::PrimaryConstructors)
+            };
+            if let Some(&f) = chave.and_then(|c| self.program.class(k).constructors.get(&c))
+                && !primario_desligado(f)
+            {
+                let span = Span { start: cst.name.span.start, end: cst.span.end };
+                let erro = ErroEm { unidade: unit, span };
+                let cx = Ctx::simples(unit, lib);
+                let vazio = Argumentos::Valores { posicionais: Vec::new(), nomeados: Vec::new() };
+                let r = match &cst.arguments {
+                    Some(a) => self.avaliar_chamada(&cx, erro, f, tipo, &Argumentos::Ast(a), None, true),
+                    None => self.avaliar_chamada(&cx, erro, f, tipo, &vazio, None, true),
+                };
+                match r {
+                    Constante::Invalida(i) if i.excecao => {
+                        let mut n = self.erro(unit, span, c::CONST_EVAL_THROWS_EXCEPTION);
+                        n.evitar_relato = i.evitar_relato;
+                        let msg = dartforge_diagnostics::Diagnostic::com_codigo(i.codigo, i.span, i.args.iter().map(|s| s.as_str())).message;
+                        let definidora = self.program.library(self.program.unit(unit).library).units.first().copied().unwrap_or(unit);
+                        n.contexto = i.contexto.clone();
+                        n.contexto.push((definidora, i.span, format!("The exception is '{msg}' and occurs here.")));
+                        return Constante::Invalida(Box::new(n));
+                    }
+                    Constante::Invalida(i) => return Constante::Invalida(i),
+                    Constante::Valor(x) => {
+                        if let Estado::Generico { campos: c2, .. } = &x.estado {
+                            for par in c2.iter() {
+                                if !matches!(par.0, Campo::Indice | Campo::NomeDoEnum) {
+                                    campos.push(par.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         Constante::Valor(Valor { tipo, estado: Estado::Generico { campos: Rc::new(campos), desconhecido: false }, variavel: Some(v) })
     }
 
@@ -2170,7 +2226,9 @@ impl<'a> Motor<'a> {
                 i_pos += 1;
                 r
             };
-            if valor.is_none() && p.kind != ast::ParameterKind::Required {
+            // Só o opcional (`isOptional`) recebe o padrão; o nomeado
+            // `required` ausente fica sem valor.
+            if valor.is_none() && p.kind != ast::ParameterKind::Required && !p.required {
                 valor = match p.default_value {
                     None => Some(Valor::nulo(self.core)),
                     Some(d) => match self.valor_padrao(cu, lib, d) {
