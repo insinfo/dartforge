@@ -755,6 +755,26 @@ impl<'a> BodyInferrer<'a> {
         classes.into_iter().find_map(|c| self.recuperacao_estatica(lib, c, nome, setter))
     }
 
+    /// `TypeSystemImpl.resolveToBound`: o parâmetro de tipo (sem `?`) pelo
+    /// limite, a interseção pelo limite, até um tipo que não é nenhum dos dois.
+    pub(crate) fn resolver_ao_limite(&self, t: TypeId) -> TypeId {
+        let mut base = t;
+        for _ in 0..64 {
+            match self.table.get(base) {
+                Type::TypeParameter { param, nullable: false } if *param != self.core.unknown_param => {
+                    let b = self.table.param(*param).bound;
+                    if b == base {
+                        break;
+                    }
+                    base = b;
+                }
+                Type::Intersection { bound, .. } => base = *bound,
+                _ => break,
+            }
+        }
+        base
+    }
+
     /// A classe de `resolveToBound(recv)` quando ele é um tipo de interface
     /// (classe, enum, mixin ou tipo de extensão), sem o `?`.
     fn classe_do_limite(&mut self, recv: TypeId) -> Option<ClassId> {

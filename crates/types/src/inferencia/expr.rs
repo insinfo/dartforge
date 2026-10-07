@@ -2084,11 +2084,33 @@ fn avisar_nulo_morto(inf: &mut BodyInferrer<'_>, cx: &Corpo, esquerdo: TypeId, d
 /// `void`, `Null` ou anulável; parâmetro de tipo pelo limite; tipo de
 /// extensão só com `implements` (aqui, nunca: pelo lado seguro).
 pub(crate) fn estritamente_nao_anulavel(inf: &mut BodyInferrer<'_>, t: TypeId) -> bool {
-    if matches!(inf.table.get(t), Type::ExtensionType { .. } | Type::Dynamic | Type::Void) {
-        return false;
+    // `TypeSystemImpl.isStrictlyNonNullable` (3.6.2 `type_system.dart:1290-1310`).
+    let mut t = t;
+    for _ in 0..64 {
+        if inf.table.e_invalido(t) || inf.e_desconhecido(t) {
+            return false;
+        }
+        let ty = inf.table.get(t).clone();
+        if matches!(ty, Type::Dynamic | Type::Void | Type::Null) || ty.is_declared_nullable() {
+            return false;
+        }
+        match ty {
+            Type::FutureOr { arg, .. } => t = arg,
+            // O tipo de extensão só com `implements` (`type.interfaces`).
+            Type::ExtensionType { decl, .. } => return !inf.outline.classes[decl.0 as usize].interfaces.is_empty(),
+            // `TypeParameterType.bound`: o promovido, senão o declarado.
+            Type::TypeParameter { param, .. } => {
+                let b = inf.table.param(param).bound;
+                if b == t {
+                    return true;
+                }
+                t = b;
+            }
+            Type::Intersection { bound, .. } => t = bound,
+            _ => return true,
+        }
     }
-    let o = inf.core.object;
-    inf.sub(t, o)
+    true
 }
 
 /// `_checkForUnnecessaryNullAware` para `?.` e `?[`: receptor estritamente
@@ -4029,7 +4051,34 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                 // ou atribui não vale depois (`origin ??= element!.library;`
                 // não promove `element`).
                 let antes = cx.fluxo.clone();
-                avisar_nulo_morto(inf, cx, leitura, valor);
+                // O índice sem `[]` resolvido (receptor `Never`) tem o
+                // `readType` inválido (3.6.2 `resolver.dart:1665-1672`): o
+                // `isStrictlyNonNullable` não vale.
+                // O mesmo para o nome que não é getter nem variável (classe,
+                // alias, função, método, parâmetro de tipo: `C ??= null`).
+                let sem_leitura = match &ast(inf, cx).expr(alvo).kind {
+                    ExprKind::Index { target, null_aware: false, .. } => inf.body_types.units[cx.unit.0 as usize]
+                        .get_type(*target)
+                        .is_some_and(|r| matches!(inf.table.get(inf.resolver_ao_limite(r)), Type::Never)),
+                    ExprKind::Identifier(_) | ExprKind::Property { .. } => {
+                        let e_metodo = |inf: &BodyInferrer<'_>, f: dartforge_elements::model::FunctionElementId| {
+                            matches!(inf.program.function(f).kind, FunctionKind::Function)
+                        };
+                        match inf.body_types.units[cx.unit.0 as usize].get_resolved(alvo).cloned() {
+                            Some(Resolved::Element(Element::Function(f))) => e_metodo(inf, f),
+                            Some(Resolved::Element(Element::Variable(_))) => false,
+                            Some(Resolved::Element(_)) => true,
+                            Some(Resolved::Member { member: MemberRef::Function(f), .. }) => e_metodo(inf, f),
+                            Some(Resolved::ExtensionMember { member: f, .. }) => e_metodo(inf, f),
+                            Some(Resolved::TypeParameter(_) | Resolved::Constructor(_) | Resolved::Prefix(_)) => true,
+                            _ => false,
+                        }
+                    }
+                    _ => false,
+                };
+                if !sem_leitura {
+                    avisar_nulo_morto(inf, cx, leitura, valor);
+                }
                 let tv = inferir(inf, cx, valor, escrita);
                 if !matches!(inf.table.get(escrita), Type::Void) {
                     uso_de_void(inf, cx, valor, tv);

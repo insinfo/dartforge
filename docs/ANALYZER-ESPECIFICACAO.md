@@ -4198,6 +4198,17 @@ interesse (`nao_nulo_promocao(declarado)` quando o declarado é anulável).
   (`InvalidUseOfNever__indexExpression_neve_e8cb085e.dart:4:12`): com receptor `Never` o `PropertyElementResolver` sai cedo
   (`receiver_of_type_never`) sem tipo de leitura — o `readType` não é `Never` e nada sai; `C ??= null` com `C` classe
   (`if_null/assignment_behavior_test.dart:195:9`): alvo não é variável (erro de atribuição) e não há `readType` válido.
+- **Estado em 2026-10-07 (placar 35/35):** duas correções.
+  * `expr::estritamente_nao_anulavel` é agora o `isStrictlyNonNullable` inteiro (`type_system.dart:1290-1310`).
+    Antes era `T <: Object`, com o tipo de extensão sempre de fora.
+    * Fora: `dynamic`, inválido, `_`, `void`, `Null` e qualquer `?`.
+    * `FutureOr<T>` vale pelo `T`.
+    * O tipo de extensão vale quando tem `implements`.
+    * O parâmetro de tipo vale pelo limite, o promovido ou o declarado.
+    * Saíram os 6 FN de atalho de ponto com tipo de extensão.
+  * No `a ??= b`, o `readType` do 3.6.2 (`resolver.dart:1662-1692`) só existe para getter, variável e o `[]`
+    resolvido. O índice sobre receptor `Never` (`resolver_ao_limite`) e o nome que é classe, alias, função,
+    método, parâmetro de tipo, construtor ou prefixo (`C ??= null`) não relatam.
 
 ##### `not_initialized_non_nullable_variable` (perda 8: FN 8)
 
