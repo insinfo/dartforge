@@ -427,6 +427,25 @@ ficam; os demais começam em `limite ?? dynamic` (`:775`); resolve-se
 repetidamente quem não tem variável livre não resolvida; sem progresso →
 erro e `B[não resolvidos := dynamic]` (`:805-823`).
 
+**Inferência de mixin** (`_MixinInference`, 3.6 `an611:lib/src/summary2/types_builder.dart:461-605`;
+`matchSupertypeConstraints`, `type_system.dart:1448-1487`). O mixin genérico escrito sem argumentos (`with M`)
+recebe os argumentos assim:
+
+1. **Restrições:** `gatherMixinSupertypeConstraintsForInference` (`type_system.dart:500-518`). Num mixin, as `on`.
+   Numa classe usada como mixin, a superclasse e os mixins dela, sem o último se for alias de classe. Ficam só
+   as restrições genéricas.
+2. **Alvos:** para cada restrição, o tipo do mesmo elemento entre os supertipos já aplicados, como no
+   `InterfacesMerger.typeList`. Entram a superclasse e os mixins anteriores, com os supertipos deles.
+3. **Solução:** para cada par, `constrainReturnType` nos dois sentidos, depois `chooseFinalTypes`. A solução só
+   vale se cada restrição substituída fica igual ao alvo.
+4. **Falha:** sem alvo ou sem igualdade, fica o tipo cru (`M<dynamic>`). Daí sai, por exemplo,
+   `mixin_application_not_implemented_interface` com `'M<dynamic>'`.
+
+No DartForge: `resolve::inferir_mixin`, numa passada depois da primeira hierarquia. A hierarquia é refeita
+quando algum mixin muda, e a passada se repete até 4 vezes, porque a superclasse pode ter mixins inferidos. Quando
+dois supertipos dão tipos diferentes para o mesmo elemento, vale o normalizado se for igual nos dois lados. Se
+diferirem mesmo assim, a inferência não é feita. O `topMerge` do original para esse caso não é chamado aqui.
+
 ### 2.8 *Inference-using-bounds* (3.7) — **desligado no 3.6**
 
 `fas76:lib/src/experiments/flags.dart:119-123` (`isEnabledByDefault: false`).

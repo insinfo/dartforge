@@ -265,11 +265,8 @@ pub fn decisoes(
             if me.kind != ClassKind::Mixin {
                 continue;
             }
-            let sem_args = matches!(&a.ty(escrito).kind, ast::TypeKind::Named { args, .. } if args.is_empty());
-            if sem_args && !me.type_params.is_empty() && !me.on.is_empty() {
-                // Inferência de mixin (não portada).
-                continue;
-            }
+            // O mixin escrito sem argumentos já vem inferido do outline
+            // (`resolve::inferir_mixin`), ou cru quando a inferência falha.
             let params: Vec<TypeParamId> = outline.classes[m.0 as usize].type_params.to_vec();
             let mapa: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
             // `_checkForMixinSuperclassConstraints`.

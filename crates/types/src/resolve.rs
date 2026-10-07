@@ -724,6 +724,50 @@ impl<'a> OutlineResolver<'a> {
             self.table,
             self.core,
         );
+        // `_MixinInference` (3.6.2 `types_builder.dart:461-605`): o mixin
+        // genérico escrito sem argumentos (`with M`) tem os argumentos
+        // inferidos das restrições dele (`on` do mixin; a superclasse e os
+        // mixins da classe usada como mixin, sem o último de um alias de
+        // classe) casadas com os supertipos já aplicados (a superclasse e os
+        // mixins anteriores, com os supertipos deles: `InterfacesMerger`),
+        // por `matchSupertypeConstraints` (`type_system.dart:1448-1487`).
+        // Sem casamento, fica o tipo cru. Com mudança, a hierarquia é refeita
+        // e a passada se repete (a superclasse pode ter mixins inferidos).
+        for _ in 0..4 {
+            let mut mudou = false;
+            for i in 0..self.program.classes.len() {
+                for j in 0..self.program.classes[i].mixins.len() {
+                    if let Some(novo) = self.inferir_mixin(&class_type_data, &hierarchy, i, j) {
+                        class_type_data[i].mixins[j] = novo;
+                        mudou = true;
+                    }
+                }
+            }
+            if !mudou {
+                break;
+            }
+            for i in 0..self.program.classes.len() {
+                let d = &class_type_data[i];
+                let mut todos = Vec::new();
+                todos.extend(d.supertype);
+                todos.extend_from_slice(&d.mixins);
+                todos.extend_from_slice(&d.interfaces);
+                todos.extend_from_slice(&d.on);
+                if self.program.classes[i].kind == dartforge_elements::model::ClassKind::Enum {
+                    if let Some(e) = enum_type {
+                        todos.push(e);
+                    }
+                }
+                hierarchy_inputs[i] = Some((d.type_params.clone(), todos));
+            }
+            for i in 0..hierarchy_inputs.len() {
+                let dono = self.program.dono_da_classe(ClassId(i as u32));
+                if dono.0 as usize != i && (dono.0 as usize) < hierarchy_inputs.len() {
+                    hierarchy_inputs[i] = hierarchy_inputs[dono.0 as usize].clone();
+                }
+            }
+            hierarchy = build_class_hierarchy(self.program.classes.len(), &hierarchy_inputs, self.table, self.core);
+        }
         // O tipo de extensão é subtipo de `Object` só se alguma
         // superinterface (o `implements`) o for: uma classe, ou outro tipo
         // de extensão que o seja.
@@ -763,6 +807,84 @@ impl<'a> OutlineResolver<'a> {
         }
 
         (class_type_data, hierarchy)
+    }
+
+    /// `_MixinInference._inferSingle` para o mixin `j` da classe `i`: o novo
+    /// tipo, quando a inferência o muda.
+    fn inferir_mixin(&mut self, dados: &[ClassTypeData], hierarquia: &ClassHierarchy, i: usize, j: usize) -> Option<TypeId> {
+        let (unit, ast_id) = self.program.classes[i].mixins[j];
+        let sem_args = matches!(&self.program.unit(unit).ast.ty(ast_id).kind, ast::TypeKind::Named { args, .. } if args.is_empty());
+        if !sem_args {
+            return None;
+        }
+        let mt = *dados[i].mixins.get(j)?;
+        let Type::Interface { class: m, nullable, .. } = self.table.get(mt).clone() else { return None };
+        let params = dados[m.0 as usize].type_params.clone();
+        if params.is_empty() {
+            return None;
+        }
+        // `gatherMixinSupertypeConstraintsForInference` (`type_system.dart:500-518`).
+        let mk = &self.program.classes[m.0 as usize];
+        let candidatos: Vec<TypeId> = if mk.kind == dartforge_elements::model::ClassKind::Mixin {
+            dados[m.0 as usize].on.to_vec()
+        } else {
+            let s = dados[m.0 as usize].supertype?;
+            let mut v = vec![s];
+            v.extend(dados[m.0 as usize].mixins.iter().copied());
+            let alias = mk.decl.is_some_and(|d| {
+                matches!(&self.program.unit(d.unit).ast.decl(d.decl).kind, DeclKind::Class(x) if x.mixin_application)
+            });
+            if alias {
+                v.pop();
+            }
+            v
+        };
+        let restricoes: Vec<(TypeId, ClassId)> = candidatos
+            .into_iter()
+            .filter_map(|r| match self.table.get(r) {
+                Type::Interface { class, .. } if !dados[class.0 as usize].type_params.is_empty() => Some((r, *class)),
+                _ => None,
+            })
+            .collect();
+        // `InterfacesMerger.typeList` da superclasse e dos mixins anteriores:
+        // por elemento, o tipo único (ou o normalizado igual dos dois lados).
+        let fontes: Vec<TypeId> = dados[i].supertype.into_iter().chain(dados[i].mixins[..j].iter().copied()).collect();
+        let mut alvos: Vec<TypeId> = Vec::new();
+        for &(_, rc) in restricoes.iter() {
+            let mut achado: Option<TypeId> = None;
+            for &f in fontes.iter() {
+                let Some(t) = hierarquia.supertype_of(f, rc, self.table, self.core) else { continue };
+                achado = match achado {
+                    None => Some(t),
+                    Some(a) if a == t => Some(a),
+                    Some(a) => {
+                        let (na, nt) = (crate::ops::normalize(a, self.table, self.core), crate::ops::normalize(t, self.table, self.core));
+                        if na != nt {
+                            return None;
+                        }
+                        Some(na)
+                    }
+                };
+            }
+            alvos.push(achado?);
+        }
+        let mut gi = crate::constraints::GenericInferrer::new(&params);
+        let tipos = {
+            let mut env = crate::subtyping::SubtypeEnv::new(self.table, hierarquia, self.core);
+            for (k, &(src, _)) in restricoes.iter().enumerate() {
+                gi.constrain_return(src, alvos[k], &mut env);
+                gi.constrain_return(alvos[k], src, &mut env);
+            }
+            gi.choose_final(&mut env)
+        };
+        let mapa: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(tipos.iter().copied()).collect();
+        for (k, &(src, _)) in restricoes.iter().enumerate() {
+            if substitute(src, &mapa, self.table) != alvos[k] {
+                return None;
+            }
+        }
+        let novo = self.table.intern(Type::Interface { class: m, args: tipos.into_boxed_slice(), nullable });
+        (novo != mt).then_some(novo)
     }
 
     fn resolve_extensions(&mut self) -> Vec<ExtensionTypeData> {

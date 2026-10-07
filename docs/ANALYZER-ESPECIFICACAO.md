@@ -5438,8 +5438,8 @@ relatos iguais do analyzer contam um.
   `verify()`.
 - `crates/types/src/fase_genericos.rs::conflitos_genericos` porta o `InterfacesMerger` do `ClassHierarchy`
   com um `topMerge` que falha onde o original lança. A porta das cláusulas vale para classe, alias, enum e
-  mixin; tipo de extensão não tem porta. Fica de fora a classe com mixin genérico escrito sem argumentos e
-  com restrições `on`, porque a inferência de mixins não foi portada.
+  mixin; tipo de extensão não tem porta. Desde 2026-10-07 a inferência de mixins está portada
+  (`resolve::inferir_mixin`, INFERENCIA §2.7), e a classe com mixin genérico sem argumentos entra também.
 - `crates/types/src/fase_mixins.rs::decisoes` decide cada mixin de `with` com tipos:
   `mixin_application_not_implemented_interface` (restrições substituídas),
   `mixin_application_no_concrete_super_invoked_member/_setter` (nomes do `MixinSuperInvokedNamesCollector`,
@@ -5686,6 +5686,10 @@ relatos iguais do analyzer contam um.
   `regress32353_2_test`); **2** mixins cujo corpo contém `super` (`incerta` em `clausulas.rs:741-750`:
   `…23fc610b`, `MixinApplicationNoConcreteSuperInvokedM_f0c49557` — este também com `augment class X with M2`
   homônimo). Precisa subtipagem com argumentos e inferência de mixin (`crates/types`).
+- **Estado em 2026-10-07 (placar 66/66):** os 4 FN eram de `with M` sem argumentos com restrições `on` que a
+  superclasse não satisfaz. O `fase_mixins::decisoes` pulava esses casos, porque não havia inferência de mixin.
+  Agora o outline infere (`resolve::inferir_mixin`). Na falha fica `M<dynamic>`, e a restrição substituída
+  `A<dynamic>` é a que falta.
 
 ##### `no_combined_super_signature` (perda 11: FN 11; nada emitido)
 - **Emissão:** `_ClassVerifier._reportNoCombinedSuperSignature` (`src/error/inheritance_override.dart:953-971`),

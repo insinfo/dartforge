@@ -14,7 +14,7 @@ use crate::table::{CoreTypes, Type, TypeId, TypeParamId, TypeTable};
 use dartforge_diagnostics::codigos::compile_time_error as c;
 use dartforge_diagnostics::Diagnostic;
 use dartforge_elements::model::{ClassId, ClassKind, LibraryId, Program, UnitId};
-use dartforge_frontend::ast::{self, DeclKind};
+use dartforge_frontend::ast::DeclKind;
 use dartforge_intern::Interner;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -188,17 +188,6 @@ impl Contexto<'_, '_> {
     }
 }
 
-/// O mixin escrito sem argumentos de tipo cujos parâmetros a inferência do
-/// link tiraria das restrições `on` (não portada): a classe fica de fora.
-fn depende_de_inferencia_de_mixin(program: &Program, a: &ast::Ast, with: &[ast::TypeId], mixins: &[TypeId], table: &TypeTable) -> bool {
-    with.iter().zip(mixins.iter()).any(|(&w, &t)| {
-        let sem_args = matches!(&a.ty(w).kind, ast::TypeKind::Named { args, .. } if args.is_empty());
-        let Type::Interface { class, .. } = table.get(t) else { return false };
-        let m = program.class(*class);
-        sem_args && m.kind == ClassKind::Mixin && !m.type_params.is_empty() && !m.on.is_empty()
-    })
-}
-
 /// `conflicting_generic_interfaces` nas declarações de `lib`. `aberta`: a
 /// porta de `_checkClassInheritance`/`_checkMixinInheritance` (para tipos de
 /// extensão não há porta).
@@ -230,16 +219,15 @@ pub fn conflitos_genericos(
         if decl.augment {
             continue;
         }
-        let dados = outline.classes[i].clone();
         let (nome, especie, chamado) = match &decl.kind {
-            DeclKind::Class(x) if x.mixin_application => (x.name, "class", aberta(id) && !depende_de_inferencia_de_mixin(program, a, &x.with, &dados.mixins, cx.table)),
+            DeclKind::Class(x) if x.mixin_application => (x.name, "class", aberta(id)),
             DeclKind::Class(x) => {
                 let tem = x.extends.is_some() || !x.with.is_empty() || !x.implements.is_empty();
-                (x.name, "class", tem && aberta(id) && !depende_de_inferencia_de_mixin(program, a, &x.with, &dados.mixins, cx.table))
+                (x.name, "class", tem && aberta(id))
             }
             DeclKind::Enum(x) => {
                 let tem = !x.with.is_empty() || !x.implements.is_empty();
-                (x.name, "enum", tem && aberta(id) && !depende_de_inferencia_de_mixin(program, a, &x.with, &dados.mixins, cx.table))
+                (x.name, "enum", tem && aberta(id))
             }
             DeclKind::Mixin(x) => (x.name, "mixin", (!x.on.is_empty() || !x.implements.is_empty()) && aberta(id)),
             DeclKind::ExtensionType(x) => (x.name, "extension type", true),
