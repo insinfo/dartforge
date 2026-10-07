@@ -1097,6 +1097,19 @@ fn inicializador_redirecionador(inf: &mut BodyInferrer<'_>, classe: Option<Class
 /// (ou o sem nome), comparado ao pé da letra (`super.new()` não acha), sem
 /// teste de acessibilidade e factory incluída; só para classes (enum fica
 /// sem).
+/// A cadeia de superclasses de `c` volta a `c` (ciclo de herança).
+fn em_ciclo_de_superclasse(inf: &BodyInferrer<'_>, c: ClassId) -> bool {
+    let mut atual = inf.program.class(c).supertype_class;
+    for _ in 0..64 {
+        match atual {
+            Some(k) if k == c => return true,
+            Some(k) => atual = inf.program.class(k).supertype_class,
+            None => return false,
+        }
+    }
+    false
+}
+
 fn super_construtor(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Constructor) -> Option<(ClassId, TypeId, Construtor)> {
     let nome = ctor
         .initializers
@@ -1151,7 +1164,19 @@ fn parametros_super(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Construc
     if inf.program.class(c).kind == ClassKind::ExtensionType || !ctor.parameters.iter().any(|p| p.super_) {
         return;
     }
-    let associado = super_construtor(inf, c, ctor);
+    // A superclasse num ciclo de herança é cortada (fica `Object`), e o enum
+    // não chega a um construtor com parâmetros: nos dois, o construtor
+    // associado não tem posicionais, e cada `super.x` posicional relata.
+    let ciclo = em_ciclo_de_superclasse(inf, c);
+    let sem_parametros = ciclo || inf.program.class(c).kind == ClassKind::Enum;
+    let associado = if ciclo { None } else { super_construtor(inf, c, ctor) };
+    // No 3.13.4 (`error_verifier.dart:2391-2408` do checkout main), sem o
+    // `superConstructor` a verificação para; no 3.6.2 cada `super.x` relata.
+    let unidade = inf.program.class(c).decl.map(|d| d.unit);
+    let v313 = unidade.is_some_and(|u| inf.program.referencia(u) == dartforge_diagnostics::Referencia::V3_13);
+    if associado.is_none() && v313 && !sem_parametros {
+        return;
+    }
     // Os parâmetros do construtor associado, vistos pelo supertipo.
     let (posicionais, nomeados): (Vec<TypeId>, Vec<(dartforge_intern::SymbolId, TypeId)>) = match associado {
         Some((s, st, k)) => {
@@ -1184,11 +1209,20 @@ fn parametros_super(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Construc
         }
         None => (Vec::new(), Vec::new()),
     };
+    // O índice do posicional é o `indexIn` do elemento (`element.dart:9318-9323`):
+    // no 3.6.2, dois `super._` homônimos são o mesmo elemento pela localização,
+    // e o segundo fica com o índice do primeiro.
+    let super_nomes: Vec<Option<dartforge_intern::SymbolId>> =
+        ctor.parameters.iter().filter(|p| p.super_).map(|p| p.name.map(|n| n.sym)).collect();
     let mut indice = 0usize;
     for (i, p) in ctor.parameters.iter().enumerate() {
         if !p.super_ {
             continue;
         }
+        let indice_do_elemento = match p.name {
+            Some(n) if !v313 => super_nomes.iter().position(|s| *s == Some(n.sym)).unwrap_or(indice),
+            _ => indice,
+        };
         let Some(n) = p.name else {
             indice += 1;
             continue;
@@ -1197,7 +1231,7 @@ fn parametros_super(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Construc
             let externo = p.nome_externo().map_or(n.sym, |x| x.sym);
             nomeados.iter().find(|(m, _)| *m == externo).map(|(_, t)| *t)
         } else {
-            posicionais.get(indice).copied()
+            posicionais.get(indice_do_elemento).copied()
         };
         indice += 1;
         let Some(tipo_associado) = alvo else {

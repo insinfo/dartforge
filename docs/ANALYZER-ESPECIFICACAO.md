@@ -1122,6 +1122,15 @@ Forma da invocação no analyzer (decide nome citado e entidade):
 - **Condição:** (não em extension type; construtor gerador não redirecionador) `superConstructorParameter == null` (`analyzer/lib/src/dart/element/element.dart:9291-9311`): o construtor da superclasse **invocado** (`superConstructor`: o do `super.n(...)` explícito, ou o sem nome implícito) existe, e o índice deste `super.x` **entre os `super.x` do construtor** (`indexIn`, :9318-...) não é menor que o número de parâmetros posicionais (obrigatórios + opcionais) daquele construtor — os posicionais explícitos do `super(...)` **não** deslocam o índice. Sem `superConstructor` (superclasse sem o construtor) não relata.
 - **Posição:** o nome do parâmetro. **Mensagem:** `No associated positional super constructor parameter.`
 - **No DartForge:** existe em `crates/analise/src/construtores.rs:533-551`, mas o placar mostra **nosso 0** — o bloco não é alcançado (ver `implicit_super_initializer_missing_arguments`). FN `primary_constructors/cycle_error_test` são sintaxe nova.
+- **Estado em 2026-10-07 (placar 12/12):** três regras em `funcoes::parametros_super`.
+  * **Sem `superConstructor`:** no 3.13.4 (`error_verifier.dart:2391-2408` do checkout main) a verificação para;
+    no 3.6.2, cada `super.x` relata. Exemplo: `this : super.named()` com `named` indefinido.
+  * **Enum ou ciclo de herança:** a superclasse em ciclo é cortada para `Object`, e o enum também não tem
+    posicionais no construtor associado. Nas duas referências, cada `super.x` posicional relata. O ciclo é
+    detectado pela cadeia de superclasses (`em_ciclo_de_superclasse`).
+  * **Nomes repetidos:** o índice do posicional é o `indexIn` do elemento (`element.dart:9318-9323`). No 3.6.2,
+    dois `super._` homônimos são o mesmo elemento pela localização, e o segundo fica com o índice do primeiro,
+    sem relato.
 
 ##### `super_formal_parameter_without_associated_named` (perda 6: FN 6)
 - **Emissão/condição:** a mesma (`error_verifier.dart:1484-1488`): `super.x` nomeado sem parâmetro nomeado `x` no construtor da superclasse. **Posição:** o nome. **Mensagem:** `No associated named super constructor parameter.`
