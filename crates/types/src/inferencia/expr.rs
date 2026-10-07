@@ -2195,6 +2195,13 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
         return (membro_super(inf, cx, e, name, UsoDoSuper::Leitura), false);
     }
     let (recv, curto) = receptor(inf, cx, target, null_aware);
+    // `x.new` com `x` valor: o `TypePropertyResolver` nunca acha `new`
+    // (`type_property_resolver.dart:75-79`), nem em `dynamic` nem no anulável.
+    if !cx.sobreposicoes.contains_key(&target) && inf.interner.resolve(name.sym) == "new" {
+        let tipo = inf.table.format(recv, inf.interner, inf.program);
+        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::UNDEFINED_GETTER, name.span, &["new", &tipo]);
+        return (inf.table.invalido(inf.core.dynamic_), curto);
+    }
     if let Some((x, args)) = cx.sobreposicoes.get(&target).cloned() {
         if inf.membro_de_extensao_explicita(x, &args, name.sym, false).is_none()
             && inf.membro_estatico_de_extensao(x, name.sym, false).is_some()
@@ -4101,6 +4108,17 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
     let composta = recv_lido.is_some();
     let (recv, c) = recv_lido.unwrap_or_else(|| receptor(inf, cx, target, null_aware));
     *curto = c;
+    // `x.new = v` (`type_property_resolver.dart:75-79`): sem setter `new`.
+    if !cx.sobreposicoes.contains_key(&target) && inf.interner.resolve(name.sym) == "new" {
+        let msg = format!(
+            "{}: setter '{}' não definido para o tipo '{}'",
+            UNDEFINED_SETTER.template,
+            "new",
+            inf.table.format(recv, inf.interner, inf.program),
+        );
+        inf.aviso(msg, name.span);
+        return inf.core.dynamic_;
+    }
     // `E(valor).m` força a extensão nomeada: na falta de setter ela emite
     // `undefined_extension_setter`, mesmo que a extensão tenha um getter `m`.
     if let Some((x, args)) = cx.sobreposicoes.get(&target).cloned() {

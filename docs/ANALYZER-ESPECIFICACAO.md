@@ -575,6 +575,10 @@ Base comum: a resolução de membro passa por `TypePropertyResolver.resolve` (`a
   superclasse, `C.new = 1`) sem setter nem getter (estático ou de instância, o `augmented.getGetter`): o
   `AssignmentVerifier` relata `UNDEFINED_SETTER` com o `thisType` da classe (`property_element_resolver.dart:708-731`,
   `assignment_verifier.dart:96-106`), em `expr.rs::escrita_propriedade`.
+- **`x.new` (2026-10-07):** o `TypePropertyResolver` nunca acha `new` (`type_property_resolver.dart:75-79`,
+  `_needsGetterError`/`_needsSetterError` sempre): `x.new` e `x.new = v` com `x` valor relatam
+  `UNDEFINED_GETTER`/`UNDEFINED_SETTER` com o tipo do receptor, também em `dynamic`, parâmetro de tipo e
+  anulável (`c..new` com `C?`), sem o relato de nulo (`expr.rs::propriedade` e `escrita_propriedade`).
 
 ##### `undefined_extension_operator` (perda 8: FN 8)
 - **Emissão:** `binary_expression_resolver.dart:405-414` (e prefixo :160-168, índice `property_element_resolver.dart:52-70`).
