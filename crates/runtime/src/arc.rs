@@ -118,6 +118,11 @@ pub struct EstadoDoArc {
     /// Uma linha no stderr por evento (registro, retain, release, morte): o
     /// diagnóstico de `DARTFORGE_ARC_TRACO=1`.
     pub traco: bool,
+    /// O objeto não tem posição de referência nenhuma (no heap, o corpo
+    /// `BRUTO`: string, caixa numérica, dados tipados)? Sem aresta de saída
+    /// ele nunca está num ciclo, e não entra entre os candidatos (o filtro
+    /// mínimo do §32). `None` (os testes do núcleo): todo objeto pode.
+    pub sem_arestas: Option<fn(Ref) -> bool>,
 }
 
 impl EstadoDoArc {
@@ -212,10 +217,12 @@ impl EstadoDoArc {
     /// objeto que uma raiz observacional vê pode perder essa raiz sem
     /// decremento (as raízes não contam), e só a rodada o examina de novo.
     pub fn candidatar(&mut self, h: Ref) {
+        let sem_arestas = self.sem_arestas;
         if let Some(m) = self.objetos.get_mut(&h)
             && !m.candidato
             && !m.imortal
             && m.estado == EstadoArc::Vivo
+            && !sem_arestas.is_some_and(|f| f(h))
         {
             m.candidato = true;
             self.candidatos.push(IdArc { handle: h, geracao: m.geracao });
@@ -280,7 +287,7 @@ impl EstadoDoArc {
         let id = IdArc { handle: h, geracao: m.geracao };
         if m.rc == 0 {
             self.zeros.push(id);
-        } else if !m.candidato {
+        } else if !m.candidato && !self.sem_arestas.is_some_and(|f| f(h)) {
             m.candidato = true;
             self.candidatos.push(id);
         }

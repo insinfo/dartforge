@@ -6,17 +6,26 @@ do gerenciador padrão. **Documento-base imutável:**
 sem alterar sua sintaxe, suas condições de entrada, suas garantias de Dart ou sua
 decisão de manter tracing como referência. **Alvo semântico inicial:** Dart 3.6.2.
 
-**Guia de execução:** as seções 18–26 fixam a primeira implementação, os pontos
-de alteração no código, os contratos e as entregas verificáveis. Nomes marcados
+**Guia de execução:** as seções 18–26 fixam a infraestrutura, os pontos
+de alteração no código, os contratos e as entregas verificáveis. As seções
+27–34 especificam a análise estática que seleciona regiões, grupos, empréstimos
+e ARC especializado para reduzir a coleta de ciclos em execução. Nomes marcados
 como **novos** são APIs/arquivos a criar, não recursos já implementados. As
-seções anteriores fornecem os requisitos e a motivação; em alternativas de
-engenharia, a versão inicial escolhida nas seções 18–26 é a receita a executar.
+seções anteriores fornecem os requisitos e a motivação. As especializações
+27–34 complementam os contratos gerais; toda especialização exige certificado
+validado e preserva a política geral quando não houver prova suficiente.
+As seções 35–36 acrescentam um pacote opcional de anotações e contratos para
+caminhos de baixa latência; não tornam essas anotações requisito para usar ARC.
 
 ## 0. Escopo, linguagem de certeza e critério de aceitação
 
 ARC significa *automatic reference counting*: operações inseridas pelo compilador,
-sem `retain`, `release`, `weak` ou anotações novas no código Dart. O mecanismo inclui
-um coletor de ciclos; ARC puro é insuficiente. O modo experimental deve ser opt-in,
+sem exigir `retain`, `release`, `weak` ou anotações no código Dart. Metadados
+opcionais da seção 35 usam a sintaxe de anotações já existente na linguagem.
+O mecanismo inclui
+recuperação residual de ciclos; ARC puro não cobre grafos Dart arbitrários.
+Imagens integralmente provadas podem dispensar o trial ordinário (§32.3).
+O modo experimental deve ser opt-in,
 com `--memoria arc` (também aceitar `--memoria=arc`), e coexistir com o modo tracing. Um programa só pode
 ser aceito pelo compilador ARC se todas as suas arestas, raízes, transições nativas
 e mecanismos fracos tiverem semântica implementada; não converter uma falha do
@@ -34,10 +43,22 @@ API. `dispose()` e `close()` jamais viram destrutores implícitos.
 custo de `retain`/`release` remanescente e reduzir trabalho de tracing em certos
 programas. Nem velocidade, nem menor pico, nem latência limitada são pressupostos.
 
+**Objetivo de otimização:** resolver na compilação toda política de vida que as
+análises consigam provar, inclusive a liberação conjunta de grafos cíclicos
+confinados. Gerar coleta residual somente para as relações não resolvidas.
+Medir essa cobertura por objetos/bytes executados e trabalho de coleta, sem
+prometer uma fração residual pequena para todo programa nem reter lixo até o
+fim do processo para obter artificialmente zero coletas.
+
 **Fora desta especificação:** trocar a sintaxe Dart; expor ownership ao usuário;
 substituir o modelo de erros por destrutores; transformar referências fortes em
 fracas automaticamente; prometer tempo real; assumir que o passe ObjC ARC do LLVM
 ou o borrow checker do Rust gerenciam objetos Dart.
+
+O perfil opcional `Realtime` (§36) verifica um conjunto de operações permitido
+no trecho crítico. Não promete prazo máximo independente de hardware, sistema
+operacional e integração de áudio. Compilar sem esse perfil continua aceitando
+o Dart suportado; uma falha de contrato é diagnóstico da opção solicitada.
 
 ## 1. Evidência estudada e limite de transferência
 
@@ -92,6 +113,13 @@ Invariante RC, fora da pausa de uma operação transacional:
 ```text
 rc(x) = multiplicidade(R → x) + Σ_{y∈H} multiplicidade(E(y) → x)
 ```
+
+Essa equação define o caminho ARC ordinário. Com as especializações estáticas,
+distinguir grafo **semântico** de referências Dart e grafo **de retenção**
+gerado: uma região/grupo tem uma unidade de vida própria; empréstimos possuem
+âncora independente; contadores somam apenas arestas contadas (§§27.2 e 31).
+A auditoria deve conhecer ambos os grafos. Não atribuir `rc=0` de objeto ARC
+ordinário a um objeto regional para representar ausência de contador.
 
 Para um objeto normal sem proteção condicional (§22), `rc=0` permite iniciar
 a desalocação; não autoriza
@@ -228,6 +256,12 @@ ciclos, inclusive quando participa de `Future.then`.
 
 ## 7. Verificador de ownership e otimizações permitidas
 
+Antes de inserir operações RC, executar a seleção de política de memória das
+seções 27–31: eliminação de alocações, inferência de regiões, prova de
+aciclicidade por sítio/contexto, empréstimos e grupos selados. A eliminação de
+pares retain/release abaixo otimiza o trabalho restante. Resumos incompletos
+reduzem precisão; não justificam exigir mudanças no código Dart.
+
 Executar verificador antes e depois do passe RC, e de novo após lowering que
 altera CFG. Cada ocorrência owned é consumida uma vez em todo caminho;
 guaranteed não sobrevive ao owner; nenhum uso ocorre depois de `destroy` ou
@@ -260,9 +294,10 @@ coleta de ciclos e hooks de FFI.
 
 ## 8. Coleta de ciclos: *trial deletion* segura
 
-Objetivo: recuperar subgrafos fechados com RC positivo causado só por arestas
-internas. Seguir a ideia de Nim ORC/Bacon–Rajan, sem importar seus destrutores.
-Cada `release` que não zera o RC de objeto potencialmente cíclico o coloca,
+Objetivo: recuperar subgrafos fechados residuais com RC positivo causado só
+por arestas internas, depois da seleção estática de política. Seguir a ideia
+de Nim ORC/Bacon–Rajan, sem importar seus destrutores. Um `release` que não
+zera o RC de objeto potencialmente cíclico o coloca,
 uma vez, no buffer de candidatos. Descritor comprovadamente sem caminho de
 retorno pode dispensar candidatura; isso exige prova de layout, inclusive
 coleções mutáveis e subclasses.
@@ -274,7 +309,7 @@ Uma rodada no isolate tem fases explícitas:
    usa pausa; concorrência exigiria outro protocolo e não é presumida. O tamanho
    da pausa deve ser medido, não é necessariamente curto.
 2. **Marcar cinza / subtração experimental.** Para cada objeto alcançado por
-   arestas fortes da região, registrar `trial(x)=rc(x)` e subtrair **cada
+   arestas fortes contadas da região, registrar `trial(x)=rc(x)` e subtrair **cada
    ocorrência interna**, uma única vez por aresta. Não alterar o contador
    verdadeiro; usar contador lateral evita deixar RC corrompido após OOM.
 3. **Localizar entradas externas.** Todo nó com `trial>0` é raiz preta da
@@ -540,6 +575,7 @@ programas com semântica incompleta ou anunciar ganhos ainda não medidos.
 ```text
 CLI → configuração imutável de memória → HIR com proveniência de referências
     → otimização normal → normalização das saídas excepcionais
+    → points-to/resumos/forma → plano de memória certificado por alocação
     → inserção de ownership → verificação → otimização ARC → verificação
     → materialização de exceções e raízes → verificação final → LLVM
     → runtime da mesma ABI → contadores + descritores + coleta de ciclos
@@ -588,6 +624,7 @@ números de linha que mudam.
 | `crates/runtime/src/{nucleo,gc_raizes}.rs` | Adaptar `dartforge_object_new/get/set`, `dartforge_alocar`, registro de imagem e raízes; não abastecer TLAB sem registro ARC. |
 | `crates/runtime/src/{listas,nativos_listas,colecoes,closures,tipos}.rs` | Enumerar e contabilizar todos os campos/buffers gerenciados, inclusive substituição, cópia, crescimento e redução. |
 | `crates/runtime/src/{nativos_sistema,finalizadores,eventos,excecoes}.rs` | Integrar promoção weak, ephemerons, anexos, eventos e pendências com a máquina de estados de morte. |
+| `sdk_nativo/core/finalizer_patch.dart`, `sdk_nativo/ffi/ffi_native_finalizer_patch.dart` | Preservar ligação do callback à zona, classificar a ação capturada e transportar `externalSize` ao runtime; atualmente o patch nativo valida esse tamanho, mas não o passa à extern. |
 | `crates/runtime/src/{ffi,ffi_callbacks,ffi_api_nativa,isolados,portas}.rs` | Implementar contratos de handles, callbacks, publicação, cópia entre isolates e encerramento. |
 | `crates/runtime/{build.rs,efeitos.tsv}`, `crates/runtime/src/lib.rs` | Registrar novos módulos/fragmentos e símbolos; gerar e validar tabela de ownership junto à tabela de efeitos. Incluir os módulos também em `RUNTIME_MAIN`. |
 | `crates/emit_native/src/{cache,cache_objeto,sdk_modulo,driver}.rs`, `crates/emit_native/build.rs` | Selecionar runtime correto e impedir mistura de ABI em caches, bibliotecas, SDK, objetos e ligação (§24). |
@@ -647,6 +684,11 @@ medir depois uma tabela por página/índice de bloco, evitando um hash por retai
 Geração é monotônica por alocação no isolate; overflow é falha interna detectada,
 nunca reutilização silenciosa. Filas guardam `IdArc`, verificam geração antes de
 acessar e ignoram entradas obsoletas. Elas não são raízes nem incrementam RC.
+O handle Dart continua sem geração embutida: não alegar que comparar metadados
+detecta todo uso de handle cru após reuso. Filas/weak/handles persistentes guardam
+a geração; para código gerado, prevenção vem do verificador e a depuração usa
+quarentena e registros de origem. Alterar a representação pública para carregar
+geração seria outra ABI.
 
 `permanentes`, `constantes` e caches existentes de `Heap` não implicam
 imortalidade: o tracing atual expurga entradas mortas dessas tabelas. Só objetos
@@ -682,14 +724,14 @@ ao implementar: suas descrições históricas não substituem o layout atual.
 
 ### 19.3 Alocação, contagem e substituição
 
-`Heap::alocar_bloco` registra metadados antes de publicar o handle. Inicializar
+No caminho ARC ordinário, `Heap::alocar_bloco` registra metadados antes de publicar o handle. Inicializar
 com `rc=1`, estado `Construindo`, corpo/bitmap zerados e descritor válido.
 Essa ocorrência pertence ao construtor; a conclusão a transfere para o resultado.
 Cada campo inicializado por cópia retém o destino. Construtor com falha solta
 apenas campos já inicializados e consome a ocorrência de construção. Enquanto
 construindo, o objeto consta das raízes temporárias do runtime.
 
-`reter(h)` ignora null/Smi e imortais, verifica estado/geração e faz incremento
+`reter(h)` ignora null/Smi e imortais, verifica estado e faz incremento
 com overflow verificado, inclusive em release build. `soltar(h)` exige `rc>0`;
 decrementa; zero vai para fila de zeros, positivo potencialmente cíclico vai
 para candidatos. Operações de contador não alocam objetos Dart, não lançam
@@ -711,9 +753,27 @@ encerrar transação; só agora permitir drenagem/coleta
 `x.f=x.f` deve permanecer válido. Validação que possa lançar ocorre antes da
 alteração. Para store por movimento, substituir o retain pelo consumo do owner
 de entrada **somente no sucesso**; na falha ele continua pertencendo ao chamador.
-Getter retorna owned na ABI inicial: copiar a referência retendo-a antes de
+Getter retorna owned na ABI geral: copiar a referência retendo-a antes de
 permitir reentrada. Leitura borrowed é otimização HIR com prova de estabilidade
 do slot, não simples consequência de o receptor permanecer vivo.
+
+Contratos das APIs **novas** internas de `Heap` (assinaturas de projeto):
+
+| Método proposto | Resultado e obrigação |
+| --- | --- |
+| `arc_registrar(h: Ref, descritor: IdDescritor)` | Registra bloco já reservado/zerado, gera identidade e owner de construção; falha antes de publicar `h`. |
+| `arc_reter(h: Ref)` / `arc_soltar(h: Ref)` | Opera uma ocorrência, sem safepoint nem código Dart; violações internas seguem diagnóstico fatal definido, nunca wraparound. |
+| `arc_ler_forte(slot: SlotArc) -> Ref` | Valida tag, retém e devolve owned; `SlotArc` descreve receptor/localização, não deixa ponteiro Rust sobreviver à mutação. |
+| `arc_substituir(slot: SlotArc, valor: Valor, modo: ModoStore)` | Valida tudo antes do commit; falha mantém slot e owner de entrada; sucesso cumpre Copy/Move. |
+| `arc_drenar_zeros(limite: usize)` | Processa somente objetos vivos de geração correspondente e RC ainda zero, sem proteção; budget conta trabalho entre transações. |
+| `arc_coletar(motivo: MotivoColeta) -> EstatisticasArc` | Exige safepoint/publicação de raízes, sem transação ativa; inclui rodada completa para pressão, condicionais ou solicitação explícita. |
+| `arc_auditar() -> Result<(), ErroArc>` | Reconta ocorrências e valida grafos/filas sem modificar decisão de vida. Só roda com heap estabilizado. |
+
+`SlotArc`, `ModoStore`, `MotivoColeta`, `EstatisticasArc` e `ErroArc` são tipos
+novos. Separar erro Dart de validação de campo/índice, ainda tratado pelo
+chamador, de violação interna de RC. Não retornar um handle inválido depois
+de falha interna. A integração com Rust usa um guard de transação cuja saída
+restaura o estado de controle; não depende de unwind C para desfazer contagem.
 
 ### 19.4 Morte lógica, lote e alocador
 
@@ -745,6 +805,12 @@ mantém listas livres por classe para inserir blocos individualmente; exige
 os mesmos invariantes e testes de fragmentação do reclamador por páginas.
 
 Para descartar conjunto `D`, de cascata ou de ciclos:
+
+Com unidades especializadas, `D` contém unidades completas elegíveis: grupo
+não pode ser descartado membro a membro e região ativa só termina pelo seu
+token. Expandir membros depois de decidir a morte da unidade, sem chamar
+release individual sobre metadata de contador coletivo. As saídas da unidade
+são debitadas uma vez; o §31.4 define o fechamento para a coleta global.
 
 ```text
 preparar reserva e ações; congelar mutador; marcar todos de D como Coletando
@@ -796,6 +862,10 @@ substituição, clonagem, inlining e visitantes de `lower/async_sm.rs`.
 
 Implementar `arc::inserir(module) -> Result<(), DiagnosticoArc>` em fases:
 
+0. Consumir `PlanoMemoria` validado (§27). Materializar limites de região/grupo
+   e empréstimos certificados antes dos tokens ordinários; valores regionais
+   têm obrigação de vida da região, mesmo sem retain/release individual. Sem
+   certificado, selecionar ARC geral e continuar a compilação normalmente.
 1. Classificar instruções e chamadas pela tabela de ownership. Construir CFG
    contendo saídas normais, pendência, unwind, retorno, throw e suspensão.
 2. Calcular vivacidade reversa de Ref e slots em ponto fixo. Incluir usos de
@@ -957,6 +1027,12 @@ ephemerons e auditoria precisam distinguir raízes de arestas internas.
 
 ### 22.1 Trial deletion sem alterar RC real
 
+Aplicar antes o filtro de candidatura do §32. Objetos `AciclicoProvado` não
+entram na fila, mas suas arestas não desaparecem. O percurso de referência
+continua completo; poda de percurso requer prova adicional. Regiões ativas
+publicam suas saídas para o heap; grupos são unidades explícitas do grafo
+de retenção. Borrows certificados não são subtraídos de RC como arestas contadas.
+
 No safepoint, drenar uma seleção de candidatos válidos. Construir região `R`
 pela clausura transitiva das arestas fortes; visitar cada objeto uma vez,
 mas registrar a multiplicidade das arestas. Em memória de trabalho, iniciar
@@ -1007,13 +1083,13 @@ imortais, nem conta uma referência condicional como forte ordinária.
 Com o mutador parado e raízes exatas publicadas:
 
 ```text
-L = clausura_forte(raízes reais + objetos de imagem vivos)
+L = clausura_forte_e_de_unidades(raízes reais + imagens + regiões ativas)
 repetir:
     para cada entrada (p, k, v):
         se p pertence a L e k é chave viva segundo a representação da API:
-            acrescentar v e sua clausura forte a L
+            acrescentar v e sua clausura forte/e_de_unidades a L
 até L não crescer
-D = todos os objetos gerenciados elegíveis que não pertencem a L
+D = unidades gerenciadas completas elegíveis que não pertencem a L
 preparar finalizações permitidas sem tornar o alvo uma raiz
 invalidar entradas cujos portadores/chaves morreram
 reconstruir proteção condicional dos valores das entradas restantes
@@ -1032,6 +1108,12 @@ as arestas de saída de `D` e debitar sobreviventes exatamente uma vez. Recriar
 proteção antes de drenar zeros evita uma janela de morte de valores ainda
 condicionalmente vivos. Se a preparação falhar, manter o estado anterior
 intacto e tentar novamente com reserva/pressão; nunca publicar meia limpeza.
+
+No caminho sem grupos/regiões, cada objeto é sua própria unidade e a fórmula
+é a marcação comum. Com especialização, alcançar membro de grupo mantém a
+unidade inteira e suas saídas, sem usar RC positivo como raiz (§31.4). A mesma
+decisão de vida rege limpeza de weak/ephemerons e finalização; não limpar uma
+entrada condicional por uma marcação que ignora retenção válida da unidade.
 
 Otimização obrigatória a avaliar depois da versão de referência: índice
 `chave → entradas pendentes` e worklist acionada quando uma chave/portador
@@ -1055,14 +1137,36 @@ da estrutura de detecção uma única vez. Token/callback da ação pronta ganha
 owners de fila antes da liberação dos owners do anexo. `concluir_finalizacao`
 solta a ação consumida; `desanexar` retira apenas anexos ainda desanexáveis.
 
-Auditar `Heap::raizes`: hoje enumera `a.dono` e ações Dart dos anexos. Não tomar
-esse fato isoladamente como prova de que a vida do dono está correta segundo
-Dart. Mapear papel de cada campo do anexo à API: alvo e token de desanexação
-são fracos; callback/token entregue precisam permanecer vivos enquanto a
-ação for elegível; a vida do finalizador governa quais ações são exigidas ou
-permitidas. Se a implementação tracing divergir da semântica, registrar e
-corrigir a base antes de usá-la como oráculo. ARC não deve eternizar finalizadores
-por transformar seu índice de registro em raiz incondicional.
+`Heap::raizes` hoje enumera `a.dono` e ações Dart dos anexos. Para o desenho
+ARC, substituir essa raiz incondicional por arestas com origem definida:
+
+| Parte do anexo | Representação escolhida |
+| --- | --- |
+| `dono` | Identidade fraca com geração no índice de anexos; o índice não mantém o finalizador vivo. |
+| `valor` e `desanexo` | Identidades fracas com geração; nunca mantêm alvo/chave vivos. |
+| `AcaoDeFinalizador::Dart(acao)` em anexo registrado | Aresta forte **do dono para a ação**, enumerada pelo descritor do dono mesmo estando em tabela lateral. Conta uma ocorrência; não é raiz global. |
+| Ação Dart já enfileirada | Owner da fila de eventos, transferido da aresta do dono; conclusão ou descarte da fila consome essa ocorrência. |
+| Ação nativa | Ponteiro de função e token C, sem aresta para objeto Dart; registro nativo mantém módulo de código/biblioteca carregado até cancelar/executar. |
+
+Assim, `dono→ação→dono` é um ciclo normal coletável. Ação/token que realmente
+referenciam o alvo o mantêm vivo enquanto o dono vive; não retirar essa aresta
+para forçar finalização. No descarte de conjunto, se dono e alvo morrerem juntos,
+cancelar a ação Dart registrada em vez de promover uma ação também morta.
+Se dono sobreviver e alvo morrer, a ação já deve estar viva; transferi-la para
+a fila antes de remover a aresta do anexo. Na morte isolada do dono, cancelar
+seus anexos Dart e soltar as ações. Ao remover anexo durante descarte do dono,
+o descritor/lote é responsável pelo débito: não executar um segundo release.
+
+O registro de obrigações nativas pode sobreviver à morte do wrapper do
+finalizador sem reter objetos Dart. Mantém callback/token até morte do alvo,
+desanexação válida ou encerramento normal do grupo. Identidade antiga de dono
+não pode corresponder a wrapper novo no mesmo endereço. Esse registro dá um
+caminho explícito às obrigações nativas sem transformar o wrapper em raiz.
+
+A escolha acima implementa o contrato de alvo/chave fracos e callbacks Dart
+como eventos; a possibilidade de coletar o finalizador e a ligação à zona
+constam da [fonte de `Finalizer` do Dart 3.6.2](https://github.com/dart-lang/sdk/blob/3.6.2/sdk/lib/core/weak.dart).
+Auditar o tracing com esses mesmos testes antes de tomá-lo como oráculo.
 
 `eventos.rs::laco_de_eventos` recebe ações Dart prontas; executá-las fora do
 empréstimo mutável do `HEAP` e fora da transação de coleta. Callbacks nativos
@@ -1074,6 +1178,53 @@ executadas, anexos cancelados e obrigações nativas ainda pendentes.
 `ArcKeepAlive` para `Finalizable` é introduzido durante lowering, quando o
 escopo semântico ainda existe; `await` transfere essa obrigação para o estado
 suspenso. Não tentar reconstruir o escopo a partir do LLVM otimizado.
+
+Aplicar a regra ao tipo estático: subtipo de `Finalizable` exceto `Never`, e
+recursivamente `T?`/`FutureOr<T>`. Incluir `this`, capturas efetivas e duração do
+corpo da closure. Não reter variáveis não capturadas apenas porque a closure
+foi criada no mesmo bloco. Suspensão comprovadamente incapaz de retomar não
+cria uma raiz eterna. O callback nativo deve poder executar fora do isolate;
+trampolim Dart de `Pointer.fromFunction` não é callback válido de
+`NativeFinalizer`. Essas regras e a garantia de encerramento normal são da
+[fonte de `Finalizable`/`NativeFinalizer` do Dart 3.6.2](https://github.com/dart-lang/sdk/blob/3.6.2/sdk/lib/ffi/native_finalizer.dart).
+
+Propagar `externalSize` do patch do SDK ao anexo e à pressão de memória; retirar
+a contabilização uma vez em detach ou execução. Bytes externos não se tornam
+arestas fortes. `encerrar_finalizadores_do_isolado` precisa respeitar a unidade
+real de grupo: se vários isolates compartilham obrigações, manter registro de
+grupo e só concluir o encerramento após confirmar todos os membros. Não
+confundir saída abrupta do processo com encerramento normal garantido.
+
+### 22.5 Política de agendamento e limites de trabalho
+
+Adicionar contadores de dívida para candidatos, zeros, mortos físicos e
+metadados condicionais sujos. `Heap::antes_de_alocar`, pontos seguros de laço,
+retorno ao executor de eventos e coleta explícita são os pontos de atendimento.
+Retain/release não chamam o coletor de ciclos por surpresa. O caminho de
+alocação publica todos os owners temporários antes de atender dívidas.
+
+Definir limites em estrutura interna versionada: número de candidatos, arestas
+de trial, bytes de scratch e bytes mortos aguardando reclamador. Os valores
+numéricos padrão são parâmetros de tuning a fixar com as medições de E6, não
+constantes sem evidência de desempenho. Testes usam limites pequenos explícitos
+para exercitar todas as transições. Dívida não atendida permanece registrada;
+ao exceder o limite de retenção física, a próxima alocação segura atende-a.
+
+Coleta explícita/pressão faz rodada completa, incluindo ponto fixo condicional,
+independentemente de haver candidatos ordinários. Saída de longa sequência sem
+alocações precisa de safepoints de laço/evento para progresso. Nenhum orçamento
+de pausa é garantia de tempo real: uma transação grande só pode terminar ou
+ser abandonada antes do commit. Reserva de emergência permite preparar o
+commit; exaustão fatal deve encerrar com diagnóstico, sem continuar com RC
+parcialmente alterado.
+
+Custos a instrumentar: trial `O(|R| + |E_R|)` em tempo e scratch proporcional
+à região; ponto fixo com worklist `O(|H_vivo| + |E_vivas| + |entradas|)` sob
+operações de índice de custo esperado constante; marcação de proteção
+proporcional aos nós/arestas novos visitados. A versão que varre todas as
+entradas repetidamente pode ter custo multiplicado pelo número de rodadas;
+medir explicitamente até habilitar o índice. Reclamador por páginas visita
+ocupação do espaço, não apenas objetos mortos.
 
 ## 23. Async, isolates, FFI e recarga
 
@@ -1186,7 +1337,8 @@ Cada otimização mantém o caminho de referência selecionável em testes.
 | Retain/release em linha | `llvm/mod.rs` | Tag, imortalidade, overflow, zero/candidato e geração corretos; caminho lento obrigatório. Comparar IR otimizado, tamanho e chamadas. |
 | TLAB ARC | Alocador + LLVM | Reservar metadados e registro de objetos junto aos blocos; publicação atômica; stress em cada fronteira. |
 | Cópia de buffers em lote | `listas.rs`, `colecoes.rs` | Multiplicidade, alias e sobreposição; reter entradas antes de soltar saídas, ou mover ownership comprovado. `memmove` de bytes sozinho não transfere contagem. |
-| Suprimir candidatos acíclicos | Descritores/análise de tipos | Prova fechada de ausência de caminho de retorno, invalidada por subclasses/layout/dynamic; não inferir de objeto atualmente sem campos. |
+| Selecionar memória por prova estática | `otimizar/arc/analise/` (§§27–34) | Regiões, grupos, empréstimos e poda por sítio/contexto antes do ARC ordinário; validar o certificado e medir retenção adicional. |
+| Suprimir candidatos acíclicos | Points-to, forma, descritores e runtime (§§28–32) | Provar ausência de participação em ciclos durante toda a vida; não remover a travessia nem inferir de objeto atualmente sem campos. |
 | Índice de ephemerons | `arc_condicionais.rs` | Mesmo ponto fixo da implementação de referência; worklist por chave/portador e proteção de mutações. |
 | Reclamador por classe | `espaco.rs` | Mesma morte lógica, contabilização e quarentena; medir fragmentação e RSS, não só número de blocos. |
 
@@ -1214,7 +1366,7 @@ cíclica e condicional. Não prometer vantagem universal sobre tracing.
 | E3 — runtime e stores | `arc.rs`, descritores, heap, listas, LLVM | RC recontado coincide em todos os safepoints do corpus acíclico; nenhuma escrita sem contrato; alocador recupera e reutiliza com geração correta. |
 | E4 — ciclos e condicionais | `arc_ciclos`, `arc_condicionais`, weak/finalizadores | Provas/invariantes dos §§19 e 22 em testes aleatórios e dirigidos; nenhum ciclo fechado esquecido sob pressão. |
 | E5 — fronteiras completas | Exceções, async, eventos, FFI, isolates, JIT/reload | Matriz semântica passa nos modos/plataformas implementados, com vida estendida e limpeza exata. |
-| E6 — otimizações e relatório | Passes ARC, LLVM/alocador e benchmarks | Cada otimização tem teste de contraexemplo e comparação com referência; regressões reportadas; métricas e limites publicados. |
+| E6 — seleção estática, otimizações e relatório | Passes ARC, LLVM/alocador e benchmarks | Cumprir S0–S7 do §34, com certificados e contraexemplos; comparar com referência, reportar regressões, métricas e limites. |
 
 E3 pode ser testado isoladamente com grafos acíclicos, mas não é versão final
 de ARC. E4 não substitui E5. Uma capacidade ainda ausente deve gerar diagnóstico
@@ -1274,9 +1426,1440 @@ Reproduzir em Windows e Linux; macOS só é marcado coberto após execução rea
 ### 26.4 Definição de pronto
 
 A implementação está pronta para avaliação final quando todas as entregas E0–E6
+e S0–S7 da seção 34
 têm evidência, o inventário não contém entradas desconhecidas, o verificador
 barra os contraexemplos, a matriz semântica passa e os relatórios distinguem
 suporte real de plataforma não testada. A seleção ARC permanece opt-in até
 decisão explícita de mudar o padrão. O documento especifica trabalho futuro;
 sua conclusão editorial não afirma que o runtime, as otimizações ou os testes
 descritos já foram implementados.
+
+### 26.5 Estado da implementação (2026-10-08)
+
+Esta subseção registra o que existe no código, medido nesta data; ela é
+atualizada a cada avanço e não altera os requisitos acima. Detalhes de
+engenharia em `docs/ARC-IMPLEMENTACAO.md` (§6, "ARC puro").
+
+| Entrega | Estado | Evidência |
+| --- | --- | --- |
+| E0 | parcial: o inventário de formas é o do `GrafoDoHeap` (bitmap da instância, `REFS`, corpo de fora, anexos, efêmeros e fracos), sem a tabela formal por construtor/escritor | auditoria por recontagem (`DARTFORGE_ARC_CONFERIR=1`) em toda drenagem |
+| E1 | feita: `--memoria arc`/`--memoria=arc` no AOT e no JIT; o modo entra na chave do SDK compilado; tracing segue padrão, com o IR de sempre | corpus 238/238 nos dois modos |
+| E2 | **não iniciada**: não há owners na HIR (§20); a contagem é toda do runtime | — |
+| E3 | feita, com desvio: o RC conta **toda** gravação forte (também em jovem), pela barreira do runtime e, nas alocações em linha do código gerado, por `dartforge_arc_inicial`; a escrita crua de um native tira uma foto, recontada na drenagem. As raízes não contam (RC adiado, Deutsch–Bobrow): a drenagem, no lugar da coleta menor, protege só o que as raízes veem; o jovem registrado sobrevive, o jovem que só as raízes veem é registrado, o resto morre sem varredura do heap e solta o que contava; os zeros cascateiam; o morto pelo RC volta ao alocador um a um (`soltar_morto`) | corpus 238/238 com auditoria, com `--gc-stress` e JIT × AOT 238/238 |
+| E4 | feita: *trial deletion* dos candidatos (§8) na drenagem completa, ou em toda drenagem com `DARTFORGE_ARC_CICLOS=sempre`; efêmeros pelo ponto fixo do §22.3 quando há algum; fracos e finalizadores despachados na drenagem | grafos aleatórios com semente contra oráculo independente (3000 sementes × 3 modos, `arc_grafos_aleatorios_*`); corpus 238/238 com ciclos em toda drenagem e auditoria |
+| E5 | parcial: exceções, async, eventos, isolados e JIT passam no corpus; a matriz `tracing/arc × pendência/tabelas × debug/otimizado` não está no harness (as combinações rodam por variável de ambiente) | corpus nativo 238/238 em Windows; Linux e macOS 238/238 no modo anterior (berçário), ainda não com o ARC puro |
+| E6 | início: o filtro mínimo do §32 — objeto de corpo `BRUTO` (texto, caixa numérica, dados tipados) não tem aresta e não vira candidato a ciclo | — |
+
+**Desvios em relação ao §19, deliberados e reversíveis.** A tabela de
+metadados é um `HashMap<Ref, MetaArc>` (a primeira versão que o §19.1 admite);
+a fila de candidatos não é limitada; o reclamador solta bloco a bloco em vez de
+reconstruir páginas (§19.4, "caminho otimizado posterior").
+
+**Medida** (`bench/desempenho` em produção, 2026-10-08, preso a um núcleo P):
+ARC/A0 = **2,81** de média geométrica. Numérico, listas e chamadas ficam em
+0,7–1,1; os que alocam objetos que escapam pagam a drenagem: `lista_ligada`
+19,9×, `arvores` 17,2×, `json` 4–8×. No `objetos_escapam`, as drenagens tomam
+~7 dos ~9 s: ~15 ms por drenagem de 65 mil jovens, ~230 ns por objeto, com cinco
+consultas ao `HashMap` por jovem, o conjunto das raízes montado a cada drenagem e
+a soltura física bloco a bloco.
+
+**Próximos passos, na ordem.**
+1. Tempo por fase da drenagem no rastro (`DARTFORGE_GC_RASTRO=1`, `fases=`),
+   para escolher o gargalo pela medida.
+2. Metadados por bloco, indexados pela página do espaço (§19.1: "medir depois
+   uma tabela por página/índice de bloco, evitando um hash por retain").
+3. Retain/release em linha no código gerado para o caso comum (§21), com o
+   caminho lento no runtime.
+4. E2: owners na HIR (§20), que tiram do caminho a maior parte dos
+   retain/release das variáveis locais.
+5. Linux e macOS com o ARC puro; a matriz do §26.3 no harness.
+
+## 27. Seleção estática da política de memória
+
+### 27.1 Uso das pesquisas e objetivo verificável
+
+As duas conversas fornecidas pelo proprietário motivam esta extensão: fazer
+o compilador escolher a estratégia de memória, inclusive para grafos cíclicos,
+e reduzir o trabalho residual em execução. Elas são material de pesquisa, não
+prova de resultados no DartForge. As decisões a seguir são requisitos deste
+projeto; não atribuem a Swift, Nim ou ASAP suporte à semântica Dart.
+
+| Evidência | Aplicação e limite |
+| --- | --- |
+| [Swift: Automatic Reference Counting](https://github.com/swiftlang/swift-book/blob/main/TSPL.docc/LanguageGuide/AutomaticReferenceCounting.md) | Referência para ownership e ciclos de capturas. `weak`/`unowned` são escolhas explícitas; não inferir que o Swift elimina ciclos fortes automaticamente. |
+| [Nim: gerenciamento de memória](https://nim-lang.org/docs/mm.html) e [destrutores/cursor](https://nim-lang.org/docs/destructors.html) | ORC complementa RC com coleta; cursor inference inspira eliminação de cópias. O pragma cursor não é prova automática de segurança de uma referência de retorno. |
+| Nim local, revisão da seção 17: `compiler/types.nim::canFormAcycle`, `compiler/ccgtypes.nim::genTypeInfoV2Impl`, `compiler/injectdestructors.nim::isCriticalLink`, `lib/system/orc.nim::rememberCycle` | Antecedentes concretos de classificação por tipo e filtragem de operações potencialmente cíclicas. Não transplantar o protocolo parcial de marcação sem provar a cobertura do coletor DartForge. |
+| [Proust, ASAP, UCAM-CL-TR-908](https://www.cl.cam.ac.uk/techreports/UCAM-CL-TR-908.html) | Inspiração para inserir gerenciamento automático a partir de análise estática e especializar o trabalho dinâmico restante. Não é componente pronto nem garantia de desempenho para Dart. |
+| [Chin, Craciun, Qin e Rinard, Region Inference for an Object-Oriented Language, PLDI 2004](https://scqin.github.io/papers/pldi04.pdf) | Precedente para inferir regiões e restrições de vida sem anotações do usuário, com polimorfismo. Nosso protocolo para Dart, observadores e ARC é especificado abaixo. |
+| [Chang e colaboradores, Cyclic reference counting by typed reference fields, 2012](https://www.ece.iastate.edu/~morris/papers/12/RC_chang_12.pdf) | Inspiração para reduzir trabalho de coleta com informação de tipos/campos. Resultados no Jikes RVM não são estimativas de ganhos do DartForge. |
+
+A meta é minimizar, por prova e medição, alocações com RC, candidaturas,
+percursos e rodadas residuais. Não afirmar antecipadamente “70–90%”, “80%” ou
+“sempre caminho frio”. Um único sítio desconhecido pode alocar a maioria dos
+objetos. Diminuir chamadas ao coletor à custa de retenção ilimitada reprova a
+otimização. Falta de prova seleciona a política geral, sem rejeitar Dart válido.
+Isso se refere à otimização automática. Um contrato opcional solicitado pelo
+usuário (§35) pode reprovar sua verificação, com diagnóstico próprio; ignorá-lo
+não autoriza usar a propriedade que deixou de ser provada.
+
+### 27.2 Dois grafos, unidades de vida e cobertura
+
+Definir explicitamente:
+
+- `G_sem`: referências fortes observáveis do programa, incluindo campos,
+  capturas e arestas sintéticas do SDK/runtime; preserva a semântica Dart.
+- `G_ret`: owners e arestas efetivamente contados, mais unidades de região/grupo
+  e suas âncoras. Borrows certificados não acrescentam contagem.
+- `G_cond`: weak, ephemerons e dependências de finalização, com seus contratos
+  próprios; não converter tudo em arestas fortes nem ignorar esses mecanismos.
+
+Cada objeto concreto tem uma unidade responsável por sua vida: ele próprio,
+uma região ou um grupo. Eliminação de objeto só é válida quando sua identidade
+e observações podem ser preservadas sem armazenamento. Deve valer, em todo
+estado observável: se o programa consegue alcançar um objeto segundo `G_sem`
+e o ponto fixo de `G_cond`, a unidade que o sustenta ainda está viva.
+
+Todo ciclo concreto deve estar coberto por uma das alternativas: vida
+delimitada comprovada; unidade coletiva com liberação correta; transformação
+de retenção com prova independente; ou visibilidade ao coletor residual.
+Essa obrigação inclui ciclos que cruzam políticas. SCC abstrata de tipos,
+sítios ou funções não é uma lista de objetos concretos a liberar em conjunto.
+
+### 27.3 Plano por alocação e por aresta
+
+Criar os seguintes tipos **novos** em `otimizar/arc/analise/modelo.rs`, com a
+parte necessária ao emissor em `hir.rs`. Campos são contratos de projeto:
+
+```rust
+struct SitioArc { origem: IdOrigem, copia: IdEspecializacao }
+enum ArmazenamentoArc {
+    Eliminado,
+    Pilha { prova: IdProva },
+    Regiao { regiao: IdRegiao, prova: IdProva },
+    Grupo { grupo: IdGrupo, prova: IdProva },
+    HeapRc,
+}
+enum ParticipacaoCiclica {
+    NaoParticipa { prova: IdProva },
+    Possivel { componente: IdComponente },
+}
+enum RetencaoDaAresta {
+    Contada,
+    InternaDaUnidade { unidade: IdUnidade },
+    Emprestada { ancora: IdAncora, prova: IdProva },
+    Fraca,
+    Condicional,
+}
+struct PlanoMemoria {
+    sitios: Mapa<SitioArc, PoliticaDoSitio>,
+    arestas: Mapa<IdAresta, RetencaoDaAresta>,
+    provas: Mapa<IdProva, CertificadoMemoria>,
+    dependencias: DependenciasDoPlano,
+}
+```
+
+`NaoParticipa` significa que a unidade não pode pertencer a ciclo contado;
+**não significa que seus descendentes também sejam acíclicos**. Guardar
+separadamente `nao_alcanca_ciclo`, quando houver prova dessa propriedade mais
+forte. `Pilha` exige tamanho limitado e protocolo de representação; grafos de
+tamanho variável usam arena no heap, sem arriscar overflow da pilha nativa.
+
+Na alocação, gravar a política validada na metadata da instância/unidade.
+Objetos da mesma classe criados em sítios/contextos distintos podem ter
+políticas diferentes. Alias não muda política ao ser carregado. Chamada
+genérica de release consulta metadata; variante especializada só dispensa
+essa consulta quando todas as alternativas do valor têm a mesma política
+e uma prova válida. Nunca confiar em tag fornecida pelo chamador que contradiga
+o objeto real, nem marcar a classe inteira a partir de um único sítio. Todos
+os aliases consultam o componente/versionamento da alocação real; a SCC de um
+parâmetro ou contexto do chamador não substitui o identificador da instância.
+
+Ordem de decisão: eliminação → pilha/região delimitada → grupo selado/borrow
+com prova → heap RC sem candidatura → heap RC residual. Não é uma ordenação
+cega de desempenho: rejeitar uma região/grupo quando seu custo de retenção
+for pior, mesmo que elimine mais operações. Registrar a razão da escolha.
+
+### 27.4 Pipeline obrigatório e validade dos fatos
+
+```text
+AST tipada + hierarquia + mundo alcançável
+  → HIR com tipos semânticos, campos, sítios e capturas identificados
+  → async explícito + poda segura + mem2reg/inlining/eliminação escalar
+  → CFG com saídas normais e excepcionais
+  → points-to e resumos de heap até ponto fixo
+  → SCC de tipos/sítios + refinamentos de fluxo/forma
+  → restrições de escape e vida → regiões/grupos/borrows
+  → plano por sítio + certificados + verificador de política
+  → inserção de ownership e operações de unidade
+  → otimização ARC + verificador de ownership/política
+  → materialização de exceções/raízes → LLVM + runtime compatível
+```
+
+IDs de sítio são estáveis através de clonagem/inlining: `ValueId` isolado
+não é identidade persistente. Inlining remapeia a origem e o contexto da cópia.
+Uma transformação que altera heap/CFG depois da prova deve atualizar a prova
+por regra verificada ou invalidá-la e recalcular os afetados antes da emissão.
+Com `DARTFORGE_OTIMIZAR_HIR=0`, manter ARC geral correto e seus verificadores;
+desligar otimização nunca desliga a recuperação residual nem cria certificados.
+
+## 28. Análise de referências e resumos interprocedurais
+
+### 28.1 Domínio, identidade e finitude
+
+Implementar análise de inclusão (*points-to*) em HIR, sensível a campos e a
+contextos limitados. Nó abstrato: `(SitioArc, contexto, instancia_generica)`;
+acrescentar nós para parâmetros, resultados externos, globais e unidades
+sintéticas. Um nó de sítio em loop/recursão pode representar muitos objetos.
+Registrar cardinalidade `Unico` ou `Muitos`; só singleton em cada estado
+abstrato/ativação relevante, comprovado para todas as execuções, permite
+atualização forte de seu campo. Observar uma instância em teste não é prova.
+Nós simbólicos de parâmetro/resultado/global são placeholders do resumo:
+instanciá-los com os points-to reais, preservando aliases. Não criar um objeto
+independente para cada parâmetro e assim esconder um caminho de retorno.
+
+Domínio mínimo:
+
+```text
+Pt(valor)                    = conjunto de nós possíveis
+Campo(no, campo/layout)      = conjunto de destinos possíveis
+Escape(no)                   = conjunto de causas/destinos de publicação
+Observa(no)                  = weak | ephemeron | finalizer | ffi | identidade
+Desconhecido(regiao_afetada)  = topo com possíveis leituras/escritas/retencoes
+```
+
+Null e valores triviais não criam nós. Chaves, valores, elementos, backing
+stores, receptor de tearoff, ambiente, célula, argumentos RTI, frame async e
+callback do SDK possuem posições distintas. Índice não constante de coleção
+usa elemento resumido; partição por índice só é usada com limites provados.
+Guardar origem de cada aresta para relatório e contraexemplo.
+
+Começar com contexto de uma chamada para funções e receptor abstrato para
+métodos; refinar seletivamente. Limites de contextos, nós, profundidade de
+caminho de campo e estados de fluxo são determinísticos e versionados.
+Ao exceder limite, unir contextos ou elevar ao topo. Conjunto truncado jamais
+vira vazio; interromper a análise invalida as provas dependentes. A análise
+termina por domínio finito/worklist e widening, não por supor convergência
+de uma exploração sem limites.
+
+### 28.2 Transferência de instruções
+
+| HIR/operação | Restrição/efeito |
+| --- | --- |
+| Alocar | Adicionar nó fresco ao `Pt(resultado)`; reconhecer tanto variantes `Alloc*` quanto construtores `CallRuntime` usados pelo lowering. |
+| Copy, movimento, cast de referência, `Phi` | Propagar união dos conjuntos; preservar as condições de caminho disponíveis. Cast de tipo não prova ausência de alias. |
+| `SetField(obj, campo, valor)` | Para cada origem possível, incluir `Pt(valor)` no campo. Remover aresta antiga somente com atualização forte comprovada naquele estado. |
+| `GetField` | Unir destinos dos campos de todas as origens possíveis. Leitura `dynamic` depende da resolução de chamada/getter; não assumir campo puro. |
+| Coleção | Resumo da operação distingue elemento/chave/valor/backing store; add/set/rehash/cópia conservam todas as referências possíveis e seus aliases. |
+| Global/retorno/throw | Marcar escape do valor e do alcance transitivo para o destino correspondente. Uma exceção contendo objeto local é escape. |
+| Closure | Criar closure/ambiente/célula e arestas de captura reais. Armazenar closure publica transitivamente suas capturas. |
+| `await`/retomada | Vida passa ao frame e às filas/continuations; resumir a operação gerada, não apenas a expressão Dart anterior ao lowering. |
+| Weak/ephemeron/anexo/FFI | Registrar observador e publicação potencial, mesmo sem aresta ordinária forte. Promoção weak e callback podem produzir owners externos. |
+| Chamada | Instanciar resumo com argumentos/contexto, incluir todos os alvos possíveis e aplicar efeitos normais e excepcionais. |
+
+Exemplo: `conectar(a,b) { a.proximo=b; }` gera efeito parametrizado
+`arg0.proximo ← arg1`. Duas chamadas `conectar(a,b); conectar(b,a)` precisam
+criar o ciclo abstrato sem depender de inlining.
+
+Uma chamada sem resumo de heap válido torna desconhecidos os objetos que
+pode tocar, incluindo alcance transitivo e globais acessíveis. Se puder reentrar
+em Dart, considerar os alvos de callback e suas publicações. Preservar fatos
+de conjuntos comprovadamente separados; não contaminar todo o módulo sem
+necessidade. Resumo ausente de **ownership da ABI** continua erro (§21.2);
+resumo ausente apenas de **precisão de heap** seleciona ARC geral.
+
+### 28.3 Formato de resumo e solução recursiva
+
+Criar `ResumoHeapArc` separado do `Resumo` de alcance em `poda.rs` e dos três
+efeitos atuais de `efeitos.tsv`. Deve conter:
+
+- Resultado: `fresh`, alias de parâmetro/campo/global, união ou desconhecido;
+  nulabilidade e observadores não se perdem na união.
+- Leituras/escritas por caminho de campo, cópia/movimento e publicações em
+  argumento, global, retorno, exceção, fila, handle ou estado async.
+- Retenção além da chamada, execução/captura de callback, reentrada, suspensão,
+  registro de weak/ephemeron/finalizador e vida do ponteiro interior.
+- Regiões paramétricas e restrições `vida(destino) ≥ vida(origem)` das arestas
+  não contadas; condições de unicidade/separação necessárias à especialização.
+- Hash do corpo, esquema de campos, resumos de callees, dispatch, SDK/runtime,
+  versão da análise e geração de recarga.
+
+Construir SCC do **grafo de chamadas**, resolver resumos de cada SCC por
+worklist monotônica e reaplicar chamadores dependentes quando o resumo crescer.
+Usar a hierarquia/RTA para um superconjunto de alvos; points-to pode reduzi-lo
+apenas com prova. Método ainda não analisado não é `noescape` por padrão.
+SDK já compilado precisa exportar esses resumos ou ser tratado como opaco.
+
+Especialização cria versões internas por política/região quando reduzir
+trabalho estimado e respeitar limite de código. Resumos podem ser paramétricos
+sem clonar todas as funções. Entradas públicas, dispatch aberto e FFI mantêm
+a convenção geral ou um stub comprovado; uma declaração `borrow` na ABI
+não significa, sozinha, que a função não retém uma cópia internamente.
+
+## 29. Provar aciclicidade sem confundir tipos e instâncias
+
+### 29.1 Filtro de tipos e SCC de sítios
+
+Construir primeiro grafo de layouts/tipos concretos possíveis: `T→U` quando
+um objeto T pode guardar referência forte para U. Incluir herança, genéricos,
+tipos apagados, buffers, capturas, estruturas SDK e arestas laterais fortes.
+`dynamic`/`Object` ou dispatch aberto amplia o conjunto compatível; não é nó
+sem saída. `final` e `sealed` não provam aciclicidade do conteúdo.
+
+Executar Tarjan sobre esse supergrafo. Tipo fora de SCC cíclica pode fornecer
+prova barata de não participação. Tipo dentro de SCC continua elegível ao
+refinamento por sítio/contexto; recursão nominal é possibilidade, não condenação
+de todas as instâncias a um mesmo caminho de memória.
+
+Sobre o grafo de sítios obtido no §28, SCC é cíclica se tiver mais de um nó ou
+uma autoaresta. Um sítio fora dessas SCCs recebe `NaoParticipa` somente se o
+grafo cobrir todas as mutações/entradas possíveis durante toda a vida de suas
+instâncias. Fatos válidos apenas na saída do construtor não bastam. Prova pode
+depender de contrato selado de módulo/sítio, que precisa acompanhar o objeto
+até o descarte e ser invalidado antes de qualquer operação incompatível.
+
+Tarjan é linear no tamanho do grafo fornecido; construção de points-to,
+sensibilidade de contexto e análise de forma têm custo próprio. Reutilizar
+algoritmo de SCC não equivale a reutilizar SCC de chamadas como SCC de objetos.
+
+### 29.2 Precisão de fluxo e forma
+
+Refinamentos obrigatórios para evitar que loops e branches simples caiam
+sempre no residual:
+
+1. **Estados disjuntos:** se `a.f=b` e `b.f=a` ocorrem em ramos mutuamente
+   exclusivos, manter estados separados até o limite configurado. Certificado
+   deve valer em todos os estados e em continuações futuras. Unir os estados
+   pode produzir falso ciclo; isso perde otimização, sem comprometer segurança.
+2. **Atualização forte:** permitida apenas em localização concreta única e
+   estado sem interferência; um nó resumindo instâncias de um loop não autoriza
+   apagar referências de todas elas porque um objeto foi sobrescrito.
+3. **Forma indutiva:** reconhecer construções por nó fresco apontando para
+   estrutura anterior, com ausência comprovada de backedge/mutação posterior.
+   Guardar invariantes `fresh`, `disjunto`, `alcanca`, `aciclico(campos)` e uma
+   ordem estrita de criação/região que diminui em cada aresta relevante.
+4. **Checagem de laço:** demonstrar base, passo e preservação em todas as
+   backedges, saídas e chamadas; se uma escrita ou resumo pode quebrar a ordem,
+   perder o invariante. Não concluir aciclicidade após desenrolar só N iterações.
+
+Exemplo alvo: uma lista construída repetidamente por `novo.next = cabeca;
+cabeca = novo` pode ser acíclica mesmo com autoaresta abstrata no sítio `novo`.
+Isso não autoriza `cabeca.next = cabeca` nem ligações arbitrárias recebidas
+de fora. Se o mesmo objeto puder ter outros campos fortes que retornam ao
+grafo, a prova de `next` sozinho é insuficiente.
+
+Começar com domínio de forma pequeno e certificado verificável. `Desconhecido`
+é resultado explícito quando a fórmula não pertence ao domínio; aumentar
+precisão direcionado pelos relatórios de sítios com maior custo, sem converter
+hipóteses de profiling em fatos semânticos.
+
+### 29.3 Filtro de candidato versus poda do percurso
+
+Considere `A↔B → D → E↔F`: D não pertence a ciclo, mas transporta alcance e
+contagens entre dois grupos cíclicos. D pode omitir candidatura no seu release
+positivo; D e suas saídas precisam continuar no percurso completo do trial.
+Um nó acíclico também pode morrer como consequência de descartar um ciclo.
+
+Manter inicialmente o visitante completo do §22.1. Uma especialização de
+percurso pode cortar uma aresta apenas com certificado de ausência de caminho
+de retorno ao componente analisado no grafo de retenção/unidades resultante
+da seleção de políticas. Recalcular prova anterior que não cubra grupos,
+regiões ou borrows introduzidos. Nesse caso, o destino permanece fora do
+trial; se a origem morrer, o release normal dessa saída agenda o que for
+necessário no componente seguinte. Se a origem sobreviver, a aresta continua
+contada. Registrar destinos de fronteira e provar progresso das coletas
+subsequentes; não subtrair RC de nó não visitado e esquecer a fronteira.
+
+Descritores terão visitantes distintos: semântico completo, retenção contada,
+arestas internas de unidade e opcional percurso especializado. A máscara de
+percurso não é a máscara de descarte. Sem certificado válido, usar visitante
+completo. Não inferir máscaras a partir de zero coletas observadas em benchmark.
+
+## 30. Regiões inferidas para grafos confinados
+
+### 30.1 Prova e escolha do limite de vida
+
+Região é unidade dinâmica de armazenamento cuja duração o compilador prova;
+pode conter quantidade variável de objetos e ciclos. O código Dart continua
+criando e usando referências normais. Não exige sintaxe nova nem anotação
+obrigatória; as preferências opcionais do §35 usam metadata Dart existente.
+
+Para um conjunto de sítios, resolver restrições de duração: toda aresta não
+contada `u→v` exige `vida(v) ≥ vida(u)` enquanto a aresta estiver válida. Ciclo
+dessas restrições exige duração conjunta, não liberação arbitrária de um nó.
+Escolher o menor domínio de controle que contenha construção e usos, e cujas
+saídas normais/excepcionais possam encerrar a unidade sem referência pendente.
+Postdominância isolada não basta: caminhos sem término, loops e suspensão têm
+de aparecer na prova.
+
+Certificado `RegiaoConfinada` contém:
+
+1. Sítios/membros incluídos, limite de entrada e todas as saídas, caminhos de
+   falha de construção e obrigações de `finally`/`Finalizable`.
+2. Ausência de publicação persistente em global, retorno, throw, campo externo,
+   fila, captura escapada, mensagem ou handle FFI. Parâmetro emprestado em
+   chamada síncrona é admissível somente com resumo que preserve a região.
+3. Ausência de observação weak/ephemeron/finalizer ou ponteiro interior capaz
+   de gerar acesso fora dessa duração, inclusive por reentrada. Alias interno
+   e `identical` podem continuar válidos se os objetos mantiverem identidade.
+4. Lista de arestas para fora e contrato de retenção de seus destinos; política
+   de recursos externos; prova de que código de limpeza não publica membro.
+5. Restrição de retenção: região por iteração quando não há alias entre
+   iterações; limite de tamanho/duração, ou demonstração de que os membros
+   permanecem necessários até o final. Não acumular todos os temporários de
+   um servidor em uma arena que só termina junto com o processo.
+
+Na primeira transformação regional, observadores especiais, `Finalizable`,
+callbacks opacos e FFI com exposição de endereço selecionam HeapRc para os
+objetos afetados. Isso preserva suporte à linguagem, apenas perde otimização.
+Uma versão regional que os aceite exige certificado específico de identidade,
+promoção e agendamento; chamar finalizador Dart em `EndRegion` é sempre inválido.
+Região lexical de pilha não atravessa `await`. Vida persistente precisa de
+owner no frame ou grupo do §31 e de análise das continuações/encerramento.
+
+### 30.2 HIR e representação no runtime
+
+Instruções **novas**: `ArcBeginRegion -> RegionId`,
+`ArcAllocRegion { region, descritor, tamanho } -> Ref`,
+`ArcEndRegion { region }`. Um token de região é criado uma vez por ativação,
+consumido uma vez em cada caminho de saída e domina todas as referências
+regionais. Borrows de membro dependem desse token; não existe owner individual
+que possa ser transferido a armazenamento persistente sem mudar a política.
+
+APIs internas **novas** em `runtime/src/arc_regioes.rs`:
+
+| Operação | Contrato |
+| --- | --- |
+| `arc_criar_regiao(prova, politica) -> IdRegiao` | Cria unidade ativa, registro de membros e raiz da unidade; pode usar reserva sob demanda. |
+| `arc_alocar_em_regiao(id, descritor, tamanho) -> Ref` | Registra bloco zerado e identidade antes de retornar; pertence à unidade e não tem RC individual. |
+| `arc_gravar_regional(id, slot, valor)` | Interna: preserva referência sem RC individual. Para fora: retém/substitui owner de saída e atualiza inventário. |
+| `arc_liberar_regiao(id)` | Consome token, invalida observações admitidas, solta saídas contadas e libera membros uma vez; não executa Dart dentro da transação. |
+
+Chamadas especializadas podem receber token/região implícito e retornar alias
+dependente dessa região. Registrar isso no resumo e no verificador: resultado
+regional não ganha vida independente por usar fisicamente o mesmo `i64` de
+um resultado owned. A convenção genérica do §6 só pode ser usada quando o
+contrato de chamada estiver adaptado sem exportar o membro; callee opaco ou
+stub capaz de guardar owner persistente impede essa regionalização. Um no-op
+em `retain` de referência regional não é prova de que a chamada seja segura.
+
+Integrar ao espaço existente: manter cabeçalho, `Ref`, endereço e classificação
+por página válidos para `bloco_de`, leitura de campos e identidade. A primeira
+implementação pode alocar blocos no `EspacoDeObjetos`, marcados por `IdRegiao`,
+com lista de membros; reclamá-los em lote pelo §19.4. Arena em páginas
+reservadas é otimização posterior, também registrada no espaço. Um `malloc`
+externo sem integração com o mapa de páginas não é implementação de `Ref`.
+
+Estender `MetaArc` com `gestao: Rc | Regional(IdRegiao) | Coletiva(IdGrupo)`
+e tornar o contador válido apenas na variante RC. Região mantém metadados de
+layout, identidade e geração; “sem RC” não significa “sem metadata”. Reservar
+capacidade antes de publicar membro. Falha deixa a região com sua lista de
+membros inicializados e é limpa pelas mesmas saídas excepcionais.
+
+### 30.3 Referências de fronteira e coleta durante a região
+
+Referência entre membros da mesma região não incrementa contador individual.
+Referência região→objeto HeapRc ou grupo externo é contada normalmente, salvo
+borrow com âncora independente. Substituição retém antes de soltar; fechamento
+consome cada ocorrência externa uma vez. Manter o inventário em slots dos
+membros com descritor ou em índice estável; não registrar cada store antigo
+como uma nova saída permanente.
+
+Região ativa é raiz lógica no coletor global. Enumerar seus membros/arestas
+de saída e manter os destinos externos alcançáveis; a auditoria não soma de
+novo uma saída já contada. Uma otimização pode visitar só o índice de saídas
+se provar equivalência ao percurso dos membros. Não permitir que a coleta
+recolha um destino externo vivo porque o owner está dentro da arena.
+
+Referência persistente HeapRc→membro regional viola confinamento. Detecção
+estática seleciona HeapRc antes de gerar código. Não resolver a violação com
+retain no membro, pois ele não possui contador individual. Se forem geradas
+versões especializadas/generalizadas, decidir a versão antes de começar a
+construção; nunca copiar silenciosamente um grafo já observado para outra
+arena, alterando identidade.
+
+Região aninhada pode apontar à região externa, pois a externa sobrevive à
+interna. Referência inversa exige provar limpeza antes do fim da interna;
+sem isso, unir durações ou selecionar ARC. Se união introduzir retenção
+excessiva, ARC é a escolha de custo, não uma falha de compilação.
+
+### 30.4 Saídas e exemplo de código gerado
+
+```text
+reg = ArcBeginRegion
+try interno do compilador:
+    lista/nós = ArcAllocRegion(reg, ...)  // N pode depender da entrada
+    conectar os membros, inclusive fechando um anel
+    resultado = calcular um escalar
+    executar finally Dart ainda dentro da vida de reg
+cleanup em todas as saídas:
+    ArcEndRegion(reg)
+retornar resultado ou propagar exceção original
+```
+
+O cleanup interno não é `finally` adicional observável no Dart. Em unwind,
+usar o protocolo do §20.4; em pendência, os blocos de erro; em construção
+parcial, apenas membros registrados. Exceção que contém um membro impede
+esta regionalização. `break`/`continue` de região por iteração encerram a
+unidade correta; recursão cria tokens distintos por ativação.
+
+Fechamento pode percorrer a lista conhecida de membros e suas saídas:
+elimina a busca de alcançabilidade/ciclos, mas não promete custo O(1) para
+liberar buffers ou decrementar destinos externos. Medir separadamente esse
+trabalho. Se a função continua produzindo lixo antes de terminar, subdividir
+regiões em pontos certificados ou usar ARC; apenas transferir a pausa para
+o fim da função não satisfaz a meta de memória.
+
+## 31. Empréstimos estruturais e grupos que escapam
+
+### 31.1 Prova de âncora independente
+
+Um campo Dart continua semanticamente forte mesmo quando sua ocorrência RC
+é eliminada. Para trocar `u→v` contado por borrow, provar, em todo estado
+observável enquanto o slot existir:
+
+```text
+alcançavel_semanticamente(raízes, u) e campo_semantico(u, v)
+    implica vivo_por_retencao_independente(raízes, v)
+```
+
+O caminho que sustenta v não pode depender da mesma ocorrência eliminada.
+Dependências entre provas de âncora devem formar DAG terminado em owner
+contado, token de região ou grupo válido. Justificar A por B e B por A não
+cria owner. Provar somente ausência de um próximo `load` não basta quando
+weak/finalização/reentrada podem observar a vida do objeto.
+
+No padrão `pai→filho→pai`, a aresta de retorno pode ser borrowed se toda
+exposição do filho estiver limitada por owner independente do pai. Retornar
+apenas o filho, capturá-lo em callback, guardá-lo no frame async ou promover
+weak do filho pode quebrar a condição. A análise deve provar ausência desses
+caminhos ou instalar uma unidade coletiva que os cubra. Reconhecer o nome
+`pai`, formato de árvore, `final` ou monomorfismo não constitui prova.
+
+### 31.2 Emissão e mutação
+
+Adicionar `ArcStoreBorrowed { slot, value, ancora, prova }` à HIR e uma marca
+de aresta no descritor da instância/especialização. O store continua atualizando
+payload, tag semântica e informação para auditoria. Ele não vira store escalar
+sem metadata. O visitante de retenção não subtrai essa aresta de RC; o visitante
+semântico a conserva para conferir alcançabilidade.
+
+Todos os escritores/leitores do slot devem concordar com sua política. A
+primeira versão só especializa slots com política uniforme por instância; se
+um slot alterna entre counted/borrowed, exigir discriminante e transição
+transacional que retém o novo owner antes de remover a âncora antiga. Não
+reutilizar bitmap forte do tracing como prova de contribuição RC.
+
+Uma leitura borrowed dura até a âncora; produzir um resultado owned externo
+exige retain válido no destino, transferência do token apropriado ou prova de
+que continua confined. Reentrada, throw e limpeza devem manter a âncora até
+o último estado observável do borrow. Atalhos que violam esse requisito
+voltam ao campo contado. `WeakReference` não é o código gerado desse passe.
+
+### 31.3 Grupo selado como unidade de ownership
+
+Para um grafo que escapa, pode-se escolher `GrupoSelado` quando houver prova
+de composição delimitada e vida conjunta aceitável. Cada objeto mantém seu
+handle/identidade e aponta para uma metadata de grupo. Contador do grupo:
+
+```text
+rc_grupo(G) = owners externos para qualquer membro de G
+            + ocorrências fortes de outras unidades para membros de G
+```
+
+Arestas internas preservam `G_sem` mas não incrementam `rc_grupo`. Qualquer
+alias externo para A, B ou outro membro mantém o grupo. Copiar tal alias retém
+o grupo; mover transfere; soltar consome. `arc_reter/soltar` genéricos resolvem
+a unidade através de `gestao`. Empréstimo de membro tem duração do owner do
+grupo; não exigir que o programa guarde uma “raiz principal”.
+
+APIs **novas** em `arc_grupos.rs`: `arc_grupo_iniciar`,
+`arc_grupo_alocar`, `arc_grupo_selar`, `arc_grupo_reter`,
+`arc_grupo_soltar`. O owner de construção sustenta o grupo até publicação;
+ao selar, congelar membership e validar política de campos/saídas. Falha
+descarta apenas membros construídos **desde que nenhum tenha sido publicado**.
+O certificado deve provar ausência de escape/reentrada observável durante
+a construção até o commit de selagem. Se um construtor puder publicar `this`
+e depois lançar, selecionar HeapRc desde o início; não destruir o objeto que
+ficou acessível num global. Um protocolo futuro de construção publicada teria
+de contar owners externos e, na falha, soltar apenas o owner de construção.
+Não adicionar membro arbitrário após
+selagem; crescimento mutável exige outro certificado ou ARC geral.
+
+Campos entre membros podem mudar para membros existentes se o certificado
+cobrir as mutações e a retenção conjunta. Saídas para objetos externos são
+contadas por ocorrência. Descarte do grupo invalida registros, solta saídas,
+libera recursos nativos segundo seus contratos e reclama os membros; não
+executa `dispose`, `close` ou callback Dart como destrutor.
+
+### 31.4 Ciclos entre grupos e retenção excessiva
+
+Construir grafo quociente de **unidades**: objetos HeapRc individuais,
+grupos selados e raízes de regiões ativas. Uma aresta G→x→G ou G1→G2→G1
+ainda é ciclo. Grupo só recebe `NaoParticipa` se o quociente inteiro relevante
+provar ausência de retorno; caso contrário, participa do trial como nó com
+contador e descritor de saídas. O coletor não mistura subtrações individuais
+dos membros com o contador coletivo. Nas raízes, contar cada owner externo
+uma vez, independentemente de quantos membros possa alcançar por campos.
+
+Na coleta global/condicional, distinguir `L_sem` do oráculo por membro de
+`L_mem`, a retenção efetiva do plano. Construir `L_mem` a partir de raízes
+reais, imagens e regiões ativas. Sempre que alcançar qualquer membro de
+grupo, acrescentar todos os seus membros e saídas contadas; propagar fortes
+e âncoras válidas até estabilizar, intercalando o ponto fixo de ephemerons.
+O grupo não marcado não se torna raiz só porque `rc_grupo>0`: G→x→G sem
+entrada externa continua coletável.
+
+O conjunto de descarte usa unidades inteiras fora de `L_mem`. Não liberar
+isoladamente membro ou destino contado de grupo vivo que esteja fora de
+`L_sem`; isso deixaria slot pendente e causaria um segundo débito/free no
+encerramento do grupo. Usar `L_mem` de forma coerente para conservar/limpar
+weak, ativar ephemerons e decidir morte/finalização, impedindo que promoção
+weak devolva uma chave cujo Expando foi apagado por outra noção de vida.
+A diferença `L_mem - L_sem` é retenção adicional da política, entra no modelo
+de custo e precisa permanecer dentro da admissibilidade semântica do certificado.
+Não usar esse fechamento para transformar proteção condicional em raiz.
+
+Não fundir toda SCC **abstrata** em grupo: ela pode representar número
+ilimitado de instâncias com vidas independentes. Usar um evento concreto de
+construção e relação de membership verificável. Não migrar objetos ordinários
+já publicados para grupo apenas por terem aparecido numa mesma SCC de tipos.
+
+Weak/ephemeron/finalizadores, ponteiros nativos para membros e recarga sem
+contrato estável impedem inicialmente esta especialização, mantendo HeapRc.
+Suporte especializado futuro precisará manter observação **por membro**, não
+transformar todos em um único alvo fraco indistinto. Ausência de observadores
+não elimina a obrigação de limitar retenção: se um membro duradouro conserva
+uma quantidade crescente de membros sem uso, recusar agrupamento, reduzir
+seu domínio ou manter coleta individual. Relatar custo previsto/medido.
+
+Um grupo com número fixo pequeno de membros pode ser útil mesmo mantendo
+alguns vivos juntos por mais tempo. Tornar explícito o limite usado para
+aceitar esse custo; nenhum percentual universal de economia justifica
+ignorar pico de memória ou duração de retenção.
+
+## 32. Runtime residual especializado e eliminação por programa
+
+### 32.1 Decisão de release e cobertura dos ciclos
+
+Alterar o caminho de release do §19.3 para respeitar a unidade selecionada:
+
+```text
+unidade = resolver_gestao(handle)
+se alias depende de região: validar obrigação; nenhum RC individual
+se grupo: operar contador do grupo
+se HeapRc: operar contador do objeto
+se contador chegou a zero: fila de zeros, respeitando proteção condicional
+senão se politica == NaoParticipa: terminar sem candidatura
+senão: inserir candidato uma vez segundo o protocolo abaixo
+```
+
+Para `Possivel`, o protocolo de referência continua candidatar em todo
+release positivo. O trabalho estático deve reduzir o conjunto que chega a
+essa política. Ao remover a última entrada externa de um ciclo residual,
+deve existir pelo menos um candidato válido que permita alcançar o componente.
+Filas com identidade/geração e reencaminhamento após budget/OOM preservam
+essa obrigação. Redução do número de candidatos sem essa prova é vazamento.
+
+### 32.2 Filtro por escritas potencialmente cíclicas
+
+Otimização adicional, com protocolo próprio em vez de copiar parcialmente o
+`maybeCycle` de outra linguagem: usar bit **monotônico por componente abstrato**
+da imagem/isolate, `houve_escrita_ciclica`. Esse bit não é marca de liveness.
+
+1. Componente pode começar limpo somente se todos os construtores, stores,
+   operações SDK, cópias, importações e publicações estiverem instrumentados e
+   não houver objetos preexistentes de proveniência desconhecida.
+2. Todo store que possa criar aresta interna a uma SCC potencialmente cíclica
+   seta o bit **antes** de publicar a aresta. Inicialização conta como store;
+   reconhecer todas as especializações LLVM e campos sintéticos.
+3. Com bit limpo, release positivo desse componente dispensa candidatura:
+   nenhuma execução de aresta capaz de formar um ciclo ocorreu ali.
+4. Com bit sujo, **todos** os objetos/unidades `Possivel` do componente usam
+   o protocolo ordinário, não apenas o alvo do store. Não limpar o bit depois
+   de uma coleta parcial ou porque um candidato sobreviveu.
+5. Fronteira desconhecida, módulo novo ou objeto existente sem prova começa
+   em componente sujo; invalidação ativa a política geral antes da publicação.
+
+Instâncias/aliases usam ID de componente e versão comuns da imagem. Instrumentar
+também clones, desserialização, tabelas laterais, migração e materialização;
+imagem sem histórico certificado começa suja. A marcação é infalível e não
+aloca. Se recarga unir componentes antes separados, marcar os componentes
+antigos/novos afetados antes de qualquer escritor novo operar. Não eliminar
+candidatos pendentes por causa da mudança do filtro.
+
+Essa versão sacrifica precisão depois da primeira escrita crítica, mas tem
+uma justificativa verificável: todo ciclo real projeta um ciclo abstrato, cuja
+construção executa ao menos uma aresta instrumentada, e daí em diante a última
+entrada externa perdida aciona o protocolo geral em qualquer membro. Uma
+reentrada capaz de coletar não pode ocorrer entre a publicação e a marcação.
+
+Não usar a regra insegura “marcar só o alvo do store e esperar release nele”:
+a última raiz pode desaparecer por outro membro depois de uma rodada que
+considerou aquele alvo vivo. Reset de bit e filtragem por instância exigem
+novo protocolo de cobertura; ficam desabilitados até haver prova e testes.
+Medir se consultar/escrever o bit custa menos que a fila evitada. Pode-se
+eliminar estaticamente consultas em caminhos já dominados por bit sujo.
+
+### 32.3 Execução sem coletor ordinário de ciclos
+
+Gerar certificado **da imagem inteira**, `SemCiclosResiduais`, somente se:
+
+- Toda alocação alcançável de programa, SDK, runtime, stubs, callbacks e
+  inicializadores tiver política comprovada; código opaco não conta como vazio.
+- Todas as unidades e suas relações de fronteira forem livres de ciclos
+  residuais; borrows/grupos/regiões tiverem certificados válidos e cobertura
+  de todas as saídas. Coleta explícita continua com contrato coerente.
+- A imagem for fechada para introdução de código/mutações incompatíveis, ou
+  houver protocolo que instale capacidade residual antes de admitir a extensão.
+- O certificado for verificado na ligação/registro e entrar no hash da ABI,
+  do plano de memória, SDK e artefatos de cache.
+
+Nesse caso, remover filas/trial ordinário e suas chamadas alcançáveis na
+ligação. Isso não remove automaticamente ephemerons, invalidação weak,
+finalização, reclamador físico, contadores ou safepoints exigidos por outras
+funções. Emitir também capacidades independentes, como
+`precisa_alcance_condicional`; `Expando` pode exigir trabalho dinâmico mesmo
+com zero ciclos de referências ordinárias.
+
+O comando de compilação pode expor **nova opção proposta**
+`--exigir-sem-coletor-de-ciclos`: ela verifica o certificado e falha explicando
+as obrigações não provadas; nunca força desativação insegura. A seleção normal
+é automática e compila com residual quando necessário. Não confundir essa
+opção com `--memoria arc` nem prometer um programa sem gerenciamento dinâmico.
+
+### 32.4 Invalidação e transição antes da publicação
+
+Provas dependem de corpo de função, alvos de dispatch, campos, resumos e
+políticas, além da época de layout. Recarregar somente um método pode
+introduzir o primeiro backedge sem mudar layout. Invalidar consumidores
+transitivos antes de `vivo::publicar`/instalar geração.
+
+Para instância HeapRc `NaoParticipa`, permitir transição monotônica para
+`Possivel` em safepoint: atualizar a metadata e tornar candidatos os objetos
+afetados com RC positivo, preservando os campos/contadores existentes; instalar
+escritores/leitores compatíveis e só depois publicar a nova execução.
+
+Regiões, borrows persistentes e grupos precisam de mais que um bit. Enquanto
+não houver protocolo de materialização completo, não aplicar essa especialização
+a código/objetos expostos a recarga incompatível: usar ARC geral na sessão
+editável ou manter contratos antigos para objetos antigos e recusar só a
+recarga que os viole. Não negar suporte a Dart válido fora dessa combinação.
+Frames antigos em execução, layouts antigos e resumos usados por stubs também
+fazem parte da checagem; recompilar só os chamadores novos não basta.
+
+Se implementada, materialização deve reservar metadata/contadores, inventariar
+aliases de fronteira e arestas internas, reconstruir contagem sem mover handles,
+atualizar observadores e caminhos genéricos, e fazer um único commit antes
+do store/retorno/handle que escaparia. Falha deixa a versão anterior íntegra.
+Até esses passos serem implementados e verificados, não gerar uma guarda que
+prometa converter objetos depois de publicá-los.
+
+## 33. Onde implementar a análise e como verificar seus certificados
+
+### 33.1 Infraestrutura existente: capacidades e limites
+
+Este mapa foi conferido no código do repositório. Nenhum dos passes abaixo
+deve ser apresentado como análise de regiões/points-to já implementada:
+
+| Ponto existente | Trabalho concreto |
+| --- | --- |
+| `crates/mundo/src/lib.rs::{Hierarquia,Raizes,Mundo,calcular}` e `emit_native/src/mundo_nativo.rs::calcular` | Usar classes instanciadas, hierarquia e seletores vivos como superconjunto. RTA determina alcance de código/tipos; não determina aliases de instâncias. |
+| `emit_native/src/context.rs::Context` e `lower/membros.rs::{layout,tipo_da_variavel}` | Exportar esquema estruturado de campos com IDs, tipos declarados e classes possíveis antes do apagamento para `Type::Ref`. Não interpretar `CampoDoLayout::tipo`, que é texto para migração, como domínio de tipos. |
+| `lower/membros.rs::FnBuilder::{indice_campo,repr_do_campo,gravar_campo,ler_campo}` | Associar `IdCampo` e origem aos índices físicos, incluindo herança/mixins. Registrar stores gerados e seus efeitos. |
+| `hir.rs::{ClassDef,Function,Module,Instruction}` | Acrescentar sítios, plano, provas, resumo de heap, políticas de aresta e operações de região/grupo/borrow. Preservar tipos/forma de coleções. |
+| `otimizar/mod.rs::otimizar` | Integrar planejamento depois de transformações normais e antes de ARC; não perder metadados em limpeza/inlining. Centralizar programa e SDK na mesma entrada. |
+| `otimizar/escape.rs::substituir_objetos` | Preservar a substituição escalar existente. Hoje reconhece objetos com acessos simples por índice constante; argumento, retorno, phi ou identidade impedem essa transformação. Acrescentar análise interprocedural separada, sem tratar o passe atual como prova de região. |
+| `otimizar/inline.rs::{copiavel,inlining}` | Remapear origem/contexto ao clonar e aplicar orçamento de especializações; invalidar resumos dependentes do corpo. |
+| `otimizar/efeitos.rs::{instrucao_lanca,nao_lancam,em_ciclo}` | Separar efeitos de heap dos efeitos de exceção existentes. Extrair Tarjan iterativo de `em_ciclo` como utilitário reutilizável, preservando testes; seus resultados atuais são SCCs de chamadas. |
+| `lower/captura.rs::{analisar,analisar_com,livres}` | Alimentar o grafo com capturas/células; ausência de resolução vira desconhecido, nunca ausência de captura. |
+| `lower/funcoes_diretas.rs::{Passagem,Captura,Direta}` e `FnBuilder::{declarar_funcao_direta,chamar_direta}` | Reaproveitar a eliminação existente de closures que só têm chamadas diretas; expandir com contratos de não retenção verificados. |
+| `lower/closures.rs::{preparar_capturas,lower_closure,tearoff_de_metodo,tearoff_instanciado}` | Registrar todos os objetos sintéticos, receptor, ambiente, células e tipos capturados. |
+| `lower/async_sm.rs::{lower_corpo_async,fechar_corpo,funcao_novo_quadro,guardar_vivos,converter_allocas}` | Atualizar fatos após criação do estado suspenso. Owner no frame é escape da função síncrona original; continuations participam do grafo. |
+| `poda.rs::{Resumo,resumir,resumo_da_hir,podar_hir,ler_resumos}` | Resumos atuais são de alcance. Adicionar seção versionada separada para heap ou arquivo próprio, sem inferir noescape a partir de símbolo podado. |
+| `sdk_modulo.rs::{BibliotecaDoSdk,emitir_bibliotecas_do_sdk,chave_do_sdk}` | Publicar resumos de heap junto ao SDK, versões e hashes; consumir antes de tornar o SDK opaco em LLVM. |
+| `llvm/mod.rs`, `llvm/listas_ir.rs`, `llvm/raizes.rs` | Consumir plano validado, emitir gestão de unidade, raiz regional e filtros; conferir todos os atalhos de store/alocação. |
+| `runtime/src/{arc,arc_descritores,arc_ciclos,arc_condicionais}.rs` propostos no §18 | Estender metadata/unidades, visitantes distintos, auditoria e coleta; manter ephemerons independente de fila de ciclos ordinários. |
+| `runtime/src/{espaco,heap}.rs` | Registrar regiões/grupos no alocador, preservar identidade e contabilização; `Heap::migrar_instancias` e `epoca_de_layout` participam da invalidação. |
+| `jit/src/reload.rs::{hot_reload,install_generation,check_contract}`, `migracao.rs::{layouts_do_ir,planejar}`, `vivo.rs::publicar` | Conferir dependências de prova antes de publicar geração; métodos são associados aos tipos correspondentes, como `JitSession`. Mudança de corpo também invalida. |
+| `cli/src/nativo.rs`, `emit_native/src/{cache_objeto,cache,driver}.rs`, `emit_native/build.rs` | Expor relatório/modos de comparação, incluir plano e capacidades no cache/ABI, selecionar artefato com ou sem coletor apenas sob certificado global. |
+
+Nesta tabela, `lower/`, `otimizar/`, `llvm/`, `hir.rs`, `poda.rs` e
+`sdk_modulo.rs` são relativos a `crates/emit_native/src/`; `emit_native/`,
+`runtime/`, `jit/` e `cli/` são relativos a `crates/`. A poda AOT
+não equivale a mundo fechado eterno no JIT: futuras gerações podem introduzir
+seletores. Provas editáveis precisam de dependências e invalidação próprias.
+
+### 33.2 Arquivos novos e responsabilidades
+
+Sob `crates/emit_native/src/otimizar/arc/analise/`, criar:
+
+| Arquivo novo | Responsabilidade e saída |
+| --- | --- |
+| `mod.rs` | `planejar_memoria(module, configuracao) -> PlanoMemoria`; coordena dependências e budgets. |
+| `modelo.rs` | IDs, domínios, placeholders, fatos, políticas, provas e motivos de desconhecimento. |
+| `tipos.rs` | Esquema de tipos/layouts/arestas sintéticas e filtro nominal de ciclos. |
+| `points_to.rs` | Worklist de restrições de inclusão, campos, contextos, cardinalidade e topo. |
+| `resumos.rs` | Resumos parametrizados, SCC recursivas, instanciação, leitura/gravação e invalidação. |
+| `forma.rs` | Estados de fluxo e invariantes indutivos de aciclicidade/separação em loops. |
+| `escape.rs` | Publicações fortes e observáveis, duração de chamadas/frames e fronteiras. |
+| `regioes.rs` | Restrições de vida, seleção de limites, custo de retenção e saída `RegiaoConfinada`. |
+| `emprestimos.rs` | Provas de âncora, DAG de dependências e política por slot. |
+| `grupos.rs` | Membership, selagem, contabilidade coletiva e grafo quociente. |
+| `certificados.rs` | `verificar_plano(module, plano)` independente da heurística de seleção. |
+| `relatorio.rs` | Explicações por sítio/aresta e dados para comparar com perfil de execução. |
+
+Adicionar `crates/emit_native/src/otimizar/scc.rs` para o algoritmo comum,
+sem associá-lo a um grafo específico. No runtime, criar `arc_regioes.rs` e
+`arc_grupos.rs`, registrá-los em `MODULOS`, `lib.rs` e `RUNTIME_MAIN` conforme
+§18; externs públicas correspondentes entram no fragmento `arc_abi.rs`, na
+tabela de símbolos e em `ownership.tsv`/`efeitos.tsv` com os efeitos reais.
+
+### 33.3 Conteúdo e checagem do certificado
+
+`CertificadoMemoria` deve identificar hipótese, conclusão, sítios/arestas,
+invariantes de loop, âncoras, saídas de cleanup e dependências versionadas.
+O verificador deve reconstruir e conferir obrigações, não apenas aceitar
+`seguro=true` produzido pelo mesmo passe. Reusar utilitários de CFG é válido;
+heurística que escolhe região e lógica que confere sua vida são separadas.
+
+Obrigações mínimas:
+
+- **Acíclico:** supergrafo fechado ou invariante indutivo; nenhuma mutação
+  possível omitida; validade durante toda a vida e nos caminhos de erro.
+- **Região:** dominância da entrada, consumo único nas saídas, nenhuma
+  referência escapada após cleanup e todas as saídas externas contabilizadas.
+- **Borrow:** âncora independente viva em todo estado observável, sem ciclo
+  de justificativas e com escritores/leitores compatíveis.
+- **Grupo:** cada membro pertence a uma única unidade, todos os owners
+  externos redirecionam ao grupo e todas as saídas entram no quociente.
+- **Poda/filtro:** cobertura de qualquer ciclo residual e das fronteiras,
+  inclusive after lowering, clones, SDK e writers em linha.
+
+Uma prova rejeitada antes da transformação permite refazer os sítios afetados
+em ARC geral. Uma contradição descoberta depois de consumir tokens, remover
+stores ou emitir código é erro interno: reconstruir a HIR a partir de estágio
+íntegro ou abortar a compilação, nunca continuar com IR parcialmente convertido.
+Adicionar diagnósticos `ARC009` certificado inválido, `ARC010` escape regional,
+`ARC011` âncora circular/expirada, `ARC012` unidade/fronteira sem contabilidade
+e `ARC013` capacidade global sem prova. “Não consegui otimizar” aparece como
+motivo no relatório, não como erro do programa nem recomendação de usar weak.
+
+### 33.4 Relatório e modos de comparação
+
+Nova opção proposta `--relatorio-arc <arquivo.json>` emite dados versionados:
+
+```json
+{
+  "versao": 1,
+  "sitio": "funcao:origem:especializacao",
+  "armazenamento": "HeapRc",
+  "candidatura": "Possivel",
+  "motivo": "argumento publicado por callback sem resumo de heap",
+  "dependencias": ["resumo:callback", "layout:No"],
+  "prova": null,
+  "refinamento_sugerido": "analisar efeitos da captura"
+}
+```
+
+Produzir também contagem por política, arestas removidas, candidatos omitidos,
+tempo/memória do analisador, budgets atingidos, especializações e tamanho de
+código. IDs estáveis permitem juntar perfil dinâmico sem usar endereços como
+identidade. Distinguir ciclo possível, ciclo comprovado em caminho e falta de
+prova; nenhum deles sozinho é diagnóstico de vazamento em ARC com coletor.
+
+Modo interno `--arc-analise referencia|completa` (novo) mantém, respectivamente,
+ARC geral ou seleção de políticas. Ambos preservam toda a linguagem e o
+verificador. Refinamentos podem ser desligados individualmente no harness para
+atribuir ganhos a regiões, aciclicidade, borrows, grupos e filtro de stores.
+Opções são configuração imutável e entram no cache, não variáveis de ambiente
+relidas por worker. Não ocultar queda de precisão causada por budget.
+
+## 34. Entregas e testes da redução estática de ciclos
+
+### 34.1 Sequência de implementação
+
+As entregas abaixo detalham E6; fatos de S0 devem ser preservados desde E2.
+Execução de cada política depende do suporte de runtime/verificador de E3–E5.
+É possível testar o analisador primeiro emitindo apenas relatórios/certificados
+e manter ARC de referência até habilitar sua transformação correspondente.
+
+| Entrega | Implementar | Critério de conclusão |
+| --- | --- | --- |
+| S0 — fatos e resumos | IDs estáveis, tipos/campos/capturas, domínio de heap e exportação SDK | Cada escritor/extern tem contrato ou desconhecido explícito; clones/async preservam origem. |
+| S1 — grafo e poda de candidatos | Points-to por campo/contexto, SCC, certificado de `NaoParticipa` | Casos de múltiplas instâncias/aliases não ganham prova falsa; runtime omite candidatura certificada mantendo visitas/saídas corretas. |
+| S2 — refinamento de fluxo/forma | Branches disjuntos, singleton e invariantes indutivos de listas | Lista de sítio único em loop pode ser provada; backedge arbitrário invalida a prova. Budget menor perde otimização sem perder correção. |
+| S3 — regiões | Restrições de vida, HIR, alocador, saídas e custos | Anel local de tamanho variável usa região, sem RC interno/trial; throws/falha parcial/referências externas são corretos. |
+| S4 — borrows estruturais | Âncoras, política por slot e visitantes | Caso confinado elimina retenção redundante; filho escapado e promoção weak mantêm política segura. |
+| S5 — grupos | Construção/selagem, aliases para qualquer membro, quociente | Grupo fechado sem ciclo externo dispensa trial; ciclo grupo↔heap é recuperado pelo residual; retenção adicional é medida. |
+| S6 — residual e imagem fechada | Filtro monotônico, poda certificada, capacidades de ligação | Última raiz em qualquer membro agenda coleta; imagem sem residual é provada incluindo SDK/runtime; condicionais preservados. |
+| S7 — validação e custo | Diferencial, grafo aleatório, invalidação/reload, relatórios | Todos os contraexemplos abaixo passam; resultados brutos com ablação, custos de compilação, RSS e retenção publicados. |
+
+### 34.2 Matriz de contraexemplos e resultados exigidos
+
+Criar `crates/emit_native/tests/arc_estatico_ciclos.rs`,
+`arc_regioes.rs`, `arc_certificados.rs` e testes correspondentes em
+`crates/runtime/tests/arc_regioes.rs`, `arc_grupos.rs`, `arc_filtro_ciclos.rs`.
+Os nomes são arquivos novos; aproveitar os harnesses existentes. Casos Dart
+entram no corpus nativo e os de recarga nos testes da crate JIT.
+
+| Caso | Prova/transformação esperada e verificação |
+| --- | --- |
+| Anel local com N definido pela entrada, resultado escalar | Região; zero retain/release entre membros e zero visita de trial desses membros. Resultado coincide com referência; bytes são recuperados na saída. |
+| Mesmo anel retornado ou lançado dentro de exceção | Não usar região local; HeapRc/grupo certificado. Usos posteriores conservam identidade e vida. |
+| Nó fresco aponta para cabeça anterior em loop | Invariante de lista prova ausência de ciclo mesmo com um único sítio. Variante `novo.next=novo` deve invalidá-lo. |
+| Arestas opostas em ramos exclusivos | Refinamento pode provar acíclico; união com budget reduzido conserva residual. Nunca interpretar falso positivo como erro Dart. |
+| Uma classe com sítio acíclico e sítio cíclico | Políticas distintas por instância; ambos tratados corretamente por chamada genérica de release. |
+| Instâncias do mesmo sítio em recursão/loop | Atualizar uma não apaga arestas das demais no domínio; forte atualização requer singleton real. |
+| `A↔B → D → E↔F` | D sem candidatura, mas visitado/contado; descartar ambos os ciclos e seus descendentes quando não houver raiz. |
+| Pai/filho local sob âncora | Borrow permitido apenas com prova independente. Variante que retorna filho, guarda em callback ou frame mantém pai acessível. |
+| Weak promovida em callback reentrante | Impedir regionalização/borrow incompatível ou ter protocolo certificado; objeto não morre no fim de um escopo que já deixou de ser dono exclusivo. |
+| Região com saída para objeto ARC externo | RC da saída atualizado em sobrescrita e encerramento; coleta global durante a região não mata o destino. |
+| `try/finally`, rethrow, erro no construtor e OOM de reserva | EndRegion/cleanup uma vez; nenhuma leitura após descarte; exceção/rastro original preservado. |
+| Construtor publica `this` em global e depois lança | Impedir região/grupo de construção não publicada; referência global continua válida após o erro. |
+| Grupo retornado por membro não principal | Owner mantém grupo inteiro; `identical` dos membros não muda; último owner libera saídas/membros uma vez. |
+| Grupo→objeto externo→grupo | Quociente cíclico exige residual; não aplicar certificado baseado só nas arestas internas do grupo. |
+| Grupo vivo com membro desconectado e saída ARC durante coleta de Expando | Fechamento mantém unidade/saídas; nenhum free individual ou débito duplicado; retenção adicional aparece no relatório. |
+| Grupo mutável retendo membros desconectados em loop | Rejeitar especialização sem limite aceitável; relatório revela custo de retenção, não celebra zero trials. |
+| Store crítico num membro; última raiz retirada de outro | Filtro suja componente inteiro e release posterior agenda candidato; repetir após coleta que encontrou o grupo vivo. |
+| Autociclo em inicializador/cópia/desserialização/SDK | Instrumentação marca antes da publicação; caminho em linha não contorna filtro nem contagem. |
+| Expando com valor→chave, portador morto e zero candidatos | Executar ponto fixo condicional mesmo sem trial ordinário; não classificar entrada como weak ou forte comum. |
+| Finalizable, finalizador com captura de alvo, recursos externos | Mesmas garantias semânticas de referência; nenhuma ação Dart em EndRegion; externalSize contabilizado uma vez. |
+| Chamada dynamic/FFI que conserva argumento | Resumo desconhecido impede prova afetada; corpo posteriormente conhecido pode permitir especialização, sem alterar fonte Dart. |
+| Reload muda apenas corpo e adiciona backedge | Invalidar plano dependente antes da publicação; objetos antigos não conservam `NaoParticipa` inválido. |
+| Certificado/cache SDK adulterado, obsoleto ou incompleto | Verificador/carga rejeita artefato e recompila corretamente; nunca presume ausência de ciclos. |
+| Executável certificado sem trial e outro com uma alocação opaca | Primeiro não referencia símbolos do trial; segundo mantém residual ou falha somente sob `--exigir-sem-coletor-de-ciclos`. |
+
+Comparar código gerado além da saída: teste que só confere o resultado não
+prova que o coletor foi removido. Inspecionar plano/IR/símbolos e contadores de
+execução. Para referências fracas/finalização, comparar garantias permitidas,
+sem exigir cronologia idêntica à VM ou ao caminho de referência.
+
+### 34.3 Oráculo, certificados falsos e propriedades metamórficas
+
+Estender o gerador de grafos do §26 com unidades de região/grupo, borrows,
+mudanças de política, fronteiras e registro de observadores. O oráculo usa
+`G_sem` e ponto fixo condicional; a implementação usa `G_ret`. A propriedade
+principal é nenhum objeto semanticamente alcançável perder sua unidade viva.
+Após coleta completa, lixo elegível deve ser recuperado ou explicado por
+retenção de unidade ainda viva dentro do limite aceito.
+
+Injetar certificados inválidos: omitir campo, trocar geração de layout, apagar
+cleanup, criar ciclo de âncoras, falsear singleton, remover alvo de chamada,
+atribuir componente diferente a alias e omitir store sintético. O verificador
+deve rejeitar cada caso antes de executar o artefato. Teste que apenas repete
+a decisão do planejador não serve como oráculo independente.
+
+Propriedades metamórficas: reduzir budget, apagar resumo de heap ou desligar
+um refinamento pode aumentar o residual, mas preserva segurança/semântica;
+inlining e devirtualização preservam aliases; inserir publicação externa
+invalida a prova regional relevante; acrescentar uma escrita de retorno
+invalida aciclicidade; regenerar IDs não reaproveita certificado de outro sítio.
+
+### 34.4 Medidas e critério de aceitação do objetivo
+
+Comparar, com mesmo programa/SDK/flags, tracing, ARC de referência, ARC com
+análise completa e ablações de cada política. Relatório deve incluir:
+
+- Alocações e bytes **executados** em cada política, não só quantidade de
+  classes/sítios; objetos eliminados estimados separadamente dos realmente alocados.
+- Retains/releases evitados, candidaturas antes/depois, consultas do filtro,
+  escritas que o ativaram, componentes permanentemente sujos, visitas e tempo
+  de trial, ponto fixo condicional e fechamento de regiões/grupos.
+- Bytes de metadata/scratch, memória viva e residente, pico, fragmentação,
+  bytes sem uso retidos pela unidade e duração dessa retenção. Instrumentação
+  de oráculo para retenção deve ser reportada separadamente do benchmark normal.
+- Tempo/memória de compilação por passe, budgets excedidos, resumos reutilizados,
+  especializações, tamanho do binário e compatibilidade/invalidação de cache.
+- Latência e throughput nos termos do §25, incluindo pausas de descarte em
+  lote. Eliminar trial não pode ocultar um custo equivalente no fechamento.
+
+Casos dirigidos como anel confinado e lista acíclica precisam demonstrar a
+transformação prevista, com contadores coerentes. Para cargas gerais, registrar
+ganhos e regressões por benchmark; selecionar especializações com modelo de
+custo calibrado e manter a configuração de referência para investigação.
+Não fixar promessa percentual antes dos dados. A especificação exige mecanismos
+para reduzir o residual e provas para removê-lo onde possível; a quantidade
+que sobra em cada aplicação é resultado mensurável da implementação.
+
+## 35. Pacote Dart opcional de anotações para o compilador
+
+### 35.1 Possibilidade, portabilidade e fronteira de responsabilidade
+
+É possível distribuir as anotações como pacote Dart convencional no pub.dev.
+Dart permite metadata por constante ou chamada a construtor `const`; a
+interpretação especial deve ser implementada no DartForge. Instalar o pacote
+sozinho não modifica a VM Dart, o compilador Flutter nem o gerenciamento de
+memória deles. [Referência oficial de metadata](https://dart.dev/language/metadata).
+
+Nome de trabalho: **`dartforge_annotations`**, proposto, sem pressupor que
+esteja disponível ou publicado. O pacote contém declarações de metadata,
+documentação e exemplos; não contém um coletor, não carrega DLL e não executa
+código na entrada de cada função anotada. Se as constantes forem usadas como
+valores normais pelo programa, seguem a semântica normal de constantes Dart.
+Não prometer remoção de metadata que seja observável por mecanismos suportados.
+
+Regras de compatibilidade:
+
+1. Todas as análises 27–34 continuam automáticas sem pacote. Anotação orienta
+   a busca ou pede verificação; não é necessária para recuperar ciclos.
+2. Nenhuma anotação converte campo forte em weak, muda identidade, omite
+   exceção ou permite use-after-free. Cada transformação precisa de prova.
+3. Fonte anotada continua Dart válido em outras ferramentas, com a dependência
+   resolvida. Essas ferramentas não fornecem automaticamente a certificação
+   DartForge. Metadado desconhecido não altera, por si, a execução de um método.
+4. Contratos são opt-in de compilação: o usuário pode exigir que uma função
+   satisfaça uma propriedade. Um erro de contrato não redefine a linguagem
+   nem significa que o programa seria inválido em Dart comum.
+5. O nome de uma classe ou uma string escrita pelo usuário nunca é autoridade
+   suficiente para descartar contagem, coletor ou checks de segurança.
+
+### 35.2 API pública inicial
+
+Definições propostas, em `lib/dartforge_annotations.dart`; classes são metadata
+constante, sem lógica de runtime:
+
+```dart
+final class PreferRegion {
+  const PreferRegion();
+}
+
+final class PreferAcyclic {
+  const PreferAcyclic();
+}
+
+final class NoEscape {
+  const NoEscape();
+}
+
+final class Realtime {
+  const Realtime();
+}
+
+const int dartForgeAnnotationsSchema = 1;
+```
+
+| Anotação | Alvos suportados na versão 1 | Significado e comportamento sem prova |
+| --- | --- | --- |
+| `@PreferRegion()` | Função ou método síncrono com corpo | Prioriza inferência de regiões para alocações confinadas no corpo e especializações elegíveis. Sem prova/benefício, conserva a política geral e informa o motivo no relatório. |
+| `@PreferAcyclic()` | Classe, construtor ou declaração de variável local | Prioriza prova de não participação em ciclos nos sítios/valores associados. Não classifica todas as subclasses nem o alcance transitivo por declaração. Sem prova, conserva o residual. |
+| `@NoEscape()` | Parâmetro formal de função/método com corpo disponível ou resumo certificado | Solicita prova de não publicação além da chamada, conforme §35.3. Em verificação de contratos, ausência de prova é erro com caminho explicativo. |
+| `@Realtime()` | Função ou método síncrono com corpo, sem `async`, `sync*` ou `async*` | Solicita o contrato transitivo do §36. Falha de prova impede certificar/compilar esse contrato no modo de verificação. |
+
+Preferências não criam uma região que necessariamente contém tudo o que o
+corpo aloca; objetos que escapam podem permanecer HeapRc. Na variável local,
+`PreferAcyclic` prioriza os sítios presentes no seu points-to: a anotação não
+persegue só o nome da variável após reatribuição. Na classe/construtor, considerar
+subclasses, campos sintéticos, mutações futuras e escape; `final` não é prova.
+
+Usar `@Target` de `package:meta/meta_meta.dart` para feedback de alvo quando
+houver uma versão compatível com o SDK mínimo; o DartForge valida alvos
+independentemente desse aviso. Não inventar sintaxe de anotação diretamente
+num `for`, bloco arbitrário ou expressão `new`. Se necessário, extrair uma
+função auxiliar Dart comum e anotá-la.
+
+API v1 deliberadamente não oferece `@TrustMeAcyclic`, `@WeakBackEdge`,
+`@DisableGc` ou `@AssumeRealtimeSafe`. Elas permitiriam confundir intenção com
+garantia. Nova anotação só entra com semântica, alvos, prova, fallback e testes.
+
+### 35.3 Contrato de não escape
+
+`NoEscape` não transfere ownership nem promete ausência de alocação, mutação,
+exceção ou bloqueio. Para o parâmetro anotado, verificar que a chamada não
+cria publicação persistente dele ou de referências obtidas transitivamente
+dele em retorno, exceção, global, campo externo, closure escapada, frame async,
+fila, porta, weak promovível ou handle nativo. Registro de observador que
+possa expor o objeto posteriormente também precisa ser considerado.
+
+Uma variável global que já apontava ao objeto antes da chamada não viola
+sozinha o contrato; a obrigação é não criar nova fuga atribuível à chamada
+nem usar a anotação para apagar aliases preexistentes. Ler/escrever elementos
+numéricos do buffer pode ser permitido. Guardar o parâmetro em outro objeto
+recebido e restaurar depois só é aceito se a análise provar que nenhuma
+reentrada/observação retém a referência; sem essa prova, rejeitar o contrato.
+
+Resumo de `NoEscape` é emitido **após** provar o corpo e todas as chamadas
+relevantes. Em recursão, resolver o SCC por ponto fixo; anotações mútuas não
+provam umas às outras. Implementações/overrides alcançáveis precisam cumprir
+a obrigação antes de um chamador polimórfico usá-la. Callback síncrono pode
+ser aceito com contrato de retenção conhecido; callback opaco impede a prova.
+Corpo FFI externo não recebe noescape verificado apenas por estar anotado.
+
+### 35.4 Identidade, avaliação e políticas de verificação
+
+Reconhecer metadata pelo elemento resolvido e biblioteca definidora canônica,
+obtidos da resolução de pacotes/imports. A identidade v1 é a declaração
+correspondente em `package:dartforge_annotations/dartforge_annotations.dart`
+com esquema compatível; não comparar só o lexema `Realtime` nem texto da
+declaração `library`. Prefixos, reexports e alias de constante devem resolver
+ao mesmo elemento/valor. Uma classe homônima de outro pacote é metadata comum.
+Binding ambíguo não pode ser reconhecido como contrato: preservar o diagnóstico
+de resolução. Em alias `const`, conferir identidade/tipo do valor avaliado,
+não o nome da variável que o referencia.
+
+Avaliar argumentos/constantes pelo avaliador constante do compilador. Versão,
+URI normalizada, conteúdo/identidade do pacote resolvido, argumentos constantes
+e esquema entram no hash das provas. `dependency_overrides`/dependência `path`
+podem ser usados em desenvolvimento, mas invalidam o cache conforme seu
+conteúdo. Nenhuma origem — mesmo o pacote oficial — torna uma afirmação uma
+prova de efeitos do corpo. Não consultar a rede durante análise da anotação.
+
+Nova opção proposta: `--contratos-dartforge verificar|ignorar`, padrão
+`verificar` para contratos conhecidos encontrados no programa. Preferências
+apenas alimentam planejamento/relatório; seus fracassos não viram erros.
+No modo `ignorar`, registrar explicitamente no manifesto que os contratos não
+foram certificados, sem usá-los como fatos. Esse modo não produz certificado
+Realtime e não serve como artefato de aprovação do pipeline de áudio.
+Modo de verificação e versão do perfil também entram nas chaves de cache e no
+manifesto; um artefato de modo `ignorar` não fornece provas para `verificar`.
+
+Uma versão de esquema não suportada no pacote designado é diagnosticada no
+modo de verificação; não tratá-la silenciosamente como contrato satisfeito.
+Annotation removida por tree shaking só dispensa análise se a declaração e
+todas as suas entradas realmente estiverem inalcançáveis. Override sem
+anotação não pode enfraquecer um contrato que o compilador utiliza na chamada.
+
+### 35.5 Integração com a seleção de memória
+
+Preferências fornecem prioridade de análise, pedidos de especialização e
+objetivos de custo. Elas podem justificar gastar mais budget num sítio,
+separar contexto ou procurar invariante de região, mas não criar uma aresta
+ausente no modelo nem eliminar um alvo possível. Contrato comprovado produz
+fato reutilizável em `ResumoHeapArc`; contrato pendente é obrigação.
+
+Acrescentar ao plano/relatório: anotação resolvida, span, versão, propriedade
+pedida, estado `provado|não_provado|ignorado`, razão, certificado e mudança
+de código produzida. Mostrar, por exemplo, por que uma região preferida não
+foi selecionada ou qual chamada faz o parâmetro escapar. Não apresentar
+“anotação reconhecida” como “otimização aplicada”.
+
+Respeitar contratos depois de inlining, boxing, lowering de exceções, SDK e
+emissão. Uma prova sobre a AST que é invalidada por código gerado deixa de
+ser válida. Anotações fazem parte das dependências de recarga; remover ou
+alterar contrato que sustentava chamadas certificadas exige revalidação
+antes de publicar a geração.
+
+### 35.6 Estrutura do pacote e preparação para pub.dev
+
+Estrutura proposta **a criar em uma etapa própria**:
+
+```text
+packages/dartforge_annotations/
+  pubspec.yaml
+  README.md
+  CHANGELOG.md
+  LICENSE
+  lib/dartforge_annotations.dart
+  example/
+  test/
+```
+
+O pacote é uma dependência normal de quem importa suas anotações. Declarar
+SDK mínimo efetivamente testado, incluindo Dart 3.6.2 enquanto for alvo;
+evitar exigir features mais novas somente para metadata. Se depender de
+`meta`, fixar faixa compatível. Testar importação normal, prefixada, reexport
+e constantes com as ferramentas Dart e com DartForge.
+
+README deve distinguir preferências e contratos, compiladores que interpretam
+as anotações, versões/esquema, limitações de áudio e exemplos comprovados.
+Documentar que o pacote não liga automaticamente um plugin de analyzer nem
+instala runtime de áudio. O suporte correspondente precisa existir no compilador.
+
+Antes de publicação, executar análise, testes e `dart pub publish --dry-run`,
+conferindo os arquivos/metadata do pacote. Publicação efetiva é uma entrega
+separada, depois de verificar nome, versão e titularidade; esta especificação
+não afirma que um pacote foi criado ou enviado ao pub.dev. O fluxo de preparação
+e publicação consta da [documentação oficial do pub](https://dart.dev/tools/pub/publishing).
+
+## 36. Contrato de execução para áudio e outros caminhos de baixa latência
+
+### 36.1 Alcance preciso de `Realtime`
+
+`@Realtime()` solicita o perfil **`dsp-v1`**: execução síncrona de processamento
+com buffers/contexto preparados, sem operações de memória ou espera de custo
+não controlado no caminho crítico. O perfil verifica efeitos, recursos e
+limites estruturais; não é garantia de deadline do sistema operacional.
+
+Coleta de ciclos zero é insuficiente: release que zera contador pode iniciar
+cascata, fechamento de região pode percorrer N objetos, biblioteca pode
+alocar/bloquear e o wrapper pode inicializar um isolate. A preocupação inclui
+alocar, liberar e adquirir mutex; ferramentas como o
+[RealtimeSanitizer do Clang](https://clang.llvm.org/docs/RealtimeSanitizer.html)
+detectam essas operações em execução. O perfil DartForge descrito aqui é
+projeto próprio e exige suporte explícito do backend/runtime.
+
+Certificar corpo **e** fecho de chamadas, prólogo, epílogo, cleanup, stub C,
+dispatch, acesso TLS/raízes e caminhos de erro possíveis. Capturar o contexto
+numa closure e marcar só seu corpo não certifica a criação nem a entrada da
+closure. Uma alteração de SDK/runtime/link pode invalidar o certificado.
+
+### 36.2 Efeitos proibidos e recursos permitidos
+
+Estender `ResumoHeapArc` com um resumo independente de efeitos de baixa
+latência. Resolver transitivamente por SCC do grafo de chamadas; externo ou
+alvo não modelado recebe efeito `Desconhecido`, que impede a certificação.
+
+| Efeito/operação | Regra `dsp-v1` |
+| --- | --- |
+| Alocação gerenciada/nativa | Proibida no trecho: inclui boxes numéricas, closures, listas/strings temporárias, crescimento de buffer, metadata, fila e scratch. Scalar replacement provado pode eliminar a alocação antes da verificação final. |
+| Desalocação/cascata | Proibir `free`, último release, destruição de grupo/região e drenagem de zeros. Preferir borrows de owners mantidos fora da chamada; retain/drop só é admissível se não tocar caminho lento nem candidato e tiver custo comprovado. |
+| Coleta e finalização | Nenhum trial, ponto fixo condicional, reclamador, finalizador ou envio de evento no callback. Não silenciar esses mecanismos globalmente para fazer a função passar. |
+| Bloqueio e comunicação | Proibir mutex, espera de condição, I/O, logging, chamada de sistema sem contrato apropriado, spin de duração não limitada e sincronização que espere outra thread. Atomics só com operação/ordenação/custo compatíveis e algoritmo limitado. |
+| Inicialização | Resolver antes: lazy static/late, carregamento de biblioteca, lookup de símbolo, JIT, recompilação, TLS, cache RTI, intrínsecos e preparação de stack/contexto. Warm-up observado sozinho não prova ausência de outro caminho lazy. |
+| Controle e erros | Provar que os caminhos aceitos não lançam nem criam erro/rastro; exceções/range checks não podem ser removidos só por anotar. Loops têm limite derivável do contrato de buffers/configuração; recursão sem limite provado é recusada. |
+| Números e buffers | Permitir operações escalares/SIMD e acesso a armazenamento numérico pré-alocado. Verificar o lowering efetivo: operação Dart aparentemente escalar pode ainda encaixotar resultado ou chamar helper com efeitos. |
+| Stack/safepoints | Uso de stack limitado; entrada e pontos seguros não podem iniciar trabalho variável nem esperar coleta de outro domínio. Exigir protocolo do §36.4 antes de certificar entrada real do dispositivo. |
+
+Resumos têm origem e versão: `provado pelo corpo`, `intrínseco verificado` ou
+`contrato externo auditado`. Uma anotação colocada sobre `external` não promove
+a função ao último grupo. O relatório identifica a fronteira de confiança
+nativa e os testes executados. `isLeaf` de FFI não deve ser interpretado como
+sinônimo de ausência de alocação, prazo limitado ou auditoria de RT.
+A [API oficial de `Native.isLeaf`](https://api.dart.dev/dart-ffi/Native/isLeaf.html)
+descreve uma chamada curta, sem bloqueio ou retorno ao Dart; esse contrato
+de interoperabilidade não substitui o resumo de efeitos exigido aqui.
+
+O perfil não introduz um timeout que aborta a função para simular uma prova
+de duração. Quando um bound não puder ser demonstrado, rejeitar a certificação
+solicitada. O programa permanece compilável sem esse contrato; não gerar
+comportamento de erro novo em uma execução Dart anteriormente válida.
+
+### 36.3 Exemplo de uso e separação das fases
+
+Exemplo de **API proposta**, condicionado à implementação/verificação do
+kernel e dos acessos numéricos; não é afirmação de que o compilador atual
+já certifica este programa:
+
+```dart
+import 'dart:typed_data';
+import 'package:dartforge_annotations/dartforge_annotations.dart';
+
+final class BlocoDeGanho {
+  // Construir e preparar antes de iniciar o fluxo de áudio.
+  final Float32List entrada = Float32List(256);
+  final Float32List saida = Float32List(256);
+
+  @Realtime()
+  void processar() {
+    for (var i = 0; i < 256; i++) {
+      saida[i] = entrada[i] * 0.5;
+    }
+  }
+}
+```
+
+O host mantém o contexto e backing stores vivos durante toda a sessão; a
+ponte chama o método com empréstimo válido. Comprimentos e limite do laço
+precisam ser provados para eliminar caminhos de erro sem mudar semântica.
+Esse exemplo pressupõe ausência de mutação concorrente dos mesmos buffers;
+a anotação não implementa sincronização, binding de dispositivo ou conversão
+automática de layout de áudio.
+
+Fases obrigatórias do protocolo:
+
+1. **Preparar:** alocar/preencher buffers, resolver código, validar tamanho e
+   layout, preparar páginas/stack e registrar a ponte/contexto fora do callback.
+2. **Processar:** somente operações certificadas, contexto emprestado e
+   recursos com capacidade já garantida. Não crescer arena por pressão.
+3. **Atualizar:** produzir novo estado na thread/domínio de controle e publicar
+   por protocolo limitado de troca; manter o estado anterior até quiescência.
+4. **Encerrar:** impedir novas entradas, confirmar que nenhum callback usa o
+   contexto e só então liberar owners, regiões/grupos e recursos fora do trecho.
+
+Em 48 kHz, bloco de 256 frames corresponde a aproximadamente 5,33 ms de
+intervalo entre blocos. Isso é uma referência para o orçamento do pipeline,
+não tempo integral disponível para este método: dispositivo, transporte e
+outras etapas também consomem tempo. O tamanho real deve vir da configuração
+do host; uma anotação não muda o tamanho do buffer entregue pelo dispositivo.
+
+### 36.4 Threads, isolates e descarte adiado
+
+Thread de callback nativa não pode acessar arbitrariamente `Heap` de outro
+isolate. `dsp-v1` precisa de ponte AOT preparada e afinidade/domínio explícitos:
+ou entrada compatível com o isolate sem espera variável, ou kernel nativo
+certificado sobre dados transferidos/emprestados por contrato. Enquanto essa
+ponte não existir, certificar apenas o kernel não certifica a integração de
+áudio; emitir diagnóstico para a entrada real, sem esconder custo do wrapper.
+Como referência concreta da fronteira nativa, a
+[documentação de callbacks do PortAudio](https://portaudio.com/docs/v19-doxydocs/writing_a_callback.html)
+descreve execução em thread especial e restrições a alocação, liberação, I/O
+e mutex. A ponte deve conferir o contrato do host efetivamente utilizado.
+
+Não basta não alocar na função se outro thread puder pará-la para coleta,
+recarga ou depuração. O certificado de entrada deve incluir protocolo que
+evite essas pausas no domínio crítico durante a sessão, preserve raízes e
+obtenha quiescência sem fazer o callback esperar. Plataforma sem esse suporte
+não recebe certificação `dsp-v1` de entrada, mesmo com corpo compatível.
+
+Na v1, evitar criação/destruição de owners no callback e manter o estado
+completo sob ownership do host. Uma futura fila de aposentadoria precisa ser
+pré-alocada, ter limite provado e política de cheia definida antes de iniciar
+a sessão. Não usar fila que cresce, descartar releases, vazar objetos ou fazer
+`free` síncrono como fallback da fila cheia. Rejeitar/adiar uma atualização de
+controle deve pertencer ao protocolo explícito da aplicação; o compilador
+não pode inventar esse comportamento silenciosamente.
+
+Um worker não pode executar releases no heap não atômico de outro isolate.
+Descarte ocorre no domínio proprietário após a quiescência, ou por protocolo
+de transferência de unidades formalmente implementado. Adiar coleta numa
+sessão ilimitada sem limite de memória não é otimização válida para áudio.
+
+### 36.5 Limites de garantia e validação em execução
+
+O certificado declara backend, alvo, perfil, versão de runtime, grafo de chamadas,
+limites de buffers/stack, resumos nativos e capacidades de entrada. Ele prova
+as propriedades modeladas; não prova ausência de preempção, page fault ou
+interferência externa em qualquer máquina. Prazo máximo de um sistema exige
+análise e configuração da plataforma, além deste compilador.
+
+Criar modo de auditoria com contadores pré-alocados por thread/domínio para
+alocação, liberação, coleta, caminho lento RC, crescimento de fila, entrada
+nativa e pausas. O callback não formata mensagens nem escreve log ao registrar
+evento. Drenar diagnóstico fora dele. Uma violação pode abortar o **teste de
+auditoria**; não usar instrumentação como justificativa para certificar código
+cuja prova estática falhou.
+
+Medir duração de callbacks, p50/p95/p99/p99,9, máximo observado, jitter,
+underruns/overruns, carga concorrente e duração das sessões. Máximo observado
+não é WCET provado. Usar harness nativo e, quando a toolchain/plataforma permitir,
+RTSan para fronteiras instrumentadas; não afirmar que instrumentar só um wrapper
+C cobre automaticamente todo o IR/Rust/Dart gerado.
+
+### 36.6 Mapa de implementação, resumos e integração
+
+Os pontos abaixo existem no repositório, salvo os explicitamente marcados
+**novos**. Implementar o reconhecimento e a prova em camadas distintas:
+o parser não pode transformar presença de metadata em uma propriedade de heap.
+
+| Arquivo/símbolo | Alteração exigida |
+| --- | --- |
+| `crates/frontend/src/ast.rs::Annotation` e `pais.rs::todas_as_anotacoes` | Preservar metadata, argumentos e spans já representados. Percorrer declarações e parâmetros; manter origem após desugaring. Não acrescentar palavra-chave nem gramática de ownership. |
+| `crates/types/src/anotacoes.rs::elemento_invocado`, `constantes/avaliador.rs::Motor::avaliar_anotacao` e `constantes/verificador.rs::anotacao` | Unificar resolução inequívoca, avaliação constante e proveniência para o reconhecimento especial. Respeitar shadowing; só usar valor cuja identidade/tipo constante corresponda à declaração suportada. Não substituir resolução por busca textual. |
+| `crates/elements/src/model.rs::{Library,Binding,Program}`, `config.rs::PackageConfig` e `load.rs::canonical_file_uri` | Usar URI definidora canônica e binding não ambíguo, inclusive imports prefixados/reexports. `language_version` é versão da linguagem, não versão do pacote. Obter versão resolvida do lock/pubspec quando disponível, esquema constante e hash do conteúdo efetivo; dependência local sem versão confiável continua identificada por conteúdo. |
+| **Novo** `crates/types/src/anotacoes_otimizacao.rs` e `resolved.rs::{BodyTypes,UnitBodyTypes}` | Normalizar `PreferenciaRegiao`, `PreferenciaAciclica`, `ContratoNoEscape` e `ContratoRealtime` em mapa por ID de elemento e span. Registrar esquema/origem, alvo e estado de reconhecimento; ainda não emitir fatos de segurança. |
+| **Novo** `crates/analise/src/anotacoes_otimizacao.rs` e `meta.rs::verificar` | Verificar alvos, argumentos e combinações. Usar infraestrutura de metadata existente; manter prova profunda no backend compartilhado, sem implementar outra análise de escape no analyzer. |
+| `crates/emit_native/src/hir.rs`, `context.rs` e `lower/` | Transportar IDs de contratos/preferências, relação parâmetro–valor e origem de alocações. Inlining/specialization devem clonar obrigações e remapear sítios; função sintética recebe efeitos reais mesmo sem anotação na fonte. |
+| **Novo** `crates/emit_native/src/otimizar/arc/analise/contratos.rs` | Vincular as obrigações normalizadas aos sítios/resumos dos §§28–33. Verificar não escape transitivo; priorizar análises de região/aciclicidade; produzir fatos somente com certificado e dependências. |
+| **Novo** `crates/emit_native/src/otimizar/arc/analise/latencia.rs` | Calcular efeitos transitivos, limites de laços/stack e obrigações de entradas. Validar perfil `dsp-v1`, com proveniência e caminho de chamada para cada impedimento. Reutilizar SCCs e resumos; não equiparar `nao_lancam` a segurança de áudio. |
+| `crates/emit_native/src/otimizar/{mod,efeitos}.rs`, `sdk_modulo.rs` | Rodar análise inicial para orientar otimizações e verificação final sobre a HIR transformada. SDK fornece resumos versionados; funções externas sem resumo têm efeito desconhecido. |
+| `crates/emit_native/src/lower/ffi.rs::{lower_ffi,corpo_do_callback}`, `llvm/` e `llvm/raizes.rs` | Incluir conversões, boxing, dispatch, registros de raiz, prólogo/epílogo e helpers nos efeitos da entrada. Relacionar chamadas LLVM emitidas à obrigação HIR; validar também helpers introduzidos pela toolchain ou impedir sua introdução no alvo certificado. |
+| `crates/runtime/src/ffi_callbacks.rs::{ContextoCallback,dartforge_ffi_callback_entrar,dartforge_ffi_callback_sair,dartforge_ffi_callback_postar}` | Separar capacidades verificadas da ponte comum e da futura ponte preparada. A atual postagem cria `Vec`/mensagem; a saída pode soltar contexto fechado. Esses caminhos não recebem resumo RT vazio. |
+| `crates/runtime/src/{heap,typed_data,ffi,gc_raizes}.rs` e módulos ARC propostos | Expor efeitos reais de helpers, garantir vida de buffers/backing stores e auditar alocação, último drop, safepoint e acesso nativo. Preparar contexto sem acesso concorrente ilegal ao heap do isolate. |
+| **Novo** `crates/runtime/src/latencia_conferir.rs` | Auditoria com IDs/contadores de capacidade fixa por domínio, preparados antes da sessão; sem `String`, crescimento de `Vec` ou logging no callback. Registrar no build/`RUNTIME_MAIN` conforme §18. |
+| `crates/cli/src/nativo.rs`, `emit_native/src/lib.rs::CompileOptions`, `{cache,cache_objeto,driver}.rs` e `sdk_modulo.rs` | Propagar modo de contratos e perfil imutáveis, incluir dependências no cache e produzir manifesto/certificado por entrada. Não reutilizar objeto cuja ABI, efeitos, alvo ou política de verificação difiram. |
+| `crates/jit/src/reload.rs` e `vivo.rs` | Invalidar certificados por mudanças de corpo/layout/SDK. Código de sessão crítica só pode mudar após quiescência e nova admissão; tornar explícita incompatibilidade do modo ativo quando a plataforma não suportar esse protocolo. |
+| **Novo** `crates/diagnostics/src/otimizacao.rs`, `crates/lsp/src/semantica.rs::diagnosticar` e `servidor.rs::converter_diagnostico` | Representar diagnósticos DartForge em namespace próprio, com span, callee e motivo. Estender representação/serialização compartilhada; não inserir códigos próprios na tabela gerada de códigos upstream. Exibir contrato pendente quando o LSP não executou a prova do backend. |
+
+`Diagnostic.code` hoje usa `Option<Codigo>`, cuja tabela upstream inclui
+`crates/diagnostics/src/codigos_g.rs`. A implementação precisa acomodar códigos
+próprios de maneira explícita — por enum discriminada ou canal tipado separado —
+e atualizar consumidores. Não simular um código Dart oficial nem depender
+de interpretar texto livre. Manter os diagnósticos de paridade upstream em
+`crates/paridade/src/analise.rs` separados desses contratos opt-in.
+
+Também não reutilizar diretamente `runtime/src/efeitos_conferir.rs` no callback:
+seu auditor atual cria `String` e empilha entradas em `Vec`. A tabela existente
+de efeitos coleta/lança é ponto de integração, mas esses dois bits não descrevem
+liberação, bloqueio, I/O, inicialização ou limites de trabalho.
+
+**Estruturas novas, em pseudocódigo de interface:**
+
+```text
+ContratoNormalizado {
+  elemento, parametro_opcional, origem, span,
+  identidade_pacote, esquema, especie
+}
+ResumoLatencia {
+  efeitos_possiveis: conjunto<EfeitoLatencia>,
+  fronteira_desconhecida: bool,
+  limites: { iteracoes, profundidade, stack, recursos },
+  precondicoes_provadas, dependencias, testemunhas
+}
+CertificadoLatencia {
+  entrada, alcance: Kernel | EntradaNativa,
+  perfil, alvo, abi, hash_codigo, hash_runtime,
+  resumos, provas_de_limites, protocolo_de_sessao, contratos_externos
+}
+```
+
+`EfeitoLatencia` distingue pelo menos alocar, desalocar, RC lento/candidato,
+coletar, finalizar, bloquear, I/O, inicializar e lançar. O resumo retém
+testemunhas por efeito: instrução, callee, instância de contexto e fronteira.
+O conjunto vazio só descreve ausência dos efeitos modelados; limites e
+precondições precisam de verificação separada.
+
+Algoritmo obrigatório:
+
+1. Resolver e validar metadata antes de qualquer consumo como contrato.
+   Manter obrigações, preferências e fatos certificados em coleções distintas.
+2. Calcular efeitos diretos por instrução/helper e propagar a união de todos
+   os alvos possíveis das chamadas. Destino opaco adiciona desconhecido.
+   Resolver SCCs por ponto fixo monotônico; ausência inicial de efeito não
+   autoriza certificar antes da convergência.
+3. Calcular limites com expressões simbólicas sobre capacidades/configurações
+   validadas: composição sequencial soma trabalho, escolha usa limite superior,
+   laço multiplica pelo limite provado. Recursão exige limite de profundidade
+   e stack. Widening/budget que perca um limite resulta em desconhecido.
+   Essas expressões medem trabalho estrutural, não nanossegundos portáveis.
+4. Executar as otimizações legais — unboxing, substituição escalar, inlining,
+   borrows, regiões — e refazer resumos afetados. Uma região que elimina trial
+   ainda pode falhar no contrato por alocar ou liberar durante o trecho crítico.
+5. Validar `NoEscape` sobre todas as saídas, inclusive excepcionais; conferir
+   os efeitos/limites de `Realtime` e suas precondições para todos os chamadores
+   alcançáveis ou instâncias especializadas certificadas. Precondições não
+   provadas não viram suposições silenciosas nem checks que lançam no callback.
+6. Após lowering, revalidar efeitos reais e amarrar o certificado à imagem
+   gerada e às bibliotecas ligadas. Alteração de alvo, flags relevantes, link
+   ou resumo invalida a certificação. Uma passagem LLVM sem preservação
+   demonstrada exige nova conferência no estágio que ela produz.
+7. Emitir estado separado `reconhecido`, `não_provado`, `provado_kernel` ou
+   `provado_entrada`. O estado `ignorado` nunca é aprovação. Relatórios de
+   memória continuam independentes: contrato provado não implica que uma
+   preferência mudou a política de armazenamento.
+
+Recursos auxiliares de uma entrada certificada têm capacidade e vida explícitas.
+O esquema v1 não aceita um inteiro escrito numa anotação como prova de tamanho
+de buffer/stack ou de iterações. Derivar os limites do programa e do protocolo
+de preparação certificado. Uma futura API de configuração deve especificar
+validação antes da sessão e impedir que a configuração mude enquanto em uso.
+
+### 36.7 Entregas, testes e critérios de aceite
+
+Estas entregas complementam E/S dos §§26 e 34; não substituem a infraestrutura
+de ARC e não alegam que o suporte esteja implementado.
+
+| Entrega | Resultado verificável |
+| --- | --- |
+| A0 — pacote e identidade | Declarações Dart válidas, documentação e resolução canônica com esquema; preferências aparecem no relatório sem alterar segurança do código. Publicação só depois da validação própria do pacote. |
+| A1 — contratos de heap | `NoEscape` provado por corpo/resumos e ligado ao plano de memória; preferências refinam análise sob orçamento; falhas mostram caminho e conservam semântica quando o contrato é ignorado. |
+| A2 — kernel de baixa latência | Resumos transitivos, limites, certificação após lowering, diagnóstico por chamada e manifestação explícita de que a entrada nativa ainda não foi certificada. |
+| A3 — entrada nativa preparada | Ponte AOT, domínio/afinidade, raízes, precondições, quiescência e descarte fora do callback certificados em cada plataforma habilitada. |
+| A4 — auditoria e medição | Harness nativo, contadores preparados, testes negativos, relatório de latência/memória e invalidação de caches/recarga. Exemplos publicados identificam alvo e versão que passaram. |
+
+Matriz mínima de testes:
+
+| Grupo | Casos e resultado esperado |
+| --- | --- |
+| Identidade | Import direto/prefixado, reexport, alias `const`, shadowing, biblioteca homônima, binding ambíguo, `path`/override e esquema incompatível. Somente declaração resolvida compatível solicita o contrato; erros de resolução não são mascarados. |
+| API e alvos | Metadata nos alvos permitidos, alvo inválido, argumento extra, valor não constante, função async/generator e duplicatas. Erros determinísticos com spans; duplicata idêntica pode ser deduplicada, sem obrigações divergentes. |
+| Preferências | Região possível/impossível, aciclicidade provada e sítio desconhecido. Ausência de ganho não reprova compilação; relatório distingue prova, escolha de custo e fallback. Comparar também com fonte sem anotações. |
+| Não escape | Retorno de alias, retorno transitivo de campo, throw do parâmetro, captura/async, global, weak/handle, publicação durante reentrada, campo de argumento externo, função recursiva e override. Falhar nos casos não provados; aceitar processamento numérico local e aliases anteriores sem tratá-los como exclusividade. |
+| Efeitos ocultos | Callee aloca, getter lazy, fechamento de região, `List.clear` com releases, último drop, box numérica, callback que fecha seu próprio contexto, dispatch desconhecido, FFI apenas `isLeaf`, throw/cleanup. Todos devem impedir certificado quando alcançáveis e não eliminados por prova. |
+| Limites e código gerado | Laço fixo sobre buffers preparados passa; limite opaco/recursão ilimitada falha. Inserir helper de alocação depois da análise inicial deve invalidar a prova final. Limite numérico sem prova de capacidade não elimina range check. |
+| Entrada nativa | Kernel provado chamado por wrapper alocador ou `NativeCallable.listener` comum não recebe certificado de entrada. Testar thread/domínio incorreto, preparo incompleto, fechamento concorrente e proibição de liberar antes da quiescência. |
+| Auditoria | No harness preparado, contadores de alocação/liberação/coleta/bloqueio/caminhos lentos permanecem zero no trecho certificado. Versões negativas devem acionar cada detector; a própria instrumentação não deve introduzir os efeitos que mede. |
+| Cache e recarga | Alterar corpo de callee, anotação, conteúdo do pacote, resumo SDK, ABI/target ou ponte invalida provas dependentes. Recarga durante sessão exige quiescência/readmissão; nenhum certificado antigo acompanha código novo. |
+| Semântica e portabilidade | Rodar fonte sem metadata, anotada/verificada e anotada/ignorada no diferencial. Comparar resultados, identidade, ordem de efeitos e exceções conforme as permissões de Dart; ferramentas Dart normais devem aceitar os exemplos com dependência compatível. |
+
+Os testes de resolução/constantes pertencem aos crates `types`/`elements`; os
+de alvos ao `analise`; os de contratos/efeitos ao `emit_native`; os de ponte e
+instrumentação ao `runtime`, com harness de integração por plataforma. Acrescentar
+casos de serialização no `diagnostics`/`lsp` e casos semânticos no `diferencial`.
+Snapshots isolados do texto do diagnóstico não substituem verificação do efeito
+ou da transformação. Publicar fixtures positivos e negativos com suas provas.
+
+Aceitar a entrega de áudio somente com escopo declarado: **kernel** ou **entrada
+nativa**. O relatório registra buffer/sample rate, alvo, versões, cenário de
+carga, tempo de preparação, duração da sessão, bytes retidos e percentis/máximo.
+Medir separadamente o efeito das anotações sobre tempo/memória de compilação,
+RC residual e visitas/coletas de ciclos. Não atribuir ganho à metadata quando
+o compilador já produzia o mesmo código automaticamente.
