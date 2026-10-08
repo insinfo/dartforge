@@ -5889,6 +5889,10 @@ relatos iguais do analyzer contam um.
     3.13 não disponível localmente). Nas bibliotecas de `libs_com_sintaxe_nova`, gerar esse formato.
 
 ##### `invalid_override` (perda 9: FN 9)
+
+**Feito em 2026-10-07:** no `CovariantParametersVerifier`, o `_superSubstitution` (`correct_override.dart:195-215`)
+troca, com a mesma contagem, os parâmetros de tipo do método do supertipo pelos do próprio método: `R foo<R>(covariant
+VB<R> v)` contra `R foo<R>(VA<R> v)` compara `VB<R>` com `VA<R>` do mesmo `R` e não relata.
 - **Emissão:** `CorrectOverrideHelper.verify` (`src/error/correct_override.dart:46-67`) chamado de
   `_checkDeclaredMember` (`src/error/inheritance_override.dart:357-404`, código `INVALID_OVERRIDE` ou
   `INVALID_OVERRIDE_SETTER` `:389-395`); também `CovariantParametersVerifier` (`correct_override.dart:112-140`).

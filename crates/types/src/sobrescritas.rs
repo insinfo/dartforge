@@ -212,7 +212,16 @@ impl Ctx<'_> {
             if params_s.len() != args.len() {
                 continue;
             }
-            let subst: HashMap<TypeParamId, TypeId> = params_s.iter().copied().zip(args.iter().copied()).collect();
+            let mut subst: HashMap<TypeParamId, TypeId> = params_s.iter().copied().zip(args.iter().copied()).collect();
+            // `_superSubstitution` (3.6.2 `correct_override.dart:195-215`): com
+            // a mesma contagem, os parâmetros de tipo do método do supertipo
+            // viram os do próprio método.
+            if !proprio.type_params.is_empty() && proprio.type_params.len() == dados_g.type_params.len() {
+                for (&sp, &tp) in dados_g.type_params.iter().zip(proprio.type_params.iter()) {
+                    let t = self.table.intern(Type::TypeParameter { param: tp, nullable: false });
+                    subst.insert(sp, t);
+                }
+            }
             let super_params: Vec<(ParameterKind, Option<SymbolId>, TypeId)> =
                 dados_g.parameters.iter().map(|p| (p.kind, p.externo, p.ty)).collect();
             let super_sig = dados_g.signature;
