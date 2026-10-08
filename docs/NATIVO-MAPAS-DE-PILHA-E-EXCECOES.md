@@ -2188,6 +2188,22 @@ reconferência pelo lado da exceção (vindo do tratador, a pendência está lig
 (`df.porta.*`, runtime → Dart) têm pouso no programa. `formas` volta ao nível de A0 ou abaixo. A medida
 inteira, refeita, vem logo abaixo.
 
+**A medida inteira** (2026-10-08, depois do `$ent` e da forma por `"deopt"` do §14.12;
+`scripts/medir-modos-desempenho.py --repeticoes 7 --afinidade 0x4`: os 32 núcleos do `bench/desempenho`
+em produção, todos os modos recompilados, 7 execuções alternadas presas a um núcleo P; razões sobre A0):
+
+| modo | média geométrica | melhores | piores (ms) |
+| --- | ---: | --- | --- |
+| A1 (pilha-sombra + tabelas) | **0,986** | `fib` 0,79, `closures` 0,92, `reviver` 0,93 | `ordenar_objetos` 1,07 (140), `formas` 1,04 (5,0) |
+| B0 (mapas + checagem) | **0,972** | `closures` 0,75, `soma_ponto` 0,90, `decode_medio` 0,91 | `mapa_str_objeto` 1,09 (25), `lista_leitura` 1,07 (2,3) |
+| B1 (mapas + tabelas) | **0,961** | `closures` 0,81, `fib` 0,86, `decode_medio` 0,87, `arvores` 0,87 | `lista_objetos` 1,08 (31) |
+| ARC (`--memoria=arc`) | 2,812 | numérico e listas ≈ 1 | `lista_ligada` 19,9, `arvores` 17,2 (ver `docs/ARC-IMPLEMENTACAO.md`) |
+| A0 contra `dart compile exe` | 1,242 | `lista_sort` 0,30, `soma_ponto` 0,15 | `lista_ligada` 3,00, `utf8_bytes` 2,49 |
+
+Sem exceção lançada, os três modos ficam abaixo de A0, como devem: A1 pela conferência da pendência que
+sai de cada chamada, B0 pela pilha-sombra que sai, B1 pelos dois. Os núcleos acima de 1 são de poucos
+milissegundos e variam dentro do ruído da máquina entre rodadas.
+
 ---
 
 ## 14. Etapa 2 em nível de implementação: raízes por mapas (B0/B1)
@@ -2290,6 +2306,9 @@ o leitor do `x7` avança enquanto o byte é 0 e exige `versão == 3`. Na imagem 
 cortado, `.llvm_st` (o `x7` a acha por esse prefixo).
 
 ### 14.4 O mapa compacto DFGM v1 (substitui o layout do §3.5)
+
+> Desde 2026-10-08 o conversor escreve a **v2**, com a máscara dos registradores de cada registro
+> (§14.12, regra 7); o runtime lê as duas.
 
 O layout do §3.5 foi ajustado no `x12`: o tamanho do quadro e o número de registros foram para dentro do
 fluxo, e o cabeçalho ganhou o tamanho total do blob (para saltar de um blob ao seguinte). Vale este:
@@ -2424,6 +2443,9 @@ exceção atravessa 50 quadros com raízes vivas, o pouso aloca (coleta) e depoi
 Cada uma vira um teste do §7.3 que **tem de falhar** com a sabotagem ligada.
 
 ### 14.8 A forma implementada: raízes por mapas sem trocar a representação (2026-10-04)
+
+> Substituída em 2026-10-08 pela forma por `"deopt"` (§14.12): a do `%raiz` + `llvm.fake.use`
+> gravava e recarregava cada raiz a cada chamada que coleta.
 
 O §14.1 troca a representação de `Ref` para `ptr addrspace(1)` no emissor inteiro. O que está escrito no
 código é uma forma menor, que chega ao mesmo mapa de pilha e **não** mexe na representação. Ela só é
@@ -2738,6 +2760,140 @@ em B0 não ficou menor que em A0 com o mapa incluído, e o tempo de desenvolvime
 raízes por mapas ficam **arquivadas como experimentais**: o código continua atrás de `--raizes=mapas`,
 corrigido e com os testes dirigidos verdes, sem custo para o padrão (pilha-sombra). As Etapas 3 e 4 não
 seguem enquanto o saldo de tamanho for este.
+
+### 14.12 A forma por `"deopt"`: a raiz no registrador preservado (2026-10-08)
+
+**O defeito da forma do §14.8.** A medida do tempo de execução que faltava ao §14.11 (o
+`bench/desempenho` em produção, `scripts/medir-modos-desempenho.py`) deu B0/A0 = 0,996 de média, com
+`chamadas/formas` 1,43× e `chamadas/fib` 1,24×. Sem exceção lançada e sem coleta, o código com mapas
+não pode ser mais lento que o com pilha-sombra. Duas causas:
+
+* **`fib` não é do modo.** O código de máquina do `fib` é idêntico em A0, A0 pelo ThinLTO distribuído
+  e B0. A diferença é o posicionamento do código: esta máquina (i3-1215U, Alder Lake) mistura núcleos P
+  e E e muda de frequência, e o mesmo executável varia 20–40% entre execuções. As medidas abaixo rodam
+  presas a um núcleo P (a afinidade do processo medidor, herdada pelo filho).
+* **`formas` é do modo.** Na forma do §14.8, cada raiz tem dois nomes vivos através da chamada: o
+  `%v` (`i64`, que o programa usa) e o `%raiz` (`ptr addrspace(1)`, relocado pelo statepoint e mantido
+  vivo pelo `llvm.fake.use`). O LLVM derrama todo valor `gc-live` num slot antes da chamada (o padrão
+  `max-registers-for-gc-values=0`), e o `fake.use` exige o valor relocado num registrador depois dela:
+  cada raiz custa uma gravação e uma recarga em **cada** chamada que coleta. O laço de `formas` (o
+  iterador da lista: `moveNext`/`current` por seletor) paga três a quatro pares por volta. A pilha-sombra
+  grava a raiz uma vez, na definição.
+
+Pôr os valores `gc-live` em registrador (`-max-registers-for-gc-values=N`; a documentação do LLVM chama
+a opção de `statepoint-max-registers-for-gc-values`, e o nome errado é ignorado sem aviso) não resolve:
+com os dois nomes vivos, a pressão sobre os sete preservados do Windows x64 dobra e o alocador derrama
+do mesmo jeito (`formas` piorou para 1,75×). Juntar os nomes por `ptrtoint` do ponteiro também não: o
+LLVM dobra `ptrtoint (inttoptr x)` para `x` mesmo com `-ni:1`, e o valor volta a ser só `i64`.
+
+**A forma nova.** O coletor não move objetos: o mapa não precisa relocar nada, só dizer **onde** está
+cada raiz na hora da chamada. O operando `"deopt"` de um statepoint faz exatamente isso — o LLVM
+registra, para cada operando, o lugar dele na chamada (constante, registrador ou slot), sem criar valor
+relocado. Com `-use-registers-for-deopt-values=true`, o valor que já está num registrador preservado
+fica nele, e o mapa registra o local `Register`:
+
+```llvm
+define i64 @t(i64 %a, i64 %b) gc "statepoint-example" {
+  %x = call i64 @f(i64 %a) [ "deopt"(i64 %a, i64 %b) ]
+  call void @g() [ "deopt"(i64 %x, i64 %b) ]
+  %y = add i64 %x, 1
+  %w = call i64 @h(i64 %y, i64 %b) [ "deopt"(i64 %x, i64 %b, i64 %y) ]
+  ...
+```
+
+O código gerado é o de uma função sem coletor (`%a` vai para `rdi` antes da primeira chamada porque o
+operando o mantém vivo nela — o contrato C1), e os três registros saem com `Register R#5`, `R#4`,
+`R#3` (rdi, rsi, rbx).
+
+**Regras.**
+
+1. **Emissor** (`EN/llvm/mod.rs`, `anexar_deopt`, `com_deopt`, `deopt_vazio`). O valor `Ref` é `i64` em
+   todo o código: não há `%raiz`, `inttoptr` para `addrspace(1)` nem `llvm.fake.use`. Em cada ponto de
+   coleta, os vivos na entrada dele (os operandos inclusive; a mesma análise de `EN/llvm/raizes.rs`) vão
+   no `"deopt"` de **cada** chamada que pode coletar emitida por ele (a do fim do bloco e a do `throw`
+   também). O pouso do `invoke` não precisa de nada: o que o tratador lê estava vivo na entrada do
+   `invoke`.
+2. **Toda chamada que coleta leva o operando**, mesmo vazio: o inliner do LLVM só junta o `"deopt"` de
+   quem chama ao de uma chamada copiada que **já tem** `"deopt"` (`InlineFunction`); sem ele, a chamada
+   do corpo copiado sairia sem as raízes de quem chamou. O fecho do módulo (`deopt_vazio`) põe
+   `"deopt"()` em toda chamada que coleta ainda sem operando: as dos ajudantes `@df.*`, da entrada, das
+   funções fora do orçamento (cujas raízes estão no quadro). No modo mapas toda função é `gc`.
+3. **Quem coleta** (`chamada_que_coleta`): a chamada indireta; a direta que não é intrínseco `llvm.*`,
+   nem extern que a tabela de efeitos marca sem coletar nem chamar Dart (a sabotagem `folha:<nome>` a
+   trata como folha), nem um dos ajudantes folha (`df.corpo`, `df.barreira`, `df.barreira_elemento`,
+   `df.e_objeto`, `df.filho_jovem`), `df.lancar` ou a moldura da conferência dos efeitos. Um nome fora
+   das tabelas (a função Dart) coleta.
+4. **Variádicas.** Toda chamada C variádica no modo mapas passa pelo intermediário `@df.vararg.<k>`
+   (`noinline`, sem `"deopt"` dentro): o RS4GC não embrulha variádica que devolve valor.
+5. **Endereços estáticos fora do `"deopt"`** (`crates/llvm`, `tirar_estaticos_do_deopt`). Depois do
+   inlining, um parâmetro enraizado pode virar o handle de um objeto da imagem (`ptrtoint (gep
+   @df.s…, 2)`). Com o operando em registrador, a constante tem de ser materializada num registrador na
+   chamada e não pode ir para a pilha (o alocador a rematerializa em vez de derramar): em
+   `DateTime.toString`, 7 vivos, 6 constantes e 3 argumentos esgotaram os registradores ("ran out of
+   registers"; com o alocador `basic`, laço até faltar memória). O objeto da imagem nunca é coletado e
+   não precisa de raiz: entre a otimização e o RS4GC, todo operando `"deopt"` que é endereço fixo (global,
+   expressão constante, ou conversão, `getelementptr` de índices constantes e soma com constante de um
+   deles) vira nulo, pela API C (`LLVMSetOperand`), sem tocar no resto da chamada.
+6. **`undef`.** O operando que a otimização tornou `undef`/`poison` sai no mapa como a constante
+   `0xFEFEFEFE` (`ConstantIndex`); o conversor e o leitor do runtime a descartam como "sem valor" e
+   continuam recusando qualquer outra constante par não nula (§3.5).
+7. **O mapa.** As raízes de um registro são os locais do `"deopt"` (depois dos três `Constant`
+   iniciais) e as bases dos pares do `"gc-live"`, que a forma nova não produz mais. O local `Register`
+   só é aceito num registrador preservado pela convenção (Windows x64: rbx, rsi, rdi, rbp, r12–r15; SysV:
+   rbx, rbp, r12–r15; aarch64: x19–x29); fora deles é erro, porque o valor não sobreviveria à chamada.
+   O DFGM passa à **versão 2**: o registro que traz raízes leva, depois dos slots, um varint com a
+   máscara dos registradores DWARF que as guardam. O runtime lê a v1 e a v2 (`EN/gcmap.rs`,
+   `RT/heap.rs`).
+8. **O percorredor.** Depois do `RtlVirtualUnwind` de um quadro, o `CONTEXT` traz os preservados de quem
+   chamou no ponto da chamada (o desenrolamento dos quadros de dentro os restaurou das gravações dos
+   prólogos); o registrador da raiz é lido dali (`Rax` 0x78 … `R15` 0xF0). No desenrolador Itanium, por
+   `_Unwind_GetGR` no contexto do quadro. O coletor não move, e nada é escrito de volta.
+9. **Mach-O.** O RS4GC roda dentro da LTO do `ld64.lld`, onde a limpeza da regra 5 não alcança: lá as
+   raízes ficam no slot (o padrão do LLVM), correto e sem o ganho.
+10. **Verificadores.** `EN/llvm/verificar_mapas.rs` (antes do RS4GC): nenhum `addrspace(1)`; toda
+    chamada que coleta, fora dos intermediários, com `"deopt"`; folhas pela tabela. `crates/llvm/
+    conferir_rs4gc.rs` (depois): um nome é `Ref` quando está no `"deopt"` de algum statepoint da função;
+    um `Ref` usado depois de um statepoint do mesmo bloco, ou passado como argumento a ele, tem de estar
+    no `"deopt"` dele. As sabotagens: `sem_uso_ficticio` deixa os `"deopt"` vazios; `bruto_no_mapa` põe
+    em todos o valor volátil 4098.
+11. **O prólogo.** As chamadas que a função emite antes da primeira instrução (a área do módulo,
+    `df.obter_area`; o estouro de pilha; as conversões dos parâmetros) também coletam, com os
+    parâmetros enraizados vivos: levam o `"deopt"` deles (todo parâmetro enraizado está vivo na
+    entrada). A forma do §14.8 não precisava disso, porque o RS4GC calculava a vivacidade do `%raiz`
+    sozinho; agora a lista é só a que o emissor escreve.
+12. **O corpo dos ajudantes** sai sem indentação (a continuação `\` das strings Rust come os espaços
+    da linha seguinte): o fecho e o verificador olham toda linha entre o `define` e o `}`, não só as
+    indentadas. Sem isso, a chamada a `dartforge_seletor` de dentro do `@df.seletor` copiado saía sem
+    as raízes de quem chamou — o conferidor do RS4GC a achou em `dart:mirrors`.
+13. **A conferência do percurso** (`DARTFORGE_GC_PERCURSO=conferir`) não cobra o objeto estático
+    (`PERMANENTE`): a regra 5 o tira do `"deopt"` de propósito.
+14. **O conferidor e os canônicos.** Um `Ref` reaproveitado pelo otimizador por cima de um statepoint
+    sem estar no `"deopt"` dele é acusado, salvo o valor que é sempre um objeto estático: a carga
+    `!invariant.load`, a carga do `true`/`false` canônico do contexto (deslocamentos 360 e 368, direto
+    ou pelo `select` do `df.caixa_bool`; a otimização que funde cargas tira o metadado) e o `phi` só
+    delas — inclusive a entrada que chega pela aresta em que `X == canônico` (o otimizador troca `X`
+    pelo canônico: `box(unbox(x))` vira `x`). Achado no corpus de produção (`64_map_ordem_insercao`,
+    `101_records_desestruturacao`, `121_convert_utf8_base64`).
+15. **O ThinLTO distribuído com ligações simultâneas** (`EN/lto_distribuida.rs`). O `lld-link
+    /thinlto-index-only` grava o índice de cada entrada ao lado dela, e os bitcodes do SDK são de todas
+    as compilações; com o harness em `--jobs 4`, uma ligação gravava o índice da outra, e 215 dos 238
+    programas falhavam na ligação ou no conferidor (importações trocadas). Cada ligação trabalha agora
+    num diretório próprio (`lto-<processo>-<n>`), com ligações físicas das entradas bitcode (cópia,
+    noutro volume); os intermediários também ficam lá, e o diretório sai no fim quando os objetos vêm
+    do cache. O defeito é anterior à forma por `"deopt"`: o corpus de produção em B0 nunca tinha rodado
+    em paralelo.
+16. **A opção** é global ao processo, lida uma vez na inicialização do LLVM embutido
+    (`LLVMParseCommandLineOptions`), e entra na identidade do gerador (a chave do cache de objetos).
+    `DARTFORGE_MAPAS_REGISTRADORES=0` volta as raízes para o slot (medida).
+
+**Medida** (`chamadas`, produção, mediana de 5 execuções presas a um núcleo P, ms; a do `bench/desempenho`
+inteiro está no §13.16, revisão de 2026-10-08: B0/A0 = 0,972 e B1/A0 = 0,961):
+
+| núcleo | A0 | B0 (§14.8) | B0 (`"deopt"`) |
+|---|---:|---:|---:|
+| `formas` | 5,38 | 7,53 | 5,29 |
+| `fib` | 10,88 | 11,40 | 10,37 |
+| `closures` | 40,95 | 30,78 | 30,12 |
 
 ## 15. Roteiro de implementação detalhado
 

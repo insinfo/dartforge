@@ -437,13 +437,14 @@ fn visitar_quadros(mut f: impl FnMut(i64)) {
 // Raízes por mapas de pilha (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8).
 //
 // Com `--raizes=mapas` os valores vivos através de uma chamada não vão para a
-// pilha-sombra: o LLVM (`rewrite-statepoints-for-gc`) os derrama em slots do
-// quadro nativo e descreve, para cada chamada, onde estão — a seção
-// `.llvm_stackmaps` do objeto (`.llvm_st` na imagem). Na coleta o runtime
-// percorre a pilha nativa da thread e, para cada quadro cujo endereço de
-// retorno tem registro, lê os slots. Os quadros sem registro (o runtime, C, o
-// sistema, as funções que só têm pilha-sombra) são atravessados; a
-// pilha-sombra continua sendo visitada como sempre.
+// pilha-sombra: o LLVM (`rewrite-statepoints-for-gc`) os deixa num registrador
+// preservado ou num slot do quadro nativo e descreve, para cada chamada, onde
+// estão — a seção `.llvm_stackmaps` do objeto (`.llvm_st` na imagem). Na
+// coleta o runtime percorre a pilha nativa da thread e, para cada quadro cujo
+// endereço de retorno tem registro, lê os slots e os registradores (o valor
+// que o desenrolador restaurou para aquele quadro). Os quadros sem registro
+// (o runtime, C, o sistema, as funções que só têm pilha-sombra) são
+// atravessados; a pilha-sombra continua sendo visitada como sempre.
 
 /// O registrador DWARF do SP e o do FP do alvo, como o `.llvm_stackmaps`
 /// os escreve (x86-64: RSP 7, RBP 6; aarch64: SP 31, x29 29).
@@ -456,6 +457,23 @@ const DWARF_SP: u16 = 7;
 #[cfg(not(target_arch = "aarch64"))]
 const DWARF_FP: u16 = 6;
 
+/// Os registradores DWARF preservados através de uma chamada, pela
+/// convenção do alvo (um `Register` do mapa fora deles é defeito: o valor
+/// não sobreviveria à chamada). Windows x64: rbx, rsi, rdi, rbp, r12–r15;
+/// SysV x86-64: rbx, rbp, r12–r15; aarch64: x19–x29.
+#[cfg(target_arch = "aarch64")]
+const PRESERVADOS: u32 = ((1 << 11) - 1) << 19;
+#[cfg(all(not(target_arch = "aarch64"), windows))]
+const PRESERVADOS: u32 = (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (0xF << 12);
+#[cfg(all(not(target_arch = "aarch64"), not(windows)))]
+const PRESERVADOS: u32 = (1 << 3) | (1 << 6) | (0xF << 12);
+
+/// O tipo de uma raiz do mapa: slot sobre o SP, slot sobre o FP, ou
+/// registrador (o valor é o número DWARF dele).
+const RAIZ_NO_SP: u8 = 0;
+const RAIZ_NO_FP: u8 = 1;
+const RAIZ_EM_REGISTRADOR: u8 = 2;
+
 /// Uma função com mapa de pilha numa imagem: o endereço do começo dela e
 /// onde está a descrição, que só é decodificada na primeira consulta
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.5 e §14.5, E3.2).
@@ -466,18 +484,21 @@ struct FuncaoComMapa {
     /// registro dela.
     dados: usize,
     /// `.llvm_stackmaps`: quantos registros e o vetor de constantes do blob
-    /// (os `ConstIndex`); DFGM: `u32::MAX` e 0.
+    /// (os `ConstIndex`); DFGM: `u32::MAX` e a versão do blob (1: só slots;
+    /// 2: com a máscara dos registradores).
     n_llvm: u32,
     constantes: usize,
 }
 
 /// Os registros de uma função, decodificados: (deslocamento do endereço de
 /// retorno em relação ao começo da função, início em `slots`, número), em
-/// ordem do deslocamento; e os slots, (base no FP?, deslocamento em bytes).
+/// ordem do deslocamento; e as raízes, (tipo, deslocamento em bytes do slot
+/// ou número DWARF do registrador): [`RAIZ_NO_SP`], [`RAIZ_NO_FP`],
+/// [`RAIZ_EM_REGISTRADOR`].
 #[derive(Default)]
 struct RegistrosDaFuncao {
     registros: Vec<(u32, u32, u32)>,
-    slots: Vec<(bool, i32)>,
+    slots: Vec<(u8, i32)>,
 }
 
 /// Os mapas de uma imagem (o executável, a DLL do SDK).
@@ -530,7 +551,7 @@ impl MapaDePilha {
     /// aponta depois dele (§14.5): o deslocamento seguinte também vale, só
     /// quando o byte no endereço de retorno é esse `nop`.
     #[allow(unsafe_code)]
-    fn slots_de(&self, i: usize, retorno: u64) -> Option<&[(bool, i32)]> {
+    fn slots_de(&self, i: usize, retorno: u64) -> Option<&[(u8, i32)]> {
         let r = self.registros(i);
         let deslocamento = u32::try_from(retorno.checked_sub(self.funcoes[i].inicio)?).ok()?;
         let achar = |d: u32| {
@@ -773,7 +794,7 @@ unsafe fn ler_stackmaps(mut p: *const u8, tamanho: usize, mapa: &mut MapaDePilha
     }
 }
 
-/// Indexa os blobs DFGM v1 de `[p, p + tamanho)` (o formato está em
+/// Indexa os blobs DFGM v1 e v2 de `[p, p + tamanho)` (o formato está em
 /// `emit_native/src/gcmap.rs`; entre as contribuições dos objetos há zeros
 /// de enchimento, em múltiplos de 4). O endereço de cada função vem do
 /// índice conforme as bandeiras do blob: 0, deslocamento sobre `base` (o
@@ -792,8 +813,9 @@ unsafe fn ler_dfgm(mut p: *const u8, tamanho: usize, base: usize, mapa: &mut Map
                 p = p.add(4);
                 continue;
             }
-            if *p.add(4) != 1 {
-                mapa_recusado("versão do mapa compacto diferente de 1");
+            let versao = *p.add(4);
+            if versao != 1 && versao != 2 {
+                mapa_recusado("versão do mapa compacto diferente de 1 e de 2");
             }
             let bandeiras = p.add(6).cast::<u16>().read_unaligned();
             let total = p.add(8).cast::<u32>().read_unaligned() as usize;
@@ -818,7 +840,7 @@ unsafe fn ler_dfgm(mut p: *const u8, tamanho: usize, base: usize, mapa: &mut Map
                     inicio: inicio_da_funcao,
                     dados: fluxo.add(desloc_no_fluxo as usize) as usize,
                     n_llvm: u32::MAX,
-                    constantes: 0,
+                    constantes: usize::from(versao),
                 });
             }
             p = p.add(total);
@@ -867,9 +889,21 @@ unsafe fn decodificar_funcao(f: FuncaoComMapa) -> RegistrosDaFuncao {
                         let s = varint(&mut q);
                         let u = s >> 1;
                         slot += ((u >> 1) as i64) ^ -((u & 1) as i64);
-                        d.slots.push((s & 1 == 1, (slot * 8) as i32));
+                        d.slots.push((if s & 1 == 1 { RAIZ_NO_FP } else { RAIZ_NO_SP }, (slot * 8) as i32));
                     }
-                    anterior = (primeiro, (c >> 1) as u32);
+                    // v2: a máscara dos registradores com raiz.
+                    if f.constantes >= 2 {
+                        let mascara = varint(&mut q);
+                        if mascara & !u64::from(PRESERVADOS) != 0 {
+                            mapa_recusado("registrador não preservado com raiz no mapa compacto");
+                        }
+                        for r in 0..32 {
+                            if mascara & (1 << r) != 0 {
+                                d.slots.push((RAIZ_EM_REGISTRADOR, r));
+                            }
+                        }
+                    }
+                    anterior = (primeiro, d.slots.len() as u32 - primeiro);
                 }
                 if retorno > u64::from(u32::MAX) {
                     mapa_recusado("deslocamento de retorno fora de 32 bits no mapa compacto");
@@ -887,31 +921,39 @@ unsafe fn decodificar_funcao(f: FuncaoComMapa) -> RegistrosDaFuncao {
                 }
                 let n_deopt = locais.add(2 * 12 + 8).cast::<i32>().read_unaligned().max(0) as usize;
                 let inicio = d.slots.len();
-                let mut j = 3 + n_deopt;
-                while j + 1 < n_locais {
+                if 3 + n_deopt > n_locais {
+                    mapa_recusado("registro de statepoint com mais locais de `deopt` que locais");
+                }
+                // As raízes: cada local do `"deopt"` (a forma do §14.12) e a
+                // base de cada par (base, derivado) do `"gc-live"`.
+                for j in (3..3 + n_deopt).chain((3 + n_deopt..n_locais.saturating_sub(1)).step_by(2)) {
                     let l = locais.add(12 * j);
-                    j += 2;
                     let tipo = *l;
                     let largura = l.add(2).cast::<u16>().read_unaligned();
                     let registrador = l.add(4).cast::<u16>().read_unaligned();
                     let valor = l.add(8).cast::<i32>().read_unaligned();
-                    // Constante: null não é raiz; uma constante par não nula
-                    // seria um valor bruto tratado como referência (§3.5).
+                    // Constante: null não é raiz, nem o `undef` que o
+                    // otimizador deixou num operando (0xFEFEFEFE); outra
+                    // constante par não nula seria um valor bruto tratado
+                    // como referência (§3.5).
                     if tipo == 4 || tipo == 5 {
                         let c = if tipo == 4 {
                             i64::from(valor)
                         } else {
                             (f.constantes as *const u8).add(8 * valor.max(0) as usize).cast::<i64>().read_unaligned()
                         };
-                        if c != 0 && c & 1 == 0 {
+                        if c != 0 && c & 1 == 0 && c != 0xFEFE_FEFE {
                             mapa_recusado("constante par não nula como raiz no mapa de pilha");
                         }
                         continue;
                     }
-                    if tipo != 3 || largura != 8 || (registrador != DWARF_SP && registrador != DWARF_FP) {
-                        mapa_recusado("local que não é `Indirect [SP|FP + d]` de 8 bytes");
-                    }
-                    let slot = (registrador == DWARF_FP, valor);
+                    let slot = if tipo == 1 && largura == 8 && registrador < 32 && PRESERVADOS & (1 << registrador) != 0 {
+                        (RAIZ_EM_REGISTRADOR, i32::from(registrador))
+                    } else if tipo == 3 && largura == 8 && (registrador == DWARF_SP || registrador == DWARF_FP) {
+                        (if registrador == DWARF_FP { RAIZ_NO_FP } else { RAIZ_NO_SP }, valor)
+                    } else {
+                        mapa_recusado("local que não é `Indirect [SP|FP + d]` nem `Register` preservado de 8 bytes")
+                    };
                     if !d.slots[inicio..].contains(&slot) {
                         d.slots.push(slot);
                     }
@@ -929,18 +971,32 @@ unsafe fn decodificar_funcao(f: FuncaoComMapa) -> RegistrosDaFuncao {
 }
 
 /// Visita as raízes do quadro nativo parado no endereço de retorno
-/// `retorno`, com o SP do quadro no ponto da chamada em `sp` e o FP em `fp`.
+/// `retorno`, com o SP do quadro no ponto da chamada em `sp` e o FP em `fp`;
+/// `registrador` dá o valor de um registrador preservado (pelo número
+/// DWARF) naquele quadro, como o desenrolador o restaurou.
 /// `inicio_exato` é o começo da função como o desenrolador o conhece: se
 /// ela tem mapa e o endereço não tem registro, é defeito do emissor ou do
 /// conversor, e o processo aborta. Devolve se o quadro tinha mapa.
 #[allow(unsafe_code)]
-fn visitar_quadro(mapas: &[MapaDePilha], inicio_exato: Option<u64>, retorno: u64, sp: u64, fp: u64, f: &mut dyn FnMut(i64)) -> bool {
+fn visitar_quadro(
+    mapas: &[MapaDePilha],
+    inicio_exato: Option<u64>,
+    retorno: u64,
+    sp: u64,
+    fp: u64,
+    registrador: &dyn Fn(u16) -> u64,
+    f: &mut dyn FnMut(i64),
+) -> bool {
     for m in mapas {
         let Some(i) = m.funcao_de(retorno) else { continue };
         match m.slots_de(i, retorno) {
             Some(slots) => {
-                for &(no_fp, d) in slots {
-                    let b = if no_fp { fp } else { sp };
+                for &(tipo, d) in slots {
+                    if tipo == RAIZ_EM_REGISTRADOR {
+                        f(registrador(d as u16) as i64);
+                        continue;
+                    }
+                    let b = if tipo == RAIZ_NO_FP { fp } else { sp };
                     // SAFETY: o slot é do quadro de uma função ainda ativa,
                     // parada na chamada que o registro descreve.
                     f(unsafe { *((b as i64).wrapping_add(i64::from(d)) as *const i64) });
@@ -977,8 +1033,8 @@ fn visitar_quadros_por_mapas(mut f: impl FnMut(i64)) {
     if !HA_MAPAS_DE_PILHA.load(std::sync::atomic::Ordering::Acquire) {
         return;
     }
-    /// O `CONTEXT` do x86-64: 1232 bytes, alinhado a 16. Só três campos são
-    /// lidos: `Rsp` (0x98), `Rbp` (0xA0) e `Rip` (0xF8).
+    /// O `CONTEXT` do x86-64: 1232 bytes, alinhado a 16. São lidos o `Rip`
+    /// (0xF8) e os inteiros de `Rax` (0x78) a `R15` (0xF0).
     #[repr(C, align(16))]
     struct ContextoDaCpu([u8; 1232]);
     #[link(name = "kernel32")]
@@ -1000,6 +1056,9 @@ fn visitar_quadros_por_mapas(mut f: impl FnMut(i64)) {
     let mapas = MAPAS_DE_PILHA.read().unwrap_or_else(|e| e.into_inner());
     let mut contexto = ContextoDaCpu([0; 1232]);
     let campo = |c: &ContextoDaCpu, d: usize| u64::from_le_bytes(c.0[d..d + 8].try_into().expect("oito bytes"));
+    /// O deslocamento no `CONTEXT` de cada registrador DWARF 0–15 (rax,
+    /// rdx, rcx, rbx, rsi, rdi, rbp, rsp, r8–r15).
+    const NO_CONTEXTO: [usize; 16] = [0x78, 0x88, 0x80, 0x90, 0xA8, 0xB0, 0xA0, 0x98, 0xB8, 0xC0, 0xC8, 0xD0, 0xD8, 0xE0, 0xE8, 0xF0];
     let mut quadros = 0u64;
     // SAFETY: o contexto é o desta thread, capturado aqui; cada passo
     // desenrola um quadro com a tabela de desenrolamento da função dele, e
@@ -1034,7 +1093,10 @@ fn visitar_quadros_por_mapas(mut f: impl FnMut(i64)) {
             let mut base_seguinte = 0u64;
             let seguinte = RtlLookupFunctionEntry(retorno, &mut base_seguinte, std::ptr::null_mut());
             let inicio = (!seguinte.is_null()).then(|| base_seguinte + u64::from(seguinte.cast::<u32>().read_unaligned()));
-            visitar_quadro(&mapas, inicio, retorno, sp, fp, &mut f);
+            // Os preservados no contexto são os de quem chamou, no ponto da
+            // chamada: o desenrolamento dos quadros de dentro os restaurou.
+            let registrador = |r: u16| NO_CONTEXTO.get(usize::from(r)).map_or(0, |&d| campo(&contexto, d));
+            visitar_quadro(&mapas, inicio, retorno, sp, fp, &registrador, &mut f);
             pc = retorno;
             base = base_seguinte;
             funcao = seguinte;
@@ -1092,7 +1154,9 @@ fn visitar_quadros_por_mapas(mut f: impl FnMut(i64)) {
                 e.quadros += 1;
                 let inicio = _Unwind_GetRegionStart(contexto) as u64;
                 let fp = _Unwind_GetGR(contexto, i32::from(DWARF_FP)) as u64;
-                visitar_quadro(e.mapas, (inicio != 0).then_some(inicio), ip, sp as u64, fp, e.f);
+                // SAFETY: o contexto do desenrolador, válido durante o passo.
+                let registrador = |r: u16| unsafe { _Unwind_GetGR(contexto, i32::from(r)) as u64 };
+                visitar_quadro(e.mapas, (inicio != 0).then_some(inicio), ip, sp as u64, fp, &registrador, e.f);
             }
             e.cfa_anterior = Some(cfa);
             CONTINUA
@@ -1250,13 +1314,20 @@ fn visitar_slots_de_conferencia(mut f: impl FnMut(i64)) {
 /// `DARTFORGE_GC_PERCURSO=conferir`: toda raiz que o build de conferência
 /// gravou na pilha-sombra tem de estar entre as que o percurso por mapas
 /// visitou (`dos_mapas`). Uma que falte é raiz que o mapa perdeu.
+#[allow(unsafe_code)]
 fn conferir_percurso(dos_mapas: &[i64]) {
     let vistos: crate::hash::HashSet<i64> = dos_mapas.iter().copied().collect();
     let mut conferidas = 0u64;
     visitar_slots_de_conferencia(|h| {
-        // Só os objetos: um `Smi` (ou o nulo) no slot não é raiz, e o RS4GC
-        // não põe no mapa o valor que o otimizador sabe ser constante.
+        // Só os objetos do heap: um `Smi` (ou o nulo) no slot não é raiz, e
+        // o objeto estático da imagem (`PERMANENTE`) nunca é coletado — o
+        // compilador o tira do `"deopt"` (`tirar_estaticos_do_deopt`, §14.12).
         if !crate::layout::e_objeto(h) {
+            return;
+        }
+        // SAFETY: `h` é o handle de um objeto que o código gerado gravou no
+        // slot de conferência, vivo neste ponto de coleta.
+        if unsafe { (*((h - DESLOCAMENTO_DO_HANDLE) as *const Cabecalho)).estado } == PERMANENTE {
             return;
         }
         conferidas += 1;
@@ -4361,6 +4432,18 @@ impl crate::arc::GrafoArc for GrafoDoHeap<'_> {
     }
 }
 
+/// O objeto `h` tem corpo `BRUTO` (nenhuma posição de referência: string,
+/// caixa numérica, dados tipados)? O filtro de candidatos a ciclo do ARC
+/// (`EstadoDoArc::sem_arestas`).
+fn bloco_sem_referencias(h: Ref) -> bool {
+    // SAFETY: o ARC só chama com handles registrados, blocos vivos do espaço
+    // (a imagem não tem metadados).
+    #[allow(unsafe_code)]
+    unsafe {
+        (*((h - DESLOCAMENTO_DO_HANDLE) as *const Cabecalho)).flags & flags_do_bloco::FORMA == flags_do_bloco::BRUTO
+    }
+}
+
 /// Uma violação do contador é bug do compilador ou do runtime, nunca erro
 /// Dart (docs/ARC-CICLOS-ESPECIFICACAO.md §19.3).
 #[cold]
@@ -4496,6 +4579,7 @@ impl Heap {
             puro: !std::env::var("DARTFORGE_ARC_BERCARIO").is_ok_and(|v| v == "1"),
         });
         arc.estado.traco = std::env::var("DARTFORGE_ARC_TRACO").is_ok_and(|v| v == "1");
+        arc.estado.sem_arestas = Some(bloco_sem_referencias);
         let alcancados = self.alcancaveis_por_rastreamento();
         for &x in &alcancados {
             arc.estado.registrar_vivo(x);
@@ -4823,6 +4907,11 @@ impl Heap {
     /// só um objeto vê tem a ocorrência contada.
     fn drenar_arc(&mut self, completa: bool) {
         conferir_coleta_permitida();
+        let inicio = std::time::Instant::now();
+        // O tempo de cada etapa, para o rastro (raízes, fotos, jovens das
+        // raízes, efêmeros, decisão dos jovens, soltura dos jovens mortos,
+        // raízes candidatas, zeros/ciclos, memória).
+        let mut fases: Vec<u128> = Vec::with_capacity(10);
         if let Some(a) = &self.agenda {
             a.pendente.set(false);
         }
@@ -4832,6 +4921,7 @@ impl Heap {
         let mut raizes = Vec::new();
         self.raizes(&mut raizes);
         let protegidos: crate::hash::HashSet<Ref> = raizes.into_iter().filter(|&h| smi::e_handle(h)).collect();
+        fases.push(inicio.elapsed().as_micros());
         // 1. As fotos.
         let mut valores = Vec::new();
         let n_fotos = arc.fotos.len();
@@ -4850,6 +4940,7 @@ impl Heap {
                 arc.estado.soltar(v).unwrap_or_else(|e| falha_do_arc(e));
             }
         }
+        fases.push(inicio.elapsed().as_micros());
         // 2. Os jovens que só as raízes veem.
         let mut jovens = Vec::new();
         self.objetos.jovens_entregues(&mut |b| jovens.push(b));
@@ -4859,6 +4950,7 @@ impl Heap {
                 arc.estado.registrar_vivo(h);
             }
         }
+        fases.push(inicio.elapsed().as_micros());
         // 3. Os efêmeros: as entradas vivas de agora contra as contadas.
         let mut soltar: Vec<Ref> = Vec::new();
         let mut atuais: crate::hash::HashSet<Ref> = crate::hash::HashSet::default();
@@ -4890,6 +4982,7 @@ impl Heap {
         for v in soltar {
             arc.estado.soltar(v).unwrap_or_else(|e| falha_do_arc(e));
         }
+        fases.push(inicio.elapsed().as_micros());
         // 4. Os jovens: o registrado fica, o resto morreu.
         let mut mortos_jovens: Vec<Ref> = Vec::new();
         let n_jovens = jovens.len();
@@ -4907,6 +5000,7 @@ impl Heap {
                 mortos_jovens.push(h);
             }
         }
+        fases.push(inicio.elapsed().as_micros());
         for &h in &mortos_jovens {
             // SAFETY: as posições são palavras do corpo de um bloco ainda não solto.
             self.posicoes_de_ref(h, &mut |p| valores.push(unsafe { *p }));
@@ -4914,12 +5008,14 @@ impl Heap {
                 arc.estado.soltar(v).unwrap_or_else(|e| falha_do_arc(e));
             }
         }
+        fases.push(inicio.elapsed().as_micros());
         // As raízes não geram decremento ao sumir: o que elas seguram volta a
         // ser candidato a ciclo.
         for &h in &protegidos {
             arc.estado.candidatar(h);
         }
         let protegido = |h: Ref| protegidos.contains(&h);
+        fases.push(inicio.elapsed().as_micros());
         // 5. Zeros, ciclos e o ponto fixo da completa.
         let rodada = completa && arc.ciclos != Some(false);
         let mut ponto_fixo = rodada && !self.efemeros.is_empty();
@@ -5003,6 +5099,7 @@ impl Heap {
             });
         }
         self.finalizacoes_prontas.extend(prontas);
+        fases.push(inicio.elapsed().as_micros());
         // 6. A memória.
         let (mortos_varridos, mut soltos) = self.objetos.varrer_jovens();
         for &h in &mortos_rc {
@@ -5024,14 +5121,26 @@ impl Heap {
         } else {
             self.menores_desde_completa += 1;
         }
+        fases.push(inicio.elapsed().as_micros());
         if arc.conferir {
             self.conferir_arc(&mut arc);
         }
         if self.rastrear {
+            let mut anterior = 0;
+            let etapas: Vec<String> = fases
+                .iter()
+                .map(|&t| {
+                    let d = t - anterior;
+                    anterior = t;
+                    d.to_string()
+                })
+                .collect();
             let e = arc.estado.estatisticas;
             eprintln!(
-                "[arc] {} jovens={n_jovens} mortos_jovens={} fotos={n_fotos} contados={} retains={} releases={} mortos_rc={} mortos_ciclo={} rodadas={} examinados={} candidatos={}",
+                "[arc] {} us={} fases={} jovens={n_jovens} mortos_jovens={} fotos={n_fotos} contados={} retains={} releases={} mortos_rc={} mortos_ciclo={} rodadas={} examinados={} candidatos={}",
                 if completa { "completa" } else { "drenagem" },
+                inicio.elapsed().as_micros(),
+                etapas.join("/"),
                 mortos_jovens.len(),
                 arc.estado.registrados(),
                 e.retains,

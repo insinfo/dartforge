@@ -27,14 +27,20 @@ pub mod conferir_rs4gc;
 
 use llvm_sys::bit_writer::LLVMWriteBitcodeToMemoryBuffer;
 use llvm_sys::core::{
-    LLVMContextCreate, LLVMContextDispose, LLVMCreateMemoryBufferWithMemoryRangeCopy, LLVMDeleteFunction,
-    LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMDisposeModule, LLVMGetBufferSize, LLVMGetBufferStart,
-    LLVMGetDataLayoutStr, LLVMGetFirstFunction, LLVMGetFirstUse, LLVMGetGC, LLVMGetNamedFunction, LLVMGetNextFunction,
-    LLVMGetTarget, LLVMGetVersion,
-    LLVMPrintModuleToString, LLVMSetDataLayout, LLVMSetTarget,
+    LLVMConstNull, LLVMContextCreate, LLVMContextDispose, LLVMCreateMemoryBufferWithMemoryRangeCopy, LLVMDeleteFunction,
+    LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMDisposeModule, LLVMDisposeOperandBundle, LLVMGetBufferSize,
+    LLVMGetBufferStart, LLVMGetDataLayoutStr, LLVMGetFirstBasicBlock, LLVMGetFirstFunction, LLVMGetFirstInstruction,
+    LLVMGetFirstUse, LLVMGetGC, LLVMGetInstructionOpcode, LLVMGetNamedFunction, LLVMGetNextBasicBlock, LLVMGetNextFunction,
+    LLVMGetNextInstruction, LLVMGetNumArgOperands, LLVMGetNumOperandBundleArgs, LLVMGetNumOperandBundles, LLVMGetNumOperands,
+    LLVMGetOperand, LLVMGetOperandBundleAtIndex, LLVMGetOperandBundleTag, LLVMGetTarget, LLVMGetVersion, LLVMIsACallInst,
+    LLVMIsAConstantExpr, LLVMIsAConstantInt, LLVMIsAGlobalValue, LLVMIsAInstruction, LLVMIsAInvokeInst, LLVMPrintModuleToString,
+    LLVMSetDataLayout, LLVMSetOperand, LLVMSetTarget, LLVMTypeOf, LLVMConstIntGetZExtValue, LLVMGetCalledValue, LLVMGetValueName2,
+    LLVMConstInt,
 };
+use llvm_sys::LLVMOpcode;
 use llvm_sys::error::{LLVMDisposeErrorMessage, LLVMErrorRef, LLVMGetErrorMessage};
 use llvm_sys::ir_reader::LLVMParseIRInContext2;
+use llvm_sys::support::LLVMParseCommandLineOptions;
 use llvm_sys::prelude::{LLVMContextRef, LLVMMemoryBufferRef, LLVMModuleRef};
 use llvm_sys::target::{
     LLVM_InitializeNativeAsmParser, LLVM_InitializeNativeAsmPrinter, LLVM_InitializeNativeTarget, LLVMDisposeTargetData, LLVMSetModuleDataLayout,
@@ -73,9 +79,42 @@ pub fn inicializar_alvo_nativo() -> Result<(), String> {
                     || LLVM_InitializeNativeAsmPrinter() != 0
                     || LLVM_InitializeNativeAsmParser() != 0
             };
-            if falhou { Err("o LLVM não tem backend nativo para esta arquitetura".to_owned()) } else { Ok(()) }
+            if falhou {
+                return Err("o LLVM não tem backend nativo para esta arquitetura".to_owned());
+            }
+            // As opções do gerador de código, globais ao processo e lidas
+            // uma vez (o `cl::opt` recusa a segunda ocorrência).
+            let argumentos: Vec<CString> = opcoes_do_gerador().iter().map(|a| CString::new(a.as_str()).expect("opção sem NUL")).collect();
+            let ponteiros: Vec<*const c_char> = argumentos.iter().map(|a| a.as_ptr()).collect();
+            // SAFETY: `argv` aponta para strings C vivas até o fim da chamada.
+            unsafe { LLVMParseCommandLineOptions(ponteiros.len() as i32, ponteiros.as_ptr(), c"dartforge".as_ptr()) };
+            Ok(())
         })
         .clone()
+}
+
+/// As raízes de um statepoint (os operandos `"deopt"`,
+/// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.12) podem ficar no
+/// registrador preservado em que já estão (`use-registers-for-deopt-values`;
+/// o mapa diz qual, com o local `Register`): sem isso, o padrão do LLVM,
+/// cada uma é gravada num slot antes de toda chamada que coleta — o que a
+/// pilha-sombra não paga. `DARTFORGE_MAPAS_REGISTRADORES=0` volta ao slot
+/// (medida).
+pub fn raizes_em_registrador() -> bool {
+    static SIM: OnceLock<bool> = OnceLock::new();
+    *SIM.get_or_init(|| std::env::var("DARTFORGE_MAPAS_REGISTRADORES").map_or(true, |v| v.trim() != "0"))
+}
+
+/// As opções do gerador de código que o dartforge passa ao LLVM (o
+/// embutido, e o `ld64.lld` por `-mllvm`), sem o nome do programa.
+pub fn opcoes_do_gerador_sem_programa() -> Vec<String> {
+    vec![format!("-use-registers-for-deopt-values={}", raizes_em_registrador())]
+}
+
+fn opcoes_do_gerador() -> Vec<String> {
+    let mut v = vec!["dartforge".to_owned()];
+    v.extend(opcoes_do_gerador_sem_programa());
+    v
 }
 
 /// A versão do LLVM ligado (`22.1.8`).
@@ -149,7 +188,7 @@ pub fn identidade() -> Result<String, String> {
     ID.get_or_init(|| {
         inicializar_alvo_nativo()?;
         let triple = triple_padrao();
-        Ok(format!("llvm-embutido {} {} {}", versao(), triple, cpu_padrao(&triple)))
+        Ok(format!("llvm-embutido {} {} {} {}", versao(), triple, cpu_padrao(&triple), opcoes_do_gerador_sem_programa().join(" ")))
     })
     .clone()
 }
@@ -197,7 +236,9 @@ pub fn gerar(nome: &str, ir: &str, opcoes: &Opcoes) -> Result<Vec<u8>, String> {
         (Formato::Objeto, false) => "default<O0>",
     };
     if com_mapas && !passe_no_ligador {
-        modulo.otimizar(&format!("{pipeline},rewrite-statepoints-for-gc,verify"), &maquina)?;
+        modulo.otimizar(pipeline, &maquina)?;
+        modulo.tirar_estaticos_do_deopt();
+        modulo.otimizar("rewrite-statepoints-for-gc,verify", &maquina)?;
         // O passe declara `@__tmp_use` para os usos provisórios que ele mesmo
         // apaga. A declaração que sobra não muda um objeto, mas no bitcode da
         // produção (a LTO do `lld-link`) ela entra na tabela de símbolos como
@@ -208,8 +249,120 @@ pub fn gerar(nome: &str, ir: &str, opcoes: &Opcoes) -> Result<Vec<u8>, String> {
         modulo.otimizar(pipeline, &maquina)?;
     }
     match opcoes.formato {
-        Formato::Objeto => maquina.emitir_objeto(&modulo),
+        Formato::Objeto => {
+            despejar_antes_do_gerador(nome, &modulo);
+            maquina.emitir_objeto(&modulo).map_err(|e| despejar_se_pedido(nome, "objeto", &modulo, e))
+        }
         Formato::Bitcode => Ok(modulo.bitcode()),
+    }
+}
+
+/// O valor `v` é um endereço fixo da imagem: um global, uma expressão
+/// constante, ou a conversão, o `getelementptr` de índices constantes ou a
+/// soma com constante de um deles; ou a carga de um dos objetos canônicos
+/// `true`/`false` do contexto da thread (`getelementptr` sobre o
+/// `dartforge_contexto()` em 360 ou 368, `layout::contexto`, direto ou pelo
+/// `select` do `df.caixa_bool`), estáticos da imagem do runtime — a carga é
+/// `!invariant.load`, e o gerador de código a rematerializa como uma
+/// constante ([`Modulo::tirar_estaticos_do_deopt`]).
+///
+/// # Safety
+/// `v` é um valor vivo de um módulo.
+unsafe fn endereco_estatico(v: llvm_sys::prelude::LLVMValueRef, profundidade: u32) -> bool {
+    // SAFETY: o contrato da função; só leituras.
+    unsafe {
+        if !LLVMIsAGlobalValue(v).is_null() || !LLVMIsAConstantExpr(v).is_null() {
+            return true;
+        }
+        if profundidade > 4 || LLVMIsAInstruction(v).is_null() {
+            return false;
+        }
+        let constante = |x| !LLVMIsAConstantInt(x).is_null();
+        match LLVMGetInstructionOpcode(v) {
+            LLVMOpcode::LLVMPtrToInt | LLVMOpcode::LLVMIntToPtr | LLVMOpcode::LLVMBitCast | LLVMOpcode::LLVMAddrSpaceCast => {
+                endereco_estatico(LLVMGetOperand(v, 0), profundidade + 1)
+            }
+            LLVMOpcode::LLVMGetElementPtr => {
+                (1..LLVMGetNumOperands(v) as u32).all(|k| constante(LLVMGetOperand(v, k)))
+                    && endereco_estatico(LLVMGetOperand(v, 0), profundidade + 1)
+            }
+            LLVMOpcode::LLVMAdd => {
+                let (a, b) = (LLVMGetOperand(v, 0), LLVMGetOperand(v, 1));
+                (constante(b) && endereco_estatico(a, profundidade + 1)) || (constante(a) && endereco_estatico(b, profundidade + 1))
+            }
+            LLVMOpcode::LLVMLoad => carga_de_canonico(LLVMGetOperand(v, 0)),
+            _ => false,
+        }
+    }
+}
+
+/// O valor inteiro de `v`, se ele é constante: um `ConstantInt` ou uma
+/// operação inteira (soma, subtração, multiplicação, deslocamentos, `and`,
+/// `or`, `xor`) de operandos constantes, com a aritmética de 64 bits do LLVM
+/// ([`Modulo::tirar_estaticos_do_deopt`]).
+///
+/// # Safety
+/// `v` é um valor vivo de um módulo.
+unsafe fn valor_constante(v: llvm_sys::prelude::LLVMValueRef, profundidade: u32) -> Option<u64> {
+    // SAFETY: o contrato da função; só leituras.
+    unsafe {
+        if !LLVMIsAConstantInt(v).is_null() {
+            return Some(LLVMConstIntGetZExtValue(v));
+        }
+        if profundidade > 6 || LLVMIsAInstruction(v).is_null() || LLVMGetNumOperands(v) != 2 {
+            return None;
+        }
+        let a = valor_constante(LLVMGetOperand(v, 0), profundidade + 1)?;
+        let b = valor_constante(LLVMGetOperand(v, 1), profundidade + 1)?;
+        Some(match LLVMGetInstructionOpcode(v) {
+            LLVMOpcode::LLVMAdd => a.wrapping_add(b),
+            LLVMOpcode::LLVMSub => a.wrapping_sub(b),
+            LLVMOpcode::LLVMMul => a.wrapping_mul(b),
+            LLVMOpcode::LLVMShl if b < 64 => a << b,
+            LLVMOpcode::LLVMLShr if b < 64 => a >> b,
+            LLVMOpcode::LLVMAShr if b < 64 => ((a as i64) >> b) as u64,
+            LLVMOpcode::LLVMAnd => a & b,
+            LLVMOpcode::LLVMOr => a | b,
+            LLVMOpcode::LLVMXor => a ^ b,
+            _ => return None,
+        })
+    }
+}
+
+/// O ponteiro `p` é o campo do `true` ou do `false` canônico no contexto:
+/// `getelementptr` sobre a chamada a `dartforge_contexto` com o
+/// deslocamento 360 ou 368, constante ou escolhido por um `select` entre os
+/// dois.
+///
+/// # Safety
+/// `p` é um valor vivo de um módulo.
+unsafe fn carga_de_canonico(p: llvm_sys::prelude::LLVMValueRef) -> bool {
+    const VERDADEIRO: u64 = 360;
+    const FALSO: u64 = 368;
+    // SAFETY: o contrato da função; só leituras.
+    unsafe {
+        if LLVMIsAInstruction(p).is_null() || LLVMGetInstructionOpcode(p) != LLVMOpcode::LLVMGetElementPtr || LLVMGetNumOperands(p) != 2 {
+            return false;
+        }
+        let base = LLVMGetOperand(p, 0);
+        if LLVMIsACallInst(base).is_null() {
+            return false;
+        }
+        let chamado = LLVMGetCalledValue(base);
+        let mut n = 0usize;
+        let nome = LLVMGetValueName2(chamado, &mut n);
+        if nome.is_null() || std::slice::from_raw_parts(nome.cast::<u8>(), n) != b"dartforge_contexto" {
+            return false;
+        }
+        let canonico = |x| !LLVMIsAConstantInt(x).is_null() && matches!(LLVMConstIntGetZExtValue(x), VERDADEIRO | FALSO);
+        let indice = LLVMGetOperand(p, 1);
+        if canonico(indice) {
+            return true;
+        }
+        !LLVMIsAInstruction(indice).is_null()
+            && LLVMGetInstructionOpcode(indice) == LLVMOpcode::LLVMSelect
+            && canonico(LLVMGetOperand(indice, 1))
+            && canonico(LLVMGetOperand(indice, 2))
     }
 }
 
@@ -243,13 +396,15 @@ pub fn gerar_de_bitcode(nome: &str, bitcode: &[u8], cpu: Option<&'static str>) -
     let com_mapas = modulo.tem_funcao_gc();
     modulo.completar_alvo(&triple, &maquina, com_mapas);
     if com_mapas {
+        modulo.tirar_estaticos_do_deopt();
         modulo.otimizar("rewrite-statepoints-for-gc,verify", &maquina)?;
         modulo.remover_declaracao_sem_uso("__tmp_use");
         conferir_depois_do_rs4gc(nome, &modulo)?;
     } else {
         modulo.otimizar("verify", &maquina)?;
     }
-    Ok((maquina.emitir_objeto(&modulo)?, com_mapas))
+    despejar_antes_do_gerador(nome, &modulo);
+    Ok((maquina.emitir_objeto(&modulo).map_err(|e| despejar_se_pedido(nome, "objeto", &modulo, e))?, com_mapas))
 }
 
 /// `DARTFORGE_CONFERIR_RS4GC=1`: o conferidor das raízes depois do
@@ -260,7 +415,36 @@ fn conferir_depois_do_rs4gc(nome: &str, modulo: &Modulo<'_>) -> Result<(), Strin
     if !std::env::var("DARTFORGE_CONFERIR_RS4GC").is_ok_and(|v| v == "1") {
         return Ok(());
     }
-    conferir_rs4gc::conferir(&modulo.texto()).map_err(|e| format!("{nome}: {e}"))
+    conferir_rs4gc::conferir(&modulo.texto()).map_err(|e| despejar_se_pedido(nome, "rs4gc", modulo, format!("{nome}: {e}")))
+}
+
+/// `DARTFORGE_DESPEJAR_MODULO=<trecho>`: o módulo cujo nome contém o trecho
+/// vai para o diretório temporário logo antes do gerador de código
+/// (`gerador-<nome>.ll`) — para a falha em que o LLVM derruba o processo
+/// depois de imprimir o erro ("ran out of registers").
+fn despejar_antes_do_gerador(nome: &str, modulo: &Modulo<'_>) {
+    if let Ok(trecho) = std::env::var("DARTFORGE_DESPEJAR_MODULO")
+        && !trecho.is_empty()
+        && nome.contains(&trecho)
+    {
+        let nome_do_arquivo: String = nome.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+        let destino = std::env::temp_dir().join(format!("gerador-{nome_do_arquivo}.ll"));
+        let _ = std::fs::write(&destino, modulo.texto());
+        eprintln!("dartforge: o módulo antes do gerador ficou em {}", destino.display());
+    }
+}
+
+/// Com `DARTFORGE_KEEP_IR`, o módulo de uma falha (do conferidor, do gerador
+/// de código) vai para o diretório temporário, `<etapa>-<nome>.ll`, para o
+/// diagnóstico. Devolve o erro.
+fn despejar_se_pedido(nome: &str, etapa: &str, modulo: &Modulo<'_>, erro: String) -> String {
+    if std::env::var_os("DARTFORGE_KEEP_IR").is_some() {
+        let nome_do_arquivo: String = nome.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+        let destino = std::env::temp_dir().join(format!("{etapa}-{nome_do_arquivo}.ll"));
+        let _ = std::fs::write(&destino, modulo.texto());
+        eprintln!("dartforge: o módulo da falha ficou em {}", destino.display());
+    }
+    erro
 }
 
 /// O triple do hospedeiro, como o LLVM o descreve (no macOS, com a versão do
@@ -448,6 +632,68 @@ impl Modulo<'_> {
             }
         }
         false
+    }
+
+    /// Raízes por mapas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.12): o
+    /// operando `"deopt"` que a otimização tornou um endereço estático — o
+    /// handle de um objeto da imagem (`ptrtoint (gep @df.s…, 2)`), que chega
+    /// pelo parâmetro de uma função copiada pelo inliner — vira nulo. O
+    /// objeto da imagem nunca é coletado e não precisa de raiz; e, com as
+    /// raízes em registrador, a constante teria de ser materializada num
+    /// registrador na chamada, sem poder ir para a pilha (o alocador a
+    /// rematerializa em vez de derramar): com várias, o gerador de código
+    /// falha com "ran out of registers". Pelo mesmo motivo, o operando que é
+    /// uma instrução de operandos todos constantes (o IR sem otimização do
+    /// desenvolvimento: o `Smi` de um literal, `or (shl 3, 1), 1`) vira a
+    /// constante dobrada, que vai ao mapa como `Constant`, sem registrador.
+    /// Roda depois da otimização e antes do `rewrite-statepoints-for-gc`.
+    /// Devolve quantos operandos trocou.
+    fn tirar_estaticos_do_deopt(&self) -> usize {
+        let mut trocados = 0;
+        // SAFETY: módulo vivo; as instruções são percorridas sem mudar a
+        // lista, e só um operando de bundle é trocado por um valor do mesmo
+        // tipo. O bundle obtido é liberado logo depois de lido.
+        unsafe {
+            let mut f = LLVMGetFirstFunction(self.m);
+            while !f.is_null() {
+                let mut b = LLVMGetFirstBasicBlock(f);
+                while !b.is_null() {
+                    let mut i = LLVMGetFirstInstruction(b);
+                    while !i.is_null() {
+                        if !LLVMIsACallInst(i).is_null() || !LLVMIsAInvokeInst(i).is_null() {
+                            let mut pos = LLVMGetNumArgOperands(i);
+                            for k in 0..LLVMGetNumOperandBundles(i) {
+                                let ob = LLVMGetOperandBundleAtIndex(i, k);
+                                let mut n = 0usize;
+                                let tag = LLVMGetOperandBundleTag(ob, &mut n);
+                                let e_deopt = std::slice::from_raw_parts(tag.cast::<u8>(), n) == b"deopt";
+                                let args = LLVMGetNumOperandBundleArgs(ob);
+                                LLVMDisposeOperandBundle(ob);
+                                if e_deopt {
+                                    for j in pos..pos + args {
+                                        let v = LLVMGetOperand(i, j);
+                                        if endereco_estatico(v, 0) {
+                                            LLVMSetOperand(i, j, LLVMConstNull(LLVMTypeOf(v)));
+                                            trocados += 1;
+                                        } else if !LLVMIsAInstruction(v).is_null()
+                                            && let Some(c) = valor_constante(v, 0)
+                                        {
+                                            LLVMSetOperand(i, j, LLVMConstInt(LLVMTypeOf(v), c, 0));
+                                            trocados += 1;
+                                        }
+                                    }
+                                }
+                                pos += args;
+                            }
+                        }
+                        i = LLVMGetNextInstruction(i);
+                    }
+                    b = LLVMGetNextBasicBlock(b);
+                }
+                f = LLVMGetNextFunction(f);
+            }
+        }
+        trocados
     }
 
     /// Apaga a declaração `nome`, se ela existir e não tiver uso.

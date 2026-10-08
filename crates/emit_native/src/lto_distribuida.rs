@@ -84,6 +84,33 @@ pub fn objetos(p: &Pedido<'_>) -> Result<Vec<PathBuf>, String> {
     if !bitcodes.iter().any(|b| *b) {
         return Ok(p.entradas.to_vec());
     }
+    // Um diretório só desta ligação. O ligador grava o índice de cada
+    // entrada ao lado dela, e os bitcodes do SDK são de todas as compilações:
+    // duas ligações ao mesmo tempo (o harness com `--jobs`) gravavam o índice
+    // uma da outra, e a ligação falhava ou importava errado. Cada entrada
+    // bitcode entra por uma ligação física (cópia, noutro volume) aqui
+    // dentro, e os intermediários também ficam aqui.
+    static SEQUENCIA: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let privado = p.staging.join(format!(
+        "lto-{}-{}",
+        std::process::id(),
+        SEQUENCIA.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    std::fs::create_dir_all(&privado).map_err(|e| format!("{}: {e}", privado.display()))?;
+    let mut entradas: Vec<PathBuf> = Vec::with_capacity(p.entradas.len());
+    for (i, e) in p.entradas.iter().enumerate() {
+        if !bitcodes[i] {
+            entradas.push(e.clone());
+            continue;
+        }
+        let nome = e.file_name().map_or_else(|| format!("e{i}"), |n| format!("e{i}-{}", n.to_string_lossy()));
+        let destino = privado.join(nome);
+        if std::fs::hard_link(e, &destino).is_err() {
+            std::fs::copy(e, &destino).map_err(|x| format!("{} → {}: {x}", e.display(), destino.display()))?;
+        }
+        entradas.push(destino);
+    }
+    let p = &Pedido { clang: p.clang, entradas: &entradas, cpu: p.cpu, staging: &privado, cache: p.cache };
     // 1. Os índices: a ligação inteira, só até a resolução de símbolos. O
     // `lld-link` (Windows) e o `ld.lld` (Linux) aceitam o modo; o `ld64.lld`
     // não (no macOS a produção com mapas usa a LTO do ligador com o passe
@@ -221,11 +248,17 @@ pub fn objetos(p: &Pedido<'_>) -> Result<Vec<PathBuf>, String> {
     if !manter {
         let _ = std::fs::remove_file(&saida_ficticia);
     }
-    resultados
+    let objetos: Result<Vec<PathBuf>, String> = resultados
         .into_inner()
         .unwrap_or_else(|e| e.into_inner())
         .into_iter()
         .enumerate()
         .map(|(i, r)| r.unwrap_or_else(|| Err(format!("a parte {i} da LTO distribuída não foi gerada"))))
-        .collect()
+        .collect();
+    // Com o cache, os objetos moram nele e o diretório desta ligação sai;
+    // sem ele, os objetos são daqui e ficam para a ligação final.
+    if !manter && p.cache.is_some() {
+        let _ = std::fs::remove_dir_all(p.staging);
+    }
+    objetos
 }

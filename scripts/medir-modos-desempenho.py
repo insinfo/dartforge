@@ -16,8 +16,12 @@ Cada programa imprime, por núcleo, o tempo de cada rodada e o resultado
 numa execução é a mediana das rodadas depois da primeira; o do modo, a mediana
 entre as repetições (e o mínimo, à parte).
 
+`--afinidade 0x4` prende a medida (e os filhos, que herdam) aos processadores
+da máscara: numa CPU híbrida (núcleos P e E) o mesmo executável varia 20–40%
+conforme o núcleo em que o sistema o põe. Só no Windows.
+
 Uso: scripts/medir-modos-desempenho.py <dir de saída> [--repeticoes N]
-     [--sem-dart] [filtro...]
+     [--sem-dart] [--afinidade MASCARA] [filtro...]
 """
 import argparse, os, re, statistics, subprocess, sys, time
 
@@ -84,9 +88,16 @@ def main():
     ap.add_argument("saida")
     ap.add_argument("--repeticoes", type=int, default=7)
     ap.add_argument("--sem-dart", action="store_true")
+    ap.add_argument("--afinidade", default=None)
     ap.add_argument("filtro", nargs="*")
     a = ap.parse_args()
     os.makedirs(a.saida, exist_ok=True)
+    if a.afinidade:
+        import ctypes
+        k = ctypes.windll.kernel32
+        k.GetCurrentProcess.restype = ctypes.c_void_p
+        if not k.SetProcessAffinityMask(ctypes.c_void_p(k.GetCurrentProcess()), ctypes.c_size_t(int(a.afinidade, 0))):
+            sys.exit(f"SetProcessAffinityMask({a.afinidade}) falhou")
     programas = sorted(f[:-5] for f in os.listdir(BENCH) if f.endswith(".dart") and f != "comum.dart")
     if a.filtro:
         programas = [p for p in programas if any(x in p for x in a.filtro)]
@@ -153,7 +164,8 @@ def main():
         "",
         f"Média geométrica: A1/A0 {geo('A1', 'A0'):.3f}, B0/A0 {geo('B0', 'A0'):.3f}, B1/A0 {geo('B1', 'A0'):.3f}, ARC/A0 {geo('ARC', 'A0'):.3f}"
         + ("" if a.sem_dart else f", A0/dart {geo('A0', 'dart'):.3f}"),
-        f"Tempos em ms (mediana de {a.repeticoes} execuções alternadas; em cada uma, a mediana das rodadas sem a primeira).",
+        f"Tempos em ms (mediana de {a.repeticoes} execuções alternadas; em cada uma, a mediana das rodadas sem a primeira)"
+        + (f"; presos aos processadores {a.afinidade}." if a.afinidade else "."),
     ]
     if divergentes:
         resumo.append("Resultados divergentes: " + "; ".join(divergentes))

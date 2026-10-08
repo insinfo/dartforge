@@ -186,12 +186,14 @@ pub struct LlvmEmitter<'a> {
     /// índice é o do global `@df.efn.<k>` com o texto).
     externs_conferidas: Vec<String>,
     /// Raízes por mapas de pilha (`--raizes=mapas`,
-    /// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8): os valores SSA `Ref`
+    /// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.12): os valores SSA `Ref`
     /// vivos através de um ponto de coleta não vão para o quadro da
-    /// pilha-sombra; cada um ganha um ponteiro `addrspace(1)` com os mesmos
-    /// bits, mantido vivo depois de cada ponto de coleta
-    /// (`llvm.fake.use`), e o `rewrite-statepoints-for-gc` do LLVM o põe no
-    /// mapa de pilha da chamada. Só os `alloca` `Ref` continuam no quadro.
+    /// pilha-sombra; cada chamada que pode coletar leva, no operando
+    /// `"deopt"`, os vivos na entrada dela, e o `rewrite-statepoints-for-gc`
+    /// do LLVM a transforma em statepoint, com o lugar de cada um no mapa de
+    /// pilha da chamada — o registrador preservado em que ele já está, ou o
+    /// slot. O coletor não move objetos: nada é relocado, e o código segue
+    /// com o próprio valor. Só os `alloca` `Ref` continuam no quadro.
     mapas: bool,
     /// Com [`Self::mapas`], a análise de raízes da função em emissão.
     raizes_da_funcao: raizes::Raizes,
@@ -553,7 +555,13 @@ impl<'a> LlvmEmitter<'a> {
     /// torná-lo global (o Perry faz o mesmo,
     /// `perry-codegen/src/module.rs`). Só num módulo com função `gc`: sem
     /// mapa, o símbolo não existe.
+    ///
+    /// Antes, o `"deopt"()` vazio em toda chamada que pode coletar e ainda
+    /// não tem o dela ([`deopt_vazio`]).
     fn fechar_mapas(&mut self) {
+        if self.mapas {
+            self.out = deopt_vazio(&self.out);
+        }
         if self.mapas && !self.mapas_no_jit && self.funcoes_gc > 0 && crate::alvo::sistema() == crate::alvo::Sistema::MacOs {
             self.out.push_str("module asm \".no_dead_strip __LLVM_StackMaps\"\n");
         }
@@ -630,9 +638,6 @@ impl<'a> LlvmEmitter<'a> {
                 }
             }
             self.out.push('\n');
-        }
-        if self.mapas {
-            self.out.push_str("declare void @llvm.fake.use(...)\n");
         }
         if self.rastro_vm.is_some() && !self.rastro_no_jit {
             // O começo e o fim da seção do rastro da imagem (§13.14).
@@ -878,17 +883,20 @@ impl<'a> LlvmEmitter<'a> {
         }
         self.slots = std::mem::take(&mut analise.slots);
         self.raizes_da_funcao = analise;
-        // A função com raízes no mapa é uma função `gc`: o
+        // Raízes por mapas: toda função é `gc` — o
         // `rewrite-statepoints-for-gc` transforma as chamadas dela que podem
-        // coletar em statepoints (`crates/llvm`, `gerar`).
-        let tem_gc = !self.enraizados.is_empty();
-        if tem_gc {
+        // coletar em statepoints (`crates/llvm`, `gerar`), cada uma com o
+        // operando `"deopt"` dos vivos nela (§14.12): vazio na função sem
+        // raízes no mapa (as da fora do orçamento estão no quadro), mas
+        // presente, para o inliner juntar a ele os vivos de quem a chama.
+        let tem_gc = self.mapas;
+        if !self.enraizados.is_empty() {
             self.funcoes_gc += 1;
         }
         // O build de conferência: tantos slots a mais quantos o maior
         // conjunto de vivos num ponto de coleta.
         self.conferencia = None;
-        if tem_gc && crate::alvo::conferir_raizes() {
+        if !self.enraizados.is_empty() && crate::alvo::conferir_raizes() {
             let k = self
                 .raizes_da_funcao
                 .vivos_em
@@ -948,6 +956,7 @@ impl<'a> LlvmEmitter<'a> {
 
         for block in &func.blocks {
             writeln!(self.out, "b{}:", block.id.0).unwrap();
+            let inicio_do_bloco = self.out.len();
             self.rotulo_atual = format!("b{}", block.id.0);
             // O pouso de um `invoke`: quem desenrolou até aqui deixou a
             // exceção pendente e os quadros de raízes dele (e dos quadros
@@ -966,11 +975,8 @@ impl<'a> LlvmEmitter<'a> {
                 if !crate::alvo::sabotagem("pouso_sem_topo") {
                     writeln!(self.out, "  store ptr {topo}, ptr %ctxtopo, align 8").unwrap();
                 }
-                // Raízes por mapas: o que o tratador ainda lê estava vivo
-                // através do `invoke`.
-                if tem_gc && let Some(vivos) = self.raizes_da_funcao.vivos_na_entrada.get(&block.id).cloned() {
-                    self.manter_vivos(&vivos);
-                }
+                // Raízes por mapas: o que o tratador ainda lê estava vivo na
+                // entrada do `invoke` e vai no `"deopt"` dele.
             }
             if block.id.0 == 0 {
                 self.emit_buffers_de_closure(func);
@@ -1051,16 +1057,19 @@ impl<'a> LlvmEmitter<'a> {
                 }
             }
             if block.id.0 == 0 {
-                for (vid, _, _) in &func.params {
-                    if self.enraizados.contains(vid) {
-                        self.raiz_no_mapa(vid.0);
-                    }
+                // Raízes por mapas: as chamadas do prólogo (a área do módulo,
+                // o estouro de pilha, as conversões dos parâmetros) podem
+                // coletar, com os parâmetros enraizados vivos — todo
+                // parâmetro enraizado está vivo na entrada.
+                if !self.enraizados.is_empty() {
+                    let params: Vec<ValueId> = func.params.iter().map(|p| p.0).filter(|v| self.enraizados.contains(v)).collect();
+                    self.anexar_deopt_com(inicio_do_bloco, &params, false);
                 }
                 // A sabotagem `bruto_no_mapa`: um valor que o otimizador não
                 // dobra (a carga volátil) posto no mapa como raiz.
-                if tem_gc && crate::alvo::sabotagem("bruto_no_mapa") {
+                if !self.enraizados.is_empty() && crate::alvo::sabotagem("bruto_no_mapa") {
                     self.out.push_str(
-                        "  %dfsab = alloca i64, align 8\n  store volatile i64 4098, ptr %dfsab, align 8\n  %dfsabv = load volatile i64, ptr %dfsab, align 8\n  %raizsab = inttoptr i64 %dfsabv to ptr addrspace(1)\n",
+                        "  %dfsab = alloca i64, align 8\n  store volatile i64 4098, ptr %dfsab, align 8\n  %dfsabv = load volatile i64, ptr %dfsab, align 8\n",
                     );
                 }
             }
@@ -1708,18 +1717,15 @@ impl<'a> LlvmEmitter<'a> {
                     } else if !matches!(inst, Instruction::Alloca(_)) {
                         writeln!(self.out, "  store i64 %v{v}, ptr %gcs{slot}").unwrap();
                     }
-                } else if self.enraizados.contains(vid) {
-                    if matches!(inst, Instruction::Phi { .. }) {
-                        raizes_de_phi.push((usize::MAX, v));
-                    } else {
-                        self.raiz_no_mapa(v);
-                    }
                 }
                 // Raízes por mapas: o que estava vivo na entrada deste ponto
-                // de coleta (os operandos inclusive) continua vivo através
-                // dele — é o que o põe no mapa da chamada.
-                if tem_gc && let Some(vivos) = self.raizes_da_funcao.vivos_em.get(vid).cloned() {
-                    self.manter_vivos(&vivos);
+                // de coleta (os operandos inclusive) vai no `"deopt"` de cada
+                // chamada dele que pode coletar — é o que o põe no mapa da
+                // chamada (§14.12).
+                if !self.enraizados.is_empty()
+                    && let Some(vivos) = self.raizes_da_funcao.vivos_em.get(vid).cloned()
+                {
+                    self.anexar_deopt(inicio_da_instrucao, &vivos);
                 }
                 let _ = ty;
             }
@@ -1732,6 +1738,7 @@ impl<'a> LlvmEmitter<'a> {
                 let vivos = self.raizes_da_funcao.vivos_no_fim.get(&block.id).cloned().unwrap_or_default();
                 self.gravar_conferencia(&vivos);
             }
+            let inicio_do_fim = self.out.len();
             for (b, nome, de, v, para) in self.conv_phi.clone() {
                 if b == block.id.0 {
                     let origem = format!("%v{}", v.0);
@@ -1741,11 +1748,11 @@ impl<'a> LlvmEmitter<'a> {
             // Raízes por mapas: o ponto de coleta do fim do bloco (as
             // conversões acima podem encaixotar; o `throw` é tratado no
             // terminador, depois da chamada dele).
-            if tem_gc
+            if !self.enraizados.is_empty()
                 && !matches!(block.terminator, Terminator::Throw(_))
                 && let Some(vivos) = self.raizes_da_funcao.vivos_no_fim.get(&block.id).cloned()
             {
-                self.manter_vivos(&vivos);
+                self.anexar_deopt(inicio_do_fim, &vivos);
             }
 
             if let Some(p) = func.depuracao.as_ref().and_then(|d| d.saidas.get(&block.id))
@@ -1838,9 +1845,12 @@ impl<'a> LlvmEmitter<'a> {
                         _ => 3,
                     };
                     let sop = self.coagir(op, Type::I64);
+                    let inicio_do_throw = self.out.len();
                     writeln!(self.out, "  call void @dartforge_exception_throw(i64 {sop}, i8 {tag})").unwrap();
-                    if tem_gc && let Some(vivos) = self.raizes_da_funcao.vivos_no_fim.get(&block.id).cloned() {
-                        self.manter_vivos(&vivos);
+                    if !self.enraizados.is_empty()
+                        && let Some(vivos) = self.raizes_da_funcao.vivos_no_fim.get(&block.id).cloned()
+                    {
+                        self.anexar_deopt(inicio_do_throw, &vivos);
                     }
                     if tab.is_some() {
                         writeln!(self.out, "  call void @df.lancar()").unwrap();
@@ -1908,40 +1918,38 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    /// Raízes por mapas: `%raiz<v>`, o valor `Ref` `%v<v>` como ponteiro
-    /// `addrspace(1)` — os mesmos bits, na forma que o
-    /// `rewrite-statepoints-for-gc` reconhece como referência do coletor. O
-    /// código continua usando o `i64` (o coletor não move objetos); o
-    /// ponteiro só existe para o valor aparecer no mapa de pilha.
-    fn raiz_no_mapa(&mut self, v: u32) {
-        writeln!(self.out, "  %raiz{v} = inttoptr i64 %v{v} to ptr addrspace(1)").unwrap();
-    }
-
     /// A raiz de um `phi`, emitida depois do último `phi` do bloco: o `store`
-    /// no slot do quadro, ou (slot `usize::MAX`) o ponteiro do mapa.
+    /// no slot do quadro.
     fn raiz_de_phi(&mut self, slot: usize, v: u32) {
-        if slot == usize::MAX {
-            self.raiz_no_mapa(v);
-        } else {
-            writeln!(self.out, "  store i64 %v{v}, ptr %gcs{slot}").unwrap();
-        }
+        writeln!(self.out, "  store i64 %v{v}, ptr %gcs{slot}").unwrap();
     }
 
-    /// Raízes por mapas: mantém vivos, até aqui, os valores enraizados
-    /// `vivos` — um uso que não gera código (`llvm.fake.use`) logo depois de
-    /// um ponto de coleta. É ele que faz o valor estar vivo *através* da
-    /// chamada e, portanto, no mapa dela; vale também para o argumento cujo
+    /// Raízes por mapas (§14.12): os valores enraizados `vivos` no operando
+    /// `"deopt"` de cada chamada que pode coletar emitida desde `inicio` (o
+    /// texto de um ponto de coleta). O operando faz o valor estar vivo *na*
+    /// chamada e põe o lugar dele no mapa; vale também para o argumento cujo
     /// último uso é a própria chamada (o runtime conta com quem chama para
-    /// mantê-lo vivo enquanto ela roda).
-    fn manter_vivos(&mut self, vivos: &[ValueId]) {
-        if crate::alvo::sabotagem("sem_uso_ficticio") {
-            return;
+    /// mantê-lo vivo enquanto ela roda: o LLVM o guarda num registrador
+    /// preservado ou num slot).
+    fn anexar_deopt(&mut self, inicio: usize, vivos: &[ValueId]) {
+        self.anexar_deopt_com(inicio, vivos, true);
+    }
+
+    /// [`Self::anexar_deopt`]; `sabotavel` diz se o valor da sabotagem
+    /// `bruto_no_mapa` (definido depois do prólogo) já existe aqui.
+    fn anexar_deopt_com(&mut self, inicio: usize, vivos: &[ValueId], sabotavel: bool) {
+        let mut operandos: Vec<String> = if crate::alvo::sabotagem("sem_uso_ficticio") {
+            Vec::new()
+        } else {
+            vivos.iter().map(|x| format!("i64 %v{}", x.0)).collect()
+        };
+        if sabotavel && crate::alvo::sabotagem("bruto_no_mapa") {
+            operandos.push("i64 %dfsabv".to_string());
         }
-        if !self.enraizados.is_empty() && crate::alvo::sabotagem("bruto_no_mapa") {
-            self.out.push_str("  call void (...) @llvm.fake.use(ptr addrspace(1) %raizsab)\n");
-        }
-        for x in vivos {
-            writeln!(self.out, "  call void (...) @llvm.fake.use(ptr addrspace(1) %raiz{})", x.0).unwrap();
+        let feixe = format!("\"deopt\"({})", operandos.join(", "));
+        let texto = self.out.split_off(inicio);
+        for linha in texto.split_inclusive('\n') {
+            self.out.push_str(&com_deopt(linha, &feixe));
         }
     }
 
@@ -2611,17 +2619,19 @@ impl<'a> LlvmEmitter<'a> {
         format!("{} {}{x}", tc.llvm(), tc.extensao())
     }
 
-    /// O texto `call …` de uma chamada C por `%fn<v>`. Numa variádica feita por
-    /// uma função `gc` (raízes por mapas), a chamada passa por um intermediário
+    /// O texto `call …` de uma chamada C por `%fn<v>`. Numa variádica com as
+    /// raízes por mapas, a chamada passa por um intermediário
     /// `@df.vararg.<k>` de assinatura fixa, `noinline` e fora da estratégia de
     /// coleta: o `rewrite-statepoints-for-gc` não embrulha chamadas variádicas
     /// que devolvem valor (`gc.statepoint doesn't support wrapping non-void
     /// vararg functions yet`), e a chamada ao intermediário vira um statepoint
-    /// comum, com as raízes vivas no mapa dela. O intermediário repassa os
+    /// comum, com as raízes vivas no `"deopt"` dela (§14.12: toda chamada que
+    /// coleta leva o operando, também a de uma função sem raízes, que pode ser
+    /// copiada pelo inliner numa com raízes). O intermediário repassa os
     /// argumentos com os mesmos tipos e atributos.
     fn texto_da_chamada_c(&mut self, v: u32, ret: &str, tipo: &str, partes: &[String], variadica: bool) -> String {
         let lista = partes.join(", ");
-        if !variadica || self.enraizados.is_empty() {
+        if !variadica || !self.mapas {
             return format!("call {tipo} %fn{v}({lista})");
         }
         let nome = format!("df.vararg.{}", self.variadicas.len());
@@ -3681,6 +3691,88 @@ impl<'a> LlvmEmitter<'a> {
             Operand::Constant(Constant::Funcao(f)) => format!("ptrtoint (ptr @{f} to i64)"),
         }
     }
+}
+
+/// Raízes por mapas: as chamadas que nunca coletam além das externs que a
+/// tabela de efeitos marca assim — os ajudantes folha ([`ajudantes_folha`]),
+/// o desenrolamento e a moldura da conferência dos efeitos.
+const FOLHAS_DO_MAPA: &[&str] = &[
+    "df.corpo",
+    "df.barreira",
+    "df.barreira_elemento",
+    "df.e_objeto",
+    "df.filho_jovem",
+    "df.lancar",
+    "dartforge_efeitos_antes",
+    "dartforge_efeitos_depois",
+];
+
+/// Raízes por mapas: a chamada da linha pode coletar — a indireta, e a
+/// direta a uma função que não é intrínseco do LLVM nem folha (a extern que
+/// a tabela de efeitos marca sem coletar nem chamar Dart, salvo a sabotagem
+/// `folha:<nome>`, que a trata como folha; os ajudantes de
+/// [`FOLHAS_DO_MAPA`]). Um nome fora das tabelas (a função Dart, o
+/// ajudante que aloca) coleta.
+fn chamada_que_coleta(linha: &str) -> bool {
+    match rastro::alvo_da_chamada(linha) {
+        None => false,
+        Some(None) => true,
+        Some(Some(nome)) => {
+            if nome.starts_with("llvm.") || FOLHAS_DO_MAPA.contains(&nome) || crate::alvo::folha_sabotada(nome) {
+                return false;
+            }
+            let ef = externs::efeitos_de(nome);
+            ef.aloca || ef.chama_dart
+        }
+    }
+}
+
+/// Raízes por mapas (§14.12): a linha (com ou sem o `\n`) com o operando
+/// `feixe` (`"deopt"(…)`), se ela é uma chamada que pode coletar ainda sem
+/// ele; senão, a própria linha. O operando vai depois dos atributos da
+/// chamada e antes do rótulo de um `invoke` e dos metadados.
+fn com_deopt<'a>(linha: &'a str, feixe: &str) -> std::borrow::Cow<'a, str> {
+    if linha.contains("\"deopt\"(") || !chamada_que_coleta(linha) {
+        return std::borrow::Cow::Borrowed(linha);
+    }
+    let (corpo, fim) = match linha.strip_suffix('\n') {
+        Some(c) => (c, "\n"),
+        None => (linha, ""),
+    };
+    let pos = [corpo.find(" to label "), corpo.find(", !")].into_iter().flatten().min().unwrap_or(corpo.len());
+    std::borrow::Cow::Owned(format!("{} [ {feixe} ]{}{fim}", &corpo[..pos], &corpo[pos..]))
+}
+
+/// Raízes por mapas (§14.12): o `"deopt"()` vazio em toda chamada que pode
+/// coletar e ainda não tem o dela — a dos ajudantes `@df.*`, da entrada, das
+/// funções sem raízes no mapa. O inliner do LLVM só junta os vivos de quem
+/// chama ao `"deopt"` que a chamada copiada já tem: sem ele, a chamada do
+/// corpo copiado sairia sem as raízes de quem chamou. Os intermediários
+/// `@df.vararg.<k>` ficam como estão (`noinline`; a chamada variádica não
+/// vira statepoint). Toda linha entre o `define` e o `}` conta: o corpo dos
+/// ajudantes sai sem indentação (a continuação `\` das strings Rust come os
+/// espaços).
+fn deopt_vazio(texto: &str) -> String {
+    let mut saida = String::with_capacity(texto.len() + texto.len() / 16);
+    let mut dentro = false;
+    let mut intermediario = false;
+    for linha in texto.split_inclusive('\n') {
+        if linha.starts_with("define ") {
+            dentro = true;
+            intermediario = linha.contains("@df.vararg.");
+            saida.push_str(linha);
+            continue;
+        }
+        if linha.starts_with('}') {
+            dentro = false;
+        }
+        if dentro && !intermediario {
+            saida.push_str(&com_deopt(linha, "\"deopt\"()"));
+        } else {
+            saida.push_str(linha);
+        }
+    }
+    saida
 }
 
 /// Raízes por mapas: os ajudantes `@df.*` que comprovadamente não coletam

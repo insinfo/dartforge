@@ -1,6 +1,6 @@
 //! O mapa de pilha compacto (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.4):
 //! o conversor do `.llvm_stackmaps` versão 3 de um objeto COFF para o
-//! **DFGM v1**, reescrevendo o objeto no lugar.
+//! **DFGM v2**, reescrevendo o objeto no lugar.
 //!
 //! O formato do LLVM é feito para o patching de um JIT: ~98 bytes por
 //! registro. O coletor só precisa, por chamada, do conjunto de slots do
@@ -10,7 +10,7 @@
 //!
 //! ```text
 //! cabeçalho (16 bytes)
-//!   "DFGM"; u8 versão = 1; u8 alvo (1 = x86-64, 2 = aarch64); u16 bandeiras
+//!   "DFGM"; u8 versão = 2; u8 alvo (1 = x86-64, 2 = aarch64); u16 bandeiras
 //!   u32 tamanho total do blob (múltiplo de 4); u32 n_funcoes
 //! índice: n_funcoes × { u32 endereço da função; u32 início no fluxo }
 //!   bandeiras 0 (COFF): rva, relocação `ADDR32NB`
@@ -21,11 +21,20 @@
 //!   n_registros; tamanho do quadro / 8 (0 = dinâmico)
 //!   n_registros × { delta do deslocamento de retorno; cabeçalho }
 //!     cabeçalho ímpar: o conjunto de raízes do registro anterior
-//!     cabeçalho par: (cabeçalho >> 1) raízes, cada uma um varint `s`:
+//!     cabeçalho par: (cabeçalho >> 1) raízes em slots, cada uma um varint `s`:
 //!       bit 0 de s: base (0 = SP, 1 = FP)
 //!       s >> 1: zigzag do delta do slot, em palavras de 8 bytes
+//!     e um varint com a máscara dos registradores (o bit `r` é o
+//!     registrador DWARF `r`) que guardam raízes na chamada (v2)
 //! zeros até múltiplo de 4
 //! ```
+//!
+//! A v1 (sem a máscara) é a de quando todo valor `gc-live` ia para um slot;
+//! o runtime lê as duas. Com as raízes no operando `"deopt"` e
+//! `use-registers-for-deopt-values` (`crates/llvm`), a raiz fica no
+//! registrador preservado em que já está através da chamada — o local
+//! `Register` do LLVM —, sem a gravação num slot a cada ponto de coleta
+//! (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.12).
 //!
 //! O conversor troca o conteúdo da seção pelo blob (sempre menor), a renomeia
 //! e troca cada relocação de 64 bits (uma por função, no `StkSizeRecord`) por
@@ -38,9 +47,12 @@
 //! produção usa a LTO do ligador, que emite o mapa no formato do LLVM, e o
 //! runtime lê esse formato (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md, Etapa 4).
 //!
-//! Regras (as do §14.4): de cada par (base, derivado) só a base entra, sem
-//! repetição; constantes são descartadas; um local que não seja
-//! `Indirect [SP|FP + d]` de 8 bytes com `d` múltiplo de 8 é **erro**; dois
+//! Regras (as do §14.4 e do §14.12): as raízes são os locais do `"deopt"` e,
+//! de cada par (base, derivado), só a base, sem repetição; constantes são
+//! descartadas; um local que não seja
+//! `Indirect [SP|FP + d]` de 8 bytes com `d` múltiplo de 8, nem `Register`
+//! de 8 bytes num registrador preservado pela convenção do alvo, é **erro**
+//! (um registrador volátil não sobrevive à chamada); dois
 //! registros no mesmo deslocamento de retorno são erro; depois de codificar,
 //! o blob é decodificado e comparado com a origem.
 
@@ -49,6 +61,21 @@ const REG_SP: u16 = 7;
 const REG_FP: u16 = 6;
 const REG_SP_AARCH64: u16 = 31;
 const REG_FP_AARCH64: u16 = 29;
+/// Os registradores DWARF preservados através de uma chamada, por
+/// convenção: no Windows x64, rbx, rsi, rdi, rbp e r12–r15; no SysV x86-64,
+/// rbx, rbp e r12–r15; no aarch64, x19–x29.
+const PRESERVADOS_WINDOWS: u32 = (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (0xF << 12);
+const PRESERVADOS_SYSV: u32 = (1 << 3) | (1 << 6) | (0xF << 12);
+const PRESERVADOS_AARCH64: u32 = ((1 << 11) - 1) << 19;
+/// O valor que o LLVM grava no mapa para um operando `undef`/`poison`
+/// (`StatepointLowering.cpp`): sem valor, não é raiz.
+const INDEFINIDO: i64 = 0xFEFE_FEFE;
+/// O tipo de uma raiz: slot sobre o SP, slot sobre o FP, registrador.
+const NO_SP: u8 = 0;
+const NO_FP: u8 = 1;
+const EM_REGISTRADOR: u8 = 2;
+/// A versão do blob que o conversor escreve.
+const VERSAO: u8 = 2;
 /// As bandeiras do blob: o índice com endereços relativos ao próprio campo.
 const BANDEIRA_RELATIVA: u16 = 1;
 /// `EM_X86_64` e `EM_AARCH64`.
@@ -70,8 +97,9 @@ const REL_ADDR32NB: u16 = 3;
 /// `IMAGE_SCN_LNK_NRELOC_OVFL`: o número de relocações não coube em 16 bits.
 const SCN_NRELOC_OVFL: u32 = 0x0100_0000;
 
-/// As raízes de um registro: (é FP?, deslocamento em bytes), ordenadas.
-type Raizes = Vec<(bool, i32)>;
+/// As raízes de um registro: (tipo, deslocamento em bytes do slot ou número
+/// DWARF do registrador), ordenadas ([`NO_SP`], [`NO_FP`], [`EM_REGISTRADOR`]).
+type Raizes = Vec<(u8, i32)>;
 /// Uma função do mapa: (símbolo da relocação, tamanho do quadro em bytes — 0
 /// se dinâmico —, registros por deslocamento de retorno).
 type Funcao = (u32, u64, Vec<(u32, Raizes)>);
@@ -128,8 +156,8 @@ fn sem_zigzag(u: u64) -> i64 {
 /// Decodifica os blobs `.llvm_stackmaps` v3 de `sec`. `simbolo_em` dá, pelo
 /// deslocamento de cada `StkSizeRecord`, a relocação dele (o símbolo no
 /// COFF, o índice da relocação no ELF); `sp` e `fp` são os registradores
-/// DWARF do alvo.
-fn decodificar_v3(sec: &[u8], simbolo_em: &std::collections::HashMap<u32, u32>, sp: u16, fp: u16) -> Result<Vec<Funcao>, String> {
+/// DWARF do alvo e `preservados`, a máscara dos que sobrevivem à chamada.
+fn decodificar_v3(sec: &[u8], simbolo_em: &std::collections::HashMap<u32, u32>, sp: u16, fp: u16, preservados: u32) -> Result<Vec<Funcao>, String> {
     let mut funcoes = Vec::new();
     let mut p = 0usize;
     while p + 16 <= sec.len() {
@@ -171,34 +199,43 @@ fn decodificar_v3(sec: &[u8], simbolo_em: &std::collections::HashMap<u32, u32>, 
                 if (n_locais - 3).saturating_sub(n_deopt) % 2 != 0 {
                     return Err("registro de statepoint com pares (base, derivado) incompletos".to_string());
                 }
+                if 3 + n_deopt > n_locais {
+                    return Err("registro de statepoint com mais locais de `deopt` que locais".to_string());
+                }
                 let mut raizes: Raizes = Vec::new();
-                let mut j = 3 + n_deopt;
-                while j + 1 < n_locais {
+                // As raízes: cada local do `"deopt"` (a forma do §14.12) e a
+                // base de cada par (base, derivado) do `"gc-live"`.
+                for j in (3..3 + n_deopt).chain((3 + n_deopt..n_locais.saturating_sub(1)).step_by(2)) {
                     let (tipo, tamanho, registrador, d) = local(j)?;
-                    j += 2;
-                    // Constante: null ou `Smi` (ímpar); não é raiz. Uma
-                    // constante par não nula seria um valor bruto tratado
-                    // como referência: defeito do emissor (§3.5).
+                    // Constante: null ou `Smi` (ímpar), ou o `undef` que o
+                    // otimizador deixou num operando (0xFEFEFEFE); não é
+                    // raiz. Outra constante par não nula seria um valor
+                    // bruto tratado como referência: defeito do emissor (§3.5).
                     if tipo == 4 || tipo == 5 {
                         let c = if tipo == 4 {
                             i64::from(d)
                         } else {
                             u64_em(sec, constantes + 8 * usize::try_from(d).map_err(|_| "`ConstIndex` negativo no mapa de pilha".to_string())?)? as i64
                         };
-                        if c != 0 && c & 1 == 0 {
+                        if c != 0 && c & 1 == 0 && c != INDEFINIDO {
                             return Err(format!("constante par não nula ({c:#x}) como raiz no mapa de pilha: um valor bruto tratado como referência"));
                         }
                         continue;
                     }
-                    if tipo != 3 || tamanho != 8 || (registrador != sp && registrador != fp) {
+                    let em_registrador = tipo == 1 && tamanho == 8 && registrador < 32 && preservados & (1 << registrador) != 0;
+                    if !em_registrador && (tipo != 3 || tamanho != 8 || (registrador != sp && registrador != fp)) {
                         return Err(format!(
-                            "local recusado no mapa de pilha: tipo {tipo}, tamanho {tamanho}, registrador {registrador} (só `Indirect [SP|FP + d]` de 8 bytes)"
+                            "local recusado no mapa de pilha: tipo {tipo}, tamanho {tamanho}, registrador {registrador} (só `Indirect [SP|FP + d]` de 8 bytes ou `Register` preservado)"
                         ));
                     }
-                    if d % 8 != 0 {
+                    if !em_registrador && d % 8 != 0 {
                         return Err(format!("slot de raiz fora de múltiplo de 8 no mapa de pilha: {d}"));
                     }
-                    let raiz = (registrador == fp, d);
+                    let raiz = if em_registrador {
+                        (EM_REGISTRADOR, i32::from(registrador))
+                    } else {
+                        (if registrador == fp { NO_FP } else { NO_SP }, d)
+                    };
                     if !raizes.contains(&raiz) {
                         raizes.push(raiz);
                     }
@@ -225,7 +262,7 @@ fn decodificar_v3(sec: &[u8], simbolo_em: &std::collections::HashMap<u32, u32>, 
     Ok(funcoes)
 }
 
-/// Codifica o blob DFGM v1 com as `bandeiras` e o `alvo` dados; devolve
+/// Codifica o blob DFGM v2 com as `bandeiras` e o `alvo` dados; devolve
 /// também a posição, no blob, do campo de endereço de cada função (onde vai
 /// a relocação).
 fn codificar(funcoes: &[Funcao], bandeiras: u16, alvo: u8) -> (Vec<u8>, Vec<u32>) {
@@ -244,13 +281,20 @@ fn codificar(funcoes: &[Funcao], bandeiras: u16, alvo: u8) -> (Vec<u8>, Vec<u32>
                 varint(&mut fluxo, 1);
                 continue;
             }
-            varint(&mut fluxo, (raizes.len() as u64) << 1);
+            let n_slots = raizes.iter().filter(|r| r.0 != EM_REGISTRADOR).count();
+            varint(&mut fluxo, (n_slots as u64) << 1);
             let mut slot_anterior = 0i64;
-            for (fp, d) in raizes {
-                let slot = i64::from(*d) / 8;
-                varint(&mut fluxo, (zigzag(slot - slot_anterior) << 1) | u64::from(*fp));
+            let mut mascara = 0u64;
+            for &(tipo, d) in raizes {
+                if tipo == EM_REGISTRADOR {
+                    mascara |= 1 << d;
+                    continue;
+                }
+                let slot = i64::from(d) / 8;
+                varint(&mut fluxo, (zigzag(slot - slot_anterior) << 1) | u64::from(tipo == NO_FP));
                 slot_anterior = slot;
             }
+            varint(&mut fluxo, mascara);
             anterior = Some(raizes);
         }
     }
@@ -260,7 +304,7 @@ fn codificar(funcoes: &[Funcao], bandeiras: u16, alvo: u8) -> (Vec<u8>, Vec<u32>
     let cabecalho = 16 + 8 * funcoes.len();
     let mut blob: Vec<u8> = Vec::with_capacity(cabecalho + fluxo.len());
     blob.extend_from_slice(b"DFGM");
-    blob.extend_from_slice(&[1, alvo]);
+    blob.extend_from_slice(&[VERSAO, alvo]);
     blob.extend_from_slice(&bandeiras.to_le_bytes());
     blob.extend_from_slice(&((cabecalho + fluxo.len()) as u32).to_le_bytes());
     blob.extend_from_slice(&(funcoes.len() as u32).to_le_bytes());
@@ -274,11 +318,11 @@ fn codificar(funcoes: &[Funcao], bandeiras: u16, alvo: u8) -> (Vec<u8>, Vec<u32>
     (blob, campos)
 }
 
-/// Decodifica um blob DFGM v1: por função, (tamanho do quadro em bytes,
+/// Decodifica um blob DFGM v2: por função, (tamanho do quadro em bytes,
 /// registros). É o leitor de referência (o do runtime é o mesmo algoritmo).
 fn decodificar(blob: &[u8]) -> Result<Vec<(u64, Vec<(u32, Raizes)>)>, String> {
-    if blob.len() < 16 || &blob[..4] != b"DFGM" || blob[4] != 1 {
-        return Err("blob DFGM sem o cabeçalho da versão 1".to_string());
+    if blob.len() < 16 || &blob[..4] != b"DFGM" || blob[4] != VERSAO {
+        return Err("blob DFGM sem o cabeçalho da versão 2".to_string());
     }
     if u32_em(blob, 8)? as usize != blob.len() {
         return Err("blob DFGM com o tamanho errado no cabeçalho".to_string());
@@ -305,8 +349,15 @@ fn decodificar(blob: &[u8]) -> Result<Vec<(u64, Vec<(u32, Raizes)>)>, String> {
                 for _ in 0..(c >> 1) {
                     let s = ler_varint(blob, &mut p)?;
                     slot += sem_zigzag(s >> 1);
-                    anterior.push((s & 1 == 1, (slot * 8) as i32));
+                    anterior.push((if s & 1 == 1 { NO_FP } else { NO_SP }, (slot * 8) as i32));
                 }
+                let mascara = ler_varint(blob, &mut p)?;
+                for r in 0..64 {
+                    if mascara & (1 << r) != 0 {
+                        anterior.push((EM_REGISTRADOR, r));
+                    }
+                }
+                anterior.sort_unstable();
             }
             registros.push((retorno, anterior.clone()));
         }
@@ -369,7 +420,7 @@ pub fn converter_coff(objeto: &mut [u8]) -> Result<bool, String> {
             }
             simbolo_em.insert(u32_em(objeto, e)?, u32_em(objeto, e + 4)?);
         }
-        let funcoes = decodificar_v3(&sec, &simbolo_em, REG_SP, REG_FP)?;
+        let funcoes = decodificar_v3(&sec, &simbolo_em, REG_SP, REG_FP, PRESERVADOS_WINDOWS)?;
         let (blob, campos) = codificar(&funcoes, 0, 1);
         // Ida e volta: o que o runtime vai ler é o que o LLVM escreveu.
         let volta = decodificar(&blob)?;
@@ -418,9 +469,9 @@ pub fn converter_elf(objeto: &mut [u8]) -> Result<bool, String> {
     if objeto[4] != 2 || objeto[5] != 1 {
         return Err("objeto ELF com raízes por mapas que não é de 64 bits little-endian".to_string());
     }
-    let (alvo, sp, fp, absoluta, relativa) = match u16_em(objeto, 0x12)? {
-        ELF_X86_64 => (1u8, REG_SP, REG_FP, R_X86_64_64, R_X86_64_PC32),
-        ELF_AARCH64 => (2u8, REG_SP_AARCH64, REG_FP_AARCH64, R_AARCH64_ABS64, R_AARCH64_PREL32),
+    let (alvo, sp, fp, preservados, absoluta, relativa) = match u16_em(objeto, 0x12)? {
+        ELF_X86_64 => (1u8, REG_SP, REG_FP, PRESERVADOS_SYSV, R_X86_64_64, R_X86_64_PC32),
+        ELF_AARCH64 => (2u8, REG_SP_AARCH64, REG_FP_AARCH64, PRESERVADOS_AARCH64, R_AARCH64_ABS64, R_AARCH64_PREL32),
         outra => return Err(format!("objeto ELF da máquina {outra}: as raízes por mapas só existem no x86-64 e no aarch64")),
     };
     let tabela = u64_em(objeto, 0x28)? as usize;
@@ -482,7 +533,7 @@ pub fn converter_elf(objeto: &mut [u8]) -> Result<bool, String> {
         simbolo_em.insert(u32::try_from(lugar).map_err(|_| "`.llvm_stackmaps` grande demais".to_string())?, k as u32);
         originais.push((info >> 32, u64_em(objeto, e + 16)?));
     }
-    let funcoes = decodificar_v3(&sec, &simbolo_em, sp, fp)?;
+    let funcoes = decodificar_v3(&sec, &simbolo_em, sp, fp, preservados)?;
     let (blob, campos) = codificar(&funcoes, BANDEIRA_RELATIVA, alvo);
     let volta = decodificar(&blob)?;
     let igual = volta.len() == funcoes.len()
@@ -559,8 +610,8 @@ mod testes {
     #[test]
     fn blob_vai_e_volta() {
         let funcoes: Vec<Funcao> = vec![
-            (0, 72, vec![(20, vec![(false, 32)]), (44, vec![(false, 32), (false, 40)]), (60, vec![(false, 32), (false, 40)])]),
-            (1, 0, vec![(48, vec![(true, -16), (false, 40)])]),
+            (0, 72, vec![(20, vec![(NO_SP, 32)]), (44, vec![(NO_SP, 32), (NO_SP, 40)]), (60, vec![(NO_SP, 32), (NO_SP, 40)])]),
+            (1, 0, vec![(48, vec![(NO_SP, 40), (NO_FP, -16), (EM_REGISTRADOR, 3), (EM_REGISTRADOR, 14)]), (52, vec![(EM_REGISTRADOR, 5)])]),
             (2, 40, Vec::new()),
         ];
         let (blob, campos) = codificar(&funcoes, 0, 1);

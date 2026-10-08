@@ -948,6 +948,12 @@ pub fn ligar(ld: &Path, sysroot: &SysrootMacos, l: &Ligacao<'_>) -> Result<(), S
         // guarda do `-dead_strip` (`llvm/mod.rs`).
         if crate::alvo::raizes_por_mapas().unwrap_or(false) {
             let nivel = crate::driver::nivel_da_lto().max(1);
+            // As raízes ficam no slot (o padrão do LLVM), não no registrador
+            // preservado como no gerador embutido: aqui o RS4GC roda dentro
+            // da LTO do ligador, sem a limpeza dos endereços estáticos do
+            // `"deopt"` (`dartforge_llvm`, `tirar_estaticos_do_deopt`), e
+            // com eles em registrador o gerador de código pode falhar
+            // (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.12).
             cmd.arg(format!("--lto-newpm-passes=lto<O{nivel}>,rewrite-statepoints-for-gc,verify"));
         }
         cmd.arg(format!("--thinlto-jobs={}", crate::driver::tarefas_de_geracao()));

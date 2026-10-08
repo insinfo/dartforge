@@ -183,13 +183,12 @@ fn asm_do_grupo(entradas: &[Entrada], operandos: &[String], com_rotulo: bool) ->
 /// A chamada com `noinline` (antes de metadados e do `to label` de um
 /// `invoke`).
 fn com_noinline(linha: &str) -> String {
-    if let Some(i) = linha.find(" to label ") {
-        return format!("{} noinline{}", &linha[..i], &linha[i..]);
+    // O atributo vai antes do operando `"deopt"` (raízes por mapas), do
+    // rótulo de um `invoke` e dos metadados.
+    match [linha.find(" [ \"deopt\""), linha.find(" to label "), linha.find(", !")].into_iter().flatten().min() {
+        Some(i) => format!("{} noinline{}", &linha[..i], &linha[i..]),
+        None => format!("{linha} noinline"),
     }
-    if let Some(i) = linha.find(", !") {
-        return format!("{} noinline{}", &linha[..i], &linha[i..]);
-    }
-    format!("{linha} noinline")
 }
 
 /// A ligação das constantes do rastro: no Mach-O, símbolos locais (o
@@ -352,7 +351,7 @@ impl Rastro {
                 // `noinline` no fim da chamada (antes de qualquer metadado
                 // ou rótulo de `invoke`, que estas funções não têm).
                 if alvo.is_some_and(|a| a.is_none_or(|n| !n.starts_with("llvm."))) && !linha.contains(", !") && !linha.contains(" to label ") {
-                    writeln!(saida, "{linha} noinline").unwrap();
+                    writeln!(saida, "{}", com_noinline(linha)).unwrap();
                 } else {
                     writeln!(saida, "{linha}").unwrap();
                 }
@@ -442,6 +441,8 @@ mod testes {
         assert_eq!(alvo_da_chamada("  %r = tail call i64 @\"df.x$tear\"(i64 0)"), Some(Some("df.x$tear")));
         assert_eq!(alvo_da_chamada("  %v9 = call i64 %f(i64 %v1)"), Some(None));
         assert_eq!(alvo_da_chamada("  call void (...) @llvm.fake.use(ptr addrspace(1) %raiz1)"), Some(Some("llvm.fake.use")));
+        assert_eq!(alvo_da_chamada("  %v4 = call i64 @df.a(i64 %v1) [ \"deopt\"(i64 %v1) ]"), Some(Some("df.a")));
+        assert_eq!(com_noinline("  %v4 = call i64 @df.a(i64 %v1) [ \"deopt\"(i64 %v1) ]"), "  %v4 = call i64 @df.a(i64 %v1) noinline [ \"deopt\"(i64 %v1) ]");
         assert_eq!(alvo_da_chamada("  %r.ok = invoke i64 @g(i64 1) to label %a unwind label %b"), Some(Some("g")));
         assert_eq!(alvo_da_chamada("  call void asm sideeffect \"42:\", \"s\"(ptr @df.pcf.0) nounwind"), None);
         assert_eq!(alvo_da_chamada("  %v4 = add i64 %v1, %v2"), None);

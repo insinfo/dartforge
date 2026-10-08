@@ -1,30 +1,28 @@
 //! O conferidor das raízes **depois** do `rewrite-statepoints-for-gc`
 //! (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.4, no estilo do
-//! `--statepoints` do Perry), sobre a forma implementada do §14.8: o valor
-//! `Ref` continua `i64` (`%v<n>`), e a raiz dele é `%raiz<n> = inttoptr i64
-//! %v<n> to ptr addrspace(1)`, mantida viva por `llvm.fake.use`.
+//! `--statepoints` do Perry), sobre a forma do §14.12: o valor `Ref` é `i64`
+//! (`%v<n>`) em todo o código, e as raízes vivas numa chamada que coleta vão
+//! no operando `"deopt"` dela — o statepoint as leva ao mapa de pilha.
 //!
-//! O RS4GC põe no `"gc-live"` de cada statepoint as raízes vivas ali, e a
-//! coleta só enxerga essas. O defeito que este conferidor pega é o valor
-//! `%v<n>` usado depois de um statepoint sem que a raiz dele esteja no
-//! `"gc-live"` desse statepoint: o objeto pode ter sido liberado (o
-//! otimizador que estica a vida de um `Ref` por cima de uma chamada, o
-//! emissor que esquece o uso fictício). Também os argumentos: um `%v<n>`
-//! passado à chamada do statepoint tem de estar vivo nela (contrato C1).
+//! A coleta só enxerga o que está no `"deopt"` do statepoint em que ela
+//! acontece. O defeito que este conferidor pega é o valor usado depois de um
+//! statepoint sem estar no `"deopt"` dele: o objeto pode ter sido liberado
+//! (o otimizador que estica a vida de um `Ref` por cima de uma chamada, o
+//! emissor que esquece o operando). Também os argumentos: um `Ref` passado à
+//! chamada do statepoint tem de estar vivo nela (contrato C1).
 //!
-//! A conferência é por bloco, sobre o texto do módulo: um uso depois de um
-//! statepoint do mesmo bloco, de um valor que não foi definido depois dele.
-//! O valor que atravessa o statepoint para um `phi` de outro bloco não é
-//! conferido. Só os pares `%v<n>`/`%raiz<n>` com os nomes do emissor
-//! entram (o otimizador pode ter renomeado o resto). No `"gc-live"`, a raiz
-//! pode aparecer com outro nome: num laço, o RS4GC reloca a raiz em cada
-//! statepoint e a iteração seguinte lê um `phi` (`%.0 = phi ptr
-//! addrspace(1) [ %raiz0, … ], [ %.0.relocated, … ]`); um `phi` cujas
-//! entradas são todas a mesma raiz (ou ele mesmo, relocado) conta como ela.
-//!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Um nome é `Ref` quando aparece no `"deopt"` de algum statepoint da função
+//! (o `i64` não diz se é referência). Fica de fora o valor de uma carga
+//! `!invariant.load`, ou dos objetos canônicos `true`/`false` do contexto
+//! (deslocamentos 360 e 368, `layout::contexto`; a otimização que funde as
+//! cargas tira o metadado), e o `phi` só delas, como o `.lcssa` de um laço:
+//! os canônicos são estáticos da imagem do runtime, nunca coletados, e o
+//! otimizador reaproveita a carga por cima das chamadas, como deve. A conferência é por bloco, sobre o
+//! texto do módulo: um uso depois de um statepoint do mesmo bloco, de um
+//! valor que não foi definido depois dele. O valor que atravessa o
+//! statepoint para um `phi` de outro bloco não é conferido.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 /// Os nomes `%x` usados em `texto` (sem o `%`).
 fn usos(texto: &str) -> impl Iterator<Item = &str> {
@@ -50,31 +48,29 @@ fn usos(texto: &str) -> impl Iterator<Item = &str> {
     })
 }
 
-/// A raiz de base de um nome do `"gc-live"`: `raiz5.relocated3` → `raiz5`.
-fn base(nome: &str) -> &str {
-    nome.find(".relocated").map_or(nome, |k| &nome[..k])
-}
-
-/// As raízes do `"gc-live"` de uma linha de statepoint (as bases).
-fn vivos_do_statepoint(linha: &str) -> HashSet<&str> {
-    let Some(k) = linha.find("\"gc-live\"(") else { return HashSet::new() };
-    let resto = &linha[k + "\"gc-live\"(".len()..];
+/// O conteúdo do operando `"deopt"(…)` de uma linha, se ela o tem.
+fn operando_deopt(linha: &str) -> Option<&str> {
+    let k = linha.find("\"deopt\"(")?;
+    let resto = &linha[k + "\"deopt\"(".len()..];
     let mut profundidade = 1;
-    let mut fim = resto.len();
     for (i, c) in resto.char_indices() {
         match c {
             '(' => profundidade += 1,
             ')' => {
                 profundidade -= 1;
                 if profundidade == 0 {
-                    fim = i;
-                    break;
+                    return Some(&resto[..i]);
                 }
             }
             _ => {}
         }
     }
-    usos(&resto[..fim]).map(base).collect()
+    Some(resto)
+}
+
+/// A linha sem os operandos (`[ … ]` depois dos argumentos).
+fn sem_operandos(corpo: &str) -> &str {
+    corpo.find(" [ \"").map_or(corpo, |p| &corpo[..p])
 }
 
 /// O nome definido pela linha (`%x = …`), sem o `%`.
@@ -84,110 +80,99 @@ fn definido(linha: &str) -> Option<&str> {
     Some(&l[..fim])
 }
 
-/// As entradas de um `phi` (`phi <tipo> [ %a, %b0 ], [ null, %b1 ]`): os
-/// valores, sem os blocos; `None` para uma constante.
-fn entradas_do_phi(corpo: &str) -> Vec<Option<&str>> {
-    corpo
-        .split('[')
-        .skip(1)
-        .map(|par| {
-            let valor = par.trim_start().split(',').next().unwrap_or_default().trim();
-            valor.strip_prefix('%')
-        })
-        .collect()
-}
-
-/// Os apelidos das raízes: cada `%raiz<n>` para si mesma e cada `phi` de
-/// `ptr addrspace(1)` cujas entradas (pela base, sem o `.relocated`) são
-/// todas a mesma raiz, diretamente ou por outros `phi`. Os `phi` dos laços
-/// formam ciclos entre si, então a resolução é otimista: cada `phi` começa
-/// sem informação, passa a uma raiz quando as entradas conhecidas concordam
-/// e fica inválido quando discordam ou citam outra coisa (o reticulado só
-/// desce, e o laço termina).
-///
-/// `raizes` leva cada nome de raiz à raiz canônica do valor (`%raiz<n>` de
-/// `%v<n>`): depois do *inlining* o mesmo valor pode ter outras, com outro
-/// número (`%raiz134 = inttoptr i64 %v2 …`).
-fn apelidos<'a>(linhas: &[&'a str], raizes: &HashMap<&'a str, &'a str>) -> HashMap<&'a str, &'a str> {
-    #[derive(Clone, Copy, PartialEq)]
-    enum Estado<'a> {
-        Nada,
-        Raiz(&'a str),
-        Invalido,
-    }
-    let phis: Vec<(&str, Vec<Option<&str>>)> = linhas
+/// `refs` sem os valores de carga `!invariant.load` e sem os `phi` cujas
+/// entradas são todas desses (ou constantes).
+fn sem_invariantes<'a>(linhas: &[&'a str], mut refs: HashSet<&'a str>) -> HashSet<&'a str> {
+    // Os endereços dos canônicos: `getelementptr … i64 360|368`, direto ou
+    // pelo deslocamento escolhido num `select` (o `df.caixa_bool`).
+    let selecoes: HashSet<&str> = linhas
         .iter()
-        .filter_map(|l| {
-            let t = l.trim_start();
-            let d = definido(t)?;
-            let corpo = &t[t.find(" = ")? + 3..];
-            corpo.starts_with("phi ptr addrspace(1)").then(|| (d, entradas_do_phi(corpo)))
-        })
+        .filter(|l| l.contains("= select ") && l.contains("i64 360") && l.contains("i64 368"))
+        .filter_map(|l| definido(l))
         .collect();
-    let mut estado: HashMap<&str, Estado<'_>> = phis.iter().map(|(d, _)| (*d, Estado::Nada)).collect();
+    let canonicos: HashSet<&str> = linhas
+        .iter()
+        .filter(|l| {
+            l.contains("= getelementptr ")
+                && (l.ends_with("i64 360") || l.ends_with("i64 368") || selecoes.iter().any(|s| l.ends_with(&format!("i64 %{s}"))))
+        })
+        .filter_map(|l| definido(l))
+        .collect();
+    let mut invariantes: HashSet<&str> = linhas
+        .iter()
+        .filter(|l| {
+            l.contains("!invariant.load")
+                || l.contains("= load i64, ptr %")
+                    && usos(&l[l.find("= load").unwrap_or(0)..]).next().is_some_and(|p| canonicos.contains(p))
+        })
+        .filter_map(|l| definido(l))
+        .collect();
+    // Os `phi` (com o bloco de cada um), os `icmp eq` e os desvios
+    // condicionais de cada bloco: a entrada de um `phi` que chega pela aresta
+    // em que `X == canônico` é o próprio canônico (o otimizador troca um pelo
+    // outro).
+    let mut phis: Vec<(&str, &str, Vec<(&str, &str)>)> = Vec::new();
+    let mut iguais: std::collections::HashMap<&str, (&str, &str)> = std::collections::HashMap::new();
+    let mut desvios: std::collections::HashMap<&str, (&str, &str)> = std::collections::HashMap::new();
+    let mut bloco = "";
+    for l in linhas {
+        if !l.starts_with(' ') && !l.starts_with("define") && let Some(k) = l.find(':') {
+            bloco = &l[..k];
+            continue;
+        }
+        let t = l.trim_start();
+        if let Some(resto) = t.strip_prefix("br i1 %") {
+            // `br i1 %c, label %v, label %f`
+            let mut partes = resto.split(", label %");
+            if let (Some(c), Some(v)) = (partes.next(), partes.next()) {
+                desvios.insert(bloco, (c, v.trim()));
+            }
+            continue;
+        }
+        let Some(d) = definido(t) else { continue };
+        let corpo = &t[t.find(" = ").map_or(0, |k| k + 3)..];
+        if corpo.starts_with("icmp eq i64 ") {
+            let mut u = usos(corpo);
+            if let (Some(a), Some(b)) = (u.next(), u.next()) {
+                iguais.insert(d, (a, b));
+            }
+        } else if corpo.starts_with("phi ") {
+            let entradas = corpo
+                .split('[')
+                .skip(1)
+                .filter_map(|par| {
+                    let mut x = par.split(',');
+                    let valor = x.next()?.trim().strip_prefix('%')?;
+                    let de = x.next()?.trim().trim_end_matches(']').trim().strip_prefix('%')?;
+                    Some((valor, de))
+                })
+                .collect();
+            phis.push((d, bloco, entradas));
+        }
+    }
     loop {
-        let mut mudou = false;
-        for (d, entradas) in &phis {
-            if estado[d] == Estado::Invalido {
+        let antes = invariantes.len();
+        for (d, bloco, entradas) in &phis {
+            if invariantes.contains(d) || entradas.is_empty() {
                 continue;
             }
-            let mut novo = Estado::Nada;
-            for e in entradas {
-                let Some(nome) = e else { continue };
-                let b = base(nome);
-                if b == *d {
-                    continue;
-                }
-                let desta = if let Some(r) = raizes.get(b) {
-                    Estado::Raiz(*r)
-                } else {
-                    estado.get(b).copied().unwrap_or(Estado::Invalido)
-                };
-                novo = match (novo, desta) {
-                    (x, Estado::Nada) | (Estado::Nada, x) => x,
-                    (Estado::Raiz(a), Estado::Raiz(c)) if a == c => Estado::Raiz(a),
-                    _ => Estado::Invalido,
-                };
-                if novo == Estado::Invalido {
-                    break;
-                }
-            }
-            if novo != Estado::Nada && novo != estado[d] {
-                estado.insert(d, novo);
-                mudou = true;
+            let canonica = |valor: &str, de: &str| {
+                invariantes.contains(valor)
+                    || desvios.get(de).is_some_and(|(c, v)| {
+                        v == bloco
+                            && iguais.get(c).is_some_and(|(a, b)| (*a == valor && invariantes.contains(b)) || (*b == valor && invariantes.contains(a)))
+                    })
+            };
+            if entradas.iter().all(|(valor, de)| canonica(valor, de)) {
+                invariantes.insert(d);
             }
         }
-        if !mudou {
+        if invariantes.len() == antes {
             break;
         }
     }
-    let mut apelido: HashMap<&str, &str> = raizes.clone();
-    for (d, e) in estado {
-        if let Estado::Raiz(r) = e {
-            apelido.insert(d, r);
-        }
-    }
-    apelido
-}
-
-/// O diagnóstico de um statepoint: a linha dele, as definições dos nomes do
-/// `"gc-live"` e, por eles, as entradas dos `phi` (até 12 linhas).
-fn cadeia_do_statepoint(linhas: &[&str], corpo: &str) -> String {
-    let mut defs: Vec<&str> = Vec::new();
-    let mut fila: Vec<&str> = vivos_do_statepoint(corpo).into_iter().collect();
-    let mut vistos: HashSet<&str> = HashSet::new();
-    while let Some(v) = fila.pop() {
-        if defs.len() >= 12 || !vistos.insert(v) {
-            continue;
-        }
-        if let Some(l) = linhas.iter().map(|l| l.trim_start()).find(|l| definido(l) == Some(v)) {
-            defs.push(l);
-            if l.contains("= phi ") {
-                fila.extend(entradas_do_phi(l).into_iter().flatten().map(base));
-            }
-        }
-    }
-    defs.join("\n  ")
+    refs.retain(|r| !invariantes.contains(r));
+    refs
 }
 
 /// Um statepoint já visto no bloco: as raízes vivas nele e os nomes
@@ -222,36 +207,17 @@ pub fn conferir(ir: &str) -> Result<(), String> {
 }
 
 fn conferir_funcao(linhas: &[&str], deslocamento: usize) -> Result<(), String> {
-    // `v<n>` → `raiz<n>`, das definições das raízes.
-    let mut raiz_de: HashMap<&str, &str> = HashMap::new();
-    for l in linhas {
-        let t = l.trim_start();
-        if let Some(r) = definido(t)
-            && r.starts_with("raiz")
-            && let Some(k) = t.find("inttoptr i64 %")
-        {
-            let v = usos(&t[k + "inttoptr i64 ".len()..]).next().unwrap_or_default();
-            if r.strip_prefix("raiz").is_some_and(|n| v.strip_prefix('v') == Some(n)) {
-                raiz_de.insert(v, r);
-            }
-        }
-    }
-    if raiz_de.is_empty() {
+    // Os `Ref` da função: os nomes de algum `"deopt"` de statepoint.
+    let refs: HashSet<&str> = linhas
+        .iter()
+        .filter(|l| l.contains("@llvm.experimental.gc.statepoint"))
+        .filter_map(|l| operando_deopt(l))
+        .flat_map(usos)
+        .collect();
+    if refs.is_empty() {
         return Ok(());
     }
-    // Todas as raízes de cada valor conferido, cada uma para a canônica.
-    let mut raizes: HashMap<&str, &str> = raiz_de.values().map(|r| (*r, *r)).collect();
-    for l in linhas {
-        let t = l.trim_start();
-        if let Some(r) = definido(t)
-            && r.starts_with("raiz")
-            && let Some(k) = t.find("inttoptr i64 %")
-            && let Some(canonica) = raiz_de.get(usos(&t[k + "inttoptr i64 ".len()..]).next().unwrap_or_default())
-        {
-            raizes.insert(r, canonica);
-        }
-    }
-    let apelido = apelidos(linhas, &raizes);
+    let refs = sem_invariantes(linhas, refs);
     let mut pontos: Vec<Ponto<'_>> = Vec::new();
     for (k, l) in linhas.iter().enumerate().skip(1) {
         let n = deslocamento + k + 1;
@@ -271,34 +237,26 @@ fn conferir_funcao(linhas: &[&str], deslocamento: usize) -> Result<(), String> {
         };
         let e_statepoint = corpo.contains("@llvm.experimental.gc.statepoint");
         // Os usos desta linha depois dos statepoints anteriores do bloco.
-        if !corpo.contains("@llvm.experimental.gc.relocate") && !corpo.contains("@llvm.experimental.gc.result") {
-            let sem_vivos = corpo.find("[ \"gc-live\"").map_or(corpo, |p| &corpo[..p]);
-            for nome in usos(sem_vivos) {
-                let Some(raiz) = raiz_de.get(nome) else { continue };
+        if !corpo.contains("@llvm.experimental.gc.result") {
+            for nome in usos(sem_operandos(corpo)).filter(|x| refs.contains(x)) {
                 for p in &pontos {
-                    if !p.depois.contains(nome) && !p.vivos.contains(raiz) {
+                    if !p.depois.contains(nome) && !p.vivos.contains(nome) {
                         let sp = linhas[p.linha - deslocamento - 1].trim_start();
-                        let corpo_sp = sp.find(" = ").map_or(sp, |k| &sp[k + 3..]);
                         return Err(format!(
-                            "conferidor do RS4GC, linha {n}: `%{nome}` usado depois do statepoint da linha {} sem a raiz `%{raiz}` no \"gc-live\": `{t}`\n  {sp}\n  {}",
-                            p.linha,
-                            cadeia_do_statepoint(linhas, corpo_sp)
+                            "conferidor do RS4GC, linha {n}: `%{nome}` usado depois do statepoint da linha {} sem estar no \"deopt\" dele: `{t}`\n  {sp}",
+                            p.linha
                         ));
                     }
                 }
             }
         }
         if e_statepoint {
-            let vivos: HashSet<&str> = vivos_do_statepoint(corpo).into_iter().map(|b| apelido.get(b).copied().unwrap_or(b)).collect();
+            let vivos: HashSet<&str> = operando_deopt(corpo).map(|d| usos(d).collect()).unwrap_or_default();
             // C1: o argumento `Ref` está vivo na chamada.
-            let args = corpo.find("[ \"gc-live\"").map_or(corpo, |p| &corpo[..p]);
-            for nome in usos(args) {
-                if let Some(raiz) = raiz_de.get(nome)
-                    && !vivos.contains(raiz)
-                {
+            for nome in usos(sem_operandos(corpo)).filter(|x| refs.contains(x)) {
+                if !vivos.contains(nome) {
                     return Err(format!(
-                        "conferidor do RS4GC, linha {n}: o argumento `%{nome}` não está vivo na chamada (sem `%{raiz}` no \"gc-live\"): `{t}`\n  {}",
-                        cadeia_do_statepoint(linhas, corpo)
+                        "conferidor do RS4GC, linha {n}: o argumento `%{nome}` não está vivo na chamada (fora do \"deopt\"): `{t}`"
                     ));
                 }
             }
@@ -317,41 +275,13 @@ fn conferir_funcao(linhas: &[&str], deslocamento: usize) -> Result<(), String> {
 mod testes {
     use super::*;
 
-    /// A raiz relocada num laço chega ao `"gc-live"` como o `phi` do laço.
-    #[test]
-    fn raiz_pelo_phi_do_laco() {
-        let ir = r#"define i64 @f(i64 %v0) gc "statepoint-example" {
-b0:
-  %raiz0 = inttoptr i64 %v0 to ptr addrspace(1)
-  br label %b1
-b1:
-  %.0 = phi ptr addrspace(1) [ %raiz0, %b0 ], [ %.0.relocated, %b1 ]
-  %sp = call token (i64, i32, ptr, i32, i32, ...) @llvm.experimental.gc.statepoint.p0(i64 0, i32 0, ptr elementtype(i64 (i64)) @g, i32 1, i32 0, i64 %v0, i32 0, i32 0) [ "gc-live"(ptr addrspace(1) %.0) ]
-  %.0.relocated = call coldcc ptr addrspace(1) @llvm.experimental.gc.relocate.p1(token %sp, i32 0, i32 0)
-  br label %b1
-}
-"#;
-        assert_eq!(conferir(ir), Ok(()));
-        // Dois `phi` em ciclo, os dois da mesma raiz.
-        let ciclo = ir.replace(
-            "  %.0 = phi ptr addrspace(1) [ %raiz0, %b0 ], [ %.0.relocated, %b1 ]",
-            "  %.0 = phi ptr addrspace(1) [ %raiz0, %b0 ], [ %.1, %b1 ]\n  %.1 = phi ptr addrspace(1) [ %.0.relocated, %b1 ], [ %.0, %b0 ]",
-        );
-        assert_eq!(conferir(&ciclo), Ok(()));
-        let sem = ir.replace("[ \"gc-live\"(ptr addrspace(1) %.0) ]", "[ \"gc-live\"() ]");
-        assert!(conferir(&sem).is_err());
-    }
-
     // Strings cruas: a indentação das instruções é o que separa uma
     // instrução de um rótulo.
     const BOM: &str = r#"define i64 @f(i64 %v1) gc "statepoint-example" {
 b0:
-  %raiz1 = inttoptr i64 %v1 to ptr addrspace(1)
-  %sp = call token (i64, i32, ptr, i32, i32, ...) @llvm.experimental.gc.statepoint.p0(i64 0, i32 0, ptr elementtype(i64 (i64)) @g, i32 1, i32 0, i64 %v1, i32 0, i32 0) [ "gc-live"(ptr addrspace(1) %raiz1) ]
+  %sp = call token (i64, i32, ptr, i32, i32, ...) @llvm.experimental.gc.statepoint.p0(i64 0, i32 0, ptr elementtype(i64 (i64)) @g, i32 1, i32 0, i64 %v1, i32 0, i32 0) [ "deopt"(i64 %v1) ]
   %v2 = call i64 @llvm.experimental.gc.result.i64(token %sp)
-  %raiz1.relocated = call coldcc ptr addrspace(1) @llvm.experimental.gc.relocate.p1(token %sp, i32 0, i32 0)
   %v3 = add i64 %v1, %v2
-  call void (...) @llvm.fake.use(ptr addrspace(1) %raiz1.relocated)
   ret i64 %v3
 }
 "#;
@@ -361,41 +291,84 @@ b0:
         assert_eq!(conferir(BOM), Ok(()));
     }
 
-    /// As violações plantadas: cada uma tem de ser achada.
+    /// As violações plantadas: cada uma tem de ser achada. O `%v1` continua
+    /// `Ref` pelo `"deopt"` de um segundo statepoint.
     #[test]
     fn acha_as_violacoes_plantadas() {
-        let sem_raiz = BOM.replace(r#"[ "gc-live"(ptr addrspace(1) %raiz1) ]"#, r#"[ "gc-live"() ]"#);
+        let outro = "  %sp2 = call token (i64, i32, ptr, i32, i32, ...) @llvm.experimental.gc.statepoint.p0(i64 0, i32 0, ptr elementtype(void ()) @h, i32 0, i32 0, i32 0, i32 0) [ \"deopt\"(i64 %v1) ]\n  ret i64 %v3";
+        let sem_raiz = BOM.replace(r#"[ "deopt"(i64 %v1) ]"#, r#"[ "deopt"() ]"#).replace("  ret i64 %v3", outro);
         assert_ne!(sem_raiz, BOM);
         // O uso depois, sem o valor entre os argumentos.
         let so_depois = sem_raiz.replace("i32 1, i32 0, i64 %v1, i32 0, i32 0)", "i32 0, i32 0, i32 0, i32 0)");
         assert!(conferir(&so_depois).unwrap_err().contains("usado depois"), "{so_depois}");
-        // O argumento sem raiz, sem uso depois.
-        let so_argumento = sem_raiz.replace("%v3 = add i64 %v1, %v2", "%v3 = add i64 %v2, 1");
-        assert!(conferir(&so_argumento).unwrap_err().contains("argumento"), "{so_argumento}");
+        // O argumento sem raiz.
+        assert!(conferir(&sem_raiz).unwrap_err().contains("argumento"), "{sem_raiz}");
     }
 
-    /// O valor definido depois do statepoint não precisa de raiz nele; um
+    /// O valor definido depois do statepoint não precisa estar nele; um
     /// rótulo novo zera os statepoints do bloco.
     #[test]
     fn nao_acusa_o_definido_depois_nem_outro_bloco() {
-        let ir = r#"define i64 @f() gc "statepoint-example" {
+        let ir = r#"define i64 @f(i64 %v1) gc "statepoint-example" {
 b0:
-  %sp = call token (i64, i32, ptr, i32, i32, ...) @llvm.experimental.gc.statepoint.p0(i64 0, i32 0, ptr elementtype(i64 ()) @g, i32 0, i32 0, i32 0, i32 0) [ "gc-live"() ]
+  %sp = call token (i64, i32, ptr, i32, i32, ...) @llvm.experimental.gc.statepoint.p0(i64 0, i32 0, ptr elementtype(i64 ()) @g, i32 0, i32 0, i32 0, i32 0) [ "deopt"() ]
   %v4 = call i64 @llvm.experimental.gc.result.i64(token %sp)
-  %raiz4 = inttoptr i64 %v4 to ptr addrspace(1)
-  %v5 = add i64 %v4, 1
+  %sp2 = call token (i64, i32, ptr, i32, i32, ...) @llvm.experimental.gc.statepoint.p0(i64 0, i32 0, ptr elementtype(i64 ()) @g, i32 0, i32 0, i32 0, i32 0) [ "deopt"(i64 %v4, i64 %v1) ]
   br label %b1
 b1:
+  %v5 = add i64 %v4, %v1
   ret i64 %v5
 }
 "#;
         assert_eq!(conferir(ir), Ok(()));
     }
 
+    /// A carga invariante (o `true` canônico do contexto) reaproveitada por
+    /// cima de um statepoint não é acusada.
     #[test]
-    fn le_os_nomes_e_as_bases() {
-        assert_eq!(usos("add i64 %v1, %raiz2.relocated").collect::<Vec<_>>(), ["v1", "raiz2.relocated"]);
-        assert_eq!(base("raiz2.relocated3"), "raiz2");
+    fn nao_acusa_a_carga_invariante() {
+        let ir = r#"define i64 @f(ptr %ctx) gc "statepoint-example" {
+b0:
+  %vh = load i64, ptr %ctx, align 8, !invariant.load !0
+  %sp = call token (i64, i32, ptr, i32, i32, ...) @llvm.experimental.gc.statepoint.p0(i64 0, i32 0, ptr elementtype(i64 (i64)) @g, i32 1, i32 0, i64 %vh, i32 0, i32 0) [ "deopt"(i64 %vh) ]
+  %sp2 = call token (i64, i32, ptr, i32, i32, ...) @llvm.experimental.gc.statepoint.p0(i64 0, i32 0, ptr elementtype(void ()) @h, i32 0, i32 0, i32 0, i32 0) [ "deopt"() ]
+  %v2 = add i64 %vh, 1
+  ret i64 %v2
+}
+"#;
+        assert_eq!(conferir(ir), Ok(()));
+    }
+
+    /// O `phi` que junta o canônico com o valor que a aresta compara a ele.
+    #[test]
+    fn nao_acusa_o_phi_guardado_pela_igualdade() {
+        let ir = r#"define i64 @f(ptr %ctx, i64 %v1) gc "statepoint-example" {
+b0:
+  %fp = getelementptr inbounds nuw i8, ptr %ctx, i64 368
+  %fh = load i64, ptr %fp, align 8
+  %c = icmp eq i64 %v1, %fh
+  br i1 %c, label %b2, label %b1
+b1:
+  br label %b2
+b2:
+  %x = phi i64 [ %v1, %b0 ], [ %fh, %b1 ]
+  %sp = call token (i64, i32, ptr, i32, i32, ...) @llvm.experimental.gc.statepoint.p0(i64 0, i32 0, ptr elementtype(void ()) @h, i32 0, i32 0, i32 0, i32 0) [ "deopt"(i64 %v1) ]
+  %sp2 = call token (i64, i32, ptr, i32, i32, ...) @llvm.experimental.gc.statepoint.p0(i64 0, i32 0, ptr elementtype(void (i64)) @g, i32 1, i32 0, i64 %x, i32 0, i32 0) [ "deopt"(i64 %x) ]
+  %sp3 = call token (i64, i32, ptr, i32, i32, ...) @llvm.experimental.gc.statepoint.p0(i64 0, i32 0, ptr elementtype(void ()) @h, i32 0, i32 0, i32 0, i32 0) [ "deopt"() ]
+  ret i64 %x
+}
+"#;
+        assert_eq!(conferir(ir), Ok(()));
+        // Sem a guarda, o `phi` é referência e o uso depois é acusado.
+        let sem = ir.replace("br i1 %c, label %b2, label %b1", "br label %b2");
+        assert!(conferir(&sem).is_err());
+    }
+
+    #[test]
+    fn le_os_nomes_e_o_operando() {
+        assert_eq!(usos("add i64 %v1, %v2.i").collect::<Vec<_>>(), ["v1", "v2.i"]);
         assert_eq!(definido("  %v3 = add i64 1, 2"), Some("v3"));
+        assert_eq!(operando_deopt("call void @g() [ \"deopt\"(i64 %v1, i64 %v2) ]"), Some("i64 %v1, i64 %v2"));
+        assert_eq!(sem_operandos("call void @g(i64 %v3) [ \"deopt\"(i64 %v1) ]"), "call void @g(i64 %v3)");
     }
 }

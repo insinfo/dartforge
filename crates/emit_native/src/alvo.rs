@@ -207,7 +207,7 @@ pub fn conferir_raizes() -> bool {
 ///   (o mapa perde os registros das chamadas a ela);
 /// * `pouso_sem_topo`: o pouso de um `invoke` não restaura o topo da
 ///   pilha-sombra;
-/// * `sem_uso_ficticio`: nenhum `llvm.fake.use` depois dos pontos de coleta
+/// * `sem_uso_ficticio`: o operando `"deopt"` das chamadas que coletam sai vazio
 ///   (os operandos e os vivos saem do mapa);
 /// * `quadro_sujo` (D5): o quadro da pilha-sombra nasce com 4098 em todos os
 ///   slots em vez de zero (um slot lido antes de escrito vira raiz inválida);
