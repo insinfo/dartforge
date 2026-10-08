@@ -685,9 +685,11 @@ impl<'s, 'i> Parser<'s, 'i> {
                 let abre_grupo = self.pos;
                 self.advance();
                 // Grupo vazio (`({})`, `([])`): `MISSING_IDENTIFIER` no fecho
-                // (o fasta insere um parâmetro sintético).
+                // e o parâmetro sintético que o fasta insere (sem tipo e de
+                // nome vazio: `C Function({dynamic })`).
                 if self.at_op(close) {
                     self.erro(codigos::parser::MISSING_IDENTIFIER, &[]);
+                    params.push(self.parametro_sintetico(kind));
                 }
                 loop {
                     if self.eat_op(close) {
@@ -698,6 +700,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     // um parâmetro sintético (aqui omitido).
                     if matches!(self.kind(), Kind::Op(Op::LBrace | Op::LBracket)) {
                         self.erro(codigos::parser::MISSING_IDENTIFIER, &[]);
+                        params.push(self.parametro_sintetico(kind));
                     } else {
                         params.push(self.parse_formal_parameter(kind, in_function_type, dono)?);
                     }
@@ -745,6 +748,34 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.conferir_nomes_publicos(&params);
                 return Ok(params);
             }
+        }
+    }
+
+    /// O parâmetro que o `ensureIdentifier` insere no lugar do nome que
+    /// falta: sem tipo, com nome vazio no token corrente.
+    fn parametro_sintetico(&mut self, kind: ParameterKind) -> Parameter {
+        let aqui = self.span().start;
+        let s = Span { start: aqui, end: aqui };
+        let name = self.name_from("", s);
+        Parameter {
+            span: s,
+            metadata: Box::default(),
+            kind,
+            required: false,
+            covariant: false,
+            final_: false,
+            var_: false,
+            const_: false,
+            ty: None,
+            this_: false,
+            super_: false,
+            name: Some(name),
+            function_type_params: Box::default(),
+            function_parameters: None,
+            function_nullable: false,
+            default_value: None,
+            public_name: None,
+            declarante: false,
         }
     }
 

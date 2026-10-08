@@ -6492,6 +6492,11 @@ ou `undefined_class 'augment'`) e o resto é **outra declaração homônima** (`
   assim mesmo; o rascunho/implementação não pode pular unidades com `augment`).
 
 ##### `redirect_to_invalid_function_type` (perda 9: FN 9)
+
+**Feito em 2026-10-07:** o grupo de parâmetros vazio (`({})`, `([])`) e o grupo dentro do grupo relatam
+`MISSING_IDENTIFIER` e o `ensureIdentifier` insere um parâmetro sintético sem tipo e de nome vazio: o tipo do
+construtor é `C Function({dynamic })`, que entra na compatibilidade do redirecionamento. No DartForge,
+`Parser::parametro_sintetico`.
 - **Emissão:** EV:2068-2075 (ramo `else if` de `_checkForAllRedirectConstructorErrorCodes`).
 - **Condição:** tipo de retorno compatível, mas `!isSubtypeOf(redirectedType, constructorType)` (tipos de função
   completos: parâmetros contravariantes, opcionais/nomeados).
