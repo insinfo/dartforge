@@ -174,17 +174,24 @@ pub fn sombreado(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -> 
     // Os locais declarados antes de `pos`, no escopo que os contém.
     for s in a.stmts.iter() {
         let mut nomes: Vec<ast::Name> = Vec::new();
+        // O local de bloco vale no bloco inteiro, também antes da declaração
+        // (o uso antes dela é `REFERENCED_BEFORE_DECLARATION`, e um prefixo
+        // de mesmo nome fica sombreado: `PREFIX_SHADOWED_BY_LOCAL_DECLARATION`).
+        let mut no_bloco_todo = false;
         let escopo = match &s.kind {
             StmtKind::Variables(l) => {
                 nomes.extend(l.variables.iter().map(|v| v.name));
+                no_bloco_todo = true;
                 bloco_de(s.span)
             }
             StmtKind::Function(f) => {
                 nomes.extend(a.function(*f).name);
+                no_bloco_todo = true;
                 bloco_de(s.span)
             }
             StmtKind::PatternVariables { pattern, .. } => {
                 declaradas_no_padrao(a, *pattern, false, &mut nomes);
+                no_bloco_todo = true;
                 bloco_de(s.span)
             }
             // As variáveis do laço valem no próprio laço.
@@ -232,7 +239,7 @@ pub fn sombreado(a: &ast::Ast, interner: &Interner, pos: usize, n: SymbolId) -> 
             }
             _ => continue,
         };
-        if em(escopo) && declara(&nomes) {
+        if em(escopo) && (if no_bloco_todo { nomes.iter().any(|x| x.sym == n) } else { declara(&nomes) }) {
             return true;
         }
     }

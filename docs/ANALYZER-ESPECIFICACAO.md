@@ -20897,6 +20897,10 @@ Citações `analyzer/lib/...` do 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\analyz
 
 ##### `unused_import` (perda 42: FN 41, FP 1, msg 0, pos 0)
 
+**Feito em 2026-10-07:** o local de bloco (variável, função local, declaração de padrão) sombreia o nome no
+bloco **inteiro**, também antes da declaração: em `a.Future? x = null; int a = 0;` o `a` é o local
+(`PREFIX_SHADOWED_BY_LOCAL_DECLARATION`) e o import `as a` fica sem uso. No DartForge, `anotacoes::sombreado`.
+
 - **Emissão:** `ImportsVerifier.generateUnusedImportHints` (`analyzer/lib/src/error/imports_verifier.dart:238-274`), de `LibraryAnalyzer._computeWarnings` (`library_analyzer.dart:498-509`).
 - **Condição exata:**
   ```
