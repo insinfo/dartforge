@@ -840,6 +840,8 @@ pub struct FilaDoIsolado {
     id: u64,
     mensagens: std::sync::Mutex<Filas>,
     sinal: std::sync::Condvar,
+    /// A espera com prazo no macOS (ver [`Despertador`]).
+    despertador: Despertador,
     /// O endereço do pedido de interrupção da thread do isolado
     /// (`Contexto::interrupcao`), ou 0 depois que ela terminou. Uma mensagem
     /// de controle o liga: o código gerado o lê no ponto seguro de cada volta
@@ -848,6 +850,120 @@ pub struct FilaDoIsolado {
     /// um isolado preso num laço sem eventos, como a verificação de pilha da
     /// VM. O mutex garante que ninguém grava depois que a thread o zerou.
     interrupcao: std::sync::Mutex<usize>,
+}
+
+impl FilaDoIsolado {
+    /// Acorda a thread do isolado: o `Condvar` e, no macOS, o despertador.
+    fn avisar(&self) {
+        self.sinal.notify_one();
+        self.despertador.acordar();
+    }
+}
+
+/// A espera com prazo do laço de eventos no macOS: um `kqueue` com um
+/// `EVFILT_USER` que o aviso aciona e o prazo no `timeout` do `kevent`, como
+/// o manipulador de eventos da VM (`eventhandler_macos.cc`, `Poll`). O
+/// `pthread_cond_timedwait` do `Condvar` passa do prazo pela folga de
+/// coalescência do kernel: 200 timers de 5 ms levavam 5,9 s contra 1,5 s na
+/// VM (a sonda `tools/sondas/precisao_de_timers.dart`), e o
+/// `corpus/nativo/33_mensagens_de_controle` estourava o tempo. Fora do macOS
+/// o `Condvar` já é preciso e o despertador não faz nada.
+struct Despertador {
+    #[cfg(target_vendor = "apple")]
+    kq: i32,
+}
+
+#[cfg(target_vendor = "apple")]
+#[repr(C)]
+struct EventoDoDespertador {
+    ident: usize,
+    filtro: i16,
+    bandeiras: u16,
+    fbandeiras: u32,
+    dados: isize,
+    udata: *mut std::ffi::c_void,
+}
+
+#[cfg(target_vendor = "apple")]
+#[repr(C)]
+struct PrazoDoDespertador {
+    segundos: i64,
+    nanos: i64,
+}
+
+#[cfg(target_vendor = "apple")]
+unsafe extern "C" {
+    #[link_name = "kqueue"]
+    fn kqueue_do_despertador() -> i32;
+    #[link_name = "kevent"]
+    fn kevent_do_despertador(
+        kq: i32,
+        mudancas: *const EventoDoDespertador,
+        nm: i32,
+        eventos: *mut EventoDoDespertador,
+        ne: i32,
+        espera: *const PrazoDoDespertador,
+    ) -> i32;
+    #[link_name = "close"]
+    fn close_do_despertador(fd: i32) -> i32;
+}
+
+#[cfg(target_vendor = "apple")]
+impl Despertador {
+    const ATIVO: bool = true;
+    const EVFILT_USER: i16 = -10;
+    const EV_ADD: u16 = 0x1;
+    const EV_CLEAR: u16 = 0x20;
+    const NOTE_TRIGGER: u32 = 0x0100_0000;
+
+    fn evento(bandeiras: u16, fbandeiras: u32) -> EventoDoDespertador {
+        EventoDoDespertador { ident: 1, filtro: Self::EVFILT_USER, bandeiras, fbandeiras, dados: 0, udata: std::ptr::null_mut() }
+    }
+
+    fn novo() -> Despertador {
+        // SAFETY: cria o kqueue; o evento vive durante a chamada.
+        let kq = unsafe { kqueue_do_despertador() };
+        if kq < 0 {
+            panic!("falha ao criar o kqueue do laço de eventos");
+        }
+        let ev = Self::evento(Self::EV_ADD | Self::EV_CLEAR, 0);
+        // SAFETY: a mudança vive durante a chamada.
+        if unsafe { kevent_do_despertador(kq, &ev, 1, std::ptr::null_mut(), 0, std::ptr::null()) } == -1 {
+            panic!("falha ao registrar o despertador do laço de eventos");
+        }
+        Despertador { kq }
+    }
+
+    fn acordar(&self) {
+        let ev = Self::evento(0, Self::NOTE_TRIGGER);
+        // SAFETY: a mudança vive durante a chamada; o kqueue é deste isolado.
+        unsafe { kevent_do_despertador(self.kq, &ev, 1, std::ptr::null_mut(), 0, std::ptr::null()) };
+    }
+
+    fn esperar(&self, prazo: std::time::Duration) {
+        let ts = PrazoDoDespertador { segundos: prazo.as_secs() as i64, nanos: i64::from(prazo.subsec_nanos()) };
+        let mut ev = Self::evento(0, 0);
+        // SAFETY: um evento de saída; o prazo vive durante a chamada.
+        unsafe { kevent_do_despertador(self.kq, std::ptr::null(), 0, &mut ev, 1, &ts) };
+    }
+}
+
+#[cfg(target_vendor = "apple")]
+impl Drop for Despertador {
+    fn drop(&mut self) {
+        // SAFETY: o kqueue é deste despertador.
+        unsafe { close_do_despertador(self.kq) };
+    }
+}
+
+#[cfg(not(target_vendor = "apple"))]
+impl Despertador {
+    const ATIVO: bool = false;
+    fn novo() -> Despertador {
+        Despertador {}
+    }
+    fn acordar(&self) {}
+    fn esperar(&self, _prazo: std::time::Duration) {}
 }
 
 /// Zera o endereço do pedido de interrupção quando a thread termina (antes
@@ -888,6 +1004,7 @@ thread_local! {
             id: PROX.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             mensagens: std::sync::Mutex::new(Filas::default()),
             sinal: std::sync::Condvar::new(),
+            despertador: Despertador::novo(),
             interrupcao: std::sync::Mutex::new(alvo),
         });
         let guarda = GuardaDaInterrupcao(fila.clone());
@@ -930,12 +1047,12 @@ pub fn postar(porta: i64, grafo: Grafo) {
         Some(Dono::Isolado(f)) => {
             let mut m = f.mensagens.lock().unwrap_or_else(|e| e.into_inner());
             m.normal.push_back(Mensagem { porta, grafo, chegada: std::time::Instant::now() });
-            f.sinal.notify_one();
+            f.avisar();
         }
         Some(Dono::Controle(f)) => {
             let mut m = f.mensagens.lock().unwrap_or_else(|e| e.into_inner());
             m.controle.push_back(grafo);
-            f.sinal.notify_one();
+            f.avisar();
         }
         Some(Dono::Nativo(s)) => s(porta, grafo),
         None => {}
@@ -961,7 +1078,7 @@ fn postar_controle(porta: i64, grafo: Grafo) {
             unsafe { (*(*alvo as *const std::sync::atomic::AtomicU8)).store(1, std::sync::atomic::Ordering::Release) };
         }
         drop(alvo);
-        f.sinal.notify_one();
+        f.avisar();
     }
 }
 
@@ -1020,7 +1137,7 @@ pub extern "C" fn dartforge_pedir_no_ponto_seguro(f: extern "C" fn(usize, i32), 
         return 0;
     };
     fila.mensagens.lock().unwrap_or_else(|e| e.into_inner()).pontos_seguros.push_back((f, dado));
-    fila.sinal.notify_one();
+    fila.avisar();
     1
 }
 
@@ -1112,7 +1229,7 @@ pub extern "C" fn dartforge_parar_isolados() -> usize {
         for f in vivos.iter().filter(|f| f.id != meu) {
             let dado = std::sync::Arc::into_raw(barreira.clone()) as usize;
             f.mensagens.lock().unwrap_or_else(|e| e.into_inner()).pontos_seguros.push_back((parar_neste_isolado, dado));
-            f.sinal.notify_one();
+            f.avisar();
             n += 1;
         }
     }
@@ -1218,7 +1335,16 @@ fn esperar_mensagem(prazo: Option<std::time::Instant>, so_controle: bool) -> boo
                     if agora >= p {
                         return false;
                     }
-                    m = f.sinal.wait_timeout(m, p - agora).unwrap_or_else(|e| e.into_inner()).0;
+                    if Despertador::ATIVO {
+                        // O `kevent` com prazo (ver [`Despertador`]): o aviso
+                        // que chega entre soltar o mutex e esperar fica
+                        // pendente no `EVFILT_USER` e acorda na hora.
+                        drop(m);
+                        f.despertador.esperar(p - agora);
+                        m = f.mensagens.lock().unwrap_or_else(|e| e.into_inner());
+                    } else {
+                        m = f.sinal.wait_timeout(m, p - agora).unwrap_or_else(|e| e.into_inner()).0;
+                    }
                 }
             }
         }
