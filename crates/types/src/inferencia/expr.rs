@@ -3064,7 +3064,11 @@ fn ler_indice(
     index: ExprId, null_aware: bool, ctx: TypeId,
 ) -> (TypeId, bool) {
     let (recv, curto) = receptor(inf, cx, target, null_aware);
-    if !null_aware && !cx.sobreposicoes.contains_key(&target) && receptor_nunca(inf, cx, target, recv) {
+    // `resolveIndexExpression` (3.6.2 `property_element_resolver.dart:79-97`):
+    // o alvo pelo limite (`resolveToBound`) e o `Never` antes do `?[`.
+    let bruto = inf.body_types.units[cx.unit.0 as usize].get_type(target).unwrap_or(recv);
+    let limite = inf.resolver_ao_limite(bruto);
+    if !cx.sobreposicoes.contains_key(&target) && receptor_nunca(inf, cx, target, limite) {
         inferir_livre(inf, cx, index);
         return (inf.core.never, curto);
     }
@@ -3545,6 +3549,14 @@ fn unario(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: UnaryOp, op
             let prefixo = matches!(op, UnaryOp::PrefixInc | UnaryOp::PrefixDec);
             let bop = if matches!(op, UnaryOp::PrefixInc | UnaryOp::PostfixInc) { BinaryOp::Add } else { BinaryOp::Sub };
             let (leitura, escrita, local) = ler_para_escrita(inf, cx, operand, curto);
+            // `_resolve1` do `PostfixExpressionResolver` e o do
+            // `PrefixExpressionResolver` (3.6.2 `:127-132`, `:177-183`): a
+            // leitura `Never` é `RECEIVER_OF_TYPE_NEVER` no operando, sem
+            // operador, e o tipo é `Never`.
+            if matches!(inf.table.get(leitura), Type::Never) {
+                receptor_nunca(inf, cx, operand, leitura);
+                return inf.core.never;
+            }
             let sym = simbolo_operador(inf, bop);
             let int = inf.core.int;
             if let Some(s) = sym {
@@ -4083,7 +4095,9 @@ fn atribuicao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: AssignO
                     let (target, index, null_aware) = (*target, *index, *null_aware);
                     let (recv, c) = receptor(inf, cx, target, null_aware);
                     *curto = c;
-                    if !null_aware && receptor_nunca(inf, cx, target, recv) {
+                    let bruto = inf.body_types.units[cx.unit.0 as usize].get_type(target).unwrap_or(recv);
+                    let limite = inf.resolver_ao_limite(bruto);
+                    if receptor_nunca(inf, cx, target, limite) {
                         inferir_livre(inf, cx, index);
                         let d = inf.core.dynamic_;
                         (d, d, None)
