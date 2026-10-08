@@ -3870,6 +3870,10 @@ inicializador, com a mensagem própria do código.
 **Feito em 2026-10-07:** no `canBeSubtypeOf` (3.6.2 `type_system.dart:221-229`), o enum à esquerda casa se o tipo de
 alguma **constante** (`v1<String>()` é `A<String>`, `v<int>()` é `E<int>`) é subtipo do da direita; não o tipo
 do enum (`A<dynamic>`, `E<T>`). No DartForge, `padroes::pode_ser_subtipo` pelos `enum_constants`.
+Os padrões que conferem são cast, variável declarada, objeto, curinga, lista, **mapa** (`visitMapPattern`,
+`resolver.dart:1549-1554`, no padrão inteiro) e **registro** (`RecordPatternImpl.resolvePattern`, `ast.dart:14858`,
+exigido `(Object?, …)`, só sem campo nomeado repetido): `x case <int, String>{0: _}` com `x: int` e
+`r case (_, _)` com `r: (int,)` relatam.
 
 - **Emissão:** `ResolverVisitor.checkPatternNeverMatchesValueType` (`analyzer/lib/src/generated/resolver.dart:614-640`),
   chamado na resolução de padrão objeto, variável declarada, curinga, cast, lista, mapa e registro (só fora de contexto

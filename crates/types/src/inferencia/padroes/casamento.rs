@@ -792,6 +792,9 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
                     let requerido = inf.table.intern(Type::Interface { class: mc, args: vec![k, v].into_boxed_slice(), nullable: false });
                     let inv = type_args.len() == 2 && (anotacao_invalida(inf, cx, type_args[0], k) || anotacao_invalida(inf, cx, type_args[1], v));
                     registrar_tipo_de_padrao(inf, cx, p, requerido, inv);
+                    // `visitMapPattern` (3.6.2 `resolver.dart:1549-1554`): no
+                    // padrão inteiro.
+                    nunca_casa(inf, cx, t, requerido, span_do_padrao);
                     // Um mapa pode não ter a chave: falha mesmo com o tipo certo.
                     promover_para_padrao(inf, cx, requerido, true, true);
                     requerido_do_mapa = Some(requerido);
@@ -833,6 +836,15 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
                 inf.table.intern(Type::Record { positional: pos.into_boxed_slice(), named: nm.into_boxed_slice(), nullable: false })
             };
             let requerido = montar(inf, &vec![topo_dos_campos; campos.len()]);
+            // `RecordPatternImpl.resolvePattern` (3.6.2 `ast.dart:14858-14865`):
+            // sem campo nomeado repetido, no padrão inteiro.
+            let repetido = {
+                let mut vistos = std::collections::HashSet::new();
+                nomes.iter().flatten().any(|n| !vistos.insert(*n))
+            };
+            if !repetido {
+                nunca_casa(inf, cx, t, requerido, span_do_padrao);
+            }
             promover_para_padrao(inf, cx, requerido, true, false);
             // Os tipos dos campos vêm do tipo casado na ENTRADA do padrão
             // (`matchedValueType`, 3.6.2 `type_analyzer.dart:1608-1625`), não
