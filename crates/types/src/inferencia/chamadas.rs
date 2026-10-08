@@ -1464,6 +1464,9 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
                 let this = cx.tipo_this.unwrap_or(inf.core.dynamic_);
                 registrar(inf, cx, recv, this);
                 let t = expr::membro_super(inf, cx, target, name, expr::UsoDoSuper::Invocacao);
+                // `super._f()` com `_f` campo: a leitura de `super._f` vê a
+                // promoção dele (a chave `super`, distinta da de `this`).
+                let t = expr::leitura_de_campo(inf, cx, target, super::corpo::Base::Super, t);
                 registrar(inf, cx, target, t);
                 let f = funcao_resolvida(inf, cx, target);
                 alvo_de_metodo(inf, f, name, span);

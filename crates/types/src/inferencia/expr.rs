@@ -1268,7 +1268,7 @@ pub(crate) fn tipo_lido_de_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corp
 /// promovido, quando a propriedade é promovível e o tipo promovido é
 /// subtipo do não promovido; a leitura da não promovível registra o
 /// why-not-promoted dela.
-fn leitura_de_campo(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, base: Base, t: TypeId) -> TypeId {
+pub(crate) fn leitura_de_campo(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, base: Base, t: TypeId) -> TypeId {
     let Some((f, nome)) = membro_lido(inf, cx, e) else { return t };
     let chave = (base, cx.versao_da_base(base), nome);
     if inf.propriedade_promovivel(cx.lib, f) {

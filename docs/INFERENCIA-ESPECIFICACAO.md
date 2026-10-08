@@ -1229,6 +1229,13 @@ de ficar resolvido para esse getter, não para o setter: os backends invocam o `
 lugar do getter quebrou o executor nativo de builders (json_serializable e freezed com `TypeError`, 1943e791).
 No DartForge, `expr::identificador`, braço `MembroLexico`.
 
+### 7.10d Invocação de campo por `super`
+
+`super._f()` com `_f` campo é a invocação do valor de `super._f` (`_rewriteAsFunctionExpressionInvocation`):
+o tipo invocado é o da leitura promovida pela chave `super` (`if (super._f != null) super._f();` não relata
+`UNCHECKED_INVOCATION_OF_NULLABLE_VALUE`). No DartForge, o ramo `super.m(args)` de `chamadas.rs` passa por
+`leitura_de_campo` com `Base::Super`.
+
 ### 7.11 Closures e captura (R-FLU-07)
 
 Pré-passe (`sdk:pkg/_fe_analyzer_shared/lib/src/type_inference/
