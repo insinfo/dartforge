@@ -2988,7 +2988,7 @@ pub(crate) fn membro_super(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
 /// O operador `op` visto por `super` na classe corrente: o primeiro
 /// declarado nos supertipos, na ordem de [`membro_super`], instanciado como
 /// a classe corrente o vê; senão o de `Object`.
-fn buscar_operador_super(inf: &mut BodyInferrer<'_>, cx: &Corpo, op: SymbolId) -> Busca {
+pub(crate) fn buscar_operador_super(inf: &mut BodyInferrer<'_>, cx: &Corpo, op: SymbolId) -> Busca {
     let (Some(c), Some(this)) = (cx.classe, cx.tipo_this) else { return Busca::Dinamico };
     if inf.program.class(c).kind == dartforge_elements::model::ClassKind::ExtensionType {
         return Busca::Dinamico;

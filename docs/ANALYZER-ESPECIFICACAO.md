@@ -659,6 +659,12 @@ Base comum: a resolução de membro passa por `TypePropertyResolver.resolve` (`a
   `new_with_undefined_constructor_default`, `T<Null>.named()` → `new_with_undefined_constructor`).
 
 ##### `invocation_of_non_function_expression` (perda 12: FN 12)
+
+**Feito em 2026-10-08:** sem `call` nenhum o tipo da invocação é `InvalidType` (`result.isGetterInvalid`,
+`function_expression_invocation_resolver.dart:89-92`). O `super(…)` procura o `call` pela cadeia de `super`
+(o `TypePropertyResolver` com receptor `SuperExpression`): numa classe com `call()` próprio, `super()` relata.
+O `assert(…)` como expressão é `FunctionExpressionInvocation` e o avaliador de constantes dá o erro genérico
+(`visitNode`); o padrão constante de tipo inválido não é avaliado (`constant_verifier.dart:133-135`).
 - **Emissão:** `FunctionExpressionInvocationResolver.resolve` (`analyzer/lib/src/dart/resolver/function_expression_invocation_resolver.dart:72-104`) e `resolver.dart:2015-2025`.
 - **Condição exata:** o tipo do alvo não é função/`dynamic`/`Never`/`Function`, e `call` não é achado (`needsGetterError`), **ou** `call` existe mas não é método (getter/campo `call`, :92-101).
 - **Posição:** a expressão alvo (`function`). **Mensagem:** `The expression doesn't evaluate to a function, so it can't be invoked.`

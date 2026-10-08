@@ -549,7 +549,10 @@ impl<'a> Motor<'a> {
                 if let Some(r) = self.criacao_por_primario_de_extensao(cx, e, alvo, arguments, em_const) {
                     return r;
                 }
-                let e_metodo = matches!(a.expr(alvo).kind, ExprKind::Identifier(_) | ExprKind::Property { .. });
+                // `assert(…)` como expressão é `FunctionExpressionInvocation`
+                // (o `visitNode` genérico), não `MethodInvocation`.
+                let e_metodo = matches!(a.expr(alvo).kind, ExprKind::Identifier(_) | ExprKind::Property { .. })
+                    && !a.invocacoes_de_assert.contains(&e);
                 if !e_metodo {
                     return self.generico(u, e, false);
                 }

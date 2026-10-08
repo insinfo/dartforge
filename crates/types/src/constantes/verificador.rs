@@ -1183,7 +1183,9 @@ impl Verificador<'_, '_> {
                     return;
                 }
                 let e = desparentizar(a, *e);
-                if self.m.body.units[self.unidade.0 as usize].tipos_invalidos.contains(&e) {
+                // `expression.typeOrThrow is InvalidType` (3.6.2
+                // `constant_verifier.dart:133-135`).
+                if self.m.tipo_invalido(self.unidade, e) {
                     return;
                 }
                 let r = self.avaliar_e_relatar(e, false, c::CONSTANT_PATTERN_WITH_NON_CONSTANT_EXPRESSION);

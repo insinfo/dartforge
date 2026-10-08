@@ -713,6 +713,30 @@ fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, t: TypeI
                 }
                 (inf.table.invalido(inf.core.dynamic_), t)
             };
+            // `super(…)`: o `call` pela cadeia de `super` (o
+            // `TypePropertyResolver` com receptor `SuperExpression`); sem ele,
+            // `INVOCATION_OF_NON_FUNCTION_EXPRESSION` no `super` e o tipo é
+            // `InvalidType`.
+            if let Some(call) = inf.sym.call
+                && let ExprKind::Call { target, .. } = &inf.program.unit(cx.unit).ast.expr(e).kind
+                && matches!(inf.program.unit(cx.unit).ast.expr(*target).kind, ExprKind::Super)
+            {
+                let alvo_super = *target;
+                match expr::buscar_operador_super(inf, cx, call) {
+                    Busca::Achado(m) if m.metodo => {
+                        inf.alvo_da_aridade = alvo;
+                        return invocar(inf, cx, m.tipo, args, ctx, explicitos);
+                    }
+                    _ => {
+                        for a in args.args.iter() {
+                            inferir_livre(inf, cx, a.value);
+                        }
+                        let sp = inf.span_expr(cx.unit, alvo_super);
+                        inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::INVOCATION_OF_NON_FUNCTION_EXPRESSION, sp, &[]);
+                        return (inf.table.invalido(inf.core.dynamic_), t);
+                    }
+                }
+            }
             if let Some(call) = inf.sym.call {
                 if let Some(m) = inf.membro_de_interface(t_nn, call, false) {
                     if !m.metodo {
@@ -809,6 +833,10 @@ fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, t: TypeI
             if let (false, Some(alvo)) = (fora, alvo) {
                 let sp = inf.span_expr(cx.unit, alvo);
                 inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::INVOCATION_OF_NON_FUNCTION_EXPRESSION, sp, &[]);
+                // `result.isGetterInvalid` (3.6.2
+                // `function_expression_invocation_resolver.dart:89-92`): sem
+                // `call` nenhum, o tipo é `InvalidType`.
+                return (inf.table.invalido(inf.core.dynamic_), t);
             }
             (inf.core.dynamic_, t)
         }
