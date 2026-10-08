@@ -4109,6 +4109,10 @@ chave igual a uma anterior (a igualdade do `DartObjectImpl`), relatada depois de
 
 ##### `read_potentially_unassigned_final` (perda 2: FN 2) — publicado
 
+**Feito em 2026-10-08:** a leitura de um local `final` antes da declaração (o nome já está no escopo do
+bloco, `REFERENCED_BEFORE_DECLARATION`) também não está atribuída: relata este código no nome. O `const` e o
+`late` não. No DartForge, o braço `RefNome::Adiante` de `expr::identificador`.
+
 - **Emissão:** o mesmo `checkReadOfNotAssignedLocalVariable` (`resolver.dart:671-679`).
 - **Condição:** leitura de local `final` não `late` não definitivamente atribuído (qualquer tipo).
 - **Posição/Mensagem:** o identificador; "The final variable '{0}' can't be read because it's potentially unassigned at this

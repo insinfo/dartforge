@@ -1043,6 +1043,17 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
         RefNome::Adiante(decl) => {
             let msg = format!("{}: '{}'", REFERENCED_BEFORE_DECLARATION.template, inf.interner.resolve(n.sym));
             aviso_antes_da_declaracao(inf, n, msg, decl);
+            // `checkReadOfNotAssignedLocalVariable` (3.6.2 `resolver.dart:643-679`):
+            // o local ainda não atribuído, se `final` (não `late`; o `const`
+            // não), é `READ_POTENTIALLY_UNASSIGNED_FINAL` no nome.
+            let final_adiante = inf.program.unit(cx.unit).ast.stmts.iter().any(|st| match &st.kind {
+                ast::StmtKind::Variables(vl) => vl.final_ && !vl.const_ && !vl.late && vl.variables.iter().any(|v| v.name.span == decl),
+                _ => false,
+            });
+            if final_adiante {
+                let nome = inf.interner.resolve(n.sym).to_string();
+                inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::READ_POTENTIALLY_UNASSIGNED_FINAL, n.span, &[&nome]);
+            }
             // O analyzer resolve o nome para o local declarado adiante (o
             // escopo do bloco já o tem): o `ReferenceFinder` vê a dependência
             // (`const x = [x];` é ciclo).
