@@ -20851,7 +20851,12 @@ vêm do namespace exportado do core, não são palavras). No DartForge, a fase 3
 **Corrigido em 2026-10-08:** conta só o import da unidade definidora, como a especificação abaixo diz
 (`hasDartCoreImport` do `LibraryFileKind`, `file_state.dart:288-300`); o `import 'dart:core' as prefix0;` da
 augmentation que as macros geram, ou o de uma parte, não tira o core implícito da biblioteca (o `String` de
-`corpus/macros/411_pedido_independente` deixava de resolver no executor de macros).
+`corpus/macros/411_pedido_independente` deixava de resolver no executor de macros). O `nucleo_visivel` de
+`resolve.rs` (o `dynamic`/`Never` pelo core visível) segue a mesma regra da unidade definidora.
+- **Corrigido em 2026-10-08 (os FP de `not_a_type/NotAType__class_constructor` e `__class_method`):** com o
+  "prefixo" resolvendo para uma classe ou um alias (`A.foo bar() {}`), o `_rewriteToConstructorName` relata só
+  `NOT_A_TYPE` com `A.foo` (do prefixo ao fim do nome), em qualquer contexto fora da criação; o
+  `resolve.rs` relatava também `UNDEFINED_CLASS 'foo'` pelo ramo do prefixo de import que não acha o nome.
 
 - **Emissão:** `NamedTypeResolver.resolve` (`analyzer/lib/src/dart/resolver/named_type_resolver.dart:84-131`), chamado por `ResolutionVisitor.visitNamedType` (`analyzer/lib/src/dart/resolver/resolution_visitor.dart:1096-1105`; argumentos de tipo visitados **antes** do nome, `:1097`), na passada `ResolutionVisitor` de `LibraryAnalyzer._resolveFile` (`analyzer/lib/src/dart/analysis/library_analyzer.dart:811-863`) sobre a AST recuperada pelo fasta. Sai em `_resolveToElement` (`named_type_resolver.dart:304-322`) → `_ErrorHelper.reportNullOrNonTypeElement` (`:518-651`).
 - **Condição exata:**

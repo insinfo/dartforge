@@ -412,8 +412,13 @@ impl<'a> OutlineResolver<'a> {
         if Some(lib) == self.program.core {
             return true;
         }
+        // Como o core implícito do outline (`elements::outline`): só o import
+        // da unidade definidora conta (`hasDartCoreImport` do
+        // `LibraryFileKind`); o `import 'dart:core' as prefix0;` de uma
+        // augmentation não esconde o `dynamic` da biblioteca.
+        let principal = self.program.library(lib).units.first().copied();
         let imports = &self.program.library(lib).imports;
-        let do_core: Vec<_> = imports.iter().filter(|i| Some(i.library) == self.program.core).collect();
+        let do_core: Vec<_> = imports.iter().filter(|i| Some(i.library) == self.program.core && Some(i.unit) == principal).collect();
         if do_core.is_empty() {
             return true;
         }
@@ -2072,7 +2077,22 @@ impl<'a> OutlineResolver<'a> {
                             }
                         },
                         None => {
-                            if !crate::scope::deve_ignorar_indefinido(self.program, self.interner, unit_id, Some(name[0].sym), name[1].sym) {
+                            // `_rewriteToConstructorName` (`named_type_resolver.dart:101-109`,
+                            // `:329-382`): o "prefixo" é uma classe ou um alias, não um
+                            // prefixo de import (`A.foo` lido como `prefixo.Nome`). Fora
+                            // da criação, `NOT_A_TYPE` com `A.foo`, do prefixo ao fim do
+                            // nome, em qualquer contexto; nunca o nome indefinido.
+                            let prefixo_e_tipo = matches!(
+                                self.program.lookup_na_unidade(unit_id, prefix).and_then(|b| b.getter),
+                                Some(Element::Class(_) | Element::Typedef(_))
+                            );
+                            if prefixo_e_tipo {
+                                let completo = format!("{}.{}", self.interner.resolve(prefix), texto);
+                                self.avisar(
+                                    unit_id,
+                                    Diagnostic::com_codigo(dartforge_diagnostics::codigos::compile_time_error::NOT_A_TYPE, faixa, [completo.as_str()]),
+                                );
+                            } else if !crate::scope::deve_ignorar_indefinido(self.program, self.interner, unit_id, Some(name[0].sym), name[1].sym) {
                                 self.avisar_nome_de_tipo(unit_id, contexto, false, &texto, faixa);
                             }
                             self.table.invalido(self.core.dynamic_)
