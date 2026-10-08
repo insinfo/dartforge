@@ -265,7 +265,7 @@ fn tabela_de_efeitos(manifesto: &std::path::Path, nomes: &[String]) -> String {
 /// declara com `pub mod` e o `RUNTIME_MAIN` os embrulha em `mod x { … }`. O
 /// espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md §3.1–§3.3) acrescenta o
 /// contrato de layout, o espaço de objetos e as vistas por pacote.
-const MODULOS: &[&str] = &["heap", "hash", "layout", "espaco", "textos", "caixas", "listas", "tipadas"];
+const MODULOS: &[&str] = &["heap", "hash", "arc", "layout", "espaco", "textos", "caixas", "listas", "tipadas"];
 
 /// Todo `src/*.rs` é `lib.rs`, um dos [`MODULOS`] ou um fragmento listado.
 fn conferir_lista(src: &std::path::Path) {

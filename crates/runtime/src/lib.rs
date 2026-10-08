@@ -14,6 +14,8 @@
 //! sem debug-assertions): o `Cargo.toml` da raiz fixa o perfil deste crate no
 //! que o `rustc -O` do AOT dá. O teste `tests/fonte_unica.rs` confere.
 pub mod hash;
+/// O núcleo do ARC com coleta de ciclos (docs/ARC-CICLOS-ESPECIFICACAO.md §19, §22).
+pub mod arc;
 pub mod heap;
 /// O contrato de layout dos blocos (docs/NATIVO-ESPACO-UNIFICADO.md §3.1).
 pub mod layout;
@@ -59,6 +61,9 @@ pub mod efeitos {
 pub const RUNTIME_MAIN: &str = concat!(
     "mod hash {\n",
     include_str!("hash.rs"),
+    "\n}\n",
+    "mod arc {\n",
+    include_str!("arc.rs"),
     "\n}\n",
     "mod heap {\n",
     include_str!("heap.rs"),

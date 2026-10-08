@@ -2347,6 +2347,53 @@ impl Heap {
         live
     }
 
+    /// As posições de referência forte do objeto `h`, pela forma do corpo, as
+    /// mesmas que a marcação percorre (§2.8): `REFS`, as palavras
+    /// `1..=palavra 0`; `INSTANCIA`, os campos do mapa (e do mapa estendido);
+    /// `BRUTO`, nenhuma. Um estático ou um bloco livre não tem arestas aqui (o
+    /// estático é imortal no ARC, docs/ARC-CICLOS-ESPECIFICACAO.md §19.1).
+    fn posicoes_de_ref(&self, h: i64, f: &mut dyn FnMut(*mut i64)) {
+        let Some(b) = self.bloco_do_espaco(h) else { return };
+        // SAFETY: bloco do espaço; só os vivos são percorridos.
+        #[allow(unsafe_code)]
+        unsafe {
+            if (*b).estado == LIVRE {
+                return;
+            }
+            let tipo = forma(b);
+            if tipo == flags_do_bloco::REFS {
+                let w = self.objetos.palavras_do_corpo(b);
+                let n = refs_do_corpo(b, w);
+                let p = campos_de(b);
+                for i in 1..=n {
+                    f(p.add(i));
+                }
+                return;
+            }
+            if tipo != flags_do_bloco::INSTANCIA {
+                return;
+            }
+            let c = corpo(b);
+            let n = usize::from((*c).n);
+            let campos = campos_de(c);
+            let mut m = (*c).mapa;
+            while m != 0 {
+                f(campos.add(m.trailing_zeros() as usize));
+                m &= m - 1;
+            }
+            if n > 32 {
+                let ext = campos.add(capacidade(n)).cast::<u64>();
+                for w in 0..palavras_do_mapa(n) {
+                    let mut m = *ext.add(w);
+                    while m != 0 {
+                        f(campos.add(32 + w * 64 + m.trailing_zeros() as usize));
+                        m &= m - 1;
+                    }
+                }
+            }
+        }
+    }
+
     /// A coleta completa (o `dartforge_gc_collect` e os testes): marca a
     /// partir das raízes e varre tudo; o que sobrevive fica velho.
     pub fn collect(&mut self) {
@@ -4143,5 +4190,62 @@ mod espaco_unificado {
             assert_eq!(heap.palavras(h)[w - 1], w as i64, "corpo de {w} palavras perdido");
         }
         heap.pop_frame(quadro);
+    }
+}
+
+/// O grafo do ARC é o do heap: as ocorrências fortes são as posições que a
+/// marcação percorre (docs/ARC-CICLOS-ESPECIFICACAO.md §19.2).
+impl crate::arc::GrafoArc for Heap {
+    fn arestas(&self, h: Ref, f: &mut dyn FnMut(Ref)) {
+        // SAFETY: as posições são palavras do corpo de um bloco vivo.
+        #[allow(unsafe_code)]
+        self.posicoes_de_ref(h, &mut |p| f(unsafe { *p }));
+    }
+    fn romper(&mut self, h: Ref) {
+        // SAFETY: as posições são palavras do corpo de um bloco vivo.
+        #[allow(unsafe_code)]
+        self.posicoes_de_ref(h, &mut |p| unsafe { *p = 0 });
+    }
+}
+
+#[cfg(test)]
+mod grafo_do_arc {
+    //! O ARC sobre o heap real (docs/ARC-CICLOS-ESPECIFICACAO.md §19.2, §22.1):
+    //! as arestas são as da marcação e o rompimento zera as posições.
+    use super::*;
+    use crate::arc::{EstadoArc, EstadoDoArc, GrafoArc};
+    use crate::layout::{self, cid, flags};
+
+    fn lista(heap: &mut Heap, len: usize) -> Ref {
+        let h = heap.alocar(cid::LIST, layout::palavras_de_lista(len), flags::REFS);
+        heap.palavras_mut(h)[0] = len as i64;
+        h
+    }
+
+    #[test]
+    fn ciclo_de_listas_morre_e_tem_as_arestas_rompidas() {
+        let mut heap = Heap::new(false);
+        let mut arc = EstadoDoArc::novo();
+        let a = lista(&mut heap, 2);
+        let b = lista(&mut heap, 1);
+        for h in [a, b] {
+            arc.registrar(h).unwrap();
+            arc.concluir_construcao(h);
+        }
+        // a[0] = b, a[1] = b, b[0] = a: ocorrências contadas uma a uma.
+        for (u, i, v) in [(a, 1, b), (a, 2, b), (b, 1, a)] {
+            arc.reter(v).unwrap();
+            heap.gravar_ref(u, i, v);
+        }
+        let mut destinos = Vec::new();
+        heap.arestas(a, &mut |v| destinos.push(v));
+        assert_eq!(destinos, [b, b]);
+        arc.soltar(a).unwrap();
+        arc.soltar(b).unwrap();
+        arc.auditar(&heap, &[]).unwrap();
+        assert_eq!(arc.coletar_ciclos(&mut heap).unwrap(), 2);
+        assert_eq!(arc.meta(a).unwrap().estado, EstadoArc::Morto);
+        assert_eq!(heap.palavras(a)[1..], [0, 0]);
+        assert_eq!(heap.palavras(b)[1], 0);
     }
 }
