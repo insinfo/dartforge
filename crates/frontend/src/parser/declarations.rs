@@ -1280,6 +1280,13 @@ impl<'s, 'i> Parser<'s, 'i> {
             .filter(|(_, m)| matches!(&self.ast.member(**m).kind, MemberKind::Constructor(c) if c.parte_primaria))
             .map(|(i, _)| i)
             .collect();
+        // `_checkForMultiplePrimaryConstructorBodyDeclarations` (3.13.4,
+        // `error_verifier.dart:6293-6305`): da segunda parte em diante, com ou
+        // sem o cabeçalho primário.
+        for &i in partes.iter().skip(1) {
+            let span = self.span_do_this(members[i]);
+            self.erro_em(codigos::compile_time_error::MULTIPLE_PRIMARY_CONSTRUCTOR_BODY_DECLARATIONS, span, &[]);
+        }
         let Some(cab) = cab else {
             for &i in &partes {
                 let span = self.span_do_this(members[i]);
@@ -1287,10 +1294,6 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             return None;
         };
-        for &i in partes.iter().skip(1) {
-            let span = self.span_do_this(members[i]);
-            self.erro_em(codigos::compile_time_error::MULTIPLE_PRIMARY_CONSTRUCTOR_BODY_DECLARATIONS, span, &[]);
-        }
         // Construtor generativo não redirecionador no corpo: proibido (o k2 é
         // o único, para os inicializadores de campo poderem ler os
         // parâmetros); o nome do k2 não pode repetir o de outro construtor.
@@ -1800,6 +1803,17 @@ impl<'s, 'i> Parser<'s, 'i> {
         let implements = self.parse_implements_opt()?;
         self.dono = super::DonoDeMembros::ExtensionType;
         let members = self.parse_class_body_ou_vazio(Some(name_text))?;
+        // A segunda parte `this` em diante: `MULTIPLE_PRIMARY_CONSTRUCTOR_BODY_DECLARATIONS`
+        // (o mesmo `_checkForMultiplePrimaryConstructorBodyDeclarations` da classe).
+        let partes: Vec<MemberId> = members
+            .iter()
+            .copied()
+            .filter(|m| matches!(&self.ast.member(*m).kind, MemberKind::Constructor(c) if c.parte_primaria))
+            .collect();
+        for &m in partes.iter().skip(1) {
+            let span = self.span_do_this(m);
+            self.erro_em(codigos::compile_time_error::MULTIPLE_PRIMARY_CONSTRUCTOR_BODY_DECLARATIONS, span, &[]);
+        }
         // A parte de corpo `this …` do primário do tipo de extensão (a
         // representação), como a de classe (`elaborar_construtor_primario`):
         // `const` não aceita corpo nenhum; fora dele, `=>` é o erro.

@@ -594,7 +594,10 @@ impl Verificador<'_, '_> {
         // `atConstructorDeclaration`: do nome da classe ao fim do nome do
         // construtor, quando há.
         let cabecalho = Span { start: k.class_name.span.start, end: k.name.map_or(k.class_name.span.end, |n| n.span.end) };
-        if dados.kind == ClassKind::Enum && !k.const_ && !k.factory {
+        // Só no `visitConstructorDeclaration`: a parte `this` que sobra (repetida
+        // ou sem cabeçalho primário) é um `PrimaryConstructorBody`, não uma
+        // declaração de construtor (3.13.4).
+        if dados.kind == ClassKind::Enum && !k.const_ && !k.factory && !k.parte_primaria {
             self.relatar(c::NON_CONST_GENERATIVE_ENUM_CONSTRUCTOR, cabecalho, Vec::new());
         }
         if !k.const_ || k.factory {
