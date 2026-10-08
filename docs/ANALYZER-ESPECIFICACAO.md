@@ -12237,6 +12237,12 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
   inicializadores das bibliotecas importadas. Pendente: avaliar as constantes de bibliotecas importadas.
 
 ##### `const_constructor_param_type_mismatch` (perda 4: FN 2, FP 2)
+- **Padrão herdado do `super.x` (2026-10-08):** o `_checkParameters` (`evaluation.dart:2889-2900`) usa o
+  `evaluationResult` do parâmetro omitido; o do `super.x` sem padrão próprio é o do parâmetro correspondente do
+  construtor super (`SuperFormalParameterElementImpl.evaluationResult`, `element.dart:1750-1761`: o nomeado pelo
+  nome, o posicional pela posição entre os `super.` posicionais; sem conferir tipo; em cadeia). `const B({super.a})`
+  sobre `const A({int a = 0})` passa `0`, não `null` (`ConstConstructorParamTypeMismatch__supe_*`). No avaliador:
+  `Motor::padrao_herdado`.
 - **Emissão:** `_checkParameters` (`evaluation.dart:2870-2960`).
 - **FN (2):** argumentos de constantes de enum (`v(0)` para `String`, `v('')` para
   `String this.x` com campo `int`) — precisa avaliar construtores de enum; posição no argumento.

@@ -2676,6 +2676,11 @@ impl<'a> Motor<'a> {
             // `required` ausente fica sem valor.
             if valor.is_none() && p.kind != ast::ParameterKind::Required && !p.required {
                 valor = match p.default_value {
+                    // `super.x` sem padrão: o do parâmetro do construtor super.
+                    None if p.super_ => {
+                        let indice = ctor.parameters[..i].iter().filter(|q| q.super_ && q.kind != ast::ParameterKind::Named).count();
+                        Some(self.padrao_herdado(f, nome.sym, p.kind == ast::ParameterKind::Named, indice, 0).unwrap_or_else(|| Valor::nulo(self.core)))
+                    }
                     None => Some(Valor::nulo(self.core)),
                     Some(d) => match self.valor_padrao(cu, lib, d) {
                         Constante::Valor(v) => Some(v),
@@ -2733,6 +2738,54 @@ impl<'a> Motor<'a> {
             .completar_gerador(erro, f, k, tipo, lib, campos, Some((cu, inits)), super_implicitos.0, lexico, mapa_tipos)
             .con_super_nomeados(super_implicitos.1);
         self.terminar_gerador(g)
+    }
+
+    /// `SuperFormalParameterElementImpl.evaluationResult` (3.6.2
+    /// `element.dart:1750-1761`, usado pelo `_checkParameters`,
+    /// `evaluation.dart:2889-2900`): o `super.x` sem padrão próprio vale o
+    /// padrão do parâmetro correspondente do construtor super (o nomeado pelo
+    /// nome, o posicional pela posição entre os `super.` posicionais), sem
+    /// conferir o tipo; em cadeia, se aquele também é `super.` sem padrão.
+    /// `None`: sem parâmetro correspondente (o valor fica `null`).
+    fn padrao_herdado(&mut self, f: FunctionElementId, nome: SymbolId, nomeado: bool, indice: usize, prof: u32) -> Option<Valor> {
+        if prof > 16 {
+            return None;
+        }
+        let FunctionRef::Constructor { unit, member } = self.program.function(f).node else { return None };
+        let k = self.program.function(f).class?;
+        let sup = self.program.class(k).supertype_class?;
+        let ast::MemberKind::Constructor(ctor) = &self.ast(unit).member(member).kind else { return None };
+        let super_nome = ctor.initializers.iter().find_map(|i| match i {
+            ast::Initializer::Super { constructor, .. } => Some(constructor.map(|n| n.sym)),
+            _ => None,
+        });
+        let chave = super_nome.flatten().or_else(|| self.interner.lookup(""))?;
+        let g = *self.program.class(sup).constructors.get(&chave)?;
+        let g = self.program.publico(g);
+        let FunctionRef::Constructor { unit: gu, member: gm } = self.program.function(g).node else { return None };
+        let ast::MemberKind::Constructor(gc) = &self.ast(gu).member(gm).kind else { return None };
+        let alvo = if nomeado {
+            gc.parameters.iter().position(|q| q.kind == ast::ParameterKind::Named && q.name.is_some_and(|n| n.sym == nome))
+        } else {
+            gc.parameters.iter().enumerate().filter(|(_, q)| q.kind != ast::ParameterKind::Named).nth(indice).map(|(j, _)| j)
+        }?;
+        let q = &gc.parameters[alvo];
+        match q.default_value {
+            Some(d) => {
+                let glib = self.program.unit(gu).library;
+                match self.valor_padrao(gu, glib, d) {
+                    Constante::Valor(v) => Some(v),
+                    Constante::Invalida(_) => None,
+                }
+            }
+            None if q.super_ => {
+                let qnome = q.name?.sym;
+                let qnomeado = q.kind == ast::ParameterKind::Named;
+                let qindice = gc.parameters[..alvo].iter().filter(|r| r.super_ && r.kind != ast::ParameterKind::Named).count();
+                self.padrao_herdado(g, qnome, qnomeado, qindice, prof + 1)
+            }
+            None => Some(Valor::nulo(self.core)),
+        }
     }
 
     /// `_checkInitializers`, `_checkSuperConstructorCall` e o objeto.
