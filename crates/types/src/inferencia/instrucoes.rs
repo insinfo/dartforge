@@ -460,7 +460,7 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
                 None => (AsyncModifier::None, inf.core.unknown),
             };
             // O tipo de retorno declarado do gerador (`imposedType`).
-            let declarado = cx.funcoes.last().and_then(|f| f.retorno.filter(|_| f.executavel.is_some()));
+            let declarado = cx.funcoes.last().and_then(|f| f.retorno.filter(|_| f.executavel.is_some()).or(f.imposto_do_closure));
             if *star {
                 let ctx = if m == AsyncModifier::AsyncStar { inf.fluxo_de(k) } else { inf.iteravel(k) };
                 let t = inferir(inf, cx, *value, ctx);

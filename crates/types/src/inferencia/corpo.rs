@@ -42,6 +42,10 @@ pub(crate) enum Nome {
 #[derive(Debug, Clone)]
 pub(crate) struct CtxFuncao {
     pub modificador: ast::AsyncModifier,
+    /// O `imposedType` do `BodyInferenceContext` de um literal de função: o
+    /// retorno do tipo de função do contexto (salvo `dynamic`/`_`), contra o
+    /// qual o `yield` é conferido (`function_expression_resolver.dart:37-48`).
+    pub imposto_do_closure: Option<TypeId>,
     /// Tipo de retorno declarado (ou imposto pelo contexto); `None` quando
     /// o retorno está sendo inferido.
     pub retorno: Option<TypeId>,

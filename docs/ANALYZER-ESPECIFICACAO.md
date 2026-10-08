@@ -7912,6 +7912,10 @@ limite fica como escrito (`'T'`), e o `A<U>` não é cadeia de nomes.
 - **No DartForge:** não existe nenhuma das duas. Amostras: `f() async { yield 0; }` e `yield* 0;`.
 
 ##### `yield_of_invalid_type` (perda 2: FN 2)
+
+**Feito em 2026-10-08:** no literal de função gerador, o `imposedType` é o retorno do tipo de função do
+contexto (salvo `dynamic`/`_`, `function_expression_resolver.dart:37-48`): `Iterable<String> Function() v =
+() sync* { yield 1; }` relata. No DartForge, `CtxFuncao::imposto_do_closure`.
 - **Emissão:** `YieldStatementResolver._checkForYieldOfInvalidType`
   (`analyzer/lib/src/dart/resolver/yield_statement_resolver.dart:72-140`).
 - **No DartForge:** `crates/types/src/inferencia/instrucoes.rs:544-570` (`yield_invalido`) usa o retorno

@@ -110,7 +110,7 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             let ctx_ret = inf.contexto_de_retorno_declarado(ret, af.modifier);
             let executavel = inf.executavel_declarado(f);
             let retorno_legal = tipo_de_retorno_legal(inf, unit, af.return_type, af.modifier, ret);
-            cx.funcoes.push(CtxFuncao { modificador: af.modifier, retorno: Some(ret), contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, retornos_sem_valor: Vec::new(), expressoes_retornadas: Vec::new(), executavel, retorno_legal });
+            cx.funcoes.push(CtxFuncao { imposto_do_closure: None, modificador: af.modifier, retorno: Some(ret), contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, retornos_sem_valor: Vec::new(), expressoes_retornadas: Vec::new(), executavel, retorno_legal });
             corpo_de_funcao(inf, &mut cx, &af.body, af.modifier, ret, None);
             // `checkForBodyMayCompleteNormally` no nome da função/método.
             // O setter não confere: o elemento tem retorno `void` (o tipo
@@ -239,7 +239,7 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             let ctx_ret = ret;
             // Construtor gerador: `return e;` é `return_in_generative_constructor`.
             let executavel = if fe.factory { inf.executavel_declarado(f) } else { None };
-            cx2.funcoes.push(CtxFuncao { modificador: AsyncModifier::None, retorno: Some(ret), contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, retornos_sem_valor: Vec::new(), expressoes_retornadas: Vec::new(), executavel, retorno_legal: true });
+            cx2.funcoes.push(CtxFuncao { imposto_do_closure: None, modificador: AsyncModifier::None, retorno: Some(ret), contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, retornos_sem_valor: Vec::new(), expressoes_retornadas: Vec::new(), executavel, retorno_legal: true });
             // `flowEnd(ConstructorDeclaration)`: o analyzer não apara o
             // construtor na última instrução; o trecho vai até o fim dele.
             let fim = inf.program.unit(unit).ast.member(member).span.end;
@@ -266,6 +266,7 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             {
                 let tc = inf.tipo_this_classe(c);
                 let fc = CtxFuncao {
+                    imposto_do_closure: None,
                     modificador: AsyncModifier::None,
                     retorno: Some(tc),
                     contexto_retorno: tc,
@@ -1959,7 +1960,15 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
         (Some(_), Some(r)) => tipo_de_retorno_legal(inf, cx.unit, af.return_type, m, r),
         _ => true,
     };
-    cx.funcoes.push(CtxFuncao { modificador: m, retorno: declarado, contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, retornos_sem_valor: Vec::new(), expressoes_retornadas: Vec::new(), executavel, retorno_legal });
+    // O `imposedType` do literal de função: o retorno do tipo de função do
+    // contexto, salvo `dynamic` e `_` (a função local com nome usa o
+    // declarado).
+    let imposto_do_closure = if local.is_none() && escrito_ret.is_none() {
+        contexto_completo.filter(|&r| !inf.e_dynamic(r) && !inf.e_desconhecido(r))
+    } else {
+        None
+    };
+    cx.funcoes.push(CtxFuncao { imposto_do_closure, modificador: m, retorno: declarado, contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, retornos_sem_valor: Vec::new(), expressoes_retornadas: Vec::new(), executavel, retorno_legal });
     let saltos_salvos = std::mem::take(&mut cx.saltos);
     let cascatas_salvas = std::mem::take(&mut cx.cascatas);
     let alvos_salvos = std::mem::take(&mut cx.alvos_de_cascata);
