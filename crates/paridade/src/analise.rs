@@ -926,6 +926,11 @@ impl Motor {
             for d in dartforge_types::fase_deprecado::usos_de_deprecados(&program, &interner, &table, corpo_da_unidade, u, &mesmo_pacote) {
                 atribuidos.push((u, d, fase::BEST_PRACTICES));
             }
+            // O `DeprecatedFunctionalityVerifier` do 3.13.4 (no
+            // `BestPracticesVerifier`): `DEPRECATED_OPTIONAL`.
+            for d in dartforge_types::fase_deprecado::opcionais_depreciados(&program, &interner, corpo_da_unidade, u) {
+                atribuidos.push((u, d, fase::BEST_PRACTICES));
+            }
             // `_InvalidAccessVerifier` e as classes `@sealed`.
             for d in dartforge_types::fase_acesso::acessos_invalidos(&program, &interner, &outline, corpo_da_unidade, u, &mesmo_pacote) {
                 atribuidos.push((u, d, fase::BEST_PRACTICES));

@@ -7961,6 +7961,9 @@ contexto (salvo `dynamic`/`_`, `function_expression_resolver.dart:37-48`): `Iter
   `@Deprecated.optional()`, posição = nome do construtor/método na chamada (`.m()` → `m`; `.new()` →
   `new`), mensagem "Omitting an argument for the '{0}' parameter is deprecated." `{0}` = nome do
   parâmetro. Requer o SDK 3.13 (a classe `Deprecated.optional`), que não temos: deixar de fora.
+- **Feito em 2026-10-08** (a regra completa na entrada "guardas do emissor" abaixo): o
+  `DeprecatedFunctionalityVerifier` do 3.13.4 em `types::fase_deprecado::opcionais_depreciados`, só na
+  biblioteca julgada pelo 3.13.4, com o tipo da depreciação pelo nome do construtor de `Deprecated`.
 
 ##### `obsolete_colon_for_default_value` (perda 4: FN 4)
 - **Emissão:** `BestPracticesVerifier.visitDefaultFormalParameter`
@@ -10091,7 +10094,29 @@ Esta parte foi **gerada por script** (`E:\dftemp\analise\spec-r4\final\guardas.p
 - **Fase e supressões gerais:** fase 3c (`ResolverVisitor`); operandos de tipo `InvalidType` não chegam ao relato (T4).
 
 ##### `deprecated_optional` — guardas do emissor (perda 4: FN 4, FP 0, msg 0, pos 0)
-- **Emissão:** o código não existe no analyzer 3.6.2 (nenhuma constante com esse nome; auditoria §0.A, item 2). É do oráculo 3.13.4; a especificação só pode vir do checkout main e não foi escrita.
+- **Emissão:** o código não existe no analyzer 3.6.2 (nenhuma constante com esse nome; auditoria §0.A, item 2). É do oráculo 3.13.4:
+  `DeprecatedFunctionalityVerifier` (`analyzer/lib/src/error/deprecated_functionality_verifier.dart` da tag 3.13.4, buscada
+  em `E:\references\dart-sdk` em 2026-10-08), chamado pelo `BestPracticesVerifier` (`best_practices_verifier.dart:120`,
+  `:311`).
+- **Tipo da depreciação** (`isDeprecatedWithKind`, `element.dart:2300-2302`; `_DeprecationKind` de
+  `sdk/lib/core/annotations.dart:222-230`): `use` para `@deprecated` e `@Deprecated(…)`/`Deprecated.new(…)`; o nome do
+  construtor para `.extend`, `.implement`, `.subclass`, `.instantiate`, `.mixin` e `.optional`.
+- **`_checkForDeprecatedOptional`** (`:244-264`): nas invocações de método (não de função local), na criação de instância
+  (no `ConstructorName`), no atalho de ponto de construtor e de método (no nome) e no `this(…)` da lista de
+  inicializadores (no nome do construtor, ou no `this`): cada parâmetro formal que nenhum argumento preenche
+  (`correspondingParameter`) com o tipo `optional`. Sem conferir se o parâmetro é opcional.
+- **`_checkForDeprecatedOptionalRedirectedParameters`** (`:266-304`): a fábrica redirecionadora; os parâmetros opcionais
+  com o tipo `optional` do construtor alvo que a contagem de posicionais e os nomes dos nomeados da fábrica não cobrem, no
+  `errorRange` da declaração.
+- **`_checkForDeprecatedOptionalSuperParameters`** (`:306-380`): o construtor gerador (declarado ou primário) com o
+  construtor da superclasse que ele invoca (o `super(…)` escrito ou o sem nome implícito); mais de um `super(…)` sai
+  antes. Os posicionais cobertos são os `super.` posicionais mais os argumentos posicionais do `super(…)`; os nomeados,
+  os `super.` nomeados e os argumentos nomeados. Posição: o nome do construtor do `super(…)`, ou o `super`; sem
+  `super(…)`, o `errorRange` (do nome da classe ao nome do construtor; no primário, do `beginToken`, o `const` quando
+  há).
+- **No DartForge:** `types::fase_deprecado::opcionais_depreciados`, na fase do `BestPracticesVerifier`. O nosso
+  `dart:core` é o 3.6.2, sem os construtores novos de `Deprecated`: a regra só roda na biblioteca julgada pelo 3.13.4
+  (`Program::referencia_da_biblioteca`), em que o oráculo resolve a anotação contra o SDK dele.
 
 ##### `empty_struct` — guardas do emissor (perda 4: FN 4, FP 0, msg 0, pos 0)
 - **Emissão:** `analyzer/lib/src/generated/ffi_verifier.dart:133` em `FfiVerifier.visitClassDeclaration` (começa em `:117`).

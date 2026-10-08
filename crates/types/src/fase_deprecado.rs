@@ -707,3 +707,335 @@ pub fn lint_do_mesmo_pacote(
     }
     out
 }
+
+// ---------------------------------------------------------------------------
+// `DEPRECATED_OPTIONAL` (o `DeprecatedFunctionalityVerifier` do 3.13.4,
+// `analyzer/lib/src/error/deprecated_functionality_verifier.dart`, lido por
+// inteiro na tag; roda no `BestPracticesVerifier`).
+
+/// O `deprecationKind` de uma anotação (`ElementAnnotationImpl` do 3.13.4):
+/// `use` para o getter `deprecated` e o `Deprecated(…)`/`Deprecated.new(…)`;
+/// o nome do construtor para `Deprecated.extend(…)`, `.implement(…)`,
+/// `.subclass(…)`, `.instantiate(…)`, `.mixin(…)` e `.optional(…)` (o
+/// `_DeprecationKind` do `dart:core` do 3.13.4, `annotations.dart:222-230`).
+///
+/// O nosso `dart:core` é o 3.6.2, que não tem esses construtores: a regra só
+/// vale para a biblioteca julgada pelo 3.13.4
+/// ([`Program::referencia_da_biblioteca`]), em que o oráculo resolve a
+/// anotação contra o SDK dele.
+fn tipo_de_depreciacao(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> Option<String> {
+    let do_core = |b: Option<dartforge_elements::model::Binding>| -> Option<Element> {
+        let e = b?.getter?;
+        let lib = match e {
+            Element::Variable(v) => program.variable(v).library,
+            Element::Class(c) => program.class(c).library,
+            _ => return None,
+        };
+        (program.library(lib).uri == "dart:core").then_some(e)
+    };
+    let (elemento, nome, construtor) = match &m.name[..] {
+        [n] => (do_core(program.lookup_na_unidade(u, n.sym)), n.sym, None),
+        [p, n] => match do_core(program.lookup_prefixed_na_unidade(u, p.sym, n.sym)) {
+            Some(e) => (Some(e), n.sym, None),
+            None => (do_core(program.lookup_na_unidade(u, p.sym)), p.sym, Some(n.sym)),
+        },
+        [p, c, k] => (do_core(program.lookup_prefixed_na_unidade(u, p.sym, c.sym)), c.sym, Some(k.sym)),
+        _ => return None,
+    };
+    let texto = interner.resolve(nome);
+    match elemento? {
+        Element::Variable(_) if texto == "deprecated" && m.arguments.is_none() && construtor.is_none() => Some("use".to_string()),
+        Element::Class(_) if texto == "Deprecated" => {
+            m.arguments.as_ref()?;
+            match construtor.map(|k| interner.resolve(k)) {
+                None | Some("new") => Some("use".to_string()),
+                Some(k @ ("extend" | "implement" | "subclass" | "instantiate" | "mixin" | "optional")) => Some(k.to_string()),
+                Some(_) => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// `Element.isDeprecatedWithKind(kind)`: alguma anotação de depreciação da
+/// lista tem o tipo `kind`.
+fn depreciado_com_tipo(program: &Program, interner: &Interner, u: UnitId, metadata: &[ast::Annotation], kind: &str) -> bool {
+    metadata.iter().any(|m| tipo_de_depreciacao(program, interner, u, m).as_deref() == Some(kind))
+}
+
+/// Os parâmetros formais de uma função ou construtor, com a unidade deles.
+fn parametros_formais(program: &Program, f: FunctionElementId) -> Option<(&[ast::Parameter], UnitId)> {
+    match program.function(f).node {
+        FunctionRef::Function { unit, function } => Some((program.unit(unit).ast.function(function).parameters.as_deref().unwrap_or(&[]), unit)),
+        FunctionRef::Constructor { unit, member } => match &program.unit(unit).ast.member(member).kind {
+            MemberKind::Constructor(k) => Some((&k.parameters[..], unit)),
+            _ => None,
+        },
+        FunctionRef::None => None,
+    }
+}
+
+/// `ParameterElement.isOptional`: posicional opcional, ou nomeado não
+/// `required`.
+fn opcional(p: &ast::Parameter) -> bool {
+    match p.kind {
+        ParameterKind::Required => false,
+        ParameterKind::Named => !p.required,
+        _ => true,
+    }
+}
+
+/// Os avisos `DEPRECATED_OPTIONAL` da unidade `u`: o argumento omitido para
+/// um parâmetro anotado com `@Deprecated.optional()`, nas invocações (de
+/// método, de construtor, de atalho de ponto e de `this(…)`), nos
+/// construtores que passam pelo construtor da superclasse sem ele (os
+/// parâmetros `super.` e o `super(…)`) e nos construtores redirecionados.
+pub fn opcionais_depreciados(program: &Program, interner: &Interner, corpo: Option<&UnitBodyTypes>, u: UnitId) -> Vec<Diagnostic> {
+    use dartforge_diagnostics::codigos::warning::DEPRECATED_OPTIONAL;
+    let mut out: Vec<Diagnostic> = Vec::new();
+    let unidade = program.unit(u);
+    if program.referencia_da_biblioteca(unidade.library) != dartforge_diagnostics::Referencia::V3_13 {
+        return out;
+    }
+    if interner.lookup("Deprecated").is_none() {
+        return out;
+    }
+    let a = &unidade.ast;
+    let texto = |s: dartforge_intern::SymbolId| interner.resolve(s).to_string();
+    let relatar = |out: &mut Vec<Diagnostic>, span: Span, nome: String| {
+        let d = Diagnostic::com_codigo(DEPRECATED_OPTIONAL, span, [nome.as_str()]);
+        if !out.iter().any(|y| y.code == d.code && y.span == d.span && y.message == d.message) {
+            out.push(d);
+        }
+    };
+    // `_checkForDeprecatedOptional`: os parâmetros que nenhum argumento
+    // preenche (o `correspondingParameter`), com o tipo `optional`.
+    let omitidos = |out: &mut Vec<Diagnostic>, f: FunctionElementId, args: &ast::Arguments, entidade: Span| {
+        let Some((ps, pu)) = parametros_formais(program, f) else { return };
+        let mut preenchidos = vec![false; ps.len()];
+        let posicionais: Vec<usize> = (0..ps.len()).filter(|&i| ps[i].kind != ParameterKind::Named).collect();
+        let mut k = 0;
+        for x in args.args.iter() {
+            match x.name {
+                Some(n) => {
+                    if let Some(i) = (0..ps.len()).find(|&i| ps[i].kind == ParameterKind::Named && ps[i].nome_externo().is_some_and(|m| m.sym == n.sym)) {
+                        preenchidos[i] = true;
+                    }
+                }
+                None => {
+                    if let Some(&i) = posicionais.get(k) {
+                        preenchidos[i] = true;
+                    }
+                    k += 1;
+                }
+            }
+        }
+        for (i, p) in ps.iter().enumerate() {
+            if !preenchidos[i] && depreciado_com_tipo(program, interner, pu, &p.metadata, "optional") {
+                let nome = p.name.map_or_else(|| "<unknown>".to_string(), |n| texto(n.sym));
+                relatar(out, entidade, nome);
+            }
+        }
+    };
+    if let Some(corpo) = corpo {
+        for (i, expr) in a.exprs.iter().enumerate() {
+            let id = ExprId(i as u32);
+            match &expr.kind {
+                // `instanceCreationExpression`: no `ConstructorName`.
+                ExprKind::InstanceCreation { ty, constructor, arguments, .. } => {
+                    if let Some(Resolved::Constructor(f)) = corpo.get_resolved(id) {
+                        let fim = constructor.map_or(a.ty(*ty).span.end, |n| n.span.end);
+                        omitidos(&mut out, *f, arguments, Span { start: a.ty(*ty).span.start, end: fim });
+                    }
+                }
+                ExprKind::Call { target, arguments } => {
+                    // O atalho de ponto: `.id(…)`/`.new(…)` de construtor
+                    // (`dotShorthandConstructorInvocation`) e `.m(…)` de
+                    // método estático (`dotShorthandInvocation`), no nome.
+                    if let ExprKind::DotShorthand { name, .. } = &a.expr(*target).kind {
+                        let f = match corpo.get_resolved(id) {
+                            Some(Resolved::Constructor(f)) => Some(*f),
+                            _ => match corpo.get_resolved(*target) {
+                                Some(Resolved::Element(Element::Class(d))) => program
+                                    .class(*d)
+                                    .static_members
+                                    .get(&name.sym)
+                                    .copied()
+                                    .filter(|f| program.function(*f).kind == FunctionKind::Function),
+                                _ => None,
+                            },
+                        };
+                        if let Some(f) = f {
+                            omitidos(&mut out, f, arguments, name.span);
+                        }
+                        continue;
+                    }
+                    // A criação sem `new`: no `ConstructorName` (o alvo).
+                    if let Some(Resolved::Constructor(f)) = corpo.get_resolved(id) {
+                        omitidos(&mut out, *f, arguments, a.expr(*target).span);
+                        continue;
+                    }
+                    // `methodInvocation`: no nome do método; a função local
+                    // (`LocalFunctionElement`) não conta.
+                    if crate::lints_tipados4::e_invocacao_de_metodo(program, a, corpo, *target) {
+                        let f = match corpo.get_resolved(*target) {
+                            Some(Resolved::Member { member: MemberRef::Function(f), .. })
+                            | Some(Resolved::ExtensionMember { member: f, .. })
+                            | Some(Resolved::Element(Element::Function(f))) => Some(*f),
+                            _ => None,
+                        };
+                        if let Some(f) = f {
+                            let nome = match &a.expr(*target).kind {
+                                ExprKind::Property { name, .. } => name.span,
+                                _ => a.expr(*target).span,
+                            };
+                            omitidos(&mut out, f, arguments, nome);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    // Os construtores declarados (e os primários elaborados).
+    for (mi, m) in a.members.iter().enumerate() {
+        let MemberKind::Constructor(k) = &m.kind else { continue };
+        let Some(f) = (0..program.functions.len())
+            .map(|i| FunctionElementId(i as u32))
+            .find(|f| matches!(program.function(*f).node, FunctionRef::Constructor { unit, member } if unit == u && member.0 as usize == mi))
+        else {
+            continue;
+        };
+        let Some(classe) = program.function(f).class else { continue };
+        // `ConstructorDeclaration.errorRange`: do nome da classe ao nome do
+        // construtor; no primário com `const`, desde o `const`
+        // (`PrimaryConstructorDeclaration.errorRange`, o `beginToken`).
+        let primario = a.decls.iter().any(|d| match &d.kind {
+            DeclKind::Class(c) => c.primary_constructor.is_some_and(|p| p.0 as usize == mi),
+            DeclKind::Enum(e) => e.primary_constructor.is_some_and(|p| p.0 as usize == mi),
+            _ => false,
+        });
+        let inicio = if primario && k.const_ { m.span.start.min(k.class_name.span.start) } else { k.class_name.span.start };
+        let faixa_de_erro = Span { start: inicio, end: k.name.map_or(k.class_name.span.end, |n| n.span.end) };
+
+        // `this(…)`/`this.nome(…)` na lista de inicializadores: no nome do
+        // construtor, ou no `this`.
+        for i in k.initializers.iter() {
+            if let Initializer::Redirect { span, constructor, arguments } = i {
+                let chave = match constructor {
+                    Some(n) => Some(n.sym),
+                    None => interner.lookup(""),
+                };
+                if let Some(g) = chave.and_then(|c| program.class(classe).constructors.get(&c).copied()) {
+                    let entidade = constructor.map_or(Span { start: span.start, end: span.start + 4 }, |n| n.span);
+                    omitidos(&mut out, g, arguments, entidade);
+                }
+            }
+        }
+
+        // `_checkForDeprecatedOptionalRedirectedParameters`: a fábrica
+        // redirecionadora, contra os parâmetros do construtor alvo.
+        if let Some(r) = &k.redirect
+            && let Some(g) = alvo_do_redirecionamento(program, interner, u, r)
+            && let Some((ps, pu)) = parametros_formais(program, g)
+        {
+            let posicionais = k.parameters.iter().filter(|p| p.kind != ParameterKind::Named).count();
+            let nomeados: Vec<dartforge_intern::SymbolId> =
+                k.parameters.iter().filter(|p| p.kind == ParameterKind::Named).filter_map(|p| p.name.map(|n| n.sym)).collect();
+            let mut contagem = 0;
+            for p in ps.iter() {
+                if p.kind != ParameterKind::Named {
+                    contagem += 1;
+                }
+                if !opcional(p) || !depreciado_com_tipo(program, interner, pu, &p.metadata, "optional") {
+                    continue;
+                }
+                if p.kind != ParameterKind::Named {
+                    if contagem <= posicionais {
+                        continue;
+                    }
+                } else if p.name.is_some_and(|n| nomeados.contains(&n.sym)) {
+                    continue;
+                }
+                let nome = p.name.map_or_else(|| "<unknown>".to_string(), |n| texto(n.sym));
+                relatar(&mut out, faixa_de_erro, nome);
+            }
+        }
+
+        // `_checkForDeprecatedOptionalSuperParameters`: o construtor da
+        // superclasse que este invoca (o `super(…)`, ou o sem nome
+        // implícito do gerador que não redireciona).
+        if k.factory || k.redirect.is_some() || k.initializers.iter().any(|i| matches!(i, Initializer::Redirect { .. })) {
+            continue;
+        }
+        let supers: Vec<&Initializer> = k.initializers.iter().filter(|i| matches!(i, Initializer::Super { .. })).collect();
+        if supers.len() > 1 {
+            continue;
+        }
+        let Some(superclasse) = program.class(classe).supertype_class else { continue };
+        let (nome_do_super, argumentos_do_super, faixa) = match supers.first() {
+            Some(Initializer::Super { span, constructor, arguments }) => {
+                let entidade = constructor.map_or(Span { start: span.start, end: span.start + 5 }, |n| n.span);
+                (constructor.map(|n| n.sym), Some(arguments), entidade)
+            }
+            _ => (None, None, faixa_de_erro),
+        };
+        let chave = match nome_do_super {
+            Some(n) => Some(n),
+            None => interner.lookup(""),
+        };
+        let Some(g) = chave.and_then(|c| program.class(superclasse).constructors.get(&c).copied()) else { continue };
+        let Some((ps, pu)) = parametros_formais(program, g) else { continue };
+        // `verifySuperFormalParameters`: os `super.` posicionais e os nomes
+        // dos `super.` nomeados.
+        let posicionais_super = k.parameters.iter().filter(|p| p.super_ && p.kind != ParameterKind::Named).count();
+        let nomeados_super: Vec<dartforge_intern::SymbolId> =
+            k.parameters.iter().filter(|p| p.super_ && p.kind == ParameterKind::Named).filter_map(|p| p.name.map(|n| n.sym)).collect();
+        let (nomeados_do_super, posicionais_do_super) = match argumentos_do_super {
+            Some(args) => (
+                args.args.iter().filter_map(|x| x.name.map(|n| n.sym)).collect::<Vec<_>>(),
+                args.args.iter().filter(|x| x.name.is_none()).count(),
+            ),
+            None => (Vec::new(), 0),
+        };
+        let mut contagem = 0;
+        for p in ps.iter() {
+            if p.kind != ParameterKind::Named {
+                contagem += 1;
+            }
+            if !opcional(p) || !depreciado_com_tipo(program, interner, pu, &p.metadata, "optional") {
+                continue;
+            }
+            if p.kind != ParameterKind::Named {
+                if contagem <= posicionais_super + posicionais_do_super {
+                    continue;
+                }
+            } else {
+                let n = p.name.map(|n| n.sym);
+                if n.is_some_and(|n| nomeados_super.contains(&n) || nomeados_do_super.contains(&n)) {
+                    continue;
+                }
+            }
+            let nome = p.name.map_or_else(|| "<unknown>".to_string(), |n| texto(n.sym));
+            relatar(&mut out, faixa, nome);
+        }
+    }
+    out
+}
+
+/// O construtor alvo de `factory C(…) = D.nome;` (o `redirectedConstructor`).
+fn alvo_do_redirecionamento(program: &Program, interner: &Interner, u: UnitId, r: &ast::RedirectTarget) -> Option<FunctionElementId> {
+    let a = &program.unit(u).ast;
+    let TypeKind::Named { name, .. } = &a.ty(r.ty).kind else { return None };
+    let ligacao = match &name[..] {
+        [n] => program.lookup_na_unidade(u, n.sym),
+        [p, n] => program.lookup_prefixed_na_unidade(u, p.sym, n.sym),
+        _ => None,
+    }?;
+    let Element::Class(c) = ligacao.getter? else { return None };
+    let chave = match r.constructor {
+        Some(n) => Some(n.sym),
+        None => interner.lookup(""),
+    }?;
+    program.class(c).constructors.get(&chave).copied()
+}
