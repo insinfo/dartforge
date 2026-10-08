@@ -879,7 +879,14 @@ Itanium (Linux e macOS, x86-64 e aarch64) está escrito:
   `_Unwind_Exception` é um por thread, em `thread_local`, e não um campo do `Contexto`) e os call sites
   da LSDA também em `udata4` (0x03), para o caso do Mach-O;
 * `crates/emit_native/src/llvm/mod.rs`: `@df.lancar` chama `dartforge_lancar_desenrolamento` fora do
-  Windows (`EXCECOES_POR_TABELAS_ITANIUM`);
+  Windows (`EXCECOES_POR_TABELAS_ITANIUM`). **Corrigido em 2026-10-08**, pela primeira execução no Linux
+  (o job `nativo-unix` do Pesado, modos A1 e B1: 201/238, as 37 falhas com "_Unwind_RaiseException voltou
+  com 3"): a função Rust `extern "C"` que lançava fica no caminho do desenrolamento, e na variante do runtime
+  com `panic=unwind` (a DLL do SDK da fonte) ela tem a guarda de abortar do Rust, cuja personalidade
+  devolve `_URC_FATAL_PHASE1_ERROR` à exceção estrangeira. Agora `@df.lancar` pede o objeto
+  (`dartforge_objeto_de_desenrolamento`) e chama ele mesmo o `_Unwind_RaiseException`, como o
+  `RaiseException` do Windows; se o desenrolador voltar, `dartforge_desenrolamento_falhou` encerra. Nenhum
+  quadro Rust fica entre o lançamento e o pouso, a regra das portas (§13);
 * `crates/emit_native/src/sdk_modulo.rs` (`com_uwtable`) e `lib.rs`: `uwtable` em toda função do
   programa e do SDK, para o desenrolador atravessar os quadros sem pouso;
 * `crates/emit_native/src/alvo.rs`: `--excecoes=tabelas` deixa de ser recusado nesses alvos.

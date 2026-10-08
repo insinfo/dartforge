@@ -518,25 +518,33 @@ thread_local! {
         const { std::cell::UnsafeCell::new(ObjetoDeDesenrolamento { classe: CLASSE_DE_DESENROLAMENTO_DART, limpeza: None, privado: [0; 6] }) };
 }
 
-/// O desenrolamento das exceções por tabelas nos alvos Itanium: o que
-/// `@df.lancar` chama. Não volta: ou um pouso do código gerado pega, ou o
-/// processo é encerrado (a entrada do programa e as portas têm pouso, então
-/// "sem tratador" é defeito).
+/// O objeto de exceção da thread, pronto para o desenrolamento das
+/// exceções por tabelas nos alvos Itanium: `@df.lancar` (gerado em IR) o
+/// entrega ele mesmo ao `_Unwind_RaiseException`, sem quadro Rust no
+/// caminho até o pouso (a guarda de abortar de uma função `extern "C"` na
+/// variante `panic=unwind` do runtime pararia a busca). Não aloca nem lança.
 ///
 /// # Safety
 /// Só o código gerado a chama, com a exceção Dart já pendente.
 #[cfg(unix)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_lancar_desenrolamento() -> ! {
+pub unsafe extern "C" fn dartforge_objeto_de_desenrolamento() -> *mut ObjetoDeDesenrolamento {
     let objeto = OBJETO_DE_DESENROLAMENTO.with(|o| o.get());
     // SAFETY: o objeto é da thread e não há outro desenrolamento em curso;
     // o desenrolador só usa a área privada dele.
-    let motivo = unsafe {
+    unsafe {
         (*objeto).classe = CLASSE_DE_DESENROLAMENTO_DART;
         (*objeto).limpeza = None;
         (*objeto).privado = [0; 6];
-        _Unwind_RaiseException(objeto)
-    };
+    }
+    objeto
+}
+
+/// O `_Unwind_RaiseException` de `@df.lancar` voltou: nenhum pouso pegou (a
+/// entrada do programa e as portas têm pouso, então é defeito). Encerra.
+#[cfg(unix)]
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_desenrolamento_falhou(motivo: i32) -> ! {
     abortar_desenrolamento(&format!("_Unwind_RaiseException voltou com {motivo} (nenhum quadro pegou)"))
 }
 

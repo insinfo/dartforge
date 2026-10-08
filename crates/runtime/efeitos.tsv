@@ -659,7 +659,8 @@ dartforge_object_set	0	0	0
 dartforge_parar_isolados	1	1	1
 dartforge_pedir_no_ponto_seguro	1	1	0
 dartforge_personalidade	1	1	0
-dartforge_lancar_desenrolamento	1	1	0
+dartforge_objeto_de_desenrolamento	0	0	0
+dartforge_desenrolamento_falhou	0	0	0
 dartforge_registrar_rastro	0	0	0
 dartforge_registrar_campo_do_rastro	0	0	0
 dartforge_desregistrar_rastro	0	0	0

@@ -3707,15 +3707,25 @@ define internal void @df.lancar() noreturn noinline cold \"gc-leaf-function\" {\
   unreachable\n\
 }\n";
 
-/// O mesmo nos alvos Itanium (Linux, macOS): `@df.lancar` chama o runtime,
-/// que entrega ao desenrolador do sistema (`_Unwind_RaiseException`) o
-/// objeto de exceção da thread (`excecoes_tabelas.rs`).
+/// O mesmo nos alvos Itanium (Linux, macOS): `@df.lancar` pede ao runtime
+/// o objeto de exceção da thread (`excecoes_tabelas.rs`) e o entrega ele
+/// mesmo ao desenrolador do sistema (`_Unwind_RaiseException`), como o
+/// `RaiseException` do Windows: nenhum quadro Rust fica entre o lançamento
+/// e o pouso. Na variante do runtime com `panic=unwind` (a DLL do SDK da
+/// fonte), uma função Rust `extern "C"` no caminho tem a guarda de abortar,
+/// e a personalidade do Rust devolvia `_URC_FATAL_PHASE1_ERROR` (3) à
+/// exceção estrangeira. Se o desenrolador voltar, o código vai ao runtime,
+/// que encerra.
 const EXCECOES_POR_TABELAS_ITANIUM: &str = "; Exceções por tabelas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md)
 declare i32 @dartforge_personalidade(...)
 declare void @dartforge_registrar_portas(ptr, i64)
-declare void @dartforge_lancar_desenrolamento() noreturn
+declare ptr @dartforge_objeto_de_desenrolamento()
+declare i32 @_Unwind_RaiseException(ptr)
+declare void @dartforge_desenrolamento_falhou(i32) noreturn
 define internal void @df.lancar() noreturn noinline cold \"gc-leaf-function\" {
-  call void @dartforge_lancar_desenrolamento()
+  %o = call ptr @dartforge_objeto_de_desenrolamento()
+  %r = call i32 @_Unwind_RaiseException(ptr %o)
+  call void @dartforge_desenrolamento_falhou(i32 %r)
   unreachable
 }
 ";
