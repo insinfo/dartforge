@@ -529,6 +529,15 @@ impl<'a> Motor<'a> {
                         let r = self.chamar_construtor(cx, e, f, arguments, kw, Some(tipo));
                         return self.formatar_erro_de_construtor(u, e, r);
                     }
+                    // `const E(0)` pelo construtor primário de um tipo de
+                    // extensão (sem função no modelo): a representação.
+                    let estatico = self.body.units.get(u.0 as usize).and_then(|b| b.get_type(e));
+                    if let Some(t) = estatico
+                        && let Type::ExtensionType { decl: k, .. } = self.table.get(t).clone()
+                        && let Some(r) = self.primario_de_extensao(cx, e, k, constructor.map(|n| n.sym), arguments, true)
+                    {
+                        return r;
+                    }
                     return self.inv(u, e, c::INVALID_CONSTANT);
                 };
                 let kw = self.palavra_de_criacao(u, e, keyword.is_some());
@@ -1713,6 +1722,13 @@ impl<'a> Motor<'a> {
             _ => return None,
         };
         let Some(Resolved::Element(Element::Class(k))) = classe else { return None };
+        self.primario_de_extensao(cx, e, k, nome, arguments, em_const)
+    }
+
+    /// A criação pelo construtor primário do tipo de extensão `k` (`nome`: o
+    /// do construtor escrito): vale a representação, o argumento avaliado.
+    fn primario_de_extensao(&mut self, cx: &Ctx, e: ExprId, k: ClassId, nome: Option<SymbolId>, arguments: &ast::Arguments, em_const: bool) -> Option<R> {
+        let u = cx.unidade;
         let d = self.program.class(k).decl?;
         let ast::DeclKind::ExtensionType(et) = &self.ast(d.unit).decl(d.decl).kind else { return None };
         let do_primario = match (nome, et.constructor) {

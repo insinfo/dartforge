@@ -12258,6 +12258,11 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
   (primário 3.13: `d` parâmetro do construtor primário — escopo de inicializador primário).
 
 ##### `non_constant_default_value` (perda 3: FP 3)
+- **`const E(0)` de tipo de extensão (2026-10-08):** o construtor primário do tipo de extensão não é função no
+  modelo, e a `InstanceCreation` com `const` não achava construtor (`INVALID_CONSTANT`, e daí este código no
+  padrão). Como na chamada `E(0)`, a criação vale a representação (`_fieldMap[representation]`,
+  `evaluation.dart:2573-2578`): o avaliador acha o tipo de extensão pelo tipo estático da criação
+  (`Motor::primario_de_extensao`). `A({E a = const E(0)})` não relata.
 
 **Feito em 2026-10-07:** o `_validateDefaultValues` (3.6.2 `constant_verifier.dart:811-836`) pula o valor
 padrão cujo tipo estático é `InvalidType` ("We have already reported an error"): `void f({int x = X})` com
