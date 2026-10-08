@@ -1,6 +1,74 @@
 # Estado do DartForge — 2026-10-08
 
-## Rodada de 2026-10-08: nativo (ARC, Linux e macOS) e analisador
+## Situação geral (2026-10-08, fim da tarde)
+
+Foco pedido: o nativo AOT/JIT funcionando por inteiro, com `docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md` e
+`docs/ARC-CICLOS-ESPECIFICACAO.md`, e os modos alternativos pelo menos tão rápidos quanto o padrão; depois o
+analisador e o LSP. Medidas nesta máquina (Windows 11, i3-1215U — núcleos P e E misturados: tempos de
+microbenchmark só valem presos a um núcleo P).
+
+### Resumo por frente
+
+| frente | o que já funciona | o que falta |
+| --- | --- | --- |
+| **Nativo AOT** (`crates/emit_native`, `runtime`) | corpus 238/238 em Windows, Linux x86-64 e macOS arm64; `--gc-stress` 238/238; `dart:io` 130/130 nos três; `new_sali/backend` compila e responde 39/42 rotas no e2e; produção com LTO e o SDK da fonte | `bench/desempenho`: A0/dart = 1,22 (média geométrica; JSON, objetos e textos 1,5–2,4×, numérico e listas abaixo do Dart); e2e do backend precisa do banco |
+| **JIT** (`crates/jit`, `dartforge run`/`reload`) | 238/238 e JIT × AOT sem divergência nos três sistemas; recarga de estado e `io_regressao` verdes | recarga com mudança de layout em todos os casos do R0 |
+| **Exceções por tabelas (A1)** | 238/238 (+ `--gc-stress`); o pouso pega-tudo do `$ent` saiu (`a4b5ac42`): A1/A0 = 1,001 | tamanho: +3,2% no `new_sali/backend` (meta −3%); segue opt-in |
+| **Raízes por mapas (B0/B1)** | forma nova por `"deopt"` (§14.12, abaixo): raiz no registrador preservado, sem derrame por chamada. Windows: corpus 238/238 em desenvolvimento com `--gc-stress` e as três conferências, e 238/238 em produção com o conferidor do RS4GC | testes dirigidos (`mapas_dirigidos`) caem num esgotamento de registradores do LLVM em `dart:convert` no modo de desenvolvimento (em curso); B1; Linux/macOS com a forma nova; o `bench/desempenho` inteiro; commit |
+| **ARC** (`--memoria=arc`) | ARC puro correto: corpus 238/238 com auditoria, `--gc-stress`, ciclos em toda drenagem e JIT × AOT; grafos aleatórios contra oráculo (3000 sementes); efêmeros pelo ponto fixo | desempenho: ARC/A0 = 2,97 (até 21× em `lista_ligada`); as drenagens custam ~230 ns por jovem por causa do `HashMap` de metadados. Próximo: metadados por bloco indexados pela página (§19.1), retain/release em linha, donos da HIR (§20) |
+| **JS desenvolvimento** (`crates/emit_js`, contrato do DDC) | corpus diferencial **238/238** byte a byte contra `dart run` (medido hoje, 60 s); `limitless_ui` 26/26 no e2e; `new_sali/frontend` com os 11 passos do fluxo iguais ao oficial | — |
+| **JS produção** (`crates/emit_js_producao`) | corpus `--producao` 238/238; `new_sali` 12.082.759 bytes, `limitless_ui` 6.693.718 bytes (brutos) | piso de ~1 MB enquanto o runtime for o `dart_sdk.js` do DDC: compilar o SDK pela nossa trilha (PLANO passo 4); precisão do mundo fechado, minificação, *code splitting* (`docs/JS-PRODUCAO.md` §6) |
+| **Analisador** (`crates/analise`, `types`) | placar **22.900/23.012** (99,5%, posição exata), FP 17, FN 95; projetos reais sem diagnóstico a mais; CLI e LSP publicam os 167 códigos de `verificados.txt` | os 17 FP e 95 FN; conferir nos projetos reais os 391 códigos com zero FP no corpus para entrarem em `verificados.txt` |
+| **LSP** (`crates/lsp`) | oráculo contra o `dart language-server` 3.6.2 (`r6`): símbolos, dobras, tokens, correções, hover, rename, highlight, selectionRange e workspace/symbol 100%; references 96%, implementation 96%, completar top-1/top-5 97%, assistências 98% | `SnippetTextEdit` nas assistências; latência de references/implementation (~290/227 ms contra 3/2 ms do Dart); incremental I5–I6; formatação (porte do `dart_style`, fora do escopo) |
+| **Geração de código e ngdart** (`crates/build`, `dartforge serve`) | builders pelo executor nativo; `limitless_ui` e `new_sali/frontend` pela nossa trilha | compilador de visões do ngdart (§2.0) |
+
+### Nativo: modos de raízes e exceções contra o padrão
+
+`scripts/medir-modos-desempenho.py` (`bench/desempenho` em produção, 32 núcleos, 7 execuções alternadas,
+média geométrica contra A0 = pilha-sombra + checagem):
+
+| modo | antes da forma por `"deopt"` |
+| --- | ---: |
+| A1 (pilha-sombra + tabelas) | 1,001 |
+| B0 (mapas + checagem) | 0,996 (`formas` 1,43×) |
+| B1 (mapas + tabelas) | 1,005 |
+| ARC | 2,972 |
+| A0 contra `dart compile exe` | 1,220 |
+
+A regressão do B0 em `formas` era da forma do §14.8: cada raiz tinha dois nomes (`%v` e o `%raiz` relocado
+pelo statepoint e mantido pelo `llvm.fake.use`), e cada uma era gravada e recarregada em toda chamada que
+coleta. Na forma nova (§14.12) a raiz vai no operando `"deopt"` e fica no registrador preservado
+(`-use-registers-for-deopt-values`); o mapa (DFGM v2) leva a máscara dos registradores, e o percorredor os
+lê no contexto desenrolado. `chamadas`, presos a um núcleo P (ms):
+
+| núcleo | A0 | B0 (§14.8) | B0 (`"deopt"`) |
+| --- | ---: | ---: | ---: |
+| `formas` | 5,38 | 7,53 | 5,29 |
+| `fib` | 10,88 | 11,40 | 10,37 |
+| `closures` | 40,95 | 30,78 | 30,12 |
+
+Achados no caminho, consertados: constantes estáticas e cargas dos canônicos `true`/`false` no `"deopt"`
+esgotavam os registradores (o LLVM as rematerializa; agora saem do operando antes do RS4GC); chamadas do
+prólogo e de dentro dos ajudantes `@df.*` (corpo sem indentação) ficavam sem as raízes; e uma corrida
+antiga do ThinLTO distribuído — o `lld-link` grava o índice ao lado de cada entrada, inclusive dos
+bitcodes do SDK, e compilações paralelas se sobrescreviam (215 de 238 falhavam com `--jobs 4`).
+
+### Não commitado ainda
+
+A forma por `"deopt"` (emissor, `crates/llvm`, conversor, runtime, verificadores, spec §14.12) e, no ARC,
+o filtro acíclico dos candidatos e o tempo da drenagem no rastro; `docs/ARC-CICLOS-ESPECIFICACAO.md` entra
+no commit do ARC, atualizada com a implementação.
+
+### Ordem de trabalho
+
+1. Mapas: o esgotamento em `dart:convert` (desenvolvimento), os testes dirigidos, B1, o `bench/desempenho`
+   inteiro com os cinco modos; commit e CI (Linux/macOS com a forma nova).
+2. ARC: metadados por bloco (§19.1), retain/release em linha, drenagens sem `HashSet` por objeto; medir
+   até ficar perto de A0; atualizar e commitar a `ARC-CICLOS-ESPECIFICACAO.md`.
+3. Analisador: os 17 FP e os FN; ampliar `verificados.txt`.
+4. LSP: snippets, latência de references/implementation, incremental I5–I6.
+
+## Rodada de 2026-10-08, manhã: nativo (ARC, Linux e macOS) e analisador
 
 Foco pedido: o nativo AOT/JIT funcionando por inteiro, com `docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md` e
 `docs/ARC-CICLOS-ESPECIFICACAO.md`; depois o analisador e o LSP.
