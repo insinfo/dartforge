@@ -1266,6 +1266,10 @@ impl<'a> LlvmEmitter<'a> {
                             let sf = self.coagir(field, Type::I64);
                             self.emitir_gravacao_de_campo(v, &format!(".{idx}"), idx, &sf, &is_ref);
                         }
+                        // No ARC, os campos gravados em linha contam.
+                        if fields.iter().any(|f| self.tipo_de(f) == Type::Ref) {
+                            self.contar_iniciais_no_arc(v);
+                        }
                     }
                     // O campo em linha: a palavra de 8 bytes depois do
                     // cabeçalho do corpo do objeto (`heap::Cabecalho`).

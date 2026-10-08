@@ -141,6 +141,12 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
+        // ARC puro: as referências gravadas em linha num objeto recém
+        // alocado passam a contar. Não aloca nem lança.
+        decl: "declare void @dartforge_arc_inicial(i64) nounwind",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
         decl: "declare void @dartforge_object_set(i64, i64, i64, i8)",
         // Lê/grava um campo: não aloca (o emissor a expande em linha com
         // índice constante).

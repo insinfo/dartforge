@@ -27,10 +27,11 @@ DF = os.environ.get("DARTFORGE_BIN") or os.path.join(RAIZ, "target", "release", 
 DART = os.path.join(os.environ.get("DARTFORGE_DART_SDK", "C:/tools/dartsdk-3.6.2"), "bin", "dart.exe")
 LINHA = re.compile(r"^(\w+): ([\d ]+) us \| (.*)$")
 MODOS = [
-    ("A0", "sombra", "checagem"),
-    ("A1", "sombra", "tabelas"),
-    ("B0", "mapas", "checagem"),
-    ("B1", "mapas", "tabelas"),
+    ("A0", "sombra", "checagem", "tracing"),
+    ("A1", "sombra", "tabelas", "tracing"),
+    ("B0", "mapas", "checagem", "tracing"),
+    ("B1", "mapas", "tabelas", "tracing"),
+    ("ARC", "sombra", "checagem", "arc"),
 ]
 
 
@@ -38,12 +39,12 @@ def log(msg):
     print(msg, flush=True)
 
 
-def compilar(saida, nome, fonte, modo, raizes, excecoes):
+def compilar(saida, nome, fonte, modo, raizes, excecoes, memoria):
     exe = os.path.join(saida, f"{nome}-{modo}.exe")
     if os.path.exists(exe):
         return exe, 0.0
     env = dict(os.environ, DARTFORGE_RAIZES=raizes)
-    cmd = [DF, "aot", fonte, exe, "--optimize", "--excecoes", excecoes]
+    cmd = [DF, "aot", fonte, exe, "--optimize", "--excecoes", excecoes, "--memoria", memoria]
     t0 = time.perf_counter()
     r = subprocess.run(cmd, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
     dt = time.perf_counter() - t0
@@ -95,8 +96,8 @@ def main():
     exes = {}
     for nome in programas:
         fonte = os.path.join(BENCH, nome + ".dart")
-        for modo, raizes, excecoes in MODOS:
-            exe, dt = compilar(a.saida, nome, fonte, modo, raizes, excecoes)
+        for modo, raizes, excecoes, memoria in MODOS:
+            exe, dt = compilar(a.saida, nome, fonte, modo, raizes, excecoes, memoria)
             log(f"  {nome} {modo}: {'ok' if exe else 'falhou'} ({dt:.0f} s)")
             if exe:
                 exes[(nome, modo)] = exe
@@ -124,8 +125,8 @@ def main():
                     resultados.setdefault((nome, n), {})[modo] = res
         log(f"  repetição {rep + 1}/{a.repeticoes}")
 
-    linhas = ["| programa/núcleo | " + " | ".join(modos) + " | A1/A0 | B0/A0 | B1/A0 | A0/dart |",
-              "|---|" + "---:|" * (len(modos) + 4)]
+    linhas = ["| programa/núcleo | " + " | ".join(modos) + " | A1/A0 | B0/A0 | B1/A0 | ARC/A0 | A0/dart |",
+              "|---|" + "---:|" * (len(modos) + 5)]
     divergentes = []
     for nome in programas:
         nucleos = sorted({n for (p, m, n) in medidas if p == nome})
@@ -137,7 +138,7 @@ def main():
             def razao(x, y):
                 return f"{med[x] / med[y]:.2f}" if x in med and y in med and med[y] else "—"
             celulas = [f"{med[m] / 1000:.1f}" if m in med else "—" for m in modos]
-            linhas.append(f"| {nome}/{n} | " + " | ".join(celulas) + f" | {razao('A1', 'A0')} | {razao('B0', 'A0')} | {razao('B1', 'A0')} | {razao('A0', 'dart')} |")
+            linhas.append(f"| {nome}/{n} | " + " | ".join(celulas) + f" | {razao('A1', 'A0')} | {razao('B0', 'A0')} | {razao('B1', 'A0')} | {razao('ARC', 'A0')} | {razao('A0', 'dart')} |")
     # Média geométrica das razões.
     def geo(x, y):
         rs = []
@@ -150,7 +151,7 @@ def main():
         return statistics.geometric_mean(rs) if rs else float("nan")
     resumo = [
         "",
-        f"Média geométrica: A1/A0 {geo('A1', 'A0'):.3f}, B0/A0 {geo('B0', 'A0'):.3f}, B1/A0 {geo('B1', 'A0'):.3f}"
+        f"Média geométrica: A1/A0 {geo('A1', 'A0'):.3f}, B0/A0 {geo('B0', 'A0'):.3f}, B1/A0 {geo('B1', 'A0'):.3f}, ARC/A0 {geo('ARC', 'A0'):.3f}"
         + ("" if a.sem_dart else f", A0/dart {geo('A0', 'dart'):.3f}"),
         f"Tempos em ms (mediana de {a.repeticoes} execuções alternadas; em cada uma, a mediana das rodadas sem a primeira).",
     ]

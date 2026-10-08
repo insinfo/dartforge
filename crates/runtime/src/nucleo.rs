@@ -492,6 +492,15 @@ pub extern "C" fn dartforge_arc_gravar_ref(h: i64, palavra: i64, v: i64) {
     HEAP.with(|heap| heap.borrow_mut().gravar_ref(h, palavra, v));
 }
 
+/// No ARC puro, as referências que o código gerado gravou em linha no
+/// objeto `h` recém alocado (`AllocObject`, o contexto, a célula e a
+/// closure em linha) passam a contar (`Heap::arc_contar_iniciais`). Não
+/// aloca.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_inicial(h: i64) {
+    HEAP.with(|heap| heap.borrow_mut().arc_contar_iniciais(h));
+}
+
 /// Obtém bits do campo pelo índice estável escolhido pelo emissor.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_object_get(handle: i64, index: i64) -> i64 {

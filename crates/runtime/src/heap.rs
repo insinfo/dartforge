@@ -2512,6 +2512,12 @@ impl Heap {
     /// vivos, e os lembrados pela barreira de escrita entram como raízes);
     /// a completa, tudo. Em ambas o que sobrevive fica velho.
     fn coletar(&mut self, menor: bool) {
+        // O ARC puro não rastreia: a drenagem decide a vida pelo RC e pelas
+        // raízes diretas (docs/ARC-IMPLEMENTACAO.md §6).
+        if self.arc.as_ref().is_some_and(|a| a.puro) {
+            self.drenar_arc(!menor);
+            return;
+        }
         conferir_coleta_permitida();
         // No ARC a marcação é sempre a menor (os jovens); a vida dos velhos é
         // o RC, e a completa pedida é a rodada de ciclos e a reclamação
@@ -4271,6 +4277,12 @@ pub struct ArcDoHeap {
     /// deletion*) em toda sincronização; `nunca`: nem ela nem o ponto fixo
     /// da completa (o diagnóstico); o padrão: o ponto fixo na completa.
     ciclos: Option<bool>,
+    /// O ARC puro (o padrão; docs/ARC-IMPLEMENTACAO.md §6): toda gravação
+    /// de referência conta na hora, também num jovem, e a drenagem
+    /// ([`Heap::drenar_arc`]) decide a vida sem percorrer o heap. Com
+    /// `DARTFORGE_ARC_BERCARIO=1`, o modo da primeira etapa: o berçário pela
+    /// coleta menor rastreada e as arestas do jovem contadas na promoção.
+    puro: bool,
 }
 
 impl std::fmt::Debug for ArcDoHeap {
@@ -4369,18 +4381,60 @@ impl Heap {
     }
 
     /// A troca de `antigo` por `novo` numa posição forte do bloco `b` (de
-    /// `h`): conta na hora quando o dono é velho e não foi fotografado. O
-    /// jovem não conta (as arestas dele entram na promoção), e uma troca
-    /// envolvendo um jovem não muda RC (o jovem não tem metadados).
+    /// `h`), contada na hora se o dono não foi fotografado. No ARC puro
+    /// conta sempre, e o destino ainda sem metadados é registrado (o jovem
+    /// que ganha a primeira ocorrência). No modo do berçário só conta com o
+    /// dono velho (as arestas do jovem entram na promoção).
     fn arc_trocou(&mut self, b: *mut Cabecalho, h: Ref, antigo: Ref, novo: Ref) {
+        let novo_no_espaco = self.bloco_do_espaco(novo).is_some();
         let Some(arc) = self.arc.as_deref_mut() else { return };
         // SAFETY: bloco vivo do espaço.
         let e = unsafe { (*b).estado };
-        if (e != VELHO && e != LEMBRADO) || antigo == novo || arc.fotos.contains_key(&h) {
+        if antigo == novo || arc.fotos.contains_key(&h) || (!arc.puro && e != VELHO && e != LEMBRADO) {
             return;
+        }
+        if arc.puro && novo_no_espaco {
+            Self::arc_registrar_se_preciso(arc, novo);
         }
         arc.estado.reter(novo).unwrap_or_else(|e| falha_do_arc(e));
         arc.estado.soltar(antigo).unwrap_or_else(|e| falha_do_arc(e));
+    }
+
+    /// O objeto do espaço `h` ainda sem metadados ganha registro (RC zero,
+    /// vivo) antes da primeira ocorrência contada.
+    fn arc_registrar_se_preciso(arc: &mut ArcDoHeap, h: Ref) {
+        if smi::e_handle(h) && arc.estado.meta(h).is_none() {
+            arc.estado.registrar_vivo(h);
+        }
+    }
+
+    /// Retém `v` (registrando o objeto do espaço sem metadados): uma
+    /// ocorrência nova, no ARC puro.
+    fn arc_reter_registrando(&self, arc: &mut ArcDoHeap, v: Ref) {
+        if smi::e_handle(v) && self.bloco_do_espaco(v).is_some() {
+            Self::arc_registrar_se_preciso(arc, v);
+        }
+        arc.estado.reter(v).unwrap_or_else(|e| falha_do_arc(e));
+    }
+
+    /// As referências que o código gerado gravou em linha num objeto recém
+    /// alocado (`AllocObject`, contexto, célula e closure em linha,
+    /// `dartforge_arc_inicial`): no ARC puro, cada uma conta. No modo do
+    /// berçário não faz nada (contam na promoção).
+    pub fn arc_contar_iniciais(&mut self, h: Ref) {
+        if !smi::e_handle(h) || self.bloco_do_espaco(h).is_none() {
+            return;
+        }
+        let Some(mut arc) = self.arc.take() else { return };
+        if arc.puro {
+            let mut valores = Vec::new();
+            // SAFETY: as posições são palavras do corpo de um bloco vivo.
+            self.posicoes_de_ref(h, &mut |p| valores.push(unsafe { *p }));
+            for v in valores {
+                self.arc_reter_registrando(&mut arc, v);
+            }
+        }
+        self.arc = Some(arc);
     }
 
     /// A gravação crua de um native que não passa pelo `Heap` (o `_data` do
@@ -4392,12 +4446,13 @@ impl Heap {
         }
     }
 
-    /// A foto das ocorrências contadas do velho `h` antes de uma escrita
-    /// crua (uma por época).
+    /// A foto das ocorrências contadas de `h` antes de uma escrita crua
+    /// (uma por época): do velho no modo do berçário, de todo objeto no ARC
+    /// puro (o jovem também conta as gravações).
     fn arc_foto(&mut self, b: *mut Cabecalho, h: Ref) {
         // SAFETY: bloco vivo do espaço.
         let e = unsafe { (*b).estado };
-        if e != VELHO && e != LEMBRADO {
+        if e != VELHO && e != LEMBRADO && !self.arc.as_ref().is_some_and(|a| a.puro) {
             return;
         }
         if self.arc.as_ref().is_some_and(|a| a.fotos.contains_key(&h)) {
@@ -4438,6 +4493,7 @@ impl Heap {
                 Ok("nunca") => Some(false),
                 _ => None,
             },
+            puro: !std::env::var("DARTFORGE_ARC_BERCARIO").is_ok_and(|v| v == "1"),
         });
         arc.estado.traco = std::env::var("DARTFORGE_ARC_TRACO").is_ok_and(|v| v == "1");
         let alcancados = self.alcancaveis_por_rastreamento();
@@ -4721,6 +4777,262 @@ impl Heap {
                 "[arc] {} promovidos={} contados={} retains={} releases={} mortos_rc={} mortos_ciclo={} rodadas={} examinados={} candidatos={}",
                 if completa { "completa" } else { "menor" },
                 promovidos.len(),
+                arc.estado.registrados(),
+                e.retains,
+                e.releases,
+                e.mortos_por_rc,
+                e.mortos_por_ciclo,
+                e.rodadas_de_ciclo,
+                e.examinados,
+                arc.estado.candidatos()
+            );
+        }
+        self.arc = Some(arc);
+        for (finalizador, par) in finalizar {
+            finalizador(par);
+        }
+        for (f, token) in nativas {
+            // SAFETY: a `NativeFinalizerFunction` do anexo, `void f(void*)`;
+            // como na VM, roda durante a coleta e não pode tocar o heap.
+            let f: extern "C" fn(usize) = unsafe { std::mem::transmute(f) };
+            f(token);
+        }
+    }
+
+    /// A drenagem do ARC puro (docs/ARC-IMPLEMENTACAO.md §6), no lugar da
+    /// coleta menor, sem percorrer o heap:
+    ///
+    /// 1. as fotos (escritas cruas desde a última drenagem) contam as
+    ///    ocorrências de agora e soltam as da foto (a vida do fotografado
+    ///    segue o RC e as raízes, como a de qualquer objeto);
+    /// 2. o jovem (entregue desde a última drenagem) que só uma raiz direta
+    ///    vê ganha registro (RC zero, protegido);
+    /// 3. as entradas de efêmero vivas contra as contadas (o valor é uma
+    ///    ocorrência atribuída à chave);
+    /// 4. o jovem registrado (por uma ocorrência contada ou pelo passo 2)
+    ///    fica (marcado, velho, candidato a ciclo); o resto morreu sem
+    ///    ninguém o ver: solta as ocorrências que contou;
+    /// 5. os zeros morrem em cascata, menos os que as raízes veem; na
+    ///    completa, o ponto fixo (com efêmeros) ou a rodada de ciclos até não
+    ///    haver morte nova; as tabelas laterais esquecem os mortos;
+    /// 6. a memória: os jovens mortos pela varredura dos jovens (sem marca),
+    ///    os mortos pelo RC um a um.
+    ///
+    /// As raízes não contam: a pilha-sombra (ou os mapas), os quadros do
+    /// runtime e as tabelas de raízes protegem o que veem diretamente. O que
+    /// só um objeto vê tem a ocorrência contada.
+    fn drenar_arc(&mut self, completa: bool) {
+        conferir_coleta_permitida();
+        if let Some(a) = &self.agenda {
+            a.pendente.set(false);
+        }
+        self.devolver_tlabs();
+        self.stats.collections += 1;
+        let mut arc = self.arc.take().expect("ARC ligado");
+        let mut raizes = Vec::new();
+        self.raizes(&mut raizes);
+        let protegidos: crate::hash::HashSet<Ref> = raizes.into_iter().filter(|&h| smi::e_handle(h)).collect();
+        // 1. As fotos.
+        let mut valores = Vec::new();
+        let n_fotos = arc.fotos.len();
+        for (x, foto) in std::mem::take(&mut arc.fotos) {
+            if self.bloco_do_espaco(x).is_some() && !arc.estado.morto(x) {
+                // SAFETY: as posições são palavras do corpo de um bloco vivo.
+                self.posicoes_de_ref(x, &mut |p| valores.push(unsafe { *p }));
+                for v in valores.drain(..) {
+                    self.arc_reter_registrando(&mut arc, v);
+                }
+                // Registrado, o fotografado segue o RC: sem ocorrência nem
+                // raiz, morre adiante e solta as que acabou de contar.
+                Self::arc_registrar_se_preciso(&mut arc, x);
+            }
+            for v in foto {
+                arc.estado.soltar(v).unwrap_or_else(|e| falha_do_arc(e));
+            }
+        }
+        // 2. Os jovens que só as raízes veem.
+        let mut jovens = Vec::new();
+        self.objetos.jovens_entregues(&mut |b| jovens.push(b));
+        for &b in &jovens {
+            let h = b as i64 + DESLOCAMENTO_DO_HANDLE;
+            if arc.estado.meta(h).is_none() && protegidos.contains(&h) {
+                arc.estado.registrar_vivo(h);
+            }
+        }
+        // 3. Os efêmeros: as entradas vivas de agora contra as contadas.
+        let mut soltar: Vec<Ref> = Vec::new();
+        let mut atuais: crate::hash::HashSet<Ref> = crate::hash::HashSet::default();
+        let entradas: Vec<(Ref, Ref, Ref)> = self.efemeros.iter().map(|(&p, &(k, v))| (p, k, v)).collect();
+        for (p, k, v) in entradas {
+            if !(arc.estado.vivo(p) && smi::e_handle(k) && smi::e_handle(v)) {
+                continue;
+            }
+            atuais.insert(p);
+            match arc.efemeros.contados.get(&p) {
+                Some(&(k0, v0)) if k0 == k && v0 == v => {}
+                antes => {
+                    if antes.is_some()
+                        && let Some((_, v0)) = arc.efemeros.remover(p)
+                    {
+                        soltar.push(v0);
+                    }
+                    self.arc_reter_registrando(&mut arc, v);
+                    arc.efemeros.inserir(p, k, v);
+                }
+            }
+        }
+        let saidos: Vec<Ref> = arc.efemeros.contados.keys().copied().filter(|p| !atuais.contains(p)).collect();
+        for p in saidos {
+            if let Some((_, v0)) = arc.efemeros.remover(p) {
+                soltar.push(v0);
+            }
+        }
+        for v in soltar {
+            arc.estado.soltar(v).unwrap_or_else(|e| falha_do_arc(e));
+        }
+        // 4. Os jovens: o registrado fica, o resto morreu.
+        let mut mortos_jovens: Vec<Ref> = Vec::new();
+        let n_jovens = jovens.len();
+        for &b in &jovens {
+            let h = b as i64 + DESLOCAMENTO_DO_HANDLE;
+            if arc.estado.meta(h).is_some() {
+                // SAFETY: bloco entregue desde a última drenagem, ocupado.
+                unsafe {
+                    (*b).estado = VELHO;
+                    marcar_bloco(b);
+                }
+                arc.estado.revisar(h);
+                arc.estado.candidatar(h);
+            } else {
+                mortos_jovens.push(h);
+            }
+        }
+        for &h in &mortos_jovens {
+            // SAFETY: as posições são palavras do corpo de um bloco ainda não solto.
+            self.posicoes_de_ref(h, &mut |p| valores.push(unsafe { *p }));
+            for v in valores.drain(..) {
+                arc.estado.soltar(v).unwrap_or_else(|e| falha_do_arc(e));
+            }
+        }
+        // As raízes não geram decremento ao sumir: o que elas seguram volta a
+        // ser candidato a ciclo.
+        for &h in &protegidos {
+            arc.estado.candidatar(h);
+        }
+        let protegido = |h: Ref| protegidos.contains(&h);
+        // 5. Zeros, ciclos e o ponto fixo da completa.
+        let rodada = completa && arc.ciclos != Some(false);
+        let mut ponto_fixo = rodada && !self.efemeros.is_empty();
+        let ciclos = arc.ciclos == Some(true) || (rodada && !ponto_fixo);
+        let mut prontas = Vec::new();
+        let mut nativas = Vec::new();
+        let mut finalizar = Vec::new();
+        let mut mortos_rc: Vec<Ref> = Vec::new();
+        let mut primeira = true;
+        loop {
+            {
+                let ArcDoHeap { estado, efemeros, .. } = &mut *arc;
+                let mut grafo = GrafoDoHeap { heap: self, efemeros };
+                estado.drenar_zeros(&mut grafo, usize::MAX, &protegido).unwrap_or_else(|e| falha_do_arc(e));
+                if ciclos {
+                    estado.coletar_ciclos(&mut grafo, &protegido).unwrap_or_else(|e| falha_do_arc(e));
+                    estado.drenar_zeros(&mut grafo, usize::MAX, &protegido).unwrap_or_else(|e| falha_do_arc(e));
+                }
+            }
+            if ponto_fixo {
+                ponto_fixo = false;
+                self.ponto_fixo_arc(&mut arc);
+                let ArcDoHeap { estado, efemeros, .. } = &mut *arc;
+                let mut grafo = GrafoDoHeap { heap: self, efemeros };
+                estado.drenar_zeros(&mut grafo, usize::MAX, &protegido).unwrap_or_else(|e| falha_do_arc(e));
+            }
+            let mut mortos = arc.estado.tomar_mortos();
+            mortos_rc.extend_from_slice(&mortos);
+            if primeira {
+                primeira = false;
+                mortos.extend_from_slice(&mortos_jovens);
+            }
+            if mortos.is_empty() {
+                break;
+            }
+            let morto: crate::hash::HashSet<Ref> = mortos.into_iter().collect();
+            self.fracas.retain(|portador, alvo| {
+                if morto.contains(alvo) {
+                    *alvo = 0;
+                }
+                !morto.contains(portador)
+            });
+            let portadores: Vec<Ref> = self.efemeros.keys().copied().filter(|p| morto.contains(p)).collect();
+            for p in portadores {
+                self.efemeros.remove(&p);
+                if let Some((_, v)) = arc.efemeros.remover(p) {
+                    arc.estado.soltar(v).unwrap_or_else(|e| falha_do_arc(e));
+                }
+            }
+            // A chave morta zera a entrada (o rompimento da chave registrada
+            // já zerou; a do jovem morto, aqui).
+            for e in self.efemeros.values_mut() {
+                if morto.contains(&e.0) {
+                    *e = (0, 0);
+                }
+            }
+            self.anexos.retain_mut(|a| {
+                if morto.contains(&a.desanexo) {
+                    a.desanexo = 0;
+                }
+                if !morto.contains(&a.valor) {
+                    return true;
+                }
+                match a.acao {
+                    AcaoDeFinalizador::Dart(acao) => prontas.push(acao),
+                    AcaoDeFinalizador::Nativa(f, token) => nativas.push((f, token)),
+                }
+                false
+            });
+            self.campos_late_inicializados.retain(|(h, _)| !morto.contains(h));
+            self.late_novos.retain(|(h, _)| !morto.contains(h));
+            self.permanentes.retain(|h| !morto.contains(h));
+            self.constantes.retain(|h, _| !morto.contains(h));
+            self.codigo_do_tearoff.retain(|h, _| !morto.contains(h));
+            self.finalizaveis.retain(|h, &mut par| {
+                let fica = !morto.contains(h);
+                if !fica {
+                    finalizar.push(par);
+                }
+                fica
+            });
+        }
+        self.finalizacoes_prontas.extend(prontas);
+        // 6. A memória.
+        let (mortos_varridos, mut soltos) = self.objetos.varrer_jovens();
+        for &h in &mortos_rc {
+            if let Some(b) = self.bloco_do_espaco(h) {
+                // SAFETY: bloco do morto pelo RC, fora da lista dos jovens
+                // (a varredura acima a esvaziou), que ninguém mais lê.
+                soltos += unsafe { self.objetos.soltar_morto(b) };
+            }
+        }
+        self.stats.reclaimed += (mortos_varridos + mortos_rc.len()) as u64;
+        self.stats.estimated_bytes = self.stats.estimated_bytes.saturating_sub(soltos);
+        self.allocations = 0;
+        self.bytes_jovens = 0;
+        if completa {
+            let vivos = self.objetos.vivos;
+            self.menores_desde_completa = 0;
+            self.trabalho_na_completa = vivos;
+            self.recalcular_gatilhos(vivos);
+        } else {
+            self.menores_desde_completa += 1;
+        }
+        if arc.conferir {
+            self.conferir_arc(&mut arc);
+        }
+        if self.rastrear {
+            let e = arc.estado.estatisticas;
+            eprintln!(
+                "[arc] {} jovens={n_jovens} mortos_jovens={} fotos={n_fotos} contados={} retains={} releases={} mortos_rc={} mortos_ciclo={} rodadas={} examinados={} candidatos={}",
+                if completa { "completa" } else { "drenagem" },
+                mortos_jovens.len(),
                 arc.estado.registrados(),
                 e.retains,
                 e.releases,

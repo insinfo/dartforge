@@ -357,6 +357,9 @@ impl LlvmEmitter<'_> {
         for (i, s) in valores.iter().enumerate() {
             self.gravar_palavra(v, &i.to_string(), layout::desl::RECORD_CAMPOS + 8 * i, s);
         }
+        if n > 0 {
+            self.contar_iniciais_no_arc(v);
+        }
     }
 
     /// A célula de uma captura mutável: o valor na representação do local.
@@ -366,6 +369,18 @@ impl LlvmEmitter<'_> {
         self.alocar_bloco(v, CAB_CELULA, layout::palavras_de_instancia(1));
         self.gravar_palavra(v, "c", layout::desl::CORPO, &s);
         self.gravar_mapa(v, u32::from(e_ref));
+        if e_ref {
+            self.contar_iniciais_no_arc(v);
+        }
+    }
+
+    /// No ARC, as referências gravadas em linha no objeto `%v<v>` recém
+    /// alocado passam a contar (`dartforge_arc_inicial`): o código gerado não
+    /// passa pelo runtime nessas gravações.
+    pub(super) fn contar_iniciais_no_arc(&mut self, v: u32) {
+        if self.module.memoria_arc {
+            writeln!(self.out, "  call void @dartforge_arc_inicial(i64 %v{v})").unwrap();
+        }
     }
 
     /// A leitura de uma célula na representação `ty` (a com que foi gravada).
@@ -436,6 +451,7 @@ impl LlvmEmitter<'_> {
         }
         let mapa = refs.iter().take(32).enumerate().fold(0u32, |m, (i, &r)| m | (u32::from(r) << i));
         self.gravar_mapa(v, mapa);
+        let tem_ref = refs.iter().any(|&r| r);
         // A extensão do mapa (campos 32..), nas palavras depois dos campos.
         for j in 0..layout::palavras_do_mapa(n) {
             let palavra = refs
@@ -448,6 +464,9 @@ impl LlvmEmitter<'_> {
                 let desl = layout::desl::CORPO + 8 * (layout::capacidade(n) + j);
                 self.gravar_palavra(v, &format!("m{j}"), desl, &(palavra as i64).to_string());
             }
+        }
+        if tem_ref {
+            self.contar_iniciais_no_arc(v);
         }
     }
 
@@ -472,6 +491,7 @@ impl LlvmEmitter<'_> {
         self.gravar_palavra(v, "a", layout::desl::CLOSURE_ABI, &abi.to_string());
         // Só o contexto é referência.
         self.gravar_mapa(v, 0b10);
+        self.contar_iniciais_no_arc(v);
     }
 
     /// A closure de código `code_symbol` (a entrada uniforme) sobre `env`.

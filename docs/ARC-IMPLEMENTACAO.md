@@ -107,6 +107,45 @@ negativo, auditoria divergente) é pânico `bug do ARC`, nunca erro Dart
   O job `nativo-arc` do `pesado.yml` roda o corpus com a auditoria e com o
   `--gc-stress`.
 
+## 6. ARC puro (2026-10-08): sem rastreamento do berçário
+
+O desenho da §2 rastreava o berçário (a coleta menor achava os jovens vivos e
+os promovia; as arestas do jovem entravam na promoção). Era o *Ulterior
+Reference Counting*: RC nos maduros, rastreamento nos jovens. Com o ARC puro,
+o padrão do modo `arc`, ninguém percorre o heap para decidir vida:
+
+| Parte | Como funciona | Arquivo |
+| --- | --- | --- |
+| Gravação | Toda gravação de referência conta na hora, também num jovem (`arc_trocou`); o destino sem metadados ganha registro (RC zero) antes da primeira ocorrência. | `heap.rs` |
+| Alocação em linha | O código gerado grava os campos de `AllocObject`, do contexto, da célula, do record pequeno e da closure sem passar pelo runtime: depois de cada uma, `dartforge_arc_inicial(h)` conta as referências gravadas (§21.1, item 1). | `llvm/mod.rs`, `llvm/caixas_ir.rs`, `nucleo.rs` |
+| Escrita crua | A foto vale para todo objeto: a drenagem conta as ocorrências de agora e solta as da foto. A vida do fotografado segue o RC. | `heap.rs` (`arc_foto`) |
+| Drenagem | No lugar da coleta menor (`drenar_arc`): as raízes diretas (pilha-sombra ou mapas, quadros do runtime, globais) dão o conjunto protegido, sem seguir arestas. O jovem registrado fica; o que só uma raiz vê ganha registro (RC zero, protegido); o resto morreu sem ninguém o ver e solta as ocorrências que contou. Os zeros morrem em cascata, menos os protegidos. | `heap.rs` |
+| Ciclos | Na completa, o ponto fixo da §22.3 quando há efêmeros; senão a *trial deletion* até não haver morte nova. Candidatos: quem desceu a RC positivo, o zero que voltou a subir, o jovem que sobreviveu à drenagem e quem uma raiz vê. | `heap.rs`, `arc.rs` |
+| Memória | O jovem morto sai pela varredura dos jovens (sem marca); o morto pelo RC volta à faixa livre da classe um a um (`EspacoDeObjetos::soltar_morto`, com o bit de marca apagado), sem varrer páginas. | `espaco.rs` |
+
+`DARTFORGE_ARC_BERCARIO=1` volta ao desenho da §2 (para comparar).
+
+Validação (Windows x86-64): os grafos aleatórios da §4 nos três modos (3000
+sementes cada); o corpus nativo com a auditoria (238/238), com
+`--gc-stress` (238/238), com `DARTFORGE_ARC_CICLOS=sempre` e a auditoria
+(238/238) e no JIT × AOT (238/238 idênticos); `dart:io` 127/130 (as duas
+do ambiente desta máquina, `02` e `03`, e o `91`, que estoura os 5 s com
+quatro tarefas em paralelo). O `--gc-stress` achou o caminho que faltava: o
+record pequeno alocado em linha não contava os campos.
+
+**Custo atual.** O `corpus/nativo/91` (strings grandes) leva 3,2 s no ARC puro
+contra 1,1 s no rastreamento: 3,1 milhões de objetos mortos pelo RC, cada um
+passando pela tabela de metadados (um `HashMap` por handle) várias vezes, e
+1,1 milhão de candidatos a ciclo (quase todos strings). As otimizações, em
+ordem de ganho esperado:
+
+1. os metadados num índice por página e bloco (§19.1), sem hash;
+2. o filtro de tipos acíclicos (§32): string, caixa e lista de escalares nunca
+   são candidatas;
+3. `retain`/`release` em linha no código gerado, sobre o índice;
+4. os donos na HIR (§20), que tiram contagens redundantes e a olhada nas
+   raízes da drenagem.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais

@@ -173,6 +173,18 @@ pub(crate) unsafe fn marcar_bloco(b: *const Cabecalho) {
     unsafe { *w |= m };
 }
 
+/// Apaga o bit de marca do bloco `b` (o bloco que o ARC puro solta: ao ser
+/// entregue de novo como jovem, a marca velha o daria por vivo).
+///
+/// # Safety
+/// `b` é bloco de uma página do espaço.
+#[inline]
+pub(crate) unsafe fn desmarcar_bloco(b: *const Cabecalho) {
+    let (w, m) = bit_de_marca(b);
+    // SAFETY: o contrato da função.
+    unsafe { *w &= !m };
+}
+
 // ─── O corpo de um bloco ───────────────────────────────────────────────────
 
 /// Bytes de um bloco (ou corpo de fora) `INSTANCIA` de `n` campos.
@@ -1290,6 +1302,72 @@ impl EspacoDeObjetos {
                 p = p.wrapping_add(tamanho);
             }
         }
+    }
+
+    /// Visita cada bloco entregue desde a última coleta e ainda ocupado
+    /// (os um a um e os das faixas das TLABs; um bloco da faixa que a TLAB
+    /// não chegou a entregar está zerado, [`LIVRE`]).
+    pub(crate) fn jovens_entregues(&self, f: &mut dyn FnMut(*mut Cabecalho)) {
+        for &(b, _) in &self.jovens {
+            // SAFETY: bloco entregue desde a última coleta, numa página viva.
+            if unsafe { (*b).estado } == JOVEM {
+                f(b);
+            }
+        }
+        for &(inicio, fim, classe) in &self.faixas {
+            let tamanho = bytes_do_bloco(palavras_da_classe(classe));
+            let mut p = inicio;
+            while p < fim {
+                let b: *mut Cabecalho = p.cast();
+                // SAFETY: bloco da faixa, numa página viva.
+                if unsafe { (*b).estado } == JOVEM {
+                    f(b);
+                }
+                p = p.wrapping_add(tamanho);
+            }
+        }
+    }
+
+    /// Solta o bloco `b`, morto pelo RC (o ARC puro, fora de qualquer
+    /// varredura): o corpo de fora, o anexo, o bit de marca e o bloco, que
+    /// volta às faixas livres da classe (o objeto grande devolve a página).
+    /// Devolve os bytes soltos.
+    ///
+    /// # Safety
+    /// `b` é bloco ocupado de uma página deste espaço, fora da lista dos
+    /// jovens, cujo objeto morreu e que ninguém mais lê.
+    pub(crate) unsafe fn soltar_morto(&mut self, b: *mut Cabecalho) -> usize {
+        let mut soltos = 0;
+        // SAFETY: o contrato da função.
+        unsafe {
+            if (*b).flags & FORA != 0 {
+                soltos += tamanho_do_bloco(usize::from((*corpo(b)).n));
+                self.com_fora.retain(|&x| x != b);
+                Self::soltar_corpo(b);
+            }
+            if let Some(a) = self.anexos.remove(&(b as usize)) {
+                (a.soltar)(a.ptr);
+                self.bytes_de_anexos -= a.bytes;
+                soltos += a.bytes;
+            }
+            desmarcar_bloco(b);
+        }
+        let Some(i) = self.mapa.get(b as usize & !(PAGINA - 1)) else { return soltos };
+        let classe = self.paginas[i].classe;
+        self.vivos -= 1;
+        if classe == GRANDE {
+            let p = self.remover_pagina(i);
+            soltos += p.bytes;
+            self.grandes.devolver(p.base, p.bytes);
+        } else {
+            let tamanho = bytes_do_bloco(palavras_da_classe(classe));
+            soltos += tamanho;
+            self.em_uso[classe] -= 1;
+            let inicio = b.cast::<u8>();
+            // SAFETY: o bloco morto da classe, sem objeto vivo.
+            unsafe { self.soltar_faixa(classe, inicio, inicio.wrapping_add(tamanho)) };
+        }
+        soltos
     }
 
     pub(crate) fn varrer_jovens(&mut self) -> (usize, usize) {
