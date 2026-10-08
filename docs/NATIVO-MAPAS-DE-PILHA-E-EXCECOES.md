@@ -476,8 +476,9 @@ Uma função assim não leva `gc "statepoint-example"`. Ela grava os slots como 
 (o endereço de retorno não tem registro). O Perry tem o mesmo mecanismo ("root spill", `changelog.d/8589`).
 
 * **Inlining entre funções com e sem `gc`.** O inliner do LLVM põe a estratégia do chamado num chamador sem
-  estratégia, e recusa estratégias diferentes (`llvm/lib/Transforms/Utils/InlineFunction.cpp`, não
-  verificado no 22.1.8). O resultado é uma função com quadro-sombra **e** mapa: correto (as duas fontes são
+  estratégia, e recusa estratégias diferentes (`llvm/lib/Transforms/Utils/InlineFunction.cpp` do 22.1.8:
+  `InlineResult::failure("incompatible GC")` nas linhas 2522-2525, `Caller->setGC(CalledFunc->getGC())` nas
+  2633-2640; verificado por leitura em 2026-10-08, §12.5). O resultado é uma função com quadro-sombra **e** mapa: correto (as duas fontes são
   visitadas), mas com custo duplicado. O relatório de compilação conta essas funções.
 
 ### 3.8 JIT e hot reload
@@ -1184,6 +1185,10 @@ número de linha são da tag `llvmorg-22.1.8`. Elas foram baixadas para `E:\dfte
 experimento; a tabela está no §12.2. Continuam pendentes: 5 no Linux e no macOS, 6, 7, 8, 9, 11 a 16, e
 os dois experimentos não concluídos (`x8`, ELF; `x10`, ThinLTO).
 
+**Atualização de 2026-10-08.** Os itens 7, 8, 13 e 16 foram resolvidos (§12.5), e o item 5 no Linux e no
+macOS passou a rodar no Pesado (o job `nativo-unix` executa os modos A1, B0 e B1). Continuam pendentes: 5 no
+Linux e no macOS até o placar desses modos, 6, 9, 11, 12, 14 e 15.
+
 **Seções pendentes de escrita:** nenhuma. O documento está completo como especificação. A §3.9 (colocação
 tarde, como no Julia) está registrada como alternativa, fora do escopo.
 
@@ -1269,6 +1274,18 @@ descarta na marcação pela regra do C2 (ímpar). Isso custa um slot, não a cor
 
 Não verificado: o que o O2 faz com `ptrtoint`/`inttoptr` em laços grandes (o `-ni:1` proíbe as
 transformações que criariam ponteiros de inteiros; o caso observado é pequeno).
+
+### 12.5 Rodada 3 (2026-10-08)
+
+Os casos ficam em `E:\dftemp\spec-mapas\r3\`, e o `InlineFunction.cpp` da tag `llvmorg-22.1.8` em
+`E:\dftemp\spec-mapas\src\llvm\lib\Transforms\Utils\`.
+
+| item do §11 | estado | evidência |
+|---|---|---|
+| 7 — `--lto-newpm-passes` no `ld.lld` e no `ld64.lld` | **confirmado**: `ld.lld --lto-newpm-passes='lto<O2>,rewrite-statepoints-for-gc'` sobre um objeto ThinLTO ELF x86-64 gera `.llvm_stackmaps` (0x118 bytes); sem o passe, nenhuma seção. O `ld64.lld` com a mesma opção, sobre ThinLTO Mach-O arm64, gera `__llvm_stackmaps` (0x118 bytes) | `x17` |
+| 8 — statepoint dentro de funclet | **o RS4GC cai**: `opt -passes=rewrite-statepoints-for-gc` termina com `0xC0000005` em toda função `gc` com `catchswitch`/`catchpad` e uma referência viva através do `invoke`, mesmo sem chamada dentro do `catchpad`. O desenho não depende disso: as exceções por tabelas usam `landingpad` com a LSDA Itanium sob SEH (`x1`, `x7`), que o RS4GC aceita, e o B1 passa no Pesado. Nenhuma função com `gc` pode ter EH por funclets | `x19` |
+| 13 — regra do inliner para estratégias `gc` | **confirmado por leitura**: chamado com `gc` e chamador com outra estratégia não é embutido (`"incompatible GC"`); chamador sem estratégia recebe a do chamado (§3.7) | `InlineFunction.cpp:2518-2525`, `:2629-2640` |
+| 16 — linhas de IR × bytes de `.text` | **medido** no módulo do programa (o SDK fica na DLL), com as instruções contadas por linha (`%x =`, `store`, `call`, `br`, `ret`, `switch`, `invoke`, `resume`, `unreachable`): O0 de 10,9 a 13,9 bytes por instrução, O2 de 5,7 a 7,3 | `x18`: `62_iterable_map_where_fold` (8.352 instruções; 116.406 bytes em O0, 61.036 em O2), `120_convert_json` (6.823; 82.550 e 43.660), `70_try_catch_basico` (3.387; 36.838 e 19.148) |
 
 ---
 
