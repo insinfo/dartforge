@@ -5234,6 +5234,8 @@ Esta parte foi **gerada por script** (`E:\dftemp\analise\spec-r4\final\guardas.p
   ```
 
 ##### `empty_map_pattern` — guardas do emissor (perda 1: FN 1, FP 0, msg 0, pos 0)
+- **O resto conta como elemento (2026-10-08):** `case {...}:` tem o `RestPatternElement` em `MapPattern.elements`, então
+  não é vazio: só `rest_element_in_map_pattern`. `c2_sintaticos` relata vazio só sem entradas **e** sem resto.
 - **Emissão:** `analyzer/lib/src/dart/resolver/shared_type_analyzer.dart:104` em `SharedTypeAnalyzerErrors.emptyMapPattern` (começa em `:99`).
   Nenhum desvio entre o início do método e o relato: o relato é incondicional dentro dele; a supressão está em quem o chama.
 
@@ -8118,6 +8120,8 @@ contexto (salvo `dynamic`/`_`, `function_expression_resolver.dart:37-48`): `Iter
   valor avaliado sem `igualdade_primitiva` relata com o tipo do valor.
 
 ##### `integer_literal_out_of_range` (perda 10: FN 10) e `integer_literal_imprecise_as_double` (perda 3: FN 3)
+- **`0x` sem dígito (2026-10-08):** o scanner relata `MISSING_HEX_DIGIT` e completa o token com um `0` sintético
+  (`tokenizeHex`, `appendSyntheticSubstringToken(…, "0")`): o lexema é `0x0`, válido. `inteiros.rs` pula o `0x`/`0X`.
 - **Emissão:** `ErrorVerifier._checkForOutOfRange` (`analyzer/lib/src/generated/error_verifier.dart:4985-5021`),
   de visitIntegerLiteral.
 - **Condição:** fonte sem `_` (separadores tirados); `treatedAsDouble = staticType == double` (literal
@@ -12321,6 +12325,10 @@ registrado), não só `tipos_invalidos`.
   (`avaliador.rs::codigo_de_biblioteca_adiada`).
 
 ##### `non_constant_list_element` (perda 1: FP 1)
+- **Local constante lida antes da declaração (2026-10-08):** em `const elems = const [const [elems]]` o analyzer liga o
+  `elems` interno ao local adiante (`REFERENCED_BEFORE_DECLARATION`), e o local em ciclo vale o `INVALID_CONSTANT`
+  calado (`avoidReporting`, `evaluation.dart:1778-1785`). A inferência grava a declaração do local adiante sem
+  `Resolved::Local`; o avaliador agora também usa o caminho de constante local quando há a declaração gravada.
 - `variable/bad_initializer1_test.dart:17:7` — `elems` dentro do próprio inicializador local:
   com o ciclo detectado, o uso devolve `InvalidConstant(avoidReporting: true)` e nada sai no
   elemento. Resolve com o grafo de dependências (ciclo de local).
