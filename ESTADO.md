@@ -16,13 +16,17 @@ Foco pedido: o nativo AOT/JIT funcionando por inteiro, com `docs/NATIVO-MAPAS-DE
 | B0 (mapas + checagem) | 238/238 (Pesado) | 238/238 | 238/238 |
 | B1 (mapas + tabelas) | 238/238 (Pesado) | 238/238 | 238/238 |
 | memória ARC (`--memoria=arc`, auditoria a cada sincronização) | 238/238; ciclos em toda sincronização 238/238; `--gc-stress` 238/238; JIT 238/238 | 238/238 | 238/238 |
-| `dart:io` (`corpus/nativo`) | 130/130 | 130/130 | 129/130 (`33_mensagens_de_controle`: a espera com prazo do laço de eventos passava do prazo; corrigida pelo `kevent`, à espera do Pesado) |
+| `dart:io` (`corpus/nativo`) | 130/130 | 130/130 | 130/130 (era 129: a espera com prazo do laço de eventos passava do prazo; agora pelo `kevent`) |
 | builders pelo executor nativo | todos | — | — |
 
 * **ARC** (`docs/ARC-IMPLEMENTACAO.md`): o RC das ocorrências fortes entre objetos velhos, com as raízes
   adiadas e o berçário pela coleta menor; a gravação num velho conta na hora, o acesso cru tira uma foto;
-  *trial deletion* lateral para os ciclos; reclamação pelas marcas do RC. Opt-in por `--memoria=arc` no AOT e
-  no JIT; o rastreamento continua o padrão, com o IR de sempre.
+  na completa, o ponto fixo global (§22.3: alcance pelas raízes com a regra condicional dos efêmeros, lote
+  único dos inalcançáveis); *trial deletion* lateral com `DARTFORGE_ARC_CICLOS=sempre`; reclamação pelas
+  marcas do RC. Grafos aleatórios com semente contra um oráculo independente (3000 sementes por modo); a
+  primeira rodada achou dois vazamentos, corrigidos (o zero que volta a subir não virava candidato; o ciclo
+  valor→portador de um efêmero ficava vivo pela chave). Opt-in por `--memoria=arc` no AOT e no JIT; o
+  rastreamento continua o padrão, com o IR de sempre.
 * **Exceções por tabelas no Linux**: a primeira execução (A1/B1) parou em 37 programas; o lançamento passava
   por uma função Rust com a guarda de abortar na variante `panic=unwind` do runtime. O `@df.lancar` chama o
   `_Unwind_RaiseException` direto.
@@ -34,8 +38,8 @@ Foco pedido: o nativo AOT/JIT funcionando por inteiro, com `docs/NATIVO-MAPAS-DE
 
 | medida | 2026-10-07 | agora |
 | --- | ---: | ---: |
-| Placar (posição exata) | 22.867/23.012 | **22.890/23.012** (99,5%) |
-| FP / FN | 57 / 121 | **49 / 100** |
+| Placar (posição exata) | 22.867/23.012 | **22.895/23.012** (99,5%) |
+| FP / FN | 57 / 121 | **31 / 95** |
 
 * `DEPRECATED_OPTIONAL` do 3.13.4; modificadores antes do `this` e o `const` sem construtor primário
   (3.13.4); o `dart:core` implícito decidido só pela unidade definidora (o `String` do macro 411 voltou a
