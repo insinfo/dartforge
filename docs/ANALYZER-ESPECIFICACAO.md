@@ -14587,7 +14587,11 @@ não const (genérico no nó). Não há "nunca casa" para relacionais.
 Visita `typeArguments`; para cada elemento: `element.accept(this)` (o padrão do valor; a chave também é visitada como filha) e, se é
 `MapPatternEntry`, `_evaluateAndReportError(key, NON_CONSTANT_MAP_PATTERN_KEY)`; com valor: grava em `_mapPatternKeyValues` e procura
 em `uniqueKeys` (igualdade: `isIdentical2` verdadeiro, ou os dois com igualdade primitiva e `==`). Duplicatas → `EQUAL_KEYS_IN_MAP_PATTERN`
-na chave repetida, contexto na primeira (`diagnostic_factory.dart:247-264`).
+na chave repetida, contexto na primeira (`diagnostic_factory.dart:247-264`). O `isIdentical` do record (`RecordState.isIdentical`,
+`value.dart:2838-2843`) nunca é verdadeiro: falso se os campos diferem, desconhecido se são iguais. Então `{(0, const A()): 1,
+(0, const A()): 2}` com `A` de `==` próprio não repete (o record não tem igualdade primitiva: `hasPrimitiveEquality` exige a de
+todos os campos); com campos primitivos repete pelo `==`. O verificador (`constantes/verificador.rs`) só compara um record com
+outro quando os dois têm a igualdade primitiva.
 
 ##### 4.4 `switch`: exaustividade e o legado
 

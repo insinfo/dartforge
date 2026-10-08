@@ -1255,7 +1255,11 @@ impl Verificador<'_, '_> {
                 // `visitMapPattern` (`constant_verifier.dart:311-358`): cada
                 // chave avaliada; uma igual (idêntica, ou `==` com igualdade
                 // primitiva) a uma anterior é `EQUAL_KEYS_IN_MAP_PATTERN`, na
-                // chave repetida, depois de todas.
+                // chave repetida, depois de todas. O `isIdentical` do record
+                // nunca é verdadeiro (`RecordState.isIdentical`: falso ou
+                // desconhecido), então dois records só são iguais com a
+                // igualdade primitiva dos dois — um campo com `==` próprio
+                // tira a repetição.
                 let mut unicas: Vec<(Valor, Span)> = Vec::new();
                 let mut repetidas: Vec<(Span, Span)> = Vec::new();
                 for en in entries.iter() {
@@ -1264,7 +1268,12 @@ impl Verificador<'_, '_> {
                         let conhecida = !(v.desconhecido_de_fato() || matches!(v.estado, Estado::Null { invalido: true }));
                         if conhecida {
                             let span = a.expr(en.key).span;
-                            match unicas.iter().find(|(x, _)| self.m.iguais(x, &v)) {
+                            let lib = self.lib;
+                            let registro = |x: &Valor| matches!(x.estado, Estado::Registro { .. });
+                            let primitiva_v = !registro(&v) || self.m.igualdade_primitiva(&v, lib);
+                            let m = &mut *self.m;
+                            let achada = unicas.iter().find(|(x, _)| (!registro(x) || (primitiva_v && m.igualdade_primitiva(x, lib))) && m.iguais(x, &v));
+                            match achada {
                                 Some(&(_, original)) => repetidas.push((span, original)),
                                 None => unicas.push((v.clone(), span)),
                             }
