@@ -957,3 +957,78 @@ pub fn deve_ignorar_indefinido(
     }
     false
 }
+
+/// O `{1}` do `AMBIGUOUS_IMPORT` (`ErrorVerifier._checkForAmbiguousImport` e
+/// `_getLibraryName`, 3.6.2 `error_verifier.dart:2116-2130`, `:6278-6322`): os
+/// elementos que os imports (com o `prefixo`) trazem para `nome`, cada um pelo
+/// URI da biblioteca que o declara, com ` (via …)` os imports que o reexportam
+/// quando ela não é importada diretamente; ordenados, entre aspas, com `and`.
+pub fn bibliotecas_ambiguas(
+    program: &Program,
+    unidade: dartforge_elements::model::UnitId,
+    prefixo: Option<SymbolId>,
+    nome: SymbolId,
+) -> String {
+    use dartforge_elements::model::Element;
+    let lib = program.unit(unidade).library;
+    let imports = &program.library(lib).imports;
+    let passa = |cs: &[ast::Combinator]| {
+        cs.iter().all(|c| match c {
+            ast::Combinator::Show(ns) => ns.iter().any(|n| n.sym == nome),
+            ast::Combinator::Hide(ns) => !ns.iter().any(|n| n.sym == nome),
+        })
+    };
+    let mut elementos: Vec<Element> = Vec::new();
+    for i in imports.iter().filter(|i| i.prefix == prefixo && passa(&i.combinators)) {
+        if let Some(b) = program.library(i.library).exported.get(&nome) {
+            if let Some(el) = b.getter.or(b.setter)
+                && !elementos.contains(&el)
+            {
+                elementos.push(el);
+            }
+        }
+    }
+    let biblioteca = |el: Element| match el {
+        Element::Class(c) => Some(program.class(c).library),
+        Element::Extension(x) => Some(program.extension(x).library),
+        Element::Typedef(t) => Some(program.typedefs[t.0 as usize].library),
+        Element::Function(f) => Some(program.function(f).library),
+        Element::Variable(v) => Some(program.variable(v).library),
+        Element::Prefix(..) => None,
+    };
+    let mut nomes: Vec<String> = Vec::new();
+    for el in elementos {
+        let Some(l) = biblioteca(el) else { continue };
+        let mut texto = program.library(l).uri.clone();
+        if !imports.iter().any(|i| i.library == l) {
+            let mut indiretas: Vec<String> = imports
+                .iter()
+                .filter(|i| passa(&i.combinators) && program.library(i.library).exported.get(&nome).and_then(|b| b.getter.or(b.setter)) == Some(el))
+                .map(|i| program.library(i.library).uri.clone())
+                .collect();
+            if !indiretas.is_empty() {
+                texto.push_str(" (via ");
+                if indiretas.len() > 1 {
+                    indiretas.sort();
+                    texto.push_str(&aspas_com_e(&indiretas));
+                } else {
+                    texto.push_str(&indiretas[0]);
+                }
+                texto.push(')');
+            }
+        }
+        nomes.push(texto);
+    }
+    nomes.sort();
+    aspas_com_e(&nomes)
+}
+
+/// `quotedAndCommaSeparatedWithAnd`: `'a'`, `'a' and 'b'`, `'a', 'b' and 'c'`.
+fn aspas_com_e(nomes: &[String]) -> String {
+    let q: Vec<String> = nomes.iter().map(|n| format!("'{n}'")).collect();
+    match q.len() {
+        0 => String::new(),
+        1 => q[0].clone(),
+        n => format!("{} and {}", q[..n - 1].join(", "), q[n - 1]),
+    }
+}

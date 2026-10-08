@@ -937,6 +937,7 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
             inf.core.type_
         }
         RefNome::TipoEmbutido => inf.core.type_,
+        RefNome::Elemento(_) if importacao_ambigua(inf, cx, None, n) => inf.table.invalido(inf.core.dynamic_),
         RefNome::Elemento(el) => {
             resolver(inf, cx, e, Resolved::Element(el));
             // Só um setter de topo com esse nome: a leitura não tem elemento.
@@ -2339,6 +2340,9 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
                 prefixo_sem_ponto(inf, *p);
             }
             resolver(inf, cx, target, Resolved::Prefix(cx.lib));
+            if importacao_ambigua(inf, cx, Some(p.sym), name) {
+                return (inf.table.invalido(inf.core.dynamic_), false);
+            }
             match inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.getter.or(b.setter)) {
                 Some(el) => {
                     resolver(inf, cx, e, Resolved::Element(el));
@@ -3880,10 +3884,29 @@ fn ler_para_escrita(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, cu
     }
 }
 
+/// `_checkForAmbiguousImport` (3.6.2 `error_verifier.dart:2116-2130`): o
+/// nome (com o prefixo) que dois imports trazem com elementos diferentes é
+/// `AMBIGUOUS_IMPORT` no nome; o elemento é o `MultiplyDefinedElement` e o tipo
+/// é inválido. Diz se relatou.
+pub(crate) fn importacao_ambigua(inf: &mut BodyInferrer<'_>, cx: &Corpo, prefixo: Option<SymbolId>, nome: ast::Name) -> bool {
+    let b = match prefixo {
+        Some(p) => inf.program.lookup_prefixed_na_unidade(cx.unit, p, nome.sym),
+        None => inf.program.lookup_na_unidade(cx.unit, nome.sym),
+    };
+    if !b.is_some_and(|b| b.ambiguous) {
+        return false;
+    }
+    let lista = crate::scope::bibliotecas_ambiguas(inf.program, cx.unit, prefixo, nome.sym);
+    let texto = inf.interner.resolve(nome.sym).to_string();
+    inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::AMBIGUOUS_IMPORT, nome.span, &[&texto, &lista]);
+    true
+}
+
 /// Tipo de escrita (setter) de um nome não local.
 fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId, n: ast::Name) -> TypeId {
     match resolver_nome(inf, cx, n.sym, true) {
         RefNome::Local(id) => cx.local(id).tipo,
+        RefNome::Elemento(_) if importacao_ambigua(inf, cx, None, n) => inf.table.invalido(inf.core.dynamic_),
         RefNome::Elemento(el) => {
             resolver(inf, cx, alvo, Resolved::Element(el));
             match el {
@@ -4286,6 +4309,9 @@ fn escrita_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId,
                 prefixo_sem_ponto(inf, *p);
             }
             resolver(inf, cx, target, Resolved::Prefix(cx.lib));
+            if importacao_ambigua(inf, cx, Some(p.sym), name) {
+                return inf.table.invalido(inf.core.dynamic_);
+            }
             if let Some(el) = inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, name.sym).and_then(|b| b.setter.or(b.getter)) {
                 resolver(inf, cx, alvo, Resolved::Element(el));
                 return match el {

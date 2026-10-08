@@ -1851,7 +1851,11 @@ impl<'a> OutlineResolver<'a> {
                     match binding {
                         Some(b) => {
                             if b.ambiguous {
-                                self.avisar(unit_id, Diagnostic::new("Referência ambígua de tipo", span));
+                                let lista = crate::scope::bibliotecas_ambiguas(self.program, unit_id, None, sym);
+                                self.avisar(
+                                    unit_id,
+                                    Diagnostic::com_codigo(dartforge_diagnostics::codigos::compile_time_error::AMBIGUOUS_IMPORT, name[0].span, [texto.as_str(), lista.as_str()]),
+                                );
                                 return self.table.invalido(self.core.dynamic_);
                             }
                             match b.getter {

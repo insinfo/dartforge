@@ -21116,6 +21116,12 @@ Nome próprio só no 3.13; no 3.6.2 é `WarningCode.UNUSED_ELEMENT_PARAMETER` co
 
 ##### `ambiguous_import` (perda 3: FN 2, FP 0, msg 1, pos 0)
 
+**Feito em 2026-10-08:** o `_checkForAmbiguousImport` roda no `visitNamedType` e no `visitSimpleIdentifier` (o
+`writeOrReadElement`): leitura e escrita, com prefixo (`p.foo = 1`) ou sem, relatam no nome. O `{1}` é a lista
+ordenada, entre aspas e com `and`, do URI da biblioteca que declara cada elemento (`_getLibraryName`,
+`error_verifier.dart:6278-6322`, com ` (via …)` quando ela não é importada diretamente). No DartForge,
+`scope::bibliotecas_ambiguas` e `expr::importacao_ambigua`.
+
 - **Emissão:** `ErrorVerifier._checkForAmbiguousImport` (`analyzer/lib/src/generated/error_verifier.dart:2116-2130`), de `visitNamedType` (`:1268`) e `visitSimpleIdentifier` (`:1412`).
 - **Condição:** o elemento resolvido é `MultiplyDefinedElementImpl` — `PrefixScope._merge` (`scope.dart:669-692`) o cria quando dois imports do mesmo prefixo trazem elementos diferentes de mesmo nome (SDK × não-SDK: vence o de fora, sem erro). Vale também para `p.foo` em expressão.
 - **Posição:** o token do nome. **Mensagem:** "The name '{0}' is defined in the libraries {1}." — `{1}`: `_getLibraryName` (`:6278-6320`) de cada conflitante, ordenado, `quotedAndCommaSeparatedWithAnd`; URI da biblioteca **declarante**, com ` (via X)` se não importada diretamente.
