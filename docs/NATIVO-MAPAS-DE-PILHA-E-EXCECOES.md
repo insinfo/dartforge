@@ -1192,10 +1192,11 @@ número de linha são da tag `llvmorg-22.1.8`. Elas foram baixadas para `E:\dfte
 experimento; a tabela está no §12.2. Continuam pendentes: 5 no Linux e no macOS, 6, 7, 8, 9, 11 a 16, e
 os dois experimentos não concluídos (`x8`, ELF; `x10`, ThinLTO).
 
-**Atualização de 2026-10-08.** Os itens 7, 8, 13, 14 e 16, e o 12 no Windows, foram resolvidos (§12.5), e o
-item 5 no Linux e no macOS passou a rodar no Pesado (o job `nativo-unix` executa os modos A1, B0 e B1).
-Continuam pendentes: 5 no Linux e no macOS até o placar desses modos, 6, 9, 11, 12 com o `ld64` da Apple, e
-15.
+**Atualização de 2026-10-08.** Os itens 5 (no Linux e no macOS), 7, 8, 13, 14 e 16, e o 12 no Windows, foram
+resolvidos (§12.5). O item 5 roda no Pesado (job `nativo-unix`, modos A1, B0 e B1 sobre o corpus nativo): no macOS
+arm64, 238/238 nos três desde a primeira execução; no Linux x86-64, B0 238/238 e A1/B1 201/238 na primeira, com o
+lançamento parando numa função Rust (`_Unwind_RaiseException` voltando 3); depois da correção do `@df.lancar`
+(§6, Etapa 4), 238/238 nos três. Continuam pendentes: 6, 9, 11, 12 com o `ld64` da Apple, e 15.
 
 **Seções pendentes de escrita:** nenhuma. O documento está completo como especificação. A §3.9 (colocação
 tarde, como no Julia) está registrada como alternativa, fora do escopo.
@@ -1293,6 +1294,7 @@ Os casos ficam em `E:\dftemp\spec-mapas\r3\`, e o `InlineFunction.cpp` da tag `l
 | 7 — `--lto-newpm-passes` no `ld.lld` e no `ld64.lld` | **confirmado**: `ld.lld --lto-newpm-passes='lto<O2>,rewrite-statepoints-for-gc'` sobre um objeto ThinLTO ELF x86-64 gera `.llvm_stackmaps` (0x118 bytes); sem o passe, nenhuma seção. O `ld64.lld` com a mesma opção, sobre ThinLTO Mach-O arm64, gera `__llvm_stackmaps` (0x118 bytes) | `x17` |
 | 8 — statepoint dentro de funclet | **o RS4GC cai**: `opt -passes=rewrite-statepoints-for-gc` termina com `0xC0000005` em toda função `gc` com `catchswitch`/`catchpad` e uma referência viva através do `invoke`, mesmo sem chamada dentro do `catchpad`. O desenho não depende disso: as exceções por tabelas usam `landingpad` com a LSDA Itanium sob SEH (`x1`, `x7`), que o RS4GC aceita, e o B1 passa no Pesado. Nenhuma função com `gc` pode ter EH por funclets | `x19` |
 | 13 — regra do inliner para estratégias `gc` | **confirmado por leitura**: chamado com `gc` e chamador com outra estratégia não é embutido (`"incompatible GC"`); chamador sem estratégia recebe a do chamado (§3.7) | `InlineFunction.cpp:2518-2525`, `:2629-2640` |
+| 5 — a personalidade Itanium de ponta a ponta no Linux e no macOS | **confirmado** pelo corpus nativo inteiro nos modos A1 e B1 (exceções por tabelas, com `_Unwind_RaiseException` e a `dartforge_personalidade` Itanium) no Pesado: 238/238 no macOS arm64 e no Linux x86-64 (este depois de tirar o quadro Rust do lançamento) | job `nativo-unix`, rodadas 37740187310 e 37749657170 |
 | 12 — `link.exe` com as seções e as relocações | **confirmado no Windows** com o `link.exe` 14.51.36248 e o `lld-link` 22.1.8, com e sem `/DEBUG` (e `/debug:dwarf` no `lld-link`), sob `/OPT:REF`: a `.llvm_stackmaps` do objeto fica na imagem com o nome truncado `.llvm_st` (o que o runtime procura, `heap.rs`), o global em `.dfimg$m` vai para a seção agrupada `.dfimg`, e os ponteiros absolutos dos dois saem em `.reloc` (as mesmas relocações de base nos dois ligadores). O `ld64` do sistema da Apple continua não testado | `x21` |
 | 14 — desenrolar estrangeiro num quadro Rust `C-unwind` sob `panic=abort` | **confirmado**: um `throw` do C++ (MSVC, SEH) que atravessa uma função Rust `extern "C-unwind"` compilada com `panic=abort` termina o processo ("panic in a function that cannot unwind"); com `panic=unwind`, o mesmo `throw` atravessa e o `catch` do C++ o pega. As portas do §13 continuam necessárias: nenhum quadro Rust no caminho de um desenrolar Dart | `x20` |
 | 16 — linhas de IR × bytes de `.text` | **medido** no módulo do programa (o SDK fica na DLL), com as instruções contadas por linha (`%x =`, `store`, `call`, `br`, `ret`, `switch`, `invoke`, `resume`, `unreachable`): O0 de 10,9 a 13,9 bytes por instrução, O2 de 5,7 a 7,3 | `x18`: `62_iterable_map_where_fold` (8.352 instruções; 116.406 bytes em O0, 61.036 em O2), `120_convert_json` (6.823; 82.550 e 43.660), `70_try_catch_basico` (3.387; 36.838 e 19.148) |
