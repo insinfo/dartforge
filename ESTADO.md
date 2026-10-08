@@ -1,4 +1,47 @@
-# Estado do DartForge — 2026-10-07
+# Estado do DartForge — 2026-10-08
+
+## Rodada de 2026-10-08: nativo (ARC, Linux e macOS) e analisador
+
+Foco pedido: o nativo AOT/JIT funcionando por inteiro, com `docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md` e
+`docs/ARC-CICLOS-ESPECIFICACAO.md`; depois o analisador e o LSP.
+
+### Nativo
+
+| medida | Windows | Linux x86-64 | macOS arm64 |
+| --- | ---: | ---: | ---: |
+| corpus nativo (AOT) | 238/238 | 238/238 | 238/238 |
+| JIT, e JIT × AOT | 238/238, 0 divergências | 238/238, 0 | 238/238, 0 |
+| `--gc-stress` | 238/238 | — | — |
+| A1 (pilha-sombra + exceções por tabelas) | 238/238 (Pesado) | 201/238 → corrigido, à espera do Pesado | 238/238 |
+| B0 (mapas + checagem) | 238/238 (Pesado) | 238/238 | 238/238 |
+| B1 (mapas + tabelas) | 238/238 (Pesado) | 201/238 → corrigido, à espera do Pesado | 238/238 |
+| memória ARC (`--memoria=arc`, auditoria a cada sincronização) | 238/238; ciclos em toda sincronização 238/238; `--gc-stress` 238/238; JIT 238/238 | 238/238 | 238/238 |
+| `dart:io` (`corpus/nativo`) | 130/130 | 130/130 | 129/130 (`33_mensagens_de_controle`, antigo, em depuração) |
+| builders pelo executor nativo | todos | — | — |
+
+* **ARC** (`docs/ARC-IMPLEMENTACAO.md`): o RC das ocorrências fortes entre objetos velhos, com as raízes
+  adiadas e o berçário pela coleta menor; a gravação num velho conta na hora, o acesso cru tira uma foto;
+  *trial deletion* lateral para os ciclos; reclamação pelas marcas do RC. Opt-in por `--memoria=arc` no AOT e
+  no JIT; o rastreamento continua o padrão, com o IR de sempre.
+* **Exceções por tabelas no Linux**: a primeira execução (A1/B1) parou em 37 programas; o lançamento passava
+  por uma função Rust com a guarda de abortar na variante `panic=unwind` do runtime. O `@df.lancar` chama o
+  `_Unwind_RaiseException` direto.
+* **§11 da especificação dos mapas**: itens 7 (`ld.lld`/`ld64.lld` com o RS4GC na LTO), 8 (o RS4GC cai com EH
+  por funclets), 12 (`link.exe`), 13 (inliner e `gc`), 14 (`C-unwind` sob `panic=abort`) e 16 (bytes por
+  instrução) resolvidos; o 5 no Linux e no macOS passou a rodar no Pesado.
+
+### Analisador
+
+| medida | 2026-10-07 | agora |
+| --- | ---: | ---: |
+| Placar (posição exata) | 22.867/23.012 | **22.878/23.012** (99,4%) |
+| FP / FN | 57 / 121 | **56 / 110** |
+
+* `DEPRECATED_OPTIONAL` do 3.13.4; modificadores antes do `this` e o `const` sem construtor primário
+  (3.13.4); o `dart:core` implícito decidido só pela unidade definidora (o `String` do macro 411 voltou a
+  resolver).
+* A CLI e o LSP publicam só os códigos de `crates/analise/verificados.txt` (167); 391 códigos já têm zero
+  FP, posição e mensagem certas no corpus e esperam a conferência nos projetos reais para entrar.
 
 ## Fechamento de 2026-10-06
 
