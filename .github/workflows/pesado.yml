@@ -659,7 +659,7 @@ jobs:
     name: nativo e jit (${{ matrix.nome }})
     if: contains(fromJSON('["todos","nativo","jit","unix"]'), inputs.suite || 'todos')
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 120
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
@@ -688,7 +688,9 @@ jobs:
           shared-key: pesado-unix
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Compilar dartforge (nativo, jit), harness e executor do JIT
-        run: cargo build --locked --release -p dartforge-cli --features nativo,jit -p dartforge-diferencial -p dartforge-jit
+        # O harness com o gerador embutido: as raízes por mapas (B0, B1)
+        # exigem o passe dos mapas, que o Clang não roda.
+        run: cargo build --locked --release -p dartforge-cli --features nativo,jit,dartforge-diferencial/llvm-embutido -p dartforge-diferencial -p dartforge-jit
       - name: Testes do emit_native (com os ignorados)
         env:
           DARTFORGE_TEST_SDK_LIB: ${{ env.DARTFORGE_SDK_LIB }}
@@ -713,11 +715,26 @@ jobs:
           echo "jit: código $c"
           c=0; ./target/release/dartforge-diferencial --nativo --corpus corpus/nativo --jobs 2 > relatorios/io.txt 2>&1 || c=$?
           echo "io: código $c"
+          # Os modos de raízes e exceções (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
+          # §11, item 5: a personalidade Itanium e o percorredor de mapas, que
+          # aqui rodam de verdade) e a memória ARC (docs/ARC-IMPLEMENTACAO.md,
+          # com a auditoria). Informativos: o placar vai para o resumo e não
+          # reprova o job.
+          : > relatorios/modos.txt
+          for modo in "A1 sombra tabelas" "B0 mapas checagem" "B1 mapas tabelas"; do
+            set -- $modo
+            c=0; DARTFORGE_RAIZES=$2 DARTFORGE_EXCECOES=$3 ./target/release/dartforge-diferencial --nativo --jobs 3 > "relatorios/nativo-$1.txt" 2>&1 || c=$?
+            echo "$1: código $c"
+            echo "$1 $(grep -E '^DartForge Nativo: ' "relatorios/nativo-$1.txt" || echo 'sem placar')" >> relatorios/modos.txt
+          done
+          c=0; DARTFORGE_MEMORIA=arc DARTFORGE_ARC_CONFERIR=1 ./target/release/dartforge-diferencial --nativo --jobs 3 > relatorios/nativo-arc.txt 2>&1 || c=$?
+          echo "arc: código $c"
+          echo "ARC $(grep -E '^DartForge Nativo: ' relatorios/nativo-arc.txt || echo 'sem placar')" >> relatorios/modos.txt
           io=$(grep -E '^DartForge Nativo: ' relatorios/io.txt || true)
           aot=$(grep -E '^DartForge Nativo: ' relatorios/nativo.txt || true)
           jit=$(grep -E '^DartForge JIT: ' relatorios/jit.txt || true)
           par=$(grep -E '^JIT × AOT: ' relatorios/jit.txt || true)
-          { echo "### Nativo e JIT — ${{ matrix.nome }}"; echo; echo '```text'; echo "$aot"; echo "$jit"; echo "$par"; echo "dart:io $io"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### Nativo e JIT — ${{ matrix.nome }}"; echo; echo '```text'; echo "$aot"; echo "$jit"; echo "$par"; echo "dart:io $io"; cat relatorios/modos.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           echo "::notice title=Nativo ${{ matrix.nome }}::$aot | $jit | $par"
           [ -n "$aot" ] && [ -n "$jit" ] && [ -n "$par" ] || { echo "::error::relatório sem a linha de placar"; tail -40 relatorios/*.txt; exit 1; }
           echo "$par" | grep -qE ' 0 divergentes' || { echo "::error::JIT × AOT divergiu: $par"; exit 1; }
