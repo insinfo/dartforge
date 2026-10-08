@@ -415,9 +415,15 @@ pub(crate) fn pode_ser_subtipo(inf: &mut BodyInferrer<'_>, left: TypeId, right: 
         if (Some(lc) == int && Some(rc) == double) || (Some(lc) == double && Some(rc) == int) {
             return true;
         }
-        // Enum: os tipos de todas as instâncias são conhecidos.
+        // Enum: os tipos de todas as instâncias são conhecidos; alguma
+        // constante (`v1<String>()` é `A<String>`) é subtipo do da direita
+        // (3.6.2 `type_system.dart:221-229`).
         if inf.program.class(lc).kind == dartforge_elements::model::ClassKind::Enum {
-            return inf.sub(left, right);
+            let constantes = inf.program.class(lc).enum_constants.clone();
+            return constantes.into_iter().any(|v| {
+                let t = inf.tipo_variavel(v);
+                inf.sub(t, right)
+            });
         }
         if lc == rc {
             return la.iter().zip(ra.iter()).all(|(&a, &b)| pode_ser_subtipo(inf, a, b, prof + 1));

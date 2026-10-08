@@ -3867,6 +3867,10 @@ inicializador, com a mensagem própria do código.
 
 ##### `pattern_never_matches_value_type` (perda 8: FN 5, FP 2, msg 1)
 
+**Feito em 2026-10-07:** no `canBeSubtypeOf` (3.6.2 `type_system.dart:221-229`), o enum à esquerda casa se o tipo de
+alguma **constante** (`v1<String>()` é `A<String>`, `v<int>()` é `E<int>`) é subtipo do da direita; não o tipo
+do enum (`A<dynamic>`, `E<T>`). No DartForge, `padroes::pode_ser_subtipo` pelos `enum_constants`.
+
 - **Emissão:** `ResolverVisitor.checkPatternNeverMatchesValueType` (`analyzer/lib/src/generated/resolver.dart:614-640`),
   chamado na resolução de padrão objeto, variável declarada, curinga, cast, lista, mapa e registro (só fora de contexto
   irrefutável).
