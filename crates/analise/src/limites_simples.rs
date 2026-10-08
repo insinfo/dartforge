@@ -260,12 +260,16 @@ pub fn calcular(programa: &Program) -> LimitesSimples {
 struct Lista<'a> {
     parametros: &'a [TypeParameter],
     escopo: Span,
+    /// A declaração passa pelo link (`DefaultTypesBuilder`: classe, mixin,
+    /// enum, extensão, tipo de extensão, alias, método, função de topo), que
+    /// troca o limite em ciclo por `dynamic` (`_breakSelfCycles`).
+    ligada: bool,
 }
 
 fn listas_de_parametros<'a>(ps: &'a [Parameter], saida: &mut Vec<Lista<'a>>) {
     for p in ps {
         if !p.function_type_params.is_empty() {
-            saida.push(Lista { parametros: &p.function_type_params, escopo: p.span });
+            saida.push(Lista { parametros: &p.function_type_params, escopo: p.span, ligada: false });
         }
         if let Some(inner) = &p.function_parameters {
             listas_de_parametros(inner, saida);
@@ -292,12 +296,25 @@ fn listas(a: &ast::Ast) -> Vec<Lista<'_>> {
             _ => &[],
         };
         if !tps.is_empty() {
-            v.push(Lista { parametros: tps, escopo: d.span });
+            v.push(Lista { parametros: tps, escopo: d.span, ligada: true });
         }
     }
-    for f in &a.functions {
+    // As funções de topo e os métodos (as locais e os literais não passam
+    // pelo link).
+    let mut ligadas: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    for d in &a.decls {
+        if let DeclKind::Function(fid) = &d.kind {
+            ligadas.insert(fid.0);
+        }
+    }
+    for m in &a.members {
+        if let ast::MemberKind::Method(fid) = &m.kind {
+            ligadas.insert(fid.0);
+        }
+    }
+    for (i, f) in a.functions.iter().enumerate() {
         if !f.type_params.is_empty() {
-            v.push(Lista { parametros: &f.type_params, escopo: f.span });
+            v.push(Lista { parametros: &f.type_params, escopo: f.span, ligada: ligadas.contains(&(i as u32)) });
         }
         if let Some(ps) = &f.parameters {
             listas_de_parametros(ps, &mut v);
@@ -311,7 +328,7 @@ fn listas(a: &ast::Ast) -> Vec<Lista<'_>> {
     for t in &a.types {
         if let TypeKind::Function { type_params, parameters, .. } = &t.kind {
             if !type_params.is_empty() {
-                v.push(Lista { parametros: type_params, escopo: t.span });
+                v.push(Lista { parametros: type_params, escopo: t.span, ligada: false });
             }
             listas_de_parametros(parameters, &mut v);
         }
@@ -459,9 +476,27 @@ pub fn verificar(programa: &Program, lib: LibraryId, nomes: &Interner, limites: 
                 while let Some(k) = atual {
                     atual = l.parametros[k].bound.and_then(|b| parametro_do_limite(programa, u, a, b, l.parametros, 0));
                     if passo == n {
-                        // `{1}` (só na correção): o limite como escrito.
+                        // `{1}` (só na correção): o `element.bound`. Na
+                        // declaração ligada, o `_breakSelfCycles`
+                        // (`default_types_builder.dart:137-174`) troca por
+                        // `dynamic` o limite cuja cadeia de nomes simples
+                        // da lista volta a ela; senão, o limite como escrito.
                         let nome = nomes.resolve(tp.name.sym).to_string();
-                        let limite = tp.bound.map(|b| a.ty(b).span).map(|s| programa.unit(u).source[s.start..s.end].to_string()).unwrap_or_default();
+                        let ciclo_de_nomes = {
+                            let mut atual = Some(i);
+                            for _ in 0..n {
+                                atual = atual.and_then(|k| l.parametros[k].bound).and_then(|b| match &a.ty(b).kind {
+                                    TypeKind::Named { name, .. } if name.len() == 1 => l.parametros.iter().position(|p| p.name.sym == name[0].sym),
+                                    _ => None,
+                                });
+                            }
+                            atual.is_some()
+                        };
+                        let limite = if l.ligada && ciclo_de_nomes {
+                            "dynamic".to_string()
+                        } else {
+                            tp.bound.map(|b| a.ty(b).span).map(|s| programa.unit(u).source[s.start..s.end].to_string()).unwrap_or_default()
+                        };
                         saida.push((u, Diagnostic::com_codigo(c::TYPE_PARAMETER_SUPERTYPE_OF_ITS_BOUND, tp.name.span, [nome.as_str(), limite.as_str()])));
                         break;
                     }

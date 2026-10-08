@@ -7701,6 +7701,12 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
   retornadas quando ele é falso; o `return_without_value` continua.
 
 ##### `type_parameter_supertype_of_its_bound` (perda 13: FN 13)
+
+**Feito em 2026-10-07:** o `{1}` (só na correção) é o `element.bound`. Nas declarações que passam pelo link
+(`DefaultTypesBuilder`: classe, alias, enum, extensão, tipo de extensão, mixin, método, função de topo), o
+`_breakSelfCycles` (`default_types_builder.dart:137-174`) troca por `dynamic` o limite cuja cadeia de nomes
+simples da lista volta a ela (`class A<T extends T>`, `<T1 extends T3, T2, T3 extends T1>`); na função local o
+limite fica como escrito (`'T'`), e o `A<U>` não é cadeia de nomes.
 - **Emissão:** `ErrorVerifier._checkForTypeParameterBoundRecursion`
   (`error_verifier.dart:5382-5416`), de `visitTypeParameterList` (`:1595-1599`) — toda lista de
   parâmetros de tipo (classes, mixins, enums, extensões, typedefs, funções, métodos, funções locais e
