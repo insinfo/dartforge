@@ -4997,7 +4997,26 @@ fn condicao_binaria(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, op: B
                 let msg = format!("{}: '{}' em '{}'", UNDEFINED_EXTENSION_OPERATOR.template, "==", extensao);
                 inf.aviso(msg, token);
             }
-            if let Some(eq) = inf.sym.igual {
+            // `super == x`: o `==` da cadeia de `super`, com o parâmetro
+            // tornado anulável (`_resolveEqual`): `super == 'a'` contra
+            // `==(covariant num other)` é `ARGUMENT_TYPE_NOT_ASSIGNABLE` de `num?`.
+            if let Some(eq) = inf.sym.igual
+                && matches!(inf.program.unit(cx.unit).ast.expr(left).kind, ExprKind::Super)
+            {
+                if let Busca::Achado(m) = buscar_operador_super(inf, cx, eq) {
+                    let param = match inf.table.get(m.tipo) {
+                        Type::Function { positional, .. } => positional.first().copied(),
+                        _ => None,
+                    };
+                    if let Some(p) = param
+                        && !matches!(inf.table.get(tr), Type::Void)
+                    {
+                        let p = inf.anulavel(p);
+                        verificar_atribuivel_expr(inf, cx, right, tr, p, ARGUMENT_TYPE_NOT_ASSIGNABLE.template);
+                    }
+                    resolver(inf, cx, e, m.resolved);
+                }
+            } else if let Some(eq) = inf.sym.igual {
                 if let Busca::Achado(m) = inf.buscar_membro(cx.lib, tl, eq, false) {
                     // O lado direito contra o parâmetro de `operator ==`
                     // tornado anulável (`binary_expression_resolver.dart:117-124`,

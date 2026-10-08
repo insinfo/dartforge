@@ -272,6 +272,10 @@ Base comum (vale para vários códigos abaixo):
 - Atribuibilidade (`TypeSystemImpl.isAssignableTo`): `dynamic` atribuível a tudo (sem strict-casts); subtipo; **sem** conversão implícita de `call` — esta é feita antes, na inferência (o tipo da expressão já passa a ser o da tear-off `call`, ver `invalid_assignment`).
 
 ##### `argument_type_not_assignable` (perda 160: FN 86, FP 5, msg 59, pos 10)
+
+**Feito em 2026-10-07:** `super == x` confere `x` contra o parâmetro do `==` da cadeia de `super`, tornado
+anulável (`_resolveEqual`, 3.6.2 `binary_expression_resolver.dart:117-124`): `super == 'a'` contra
+`==(covariant num other)` relata `num?`. No DartForge, `condicao_binaria` por `buscar_operador_super`.
 - **Emissão:** `_checkForArgumentTypeNotAssignableForArgument` (`analyzer/lib/src/generated/error_detection_helpers.dart:348-368`) → `checkForArgumentTypeNotAssignable` → `checkForAssignableExpressionAtType`. Chamado de:
   - argumentos de invocações: `checkForArgumentTypesNotAssignableInList` (`analyzer/lib/src/generated/resolver.dart:511-520`, um por argumento com `staticParameterElement`), feito pelos resolvedores de `MethodInvocation`, `FunctionExpressionInvocation`, `InstanceCreationExpression` (`analyzer/lib/src/dart/resolver/instance_creation_expression_resolver.dart:72`), redirecionamento/super, anotações e constantes de enum (`analyzer/lib/src/generated/resolver.dart:2556-2559`);
   - operador binário definido pelo usuário: `_resolveUserDefinableElement` + `checkForArgumentTypeNotAssignableForArgument(right)` (`analyzer/lib/src/dart/resolver/binary_expression_resolver.dart:301`);
