@@ -146,6 +146,41 @@ ordem de ganho esperado:
 4. os donos na HIR (§20), que tiram contagens redundantes e a olhada nas
    raízes da drenagem.
 
+**Otimizações feitas (2026-10-08, à noite)**, escolhidas pelo tempo por fase da
+drenagem que o rastro passou a mostrar (`DARTFORGE_GC_RASTRO=1`: `fases=`
+raízes/fotos/jovens das raízes/efêmeros/decisão dos jovens/soltura dos jovens
+mortos/raízes candidatas/zeros e ciclos/memória, e `laco=` zeros/ciclos/ponto
+fixo/tabelas, em µs; `zeros_vistos=` e `adiados=` contam a fila de zeros):
+
+* **Os adiados uma vez por coleta.** O objeto de RC zero que uma raiz segura
+  voltava à fila de zeros a cada passada, e entrava de novo a cada vez que o
+  RC voltava a zero: no `json`, 557 milhões de entradas examinadas para 19,7
+  milhões de mortes. Agora fica numa lista própria, uma entrada por objeto
+  (`MetaArc::adiado`), que volta à fila no começo de cada coleta
+  (`retomar_adiados`): 30 milhões de entradas, e as drenagens do `json` de
+  17,6 s para 5,8 s.
+* **Os metadados por página** (§19.1): a tabela acha a página pelo número dela
+  num mapa radix e o metadado pelo índice do bloco, com a geometria que o heap
+  informa no registro (`Geometria`, `registrar_vivo_em`); o `HashMap` fica só
+  para os handles sem página (os testes, a imagem).
+* **O descarte de um objeto só** (a cascata) sem montar conjunto nem vetor
+  novos; **as tabelas laterais** perdem os mortos por um predicado (o objeto
+  do espaço sem metadados morreu nesta drenagem) em vez de um conjunto com os
+  milhões de mortos da rodada; **os efêmeros** não custam hash por morte quando
+  não há nenhum contado; **o objeto `BRUTO`** não vira candidato a ciclo.
+
+Medida (`bench/desempenho` em produção, preso a um núcleo P, ARC/A0): **2,81 →
+2,13** de média geométrica. `json` 4,1–8,4× → 2,2–3,7×; `lista_objetos` 6,5× →
+3,8×; `lista_ligada` 19,9× → 8,8×; `arvores` 17× → 15×; numérico, chamadas e
+listas 0,8–1,1×. Corpus 238/238 com auditoria e `--gc-stress`, com ciclos em
+toda drenagem e no JIT; os grafos aleatórios (3000 sementes × 3 modos)
+seguem verdes.
+
+O que ainda pesa, pela mesma medida (`objetos_escapam`): a decisão dos jovens
+(~1 s em 377 drenagens, ~40 ns por jovem: consulta, marca, revisão e
+candidatura de cada um), a cascata dos zeros (~130 ns por morte: dois
+percursos do corpo, um `soltar` por aresta) e a soltura física um a um.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais

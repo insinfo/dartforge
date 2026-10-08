@@ -48,6 +48,8 @@ pub struct MetaArc {
     /// RC zero não inicia o descarte.
     pub protegido_condicional: bool,
     pub imortal: bool,
+    /// Está na lista dos adiados (RC zero com raiz), uma vez só.
+    pub adiado: bool,
 }
 
 /// Identidade de um objeto nas filas: o handle e a geração do registro.
@@ -96,6 +98,10 @@ pub struct EstatisticasArc {
     pub rodadas_de_ciclo: u64,
     /// Objetos na região `R` de todas as rodadas.
     pub examinados: u64,
+    /// Entradas tiradas da fila de zeros e, delas, as adiadas (RC zero com
+    /// raiz): o diagnóstico do custo da cascata.
+    pub zeros_vistos: u64,
+    pub zeros_adiados: u64,
 }
 
 /// `null` e `Smi` não são referências gerenciadas.
@@ -104,16 +110,199 @@ pub fn e_handle(h: Ref) -> bool {
     h != 0 && h & 1 == 0
 }
 
+/// A geometria da página de um bloco do espaço, que o heap informa no
+/// registro: o endereço do primeiro bloco, os bytes de cada bloco e quantos
+/// cabem na página.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Geometria {
+    pub primeiro: u64,
+    pub tamanho: u64,
+    pub blocos: u32,
+}
+
+/// Os metadados dos blocos de uma página, pelo índice do bloco.
+struct PaginaArc {
+    geometria: Geometria,
+    metas: Vec<Option<MetaArc>>,
+    ocupados: u32,
+}
+
+/// A tabela dos metadados por handle (§19.1: "medir depois uma tabela por
+/// página/índice de bloco, evitando um hash por retain"). O handle de um bloco
+/// do espaço acha a página pelo número dela (`h >> 16`), num mapa radix de
+/// 2¹⁶ posições por região de 4 GiB — como o mapa de páginas do espaço —, e o
+/// metadado pelo índice do bloco: nenhum hash. O handle registrado sem
+/// geometria (os testes do núcleo, os objetos da imagem) fica numa tabela de
+/// reserva por hash.
+#[derive(Default)]
+struct Tabela {
+    regioes: Vec<(u64, Box<[u32]>)>,
+    paginas: Vec<PaginaArc>,
+    avulsos: HashMap<Ref, MetaArc>,
+    n: usize,
+}
+
+/// `PAGINA` = 64 KiB; uma região do mapa radix cobre 2¹⁶ páginas.
+const BITS_DA_PAGINA: u32 = 16;
+const BITS_DA_REGIAO: u32 = 16;
+
+impl Tabela {
+    #[inline]
+    fn chave(h: Ref) -> (u64, usize) {
+        let k = (h as u64) >> BITS_DA_PAGINA;
+        (k >> BITS_DA_REGIAO, (k & ((1 << BITS_DA_REGIAO) - 1)) as usize)
+    }
+
+    /// A página registrada de `h`, se há.
+    #[inline]
+    fn pagina(&self, h: Ref) -> Option<usize> {
+        let (r, i) = Self::chave(h);
+        let (_, t) = self.regioes.iter().find(|(x, _)| *x == r)?;
+        let v = t[i];
+        (v != 0).then(|| v as usize - 1)
+    }
+
+    /// O índice do bloco de `h` na página de geometria `g`.
+    #[inline]
+    fn indice(g: &Geometria, h: Ref) -> Option<usize> {
+        let d = ((h - crate::layout::DESLOCAMENTO_DO_HANDLE) as u64).checked_sub(g.primeiro)?;
+        let i = d / g.tamanho;
+        (d % g.tamanho == 0 && i < u64::from(g.blocos)).then_some(i as usize)
+    }
+
+    /// (página, índice) do metadado de `h` numa página registrada.
+    #[inline]
+    fn lugar(&self, h: Ref) -> Option<(usize, usize)> {
+        let p = self.pagina(h)?;
+        Some((p, Self::indice(&self.paginas[p].geometria, h)?))
+    }
+
+    fn get(&self, h: &Ref) -> Option<&MetaArc> {
+        match self.lugar(*h) {
+            Some((p, i)) => self.paginas[p].metas[i].as_ref(),
+            None if self.avulsos.is_empty() => None,
+            None => self.avulsos.get(h),
+        }
+    }
+
+    fn get_mut(&mut self, h: &Ref) -> Option<&mut MetaArc> {
+        match self.lugar(*h) {
+            Some((p, i)) => self.paginas[p].metas[i].as_mut(),
+            None if self.avulsos.is_empty() => None,
+            None => self.avulsos.get_mut(h),
+        }
+    }
+
+    fn contains_key(&self, h: &Ref) -> bool {
+        self.get(h).is_some()
+    }
+
+    fn len(&self) -> usize {
+        self.n
+    }
+
+    /// Põe o metadado de `h`: pela página, com a geometria dela, ou na
+    /// reserva, sem. A página que o espaço reformatou para outra classe (a
+    /// página vazia reaproveitada) chega com outra geometria e não pode ter
+    /// metadado ocupado: todo morto já saiu da tabela.
+    fn insert(&mut self, h: Ref, m: MetaArc, geometria: Option<Geometria>) {
+        let Some(g) = geometria else {
+            if self.avulsos.insert(h, m).is_none() {
+                self.n += 1;
+            }
+            return;
+        };
+        let p = match self.pagina(h) {
+            Some(p) => p,
+            None => self.nova_pagina(h, g),
+        };
+        let pg = &mut self.paginas[p];
+        if pg.geometria != g {
+            assert!(pg.ocupados == 0, "bug do ARC: página reformatada com {} metadados vivos", pg.ocupados);
+            pg.geometria = g;
+            pg.metas.clear();
+            pg.metas.resize_with(g.blocos as usize, || None);
+        }
+        let i = Self::indice(&g, h).expect("bug do ARC: handle fora da geometria da página");
+        if pg.metas[i].replace(m).is_none() {
+            pg.ocupados += 1;
+            self.n += 1;
+        }
+    }
+
+    fn nova_pagina(&mut self, h: Ref, g: Geometria) -> usize {
+        let (r, i) = Self::chave(h);
+        let k = match self.regioes.iter().position(|(x, _)| *x == r) {
+            Some(k) => k,
+            None => {
+                self.regioes.push((r, vec![0u32; 1 << BITS_DA_REGIAO].into_boxed_slice()));
+                self.regioes.len() - 1
+            }
+        };
+        self.paginas.push(PaginaArc { geometria: g, metas: (0..g.blocos).map(|_| None).collect(), ocupados: 0 });
+        let p = self.paginas.len() - 1;
+        self.regioes[k].1[i] = u32::try_from(p + 1).expect("ARC: páginas demais");
+        p
+    }
+
+    fn remove(&mut self, h: &Ref) -> Option<MetaArc> {
+        let m = match self.lugar(*h) {
+            Some((p, i)) => {
+                let m = self.paginas[p].metas[i].take();
+                if m.is_some() {
+                    self.paginas[p].ocupados -= 1;
+                }
+                m
+            }
+            None => self.avulsos.remove(h),
+        };
+        if m.is_some() {
+            self.n -= 1;
+        }
+        m
+    }
+
+    /// Cada handle registrado com o metadado.
+    fn iter(&self) -> impl Iterator<Item = (Ref, &MetaArc)> + '_ {
+        self.paginas
+            .iter()
+            .flat_map(|pg| {
+                let g = pg.geometria;
+                pg.metas.iter().enumerate().filter_map(move |(i, m)| {
+                    m.as_ref().map(|m| ((g.primeiro + i as u64 * g.tamanho) as Ref + crate::layout::DESLOCAMENTO_DO_HANDLE, m))
+                })
+            })
+            .chain(self.avulsos.iter().map(|(&h, m)| (h, m)))
+    }
+
+    fn values_mut(&mut self) -> impl Iterator<Item = &mut MetaArc> + '_ {
+        self.paginas.iter_mut().flat_map(|pg| pg.metas.iter_mut().flatten()).chain(self.avulsos.values_mut())
+    }
+}
+
+impl std::ops::Index<&Ref> for Tabela {
+    type Output = MetaArc;
+    fn index(&self, h: &Ref) -> &MetaArc {
+        self.get(h).expect("bug do ARC: handle sem metadado")
+    }
+}
+
 /// O estado do ARC de um isolate (§19.1).
 #[derive(Default)]
 pub struct EstadoDoArc {
-    objetos: HashMap<Ref, MetaArc>,
+    objetos: Tabela,
     candidatos: Vec<IdArc>,
     zeros: Vec<IdArc>,
+    /// Os de RC zero que uma raiz segurava na última drenagem dos zeros, uma
+    /// entrada por objeto ([`MetaArc::adiado`]); voltam à fila uma vez por
+    /// coleta ([`Self::retomar_adiados`]), quando as raízes podem ter mudado.
+    adiados: Vec<IdArc>,
     mortos: Vec<Ref>,
     proxima_geracao: u64,
     /// Uma transação de descarte está em curso (não reentrar).
     transacao: bool,
+    /// As saídas do conjunto em descarte, reaproveitado ([`Self::descartar`]).
+    saidas: Vec<Ref>,
     pub estatisticas: EstatisticasArc,
     /// Uma linha no stderr por evento (registro, retain, release, morte): o
     /// diagnóstico de `DARTFORGE_ARC_TRACO=1`.
@@ -156,7 +345,8 @@ impl EstadoDoArc {
         self.proxima_geracao = self.proxima_geracao.checked_add(1).expect("ARC: geração esgotada");
         self.objetos.insert(
             h,
-            MetaArc { geracao, rc: 1, estado: EstadoArc::Construindo, candidato: false, protegido_condicional: false, imortal: false },
+            MetaArc { geracao, rc: 1, estado: EstadoArc::Construindo, candidato: false, protegido_condicional: false, imortal: false, adiado: false },
+            None,
         );
         self.estatisticas.registrados += 1;
         Ok(IdArc { handle: h, geracao })
@@ -167,7 +357,7 @@ impl EstadoDoArc {
     pub fn registrar_imortal(&mut self, h: Ref) {
         let geracao = self.proxima_geracao;
         self.proxima_geracao += 1;
-        self.objetos.insert(h, MetaArc { geracao, rc: 0, estado: EstadoArc::Vivo, candidato: false, protegido_condicional: false, imortal: true });
+        self.objetos.insert(h, MetaArc { geracao, rc: 0, estado: EstadoArc::Vivo, candidato: false, protegido_condicional: false, imortal: true, adiado: false }, None);
     }
 
     /// Registra um objeto que já existe e passa a ser contado (o jovem
@@ -175,13 +365,19 @@ impl EstadoDoArc {
     /// chamador conta as ocorrências que chegam a ele e depois chama
     /// [`EstadoDoArc::revisar`].
     pub fn registrar_vivo(&mut self, h: Ref) -> IdArc {
+        self.registrar_vivo_em(h, None)
+    }
+
+    /// [`Self::registrar_vivo`] de um bloco do espaço, com a geometria da
+    /// página dele: o metadado vai para a tabela por página, sem hash.
+    pub fn registrar_vivo_em(&mut self, h: Ref, geometria: Option<Geometria>) -> IdArc {
         debug_assert!(e_handle(h));
         let geracao = self.proxima_geracao;
         self.proxima_geracao = self.proxima_geracao.checked_add(1).expect("ARC: geração esgotada");
         if self.traco {
             eprintln!("[arc-traco] registrar {h} ja={}", self.objetos.contains_key(&h));
         }
-        self.objetos.insert(h, MetaArc { geracao, rc: 0, estado: EstadoArc::Vivo, candidato: false, protegido_condicional: false, imortal: false });
+        self.objetos.insert(h, MetaArc { geracao, rc: 0, estado: EstadoArc::Vivo, candidato: false, protegido_condicional: false, imortal: false, adiado: false }, geometria);
         self.estatisticas.registrados += 1;
         IdArc { handle: h, geracao }
     }
@@ -210,7 +406,7 @@ impl EstadoDoArc {
 
     /// Os handles contados ainda vivos.
     pub fn vivos(&self) -> impl Iterator<Item = Ref> + '_ {
-        self.objetos.iter().filter(|(_, m)| matches!(m.estado, EstadoArc::Vivo | EstadoArc::Construindo)).map(|(&h, _)| h)
+        self.objetos.iter().filter(|(_, m)| matches!(m.estado, EstadoArc::Vivo | EstadoArc::Construindo)).map(|(h, _)| h)
     }
 
     /// Põe o vivo `h` entre os candidatos da próxima rodada de ciclos: o
@@ -334,9 +530,9 @@ impl EstadoDoArc {
     /// de contagem zero do RC adiado).
     pub fn drenar_zeros(&mut self, grafo: &mut dyn GrafoArc, limite: usize, protegido: &dyn Fn(Ref) -> bool) -> Result<usize, ErroArc> {
         let mut feitos = 0;
-        let mut adiados = Vec::new();
         while feitos < limite {
             let Some(id) = self.zeros.pop() else { break };
+            self.estatisticas.zeros_vistos += 1;
             let Some(m) = self.valido(id) else { continue };
             if m.estado == EstadoArc::Vivo && m.rc > 0 {
                 // Desceu a zero e voltou a subir antes da drenagem: a
@@ -350,15 +546,39 @@ impl EstadoDoArc {
                 continue;
             }
             if protegido(id.handle) {
-                adiados.push(id);
+                // Fica fora da fila até a próxima coleta: dentro desta as
+                // raízes não mudam, e reexaminá-lo a cada passada (e cada
+                // cópia dele, a cada vez que o RC voltou a zero) era o custo
+                // maior da cascata.
+                self.estatisticas.zeros_adiados += 1;
+                if let Some(m) = self.objetos.get_mut(&id.handle)
+                    && !m.adiado
+                {
+                    m.adiado = true;
+                    self.adiados.push(id);
+                }
                 continue;
             }
             self.descartar(grafo, &[id.handle])?;
             self.estatisticas.mortos_por_rc += 1;
             feitos += 1;
         }
-        self.zeros.append(&mut adiados);
         Ok(feitos)
+    }
+
+    /// Os adiados voltam à fila de zeros, uma vez por coleta (no começo dela:
+    /// a raiz que os segurava pode ter sumido). O que não é mais válido, ou
+    /// já não tem RC zero, sai.
+    pub fn retomar_adiados(&mut self) {
+        let adiados = std::mem::take(&mut self.adiados);
+        for id in adiados {
+            if let Some(m) = self.objetos.get_mut(&id.handle)
+                && m.geracao == id.geracao
+            {
+                m.adiado = false;
+                self.zeros.push(id);
+            }
+        }
     }
 
     /// Há zeros esperando.
@@ -373,27 +593,37 @@ impl EstadoDoArc {
     pub fn descartar(&mut self, grafo: &mut dyn GrafoArc, d: &[Ref]) -> Result<(), ErroArc> {
         assert!(!self.transacao, "ARC: descarte reentrante");
         self.transacao = true;
-        let conjunto: HashSet<Ref> = d.iter().copied().collect();
+        // A cascata dos zeros descarta um objeto por vez: aí a única
+        // aresta interna é a do próprio objeto, e o conjunto (uma alocação
+        // por morte) não é montado.
+        let unico = if d.len() == 1 { Some(d[0]) } else { None };
+        let conjunto: HashSet<Ref> = if unico.is_some() { HashSet::default() } else { d.iter().copied().collect() };
+        let interno = |v: Ref| match unico {
+            Some(u) => u == v,
+            None => conjunto.contains(&v),
+        };
         for &u in d {
             if let Some(m) = self.objetos.get_mut(&u) {
                 m.estado = EstadoArc::Coletando;
             }
         }
-        // As saídas do conjunto, uma vez cada ocorrência.
-        let mut saidas: Vec<Ref> = Vec::new();
+        // As saídas do conjunto, uma vez cada ocorrência (o vetor é
+        // reaproveitado entre descartes).
+        let mut saidas = std::mem::take(&mut self.saidas);
         for &u in d {
             grafo.arestas(u, &mut |v| {
-                if e_handle(v) && !conjunto.contains(&v) {
+                if e_handle(v) && !interno(v) {
                     saidas.push(v);
                 }
             });
         }
         let mut erro = None;
-        for v in saidas {
+        for v in saidas.drain(..) {
             if let Err(e) = self.soltar(v) {
                 erro.get_or_insert(e);
             }
         }
+        self.saidas = saidas;
         for &u in d {
             if self.traco {
                 eprintln!("[arc-traco] morrer {u}");
@@ -529,7 +759,7 @@ impl EstadoDoArc {
                 *conta.entry(h).or_insert(0) += 1;
             }
         }
-        for (&h, m) in &self.objetos {
+        for (h, m) in self.objetos.iter() {
             if m.estado == EstadoArc::Morto {
                 continue;
             }
@@ -539,7 +769,7 @@ impl EstadoDoArc {
                 }
             });
         }
-        for (&h, m) in &self.objetos {
+        for (h, m) in self.objetos.iter() {
             if m.imortal || m.estado == EstadoArc::Morto {
                 continue;
             }
@@ -718,7 +948,9 @@ mod testes {
         a.drenar_zeros(&mut g, usize::MAX, &raiz).unwrap();
         assert!(!morto(&a, 6));
         assert_eq!(a.coletar_ciclos(&mut g, &raiz).unwrap(), 0);
-        // A pilha soltou: morrem na próxima drenagem e rodada.
+        // A pilha soltou: morrem na próxima drenagem (que começa retomando
+        // os adiados) e rodada.
+        a.retomar_adiados();
         a.drenar_zeros(&mut g, usize::MAX, &|_| false).unwrap();
         assert!(morto(&a, 6));
         let n = {

@@ -1450,24 +1450,33 @@ engenharia em `docs/ARC-IMPLEMENTACAO.md` (§6, "ARC puro").
 | E5 | parcial: exceções, async, eventos, isolados e JIT passam no corpus; a matriz `tracing/arc × pendência/tabelas × debug/otimizado` não está no harness (as combinações rodam por variável de ambiente) | corpus nativo 238/238 em Windows; Linux e macOS 238/238 no modo anterior (berçário), ainda não com o ARC puro |
 | E6 | início: o filtro mínimo do §32 — objeto de corpo `BRUTO` (texto, caixa numérica, dados tipados) não tem aresta e não vira candidato a ciclo | — |
 
-**Desvios em relação ao §19, deliberados e reversíveis.** A tabela de
-metadados é um `HashMap<Ref, MetaArc>` (a primeira versão que o §19.1 admite);
-a fila de candidatos não é limitada; o reclamador solta bloco a bloco em vez de
-reconstruir páginas (§19.4, "caminho otimizado posterior").
+**Desvios em relação ao §19, deliberados e reversíveis.** A fila de
+candidatos não é limitada; o reclamador solta bloco a bloco em vez de
+reconstruir páginas (§19.4, "caminho otimizado posterior"). A tabela de
+metadados já é a do §19.1 por página e índice de bloco (o `HashMap` ficou só
+para os handles sem página); os de RC zero seguros por uma raiz ficam numa
+lista própria, uma vez por objeto, e voltam à fila de zeros uma vez por coleta.
 
 **Medida** (`bench/desempenho` em produção, 2026-10-08, preso a um núcleo P):
-ARC/A0 = **2,81** de média geométrica. Numérico, listas e chamadas ficam em
+ARC/A0 = **2,81** de média geométrica antes das otimizações abaixo e **2,13**
+depois (`json` 2,2–3,7×, `lista_ligada` 8,8×, `arvores` 15×; o resto em
+0,8–1,1×). Os números de antes: Numérico, listas e chamadas ficam em
 0,7–1,1; os que alocam objetos que escapam pagam a drenagem: `lista_ligada`
 19,9×, `arvores` 17,2×, `json` 4–8×. No `objetos_escapam`, as drenagens tomam
 ~7 dos ~9 s: ~15 ms por drenagem de 65 mil jovens, ~230 ns por objeto, com cinco
 consultas ao `HashMap` por jovem, o conjunto das raízes montado a cada drenagem e
 a soltura física bloco a bloco.
 
+**Feito em 2026-10-08, pela medida por fase** (`fases=`, `laco=`,
+`zeros_vistos=`, `adiados=` no rastro): os adiados uma vez por coleta (no
+`json`, 557 milhões de entradas da fila de zeros para 30 milhões); os
+metadados por página e índice de bloco (§19.1); o descarte de um objeto sem
+conjunto; as tabelas laterais sem o conjunto dos mortos.
+
 **Próximos passos, na ordem.**
-1. Tempo por fase da drenagem no rastro (`DARTFORGE_GC_RASTRO=1`, `fases=`),
-   para escolher o gargalo pela medida.
-2. Metadados por bloco, indexados pela página do espaço (§19.1: "medir depois
-   uma tabela por página/índice de bloco, evitando um hash por retain").
+1. A decisão dos jovens e a cascata sem consultas repetidas (a marca de
+   registrado no próprio bloco, um percurso do corpo por morte).
+2. A soltura física em lote por página (§19.4).
 3. Retain/release em linha no código gerado para o caso comum (§21), com o
    caminho lento no runtime.
 4. E2: owners na HIR (§20), que tiram do caminho a maior parte dos

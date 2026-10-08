@@ -4405,6 +4405,10 @@ impl crate::arc::GrafoArc for GrafoDoHeap<'_> {
         // SAFETY: as posições são palavras do corpo de um bloco vivo.
         #[allow(unsafe_code)]
         self.heap.posicoes_de_ref(h, &mut |p| f(unsafe { *p }));
+        // Sem efêmero contado (o caso comum), nada de hash por objeto.
+        if self.efemeros.por_chave.is_empty() {
+            return;
+        }
         if let Some(ps) = self.efemeros.por_chave.get(&h) {
             for p in ps {
                 if let Some(&(k, v)) = self.efemeros.contados.get(p)
@@ -4419,6 +4423,9 @@ impl crate::arc::GrafoArc for GrafoDoHeap<'_> {
         // SAFETY: as posições são palavras do corpo de um bloco vivo.
         #[allow(unsafe_code)]
         self.heap.posicoes_de_ref(h, &mut |p| unsafe { *p = 0 });
+        if self.efemeros.por_chave.is_empty() {
+            return;
+        }
         if let Some(ps) = self.efemeros.por_chave.remove(&h) {
             for p in ps {
                 self.efemeros.contados.remove(&p);
@@ -4451,6 +4458,32 @@ fn falha_do_arc(e: crate::arc::ErroArc) -> ! {
     panic!("bug do ARC: {e:?}")
 }
 
+/// A geometria da página do bloco `h` para a tabela de metadados do ARC
+/// (`arc::Geometria`); `None` fora do espaço (o metadado vai para a reserva).
+fn geometria_arc(espaco: &EspacoDeObjetos, h: Ref) -> Option<crate::arc::Geometria> {
+    espaco.geometria(h).map(|(primeiro, tamanho, blocos)| crate::arc::Geometria { primeiro, tamanho, blocos })
+}
+
+/// ARC puro, no laço da drenagem (depois do passo 4, em que todo jovem que
+/// sobrevive é registrado): o objeto do espaço sem metadados morreu nesta
+/// drenagem — o jovem que ninguém contou, ou o morto pelo RC, cujos
+/// metadados `tomar_mortos` já tirou. O estático (`PERMANENTE`) não é do
+/// espaço e nunca morre.
+#[allow(unsafe_code)]
+fn morreu_na_drenagem(espaco: &EspacoDeObjetos, validar: bool, estado: &crate::arc::EstadoDoArc, h: Ref) -> bool {
+    if !e_objeto(h) {
+        return false;
+    }
+    let no_espaco = if validar {
+        espaco.bloco_de(h).is_some()
+    } else {
+        // SAFETY: um handle de objeto é um bloco ou um estático (o contrato
+        // de `bloco_do_espaco` sem a validação).
+        unsafe { (*((h - DESLOCAMENTO_DO_HANDLE) as *const Cabecalho)).estado != PERMANENTE }
+    };
+    no_espaco && estado.meta(h).is_none()
+}
+
 #[allow(unsafe_code)]
 impl Heap {
     /// O ARC está ligado.
@@ -4477,7 +4510,7 @@ impl Heap {
             return;
         }
         if arc.puro && novo_no_espaco {
-            Self::arc_registrar_se_preciso(arc, novo);
+            Self::arc_registrar_se_preciso(&self.objetos, arc, novo);
         }
         arc.estado.reter(novo).unwrap_or_else(|e| falha_do_arc(e));
         arc.estado.soltar(antigo).unwrap_or_else(|e| falha_do_arc(e));
@@ -4485,9 +4518,9 @@ impl Heap {
 
     /// O objeto do espaço `h` ainda sem metadados ganha registro (RC zero,
     /// vivo) antes da primeira ocorrência contada.
-    fn arc_registrar_se_preciso(arc: &mut ArcDoHeap, h: Ref) {
+    fn arc_registrar_se_preciso(espaco: &EspacoDeObjetos, arc: &mut ArcDoHeap, h: Ref) {
         if smi::e_handle(h) && arc.estado.meta(h).is_none() {
-            arc.estado.registrar_vivo(h);
+            arc.estado.registrar_vivo_em(h, geometria_arc(espaco, h));
         }
     }
 
@@ -4495,7 +4528,7 @@ impl Heap {
     /// ocorrência nova, no ARC puro.
     fn arc_reter_registrando(&self, arc: &mut ArcDoHeap, v: Ref) {
         if smi::e_handle(v) && self.bloco_do_espaco(v).is_some() {
-            Self::arc_registrar_se_preciso(arc, v);
+            Self::arc_registrar_se_preciso(&self.objetos, arc, v);
         }
         arc.estado.reter(v).unwrap_or_else(|e| falha_do_arc(e));
     }
@@ -4582,7 +4615,7 @@ impl Heap {
         arc.estado.sem_arestas = Some(bloco_sem_referencias);
         let alcancados = self.alcancaveis_por_rastreamento();
         for &x in &alcancados {
-            arc.estado.registrar_vivo(x);
+            arc.estado.registrar_vivo_em(x, geometria_arc(&self.objetos, x));
         }
         let mut valores = Vec::new();
         for &x in &alcancados {
@@ -4703,7 +4736,7 @@ impl Heap {
         }
         let novos: crate::hash::HashSet<Ref> = promovidos.iter().copied().collect();
         for &h in &promovidos {
-            arc.estado.registrar_vivo(h);
+            arc.estado.registrar_vivo_em(h, geometria_arc(&self.objetos, h));
         }
         let mut valores = Vec::new();
         let mut soltar: Vec<Ref> = Vec::new();
@@ -4785,6 +4818,7 @@ impl Heap {
         let mut prontas = Vec::new();
         let mut nativas = Vec::new();
         let mut finalizar = Vec::new();
+        arc.estado.retomar_adiados();
         loop {
             {
                 let ArcDoHeap { estado, efemeros, .. } = &mut *arc;
@@ -4934,7 +4968,7 @@ impl Heap {
                 }
                 // Registrado, o fotografado segue o RC: sem ocorrência nem
                 // raiz, morre adiante e solta as que acabou de contar.
-                Self::arc_registrar_se_preciso(&mut arc, x);
+                Self::arc_registrar_se_preciso(&self.objetos, &mut arc, x);
             }
             for v in foto {
                 arc.estado.soltar(v).unwrap_or_else(|e| falha_do_arc(e));
@@ -4947,7 +4981,7 @@ impl Heap {
         for &b in &jovens {
             let h = b as i64 + DESLOCAMENTO_DO_HANDLE;
             if arc.estado.meta(h).is_none() && protegidos.contains(&h) {
-                arc.estado.registrar_vivo(h);
+                arc.estado.registrar_vivo_em(h, geometria_arc(&self.objetos, h));
             }
         }
         fases.push(inicio.elapsed().as_micros());
@@ -5025,23 +5059,34 @@ impl Heap {
         let mut finalizar = Vec::new();
         let mut mortos_rc: Vec<Ref> = Vec::new();
         let mut primeira = true;
+        arc.estado.retomar_adiados();
+        // O laço por partes, para o rastro: zeros, ciclos, ponto fixo dos
+        // efêmeros, tabelas laterais (µs).
+        let mut laco = [0u128; 4];
         loop {
+            let t0 = std::time::Instant::now();
             {
                 let ArcDoHeap { estado, efemeros, .. } = &mut *arc;
                 let mut grafo = GrafoDoHeap { heap: self, efemeros };
                 estado.drenar_zeros(&mut grafo, usize::MAX, &protegido).unwrap_or_else(|e| falha_do_arc(e));
+                laco[0] += t0.elapsed().as_micros();
                 if ciclos {
+                    let t1 = std::time::Instant::now();
                     estado.coletar_ciclos(&mut grafo, &protegido).unwrap_or_else(|e| falha_do_arc(e));
                     estado.drenar_zeros(&mut grafo, usize::MAX, &protegido).unwrap_or_else(|e| falha_do_arc(e));
+                    laco[1] += t1.elapsed().as_micros();
                 }
             }
             if ponto_fixo {
+                let t2 = std::time::Instant::now();
                 ponto_fixo = false;
                 self.ponto_fixo_arc(&mut arc);
                 let ArcDoHeap { estado, efemeros, .. } = &mut *arc;
                 let mut grafo = GrafoDoHeap { heap: self, efemeros };
                 estado.drenar_zeros(&mut grafo, usize::MAX, &protegido).unwrap_or_else(|e| falha_do_arc(e));
+                laco[2] += t2.elapsed().as_micros();
             }
+            let t3 = std::time::Instant::now();
             let mut mortos = arc.estado.tomar_mortos();
             mortos_rc.extend_from_slice(&mortos);
             if primeira {
@@ -5051,32 +5096,35 @@ impl Heap {
             if mortos.is_empty() {
                 break;
             }
-            let morto: crate::hash::HashSet<Ref> = mortos.into_iter().collect();
+            // As tabelas laterais (pequenas) perdem os mortos: o objeto do
+            // espaço sem metadados morreu nesta drenagem — depois do passo 4,
+            // todo vivo do espaço é registrado. Um conjunto com os mortos da
+            // rodada (milhões, nas árvores que caem de uma vez) custava mais
+            // que a cascata.
+            drop(mortos);
+            let validar = self.validar_handles;
+            let espaco = &self.objetos;
+            let estado = &arc.estado;
+            let morto = |h: &Ref| morreu_na_drenagem(espaco, validar, estado, *h);
             self.fracas.retain(|portador, alvo| {
-                if morto.contains(alvo) {
+                if morto(alvo) {
                     *alvo = 0;
                 }
-                !morto.contains(portador)
+                !morto(portador)
             });
-            let portadores: Vec<Ref> = self.efemeros.keys().copied().filter(|p| morto.contains(p)).collect();
-            for p in portadores {
-                self.efemeros.remove(&p);
-                if let Some((_, v)) = arc.efemeros.remover(p) {
-                    arc.estado.soltar(v).unwrap_or_else(|e| falha_do_arc(e));
-                }
-            }
+            let portadores: Vec<Ref> = self.efemeros.keys().copied().filter(|p| morto(p)).collect();
             // A chave morta zera a entrada (o rompimento da chave registrada
             // já zerou; a do jovem morto, aqui).
             for e in self.efemeros.values_mut() {
-                if morto.contains(&e.0) {
+                if morto(&e.0) {
                     *e = (0, 0);
                 }
             }
             self.anexos.retain_mut(|a| {
-                if morto.contains(&a.desanexo) {
+                if morto(&a.desanexo) {
                     a.desanexo = 0;
                 }
-                if !morto.contains(&a.valor) {
+                if !morto(&a.valor) {
                     return true;
                 }
                 match a.acao {
@@ -5085,18 +5133,25 @@ impl Heap {
                 }
                 false
             });
-            self.campos_late_inicializados.retain(|(h, _)| !morto.contains(h));
-            self.late_novos.retain(|(h, _)| !morto.contains(h));
-            self.permanentes.retain(|h| !morto.contains(h));
-            self.constantes.retain(|h, _| !morto.contains(h));
-            self.codigo_do_tearoff.retain(|h, _| !morto.contains(h));
+            self.campos_late_inicializados.retain(|(h, _)| !morto(h));
+            self.late_novos.retain(|(h, _)| !morto(h));
+            self.permanentes.retain(|h| !morto(h));
+            self.constantes.retain(|h, _| !morto(h));
+            self.codigo_do_tearoff.retain(|h, _| !morto(h));
             self.finalizaveis.retain(|h, &mut par| {
-                let fica = !morto.contains(h);
+                let fica = !morto(h);
                 if !fica {
                     finalizar.push(par);
                 }
                 fica
             });
+            for p in portadores {
+                self.efemeros.remove(&p);
+                if let Some((_, v)) = arc.efemeros.remover(p) {
+                    arc.estado.soltar(v).unwrap_or_else(|e| falha_do_arc(e));
+                }
+            }
+            laco[3] += t3.elapsed().as_micros();
         }
         self.finalizacoes_prontas.extend(prontas);
         fases.push(inicio.elapsed().as_micros());
@@ -5137,10 +5192,14 @@ impl Heap {
                 .collect();
             let e = arc.estado.estatisticas;
             eprintln!(
-                "[arc] {} us={} fases={} jovens={n_jovens} mortos_jovens={} fotos={n_fotos} contados={} retains={} releases={} mortos_rc={} mortos_ciclo={} rodadas={} examinados={} candidatos={}",
+                "[arc] {} us={} fases={} laco={}/{}/{}/{} jovens={n_jovens} mortos_jovens={} fotos={n_fotos} contados={} retains={} releases={} mortos_rc={} mortos_ciclo={} rodadas={} examinados={} candidatos={} zeros_vistos={} adiados={}",
                 if completa { "completa" } else { "drenagem" },
                 inicio.elapsed().as_micros(),
                 etapas.join("/"),
+                laco[0],
+                laco[1],
+                laco[2],
+                laco[3],
                 mortos_jovens.len(),
                 arc.estado.registrados(),
                 e.retains,
@@ -5149,7 +5208,9 @@ impl Heap {
                 e.mortos_por_ciclo,
                 e.rodadas_de_ciclo,
                 e.examinados,
-                arc.estado.candidatos()
+                arc.estado.candidatos(),
+                e.zeros_vistos,
+                e.zeros_adiados
             );
         }
         self.arc = Some(arc);

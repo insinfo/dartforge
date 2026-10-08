@@ -1370,6 +1370,19 @@ impl EspacoDeObjetos {
         soltos
     }
 
+    /// A geometria da página do bloco do handle `h`: o endereço do primeiro
+    /// bloco, os bytes de cada um e quantos cabem (a tabela de metadados do
+    /// ARC por página, `arc::Geometria`). `None` fora do espaço.
+    pub(crate) fn geometria(&self, h: i64) -> Option<(u64, u64, u32)> {
+        let a = (h - DESLOCAMENTO_DO_HANDLE) as usize;
+        let i = self.mapa.get(a & !(PAGINA - 1))?;
+        let p = &self.paginas[i];
+        if p.vazia {
+            return None;
+        }
+        Some((p.inicio() as u64, p.tamanho() as u64, u32::try_from(p.blocos).ok()?))
+    }
+
     pub(crate) fn varrer_jovens(&mut self) -> (usize, usize) {
         let (mut mortos, mut soltos) = (0, 0);
         soltos += self.soltar_mortos_de_fora();

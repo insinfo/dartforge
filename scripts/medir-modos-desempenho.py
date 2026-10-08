@@ -21,7 +21,7 @@ da máscara: numa CPU híbrida (núcleos P e E) o mesmo executável varia 20–4
 conforme o núcleo em que o sistema o põe. Só no Windows.
 
 Uso: scripts/medir-modos-desempenho.py <dir de saída> [--repeticoes N]
-     [--sem-dart] [--afinidade MASCARA] [filtro...]
+     [--sem-dart] [--afinidade MASCARA] [--modos A0,ARC] [filtro...]
 """
 import argparse, os, re, statistics, subprocess, sys, time
 
@@ -89,6 +89,7 @@ def main():
     ap.add_argument("--repeticoes", type=int, default=7)
     ap.add_argument("--sem-dart", action="store_true")
     ap.add_argument("--afinidade", default=None)
+    ap.add_argument("--modos", default=None, help="só estes modos, separados por vírgula (A0 entra sempre)")
     ap.add_argument("filtro", nargs="*")
     a = ap.parse_args()
     os.makedirs(a.saida, exist_ok=True)
@@ -101,13 +102,14 @@ def main():
     programas = sorted(f[:-5] for f in os.listdir(BENCH) if f.endswith(".dart") and f != "comum.dart")
     if a.filtro:
         programas = [p for p in programas if any(x in p for x in a.filtro)]
-    modos = [m[0] for m in MODOS] + ([] if a.sem_dart else ["dart"])
+    escolhidos = MODOS if not a.modos else [m for m in MODOS if m[0] == "A0" or m[0] in a.modos.split(",")]
+    modos = [m[0] for m in escolhidos] + ([] if a.sem_dart else ["dart"])
 
     log("# Fase 1: compilação")
     exes = {}
     for nome in programas:
         fonte = os.path.join(BENCH, nome + ".dart")
-        for modo, raizes, excecoes, memoria in MODOS:
+        for modo, raizes, excecoes, memoria in escolhidos:
             exe, dt = compilar(a.saida, nome, fonte, modo, raizes, excecoes, memoria)
             log(f"  {nome} {modo}: {'ok' if exe else 'falhou'} ({dt:.0f} s)")
             if exe:
