@@ -37,8 +37,8 @@ execução.
 | Código gerado | No ARC, `SetField`, o `dartforge_object_set` especializado, `CellSet` e os ajudantes de lista (`@df.lista_gravar_ref`, `@df.lista_gravar_dados`) não gravam em linha: chamam o runtime, que conta e aplica a barreira (§18.1, decisão 6). A alocação continua em linha (o objeto nasce jovem). | `llvm/mod.rs`, `llvm/listas_ir.rs`, `llvm/caixas_ir.rs` |
 | Raízes | **Adiadas**: a pilha-sombra (ou os mapas), os quadros do runtime, os globais, os literais e as demais raízes de `Heap::raizes` não contam. Elas protegem os zeros que veem na sincronização: o zero protegido fica na fila (a tabela de contagem zero). | `heap.rs`, `arc.rs` (`drenar_zeros`) |
 | Morte | Só na sincronização (fim da coleta menor), nunca dentro de uma gravação: o runtime mantém o contrato de raízes do rastreamento. O descarte rompe as arestas e solta os destinos fora do conjunto (§19.4). | `arc.rs` (`descartar`) |
-| Ciclos | *Trial deletion* lateral sem tocar o RC real (§22.1). Candidatos: quem desceu a um RC positivo e quem uma raiz vê. As raízes não geram decremento ao sumir, então o sobrevivente protegido só por elas volta a ser candidato. A rodada roda na completa. | `arc.rs` (`coletar_ciclos`, `candidatar`) |
-| Efêmeros | Cada entrada contada é uma ocorrência do valor, atribuída à chave no grafo. A morte da chave rompe a entrada; a do portador a solta. | `heap.rs` (`EfemerosDoArc`) |
+| Ciclos | Na completa, o ponto fixo global (§22.3): `L` é o alcance pelas raízes reais com a regra condicional dos efêmeros, e todo registrado vivo fora de `L` morre num lote só, inclusive o de RC positivo só por ciclos. A *trial deletion* lateral sem tocar o RC real (§22.1) fica para `DARTFORGE_ARC_CICLOS=sempre`, em toda sincronização e repetida a cada volta com morte nova. Candidatos: quem desceu a um RC positivo, quem desceu a zero e voltou a subir antes da drenagem (o autociclo `x[i] = x` depois de soltar a última ocorrência de fora) e quem uma raiz vê. As raízes não geram decremento ao sumir, então o sobrevivente protegido só por elas volta a ser candidato. | `heap.rs` (`ponto_fixo_arc`), `arc.rs` (`coletar_ciclos`, `candidatar`, `drenar_zeros`) |
+| Efêmeros | Entre as completas, cada entrada contada é uma ocorrência do valor atribuída à chave no grafo: segura o valor enquanto a chave vive, mesmo com o portador já inalcançável (retenção, nunca morte antes da hora). A morte da chave rompe a entrada; a do portador a solta. No ponto fixo o portador conta: a entrada de portador fora de `L` sai da contagem antes do lote (sem isso, o ciclo valor→portador ficava vivo pela chave). | `heap.rs` (`EfemerosDoArc`, `ponto_fixo_arc`) |
 | Fracas e finalizadores | As tabelas laterais esquecem os mortos na sincronização (fracas zeradas, anexos e finalizáveis disparados), em laço até não haver morte nova. | `heap.rs` (`sincronizar_arc`) |
 | Reclamação | Na completa: as marcas passam a ser os vivos do RC (não a marcação por rastreamento) e a varredura completa devolve os blocos dos mortos (§19.4). Até lá o morto fica com as arestas zeradas e sem metadados. | `heap.rs` (`reclamar_arc`) |
 | Ativação | Uma coleta completa por rastreamento e o registro de todo vivo, com o RC das ocorrências que chegam a ele. | `heap.rs` (`ativar_arc`) |
@@ -65,7 +65,7 @@ zeros pelas raízes vira só auditoria.
 | Variável | Efeito |
 | --- | --- |
 | `DARTFORGE_ARC_CONFERIR=1` | depois de cada sincronização, nenhum objeto alcançável das raízes sem RC vivo (com o pai, a posição e os metadados no pânico) e o RC de cada vivo igual às ocorrências recontadas (§20.3, modo auditor) |
-| `DARTFORGE_ARC_CICLOS=sempre` ou `nunca` | a rodada de ciclos em toda sincronização, ou em nenhuma |
+| `DARTFORGE_ARC_CICLOS=sempre` ou `nunca` | a *trial deletion* em toda sincronização (além do ponto fixo da completa), ou nem ela nem o ponto fixo |
 | `DARTFORGE_ARC_TRACO=1` | uma linha por evento: sincronização (promovidos, lembrados, fotos), registro, retain, release, morte |
 | `DARTFORGE_GC_RASTRO=1` | a linha `[arc]` de cada sincronização: promovidos, contados, retains, releases, mortos pelo RC e por ciclo, rodadas, examinados, candidatos |
 
@@ -80,6 +80,19 @@ negativo, auditoria divergente) é pânico `bug do ARC`, nunca erro Dart
   ciclo que segura acíclico, construção e proteção, geração obsoleta,
   auditoria, raiz observacional) e o ARC sobre o heap real (promoção e
   release, ciclo com e sem raiz, foto de escrita crua).
+* Grafos aleatórios com semente contra um oráculo independente (§26.2,
+  `arc_grafos_aleatorios_*` em `heap.rs`): alocação, gravação contada e
+  crua, raízes que entram e saem, fracas, efêmeros, menores e completas, com
+  a auditoria do ARC em toda sincronização. O modelo calcula o alcance forte
+  com o ponto fixo dos efêmeros sem olhar o heap; depois de cada coleta, o
+  alcançável continua registrado e com os elementos do modelo; depois da
+  completa, nenhum inalcançável continua vivo, e a fraca e o efêmero de alvo
+  ou chave inalcançável estão zerados. Três modos: o padrão, a *trial
+  deletion* em toda sincronização e o rastreamento (que valida o modelo).
+  `DF_ARC_SEMENTES=N` amplia a busca; 3000 sementes por modo passaram. A
+  primeira rodada achou dois furos, corrigidos: o zero que volta a subir não
+  virava candidato (o autociclo vazava), e o ciclo valor→portador de um
+  efêmero ficava vivo pela chave.
 * O corpus nativo com `DARTFORGE_MEMORIA=arc` pelo `dartforge-diferencial`
   (2026-10-08, Windows x86-64, 238 programas):
 
@@ -89,6 +102,7 @@ negativo, auditoria divergente) é pânico `bug do ARC`, nunca erro Dart
   | `--nativo`, `DARTFORGE_ARC_CICLOS=sempre`, `DARTFORGE_ARC_CONFERIR=1` | 238/238 |
   | `--nativo --gc-stress` | 238/238 |
   | `--jit-aot`, `DARTFORGE_ARC_CONFERIR=1` | 238/238, JIT × AOT sem divergência |
+  | Depois do ponto fixo (2026-10-08): `--nativo` com auditoria, `--gc-stress`, `DARTFORGE_ARC_CICLOS=sempre` com auditoria | 238/238 nos três |
 
   O job `nativo-arc` do `pesado.yml` roda o corpus com a auditoria e com o
   `--gc-stress`.
@@ -98,8 +112,10 @@ negativo, auditoria divergente) é pânico `bug do ARC`, nunca erro Dart
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais
   (§20.4).
 * `ownership.tsv` por extern (§21.2).
-* Weak e ephemerons pelo ponto fixo condicional da especificação (§22.2–§22.3);
-  hoje o efêmero é uma aresta da chave para o valor.
+* A proteção condicional entre as rodadas (§22.2) e o índice `chave →
+  entradas` do ponto fixo (§22.3, a otimização). O ponto fixo da completa
+  está feito; entre as completas o efêmero é uma ocorrência atribuída à
+  chave, que retém (nunca mata antes da hora).
 * Política de agendamento da rodada de ciclos por orçamento (§22.5); hoje
   ela roda na completa.
 * Reclamação por bloco, sem varrer as páginas (§19.4, caminho otimizado).

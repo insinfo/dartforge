@@ -331,6 +331,14 @@ impl EstadoDoArc {
         while feitos < limite {
             let Some(id) = self.zeros.pop() else { break };
             let Some(m) = self.valido(id) else { continue };
+            if m.estado == EstadoArc::Vivo && m.rc > 0 {
+                // Desceu a zero e voltou a subir antes da drenagem: a
+                // ocorrência nova pode fechar um ciclo sem raiz (o
+                // autociclo `x[i] = x` depois de soltar a última de fora),
+                // então ele é candidato como quem desce a um RC positivo.
+                self.candidatar(id.handle);
+                continue;
+            }
             if m.estado != EstadoArc::Vivo || m.rc != 0 || m.protegido_condicional || m.imortal {
                 continue;
             }

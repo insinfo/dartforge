@@ -4255,9 +4255,9 @@ pub struct ArcDoHeap {
     /// `DARTFORGE_ARC_CONFERIR=1`: depois de cada sincronização, nenhum
     /// alcançável morto e o RC de cada vivo igual às ocorrências recontadas.
     conferir: bool,
-    /// `DARTFORGE_ARC_CICLOS=sempre`: a rodada de ciclos em toda
-    /// sincronização; `nunca`: nenhuma (o diagnóstico); o padrão: na
-    /// completa.
+    /// `DARTFORGE_ARC_CICLOS=sempre`: a rodada de ciclos (*trial
+    /// deletion*) em toda sincronização; `nunca`: nem ela nem o ponto fixo
+    /// da completa (o diagnóstico); o padrão: o ponto fixo na completa.
     ciclos: Option<bool>,
 }
 
@@ -4481,6 +4481,54 @@ impl Heap {
         saida
     }
 
+    /// O ponto fixo e a transação de descarte global da completa (§22.3):
+    /// `L` é o alcance pelas raízes reais pelas arestas fortes, com a regra
+    /// condicional dos efêmeros (o valor entra quando o portador e a chave
+    /// estão em `L`); todo registrado vivo fora de `L` morre num lote só,
+    /// inclusive o de RC positivo só por ciclos.
+    ///
+    /// Entre as completas a entrada de efêmero é uma ocorrência do valor
+    /// atribuída à chave: segura o valor enquanto a chave vive, mesmo com o
+    /// portador já inalcançável (retenção, nunca morte antes da hora). Aqui o
+    /// portador conta: a entrada de portador fora de `L` sai da contagem
+    /// antes do lote, e o valor que sobrevive perde a ocorrência. A de chave
+    /// fora de `L` sai pelo próprio descarte (o rompimento da chave zera a
+    /// entrada e solta o valor).
+    fn ponto_fixo_arc(&mut self, arc: &mut ArcDoHeap) {
+        let l: crate::hash::HashSet<Ref> = self.alcancaveis_por_rastreamento().into_iter().collect();
+        let d: Vec<Ref> = arc
+            .estado
+            .vivos()
+            .filter(|h| !l.contains(h) && arc.estado.meta(*h).is_some_and(|m| m.estado == crate::arc::EstadoArc::Vivo && !m.imortal))
+            .collect();
+        if arc.estado.traco {
+            eprintln!("[arc-traco] ponto fixo: {} alcançados, {} mortos", l.len(), d.len());
+        }
+        if d.is_empty() {
+            return;
+        }
+        let em_d: crate::hash::HashSet<Ref> = d.iter().copied().collect();
+        let saem: Vec<Ref> = arc
+            .efemeros
+            .contados
+            .iter()
+            .filter(|&(p, &(k, _))| em_d.contains(p) && !em_d.contains(&k))
+            .map(|(&p, _)| p)
+            .collect();
+        for p in saem {
+            if let Some((_, v)) = arc.efemeros.remover(p)
+                && !em_d.contains(&v)
+            {
+                arc.estado.soltar(v).unwrap_or_else(|e| falha_do_arc(e));
+            }
+        }
+        let n = d.len();
+        let ArcDoHeap { estado, efemeros, .. } = arc;
+        let mut grafo = GrafoDoHeap { heap: self, efemeros };
+        estado.descartar(&mut grafo, &d).unwrap_or_else(|e| falha_do_arc(e));
+        estado.estatisticas.mortos_por_ciclo += n as u64;
+    }
+
     /// A sincronização do ARC, no fim da coleta menor (§19.3, §19.4, §22):
     ///
     /// 1. os promovidos ganham metadados (`rc=0`);
@@ -4489,8 +4537,9 @@ impl Heap {
     ///    as entradas de efêmero novas;
     /// 3. os decrementos: as fotos e as entradas de efêmero trocadas;
     /// 4. os zeros morrem em cascata, menos os vistos pelas raízes (que
-    ///    ficam na fila); na completa (ou sempre, com
-    ///    `DARTFORGE_ARC_CICLOS=sempre`), a rodada de ciclos;
+    ///    ficam na fila); na completa, o ponto fixo global
+    ///    ([`Heap::ponto_fixo_arc`]); com `DARTFORGE_ARC_CICLOS=sempre`, a
+    ///    rodada de ciclos em toda sincronização;
     /// 5. as tabelas laterais esquecem os mortos (fracas, efêmeros,
     ///    finalizadores) até não haver morte nova;
     /// 6. na completa, a reclamação: as marcas são os vivos do RC e a
@@ -4575,7 +4624,12 @@ impl Heap {
         for &h in &raizes {
             arc.estado.candidatar(h);
         }
-        let mut ciclos = arc.ciclos.unwrap_or(completa);
+        // Com `DARTFORGE_ARC_CICLOS=sempre`, a rodada de ciclos se repete a
+        // cada volta com morte nova: o descarte (e o efêmero que sai com o
+        // portador) solta sobreviventes que podem ter ficado num ciclo sem
+        // raiz. Na completa, o ponto fixo decide a vida de todos (§22.3).
+        let ciclos = arc.ciclos == Some(true);
+        let mut ponto_fixo = completa && arc.ciclos != Some(false);
         let mut prontas = Vec::new();
         let mut nativas = Vec::new();
         let mut finalizar = Vec::new();
@@ -4585,10 +4639,16 @@ impl Heap {
                 let mut grafo = GrafoDoHeap { heap: self, efemeros };
                 estado.drenar_zeros(&mut grafo, usize::MAX, &protegido).unwrap_or_else(|e| falha_do_arc(e));
                 if ciclos {
-                    ciclos = false;
                     estado.coletar_ciclos(&mut grafo, &protegido).unwrap_or_else(|e| falha_do_arc(e));
                     estado.drenar_zeros(&mut grafo, usize::MAX, &protegido).unwrap_or_else(|e| falha_do_arc(e));
                 }
+            }
+            if ponto_fixo {
+                ponto_fixo = false;
+                self.ponto_fixo_arc(&mut arc);
+                let ArcDoHeap { estado, efemeros, .. } = &mut *arc;
+                let mut grafo = GrafoDoHeap { heap: self, efemeros };
+                estado.drenar_zeros(&mut grafo, usize::MAX, &protegido).unwrap_or_else(|e| falha_do_arc(e));
             }
             let mortos = arc.estado.tomar_mortos();
             if mortos.is_empty() {
@@ -4836,5 +4896,291 @@ mod arc_no_heap {
         assert_eq!(heap.arc.as_ref().unwrap().estado.meta(c).unwrap().rc, 2);
         heap.pop_frame(quadro);
         heap.collect();
+    }
+
+    // -- Grafos aleatórios com oráculo independente (§26.2) ------------------
+
+    /// xorshift64*: a sequência de cada semente é reproduzível.
+    struct Sorteio(u64);
+
+    impl Sorteio {
+        fn novo(semente: u64) -> Sorteio {
+            Sorteio(semente.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1)
+        }
+        fn prox(&mut self) -> u64 {
+            let mut x = self.0;
+            x ^= x >> 12;
+            x ^= x << 25;
+            x ^= x >> 27;
+            self.0 = x;
+            x.wrapping_mul(0x2545_F491_4F6C_DD1D)
+        }
+        fn ate(&mut self, n: usize) -> usize {
+            (self.prox() % n as u64) as usize
+        }
+    }
+
+    /// O alvo de uma fraca ou a entrada de um efêmero no modelo. O alvo (ou a
+    /// chave) que deixou de ser alcançável vira `Pendente`: a coleta pode
+    /// zerá-lo a qualquer momento, e a completa tem de zerá-lo.
+    #[derive(Clone, Copy, PartialEq, Debug)]
+    enum Fraco<T> {
+        Vale(T),
+        Pendente,
+    }
+
+    /// O grafo do lado do teste: listas com os elementos, os slots do quadro,
+    /// as fracas e os efêmeros. O alcance é calculado só daqui, sem olhar o
+    /// heap: o forte pelas raízes e o ponto fixo condicional dos efêmeros
+    /// (o valor de um portador alcançado é alcançado quando a chave é).
+    #[derive(Default)]
+    struct Modelo {
+        campos: crate::hash::HashMap<Ref, Vec<Ref>>,
+        raizes: Vec<Ref>,
+        fracas: crate::hash::HashMap<Ref, Fraco<Ref>>,
+        efemeros: crate::hash::HashMap<Ref, Fraco<(Ref, Ref)>>,
+        /// Os registrados no ARC que ficaram inalcançáveis: a completa tem de
+        /// matá-los.
+        lixo: Vec<Ref>,
+    }
+
+    impl Modelo {
+        fn alcancaveis(&self) -> crate::hash::HashSet<Ref> {
+            let mut vivos = crate::hash::HashSet::default();
+            let mut pilha: Vec<Ref> = self.raizes.iter().copied().filter(|&h| h != 0).collect();
+            loop {
+                while let Some(h) = pilha.pop() {
+                    if vivos.insert(h) {
+                        pilha.extend(self.campos[&h].iter().copied().filter(|&f| f != 0));
+                    }
+                }
+                for (p, e) in &self.efemeros {
+                    if let Fraco::Vale((k, v)) = *e
+                        && vivos.contains(p)
+                        && vivos.contains(&k)
+                        && !vivos.contains(&v)
+                    {
+                        pilha.push(v);
+                    }
+                }
+                if pilha.is_empty() {
+                    return vivos;
+                }
+            }
+        }
+
+        fn usaveis(&self) -> Vec<Ref> {
+            let mut v: Vec<Ref> = self.alcancaveis().into_iter().collect();
+            v.sort_unstable();
+            v
+        }
+
+        fn sortear(&self, r: &mut Sorteio) -> Option<Ref> {
+            let v = self.usaveis();
+            if v.is_empty() { None } else { Some(v[r.ate(v.len())]) }
+        }
+    }
+
+    /// Depois de uma coleta: o alcançável continua com os elementos do
+    /// modelo (e, no ARC, registrado vivo); a fraca e o efêmero de alvo
+    /// alcançável continuam, e os de alvo inalcançável viram `Pendente` (a
+    /// completa os exige zerados). Os inalcançáveis saem do modelo.
+    fn conferir_modelo(heap: &Heap, m: &mut Modelo, completa: bool, arc: bool, contexto: &str) {
+        let vivos = m.alcancaveis();
+        for &h in &vivos {
+            if arc {
+                assert!(vivo(heap, h), "{contexto}: alcançável {h:#x} sem RC vivo");
+            }
+            let p = heap.palavras(h);
+            for (i, &f) in m.campos[&h].iter().enumerate() {
+                assert_eq!(p[1 + i], f, "{contexto}: elemento {i} de {h:#x}");
+            }
+        }
+        if completa && arc {
+            let agora: Vec<Ref> = m.campos.keys().copied().filter(|h| !vivos.contains(h)).collect();
+            m.lixo.extend(agora);
+            for &h in &m.lixo {
+                assert!(
+                    !vivo(heap, h),
+                    "{contexto}: inalcançável {h:#x} sobreviveu à completa ({:?}; efêmeros {:?}; fracas {:?})",
+                    heap.arc.as_ref().unwrap().estado.meta(h),
+                    heap.efemeros.iter().filter(|(p, (k, v))| **p == h || *k == h || *v == h).collect::<Vec<_>>(),
+                    heap.fracas.iter().filter(|(p, a)| **p == h || **a == h).collect::<Vec<_>>(),
+                );
+            }
+            m.lixo.clear();
+        }
+        let mortos: Vec<Ref> = m.campos.keys().copied().filter(|h| !vivos.contains(h)).collect();
+        for h in mortos {
+            m.campos.remove(&h);
+            if arc && vivo(heap, h) {
+                m.lixo.push(h);
+            }
+        }
+        let campos_do_modelo = &m.campos;
+        m.fracas.retain(|p, alvo| {
+            if !vivos.contains(p) {
+                return false;
+            }
+            let atual = heap.fracas.get(p).copied().unwrap_or(0);
+            match *alvo {
+                Fraco::Vale(a) if vivos.contains(&a) => assert_eq!(atual, a, "{contexto}: fraca {p:#x} com alvo vivo"),
+                Fraco::Vale(a) => {
+                    assert!(atual == a || atual == 0, "{contexto}: fraca {p:#x}");
+                    *alvo = Fraco::Pendente;
+                }
+                Fraco::Pendente => {}
+            }
+            if completa && *alvo == Fraco::Pendente {
+                assert_eq!(
+                    atual,
+                    0,
+                    "{contexto}: fraca {p:#x} não zerada na completa (alvo {:?}; efêmeros {:?}; quem aponta {:?})",
+                    heap.arc.as_ref().map(|a| a.estado.meta(atual)),
+                    heap.efemeros
+                        .iter()
+                        .filter(|(q, (k, v))| **q == atual || *k == atual || *v == atual)
+                        .map(|(q, kv)| (*q, *kv, vivos.contains(q), vivos.contains(&kv.0), heap.arc.as_ref().map(|a| a.estado.vivo(*q))))
+                        .collect::<Vec<_>>(),
+                    campos_do_modelo.iter().filter(|(_, c)| c.contains(&atual)).map(|(h, _)| (*h, vivos.contains(h))).collect::<Vec<_>>(),
+                );
+            }
+            true
+        });
+        m.efemeros.retain(|p, e| {
+            if !vivos.contains(p) {
+                return false;
+            }
+            let atual = heap.efemeros.get(p).copied().unwrap_or((0, 0));
+            match *e {
+                Fraco::Vale((k, v)) if vivos.contains(&k) => assert_eq!(atual, (k, v), "{contexto}: efêmero {p:#x} com chave viva"),
+                Fraco::Vale((k, v)) => {
+                    assert!(atual == (k, v) || atual == (0, 0), "{contexto}: efêmero {p:#x}");
+                    *e = Fraco::Pendente;
+                }
+                Fraco::Pendente => {}
+            }
+            if completa && *e == Fraco::Pendente {
+                assert_eq!(atual, (0, 0), "{contexto}: efêmero {p:#x} não zerado na completa");
+            }
+            true
+        });
+    }
+
+    /// Uma semente: alocações, gravações contadas e cruas, raízes que entram
+    /// e saem, fracas e efêmeros, coletas menores e completas, com a auditoria
+    /// do ARC (`conferir`) em toda sincronização e o oráculo do modelo depois
+    /// de cada coleta.
+    fn grafo_aleatorio(semente: u64, arc: bool, ciclos_sempre: bool, passos: usize) {
+        const SLOTS: usize = 6;
+        let mut r = Sorteio::novo(semente);
+        let mut heap = if arc { heap_arc() } else { Heap::new(false) };
+        if ciclos_sempre {
+            heap.arc.as_mut().unwrap().ciclos = Some(true);
+        }
+        heap.verificar = true;
+        let quadro = heap.push_frame_with_slots(SLOTS);
+        let mut m = Modelo { raizes: vec![0; SLOTS], ..Modelo::default() };
+        for passo in 0..passos {
+            let contexto = format!("semente {semente}, passo {passo}, arc {arc}");
+            match r.ate(20) {
+                0..=4 => {
+                    let len = 1 + r.ate(3);
+                    let h = lista(&mut heap, len);
+                    let s = r.ate(SLOTS);
+                    heap.set_root(quadro, s, h);
+                    m.raizes[s] = h;
+                    m.campos.insert(h, vec![0; len]);
+                }
+                5..=8 => {
+                    if let Some(a) = m.sortear(&mut r) {
+                        let i = r.ate(m.campos[&a].len());
+                        let b = if r.ate(5) == 0 { 0 } else { m.sortear(&mut r).unwrap_or(0) };
+                        if r.ate(3) == 0 {
+                            heap.palavras_mut(a)[1 + i] = b;
+                            heap.lembrar(a);
+                        } else {
+                            heap.gravar_ref(a, 1 + i, b);
+                        }
+                        m.campos.get_mut(&a).unwrap()[i] = b;
+                    }
+                }
+                9..=10 => {
+                    let s = r.ate(SLOTS);
+                    heap.set_root(quadro, s, 0);
+                    m.raizes[s] = 0;
+                }
+                11 => {
+                    if let Some(h) = m.sortear(&mut r) {
+                        let s = r.ate(SLOTS);
+                        heap.set_root(quadro, s, h);
+                        m.raizes[s] = h;
+                    }
+                }
+                12 => {
+                    if let (Some(p), Some(a)) = (m.sortear(&mut r), m.sortear(&mut r))
+                        && !m.efemeros.contains_key(&p)
+                    {
+                        heap.fracas.insert(p, a);
+                        m.fracas.insert(p, Fraco::Vale(a));
+                    }
+                }
+                13..=14 => {
+                    if let (Some(p), Some(k), Some(v)) = (m.sortear(&mut r), m.sortear(&mut r), m.sortear(&mut r))
+                        && !m.fracas.contains_key(&p)
+                    {
+                        heap.efemeros.insert(p, (k, v));
+                        m.efemeros.insert(p, Fraco::Vale((k, v)));
+                    }
+                }
+                15..=17 => {
+                    heap.coletar(true);
+                    conferir_modelo(&heap, &mut m, false, arc, &contexto);
+                }
+                _ => {
+                    heap.collect();
+                    conferir_modelo(&heap, &mut m, true, arc, &contexto);
+                }
+            }
+        }
+        for s in 0..SLOTS {
+            heap.set_root(quadro, s, 0);
+            m.raizes[s] = 0;
+        }
+        heap.collect();
+        conferir_modelo(&heap, &mut m, true, arc, &format!("semente {semente}, fim, arc {arc}"));
+        if arc {
+            assert_eq!(heap.arc.as_ref().unwrap().estado.vivos().count(), 0, "semente {semente}: sobrou vivo sem raiz");
+        }
+        heap.pop_frame(quadro);
+    }
+
+    /// Quantas sementes: `DF_ARC_SEMENTES` amplia a busca fora do CI.
+    fn sementes(padrao: u64) -> u64 {
+        std::env::var("DF_ARC_SEMENTES").ok().and_then(|v| v.parse().ok()).unwrap_or(padrao)
+    }
+
+    #[test]
+    fn arc_grafos_aleatorios_contra_o_modelo() {
+        for semente in 0..sementes(150) {
+            grafo_aleatorio(semente, true, false, 400);
+        }
+    }
+
+    /// Com a rodada de ciclos em toda sincronização (a *trial deletion*
+    /// também nas menores, além do ponto fixo da completa).
+    #[test]
+    fn arc_grafos_aleatorios_com_ciclos_sempre() {
+        for semente in 0..sementes(150) {
+            grafo_aleatorio(semente.wrapping_add(1 << 32), true, true, 400);
+        }
+    }
+
+    /// O mesmo oráculo contra o rastreamento: valida o modelo.
+    #[test]
+    fn arc_grafos_aleatorios_o_modelo_vale_no_rastreamento() {
+        for semente in 0..sementes(60) {
+            grafo_aleatorio(semente, false, false, 400);
+        }
     }
 }
