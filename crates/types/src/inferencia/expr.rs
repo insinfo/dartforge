@@ -5179,7 +5179,21 @@ fn teste_de_tipo_desnecessario(
     };
     let codigo = if negado { w::UNNECESSARY_TYPE_CHECK_FALSE } else { w::UNNECESSARY_TYPE_CHECK_TRUE };
     if inf.e_dynamic(t) {
-        if nome_escrito.as_deref() == Some("dynamic") {
+        // O `dynamic` de verdade: o escrito, ou o alias que chega a si mesmo
+        // (`hasSelfReference` instancia como `DynamicType`).
+        let alias_auto_referente = match &ast(inf, cx).ty(ty).kind {
+            ast::TypeKind::Named { name, .. } => {
+                let b = match &name[..] {
+                    [n] => inf.program.lookup_na_unidade(cx.unit, n.sym),
+                    [p, n] => inf.program.lookup_prefixed_na_unidade(cx.unit, p.sym, n.sym),
+                    _ => None,
+                };
+                matches!(b.and_then(|b| b.getter), Some(Element::Typedef(tid))
+                    if crate::auto_referencia::typedef_auto_referente(inf.program, inf.program.typedef(tid).decl))
+            }
+            _ => false,
+        };
+        if nome_escrito.as_deref() == Some("dynamic") || alias_auto_referente {
             inf.aviso_com_codigo(codigo, span, &[]);
         }
         return;

@@ -15,6 +15,8 @@
 //! - **Rastreio de memória**: A [`TypeTable`] computa continuamente seu `payload_bytes`
 //!   para vigilância de platô do LSP e medições do compilador.
 
+/// O `typedef` que chega a si mesmo (`TypeAliasSelfReferenceFinder`).
+pub mod auto_referencia;
 pub mod a_main;
 pub mod anotacoes;
 pub mod boas_praticas;

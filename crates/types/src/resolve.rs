@@ -358,6 +358,8 @@ pub struct OutlineResolver<'a> {
     pub extension_type_params: Vec<Box<[TypeParamId]>>,
     /// Tipos alvo expandidos de typedefs: `[TypedefId] -> Option<TypeId>`
     pub typedef_targets: Vec<Option<TypeId>>,
+    /// Cache do `hasSelfReference` de cada `typedef` (`auto_referencia`).
+    typedefs_auto_referentes: Vec<Option<bool>>,
     /// Ver [`OutlineTypes::sobrescritas_de_campo`].
     pub sobrescritas_de_campo: Vec<SobrescritaDeCampo>,
     /// Ver [`OutlineTypes::tipos_escritos`].
@@ -389,6 +391,7 @@ impl<'a> OutlineResolver<'a> {
             typedef_type_params: vec![Box::new([]); num_typedefs],
             extension_type_params: vec![Box::new([]); num_extensions],
             typedef_targets: vec![None; num_typedefs],
+            typedefs_auto_referentes: vec![None; num_typedefs],
             sobrescritas_de_campo: Vec::new(),
             tipos_escritos: HashMap::new(),
         }
@@ -613,6 +616,18 @@ impl<'a> OutlineResolver<'a> {
             let typedef_id = TypedefId(i as u32);
             self.ensure_typedef_resolved(typedef_id);
         }
+    }
+
+    /// O `typedef` chega a si mesmo (`hasSelfReference`): instancia como
+    /// `dynamic` (`TypeAliasElementImpl.instantiate`, `element.dart:9690-9696`).
+    fn typedef_auto_referente(&mut self, id: TypedefId) -> bool {
+        let i = id.0 as usize;
+        if let Some(r) = self.typedefs_auto_referentes[i] {
+            return r;
+        }
+        let r = crate::auto_referencia::typedef_auto_referente(self.program, self.program.typedefs[i].decl);
+        self.typedefs_auto_referentes[i] = Some(r);
+        r
     }
 
     fn ensure_typedef_resolved(&mut self, id: TypedefId) -> TypeId {
@@ -1905,6 +1920,7 @@ impl<'a> OutlineResolver<'a> {
                                         })
                                     }
                                 }
+                                Some(Element::Typedef(tid)) if self.typedef_auto_referente(tid) => self.core.dynamic_,
                                 Some(Element::Typedef(tid)) => {
                                     let resolved_args: Vec<TypeId> = args
                                         .iter()
@@ -2029,6 +2045,7 @@ impl<'a> OutlineResolver<'a> {
                                     })
                                 }
                             }
+                            Some(Element::Typedef(tid)) if self.typedef_auto_referente(tid) => self.core.dynamic_,
                             Some(Element::Typedef(tid)) => {
                                 let resolved_args: Vec<TypeId> = args
                                     .iter()

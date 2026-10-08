@@ -565,6 +565,11 @@ impl Verificador<'_> {
         match el {
             Element::Class(c) => Some((self.outline.classes[c.0 as usize].type_params.to_vec(), None)),
             Element::Typedef(t) => {
+                // O alias que chega a si mesmo instancia como `dynamic`: sem
+                // conferência de limites (`auto_referencia`).
+                if crate::auto_referencia::typedef_auto_referente(self.program, self.program.typedef(t).decl) {
+                    return None;
+                }
                 let d = &self.outline.typedefs[t.0 as usize];
                 Some((d.type_params.to_vec(), Some(d.target_type)))
             }

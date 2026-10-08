@@ -915,6 +915,12 @@ Representação cíclica ou inválida cala o `implements` e o fundo. Um `dynamic
 #### Grupo 5 — argumentos de tipo (limites, inferência, contagem)
 
 ##### `type_argument_not_matching_bounds` (perda 99: FN 97, FP 2)
+- **Corrigido em 2026-10-08** (`TypeAliasCannotReferenceItself__functio_*` e `__generic_*`): o `typedef` que chega a si
+  mesmo (`TypeAliasSelfReferenceFinder`, `summary2/type_alias.dart`) instancia como `dynamic`
+  (`TypeAliasElementImpl.instantiate`, `element.dart:9690-9696`), e a conferência de limites não roda no argumento
+  dele. No DartForge o detector saiu do `analise` para `types::auto_referencia` e vale nos dois resolvedores
+  (`resolve.rs`, com cache por `typedef`, e `inferencia/tipos.rs`); o `is F` com esse alias é o `is dynamic` do
+  `_checkAllTypeChecks` (`best_practices_verifier.dart:793-797`), sempre `UNNECESSARY_TYPE_CHECK_TRUE`.
 - **Emissão:** vários pontos, todos com a mesma mensagem:
   - `TypeArgumentsVerifier.checkNamedType` → `_checkNamedTypeArguments` (`analyzer/lib/src/error/type_arguments_verifier.dart:290-400`): tipos nomeados escritos (`C<String>` em anotações de tipo, `extends`/`implements`, literais de tipo, `new`/`const`), com a regra de **bem-limitado**: primeiro regular-bounded (`T_i <: B_i[T/X]`); se falha, e o contexto permite super-bounded (não em `new`/`const`/supertipo — `allowSuperBounded`), testa super-bounded (troca topo↔`Never` em posições covariantes/contravariantes, `isWellBounded`) e só relata se também falha (:340-400);
   - `checkEnumConstantDeclaration` (:91-140): argumentos (explícitos **ou inferidos**, `constructorElement.returnType.typeArguments`) de constante de enum; posição o argumento explícito ou o **nome** da constante;

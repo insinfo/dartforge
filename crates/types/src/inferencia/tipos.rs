@@ -523,6 +523,11 @@ impl<'a> BodyInferrer<'a> {
                         };
                         self.tipo_de_classe_com_args(cid, resolvidos)
                     }
+                    // O alias que chega a si mesmo instancia como `dynamic`
+                    // (`hasSelfReference`, `auto_referencia`).
+                    Some(Element::Typedef(tid)) if crate::auto_referencia::typedef_auto_referente(self.program, self.program.typedef(tid).decl) => {
+                        return self.core.dynamic_;
+                    }
                     Some(Element::Typedef(tid)) => {
                         let data = self.outline.typedefs[tid.0 as usize].clone();
                         let args = if resolvidos.len() == data.type_params.len() {
