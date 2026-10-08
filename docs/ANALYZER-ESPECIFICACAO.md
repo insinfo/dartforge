@@ -7038,10 +7038,13 @@ percorre classes.
   extensão; `ast.dart:26849-26860`, o `PrimaryConstructorBody.declaration`): `MULTIPLE_PRIMARY_CONSTRUCTOR_BODY_DECLARATIONS`
   da segunda parte `this` em diante também sem o cabeçalho primário (junto do `PRIMARY_CONSTRUCTOR_BODY_WITHOUT_DECLARATION`)
   e no tipo de extensão. A parte `this` que sobra não é `ConstructorDeclaration`: sem o `NON_CONST_GENERATIVE_ENUM_CONSTRUCTOR`
-  do `visitConstructorDeclaration` (`types::constantes::verificador`). Falta: a parte repetida com cabeçalho é verificada no
-  contexto do primário (os parâmetros no escopo, `visitPrimaryConstructorBody` com o elemento da declaração); hoje ela é
-  inferida sem os parâmetros (`undefined_identifier` e `implicit_this_reference_in_initializer` em
-  `primary_constructors/syntax/no_parameter_list_error_test.dart:52` e `:61`).
+  do `visitConstructorDeclaration` (`types::constantes::verificador`). A parte repetida com cabeçalho (e a parte do tipo de
+  extensão, que não é elaborada) é inferida no contexto do primário: toda `PrimaryConstructorBody` resolve com o elemento da
+  declaração (`scope_context.dart:406-430`: `ConstructorInitializerScope` nos inicializadores, `PrimaryParameterScope` no
+  corpo). O `funcoes::parametros_do_primario` declara os parâmetros do k2 (ou a representação, final) nos inicializadores, e
+  os que não são `this.`/declarantes no corpo. Sumiram o `undefined_identifier` e o `implicit_this_reference_in_initializer`
+  de `no_parameter_list_error_test.dart:52`/`:61`, de `potentially_constant_error_test.dart:45` e de
+  `wildcard_declaring_parameters_error_test.dart:87`.
 - Emitido em `declarations.rs:1207-1210`. FN: (1) sem cabeçalho (`C3`, linha 31) o `let Some(cab) = cab
   else { … return None }` (`:1200-1206`) sai antes; o 3.13 relata **os dois** códigos na 2ª parte
   (`without_declaration` + `multiple`) — mover o laço do `multiple` para antes do retorno; (2) `extension type ET1(int x) { this; this : … }`

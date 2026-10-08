@@ -154,9 +154,15 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             if primario {
                 cx.tipo_this = this_do_cabecalho;
             }
+            // A parte `this` repetida (ou a do tipo de extensão) vê os
+            // parâmetros do primário.
+            let do_primario = if ctor.parte_primaria { parametros_do_primario(inf, f) } else { Vec::new() };
+            for &(n, t, final_, _) in &do_primario {
+                super::expr::declarar_local(inf, &mut cx, Local { nome: n.sym, tipo: t, final_, late: false, const_: false, offset: n.span.start, funcao_local: false }, true);
+            }
             // Os parâmetros do primário, protegidos nos inicializadores (o
             // corpo declara locais novos).
-            if e_construtor_primario(inf.program, f)
+            if (e_construtor_primario(inf.program, f) || !do_primario.is_empty())
                 && let Some(escopo) = cx.escopos.last()
             {
                 let ids: Vec<_> = escopo.iter().filter_map(|(_, n)| match n {
@@ -231,6 +237,12 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
                 if let Some(n) = &p.name {
                     let t = tipos.get(i).copied().unwrap_or(inf.core.dynamic_);
                     let id = cx2.declarar(Local { nome: n.sym, tipo: t, final_: p.final_, late: false, const_: false, offset: n.span.start, funcao_local: false });
+                    cx2.fluxo.inicializar(id);
+                }
+            }
+            for &(n, t, final_, iniciador) in &do_primario {
+                if !iniciador {
+                    let id = cx2.declarar(Local { nome: n.sym, tipo: t, final_, late: false, const_: false, offset: n.span.start, funcao_local: false });
                     cx2.fluxo.inicializar(id);
                 }
             }
@@ -665,6 +677,58 @@ pub(crate) fn construtor_redirecionado(inf: &mut BodyInferrer<'_>, f: FunctionEl
         None => inf.sym.vazio,
     }?;
     inf.construtor_de(c, chave)
+}
+
+/// Os parâmetros do construtor primário da declaração de `f`, quando `f` é
+/// uma parte `this` que não virou o k2: a segunda parte em diante de classe e
+/// enum, e a parte do tipo de extensão (que não é elaborada). No 3.13.4 toda
+/// `PrimaryConstructorBody` resolve no escopo do primário
+/// (`scope_context.dart:406-430`: `ConstructorInitializerScope` nos
+/// inicializadores, `PrimaryParameterScope` no corpo), com os parâmetros
+/// visíveis. Sai (nome, tipo, final, `this.`/`super.`/declarante).
+fn parametros_do_primario(inf: &mut BodyInferrer<'_>, f: FunctionElementId) -> Vec<(ast::Name, TypeId, bool, bool)> {
+    let program = inf.program;
+    let Some(c) = program.function(f).class else { return Vec::new() };
+    let Some(d) = program.class(c).decl else { return Vec::new() };
+    let ast = &program.unit(d.unit).ast;
+    let k2 = match &ast.decl(d.decl).kind {
+        ast::DeclKind::Class(x) => x.primary_constructor,
+        ast::DeclKind::Enum(x) => x.primary_constructor,
+        ast::DeclKind::ExtensionType(x) => {
+            let n = x.representation_name;
+            let campo = program.class(c).fields.iter().copied().find(|&v| program.variable(v).name == n.sym && !program.variable(v).static_);
+            let t = match campo {
+                Some(v) => inf.tipo_variavel(v),
+                None => inf.core.dynamic_,
+            };
+            return vec![(n, t, true, true)];
+        }
+        _ => None,
+    };
+    let Some(k2) = k2 else { return Vec::new() };
+    let Some(g) = program
+        .class(c)
+        .constructors
+        .values()
+        .copied()
+        .find(|&g| matches!(program.function(g).node, FunctionRef::Constructor { unit, member } if unit == d.unit && member == k2))
+    else {
+        return Vec::new();
+    };
+    if g == f {
+        return Vec::new();
+    }
+    let ast::MemberKind::Constructor(kc) = &ast.member(k2).kind else { return Vec::new() };
+    let tipos: Vec<TypeId> = inf.outline.functions[g.0 as usize].parameters.iter().map(|p| p.ty).collect();
+    kc.parameters
+        .iter()
+        .enumerate()
+        .filter_map(|(i, p)| {
+            let n = p.name?;
+            let t = tipos.get(i).copied().unwrap_or(inf.core.dynamic_);
+            Some((n, t, p.final_ || p.this_ || p.super_, p.this_ || p.super_))
+        })
+        .collect()
 }
 
 /// `f` é o construtor primário (elaborado) de uma classe ou enum: o
