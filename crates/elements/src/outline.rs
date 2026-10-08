@@ -574,8 +574,15 @@ pub fn build_outline(
 
         // dart:core implícito: menor precedência de todas. Só sem import
         // explícito do `dart:core` (`import 'dart:core' as core;` tira do
-        // escopo até `int`).
-        let importa_core = program.libraries[lib_idx].imports.iter().any(|i| Some(i.library) == program.core);
+        // escopo até `int`) no arquivo da biblioteca: o analyzer 3.6.2 decide
+        // pelas diretivas do `LibraryFileKind` (`file_state.dart:288-300`,
+        // `hasDartCoreImport`), e o `import 'dart:core' as prefix0;` de uma
+        // augmentation (a das macros) ou de uma parte não conta.
+        let principal = program.libraries[lib_idx].units.first().copied();
+        let importa_core = program.libraries[lib_idx]
+            .imports
+            .iter()
+            .any(|i| Some(i.library) == program.core && Some(i.unit) == principal);
         if let Some(core_id) = program.core
             && !importa_core
         {
