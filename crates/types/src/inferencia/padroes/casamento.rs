@@ -173,6 +173,9 @@ fn promover_para_padrao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, k: TypeId, f
     }
     let Some(r) = topo(cx) else { return true };
     let t = casado(cx, &r);
+    // Tipo casado não anulável: o conhecido vira o não anulável dele
+    // (`:5201-5207`), e `case int? x?` promove a `int`.
+    let k = if classificar(inf, t) == Classe::NaoNulo { inf.nao_nulo_promocao(k) } else { k };
     let cobre = inf.sub(t, k);
     let mut sim = cx.fluxo.clone();
     let mut nao = cx.fluxo.clone();
@@ -571,9 +574,14 @@ pub(crate) fn tipar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, p: PatternId, fi
             // a variável começa com a escrita do tipo casado, que promove pelo
             // tipo de interesse (o não anulável do declarado) se ela tem tipo
             // escrito e não é `final` (`case int? x?:` deixa `x` como `int`).
-            if ty.is_some() && !(final_ || f2) && !inf.e_dynamic(t) && inf.sub(t, k) {
+            // O tipo escrito é o casado **depois** do `promoteForPattern`
+            // (`type_analyzer.dart:515-530`, `promotedValueType`): com o
+            // escrutínio `Object?`, `case String? a?:` casa `Object` e a
+            // promoção ao `String?` declarado dá `String`.
+            let promovido = casado(cx, &r);
+            if ty.is_some() && !(final_ || f2) && !inf.e_dynamic(promovido) && inf.sub(promovido, k) {
                 let mut f = std::mem::replace(&mut cx.fluxo, Fluxo::alcancavel());
-                inf.escrever_fluxo(&mut f, id, k, t, true, None);
+                inf.escrever_fluxo(&mut f, id, k, promovido, true, None);
                 cx.fluxo = f;
             }
         }

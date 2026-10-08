@@ -1359,6 +1359,17 @@ cada alternativa, o modelo da cópia daquela alternativa antes da junção dos
 fluxos (`instrucoes.rs`, antes do `juntar_todos`): a promoção comum a todas as
 alternativas fica (`case int? x? when g: case int? x?: x` → `int`).
 
+**O tipo escrito é o casado depois do `promoteForPattern` (2026-10-08).** O
+`analyzeDeclaredVariablePattern` (shared `type_analyzer.dart` 3.6.2
+`:499-533`) chama `promoteForPattern(matchedType, knownType: declarado)` e
+relê o tipo casado (`promotedValueType`) para o `declaredVariablePattern`. Com
+o tipo casado não anulável, o conhecido vira o não anulável dele
+(`flow_analysis.dart:5201-5207`): no escrutínio `Object?`, `case String? a?:`
+casa `Object`, a promoção ao conhecido `String` dá `String`, e a escrita
+promove `a` a `String` (`case String? a!:` também). O `promover_para_padrao`
+aplica o não anulável, e a escrita usa o casado já promovido (não o tipo de
+antes, nem só quando ele já era subtipo do declarado).
+
 Oráculo (flu14): `if (o case int i)` → `i: int` e `o: int`; `if (x case var
 v?)` → `v: int`, `x: int`; `switch (o) { case String s: … }` → `s`, `o`:
 `String`; `if (x case != null) x` → `int`.
