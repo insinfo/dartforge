@@ -404,6 +404,28 @@ impl<'a> OutlineResolver<'a> {
         }
         self.avisar(unit_id, diagnostico_de_nome_de_tipo(contexto, achou, texto, faixa));
     }
+    /// O nome `sym` do namespace do `dart:core` está no escopo sem prefixo:
+    /// a biblioteca não importa o core explicitamente (o import implícito),
+    /// ou o importa sem prefixo com combinadores que o deixam passar.
+    fn nucleo_visivel(&self, unidade: UnitId, sym: SymbolId) -> bool {
+        let lib = self.program.unit(unidade).library;
+        if Some(lib) == self.program.core {
+            return true;
+        }
+        let imports = &self.program.library(lib).imports;
+        let do_core: Vec<_> = imports.iter().filter(|i| Some(i.library) == self.program.core).collect();
+        if do_core.is_empty() {
+            return true;
+        }
+        do_core.iter().any(|i| {
+            i.prefix.is_none()
+                && i.combinators.iter().all(|c| match c {
+                    ast::Combinator::Show(ns) => ns.iter().any(|n| n.sym == sym),
+                    ast::Combinator::Hide(ns) => !ns.iter().any(|n| n.sym == sym),
+                })
+        })
+    }
+
     fn avisar(&mut self, unidade: UnitId, d: Diagnostic) {
         self.diagnostics.push(d);
         self.unidades_dos_avisos.push(unidade);
@@ -1748,7 +1770,15 @@ impl<'a> OutlineResolver<'a> {
 
                     // 2. Verificar tipos especiais do sistema (`dynamic<int>`,
                     // `Never<int>`: a contagem errada do `_buildTypeArguments`,
-                    // no tipo inteiro).
+                    // no tipo inteiro). `dynamic` e `Never` vêm do namespace do
+                    // `dart:core`: com o core só por prefixo, são indefinidos.
+                    let especial = self.interner.lookup("dynamic") == Some(sym) || self.interner.lookup("Never") == Some(sym);
+                    if especial && !self.nucleo_visivel(unit_id, sym) {
+                        if !crate::scope::deve_ignorar_indefinido(self.program, self.interner, unit_id, None, sym) {
+                            self.avisar_nome_de_tipo(unit_id, contexto, false, &texto, faixa);
+                        }
+                        return self.table.invalido(self.core.dynamic_);
+                    }
                     let embutido = self.interner.lookup("dynamic") == Some(sym) || self.interner.lookup("Never") == Some(sym);
                     if embutido && !args.is_empty() {
                         self.avisar(unit_id, diagnostico_de_argumentos_de_tipo(&texto, 0, args.len(), span));

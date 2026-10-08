@@ -20760,6 +20760,11 @@ Fonte: `analyzer/lib/...` do `E:\references\dart-sdk-3.6.2\pkg\analyzer` (idênt
   - Mudança (já parcialmente no código desta rodada, compilando — ver relatório): `expr.rs` ganhou `tipo_this_do_analyzer`, `busca_lexica_de_leitura` (getter / só setter de instância / só setter solto / nada), `buscar_pelo_this` (+ `estatico_na_cadeia`, recuperação estática), `nome_lido_indefinido`, `nome_escrito_indefinido`, `invocacao_sem_alvo_indefinida`, `load_library`, `avisar_nome_prefixado_indefinido`, `erro_de_instancia_sem_this`; `crates/types/src/scope.rs::deve_ignorar_indefinido` (porta de `shouldIgnoreUndefined`); `chamadas.rs::chamada` intercepta `nome(args)` e `p.nome(args)` antes de inferir o alvo. Falta: anotações de parâmetro de tipo, padrões (`visitAssignedVariablePattern`, constante), privacidade na busca pelo `this`, o `show` de `dart:core`, `x.a<T>` (5) e o relacional `== b && var b`.
 
 ##### `undefined_class` (perda 124: FN 116, FP 8, msg 0, pos 0)
+
+**Feito em 2026-10-07:** o `dart:core` implícito só entra no escopo da biblioteca que não o importa
+explicitamente; com `import 'dart:core' as core;`, `int` é `UNDEFINED_CLASS` e `dynamic`/`Never` também (eles
+vêm do namespace exportado do core, não são palavras). No DartForge, a fase 3 de `elements::outline` e
+`Resolver::nucleo_visivel` em `resolve.rs`.
 - **Corrigido em 2026-10-07 (FP 8 → 3):** os tipos do esboço (`resolve.rs`) também passam pelo
   `shouldIgnoreUndefinedNamedType` (`scope::deve_ignorar_indefinido`): o nome que pode vir de um import ou de
   uma parte que não existe (`p.A a;` com `import 'a.dart' as p;` ausente, `_$A` com `part 'a.template.dart'`)

@@ -572,8 +572,13 @@ pub fn build_outline(
             }
         }
 
-        // dart:core implícito: menor precedência de todas
-        if let Some(core_id) = program.core {
+        // dart:core implícito: menor precedência de todas. Só sem import
+        // explícito do `dart:core` (`import 'dart:core' as core;` tira do
+        // escopo até `int`).
+        let importa_core = program.libraries[lib_idx].imports.iter().any(|i| Some(i.library) == program.core);
+        if let Some(core_id) = program.core
+            && !importa_core
+        {
             if LibraryId(lib_idx as u32) != core_id {
                 let core_exported = program.libraries[core_id.0 as usize].exported.clone();
                 for (sym, binding) in core_exported {
