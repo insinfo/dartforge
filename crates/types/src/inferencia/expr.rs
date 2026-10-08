@@ -1785,9 +1785,41 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
                 }),
             };
             cx.bases_de_cascata.push(bv);
+            // `nullAwareAccess_rightBegin` sobre o temporário do alvo
+            // (`tryMarkNonNullable`): com alvo `Null`, o não nulo é `Never` e
+            // as seções ficam inalcançáveis (a primeira é o nó morto); no fim,
+            // a junção com o caminho do atalho nulo volta a alcançar.
+            let atalho = if *null_aware && matches!(inf.table.get(r), Type::Never) {
+                let s = cx.fluxo.clone();
+                cx.fluxo = s.inalcancavel();
+                Some(s)
+            } else {
+                None
+            };
             let secs = sections.to_vec();
             for s in secs {
+                // A seção (`MethodInvocation`/`PropertyAccess`/`IndexExpression`
+                // da cascata) começa no operador `..`/`?..`: é dali o nó morto.
+                if !cx.fluxo.alcancavel && cx.trecho_morto.is_none() {
+                    let sp = inf.span_expr(cx.unit, s);
+                    let fonte = inf.program.unit(cx.unit).source.as_str();
+                    let antes = fonte[..sp.start].trim_end();
+                    let inicio = if antes.ends_with("?..") {
+                        antes.len() - 3
+                    } else if antes.ends_with("..") {
+                        antes.len() - 2
+                    } else {
+                        sp.start
+                    };
+                    let fim = cx.fins_de_fluxo.last().copied().or(cx.fins_de_bloco.last().copied()).unwrap_or(sp.end).max(sp.end);
+                    inf.aviso(DEAD_CODE.template.to_string(), dartforge_diagnostics::Span { start: inicio, end: fim });
+                    cx.trecho_morto = Some(cx.fins_de_fluxo.len());
+                }
                 inferir_livre(inf, cx, s);
+            }
+            if let Some(s) = atalho {
+                let depois = cx.fluxo.clone();
+                cx.fluxo = inf.juntar(&s, &depois);
             }
             cx.bases_de_cascata.pop();
             cx.alvos_de_cascata.pop();
@@ -2126,8 +2158,20 @@ pub(crate) fn receptor_nunca(inf: &mut BodyInferrer<'_>, cx: &Corpo, r: ExprId, 
     if !matches!(inf.table.get(t), Type::Never) || matches!(ast(inf, cx).expr(r).kind, ExprKind::Super) {
         return false;
     }
-    // Numa seção de cascata, o receptor é o alvo da cascata (`realTarget`).
-    let r = if matches!(ast(inf, cx).expr(r).kind, ExprKind::CascadeTarget) { cx.alvos_de_cascata.last().copied().unwrap_or(r) } else { r };
+    // Numa seção de cascata, o receptor é o alvo da cascata (`realTarget`),
+    // com o tipo estático dele: o `?..` não promove aqui (`null?..m()` tem
+    // receptor `Null`, não `Never`; o não nulo fica para o
+    // `TypePropertyResolver`).
+    let r = if matches!(ast(inf, cx).expr(r).kind, ExprKind::CascadeTarget) {
+        let alvo = cx.alvos_de_cascata.last().copied().unwrap_or(r);
+        let bruto = inf.body_types.units[cx.unit.0 as usize].get_type(alvo);
+        if !bruto.is_some_and(|b| matches!(inf.table.get(b), Type::Never)) {
+            return false;
+        }
+        alvo
+    } else {
+        r
+    };
     let sp = inf.span_expr(cx.unit, r);
     inf.aviso_com_codigo(dartforge_diagnostics::codigos::warning::RECEIVER_OF_TYPE_NEVER, sp, &[]);
     true

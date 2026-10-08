@@ -3540,6 +3540,11 @@ argumentos), `UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE` ("The method '{0}' 
     invocação de valor `Never?`.
 
 ##### `dead_code` (perda 127: FN 118, FP 5, msg 0, pos 4)
+- **Cascata `?..` com alvo `Null` (2026-10-08):** o `nullAwareAccess_rightBegin` marca o temporário do alvo como não
+  nulo (`tryMarkNonNullable`); de `Null` sai `Never`, e as seções ficam inalcançáveis desde o começo; o fim da
+  cascata junta com o caminho do atalho nulo e volta a alcançar. O primeiro nó morto é a primeira seção, que
+  começa no operador `?..`/`..` (`null?..(_) => 1;`: 2:7, 12, até o `;`). No DartForge, o braço da cascata
+  (`expr.rs`) faz o inalcançável antes das seções, relata a seção a partir do operador e junta no fim.
 
 **Feito em 2026-10-07 (247/255):** (a) o `default` que não é o último membro do `switch`: o `parseSwitchBlock`
 (`parser_impl.dart:8975-9030`) mantém o `defaultKeyword` nos grupos seguintes e o `AstBuilder.endSwitchCase`
@@ -8238,6 +8243,10 @@ contexto (salvo `dynamic`/`_`, `function_expression_resolver.dart:37-48`): `Iter
   * Sem ancestral que decida, o erro é `INVALID_CONSTANT` no nó, como na constante de enum.
 
 ##### `receiver_of_type_never` (perda 4: FN 4)
+- **Seção de cascata (2026-10-08):** o receptor é o `realTarget` com o tipo estático dele: o `?..` não promove
+  aqui (`method_invocation_resolver.dart:150-156` lê `receiver.typeOrThrow`; o não nulo fica no
+  `TypePropertyResolver`). `null?..m()` tem receptor `Null`, sem este código; `n..m()` com `n` `Never`, com.
+  O `receptor_nunca` usa o tipo bruto do alvo da cascata.
 - **Emissão:** os resolvedores de binário/postfix/prefix/propriedade/invocação
   (`binary_expression_resolver.dart:425`, `property_element_resolver.dart:96`,
   `method_invocation_resolver.dart:543`, …), `WarningCode.RECEIVER_OF_TYPE_NEVER` no receptor.
