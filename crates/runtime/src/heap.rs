@@ -389,6 +389,11 @@ pub unsafe fn desempilhar_quadro(q: *const QuadroDeRaizes) {
 /// conferência do percurso por mapas, `llvm/mod.rs`).
 const SLOTS_DO_QUADRO: u64 = (1 << 40) - 1;
 
+/// O bit 62 do campo `n`: o quadro está num quadro nativo próprio (o
+/// programa sem otimização, sem inlining; `com_quadros_ordenados` do
+/// emissor). Só entre dois quadros assim a ordem dos endereços é garantida.
+const QUADRO_ORDENADO: u64 = 1 << 62;
+
 /// Visita as raízes de todos os quadros da pilha-sombra desta thread.
 ///
 /// Os quadros são `alloca` do código gerado na pilha nativa da thread, que
@@ -397,7 +402,10 @@ const SLOTS_DO_QUADRO: u64 = (1 << 40) - 1;
 /// o topo que um desenrolamento deixou de restaurar (o pouso de
 /// `--excecoes=tabelas` sem o `store` do topo, a sabotagem `pouso_sem_topo`
 /// do §14.7) e que um quadro novo encadeou. Ler os slots dele seria ler
-/// lixo; o processo encerra com o código 3.
+/// lixo; o processo encerra com o código 3. A conferência só vale entre dois
+/// quadros com [`QUADRO_ORDENADO`]: com inlining (o código otimizado, o SDK),
+/// o quadro da função embutida e o da que a chamou são `alloca` do mesmo
+/// quadro nativo, em ordem de endereço qualquer.
 #[allow(unsafe_code)]
 fn visitar_quadros(mut f: impl FnMut(i64)) {
     let mut q = CONTEXTO.with(|c| c.topo.get());
@@ -412,7 +420,11 @@ fn visitar_quadros(mut f: impl FnMut(i64)) {
                 f(*slots.add(i));
             }
             let anterior = (*q).anterior;
-            if !anterior.is_null() && (anterior as usize) <= (q as usize) {
+            if !anterior.is_null()
+                && (anterior as usize) <= (q as usize)
+                && (*q).n as u64 & QUADRO_ORDENADO != 0
+                && (*anterior).n as u64 & QUADRO_ORDENADO != 0
+            {
                 eprintln!("dartforge: quadro de raízes morto na pilha-sombra");
                 std::process::exit(3);
             }
@@ -1225,7 +1237,7 @@ fn visitar_slots_de_conferencia(mut f: impl FnMut(i64)) {
         unsafe {
             let n = (*q).n as u64;
             let total = (n & SLOTS_DO_QUADRO) as usize;
-            let k = (n >> 40) as usize;
+            let k = ((n & !QUADRO_ORDENADO) >> 40) as usize;
             let slots = std::ptr::addr_of!((*q).slots) as *const i64;
             for i in total.saturating_sub(k)..total {
                 f(*slots.add(i));

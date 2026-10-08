@@ -496,6 +496,9 @@ fn emitir_ir_interno(
         // `DARTFORGE_OPTSIZE_PROGRAMA=0` desliga.
         .com_otimizar_tamanho(grande && !std::env::var("DARTFORGE_OPTSIZE_PROGRAMA").is_ok_and(|v| v == "0"))
         .com_producao(options.optimize)
+        // Sem otimização não há inlining: um quadro de raízes por quadro
+        // nativo, e o runtime confere a ordem (o quadro morto).
+        .com_quadros_ordenados(!options.optimize)
         .com_raizes_por_mapas(raizes_por_mapas)
         .com_mapas_no_jit(mapas_no_jit)
         .com_rastro(rastro_simbolico)

@@ -149,6 +149,13 @@ pub struct LlvmEmitter<'a> {
     /// `optsize` em cada função do módulo (o programa grande na produção;
     /// o SDK de produção já o tem, `sdk_modulo::com_optsize`).
     otimizar_tamanho: bool,
+    /// Cada quadro de raízes desta emissão fica num quadro nativo próprio
+    /// (o programa sem otimização: `-O0` no AOT, `CodeGenLevelNone` no JIT,
+    /// sem inlining): o runtime pode conferir a ordem dos endereços na
+    /// pilha-sombra (o quadro morto, `RT/heap.rs` `visitar_quadros`). Com
+    /// inlining, dois quadros viram `alloca` da mesma função, em ordem
+    /// qualquer, e a conferência daria falso positivo.
+    quadros_ordenados: bool,
     /// O módulo é do perfil de produção (`--optimize`): com
     /// [`Self::campos_por_chamada`], o `@df.corpo` vai `noinline` (o
     /// otimizador o poria de volta em linha).
@@ -267,6 +274,7 @@ impl<'a> LlvmEmitter<'a> {
             objetos_estaticos: false,
             campos_por_chamada: false,
             producao: false,
+            quadros_ordenados: false,
             alocacao_fora_de_linha: false,
             ajudantes_fora: Vec::new(),
             otimizar_tamanho: false,
@@ -357,6 +365,12 @@ impl<'a> LlvmEmitter<'a> {
     /// Veja [`LlvmEmitter::producao`].
     pub fn com_producao(mut self, sim: bool) -> Self {
         self.producao = sim;
+        self
+    }
+
+    /// Veja [`LlvmEmitter::quadros_ordenados`].
+    pub fn com_quadros_ordenados(mut self, sim: bool) -> Self {
+        self.quadros_ordenados = sim;
         self
     }
 
@@ -1869,9 +1883,12 @@ impl<'a> LlvmEmitter<'a> {
     /// slots e, nos bits 40 em diante, quantos dos últimos são de
     /// conferência.
     fn cabecalho_do_quadro(&self, n: usize) -> u64 {
+        // O bit 62: o quadro está num quadro nativo próprio
+        // ([`Self::quadros_ordenados`]).
+        let ordem = if self.quadros_ordenados { 1u64 << 62 } else { 0 };
         match self.conferencia {
-            Some((_, k)) => n as u64 | ((k as u64) << 40),
-            None => n as u64,
+            Some((_, k)) => n as u64 | ((k as u64) << 40) | ordem,
+            None => n as u64 | ordem,
         }
     }
 
