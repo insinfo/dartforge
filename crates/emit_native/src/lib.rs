@@ -283,6 +283,10 @@ fn emitir_ir_interno(
     // sem a poda) o mapa de cada objeto é achado e registrado pelo
     // gerenciador de memória da sessão (`crates/jit`, §3.8).
     let raizes_por_mapas = alvo::raizes_por_mapas()?;
+    // A política de memória (`alvo::memoria_arc`), no AOT e no JIT: a
+    // migração de instâncias da recarga conta pela foto
+    // (`Heap::trocar_campos`, docs/ARC-IMPLEMENTACAO.md).
+    let memoria_arc = alvo::memoria_arc()?;
     let mapas_no_jit = raizes_por_mapas && !podar;
     // O rastro simbólico (§13.14). No JIT a tabela de cada objeto é
     // registrada pelo gerenciador de memória da sessão (`crates/jit`), e o
@@ -446,6 +450,7 @@ fn emitir_ir_interno(
     // 2b. Otimização da HIR (inlining, substituição escalar: `otimizar/`).
     let t_otimizar = Instant::now();
     otimizar::otimizar(&mut hir_module);
+    hir_module.memoria_arc = memoria_arc;
     // 2c. As exceções por tabelas: o último passe, sobre a HIR já otimizada.
     if excecoes_por_tabelas {
         otimizar::excecoes_por_tabelas(&mut hir_module);

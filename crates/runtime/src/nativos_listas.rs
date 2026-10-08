@@ -167,7 +167,10 @@ fn marca_da_pilha(pilha: i64, inicio: i64) -> Option<(Dados, usize, i64)> {
 fn cortar_pilha(pilha: i64, p: Dados, ate: usize) {
     for i in ate..p.len {
         // SAFETY: `i < len` do armazenamento geral gravável da pilha.
-        unsafe { *p.p.add(i) = 0 };
+        let antigo = unsafe { std::mem::replace(&mut *p.p.add(i), 0) };
+        if arc_ligado() {
+            arc_gravacao_crua(p.h, antigo, 0);
+        }
     }
     // SAFETY: o campo 0 da `_GrowableList` (comprimento bruto).
     unsafe { *no_bloco(pilha, crate::layout::desl::COMPRIMENTO).cast::<i64>() = ate as i64 };

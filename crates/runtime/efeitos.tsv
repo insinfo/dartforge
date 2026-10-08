@@ -12,6 +12,7 @@ dartforge_api_close_native_port	1	1	0
 dartforge_api_new_native_port	1	1	0
 dartforge_api_post_cobject	1	1	0
 dartforge_api_post_integer	1	1	0
+dartforge_arc_gravar_ref	0	0	0
 dartforge_area_de_globais	1	1	0
 dartforge_area_de_globais_id	1	1	0
 dartforge_arg_indice	1	1	0
@@ -94,6 +95,7 @@ dartforge_lista_nova	1	0	0
 dartforge_marcar_constante	1	0	0
 dartforge_marcar_permanente	1	1	0
 dartforge_membro_recusado	1	1	0
+dartforge_memoria_arc_v1	1	0	0
 dartforge_nativo_ClassID_getID	1	1	0
 dartforge_nativo_Closure_computeHash	1	1	0
 dartforge_nativo_Closure_equals	1	1	0

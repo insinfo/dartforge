@@ -1268,6 +1268,30 @@ impl EspacoDeObjetos {
     /// faixa entregue volta às faixas livres sem ser tocado; a região grande de
     /// um jovem morto volta ao cache delas. Os lembrados voltam a velhos.
     /// Devolve (mortos, bytes soltos).
+    /// Os jovens que a marcação menor em curso alcançou (os promovidos): os
+    /// entregues um a um e os blocos marcados das faixas das TLABs. Antes de
+    /// [`EspacoDeObjetos::varrer_jovens`] (o ARC os registra,
+    /// docs/ARC-IMPLEMENTACAO.md).
+    pub(crate) fn jovens_marcados(&self, f: &mut dyn FnMut(*mut Cabecalho)) {
+        for &(b, _) in &self.jovens {
+            // SAFETY: bloco entregue desde a última coleta, numa página viva.
+            if unsafe { marcado(b) } {
+                f(b);
+            }
+        }
+        for &(inicio, fim, classe) in &self.faixas {
+            let tamanho = bytes_do_bloco(palavras_da_classe(classe));
+            let mut p = inicio;
+            while p < fim {
+                // SAFETY: bloco da faixa, numa página viva.
+                if unsafe { marcado(p.cast()) } {
+                    f(p.cast());
+                }
+                p = p.wrapping_add(tamanho);
+            }
+        }
+    }
+
     pub(crate) fn varrer_jovens(&mut self) -> (usize, usize) {
         let (mut mortos, mut soltos) = (0, 0);
         soltos += self.soltar_mortos_de_fora();

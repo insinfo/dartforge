@@ -171,7 +171,10 @@ impl Dados {
         use crate::layout::{estado, flags};
         debug_assert!(i < self.len);
         // SAFETY: `i < len`; `_List` gravável (conferida em `de`).
-        unsafe { *self.p.add(i) = v };
+        let antigo = unsafe { std::mem::replace(&mut *self.p.add(i), v) };
+        if arc_ligado() {
+            arc_gravacao_crua(self.h, antigo, v);
+        }
         // SAFETY: objeto vivo.
         let c = unsafe { cabecalho_cru(self.h) };
         let e = c.estado;

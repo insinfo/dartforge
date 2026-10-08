@@ -306,6 +306,8 @@ pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path, producao: bool) -> Result<Vec<B
     // O SDK sai no modelo de exceções do programa (`alvo::excecoes_por_tabelas`).
     let excecoes_por_tabelas = crate::alvo::excecoes_por_tabelas()?;
     let raizes_por_mapas = crate::alvo::raizes_por_mapas()?;
+    // O SDK sai na memória do programa (`alvo::memoria_arc`).
+    let memoria_arc = crate::alvo::memoria_arc()?;
     // O rastro simbólico (§13.14): as posições das funções do SDK e a tabela.
     let rastro_simbolico = crate::alvo::rastro_simbolico()?;
     let mut saida = Vec::new();
@@ -330,6 +332,7 @@ pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path, producao: bool) -> Result<Vec<B
         // O otimizador da HIR (`otimizar/`) também no SDK: é onde fica o
         // código de `List`, `Map`, `String`… que os programas mais chamam.
         crate::otimizar::otimizar(&mut module);
+        module.memoria_arc = memoria_arc;
         if excecoes_por_tabelas {
             crate::otimizar::excecoes_por_tabelas(&mut module);
         }
@@ -451,6 +454,11 @@ fn chave_do_sdk(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     // não entra na chave: o SDK de sempre continua com a chave de sempre.
     if std::env::var("DARTFORGE_EXCECOES").is_ok_and(|v| v == "tabelas") {
         h.update(b"excecoes=tabelas\0");
+    }
+    // A memória ARC muda o código (as gravações pelo runtime, a ativação na
+    // entrada); o padrão não entra. A versão é a da ABI de memória.
+    if std::env::var("DARTFORGE_MEMORIA").is_ok_and(|v| v == "arc") {
+        h.update(b"memoria=arc_v1\0");
     }
     // O modo de raízes muda o código (`llvm/mod.rs`); o padrão não entra.
     if std::env::var("DARTFORGE_RAIZES").is_ok_and(|v| v == "mapas") {

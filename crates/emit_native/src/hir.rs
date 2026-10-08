@@ -913,6 +913,10 @@ pub struct Module {
     /// `otimizar::tabelas` rodou e [`Module::tabelas`] vale. Falso: o modelo
     /// de sempre (pendência conferida depois de cada chamada).
     pub excecoes_por_tabelas: bool,
+    /// A memória do módulo é ARC (`--memoria=arc`, `alvo::memoria_arc`): a
+    /// entrada liga o ARC no runtime e as gravações de referência em objeto
+    /// que pode ser velho passam pelo runtime (docs/ARC-IMPLEMENTACAO.md).
+    pub memoria_arc: bool,
     /// Com [`Module::excecoes_por_tabelas`], a decisão do passe para cada
     /// função, na ordem de [`Module::functions`].
     pub tabelas: Vec<TabelasDaFuncao>,

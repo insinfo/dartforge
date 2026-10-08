@@ -125,6 +125,23 @@ const _: () = {
     assert!(flags::FORMA | flags::ELEMENTO == 102);
 };
 
+/// Os ajudantes do módulo: no ARC (`Module::memoria_arc`), a gravação do
+/// elemento e a troca do armazenamento da `_GrowableList` passam pelo
+/// runtime, que conta a troca e aplica a barreira: o elemento pela palavra
+/// do corpo `REFS` (`dartforge_arc_gravar_ref`), o armazenamento pelo campo
+/// 1 da `INSTANCIA` (`dartforge_object_set`).
+pub(super) fn ajudantes(arc: bool) -> std::borrow::Cow<'static, str> {
+    if !arc {
+        return std::borrow::Cow::Borrowed(AJUDANTES);
+    }
+    let elemento = "%e = call ptr @df.lista_elemento(i64 %a, i64 %i)\nstore i64 %v, ptr %e, align 8\ncall void @df.barreira_elemento(i64 %a, i64 %i, i64 %v)\n";
+    let elemento_arc = "%p = add i64 %i, 1\ncall void @dartforge_arc_gravar_ref(i64 %a, i64 %p, i64 %v)\n";
+    let dados = "%p = inttoptr i64 %l to ptr\n%q = getelementptr inbounds i8, ptr %p, i64 22\nstore i64 %d, ptr %q, align 8\ncall void @df.barreira(i64 %l, i64 %d)\n";
+    let dados_arc = "call void @dartforge_object_set(i64 %l, i64 1, i64 %d, i8 1)\n";
+    assert!(AJUDANTES.matches(elemento).count() == 1 && AJUDANTES.matches(dados).count() == 1);
+    std::borrow::Cow::Owned(AJUDANTES.replace(elemento, elemento_arc).replace(dados, dados_arc))
+}
+
 /// Os efeitos de cada ajudante `@df.*` deste arquivo chamado por
 /// `CallRuntime`: `(nome, aloca, lança)`. `externs::efeitos_de` os consulta
 /// antes da tabela de externs (um ajudante fora daqui é conservador).

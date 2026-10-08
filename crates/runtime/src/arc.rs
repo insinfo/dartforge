@@ -115,6 +115,9 @@ pub struct EstadoDoArc {
     /// Uma transação de descarte está em curso (não reentrar).
     transacao: bool,
     pub estatisticas: EstatisticasArc,
+    /// Uma linha no stderr por evento (registro, retain, release, morte): o
+    /// diagnóstico de `DARTFORGE_ARC_TRACO=1`.
+    pub traco: bool,
 }
 
 impl EstadoDoArc {
@@ -162,6 +165,68 @@ impl EstadoDoArc {
         self.objetos.insert(h, MetaArc { geracao, rc: 0, estado: EstadoArc::Vivo, candidato: false, protegido_condicional: false, imortal: true });
     }
 
+    /// Registra um objeto que já existe e passa a ser contado (o jovem
+    /// promovido pela coleta menor, os vivos na ativação): `rc=0`, `Vivo`; o
+    /// chamador conta as ocorrências que chegam a ele e depois chama
+    /// [`EstadoDoArc::revisar`].
+    pub fn registrar_vivo(&mut self, h: Ref) -> IdArc {
+        debug_assert!(e_handle(h));
+        let geracao = self.proxima_geracao;
+        self.proxima_geracao = self.proxima_geracao.checked_add(1).expect("ARC: geração esgotada");
+        if self.traco {
+            eprintln!("[arc-traco] registrar {h} ja={}", self.objetos.contains_key(&h));
+        }
+        self.objetos.insert(h, MetaArc { geracao, rc: 0, estado: EstadoArc::Vivo, candidato: false, protegido_condicional: false, imortal: false });
+        self.estatisticas.registrados += 1;
+        IdArc { handle: h, geracao }
+    }
+
+    /// Põe `h` na fila de zeros se o RC dele é zero (o registrado sem
+    /// ocorrências: só raízes o veem, ou ninguém).
+    pub fn revisar(&mut self, h: Ref) {
+        if let Some(m) = self.objetos.get(&h)
+            && m.rc == 0
+            && m.estado == EstadoArc::Vivo
+            && !m.imortal
+        {
+            self.zeros.push(IdArc { handle: h, geracao: m.geracao });
+        }
+    }
+
+    /// O objeto `h` é contado e está vivo (nem morto nem em descarte).
+    pub fn vivo(&self, h: Ref) -> bool {
+        self.objetos.get(&h).is_some_and(|m| matches!(m.estado, EstadoArc::Vivo | EstadoArc::Construindo))
+    }
+
+    /// O objeto `h` morreu (logicamente) e espera o reclamador.
+    pub fn morto(&self, h: Ref) -> bool {
+        self.objetos.get(&h).is_some_and(|m| m.estado == EstadoArc::Morto)
+    }
+
+    /// Os handles contados ainda vivos.
+    pub fn vivos(&self) -> impl Iterator<Item = Ref> + '_ {
+        self.objetos.iter().filter(|(_, m)| matches!(m.estado, EstadoArc::Vivo | EstadoArc::Construindo)).map(|(&h, _)| h)
+    }
+
+    /// Põe o vivo `h` entre os candidatos da próxima rodada de ciclos: o
+    /// objeto que uma raiz observacional vê pode perder essa raiz sem
+    /// decremento (as raízes não contam), e só a rodada o examina de novo.
+    pub fn candidatar(&mut self, h: Ref) {
+        if let Some(m) = self.objetos.get_mut(&h)
+            && !m.candidato
+            && !m.imortal
+            && m.estado == EstadoArc::Vivo
+        {
+            m.candidato = true;
+            self.candidatos.push(IdArc { handle: h, geracao: m.geracao });
+        }
+    }
+
+    /// Quantos candidatos a ciclo esperam a próxima rodada.
+    pub fn candidatos(&self) -> usize {
+        self.candidatos.len()
+    }
+
     /// A construção terminou: o owner de construção passa a ser o resultado.
     pub fn concluir_construcao(&mut self, h: Ref) {
         if let Some(m) = self.objetos.get_mut(&h)
@@ -185,6 +250,9 @@ impl EstadoDoArc {
         }
         m.rc = m.rc.checked_add(1).ok_or(ErroArc::Overflow(h))?;
         self.estatisticas.retains += 1;
+        if self.traco {
+            eprintln!("[arc-traco] reter {h} rc={}", m.rc);
+        }
         Ok(())
     }
 
@@ -206,6 +274,9 @@ impl EstadoDoArc {
         }
         m.rc -= 1;
         self.estatisticas.releases += 1;
+        if self.traco {
+            eprintln!("[arc-traco] soltar {h} rc={}", m.rc);
+        }
         let id = IdArc { handle: h, geracao: m.geracao };
         if m.rc == 0 {
             self.zeros.push(id);
@@ -249,18 +320,29 @@ impl EstadoDoArc {
     /// entrada, com RC ainda zero e sem proteção morre; os destinos das suas
     /// arestas perdem uma ocorrência, o que pode encadear mais zeros (fila
     /// iterativa, sem recursão). `limite` conta objetos descartados.
-    pub fn drenar_zeros(&mut self, grafo: &mut dyn GrafoArc, limite: usize) -> Result<usize, ErroArc> {
+    ///
+    /// `protegido` são as raízes observacionais (§21.3): as ocorrências que o
+    /// RC não conta (a pilha, os quadros do runtime, os globais). Um zero que
+    /// elas veem não morre e fica na fila para a próxima drenagem (a tabela
+    /// de contagem zero do RC adiado).
+    pub fn drenar_zeros(&mut self, grafo: &mut dyn GrafoArc, limite: usize, protegido: &dyn Fn(Ref) -> bool) -> Result<usize, ErroArc> {
         let mut feitos = 0;
+        let mut adiados = Vec::new();
         while feitos < limite {
             let Some(id) = self.zeros.pop() else { break };
             let Some(m) = self.valido(id) else { continue };
             if m.estado != EstadoArc::Vivo || m.rc != 0 || m.protegido_condicional || m.imortal {
                 continue;
             }
+            if protegido(id.handle) {
+                adiados.push(id);
+                continue;
+            }
             self.descartar(grafo, &[id.handle])?;
             self.estatisticas.mortos_por_rc += 1;
             feitos += 1;
         }
+        self.zeros.append(&mut adiados);
         Ok(feitos)
     }
 
@@ -298,6 +380,9 @@ impl EstadoDoArc {
             }
         }
         for &u in d {
+            if self.traco {
+                eprintln!("[arc-traco] morrer {u}");
+            }
             grafo.romper(u);
             if let Some(m) = self.objetos.get_mut(&u) {
                 m.estado = EstadoArc::Morto;
@@ -318,8 +403,9 @@ impl EstadoDoArc {
     /// ocorrências internas a `R`; os de trial positivo (e os imortais, em
     /// construção ou protegidos) sobrevivem e propagam sobrevivência; o resto
     /// é um conjunto morto, descartado em lote. Nenhum RC real muda antes do
-    /// commit; um trial negativo aborta com diagnóstico.
-    pub fn coletar_ciclos(&mut self, grafo: &mut dyn GrafoArc) -> Result<usize, ErroArc> {
+    /// commit; um trial negativo aborta com diagnóstico. `protegido`: as
+    /// raízes observacionais, que fazem sobreviver como uma referência externa.
+    pub fn coletar_ciclos(&mut self, grafo: &mut dyn GrafoArc, protegido: &dyn Fn(Ref) -> bool) -> Result<usize, ErroArc> {
         let candidatos = std::mem::take(&mut self.candidatos);
         let mut sementes: Vec<Ref> = Vec::new();
         for id in candidatos {
@@ -376,7 +462,7 @@ impl EstadoDoArc {
             .copied()
             .filter(|x| {
                 let m = &self.objetos[x];
-                trial[x] > 0 || m.estado == EstadoArc::Construindo || m.protegido_condicional
+                trial[x] > 0 || m.estado == EstadoArc::Construindo || m.protegido_condicional || protegido(*x)
             })
             .collect();
         while let Some(x) = pilha.pop() {
@@ -388,6 +474,13 @@ impl EstadoDoArc {
                     pilha.push(v);
                 }
             });
+        }
+        // O sobrevivente que só a raiz observacional segura volta a ser
+        // candidato: a raiz pode sumir sem decremento.
+        for &x in &r {
+            if vivos.contains(&x) && protegido(x) {
+                self.candidatar(x);
+            }
         }
         let mortos: Vec<Ref> = r.into_iter().filter(|x| !vivos.contains(x)).collect();
         if mortos.is_empty() {
@@ -501,7 +594,7 @@ mod testes {
         a.soltar(6).unwrap();
         a.auditar(&g, &[2]).unwrap();
         a.soltar(2).unwrap();
-        assert_eq!(a.drenar_zeros(&mut g, usize::MAX).unwrap(), 3);
+        assert_eq!(a.drenar_zeros(&mut g, usize::MAX, &|_| false).unwrap(), 3);
         assert!(morto(&a, 2) && morto(&a, 4) && morto(&a, 6));
         assert_eq!(a.tomar_mortos().len(), 3);
         assert_eq!(a.registrados(), 0);
@@ -519,7 +612,7 @@ mod testes {
         assert_eq!(a.meta(4).unwrap().rc, 2);
         a.auditar(&g, &[2]).unwrap();
         a.soltar(2).unwrap();
-        a.drenar_zeros(&mut g, usize::MAX).unwrap();
+        a.drenar_zeros(&mut g, usize::MAX, &|_| false).unwrap();
         assert!(morto(&a, 4));
     }
 
@@ -532,9 +625,9 @@ mod testes {
         ligar(&mut a, &mut g, 4, 2);
         a.soltar(4).unwrap();
         a.soltar(2).unwrap();
-        a.drenar_zeros(&mut g, usize::MAX).unwrap();
+        a.drenar_zeros(&mut g, usize::MAX, &|_| false).unwrap();
         assert!(!morto(&a, 2) && !morto(&a, 4), "o RC sozinho não fecha o ciclo");
-        assert_eq!(a.coletar_ciclos(&mut g).unwrap(), 2);
+        assert_eq!(a.coletar_ciclos(&mut g, &|_| false).unwrap(), 2);
         assert!(morto(&a, 2) && morto(&a, 4));
         assert_eq!(a.estatisticas.mortos_por_ciclo, 2);
     }
@@ -552,14 +645,14 @@ mod testes {
         a.soltar(4).unwrap();
         a.soltar(2).unwrap();
         let antes = (a.meta(2).unwrap().rc, a.meta(4).unwrap().rc);
-        assert_eq!(a.coletar_ciclos(&mut g).unwrap(), 0);
+        assert_eq!(a.coletar_ciclos(&mut g, &|_| false).unwrap(), 0);
         assert_eq!((a.meta(2).unwrap().rc, a.meta(4).unwrap().rc), antes);
         a.auditar(&g, &[6]).unwrap();
         // Sem a raiz, o ciclo morre na próxima rodada; 6 morre pelo RC.
         a.soltar(6).unwrap();
-        a.drenar_zeros(&mut g, usize::MAX).unwrap();
+        a.drenar_zeros(&mut g, usize::MAX, &|_| false).unwrap();
         assert!(morto(&a, 6));
-        assert_eq!(a.coletar_ciclos(&mut g).unwrap(), 2);
+        assert_eq!(a.coletar_ciclos(&mut g, &|_| false).unwrap(), 2);
     }
 
     #[test]
@@ -574,8 +667,8 @@ mod testes {
         for h in [2, 4, 8] {
             a.soltar(h).unwrap();
         }
-        a.coletar_ciclos(&mut g).unwrap();
-        a.drenar_zeros(&mut g, usize::MAX).unwrap();
+        a.coletar_ciclos(&mut g, &|_| false).unwrap();
+        a.drenar_zeros(&mut g, usize::MAX, &|_| false).unwrap();
         assert!(morto(&a, 2) && morto(&a, 4) && morto(&a, 8));
     }
 
@@ -585,13 +678,39 @@ mod testes {
         a.registrar(2).unwrap();
         // Em construção: RC zero não descarta.
         a.soltar(2).unwrap();
-        a.drenar_zeros(&mut g, usize::MAX).unwrap();
+        a.drenar_zeros(&mut g, usize::MAX, &|_| false).unwrap();
         assert!(!morto(&a, 2));
         novo(&mut a, 4);
         a.proteger(&g, 4);
         a.soltar(4).unwrap();
-        a.drenar_zeros(&mut g, usize::MAX).unwrap();
+        a.drenar_zeros(&mut g, usize::MAX, &|_| false).unwrap();
         assert!(!morto(&a, 4), "protegido condicionalmente espera o ponto fixo");
+    }
+
+    #[test]
+    fn raiz_observacional_segura_zero_e_ciclo() {
+        let (mut a, mut g) = (EstadoDoArc::novo(), Grafo::default());
+        novo(&mut a, 2);
+        novo(&mut a, 4);
+        ligar(&mut a, &mut g, 2, 4);
+        ligar(&mut a, &mut g, 4, 2);
+        novo(&mut a, 6);
+        a.soltar(2).unwrap();
+        a.soltar(4).unwrap();
+        a.soltar(6).unwrap();
+        // 6 só é visto pela pilha; o ciclo 2-4 também.
+        let raiz = |h: Ref| h == 6 || h == 2;
+        a.drenar_zeros(&mut g, usize::MAX, &raiz).unwrap();
+        assert!(!morto(&a, 6));
+        assert_eq!(a.coletar_ciclos(&mut g, &raiz).unwrap(), 0);
+        // A pilha soltou: morrem na próxima drenagem e rodada.
+        a.drenar_zeros(&mut g, usize::MAX, &|_| false).unwrap();
+        assert!(morto(&a, 6));
+        let n = {
+            a.candidatos.push(IdArc { handle: 2, geracao: a.meta(2).unwrap().geracao });
+            a.coletar_ciclos(&mut g, &|_| false).unwrap()
+        };
+        assert_eq!(n, 2);
     }
 
     #[test]
@@ -607,12 +726,12 @@ mod testes {
         let (mut a, mut g) = (EstadoDoArc::novo(), Grafo::default());
         novo(&mut a, 2);
         a.soltar(2).unwrap();
-        a.drenar_zeros(&mut g, usize::MAX).unwrap();
+        a.drenar_zeros(&mut g, usize::MAX, &|_| false).unwrap();
         a.tomar_mortos();
         // O endereço é reaproveitado: geração nova, a entrada velha não vale.
         novo(&mut a, 2);
         a.zeros.push(IdArc { handle: 2, geracao: 1 });
-        a.drenar_zeros(&mut g, usize::MAX).unwrap();
+        a.drenar_zeros(&mut g, usize::MAX, &|_| false).unwrap();
         assert!(!morto(&a, 2));
     }
 

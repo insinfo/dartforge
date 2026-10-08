@@ -67,6 +67,22 @@ fn definir_modelo_de_excecoes(valor: &str) -> Result<(), String> {
 }
 
 #[cfg(feature = "nativo")]
+/// `--memoria tracing|arc`: a política de memória do código gerado
+/// (docs/ARC-CICLOS-ESPECIFICACAO.md §18.1 e §24; docs/ARC-IMPLEMENTACAO.md).
+/// Como [`definir_modelo_de_excecoes`]: o emissor lê `DARTFORGE_MEMORIA`, que
+/// entra na chave do SDK compilado.
+#[allow(unsafe_code)]
+fn definir_memoria(valor: &str) -> Result<(), String> {
+    if valor != "tracing" && valor != "arc" {
+        return Err(format!("--memoria={valor}: as políticas de memória são `tracing` e `arc`"));
+    }
+    // SAFETY: a CLI ainda está lendo as opções, na thread principal, antes
+    // de criar a thread da compilação: nenhuma outra thread lê o ambiente.
+    unsafe { std::env::set_var("DARTFORGE_MEMORIA", valor) };
+    Ok(())
+}
+
+#[cfg(feature = "nativo")]
 /// `--raizes sombra|mapas`: onde ficam as raízes do coletor no código gerado
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8). Como
 /// [`definir_modelo_de_excecoes`]: o emissor lê `DARTFORGE_RAIZES`.
@@ -114,7 +130,7 @@ fn definir_rastro(valor: &str) -> Result<(), String> {
 /// aceitas e ignoradas, porque silenciosamente não fazer o que a bandeira diz
 /// é pior do que não ter a bandeira.
 pub fn aot(args: &[std::ffi::OsString]) -> Resultado {
-    let usage = "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--depuracao] [--timings] [--cpu x86-64|x86-64-v2|x86-64-v3|x86-64-v4|native] [--excecoes checagem|tabelas] [--rastro simbolico|nenhum] [--sdk <lib>] [--packages <package_config.json>]";
+    let usage = "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--depuracao] [--timings] [--cpu x86-64|x86-64-v2|x86-64-v3|x86-64-v4|native] [--excecoes checagem|tabelas] [--memoria tracing|arc] [--rastro simbolico|nenhum] [--sdk <lib>] [--packages <package_config.json>]";
     if args.len() < 3 {
         return Err(usage.into());
     }
@@ -139,6 +155,13 @@ pub fn aot(args: &[std::ffi::OsString]) -> Resultado {
             Some("--sdk") => sdk = Some(PathBuf::from(flags.next().ok_or("--sdk exige caminho")?)),
             Some("--packages") => {
                 packages = Some(PathBuf::from(flags.next().ok_or("--packages exige caminho")?))
+            }
+            Some("--memoria") => {
+                let valor = flags.next().and_then(|v| v.to_str()).ok_or("--memoria exige tracing ou arc")?;
+                definir_memoria(valor)?;
+            }
+            Some(opcao) if opcao.starts_with("--memoria=") => {
+                definir_memoria(&opcao["--memoria=".len()..])?;
             }
             Some("--raizes") => {
                 let valor = flags.next().and_then(|v| v.to_str()).ok_or("--raizes exige sombra ou mapas")?;
@@ -206,7 +229,7 @@ pub fn aot(args: &[std::ffi::OsString]) -> Resultado {
 #[cfg(feature = "nativo")]
 pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
     use dartforge_elements::sdk::Linguagem;
-    let usage = "usage: dartforge compile-native <input.dart> -o <output.exe> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--optimize] [--depuracao] [--cpu <cpu>] [--excecoes checagem|tabelas] [--rastro simbolico|nenhum] [--versao-linguagem x.y] [--enable-experiment=a,b]
+    let usage = "usage: dartforge compile-native <input.dart> -o <output.exe> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--optimize] [--depuracao] [--cpu <cpu>] [--excecoes checagem|tabelas] [--memoria tracing|arc] [--rastro simbolico|nenhum] [--versao-linguagem x.y] [--enable-experiment=a,b]
        dartforge compile-native <input.dart> --emit-ir -o <saida.ll> [--resumo] [...]
        dartforge compile-native <input.dart> --resumo [...]
   --depuracao  tabelas de linha para o depurador nativo (gdb, lldb, Visual Studio)
@@ -250,6 +273,13 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
             Some("--depuracao") => depuracao = true,
             Some("--emit-ir") => emit_ir = true,
             Some("--resumo") => resumo = true,
+            Some("--memoria") => {
+                let valor = it.next().and_then(|v| v.to_str()).ok_or("--memoria exige tracing ou arc")?;
+                definir_memoria(valor)?;
+            }
+            Some(opcao) if opcao.starts_with("--memoria=") => {
+                definir_memoria(&opcao["--memoria=".len()..])?;
+            }
             Some("--raizes") => {
                 let valor = it.next().and_then(|v| v.to_str()).ok_or("--raizes exige sombra ou mapas")?;
                 definir_modo_de_raizes(valor)?;

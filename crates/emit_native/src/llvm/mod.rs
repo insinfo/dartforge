@@ -657,7 +657,7 @@ impl<'a> LlvmEmitter<'a> {
         let inicio_dos_ajudantes = self.out.len();
         self.out.push_str(textos_ir::AJUDANTES);
         self.out.push_str(caixas_ir::AJUDANTES);
-        self.out.push_str(listas_ir::AJUDANTES);
+        self.out.push_str(&listas_ir::ajudantes(self.module.memoria_arc));
         self.out.push_str(tipados_ir::AJUDANTES);
         let classe_do_valor = classe_do_valor(&self.module.cids_do_runtime);
         self.out.push_str(&classe_do_valor);
@@ -1268,7 +1268,8 @@ impl<'a> LlvmEmitter<'a> {
                             "  %v{v} = call i64 @dartforge_object_get(i64 {so}, i64 {index})"
                         ).unwrap();
                     }
-                    Instruction::SetField { object, index, value } if (*index as usize) < CAMPOS_EM_LINHA => {
+                    // No ARC a gravação vai ao runtime (`dartforge_object_set`), que conta a troca.
+                    Instruction::SetField { object, index, value } if (*index as usize) < CAMPOS_EM_LINHA && !self.module.memoria_arc => {
                         let is_ref = u8::from(self.tipo_de(value) == Type::Ref);
                         let so = self.coagir(object, Type::I64);
                         let sv = self.coagir(value, Type::I64);
@@ -1327,6 +1328,7 @@ impl<'a> LlvmEmitter<'a> {
                     }
                     Instruction::CallRuntime { name, args, .. }
                         if name == "dartforge_object_set"
+                            && !self.module.memoria_arc
                             && args.len() == 4
                             && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..CAMPOS_EM_LINHA as i64).contains(i)) =>
                     {
@@ -2423,6 +2425,10 @@ impl<'a> LlvmEmitter<'a> {
             // `Isolate.spawn`, que o runtime chama na thread nova): os
             // registros das bibliotecas, a RTI e o embedder.
             writeln!(self.out, "define void @df.preparar_isolado() {{").unwrap();
+            // A memória ARC, ligada antes de todo código Dart do isolado.
+            if self.module.memoria_arc {
+                writeln!(self.out, "  call void @dartforge_memoria_arc_v1()").unwrap();
+            }
             writeln!(self.out, "  call void @dartforge_registrar_cids(ptr @df.cids, i64 {})", ids.len()).unwrap();
             if let Some(v) = &self.module.versao_do_sdk {
                 writeln!(self.out, "  call void @dartforge_registrar_versao_do_sdk(ptr @df.versao_do_sdk, i64 {})", v.len()).unwrap();
@@ -2505,6 +2511,10 @@ impl<'a> LlvmEmitter<'a> {
             return;
         }
         writeln!(self.out, "define void @dartforge_entry() {{").unwrap();
+        // A memória ARC, ligada antes de todo código Dart.
+        if self.module.memoria_arc {
+            writeln!(self.out, "  call void @dartforge_memoria_arc_v1()").unwrap();
+        }
         // Exceções por tabelas: as portas pelas quais o runtime chama
         // código Dart, entregues antes de qualquer código Dart rodar.
         if self.module.excecoes_por_tabelas {
@@ -3365,6 +3375,10 @@ impl<'a> LlvmEmitter<'a> {
     /// barreira de escrita ([`LlvmEmitter::emitir_barreira`]). Uma constante
     /// escalar ou null não precisa.
     fn barreira_em_linha(&self, inst: &Instruction) -> bool {
+        // No ARC a gravação vai ao runtime, com a barreira dentro.
+        if self.module.memoria_arc {
+            return false;
+        }
         let pode_ser_ref = |op: &Operand| {
             !matches!(op, Operand::Constant(Constant::Null | Constant::Int(_) | Constant::Bool(_) | Constant::Double(_)))
         };

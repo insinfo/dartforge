@@ -452,6 +452,46 @@ pub extern "C" fn dartforge_lembrar(h: i64) {
     heap_sem_emprestimo(|heap| heap.lembrar_objeto(h));
 }
 
+/// Liga o ARC (`--memoria=arc`, docs/ARC-IMPLEMENTACAO.md): a entrada do
+/// programa compilado assim chama esta função antes de todo código Dart. O
+/// sufixo é a versão da ABI de memória (docs/ARC-CICLOS-ESPECIFICACAO.md §24):
+/// um runtime sem ela não liga com o programa.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_memoria_arc_v1() {
+    HEAP.with(|heap| heap.borrow_mut().ativar_arc());
+    MEMORIA_ARC.with(|m| m.set(true));
+}
+
+thread_local! {
+    /// O ARC está ligado neste isolado: a pergunta barata dos natives que
+    /// gravam referências sem o `Heap` (`nativos_hash.rs`, `nativos_listas.rs`).
+    static MEMORIA_ARC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// O ARC está ligado neste isolado.
+#[inline(always)]
+fn arc_ligado() -> bool {
+    MEMORIA_ARC.with(std::cell::Cell::get)
+}
+
+/// A gravação crua de um native (sem o `Heap`) trocou `antigo` por `novo`
+/// numa posição forte de `h`: o ARC conta a troca (`Heap::arc_gravacao_crua`).
+/// Só com [`arc_ligado`]. Não aloca.
+#[cold]
+fn arc_gravacao_crua(h: i64, antigo: i64, novo: i64) {
+    heap_sem_emprestimo(|heap| heap.arc_gravacao_crua(h, antigo, novo));
+}
+
+/// No ARC, a gravação do `Ref` `v` na palavra `palavra ≥ 1` do corpo `REFS`
+/// de `h` (o elemento de lista e o armazenamento da `_GrowableList` que o
+/// emissor grava em linha no rastreamento): conta a troca e aplica a
+/// barreira (`Heap::gravar_ref`). Não aloca.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_gravar_ref(h: i64, palavra: i64, v: i64) {
+    let palavra = usize::try_from(palavra).expect("palavra negativa");
+    HEAP.with(|heap| heap.borrow_mut().gravar_ref(h, palavra, v));
+}
+
 /// Obtém bits do campo pelo índice estável escolhido pelo emissor.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_object_get(handle: i64, index: i64) -> i64 {

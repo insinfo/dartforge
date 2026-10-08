@@ -385,6 +385,12 @@ impl LlvmEmitter<'_> {
         let e_ref = self.tipo_de(value) == Type::Ref;
         let c = self.coagir(cell, Type::Ref);
         let s = self.coagir(value, Type::I64);
+        // No ARC a gravação vai ao runtime, que conta a troca (o campo 0 da
+        // célula, `INSTANCIA` de um campo).
+        if self.module.memoria_arc {
+            writeln!(self.out, "  call void @dartforge_object_set(i64 {c}, i64 0, i64 {s}, i8 {})", u8::from(e_ref)).unwrap();
+            return;
+        }
         let d = layout::desl::CORPO as i64 - layout::DESLOCAMENTO_DO_HANDLE;
         let dm = layout::desl::MAPA as i64 - layout::DESLOCAMENTO_DO_HANDLE;
         writeln!(self.out, "  %csp{k} = inttoptr i64 {c} to ptr").unwrap();

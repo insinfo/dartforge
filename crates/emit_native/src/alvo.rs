@@ -79,6 +79,32 @@ pub fn excecoes_por_tabelas() -> Result<bool, String> {
     }
 }
 
+/// A política de memória do código gerado (docs/ARC-CICLOS-ESPECIFICACAO.md
+/// §18.1, decisão 1, e §24; docs/ARC-IMPLEMENTACAO.md), pela variável
+/// `DARTFORGE_MEMORIA` (o `--memoria=` de `aot` e `compile-native` a define):
+///
+/// * ausente, vazia ou `tracing`: o coletor por rastreamento de sempre — o IR
+///   de sempre, byte a byte;
+/// * `arc`: contagem de referências com coleta de ciclos. A entrada liga o
+///   ARC no runtime (`dartforge_memoria_arc_v1`, a versão da ABI de
+///   memória) e as gravações de referência em objeto que pode ser velho
+///   passam pelo runtime, que conta a troca (a decisão 6 do §18.1: nada de
+///   gravação em linha sem o contrato).
+///
+/// O programa e o SDK têm de sair no mesmo modo: a variável entra na chave
+/// do SDK compilado.
+///
+/// # Errors
+/// Valor desconhecido.
+pub fn memoria_arc() -> Result<bool, String> {
+    let valor = std::env::var("DARTFORGE_MEMORIA").unwrap_or_default();
+    match valor.as_str() {
+        "" | "tracing" => Ok(false),
+        "arc" => Ok(true),
+        outro => Err(format!("DARTFORGE_MEMORIA={outro}: as políticas de memória são `tracing` e `arc`")),
+    }
+}
+
 /// Onde ficam as raízes do coletor no código gerado
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8), pela variável
 /// `DARTFORGE_RAIZES` (o `--raizes=` de `compile-native` a define):
