@@ -242,7 +242,11 @@ pub extern "C" fn dartforge_nativo_Socket_Available(this: i64) -> i64 {
 }
 
 /// `Socket_Read(len)`: os bytes lidos, `null` se nada veio; lança o
-/// `OSError`.
+/// `OSError`. Lidos todos os `len` pedidos a lista volta, mesmo vazia com
+/// `len` 0 (`socket.cc`, `bytes_read == length`): o `read()` sem contagem
+/// do `_NativeSocket` de um soquete sem eventos (sem `listen`, `available`
+/// em 0) faz `nativeRead(0)`, recebe a lista vazia, relê o `available` e
+/// segue lendo.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Socket_Read(this: i64, n: i64) -> i64 {
     let Some(s) = soquete_do_objeto(this) else { return 0 };
@@ -252,6 +256,7 @@ pub extern "C" fn dartforge_nativo_Socket_Read(this: i64, n: i64) -> i64 {
     }
     let mut buf = vec![0u8; n as usize];
     match ler_de(s, &mut buf) {
+        Ok(lidos) if lidos as i64 == n => dart_bytes(buf),
         Ok(0) => 0,
         Ok(lidos) => {
             buf.truncate(lidos);
