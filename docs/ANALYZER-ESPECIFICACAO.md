@@ -11916,6 +11916,11 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
   as de parâmetros de tipo de **método** no escopo do contêiner. 23 de 24.
 
 ##### `invalid_constant` (perda 17: FN 3, FP 6, pos 8)
+- **Feito em 2026-10-08** (`const/constant_type_variable_error_test.dart:32`): o `_typedLiteral` do
+  `potentially_constant.dart` (`:340-383`) confere os argumentos de tipo da literal constante: com um (lista,
+  conjunto), tipo potencialmente constante; com dois (mapa), chave e valor como tipos constantes, em que o parâmetro de
+  tipo não serve (`INVALID_CONSTANT` no argumento, em `const <X, String?>{}` num inicializador de construtor
+  `const`). O `_ConstantTypeChecker` (`:393-476`) portado em `types::constantes::potencial::tipo_constante`.
 - **Emissão:** `_reportNotPotentialConstants` (`constant_verifier.dart:749-763`) em
   `_validateConstructorInitializers` (`:790-808`) e o default de `INVALID_CONSTANT` nos
   `genericError`.

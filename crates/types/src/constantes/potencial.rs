@@ -65,10 +65,29 @@ pub fn coletar_em(m: &Motor<'_>, cx: &Ctx, e: ExprId, parametros: bool, em_const
             }
             nos.push(span);
         }
-        ExprKind::List { const_, elements, .. } | ExprKind::SetOrMap { const_, elements, .. } => {
+        ExprKind::List { const_, elements, type_args } | ExprKind::SetOrMap { const_, elements, type_args } => {
             if !(*const_ || em_const) {
                 nos.push(span);
                 return;
+            }
+            // `_typedLiteral` (`potentially_constant.dart:340-383`): com um
+            // argumento de tipo (lista, conjunto), ele é tipo potencialmente
+            // constante; com dois (mapa), a chave e o valor são tipos
+            // constantes — o parâmetro de tipo não serve.
+            match &type_args[..] {
+                [t] => {
+                    if !tipo_constante(m, u, *t, true) {
+                        nos.push(a.ty(*t).span);
+                    }
+                }
+                [k, v] => {
+                    for t in [*k, *v] {
+                        if !tipo_constante(m, u, t, false) {
+                            nos.push(a.ty(t).span);
+                        }
+                    }
+                }
+                _ => {}
             }
             for el in elements.iter() {
                 elemento(m, cx, el, parametros, nos);
@@ -164,6 +183,55 @@ pub fn coletar_em(m: &Motor<'_>, cx: &Ctx, e: ExprId, parametros: bool, em_const
             }
         }
         _ => nos.push(span),
+    }
+}
+
+/// `_ConstantTypeChecker.check` (`potentially_constant.dart:393-476`): o
+/// tipo escrito `t` é constante (ou, com `potencial`, potencialmente
+/// constante: o parâmetro de tipo também serve). O nomeado é constante
+/// quando nomeia classe ou alias sem prefixo diferido (e os argumentos
+/// também), ou quando é `dynamic`, `Never` ou `void`; a função, pelo
+/// retorno, os limites e os parâmetros simples; o record, pelos campos.
+fn tipo_constante(m: &Motor<'_>, u: dartforge_elements::model::UnitId, t: ast::TypeId, potencial: bool) -> bool {
+    use crate::table::Type;
+    let a = &m.program.unit(u).ast;
+    let resolvido = m.body.units.get(u.0 as usize).and_then(|b| b.tipos_de_anotacoes.get(&t).copied());
+    match &a.ty(t).kind {
+        ast::TypeKind::Void => true,
+        ast::TypeKind::Named { name, args } => {
+            let e_parametro = resolvido.is_some_and(|x| matches!(m.table.get(x), Type::TypeParameter { .. }));
+            if e_parametro {
+                return potencial;
+            }
+            let lib = m.program.unit(u).library;
+            let (ligacao, diferido) = match &name[..] {
+                [n] => (m.program.lookup_na_unidade(u, n.sym), false),
+                [p, n] => (
+                    m.program.lookup_prefixed_na_unidade(u, p.sym, n.sym),
+                    m.program.library(lib).imports.iter().any(|i| i.prefix == Some(p.sym) && i.deferred),
+                ),
+                _ => (None, false),
+            };
+            let nomeado = matches!(ligacao.and_then(|b| b.getter), Some(Element::Class(_) | Element::Typedef(_)));
+            if nomeado {
+                return !diferido && args.iter().all(|&x| tipo_constante(m, u, x, potencial));
+            }
+            resolvido.is_some_and(|x| matches!(m.table.get(x), Type::Dynamic | Type::Never | Type::Void))
+        }
+        ast::TypeKind::Function { return_type, type_params, parameters } => {
+            if let Some(r) = return_type
+                && !tipo_constante(m, u, *r, potencial)
+            {
+                return false;
+            }
+            if type_params.iter().filter_map(|p| p.bound).any(|b| !tipo_constante(m, u, b, potencial)) {
+                return false;
+            }
+            parameters.iter().filter(|p| p.function_parameters.is_none()).all(|p| p.ty.is_none_or(|x| tipo_constante(m, u, x, potencial)))
+        }
+        ast::TypeKind::Record { positional, named } => {
+            positional.iter().chain(named.iter().map(|(_, t)| t)).all(|&x| tipo_constante(m, u, x, potencial))
+        }
     }
 }
 
