@@ -113,8 +113,11 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             cx.funcoes.push(CtxFuncao { modificador: af.modifier, retorno: Some(ret), contexto_retorno: ctx_ret, retornados: Vec::new(), retorno_vazio: false, retornos_sem_valor: Vec::new(), expressoes_retornadas: Vec::new(), executavel, retorno_legal });
             corpo_de_funcao(inf, &mut cx, &af.body, af.modifier, ret, None);
             // `checkForBodyMayCompleteNormally` no nome da função/método.
+            // O setter não confere: o elemento tem retorno `void` (o tipo
+            // escrito é só `NON_VOID_RETURN_FOR_SETTER`).
             if matches!(af.body, FunctionBody::Block(_))
                 && cx.fluxo.alcancavel
+                && af.kind != ast::FunctionKind::Setter
                 && let Some(n) = af.name
             {
                 corpo_completa_normalmente(inf, Some(ret), Some(ctx_ret), af.modifier, n.span);
@@ -276,7 +279,21 @@ pub(crate) fn inferir_funcao_declarada(inf: &mut BodyInferrer<'_>, f: FunctionEl
             }
             // Factory: `atConstructorDeclaration`, do tipo de retorno ao fim do
             // nome.
-            if fe.factory && matches!(ctor.body, FunctionBody::Block(_)) && cx2.fluxo.alcancavel {
+            // A factory com modificador (`NON_SYNC_FACTORY`) não confere: o
+            // gerador sai cedo e o `async` tem tipo imposto ilegal
+            // (`checkForBodyMayCompleteNormally`, 3.6.2 `resolver.dart:542-563`).
+            let com_modificador = match ctor.body {
+                FunctionBody::Block(b) => {
+                    let fonte = inf.program.unit(unit).source.as_bytes();
+                    let mut i = inf.program.unit(unit).ast.stmt(b).span.start;
+                    while i > 0 && fonte[i - 1].is_ascii_whitespace() {
+                        i -= 1;
+                    }
+                    i > 0 && (fonte[i - 1] == b'*' || fonte[..i].ends_with(b"async"))
+                }
+                _ => false,
+            };
+            if fe.factory && matches!(ctor.body, FunctionBody::Block(_)) && cx2.fluxo.alcancavel && !com_modificador {
                 let onde = dartforge_diagnostics::Span { start: ctor.class_name.span.start, end: ctor.name.map_or(ctor.class_name.span.end, |n| n.span.end) };
                 corpo_completa_normalmente(inf, Some(ret), Some(ret), AsyncModifier::None, onde);
             }

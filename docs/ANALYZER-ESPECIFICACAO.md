@@ -4127,6 +4127,10 @@ chave igual a uma anterior (a igualdade do `DartObjectImpl`), relatada depois de
 
 ##### `body_might_complete_normally` / `body_might_complete_normally_nullable` / `body_might_complete_normally_catch_error` (perda 8 / 4 / 3: só FN)
 
+**Feito em 2026-10-07:** não conferem o setter (o elemento tem retorno `void`; `bool set x(v) {}` só dá
+`NON_VOID_RETURN_FOR_SETTER`) nem a factory com modificador (`factory C() async* {}`: o gerador sai cedo e o
+`async` tem o tipo imposto ilegal, `resolver.dart:542-563`), que só dá `NON_SYNC_FACTORY`.
+
 - **Emissão:** `ResolverVisitor.checkForBodyMayCompleteNormally` (`analyzer/lib/src/generated/resolver.dart:522-603`), chamado
   ao fim de declaração de função (`:2800-2803`, `errorNode: node.name`), método (`:3194-3197`, `node.name`), construtor
   **factory** (`:2333-2337`, `errorNode: node` → `atConstructorDeclaration`, `analyzer/lib/src/error/listener.dart:72-95`:
