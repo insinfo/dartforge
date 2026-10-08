@@ -1923,6 +1923,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             return Ok((Vec::new(), ty, nome));
         }
         let p = params.swap_remove(0);
+        let com_tipo = p.ty.is_some();
         let ty = match p.ty {
             Some(ty) => ty,
             // Com `final`/`var` e o recurso ligado, a forma é a declarante,
@@ -1951,13 +1952,14 @@ impl<'s, 'i> Parser<'s, 'i> {
         // (`extension type E(final i, final x)`): o do modificador é só do
         // 3.6.2. O `var` com o recurso desligado é, no 3.13.4, uso de
         // construtor primário (relatado pelo `AstBuilder`, versão `3.13`), e
-        // faz dele a referência da unidade.
+        // faz dele a referência da unidade — só com tipo depois do `var`
+        // (`parseFormalParameter`, `typeInfo != noType`): `(var i)` não.
         let modificador = p.var_ || (p.final_ && !self.features.tem(Feature::PrimaryConstructors));
         if modificador {
             let alvo = if p.var_ { Keyword::Var } else { Keyword::Final };
             if let Some(t) = self.tokens[abre..self.pos].iter().find(|t| t.span.start >= p.span.start && t.kind == Kind::Keyword(alvo)) {
                 let span = t.span;
-                if p.var_ {
+                if p.var_ && com_tipo {
                     self.exigir_no_ast(Feature::PrimaryConstructors, span);
                 }
                 self.erro_em(codigos::parser::REPRESENTATION_FIELD_MODIFIER, span, &["var"]);

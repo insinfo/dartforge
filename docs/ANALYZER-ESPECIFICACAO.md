@@ -15844,6 +15844,11 @@ executor nativo de builders).
   `linguagem-3.13` ou em sintaxe-nova.json).
 - **FP:** `extension type ET3(final i, final x)` no 3.13.4 com 2 parâmetros: só
   `MULTIPLE_REPRESENTATION_FIELDS` (corrigido: sem o modificador quando >1 e versão > 3.6).
+- **O `experiment_not_enabled` do `var` (2026-10-08):** no 3.13.4 com o recurso desligado,
+  `parseFormalParameter` (`parser_impl.dart:2262-2275`) só o relata no `var` seguido de tipo
+  (`typeInfo != noType`): `extension type ET1(var int i)` tem o `experiment_not_enabled` e o
+  `representation_field_modifier` no `var`; `ET2(var i)` só o segundo (e o `expected_representation_type` no
+  nome). O parser (`declarations.rs`, a representação) exige o recurso só com tipo.
 
 ##### `missing_const_final_var_or_type` (perda 8: FN 3, FP 5)
 - **Emissão:** `parseFields` (`fe:parser_impl.dart:3655`): `typeInfo == noType && varFinalOrConst == null`
