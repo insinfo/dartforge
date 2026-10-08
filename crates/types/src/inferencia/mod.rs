@@ -296,6 +296,9 @@ pub struct BodyInferrer<'a> {
     /// inferidos sem contexto para decidir entre conjunto e mapa (a visita
     /// dos elementos os reaproveita em vez de inferir de novo).
     pub(crate) espalhamentos_inferidos: HashMap<dartforge_frontend::ast::ExprId, TypeId>,
+    /// O tipo de cada espalhamento depois da visita do literal, para a
+    /// forma pelos elementos (`colecoes::literal`).
+    pub(crate) espalhamentos_visitados: HashMap<dartforge_frontend::ast::ExprId, TypeId>,
     /// LSP: registra em [`UnitBodyTypes::declaracoes_de_locais`] a
     /// declaração de cada local referido (renomear, referências). Desligado
     /// no compilador, que não paga pela tabela.
@@ -445,6 +448,7 @@ impl<'a> BodyInferrer<'a> {
             pilha_de_variaveis: Vec::new(),
             em_ciclo: HashSet::new(),
             espalhamentos_inferidos: HashMap::new(),
+            espalhamentos_visitados: HashMap::new(),
             registrar_locais: false,
             sonda_escopo: None,
             escopo_sondado: None,

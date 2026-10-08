@@ -70,16 +70,26 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
     let a = &inf.program.unit(cx.unit).ast;
     // `Some(ambos)`: o literal é ambíguo (`ambos`: o `_BOTH`).
     let mut ambigua: Option<bool> = None;
-    let (forma, type_args, elements, const_) = match &a.expr(e).kind {
+    // `{…}` sem argumentos de tipo: depois da visita, os tipos dos
+    // elementos decidem a forma de novo (`_inferSetOrMapLiteralType`).
+    let mut chaves = false;
+    let (mut forma, type_args, elements, const_) = match &a.expr(e).kind {
         ExprKind::List { const_, type_args, elements } => (Forma::Lista, type_args, elements, *const_),
         ExprKind::SetOrMap { const_, type_args, elements } => {
             let forma = match type_args.len() {
                 1 => Forma::Conjunto,
                 2 => Forma::Mapa,
                 _ => match forma_pelos_elementos(elements) {
-                    Some(true) => Forma::Mapa,
-                    Some(false) => Forma::Conjunto,
+                    Some(true) => {
+                        chaves = true;
+                        Forma::Mapa
+                    }
+                    Some(false) => {
+                        chaves = true;
+                        Forma::Conjunto
+                    }
                     None => {
+                        chaves = true;
                         let (f, amb) = forma_pelo_contexto(inf, cx, elements, ctx);
                         ambigua = amb;
                         f
@@ -152,11 +162,67 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
         for el in elements {
             visitar(inf, cx, el, forma, ctxs, Some((&mut gi, &params[..])));
         }
+        // `_inferSetOrMapLiteralType` (`typed_literal_resolver.dart:516-597`):
+        // depois da visita, os tipos dos elementos decidem antes do contexto
+        // — todos admitem conjunto e algum o exige, conjunto; senão, todos
+        // admitem mapa e algum o exige, mapa; senão a forma do contexto
+        // (`Iterable` sem `Map`, conjunto; `Map` sem `Iterable`, mapa); vazio,
+        // mapa; senão o literal é ambíguo (o inferidor sai sem relatar).
+        // `{...[1, 2]}` com contexto `Map` é `Set<int>`; `{null, ...o}` com
+        // `o` de tipo `Object?` é `AMBIGUOUS_SET_OR_MAP_LITERAL_EITHER`.
+        // Contra a forma da visita, o inferidor dela é abandonado e um novo,
+        // sem contexto, recebe os tipos dos elementos (`_toSetType`/
+        // `_toMapType`, `:740-815`).
+        let mut gi = gi;
+        if chaves && ambigua.is_none() {
+            let infos: Vec<Admite> = elements.iter().map(|el| admite(inf, el, true)).collect();
+            let conjunto = infos.iter().all(|a| a.pode_conjunto()) && infos.iter().any(|a| a.deve_conjunto());
+            let mapa = infos.iter().all(|a| a.pode_mapa()) && infos.iter().any(|a| a.deve_mapa());
+            let decidida = if conjunto {
+                Some(Forma::Conjunto)
+            } else if mapa {
+                Some(Forma::Mapa)
+            } else if let Some(f) = forma_pelo_tipo_do_contexto(inf, ctx) {
+                Some(f)
+            } else if elements.is_empty() {
+                Some(Forma::Mapa)
+            } else {
+                None
+            };
+            let outra = match decidida {
+                None => {
+                    ambigua = Some(infos.iter().any(|a| a.deve_mapa()) && infos.iter().any(|a| a.deve_conjunto()));
+                    None
+                }
+                Some(f) if f != forma => Some(f),
+                Some(_) => None,
+            };
+            if let Some(nova) = outra {
+                forma = nova;
+                let ps: Vec<TypeParamId> = match nova {
+                    Forma::Mapa => vec![p[1], p[2]],
+                    _ => vec![p[0]],
+                };
+                gi = GenericInferrer::new(&ps);
+                gi.metadados_genericos = inf.program.library(cx.lib).features.tem(dartforge_frontend::Feature::GenericMetadata);
+                let d = inf.core.dynamic_;
+                for a in &infos {
+                    let mut g: Inferidor<'_> = Some((&mut gi, &ps[..]));
+                    if nova == Forma::Mapa {
+                        restringir(inf, &mut g, a.chave.unwrap_or(d), 0);
+                        restringir(inf, &mut g, a.valor.unwrap_or(d), 1);
+                    } else {
+                        restringir(inf, &mut g, a.elemento.unwrap_or(d), 0);
+                    }
+                }
+            }
+        }
         let (interner, program) = (inf.interner, inf.program);
         let mut env = inf.env();
         let finais = gi.choose_final(&mut env);
-        // O `chooseFinalTypes` com o relator e o literal como entidade.
-        let falhas = gi.falhas(&finais, &mut env, interner, program);
+        // O `chooseFinalTypes` com o relator e o literal como entidade (o
+        // literal ambíguo sai da inferência sem ele).
+        let falhas = if ambigua.is_none() { gi.falhas(&finais, &mut env, interner, program) } else { Vec::new() };
         drop(env);
         let sp = inf.span_expr(cx.unit, e);
         for (nome, sufixo) in falhas {
@@ -426,13 +492,21 @@ impl Admite {
 }
 
 /// `_inferCollectionElementType` (`typed_literal_resolver.dart:344-430`) de
-/// um literal `{…}` só de espalhamentos (os tipos deles já inferidos sem
-/// contexto, em `espalhamentos_inferidos`).
-fn admite(inf: &mut BodyInferrer<'_>, el: &CollectionElement) -> Admite {
+/// um elemento de `{…}`: antes da visita (`depois` falso), pelos tipos dos
+/// espalhamentos inferidos sem contexto (`espalhamentos_inferidos`); depois
+/// dela, pelos de todo elemento visitado (`espalhamentos_visitados`: a
+/// expressão, a sem `?` do `?e`, e a chave e o valor da entrada, sem `?` nos
+/// `?k`/`?v`).
+fn admite(inf: &mut BodyInferrer<'_>, el: &CollectionElement, depois: bool) -> Admite {
     let nada = Admite { elemento: None, chave: None, valor: None };
+    let tipo = |inf: &BodyInferrer<'_>, x: &dartforge_frontend::ast::ExprId| {
+        if depois { inf.espalhamentos_visitados.get(x).copied() } else { inf.espalhamentos_inferidos.get(x).copied() }
+    };
     match el {
+        CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => Admite { elemento: tipo(inf, x), chave: None, valor: None },
+        CollectionElement::MapEntry { key, value, .. } => Admite { elemento: None, chave: tipo(inf, key), valor: tipo(inf, value) },
         CollectionElement::Spread { value, null_aware } => {
-            let Some(&t) = inf.espalhamentos_inferidos.get(value) else { return nada };
+            let Some(t) = tipo(inf, value) else { return nada };
             if let Some(a) = inf.como_instancia_de(t, inf.core.iterable_class) {
                 return Admite { elemento: a.first().copied(), chave: None, valor: None };
             }
@@ -443,16 +517,19 @@ fn admite(inf: &mut BodyInferrer<'_>, el: &CollectionElement) -> Admite {
                 return Admite { elemento: Some(t), chave: Some(t), valor: Some(t) };
             }
             let n = inf.core.never;
-            if inf.sub(t, n) || (*null_aware && matches!(inf.table.get(t), Type::Null)) {
+            // `isSubtypeOf(expressionType, nullNone)` (`:413-420`): `X extends
+            // Null` também.
+            let null = inf.core.null;
+            if inf.sub(t, n) || (*null_aware && inf.sub(t, null)) {
                 return Admite { elemento: Some(n), chave: Some(n), valor: Some(n) };
             }
             nada
         }
-        CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => admite(inf, body),
+        CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => admite(inf, body, depois),
         CollectionElement::If { then, else_, .. } => {
-            let a = admite(inf, then);
+            let a = admite(inf, then, depois);
             let Some(e) = else_ else { return a };
-            let b = admite(inf, e);
+            let b = admite(inf, e, depois);
             let dinamico = |x: &Admite, inf: &BodyInferrer<'_>| [x.elemento, x.chave, x.valor].iter().all(|t| t.is_some_and(|t| inf.e_dynamic(t)));
             let ou_dinamico = |t: Option<TypeId>, d: TypeId| t.map(|_| d);
             if dinamico(&a, inf) {
@@ -470,7 +547,6 @@ fn admite(inf: &mut BodyInferrer<'_>, el: &CollectionElement) -> Admite {
             };
             Admite { elemento: juntar(a.elemento, b.elemento), chave: juntar(a.chave, b.chave), valor: juntar(a.valor, b.valor) }
         }
-        _ => nada,
     }
 }
 
@@ -539,7 +615,7 @@ fn forma_pelo_contexto(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, els: &[Collec
         return (forma.unwrap_or(Forma::Mapa), None);
     }
     inferir_espalhamentos(inf, cx, els);
-    let infos: Vec<Admite> = els.iter().map(|el| admite(inf, el)).collect();
+    let infos: Vec<Admite> = els.iter().map(|el| admite(inf, el, false)).collect();
     let pode_conjunto = infos.iter().all(|a| a.pode_conjunto());
     let deve_conjunto = infos.iter().any(|a| a.deve_conjunto());
     let pode_mapa = infos.iter().all(|a| a.pode_mapa());
@@ -605,6 +681,7 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, f
             if gi.is_none() && forma != Forma::Mapa && !matches!(inf.table.get(c), Type::Void) {
                 super::expr::uso_de_void(inf, cx, *x, t);
             }
+            inf.espalhamentos_visitados.insert(*x, t);
             if forma != Forma::Mapa {
                 restringir(inf, &mut gi, t, 0);
             }
@@ -617,6 +694,7 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, f
                 super::expr::uso_de_void(inf, cx, *x, t);
             }
             let t = inf.nao_nulo(t);
+            inf.espalhamentos_visitados.insert(*x, t);
             if forma != Forma::Mapa {
                 restringir(inf, &mut gi, t, 0);
             }
@@ -636,6 +714,8 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, f
             }
             let tk = if *null_aware_key { inf.nao_nulo(tk) } else { tk };
             let tv = if *null_aware_value { inf.nao_nulo(tv) } else { tv };
+            inf.espalhamentos_visitados.insert(*key, tk);
+            inf.espalhamentos_visitados.insert(*value, tv);
             restringir(inf, &mut gi, tk, 0);
             restringir(inf, &mut gi, tv, 1);
         }
@@ -649,6 +729,7 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, f
                 Some(t) => t,
                 None => inferir(inf, cx, *value, c),
             };
+            inf.espalhamentos_visitados.insert(*value, t);
             if *null_aware {
                 super::expr::espalhamento_nulo_desnecessario(inf, cx, *value, t);
             } else {

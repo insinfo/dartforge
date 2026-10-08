@@ -8173,6 +8173,17 @@ contexto (salvo `dynamic`/`_`, `function_expression_resolver.dart:37-48`): `Iter
   então relata `_both` ou `_either` no literal inteiro e devolve `dynamic`, sem verificar elementos. Fica fora
   o espalhamento dentro de `for` ou `if-case`, que depende das variáveis do elemento e não se antecipa: aí
   decide o primeiro espalhamento de topo, sem relato.
+- **Estado em 2026-10-08:** a decisão roda de novo **depois da visita**, para todo `{…}` sem argumentos de
+  tipo, como o `_inferSetOrMapLiteralType` (`:516-597`), que é chamado sempre, não só no literal ambíguo. Os
+  tipos visitados de cada elemento (`espalhamentos_visitados`: a expressão, a sem `?` do `?e`, a chave e o
+  valor da entrada, o espalhamento) dão o `Admite`. Todos admitem conjunto e algum o exige: conjunto; senão
+  todos admitem mapa e algum o exige: mapa; senão a forma do contexto; vazio: mapa; senão ambíguo (EITHER ou
+  BOTH, o inferidor sai sem `COULD_NOT_INFER`). A forma da visita (sintaxe, depois contexto) pode perder:
+  `Map<int, int> f() => {...[1, 2, 3, 4]}` é `Set<int>` (o oráculo dá `return_of_invalid_type`, não
+  `not_map_spread`), e `{null, ...c.objectQuestion}` com `Object?` é EITHER (não `not_iterable_spread`). Na
+  troca, o inferidor da visita é abandonado e um novo, sem contexto, recebe os tipos dos elementos
+  (`_toSetType`/`_toMapType`, `:740-815`). O `...?e` vale `Never` quando o tipo é subtipo de `Null`
+  (`isSubtypeOf`, `:413-420`), o que inclui `X extends Null`.
 
 ##### `collection_element_from_deferred_library` (perda 5: FN 5)
 - **Emissão:** `sharedName` de NON_CONSTANT_LIST_ELEMENT/…MAP_KEY/…MAP_VALUE/SET_ELEMENT_FROM_DEFERRED_LIBRARY
