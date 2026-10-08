@@ -1737,7 +1737,16 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
                     }
                 }
             }
-            let r = if *null_aware { inf.nao_nulo(t) } else { t };
+            // `promoteToNonNull`, como no `?.`: o parâmetro de tipo de limite
+            // anulável vira `T & NonNull(limite)` (`nn?..toRadixString(16)`).
+            let r = if *null_aware {
+                match inf.table.get(t) {
+                    Type::TypeParameter { nullable: false, .. } => inf.nao_nulo_promocao(t),
+                    _ => inf.nao_nulo(t),
+                }
+            } else {
+                t
+            };
             cx.cascatas.push(r);
             cx.alvos_de_cascata.push(*target);
             // Alvo que não é referência (`getC()?..`): o temporário da
