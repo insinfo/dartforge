@@ -246,7 +246,8 @@ pub extern "C" fn dartforge_nativo_Socket_Available(this: i64) -> i64 {
 /// `len` 0 (`socket.cc`, `bytes_read == length`): o `read()` sem contagem
 /// do `_NativeSocket` de um soquete sem eventos (sem `listen`, `available`
 /// em 0) faz `nativeRead(0)`, recebe a lista vazia, relê o `available` e
-/// segue lendo.
+/// segue lendo. Isso sem asserts; com eles (o oráculo, `--enable-asserts`),
+/// o `assert(available > 0)` lança antes e o soquete fecha, na VM também.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Socket_Read(this: i64, n: i64) -> i64 {
     let Some(s) = soquete_do_objeto(this) else { return 0 };
