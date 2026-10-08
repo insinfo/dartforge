@@ -647,6 +647,8 @@ impl Motor {
             false,
         );
         let mut atribuidos: Vec<(UnitId, Diagnostic, u16)> = Vec::new();
+        // As bibliotecas em que o analyzer 3.6.2 lança (`fase_ffi::QuebraDoAnalyzer`).
+        let mut quebradas: BTreeSet<dartforge_elements::model::LibraryId> = BTreeSet::new();
         // As tabelas laterais das bibliotecas do lote, cada unidade da passada
         // da sua biblioteca (a avaliação de constantes lê todas).
         let mut corpos: Option<dartforge_types::BodyTypes> = None;
@@ -991,9 +993,16 @@ impl Motor {
                 for d in dartforge_types::fase_catch_error::retornos_de_catch_error(&program, &interner, &mut table, &core, &outline, corpo, u) {
                     atribuidos.push((u, d, fase::BEST_PRACTICES));
                 }
-                // `FfiVerifier`.
-                for d in dartforge_types::fase_ffi::verificar(&program, &interner, &mut table, &core, &outline, todos, &inferidas_dos_lints, u) {
-                    atribuidos.push((u, d, fase::FFI_VERIFIER));
+                // `FfiVerifier`; a quebra do 3.6.2 tira a biblioteca inteira.
+                match dartforge_types::fase_ffi::verificar(&program, &interner, &mut table, &core, &outline, todos, &inferidas_dos_lints, u) {
+                    Ok(ds) => {
+                        for d in ds {
+                            atribuidos.push((u, d, fase::FFI_VERIFIER));
+                        }
+                    }
+                    Err(dartforge_types::fase_ffi::QuebraDoAnalyzer) => {
+                        quebradas.insert(program.unit(u).library);
+                    }
                 }
                 // `BestPracticesVerifier`: `assignment_of_do_not_store` e `return_of_do_not_store`.
                 for d in dartforge_types::fase_nao_guardar::guardados_e_devolvidos(&program, &interner, corpo, u) {
@@ -1166,6 +1175,20 @@ impl Motor {
                 novo
             });
             a.sintaticos -= removidos_sintaticos;
+        }
+        // A biblioteca em que o analyzer lança fica sem resultado: nenhum
+        // diagnóstico (nem os sintáticos nem os lints) dos arquivos dela.
+        for lib in &quebradas {
+            for u in &program.library(*lib).units {
+                if let Some(p) = &program.unit(*u).path
+                    && let Some(a) = analise.arquivos.get_mut(&chave(p))
+                {
+                    a.diags.clear();
+                    a.sintaticos = 0;
+                    a.lints_semanticos.clear();
+                    a.relatos_de_lint = None;
+                }
+            }
         }
         Some(analise)
     }

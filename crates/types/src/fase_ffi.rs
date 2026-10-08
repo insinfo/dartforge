@@ -199,13 +199,24 @@ struct V<'a> {
     /// Os trechos das expressões de índice (`visitIndexExpression` não
     /// visita os filhos).
     indices_de_colchete: Vec<Span>,
+    /// O `FfiVerifier` do 3.6.2 lançou (ver [`QuebraDoAnalyzer`]).
+    quebra: bool,
 }
+
+/// O `FfiVerifier` do analyzer 3.6.2 lança uma exceção na unidade: o
+/// `LibraryAnalyzer.analyze()` da biblioteca inteira falha, e o driver
+/// (`driver.dart:1473-1490`) completa os pedidos com erro, sem resultado
+/// para nenhuma unidade. O `dart analyze` não mostra diagnóstico algum dos
+/// arquivos da biblioteca, e quem chama descarta todos eles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct QuebraDoAnalyzer;
 
 fn nome_da_biblioteca(interner: &Interner, l: &Library) -> String {
     l.name.as_ref().map(|n| n.iter().map(|s| interner.resolve(*s)).collect::<Vec<_>>().join(".")).unwrap_or_default()
 }
 
-/// Os relatos do `FfiVerifier` na unidade `u`.
+/// Os relatos do `FfiVerifier` na unidade `u`, ou a quebra do analyzer 3.6.2
+/// ([`QuebraDoAnalyzer`]).
 #[allow(clippy::too_many_arguments)]
 pub fn verificar<'a>(
     program: &'a Program,
@@ -216,12 +227,12 @@ pub fn verificar<'a>(
     corpos: &'a BodyTypes,
     inferidas: &'a HashSet<LibraryId>,
     u: UnitId,
-) -> Vec<Diagnostic> {
+) -> Result<Vec<Diagnostic>, QuebraDoAnalyzer> {
     let Some(ffi) = program.libraries.iter().position(|l| nome_da_biblioteca(interner, l) == "dart.ffi").map(|i| LibraryId(i as u32)) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     let typed_data = program.libraries.iter().position(|l| nome_da_biblioteca(interner, l) == "dart.typed_data").map(|i| LibraryId(i as u32));
-    let Some(corpo) = corpos.units.get(u.0 as usize) else { return Vec::new() };
+    let Some(corpo) = corpos.units.get(u.0 as usize) else { return Ok(Vec::new()) };
     let unidade = program.unit(u);
     let a = &unidade.ast;
     let indices_de_colchete = a.exprs.iter().filter(|e| matches!(e.kind, ExprKind::Index { .. })).map(|e| e.span).collect();
@@ -244,10 +255,17 @@ pub fn verificar<'a>(
         pais: crate::lints_tipados::pais_da_unidade(program, u),
         indices: None,
         indices_de_colchete,
+        quebra: false,
     };
     v.declaracoes();
+    if v.quebra {
+        return Err(QuebraDoAnalyzer);
+    }
     v.expressoes();
-    v.out
+    if v.quebra {
+        return Err(QuebraDoAnalyzer);
+    }
+    Ok(v.out)
 }
 
 impl<'a> V<'a> {
@@ -1744,12 +1762,33 @@ impl<'a> V<'a> {
                 }
             }
         }
+        // O nó do erro. No 3.6.2 (`ffi_verifier.dart:1995-2022`), o
+        // argumento `i` quando há argumentos: `argumentNodes[i]` sem guarda,
+        // e o `@Array.variable(-1)` (dimensões `[0, -1]`, um argumento só)
+        // lança `RangeError` — a biblioteca sai sem diagnósticos
+        // ([`QuebraDoAnalyzer`]). No 3.13.4 (`:2171-2220`), o último
+        // argumento que existe até `i`, e a anotação sem argumentos.
+        let referencia_313 = self.program.referencia(self.u) == dartforge_diagnostics::Referencia::V3_13;
+        let mut no_do_erro = primeira.span;
         for (i, d) in dimensoes.iter().enumerate() {
+            if referencia_313 && let Some(&s) = nos.get(i) {
+                no_do_erro = s;
+            }
             if i == 0 && variavel {
                 continue;
             }
             if *d <= 0 {
-                let s = if nos.is_empty() { primeira.span } else { nos.get(i).copied().unwrap_or(primeira.span) };
+                let s = if referencia_313 || nos.is_empty() {
+                    no_do_erro
+                } else {
+                    match nos.get(i) {
+                        Some(&s) => s,
+                        None => {
+                            self.quebra = true;
+                            return;
+                        }
+                    }
+                };
                 self.relatar(cf::NON_POSITIVE_ARRAY_DIMENSION, s, &[]);
             }
         }

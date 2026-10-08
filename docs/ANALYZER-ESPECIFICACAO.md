@@ -7271,6 +7271,14 @@ FFI está em `sintaxe-nova.json`.
 - **No DartForge:** nada. Casos: 9 em campos de struct (`@Array(0)`, `@Array(-1)`, `.multi([...])`) e
   1 em campo `@Native()` de topo (`NativeField__Array_InvalidDimension`). Valores: avaliar os
   argumentos (literal, `-literal`, const) com o avaliador; não depender do valor do `_ArraySize`.
+- **Quebra do 3.6.2 (2026-10-08):** o nó `argumentNodes[i]` não tem guarda. Com `variableLength` a
+  dimensão 0 prefixada desloca o índice: `@Array.variable(-1)` tem dimensões `[0, -1]` e um argumento só, e
+  `i = 1` lança `RangeError`. A exceção derruba o `LibraryAnalyzer.analyze()` da biblioteca, e o driver
+  (`driver.dart:1473-1490`) completa os pedidos com erro: nenhum diagnóstico de nenhum arquivo dela (o
+  oráculo de `InlineArray__variable_negativeDimension`/`_zeroDimension` é vazio). O `fase_ffi::verificar`
+  devolve `Err(QuebraDoAnalyzer)`, e a análise (`paridade::analise`) esvazia os arquivos da biblioteca
+  (diagnósticos, sintáticos e lints). No 3.13.4 (`:2171-2220`) o laço é guardado: o nó é o último
+  argumento que existe até `i` (a anotação, sem argumentos), e a biblioteca julgada por ele usa essa regra.
 
 ##### `subtype_of_struct_class` (perda 7: FN 7)
 - **Códigos:** `SUBTYPE_OF_STRUCT_CLASS_IN_EXTENDS` / `_IN_IMPLEMENTS` / `_IN_WITH` (todos com
