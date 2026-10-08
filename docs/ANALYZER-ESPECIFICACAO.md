@@ -15643,6 +15643,11 @@ interpolação `$palavra` sempre `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` (:347-353
 ---
 
 ##### `experiment_not_enabled` (perda 231: FN 99, FP 35, msg 96, pos 1)
+
+**Feito em 2026-10-08:** o `sealed`/`base`/`interface`/`final`/`mixin` sem o recurso só relata quando é
+modificador lido da classe: o nome de uma anotação (`@sealed class C`, do `package:meta`, numa biblioteca 2.17)
+não é. No DartForge, `modificadores_de_classe_sem_recurso` (o caso quebrava a carga do `riverpod_annotation` no
+executor nativo de builders).
 - **Emissão:** três fontes. (1) parser do fasta `reportExperimentNotEnabled` (`fe:parser/parser_impl.dart:9440`)
   → `listener.handleExperimentNotEnabled` → `an:fasta/ast_builder.dart` reporta
   `ParserErrorCode.EXPERIMENT_NOT_ENABLED` com `[flag.name, versão x.y.0]`; (2) AstBuilder

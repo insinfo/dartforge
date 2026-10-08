@@ -1006,8 +1006,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             i -= 1;
             let tk = &self.tokens[i];
             let texto = &self.source[tk.span.start..tk.span.end];
+            // O nome de uma anotação (`@sealed class C`) não é modificador.
+            let de_anotacao = i > 0 && &self.source[self.tokens[i - 1].span.start..self.tokens[i - 1].span.end] == "@";
             match texto {
-                "abstract" | "base" | "interface" | "final" | "sealed" | "mixin" | "macro" | "augment" => {
+                "abstract" | "base" | "interface" | "final" | "sealed" | "mixin" | "macro" | "augment" if !de_anotacao => {
                     achados.push((texto.to_string(), tk.span));
                 }
                 _ => break,
@@ -1016,23 +1018,23 @@ impl<'s, 'i> Parser<'s, 'i> {
         achados.reverse();
         for (texto, sp) in achados {
             match texto.as_str() {
-                "sealed" if !selado => {
+                "sealed" if !selado && m.sealed => {
                     self.exigir(Feature::SealedClass, sp);
                     m.sealed = false;
                 }
-                "base" if !modificadores => {
+                "base" if !modificadores && m.base => {
                     self.exigir(Feature::ClassModifiers, sp);
                     m.base = false;
                 }
-                "interface" if !modificadores => {
+                "interface" if !modificadores && m.interface => {
                     self.exigir(Feature::ClassModifiers, sp);
                     m.interface = false;
                 }
-                "final" if !modificadores => {
+                "final" if !modificadores && m.final_ => {
                     self.exigir(Feature::ClassModifiers, sp);
                     m.final_ = false;
                 }
-                "mixin" if !modificadores => {
+                "mixin" if !modificadores && m.mixin => {
                     self.exigir(Feature::ClassModifiers, sp);
                     m.mixin = false;
                 }
