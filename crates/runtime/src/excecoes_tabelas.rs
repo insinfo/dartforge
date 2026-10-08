@@ -528,7 +528,7 @@ thread_local! {
 /// Só o código gerado a chama, com a exceção Dart já pendente.
 #[cfg(unix)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_objeto_de_desenrolamento() -> *mut ObjetoDeDesenrolamento {
+pub unsafe extern "C" fn dartforge_objeto_de_desenrolamento() -> *mut u8 {
     let objeto = OBJETO_DE_DESENROLAMENTO.with(|o| o.get());
     // SAFETY: o objeto é da thread e não há outro desenrolamento em curso;
     // o desenrolador só usa a área privada dele.
@@ -537,7 +537,7 @@ pub unsafe extern "C" fn dartforge_objeto_de_desenrolamento() -> *mut ObjetoDeDe
         (*objeto).limpeza = None;
         (*objeto).privado = [0; 6];
     }
-    objeto
+    objeto.cast()
 }
 
 /// O `_Unwind_RaiseException` de `@df.lancar` voltou: nenhum pouso pegou (a
