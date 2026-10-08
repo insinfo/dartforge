@@ -15816,6 +15816,18 @@ executor nativo de builders).
   repetido no cabeçalho e no `this`), `required required int i` no 3.13.4 (o 3.13 relata
   extraneous no 1º além de DUPLICATED), FP `empty_body_error_test:18:6` (3.13 `class const`).
   Todos do grupo 3.13 — regras do parser 3.13.4 (fora da fonte 3.6.2).
+- **Feito em 2026-10-08** (parser da tag 3.13.4, `pkg/_fe_analyzer_shared/lib/src/parser/parser_impl.dart`):
+  * os modificadores antes de uma parte de corpo `this` (`:5514-5556`): `EXTRANEOUS_MODIFIER` em
+    `var`/`final`/`const`, `external`, `static`, `covariant` e `late`, nessa ordem, depois da conferência do
+    recurso (`frontend::parser::declarations`, `parse_parte_primaria`);
+  * o `const` de cabeçalho sem construtor primário (`parsePrimaryConstructorOpt`, `:3829-3862`): com o
+    recurso, `CONST_WITHOUT_PRIMARY_CONSTRUCTOR` (classe, tipo de extensão e enum); sem ele,
+    `UNEXPECTED_TOKEN` com o `const`; a declaração segue (antes era erro fatal, e o `enum const E3;`
+    perdia o `ENUM_WITHOUT_CONSTANTS` e o recurso do `;`). No `class const C = S with M;`,
+    `CONST_WITHOUT_PRIMARY_CONSTRUCTOR` com ou sem o recurso (`:2983-2986`). Os códigos
+    `const_without_primary_constructor`, `mixin_primary_constructor` e `extension_primary_constructor`
+    entraram no suplemento 3.13 do gerador (`messages.yaml` da tag).
+  * Fica o `required required int i` (o 3.13.4 relata extraneous no primeiro além do `DUPLICATED`).
 
 ##### `unterminated_string_literal` (perda 6: FN 6) — §SCANNER
 - `abstract_scanner.dart:2055 unterminatedString`: token STRING sintético (o texto até o fim da

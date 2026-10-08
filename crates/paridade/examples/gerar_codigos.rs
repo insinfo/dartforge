@@ -229,6 +229,39 @@ const SUPLEMENTO_3_13: &[(&str, &str, &str, &str, &str, &str, &str, &str)] = &[
         "Try removing the 'new' keyword or changing it to a different name.",
         "SYNTACTIC_ERROR",
     ),
+    // O `const` no cabeçalho sem construtor primário
+    // (`parser_impl.dart:3829-3856` do 3.13.4, com o recurso ligado); textos de
+    // `pkg/_fe_analyzer_shared/messages.yaml` da tag.
+    (
+        "ParserErrorCode",
+        "parser",
+        "CONST_WITHOUT_PRIMARY_CONSTRUCTOR",
+        "const_without_primary_constructor",
+        "ParserErrorCode.CONST_WITHOUT_PRIMARY_CONSTRUCTOR",
+        "'const' can only be used together with a primary constructor declaration.",
+        "Try removing the 'const' keyword or adding a primary constructor declaration.",
+        "SYNTACTIC_ERROR",
+    ),
+    (
+        "ParserErrorCode",
+        "parser",
+        "MIXIN_PRIMARY_CONSTRUCTOR",
+        "mixin_primary_constructor",
+        "ParserErrorCode.MIXIN_PRIMARY_CONSTRUCTOR",
+        "Mixins can't have primary constructors.",
+        "Try removing the primary constructor or changing the mixin to a class.",
+        "SYNTACTIC_ERROR",
+    ),
+    (
+        "ParserErrorCode",
+        "parser",
+        "EXTENSION_PRIMARY_CONSTRUCTOR",
+        "extension_primary_constructor",
+        "ParserErrorCode.EXTENSION_PRIMARY_CONSTRUCTOR",
+        "Extensions can't have primary constructors.",
+        "Try removing the primary constructor or changing the extension to an extension type.",
+        "SYNTACTIC_ERROR",
+    ),
     (
         "WarningCode",
         "warning",

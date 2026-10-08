@@ -8,13 +8,13 @@
 // ParserErrorCode: 265
 // ScannerErrorCode: 12
 // TodoCode: 4
-// suplemento 3.13.4 (códigos novos e formas novas de códigos da 6.11): 35
+// suplemento 3.13.4 (códigos novos e formas novas de códigos da 6.11): 38
 // variantes 3.13.4: 20
 #![allow(missing_docs)]
 
 use crate::{Codigo, InfoCodigo, Severidade, TipoErro, Variante313};
 
-pub(crate) static TABELA: [InfoCodigo; 1065] = [
+pub(crate) static TABELA: [InfoCodigo; 1068] = [
     InfoCodigo { nome: "abstract_field_initializer", unico: "CompileTimeErrorCode.ABSTRACT_FIELD_CONSTRUCTOR_INITIALIZER", mensagem: "Abstract fields can't have initializers.", correcao: Some("Try removing the field initializer or the 'abstract' keyword from the field declaration."), tipo: TipoErro::CompileTimeError, severidade: Severidade::Error, documentado: true },
     InfoCodigo { nome: "abstract_field_initializer", unico: "CompileTimeErrorCode.ABSTRACT_FIELD_INITIALIZER", mensagem: "Abstract fields can't have initializers.", correcao: Some("Try removing the initializer or the 'abstract' keyword."), tipo: TipoErro::CompileTimeError, severidade: Severidade::Error, documentado: true },
     InfoCodigo { nome: "abstract_super_member_reference", unico: "CompileTimeErrorCode.ABSTRACT_SUPER_MEMBER_REFERENCE", mensagem: "The {0} '{1}' is always abstract in the supertype.", correcao: None, tipo: TipoErro::CompileTimeError, severidade: Severidade::Error, documentado: true },
@@ -1064,6 +1064,9 @@ pub(crate) static TABELA: [InfoCodigo; 1065] = [
     InfoCodigo { nome: "initializing_declaring_parameter", unico: "ParserErrorCode.INITIALIZING_DECLARING_PARAMETER", mensagem: "Declaring parameters can't be initializing.", correcao: Some("Try removing the `this.` prefix or making the parameter non-declaring."), tipo: TipoErro::SyntacticError, severidade: Severidade::Error, documentado: false },
     InfoCodigo { nome: "super_initializing_declaring_parameter", unico: "ParserErrorCode.SUPER_INITIALIZING_DECLARING_PARAMETER", mensagem: "Declaring parameters can't be super parameters.", correcao: Some("Try removing the `super.` prefix or making the parameter non-declaring."), tipo: TipoErro::SyntacticError, severidade: Severidade::Error, documentado: false },
     InfoCodigo { nome: "factory_constructor_new_name", unico: "ParserErrorCode.FACTORY_CONSTRUCTOR_NEW_NAME", mensagem: "Factory constructors can't be named 'new'.", correcao: Some("Try removing the 'new' keyword or changing it to a different name."), tipo: TipoErro::SyntacticError, severidade: Severidade::Error, documentado: false },
+    InfoCodigo { nome: "const_without_primary_constructor", unico: "ParserErrorCode.CONST_WITHOUT_PRIMARY_CONSTRUCTOR", mensagem: "'const' can only be used together with a primary constructor declaration.", correcao: Some("Try removing the 'const' keyword or adding a primary constructor declaration."), tipo: TipoErro::SyntacticError, severidade: Severidade::Error, documentado: false },
+    InfoCodigo { nome: "mixin_primary_constructor", unico: "ParserErrorCode.MIXIN_PRIMARY_CONSTRUCTOR", mensagem: "Mixins can't have primary constructors.", correcao: Some("Try removing the primary constructor or changing the mixin to a class."), tipo: TipoErro::SyntacticError, severidade: Severidade::Error, documentado: false },
+    InfoCodigo { nome: "extension_primary_constructor", unico: "ParserErrorCode.EXTENSION_PRIMARY_CONSTRUCTOR", mensagem: "Extensions can't have primary constructors.", correcao: Some("Try removing the primary constructor or changing the extension to an extension type."), tipo: TipoErro::SyntacticError, severidade: Severidade::Error, documentado: false },
     InfoCodigo { nome: "deprecated_optional", unico: "WarningCode.DEPRECATED_OPTIONAL", mensagem: "Omitting an argument for the '{0}' parameter is deprecated.", correcao: Some("Try passing an argument for '{0}'."), tipo: TipoErro::StaticWarning, severidade: Severidade::Warning, documentado: false },
     InfoCodigo { nome: "unused_field_from_primary_constructor", unico: "WarningCode.UNUSED_FIELD_FROM_PRIMARY_CONSTRUCTOR", mensagem: "The value of the field '{0}' isn't used.", correcao: Some("Try removing the '{1}' keyword to avoid declaring a field, or try using the field, or removing it."), tipo: TipoErro::StaticWarning, severidade: Severidade::Warning, documentado: false },
     InfoCodigo { nome: "unused_element_parameter", unico: "WarningCode.UNUSED_ELEMENT_PARAMETER_3_13", mensagem: "A value for optional parameter '{0}' isn't ever given.", correcao: Some("Try removing the unused parameter."), tipo: TipoErro::StaticWarning, severidade: Severidade::Warning, documentado: false },
@@ -1082,20 +1085,20 @@ pub(crate) static TABELA: [InfoCodigo; 1065] = [
     InfoCodigo { nome: "deferred_import_of_extension", unico: "CompileTimeErrorCode.DEFERRED_IMPORT_OF_EXTENSION_3_13", mensagem: "Deferred library imports must hide all extension declarations.", correcao: Some("Try adding either a show combinator listing the names you need to reference or a hide combinator listing all of the extension declarations."), tipo: TipoErro::CompileTimeError, severidade: Severidade::Error, documentado: true },
 ];
 
-pub(crate) static POR_UNICO: [(&str, u16); 1065] = [
+pub(crate) static POR_UNICO: [(&str, u16); 1068] = [
     ("CompileTimeErrorCode.ABSTRACT_FIELD_CONSTRUCTOR_INITIALIZER", 0),
     ("CompileTimeErrorCode.ABSTRACT_FIELD_INITIALIZER", 1),
     ("CompileTimeErrorCode.ABSTRACT_SUPER_MEMBER_REFERENCE", 2),
     ("CompileTimeErrorCode.AMBIGUOUS_EXPORT", 3),
     ("CompileTimeErrorCode.AMBIGUOUS_EXTENSION_MEMBER_ACCESS", 4),
-    ("CompileTimeErrorCode.AMBIGUOUS_EXTENSION_MEMBER_ACCESS_TWO", 1063),
+    ("CompileTimeErrorCode.AMBIGUOUS_EXTENSION_MEMBER_ACCESS_TWO", 1066),
     ("CompileTimeErrorCode.AMBIGUOUS_IMPORT", 5),
     ("CompileTimeErrorCode.AMBIGUOUS_SET_OR_MAP_LITERAL_BOTH", 6),
     ("CompileTimeErrorCode.AMBIGUOUS_SET_OR_MAP_LITERAL_EITHER", 7),
     ("CompileTimeErrorCode.ARGUMENT_TYPE_NOT_ASSIGNABLE", 8),
     ("CompileTimeErrorCode.ASSERT_IN_REDIRECTING_CONSTRUCTOR", 9),
     ("CompileTimeErrorCode.ASSIGNMENT_TO_CONST", 10),
-    ("CompileTimeErrorCode.ASSIGNMENT_TO_CONST_3_13", 1054),
+    ("CompileTimeErrorCode.ASSIGNMENT_TO_CONST_3_13", 1057),
     ("CompileTimeErrorCode.ASSIGNMENT_TO_FINAL", 11),
     ("CompileTimeErrorCode.ASSIGNMENT_TO_FINAL_LOCAL", 12),
     ("CompileTimeErrorCode.ASSIGNMENT_TO_FINAL_NO_SETTER", 13),
@@ -1208,7 +1211,7 @@ pub(crate) static POR_UNICO: [(&str, u16); 1065] = [
     ("CompileTimeErrorCode.DEFAULT_VALUE_IN_REDIRECTING_FACTORY_CONSTRUCTOR", 119),
     ("CompileTimeErrorCode.DEFAULT_VALUE_ON_REQUIRED_PARAMETER", 120),
     ("CompileTimeErrorCode.DEFERRED_IMPORT_OF_EXTENSION", 121),
-    ("CompileTimeErrorCode.DEFERRED_IMPORT_OF_EXTENSION_3_13", 1064),
+    ("CompileTimeErrorCode.DEFERRED_IMPORT_OF_EXTENSION_3_13", 1067),
     ("CompileTimeErrorCode.DEFINITELY_UNASSIGNED_LATE_LOCAL_VARIABLE", 122),
     ("CompileTimeErrorCode.DISALLOWED_TYPE_INSTANTIATION_EXPRESSION", 123),
     ("CompileTimeErrorCode.DOT_SHORTHAND_MISSING_CONTEXT", 1037),
@@ -1231,7 +1234,7 @@ pub(crate) static POR_UNICO: [(&str, u16); 1065] = [
     ("CompileTimeErrorCode.ENUM_INSTANTIATED_TO_BOUNDS_IS_NOT_WELL_BOUNDED", 138),
     ("CompileTimeErrorCode.ENUM_MIXIN_WITH_INSTANCE_VARIABLE", 139),
     ("CompileTimeErrorCode.ENUM_WITHOUT_CONSTANTS", 140),
-    ("CompileTimeErrorCode.ENUM_WITHOUT_CONSTANTS_3_13", 1053),
+    ("CompileTimeErrorCode.ENUM_WITHOUT_CONSTANTS_3_13", 1056),
     ("CompileTimeErrorCode.ENUM_WITH_ABSTRACT_MEMBER", 141),
     ("CompileTimeErrorCode.ENUM_WITH_NAME_VALUES", 142),
     ("CompileTimeErrorCode.EQUAL_ELEMENTS_IN_CONST_SET", 143),
@@ -1459,11 +1462,11 @@ pub(crate) static POR_UNICO: [(&str, u16); 1065] = [
     ("CompileTimeErrorCode.NON_CONST_MAP_AS_EXPRESSION_STATEMENT", 361),
     ("CompileTimeErrorCode.NON_COVARIANT_TYPE_PARAMETER_POSITION_IN_REPRESENTATION_TYPE", 362),
     ("CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_EXPRESSION", 363),
-    ("CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_EXPRESSION_3_13", 1057),
-    ("CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_EXPRESSION_PRIVATE", 1058),
+    ("CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_EXPRESSION_3_13", 1060),
+    ("CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_EXPRESSION_PRIVATE", 1061),
     ("CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_STATEMENT", 364),
-    ("CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_STATEMENT_3_13", 1059),
-    ("CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_STATEMENT_PRIVATE", 1060),
+    ("CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_STATEMENT_3_13", 1062),
+    ("CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_STATEMENT_PRIVATE", 1063),
     ("CompileTimeErrorCode.NON_FINAL_FIELD_IN_ENUM", 365),
     ("CompileTimeErrorCode.NON_GENERATIVE_CONSTRUCTOR", 366),
     ("CompileTimeErrorCode.NON_GENERATIVE_IMPLICIT_CONSTRUCTOR", 367),
@@ -1494,7 +1497,7 @@ pub(crate) static POR_UNICO: [(&str, u16); 1065] = [
     ("CompileTimeErrorCode.NO_GENERATIVE_CONSTRUCTORS_IN_SUPERCLASS", 391),
     ("CompileTimeErrorCode.NULLABLE_TYPE_IN_EXTENDS_CLAUSE", 392),
     ("CompileTimeErrorCode.NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE", 393),
-    ("CompileTimeErrorCode.NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE_3_13", 1055),
+    ("CompileTimeErrorCode.NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE_3_13", 1058),
     ("CompileTimeErrorCode.NULLABLE_TYPE_IN_ON_CLAUSE", 394),
     ("CompileTimeErrorCode.NULLABLE_TYPE_IN_WITH_CLAUSE", 395),
     ("CompileTimeErrorCode.OBJECT_CANNOT_EXTEND_ANOTHER_CLASS", 396),
@@ -1568,7 +1571,7 @@ pub(crate) static POR_UNICO: [(&str, u16); 1065] = [
     ("CompileTimeErrorCode.SUPER_FORMAL_PARAMETER_WITHOUT_ASSOCIATED_POSITIONAL", 461),
     ("CompileTimeErrorCode.SUPER_INITIALIZER_IN_OBJECT", 462),
     ("CompileTimeErrorCode.SUPER_INVOCATION_NOT_LAST", 463),
-    ("CompileTimeErrorCode.SUPER_INVOCATION_NOT_LAST_3_13", 1056),
+    ("CompileTimeErrorCode.SUPER_INVOCATION_NOT_LAST_3_13", 1059),
     ("CompileTimeErrorCode.SUPER_IN_ENUM_CONSTRUCTOR", 464),
     ("CompileTimeErrorCode.SUPER_IN_EXTENSION", 465),
     ("CompileTimeErrorCode.SUPER_IN_EXTENSION_TYPE", 466),
@@ -1638,11 +1641,11 @@ pub(crate) static POR_UNICO: [(&str, u16); 1065] = [
     ("CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_ANONYMOUS_FUNCTION", 530),
     ("CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_CONSTRUCTOR", 531),
     ("CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_DOT_SHORTHAND_CONSTRUCTOR", 1045),
-    ("CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_ELEMENT", 1061),
+    ("CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_ELEMENT", 1064),
     ("CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_ENUM", 532),
     ("CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_EXTENSION", 533),
     ("CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION", 534),
-    ("CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION_3_13", 1062),
+    ("CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION_3_13", 1065),
     ("CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_METHOD", 535),
     ("CompileTimeErrorCode.WRONG_TYPE_PARAMETER_VARIANCE_IN_SUPERINTERFACE", 536),
     ("CompileTimeErrorCode.WRONG_TYPE_PARAMETER_VARIANCE_POSITION", 537),
@@ -1736,6 +1739,7 @@ pub(crate) static POR_UNICO: [(&str, u16); 1065] = [
     ("ParserErrorCode.CONST_METHOD", 776),
     ("ParserErrorCode.CONST_PRIMARY_CONSTRUCTOR_WITH_BLOCK_BODY", 1034),
     ("ParserErrorCode.CONST_PRIMARY_CONSTRUCTOR_WITH_EXPRESSION_BODY", 1035),
+    ("ParserErrorCode.CONST_WITHOUT_PRIMARY_CONSTRUCTOR", 1049),
     ("ParserErrorCode.CONTINUE_OUTSIDE_OF_LOOP", 777),
     ("ParserErrorCode.CONTINUE_WITHOUT_LABEL_IN_CASE", 778),
     ("ParserErrorCode.COVARIANT_AND_STATIC", 779),
@@ -1788,6 +1792,7 @@ pub(crate) static POR_UNICO: [(&str, u16); 1065] = [
     ("ParserErrorCode.EXTENSION_DECLARES_ABSTRACT_MEMBER", 826),
     ("ParserErrorCode.EXTENSION_DECLARES_CONSTRUCTOR", 827),
     ("ParserErrorCode.EXTENSION_DECLARES_INSTANCE_FIELD", 828),
+    ("ParserErrorCode.EXTENSION_PRIMARY_CONSTRUCTOR", 1051),
     ("ParserErrorCode.EXTENSION_TYPE_EXTENDS", 829),
     ("ParserErrorCode.EXTENSION_TYPE_WITH", 830),
     ("ParserErrorCode.EXTERNAL_CLASS", 831),
@@ -1903,6 +1908,7 @@ pub(crate) static POR_UNICO: [(&str, u16); 1065] = [
     ("ParserErrorCode.MISSING_VARIABLE_IN_FOR_EACH", 939),
     ("ParserErrorCode.MIXED_PARAMETER_GROUPS", 940),
     ("ParserErrorCode.MIXIN_DECLARES_CONSTRUCTOR", 941),
+    ("ParserErrorCode.MIXIN_PRIMARY_CONSTRUCTOR", 1050),
     ("ParserErrorCode.MIXIN_WITH_CLAUSE", 942),
     ("ParserErrorCode.MODIFIER_OUT_OF_ORDER", 943),
     ("ParserErrorCode.MULTIPLE_CLAUSES", 944),
@@ -1943,7 +1949,7 @@ pub(crate) static POR_UNICO: [(&str, u16); 1065] = [
     ("ParserErrorCode.REDIRECTING_CONSTRUCTOR_WITH_BODY", 978),
     ("ParserErrorCode.REDIRECTION_IN_NON_FACTORY_CONSTRUCTOR", 979),
     ("ParserErrorCode.REPRESENTATION_FIELD_MODIFIER", 980),
-    ("ParserErrorCode.REPRESENTATION_FIELD_MODIFIER_3_13", 1052),
+    ("ParserErrorCode.REPRESENTATION_FIELD_MODIFIER_3_13", 1055),
     ("ParserErrorCode.REPRESENTATION_FIELD_TRAILING_COMMA", 981),
     ("ParserErrorCode.SEALED_ENUM", 982),
     ("ParserErrorCode.SEALED_MIXIN", 983),
@@ -2017,7 +2023,7 @@ pub(crate) static POR_UNICO: [(&str, u16); 1065] = [
     ("WarningCode.DEPRECATED_IMPLEMENTS_FUNCTION", 562),
     ("WarningCode.DEPRECATED_MIXIN_FUNCTION", 563),
     ("WarningCode.DEPRECATED_NEW_IN_COMMENT_REFERENCE", 564),
-    ("WarningCode.DEPRECATED_OPTIONAL", 1049),
+    ("WarningCode.DEPRECATED_OPTIONAL", 1052),
     ("WarningCode.DOC_DIRECTIVE_ARGUMENT_WRONG_FORMAT", 565),
     ("WarningCode.DOC_DIRECTIVE_HAS_EXTRA_ARGUMENTS", 566),
     ("WarningCode.DOC_DIRECTIVE_HAS_UNEXPECTED_NAMED_ARGUMENT", 567),
@@ -2137,9 +2143,9 @@ pub(crate) static POR_UNICO: [(&str, u16); 1065] = [
     ("WarningCode.UNUSED_CATCH_STACK", 681),
     ("WarningCode.UNUSED_ELEMENT", 682),
     ("WarningCode.UNUSED_ELEMENT_PARAMETER", 683),
-    ("WarningCode.UNUSED_ELEMENT_PARAMETER_3_13", 1051),
+    ("WarningCode.UNUSED_ELEMENT_PARAMETER_3_13", 1054),
     ("WarningCode.UNUSED_FIELD", 684),
-    ("WarningCode.UNUSED_FIELD_FROM_PRIMARY_CONSTRUCTOR", 1050),
+    ("WarningCode.UNUSED_FIELD_FROM_PRIMARY_CONSTRUCTOR", 1053),
     ("WarningCode.UNUSED_IMPORT", 685),
     ("WarningCode.UNUSED_LABEL", 686),
     ("WarningCode.UNUSED_LOCAL_VARIABLE", 687),
@@ -2152,26 +2158,26 @@ pub(crate) static POR_UNICO: [(&str, u16); 1065] = [
 
 /// Ordenada por `de`; ver `Codigo::variantes_3_13`.
 pub(crate) static VARIANTES_3_13: [Variante313; 20] = [
-    Variante313 { de: Codigo(4), para: Some(Codigo(1063)), args: &[0, 2, 3], exige: 4 },
-    Variante313 { de: Codigo(10), para: Some(Codigo(1054)), args: &[], exige: 0 },
+    Variante313 { de: Codigo(4), para: Some(Codigo(1066)), args: &[0, 2, 3], exige: 4 },
+    Variante313 { de: Codigo(10), para: Some(Codigo(1057)), args: &[], exige: 0 },
     Variante313 { de: Codigo(79), para: Some(Codigo(79)), args: &[1], exige: 2 },
-    Variante313 { de: Codigo(121), para: Some(Codigo(1064)), args: &[], exige: 0 },
-    Variante313 { de: Codigo(140), para: Some(Codigo(1053)), args: &[], exige: 0 },
+    Variante313 { de: Codigo(121), para: Some(Codigo(1067)), args: &[], exige: 0 },
+    Variante313 { de: Codigo(140), para: Some(Codigo(1056)), args: &[], exige: 0 },
     Variante313 { de: Codigo(187), para: None, args: &[], exige: 0 },
     Variante313 { de: Codigo(315), para: Some(Codigo(1042)), args: &[0], exige: 1 },
-    Variante313 { de: Codigo(363), para: Some(Codigo(1058)), args: &[0], exige: 4 },
-    Variante313 { de: Codigo(363), para: Some(Codigo(1057)), args: &[0, 1, 2], exige: 3 },
-    Variante313 { de: Codigo(364), para: Some(Codigo(1060)), args: &[0], exige: 4 },
-    Variante313 { de: Codigo(364), para: Some(Codigo(1059)), args: &[0, 1, 2], exige: 3 },
-    Variante313 { de: Codigo(393), para: Some(Codigo(1055)), args: &[], exige: 0 },
+    Variante313 { de: Codigo(363), para: Some(Codigo(1061)), args: &[0], exige: 4 },
+    Variante313 { de: Codigo(363), para: Some(Codigo(1060)), args: &[0, 1, 2], exige: 3 },
+    Variante313 { de: Codigo(364), para: Some(Codigo(1063)), args: &[0], exige: 4 },
+    Variante313 { de: Codigo(364), para: Some(Codigo(1062)), args: &[0, 1, 2], exige: 3 },
+    Variante313 { de: Codigo(393), para: Some(Codigo(1058)), args: &[], exige: 0 },
     Variante313 { de: Codigo(424), para: Some(Codigo(424)), args: &[0, 2], exige: 3 },
-    Variante313 { de: Codigo(463), para: Some(Codigo(1056)), args: &[], exige: 0 },
-    Variante313 { de: Codigo(530), para: Some(Codigo(1062)), args: &[2, 0, 1], exige: 3 },
-    Variante313 { de: Codigo(535), para: Some(Codigo(1061)), args: &[3, 4, 1, 2], exige: 5 },
-    Variante313 { de: Codigo(535), para: Some(Codigo(1062)), args: &[0, 1, 2], exige: 3 },
-    Variante313 { de: Codigo(683), para: Some(Codigo(1051)), args: &[0], exige: 1 },
+    Variante313 { de: Codigo(463), para: Some(Codigo(1059)), args: &[], exige: 0 },
+    Variante313 { de: Codigo(530), para: Some(Codigo(1065)), args: &[2, 0, 1], exige: 3 },
+    Variante313 { de: Codigo(535), para: Some(Codigo(1064)), args: &[3, 4, 1, 2], exige: 5 },
+    Variante313 { de: Codigo(535), para: Some(Codigo(1065)), args: &[0, 1, 2], exige: 3 },
+    Variante313 { de: Codigo(683), para: Some(Codigo(1054)), args: &[0], exige: 1 },
     Variante313 { de: Codigo(822), para: Some(Codigo(822)), args: &[0, 2], exige: 3 },
-    Variante313 { de: Codigo(980), para: Some(Codigo(1052)), args: &[0], exige: 1 },
+    Variante313 { de: Codigo(980), para: Some(Codigo(1055)), args: &[0], exige: 1 },
 ];
 
 pub mod modulos {
@@ -2733,18 +2739,18 @@ pub mod modulos {
         pub const FIELD_INITIALIZED_IN_DECLARATION_AND_PARAMETER_OF_PRIMARY_CONSTRUCTOR: Codigo = Codigo(1043);
         pub const FIELD_INITIALIZED_IN_DECLARATION_AND_INITIALIZER_OF_PRIMARY_CONSTRUCTOR: Codigo = Codigo(1044);
         pub const WRONG_NUMBER_OF_TYPE_ARGUMENTS_DOT_SHORTHAND_CONSTRUCTOR: Codigo = Codigo(1045);
-        pub const ENUM_WITHOUT_CONSTANTS_3_13: Codigo = Codigo(1053);
-        pub const ASSIGNMENT_TO_CONST_3_13: Codigo = Codigo(1054);
-        pub const NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE_3_13: Codigo = Codigo(1055);
-        pub const SUPER_INVOCATION_NOT_LAST_3_13: Codigo = Codigo(1056);
-        pub const NON_EXHAUSTIVE_SWITCH_EXPRESSION_3_13: Codigo = Codigo(1057);
-        pub const NON_EXHAUSTIVE_SWITCH_EXPRESSION_PRIVATE: Codigo = Codigo(1058);
-        pub const NON_EXHAUSTIVE_SWITCH_STATEMENT_3_13: Codigo = Codigo(1059);
-        pub const NON_EXHAUSTIVE_SWITCH_STATEMENT_PRIVATE: Codigo = Codigo(1060);
-        pub const WRONG_NUMBER_OF_TYPE_ARGUMENTS_ELEMENT: Codigo = Codigo(1061);
-        pub const WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION_3_13: Codigo = Codigo(1062);
-        pub const AMBIGUOUS_EXTENSION_MEMBER_ACCESS_TWO: Codigo = Codigo(1063);
-        pub const DEFERRED_IMPORT_OF_EXTENSION_3_13: Codigo = Codigo(1064);
+        pub const ENUM_WITHOUT_CONSTANTS_3_13: Codigo = Codigo(1056);
+        pub const ASSIGNMENT_TO_CONST_3_13: Codigo = Codigo(1057);
+        pub const NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE_3_13: Codigo = Codigo(1058);
+        pub const SUPER_INVOCATION_NOT_LAST_3_13: Codigo = Codigo(1059);
+        pub const NON_EXHAUSTIVE_SWITCH_EXPRESSION_3_13: Codigo = Codigo(1060);
+        pub const NON_EXHAUSTIVE_SWITCH_EXPRESSION_PRIVATE: Codigo = Codigo(1061);
+        pub const NON_EXHAUSTIVE_SWITCH_STATEMENT_3_13: Codigo = Codigo(1062);
+        pub const NON_EXHAUSTIVE_SWITCH_STATEMENT_PRIVATE: Codigo = Codigo(1063);
+        pub const WRONG_NUMBER_OF_TYPE_ARGUMENTS_ELEMENT: Codigo = Codigo(1064);
+        pub const WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION_3_13: Codigo = Codigo(1065);
+        pub const AMBIGUOUS_EXTENSION_MEMBER_ACCESS_TWO: Codigo = Codigo(1066);
+        pub const DEFERRED_IMPORT_OF_EXTENSION_3_13: Codigo = Codigo(1067);
     }
     /// `StaticWarningCode`.
     pub mod static_warning {
@@ -2904,9 +2910,9 @@ pub mod modulos {
         pub const UNUSED_SHOWN_NAME: Codigo = Codigo(690);
         pub const URI_DOES_NOT_EXIST_IN_DOC_IMPORT: Codigo = Codigo(691);
         pub const INVALID_USE_OF_DO_NOT_SUBMIT_MEMBER: Codigo = Codigo(692);
-        pub const DEPRECATED_OPTIONAL: Codigo = Codigo(1049);
-        pub const UNUSED_FIELD_FROM_PRIMARY_CONSTRUCTOR: Codigo = Codigo(1050);
-        pub const UNUSED_ELEMENT_PARAMETER_3_13: Codigo = Codigo(1051);
+        pub const DEPRECATED_OPTIONAL: Codigo = Codigo(1052);
+        pub const UNUSED_FIELD_FROM_PRIMARY_CONSTRUCTOR: Codigo = Codigo(1053);
+        pub const UNUSED_ELEMENT_PARAMETER_3_13: Codigo = Codigo(1054);
     }
     /// `HintCode`.
     pub mod hint {
@@ -3246,7 +3252,10 @@ pub mod modulos {
         pub const INITIALIZING_DECLARING_PARAMETER: Codigo = Codigo(1046);
         pub const SUPER_INITIALIZING_DECLARING_PARAMETER: Codigo = Codigo(1047);
         pub const FACTORY_CONSTRUCTOR_NEW_NAME: Codigo = Codigo(1048);
-        pub const REPRESENTATION_FIELD_MODIFIER_3_13: Codigo = Codigo(1052);
+        pub const CONST_WITHOUT_PRIMARY_CONSTRUCTOR: Codigo = Codigo(1049);
+        pub const MIXIN_PRIMARY_CONSTRUCTOR: Codigo = Codigo(1050);
+        pub const EXTENSION_PRIMARY_CONSTRUCTOR: Codigo = Codigo(1051);
+        pub const REPRESENTATION_FIELD_MODIFIER_3_13: Codigo = Codigo(1055);
     }
     /// `ScannerErrorCode`.
     pub mod scanner {

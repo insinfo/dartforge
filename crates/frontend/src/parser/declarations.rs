@@ -1084,7 +1084,14 @@ impl<'s, 'i> Parser<'s, 'i> {
         let const_primario = self.at_kw(Keyword::Const).then(|| self.advance().span);
         let (name_text, name) = self.nome_de_declaracao()?;
         let type_params = self.parse_type_parameters_opt_variancia()?;
-        if const_primario.is_none() && self.eat_op(Op::Assign) {
+        if self.at_op(Op::Assign) {
+            // `class const C = S with M;`: o `const` é
+            // `CONST_WITHOUT_PRIMARY_CONSTRUCTOR`, com ou sem o recurso
+            // (`parseClassOrNamedMixinApplication`, `parser_impl.dart:2983-2986`).
+            if let Some(c) = const_primario {
+                self.erro_em(codigos::parser::CONST_WITHOUT_PRIMARY_CONSTRUCTOR, c, &[]);
+            }
+            self.advance();
             let extends = Some(self.parse_type()?);
             self.expect_kw(Keyword::With)?;
             let with = self.parse_type_list()?;
@@ -1152,8 +1159,16 @@ impl<'s, 'i> Parser<'s, 'i> {
     ) -> PResult<Option<CabecalhoPrimario>> {
         if !self.at_op(Op::LParen) && !(self.at_op(Op::Dot) && self.kind_at(1) != Kind::Op(Op::Dot))
         {
+            // `parsePrimaryConstructorOpt` sem cabeçalho (3.13.4,
+            // `parser_impl.dart:3829-3862`): o `const` é
+            // `CONST_WITHOUT_PRIMARY_CONSTRUCTOR` com o recurso ligado e
+            // `UNEXPECTED_TOKEN` sem ele, e a declaração segue.
             if let Some(c) = const_ {
-                return Err(self.erro_em(codigos::parser::EXTRANEOUS_MODIFIER, c, &["const"]));
+                if self.features.tem(Feature::PrimaryConstructors) {
+                    self.erro_em(codigos::parser::CONST_WITHOUT_PRIMARY_CONSTRUCTOR, c, &[]);
+                } else {
+                    self.erro_em(codigos::parser::UNEXPECTED_TOKEN, c, &["const"]);
+                }
             }
             return Ok(None);
         }
@@ -2746,7 +2761,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         let kind = if parte {
             // `this : inits? corpo` / `this;`: parte de corpo do construtor
             // primário.
-            self.parse_parte_primaria()?
+            self.parse_parte_primaria(&mods)?
         } else if self.at_kw(Keyword::New)
             && (self.at_op_at(1, Op::LParen) || self.at_identifier_at(1))
         {
@@ -3083,9 +3098,19 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
     }
 
-    fn parse_parte_primaria(&mut self) -> PResult<MemberKind> {
+    fn parse_parte_primaria(&mut self, mods: &Modifiers) -> PResult<MemberKind> {
         let t = self.advance();
         self.exigir_no_ast(Feature::PrimaryConstructors, t.span);
+        // Os modificadores antes do `this` são `EXTRANEOUS_MODIFIER`, nesta
+        // ordem (`parseClassOrMixinOrExtensionOrEnumMemberImpl` do 3.13.4,
+        // `parser_impl.dart:5514-5556`): `var`/`final`/`const`, `external`,
+        // `static`, `covariant`, `late`.
+        let f = mods.fichas;
+        for p in [f.var_final_ou_const(), f.external, f.static_, f.covariant, f.late].into_iter().flatten() {
+            let tok = self.tokens[p];
+            let texto = self.text_of(p).to_string();
+            self.erro_em(codigos::parser::EXTRANEOUS_MODIFIER, tok.span, &[&texto]);
+        }
         let mut initializers = Vec::new();
         if self.eat_op(Op::Colon) {
             loop {
