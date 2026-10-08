@@ -231,8 +231,17 @@ fn verificar_elementos(
                 }
                 let tipos = &inf.body_types.units[cx.unit.0 as usize];
                 let (Some(tk), Some(tv)) = (tipos.get_type(*key), tipos.get_type(*value)) else { continue };
-                // Chave ou valor `void`: `use_of_void_result`, e para.
-                if matches!(inf.table.get(tk), Type::Void) || matches!(inf.table.get(tv), Type::Void) {
+                // `_verifyMapLiteralEntry` (3.13.4 `literal_element_verifier.dart:144-172`):
+                // a chave (depois o valor) `void` para a entrada quando tem
+                // o `?` ou quando o tipo dela no mapa não é `void` (o
+                // `use_of_void_result` sai na inferência); com `<K, void>`,
+                // o valor `void` segue para a conferência da chave.
+                let void = |t: TypeId| matches!(inf.table.get(t), Type::Void);
+                let (chave_void, valor_void) = (void(tk), void(tv));
+                if chave_void && (*null_aware_key || !void(args[0])) {
+                    continue;
+                }
+                if valor_void && (*null_aware_value || !void(args[1])) {
                     continue;
                 }
                 let tk = if *null_aware_key { inf.nao_nulo(tk) } else { tk };

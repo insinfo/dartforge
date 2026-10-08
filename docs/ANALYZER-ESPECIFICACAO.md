@@ -409,6 +409,10 @@ anulável (`_resolveEqual`, 3.6.2 `binary_expression_resolver.dart:117-124`): `s
 - **No DartForge:** só o verificador de constantes (`crates/types/src/constantes/verificador.rs:1055`). **Todas as 14 FN** são literais não const (ou const com o ramo `if` não avaliado). **Mudança:** em `colecoes.rs`, depois de inferir o literal, percorrer os elementos com a regra do `LiteralElementVerifier` (usar o tipo final do literal); evitar duplicata com o relato de constante (mesmo código, mesmo nó: emitir uma vez).
 
 ##### `map_key_type_not_assignable` (perda 12: FN 12)
+- **Corrigido em 2026-10-08** (os quatro `UseOfVoidResult__mapLiteralEntry_*`, julgados pelo 3.13.4): o
+  `_verifyMapLiteralEntry` (3.13.4 `literal_element_verifier.dart:144-172`) só para a entrada na chave (ou no valor)
+  `void` quando ela tem o `?` ou quando o tipo correspondente do mapa não é `void`; com `<int, void>` e valor `void`, a
+  chave ainda é conferida (`types::inferencia::colecoes`). Antes, qualquer `void` na entrada a pulava inteira.
 - **Emissão:** `LiteralElementVerifier._verifyMapLiteralEntry` (`literal_element_verifier.dart:121-155`) e `_verifySpreadForMap` (:266-325), via `ErrorVerifier._checkForMapTypeNotAssignable`; const: `constant_verifier.dart:1286-1292`.
 - **Condição exata:** void primeiro (chave e valor); chave com `?` (null-aware) é promovida a não nula; `!isAssignableTo(K, mapKeyType)`. Spread de mapa: `Map<K, V>` de `x`.
 - **Posição:** a chave (ou a expressão do spread).
