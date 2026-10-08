@@ -960,6 +960,12 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
                 // substituição é a identidade).
                 if let Some(this) = cx.tipo_this {
                     if let Busca::Achado(m) = inf.buscar_membro(cx.lib, this, n.sym, false) {
+                        // Achado só o setter aqui, a leitura é `this.nome`: o
+                        // elemento lido é o getter da interface (herdado), não
+                        // o setter (os backends invocam o `Resolved` do nó).
+                        if so_setter {
+                            resolver(inf, cx, e, m.resolved.clone());
+                        }
                         return leitura_de_campo(inf, cx, e, Base::This, m.tipo);
                     }
                 }
