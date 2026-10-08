@@ -550,6 +550,9 @@ Base comum: a resolução de membro passa por `TypePropertyResolver.resolve` (`a
   **Mudança:** emitir com código; `{1}` instância = tipo formatado; estático = nome da classe; `call` em função; `UNDEFINED_ENUM_CONSTANT` para enum.
 
 ##### `use_of_void_result` (perda 44: FN 18, FP 4, pos 22)
+- **Sobreposição de extensão (2026-10-08):** `E(f()).g` com `f()` `void` relata no argumento inteiro (`atNode(receiverExpression)`,
+  `extension_member_resolver.dart:227-232`; não no nome do método de `f()`), e o acesso `.g` não relata de novo:
+  o membro vem da extensão (`chamadas.rs`, `expr.rs` na leitura de propriedade).
 - **Emissão:** `checkForUseOfVoidResult` (`analyzer/lib/src/generated/error_detection_helpers.dart:235-253`), chamado de muitos lugares (argumentos, atribuições, condições `bool_expression_verifier.dart:95-106`, `await`/`throw`/`!`/spread/for-in, elementos de coleção, `yield_statement_resolver.dart:45-62`, `record_literal_resolver.dart:150-156`); receptores: `method_invocation_resolver.dart:319` (no **receptor**), `property_element_resolver.dart:87` (índice: no **alvo**? não — `atNode(node.target)`? ver abaixo) e :448-453 (no nome da propriedade), `function_expression_invocation_resolver.dart:115-135`, `assignment_expression_resolver.dart:161-222`, `extension_member_resolver.dart:227-231`.
 - **Condição exata:** o tipo estático é **identicamente** `void` (não `FutureOr<void>`); `checkForUseOfVoidResult(e)`: `MethodInvocation` → relata no `methodName`; senão no nó inteiro.
 - **Posição:** método → nome do método; `FunctionExpressionInvocation` (variável/getter de tipo função que retorna void) → **a invocação inteira**; acesso `x.foo` com `x` void → o nome `foo`; índice `x[0]` com `x` void (depois de `resolveToBound`) → do `[` ao `]` (`property_element_resolver.dart:80-88` via `_reportUnresolvedIndex`); `x!` → o nó `x!`; record `(one: x,)` → o campo nomeado inteiro `one: x`; `x.foo = null` → `foo`.
@@ -3959,6 +3962,9 @@ exigido `(Object?, …)`, só sem campo nomeado repetido): `x case <int, String>
 - **No DartForge:** não implementado; `padroes::atribuicao_de_padrao` (conjunto de `LocalId` já atribuídos).
 
 ##### `duplicate_variable_pattern` (perda 3: FN 3)
+- **Sem `duplicate_definition` junto (2026-10-08):** a segunda ocorrência no mesmo padrão não vira elemento
+  (`VariableBinder`), então o `DuplicateDefinitionVerifier` do bloco só vê a primeira: `var [a, a] = …` tem só
+  este código. `analise::duplicatas` passa ao escopo só a primeira de cada nome do padrão.
 
 - **Emissão:** `_VariableBinderErrors.duplicateVariablePattern` (`resolution_visitor.dart:1974-1989`) →
   `DiagnosticFactory.duplicateDefinitionForNodes`.
@@ -7785,6 +7791,9 @@ limite fica como escrito (`'T'`), e o `A<U>` não é cadeia de nomes.
   pelo argumento correspondente e recursivo.
 
 ##### `type_parameter_referenced_by_static` (perda 10: FN 10)
+- **Argumento de tipo da constante de enum (2026-10-08):** no 3.6.2 `enum E<T> { v<T>() }` não relata nada: o `T`
+  resolve no escopo do enum. O `resolve.rs` (o tipo da constante) resolve os argumentos escritos com o escopo de
+  parâmetros de tipo do enum (antes, escopo vazio e `undefined_class`).
 - **Emissão:** `ErrorVerifier._checkForTypeParameterReferencedByStatic` (`error_verifier.dart:5419-5435`),
   de `visitNamedType` (`:1270`, tipos escritos) e `visitSimpleIdentifier` (`:1421`, identificador `T`
   numa expressão).
@@ -21097,6 +21106,10 @@ Só existe no 3.13 (o 3.6.2 não tem construtor primário); oráculo 3.13 (bibli
   mesmo com `int x = _;` e `assert(_ > 0)` na classe, o que só acontece se o `_isReadMember` do campo é falso
   (sem getter, `field.getter == null`, `:1205-1209`); um `_` não resolvido não o marca como lido.
 ##### `unused_field` (perda 27: FN 27, FP 0, msg 0, pos 0)
+- **`.v` lê a constante de enum (2026-10-08):** a constante não tem getter no modelo (fica em `enum_constants`, não
+  em `static_members`); o `.v` (`visitDotShorthandPropertyAccess`, mesmo com o recurso desligado: o parser monta o
+  nó e relata `experiment_not_enabled`) marca o getter dela como lido, como `_E.v`
+  (`UnusedElement__dotShorthand_private_enum`).
 
 **Feito em 2026-10-07:** o campo estático de extensão lido pelo nome (`_baz` dentro da extensão, `_A.f1`
 fora) é a leitura do getter sintético do campo (`_useIdentifierElement`); no modelo ele resolve para a

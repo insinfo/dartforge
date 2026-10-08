@@ -2409,7 +2409,9 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
     }
     let base = if null_aware { None } else { base_de_propriedade(inf, cx, target) };
     // `void`: o valor não pode ser usado (analyzer: `use_of_void_result`, no nome).
-    if matches!(inf.table.get(recv), Type::Void) {
+    // O alvo `E(x)` não: o membro vem da extensão, e o `void` do argumento
+    // já saiu no argumento (`extension_member_resolver.dart:227-232`).
+    if !cx.sobreposicoes.contains_key(&target) && matches!(inf.table.get(recv), Type::Void) {
         // Em `x..p`, o relato é no alvo da cascata (feito lá).
         if !matches!(a.expr(target).kind, ExprKind::CascadeTarget) {
             inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, name.span, &[]);

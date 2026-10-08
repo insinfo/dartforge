@@ -1039,7 +1039,10 @@ impl<'a> OutlineResolver<'a> {
                         let args: Vec<TypeId> = if n == 0 {
                             Vec::new()
                         } else if escritos.len() == n {
-                            escritos.iter().map(|&t| self.resolve_annotation(unit, t, var.library, &HashMap::new())).collect()
+                            // No escopo do enum: `enum E<T> { v<T>() }` vê o
+                            // `T` (o 3.6.2 não relata nada).
+                            let escopo = self.get_enclosing_type_param_scope(var.class, var.extension);
+                            escritos.iter().map(|&t| self.resolve_annotation(unit, t, var.library, &escopo)).collect()
                         } else {
                             let formals = self.class_type_params[cls.0 as usize].clone();
                             self.instanciar_para_limites(&formals)

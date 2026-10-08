@@ -580,6 +580,13 @@ pub fn elementos_nao_usados(
                             usar(&mut usados, el, ex.span);
                             usados.membros.insert(el);
                             membro_lido(&mut usados, el);
+                        } else if let Some(&v) = program.class(*d).enum_constants.iter().find(|&&v| program.variable(v).name == name.sym) {
+                            // A constante de enum (`.v`) não tem getter no
+                            // modelo: lida como a de `_E.v`.
+                            let el = El::Getter(v);
+                            usar(&mut usados, el, ex.span);
+                            usados.membros.insert(el);
+                            membro_lido(&mut usados, el);
                         }
                     }
                     continue;

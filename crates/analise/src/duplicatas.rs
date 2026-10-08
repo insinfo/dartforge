@@ -452,6 +452,18 @@ fn comandos(rel: &mut Relato<'_>, ast: &Ast, lista: &[ast::StmtId], curinga: boo
             StmtKind::PatternVariables { pattern, .. } => {
                 let mut nomes = Vec::new();
                 variaveis_do_padrao(ast, *pattern, &mut nomes);
+                // A repetição dentro do padrão é `DUPLICATE_VARIABLE_PATTERN`
+                // (`VariableBinder`, `c2_sintaticos`), e a segunda ocorrência
+                // não vira elemento: só a primeira de cada nome entra no
+                // escopo do bloco.
+                let mut vistos = Vec::new();
+                nomes.retain(|n| {
+                    if vistos.contains(&n.sym) {
+                        return false;
+                    }
+                    vistos.push(n.sym);
+                    true
+                });
                 for n in nomes {
                     let nome = rel.nome(n);
                     if !e_curinga(curinga, &nome) {

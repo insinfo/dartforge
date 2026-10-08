@@ -1301,7 +1301,13 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
         // argumentos explícitos (a inferência falha tem outro relato).
         if dados.type_params.is_empty() || explicitos_ok {
             let arg = args.args[0].value;
-            if !expr::uso_de_void(inf, cx, arg, t) {
+            // `receiverType is VoidType`: no argumento inteiro (`atNode`, não
+            // o nome do método de `f()`).
+            let vazio = matches!(inf.table.get(t), Type::Void);
+            if vazio {
+                let sp = inf.span_expr(cx.unit, arg);
+                inf.aviso_com_codigo(dartforge_diagnostics::codigos::compile_time_error::USE_OF_VOID_RESULT, sp, &[]);
+            } else {
                 let mapa = inf.mapa(&dados.type_params, &ext_args);
                 let on = inf.subst(dados.on, &mapa);
                 // Override alvo de `?.`/`?[`/`?..` (`isNullAware`): o tipo do
