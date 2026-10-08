@@ -6431,6 +6431,12 @@ ou `undefined_class 'augment'`) e o resto é **outra declaração homônima** (`
 - **No DartForge:** o código **não existe** na tabela `diagnostics` (precisa ser acrescentado). O rascunho tem a
   regra certa (`e_primario` + cada `Initializer::Redirect`, `span.start..+4`) — a parte `this` é fundida no k2
   pelo parser, então os inicializadores estão no primário.
+- **Exclusão (2026-10-08, fonte 3.13.4):** o corpo do construtor primário passa pelo
+  `_checkForConflictingPrimaryConstructorInitializers` (`error_verifier.dart:3984-3999`), que relata este código em cada
+  `this(...)` e **retorna**: nada de `redirect_generative_to_missing_constructor`,
+  `redirect_generative_to_non_generative_constructor` nem `redirect_to_non_const_constructor` (esses vêm do
+  `_checkForConflictingInitializerErrorCodes`, só do `ConstructorDeclaration`). O
+  `funcoes::inicializador_redirecionador` sai cedo no construtor primário.
 
 ##### `default_value_in_redirecting_factory_constructor` (perda 16: FN 16)
 - **Emissão:** `_checkForRedirectingConstructorErrorCodes` (EV:5094-5110), chamado por `visitConstructorDeclaration`

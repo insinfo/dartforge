@@ -1069,9 +1069,17 @@ fn inicializador_super(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, classe: Optio
 /// própria classe) e `redirect_generative_to_non_generative_constructor`
 /// com uma factory; e `redirect_to_non_const_constructor` no nome (ou no
 /// `this`) quando o atual é `const` e o alvo não.
+///
+/// No corpo do construtor primário, o 3.13.4 só relata
+/// `PRIMARY_CONSTRUCTOR_CANNOT_REDIRECT` (o parser) e sai
+/// (`_checkForConflictingPrimaryConstructorInitializers`,
+/// `error_verifier.dart:3984-3999`): nenhum destes.
 fn inicializador_redirecionador(inf: &mut BodyInferrer<'_>, classe: Option<ClassId>, span: dartforge_diagnostics::Span, constructor: Option<ast::Name>, atual: FunctionElementId) {
     use dartforge_diagnostics::codigos::compile_time_error as ce;
     let Some(c) = classe else { return };
+    if e_construtor_primario(inf.program, atual) {
+        return;
+    }
     let chave = match constructor.map(|n| n.sym) {
         Some(x) if Some(x) == inf.sym.new_ => inf.sym.vazio,
         Some(x) => Some(x),
