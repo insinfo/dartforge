@@ -1221,6 +1221,14 @@ capturadas no `switch` inteiro (um `continue L` chega de qualquer caso): `x = 0`
 despromove `x` já na entrada do corpo (`x.isEven` é `UNDEFINED_GETTER` em `Object`). No DartForge, o laço
 de grupos do `switch` em `instrucoes.rs`.
 
+### 7.10c Leitura que acha só o setter no contêiner
+
+`LexicalLookup.resolveGetter`: o escopo do contêiner guarda getter e setter pelo nome base, e a leitura que só
+acha o setter **de instância** ali é `this.nome`: o elemento lido é o getter da interface (o herdado). O nó tem
+de ficar resolvido para esse getter, não para o setter: os backends invocam o `Resolved` do nó, e o setter no
+lugar do getter quebrou o executor nativo de builders (json_serializable e freezed com `TypeError`, 1943e791).
+No DartForge, `expr::identificador`, braço `MembroLexico`.
+
 ### 7.11 Closures e captura (R-FLU-07)
 
 Pré-passe (`sdk:pkg/_fe_analyzer_shared/lib/src/type_inference/
