@@ -765,7 +765,8 @@ impl Motor {
         }
         // Constantes (`ConstantVerifier`), relatadas só nas do lote.
         if let Some(corpos) = &corpos {
-            atribuidos.extend(com_fase(fase::CONSTANT_VERIFIER, dartforge_types::constantes::verificar(
+            // A exaustividade em que o 3.6.2 lança tira a biblioteca inteira.
+            let (relatos, quebras) = dartforge_types::constantes::verificar_com_quebras(
                 &program,
                 &interner,
                 &mut table,
@@ -774,7 +775,9 @@ impl Motor {
                 corpos,
                 &inferidas,
                 &libs_proprias,
-            )));
+            );
+            atribuidos.extend(com_fase(fase::CONSTANT_VERIFIER, relatos));
+            quebradas.extend(quebras);
             // `BestPracticesVerifier`: `non_const_call_to_literal_constructor`,
             // com o `canBeConst` pela verificação de constantes.
             atribuidos.extend(com_fase(fase::BEST_PRACTICES, dartforge_types::fase_literal::construtores_literais(

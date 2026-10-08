@@ -1854,6 +1854,7 @@ fn funcao_literal(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, fid: ast::Function
     let mut tps: Vec<TypeParamId> = Vec::new();
     for tp in af.type_params.iter() {
         let p = inf.table.alloc_type_param(tp.name.sym, crate::table::TypeParamOwner::GenericFunctionType, inf.core.object_nullable, crate::table::Variance::Unspecified);
+        inf.table.sem_tipo_padrao.insert(p);
         cx.declarar_tipo_param(tp.name.sym, p);
         tps.push(p);
     }

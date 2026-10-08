@@ -576,6 +576,7 @@ impl<'a> BodyInferrer<'a> {
                         self.core.object_nullable,
                         Variance::Unspecified,
                     );
+                    self.table.sem_tipo_padrao.insert(pid);
                     local.insert(tp.name.sym, pid);
                     tps.push(pid);
                 }
@@ -713,6 +714,7 @@ impl<'a> BodyInferrer<'a> {
                     self.core.object_nullable,
                     Variance::Unspecified,
                 );
+                self.table.sem_tipo_padrao.insert(pid);
                 local.insert(tp.name.sym, pid);
                 tps.push(pid);
             }

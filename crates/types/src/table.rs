@@ -148,6 +148,11 @@ pub struct TypeTable {
     /// originais e os limites substituídos: a mesma substituição dá os
     /// mesmos formais.
     pub(crate) formais_frescos: HashMap<(Box<[TypeParamId]>, Box<[TypeId]>), Box<[TypeParamId]>>,
+    /// Os parâmetros de tipo sem `defaultType` no analyzer: os de função
+    /// literal e de tipo de função escrito no corpo (o `DefaultTypesBuilder`
+    /// só roda nas declarações). O `TypeParameterReplacer` da exaustividade
+    /// do 3.6.2 lança num deles (`exhaustiveness.dart:771`).
+    pub sem_tipo_padrao: std::collections::HashSet<TypeParamId>,
 }
 
 /// A decoração de exibição de um tipo (ver [`TypeTable`]).
@@ -183,6 +188,7 @@ impl TypeTable {
             preservar_exibicao: false,
             param_desconhecido: None,
             formais_frescos: HashMap::new(),
+            sem_tipo_padrao: std::collections::HashSet::new(),
         }
     }
 

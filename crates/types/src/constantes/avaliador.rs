@@ -110,6 +110,9 @@ pub struct Motor<'a> {
     args_de_criacao: HashSet<(UnitId, ExprId)>,
     /// Erros relatados pelo próprio visitante (`_valueOf`) quando `relatar`.
     pub relatos: Vec<Invalida>,
+    /// O analyzer 3.6.2 lançaria aqui (a exaustividade, ver
+    /// [`crate::table::TypeTable::sem_tipo_padrao`]).
+    pub quebra_do_analyzer: bool,
     /// Quando `Some`, o verificador guarda aqui, por (unidade, offset do
     /// `switch`), as testemunhas com partes de cada `non_exhaustive_switch_*`
     /// (o `diagnostic.data` do analyzer, usado pelo `AddMissingSwitchCases`).
@@ -162,6 +165,7 @@ impl<'a> Motor<'a> {
             grafo: super::ciclos::Estado::default(),
             args_de_criacao: HashSet::new(),
             relatos: Vec::new(),
+            quebra_do_analyzer: false,
             testemunhas: None,
             parametros,
             profundidade: 0,

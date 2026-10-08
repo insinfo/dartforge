@@ -478,6 +478,10 @@ impl<'m, 'a> Exaustividade<'m, 'a> {
                 if variancia == -1 {
                     self.m.core.never
                 } else {
+                    // `element.defaultType!` nulo: o 3.6.2 lança.
+                    if self.m.table.sem_tipo_padrao.contains(&param) {
+                        self.m.quebra_do_analyzer = true;
+                    }
                     let d = self.padrao_do_parametro(param);
                     self.substituir_parametros(d, variancia, prof + 1)
                 }
@@ -780,7 +784,9 @@ impl<'m, 'a> Exaustividade<'m, 'a> {
     /// `EnumStaticType._createEnumElements` (`fe76:types/enum.dart`).
     fn elementos_de_enum(&mut self, s: St, ty: TypeId, c: ClassId) -> Vec<St> {
         let constantes = self.m.program.class(c).enum_constants.clone();
-        let sobre = self.sobreaproximar(ty);
+        // `overapproximate(_type)` por elemento (`enum.dart:118-124`): nenhum
+        // sem elementos.
+        let sobre = if constantes.is_empty() { ty } else { self.sobreaproximar(ty) };
         let mut v = Vec::new();
         for var in constantes {
             let el = self.elemento_de_enum(c, var);
@@ -839,12 +845,24 @@ impl<'m, 'a> Exaustividade<'m, 'a> {
                 diretas.push(id);
             }
         }
-        let sobre = self.sobreaproximar(ty);
+        // `overapproximate(_type)` só para a subclasse não genérica
+        // (`sealed.dart:76-96`).
+        let mut sobre: Option<TypeId> = None;
         let mut v = Vec::new();
         for sub in diretas {
             let Some(st) = self.subclasse_como_instancia(sub, ty) else { continue };
-            if self.args_de(st).is_empty() && !self.sub_dart(st, sobre) {
-                continue;
+            if self.args_de(st).is_empty() {
+                let sobre = match sobre {
+                    Some(x) => x,
+                    None => {
+                        let x = self.sobreaproximar(ty);
+                        sobre = Some(x);
+                        x
+                    }
+                };
+                if !self.sub_dart(st, sobre) {
+                    continue;
+                }
             }
             let e = self.tipo_estatico(st);
             v.push(self.embrulhado(e, s));

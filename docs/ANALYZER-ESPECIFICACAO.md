@@ -21237,6 +21237,17 @@ Nome próprio só no 3.13; no 3.6.2 é `WarningCode.UNUSED_ELEMENT_PARAMETER` co
 - **No DartForge:** `expr.rs::propriedade` (leitura com prefixo) relatava `UNDEFINED_IDENTIFIER`; mudança (feita): `load_library` e `avisar_nome_prefixado_indefinido` (`UNDEFINED_PREFIXED_NAME` com `shouldIgnoreUndefined`). Escrita (`escrita_propriedade` com prefixo) hoje não relata nada — falta, com cuidado com a variável final (setter ausente).
 
 ##### `non_type_as_type_argument` (perda 6: FN 5, FP 1)
+- **Quebra do 3.6.2 no `issue54388` (2026-10-08):** o oráculo é vazio porque o analyzer 3.6.2 lança na
+  exaustividade: o `switch (option)` com `option: Option<B>` (`B` da função literal `<B>(option) => …`) e a
+  subclasse selada não genérica `None` chamam `overapproximate(Option<B>)` (`sealed.dart:76-96`), e o
+  `TypeParameterReplacer.visitTypeParameterType` faz `element.defaultType!` (`exhaustiveness.dart:771`), nulo
+  para parâmetro de função literal ou de tipo de função escrito no corpo (o `DefaultTypesBuilder` só roda nas
+  declarações). O `LibraryAnalyzer` da biblioteca falha e nenhum arquivo dela tem diagnóstico (rodado: `Null check
+  operator used on a null value`). No DartForge: `TypeTable::sem_tipo_padrao` marca esses parâmetros
+  (`funcoes.rs`, `tipos.rs`), a sobreaproximação da exaustividade liga `Motor::quebra_do_analyzer` ao passar
+  por um deles fora de posição contravariante (só onde o analyzer a chama: subclasse selada não genérica, enum
+  com elementos), e `constantes::verificar_com_quebras` devolve a biblioteca julgada pelo 3.6.2, que a análise
+  esvazia (como a quebra do `FfiVerifier`). O 3.13.4 já não lança e relata este código.
 
 - **Emissão:** `reportNullOrNonTypeElement`, ramo `_isTypeInTypeArgumentList` (`named_type_resolver.dart:585-595`, `:708-710`); argumentos resolvidos antes da cabeça (`resolution_visitor.dart:1097`).
 - **Condição:** `node.parent is TypeArgumentList` (qualquer origem, inclusive em cláusulas); `element == null` (com `shouldIgnore`) ou elemento não tipo, inclusive local (antes do REFERENCED_BEFORE_DECLARATION). Precedido por sintético, `boolean`, catch/as/is, redirect.

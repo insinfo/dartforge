@@ -61,10 +61,33 @@ pub fn verificar(
     inferidas: &HashSet<LibraryId>,
     libs: &[LibraryId],
 ) -> Vec<(UnitId, Diagnostic)> {
+    verificar_com_quebras(program, interner, table, core, outline, body, inferidas, libs).0
+}
+
+/// [`verificar`], com as bibliotecas em que o analyzer 3.6.2 lança (a
+/// exaustividade sobre um parâmetro de tipo sem `defaultType`,
+/// `exhaustiveness.dart:771`): o `LibraryAnalyzer` delas falha inteiro e
+/// quem chama descarta os diagnósticos dos arquivos delas.
+#[allow(clippy::too_many_arguments)]
+pub fn verificar_com_quebras(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    core: &CoreTypes,
+    outline: &OutlineTypes,
+    body: &BodyTypes,
+    inferidas: &HashSet<LibraryId>,
+    libs: &[LibraryId],
+) -> (Vec<(UnitId, Diagnostic)>, Vec<LibraryId>) {
     let mut m = avaliador::Motor::novo(program, interner, table, core, outline, body, inferidas);
     let mut out = Vec::new();
+    let mut quebradas = Vec::new();
     for &lib in libs {
+        m.quebra_do_analyzer = false;
         out.extend(verificador::verificar(&mut m, lib));
+        if m.quebra_do_analyzer && program.referencia_da_biblioteca(lib) == dartforge_diagnostics::Referencia::V3_6 {
+            quebradas.push(lib);
+        }
     }
-    out
+    (out, quebradas)
 }
