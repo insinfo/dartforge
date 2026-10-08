@@ -518,6 +518,12 @@ fn aceitar(fd: i64) -> i64 {
     loop {
         // SAFETY: `e` tem 128 bytes.
         let novo = unsafe { accept(fd as i32, e.bytes.as_mut_ptr(), &mut n) };
+        if rastro_de_io() {
+            eprintln!(
+                "[io] accept fd={fd} -> {novo} {}",
+                if novo < 0 { std::io::Error::last_os_error().to_string() } else { String::new() }
+            );
+        }
         if novo >= 0 {
             if !(fechar_no_exec(novo) && tornar_nao_bloqueante(novo)) {
                 fechar_descritor_de_soquete(i64::from(novo));

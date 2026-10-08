@@ -1,0 +1,74 @@
+# Depuração do backend nativo fora do Windows: compila UM programa do corpus
+# com o `compile-native` no sistema escolhido e o executa com as variáveis
+# dadas (traços do runtime, modos de raízes, exceções e memória). Para os
+# defeitos que só aparecem no Linux ou no macOS, sem esperar o Pesado.
+#
+#   gh workflow run depurar.yml --ref main -f so=macos-latest \
+#     -f programa=corpus/nativo/33_mensagens_de_controle.dart \
+#     -f ambiente="DARTFORGE_IO_RASTRO=1"
+name: depurar
+
+on:
+  workflow_dispatch:
+    inputs:
+      so:
+        description: Sistema
+        type: choice
+        options: [macos-latest, ubuntu-latest]
+        default: macos-latest
+      programa:
+        description: O programa (.dart, relativo à raiz)
+        required: true
+      ambiente:
+        description: Variáveis da compilação e da execução (VAR=valor, separadas por espaço)
+        default: ''
+      opcoes:
+        description: Opções do compile-native
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.so }}
+  cancel-in-progress: true
+
+jobs:
+  depurar:
+    name: depurar ${{ inputs.programa }} (${{ inputs.so }})
+    runs-on: ${{ inputs.so }}
+    timeout-minutes: 60
+    env:
+      CARGO_PROFILE_RELEASE_LTO: 'false'
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+      DARTFORGE_SDK_DA_FONTE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/dart
+      - uses: ./.github/actions/llvm-unix
+      - name: Rust fixado (rust-toolchain.toml)
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: pesado-unix
+          save-if: 'false'
+      - name: Compilar dartforge (nativo)
+        run: cargo build --locked --release -p dartforge-cli --features nativo
+      - name: Compilar e executar o programa
+        shell: bash
+        env:
+          PROGRAMA: ${{ inputs.programa }}
+          AMBIENTE: ${{ inputs.ambiente }}
+          OPCOES: ${{ inputs.opcoes }}
+        run: |
+          set -uo pipefail
+          saida="$RUNNER_TEMP/programa"
+          # shellcheck disable=SC2086
+          env $AMBIENTE ./target/release/dartforge compile-native "$PROGRAMA" -o "$saida" $OPCOES
+          echo "--- execução ---"
+          c=0
+          # shellcheck disable=SC2086
+          # O `timeout` do coreutils não vem no macOS: o `alarm` do perl.
+          (cd "$(dirname "$PROGRAMA")" && env $AMBIENTE perl -e 'alarm shift; exec @ARGV' 60 "$saida") || c=$?
+          echo "--- código de saída: $c ---"

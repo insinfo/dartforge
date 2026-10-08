@@ -376,6 +376,15 @@ impl InfoDeDescritor {
     }
 }
 
+/// `DARTFORGE_IO_RASTRO=1`: uma linha no stderr por evento da sondagem, por
+/// pedido ao manipulador e por mudança do que a sondagem vigia (o
+/// diagnóstico dos defeitos de `dart:io` que só aparecem num sistema).
+#[cfg(unix)]
+fn rastro_de_io() -> bool {
+    static R: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *R.get_or_init(|| std::env::var("DARTFORGE_IO_RASTRO").is_ok_and(|v| v == "1"))
+}
+
 /// `DartUtils::PostInt32`: a máscara de eventos na porta.
 fn postar_evento(porta: i64, eventos: i64) {
     if porta != 0 {
@@ -512,13 +521,24 @@ impl LacoDeEventos {
                     interrompido = true;
                     continue;
                 }
-                let Some(di) = self.descritores.get_mut(&fd) else { continue };
+                let Some(di) = self.descritores.get_mut(&fd) else {
+                    if rastro_de_io() {
+                        eprintln!("[io] evento fd={fd} eventos={eventos:#b} sem descritor");
+                    }
+                    continue;
+                };
                 let antiga = di.mascara();
                 if eventos & (1 << EVENTO_ERRO) != 0 {
+                    if rastro_de_io() {
+                        eprintln!("[io] evento fd={fd} eventos={eventos:#b} erro: todas as portas");
+                    }
                     di.avisar_todas(eventos);
                     self.atualizar(fd, antiga);
                 } else if eventos != 0 {
                     let porta = di.proxima_porta();
+                    if rastro_de_io() {
+                        eprintln!("[io] evento fd={fd} eventos={eventos:#b} porta={porta} máscara {antiga:#b} -> {:#b}", di.mascara());
+                    }
                     self.atualizar(fd, antiga);
                     postar_evento(porta, eventos);
                 }
@@ -535,6 +555,9 @@ impl LacoDeEventos {
         let Some(di) = self.descritores.get_mut(&fd) else { return };
         let nova = di.mascara();
         let de_escuta = di.de_escuta();
+        if rastro_de_io() && antiga != nova {
+            eprintln!("[io] sondagem fd={fd} de_escuta={de_escuta} {antiga:#b} -> {nova:#b}");
+        }
         if antiga != 0 && nova == 0 {
             self.sondagem.remover(fd);
         } else if antiga == 0 && nova != 0 {
@@ -570,6 +593,14 @@ impl LacoDeEventos {
             return;
         }
         let de_escuta = c.dados & (1 << SOQUETE_DE_ESCUTA) != 0;
+        if rastro_de_io() {
+            eprintln!(
+                "[io] pedido fd={fd} porta={} dados={:#x} de_escuta={de_escuta} conhecido={}",
+                c.porta,
+                c.dados,
+                self.descritores.contains_key(&fd)
+            );
+        }
         let di = self.descritores.entry(fd).or_insert_with(|| InfoDeDescritor::novo(de_escuta));
         if e_comando(c.dados, COMANDO_FECHAR_LEITURA) {
             // SAFETY: descritor aberto deste soquete (SHUT_RD = 0).
@@ -787,6 +818,12 @@ impl Sondagem {
         }
         // SAFETY: as mudanças vivem durante a chamada.
         let ok = unsafe { kevent(self.kq, mudancas.as_ptr(), mudancas.len() as i32, std::ptr::null_mut(), 0, std::ptr::null()) } != -1;
+        if rastro_de_io() {
+            eprintln!(
+                "[io] kqueue adicionar fd={fd} máscara={mascara:#b} de_escuta={de_escuta} ok={ok} {}",
+                if ok { String::new() } else { std::io::Error::last_os_error().to_string() }
+            );
+        }
         if ok {
             self.vigiados.borrow_mut().insert(fd, de_escuta);
         }
@@ -795,7 +832,11 @@ impl Sondagem {
 
     /// `RemoveFromKqueue`.
     fn remover(&self, fd: i64) {
-        if self.vigiados.borrow_mut().remove(&fd).is_none() {
+        let estava = self.vigiados.borrow_mut().remove(&fd).is_some();
+        if rastro_de_io() {
+            eprintln!("[io] kqueue remover fd={fd} estava={estava}");
+        }
+        if !estava {
             return;
         }
         for filtro in [Self::EVFILT_READ, Self::EVFILT_WRITE] {
