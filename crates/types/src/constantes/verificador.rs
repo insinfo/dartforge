@@ -705,6 +705,10 @@ impl Verificador<'_, '_> {
         }
         // `hasNonFinalField`: a classe, os mixins e as superclasses, em
         // largura — algum campo de instância que não é `final` nem `const`.
+        // No 3.13.4 (`link.dart:284-323`, `_computeHasNonFinalField`) só o
+        // campo com armazenamento conta: o `abstract int x;` não (no 3.6.2,
+        // `element.dart:329-356`, conta).
+        let referencia_313 = program.referencia(self.unidade) == dartforge_diagnostics::Referencia::V3_13;
         if dados.kind == ClassKind::Class {
             let mut fila: Vec<ClassId> = vec![classe];
             let mut vistos: Vec<ClassId> = Vec::new();
@@ -717,7 +721,8 @@ impl Verificador<'_, '_> {
                 let dx = program.class(x);
                 if dx.fields.iter().any(|&v| {
                     let var = program.variable(v);
-                    !var.final_ && !var.const_ && !var.static_
+                    let abstrato = var.getter.is_some_and(|g| program.function(g).abstract_);
+                    !var.final_ && !var.const_ && !var.static_ && !(referencia_313 && abstrato)
                 }) {
                     achou = true;
                     break;

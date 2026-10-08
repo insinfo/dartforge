@@ -12139,6 +12139,10 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
 - **Posição:** `atConstructorDeclaration` (como acima: `A`, `A.named`, nome da classe no primário).
 - **Mensagem:** "Can't define a const constructor for a class with non-final fields."
 - **No DartForge:** não existe; `verificador.rs::construtor`.
+- **No 3.13.4 (2026-10-08):** `hasNonFinalField` vem do `_computeHasNonFinalField` (`summary2/link.dart:284-323`):
+  só o campo com armazenamento conta (`isOriginDeclaration && !isAbstract`, ou o parâmetro declarante do
+  construtor primário). O `abstract int x;` não conta. Na biblioteca julgada pelo 3.13.4, o verificador
+  pula o campo de getter abstrato (`ConstConstructorWithNonFinalField__cons_43cf8eba`/`__prim_8eccde75`).
 
 ##### `const_type_parameter` (perda 9: FN 9)
 - **Emissão:** `_getConstantValue` → `TypeParameterElement` sem entrada no ambiente léxico
