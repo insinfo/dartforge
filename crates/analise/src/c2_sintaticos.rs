@@ -731,7 +731,10 @@ impl<'a> Visita<'a> {
                     self.expr(en.key);
                     self.padrao(en.value);
                 }
-                if entries.is_empty() {
+                // O resto é um elemento (`MapPattern.elements` com o
+                // `RestPatternElement`): `{...}` não é vazio, só tem o
+                // `REST_ELEMENT_IN_MAP_PATTERN`.
+                if entries.is_empty() && !*rest {
                     self.relatar(c::EMPTY_MAP_PATTERN, span_do_padrao, &[]);
                 }
             }

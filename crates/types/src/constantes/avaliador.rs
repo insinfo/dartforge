@@ -1852,6 +1852,14 @@ impl<'a> Motor<'a> {
                     return r;
                 }
             }
+            // A leitura antes da declaração (`const x = [x]`): o analyzer
+            // liga o nome ao local adiante (`REFERENCED_BEFORE_DECLARATION`),
+            // e a constante em ciclo vale o inválido calado.
+            None if self.body.units.get(u.0 as usize).and_then(|b| b.declaracao_local(e)).is_some() => {
+                if let Some(r) = self.valor_de_local(cx, e, erro_em) {
+                    return r;
+                }
+            }
             _ => {}
         }
         // `dynamic`/`Never`/`void` como literais de tipo.

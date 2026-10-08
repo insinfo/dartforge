@@ -165,6 +165,12 @@ pub(crate) fn literal_fora_do_alcance(inf: &mut BodyInferrer<'_>, cx: &Corpo, e:
     use dartforge_diagnostics::codigos::compile_time_error as c;
     let sp = inf.span_expr(cx.unit, e);
     let lexema = &inf.program.unit(cx.unit).source[sp.start..sp.end];
+    // `0x` sem dígito: o scanner relata `MISSING_HEX_DIGIT` e completa o
+    // token com um `0` sintético (`tokenizeHex`,
+    // `appendSyntheticSubstringToken(…, "0")`): o lexema vira `0x0`.
+    if lexema.eq_ignore_ascii_case("0x") {
+        return;
+    }
     let fonte: String = lexema.chars().filter(|ch| *ch != '_').collect();
     let como_double = tipo == inf.core.double;
     let valido = if como_double { valido_como_double(&fonte) } else { valido_como_inteiro(&fonte, negado) };
