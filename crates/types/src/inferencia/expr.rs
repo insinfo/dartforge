@@ -3967,6 +3967,23 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
             let r = resolved_de_membro_lexico(inf, cx, f, estatico);
             resolver(inf, cx, alvo, r);
             let fe = inf.program.function(f);
+            // O setter de instância escrito onde `this` não vale (método
+            // estático, fábrica, inicializador): o elemento de escrita é ele
+            // (`setWriteElement`) e o erro é o do acesso sem `this`
+            // (`_checkForInvalidInstanceMemberAccess`).
+            if !estatico && erro_de_instancia_sem_this(inf, cx).is_some() {
+                let tipo_de_escrita = match (fe.kind, fe.variable) {
+                    (FunctionKind::Setter, _) => Some(inf.outline.functions[f.0 as usize].parameters.first().map(|p| p.ty).unwrap_or(inf.core.dynamic_)),
+                    (FunctionKind::ImplicitAccessor, Some(v)) if !inf.program.variable(v).final_ && !inf.program.variable(v).const_ => {
+                        Some(inf.tipo_variavel(v))
+                    }
+                    _ => None,
+                };
+                if let Some(t) = tipo_de_escrita {
+                    avisar_instancia_sem_this(inf, cx, n);
+                    return t;
+                }
+            }
             if fe.kind == FunctionKind::Function && fe.class.is_some() {
                 avisar_escrita_em_metodo(inf, n);
                 // `setWriteElement`: o tipo de escrita só vem de setter ou

@@ -703,6 +703,10 @@ O `assert(…)` como expressão é `FunctionExpressionInvocation` e o avaliador 
 #### Grupo 3 — `this`/`super` em contexto inválido e atribuição a final/const
 
 ##### `instance_member_access_from_static` (perda 18: FN 18)
+- **Corrigido em 2026-10-08** (`InstanceMemberAccessFromStatic__class_t_*` e `__extensi_*`): a escrita sem
+  qualificador (`foo = 0`) que acha um setter (ou campo não final) de instância onde `this` não vale relata o acesso
+  sem `this` (`_checkForInvalidInstanceMemberAccess`), com o setter como elemento de escrita; antes só a leitura
+  relatava (`types::inferencia::expr`, `tipo_de_escrita_nome`).
 - **Emissão:** `ErrorVerifier._checkForInvalidInstanceMemberAccess` (`analyzer/lib/src/generated/error_verifier.dart:3975-4040`), chamado de `visitSimpleIdentifier`.
 - **Condição exata:** (fora de comentário) estamos em inicializador de construtor, ou em método estático (`_enclosingExecutable.inStaticMethod`: método/getter/setter `static` de classe, mixin, enum **ou extensão**), ou em factory, ou em declaração de campo de instância não `late`, ou em declaração de variável estática; o identificador (lido ou escrito: `writeOrReadElement`) resolve a `MethodElement`/`PropertyAccessorElement` **de instância** cujo dono é `InterfaceElement` ou `ExtensionElement`; e não é o nome qualificado de `x.m()`, `x.p` ou `p.x` (só acesso **implícito**). Em método estático → este código.
 - **Posição:** o identificador.
