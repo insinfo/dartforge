@@ -130,18 +130,30 @@ fn conferencia_do_sitio(b: &BasicBlock, i: usize) -> Option<Conferencia> {
 
 /// O tratador só devolve o valor padrão (a saída por exceção de uma função
 /// sem `catch` nem `finally` em volta)? Blocos sem instrução além de `phi`,
-/// encadeados por desvio incondicional até um `Return`.
+/// encadeados por desvio incondicional até um `Return`. Um bloco de junção
+/// que só reconfere a pendência (`phi`, `p = pendente`, `c = p != 0`,
+/// `CondBranch(c, …)`; a forma que a entrada uniforme `$ent` dá à junção do
+/// caminho normal com o da exceção) é atravessado pelo lado da exceção:
+/// vindo do tratador, a pendência está ligada e a reconferência sempre vai
+/// para lá. Sem isto, todo `$ent` ganhava um pouso que pega tudo e devolve a
+/// pendência, e a chamada dinâmica do modo tabelas custava mais que a do
+/// modo de conferência.
 fn saida_pura(f: &Function, pos: &HashMap<BlockId, usize>, de: BlockId) -> bool {
     let mut atual = de;
     for _ in 0..64 {
         let Some(&k) = pos.get(&atual) else { return false };
         let b = &f.blocks[k];
-        if !b.instructions.iter().all(|(_, i, _)| matches!(i, Instruction::Phi { .. })) {
-            return false;
-        }
-        match &b.terminator {
-            Terminator::Return(_) => return true,
-            Terminator::Branch(n) => atual = *n,
+        let resto: Vec<&(ValueId, Instruction, Type)> = b.instructions.iter().filter(|(_, i, _)| !matches!(i, Instruction::Phi { .. })).collect();
+        match (&resto[..], &b.terminator) {
+            ([], Terminator::Return(_)) => return true,
+            ([], Terminator::Branch(n)) => atual = *n,
+            ([(p, ip, _), (c, ic, _)], Terminator::CondBranch { cond: Operand::Val(cond), then_block, .. })
+                if e_conferencia(ip)
+                    && cond == c
+                    && matches!(ic, Instruction::ICmp(ICmpOp::Ne, Operand::Val(l), Operand::Constant(Constant::Int(0))) if l == p) =>
+            {
+                atual = *then_block;
+            }
             _ => return false,
         }
     }

@@ -2175,6 +2175,19 @@ sem custo para o padrão, que continua `checagem` com o E1.1. O e2e do backend e
 `bench/desempenho` não foram rodados, porque o critério de tamanho já decide. A Etapa 2 segue em B0;
 B1 deixa de ser candidato a padrão.
 
+**Revisão de 2026-10-08: o tempo de execução, que a decisão não mediu.** Sem exceção lançada, o modo
+tabelas tira a conferência depois de cada chamada Dart, e não pode ser mais lento que A0. A medida que
+faltava (`scripts/medir-modos-desempenho.py`, o `bench/desempenho` em produção, 7 execuções alternadas)
+deu A1/A0 = 1,013 de média geométrica, com `chamadas/formas` 1,23× e `colecoes/lista_add` 1,30×. Era
+defeito do passe, não do modelo: na entrada uniforme `$ent` (closure, método por seletor), o caminho da
+exceção e o normal se juntam num bloco que reconfere a pendência (`phi`, `p = pendente`, `c = p != 0`,
+`CondBranch`), e o `saida_pura` (`otimizar/tabelas.rs`) só aceitava `phi` até o `Return`. O sítio ficava
+na "emulação exata": todo `$ent` ganhava um pouso que pega tudo e devolve a pendência, e cada chamada
+dinâmica pagava o `invoke` com pouso **mais** a conferência no chamador. O `saida_pura` agora atravessa a
+reconferência pelo lado da exceção (vindo do tratador, a pendência está ligada); só as portas
+(`df.porta.*`, runtime → Dart) têm pouso no programa. `formas` volta ao nível de A0 ou abaixo. A medida
+inteira, refeita, vem logo abaixo.
+
 ---
 
 ## 14. Etapa 2 em nível de implementação: raízes por mapas (B0/B1)
