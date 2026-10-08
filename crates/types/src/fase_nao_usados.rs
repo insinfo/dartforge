@@ -527,8 +527,39 @@ pub fn elementos_nao_usados(
                 // `visitAssignmentExpression`: o operador resolvido é membro
                 // usado (`addMember`).
                 ExprKind::Binary { .. } | ExprKind::Unary { .. } | ExprKind::Index { .. } | ExprKind::Assign { .. } => {
-                    if let Some(el) = executavel(corpo.get_resolved(id)) {
-                        usados.membros.insert(el);
+                    // O índice alvo de uma atribuição (`a[i] = v`, `a[i] ??= v`):
+                    // o `writeOrReadElement` (3.6.2
+                    // `unused_local_elements_verifier.dart:176-180`) é o `[]=`; o
+                    // `[]` lido pela composta não conta.
+                    let alvo_de_atribuicao = matches!(ex.kind, ExprKind::Index { .. })
+                        && pai_de(id).is_some_and(|p| matches!(&a.expr(p).kind, ExprKind::Assign { target, .. } if *target == id));
+                    let escrita = if alvo_de_atribuicao {
+                        match corpo.get_resolved(id) {
+                            Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::ExtensionMember { member: f, .. }) => {
+                                let g = program.function(*f);
+                                let nome = interner.lookup("[]=");
+                                let irmao = nome.and_then(|n| match (g.class, g.extension) {
+                                    (Some(c), _) => program.class(c).instance_members.get(&n).copied(),
+                                    (None, Some(x)) => program.extension(x).instance_members.get(&n).copied(),
+                                    _ => None,
+                                });
+                                if interner.resolve(g.name) == "[]" { irmao } else { Some(*f) }
+                            }
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    };
+                    match escrita {
+                        Some(f) => {
+                            usados.membros.insert(cx.da_funcao(f));
+                        }
+                        None if !alvo_de_atribuicao => {
+                            if let Some(el) = executavel(corpo.get_resolved(id)) {
+                                usados.membros.insert(el);
+                            }
+                        }
+                        None => {}
                     }
                     continue;
                 }

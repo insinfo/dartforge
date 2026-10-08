@@ -20901,6 +20901,9 @@ augmentation que as macros geram, ou o de uma parte, não tira o core implícito
   - Lacuna (sem amostra): `resolve_annotation` não resolve os argumentos de tipo quando a cabeça é parâmetro de tipo ou não resolve (ver `non_type_as_type_argument`).
 
 ##### `unused_element` (perda 74: FN 74, FP 0, msg 0, pos 0; em 2026-10-06, 269/279, FP 0, FN 8)
+- **Corrigido em 2026-10-08** (as duas posições de `UnusedElement__method_isUsed_privateExt_*`): o índice alvo de uma
+  atribuição (`a[i] = v`, `a[i] ??= v`) usa o `writeOrReadElement` (`unused_local_elements_verifier.dart:176-180`), que
+  é o `[]=`; o `[]` lido pela atribuição composta não conta como uso (`types::fase_nao_usados`).
 
 Citações `analyzer/lib/...` do 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\analyzer\lib`), salvo as marcadas **[3.13]** (`E:\references\dart-sdk\pkg\analyzer\lib`). `unused_field_from_primary_constructor` e `unused_element_parameter` (como nome próprio) só existem no 3.13; no 3.6.2, `UNUSED_ELEMENT_PARAMETER` tem `sharedName: UNUSED_ELEMENT` e sai como `unused_element`. Os 166 FN das amostras foram classificados um a um; nenhum FP/msg/pos.
 
