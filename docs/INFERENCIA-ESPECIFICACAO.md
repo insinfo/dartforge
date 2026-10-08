@@ -1730,6 +1730,10 @@ referência (`getC()?..`) ou uma local capturada por escrita (que não promove)
 ganha um sintético próprio como base. O valor da cascata (`(c?..f())._field`)
 tem a base do alvo. Pendente: depois de uma cascata `?..` com escrita no alvo
 numa seção, a junção ainda deixa a promoção antiga visível na variável.
+A **leitura** de uma propriedade da seção (`leitura_de_campo`, o tipo lido de
+`.._field` e o receptor de `.._field.f()`) usa a mesma versão do início da
+cascata (2026-10-08): em `c?.._field.f([c = C(C())]).._field`, a segunda seção
+ainda lê `C`.
 
 ## 9. Null safety: `!`, `??`, `??=`, encurtamento nulo, `Never`/`Null`
 

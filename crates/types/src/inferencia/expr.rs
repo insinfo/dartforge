@@ -1282,7 +1282,17 @@ pub(crate) fn tipo_lido_de_propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corp
 /// why-not-promoted dela.
 pub(crate) fn leitura_de_campo(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId, base: Base, t: TypeId) -> TypeId {
     let Some((f, nome)) = membro_lido(inf, cx, e) else { return t };
-    let chave = (base, cx.versao_da_base(base), nome);
+    // A seção de cascata lê do temporário do alvo, com o nó SSA do início
+    // da cascata: uma escrita na local durante a cascata não tira a
+    // promoção das seções seguintes (`c?.._f.g([c = C()]).._f`).
+    let versao = match &ast(inf, cx).expr(e).kind {
+        ExprKind::Property { target, .. } if matches!(ast(inf, cx).expr(*target).kind, ExprKind::CascadeTarget) => match cx.bases_de_cascata.last().copied().flatten() {
+            Some((b, v)) if b == base => v,
+            _ => cx.versao_da_base(base),
+        },
+        _ => cx.versao_da_base(base),
+    };
+    let chave = (base, versao, nome);
     if inf.propriedade_promovivel(cx.lib, f) {
         return match cx.campos.get(&chave) {
             Some(&id) => {
