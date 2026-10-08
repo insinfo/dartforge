@@ -72,3 +72,6 @@ jobs:
           # O `timeout` do coreutils não vem no macOS: o `alarm` do perl.
           (cd "$(dirname "$PROGRAMA")" && env $AMBIENTE perl -e 'alarm shift; exec @ARGV' 60 "$saida") || c=$?
           echo "--- código de saída: $c ---"
+          # A mesma execução na VM (o oráculo), para comparar no mesmo runner.
+          echo "--- VM ---"
+          (cd "$(dirname "$PROGRAMA")" && "$DARTFORGE_DART_SDK/bin/dart" run "$(basename "$PROGRAMA")") || echo "VM saiu com $?"
