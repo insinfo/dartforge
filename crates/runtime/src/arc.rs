@@ -65,6 +65,12 @@ pub trait GrafoArc {
     fn arestas(&self, h: Ref, f: &mut dyn FnMut(Ref));
     /// Zera as ocorrências fortes de `h` (o descarte já debitou os destinos).
     fn romper(&mut self, h: Ref);
+    /// [`Self::arestas`] e [`Self::romper`] num percurso só: cada ocorrência
+    /// forte de `h`, que sai zerada (o descarte de um objeto só, a cascata).
+    fn tirar_arestas(&mut self, h: Ref, f: &mut dyn FnMut(Ref)) {
+        self.arestas(h, f);
+        self.romper(h);
+    }
 }
 
 /// Violação interna do contador (não é erro Dart): diagnóstico fatal (§19.3).
@@ -425,6 +431,27 @@ impl EstadoDoArc {
         }
     }
 
+    /// O jovem `h` sobreviveu à drenagem (tem metadados): o RC zero vai para
+    /// a fila de zeros ([`Self::revisar`]) e, sem ser imortal, ele vira
+    /// candidato a ciclo ([`Self::candidatar`]) — numa consulta só. Devolve
+    /// se `h` tinha metadados.
+    pub fn decidir_jovem(&mut self, h: Ref) -> bool {
+        let sem_arestas = self.sem_arestas;
+        let Some(m) = self.objetos.get_mut(&h) else { return false };
+        if m.imortal || m.estado != EstadoArc::Vivo {
+            return true;
+        }
+        let id = IdArc { handle: h, geracao: m.geracao };
+        if m.rc == 0 {
+            self.zeros.push(id);
+        }
+        if !m.candidato && !sem_arestas.is_some_and(|f| f(h)) {
+            m.candidato = true;
+            self.candidatos.push(id);
+        }
+        true
+    }
+
     /// Quantos candidatos a ciclo esperam a próxima rodada.
     pub fn candidatos(&self) -> usize {
         self.candidatos.len()
@@ -594,8 +621,9 @@ impl EstadoDoArc {
         assert!(!self.transacao, "ARC: descarte reentrante");
         self.transacao = true;
         // A cascata dos zeros descarta um objeto por vez: aí a única
-        // aresta interna é a do próprio objeto, e o conjunto (uma alocação
-        // por morte) não é montado.
+        // aresta interna é a do próprio objeto, o conjunto (uma alocação
+        // por morte) não é montado, e as arestas são lidas e zeradas num
+        // percurso só.
         let unico = if d.len() == 1 { Some(d[0]) } else { None };
         let conjunto: HashSet<Ref> = if unico.is_some() { HashSet::default() } else { d.iter().copied().collect() };
         let interno = |v: Ref| match unico {
@@ -610,12 +638,20 @@ impl EstadoDoArc {
         // As saídas do conjunto, uma vez cada ocorrência (o vetor é
         // reaproveitado entre descartes).
         let mut saidas = std::mem::take(&mut self.saidas);
-        for &u in d {
-            grafo.arestas(u, &mut |v| {
-                if e_handle(v) && !interno(v) {
+        if let Some(u) = unico {
+            grafo.tirar_arestas(u, &mut |v| {
+                if e_handle(v) && v != u {
                     saidas.push(v);
                 }
             });
+        } else {
+            for &u in d {
+                grafo.arestas(u, &mut |v| {
+                    if e_handle(v) && !interno(v) {
+                        saidas.push(v);
+                    }
+                });
+            }
         }
         let mut erro = None;
         for v in saidas.drain(..) {
@@ -628,7 +664,9 @@ impl EstadoDoArc {
             if self.traco {
                 eprintln!("[arc-traco] morrer {u}");
             }
-            grafo.romper(u);
+            if unico.is_none() {
+                grafo.romper(u);
+            }
             if let Some(m) = self.objetos.get_mut(&u) {
                 m.estado = EstadoArc::Morto;
                 m.rc = 0;

@@ -4419,6 +4419,41 @@ impl crate::arc::GrafoArc for GrafoDoHeap<'_> {
             }
         }
     }
+    fn tirar_arestas(&mut self, h: Ref, f: &mut dyn FnMut(Ref)) {
+        // SAFETY: as posições são palavras do corpo de um bloco vivo.
+        #[allow(unsafe_code)]
+        self.heap.posicoes_de_ref(h, &mut |p| unsafe {
+            f(*p);
+            *p = 0;
+        });
+        if !self.efemeros.por_chave.is_empty() {
+            // As arestas condicionais (a chave segura o valor) e o
+            // rompimento delas, como em `arestas` e `romper`.
+            let mut valores = Vec::new();
+            if let Some(ps) = self.efemeros.por_chave.get(&h) {
+                for p in ps {
+                    if let Some(&(k, v)) = self.efemeros.contados.get(p)
+                        && k == h
+                    {
+                        valores.push(v);
+                    }
+                }
+            }
+            for v in valores {
+                f(v);
+            }
+            if let Some(ps) = self.efemeros.por_chave.remove(&h) {
+                for p in ps {
+                    self.efemeros.contados.remove(&p);
+                    if let Some(e) = self.heap.efemeros.get_mut(&p)
+                        && e.0 == h
+                    {
+                        *e = (0, 0);
+                    }
+                }
+            }
+        }
+    }
     fn romper(&mut self, h: Ref) {
         // SAFETY: as posições são palavras do corpo de um bloco vivo.
         #[allow(unsafe_code)]
@@ -5022,14 +5057,12 @@ impl Heap {
         let n_jovens = jovens.len();
         for &b in &jovens {
             let h = b as i64 + DESLOCAMENTO_DO_HANDLE;
-            if arc.estado.meta(h).is_some() {
+            if arc.estado.decidir_jovem(h) {
                 // SAFETY: bloco entregue desde a última drenagem, ocupado.
                 unsafe {
                     (*b).estado = VELHO;
                     marcar_bloco(b);
                 }
-                arc.estado.revisar(h);
-                arc.estado.candidatar(h);
             } else {
                 mortos_jovens.push(h);
             }
