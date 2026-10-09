@@ -329,7 +329,8 @@ pub struct ContratoChamadaRuntime {
 
 /// Traduz uma chamada auditada para efeitos de consumo e classe do resultado.
 ///
-/// Confere aridade e tipos declarados na chamada; o verificador HIR continua
+/// Confere aridade, tipos declarados e constantes: I64 exige inteiro, ou
+/// endereço de função quando o parâmetro é nativo. O verificador HIR continua
 /// responsável por SSA, dominância e tipos reais dos operandos. Não insere RC,
 /// não certifica owners de slots e não resolve invalidação de empréstimos.
 /// Null não tem token físico; outras referências devem estar avaliadas em SSA.
@@ -417,6 +418,16 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
                 Operand::Constant(Constant::Null) => {}
                 _ => return Err(format!("{name}: argumento Ref {n} exige SSA ou null")),
             }
+        } else if let Operand::Constant(k) = op {
+            // Um endereço de função só tem significado em parâmetro nativo;
+            // a anotação I64 não transforma bool/double/literal em inteiro.
+            if !matches!(k, Constant::Int(_))
+                && !(*modo == ModoParametro::Native && matches!(k, Constant::Funcao(_)))
+            {
+                return Err(format!(
+                    "{name}: constante do argumento {n} incompatível com seu contrato"
+                ));
+            }
         }
     }
     Ok(ContratoChamadaRuntime {
@@ -430,6 +441,41 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn constantes_runtime_preservam_distincao_entre_escalar_e_endereco() {
+        for k in [
+            Constant::Bool(true),
+            Constant::Double(1.0),
+            Constant::Null,
+            Constant::String("x".into()),
+            Constant::StringWtf8(vec![120]),
+            Constant::Funcao("getter".into()),
+        ] {
+            let i = Instruction::CallRuntime {
+                name: "dartforge_arc_quadro_abrir_v1".into(),
+                args: vec![(Operand::Constant(k), Type::I64)],
+                ret_ty: Type::I64,
+            };
+            assert!(contrato_chamada_runtime(&i).is_err());
+        }
+        let mut i = Instruction::CallRuntime {
+            name: "dartforge_marcar_constante".into(),
+            args: vec![
+                (Operand::Constant(Constant::Null), Type::Ref),
+                (
+                    Operand::Constant(Constant::Funcao("getter".into())),
+                    Type::I64,
+                ),
+            ],
+            ret_ty: Type::Void,
+        };
+        contrato_chamada_runtime(&i).unwrap();
+        if let Instruction::CallRuntime { args, .. } = &mut i {
+            args[1].0 = Operand::Constant(Constant::Bool(false));
+        }
+        assert!(contrato_chamada_runtime(&i).is_err());
+    }
 
     #[test]
     fn contratos_nao_inferem_ref_por_largura_nem_escondem_tokens() {

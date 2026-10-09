@@ -1248,6 +1248,15 @@ proveniência e vida dos quadros continuam exigindo suas verificações própria
 Rodada pesada 37986946507 sobre 54b5c836 segue em compilação na consulta;
 não contém esta conferência adicional de argumentos.
 
+O adaptador runtime também confere constantes dos parâmetros I64: inteiros
+são aceitos; endereço de função exige parâmetro native explícito. Bool,
+double, null e literais de texto não viram inteiros por anotação. Teste de
+regressão cobre todas essas variantes e o getter nativo de marcar_constante.
+Quarenta e um testes ARC e 36 exemplos públicos aprovados nos logs
+`target/ownership-constantes-test.log` e `target/ownership-constantes-doc.log`.
+Isso fecha a validação das constantes no adaptador auditado, sem certificar
+proveniência de endereços ou integração completa no lowering.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
