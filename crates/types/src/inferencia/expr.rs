@@ -717,7 +717,7 @@ pub(crate) fn alias_de_null_ou_futureor(inf: &mut BodyInferrer<'_>, cx: &Corpo, 
 
 /// Classe e argumentos de um typedef usado como classe, com os argumentos
 /// explícitos do typedef (ou sem eles).
-fn alias_de(inf: &mut BodyInferrer<'_>, td: dartforge_elements::model::TypedefId, explicitos: Option<Vec<TypeId>>) -> Option<RefTipo> {
+pub(crate) fn alias_de(inf: &mut BodyInferrer<'_>, td: dartforge_elements::model::TypedefId, explicitos: Option<Vec<TypeId>>) -> Option<RefTipo> {
     let alvo = inf.outline.typedefs[td.0 as usize].target_type;
     let params = inf.outline.typedefs[td.0 as usize].type_params.clone();
     let (class, args) = match inf.table.get(alvo).clone() {

@@ -1689,6 +1689,38 @@ fn membro_estatico_por_instancia() {
 }
 
 #[test]
+fn criacao_por_alias_infere_argumento_aninhado_pelo_contexto() {
+    // O contexto restringe o parâmetro do alias dentro de List<X>, tanto
+    // na criação implícita quanto em new e no construtor nomeado.
+    let fonte = "library test; import 'dart:core';
+        class C<X> { C(); C.nome(); }
+        typedef D<X> = C<List<X>>;
+        C<List<int>> implicita() => D();
+        C<List<int>> explicita() => new D();
+        C<List<int>> nomeada() => D.nome();
+        C<List<int>> nomeadaExplicita() => new D.nome();
+        C<List<String>> outroContexto() => D();";
+    let diags = diagnosticos_de(fonte);
+    assert!(diags.is_empty(), "{diags:?}");
+}
+
+#[test]
+fn criacao_por_alias_com_argumento_escrito_preserva_tipo_incompativel() {
+    // Argumentos escritos prevalecem sobre o contexto; inferir dynamic
+    // esconderia a incompatibilidade que este caso precisa conservar.
+    let fonte = "library test; import 'dart:core';
+        class C<X> { C(); C.nome(); }
+        typedef D<X> = C<List<X>>;
+        C<List<String>> f() => D<int>();
+        C<List<String>> g() => D<int>.nome();";
+    let diags = diagnosticos_de(fonte);
+    assert_eq!(diags.len(), 2, "{diags:?}");
+    for d in &diags {
+        assert!(d.message.contains("C<List<int>>") && d.message.contains("C<List<String>>"), "{d:?}");
+    }
+}
+
+#[test]
 fn constante_em_case_e_promocao_no_lado_direito_de_se_nulo() {
     // `case _k:` lê a constante (não declara `_k` sem valor); `o ??= a!`
     // não promove `a` depois do comando (o lado direito pode não rodar).

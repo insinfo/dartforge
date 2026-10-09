@@ -1119,6 +1119,15 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
         // `InvalidType`.
         let mut targs = targs;
         let mut explicitos = explicitos;
+        // Em `D<int>()`, os argumentos ficam na chamada, enquanto a
+        // referência `D` foi resolvida sem eles. Aplique-os ao alias antes
+        // de usar os argumentos da classe (`D<X> = C<List<X>>`).
+        if !args.type_args.is_empty()
+            && let Some(RefTipo::Alias(_, _, td)) = referencia_a_tipo(inf, cx, target)
+            && let Some(RefTipo::Alias(_, inst, _)) = expr::alias_de(inf, td, explicitos.clone())
+        {
+            targs = inst;
+        }
         let a = &inf.program.unit(cx.unit).ast;
         let escritos: Option<(usize, Span)> = match &a.expr(target).kind {
             ExprKind::Property { target: t, .. } => match &a.expr(*t).kind {

@@ -1,5 +1,24 @@
 # Estado do DartForge — 2026-10-08
 
+## Retomada de 2026-10-09
+
+O resumo de 2026-10-08 abaixo precede os commits `c0cded84` (mapas por
+`"deopt"`), `f8dfedbf` (metadados ARC por página) e `72a3212c` (decisão dos
+jovens e cascata). As medidas atualizadas do ARC estão em
+`docs/ARC-IMPLEMENTACAO.md`: ARC/A0 passou de 2,81 para 2,13 na média
+geométrica da rodada ali descrita; ainda há trabalho para aproximar de A0.
+
+A revisão do analisador avançou até `86aa8d2c`: criação por alias genérico
+sem argumentos escritos infere pelos parâmetros e limites do alias. A
+retomada acrescenta regressões de contexto aninhado (`D<X> = C<List<X>>`),
+incluindo `new`, construtor nomeado e argumentos explícitos incompatíveis.
+O Dart 3.6.2 aceita os cinco casos positivos sem diagnóstico.
+O caso negativo revelou que `D<int>()` ainda usava a expansão sem argumentos
+(`C<List<dynamic>>`); a correção aplica os argumentos escritos ao alias.
+O oráculo exige `C<List<int>>` nos dois relatos de retorno incompatível.
+Verificação: `cargo test --locked --release -p dartforge-types --test bodies`
+passou 58 testes; os três testes de SDK/projetos externos permanecem ignorados.
+
 ## Situação geral (2026-10-08, fim da tarde)
 
 Foco pedido: o nativo AOT/JIT funcionando por inteiro, com `docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md` e
