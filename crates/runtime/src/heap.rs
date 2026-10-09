@@ -1891,6 +1891,14 @@ impl Heap {
         id
     }
 
+    /// Exige owner antes de uma operação da ABI; quadro observacional não
+    /// pode aceitar uma cópia que o compilador acredita ser contada.
+    pub(crate) fn conferir_quadro_proprietario(&self, frame: i64) {
+        let (_, _, proprietario) = self.frames.iter().rfind(|(id, _, _)| *id == frame)
+            .expect("quadro ARC inexistente");
+        assert!(*proprietario, "quadro ARC deve ser proprietário");
+    }
+
     fn raizes_proprietarias(&self) -> Vec<Ref> {
         self.frames.iter().filter(|(_, _, dono)| *dono)
             .flat_map(|(_, slots, _)| slots.iter().copied())

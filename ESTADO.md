@@ -713,6 +713,33 @@ concluídos com sucesso; Windows e macOS ainda ativos. Nenhum novo
 disparo nem reinício. Fonte remota continua distinta dos verificadores
 locais `d33a8831`/`88c9bd01`, ainda não publicados.
 
+Rodada pesada `37944870979` sobre `0d6f8f2e` fechou com sucesso.
+Artefatos macOS em `target/ci-37944870979/macos` conferidos:
+AOT/A1/B0/B1/ARC 238/238, dart:io 130/130, JIT 238/238 e JIT × AOT
+zero divergências, sete sem IR iguais por construção, nenhum timeout
+nos dois. Log macOS confirma suites JIT 16/16, 5/5, 6/6, recarga
+isolada 1/1 (20,24 s) e suíte 7/7 (1,72 s). B0 Windows dirigido
+4/4 sem filtrados/ignorados, 743,94 s (`b0-job.log`). Essa revisão
+cobre mudanças recentes de runtime anteriores aos metadados de
+Finalizable/verificadores locais; não prova ownership integrado ou >= A0.
+
+Base de ABI para slots proprietários: novo fragmento `arc_abi.rs`
+exporta abertura, cópia, movimento e fechamento com nomes
+`dartforge_arc_quadro_{abrir,copiar,mover,fechar}_v1`. Declarada no LLVM
+e em efeitos.tsv: nenhum ponto de coleta, exceção Dart ou chamada Dart.
+Usa slots contados do Heap, com cópia antes da liberação do antigo,
+movimento sem retain físico e fecho LIFO. Cópia/fecho validam quadro
+proprietário; não aceitam observacional. Teste ABI acompanha duas cópias,
+movimento inclusive para o próprio slot e liberação do último owner em tracing/ARC;
+teste do guarda recusa quadro observacional. Runtime release 148 unitários
+(três microbenchmarks ignorados), 13 integração e 16 doctests
+(`target/runtime-arc-quadros-validado-release.log`). Ainda não há produtor
+no lowering, slots protegidos através de await/exceções, ownership.tsv
+nem as quatro externs mínimas retain/release/collect/verificar_abi.
+Emissor release com o runtime atualizado: 113/113, sete manuais ignorados
+(`target/emissor-arc-quadros-release.log`). Não prova inserção de slots
+no programa Dart nem proteção efetiva Finalizable.
+
 O lowering agora preserva `Local::tipo_estatico`, TypeId Dart original
 separado da representação HIR. Declarações usam
 `Context::tipo_local_semantico` (sem chamar apagar), closures em ambiente ou

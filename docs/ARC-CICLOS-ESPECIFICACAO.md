@@ -1051,6 +1051,16 @@ Externs de campo existentes passam a seguir o modo do runtime selecionado,
 com o contrato de resultado owned em ARC. O chamador não pode inferir o modo
 do callee pelo nome do símbolo: o registro de ABI deve garanti-lo.
 
+Base disponível para slots explícitos: `arc_abi.rs` exporta
+`dartforge_arc_quadro_{abrir,copiar,mover,fechar}_v1`, declarados no emissor
+e na tabela de efeitos. Quadros/índices são escalares; copiar recebe Ref
+borrowed e cria ocorrência no slot, mover transfere a ocorrência entre
+slots, fechar consome as ocorrências do quadro do topo. Todos usam o
+inventário proprietário existente do Heap, inclusive em tracing. Não
+coletam nem chamam Dart. Cópia/fechamento rejeitam quadro observacional.
+Essa base ainda não é inserida pelo lowering e não substitui as quatro
+externs mínimas, a tabela ownership.tsv ou a ABI geral de retornos owned.
+
 ### 21.3 Raízes: contadas versus observacionais
 
 Separar no inventário:

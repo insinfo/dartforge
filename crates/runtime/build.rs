@@ -36,6 +36,7 @@ use std::path::PathBuf;
 const FRAGMENTOS: &[&str] = &[
     "nucleo",
     "gc_raizes",
+    "arc_abi",
     "excecoes",
     // As portas Rust → Dart e a personalidade das exceções por tabelas.
     "excecoes_tabelas",
