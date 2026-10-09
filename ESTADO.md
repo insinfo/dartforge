@@ -1329,6 +1329,36 @@ HIR também passaram (`target/ownership-print-hir.log`). Essa extern é necessá
 para ligar o produtor à prova AOT arc_slots_fortes; antes da publicação dos
 planos, a prova ainda precisa representar invoke/cleanup de impressão no CFG.
 
+Revisão da integração da prova AOT após 23fd911a encontrou lacuna no modelo
+excepcional do plano ARC. EfeitoTokens.pode_falhar exige atualmente entrada
+em TabelasDaFuncao.invocacoes, e a validação exige chamada no fim do bloco,
+condição false e pouso. Esse é o formato de desenrolamento Dart; externs
+runtime pending retornam normalmente com pendência e exigem leitura/conferência
+explícita antes da bifurcação. otimizar/tabelas.rs::e_sitio não transforma
+CallRuntime em invoke. Os testes com gc_collect/record fieldAt e pousos
+sintéticos provam a transferência lógica do token, mas não essa integração
+com a emissão real de externs pending. Não publicar esse formato como tabelas
+LLVM de impressão. Próxima dependência: representar e verificar saídas de
+pendência runtime separadamente de invoke Dart, incluindo disponibilidade do
+resultado só no sucesso e cleanup por aresta, então ligar arc_slots_fortes.
+
+PlanoTokens.pendencias agora descreve chamada runtime e bloco de erro sem
+publicar invoke/pouso LLVM. Exige sufixo CallRuntime, exception_pending I8,
+ICmp Ne zero e CondBranch erro/sucesso; saídas duplicadas como invoke são
+recusadas. A análise de disponibilidade confere resultados/aliases só após
+a aresta de sucesso, e o fluxo de tokens aplica consumos/produção por aresta.
+Regressão passa impressão com cleanup nos dois caminhos pelo produtor e
+verificadores, mantendo tabelas LLVM vazias; omitir drop no erro ou inverter
+arestas é recusado. Catálogo com 20 externs inclui exception_pending normal,
+retorno Rust u8 (HIR I8); o gerador aceita u8:scalar com coerção C exata.
+Tentativas iniciais i64/i8 foram recusadas pela assinatura antes de publicar.
+Quarenta e sete testes ARC, dois testes do catálogo e 36 exemplos aprovados:
+`target/ownership-pendencias-test-u8.log`, `target/ownership-pendencias-runtime.log`,
+`target/ownership-pendencias-doc.log`. Mapa ainda fornecido pelo chamador;
+produção automática dele, cobertura de todas as formas de conferência,
+remoção da representação sintética antiga dos testes runtime, integração da
+prova AOT e inserção geral de cleanup continuam pendentes.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

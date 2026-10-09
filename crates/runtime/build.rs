@@ -234,6 +234,7 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
             ("ref:owned", true) => ("i64", "ModoResultado::Owned"),
             ("i64:scalar", true) => ("i64", "ModoResultado::ScalarI64"),
             ("i8:scalar", true) => ("i8", "ModoResultado::ScalarI8"),
+            ("u8:scalar", true) => ("u8", "ModoResultado::ScalarI8"),
             ("void:scalar", true) => ("()", "ModoResultado::Void"),
             _ => panic!("ownership.tsv: tipo/contrato não suportado: {s}"),
         };
@@ -320,6 +321,7 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
                     | "dartforge_marcar_permanente"
                     | "dartforge_nativo_DartForge_record_fieldAt"
                     | "dartforge_print_handle"
+                    | "dartforge_exception_pending"
             )
     }) {
         assert!(

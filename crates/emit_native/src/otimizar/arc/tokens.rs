@@ -6,7 +6,7 @@ use super::super::{
     cfg::Cfg,
     operandos::{operandos, operandos_do_terminador},
 };
-use super::{OrigemOwner, Ownership, vivacidade_classificada_com_excecoes};
+use super::{OrigemOwner, Ownership};
 use crate::hir::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -26,9 +26,9 @@ pub struct EfeitoTokens {
     pub sempre: Vec<ValueId>,
     /// Consumo apenas no sucesso.
     pub sucesso: Vec<ValueId>,
-    /// Consumo apenas na falha representada pelo invoke preparado.
+    /// Consumo apenas na falha de invoke ou conferência de pendência runtime.
     pub erro: Vec<ValueId>,
-    /// Exige exatamente uma saída excepcional nas tabelas da função.
+    /// Exige saída excepcional em invoke ou no mapa de pendências do plano.
     pub pode_falhar: bool,
 }
 
@@ -58,13 +58,18 @@ pub enum RetornoTokens {
 /// ```
 /// use dartforge_emit_native::otimizar::arc::PlanoTokens;
 /// assert!(PlanoTokens::default().instrucoes.is_empty());
+/// assert!(PlanoTokens::default().pendencias.is_empty());
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct PlanoTokens {
-    /// Efeitos exatos antes do resultado e nas saídas de invoke.
+    /// Efeitos exatos antes do resultado e nas saídas de invoke/pendência.
     pub instrucoes: HashMap<ValueId, EfeitoTokens>,
     /// Convenção do retorno, não deduzida da largura da representação.
     pub retorno: RetornoTokens,
+    /// Chamada runtime pending e bloco de erro após conferência explícita.
+    /// Não são pousos LLVM. Exige sufixo exception_pending/ICmp Ne zero e
+    /// CondBranch para erro/sucesso, sem outra operação entre chamada e teste.
+    pub pendencias: HashMap<ValueId, BlockId>,
 }
 
 fn propria(inst: &Instruction) -> bool {
@@ -244,7 +249,7 @@ pub fn verificar_tokens(
     tabelas: &TabelasDaFuncao,
     plano: &PlanoTokens,
 ) -> Result<(), String> {
-    vivacidade_classificada_com_excecoes(f, classes, tabelas)?;
+    super::classificacao::vivacidade_com_saidas(f, classes, tabelas, &plano.pendencias)?;
     let erro_meta = |m: String| format!("tokens em {}: {m}", f.symbol);
     let mut esperados = HashSet::new();
     for b in &f.blocks {
@@ -317,7 +322,8 @@ pub fn verificar_tokens(
                     }
                 }
             }
-            if e.pode_falhar != tabelas.invocacoes.contains_key(v)
+            if e.pode_falhar
+                != (tabelas.invocacoes.contains_key(v) || plano.pendencias.contains_key(v))
                 || (!e.pode_falhar && !e.erro.is_empty())
             {
                 return Err(erro_meta(format!(
@@ -465,7 +471,12 @@ pub fn verificar_tokens(
                 let mut r = ativos.clone();
                 if let Some(v) = invoke {
                     let e = &plano.instrucoes[&v];
-                    if tabelas.invocacoes[&v] == destino.id {
+                    if tabelas
+                        .invocacoes
+                        .get(&v)
+                        .or_else(|| plano.pendencias.get(&v))
+                        == Some(&destino.id)
+                    {
                         aplicar(&e.erro, classes, &mut r)?;
                     } else {
                         aplicar(&e.sucesso, classes, &mut r)?;

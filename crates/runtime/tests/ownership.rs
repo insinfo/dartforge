@@ -25,6 +25,7 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
                         | "dartforge_marcar_permanente"
                         | "dartforge_nativo_DartForge_record_fieldAt"
                         | "dartforge_print_handle"
+                        | "dartforge_exception_pending"
                 )
         })
         .collect();

@@ -232,6 +232,15 @@ pub fn vivacidade_classificada_com_excecoes(
     classes: &HashMap<ValueId, Ownership>,
     tabelas: &TabelasDaFuncao,
 ) -> Result<Vivacidade, String> {
+    vivacidade_com_saidas(f, classes, tabelas, &HashMap::new())
+}
+
+pub(super) fn vivacidade_com_saidas(
+    f: &Function,
+    classes: &HashMap<ValueId, Ownership>,
+    tabelas: &TabelasDaFuncao,
+    pendencias: &HashMap<ValueId, BlockId>,
+) -> Result<Vivacidade, String> {
     let v = vivacidade_classificada(f, classes)?;
     let cfg = Cfg::novo(f);
     let pos: HashMap<BlockId, usize> = f
@@ -246,7 +255,16 @@ pub fn vivacidade_classificada_com_excecoes(
         .enumerate()
         .flat_map(|(i, b)| b.instructions.iter().map(move |(v, _, _)| (*v, i)))
         .collect();
-    let mut chamadas: Vec<_> = tabelas.invocacoes.iter().collect();
+    if pendencias
+        .keys()
+        .any(|v| tabelas.invocacoes.contains_key(v))
+    {
+        return Err(format!(
+            "ownership em {}: saída pending duplicada como invoke",
+            f.symbol
+        ));
+    }
+    let mut chamadas: Vec<_> = tabelas.invocacoes.iter().chain(pendencias).collect();
     chamadas.sort_by_key(|(v, _)| v.0);
     for (&call, &pouso) in chamadas {
         let Some(&origem) = defs.get(&call) else {
@@ -256,19 +274,23 @@ pub fn vivacidade_classificada_com_excecoes(
             ));
         };
         let b = &f.blocks[origem];
-        let sucesso = match &b.terminator {
-            Terminator::CondBranch {
-                cond: Operand::Constant(Constant::Bool(false)),
-                then_block,
-                else_block,
-            } if *then_block == pouso
-                && *else_block != pouso
-                && b.instructions.last().is_some_and(|(v, _, _)| *v == call)
-                && tabelas.pousos.contains(&pouso) =>
-            {
-                pos.get(else_block).copied()
+        let sucesso = if pendencias.contains_key(&call) {
+            conferir_pendencia(b, call, pouso).and_then(|s| pos.get(&s).copied())
+        } else {
+            match &b.terminator {
+                Terminator::CondBranch {
+                    cond: Operand::Constant(Constant::Bool(false)),
+                    then_block,
+                    else_block,
+                } if *then_block == pouso
+                    && *else_block != pouso
+                    && b.instructions.last().is_some_and(|(v, _, _)| *v == call)
+                    && tabelas.pousos.contains(&pouso) =>
+                {
+                    pos.get(else_block).copied()
+                }
+                _ => None,
             }
-            _ => None,
         }
         .ok_or_else(|| {
             format!(
@@ -297,6 +319,35 @@ pub fn vivacidade_classificada_com_excecoes(
         conferir_usos_do_resultado(f, &cfg, &pos, call, (origem, sucesso), &sem_sucesso)?;
     }
     Ok(v)
+}
+
+/// Confere o sufixo de leitura de pendência sem criar um pouso LLVM.
+fn conferir_pendencia(b: &BasicBlock, call: ValueId, erro: BlockId) -> Option<BlockId> {
+    let n = b.instructions.len();
+    if n < 3 {
+        return None;
+    }
+    let (v, chamada, _) = &b.instructions[n - 3];
+    let (p, leitura, ty_p) = &b.instructions[n - 2];
+    let (c, comparacao, ty_c) = &b.instructions[n - 1];
+    if *v != call
+        || !matches!(chamada, Instruction::CallRuntime { .. })
+        || *ty_p != Type::I8
+        || *ty_c != Type::I1
+        || !matches!(leitura, Instruction::CallRuntime { name, args, ret_ty }
+            if name == "dartforge_exception_pending" && args.is_empty() && *ret_ty == Type::I8)
+        || !matches!(comparacao, Instruction::ICmp(ICmpOp::Ne, Operand::Val(q), Operand::Constant(Constant::Int(0))) if q == p)
+    {
+        return None;
+    }
+    match &b.terminator {
+        Terminator::CondBranch {
+            cond: Operand::Val(q),
+            then_block,
+            else_block,
+        } if q == c && *then_block == erro && *else_block != erro => Some(*else_block),
+        _ => None,
+    }
 }
 
 /// O resultado de invoke não existe antes de atravessar sua aresta de sucesso.

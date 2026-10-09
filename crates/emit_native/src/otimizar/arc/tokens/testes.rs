@@ -97,6 +97,76 @@ fn extern_auditada_nao_aceita_plano_que_omite_consumo() {
 }
 
 #[test]
+fn pending_runtime_confere_cleanup_sem_pouso_llvm() {
+    let mut f = funcao(vec![
+        bloco(
+            0,
+            vec![
+                copia(1, 0),
+                (
+                    ValueId(2),
+                    Instruction::CallRuntime {
+                        name: "dartforge_print_handle".into(),
+                        args: vec![(valor(1), Type::Ref)],
+                        ret_ty: Type::Void,
+                    },
+                    Type::Void,
+                ),
+                (
+                    ValueId(3),
+                    Instruction::CallRuntime {
+                        name: "dartforge_exception_pending".into(),
+                        args: vec![],
+                        ret_ty: Type::I8,
+                    },
+                    Type::I8,
+                ),
+                (
+                    ValueId(4),
+                    Instruction::ICmp(ICmpOp::Ne, valor(3), Operand::Constant(Constant::Int(0))),
+                    Type::I1,
+                ),
+            ],
+            Terminator::CondBranch {
+                cond: valor(4),
+                then_block: BlockId(1),
+                else_block: BlockId(2),
+            },
+        ),
+        bloco(1, vec![drop(5, 1)], Terminator::Return(None)),
+        bloco(2, vec![drop(6, 1)], Terminator::Return(None)),
+    ]);
+    let mut c = classes(&[], &[]);
+    let mut p = PlanoTokens::default();
+    p.pendencias.insert(ValueId(2), BlockId(1));
+    let t = TabelasDaFuncao::default();
+    super::super::produzir_e_verificar_tokens(
+        &f,
+        &mut c,
+        &mut p,
+        &t,
+        &super::super::PlanoEscopos::default(),
+    )
+    .unwrap();
+    assert!(t.invocacoes.is_empty() && t.pousos.is_empty());
+    f.blocks[1].instructions.clear();
+    c.remove(&ValueId(5));
+    assert!(
+        verificar_tokens(&f, &c, &t, &p)
+            .unwrap_err()
+            .contains("não consumidos")
+    );
+    f.blocks[1].instructions.push(drop(5, 1));
+    c.insert(ValueId(5), Ownership::Trivial);
+    f.blocks[0].terminator = Terminator::CondBranch {
+        cond: valor(4),
+        then_block: BlockId(2),
+        else_block: BlockId(1),
+    };
+    assert!(verificar_tokens(&f, &c, &t, &p).is_err());
+}
+
+#[test]
 fn produtor_runtime_e_invoke_auditado_exigem_saida_de_erro() {
     let f = funcao(vec![
         bloco(
