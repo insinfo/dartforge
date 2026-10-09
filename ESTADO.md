@@ -194,6 +194,17 @@ sete doctests passaram e formatação conferida. Ainda faltam disponibilidade
 dos tokens após consumo e existência de resultados apenas no sucesso de
 `invoke`; dominância SSA não substitui essas provas.
 
+`vivacidade_classificada_com_excecoes` recebe o inventário e o plano de
+tabelas da mesma HIR preparada. Confere a forma do desvio de `invoke` e
+exige dominância da aresta de sucesso para sustentar um alias pelo resultado:
+retirar essa aresta não pode deixar o bloco do alias alcançável. Isso rejeita
+também a junção alcançada pelo pouso, mesmo quando a dominância SSA aceita.
+Teste dirigido aceita o sucesso isolado, rejeita a junção com erro e plano
+incompatível; teste do grafo cobre a diferença entre dominância de bloco e
+aresta. Suíte: 105 testes passaram, sete manuais ignorados; oito doctests
+ARC passaram. A análise continua fora da emissão; não prova consumo de
+tokens, nem disponibilidade de resultados de chamadas sem `invoke`.
+
 Na rodada remota `37896396380` sobre `719e94cc`, os quatro testes dirigidos
 de mapas também passaram, sem ignorados/filtrados, em 752 s; log do job B0
 conferido. Esta rodada ainda antecede a preparação excepcional separada.

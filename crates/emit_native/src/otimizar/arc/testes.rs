@@ -1,6 +1,70 @@
 use super::*;
 
 #[test]
+fn invoke_nao_sustenta_alias_na_juncao_do_erro() {
+    let mut f = funcao(vec![
+        bloco(
+            0,
+            vec![(
+                ValueId(10),
+                Instruction::CallStatic {
+                    symbol: "produzir".into(),
+                    args: vec![],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            )],
+            Terminator::CondBranch {
+                cond: Operand::Constant(Constant::Bool(false)),
+                then_block: BlockId(2),
+                else_block: BlockId(1),
+            },
+        ),
+        bloco(
+            1,
+            vec![(
+                ValueId(11),
+                Instruction::Bitcast {
+                    op: Operand::Val(ValueId(10)),
+                    to: Type::Ref,
+                },
+                Type::Ref,
+            )],
+            Terminator::Return(Some(Operand::Val(ValueId(11)))),
+        ),
+        bloco(2, vec![], Terminator::Return(None)),
+    ]);
+    let mut classes = classes_de_parametros();
+    classes.insert(ValueId(10), Ownership::Owned);
+    classes.insert(
+        ValueId(11),
+        Ownership::Borrowed {
+            owner: OrigemOwner::Valor(ValueId(10)),
+            escopo: 0,
+        },
+    );
+    let tabelas = TabelasDaFuncao {
+        invocacoes: HashMap::from([(ValueId(10), BlockId(2))]),
+        pousos: HashSet::from([BlockId(2)]),
+        ..Default::default()
+    };
+    assert!(vivacidade_classificada_com_excecoes(&f, &classes, &tabelas).is_ok());
+    f.blocks[2].terminator = Terminator::Branch(BlockId(1));
+    assert!(vivacidade_classificada(&f, &classes).is_ok());
+    assert!(
+        vivacidade_classificada_com_excecoes(&f, &classes, &tabelas)
+            .unwrap_err()
+            .contains("indisponível")
+    );
+    f.blocks[0].terminator = Terminator::Branch(BlockId(1));
+    assert!(
+        vivacidade_classificada_com_excecoes(&f, &classes, &tabelas)
+            .unwrap_err()
+            .contains("sem aresta de sucesso")
+    );
+}
+
+#[test]
 fn owner_em_outro_ramo_nao_sustenta_alias() {
     let f = funcao(vec![
         bloco(

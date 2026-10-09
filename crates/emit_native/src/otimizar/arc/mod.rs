@@ -10,7 +10,9 @@ use crate::hir::*;
 use std::collections::{HashMap, HashSet};
 
 mod classificacao;
-pub use classificacao::{OrigemOwner, Ownership, vivacidade_classificada};
+pub use classificacao::{
+    OrigemOwner, Ownership, vivacidade_classificada, vivacidade_classificada_com_excecoes,
+};
 
 /// Vivacidade dos valores classificados pelo chamador, só em blocos alcançáveis.
 ///

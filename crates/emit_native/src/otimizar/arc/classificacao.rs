@@ -204,3 +204,139 @@ fn conferir_dominancia(
     }
     Ok(())
 }
+
+/// Confere também que owners produzidos por `invoke` existem no caminho do alias.
+///
+/// Exige CFG/SSA válidos e o plano excepcional da mesma HIR preparada.
+/// A disponibilidade exige
+/// dominância da aresta de sucesso, inclusive quando pouso e sucesso se juntam.
+/// Não prova consumo de tokens nem resultados de chamadas sem `invoke`.
+///
+/// # Erros
+/// Retorna erro se o plano não corresponder à forma preparada, ou se um alias
+/// puder ser definido sem atravessar o sucesso de seu owner local.
+///
+/// ```
+/// use dartforge_emit_native::{hir::*, otimizar::arc::*};
+/// use std::collections::HashMap;
+/// let f = Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+///     params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
+///     id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] };
+/// vivacidade_classificada_com_excecoes(&f, &HashMap::new(), &TabelasDaFuncao::default())?;
+/// # Ok::<(), String>(())
+/// ```
+pub fn vivacidade_classificada_com_excecoes(
+    f: &Function,
+    classes: &HashMap<ValueId, Ownership>,
+    tabelas: &TabelasDaFuncao,
+) -> Result<Vivacidade, String> {
+    let v = vivacidade_classificada(f, classes)?;
+    let cfg = Cfg::novo(f);
+    let pos: HashMap<BlockId, usize> = f
+        .blocks
+        .iter()
+        .enumerate()
+        .map(|(i, b)| (b.id, i))
+        .collect();
+    let defs: HashMap<ValueId, usize> = f
+        .blocks
+        .iter()
+        .enumerate()
+        .flat_map(|(i, b)| b.instructions.iter().map(move |(v, _, _)| (*v, i)))
+        .collect();
+    let mut chamadas: Vec<_> = tabelas.invocacoes.iter().collect();
+    chamadas.sort_by_key(|(v, _)| v.0);
+    for (&call, &pouso) in chamadas {
+        let Some(&origem) = defs.get(&call) else {
+            return Err(format!(
+                "ownership em {}: invoke v{} ausente",
+                f.symbol, call.0
+            ));
+        };
+        let b = &f.blocks[origem];
+        let sucesso = match &b.terminator {
+            Terminator::CondBranch {
+                cond: Operand::Constant(Constant::Bool(false)),
+                then_block,
+                else_block,
+            } if *then_block == pouso
+                && *else_block != pouso
+                && b.instructions.last().is_some_and(|(v, _, _)| *v == call)
+                && tabelas.pousos.contains(&pouso) =>
+            {
+                pos.get(else_block).copied()
+            }
+            _ => None,
+        }
+        .ok_or_else(|| {
+            format!(
+                "ownership em {}: invoke v{} sem aresta de sucesso válida",
+                f.symbol, call.0
+            )
+        })?;
+        // Retirar a aresta distingue dominância de bloco e de resultado.
+        let sem_sucesso = alcancaveis_sem_aresta(&cfg, (origem, sucesso));
+        let mut aliases: Vec<_> = classes.iter().filter_map(|(&alias,classe)| {
+            matches!(classe, Ownership::Borrowed { owner: OrigemOwner::Valor(owner), .. } if *owner == call)
+                .then_some(alias)
+        }).collect();
+        aliases.sort_by_key(|v| v.0);
+        for alias in aliases {
+            if let Some(&bloco) = defs.get(&alias)
+                && cfg.alcancavel(bloco)
+                && sem_sucesso.contains(&bloco)
+            {
+                return Err(format!(
+                    "ARC003 em {}: v{} depende de resultado v{} indisponível no caminho excepcional",
+                    f.symbol, alias.0, call.0
+                ));
+            }
+        }
+    }
+    Ok(v)
+}
+
+fn alcancaveis_sem_aresta(cfg: &Cfg, removida: (usize, usize)) -> HashSet<usize> {
+    let mut vistos = HashSet::new();
+    let mut fila = if cfg.sucessores.is_empty() {
+        vec![]
+    } else {
+        vec![0]
+    };
+    while let Some(b) = fila.pop() {
+        if vistos.insert(b) {
+            fila.extend(
+                cfg.sucessores[b]
+                    .iter()
+                    .copied()
+                    .filter(|&s| (b, s) != removida),
+            );
+        }
+    }
+    vistos
+}
+
+#[cfg(test)]
+mod disponibilidade_testes {
+    use super::*;
+
+    #[test]
+    fn sucesso_precisa_dominar_a_juncao_mesmo_quando_seu_bloco_domina() {
+        let cfg = Cfg {
+            sucessores: vec![vec![1, 2], vec![3], vec![1], vec![]],
+            predecessores: vec![],
+            rpo: vec![],
+            idom: vec![],
+        };
+        let restantes = alcancaveis_sem_aresta(&cfg, (0, 1));
+        assert!(restantes.contains(&1) && restantes.contains(&3));
+        let cfg = Cfg {
+            sucessores: vec![vec![1, 2], vec![3], vec![], vec![]],
+            predecessores: vec![],
+            rpo: vec![],
+            idom: vec![],
+        };
+        let restantes = alcancaveis_sem_aresta(&cfg, (0, 1));
+        assert!(!restantes.contains(&1) && !restantes.contains(&3));
+    }
+}
