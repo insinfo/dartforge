@@ -245,6 +245,11 @@ ganho consistente. As 40 execuções tiveram os mesmos resultados e código
 zero; medidas, hashes e alteração de produção preservados em
 `bench/resultados/2026-10-09-arc-paginas`. O runtime voltou à versão
 anterior, mantendo a correção do overflow de geração.
+O runtime restaurado foi recompilado e conferido em release: 102 testes
+passaram, zero falhas, três microbenchmarks ignorados, com
+`DF_ARC_SEMENTES=3000` nos três modos de grafos. A CLI também foi reconstruída
+com o código restaurado; SHA-256:
+`33619EB5424E767C463DBBA4AD948F281CC369BA1BCAC31EE46D45CE43ECA3D7`.
 
 Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
 suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior
