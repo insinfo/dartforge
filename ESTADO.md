@@ -25,6 +25,11 @@ O último placar preservado do histórico (`E:\dftemp\placar_det326.txt`,
 2026-10-09 00:25) registra 22.917/23.012 na posição exata, 22.900 mensagens
 iguais, FP 0, FN 79 e 16 posições erradas. Ele antecede as duas últimas
 correções de criação por alias; ainda não é uma medição deste HEAD.
+O relatório da rodada `37896396380`, sobre `719e94cc`, atualiza o placar:
+22.920/23.012 na posição exata, 22.903 mensagens iguais, FP 0, FN 76 e
+16 posições erradas. Determinismo idêntico com 1, 4 e 8 trabalhadores;
+9.440 arquivos, 541/607 códigos com posição e mensagem 100%. Relatório
+conferido: três FN a menos que no placar anterior.
 
 ARC: o registro dos jovens protegidos percorre diretamente as raízes, em vez
 de consultar os metadados de todos os jovens. Grafos aleatórios: 3.000 sementes
@@ -107,7 +112,12 @@ A1/A0 0,991, B0/A0 0,969, B1/A0 0,952, ARC/A0 2,108 e A0/Dart 1,270,
 com todas as 378 execuções válidas e resultados iguais. Não houve ganho
 demonstrado na média ARC (antes 2,107); dados em
 `bench/resultados/2026-10-09-modos-faixas-windows/`. A validação do corpus
-nativo desta mudança segue pendente no CI.
+nativo desta mudança passou no Windows na rodada `37896396380`: ARC com
+auditoria 238/238, ARC sob `--gc-stress` 238/238 e A0 sob estresse 238/238,
+com os três relatórios conferidos. Linux x86-64 também passou AOT, A1/B0/B1
+e ARC 238/238, `dart:io` 130/130 e JIT × AOT 238/238 no placar, sem
+divergência (sete sem IR, iguais por construção); relatórios conferidos.
+macOS segue em validação.
 
 CI rápido [37887482951](https://github.com/insinfo/dartforge/actions/runs/37887482951)
 terminou com sucesso sobre `c3dd048b`, antes da junção das faixas.
@@ -117,6 +127,14 @@ terminaram com sucesso sobre `7006187e`. O Pesado
 suíte `todos`, roda sobre `719e94cc` (mesmo código de produção de `7006187e`).
 Ele repõe a rodada diária `37895158314`, cancelada pela concorrência quando
 foi feito um disparo nativo redundante; esse disparo também foi cancelado.
+
+Preparação dos donos da HIR: programa e SDK agora compartilham
+`otimizar::preparar_para_emissao`, com o modo de memória definido antes dos
+passes e tabelas de exceção materializadas por último. Isso centraliza o
+ponto de integração exigido pela especificação §18.2; ainda faltam preparação
+do CFG excepcional, inserção e verificação de ownership (§20).
+Verificação local: suíte unitária completa de `dartforge-emit-native` em
+release, 87 testes passaram, sete testes manuais ignorados.
 
 ## Situação geral (2026-10-08, fim da tarde)
 

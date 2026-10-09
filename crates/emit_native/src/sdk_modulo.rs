@@ -331,11 +331,7 @@ pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path, producao: bool) -> Result<Vec<B
         }
         // O otimizador da HIR (`otimizar/`) também no SDK: é onde fica o
         // código de `List`, `Map`, `String`… que os programas mais chamam.
-        crate::otimizar::otimizar(&mut module);
-        module.memoria_arc = memoria_arc;
-        if excecoes_por_tabelas {
-            crate::otimizar::excecoes_por_tabelas(&mut module);
-        }
+        crate::otimizar::preparar_para_emissao(&mut module, memoria_arc, excecoes_por_tabelas);
         // A DLL do SDK fica carregada o processo inteiro: os literais são
         // objetos estáticos também no JIT (docs/NATIVO-ESPACO-UNIFICADO.md §2.11).
         let ir = crate::llvm::LlvmEmitter::new(&module)

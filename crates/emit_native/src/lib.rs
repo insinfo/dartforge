@@ -449,12 +449,9 @@ fn emitir_ir_interno(
     }
     // 2b. Otimização da HIR (inlining, substituição escalar: `otimizar/`).
     let t_otimizar = Instant::now();
-    otimizar::otimizar(&mut hir_module);
-    hir_module.memoria_arc = memoria_arc;
-    // 2c. As exceções por tabelas: o último passe, sobre a HIR já otimizada.
-    if excecoes_por_tabelas {
-        otimizar::excecoes_por_tabelas(&mut hir_module);
-    }
+    // O mesmo pipeline prepara as bibliotecas do SDK e materializa tabelas
+    // somente depois das transformações da HIR.
+    otimizar::preparar_para_emissao(&mut hir_module, memoria_arc, excecoes_por_tabelas);
     if options.timings {
         eprintln!("  HIR:       baixar {:?}, otimizar {:?}", t_otimizar.duration_since(t_hir), t_otimizar.elapsed());
     }

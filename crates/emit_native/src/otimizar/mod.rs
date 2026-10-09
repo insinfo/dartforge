@@ -30,6 +30,18 @@ mod testes;
 use crate::hir::*;
 use std::collections::HashMap;
 
+/// Prepara programa e bibliotecas do SDK pelo mesmo pipeline de emissão.
+/// O modelo de memória fica definido antes dos passes; a materialização das
+/// exceções permanece por último, pois seus IDs descrevem a HIR final.
+/// A inserção de owners ARC ainda não faz parte deste pipeline (§20).
+pub(crate) fn preparar_para_emissao(module: &mut Module, memoria_arc: bool, por_tabelas: bool) {
+    module.memoria_arc = memoria_arc;
+    otimizar(module);
+    if por_tabelas {
+        excecoes_por_tabelas(module);
+    }
+}
+
 /// Os passes desligados pelo ambiente?
 fn desligado() -> bool {
     std::env::var("DARTFORGE_OTIMIZAR_HIR").is_ok_and(|v| v == "0")

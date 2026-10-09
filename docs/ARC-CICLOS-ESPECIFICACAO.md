@@ -614,7 +614,7 @@ números de linha que mudam.
 | --- | --- |
 | `crates/cli/src/nativo.rs` | Nos parsers de `aot` e `run_compile_native`, reconhecer as duas formas de `--memoria`; validar valor e combinações antes de compilar o SDK. Usar `definir_modelo_de_excecoes` e `definir_modo_de_raizes` como referência de integração, não como razão para reler ambiente em cada passe. |
 | `crates/emit_native/src/alvo.rs`, `context.rs`, `hir.rs` | Criar `ModoMemoria { Tracing, Arc }`, ler a seleção uma vez e transportá-la no contexto/módulo. Registrar versão da ABI e configuração de raízes/exceções. |
-| `crates/emit_native/src/lib.rs`, `sdk_modulo.rs` | Aplicar o mesmo pipeline ARC ao programa e ao SDK; hoje ambos chamam `otimizar` e depois `excecoes_por_tabelas`. Centralizar essa sequência para impedir divergência. |
+| `crates/emit_native/src/lib.rs`, `sdk_modulo.rs` | Ambos usam `otimizar::preparar_para_emissao`, que define o modo de memória, otimiza e materializa as tabelas por último. Integrar a preparação excepcional, a inserção e a verificação ARC (§20) neste pipeline comum. |
 | `crates/emit_native/src/hir.rs` | Acrescentar ownership, origem de ponteiros, operações ARC, extensão de vida e saídas excepcionais explícitas (§20). |
 | `crates/emit_native/src/lower/{mod,fn_builder,comandos,closures,async_sm,literais,membros}.rs` | Preservar classificação de referências, locais, capturas, globais, `Finalizable`, estado suspenso e destinos de erro antes da análise de ownership. |
 | `crates/emit_native/src/otimizar/{mod,operandos,cfg,tabelas}.rs` | Atualizar visitantes/CFG e separar preparação de exceções de sua emissão; inserir e verificar ARC, sem tratar operações de contador como instruções puras. |
