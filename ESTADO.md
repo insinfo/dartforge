@@ -180,7 +180,13 @@ conferido. Esta rodada ainda antecede a preparação excepcional separada.
 Relatórios adicionais conferidos nesta rodada: Windows A1/B0/B1 com e sem
 estresse, todos 238/238; `dart:io` Windows 130/130; JIT × AOT com SDK da
 fonte 238/238 no placar, zero divergências (sete sem IR, iguais por
-construção). Apenas o job macOS ainda executa o corpus AOT e JIT × AOT.
+construção). A rodada terminou com sucesso em todos os jobs. macOS: AOT,
+A1/B0/B1 e ARC 238/238, `dart:io` 130/130 e JIT × AOT 238/238 no placar,
+zero divergências (sete sem IR, iguais por construção); relatórios conferidos.
+Nova rodada [37902293030](https://github.com/insinfo/dartforge/actions/runs/37902293030),
+suíte `nativo`, disparada sobre `8b4b79b8`, para validar a preparação
+excepcional separada e as análises novas nas plataformas do CI. Nenhuma
+rodada Pesado estava ativa no disparo. As análises ARC seguem fora da emissão.
 
 ## Situação geral (2026-10-08, fim da tarde)
 
