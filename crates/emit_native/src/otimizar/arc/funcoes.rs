@@ -66,6 +66,59 @@ pub fn inserir_arc_funcoes_dart(
     funcoes: &mut [Function],
     planos: &mut HashMap<String, PlanoFuncaoDart>,
 ) -> Result<(usize, usize), String> {
+    inserir(funcoes, planos, false)
+}
+
+/// Prepara invokes ausentes e insere ARC num conjunto fechado de funções Dart.
+///
+/// Chamadas diretas falíveis sem pouso fornecido ganham uma continuação
+/// normal e um pouso que libera owners e propaga a exceção por Lanca.
+/// Um sítio já preparado conserva seu tratador. Phis e limites lexicais
+/// seguem o terminador original; a saída excepcional fecha os escopos ativos.
+/// Conferência de pendência logo após chamada exige sítio preparado, pois
+/// seu desvio pode representar catch/finally que não pode ser omitido.
+/// Não cria catch/finally nem fecha quadros proprietários abertos: esses
+/// protocolos precisam de cleanup explícito. Também não cobre dispatch
+/// indireto, cancelamento, suspensão ou classificação semântica do lowering.
+/// Conferência de pilha por quadros de raízes calculados por vivacidade
+/// exige a marca `tabelas.confere_pilha` enquanto não integrar esse inventário.
+/// Os demais contratos são os de [`inserir_arc_funcoes_dart`].
+/// Retorna (retenções de retorno, liberações nas saídas).
+///
+/// # Erros
+/// CFG/SSA ou limites inválidos, IDs esgotados ou qualquer erro de produção
+/// e verificação ARC. Nenhum corpo ou plano é publicado em caso de erro.
+///
+/// ```
+/// use dartforge_emit_native::{hir::*, otimizar::arc::*};
+/// use std::collections::HashMap;
+/// let folha = Function { symbol: "folha".into(), name: "folha".into(), depuracao: None,
+///     params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
+///     id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] };
+/// let mut caller = folha.clone();
+/// caller.symbol = "caller".into();
+/// caller.blocks[0].instructions.push((ValueId(0), Instruction::CallStatic {
+///     symbol: "folha".into(), args: vec![], ret_ty: Type::Void }, Type::Void));
+/// let mut p = PlanoFuncaoDart::default();
+/// p.tabelas.confere_pilha = true;
+/// let mut planos = HashMap::from([("folha".into(), p),
+///     ("caller".into(), PlanoFuncaoDart::default())]);
+/// preparar_arc_funcoes_dart(&mut [caller, folha], &mut planos)?;
+/// assert_eq!(planos["caller"].tabelas.invocacoes.len(), 1);
+/// # Ok::<(), String>(())
+/// ```
+pub fn preparar_arc_funcoes_dart(
+    funcoes: &mut [Function],
+    planos: &mut HashMap<String, PlanoFuncaoDart>,
+) -> Result<(usize, usize), String> {
+    inserir(funcoes, planos, true)
+}
+
+fn inserir(
+    funcoes: &mut [Function],
+    planos: &mut HashMap<String, PlanoFuncaoDart>,
+    preparar_chamadas: bool,
+) -> Result<(usize, usize), String> {
     let mut simbolos = HashSet::new();
     for f in funcoes.iter() {
         if !simbolos.insert(f.symbol.clone()) {
@@ -111,13 +164,18 @@ pub fn inserir_arc_funcoes_dart(
             }
         }
     }
+    let mut novos_planos = planos.clone();
+    if preparar_chamadas {
+        for f in &mut modulo.functions {
+            super::invocacoes::preparar(f, novos_planos.get_mut(&f.symbol).unwrap(), &nao_lancam)?;
+        }
+    }
     let resumos: Vec<_> = modulo
         .functions
         .iter()
         .map(|f| super::chamadas::resumo_provisorio(f, !nao_lancam.contains(&f.symbol)))
         .collect();
     let indice = super::chamadas::IndiceFuncoesDart::novo(&resumos)?;
-    let mut novos_planos = planos.clone();
     let mut total = (0, 0);
     for f in &mut modulo.functions {
         let novo = novos_planos.get_mut(&f.symbol).unwrap();

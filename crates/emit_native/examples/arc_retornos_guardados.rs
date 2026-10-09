@@ -1,4 +1,6 @@
 //! Prova AOT de retorno Guarda, cleanup e unwind entre duas funções Dart.
+//! O argumento final `automatico` acrescenta um propagador cujo invoke,
+//! pouso, fechamento léxico e cleanup são gerados pela preparação ARC.
 //! Não observa morte final nem certifica o restante do pipeline ARC.
 
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*};
@@ -9,6 +11,7 @@ fn main() -> Result<(), String> {
     let saida = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
     let arc = args.next().as_deref() != Some("tracing");
     let lancar = args.next().as_deref() == Some("erro");
+    let automatico = args.next().as_deref() == Some("automatico");
     let val = |v| Operand::Val(ValueId(v));
     let runtime = |name: &str, args, ret_ty| Instruction::CallRuntime {
         name: name.into(),
@@ -41,7 +44,12 @@ fn main() -> Result<(), String> {
                     (
                         ValueId(1),
                         Instruction::CallStatic {
-                            symbol: "retorno_guardado".into(),
+                            symbol: if automatico {
+                                "propagador"
+                            } else {
+                                "retorno_guardado"
+                            }
+                            .into(),
                             args: vec![val(0)],
                             ret_ty: Type::Ref,
                         },
@@ -155,10 +163,55 @@ fn main() -> Result<(), String> {
         ("prova_guardas".into(), caller),
         ("retorno_guardado".into(), callee),
     ]);
-    let inseridos = inserir_arc_funcoes_dart(&mut modulo.functions, &mut planos)?;
-    if inseridos != (1, 3) {
+    if automatico {
+        modulo.functions.push(Function {
+            symbol: "propagador".into(),
+            name: "propagador".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "x".into(), Type::Ref)],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![
+                    (
+                        ValueId(1),
+                        Instruction::ArcCopy { value: val(0) },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(2),
+                        Instruction::CallStatic {
+                            symbol: "retorno_guardado".into(),
+                            args: vec![val(1)],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    ),
+                ],
+                terminator: Terminator::Return(Some(val(2))),
+            }],
+        });
+        let mut propagador = PlanoFuncaoDart::default();
+        propagador.tokens.retorno = RetornoTokens::Owned;
+        propagador
+            .escopos
+            .antes
+            .insert(ValueId(2), vec![AlteracaoEscopo::Abrir(7)]);
+        propagador
+            .escopos
+            .saidas
+            .insert(BlockId(0), vec![AlteracaoEscopo::Fechar(7)]);
+        planos.insert("propagador".into(), propagador);
+    }
+    let inseridos = if automatico {
+        preparar_arc_funcoes_dart(&mut modulo.functions, &mut planos)?
+    } else {
+        inserir_arc_funcoes_dart(&mut modulo.functions, &mut planos)?
+    };
+    let esperado = if automatico { (1, 5) } else { (1, 3) };
+    if inseridos != esperado {
         return Err(format!(
-            "inserção esperada (1, 3), encontrada {inseridos:?}"
+            "inserção esperada {esperado:?}, encontrada {inseridos:?}"
         ));
     }
     modulo.tabelas = modulo

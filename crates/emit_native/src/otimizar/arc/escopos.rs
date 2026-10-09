@@ -139,7 +139,30 @@ pub fn verificar_escopos(
     classes: &HashMap<ValueId, Ownership>,
     plano: &PlanoEscopos,
 ) -> Result<(), String> {
-    vivacidade_classificada(f, classes)?;
+    analisar(f, Some(classes), plano).map(|_| ())
+}
+
+/// Reconstrói pilhas léxicas nos sítios de chamada sem inventar classes de
+/// ownership. A verificação dos usos borrowed continua no passe completo.
+pub(super) fn pilhas_nas_chamadas(
+    f: &Function,
+    plano: &PlanoEscopos,
+) -> Result<HashMap<ValueId, Vec<u32>>, String> {
+    analisar(f, None, plano)
+}
+
+fn analisar(
+    f: &Function,
+    classes: Option<&HashMap<ValueId, Ownership>>,
+    plano: &PlanoEscopos,
+) -> Result<HashMap<ValueId, Vec<u32>>, String> {
+    if let Some(classes) = classes {
+        vivacidade_classificada(f, classes)?;
+    }
+    let conferir_valor = |v: ValueId, pilha: &[u32]| {
+        classes.map_or(Ok(()), |classes| conferir(v, classes, pilha))
+    };
+    let mut pilhas = HashMap::new();
     let cfg = Cfg::novo(f);
     let pos: HashMap<_, _> = f
         .blocks
@@ -182,10 +205,10 @@ pub fn verificar_escopos(
         }
     }
     for (v, _, _) in &f.params {
-        conferir(*v, classes, &[0]).map_err(|m| erro("parâmetro".into(), m))?;
+        conferir_valor(*v, &[0]).map_err(|m| erro("parâmetro".into(), m))?;
     }
     if f.blocks.is_empty() {
-        return Ok(());
+        return Ok(pilhas);
     }
     let mut entradas: Vec<Option<Vec<u32>>> = vec![None; f.blocks.len()];
     let mut pais = vec![None; f.blocks.len()];
@@ -198,7 +221,10 @@ pub fn verificar_escopos(
         for (v, inst, _) in &b.instructions {
             alterar(&mut pilha, plano.antes.get(v).map_or(&[], Vec::as_slice))
                 .map_err(|m| erro_no_fluxo(f, &pais, i, None, ponto(*v), m))?;
-            conferir(*v, classes, &pilha)
+            if classes.is_none() && matches!(inst, Instruction::CallStatic { .. }) {
+                pilhas.insert(*v, pilha.clone());
+            }
+            conferir_valor(*v, &pilha)
                 .map_err(|m| erro_no_fluxo(f, &pais, i, None, ponto(*v), m))?;
             if !matches!(inst, Instruction::Phi { .. }) {
                 let mut invalido = None;
@@ -206,7 +232,7 @@ pub fn verificar_escopos(
                     if invalido.is_none()
                         && let Operand::Val(v) = o
                     {
-                        invalido = conferir(*v, classes, &pilha).err();
+                        invalido = conferir_valor(*v, &pilha).err();
                     }
                 });
                 if let Some(m) = invalido {
@@ -224,7 +250,7 @@ pub fn verificar_escopos(
             if invalido.is_none()
                 && let Operand::Val(v) = o
             {
-                invalido = conferir(*v, classes, &pilha).err();
+                invalido = conferir_valor(*v, &pilha).err();
             }
         });
         if let Some(m) = invalido {
@@ -265,7 +291,7 @@ pub fn verificar_escopos(
                         if *de == b.id
                             && let Operand::Val(v) = o
                         {
-                            conferir(*v, classes, &proxima).map_err(|m| {
+                            conferir_valor(*v, &proxima).map_err(|m| {
                                 erro_no_fluxo(f, &pais, i, Some(s), ponto.clone(), m)
                             })?;
                         }
@@ -295,7 +321,7 @@ pub fn verificar_escopos(
             }
         }
     }
-    Ok(())
+    Ok(pilhas)
 }
 
 #[cfg(test)]

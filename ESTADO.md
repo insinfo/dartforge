@@ -2,6 +2,30 @@
 
 ## Retomada de 2026-10-09
 
+Preparação automática de chamadas Dart: nova API
+`preparar_arc_funcoes_dart` cria invoke, continuação normal e pouso local
+para chamadas diretas falíveis sem sítio prévio. O pouso libera exatamente
+os tokens disponíveis, fecha escopos léxicos ativos e propaga via Lanca.
+Sítios existentes preservam seus tratadores; Phis e eventos em arestas
+seguem o último segmento do bloco original. A transação cobre todos os
+corpos/planos, inclusive falhas depois de divisões anteriores. Conferência
+de pendência logo após chamada exige sítio já preparado para não omitir
+catch/finally. A API estrita anterior mantém seu contrato.
+Passaram 92 testes ARC, 39 LLVM e 46 doctests. Nova variante `automatico`
+da prova Guarda adiciona um propagador sem classes/efeitos/invokes/pousos
+manuais, com escopo 7 e token local independente. Quatro AOT ARC/tracing
+normal/erro sob auditoria e stress passaram: normal imprime i64::MAX;
+erro executa o pouso gerado, libera seu token e alcança o tratador externo.
+O conjunto insere (1 retenção, 5 drops nos caminhos compilados). Artefatos
+em `bench/resultados/2026-10-09-arc-invokes-automaticos-aot`; logs
+`target/ownership-invokes-*`. O tratador externo continua explícito.
+Esta prova não certifica resume nativo/identidade do objeto de unwind/rastro
+em todas as plataformas (§20.4), morte final, ausência geral de vazamentos
+ou ganho de runtime. Quadros proprietários abertos exigem cleanup explícito;
+contexto por vivacidade, finally/dispatch indireto/cancelamento/suspensão e
+integração no pipeline padrão continuam pendentes. O objetivo ARC completo
+e o gate ARC/A0 permanecem abertos.
+
 Resumos ARC agora compartilham com LLVM a decisão de contexto explícito:
 leitura/limpeza de pendência, operações em linha que usam contexto,
 pousos e marcas nas tabelas implicam conferência de pilha no prólogo.

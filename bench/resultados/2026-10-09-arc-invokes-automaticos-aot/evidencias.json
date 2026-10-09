@@ -1,0 +1,50 @@
+{
+  "base_commit": "5f4778c45a541a4029cf57decf07e62067dfb81c",
+  "exemplo": "crates/emit_native/examples/arc_retornos_guardados.rs",
+  "exemplo_sha256": "093133c20c974df6c248cdde53834af5b827f4e3e965c93e893b0f24d5cbe6cf",
+  "variante": "automatico",
+  "flags": {
+    "DARTFORGE_ARC_CONFERIR": "1",
+    "DARTFORGE_ARC_BERCARIO": "0",
+    "DARTFORGE_GC_STRESS": "1"
+  },
+  "retencoes_inseridas": 1,
+  "drops_inseridos": 5,
+  "execucoes": [
+    {
+      "modo": "arc",
+      "caminho": "normal",
+      "exit_code": 0,
+      "llvm_sha256": "147d8a48f3d2c862ed5d06b390a80887d44860e9f4322546947a116e2515d28e",
+      "stdout_sha256": "d5f7e3691ebca6211405f11ae88a1b1899d315a91695bd48fbb2de5ab4ce063f"
+    },
+    {
+      "modo": "arc",
+      "caminho": "erro",
+      "exit_code": 0,
+      "llvm_sha256": "6af1a384023c936bb2f9c0a221e8b7d6c392f21773e013a91aac0785a458e5bf",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "modo": "tracing",
+      "caminho": "normal",
+      "exit_code": 0,
+      "llvm_sha256": "0bca093ab48bfc22e8272c53bbec227284fbdfecfa5a707fff4b594885c78a03",
+      "stdout_sha256": "d5f7e3691ebca6211405f11ae88a1b1899d315a91695bd48fbb2de5ab4ce063f"
+    },
+    {
+      "modo": "tracing",
+      "caminho": "erro",
+      "exit_code": 0,
+      "llvm_sha256": "4457d554796e4a2255521801a2c3a028a83b0772ea8223e1094b15999f8da27a",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "limites": [
+    "HIR construída na prova, sem pipeline padrão",
+    "tratador externo ainda fornecido explicitamente",
+    "propagação por SaidaPorExcecao::Lanca/df.lancar, sem certificar resume nativo da especificação",
+    "não observa morte final nem ausência geral de vazamentos",
+    "sem medição de desempenho"
+  ]
+}
