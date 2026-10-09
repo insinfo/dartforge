@@ -274,6 +274,25 @@ A1/A0 0,991, B0/A0 0,969, B1/A0 0,952, A0/Dart 1,270; todas as 378
 execuções válidas e iguais. [Dados da rodada completa](../bench/resultados/2026-10-09-modos-faixas-windows/README.md).
 A validação do corpus nativo desta mudança continua pendente no CI.
 
+### 6.3 Quadros proprietários explícitos (2026-10-09)
+
+`Heap::push_frame_proprietario` abre slots contados: `set_root` retém a
+cópia antes de soltar a referência anterior; `root` conta cada ocorrência
+adicionada e `pop_frame` solta todas. A ativação do ARC e a promoção dos
+jovens reconstroem essas ocorrências com multiplicidade. A auditoria recebe
+os slots proprietários; o percurso de alcance visita ambos os tipos.
+
+Os quadros existentes continuam observacionais, inclusive os usados pelo
+código gerado. A distinção é explícita por quadro, como exige §21.3; ainda
+falta migrar os owners temporários de Rust, fornecer movimento de resultados
+owned e integrar a HIR. Isso não conclui o contrato de ownership.
+
+Três testes dirigidos cobrem cópias, substituição, mesma referência, Smi,
+ativação tardia, promoção, raízes observacionais e ciclos com arestas fortes,
+nos modos puro e berçário. Suíte release do runtime: 105 aprovados, zero
+falhas, três microbenchmarks ignorados. Exemplo público aprovado em doctest.
+O CI nativo `37908897460` antecede esta mudança; não a valida.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais

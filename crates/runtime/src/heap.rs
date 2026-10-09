@@ -1384,7 +1384,8 @@ impl Agenda {
 
 #[derive(Debug)]
 pub struct Heap {
-    frames: Vec<(i64, Vec<i64>)>,
+    /// Identificador, slots e categoria: `true` conta cada ocorrência no ARC.
+    frames: Vec<(i64, Vec<i64>, bool)>,
     next_frame: i64,
     allocations: usize,
     stress: bool,
@@ -1778,23 +1779,54 @@ impl Heap {
             .checked_add(slots)
             .expect("slots excedem usize");
         self.stats.peak_root_slots = self.stats.peak_root_slots.max(self.stats.root_slots);
-        self.frames.push((id, vec![0; slots]));
+        self.frames.push((id, vec![0; slots], false));
         id
     }
-    /// Substitui a raiz do slot; zero libera a referência anteriormente retida.
+    /// Abre slots proprietários: cópia retém e fechamento solta no ARC.
+    /// Quadros observacionais devem continuar usando `push_frame_with_slots`.
+    ///
+    /// # Panics
+    /// O identificador ou a soma dos slots se esgotou.
+    ///
+    /// ```
+    /// use dartforge_runtime::heap::Heap;
+    /// let mut heap = Heap::new(false);
+    /// let frame = heap.push_frame_proprietario(1);
+    /// heap.set_root(frame, 0, 0);
+    /// heap.pop_frame(frame);
+    /// ```
+    pub fn push_frame_proprietario(&mut self, slots: usize) -> i64 {
+        let id = self.push_frame_with_slots(slots);
+        self.frames.last_mut().unwrap().2 = true;
+        id
+    }
+
+    fn raizes_proprietarias(&self) -> Vec<Ref> {
+        self.frames.iter().filter(|(_, _, dono)| *dono)
+            .flat_map(|(_, slots, _)| slots.iter().copied()).collect()
+    }
+
+    /// Retém antes de soltar, sem coleta nem chamada Dart entre as operações.
+    fn arc_trocar_raiz_proprietaria(&mut self, novo: Ref, antigo: Ref) {
+        if novo == antigo { return; }
+        let Some(mut arc) = self.arc.take() else { return };
+        self.arc_reter_registrando(&mut arc, novo);
+        arc.estado.soltar(antigo).unwrap_or_else(|e| falha_do_arc(e));
+        self.arc = Some(arc);
+    }
+
+    /// Copia a raiz para o slot; zero remove a referência anterior.
+    /// Num quadro proprietário, retém a nova ocorrência antes de soltar a antiga.
     /// Um `Smi` ocupa o slot como qualquer `Ref`, mas o coletor não o segue.
     pub fn set_root(&mut self, frame: i64, slot: usize, handle: i64) {
         if smi::e_handle(handle) {
             self.conferir_vivo(handle);
         }
-        let roots = &mut self
-            .frames
-            .iter_mut()
-            .rev()
-            .find(|(id, _)| *id == frame)
-            .expect("frame inexistente")
-            .1;
-        let previous = roots.get_mut(slot).expect("slot de raiz inválido");
+        let indice = self.frames.iter().rposition(|(id, _, _)| *id == frame)
+            .expect("frame inexistente");
+        let antigo = *self.frames[indice].1.get(slot).expect("slot de raiz inválido");
+        if self.frames[indice].2 { self.arc_trocar_raiz_proprietaria(handle, antigo); }
+        let previous = &mut self.frames[indice].1[slot];
         self.stats.live_roots -= usize::from(*previous != 0);
         self.stats.live_roots += usize::from(handle != 0);
         *previous = handle;
@@ -1806,13 +1838,10 @@ impl Heap {
             return;
         }
         self.conferir_vivo(handle);
-        self.frames
-            .iter_mut()
-            .rev()
-            .find(|(id, _)| *id == frame)
-            .expect("frame inexistente")
-            .1
-            .push(handle);
+        let indice = self.frames.iter().rposition(|(id, _, _)| *id == frame)
+            .expect("frame inexistente");
+        if self.frames[indice].2 { self.arc_trocar_raiz_proprietaria(handle, 0); }
+        self.frames[indice].1.push(handle);
         self.stats.live_roots += 1;
         self.stats.root_slots += 1;
         self.stats.peak_roots = self.stats.peak_roots.max(self.stats.live_roots);
@@ -1820,8 +1849,11 @@ impl Heap {
     }
     /// Fecha exatamente o frame do topo, sem coletar entre retorno e raiz do chamador.
     pub fn pop_frame(&mut self, frame: i64) {
-        assert_eq!(self.frames.last().map(|(id, _)| *id), Some(frame));
-        let (_, roots) = self.frames.pop().unwrap();
+        assert_eq!(self.frames.last().map(|(id, _, _)| *id), Some(frame));
+        let (_, roots, proprietario) = self.frames.pop().unwrap();
+        if proprietario {
+            for &h in &roots { self.arc_trocar_raiz_proprietaria(0, h); }
+        }
         self.stats.root_slots -= roots.len();
         self.stats.live_roots -= roots.iter().filter(|handle| **handle != 0).count();
     }
@@ -2517,7 +2549,7 @@ impl Heap {
                 destino.push(acao);
             }
         }
-        destino.extend(self.frames.iter().flat_map(|(_, roots)| roots.iter().copied()));
+        destino.extend(self.frames.iter().flat_map(|(_, roots, _)| roots.iter().copied()));
         visitar_quadros(|h| destino.push(h));
         let dos_mapas = destino.len();
         visitar_quadros_por_mapas(|h| destino.push(h));
@@ -2608,7 +2640,7 @@ impl Heap {
         self.stats.roots_scanned += self
             .frames
             .iter()
-            .map(|(_, roots)| roots.len() as u64)
+            .map(|(_, roots, _)| roots.len() as u64)
             .sum::<u64>();
         if !menor {
             self.objetos.limpar_marcas();
@@ -4331,8 +4363,8 @@ mod espaco_unificado {
 
 /// O estado do ARC no heap (docs/ARC-IMPLEMENTACAO.md, sobre
 /// docs/ARC-CICLOS-ESPECIFICACAO.md §19 e §22): o RC das ocorrências fortes
-/// entre objetos velhos, com as raízes adiadas (vistas na sincronização, não
-/// contadas) e os jovens pela coleta menor de sempre até a promoção.
+/// entre objetos velhos e nos slots proprietários. Raízes observacionais são
+/// vistas na sincronização, sem contar RC; jovens usam coleta menor até promoção.
 pub struct ArcDoHeap {
     pub estado: crate::arc::EstadoDoArc,
     /// Os velhos entregues crus nesta época ([`Heap::palavras_mut`],
@@ -4628,7 +4660,8 @@ impl Heap {
 
     /// Liga o ARC (`dartforge_memoria_arc_v1`, na entrada do programa): uma
     /// coleta completa por rastreamento e o registro de todo vivo com o RC
-    /// das ocorrências que chegam a ele (as raízes não contam).
+    /// das ocorrências que chegam a ele, incluindo slots proprietários.
+    /// Raízes observacionais apenas protegem os objetos que veem.
     pub fn ativar_arc(&mut self) {
         if self.arc.is_some() {
             return;
@@ -4665,6 +4698,9 @@ impl Heap {
                 arc.estado.reter(v).unwrap_or_else(|e| falha_do_arc(e));
                 arc.efemeros.inserir(p, k, v);
             }
+        }
+        for h in self.raizes_proprietarias() {
+            self.arc_reter_registrando(&mut arc, h);
         }
         for &x in &alcancados {
             arc.estado.revisar(x);
@@ -4773,6 +4809,11 @@ impl Heap {
         for &h in &promovidos {
             arc.estado.registrar_vivo_em(h, geometria_arc(&self.objetos, h));
         }
+        // A promoção reconstruiu RC; repõe cada ocorrência proprietária,
+        // sem reter novamente os owners dos objetos que já eram velhos.
+        for h in self.raizes_proprietarias() {
+            if novos.contains(&h) { self.arc_reter_registrando(&mut arc, h); }
+        }
         let mut valores = Vec::new();
         let mut soltar: Vec<Ref> = Vec::new();
         for &h in &promovidos {
@@ -4836,7 +4877,8 @@ impl Heap {
         for &h in &promovidos {
             arc.estado.revisar(h);
         }
-        // As raízes não contam: protegem os zeros que veem.
+        // Todas as raízes protegem os zeros que veem; os slots proprietários
+        // já tiveram suas ocorrências incluídas no RC.
         let mut raizes = Vec::new();
         self.raizes(&mut raizes);
         let raizes: crate::hash::HashSet<Ref> = raizes.into_iter().filter(|&h| smi::e_handle(h)).collect();
@@ -4971,9 +5013,9 @@ impl Heap {
     /// 6. a memória: os jovens mortos pela varredura dos jovens (sem marca),
     ///    os mortos pelo RC um a um.
     ///
-    /// As raízes não contam: a pilha-sombra (ou os mapas), os quadros do
-    /// runtime e as tabelas de raízes protegem o que veem diretamente. O que
-    /// só um objeto vê tem a ocorrência contada.
+    /// A pilha-sombra (ou os mapas), os quadros observacionais do runtime e
+    /// as tabelas de raízes protegem o que veem diretamente, sem contar RC.
+    /// Slots proprietários e arestas fortes de objetos contam ocorrências.
     fn drenar_arc(&mut self, completa: bool) {
         conferir_coleta_permitida();
         let inicio = std::time::Instant::now();
@@ -5332,8 +5374,9 @@ impl Heap {
             });
         }
         let ArcDoHeap { estado, efemeros, .. } = arc;
+        let proprietarias = self.raizes_proprietarias();
         let grafo = GrafoDoHeap { heap: self, efemeros };
-        if let Err(e) = estado.auditar(&grafo, &[]) {
+        if let Err(e) = estado.auditar(&grafo, &proprietarias) {
             if let crate::arc::ErroArc::Auditoria { handle, .. } = e {
                 panic!("bug do ARC: {e:?} (cid {})", grafo.heap.cabecalho(handle).class_id);
             }
@@ -5364,6 +5407,78 @@ mod arc_no_heap {
 
     fn vivo(heap: &Heap, h: Ref) -> bool {
         heap.arc.as_ref().unwrap().estado.vivo(h)
+    }
+
+    #[test]
+    fn quadros_proprietarios_contam_copias_trocas_e_promocao() {
+        for puro in [true, false] {
+            let mut heap = heap_arc();
+            heap.arc.as_mut().unwrap().puro = puro;
+            let dono = heap.push_frame_proprietario(2);
+            let observador = heap.push_frame_with_slots(1);
+            let a = lista(&mut heap, 0);
+            heap.set_root(dono, 0, a);
+            heap.set_root(dono, 1, a);
+            heap.set_root(observador, 0, a);
+            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 2);
+            heap.set_root(dono, 0, a);
+            for _ in 0..2 {
+                heap.coletar(true);
+                assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 2);
+            }
+            let b = lista(&mut heap, 0);
+            heap.set_root(dono, 0, b);
+            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 1);
+            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(b).unwrap().rc, 1);
+            heap.set_root(dono, 1, 0);
+            heap.coletar(true);
+            assert!(vivo(&heap, a), "a raiz observacional ainda protege o zero");
+            heap.pop_frame(observador);
+            heap.pop_frame(dono);
+            heap.collect();
+            assert!(!vivo(&heap, a) && !vivo(&heap, b));
+        }
+    }
+
+    #[test]
+    fn proprietarios_e_arestas_fortes_contam_ocorrencias_distintas() {
+        for puro in [true, false] {
+            let mut heap = heap_arc();
+            heap.arc.as_mut().unwrap().puro = puro;
+            let quadro = heap.push_frame_proprietario(1);
+            let a = lista(&mut heap, 1);
+            heap.set_root(quadro, 0, a);
+            let b = lista(&mut heap, 1);
+            heap.root(quadro, b);
+            heap.gravar_ref(a, 1, b);
+            heap.gravar_ref(b, 1, a);
+            heap.collect();
+            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 2);
+            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(b).unwrap().rc, 2);
+            heap.set_root(quadro, 0, smi::de(7).unwrap());
+            heap.collect();
+            assert!(vivo(&heap, a) && vivo(&heap, b));
+            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 1);
+            heap.pop_frame(quadro);
+            heap.collect();
+            assert!(!vivo(&heap, a) && !vivo(&heap, b));
+        }
+    }
+
+    #[test]
+    fn ativacao_arc_conta_quadros_proprietarios_ja_abertos() {
+        let mut heap = Heap::new(false);
+        let quadro = heap.push_frame_proprietario(0);
+        let a = lista(&mut heap, 0);
+        heap.root(quadro, a);
+        heap.root(quadro, a);
+        heap.ativar_arc();
+        heap.arc.as_mut().unwrap().conferir = true;
+        assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 2);
+        heap.collect();
+        heap.pop_frame(quadro);
+        heap.collect();
+        assert!(!vivo(&heap, a));
     }
 
     #[test]
