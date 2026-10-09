@@ -1359,6 +1359,18 @@ produção automática dele, cobertura de todas as formas de conferência,
 remoção da representação sintética antiga dos testes runtime, integração da
 prova AOT e inserção geral de cleanup continuam pendentes.
 
+O produtor de contratos agora reconhece o sufixo explícito auditado de
+pendência e gera PlanoTokens.pendencias a partir da aresta then de erro.
+Reconhecimento usa a mesma checagem estrutural do verificador; não cria CFG,
+invoke nem pouso LLVM. Mapa prévio com erro diferente é recusado antes de
+publicar classes/efeitos. A regressão de impressão/cleanup passou sem cadastro
+manual do mapa, e o conflito preservou as três entradas. Quarenta e sete
+testes ARC aprovados (`target/ownership-pendencias-produtor-test-final.log`),
+assim como 36 exemplos públicos (`target/ownership-pendencias-produtor-doc.log`).
+Formas não reconhecidas não recebem mapa implícito e continuam recusadas na
+verificação completa quando pode_falhar não tem saída. Demais formas de
+conferência, testes runtime sintéticos e integração AOT continuam pendentes.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

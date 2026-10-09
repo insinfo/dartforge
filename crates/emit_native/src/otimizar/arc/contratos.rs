@@ -56,6 +56,8 @@ pub fn produzir_e_verificar_tokens(
 /// Aplica as alterações apenas depois de conferir todas as chamadas. Parâmetros,
 /// operações ordinárias e chamadas Dart exigem metadados de outros produtores.
 /// Retorna os contratos para análise posterior de retenção/invalidação.
+/// Reconhece conferência explícita de pendência no fim do bloco e produz
+/// o mapa de saídas runtime; formas não reconhecidas exigem outro produtor.
 /// Confere tipos SSA dos argumentos, mas não sua dominância/proveniência.
 /// Não insere contadores nem limpa escopos.
 ///
@@ -354,7 +356,25 @@ fn produzir(
             contratos.insert(*v, c);
         }
     }
+    let mut pendencias = HashMap::new();
+    for b in &f.blocks {
+        if let Terminator::CondBranch { then_block, .. } = &b.terminator
+            && let Some((call, _, _)) = b
+                .instructions
+                .len()
+                .checked_sub(3)
+                .map(|i| &b.instructions[i])
+            && contratos.get(call).is_some_and(|c| c.efeito.pode_falhar)
+            && super::classificacao::conferir_pendencia(b, *call, *then_block).is_some()
+        {
+            if plano.pendencias.get(call).is_some_and(|p| p != then_block) {
+                return Err(format!("v{}: saída pending conflita com CFG", call.0));
+            }
+            pendencias.insert(*call, *then_block);
+        }
+    }
     classes.extend(fixas);
+    plano.pendencias.extend(pendencias);
     plano.instrucoes.extend(efeitos_puros);
     for (v, c) in &contratos {
         classes.insert(*v, c.resultado);

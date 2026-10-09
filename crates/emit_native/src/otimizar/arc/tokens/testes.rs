@@ -138,8 +138,14 @@ fn pending_runtime_confere_cleanup_sem_pouso_llvm() {
     ]);
     let mut c = classes(&[], &[]);
     let mut p = PlanoTokens::default();
-    p.pendencias.insert(ValueId(2), BlockId(1));
     let t = TabelasDaFuncao::default();
+    p.pendencias.insert(ValueId(2), BlockId(2));
+    let antes = c.clone();
+    assert!(super::super::produzir_contratos_arc(&f, &mut c, &mut p).is_err());
+    assert_eq!(c, antes);
+    assert!(p.instrucoes.is_empty());
+    assert_eq!(p.pendencias[&ValueId(2)], BlockId(2));
+    p.pendencias.clear();
     super::super::produzir_e_verificar_tokens(
         &f,
         &mut c,
@@ -149,6 +155,7 @@ fn pending_runtime_confere_cleanup_sem_pouso_llvm() {
     )
     .unwrap();
     assert!(t.invocacoes.is_empty() && t.pousos.is_empty());
+    assert_eq!(p.pendencias[&ValueId(2)], BlockId(1));
     f.blocks[1].instructions.clear();
     c.remove(&ValueId(5));
     assert!(

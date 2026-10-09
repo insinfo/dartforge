@@ -322,7 +322,7 @@ pub(super) fn vivacidade_com_saidas(
 }
 
 /// Confere o sufixo de leitura de pendência sem criar um pouso LLVM.
-fn conferir_pendencia(b: &BasicBlock, call: ValueId, erro: BlockId) -> Option<BlockId> {
+pub(super) fn conferir_pendencia(b: &BasicBlock, call: ValueId, erro: BlockId) -> Option<BlockId> {
     let n = b.instructions.len();
     if n < 3 {
         return None;
