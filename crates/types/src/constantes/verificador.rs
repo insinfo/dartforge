@@ -532,6 +532,21 @@ impl Verificador<'_, '_> {
                         if !(l.const_ || l.final_) {
                             continue;
                         }
+                        // Classe com construtor primário (3.13.4): o campo cujo
+                        // inicializador não é potencialmente constante fica sem
+                        // valor avaliado (o erro dele é o do campo,
+                        // `CONST_CONSTRUCTOR_WITH_FIELD_INITIALIZED_BY_NON_CONST`,
+                        // no `const`); o erro da avaliação sai só do
+                        // potencialmente constante (medido no oráculo 3.13.4,
+                        // `primary_constructors/const/potentially_constant_error_test`).
+                        if !l.static_ && Self::membro_de_classe_com_primario(a, mid) {
+                            let cx = self.cx();
+                            let mut nos = Vec::new();
+                            super::potencial::coletar_em(self.m, &cx, init, true, false, &mut nos);
+                            if !nos.is_empty() {
+                                continue;
+                            }
+                        }
                         let Some(&v) = self.campos.get(&(self.unidade, mid, i)) else { continue };
                         if !l.static_ {
                             let classe = self.classe_de_membro.get(&(self.unidade, mid)).copied();
@@ -553,6 +568,17 @@ impl Verificador<'_, '_> {
                 MemberKind::Constructor(k) => self.construtor(a, mid, k),
             }
         }
+    }
+
+    /// O membro `mid` é de uma classe com construtor primário. O enum fica de
+    /// fora: as constantes dele (`e(1)`) avaliam o construtor, e o erro do
+    /// inicializador do campo sai dessa avaliação (o `CONST_EVAL_METHOD_INVOCATION`
+    /// do `final int x = fn(p)` de `enum const E(int p)` no oráculo 3.13.4).
+    fn membro_de_classe_com_primario(a: &ast::Ast, mid: ast::MemberId) -> bool {
+        a.decls.iter().any(|d| match &d.kind {
+            DeclKind::Class(x) => x.primary_constructor.is_some() && x.members.contains(&mid),
+            _ => false,
+        })
     }
 
     fn tem_construtor_gerador_const(&self, k: ClassId) -> bool {
@@ -779,7 +805,8 @@ impl Verificador<'_, '_> {
                 }
             }
             if !k.factory {
-                self.inicializadores_de_campo(a, mid);
+                let primario = self.e_primario(a, mid, k);
+                self.inicializadores_de_campo(a, mid, primario);
             }
         }
         self.valores_padrao(a, &k.parameters);
@@ -803,8 +830,12 @@ impl Verificador<'_, '_> {
     }
 
     /// `_validateFieldInitializers`: campos de instância com inicializador
-    /// que não é constante, relatados no `const` do construtor.
-    fn inicializadores_de_campo(&mut self, a: &ast::Ast, mid: ast::MemberId) {
+    /// que não é constante, relatados no `const` do construtor. Com o
+    /// construtor primário (3.13.4, `_validatePrimaryFieldInitializers`), o
+    /// inicializador que tem nó não potencialmente constante — os parâmetros
+    /// primários valem —, sem avaliar: `final int i = d.length` não é relatado
+    /// aqui (o erro da avaliação sai do campo), `final int x = fn(p)` é.
+    fn inicializadores_de_campo(&mut self, a: &ast::Ast, mid: ast::MemberId, primario: bool) {
         let Some(k) = self.classe_de(a, mid) else { return };
         let e_enum = self.m.program.class(k).kind == dartforge_elements::model::ClassKind::Enum;
         let Some(palavra) = self.palavra_const(a, mid) else { return };
@@ -820,8 +851,14 @@ impl Verificador<'_, '_> {
                 }
                 let Some(init) = var.initializer else { continue };
                 let cx = self.cx();
-                let r = self.m.avaliar(&cx, init, l.const_);
-                if matches!(r, Constante::Invalida(_)) {
+                let invalido = if primario {
+                    let mut nos = Vec::new();
+                    super::potencial::coletar_em(self.m, &cx, init, true, false, &mut nos);
+                    !nos.is_empty()
+                } else {
+                    matches!(self.m.avaliar(&cx, init, l.const_), Constante::Invalida(_))
+                };
+                if invalido {
                     let nome = self.m.interner.resolve(var.name.sym).to_string();
                     self.relatar(c::CONST_CONSTRUCTOR_WITH_FIELD_INITIALIZED_BY_NON_CONST, palavra, vec![nome]);
                 }

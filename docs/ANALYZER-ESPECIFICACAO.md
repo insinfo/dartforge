@@ -12287,6 +12287,14 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
   parâmetro correspondente do construtor super; se não há, omitir).
 
 ##### `const_constructor_with_field_initialized_by_non_const` (perda 3: FN 1, FP 2)
+- **Construtor primário (2026-10-08, oráculo 3.13.4):** o `visitConstructorDeclaration` só valida os campos da classe
+  sem construtor primário; com ele, `visitPrimaryConstructorDeclaration` chama `_validatePrimaryFieldInitializers`, que
+  relata no `const` (ou no nome do tipo) o inicializador com nó **não potencialmente constante**
+  (`getNotPotentiallyConstants`, os parâmetros primários valem), sem avaliar: `final int x = fn(p)` é relatado,
+  `final int i = d.length` não. Na classe (não no enum), o campo cujo inicializador não é potencialmente constante
+  também não relata erro de avaliação (`fn(p)` sem `CONST_EVAL_METHOD_INVOCATION`); no enum, a constante `e(1)`
+  avalia o construtor e o erro sai (`primary_constructors/const/potentially_constant_error_test.dart`).
+  Inferido do oráculo: a fonte não mostra onde o `constantInitializer` do campo deixa de existir.
 - **Emissão:** `_validateFieldInitializers` (`constant_verifier.dart:842-881`) no token `const`.
 - **FN:** `final x = f<U>;` (4562b1b6): resolve com a avaliação de `TypeArguments` (já feita).
 - **FP:** `final x = A<T>.new;` (resolvido pela ConstructorReference) e `final int i = d.length`
