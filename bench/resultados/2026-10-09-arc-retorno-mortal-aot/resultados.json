@@ -1,0 +1,28 @@
+{
+  "source_base": "04b5974472416d94b6424a2c3b83f37c39457403",
+  "exemplo_sha256": "ddcc79ed51ed6690cd993ea4762028a95f495e3a5dad6a897091547045b16bdb",
+  "externs_sha256": "5516f938270015c06006f3d9d8bb2e7cb512ee480bec51b3fa910b552db92c8d",
+  "arc_ir_sha256": "710a121007a94b2bd15fe4d657f8a94a3fb0718596e15d424c5319ca8adec2db",
+  "tracing_ir_sha256": "ea7ee60f8d6d1fdcd1722620595b32ff6619a87db6c42fb28ab9841ec7131965",
+  "arc_exe_sha256": "2ccfe9c2b73820cf46e50f8fb34906b1efdded5197cfc4532d690f0691c4ad6e",
+  "tracing_exe_sha256": "9e3e6a3d09dc88363bb8e66e7c9db8c202f4ca9dba26164a3502f8f10b8216e8",
+  "saida_sha256": "1c4a8377d250d969e710606d42c4123b710b6cba2b3abf2de17bfbb62b3825c9",
+  "plataforma": "Windows",
+  "driver_otimiza": true,
+  "perfil_gerador": "dev",
+  "arc_flags": {
+    "DARTFORGE_GC_STRESS": "1",
+    "DARTFORGE_ARC_CONFERIR": "1",
+    "DARTFORGE_ARC_BERCARIO": "0"
+  },
+  "tracing_flags": {
+    "DARTFORGE_GC_STRESS": "1"
+  },
+  "arc_exit": 0,
+  "tracing_exit": 0,
+  "negativo_exit": 1,
+  "negativo_sem_ir": true,
+  "negativo_sem_exe": true,
+  "retencoes_inseridas": 1,
+  "valor_mortal": "9223372036854775807"
+}

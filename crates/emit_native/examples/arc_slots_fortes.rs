@@ -1,6 +1,6 @@
 //! Prova AOT dirigida das operações fortes com planos produzidos/verificados.
-//! Usa um literal permanente, Smi e null: não certifica coleta de um objeto
-//! mortal, escopos/borrows ou o restante dos contratos do pipeline ARC.
+//! Variantes usam literal permanente ou Mint mortal, além de Smi e null.
+//! Não certifica morte após o último owner nem o restante do pipeline ARC.
 
 use dartforge_emit_native::otimizar::arc::*;
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter};
@@ -14,9 +14,16 @@ fn main() -> Result<(), String> {
     let variante = args.next();
     let sem_cleanup = matches!(
         variante.as_deref(),
-        Some("sem-cleanup" | "retorno-sem-cleanup")
+        Some("sem-cleanup" | "retorno-sem-cleanup" | "retorno-mortal-sem-cleanup")
     );
-    let prova_retorno = matches!(variante.as_deref(), Some("retorno" | "retorno-sem-cleanup"));
+    let prova_retorno = matches!(
+        variante.as_deref(),
+        Some("retorno" | "retorno-sem-cleanup" | "retorno-mortal" | "retorno-mortal-sem-cleanup")
+    );
+    let prova_mortal = matches!(
+        variante.as_deref(),
+        Some("retorno-mortal" | "retorno-mortal-sem-cleanup")
+    );
     let mut m = Module::new();
     m.memoria_arc = arc;
     m.entry_symbol = Some("prova_slots".into());
@@ -237,12 +244,39 @@ fn main() -> Result<(), String> {
             }
         }
     }
+    if prova_mortal {
+        let corpo = &mut m.functions[0].blocks[0].instructions;
+        for (v, inst, _) in corpo.iter_mut() {
+            if *v == ValueId(1) {
+                *inst = chamada(
+                    "dartforge_arc_box_int_owned_v1",
+                    vec![(Operand::Constant(Constant::Int(i64::MAX)), Type::I64)],
+                    Type::Ref,
+                );
+            }
+        }
+        let depois_do_store = corpo
+            .iter()
+            .position(|(v, _, _)| *v == ValueId(3))
+            .ok_or("store ausente na prova mortal")?
+            + 1;
+        // O slot conserva o token devolvido pelo callee; solta a ocorrência
+        // inicial da fábrica antes de fechar o quadro e coletar.
+        corpo.insert(
+            depois_do_store,
+            (
+                ValueId(100),
+                Instruction::ArcDrop { value: valor(1) },
+                Type::Void,
+            ),
+        );
+    }
     let f = &mut m.functions[0];
     let originais = std::mem::take(&mut f.blocks[0].instructions);
     f.blocks.clear();
     let mut corrente = BlockId(0);
     let mut corpo = Vec::new();
-    let mut proximo = 21;
+    let mut proximo = originais.iter().map(|(v, _, _)| v.0).max().unwrap_or(0) + 1;
     for instrucao in originais {
         let impresso = match &instrucao.1 {
             Instruction::CallRuntime { name, args, .. } if name == "dartforge_print_handle" => {

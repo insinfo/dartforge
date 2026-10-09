@@ -1525,6 +1525,19 @@ ou pendências. Suíte ARC 58/58
 (`target/ownership-record-consultas-produtor.log`).
 
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
+Variante AOT `retorno-mortal` usa a fábrica Owned com i64::MAX, retém pela
+função identidade preparada pelo passe, transfere o token devolvido ao slot
+e libera o token original antes de fechar o quadro/coletar. ARC auditado sob
+estresse e tracing sob estresse saíram zero com
+`9223372036854775807`, `42`, `null`; saídas SHA256 idênticas
+`1c4a8377d250d969e710606d42c4123b710b6cba2b3abf2de17bfbb62b3825c9`.
+Variante sem cleanup saiu 1 antes de IR/executável negativo. A primeira
+compilação revelou declaração LLVM ausente para a fábrica; incluída com
+aloca=true, lanca=false e chama_dart=false, conforme runtime. Testes LLVM
+39/39 (`target/ownership-retornos-mortal-llvm-test.log`). Evidência congelada
+em `bench/resultados/2026-10-09-arc-retorno-mortal-aot`. Prova sobrevivência
+durante uso, não a morte após último owner no AOT; a morte tem prova runtime
+separada. Não certifica ausência de vazamentos nem cleanup automático.
 Nova ABI `dartforge_arc_box_int_owned_v1` entrega int em representação Ref
 com token Owned já registrado, para preparar a prova de retorno com objeto
 mortal. Smi dispensa contador; i64::MAX cria Mint. Catálogo 23 externs:
