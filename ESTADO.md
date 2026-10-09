@@ -821,6 +821,20 @@ Suíte release do emissor: 108/108, sete manuais ignorados;
 metadados contra casos semânticos dirigidos e integrar as operações de
 proteção em escopos, retornos/finally, exceções e suspensão.
 
+Teste semântico dirigido com o SDK real valida declarar_parametros e this:
+Recurso implementando dart:ffi.Finalizable, Recurso? e o tipo de extensão
+Envelope recebem obrigação estática; a classe homônima do programa,
+dynamic e Never não recebem. Envelope conserva o TypeId original distinto
+da representação apagada. O teste carrega, resolve e infere o programa
+antes de construir FnBuilder, sem substituir a identidade do marcador.
+Suíte release do emissor: 115 testes aprovados, nenhuma falha e sete
+manuais ignorados (`target/emissor-finalizavel-semantico-release.log`).
+Não valida ainda todos os produtores (capturas, corpos assíncronos,
+late e entradas especializadas), nem emite ArcKeepAlive ou cleanup ARC.
+Inspeção de simplificar::pura confirma que a ABI dartforge_arc_quadro_*
+não é classificada como chamada pura: efeitos de GC/exceção nulos não
+autorizam sua remoção. Isso é inspeção, não prova de execução integrada.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

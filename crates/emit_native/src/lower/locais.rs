@@ -598,3 +598,97 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         tipo.map_or(Type::Ref, |t| self.repr(t))
     }
 }
+
+#[cfg(test)]
+mod testes_finalizavel_semantico {
+    use super::*;
+    use dartforge_intern::Interner;
+    use dartforge_types::table::{CoreTypes, TypeTable};
+
+    #[test]
+    fn parametros_e_this_preservam_identidade_semantica_do_sdk() {
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(|| {
+                let dir = tempfile::tempdir().unwrap();
+                let entrada = dir.path().join("main.dart");
+                std::fs::write(
+                    &entrada,
+                    r#"
+import 'dart:ffi' as ffi;
+final class Recurso implements ffi.Finalizable {
+  void usar(Recurso? recurso) {}
+}
+class Finalizable {}
+extension type Envelope(Recurso recurso) implements Recurso {}
+void testar(Envelope envelope, Recurso? recurso, Finalizable homonimo,
+    dynamic outro, Never nunca) {}
+void main() {}
+"#,
+                )
+                .unwrap();
+                let sdk = crate::sdk_modulo::carregar_sdk_nativo(crate::sdk_testes()).unwrap();
+                let mut interner = Interner::new();
+                let (program, diags) =
+                    dartforge_elements::load::load_lenient(&entrada, &sdk, None, &mut interner);
+                assert!(diags.is_empty(), "{diags:?}");
+                let mut table = TypeTable::new();
+                let core = CoreTypes::init(&mut table, &program, &interner);
+                let (mut outline, diags_outline) =
+                    dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+                let (bodies, diags_body) = dartforge_types::infer_program_bodies(
+                    &program,
+                    &interner,
+                    &mut table,
+                    &core,
+                    &mut outline,
+                );
+                for d in diags_outline.iter().chain(diags_body.iter()) {
+                    assert!(
+                        !dartforge_types::codes::e_erro_de_compilacao(&d.message),
+                        "{d:?}"
+                    );
+                }
+                let te = crate::apagamento::calcular(&program, &outline, &mut table);
+                let mut ctx = crate::context::Context::new(
+                    &program, &interner, &table, &core, &outline, &bodies,
+                );
+                ctx.te = te;
+                let lib = program.entry.unwrap();
+                let unit = program.library(lib).units[0];
+                for nome in ["testar", "usar"] {
+                    let fid = program
+                        .functions
+                        .iter()
+                        .position(|f| f.library == lib && interner.resolve(f.name) == nome)
+                        .unwrap();
+                    let mut b = FnBuilder::new(&ctx, unit, nome.into(), nome.into(), Type::Void);
+                    b.declarar_parametros(fid, nome == "usar");
+                    if nome == "usar" {
+                        assert_eq!(b.this_finalizavel, Some(true));
+                    }
+                    for p in &outline.functions[fid].parameters {
+                        let sym = p.name.unwrap();
+                        let nome = interner.resolve(sym);
+                        let local = b.buscar_local(sym).unwrap();
+                        assert_eq!(local.tipo_estatico, Some(p.ty), "{nome}");
+                        assert_eq!(
+                            local.finalizavel,
+                            Some(matches!(nome, "envelope" | "recurso")),
+                            "{nome}"
+                        );
+                        if nome == "envelope" {
+                            assert_ne!(
+                                ctx.apagar(p.ty),
+                                p.ty,
+                                "tipo de extensão precisa ser preservado antes do apagamento"
+                            );
+                        }
+                    }
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+}
