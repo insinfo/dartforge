@@ -230,6 +230,15 @@ produção respeitam o caminho explícito dos testes. Suíte local final:
 106 passaram, sete manuais ignorados; subprocessos com SDK inexistente
 reprovaram inventário e sobreposição (código 101), sem aprovação vazia.
 
+ARC: `registrar_imortal` agora confere o incremento de geração antes de
+publicar o registro, como os demais registros. O teste de esgotamento
+passou em debug e release: a última geração válida permanece registrada,
+o próximo registro falha sem inserir metadados ou voltar a zero.
+A hipótese de compactar slots removendo `Option<MetaArc>` foi descartada:
+neste compilador Windows x86-64 ambos ocupam 24 bytes. A implementação
+experimental passou nos grafos de 3.000 sementes por modo, mas foi removida
+por não reduzir memória; nenhum ganho de desempenho é atribuído a ela.
+
 Na rodada remota `37896396380` sobre `719e94cc`, os quatro testes dirigidos
 de mapas também passaram, sem ignorados/filtrados, em 752 s; log do job B0
 conferido. Esta rodada ainda antecede a preparação excepcional separada.

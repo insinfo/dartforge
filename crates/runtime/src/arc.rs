@@ -391,9 +391,19 @@ impl EstadoDoArc {
 
     /// Registra um objeto da imagem comprovadamente vivo pela imagem inteira
     /// (§19.1): não morre nem entra em filas; suas arestas continuam contadas.
+    ///
+    /// # Panics
+    /// A geração monotônica se esgotou; nenhum registro é publicado nesse caso.
+    ///
+    /// ```
+    /// use dartforge_runtime::arc::EstadoDoArc;
+    /// let mut arc = EstadoDoArc::novo();
+    /// arc.registrar_imortal(2);
+    /// assert!(arc.meta(2).unwrap().imortal);
+    /// ```
     pub fn registrar_imortal(&mut self, h: Ref) {
         let geracao = self.proxima_geracao;
-        self.proxima_geracao += 1;
+        self.proxima_geracao = self.proxima_geracao.checked_add(1).expect("ARC: geração esgotada");
         self.objetos.insert(h, MetaArc { geracao, rc: 0, estado: EstadoArc::Vivo, candidato: false, protegido_condicional: false, imortal: true, adiado: false }, None);
     }
 
@@ -868,6 +878,21 @@ impl EstadoDoArc {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn imortal_nao_reutiliza_geracao_apos_esgotamento() {
+        let mut arc = EstadoDoArc::novo();
+        arc.proxima_geracao = u64::MAX - 1;
+        arc.registrar_imortal(2);
+        assert_eq!(arc.meta(2).unwrap().geracao, u64::MAX - 1);
+        let erro = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            arc.registrar_imortal(4);
+        }));
+        assert!(erro.is_err());
+        assert_eq!(arc.proxima_geracao, u64::MAX);
+        assert!(arc.meta(4).is_none());
+        assert_eq!(arc.registrados(), 1);
+    }
 
     #[test]
     fn indice_por_inverso_confere_todos_os_bytes_das_classes() {
