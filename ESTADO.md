@@ -216,6 +216,13 @@ mesmo programa duas vezes sequencialmente e quatro em paralelo. O SDK
 `C:/tools/dartsdk-3.6.2/lib/libraries.json` estava presente: não foi o
 retorno antecipado por SDK ausente. Esse teste verifica o IR de `print(1)`;
 não substitui o corpus excepcional nem a integração ARC.
+Os quatro testes de emissão em `lib.rs` deixaram de usar o caminho fixo
+Windows e o retorno antecipado por SDK ausente. Agora respeitam
+`DARTFORGE_TEST_SDK_LIB`, ou a descoberta usada pela emissão real, e exigem
+`libraries.json`. Suíte local: 106 passaram, sete manuais ignorados;
+subprocesso com SDK inexistente falhou explicitamente (código 101).
+Isso remove uma aprovação sem execução nos runners Unix; a execução destes
+quatro testes nas plataformas do CI ainda precisa ser conferida.
 
 Na rodada remota `37896396380` sobre `719e94cc`, os quatro testes dirigidos
 de mapas também passaram, sem ignorados/filtrados, em 752 s; log do job B0

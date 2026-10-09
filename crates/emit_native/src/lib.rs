@@ -603,10 +603,24 @@ pub fn compilar_com(
 mod testes {
     use super::*;
 
-    const SDK: &str = "C:/tools/dartsdk-3.6.2/lib";
+    /// Os mesmos caminhos da emissão real, também nos runners Unix.
+    fn sdk_testes() -> &'static Path {
+        static SDK: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+        SDK.get_or_init(|| {
+            let sdk = std::env::var_os("DARTFORGE_TEST_SDK_LIB")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| sdk_do_dart().expect("SDK necessário aos testes de emissão"));
+            assert!(
+                sdk.join("libraries.json").is_file(),
+                "SDK dos testes sem libraries.json: {}",
+                sdk.display()
+            );
+            sdk
+        }).as_path()
+    }
 
     fn emitir(entrada: &Path) -> IrEmitido {
-        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
+        let options = CompileOptions { sdk: Some(sdk_testes()), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
         emitir_ir(entrada, &options).expect("emitir IR")
     }
 
@@ -615,10 +629,7 @@ mod testes {
     /// de endereço ou de ordem de conclusão.
     #[test]
     fn emitir_ir_e_deterministico() {
-        if !Path::new(SDK).join("libraries.json").is_file() {
-            eprintln!("SDK ausente em {SDK}; teste pulado");
-            return;
-        }
+        sdk_testes();
         let dir = tempfile::tempdir().unwrap();
         let entrada = dir.path().join("main.dart");
         std::fs::write(&entrada, "void main() { print(1); }\n").unwrap();
@@ -646,14 +657,11 @@ mod testes {
     /// diagnósticos: nenhum IR, e nenhum executável que só os imprime.
     #[test]
     fn construto_nao_suportado_e_erro_com_todos_os_diagnosticos() {
-        if !Path::new(SDK).join("libraries.json").is_file() {
-            eprintln!("SDK ausente em {SDK}; teste pulado");
-            return;
-        }
+        sdk_testes();
         let dir = tempfile::tempdir().unwrap();
         let entrada = dir.path().join("main.dart");
         std::fs::write(&entrada, "void main() {\n  int? k = 1;\n  var a = {?k: 1};\n  var b = {?k: 2};\n  print(a.length + b.length);\n}\n").unwrap();
-        let options = CompileOptions { sdk: Some(Path::new(SDK)), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
+        let options = CompileOptions { sdk: Some(sdk_testes()), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
         let erro = std::thread::Builder::new()
             .stack_size(64 << 20)
             .spawn(move || emitir_ir(&entrada, &options).map(|ir| ir.texto))
@@ -686,10 +694,7 @@ mod testes {
     /// mesmos símbolos.
     #[test]
     fn t_id_simbolos_estaveis() {
-        if !Path::new(SDK).join("libraries.json").is_file() {
-            eprintln!("SDK ausente em {SDK}; teste pulado");
-            return;
-        }
+        sdk_testes();
         let a = "int a() => 1;\nclass C {\n  int v = 3;\n  int m() => v;\n  static int s() => 4;\n}\nint g = 5;\nvoid main() {\n  var f = () => a();\n  print(f());\n  print(C().m() + C.s() + g);\n}\n";
         let b = "int z() => 0;\nclass D {}\nint a() => 1;\nclass C {\n  int v = 3;\n  int m() => v;\n  static int s() => 4;\n}\nint h = 6;\nint g = 5;\nvoid main() {\n  var f = () => a();\n  print(f());\n  print(C().m() + C.s() + g + z() + h);\n}\n";
         let emitir_em = |fonte: &'static str| {
@@ -731,10 +736,7 @@ mod testes {
     /// tem nada disso no IR.
     #[test]
     fn dart_async_da_fonte_so_para_quem_usa() {
-        if !Path::new(SDK).join("libraries.json").is_file() {
-            eprintln!("SDK ausente em {SDK}; teste pulado");
-            return;
-        }
+        sdk_testes();
         let emitir_fonte = |fonte: &'static str| {
             std::thread::Builder::new()
                 .stack_size(64 << 20)
