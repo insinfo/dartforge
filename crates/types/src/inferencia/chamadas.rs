@@ -1145,7 +1145,11 @@ pub(crate) fn chamada(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, ctx
             explicitos = None;
         }
         definir_alvo(inf, Some(nome), ent);
-        let t = construir(inf, cx, Some(e), c, f, targs.or(explicitos), args, ctx);
+        let alias = if args.type_args.is_empty() { alias_da_criacao(inf, cx, target) } else { None };
+        let t = match alias {
+            Some(_) => construir_com(inf, cx, Some(e), c, f, None, args, ctx, alias),
+            None => construir(inf, cx, Some(e), c, f, targs.or(explicitos), args, ctx),
+        };
         inf.alvo_da_aridade = None;
         return (t, false);
     }
@@ -2048,6 +2052,78 @@ pub(crate) fn construir(
     args: &ast::Arguments,
     ctx: TypeId,
 ) -> TypeId {
+    construir_com(inf, cx, e, c, f, explicitos, args, ctx, None)
+}
+
+/// O alias genérico nomeado na criação (`target`: `A`, `p.A`, `A.nome`,
+/// `p.A.nome`) sem argumentos de tipo escritos, cujos argumentos se inferem
+/// pelos parâmetros dele ([`alias_inferivel`]).
+fn alias_da_criacao(inf: &mut BodyInferrer<'_>, cx: &Corpo, target: ExprId) -> Option<dartforge_elements::model::TypedefId> {
+    let td = match referencia_a_tipo(inf, cx, target) {
+        Some(RefTipo::Alias(_, _, td)) => td,
+        Some(_) => return None,
+        None => {
+            let a = &inf.program.unit(cx.unit).ast;
+            let ExprKind::Property { target: t, null_aware: false, .. } = &a.expr(target).kind else { return None };
+            let t = *t;
+            if matches!(a.expr(t).kind, ExprKind::TypeArguments { .. }) {
+                return None;
+            }
+            match referencia_a_tipo(inf, cx, t) {
+                Some(RefTipo::Alias(_, _, td)) => td,
+                _ => return None,
+            }
+        }
+    };
+    alias_inferivel(inf, td).then_some(td)
+}
+
+/// Alias genérico de classe que não só renomeia os parâmetros (`typedef
+/// D<X> = C<List<X>>`, ou `typedef A<X extends B> = C<X>` com o limite
+/// diferente do da classe): sem argumentos escritos, a criação por ele é
+/// inferida como função genérica nos parâmetros do alias
+/// (`ConstructorElementToInfer`, 3.6.2 `invocation_inferrer.dart`), com os
+/// limites deles (`COULD_NOT_INFER`) — não instanciada para os limites.
+pub(crate) fn alias_inferivel(inf: &mut BodyInferrer<'_>, td: dartforge_elements::model::TypedefId) -> bool {
+    let d = &inf.outline.typedefs[td.0 as usize];
+    if d.type_params.is_empty() {
+        return false;
+    }
+    let params = d.type_params.to_vec();
+    let (class, args) = match inf.table.get(d.target_type) {
+        Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } => (*class, args.to_vec()),
+        _ => return false,
+    };
+    let renomeia = args.len() == params.len()
+        && args.iter().zip(params.iter()).all(|(&a, &p)| matches!(inf.table.get(a), Type::TypeParameter { param, nullable: false } if *param == p));
+    if !renomeia {
+        return true;
+    }
+    // Renomeia: equivale à classe só com os mesmos limites.
+    let formais = inf.outline.classes[class.0 as usize].type_params.to_vec();
+    let mapa = inf.mapa(&formais, &args);
+    formais.iter().zip(params.iter()).any(|(&f, &p)| {
+        let bf = inf.table.param(f).bound;
+        let bf = inf.subst(bf, &mapa);
+        bf != inf.table.param(p).bound
+    })
+}
+
+/// [`construir`] com o alias inferível ([`alias_inferivel`]) pelo qual a
+/// classe foi nomeada: os parâmetros inferidos são os do alias e a
+/// assinatura, a do construtor com os argumentos do alvo do alias.
+#[allow(clippy::too_many_arguments)]
+fn construir_com(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Corpo,
+    e: Option<ExprId>,
+    c: ClassId,
+    f: Option<FunctionElementId>,
+    explicitos: Option<Vec<TypeId>>,
+    args: &ast::Arguments,
+    ctx: TypeId,
+    alias: Option<dartforge_elements::model::TypedefId>,
+) -> TypeId {
     // Construtor encaminhado de aplicação de mixin: sem resolução (o
     // elemento é o da superclasse). `None`: construtor primário de tipo de
     // extensão (R-EXT-04), sem elemento.
@@ -2062,7 +2138,26 @@ pub(crate) fn construir(
         }
         None => inf.assinatura_primario(c),
     };
-    let (originais, novos) = inf.parametros_de_construtor(c);
+    let alias = alias.filter(|_| explicitos.is_none());
+    let (originais, novos, sig) = match alias {
+        Some(td) => {
+            let d = &inf.outline.typedefs[td.0 as usize];
+            let (params, alvo) = (d.type_params.to_vec(), d.target_type);
+            let alvo_args = match inf.table.get(alvo).clone() {
+                Type::Interface { args, .. } | Type::ExtensionType { args, .. } => args.to_vec(),
+                _ => Vec::new(),
+            };
+            let formais = inf.outline.classes[c.0 as usize].type_params.to_vec();
+            let mapa = inf.mapa(&formais, &alvo_args);
+            let sig = inf.subst(sig, &mapa);
+            let novos = inf.parametros_novos(&params);
+            (params, novos, sig)
+        }
+        None => {
+            let (o, n) = inf.parametros_de_construtor(c);
+            (o, n, sig)
+        }
+    };
     if originais.is_empty() {
         let (r, _) = invocar(inf, cx, sig, args, ctx, None);
         return r;
@@ -2102,6 +2197,14 @@ pub(crate) fn construir(
     }
     let (r, _) = invocar(inf, cx, generica, args, ctx, None);
     inf.entidade_da_inferencia = None;
+    // A instanciação gravada pelo `invocar` é a dos parâmetros do alias; os
+    // consumidores a leem como argumentos da classe.
+    if alias.is_some()
+        && let Type::Interface { class, args: ca, .. } | Type::ExtensionType { decl: class, args: ca, .. } = inf.table.get(r).clone()
+        && class == c
+    {
+        inf.body_types.units[cx.unit.0 as usize].set_instanciacao(args.span.start, ca.to_vec().into_boxed_slice());
+    }
     r
 }
 
@@ -2331,6 +2434,7 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
             return inf.core.dynamic_;
         }
     }
+    let mut alias_explicito = None;
     let (c, explicitos) = match binding.and_then(|b| b.getter) {
         // `new C.nome<T>()`: lido como `prefixo.Tipo<T>`; a lista é do
         // construtor (`_rewriteToConstructorName`).
@@ -2353,10 +2457,15 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
             }
             (c, ex)
         }
-        Some(Element::Typedef(_)) => {
+        Some(Element::Typedef(td)) => {
             let t = inf.tipo_de_anotacao(cx, ty);
             match inf.table.get(t).clone() {
-                Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } => (class, Some(args.to_vec())),
+                Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } => {
+                    if targs.is_empty() && alias_inferivel(inf, td) {
+                        alias_explicito = Some(td);
+                    }
+                    (class, Some(args.to_vec()))
+                }
                 ref outro => {
                     // `typedef F = void Function()`: o alias não nomeia
                     // classe. Outros alvos (`typedef T = dynamic`, `typedef
@@ -2470,7 +2579,8 @@ pub(crate) fn instanciacao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId
         let ent = Span { start: t.start, end: constructor.map(|n| n.span.end).unwrap_or(t.end).max(t.end) };
         definir_alvo(inf, Some(nome), ent);
     }
-    let r = construir(inf, cx, Some(e), c, f, explicitos, args, ctx);
+    let explicitos = if alias_explicito.is_some() { None } else { explicitos };
+    let r = construir_com(inf, cx, Some(e), c, f, explicitos, args, ctx, alias_explicito);
     inf.alvo_da_aridade = None;
     r
 }
