@@ -646,6 +646,27 @@ NativeFinalizer. O CI rápido anterior ainda estava ativo e foi substituído
 pelo novo push de fonte; não registrar sucesso daquela revisão incompleta.
 Aguardar a rodada atual antes de outro disparo pesado no main.
 
+Artefatos já concluídos de `37944870979` conferidos em
+`target/ci-37944870979`: Windows ARC 238/238 (54,0 s de programas,
+56 s de harness), ARC sob estresse 238/238 (56,5 s, 58 s de harness),
+dart:io 130/130 (96,6 s). Linux AOT/A1/B0/B1/ARC 238/238 e dart:io
+130/130; JIT 238/238 e JIT × AOT zero divergências, sete sem IR iguais
+por construção, nenhum timeout nos dois. JIT com SDK da fonte também
+238/238, zero divergências, sete sem IR e nenhum timeout nos dois.
+Os relatórios preservam os seis DART! de interop indisponível na VM;
+não são seis execuções Dart bem-sucedidas. macOS e job SDK ainda ativos
+na consulta; recarga da CLI com SDK já concluiu com sucesso no job,
+sem extrapolar para o fechamento da rodada. Fonte desta rodada continua
+`0d6f8f2e`, sem os metadados Finalizable publicados depois.
+
+Commits de lowering até `927e75a5` publicados em main. CI rápido
+`37949272042` ativo sobre essa revisão; `37944870474` foi cancelado
+pelo push de fonte. Nenhum novo disparo pesado enquanto a rodada anterior
+continua ativa. Integração ArcKeepAlive exige limites semânticos no CFG,
+incluindo saltos que atravessam finally e transferência para estado
+suspenso; fechar_escopo apenas retira o mapa de nomes e não representa
+essas saídas. A proteção efetiva e o gate de desempenho permanecem pendentes.
+
 O lowering agora preserva `Local::tipo_estatico`, TypeId Dart original
 separado da representação HIR. Declarações usam
 `Context::tipo_local_semantico` (sem chamar apagar), closures em ambiente ou
