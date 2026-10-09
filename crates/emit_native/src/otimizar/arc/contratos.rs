@@ -65,6 +65,56 @@ pub fn produzir_parametros_ref_dart(
     Ok(())
 }
 
+/// Produz e verifica parâmetros/instruções pela convenção Dart, atomicamente.
+///
+/// Parâmetros Ref são Borrowed(Chamador,0). Resultado Ref exige retorno Owned
+/// no plano; resultados de outros tipos exigem retorno Trivial. O lowering
+/// deve preparar transferências/cleanup antes desta chamada. Tipos não Ref
+/// dos parâmetros e instruções fora da cobertura exigem contratos semânticos.
+/// Não infere contratos de callees nem insere RC/cleanup.
+///
+/// # Erros
+/// Convenção de retorno incompatível, conflito de parâmetro ou qualquer erro
+/// de produzir_e_verificar_tokens. Classes e plano permanecem intactos.
+///
+/// ```
+/// use dartforge_emit_native::{hir::*, otimizar::arc::*};
+/// use std::collections::HashMap;
+/// let f = Function { symbol: "identidade".into(), name: "identidade".into(), depuracao: None,
+///     params: vec![(ValueId(0), "x".into(), Type::Ref)], return_ty: Type::Ref,
+///     blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
+///         (ValueId(1), Instruction::ArcCopy { value: Operand::Val(ValueId(0)) }, Type::Ref)],
+///         terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }] };
+/// let mut plano = PlanoTokens { retorno: RetornoTokens::Owned, ..Default::default() };
+/// produzir_e_verificar_tokens_dart(&f, &mut HashMap::new(), &mut plano,
+///     &TabelasDaFuncao::default(), &PlanoEscopos::default())?;
+/// # Ok::<(), String>(())
+/// ```
+pub fn produzir_e_verificar_tokens_dart(
+    f: &Function,
+    classes: &mut HashMap<ValueId, Ownership>,
+    plano: &mut PlanoTokens,
+    tabelas: &TabelasDaFuncao,
+    escopos: &PlanoEscopos,
+) -> Result<HashMap<ValueId, ContratoChamadaRuntime>, String> {
+    let retorno = if f.return_ty == Type::Ref {
+        super::RetornoTokens::Owned
+    } else {
+        super::RetornoTokens::Trivial
+    };
+    if plano.retorno != retorno {
+        return Err("convenção Dart exige resultado Ref Owned e demais resultados Trivial".into());
+    }
+    let mut novas_classes = classes.clone();
+    let mut novo_plano = plano.clone();
+    produzir_parametros_ref_dart(f, &mut novas_classes)?;
+    let contratos =
+        produzir_e_verificar_tokens(f, &mut novas_classes, &mut novo_plano, tabelas, escopos)?;
+    *classes = novas_classes;
+    *plano = novo_plano;
+    Ok(contratos)
+}
+
 /// Produz metadados ARC e os publica após verificar CFG/SSA, tokens e escopos.
 ///
 /// Parâmetros e instruções fora da cobertura do produtor exigem contratos
@@ -891,6 +941,78 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn wrapper_dart_nao_publica_parametros_quando_transferencia_falha() {
+        let mut f = Function {
+            symbol: "identidade".into(),
+            name: "identidade".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "x".into(), Type::Ref)],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![(
+                    ValueId(1),
+                    Instruction::ArcMove {
+                        value: Operand::Val(ValueId(0)),
+                    },
+                    Type::Ref,
+                )],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+            }],
+        };
+        let mut classes = HashMap::new();
+        let mut plano = PlanoTokens {
+            retorno: super::super::RetornoTokens::Owned,
+            ..Default::default()
+        };
+        assert!(
+            produzir_e_verificar_tokens_dart(
+                &f,
+                &mut classes,
+                &mut plano,
+                &TabelasDaFuncao::default(),
+                &PlanoEscopos::default()
+            )
+            .is_err()
+        );
+        assert!(classes.is_empty());
+        assert!(plano.instrucoes.is_empty());
+        f.blocks[0].instructions[0].1 = Instruction::ArcCopy {
+            value: Operand::Val(ValueId(0)),
+        };
+        produzir_e_verificar_tokens_dart(
+            &f,
+            &mut classes,
+            &mut plano,
+            &TabelasDaFuncao::default(),
+            &PlanoEscopos::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            classes[&ValueId(0)],
+            Ownership::Borrowed {
+                owner: OrigemOwner::Chamador,
+                escopo: 0
+            }
+        );
+        assert_eq!(classes[&ValueId(1)], Ownership::Owned);
+        let antes = classes.clone();
+        plano.retorno = super::super::RetornoTokens::Borrowed;
+        assert!(
+            produzir_e_verificar_tokens_dart(
+                &f,
+                &mut classes,
+                &mut plano,
+                &TabelasDaFuncao::default(),
+                &PlanoEscopos::default()
+            )
+            .is_err()
+        );
+        assert_eq!(classes, antes);
+        assert_eq!(plano.retorno, super::super::RetornoTokens::Borrowed);
+    }
 
     #[test]
     fn parametros_dart_nao_classificam_i64_e_rejeitam_conflito_atomicamente() {

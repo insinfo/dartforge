@@ -1525,6 +1525,16 @@ ou pendências. Suíte ARC 58/58
 (`target/ownership-record-consultas-produtor.log`).
 
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
+Wrapper `produzir_e_verificar_tokens_dart` integra o produtor dos parâmetros
+Ref à transação de CFG/SSA, instruções, tokens, escopos e quadros. Exige plano
+de retorno Owned para Ref e Trivial para os demais tipos, conforme §20.1.
+Regressão mostra tentativa de mover parâmetro Borrowed falhando sem publicar
+nem os parâmetros; copy seguido de retorno Owned passa sem sementes; retorno
+Borrowed incompatível é recusado preservando mapas. Suíte ARC 69/69 e
+exemplos públicos 38/38 (`target/ownership-wrapper-dart-test.log`,
+`target/ownership-wrapper-dart-doc.log`). O lowering ainda precisa preparar
+RC/transferências/cleanup e fornecer contratos dos tipos/operações não cobertos;
+essa integração da API não certifica o pipeline padrão inteiro.
 Disponível produtor `produzir_parametros_ref_dart` para a convenção §20.1:
 parâmetros Type::Ref recebem Borrowed(Chamador,0); outros tipos permanecem
 para seus produtores semânticos, sem deduzir I64 pela largura. Conflito de
