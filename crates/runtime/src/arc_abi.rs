@@ -219,6 +219,50 @@ mod testes_arc_abi_quadros {
     use super::*;
 
     #[test]
+    fn abi_global_recebe_objeto_mortal_e_libera_ultimo_owner() {
+        for arc in [false, true] {
+            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc {
+                HEAP.with(|h| h.borrow_mut().ativar_arc());
+            }
+            // O endereço representa armazenamento do chamador, sem uma raiz
+            // observacional que possa esconder a perda do owner proprietário.
+            let mut global = 0_i64;
+            let id = (&mut global as *mut i64) as i64;
+            let quadro = dartforge_arc_quadro_abrir_v1(1);
+            let valor = HEAP.with(|h| h.borrow_mut().alocar_str("global mortal"));
+            dartforge_arc_quadro_copiar_v1(quadro, 0, valor);
+            global = dartforge_arc_quadro_carregar_v1(quadro, 0);
+            dartforge_arc_global_receber_v1(id, global);
+            dartforge_arc_quadro_fechar_v1(quadro);
+            dartforge_arc_collect();
+            assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(global)));
+
+            // Reatribuir o mesmo objeto consome o token novo e o owner velho;
+            // a identidade não pode pular a transferência ou vazar um retain.
+            dartforge_arc_retain(global);
+            dartforge_arc_global_receber_v1(id, global);
+            dartforge_arc_collect();
+            assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(valor)));
+
+            dartforge_arc_retain(global);
+            global = smi::de(42).unwrap();
+            dartforge_arc_global_receber_v1(id, global);
+            dartforge_arc_collect();
+            assert_eq!(global, smi::de(42).unwrap());
+            assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(valor)));
+            dartforge_arc_release(valor);
+            dartforge_arc_collect();
+            assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(valor)));
+            global = 0;
+            dartforge_arc_global_receber_v1(id, global);
+            HEAP.with(|h| {
+                h.replace(anterior);
+            });
+        }
+    }
+
+    #[test]
     fn abi_carrega_owner_independente_e_recebe_token_no_slot() {
         for arc in [false, true] {
             let anterior = HEAP.with(|h| h.replace(Heap::new(false)));

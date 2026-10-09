@@ -1080,6 +1080,17 @@ ARC em 39,5 s, `dart:io` 130/130 em 57,2 s. Essa rodada não contém os
 slots fortes de quadro/global nem a prova AOT adicionados depois da fonte
 validada; o sucesso não certifica essas mudanças posteriores.
 
+Teste dirigido `abi_global_recebe_objeto_mortal_e_libera_ultimo_owner`
+exercita a ABI C real do runtime com objeto mortal e armazenamento global do
+chamador, sem quadro observacional: sobrevive ao fecho do quadro proprietário,
+reatribuição com alias e troca por Smi enquanto há token SSA; após o último
+release e coleta, o objeto está morto. Passou em tracing sob estresse e ARC,
+também em processo com ARC_CONFERIR=1 e ARC_BERCARIO=0. Suíte release do
+runtime: 157 aprovados, três manuais ignorados, 13 de integração e 23 exemplos
+públicos aprovados (`target/runtime-arc-global-mortal-completo.log`;
+auditor em `target/runtime-arc-global-mortal-auditor.log`). Isso testa o
+runtime, não a execução AOT da HIR nem a inserção automática de ownership.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
