@@ -75,6 +75,28 @@ fn verificar(f: &Function, c: &HashMap<ValueId, Ownership>) -> Result<(), String
 }
 
 #[test]
+fn extern_auditada_nao_aceita_plano_que_omite_consumo() {
+    let chamada = Instruction::CallRuntime {
+        name: "dartforge_arc_release".into(),
+        args: vec![(valor(1), Type::Ref)],
+        ret_ty: Type::Void,
+    };
+    let contrato = super::super::contrato_chamada_runtime(&chamada).unwrap();
+    let f = funcao(vec![bloco(
+        0,
+        vec![copia(1, 0), (ValueId(2), chamada, Type::Void)],
+        Terminator::Return(None),
+    )]);
+    let c = classes(&[1], &[2]);
+    let mut plano = PlanoTokens::default();
+    plano.instrucoes.insert(ValueId(2), contrato.efeito);
+    assert!(verificar_tokens(&f, &c, &TabelasDaFuncao::default(), &plano).is_ok());
+    plano.instrucoes.insert(ValueId(2), EfeitoTokens::default());
+    let erro = verificar_tokens(&f, &c, &TabelasDaFuncao::default(), &plano).unwrap_err();
+    assert!(erro.contains("ownership.tsv"));
+}
+
+#[test]
 fn copia_movimento_drop_e_consumo_duplo() {
     let mut f = funcao(vec![bloco(
         0,

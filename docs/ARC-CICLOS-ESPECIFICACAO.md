@@ -1098,6 +1098,16 @@ Este catálogo ainda é parcial: cobertura completa das externs, retornos
 borrowed, saídas excepcionais e consumo pelo produtor HIR/LLVM permanecem
 pendentes. Não há convenção borrowed implícita para completar a cobertura.
 
+`otimizar::arc::contrato_chamada_runtime` traduz essas chamadas auditadas
+para consumo SSA e classe do resultado, conferindo aridade e tipos declarados.
+Ref deve estar em SSA ou ser null; I64 não vira Ref por ter a mesma largura.
+O verificador de tokens confere planos de chamadas auditadas contra esse
+catálogo. Retain direto é recusado: sua produção sem resultado SSA precisa
+ser representada por ArcCopy. Retenção persistente/invalidação são devolvidas
+ao produtor, mas não certificadas pelo verificador de tokens; a análise de
+borrows/slots continua obrigatória. Esse acesso ainda não gera automaticamente
+o inventário nem os contratos de todas as instruções do lowering.
+
 Externs **novas** mínimas: `dartforge_arc_retain`, `dartforge_arc_release`,
 `dartforge_arc_collect`, `dartforge_arc_verificar_abi`. Retain/release são
 `nounwind` somente se falhas internas não desenrolarem pelo limite C. Elas

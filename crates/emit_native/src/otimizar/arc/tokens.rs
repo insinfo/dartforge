@@ -301,6 +301,22 @@ pub fn verificar_tokens(
                 .instrucoes
                 .get(v)
                 .ok_or_else(|| erro_meta(format!("v{} sem contrato de consumo", v.0)))?;
+            if let Instruction::CallRuntime { name, .. } = inst {
+                if dartforge_runtime::ownership::contrato(name).is_ok() {
+                    let c = super::contrato_chamada_runtime(inst).map_err(erro_meta)?;
+                    if classes[v] != c.resultado
+                        || e.sempre != c.efeito.sempre
+                        || e.sucesso != c.efeito.sucesso
+                        || e.erro != c.efeito.erro
+                        || e.pode_falhar != c.efeito.pode_falhar
+                    {
+                        return Err(erro_meta(format!(
+                            "v{}: plano incompatível com ownership.tsv para {name}",
+                            v.0
+                        )));
+                    }
+                }
+            }
             if e.pode_falhar != tabelas.invocacoes.contains_key(v)
                 || (!e.pode_falhar && !e.erro.is_empty())
             {

@@ -1117,6 +1117,20 @@ passaram (`target/ownership-runtime-check.log`, `target/ownership-runtime-test.l
 `target/ownership-runtime-doc.log`). O catálogo não é ainda consumido pelo
 produtor HIR/LLVM, e cobertura total/contratos excepcionais continuam pendentes.
 
+Ponte HIR `contrato_chamada_runtime`: traduz as externs auditadas para
+efeitos de consumo e classe do resultado. Valida aridade/tipos declarados,
+exige Ref SSA/null e conserva I8 no resultado de verificar_abi; não aceita
+I64 como Ref. Retain direto exige ArcCopy para tornar o token produzido
+explícito. O verificador de tokens compara planos de chamadas conhecidas com
+ownership.tsv e rejeita omissão de consumo ou classe de resultado incompatível.
+Teste de release gerado do catálogo passou; o plano que omitiria consumo foi
+recusado pelo catálogo. Suíte unitária release do emissor: 132 aprovados,
+sete manuais ignorados (`target/arc-contratos-hir-lib.log`); 33 exemplos
+públicos aprovados (`target/arc-contratos-hir-doc.log`). A revisão corrigiu
+a tradução inicial I1 para I8 antes da validação final. Flags de retenção/
+invalidação são devolvidos ao produtor, mas ainda exigem análise de slots e
+borrows; não há geração automática do plano completo no lowering.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

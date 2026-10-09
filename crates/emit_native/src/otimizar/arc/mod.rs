@@ -12,6 +12,8 @@ use std::collections::{HashMap, HashSet};
 mod classificacao;
 mod escopos;
 mod tokens;
+mod contratos;
+pub use contratos::{ContratoChamadaRuntime, contrato_chamada_runtime};
 pub use tokens::{EfeitoTokens, PlanoTokens, RetornoTokens, verificar_tokens};
 pub use escopos::{AlteracaoEscopo, PlanoEscopos, verificar_escopos};
 pub use classificacao::{
