@@ -149,7 +149,7 @@ pub extern "C" fn dartforge_laco_de_eventos(chamar: extern "C" fn(i64) -> i64) {
         // 1b. As finalizações prontas (`Finalizer`, `finalizadores.rs`):
         //     na VM chegam como mensagem ao isolado; aqui, entre eventos.
         if let Some(acao) = proxima_finalizacao() {
-            dart_r1(chamar as usize, acao);
+            chamar_evento(chamar, acao, None);
             concluir_finalizacao();
             continue;
         }

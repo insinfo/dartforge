@@ -68,3 +68,38 @@ fn concluir_finalizacao() {
 pub fn encerrar_finalizadores_do_isolado() {
     HEAP.with(|h| h.borrow_mut().encerrar_finalizadores());
 }
+
+#[cfg(test)]
+mod testes_owner_finalizacao {
+    use super::*;
+
+    extern "C" fn encerrar_durante_callback(closure: i64) -> i64 {
+        HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.encerrar_finalizadores();
+            h.collect();
+            assert!(h.e_objeto_vivo(closure), "o callback ativo sobrevive à retirada da fila");
+        });
+        0
+    }
+
+    #[test]
+    fn finalizacao_ativa_sobrevive_ao_encerramento_reentrante() {
+        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+        let closure = HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.ativar_arc();
+            let closure = h.nova_closure(123, (0, false), 0, 0);
+            h.finalizacoes_prontas.push_back(closure);
+            closure
+        });
+        dartforge_laco_de_eventos(encerrar_durante_callback);
+        HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            assert!(h.finalizacoes_prontas.is_empty());
+            h.collect();
+            assert!(!h.e_objeto_vivo(closure));
+        });
+        HEAP.with(|h| { h.replace(anterior); });
+    }
+}

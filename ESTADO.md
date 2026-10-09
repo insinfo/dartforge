@@ -339,6 +339,14 @@ A primeira execução detectou texto AOT desatualizado por edição de indentaç
 durante o build; recompilação com fontes estáveis passou a conferência de
 fonte única. A rodada `37922301282` continua ativa sobre `a49ab81b` e não
 inclui esta mudança de entrada. Spawn nativo e desenrolamento exigem validação.
+Callbacks de finalização passaram a manter owner ativo pelo quadro dos
+eventos. Teste pelo laço real limpa a fila por encerramento reentrante e
+coleta dentro do callback: a closure sobrevive e é liberada ao retornar.
+Auditoria puro/berçário aprovada. Release: 131 unitários, 13 de integração
+e 12 doctests aprovados, três microbenchmarks ignorados; fonte única conferida.
+A fila continua raiz observacional: seus owners e os anexos condicionais,
+nos três caminhos de coleta, permanecem pendentes. A rodada `37922301282`
+está ativa e não contém esta alteração de callback.
 
 Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
 suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior

@@ -467,6 +467,16 @@ Ambos aprovados com auditoria puro/berçário. Release: 130 unitários,
 13 testes de integração e 12 doctests aprovados; três microbenchmarks ignorados.
 A conferência de fonte única AOT/JIT passou após recompilar com fontes estáveis.
 
+O callback de finalização passa pelo mesmo quadro proprietário ativo dos
+eventos. A fila ainda o protege como raiz observacional; o owner ativo
+permanece se o encerramento reentrante limpar essa fila. Teste pelo laço real
+limpa a fila dentro do callback, coleta e confirma a sobrevivência da closure,
+depois sua liberação ao retornar. Auditoria puro/berçário aprovada.
+Owners da fila de finalizações e dos anexos condicionais continuam pendentes;
+isso não valida o protocolo inteiro de `Finalizer`/`NativeFinalizer` (§22).
+Release: 131 unitários, 13 de integração e 12 doctests aprovados;
+três microbenchmarks ignorados, incluindo conferência de fonte única AOT/JIT.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais
