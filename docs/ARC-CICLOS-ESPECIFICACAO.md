@@ -839,6 +839,14 @@ Adicionar tabela por `ValueId` com `Trivial`, `Owned` ou `Borrowed(owner, escopo
 Parâmetros Ref são borrowed até o retorno; resultados Ref são owned. A convenção
 vale para dispatch direto, seletor, closure e stubs de SDK.
 
+Representação disponível em `otimizar::arc::Ownership`: `Trivial`, `Owned`
+e `Borrowed { owner, escopo }`. A origem pode ser o chamador (parâmetro) ou
+um `ValueId` local. `vivacidade_classificada` exige uma entrada explícita
+por parâmetro/definição, rejeita IDs obsoletos e converte dependências locais
+para a análise de empréstimos. O inventário é fornecido pelo chamador desta
+API; ainda não há produtor automático, transporte pela HIR/otimizações nem
+validação semântica de contratos, proveniência, escopos e consumo de tokens.
+
 Operações **novas** sugeridas na `Instruction`:
 
 | Operação | Efeito de ownership |

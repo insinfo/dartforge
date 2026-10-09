@@ -1,5 +1,126 @@
 use super::*;
 
+fn classes_de_parametros() -> HashMap<ValueId, Ownership> {
+    HashMap::from([
+        (
+            ValueId(0),
+            Ownership::Borrowed {
+                owner: OrigemOwner::Chamador,
+                escopo: 0,
+            },
+        ),
+        (
+            ValueId(1),
+            Ownership::Borrowed {
+                owner: OrigemOwner::Chamador,
+                escopo: 0,
+            },
+        ),
+        (ValueId(9), Ownership::Trivial),
+    ])
+}
+
+#[test]
+fn classificacao_preserva_alias_gerenciado_representado_por_i64() {
+    let mut f = funcao(vec![bloco(
+        0,
+        vec![
+            (
+                ValueId(2),
+                Instruction::Bitcast {
+                    op: Operand::Val(ValueId(0)),
+                    to: Type::I64,
+                },
+                Type::I64,
+            ),
+            (
+                ValueId(3),
+                Instruction::CallRuntime {
+                    name: "dartforge_print".into(),
+                    args: vec![(Operand::Val(ValueId(2)), Type::I64)],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            ),
+        ],
+        Terminator::Return(None),
+    )]);
+    f.return_ty = Type::Void;
+    let mut classes = classes_de_parametros();
+    classes.insert(
+        ValueId(2),
+        Ownership::Borrowed {
+            owner: OrigemOwner::Valor(ValueId(0)),
+            escopo: 1,
+        },
+    );
+    classes.insert(ValueId(3), Ownership::Trivial);
+    let v = vivacidade_classificada(&f, &classes).unwrap();
+    assert_eq!(v.antes[&ValueId(3)], refs(&[0, 2]));
+    assert!(v.depois[&ValueId(3)].is_empty());
+}
+
+#[test]
+fn inventario_tipado_recusa_cobertura_incompleta_e_id_obsoleto() {
+    let f = funcao(vec![bloco(0, vec![], Terminator::Return(None))]);
+    let mut classes = classes_de_parametros();
+    classes.remove(&ValueId(1));
+    assert!(
+        vivacidade_classificada(&f, &classes)
+            .unwrap_err()
+            .contains("v1 sem classificação")
+    );
+    classes = classes_de_parametros();
+    classes.insert(ValueId(8), Ownership::Owned);
+    assert!(
+        vivacidade_classificada(&f, &classes)
+            .unwrap_err()
+            .contains("v8 não existe")
+    );
+}
+
+#[test]
+fn resultado_local_nao_pode_alegar_owner_do_chamador() {
+    let f = funcao(vec![bloco(
+        0,
+        vec![(
+            ValueId(2),
+            Instruction::Bitcast {
+                op: Operand::Val(ValueId(0)),
+                to: Type::Ref,
+            },
+            Type::Ref,
+        )],
+        Terminator::Return(None),
+    )]);
+    let mut classes = classes_de_parametros();
+    classes.insert(
+        ValueId(2),
+        Ownership::Borrowed {
+            owner: OrigemOwner::Chamador,
+            escopo: 0,
+        },
+    );
+    assert!(
+        vivacidade_classificada(&f, &classes)
+            .unwrap_err()
+            .contains("v2 local não é parâmetro")
+    );
+    classes.insert(
+        ValueId(2),
+        Ownership::Borrowed {
+            owner: OrigemOwner::Valor(ValueId(1)),
+            escopo: 0,
+        },
+    );
+    classes.insert(ValueId(1), Ownership::Trivial);
+    assert!(
+        vivacidade_classificada(&f, &classes)
+            .unwrap_err()
+            .contains("ARC003")
+    );
+}
+
 #[test]
 fn emprestimo_transitivo_segura_owner_ate_o_ultimo_uso() {
     let mut f = funcao(vec![bloco(

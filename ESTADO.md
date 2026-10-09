@@ -174,6 +174,17 @@ Formatação dos módulos ARC conferida. Escopo, dominância, escape, keep-alive
 classificação e integração ao pipeline ainda faltam; não é o verificador
 completo de ownership da §20.3 nem altera as contagens do runtime.
 
+Representação tipada acrescentada: `Ownership::{Trivial, Owned, Borrowed}`,
+com origem de owner local ou do chamador e identidade de escopo.
+`vivacidade_classificada` exige cobertura explícita de parâmetros/definições,
+rejeita IDs obsoletos e resultados locais que aleguem owner do chamador,
+e alimenta a análise de dependências. Um teste preserva alias gerenciado
+reempacotado em `I64`, sem deduzir referência pela largura.
+Verificação: 100 testes unitários passaram, sete manuais ignorados;
+sete doctests passaram e formatação dos módulos ARC conferida. O produtor
+automático dos contratos/proveniência e o transporte pela HIR/otimizações
+ainda faltam, assim como escopos, tokens e integração ao runtime/emissão.
+
 Na rodada remota `37896396380` sobre `719e94cc`, os quatro testes dirigidos
 de mapas também passaram, sem ignorados/filtrados, em 752 s; log do job B0
 conferido. Esta rodada ainda antecede a preparação excepcional separada.
