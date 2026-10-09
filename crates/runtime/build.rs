@@ -319,6 +319,7 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
                     | "dartforge_gc_collect"
                     | "dartforge_marcar_permanente"
                     | "dartforge_nativo_DartForge_record_fieldAt"
+                    | "dartforge_print_handle"
             )
     }) {
         assert!(

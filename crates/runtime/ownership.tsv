@@ -19,3 +19,4 @@ dartforge_marcar_constante	ref:borrow,i64:native	void:scalar	1	0	normal
 dartforge_gc_collect	-	void:scalar	0	1	pending
 dartforge_marcar_permanente	ref:borrow	void:scalar	1	0	pending
 dartforge_nativo_DartForge_record_fieldAt	ref:borrow,i64:scalar	ref:borrow(0)	0	0	pending
+dartforge_print_handle	ref:borrow	void:scalar	0	0	pending

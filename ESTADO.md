@@ -1319,6 +1319,16 @@ Geração real com SDK 3.6.2 no Windows produziu 7.087.858 bytes e passou node
 --check; os dois arquivos temporários foram removidos. Execução Unix da
 correção ainda exige a próxima rodada; não altera os placares já publicados.
 
+Auditoria de dartforge_print_handle em saida.rs: recebe handle emprestado,
+produz void e imprime descrição temporária sem consumir/guardar o handle.
+Adicionado ao ownership.tsv, agora 19 externs, com pending conservador igual
+à tabela de efeitos, sem retenção persistente/invalidação. Dois testes do
+catálogo passaram (`target/ownership-print-audit.log`), incluindo coerção da
+assinatura Rust C e modos de parâmetro/resultado. Quarenta e seis testes ARC
+HIR também passaram (`target/ownership-print-hir.log`). Essa extern é necessária
+para ligar o produtor à prova AOT arc_slots_fortes; antes da publicação dos
+planos, a prova ainda precisa representar invoke/cleanup de impressão no CFG.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
