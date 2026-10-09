@@ -360,6 +360,9 @@ pub struct OutlineResolver<'a> {
     pub typedef_targets: Vec<Option<TypeId>>,
     /// Cache do `hasSelfReference` de cada `typedef` (`auto_referencia`).
     typedefs_auto_referentes: Vec<Option<bool>>,
+    /// Os limites que o `_breakRawTypeCycles` troca por `dynamic`
+    /// ([`crate::ciclos_crus`]); calculados na primeira leitura dos limites.
+    limites_quebrados: Option<std::collections::HashSet<(dartforge_elements::model::DeclRef, usize)>>,
     /// Ver [`OutlineTypes::sobrescritas_de_campo`].
     pub sobrescritas_de_campo: Vec<SobrescritaDeCampo>,
     /// Ver [`OutlineTypes::tipos_escritos`].
@@ -392,6 +395,7 @@ impl<'a> OutlineResolver<'a> {
             extension_type_params: vec![Box::new([]); num_extensions],
             typedef_targets: vec![None; num_typedefs],
             typedefs_auto_referentes: vec![None; num_typedefs],
+            limites_quebrados: None,
             sobrescritas_de_campo: Vec::new(),
             tipos_escritos: HashMap::new(),
         }
@@ -585,10 +589,11 @@ impl<'a> OutlineResolver<'a> {
             for (p_elem, &pid) in typedef.type_params.iter().zip(params.iter()) {
                 scope.insert(p_elem.name, pid);
             }
-            for (p_elem, &pid) in typedef.type_params.iter().zip(params.iter()) {
+            for (j, (p_elem, &pid)) in typedef.type_params.iter().zip(params.iter()).enumerate() {
                 if let Some((unit_id, ast_ty_id)) = p_elem.bound {
                     let bound_ty = self.resolve_annotation(unit_id, ast_ty_id, typedef.library, &scope);
-                    self.table.set_type_param_bound(pid, bound_ty);
+                    let quebrado = self.limite_quebrado(typedef.decl, j);
+                    self.table.set_type_param_bound(pid, if quebrado { self.core.dynamic_ } else { bound_ty });
                 }
             }
         }
@@ -602,13 +607,23 @@ impl<'a> OutlineResolver<'a> {
             for (p_elem, &pid) in class.type_params.iter().zip(params.iter()) {
                 scope.insert(p_elem.name, pid);
             }
-            for (p_elem, &pid) in class.type_params.iter().zip(params.iter()) {
+            for (j, (p_elem, &pid)) in class.type_params.iter().zip(params.iter()).enumerate() {
                 if let Some((unit_id, ast_ty_id)) = p_elem.bound {
                     let bound_ty = self.resolve_annotation(unit_id, ast_ty_id, class.library, &scope);
-                    self.table.set_type_param_bound(pid, bound_ty);
+                    let quebrado = class.decl.is_some_and(|d| self.limite_quebrado(d, j));
+                    self.table.set_type_param_bound(pid, if quebrado { self.core.dynamic_ } else { bound_ty });
                 }
             }
         }
+    }
+
+    /// O limite do parâmetro `j` da declaração `d` vira `dynamic`
+    /// (`_breakRawTypeCycles`, [`crate::ciclos_crus`]).
+    fn limite_quebrado(&mut self, d: dartforge_elements::model::DeclRef, j: usize) -> bool {
+        if self.limites_quebrados.is_none() {
+            self.limites_quebrados = Some(crate::ciclos_crus::limites_quebrados(self.program));
+        }
+        self.limites_quebrados.as_ref().is_some_and(|q| q.contains(&(d, j)))
     }
 
     fn resolve_typedefs(&mut self) {

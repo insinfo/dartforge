@@ -17,6 +17,7 @@
 
 /// O `typedef` que chega a si mesmo (`TypeAliasSelfReferenceFinder`).
 pub mod auto_referencia;
+pub mod ciclos_crus;
 pub mod a_main;
 pub mod anotacoes;
 pub mod boas_praticas;

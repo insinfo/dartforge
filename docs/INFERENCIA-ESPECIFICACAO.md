@@ -405,6 +405,20 @@ literal sem dependência vai na primeira fase, antes de qualquer recálculo, e
 
 1. `_breakSelfCycles` (`:137-174`): cadeia de limites `X extends Y, Y extends
    X` → limite `dynamic`; `_breakRawTypeCycles` (`:103-135, 260-351`).
+   O `_breakRawTypeCycles` segue, a partir do limite de cada parâmetro, os
+   caminhos por tipos crus até a própria declaração (`_findRawTypePathsToDeclaration`:
+   argumentos dos tipos com argumentos; retorno, limites dos parâmetros de tipo
+   e tipos dos parâmetros dos tipos função; o tipo cru de outra declaração
+   segue os limites dela, uma vez por caminho; registros não) e troca por
+   `dynamic` o limite de **todo** parâmetro do caminho. O `TypesBuilder` lê o
+   limite depois (`element.bound = node.bound?.type`), então o limite do
+   elemento é `dynamic`: em `class A<T extends void Function<U extends A>()>`
+   o `A` cru é `A<dynamic>` e não há `type_argument_not_matching_bounds`
+   (oráculo `NotInstantiatedBound__class_recursion_n_1db495a3.dart`, só o
+   `not_instantiated_bound`). No DartForge: `types::ciclos_crus`, aplicado na
+   leitura dos limites de classes e `typedef` (`resolve.rs`), seguindo só
+   declarações da mesma biblioteca (o analyzer segue o ciclo de bibliotecas
+   em ligação, `getLinkingNode`).
 2. `_computeBounds` (`:192-256`): limite inicial = declarado ou `dynamic`
    (`:205-209`); grafo X_i → X_j usados no limite de X_i (`:364-418`); para
    cada componente fortemente conexo (`computeStrongComponents`, `:211-231`)

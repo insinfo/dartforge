@@ -295,7 +295,7 @@ pub enum ClassKind {
 }
 
 /// Onde a declaração está na árvore.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DeclRef {
     pub unit: UnitId,
     pub decl: DeclId,
