@@ -23,6 +23,36 @@ use dartforge_frontend::ast::ExprId;
 use dartforge_intern::SymbolId;
 use std::collections::HashMap;
 
+/// Identidade semântica preservada ao retirar/restaurar casos de switch.
+/// Zero é a invocação; os demais IDs não são profundidades reutilizáveis.
+#[derive(Debug, Clone)]
+pub(super) struct EscopoLocal {
+    pub id: u32,
+    locais: HashMap<SymbolId, Local>,
+}
+
+impl EscopoLocal {
+    pub(super) fn novo(id: u32) -> Self {
+        Self {
+            id,
+            locais: HashMap::new(),
+        }
+    }
+}
+
+impl std::ops::Deref for EscopoLocal {
+    type Target = HashMap<SymbolId, Local>;
+    fn deref(&self) -> &Self::Target {
+        &self.locais
+    }
+}
+
+impl std::ops::DerefMut for EscopoLocal {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.locais
+    }
+}
+
 /// Onde um local visível mora.
 #[derive(Debug, Clone)]
 pub enum Modo {
@@ -74,7 +104,10 @@ pub struct LateLocal {
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn abrir_escopo(&mut self) {
-        self.escopos.push(HashMap::new());
+        let id = self.proximo_escopo;
+        self.proximo_escopo = id.checked_add(1).expect("limite de escopos léxicos");
+        debug_assert!(self.escopos.iter().all(|e| e.id != id));
+        self.escopos.push(EscopoLocal::novo(id));
     }
 
     pub fn fechar_escopo(&mut self) {
@@ -685,6 +718,35 @@ void main() {}
                             );
                         }
                     }
+                    // Mesma profundidade não identifica o mesmo escopo.
+                    // Casos de switch restauram o registro original completo.
+                    let parametro = outline.functions[fid].parameters[0].name.unwrap();
+                    assert_eq!(b.escopos[0].id, 0);
+                    let externo = b.buscar_local(parametro).unwrap();
+                    b.abrir_escopo();
+                    let primeiro = b.escopos.last().unwrap().id;
+                    b.ligar_local(parametro, Operand::Constant(Constant::Null));
+                    let salvo = b.escopos.pop().unwrap();
+                    assert_eq!(
+                        b.buscar_local(parametro).unwrap().tipo_estatico,
+                        externo.tipo_estatico
+                    );
+                    b.abrir_escopo();
+                    let segundo = b.escopos.last().unwrap().id;
+                    assert_ne!(primeiro, segundo);
+                    b.fechar_escopo();
+                    b.escopos.push(salvo.clone());
+                    assert_eq!(b.escopos.last().unwrap().id, primeiro);
+                    assert_eq!(
+                        b.buscar_local(parametro).unwrap().tipo_estatico,
+                        None
+                    );
+                    b.fechar_escopo();
+                    b.abrir_escopo();
+                    assert!(b.escopos.last().unwrap().id > segundo);
+                    b.fechar_escopo();
+                    b.fechar_escopo();
+                    assert_eq!(b.escopos.len(), 1);
                 }
             })
             .unwrap()
