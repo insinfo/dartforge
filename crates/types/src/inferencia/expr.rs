@@ -4062,9 +4062,18 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
                 // variável; de um método é `InvalidType`.
                 return inf.table.invalido(inf.core.dynamic_);
             }
+            // `LexicalLookup.resolveSetter` (3.6.2 `lexical_lookup.dart`): o
+            // getter achado sem setter só segue para o `this` implícito
+            // (`ThisLookup.lookupSetter`, onde um setter herdado ou de extensão
+            // pode aparecer) quando é `isInstanceMember` — membro de instância
+            // de `InterfaceElement` (`extensions.dart:109-119`). O estático e o
+            // de extensão são a recuperação: `static final int x` numa classe
+            // cuja superclasse tem um setter `x` de extensão dá
+            // `ASSIGNMENT_TO_FINAL` (`static_extension_internal_basename_shadowing_error_test.dart:402`).
+            let segue_pelo_this = !estatico && fe.extension.is_none();
             if let (FunctionKind::ImplicitAccessor, Some(v)) = (fe.kind, fe.variable) {
                 let ve = inf.program.variable(v);
-                if (ve.final_ || ve.const_) && ve.setter.is_none() {
+                if (ve.final_ || ve.const_) && ve.setter.is_none() && segue_pelo_this {
                     // Campo final sem setter: pode haver setter herdado.
                     if let Some(this) = cx.tipo_this {
                         if let Busca::Achado(m) = inf.buscar_membro(cx.lib, this, n.sym, true) {
@@ -4073,7 +4082,7 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
                     }
                 }
             }
-            if !estatico {
+            if segue_pelo_this {
                 if let Some(this) = cx.tipo_this {
                     if let Busca::Achado(m) = inf.buscar_membro(cx.lib, this, n.sym, true) {
                         return m.tipo;

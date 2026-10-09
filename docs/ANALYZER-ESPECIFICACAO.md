@@ -1728,9 +1728,13 @@ foram rodados no oráculo vivo (`C:\tools\dartsdk-3.6.2\bin\dart analyze --forma
   Getter explícito (variável sintética) → `ASSIGNMENT_TO_FINAL_NO_SETTER`; variável local → o fluxo
   (`ASSIGNMENT_TO_FINAL_LOCAL`).
 - **Confere com §A:** posição (o identificador; `highlightedNode`), mensagem (`{0}` = `variable.name`) certas.
-- **No DartForge:** `crates/paridade/src/ponte.rs:71`, `:223`, `:230`; publicado. 3 FN em
-  `extension_methods/static_extension_internal_basename_shadowing_error_test.dart:402/406/410` (campo
-  estático `final` de extensão atribuído pelo nome dentro da própria extensão — ver §A).
+- **No DartForge:** `crates/paridade/src/ponte.rs:71`, `:223`, `:230`; publicado. Os 3 FN de
+  `extension_methods/static_extension_internal_basename_shadowing_error_test.dart:402/406/410` eram da classe
+  `A11 extends A10` com `static final int extensionFieldSetter`, sombreando o setter da extensão `E9 on A10`.
+  O `LexicalLookup.resolveSetter` acha o getter estático, que não é `isInstanceMember`; ele vira recuperação, sem
+  `ThisLookup.lookupSetter`, e sai `ASSIGNMENT_TO_FINAL`. Nós buscávamos pelo `this` e achávamos o setter da
+  extensão. Corrigido em `tipo_de_escrita_nome` (`inferencia/expr.rs`): só o membro de instância de classe segue
+  para o `this`. O de extensão também é recuperação (`extensions.dart:109-119`).
 - **Exemplo:** acima (linhas 3, 16, 17).
 
 ##### `async_for_in_wrong_context` — complemento (perda 3: FN 3)
