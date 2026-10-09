@@ -741,6 +741,109 @@ mod testes {
     use super::*;
 
     #[test]
+    fn produtor_confere_dependencia_pendente_em_ciclo_de_phis_borrowed() {
+        let mut f = Function {
+            symbol: "ciclo_borrowed".into(),
+            name: "ciclo_borrowed".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "entrada".into(), Type::Ref)],
+            return_ty: Type::Ref,
+            blocks: vec![
+                BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![],
+                    terminator: Terminator::Branch(BlockId(1)),
+                },
+                BasicBlock {
+                    id: BlockId(2),
+                    instructions: vec![(
+                        ValueId(2),
+                        Instruction::Phi {
+                            ty: Type::Ref,
+                            incoming: vec![(BlockId(1), Operand::Val(ValueId(1)))],
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::Branch(BlockId(1)),
+                },
+                BasicBlock {
+                    id: BlockId(1),
+                    instructions: vec![(
+                        ValueId(1),
+                        Instruction::Phi {
+                            ty: Type::Ref,
+                            incoming: vec![
+                                (BlockId(0), Operand::Val(ValueId(0))),
+                                (BlockId(2), Operand::Val(ValueId(2))),
+                            ],
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::CondBranch {
+                        cond: Operand::Constant(Constant::Bool(false)),
+                        then_block: BlockId(2),
+                        else_block: BlockId(3),
+                    },
+                },
+                BasicBlock {
+                    id: BlockId(3),
+                    instructions: vec![],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+                },
+            ],
+        };
+        let inicial = HashMap::from([(
+            ValueId(0),
+            Ownership::Borrowed {
+                owner: OrigemOwner::Chamador,
+                escopo: 0,
+            },
+        )]);
+        let mut classes = inicial.clone();
+        let mut plano = PlanoTokens {
+            retorno: super::super::RetornoTokens::Borrowed,
+            ..Default::default()
+        };
+        produzir_e_verificar_tokens(
+            &f,
+            &mut classes,
+            &mut plano,
+            &TabelasDaFuncao::default(),
+            &PlanoEscopos::default(),
+        )
+        .unwrap();
+        for v in [ValueId(1), ValueId(2)] {
+            assert_eq!(
+                classes[&v],
+                Ownership::Borrowed {
+                    owner: OrigemOwner::Valor(ValueId(0)),
+                    escopo: 0
+                }
+            );
+        }
+        // O primeiro Phi pode receber provisoriamente a âncora, mas sua outra
+        // entrada não pode terminar em um Phi que só tem fonte Owned.
+        f.blocks[0].instructions.push((
+            ValueId(5),
+            Instruction::ArcCopy {
+                value: Operand::Val(ValueId(0)),
+            },
+            Type::Ref,
+        ));
+        if let Instruction::Phi { incoming, .. } = &mut f.blocks[1].instructions[0].1 {
+            incoming[0].1 = Operand::Val(ValueId(5));
+        }
+        classes = inicial.clone();
+        assert!(
+            produzir_contratos_arc(&f, &mut classes, &mut plano)
+                .unwrap_err()
+                .contains("após propagação")
+        );
+        assert_eq!(classes, inicial);
+        assert!(plano.instrucoes.is_empty());
+    }
+
+    #[test]
     fn produtor_preserva_emprestimo_em_phi_de_laco_ancorado() {
         let mut f = Function {
             symbol: "phi_borrowed_laco".into(),

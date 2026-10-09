@@ -1525,6 +1525,14 @@ ou pendências. Suíte ARC 58/58
 (`target/ownership-record-consultas-produtor.log`).
 
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
+Regressão de ciclo emprestado ampliada para dois Phis mutuamente dependentes,
+com blocos em ordem inversa: âncora externa produz ambos e o wrapper completo
+aceita o retorno Borrowed. Trocar a fonte do segundo Phi por cópia Owned
+deixa a dependência incompatível após propagação e rejeita todos os mapas,
+inclusive a classificação da cópia. Suíte ARC 66/66
+(`target/ownership-phi-borrowed-ciclo-test.log`). Na rodada pesada
+`37992860235`, job B0 agora completed/success; macOS e SDK da fonte ainda
+ativos. Logs detalhados de B0 aguardam o fechamento da rodada.
 Produtor de Phi Borrowed agora atravessa dependências de Phis Ref ainda sem
 classe quando há entrada emprestada externa conhecida. Após o ponto fixo,
 confere todas as entradas antes de publicar: dependência não resolvida ou
