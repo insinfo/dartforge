@@ -1211,6 +1211,32 @@ do CFG e contratos semânticos dos parâmetros/demais instruções; ainda não
 certifica vida de slots, invalidação, Finalizable nem integra automaticamente
 a emissão padrão. Rodada pesada 37978604806 segue ativa na consulta.
 
+Resultado `ref:borrow(N)` no catálogo exige argumento Ref borrowed existente;
+índice inválido e owner escalar/consumido são recusados. Record fieldAt foi
+auditado como empréstimo do record, sem token independente; catálogo com
+18 externs. HIR liga o resultado SSA ao owner do argumento no escopo de
+invocação, conservando as restrições dos ancestrais; owner null produz null
+trivial. Teste CFG recusou leitura após liberar o record. Teste C ABI real
+em tracing/ARC sob estresse confirmou vida do campo até a liberação do record
+e morte posterior, também com ARC_CONFERIR=1/ARC_BERCARIO=0. cell_get_ref não
+foi classificado borrowed: seu caminho escalar pode criar caixa nova.
+Validação no perfil padrão Cargo: runtime 158 aprovados, três ignorados,
+15 de integração e 27 exemplos; 39 testes ARC e 36 exemplos do emissor.
+Logs `target/ownership-borrow-runtime-completo.log`,
+`target/ownership-borrow-record-auditor.log`, `target/ownership-borrow-record-hir.log`
+e `target/ownership-borrow-record-doc.log`. Invalidação e proveniência/forma do
+objeto ainda precisam de prova; não equivale a cobertura completa da ABI.
+
+Fechamento da rodada pesada 37978604806 sobre c3effdd7: sucesso em todos os
+jobs selecionados. Artefatos em `target/ci-37978604806`: Linux/macOS
+AOT/A1/B0/B1/ARC 238/238, io 130/130, JIT 238/238, zero divergências,
+sete sem IR iguais por construção e zero timeouts nos dois. Windows ARC
+238/238 (58,9 s), ARC estresse 238/238 (60,0 s), io 130/130 (93,9 s);
+SDK fonte AOT 238/238 (57,7 s) e JIT 238/238 sem divergências (121,5 s).
+Seis casos Windows ARC têm oráculo Dart indisponível para interop web;
+placar do harness não os transforma em prova diferencial válida. Essa rodada
+não contém o catálogo/produtores nem o resultado borrowed posteriores.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

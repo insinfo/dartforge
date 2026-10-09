@@ -704,6 +704,31 @@ pub unsafe extern "C" fn dartforge_record_new(pairs: *const i64, len: i64) -> i6
 mod testes_owners_record_e_concat {
     use super::*;
 
+    #[test]
+    #[allow(unsafe_code)]
+    fn getter_record_empresta_campo_sem_criar_owner_independente() {
+        for arc in [false, true] {
+            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+            let texto = HEAP.with(|h| h.borrow_mut().alocar_str("campo emprestado"));
+            dartforge_arc_retain(texto);
+            let pares = [texto, 3];
+            // SAFETY: um par bits/tag válido; seu Ref tem token independente.
+            let record = unsafe { dartforge_record_new(pares.as_ptr(), 1) };
+            dartforge_arc_retain(record);
+            dartforge_arc_release(texto);
+            let campo = dartforge_nativo_DartForge_record_fieldAt(record, 0);
+            assert_eq!(campo, texto);
+            dartforge_arc_collect();
+            assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(campo)));
+            dartforge_arc_release(record);
+            dartforge_arc_collect();
+            assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(campo)));
+            assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(record)));
+            HEAP.with(|h| { h.replace(anterior); });
+        }
+    }
+
     fn com_heap_arc(f: impl FnOnce()) {
         let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
         HEAP.with(|h| h.borrow_mut().ativar_arc());

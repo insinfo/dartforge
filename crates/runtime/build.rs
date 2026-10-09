@@ -214,8 +214,17 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
     let texto = std::fs::read_to_string(caminho).expect("ler ownership.tsv");
     let efeitos = std::fs::read_to_string(manifesto.join("efeitos.tsv")).expect("ler efeitos.tsv");
     let mut linhas = std::collections::BTreeMap::new();
-    let tipo = |s: &str, resultado: bool| -> (&str, &str) {
-        match (s, resultado) {
+    let tipo = |s: &str, resultado: bool| -> (&str, String) {
+        if resultado {
+            if let Some(n) = s
+                .strip_prefix("ref:borrow(")
+                .and_then(|s| s.strip_suffix(')'))
+            {
+                let n: usize = n.parse().expect("ownership.tsv: índice de borrow inválido");
+                return ("i64", format!("ModoResultado::BorrowArg({n})"));
+            }
+        }
+        let (ty, modo) = match (s, resultado) {
             ("ref:borrow", false) => ("i64", "ModoParametro::Borrow"),
             ("ref:consume", false) => ("i64", "ModoParametro::Consume"),
             ("ref:consume-success", false) => ("i64", "ModoParametro::ConsumeSuccess"),
@@ -227,7 +236,8 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
             ("i8:scalar", true) => ("i8", "ModoResultado::ScalarI8"),
             ("void:scalar", true) => ("()", "ModoResultado::Void"),
             _ => panic!("ownership.tsv: tipo/contrato não suportado: {s}"),
-        }
+        };
+        (ty, modo.to_string())
     };
     for (n, linha) in texto.lines().enumerate() {
         if linha.trim().is_empty() || linha.starts_with('#') {
@@ -264,10 +274,22 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
             c[1].split(',').map(|s| tipo(s, false)).collect()
         };
         let resultado = tipo(c[2], true);
+        if let Some(n) = c[2]
+            .strip_prefix("ref:borrow(")
+            .and_then(|s| s.strip_suffix(')'))
+        {
+            let n: usize = n.parse().unwrap();
+            assert!(
+                parametros
+                    .get(n)
+                    .is_some_and(|(_, modo)| modo == "ModoParametro::Borrow"),
+                "ownership.tsv: resultado borrowed exige parâmetro Ref borrowed existente"
+            );
+        }
         assert!(
             pode_falhar
                 || parametros.iter().all(|(_, modo)| !matches!(
-                    *modo,
+                    modo.as_str(),
                     "ModoParametro::ConsumeSuccess" | "ModoParametro::ConsumeError"
                 )),
             "ownership.tsv: consumo por aresta exige pending"
@@ -296,6 +318,7 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
                     | "dartforge_marcar_constante"
                     | "dartforge_gc_collect"
                     | "dartforge_marcar_permanente"
+                    | "dartforge_nativo_DartForge_record_fieldAt"
             )
     }) {
         assert!(
@@ -320,7 +343,7 @@ pub enum ModoParametro { Borrow, Consume, ConsumeSuccess, ConsumeError, Scalar, 
 /// assert_ne!(ModoResultado::Owned, ModoResultado::Void);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModoResultado { Owned, ScalarI64, ScalarI8, Void }
+pub enum ModoResultado { Owned, BorrowArg(usize), ScalarI64, ScalarI8, Void }
 /// Contrato auditado, com resultado disponível somente no sucesso.
 ///
 /// ```
@@ -350,7 +373,7 @@ pub const CONTRATOS: &[Contrato] = &[
     for (nome, (params, (_, resultado), retencao, invalida, pode_falhar)) in &linhas {
         let modos = params
             .iter()
-            .map(|(_, modo)| *modo)
+            .map(|(_, modo)| modo.as_str())
             .collect::<Vec<_>>()
             .join(", ");
         saida.push_str(&format!("Contrato {{ nome: {nome:?}, parametros: &[{modos}], resultado: {resultado}, retencao_persistente: {retencao}, invalida_borrows: {invalida}, pode_falhar: {pode_falhar} }},\n"));
@@ -388,6 +411,9 @@ mod testes_ownership {
             boa.replace("arc_retain", "arc_ausente"),
             boa.replace("normal", "inventado"),
             boa.replace("ref:borrow", "ref:consume-success"),
+            boa.replace("void:scalar", "ref:borrow(1)"),
+            boa.replace("ref:borrow", "i64:scalar")
+                .replace("void:scalar", "ref:borrow(0)"),
         ] {
             std::fs::write(raiz.join("ownership.tsv"), ruim).unwrap();
             assert!(std::panic::catch_unwind(|| tabela_de_ownership(&raiz, &nomes)).is_err());

@@ -1,6 +1,7 @@
 //! Tradução das externs auditadas para o plano de tokens da HIR.
 //! Não presume contratos para símbolos ausentes nem certifica proveniência/borrows.
 
+use super::OrigemOwner;
 use super::{
     EfeitoTokens, Ownership, PlanoEscopos, PlanoTokens, verificar_escopos, verificar_tokens,
 };
@@ -336,6 +337,21 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
     }
     let (ty, resultado) = match c.resultado {
         ModoResultado::Owned => (Type::Ref, Ownership::Owned),
+        ModoResultado::BorrowArg(n) => (
+            Type::Ref,
+            match args[n].0 {
+                Operand::Val(v) => Ownership::Borrowed {
+                    owner: OrigemOwner::Valor(v),
+                    escopo: 0,
+                },
+                Operand::Constant(Constant::Null) => Ownership::Trivial,
+                _ => {
+                    return Err(format!(
+                        "{name}: owner do resultado borrowed exige SSA ou null"
+                    ));
+                }
+            },
+        ),
         ModoResultado::ScalarI64 => (Type::I64, Ownership::Trivial),
         ModoResultado::ScalarI8 => (Type::I8, Ownership::Trivial),
         ModoResultado::Void => (Type::Void, Ownership::Trivial),

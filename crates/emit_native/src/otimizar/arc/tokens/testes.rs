@@ -440,6 +440,64 @@ fn producao_verificada_nao_publica_metadados_de_funcao_com_token_vazado() {
 }
 
 #[test]
+fn resultado_borrowed_auditado_depende_do_owner_do_argumento() {
+    let mut f = funcao(vec![
+        bloco(
+            0,
+            vec![
+                copia(1, 0),
+                (
+                    ValueId(2),
+                    Instruction::CallRuntime {
+                        name: "dartforge_nativo_DartForge_record_fieldAt".into(),
+                        args: vec![
+                            (valor(1), Type::Ref),
+                            (Operand::Constant(Constant::Int(0)), Type::I64),
+                        ],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                ),
+            ],
+            Terminator::CondBranch {
+                cond: Operand::Constant(Constant::Bool(false)),
+                then_block: BlockId(1),
+                else_block: BlockId(2),
+            },
+        ),
+        bloco(1, vec![drop(3, 1)], Terminator::Return(None)),
+        bloco(
+            2,
+            vec![copia(4, 2), drop(5, 4), drop(6, 1)],
+            Terminator::Return(None),
+        ),
+    ]);
+    let mut c = classes(&[], &[]);
+    let mut p = PlanoTokens::default();
+    let mut t = TabelasDaFuncao::default();
+    t.invocacoes.insert(ValueId(2), BlockId(1));
+    t.pousos.insert(BlockId(1));
+    super::super::produzir_e_verificar_tokens(
+        &f,
+        &mut c,
+        &mut p,
+        &t,
+        &super::super::PlanoEscopos::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        c[&ValueId(2)],
+        Ownership::Borrowed {
+            owner: OrigemOwner::Valor(ValueId(1)),
+            escopo: 0
+        }
+    );
+    f.blocks[2].instructions.rotate_right(1);
+    let erro = verificar_tokens(&f, &c, &t, &p).unwrap_err();
+    assert!(erro.contains("indisponível v1"));
+}
+
+#[test]
 fn emprestimo_nao_sobrevive_ao_owner_consumido_nem_escapa_no_retorno() {
     let mut f = funcao(vec![bloco(
         0,

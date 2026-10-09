@@ -1166,6 +1166,16 @@ invalidação de borrows, Finalizable nem cobertura dos produtores ausentes;
 a emissão padrão ainda precisa integrar essa entrada após obter os metadados
 semânticos completos.
 
+Resultado `ref:borrow(N)` aponta para argumento Ref borrowed existente; o
+build rejeita índice ausente, escalar/native ou argumento consumido como owner.
+`record_fieldAt` tem esse contrato para o argumento zero: campo Ref do record
+sem retenção independente. Na HIR, SSA gera Borrowed ligado ao ValueId do
+argumento no escopo de invocação; a cadeia do owner conserva as restrições de
+escopo/consumo dos ancestrais. Owner null implica resultado trivial null.
+Essa classificação não dispensa a prova de invalidação por mutação nem a de
+forma/proveniência do objeto. `cell_get_ref` não usa esse contrato: seu caminho
+escalar pode criar uma caixa sem sustentação pela célula. Catálogo: 18 externs.
+
 Externs **novas** mínimas: `dartforge_arc_retain`, `dartforge_arc_release`,
 `dartforge_arc_collect`, `dartforge_arc_verificar_abi`. Retain/release são
 `nounwind` somente se falhas internas não desenrolarem pelo limite C. Elas

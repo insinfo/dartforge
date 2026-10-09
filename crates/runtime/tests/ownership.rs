@@ -23,6 +23,7 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
                         | "dartforge_marcar_constante"
                         | "dartforge_gc_collect"
                         | "dartforge_marcar_permanente"
+                        | "dartforge_nativo_DartForge_record_fieldAt"
                 )
         })
         .collect();
@@ -47,6 +48,11 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
         .find(|c| c.nome == "dartforge_arc_quadro_carregar_v1")
         .unwrap();
     assert_eq!(carregar.resultado, ModoResultado::Owned);
+    let campo = CONTRATOS
+        .iter()
+        .find(|c| c.nome == "dartforge_nativo_DartForge_record_fieldAt")
+        .unwrap();
+    assert_eq!(campo.resultado, ModoResultado::BorrowArg(0));
     assert!(!CONTRATOS.iter().any(|c| c.nome == "dartforge_alocar"));
     for nome in ["dartforge_gc_global_root", "dartforge_marcar_constante"] {
         let c = CONTRATOS.iter().find(|c| c.nome == nome).unwrap();
