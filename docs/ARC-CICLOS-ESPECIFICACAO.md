@@ -1145,8 +1145,18 @@ Trivial, sem efeito ordinário sobrescrevendo a regra da primitiva. Faz staging
 dos resultados antes de alterar os mapas; erro de tipo, classe incompatível
 ou plano que sobrescreva primitiva não deixa estado parcial. Os tipos dos
 operandos, a vida dos slots e o consumo no CFG continuam sujeitos aos seus
-verificadores. Não classifica Phi, parâmetros ou referências de outras
-operações por largura, nem insere ARC no lowering padrão.
+verificadores. Não classifica parâmetros ou referências de outras operações
+por largura, nem insere ARC no lowering padrão.
+
+Phi Ref sem classe recebe Owned quando todas as entradas são owned/null e
+existe origem fora do ciclo de Phi/move. O produtor segue moves, propaga
+fundação pelo grafo de dependências e rejeita ciclos sem origem, entrada
+emprestada sem cópia e planos que sobrescrevam Phi. Metadados explícitos de
+Phi borrowed/trivial são preservados e continuam exigindo suas provas próprias.
+O staging cobre também erro nesta fase, após classificação ARC/runtime.
+O verificador de tokens prova disponibilidade e transferência simultânea nas
+arestas; a conectividade do grafo não substitui essa prova. Testes nullable,
+laço com move e troca simultânea de dois Phi usam as classes geradas.
 
 Externs **novas** mínimas: `dartforge_arc_retain`, `dartforge_arc_release`,
 `dartforge_arc_collect`, `dartforge_arc_verificar_abi`. Retain/release são

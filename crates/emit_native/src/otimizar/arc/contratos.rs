@@ -4,7 +4,7 @@
 use super::{EfeitoTokens, Ownership, PlanoTokens};
 use crate::hir::*;
 use dartforge_runtime::ownership::{ModoParametro, ModoResultado, contrato};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Produz classes de resultado e consumo de todas as chamadas runtime da função.
 ///
@@ -45,12 +45,14 @@ pub fn produzir_contratos_runtime(
 ///
 /// Copy/move/load produzem Owned; drop/store produzem Trivial. Operações ARC
 /// não recebem entrada em PlanoTokens, pois o verificador possui suas regras.
-/// Parâmetros, Phi e outras operações continuam exigindo classificação própria.
+/// Phi Ref ainda não classificado exige entradas owned/null e origem externa
+/// ao ciclo de Phi/move. Parâmetros e demais operações exigem produtores próprios.
 /// Não insere ARC nem certifica vida dos slots, proveniência ou cleanup.
 ///
 /// # Erros
 /// Os erros de produzir_contratos_runtime, tipo incompatível de operação ARC,
 /// conflito de classe ou tentativa de sobrescrever sua regra no plano.
+/// Phi owned com entrada emprestada/não classificada ou ciclo sem origem.
 /// Nenhum mapa é alterado em caso de erro.
 ///
 /// ```
@@ -73,7 +75,104 @@ pub fn produzir_contratos_arc(
     classes: &mut HashMap<ValueId, Ownership>,
     plano: &mut PlanoTokens,
 ) -> Result<HashMap<ValueId, ContratoChamadaRuntime>, String> {
-    produzir(f, classes, plano, true)
+    let mut novas_classes = classes.clone();
+    let mut novo_plano = plano.clone();
+    let contratos = produzir(f, &mut novas_classes, &mut novo_plano, true)?;
+    produzir_phi(f, &mut novas_classes, &novo_plano)?;
+    *classes = novas_classes;
+    *plano = novo_plano;
+    Ok(contratos)
+}
+
+/// Resolve a propriedade dos Phi Ref, inclusive ciclos com origem conhecida.
+/// A disponibilidade e o consumo simultâneo por aresta são provados depois
+/// pelo verificador de tokens, não pela conectividade deste grafo.
+fn produzir_phi(
+    f: &Function,
+    classes: &mut HashMap<ValueId, Ownership>,
+    plano: &PlanoTokens,
+) -> Result<(), String> {
+    let defs: HashMap<_, _> = f
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .map(|(v, i, _)| (*v, i))
+        .collect();
+    let mut candidatos = HashSet::new();
+    let mut ordem = Vec::new();
+    for (v, i, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
+        if let Instruction::Phi { ty: declarado, .. } = i {
+            if ty != declarado || plano.instrucoes.contains_key(v) {
+                return Err(format!("Phi v{}: tipo ou plano incompatível", v.0));
+            }
+            if *ty == Type::Ref && classes.get(v).is_none_or(|c| *c == Ownership::Owned) {
+                candidatos.insert(*v);
+                ordem.push(*v);
+            }
+        }
+    }
+    let mut pais: HashMap<ValueId, Vec<ValueId>> = HashMap::new();
+    let mut fila = VecDeque::new();
+    for v in &ordem {
+        let Instruction::Phi { incoming, .. } = defs[v] else {
+            unreachable!()
+        };
+        if incoming.is_empty() {
+            return Err(format!("Phi v{} sem entradas", v.0));
+        }
+        let mut ancora = false;
+        for (_, op) in incoming {
+            let mut op = op;
+            let mut movimentos = HashSet::new();
+            loop {
+                match op {
+                    Operand::Constant(Constant::Null) => {
+                        ancora = true;
+                        break;
+                    }
+                    Operand::Val(de) if candidatos.contains(de) => {
+                        pais.entry(*de).or_default().push(*v);
+                        break;
+                    }
+                    Operand::Val(de) if classes.get(de) == Some(&Ownership::Owned) => {
+                        if let Some(Instruction::ArcMove { value }) = defs.get(de) {
+                            if !movimentos.insert(*de) {
+                                return Err(format!("Phi v{}: ciclo de moves sem origem", v.0));
+                            }
+                            op = value;
+                        } else {
+                            ancora = true;
+                            break;
+                        }
+                    }
+                    _ => {
+                        return Err(format!(
+                            "Phi v{}: entrada não é owned/null; copie o empréstimo na aresta",
+                            v.0
+                        ));
+                    }
+                }
+            }
+        }
+        if ancora {
+            fila.push_back(*v);
+        }
+    }
+    let mut fundados = HashSet::new();
+    while let Some(v) = fila.pop_front() {
+        if fundados.insert(v) {
+            if let Some(dependentes) = pais.get(&v) {
+                fila.extend(dependentes);
+            }
+        }
+    }
+    for v in ordem {
+        if !fundados.contains(&v) {
+            return Err(format!("Phi v{} sem origem owned/null fora do ciclo", v.0));
+        }
+        classes.insert(v, Ownership::Owned);
+    }
+    Ok(())
 }
 
 fn produzir(

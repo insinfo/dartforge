@@ -273,7 +273,10 @@ fn phi_nullable_transfere_um_token_em_cada_aresta() {
             Terminator::Return(None),
         ),
     ]);
-    verificar(&f, &classes(&[1, 2], &[3])).unwrap();
+    let mut c = classes(&[], &[]);
+    let mut p = PlanoTokens::default();
+    super::super::produzir_contratos_arc(&f, &mut c, &mut p).unwrap();
+    verificar_tokens(&f, &c, &TabelasDaFuncao::default(), &p).unwrap();
 }
 
 #[test]
@@ -301,7 +304,10 @@ fn phi_em_loop_transfere_sem_acumular_e_troca_simultaneamente() {
         ),
         bloco(2, vec![drop(4, 3)], Terminator::Return(None)),
     ]);
-    verificar(&f, &classes(&[1, 2, 3], &[4])).unwrap();
+    let mut c = classes(&[], &[]);
+    let mut p = PlanoTokens::default();
+    super::super::produzir_contratos_arc(&f, &mut c, &mut p).unwrap();
+    verificar_tokens(&f, &c, &TabelasDaFuncao::default(), &p).unwrap();
     let f = funcao(vec![
         bloco(
             0,
@@ -336,7 +342,67 @@ fn phi_em_loop_transfere_sem_acumular_e_troca_simultaneamente() {
         ),
         bloco(2, vec![drop(5, 3), drop(6, 4)], Terminator::Return(None)),
     ]);
-    verificar(&f, &classes(&[1, 2, 3, 4], &[5, 6])).unwrap();
+    let mut c = classes(&[], &[]);
+    let mut p = PlanoTokens::default();
+    super::super::produzir_contratos_arc(&f, &mut c, &mut p).unwrap();
+    verificar_tokens(&f, &c, &TabelasDaFuncao::default(), &p).unwrap();
+}
+
+#[test]
+fn produtor_phi_recusa_emprestimo_e_ciclo_sem_origem_sem_alterar_mapas() {
+    let phi = |incoming| {
+        (
+            ValueId(2),
+            Instruction::Phi {
+                incoming,
+                ty: Type::Ref,
+            },
+            Type::Ref,
+        )
+    };
+    let f = funcao(vec![
+        bloco(
+            0,
+            vec![],
+            Terminator::CondBranch {
+                cond: valor(9),
+                then_block: BlockId(1),
+                else_block: BlockId(2),
+            },
+        ),
+        bloco(1, vec![copia(1, 0)], Terminator::Branch(BlockId(3))),
+        bloco(2, vec![], Terminator::Branch(BlockId(3))),
+        bloco(
+            3,
+            vec![
+                phi(vec![(BlockId(1), valor(1)), (BlockId(2), valor(0))]),
+                drop(3, 2),
+            ],
+            Terminator::Return(None),
+        ),
+    ]);
+    let mut c = classes(&[], &[]);
+    let inicial = c.clone();
+    let mut p = PlanoTokens::default();
+    assert!(
+        super::super::produzir_contratos_arc(&f, &mut c, &mut p)
+            .unwrap_err()
+            .contains("entrada não é owned/null")
+    );
+    assert_eq!(c, inicial);
+    assert!(p.instrucoes.is_empty());
+    let f = funcao(vec![bloco(
+        0,
+        vec![phi(vec![(BlockId(0), valor(3))]), movimento(3, 2)],
+        Terminator::Branch(BlockId(0)),
+    )]);
+    assert!(
+        super::super::produzir_contratos_arc(&f, &mut c, &mut p)
+            .unwrap_err()
+            .contains("sem origem owned/null")
+    );
+    assert_eq!(c, inicial);
+    assert!(p.instrucoes.is_empty());
 }
 
 #[test]

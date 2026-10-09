@@ -1186,6 +1186,21 @@ públicos aprovados (`target/ownership-produtor-arc-test-final.log`,
 nem referências das demais operações, certifica vida dos slots ou insere
 ARC automaticamente no pipeline padrão.
 
+Produtor ARC agora classifica Phi Ref owned a partir de entradas owned/null,
+inclusive laços e troca entre Phi. Segue moves para exigir origem fora do
+ciclo, sem assumir que um move crie owner. Entrada emprestada sem cópia,
+ciclo sem origem e plano que sobrescreva Phi são recusados. A transação inclui
+essa etapa: falha depois de classificar ARC/runtime não altera os mapas.
+Classes borrowed/trivial explícitas de Phi são preservadas e ainda dependem
+de suas provas. Testes nullable, laço com move e troca simultânea usam classes
+geradas e passam pelo verificador de tokens, que confere disponibilidade e
+consumo por aresta. 37 testes ARC e 35 exemplos públicos aprovados
+(`target/ownership-phi-produtor-test-final.log`, `target/ownership-phi-produtor-doc.log`).
+Não prova Phi borrowed, provenance/lifetime dos slots, parâmetros semânticos,
+geração completa do ownership nem desempenho. Rodada 37978604806 sobre
+c3effdd7 ainda ativa: macOS no corpus AOT/JIT na consulta; não contém este
+produtor nem o catálogo posteriores.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
