@@ -213,8 +213,14 @@ Relatórios já conferidos desta rodada: Linux x86-64 AOT, A1/B0/B1 e ARC
 238/238; JIT × AOT com SDK da fonte 238/238 no placar, zero divergências
 (sete sem IR, iguais por construção). Isso valida o passe excepcional
 separado nestes casos/plataformas; não prova a integração de ownership,
-que continua pendente. macOS, conclusão do SDK da fonte e testes dirigidos
-de B0 ainda estão em andamento.
+que continua pendente. B0 concluiu os quatro testes dirigidos de mapas:
+4/4, nenhum ignorado ou filtrado, 741,81 s. SDK da fonte concluiu AOT
+238/238, os testes individuais de contratos, `script_e_spawn_uri_no_jit`
+e produção autocontida. A etapa de recarga filtrava um nome antigo:
+executou zero testes (sete filtrados), portanto não valida recarga nesta
+rodada. O comando foi corrigido para executar os dois testes ignorados
+existentes de preservação de estado com SDK da fonte; falta validar a
+correção numa próxima rodada. macOS ainda está em andamento.
 
 ## Situação geral (2026-10-08, fim da tarde)
 

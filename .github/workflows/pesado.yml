@@ -650,7 +650,7 @@ jobs:
       - name: Recarga JIT da CLI com SDK da fonte
         shell: pwsh
         run: |
-          cargo test --locked -p dartforge-cli --features jit --test reload_estado cli_preserva_estatico_com_sdk_da_fonte -- --ignored --nocapture
+          cargo test --locked -p dartforge-cli --features jit --test reload_estado -- --ignored --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked -p dartforge-cli --features jit --test jit_programa -- --ignored --nocapture
       - name: Produção autocontida (um .exe, sem DLL do DartForge)
