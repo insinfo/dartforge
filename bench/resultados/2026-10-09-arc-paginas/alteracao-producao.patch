@@ -1,0 +1,52 @@
+--- a/crates/runtime/src/arc.rs
++++ b/crates/runtime/src/arc.rs
+@@ -156,7 +156,7 @@
+ 
+     fn nova(g: Geometria) -> Self {
+         let (inverso, deslocamento) = Self::fatores(g);
+-        Self { geometria: g, inverso, deslocamento, metas: (0..g.blocos).map(|_| None).collect(), ocupados: 0 }
++        Self { geometria: g, inverso, deslocamento, metas: Vec::with_capacity(g.blocos as usize), ocupados: 0 }
+     }
+ 
+     /// Índice de um início de bloco; a rotação leva os bits que não são
+@@ -215,7 +215,7 @@
+ 
+     fn get(&self, h: &Ref) -> Option<&MetaArc> {
+         match self.lugar(*h) {
+-            Some((p, i)) => self.paginas[p].metas[i].as_ref(),
++            Some((p, i)) => self.paginas[p].metas.get(i).and_then(Option::as_ref),
+             None if self.avulsos.is_empty() => None,
+             None => self.avulsos.get(h),
+         }
+@@ -223,7 +223,7 @@
+ 
+     fn get_mut(&mut self, h: &Ref) -> Option<&mut MetaArc> {
+         match self.lugar(*h) {
+-            Some((p, i)) => self.paginas[p].metas[i].as_mut(),
++            Some((p, i)) => self.paginas[p].metas.get_mut(i).and_then(Option::as_mut),
+             None if self.avulsos.is_empty() => None,
+             None => self.avulsos.get_mut(h),
+         }
+@@ -258,9 +258,12 @@
+             pg.geometria = g;
+             (pg.inverso, pg.deslocamento) = PaginaArc::fatores(g);
+             pg.metas.clear();
+-            pg.metas.resize_with(g.blocos as usize, || None);
++            pg.metas.reserve(g.blocos as usize);
+         }
+         let i = pg.indice(h).expect("bug do ARC: handle fora da geometria da página");
++        if pg.metas.len() <= i {
++            pg.metas.resize_with(i + 1, || None);
++        }
+         if pg.metas[i].replace(m).is_none() {
+             pg.ocupados += 1;
+             self.n += 1;
+@@ -285,7 +288,7 @@
+     fn remove(&mut self, h: &Ref) -> Option<MetaArc> {
+         let m = match self.lugar(*h) {
+             Some((p, i)) => {
+-                let m = self.paginas[p].metas[i].take();
++                let m = self.paginas[p].metas.get_mut(i).and_then(Option::take);
+                 if m.is_some() {
+                     self.paginas[p].ocupados -= 1;
+                 }

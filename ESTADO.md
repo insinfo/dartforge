@@ -238,6 +238,25 @@ A hipótese de compactar slots removendo `Option<MetaArc>` foi descartada:
 neste compilador Windows x86-64 ambos ocupam 24 bytes. A implementação
 experimental passou nos grafos de 3.000 sementes por modo, mas foi removida
 por não reduzir memória; nenhum ganho de desempenho é atribuído a ela.
+Também foi descartada a inicialização parcial de páginas de metadados:
+duas séries dirigidas mostraram ARC/árvores −1,1% e +17,7%, com grande
+dispersão na segunda série; lista ligada −2,3% e −4,2%. Não foi comprovado
+ganho consistente. As 40 execuções tiveram os mesmos resultados e código
+zero; medidas, hashes e alteração de produção preservados em
+`bench/resultados/2026-10-09-arc-paginas`. O runtime voltou à versão
+anterior, mantendo a correção do overflow de geração.
+
+Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
+suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior
+estava concluída e nenhuma Pesado ativa. Valida as análises auxiliares ARC,
+a consulta do plano excepcional, recarga e descoberta de SDK corrigidas;
+não contém a correção posterior da geração imortal nem as experiências locais.
+Relatórios Windows já conferidos: ARC 238/238, ARC com estresse 238/238,
+`dart:io` 130/130. Rodada ainda em andamento; esses resultados parciais
+não provam a conclusão nos runners Unix.
+O relatório AOT com SDK da fonte desta rodada também foi conferido:
+238/238, em 56,9 s de harness. Recarga, JIT e conclusão desse job ainda
+precisam de seus resultados próprios; o artefato AOT é publicado antes deles.
 
 Na rodada remota `37896396380` sobre `719e94cc`, os quatro testes dirigidos
 de mapas também passaram, sem ignorados/filtrados, em 752 s; log do job B0

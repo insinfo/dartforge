@@ -1,0 +1,21 @@
+{
+  "A0-antes": {
+    "path": "E:\\MyRustProjects\\dartforge\\target\\tmp-modos-faixas\\objetos_escapam-A0.exe",
+    "sha256": "d5b5dbe48ae0ba99e67b4d92d0cb3d9b91cbe4c663cbd6309e47c363623d485b"
+  },
+  "ARC-antes": {
+    "path": "E:\\MyRustProjects\\dartforge\\target\\tmp-modos-faixas\\objetos_escapam-ARC.exe",
+    "sha256": "237ccc6c7320da43fc54117fc77bc83b294aad9658ba1bf35be0c82773a9a0ad"
+  },
+  "A0-depois": {
+    "path": "E:\\MyRustProjects\\dartforge\\target\\tmp-arc-paginas\\objetos_escapam-A0.exe",
+    "sha256": "da7b4e3b26fe5fc09286b4d3f32fbb29923b6c2a04aa07d48f39a576ccfe12e5"
+  },
+  "ARC-depois": {
+    "path": "E:\\MyRustProjects\\dartforge\\target\\tmp-arc-paginas\\objetos_escapam-ARC.exe",
+    "sha256": "fa9ce4933cc2e69b26782c04559fbe4ecd0b5b374371ae47138a531677e4194b"
+  },
+  "CLI": {
+    "sha256": "a1b7765355e90af4dfe43e3261df8e791b69df1ffe0d3be7516fed216ca1c491"
+  }
+}

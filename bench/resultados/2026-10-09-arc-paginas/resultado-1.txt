@@ -1,0 +1,4 @@
+A0/arvores: 41.724 -> 42.501 ms; depois/antes=1.01862
+A0/lista_ligada: 18.303 -> 18.470 ms; depois/antes=1.00912
+ARC/arvores: 542.851 -> 537.106 ms; depois/antes=0.98942
+ARC/lista_ligada: 115.279 -> 112.679 ms; depois/antes=0.97745
