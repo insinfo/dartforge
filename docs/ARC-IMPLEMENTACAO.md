@@ -444,6 +444,17 @@ Isso não valida ainda todos os comandos OOB nem o desenrolamento LLVM.
 Suíte release: 127 testes unitários aprovados, três microbenchmarks ignorados;
 13 testes de integração e 12 doctests aprovados.
 
+O relato de erro não tratado copia erro e rastro para slots proprietários
+antes de limpar a pendência. O quadro permanece durante a chamada Dart que
+descreve o erro, o fallback e o envio aos ouvintes; a descrição bem-sucedida
+recebe um terceiro slot. O retorno com nova exceção não consulta o valor
+de resultado da chamada. Todos os slots são soltados ao retornar do relato.
+Teste do protocolo captura a exceção pela ABI, força coleta após o clear e
+com diagnóstico alias do erro, depois verifica que erro e rastro morreram
+ao fechar o quadro. Não substitui a validação nativa do handler nem LSDA.
+Auditoria puro/berçário aprovada. Suíte release: 128 unitários, 13 testes de
+integração e 12 doctests aprovados; três microbenchmarks ignorados.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais

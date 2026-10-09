@@ -186,6 +186,39 @@ mod testes_owner_controle {
     use super::*;
 
     #[test]
+    fn erro_e_rastro_sobrevivem_ao_clear_ate_terminar_o_relato() {
+        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+        let erro = HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.ativar_arc();
+            h.alocar_str("erro protegido")
+        });
+        dartforge_exception_throw(erro, 3);
+        let rastro = com_erro_nao_tratado(|capturado, rastro, quadro| {
+            assert_eq!(capturado, erro);
+            assert_eq!(dartforge_exception_pending(), 0);
+            HEAP.with(|h| {
+                let mut h = h.borrow_mut();
+                h.collect();
+                assert_eq!(h.texto(erro).unwrap().para_string(), "erro protegido");
+                assert!(h.e_objeto_vivo(rastro));
+                // O diagnóstico pode repetir o erro: é outra ocorrência owner.
+                h.set_root(quadro, 2, erro);
+                h.collect();
+                assert!(h.e_objeto_vivo(erro));
+            });
+            rastro
+        });
+        HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.collect();
+            assert!(!h.e_objeto_vivo(erro));
+            assert!(!h.e_objeto_vivo(rastro));
+        });
+        HEAP.with(|h| { h.replace(anterior); });
+    }
+
+    #[test]
     fn copia_portatil_sobrevive_na_fila_e_owner_ativo_termina_no_retorno() {
         let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
         let (quadro, texto) = HEAP.with(|h| {
@@ -326,14 +359,34 @@ fn tratar_mensagem_de_controle(msg: i64) {
 /// erro (`[erro, rastro]`); sem ouvinte e com erros fatais, é impressa.
 /// Devolve se o isolado deve terminar.
 fn relatar_erro_nao_tratado() -> bool {
+    com_erro_nao_tratado(relatar_erro_protegido)
+}
+
+/// Copia os owners antes de limpar a pendência e mantém o diagnóstico no slot 2.
+/// O tratamento pode alocar ou retornar cedo; todos os slots saem ao retornar.
+fn com_erro_nao_tratado<R>(tratar: impl FnOnce(i64, i64, i64) -> R) -> R {
     let erro = dartforge_exception_peek_ref();
     let rastro = dartforge_stack_trace_get();
+    let quadro = HEAP.with(|h| {
+        let mut h = h.borrow_mut();
+        let quadro = h.push_frame_proprietario(3);
+        h.set_root(quadro, 0, erro);
+        h.set_root(quadro, 1, rastro);
+        quadro
+    });
     dartforge_exception_clear();
+    let resultado = tratar(erro, rastro, quadro);
+    HEAP.with(|h| h.borrow_mut().pop_frame(quadro));
+    resultado
+}
+
+/// Descreve e distribui o erro já protegido pelo quadro do tratamento.
+fn relatar_erro_protegido(erro: i64, rastro: i64, quadro: i64) -> bool {
     let (fatal, ouvintes) = com_estado(|e| (e.erros_fatais, e.ouvintes_de_erro.clone()));
     // SAFETY: registrada pela sobreposição de `dart:isolate` com a
     // assinatura (`Object?`, `Object?`) → `List<String>`.
     let descrever = { let alvo_dart: usize = ajudante_de_isolado("_dartforgeDescreverErro"); move |a0: i64, a1: i64| -> i64 { dart_r2(alvo_dart, a0, a1) } };
-    let descricao = com_raizes(&[erro, rastro], || descrever(erro, rastro));
+    let descricao = descrever(erro, rastro);
     if dartforge_exception_pending() != 0 {
         // O `toString()` do erro falhou: a descrição do runtime.
         dartforge_exception_clear();
@@ -342,6 +395,7 @@ fn relatar_erro_nao_tratado() -> bool {
         }
         return fatal;
     }
+    HEAP.with(|h| h.borrow_mut().set_root(quadro, 2, descricao));
     if ouvintes.is_empty() {
         if fatal {
             let textos: Vec<String> = HEAP.with(|h| {

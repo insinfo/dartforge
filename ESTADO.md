@@ -315,6 +315,16 @@ Relatórios finais do SDK da fonte na rodada `37915929494` conferidos:
 AOT 238/238 (57,0 s), JIT × AOT 238/238 no placar, zero divergências,
 sete sem IR iguais por construção (122,8 s). Esses relatórios validam
 `2f3256b3`, sem as migrações posteriores.
+A rodada `37915929494` terminou com sucesso. Relatórios finais macOS
+conferidos: AOT e A1/B0/B1/ARC 238/238, `dart:io` 130/130, JIT × AOT
+238/238 no placar, zero divergências, sete sem IR iguais por construção.
+Log macOS `113771976182`: recarga 7/7 e testes JIT 16/16, 5/5, 6/6.
+O relato de erro não tratado agora protege erro e rastro com owners antes
+do clear, mantendo-os durante descrição, fallback e envio. A descrição
+bem-sucedida ocupa outro slot; retorno com exceção não consulta o resultado.
+Teste do protocolo passou com auditoria puro/berçário. Release: 128 unitários,
+13 de integração e 12 doctests aprovados, três microbenchmarks ignorados.
+O teste não cobre o handler Dart completo nem desenrolamento LLVM por tabelas.
 
 Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
 suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior
