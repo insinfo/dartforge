@@ -303,7 +303,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             } else {
                 Modo::Valor(env_b.clone())
             };
-            b.ligar_local_como(*sym, super::locais::Local { modo, ty: l.ty, tipo_estatico: l.tipo_estatico, finalizavel: l.finalizavel, offset: None, late: None });
+            b.ligar_local_como(*sym, super::locais::Local { modo, ty: l.ty, tipo_estatico: l.tipo_estatico, finalizavel: l.finalizavel, escopo: 0, offset: None, late: None });
         } else if com_this {
             let t = b.emit(
                 Instruction::EnvGet {

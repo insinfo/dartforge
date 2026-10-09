@@ -84,6 +84,10 @@ pub struct Local {
     /// Classificação da obrigação léxica. None ainda exige prova; não emite
     /// nem substitui ArcKeepAlive ou uma ocorrência proprietária.
     pub finalizavel: Option<bool>,
+    /// Escopo desta ligação, atribuído ao inseri-la no corpo corrente.
+    /// Capturas preservam o tipo original, mas não o escopo de outra função.
+    /// Não é uma prova de cleanup nem uma ocorrência proprietária.
+    pub escopo: u32,
     /// Offset do nome na declaração (a chave de `captura.rs`); `None` para
     /// os ligados por valor.
     pub offset: Option<usize>,
@@ -144,11 +148,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    fn inserir_local(&mut self, sym: SymbolId, local: Local) {
-        self.escopos
-            .last_mut()
-            .expect("escopo da função")
-            .insert(sym, local);
+    fn inserir_local(&mut self, sym: SymbolId, mut local: Local) {
+        let escopo = self.escopos.last_mut().expect("escopo da função");
+        local.escopo = escopo.id;
+        escopo.insert(sym, local);
     }
 
     /// Declara um local (sem offset: nunca é célula) no escopo corrente,
@@ -163,6 +166,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 ty,
                 tipo_estatico: None,
                 finalizavel: None,
+                escopo: 0,
                 offset: None,
                 late: None,
             },
@@ -221,7 +225,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     modo: Modo::Memoria(ptr),
                     ty,
                     tipo_estatico,
-                finalizavel,
+                    finalizavel,
+                    escopo: 0,
                     offset: Some(offset),
                     late: None,
                 },
@@ -249,6 +254,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 ty,
                 tipo_estatico,
                 finalizavel,
+                escopo: 0,
                 offset: Some(offset),
                 late: None,
             },
@@ -355,6 +361,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 ty,
                 tipo_estatico: origem.tipo_estatico,
                 finalizavel: origem.finalizavel,
+                escopo: 0,
                 offset: None,
                 late,
             },
@@ -377,6 +384,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 ty,
                 tipo_estatico: None,
                 finalizavel: None,
+                escopo: 0,
                 offset: None,
                 late: None,
             },
@@ -704,6 +712,7 @@ void main() {}
                         let sym = p.name.unwrap();
                         let nome = interner.resolve(sym);
                         let local = b.buscar_local(sym).unwrap();
+                        assert_eq!(local.escopo, 0, "parâmetro {nome}");
                         assert_eq!(local.tipo_estatico, Some(p.ty), "{nome}");
                         assert_eq!(
                             local.finalizavel,
@@ -726,6 +735,7 @@ void main() {}
                     b.abrir_escopo();
                     let primeiro = b.escopos.last().unwrap().id;
                     b.ligar_local(parametro, Operand::Constant(Constant::Null));
+                    assert_eq!(b.buscar_local(parametro).unwrap().escopo, primeiro);
                     let salvo = b.escopos.pop().unwrap();
                     assert_eq!(
                         b.buscar_local(parametro).unwrap().tipo_estatico,
@@ -737,14 +747,39 @@ void main() {}
                     b.fechar_escopo();
                     b.escopos.push(salvo.clone());
                     assert_eq!(b.escopos.last().unwrap().id, primeiro);
+                    assert_eq!(b.buscar_local(parametro).unwrap().escopo, primeiro);
                     assert_eq!(
                         b.buscar_local(parametro).unwrap().tipo_estatico,
                         None
                     );
                     b.fechar_escopo();
                     b.abrir_escopo();
-                    assert!(b.escopos.last().unwrap().id > segundo);
+                    let terceiro = b.escopos.last().unwrap().id;
+                    assert!(terceiro > segundo);
+                    // Copiar a descrição de uma captura não transporta a
+                    // identidade léxica do corpo que a declarou.
+                    let mut captura = externo.clone();
+                    captura.escopo = primeiro;
+                    b.ligar_local_como(parametro, captura);
+                    assert_eq!(b.buscar_local(parametro).unwrap().escopo, terceiro);
+                    assert_eq!(
+                        b.buscar_local(parametro).unwrap().tipo_estatico,
+                        externo.tipo_estatico
+                    );
+                    b.ligar_ambiente(
+                        parametro,
+                        Operand::Constant(Constant::Null),
+                        0,
+                        false,
+                        externo.ty,
+                        &externo,
+                    );
+                    let ambiente = b.buscar_local(parametro).unwrap();
+                    assert_eq!(ambiente.escopo, terceiro);
+                    assert_eq!(ambiente.tipo_estatico, externo.tipo_estatico);
+                    assert_eq!(ambiente.finalizavel, externo.finalizavel);
                     b.fechar_escopo();
+                    assert_eq!(b.buscar_local(parametro).unwrap().escopo, 0);
                     b.fechar_escopo();
                     assert_eq!(b.escopos.len(), 1);
                 }

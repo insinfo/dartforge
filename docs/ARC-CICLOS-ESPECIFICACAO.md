@@ -868,6 +868,17 @@ Erros de fluxo dessa API incluem caminho de blocos desde a entrada;
 junções incompatíveis mostram os dois caminhos. A árvore de descoberta
 guarda um predecessor por bloco, reconstruindo os caminhos só no erro.
 
+`arc::verificar_tokens` recebe contratos explícitos por instrução ordinária
+(`PlanoTokens`); contrato ausente é erro, não um empréstimo presumido. Sobre
+CFG/SSA e representações previamente válidos, confere disponibilidade e
+consumo único: copy cria token, move transfere, drop consome, Phi owned
+transfere simultaneamente na aresta. Junções/backedges exigem inventários
+iguais. Invoke produz resultado apenas no sucesso e aplica consumos de
+sucesso/erro separadamente. Retorno owned transfere ao chamador; retorno
+borrowed exige origem externa. Saídas rejeitam tokens restantes. Isso não
+certifica os contratos fornecidos, escopos, invalidação de slots/borrows,
+regiões ou estados suspensos; o produtor e a integração continuam pendentes.
+
 Operações **novas** sugeridas na `Instruction`:
 
 | Operação | Efeito de ownership |
@@ -888,7 +899,8 @@ I64 sem proveniência e literal ainda não avaliado são recusados. Visitantes
 de leitura/substituição e do corpo assíncrono incluem seus operandos.
 Os passes gerais preservam as operações, inclusive inlining com remapeamento
 de parâmetros/resultados. Isso ainda não insere ownership automaticamente,
-não prova consumo por CFG nem transporta obrigações através de suspensão.
+não integra a prova auxiliar de tokens ao pipeline nem transporta obrigações
+através de suspensão.
 As demais operações da tabela e o produtor semântico continuam pendentes.
 
 `Alloca` de Ref representa slot proprietário inicializado com null. `Load` faz
@@ -1269,6 +1281,14 @@ executadas, anexos cancelados e obrigações nativas ainda pendentes.
 `ArcKeepAlive` para `Finalizable` é introduzido durante lowering, quando o
 escopo semântico ainda existe; `await` transfere essa obrigação para o estado
 suspenso. Não tentar reconstruir o escopo a partir do LLVM otimizado.
+
+O lowering preserva atualmente o tipo estático original e a classificação
+Finalizable em `Local`, além da identidade de sua ligação léxica. Escopos têm
+IDs monotônicos por função (zero é a invocação), independentes da profundidade;
+salvar/restaurar um caso de switch preserva a identidade do registro. Ligar
+uma captura no corpo corrente atribui o escopo desse corpo, mantendo o tipo
+original. Esses metadados ainda não produzem ArcKeepAlive/PlanoEscopos na HIR,
+nem certificam cleanup excepcional ou transferência para estados suspensos.
 
 Aplicar a regra ao tipo estático: subtipo de `Finalizable` exceto `Never`, e
 recursivamente `T?`/`FutureOr<T>`. Incluir `this`, capturas efetivas e duração do

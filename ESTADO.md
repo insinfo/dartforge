@@ -948,6 +948,17 @@ lowering. Check final do emissor com testes passou, sem aviso novo
 exporta PlanoEscopos para a HIR, emite KeepAlive ou cobre
 cleanup de return/throw/await. As identidades não autorizam antecipar drops.
 
+`Local::escopo` agora registra a identidade da ligação no mapa léxico. A
+inserção central atribui o ID corrente também para capturas de closures,
+funções diretas e posições do ambiente; copiar o Local não transporta um
+escopo de outra função para a nova ligação. Tipo estático/Finalizable original
+continuam preservados. Teste com SDK real ampliado confere parâmetros em zero,
+sombreamento, restauração e religação de captura/ambiente com tipo preservado.
+Release do emissor: 126 aprovados, zero falhas, sete manuais ignorados
+(`target/emissor-locais-escopo-release.log`), apenas aviso preexistente de
+atribuir_slots. O transporte desses metadados para HIR/otimizações e a
+produção de KeepAlive/cleanup continuam pendentes.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
