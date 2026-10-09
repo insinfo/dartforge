@@ -12,7 +12,14 @@ fn main() -> Result<(), String> {
     let saida = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
     let arc = args.next().as_deref() != Some("tracing");
     let variante = args.next();
-    let auto_cleanup = variante.as_deref() == Some("retorno-mortal-auto-cleanup");
+    let erro_forcado = match variante.as_deref() {
+        Some("retorno-mortal-erro-1") => Some(ValueId(9)),
+        Some("retorno-mortal-erro-2") => Some(ValueId(15)),
+        Some("retorno-mortal-erro-3") => Some(ValueId(19)),
+        _ => None,
+    };
+    let auto_cleanup =
+        variante.as_deref() == Some("retorno-mortal-auto-cleanup") || erro_forcado.is_some();
     let sem_cleanup = matches!(
         variante.as_deref(),
         Some(
@@ -21,7 +28,7 @@ fn main() -> Result<(), String> {
                 | "retorno-mortal-sem-cleanup"
                 | "retorno-mortal-auto-cleanup"
         )
-    );
+    ) || erro_forcado.is_some();
     let prova_retorno = matches!(
         variante.as_deref(),
         Some(
@@ -31,11 +38,11 @@ fn main() -> Result<(), String> {
                 | "retorno-mortal-sem-cleanup"
                 | "retorno-mortal-auto-cleanup"
         )
-    );
+    ) || erro_forcado.is_some();
     let prova_mortal = matches!(
         variante.as_deref(),
         Some("retorno-mortal" | "retorno-mortal-sem-cleanup" | "retorno-mortal-auto-cleanup")
-    );
+    ) || erro_forcado.is_some();
     let mut m = Module::new();
     m.memoria_arc = arc;
     m.entry_symbol = Some("prova_slots".into());
@@ -297,9 +304,18 @@ fn main() -> Result<(), String> {
     let mut corrente = BlockId(0);
     let mut corpo = Vec::new();
     let mut proximo = originais.iter().map(|(v, _, _)| v.0).max().unwrap_or(0) + 1;
-    for instrucao in originais {
+    for mut instrucao in originais {
+        if erro_forcado == Some(instrucao.0) {
+            if let Instruction::CallRuntime { name, .. } = &mut instrucao.1 {
+                // Substitui a observação por lançamento Ref auditado. O teste
+                // seguinte seleciona o mesmo bloco de cleanup preparado.
+                *name = "dartforge_arc_lancar_ref_v1".into();
+            }
+        }
         let impresso = match &instrucao.1 {
-            Instruction::CallRuntime { name, args, .. } if name == "dartforge_print_handle" => {
+            Instruction::CallRuntime { name, args, .. }
+                if name == "dartforge_print_handle" || name == "dartforge_arc_lancar_ref_v1" =>
+            {
                 Some(args[0].0.clone())
             }
             _ => None,
@@ -355,6 +371,14 @@ fn main() -> Result<(), String> {
                 Type::Void,
             ));
             proximo += 1;
+            if erro_forcado.is_some() {
+                cleanup.push((
+                    ValueId(proximo),
+                    chamada("dartforge_exception_clear", vec![], Type::Void),
+                    Type::Void,
+                ));
+                proximo += 1;
+            }
             f.blocks.push(BasicBlock {
                 id: erro,
                 instructions: cleanup,

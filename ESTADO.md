@@ -2,6 +2,22 @@
 
 ## Retomada de 2026-10-09
 
+Exceção Ref e cleanup executado no AOT: a nova ABI
+`dartforge_arc_lancar_ref_v1` recebe borrow Ref, não consome token do código
+e publica a raiz da exceção pendente; pode alocar o rastro. Catálogo agora
+com 25 contratos, incluindo `dartforge_exception_clear`. O teste do runtime
+passou em ARC e tracing com auditoria/stress: Mint vivo após release do
+código e coleta enquanto pendente; morto após clear e nova coleta.
+As variantes `retorno-mortal-erro-1/2/3` executaram os três retornos de erro
+da prova AOT em ARC e tracing: seis códigos 0, saídas com zero/uma/duas
+linhas, LLVM com clear antes dos drops inseridos. Artefatos e hashes em
+`bench/resultados/2026-10-09-arc-excecao-ref-aot`.
+Passaram 77 testes ARC, 39 LLVM, dois do catálogo, 29 doctests runtime e
+43 do emissor. Logs `target/ownership-excecao-ref-*`.
+O terceiro lançamento usa null pela ABI interna, não prova `throw null`
+de Dart. Morte final no AOT, invoke de callee Dart nativo e integração
+no pipeline padrão continuam pendentes, assim como o restante do objetivo.
+
 Chamadas Dart falíveis com CFG excepcional preparado: regressão combina
 resumo do callee, produtor de CallStatic, tabela invoke e inserção de cleanup.
 O temporário passado por borrow recebe drop nas duas saídas; o resultado

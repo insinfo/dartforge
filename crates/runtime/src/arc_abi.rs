@@ -2,6 +2,31 @@
 // A pilha observacional não substitui estes owners. Operações de ownership
 // não coletam nem executam Dart; coleta tem um safepoint explícito separado.
 // A fábrica owned de caixas é uma operação de alocação, com safepoint próprio.
+// O lançamento Ref publica uma raiz runtime e pode alocar o rastro.
+
+/// Lança um valor Ref emprestado e o mantém como raiz da exceção pendente.
+///
+/// Não consome o token do chamador. O protocolo de exceções mantém uma raiz
+/// independente até clear/consumo; a preparação do rastro pode alocar/coletar.
+/// O lowering deve fornecer um Ref vivo e conferir a pendência imediatamente.
+/// Não converte bits escalares nem aplica a semântica Dart de `throw null`.
+///
+/// # Panics
+/// Falha interna do protocolo de exceções/heap; aborta no limite C.
+///
+/// ```
+/// use dartforge_runtime::abi::{dartforge_arc_box_int_owned_v1, dartforge_arc_lancar_ref_v1,
+///     dartforge_arc_release, dartforge_exception_pending, dartforge_exception_clear};
+/// let valor = dartforge_arc_box_int_owned_v1(i64::MAX);
+/// dartforge_arc_lancar_ref_v1(valor);
+/// assert_ne!(dartforge_exception_pending(), 0);
+/// dartforge_arc_release(valor);
+/// dartforge_exception_clear();
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_lancar_ref_v1(valor: i64) {
+    dartforge_exception_throw(valor, 3);
+}
 
 /// Entrega um int em representação Ref com um token Owned para o chamador.
 ///
@@ -243,6 +268,26 @@ pub extern "C" fn dartforge_arc_quadro_fechar_v1(quadro: i64) {
 #[cfg(test)]
 mod testes_arc_abi_quadros {
     use super::*;
+
+    #[test]
+    fn excecao_ref_preserva_mint_apos_release_e_clear_remove_raiz() {
+        for arc in [false, true] {
+            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+            let valor = dartforge_arc_box_int_owned_v1(i64::MAX);
+            dartforge_arc_lancar_ref_v1(valor);
+            assert_ne!(dartforge_exception_pending(), 0);
+            dartforge_arc_release(valor);
+            dartforge_arc_collect();
+            HEAP.with(|h| assert!(h.borrow().e_objeto_vivo(valor)));
+            assert_eq!(dartforge_exception_peek_ref(), valor);
+            dartforge_exception_clear();
+            assert_eq!(dartforge_exception_pending(), 0);
+            dartforge_arc_collect();
+            HEAP.with(|h| assert!(!h.borrow().e_objeto_vivo(valor)));
+            HEAP.with(|h| { h.replace(anterior); });
+        }
+    }
 
     #[test]
     fn fabrica_owned_entrega_token_e_mint_morre_apos_ultimo_release() {

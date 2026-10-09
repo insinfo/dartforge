@@ -222,7 +222,6 @@ pub fn produzir_chamadas_dart(
                             || novas_classes.get(arg) == Some(&Ownership::Trivial)
                     }
                     Operand::Constant(_) => true,
-                    _ => false,
                 };
             if !compativel {
                 return Err(format!("argumento Dart incompatível: {}", resumo.simbolo));

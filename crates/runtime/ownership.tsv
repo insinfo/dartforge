@@ -6,6 +6,7 @@ dartforge_arc_collect	-	void:scalar	0	1	normal
 dartforge_arc_global_receber_v1	i64:native,ref:consume	void:scalar	1	1	normal
 dartforge_arc_gravar_ref	ref:borrow,i64:scalar,ref:borrow	void:scalar	1	1	normal
 dartforge_arc_inicial	ref:borrow	void:scalar	1	0	normal
+dartforge_arc_lancar_ref_v1	ref:borrow	void:scalar	1	1	pending
 dartforge_arc_quadro_abrir_v1	i64:scalar	i64:scalar	0	0	normal
 dartforge_arc_quadro_carregar_v1	i64:scalar,i64:scalar	ref:owned	0	0	normal
 dartforge_arc_quadro_copiar_v1	i64:scalar,i64:scalar,ref:borrow	void:scalar	1	1	normal
@@ -22,5 +23,6 @@ dartforge_marcar_permanente	ref:borrow	void:scalar	1	0	pending
 dartforge_nativo_DartForge_record_fieldAt	ref:borrow,i64:scalar	ref:borrow(0)	0	0	pending
 dartforge_print_handle	ref:borrow	void:scalar	0	0	pending
 dartforge_exception_pending	-	u8:scalar	0	0	normal
+dartforge_exception_clear	-	void:scalar	0	1	normal
 dartforge_nativo_DartForge_record_numFields	ref:borrow	i64:scalar	0	0	pending
 dartforge_nativo_DartForge_record_shape	ref:borrow	i64:scalar	0	0	pending

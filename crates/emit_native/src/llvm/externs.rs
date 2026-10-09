@@ -155,6 +155,10 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: Efeitos { aloca: true, lanca: false, chama_dart: false },
     },
     Extern {
+        decl: "declare void @dartforge_arc_lancar_ref_v1(i64)",
+        efeitos: Efeitos { aloca: true, lanca: true, chama_dart: false },
+    },
+    Extern {
         decl: "declare i64 @dartforge_arc_quadro_abrir_v1(i64) nounwind",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },

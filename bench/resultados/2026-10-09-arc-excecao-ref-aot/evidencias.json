@@ -1,0 +1,68 @@
+{
+  "base": "359c1a48",
+  "auditoria_arc": 1,
+  "bercario": 0,
+  "gc_stress": 1,
+  "execucoes": [
+    {
+      "modo": "arc",
+      "erro": 1,
+      "exit_code": 0,
+      "linhas": [],
+      "ir_sha256": "2224DCDA5156482D8D51380CC7EE9812812D651C1519887AE319817F12CC09BA",
+      "stdout_sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "modo": "arc",
+      "erro": 2,
+      "exit_code": 0,
+      "linhas": [
+        "9223372036854775807"
+      ],
+      "ir_sha256": "61D99A5941C21BC0D607E05E413E426B1204DBDCEF98606BFE5B31A0A0338598",
+      "stdout_sha256": "D5F7E3691EBCA6211405F11AE88A1B1899D315A91695BD48FBB2DE5AB4CE063F"
+    },
+    {
+      "modo": "arc",
+      "erro": 3,
+      "exit_code": 0,
+      "linhas": [
+        "9223372036854775807",
+        "42"
+      ],
+      "ir_sha256": "42470E125AD2B0C31005700871179D95BF9DE9CBEDF87234F88D049C8360AC33",
+      "stdout_sha256": "D1D0A16345E6E37B3B47A8B540704691CEE6AE47CE1C8C333F86A1A5DA529E17"
+    },
+    {
+      "modo": "tracing",
+      "erro": 1,
+      "exit_code": 0,
+      "linhas": [],
+      "ir_sha256": "D9E97F5D5128386CDCC050A9147478D6CD3A71CD25458EBFFE1C231D65475D07",
+      "stdout_sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "modo": "tracing",
+      "erro": 2,
+      "exit_code": 0,
+      "linhas": [
+        "9223372036854775807"
+      ],
+      "ir_sha256": "F5F297BA06925D01C322B87347581771C0EB6DB98EA2251E9CE77DA2F7B2EE3A",
+      "stdout_sha256": "D5F7E3691EBCA6211405F11AE88A1B1899D315A91695BD48FBB2DE5AB4CE063F"
+    },
+    {
+      "modo": "tracing",
+      "erro": 3,
+      "exit_code": 0,
+      "linhas": [
+        "9223372036854775807",
+        "42"
+      ],
+      "ir_sha256": "56533D5B460640C7C77D81679BA4E81FD914E0C68447E81F12D76D13E3AA900A",
+      "stdout_sha256": "D1D0A16345E6E37B3B47A8B540704691CEE6AE47CE1C8C333F86A1A5DA529E17"
+    }
+  ],
+  "exemplo_sha256": "E168AB945C8BAFC27EAD2FA0BFF5AC85853C8B177C49C2D96E46618524E1AE7A",
+  "runtime_sha256": "1588C5C1B877E32428EDF21EBAD7481EF14C6D95F15A473733ED374B728E0E05"
+}

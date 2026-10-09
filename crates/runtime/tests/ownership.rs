@@ -28,6 +28,7 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
                         | "dartforge_nativo_DartForge_record_shape"
                         | "dartforge_print_handle"
                         | "dartforge_exception_pending"
+                        | "dartforge_exception_clear"
                 )
         })
         .collect();
@@ -61,6 +62,20 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
     assert!(!caixa.pode_falhar && !caixa.retencao_persistente);
     assert!(caixa.invalida_borrows);
     assert!(EFEITOS.iter().find(|e| e.0 == caixa.nome).unwrap().1);
+    let lancar = CONTRATOS
+        .iter()
+        .find(|c| c.nome == "dartforge_arc_lancar_ref_v1")
+        .unwrap();
+    assert_eq!(lancar.parametros, &[ModoParametro::Borrow]);
+    assert_eq!(lancar.resultado, ModoResultado::Void);
+    assert!(lancar.pode_falhar && lancar.retencao_persistente && lancar.invalida_borrows);
+    let limpar = CONTRATOS
+        .iter()
+        .find(|c| c.nome == "dartforge_exception_clear")
+        .unwrap();
+    assert!(limpar.parametros.is_empty());
+    assert!(!limpar.pode_falhar && !limpar.retencao_persistente);
+    assert!(limpar.invalida_borrows);
     let campo = CONTRATOS
         .iter()
         .find(|c| c.nome == "dartforge_nativo_DartForge_record_fieldAt")
