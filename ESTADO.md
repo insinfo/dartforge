@@ -549,6 +549,16 @@ válida removeu a variável e reutilizou os 18 executáveis após conferir hashe
 As mudanças acumuladas e a dispersão impedem atribuir o agregado ao corte
 de raízes isoladamente. A rodada remota `37936255800` está ativa sobre
 `5bbfc80f`; aguardar fechamento antes de outro disparo no main.
+A instrumentação de `Heap::drenar_arc` agora só consulta `Instant` e reserva
+as nove métricas de etapas quando o rastro está ligado. Antes, esse trabalho
+ocorria em toda drenagem, embora a impressão já dependesse do rastro.
+A sequência de coleta e o formato das métricas foram preservados. Suíte
+release: 145 unitários, três microbenchmarks ignorados, 13 integrações e
+12 doctests aprovados (`target/runtime-rastro-condicional-release.log`).
+Teste de ciclo com `DARTFORGE_GC_RASTRO=1`: 1/1, com métricas emitidas
+(`target/runtime-rastro-condicional-ligado.log`). Ainda não há comparação
+antes/depois desta mudança; a razão 1,968695 acima pertence a `5bbfc80f`.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

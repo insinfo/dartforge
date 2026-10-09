@@ -5437,11 +5437,13 @@ impl Heap {
     /// contam ocorrências.
     fn drenar_arc(&mut self, completa: bool) {
         conferir_coleta_permitida();
-        let inicio = std::time::Instant::now();
+        let rastrear = self.rastrear;
+        let inicio = rastrear.then(std::time::Instant::now);
         // O tempo de cada etapa, para o rastro (raízes, fotos, jovens das
         // raízes, efêmeros, decisão dos jovens, soltura dos jovens mortos,
         // raízes candidatas, zeros/ciclos, memória).
-        let mut fases: Vec<u128> = Vec::with_capacity(10);
+        // Sem rastro, não reservar métricas nem consultar o relógio.
+        let mut fases: Vec<u128> = if rastrear { Vec::with_capacity(10) } else { Vec::new() };
         if let Some(a) = &self.agenda {
             a.pendente.set(false);
         }
@@ -5451,7 +5453,9 @@ impl Heap {
         let mut raizes = Vec::new();
         self.raizes(&mut raizes);
         let protegidos: crate::hash::HashSet<Ref> = raizes.into_iter().filter(|&h| smi::e_handle(h)).collect();
-        fases.push(inicio.elapsed().as_micros());
+        if let Some(inicio) = inicio {
+            fases.push(inicio.elapsed().as_micros());
+        }
         // 1. As fotos.
         let mut valores = Vec::new();
         let n_fotos = arc.fotos.len();
@@ -5470,7 +5474,9 @@ impl Heap {
                 arc.estado.soltar(v).unwrap_or_else(|e| falha_do_arc(e));
             }
         }
-        fases.push(inicio.elapsed().as_micros());
+        if let Some(inicio) = inicio {
+            fases.push(inicio.elapsed().as_micros());
+        }
         // 2. Os jovens que só as raízes veem.
         let mut jovens = Vec::new();
         self.objetos.jovens_entregues(&mut |b| jovens.push(b));
@@ -5482,7 +5488,9 @@ impl Heap {
                 arc.estado.registrar_vivo_em(h, geometria_arc(&self.objetos, h));
             }
         }
-        fases.push(inicio.elapsed().as_micros());
+        if let Some(inicio) = inicio {
+            fases.push(inicio.elapsed().as_micros());
+        }
         // 3. Os efêmeros: as entradas vivas de agora contra as contadas.
         let mut soltar: Vec<Ref> = Vec::new();
         let mut atuais: crate::hash::HashSet<Ref> = crate::hash::HashSet::default();
@@ -5514,7 +5522,9 @@ impl Heap {
         for v in soltar {
             arc.estado.soltar(v).unwrap_or_else(|e| falha_do_arc(e));
         }
-        fases.push(inicio.elapsed().as_micros());
+        if let Some(inicio) = inicio {
+            fases.push(inicio.elapsed().as_micros());
+        }
         // 4. Os jovens: o registrado fica, o resto morreu.
         let mut mortos_jovens: Vec<Ref> = Vec::new();
         let n_jovens = jovens.len();
@@ -5530,7 +5540,9 @@ impl Heap {
                 mortos_jovens.push(h);
             }
         }
-        fases.push(inicio.elapsed().as_micros());
+        if let Some(inicio) = inicio {
+            fases.push(inicio.elapsed().as_micros());
+        }
         for &h in &mortos_jovens {
             // SAFETY: as posições são palavras do corpo de um bloco ainda não solto.
             self.visitar_referencias_fortes(h, &mut |v| valores.push(v));
@@ -5538,7 +5550,9 @@ impl Heap {
                 arc.estado.soltar(v).unwrap_or_else(|e| falha_do_arc(e));
             }
         }
-        fases.push(inicio.elapsed().as_micros());
+        if let Some(inicio) = inicio {
+            fases.push(inicio.elapsed().as_micros());
+        }
         self.marcar_arestas_laterais(&mut arc);
         // As raízes não geram decremento ao sumir: o que elas seguram volta a
         // ser candidato a ciclo.
@@ -5546,7 +5560,9 @@ impl Heap {
             arc.estado.candidatar(h);
         }
         let protegido = |h: Ref| protegidos.contains(&h);
-        fases.push(inicio.elapsed().as_micros());
+        if let Some(inicio) = inicio {
+            fases.push(inicio.elapsed().as_micros());
+        }
         // 5. Zeros, ciclos e o ponto fixo da completa.
         let rodada = completa && arc.ciclos != Some(false);
         let mut ponto_fixo = rodada && !self.efemeros.is_empty();
@@ -5562,29 +5578,35 @@ impl Heap {
         // efêmeros, tabelas laterais (µs).
         let mut laco = [0u128; 4];
         loop {
-            let t0 = std::time::Instant::now();
+            let t0 = rastrear.then(std::time::Instant::now);
             {
                 let ArcDoHeap { estado, efemeros, .. } = &mut *arc;
                 let mut grafo = GrafoDoHeap { heap: self, efemeros };
                 estado.drenar_zeros(&mut grafo, usize::MAX, &protegido).unwrap_or_else(|e| falha_do_arc(e));
-                laco[0] += t0.elapsed().as_micros();
+                if let Some(t0) = t0 {
+                    laco[0] += t0.elapsed().as_micros();
+                }
                 if ciclos {
-                    let t1 = std::time::Instant::now();
+                    let t1 = rastrear.then(std::time::Instant::now);
                     estado.coletar_ciclos(&mut grafo, &protegido).unwrap_or_else(|e| falha_do_arc(e));
                     estado.drenar_zeros(&mut grafo, usize::MAX, &protegido).unwrap_or_else(|e| falha_do_arc(e));
-                    laco[1] += t1.elapsed().as_micros();
+                    if let Some(t1) = t1 {
+                        laco[1] += t1.elapsed().as_micros();
+                    }
                 }
             }
             if ponto_fixo {
-                let t2 = std::time::Instant::now();
+                let t2 = rastrear.then(std::time::Instant::now);
                 ponto_fixo = false;
                 self.ponto_fixo_arc(&mut arc);
                 let ArcDoHeap { estado, efemeros, .. } = &mut *arc;
                 let mut grafo = GrafoDoHeap { heap: self, efemeros };
                 estado.drenar_zeros(&mut grafo, usize::MAX, &protegido).unwrap_or_else(|e| falha_do_arc(e));
-                laco[2] += t2.elapsed().as_micros();
+                if let Some(t2) = t2 {
+                    laco[2] += t2.elapsed().as_micros();
+                }
             }
-            let t3 = std::time::Instant::now();
+            let t3 = rastrear.then(std::time::Instant::now);
             let mut mortos = arc.estado.tomar_mortos();
             mortos_rc.extend_from_slice(&mortos);
             if primeira {
@@ -5656,7 +5678,9 @@ impl Heap {
                     arc.estado.soltar(v).unwrap_or_else(|e| falha_do_arc(e));
                 }
             }
-            laco[3] += t3.elapsed().as_micros();
+            if let Some(t3) = t3 {
+                laco[3] += t3.elapsed().as_micros();
+            }
         }
         self.reindexar_anexos();
         for &acao in &prontas { self.arc_reter_registrando(&mut arc, acao); }
@@ -5664,7 +5688,9 @@ impl Heap {
             arc.estado.soltar(acao).unwrap_or_else(|e| falha_do_arc(e));
         }
         self.finalizacoes_prontas.extend(prontas);
-        fases.push(inicio.elapsed().as_micros());
+        if let Some(inicio) = inicio {
+            fases.push(inicio.elapsed().as_micros());
+        }
         // 6. A memória.
         let (mortos_varridos, mut soltos) = self.objetos.varrer_jovens();
         for &h in &mortos_rc {
@@ -5686,11 +5712,13 @@ impl Heap {
         } else {
             self.menores_desde_completa += 1;
         }
-        fases.push(inicio.elapsed().as_micros());
+        if let Some(inicio) = inicio {
+            fases.push(inicio.elapsed().as_micros());
+        }
         if arc.conferir {
             self.conferir_arc(&mut arc);
         }
-        if self.rastrear {
+        if let Some(inicio) = inicio {
             let mut anterior = 0;
             let etapas: Vec<String> = fases
                 .iter()
