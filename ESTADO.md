@@ -637,6 +637,15 @@ nem recusa de callbacks síncronos posteriores. Exige nova validação ampla
 após publicar esses commits; não extrapolar o verde para a integração ARC
 na HIR ou para desempenho >= A0.
 
+Publicados commits até `0d6f8f2e`. Nova rodada pesada
+[37944870979](https://github.com/insinfo/dartforge/actions/runs/37944870979),
+suite nativo, dois fragmentos, confirmada em fila sobre
+`0d6f8f2ea0cde1153f2398ed25625cfa6c80d594`. Disparo após o fechamento da
+anterior; cobre instrumentação condicional, contagem direta e validação
+NativeFinalizer. O CI rápido anterior ainda estava ativo e foi substituído
+pelo novo push de fonte; não registrar sucesso daquela revisão incompleta.
+Aguardar a rodada atual antes de outro disparo pesado no main.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
