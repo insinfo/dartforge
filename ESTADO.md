@@ -469,9 +469,23 @@ aprovada. Harness release recompilado com runtime atual; corpus
 com auditoria e ciclos em toda drenagem 1/1 (22,3 s). São tempos do harness,
 não benchmark. Esses testes cobrem attach/detach e `asTypedList(finalizer:)`;
 não substituem o corpus completo das três plataformas.
-Revisar também a soma não saturada de `bytes_jovens` ao aceitar tamanhos
-externos extremos; esse contador de dívida antecede a mudança da ABI.
+A soma não saturada de `bytes_jovens` foi reproduzida em release:
+duas contribuições `isize::MAX` e uma de um byte atingem `usize::MAX`;
+a comparação com uma nova alocação de 16 bytes perdia o gatilho por overflow.
+Incrementos de alocação, anexos, crescimento e bytes externos, além da
+comparação, agora usam soma saturada. Dívida no limite continua pedindo coleta.
+O teste também adiciona outro byte e exige que a dívida permaneça no limite.
+Release: 143 unitários, 13 de integração e 12 doctests aprovados, três
+microbenchmarks ignorados; fonte única AOT/JIT aprovada. O corpus dirigido
+do commit anterior não foi reexecutado com esta mudança dos contadores.
+O contador de bytes externos vivos ainda usa saturação em `usize`; auditar
+se anexos com tamanhos extremos podem perder contribuições anteriores ao
+descontar bytes após saturação, separadamente da dívida de alocação.
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
+
+Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
+(33,0 s de harness), ARC sob estresse 238/238 (62,5 s), `dart:io` 130/130
+(71,3 s). A rodada segue ativa e não contém `externalSize` nem a soma saturada.
 
 Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
 suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior

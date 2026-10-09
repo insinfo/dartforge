@@ -2098,7 +2098,7 @@ impl Heap {
         self.stats.peak_estimated_bytes = self.stats.peak_estimated_bytes.max(self.stats.estimated_bytes);
         self.allocations += k;
         self.stats.allocations += k as u64;
-        self.bytes_jovens += bytes;
+        self.bytes_jovens = self.bytes_jovens.saturating_add(bytes);
     }
     /// O campo `late` `chave` (handle, índice) já foi escrito?
     #[inline]
@@ -2155,7 +2155,7 @@ impl Heap {
         self.stress
             || self.agenda.as_ref().is_some_and(Agenda::sorteia)
             || self.allocations >= CONTAGEM_JOVEM
-            || self.bytes_jovens + bytes > self.limite_jovem
+            || self.bytes_jovens.saturating_add(bytes) > self.limite_jovem
             || self.stats.estimated_bytes.saturating_add(bytes) > self.byte_threshold
             || (self.limite_bytes != usize::MAX && self.bytes_totais(bytes) > self.limite_bytes)
     }
@@ -3567,7 +3567,7 @@ impl Heap {
         self.objetos.anexar(b, soltar, ptr, bytes);
         self.stats.estimated_bytes = self.stats.estimated_bytes.saturating_add(bytes);
         self.stats.peak_estimated_bytes = self.stats.peak_estimated_bytes.max(self.stats.estimated_bytes);
-        self.bytes_jovens += bytes;
+        self.bytes_jovens = self.bytes_jovens.saturating_add(bytes);
     }
     /// Os bytes do anexo de `h` passam a ser `bytes` (o acumulador do
     /// `StringBuffer` cresceu): a diferença entra nos gatilhos de coleta, como
@@ -3578,7 +3578,7 @@ impl Heap {
         if delta >= 0 {
             self.stats.estimated_bytes = self.stats.estimated_bytes.saturating_add(delta.unsigned_abs());
             self.stats.peak_estimated_bytes = self.stats.peak_estimated_bytes.max(self.stats.estimated_bytes);
-            self.bytes_jovens += delta.unsigned_abs();
+            self.bytes_jovens = self.bytes_jovens.saturating_add(delta.unsigned_abs());
         } else {
             self.stats.estimated_bytes = self.stats.estimated_bytes.saturating_sub(delta.unsigned_abs());
         }
@@ -3598,7 +3598,7 @@ impl Heap {
             self.externos = self.externos.saturating_add(d);
             self.stats.estimated_bytes = self.stats.estimated_bytes.saturating_add(d);
             self.stats.peak_estimated_bytes = self.stats.peak_estimated_bytes.max(self.stats.estimated_bytes);
-            self.bytes_jovens += d;
+            self.bytes_jovens = self.bytes_jovens.saturating_add(d);
         } else {
             let d = delta.unsigned_abs();
             self.externos = self.externos.saturating_sub(d);
@@ -4634,6 +4634,21 @@ mod espaco_unificado {
         heap.set_global_root(9, g);
         heap.collect();
         assert_eq!(heap.getter_da_constante(g), Some(0x5678));
+    }
+
+    #[test]
+    fn divida_extrema_de_bytes_externos_nao_perde_o_gatilho() {
+        let mut heap = heap();
+        heap.agenda = None;
+        heap.byte_threshold = usize::MAX;
+        heap.limite_bytes = usize::MAX;
+        heap.contar_externos(isize::MAX);
+        heap.contar_externos(isize::MAX);
+        heap.contar_externos(1);
+        assert!(heap.precisa_coletar(16), "a dívida não pode voltar a zero por overflow");
+        heap.contar_externos(1);
+        assert_eq!(heap.bytes_jovens, usize::MAX);
+        assert!(heap.precisa_coletar(16));
     }
 
     #[test]
