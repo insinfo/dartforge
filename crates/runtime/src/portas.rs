@@ -815,6 +815,84 @@ fn refazer_indices_copiados(g: &Grafo, handles: &[i64]) {
 mod testes_owners_materializacao {
     use super::*;
 
+    extern "C" fn verificar_mensagem(_: i64) -> i64 {
+        let valor = dartforge_nativo_DartForge_mensagem_atual();
+        HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.collect();
+            let texto = h.palavras(valor)[1];
+            assert_eq!(h.palavras(valor)[2], texto);
+            assert_eq!(h.texto(texto).unwrap().para_string(), "aliases na fila");
+        });
+        0
+    }
+
+    #[test]
+    fn aliases_compartilhados_passam_da_fila_ao_despacho_sem_owner_residual() {
+        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+        let (quadro, texto, lista, despachante) = HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.ativar_arc();
+            let quadro = h.push_frame_proprietario(1);
+            let texto = h.alocar_str("aliases na fila");
+            h.set_root(quadro, 0, texto);
+            let lista = h.nova_lista(crate::layout::cid::LIST, 2, crate::listas::Elemento::Geral);
+            h.gravar_refs(lista, 1, &[texto, texto]);
+            h.set_root(quadro, 0, lista);
+            let despachante = h.nova_closure(123, (0, false), 0, 0);
+            (quadro, texto, lista, despachante)
+        });
+        dartforge_nativo_DartForge_portas_despachante(despachante);
+        let porta = dartforge_nativo_DartForge_porta_abrir(0);
+        assert_eq!(dartforge_nativo_DartForge_porta_enviar(porta, lista), 0);
+        HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.pop_frame(quadro);
+            h.collect();
+            assert!(!h.e_objeto_vivo(lista) && h.e_objeto_vivo(texto));
+        });
+        assert!(despachar_proxima(verificar_mensagem));
+        dartforge_nativo_DartForge_porta_fechar(porta);
+        dartforge_nativo_DartForge_portas_despachante(0);
+        HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.collect();
+            assert!(!h.e_objeto_vivo(texto));
+            assert!(!h.e_objeto_vivo(despachante));
+        });
+        HEAP.with(|h| { h.replace(anterior); });
+    }
+
+    #[test]
+    fn texto_compartilhado_na_fila_sobrevive_sem_owner_do_emissor() {
+        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+        let (quadro, texto) = HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.ativar_arc();
+            let quadro = h.push_frame_proprietario(1);
+            let texto = h.alocar_str("mensagem compartilhada");
+            h.set_root(quadro, 0, texto);
+            (quadro, texto)
+        });
+        let porta = dartforge_nativo_DartForge_porta_abrir(0);
+        assert_eq!(dartforge_nativo_DartForge_porta_enviar(porta, texto), 0);
+        HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.pop_frame(quadro);
+            h.collect();
+            assert!(h.e_objeto_vivo(texto), "a fila deve manter o owner compartilhado");
+        });
+        dartforge_nativo_DartForge_porta_fechar(porta);
+        extern "C" fn ignorar(_: i64) -> i64 { 0 }
+        assert!(despachar_proxima(ignorar));
+        HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.collect();
+            assert!(!h.e_objeto_vivo(texto), "descarte da mensagem deve soltar seu owner");
+        });
+        HEAP.with(|h| { h.replace(anterior); });
+    }
+
     #[test]
     fn grafo_ciclico_com_aliases_preserva_nos_ate_ligar_arestas() {
         let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
@@ -855,6 +933,8 @@ mod testes_owners_materializacao {
 struct Mensagem {
     porta: i64,
     grafo: Grafo,
+    /// Tokens do heap destinatário para cada ocorrência `Mesmo`.
+    owners: Vec<u64>,
     chegada: std::time::Instant,
 }
 
@@ -1085,8 +1165,16 @@ pub fn postar(porta: i64, grafo: Grafo) {
     };
     match dono {
         Some(Dono::Isolado(f)) => {
+            let mut owners = Vec::new();
+            grafo.visitar_valores(|v| {
+                if let ValG::Mesmo(h) = *v {
+                    assert_eq!(f.id, id_do_isolado(), "owner compartilhado fora do seu isolado");
+                    assert_eq!(grafo.origem, f.id, "origem do owner compartilhado incorreta");
+                    owners.push(HEAP.with(|heap| heap.borrow_mut().reter_owner_mensagem(h)));
+                }
+            });
             let mut m = f.mensagens.lock().unwrap_or_else(|e| e.into_inner());
-            m.normal.push_back(Mensagem { porta, grafo, chegada: std::time::Instant::now() });
+            m.normal.push_back(Mensagem { porta, grafo, owners, chegada: std::time::Instant::now() });
             f.avisar();
         }
         Some(Dono::Controle(f)) => {
@@ -1324,6 +1412,10 @@ fn fechar_portas_do_isolado() {
         Dono::Nativo(_) => true,
     });
     PORTAS_ABERTAS.with(|p| p.borrow_mut().clear());
+    let pendentes = FILA.with(|f| {
+        std::mem::take(&mut f.mensagens.lock().unwrap_or_else(|e| e.into_inner()).normal)
+    });
+    for m in pendentes { soltar_owners_da_mensagem(&m.owners); }
 }
 
 /// Fecha uma porta nativa: as mensagens seguintes são descartadas.
@@ -1391,6 +1483,14 @@ fn esperar_mensagem(prazo: Option<std::time::Instant>, so_controle: bool) -> boo
     })
 }
 
+/// Solta tokens exclusivamente no heap que os criou (o destinatário).
+fn soltar_owners_da_mensagem(owners: &[u64]) {
+    HEAP.with(|h| {
+        let mut h = h.borrow_mut();
+        for &id in owners { h.soltar_owner_mensagem(id); }
+    });
+}
+
 /// Tira a próxima mensagem, materializa e despacha pelo `chamar` do código
 /// gerado. Devolve se havia mensagem.
 fn despachar_proxima(chamar: extern "C" fn(i64) -> i64) -> bool {
@@ -1399,14 +1499,17 @@ fn despachar_proxima(chamar: extern "C" fn(i64) -> i64) -> bool {
     };
     // Mensagem para porta já fechada: descartada, como na VM.
     if !PORTAS_ABERTAS.with(|p| p.borrow().contains_key(&m.porta)) {
+        soltar_owners_da_mensagem(&m.owners);
         return true;
     }
     let despachante = DESPACHANTE.with(|d| *d.borrow());
     if despachante == 0 {
+        soltar_owners_da_mensagem(&m.owners);
         return true;
     }
     let valor = materializar(&m.grafo);
     HEAP.with(|h| h.borrow_mut().set_global_root(RAIZ_MENSAGEM, valor));
+    soltar_owners_da_mensagem(&m.owners);
     ATUAL.with(|a| *a.borrow_mut() = (m.porta, valor));
     dart_r1(chamar as usize, despachante);
     ATUAL.with(|a| *a.borrow_mut() = (0, 0));

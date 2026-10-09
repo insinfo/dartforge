@@ -395,6 +395,22 @@ debug/release e nos modos puro/berçário com auditoria. Suíte debug completa:
 120 aprovados, três microbenchmarks ignorados. O teste não executa um
 desenrolamento LLVM por tabelas; essa integração continua pendente.
 
+A regressão de `ValG::Mesmo` foi reproduzida: uma string enviada para uma
+porta do mesmo isolado morria ao sair o owner do emissor, ainda na fila.
+Mensagens normais agora retêm um token por ocorrência compartilhada, numa
+tabela própria do heap destinatário. Alcance, ativação, promoção e auditoria
+incluem essa tabela. O despacho solta os tokens depois de publicar o valor
+materializado; porta fechada, despachante ausente e encerramento das portas
+soltam as ocorrências descartadas. IDs crescem sem reutilização ou wrap.
+Mensagens copiadas entre isolados não carregam esses tokens; handles `Mesmo`
+precisam pertencer ao isolado atual e ao destinatário.
+
+Testes sobre o envio real cobrem sobrevivência da string na fila, descarte e
+dois aliases passados ao despacho com coleta dentro do callback. Aprovados
+com auditoria nos modos puro e berçário. As mensagens de controle, o término
+concorrente e a ABI completa de callbacks continuam exigindo validação própria.
+Suíte release: 122 aprovados, três microbenchmarks ignorados.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais

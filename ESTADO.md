@@ -284,6 +284,16 @@ cópia ativa para cancelamento reentrante. Teste de retorno com exceção
 pendente aprovado em debug/release, puro/berçário com auditoria; não exercita
 desenrolamento LLVM por tabelas. A fila de mensagens ainda precisa contar
 os handles `ValG::Mesmo` compartilhados no mesmo isolado enquanto esperam.
+Essa perda de raiz foi reproduzida por um envio real: a string morria na
+fila após sair o owner do emissor. A correção retém tokens próprios por
+ocorrência nas mensagens normais, liberados após publicação no despacho ou
+no descarte. Testes de fila, aliases e callback passaram com auditoria
+puro/berçário; suíte release: 122 aprovados, três microbenchmarks ignorados.
+Mensagens de controle, término concorrente e ABI completa seguem pendentes.
+Na rodada `37915929494`, mapas B0 concluíram 4/4 (754,11 s, sem
+ignorados/filtrados), log `113774099093` conferido. SDK da fonte também
+concluiu: recarga 2/2 em 56,10 s, Script/Spawn 1/1 e produção autocontida
+1/1 em 47,89 s; log `113774098910` conferido. Só macOS permanece ativo.
 
 Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
 suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior

@@ -1442,6 +1442,9 @@ pub struct Heap {
     /// Raízes que moram no runtime e não num frame (G6): a exceção pendente
     /// e o rastro corrente. 0 = nenhuma.
     raizes_do_runtime: [i64; 2],
+    /// Ocorrências compartilhadas mantidas por mensagens neste isolado.
+    owners_mensagens: crate::hash::HashMap<u64, Ref>,
+    proximo_owner_mensagem: u64,
     /// Campos `late` já escritos, por handle e índice físico. A marca fica
     /// fora do valor: zero e null são atribuições válidas do programa.
     campos_late_inicializados: crate::hash::HashSet<(i64, i64)>,
@@ -1589,6 +1592,8 @@ impl Heap {
             gc_desligado: std::env::var("DARTFORGE_GC_OFF").as_deref() == Ok("1"),
             globais: crate::hash::HashMap::default(),
             raizes_do_runtime: [0, 0],
+            owners_mensagens: crate::hash::HashMap::default(),
+            proximo_owner_mensagem: 0,
             campos_late_inicializados: crate::hash::HashSet::default(),
             late_novos: Vec::new(),
             epoca_de_layout: EPOCA_DE_LAYOUT.load(std::sync::atomic::Ordering::Acquire),
@@ -1882,7 +1887,24 @@ impl Heap {
             .chain(self.literais.values().copied())
             .chain(self.tearoffs.values().copied())
             .chain(self.enum_values.values().copied())
+            .chain(self.owners_mensagens.values().copied())
             .chain(self.raizes_do_runtime.iter().copied()).collect()
+    }
+
+    /// Retém uma ocorrência de mensagem no domínio deste heap.
+    pub(crate) fn reter_owner_mensagem(&mut self, valor: Ref) -> u64 {
+        self.conferir_vivo(valor);
+        let id = self.proximo_owner_mensagem.checked_add(1).expect("owners de mensagem esgotados");
+        self.arc_trocar_raiz_proprietaria(valor, 0);
+        self.owners_mensagens.insert(id, valor);
+        self.proximo_owner_mensagem = id;
+        id
+    }
+
+    /// Consome uma ocorrência de mensagem neste heap, sem coleta.
+    pub(crate) fn soltar_owner_mensagem(&mut self, id: u64) {
+        let valor = self.owners_mensagens.remove(&id).expect("owner de mensagem inexistente");
+        self.arc_trocar_raiz_proprietaria(0, valor);
     }
 
     /// Retém antes de soltar, sem coleta nem chamada Dart entre as operações.
@@ -2677,6 +2699,7 @@ impl Heap {
     /// globais, os anexos de finalizador e os quadros (os do runtime e a
     /// pilha-sombra do código gerado).
     fn raizes(&self, destino: &mut Vec<i64>) {
+        destino.extend(self.owners_mensagens.values().copied());
         destino.extend(self.enum_values.values().copied());
         destino.extend(self.tearoffs.values().copied());
         destino.extend(self.literais.values().copied());
