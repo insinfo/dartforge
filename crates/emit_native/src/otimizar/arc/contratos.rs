@@ -106,6 +106,8 @@ pub fn produzir_contratos_runtime(
 /// de domínio/estouro e semântica Dart permanecem responsabilidade do lowering.
 /// Phi I1/I64/F64 exige entradas de mesmo tipo com contrato Trivial ou constantes
 /// correspondentes, e origem conhecida fora do ciclo de Phis, inclusive em laços.
+/// Phi Ref explicitamente Trivial exige entradas Trivial/null e origem externa;
+/// a classe fornecida não permite apagar ownership de uma entrada gerenciada.
 /// Phi Ref ainda não classificado exige entradas owned/null e origem externa
 /// ao ciclo de Phi/move. Parâmetros e demais operações exigem produtores próprios.
 /// Não insere ARC nem certifica vida dos slots, proveniência ou cleanup.
@@ -177,7 +179,10 @@ fn produzir_phi(
         .iter()
         .flat_map(|b| &b.instructions)
         .filter_map(|(v, i, ty)| matches!(i, Instruction::Phi { .. }).then_some((*v, *ty)))
-        .filter(|(_, ty)| matches!(ty, Type::I1 | Type::I64 | Type::F64))
+        .filter(|(v, ty)| {
+            matches!(ty, Type::I1 | Type::I64 | Type::F64)
+                || (*ty == Type::Ref && classes.get(v) == Some(&Ownership::Trivial))
+        })
         .map(|(v, _)| v)
         .collect();
     let mut pais_escalares: HashMap<ValueId, Vec<ValueId>> = HashMap::new();
@@ -200,6 +205,7 @@ fn produzir_phi(
                 let mut ancora = false;
                 for (_, op) in incoming {
                     match op {
+                        Operand::Constant(Constant::Null) if *ty == Type::Ref => ancora = true,
                         Operand::Constant(Constant::Bool(_)) if *ty == Type::I1 => ancora = true,
                         Operand::Constant(Constant::Int(_)) if *ty == Type::I64 => ancora = true,
                         Operand::Constant(Constant::Double(_)) if *ty == Type::F64 => ancora = true,
@@ -650,6 +656,75 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn phi_ref_trivial_nao_apaga_ownership_das_entradas() {
+        let mut f = Function {
+            symbol: "phi_ref_trivial".into(),
+            name: "phi_ref_trivial".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "entrada".into(), Type::Ref)],
+            return_ty: Type::Ref,
+            blocks: vec![
+                BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![],
+                    terminator: Terminator::Branch(BlockId(1)),
+                },
+                BasicBlock {
+                    id: BlockId(1),
+                    instructions: vec![(
+                        ValueId(1),
+                        Instruction::Phi {
+                            ty: Type::Ref,
+                            incoming: vec![(BlockId(0), Operand::Val(ValueId(0)))],
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+                },
+            ],
+        };
+        for classe in [
+            Ownership::Owned,
+            Ownership::Borrowed {
+                owner: OrigemOwner::Chamador,
+                escopo: 0,
+            },
+        ] {
+            let mut classes =
+                HashMap::from([(ValueId(0), classe), (ValueId(1), Ownership::Trivial)]);
+            let antes = classes.clone();
+            let mut plano = PlanoTokens::default();
+            assert!(produzir_contratos_arc(&f, &mut classes, &mut plano).is_err());
+            assert_eq!(classes, antes);
+            assert!(plano.instrucoes.is_empty());
+        }
+        let mut classes = HashMap::from([
+            (ValueId(0), Ownership::Trivial),
+            (ValueId(1), Ownership::Trivial),
+        ]);
+        let mut plano = PlanoTokens::default();
+        produzir_e_verificar_tokens(
+            &f,
+            &mut classes,
+            &mut plano,
+            &TabelasDaFuncao::default(),
+            &PlanoEscopos::default(),
+        )
+        .unwrap();
+        if let Instruction::Phi { incoming, .. } = &mut f.blocks[1].instructions[0].1 {
+            incoming[0].1 = Operand::Constant(Constant::Null);
+        }
+        produzir_e_verificar_tokens(
+            &f,
+            &mut classes,
+            &mut plano,
+            &TabelasDaFuncao::default(),
+            &PlanoEscopos::default(),
+        )
+        .unwrap();
+    }
 
     #[test]
     fn consultas_record_produzem_escalar_apenas_na_saida_normal() {

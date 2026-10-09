@@ -1525,6 +1525,14 @@ ou pendências. Suíte ARC 58/58
 (`target/ownership-record-consultas-produtor.log`).
 
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
+Phi Ref com classe Trivial explícita agora exige entradas Ref Trivial/null
+e origem conhecida fora do ciclo. Antes, a classe fornecida escapava da
+análise do produtor para Phis owned. Regressão rejeita entradas Owned e
+Borrowed sem alterar mapas e verifica entradas Trivial/null pelo wrapper
+completo. Suíte ARC 60/60 e exemplos públicos 36/36
+(`target/ownership-phi-ref-trivial-test.log`,
+`target/ownership-phi-ref-trivial-doc.log`). Phis Borrowed ainda exigem
+proveniência e validação próprias; isso não certifica invalidação geral.
 Pré-condição SSA ARC agora exige representação Ref no operando SSA de um
 retorno Ref; null e literais permanentes diretos permanecem permitidos.
 Contrato Owned sobre parâmetro I64 não autoriza reinterpretar seus bits como
