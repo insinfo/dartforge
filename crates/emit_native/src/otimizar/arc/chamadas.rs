@@ -239,6 +239,140 @@ mod testes {
     use super::*;
 
     #[test]
+    fn chamada_falivel_limpa_temporario_sem_produzir_resultado_no_erro() {
+        let (mut callee, plano_callee) = identidade();
+        // O contrato da externa é premissa explícita; o resumo conservador
+        // marca o callee como falível por conter uma chamada direta.
+        callee.blocks[0].instructions[0].1 = Instruction::CallStatic {
+            symbol: "externa".into(),
+            args: vec![Operand::Val(ValueId(0))],
+            ret_ty: Type::Ref,
+        };
+        let mut plano_externo = plano_callee;
+        plano_externo
+            .instrucoes
+            .insert(ValueId(1), EfeitoTokens::default());
+        let resumo = verificar_contrato_funcao_dart(
+            &callee,
+            &HashMap::from([(ValueId(1), Ownership::Owned)]),
+            &plano_externo,
+            &TabelasDaFuncao::default(),
+            &PlanoEscopos::default(),
+        )
+        .unwrap();
+        let mut caller = Function {
+            symbol: "caller_falivel".into(),
+            name: "caller_falivel".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "x".into(), Type::Ref)],
+            return_ty: Type::Ref,
+            blocks: vec![
+                BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![
+                        (
+                            ValueId(1),
+                            Instruction::ArcCopy {
+                                value: Operand::Val(ValueId(0)),
+                            },
+                            Type::Ref,
+                        ),
+                        (
+                            ValueId(2),
+                            Instruction::CallStatic {
+                                symbol: callee.symbol,
+                                args: vec![Operand::Val(ValueId(1))],
+                                ret_ty: Type::Ref,
+                            },
+                            Type::Ref,
+                        ),
+                    ],
+                    terminator: Terminator::CondBranch {
+                        cond: Operand::Constant(Constant::Bool(false)),
+                        then_block: BlockId(1),
+                        else_block: BlockId(2),
+                    },
+                },
+                BasicBlock {
+                    id: BlockId(1),
+                    instructions: vec![],
+                    terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))),
+                },
+                BasicBlock {
+                    id: BlockId(2),
+                    instructions: vec![],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))),
+                },
+            ],
+        };
+        let original = caller.clone();
+        let mut tabelas = TabelasDaFuncao::default();
+        tabelas.invocacoes.insert(ValueId(2), BlockId(1));
+        tabelas.pousos.insert(BlockId(1));
+        let mut plano = PlanoTokens {
+            retorno: RetornoTokens::Owned,
+            ..Default::default()
+        };
+        let mut classes = HashMap::new();
+        produzir_chamadas_dart(&caller, &[resumo], &mut classes, &mut plano).unwrap();
+        assert_eq!(
+            inserir_arc_saidas_dart(
+                &mut caller,
+                &mut classes,
+                &mut plano,
+                &tabelas,
+                &PlanoEscopos::default()
+            )
+            .unwrap(),
+            (0, 2)
+        );
+        for b in &caller.blocks[1..] {
+            assert_eq!(b.instructions.len(), 1);
+            assert!(matches!(
+                b.instructions[0].1,
+                Instruction::ArcDrop {
+                    value: Operand::Val(ValueId(1))
+                }
+            ));
+        }
+        assert!(matches!(
+            caller.blocks[2].terminator,
+            Terminator::Return(Some(Operand::Val(ValueId(2))))
+        ));
+        produzir_e_verificar_tokens_dart(
+            &caller,
+            &mut classes,
+            &mut plano,
+            &tabelas,
+            &PlanoEscopos::default(),
+        )
+        .unwrap();
+        // O resultado não existe no erro, mesmo tendo tipo Ref e classe Owned.
+        caller = original;
+        caller.blocks[1].terminator = Terminator::Return(Some(Operand::Val(ValueId(2))));
+        classes.retain(|v, _| v.0 <= 2);
+        let antes = format!("{caller:?}");
+        let classes_antes = classes.clone();
+        let efeitos_antes = plano.instrucoes.clone();
+        let erro = inserir_arc_saidas_dart(
+            &mut caller,
+            &mut classes,
+            &mut plano,
+            &tabelas,
+            &PlanoEscopos::default(),
+        )
+        .unwrap_err();
+        assert!(
+            erro.contains("ARC003")
+                && erro.contains("resultado v2 usado sem atravessar sua aresta de sucesso"),
+            "{erro}"
+        );
+        assert_eq!(format!("{caller:?}"), antes);
+        assert_eq!(classes, classes_antes);
+        assert_eq!(plano.instrucoes, efeitos_antes);
+    }
+
+    #[test]
     fn cadeia_escalar_de_chamadas_independe_da_ordem_fisica_dos_blocos() {
         let criar = Function {
             symbol: "criar".into(),

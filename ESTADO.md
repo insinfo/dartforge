@@ -2,6 +2,16 @@
 
 ## Retomada de 2026-10-09
 
+Chamadas Dart falíveis com CFG excepcional preparado: regressão combina
+resumo do callee, produtor de CallStatic, tabela invoke e inserção de cleanup.
+O temporário passado por borrow recebe drop nas duas saídas; o resultado
+Owned é transferido apenas no sucesso e nunca liberado no erro. Tentar
+devolvê-lo no erro é rejeitado com ARC003 por não atravessar a aresta de
+sucesso, preservando função e mapas. 77 testes ARC passaram
+(`target/ownership-chamada-falivel-cleanup-test-final.log`). Esta prova é
+do passe sobre HIR, não execução nativa de exceção; o contrato da externa
+usada no corpo do callee permanece premissa explícita do teste.
+
 O produtor de chamadas Dart agora classifica todos os resultados antes
 de conferir argumentos, preservando atomicidade e removendo dependência
 da ordem física dos blocos. Regressão: b0→b2→b1, com b1 armazenado antes
