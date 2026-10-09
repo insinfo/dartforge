@@ -478,14 +478,28 @@ O teste também adiciona outro byte e exige que a dívida permaneça no limite.
 Release: 143 unitários, 13 de integração e 12 doctests aprovados, três
 microbenchmarks ignorados; fonte única AOT/JIT aprovada. O corpus dirigido
 do commit anterior não foi reexecutado com esta mudança dos contadores.
-O contador de bytes externos vivos ainda usa saturação em `usize`; auditar
-se anexos com tamanhos extremos podem perder contribuições anteriores ao
-descontar bytes após saturação, separadamente da dívida de alocação.
+O contador de bytes externos vivos e a estimativa interna passaram a `u128`;
+somente a projeção para estatísticas/gatilhos fica limitada a `usize`.
+Alocação, anexos, crescimento, descarte e reconstruções após coleta atualizam
+essa soma interna. Assim, descontar contribuições depois de exceder `usize`
+preserva os bytes que a projeção havia ocultado. Teste nos três coletores
+soma três contribuições `isize::MAX`, coleta com objeto vivo, retira as três
+e exige o objeto mais os 17 bytes externos anteriores; no fim exige zero.
+A dívida de alocação continua saturada, pois só precisa pedir atendimento.
+Impacto desta soma mais larga no caminho de alocação ainda não foi medido.
+Release: 144 unitários, 13 de integração e 12 doctests aprovados, três
+microbenchmarks ignorados; fonte única AOT/JIT aprovada. O corpus nativo
+completo desta versão ainda aguarda rodada posterior à atualmente ativa.
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
 (33,0 s de harness), ARC sob estresse 238/238 (62,5 s), `dart:io` 130/130
 (71,3 s). A rodada segue ativa e não contém `externalSize` nem a soma saturada.
+Linux concluiu com sucesso: relatórios finais AOT/A1/B0/B1/ARC 238/238,
+`dart:io` 130/130, JIT 238/238 e JIT × AOT sem divergências (sete sem IR
+iguais por construção). Artefato JIT com SDK da fonte também conferido:
+238/238, zero divergências e sete sem IR. Jobs macOS, SDK e B0 ainda ativos
+na última consulta; não inferir o fechamento deles desses relatórios parciais.
 
 Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
 suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior

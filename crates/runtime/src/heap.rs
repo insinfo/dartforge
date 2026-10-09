@@ -1470,7 +1470,9 @@ pub struct Heap {
     trabalho_na_completa: usize,
     /// Bytes fora do heap que contam para os gatilhos
     /// ([`Heap::contar_externos`]); os dos anexos o espaço conta à parte.
-    externos: usize,
+    externos: u128,
+    /// Soma interna antes da projeção saturada em HeapStats; preserva descontos após overflow.
+    bytes_estimados_exatos: u128,
     /// `DARTFORGE_GC_VERIFICAR=1`: toda coleta menor confere, por uma
     /// travessia completa, que nenhum jovem alcançável ficou sem marca (uma
     /// barreira de escrita faltando).
@@ -1607,6 +1609,7 @@ impl Heap {
             // Os testes do runtime conferem que o handle de um morto é
             // recusado: lá, como no `--gc-stress`, os mortos são zerados já.
             externos: 0,
+            bytes_estimados_exatos: 0,
             objetos: EspacoDeObjetos::new(stress || cfg!(test) || std::env::var("DARTFORGE_GC_VERIFICAR").as_deref() == Ok("1")),
             publica: false,
             bytes_jovens: 0,
@@ -2094,8 +2097,7 @@ impl Heap {
     /// contadores.
     #[inline]
     fn contar_alocacao(&mut self, k: usize, bytes: usize) {
-        self.stats.estimated_bytes = self.stats.estimated_bytes.checked_add(bytes).expect("heap excede usize");
-        self.stats.peak_estimated_bytes = self.stats.peak_estimated_bytes.max(self.stats.estimated_bytes);
+        self.somar_bytes_estimados(bytes);
         self.allocations += k;
         self.stats.allocations += k as u64;
         self.bytes_jovens = self.bytes_jovens.saturating_add(bytes);
@@ -2226,7 +2228,7 @@ impl Heap {
                 self.objetos.vivos -= k;
                 self.allocations = self.allocations.saturating_sub(k);
                 self.stats.allocations = self.stats.allocations.saturating_sub(k as u64);
-                self.stats.estimated_bytes = self.stats.estimated_bytes.saturating_sub(bytes);
+                self.subtrair_bytes_estimados(bytes);
                 self.bytes_jovens = self.bytes_jovens.saturating_sub(bytes);
             }
         }
@@ -3037,11 +3039,11 @@ impl Heap {
         if menor {
             let (mortos, bytes_soltos) = self.objetos.varrer_jovens();
             self.stats.reclaimed += mortos as u64;
-            self.stats.estimated_bytes = self.stats.estimated_bytes.saturating_sub(bytes_soltos);
+            self.subtrair_bytes_estimados(bytes_soltos);
         } else {
             let (mortos, _, bytes_de_objetos) = self.objetos.varrer();
             self.stats.reclaimed += mortos as u64;
-            self.stats.estimated_bytes = bytes_de_objetos.saturating_add(self.externos);
+            self.definir_bytes_estimados((bytes_de_objetos as u128).saturating_add(self.externos));
         }
         for (finalizador, par) in finalizar {
             finalizador(par);
@@ -3565,8 +3567,7 @@ impl Heap {
             *campos_de(b) = ptr as i64;
         }
         self.objetos.anexar(b, soltar, ptr, bytes);
-        self.stats.estimated_bytes = self.stats.estimated_bytes.saturating_add(bytes);
-        self.stats.peak_estimated_bytes = self.stats.peak_estimated_bytes.max(self.stats.estimated_bytes);
+        self.somar_bytes_estimados(bytes);
         self.bytes_jovens = self.bytes_jovens.saturating_add(bytes);
     }
     /// Os bytes do anexo de `h` passam a ser `bytes` (o acumulador do
@@ -3576,11 +3577,10 @@ impl Heap {
         let b = self.bloco_vivo(h);
         let delta = self.objetos.ajustar_anexo(b, bytes);
         if delta >= 0 {
-            self.stats.estimated_bytes = self.stats.estimated_bytes.saturating_add(delta.unsigned_abs());
-            self.stats.peak_estimated_bytes = self.stats.peak_estimated_bytes.max(self.stats.estimated_bytes);
+            self.somar_bytes_estimados(delta.unsigned_abs());
             self.bytes_jovens = self.bytes_jovens.saturating_add(delta.unsigned_abs());
         } else {
-            self.stats.estimated_bytes = self.stats.estimated_bytes.saturating_sub(delta.unsigned_abs());
+            self.subtrair_bytes_estimados(delta.unsigned_abs());
         }
     }
     /// O ponteiro nativo anexado a `h` (nulo sem anexo).
@@ -3590,19 +3590,33 @@ impl Heap {
         // SAFETY: bloco vivo.
         unsafe { if (*b).flags & flags_do_bloco::ANEXO != 0 { *campos_de(b) as *mut u8 } else { std::ptr::null_mut() } }
     }
+    /// Projeta a estimativa sem perder bytes que serão descontados posteriormente.
+    fn definir_bytes_estimados(&mut self, bytes: u128) {
+        self.bytes_estimados_exatos = bytes;
+        self.stats.estimated_bytes = usize::try_from(bytes).unwrap_or(usize::MAX);
+        self.stats.peak_estimated_bytes = self.stats.peak_estimated_bytes.max(self.stats.estimated_bytes);
+    }
+
+    fn somar_bytes_estimados(&mut self, bytes: usize) {
+        self.definir_bytes_estimados(self.bytes_estimados_exatos.saturating_add(bytes as u128));
+    }
+
+    fn subtrair_bytes_estimados(&mut self, bytes: usize) {
+        self.definir_bytes_estimados(self.bytes_estimados_exatos.saturating_sub(bytes as u128));
+    }
+
     /// Soma `delta` aos bytes de fora do heap (contam para os gatilhos até quem os
     /// contou descontá-los).
     pub fn contar_externos(&mut self, delta: isize) {
         if delta >= 0 {
             let d = delta.unsigned_abs();
-            self.externos = self.externos.saturating_add(d);
-            self.stats.estimated_bytes = self.stats.estimated_bytes.saturating_add(d);
-            self.stats.peak_estimated_bytes = self.stats.peak_estimated_bytes.max(self.stats.estimated_bytes);
+            self.externos = self.externos.saturating_add(d as u128);
+            self.somar_bytes_estimados(d);
             self.bytes_jovens = self.bytes_jovens.saturating_add(d);
         } else {
             let d = delta.unsigned_abs();
-            self.externos = self.externos.saturating_sub(d);
-            self.stats.estimated_bytes = self.stats.estimated_bytes.saturating_sub(d);
+            self.externos = self.externos.saturating_sub(d as u128);
+            self.subtrair_bytes_estimados(d);
         }
     }
 }
@@ -4637,6 +4651,34 @@ mod espaco_unificado {
     }
 
     #[test]
+    fn descontar_externos_apos_saturacao_preserva_outros_bytes() {
+        for modo in [None, Some(false), Some(true)] {
+            let mut heap = heap();
+            if let Some(puro) = modo {
+                heap.ativar_arc();
+                heap.arc.as_mut().unwrap().puro = puro;
+            }
+            let quadro = heap.push_frame_proprietario(1);
+            let objeto = lista(&mut heap, 0);
+            heap.set_root(quadro, 0, objeto);
+            let bytes_do_objeto = heap.stats.estimated_bytes;
+            heap.contar_externos(17);
+            for _ in 0..3 { heap.contar_externos(isize::MAX); }
+            assert_eq!(heap.stats.estimated_bytes, usize::MAX);
+            heap.collect();
+            assert_eq!(heap.stats.estimated_bytes, usize::MAX);
+            for _ in 0..3 { heap.contar_externos(-isize::MAX); }
+            assert_eq!(heap.externos, 17);
+            assert_eq!(heap.stats.estimated_bytes, bytes_do_objeto + 17);
+            heap.contar_externos(-17);
+            assert_eq!(heap.stats.estimated_bytes, bytes_do_objeto);
+            heap.pop_frame(quadro);
+            heap.collect();
+            assert_eq!(heap.stats.estimated_bytes, 0);
+        }
+    }
+
+    #[test]
     fn divida_extrema_de_bytes_externos_nao_perde_o_gatilho() {
         let mut heap = heap();
         heap.agenda = None;
@@ -5633,7 +5675,7 @@ impl Heap {
             }
         }
         self.stats.reclaimed += (mortos_varridos + mortos_rc.len()) as u64;
-        self.stats.estimated_bytes = self.stats.estimated_bytes.saturating_sub(soltos);
+        self.subtrair_bytes_estimados(soltos);
         self.allocations = 0;
         self.bytes_jovens = 0;
         if completa {
@@ -5710,7 +5752,7 @@ impl Heap {
         self.objetos.marcados += vivos;
         let (mortos, _, bytes_de_objetos) = self.objetos.varrer();
         self.stats.reclaimed += mortos as u64;
-        self.stats.estimated_bytes = bytes_de_objetos.saturating_add(self.externos);
+        self.definir_bytes_estimados((bytes_de_objetos as u128).saturating_add(self.externos));
         self.menores_desde_completa = 0;
         self.trabalho_na_completa = vivos;
         self.recalcular_gatilhos(vivos);
@@ -5934,7 +5976,7 @@ mod arc_no_heap {
             heap.adicionar_anexo(anexo);
             assert!(heap.precisa_coletar(16), "externalSize deve provocar pressão de memória");
             heap.collect();
-            assert_eq!(heap.externos, tamanho + 17);
+            assert_eq!(heap.externos, tamanho as u128 + 17);
             heap.desanexar_finalizador(dono, alvo);
             heap.desanexar_finalizador(dono, alvo);
             assert_eq!(heap.externos, 17);
