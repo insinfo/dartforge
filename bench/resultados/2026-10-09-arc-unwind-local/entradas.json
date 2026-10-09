@@ -1,0 +1,10 @@
+[
+  {
+    "caminho": "corpus/nativo/gc_d03_excecao_profunda.dart",
+    "sha256": "EFBF88255608AB7810BC5570ECA9940E50EC024BAAA56A6D598AF71E94456410"
+  },
+  {
+    "caminho": "corpus/nativo/gc_d04_finally.dart",
+    "sha256": "289BC57ECF86CBCA3A9545E774054FA57DDBCF507B354D0FF7A753520CA0A579"
+  }
+]

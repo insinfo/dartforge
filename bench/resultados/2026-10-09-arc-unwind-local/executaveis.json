@@ -1,0 +1,50 @@
+[
+  {
+    "nome": "gc_d03_excecao_profunda-tracing-checagem",
+    "sha256": "de2378629b04e0c074af29500811320697528ced4ebb9b1233535a489da0b700",
+    "gc_stress": false,
+    "saida_igual_dart": true
+  },
+  {
+    "nome": "gc_d03_excecao_profunda-tracing-tabelas",
+    "sha256": "c97e1d831d26f444d92846d6cedb7cadc2421fad8ecf04daf32d233db4ea9f4e",
+    "gc_stress": false,
+    "saida_igual_dart": true
+  },
+  {
+    "nome": "gc_d03_excecao_profunda-arc-checagem",
+    "sha256": "73d2cd33701c8c951999b67b38565a66378d0d4b8e5706dcd71a6c7cc0b755a4",
+    "gc_stress": false,
+    "saida_igual_dart": true
+  },
+  {
+    "nome": "gc_d03_excecao_profunda-arc-tabelas",
+    "sha256": "0c0be084a574e4b6bcc2a4e338b69b9ceb265a2354de64f0439facd0a91b8ff7",
+    "gc_stress": false,
+    "saida_igual_dart": true
+  },
+  {
+    "nome": "gc_d04_finally-tracing-checagem",
+    "sha256": "04d5722a7f3df917641c58fd8014cf16341a0e49b3c7b24e2d717e4bf5883786",
+    "gc_stress": true,
+    "saida_igual_dart": true
+  },
+  {
+    "nome": "gc_d04_finally-tracing-tabelas",
+    "sha256": "5505db486853a1c168d4226b72df6b81bc6065150c4b1c81fcff8f1eed23a8eb",
+    "gc_stress": true,
+    "saida_igual_dart": true
+  },
+  {
+    "nome": "gc_d04_finally-arc-checagem",
+    "sha256": "7bbd0edc65bc0aaddf51766aa5a9ff364ea99390ee557cf5692b7d2c35b02c5f",
+    "gc_stress": true,
+    "saida_igual_dart": true
+  },
+  {
+    "nome": "gc_d04_finally-arc-tabelas",
+    "sha256": "a6180d2a44a0743851d490ba5d558f480b14eb0f358664bc4993cabbcd11b496",
+    "gc_stress": true,
+    "saida_igual_dart": true
+  }
+]

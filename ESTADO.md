@@ -760,6 +760,18 @@ sete manuais ignorados (`target/emissor-arc-unwind-local-release.log`).
 Validação executada AOT desta revisão ainda pendente; rodada remota
 `37954216065` é anterior a esta mudança de CFG.
 
+Validação AOT dirigida de `0c03571c` concluída: CLI release com jit
+reconstruída em 5 min 43 s. Comparação com Dart 3.6.2 de exceção profunda
+e finally/relançamento/break: tracing/ARC × checagem/tabelas, oito imagens
+otimizadas. Os 18 processos monitorados saíram com zero; oito saídas AOT
+iguais ao Dart, stderr de execução vazio. Exceção profunda sem variável
+GC_STRESS; finally com GC_STRESS=1; heap 256 MB, ARC auditado/ciclos sempre,
+berçário desligado, SDK da fonte e sem DLL selecionada no ambiente.
+Hashes da CLI, imagens, entradas, resultados e script reproduzível em
+`bench/resultados/2026-10-09-arc-unwind-local`. Não é corpus completo,
+prova de cleanup/Finalizable nem benchmark. A rodada remota acima segue
+na revisão anterior, sem esta alteração de CFG.
+
 O lowering agora preserva `Local::tipo_estatico`, TypeId Dart original
 separado da representação HIR. Declarações usam
 `Context::tipo_local_semantico` (sem chamar apagar), closures em ambiente ou

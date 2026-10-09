@@ -1,0 +1,248 @@
+[
+  {
+    "nome": "gc_d03_excecao_profunda-dart",
+    "comando": [
+      "E:\\DartSDKs\\3.6.2\\bin\\dart.exe",
+      "E:\\MyRustProjects\\dartforge\\corpus\\nativo\\gc_d03_excecao_profunda.dart"
+    ],
+    "codigo": 0,
+    "stdout": "32255\n",
+    "stderr": "",
+    "segundos": 0.45400000002700835
+  },
+  {
+    "nome": "gc_d03_excecao_profunda-tracing-checagem-compilar",
+    "comando": [
+      "E:\\MyRustProjects\\dartforge\\target\\release\\dartforge.exe",
+      "aot",
+      "E:\\MyRustProjects\\dartforge\\corpus\\nativo\\gc_d03_excecao_profunda.dart",
+      "E:\\MyRustProjects\\dartforge\\target\\arc-unwind-validacao\\gc_d03_excecao_profunda-tracing-checagem.exe",
+      "--optimize",
+      "--memoria",
+      "tracing",
+      "--excecoes",
+      "checagem"
+    ],
+    "codigo": 0,
+    "stdout": "",
+    "stderr": "",
+    "segundos": 39.09299999999348
+  },
+  {
+    "nome": "gc_d03_excecao_profunda-tracing-checagem-executar",
+    "comando": [
+      "E:\\MyRustProjects\\dartforge\\target\\arc-unwind-validacao\\gc_d03_excecao_profunda-tracing-checagem.exe"
+    ],
+    "codigo": 0,
+    "stdout": "32255\n",
+    "stderr": "",
+    "segundos": 0.03200000000651926
+  },
+  {
+    "nome": "gc_d03_excecao_profunda-tracing-tabelas-compilar",
+    "comando": [
+      "E:\\MyRustProjects\\dartforge\\target\\release\\dartforge.exe",
+      "aot",
+      "E:\\MyRustProjects\\dartforge\\corpus\\nativo\\gc_d03_excecao_profunda.dart",
+      "E:\\MyRustProjects\\dartforge\\target\\arc-unwind-validacao\\gc_d03_excecao_profunda-tracing-tabelas.exe",
+      "--optimize",
+      "--memoria",
+      "tracing",
+      "--excecoes",
+      "tabelas"
+    ],
+    "codigo": 0,
+    "stdout": "",
+    "stderr": "",
+    "segundos": 41.03099999995902
+  },
+  {
+    "nome": "gc_d03_excecao_profunda-tracing-tabelas-executar",
+    "comando": [
+      "E:\\MyRustProjects\\dartforge\\target\\arc-unwind-validacao\\gc_d03_excecao_profunda-tracing-tabelas.exe"
+    ],
+    "codigo": 0,
+    "stdout": "32255\n",
+    "stderr": "",
+    "segundos": 0.0470000000204891
+  },
+  {
+    "nome": "gc_d03_excecao_profunda-arc-checagem-compilar",
+    "comando": [
+      "E:\\MyRustProjects\\dartforge\\target\\release\\dartforge.exe",
+      "aot",
+      "E:\\MyRustProjects\\dartforge\\corpus\\nativo\\gc_d03_excecao_profunda.dart",
+      "E:\\MyRustProjects\\dartforge\\target\\arc-unwind-validacao\\gc_d03_excecao_profunda-arc-checagem.exe",
+      "--optimize",
+      "--memoria",
+      "arc",
+      "--excecoes",
+      "checagem"
+    ],
+    "codigo": 0,
+    "stdout": "",
+    "stderr": "",
+    "segundos": 36.89100000000326
+  },
+  {
+    "nome": "gc_d03_excecao_profunda-arc-checagem-executar",
+    "comando": [
+      "E:\\MyRustProjects\\dartforge\\target\\arc-unwind-validacao\\gc_d03_excecao_profunda-arc-checagem.exe"
+    ],
+    "codigo": 0,
+    "stdout": "32255\n",
+    "stderr": "",
+    "segundos": 0.09399999998277053
+  },
+  {
+    "nome": "gc_d03_excecao_profunda-arc-tabelas-compilar",
+    "comando": [
+      "E:\\MyRustProjects\\dartforge\\target\\release\\dartforge.exe",
+      "aot",
+      "E:\\MyRustProjects\\dartforge\\corpus\\nativo\\gc_d03_excecao_profunda.dart",
+      "E:\\MyRustProjects\\dartforge\\target\\arc-unwind-validacao\\gc_d03_excecao_profunda-arc-tabelas.exe",
+      "--optimize",
+      "--memoria",
+      "arc",
+      "--excecoes",
+      "tabelas"
+    ],
+    "codigo": 0,
+    "stdout": "",
+    "stderr": "",
+    "segundos": 41.26500000001397
+  },
+  {
+    "nome": "gc_d03_excecao_profunda-arc-tabelas-executar",
+    "comando": [
+      "E:\\MyRustProjects\\dartforge\\target\\arc-unwind-validacao\\gc_d03_excecao_profunda-arc-tabelas.exe"
+    ],
+    "codigo": 0,
+    "stdout": "32255\n",
+    "stderr": "",
+    "segundos": 0.0470000000204891
+  },
+  {
+    "nome": "gc_d04_finally-dart",
+    "comando": [
+      "E:\\DartSDKs\\3.6.2\\bin\\dart.exe",
+      "E:\\MyRustProjects\\dartforge\\corpus\\nativo\\gc_d04_finally.dart"
+    ],
+    "codigo": 0,
+    "stdout": "336 10 1566\n",
+    "stderr": "",
+    "segundos": 0.3279999999795109
+  },
+  {
+    "nome": "gc_d04_finally-tracing-checagem-compilar",
+    "comando": [
+      "E:\\MyRustProjects\\dartforge\\target\\release\\dartforge.exe",
+      "aot",
+      "E:\\MyRustProjects\\dartforge\\corpus\\nativo\\gc_d04_finally.dart",
+      "E:\\MyRustProjects\\dartforge\\target\\arc-unwind-validacao\\gc_d04_finally-tracing-checagem.exe",
+      "--optimize",
+      "--memoria",
+      "tracing",
+      "--excecoes",
+      "checagem"
+    ],
+    "codigo": 0,
+    "stdout": "",
+    "stderr": "",
+    "segundos": 6.98399999999674
+  },
+  {
+    "nome": "gc_d04_finally-tracing-checagem-executar",
+    "comando": [
+      "E:\\MyRustProjects\\dartforge\\target\\arc-unwind-validacao\\gc_d04_finally-tracing-checagem.exe"
+    ],
+    "codigo": 0,
+    "stdout": "336 10 1566\n",
+    "stderr": "",
+    "segundos": 0.0470000000204891
+  },
+  {
+    "nome": "gc_d04_finally-tracing-tabelas-compilar",
+    "comando": [
+      "E:\\MyRustProjects\\dartforge\\target\\release\\dartforge.exe",
+      "aot",
+      "E:\\MyRustProjects\\dartforge\\corpus\\nativo\\gc_d04_finally.dart",
+      "E:\\MyRustProjects\\dartforge\\target\\arc-unwind-validacao\\gc_d04_finally-tracing-tabelas.exe",
+      "--optimize",
+      "--memoria",
+      "tracing",
+      "--excecoes",
+      "tabelas"
+    ],
+    "codigo": 0,
+    "stdout": "",
+    "stderr": "",
+    "segundos": 7.25
+  },
+  {
+    "nome": "gc_d04_finally-tracing-tabelas-executar",
+    "comando": [
+      "E:\\MyRustProjects\\dartforge\\target\\arc-unwind-validacao\\gc_d04_finally-tracing-tabelas.exe"
+    ],
+    "codigo": 0,
+    "stdout": "336 10 1566\n",
+    "stderr": "",
+    "segundos": 0.046999999962281436
+  },
+  {
+    "nome": "gc_d04_finally-arc-checagem-compilar",
+    "comando": [
+      "E:\\MyRustProjects\\dartforge\\target\\release\\dartforge.exe",
+      "aot",
+      "E:\\MyRustProjects\\dartforge\\corpus\\nativo\\gc_d04_finally.dart",
+      "E:\\MyRustProjects\\dartforge\\target\\arc-unwind-validacao\\gc_d04_finally-arc-checagem.exe",
+      "--optimize",
+      "--memoria",
+      "arc",
+      "--excecoes",
+      "checagem"
+    ],
+    "codigo": 0,
+    "stdout": "",
+    "stderr": "",
+    "segundos": 6.7810000000172295
+  },
+  {
+    "nome": "gc_d04_finally-arc-checagem-executar",
+    "comando": [
+      "E:\\MyRustProjects\\dartforge\\target\\arc-unwind-validacao\\gc_d04_finally-arc-checagem.exe"
+    ],
+    "codigo": 0,
+    "stdout": "336 10 1566\n",
+    "stderr": "",
+    "segundos": 0.0470000000204891
+  },
+  {
+    "nome": "gc_d04_finally-arc-tabelas-compilar",
+    "comando": [
+      "E:\\MyRustProjects\\dartforge\\target\\release\\dartforge.exe",
+      "aot",
+      "E:\\MyRustProjects\\dartforge\\corpus\\nativo\\gc_d04_finally.dart",
+      "E:\\MyRustProjects\\dartforge\\target\\arc-unwind-validacao\\gc_d04_finally-arc-tabelas.exe",
+      "--optimize",
+      "--memoria",
+      "arc",
+      "--excecoes",
+      "tabelas"
+    ],
+    "codigo": 0,
+    "stdout": "",
+    "stderr": "",
+    "segundos": 6.73399999999674
+  },
+  {
+    "nome": "gc_d04_finally-arc-tabelas-executar",
+    "comando": [
+      "E:\\MyRustProjects\\dartforge\\target\\arc-unwind-validacao\\gc_d04_finally-arc-tabelas.exe"
+    ],
+    "codigo": 0,
+    "stdout": "336 10 1566\n",
+    "stderr": "",
+    "segundos": 0.046999999962281436
+  }
+]
