@@ -2,6 +2,23 @@
 
 ## Retomada de 2026-10-09
 
+Preparação de resume nativo: o leitor de LSDA agora devolve pouso e índice
+de ação, em vez de descartar a ação. Preserva zero (cleanup sem ação tipada)
+e índices positivos da tabela; ainda não interpreta cadeias de ações.
+Endereços udata4 continuam lendo a ação em uleb128. A comparação de faixa
+usa diferença após conferir o início, evitando overflow em início+comprimento.
+Os testes de LSDA/portas agora também estão habilitados em Unix; seis testes
+passaram localmente no Windows, incluindo índice 129 e limite u64::MAX.
+Logs `target/ownership-lsda-*`. AOT ARC normal/erro da variante automática
+reconstruído com o runtime alterado passou sob stress e auditoria, código 0,
+IR e stdout idênticos aos artefatos anteriores. As personalidades ainda tratam
+os pousos como handlers. Auditoria confirmou que Itanium entrega zero no
+par do landingpad e reinicializa o objeto de unwind em df.lancar; SEH
+ignora a fase de unwind e usa RtlUnwindEx na busca. Preservar esse objeto,
+distinguir cleanup/handler nas fases e emitir resume/funclets continua
+pendente; nenhum resume nativo foi certificado. Referência consultada:
+[Exception Handling in LLVM](https://llvm.org/docs/ExceptionHandling.html).
+
 Preparação automática de chamadas Dart: nova API
 `preparar_arc_funcoes_dart` cria invoke, continuação normal e pouso local
 para chamadas diretas falíveis sem sítio prévio. O pouso libera exatamente

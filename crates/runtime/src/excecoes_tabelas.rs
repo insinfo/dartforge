@@ -282,22 +282,25 @@ unsafe fn ler_uleb128(p: &mut *const u8) -> u64 {
     }
 }
 
-/// O deslocamento do *landing pad* que cobre o ponto `ip_relativo` (os dois
-/// relativos ao começo da função), ou 0 se o ponto não tem pouso.
+/// O deslocamento do pouso e o índice de ação que cobrem `ip_relativo`.
+/// Os endereços são relativos à função; (0, 0) indica faixa ausente.
+/// Preserva a ação: zero identifica cleanup sem ação tipada; valores
+/// positivos são índices da tabela de ações, não seletores de tipo.
 ///
 /// A LSDA é a que o LLVM emite para uma personalidade que ele não conhece
 /// (formato Itanium, `GCC_except_table`): `LPStart` omitido, a codificação da
 /// tabela de tipos (com o deslocamento até o fim dela, quando presente), a
 /// codificação `uleb128` dos *call sites* e a tabela deles — início,
-/// comprimento, pouso e ação de cada faixa, em ordem. As ações e os tipos não
-/// são lidos: todo pouso do código gerado pega tudo.
+/// comprimento, pouso e ação de cada faixa, em ordem. As ações e os tipos
+/// não são interpretados aqui. O protocolo atual ainda trata os pousos
+/// como handlers; a distinção nas fases será necessária para resume nativo.
 ///
 /// # Safety
 /// `lsda` aponta para a LSDA de uma função gerada.
 #[cfg(any(all(windows, target_arch = "x86_64"), unix))]
-unsafe fn pouso_da_lsda(lsda: *const u8, ip_relativo: u64) -> u64 {
+unsafe fn sitio_da_lsda(lsda: *const u8, ip_relativo: u64) -> (u64, u64) {
     if lsda.is_null() {
-        return 0;
+        return (0, 0);
     }
     let mut p = lsda;
     // SAFETY: a LSDA tem pelo menos o cabeçalho de três bytes.
@@ -333,16 +336,16 @@ unsafe fn pouso_da_lsda(lsda: *const u8, ip_relativo: u64) -> u64 {
             let inicio = ler_campo(&mut p);
             let comprimento = ler_campo(&mut p);
             let pouso = ler_campo(&mut p);
-            let _acao = ler_uleb128(&mut p);
+            let acao = ler_uleb128(&mut p);
             if ip_relativo < inicio {
                 break;
             }
-            if ip_relativo < inicio + comprimento {
-                return pouso;
+            if ip_relativo - inicio < comprimento {
+                return (pouso, acao);
             }
         }
     }
-    0
+    (0, 0)
 }
 
 /// `EXCEPTION_RECORD` (x86-64).
@@ -435,7 +438,7 @@ unsafe fn personalidade_seh(registro: *mut u8, quadro: *mut u8, despacho: *mut u
         // O endereço de retorno é o da instrução seguinte à chamada, que pode
         // já ser de outra faixa: o ponto da chamada é um byte antes.
         let ip_relativo = (*despacho).control_pc.wrapping_sub(1).wrapping_sub(inicio);
-        let pouso = pouso_da_lsda((*despacho).handler_data, ip_relativo);
+        let (pouso, _acao) = sitio_da_lsda((*despacho).handler_data, ip_relativo);
         if pouso == 0 {
             return CONTINUAR_A_BUSCA;
         }
@@ -578,7 +581,7 @@ pub unsafe extern "C" fn dartforge_personalidade(versao: i32, acoes: i32, classe
         // O endereço de retorno é o da instrução seguinte à chamada.
         let ip = if antes == 0 { ip.wrapping_sub(1) } else { ip };
         let inicio = _Unwind_GetRegionStart(contexto) as u64;
-        let pouso = pouso_da_lsda(_Unwind_GetLanguageSpecificData(contexto), ip.wrapping_sub(inicio));
+        let (pouso, _acao) = sitio_da_lsda(_Unwind_GetLanguageSpecificData(contexto), ip.wrapping_sub(inicio));
         if pouso == 0 {
             return CONTINUAR;
         }
@@ -598,7 +601,7 @@ pub unsafe extern "C" fn dartforge_personalidade(versao: i32, acoes: i32, classe
     }
 }
 
-#[cfg(all(test, windows, target_arch = "x86_64"))]
+#[cfg(all(test, any(all(windows, target_arch = "x86_64"), unix)))]
 mod testes_excecoes_tabelas {
     use super::*;
 
@@ -624,15 +627,15 @@ mod testes_excecoes_tabelas {
         let p = COM_TIPOS.as_ptr();
         // SAFETY: uma LSDA bem formada, inteira no vetor.
         unsafe {
-            assert_eq!(pouso_da_lsda(p, 0x00), 0);
-            assert_eq!(pouso_da_lsda(p, 0x0f), 0);
-            assert_eq!(pouso_da_lsda(p, 0x10), 0x45);
-            assert_eq!(pouso_da_lsda(p, 0x2f), 0x45);
-            assert_eq!(pouso_da_lsda(p, 0x30), 0);
-            assert_eq!(pouso_da_lsda(p, 0x7f), 0);
+            assert_eq!(sitio_da_lsda(p, 0x00), (0, 0));
+            assert_eq!(sitio_da_lsda(p, 0x0f), (0, 0));
+            assert_eq!(sitio_da_lsda(p, 0x10), (0x45, 1));
+            assert_eq!(sitio_da_lsda(p, 0x2f), (0x45, 1));
+            assert_eq!(sitio_da_lsda(p, 0x30), (0, 0));
+            assert_eq!(sitio_da_lsda(p, 0x7f), (0, 0));
             // Depois da última faixa: sem pouso.
-            assert_eq!(pouso_da_lsda(p, 0x80), 0);
-            assert_eq!(pouso_da_lsda(p, 0x1000), 0);
+            assert_eq!(sitio_da_lsda(p, 0x80), (0, 0));
+            assert_eq!(sitio_da_lsda(p, 0x1000), (0, 0));
         }
     }
 
@@ -649,18 +652,61 @@ mod testes_excecoes_tabelas {
         let p = completa.as_ptr();
         // SAFETY: uma LSDA bem formada, inteira no vetor.
         unsafe {
-            assert_eq!(pouso_da_lsda(p, 0x00), 0);
-            assert_eq!(pouso_da_lsda(p, 0x7f), 0);
-            assert_eq!(pouso_da_lsda(p, 0x80), 0x200);
-            assert_eq!(pouso_da_lsda(p, 0x17f), 0x200);
-            assert_eq!(pouso_da_lsda(p, 0x180), 0);
+            assert_eq!(sitio_da_lsda(p, 0x00), (0, 0));
+            assert_eq!(sitio_da_lsda(p, 0x7f), (0, 0));
+            assert_eq!(sitio_da_lsda(p, 0x80), (0x200, 0));
+            assert_eq!(sitio_da_lsda(p, 0x17f), (0x200, 0));
+            assert_eq!(sitio_da_lsda(p, 0x180), (0, 0));
+        }
+    }
+
+    #[test]
+    fn acao_uleb128_independe_da_codificacao_dos_enderecos() {
+        // Endereços udata4 (Mach-O): a ação permanece uleb128 e pode ter
+        // mais de um byte. É um índice cru, não um seletor de catch.
+        let mut lsda = vec![0xff, 0xff, 0x03, 14];
+        for campo in [0x10_u32, 0x20, 0x200] {
+            lsda.extend(campo.to_le_bytes());
+        }
+        lsda.extend([0x81, 0x01]);
+        // SAFETY: cabeçalho e faixa completos, inteiros no vetor.
+        unsafe {
+            assert_eq!(sitio_da_lsda(lsda.as_ptr(), 0x0f), (0, 0));
+            assert_eq!(sitio_da_lsda(lsda.as_ptr(), 0x10), (0x200, 129));
+            assert_eq!(sitio_da_lsda(lsda.as_ptr(), 0x2f), (0x200, 129));
+            assert_eq!(sitio_da_lsda(lsda.as_ptr(), 0x30), (0, 0));
+        }
+    }
+
+    #[test]
+    fn faixa_no_limite_do_endereco_nao_soma_comprimento() {
+        fn uleb(mut valor: u64, bytes: &mut Vec<u8>) {
+            loop {
+                let byte = (valor & 0x7f) as u8;
+                valor >>= 7;
+                bytes.push(byte | if valor == 0 { 0 } else { 0x80 });
+                if valor == 0 { break; }
+            }
+        }
+        let mut faixa = Vec::new();
+        for campo in [u64::MAX - 1, 2, 7, 0] {
+            uleb(campo, &mut faixa);
+        }
+        let mut lsda = vec![0xff, 0xff, 0x01, faixa.len() as u8];
+        lsda.extend(faixa);
+        // SAFETY: faixa completa em uleb128; o comprimento conceitual
+        // termina após o maior endereço sem exigir soma em u64.
+        unsafe {
+            assert_eq!(sitio_da_lsda(lsda.as_ptr(), u64::MAX - 2), (0, 0));
+            assert_eq!(sitio_da_lsda(lsda.as_ptr(), u64::MAX - 1), (7, 0));
+            assert_eq!(sitio_da_lsda(lsda.as_ptr(), u64::MAX), (7, 0));
         }
     }
 
     #[test]
     fn lsda_ausente_nao_tem_pouso() {
         // SAFETY: o ponteiro nulo é tratado antes de qualquer leitura.
-        assert_eq!(unsafe { pouso_da_lsda(std::ptr::null(), 0x10) }, 0);
+        assert_eq!(unsafe { sitio_da_lsda(std::ptr::null(), 0x10) }, (0, 0));
     }
 
     #[test]
