@@ -490,6 +490,24 @@ Impacto desta soma mais larga no caminho de alocação ainda não foi medido.
 Release: 144 unitários, 13 de integração e 12 doctests aprovados, três
 microbenchmarks ignorados; fonte única AOT/JIT aprovada. O corpus nativo
 completo desta versão ainda aguarda rodada posterior à atualmente ativa.
+Harness release recompilado sobre `ef122930`; corpus dirigido
+`14_finalizadores` em tracing sob estresse 1/1 (14,8 s de harness).
+Rodada local ampliada de `corpus/nativo` em ARC com estresse, auditoria e
+ciclos em toda drenagem terminou em 122/130 (389,4 s de harness), código 1.
+As oito falhas foram estouros do limite de execução de 60 s: casos 60, 91,
+92, 96, 97, 98, 99 e 136. Esta rodada não está aprovada; não transformar os
+timeouts em sucesso. Repetição isolada do caso 60 iniciada com o mesmo modo,
+auditoria e limite, para separar concorrência de custo do próprio caso.
+Essa repetição isolada também terminou por timeout: 0/1, código 1, 60,7 s
+de harness, antes da saída das 26.667 closures. Controle sem auditoria,
+mantendo estresse/ciclos e limite de 60 s, iniciado para separar custos;
+não substitui o resultado reprovado da configuração original.
+O controle sem auditoria também esgotou 60 s: 0/1, código 1, 60,7 s de
+harness, no mesmo trecho. Retirando somente o estresse desse controle,
+mantendo ARC e ciclos em toda drenagem, o caso passou 1/1 em 0,7 s de
+harness. O custo está associado à frequência de coleta desse cenário,
+não apenas à concorrência ou à auditoria. Não é benchmark nem prova de
+ausência de regressão: faltam comparação anterior e perfil das drenagens.
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
@@ -500,6 +518,11 @@ Linux concluiu com sucesso: relatórios finais AOT/A1/B0/B1/ARC 238/238,
 iguais por construção). Artefato JIT com SDK da fonte também conferido:
 238/238, zero divergências e sete sem IR. Jobs macOS, SDK e B0 ainda ativos
 na última consulta; não inferir o fechamento deles desses relatórios parciais.
+Depois disso, B0 concluiu: log `113817498842` confirma 4/4 testes de mapas,
+sem ignorados/filtros, 745,25 s. SDK da fonte concluiu: log `113817498673`
+confirma recarga 2/2 (53,59 s), ScriptSpawn 1/1 (1,41 s) e produção
+autocontida 1/1 (46,35 s), além dos contratos dirigidos. Só macOS segue ativo,
+no passo dos testes JIT; aguardá-lo antes de iniciar outra Pesado no main.
 
 Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
 suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior
