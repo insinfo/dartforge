@@ -43,6 +43,10 @@
 //! o pouso no grafo de fluxo (vivacidade das raízes, blocos alcançáveis) e
 //! que o emissor escreve como o desvio à continuação.
 
+//! Em ARC, os atalhos que deixam unwind atravessar um quadro sem pouso
+//! ficam desabilitados: a aresta local é necessária à inserção de cleanup.
+//! O passe expõe essa aresta; ainda não insere a limpeza de owners.
+
 use super::cfg::sucessores;
 use super::efeitos::{e_conferencia, instrucao_lanca, nao_lancam};
 use super::operandos::{constante_padrao, maiores_ids, operandos, operandos_do_terminador, substituir};
@@ -81,9 +85,12 @@ impl PlanoExcecoes {
 pub(super) fn preparar(module: &mut Module) -> PlanoExcecoes {
     assert!(!module.excecoes_por_tabelas, "bug do compilador: CFG excepcional já materializado");
     let nl = nao_lancam(module);
+    // Sem prova de ausência de owners, ARC precisa de uma saída local
+    // para inserir cleanup mesmo quando não há catch/finally na fonte.
+    let preservar_cleanup = module.memoria_arc;
     let mut funcoes = Vec::with_capacity(module.functions.len());
     for f in &mut module.functions {
-        let sitios = if super::valida(f) { da_funcao(f, &nl) } else { TabelasDaFuncao::default() };
+        let sitios = if super::valida(f) { da_funcao(f, &nl, preservar_cleanup) } else { TabelasDaFuncao::default() };
         funcoes.push((f.symbol.clone(), sitios));
     }
     PlanoExcecoes { funcoes }
@@ -254,7 +261,7 @@ fn falso() -> Operand {
     Operand::Constant(Constant::Bool(false))
 }
 
-fn da_funcao(f: &mut Function, nl: &HashSet<String>) -> TabelasDaFuncao {
+fn da_funcao(f: &mut Function, nl: &HashSet<String>, preservar_cleanup: bool) -> TabelasDaFuncao {
     let mut t = TabelasDaFuncao::default();
     t.confere_pilha = f.blocks.iter().any(|b| b.instructions.iter().any(|(_, inst, _)| e_sitio(inst, nl)));
     let (mut prox_v, mut prox_b) = maiores_ids(f);
@@ -275,7 +282,7 @@ fn da_funcao(f: &mut Function, nl: &HashSet<String>) -> TabelasDaFuncao {
             (*v, crate::llvm::LlvmEmitter::tipo_do_resultado(inst, *ty), so_desenrola(inst))
         };
         let conferida = conferencia_do_sitio(&f.blocks[bi], i);
-        let pura = conferida.as_ref().is_some_and(|cf| saida_pura(f, &pos, cf.tratador));
+        let pura = !preservar_cleanup && conferida.as_ref().is_some_and(|cf| saida_pura(f, &pos, cf.tratador));
         match conferida {
             // A conferência some: a chamada desenrola e ninguém aqui trata.
             Some(cf) if direta && pura => {
@@ -702,6 +709,48 @@ mod testes {
         let retorno = m.functions[0].blocks.iter().find(|b| matches!(b.terminator, Terminator::Return(_))).unwrap().id;
         materializar(&mut m, plano);
         assert_eq!(m.tabelas[0].saidas[&retorno], SaidaPorExcecao::Guarda);
+    }
+
+    #[test]
+    fn arc_expoe_unwind_local_mesmo_sem_tratador_da_fonte() {
+        for direta in [true, false] {
+            for arc in [false, true] {
+                let mut m = modulo();
+                m.memoria_arc = arc;
+                let f = &mut m.functions[0];
+                if !direta {
+                    f.params.push((ValueId(3), "alvo".into(), Type::Ref));
+                    f.blocks[0].instructions[0].1 = Instruction::CallClosure {
+                        closure: Operand::Val(ValueId(3)), args: vec![], nomes: vec![], ret_ty: Type::Ref,
+                        tupla_tipos: Operand::Constant(Constant::Null),
+                    };
+                }
+                f.blocks[0].instructions.extend([
+                    (ValueId(1), Instruction::CallRuntime {
+                        name: "dartforge_exception_pending".into(), args: vec![], ret_ty: Type::I8,
+                    }, Type::I8),
+                    (ValueId(2), Instruction::ICmp(ICmpOp::Ne, Operand::Val(ValueId(1)), Operand::Constant(Constant::Int(0))), Type::I1),
+                ]);
+                f.blocks[0].terminator = Terminator::CondBranch {
+                    cond: Operand::Val(ValueId(2)), then_block: BlockId(1), else_block: BlockId(2),
+                };
+                f.blocks.extend([
+                    BasicBlock { id: BlockId(1), instructions: vec![], terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) },
+                    BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) },
+                ]);
+                assert!(super::super::valida(f));
+                let plano = preparar(&mut m);
+                let t = plano.sitios_da_funcao(0, &m.functions[0]);
+                assert_eq!(t.invocacoes.contains_key(&ValueId(0)), arc);
+                if arc {
+                    let pouso = t.invocacoes[&ValueId(0)];
+                    assert!(t.pousos.contains(&pouso));
+                    assert!(super::super::valida(&m.functions[0]));
+                }
+                materializar(&mut m, plano);
+                if arc { assert!(m.tabelas[0].saidas.contains_key(&BlockId(1))); }
+            }
+        }
     }
 
     #[test]

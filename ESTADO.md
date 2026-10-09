@@ -749,6 +749,17 @@ nova ABI de quadros. CI rápido `37954199477` pendente na consulta; o
 novo push de fonte substitui a rodada anterior ainda ativa. Não declarar
 sucesso remoto desta revisão nem disparar outra pesada enquanto estiver ativa.
 
+Preparação excepcional agora conserva saída local de unwind em ARC
+mesmo sem catch/finally da fonte: não usa o atalho de saída pura para
+chamada direta ou closure que também pode retornar pendente. Tracing
+mantém a política anterior. O CFG oferece pouso/saída onde os owners
+deverão ser limpos; ainda não fecha quadros nem insere drops. Teste
+dirigido compara os dois modos e as duas formas de chamada, confere
+SSA/CFG e materialização da saída excepcional. Emissor release 114/114,
+sete manuais ignorados (`target/emissor-arc-unwind-local-release.log`).
+Validação executada AOT desta revisão ainda pendente; rodada remota
+`37954216065` é anterior a esta mudança de CFG.
+
 O lowering agora preserva `Local::tipo_estatico`, TypeId Dart original
 separado da representação HIR. Declarações usam
 `Context::tipo_local_semantico` (sem chamar apagar), closures em ambiente ou

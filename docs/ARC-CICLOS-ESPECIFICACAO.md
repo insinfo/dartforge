@@ -978,8 +978,12 @@ O pipeline comum já separa `tabelas::preparar` de `tabelas::materializar`:
 a primeira expõe as arestas existentes e guarda um inventário de sítios;
 a segunda confere o inventário e calcula as saídas sobre a HIR final antes
 de publicar `Module::tabelas`. Não há ainda inserção ARC entre elas. A
-preparação mantém a política atual de atravessar funções sem tratador;
-será necessário criar também os cleanups dessas funções quando houver owners.
+preparação mantém em tracing a política de atravessar funções sem tratador.
+Em ARC, não elimina o pouso local só porque a saída devolve o valor padrão:
+chamadas diretas e chamadas que podem voltar pendentes expõem a aresta de
+unwind. Ainda será necessário inserir os cleanups dos owners nessas arestas;
+pouso existente não prova limpeza. Eliminar esse pouso em ARC exigirá prova
+de ausência de obrigações de cleanup.
 Mudanças de IDs ou ordem das funções exigem atualizar o inventário; o estágio
 atual rejeita um inventário incompatível em vez de emitir tabelas antigas.
 
