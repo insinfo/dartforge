@@ -412,6 +412,18 @@ Release: 139 unitários, 13 de integração e 12 doctests aprovados, três
 microbenchmarks ignorados; fonte única AOT/JIT aprovada. Desempenho desta
 mudança ainda não foi medido. A rodada remota continua nos testes JIT macOS
 e não contém as mudanças posteriores de finalizadores.
+As arestas laterais dos anexos Dart passam a usar índice por dono, uma
+posição por ocorrência. Marcações, lembrados, percursos fortes ARC e indicações
+de candidatos consultam o índice. Remoções o reconstruem antes do próximo
+percurso, inclusive entre rodadas internas; encerramento o limpa. A tabela
+de registros fica encapsulada no heap. Teste de aliases em dois donos retira
+a posição intermediária e confere os percursos e RC 3 → 2 → 1 → morte.
+Release: 140 unitários, 13 de integração e 12 doctests aprovados, três
+microbenchmarks ignorados; fonte única AOT/JIT aprovada. O índice elimina a
+varredura global na visita de arestas, mas remoções ainda percorrem registros;
+ganho de desempenho não foi medido. Geração e estados explícitos seguem pendentes.
+Na rodada remota `37922301282`, macOS concluiu o passo de testes JIT e
+está em recarga na última consulta; ainda não há seus relatórios finais.
 
 Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
 suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior

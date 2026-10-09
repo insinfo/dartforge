@@ -1512,11 +1512,13 @@ pub struct Heap {
     /// marcação); chave morta zera os dois.
     pub efemeros: crate::hash::HashMap<i64, (i64, i64)>,
     /// Os anexos de `Finalizer`/`NativeFinalizer` (o `FinalizerEntry` da
-    /// VM): o valor e a chave de `detach` são fracos; o dono e a ação,
-    /// fortes. Valor morto: a ação de um `Finalizer` vai para
+    /// VM): valor, dono e chave de `detach` são fracos; a ação Dart é
+    /// aresta forte do dono. Valor morto: a ação de um `Finalizer` vai para
     /// [`Heap::finalizacoes_prontas`] (o laço de eventos a chama); a de um
     /// `NativeFinalizer` roda logo depois da coleta.
-    pub anexos: Vec<AnexoDeFinalizador>,
+    anexos: Vec<AnexoDeFinalizador>,
+    /// Posições dos anexos Dart por dono; reconstruído após remoções do vetor.
+    anexos_por_dono: crate::hash::HashMap<Ref, Vec<usize>>,
     /// As ações de `Finalizer` cujo valor morreu, à espera do laço de
     /// eventos (raízes até lá).
     pub finalizacoes_prontas: std::collections::VecDeque<i64>,
@@ -1553,6 +1555,7 @@ impl Heap {
     /// descarta os de `Finalizer`.
     pub fn encerrar_finalizadores(&mut self) {
         let anexos = std::mem::take(&mut self.anexos);
+        self.anexos_por_dono.clear();
         while self.concluir_finalizacao_pronta().is_some() {}
         for a in anexos {
             if let AcaoDeFinalizador::Dart(acao) = a.acao {
@@ -1623,6 +1626,7 @@ impl Heap {
             fracas: crate::hash::HashMap::default(),
             efemeros: crate::hash::HashMap::default(),
             anexos: Vec::new(),
+            anexos_por_dono: crate::hash::HashMap::default(),
             finalizacoes_prontas: std::collections::VecDeque::new(),
         }
     }
@@ -2602,11 +2606,7 @@ impl Heap {
                         marcar_bloco(b);
                         live += 1;
                         objetos_marcados += 1;
-                        for a in &self.anexos {
-                            if a.dono == atual && let AcaoDeFinalizador::Dart(acao) = a.acao {
-                                visitar_ref(acao, &mut proximo, &mut pilha);
-                            }
-                        }
+                        self.visitar_arestas_de_anexos(atual, &mut |acao| visitar_ref(acao, &mut proximo, &mut pilha));
                         // O corpo pelo formato (§2.8): `BRUTO` não tem
                         // referências; `REFS`, as palavras `1..=palavra 0`;
                         // `INSTANCIA`, os campos que o mapa diz referência. O
@@ -2718,8 +2718,30 @@ impl Heap {
     fn visitar_referencias_fortes(&self, h: Ref, f: &mut dyn FnMut(Ref)) {
         // SAFETY: as posições pertencem ao corpo vivo, sem mutação durante a visita.
         self.posicoes_de_ref(h, &mut |p| f(unsafe { *p }));
-        for a in &self.anexos {
-            if a.dono == h && let AcaoDeFinalizador::Dart(acao) = a.acao { f(acao); }
+        self.visitar_arestas_de_anexos(h, f);
+    }
+
+    /// Visita só as ocorrências do dono, preservando aliases de anexos distintos.
+    fn visitar_arestas_de_anexos(&self, dono: Ref, f: &mut dyn FnMut(Ref)) {
+        if self.anexos_por_dono.is_empty() { return; }
+        if let Some(indices) = self.anexos_por_dono.get(&dono) {
+            for &indice in indices {
+                if let AcaoDeFinalizador::Dart(acao) = self.anexos[indice].acao { f(acao); }
+            }
+        }
+    }
+
+    /// Remoções deslocam posições; refaz o índice antes do próximo percurso forte.
+    fn reindexar_anexos(&mut self) {
+        Self::reindexar_lista_de_anexos(&self.anexos, &mut self.anexos_por_dono);
+    }
+
+    fn reindexar_lista_de_anexos(anexos: &[AnexoDeFinalizador], indice_por_dono: &mut crate::hash::HashMap<Ref, Vec<usize>>) {
+        indice_por_dono.clear();
+        for (indice, a) in anexos.iter().enumerate() {
+            if matches!(a.acao, AcaoDeFinalizador::Dart(_)) {
+                indice_por_dono.entry(a.dono).or_default().push(indice);
+            }
         }
     }
 
@@ -2733,6 +2755,7 @@ impl Heap {
             }
             self.lembrar_objeto(anexo.dono);
             if let Some(arc) = &mut self.arc { arc.estado.marcar_arestas_laterais(anexo.dono); }
+            self.anexos_por_dono.entry(anexo.dono).or_default().push(self.anexos.len());
         }
         self.anexos.push(anexo);
     }
@@ -2746,6 +2769,7 @@ impl Heap {
             if let AcaoDeFinalizador::Dart(acao) = a.acao { acoes.push(acao); }
             false
         });
+        self.reindexar_anexos();
         for acao in acoes { self.arc_gravacao_crua(dono, acao, 0); }
     }
 
@@ -2756,7 +2780,7 @@ impl Heap {
     }
 
     /// Empilha em `destino` as raízes: as permanentes do runtime, os
-    /// globais, os anexos de finalizador e os quadros (os do runtime e a
+    /// globais, as finalizações prontas e os quadros (os do runtime e a
     /// pilha-sombra do código gerado).
     fn raizes(&self, destino: &mut Vec<i64>) {
         destino.extend(self.owners_mensagens.values().copied());
@@ -2871,11 +2895,7 @@ impl Heap {
                 let trabalho = unsafe { self.objetos.empilhar_lembrado(b, &mut pendentes) };
                 self.trabalho_da_marcacao += trabalho;
                 let dono = b as i64 + DESLOCAMENTO_DO_HANDLE;
-                for a in &self.anexos {
-                    if a.dono == dono && let AcaoDeFinalizador::Dart(acao) = a.acao {
-                        pendentes.push(acao);
-                    }
-                }
+                self.visitar_arestas_de_anexos(dono, &mut |acao| pendentes.push(acao));
             }
         }
         self.pending = pendentes;
@@ -2981,6 +3001,7 @@ impl Heap {
             }
             fica
         });
+        self.reindexar_anexos();
         for (dono, acao) in arestas_de_anexos {
             if !promocao.as_ref().is_some_and(|(promovidos, _)| promovidos.contains(&dono)) {
                 self.arc_gravacao_crua(dono, acao, 0);
@@ -3935,6 +3956,7 @@ mod espaco_de_objetos {
         heap.anexos.push(AnexoDeFinalizador {
             dono, valor: dono, desanexo: 0, acao: AcaoDeFinalizador::Dart(acao),
         });
+        heap.reindexar_anexos();
         heap.coletar(true);
     }
 
@@ -4733,6 +4755,7 @@ impl crate::arc::GrafoArc for GrafoDoHeap<'_> {
             }
             true
         });
+        self.heap.reindexar_anexos();
         // SAFETY: as posições são palavras do corpo de um bloco vivo.
         #[allow(unsafe_code)]
         self.heap.posicoes_de_ref(h, &mut |p| unsafe {
@@ -4769,6 +4792,7 @@ impl crate::arc::GrafoArc for GrafoDoHeap<'_> {
     }
     fn romper(&mut self, h: Ref) {
         self.heap.anexos.retain(|a| a.dono != h || !matches!(a.acao, AcaoDeFinalizador::Dart(_)));
+        self.heap.reindexar_anexos();
         // SAFETY: as posições são palavras do corpo de um bloco vivo.
         #[allow(unsafe_code)]
         self.heap.posicoes_de_ref(h, &mut |p| unsafe { *p = 0 });
@@ -4993,10 +5017,8 @@ impl Heap {
 
     /// Restaura indicações laterais após ativação ou reconstrução de metadados.
     fn marcar_arestas_laterais(&self, arc: &mut ArcDoHeap) {
-        for a in &self.anexos {
-            if matches!(a.acao, AcaoDeFinalizador::Dart(_)) {
-                arc.estado.marcar_arestas_laterais(a.dono);
-            }
+        for &dono in self.anexos_por_dono.keys() {
+            arc.estado.marcar_arestas_laterais(dono);
         }
         for &(chave, _) in arc.efemeros.contados.values() {
             arc.estado.marcar_arestas_laterais(chave);
@@ -5247,6 +5269,7 @@ impl Heap {
                 }
                 false
             });
+            Self::reindexar_lista_de_anexos(&self.anexos, &mut self.anexos_por_dono);
             self.campos_late_inicializados.retain(|(h, _)| !morto.contains(h));
             self.late_novos.retain(|(h, _)| !morto.contains(h));
             self.permanentes.retain(|h| !morto.contains(h));
@@ -5260,6 +5283,7 @@ impl Heap {
                 fica
             });
         }
+        self.reindexar_anexos();
         for &acao in &prontas { self.arc_reter_registrando(&mut arc, acao); }
         for (_, acao) in arestas_de_anexos {
             arc.estado.soltar(acao).unwrap_or_else(|e| falha_do_arc(e));
@@ -5526,6 +5550,7 @@ impl Heap {
                 }
                 false
             });
+            Self::reindexar_lista_de_anexos(&self.anexos, &mut self.anexos_por_dono);
             self.campos_late_inicializados.retain(|(h, _)| !morto(h));
             self.late_novos.retain(|(h, _)| !morto(h));
             self.permanentes.retain(|h| !morto(h));
@@ -5546,6 +5571,7 @@ impl Heap {
             }
             laco[3] += t3.elapsed().as_micros();
         }
+        self.reindexar_anexos();
         for &acao in &prontas { self.arc_reter_registrando(&mut arc, acao); }
         for (_, acao) in arestas_de_anexos {
             arc.estado.soltar(acao).unwrap_or_else(|e| falha_do_arc(e));
@@ -5797,6 +5823,44 @@ mod arc_no_heap {
             assert!(!heap.e_objeto_vivo(alvo));
             assert!(heap.anexos.is_empty());
             assert!(heap.finalizacoes_prontas.is_empty(), "dono e alvo mortos cancelam a ação Dart");
+        }
+    }
+
+    #[test]
+    fn indice_de_anexos_preserva_aliases_apos_remover_posicao_intermediaria() {
+        for puro in [false, true] {
+            let mut heap = heap_arc();
+            heap.arc.as_mut().unwrap().puro = puro;
+            let quadro = heap.push_frame_proprietario(3);
+            let a = lista(&mut heap, 0);
+            heap.set_root(quadro, 0, a);
+            let b = lista(&mut heap, 0);
+            heap.set_root(quadro, 1, b);
+            let acao = lista(&mut heap, 0);
+            heap.set_root(quadro, 2, acao);
+            for (dono, chave) in [(a, 3), (b, 7), (a, 5)] {
+                heap.adicionar_anexo(AnexoDeFinalizador {
+                    dono, valor: dono, desanexo: chave, acao: AcaoDeFinalizador::Dart(acao),
+                });
+            }
+            heap.set_root(quadro, 2, 0);
+            heap.collect();
+            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(acao).unwrap().rc, 3);
+            heap.desanexar_finalizador(b, 7);
+            let mut arestas = Vec::new();
+            heap.visitar_arestas_de_anexos(a, &mut |v| arestas.push(v));
+            assert_eq!(arestas, [acao, acao]);
+            heap.visitar_arestas_de_anexos(b, &mut |_| panic!("anexo removido no índice"));
+            heap.collect();
+            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(acao).unwrap().rc, 2);
+            heap.desanexar_finalizador(a, 3);
+            heap.collect();
+            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(acao).unwrap().rc, 1);
+            heap.desanexar_finalizador(a, 5);
+            heap.collect();
+            assert!(!heap.e_objeto_vivo(acao));
+            assert!(heap.anexos_por_dono.is_empty());
+            heap.pop_frame(quadro);
         }
     }
 

@@ -535,6 +535,20 @@ O metadado continua com 24 bytes; desempenho ainda precisa ser medido.
 Release: 139 unitários, 13 de integração e 12 doctests aprovados;
 três microbenchmarks ignorados. Fonte única AOT/JIT aprovada.
 
+As arestas de anexos Dart são indexadas por dono, com uma posição por
+ocorrência. Marcações, velhos lembrados, percursos fortes ARC e indicações
+de candidatos consultam esse índice. Remoções reconstruem as posições antes
+do próximo percurso, inclusive entre rodadas internas da coleta; encerramento
+limpa o índice. A tabela de anexos fica encapsulada no heap para impedir
+publicação que desatualize o índice. O teste de sabotagem de barreira mantém
+o índice válido e omite só a barreira que pretende verificar.
+Teste de aliases em dois donos retira uma posição intermediária, confere
+os percursos restantes e RC 3 → 2 → 1 → morte, nos dois modos ARC.
+O ganho de desempenho ainda não foi medido; as remoções continuam percorrendo
+a tabela de registros, e identidades com geração/estados explícitos seguem pendentes.
+Release: 140 unitários, 13 de integração e 12 doctests aprovados;
+três microbenchmarks ignorados. Fonte única AOT/JIT aprovada.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais
