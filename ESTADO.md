@@ -1067,6 +1067,19 @@ invocação direta sem esse ambiente não encontrou clang.exe. IR, imagens,
 saídas, log de ligação tracing e hashes SHA256 em `target/arc-slots-compilados`;
 build ARC final em `target/arc-slots-compilados-build-final.log`.
 
+Evidência dessa prova sobre `7e5be7a8` preservada em
+`bench/resultados/2026-10-09-arc-slots-fortes-aot`: IR, saídas, hashes,
+metadados e comandos de reprodução. Os executáveis não entram no histórico.
+Hashes das duas saídas são idênticos; `.gitattributes` preserva os bytes do
+arquivo de evidências. Mantêm-se as limitações da prova dirigida acima.
+
+Fechamento da rodada pesada 37970899962 sobre `92207014`: todos os jobs
+selecionados concluíram com sucesso, incluindo macOS arm64. Artefatos macOS
+conferidos em `target/ci-37970899962/macos`: AOT/A1/B0/B1/ARC 238/238,
+ARC em 39,5 s, `dart:io` 130/130 em 57,2 s. Essa rodada não contém os
+slots fortes de quadro/global nem a prova AOT adicionados depois da fonte
+validada; o sucesso não certifica essas mudanças posteriores.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

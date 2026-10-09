@@ -1,0 +1,25 @@
+{
+  "commit_fonte": "7e5be7a8",
+  "exemplo": "crates/emit_native/examples/arc_slots_fortes.rs",
+  "sha256_exemplo": "8AB2508593FD9EBE128F2B24FD84CB7FDFABA0C82826DB8C1E340DB1B4F5281B",
+  "executaveis_no_historico": false,
+  "otimizado": true,
+  "arc": {
+    "codigo": 0,
+    "flags_explicitas": {
+      "DARTFORGE_GC_STRESS": "1",
+      "DARTFORGE_ARC_CONFERIR": "1",
+      "DARTFORGE_ARC_BERCARIO": "0"
+    }
+  },
+  "tracing": {
+    "codigo": 0,
+    "flags_explicitas": {
+      "DARTFORGE_GC_STRESS": "1"
+    }
+  },
+  "hashes_saidas": {
+    "arc": "D911FB55501F60530CAB10ACF2E264747BDEFE512F5264FF9B350C7AEB86C219",
+    "tracing": "D911FB55501F60530CAB10ACF2E264747BDEFE512F5264FF9B350C7AEB86C219"
+  }
+}
