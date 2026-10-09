@@ -855,6 +855,16 @@ Ainda não inseridos pelo lowering; ownership.tsv, contratos de resultados,
 consumo CFG, ArcKeepAlive e gate >= A0 continuam pendentes. O inventário por
 handle é uma base auditável, não uma alegação de custo mínimo.
 
+Entrada LLVM ARC passa a conferir dartforge_arc_verificar_abi(1) depois de
+ativar o modo e antes dos registros/código Dart, tanto autossuficiente quanto
+modo SDK/preparar_isolado. Resultado diferente de 1 termina com llvm.trap e
+unreachable, sem converter incompatibilidade em exceção Dart ignorável.
+Tracing não emite a conferência. Isso só confere versão de tokens e modo do
+heap; não certifica o contrato de cada módulo/extern ou retornos owned.
+Suíte release do emissor: 116 aprovados, sete manuais ignorados
+(`target/emissor-arc-conferencia-abi-release.log`). Validação compilada da
+entrada e dos ramos compatível/incompatível ainda pendente nesta revisão.
+
 Rodada Pesado 37954216065 (ba5f3b69), artefatos parciais baixados em
 target/ci-37954216065: Windows ARC 238/238 (42 s, harness 45 s), estresse
 238/238 (54 s, harness 56 s), io 130/130 (91 s, harness 96 s). Linux

@@ -32,6 +32,31 @@ fn corpo_de<'a>(ir: &'a str, symbol: &str) -> &'a str {
 }
 
 #[test]
+fn entrada_arc_recusa_abi_incompativel_antes_dos_registros() {
+    for sdk in [false, true] {
+        for arc in [false, true] {
+            let mut m = Module::new();
+            m.modo_sdk = sdk;
+            m.memoria_arc = arc;
+            let ir = LlvmEmitter::new(&m).emit_all();
+            let corpo = corpo_de(&ir, if sdk { "df.preparar_isolado" } else { "dartforge_entry" });
+            if !arc {
+                assert!(!corpo.contains("@dartforge_arc_verificar_abi"));
+                continue;
+            }
+            let ativar = corpo.find("@dartforge_memoria_arc_v1()").unwrap();
+            let conferir = corpo.find("@dartforge_arc_verificar_abi(i64 1)").unwrap();
+            let compativel = corpo.find("df.arc.compativel:\n").unwrap();
+            assert!(ativar < conferir && conferir < compativel);
+            assert!(corpo.contains("icmp eq i8 %df.arc.abi, 1"));
+            assert!(corpo.contains("label %df.arc.compativel, label %df.arc.incompativel"));
+            assert!(corpo.contains("df.arc.incompativel:\n  call void @llvm.trap()\n  unreachable"));
+            assert!(ir.contains("declare void @llvm.trap()"));
+        }
+    }
+}
+
+#[test]
 fn literal_wtf8_preserva_surrogate_isolado_no_ir() {
     let f = funcao(
         "literal_wtf8",

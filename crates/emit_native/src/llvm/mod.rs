@@ -2427,6 +2427,23 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str("}\n\n");
     }
 
+    /// Confere a ABI de tokens antes dos registros e de qualquer código Dart.
+    /// A falha é interna e fatal: não pode virar uma pendência ignorada.
+    fn iniciar_arc(&mut self) {
+        if !self.module.memoria_arc {
+            return;
+        }
+        self.externos.insert("llvm.trap".into(), "declare void @llvm.trap()".into());
+        self.out.push_str("  call void @dartforge_memoria_arc_v1()\n\
+            \x20 %df.arc.abi = call i8 @dartforge_arc_verificar_abi(i64 1)\n\
+            \x20 %df.arc.abi.ok = icmp eq i8 %df.arc.abi, 1\n\
+            \x20 br i1 %df.arc.abi.ok, label %df.arc.compativel, label %df.arc.incompativel\n\
+            df.arc.incompativel:\n\
+            \x20 call void @llvm.trap()\n\
+            \x20 unreachable\n\
+            df.arc.compativel:\n");
+    }
+
     fn emit_entry(&mut self) {
         if self.module.excecoes_por_tabelas {
             self.emitir_portas();
@@ -2455,9 +2472,7 @@ impl<'a> LlvmEmitter<'a> {
             // registros das bibliotecas, a RTI e o embedder.
             writeln!(self.out, "define void @df.preparar_isolado() {{").unwrap();
             // A memória ARC, ligada antes de todo código Dart do isolado.
-            if self.module.memoria_arc {
-                writeln!(self.out, "  call void @dartforge_memoria_arc_v1()").unwrap();
-            }
+            self.iniciar_arc();
             writeln!(self.out, "  call void @dartforge_registrar_cids(ptr @df.cids, i64 {})", ids.len()).unwrap();
             if let Some(v) = &self.module.versao_do_sdk {
                 writeln!(self.out, "  call void @dartforge_registrar_versao_do_sdk(ptr @df.versao_do_sdk, i64 {})", v.len()).unwrap();
@@ -2541,9 +2556,7 @@ impl<'a> LlvmEmitter<'a> {
         }
         writeln!(self.out, "define void @dartforge_entry() {{").unwrap();
         // A memória ARC, ligada antes de todo código Dart.
-        if self.module.memoria_arc {
-            writeln!(self.out, "  call void @dartforge_memoria_arc_v1()").unwrap();
-        }
+        self.iniciar_arc();
         // Exceções por tabelas: as portas pelas quais o runtime chama
         // código Dart, entregues antes de qualquer código Dart rodar.
         if self.module.excecoes_por_tabelas {
