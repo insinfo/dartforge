@@ -209,6 +209,13 @@ por índice e símbolo da função, antes de publicar `Module::tabelas`. A
 materialização usa essa consulta e confere todos os sítios antes de calcular
 as saídas. Os quatro testes do passe passaram, incluindo rejeição de função
 trocada; a consulta ainda não insere owners ou cleanups ARC.
+Na revisão `0d64636e`, a suíte completa do emissor passou: 106 testes,
+zero falhas, sete manuais ignorados. O teste `emitir_ir_e_deterministico`
+também passou com `DARTFORGE_EXCECOES=tabelas`, em 33,39 s, emitindo o
+mesmo programa duas vezes sequencialmente e quatro em paralelo. O SDK
+`C:/tools/dartsdk-3.6.2/lib/libraries.json` estava presente: não foi o
+retorno antecipado por SDK ausente. Esse teste verifica o IR de `print(1)`;
+não substitui o corpus excepcional nem a integração ARC.
 
 Na rodada remota `37896396380` sobre `719e94cc`, os quatro testes dirigidos
 de mapas também passaram, sem ignorados/filtrados, em 752 s; log do job B0
