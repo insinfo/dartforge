@@ -1781,7 +1781,13 @@ impl<'a> Motor<'a> {
                 }
                 return r;
             }
-            Some(Resolved::Element(Element::Function(f))) | Some(Resolved::Member { member: MemberRef::Function(f), .. }) => {
+            // O estático de extensão citado pelo nome simples (o `foo` de
+            // `@A(foo)` num membro da extensão) é um `ExecutableElement`
+            // estático como o de classe: o valor é a função
+            // (`_getConstantValue`, 3.6.2 `evaluation.dart`).
+            Some(Resolved::Element(Element::Function(f)))
+            | Some(Resolved::Member { member: MemberRef::Function(f), .. })
+            | Some(Resolved::ExtensionMember { member: f, .. }) => {
                 let fe = self.program.function(f);
                 // `values` de um enum: o campo `const` sintético cujo
                 // inicializador é a lista das constantes

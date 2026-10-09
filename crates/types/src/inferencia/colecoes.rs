@@ -809,9 +809,11 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, f
             if let Some(i) = init {
                 super::instrucoes::inicializacao_de_for(inf, cx, i);
             }
-            // `for_conditionBegin`: o que a condição e as atualizações
-            // escrevem perde a promoção (junção conservadora do laço).
-            let mut partes = Vec::new();
+            // `for_conditionBegin`: o que o laço escreve — a condição, as
+            // atualizações e o corpo (o `AssignedVariables` do nó inteiro,
+            // como no comando `for`) — perde a promoção e deixa de estar
+            // definitivamente não atribuído (junção conservadora do laço).
+            let mut partes = vec![super::instrucoes::Parte::Elemento(body)];
             if let Some(c) = condition {
                 partes.push(super::instrucoes::Parte::Expr(*c));
             }
@@ -836,6 +838,10 @@ fn visitar(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, el: &CollectionElement, f
             cx.empurrar_escopo();
             let antes = cx.fluxo.clone();
             super::instrucoes::cabecalho_for_in(inf, cx, target, *iterable, *await_);
+            // `forEach_bodyBegin`: o que o corpo escreve, como no comando
+            // `for-in` (junção conservadora do laço).
+            let (escritas, capturadas) = super::instrucoes::escritas_em(inf, cx, &[super::instrucoes::Parte::Elemento(body)]);
+            cx.fluxo.juncao_conservadora(&escritas, &capturadas);
             reborrow_visitar(inf, cx, body, forma, ctxs, &mut gi);
             cx.fluxo = antes;
             cx.tirar_escopo();

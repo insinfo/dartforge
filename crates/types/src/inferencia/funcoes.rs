@@ -2339,7 +2339,7 @@ pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: Uni
         for tp in tps.iter() {
             for m in tp.metadata.iter() {
                 validar_anotacao(inf, unit, None, m);
-                anotacao_sem_validar_com(inf, unit, None, m, &escopo);
+                anotacao_sem_validar_com(inf, unit, None, None, m, &escopo);
             }
         }
         match &d.kind {
@@ -2504,8 +2504,10 @@ pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: Uni
         .collect();
     for (i, f) in a.functions.iter().enumerate() {
         let validar = declaradas.contains_key(&(i as u32));
-        // Os parâmetros de tipo de um método veem o escopo do contêiner.
-        let (dona, _) = declaradas.get(&(i as u32)).copied().unwrap_or((None, None));
+        // Os parâmetros de tipo de um método veem o escopo do contêiner —
+        // o da classe, ou o da extensão, com os membros estáticos dela
+        // (`@A(foo) T` no método de uma extensão com `static foo()`).
+        let (dona, extensao_dona) = declaradas.get(&(i as u32)).copied().unwrap_or((None, None));
         // Os parâmetros de tipo da própria função também estão no escopo.
         let escopo: Vec<(dartforge_intern::SymbolId, TypeParamId)> = if f.type_params.iter().any(|tp| !tp.metadata.is_empty()) {
             let fid = inf.program.functions.iter().position(|fe| {
@@ -2523,10 +2525,10 @@ pub(crate) fn inferir_metadados_da_unidade(inf: &mut BodyInferrer<'_>, unit: Uni
         for tp in f.type_params.iter() {
             for m in tp.metadata.iter() {
                 if validar {
-                    validar_anotacao(inf, unit, dona, m);
-                    anotacao_sem_validar_com(inf, unit, dona, m, &escopo);
+                    validar_anotacao_em(inf, unit, dona, extensao_dona, m);
+                    anotacao_sem_validar_com(inf, unit, dona, extensao_dona, m, &escopo);
                 } else {
-                    anotacao_sem_validar_com(inf, unit, None, m, &escopo);
+                    anotacao_sem_validar_com(inf, unit, None, None, m, &escopo);
                 }
             }
         }
@@ -2655,14 +2657,26 @@ fn getter_estatico(
 /// invocação de construtor constante. Os nomes são resolvidos no escopo da
 /// biblioteca (o da classe, só quando ela é conhecida).
 pub(crate) fn validar_anotacao(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option<ClassId>, m: &ast::Annotation) {
+    validar_anotacao_em(inf, unit, classe, None, m);
+}
+
+/// [`validar_anotacao`] no escopo de uma classe ou de uma extensão (os
+/// membros estáticos dela).
+pub(crate) fn validar_anotacao_em(
+    inf: &mut BodyInferrer<'_>,
+    unit: UnitId,
+    classe: Option<ClassId>,
+    extensao: Option<dartforge_elements::model::ExtensionId>,
+    m: &ast::Annotation,
+) {
     use dartforge_diagnostics::codigos::compile_time_error as c;
     let span = m.span;
     let Some(&n1) = m.name.first() else { return };
     let args = m.arguments.is_some();
     let n2 = m.name.get(1).copied();
-    // Constantes estáticas da classe em que a anotação está.
+    // Constantes estáticas da classe (ou da extensão) em que a anotação está.
     if m.name.len() == 1 {
-        if let Some(g) = getter_estatico(inf, classe, None, n1.sym) {
+        if let Some(g) = getter_estatico(inf, classe, extensao, n1.sym) {
             if g != Some(true) || args {
                 inf.aviso_com_codigo(c::INVALID_ANNOTATION, span, &[]);
             }
@@ -2800,14 +2814,21 @@ fn anotacao(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option<ClassId>, _
 
 /// Os argumentos da anotação (inferência), sem a validação dos nomes.
 fn anotacao_sem_validar(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option<ClassId>, m: &ast::Annotation) {
-    anotacao_sem_validar_com(inf, unit, classe, m, &[]);
+    anotacao_sem_validar_com(inf, unit, classe, None, m, &[]);
 }
 
 /// Como [`anotacao_sem_validar`], com parâmetros de tipo a mais no escopo
 /// (os da declaração cujo parâmetro de tipo a anotação marca).
-fn anotacao_sem_validar_com(inf: &mut BodyInferrer<'_>, unit: UnitId, classe: Option<ClassId>, m: &ast::Annotation, tipos: &[(dartforge_intern::SymbolId, TypeParamId)]) {
+fn anotacao_sem_validar_com(
+    inf: &mut BodyInferrer<'_>,
+    unit: UnitId,
+    classe: Option<ClassId>,
+    extensao: Option<dartforge_elements::model::ExtensionId>,
+    m: &ast::Annotation,
+    tipos: &[(dartforge_intern::SymbolId, TypeParamId)],
+) {
     let Some(args) = &m.arguments else { return };
-    let mut cx = Corpo::novo(inf, unit, classe, None, true);
+    let mut cx = Corpo::novo(inf, unit, classe, extensao, true);
     for &(nome, p) in tipos {
         cx.declarar_tipo_param(nome, p);
     }

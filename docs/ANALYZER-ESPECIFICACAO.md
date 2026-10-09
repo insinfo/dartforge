@@ -4151,6 +4151,11 @@ bloco, `REFERENCED_BEFORE_DECLARATION`) também não está atribuída: relata es
   foi inferido).
 
 ##### `definitely_unassigned_late_local_variable` (perda 3: FN 1, pos 2)
+- **`for` de coleção (2026-10-08):** `[for (; y < 0;) y = 0]` com `late int y`: o `for_conditionBegin` do
+  elemento faz a junção conservadora com tudo o que o laço escreve, **o corpo inclusive** (o `AssignedVariables`
+  do nó inteiro, como no comando `for`), e o `forEach_bodyBegin` do `for-in` de coleção, com o que o corpo
+  escreve. `colecoes.rs` contava só a condição e as atualizações (e nada no `for-in`): o `y` da condição saía
+  definitivamente não atribuído (`nnbd/definite_assignment/definite_assignment_error_test.dart:799:13`).
 
 - **Emissão:** `checkReadOfNotAssignedLocalVariable` (`resolver.dart:660-668`).
 - **Condição:** leitura de local `late` **definitivamente não atribuído** (também em código inalcançável).
@@ -11950,6 +11955,12 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
     * O erro final sai do inicializador de campo: `CONST_EVAL_TYPE_STRING` na criação.
 
 ##### `const_with_non_constant_argument` (perda 19: FN 19)
+- **Estático de extensão na anotação (2026-10-08):** `@A(foo) T` num método de extensão com `static foo()`
+  resolve `foo` no escopo da extensão (a anotação do parâmetro de tipo de um membro vê os estáticos do
+  contêiner, classe **ou extensão**: `funcoes.rs` passa a extensão dona a `validar_anotacao_em` e ao `Corpo`
+  dos argumentos). O nome resolvido é `Resolved::ExtensionMember`, e o avaliador o trata como o estático de
+  classe — um `ExecutableElement` estático vale a função (`_getConstantValue`): sem
+  `CONST_WITH_NON_CONSTANT_ARGUMENT` nem `UNDEFINED_IDENTIFIER` (`metadata/type_parameter_scope_inner_test.dart:35:36`).
 - **Emissão:** `_validateConstantArguments` (`constant_verifier.dart:779-787`) com
   `_evaluateAndReportError(arg, CONST_WITH_NON_CONSTANT_ARGUMENT)`, chamado de
   `visitAnnotation` (`:103-128`, construtor const com argumentos) e de

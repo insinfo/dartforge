@@ -1386,9 +1386,11 @@ fn retorno(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: Option<ExprId>, span: 
 // Varredura sintática: variáveis escritas (assignedIn/capturedIn)
 // -------------------------------------------------------------------
 
-pub(crate) enum Parte {
+pub(crate) enum Parte<'a> {
     Expr(ExprId),
     Stmt(StmtId),
+    /// O corpo de um `for`/`for-in` de coleção.
+    Elemento(&'a ast::CollectionElement),
 }
 
 /// Uma escrita: o nome e o offset do nome na declaração a que ela se refere,
@@ -1408,12 +1410,13 @@ pub(crate) fn local_da_escrita(cx: &Corpo, e: Escrita) -> Option<LocalId> {
 }
 
 /// Locais escritos nas partes (e os escritos dentro de closures nelas).
-pub(crate) fn escritas_em(inf: &BodyInferrer<'_>, cx: &Corpo, partes: &[Parte]) -> (Vec<LocalId>, Vec<LocalId>) {
+pub(crate) fn escritas_em(inf: &BodyInferrer<'_>, cx: &Corpo, partes: &[Parte<'_>]) -> (Vec<LocalId>, Vec<LocalId>) {
     let mut v = Varredura::nova(&inf.program.unit(cx.unit).ast);
     for p in partes {
         match p {
             Parte::Expr(e) => v.expr(*e, false),
             Parte::Stmt(s) => v.stmt(*s, false),
+            Parte::Elemento(el) => v.elemento(el, false),
         }
     }
     let ids = |es: &[Escrita]| -> Vec<LocalId> {
