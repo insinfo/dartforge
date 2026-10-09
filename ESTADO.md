@@ -862,8 +862,16 @@ unreachable, sem converter incompatibilidade em exceção Dart ignorável.
 Tracing não emite a conferência. Isso só confere versão de tokens e modo do
 heap; não certifica o contrato de cada módulo/extern ou retornos owned.
 Suíte release do emissor: 116 aprovados, sete manuais ignorados
-(`target/emissor-arc-conferencia-abi-release.log`). Validação compilada da
-entrada e dos ramos compatível/incompatível ainda pendente nesta revisão.
+(`target/emissor-arc-conferencia-abi-release.log`). Validação compilada na
+fonte eaa457d8: guarda extraída de df.preparar_isolado no IR real; stubs
+retornando 1/0 compilam e respectivamente continuam/terminam por llvm.trap
+(0xC000001D). Dois AOT ARC otimizados, checagem/tabelas, gc_d04_finally sob
+estresse, auditados/ciclos sempre, produzem stdout igual ao Dart e stderr
+vazio. Dez processos raiz: nove zeros e uma falha fatal esperada. CLI
+release/JIT compilada com sucesso em 8m59s, hash F63880596B253DB5...2B22FFC0.
+Evidência e script exato em bench/resultados/2026-10-09-arc-abi-entrada-local.
+Não certifica DLL antiga completa, ownership SSA/KeepAlive/cleanup integrado,
+corpus completo ou desempenho. A conferência só valida versão de tokens e modo.
 
 Rodada Pesado 37954216065 (ba5f3b69), artefatos parciais baixados em
 target/ci-37954216065: Windows ARC 238/238 (42 s, harness 45 s), estresse
@@ -872,8 +880,16 @@ AOT/A1/B0/B1/ARC 238/238, io 130/130; JIT x AOT 238/238 idênticos, zero
 divergências, sete sem IR iguais por construção, zero timeouts nos dois.
 SDK da fonte AOT 238/238 (76 s). Os seis DART! de interop são falhas da VM
 por biblioteca web não suportada; não equivalem a seis oráculos Dart válidos.
-Jobs Windows/Linux/SDK/B0 terminaram com sucesso; macOS segue ativo na última
-consulta. Não contém o novo CFG excepcional, teste semântico ou ABI mínima.
+Rodada terminou com sucesso, inclusive macOS. Artefatos macOS conferidos:
+AOT/A1/B0/B1/ARC 238/238, io 130/130; JIT x AOT 238/238 idênticos, zero
+divergências, sete sem IR iguais por construção e zero timeouts nos dois.
+Não contém o novo CFG excepcional, teste semântico ou ABI mínima.
+
+Nova rodada Pesado 37961824053, suíte nativo com dois fragmentos, disparada
+no main eaa457d8 somente depois do sucesso terminal de 37954216065. Contém
+o CFG excepcional ARC, teste semântico com SDK real, ABI mínima de tokens
+e conferência da entrada. Acompanhar essa rodada até terminar; não disparar
+outra enquanto estiver na fila/ativa. CI rápido da revisão: 37961221420.
 
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 

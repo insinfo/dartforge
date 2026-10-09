@@ -1,0 +1,27 @@
+{
+  "imagens": [
+    {
+      "nome": "guarda-runtime-0",
+      "sha256": "aec874c46d30aff77e87838a570f175b16a2c19cf86ef7376f98ce1a617cc00e",
+      "ir_sha256": "99ca80cfb38807bc85dd0e908e01eecff9b2206c73b10a7aa0ac3fbcdb660e90"
+    },
+    {
+      "nome": "guarda-runtime-1",
+      "sha256": "3014cd5d56a25dcf5d054a7cf4026263fb394b45675befe95e6aee882a97b857",
+      "ir_sha256": "b85a3ef5361dcc89d11d84ba1ab55390e6fd5a088cd9bb105564895a7192d1c1"
+    },
+    {
+      "nome": "finally-arc-checagem",
+      "sha256": "07372ae62a3b88dea13ac90efdbbbf2a328ac8704f77b4acc300bbaf44f0c09c",
+      "saida_igual_dart": true
+    },
+    {
+      "nome": "finally-arc-tabelas",
+      "sha256": "da25dc6885df177c46dad0379e52c8b568d7b010e756a0e179c931f1f34f8152",
+      "saida_igual_dart": true
+    }
+  ],
+  "ir_real_sha256": "5442244a9e767560ec1e98c4b2e2608ae89d1277b52e4f21bd2e08c83aae5371",
+  "funcao_da_guarda": "df.preparar_isolado",
+  "guarda_sha256": "c6f42e4cd3cc6574383be13eb64b9d30eff5807d2ea841682d696f5fb7b2c3f6"
+}

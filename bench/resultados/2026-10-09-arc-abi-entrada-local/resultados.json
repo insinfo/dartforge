@@ -1,0 +1,145 @@
+[
+  {
+    "nome": "dart",
+    "args": [
+      "C:\\tools\\dartsdk-3.6.2\\bin\\dart.EXE",
+      "E:\\MyRustProjects\\dartforge\\corpus\\nativo\\gc_d04_finally.dart"
+    ],
+    "segundos": 0.3432310000061989,
+    "codigo": 0,
+    "sucesso_esperado": true,
+    "stdout": "336 10 1566\n",
+    "stderr": ""
+  },
+  {
+    "nome": "emitir-ir",
+    "args": [
+      "E:\\MyRustProjects\\dartforge\\target\\release\\dartforge.exe",
+      "compile-native",
+      "E:\\MyRustProjects\\dartforge\\corpus\\nativo\\gc_d04_finally.dart",
+      "--emit-ir",
+      "-o",
+      "E:\\MyRustProjects\\dartforge\\target\\arc-abi-entrada-validacao\\entrada-real.ll",
+      "--optimize",
+      "--memoria",
+      "arc"
+    ],
+    "segundos": 14.349834499997087,
+    "codigo": 0,
+    "sucesso_esperado": true,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "nome": "guarda-runtime-0-compilar",
+    "args": [
+      "E:\\llvm\\clang+llvm-22.1.8-x86_64-pc-windows-msvc\\bin\\clang.EXE",
+      "E:\\MyRustProjects\\dartforge\\target\\arc-abi-entrada-validacao\\guarda-runtime-0.ll",
+      "-O2",
+      "-o",
+      "E:\\MyRustProjects\\dartforge\\target\\arc-abi-entrada-validacao\\guarda-runtime-0.exe"
+    ],
+    "segundos": 0.6772269000066444,
+    "codigo": 0,
+    "sucesso_esperado": true,
+    "stdout": "",
+    "stderr": "warning: overriding the module target triple with x86_64-pc-windows-msvc19.51.36248 [-Woverride-module]\n1 warning generated.\n"
+  },
+  {
+    "nome": "guarda-runtime-0-executar",
+    "args": [
+      "E:\\MyRustProjects\\dartforge\\target\\arc-abi-entrada-validacao\\guarda-runtime-0.exe"
+    ],
+    "segundos": 0.02227010001661256,
+    "codigo": 3221225501,
+    "sucesso_esperado": false,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "nome": "guarda-runtime-1-compilar",
+    "args": [
+      "E:\\llvm\\clang+llvm-22.1.8-x86_64-pc-windows-msvc\\bin\\clang.EXE",
+      "E:\\MyRustProjects\\dartforge\\target\\arc-abi-entrada-validacao\\guarda-runtime-1.ll",
+      "-O2",
+      "-o",
+      "E:\\MyRustProjects\\dartforge\\target\\arc-abi-entrada-validacao\\guarda-runtime-1.exe"
+    ],
+    "segundos": 0.13284059998113662,
+    "codigo": 0,
+    "sucesso_esperado": true,
+    "stdout": "",
+    "stderr": "warning: overriding the module target triple with x86_64-pc-windows-msvc19.51.36248 [-Woverride-module]\n1 warning generated.\n"
+  },
+  {
+    "nome": "guarda-runtime-1-executar",
+    "args": [
+      "E:\\MyRustProjects\\dartforge\\target\\arc-abi-entrada-validacao\\guarda-runtime-1.exe"
+    ],
+    "segundos": 0.027844900032505393,
+    "codigo": 0,
+    "sucesso_esperado": true,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "nome": "finally-arc-checagem-compilar",
+    "args": [
+      "E:\\MyRustProjects\\dartforge\\target\\release\\dartforge.exe",
+      "aot",
+      "E:\\MyRustProjects\\dartforge\\corpus\\nativo\\gc_d04_finally.dart",
+      "E:\\MyRustProjects\\dartforge\\target\\arc-abi-entrada-validacao\\finally-arc-checagem.exe",
+      "--optimize",
+      "--memoria",
+      "arc",
+      "--excecoes",
+      "checagem"
+    ],
+    "segundos": 38.389232599991374,
+    "codigo": 0,
+    "sucesso_esperado": true,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "nome": "finally-arc-checagem-executar",
+    "args": [
+      "E:\\MyRustProjects\\dartforge\\target\\arc-abi-entrada-validacao\\finally-arc-checagem.exe"
+    ],
+    "segundos": 0.04892409994499758,
+    "codigo": 0,
+    "sucesso_esperado": true,
+    "stdout": "336 10 1566\n",
+    "stderr": ""
+  },
+  {
+    "nome": "finally-arc-tabelas-compilar",
+    "args": [
+      "E:\\MyRustProjects\\dartforge\\target\\release\\dartforge.exe",
+      "aot",
+      "E:\\MyRustProjects\\dartforge\\corpus\\nativo\\gc_d04_finally.dart",
+      "E:\\MyRustProjects\\dartforge\\target\\arc-abi-entrada-validacao\\finally-arc-tabelas.exe",
+      "--optimize",
+      "--memoria",
+      "arc",
+      "--excecoes",
+      "tabelas"
+    ],
+    "segundos": 45.66783890000079,
+    "codigo": 0,
+    "sucesso_esperado": true,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "nome": "finally-arc-tabelas-executar",
+    "args": [
+      "E:\\MyRustProjects\\dartforge\\target\\arc-abi-entrada-validacao\\finally-arc-tabelas.exe"
+    ],
+    "segundos": 0.08779419999336824,
+    "codigo": 0,
+    "sucesso_esperado": true,
+    "stdout": "336 10 1566\n",
+    "stderr": ""
+  }
+]

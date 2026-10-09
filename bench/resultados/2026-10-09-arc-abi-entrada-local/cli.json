@@ -1,0 +1,20 @@
+{
+  "sha256": "f63880596b253db5b2d5d0cbd48cdda5c9b9b222f711dc31a3ffed0a2b22ffc0",
+  "fonte": "eaa457d835530dc15c0df3170edd5fe5682d48ae",
+  "entrada_sha256": "289bc57ecf86cbca3a9545e774054fa57ddbcf507b354d0ff7a753520ca0a579",
+  "script_sha256": "9b339274452e8a9b986f924fe307aaec727622b812f53238cfa1cfc246ee0d27",
+  "clang": "E:\\llvm\\clang+llvm-22.1.8-x86_64-pc-windows-msvc\\bin\\clang.EXE",
+  "dart": "C:\\tools\\dartsdk-3.6.2\\bin\\dart.EXE",
+  "ambiente": {
+    "DARTFORGE_SDK_DA_FONTE": "1",
+    "DARTFORGE_SDK_DLL": null,
+    "DARTFORGE_ARC_CONFERIR": "1",
+    "DARTFORGE_ARC_CICLOS": "sempre",
+    "DARTFORGE_ARC_BERCARIO": "0",
+    "DARTFORGE_GC_OFF": "0",
+    "DARTFORGE_GC_RASTRO": "0",
+    "DARTFORGE_GC_STRESS": null,
+    "DARTFORGE_GC_SABOTAGEM": null,
+    "DARTFORGE_HEAP_MAX_MB": "256"
+  }
+}
