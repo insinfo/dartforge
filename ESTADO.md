@@ -257,8 +257,7 @@ estava concluída e nenhuma Pesado ativa. Valida as análises auxiliares ARC,
 a consulta do plano excepcional, recarga e descoberta de SDK corrigidas;
 não contém a correção posterior da geração imortal nem as experiências locais.
 Relatórios Windows já conferidos: ARC 238/238, ARC com estresse 238/238,
-`dart:io` 130/130. Rodada ainda em andamento; esses resultados parciais
-não provam a conclusão nos runners Unix.
+`dart:io` 130/130. A rodada terminou com sucesso em todos os jobs.
 O relatório AOT com SDK da fonte desta rodada também foi conferido:
 238/238, em 56,9 s de harness. O artefato AOT é publicado antes dos testes
 de recarga e produção; seus resultados próprios foram conferidos abaixo.
@@ -267,8 +266,11 @@ todos 238/238; Linux AOT, A1/B0/B1 e ARC 238/238, `dart:io` 130/130;
 JIT × AOT Linux e SDK da fonte 238/238 no placar, zero divergências
 (sete sem IR, iguais por construção). O log Linux confirma execução dos
 quatro testes de emissão agora sem retorno antecipado, do inventário de
-natives e da sobreposição, todos aprovados com o SDK real. Ainda falta
-macOS. B0 concluiu os quatro
+natives e da sobreposição, todos aprovados com o SDK real. macOS também
+passou AOT, A1/B0/B1 e ARC 238/238, `dart:io` 130/130 e JIT × AOT
+238/238 no placar, zero divergências (sete sem IR, iguais por construção).
+Relatórios finais e log `113748988829` conferidos; recarga macOS executou
+sete testes, todos aprovados. B0 concluiu os quatro
 testes dirigidos de mapas: 4/4, nenhum ignorado ou filtrado, 470,75 s;
 incluindo sabotagem, coleta agendada, folha que coleta e comparação com
 pilha-sombra. Log do job `113752465885` conferido.
