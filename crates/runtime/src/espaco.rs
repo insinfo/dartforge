@@ -1207,7 +1207,29 @@ impl EspacoDeObjetos {
             // SAFETY: o contrato da função.
             unsafe { std::ptr::write_bytes(inicio, 0, fim as usize - inicio as usize) };
         }
-        self.livres[classe].push((inicio, fim));
+        self.inserir_faixa_livre(classe, inicio, fim);
+    }
+
+    /// Junta vizinhos na ponta da lista antes de publicar a faixa. Cada
+    /// faixa retirada entra no intervalo final; não ordena nem percorre os
+    /// demais livres. Nunca junta classes ou páginas diferentes.
+    fn inserir_faixa_livre(&mut self, classe: usize, mut inicio: *mut u8, mut fim: *mut u8) {
+        let pagina = inicio as usize & !(PAGINA - 1);
+        let livres = &mut self.livres[classe];
+        while let Some(&(a, b)) = livres.last() {
+            if a as usize & !(PAGINA - 1) != pagina {
+                break;
+            }
+            if b == inicio {
+                inicio = a;
+            } else if fim == a {
+                fim = b;
+            } else {
+                break;
+            }
+            livres.pop();
+        }
+        livres.push((inicio, fim));
     }
 
     /// Marca o velho `b` como [`LEMBRADO`] (a barreira de escrita).
@@ -1978,5 +2000,95 @@ impl Drop for EspacoDeObjetos {
                 self.reserva.livres.push(p.base);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod testes_faixas {
+    use super::*;
+
+    #[test]
+    fn mortos_contiguos_reabastecem_uma_faixa_sem_tocar_o_vivo() {
+        for ordem in [[0, 1, 2], [2, 1, 0], [0, 2, 1]] {
+            let mut e = EspacoDeObjetos::new(true);
+            e.quarentena = None;
+            let classe = classe_de_tamanho(2).unwrap();
+            let tamanho = bytes_do_bloco(palavras_da_classe(classe));
+            let blocos: Vec<_> = (0..4).map(|_| {
+                let h = e.alocar(129, 2, INSTANCIA, 2);
+                e.bloco_de(h).unwrap()
+            }).collect();
+            e.jovens.clear();
+            for i in ordem {
+                // SAFETY: bloco ocupado entregue acima, sem uso posterior.
+                unsafe { e.soltar_morto(blocos[i]) };
+            }
+            assert_eq!(e.vivos, 1);
+            assert_eq!(e.livres[classe].len(), 1);
+            e.regiao[classe] = (std::ptr::null_mut(), std::ptr::null_mut());
+            let (inicio, n) = e.tirar_da_regiao(classe, TLAB_BLOCOS);
+            assert_eq!(inicio, blocos[0].cast());
+            assert_eq!(n, 3);
+            // SAFETY: a faixa devolvida está reservada, e o quarto bloco vive.
+            unsafe {
+                assert!(std::slice::from_raw_parts(inicio, n * tamanho).iter().all(|&b| b == 0));
+                assert_eq!((*blocos[3]).class_id, 129);
+            }
+        }
+    }
+
+    #[test]
+    fn blocos_separados_por_vivo_nao_se_juntam() {
+        let mut e = EspacoDeObjetos::new(false);
+        e.quarentena = None;
+        let classe = classe_de_tamanho(2).unwrap();
+        let blocos: Vec<_> = (0..3).map(|_| {
+            let h = e.alocar(129, 2, INSTANCIA, 2);
+            e.bloco_de(h).unwrap()
+        }).collect();
+        e.jovens.clear();
+        // SAFETY: apenas os extremos morreram; o bloco central continua vivo.
+        unsafe {
+            e.soltar_morto(blocos[0]);
+            e.soltar_morto(blocos[2]);
+        }
+        assert_eq!(e.livres[classe].len(), 2);
+        e.regiao[classe] = (std::ptr::null_mut(), std::ptr::null_mut());
+        let (_, n) = e.tirar_da_regiao(classe, TLAB_BLOCOS);
+        assert_eq!(n, 1);
+        // SAFETY: o objeto central não foi solto nem reutilizado.
+        unsafe { assert_eq!((*blocos[1]).class_id, 129) };
+    }
+
+    #[test]
+    fn quarentena_so_entrega_os_blocos_que_sairam_do_anel() {
+        let mut e = EspacoDeObjetos::new(false);
+        e.quarentena = Some(Quarentena {
+            anel: std::collections::VecDeque::new(),
+            presos: crate::hash::HashSet::default(),
+            capacidade: 1,
+        });
+        let classe = classe_de_tamanho(2).unwrap();
+        let blocos: Vec<_> = (0..3).map(|_| {
+            let h = e.alocar(129, 2, INSTANCIA, 2);
+            e.bloco_de(h).unwrap()
+        }).collect();
+        e.jovens.clear();
+        for &b in &blocos {
+            // SAFETY: bloco ocupado, sem objeto vivo.
+            unsafe { e.soltar_morto(b) };
+        }
+        assert_eq!(e.livres[classe].len(), 2);
+        assert!(e.quarentena.as_ref().unwrap().presos.contains(&(blocos[2] as usize)));
+        e.regiao[classe] = (std::ptr::null_mut(), std::ptr::null_mut());
+        let (primeiro, n) = e.tirar_da_regiao(classe, TLAB_BLOCOS);
+        assert_eq!(n, 1);
+        assert_eq!(primeiro, blocos[1].cast());
+        e.regiao[classe] = (std::ptr::null_mut(), std::ptr::null_mut());
+        let (segundo, n) = e.tirar_da_regiao(classe, TLAB_BLOCOS);
+        assert_eq!(n, 1);
+        assert_eq!(segundo, blocos[0].cast());
+        // SAFETY: o último bloco permanece envenenado, fora das faixas livres.
+        unsafe { assert_eq!((*blocos[2]).estado, ESTADO_DE_VENENO) };
     }
 }

@@ -86,6 +86,21 @@ modo; falha de compilação, execução, timeout ou divergência invalida a
 rodada (código 1). Os testes do medidor exercitam inclusive uma falha na
 primeira repetição que desaparece na última; entram no CI rápido.
 
+O alocador junta faixas contíguas na ponta da lista
+livre da mesma classe e página; não percorre os demais livres nem muda a
+quarentena. Os testes dirigidos de reutilização, bloqueio por objeto vivo e
+quarentena passaram. Suíte completa do runtime: 115 testes passaram, três
+microbenchmarks ignorados; grafos aleatórios: 3.000 sementes em cada um dos
+três modos, sem falha. Duas medidas independentes, cinco execuções alternadas
+no núcleo P: ARC árvores caiu 4–5%, lista ligada 7,5–8,8%. A0 variou cerca
+de ±3% em árvores e −2,3% a 0% em lista ligada. Resultados iguais nas 40
+execuções. Dados e limites: `bench/resultados/2026-10-09-arc-faixas/`.
+Isso confirma o ganho dirigido; a média completa desta mudança segue
+pendente, assim como a validação do corpus nativo no CI.
+
+CI rápido [37887482951](https://github.com/insinfo/dartforge/actions/runs/37887482951)
+terminou com sucesso sobre `c3dd048b`, antes da junção das faixas.
+
 ## Situação geral (2026-10-08, fim da tarde)
 
 Foco pedido: o nativo AOT/JIT funcionando por inteiro, com `docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md` e

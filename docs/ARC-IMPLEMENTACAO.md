@@ -252,6 +252,24 @@ brutas, deu ARC/A0 2,120. Ambas ficam perto dos 2,13 anteriores: o ganho
 isolado de 13% na consulta de metadados não prova ganho relevante no
 benchmark inteiro. O objetivo de aproximar o ARC de A0 continua pendente.
 
+### 6.2 Faixas vizinhas na lista livre (2026-10-09)
+
+`EspacoDeObjetos::soltar_faixa` junta intervalos contíguos na ponta da lista
+livre, inclusive quando a faixa nova liga duas já devolvidas. A classe e a
+página precisam ser iguais; não percorre os demais livres. O reabastecimento
+da TLAB pode então entregar vários blocos de um trecho, em vez de um bloco
+por passagem pelo runtime. O caminho de quarentena continua devolvendo
+apenas os blocos que saíram do anel.
+
+Testes dirigidos de ordem crescente/decrescente/ponte, preservação de bloco
+vivo e quarentena; suíte completa do runtime: 115 testes passaram, três
+microbenchmarks ignorados. Grafos aleatórios: 3.000 sementes por modo.
+Em duas medidas dirigidas independentes, ARC caiu 4–5% em árvores e
+7,5–8,8% em lista ligada; A0 variou cerca de ±3% e −2,3% a 0% nos mesmos
+núcleos. [Amostras, hashes e protocolo](../bench/resultados/2026-10-09-arc-faixas/README.md).
+São dois núcleos do benchmark: a média completa ainda não foi medida para
+esta mudança, e a validação do corpus nativo continua pendente no CI.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais
@@ -264,8 +282,9 @@ benchmark inteiro. O objetivo de aproximar o ARC de A0 continua pendente.
 * Política de agendamento da rodada de ciclos por orçamento (§22.5); hoje
   ela roda na completa.
 * Reduzir o custo da reclamação por bloco (`EspacoDeObjetos::soltar_morto`,
-  já usada pela drenagem pura, sem varrer páginas): juntar intervalos livres
-  contíguos respeitando página, classe e quarentena (§19.4).
+  já usada pela drenagem pura, sem varrer páginas): a junção dos vizinhos
+  na ponta da lista está feita (§6.2); falta medir a média completa e
+  avaliar os intervalos contíguos que não chegam à ponta (§19.4).
 * A recarga com código antigo retido e o descritor por versão de layout
   (§23.4), isolados com mensagens contadas (§23.2) e FFI (§23.3).
 * Comparação ARC × rastreamento × VM e decisão (§13, P6).
