@@ -4748,14 +4748,16 @@ impl crate::arc::GrafoArc for GrafoDoHeap<'_> {
         }
     }
     fn tirar_arestas(&mut self, h: Ref, f: &mut dyn FnMut(Ref)) {
-        self.heap.anexos.retain(|a| {
-            if a.dono == h && let AcaoDeFinalizador::Dart(acao) = a.acao {
-                f(acao);
-                return false;
-            }
-            true
-        });
-        self.heap.reindexar_anexos();
+        if !self.heap.anexos_por_dono.is_empty() && self.heap.anexos_por_dono.contains_key(&h) {
+            self.heap.anexos.retain(|a| {
+                if a.dono == h && let AcaoDeFinalizador::Dart(acao) = a.acao {
+                    f(acao);
+                    return false;
+                }
+                true
+            });
+            self.heap.reindexar_anexos();
+        }
         // SAFETY: as posições são palavras do corpo de um bloco vivo.
         #[allow(unsafe_code)]
         self.heap.posicoes_de_ref(h, &mut |p| unsafe {
@@ -4791,8 +4793,10 @@ impl crate::arc::GrafoArc for GrafoDoHeap<'_> {
         }
     }
     fn romper(&mut self, h: Ref) {
-        self.heap.anexos.retain(|a| a.dono != h || !matches!(a.acao, AcaoDeFinalizador::Dart(_)));
-        self.heap.reindexar_anexos();
+        if !self.heap.anexos_por_dono.is_empty() && self.heap.anexos_por_dono.contains_key(&h) {
+            self.heap.anexos.retain(|a| a.dono != h || !matches!(a.acao, AcaoDeFinalizador::Dart(_)));
+            self.heap.reindexar_anexos();
+        }
         // SAFETY: as posições são palavras do corpo de um bloco vivo.
         #[allow(unsafe_code)]
         self.heap.posicoes_de_ref(h, &mut |p| unsafe { *p = 0 });

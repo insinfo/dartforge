@@ -424,6 +424,13 @@ varredura global na visita de arestas, mas remoções ainda percorrem registros;
 ganho de desempenho não foi medido. Geração e estados explícitos seguem pendentes.
 Na rodada remota `37922301282`, macOS concluiu o passo de testes JIT e
 está em recarga na última consulta; ainda não há seus relatórios finais.
+O descarte ARC passou a consultar o índice por dono antes de cancelar
+anexos Dart. Objetos sem entradas não varrem nem reconstroem a tabela;
+os donos com entradas mantêm débito por ocorrência e reconstrução.
+Release: 140 unitários, 13 de integração e 12 doctests aprovados, três
+microbenchmarks ignorados; fonte única AOT/JIT aprovada. A consulta não
+tem ganho de tempo demonstrado no benchmark completo. MacOS concluiu o
+passo de recarga e está no corpus AOT/JIT da rodada `37922301282`.
 
 Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
 suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior

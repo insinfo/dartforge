@@ -549,6 +549,14 @@ a tabela de registros, e identidades com geração/estados explícitos seguem pe
 Release: 140 unitários, 13 de integração e 12 doctests aprovados;
 três microbenchmarks ignorados. Fonte única AOT/JIT aprovada.
 
+O descarte ARC consulta o índice antes de cancelar anexos do dono. Objetos
+sem entradas Dart não varrem nem reconstroem a tabela de anexos. O caminho
+de dono com entradas preserva o débito por ocorrência e a reconstrução;
+as obrigações nativas continuam sob seu protocolo próprio. Não há medida
+de ganho desta consulta no benchmark completo.
+Release: 140 unitários, 13 de integração e 12 doctests aprovados;
+três microbenchmarks ignorados. Fonte única AOT/JIT aprovada.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais
