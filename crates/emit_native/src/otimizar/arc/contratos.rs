@@ -101,6 +101,9 @@ pub fn produzir_contratos_runtime(
 /// ICmp/FCmp/LNot produzem bool Trivial sem consumo nem saída excepcional.
 /// Constantes escalares/null e literais permanentes também produzem Trivial,
 /// com tipo determinado pela variante da constante, nunca por largura.
+/// Aritmética inteira/flutuante e conversões numéricas produzem Trivial;
+/// operandos devem estar em representações escalares compatíveis. Guardas
+/// de domínio/estouro e semântica Dart permanecem responsabilidade do lowering.
 /// Phi I1 exige entradas booleanas e produz Trivial, inclusive em laços.
 /// Phi Ref ainda não classificado exige entradas owned/null e origem externa
 /// ao ciclo de Phi/move. Parâmetros e demais operações exigem produtores próprios.
@@ -316,6 +319,26 @@ fn produzir(
                 Instruction::ICmp(..) | Instruction::FCmp(..) | Instruction::LNot(_) => {
                     Some(Type::I1)
                 }
+                Instruction::Add(..)
+                | Instruction::Sub(..)
+                | Instruction::Mul(..)
+                | Instruction::SDiv(..)
+                | Instruction::SRem(..)
+                | Instruction::Shl(..)
+                | Instruction::AShr(..)
+                | Instruction::LShr(..)
+                | Instruction::And(..)
+                | Instruction::Or(..)
+                | Instruction::Xor(..)
+                | Instruction::Neg(_)
+                | Instruction::Not(_)
+                | Instruction::DoubleToInt(_) => Some(Type::I64),
+                Instruction::FAdd(..)
+                | Instruction::FSub(..)
+                | Instruction::FMul(..)
+                | Instruction::FDiv(..)
+                | Instruction::FNeg(_)
+                | Instruction::IntToDouble(_) => Some(Type::F64),
                 _ => None,
             };
             if let Some(esperado) = puro {
@@ -329,7 +352,35 @@ fn produzir(
                     Operand::Val(v) => matches!(tipos.get(v), Some(Type::I1 | Type::I8)),
                     _ => false,
                 };
-                if matches!(inst, Instruction::FCmp(_, a, b) if !numerico(a) || !numerico(b))
+                let inteiro = |op: &Operand| match op {
+                    Operand::Constant(Constant::Int(_)) => true,
+                    Operand::Val(v) => tipos.get(v) == Some(&Type::I64),
+                    _ => false,
+                };
+                let invalido = match inst {
+                    Instruction::Add(a, b)
+                    | Instruction::Sub(a, b)
+                    | Instruction::Mul(a, b)
+                    | Instruction::SDiv(a, b)
+                    | Instruction::SRem(a, b)
+                    | Instruction::Shl(a, b)
+                    | Instruction::AShr(a, b)
+                    | Instruction::LShr(a, b)
+                    | Instruction::And(a, b)
+                    | Instruction::Or(a, b)
+                    | Instruction::Xor(a, b) => !inteiro(a) || !inteiro(b),
+                    Instruction::Neg(op) | Instruction::Not(op) | Instruction::IntToDouble(op) => {
+                        !inteiro(op)
+                    }
+                    Instruction::FAdd(a, b)
+                    | Instruction::FSub(a, b)
+                    | Instruction::FMul(a, b)
+                    | Instruction::FDiv(a, b) => !numerico(a) || !numerico(b),
+                    Instruction::FNeg(op) | Instruction::DoubleToInt(op) => !numerico(op),
+                    _ => false,
+                };
+                if invalido
+                    || matches!(inst, Instruction::FCmp(_, a, b) if !numerico(a) || !numerico(b))
                     || matches!(inst, Instruction::LNot(op) if !booleano(op))
                 {
                     return Err(format!(
@@ -557,6 +608,66 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn aritmetica_tipificada_produz_plano_sem_sementes_e_recusa_ref() {
+        let mut f = Function {
+            symbol: "aritmetica".into(),
+            name: "aritmetica".into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::F64,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![
+                    (ValueId(0), Instruction::Const(Constant::Int(7)), Type::I64),
+                    (
+                        ValueId(1),
+                        Instruction::Mul(
+                            Operand::Val(ValueId(0)),
+                            Operand::Constant(Constant::Int(6)),
+                        ),
+                        Type::I64,
+                    ),
+                    (
+                        ValueId(2),
+                        Instruction::IntToDouble(Operand::Val(ValueId(1))),
+                        Type::F64,
+                    ),
+                    (
+                        ValueId(3),
+                        Instruction::FDiv(
+                            Operand::Val(ValueId(2)),
+                            Operand::Constant(Constant::Double(2.0)),
+                        ),
+                        Type::F64,
+                    ),
+                ],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(3)))),
+            }],
+        };
+        let mut classes = HashMap::new();
+        let mut plano = PlanoTokens::default();
+        produzir_e_verificar_tokens(
+            &f,
+            &mut classes,
+            &mut plano,
+            &TabelasDaFuncao::default(),
+            &PlanoEscopos::default(),
+        )
+        .unwrap();
+        assert_eq!(classes.len(), 4);
+        assert!(classes.values().all(|c| *c == Ownership::Trivial));
+        let antes = classes.clone();
+        let efeitos = plano.instrucoes.clone();
+        f.blocks[0].instructions[1].1 = Instruction::Mul(
+            Operand::Constant(Constant::Null),
+            Operand::Constant(Constant::Int(6)),
+        );
+        assert!(produzir_contratos_arc(&f, &mut classes, &mut plano).is_err());
+        assert_eq!(classes, antes);
+        assert_eq!(plano.instrucoes, efeitos);
+    }
 
     #[test]
     fn phi_ref_nao_aceita_escalar_mesmo_com_classe_owned() {

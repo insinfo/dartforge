@@ -1473,6 +1473,17 @@ explícitas na publicação, preservando mapas. Cinquenta e cinco testes ARC e
 transferências simultâneas e laços continuam passando; proveniência semântica
 geral e Phis managed-I64 ainda exigem produtores próprios.
 
+Produtor ARC agora cobre aritmética inteira/flutuante, operadores de bits,
+deslocamentos, negação e conversões IntToDouble/DoubleToInt: resultado Trivial
+com tipo da operação e efeitos vazios, exigindo representações escalares
+compatíveis nos operandos. Ref/null/endereço direto não vira operando numérico.
+Regressão produz/verifica multiplicação, conversão e divisão sem sementes e
+recusa multiplicação sobre null sem alterar mapas. Cinquenta e seis testes
+ARC aprovados (`target/ownership-aritmetica-produtor-test.log`), assim como
+36 exemplos públicos (`target/ownership-aritmetica-produtor-doc.log`). Isso não prova
+guardas de domínio/estouro, semântica Dart dos operadores, tipagem original
+completa ou inserção ARC no pipeline padrão.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
