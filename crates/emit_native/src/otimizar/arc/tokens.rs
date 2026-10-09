@@ -190,6 +190,24 @@ fn do_chamador(mut v: ValueId, classes: &HashMap<ValueId, Ownership>) -> bool {
     }
 }
 
+/// O inventário já excluiu ciclos; aliases emprestados conservam a raiz.
+fn raiz_owner(mut v: ValueId, classes: &HashMap<ValueId, Ownership>) -> Option<OrigemOwner> {
+    loop {
+        match classes[&v] {
+            Ownership::Trivial => return None,
+            Ownership::Owned => return Some(OrigemOwner::Valor(v)),
+            Ownership::Borrowed {
+                owner: OrigemOwner::Chamador,
+                ..
+            } => return Some(OrigemOwner::Chamador),
+            Ownership::Borrowed {
+                owner: OrigemOwner::Valor(proximo),
+                ..
+            } => v = proximo,
+        }
+    }
+}
+
 fn caminho(f: &Function, pais: &[Option<usize>], mut b: usize) -> Vec<u32> {
     let mut r = vec![f.blocks[b].id.0];
     while let Some(pai) = pais[b] {
@@ -492,6 +510,20 @@ pub fn verificar_tokens(
                                 continue;
                             }
                             usar(op, classes, &r)?;
+                            if let Ownership::Borrowed { escopo, .. } = classes[v] {
+                                let compativel = match op {
+                                    Operand::Constant(Constant::Null) => true,
+                                    Operand::Val(entrada) => {
+                                        classes[entrada] == Ownership::Trivial
+                                            || (raiz_owner(*entrada, classes) == raiz_owner(*v, classes)
+                                                && !matches!(classes[entrada], Ownership::Borrowed { escopo: de, .. } if de != escopo))
+                                    }
+                                    _ => false,
+                                };
+                                if !compativel {
+                                    return Err(format!("Phi borrowed v{}: owner ou escopo incompatível na entrada", v.0));
+                                }
+                            }
                             if classes[v] == Ownership::Owned {
                                 match op {
                                     Operand::Val(entrada)

@@ -75,6 +75,48 @@ fn verificar(f: &Function, c: &HashMap<ValueId, Ownership>) -> Result<(), String
 }
 
 #[test]
+fn phi_borrowed_preserva_owner_real_da_entrada() {
+    let f = funcao(vec![
+        bloco(0, vec![copia(1, 0)], Terminator::Branch(BlockId(1))),
+        bloco(
+            1,
+            vec![
+                (
+                    ValueId(2),
+                    Instruction::Phi {
+                        ty: Type::Ref,
+                        incoming: vec![(BlockId(0), valor(1))],
+                    },
+                    Type::Ref,
+                ),
+                copia(3, 2),
+                drop(4, 3),
+                drop(5, 1),
+            ],
+            Terminator::Return(None),
+        ),
+    ]);
+    let mut c = classes(&[1, 3], &[4, 5]);
+    c.insert(
+        ValueId(2),
+        Ownership::Borrowed {
+            owner: OrigemOwner::Valor(ValueId(1)),
+            escopo: 0,
+        },
+    );
+    verificar(&f, &c).unwrap();
+    c.insert(
+        ValueId(2),
+        Ownership::Borrowed {
+            owner: OrigemOwner::Valor(ValueId(0)),
+            escopo: 0,
+        },
+    );
+    let erro = verificar(&f, &c).unwrap_err();
+    assert!(erro.contains("owner ou escopo incompatível"), "{erro}");
+}
+
+#[test]
 fn extern_auditada_nao_aceita_plano_que_omite_consumo() {
     let chamada = Instruction::CallRuntime {
         name: "dartforge_arc_release".into(),

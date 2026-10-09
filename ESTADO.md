@@ -1525,6 +1525,18 @@ ou pendências. Suíte ARC 58/58
 (`target/ownership-record-consultas-produtor.log`).
 
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
+Verificador de tokens agora confere cada entrada de Phi Borrowed: owner raiz
+deve coincidir com o resultado, e entradas Borrowed devem conservar o escopo
+declarado diretamente. Owned pode emprestar ao Phi sem transferir o token,
+desde que seu próprio ID seja a raiz; null/Trivial não cria obrigação.
+Regressão aceita empréstimo de uma cópia Owned mantida viva e rejeita troca
+para outro owner válido no inventário. O primeiro caso negativo escolhido
+era barrado antes pela regra de owner Chamador apenas em parâmetros; foi
+substituído por owner Valor(param) para exercitar a conferência da aresta.
+Suíte ARC 61/61 (`target/ownership-phi-borrowed-owner-test-final.log`) e
+exemplos públicos 36/36 (`target/ownership-phi-borrowed-owner-doc.log`).
+Não certifica epochs de slots, invalidação geral nem transformação automática
+de escopos de empréstimos nas cadeias de aliases.
 Phi Ref com classe Trivial explícita agora exige entradas Ref Trivial/null
 e origem conhecida fora do ciclo. Antes, a classe fornecida escapava da
 análise do produtor para Phis owned. Regressão rejeita entradas Owned e
