@@ -1145,6 +1145,21 @@ reaplicação UTF-8 foram seguidas pela repetição aprovada do teste do catálo
 Nada dessa versão truncada foi publicado. Cobertura completa e inserção
 automática de ownership seguem pendentes.
 
+Esquema ownership.tsv com seis colunas obrigatórias, incluindo saída normal
+ou pending conferida com efeitos.tsv. Parâmetros Ref podem consumir nas duas
+saídas, só no sucesso ou só na pendência; consumo específico exige pending.
+Build continua recusando execução Dart sem contrato próprio. Tradução HIR
+gera sempre/sucesso/erro e pode_falhar; o verificador exige invoke preparado,
+produzindo resultado apenas no sucesso. gc_collect e marcar_permanente foram
+auditados como borrowed/void com pending conservador da tabela de efeitos:
+catálogo com 17 externs. Dois testes do catálogo/gerador, 33 testes ARC HIR
+e 27 exemplos públicos runtime passaram (`target/ownership-pending-test.log`,
+`target/ownership-pending-hir.log`, `target/ownership-pending-doc.log`).
+Consumo por uma única aresta tem fixtures sintéticas do gerador; nenhuma
+extern real do catálogo ainda usa esses dois modos. Não comprova caminhos
+excepcionais das demais externs, retorno borrowed, callbacks Dart, inserção
+automática ou análise de invalidação dos borrows.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

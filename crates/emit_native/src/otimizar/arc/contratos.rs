@@ -70,9 +70,18 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
             "{name}: resultado incompatível com contrato semântico"
         ));
     }
-    let mut efeito = EfeitoTokens::default();
+    let mut efeito = EfeitoTokens {
+        pode_falhar: c.pode_falhar,
+        ..Default::default()
+    };
     for (n, (modo, (op, ty))) in c.parametros.iter().zip(args).enumerate() {
-        let referencia = matches!(modo, ModoParametro::Borrow | ModoParametro::Consume);
+        let referencia = matches!(
+            modo,
+            ModoParametro::Borrow
+                | ModoParametro::Consume
+                | ModoParametro::ConsumeSuccess
+                | ModoParametro::ConsumeError
+        );
         if *ty != if referencia { Type::Ref } else { Type::I64 } {
             return Err(format!("{name}: tipo do argumento {n} incompatível"));
         }
@@ -81,6 +90,12 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
                 Operand::Val(v) => {
                     if *modo == ModoParametro::Consume {
                         efeito.sempre.push(*v);
+                    }
+                    if *modo == ModoParametro::ConsumeSuccess {
+                        efeito.sucesso.push(*v);
+                    }
+                    if *modo == ModoParametro::ConsumeError {
+                        efeito.erro.push(*v);
                     }
                 }
                 Operand::Constant(Constant::Null) => {}
@@ -167,5 +182,19 @@ mod testes {
         let c = contrato_chamada_runtime(&i).unwrap();
         assert!(c.efeito.sempre.is_empty() && c.retencao_persistente && c.invalida_borrows);
         assert_eq!(c.resultado, Ownership::Trivial);
+    }
+
+    #[test]
+    fn coleta_auditada_exige_saida_excepcional() {
+        let i = Instruction::CallRuntime {
+            name: "dartforge_gc_collect".into(),
+            args: vec![],
+            ret_ty: Type::Void,
+        };
+        let c = contrato_chamada_runtime(&i).unwrap();
+        assert!(c.efeito.pode_falhar && c.invalida_borrows);
+        assert!(
+            c.efeito.sempre.is_empty() && c.efeito.sucesso.is_empty() && c.efeito.erro.is_empty()
+        );
     }
 }

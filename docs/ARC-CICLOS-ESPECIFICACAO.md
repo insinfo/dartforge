@@ -1114,9 +1114,20 @@ borrows associados ao valor substituído; não consome o token SSA do argumento.
 `dartforge_marcar_constante` recebe Ref borrowed e endereço nativo do getter,
 mantém a referência permanente e também não consome SSA. O catálogo passa a
 15 entradas; todas as auditadas exigem cobertura e assinatura Rust compatível.
-Novas linhas explícitas não precisam pertencer ao prefixo ARC, mas continuam
-rejeitadas se efeitos indicarem exceção Dart ou execução Dart: esses caminhos
-precisam de esquema e auditoria próprios, não de um contrato normal implícito.
+Novas linhas explícitas não precisam pertencer ao prefixo ARC. Execução Dart
+continua exigindo esquema e auditoria próprios, sem contrato normal implícito.
+
+O esquema passa a exigir seis colunas: a última declara `normal` ou `pending`,
+conferida exatamente com o flag de exceção da tabela de efeitos. Modos Ref
+`consume`, `consume-success` e `consume-error` representam consumo comum,
+no sucesso e na pendência; os dois últimos exigem saída pending. Resultado
+owned é produzido apenas no sucesso. A tradução HIR gera os três conjuntos
+de EfeitoTokens e exige invoke preparado no verificador. `gc_collect` e
+`marcar_permanente` têm contratos explícitos pending, ampliando o catálogo
+para 17 externs. Os modos de consumo condicional têm testes sintéticos do
+gerador; não há ainda uma extern real do catálogo que consuma por uma única
+aresta. Retornos borrowed, execução Dart, cobertura geral e geração automática
+do plano completo continuam pendentes.
 
 Externs **novas** mínimas: `dartforge_arc_retain`, `dartforge_arc_release`,
 `dartforge_arc_collect`, `dartforge_arc_verificar_abi`. Retain/release são

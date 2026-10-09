@@ -19,7 +19,10 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
             n.starts_with("dartforge_arc_")
                 || matches!(
                     **n,
-                    "dartforge_gc_global_root" | "dartforge_marcar_constante"
+                    "dartforge_gc_global_root"
+                        | "dartforge_marcar_constante"
+                        | "dartforge_gc_collect"
+                        | "dartforge_marcar_permanente"
                 )
         })
         .collect();
@@ -27,7 +30,8 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
     for nome in auditadas {
         let c = CONTRATOS.iter().find(|c| c.nome == *nome).unwrap();
         let efeito = EFEITOS.iter().find(|e| e.0 == c.nome).unwrap();
-        assert!(!efeito.2 && !efeito.3);
+        assert_eq!(efeito.2, c.pode_falhar);
+        assert!(!efeito.3);
     }
     let receber = CONTRATOS
         .iter()
