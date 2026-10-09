@@ -1091,6 +1091,20 @@ públicos aprovados (`target/runtime-arc-global-mortal-completo.log`;
 auditor em `target/runtime-arc-global-mortal-auditor.log`). Isso testa o
 runtime, não a execução AOT da HIR nem a inserção automática de ownership.
 
+Prova AOT mortal no exemplo `arc_slots_mortais`: a produtora aloca um alvo
+não permanente, transfere seu token SSA ao global forte e retorna antes das
+coletas. Um contêiner weak com token próprio observa o alvo sem torná-lo raiz
+no chamador; auxiliares LLVM conferem vivo antes e morto depois da remoção do
+global. ARC com ARC_CONFERIR=1/ARC_BERCARIO=0 e tracing, ambos com GC_STRESS=1,
+passaram com código zero e saída `1`, `null`. Imagens otimizadas reais pelo
+driver. Controles negativos ARC: `sem-owner` abortou antes de imprimir;
+`sem-liberar` imprimiu `1` e abortou na segunda verificação; ambos com
+0xC000001D, trap esperado, sem diagnóstico de panic. IR, saídas e logs em
+`target/arc-mortal`. A compilação inicial levou 4m28s; compilação das variantes
+após mudança no exemplo levou 1m03s, gerações posteriores usaram cache.
+HIR explícita e observadores LLVM: não certificam lowering automático,
+promoção weak com retenção, escopos Finalizable, ABI de SDK ou desempenho.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
