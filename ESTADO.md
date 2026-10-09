@@ -389,6 +389,20 @@ Na rodada `37922301282`, Linux concluiu com sucesso. Relatórios finais
 conferidos: AOT e A1/B0/B1/ARC 238/238, `dart:io` 130/130, JIT × AOT
 238/238 no placar, zero divergências, sete sem IR iguais por construção.
 SDK da fonte, mapas B0 e macOS continuam ativos na última consulta.
+A identidade fraca do dono nativo é zerada quando o wrapper morre, antes
+de reclamar seu bloco, nos três coletores. A obrigação callback/token fica
+registrada até morrer o alvo. Teste exige reutilização física do endereço
+e confirma que o wrapper novo não desanexa a obrigação antiga; o callback
+roda uma vez ao morrer o alvo, em tracing, berçário e puro.
+Release: 138 unitários, 13 de integração e 12 doctests aprovados, três
+microbenchmarks ignorados; fonte única AOT/JIT aprovada. A representação
+geral com geração, estados explícitos e retenção do módulo nativo continuam
+pendentes. Esta correção não conclui a §22.4.
+Na rodada `37922301282`, log mapas B0 `113796236829` conferido: 4/4,
+sem ignorados/filtrados, 770,09 s. Log SDK `113796236661` conferido:
+recarga 2/2 (52,23 s), Script/Spawn 1/1 (1,41 s), produção autocontida
+1/1 (47,31 s). Relatório Windows ARC 238/238, 42,6 s de harness.
+Só macOS permanece ativo na última consulta; a rodada valida `a49ab81b`.
 
 Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
 suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior

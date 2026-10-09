@@ -2738,6 +2738,7 @@ impl Heap {
 
     /// Cancela os anexos ainda registrados da chave e solta suas arestas Dart.
     pub(crate) fn desanexar_finalizador(&mut self, dono: Ref, desanexo: Ref) {
+        if dono == 0 { return; }
         let mut acoes = Vec::new();
         self.anexos.retain(|a| {
             if a.dono != dono || a.desanexo != desanexo { return true; }
@@ -2941,6 +2942,9 @@ impl Heap {
         let mut nativas = Vec::new();
         self.anexos.retain_mut(|a| {
             if matches!(a.acao, AcaoDeFinalizador::Dart(_)) && !vivo(&a.dono) { return false; }
+            if matches!(a.acao, AcaoDeFinalizador::Nativa(_, _)) && smi::e_handle(a.dono) && !vivo(&a.dono) {
+                a.dono = 0;
+            }
             if smi::e_handle(a.desanexo) && !vivo(&a.desanexo) {
                 a.desanexo = 0;
             }
@@ -5210,6 +5214,9 @@ impl Heap {
                 }
             }
             self.anexos.retain_mut(|a| {
+                if matches!(a.acao, AcaoDeFinalizador::Nativa(_, _)) && morto.contains(&a.dono) {
+                    a.dono = 0;
+                }
                 if morto.contains(&a.desanexo) {
                     a.desanexo = 0;
                 }
@@ -5485,6 +5492,9 @@ impl Heap {
                 }
             }
             self.anexos.retain_mut(|a| {
+                if matches!(a.acao, AcaoDeFinalizador::Nativa(_, _)) && morto(&a.dono) {
+                    a.dono = 0;
+                }
                 if morto(&a.desanexo) {
                     a.desanexo = 0;
                 }
@@ -5771,6 +5781,48 @@ mod arc_no_heap {
             assert!(!heap.e_objeto_vivo(alvo));
             assert!(heap.anexos.is_empty());
             assert!(heap.finalizacoes_prontas.is_empty(), "dono e alvo mortos cancelam a ação Dart");
+        }
+    }
+
+    #[test]
+    fn anexo_nativo_nao_aceita_dono_reutilizado_apos_morte_do_wrapper() {
+        static EXECUCOES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        extern "C" fn finalizar(token: usize) {
+            assert_eq!(token, 17);
+            EXECUCOES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        for modo in [None, Some(false), Some(true)] {
+            let mut heap = if modo.is_some() { heap_arc() } else { Heap::new(false) };
+            if let Some(puro) = modo { heap.arc.as_mut().unwrap().puro = puro; }
+            let quadro = heap.push_frame_proprietario(2);
+            let dono = lista(&mut heap, 0);
+            heap.set_root(quadro, 0, dono);
+            let alvo = lista(&mut heap, 0);
+            heap.set_root(quadro, 1, alvo);
+            heap.adicionar_anexo(AnexoDeFinalizador {
+                dono, valor: alvo, desanexo: alvo,
+                acao: AcaoDeFinalizador::Nativa(finalizar as *const () as usize, 17),
+            });
+            let antes = EXECUCOES.load(std::sync::atomic::Ordering::Relaxed);
+            heap.set_root(quadro, 0, 0);
+            heap.collect();
+            assert_eq!(heap.anexos.len(), 1);
+            assert_eq!(heap.anexos[0].dono, 0);
+            let retidos = heap.push_frame_proprietario(4096);
+            let novo = (0..4096).find_map(|slot| {
+                let novo = lista(&mut heap, 0);
+                heap.set_root(retidos, slot, novo);
+                (novo == dono).then_some(novo)
+            }).expect("reutilizar o bloco após consumir a faixa livre da página");
+            heap.set_root(quadro, 0, novo);
+            heap.desanexar_finalizador(novo, alvo);
+            assert_eq!(heap.anexos.len(), 1);
+            assert_eq!(EXECUCOES.load(std::sync::atomic::Ordering::Relaxed), antes);
+            heap.pop_frame(retidos);
+            heap.pop_frame(quadro);
+            heap.collect();
+            assert!(heap.anexos.is_empty());
+            assert_eq!(EXECUCOES.load(std::sync::atomic::Ordering::Relaxed), antes + 1);
         }
     }
 

@@ -513,6 +513,17 @@ sem substituir a validação completa de identidades fracas e transições.
 Release: 137 unitários, 13 de integração e 12 doctests aprovados; três
 microbenchmarks ignorados. Fonte única AOT/JIT aprovada.
 
+O dono fraco de uma obrigação nativa é invalidado ao morrer, antes da
+reclamação do bloco, nos três caminhos de coleta. O registro continua com
+callback/token C enquanto o alvo vive; um wrapper novo no mesmo endereço
+não pode desanexá-lo. Teste exige reutilização física do endereço e confere
+execução única ao morrer o alvo, em tracing, berçário e puro. A identidade
+zero invalidada não é aceita como dono de desanexação.
+Isso não implementa ainda a representação geral de identidades com geração,
+os estados explícitos do registro ou a retenção do módulo de código nativo.
+Release: 138 unitários, 13 de integração e 12 doctests aprovados;
+três microbenchmarks ignorados. Fonte única AOT/JIT aprovada.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais
