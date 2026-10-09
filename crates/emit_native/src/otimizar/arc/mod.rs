@@ -10,6 +10,8 @@ use crate::hir::*;
 use std::collections::{HashMap, HashSet};
 
 mod classificacao;
+mod escopos;
+pub use escopos::{AlteracaoEscopo, PlanoEscopos, verificar_escopos};
 pub use classificacao::{
     OrigemOwner, Ownership, vivacidade_classificada, vivacidade_classificada_com_excecoes,
 };

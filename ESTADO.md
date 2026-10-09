@@ -679,6 +679,20 @@ manuais ignorados (`target/emissor-resultado-invoke-release.log`). Esta
 API continua fora do pipeline: não insere drops, transfere tokens nem
 emite ArcKeepAlive. Não tomar essa validação por ownership integrado.
 
+Novo `arc::verificar_escopos` confere um PlanoEscopos explícito por
+instrução, terminador e aresta. Abertura/fechamento usa pilha léxica,
+escopo zero reservado à invocação; junções e backedges exigem estados
+iguais. Usos/definições borrowed conferem o limite e a cadeia transitiva
+de sustentação. Cleanup de aresta precede usos de Phi. Recusa limites
+obsoletos e saída com escopos abertos. Quatro testes dirigidos cobrem
+fechamento antecipado, aliases transitivos, cleanup/junção/backedge e
+Phi/metadata obsoleta. Emissor release 113/113, sete manuais ignorados
+(`target/emissor-escopos-release.log`). O lowering ainda não produz o
+plano nem o transporta pelas otimizações; API fora do pipeline, sem
+inserção de proteção, prova de consumo/escape ou transferência de retorno.
+Três exemplos da API passaram em doctests release
+(`target/arc-escopos-doc-release.log`). Módulo novo formatado isoladamente.
+
 O lowering agora preserva `Local::tipo_estatico`, TypeId Dart original
 separado da representação HIR. Declarações usam
 `Context::tipo_local_semantico` (sem chamar apagar), closures em ambiente ou

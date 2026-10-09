@@ -858,6 +858,13 @@ retornos/instruções precisam atravessar a aresta de sucesso; entradas de
 Phi usam a aresta do predecessor, permitindo null no erro e o resultado
 no sucesso. Essa checagem ainda não prova consumo ou transferência de tokens.
 
+`arc::verificar_escopos` recebe `PlanoEscopos` explícito, com limites antes
+de instruções/terminadores e nas arestas. Confere usos e definições borrowed,
+incluindo sua cadeia transitiva, exige pilhas iguais nas junções/backedges
+e aplica cleanup de aresta antes dos usos de Phi. O plano ainda não é
+produzido pelo lowering nem transportado nas otimizações; essa API não
+insere proteção, prova escape/consumo nem transfere owners no retorno.
+
 Operações **novas** sugeridas na `Instruction`:
 
 | Operação | Efeito de ownership |
