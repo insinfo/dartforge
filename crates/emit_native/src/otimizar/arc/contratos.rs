@@ -220,6 +220,12 @@ fn produzir_phi(
                         ancora = true;
                         break;
                     }
+                    Operand::Val(de) if tipos.get(de) != Some(&Type::Ref) => {
+                        return Err(format!(
+                            "Phi v{}: entrada v{} não tem representação Ref",
+                            v.0, de.0
+                        ));
+                    }
                     Operand::Val(de) if candidatos.contains(de) => {
                         pais.entry(*de).or_default().push(*v);
                         break;
@@ -551,6 +557,61 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn phi_ref_nao_aceita_escalar_mesmo_com_classe_owned() {
+        let f = Function {
+            symbol: "phi_tipo".into(),
+            name: "phi_tipo".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "bits".into(), Type::I64)],
+            return_ty: Type::Ref,
+            blocks: vec![
+                BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![],
+                    terminator: Terminator::Branch(BlockId(1)),
+                },
+                BasicBlock {
+                    id: BlockId(1),
+                    instructions: vec![(
+                        ValueId(1),
+                        Instruction::Phi {
+                            ty: Type::Ref,
+                            incoming: vec![(BlockId(0), Operand::Val(ValueId(0)))],
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+                },
+            ],
+        };
+        let mut classes = HashMap::from([(ValueId(0), Ownership::Owned)]);
+        let antes = classes.clone();
+        let mut plano = PlanoTokens::default();
+        assert!(
+            produzir_contratos_arc(&f, &mut classes, &mut plano)
+                .unwrap_err()
+                .contains("representação Ref")
+        );
+        assert_eq!(classes, antes);
+        assert!(plano.instrucoes.is_empty());
+        classes.insert(ValueId(0), Ownership::Trivial);
+        classes.insert(ValueId(1), Ownership::Trivial);
+        let antes = classes.clone();
+        assert!(
+            produzir_e_verificar_tokens(
+                &f,
+                &mut classes,
+                &mut plano,
+                &TabelasDaFuncao::default(),
+                &PlanoEscopos::default()
+            )
+            .unwrap_err()
+            .contains("SSA Ref ou null")
+        );
+        assert_eq!(classes, antes);
+    }
 
     #[test]
     fn operacao_pura_nao_reinterpreta_referencia_como_escalar() {

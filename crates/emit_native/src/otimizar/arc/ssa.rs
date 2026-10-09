@@ -129,9 +129,12 @@ pub(super) fn verificar(f: &Function) -> Result<(), String> {
                     return Err(erro(format!("v{}: quadro ARC exige SSA I64", v.0)));
                 }
             }
-            if let Instruction::Phi { incoming, .. } = inst {
+            if let Instruction::Phi { incoming, ty, .. } = inst {
                 let mut entradas = HashSet::new();
                 for (p, op) in incoming {
+                    if *ty == Type::Ref && !referencia(op) {
+                        return Err(erro(format!("Phi v{} exige entrada SSA Ref ou null", v.0)));
+                    }
                     let Some(&pi) = blocos.get(p) else {
                         return Err(erro(format!("predecessor b{} ausente", p.0)));
                     };

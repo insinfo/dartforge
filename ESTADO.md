@@ -1462,6 +1462,17 @@ quatro testes ARC e 36 exemplos públicos aprovados
 (`target/ownership-puras-escalares-test.log`, `target/ownership-puras-escalares-doc.log`).
 Não substitui tipagem original completa nem valida todas as operações HIR.
 
+Entradas de Phi Ref agora exigem representação SSA Ref ou null antes de
+publicar planos; o produtor de Phi owned também recusa entrada SSA com outro
+tipo, mesmo que o chamador a tenha classificado Owned. Isso impede tratar
+bits escalares como referência por largura/classe fornecida. Regressão recusa
+parâmetro I64 em Phi Ref com classe Owned no produtor e classes Trivial
+explícitas na publicação, preservando mapas. Cinquenta e cinco testes ARC e
+36 exemplos públicos aprovados (`target/ownership-phi-representacao-test-final.log`,
+`target/ownership-phi-representacao-doc.log`). Phis Ref válidos com null,
+transferências simultâneas e laços continuam passando; proveniência semântica
+geral e Phis managed-I64 ainda exigem produtores próprios.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
