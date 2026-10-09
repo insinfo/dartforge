@@ -96,6 +96,52 @@ pub fn inserir_retencao_retornos_dart(
     tabelas: &TabelasDaFuncao,
     escopos: &PlanoEscopos,
 ) -> Result<usize, String> {
+    inserir_saidas_dart(f, classes, plano, tabelas, escopos, false).map(|(copias, _)| copias)
+}
+
+/// Insere retenção do retorno e libera tokens restantes em cada Return Dart.
+///
+/// Usa o mesmo fluxo do verificador: o token devolvido é transferido, e os
+/// demais recebem ArcDrop antes do retorno, em ordem determinística de IDs.
+/// Inclui retornos de caminhos excepcionais já preparados. Exige junções
+/// com inventários compatíveis; não divide arestas, fecha quadros nem prepara
+/// finally/cancelamento/suspensão. Contratos não cobertos continuam explícitos.
+///
+/// # Erros
+/// HIR/contratos inválidos, IDs esgotados ou falha de fluxo/escopo/quadros.
+/// Função e mapas permanecem intactos. Retorna (retenções, liberações).
+///
+/// ```
+/// use dartforge_emit_native::{hir::*, otimizar::arc::*};
+/// use std::collections::HashMap;
+/// let mut f = Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+///     params: vec![(ValueId(0), "x".into(), Type::Ref)], return_ty: Type::Ref,
+///     blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
+///         (ValueId(1), Instruction::ArcCopy { value: Operand::Val(ValueId(0)) }, Type::Ref)],
+///         terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }] };
+/// let mut plano = PlanoTokens { retorno: RetornoTokens::Owned, ..Default::default() };
+/// assert_eq!(inserir_arc_saidas_dart(&mut f, &mut HashMap::new(), &mut plano,
+///     &TabelasDaFuncao::default(), &PlanoEscopos::default())?, (1, 1));
+/// # Ok::<(), String>(())
+/// ```
+pub fn inserir_arc_saidas_dart(
+    f: &mut Function,
+    classes: &mut HashMap<ValueId, Ownership>,
+    plano: &mut PlanoTokens,
+    tabelas: &TabelasDaFuncao,
+    escopos: &PlanoEscopos,
+) -> Result<(usize, usize), String> {
+    inserir_saidas_dart(f, classes, plano, tabelas, escopos, true)
+}
+
+fn inserir_saidas_dart(
+    f: &mut Function,
+    classes: &mut HashMap<ValueId, Ownership>,
+    plano: &mut PlanoTokens,
+    tabelas: &TabelasDaFuncao,
+    escopos: &PlanoEscopos,
+    cleanup: bool,
+) -> Result<(usize, usize), String> {
     super::ssa::verificar(f)?;
     let mut nova = f.clone();
     let mut novas_classes = classes.clone();
@@ -151,11 +197,31 @@ pub fn inserir_retencao_retornos_dart(
             copias += 1;
         }
     }
+    let mut liberacoes = 0;
+    if cleanup {
+        produzir_contratos_arc(&nova, &mut novas_classes, &mut novo_plano)?;
+        let saidas =
+            super::tokens::saidas_para_cleanup(&nova, &novas_classes, tabelas, &novo_plano)?;
+        for b in &mut nova.blocks {
+            if let Some(restantes) = saidas.get(&b.id) {
+                for de in restantes {
+                    b.instructions.push((
+                        id()?,
+                        Instruction::ArcDrop {
+                            value: Operand::Val(*de),
+                        },
+                        Type::Void,
+                    ));
+                    liberacoes += 1;
+                }
+            }
+        }
+    }
     produzir_e_verificar_tokens_dart(&nova, &mut novas_classes, &mut novo_plano, tabelas, escopos)?;
     *f = nova;
     *classes = novas_classes;
     *plano = novo_plano;
-    Ok(copias)
+    Ok((copias, liberacoes))
 }
 
 /// Produz e verifica parâmetros/instruções pela convenção Dart, atomicamente.
@@ -1034,6 +1100,137 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn cleanup_saidas_cobre_erro_runtime_sem_reparar_consumo_duplicado() {
+        let original = Function {
+            symbol: "cleanup_pending".into(),
+            name: "cleanup_pending".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "x".into(), Type::Ref)],
+            return_ty: Type::Void,
+            blocks: vec![
+                BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![
+                        (
+                            ValueId(1),
+                            Instruction::ArcCopy {
+                                value: Operand::Val(ValueId(0)),
+                            },
+                            Type::Ref,
+                        ),
+                        (
+                            ValueId(2),
+                            Instruction::CallRuntime {
+                                name: "dartforge_gc_collect".into(),
+                                args: vec![],
+                                ret_ty: Type::Void,
+                            },
+                            Type::Void,
+                        ),
+                        (
+                            ValueId(3),
+                            Instruction::CallRuntime {
+                                name: "dartforge_exception_pending".into(),
+                                args: vec![],
+                                ret_ty: Type::I8,
+                            },
+                            Type::I8,
+                        ),
+                        (
+                            ValueId(4),
+                            Instruction::ICmp(
+                                ICmpOp::Ne,
+                                Operand::Val(ValueId(3)),
+                                Operand::Constant(Constant::Int(0)),
+                            ),
+                            Type::I1,
+                        ),
+                    ],
+                    terminator: Terminator::CondBranch {
+                        cond: Operand::Val(ValueId(4)),
+                        then_block: BlockId(1),
+                        else_block: BlockId(2),
+                    },
+                },
+                BasicBlock {
+                    id: BlockId(1),
+                    instructions: vec![],
+                    terminator: Terminator::Return(None),
+                },
+                BasicBlock {
+                    id: BlockId(2),
+                    instructions: vec![],
+                    terminator: Terminator::Return(None),
+                },
+            ],
+        };
+        let mut f = original.clone();
+        let mut classes = HashMap::new();
+        let mut plano = PlanoTokens::default();
+        assert_eq!(
+            inserir_arc_saidas_dart(
+                &mut f,
+                &mut classes,
+                &mut plano,
+                &TabelasDaFuncao::default(),
+                &PlanoEscopos::default()
+            )
+            .unwrap(),
+            (0, 2)
+        );
+        for b in &f.blocks[1..] {
+            assert!(matches!(
+                b.instructions[0].1,
+                Instruction::ArcDrop {
+                    value: Operand::Val(ValueId(1))
+                }
+            ));
+        }
+        let pronta = format!("{f:?}");
+        assert_eq!(
+            inserir_arc_saidas_dart(
+                &mut f,
+                &mut classes,
+                &mut plano,
+                &TabelasDaFuncao::default(),
+                &PlanoEscopos::default()
+            )
+            .unwrap(),
+            (0, 0)
+        );
+        assert_eq!(format!("{f:?}"), pronta);
+        f = original;
+        for id in [99, 100] {
+            f.blocks[0].instructions.insert(
+                1,
+                (
+                    ValueId(id),
+                    Instruction::ArcDrop {
+                        value: Operand::Val(ValueId(1)),
+                    },
+                    Type::Void,
+                ),
+            );
+        }
+        classes.clear();
+        plano = PlanoTokens::default();
+        let antes = format!("{f:?}");
+        assert!(
+            inserir_arc_saidas_dart(
+                &mut f,
+                &mut classes,
+                &mut plano,
+                &TabelasDaFuncao::default(),
+                &PlanoEscopos::default()
+            )
+            .unwrap_err()
+            .contains("indisponível")
+        );
+        assert_eq!(format!("{f:?}"), antes);
+        assert!(classes.is_empty() && plano.instrucoes.is_empty() && plano.pendencias.is_empty());
+    }
 
     #[test]
     fn insercao_retornos_dart_e_idempotente_e_atomica_se_cleanup_falta() {

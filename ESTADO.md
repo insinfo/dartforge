@@ -1525,6 +1525,20 @@ ou pendências. Suíte ARC 58/58
 (`target/ownership-record-consultas-produtor.log`).
 
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
+Inserção inicial de cleanup em `inserir_arc_saidas_dart`: prepara retenção
+do retorno e usa o mesmo fluxo do verificador para obter tokens restantes
+por Return, excluindo o token transferido. Insere ArcDrop em ordem de IDs e
+publica HIR/classes/plano somente após wrapper Dart completo. Análise auxiliar
+admite apenas tokens restantes nos retornos; mantém disponibilidade, consumo
+único, convenção e igualdade dos inventários em junções. Regressão insere
+cleanup nas saídas normal/erro de chamada runtime com pendência real, verifica
+idempotência e rejeita consumo duplicado sem publicar nem mapa de pendências.
+O diagnóstico esperado no teste foi ajustado para a indisponibilidade detectada
+antes do segundo consumo. Suíte ARC 71/71 e exemplos públicos 40/40
+(`target/ownership-saidas-cleanup-test-final.log`,
+`target/ownership-saidas-cleanup-doc.log`). Não fecha quadros, divide arestas
+críticas nem prepara finally/cancelamento/suspensão; prova AOT desse cleanup
+e integração no lowering padrão continuam pendentes.
 Variante AOT `retorno-mortal` usa a fábrica Owned com i64::MAX, retém pela
 função identidade preparada pelo passe, transfere o token devolvido ao slot
 e libera o token original antes de fechar o quadro/coletar. ARC auditado sob

@@ -282,6 +282,27 @@ pub fn verificar_tokens(
     tabelas: &TabelasDaFuncao,
     plano: &PlanoTokens,
 ) -> Result<(), String> {
+    analisar_tokens(f, classes, tabelas, plano, false).map(|_| ())
+}
+
+/// Confere o mesmo fluxo, admitindo somente tokens restantes em Return.
+/// Não relaxa consumo duplicado, disponibilidade, convenção ou junções.
+pub(super) fn saidas_para_cleanup(
+    f: &Function,
+    classes: &HashMap<ValueId, Ownership>,
+    tabelas: &TabelasDaFuncao,
+    plano: &PlanoTokens,
+) -> Result<HashMap<BlockId, Vec<ValueId>>, String> {
+    analisar_tokens(f, classes, tabelas, plano, true)
+}
+
+fn analisar_tokens(
+    f: &Function,
+    classes: &HashMap<ValueId, Ownership>,
+    tabelas: &TabelasDaFuncao,
+    plano: &PlanoTokens,
+    permitir_cleanup: bool,
+) -> Result<HashMap<BlockId, Vec<ValueId>>, String> {
     super::classificacao::vivacidade_com_saidas(f, classes, tabelas, &plano.pendencias)?;
     let erro_meta = |m: String| format!("tokens em {}: {m}", f.symbol);
     let mut esperados = HashSet::new();
@@ -397,6 +418,7 @@ pub fn verificar_tokens(
         return Err(erro_meta("função sem entrada".into()));
     }
     let cfg = Cfg::novo(f);
+    let mut saidas = HashMap::new();
     let mut entradas: Vec<Option<HashSet<ValueId>>> = vec![None; f.blocks.len()];
     entradas[0] = Some(
         f.params
@@ -489,6 +511,12 @@ pub fn verificar_tokens(
             }
         }
         if cfg.sucessores[i].is_empty() && !ativos.is_empty() {
+            if permitir_cleanup && matches!(b.terminator, Terminator::Return(_)) {
+                let mut restantes: Vec<_> = ativos.iter().copied().collect();
+                restantes.sort_unstable_by_key(|v| v.0);
+                saidas.insert(b.id, restantes);
+                continue;
+            }
             let mut ids: Vec<_> = ativos.iter().map(|v| v.0).collect();
             ids.sort_unstable();
             return Err(erro_fluxo(
@@ -600,7 +628,7 @@ pub fn verificar_tokens(
             }
         }
     }
-    Ok(())
+    Ok(saidas)
 }
 
 #[cfg(test)]

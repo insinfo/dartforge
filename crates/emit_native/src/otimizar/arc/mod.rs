@@ -1,8 +1,9 @@
-//! Análises para inserir ownership ARC na HIR (§20 da especificação).
+//! Análises e inserção inicial de ownership ARC na HIR (§20 da especificação).
 //!
 //! A vivacidade recebe o inventário semântico de referências/slots; não
-//! classifica externs, insere contadores ou prova consumo de tokens. Esses
-//! estágios ainda precisam ser integrados ao pipeline de emissão.
+//! classifica externs nem prova consumo de tokens por si só. Produtores,
+//! verificadores e inserção em retornos/saídas existem como passes explícitos;
+//! ainda precisam de cobertura completa e integração no pipeline padrão.
 
 use super::cfg::Cfg;
 use super::operandos::{operandos, operandos_do_terminador};
@@ -20,6 +21,7 @@ pub use contratos::produzir_e_verificar_tokens;
 pub use contratos::produzir_parametros_ref_dart;
 pub use contratos::produzir_e_verificar_tokens_dart;
 pub use contratos::inserir_retencao_retornos_dart;
+pub use contratos::inserir_arc_saidas_dart;
 pub use tokens::{EfeitoTokens, PlanoTokens, RetornoTokens, verificar_tokens};
 pub use escopos::{AlteracaoEscopo, PlanoEscopos, verificar_escopos};
 pub use classificacao::{
