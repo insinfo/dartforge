@@ -2,6 +2,16 @@
 
 ## Retomada de 2026-10-09
 
+Separação de múltiplos retornos Guarda: o passe guarda os índices originais
+dos blocos e acrescenta as folhas, eliminando a busca linear por retorno.
+A localização das saídas passa de O(G*B) para O(B+G), sem medir ganho no
+runtime. Regressão com IDs fora da ordem física comprova transferência
+owned no sucesso e dois drops nos erros, além de idempotência. Falha no
+escopo da segunda saída ou esgotamento SSA depois de separar a primeira
+preserva todos os corpos e planos originais. Passaram 86 testes ARC;
+log `target/ownership-guardas-multiplas-test.log`. Integração no pipeline
+padrão e demais requisitos ARC continuam pendentes.
+
 Retornos Guarda: a preparação conjunta separa a conferência de pendência
 em dois blocos, mantendo o operando do resultado só no sucesso e marcando
 o erro como Lanca. Fecha o borrow depois da retenção normal, transportando

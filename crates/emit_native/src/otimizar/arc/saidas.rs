@@ -8,8 +8,9 @@ pub(super) fn separar_guardas(f: &mut Function, plano: &mut PlanoFuncaoDart) -> 
     let guardas: Vec<_> = f
         .blocks
         .iter()
-        .filter(|b| plano.tabelas.saidas.get(&b.id) == Some(&SaidaPorExcecao::Guarda))
-        .map(|b| b.id)
+        .enumerate()
+        .filter(|(_, b)| plano.tabelas.saidas.get(&b.id) == Some(&SaidaPorExcecao::Guarda))
+        .map(|(indice, b)| (indice, b.id))
         .collect();
     if guardas.is_empty() {
         return Ok(());
@@ -54,8 +55,10 @@ pub(super) fn separar_guardas(f: &mut Function, plano: &mut PlanoFuncaoDart) -> 
         bloco += 1;
         Ok(BlockId(id))
     };
-    for origem in guardas {
-        let b = f.blocks.iter_mut().find(|b| b.id == origem).unwrap();
+    // Só acrescentamos blocos: os índices originais permanecem válidos e
+    // evitam uma busca linear por saída em funções com muitos retornos.
+    for (indice, origem) in guardas {
+        let b = &mut f.blocks[indice];
         let Terminator::Return(op) = &b.terminator else {
             return Err(format!("saída Guarda b{} não é Return", origem.0));
         };
@@ -258,6 +261,101 @@ mod testes {
             }
         } else {
             panic!("Guarda não separado");
+        }
+    }
+
+    #[test]
+    fn multiplas_guardas_preservam_transferencia_e_rejeitam_falha_posterior() {
+        for falha in 0..3 {
+            let (mut funcoes, mut planos) = folha(true);
+            let f = &mut funcoes[0];
+            f.blocks[0].terminator = Terminator::CondBranch {
+                cond: Operand::Constant(Constant::Bool(true)),
+                then_block: BlockId(9),
+                else_block: BlockId(4),
+            };
+            // IDs fora da ordem física não devem alterar o bloco escolhido.
+            for id in [9, 4] {
+                f.blocks.push(BasicBlock {
+                    id: BlockId(id),
+                    instructions: vec![],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+                });
+            }
+            let p = planos.get_mut("folha").unwrap();
+            p.tabelas.saidas.clear();
+            for id in [9, 4] {
+                p.tabelas
+                    .saidas
+                    .insert(BlockId(id), SaidaPorExcecao::Guarda);
+            }
+            if falha == 1 {
+                // A primeira saída já terá sido separada na cópia temporária.
+                p.escopos
+                    .saidas
+                    .insert(BlockId(4), vec![AlteracaoEscopo::Fechar(7)]);
+            } else if falha == 2 {
+                // O primeiro Guarda usa os dois IDs restantes; o segundo
+                // deve falhar sem publicar sequer a transformação inicial.
+                funcoes[0].blocks[0].instructions.push((
+                    ValueId(u32::MAX - 2),
+                    Instruction::Const(Constant::Int(0)),
+                    Type::I64,
+                ));
+            }
+            let antes = format!("{funcoes:?}");
+            let planos_antes = format!("{planos:?}");
+            let resultado = inserir_arc_funcoes_dart(&mut funcoes, &mut planos);
+            if falha != 0 {
+                assert!(resultado.unwrap_err().contains(if falha == 1 {
+                    "limite inválido"
+                } else {
+                    "IDs SSA esgotados"
+                }));
+                assert_eq!(format!("{funcoes:?}"), antes);
+                assert_eq!(format!("{planos:?}"), planos_antes);
+                continue;
+            }
+            assert_eq!(resultado.unwrap(), (0, 2));
+            assert_eq!(funcoes[0].blocks.len(), 7);
+            let p = &planos["folha"];
+            assert_eq!(p.tabelas.saidas.len(), 2);
+            for original in &funcoes[0].blocks[1..3] {
+                let Terminator::CondBranch {
+                    then_block,
+                    else_block,
+                    ..
+                } = original.terminator
+                else {
+                    panic!("Guarda não separado");
+                };
+                assert_eq!(p.tabelas.saidas[&then_block], SaidaPorExcecao::Lanca);
+                let erro = funcoes[0]
+                    .blocks
+                    .iter()
+                    .find(|b| b.id == then_block)
+                    .unwrap();
+                let normal = funcoes[0]
+                    .blocks
+                    .iter()
+                    .find(|b| b.id == else_block)
+                    .unwrap();
+                assert!(matches!(
+                    erro.instructions[0].1,
+                    Instruction::ArcDrop {
+                        value: Operand::Val(ValueId(1))
+                    }
+                ));
+                assert!(normal.instructions.is_empty());
+                assert!(matches!(
+                    normal.terminator,
+                    Terminator::Return(Some(Operand::Val(ValueId(1))))
+                ));
+            }
+            assert_eq!(
+                inserir_arc_funcoes_dart(&mut funcoes, &mut planos).unwrap(),
+                (0, 0)
+            );
         }
     }
 
