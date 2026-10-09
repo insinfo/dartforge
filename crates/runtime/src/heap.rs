@@ -1653,8 +1653,9 @@ impl Heap {
             self.conferir_vivo(handle);
         }
         let antigo = self.raizes_do_runtime[qual];
-        self.arc_trocar_raiz_proprietaria(handle, antigo);
+        if handle != antigo { self.arc_trocar_raiz_proprietaria(handle, 0); }
         self.raizes_do_runtime[qual] = handle;
+        if handle != antigo { self.arc_trocar_raiz_proprietaria(0, antigo); }
     }
     /// A string internada com as `unidades` (a tabela `literais`, raiz), se já
     /// existe: o literal do JIT e do runtime (`textos.rs`, P1).
@@ -1689,13 +1690,14 @@ impl Heap {
     pub fn set_global_root(&mut self, id: i64, handle: i64) {
         if smi::e_handle(handle) { self.conferir_vivo(handle); }
         let antigo = self.globais.get(&id).copied().unwrap_or(0);
-        self.arc_trocar_raiz_proprietaria(handle, antigo);
+        if handle != antigo { self.arc_trocar_raiz_proprietaria(handle, 0); }
         if !smi::e_handle(handle) {
             // null ou `Smi`: nada no heap a manter vivo.
             self.globais.remove(&id);
         } else {
             self.globais.insert(id, handle);
         }
+        if handle != antigo { self.arc_trocar_raiz_proprietaria(0, antigo); }
     }
 
     /// Move a raiz de um global de um endereço de slot para outro (a área de
@@ -1712,8 +1714,8 @@ impl Heap {
         if de == para { return; }
         if let Some(h) = self.globais.remove(&de) {
             let antigo = self.globais.get(&para).copied().unwrap_or(0);
-            self.arc_trocar_raiz_proprietaria(0, antigo);
             self.globais.insert(para, h);
+            self.arc_trocar_raiz_proprietaria(0, antigo);
         }
     }
 
@@ -2083,10 +2085,10 @@ impl Heap {
         let valor = *self.frames[de].1.get(slot_origem).expect("slot de origem inválido");
         let antigo = *self.frames[para].1.get(slot_destino).expect("slot de destino inválido");
         if de == para && slot_origem == slot_destino { return; }
-        self.arc_trocar_raiz_proprietaria(0, antigo);
         self.frames[de].1[slot_origem] = 0;
         self.frames[para].1[slot_destino] = valor;
         self.stats.live_roots -= usize::from(antigo != 0);
+        self.arc_trocar_raiz_proprietaria(0, antigo);
     }
 
     /// Transfere um owner global para um slot proprietário, consumindo o global.
@@ -2110,12 +2112,12 @@ impl Heap {
         assert!(self.frames[indice].2, "movimento exige quadro proprietário");
         let antigo = *self.frames[indice].1.get(slot).expect("slot de raiz inválido");
         let valor = *self.globais.get(&global).expect("owner global inexistente");
-        self.arc_trocar_raiz_proprietaria(0, antigo);
         self.globais.remove(&global);
         self.frames[indice].1[slot] = valor;
         self.stats.live_roots -= usize::from(antigo != 0);
         self.stats.live_roots += usize::from(valor != 0);
         self.stats.peak_roots = self.stats.peak_roots.max(self.stats.live_roots);
+        self.arc_trocar_raiz_proprietaria(0, antigo);
     }
 
     /// Protege handle até o retorno da função; null não ocupa uma raiz.

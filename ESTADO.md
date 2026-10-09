@@ -993,6 +993,20 @@ continuam sem oráculo Dart VM válido por bibliotecas web indisponíveis.
 macOS, SDK da fonte e B0 ainda ativos na consulta; não inferir conclusão
 da rodada desses relatórios parciais nem disparar outra enquanto estiver ativa.
 
+Publicação antes da liberação do owner antigo agora vale também para raízes
+internas do runtime, cópia global, movimento global→global, quadro→quadro e
+global→quadro. Copiar retém antes da publicação; mover transfere a ocorrência
+sem retain da origem. As operações continuam sem coleta/Dart entre etapas.
+Runtime release final: 155 aprovados, três microbenchmarks ignorados,
+13 integrações e 22 exemplos públicos
+(`target/runtime-arc-publicacao-validado-release.log`). A primeira edição
+incompleta foi detectada por sete testes de owners/auditoria, corrigida antes
+de publicar e a suíte completa repetida com sucesso.
+O mapa de owners globais não armazena null/Smi: não fornece o valor real de
+uma carga global. O descritor forte global ainda precisa associar armazenamento
+real, representação e registro de owner; não implementar carga lendo só esse
+mapa. ArcLoadStrong/ArcStoreStrong globais e inserção automática seguem pendentes.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
