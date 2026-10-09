@@ -51,6 +51,9 @@ pub struct Local {
     /// como Finalizable. None indica informação ainda não fornecida; não
     /// prova ausência da obrigação. Capturas preservam o TypeId original.
     pub tipo_estatico: Option<dartforge_types::TypeId>,
+    /// Classificação da obrigação léxica. None ainda exige prova; não emite
+    /// nem substitui ArcKeepAlive ou uma ocorrência proprietária.
+    pub finalizavel: Option<bool>,
     /// Offset do nome na declaração (a chave de `captura.rs`); `None` para
     /// os ligados por valor.
     pub offset: Option<usize>,
@@ -126,6 +129,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 modo: Modo::Memoria(ptr.clone()),
                 ty,
                 tipo_estatico: None,
+                finalizavel: None,
                 offset: None,
                 late: None,
             },
@@ -146,6 +150,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// atribuída), ela mora numa célula nova — cada execução da declaração
     /// cria uma variável nova (a do corpo de um laço, uma por volta).
     pub fn declarar_variavel(&mut self, sym: SymbolId, offset: usize, ty: Type, valor: Operand) {
+        let tipo_estatico = self.ctx.tipo_local_semantico(self.unit_id, offset);
+        let finalizavel = tipo_estatico.and_then(|t| self.ctx.classificar_finalizavel(t));
         // Outra declaração do mesmo nome no mesmo escopo: o programa é
         // inválido (a de um escopo de fora pode ser sombreada; a mesma
         // declaração baixada de novo, num `finally`, não conta).
@@ -181,7 +187,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Local {
                     modo: Modo::Memoria(ptr),
                     ty,
-                    tipo_estatico: self.ctx.tipo_local_semantico(self.unit_id, offset),
+                    tipo_estatico,
+                finalizavel,
                     offset: Some(offset),
                     late: None,
                 },
@@ -207,7 +214,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Local {
                 modo: Modo::Celula(ptr),
                 ty,
-                tipo_estatico: self.ctx.tipo_local_semantico(self.unit_id, offset),
+                tipo_estatico,
+                finalizavel,
                 offset: Some(offset),
                 late: None,
             },
@@ -313,6 +321,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 },
                 ty,
                 tipo_estatico: origem.tipo_estatico,
+                finalizavel: origem.finalizavel,
                 offset: None,
                 late,
             },
@@ -334,6 +343,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 modo: Modo::Valor(valor),
                 ty,
                 tipo_estatico: None,
+                finalizavel: None,
                 offset: None,
                 late: None,
             },

@@ -186,20 +186,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let local = match c.passagem {
                 Passagem::Valor => {
                     let v = b.add_param(nome_p, c.ty);
-                    Local { modo: Modo::Valor(Operand::Val(v)), ty: c.ty, tipo_estatico: c.local.tipo_estatico, offset: c.local.offset, late: None }
+                    Local { modo: Modo::Valor(Operand::Val(v)), ty: c.ty, tipo_estatico: c.local.tipo_estatico, finalizavel: c.local.finalizavel, offset: c.local.offset, late: None }
                 }
                 Passagem::Endereco => {
                     let v = b.add_param(nome_p, Type::Ptr);
                     if let Some(o) = c.local.offset {
                         b.ponteiros.insert(o);
                     }
-                    Local { modo: Modo::Memoria(Operand::Val(v)), ty: c.ty, tipo_estatico: c.local.tipo_estatico, offset: c.local.offset, late: None }
+                    Local { modo: Modo::Memoria(Operand::Val(v)), ty: c.ty, tipo_estatico: c.local.tipo_estatico, finalizavel: c.local.finalizavel, offset: c.local.offset, late: None }
                 }
                 Passagem::Celula => {
                     let v = b.add_param(nome_p, Type::Ref);
                     let ptr = b.alloca_na_entrada(Type::Ref);
                     b.emit(Instruction::Store { ptr: ptr.clone(), val: Operand::Val(v) }, Type::Void);
-                    Local { modo: Modo::Celula(ptr), ty: c.ty, tipo_estatico: c.local.tipo_estatico, offset: c.local.offset, late: None }
+                    Local { modo: Modo::Celula(ptr), ty: c.ty, tipo_estatico: c.local.tipo_estatico, finalizavel: c.local.finalizavel, offset: c.local.offset, late: None }
                 }
             };
             ligadas.push((identidade(&c.local), local.clone()));

@@ -658,6 +658,21 @@ Suíte release do emissor: 106/106, sete testes manuais ignorados;
 `target/emissor-tipos-locais-originais-release.log`. A primeira tentativa
 usava tipo_local, que já apaga tipos, e foi corrigida antes do commit.
 
+Classificação estática de Finalizable integrada aos metadados de Local:
+identidade do marcador de dart:ffi resolvida uma vez por Context, subtipos
+pela hierarquia semântica, nullable/FutureOr e limites/promovidos, tipos de
+extensão antes de apagar, Never excluído. Resultado Option<bool>: None
+para informação insuficiente (hierarquia ausente/limite recursivo), nunca
+prova negativa. Metadado propagado nas capturas diretas e em ambiente;
+async usa o mesmo local de origem. Ainda não emite proteção de vida.
+Testes dirigidos 2/2; suíte release do emissor 108/108, sete manuais
+ignorados (`target/emissor-finalizavel-completo-release.log`). Formatação
+do módulo novo aplicada isoladamente. Parâmetros/this e produtores sem
+tipo semântico, regiões lexicais e operações ArcKeepAlive em saídas,
+finally e suspensão/retomada continuam pendentes. route_return pode
+entrar em finally: a obrigação deve considerar os escopos atravessados e
+a transferência do valor de retorno, não só o fechamento estrutural de bloco.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

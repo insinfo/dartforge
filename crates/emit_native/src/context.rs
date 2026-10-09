@@ -14,6 +14,8 @@ pub struct Context<'a> {
     pub core: &'a CoreTypes,
     pub outline: &'a OutlineTypes,
     pub bodies: &'a BodyTypes,
+    /// Identidade do marcador do SDK, nunca de uma classe homônima do usuário.
+    finalizable_class: Option<dartforge_elements::model::ClassId>,
     pub entry_lib: Option<LibraryId>,
     /// Id de classe do runtime de cada classe do programa (P2): a ordem do
     /// caminho estável (`nome_da_biblioteca`, nome da classe), a partir de 1,
@@ -287,6 +289,10 @@ impl<'a> Context<'a> {
             core,
             outline,
             bodies,
+            finalizable_class: program.classes.iter().enumerate().find_map(|(i, c)| {
+                (program.library(c.library).uri == "dart:ffi" && interner.resolve(c.name) == "Finalizable")
+                    .then_some(dartforge_elements::model::ClassId(i as u32))
+            }),
             entry_lib: program.entry,
             ids_de_classe: Vec::new(),
             ids_fixos_do_sdk: None,
@@ -786,6 +792,11 @@ impl<'a> Context<'a> {
     /// `offset` (R6).
     pub fn tipo_local(&self, unit: UnitId, offset: usize) -> Option<TypeId> {
         self.tipo_local_semantico(unit, offset).map(|t| self.apagar(t))
+    }
+
+    /// Classifica a obrigação estática; None ainda exige prova no lowering.
+    pub(crate) fn classificar_finalizavel(&self, tipo: TypeId) -> Option<bool> {
+        crate::finalizaveis::classificar(self.table, &self.outline.hierarchy, self.finalizable_class, tipo)
     }
 
     /// Tipo Dart original da declaração, antes do apagamento para representação.

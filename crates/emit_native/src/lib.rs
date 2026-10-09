@@ -7,6 +7,7 @@ pub mod cache_objeto;
 pub mod context;
 pub mod driver;
 pub mod fonte;
+mod finalizaveis;
 pub mod gcmap;
 pub mod rastro_compacto;
 pub mod gerador;
