@@ -200,9 +200,26 @@ fn fonte(arquivo: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/nativo").join(arquivo)
 }
 
-fn dir_de_trabalho(nome: &str) -> PathBuf {
-    let d = std::env::temp_dir().join(format!("dartforge-mapas-{}-{nome}", std::process::id()));
-    std::fs::create_dir_all(&d).unwrap();
+/// Os executáveis e SDKs de teste saem também quando uma asserção falha.
+struct DiretorioDeTrabalho(PathBuf);
+
+impl std::ops::Deref for DiretorioDeTrabalho {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for DiretorioDeTrabalho {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+fn dir_de_trabalho(nome: &str) -> DiretorioDeTrabalho {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+    let d = DiretorioDeTrabalho(base.join(format!("tmp-mapas-{}-{nome}", std::process::id())));
+    std::fs::create_dir_all(&d.0).unwrap();
     d
 }
 
@@ -296,7 +313,6 @@ fn casos_dirigidos_passam_e_caem_com_a_sabotagem() {
             assert!(!saida_certa(&r, caso.esperado), "{}: passou com a sabotagem `{s}` do runtime", caso.arquivo);
         }
     }
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// E2.5: o build de conferência grava, antes de cada ponto de coleta, os
@@ -317,7 +333,6 @@ fn percurso_conferido_contra_a_pilha_sombra() {
         assert!(saida_certa(&r, caso.esperado), "{}: a conferência falhou ({}):\n{stderr}", caso.arquivo, r.status);
         assert!(estatistica(&stderr, "checked_roots").is_some_and(|n| n > 0), "{}: nenhuma raiz conferida:\n{stderr}", caso.arquivo);
     }
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// D7 por extern (§7.3, §7.5): com a conferência da tabela de efeitos
@@ -342,7 +357,6 @@ fn folha_que_coleta_e_achada_pelo_nome() {
     let r = rodar(&sab, &[]);
     let stderr = String::from_utf8_lossy(&r.stderr).into_owned();
     assert!(!r.status.success() && stderr.contains("dartforge_string_concat"), "a folha falsa não foi achada ({}):\n{stderr}", r.status);
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// §7.5: a coleta agendada por semente, no lugar do estresse total.
@@ -359,5 +373,4 @@ fn coleta_agendada_por_semente() {
         let r = rodar_com(&exe, false, &[("DARTFORGE_GC_AGENDA", semente)]);
         assert!(saida_certa(&r, caso.esperado), "agenda {semente}: {}", String::from_utf8_lossy(&r.stderr));
     }
-    let _ = std::fs::remove_dir_all(&dir);
 }

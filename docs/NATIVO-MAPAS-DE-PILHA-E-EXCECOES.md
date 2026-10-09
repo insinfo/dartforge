@@ -2763,6 +2763,14 @@ seguem enquanto o saldo de tamanho for este.
 
 ### 14.12 A forma por `"deopt"`: a raiz no registrador preservado (2026-10-08)
 
+**Verificação contínua (2026-10-09).** O job `nativo-modos` do Pesado, na célula
+B0 sem estresse, executa também `mapas_dirigidos` com `DARTFORGE_TESTES_MAPAS=1`.
+São quatro testes: os casos e sabotagens do §7.3, percurso contra pilha-sombra,
+folha falsa pela conferência dos efeitos e coleta agendada. O corpus comum não
+ativa essa porta; seu placar não substitui estes testes. Os temporários ficam
+em `target/tmp-mapas-*` e uma guarda os remove também na falha. A execução desta
+etapa nova ainda precisa ser conferida no CI.
+
 **O defeito da forma do §14.8.** A medida do tempo de execução que faltava ao §14.11 (o
 `bench/desempenho` em produção, `scripts/medir-modos-desempenho.py`) deu B0/A0 = 0,996 de média, com
 `chamadas/formas` 1,43× e `chamadas/fib` 1,24×. Sem exceção lançada e sem coleta, o código com mapas

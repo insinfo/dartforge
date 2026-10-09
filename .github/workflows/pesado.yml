@@ -470,6 +470,18 @@ jobs:
           preparar: ./scripts/harness-com-gerador.ps1
           aceitar-placar-parcial: 'true'
 
+      # O corpus comum não liga esta porta: quatro testes que exigem coleta,
+      # leem raízes dos mapas e precisam detectar cada sabotagem do §7.3.
+      # Os casos já incluem tabelas e pilha-sombra; basta uma célula da matriz.
+      - name: Raízes por mapas — testes dirigidos e sabotagens
+        if: matrix.modo.id == 'B0' && !matrix.estresse
+        shell: pwsh
+        env:
+          DARTFORGE_TESTES_MAPAS: '1'
+          CARGO_PROFILE_RELEASE_LTO: 'false'
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test mapas_dirigidos -- --test-threads=1 --nocapture
+
   # A memória ARC (docs/ARC-IMPLEMENTACAO.md): o corpus nativo inteiro com
   # --memoria=arc e a auditoria a cada sincronização (nenhum alcançável morto,
   # RC igual às ocorrências recontadas), com e sem --gc-stress. O emissor lê o
