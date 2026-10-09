@@ -2768,8 +2768,12 @@ B0 sem estresse, executa também `mapas_dirigidos` com `DARTFORGE_TESTES_MAPAS=1
 São quatro testes: os casos e sabotagens do §7.3, percurso contra pilha-sombra,
 folha falsa pela conferência dos efeitos e coleta agendada. O corpus comum não
 ativa essa porta; seu placar não substitui estes testes. Os temporários ficam
-em `target/tmp-mapas-*` e uma guarda os remove também na falha. A execução desta
-etapa nova ainda precisa ser conferida no CI.
+em `target/tmp-mapas-*` e uma guarda os remove também na falha. Na rodada
+[37889904811](https://github.com/insinfo/dartforge/actions/runs/37889904811)
+(`c3dd048b`), os relatórios Windows de B0/B1 com e sem `--gc-stress`
+mostram 238/238. O log da etapa dirigida confirmou os quatro testes passando,
+sem ignorados nem filtrados (777 s): casos e sabotagens, coleta agendada,
+folha incorreta detectada e percurso contra a pilha-sombra.
 
 **O defeito da forma do §14.8.** A medida do tempo de execução que faltava ao §14.11 (o
 `bench/desempenho` em produção, `scripts/medir-modos-desempenho.py`) deu B0/A0 = 0,996 de média, com

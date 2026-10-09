@@ -22,10 +22,11 @@ O programa ARC chama `dartforge_memoria_arc_v1` na entrada (no
 `df.preparar_isolado` de cada isolado, ou no `dartforge_entry`), e esse
 símbolo versionado faz a ligação com um runtime sem a ABI falhar (§24).
 
-## 2. Desenho desta etapa: RC adiado das raízes, contado no heap
+## 2. Primeiro desenho: RC adiado das raízes, contado nos maduros
 
 O runtime é um só para os dois modos. O ARC liga por isolado, em tempo de
-execução.
+execução. Esta seção registra o primeiro desenho, ainda selecionável com
+`DARTFORGE_ARC_BERCARIO=1`. O padrão atual é o ARC puro da §6.
 
 | Parte | Como funciona hoje | Arquivo |
 | --- | --- | --- |
@@ -267,8 +268,11 @@ microbenchmarks ignorados. Grafos aleatórios: 3.000 sementes por modo.
 Em duas medidas dirigidas independentes, ARC caiu 4–5% em árvores e
 7,5–8,8% em lista ligada; A0 variou cerca de ±3% e −2,3% a 0% nos mesmos
 núcleos. [Amostras, hashes e protocolo](../bench/resultados/2026-10-09-arc-faixas/README.md).
-São dois núcleos do benchmark: a média completa ainda não foi medida para
-esta mudança, e a validação do corpus nativo continua pendente no CI.
+São dois núcleos do benchmark. Na rodada completa posterior, ARC/A0 foi
+**2,108**, contra 2,107 da anterior: não há ganho demonstrado na média.
+A1/A0 0,991, B0/A0 0,969, B1/A0 0,952, A0/Dart 1,270; todas as 378
+execuções válidas e iguais. [Dados da rodada completa](../bench/resultados/2026-10-09-modos-faixas-windows/README.md).
+A validação do corpus nativo desta mudança continua pendente no CI.
 
 ## 5. Pendências
 
@@ -283,8 +287,8 @@ esta mudança, e a validação do corpus nativo continua pendente no CI.
   ela roda na completa.
 * Reduzir o custo da reclamação por bloco (`EspacoDeObjetos::soltar_morto`,
   já usada pela drenagem pura, sem varrer páginas): a junção dos vizinhos
-  na ponta da lista está feita (§6.2); falta medir a média completa e
-  avaliar os intervalos contíguos que não chegam à ponta (§19.4).
+  na ponta da lista está feita (§6.2), sem ganho demonstrado na média
+  completa; avaliar os intervalos contíguos que não chegam à ponta (§19.4).
 * A recarga com código antigo retido e o descritor por versão de layout
   (§23.4), isolados com mensagens contadas (§23.2) e FFI (§23.3).
 * Comparação ARC × rastreamento × VM e decisão (§13, P6).

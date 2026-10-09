@@ -72,12 +72,17 @@ distribuição; a nova etapa dirigida de mapas segue pendente no Pesado.
 
 O Pesado passou a ativar também os quatro testes de `mapas_dirigidos` na
 célula B0 sem estresse: o corpus sozinho não exercita as sabotagens. O YAML
-e a compilação do código de teste foram conferidos; a execução da nova etapa
-continua pendente no CI. A guarda dos temporários limpa `target/tmp-mapas-*`
+e a compilação do código de teste foram conferidos; os quatro testes passaram
+na rodada `37889904811`, sem ignorados ou filtrados (log conferido, 777 s).
+A guarda dos temporários limpa `target/tmp-mapas-*`
 inclusive quando uma asserção falha.
 Rodada atualizada [37889904811](https://github.com/insinfo/dartforge/actions/runs/37889904811)
 disparada sobre `c3dd048b`, incluindo o índice ARC sem divisão e esta etapa;
-em andamento.
+em andamento. Os oito relatórios Windows de A1/B0/B1 e ARC, com e sem
+`--gc-stress`, já foram conferidos: todos 238/238. As outras sete células
+terminaram; B0 também terminou, com corpus 238/238 e quatro testes dirigidos
+passando. O job macOS ainda está em andamento.
+Esta revisão antecede a junção das faixas livres.
 
 O medidor dos modos agora preserva cada execução em `amostras.jsonl`,
 incluindo stdout com as rodadas brutas, stderr e código de saída. Confere
@@ -95,8 +100,12 @@ três modos, sem falha. Duas medidas independentes, cinco execuções alternadas
 no núcleo P: ARC árvores caiu 4–5%, lista ligada 7,5–8,8%. A0 variou cerca
 de ±3% em árvores e −2,3% a 0% em lista ligada. Resultados iguais nas 40
 execuções. Dados e limites: `bench/resultados/2026-10-09-arc-faixas/`.
-Isso confirma o ganho dirigido; a média completa desta mudança segue
-pendente, assim como a validação do corpus nativo no CI.
+Isso confirma o ganho dirigido. A rodada completa depois da junção deu
+A1/A0 0,991, B0/A0 0,969, B1/A0 0,952, ARC/A0 2,108 e A0/Dart 1,270,
+com todas as 378 execuções válidas e resultados iguais. Não houve ganho
+demonstrado na média ARC (antes 2,107); dados em
+`bench/resultados/2026-10-09-modos-faixas-windows/`. A validação do corpus
+nativo desta mudança segue pendente no CI.
 
 CI rápido [37887482951](https://github.com/insinfo/dartforge/actions/runs/37887482951)
 terminou com sucesso sobre `c3dd048b`, antes da junção das faixas.
