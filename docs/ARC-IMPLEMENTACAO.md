@@ -353,6 +353,17 @@ Isso cobre os nós temporários; os owners da fila de mensagens e sua
 transferência ao despacho continuam pendentes (§21.3/§23.2).
 Suíte release completa: 114 aprovados, três microbenchmarks ignorados.
 
+Globais e slots de exceção/rastro agora são owners persistentes. Os setters
+retêm antes de soltar; `mover_raiz_global` transfere a ocorrência, soltando
+o destino anterior (inclusive alias), e mover para o mesmo endereço não
+altera RC. A ativação, promoção e auditoria incluem esses slots com
+multiplicidade. Testes cobrem aliases, troca por outro objeto/Smi, remoção
+repetida, movimento e ativação com slots abertos no tracing. Suítes
+debug/release: 116 aprovados, três microbenchmarks ignorados. Literais,
+tabelas canônicas, eventos e filas ainda exigem seus contratos de owners.
+O código gerado ainda não fornece a ABI owned/borrowed completa.
+Doctests do runtime: oito aprovados, incluindo os quatro métodos persistentes.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais

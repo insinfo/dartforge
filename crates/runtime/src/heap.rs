@@ -1618,11 +1618,22 @@ impl Heap {
             finalizacoes_prontas: std::collections::VecDeque::new(),
         }
     }
-    /// Raiz mantida pelo runtime: 0 = exceção pendente, 1 = rastro corrente.
+    /// Slot proprietário do runtime: 0 = exceção pendente, 1 = rastro corrente.
+    ///
+    /// # Panics
+    /// `qual` não é 0 nem 1, ou um handle morto é detectado pela validação.
+    ///
+    /// ```
+    /// use dartforge_runtime::heap::Heap;
+    /// let mut heap = Heap::new(false);
+    /// heap.set_raiz_do_runtime(0, 0);
+    /// ```
     pub fn set_raiz_do_runtime(&mut self, qual: usize, handle: i64) {
         if smi::e_handle(handle) {
             self.conferir_vivo(handle);
         }
+        let antigo = self.raizes_do_runtime[qual];
+        self.arc_trocar_raiz_proprietaria(handle, antigo);
         self.raizes_do_runtime[qual] = handle;
     }
     /// A string internada com as `unidades` (a tabela `literais`, raiz), se já
@@ -1636,28 +1647,55 @@ impl Heap {
         self.literais.insert(unidades, h);
         self.permanentes.insert(h);
     }
-    /// Registra o valor corrente de um global `Ref`; 0 (null) solta a raiz.
+    /// Copia o valor para o owner global; null ou `Smi` solta o owner anterior.
+    ///
+    /// ```
+    /// use dartforge_runtime::heap::Heap;
+    /// let mut heap = Heap::new(false);
+    /// heap.set_global_root(10, 0);
+    /// ```
     pub fn set_global_root(&mut self, id: i64, handle: i64) {
+        if smi::e_handle(handle) { self.conferir_vivo(handle); }
+        let antigo = self.globais.get(&id).copied().unwrap_or(0);
+        self.arc_trocar_raiz_proprietaria(handle, antigo);
         if !smi::e_handle(handle) {
             // null ou `Smi`: nada no heap a manter vivo.
             self.globais.remove(&id);
         } else {
-            self.conferir_vivo(handle);
             self.globais.insert(id, handle);
         }
     }
 
     /// Move a raiz de um global de um endereço de slot para outro (a área de
     /// globais de um módulo recarregado, `gc_raizes.rs`).
+    /// Solta o owner anterior do destino. Origem ausente ou movimento para
+    /// o mesmo endereço não altera os owners.
+    ///
+    /// ```
+    /// use dartforge_runtime::heap::Heap;
+    /// let mut heap = Heap::new(false);
+    /// heap.mover_raiz_global(10, 20);
+    /// ```
     pub fn mover_raiz_global(&mut self, de: i64, para: i64) {
+        if de == para { return; }
         if let Some(h) = self.globais.remove(&de) {
+            let antigo = self.globais.get(&para).copied().unwrap_or(0);
+            self.arc_trocar_raiz_proprietaria(0, antigo);
             self.globais.insert(para, h);
         }
     }
 
     /// Solta a raiz de um global que deixou de existir.
+    ///
+    /// ```
+    /// use dartforge_runtime::heap::Heap;
+    /// let mut heap = Heap::new(false);
+    /// heap.soltar_raiz_global(10);
+    /// ```
     pub fn soltar_raiz_global(&mut self, id: i64) {
-        self.globais.remove(&id);
+        if let Some(h) = self.globais.remove(&id) {
+            self.arc_trocar_raiz_proprietaria(0, h);
+        }
     }
 
     /// Marca `handle` como permanente (ver `permanentes`).
@@ -1803,7 +1841,9 @@ impl Heap {
 
     fn raizes_proprietarias(&self) -> Vec<Ref> {
         self.frames.iter().filter(|(_, _, dono)| *dono)
-            .flat_map(|(_, slots, _)| slots.iter().copied()).collect()
+            .flat_map(|(_, slots, _)| slots.iter().copied())
+            .chain(self.globais.values().copied())
+            .chain(self.raizes_do_runtime.iter().copied()).collect()
     }
 
     /// Retém antes de soltar, sem coleta nem chamada Dart entre as operações.
@@ -5045,9 +5085,10 @@ impl Heap {
     /// 6. a memória: os jovens mortos pela varredura dos jovens (sem marca),
     ///    os mortos pelo RC um a um.
     ///
-    /// A pilha-sombra (ou os mapas), os quadros observacionais do runtime e
-    /// as tabelas de raízes protegem o que veem diretamente, sem contar RC.
-    /// Slots proprietários e arestas fortes de objetos contam ocorrências.
+    /// A pilha-sombra (ou os mapas), quadros observacionais e tabelas ainda
+    /// não migradas protegem o que veem diretamente, sem contar RC.
+    /// Slots proprietários, globais, exceção/rastro e arestas fortes de objetos
+    /// contam ocorrências.
     fn drenar_arc(&mut self, completa: bool) {
         conferir_coleta_permitida();
         let inicio = std::time::Instant::now();
@@ -5621,6 +5662,56 @@ mod arc_no_heap {
             heap.collect();
             assert!(!vivo(&heap, base) && !vivo(&heap, segunda));
         }
+    }
+
+    #[test]
+    fn owners_persistentes_contam_aliases_movimento_e_promocao() {
+        for puro in [true, false] {
+            let mut heap = heap_arc();
+            heap.arc.as_mut().unwrap().puro = puro;
+            let a = lista(&mut heap, 0);
+            heap.set_global_root(10, a);
+            heap.set_global_root(20, a);
+            heap.set_raiz_do_runtime(0, a);
+            for _ in 0..2 {
+                heap.coletar(true);
+                assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 3);
+            }
+            heap.mover_raiz_global(10, 10);
+            heap.set_global_root(20, a);
+            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 3);
+            heap.mover_raiz_global(10, 20);
+            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 2);
+            heap.soltar_raiz_global(20);
+            heap.soltar_raiz_global(20);
+            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 1);
+            heap.collect();
+            assert!(vivo(&heap, a));
+            heap.set_raiz_do_runtime(0, 0);
+            heap.collect();
+            assert!(!vivo(&heap, a));
+        }
+    }
+
+    #[test]
+    fn ativacao_arc_conta_globais_e_slots_runtime_abertos_no_tracing() {
+        let mut heap = Heap::new(false);
+        let a = lista(&mut heap, 0);
+        heap.set_global_root(10, a);
+        heap.set_raiz_do_runtime(1, a);
+        heap.ativar_arc();
+        heap.arc.as_mut().unwrap().conferir = true;
+        assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 2);
+        let b = lista(&mut heap, 0);
+        heap.set_global_root(10, b);
+        assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 1);
+        assert_eq!(heap.arc.as_ref().unwrap().estado.meta(b).unwrap().rc, 1);
+        heap.set_raiz_do_runtime(1, 0);
+        heap.collect();
+        assert!(!vivo(&heap, a) && vivo(&heap, b));
+        heap.set_global_root(10, smi::de(7).unwrap());
+        heap.collect();
+        assert!(!vivo(&heap, b));
     }
 
     #[test]
