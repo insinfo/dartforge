@@ -80,6 +80,7 @@ impl TestHarness {
                     fields: Vec::new(),
                     enum_constants: Vec::new(),
                     representation: None,
+                    instancia_sobrepostos: Vec::new(),
                 });
 
             core_lib.scope.insert(
@@ -158,6 +159,7 @@ impl TestHarness {
                 fields: Vec::new(),
                 enum_constants: Vec::new(),
                 representation: None,
+                instancia_sobrepostos: Vec::new(),
             });
 
         async_lib.scope.insert(
