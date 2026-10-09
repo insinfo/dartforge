@@ -434,6 +434,16 @@ coletado aprovado em debug; a rejeição não tenta registrar ou reter esse hand
 Suíte release: 126 aprovados, três microbenchmarks ignorados. Os seis testes
 de materialização passaram também com auditoria ARC e berçário habilitados.
 
+O tratamento de controle usa um quadro proprietário para a mensagem
+materializada até o retorno do handler. Os caminhos nativos de envio OOB
+copiam com `compartilhar=false`: o grafo portátil não depende de handles
+`Mesmo` enquanto aguarda. Teste posta uma string na fila real de controle,
+coleta o original, materializa e coleta durante o tratamento, depois confere
+a liberação ao retornar. Aprovado com auditoria nos modos puro e berçário.
+Isso não valida ainda todos os comandos OOB nem o desenrolamento LLVM.
+Suíte release: 127 testes unitários aprovados, três microbenchmarks ignorados;
+13 testes de integração e 12 doctests aprovados.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais

@@ -305,6 +305,16 @@ de materialização passaram com auditoria ARC e berçário. Essas mudanças
 ainda não estão na rodada remota ativa. Os caminhos de controle observados
 copiam com `compartilhar=false`; validação de seus owners ativos continua
 pendente, assim como HIR/ABI, desenrolamento LLVM e desempenho global.
+O owner ativo da mensagem de controle foi migrado para quadro proprietário.
+Teste sobre a fila real confirma que a cópia portátil independe do original,
+sobrevive à coleta durante o tratamento e é liberada ao retornar; aprovado
+com auditoria nos modos puro e berçário. Suíte release: 127 unitários,
+13 de integração e 12 doctests aprovados, três microbenchmarks ignorados.
+Todos os comandos OOB e seu desenrolamento LLVM ainda precisam de validação.
+Relatórios finais do SDK da fonte na rodada `37915929494` conferidos:
+AOT 238/238 (57,0 s), JIT × AOT 238/238 no placar, zero divergências,
+sete sem IR iguais por construção (122,8 s). Esses relatórios validam
+`2f3256b3`, sem as migrações posteriores.
 
 Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
 suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior

@@ -161,10 +161,68 @@ fn copiar_para_outro_isolado(valor: i64) -> Option<Grafo> {
 /// deve terminar (`kill`).
 fn atender_controle() -> bool {
     while let Some(g) = proxima_de_controle() {
-        let msg = materializar(&g);
-        com_raizes(&[msg], || tratar_mensagem_de_controle(msg));
+        com_mensagem_de_controle(&g, tratar_mensagem_de_controle);
     }
     !ISOLADO.with(|i| i.borrow().as_ref().is_some_and(|e| e.encerrar))
+}
+
+/// Mantém o owner da mensagem materializada até o tratamento terminar.
+/// A publicação no slot ocorre antes de qualquer alocação ou chamada Dart.
+fn com_mensagem_de_controle<R>(grafo: &Grafo, tratar: impl FnOnce(i64) -> R) -> R {
+    let msg = materializar(grafo);
+    let quadro = HEAP.with(|h| {
+        let mut h = h.borrow_mut();
+        let quadro = h.push_frame_proprietario(1);
+        h.set_root(quadro, 0, msg);
+        quadro
+    });
+    let resultado = tratar(msg);
+    HEAP.with(|h| h.borrow_mut().pop_frame(quadro));
+    resultado
+}
+
+#[cfg(test)]
+mod testes_owner_controle {
+    use super::*;
+
+    #[test]
+    fn copia_portatil_sobrevive_na_fila_e_owner_ativo_termina_no_retorno() {
+        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+        let (quadro, texto) = HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.ativar_arc();
+            let quadro = h.push_frame_proprietario(1);
+            let texto = h.alocar_str("controle portátil");
+            h.set_root(quadro, 0, texto);
+            (quadro, texto)
+        });
+        let porta = abrir_porta_de_controle();
+        let grafo = copiar_para_outro_isolado(texto).unwrap();
+        grafo.visitar_valores(|v| assert!(!matches!(v, ValG::Mesmo(_))));
+        postar_controle(porta, grafo);
+        HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.pop_frame(quadro);
+            h.collect();
+            assert!(!h.e_objeto_vivo(texto));
+        });
+        let grafo = proxima_de_controle().unwrap();
+        let recebido = com_mensagem_de_controle(&grafo, |msg| {
+            HEAP.with(|h| {
+                let mut h = h.borrow_mut();
+                h.collect();
+                assert_eq!(h.texto(msg).unwrap().para_string(), "controle portátil");
+            });
+            msg
+        });
+        HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.collect();
+            assert!(!h.e_objeto_vivo(recebido));
+        });
+        fechar_portas_do_isolado();
+        HEAP.with(|h| { h.replace(anterior); });
+    }
 }
 
 /// `IsolateMessageHandler::HandleLibMessage`: `[0, tipo, …]`.
