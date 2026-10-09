@@ -1351,9 +1351,49 @@ impl<'s, 'i> Parser<'s, 'i> {
                 continue;
             }
             let Some(nome) = p.name else { continue };
-            let ty = p.ty.or_else(|| {
-                self.tipo_do_declarante_sem_tipo(p.default_value, tem_supertipos, p.span)
-            });
+            // O declarante no estilo antigo de parâmetro função
+            // (`final int _f()`): o campo tem o tipo função inteiro
+            // (`int Function()`), não só o retorno. Os parâmetros do tipo são
+            // cópias rasas (nome, tipo, espécie): um tipo função não tem
+            // metadados nem valores padrão; o parâmetro do construtor fica
+            // como está.
+            let ty = if let Some(fps) = &p.function_parameters {
+                let parametros: Vec<crate::ast::Parameter> = fps
+                    .iter()
+                    .map(|q| crate::ast::Parameter {
+                        span: q.span,
+                        metadata: Vec::new().into_boxed_slice(),
+                        kind: q.kind,
+                        required: q.required,
+                        covariant: q.covariant,
+                        final_: q.final_,
+                        var_: q.var_,
+                        const_: q.const_,
+                        ty: q.ty,
+                        this_: false,
+                        super_: false,
+                        name: q.name,
+                        function_type_params: Vec::new().into_boxed_slice(),
+                        function_parameters: None,
+                        function_nullable: false,
+                        default_value: None,
+                        public_name: q.public_name,
+                        declarante: false,
+                    })
+                    .collect();
+                let tipos: Vec<crate::ast::TypeParameter> = p
+                    .function_type_params
+                    .iter()
+                    .map(|t| crate::ast::TypeParameter { span: t.span, metadata: Vec::new().into_boxed_slice(), name: t.name, bound: t.bound, variance: t.variance })
+                    .collect();
+                Some(self.ast.push_type(TypeAnnotation {
+                    span: p.span,
+                    nullable: p.function_nullable,
+                    kind: TypeKind::Function { return_type: p.ty, type_params: tipos.into_boxed_slice(), parameters: parametros.into_boxed_slice() },
+                }))
+            } else {
+                p.ty.or_else(|| self.tipo_do_declarante_sem_tipo(p.default_value, tem_supertipos, p.span))
+            };
             let campo = Member {
                 span: p.span,
                 metadata: Vec::new().into_boxed_slice(),

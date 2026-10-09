@@ -6544,6 +6544,10 @@ ou `undefined_class 'augment'`) e o resto é **outra declaração homônima** (`
   `ctor.const_`). Restante: `generic_usage_futureor_error_test:16` (`T()` com alias; dependente de tipos de alias).
 
 ##### `field_initializing_formal_not_assignable` (perda 9: FN 9)
+- **Declarante no estilo de parâmetro função (2026-10-08):** `class A(final int _f())` declara o campo `_f` com o tipo
+  função inteiro (`int Function()`), não só o retorno; a derivação D → D2 (`elaborar_construtor_primario`) monta o
+  `TypeKind::Function` do campo com cópias rasas da lista do parâmetro. Sem isso, o `this._f()` resultante ficava
+  incompatível com o campo `int` (`unused_field_from_primary_constructor/…_notU_5b1e35ce.dart:1:9`).
 - **Emissão/condição:** `_checkForValidField` (EV:5733-5739): campo existe, não sintético, não estático, e
   `!isSubtypeOf(tipoDeclaradoDoParâmetro, tipoDoCampo)` (subtipo, não atribuível: `dynamic this.x` com campo `int`
   é erro). Sem tipo escrito o parâmetro herda o do campo (nunca erra).
