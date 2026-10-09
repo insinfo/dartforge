@@ -589,6 +589,15 @@ o modo berçário continua sem contar nesta etapa. Suíte release aprovada:
 (`target/runtime-iniciais-diretas-release.log`). Medição de desempenho desta
 mudança ainda pendente; não está nos quatro executáveis da rodada anterior.
 
+Job SDK `113842809750` da rodada `37936255800` concluiu com sucesso:
+artefato `target/ci-37936255800/sdk-jit` confirma JIT 238/238 e JIT × AOT
+238/238 idênticos, zero divergências, sete sem IR iguais por construção.
+Log `target/ci-37936255800/sdk-job.log` confirma recarga 2/2 (54,19 s;
+cinco filtrados), Script/spawnUri 1/1 (1,45 s; sem filtro), autocontido 1/1
+(46,15 s; 112 filtrados) e contratos dirigidos do SDK aprovados. Esses testes
+filtrados não representam suítes completas. Só macOS permanece ativo na
+consulta atual; não disparar outra rodada pesada antes de seu fechamento.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
