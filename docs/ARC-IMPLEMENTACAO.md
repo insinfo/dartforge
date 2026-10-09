@@ -314,6 +314,15 @@ para a aresta da closure, a contagem e a liberação nos modos puro e berçário
 Suítes completas debug/release: 108 aprovados, zero falhas, três microbenchmarks
 ignorados. Os demais quadros Rust ainda exigem migração e revisão das saídas.
 
+`lista_com_raizes` também usa slots proprietários. Seus chamadores publicam
+os resultados sem safepoint entre o fechamento do quadro e a gravação da
+aresta; o owner temporário não substitui essa publicação. Teste dirigido
+força crescimento de lista compacta, descompactação de `i64::MAX` e caixa
+double com coleta antes de cada alocação, nos modos puro e berçário. Confere
+valores, ausência de quadros residuais, RC das caixas e morte da cadeia ao
+soltar o owner externo. Suítes debug/release: 109 aprovados, três microbenchmarks
+ignorados. A rodada remota `37915929494` antecede esta migração das listas.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais

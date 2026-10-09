@@ -420,10 +420,11 @@ impl Heap {
         self.objeto(h).expect("_GrowableList é INSTANCIA").campo(i).0
     }
 
-    /// `f` com `hs` enraizados num quadro do runtime (null e `Smi` não ocupam
-    /// raiz útil, mas não atrapalham).
+    /// `f` com cópias proprietárias de `hs` num quadro temporário do runtime.
+    /// Null e `Smi` não contam RC. O resultado deve ser publicado sem coleta
+    /// entre o fechamento deste quadro e a gravação da referência pelo chamador.
     pub(crate) fn lista_com_raizes<R>(&mut self, hs: &[Ref], f: impl FnOnce(&mut Heap) -> R) -> R {
-        let quadro = self.push_frame_with_slots(hs.len());
+        let quadro = self.push_frame_proprietario(hs.len());
         for (i, &x) in hs.iter().enumerate() {
             self.set_root(quadro, i, x);
         }

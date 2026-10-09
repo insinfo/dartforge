@@ -5569,6 +5569,34 @@ mod arc_no_heap {
     }
 
     #[test]
+    fn owners_temporarios_das_listas_sobrevivem_a_crescimento_e_descompactacao() {
+        for puro in [true, false] {
+            let mut heap = heap_arc();
+            heap.arc.as_mut().unwrap().puro = puro;
+            heap.stress = true;
+            let quadro = heap.push_frame_proprietario(1);
+            let l = heap.nova_expansivel(1, 1, crate::listas::Elemento::Int);
+            heap.set_root(quadro, 0, l);
+            heap.lista_set(l, 0, Valor::Int(i64::MAX));
+            heap.lista_push(l, Valor::Double(2.5));
+            heap.collect();
+            assert_eq!(heap.lista_forma(l), crate::listas::Elemento::Geral);
+            assert!(matches!(heap.lista_get(l, 0), Valor::Ref(r) if matches!(heap.valor(r), Valor::Int(i64::MAX))));
+            assert!(matches!(heap.lista_get(l, 1), Valor::Ref(r) if matches!(heap.valor(r), Valor::Double(x) if x == 2.5)));
+            assert_eq!(heap.frames.len(), 1, "nenhum quadro temporário pode permanecer aberto");
+            let dados = heap.lista_dados(l);
+            let caixas = heap.palavras(dados)[1..3].to_vec();
+            for &r in &caixas {
+                assert_eq!(heap.arc.as_ref().unwrap().estado.meta(r).unwrap().rc, 1);
+            }
+            heap.pop_frame(quadro);
+            heap.collect();
+            assert!(!vivo(&heap, l) && !vivo(&heap, dados));
+            assert!(caixas.iter().all(|&r| !vivo(&heap, r)));
+        }
+    }
+
+    #[test]
     fn ativacao_arc_conta_quadros_proprietarios_ja_abertos() {
         let mut heap = Heap::new(false);
         let quadro = heap.push_frame_proprietario(0);
