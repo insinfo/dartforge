@@ -588,7 +588,7 @@ impl Heranca {
             return Vec::new();
         }
         todos.retain(|&f| !abstrato(prog, interner, f));
-        todos.sort_by_key(|&f| (especie_de(prog, f) != Especie::Metodo, f));
+        todos.sort_by_key(|&f| ordem_dos_membros(prog, f));
         todos
     }
 
@@ -608,6 +608,18 @@ impl Heranca {
             .filter(|&(&s, &f)| !(e_enum && matches!(prog.function(f).node, FunctionRef::None) && interner.resolve(s) == "index"))
             .map(|(&s, &f)| (s, f))
             .collect();
+        // Declaração duplicada: vence o último na ordem do `_getTypeMembers`
+        // (métodos; acessores dos campos; acessores escritos), não o da fonte
+        // (`int get foo` e depois o campo `foo = 1`: o getter escrito).
+        if !k.instancia_sobrepostos.is_empty() {
+            for &(chave, antigo) in k.instancia_sobrepostos.iter() {
+                if let Some(atual) = membros.iter_mut().find(|(s, _)| *s == chave)
+                    && ordem_dos_membros(prog, antigo) > ordem_dos_membros(prog, atual.1)
+                {
+                    atual.1 = antigo;
+                }
+            }
+        }
         membros.sort_by_key(|&(_, f)| (especie_de(prog, f) != Especie::Metodo, f));
         let mut mapa = Mapa::default();
         for (chave, f) in membros {
@@ -1006,6 +1018,19 @@ impl Heranca {
             conflitos,
         }
     }
+}
+
+/// A ordem dos membros de instância de uma declaração no elemento do
+/// analyzer (`_getTypeMembers`, `_addImplemented`): métodos; depois os
+/// acessores, os dos campos antes dos escritos (`_visitPropertyFirst`); em
+/// cada grupo, a ordem da fonte.
+fn ordem_dos_membros(prog: &Program, f: FunctionElementId) -> (u8, FunctionElementId) {
+    let categoria = match especie_de(prog, f) {
+        Especie::Metodo => 0u8,
+        _ if matches!(prog.function(f).node, FunctionRef::None) => 1,
+        _ => 2,
+    };
+    (categoria, f)
 }
 
 /// `_checkForGetterMethodConflict`.

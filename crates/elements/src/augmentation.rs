@@ -435,6 +435,7 @@ fn classe_vazia(library: LibraryId, name: SymbolId) -> ClassElement {
         interface_classes: Vec::new(),
         on_classes: Vec::new(),
         instance_members: HashMap::new(),
+        instancia_sobrepostos: Vec::new(),
         static_members: HashMap::new(),
         constructors: BTreeMap::new(),
         fields: Vec::new(),

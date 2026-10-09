@@ -8938,6 +8938,18 @@ Esta parte foi **gerada por script** (`E:\dftemp\analise\spec-r4\final\guardas.p
     102: if (setterType != null) {
     103: if (!_typeSystem.isSubtypeOf(getterType, setterType)) {
   ```
+- **Declarações duplicadas (oráculo `ExecutableBody__class_instanceGetter_ex_4b0b21e4.dart` e `dart analyze`
+  3.6.2):** o `interface.map` vem do `_getTypeMembers`, que põe os métodos e depois os `accessors` do
+  elemento, com o último vencendo. O `ElementBuilder` visita os campos primeiro (`_visitPropertyFirst`), então
+  os acessores sintéticos dos campos vêm antes dos escritos. Em `int get foo => 0;` seguido de
+  `augment int foo = 1;` (campos `int` e `foo`), vence o getter escrito, e o setter é o do campo `foo` (`int`).
+  O tipo do getter é `dynamic`, não `InvalidType`: na ligação, o nome que acha um elemento que não é tipo
+  (o campo `int` da classe) vira `dynamic` (`NamedTypeBuilder`, `named_type_builder.dart:121`). Só o nome
+  não achado é `InvalidType` (`reference_resolver.dart:424`), que é topo e fundo no `isSubtypeOf`. Relata
+  `'dynamic' … 'int'` em 2:11. O escopo de instância faz o contrário: acessores e depois métodos, com o
+  primeiro vencendo. No DartForge, o outline guarda os membros tirados do `instance_members` por homônimo
+  (`ClassElement::instancia_sobrepostos`). O `heranca.rs` (`declarados`, `homonimos_concretos`) usa a
+  ordem `ordem_dos_membros`: métodos, acessores de campo, acessores escritos.
 
 ##### `map_entry_not_in_map` — guardas do emissor (perda 11: FN 11, FP 0, msg 0, pos 0)
 - **Emissão:** `analyzer/lib/src/dart/constant/evaluation.dart:1422` em `ConstantVisitor._buildListConstant` (começa em `:1360`).

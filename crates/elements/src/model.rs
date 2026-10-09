@@ -332,6 +332,12 @@ pub struct ClassElement {
     /// Membros de instância por nome; getters e setters são entradas
     /// separadas (`x` e `x_=`), operadores pelo texto (`+`, `[]=`).
     pub instance_members: HashMap<SymbolId, FunctionElementId>,
+    /// Os membros de instância que um homônimo posterior tirou de
+    /// [`ClassElement::instance_members`] (declaração duplicada), em ordem.
+    /// O mapa declarado da interface (`_getTypeMembers`) não segue a ordem
+    /// da fonte: métodos, depois os acessores dos campos, depois os acessores
+    /// escritos (`_visitPropertyFirst`), com o último vencendo.
+    pub instancia_sobrepostos: Vec<(SymbolId, FunctionElementId)>,
     pub static_members: HashMap<SymbolId, FunctionElementId>,
     /// Construtores por nome; o sem nome usa o símbolo vazio `""`. A chave é
     /// o `SymbolId`, cuja ordem é a da **internação**: numa sessão residente

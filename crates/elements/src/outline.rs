@@ -945,6 +945,7 @@ fn create_class_element(
         interface_classes: Vec::new(),
         on_classes: Vec::new(),
         instance_members: HashMap::new(),
+        instancia_sobrepostos: Vec::new(),
         static_members: HashMap::new(),
         constructors: std::collections::BTreeMap::new(),
         fields: Vec::new(),
@@ -1019,6 +1020,7 @@ fn create_mixin_element(
         interface_classes: Vec::new(),
         on_classes: Vec::new(),
         instance_members: HashMap::new(),
+        instancia_sobrepostos: Vec::new(),
         static_members: HashMap::new(),
         constructors: std::collections::BTreeMap::new(),
         fields: Vec::new(),
@@ -1067,6 +1069,7 @@ fn create_enum_element(
         interface_classes: Vec::new(),
         on_classes: Vec::new(),
         instance_members: HashMap::new(),
+        instancia_sobrepostos: Vec::new(),
         static_members: HashMap::new(),
         constructors: std::collections::BTreeMap::new(),
         fields: Vec::new(),
@@ -1424,6 +1427,7 @@ fn create_extension_type_element(
         interface_classes: Vec::new(),
         on_classes: Vec::new(),
         instance_members: HashMap::new(),
+        instancia_sobrepostos: Vec::new(),
         static_members: HashMap::new(),
         constructors: std::collections::BTreeMap::new(),
         fields: vec![rep_id],
@@ -1522,8 +1526,8 @@ pub(crate) fn extract_members(
 
                     if ast_fn.static_ {
                         elem.static_members.insert(key, fn_id);
-                    } else {
-                        elem.instance_members.insert(key, fn_id);
+                    } else if let Some(antigo) = elem.instance_members.insert(key, fn_id) {
+                        elem.instancia_sobrepostos.push((key, antigo));
                     }
                 }
             }
@@ -1630,11 +1634,15 @@ pub(crate) fn extract_members(
                             elem.static_members.insert(setter_key, sid);
                         }
                     } else {
-                        elem.instance_members.insert(var_sym, getter_id);
+                        if let Some(antigo) = elem.instance_members.insert(var_sym, getter_id) {
+                            elem.instancia_sobrepostos.push((var_sym, antigo));
+                        }
                         if let Some(sid) = setter_id {
                             let setter_key =
                                 interner.intern(&format!("{}_=", interner.resolve(var_sym)));
-                            elem.instance_members.insert(setter_key, sid);
+                            if let Some(antigo) = elem.instance_members.insert(setter_key, sid) {
+                                elem.instancia_sobrepostos.push((setter_key, antigo));
+                            }
                         }
                     }
                 }
@@ -1774,6 +1782,7 @@ fn merge_class_patch(
                     interface_classes: Vec::new(),
                     on_classes: Vec::new(),
                     instance_members: std::mem::take(&mut c.instance_members),
+                    instancia_sobrepostos: std::mem::take(&mut c.instancia_sobrepostos),
                     static_members: std::mem::take(&mut c.static_members),
                     constructors: std::mem::take(&mut c.constructors),
                     fields: std::mem::take(&mut c.fields),
@@ -1783,6 +1792,7 @@ fn merge_class_patch(
                 extract_members(pools, ast, &mut tmp, class_id, unit_id, &[mid], empty_sym, interner);
                 let c = &mut pools.classes[idx];
                 c.instance_members = tmp.instance_members;
+                c.instancia_sobrepostos = tmp.instancia_sobrepostos;
                 c.static_members = tmp.static_members;
                 c.constructors = tmp.constructors;
                 c.fields = tmp.fields;

@@ -1872,8 +1872,14 @@ impl<'a> OutlineResolver<'a> {
                     // (Nome sintético da recuperação, sem largura: nada.)
                     match if span.start == span.end { None } else { self.no_conteiner(sym) } {
                         Some(NoConteiner::Getter) => {
+                            // O `NamedTypeBuilder` da ligação dá `dynamic` (não
+                            // `InvalidType`) ao elemento que não é tipo
+                            // (`named_type_builder.dart:121`); o `InvalidType`
+                            // é só do nome não achado (`reference_resolver.dart:424`).
+                            // `int get foo` com um campo `int` na classe: o getter
+                            // é `dynamic`, que não é subtipo de `int`.
                             self.avisar_nome_de_tipo(unit_id, contexto, true, &texto, faixa);
-                            return self.table.invalido(self.core.dynamic_);
+                            return self.core.dynamic_;
                         }
                         Some(NoConteiner::SoSetter) => {
                             // O vinculador não acha o tipo (inválido, sem
@@ -1981,9 +1987,11 @@ impl<'a> OutlineResolver<'a> {
                                         expanded
                                     }
                                 }
-                                _ => {
+                                // Elemento que não é tipo: `dynamic` na ligação;
+                                // só setter (getter nulo) é nome não achado.
+                                g => {
                                     self.avisar_nome_de_tipo(unit_id, contexto, true, &texto, faixa);
-                                    self.table.invalido(self.core.dynamic_)
+                                    if g.is_some() { self.core.dynamic_ } else { self.table.invalido(self.core.dynamic_) }
                                 }
                             }
                         }
