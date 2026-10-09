@@ -55,10 +55,42 @@ use std::collections::{HashMap, HashSet};
 /// função em [`Module::tabelas`]. Roda depois de [`super::otimizar`] (e
 /// também com os passes desligados: só depende da forma que o lowering dá).
 pub fn aplicar(module: &mut Module) {
+    let plano = preparar(module);
+    materializar(module, plano);
+}
+
+/// Inventário dos sítios preparados, ainda sem decisões sobre retornos.
+/// Entre as etapas, preservar IDs e ordem das funções; transformações do
+/// CFG precisam atualizar este inventário antes de materializar tabelas.
+pub(super) struct PlanoExcecoes {
+    funcoes: Vec<(String, TabelasDaFuncao)>,
+}
+
+/// Expõe pousos e continuações no CFG sem publicar tabelas para o emissor.
+pub(super) fn preparar(module: &mut Module) -> PlanoExcecoes {
+    assert!(!module.excecoes_por_tabelas, "bug do compilador: CFG excepcional já materializado");
+    let nl = nao_lancam(module);
+    let mut funcoes = Vec::with_capacity(module.functions.len());
+    for f in &mut module.functions {
+        let sitios = if super::valida(f) { da_funcao(f, &nl) } else { TabelasDaFuncao::default() };
+        funcoes.push((f.symbol.clone(), sitios));
+    }
+    PlanoExcecoes { funcoes }
+}
+
+/// Reconstrói decisões de saída sobre a HIR final e valida os sítios antes
+/// de publicar as tabelas. Não roda simplificação genérica nos pousos.
+pub(super) fn materializar(module: &mut Module, plano: PlanoExcecoes) {
+    assert_eq!(plano.funcoes.len(), module.functions.len(), "bug do compilador: funções mudaram depois da preparação excepcional");
     let nl = nao_lancam(module);
     let mut tabelas = Vec::with_capacity(module.functions.len());
-    for f in &mut module.functions {
-        tabelas.push(if super::valida(f) { da_funcao(f, &nl) } else { TabelasDaFuncao::default() });
+    for (f, (simbolo, mut t)) in module.functions.iter_mut().zip(plano.funcoes) {
+        assert_eq!(f.symbol, simbolo, "bug do compilador: ordem das funções mudou depois da preparação excepcional");
+        if super::valida(f) {
+            conferir(f, &t);
+            saidas(f, &nl, &mut t);
+        }
+        tabelas.push(t);
     }
     module.tabelas = tabelas;
     module.excecoes_por_tabelas = true;
@@ -357,7 +389,6 @@ fn da_funcao(f: &mut Function, nl: &HashSet<String>) -> TabelasDaFuncao {
     t.pousos.retain(|b| vivos.contains(b));
     t.invocacoes.retain(|_, b| vivos.contains(&*b));
     conferir(f, &t);
-    saidas(f, nl, &mut t);
     t
 }
 
@@ -393,6 +424,14 @@ fn conferir(f: &Function, t: &TabelasDaFuncao) {
             f.symbol,
             b.id.0
         );
+        if desvio.is_some() {
+            assert!(
+                b.instructions.last().is_some_and(|(v, _, _)| t.invocacoes.contains_key(v)),
+                "bug do compilador (exceções por tabelas): em {}, o bloco b{} tem instrução depois do `invoke`",
+                f.symbol,
+                b.id.0
+            );
+        }
         for s in sucessores(&b.terminator) {
             if !t.pousos.contains(&s) {
                 continue;
@@ -605,5 +644,68 @@ fn saidas(f: &mut Function, nl: &HashSet<String>, t: &mut TabelasDaFuncao) {
         for b in &mut f.blocks {
             b.instructions.retain(|(v, _, _)| !sem_efeito.contains(v));
         }
+    }
+}
+
+#[cfg(test)]
+mod testes {
+    use super::*;
+
+    fn modulo() -> Module {
+        Module {
+            functions: vec![Function {
+                symbol: "chamador".into(),
+                name: "chamador".into(),
+                depuracao: None,
+                params: Vec::new(),
+                return_ty: Type::Ref,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(
+                        ValueId(0),
+                        Instruction::CallStatic { symbol: "pode_lancar".into(), args: Vec::new(), ret_ty: Type::Ref },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
+                }],
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn prepara_arestas_sem_publicar_tabelas() {
+        let mut m = modulo();
+        let plano = preparar(&mut m);
+        assert!(!m.excecoes_por_tabelas && m.tabelas.is_empty());
+        let t = &plano.funcoes[0].1;
+        let pouso = t.invocacoes[&ValueId(0)];
+        assert!(t.saidas.is_empty());
+        assert!(matches!(m.functions[0].blocks[0].terminator,
+            Terminator::CondBranch { then_block, .. } if then_block == pouso));
+        let retorno = m.functions[0].blocks.iter().find(|b| matches!(b.terminator, Terminator::Return(_))).unwrap().id;
+        materializar(&mut m, plano);
+        assert_eq!(m.tabelas[0].saidas[&retorno], SaidaPorExcecao::Guarda);
+    }
+
+    #[test]
+    fn materializacao_recalcula_pendencia_depois_de_alterar_continuacao() {
+        let mut m = modulo();
+        let plano = preparar(&mut m);
+        let retorno = m.functions[0].blocks.iter_mut().find(|b| matches!(b.terminator, Terminator::Return(_))).unwrap();
+        retorno.instructions.push((ValueId(100), Instruction::CallRuntime {
+            name: "dartforge_exception_clear".into(), args: Vec::new(), ret_ty: Type::Void,
+        }, Type::Void));
+        materializar(&mut m, plano);
+        assert!(m.tabelas[0].saidas.is_empty(), "a continuação agora limpa a pendência nos dois caminhos");
+    }
+
+    #[test]
+    #[should_panic(expected = "tem instrução depois do `invoke`")]
+    fn recusa_sitio_que_deixou_de_terminar_o_bloco() {
+        let mut m = modulo();
+        let plano = preparar(&mut m);
+        m.functions[0].blocks[0].instructions.push((ValueId(100), Instruction::Alloca(Type::Ref), Type::Ptr));
+        materializar(&mut m, plano);
     }
 }

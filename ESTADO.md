@@ -131,10 +131,19 @@ foi feito um disparo nativo redundante; esse disparo também foi cancelado.
 Preparação dos donos da HIR: programa e SDK agora compartilham
 `otimizar::preparar_para_emissao`, com o modo de memória definido antes dos
 passes e tabelas de exceção materializadas por último. Isso centraliza o
-ponto de integração exigido pela especificação §18.2; ainda faltam preparação
-do CFG excepcional, inserção e verificação de ownership (§20).
-Verificação local: suíte unitária completa de `dartforge-emit-native` em
-release, 87 testes passaram, sete testes manuais ignorados.
+ponto de integração exigido pela especificação §18.2.
+O passe de tabelas separa agora preparação do CFG e materialização:
+o inventário de sítios fica privado até a conferência final e as saídas são
+recalculadas sobre a HIR final. Ainda faltam cleanups em funções sem tratador,
+atualização do inventário pelos futuros passes ARC, inserção e verificação
+de ownership (§20).
+Verificação local após a separação: suíte unitária completa de
+`dartforge-emit-native` em release, 90 testes passaram, sete testes manuais
+ignorados. Os três testes novos cobrem o CFG antes da publicação, a pendência
+recalculada após editar a continuação e um sítio invalidado entre etapas.
+O teste de emissão determinística também passou com
+`DARTFORGE_EXCECOES=tabelas`. O corpus completo remoto ainda usa `719e94cc`,
+anterior à separação do passe.
 
 ## Situação geral (2026-10-08, fim da tarde)
 

@@ -931,6 +931,15 @@ tabelas**. Preparar antes da inserção ARC; materializar depois. IDs devem ser
 estáveis e metadados reconstruídos quando blocos/instruções forem substituídos.
 Não executar um passe genérico de simplificação sobre pousos já materializados.
 
+O pipeline comum já separa `tabelas::preparar` de `tabelas::materializar`:
+a primeira expõe as arestas existentes e guarda um inventário de sítios;
+a segunda confere o inventário e calcula as saídas sobre a HIR final antes
+de publicar `Module::tabelas`. Não há ainda inserção ARC entre elas. A
+preparação mantém a política atual de atravessar funções sem tratador;
+será necessário criar também os cleanups dessas funções quando houver owners.
+Mudanças de IDs ou ordem das funções exigem atualizar o inventário; o estágio
+atual rejeita um inventário incompatível em vez de emitir tabelas antigas.
+
 Para cada call que pode desenrolar com owners ativos, emitir `invoke` e bloco
 de cleanup correspondente ao conjunto vivo naquele ponto. O cleanup executa
 drops uma vez e continua a propagação pelo protocolo da plataforma. Distinguir

@@ -38,7 +38,10 @@ pub(crate) fn preparar_para_emissao(module: &mut Module, memoria_arc: bool, por_
     module.memoria_arc = memoria_arc;
     otimizar(module);
     if por_tabelas {
-        excecoes_por_tabelas(module);
+        let plano = tabelas::preparar(module);
+        // A inserção/verificação de ownership deverá ocorrer aqui, sobre
+        // o CFG excepcional preparado, antes de publicar tabelas LLVM.
+        tabelas::materializar(module, plano);
     }
 }
 
