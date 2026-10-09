@@ -1270,6 +1270,17 @@ aprovados (`target/ownership-ssa-cfg-test.log`), assim como 36 exemplos público
 (`target/ownership-ssa-cfg-doc.log`); tipagem completa, representação,
 invalidação/proveniência e integração no pipeline padrão continuam pendentes.
 
+A publicação dos planos também confere a representação dos operandos das
+primitivas ARC: copy/move/drop/store exigem SSA Ref ou null, e o ID do slot
+de quadro exige SSA I64. A classe Owned fornecida pelo chamador não transforma
+um escalar em referência. Regressão recusa parâmetro I64/constante inteira
+como referência e quadro Ref, aceitando null e quadro I64. Quarenta e quatro
+testes ARC aprovados (`target/ownership-arc-representacao-test-final.log`),
+assim como 36 exemplos públicos (`target/ownership-arc-representacao-doc.log`).
+O primeiro log registra falha na prioridade do diagnóstico de SSA ausente,
+corrigida antes da publicação. Ainda não certifica abertura/fechamento do quadro,
+índices válidos, slots globais ou proveniência de outras operações.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

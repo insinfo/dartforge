@@ -44,6 +44,21 @@ pub(super) fn verificar(f: &Function) -> Result<(), String> {
         }
     }
     let cfg = Cfg::novo(f);
+    let tipos: HashMap<_, _> = f
+        .params
+        .iter()
+        .map(|(v, _, ty)| (*v, *ty))
+        .chain(
+            f.blocks
+                .iter()
+                .flat_map(|b| &b.instructions)
+                .map(|(v, _, ty)| (*v, *ty)),
+        )
+        .collect();
+    let referencia = |op: &Operand| {
+        matches!(op, Operand::Constant(Constant::Null))
+            || matches!(op, Operand::Val(v) if tipos.get(v) == Some(&Type::Ref))
+    };
     let conferir = |op: &Operand, bi: usize, pos: usize| -> Result<(), String> {
         let Operand::Val(v) = op else { return Ok(()) };
         let Some(&(origem, i, phi)) = defs.get(v) else {
@@ -78,7 +93,42 @@ pub(super) fn verificar(f: &Function) -> Result<(), String> {
         }
     };
     for (bi, b) in f.blocks.iter().enumerate() {
-        for (pos, (_, inst, _)) in b.instructions.iter().enumerate() {
+        for (pos, (v, inst, _)) in b.instructions.iter().enumerate() {
+            let mut ausente = None;
+            operandos(inst, &mut |op| {
+                if let Operand::Val(arg) = op
+                    && !defs.contains_key(arg)
+                    && ausente.is_none()
+                {
+                    ausente = Some(*arg);
+                }
+            });
+            if let Some(arg) = ausente {
+                return Err(erro(format!("v{} ausente", arg.0)));
+            }
+            match inst {
+                Instruction::ArcCopy { value }
+                | Instruction::ArcMove { value }
+                | Instruction::ArcDrop { value }
+                | Instruction::ArcStoreStrong { value, .. }
+                    if !referencia(value) =>
+                {
+                    return Err(erro(format!(
+                        "v{}: operação ARC exige referência SSA ou null",
+                        v.0
+                    )));
+                }
+                _ => {}
+            }
+            if let Instruction::ArcLoadStrong { slot } | Instruction::ArcStoreStrong { slot, .. } =
+                inst
+            {
+                if let SlotForte::Quadro { quadro, .. } = slot
+                    && !matches!(quadro, Operand::Val(q) if tipos.get(q) == Some(&Type::I64))
+                {
+                    return Err(erro(format!("v{}: quadro ARC exige SSA I64", v.0)));
+                }
+            }
             if let Instruction::Phi { incoming, .. } = inst {
                 let mut entradas = HashSet::new();
                 for (p, op) in incoming {
@@ -140,6 +190,38 @@ mod testes {
                 terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
             }],
         }
+    }
+
+    #[test]
+    fn operacoes_arc_nao_criam_referencias_por_anotacao() {
+        let mut f = funcao();
+        f.params[0].2 = Type::I64;
+        assert!(
+            verificar(&f)
+                .unwrap_err()
+                .contains("referência SSA ou null")
+        );
+        f.blocks[0].instructions[0].1 = Instruction::ArcCopy {
+            value: Operand::Constant(Constant::Int(0)),
+        };
+        assert!(verificar(&f).is_err());
+        f.blocks[0].instructions[0].1 = Instruction::ArcCopy {
+            value: Operand::Constant(Constant::Null),
+        };
+        verificar(&f).unwrap();
+        f.blocks[0].instructions[0].1 = Instruction::ArcLoadStrong {
+            slot: SlotForte::Quadro {
+                quadro: Operand::Val(ValueId(0)),
+                indice: 0,
+            },
+        };
+        verificar(&f).unwrap();
+        f.params[0].2 = Type::Ref;
+        assert!(
+            verificar(&f)
+                .unwrap_err()
+                .contains("quadro ARC exige SSA I64")
+        );
     }
 
     #[test]
