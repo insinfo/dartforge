@@ -1943,6 +1943,35 @@ impl Heap {
         self.stats.live_roots -= usize::from(antigo != 0);
     }
 
+    /// Transfere um owner global para um slot proprietário, consumindo o global.
+    /// Solta o conteúdo anterior do slot sem reter o valor transferido.
+    ///
+    /// # Panics
+    /// O global não existe, o quadro não é proprietário ou o slot é inválido.
+    ///
+    /// ```
+    /// use dartforge_runtime::heap::Heap;
+    /// let mut heap = Heap::new(false);
+    /// let texto = heap.alocar_str("evento");
+    /// heap.set_global_root(-1, texto);
+    /// let frame = heap.push_frame_proprietario(1);
+    /// heap.mover_global_para_slot(-1, frame, 0);
+    /// heap.pop_frame(frame);
+    /// ```
+    pub fn mover_global_para_slot(&mut self, global: i64, frame: i64, slot: usize) {
+        let indice = self.frames.iter().rposition(|(id, _, _)| *id == frame)
+            .expect("frame inexistente");
+        assert!(self.frames[indice].2, "movimento exige quadro proprietário");
+        let antigo = *self.frames[indice].1.get(slot).expect("slot de raiz inválido");
+        let valor = *self.globais.get(&global).expect("owner global inexistente");
+        self.arc_trocar_raiz_proprietaria(0, antigo);
+        self.globais.remove(&global);
+        self.frames[indice].1[slot] = valor;
+        self.stats.live_roots -= usize::from(antigo != 0);
+        self.stats.live_roots += usize::from(valor != 0);
+        self.stats.peak_roots = self.stats.peak_roots.max(self.stats.live_roots);
+    }
+
     /// Protege handle até o retorno da função; null não ocupa uma raiz.
     pub fn root(&mut self, frame: i64, handle: i64) {
         if !smi::e_handle(handle) {

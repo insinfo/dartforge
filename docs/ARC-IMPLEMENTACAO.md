@@ -376,6 +376,18 @@ substituída quando perde seus owners. Release: 117 aprovados, três
 microbenchmarks ignorados. Doctests: 11 aprovados.
 Filas, eventos e demais tabelas persistentes continuam pendentes.
 
+Eventos únicos transferem agora o owner global da fila para um slot ativo
+(`mover_global_para_slot`) antes de chamar Dart, sem `retain`. O slot é
+soltado depois que a porta retorna, inclusive com exceção pendente. Timers
+periódicos mantêm seu owner persistente e fazem uma cópia ativa para a chamada;
+cancelar o timer dentro do callback não invalida o borrow ativo. Dois testes
+com auditoria RC forçam coleta dentro do callback, incluindo cancelamento
+reentrante, e verificam a liberação depois do retorno. A ABI owned/borrowed
+do callback gerado e os owners das mensagens ainda estão pendentes.
+Testes dirigidos aprovados nos modos puro e berçário com auditoria;
+suíte release: 119 aprovados, três microbenchmarks ignorados. Doctest da
+transferência global → slot aprovado.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais

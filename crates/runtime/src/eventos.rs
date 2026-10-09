@@ -72,6 +72,23 @@ fn soltar_raiz(id: i64) {
     HEAP.with(|h| h.borrow_mut().set_global_root(id, 0));
 }
 
+/// O evento único move seu owner da fila; o periódico empresta da cópia ativa,
+/// que continua viva mesmo se o callback cancelar o owner persistente do timer.
+fn chamar_evento(chamar: extern "C" fn(i64) -> i64, closure: i64, raiz: Option<i64>) {
+    let quadro = HEAP.with(|h| {
+        let mut h = h.borrow_mut();
+        let quadro = h.push_frame_proprietario(1);
+        if let Some(raiz) = raiz {
+            h.mover_global_para_slot(raiz, quadro, 0);
+        } else {
+            h.set_root(quadro, 0, closure);
+        }
+        quadro
+    });
+    dart_r1(chamar as usize, closure);
+    HEAP.with(|h| h.borrow_mut().pop_frame(quadro));
+}
+
 /// `_AsyncRun._scheduleImmediate(callback)`: a closure roda antes do
 /// próximo timer, depois das que já esperam.
 #[unsafe(no_mangle)]
@@ -126,10 +143,7 @@ pub extern "C" fn dartforge_laco_de_eventos(chamar: extern "C" fn(i64) -> i64) {
         // 1. Microtarefas, todas, antes de qualquer timer.
         let imediata = EVENTOS.with(|e| e.borrow_mut().imediatas.pop_front());
         if let Some((raiz, closure)) = imediata {
-            // A raiz só sai depois da chamada: o valor da closure é argumento
-            // do código gerado, que o enraíza no quadro dele.
-            dart_r1(chamar as usize, closure);
-            soltar_raiz(raiz);
+            chamar_evento(chamar, closure, Some(raiz));
             continue;
         }
         // 1b. As finalizações prontas (`Finalizer`, `finalizadores.rs`):
@@ -205,10 +219,7 @@ pub extern "C" fn dartforge_laco_de_eventos(chamar: extern "C" fn(i64) -> i64) {
         let Some((closure, periodico, raiz)) = disparo else {
             continue;
         };
-        dart_r1(chamar as usize, closure);
-        if let Some(r) = raiz {
-            soltar_raiz(r);
-        }
+        chamar_evento(chamar, closure, raiz);
         if periodico {
             // Como a VM (`_runTimers`): reagendado DEPOIS do callback, com
             // sequência nova, se o callback não o cancelou.
@@ -231,3 +242,54 @@ pub extern "C" fn dartforge_laco_de_eventos(chamar: extern "C" fn(i64) -> i64) {
 /// da fonte, não há o que gravar.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Error_trySetStackTrace(_erro: i64, _rastro: i64) {}
+
+#[cfg(test)]
+mod testes_owners_eventos {
+    use super::*;
+    thread_local! { static TIMER: std::cell::Cell<i64> = const { std::cell::Cell::new(0) }; }
+
+    extern "C" fn callback(closure: i64) -> i64 {
+        let timer = TIMER.with(|t| t.get());
+        if timer != 0 { dartforge_nativo_DartForge_Timer_cancelar(timer); }
+        HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.collect();
+            assert!(h.e_objeto_vivo(closure), "callback perdeu owner durante a chamada");
+        });
+        0
+    }
+
+    fn verificar(periodico: bool) {
+        let heap_anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+        let eventos_anteriores = EVENTOS.with(|e| e.replace(Eventos::default()));
+        let closure = HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.ativar_arc();
+            h.nova_closure(123, (0, false), 0, 0)
+        });
+        if periodico {
+            let id = dartforge_nativo_DartForge_Timer_novo(0, closure, 1);
+            TIMER.with(|t| t.set(id));
+            chamar_evento(callback, closure, None);
+        } else {
+            TIMER.with(|t| t.set(0));
+            dartforge_nativo_DartForge_scheduleImmediate(closure);
+            let (raiz, valor) = EVENTOS.with(|e| e.borrow_mut().imediatas.pop_front().unwrap());
+            chamar_evento(callback, valor, Some(raiz));
+        }
+        HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.collect();
+            assert!(!h.e_objeto_vivo(closure), "owner ativo residual após o callback");
+        });
+        TIMER.with(|t| t.set(0));
+        EVENTOS.with(|e| { e.replace(eventos_anteriores); });
+        HEAP.with(|h| { h.replace(heap_anterior); });
+    }
+
+    #[test]
+    fn evento_unico_transfere_owner_da_fila_e_solta_apos_callback() { verificar(false); }
+
+    #[test]
+    fn timer_periodico_cancelado_no_callback_preserva_owner_ativo() { verificar(true); }
+}
