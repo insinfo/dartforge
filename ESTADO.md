@@ -693,6 +693,17 @@ inserção de proteção, prova de consumo/escape ou transferência de retorno.
 Três exemplos da API passaram em doctests release
 (`target/arc-escopos-doc-release.log`). Módulo novo formatado isoladamente.
 
+Job SDK da rodada `37944870979` concluiu com sucesso. Artefato
+`target/ci-37944870979/sdk` conferido: AOT com SDK 238/238 (62,5 s),
+seis DART! de interop preservados. Log `sdk-job.log` confirma recarga
+2/2 (51,03 s, cinco filtrados), spawn 1/1 (1,37 s) e executável
+autocontido 1/1 (47,46 s, 112 filtrados); não são suítes completas dos
+testes filtrados. Rodada ainda ativa no macOS, no passo de testes do
+JIT, na consulta posterior. CI rápido `37949272042`: Linux e mensagens
+concluídos com sucesso; Windows e macOS ainda ativos. Nenhum novo
+disparo nem reinício. Fonte remota continua distinta dos verificadores
+locais `d33a8831`/`88c9bd01`, ainda não publicados.
+
 O lowering agora preserva `Local::tipo_estatico`, TypeId Dart original
 separado da representação HIR. Declarações usam
 `Context::tipo_local_semantico` (sem chamar apagar), closures em ambiente ou
