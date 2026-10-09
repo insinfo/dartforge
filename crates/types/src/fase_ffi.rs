@@ -2200,6 +2200,14 @@ impl<'a> V<'a> {
                 let s = self.span(id);
                 self.relatar(cf::MISSING_EXCEPTION_VALUE, s, &[Arg::from(nome)]);
             } else {
+                // `(arguments[1] as NamedExpression)` (3.6.2; `as NamedArgument`
+                // no 3.13.4): o `exceptionalReturn` passado como posicional
+                // (`isolateLocal(f, 0)`) faz o cast lançar, e a biblioteca
+                // inteira fica sem diagnósticos ([`QuebraDoAnalyzer`]).
+                if args.args[1].name.is_none() {
+                    self.quebra = true;
+                    return;
+                }
                 let e = args.args[1].value;
                 let et = self.corpo.get_type(e).unwrap_or(self.core.dynamic_);
                 let s = self.span(e);

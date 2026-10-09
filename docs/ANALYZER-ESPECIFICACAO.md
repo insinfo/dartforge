@@ -1129,6 +1129,10 @@ Forma da invocação no analyzer (decide nome citado e entidade):
   - Função local e closure: o `this.x`/`super.x` obrigatório não entra nos parâmetros (`ResolutionVisitor` sem `ElementWalker` só o encerra, `resolution_visitor.dart:614-635`, `:1263`); o opcional entra pelo `DefaultFormalParameter` (`:440-467`).
 
 ##### `extra_positional_arguments_could_be_named` (perda 21: FN 21)
+- **Quebra do `FfiVerifier` (2026-10-08):** `NativeCallable<Int32 Function(Int32)>.isolateLocal(f, 0)` — o
+  `_validateNativeCallable` faz `(arguments[1] as NamedExpression)` (3.6.2; `as NamedArgument` no 3.13.4), e com o
+  `exceptionalReturn` posicional o cast lança: a biblioteca inteira sai sem diagnósticos (`QuebraDoAnalyzer`,
+  `fase_ffi.rs`), inclusive este (`ffi_async_callback/…_8bca9a2a.dart:4:57`).
 - **Emissão/condição:** `resolver.dart:4335-4340`: passo 5 com `namedParameters.length > usedNames.length` (há nomeado declarado ainda não passado).
 - **Posição/mensagem:** idem ao anterior (mesmo texto `Too many positional arguments: {0} expected, but {1} found.`; muda só o `correctionMessage`).
 - **No DartForge:** não existia (saía como `extra_positional_arguments`, FP lá). **Mudança:** na mesma função (feito).
