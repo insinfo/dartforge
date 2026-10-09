@@ -293,6 +293,18 @@ nos modos puro e berçário. Suíte release do runtime: 105 aprovados, zero
 falhas, três microbenchmarks ignorados. Exemplo público aprovado em doctest.
 O CI nativo `37908897460` antecede esta mudança; não a valida.
 
+`Heap::mover_raiz` transfere uma ocorrência entre slots proprietários e
+zera a origem, sem `retain`; o conteúdo substituído é soltado. Quando ambos
+os slots continham o mesmo handle, uma das duas ocorrências é consumida.
+Mover o slot para ele próprio é identidade. A validação das categorias e
+dos índices precede qualquer alteração. A operação permite transferir um
+resultado do quadro chamado ao chamador antes de fechar o primeiro; ainda
+não adota um token owned externo aos slots nem altera a ABI do código gerado.
+Teste de transferência, alias e substituição aprovado em debug/release;
+rejeição de destino observacional aprovada em debug, preservando o owner.
+Suíte debug completa: 107 aprovados, três microbenchmarks ignorados; exemplo
+de movimento aprovado em doctest.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais

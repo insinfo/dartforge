@@ -1832,6 +1832,38 @@ impl Heap {
         *previous = handle;
         self.stats.peak_roots = self.stats.peak_roots.max(self.stats.live_roots);
     }
+    /// Transfere uma ocorrência entre slots proprietários, zerando a origem.
+    /// Solta o conteúdo anterior do destino sem reter o valor transferido.
+    /// Mover um slot para ele próprio preserva seu conteúdo e sua contagem.
+    /// Não há coleta nem chamada Dart durante a transferência.
+    ///
+    /// # Panics
+    /// Algum quadro não existe, não é proprietário ou o slot é inválido.
+    ///
+    /// ```
+    /// use dartforge_runtime::heap::Heap;
+    /// let mut heap = Heap::new(false);
+    /// let chamador = heap.push_frame_proprietario(1);
+    /// let chamado = heap.push_frame_proprietario(1);
+    /// heap.mover_raiz(chamado, 0, chamador, 0);
+    /// heap.pop_frame(chamado);
+    /// heap.pop_frame(chamador);
+    /// ```
+    pub fn mover_raiz(&mut self, origem: i64, slot_origem: usize, destino: i64, slot_destino: usize) {
+        let de = self.frames.iter().rposition(|(id, _, _)| *id == origem)
+            .expect("frame de origem inexistente");
+        let para = self.frames.iter().rposition(|(id, _, _)| *id == destino)
+            .expect("frame de destino inexistente");
+        assert!(self.frames[de].2 && self.frames[para].2, "movimento exige quadros proprietários");
+        let valor = *self.frames[de].1.get(slot_origem).expect("slot de origem inválido");
+        let antigo = *self.frames[para].1.get(slot_destino).expect("slot de destino inválido");
+        if de == para && slot_origem == slot_destino { return; }
+        self.arc_trocar_raiz_proprietaria(0, antigo);
+        self.frames[de].1[slot_origem] = 0;
+        self.frames[para].1[slot_destino] = valor;
+        self.stats.live_roots -= usize::from(antigo != 0);
+    }
+
     /// Protege handle até o retorno da função; null não ocupa uma raiz.
     pub fn root(&mut self, frame: i64, handle: i64) {
         if !smi::e_handle(handle) {
@@ -5463,6 +5495,56 @@ mod arc_no_heap {
             heap.collect();
             assert!(!vivo(&heap, a) && !vivo(&heap, b));
         }
+    }
+
+    #[test]
+    fn movimento_proprietario_consumindo_alias_e_retorno_preserva_rc() {
+        for puro in [true, false] {
+            let mut heap = heap_arc();
+            heap.arc.as_mut().unwrap().puro = puro;
+            let chamador = heap.push_frame_proprietario(2);
+            let chamado = heap.push_frame_proprietario(1);
+            let a = lista(&mut heap, 0);
+            heap.set_root(chamado, 0, a);
+            heap.set_root(chamador, 0, a);
+            heap.mover_raiz(chamado, 0, chamador, 0);
+            assert_eq!(heap.frames.last().unwrap().1[0], 0);
+            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 1);
+            heap.pop_frame(chamado);
+            heap.collect();
+            assert!(vivo(&heap, a));
+            heap.mover_raiz(chamador, 0, chamador, 0);
+            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 1);
+            let b = lista(&mut heap, 0);
+            heap.set_root(chamador, 1, b);
+            heap.mover_raiz(chamador, 0, chamador, 1);
+            heap.collect();
+            assert!(vivo(&heap, a) && !vivo(&heap, b));
+            heap.pop_frame(chamador);
+            heap.collect();
+            assert!(!vivo(&heap, a));
+        }
+    }
+
+    #[test]
+    fn movimento_recusa_raiz_observacional_antes_de_consumir_owner() {
+        let mut heap = heap_arc();
+        let dono = heap.push_frame_proprietario(1);
+        let observador = heap.push_frame_with_slots(1);
+        let a = lista(&mut heap, 0);
+        heap.set_root(dono, 0, a);
+        let falha = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            heap.mover_raiz(dono, 0, observador, 0);
+        }));
+        assert!(falha.is_err());
+        assert_eq!(heap.frames[0].1[0], a);
+        assert_eq!(heap.frames[1].1[0], 0);
+        assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 1);
+        heap.collect();
+        heap.pop_frame(observador);
+        heap.pop_frame(dono);
+        heap.collect();
+        assert!(!vivo(&heap, a));
     }
 
     #[test]
