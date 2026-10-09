@@ -292,4 +292,42 @@ mod testes_owners_eventos {
 
     #[test]
     fn timer_periodico_cancelado_no_callback_preserva_owner_ativo() { verificar(true); }
+
+    extern "C" fn callback_lanca(closure: i64) -> i64 {
+        dartforge_exception_throw(closure, 3);
+        HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.collect();
+            assert!(h.e_objeto_vivo(closure));
+        });
+        0
+    }
+
+    #[test]
+    fn callback_com_excecao_solta_owner_ativo_e_preserva_pendencia() {
+        let heap_anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+        let eventos_anteriores = EVENTOS.with(|e| e.replace(Eventos::default()));
+        let closure = HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.ativar_arc();
+            h.nova_closure(123, (0, false), 0, 0)
+        });
+        dartforge_nativo_DartForge_scheduleImmediate(closure);
+        let (raiz, valor) = EVENTOS.with(|e| e.borrow_mut().imediatas.pop_front().unwrap());
+        chamar_evento(callback_lanca, valor, Some(raiz));
+        assert_eq!(dartforge_exception_pending(), 1);
+        HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.collect();
+            assert!(h.e_objeto_vivo(closure), "a exceção pendente deve guardar seu owner");
+        });
+        dartforge_exception_clear();
+        HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.collect();
+            assert!(!h.e_objeto_vivo(closure), "owner ativo ou da fila ficou residual");
+        });
+        EVENTOS.with(|e| { e.replace(eventos_anteriores); });
+        HEAP.with(|h| { h.replace(heap_anterior); });
+    }
 }

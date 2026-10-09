@@ -277,6 +277,13 @@ nesta rodada. Validação local debug/release até `7cc04df8`: 113 aprovados,
 três microbenchmarks ignorados; os três testes ABI de owners passaram com
 `DARTFORGE_ARC_CONFERIR=1`. HIR, contratos por extern, slots persistentes,
 saídas excepcionais e desempenho global continuam pendentes.
+Owners persistentes de globais/exceção (`9e7f6451`) e tabelas canônicas
+(`2496944a`) foram acrescentados depois dessa rodada. Eventos transferem o
+owner da fila para um slot ativo (`5a32f599`); timers periódicos mantêm uma
+cópia ativa para cancelamento reentrante. Teste de retorno com exceção
+pendente aprovado em debug/release, puro/berçário com auditoria; não exercita
+desenrolamento LLVM por tabelas. A fila de mensagens ainda precisa contar
+os handles `ValG::Mesmo` compartilhados no mesmo isolado enquanto esperam.
 
 Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
 suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior

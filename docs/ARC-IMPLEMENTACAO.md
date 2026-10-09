@@ -388,6 +388,13 @@ Testes dirigidos aprovados nos modos puro e berçário com auditoria;
 suíte release: 119 aprovados, três microbenchmarks ignorados. Doctest da
 transferência global → slot aprovado.
 
+Um terceiro teste do callback simula retorno com exceção pendente: coleta
+durante a chamada, verifica que a pendência continua viva após soltar o slot
+ativo e confirma morte depois de `dartforge_exception_clear`. Aprovado em
+debug/release e nos modos puro/berçário com auditoria. Suíte debug completa:
+120 aprovados, três microbenchmarks ignorados. O teste não executa um
+desenrolamento LLVM por tabelas; essa integração continua pendente.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais
