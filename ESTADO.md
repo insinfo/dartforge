@@ -263,7 +263,10 @@ JIT × AOT Linux e SDK da fonte 238/238 no placar, zero divergências
 (sete sem IR, iguais por construção). O log Linux confirma execução dos
 quatro testes de emissão agora sem retorno antecipado, do inventário de
 natives e da sobreposição, todos aprovados com o SDK real. Ainda faltam
-conclusão e logs de recarga do job SDK, mapas dirigidos B0 e macOS.
+conclusão e logs de recarga do job SDK e macOS. B0 concluiu os quatro
+testes dirigidos de mapas: 4/4, nenhum ignorado ou filtrado, 470,75 s;
+incluindo sabotagem, coleta agendada, folha que coleta e comparação com
+pilha-sombra. Log do job `113752465885` conferido.
 
 Na rodada remota `37896396380` sobre `719e94cc`, os quatro testes dirigidos
 de mapas também passaram, sem ignorados/filtrados, em 752 s; log do job B0
