@@ -215,6 +215,7 @@ fn main() -> Result<(), String> {
         }],
     });
     dartforge_emit_native::otimizar::otimizar(&mut m);
+    let mut resumos_dart = Vec::new();
     if prova_retorno {
         let mut identidade = Function {
             symbol: "prova_retorno".into(),
@@ -243,6 +244,13 @@ fn main() -> Result<(), String> {
         if copias != 1 {
             return Err("prova de retorno exige uma retenção inserida".into());
         }
+        resumos_dart.push(verificar_contrato_funcao_dart(
+            &identidade,
+            &classes,
+            &plano,
+            &TabelasDaFuncao::default(),
+            &PlanoEscopos::default(),
+        )?);
         // A função é acrescentada depois da otimização geral, para conferir
         // a chamada/retorno real sem inlining esconder essa fronteira.
         m.functions.push(identidade);
@@ -364,12 +372,8 @@ fn main() -> Result<(), String> {
     // pelo produtor de constantes, sem contrato manual desta prova.
     let mut classes = HashMap::from([(ValueId(11), Ownership::Trivial)]);
     let mut plano = PlanoTokens::default();
-    if prova_retorno {
-        // Contrato do callee preparado/verificado acima: receptor emprestado,
-        // resultado Owned normal. Não presume contratos de outras chamadas.
-        classes.insert(ValueId(2), Ownership::Owned);
-        plano.instrucoes.insert(ValueId(2), EfeitoTokens::default());
-    }
+    // A chamada Dart recebe seu contrato do resumo do corpo verificado acima.
+    produzir_chamadas_dart(f, &resumos_dart, &mut classes, &mut plano)?;
     plano
         .instrucoes
         .insert(ValueId(11), EfeitoTokens::default());

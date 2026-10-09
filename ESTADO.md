@@ -2,6 +2,22 @@
 
 ## Retomada de 2026-10-09
 
+Chamadas Dart diretas: `verificar_contrato_funcao_dart` cria resumo com
+campos privados após verificar ownership, convenção e representação dos
+retornos do callee. `produzir_chamadas_dart` confere símbolo, aridade,
+tipos reais e contratos conflitantes antes de publicar mapas atomicamente.
+Ref é emprestado na entrada e Owned no resultado; argumentos não Ref
+exigem Trivial semanticamente classificado. Chamadas diretas no corpo
+conservadoramente tornam o resumo falível; o caller precisa de saída
+excepcional preparada. Resumos devem ser refeitos após mudança do corpo;
+contratos externos fornecidos e proveniência continuam premissas.
+A prova `arc_slots_fortes` usa agora esse resumo, sem contrato manual de
+CallStatic. AOT com Mint mortal e cleanup automático passou em ARC auditor
+sem berçário e tracing sob stress: i64::MAX, 42, null, código 0.
+75 testes ARC e 43 doctests passaram. Logs locais
+`target/ownership-chamadas-dart-*`. Ainda falta integrar no pipeline comum,
+produzir os demais contratos e cobrir dispatch indireto/closures/stubs.
+
 Regressão de cleanup com saídas Ref distintas: a saída que devolve um
 Owned transfere esse token sem drop; a saída que devolve o parâmetro
 borrowed retém o retorno antes de liberar os dois temporários Owned.
