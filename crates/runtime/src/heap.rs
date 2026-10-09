@@ -5002,12 +5002,10 @@ impl Heap {
         }
         let Some(mut arc) = self.arc.take() else { return };
         if arc.puro {
-            let mut valores = Vec::new();
-            // SAFETY: as posições são palavras do corpo de um bloco vivo.
-            self.visitar_referencias_fortes(h, &mut |v| valores.push(v));
-            for v in valores {
-                self.arc_reter_registrando(&mut arc, v);
-            }
+            // A retenção só altera metadados de ARC: não coleta nem muda o
+            // corpo visitado. Contar diretamente evita um vetor por objeto
+            // e conserva cada ocorrência, inclusive referências repetidas.
+            self.visitar_referencias_fortes(h, &mut |v| self.arc_reter_registrando(&mut arc, v));
         }
         self.arc = Some(arc);
     }

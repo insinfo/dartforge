@@ -580,6 +580,15 @@ iguais à rodada anterior; não comparar os quatro kernels como se fossem
 os 32 completos nem atribuir a diferença causalmente só à instrumentação.
 B0 remoto `113842810178` conferido: 4/4, zero ignorados/filtros, 769,54 s.
 
+`Heap::arc_contar_iniciais` passou a reter durante a visita imutável ao
+corpo/anexos, sem construir `Vec` por objeto. A retenção só altera os
+metadados do estado ARC separado: não coleta, chama Dart ou modifica o
+corpo visitado. Ocorrências repetidas continuam contadas individualmente;
+o modo berçário continua sem contar nesta etapa. Suíte release aprovada:
+145 unitários, três microbenchmarks ignorados, 13 integrações e 12 doctests
+(`target/runtime-iniciais-diretas-release.log`). Medição de desempenho desta
+mudança ainda pendente; não está nos quatro executáveis da rodada anterior.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
