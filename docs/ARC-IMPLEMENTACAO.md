@@ -323,6 +323,15 @@ valores, ausência de quadros residuais, RC das caixas e morte da cadeia ao
 soltar o owner externo. Suítes debug/release: 109 aprovados, três microbenchmarks
 ignorados. A rodada remota `37915929494` antecede esta migração das listas.
 
+Visões tipadas e `dart_lista_fixa` (resultados de I/O) também mantêm cópias
+proprietárias durante a alocação. O quadro só fecha depois de gravar as arestas
+da visão ou da lista, de modo que os argumentos continuem contados até a
+publicação. Testes com coleta forçada cobrem visão de visão (a base interna
+sobrevive à visão intermediária) e duas ocorrências do mesmo texto num
+resultado de I/O, incluindo liberação ao sair o último owner. Suítes debug/release:
+111 aprovados, três microbenchmarks ignorados. A rodada remota atual também
+antecede estas migrações.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais

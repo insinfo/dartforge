@@ -177,16 +177,17 @@ impl Heap {
         };
         // O endereço é calculado antes de alocar: a base não se move.
         let dados = (b.dados as i64).wrapping_add((deslocamento - b.deslocamento) as i64);
-        let quadro = self.push_frame_with_slots(1);
+        let quadro = self.push_frame_proprietario(1);
         self.set_root(quadro, 0, interna);
         let h = self.alocar_instancia(cid, CAMPOS_DA_VISAO);
-        self.pop_frame(quadro);
         // Objeto novo (jovem): as gravações não precisam de barreira; a da base
         // acende o bit de referência no mapa.
         self.definir_campo(h, PALAVRA_COMPRIMENTO, len as i64, false);
         self.definir_campo(h, PALAVRA_DADOS, dados, false);
         self.definir_campo(h, PALAVRA_BASE, interna, true);
         self.definir_campo(h, PALAVRA_DESLOCAMENTO, deslocamento as i64, false);
+        // A visão já guarda a base antes de soltar a cópia temporária.
+        self.pop_frame(quadro);
         h
     }
 

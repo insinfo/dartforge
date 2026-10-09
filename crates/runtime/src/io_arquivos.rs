@@ -199,16 +199,17 @@ fn dart_int64s(valores: &[i64]) -> i64 {
 fn dart_lista_fixa(valores: &[i64]) -> i64 {
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
-        let quadro = h.push_frame_with_slots(valores.len().max(1));
+        let quadro = h.push_frame_proprietario(valores.len().max(1));
         for (i, &v) in valores.iter().enumerate() {
             h.set_root(quadro, i, v);
         }
         let l = h.nova_lista(crate::layout::cid::LIST, valores.len(), crate::listas::Elemento::Geral);
-        h.pop_frame(quadro);
         // A palavra 0 do corpo é o comprimento; os elementos, as seguintes.
         if !valores.is_empty() {
             h.gravar_refs(l, 1, valores);
         }
+        // As arestas da lista substituem as cópias proprietárias temporárias.
+        h.pop_frame(quadro);
         l
     })
 }
@@ -1474,4 +1475,34 @@ pub extern "C" fn dartforge_nativo_Namespace_GetPointer(_ns: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Namespace_GetDefault() -> i64 {
     0
+}
+
+#[cfg(test)]
+mod testes_owners_lista_io {
+    use super::*;
+
+    #[test]
+    fn resultado_io_com_copias_sobrevive_a_coleta_e_libera_a_cadeia() {
+        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+        let (quadro, texto) = HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.ativar_arc();
+            let quadro = h.push_frame_proprietario(1);
+            let texto = h.alocar_str("resultado de I/O");
+            h.set_root(quadro, 0, texto);
+            (quadro, texto)
+        });
+        let lista = dart_lista_fixa(&[texto, texto]);
+        HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.set_root(quadro, 0, lista);
+            h.collect();
+            assert!(h.e_objeto_vivo(texto));
+            assert_eq!(&h.palavras(lista)[1..3], &[texto, texto]);
+            h.pop_frame(quadro);
+            h.collect();
+            assert!(!h.e_objeto_vivo(lista) && !h.e_objeto_vivo(texto));
+        });
+        HEAP.with(|h| { h.replace(anterior); });
+    }
 }

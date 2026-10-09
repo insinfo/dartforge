@@ -5597,6 +5597,33 @@ mod arc_no_heap {
     }
 
     #[test]
+    fn visao_tipadas_guarda_base_apos_consumir_owners_temporarios() {
+        for puro in [true, false] {
+            let mut heap = heap_arc();
+            heap.arc.as_mut().unwrap().puro = puro;
+            heap.stress = true;
+            let quadro = heap.push_frame_proprietario(1);
+            let base = heap.nova_tipada(crate::tipadas::tipo::UINT8, 8);
+            heap.set_root(quadro, 0, base);
+            let c = crate::tipadas::cid_da_visao(crate::tipadas::tipo::UINT8, false);
+            let primeira = heap.nova_visao(c, base, 2, 6);
+            heap.set_root(quadro, 0, primeira);
+            let segunda = heap.nova_visao(c, primeira, 1, 3);
+            heap.set_root(quadro, 0, segunda);
+            heap.collect();
+            let vista = heap.tipada(segunda).unwrap();
+            assert_eq!(vista.base, Some(base));
+            assert_eq!(vista.deslocamento, 3);
+            assert_eq!(vista.len, 3);
+            assert!(!vivo(&heap, primeira));
+            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(base).unwrap().rc, 1);
+            heap.pop_frame(quadro);
+            heap.collect();
+            assert!(!vivo(&heap, base) && !vivo(&heap, segunda));
+        }
+    }
+
+    #[test]
     fn ativacao_arc_conta_quadros_proprietarios_ja_abertos() {
         let mut heap = Heap::new(false);
         let quadro = heap.push_frame_proprietario(0);
