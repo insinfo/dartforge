@@ -2783,6 +2783,20 @@ impl<'s, 'i> Parser<'s, 'i> {
         {
             // `new nome?(...)` (3.13): construtor com o nome da classe implícito.
             self.parse_construtor_new(mods, class_name)?
+        } else if let Some(fim) = self.tipo_antes_de_new() {
+            // `parseClassMember` do 3.13.4: o `new` depois do tipo é o nome
+            // de um construtor (`newToken`, `_isConstructor`): o tipo é
+            // `CONSTRUCTOR_WITH_RETURN_TYPE`, e o resto é `new nome?(…)`. O
+            // 3.6.2 leria um método chamado `new`, mas o `experiment_not_enabled`
+            // do `new` já põe a unidade na referência 3.13.
+            let tstart = self.span();
+            // O tipo não fica na árvore (o `AstBuilder` o descarta).
+            let tipos_antes = self.ast.types.len();
+            let _ty = self.parse_type()?;
+            self.ast.types.truncate(tipos_antes);
+            self.erro_em(codigos::parser::CONSTRUCTOR_WITH_RETURN_TYPE, self.span_from(tstart), &[]);
+            debug_assert_eq!(self.pos, fim);
+            self.parse_construtor_new(mods, class_name)?
         } else if let Some(fim) = self.tipo_antes_de_factory() {
             // `parseClassMember`: um tipo antes de `factory` é
             // `TYPE_BEFORE_FACTORY` no último token dele, e o resto é a
@@ -2793,7 +2807,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.parse_constructor(mods, true, class_name)?
         } else if self.at_ident("factory")
             && (self.at_identifier_at(1)
-                || (self.features.tem(Feature::PrimaryConstructors) && self.at_op_at(1, Op::LParen)))
+                || (self.features.tem(Feature::PrimaryConstructors) && self.at_op_at(1, Op::LParen))
+                || self.factory_new_como_construtor())
         {
             // `factory(` só é construtor a partir da 3.13; antes, é um método
             // chamado `factory` (a versão decide, VERSOES-LINGUAGEM.md §4.5).
@@ -3036,6 +3051,15 @@ impl<'s, 'i> Parser<'s, 'i> {
                 return self.parse_constructor_resto(mods, true, class_name, nome);
             }
         }
+        // `factory new(…)` (3.13.4, `parseFactoryMethod`): o `new` é o nome,
+        // com `FACTORY_CONSTRUCTOR_NEW_NAME`; o nome que não é o da classe é,
+        // depois, `INVALID_FACTORY_NAME_NOT_A_CLASS`.
+        if factory && self.at_kw(Keyword::New) && !self.at_op_at(1, Op::Dot) {
+            let t = self.advance();
+            self.erro_em(codigos::parser::FACTORY_CONSTRUCTOR_NEW_NAME, t.span, &[]);
+            let class_name = self.name_from("new", t.span);
+            return self.parse_constructor_resto(mods, true, class_name, None);
+        }
         let class_name = self.expect_identifier()?;
         if !factory {
             self.conferir_construtor_em_mixin_ou_extension(class_name.span);
@@ -3094,6 +3118,11 @@ impl<'s, 'i> Parser<'s, 'i> {
     ) -> PResult<MemberKind> {
         let t = self.advance();
         self.exigir_no_ast(Feature::PrimaryConstructors, t.span);
+        // `_isConstructor` com `newToken`: o `static` é `STATIC_CONSTRUCTOR`
+        // (`parseMethod` do 3.13.4).
+        if let Some(st) = mods.fichas.static_ {
+            self.erro_no_token(st, codigos::parser::STATIC_CONSTRUCTOR);
+        }
         let class_name = self.nome_da_classe(classe, t.span);
         let nome = if self.at_identifier() {
             Some(self.identifier())
@@ -3555,6 +3584,36 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     /// O fim do tipo que precede `factory nome` num membro, se houver.
+    /// `void` seguido de `new` e de `(` ou de um identificador
+    /// (`static void new() {}`): o fim do tipo, no `new`. Só o `void`: o
+    /// `computeType` do 3.13.4 só aceita os outros tipos quando o token
+    /// seguinte parece um nome (`looksLikeName`), e o `new` não parece —
+    /// `int new() => 1` fica um método de nome inválido
+    /// (`EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD`), como no 3.6.2.
+    fn tipo_antes_de_new(&self) -> Option<usize> {
+        if !self.at_kw(Keyword::Void) {
+            return None;
+        }
+        let fim = self.pos + 1;
+        let n = 1;
+        (self.at_kw_at(n, Keyword::New) && (self.at_op_at(n + 1, Op::LParen) || self.at_identifier_at(n + 1))).then_some(fim)
+    }
+
+    /// `factory new(` (sem `.` depois do `new`): o 3.13.4 lê um construtor
+    /// de fábrica chamado `new`; o 3.6.2, um campo `factory` (o `new` não é
+    /// identificador). Fora do modo 3.13, segue o 3.6.2 e anota a
+    /// divergência ([`Parser::divergiu_313`]).
+    fn factory_new_como_construtor(&mut self) -> bool {
+        if !(self.at_kw_at(1, Keyword::New) && !self.at_op_at(2, Op::Dot)) {
+            return false;
+        }
+        if self.modo_313 {
+            return true;
+        }
+        self.divergiu_313 = true;
+        false
+    }
+
     fn tipo_antes_de_factory(&self) -> Option<usize> {
         if self.at_ident("factory") {
             return None;

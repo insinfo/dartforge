@@ -7048,6 +7048,15 @@ percorre classes.
     `atalhos_relatados`, para não sair como tear-off.
 
 ##### `factory_constructor_new_name` (perda 1: FN 1) — **só SN**
+- **Feito (2026-10-08):** `factory new()` diverge na árvore: o 3.13.4 (`parseClassMember`, `next2.isA(Keyword.NEW)`;
+  `parseFactoryMethod`) lê um construtor de fábrica chamado `new` (`FACTORY_CONSTRUCTOR_NEW_NAME` no `new`, e depois
+  `INVALID_FACTORY_NAME_NOT_A_CLASS`); o 3.6.2 lê um campo `factory` (`EXPECTED_TOKEN` e
+  `MISSING_CONST_FINAL_VAR_OR_TYPE`). Como a referência só se sabe no fim da unidade, o parser segue o 3.6.2,
+  anota a divergência (`Parser::divergiu_313`) e, se a unidade termina na referência 3.13, a lê de novo no
+  `modo_313` (`parse_lexed_com`). `static void new() {}`: o `new` depois do `void` é o nome de um construtor
+  (`newToken`): `CONSTRUCTOR_WITH_RETURN_TYPE` no `void`, `STATIC_CONSTRUCTOR` no `static` e o
+  `EXPERIMENT_NOT_ENABLED` do `new` (que por si põe a unidade no 3.13); só o `void` — o `computeType` aceita os
+  outros tipos só antes de um nome (`looksLikeName`), e `int new() => 1` segue método de nome inválido.
 - Não existe no 3.6.2. 3.13 (`constructor/unnamed_new_error_test.dart:35`): `factory new()` → este código
   e `invalid_factory_name_not_a_class`, ambos no `new` (3). Mensagem "Factory constructors can't be named
   'new'." / "Try removing the 'new' keyword or changing it to a different name.".

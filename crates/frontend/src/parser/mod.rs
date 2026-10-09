@@ -298,23 +298,37 @@ pub fn parse_lexed_com(
         f.erro += do_scanner.len();
     }
     do_scanner.extend(de_grupo);
-    let mut parser = Parser::new(source, tokens, interner);
-    parser.fechos_sinteticos = fechos;
-    parser.features = features;
-    parser.diagnostics.extend(do_scanner);
-    let unit = parser.parse_compilation_unit();
-    let mut ast = parser.ast;
+    // A leitura, no modo do 3.13.4 ou não. A árvore de algumas construções
+    // diverge entre as referências (`factory new()`: construtor no 3.13.4,
+    // campo `factory` no 3.6.2), e a referência só se sabe no fim da unidade
+    // (a sintaxe nova pode vir depois): a unidade que divergiu e terminou na
+    // referência 3.13 é lida de novo no modo 3.13.
+    let ler = |interner: &mut Interner, modo_313: bool| {
+        let mut parser = Parser::new(source, tokens.clone(), interner);
+        parser.fechos_sinteticos = fechos.clone();
+        parser.features = features;
+        parser.modo_313 = modo_313;
+        parser.diagnostics.extend(do_scanner.iter().cloned());
+        let unit = parser.parse_compilation_unit();
+        let refazer = !modo_313 && parser.divergiu_313 && parser.sintaxe_nova;
+        (unit, parser.ast, parser.diagnostics, parser.pulados, parser.sintaxe_nova, parser.so_3_6, parser.so_3_13, refazer)
+    };
+    let mut leitura = ler(interner, features.versao() > LanguageVersion::PISO);
+    if leitura.7 {
+        leitura = ler(interner, true);
+    }
+    let (unit, mut ast, diagnosticos, pulados, sintaxe_nova, so_3_6, so_3_13, _) = leitura;
     // A árvore devolvida vive muito (um editor a retém por arquivo aberto) e
     // as arenas cresceram em potências de dois: no `new_sali` a folga era
     // 29 MiB de 132 MiB. Uma realocação por arena aqui é mais barata do que
     // reter a folga pela vida inteira da unidade.
     ast.shrink_to_fit();
     let referencia =
-        if features.versao() > LanguageVersion::PISO || parser.sintaxe_nova { Referencia::V3_13 } else { Referencia::V3_6 };
+        if features.versao() > LanguageVersion::PISO || sintaxe_nova { Referencia::V3_13 } else { Referencia::V3_6 };
     // Os diagnósticos que só a outra referência relata saem agora, que se
     // sabe qual é a desta unidade.
-    let mut diagnostics = parser.diagnostics;
-    let fora = if referencia == Referencia::V3_13 { &parser.so_3_6 } else { &parser.so_3_13 };
+    let mut diagnostics = diagnosticos;
+    let fora = if referencia == Referencia::V3_13 { &so_3_6 } else { &so_3_13 };
     if !fora.is_empty() {
         diagnostics.retain(|d| !d.code.is_some_and(|c| fora.contains(&(c, d.span))));
     }
@@ -322,7 +336,7 @@ pub fn parse_lexed_com(
         unit,
         ast,
         diagnostics,
-        pulados: parser.pulados,
+        pulados,
         referencia,
     }
 }
@@ -410,6 +424,15 @@ pub struct Parser<'s, 'i> {
     /// A unidade usa sintaxe de um recurso desligado que o analyzer 3.6.2
     /// não conhece: a referência dela é o 3.13.4 ([`Parsed::referencia`]).
     pub(crate) sintaxe_nova: bool,
+    /// Lê as construções em que a árvore do 3.6.2 e a do 3.13.4 divergem
+    /// pelo caminho do 3.13.4 (`factory new()`): a unidade com versão acima
+    /// do piso, ou a segunda leitura de uma unidade que terminou na
+    /// referência 3.13 ([`Self::divergiu_313`]).
+    pub(crate) modo_313: bool,
+    /// A leitura fora do [`Self::modo_313`] passou por uma construção em que
+    /// as árvores divergem: se a unidade terminar na referência 3.13, ela é
+    /// lida de novo no modo 3.13.
+    pub(crate) divergiu_313: bool,
     /// Lendo os elementos de um literal de lista: o elemento comum não lê
     /// `: valor` (`parseLiteralListSuffix` lê as entradas com
     /// `parseExpression`); só o null-aware `?k: v` vira entrada.
@@ -484,6 +507,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             especulando: false,
             nome_sintetico: None,
             sintaxe_nova: false,
+            modo_313: false,
+            divergiu_313: false,
             em_lista: false,
             so_3_6: Vec::new(),
             so_3_13: Vec::new(),
