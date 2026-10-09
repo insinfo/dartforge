@@ -47,6 +47,10 @@ pub enum Modo {
 pub struct Local {
     pub modo: Modo,
     pub ty: Type,
+    /// Tipo Dart antes de apagar a representação, para obrigações léxicas
+    /// como Finalizable. None indica informação ainda não fornecida; não
+    /// prova ausência da obrigação. Capturas preservam o TypeId original.
+    pub tipo_estatico: Option<dartforge_types::TypeId>,
     /// Offset do nome na declaração (a chave de `captura.rs`); `None` para
     /// os ligados por valor.
     pub offset: Option<usize>,
@@ -121,6 +125,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Local {
                 modo: Modo::Memoria(ptr.clone()),
                 ty,
+                tipo_estatico: None,
                 offset: None,
                 late: None,
             },
@@ -176,6 +181,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Local {
                     modo: Modo::Memoria(ptr),
                     ty,
+                    tipo_estatico: self.ctx.tipo_local_semantico(self.unit_id, offset),
                     offset: Some(offset),
                     late: None,
                 },
@@ -201,6 +207,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Local {
                 modo: Modo::Celula(ptr),
                 ty,
+                tipo_estatico: self.ctx.tipo_local_semantico(self.unit_id, offset),
                 offset: Some(offset),
                 late: None,
             },
@@ -284,9 +291,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         indice: usize,
         celula: bool,
         ty: Type,
-        late: Option<&LateLocal>,
+        origem: &Local,
     ) {
-        let late = late.filter(|l| l.celula && celula).map(|l| {
+        let late = origem.late.as_ref().filter(|l| l.celula && celula).map(|l| {
             let estado = self.emit(Instruction::EnvGet { env: env.clone(), index: indice }, Type::Ref);
             LateLocal {
                 inicializado: estado,
@@ -305,6 +312,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     celula,
                 },
                 ty,
+                tipo_estatico: origem.tipo_estatico,
                 offset: None,
                 late,
             },
@@ -325,6 +333,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Local {
                 modo: Modo::Valor(valor),
                 ty,
+                tipo_estatico: None,
                 offset: None,
                 late: None,
             },

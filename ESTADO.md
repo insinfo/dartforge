@@ -646,6 +646,18 @@ NativeFinalizer. O CI rápido anterior ainda estava ativo e foi substituído
 pelo novo push de fonte; não registrar sucesso daquela revisão incompleta.
 Aguardar a rodada atual antes de outro disparo pesado no main.
 
+O lowering agora preserva `Local::tipo_estatico`, TypeId Dart original
+separado da representação HIR. Declarações usam
+`Context::tipo_local_semantico` (sem chamar apagar), closures em ambiente ou
+captura direta, funções locais diretas e capturas do stub assíncrono
+propagam a identidade original. None representa informação não fornecida;
+não pode ser tratado como prova de que Finalizable não exige proteção.
+Parâmetros/this e outros caminhos sem TypeId explícito ainda precisam de
+cobertura. Não emite ArcKeepAlive nem muda ownership dos locais ainda.
+Suíte release do emissor: 106/106, sete testes manuais ignorados;
+`target/emissor-tipos-locais-originais-release.log`. A primeira tentativa
+usava tipo_local, que já apaga tipos, e foi corrigida antes do commit.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

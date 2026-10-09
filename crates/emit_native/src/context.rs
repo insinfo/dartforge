@@ -785,7 +785,14 @@ impl<'a> Context<'a> {
     /// Tipo declarado (ou inferido) da variável local cujo nome começa em
     /// `offset` (R6).
     pub fn tipo_local(&self, unit: UnitId, offset: usize) -> Option<TypeId> {
-        self.bodies.units.get(unit.0 as usize)?.tipo_local(offset).map(|t| self.apagar(t))
+        self.tipo_local_semantico(unit, offset).map(|t| self.apagar(t))
+    }
+
+    /// Tipo Dart original da declaração, antes do apagamento para representação.
+    /// Obrigações léxicas dependem da identidade estática, inclusive de tipos
+    /// de extensão; ausência na tabela não prova ausência dessas obrigações.
+    pub(crate) fn tipo_local_semantico(&self, unit: UnitId, offset: usize) -> Option<TypeId> {
+        self.bodies.units.get(unit.0 as usize)?.tipo_local(offset)
     }
 }
 

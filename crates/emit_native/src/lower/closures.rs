@@ -302,7 +302,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             } else {
                 Modo::Valor(env_b.clone())
             };
-            b.ligar_local_como(*sym, super::locais::Local { modo, ty: l.ty, offset: None, late: None });
+            b.ligar_local_como(*sym, super::locais::Local { modo, ty: l.ty, tipo_estatico: l.tipo_estatico, offset: None, late: None });
         } else if com_this {
             let t = b.emit(
                 Instruction::EnvGet {
@@ -322,7 +322,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // Um vetor SIMD capturado vai no ambiente na caixa (a posição
             // tem 64 bits).
             let ty = if l.ty.e_vetor() { Type::Ref } else { l.ty };
-            b.ligar_ambiente(*sym, env_b.clone(), base + i, celula, ty, l.late.as_ref());
+            b.ligar_ambiente(*sym, env_b.clone(), base + i, celula, ty, l);
         }
         // RTI: a closure vê as variáveis de tipo de quem a cria (`T` da
         // função genérica em volta: a tupla vai no fim do ambiente).
