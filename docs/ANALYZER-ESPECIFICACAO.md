@@ -12229,6 +12229,11 @@ Um nome, três códigos únicos (`CONST_WITH_TYPE_PARAMETERS`, `_CONSTRUCTOR_TEA
     (`funcoes.rs::anotacao_sem_validar_com`), e `T` avaliado dá o erro.
 
 ##### `const_constructor_field_type_mismatch` (perda 8: FN 1, FP 7)
+- **Exceção pelo tipo declarado (2026-10-08):** no `_checkFields`, o descasamento do valor de um campo `final` com
+  o tipo dele é exceção da avaliação quando o **tipo declarado** menciona parâmetro de tipo
+  (`hasTypeParameterReference(field.type)`, antes da substituição): `final T x = y;` com `const C<String>()` é
+  `CONST_EVAL_THROWS_EXCEPTION` na criação, com a mensagem do campo de contexto, não o código do campo no
+  inicializador. `avaliador.rs` calculava sobre o tipo já substituído (`String`), que nunca menciona parâmetro.
 - **Emissão:** `_checkFields` (`evaluation.dart:2619-2650`, erro no inicializador do campo,
   `isRuntimeException = hasTypeParameterReference(field.type declarado)`) e `_checkInitializers`
   (`:2730-2752`, erro no inicializador se estaticamente atribuível, senão no `_errorNode`).

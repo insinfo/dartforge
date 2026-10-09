@@ -2663,10 +2663,15 @@ impl<'a> Motor<'a> {
             };
             let Some((fu, fx)) = tem_init else { continue };
             let Some(Constante::Valor(x)) = self.valor_de_variavel(v) else { continue };
-            let tipo_campo = self.outline.variables[v.0 as usize].declared_type.or(self.outline.variables[v.0 as usize].inferred).unwrap_or(self.core.dynamic_);
-            let tipo_campo = subst(self, tipo_campo);
+            let declarado = self.outline.variables[v.0 as usize].declared_type.or(self.outline.variables[v.0 as usize].inferred).unwrap_or(self.core.dynamic_);
+            let tipo_campo = subst(self, declarado);
             if !self.casa(&x, tipo_campo) {
-                let excecao = self.menciona_parametro(tipo_campo);
+                // `hasTypeParameterReference(field.type)`: o tipo declarado do
+                // campo, antes da substituição (`final T x` com `C<String>`),
+                // faz do descasamento uma exceção da avaliação — relatada como
+                // `CONST_EVAL_THROWS_EXCEPTION` na criação, com a mensagem do
+                // campo de contexto.
+                let excecao = self.menciona_parametro(declarado);
                 let (eu, es) = if fu == erro.unidade || true { (fu, self.span(fu, fx)) } else { (erro.unidade, erro.span) };
                 let mut i = self.erro(eu, es, c::CONST_CONSTRUCTOR_FIELD_TYPE_MISMATCH);
                 i.args = vec![self.formatar(x.tipo), self.interner.resolve(var.name).to_string(), self.formatar(tipo_campo)];
