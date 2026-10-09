@@ -5463,6 +5463,10 @@ relatos iguais do analyzer contam um.
   sem constantes nem membros, com `EXPERIMENT_NOT_ENABLED` no `;` (`exigir_no_ast`); antes saía `EXPECTED_TOKEN`.
 
 ##### `conflicting_static_and_instance` (perda 55: FN 55, FP 0, msg 0, pos 0)
+- **`static name` em enum (2026-10-08):** o `name` de um enum é a extensão `EnumName` do `dart:core` (o `Enum` só
+  declara `_name`), então `enum E { a; static int name = 1; }` não conflita. O modelo sintetiza um getter `name` de
+  instância em todo enum (`outline.rs`, para os back-ends); o `_checkEnumStatic` (`sobrescritas.rs`,
+  `estaticos_de_enum`) o ignora.
 - **Emissão (três caminhos):**
   1. Classe/mixin/tipo de extensão, membro local: `MemberDuplicateDefinitionVerifier._checkClassStatic`
      (`src/error/duplicate_definition_verifier.dart:411-461`), fase `_checkUnitStatic` (`:773`).

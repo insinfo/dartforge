@@ -1659,7 +1659,17 @@ pub fn estaticos_de_enum(
         let dono = program.dono_da_classe(ClassId(ci as u32));
         let texto_enum = interner.resolve(program.class(dono).name).to_string();
         let na_interface = |cx: &mut Ctx<'_>, nome: &str| -> bool {
-            let achou = |cx: &mut Ctx<'_>, texto: &str| interner.lookup(texto).is_some_and(|k| cx.membro_da_heranca(dono, k, false).is_some());
+            // O getter `name` sintético do modelo (`outline.rs`, para os
+            // back-ends) não está na interface do analyzer: o `name` de um enum
+            // é a extensão `EnumName` do `dart:core` (o `Enum` só tem `_name`),
+            // e `static int name` num enum não conflita.
+            let sintetico = |m: &crate::heranca::Membro| {
+                let f = program.function(m.funcao);
+                m.classe == dono && f.node == dartforge_elements::model::FunctionRef::None && interner.resolve(f.name) == "name"
+            };
+            let achou = |cx: &mut Ctx<'_>, texto: &str| {
+                interner.lookup(texto).is_some_and(|k| cx.membro_da_heranca(dono, k, false).is_some_and(|m| !sintetico(&m)))
+            };
             achou(cx, nome) || achou(cx, &format!("{nome}_="))
         };
         // Os acessores: as constantes (getters), os campos estáticos (getter
