@@ -272,6 +272,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.this_param.is_some() {
             let t = b.ler_posicao(quadro.clone(), Q_THIS, Type::Ref);
             b.this_param = Some(t);
+            b.this_finalizavel = self.this_finalizavel;
             b.enclosing_class = self.enclosing_class;
         }
         if !capturas.is_empty() {

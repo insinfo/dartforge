@@ -291,6 +291,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let env_b = Operand::Val(b.add_param("env".to_string(), Type::Ref));
         if direto && com_this {
             b.this_param = Some(env_b.clone());
+            b.this_finalizavel = self.this_finalizavel;
             b.enclosing_class = self.enclosing_class;
         } else if direto {
             let (sym, l) = &capturas[0];
@@ -312,6 +313,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::Ref,
             );
             b.this_param = Some(t);
+            b.this_finalizavel = self.this_finalizavel;
             b.enclosing_class = self.enclosing_class;
         }
         for (i, (sym, l)) in capturas.iter().enumerate().filter(|_| !direto) {

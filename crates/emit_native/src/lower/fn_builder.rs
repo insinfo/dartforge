@@ -47,6 +47,9 @@ pub struct FnBuilder<'a, 'c> {
     pub break_targets: Vec<BlockId>,
     pub continue_targets: Vec<BlockId>,
     pub this_param: Option<Operand>,
+    /// Obrigação do receptor estático. None exige prova; só há obrigação
+    /// de captura quando this_param representa uma captura efetiva.
+    pub this_finalizavel: Option<bool>,
     pub enclosing_class: Option<dartforge_elements::model::ClassId>,
     pub exception_targets: Vec<BlockId>,
     pub finally_scopes: Vec<FinallyScope>,
@@ -304,6 +307,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             break_targets: Vec::new(),
             continue_targets: Vec::new(),
             this_param: None,
+            this_finalizavel: None,
             enclosing_class: None,
             exception_targets: Vec::new(),
             finally_scopes: Vec::new(),
@@ -463,6 +467,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if com_this {
             let this_vid = self.add_param("this".to_string(), Type::Ref);
             self.this_param = Some(Operand::Val(this_vid));
+            self.this_finalizavel = self.ctx.classificar_this(fid);
         }
         let Some(dados) = self.ctx.outline.functions.get(fid) else {
             return;

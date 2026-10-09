@@ -1624,6 +1624,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// último para o primeiro, antes do construtor da superclasse.
     fn inicializar_mixins_das_aplicacoes(&mut self, obj: Operand, de: ClassId, ate: ClassId) {
         let salvo = self.this_param.replace(obj);
+        let salvo_finalizavel = self.this_finalizavel;
+        self.this_finalizavel = self.ctx.classificar_classe_finalizavel(de);
         let mut c = de;
         while c != ate {
             let classe = &self.ctx.program.classes[c.0 as usize];
@@ -1638,6 +1640,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             c = s;
         }
         self.this_param = salvo;
+        self.this_finalizavel = salvo_finalizavel;
     }
 
     /// A função (não construtor) declara parâmetros de tipo: recebe a tupla.

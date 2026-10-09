@@ -176,6 +176,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if com_this {
             let t = b.add_param("this".to_string(), Type::Ref);
             b.this_param = Some(Operand::Val(t));
+            b.this_finalizavel = self.this_finalizavel;
             b.enclosing_class = self.enclosing_class;
         }
         // Cada captura, ligada no corpo; a função repassa o mesmo lugar às

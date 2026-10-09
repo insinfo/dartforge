@@ -553,6 +553,7 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                     let r = builder.repr_do_receptor_de_extensao(e);
                     let this = builder.add_param("this".to_string(), r);
                     builder.this_param = Some(Operand::Val(this));
+                    builder.this_finalizavel = ctx.classificar_this(f_idx);
                     builder.declarar_parametros(f_idx, false);
                     let on = ctx.outline.extensions[e.0 as usize].on;
                     builder.extensao_do_this = Some((e, on));
@@ -568,6 +569,7 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                     let r = builder.repr_do_this_estatico(f_idx).unwrap_or(Type::Ref);
                     let this = builder.add_param("this".to_string(), r);
                     builder.this_param = Some(Operand::Val(this));
+                    builder.this_finalizavel = ctx.classificar_this(f_idx);
                     builder.declarar_parametros(f_idx, false);
                     builder.tipo_ext_do_this = ctx.te.this.get(&c).map(|&t| (c, t));
                 } else {
@@ -804,6 +806,7 @@ fn lower_globais_e_resto(ctx: &Context, mut module: Module) -> Module {
             );
             let obj = Operand::Val(b.add_param("this".to_string(), Type::Ref));
             b.this_param = Some(obj.clone());
+            b.this_finalizavel = v.class.and_then(|c| ctx.classificar_classe_finalizavel(c));
             b.enclosing_class = v.class;
             // Campo fora do mundo fechado (C7): ninguém o lê.
             if ctx.campo_podado(vid) {

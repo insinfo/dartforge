@@ -310,6 +310,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             None => self.nao_suportado("construtor de tipo de extensão sem a representação", span),
         };
         self.this_param = Some(v.clone());
+        self.this_finalizavel = self.ctx.classificar_classe_finalizavel(c);
         self.tipo_ext_do_this = this_t.map(|t| (c, t));
         self.retorno_do_construtor = Some(v);
         match &ctor.body {

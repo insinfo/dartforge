@@ -32,18 +32,30 @@ pub(crate) fn classificar(
             | Type::Function { .. }
             | Type::Record { .. } => return Some(false),
             Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => {
-                if *class == marcador {
-                    return Some(true);
-                }
-                return hierarchy
-                    .get(*class)
-                    .map(|h| h.supertypes.contains_key(&marcador));
+                return classificar_classe(hierarchy, Some(marcador), *class);
             }
             Type::FutureOr { arg, .. } => tipo = *arg,
             Type::TypeParameter { param, .. } => tipo = table.param(*param).bound,
             Type::Intersection { bound, .. } => tipo = *bound,
         }
     }
+}
+
+/// Classifica o receptor por identidade estática, sem fabricar um TypeId.
+pub(crate) fn classificar_classe(
+    hierarchy: &ClassHierarchy,
+    marcador: Option<ClassId>,
+    classe: ClassId,
+) -> Option<bool> {
+    let Some(marcador) = marcador else {
+        return Some(false);
+    };
+    if classe == marcador {
+        return Some(true);
+    }
+    hierarchy
+        .get(classe)
+        .map(|h| h.supertypes.contains_key(&marcador))
 }
 
 #[cfg(test)]

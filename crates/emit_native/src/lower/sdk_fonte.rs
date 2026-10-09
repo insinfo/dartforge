@@ -1400,6 +1400,7 @@ pub fn lower_adaptadores_da_funcao(ctx: &Context, module: &mut Module, fid: usiz
                 // covariantes de classe e os de tipo nominal, com a mensagem
                 // " of 'nome'" — antes de converter cada um à representação.
                 b.this_param = Some(recv.clone());
+                b.this_finalizavel = ctx.classificar_this(fid);
                 b.enclosing_class = f.class;
                 b.conferir_argumentos_da_entrada_com(fid, &vals, tipada);
                 let reprs: Vec<Type> = ctx.outline.functions[fid].parameters.iter().map(|p| b.repr(p.ty)).collect();

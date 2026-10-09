@@ -799,6 +799,21 @@ impl<'a> Context<'a> {
         crate::finalizaveis::classificar(self.table, &self.outline.hierarchy, self.finalizable_class, tipo)
     }
 
+    /// Obrigação de um receptor cuja identidade de classe já é conhecida.
+    pub(crate) fn classificar_classe_finalizavel(&self, classe: dartforge_elements::model::ClassId) -> Option<bool> {
+        crate::finalizaveis::classificar_classe(&self.outline.hierarchy, self.finalizable_class, classe)
+    }
+
+    /// Tipo estático de this no membro: classe ou tipo on de uma extensão.
+    pub(crate) fn classificar_this(&self, fid: usize) -> Option<bool> {
+        let f = self.program.functions.get(fid)?;
+        if let Some(e) = f.extension {
+            self.classificar_finalizavel(self.outline.extensions.get(e.0 as usize)?.on)
+        } else {
+            f.class.and_then(|c| self.classificar_classe_finalizavel(c))
+        }
+    }
+
     /// Tipo Dart original da declaração, antes do apagamento para representação.
     /// Obrigações léxicas dependem da identidade estática, inclusive de tipos
     /// de extensão; ausência na tabela não prova ausência dessas obrigações.

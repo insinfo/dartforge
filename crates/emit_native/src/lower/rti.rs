@@ -1200,9 +1200,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(sig) = self.ctx.outline.functions.get(fid).map(|d| d.signature) else {
             return;
         };
-        let salvo = (self.this_param.clone(), self.enclosing_class, self.classe_por_tupla, self.tupla_de_tipos.clone());
+        let salvo = (self.this_param.clone(), self.this_finalizavel, self.enclosing_class, self.classe_por_tupla, self.tupla_de_tipos.clone());
         if let Some(r) = recv {
             self.this_param = Some(r);
+            self.this_finalizavel = self.ctx.classificar_this(fid);
             // Um tipo de extensão não tem objeto com os argumentos de tipo.
             self.enclosing_class = self.ctx.program.functions[fid].class.filter(|&c| !self.ctx.e_tipo_de_extensao(c));
             self.classe_por_tupla = false;
@@ -1210,7 +1211,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.tupla_de_tipos = tupla;
         let r = self.receita_de_tipo(sig);
         let tipo = self.rti_da_receita(&r);
-        (self.this_param, self.enclosing_class, self.classe_por_tupla, self.tupla_de_tipos) = salvo;
+        (self.this_param, self.this_finalizavel, self.enclosing_class, self.classe_por_tupla, self.tupla_de_tipos) = salvo;
         self.definir_rti(clo, tipo);
     }
 

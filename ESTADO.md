@@ -682,6 +682,19 @@ classificação juntos; None não se torna falso. Suíte release do emissor
 Ainda faltam this e outras entradas especializadas; não afirmar cobertura
 de todos os produtores nem emissão de proteção de vida.
 
+FnBuilder agora carrega this_finalizavel junto ao receptor. Membros
+classificam a identidade estática da classe ou o tipo on de extensão;
+construtor de tipo de extensão usa a identidade original da declaração.
+Capturas efetivas de this em closures, diretas e corpos async propagam a
+classificação. Receptores auxiliares de getters late e entradas do SDK
+recebem o mesmo dado. Trocas temporárias para RTI e inicialização de mixins
+salvam/restauram receptor e obrigação juntos. Classe ausente/hierarquia
+insuficiente continuam indeterminadas. Não emite ArcKeepAlive.
+Suíte release do emissor: 108/108, sete manuais ignorados;
+`target/emissor-this-finalizavel-release.log`. Ainda requer validar os
+metadados contra casos semânticos dirigidos e integrar as operações de
+proteção em escopos, retornos/finally, exceções e suspensão.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
