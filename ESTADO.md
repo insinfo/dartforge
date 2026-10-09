@@ -2,6 +2,20 @@
 
 ## Retomada de 2026-10-09
 
+Saídas ARC por tabelas: `Lanca` não transfere resultado ao caller. O passe
+agora normaliza seu operando para o placeholder antes da classificação e
+libera todos os tokens locais, incluindo o antigo resultado. O verificador
+rejeita saída Lanca não canônica, metadado obsoleto ou saída sem Return;
+`Guarda` exige separar sucesso/erro explicitamente no CFG antes do ARC.
+A normalização vale para função isolada e preparação conjunta; saídas
+marcadas também propagam falha aos chamadores nos resumos.
+Regressão confirma nenhuma retenção e um drop do antigo resultado, ordem
+release→df.lancar no LLVM, idempotência e preservação atômica na rejeição
+de Guarda. Passaram 82 testes ARC, 39 LLVM e 45 doctests, logs
+`target/ownership-saidas-lanca-*`. Não houve execução nativa desse unwind
+por tabelas; a prova AOT anterior executa o protocolo de pendência runtime.
+Separação automática de Guarda e integração no pipeline continuam pendentes.
+
 Resumos ARC agora respeitam `TabelasDaFuncao.confere_pilha`: o prólogo
 LLVM marcado pode lançar mesmo que o corpo seja uma folha sem operações
 falíveis. A preparação conjunta propaga essa falha aos chamadores por

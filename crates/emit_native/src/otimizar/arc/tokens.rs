@@ -296,6 +296,62 @@ pub(super) fn saidas_para_cleanup(
     analisar_tokens(f, classes, tabelas, plano, true)
 }
 
+pub(super) fn conferir_saidas_excepcionais(
+    f: &Function,
+    tabelas: &TabelasDaFuncao,
+    exigir_canonico: bool,
+) -> Result<(), String> {
+    let mut saidas: Vec<_> = tabelas.saidas.iter().collect();
+    saidas.sort_by_key(|(b, _)| b.0);
+    for (id, modo) in saidas {
+        let b = f
+            .blocks
+            .iter()
+            .find(|b| b.id == *id)
+            .ok_or_else(|| format!("saída excepcional obsoleta b{}", id.0))?;
+        let Terminator::Return(op) = &b.terminator else {
+            return Err(format!("saída excepcional b{} não é Return", id.0));
+        };
+        if *modo == SaidaPorExcecao::Guarda {
+            return Err(format!(
+                "saída Guarda b{} exige CFG explícito antes do ARC",
+                id.0
+            ));
+        }
+        let esperado = if f.return_ty == Type::Void {
+            None
+        } else {
+            Some(super::super::operandos::constante_padrao(f.return_ty))
+        };
+        if exigir_canonico && *op != esperado {
+            return Err(format!(
+                "saída Lanca b{} exige retorno canônico sem transferência",
+                id.0
+            ));
+        }
+    }
+    Ok(())
+}
+
+// Só normaliza corpos temporários: o chamador publica após verificar tudo.
+pub(super) fn normalizar_saidas_lanca(
+    f: &mut Function,
+    tabelas: &TabelasDaFuncao,
+) -> Result<(), String> {
+    super::ssa::verificar(f)?;
+    conferir_saidas_excepcionais(f, tabelas, false)?;
+    for b in &mut f.blocks {
+        if tabelas.saidas.get(&b.id) == Some(&SaidaPorExcecao::Lanca) {
+            b.terminator = Terminator::Return(if f.return_ty == Type::Void {
+                None
+            } else {
+                Some(super::super::operandos::constante_padrao(f.return_ty))
+            });
+        }
+    }
+    Ok(())
+}
+
 fn analisar_tokens(
     f: &Function,
     classes: &HashMap<ValueId, Ownership>,
@@ -303,6 +359,7 @@ fn analisar_tokens(
     plano: &PlanoTokens,
     permitir_cleanup: bool,
 ) -> Result<HashMap<BlockId, Vec<ValueId>>, String> {
+    conferir_saidas_excepcionais(f, tabelas, true)?;
     super::classificacao::vivacidade_com_saidas(f, classes, tabelas, &plano.pendencias)?;
     let erro_meta = |m: String| format!("tokens em {}: {m}", f.symbol);
     let mut esperados = HashSet::new();
@@ -489,7 +546,9 @@ fn analisar_tokens(
         if let Some(m) = falha {
             return Err(erro_fluxo(f, &pais, i, m));
         }
-        if let Terminator::Return(valor) = &b.terminator {
+        if let Terminator::Return(valor) = &b.terminator
+            && tabelas.saidas.get(&b.id) != Some(&SaidaPorExcecao::Lanca)
+        {
             match (plano.retorno, valor) {
                 (RetornoTokens::Owned, Some(v)) => consumir_operando(v, classes, &mut ativos)
                     .map_err(|m| erro_fluxo(f, &pais, i, m))?,

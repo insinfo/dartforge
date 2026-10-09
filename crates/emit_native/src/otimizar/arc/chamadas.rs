@@ -108,6 +108,9 @@ pub fn verificar_contrato_funcao_dart(
         )
         .collect();
     for b in &f.blocks {
+        if tabelas.saidas.get(&b.id) == Some(&SaidaPorExcecao::Lanca) {
+            continue;
+        }
         if let Terminator::Return(op) = &b.terminator {
             let compativel = match op {
                 None => f.return_ty == Type::Void,
@@ -123,6 +126,7 @@ pub fn verificar_contrato_funcao_dart(
     }
     let desconhecidas = HashSet::new();
     let pode_falhar = tabelas.confere_pilha
+        || !tabelas.saidas.is_empty()
         || f.blocks.iter().any(|b| {
             matches!(b.terminator, Terminator::Throw(_))
                 || b.instructions.iter().any(|(_, inst, _)| {

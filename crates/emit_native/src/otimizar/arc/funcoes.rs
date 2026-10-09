@@ -82,7 +82,10 @@ pub fn inserir_arc_funcoes_dart(
     let mut nao_lancam = super::super::efeitos::nao_lancam(&modulo);
     // A conferência explícita do prólogo também pode lançar. O resumo do
     // corpo não vê esses metadados; propaga a falha aos chamadores em O(V+E).
-    if planos.values().any(|p| p.tabelas.confere_pilha) {
+    if planos
+        .values()
+        .any(|p| p.tabelas.confere_pilha || !p.tabelas.saidas.is_empty())
+    {
         let mut chamadores: HashMap<&str, Vec<&str>> = HashMap::new();
         for f in &modulo.functions {
             for (_, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
@@ -94,7 +97,10 @@ pub fn inserir_arc_funcoes_dart(
         let mut fila: Vec<_> = modulo
             .functions
             .iter()
-            .filter(|f| planos[&f.symbol].tabelas.confere_pilha)
+            .filter(|f| {
+                planos[&f.symbol].tabelas.confere_pilha
+                    || !planos[&f.symbol].tabelas.saidas.is_empty()
+            })
             .map(|f| f.symbol.as_str())
             .collect();
         while let Some(simbolo) = fila.pop() {
@@ -119,6 +125,7 @@ pub fn inserir_arc_funcoes_dart(
     for f in &mut modulo.functions {
         let original = &planos[&f.symbol];
         let (classes, tokens) = novos_planos.get_mut(&f.symbol).unwrap();
+        super::tokens::normalizar_saidas_lanca(f, &original.tabelas)?;
         super::chamadas::produzir_chamadas_e_instrucoes_dart(f, &indice, classes, tokens)?;
         let (copias, drops) =
             inserir_arc_saidas_dart(f, classes, tokens, &original.tabelas, &original.escopos)?;

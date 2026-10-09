@@ -106,6 +106,8 @@ pub fn inserir_retencao_retornos_dart(
 /// Inclui retornos de caminhos excepcionais já preparados. Exige junções
 /// com inventários compatíveis; não divide arestas, fecha quadros nem prepara
 /// finally/cancelamento/suspensão. Contratos não cobertos continuam explícitos.
+/// Saída Lanca devolve apenas o placeholder e libera todos os tokens locais;
+/// saída Guarda exige separar sucesso/erro no CFG antes deste passe.
 ///
 /// # Erros
 /// HIR/contratos inválidos, IDs esgotados ou falha de fluxo/escopo/quadros.
@@ -142,8 +144,8 @@ fn inserir_saidas_dart(
     escopos: &PlanoEscopos,
     cleanup: bool,
 ) -> Result<(usize, usize), String> {
-    super::ssa::verificar(f)?;
     let mut nova = f.clone();
+    super::tokens::normalizar_saidas_lanca(&mut nova, tabelas)?;
     let mut novas_classes = classes.clone();
     let mut novo_plano = plano.clone();
     produzir_parametros_ref_dart(&nova, &mut novas_classes)?;
@@ -1100,6 +1102,118 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn saida_lanca_libera_resultado_e_guarda_exige_cfg_sem_publicar() {
+        let original = Function {
+            symbol: "desenrolar".into(),
+            name: "desenrolar".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "x".into(), Type::Ref)],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![(
+                    ValueId(1),
+                    Instruction::ArcCopy {
+                        value: Operand::Val(ValueId(0)),
+                    },
+                    Type::Ref,
+                )],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+            }],
+        };
+        let mut f = original.clone();
+        let mut classes = HashMap::new();
+        let mut plano = PlanoTokens {
+            retorno: super::super::RetornoTokens::Owned,
+            ..Default::default()
+        };
+        let mut tabelas = TabelasDaFuncao::default();
+        tabelas.saidas.insert(BlockId(0), SaidaPorExcecao::Lanca);
+        assert_eq!(
+            inserir_arc_saidas_dart(
+                &mut f,
+                &mut classes,
+                &mut plano,
+                &tabelas,
+                &PlanoEscopos::default()
+            )
+            .unwrap(),
+            (0, 1)
+        );
+        assert!(matches!(
+            f.blocks[0].terminator,
+            Terminator::Return(Some(Operand::Constant(Constant::Null)))
+        ));
+        assert!(matches!(
+            f.blocks[0].instructions[1].1,
+            Instruction::ArcDrop {
+                value: Operand::Val(ValueId(1))
+            }
+        ));
+        let mut modulo = Module::new();
+        modulo.memoria_arc = true;
+        modulo.excecoes_por_tabelas = true;
+        modulo.functions.push(f.clone());
+        modulo.tabelas.push(tabelas.clone());
+        let ir = crate::llvm::LlvmEmitter::new(&modulo).emit_all();
+        let funcao = ir
+            .split("@desenrolar(")
+            .nth(1)
+            .unwrap()
+            .split("\n}")
+            .next()
+            .unwrap();
+        let liberacao = funcao
+            .find("call void @dartforge_arc_release(i64 %v1)")
+            .unwrap();
+        // O primeiro lançamento pode ser o guard do prólogo, antes de criar
+        // qualquer token; o último é a saída Lanca do corpo preparado.
+        let desenrolar = funcao.rfind("call void @df.lancar()").unwrap();
+        assert!(liberacao < desenrolar);
+        assert_eq!(
+            inserir_arc_saidas_dart(
+                &mut f,
+                &mut classes,
+                &mut plano,
+                &tabelas,
+                &PlanoEscopos::default()
+            )
+            .unwrap(),
+            (0, 0)
+        );
+        f = original;
+        classes.clear();
+        plano.instrucoes.clear();
+        assert!(
+            produzir_e_verificar_tokens_dart(
+                &f,
+                &mut classes,
+                &mut plano,
+                &tabelas,
+                &PlanoEscopos::default()
+            )
+            .unwrap_err()
+            .contains("canônico")
+        );
+        assert!(classes.is_empty() && plano.instrucoes.is_empty());
+        tabelas.saidas.insert(BlockId(0), SaidaPorExcecao::Guarda);
+        let antes = format!("{f:?}");
+        assert!(
+            inserir_arc_saidas_dart(
+                &mut f,
+                &mut classes,
+                &mut plano,
+                &tabelas,
+                &PlanoEscopos::default()
+            )
+            .unwrap_err()
+            .contains("CFG explícito")
+        );
+        assert_eq!(format!("{f:?}"), antes);
+        assert!(classes.is_empty() && plano.instrucoes.is_empty());
+    }
 
     #[test]
     fn cleanup_preserva_transferencia_e_retem_antes_de_liberar_outros_tokens() {
