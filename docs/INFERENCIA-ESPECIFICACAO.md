@@ -1660,6 +1660,16 @@ Function(String) g = f` fica com tipo `F`. `f('a')` →
 * **Tear-off de construtor** (`an611:…/constructor_reference_resolver.dart:
   88-146`; `invocation_inference_helper.dart:126-149`): classe genérica sem
   argumentos → instanciada só se K é tipo de função; senão fica genérico.
+  Os formais do tipo genérico são os parâmetros **da própria classe** (ou do
+  alias), sem cópia (`ConstructorElementToInfer.asType`, `:45-54`). Dentro de
+  `A<T>`, com contexto que cita o mesmo `T` (`A<T> Function() f = A.new`,
+  também no valor padrão `[A<T> Function() fn = A.new]`), o tipo do tear-off
+  sem formais é igual ao do contexto, o `trySubtypeMatch` fecha sem restrição
+  (`P == Q`, `type_constraint_gatherer.dart:166`) e `T` vai a `dynamic`:
+  `invalid_assignment` de `A<dynamic> Function()` (conferido com o `dart
+  analyze` 3.6.2; `A.n` com `A<T> Function(T)` dá `A<dynamic> Function(dynamic)`).
+  No DartForge, `tearoff_com_argumentos` (`inferencia/expr.rs`) usa os
+  parâmetros da classe.
 
 Oráculo (mem06, gen01): `int Function(int) f = id` → `FunctionReference`
 `int Function(int)` (o `SimpleIdentifier` interno guarda `T Function<T>(T)`);

@@ -3764,6 +3764,12 @@ inicializador, com a mensagem própria do código.
      (`:544-600`), que têm prioridade (`a is aa` com `aa` local é `type_test_with_non_type`);
   4. `visitImportPrefixReference` (`:1080-1086`): o prefixo `a` de `a.Future` que é um local ainda escondido.
 
+- **Tipo da leitura adiantada:** o nome liga ao elemento local, cujo tipo neste ponto é o que o `ResolutionVisitor`
+  pôs (`localElement.type = varList.type?.type ?? _dynamicType`, `resolution_visitor.dart:1397`): o tipo escrito, ou
+  `dynamic` sem tipo; o implícito só é inferido na declaração. `Function f = () { x = f; };` (com `int x`) dá também
+  `invalid_assignment` de `Function` (`variable/ref_before_declaration_test.dart:71:11`). No DartForge, o ramo
+  `RefNome::Adiante` de `identificador` (`inferencia/expr.rs`) resolve a anotação da declaração sem relatar.
+
 #### §4 Padrões
 
 ##### `pattern_type_mismatch_in_irrefutable_context` (perda 22: FN 22)

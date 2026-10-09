@@ -1061,7 +1061,25 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
             if inf.registrar_locais {
                 inf.body_types.units[cx.unit.0 as usize].declaracoes_de_locais.insert(e, decl.start);
             }
-            inf.core.dynamic_
+            // O tipo do elemento neste ponto: o `ResolutionVisitor` já pôs o
+            // tipo escrito, ou `dynamic` sem tipo (`resolution_visitor.dart:1397`);
+            // a inferência do implícito só vem na declaração. `Function f = () { x = f; };`
+            // dá `invalid_assignment` de `Function` (`ref_before_declaration_test.dart:71`).
+            // Os avisos da anotação são os da declaração, relatados lá.
+            let escrito = inf.program.unit(cx.unit).ast.stmts.iter().find_map(|st| match &st.kind {
+                ast::StmtKind::Variables(vl) if vl.variables.iter().any(|v| v.name.span == decl) => Some(vl.ty),
+                _ => None,
+            });
+            match escrito.flatten() {
+                Some(t) => {
+                    let (nd, nu) = (inf.diagnostics.len(), inf.unidades_dos_avisos.len());
+                    let r = inf.tipo_de_anotacao(cx, t);
+                    inf.diagnostics.truncate(nd);
+                    inf.unidades_dos_avisos.truncate(nu);
+                    r
+                }
+                None => inf.core.dynamic_,
+            }
         }
         // Só curingas declaram `_` aqui (3.7): usar `_` é erro
         // (`Undefined name '_'` no CFE).
@@ -2864,33 +2882,24 @@ fn tearoff_com_argumentos(inf: &mut BodyInferrer<'_>, c: ClassId, sig: TypeId, a
         }
         _ if params.is_empty() => sig,
         _ => {
-            // Genérico: `C<T> Function<T>(...)` com parâmetros novos.
-            let novos: Vec<crate::table::TypeParamId> = params
-                .iter()
-                .map(|&p| {
-                    let d = inf.table.param(p).clone();
-                    inf.table.alloc_type_param(d.name, crate::table::TypeParamOwner::GenericFunctionType, d.bound, d.variance)
-                })
-                .collect();
-            let tipos: Vec<TypeId> = novos.iter().map(|&p| inf.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
-            let mapa = inf.mapa(&params, &tipos);
-            let s = inf.subst(sig, &mapa);
-            for (&p, &o) in novos.iter().zip(params.iter()) {
-                let b = inf.table.param(p).bound;
-                let b = inf.subst(b, &mapa);
-                inf.table.set_type_param_bound(p, b);
-                inf.table.param_mut(p).explicito = inf.table.param(o).explicito;
-            }
-            match inf.table.get(s).clone() {
+            // Genérico: `C<T> Function<T>(...)` com os parâmetros da **própria
+            // classe** como formais (`ConstructorElementToInfer.asType`,
+            // `invocation_inference_helper.dart:45-54`: `typeElement.typeParameters`,
+            // sem cópia). No contexto que menciona os mesmos parâmetros
+            // (`[A<T> Function() fn = A.new]` dentro de `A<T>`) o tipo do
+            // tear-off e o do contexto são iguais, o `trySubtypeMatch` fecha
+            // sem restrição (`P == Q`) e `T` vai a `dynamic`: `A<dynamic> Function()`
+            // não é atribuível (oráculo `ConstWithTypeParametersConstructorTearo_9751514d`).
+            match inf.table.get(sig).clone() {
                 Type::Function { ret, positional, optional, named, nullable, .. } => inf.table.intern(Type::Function {
-                    type_params: novos.into_boxed_slice(),
+                    type_params: params.clone(),
                     ret,
                     positional,
                     optional,
                     named,
                     nullable,
                 }),
-                _ => s,
+                _ => sig,
             }
         }
     }
