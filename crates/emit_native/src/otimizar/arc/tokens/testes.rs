@@ -337,6 +337,55 @@ fn invoke_consume_argumento_nas_duas_saidas_e_so_produz_no_sucesso() {
 }
 
 #[test]
+fn carga_forte_cria_token_e_store_move_consumo_unico() {
+    let slot = SlotForte::Quadro {
+        quadro: valor(9),
+        indice: 0,
+    };
+    let mut f = funcao(vec![bloco(
+        0,
+        vec![
+            (
+                ValueId(1),
+                Instruction::ArcStoreStrong {
+                    slot: slot.clone(),
+                    value: valor(0),
+                    modo: ModoStoreForte::Copy,
+                },
+                Type::Void,
+            ),
+            (
+                ValueId(2),
+                Instruction::ArcLoadStrong { slot: slot.clone() },
+                Type::Ref,
+            ),
+            (
+                ValueId(3),
+                Instruction::ArcStoreStrong {
+                    slot,
+                    value: valor(2),
+                    modo: ModoStoreForte::Move,
+                },
+                Type::Void,
+            ),
+        ],
+        Terminator::Return(None),
+    )]);
+    f.params[1].2 = Type::I64;
+    let mut c = classes(&[2], &[1, 3]);
+    verificar(&f, &c).unwrap();
+    f.blocks[0].instructions.push(drop(4, 2));
+    c.insert(ValueId(4), Ownership::Trivial);
+    assert!(verificar(&f, &c).unwrap_err().contains("indisponível"));
+    f.blocks[0].instructions.pop();
+    c.remove(&ValueId(4));
+    if let Instruction::ArcStoreStrong { modo, .. } = &mut f.blocks[0].instructions[2].1 {
+        *modo = ModoStoreForte::Copy;
+    }
+    assert!(verificar(&f, &c).unwrap_err().contains("não consumidos"));
+}
+
+#[test]
 fn contratos_ausentes_obsoletos_e_phi_com_consumo_duplicado_falham() {
     let f = funcao(vec![bloco(
         0,

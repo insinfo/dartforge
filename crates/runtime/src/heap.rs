@@ -1986,6 +1986,49 @@ impl Heap {
         }
     }
 
+    /// Copia um slot proprietário para um token independente do código.
+    pub(crate) fn copiar_raiz_para_codigo(&mut self, frame: i64, slot: usize) -> Ref {
+        self.conferir_quadro_proprietario(frame);
+        let i = self
+            .frames
+            .iter()
+            .rposition(|(id, _, _)| *id == frame)
+            .unwrap();
+        let valor = *self.frames[i].1.get(slot).expect("slot de raiz inválido");
+        self.reter_owner_codigo(valor);
+        valor
+    }
+
+    /// Transfere um token do código para um slot, sem retain da origem.
+    /// Valida tudo antes de consumir/publicar; solta o antigo após publicação.
+    pub(crate) fn mover_codigo_para_raiz(&mut self, frame: i64, slot: usize, valor: Ref) {
+        self.conferir_quadro_proprietario(frame);
+        let i = self
+            .frames
+            .iter()
+            .rposition(|(id, _, _)| *id == frame)
+            .unwrap();
+        let antigo = *self.frames[i].1.get(slot).expect("slot de raiz inválido");
+        if smi::e_handle(valor) {
+            self.conferir_vivo(valor);
+            let n = *self
+                .owners_codigo
+                .get(&valor)
+                .expect("move ARC sem token do código");
+            if n == 1 {
+                self.owners_codigo.remove(&valor);
+            } else {
+                self.owners_codigo.insert(valor, n - 1);
+            }
+        }
+        self.frames[i].1[slot] = valor;
+        self.stats.live_roots -= usize::from(antigo != 0);
+        self.stats.live_roots += usize::from(valor != 0);
+        self.stats.peak_roots = self.stats.peak_roots.max(self.stats.live_roots);
+        // A ocorrência nova já era contada no inventário do código.
+        self.arc_trocar_raiz_proprietaria(0, antigo);
+    }
+
     /// Retém antes de soltar, sem coleta nem chamada Dart entre as operações.
     fn arc_trocar_raiz_proprietaria(&mut self, novo: Ref, antigo: Ref) {
         if novo == antigo { return; }
@@ -2005,12 +2048,14 @@ impl Heap {
         let indice = self.frames.iter().rposition(|(id, _, _)| *id == frame)
             .expect("frame inexistente");
         let antigo = *self.frames[indice].1.get(slot).expect("slot de raiz inválido");
-        if self.frames[indice].2 { self.arc_trocar_raiz_proprietaria(handle, antigo); }
+        let proprietario = self.frames[indice].2;
+        if proprietario && handle != antigo { self.arc_trocar_raiz_proprietaria(handle, 0); }
         let previous = &mut self.frames[indice].1[slot];
         self.stats.live_roots -= usize::from(*previous != 0);
         self.stats.live_roots += usize::from(handle != 0);
         *previous = handle;
         self.stats.peak_roots = self.stats.peak_roots.max(self.stats.live_roots);
+        if proprietario && handle != antigo { self.arc_trocar_raiz_proprietaria(0, antigo); }
     }
     /// Transfere uma ocorrência entre slots proprietários, zerando a origem.
     /// Solta o conteúdo anterior do destino sem reter o valor transferido.
@@ -5900,6 +5945,81 @@ mod arc_no_heap {
         heap.ativar_arc();
         heap.arc.as_mut().unwrap().conferir = true;
         heap
+    }
+
+    #[test]
+    fn slots_e_tokens_transferem_sem_reter_movimento_e_com_alias_no_destino() {
+        for modo in [None, Some(false), Some(true)] {
+            let mut heap = if modo.is_some() {
+                heap_arc()
+            } else {
+                Heap::new(true)
+            };
+            if let Some(puro) = modo {
+                heap.arc.as_mut().unwrap().puro = puro;
+            }
+            let quadro = heap.push_frame_proprietario(2);
+            let a = heap.alocar_str("carga owned");
+            heap.set_root(quadro, 0, a);
+            let antigo = heap.alocar_str("destino substituído");
+            heap.set_root(quadro, 1, antigo);
+            assert_eq!(heap.copiar_raiz_para_codigo(quadro, 0), a);
+            assert_eq!(heap.copiar_raiz_para_codigo(quadro, 0), a);
+            heap.mover_codigo_para_raiz(quadro, 1, a);
+            heap.collect();
+            assert!(!heap.e_objeto_vivo(antigo));
+            if let Some(arc) = &heap.arc {
+                assert_eq!(arc.estado.meta(a).unwrap().rc, 3);
+            }
+            // O destino já contém a: consome o token e a ocorrência antiga.
+            heap.mover_codigo_para_raiz(quadro, 1, a);
+            assert!(heap.owners_codigo.is_empty());
+            if let Some(arc) = &heap.arc {
+                assert_eq!(arc.estado.meta(a).unwrap().rc, 2);
+            }
+            assert_eq!(heap.copiar_raiz_para_codigo(quadro, 1), a);
+            heap.pop_frame(quadro);
+            heap.collect();
+            assert!(heap.e_objeto_vivo(a));
+            if let Some(arc) = &heap.arc {
+                assert_eq!(arc.estado.meta(a).unwrap().rc, 1);
+            }
+            heap.soltar_owner_codigo(a);
+            heap.collect();
+            assert!(!heap.e_objeto_vivo(a));
+        }
+    }
+
+    #[test]
+    fn transferencia_recusa_destino_ou_token_invalidos_antes_de_mutar() {
+        let mut heap = heap_arc();
+        let quadro = heap.push_frame_proprietario(1);
+        let a = heap.alocar_str("owner do slot não é token do código");
+        heap.set_root(quadro, 0, a);
+        let falha = |heap: &mut Heap, q, s, valor| {
+            assert!(
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    heap.mover_codigo_para_raiz(q, s, valor);
+                }))
+                .is_err()
+            );
+        };
+        falha(&mut heap, quadro, 0, a);
+        assert!(heap.owners_codigo.is_empty());
+        heap.reter_owner_codigo(a);
+        falha(&mut heap, quadro, 1, a);
+        falha(&mut heap, -1, 0, a);
+        let observacional = heap.push_frame_with_slots(1);
+        falha(&mut heap, observacional, 0, a);
+        assert_eq!(heap.owners_codigo[&a], 1);
+        assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 2);
+        heap.pop_frame(observacional);
+        heap.collect();
+        assert!(heap.e_objeto_vivo(a));
+        heap.soltar_owner_codigo(a);
+        heap.pop_frame(quadro);
+        heap.collect();
+        assert!(!heap.e_objeto_vivo(a));
     }
 
     #[test]

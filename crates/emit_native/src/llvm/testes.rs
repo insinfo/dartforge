@@ -32,6 +32,64 @@ fn corpo_de<'a>(ir: &'a str, symbol: &str) -> &'a str {
 }
 
 #[test]
+fn slots_arc_emitidos_preservam_descritor_e_modos_apos_otimizar() {
+    let slot = SlotForte::Quadro {
+        quadro: Operand::Val(ValueId(0)),
+        indice: 7,
+    };
+    let f = funcao(
+        "arc_slots",
+        vec![
+            (ValueId(0), "q".into(), Type::I64),
+            (ValueId(1), "x".into(), Type::Ref),
+        ],
+        Type::Void,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![
+                (
+                    ValueId(2),
+                    Instruction::ArcStoreStrong {
+                        slot: slot.clone(),
+                        value: Operand::Val(ValueId(1)),
+                        modo: ModoStoreForte::Copy,
+                    },
+                    Type::Void,
+                ),
+                (
+                    ValueId(3),
+                    Instruction::ArcLoadStrong { slot: slot.clone() },
+                    Type::Ref,
+                ),
+                (
+                    ValueId(4),
+                    Instruction::ArcStoreStrong {
+                        slot,
+                        value: Operand::Val(ValueId(3)),
+                        modo: ModoStoreForte::Move,
+                    },
+                    Type::Void,
+                ),
+            ],
+            terminator: Terminator::Return(None),
+        }],
+    );
+    let mut m = Module::new();
+    m.functions.push(f);
+    assert!(crate::lower::verificador::verificar(&m).is_empty());
+    crate::otimizar::otimizar(&mut m);
+    let ir = LlvmEmitter::new(&m).emit_all();
+    let corpo = corpo_de(&ir, "arc_slots");
+    assert!(corpo.contains("@dartforge_arc_quadro_copiar_v1(i64 %v0, i64 7, i64 %v1)"));
+    assert!(corpo.contains("%v3 = call i64 @dartforge_arc_quadro_carregar_v1(i64 %v0, i64 7)"));
+    assert!(corpo.contains("@dartforge_arc_quadro_receber_v1(i64 %v0, i64 7, i64 %v3)"));
+    assert!(!corpo.contains("@dartforge_arc_retain"));
+    assert!(!corpo.contains("@dartforge_arc_release"));
+    m.functions[0].params[0].2 = Type::Ptr;
+    assert!(!crate::lower::verificador::verificar(&m).is_empty());
+}
+
+#[test]
 fn operacoes_arc_preservam_contagem_e_movimento_na_otimizacao() {
     let f = funcao(
         "arc_linear",

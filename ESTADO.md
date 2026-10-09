@@ -959,6 +959,40 @@ Release do emissor: 126 aprovados, zero falhas, sete manuais ignorados
 atribuir_slots. O transporte desses metadados para HIR/otimizações e a
 produção de KeepAlive/cleanup continuam pendentes.
 
+HIR agora representa ArcLoadStrong/ArcStoreStrong com
+`SlotForte::Quadro { quadro, indice }` e modos Copy/Move. Quadro é SSA I64
+escalar da ABI, não um ponteiro nativo; índice identifica slot Ref proprietário.
+LLVM usa as novas externs quadro_carregar_v1/quadro_receber_v1 para carga
+owned e transferência SSA→slot; Copy usa quadro_copiar_v1. Visitantes comuns
+e assíncronos incluem ID do quadro e valor. Tipos fixos são Ref/Void; o
+verificador rejeita Ptr como quadro e valor não avaliado. Tokens confere carga
+Owned e consumo no Move, sem consumo no Copy; ID do quadro deve ser Trivial.
+Runtime valida quadro/slot/token antes da mutação. Move não retém a origem;
+publica o destino antes de soltar o antigo, inclusive quando ambos são aliases.
+Load cria token independente que sobrevive ao fecho do quadro. Copy de slot
+também libera antigo após publicação. Null/Smi não têm token físico.
+Runtime release: 155 unitários aprovados, três microbenchmarks ignorados,
+13 integrações e 22 exemplos públicos
+(`target/runtime-arc-slots-ssa-release.log`). Testes conferem RC exato em
+tracing/ARC puro/ARC jovem, aliases, último owner, destino/token inválidos
+sem mutação e chamadas reais da ABI C. Emissor release: 128 aprovados,
+sete manuais ignorados (`target/emissor-arc-slots-fortes-release.log`), com
+testes de IR/otimização e consumo de tokens. Não prova execução LLVM dessas
+instruções, inserção automática, vida/fecho dos quadros, slots globais/heap/
+nativos, proveniência geral, ownership.tsv ou gate >= A0.
+Check final do workspace passou, com avisos preexistentes
+(`target/arc-slots-workspace-check.log`). Todos os 30 exemplos públicos do
+emissor passaram (`target/arc-slots-emissor-doc-release.log`). Novos testes,
+tipos e módulos formatados isoladamente, sem reformatar arquivos antigos.
+Rodada pesada 37970899962 acompanha 92207014: operações ARC iniciais,
+verificador de tokens e metadados léxicos, sem esta nova ponte de slots.
+Foi disparada após término da rodada anterior; aguardar os jobs pendentes.
+Artefatos Windows ARC já conferidos em `target/ci-37970899962`: 238/238
+(35,1 s) e ARC sob estresse 238/238 (57,9 s). Os seis DART! de interop
+continuam sem oráculo Dart VM válido por bibliotecas web indisponíveis.
+macOS, SDK da fonte e B0 ainda ativos na consulta; não inferir conclusão
+da rodada desses relatórios parciais nem disparar outra enquanto estiver ativa.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

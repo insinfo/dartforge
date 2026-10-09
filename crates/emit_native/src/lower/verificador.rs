@@ -313,6 +313,21 @@ pub fn verificar(module: &Module) -> Vec<String> {
 
 fn verificar_instrucao(c: &mut Contexto, inst: &Instruction, ty: Type) {
     match inst {
+        Instruction::ArcLoadStrong { slot } | Instruction::ArcStoreStrong { slot, .. } => {
+            let resultado = if matches!(inst, Instruction::ArcLoadStrong { .. }) { Type::Ref } else { Type::Void };
+            if ty != resultado {
+                c.erro(format!("slot ARC: resultado {ty:?}, esperado {resultado:?}"));
+            }
+            let SlotForte::Quadro { quadro, .. } = slot;
+            if c.tipo(quadro) != Type::I64 || !matches!(quadro, Operand::Val(_)) {
+                c.erro(format!("slot ARC exige ID de quadro SSA I64: {quadro:?}"));
+            }
+            if let Instruction::ArcStoreStrong { value, .. } = inst {
+                if c.tipo(value) != Type::Ref || !matches!(value, Operand::Val(_) | Operand::Constant(Constant::Null)) {
+                    c.erro(format!("store ARC exige referência já avaliada: {value:?}"));
+                }
+            }
+        }
         Instruction::ArcCopy { value } | Instruction::ArcDrop { value } | Instruction::ArcMove { value } => {
             let resultado = if matches!(inst, Instruction::ArcDrop { .. }) { Type::Void } else { Type::Ref };
             if ty != resultado {

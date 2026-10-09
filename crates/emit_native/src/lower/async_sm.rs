@@ -1208,6 +1208,11 @@ pub(crate) fn usos_de(inst: &Instruction) -> Vec<ValueId> {
         Instruction::AllocList { elements } | Instruction::AllocRecord { elements } => {
             elements.iter().for_each(|(a, _)| op(a))
         }
+        Instruction::ArcLoadStrong { slot: SlotForte::Quadro { quadro, .. } } => op(quadro),
+        Instruction::ArcStoreStrong { slot: SlotForte::Quadro { quadro, .. }, value, .. } => {
+            op(quadro);
+            op(value);
+        }
         Instruction::AllocCell { value } => op(value),
         Instruction::AllocEnv { values } => values.iter().for_each(&mut op),
         Instruction::JuntarTextos { partes } => partes.iter().for_each(&mut op),
@@ -1346,6 +1351,11 @@ fn trocar_usos(inst: &mut Instruction, troca: &dyn Fn(ValueId) -> Option<ValueId
         Instruction::AllocObject { fields, .. } => fields.iter_mut().for_each(t),
         Instruction::AllocList { elements } | Instruction::AllocRecord { elements } => {
             elements.iter_mut().for_each(|(a, _)| t(a))
+        }
+        Instruction::ArcLoadStrong { slot: SlotForte::Quadro { quadro, .. } } => t(quadro),
+        Instruction::ArcStoreStrong { slot: SlotForte::Quadro { quadro, .. }, value, .. } => {
+            t(quadro);
+            t(value);
         }
         Instruction::AllocCell { value } => t(value),
         Instruction::AllocEnv { values } => values.iter_mut().for_each(t),

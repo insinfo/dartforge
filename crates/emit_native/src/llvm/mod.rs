@@ -1120,6 +1120,16 @@ impl<'a> LlvmEmitter<'a> {
                         let valor = self.referencia_arc(value);
                         writeln!(self.out, "  call void @dartforge_arc_release(i64 {valor})").unwrap();
                     }
+                    Instruction::ArcLoadStrong { slot } => {
+                        let (quadro, indice) = self.slot_arc(slot);
+                        writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_quadro_carregar_v1(i64 {quadro}, i64 {indice})").unwrap();
+                    }
+                    Instruction::ArcStoreStrong { slot, value, modo } => {
+                        let (quadro, indice) = self.slot_arc(slot);
+                        let valor = self.referencia_arc(value);
+                        let nome = if *modo == ModoStoreForte::Copy { "copiar" } else { "receber" };
+                        writeln!(self.out, "  call void @dartforge_arc_quadro_{nome}_v1(i64 {quadro}, i64 {indice}, i64 {valor})").unwrap();
+                    }
                     Instruction::Const(Constant::Int(n)) => {
                         writeln!(self.out, "  %v{v} = add i64 0, {n}").unwrap();
                     }
@@ -2451,6 +2461,20 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
+    /// Descritor de quadro classificado; nunca coagir um ponteiro para um ID.
+    fn slot_arc(&self, slot: &SlotForte) -> (String, u32) {
+        let SlotForte::Quadro { quadro, indice } = slot;
+        let Operand::Val(v) = quadro else {
+            panic!("slot ARC exige quadro SSA")
+        };
+        assert_eq!(
+            self.tipos.get(v),
+            Some(&Type::I64),
+            "quadro ARC exige ID escalar I64"
+        );
+        (format!("%v{}", v.0), *indice)
+    }
+
     /// Confere a ABI de tokens antes dos registros e de qualquer código Dart.
     /// A falha é interna e fatal: não pode virar uma pendência ignorada.
     fn iniciar_arc(&mut self) {
@@ -3175,7 +3199,8 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::Not(..)
             | Instruction::LShr(..)
             | Instruction::DoubleToInt(..) => Type::I64,
-            Instruction::ArcCopy { .. }
+            Instruction::ArcLoadStrong { .. }
+            | Instruction::ArcCopy { .. }
             | Instruction::ArcMove { .. }
             | Instruction::AllocObject { .. }
             | Instruction::AllocList { .. }
@@ -3198,7 +3223,7 @@ impl<'a> LlvmEmitter<'a> {
             Instruction::ChamadaNativaComposta { ret, destino, .. } => {
                 if destino.is_some() { Type::Void } else { ret.tipo_hir() }
             }
-            Instruction::CellSet { .. } | Instruction::ArcDrop { .. } => Type::Void,
+            Instruction::CellSet { .. } | Instruction::ArcDrop { .. } | Instruction::ArcStoreStrong { .. } => Type::Void,
             Instruction::ConstArray(_) | Instruction::TabelaDeFuncoes(_) => Type::Ptr,
             Instruction::Unbox { to, .. } => *to,
             Instruction::Alloca(_) => Type::Ptr,

@@ -901,7 +901,16 @@ Os passes gerais preservam as operações, inclusive inlining com remapeamento
 de parâmetros/resultados. Isso ainda não insere ownership automaticamente,
 não integra a prova auxiliar de tokens ao pipeline nem transporta obrigações
 através de suspensão.
-As demais operações da tabela e o produtor semântico continuam pendentes.
+ArcLoadStrong/ArcStoreStrong também são representados para
+`SlotForte::Quadro { quadro, indice }`, com ID SSA I64 e índice do slot Ref
+proprietário. O runtime valida identidade/propriedade/limite; ponteiro nativo
+não é descritor de quadro. Load cria token owned independente. Store Copy
+retém uma ocorrência, Move consome o token do código sem reter a origem;
+ambos publicam antes de soltar o conteúdo antigo. O verificador de tokens
+aplica esses efeitos fixos e exige ID do quadro Trivial. Ainda não certifica
+abertura/fechamento ou vida do quadro, nem produz descritores automaticamente.
+Slots de heap/globais/nativos, as demais operações e o produtor semântico
+continuam pendentes.
 
 `Alloca` de Ref representa slot proprietário inicializado com null. `Load` faz
 cópia owned; `Store` substitui ou move. `mem2reg` converte essa propriedade em
@@ -1087,6 +1096,15 @@ inventário proprietário existente do Heap, inclusive em tracing. Não
 coletam nem chamam Dart. Cópia/fechamento rejeitam quadro observacional.
 Essa base ainda não é inserida pelo lowering e não substitui a tabela
 ownership.tsv ou a ABI geral de retornos owned.
+
+`dartforge_arc_quadro_carregar_v1(quadro, indice) -> Ref` copia o owner do
+slot para um token independente em `owners_codigo`, sobrevivendo ao fecho
+do quadro. `dartforge_arc_quadro_receber_v1(quadro, indice, valor)` valida
+destino e token antes de mutar, transfere o token ao slot sem retain da
+origem e solta o conteúdo antigo após publicação. Null/Smi não contam
+fisicamente. As duas operações não coletam nem executam Dart; sua declaração
+LLVM é nounwind, com falhas internas fatais no limite C. Isso é a ponte dos
+slots de quadro com SSA, não um catálogo geral de contratos das externs.
 
 As quatro externs mínimas passam a ter implementação em `arc_abi.rs`:
 retain/release recebem Ref e criam/consomem ocorrências no inventário

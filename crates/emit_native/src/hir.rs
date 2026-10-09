@@ -196,6 +196,37 @@ pub enum FCmpOp {
     Ge,
 }
 
+/// Slot proprietário classificado; não aceita ponteiro nativo arbitrário.
+///
+/// Quadros são IDs escalares da ABI ARC, com slots Ref inicialmente nulos.
+/// O runtime confere identidade, propriedade e limite do índice.
+/// Slots de heap/globais/nativos ainda exigem seus próprios descritores.
+///
+/// ```
+/// use dartforge_emit_native::hir::*;
+/// let slot = SlotForte::Quadro { quadro: Operand::Val(ValueId(0)), indice: 2 };
+/// assert!(matches!(slot, SlotForte::Quadro { indice: 2, .. }));
+/// ```
+#[derive(Debug, Clone)]
+pub enum SlotForte {
+    /// Slot Ref num quadro proprietário aberto pela ABI, identificado por SSA I64.
+    Quadro { quadro: Operand, indice: u32 },
+}
+
+/// Como publicar uma referência no slot proprietário.
+///
+/// ```
+/// use dartforge_emit_native::hir::ModoStoreForte;
+/// assert_ne!(ModoStoreForte::Copy, ModoStoreForte::Move);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModoStoreForte {
+    /// Retém uma ocorrência independente; não consome o token SSA.
+    Copy,
+    /// Consome o token SSA no sucesso, transferindo sua ocorrência.
+    Move,
+}
+
 /// Instruções que produzem um valor (ou efetuam efeito de escrita).
 #[derive(Debug, Clone)]
 pub enum Instruction {
@@ -229,6 +260,27 @@ pub enum Instruction {
     /// assert!(matches!(movimento, Instruction::ArcMove { .. }));
     /// ```
     ArcMove { value: Operand },
+
+    /// Carrega slot classificado e produz token owned independente do slot.
+    ///
+    /// ```
+    /// use dartforge_emit_native::hir::*;
+    /// let slot = SlotForte::Quadro { quadro: Operand::Val(ValueId(0)), indice: 0 };
+    /// let carga = Instruction::ArcLoadStrong { slot };
+    /// assert!(matches!(carga, Instruction::ArcLoadStrong { .. }));
+    /// ```
+    ArcLoadStrong { slot: SlotForte },
+    /// Publica a referência já avaliada antes de liberar o conteúdo antigo.
+    ///
+    /// ```
+    /// use dartforge_emit_native::hir::*;
+    /// let slot = SlotForte::Quadro { quadro: Operand::Val(ValueId(0)), indice: 0 };
+    /// let store = Instruction::ArcStoreStrong {
+    ///     slot, value: Operand::Constant(Constant::Null), modo: ModoStoreForte::Copy,
+    /// };
+    /// assert!(matches!(store, Instruction::ArcStoreStrong { .. }));
+    /// ```
+    ArcStoreStrong { slot: SlotForte, value: Operand, modo: ModoStoreForte },
 
     // Aritmética e lógica inteira
     Add(Operand, Operand),

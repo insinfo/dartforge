@@ -52,7 +52,7 @@ pub enum RetornoTokens {
 /// Contratos na mesma versão do CFG e do inventário de ownership.
 ///
 /// Fornecer uma entrada por instrução ordinária, também sem consumo; as
-/// três operações ARC e Phi têm regras próprias e não aceitam sobrescrita.
+/// operações ARC e Phi têm regras próprias e não aceitam sobrescrita.
 /// Um plano ausente não significa que argumentos sejam emprestados.
 ///
 /// ```
@@ -73,6 +73,8 @@ fn propria(inst: &Instruction) -> bool {
         Instruction::ArcCopy { .. }
             | Instruction::ArcMove { .. }
             | Instruction::ArcDrop { .. }
+            | Instruction::ArcLoadStrong { .. }
+            | Instruction::ArcStoreStrong { .. }
             | Instruction::Phi { .. }
     )
 }
@@ -248,11 +250,39 @@ pub fn verificar_tokens(
     for b in &f.blocks {
         for (v, inst, _) in &b.instructions {
             if propria(inst) {
-                let classe = if matches!(inst, Instruction::ArcDrop { .. }) {
+                if let Instruction::ArcLoadStrong {
+                    slot:
+                        SlotForte::Quadro {
+                            quadro: Operand::Val(q),
+                            ..
+                        },
+                }
+                | Instruction::ArcStoreStrong {
+                    slot:
+                        SlotForte::Quadro {
+                            quadro: Operand::Val(q),
+                            ..
+                        },
+                    ..
+                } = inst
+                {
+                    if classes[q] != Ownership::Trivial {
+                        return Err(erro_meta(format!(
+                            "v{}: ID de quadro deve ser Trivial",
+                            v.0
+                        )));
+                    }
+                }
+                let classe = if matches!(
+                    inst,
+                    Instruction::ArcDrop { .. } | Instruction::ArcStoreStrong { .. }
+                ) {
                     Some(Ownership::Trivial)
                 } else if matches!(
                     inst,
-                    Instruction::ArcCopy { .. } | Instruction::ArcMove { .. }
+                    Instruction::ArcCopy { .. }
+                        | Instruction::ArcMove { .. }
+                        | Instruction::ArcLoadStrong { .. }
                 ) {
                     Some(Ownership::Owned)
                 } else {
@@ -341,7 +371,16 @@ pub fn verificar_tokens(
                     return Err(m);
                 }
                 match inst {
-                    Instruction::ArcCopy { .. } => produzir(*v, classes, &mut ativos),
+                    Instruction::ArcCopy { .. } | Instruction::ArcLoadStrong { .. } => {
+                        produzir(*v, classes, &mut ativos)
+                    }
+                    Instruction::ArcStoreStrong { value, modo, .. } => {
+                        if *modo == ModoStoreForte::Move {
+                            consumir_operando(value, classes, &mut ativos)
+                        } else {
+                            Ok(())
+                        }
+                    }
                     Instruction::ArcMove { value } => {
                         consumir_operando(value, classes, &mut ativos)?;
                         produzir(*v, classes, &mut ativos)

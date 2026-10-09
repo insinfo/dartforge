@@ -109,6 +109,48 @@ pub extern "C" fn dartforge_arc_quadro_copiar_v1(quadro: i64, slot: i64, valor: 
     });
 }
 
+/// Carrega um slot proprietário e cria um token owned do código.
+///
+/// O slot mantém sua ocorrência. O resultado precisa de release ou transferência,
+/// mesmo se o quadro for fechado antes. Não coleta nem executa Dart.
+///
+/// # Panics
+/// Quadro observacional/inexistente, slot inválido ou falha interna; aborta no C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let quadro = dartforge_arc_quadro_abrir_v1(1);
+/// let valor = dartforge_arc_quadro_carregar_v1(quadro, 0);
+/// dartforge_arc_quadro_fechar_v1(quadro);
+/// dartforge_arc_release(valor);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_quadro_carregar_v1(quadro: i64, slot: i64) -> i64 {
+    let slot = usize::try_from(slot).expect("índice inválido de slot ARC");
+    HEAP.with(|h| h.borrow_mut().copiar_raiz_para_codigo(quadro, slot))
+}
+
+/// Transfere um token do código para um slot proprietário.
+///
+/// Não retém a origem. Publica o destino antes de soltar seu owner anterior.
+/// Null/Smi não exigem token físico. Não coleta nem executa Dart.
+///
+/// # Panics
+/// Quadro/slot inválido ou handle sem token do código; valida antes da mutação.
+/// Falha interna aborta no limite C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let quadro = dartforge_arc_quadro_abrir_v1(1);
+/// dartforge_arc_quadro_receber_v1(quadro, 0, 0);
+/// dartforge_arc_quadro_fechar_v1(quadro);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_quadro_receber_v1(quadro: i64, slot: i64, valor: i64) {
+    let slot = usize::try_from(slot).expect("índice inválido de slot ARC");
+    HEAP.with(|h| h.borrow_mut().mover_codigo_para_raiz(quadro, slot, valor));
+}
+
 /// Move um owner entre slots, consumindo origem e conteúdo antigo do destino.
 ///
 /// Mover para o mesmo slot preserva a ocorrência. Não há coleta nem Dart
@@ -157,6 +199,39 @@ pub extern "C" fn dartforge_arc_quadro_fechar_v1(quadro: i64) {
 #[cfg(test)]
 mod testes_arc_abi_quadros {
     use super::*;
+
+    #[test]
+    fn abi_carrega_owner_independente_e_recebe_token_no_slot() {
+        for arc in [false, true] {
+            let anterior = HEAP.with(|h| h.replace(Heap::new(false)));
+            if arc {
+                HEAP.with(|h| h.borrow_mut().ativar_arc());
+            }
+            let quadro = dartforge_arc_quadro_abrir_v1(1);
+            let valor = HEAP.with(|h| h.borrow_mut().alocar_str("slot e SSA"));
+            dartforge_arc_quadro_copiar_v1(quadro, 0, valor);
+            let token = dartforge_arc_quadro_carregar_v1(quadro, 0);
+            assert_eq!(token, valor);
+            dartforge_arc_quadro_receber_v1(quadro, 0, token);
+            let token = dartforge_arc_quadro_carregar_v1(quadro, 0);
+            dartforge_arc_quadro_fechar_v1(quadro);
+            dartforge_arc_collect();
+            assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(token)));
+            dartforge_arc_release(token);
+            dartforge_arc_collect();
+            assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(token)));
+            let quadro = dartforge_arc_quadro_abrir_v1(1);
+            for escalar in [0, smi::de(42).unwrap()] {
+                dartforge_arc_quadro_receber_v1(quadro, 0, escalar);
+                assert_eq!(dartforge_arc_quadro_carregar_v1(quadro, 0), escalar);
+                dartforge_arc_release(escalar);
+            }
+            dartforge_arc_quadro_fechar_v1(quadro);
+            HEAP.with(|h| {
+                h.replace(anterior);
+            });
+        }
+    }
 
     #[test]
     fn abi_minima_confere_modo_e_sustenta_tokens_ate_release() {

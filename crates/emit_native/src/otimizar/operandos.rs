@@ -62,6 +62,11 @@ macro_rules! visitar {
                     args.$nome_t().for_each(|(a, _)| f(a));
                 }
                 Instruction::Load { ptr, .. } => f(ptr),
+                Instruction::ArcLoadStrong { slot: SlotForte::Quadro { quadro, .. } } => f(quadro),
+                Instruction::ArcStoreStrong { slot: SlotForte::Quadro { quadro, .. }, value, .. } => {
+                    f(quadro);
+                    f(value);
+                }
                 Instruction::Store { ptr, val } => {
                     f(ptr);
                     f(val);
