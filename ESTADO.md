@@ -625,6 +625,18 @@ modo padrão da CLI; não afirmar ARC no JIT. Dados, hashes, diagnóstico e
 roteiro em `bench/resultados/2026-10-09-finalizador-callback`. Não cobre
 listener compilado, corpus completo ou encerramento por grupo.
 
+A rodada pesada `37936255800` sobre `5bbfc80f` fechou com sucesso em todos
+os jobs. Artefatos macOS arm64 conferidos em
+`target/ci-37936255800/macos`: AOT/A1/B0/B1/ARC 238/238, dart:io 130/130,
+JIT 238/238 e JIT × AOT 238/238 idênticos, zero divergências, sete sem IR
+iguais por construção e nenhum timeout nos dois. Log macOS
+`target/ci-37936255800/macos-job.log` confirma suites JIT 16/16, 5/5 e 6/6
+e recarga 7/7; teste isolado de recarga 1/1 em 14,94 s, sete em 1,85 s.
+Esta rodada não inclui a instrumentação condicional, contagem inicial direta
+nem recusa de callbacks síncronos posteriores. Exige nova validação ampla
+após publicar esses commits; não extrapolar o verde para a integração ARC
+na HIR ou para desempenho >= A0.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
