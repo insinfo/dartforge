@@ -223,6 +223,12 @@ Windows e o retorno antecipado por SDK ausente. Agora respeitam
 subprocesso com SDK inexistente falhou explicitamente (código 101).
 Isso remove uma aprovação sem execução nos runners Unix; a execução destes
 quatro testes nas plataformas do CI ainda precisa ser conferida.
+O localizador de SDK dos testes também passou a ser compartilhado pelo
+inventário de natives e pelos testes/medições de `sdk_modulo`, removendo
+seus retornos antecipados por SDK ausente. Os testes manuais de poda e
+produção respeitam o caminho explícito dos testes. Suíte local final:
+106 passaram, sete manuais ignorados; subprocessos com SDK inexistente
+reprovaram inventário e sobreposição (código 101), sem aprovação vazia.
 
 Na rodada remota `37896396380` sobre `719e94cc`, os quatro testes dirigidos
 de mapas também passaram, sem ignorados/filtrados, em 752 s; log do job B0

@@ -946,23 +946,8 @@ pub fn inventario(
 #[cfg(test)]
 mod inventario {
     use super::*;
-    use std::path::Path;
 
-    /// O SDK do teste: `DARTFORGE_TEST_SDK_LIB`, senão o descoberto, senão o
 
-    /// caminho da máquina de desenvolvimento.
-
-    static SDK_DIR: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-
-        std::env::var("DARTFORGE_TEST_SDK_LIB")
-
-            .ok()
-
-            .or_else(|| dartforge_elements::sdk::SdkLayout::discover().map(|p| p.to_string_lossy().into_owned()))
-
-            .unwrap_or_else(|| "C:/tools/dartsdk-3.6.2/lib".to_string())
-
-    });
 
     #[test]
     fn a_tabela_esta_em_ordem_e_sem_repeticao() {
@@ -977,14 +962,11 @@ mod inventario {
     /// ainda é um native da fonte.
     #[test]
     fn toda_native_da_fonte_tem_entrada() {
-        if !Path::new(SDK_DIR.as_str()).join("libraries.json").is_file() {
-            eprintln!("SDK ausente em {}; teste pulado", SDK_DIR.as_str());
-            return;
-        }
+        crate::sdk_testes();
         let externos = std::thread::Builder::new()
             .stack_size(64 << 20)
             .spawn(|| {
-                let sdk = crate::sdk_modulo::carregar_sdk_nativo(Path::new(SDK_DIR.as_str())).unwrap();
+                let sdk = crate::sdk_modulo::carregar_sdk_nativo(crate::sdk_testes()).unwrap();
                 let tmp = tempfile::tempdir().unwrap();
                 let entrada = tmp.path().join("main.dart");
                 let mut fonte = String::new();

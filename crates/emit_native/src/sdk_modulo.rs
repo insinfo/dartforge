@@ -919,24 +919,14 @@ fn com_atributo(ir: &str, atributo: &str) -> String {
 mod testes {
     use super::*;
 
-    /// O SDK dos testes: `DARTFORGE_TEST_SDK_LIB`, senão o descoberto
-    /// (`SdkLayout::discover`), senão o caminho da máquina de desenvolvimento.
-    static SDK_DIR: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-        std::env::var("DARTFORGE_TEST_SDK_LIB")
-            .ok()
-            .or_else(|| SdkLayout::discover().map(|p| p.to_string_lossy().into_owned()))
-            .unwrap_or_else(|| "C:/tools/dartsdk-3.6.2/lib".to_string())
-    });
+
 
     /// A sobreposição existe, troca os quatro arquivos e aponta para arquivos
     /// que existem.
     #[test]
     fn sobreposicao_carrega() {
-        if !Path::new(SDK_DIR.as_str()).join("libraries.json").is_file() {
-            eprintln!("SDK ausente em {}; teste pulado", SDK_DIR.as_str());
-            return;
-        }
-        let sdk = carregar_sdk_nativo(Path::new(SDK_DIR.as_str())).unwrap();
+        crate::sdk_testes();
+        let sdk = carregar_sdk_nativo(crate::sdk_testes()).unwrap();
         // 26 com o `mirrors_patch.dart` (o `reflectClass` do executor de
         // builders, corpus/nativo/45); 29 com `double.dart`, `integers.dart`
         // e `convert_patch.dart` (o JSON, docs/NATIVO-PLANO.md); 30 com o
@@ -954,13 +944,10 @@ mod testes {
     #[test]
     #[ignore = "medição; roda à parte"]
     fn medir_inferencia_das_bibliotecas_da_fonte() {
-        if !Path::new(SDK_DIR.as_str()).join("libraries.json").is_file() {
-            eprintln!("SDK ausente em {}; teste pulado", SDK_DIR.as_str());
-            return;
-        }
+        crate::sdk_testes();
         let tabela = std::thread::Builder::new()
             .stack_size(256 << 20)
-            .spawn(|| medir_inferencia_do_sdk(Path::new(SDK_DIR.as_str())).unwrap())
+            .spawn(|| medir_inferencia_do_sdk(crate::sdk_testes()).unwrap())
             .unwrap()
             .join()
             .unwrap();
@@ -989,13 +976,11 @@ mod testes {
     #[test]
     #[ignore = "medição; roda à parte"]
     fn emitir_o_sdk() {
-        if !Path::new(SDK_DIR.as_str()).join("libraries.json").is_file() {
-            return;
-        }
+        crate::sdk_testes();
         let t = std::time::Instant::now();
         let libs = std::thread::Builder::new()
             .stack_size(256 << 20)
-            .spawn(|| emitir_bibliotecas_do_sdk(Path::new(SDK_DIR.as_str()), false).unwrap())
+            .spawn(|| emitir_bibliotecas_do_sdk(crate::sdk_testes(), false).unwrap())
             .unwrap()
             .join()
             .unwrap();
@@ -1024,7 +1009,7 @@ mod testes {
         }
         if std::env::var("DARTFORGE_SDK_COMPILAR").is_ok_and(|v| v == "1") {
             let clang = crate::driver::NativeDriverOptions::default().clang;
-            let s = sdk_compilado(Path::new(SDK_DIR.as_str()), &clang).unwrap();
+            let s = sdk_compilado(crate::sdk_testes(), &clang).unwrap();
             println!("dll: {:?} (frio: {:?})", s.dll, s.frio);
         }
     }
@@ -1042,7 +1027,7 @@ mod testes {
             .spawn(move || {
 
                 let otimizar = std::env::var("DARTFORGE_OTIMIZAR").is_ok_and(|v| v == "1");
-                let opcoes = crate::CompileOptions { sdk: Some(Path::new(SDK_DIR.as_str())), packages: None, timings: true, optimize: otimizar, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
+                let opcoes = crate::CompileOptions { sdk: Some(crate::sdk_testes()), packages: None, timings: true, optimize: otimizar, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
                 crate::compilar(&entrada, &saida, &opcoes).map(|_| saida)
             })
             .unwrap()
@@ -1065,7 +1050,7 @@ mod testes {
     fn producao_e_um_executavel_autocontido() {
         // O SDK instalado (no CI, o do `DART_HOME`); sem ele, o teste só é
         // pulado fora do CI — no CI, ausência é falha, não sucesso vazio.
-        let sdk_dir = SdkLayout::discover().unwrap_or_else(|| PathBuf::from(SDK_DIR.as_str()));
+        let sdk_dir = crate::sdk_testes().to_path_buf();
         if !sdk_dir.join("libraries.json").is_file() {
             assert!(std::env::var_os("CI").is_none(), "SDK do Dart ausente no CI ({})", sdk_dir.display());
             return;
@@ -1105,7 +1090,7 @@ mod testes {
     #[test]
     #[ignore = "compila o SDK da fonte (lento a frio); roda no CI"]
     fn poda_tira_membros_nao_usados() {
-        let sdk_dir = SdkLayout::discover().unwrap_or_else(|| PathBuf::from(SDK_DIR.as_str()));
+        let sdk_dir = crate::sdk_testes().to_path_buf();
         if !sdk_dir.join("libraries.json").is_file() {
             assert!(std::env::var_os("CI").is_none(), "SDK do Dart ausente no CI ({})", sdk_dir.display());
             return;
@@ -1156,9 +1141,7 @@ mod testes {
     #[test]
     #[ignore = "medição; roda à parte"]
     fn medir_lowering_das_bibliotecas_da_fonte() {
-        if !Path::new(SDK_DIR.as_str()).join("libraries.json").is_file() {
-            return;
-        }
+        crate::sdk_testes();
         // Sem trocar o gancho de pânico do processo: um gancho silencioso
         // aqui (como era) calava o pânico de TODOS os testes que rodam junto
         // — no job do macOS, `producao_e_um_executavel_autocontido` e
@@ -1166,7 +1149,7 @@ mod testes {
         // pânicos do lowering pegos por `catch_unwind` só fazem barulho.
         let membros = std::thread::Builder::new()
             .stack_size(256 << 20)
-            .spawn(|| medir_lowering_do_sdk(Path::new(SDK_DIR.as_str())).unwrap())
+            .spawn(|| medir_lowering_do_sdk(crate::sdk_testes()).unwrap())
             .unwrap()
             .join()
             .unwrap();

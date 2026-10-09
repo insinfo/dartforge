@@ -600,24 +600,25 @@ pub fn compilar_com(
 }
 
 #[cfg(test)]
+/// Os mesmos caminhos da emissão real, também nos runners Unix.
+pub(crate) fn sdk_testes() -> &'static Path {
+    static SDK: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    SDK.get_or_init(|| {
+        let sdk = std::env::var_os("DARTFORGE_TEST_SDK_LIB")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| sdk_do_dart().expect("SDK necessário aos testes de emissão"));
+        assert!(
+            sdk.join("libraries.json").is_file(),
+            "SDK dos testes sem libraries.json: {}",
+            sdk.display()
+        );
+        sdk
+    }).as_path()
+}
+
+#[cfg(test)]
 mod testes {
     use super::*;
-
-    /// Os mesmos caminhos da emissão real, também nos runners Unix.
-    fn sdk_testes() -> &'static Path {
-        static SDK: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-        SDK.get_or_init(|| {
-            let sdk = std::env::var_os("DARTFORGE_TEST_SDK_LIB")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| sdk_do_dart().expect("SDK necessário aos testes de emissão"));
-            assert!(
-                sdk.join("libraries.json").is_file(),
-                "SDK dos testes sem libraries.json: {}",
-                sdk.display()
-            );
-            sdk
-        }).as_path()
-    }
 
     fn emitir(entrada: &Path) -> IrEmitido {
         let options = CompileOptions { sdk: Some(sdk_testes()), packages: None, timings: false, optimize: false, versao_linguagem: None, experimentos: Vec::new(), depuracao: false, gerador: None, cpu: None };
