@@ -105,6 +105,8 @@ pub fn produzir_contratos_runtime(
 /// operandos devem estar em representações escalares compatíveis. Guardas
 /// de domínio/estouro e semântica Dart permanecem responsabilidade do lowering.
 /// Phi I1 exige entradas booleanas e produz Trivial, inclusive em laços.
+/// Phi I64/F64 exige entradas de mesmo tipo com contrato Trivial ou constantes
+/// numéricas correspondentes, e origem conhecida fora do ciclo de Phis.
 /// Phi Ref ainda não classificado exige entradas owned/null e origem externa
 /// ao ciclo de Phi/move. Parâmetros e demais operações exigem produtores próprios.
 /// Não insere ARC nem certifica vida dos slots, proveniência ou cleanup.
@@ -171,10 +173,56 @@ fn produzir_phi(
         )
         .collect();
     let mut ordem = Vec::new();
+    let escalares: HashSet<_> = f
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .filter_map(|(v, i, ty)| matches!(i, Instruction::Phi { .. }).then_some((*v, *ty)))
+        .filter(|(_, ty)| matches!(ty, Type::I64 | Type::F64))
+        .map(|(v, _)| v)
+        .collect();
+    let mut pais_escalares: HashMap<ValueId, Vec<ValueId>> = HashMap::new();
+    let mut fila_escalar = VecDeque::new();
     for (v, i, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
         if let Instruction::Phi { ty: declarado, .. } = i {
             if ty != declarado || plano.instrucoes.contains_key(v) {
                 return Err(format!("Phi v{}: tipo ou plano incompatível", v.0));
+            }
+            if escalares.contains(v) {
+                let Instruction::Phi { incoming, .. } = i else {
+                    unreachable!()
+                };
+                if incoming.is_empty() || classes.get(v).is_some_and(|c| *c != Ownership::Trivial) {
+                    return Err(format!(
+                        "Phi v{}: classe ou entradas escalares incompatíveis",
+                        v.0
+                    ));
+                }
+                let mut ancora = false;
+                for (_, op) in incoming {
+                    match op {
+                        Operand::Constant(Constant::Int(_)) if *ty == Type::I64 => ancora = true,
+                        Operand::Constant(Constant::Double(_)) if *ty == Type::F64 => ancora = true,
+                        Operand::Val(de) if tipos.get(de) == Some(ty) && escalares.contains(de) => {
+                            pais_escalares.entry(*de).or_default().push(*v);
+                        }
+                        Operand::Val(de)
+                            if tipos.get(de) == Some(ty)
+                                && classes.get(de) == Some(&Ownership::Trivial) =>
+                        {
+                            ancora = true
+                        }
+                        _ => {
+                            return Err(format!(
+                                "Phi v{}: entrada sem contrato escalar compatível",
+                                v.0
+                            ));
+                        }
+                    }
+                }
+                if ancora {
+                    fila_escalar.push_back(*v);
+                }
             }
             if *ty == Type::I1 {
                 let Instruction::Phi { incoming, .. } = i else {
@@ -203,6 +251,22 @@ fn produzir_phi(
                 ordem.push(*v);
             }
         }
+    }
+    // A largura física não prova ausência de ownership. Só propagamos contratos
+    // a partir de entradas auditadas, rejeitando ciclos sem origem externa.
+    let mut fundados_escalares = HashSet::new();
+    while let Some(v) = fila_escalar.pop_front() {
+        if fundados_escalares.insert(v) {
+            if let Some(dependentes) = pais_escalares.get(&v) {
+                fila_escalar.extend(dependentes);
+            }
+        }
+    }
+    for v in escalares {
+        if !fundados_escalares.contains(&v) {
+            return Err(format!("Phi v{} sem origem escalar fora do ciclo", v.0));
+        }
+        classes.insert(v, Ownership::Trivial);
     }
     let mut pais: HashMap<ValueId, Vec<ValueId>> = HashMap::new();
     let mut fila = VecDeque::new();
@@ -885,6 +949,96 @@ mod testes {
         assert!(produzir_contratos_arc(&f, &mut classes, &mut plano).is_err());
         assert_eq!(classes, antes);
         assert_eq!(plano.instrucoes, efeitos);
+    }
+
+    #[test]
+    fn phi_numerico_exige_origem_e_contrato_semantico() {
+        for (ty, constante) in [
+            (Type::I64, Constant::Int(7)),
+            (Type::F64, Constant::Double(7.0)),
+        ] {
+            let mut f = Function {
+                symbol: "phi_escalar".into(),
+                name: "phi_escalar".into(),
+                depuracao: None,
+                params: vec![],
+                return_ty: ty,
+                blocks: vec![
+                    BasicBlock {
+                        id: BlockId(0),
+                        instructions: vec![],
+                        terminator: Terminator::Branch(BlockId(1)),
+                    },
+                    BasicBlock {
+                        id: BlockId(1),
+                        instructions: vec![(
+                            ValueId(1),
+                            Instruction::Phi {
+                                ty,
+                                incoming: vec![
+                                    (BlockId(0), Operand::Constant(constante)),
+                                    (BlockId(1), Operand::Val(ValueId(1))),
+                                ],
+                            },
+                            ty,
+                        )],
+                        terminator: Terminator::CondBranch {
+                            cond: Operand::Constant(Constant::Bool(false)),
+                            then_block: BlockId(1),
+                            else_block: BlockId(2),
+                        },
+                    },
+                    BasicBlock {
+                        id: BlockId(2),
+                        instructions: vec![],
+                        terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+                    },
+                ],
+            };
+            let mut classes = HashMap::new();
+            let mut plano = PlanoTokens::default();
+            produzir_e_verificar_tokens(
+                &f,
+                &mut classes,
+                &mut plano,
+                &TabelasDaFuncao::default(),
+                &PlanoEscopos::default(),
+            )
+            .unwrap();
+            assert_eq!(classes[&ValueId(1)], Ownership::Trivial);
+            assert!(plano.instrucoes.is_empty());
+            // Nem um contrato previamente fornecido funda um ciclo fechado.
+            if let Instruction::Phi { incoming, .. } = &mut f.blocks[1].instructions[0].1 {
+                incoming[0].1 = Operand::Val(ValueId(1));
+            }
+            let antes = classes.clone();
+            assert!(
+                produzir_contratos_arc(&f, &mut classes, &mut plano)
+                    .unwrap_err()
+                    .contains("sem origem escalar")
+            );
+            assert_eq!(classes, antes);
+            // Um parâmetro de mesma largura precisa de contrato explícito.
+            f.params.push((ValueId(0), "entrada".into(), ty));
+            if let Instruction::Phi { incoming, .. } = &mut f.blocks[1].instructions[0].1 {
+                incoming[0].1 = Operand::Val(ValueId(0));
+            }
+            assert!(produzir_contratos_arc(&f, &mut classes, &mut plano).is_err());
+            classes.insert(ValueId(0), Ownership::Owned);
+            let antes = classes.clone();
+            assert!(produzir_contratos_arc(&f, &mut classes, &mut plano).is_err());
+            assert_eq!(classes, antes);
+            assert!(plano.instrucoes.is_empty());
+            classes.insert(ValueId(0), Ownership::Trivial);
+            produzir_e_verificar_tokens(
+                &f,
+                &mut classes,
+                &mut plano,
+                &TabelasDaFuncao::default(),
+                &PlanoEscopos::default(),
+            )
+            .unwrap();
+        }
     }
 
     #[test]

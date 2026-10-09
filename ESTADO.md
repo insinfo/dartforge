@@ -1484,6 +1484,17 @@ ARC aprovados (`target/ownership-aritmetica-produtor-test.log`), assim como
 guardas de domínio/estouro, semântica Dart dos operadores, tipagem original
 completa ou inserção ARC no pipeline padrão.
 
+Phi I64/F64 agora recebe Trivial somente com entradas de mesmo tipo e contrato
+Trivial conhecido ou constantes numéricas correspondentes. O grafo propaga
+origens entre Phis e recusa ciclos sem origem externa, mesmo com classe
+previamente fornecida; largura I64 sozinha não classifica um parâmetro.
+Regressão verifica laços inteiros e flutuantes, rejeita parâmetro sem contrato
+ou Owned e confere publicação atômica. Cinquenta e sete testes ARC aprovados
+(`target/ownership-phi-numerico-test.log`) e 36 exemplos públicos
+(`target/ownership-phi-numerico-doc.log`). Parâmetros ainda exigem metadados
+semânticos explícitos; isso não certifica managed-I64 nem integra inserção
+automática de RC/cleanup no pipeline padrão.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
