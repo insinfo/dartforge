@@ -36,8 +36,10 @@ pub struct PlanoFuncaoDart {
 /// das funções não define a disponibilidade dos contratos.
 ///
 /// Exige um plano por símbolo e somente callees do conjunto. Argumentos
-/// escalares ordinários não produzidos pelas chamadas exigem classificação
-/// prévia, como no produtor de chamadas. Não prepara CFG/escopos, divide
+/// passam pela classificação ARC após classificar resultados das chamadas:
+/// constantes/aritmética/Phis/runtime cobertos não exigem mapas manuais.
+/// Parâmetros não Ref e operações não cobertas exigem contratos prévios.
+/// Não prepara CFG/escopos, divide
 /// arestas, resolve finally/cancelamento/suspensão nem materializa tabelas.
 /// Descritores de slots e proveniência continuam premissas do lowering.
 ///
@@ -91,7 +93,7 @@ pub fn inserir_arc_funcoes_dart(
     for f in &mut modulo.functions {
         let original = &planos[&f.symbol];
         let (classes, tokens) = novos_planos.get_mut(&f.symbol).unwrap();
-        produzir_chamadas_dart(f, &resumos, classes, tokens)?;
+        super::chamadas::produzir_chamadas_e_instrucoes_dart(f, &resumos, classes, tokens)?;
         let (copias, drops) =
             inserir_arc_saidas_dart(f, classes, tokens, &original.tabelas, &original.escopos)?;
         verificar_contrato_funcao_dart(f, classes, tokens, &original.tabelas, &original.escopos)?;
@@ -112,6 +114,131 @@ pub fn inserir_arc_funcoes_dart(
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn argumentos_escalares_com_phi_e_aritmetica_sao_produzidos_no_conjunto() {
+        let criar = Function {
+            symbol: "criar".into(),
+            name: "criar".into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::I64,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![],
+                terminator: Terminator::Return(Some(Operand::Constant(Constant::Int(41)))),
+            }],
+        };
+        let mut identidade = criar.clone();
+        identidade.symbol = "identidade_escalar".into();
+        identidade.params.push((ValueId(0), "x".into(), Type::I64));
+        identidade.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(0))));
+        let caller = Function {
+            symbol: "caller".into(),
+            name: "caller".into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::I64,
+            blocks: vec![
+                BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![],
+                    terminator: Terminator::CondBranch {
+                        cond: Operand::Constant(Constant::Bool(true)),
+                        then_block: BlockId(1),
+                        else_block: BlockId(2),
+                    },
+                },
+                BasicBlock {
+                    id: BlockId(3),
+                    instructions: vec![
+                        (
+                            ValueId(3),
+                            Instruction::Phi {
+                                ty: Type::I64,
+                                incoming: vec![
+                                    (BlockId(1), Operand::Val(ValueId(1))),
+                                    (BlockId(2), Operand::Val(ValueId(2))),
+                                ],
+                            },
+                            Type::I64,
+                        ),
+                        (
+                            ValueId(4),
+                            Instruction::Add(
+                                Operand::Val(ValueId(3)),
+                                Operand::Constant(Constant::Int(1)),
+                            ),
+                            Type::I64,
+                        ),
+                        (
+                            ValueId(5),
+                            Instruction::CallStatic {
+                                symbol: identidade.symbol.clone(),
+                                args: vec![Operand::Val(ValueId(4))],
+                                ret_ty: Type::I64,
+                            },
+                            Type::I64,
+                        ),
+                    ],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(5)))),
+                },
+                BasicBlock {
+                    id: BlockId(2),
+                    instructions: vec![(
+                        ValueId(2),
+                        Instruction::Const(Constant::Int(41)),
+                        Type::I64,
+                    )],
+                    terminator: Terminator::Branch(BlockId(3)),
+                },
+                BasicBlock {
+                    id: BlockId(1),
+                    instructions: vec![(
+                        ValueId(1),
+                        Instruction::CallStatic {
+                            symbol: criar.symbol.clone(),
+                            args: vec![],
+                            ret_ty: Type::I64,
+                        },
+                        Type::I64,
+                    )],
+                    terminator: Terminator::Branch(BlockId(3)),
+                },
+            ],
+        };
+        let mut funcoes = vec![caller, identidade, criar];
+        let mut planos: HashMap<_, _> = funcoes
+            .iter()
+            .map(|f| (f.symbol.clone(), PlanoFuncaoDart::default()))
+            .collect();
+        // O parâmetro escalar do callee tem contrato semântico explícito.
+        // Nenhuma classe/efeito é fornecido para o caller.
+        planos
+            .get_mut("identidade_escalar")
+            .unwrap()
+            .classes
+            .insert(ValueId(0), Ownership::Trivial);
+        assert_eq!(
+            inserir_arc_funcoes_dart(&mut funcoes, &mut planos).unwrap(),
+            (0, 0)
+        );
+        for v in 1..=5 {
+            assert_eq!(planos["caller"].classes[&ValueId(v)], Ownership::Trivial);
+        }
+        let (mut ruins, mut planos_ruins) = (funcoes, planos);
+        ruins[0].blocks[2].instructions[0] =
+            (ValueId(2), Instruction::Const(Constant::Null), Type::Ref);
+        let antes = format!("{ruins:?}");
+        let planos_antes = format!("{planos_ruins:?}");
+        assert!(
+            inserir_arc_funcoes_dart(&mut ruins, &mut planos_ruins)
+                .unwrap_err()
+                .contains("Phi")
+        );
+        assert_eq!(format!("{ruins:?}"), antes);
+        assert_eq!(format!("{planos_ruins:?}"), planos_antes);
+    }
 
     fn conjunto() -> (Vec<Function>, HashMap<String, PlanoFuncaoDart>) {
         let folha = Function {

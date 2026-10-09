@@ -164,6 +164,27 @@ pub fn produzir_chamadas_dart(
     classes: &mut HashMap<ValueId, Ownership>,
     plano: &mut PlanoTokens,
 ) -> Result<(), String> {
+    produzir_chamadas(f, resumos, classes, plano, false)
+}
+
+// Usado somente dentro da transação do conjunto: os resultados provisórios
+// alimentam a classificação das demais instruções antes de conferir usos.
+pub(super) fn produzir_chamadas_e_instrucoes_dart(
+    f: &Function,
+    resumos: &[ContratoFuncaoDart],
+    classes: &mut HashMap<ValueId, Ownership>,
+    plano: &mut PlanoTokens,
+) -> Result<(), String> {
+    produzir_chamadas(f, resumos, classes, plano, true)
+}
+
+fn produzir_chamadas(
+    f: &Function,
+    resumos: &[ContratoFuncaoDart],
+    classes: &mut HashMap<ValueId, Ownership>,
+    plano: &mut PlanoTokens,
+    classificar_instrucoes: bool,
+) -> Result<(), String> {
     super::ssa::verificar(f)?;
     let mut por_simbolo = HashMap::new();
     for resumo in resumos {
@@ -224,6 +245,9 @@ pub fn produzir_chamadas_dart(
     }
     // Os resultados têm contratos semânticos dos callees, independentemente
     // da ordem física dos blocos. SSA já conferiu sua dominância nos usos.
+    if classificar_instrucoes {
+        produzir_contratos_arc(f, &mut novas_classes, &mut novo_plano)?;
+    }
     for (args, resumo) in chamadas {
         for (op, esperado) in args.iter().zip(&resumo.parametros) {
             let compativel = operando_tem_tipo(op, *esperado, &tipos)

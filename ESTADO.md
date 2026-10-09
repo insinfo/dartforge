@@ -2,6 +2,20 @@
 
 ## Retomada de 2026-10-09
 
+A preparação conjunta agora classifica resultados das chamadas internas,
+depois constantes/aritmética/Phis/runtime cobertos, e só então confere os
+argumentos das chamadas. Isso remove mapas manuais de argumentos ordinários
+cobertos: regressão combina resultado de chamada, Phi I64, soma e nova
+chamada em blocos fora de ordem, sem classes/efeitos no caller. O parâmetro
+I64 do callee continua exigindo contrato semântico explícito. Trocar entrada
+do Phi por Ref é rejeitado sem publicar o conjunto.
+80 testes ARC, 45 doctests e oito execuções AOT sob stress passaram.
+Stdout e LLVM são idênticos à preparação conjunta anterior, nos caminhos
+normais e nos três erros em ARC/tracing. Logs
+`target/ownership-funcoes-argumentos-*`. Ainda faltam produtores para
+operações/ABIs não cobertas, CFG/escopos e integração no pipeline padrão;
+não há nova medição de desempenho nem conclusão do objetivo completo.
+
 Preparação conjunta Dart: `inserir_arc_funcoes_dart` recebe conjunto fechado
 de funções e planos, cria contratos provisórios de chamadas internas e
 publica somente após inserir/verificar todos os corpos. Usa o resumo de
