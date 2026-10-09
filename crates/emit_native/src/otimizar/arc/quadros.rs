@@ -1,12 +1,29 @@
 //! Vida dos quadros proprietários locais abertos pela ABI ARC auditada.
-//! Exige IDs SSA diretos; não certifica quadros importados, aliases ou índices.
+//! Exige IDs SSA diretos e confere limites constantes quando a capacidade é
+//! conhecida; não certifica quadros importados, aliases ou limites dinâmicos.
 
 use super::super::cfg::Cfg;
 use crate::hir::*;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 pub(super) fn verificar(f: &Function) -> Result<(), String> {
     let cfg = Cfg::novo(f);
+    let capacidades: HashMap<_, _> = f
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .filter_map(|(v, inst, _)| match inst {
+            Instruction::CallRuntime { name, args, .. }
+                if name == "dartforge_arc_quadro_abrir_v1" =>
+            {
+                match args.first() {
+                    Some((Operand::Constant(Constant::Int(n)), _)) => Some((*v, *n)),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+        .collect();
     if f.blocks.is_empty() {
         return Err("quadros ARC: função sem entrada".into());
     }
@@ -27,20 +44,30 @@ pub(super) fn verificar(f: &Function) -> Result<(), String> {
                 }
                 Ok(*q)
             };
+            let indice = |q: ValueId, i: i64| -> Result<(), String> {
+                if i < 0 || capacidades.get(&q).is_some_and(|n| i >= *n) {
+                    return Err(erro(format!("índice {i} fora do quadro v{}", q.0)));
+                }
+                Ok(())
+            };
             match inst {
                 Instruction::ArcLoadStrong {
-                    slot: SlotForte::Quadro { quadro, .. },
+                    slot: SlotForte::Quadro { quadro, indice: i },
                 }
                 | Instruction::ArcStoreStrong {
-                    slot: SlotForte::Quadro { quadro, .. },
+                    slot: SlotForte::Quadro { quadro, indice: i },
                     ..
                 } => {
-                    usar(quadro, &ativos)?;
+                    let q = usar(quadro, &ativos)?;
+                    indice(q, i64::from(*i))?;
                 }
                 Instruction::CallRuntime { name, args, .. }
                     if name.starts_with("dartforge_arc_quadro_") =>
                 {
                     if name == "dartforge_arc_quadro_abrir_v1" {
+                        if capacidades.get(v).is_some_and(|n| *n < 0) {
+                            return Err(erro("capacidade negativa de quadro".into()));
+                        }
                         if ativos.contains(v) {
                             return Err(erro(format!("quadro v{} aberto duas vezes", v.0)));
                         }
@@ -50,6 +77,11 @@ pub(super) fn verificar(f: &Function) -> Result<(), String> {
                             .first()
                             .ok_or_else(|| erro("quadro sem argumento".into()))?;
                         let q = usar(&primeiro.0, &ativos)?;
+                        if name != "dartforge_arc_quadro_fechar_v1" {
+                            if let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1) {
+                                indice(q, *i)?;
+                            }
+                        }
                         if name == "dartforge_arc_quadro_fechar_v1" {
                             if ativos.last() != Some(&q) {
                                 return Err(erro(format!("fechamento fora de LIFO de v{}", q.0)));
@@ -59,7 +91,10 @@ pub(super) fn verificar(f: &Function) -> Result<(), String> {
                             let destino = args
                                 .get(2)
                                 .ok_or_else(|| erro("move sem quadro destino".into()))?;
-                            usar(&destino.0, &ativos)?;
+                            let q_destino = usar(&destino.0, &ativos)?;
+                            if let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(3) {
+                                indice(q_destino, *i)?;
+                            }
                         }
                     }
                 }
@@ -195,6 +230,50 @@ mod testes {
         .unwrap_err();
         assert!(erro.contains("pilhas de quadros diferentes"), "{erro}");
         assert!(classes.is_empty() && plano.instrucoes.is_empty());
+    }
+
+    #[test]
+    fn slots_constantes_exigem_indice_dentro_da_capacidade() {
+        let mut f = exemplo();
+        f.blocks[0].instructions.insert(
+            1,
+            (
+                ValueId(2),
+                Instruction::ArcLoadStrong {
+                    slot: SlotForte::Quadro {
+                        quadro: Operand::Val(ValueId(0)),
+                        indice: 0,
+                    },
+                },
+                Type::Ref,
+            ),
+        );
+        verificar(&f).unwrap();
+        f.blocks[0].instructions[1].1 = Instruction::ArcLoadStrong {
+            slot: SlotForte::Quadro {
+                quadro: Operand::Val(ValueId(0)),
+                indice: 1,
+            },
+        };
+        assert!(verificar(&f).unwrap_err().contains("índice 1 fora"));
+        f.blocks[0].instructions[1] = chamada(
+            2,
+            "dartforge_arc_quadro_carregar_v1",
+            vec![
+                (Operand::Val(ValueId(0)), Type::I64),
+                (Operand::Constant(Constant::Int(-1)), Type::I64),
+            ],
+            Type::Ref,
+        );
+        assert!(verificar(&f).unwrap_err().contains("índice -1 fora"));
+        f = exemplo();
+        f.blocks[0].instructions[0] = chamada(
+            0,
+            "dartforge_arc_quadro_abrir_v1",
+            vec![(Operand::Constant(Constant::Int(-1)), Type::I64)],
+            Type::I64,
+        );
+        assert!(verificar(&f).unwrap_err().contains("capacidade negativa"));
     }
 
     #[test]

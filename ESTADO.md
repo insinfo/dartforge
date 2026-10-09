@@ -1421,6 +1421,18 @@ em ARC com auditoria/estresse e saída slots ARC/42/null
 aliases, efeitos interprocedurais de quadros, suspensão/cancelamento ou ABI
 importada, nem insere abertura/cleanup automaticamente no lowering.
 
+Quadros locais com capacidade inteira constante agora conferem índices
+constantes dos slots fortes e das externs, inclusive origem/destino de mover_v1.
+Capacidade constante negativa e índice negativo são recusados; índice igual
+ou maior que capacidade conhecida também. Regressão aceita slot zero de
+quadro com capacidade um, recusa slot um, carregar índice -1 e abrir capacidade
+-1. Cinquenta e dois testes ARC e 36 exemplos públicos aprovados
+(`target/ownership-quadros-limites-test.log`, `target/ownership-quadros-limites-doc.log`).
+Prova AOT de slots passou novamente em ARC com auditoria/estresse e saída
+slots ARC/42/null (`target/ownership-quadros-limites-aot.log`). Capacidade ou
+índice dinâmico ainda não recebe prova de limite; isso não certifica descritores
+gerais, ABI importada ou efeitos interprocedurais.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
