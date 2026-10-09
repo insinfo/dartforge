@@ -1109,6 +1109,17 @@ impl<'a> LlvmEmitter<'a> {
                 }
                 let inicio_da_instrucao = self.out.len();
                 match inst {
+                    Instruction::ArcCopy { value } | Instruction::ArcMove { value } => {
+                        let valor = self.referencia_arc(value);
+                        if matches!(inst, Instruction::ArcCopy { .. }) {
+                            writeln!(self.out, "  call void @dartforge_arc_retain(i64 {valor})").unwrap();
+                        }
+                        writeln!(self.out, "  %v{v} = add i64 {valor}, 0").unwrap();
+                    }
+                    Instruction::ArcDrop { value } => {
+                        let valor = self.referencia_arc(value);
+                        writeln!(self.out, "  call void @dartforge_arc_release(i64 {valor})").unwrap();
+                    }
                     Instruction::Const(Constant::Int(n)) => {
                         writeln!(self.out, "  %v{v} = add i64 0, {n}").unwrap();
                     }
@@ -2427,6 +2438,19 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str("}\n\n");
     }
 
+    /// Referência já avaliada: não usar coagir, que poderia alocar uma caixa.
+    /// HIR inválida é falha interna; o verificador confere esta precondição.
+    fn referencia_arc(&self, value: &Operand) -> String {
+        match value {
+            Operand::Val(v) => {
+                assert_eq!(self.tipos.get(v), Some(&Type::Ref), "operação ARC exige SSA Ref");
+                format!("%v{}", v.0)
+            }
+            Operand::Constant(Constant::Null) => "0".into(),
+            _ => panic!("operação ARC exige referência já avaliada"),
+        }
+    }
+
     /// Confere a ABI de tokens antes dos registros e de qualquer código Dart.
     /// A falha é interna e fatal: não pode virar uma pendência ignorada.
     fn iniciar_arc(&mut self) {
@@ -3151,7 +3175,9 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::Not(..)
             | Instruction::LShr(..)
             | Instruction::DoubleToInt(..) => Type::I64,
-            Instruction::AllocObject { .. }
+            Instruction::ArcCopy { .. }
+            | Instruction::ArcMove { .. }
+            | Instruction::AllocObject { .. }
             | Instruction::AllocList { .. }
             | Instruction::AllocRecord { .. }
             | Instruction::Box { .. }
@@ -3172,7 +3198,7 @@ impl<'a> LlvmEmitter<'a> {
             Instruction::ChamadaNativaComposta { ret, destino, .. } => {
                 if destino.is_some() { Type::Void } else { ret.tipo_hir() }
             }
-            Instruction::CellSet { .. } => Type::Void,
+            Instruction::CellSet { .. } | Instruction::ArcDrop { .. } => Type::Void,
             Instruction::ConstArray(_) | Instruction::TabelaDeFuncoes(_) => Type::Ptr,
             Instruction::Unbox { to, .. } => *to,
             Instruction::Alloca(_) => Type::Ptr,

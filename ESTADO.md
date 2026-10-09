@@ -891,6 +891,25 @@ o CFG excepcional ARC, teste semântico com SDK real, ABI mínima de tokens
 e conferência da entrada. Acompanhar essa rodada até terminar; não disparar
 outra enquanto estiver na fila/ativa. CI rápido da revisão: 37961221420.
 
+HIR passa a representar ArcCopy/ArcDrop/ArcMove. LLVM chama retain/release
+para copy/drop; move mantém os bits sem RC físico. Tipos de resultado fixos:
+Ref para copy/move, Void para drop. Só recebem SSA Ref já avaliado ou null;
+o operador não introduz boxing/alocação, nem classifica I64 por largura.
+Verificador de representação rejeita escalares, literais não avaliados e
+resultado incompatível. Visitantes comuns de leitura/substituição e os dois
+visitantes assíncronos incluem os operandos; operações não são puras para DCE.
+Testes dirigidos de IR verificam uma retenção/drop, movimento sem contagem
+extra, inlining/remapeamento e rejeições. Suíte final release do emissor:
+119 aprovados, sete manuais ignorados
+(`target/emissor-arc-instrucoes-validado-release.log`). Três exemplos públicos
+passaram, 19 exemplos restantes filtrados (`target/arc-instrucoes-doc-release.log`).
+Check do workspace passou (`target/arc-instrucoes-workspace-check.log`), com
+avisos existentes. Testes novos formatados isoladamente. Ainda não produzidos
+automaticamente pelo lowering, nem verificados quanto a disponibilidade/
+consumo de tokens por CFG. ArcKeepAlive, slots fortes, contratos completos
+de externs, saídas excepcionais/suspensão e gate >= A0 continuam pendentes.
+A rodada remota 37961824053 testa eaa457d8, sem essas três instruções novas.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

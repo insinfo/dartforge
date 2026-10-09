@@ -1197,6 +1197,9 @@ pub(crate) fn usos_de(inst: &Instruction) -> Vec<ValueId> {
         | Instruction::DoubleToInt(a)
         | Instruction::CheckNotNull(a) => op(a),
         Instruction::ZExt { op: a, .. }
+        | Instruction::ArcCopy { value: a }
+        | Instruction::ArcDrop { value: a }
+        | Instruction::ArcMove { value: a }
         | Instruction::Trunc { op: a, .. }
         | Instruction::Bitcast { op: a, .. }
         | Instruction::Box { op: a, .. }
@@ -1333,6 +1336,9 @@ fn trocar_usos(inst: &mut Instruction, troca: &dyn Fn(ValueId) -> Option<ValueId
         | Instruction::DoubleToInt(a)
         | Instruction::CheckNotNull(a) => t(a),
         Instruction::ZExt { op: a, .. }
+        | Instruction::ArcCopy { value: a }
+        | Instruction::ArcDrop { value: a }
+        | Instruction::ArcMove { value: a }
         | Instruction::Trunc { op: a, .. }
         | Instruction::Bitcast { op: a, .. }
         | Instruction::Box { op: a, .. }

@@ -880,6 +880,17 @@ Operações **novas** sugeridas na `Instruction`:
 | `ArcBeginBorrow`, `ArcEndBorrow` | Delimitam empréstimo verificável; podem desaparecer após verificação. |
 | `ArcKeepAlive { value, escopo }` | Exige vida até uma saída de escopo, inclusive excepcional; não é comentário removível. |
 
+`ArcCopy`, `ArcDrop` e `ArcMove` estão representados na HIR e emitidos:
+copy chama a ABI retain; drop chama release; move transfere os bits sem
+operação RC física. Copy/move têm resultado Ref fixo, drop Void. Recebem
+SSA Ref já avaliado ou null, sem boxing/alocação implícita no operador;
+I64 sem proveniência e literal ainda não avaliado são recusados. Visitantes
+de leitura/substituição e do corpo assíncrono incluem seus operandos.
+Os passes gerais preservam as operações, inclusive inlining com remapeamento
+de parâmetros/resultados. Isso ainda não insere ownership automaticamente,
+não prova consumo por CFG nem transporta obrigações através de suspensão.
+As demais operações da tabela e o produtor semântico continuam pendentes.
+
 `Alloca` de Ref representa slot proprietário inicializado com null. `Load` faz
 cópia owned; `Store` substitui ou move. `mem2reg` converte essa propriedade em
 SSA antes de inserir contadores. `StoreGlobal` usa slot global contado. Store

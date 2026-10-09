@@ -202,6 +202,34 @@ pub enum Instruction {
     /// Carrega uma constante em um identificador SSA.
     Const(Constant),
 
+    /// Copia uma referência já avaliada e produz token owned independente.
+    /// Retém sem coletar. O operando é SSA Ref ou null; não cria caixas.
+    ///
+    /// ```
+    /// use dartforge_emit_native::hir::*;
+    /// let copia = Instruction::ArcCopy { value: Operand::Val(ValueId(0)) };
+    /// assert!(matches!(copia, Instruction::ArcCopy { .. }));
+    /// ```
+    ArcCopy { value: Operand },
+    /// Consome um token owned, sem coletar ou executar Dart.
+    /// O verificador de tokens deverá provar disponibilidade e consumo único.
+    ///
+    /// ```
+    /// use dartforge_emit_native::hir::*;
+    /// let drop = Instruction::ArcDrop { value: Operand::Val(ValueId(1)) };
+    /// assert!(matches!(drop, Instruction::ArcDrop { .. }));
+    /// ```
+    ArcDrop { value: Operand },
+    /// Transfere o token para o resultado Ref sem alterar RC físico.
+    /// Consome a origem lógica; preservar a operação até verificar ownership.
+    ///
+    /// ```
+    /// use dartforge_emit_native::hir::*;
+    /// let movimento = Instruction::ArcMove { value: Operand::Val(ValueId(1)) };
+    /// assert!(matches!(movimento, Instruction::ArcMove { .. }));
+    /// ```
+    ArcMove { value: Operand },
+
     // Aritmética e lógica inteira
     Add(Operand, Operand),
     Sub(Operand, Operand),

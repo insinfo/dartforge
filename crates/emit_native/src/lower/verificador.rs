@@ -313,6 +313,17 @@ pub fn verificar(module: &Module) -> Vec<String> {
 
 fn verificar_instrucao(c: &mut Contexto, inst: &Instruction, ty: Type) {
     match inst {
+        Instruction::ArcCopy { value } | Instruction::ArcDrop { value } | Instruction::ArcMove { value } => {
+            let resultado = if matches!(inst, Instruction::ArcDrop { .. }) { Type::Void } else { Type::Ref };
+            if ty != resultado {
+                c.erro(format!("operação ARC: resultado {ty:?}, esperado {resultado:?}"));
+            }
+            if c.tipo(value) != Type::Ref
+                || !matches!(value, Operand::Val(_) | Operand::Constant(Constant::Null))
+            {
+                c.erro(format!("operação ARC exige referência já avaliada: {value:?}"));
+            }
+        }
         Instruction::CallRuntime { name, args, .. } => {
             for &(b, t) in pares_com_tag(name) {
                 if let (Some((bits, _)), Some((tag, _))) = (args.get(b), args.get(t)) {

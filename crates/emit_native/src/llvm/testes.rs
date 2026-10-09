@@ -32,6 +32,156 @@ fn corpo_de<'a>(ir: &'a str, symbol: &str) -> &'a str {
 }
 
 #[test]
+fn operacoes_arc_preservam_contagem_e_movimento_na_otimizacao() {
+    let f = funcao(
+        "arc_linear",
+        vec![(ValueId(0), "x".into(), Type::Ref)],
+        Type::Void,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![
+                (
+                    ValueId(1),
+                    Instruction::ArcCopy {
+                        value: Operand::Val(ValueId(0)),
+                    },
+                    Type::Ref,
+                ),
+                (
+                    ValueId(2),
+                    Instruction::ArcMove {
+                        value: Operand::Val(ValueId(1)),
+                    },
+                    Type::Ref,
+                ),
+                (
+                    ValueId(3),
+                    Instruction::ArcDrop {
+                        value: Operand::Val(ValueId(2)),
+                    },
+                    Type::Void,
+                ),
+            ],
+            terminator: Terminator::Return(None),
+        }],
+    );
+    let mut m = Module::new();
+    m.functions.push(f);
+    assert!(crate::lower::verificador::verificar(&m).is_empty());
+    crate::otimizar::otimizar(&mut m);
+    assert!(crate::lower::verificador::verificar(&m).is_empty());
+    let ir = LlvmEmitter::new(&m).emit_all();
+    let corpo = corpo_de(&ir, "arc_linear");
+    assert_eq!(corpo.matches("call void @dartforge_arc_retain").count(), 1);
+    assert_eq!(corpo.matches("call void @dartforge_arc_release").count(), 1);
+    assert!(corpo.contains("%v2 = add i64 %v1, 0"));
+    assert!(corpo.contains("@dartforge_arc_release(i64 %v2)"));
+    assert!(!corpo.contains("@dartforge_box"));
+}
+
+#[test]
+fn inlining_remapeia_operando_arc_e_preserva_token_de_retorno() {
+    let doar = funcao(
+        "arc_doar",
+        vec![(ValueId(0), "x".into(), Type::Ref)],
+        Type::Ref,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![(
+                ValueId(1),
+                Instruction::ArcCopy {
+                    value: Operand::Val(ValueId(0)),
+                },
+                Type::Ref,
+            )],
+            terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+        }],
+    );
+    let chamar = funcao(
+        "arc_chamar",
+        vec![(ValueId(10), "x".into(), Type::Ref)],
+        Type::Void,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![
+                (
+                    ValueId(11),
+                    Instruction::CallStatic {
+                        symbol: "arc_doar".into(),
+                        args: vec![Operand::Val(ValueId(10))],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                ),
+                (
+                    ValueId(12),
+                    Instruction::ArcDrop {
+                        value: Operand::Val(ValueId(11)),
+                    },
+                    Type::Void,
+                ),
+            ],
+            terminator: Terminator::Return(None),
+        }],
+    );
+    let mut m = Module::new();
+    m.functions = vec![doar, chamar];
+    crate::otimizar::otimizar(&mut m);
+    assert!(crate::lower::verificador::verificar(&m).is_empty());
+    let ir = LlvmEmitter::new(&m).emit_all();
+    let corpo = corpo_de(&ir, "arc_chamar");
+    assert!(!corpo.contains("call i64 @arc_doar"));
+    assert!(corpo.contains("@dartforge_arc_retain(i64 %v10)"));
+    assert_eq!(corpo.matches("call void @dartforge_arc_retain").count(), 1);
+    assert_eq!(corpo.matches("call void @dartforge_arc_release").count(), 1);
+}
+
+#[test]
+fn operacoes_arc_recusam_escalar_literal_nao_avaliado_e_resultado_errado() {
+    for operacao in 0..3 {
+        let esperado = if operacao == 2 { Type::Void } else { Type::Ref };
+        let errado = if esperado == Type::Void {
+            Type::Ref
+        } else {
+            Type::Void
+        };
+        for (value, parametro, resultado) in [
+            (Operand::Val(ValueId(0)), Type::I64, esperado),
+            (
+                Operand::Constant(Constant::String("literal".into())),
+                Type::Ref,
+                esperado,
+            ),
+            (Operand::Val(ValueId(0)), Type::Ref, errado),
+        ] {
+            let inst = match operacao {
+                0 => Instruction::ArcCopy { value },
+                1 => Instruction::ArcMove { value },
+                _ => Instruction::ArcDrop { value },
+            };
+            assert_eq!(LlvmEmitter::tipo_do_resultado(&inst, resultado), esperado);
+            let f = funcao(
+                "arc_invalida",
+                vec![(ValueId(0), "x".into(), parametro)],
+                Type::Void,
+                vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(ValueId(1), inst, resultado)],
+                    terminator: Terminator::Return(None),
+                }],
+            );
+            let mut m = Module::new();
+            m.functions.push(f);
+            let erros = crate::lower::verificador::verificar(&m);
+            assert!(
+                erros.iter().any(|e| e.contains("operação ARC")),
+                "{erros:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn entrada_arc_recusa_abi_incompativel_antes_dos_registros() {
     for sdk in [false, true] {
         for arc in [false, true] {

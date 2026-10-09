@@ -42,6 +42,9 @@ macro_rules! visitar {
                 | Instruction::DoubleToInt(a)
                 | Instruction::CheckNotNull(a) => f(a),
                 Instruction::ZExt { op: a, .. }
+                | Instruction::ArcCopy { value: a }
+                | Instruction::ArcDrop { value: a }
+                | Instruction::ArcMove { value: a }
                 | Instruction::Trunc { op: a, .. }
                 | Instruction::Bitcast { op: a, .. }
                 | Instruction::Box { op: a, .. }
