@@ -846,6 +846,11 @@ por parâmetro/definição, rejeita IDs obsoletos e converte dependências locai
 para a análise de empréstimos. O inventário é fornecido pelo chamador desta
 API; ainda não há produtor automático, transporte pela HIR/otimizações nem
 validação semântica de contratos, proveniência, escopos e consumo de tokens.
+O inventário confere também a dominância SSA dos owners locais em blocos
+alcançáveis, incluindo ordem das definições no bloco e simultaneidade de
+`Phi`. Isso não prova a disponibilidade do token após consumo nem a
+existência de um resultado de `invoke` na saída excepcional; ambas exigem
+o verificador de fluxo descrito na §20.3.
 
 Operações **novas** sugeridas na `Instruction`:
 

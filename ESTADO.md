@@ -185,6 +185,15 @@ sete doctests passaram e formatação dos módulos ARC conferida. O produtor
 automático dos contratos/proveniência e o transporte pela HIR/otimizações
 ainda faltam, assim como escopos, tokens e integração ao runtime/emissão.
 
+O inventário tipado agora confere dominância SSA dos owners locais em blocos
+alcançáveis: owner de outro ramo, definido depois do alias ou local usado
+para sustentar parâmetro é rejeitado com `ARC003`, bloco/origem e caminho.
+`Phi` de owner e alias são simultâneos na entrada, sem depender da ordem
+textual entre eles. Suíte: 103 testes passaram, sete manuais ignorados;
+sete doctests passaram e formatação conferida. Ainda faltam disponibilidade
+dos tokens após consumo e existência de resultados apenas no sucesso de
+`invoke`; dominância SSA não substitui essas provas.
+
 Na rodada remota `37896396380` sobre `719e94cc`, os quatro testes dirigidos
 de mapas também passaram, sem ignorados/filtrados, em 752 s; log do job B0
 conferido. Esta rodada ainda antecede a preparação excepcional separada.

@@ -2,6 +2,7 @@
 //! A cobertura e as dependências são conferidas antes da vivacidade;
 //! contratos de externs, proveniência, escopo e consumo exigem outros passes.
 
+use super::super::cfg::Cfg;
 use super::{Vivacidade, vivacidade_com_emprestimos};
 use crate::hir::*;
 use std::collections::{HashMap, HashSet};
@@ -52,13 +53,18 @@ pub enum Ownership {
 ///
 /// A classificação deve vir dos contratos e da proveniência semântica,
 /// inclusive quando a representação for `I64` ou um slot `Ptr`. A função
-/// confere cobertura, origem externa de parâmetros e cadeias de sustentação;
+/// confere cobertura, origem externa de parâmetros, dominância SSA dos owners
+/// locais em blocos alcançáveis e cadeias de sustentação;
 /// não prova a classificação, os limites dos escopos nem o consumo de tokens.
+/// A função deve ter CFG/SSA válidos. Definições `Phi` são simultâneas na
+/// entrada do bloco. A existência do resultado de `invoke` só no sucesso
+/// ainda precisa ser conferida pela análise de tokens excepcional.
 /// Incluir todas as definições e parâmetros, também `Void` como `Trivial`.
 ///
 /// # Erros
 /// Retorna diagnóstico com símbolo e ID se faltar classificação, houver ID
-/// estranho, ou um resultado local alegar empréstimo do chamador. Dependências
+/// estranho, um resultado local alegar empréstimo do chamador, ou a definição
+/// do owner não dominar a do alias. Dependências
 /// inválidas mantêm o diagnóstico `ARC003` de [`vivacidade_com_emprestimos`].
 ///
 /// ```
@@ -131,5 +137,70 @@ pub fn vivacidade_classificada(
             }
         }
     }
+    conferir_dominancia(f, &emprestimos)?;
     vivacidade_com_emprestimos(f, &referencias, &emprestimos).map_err(|e| e.to_string())
+}
+
+/// `(bloco, posição, phi)`: parâmetros ficam fora dos blocos e dominam
+/// suas instruções; phis são produzidos simultaneamente na entrada.
+fn conferir_dominancia(
+    f: &Function,
+    emprestimos: &HashMap<ValueId, ValueId>,
+) -> Result<(), String> {
+    let cfg = Cfg::novo(f);
+    let mut definicoes: HashMap<ValueId, (Option<usize>, usize, bool)> = f
+        .params
+        .iter()
+        .map(|(v, _, _)| (*v, (None, 0, false)))
+        .collect();
+    for (bi, b) in f.blocks.iter().enumerate() {
+        for (i, (v, inst, _)) in b.instructions.iter().enumerate() {
+            definicoes.insert(*v, (Some(bi), i, matches!(inst, Instruction::Phi { .. })));
+        }
+    }
+    let mut aliases: Vec<ValueId> = emprestimos.keys().copied().collect();
+    aliases.sort_by_key(|v| v.0);
+    for alias in aliases {
+        let owner = emprestimos[&alias];
+        // IDs ausentes recebem o diagnóstico da validação de dependências.
+        let (Some(&(b_alias, i_alias, phi_alias)), Some(&(b_owner, i_owner, phi_owner))) =
+            (definicoes.get(&alias), definicoes.get(&owner))
+        else {
+            continue;
+        };
+        let domina = match (b_owner, b_alias) {
+            (None, _) => true,
+            (Some(_), None) => false,
+            (_, Some(b)) if !cfg.alcancavel(b) => true,
+            (Some(o), Some(b)) if o == b => {
+                if phi_alias {
+                    phi_owner
+                } else {
+                    phi_owner || i_owner < i_alias
+                }
+            }
+            (Some(o), Some(mut b)) => loop {
+                if o == b {
+                    break true;
+                }
+                if b == cfg.idom[b] {
+                    break false;
+                }
+                b = cfg.idom[b];
+            },
+        };
+        if !domina {
+            let bloco = b_alias.map_or_else(
+                || "parâmetro".into(),
+                |b| format!("b{} instrução {}", f.blocks[b].id.0, i_alias),
+            );
+            return Err(format!(
+                "ARC003 em {}: {bloco}: v{alias_id} depende de owner v{owner_id} cuja definição não domina o alias; caminho [{alias_id}, {owner_id}]",
+                f.symbol,
+                alias_id = alias.0,
+                owner_id = owner.0
+            ));
+        }
+    }
+    Ok(())
 }

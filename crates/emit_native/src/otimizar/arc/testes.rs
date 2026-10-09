@@ -1,5 +1,154 @@
 use super::*;
 
+#[test]
+fn owner_em_outro_ramo_nao_sustenta_alias() {
+    let f = funcao(vec![
+        bloco(
+            0,
+            vec![],
+            Terminator::CondBranch {
+                cond: Operand::Val(ValueId(9)),
+                then_block: BlockId(1),
+                else_block: BlockId(2),
+            },
+        ),
+        bloco(
+            1,
+            vec![(
+                ValueId(3),
+                Instruction::CallStatic {
+                    symbol: "produzir".into(),
+                    args: vec![],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            )],
+            Terminator::Return(None),
+        ),
+        bloco(
+            2,
+            vec![(
+                ValueId(2),
+                Instruction::Bitcast {
+                    op: Operand::Val(ValueId(0)),
+                    to: Type::Ref,
+                },
+                Type::Ref,
+            )],
+            Terminator::Return(Some(Operand::Val(ValueId(2)))),
+        ),
+    ]);
+    let mut classes = classes_de_parametros();
+    classes.insert(ValueId(3), Ownership::Owned);
+    classes.insert(
+        ValueId(2),
+        Ownership::Borrowed {
+            owner: OrigemOwner::Valor(ValueId(3)),
+            escopo: 1,
+        },
+    );
+    let e = vivacidade_classificada(&f, &classes).unwrap_err();
+    assert!(
+        e.contains("ARC003") && e.contains("b2") && e.contains("[2, 3]"),
+        "{e}"
+    );
+}
+
+#[test]
+fn owner_definido_depois_do_alias_e_owner_local_de_parametro_sao_recusados() {
+    let f = funcao(vec![bloco(
+        0,
+        vec![
+            (
+                ValueId(2),
+                Instruction::Bitcast {
+                    op: Operand::Val(ValueId(0)),
+                    to: Type::Ref,
+                },
+                Type::Ref,
+            ),
+            (
+                ValueId(3),
+                Instruction::CallStatic {
+                    symbol: "produzir".into(),
+                    args: vec![],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            ),
+        ],
+        Terminator::Return(Some(Operand::Val(ValueId(2)))),
+    )]);
+    let mut classes = classes_de_parametros();
+    classes.insert(ValueId(3), Ownership::Owned);
+    classes.insert(
+        ValueId(2),
+        Ownership::Borrowed {
+            owner: OrigemOwner::Valor(ValueId(3)),
+            escopo: 1,
+        },
+    );
+    assert!(
+        vivacidade_classificada(&f, &classes)
+            .unwrap_err()
+            .contains("não domina")
+    );
+    classes.insert(ValueId(2), Ownership::Trivial);
+    classes.insert(
+        ValueId(0),
+        Ownership::Borrowed {
+            owner: OrigemOwner::Valor(ValueId(3)),
+            escopo: 0,
+        },
+    );
+    assert!(
+        vivacidade_classificada(&f, &classes)
+            .unwrap_err()
+            .contains("parâmetro")
+    );
+}
+
+#[test]
+fn owner_phi_e_alias_phi_sao_definidos_simultaneamente() {
+    let f = funcao(vec![
+        bloco(0, vec![], Terminator::Branch(BlockId(1))),
+        bloco(
+            1,
+            vec![
+                (
+                    ValueId(2),
+                    Instruction::Phi {
+                        incoming: vec![(BlockId(0), Operand::Val(ValueId(0)))],
+                        ty: Type::Ref,
+                    },
+                    Type::Ref,
+                ),
+                (
+                    ValueId(3),
+                    Instruction::Phi {
+                        incoming: vec![(BlockId(0), Operand::Val(ValueId(0)))],
+                        ty: Type::Ref,
+                    },
+                    Type::Ref,
+                ),
+            ],
+            Terminator::Return(Some(Operand::Val(ValueId(2)))),
+        ),
+    ]);
+    let mut classes = classes_de_parametros();
+    classes.insert(ValueId(3), Ownership::Owned);
+    classes.insert(
+        ValueId(2),
+        Ownership::Borrowed {
+            owner: OrigemOwner::Valor(ValueId(3)),
+            escopo: 1,
+        },
+    );
+    let v = vivacidade_classificada(&f, &classes).unwrap();
+    assert_eq!(v.arestas[&(BlockId(0), BlockId(1))], refs(&[0]));
+    assert!(v.entrada[&BlockId(1)].is_empty());
+}
+
 fn classes_de_parametros() -> HashMap<ValueId, Ownership> {
     HashMap::from([
         (
