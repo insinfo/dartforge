@@ -699,6 +699,26 @@ fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, t: TypeI
                 let funcao = *target;
                 expr::desreferencia_anulavel(inf, cx, funcao, t, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_INVOCATION_OF_NULLABLE_VALUE);
             }
+            // `createT()('')` com `T extends int Function(int)`: a
+            // `FunctionExpressionInvocation` do parser (alvo que não é nome
+            // nem acesso a propriedade) não leva `T` ao limite; o
+            // `TypePropertyResolver` acha o `call` do tipo de função do
+            // limite só como `callFunctionType`, sem elemento, e o resolver
+            // do 3.6.2 deixa a chamada `dynamic`, sem conferir os argumentos
+            // (`function_expression_invocation_resolver.dart:80-95`). A
+            // chamada por nome ou propriedade (`tValue('')`) é reescrita pelo
+            // `MethodInvocationResolver`, que leva ao limite
+            // (`_rewriteAsFunctionExpressionInvocation`, `resolveToBound`).
+            if matches!(inf.table.get(t_nn), Type::TypeParameter { .. } | Type::Intersection { .. })
+                && let ExprKind::Call { target, .. } = &inf.program.unit(cx.unit).ast.expr(e).kind
+                && !matches!(inf.program.unit(cx.unit).ast.expr(*target).kind, ExprKind::Identifier(_) | ExprKind::Property { .. })
+                && matches!(inf.table.get(inf.resolver_ao_limite(t_nn)), Type::Function { .. })
+            {
+                for a in args.args.iter() {
+                    inferir_livre(inf, cx, a.value);
+                }
+                return (inf.core.dynamic_, t);
+            }
             // O `call` achado que não é método (getter ou campo `call`, da
             // classe ou de extensão): `callElement.kind != METHOD`
             // (`function_expression_invocation_resolver.dart:96-103`),

@@ -272,6 +272,12 @@ Base comum (vale para vários códigos abaixo):
 - Atribuibilidade (`TypeSystemImpl.isAssignableTo`): `dynamic` atribuível a tudo (sem strict-casts); subtipo; **sem** conversão implícita de `call` — esta é feita antes, na inferência (o tipo da expressão já passa a ser o da tear-off `call`, ver `invalid_assignment`).
 
 ##### `argument_type_not_assignable` (perda 160: FN 86, FP 5, msg 59, pos 10)
+- **Chamada de expressão com tipo parâmetro de tipo (2026-10-08):** `createT()('')` com `T extends int Function(int)`
+  é `FunctionExpressionInvocation` do parser: o resolver do 3.6.2 não leva `T` ao limite; o `TypePropertyResolver`
+  acha o `call` do tipo de função do limite só como `callFunctionType`, sem elemento, e a chamada fica `dynamic`, sem
+  conferir os argumentos (`function_expression_invocation_resolver.dart:80-95`). A chamada por nome ou propriedade
+  (`tValue('')`) é reescrita pelo `MethodInvocationResolver` com `resolveToBound` e confere. `chamadas.rs`
+  (`invocar_valor`) distingue pelo alvo: nem identificador nem propriedade.
 
 **Feito em 2026-10-07:** `super == x` confere `x` contra o parâmetro do `==` da cadeia de `super`, tornado
 anulável (`_resolveEqual`, 3.6.2 `binary_expression_resolver.dart:117-124`): `super == 'a'` contra
