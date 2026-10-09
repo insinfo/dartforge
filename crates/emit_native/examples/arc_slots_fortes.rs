@@ -241,23 +241,25 @@ fn main() -> Result<(), String> {
             retorno: RetornoTokens::Owned,
             ..Default::default()
         };
-        let copias = inserir_retencao_retornos_dart(
-            &mut identidade,
-            &mut classes,
-            &mut plano,
-            &TabelasDaFuncao::default(),
-            &PlanoEscopos::default(),
-        )?;
-        if copias != 1 {
-            return Err("prova de retorno exige uma retenção inserida".into());
+        if !auto_cleanup {
+            let copias = inserir_retencao_retornos_dart(
+                &mut identidade,
+                &mut classes,
+                &mut plano,
+                &TabelasDaFuncao::default(),
+                &PlanoEscopos::default(),
+            )?;
+            if copias != 1 {
+                return Err("prova de retorno exige uma retenção inserida".into());
+            }
+            resumos_dart.push(verificar_contrato_funcao_dart(
+                &identidade,
+                &classes,
+                &plano,
+                &TabelasDaFuncao::default(),
+                &PlanoEscopos::default(),
+            )?);
         }
-        resumos_dart.push(verificar_contrato_funcao_dart(
-            &identidade,
-            &classes,
-            &plano,
-            &TabelasDaFuncao::default(),
-            &PlanoEscopos::default(),
-        )?);
         // A função é acrescentada depois da otimização geral, para conferir
         // a chamada/retorno real sem inlining esconder essa fronteira.
         m.functions.push(identidade);
@@ -397,22 +399,34 @@ fn main() -> Result<(), String> {
     let mut classes = HashMap::from([(ValueId(11), Ownership::Trivial)]);
     let mut plano = PlanoTokens::default();
     // A chamada Dart recebe seu contrato do resumo do corpo verificado acima.
-    produzir_chamadas_dart(f, &resumos_dart, &mut classes, &mut plano)?;
+    if !auto_cleanup {
+        produzir_chamadas_dart(f, &resumos_dart, &mut classes, &mut plano)?;
+    }
     plano
         .instrucoes
         .insert(ValueId(11), EfeitoTokens::default());
     if auto_cleanup {
-        // Os três retornos de erro chegam sem drop do valor impresso.
-        // O passe fecha esses tokens; a limpeza do global continua explícita.
-        let inseridos = inserir_arc_saidas_dart(
-            f,
-            &mut classes,
-            &mut plano,
-            &TabelasDaFuncao::default(),
-            &PlanoEscopos::default(),
-        )?;
-        if inseridos != (0, 3) {
-            return Err(format!("cleanup esperado (0, 3), encontrado {inseridos:?}"));
+        // Prepara caller e callee juntos: uma retenção no retorno do callee
+        // e três drops nas saídas de erro do caller, sem publicar parcialmente.
+        let simbolo = f.symbol.clone();
+        let mut callee = PlanoFuncaoDart::default();
+        callee.tokens.retorno = RetornoTokens::Owned;
+        let mut planos = HashMap::from([
+            (
+                simbolo,
+                PlanoFuncaoDart {
+                    classes,
+                    tokens: plano,
+                    ..Default::default()
+                },
+            ),
+            ("prova_retorno".into(), callee),
+        ]);
+        let inseridos = inserir_arc_funcoes_dart(&mut m.functions, &mut planos)?;
+        if inseridos != (1, 3) {
+            return Err(format!(
+                "preparação esperada (1, 3), encontrada {inseridos:?}"
+            ));
         }
     } else {
         produzir_e_verificar_tokens(

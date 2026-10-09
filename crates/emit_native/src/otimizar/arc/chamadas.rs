@@ -31,6 +31,17 @@ pub struct ContratoFuncaoDart {
     pode_falhar: bool,
 }
 
+// Somente a preparação atômica do conjunto pode usar este resumo temporário.
+// Nenhum corpo/contrato é publicado antes de verificar todas as convenções.
+pub(super) fn resumo_provisorio(f: &Function, pode_falhar: bool) -> ContratoFuncaoDart {
+    ContratoFuncaoDart {
+        simbolo: f.symbol.clone(),
+        parametros: f.params.iter().map(|(_, _, ty)| *ty).collect(),
+        retorno: f.return_ty,
+        pode_falhar,
+    }
+}
+
 /// Verifica a convenção Dart do corpo e extrai um resumo para chamadas diretas.
 ///
 /// Os mapas fornecidos não são alterados. Parâmetros não Ref precisam de

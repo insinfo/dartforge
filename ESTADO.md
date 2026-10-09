@@ -2,6 +2,23 @@
 
 ## Retomada de 2026-10-09
 
+Preparação conjunta Dart: `inserir_arc_funcoes_dart` recebe conjunto fechado
+de funções e planos, cria contratos provisórios de chamadas internas e
+publica somente após inserir/verificar todos os corpos. Usa o resumo de
+exceções existente, inclusive ciclos e conferência de pilha. A cadeia
+caller→intermediária→folha funciona com callees posteriores; erro no último
+corpo preserva todos os corpos e mapas; recursão sem saída excepcional é
+rejeitada. 79 testes ARC e 45 doctests do emissor passaram.
+O exemplo AOT agora prepara caller e callee juntos nas variantes automáticas:
+insere uma retenção no callee e três drops no caller. Oito execuções ARC/
+tracing sob stress passaram, cobrindo caminho normal e os três erros. Os
+seis LLVM excepcionais são byte a byte iguais aos artefatos de
+`2026-10-09-arc-excecao-ref-aot`; logs `target/ownership-funcoes-dart-*`.
+O controle sem cleanup continua rejeitado antes do IR. Esta API ainda exige
+CFG e escopos preparados, contratos dos argumentos escalares ordinários e
+descritores/proveniência; não foi ligada ao pipeline padrão, nem conclui
+cleanup em arestas, finally, cancelamento ou suspensão.
+
 Exceção Ref e cleanup executado no AOT: a nova ABI
 `dartforge_arc_lancar_ref_v1` recebe borrow Ref, não consome token do código
 e publica a raiz da exceção pendente; pode alocar o rastro. Catálogo agora

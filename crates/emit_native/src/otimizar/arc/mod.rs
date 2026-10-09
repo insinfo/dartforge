@@ -15,6 +15,7 @@ mod escopos;
 mod tokens;
 mod contratos;
 mod chamadas;
+mod funcoes;
 mod ssa;
 mod quadros;
 pub use contratos::{ContratoChamadaRuntime, contrato_chamada_runtime, produzir_contratos_runtime, produzir_contratos_arc};
@@ -24,6 +25,7 @@ pub use contratos::produzir_e_verificar_tokens_dart;
 pub use contratos::inserir_retencao_retornos_dart;
 pub use contratos::inserir_arc_saidas_dart;
 pub use chamadas::{ContratoFuncaoDart, verificar_contrato_funcao_dart, produzir_chamadas_dart};
+pub use funcoes::{PlanoFuncaoDart, inserir_arc_funcoes_dart};
 pub use tokens::{EfeitoTokens, PlanoTokens, RetornoTokens, verificar_tokens};
 pub use escopos::{AlteracaoEscopo, PlanoEscopos, verificar_escopos};
 pub use classificacao::{
