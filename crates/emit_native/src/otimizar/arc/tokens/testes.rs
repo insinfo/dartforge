@@ -174,21 +174,37 @@ fn pending_runtime_confere_cleanup_sem_pouso_llvm() {
 }
 
 #[test]
-fn produtor_runtime_e_invoke_auditado_exigem_saida_de_erro() {
+fn produtor_runtime_pending_auditado_exige_saida_de_erro() {
     let f = funcao(vec![
         bloco(
             0,
-            vec![(
-                ValueId(1),
-                Instruction::CallRuntime {
-                    name: "dartforge_gc_collect".into(),
-                    args: vec![],
-                    ret_ty: Type::Void,
-                },
-                Type::Void,
-            )],
+            vec![
+                (
+                    ValueId(1),
+                    Instruction::CallRuntime {
+                        name: "dartforge_gc_collect".into(),
+                        args: vec![],
+                        ret_ty: Type::Void,
+                    },
+                    Type::Void,
+                ),
+                (
+                    ValueId(2),
+                    Instruction::CallRuntime {
+                        name: "dartforge_exception_pending".into(),
+                        args: vec![],
+                        ret_ty: Type::I8,
+                    },
+                    Type::I8,
+                ),
+                (
+                    ValueId(3),
+                    Instruction::ICmp(ICmpOp::Ne, valor(2), Operand::Constant(Constant::Int(0))),
+                    Type::I1,
+                ),
+            ],
             Terminator::CondBranch {
-                cond: Operand::Constant(Constant::Bool(false)),
+                cond: valor(3),
                 then_block: BlockId(1),
                 else_block: BlockId(2),
             },
@@ -198,12 +214,12 @@ fn produtor_runtime_e_invoke_auditado_exigem_saida_de_erro() {
     ]);
     let mut c = classes(&[], &[]);
     let mut p = PlanoTokens::default();
-    super::super::produzir_contratos_runtime(&f, &mut c, &mut p).unwrap();
-    let mut t = TabelasDaFuncao::default();
-    t.invocacoes.insert(ValueId(1), BlockId(1));
-    t.pousos.insert(BlockId(1));
+    super::super::produzir_contratos_arc(&f, &mut c, &mut p).unwrap();
+    let t = TabelasDaFuncao::default();
     verificar_tokens(&f, &c, &t, &p).unwrap();
+    p.pendencias.clear();
     assert!(verificar_tokens(&f, &c, &TabelasDaFuncao::default(), &p).is_err());
+    p.pendencias.insert(ValueId(1), BlockId(1));
     p.instrucoes.get_mut(&ValueId(1)).unwrap().pode_falhar = false;
     assert!(
         verificar_tokens(&f, &c, &t, &p)
@@ -535,9 +551,23 @@ fn resultado_borrowed_auditado_depende_do_owner_do_argumento() {
                     },
                     Type::Ref,
                 ),
+                (
+                    ValueId(7),
+                    Instruction::CallRuntime {
+                        name: "dartforge_exception_pending".into(),
+                        args: vec![],
+                        ret_ty: Type::I8,
+                    },
+                    Type::I8,
+                ),
+                (
+                    ValueId(8),
+                    Instruction::ICmp(ICmpOp::Ne, valor(7), Operand::Constant(Constant::Int(0))),
+                    Type::I1,
+                ),
             ],
             Terminator::CondBranch {
-                cond: Operand::Constant(Constant::Bool(false)),
+                cond: valor(8),
                 then_block: BlockId(1),
                 else_block: BlockId(2),
             },
@@ -551,9 +581,7 @@ fn resultado_borrowed_auditado_depende_do_owner_do_argumento() {
     ]);
     let mut c = classes(&[], &[]);
     let mut p = PlanoTokens::default();
-    let mut t = TabelasDaFuncao::default();
-    t.invocacoes.insert(ValueId(2), BlockId(1));
-    t.pousos.insert(BlockId(1));
+    let t = TabelasDaFuncao::default();
     super::super::produzir_e_verificar_tokens(
         &f,
         &mut c,
@@ -569,6 +597,19 @@ fn resultado_borrowed_auditado_depende_do_owner_do_argumento() {
             escopo: 0
         }
     );
+    assert_eq!(p.pendencias[&ValueId(2)], BlockId(1));
+    f.blocks[1].instructions.insert(0, copia(10, 2));
+    f.blocks[1].instructions.insert(1, drop(11, 10));
+    c.insert(ValueId(10), Ownership::Owned);
+    c.insert(ValueId(11), Ownership::Trivial);
+    assert!(
+        verificar_tokens(&f, &c, &t, &p)
+            .unwrap_err()
+            .contains("resultado v2")
+    );
+    f.blocks[1].instructions.drain(..2);
+    c.remove(&ValueId(10));
+    c.remove(&ValueId(11));
     f.blocks[2].instructions.rotate_right(1);
     let erro = verificar_tokens(&f, &c, &t, &p).unwrap_err();
     assert!(erro.contains("indisponível v1"));

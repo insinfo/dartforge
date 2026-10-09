@@ -1385,6 +1385,16 @@ com IRs, saídas, log negativo, hashes dos executáveis/fonte e reprodução.
 Não executa erro real de impressão, não prova coleta mortal/vida de slots,
 não insere cleanup automaticamente e não integra a emissão padrão de Dart.
 
+Regressões auditadas de gc_collect e record fieldAt foram convertidas de
+invoke/pouso sintético para leitura real exception_pending, comparação e
+bifurcação com mapa produzido automaticamente, sem tabelas LLVM preenchidas.
+O teste do getter agora recusa também copiar seu resultado borrowed no caminho
+de erro, mesmo mantendo vivo o record owner; no sucesso continua recusando uso
+após liberar esse owner. gc_collect recusa mapa de erro omitido e contrato
+infalível conflitante com ownership.tsv. Quarenta e sete testes ARC aprovados
+(`target/ownership-runtime-pending-real-final.log`); essa mudança fortalece os
+casos auditados, sem alegar cobertura de todas as externs/invalidações.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
