@@ -232,6 +232,11 @@ executou zero testes (sete filtrados), portanto não valida recarga nesta
 rodada. O comando foi corrigido para executar os dois testes ignorados
 existentes de preservação de estado com SDK da fonte; falta validar a
 correção numa próxima rodada. macOS ainda está em andamento.
+O job agora lista os testes ignorados de recarga antes de executá-los e
+reprova seleção vazia. O filtro PowerShell foi conferido com listagens de
+binários anteriores: dois testes com JIT, rejeição da lista vazia sem JIT;
+isso valida a proteção do script, não os testes na revisão atual. A
+validação local de recarga da revisão `7217e888` está em compilação release.
 
 ## Situação geral (2026-10-08, fim da tarde)
 
