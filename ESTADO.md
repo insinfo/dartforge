@@ -2,6 +2,18 @@
 
 ## Retomada de 2026-10-09
 
+Prova AOT do cleanup automático de saídas: a variante
+`retorno-mortal-auto-cleanup` de `arc_slots_fortes` deixa os três retornos
+de erro sem drops manuais. `inserir_arc_saidas_dart` insere exatamente
+três liberações e nenhuma cópia; LLVM b1/b3/b5 libera v8/v14/v18 antes
+do retorno. ARC com auditoria, berçário desligado e GC stress, e tracing
+com GC stress, terminaram com código 0 e saída idêntica (Mint i64::MAX,
+42, null). O controle sem cleanup continua rejeitado antes do IR pelo
+token v8 pendente. Artefatos em
+`bench/resultados/2026-10-09-arc-cleanup-saidas-aot`.
+Os caminhos de erro foram verificados no IR, sem induzir erro de impressão;
+esta prova não observa a morte final no AOT nem conclui o lowering padrão.
+
 O resumo de 2026-10-08 abaixo precede os commits `c0cded84` (mapas por
 `"deopt"`), `f8dfedbf` (metadados ARC por página) e `72a3212c` (decisão dos
 jovens e cascata). As medidas atualizadas do ARC estão em

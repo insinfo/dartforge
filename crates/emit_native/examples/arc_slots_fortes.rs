@@ -12,17 +12,29 @@ fn main() -> Result<(), String> {
     let saida = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
     let arc = args.next().as_deref() != Some("tracing");
     let variante = args.next();
+    let auto_cleanup = variante.as_deref() == Some("retorno-mortal-auto-cleanup");
     let sem_cleanup = matches!(
         variante.as_deref(),
-        Some("sem-cleanup" | "retorno-sem-cleanup" | "retorno-mortal-sem-cleanup")
+        Some(
+            "sem-cleanup"
+                | "retorno-sem-cleanup"
+                | "retorno-mortal-sem-cleanup"
+                | "retorno-mortal-auto-cleanup"
+        )
     );
     let prova_retorno = matches!(
         variante.as_deref(),
-        Some("retorno" | "retorno-sem-cleanup" | "retorno-mortal" | "retorno-mortal-sem-cleanup")
+        Some(
+            "retorno"
+                | "retorno-sem-cleanup"
+                | "retorno-mortal"
+                | "retorno-mortal-sem-cleanup"
+                | "retorno-mortal-auto-cleanup"
+        )
     );
     let prova_mortal = matches!(
         variante.as_deref(),
-        Some("retorno-mortal" | "retorno-mortal-sem-cleanup")
+        Some("retorno-mortal" | "retorno-mortal-sem-cleanup" | "retorno-mortal-auto-cleanup")
     );
     let mut m = Module::new();
     m.memoria_arc = arc;
@@ -361,13 +373,28 @@ fn main() -> Result<(), String> {
     plano
         .instrucoes
         .insert(ValueId(11), EfeitoTokens::default());
-    produzir_e_verificar_tokens(
-        f,
-        &mut classes,
-        &mut plano,
-        &TabelasDaFuncao::default(),
-        &PlanoEscopos::default(),
-    )?;
+    if auto_cleanup {
+        // Os três retornos de erro chegam sem drop do valor impresso.
+        // O passe fecha esses tokens; a limpeza do global continua explícita.
+        let inseridos = inserir_arc_saidas_dart(
+            f,
+            &mut classes,
+            &mut plano,
+            &TabelasDaFuncao::default(),
+            &PlanoEscopos::default(),
+        )?;
+        if inseridos != (0, 3) {
+            return Err(format!("cleanup esperado (0, 3), encontrado {inseridos:?}"));
+        }
+    } else {
+        produzir_e_verificar_tokens(
+            f,
+            &mut classes,
+            &mut plano,
+            &TabelasDaFuncao::default(),
+            &PlanoEscopos::default(),
+        )?;
+    }
     let erros = dartforge_emit_native::lower::verificador::verificar(&m);
     if !erros.is_empty() {
         return Err(erros.join("\n"));
