@@ -1051,6 +1051,22 @@ Da rodada pesada 37970899962, SDK da fonte AOT 238/238 (56,6 s), JIT
 nos dois; Windows B0 238/238 (116,3 s). Artefatos conferidos em
 `target/ci-37970899962`. Só macOS permanecia ativo na consulta.
 
+Prova AOT dirigida no exemplo `arc_slots_fortes`: HIR explícita
+usa quadro proprietário, global Ref, carga após fecho do quadro, coleta,
+substituição por Smi e null. Emite IR e liga pelo driver real com otimização.
+Resultado esperado: `slots ARC`, `42`, `null`, uma linha por valor. O literal
+é permanente; essa prova não certifica coleta de objeto mortal, inserção
+automática ou escopos/borrows. Duas imagens otimizadas ARC/tracing compiladas
+pelo driver real e executadas com código zero e saída idêntica esperada.
+ARC executou com ARC_CONFERIR=1, ARC_BERCARIO=0 e GC_STRESS=1; tracing
+com GC_STRESS=1. O harness declara explicitamente print_handle, exportado
+auxiliar de observação fora do catálogo normal do lowering. A primeira
+tentativa sem essa declaração foi recusada pelo Clang, corrigida antes da
+prova. Rodar via cargo run, que aplica a configuração do LLVM do repositório;
+invocação direta sem esse ambiente não encontrou clang.exe. IR, imagens,
+saídas, log de ligação tracing e hashes SHA256 em `target/arc-slots-compilados`;
+build ARC final em `target/arc-slots-compilados-build-final.log`.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
