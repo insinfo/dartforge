@@ -207,6 +207,14 @@ Nova rodada [37902293030](https://github.com/insinfo/dartforge/actions/runs/3790
 suíte `nativo`, disparada sobre `8b4b79b8`, para validar a preparação
 excepcional separada e as análises novas nas plataformas do CI. Nenhuma
 rodada Pesado estava ativa no disparo. As análises ARC seguem fora da emissão.
+Relatórios já conferidos desta rodada: Linux x86-64 AOT, A1/B0/B1 e ARC
+238/238, `dart:io` 130/130 e JIT × AOT 238/238 no placar, zero divergências
+(sete sem IR, iguais por construção). Windows A1/B1 com e sem estresse,
+238/238; JIT × AOT com SDK da fonte 238/238 no placar, zero divergências
+(sete sem IR, iguais por construção). Isso valida o passe excepcional
+separado nestes casos/plataformas; não prova a integração de ownership,
+que continua pendente. macOS, conclusão do SDK da fonte e testes dirigidos
+de B0 ainda estão em andamento.
 
 ## Situação geral (2026-10-08, fim da tarde)
 
