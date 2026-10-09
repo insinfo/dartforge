@@ -42,6 +42,24 @@ pub(super) fn resumo_provisorio(f: &Function, pode_falhar: bool) -> ContratoFunc
     }
 }
 
+// O conjunto reutiliza este índice em todos os corpos. Reconstruí-lo por
+// função tornaria a preparação quadrática no número de funções do SDK.
+pub(super) struct IndiceFuncoesDart<'a> {
+    por_simbolo: HashMap<&'a String, &'a ContratoFuncaoDart>,
+}
+
+impl<'a> IndiceFuncoesDart<'a> {
+    pub(super) fn novo(resumos: &'a [ContratoFuncaoDart]) -> Result<Self, String> {
+        let mut por_simbolo = HashMap::with_capacity(resumos.len());
+        for resumo in resumos {
+            if por_simbolo.insert(&resumo.simbolo, resumo).is_some() {
+                return Err(format!("resumo Dart repetido: {}", resumo.simbolo));
+            }
+        }
+        Ok(Self { por_simbolo })
+    }
+}
+
 /// Verifica a convenção Dart do corpo e extrai um resumo para chamadas diretas.
 ///
 /// Os mapas fornecidos não são alterados. Parâmetros não Ref precisam de
@@ -164,34 +182,29 @@ pub fn produzir_chamadas_dart(
     classes: &mut HashMap<ValueId, Ownership>,
     plano: &mut PlanoTokens,
 ) -> Result<(), String> {
-    produzir_chamadas(f, resumos, classes, plano, false)
+    let indice = IndiceFuncoesDart::novo(resumos)?;
+    produzir_chamadas(f, &indice, classes, plano, false)
 }
 
 // Usado somente dentro da transação do conjunto: os resultados provisórios
 // alimentam a classificação das demais instruções antes de conferir usos.
 pub(super) fn produzir_chamadas_e_instrucoes_dart(
     f: &Function,
-    resumos: &[ContratoFuncaoDart],
+    indice: &IndiceFuncoesDart<'_>,
     classes: &mut HashMap<ValueId, Ownership>,
     plano: &mut PlanoTokens,
 ) -> Result<(), String> {
-    produzir_chamadas(f, resumos, classes, plano, true)
+    produzir_chamadas(f, indice, classes, plano, true)
 }
 
 fn produzir_chamadas(
     f: &Function,
-    resumos: &[ContratoFuncaoDart],
+    indice: &IndiceFuncoesDart<'_>,
     classes: &mut HashMap<ValueId, Ownership>,
     plano: &mut PlanoTokens,
     classificar_instrucoes: bool,
 ) -> Result<(), String> {
     super::ssa::verificar(f)?;
-    let mut por_simbolo = HashMap::new();
-    for resumo in resumos {
-        if por_simbolo.insert(&resumo.simbolo, resumo).is_some() {
-            return Err(format!("resumo Dart repetido: {}", resumo.simbolo));
-        }
-    }
     let tipos: HashMap<_, _> = f
         .params
         .iter()
@@ -218,7 +231,8 @@ fn produzir_chamadas(
             else {
                 continue;
             };
-            let resumo = por_simbolo
+            let resumo = indice
+                .por_simbolo
                 .get(symbol)
                 .ok_or_else(|| format!("callee Dart sem resumo: {symbol}"))?;
             if args.len() != resumo.parametros.len() || *ret_ty != resumo.retorno || ty != ret_ty {

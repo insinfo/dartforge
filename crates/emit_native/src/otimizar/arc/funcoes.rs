@@ -85,6 +85,7 @@ pub fn inserir_arc_funcoes_dart(
         .iter()
         .map(|f| super::chamadas::resumo_provisorio(f, !nao_lancam.contains(&f.symbol)))
         .collect();
+    let indice = super::chamadas::IndiceFuncoesDart::novo(&resumos)?;
     let mut novos_planos: HashMap<_, _> = planos
         .iter()
         .map(|(s, p)| (s.clone(), (p.classes.clone(), p.tokens.clone())))
@@ -93,7 +94,7 @@ pub fn inserir_arc_funcoes_dart(
     for f in &mut modulo.functions {
         let original = &planos[&f.symbol];
         let (classes, tokens) = novos_planos.get_mut(&f.symbol).unwrap();
-        super::chamadas::produzir_chamadas_e_instrucoes_dart(f, &resumos, classes, tokens)?;
+        super::chamadas::produzir_chamadas_e_instrucoes_dart(f, &indice, classes, tokens)?;
         let (copias, drops) =
             inserir_arc_saidas_dart(f, classes, tokens, &original.tabelas, &original.escopos)?;
         verificar_contrato_funcao_dart(f, classes, tokens, &original.tabelas, &original.escopos)?;

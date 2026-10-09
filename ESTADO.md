@@ -2,6 +2,16 @@
 
 ## Retomada de 2026-10-09
 
+Preparação conjunta: o índice de símbolos dos resumos agora é construído
+uma vez e reutilizado por todos os corpos. Antes havia uma reconstrução
+com N entradas por função, impondo trabalho quadrático em N, inadequado
+para o SDK. A validação de resumos repetidos permanece no construtor do
+índice e nenhuma assinatura ganha contrato implícito. 80 testes ARC e
+45 doctests passaram; AOT ARC normal e tracing no segundo erro passaram
+sob stress, com LLVM e stdout idênticos à rodada anterior. Logs
+`target/ownership-indice-funcoes-*`. Isto não é uma medição de ganho no
+runtime nem altera o gate ARC/A0; a API ainda não está no pipeline padrão.
+
 A preparação conjunta agora classifica resultados das chamadas internas,
 depois constantes/aritmética/Phis/runtime cobertos, e só então confere os
 argumentos das chamadas. Isso remove mapas manuais de argumentos ordinários
