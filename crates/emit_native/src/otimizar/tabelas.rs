@@ -66,6 +66,17 @@ pub(super) struct PlanoExcecoes {
     funcoes: Vec<(String, TabelasDaFuncao)>,
 }
 
+impl PlanoExcecoes {
+    /// Consulta os sítios antes de publicar tabelas, conferindo a identidade
+    /// da função. Os passes intermediários leem o plano sem habilitar LLVM.
+    pub(super) fn sitios_da_funcao(&self, indice: usize, f: &Function) -> &TabelasDaFuncao {
+        let (simbolo, sitios) = self.funcoes.get(indice)
+            .expect("bug do compilador: função ausente do plano excepcional");
+        assert_eq!(&f.symbol, simbolo, "bug do compilador: ordem das funções mudou depois da preparação excepcional");
+        sitios
+    }
+}
+
 /// Expõe pousos e continuações no CFG sem publicar tabelas para o emissor.
 pub(super) fn preparar(module: &mut Module) -> PlanoExcecoes {
     assert!(!module.excecoes_por_tabelas, "bug do compilador: CFG excepcional já materializado");
@@ -84,10 +95,15 @@ pub(super) fn materializar(module: &mut Module, plano: PlanoExcecoes) {
     assert_eq!(plano.funcoes.len(), module.functions.len(), "bug do compilador: funções mudaram depois da preparação excepcional");
     let nl = nao_lancam(module);
     let mut tabelas = Vec::with_capacity(module.functions.len());
+    for (indice, f) in module.functions.iter().enumerate() {
+        let t = plano.sitios_da_funcao(indice, f);
+        if super::valida(f) {
+            conferir(f, t);
+        }
+    }
     for (f, (simbolo, mut t)) in module.functions.iter_mut().zip(plano.funcoes) {
         assert_eq!(f.symbol, simbolo, "bug do compilador: ordem das funções mudou depois da preparação excepcional");
         if super::valida(f) {
-            conferir(f, &t);
             saidas(f, &nl, &mut t);
         }
         tabelas.push(t);
@@ -678,7 +694,7 @@ mod testes {
         let mut m = modulo();
         let plano = preparar(&mut m);
         assert!(!m.excecoes_por_tabelas && m.tabelas.is_empty());
-        let t = &plano.funcoes[0].1;
+        let t = plano.sitios_da_funcao(0, &m.functions[0]);
         let pouso = t.invocacoes[&ValueId(0)];
         assert!(t.saidas.is_empty());
         assert!(matches!(m.functions[0].blocks[0].terminator,
@@ -686,6 +702,15 @@ mod testes {
         let retorno = m.functions[0].blocks.iter().find(|b| matches!(b.terminator, Terminator::Return(_))).unwrap().id;
         materializar(&mut m, plano);
         assert_eq!(m.tabelas[0].saidas[&retorno], SaidaPorExcecao::Guarda);
+    }
+
+    #[test]
+    #[should_panic(expected = "ordem das funções mudou")]
+    fn consulta_rejeita_funcao_trocada_antes_da_materializacao() {
+        let mut m = modulo();
+        let plano = preparar(&mut m);
+        m.functions[0].symbol = "outra_funcao".into();
+        plano.sitios_da_funcao(0, &m.functions[0]);
     }
 
     #[test]

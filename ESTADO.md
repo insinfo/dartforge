@@ -204,6 +204,11 @@ incompatível; teste do grafo cobre a diferença entre dominância de bloco e
 aresta. Suíte: 105 testes passaram, sete manuais ignorados; oito doctests
 ARC passaram. A análise continua fora da emissão; não prova consumo de
 tokens, nem disponibilidade de resultados de chamadas sem `invoke`.
+O plano excepcional permite aos passes intermediários consultar os sítios
+por índice e símbolo da função, antes de publicar `Module::tabelas`. A
+materialização usa essa consulta e confere todos os sítios antes de calcular
+as saídas. Os quatro testes do passe passaram, incluindo rejeição de função
+trocada; a consulta ainda não insere owners ou cleanups ARC.
 
 Na rodada remota `37896396380` sobre `719e94cc`, os quatro testes dirigidos
 de mapas também passaram, sem ignorados/filtrados, em 752 s; log do job B0
