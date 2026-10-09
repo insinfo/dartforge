@@ -7,6 +7,10 @@ O resumo de 2026-10-08 abaixo precede os commits `c0cded84` (mapas por
 jovens e cascata). As medidas atualizadas do ARC estão em
 `docs/ARC-IMPLEMENTACAO.md`: ARC/A0 passou de 2,81 para 2,13 na média
 geométrica da rodada ali descrita; ainda há trabalho para aproximar de A0.
+O benchmark completo dos mapas está registrado na especificação §13.16:
+32 núcleos, sete execuções alternadas presas ao núcleo P, B0/A0 = 0,972 e
+B1/A0 = 0,961. A validação Linux/macOS da forma nova ainda precisa de uma
+rodada identificada; esses tempos são da máquina Windows.
 
 A revisão do analisador avançou até `86aa8d2c`: criação por alias genérico
 sem argumentos escritos infere pelos parâmetros e limites do alias. A
@@ -18,6 +22,19 @@ O caso negativo revelou que `D<int>()` ainda usava a expansão sem argumentos
 O oráculo exige `C<List<int>>` nos dois relatos de retorno incompatível.
 Verificação: `cargo test --locked --release -p dartforge-types --test bodies`
 passou 58 testes; os três testes de SDK/projetos externos permanecem ignorados.
+O último placar preservado do histórico (`E:\dftemp\placar_det326.txt`,
+2026-10-09 00:25) registra 22.917/23.012 na posição exata, 22.900 mensagens
+iguais, FP 0, FN 79 e 16 posições erradas. Ele antecede as duas últimas
+correções de criação por alias; ainda não é uma medição deste HEAD.
+
+ARC: o registro dos jovens protegidos percorre diretamente as raízes, em vez
+de consultar os metadados de todos os jovens. Grafos aleatórios: 3.000 sementes
+em cada um dos três modos, sem falhas; suíte completa do runtime: 108 testes
+passaram, três microbenchmarks ignorados. Medida dirigida em produção, cinco
+execuções alternadas no núcleo P: árvores 888,131 → 865,112 ms; lista ligada
+179,882 → 172,090 ms. Mesmos resultados em todas as execuções. Detalhes e
+limites em `docs/ARC-IMPLEMENTACAO.md`; a média do benchmark inteiro continua
+pendente para esta mudança.
 
 ## Situação geral (2026-10-08, fim da tarde)
 

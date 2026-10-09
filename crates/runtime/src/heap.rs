@@ -5013,9 +5013,11 @@ impl Heap {
         // 2. Os jovens que só as raízes veem.
         let mut jovens = Vec::new();
         self.objetos.jovens_entregues(&mut |b| jovens.push(b));
-        for &b in &jovens {
-            let h = b as i64 + DESLOCAMENTO_DO_HANDLE;
-            if arc.estado.meta(h).is_none() && protegidos.contains(&h) {
+        // Só as raízes podem acrescentar registros nesta etapa. Consultar
+        // todos os jovens aqui custava uma busca de metadados por alocação,
+        // embora a decisão de cada jovem já ocorra no passo 4.
+        for &h in &protegidos {
+            if self.filho_jovem(h) && arc.estado.meta(h).is_none() {
                 arc.estado.registrar_vivo_em(h, geometria_arc(&self.objetos, h));
             }
         }
@@ -5383,6 +5385,27 @@ mod arc_no_heap {
         heap.coletar(true);
         assert!(!vivo(&heap, a));
         heap.collect();
+    }
+
+    #[test]
+    fn arc_raizes_registram_jovens_sem_reter_lixo_nem_recontar_velhos() {
+        let mut heap = heap_arc();
+        let quadro = heap.push_frame_with_slots(2);
+        let velho = lista(&mut heap, 0);
+        heap.set_root(quadro, 0, velho);
+        heap.coletar(true);
+        let geracao = heap.arc.as_ref().unwrap().estado.meta(velho).unwrap().geracao;
+        let jovem = lista(&mut heap, 0);
+        let lixo = lista(&mut heap, 0);
+        heap.set_root(quadro, 1, jovem);
+        heap.coletar(true);
+        assert!(vivo(&heap, velho) && vivo(&heap, jovem));
+        assert!(!vivo(&heap, lixo));
+        assert_eq!(heap.arc.as_ref().unwrap().estado.meta(velho).unwrap().geracao, geracao);
+        assert_eq!(heap.arc.as_ref().unwrap().estado.meta(jovem).unwrap().rc, 0);
+        heap.pop_frame(quadro);
+        heap.coletar(true);
+        assert!(!vivo(&heap, velho) && !vivo(&heap, jovem));
     }
 
     #[test]

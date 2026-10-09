@@ -181,6 +181,34 @@ O que ainda pesa, pela mesma medida (`objetos_escapam`): a decisão dos jovens
 candidatura de cada um), a cascata dos zeros (~130 ns por morte: dois
 percursos do corpo, um `soltar` por aresta) e a soltura física um a um.
 
+**Registro dos jovens pelas raízes (2026-10-09).** Na drenagem pura, o passo
+que registra os jovens protegidos diretamente percorre o conjunto das raízes,
+confere o estado `JOVEM` e só registra quem ainda não tem metadados. Antes
+esse passo consultava os metadados de todos os jovens entregues, para depois
+verificar se estavam nas raízes. A decisão de vida de todos os jovens continua
+no passo seguinte; objetos velhos e estáticos não são registrados novamente.
+O teste dirigido confere jovem protegido de RC zero, jovem inalcançável e
+preservação da geração do velho. Os grafos aleatórios passaram com 3.000
+sementes em cada um dos três modos (ARC, ciclos sempre e rastreamento).
+
+Medida dirigida (`objetos_escapam`, produção ARC, cinco execuções alternadas
+antes/depois, afinidade `0x4`; mediana das cinco rodadas após o aquecimento em
+cada execução, depois mediana das execuções):
+
+| núcleo | antes (ms) | depois (ms) | depois/antes |
+| --- | ---: | ---: | ---: |
+| `arvores` | 888,131 | 865,112 | 0,974 |
+| `lista_ligada` | 179,882 | 172,090 | 0,957 |
+
+Os resultados foram idênticos em todas as execuções (`3156655` e
+`499999500000`). Os executáveis têm SHA-256 começando em `2c9c3458e97d`
+(antes) e `219f7ac7a2e9` (depois). Uma execução adicional com rastro em cada
+versão, fora da medição de vazão, teve as mesmas 382 drenagens e 24.928.308
+jovens: a fase de jovens das raízes (inclui montar o vetor dos jovens) caiu
+de 535.255 para 207.153 µs acumulados. A suíte completa do runtime passou
+108 testes, com três microbenchmarks ignorados. Esta medida dirigida não
+atualiza a média geométrica do benchmark inteiro nem prova o corpus nativo.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais
@@ -192,7 +220,9 @@ percursos do corpo, um `soltar` por aresta) e a soltura física um a um.
   chave, que retém (nunca mata antes da hora).
 * Política de agendamento da rodada de ciclos por orçamento (§22.5); hoje
   ela roda na completa.
-* Reclamação por bloco, sem varrer as páginas (§19.4, caminho otimizado).
+* Reduzir o custo da reclamação por bloco (`EspacoDeObjetos::soltar_morto`,
+  já usada pela drenagem pura, sem varrer páginas): juntar intervalos livres
+  contíguos respeitando página, classe e quarentena (§19.4).
 * A recarga com código antigo retido e o descritor por versão de layout
   (§23.4), isolados com mensagens contadas (§23.2) e FFI (§23.3).
 * Comparação ARC × rastreamento × VM e decisão (§13, P6).
