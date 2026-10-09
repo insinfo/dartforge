@@ -432,6 +432,23 @@ microbenchmarks ignorados; fonte única AOT/JIT aprovada. A consulta não
 tem ganho de tempo demonstrado no benchmark completo. MacOS concluiu o
 passo de recarga e está no corpus AOT/JIT da rodada `37922301282`.
 
+Fechamento da rodada `37922301282` sobre `a49ab81b`: todos os jobs
+selecionados concluíram com sucesso. Artefatos finais do macOS conferidos:
+AOT, A1, B0, B1 e ARC 238/238, `dart:io` 130/130 e JIT × AOT
+238/238 idênticos, zero divergências, sete sem IR iguais por construção.
+Log do job `113792887228`: testes JIT 16/16, 5/5 e 6/6; recarga 7/7.
+Esta rodada não cobre as mudanças posteriores de finalizadores.
+
+A entrada de finalização passa da fila para um slot proprietário antes de
+chamar Dart, por movimento sem retain adicional. O retorno consome esse
+slot, em vez de retirar a frente atual da fila. Assim, um laço de eventos
+reentrante não reencontra a ação ativa nem consome outra entrada ao retornar.
+Teste abre o laço recursivamente, confere execução única de duas ações,
+coleta com ambos os callbacks ativos e verifica liberação após retorno.
+Release: 141 unitários, 13 de integração e 12 doctests aprovados, três
+microbenchmarks ignorados; fonte única AOT/JIT aprovada. Sem nova medição
+de desempenho; estados explícitos e identidades com geração seguem pendentes.
+
 Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
 suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior
 estava concluída e nenhuma Pesado ativa. Valida as análises auxiliares ARC,

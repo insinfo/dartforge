@@ -1914,6 +1914,22 @@ impl Heap {
         Some(acao)
     }
 
+    /// Transfere a ocorrência da fila ao callback ativo, sem retenção adicional.
+    pub(crate) fn mover_finalizacao_para_slot(&mut self, frame: i64, slot: usize) -> Ref {
+        let indice = self.frames.iter().rposition(|(id, _, _)| *id == frame)
+            .expect("frame inexistente");
+        assert!(self.frames[indice].2, "movimento exige quadro proprietário");
+        let antigo = *self.frames[indice].1.get(slot).expect("slot de raiz inválido");
+        let valor = *self.finalizacoes_prontas.front().expect("fila de finalizações vazia");
+        self.arc_trocar_raiz_proprietaria(0, antigo);
+        self.finalizacoes_prontas.pop_front();
+        self.frames[indice].1[slot] = valor;
+        self.stats.live_roots -= usize::from(antigo != 0);
+        self.stats.live_roots += usize::from(valor != 0);
+        self.stats.peak_roots = self.stats.peak_roots.max(self.stats.live_roots);
+        valor
+    }
+
     /// Retém uma ocorrência de mensagem no domínio deste heap.
     pub(crate) fn reter_owner_mensagem(&mut self, valor: Ref) -> u64 {
         self.conferir_vivo(valor);

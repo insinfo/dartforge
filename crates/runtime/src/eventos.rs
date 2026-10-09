@@ -148,9 +148,9 @@ pub extern "C" fn dartforge_laco_de_eventos(chamar: extern "C" fn(i64) -> i64) {
         }
         // 1b. As finalizações prontas (`Finalizer`, `finalizadores.rs`):
         //     na VM chegam como mensagem ao isolado; aqui, entre eventos.
-        if let Some(acao) = proxima_finalizacao() {
-            chamar_evento(chamar, acao, None);
-            concluir_finalizacao();
+        if let Some((quadro, acao)) = iniciar_finalizacao() {
+            dart_r1(chamar as usize, acao);
+            concluir_finalizacao(quadro);
             continue;
         }
         // 2. Os pedidos no ponto seguro (a publicação de uma recarga do JIT,
