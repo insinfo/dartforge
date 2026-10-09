@@ -992,6 +992,11 @@ Artefatos Windows ARC já conferidos em `target/ci-37970899962`: 238/238
 continuam sem oráculo Dart VM válido por bibliotecas web indisponíveis.
 macOS, SDK da fonte e B0 ainda ativos na consulta; não inferir conclusão
 da rodada desses relatórios parciais nem disparar outra enquanto estiver ativa.
+Artefatos Linux da mesma rodada conferidos: AOT/A1/B0/B1/ARC 238/238,
+io 130/130; JIT 238/238 e JIT × AOT sem divergências, sete sem IR iguais
+por construção, zero timeouts nos dois. Windows io também conferido:
+130/130 (93,6 s). Arquivos em `target/ci-37970899962`. Três jobs restantes
+continuam ativos na consulta; nenhum resultado desses jobs foi presumido.
 
 Publicação antes da liberação do owner antigo agora vale também para raízes
 internas do runtime, cópia global, movimento global→global, quadro→quadro e
@@ -1006,6 +1011,24 @@ O mapa de owners globais não armazena null/Smi: não fornece o valor real de
 uma carga global. O descritor forte global ainda precisa associar armazenamento
 real, representação e registro de owner; não implementar carga lendo só esse
 mapa. ArcLoadStrong/ArcStoreStrong globais e inserção automática seguem pendentes.
+
+Ponte runtime SSA→owner global disponível como
+`dartforge_arc_global_receber_v1(id, valor)`: não desreferencia o ID, consome
+token do código sem retain da origem, publica o registro e solta owner antigo.
+O chamador deverá publicar os bits reais antes, sem safepoint até a chamada;
+o token SSA sustenta o valor nesse intervalo. Null/Smi removem owner antigo,
+sem transformar o registro no armazenamento do valor. Token ausente é falha
+interna antes de mutar o registro. Declaração LLVM nounwind e efeitos sem
+alocação gerenciada/exceção/Dart registrados. Teste dirigido cobre RC exato,
+alias no destino, rejeição sem mutação, Smi e owner SSA independente, em
+tracing/ARC puro/ARC jovem. Runtime release: 156 aprovados, três microbenchmarks
+ignorados, 13 integrações e 23 exemplos públicos
+(`target/runtime-arc-global-receber-release.log`). Ainda não há descritor HIR
+global nem emissão da sequência publicação/transferência; a integração precisa
+validar símbolo e representação contra o catálogo do módulo, preservando lazy
+initialization e a identidade do armazenamento por isolate/módulo.
+Check do emissor passou, com apenas aviso preexistente de atribuir_slots
+(`target/arc-global-extern-check.log`).
 
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 

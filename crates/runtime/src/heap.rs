@@ -1700,6 +1700,26 @@ impl Heap {
         if handle != antigo { self.arc_trocar_raiz_proprietaria(0, antigo); }
     }
 
+    /// Transfere token SSA ao registro proprietário de um slot global.
+    /// O chamador publica os bits no armazenamento real antes desta chamada,
+    /// sem safepoint no intervalo. O registro não guarda null/Smi como valores.
+    pub(crate) fn mover_codigo_para_global(&mut self, id: i64, valor: Ref) {
+        let antigo = self.globais.get(&id).copied().unwrap_or(0);
+        if smi::e_handle(valor) {
+            self.conferir_vivo(valor);
+            let n = *self.owners_codigo.get(&valor).expect("move global ARC sem token do código");
+            if n == 1 {
+                self.owners_codigo.remove(&valor);
+            } else {
+                self.owners_codigo.insert(valor, n - 1);
+            }
+            self.globais.insert(id, valor);
+        } else {
+            self.globais.remove(&id);
+        }
+        self.arc_trocar_raiz_proprietaria(0, antigo);
+    }
+
     /// Move a raiz de um global de um endereço de slot para outro (a área de
     /// globais de um módulo recarregado, `gc_raizes.rs`).
     /// Solta o owner anterior do destino. Origem ausente ou movimento para
@@ -5947,6 +5967,37 @@ mod arc_no_heap {
         heap.ativar_arc();
         heap.arc.as_mut().unwrap().conferir = true;
         heap
+    }
+
+    #[test]
+    fn global_recebe_token_sem_reter_e_nao_confunde_owner_com_valor_escalar() {
+        for modo in [None, Some(false), Some(true)] {
+            let mut heap = if modo.is_some() { heap_arc() } else { Heap::new(true) };
+            if let Some(puro) = modo { heap.arc.as_mut().unwrap().puro = puro; }
+            let valor = heap.alocar_str("global owned");
+            heap.reter_owner_codigo(valor);
+            heap.mover_codigo_para_global(10, valor);
+            assert!(heap.owners_codigo.is_empty());
+            heap.collect();
+            assert!(heap.e_objeto_vivo(valor));
+            if let Some(arc) = &heap.arc { assert_eq!(arc.estado.meta(valor).unwrap().rc, 1); }
+            heap.reter_owner_codigo(valor);
+            heap.mover_codigo_para_global(10, valor);
+            if let Some(arc) = &heap.arc { assert_eq!(arc.estado.meta(valor).unwrap().rc, 1); }
+            assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                heap.mover_codigo_para_global(10, valor);
+            })).is_err());
+            assert_eq!(heap.globais[&10], valor);
+            heap.reter_owner_codigo(valor);
+            heap.mover_codigo_para_global(10, smi::de(42).unwrap());
+            assert!(!heap.globais.contains_key(&10), "owner não é armazenamento escalar");
+            heap.collect();
+            assert!(heap.e_objeto_vivo(valor), "token SSA independente protege carga");
+            heap.soltar_owner_codigo(valor);
+            heap.collect();
+            assert!(!heap.e_objeto_vivo(valor));
+            heap.mover_codigo_para_global(10, 0);
+        }
     }
 
     #[test]

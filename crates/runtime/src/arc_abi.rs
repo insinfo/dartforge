@@ -151,6 +151,24 @@ pub extern "C" fn dartforge_arc_quadro_receber_v1(quadro: i64, slot: i64, valor:
     HEAP.with(|h| h.borrow_mut().mover_codigo_para_raiz(quadro, slot, valor));
 }
 
+/// Transfere token do código ao registro de owner de um global.
+///
+/// `id` identifica o armazenamento, não é desreferenciado. O código gerado
+/// deve publicar o valor real antes, sem safepoint até esta chamada. O registro
+/// guarda apenas owners de handles; não fornece o valor de uma carga global.
+/// Não retém a origem, coleta ou executa Dart. Null/Smi retiram owner anterior.
+///
+/// # Panics
+/// Handle morto ou sem token do código; falha interna aborta no limite C.
+///
+/// ```
+/// dartforge_runtime::abi::dartforge_arc_global_receber_v1(17, 0);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_global_receber_v1(id: i64, valor: i64) {
+    HEAP.with(|h| h.borrow_mut().mover_codigo_para_global(id, valor));
+}
+
 /// Move um owner entre slots, consumindo origem e conteúdo antigo do destino.
 ///
 /// Mover para o mesmo slot preserva a ocorrência. Não há coleta nem Dart
