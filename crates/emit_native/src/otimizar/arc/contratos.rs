@@ -1102,6 +1102,116 @@ mod testes {
     use super::*;
 
     #[test]
+    fn cleanup_preserva_transferencia_e_retem_antes_de_liberar_outros_tokens() {
+        let mut f = Function {
+            symbol: "retornos_distintos".into(),
+            name: "retornos_distintos".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "x".into(), Type::Ref)],
+            return_ty: Type::Ref,
+            blocks: vec![
+                BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![
+                        (
+                            ValueId(1),
+                            Instruction::ArcCopy {
+                                value: Operand::Val(ValueId(0)),
+                            },
+                            Type::Ref,
+                        ),
+                        (
+                            ValueId(2),
+                            Instruction::ArcCopy {
+                                value: Operand::Val(ValueId(0)),
+                            },
+                            Type::Ref,
+                        ),
+                        (
+                            ValueId(3),
+                            Instruction::Const(Constant::Bool(true)),
+                            Type::I1,
+                        ),
+                    ],
+                    terminator: Terminator::CondBranch {
+                        cond: Operand::Val(ValueId(3)),
+                        then_block: BlockId(1),
+                        else_block: BlockId(2),
+                    },
+                },
+                BasicBlock {
+                    id: BlockId(1),
+                    instructions: vec![],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+                },
+                BasicBlock {
+                    id: BlockId(2),
+                    instructions: vec![],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
+                },
+            ],
+        };
+        let mut classes = HashMap::new();
+        let mut plano = PlanoTokens {
+            retorno: super::super::RetornoTokens::Owned,
+            ..Default::default()
+        };
+        assert_eq!(
+            inserir_arc_saidas_dart(
+                &mut f,
+                &mut classes,
+                &mut plano,
+                &TabelasDaFuncao::default(),
+                &PlanoEscopos::default()
+            )
+            .unwrap(),
+            (1, 3)
+        );
+        // Transferir v1 exige liberar somente v2 nesta saída.
+        assert!(matches!(
+            f.blocks[1].terminator,
+            Terminator::Return(Some(Operand::Val(ValueId(1))))
+        ));
+        assert_eq!(f.blocks[1].instructions.len(), 1);
+        assert!(matches!(
+            f.blocks[1].instructions[0].1,
+            Instruction::ArcDrop {
+                value: Operand::Val(ValueId(2))
+            }
+        ));
+        // Na outra saída, reter o retorno precede o cleanup dos dois owners.
+        let b = &f.blocks[2];
+        assert_eq!(b.instructions.len(), 3);
+        assert!(matches!(
+            b.instructions[0].1,
+            Instruction::ArcCopy {
+                value: Operand::Val(ValueId(0))
+            }
+        ));
+        assert!(
+            matches!(b.terminator, Terminator::Return(Some(Operand::Val(v))) if v == b.instructions[0].0)
+        );
+        for (inst, esperado) in b.instructions[1..].iter().zip([ValueId(1), ValueId(2)]) {
+            assert!(
+                matches!(inst.1, Instruction::ArcDrop { value: Operand::Val(v) } if v == esperado)
+            );
+        }
+        let pronta = format!("{f:?}");
+        assert_eq!(
+            inserir_arc_saidas_dart(
+                &mut f,
+                &mut classes,
+                &mut plano,
+                &TabelasDaFuncao::default(),
+                &PlanoEscopos::default()
+            )
+            .unwrap(),
+            (0, 0)
+        );
+        assert_eq!(format!("{f:?}"), pronta);
+    }
+
+    #[test]
     fn cleanup_saidas_cobre_erro_runtime_sem_reparar_consumo_duplicado() {
         let original = Function {
             symbol: "cleanup_pending".into(),

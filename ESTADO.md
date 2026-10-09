@@ -2,6 +2,15 @@
 
 ## Retomada de 2026-10-09
 
+Regressão de cleanup com saídas Ref distintas: a saída que devolve um
+Owned transfere esse token sem drop; a saída que devolve o parâmetro
+borrowed retém o retorno antes de liberar os dois temporários Owned.
+O teste confere os operandos exatos, ordem determinística e idempotência.
+Suíte dirigida `cargo test --locked -p dartforge-emit-native --lib
+otimizar::arc`: 72 testes passaram. Ainda não integra o passe no pipeline
+comum: contratos de chamadas e proveniência produzidos pelo lowering
+continuam necessários.
+
 Prova AOT do cleanup automático de saídas: a variante
 `retorno-mortal-auto-cleanup` de `arc_slots_fortes` deixa os três retornos
 de erro sem drops manuais. `inserir_arc_saidas_dart` insere exatamente
