@@ -419,6 +419,15 @@ teste de duas ocorrências, uma e nenhuma confere os números e a liberação.
 Isso não cobre uma postagem concorrente à terminação do isolado.
 Suíte release atual: 124 aprovados, três microbenchmarks ignorados.
 
+O encerramento marca `Filas::encerrada` sob o mutex usado para publicar e
+drena mensagens normais e de controle. Um remetente que obteve o `Arc` da
+fila antes de sua retirada do registro não pode publicar depois dessa marca.
+Se a publicação normal já preparou tokens, a rejeição os solta no domínio
+do remetente, que é o destinatário dos handles compartilhados. Teste com
+barreira entre duas threads força publicação por clone antigo depois do
+fechamento; aprovado em debug. Suíte release: 125 aprovados, três
+microbenchmarks ignorados. A validação remota desta mudança ainda está pendente.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais

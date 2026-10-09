@@ -816,6 +816,26 @@ mod testes_owners_materializacao {
     use super::*;
 
     #[test]
+    fn remetente_com_clone_antigo_nao_publica_apos_encerramento() {
+        let fila = FILA.with(|f| f.clone());
+        let barreira = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let liberar = barreira.clone();
+        let destino = fila.clone();
+        let remetente = std::thread::spawn(move || {
+            liberar.wait();
+            postar_na_fila(&destino, 123, Grafo {
+                nos: Vec::new(), raiz: ValG::Palavra(0), origem: 0,
+                tipos: None, tabelas: Vec::new(),
+            });
+        });
+        fechar_portas_do_isolado();
+        barreira.wait();
+        remetente.join().unwrap();
+        let m = fila.mensagens.lock().unwrap();
+        assert!(m.encerrada && m.normal.is_empty());
+    }
+
+    #[test]
     fn encerramento_do_isolado_solta_owners_de_mensagens_pendentes() {
         let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
         let (quadro, texto) = HEAP.with(|h| {
@@ -973,6 +993,8 @@ struct Mensagem {
 /// antes das outras.
 #[derive(Default)]
 struct Filas {
+    /// Protegido pelo mesmo mutex da publicação: clones antigos não reabrem a fila.
+    encerrada: bool,
     normal: std::collections::VecDeque<Mensagem>,
     controle: std::collections::VecDeque<Grafo>,
     /// Os pedidos para rodar no ponto seguro (a publicação de uma recarga
@@ -1195,26 +1217,37 @@ pub fn postar(porta: i64, grafo: Grafo) {
     };
     match dono {
         Some(Dono::Isolado(f)) => {
-            let mut owners = Vec::new();
-            grafo.visitar_valores(|v| {
-                if let ValG::Mesmo(h) = *v {
-                    assert_eq!(f.id, id_do_isolado(), "owner compartilhado fora do seu isolado");
-                    assert_eq!(grafo.origem, f.id, "origem do owner compartilhado incorreta");
-                    owners.push(HEAP.with(|heap| heap.borrow_mut().reter_owner_mensagem(h)));
-                }
-            });
-            let mut m = f.mensagens.lock().unwrap_or_else(|e| e.into_inner());
-            m.normal.push_back(Mensagem { porta, grafo, owners, chegada: std::time::Instant::now() });
-            f.avisar();
+            postar_na_fila(&f, porta, grafo);
         }
         Some(Dono::Controle(f)) => {
             let mut m = f.mensagens.lock().unwrap_or_else(|e| e.into_inner());
+            if m.encerrada { return; }
             m.controle.push_back(grafo);
             f.avisar();
         }
         Some(Dono::Nativo(s)) => s(porta, grafo),
         None => {}
     }
+}
+
+/// Publica com a referência já obtida do registro; o mutex lineariza o fechamento.
+fn postar_na_fila(f: &FilaDoIsolado, porta: i64, grafo: Grafo) {
+    let mut owners = Vec::new();
+    grafo.visitar_valores(|v| {
+        if let ValG::Mesmo(h) = *v {
+            assert_eq!(f.id, id_do_isolado(), "owner compartilhado fora do seu isolado");
+            assert_eq!(grafo.origem, f.id, "origem do owner compartilhado incorreta");
+            owners.push(HEAP.with(|heap| heap.borrow_mut().reter_owner_mensagem(h)));
+        }
+    });
+    let mut m = f.mensagens.lock().unwrap_or_else(|e| e.into_inner());
+    if m.encerrada {
+        drop(m);
+        soltar_owners_da_mensagem(&owners);
+        return;
+    }
+    m.normal.push_back(Mensagem { porta, grafo, owners, chegada: std::time::Instant::now() });
+    f.avisar();
 }
 
 /// Posta `grafo` na fila de controle do isolado dono de `porta` (as
@@ -1228,7 +1261,11 @@ fn postar_controle(porta: i64, grafo: Grafo) {
         }
     };
     if let Some(f) = fila {
-        f.mensagens.lock().unwrap_or_else(|e| e.into_inner()).controle.push_back(grafo);
+        {
+            let mut m = f.mensagens.lock().unwrap_or_else(|e| e.into_inner());
+            if m.encerrada { return; }
+            m.controle.push_back(grafo);
+        }
         let alvo = f.interrupcao.lock().unwrap_or_else(|e| e.into_inner());
         if *alvo != 0 {
             // SAFETY: o contexto da thread do isolado, vivo enquanto o
@@ -1443,7 +1480,10 @@ fn fechar_portas_do_isolado() {
     });
     PORTAS_ABERTAS.with(|p| p.borrow_mut().clear());
     let pendentes = FILA.with(|f| {
-        std::mem::take(&mut f.mensagens.lock().unwrap_or_else(|e| e.into_inner()).normal)
+        let mut m = f.mensagens.lock().unwrap_or_else(|e| e.into_inner());
+        m.encerrada = true;
+        m.controle.clear();
+        std::mem::take(&mut m.normal)
     });
     for m in pendentes { soltar_owners_da_mensagem(&m.owners); }
 }
