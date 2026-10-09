@@ -888,8 +888,13 @@ Não contém o novo CFG excepcional, teste semântico ou ABI mínima.
 Nova rodada Pesado 37961824053, suíte nativo com dois fragmentos, disparada
 no main eaa457d8 somente depois do sucesso terminal de 37954216065. Contém
 o CFG excepcional ARC, teste semântico com SDK real, ABI mínima de tokens
-e conferência da entrada. Acompanhar essa rodada até terminar; não disparar
-outra enquanto estiver na fila/ativa. CI rápido da revisão: 37961221420.
+e conferência da entrada. Terminou com sucesso, conforme consulta ao GitHub
+Actions. Artefatos baixados em `target/ci-37961824053` e conferidos: Windows
+ARC 238/238 (39,6 s), ARC stress 238/238 (63,1 s), io 130/130 (97,1 s).
+Linux/macOS AOT/A1/B0/B1/ARC 238/238 e io 130/130. Os seis DART! de
+interop continuam sem oráculo Dart VM válido por bibliotecas web indisponíveis.
+CI rápido 37961221420 foi cancelado pela publicação de 26307f47; o novo
+37965545755 estava ativo na última consulta. Sem toolchain 37965545388 passou.
 
 HIR passa a representar ArcCopy/ArcDrop/ArcMove. LLVM chama retain/release
 para copy/drop; move mantém os bits sem RC físico. Tipos de resultado fixos:
@@ -905,10 +910,27 @@ extra, inlining/remapeamento e rejeições. Suíte final release do emissor:
 passaram, 19 exemplos restantes filtrados (`target/arc-instrucoes-doc-release.log`).
 Check do workspace passou (`target/arc-instrucoes-workspace-check.log`), com
 avisos existentes. Testes novos formatados isoladamente. Ainda não produzidos
-automaticamente pelo lowering, nem verificados quanto a disponibilidade/
-consumo de tokens por CFG. ArcKeepAlive, slots fortes, contratos completos
+automaticamente pelo lowering. ArcKeepAlive, slots fortes, contratos completos
 de externs, saídas excepcionais/suspensão e gate >= A0 continuam pendentes.
 A rodada remota 37961824053 testa eaa457d8, sem essas três instruções novas.
+
+Verificador auxiliar `verificar_tokens` confere disponibilidade e consumo
+único no CFG preparado. Exige inventário semântico e contrato explícito por
+instrução ordinária; ausência não implica empréstimo. Copy cria um token,
+move transfere e drop consome. Phi owned transfere simultaneamente na aresta,
+inclusive trocas em backedges; junções exigem o mesmo inventário, sem união.
+Invoke produz resultado apenas no sucesso e aplica consumos específicos de
+sucesso/erro. Retorno owned transfere ao chamador; retorno borrowed exige
+owner externo. Saídas rejeitam tokens restantes. Diagnósticos incluem caminho.
+Sete testes novos cobrem transferências, consumo duplicado, vazamento, junções,
+Phi nullable, loops/trocas, borrows, invokes e contratos ausentes/obsoletos.
+Suíte release: 126 aprovados, zero falhas, sete manuais ignorados
+(`target/emissor-arc-tokens-cfg-release.log`). Ainda fora do pipeline: não
+certifica os contratos fornecidos, nem proveniência/ABI, escopos, invalidação
+de campos/borrows, regiões ou estados suspensos. CFG/SSA e representações
+válidos são precondições; não substitui os verificadores correspondentes.
+Os quatro exemplos públicos passaram, 22 restantes filtrados
+(`target/arc-tokens-cfg-doc-release.log`).
 
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
