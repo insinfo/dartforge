@@ -274,6 +274,16 @@ pub(super) fn vivacidade_com_saidas(
             ));
         };
         let b = &f.blocks[origem];
+        if tabelas.invocacoes.contains_key(&call)
+            && b.instructions
+                .iter()
+                .any(|(v, inst, _)| *v == call && matches!(inst, Instruction::CallRuntime { .. }))
+        {
+            return Err(format!(
+                "ownership em {}: runtime v{} exige conferência de pendência, não invoke LLVM",
+                f.symbol, call.0
+            ));
+        }
         let sucesso = if pendencias.contains_key(&call) {
             conferir_pendencia(b, call, pouso).and_then(|s| pos.get(&s).copied())
         } else {

@@ -174,6 +174,42 @@ fn pending_runtime_confere_cleanup_sem_pouso_llvm() {
 }
 
 #[test]
+fn runtime_pending_nao_pode_ser_publicado_como_invoke_llvm() {
+    let f = funcao(vec![
+        bloco(
+            0,
+            vec![(
+                ValueId(1),
+                Instruction::CallRuntime {
+                    name: "dartforge_gc_collect".into(),
+                    args: vec![],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            )],
+            Terminator::CondBranch {
+                cond: Operand::Constant(Constant::Bool(false)),
+                then_block: BlockId(1),
+                else_block: BlockId(2),
+            },
+        ),
+        bloco(1, vec![], Terminator::Return(None)),
+        bloco(2, vec![], Terminator::Return(None)),
+    ]);
+    let mut c = classes(&[], &[]);
+    let mut p = PlanoTokens::default();
+    super::super::produzir_contratos_runtime(&f, &mut c, &mut p).unwrap();
+    let mut t = TabelasDaFuncao::default();
+    t.invocacoes.insert(ValueId(1), BlockId(1));
+    t.pousos.insert(BlockId(1));
+    assert!(
+        verificar_tokens(&f, &c, &t, &p)
+            .unwrap_err()
+            .contains("não invoke LLVM")
+    );
+}
+
+#[test]
 fn produtor_runtime_pending_auditado_exige_saida_de_erro() {
     let f = funcao(vec![
         bloco(

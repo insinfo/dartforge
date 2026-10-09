@@ -1395,6 +1395,17 @@ infalível conflitante com ownership.tsv. Quarenta e sete testes ARC aprovados
 (`target/ownership-runtime-pending-real-final.log`); essa mudança fortalece os
 casos auditados, sem alegar cobertura de todas as externs/invalidações.
 
+A validação de saídas excepcionais agora recusa explicitamente CallRuntime
+em TabelasDaFuncao.invocacoes: extern runtime usa conferência de pendência,
+não pouso de desenrolamento LLVM. Regressão tenta publicar gc_collect no
+formato antigo e recebe diagnóstico específico; os casos válidos de invoke
+Dart e pendência runtime continuam passando. Quarenta e oito testes ARC e
+36 exemplos públicos aprovados (`target/ownership-runtime-sem-invoke-test.log`,
+`target/ownership-runtime-sem-invoke-doc.log`). Prova AOT de slots recompilada
+e executada em ARC com auditoria/berçário desligado/estresse, código zero e
+saída slots ARC/42/null (`target/ownership-runtime-sem-invoke-aot.log`).
+Não autoriza CallRuntime desconhecida nem prova cobertura geral da ABI.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
