@@ -313,6 +313,24 @@ fn produzir(
                 _ => None,
             };
             if let Some(esperado) = puro {
+                let numerico = |op: &Operand| match op {
+                    Operand::Constant(Constant::Int(_) | Constant::Double(_)) => true,
+                    Operand::Val(v) => matches!(tipos.get(v), Some(Type::I64 | Type::F64)),
+                    _ => false,
+                };
+                let booleano = |op: &Operand| match op {
+                    Operand::Constant(Constant::Bool(_)) => true,
+                    Operand::Val(v) => matches!(tipos.get(v), Some(Type::I1 | Type::I8)),
+                    _ => false,
+                };
+                if matches!(inst, Instruction::FCmp(_, a, b) if !numerico(a) || !numerico(b))
+                    || matches!(inst, Instruction::LNot(op) if !booleano(op))
+                {
+                    return Err(format!(
+                        "v{}: operação pura exige escalares já avaliados",
+                        v.0
+                    ));
+                }
                 let efeito = EfeitoTokens::default();
                 if *ty != esperado
                     || classes.get(v).is_some_and(|c| *c != Ownership::Trivial)
@@ -533,6 +551,47 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn operacao_pura_nao_reinterpreta_referencia_como_escalar() {
+        for i in [
+            Instruction::FCmp(
+                FCmpOp::Eq,
+                Operand::Val(ValueId(0)),
+                Operand::Constant(Constant::Double(0.0)),
+            ),
+            Instruction::LNot(Operand::Val(ValueId(0))),
+        ] {
+            let f = Function {
+                symbol: "pura".into(),
+                name: "pura".into(),
+                depuracao: None,
+                params: vec![(ValueId(0), "x".into(), Type::Ref)],
+                return_ty: Type::I1,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(ValueId(1), i, Type::I1)],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+                }],
+            };
+            let mut classes = HashMap::from([(
+                ValueId(0),
+                Ownership::Borrowed {
+                    owner: OrigemOwner::Chamador,
+                    escopo: 0,
+                },
+            )]);
+            let antes = classes.clone();
+            let mut plano = PlanoTokens::default();
+            assert!(
+                produzir_contratos_arc(&f, &mut classes, &mut plano)
+                    .unwrap_err()
+                    .contains("escalares já avaliados")
+            );
+            assert_eq!(classes, antes);
+            assert!(plano.instrucoes.is_empty());
+        }
+    }
 
     #[test]
     fn constantes_tipadas_e_literais_permanentes_nao_exigem_seed_manual() {

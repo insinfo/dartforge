@@ -1452,6 +1452,16 @@ zero divergências, sete sem IR e zero timeouts nos dois (76,6 s). Completa
 os resultados Windows/Linux conferidos acima, mantendo a limitação dos seis
 oráculos indisponíveis de interop. Não contém as mudanças posteriores a 54b5c836.
 
+Contrato puro de FCmp agora exige operandos escalares I64/F64 e LNot exige
+bool I1/I8 (ou constantes correspondentes), recusando referências e endereços
+diretos antes de publicar mapas. Isso evita tomar bits de handle como escalar:
+llvm/mod.rs::coagir reinterpreta/trunca bits, sem descaixa nesse caminho.
+Regressão recusa FCmp/LNot sobre parâmetro Ref emprestado e preserva entradas;
+comparações/negações válidas anteriores permanecem aprovadas. Cinquenta e
+quatro testes ARC e 36 exemplos públicos aprovados
+(`target/ownership-puras-escalares-test.log`, `target/ownership-puras-escalares-doc.log`).
+Não substitui tipagem original completa nem valida todas as operações HIR.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
