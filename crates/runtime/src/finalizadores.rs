@@ -3,7 +3,7 @@
 // anexos do coletor (`Heap::anexos`).
 //
 // * Um anexo guarda o valor e a chave de `detach` como referências fracas;
-//   o dono (o finalizador) e a ação, fortes. A coleta que acha o valor morto
+//   a ação é aresta forte do dono, que o registro não enraíza. A coleta que acha o valor morto
 //   tira o anexo: a ação de um `Finalizer` (a closure `() => callback(token)`
 //   montada no Dart) vai para a fila de finalizações prontas, que o laço de
 //   eventos atende entre um evento e outro — na VM é uma mensagem ao
@@ -18,7 +18,7 @@
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_finalizador_anexar(dono: i64, valor: i64, acao: i64, desanexo: i64) {
     HEAP.with(|h| {
-        h.borrow_mut().anexos.push(crate::heap::AnexoDeFinalizador {
+        h.borrow_mut().adicionar_anexo(crate::heap::AnexoDeFinalizador {
             dono,
             valor,
             desanexo,
@@ -36,7 +36,7 @@ pub extern "C" fn dartforge_nativo_DartForge_finalizador_anexar_nativo(dono: i64
         return;
     }
     HEAP.with(|h| {
-        h.borrow_mut().anexos.push(crate::heap::AnexoDeFinalizador {
+        h.borrow_mut().adicionar_anexo(crate::heap::AnexoDeFinalizador {
             dono,
             valor,
             desanexo,
@@ -51,7 +51,7 @@ pub extern "C" fn dartforge_nativo_DartForge_finalizador_desanexar(dono: i64, de
     if desanexo == 0 {
         return;
     }
-    HEAP.with(|h| h.borrow_mut().anexos.retain(|a| !(a.dono == dono && a.desanexo == desanexo)));
+    HEAP.with(|h| h.borrow_mut().desanexar_finalizador(dono, desanexo));
 }
 
 /// A próxima finalização pronta (a closure), sem tirá-la da fila: ela

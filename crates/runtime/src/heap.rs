@@ -1555,6 +1555,9 @@ impl Heap {
         let anexos = std::mem::take(&mut self.anexos);
         while self.concluir_finalizacao_pronta().is_some() {}
         for a in anexos {
+            if let AcaoDeFinalizador::Dart(acao) = a.acao {
+                self.arc_gravacao_crua(a.dono, acao, 0);
+            }
             if let AcaoDeFinalizador::Nativa(f, token) = a.acao {
                 // SAFETY: `f` é a `NativeFinalizerFunction` que o programa
                 // registrou, `void f(void* token)`.
@@ -2599,6 +2602,11 @@ impl Heap {
                         marcar_bloco(b);
                         live += 1;
                         objetos_marcados += 1;
+                        for a in &self.anexos {
+                            if a.dono == atual && let AcaoDeFinalizador::Dart(acao) = a.acao {
+                                visitar_ref(acao, &mut proximo, &mut pilha);
+                            }
+                        }
                         // O corpo pelo formato (§2.8): `BRUTO` não tem
                         // referências; `REFS`, as palavras `1..=palavra 0`;
                         // `INSTANCIA`, os campos que o mapa diz referência. O
@@ -2705,6 +2713,40 @@ impl Heap {
         }
     }
 
+    /// Enumera ocorrências fortes do corpo e dos anexos pertencentes ao dono.
+    #[allow(unsafe_code)]
+    fn visitar_referencias_fortes(&self, h: Ref, f: &mut dyn FnMut(Ref)) {
+        // SAFETY: as posições pertencem ao corpo vivo, sem mutação durante a visita.
+        self.posicoes_de_ref(h, &mut |p| f(unsafe { *p }));
+        for a in &self.anexos {
+            if a.dono == h && let AcaoDeFinalizador::Dart(acao) = a.acao { f(acao); }
+        }
+    }
+
+    /// Registra a aresta lateral sem transformar o dono em raiz global.
+    pub(crate) fn adicionar_anexo(&mut self, anexo: AnexoDeFinalizador) {
+        self.conferir_vivo(anexo.dono);
+        if let AcaoDeFinalizador::Dart(acao) = anexo.acao {
+            self.conferir_vivo(acao);
+            if let Some(b) = self.bloco_do_espaco(anexo.dono) {
+                self.arc_trocou(b, anexo.dono, 0, acao);
+            }
+            self.lembrar_objeto(anexo.dono);
+        }
+        self.anexos.push(anexo);
+    }
+
+    /// Cancela os anexos ainda registrados da chave e solta suas arestas Dart.
+    pub(crate) fn desanexar_finalizador(&mut self, dono: Ref, desanexo: Ref) {
+        let mut acoes = Vec::new();
+        self.anexos.retain(|a| {
+            if a.dono != dono || a.desanexo != desanexo { return true; }
+            if let AcaoDeFinalizador::Dart(acao) = a.acao { acoes.push(acao); }
+            false
+        });
+        for acao in acoes { self.arc_gravacao_crua(dono, acao, 0); }
+    }
+
     /// A coleta completa (o `dartforge_gc_collect` e os testes): marca a
     /// partir das raízes e varre tudo; o que sobrevive fica velho.
     pub fn collect(&mut self) {
@@ -2722,12 +2764,6 @@ impl Heap {
         destino.extend(self.globais.values().copied());
         destino.extend(self.raizes_do_runtime.iter().copied().filter(|&h| h != 0));
         destino.extend(self.finalizacoes_prontas.iter().copied());
-        for a in &self.anexos {
-            destino.push(a.dono);
-            if let AcaoDeFinalizador::Dart(acao) = a.acao {
-                destino.push(acao);
-            }
-        }
         destino.extend(self.frames.iter().flat_map(|(_, roots, _)| roots.iter().copied()));
         visitar_quadros(|h| destino.push(h));
         let dos_mapas = destino.len();
@@ -2836,6 +2872,12 @@ impl Heap {
                 #[allow(unsafe_code)]
                 let trabalho = unsafe { self.objetos.empilhar_lembrado(b, &mut pendentes) };
                 self.trabalho_da_marcacao += trabalho;
+                let dono = b as i64 + DESLOCAMENTO_DO_HANDLE;
+                for a in &self.anexos {
+                    if a.dono == dono && let AcaoDeFinalizador::Dart(acao) = a.acao {
+                        pendentes.push(acao);
+                    }
+                }
             }
         }
         self.pending = pendentes;
@@ -2899,8 +2941,10 @@ impl Heap {
             self.campos_late_inicializados.retain(|(h, _)| vivo(h));
         }
         let mut prontas = Vec::new();
+        let mut arestas_de_anexos = Vec::new();
         let mut nativas = Vec::new();
         self.anexos.retain_mut(|a| {
+            if matches!(a.acao, AcaoDeFinalizador::Dart(_)) && !vivo(&a.dono) { return false; }
             if smi::e_handle(a.desanexo) && !vivo(&a.desanexo) {
                 a.desanexo = 0;
             }
@@ -2908,7 +2952,10 @@ impl Heap {
                 return true;
             }
             match a.acao {
-                AcaoDeFinalizador::Dart(acao) => prontas.push(acao),
+                AcaoDeFinalizador::Dart(acao) => {
+                        prontas.push(acao);
+                        arestas_de_anexos.push((a.dono, acao));
+                    },
                 AcaoDeFinalizador::Nativa(f, token) => nativas.push((f, token)),
             }
             false
@@ -2933,6 +2980,11 @@ impl Heap {
             }
             fica
         });
+        for (dono, acao) in arestas_de_anexos {
+            if !promocao.as_ref().is_some_and(|(promovidos, _)| promovidos.contains(&dono)) {
+                self.arc_gravacao_crua(dono, acao, 0);
+            }
+        }
         // A estimativa: a menor desconta o que soltou (blocos, regiões grandes,
         // corpos de fora e anexos dos mortos); a completa a refaz dos vivos, com
         // os bytes externos.
@@ -4621,7 +4673,7 @@ impl crate::arc::GrafoArc for GrafoDoHeap<'_> {
     fn arestas(&self, h: Ref, f: &mut dyn FnMut(Ref)) {
         // SAFETY: as posições são palavras do corpo de um bloco vivo.
         #[allow(unsafe_code)]
-        self.heap.posicoes_de_ref(h, &mut |p| f(unsafe { *p }));
+        self.heap.visitar_referencias_fortes(h, f);
         // Sem efêmero contado (o caso comum), nada de hash por objeto.
         if self.efemeros.por_chave.is_empty() {
             return;
@@ -4637,6 +4689,13 @@ impl crate::arc::GrafoArc for GrafoDoHeap<'_> {
         }
     }
     fn tirar_arestas(&mut self, h: Ref, f: &mut dyn FnMut(Ref)) {
+        self.heap.anexos.retain(|a| {
+            if a.dono == h && let AcaoDeFinalizador::Dart(acao) = a.acao {
+                f(acao);
+                return false;
+            }
+            true
+        });
         // SAFETY: as posições são palavras do corpo de um bloco vivo.
         #[allow(unsafe_code)]
         self.heap.posicoes_de_ref(h, &mut |p| unsafe {
@@ -4672,6 +4731,7 @@ impl crate::arc::GrafoArc for GrafoDoHeap<'_> {
         }
     }
     fn romper(&mut self, h: Ref) {
+        self.heap.anexos.retain(|a| a.dono != h || !matches!(a.acao, AcaoDeFinalizador::Dart(_)));
         // SAFETY: as posições são palavras do corpo de um bloco vivo.
         #[allow(unsafe_code)]
         self.heap.posicoes_de_ref(h, &mut |p| unsafe { *p = 0 });
@@ -4797,7 +4857,7 @@ impl Heap {
         if arc.puro {
             let mut valores = Vec::new();
             // SAFETY: as posições são palavras do corpo de um bloco vivo.
-            self.posicoes_de_ref(h, &mut |p| valores.push(unsafe { *p }));
+            self.visitar_referencias_fortes(h, &mut |v| valores.push(v));
             for v in valores {
                 self.arc_reter_registrando(&mut arc, v);
             }
@@ -4828,7 +4888,7 @@ impl Heap {
         }
         let mut valores = Vec::new();
         // SAFETY: as posições são palavras do corpo de um bloco vivo.
-        self.posicoes_de_ref(h, &mut |p| valores.push(unsafe { *p }));
+        self.visitar_referencias_fortes(h, &mut |v| valores.push(v));
         let arc = self.arc.as_deref_mut().expect("ARC ligado");
         valores.retain(|&v| arc.estado.meta(v).is_some());
         arc.fotos.insert(h, valores);
@@ -4873,7 +4933,7 @@ impl Heap {
         let mut valores = Vec::new();
         for &x in &alcancados {
             // SAFETY: as posições são palavras do corpo de um bloco vivo.
-            self.posicoes_de_ref(x, &mut |p| valores.push(unsafe { *p }));
+            self.visitar_referencias_fortes(x, &mut |v| valores.push(v));
             for v in valores.drain(..) {
                 arc.estado.reter(v).unwrap_or_else(|e| falha_do_arc(e));
             }
@@ -4907,7 +4967,7 @@ impl Heap {
                 }
                 saida.push(h);
                 // SAFETY: as posições são palavras do corpo de um bloco vivo.
-                self.posicoes_de_ref(h, &mut |p| pilha.push(unsafe { *p }));
+                self.visitar_referencias_fortes(h, &mut |v| pilha.push(v));
             }
             let alcancado = |h: &Ref| !smi::e_handle(*h) || visto.contains(h) || (e_objeto(*h) && self.bloco_do_espaco(*h).is_none());
             for (p, (k, v)) in &self.efemeros {
@@ -5003,7 +5063,7 @@ impl Heap {
         let mut soltar: Vec<Ref> = Vec::new();
         for &h in &promovidos {
             // SAFETY: as posições são palavras do corpo de um bloco vivo.
-            self.posicoes_de_ref(h, &mut |p| valores.push(unsafe { *p }));
+            self.visitar_referencias_fortes(h, &mut |v| valores.push(v));
             for v in valores.drain(..) {
                 arc.estado.reter(v).unwrap_or_else(|e| falha_do_arc(e));
             }
@@ -5013,7 +5073,7 @@ impl Heap {
                 continue;
             }
             // SAFETY: as posições são palavras do corpo de um bloco vivo.
-            self.posicoes_de_ref(x, &mut |p| valores.push(unsafe { *p }));
+            self.visitar_referencias_fortes(x, &mut |v| valores.push(v));
             for v in valores.drain(..) {
                 if novos.contains(&v) {
                     arc.estado.reter(v).unwrap_or_else(|e| falha_do_arc(e));
@@ -5023,7 +5083,7 @@ impl Heap {
         for (x, foto) in std::mem::take(&mut arc.fotos) {
             if arc.estado.vivo(x) {
                 // SAFETY: as posições são palavras do corpo de um bloco vivo.
-                self.posicoes_de_ref(x, &mut |p| valores.push(unsafe { *p }));
+                self.visitar_referencias_fortes(x, &mut |v| valores.push(v));
                 for v in valores.drain(..) {
                     arc.estado.reter(v).unwrap_or_else(|e| falha_do_arc(e));
                 }
@@ -5078,6 +5138,7 @@ impl Heap {
         let ciclos = arc.ciclos == Some(true);
         let mut ponto_fixo = completa && arc.ciclos != Some(false);
         let mut prontas = Vec::new();
+        let mut arestas_de_anexos = Vec::new();
         let mut nativas = Vec::new();
         let mut finalizar = Vec::new();
         arc.estado.retomar_adiados();
@@ -5124,7 +5185,10 @@ impl Heap {
                     return true;
                 }
                 match a.acao {
-                    AcaoDeFinalizador::Dart(acao) => prontas.push(acao),
+                    AcaoDeFinalizador::Dart(acao) => {
+                        prontas.push(acao);
+                        arestas_de_anexos.push((a.dono, acao));
+                    },
                     AcaoDeFinalizador::Nativa(f, token) => nativas.push((f, token)),
                 }
                 false
@@ -5143,6 +5207,9 @@ impl Heap {
             });
         }
         for &acao in &prontas { self.arc_reter_registrando(&mut arc, acao); }
+        for (_, acao) in arestas_de_anexos {
+            arc.estado.soltar(acao).unwrap_or_else(|e| falha_do_arc(e));
+        }
         self.finalizacoes_prontas.extend(prontas);
         if completa {
             self.reclamar_arc(&arc);
@@ -5226,7 +5293,7 @@ impl Heap {
         for (x, foto) in std::mem::take(&mut arc.fotos) {
             if self.bloco_do_espaco(x).is_some() && !arc.estado.morto(x) {
                 // SAFETY: as posições são palavras do corpo de um bloco vivo.
-                self.posicoes_de_ref(x, &mut |p| valores.push(unsafe { *p }));
+                self.visitar_referencias_fortes(x, &mut |v| valores.push(v));
                 for v in valores.drain(..) {
                     self.arc_reter_registrando(&mut arc, v);
                 }
@@ -5301,7 +5368,7 @@ impl Heap {
         fases.push(inicio.elapsed().as_micros());
         for &h in &mortos_jovens {
             // SAFETY: as posições são palavras do corpo de um bloco ainda não solto.
-            self.posicoes_de_ref(h, &mut |p| valores.push(unsafe { *p }));
+            self.visitar_referencias_fortes(h, &mut |v| valores.push(v));
             for v in valores.drain(..) {
                 arc.estado.soltar(v).unwrap_or_else(|e| falha_do_arc(e));
             }
@@ -5319,6 +5386,7 @@ impl Heap {
         let mut ponto_fixo = rodada && !self.efemeros.is_empty();
         let ciclos = arc.ciclos == Some(true) || (rodada && !ponto_fixo);
         let mut prontas = Vec::new();
+        let mut arestas_de_anexos = Vec::new();
         let mut nativas = Vec::new();
         let mut finalizar = Vec::new();
         let mut mortos_rc: Vec<Ref> = Vec::new();
@@ -5392,7 +5460,10 @@ impl Heap {
                     return true;
                 }
                 match a.acao {
-                    AcaoDeFinalizador::Dart(acao) => prontas.push(acao),
+                    AcaoDeFinalizador::Dart(acao) => {
+                        prontas.push(acao);
+                        arestas_de_anexos.push((a.dono, acao));
+                    },
                     AcaoDeFinalizador::Nativa(f, token) => nativas.push((f, token)),
                 }
                 false
@@ -5418,6 +5489,9 @@ impl Heap {
             laco[3] += t3.elapsed().as_micros();
         }
         for &acao in &prontas { self.arc_reter_registrando(&mut arc, acao); }
+        for (_, acao) in arestas_de_anexos {
+            arc.estado.soltar(acao).unwrap_or_else(|e| falha_do_arc(e));
+        }
         self.finalizacoes_prontas.extend(prontas);
         fases.push(inicio.elapsed().as_micros());
         // 6. A memória.
@@ -5553,8 +5627,7 @@ impl Heap {
                 );
             }
             // SAFETY: as posições são palavras do corpo de um bloco vivo.
-            self.posicoes_de_ref(h, &mut |p| {
-                let v = unsafe { *p };
+            self.visitar_referencias_fortes(h, &mut |v| {
                 if smi::e_handle(v) && !visto.contains(&v) {
                     origem.entry(v).or_insert(h);
                     pilha.push(v);
@@ -5625,7 +5698,7 @@ mod arc_no_heap {
             heap.set_root(quadro, 1, acao);
             let valor = heap.alocar_str("alvo fraco");
             heap.set_root(quadro, 2, valor);
-            heap.anexos.push(AnexoDeFinalizador {
+            heap.adicionar_anexo(AnexoDeFinalizador {
                 dono, valor, desanexo: 0, acao: AcaoDeFinalizador::Dart(acao),
             });
             heap.set_root(quadro, 2, 0);
@@ -5640,6 +5713,64 @@ mod arc_no_heap {
             assert_eq!(heap.concluir_finalizacao_pronta(), Some(acao));
             heap.collect();
             assert!(!heap.e_objeto_vivo(acao));
+        }
+    }
+
+    #[test]
+    fn anexo_dart_nao_enraiza_ciclo_entre_dono_e_acao() {
+        for modo in [None, Some(false), Some(true)] {
+            let mut heap = if modo.is_some() { heap_arc() } else { Heap::new(true) };
+            if let Some(puro) = modo { heap.arc.as_mut().unwrap().puro = puro; }
+            let quadro = heap.push_frame_proprietario(3);
+            let dono = lista(&mut heap, 0);
+            heap.set_root(quadro, 0, dono);
+            let acao = lista(&mut heap, 1);
+            heap.set_root(quadro, 1, acao);
+            heap.gravar_refs(acao, 1, &[dono]);
+            let alvo = lista(&mut heap, 0);
+            heap.set_root(quadro, 2, alvo);
+            heap.adicionar_anexo(AnexoDeFinalizador {
+                dono, valor: alvo, desanexo: 0, acao: AcaoDeFinalizador::Dart(acao),
+            });
+            heap.pop_frame(quadro);
+            heap.collect();
+            assert!(!heap.e_objeto_vivo(dono), "o anexo não é raiz do finalizador");
+            assert!(!heap.e_objeto_vivo(acao));
+            assert!(!heap.e_objeto_vivo(alvo));
+            assert!(heap.anexos.is_empty());
+            assert!(heap.finalizacoes_prontas.is_empty(), "dono e alvo mortos cancelam a ação Dart");
+        }
+    }
+
+    #[test]
+    fn anexo_de_dono_velho_guarda_acao_jovem_e_desanexo_solta_cadeia() {
+        for puro in [false, true] {
+            let mut heap = heap_arc();
+            heap.arc.as_mut().unwrap().puro = puro;
+            let quadro = heap.push_frame_proprietario(1);
+            let dono = lista(&mut heap, 0);
+            heap.set_root(quadro, 0, dono);
+            heap.collect();
+            let temporario = heap.push_frame_proprietario(2);
+            let alvo = lista(&mut heap, 0);
+            heap.set_root(temporario, 0, alvo);
+            let acao = lista(&mut heap, 1);
+            heap.set_root(temporario, 1, acao);
+            heap.gravar_refs(acao, 1, &[alvo]);
+            heap.adicionar_anexo(AnexoDeFinalizador {
+                dono, valor: alvo, desanexo: 3, acao: AcaoDeFinalizador::Dart(acao),
+            });
+            heap.pop_frame(temporario);
+            heap.coletar(true);
+            assert!(heap.e_objeto_vivo(alvo));
+            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(acao).unwrap().rc, 1);
+            assert!(heap.finalizacoes_prontas.is_empty());
+            heap.desanexar_finalizador(dono, 3);
+            heap.collect();
+            assert!(!heap.e_objeto_vivo(acao));
+            assert!(!heap.e_objeto_vivo(alvo));
+            assert!(heap.e_objeto_vivo(dono));
+            heap.pop_frame(quadro);
         }
     }
 

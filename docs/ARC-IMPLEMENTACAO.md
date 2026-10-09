@@ -489,6 +489,21 @@ validação nativa completa e os casos excepcionais de callbacks.
 Release final com fontes estáveis: 133 unitários, 13 de integração e 12
 doctests aprovados; três microbenchmarks ignorados. Fonte única AOT/JIT aprovada.
 
+Os anexos Dart passam a ser arestas laterais do dono para a ação, sem raiz
+global do dono ou da ação. Os percursos fortes ARC incluem essas ocorrências;
+o tracing as segue tanto na marcação como nos velhos lembrados da menor.
+Anexar usa retenção/barreira; desanexar e encerrar removem a ocorrência.
+O descarte ARC rompe a aresta e cancela os anexos do dono, sem segundo débito.
+Quando só o alvo morre, a ação passa à fila antes de soltar a aresta registrada.
+Quando dono e alvo morrem juntos, a ação Dart não é enfileirada.
+O teste do ciclo reproduzido passa em tracing, berçário e puro. Há cobertura
+de dono velho/ação jovem e de ação que captura o alvo, sem forçar finalização
+prematura. O índice atual ainda percorre a tabela lateral; faltam identidades
+fracas com geração, estados explícitos do registro e validação nativa completa.
+Release: 135 unitários, 13 de integração e 12 doctests aprovados, três
+microbenchmarks ignorados. Fonte única AOT/JIT aprovada. O verificador separado
+de barreira da menor ainda precisa seguir arestas laterais na sua travessia.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais

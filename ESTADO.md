@@ -357,6 +357,29 @@ Aliases e encerramento também testados. Release final: 133 unitários,
 13 de integração e 12 doctests aprovados, três microbenchmarks ignorados;
 fonte única AOT/JIT conferida. Os owners condicionais de anexos continuam
 pendentes; a rodada `37922301282` não contém esta mudança da fila.
+Regressão local da §22.4 reproduzida: um anexo Dart ainda mantém dono e
+ação como raízes incondicionais. O teste
+`anexo_dart_nao_enraiza_ciclo_entre_dono_e_acao`, sem owners externos,
+falhou porque o dono sobreviveu à completa no modo berçário. Log local:
+`target/runtime-anexo-ciclo-debug.log`. A falha precedeu a integração abaixo. Foi necessário substituir essas
+raízes pela aresta lateral dono → ação nos descritores e percursos, com
+contagem/remoção por ocorrência e transferência para a fila sem duplo release.
+Também falta cancelar ações Dart se dono e alvo morrem juntos e tratar
+identidades fracas com geração. Tracing precisa da mesma semântica antes de
+servir como oráculo; a falha não será invertida nem ignorada no teste.
+A aresta lateral dono → ação foi integrada aos percursos fortes ARC e ao
+tracing, incluindo velhos lembrados na menor. Anexar conta e aciona a barreira;
+desanexar/encerrar removem a ocorrência. Descarte do dono cancela anexos Dart
+e debita a aresta uma vez; morte só do alvo transfere a ação à fila, retendo
+o owner de fila antes de soltar a aresta. O ciclo antes vazando passou em
+tracing, berçário e puro. Dono velho com ação jovem/captura de alvo passou:
+o alvo fica vivo até desanexar, sem forçar finalização antecipada.
+Release: 135 unitários, 13 de integração e 12 doctests aprovados, três
+microbenchmarks ignorados; fonte única AOT/JIT aprovada. Ainda faltam
+identidades fracas com geração, estados explícitos, índices da tabela lateral
+e validação nativa completa. O verificador separado da barreira na menor
+ainda precisa enumerar as arestas laterais. A rodada `37922301282`, ativa
+sobre `a49ab81b`, não contém esta integração.
 
 Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
 suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior
