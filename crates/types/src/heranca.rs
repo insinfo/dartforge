@@ -921,7 +921,13 @@ impl Heranca {
             let ii = self.interface(p, ic);
             for (n, m) in ii.map.iter() {
                 let m = Self::substituir(p, m, &s);
-                let alvo = if prog.class(m.classe).kind == ClassKind::ExtensionType { &mut de_extensao } else { &mut outros };
+                // `isExtensionTypeMember` é um bit do elemento declarado no
+                // extension type; o membro sintético do `_topMerge` (dono =
+                // o extension type que combinou) nasce sem ele e conta como
+                // não-extensão (`G implements F, D` com o `method` combinado
+                // de `A`/`B` em `F`: sem conflito).
+                let de_ext = !m.sintetico && prog.class(m.classe).kind == ClassKind::ExtensionType;
+                let alvo = if de_ext { &mut de_extensao } else { &mut outros };
                 match alvo.get_mut(n) {
                     Some(cs) => cs.adicionar(m),
                     None => {

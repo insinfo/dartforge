@@ -1525,6 +1525,14 @@ foram rodados no oráculo vivo (`C:\tools\dartsdk-3.6.2\bin\dart analyze --forma
   `CandidatesConflict`, `HasNonExtensionAndExtensionMemberConflict`, `NotUniqueExtensionMemberConflict`.
   Não sai quando o extension type **redeclara** o membro (a declaração local tira o nome dos
   conflitos — exemplo, `D`). Não há supressão por erro anterior.
+- **Classificação dos candidatos (`_getInterfaceExtensionType`, `inheritance_manager3.dart:784-797`):** é o
+  bit `isExtensionTypeMember` do elemento, posto só nos membros **declarados** num extension type
+  (`element_builder.dart:582`). O membro sintético do `_topMerge` (`combineSignatures(doTopMerge: true)`,
+  dono = o extension type que combinou) nasce sem o bit e conta como **não-extensão**: em
+  `extension type F<T>(C<T> c) implements A<T>, B<T> {}` e `extension type G<T>(E<T> e) implements F<T>, D<T> {}`,
+  o `method` combinado de `A`/`B` em `F` se combina com o de `D` em `G`, sem conflito (oráculo:
+  `ExtensionTypeInheritedMemberConflictTes_0c10b04b.dart` sem diagnóstico). No DartForge,
+  `heranca.rs::de_tipo_de_extensao` usa `!m.sintetico && dono é extension type`.
 - **Confere com §A:** emissão (linhas corretas: `:3450-3488`, não `:3448-3485`), posição e mensagem certas.
 - **No DartForge:** inexistente (nenhum uso da constante). 4 FN: `ExtensionTypeInheritedMemberConflictTes_{1564a084,984a81f0,bf46982c,dc9cb5df}.dart`.
 - **Exemplo (oráculo vivo 3.6.2):**
