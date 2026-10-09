@@ -1,0 +1,36 @@
+{
+  "commit_fonte": "93abd434",
+  "sha256_exemplo": "19cd61b5899244920c4afac97be40624fc1ee8edf2ea7a6c2617220b5087ed5c",
+  "otimizado": true,
+  "executaveis_no_historico": false,
+  "flags_explicitas_arc": {
+    "DARTFORGE_ARC_CONFERIR": "1",
+    "DARTFORGE_ARC_BERCARIO": "0",
+    "DARTFORGE_GC_STRESS": "1"
+  },
+  "flags_explicitas_tracing_final": {
+    "DARTFORGE_ARC_CONFERIR": "1",
+    "DARTFORGE_ARC_BERCARIO": "0",
+    "DARTFORGE_GC_STRESS": "1"
+  },
+  "codigos": {
+    "arc": 0,
+    "tracing": 0,
+    "sem-owner": -1073741795,
+    "sem-liberar": -1073741795
+  },
+  "hashes": {
+    "arc.ll": "5076354f102aa463e4d278284f504600d8863a89fd8bf2ecd9f4673603eacaec",
+    "arc.exe": "c77a4e307290e672e0d601d488695775884e183f4aea52a625bafc7913f2ef36",
+    "arc-saida.txt": "cea2371b0bd0ef9cea6696429a81000383cca6c753bd5c93f03a4704c47bf6d3",
+    "tracing.ll": "e4b812a76a55e44caa2ab40d790a246a7691c4034cb767d41026c568224e8802",
+    "tracing.exe": "d66bdd6f8f571103b3598151ff63ab57121da363525da22272f2cb1a655a3f72",
+    "tracing-saida.txt": "cea2371b0bd0ef9cea6696429a81000383cca6c753bd5c93f03a4704c47bf6d3",
+    "sem-owner.ll": "d6a8e0cc06bd2887e0347b7f9973768f0720e1733ed88c59c77b120ef3ec467e",
+    "sem-owner.exe": "91e39c789293f982e223cf5c646d4efb8cb4f0cda0a8505f73582322891abd4c",
+    "sem-owner-saida.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "sem-liberar.ll": "e8b688884b91d4f0d73c28664e82e138c4bd33c3dd46ddac50b2ae296eb0cf37",
+    "sem-liberar.exe": "6850424193a62620442ac8e825e029cc87b4daf43e5a9e98d20b083bc5cf0312",
+    "sem-liberar-saida.txt": "f1b2f662800122bed0ff255693df89c4487fbdcf453d3524a42d4ec20c3d9c04"
+  }
+}
