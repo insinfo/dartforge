@@ -1,6 +1,91 @@
 use super::*;
 
 #[test]
+fn resultado_de_invoke_so_existe_apos_sucesso_inclusive_em_phi() {
+    let mut f = funcao(vec![
+        bloco(
+            0,
+            vec![(
+                ValueId(10),
+                Instruction::CallStatic {
+                    symbol: "produzir".into(),
+                    args: vec![],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            )],
+            Terminator::CondBranch {
+                cond: Operand::Constant(Constant::Bool(false)),
+                then_block: BlockId(2),
+                else_block: BlockId(1),
+            },
+        ),
+        bloco(
+            1,
+            vec![],
+            Terminator::Return(Some(Operand::Val(ValueId(10)))),
+        ),
+        bloco(2, vec![], Terminator::Return(None)),
+    ]);
+    let mut classes = classes_de_parametros();
+    classes.insert(ValueId(10), Ownership::Owned);
+    let tabelas = TabelasDaFuncao {
+        invocacoes: HashMap::from([(ValueId(10), BlockId(2))]),
+        pousos: HashSet::from([BlockId(2)]),
+        ..Default::default()
+    };
+    assert!(vivacidade_classificada_com_excecoes(&f, &classes, &tabelas).is_ok());
+    f.blocks[2].terminator = Terminator::Return(Some(Operand::Val(ValueId(10))));
+    assert!(
+        vivacidade_classificada_com_excecoes(&f, &classes, &tabelas)
+            .unwrap_err()
+            .contains("b2: resultado v10")
+    );
+
+    f.blocks[1].terminator = Terminator::Branch(BlockId(3));
+    f.blocks[2].terminator = Terminator::Branch(BlockId(3));
+    f.blocks.push(bloco(
+        3,
+        vec![(
+            ValueId(11),
+            Instruction::Phi {
+                ty: Type::Ref,
+                incoming: vec![
+                    (BlockId(1), Operand::Val(ValueId(10))),
+                    (BlockId(2), Operand::Constant(Constant::Null)),
+                ],
+            },
+            Type::Ref,
+        )],
+        Terminator::Return(Some(Operand::Val(ValueId(11)))),
+    ));
+    classes.insert(ValueId(11), Ownership::Owned);
+    assert!(vivacidade_classificada_com_excecoes(&f, &classes, &tabelas).is_ok());
+    if let Instruction::Phi { incoming, .. } = &mut f.blocks[3].instructions[0].1 {
+        incoming[1].1 = Operand::Val(ValueId(10));
+    }
+    assert!(
+        vivacidade_classificada_com_excecoes(&f, &classes, &tabelas)
+            .unwrap_err()
+            .contains("b3: resultado v10")
+    );
+
+    // Phi no sucessor imediato usa o resultado na própria aresta que o publica.
+    f.blocks.truncate(3);
+    f.blocks[1].instructions = vec![(
+        ValueId(11),
+        Instruction::Phi {
+            ty: Type::Ref,
+            incoming: vec![(BlockId(0), Operand::Val(ValueId(10)))],
+        },
+        Type::Ref,
+    )];
+    f.blocks[1].terminator = Terminator::Return(Some(Operand::Val(ValueId(11))));
+    f.blocks[2].terminator = Terminator::Return(None);
+    assert!(vivacidade_classificada_com_excecoes(&f, &classes, &tabelas).is_ok());
+}
+
+#[test]
 fn invoke_nao_sustenta_alias_na_juncao_do_erro() {
     let mut f = funcao(vec![
         bloco(

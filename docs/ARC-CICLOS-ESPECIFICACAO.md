@@ -852,6 +852,12 @@ alcançáveis, incluindo ordem das definições no bloco e simultaneidade de
 existência de um resultado de `invoke` na saída excepcional; ambas exigem
 o verificador de fluxo descrito na §20.3.
 
+`vivacidade_classificada_com_excecoes` confere a disponibilidade dos
+resultados de invoke nos usos diretos, além da definição de aliases:
+retornos/instruções precisam atravessar a aresta de sucesso; entradas de
+Phi usam a aresta do predecessor, permitindo null no erro e o resultado
+no sucesso. Essa checagem ainda não prova consumo ou transferência de tokens.
+
 Operações **novas** sugeridas na `Instruction`:
 
 | Operação | Efeito de ownership |

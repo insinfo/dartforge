@@ -667,6 +667,18 @@ incluindo saltos que atravessam finally e transferência para estado
 suspenso; fechar_escopo apenas retira o mapa de nomes e não representa
 essas saídas. A proteção efetiva e o gate de desempenho permanecem pendentes.
 
+Verificador excepcional de ownership agora confere também usos diretos
+do resultado de invoke, antes restrito à definição dos aliases borrowed.
+Instruções e retornos no caminho sem sucesso são recusados com ARC003;
+entradas de Phi usam disponibilidade na aresta do predecessor. Permite
+Phi com resultado no sucesso/null no erro e Phi no sucessor imediato da
+aresta que publica o resultado. Teste dirigido cobre retorno excepcional,
+junção válida/inválida e publicação imediata. ARC 16/16
+(`target/arc-resultado-invoke-release.log`); emissor release 109/109, sete
+manuais ignorados (`target/emissor-resultado-invoke-release.log`). Esta
+API continua fora do pipeline: não insere drops, transfere tokens nem
+emite ArcKeepAlive. Não tomar essa validação por ownership integrado.
+
 O lowering agora preserva `Local::tipo_estatico`, TypeId Dart original
 separado da representação HIR. Declarações usam
 `Context::tipo_local_semantico` (sem chamar apagar), closures em ambiente ou

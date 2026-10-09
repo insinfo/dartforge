@@ -210,6 +210,8 @@ fn conferir_dominancia(
 /// Exige CFG/SSA válidos e o plano excepcional da mesma HIR preparada.
 /// A disponibilidade exige
 /// dominância da aresta de sucesso, inclusive quando pouso e sucesso se juntam.
+/// Usos diretos do resultado também são conferidos; entradas de Phi usam
+/// a disponibilidade na sua aresta, não a do bloco de destino.
 /// Não prova consumo de tokens nem resultados de chamadas sem `invoke`.
 ///
 /// # Erros
@@ -292,8 +294,55 @@ pub fn vivacidade_classificada_com_excecoes(
                 ));
             }
         }
+        conferir_usos_do_resultado(f, &cfg, &pos, call, (origem, sucesso), &sem_sucesso)?;
     }
     Ok(v)
+}
+
+/// O resultado de invoke não existe antes de atravessar sua aresta de sucesso.
+/// Phi pode juntar sucesso e erro se a entrada excepcional não usar o resultado.
+fn conferir_usos_do_resultado(
+    f: &Function,
+    cfg: &Cfg,
+    pos: &HashMap<BlockId, usize>,
+    call: ValueId,
+    sucesso: (usize, usize),
+    sem_sucesso: &HashSet<usize>,
+) -> Result<(), String> {
+    let usa = |o: &Operand| matches!(o, Operand::Val(v) if *v == call);
+    for (i, b) in f.blocks.iter().enumerate() {
+        if !cfg.alcancavel(i) {
+            continue;
+        }
+        let mut invalido = false;
+        for (_, inst, _) in &b.instructions {
+            if let Instruction::Phi { incoming, .. } = inst {
+                for (de, op) in incoming {
+                    let Some(&p) = pos.get(de) else { continue };
+                    // A aresta de sucesso publica o resultado; todas as
+                    // outras precisam ser dominadas por essa publicação.
+                    if usa(op) && cfg.alcancavel(p) && sem_sucesso.contains(&p) && (p, i) != sucesso
+                    {
+                        invalido = true;
+                    }
+                }
+            } else if sem_sucesso.contains(&i) {
+                super::super::operandos::operandos(inst, &mut |o| invalido |= usa(o));
+            }
+        }
+        if sem_sucesso.contains(&i) {
+            super::super::operandos::operandos_do_terminador(&b.terminator, &mut |o| {
+                invalido |= usa(o)
+            });
+        }
+        if invalido {
+            return Err(format!(
+                "ARC003 em {}: b{}: resultado v{} usado sem atravessar sua aresta de sucesso",
+                f.symbol, b.id.0, call.0
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn alcancaveis_sem_aresta(cfg: &Cfg, removida: (usize, usize)) -> HashSet<usize> {
