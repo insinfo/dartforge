@@ -564,7 +564,12 @@ Windows ARC 238/238 (52 s de programas, 55 s de harness), ARC sob estresse
 238/238 (54 s, 58 s de harness) e `dart:io` 130/130 (89 s, 91 s de harness).
 Relatórios em `target/ci-37936255800/{arc,arc-stress,io}`. Não incluem a
 instrumentação condicional posterior. A rodada inteira ainda está ativa;
-macOS, SDK e B0 continuam pendentes na consulta atual.
+macOS e SDK continuam pendentes na consulta mais recente; B0 concluiu.
+Artefato Linux da mesma rodada conferido em `target/ci-37936255800/linux`:
+AOT/A1/B0/B1/ARC 238/238, `dart:io` 130/130, JIT 238/238 e JIT × AOT
+238/238 idênticos, zero divergências, sete sem IR iguais por construção e
+nenhum timeout nos dois executores. Não inferir desses relatórios o
+fechamento dos jobs macOS e SDK.
 
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
