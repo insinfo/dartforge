@@ -287,8 +287,8 @@ pub fn vivacidade_classificada_com_excecoes(
                 && sem_sucesso.contains(&bloco)
             {
                 return Err(format!(
-                    "ARC003 em {}: v{} depende de resultado v{} indisponível no caminho excepcional",
-                    f.symbol, alias.0, call.0
+                    "ARC003 em {}: b{}: v{} depende de resultado v{} indisponível no caminho excepcional; caminho [{}, {}]",
+                    f.symbol, f.blocks[bloco].id.0, alias.0, call.0, alias.0, call.0
                 ));
             }
         }

@@ -51,10 +51,9 @@ fn invoke_nao_sustenta_alias_na_juncao_do_erro() {
     assert!(vivacidade_classificada_com_excecoes(&f, &classes, &tabelas).is_ok());
     f.blocks[2].terminator = Terminator::Branch(BlockId(1));
     assert!(vivacidade_classificada(&f, &classes).is_ok());
-    assert!(
-        vivacidade_classificada_com_excecoes(&f, &classes, &tabelas)
-            .unwrap_err()
-            .contains("indisponível")
+    assert_eq!(
+        vivacidade_classificada_com_excecoes(&f, &classes, &tabelas).unwrap_err(),
+        "ARC003 em f: b1: v11 depende de resultado v10 indisponível no caminho excepcional; caminho [11, 10]"
     );
     f.blocks[0].terminator = Terminator::Branch(BlockId(1));
     assert!(
