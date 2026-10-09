@@ -1525,6 +1525,16 @@ ou pendências. Suíte ARC 58/58
 (`target/ownership-record-consultas-produtor.log`).
 
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
+Conferência de Phi Borrowed ampliada para os escopos de toda a cadeia de
+owners: o resultado deve conservar todos os limites não zero herdados da
+entrada, além da mesma raiz. Substitui a igualdade somente do escopo direto,
+que deixava escapar limite de um alias anterior e recusava representação
+equivalente do limite na cadeia do resultado. Regressão usa escopo 7 herdado
+por alias de escopo zero: perde-lo é recusado; conserva-lo na cadeia ou
+diretamente é aprovado pelo verificador de tokens. Suíte ARC 62/62
+(`target/ownership-phi-borrowed-escopos-test.log`). Ativação/fechamento dos
+escopos continuam responsabilidade do PlanoEscopos; epochs/invalidação
+de slots ainda exigem metadados próprios.
 Verificador de tokens agora confere cada entrada de Phi Borrowed: owner raiz
 deve coincidir com o resultado, e entradas Borrowed devem conservar o escopo
 declarado diretamente. Owned pode emprestar ao Phi sem transferir o token,

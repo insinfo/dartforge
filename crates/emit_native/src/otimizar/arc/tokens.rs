@@ -208,6 +208,21 @@ fn raiz_owner(mut v: ValueId, classes: &HashMap<ValueId, Ownership>) -> Option<O
     }
 }
 
+/// Limites léxicos herdados também precisam sobreviver à criação de um alias.
+fn escopos_owner(mut v: ValueId, classes: &HashMap<ValueId, Ownership>) -> HashSet<u32> {
+    let mut escopos = HashSet::new();
+    while let Ownership::Borrowed { owner, escopo } = classes[&v] {
+        if escopo != 0 {
+            escopos.insert(escopo);
+        }
+        match owner {
+            OrigemOwner::Chamador => break,
+            OrigemOwner::Valor(proximo) => v = proximo,
+        }
+    }
+    escopos
+}
+
 fn caminho(f: &Function, pais: &[Option<usize>], mut b: usize) -> Vec<u32> {
     let mut r = vec![f.blocks[b].id.0];
     while let Some(pai) = pais[b] {
@@ -510,18 +525,23 @@ pub fn verificar_tokens(
                                 continue;
                             }
                             usar(op, classes, &r)?;
-                            if let Ownership::Borrowed { escopo, .. } = classes[v] {
+                            if matches!(classes[v], Ownership::Borrowed { .. }) {
                                 let compativel = match op {
                                     Operand::Constant(Constant::Null) => true,
                                     Operand::Val(entrada) => {
                                         classes[entrada] == Ownership::Trivial
-                                            || (raiz_owner(*entrada, classes) == raiz_owner(*v, classes)
-                                                && !matches!(classes[entrada], Ownership::Borrowed { escopo: de, .. } if de != escopo))
+                                            || (raiz_owner(*entrada, classes)
+                                                == raiz_owner(*v, classes)
+                                                && escopos_owner(*entrada, classes)
+                                                    .is_subset(&escopos_owner(*v, classes)))
                                     }
                                     _ => false,
                                 };
                                 if !compativel {
-                                    return Err(format!("Phi borrowed v{}: owner ou escopo incompatível na entrada", v.0));
+                                    return Err(format!(
+                                        "Phi borrowed v{}: owner ou escopo incompatível na entrada",
+                                        v.0
+                                    ));
                                 }
                             }
                             if classes[v] == Ownership::Owned {

@@ -117,6 +117,79 @@ fn phi_borrowed_preserva_owner_real_da_entrada() {
 }
 
 #[test]
+fn phi_borrowed_nao_perde_escopo_herdado_de_alias() {
+    let mut f = funcao(vec![
+        bloco(0, vec![], Terminator::Branch(BlockId(1))),
+        bloco(
+            1,
+            vec![
+                (
+                    ValueId(2),
+                    Instruction::Phi {
+                        ty: Type::Ref,
+                        incoming: vec![(BlockId(0), valor(7))],
+                    },
+                    Type::Ref,
+                ),
+                copia(3, 2),
+                drop(4, 3),
+                drop(5, 0),
+            ],
+            Terminator::Return(None),
+        ),
+    ]);
+    f.params.extend([
+        (ValueId(6), "emprestimo".into(), Type::Ref),
+        (ValueId(7), "alias".into(), Type::Ref),
+    ]);
+    let mut c = classes(&[0, 3], &[4, 5]);
+    c.insert(
+        ValueId(6),
+        Ownership::Borrowed {
+            owner: OrigemOwner::Valor(ValueId(0)),
+            escopo: 7,
+        },
+    );
+    c.insert(
+        ValueId(7),
+        Ownership::Borrowed {
+            owner: OrigemOwner::Valor(ValueId(6)),
+            escopo: 0,
+        },
+    );
+    c.insert(
+        ValueId(2),
+        Ownership::Borrowed {
+            owner: OrigemOwner::Valor(ValueId(0)),
+            escopo: 0,
+        },
+    );
+    assert!(
+        verificar(&f, &c)
+            .unwrap_err()
+            .contains("owner ou escopo incompatível")
+    );
+    // A cadeia do resultado conserva o limite, mesmo com escopo direto zero.
+    c.insert(
+        ValueId(2),
+        Ownership::Borrowed {
+            owner: OrigemOwner::Valor(ValueId(7)),
+            escopo: 0,
+        },
+    );
+    verificar(&f, &c).unwrap();
+    // Também pode representar o mesmo limite diretamente, sem perder a raiz.
+    c.insert(
+        ValueId(2),
+        Ownership::Borrowed {
+            owner: OrigemOwner::Valor(ValueId(0)),
+            escopo: 7,
+        },
+    );
+    verificar(&f, &c).unwrap();
+}
+
+#[test]
 fn extern_auditada_nao_aceita_plano_que_omite_consumo() {
     let chamada = Instruction::CallRuntime {
         name: "dartforge_arc_release".into(),
