@@ -2,6 +2,15 @@
 
 ## Retomada de 2026-10-09
 
+O produtor de chamadas Dart agora classifica todos os resultados antes
+de conferir argumentos, preservando atomicidade e removendo dependência
+da ordem física dos blocos. Regressão: b0→b2→b1, com b1 armazenado antes
+de b2, usa o resultado escalar de `criar` em `identidade_escalar` sem
+classes manuais no caller; o wrapper completo verifica a cadeia.
+Trocar esse argumento por parâmetro I64 sem contrato continua rejeitado,
+sem publicar as classes/efeitos já preparados. 76 testes ARC passaram
+(`target/ownership-chamadas-ordem-test.log`).
+
 Chamadas Dart diretas: `verificar_contrato_funcao_dart` cria resumo com
 campos privados após verificar ownership, convenção e representação dos
 retornos do callee. `produzir_chamadas_dart` confere símbolo, aridade,

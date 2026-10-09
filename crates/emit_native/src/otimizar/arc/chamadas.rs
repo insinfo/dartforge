@@ -175,6 +175,7 @@ pub fn produzir_chamadas_dart(
     let mut novo_plano = plano.clone();
     // A convenção dos parâmetros Ref não depende dos contratos das chamadas.
     produzir_parametros_ref_dart(f, &mut novas_classes)?;
+    let mut chamadas = Vec::new();
     for b in &f.blocks {
         for (v, inst, ty) in &b.instructions {
             let Instruction::CallStatic {
@@ -190,21 +191,6 @@ pub fn produzir_chamadas_dart(
                 .ok_or_else(|| format!("callee Dart sem resumo: {symbol}"))?;
             if args.len() != resumo.parametros.len() || *ret_ty != resumo.retorno || ty != ret_ty {
                 return Err(format!("assinatura Dart incompatível: {symbol}"));
-            }
-            for (op, esperado) in args.iter().zip(&resumo.parametros) {
-                let compativel = operando_tem_tipo(op, *esperado, &tipos)
-                    && match op {
-                        Operand::Val(arg) => {
-                            tipos.get(arg) == Some(esperado)
-                                && (*esperado == Type::Ref
-                                    || novas_classes.get(arg) == Some(&Ownership::Trivial))
-                        }
-                        Operand::Constant(_) => true,
-                        _ => false,
-                    };
-                if !compativel {
-                    return Err(format!("argumento Dart incompatível: {symbol}"));
-                }
             }
             let classe = if *ret_ty == Type::Ref {
                 Ownership::Owned
@@ -222,6 +208,25 @@ pub fn produzir_chamadas_dart(
             }
             novas_classes.insert(*v, classe);
             novo_plano.instrucoes.insert(*v, efeito);
+            chamadas.push((args, *resumo));
+        }
+    }
+    // Os resultados têm contratos semânticos dos callees, independentemente
+    // da ordem física dos blocos. SSA já conferiu sua dominância nos usos.
+    for (args, resumo) in chamadas {
+        for (op, esperado) in args.iter().zip(&resumo.parametros) {
+            let compativel = operando_tem_tipo(op, *esperado, &tipos)
+                && match op {
+                    Operand::Val(arg) => {
+                        *esperado == Type::Ref
+                            || novas_classes.get(arg) == Some(&Ownership::Trivial)
+                    }
+                    Operand::Constant(_) => true,
+                    _ => false,
+                };
+            if !compativel {
+                return Err(format!("argumento Dart incompatível: {}", resumo.simbolo));
+            }
         }
     }
     *classes = novas_classes;
@@ -232,6 +237,113 @@ pub fn produzir_chamadas_dart(
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn cadeia_escalar_de_chamadas_independe_da_ordem_fisica_dos_blocos() {
+        let criar = Function {
+            symbol: "criar".into(),
+            name: "criar".into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::I64,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![],
+                terminator: Terminator::Return(Some(Operand::Constant(Constant::Int(42)))),
+            }],
+        };
+        let mut identidade = criar.clone();
+        identidade.symbol = "identidade_escalar".into();
+        identidade.params.push((ValueId(0), "x".into(), Type::I64));
+        identidade.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(0))));
+        let plano = PlanoTokens::default();
+        let resumos = [
+            verificar_contrato_funcao_dart(
+                &criar,
+                &HashMap::new(),
+                &plano,
+                &TabelasDaFuncao::default(),
+                &PlanoEscopos::default(),
+            )
+            .unwrap(),
+            verificar_contrato_funcao_dart(
+                &identidade,
+                &HashMap::from([(ValueId(0), Ownership::Trivial)]),
+                &plano,
+                &TabelasDaFuncao::default(),
+                &PlanoEscopos::default(),
+            )
+            .unwrap(),
+        ];
+        let mut caller = Function {
+            symbol: "caller".into(),
+            name: "caller".into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::I64,
+            blocks: vec![
+                BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![],
+                    terminator: Terminator::Branch(BlockId(2)),
+                },
+                BasicBlock {
+                    id: BlockId(1),
+                    instructions: vec![(
+                        ValueId(1),
+                        Instruction::CallStatic {
+                            symbol: identidade.symbol.clone(),
+                            args: vec![Operand::Val(ValueId(0))],
+                            ret_ty: Type::I64,
+                        },
+                        Type::I64,
+                    )],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+                },
+                BasicBlock {
+                    id: BlockId(2),
+                    instructions: vec![(
+                        ValueId(0),
+                        Instruction::CallStatic {
+                            symbol: criar.symbol,
+                            args: vec![],
+                            ret_ty: Type::I64,
+                        },
+                        Type::I64,
+                    )],
+                    terminator: Terminator::Branch(BlockId(1)),
+                },
+            ],
+        };
+        let mut classes = HashMap::new();
+        let mut plano = plano;
+        produzir_chamadas_dart(&caller, &resumos, &mut classes, &mut plano).unwrap();
+        assert_eq!(classes[&ValueId(0)], Ownership::Trivial);
+        assert_eq!(classes[&ValueId(1)], Ownership::Trivial);
+        produzir_e_verificar_tokens_dart(
+            &caller,
+            &mut classes,
+            &mut plano,
+            &TabelasDaFuncao::default(),
+            &PlanoEscopos::default(),
+        )
+        .unwrap();
+        // Mesma largura sem contrato semântico continua sendo insuficiente.
+        caller
+            .params
+            .push((ValueId(3), "sem_contrato".into(), Type::I64));
+        if let Instruction::CallStatic { args, .. } = &mut caller.blocks[1].instructions[0].1 {
+            args[0] = Operand::Val(ValueId(3));
+        }
+        classes.clear();
+        plano.instrucoes.clear();
+        assert!(
+            produzir_chamadas_dart(&caller, &resumos, &mut classes, &mut plano)
+                .unwrap_err()
+                .contains("argumento")
+        );
+        assert!(classes.is_empty() && plano.instrucoes.is_empty());
+    }
 
     #[test]
     fn resumo_confere_retorno_escalar_e_chamada_falivel_exige_saida() {
