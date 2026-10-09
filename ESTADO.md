@@ -144,6 +144,14 @@ recalculada após editar a continuação e um sítio invalidado entre etapas.
 O teste de emissão determinística também passou com
 `DARTFORGE_EXCECOES=tabelas`. O corpus completo remoto ainda usa `719e94cc`,
 anterior à separação do passe.
+Validação local do passe separado, código de `a80d1b84`: A1, A1 sob
+`--gc-stress`, B1 e B1 sob `--gc-stress`, todos 238/238 e código de saída 0.
+O harness foi recompilado com `llvm-embutido`; SHA-256
+`3F5B4C1286C66C8BFB25880798B3C90F5C5DDCF753FC4C675204A99CE3798738`.
+Relatórios em `target/validacao-a80d1b84/`, incluindo a tentativa inicial
+inválida (`DARTFORGE_MEMORIA=rastreamento`, rejeitada antes de compilar),
+seguida das quatro rodadas válidas com `tracing`. São verificações de
+correção; os tempos totais do harness não medem desempenho dos modos.
 
 ## Situação geral (2026-10-08, fim da tarde)
 
