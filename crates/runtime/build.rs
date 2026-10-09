@@ -238,12 +238,8 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
             "ownership.tsv: símbolo desconhecido {}",
             c[0]
         );
-        // A primeira etapa só admite a família auditada, que não lança Dart.
-        assert!(
-            c[0].starts_with("dartforge_arc_"),
-            "ownership.tsv: família ainda não auditada {}",
-            c[0]
-        );
+        // Novas entradas exigem auditoria explicita; contratos ausentes
+        // nao ganham defaults. Saidas Dart continuam recusadas abaixo.
         let efeito = efeitos
             .lines()
             .find(|linha| linha.split('\t').next() == Some(c[0]))
@@ -273,10 +269,11 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
             c[0]
         );
     }
-    for nome in nomes.iter().filter(|n| n.starts_with("dartforge_arc_")) {
+    for nome in nomes.iter().filter(|n| n.starts_with("dartforge_arc_")
+        || matches!(n.as_str(), "dartforge_gc_global_root" | "dartforge_marcar_constante")) {
         assert!(
             linhas.contains_key(nome.as_str()),
-            "ownership.tsv: extern ARC sem contrato {nome}"
+            "ownership.tsv: extern auditada sem contrato {nome}"
         );
     }
     let mut saida = String::from(
@@ -297,7 +294,7 @@ pub enum ModoParametro { Borrow, Consume, Scalar, Native }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModoResultado { Owned, ScalarI64, ScalarI8, Void }
-/// Contrato de retorno normal de uma extern ARC que não lança Dart.
+/// Contrato de retorno normal de uma extern auditada que não lança Dart.
 ///
 /// ```
 /// use dartforge_runtime::ownership::{CONTRATOS, ModoResultado};

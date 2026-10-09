@@ -153,4 +153,19 @@ mod testes {
         }
         assert!(contrato_chamada_runtime(&i).is_err());
     }
+
+    #[test]
+    fn publicar_global_copia_owner_sem_consumir_ssa() {
+        let i = Instruction::CallRuntime {
+            name: "dartforge_gc_global_root".into(),
+            args: vec![
+                (Operand::Val(ValueId(0)), Type::I64),
+                (Operand::Val(ValueId(1)), Type::Ref),
+            ],
+            ret_ty: Type::Void,
+        };
+        let c = contrato_chamada_runtime(&i).unwrap();
+        assert!(c.efeito.sempre.is_empty() && c.retencao_persistente && c.invalida_borrows);
+        assert_eq!(c.resultado, Ownership::Trivial);
+    }
 }

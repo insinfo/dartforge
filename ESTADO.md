@@ -1131,6 +1131,20 @@ a tradução inicial I1 para I8 antes da validação final. Flags de retenção/
 invalidação são devolvidos ao produtor, mas ainda exigem análise de slots e
 borrows; não há geração automática do plano completo no lowering.
 
+Catálogo ampliado para 15 externs: gc_global_root recebe ID nativo e Ref
+borrowed, publica owner persistente sem consumir SSA e sinaliza invalidação;
+marcar_constante recebe Ref borrowed/getter nativo e mantém a referência
+permanente, também sem consumo SSA. Build aceita novas linhas auditadas fora
+do prefixo ARC, exige cobertura dessas duas exportações e continua recusando
+exceção/execução Dart sem esquema próprio. Dois testes de catálogo/gerador,
+27 exemplos públicos do runtime e 32 testes ARC da HIR passaram
+(`target/ownership-raizes-test-final.log`, `target/ownership-raizes-doc.log`,
+`target/ownership-raizes-hir-test.log`). Na revisão, a remoção de formatação
+alheia sofreu erro de codificação e truncou build.rs; restauração do Git e
+reaplicação UTF-8 foram seguidas pela repetição aprovada do teste do catálogo.
+Nada dessa versão truncada foi publicado. Cobertura completa e inserção
+automática de ownership seguem pendentes.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

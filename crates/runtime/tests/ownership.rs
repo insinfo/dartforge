@@ -13,12 +13,18 @@ use dartforge_runtime::{
 
 #[test]
 fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs() {
-    let arc: Vec<_> = NOMES
+    let auditadas: Vec<_> = NOMES
         .iter()
-        .filter(|n| n.starts_with("dartforge_arc_"))
+        .filter(|n| {
+            n.starts_with("dartforge_arc_")
+                || matches!(
+                    **n,
+                    "dartforge_gc_global_root" | "dartforge_marcar_constante"
+                )
+        })
         .collect();
-    assert_eq!(arc.len(), CONTRATOS.len());
-    for nome in arc {
+    assert_eq!(auditadas.len(), CONTRATOS.len());
+    for nome in auditadas {
         let c = CONTRATOS.iter().find(|c| c.nome == *nome).unwrap();
         let efeito = EFEITOS.iter().find(|e| e.0 == c.nome).unwrap();
         assert!(!efeito.2 && !efeito.3);
@@ -38,4 +44,9 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
         .unwrap();
     assert_eq!(carregar.resultado, ModoResultado::Owned);
     assert!(!CONTRATOS.iter().any(|c| c.nome == "dartforge_alocar"));
+    for nome in ["dartforge_gc_global_root", "dartforge_marcar_constante"] {
+        let c = CONTRATOS.iter().find(|c| c.nome == nome).unwrap();
+        assert!(c.retencao_persistente);
+        assert!(!c.parametros.contains(&ModoParametro::Consume));
+    }
 }

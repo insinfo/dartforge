@@ -1108,6 +1108,16 @@ ao produtor, mas não certificadas pelo verificador de tokens; a análise de
 borrows/slots continua obrigatória. Esse acesso ainda não gera automaticamente
 o inventário nem os contratos de todas as instruções do lowering.
 
+Extensão auditada do catálogo: `dartforge_gc_global_root` recebe ID nativo
+de armazenamento e Ref borrowed, cria owner persistente e pode invalidar
+borrows associados ao valor substituído; não consome o token SSA do argumento.
+`dartforge_marcar_constante` recebe Ref borrowed e endereço nativo do getter,
+mantém a referência permanente e também não consome SSA. O catálogo passa a
+15 entradas; todas as auditadas exigem cobertura e assinatura Rust compatível.
+Novas linhas explícitas não precisam pertencer ao prefixo ARC, mas continuam
+rejeitadas se efeitos indicarem exceção Dart ou execução Dart: esses caminhos
+precisam de esquema e auditoria próprios, não de um contrato normal implícito.
+
 Externs **novas** mínimas: `dartforge_arc_retain`, `dartforge_arc_release`,
 `dartforge_arc_collect`, `dartforge_arc_verificar_abi`. Retain/release são
 `nounwind` somente se falhas internas não desenrolarem pelo limite C. Elas

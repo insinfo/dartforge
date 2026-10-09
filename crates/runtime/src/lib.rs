@@ -56,7 +56,7 @@ pub mod efeitos {
     include!(concat!(env!("OUT_DIR"), "/efeitos.rs"));
 }
 
-/// Contratos auditados das externs ARC, gerados de `ownership.tsv`.
+/// Contratos auditados de ownership, gerados de `ownership.tsv`.
 /// O catálogo está em migração: ausência não autoriza empréstimo implícito.
 pub mod ownership {
     include!(concat!(env!("OUT_DIR"), "/ownership.rs"));
