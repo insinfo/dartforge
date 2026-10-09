@@ -325,6 +325,11 @@ bem-sucedida ocupa outro slot; retorno com exceção não consulta o resultado.
 Teste do protocolo passou com auditoria puro/berçário. Release: 128 unitários,
 13 de integração e 12 doctests aprovados, três microbenchmarks ignorados.
 O teste não cobre o handler Dart completo nem desenrolamento LLVM por tabelas.
+Nova rodada [37922301282](https://github.com/insinfo/dartforge/actions/runs/37922301282),
+suíte `nativo`, dois fragmentos, sobre `a49ab81b`, disparada após confirmar
+a conclusão da anterior e ausência de Pesado ativa ou na fila. Valida as
+migrações posteriores dos owners Rust, persistentes, eventos e mensagens;
+ainda não há placares desta rodada.
 
 Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
 suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior
