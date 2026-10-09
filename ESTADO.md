@@ -1495,6 +1495,16 @@ ou Owned e confere publicação atômica. Cinquenta e sete testes ARC aprovados
 semânticos explícitos; isso não certifica managed-I64 nem integra inserção
 automática de RC/cleanup no pipeline padrão.
 
+A revisão de Phi bool encontrou uma lacuna no produtor: uma entrada SSA I1
+sem classe conhecida era aceita. Phi I1 agora compartilha a análise de origem
+dos Phis numéricos: exige constante bool, entrada Trivial auditada ou Phi
+fundado em origem externa. O teste de origem/contrato cobre também I1,
+incluindo parâmetro desconhecido/Owned e ciclo fechado com classe fornecida;
+o laço com LNot continua aprovado. Suíte ARC 57/57 e exemplos públicos 36/36
+(`target/ownership-phi-bool-origem-test.log`,
+`target/ownership-phi-bool-origem-doc.log`). Não se deduz o contrato de
+parâmetros pela representação física, inclusive para booleanos.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

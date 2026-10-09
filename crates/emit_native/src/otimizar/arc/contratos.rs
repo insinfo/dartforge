@@ -104,9 +104,8 @@ pub fn produzir_contratos_runtime(
 /// Aritmética inteira/flutuante e conversões numéricas produzem Trivial;
 /// operandos devem estar em representações escalares compatíveis. Guardas
 /// de domínio/estouro e semântica Dart permanecem responsabilidade do lowering.
-/// Phi I1 exige entradas booleanas e produz Trivial, inclusive em laços.
-/// Phi I64/F64 exige entradas de mesmo tipo com contrato Trivial ou constantes
-/// numéricas correspondentes, e origem conhecida fora do ciclo de Phis.
+/// Phi I1/I64/F64 exige entradas de mesmo tipo com contrato Trivial ou constantes
+/// correspondentes, e origem conhecida fora do ciclo de Phis, inclusive em laços.
 /// Phi Ref ainda não classificado exige entradas owned/null e origem externa
 /// ao ciclo de Phi/move. Parâmetros e demais operações exigem produtores próprios.
 /// Não insere ARC nem certifica vida dos slots, proveniência ou cleanup.
@@ -178,7 +177,7 @@ fn produzir_phi(
         .iter()
         .flat_map(|b| &b.instructions)
         .filter_map(|(v, i, ty)| matches!(i, Instruction::Phi { .. }).then_some((*v, *ty)))
-        .filter(|(_, ty)| matches!(ty, Type::I64 | Type::F64))
+        .filter(|(_, ty)| matches!(ty, Type::I1 | Type::I64 | Type::F64))
         .map(|(v, _)| v)
         .collect();
     let mut pais_escalares: HashMap<ValueId, Vec<ValueId>> = HashMap::new();
@@ -201,6 +200,7 @@ fn produzir_phi(
                 let mut ancora = false;
                 for (_, op) in incoming {
                     match op {
+                        Operand::Constant(Constant::Bool(_)) if *ty == Type::I1 => ancora = true,
                         Operand::Constant(Constant::Int(_)) if *ty == Type::I64 => ancora = true,
                         Operand::Constant(Constant::Double(_)) if *ty == Type::F64 => ancora = true,
                         Operand::Val(de) if tipos.get(de) == Some(ty) && escalares.contains(de) => {
@@ -223,28 +223,6 @@ fn produzir_phi(
                 if ancora {
                     fila_escalar.push_back(*v);
                 }
-            }
-            if *ty == Type::I1 {
-                let Instruction::Phi { incoming, .. } = i else {
-                    unreachable!()
-                };
-                if incoming.is_empty()
-                    || classes.get(v).is_some_and(|c| *c != Ownership::Trivial)
-                    || incoming.iter().any(|(_, op)| match op {
-                        Operand::Constant(Constant::Bool(_)) => false,
-                        Operand::Val(de) => {
-                            tipos.get(de) != Some(&Type::I1)
-                                || classes.get(de).is_some_and(|c| *c != Ownership::Trivial)
-                        }
-                        _ => true,
-                    })
-                {
-                    return Err(format!(
-                        "Phi v{}: entradas ou classe incompatíveis com bool",
-                        v.0
-                    ));
-                }
-                classes.insert(*v, Ownership::Trivial);
             }
             if *ty == Type::Ref && classes.get(v).is_none_or(|c| *c == Ownership::Owned) {
                 candidatos.insert(*v);
@@ -954,6 +932,7 @@ mod testes {
     #[test]
     fn phi_numerico_exige_origem_e_contrato_semantico() {
         for (ty, constante) in [
+            (Type::I1, Constant::Bool(true)),
             (Type::I64, Constant::Int(7)),
             (Type::F64, Constant::Double(7.0)),
         ] {
