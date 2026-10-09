@@ -956,7 +956,14 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
             let r = resolved_de_membro_lexico(inf, cx, f, estatico);
             resolver(inf, cx, e, r);
             let so_setter = inf.program.function(f).kind == FunctionKind::Setter;
-            if !estatico {
+            // `isInstanceMember` (3.6.2 `extensions.dart:109-119`) só vale para
+            // membro de `InterfaceElement`: o de extensão achado no escopo
+            // léxico é o elemento lido (o getter) ou a recuperação (o setter,
+            // sem busca pelo `this` implícito: `undefined_identifier`, não a
+            // ambiguidade com o getter de outra extensão;
+            // `static_extension_internal_basename_shadowing_error_test.dart:276`).
+            let de_extensao = inf.program.function(f).extension.is_some();
+            if !estatico && !de_extensao {
                 // Membro de instância declarado aqui: pelo tipo `this` (a
                 // substituição é a identidade).
                 if let Some(this) = cx.tipo_this {
@@ -974,7 +981,7 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
             if so_setter {
                 // Leitura de um nome que só tem setter no contêiner: a de
                 // instância ainda busca pelo `this` implícito; a estática não.
-                let lexico = if estatico { Lexico::SetterSolto } else { Lexico::SetterDeInstancia };
+                let lexico = if estatico || de_extensao { Lexico::SetterSolto } else { Lexico::SetterDeInstancia };
                 nome_lido_indefinido(inf, cx, n, lexico);
                 return inf.table.invalido(inf.core.dynamic_);
             }
