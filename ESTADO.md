@@ -260,18 +260,25 @@ Relatórios Windows já conferidos: ARC 238/238, ARC com estresse 238/238,
 `dart:io` 130/130. Rodada ainda em andamento; esses resultados parciais
 não provam a conclusão nos runners Unix.
 O relatório AOT com SDK da fonte desta rodada também foi conferido:
-238/238, em 56,9 s de harness. Recarga, JIT e conclusão desse job ainda
-precisam de seus resultados próprios; o artefato AOT é publicado antes deles.
+238/238, em 56,9 s de harness. O artefato AOT é publicado antes dos testes
+de recarga e produção; seus resultados próprios foram conferidos abaixo.
 Relatórios adicionais conferidos: Windows A1/B0/B1 com e sem estresse,
 todos 238/238; Linux AOT, A1/B0/B1 e ARC 238/238, `dart:io` 130/130;
 JIT × AOT Linux e SDK da fonte 238/238 no placar, zero divergências
 (sete sem IR, iguais por construção). O log Linux confirma execução dos
 quatro testes de emissão agora sem retorno antecipado, do inventário de
-natives e da sobreposição, todos aprovados com o SDK real. Ainda faltam
-conclusão e logs de recarga do job SDK e macOS. B0 concluiu os quatro
+natives e da sobreposição, todos aprovados com o SDK real. Ainda falta
+macOS. B0 concluiu os quatro
 testes dirigidos de mapas: 4/4, nenhum ignorado ou filtrado, 470,75 s;
 incluindo sabotagem, coleta agendada, folha que coleta e comparação com
 pilha-sombra. Log do job `113752465885` conferido.
+O job SDK da fonte concluiu com sucesso; log `113752465447` conferido:
+recarga corrigida executou os dois testes existentes (2/2, zero falhas,
+nenhum ignorado, cinco não ignorados filtrados), em 58,36 s;
+`script_e_spawn_uri_no_jit` passou (1/1), e produção autocontida passou
+(1/1, 47,01 s). A proteção de seleção vazia e o comando corrigido foram
+executados no runner. Isso fecha a lacuna de recarga do job anterior,
+que executava zero testes por um filtro obsoleto.
 
 Na rodada remota `37896396380` sobre `719e94cc`, os quatro testes dirigidos
 de mapas também passaram, sem ignorados/filtrados, em 752 s; log do job B0
@@ -317,7 +324,8 @@ ignorados, cinco filtrados (os não ignorados), em 14,43 s. Executados
 `--ignored --list` do binário novo também seleciona esses dois pelo filtro
 do CI. SHA-256 do harness `reload_estado-a53f60c187219ad4.exe`:
 `44CD0183FE465FDCA8F7FA0B675335BABABF8D67A384379A037439519F17980C`.
-Essa execução é local; a etapa corrigida no runner ainda não foi validada.
+Essa execução é local; a etapa corrigida foi posteriormente validada no
+runner da rodada `37908897460` (resultados acima).
 
 ## Situação geral (2026-10-08, fim da tarde)
 
