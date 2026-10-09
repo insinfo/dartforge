@@ -1525,6 +1525,41 @@ ou pendências. Suíte ARC 58/58
 (`target/ownership-record-consultas-produtor.log`).
 
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
+Nova ABI `dartforge_arc_box_int_owned_v1` entrega int em representação Ref
+com token Owned já registrado, para preparar a prova de retorno com objeto
+mortal. Smi dispensa contador; i64::MAX cria Mint. Catálogo 23 externs:
+argumento i64 escalar, resultado Ref Owned, saída normal, pode coletar,
+invalidação conservadora de borrows, sem retenção oculta de argumento.
+Teste em tracing/ARC com GC_STRESS=1, ARC_CONFERIR=1 e BERCARIO=0 cria
+segunda retenção, libera token inicial, confere sobrevivência, libera o
+último e confere morte após coleta; também cobre Smi. Runtime dirigido
+1/1, catálogo 2/2 e exemplos públicos 28/28
+(`target/ownership-fabrica-owned-runtime.log`,
+`target/ownership-fabrica-owned-catalogo.log`,
+`target/ownership-fabrica-owned-doc.log`). Ainda falta usar essa fábrica
+na prova AOT de retenção inserida; a rodada pesada ativa sobre 116f6bed
+não contém esta ABI.
+Após reconstrução do runtime embutido, suíte ARC do emissor 70/70
+(`target/ownership-fabrica-owned-arc.log`).
+Fechamento de `37992860235` sobre `4530b91f`: todos os jobs selecionados
+completed/success. macOS AOT/A1/B0/B1/ARC 238/238 em
+58,5/49,3/96,7/96,5/46,4 s; io 130/130 em 70,3 s; JIT 238/238 em
+65,5 s, zero divergências, sete sem IR iguais por construção, zero timeouts
+nos dois. Relatórios em `target/ci-37992860235/macos`; Windows completos
+em `windows`, Linux e SDK nos diretórios já registrados. Windows A1 e
+estresse 238/238 em 54,8/53,7 s; B0 e estresse 238/238 em 114,8/65,3 s;
+B1 sob estresse 238/238 em 102,9 s; estresse básico 238/238 em 57,6 s;
+fragmentos básicos 119/119 em 39,2/24,5 s. Log B0 confirma mapas 4/4,
+749,20 s. Log SDK confirma recarga 2/2 (49,68 s), ScriptSpawn 1/1
+(1,39 s) e produção autocontida 1/1 (49,93 s). Etapa DDC do action Linux
+foi skipped com gerar-dart-sdk-js=false: não prova geração portátil em Unix.
+Esta rodada não inclui os produtores de Phis posteriores, catálogo 22,
+wrapper Dart nem inserção de retenção dos retornos.
+Windows B1 normal também conferido: 238/238 em 102,7 s.
+Após confirmar Pesado sem runs in_progress/queued/waiting, iniciada rodada
+`37998421467`, suite=nativo, fragmentos=2, sobre
+`116f6bed11bcc79d5d25f3e560db5bf0c07bd8a6`. Estado inicial queued;
+cobre as mudanças posteriores da produção ARC e exemplo de retorno.
 Prova AOT da retenção inserida disponível na variante `retorno` do exemplo
 de slots fortes: função identidade Ref começa retornando o parâmetro, recebe
 uma ArcCopy pelo passe e é verificada antes de emitir. Acrescentada após a

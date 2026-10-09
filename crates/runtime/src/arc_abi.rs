@@ -1,6 +1,32 @@
 // ABI de tokens e slots proprietários usados pelo código gerado.
 // A pilha observacional não substitui estes owners. Operações de ownership
 // não coletam nem executam Dart; coleta tem um safepoint explícito separado.
+// A fábrica owned de caixas é uma operação de alocação, com safepoint próprio.
+
+/// Entrega um int em representação Ref com um token Owned para o chamador.
+///
+/// Smi não tem contador; valores fora de sua faixa criam um Mint mortal.
+/// A alocação pode coletar, mas o token é publicado antes de devolver o handle.
+/// O chamador deve transferi-lo ou chamar release exatamente uma vez.
+///
+/// # Panics
+/// Falha interna de alocação/contagem; aborta no limite C.
+///
+/// ```
+/// use dartforge_runtime::abi::{dartforge_arc_box_int_owned_v1, dartforge_arc_release, dartforge_arc_collect};
+/// let valor = dartforge_arc_box_int_owned_v1(i64::MAX);
+/// dartforge_arc_release(valor);
+/// dartforge_arc_collect();
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_box_int_owned_v1(valor: i64) -> i64 {
+    HEAP.with(|h| {
+        let mut heap = h.borrow_mut();
+        let caixa = heap.caixa_int(valor);
+        heap.reter_owner_codigo(caixa);
+        caixa
+    })
+}
 
 /// Cria um token proprietário do código gerado a partir de um empréstimo.
 ///
@@ -217,6 +243,29 @@ pub extern "C" fn dartforge_arc_quadro_fechar_v1(quadro: i64) {
 #[cfg(test)]
 mod testes_arc_abi_quadros {
     use super::*;
+
+    #[test]
+    fn fabrica_owned_entrega_token_e_mint_morre_apos_ultimo_release() {
+        for arc in [false, true] {
+            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+            let valor = dartforge_arc_box_int_owned_v1(i64::MAX);
+            assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(valor)));
+            assert_eq!(HEAP.with(|h| h.borrow().int_de(valor)), Some(i64::MAX));
+            // A cópia representa um retorno retido, independente do token inicial.
+            dartforge_arc_retain(valor);
+            dartforge_arc_release(valor);
+            dartforge_arc_collect();
+            assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(valor)));
+            dartforge_arc_release(valor);
+            dartforge_arc_collect();
+            assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(valor)));
+            let imediato = dartforge_arc_box_int_owned_v1(42);
+            assert_eq!(imediato, smi::de(42).unwrap());
+            dartforge_arc_release(imediato);
+            HEAP.with(|h| { h.replace(anterior); });
+        }
+    }
 
     #[test]
     fn abi_global_recebe_objeto_mortal_e_libera_ultimo_owner() {

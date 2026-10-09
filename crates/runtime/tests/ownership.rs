@@ -52,6 +52,15 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
         .find(|c| c.nome == "dartforge_arc_quadro_carregar_v1")
         .unwrap();
     assert_eq!(carregar.resultado, ModoResultado::Owned);
+    let caixa = CONTRATOS
+        .iter()
+        .find(|c| c.nome == "dartforge_arc_box_int_owned_v1")
+        .unwrap();
+    assert_eq!(caixa.parametros, &[ModoParametro::Scalar]);
+    assert_eq!(caixa.resultado, ModoResultado::Owned);
+    assert!(!caixa.pode_falhar && !caixa.retencao_persistente);
+    assert!(caixa.invalida_borrows);
+    assert!(EFEITOS.iter().find(|e| e.0 == caixa.nome).unwrap().1);
     let campo = CONTRATOS
         .iter()
         .find(|c| c.nome == "dartforge_nativo_DartForge_record_fieldAt")

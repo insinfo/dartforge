@@ -1,6 +1,7 @@
 # Catálogo em migração: ARC e publicação de raízes/globais; ausência NÃO é borrow.
 # nome<TAB>parâmetros separados por vírgula<TAB>resultado<TAB>retenção persistente<TAB>invalida borrows<TAB>saída normal/pending
 # Consume vale nas duas saídas; consume-success/error é específico de aresta.
+dartforge_arc_box_int_owned_v1	i64:scalar	ref:owned	0	1	normal
 dartforge_arc_collect	-	void:scalar	0	1	normal
 dartforge_arc_global_receber_v1	i64:native,ref:consume	void:scalar	1	1	normal
 dartforge_arc_gravar_ref	ref:borrow,i64:scalar,ref:borrow	void:scalar	1	1	normal
