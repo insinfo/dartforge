@@ -14,7 +14,9 @@ Fase 1 compila tudo (pula o executável que já existe na saída); fase 2 roda
 Cada programa imprime, por núcleo, o tempo de cada rodada e o resultado
 (`comum.dart`); o resultado tem de ser igual em todos. O tempo de um núcleo
 numa execução é a mediana das rodadas depois da primeira; o do modo, a mediana
-entre as repetições (e o mínimo, à parte).
+entre as repetições. `amostras.jsonl` preserva stdout, stderr, código de saída
+e núcleos de cada execução. Resultado diferente em qualquer repetição,
+execução incompleta ou falha de compilação invalida a rodada (código 1).
 
 `--afinidade 0x4` prende a medida (e os filhos, que herdam) aos processadores
 da máscara: numa CPU híbrida (núcleos P e E) o mesmo executável varia 20–40%
@@ -23,7 +25,7 @@ conforme o núcleo em que o sistema o põe. Só no Windows.
 Uso: scripts/medir-modos-desempenho.py <dir de saída> [--repeticoes N]
      [--sem-dart] [--afinidade MASCARA] [--modos A0,ARC] [filtro...]
 """
-import argparse, os, re, statistics, subprocess, sys, time
+import argparse, json, os, re, statistics, subprocess, sys, time
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BENCH = os.path.join(RAIZ, "bench", "desempenho")
@@ -80,7 +82,7 @@ def rodar(exe):
             tempos = [int(x) for x in m.group(2).split()]
             estaveis = tempos[1:] if len(tempos) > 1 else tempos
             nucleos[m.group(1)] = (statistics.median(estaveis), m.group(3))
-    return r.returncode, nucleos
+    return r.returncode, nucleos, r.stdout, r.stderr
 
 
 def main():
@@ -92,6 +94,8 @@ def main():
     ap.add_argument("--modos", default=None, help="só estes modos, separados por vírgula (A0 entra sempre)")
     ap.add_argument("filtro", nargs="*")
     a = ap.parse_args()
+    if a.repeticoes < 1:
+        ap.error("--repeticoes deve ser positivo")
     os.makedirs(a.saida, exist_ok=True)
     if a.afinidade:
         import ctypes
@@ -102,6 +106,8 @@ def main():
     programas = sorted(f[:-5] for f in os.listdir(BENCH) if f.endswith(".dart") and f != "comum.dart")
     if a.filtro:
         programas = [p for p in programas if any(x in p for x in a.filtro)]
+    if not programas:
+        ap.error("nenhum programa corresponde ao filtro")
     escolhidos = MODOS if not a.modos else [m for m in MODOS if m[0] == "A0" or m[0] in a.modos.split(",")]
     modos = [m[0] for m in escolhidos] + ([] if a.sem_dart else ["dart"])
 
@@ -122,32 +128,67 @@ def main():
 
     log("# Fase 2: execução")
     medidas = {}  # (nome, modo, nucleo) -> [mediana por repetição]
-    resultados = {}  # (nome, nucleo) -> {modo: resultado}
+    resultados = {}  # (nome, nucleo) -> primeiro resultado observado
+    falhas = []
+    observados = {}  # (nome, modo, repetição) -> núcleos presentes
+    # Um registro por execução, incluindo stdout com todas as rodadas (também
+    # o aquecimento). Gravar imediatamente preserva a evidência de uma falha.
+    with open(os.path.join(a.saida, "amostras.jsonl"), "w", encoding="utf-8") as arquivo:
+        arquivo.write(json.dumps({"tipo": "configuracao", "programas": programas,
+                                  "modos": modos, "repeticoes": a.repeticoes,
+                                  "afinidade": a.afinidade}, ensure_ascii=False) + "\n")
     for rep in range(a.repeticoes):
         for nome in programas:
             ordem = modos[rep % len(modos):] + modos[: rep % len(modos)]
             for modo in ordem:
                 exe = exes.get((nome, modo))
                 if not exe:
+                    if rep == 0:
+                        falhas.append(f"{nome}/{modo}: compilação falhou")
                     continue
-                cod, nucleos = rodar(exe)
+                try:
+                    cod, nucleos, stdout, stderr = rodar(exe)
+                except subprocess.TimeoutExpired as erro:
+                    # TimeoutExpired pode entregar bytes mesmo com text=True.
+                    def texto_parcial(valor):
+                        return valor.decode("utf-8", errors="replace") if isinstance(valor, bytes) else (valor or "")
+                    cod, nucleos = "timeout", {}
+                    stdout, stderr = texto_parcial(erro.stdout), texto_parcial(erro.stderr)
+                except OSError as erro:
+                    cod, nucleos, stdout, stderr = "erro de execução", {}, "", str(erro)
+                registro = {"tipo": "execucao", "programa": nome, "modo": modo,
+                            "repeticao": rep + 1, "executavel": os.path.abspath(exe),
+                            "codigo": cod, "nucleos": nucleos,
+                            "stdout": stdout, "stderr": stderr}
+                with open(os.path.join(a.saida, "amostras.jsonl"), "a", encoding="utf-8") as arquivo:
+                    arquivo.write(json.dumps(registro, ensure_ascii=False) + "\n")
+                observados[(nome, modo, rep)] = set(nucleos)
                 if cod != 0:
                     log(f"  {nome} {modo}: saiu com {cod}")
+                    falhas.append(f"{nome}/{modo}, repetição {rep + 1}: saiu com {cod}")
+                if not nucleos:
+                    falhas.append(f"{nome}/{modo}, repetição {rep + 1}: sem núcleos")
                 for n, (t, res) in nucleos.items():
                     medidas.setdefault((nome, modo, n), []).append(t)
-                    resultados.setdefault((nome, n), {})[modo] = res
+                    anterior = resultados.setdefault((nome, n), res)
+                    if res != anterior:
+                        falhas.append(f"{nome}/{n}/{modo}, repetição {rep + 1}: {res!r} != {anterior!r}")
         log(f"  repetição {rep + 1}/{a.repeticoes}")
+
+    for nome in programas:
+        esperados = {n for (p, _, n) in medidas if p == nome}
+        for modo in modos:
+            for rep in range(a.repeticoes):
+                presentes = observados.get((nome, modo, rep), set())
+                if presentes != esperados:
+                    falhas.append(f"{nome}/{modo}, repetição {rep + 1}: faltam {sorted(esperados - presentes)}")
 
     linhas = ["| programa/núcleo | " + " | ".join(modos) + " | A1/A0 | B0/A0 | B1/A0 | ARC/A0 | A0/dart |",
               "|---|" + "---:|" * (len(modos) + 5)]
-    divergentes = []
     for nome in programas:
         nucleos = sorted({n for (p, m, n) in medidas if p == nome})
         for n in nucleos:
             med = {m: statistics.median(medidas[(nome, m, n)]) for m in modos if (nome, m, n) in medidas}
-            res = resultados.get((nome, n), {})
-            if len(set(res.values())) > 1:
-                divergentes.append(f"{nome}/{n}: {res}")
             def razao(x, y):
                 return f"{med[x] / med[y]:.2f}" if x in med and y in med and med[y] else "—"
             celulas = [f"{med[m] / 1000:.1f}" if m in med else "—" for m in modos]
@@ -169,13 +210,16 @@ def main():
         f"Tempos em ms (mediana de {a.repeticoes} execuções alternadas; em cada uma, a mediana das rodadas sem a primeira)"
         + (f"; presos aos processadores {a.afinidade}." if a.afinidade else "."),
     ]
-    if divergentes:
-        resumo.append("Resultados divergentes: " + "; ".join(divergentes))
+    if falhas:
+        resumo.append("Rodada inválida (não usar as razões como comparação): " + "; ".join(falhas))
+    else:
+        resumo.append("Resultados iguais em todos os modos e repetições; amostras brutas em amostras.jsonl.")
     texto = "\n".join(linhas + resumo)
     with open(os.path.join(a.saida, "resultado.md"), "w", encoding="utf-8") as f:
         f.write(texto + "\n")
     log(texto)
+    return 1 if falhas else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
