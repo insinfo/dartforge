@@ -3540,6 +3540,11 @@ argumentos), `UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE` ("The method '{0}' 
     invocação de valor `Never?`.
 
 ##### `dead_code` (perda 127: FN 118, FP 5, msg 0, pos 4)
+- **Ramo morto dentro das atualizações mortas (2026-10-08):** `for (; false; true ? x : x) {}` relata o corpo e
+  as atualizações (`_reportForUpdaters`) e nada dentro delas: o trecho morto das atualizações fica aberto
+  enquanto elas são inferidas. `instrucoes.rs` o abria com o sentinela `usize::MAX`, que o `sair_fluxo` do ramo
+  `then` do `?:` fechava (fecha todo trecho de profundidade `>=` à corrente), e o `else` morto abria outro
+  relato (`void/void_type_usage_test.dart:1215:40`). Agora o trecho fica na profundidade corrente.
 - **Cascata `?..` com alvo `Null` (2026-10-08):** o `nullAwareAccess_rightBegin` marca o temporário do alvo como não
   nulo (`tryMarkNonNullable`); de `Null` sai `Never`, e as seções ficam inalcançáveis desde o começo; o fim da
   cascata junta com o caminho do atalho nulo e volta a alcançar. O primeiro nó morto é a primeira seção, que

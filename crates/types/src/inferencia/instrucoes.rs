@@ -189,7 +189,11 @@ pub(crate) fn inferir_instrucao(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, s: S
             // `_reportForUpdaters` (ou nenhum); nada de dentro abre outro.
             let fechar = !cx.fluxo.alcancavel && cx.trecho_morto.is_none();
             if fechar {
-                cx.trecho_morto = Some(usize::MAX);
+                // Na profundidade corrente: o ramo de um `?:` ou de um `&&`
+                // dentro das atualizações entra um nível abaixo, e a saída
+                // dele não fecha este trecho (o `usize::MAX` fechava, e o
+                // ramo morto de dentro abria outro relato).
+                cx.trecho_morto = Some(cx.fins_de_fluxo.len());
             }
             for u in updates.iter() {
                 inferir_livre(inf, cx, *u);
