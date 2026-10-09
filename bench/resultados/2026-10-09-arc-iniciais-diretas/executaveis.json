@@ -1,0 +1,22 @@
+[
+  {
+    "nome": "objetos_escapam-A0.exe",
+    "sha256": "3ec7d99da1f5768401d21cc36349df5cdf85d7e74dd7308b912700ca72cd8956",
+    "bytes": 3562496
+  },
+  {
+    "nome": "objetos_escapam-ARC.exe",
+    "sha256": "b7ccc27adfd1b44cbc3c31a2e8c76aa23f4749ed2b92c24d0dca450b36fd247b",
+    "bytes": 3501568
+  },
+  {
+    "nome": "textos-A0.exe",
+    "sha256": "68eba2df678be0dbfc5d6cee8899dfae006ea69523329991994ad005494e3429",
+    "bytes": 3574784
+  },
+  {
+    "nome": "textos-ARC.exe",
+    "sha256": "735eb04c6ae632611320648091119280f2f610186dc9a2712430254035558f01",
+    "bytes": 3513344
+  }
+]

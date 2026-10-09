@@ -598,6 +598,14 @@ cinco filtrados), Script/spawnUri 1/1 (1,45 s; sem filtro), autocontido 1/1
 filtrados não representam suítes completas. Só macOS permanece ativo na
 consulta atual; não disparar outra rodada pesada antes de seu fechamento.
 
+Medição dirigida de `ae4fd9c5` (contagem inicial sem vetor): 28 execuções
+válidas e quatro kernels, sete repetições por A0/ARC, resultados iguais à
+rodada anterior. ARC/A0: árvores 12,47×, lista ligada 5,29×, construção de
+textos 2,48× e hashes 3,31×. Dados e hashes em
+`bench/resultados/2026-10-09-arc-iniciais-diretas`. Não há ganho amplo
+comprovado nem aprovação de ARC ≥ A0; esta rodada não substitui os 32
+kernels e não inclui a validação posterior de callbacks NativeFinalizer.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
