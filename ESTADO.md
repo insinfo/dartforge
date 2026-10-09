@@ -257,6 +257,13 @@ não provam a conclusão nos runners Unix.
 O relatório AOT com SDK da fonte desta rodada também foi conferido:
 238/238, em 56,9 s de harness. Recarga, JIT e conclusão desse job ainda
 precisam de seus resultados próprios; o artefato AOT é publicado antes deles.
+Relatórios adicionais conferidos: Windows A1/B0/B1 com e sem estresse,
+todos 238/238; Linux AOT, A1/B0/B1 e ARC 238/238, `dart:io` 130/130;
+JIT × AOT Linux e SDK da fonte 238/238 no placar, zero divergências
+(sete sem IR, iguais por construção). O log Linux confirma execução dos
+quatro testes de emissão agora sem retorno antecipado, do inventário de
+natives e da sobreposição, todos aprovados com o SDK real. Ainda faltam
+conclusão e logs de recarga do job SDK, mapas dirigidos B0 e macOS.
 
 Na rodada remota `37896396380` sobre `719e94cc`, os quatro testes dirigidos
 de mapas também passaram, sem ignorados/filtrados, em 752 s; log do job B0
