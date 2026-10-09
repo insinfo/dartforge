@@ -693,6 +693,15 @@ inserção de proteção, prova de consumo/escape ou transferência de retorno.
 Três exemplos da API passaram em doctests release
 (`target/arc-escopos-doc-release.log`). Módulo novo formatado isoladamente.
 
+Diagnósticos de fluxo de verificar_escopos agora incluem caminho de
+blocos desde a entrada; junções mostram os dois caminhos incompatíveis.
+Árvore de descoberta armazena um predecessor por bloco e reconstrói o
+caminho só no erro, sem copiar todos os prefixos durante a análise.
+Testes conferem caminhos da junção e erro transitivo. Fixture do retorno
+transitivo corrigida para return_ty Ref. Emissor release 113/113, sete
+manuais ignorados (`target/emissor-escopos-caminhos-release.log`).
+Não altera emissão/runtime; integração do plano e tokens continua pendente.
+
 Job SDK da rodada `37944870979` concluiu com sucesso. Artefato
 `target/ci-37944870979/sdk` conferido: AOT com SDK 238/238 (62,5 s),
 seis DART! de interop preservados. Log `sdk-job.log` confirma recarga

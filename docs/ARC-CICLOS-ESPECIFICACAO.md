@@ -864,6 +864,9 @@ incluindo sua cadeia transitiva, exige pilhas iguais nas junções/backedges
 e aplica cleanup de aresta antes dos usos de Phi. O plano ainda não é
 produzido pelo lowering nem transportado nas otimizações; essa API não
 insere proteção, prova escape/consumo nem transfere owners no retorno.
+Erros de fluxo dessa API incluem caminho de blocos desde a entrada;
+junções incompatíveis mostram os dois caminhos. A árvore de descoberta
+guarda um predecessor por bloco, reconstruindo os caminhos só no erro.
 
 Operações **novas** sugeridas na `Instruction`:
 

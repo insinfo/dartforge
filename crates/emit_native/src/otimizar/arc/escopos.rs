@@ -79,6 +79,36 @@ fn conferir(
     Ok(())
 }
 
+/// Reconstrói só no erro o caminho da árvore de descoberta, sem guardar
+/// uma cópia de todos os prefixos em cada bloco.
+fn caminho(f: &Function, pais: &[Option<usize>], mut b: usize) -> Vec<u32> {
+    let mut caminho = vec![f.blocks[b].id.0];
+    while let Some(p) = pais[b] {
+        b = p;
+        caminho.push(f.blocks[b].id.0);
+    }
+    caminho.reverse();
+    caminho
+}
+
+fn erro_no_fluxo(
+    f: &Function,
+    pais: &[Option<usize>],
+    b: usize,
+    aresta: Option<usize>,
+    ponto: String,
+    motivo: String,
+) -> String {
+    let mut caminho = caminho(f, pais, b);
+    if let Some(s) = aresta {
+        caminho.push(f.blocks[s].id.0);
+    }
+    format!(
+        "ARC003 em {}: {ponto}: {motivo}; caminho {caminho:?}",
+        f.symbol
+    )
+}
+
 /// Confere limites e usos de borrows com pilhas iguais nas junções.
 ///
 /// Exige CFG/SSA válidos e plano explícito da mesma função. Escopos zero dos
@@ -92,6 +122,8 @@ fn conferir(
 /// fora de ordem, pilhas diferentes na junção, escopo aberto na saída ou
 /// definição/uso borrowed fora de seu escopo. Ignora fluxo inalcançável,
 /// mas rejeita chaves do plano ausentes da HIR.
+/// Erros de fluxo incluem um caminho desde a entrada; junções incluem
+/// os dois caminhos que apresentam pilhas distintas.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, otimizar::arc::*};
@@ -156,6 +188,7 @@ pub fn verificar_escopos(
         return Ok(());
     }
     let mut entradas: Vec<Option<Vec<u32>>> = vec![None; f.blocks.len()];
+    let mut pais = vec![None; f.blocks.len()];
     entradas[0] = Some(vec![0]);
     let mut fila = VecDeque::from([0]);
     while let Some(i) = fila.pop_front() {
@@ -164,8 +197,9 @@ pub fn verificar_escopos(
         let ponto = |v: ValueId| format!("b{} v{}", b.id.0, v.0);
         for (v, inst, _) in &b.instructions {
             alterar(&mut pilha, plano.antes.get(v).map_or(&[], Vec::as_slice))
-                .map_err(|m| erro(ponto(*v), m))?;
-            conferir(*v, classes, &pilha).map_err(|m| erro(ponto(*v), m))?;
+                .map_err(|m| erro_no_fluxo(f, &pais, i, None, ponto(*v), m))?;
+            conferir(*v, classes, &pilha)
+                .map_err(|m| erro_no_fluxo(f, &pais, i, None, ponto(*v), m))?;
             if !matches!(inst, Instruction::Phi { .. }) {
                 let mut invalido = None;
                 operandos(inst, &mut |o| {
@@ -176,7 +210,7 @@ pub fn verificar_escopos(
                     }
                 });
                 if let Some(m) = invalido {
-                    return Err(erro(ponto(*v), m));
+                    return Err(erro_no_fluxo(f, &pais, i, None, ponto(*v), m));
                 }
             }
         }
@@ -184,7 +218,7 @@ pub fn verificar_escopos(
             &mut pilha,
             plano.saidas.get(&b.id).map_or(&[], Vec::as_slice),
         )
-        .map_err(|m| erro(format!("b{} saída", b.id.0), m))?;
+        .map_err(|m| erro_no_fluxo(f, &pais, i, None, format!("b{} saída", b.id.0), m))?;
         let mut invalido = None;
         operandos_do_terminador(&b.terminator, &mut |o| {
             if invalido.is_none()
@@ -194,10 +228,21 @@ pub fn verificar_escopos(
             }
         });
         if let Some(m) = invalido {
-            return Err(erro(format!("b{} terminador", b.id.0), m));
+            return Err(erro_no_fluxo(
+                f,
+                &pais,
+                i,
+                None,
+                format!("b{} terminador", b.id.0),
+                m,
+            ));
         }
         if cfg.sucessores[i].is_empty() && pilha != [0] {
-            return Err(erro(
+            return Err(erro_no_fluxo(
+                f,
+                &pais,
+                i,
+                None,
                 format!("b{} saída", b.id.0),
                 format!("escopos não fechados {pilha:?}"),
             ));
@@ -213,27 +258,37 @@ pub fn verificar_escopos(
                     .get(&(b.id, destino.id))
                     .map_or(&[], Vec::as_slice),
             )
-            .map_err(|m| erro(ponto.clone(), m))?;
+            .map_err(|m| erro_no_fluxo(f, &pais, i, Some(s), ponto.clone(), m))?;
             for (_, inst, _) in &destino.instructions {
                 if let Instruction::Phi { incoming, .. } = inst {
                     for (de, o) in incoming {
                         if *de == b.id
                             && let Operand::Val(v) = o
                         {
-                            conferir(*v, classes, &proxima).map_err(|m| erro(ponto.clone(), m))?;
+                            conferir(*v, classes, &proxima).map_err(|m| {
+                                erro_no_fluxo(f, &pais, i, Some(s), ponto.clone(), m)
+                            })?;
                         }
                     }
                 }
             }
             match &entradas[s] {
                 Some(anterior) if *anterior != proxima => {
-                    return Err(erro(
+                    return Err(erro_no_fluxo(
+                        f,
+                        &pais,
+                        i,
+                        Some(s),
                         ponto,
-                        format!("junção com escopos diferentes {anterior:?} e {proxima:?}"),
+                        format!(
+                            "junção com escopos diferentes {anterior:?} e {proxima:?}; caminho anterior {:?}",
+                            caminho(f, &pais, s)
+                        ),
                     ));
                 }
                 Some(_) => {}
                 None => {
+                    pais[s] = Some(i);
                     entradas[s] = Some(proxima);
                     fila.push_back(s);
                 }
@@ -327,6 +382,7 @@ mod testes {
     #[test]
     fn borrow_transitivo_nao_estende_o_limite_de_seu_owner() {
         let (mut f, mut classes, plano) = exemplo();
+        f.return_ty = Type::Ref;
         classes.insert(
             ValueId(2),
             Ownership::Borrowed {
@@ -337,7 +393,9 @@ mod testes {
         f.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(2))));
         let erro = verificar_escopos(&f, &classes, &plano).unwrap_err();
         assert!(
-            erro.contains("b0 terminador") && erro.contains("v1 emprestado"),
+            erro.contains("b0 terminador")
+                && erro.contains("v1 emprestado")
+                && erro.contains("caminho [0]"),
             "{erro}"
         );
     }
@@ -370,10 +428,12 @@ mod testes {
             .insert((BlockId(0), BlockId(2)), vec![AlteracaoEscopo::Fechar(1)]);
         verificar_escopos(&f, &classes, &plano).unwrap();
         plano.arestas.remove(&(BlockId(0), BlockId(2)));
+        let erro = verificar_escopos(&f, &classes, &plano).unwrap_err();
         assert!(
-            verificar_escopos(&f, &classes, &plano)
-                .unwrap_err()
-                .contains("junção")
+            erro.contains("junção")
+                && erro.contains("caminho anterior [0, 1, 3]")
+                && erro.contains("caminho [0, 2, 3]"),
+            "{erro}"
         );
         // A volta precisa fechar a ativação anterior antes de abrir a próxima.
         f.blocks.truncate(1);
