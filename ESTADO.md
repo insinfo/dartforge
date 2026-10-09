@@ -1293,6 +1293,16 @@ Quarenta e cinco testes ARC aprovados
 operações continua uma pré-condição do verificador HIR; não integra ainda o
 produtor no lowering/emissão padrão.
 
+Phi I1 agora recebe Trivial do produtor após conferir entradas bool constantes
+ou SSA I1 e recusar classes conflitantes. A regra vale também para backedges,
+sem gerar token nem entrada de consumo para Phi. Regressão executa o produtor
+e verificadores em laço com Phi/LNot sem mapas iniciais; trocar a entrada
+booleana por inteiro é recusado sem publicação parcial. Quarenta e seis testes
+ARC aprovados (`target/ownership-phi-bool-test-final.log`), assim como 36 exemplos
+públicos (`target/ownership-phi-bool-doc.log`). Phis I64/Ptr e
+parâmetros continuam exigindo contratos semânticos; essa regra não amplia a
+cobertura de referências borrowed nem integra a emissão padrão.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

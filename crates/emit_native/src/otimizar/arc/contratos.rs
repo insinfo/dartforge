@@ -93,6 +93,7 @@ pub fn produzir_contratos_runtime(
 /// Copy/move/load produzem Owned; drop/store produzem Trivial. Operações ARC
 /// não recebem entrada em PlanoTokens, pois o verificador possui suas regras.
 /// ICmp/FCmp/LNot produzem bool Trivial sem consumo nem saída excepcional.
+/// Phi I1 exige entradas booleanas e produz Trivial, inclusive em laços.
 /// Phi Ref ainda não classificado exige entradas owned/null e origem externa
 /// ao ciclo de Phi/move. Parâmetros e demais operações exigem produtores próprios.
 /// Não insere ARC nem certifica vida dos slots, proveniência ou cleanup.
@@ -147,11 +148,44 @@ fn produzir_phi(
         .map(|(v, i, _)| (*v, i))
         .collect();
     let mut candidatos = HashSet::new();
+    let tipos: HashMap<_, _> = f
+        .params
+        .iter()
+        .map(|(v, _, ty)| (*v, *ty))
+        .chain(
+            f.blocks
+                .iter()
+                .flat_map(|b| &b.instructions)
+                .map(|(v, _, ty)| (*v, *ty)),
+        )
+        .collect();
     let mut ordem = Vec::new();
     for (v, i, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
         if let Instruction::Phi { ty: declarado, .. } = i {
             if ty != declarado || plano.instrucoes.contains_key(v) {
                 return Err(format!("Phi v{}: tipo ou plano incompatível", v.0));
+            }
+            if *ty == Type::I1 {
+                let Instruction::Phi { incoming, .. } = i else {
+                    unreachable!()
+                };
+                if incoming.is_empty()
+                    || classes.get(v).is_some_and(|c| *c != Ownership::Trivial)
+                    || incoming.iter().any(|(_, op)| match op {
+                        Operand::Constant(Constant::Bool(_)) => false,
+                        Operand::Val(de) => {
+                            tipos.get(de) != Some(&Type::I1)
+                                || classes.get(de).is_some_and(|c| *c != Ownership::Trivial)
+                        }
+                        _ => true,
+                    })
+                {
+                    return Err(format!(
+                        "Phi v{}: entradas ou classe incompatíveis com bool",
+                        v.0
+                    ));
+                }
+                classes.insert(*v, Ownership::Trivial);
             }
             if *ty == Type::Ref && classes.get(v).is_none_or(|c| *c == Ownership::Owned) {
                 candidatos.insert(*v);
@@ -464,6 +498,75 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn phi_bool_de_laco_e_produzido_sem_inventar_owner() {
+        let mut f = Function {
+            symbol: "phi_bool".into(),
+            name: "phi_bool".into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::I1,
+            blocks: vec![
+                BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![],
+                    terminator: Terminator::Branch(BlockId(1)),
+                },
+                BasicBlock {
+                    id: BlockId(1),
+                    instructions: vec![
+                        (
+                            ValueId(1),
+                            Instruction::Phi {
+                                ty: Type::I1,
+                                incoming: vec![
+                                    (BlockId(0), Operand::Constant(Constant::Bool(true))),
+                                    (BlockId(1), Operand::Val(ValueId(2))),
+                                ],
+                            },
+                            Type::I1,
+                        ),
+                        (
+                            ValueId(2),
+                            Instruction::LNot(Operand::Val(ValueId(1))),
+                            Type::I1,
+                        ),
+                    ],
+                    terminator: Terminator::CondBranch {
+                        cond: Operand::Val(ValueId(2)),
+                        then_block: BlockId(1),
+                        else_block: BlockId(2),
+                    },
+                },
+                BasicBlock {
+                    id: BlockId(2),
+                    instructions: vec![],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+                },
+            ],
+        };
+        let mut classes = HashMap::new();
+        let mut plano = PlanoTokens::default();
+        produzir_e_verificar_tokens(
+            &f,
+            &mut classes,
+            &mut plano,
+            &TabelasDaFuncao::default(),
+            &PlanoEscopos::default(),
+        )
+        .unwrap();
+        assert_eq!(classes[&ValueId(1)], Ownership::Trivial);
+        assert!(!plano.instrucoes.contains_key(&ValueId(1)));
+        let antes = classes.clone();
+        let efeitos = plano.instrucoes.clone();
+        if let Instruction::Phi { incoming, .. } = &mut f.blocks[1].instructions[0].1 {
+            incoming[0].1 = Operand::Constant(Constant::Int(1));
+        }
+        assert!(produzir_contratos_arc(&f, &mut classes, &mut plano).is_err());
+        assert_eq!(classes, antes);
+        assert_eq!(plano.instrucoes, efeitos);
+    }
 
     #[test]
     fn comparacao_produz_bool_sem_consumir_referencia() {
