@@ -330,6 +330,15 @@ suíte `nativo`, dois fragmentos, sobre `a49ab81b`, disparada após confirmar
 a conclusão da anterior e ausência de Pesado ativa ou na fila. Valida as
 migrações posteriores dos owners Rust, persistentes, eventos e mensagens;
 ainda não há placares desta rodada.
+A entrada do isolado passou a usar owners para entrada, argumento e mensagem
+de pronto durante a chamada Dart. Se a produção de pronto lançar, não lê
+o resultado nem chama a entrada. Dois testes do protocolo, normal e com
+exceção pendente, passaram com auditoria puro/berçário. Release: 130 unitários,
+13 de integração e 12 doctests aprovados, três microbenchmarks ignorados.
+A primeira execução detectou texto AOT desatualizado por edição de indentação
+durante o build; recompilação com fontes estáveis passou a conferência de
+fonte única. A rodada `37922301282` continua ativa sobre `a49ab81b` e não
+inclui esta mudança de entrada. Spawn nativo e desenrolamento exigem validação.
 
 Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
 suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior

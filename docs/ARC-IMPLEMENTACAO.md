@@ -455,6 +455,18 @@ ao fechar o quadro. Não substitui a validação nativa do handler nem LSDA.
 Auditoria puro/berçário aprovada. Suíte release: 128 unitários, 13 testes de
 integração e 12 doctests aprovados; três microbenchmarks ignorados.
 
+Na entrada de um isolado criado, entrada e argumento materializados ficam
+em slots proprietários durante a mensagem de pronto e a chamada de entrada.
+O resultado de pronto recebe outro slot antes de ser copiado para envio.
+Uma exceção na produção dessa mensagem impede a chamada de entrada e a
+leitura do resultado excepcional. Ao retornar, os slots são soltados;
+a exceção pendente mantém seu próprio owner. Os testes do protocolo forçam
+coleta durante a entrada e verificam a liberação normal e com pendência.
+Não substituem o corpus nativo de spawn nem o desenrolamento por tabelas.
+Ambos aprovados com auditoria puro/berçário. Release: 130 unitários,
+13 testes de integração e 12 doctests aprovados; três microbenchmarks ignorados.
+A conferência de fonte única AOT/JIT passou após recompilar com fontes estáveis.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais

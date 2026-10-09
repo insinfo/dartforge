@@ -186,6 +186,62 @@ mod testes_owner_controle {
     use super::*;
 
     #[test]
+    fn entrada_com_excecao_solta_argumento_e_preserva_owner_da_pendencia() {
+        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+        HEAP.with(|h| h.borrow_mut().ativar_arc());
+        let entrada = Portavel::Str("erro da entrada".into()).para_grafo();
+        let mensagem = Portavel::Str("argumento descartado".into()).para_grafo();
+        let (entrada, mensagem) = com_entrada_de_isolado(&entrada, &mensagem, |entrada, mensagem, _| {
+            dartforge_exception_throw(entrada, 3);
+            (entrada, mensagem)
+        });
+        HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.collect();
+            assert!(h.e_objeto_vivo(entrada));
+            assert!(!h.e_objeto_vivo(mensagem));
+        });
+        assert_eq!(dartforge_exception_peek_ref(), entrada);
+        dartforge_exception_clear();
+        HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.collect();
+            assert!(!h.e_objeto_vivo(entrada));
+        });
+        HEAP.with(|h| { h.replace(anterior); });
+    }
+
+    #[test]
+    fn entrada_de_isolado_preserva_valores_e_solta_owners_no_retorno() {
+        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+        HEAP.with(|h| h.borrow_mut().ativar_arc());
+        let entrada = Portavel::Str("entrada".into()).para_grafo();
+        let mensagem = Portavel::Str("argumento".into()).para_grafo();
+        let (entrada, mensagem, pronto) = com_entrada_de_isolado(&entrada, &mensagem, |entrada, mensagem, quadro| {
+            let pronto = HEAP.with(|h| {
+                let mut h = h.borrow_mut();
+                h.collect();
+                assert_eq!(h.texto(entrada).unwrap().para_string(), "entrada");
+                assert_eq!(h.texto(mensagem).unwrap().para_string(), "argumento");
+                let pronto = h.alocar_str("pronto");
+                h.set_root(quadro, 2, pronto);
+                h.collect();
+                assert_eq!(h.texto(pronto).unwrap().para_string(), "pronto");
+                pronto
+            });
+            (entrada, mensagem, pronto)
+        });
+        HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.collect();
+            for valor in [entrada, mensagem, pronto] {
+                assert!(!h.e_objeto_vivo(valor));
+            }
+        });
+        HEAP.with(|h| { h.replace(anterior); });
+    }
+
+    #[test]
     fn erro_e_rastro_sobrevivem_ao_clear_ate_terminar_o_relato() {
         let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
         let erro = HEAP.with(|h| {
@@ -494,6 +550,19 @@ struct PedidoDeIsolado {
     nome: String,
 }
 
+/// Materializa entrada e argumento mantendo owners até o retorno da chamada.
+/// O terceiro slot pertence à mensagem de pronto produzida pelo tratamento.
+fn com_entrada_de_isolado<R>(entrada: &Grafo, mensagem: &Grafo, tratar: impl FnOnce(i64, i64, i64) -> R) -> R {
+    let quadro = HEAP.with(|h| h.borrow_mut().push_frame_proprietario(3));
+    let entrada = materializar(entrada);
+    HEAP.with(|h| h.borrow_mut().set_root(quadro, 0, entrada));
+    let mensagem = materializar(mensagem);
+    HEAP.with(|h| h.borrow_mut().set_root(quadro, 1, mensagem));
+    let resultado = tratar(entrada, mensagem, quadro);
+    HEAP.with(|h| h.borrow_mut().pop_frame(quadro));
+    resultado
+}
+
 /// A vida de um isolado criado por `Isolate.spawn`, na thread dele.
 fn rodar_isolado(p: PedidoDeIsolado) {
     let preparar = PREPARAR_ISOLADO.load(std::sync::atomic::Ordering::Acquire);
@@ -520,21 +589,19 @@ fn rodar_isolado(p: PedidoDeIsolado) {
         encerrar_isolado();
         return;
     }
-    let entrada = materializar(&p.entrada);
-    com_raizes(&[entrada], || {
-        let mensagem = materializar(&p.mensagem);
-        com_raizes(&[mensagem], || {
-            // SAFETY: registradas pela sobreposição de `dart:isolate` com as
-            // assinaturas (`int`, `int`, `int`) → `List` e (`Function`,
-            // `Object?`) → `void`.
-            let pronto = { let alvo_dart: usize = ajudante_de_isolado("_dartforgeMensagemDePronto"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(alvo_dart, a0, a1, a2) } };
-            let iniciar = { let alvo_dart: usize = ajudante_de_isolado("_dartforgeIniciarIsolado"); move |a0: i64, a1: i64| { dart_v2(alvo_dart, a0, a1) } };
-            let m = pronto(controle, pausa, termino);
-            if let Ok(g) = com_raizes(&[m], || copiar_para_grafo(m, false)) {
-                postar(p.pronto, g);
-            }
-            iniciar(entrada, mensagem);
-        });
+    com_entrada_de_isolado(&p.entrada, &p.mensagem, |entrada, mensagem, quadro| {
+        // SAFETY: registradas pela sobreposição de `dart:isolate` com as
+        // assinaturas (`int`, `int`, `int`) → `List` e (`Function`,
+        // `Object?`) → `void`.
+        let pronto = { let alvo_dart: usize = ajudante_de_isolado("_dartforgeMensagemDePronto"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(alvo_dart, a0, a1, a2) } };
+        let iniciar = { let alvo_dart: usize = ajudante_de_isolado("_dartforgeIniciarIsolado"); move |a0: i64, a1: i64| { dart_v2(alvo_dart, a0, a1) } };
+        let m = pronto(controle, pausa, termino);
+        if dartforge_exception_pending() != 0 { return; }
+        HEAP.with(|h| h.borrow_mut().set_root(quadro, 2, m));
+        if let Ok(g) = copiar_para_grafo(m, false) {
+            postar(p.pronto, g);
+        }
+        iniciar(entrada, mensagem);
     });
     if dartforge_exception_pending() == 0 || !relatar_erro_nao_tratado() {
         rodar_laco_do_isolado(chamar);
