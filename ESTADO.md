@@ -1303,6 +1303,22 @@ públicos (`target/ownership-phi-bool-doc.log`). Phis I64/Ptr e
 parâmetros continuam exigindo contratos semânticos; essa regra não amplia a
 cobertura de referências borrowed nem integra a emissão padrão.
 
+Conferência parcial dos artefatos de 37986946507, revisão 54b5c836, em
+`target/ci-37986946507`: Windows ARC 238/238 (35,6 s), ARC estresse 238/238
+(56,1 s), io 130/130 (92,5 s); Linux AOT/A1/B0/B1/ARC 238/238, io 130/130
+(36,4 s), JIT 238/238 sem divergências, sete sem IR iguais por construção e
+zero timeouts nos dois perfis (27,5 s). SDK fonte AOT 238/238 (38,5 s).
+Rodada ainda ativa: não equivale ao fechamento de macOS/SDK fonte JIT.
+Seis casos de interop têm oráculo Dart indisponível, não prova diferencial.
+As alterações posteriores a 54b5c836 não estão nessa rodada.
+
+O relatório Linux expôs falha de preparação do oráculo DDC: gerar-dart-sdk.ps1
+usava dart.exe em Unix. O script agora seleciona dart em Unix/dart.exe em
+Windows e recusa código de saída não zero antes de inspecionar o artefato.
+Geração real com SDK 3.6.2 no Windows produziu 7.087.858 bytes e passou node
+--check; os dois arquivos temporários foram removidos. Execução Unix da
+correção ainda exige a próxima rodada; não altera os placares já publicados.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
