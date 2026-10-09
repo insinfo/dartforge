@@ -16,7 +16,7 @@ use std::collections::{HashMap, HashSet};
 /// plano.tokens.retorno = RetornoTokens::Owned;
 /// assert!(plano.classes.is_empty());
 /// ```
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct PlanoFuncaoDart {
     /// Classificações semânticas fornecidas; os produtores completam cobertura.
     pub classes: HashMap<ValueId, Ownership>,
@@ -39,8 +39,9 @@ pub struct PlanoFuncaoDart {
 /// passam pela classificação ARC após classificar resultados das chamadas:
 /// constantes/aritmética/Phis/runtime cobertos não exigem mapas manuais.
 /// Parâmetros não Ref e operações não cobertas exigem contratos prévios.
-/// Não prepara CFG/escopos, divide
-/// arestas, resolve finally/cancelamento/suspensão nem materializa tabelas.
+/// Separa saídas Guarda em sucesso/erro e transporta os limites de saída.
+/// Demais CFG/escopos precisam estar preparados. Não divide arestas gerais,
+/// resolve finally/cancelamento/suspensão nem materializa tabelas.
 /// Descritores de slots e proveniência continuam premissas do lowering.
 ///
 /// # Erros
@@ -117,30 +118,39 @@ pub fn inserir_arc_funcoes_dart(
         .map(|f| super::chamadas::resumo_provisorio(f, !nao_lancam.contains(&f.symbol)))
         .collect();
     let indice = super::chamadas::IndiceFuncoesDart::novo(&resumos)?;
-    let mut novos_planos: HashMap<_, _> = planos
-        .iter()
-        .map(|(s, p)| (s.clone(), (p.classes.clone(), p.tokens.clone())))
-        .collect();
+    let mut novos_planos = planos.clone();
     let mut total = (0, 0);
     for f in &mut modulo.functions {
-        let original = &planos[&f.symbol];
-        let (classes, tokens) = novos_planos.get_mut(&f.symbol).unwrap();
-        super::tokens::normalizar_saidas_lanca(f, &original.tabelas)?;
-        super::chamadas::produzir_chamadas_e_instrucoes_dart(f, &indice, classes, tokens)?;
-        let (copias, drops) =
-            inserir_arc_saidas_dart(f, classes, tokens, &original.tabelas, &original.escopos)?;
-        verificar_contrato_funcao_dart(f, classes, tokens, &original.tabelas, &original.escopos)?;
+        let novo = novos_planos.get_mut(&f.symbol).unwrap();
+        super::saidas::separar_guardas(f, novo)?;
+        super::tokens::normalizar_saidas_lanca(f, &novo.tabelas)?;
+        super::chamadas::produzir_chamadas_e_instrucoes_dart(
+            f,
+            &indice,
+            &mut novo.classes,
+            &mut novo.tokens,
+        )?;
+        let (copias, drops) = inserir_arc_saidas_dart(
+            f,
+            &mut novo.classes,
+            &mut novo.tokens,
+            &novo.tabelas,
+            &novo.escopos,
+        )?;
+        verificar_contrato_funcao_dart(
+            f,
+            &novo.classes,
+            &novo.tokens,
+            &novo.tabelas,
+            &novo.escopos,
+        )?;
         total.0 += copias;
         total.1 += drops;
     }
     // A convenção foi comprovada conjuntamente; os resumos provisórios não
-    // escapam desta transação. Tabelas e limites mantêm seus IDs originais.
+    // escapam desta transação. Tabelas/limites incluem as saídas separadas.
     funcoes.clone_from_slice(&modulo.functions);
-    for (s, (classes, tokens)) in novos_planos {
-        let destino = planos.get_mut(&s).unwrap();
-        destino.classes = classes;
-        destino.tokens = tokens;
-    }
+    *planos = novos_planos;
     Ok(total)
 }
 

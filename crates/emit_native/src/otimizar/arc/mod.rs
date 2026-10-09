@@ -16,6 +16,7 @@ mod tokens;
 mod contratos;
 mod chamadas;
 mod funcoes;
+mod saidas;
 mod ssa;
 mod quadros;
 pub use contratos::{ContratoChamadaRuntime, contrato_chamada_runtime, produzir_contratos_runtime, produzir_contratos_arc};

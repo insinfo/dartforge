@@ -1,0 +1,39 @@
+{
+  "base": "351c99d7",
+  "arc_conferir": 1,
+  "arc_bercario": 0,
+  "gc_stress": 1,
+  "retencoes_inseridas": 1,
+  "liberacoes_inseridas": 3,
+  "execucoes": [
+    {
+      "modo": "arc",
+      "caso": "normal",
+      "exit_code": 0,
+      "ir_sha256": "3A7190D47518E2C2B02794D899AC7A3B72780EB0F06B0884DD2EA697FE89464A",
+      "stdout_sha256": "D5F7E3691EBCA6211405F11AE88A1B1899D315A91695BD48FBB2DE5AB4CE063F"
+    },
+    {
+      "modo": "arc",
+      "caso": "erro",
+      "exit_code": 0,
+      "ir_sha256": "8D25C05FAE56A762D65FAE3C2B372D2EAA0D998AB04C4002F1AFFA8C0A669354",
+      "stdout_sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "modo": "tracing",
+      "caso": "normal",
+      "exit_code": 0,
+      "ir_sha256": "4174139498756C2958DC0B23ADC2409A86DD8CA409BD777AC7B6F8809632885C",
+      "stdout_sha256": "D5F7E3691EBCA6211405F11AE88A1B1899D315A91695BD48FBB2DE5AB4CE063F"
+    },
+    {
+      "modo": "tracing",
+      "caso": "erro",
+      "exit_code": 0,
+      "ir_sha256": "B37682B70A66B45BE53C224259C26325910454FCCEF36CC3CAB86E746DC6F461",
+      "stdout_sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    }
+  ],
+  "exemplo_sha256": "06B91C8A0A8540E9A6FE342F8189EBA2516756A115C3EAFA9145B22D6FB45D25"
+}

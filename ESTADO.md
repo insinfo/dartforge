@@ -2,6 +2,44 @@
 
 ## Retomada de 2026-10-09
 
+Retornos Guarda: a preparação conjunta separa a conferência de pendência
+em dois blocos, mantendo o operando do resultado só no sucesso e marcando
+o erro como Lanca. Fecha o borrow depois da retenção normal, transportando
+os eventos de saída para ambas as folhas. IDs reservam definições e
+metadados, sem wrap. Publica CFG, tabelas e escopos somente após verificar
+o conjunto. Passaram 85 testes ARC, 39 LLVM e 45 doctests.
+Nova prova `arc_retornos_guardados`: quatro execuções AOT ARC/tracing sob
+stress e auditoria, código 0. Normal imprime i64::MAX após liberar a cópia
+de retorno e coletar; erro desenrola do callee por df.lancar, chega ao
+landingpad do invoke no caller, limpa a exceção e libera o token da fábrica.
+Artefatos em `bench/resultados/2026-10-09-arc-guardas-unwind-aot`; logs
+`target/ownership-guardas-*`. Morte final, geração dos invokes do caller,
+arestas gerais, finally/cancelamento/suspensão e pipeline padrão pendentes.
+
+Nova Heavy `38003888914`, suíte nativo com dois fragmentos, iniciada sobre
+`351c99d7b5a26a5d6ecb3f98012485cce2350499` depois de conferir ausência de
+rodadas Heavy ativas/em fila/em espera. Inclui catálogo 25 e preparação
+conjunta até Lanca; não inclui esta separação de Guarda. A rodada anterior
+foi encerrada e conferida conforme o registro abaixo.
+
+Heavy `37998421467` concluído com sucesso sobre
+`116f6bed11bcc79d5d25f3e560db5bf0c07bd8a6`. Relatórios e logs conferidos em
+`target/ci-37998421467`. Linux: AOT/A1/B0/B1/ARC 238/238 em
+69,8/39,1/84,3/87,7/38,4 s; io 130/130 em 52,2 s. macOS:
+58,7/37,5/60,9/63,3/35,6 s; io 130/130 em 51,6 s. JIT×AOT Linux/macOS:
+238/238, zero divergências, sete sem IR por construção e zero timeout
+nos dois perfis, em 41,6/53,4 s. SDK da fonte: AOT 238/238 em 39,5 s e
+JIT×AOT com o mesmo placar em 87,8 s. Windows: ARC 238/238 em 58,0 s,
+ARC stress 57,2 s, io 130/130 em 75,1 s; A1 53,8/52,5 s, B0
+102,9/90,8 s e B1 117,3/102,9 s (normal/stress); stress base 73,7 s.
+Dois fragmentos base 119/119 em 38,5 s cada. Mapas/sabotagens B0: quatro
+testes passaram em 768,16 s. SDK: recarga 2/2 (30,34 s), Script/spawnUri
+1/1 (0,87 s), produção autocontida 1/1 (33,03 s). macOS recarga: 7/7.
+Os seis DART! de interop não têm oráculo nativo válido; 238/238 não prova
+paridade de todos os oráculos. Unix usou `gerar-dart-sdk-js: false`, sem
+prova da geração portátil de DDC nesta rodada. Ela antecede as mudanças
+de Mint mortal, catálogo 25 e preparação conjunta ARC.
+
 Saídas ARC por tabelas: `Lanca` não transfere resultado ao caller. O passe
 agora normaliza seu operando para o placeholder antes da classificação e
 libera todos os tokens locais, incluindo o antigo resultado. O verificador

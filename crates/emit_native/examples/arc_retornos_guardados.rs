@@ -1,0 +1,188 @@
+//! Prova AOT de retorno Guarda, cleanup e unwind entre duas funções Dart.
+//! Não observa morte final nem certifica o restante do pipeline ARC.
+
+use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*};
+use std::{collections::HashMap, path::PathBuf};
+
+fn main() -> Result<(), String> {
+    let mut args = std::env::args().skip(1);
+    let saida = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
+    let arc = args.next().as_deref() != Some("tracing");
+    let lancar = args.next().as_deref() == Some("erro");
+    let val = |v| Operand::Val(ValueId(v));
+    let runtime = |name: &str, args, ret_ty| Instruction::CallRuntime {
+        name: name.into(),
+        args,
+        ret_ty,
+    };
+    let mut modulo = Module::new();
+    modulo.memoria_arc = arc;
+    modulo.excecoes_por_tabelas = true;
+    modulo.entry_symbol = Some("prova_guardas".into());
+    modulo.functions.push(Function {
+        symbol: "prova_guardas".into(),
+        name: "prova_guardas".into(),
+        depuracao: None,
+        params: vec![],
+        return_ty: Type::Void,
+        blocks: vec![
+            BasicBlock {
+                id: BlockId(0),
+                instructions: vec![
+                    (
+                        ValueId(0),
+                        runtime(
+                            "dartforge_arc_box_int_owned_v1",
+                            vec![(Operand::Constant(Constant::Int(i64::MAX)), Type::I64)],
+                            Type::Ref,
+                        ),
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(1),
+                        Instruction::CallStatic {
+                            symbol: "retorno_guardado".into(),
+                            args: vec![val(0)],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    ),
+                ],
+                terminator: Terminator::CondBranch {
+                    cond: Operand::Constant(Constant::Bool(false)),
+                    then_block: BlockId(1),
+                    else_block: BlockId(2),
+                },
+            },
+            BasicBlock {
+                id: BlockId(1),
+                instructions: vec![(
+                    ValueId(2),
+                    runtime("dartforge_exception_clear", vec![], Type::Void),
+                    Type::Void,
+                )],
+                terminator: Terminator::Return(None),
+            },
+            BasicBlock {
+                id: BlockId(2),
+                instructions: vec![
+                    (
+                        ValueId(3),
+                        Instruction::ArcDrop { value: val(1) },
+                        Type::Void,
+                    ),
+                    (
+                        ValueId(8),
+                        runtime("dartforge_arc_collect", vec![], Type::Void),
+                        Type::Void,
+                    ),
+                    (
+                        ValueId(4),
+                        runtime(
+                            "dartforge_print_handle",
+                            vec![(val(0), Type::Ref)],
+                            Type::Void,
+                        ),
+                        Type::Void,
+                    ),
+                    (
+                        ValueId(5),
+                        runtime("dartforge_exception_pending", vec![], Type::I8),
+                        Type::I8,
+                    ),
+                    (
+                        ValueId(6),
+                        Instruction::ICmp(ICmpOp::Ne, val(5), Operand::Constant(Constant::Int(0))),
+                        Type::I1,
+                    ),
+                ],
+                terminator: Terminator::CondBranch {
+                    cond: val(6),
+                    then_block: BlockId(3),
+                    else_block: BlockId(4),
+                },
+            },
+            BasicBlock {
+                id: BlockId(3),
+                instructions: vec![(
+                    ValueId(7),
+                    runtime("dartforge_exception_clear", vec![], Type::Void),
+                    Type::Void,
+                )],
+                terminator: Terminator::Return(None),
+            },
+            BasicBlock {
+                id: BlockId(4),
+                instructions: vec![],
+                terminator: Terminator::Return(None),
+            },
+        ],
+    });
+    modulo.functions.push(Function {
+        symbol: "retorno_guardado".into(),
+        name: "retorno_guardado".into(),
+        depuracao: None,
+        params: vec![(ValueId(0), "x".into(), Type::Ref)],
+        return_ty: Type::Ref,
+        blocks: vec![BasicBlock {
+            id: BlockId(0),
+            instructions: if lancar {
+                vec![(
+                    ValueId(1),
+                    runtime(
+                        "dartforge_arc_lancar_ref_v1",
+                        vec![(val(0), Type::Ref)],
+                        Type::Void,
+                    ),
+                    Type::Void,
+                )]
+            } else {
+                vec![]
+            },
+            terminator: Terminator::Return(Some(val(0))),
+        }],
+    });
+    let mut caller = PlanoFuncaoDart::default();
+    caller.tabelas.invocacoes.insert(ValueId(1), BlockId(1));
+    caller.tabelas.pousos.insert(BlockId(1));
+    let mut callee = PlanoFuncaoDart::default();
+    callee.tokens.retorno = RetornoTokens::Owned;
+    callee
+        .tabelas
+        .saidas
+        .insert(BlockId(0), SaidaPorExcecao::Guarda);
+    let mut planos = HashMap::from([
+        ("prova_guardas".into(), caller),
+        ("retorno_guardado".into(), callee),
+    ]);
+    let inseridos = inserir_arc_funcoes_dart(&mut modulo.functions, &mut planos)?;
+    if inseridos != (1, 3) {
+        return Err(format!(
+            "inserção esperada (1, 3), encontrada {inseridos:?}"
+        ));
+    }
+    modulo.tabelas = modulo
+        .functions
+        .iter()
+        .map(|f| planos[&f.symbol].tabelas.clone())
+        .collect();
+    let erros = dartforge_emit_native::lower::verificador::verificar(&modulo);
+    if !erros.is_empty() {
+        return Err(erros.join("\n"));
+    }
+    let mut ir = LlvmEmitter::new(&modulo).emit_all();
+    ir.push_str("\ndeclare void @dartforge_print_handle(i64)\n");
+    if let Some(dir) = saida.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(saida.with_extension("ll"), &ir).map_err(|e| e.to_string())?;
+    driver::compile_and_link(
+        &ir,
+        &saida,
+        &driver::NativeDriverOptions {
+            optimize: true,
+            ..Default::default()
+        },
+    )?;
+    Ok(())
+}
