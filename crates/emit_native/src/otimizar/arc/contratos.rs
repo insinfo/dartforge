@@ -92,6 +92,7 @@ pub fn produzir_contratos_runtime(
 ///
 /// Copy/move/load produzem Owned; drop/store produzem Trivial. Operações ARC
 /// não recebem entrada em PlanoTokens, pois o verificador possui suas regras.
+/// ICmp/FCmp/LNot produzem bool Trivial sem consumo nem saída excepcional.
 /// Phi Ref ainda não classificado exige entradas owned/null e origem externa
 /// ao ciclo de Phi/move. Parâmetros e demais operações exigem produtores próprios.
 /// Não insere ARC nem certifica vida dos slots, proveniência ou cleanup.
@@ -230,6 +231,7 @@ fn produzir(
 ) -> Result<HashMap<ValueId, ContratoChamadaRuntime>, String> {
     let mut contratos = HashMap::new();
     let mut fixas = HashMap::new();
+    let mut efeitos_puros = HashMap::new();
     // Inclui definições de todos os blocos: a ordem física não é dominância.
     // A disponibilidade por caminho continua a cargo do verificador SSA.
     let tipos: HashMap<_, _> = f
@@ -254,6 +256,25 @@ fn produzir(
             return Err(format!("v{} repetido", v.0));
         }
         if incluir_arc {
+            // Comparações e negação lógica produzem bool por semântica da
+            // instrução; não se infere Trivial pela largura de um I64.
+            if matches!(
+                inst,
+                Instruction::ICmp(..) | Instruction::FCmp(..) | Instruction::LNot(_)
+            ) {
+                let efeito = EfeitoTokens::default();
+                if *ty != Type::I1
+                    || classes.get(v).is_some_and(|c| *c != Ownership::Trivial)
+                    || plano.instrucoes.get(v).is_some_and(|e| *e != efeito)
+                {
+                    return Err(format!(
+                        "v{}: contrato incompatível com comparação/negação lógica",
+                        v.0
+                    ));
+                }
+                fixas.insert(*v, Ownership::Trivial);
+                efeitos_puros.insert(*v, efeito);
+            }
             let fixa = match inst {
                 Instruction::ArcCopy { .. }
                 | Instruction::ArcMove { .. }
@@ -300,6 +321,7 @@ fn produzir(
         }
     }
     classes.extend(fixas);
+    plano.instrucoes.extend(efeitos_puros);
     for (v, c) in &contratos {
         classes.insert(*v, c.resultado);
         plano.instrucoes.insert(*v, c.efeito.clone());
@@ -442,6 +464,79 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn comparacao_produz_bool_sem_consumir_referencia() {
+        let mut f = Function {
+            symbol: "cmp".into(),
+            name: "cmp".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "x".into(), Type::Ref)],
+            return_ty: Type::I1,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![(
+                    ValueId(1),
+                    Instruction::ICmp(
+                        ICmpOp::Eq,
+                        Operand::Val(ValueId(0)),
+                        Operand::Constant(Constant::Null),
+                    ),
+                    Type::I1,
+                )],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+            }],
+        };
+        let inicial = HashMap::from([(
+            ValueId(0),
+            Ownership::Borrowed {
+                owner: OrigemOwner::Chamador,
+                escopo: 0,
+            },
+        )]);
+        let mut classes = inicial.clone();
+        let mut plano = PlanoTokens::default();
+        f.blocks[0].instructions[0].2 = Type::Ref;
+        assert!(produzir_contratos_arc(&f, &mut classes, &mut plano).is_err());
+        assert_eq!(classes, inicial);
+        assert!(plano.instrucoes.is_empty());
+        f.blocks[0].instructions[0].2 = Type::I1;
+        f.blocks[0].instructions.extend([
+            (
+                ValueId(2),
+                Instruction::FCmp(
+                    FCmpOp::Eq,
+                    Operand::Constant(Constant::Double(1.0)),
+                    Operand::Constant(Constant::Double(1.0)),
+                ),
+                Type::I1,
+            ),
+            (
+                ValueId(3),
+                Instruction::LNot(Operand::Val(ValueId(2))),
+                Type::I1,
+            ),
+        ]);
+        produzir_e_verificar_tokens(
+            &f,
+            &mut classes,
+            &mut plano,
+            &TabelasDaFuncao::default(),
+            &PlanoEscopos::default(),
+        )
+        .unwrap();
+        assert_eq!(classes[&ValueId(1)], Ownership::Trivial);
+        assert_eq!(plano.instrucoes[&ValueId(1)], EfeitoTokens::default());
+        plano
+            .instrucoes
+            .get_mut(&ValueId(1))
+            .unwrap()
+            .sempre
+            .push(ValueId(0));
+        let antes = plano.instrucoes.clone();
+        assert!(produzir_contratos_arc(&f, &mut classes, &mut plano).is_err());
+        assert_eq!(plano.instrucoes, antes);
+    }
 
     #[test]
     fn constantes_runtime_preservam_distincao_entre_escalar_e_endereco() {

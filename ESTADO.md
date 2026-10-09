@@ -1281,6 +1281,18 @@ O primeiro log registra falha na prioridade do diagnóstico de SSA ausente,
 corrigida antes da publicação. Ainda não certifica abertura/fechamento do quadro,
 índices válidos, slots globais ou proveniência de outras operações.
 
+O produtor ARC agora classifica resultados de ICmp/FCmp/LNot como bool Trivial
+e gera seus efeitos vazios de consumo/saída excepcional. Recusa resultado que
+não seja I1, classe incompatível e contrato que alegue consumir operandos.
+Regressão passa comparação de referência emprestada/null, comparação double
+e negação lógica por produzir_e_verificar_tokens; conflitos preservam mapas.
+Não infere propriedade por I64/Ptr nem classifica parâmetros genericamente.
+Quarenta e cinco testes ARC aprovados
+(`target/ownership-bool-produtor-test-final.log`), assim como 36 exemplos públicos
+(`target/ownership-bool-produtor-doc.log`). Tipagem dos operandos dessas
+operações continua uma pré-condição do verificador HIR; não integra ainda o
+produtor no lowering/emissão padrão.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
