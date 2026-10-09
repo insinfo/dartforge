@@ -236,7 +236,16 @@ O job agora lista os testes ignorados de recarga antes de executá-los e
 reprova seleção vazia. O filtro PowerShell foi conferido com listagens de
 binários anteriores: dois testes com JIT, rejeição da lista vazia sem JIT;
 isso valida a proteção do script, não os testes na revisão atual. A
-validação local de recarga da revisão `7217e888` está em compilação release.
+validação local de recarga da revisão `7217e888` concluiu com sucesso:
+`cargo test --locked --release -p dartforge-cli --features jit --test reload_estado -- --ignored --nocapture`,
+com `DARTFORGE_SDK_DA_FONTE=1`: dois testes passaram, zero falhas ou
+ignorados, cinco filtrados (os não ignorados), em 14,43 s. Executados
+`cli_preserva_estatico_apos_editar_o_mesmo_arquivo_dart` e
+`cli_preserva_o_estado_do_espaco_unificado_em_tres_recargas`. A listagem
+`--ignored --list` do binário novo também seleciona esses dois pelo filtro
+do CI. SHA-256 do harness `reload_estado-a53f60c187219ad4.exe`:
+`44CD0183FE465FDCA8F7FA0B675335BABABF8D67A384379A037439519F17980C`.
+Essa execução é local; a etapa corrigida no runner ainda não foi validada.
 
 ## Situação geral (2026-10-08, fim da tarde)
 
