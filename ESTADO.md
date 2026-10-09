@@ -32,8 +32,8 @@ em cada um dos três modos, sem falhas; suíte completa do runtime: 108 testes
 passaram, três microbenchmarks ignorados. Medida dirigida em produção, cinco
 execuções alternadas no núcleo P: árvores 888,131 → 865,112 ms; lista ligada
 179,882 → 172,090 ms. Mesmos resultados em todas as execuções. Detalhes e
-limites em `docs/ARC-IMPLEMENTACAO.md`; a média do benchmark inteiro continua
-pendente para esta mudança.
+limites em `docs/ARC-IMPLEMENTACAO.md`. A rodada completa com estas mudanças
+está registrada abaixo.
 
 O índice dos metadados agora usa inverso modular por página, sem divisão na
 consulta, recalculado ao reformatar a página. Suíte: 112 testes passaram,
@@ -41,7 +41,15 @@ três microbenchmarks ignorados; grafos aleatórios: 3.000 sementes por modo.
 O benchmark isolado do módulo ARC real (`bench/arc/metadados.rs`) reduziu
 o tempo de retain/release/consulta em cerca de 13%, confirmado numa segunda
 rodada. O ganho dirigido em árvores/lista ficou perto de 2%, com dispersão;
-a média completa ainda precisa ser medida.
+a rodada completa ficou perto da média anterior, sem provar ganho relevante.
+
+Benchmark completo auditável, 32 núcleos e sete execuções alternadas no núcleo
+P: A1/A0 0,983, B0/A0 0,959, B1/A0 0,950, ARC/A0 2,107, A0/Dart 1,260.
+378 execuções, resultados iguais em todos os modos e repetições, sem falha
+nem núcleo ausente. Amostras brutas, protocolo e hashes dos 54 executáveis:
+`bench/resultados/2026-10-09-modos-windows/`. ARC continua distante de A0
+(árvores 14,65×, lista ligada 7,63×); o ganho isolado do índice não se
+traduz em ganho demonstrado na média completa.
 
 CI [37885116876](https://github.com/insinfo/dartforge/actions/runs/37885116876),
 sobre `1f1a394c` (antes do índice sem divisão): Windows ARC com auditoria e
@@ -51,13 +59,25 @@ placar, sem divergência (sete casos sem IR, iguais por construção). Os
 relatórios foram conferidos. Windows com SDK da fonte: AOT 238/238 e
 JIT × AOT 238/238 no placar, sem divergência (sete casos sem IR, iguais por
 construção); o job também passou os contratos, a recarga e a produção
-autocontida. O job macOS ainda está em andamento.
+autocontida. macOS arm64: AOT, A1/B0/B1 e ARC 238/238, `dart:io` 130/130,
+JIT × AOT 238/238 no placar, sem divergência (sete sem IR, iguais por
+construção). Todos os jobs terminaram com sucesso; relatórios conferidos.
+
+CI [37887482790](https://github.com/insinfo/dartforge/actions/runs/37887482790),
+sobre `c3dd048b` (já com o índice ARC sem divisão): distribuição sem MSVC e
+Windows SDK, e sem Xcode/Command Line Tools no macOS, passou. Em ambos os
+sistemas, os relatórios com e sem a toolchain mostram corpus AOT 238/238 e
+`dart:io` 130/130, também 130/130 com `--gc-stress`. Isso valida a
+distribuição; a nova etapa dirigida de mapas segue pendente no Pesado.
 
 O Pesado passou a ativar também os quatro testes de `mapas_dirigidos` na
 célula B0 sem estresse: o corpus sozinho não exercita as sabotagens. O YAML
 e a compilação do código de teste foram conferidos; a execução da nova etapa
 continua pendente no CI. A guarda dos temporários limpa `target/tmp-mapas-*`
 inclusive quando uma asserção falha.
+Rodada atualizada [37889904811](https://github.com/insinfo/dartforge/actions/runs/37889904811)
+disparada sobre `c3dd048b`, incluindo o índice ARC sem divisão e esta etapa;
+em andamento.
 
 O medidor dos modos agora preserva cada execução em `amostras.jsonl`,
 incluindo stdout com as rodadas brutas, stderr e código de saída. Confere

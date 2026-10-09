@@ -238,6 +238,20 @@ média completa. Resultados iguais em todas as execuções; SHA-256 dos
 executáveis começando em `0b8b24aa282f` e `45f607ffcd23`. A execução com
 rastro manteve 382 drenagens e 24.928.308 jovens em ambas as versões.
 
+### 6.1 Comparação completa auditável (2026-10-09)
+
+O benchmark inteiro, depois das mudanças de raízes e índice, teve ARC/A0
+**2,107**, com árvores **14,65×** e lista ligada **7,63×**. São 32 núcleos,
+sete execuções alternadas no núcleo P, produção/LTO, Dart 3.6.2 AOT como
+referência. A1/A0 0,983, B0/A0 0,959, B1/A0 0,950 e A0/Dart 1,260.
+Todos os resultados iguais em todas as 378 execuções, sem processo falho
+nem núcleo ausente. [Protocolo, dados brutos e hashes dos executáveis](../bench/resultados/2026-10-09-modos-windows/README.md).
+
+A primeira rodada, com os mesmos executáveis mas sem registro das amostras
+brutas, deu ARC/A0 2,120. Ambas ficam perto dos 2,13 anteriores: o ganho
+isolado de 13% na consulta de metadados não prova ganho relevante no
+benchmark inteiro. O objetivo de aproximar o ARC de A0 continua pendente.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais
