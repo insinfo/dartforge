@@ -759,14 +759,19 @@ impl EstadoDoArc {
             let Some(m) = self.objetos.get_mut(&id.handle).filter(|m| m.geracao == id.geracao) else { continue };
             m.candidato = false;
             if m.estado == EstadoArc::Vivo && m.rc > 0 && !m.imortal {
-                sementes.push(id.handle);
+                if protegido(id.handle) {
+                    self.candidatar(id.handle);
+                } else {
+                    sementes.push(id.handle);
+                }
             }
         }
         if sementes.is_empty() {
             return Ok(0);
         }
         self.estatisticas.rodadas_de_ciclo += 1;
-        // R: a clausura forte das sementes entre os gerenciados não imortais.
+        // A raiz protegida fica fora de R: suas arestas continuam entradas
+        // externas no trial. Reenfileirá-la permite coletar quando a raiz sumir.
         let mut r: Vec<Ref> = Vec::new();
         let mut em_r: HashSet<Ref> = HashSet::default();
         let mut pilha = sementes;
@@ -776,6 +781,10 @@ impl EstadoDoArc {
             }
             let Some(m) = self.objetos.get(&x) else { continue };
             if m.imortal || m.estado == EstadoArc::Morto {
+                continue;
+            }
+            if protegido(x) {
+                self.candidatar(x);
                 continue;
             }
             em_r.insert(x);
@@ -1123,6 +1132,24 @@ mod testes {
         a.soltar(4).unwrap();
         a.drenar_zeros(&mut g, usize::MAX, &|_| false).unwrap();
         assert!(!morto(&a, 4), "protegido condicionalmente espera o ponto fixo");
+    }
+
+    #[test]
+    fn raiz_protegida_nao_expande_trial_e_preserva_candidato() {
+        let (mut a, mut g) = (EstadoDoArc::novo(), Grafo::default());
+        for h in [2, 4, 6, 8] { novo(&mut a, h); }
+        for (de, para) in [(2, 4), (4, 2), (4, 6), (6, 8), (8, 6)] {
+            ligar(&mut a, &mut g, de, para);
+        }
+        for h in [2, 4, 6, 8] { a.soltar(h).unwrap(); }
+        let raiz = |h| h == 2;
+        assert_eq!(a.coletar_ciclos(&mut g, &raiz).unwrap(), 0);
+        a.auditar(&g, &[]).unwrap();
+        let examinados = a.estatisticas.examinados;
+        assert_eq!(a.coletar_ciclos(&mut g, &raiz).unwrap(), 0);
+        assert_eq!(a.estatisticas.examinados, examinados);
+        assert_eq!(a.coletar_ciclos(&mut g, &|_| false).unwrap(), 4);
+        for h in [2, 4, 6, 8] { assert!(morto(&a, h)); }
     }
 
     #[test]

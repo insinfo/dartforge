@@ -508,6 +508,30 @@ mantendo ARC e ciclos em toda drenagem, o caso passou 1/1 em 0,7 s de
 harness. O custo está associado à frequência de coleta desse cenário,
 não apenas à concorrência ou à auditoria. Não é benchmark nem prova de
 ausência de regressão: faltam comparação anterior e perfil das drenagens.
+Perfil diagnóstico do caso 60 reduzido a mil iterações (não substitui o
+original), sem auditoria, com estresse/ciclos e `DARTFORGE_GC_RASTRO=1`:
+4.018 drenagens, 991.674 µs acumulados; trial de ciclos 976.231 µs e
+8.670.594 nós examinados ao fim. Cerca de 98% do tempo registrado foi
+no trial. Executável anterior preservado, SHA-256
+`D83FF48FC984AE65887625B8563C5183E0134211AF80C2A156600FBA80B697F0`.
+O trial passa a cortar raízes protegidas da região: as arestas que saem
+delas permanecem entradas externas nos RC dos filhos. A raiz continua
+candidata para a rodada em que perder proteção, inclusive quando encontrada
+como descendente de outra semente. Teste cobre ciclo com outro ciclo anexo,
+ausência de nova expansão enquanto protegido e descarte de todos ao retirar
+a raiz. Release: 145 unitários, 13 de integração e 12 doctests aprovados,
+três microbenchmarks ignorados; fonte única AOT/JIT aprovada. Recompilação
+do harness posterior concluída. Perfil isolado de sete pares alternados em
+afinidade `0x4`: mediana do processo 1,056755 → 0,348021 s (inclui rastro),
+drenagens acumuladas 846.023 → 153.583 µs, trial 836.393 → 144.988 µs,
+nós examinados 8.757.350 → 1.351.029. Os 14 processos retornaram zero,
+com stdout idêntico; drenagens 4.039 antes e 4.037 depois.
+Registro auditável em `bench/resultados/2026-10-09-arc-corte-raizes`, com
+entrada, patch, comparador, hashes e dados brutos comprimidos. A primeira
+amostragem de sete pares ocorreu com outro caso local ativo e não é usada
+neste registro. O caso original após o corte continuou excedendo 60 s:
+com auditoria 0/1 (60,7 s de harness), sem auditoria 0/1 (60,6 s).
+Os oito timeouts não estão resolvidos. A exigência de ARC ≥ A0 continua aberta.
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
@@ -523,6 +547,12 @@ sem ignorados/filtros, 745,25 s. SDK da fonte concluiu: log `113817498673`
 confirma recarga 2/2 (53,59 s), ScriptSpawn 1/1 (1,41 s) e produção
 autocontida 1/1 (46,35 s), além dos contratos dirigidos. Só macOS segue ativo,
 no passo dos testes JIT; aguardá-lo antes de iniciar outra Pesado no main.
+Fechamento da rodada `37928965861` sobre `12409870`: todos os jobs
+selecionados concluíram com sucesso. Relatórios macOS conferidos:
+AOT/A1/B0/B1/ARC 238/238, `dart:io` 130/130, JIT 238/238 e JIT × AOT
+zero divergências, sete sem IR iguais por construção. Log `113814679929`
+confirma testes JIT 16/16, 5/5, 6/6 e recarga 7/7. As mudanças posteriores
+de `externalSize`, contadores amplos e corte do trial aguardam nova rodada.
 
 Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
 suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior

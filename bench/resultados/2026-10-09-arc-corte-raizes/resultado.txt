@@ -1,0 +1,2 @@
+{"variante": "antes", "mediana_wall": 1.0567554000299424, "mediana_us": 846023, "mediana_trial_us": 836393, "examinados": [8757350], "coletas": [4039]}
+{"variante": "depois", "mediana_wall": 0.3480206000385806, "mediana_us": 153583, "mediana_trial_us": 144988, "examinados": [1351029], "coletas": [4037]}
