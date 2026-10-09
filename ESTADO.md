@@ -1237,6 +1237,17 @@ Seis casos Windows ARC têm oráculo Dart indisponível para interop web;
 placar do harness não os transforma em prova diferencial válida. Essa rodada
 não contém o catálogo/produtores nem o resultado borrowed posteriores.
 
+O produtor de contratos runtime agora confere a existência e o tipo real de
+cada argumento SSA contra a anotação da chamada antes de publicar os mapas.
+Isso impede passar um Ref como ID de quadro I64 apenas mudando a anotação.
+Teste de regressão rejeita tipo divergente e SSA ausente sem publicação
+parcial, e aceita o parâmetro I64 correto. Quarenta testes ARC e 36 exemplos
+públicos do emissor aprovados (`target/ownership-ssa-real-test.log` e
+`target/ownership-ssa-real-doc.log`). Dominância, tipos de constantes,
+proveniência e vida dos quadros continuam exigindo suas verificações próprias.
+Rodada pesada 37986946507 sobre 54b5c836 segue em compilação na consulta;
+não contém esta conferência adicional de argumentos.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

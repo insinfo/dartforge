@@ -55,10 +55,12 @@ pub fn produzir_e_verificar_tokens(
 /// Aplica as alterações apenas depois de conferir todas as chamadas. Parâmetros,
 /// operações ordinárias e chamadas Dart exigem metadados de outros produtores.
 /// Retorna os contratos para análise posterior de retenção/invalidação.
-/// Não insere contadores, limpa escopos ou certifica argumentos/proveniência.
+/// Confere tipos SSA dos argumentos, mas não sua dominância/proveniência.
+/// Não insere contadores nem limpa escopos.
 ///
 /// # Erros
-/// Extern sem contrato, assinatura inválida, resultado incompatível com o tipo
+/// Extern sem contrato, assinatura inválida, argumento SSA ausente ou de tipo
+/// diferente da anotação da chamada, resultado incompatível com o tipo
 /// da instrução, IDs repetidos ou conflito com classe/efeito já fornecido.
 /// As duas entradas permanecem intactas em caso de erro.
 ///
@@ -227,6 +229,19 @@ fn produzir(
 ) -> Result<HashMap<ValueId, ContratoChamadaRuntime>, String> {
     let mut contratos = HashMap::new();
     let mut fixas = HashMap::new();
+    // Inclui definições de todos os blocos: a ordem física não é dominância.
+    // A disponibilidade por caminho continua a cargo do verificador SSA.
+    let tipos: HashMap<_, _> = f
+        .params
+        .iter()
+        .map(|(v, _, ty)| (*v, *ty))
+        .chain(
+            f.blocks
+                .iter()
+                .flat_map(|b| &b.instructions)
+                .map(|(v, _, ty)| (*v, *ty)),
+        )
+        .collect();
     let mut ids = std::collections::HashSet::new();
     for (v, _, _) in &f.params {
         if !ids.insert(*v) {
@@ -257,11 +272,21 @@ fn produzir(
                 fixas.insert(*v, classe);
             }
         }
-        if let Instruction::CallRuntime { ret_ty, .. } = inst {
+        if let Instruction::CallRuntime { ret_ty, args, .. } = inst {
             if ty != ret_ty {
                 return Err(format!("v{}: tipo do resultado incompatível", v.0));
             }
             let c = contrato_chamada_runtime(inst).map_err(|e| format!("v{}: {e}", v.0))?;
+            for (n, (op, ty)) in args.iter().enumerate() {
+                if let Operand::Val(arg) = op
+                    && tipos.get(arg) != Some(ty)
+                {
+                    return Err(format!(
+                        "v{}: argumento {n} aponta para SSA v{} ausente ou de tipo incompatível",
+                        v.0, arg.0
+                    ));
+                }
+            }
             if classes.get(v).is_some_and(|classe| *classe != c.resultado)
                 || plano.instrucoes.get(v).is_some_and(|e| *e != c.efeito)
             {
@@ -487,6 +512,50 @@ mod testes {
         assert!(
             c.efeito.sempre.is_empty() && c.efeito.sucesso.is_empty() && c.efeito.erro.is_empty()
         );
+    }
+
+    #[test]
+    fn produtor_confere_tipo_ssa_real_antes_de_publicar() {
+        let mut f = Function {
+            symbol: "tipo_real".into(),
+            name: "tipo_real".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "quadro".into(), Type::Ref)],
+            return_ty: Type::Void,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![(
+                    ValueId(1),
+                    Instruction::CallRuntime {
+                        name: "dartforge_arc_quadro_carregar_v1".into(),
+                        args: vec![
+                            (Operand::Val(ValueId(0)), Type::I64),
+                            (Operand::Constant(Constant::Int(0)), Type::I64),
+                        ],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                )],
+                terminator: Terminator::Return(None),
+            }],
+        };
+        let mut classes = HashMap::from([(ValueId(0), Ownership::Trivial)]);
+        let inicial = classes.clone();
+        let mut plano = PlanoTokens::default();
+        let erro = produzir_contratos_runtime(&f, &mut classes, &mut plano).unwrap_err();
+        assert!(
+            erro.contains("argumento 0") && erro.contains("v0"),
+            "{erro}"
+        );
+        assert_eq!(classes, inicial);
+        assert!(plano.instrucoes.is_empty());
+        f.params.clear();
+        assert!(produzir_contratos_runtime(&f, &mut classes, &mut plano).is_err());
+        assert_eq!(classes, inicial);
+        assert!(plano.instrucoes.is_empty());
+        f.params.push((ValueId(0), "quadro".into(), Type::I64));
+        produzir_contratos_runtime(&f, &mut classes, &mut plano).unwrap();
+        assert_eq!(classes[&ValueId(1)], Ownership::Owned);
     }
 
     #[test]
