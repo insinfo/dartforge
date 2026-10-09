@@ -77,11 +77,13 @@ na rodada `37889904811`, sem ignorados ou filtrados (log conferido, 777 s).
 A guarda dos temporários limpa `target/tmp-mapas-*`
 inclusive quando uma asserção falha.
 Rodada atualizada [37889904811](https://github.com/insinfo/dartforge/actions/runs/37889904811)
-disparada sobre `c3dd048b`, incluindo o índice ARC sem divisão e esta etapa;
-em andamento. Os oito relatórios Windows de A1/B0/B1 e ARC, com e sem
+disparada sobre `c3dd048b`, incluindo o índice ARC sem divisão e esta etapa,
+terminou com sucesso. Os oito relatórios Windows de A1/B0/B1 e ARC, com e sem
 `--gc-stress`, já foram conferidos: todos 238/238. As outras sete células
 terminaram; B0 também terminou, com corpus 238/238 e quatro testes dirigidos
-passando. O job macOS ainda está em andamento.
+passando. Todos os jobs terminaram com sucesso. macOS: AOT, A1/B0/B1 e ARC
+238/238, `dart:io` 130/130, JIT × AOT 238/238 no placar, sem divergência
+(sete sem IR, iguais por construção); relatórios conferidos.
 Esta revisão antecede a junção das faixas livres.
 
 O medidor dos modos agora preserva cada execução em `amostras.jsonl`,
@@ -109,6 +111,12 @@ nativo desta mudança segue pendente no CI.
 
 CI rápido [37887482951](https://github.com/insinfo/dartforge/actions/runs/37887482951)
 terminou com sucesso sobre `c3dd048b`, antes da junção das faixas.
+CI rápido `37891600372` e distribuição sem toolchain `37891600401`
+terminaram com sucesso sobre `7006187e`. O Pesado
+[37896396380](https://github.com/insinfo/dartforge/actions/runs/37896396380),
+suíte `todos`, roda sobre `719e94cc` (mesmo código de produção de `7006187e`).
+Ele repõe a rodada diária `37895158314`, cancelada pela concorrência quando
+foi feito um disparo nativo redundante; esse disparo também foi cancelado.
 
 ## Situação geral (2026-10-08, fim da tarde)
 
