@@ -118,7 +118,8 @@ pub fn e_handle(h: Ref) -> bool {
 
 /// A geometria da página de um bloco do espaço, que o heap informa no
 /// registro: o endereço do primeiro bloco, os bytes de cada bloco e quantos
-/// cabem na página.
+/// cabem na página. O tamanho é positivo e `tamanho * blocos` cabe em u64:
+/// a extensão descreve memória contígua, sem volta no espaço de endereços.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Geometria {
     pub primeiro: u64,
@@ -129,8 +130,45 @@ pub struct Geometria {
 /// Os metadados dos blocos de uma página, pelo índice do bloco.
 struct PaginaArc {
     geometria: Geometria,
+    /// Inverso da parte ímpar do tamanho, módulo 2⁶⁴, e a potência de dois
+    /// retirada: a divisão exata vira multiplicação e rotação.
+    inverso: u64,
+    deslocamento: u32,
     metas: Vec<Option<MetaArc>>,
     ocupados: u32,
+}
+
+impl PaginaArc {
+    /// Prepara uma vez a divisão exata pelo tamanho dos blocos. A extensão
+    /// precisa caber em u64: com isso, um índice menor que `blocos` não pode
+    /// representar um produto que deu a volta no espaço de endereços.
+    fn fatores(g: Geometria) -> (u64, u32) {
+        assert!(g.tamanho != 0 && g.tamanho.checked_mul(u64::from(g.blocos)).is_some(), "bug do ARC: geometria inválida");
+        let deslocamento = g.tamanho.trailing_zeros();
+        let impar = g.tamanho >> deslocamento;
+        let mut inverso = impar;
+        // Newton: cada passo dobra os bits corretos do inverso ímpar.
+        for _ in 0..6 {
+            inverso = inverso.wrapping_mul(2u64.wrapping_sub(impar.wrapping_mul(inverso)));
+        }
+        (inverso, deslocamento)
+    }
+
+    fn nova(g: Geometria) -> Self {
+        let (inverso, deslocamento) = Self::fatores(g);
+        Self { geometria: g, inverso, deslocamento, metas: (0..g.blocos).map(|_| None).collect(), ocupados: 0 }
+    }
+
+    /// Índice de um início de bloco; a rotação leva os bits que não são
+    /// divisíveis pela potência de dois para o alto, fora de `blocos`.
+    /// O produto pelo inverso recusa igualmente os múltiplos inexatos da
+    /// parte ímpar. Não há divisão nem resto no caminho de consulta.
+    #[inline]
+    fn indice(&self, h: Ref) -> Option<usize> {
+        let d = (h.wrapping_sub(crate::layout::DESLOCAMENTO_DO_HANDLE) as u64).checked_sub(self.geometria.primeiro)?;
+        let i = d.wrapping_mul(self.inverso).rotate_right(self.deslocamento);
+        (i < u64::from(self.geometria.blocos)).then_some(i as usize)
+    }
 }
 
 /// A tabela dos metadados por handle (§19.1: "medir depois uma tabela por
@@ -168,19 +206,11 @@ impl Tabela {
         (v != 0).then(|| v as usize - 1)
     }
 
-    /// O índice do bloco de `h` na página de geometria `g`.
-    #[inline]
-    fn indice(g: &Geometria, h: Ref) -> Option<usize> {
-        let d = ((h - crate::layout::DESLOCAMENTO_DO_HANDLE) as u64).checked_sub(g.primeiro)?;
-        let i = d / g.tamanho;
-        (d % g.tamanho == 0 && i < u64::from(g.blocos)).then_some(i as usize)
-    }
-
     /// (página, índice) do metadado de `h` numa página registrada.
     #[inline]
     fn lugar(&self, h: Ref) -> Option<(usize, usize)> {
         let p = self.pagina(h)?;
-        Some((p, Self::indice(&self.paginas[p].geometria, h)?))
+        Some((p, self.paginas[p].indice(h)?))
     }
 
     fn get(&self, h: &Ref) -> Option<&MetaArc> {
@@ -226,10 +256,11 @@ impl Tabela {
         if pg.geometria != g {
             assert!(pg.ocupados == 0, "bug do ARC: página reformatada com {} metadados vivos", pg.ocupados);
             pg.geometria = g;
+            (pg.inverso, pg.deslocamento) = PaginaArc::fatores(g);
             pg.metas.clear();
             pg.metas.resize_with(g.blocos as usize, || None);
         }
-        let i = Self::indice(&g, h).expect("bug do ARC: handle fora da geometria da página");
+        let i = pg.indice(h).expect("bug do ARC: handle fora da geometria da página");
         if pg.metas[i].replace(m).is_none() {
             pg.ocupados += 1;
             self.n += 1;
@@ -245,7 +276,7 @@ impl Tabela {
                 self.regioes.len() - 1
             }
         };
-        self.paginas.push(PaginaArc { geometria: g, metas: (0..g.blocos).map(|_| None).collect(), ocupados: 0 });
+        self.paginas.push(PaginaArc::nova(g));
         let p = self.paginas.len() - 1;
         self.regioes[k].1[i] = u32::try_from(p + 1).expect("ARC: páginas demais");
         p
@@ -376,6 +407,20 @@ impl EstadoDoArc {
 
     /// [`Self::registrar_vivo`] de um bloco do espaço, com a geometria da
     /// página dele: o metadado vai para a tabela por página, sem hash.
+    ///
+    /// ```
+    /// use dartforge_runtime::arc::{EstadoDoArc, Geometria};
+    /// let mut arc = EstadoDoArc::novo();
+    /// let primeiro = 0x1_0000_0400;
+    /// let h = primeiro as i64 + dartforge_runtime::layout::DESLOCAMENTO_DO_HANDLE;
+    /// arc.registrar_vivo_em(h, Some(Geometria { primeiro, tamanho: 24, blocos: 2 }));
+    /// assert_eq!(arc.meta(h).unwrap().rc, 0);
+    /// ```
+    ///
+    /// # Panics
+    /// A geometria tem tamanho zero ou extensão que transborda u64; `h` não
+    /// começa um bloco dela; a página mudou de geometria com objetos vivos;
+    /// ou a geração monotônica se esgotou.
     pub fn registrar_vivo_em(&mut self, h: Ref, geometria: Option<Geometria>) -> IdArc {
         debug_assert!(e_handle(h));
         let geracao = self.proxima_geracao;
@@ -823,6 +868,61 @@ impl EstadoDoArc {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn indice_por_inverso_confere_todos_os_bytes_das_classes() {
+        use crate::layout::{CABECA_DA_PAGINA, DESLOCAMENTO_DO_HANDLE, N_CLASSES, PAGINA, bytes_do_bloco, palavras_da_classe};
+        let primeiro = (1u64 << 32) + CABECA_DA_PAGINA as u64;
+        for classe in 1..N_CLASSES {
+            let tamanho = bytes_do_bloco(palavras_da_classe(classe)) as u64;
+            let blocos = ((PAGINA - CABECA_DA_PAGINA) as u64 / tamanho) as u32;
+            let pagina = PaginaArc::nova(Geometria { primeiro, tamanho, blocos });
+            assert_eq!(pagina.indice(primeiro as Ref + DESLOCAMENTO_DO_HANDLE - 1), None);
+            for d in 0..=PAGINA as u64 {
+                // Oráculo deliberadamente pela divisão original: todos os
+                // inícios, interiores e bytes além do último bloco.
+                let esperado = (d % tamanho == 0 && d / tamanho < u64::from(blocos)).then_some((d / tamanho) as usize);
+                let h = (primeiro + d) as Ref + DESLOCAMENTO_DO_HANDLE;
+                assert_eq!(pagina.indice(h), esperado, "classe {classe}, deslocamento {d}");
+            }
+        }
+    }
+
+    #[test]
+    fn indice_por_inverso_confere_tamanhos_grandes_e_limites_de_u64() {
+        for tamanho in [1, 2, 3, 24, (1u64 << 32) - 1, 1u64 << 32, (1u64 << 63) - 1, 1u64 << 63, u64::MAX] {
+            let blocos = (u64::MAX / tamanho).min(7) as u32;
+            let pagina = PaginaArc::nova(Geometria { primeiro: 0, tamanho, blocos });
+            let consultar = |d: u64| pagina.indice(d.wrapping_add(crate::layout::DESLOCAMENTO_DO_HANDLE as u64) as Ref);
+            for i in 0..u64::from(blocos) {
+                let d = i * tamanho;
+                assert_eq!(consultar(d), Some(i as usize), "tamanho {tamanho}, índice {i}");
+                if tamanho > 1 {
+                    assert_eq!(consultar(d + 1), None);
+                }
+            }
+            let fim = tamanho * u64::from(blocos);
+            for d in [fim, fim.saturating_add(1), u64::MAX] {
+                assert_eq!(consultar(d), None, "tamanho {tamanho}, deslocamento {d}");
+            }
+        }
+    }
+
+    #[test]
+    fn pagina_reformatada_atualiza_o_inverso_e_preserva_o_metadado() {
+        let primeiro = (1u64 << 32) + 1024;
+        let h = (primeiro + 48) as Ref + crate::layout::DESLOCAMENTO_DO_HANDLE;
+        let mut a = EstadoDoArc::novo();
+        a.registrar_vivo_em(h, Some(Geometria { primeiro, tamanho: 24, blocos: 4 }));
+        a.revisar(h);
+        a.drenar_zeros(&mut Grafo::default(), usize::MAX, &|_| false).unwrap();
+        a.tomar_mortos();
+        let novo = a.registrar_vivo_em(h, Some(Geometria { primeiro, tamanho: 48, blocos: 2 }));
+        a.reter(h).unwrap();
+        assert_eq!(a.meta(h).unwrap().geracao, novo.geracao);
+        assert_eq!(a.meta(h).unwrap().rc, 1);
+        assert!(a.meta(h + 24).is_none());
+    }
 
     /// Um grafo de mentira: handle → lista de destinos (com multiplicidade).
     #[derive(Default)]

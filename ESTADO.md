@@ -9,8 +9,7 @@ jovens e cascata). As medidas atualizadas do ARC estão em
 geométrica da rodada ali descrita; ainda há trabalho para aproximar de A0.
 O benchmark completo dos mapas está registrado na especificação §13.16:
 32 núcleos, sete execuções alternadas presas ao núcleo P, B0/A0 = 0,972 e
-B1/A0 = 0,961. A validação Linux/macOS da forma nova ainda precisa de uma
-rodada identificada; esses tempos são da máquina Windows.
+B1/A0 = 0,961. Esses tempos são da máquina Windows.
 
 A revisão do analisador avançou até `86aa8d2c`: criação por alias genérico
 sem argumentos escritos infere pelos parâmetros e limites do alias. A
@@ -35,6 +34,21 @@ execuções alternadas no núcleo P: árvores 888,131 → 865,112 ms; lista liga
 179,882 → 172,090 ms. Mesmos resultados em todas as execuções. Detalhes e
 limites em `docs/ARC-IMPLEMENTACAO.md`; a média do benchmark inteiro continua
 pendente para esta mudança.
+
+O índice dos metadados agora usa inverso modular por página, sem divisão na
+consulta, recalculado ao reformatar a página. Suíte: 112 testes passaram,
+três microbenchmarks ignorados; grafos aleatórios: 3.000 sementes por modo.
+O benchmark isolado do módulo ARC real (`bench/arc/metadados.rs`) reduziu
+o tempo de retain/release/consulta em cerca de 13%, confirmado numa segunda
+rodada. O ganho dirigido em árvores/lista ficou perto de 2%, com dispersão;
+a média completa ainda precisa ser medida.
+
+CI [37885116876](https://github.com/insinfo/dartforge/actions/runs/37885116876),
+sobre `1f1a394c` (antes do índice sem divisão): Windows ARC com auditoria e
+`--gc-stress`, A1/B0/B1 com e sem estresse, todos 238/238. Linux x86-64:
+AOT, A1/B0/B1 e ARC 238/238; `dart:io` 130/130; JIT × AOT 238/238 no
+placar, sem divergência (sete casos sem IR, iguais por construção). Os
+relatórios foram conferidos; o job macOS ainda está em andamento.
 
 ## Situação geral (2026-10-08, fim da tarde)
 

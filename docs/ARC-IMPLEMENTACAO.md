@@ -209,6 +209,35 @@ de 535.255 para 207.153 µs acumulados. A suíte completa do runtime passou
 108 testes, com três microbenchmarks ignorados. Esta medida dirigida não
 atualiza a média geométrica do benchmark inteiro nem prova o corpus nativo.
 
+**Índice de metadados sem divisão (2026-10-09).** Cada página prepara o
+inverso da parte ímpar do tamanho do bloco, módulo 2⁶⁴, e o número de bits
+da potência de dois retirada. A consulta multiplica o deslocamento pelo
+inverso e roda esses bits para a direita: só um início exato de bloco
+produz índice menor que `blocos`. A extensão da geometria precisa caber em
+u64, para que um índice aceito não represente um produto que transbordou.
+Na reutilização de página para outra classe, os fatores são recalculados.
+
+Verificação: todos os bytes de uma página em cada uma das 88 classes de
+tamanho contra um oráculo pela divisão original, tamanhos grandes até o
+limite de u64 e troca de geometria da página. A suíte do runtime passou
+112 testes (inclui o exemplo de API), com três microbenchmarks ignorados;
+os grafos aleatórios passaram 3.000 sementes em cada um dos três modos.
+Medição isolada do módulo real (`bench/arc/metadados.rs`, `rustc -O`, oito
+páginas de 1.024 blocos, dez milhões de pares retain/release e consultas por
+rodada, sem alocar nem coletar, RC permanece um): cinco execuções alternadas
+no núcleo P, mediana das rodadas após a primeira e depois das execuções.
+115,678 → 100,900 ms; repetição independente: 115,591 → 100,553 ms (−13%).
+Houve rodadas com forte variação de tempo em ambas as versões; todos
+os dados entraram nas medianas. Isso mede o acesso aos metadados, não o ARC
+inteiro.
+
+Na medida dirigida de produção de `objetos_escapam` (mesmo protocolo, sem
+rastro): árvores 698,022 → 683,622 ms; lista ligada 141,285 → 139,065 ms.
+O ganho de cerca de 2% é pequeno diante da dispersão; não prova ganho na
+média completa. Resultados iguais em todas as execuções; SHA-256 dos
+executáveis começando em `0b8b24aa282f` e `45f607ffcd23`. A execução com
+rastro manteve 382 drenagens e 24.928.308 jovens em ambas as versões.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais
