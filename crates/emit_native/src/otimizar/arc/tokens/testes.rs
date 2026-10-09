@@ -136,6 +136,60 @@ fn produtor_runtime_e_invoke_auditado_exigem_saida_de_erro() {
 }
 
 #[test]
+fn produtor_arc_classifica_operacoes_fixas_e_nao_deixa_estado_parcial() {
+    let slot = SlotForte::Quadro {
+        quadro: valor(9),
+        indice: 0,
+    };
+    let mut f = funcao(vec![bloco(
+        0,
+        vec![
+            copia(1, 0),
+            (
+                ValueId(2),
+                Instruction::ArcStoreStrong {
+                    slot: slot.clone(),
+                    value: valor(1),
+                    modo: ModoStoreForte::Move,
+                },
+                Type::Void,
+            ),
+            (ValueId(3), Instruction::ArcLoadStrong { slot }, Type::Ref),
+            movimento(4, 3),
+            drop(5, 4),
+            (
+                ValueId(6),
+                Instruction::CallRuntime {
+                    name: "dartforge_arc_quadro_fechar_v1".into(),
+                    args: vec![(valor(9), Type::I64)],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            ),
+        ],
+        Terminator::Return(None),
+    )]);
+    f.params[1].2 = Type::I64;
+    let mut c = classes(&[], &[]);
+    let inicial = c.clone();
+    let mut p = PlanoTokens::default();
+    f.blocks[0].instructions[4].2 = Type::I64;
+    assert!(super::super::produzir_contratos_arc(&f, &mut c, &mut p).is_err());
+    assert_eq!(c, inicial);
+    assert!(p.instrucoes.is_empty());
+    f.blocks[0].instructions[4].2 = Type::Void;
+    super::super::produzir_contratos_arc(&f, &mut c, &mut p).unwrap();
+    assert_eq!(c[&ValueId(3)], Ownership::Owned);
+    assert_eq!(c[&ValueId(2)], Ownership::Trivial);
+    assert_eq!(p.instrucoes.len(), 1);
+    verificar_tokens(&f, &c, &TabelasDaFuncao::default(), &p).unwrap();
+    p.instrucoes.insert(ValueId(1), EfeitoTokens::default());
+    let antes = c.clone();
+    assert!(super::super::produzir_contratos_arc(&f, &mut c, &mut p).is_err());
+    assert_eq!(c, antes);
+}
+
+#[test]
 fn copia_movimento_drop_e_consumo_duplo() {
     let mut f = funcao(vec![bloco(
         0,

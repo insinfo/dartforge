@@ -38,7 +38,52 @@ pub fn produzir_contratos_runtime(
     classes: &mut HashMap<ValueId, Ownership>,
     plano: &mut PlanoTokens,
 ) -> Result<HashMap<ValueId, ContratoChamadaRuntime>, String> {
+    produzir(f, classes, plano, false)
+}
+
+/// Produz classes das operações ARC explícitas e contratos runtime auditados.
+///
+/// Copy/move/load produzem Owned; drop/store produzem Trivial. Operações ARC
+/// não recebem entrada em PlanoTokens, pois o verificador possui suas regras.
+/// Parâmetros, Phi e outras operações continuam exigindo classificação própria.
+/// Não insere ARC nem certifica vida dos slots, proveniência ou cleanup.
+///
+/// # Erros
+/// Os erros de produzir_contratos_runtime, tipo incompatível de operação ARC,
+/// conflito de classe ou tentativa de sobrescrever sua regra no plano.
+/// Nenhum mapa é alterado em caso de erro.
+///
+/// ```
+/// use dartforge_emit_native::{hir::*, otimizar::arc::*};
+/// use std::collections::HashMap;
+/// let f = Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+///     params: vec![], return_ty: Type::Void,
+///     blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
+///         (ValueId(0), Instruction::ArcCopy { value: Operand::Constant(Constant::Null) }, Type::Ref),
+///         (ValueId(1), Instruction::ArcDrop { value: Operand::Val(ValueId(0)) }, Type::Void)],
+///         terminator: Terminator::Return(None) }] };
+/// let mut classes = HashMap::new();
+/// let mut plano = PlanoTokens::default();
+/// produzir_contratos_arc(&f, &mut classes, &mut plano)?;
+/// verificar_tokens(&f, &classes, &TabelasDaFuncao::default(), &plano)?;
+/// # Ok::<(), String>(())
+/// ```
+pub fn produzir_contratos_arc(
+    f: &Function,
+    classes: &mut HashMap<ValueId, Ownership>,
+    plano: &mut PlanoTokens,
+) -> Result<HashMap<ValueId, ContratoChamadaRuntime>, String> {
+    produzir(f, classes, plano, true)
+}
+
+fn produzir(
+    f: &Function,
+    classes: &mut HashMap<ValueId, Ownership>,
+    plano: &mut PlanoTokens,
+    incluir_arc: bool,
+) -> Result<HashMap<ValueId, ContratoChamadaRuntime>, String> {
     let mut contratos = HashMap::new();
+    let mut fixas = HashMap::new();
     let mut ids = std::collections::HashSet::new();
     for (v, _, _) in &f.params {
         if !ids.insert(*v) {
@@ -48,6 +93,26 @@ pub fn produzir_contratos_runtime(
     for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
         if !ids.insert(*v) {
             return Err(format!("v{} repetido", v.0));
+        }
+        if incluir_arc {
+            let fixa = match inst {
+                Instruction::ArcCopy { .. }
+                | Instruction::ArcMove { .. }
+                | Instruction::ArcLoadStrong { .. } => Some((Ownership::Owned, Type::Ref)),
+                Instruction::ArcDrop { .. } | Instruction::ArcStoreStrong { .. } => {
+                    Some((Ownership::Trivial, Type::Void))
+                }
+                _ => None,
+            };
+            if let Some((classe, esperado)) = fixa {
+                if *ty != esperado
+                    || classes.get(v).is_some_and(|c| *c != classe)
+                    || plano.instrucoes.contains_key(v)
+                {
+                    return Err(format!("v{}: contrato incompatível com operação ARC", v.0));
+                }
+                fixas.insert(*v, classe);
+            }
         }
         if let Instruction::CallRuntime { ret_ty, .. } = inst {
             if ty != ret_ty {
@@ -65,6 +130,7 @@ pub fn produzir_contratos_runtime(
             contratos.insert(*v, c);
         }
     }
+    classes.extend(fixas);
     for (v, c) in &contratos {
         classes.insert(*v, c.resultado);
         plano.instrucoes.insert(*v, c.efeito.clone());

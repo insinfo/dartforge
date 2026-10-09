@@ -1172,6 +1172,20 @@ da pendência. Teste de atomicidade e resultado owned também passou.
 Parâmetros, outras instruções, chamadas Dart e integração no pipeline padrão
 ainda exigem seus produtores; não há inserção completa de RC ou cleanup.
 
+Produtor `produzir_contratos_arc` compõe o runtime auditado com as classes
+fixas das cinco primitivas: copy/move/load Owned, drop/store Trivial. Rejeita
+tipo/classe incompatível ou plano que sobrescreva uma primitiva, sem alterar
+parcialmente os mapas. Teste com as cinco operações e fecho de quadro usou
+as classes produzidas no verificador de tokens e passou; erro posterior de
+tipo e sobrescrita de contrato foram recusados sem mudança parcial.
+A primeira compilação encontrou o trecho novo no laço de parâmetros, corrigido
+para o laço de instruções antes da execução final. 36 testes ARC e 35 exemplos
+públicos aprovados (`target/ownership-produtor-arc-test-final.log`,
+`target/ownership-produtor-arc-doc.log`); erro inicial em
+`target/ownership-produtor-arc-test.log`. Ainda não classifica Phi/parâmetros
+nem referências das demais operações, certifica vida dos slots ou insere
+ARC automaticamente no pipeline padrão.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

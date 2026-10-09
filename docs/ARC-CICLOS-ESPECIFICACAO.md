@@ -1139,6 +1139,15 @@ não está ligada à emissão padrão, não insere contadores nem certifica
 proveniência, slots, borrows ou cleanup. Um teste de CFG usa o plano gerado
 para gc_collect e verifica que retirar o pouso ou negar pending é recusado.
 
+`produzir_contratos_arc` acrescenta classes fixas das cinco primitivas ARC
+explícitas ao produtor runtime: copy/move/load são Owned; drop/store são
+Trivial, sem efeito ordinário sobrescrevendo a regra da primitiva. Faz staging
+dos resultados antes de alterar os mapas; erro de tipo, classe incompatível
+ou plano que sobrescreva primitiva não deixa estado parcial. Os tipos dos
+operandos, a vida dos slots e o consumo no CFG continuam sujeitos aos seus
+verificadores. Não classifica Phi, parâmetros ou referências de outras
+operações por largura, nem insere ARC no lowering padrão.
+
 Externs **novas** mínimas: `dartforge_arc_retain`, `dartforge_arc_release`,
 `dartforge_arc_collect`, `dartforge_arc_verificar_abi`. Retain/release são
 `nounwind` somente se falhas internas não desenrolarem pelo limite C. Elas
