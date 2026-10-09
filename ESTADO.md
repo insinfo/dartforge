@@ -380,6 +380,15 @@ identidades fracas com geração, estados explícitos, índices da tabela latera
 e validação nativa completa. O verificador separado da barreira na menor
 ainda precisa enumerar as arestas laterais. A rodada `37922301282`, ativa
 sobre `a49ab81b`, não contém esta integração.
+O verificador separado da menor passou a seguir arestas laterais de
+finalizadores. Sabotagem sem barreira foi detectada pelo diagnóstico exigido;
+o caso com publicação correta preserva a ação e a libera após retirar o dono.
+Release: 137 unitários, 13 de integração e 12 doctests aprovados, três
+microbenchmarks ignorados; fonte única AOT/JIT aprovada.
+Na rodada `37922301282`, Linux concluiu com sucesso. Relatórios finais
+conferidos: AOT e A1/B0/B1/ARC 238/238, `dart:io` 130/130, JIT × AOT
+238/238 no placar, zero divergências, sete sem IR iguais por construção.
+SDK da fonte, mapas B0 e macOS continuam ativos na última consulta.
 
 Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
 suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior

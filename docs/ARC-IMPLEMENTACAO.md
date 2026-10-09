@@ -504,6 +504,15 @@ Release: 135 unitários, 13 de integração e 12 doctests aprovados, três
 microbenchmarks ignorados. Fonte única AOT/JIT aprovada. O verificador separado
 de barreira da menor ainda precisa seguir arestas laterais na sua travessia.
 
+O verificador separado da coleta menor agora usa o percurso de referências
+fortes e segue as arestas laterais de finalizadores. O teste de sabotagem
+publica um anexo sem barreira e exige o diagnóstico de jovem alcançável
+sem marca; o teste positivo exige sobrevivência com a barreira correta e
+liberação depois de retirar o dono. Isso confere o mecanismo no tracing,
+sem substituir a validação completa de identidades fracas e transições.
+Release: 137 unitários, 13 de integração e 12 doctests aprovados; três
+microbenchmarks ignorados. Fonte única AOT/JIT aprovada.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais

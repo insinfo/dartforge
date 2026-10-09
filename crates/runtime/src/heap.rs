@@ -2812,11 +2812,7 @@ impl Heap {
                         pai.map(desc).unwrap_or_default()
                     );
                 }
-                // SAFETY: bloco vivo do espaço.
-                #[allow(unsafe_code)]
-                unsafe {
-                    self.objetos.empilhar_corpo(b, &mut pilha)
-                };
+                self.visitar_referencias_fortes(h, &mut |filho| pilha.push(filho));
             } else {
                 Self::handle_invalido(h);
             }
@@ -3918,6 +3914,42 @@ mod espaco_de_objetos {
             marcar_referencia(b, 0, true);
         }
         heap.coletar(true);
+    }
+
+    #[test]
+    #[should_panic(expected = "barreira de escrita faltando")]
+    fn verificacao_acha_barreira_faltando_em_anexo_lateral() {
+        let mut heap = Heap::new(false);
+        heap.verificar = true;
+        let quadro = heap.push_frame_with_slots(1);
+        let dono = heap.alocar_objeto(1, 0);
+        heap.set_root(quadro, 0, dono);
+        heap.coletar(false);
+        let acao = heap.alocar_objeto(2, 0);
+        // Sabota a publicação: não chama a barreira de adicionar_anexo.
+        heap.anexos.push(AnexoDeFinalizador {
+            dono, valor: dono, desanexo: 0, acao: AcaoDeFinalizador::Dart(acao),
+        });
+        heap.coletar(true);
+    }
+
+    #[test]
+    fn verificacao_aceita_barreira_do_anexo_lateral() {
+        let mut heap = Heap::new(false);
+        heap.verificar = true;
+        let quadro = heap.push_frame_with_slots(1);
+        let dono = heap.alocar_objeto(1, 0);
+        heap.set_root(quadro, 0, dono);
+        heap.coletar(false);
+        let acao = heap.alocar_objeto(2, 0);
+        heap.adicionar_anexo(AnexoDeFinalizador {
+            dono, valor: dono, desanexo: 0, acao: AcaoDeFinalizador::Dart(acao),
+        });
+        heap.coletar(true);
+        assert!(heap.e_objeto_vivo(acao));
+        heap.pop_frame(quadro);
+        heap.collect();
+        assert!(!heap.e_objeto_vivo(acao));
     }
 
     /// A carga de `bench/desempenho/objetos_escapam.dart` (`lista_ligada`)
