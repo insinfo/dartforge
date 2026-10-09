@@ -740,6 +740,15 @@ Emissor release com o runtime atualizado: 113/113, sete manuais ignorados
 (`target/emissor-arc-quadros-release.log`). Não prova inserção de slots
 no programa Dart nem proteção efetiva Finalizable.
 
+Publicados commits até `ba5f3b69`. Rodada pesada
+[37954216065](https://github.com/insinfo/dartforge/actions/runs/37954216065),
+suite nativo, dois fragmentos, confirmada em fila sobre
+`ba5f3b69dda293be4160f5fb2f9ae9beb7baef63`, após fechamento bem-sucedido
+da anterior. Cobre metadados Finalizable, verificadores de ownership e
+nova ABI de quadros. CI rápido `37954199477` pendente na consulta; o
+novo push de fonte substitui a rodada anterior ainda ativa. Não declarar
+sucesso remoto desta revisão nem disparar outra pesada enquanto estiver ativa.
+
 O lowering agora preserva `Local::tipo_estatico`, TypeId Dart original
 separado da representação HIR. Declarações usam
 `Context::tipo_local_semantico` (sem chamar apagar), closures em ambiente ou
