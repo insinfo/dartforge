@@ -1525,6 +1525,13 @@ ou pendências. Suíte ARC 58/58
 (`target/ownership-record-consultas-produtor.log`).
 
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
+Pré-condição SSA ARC agora exige representação Ref no operando SSA de um
+retorno Ref; null e literais permanentes diretos permanecem permitidos.
+Contrato Owned sobre parâmetro I64 não autoriza reinterpretar seus bits como
+referência no retorno. Regressão usa o wrapper completo, confere rejeição
+atômica e retorno Owned válido quando o parâmetro realmente é Ref.
+Suíte ARC 59/59 (`target/ownership-retorno-ref-test.log`). Tipagem de retornos
+escalares e proveniência geral continuam fora desta validação parcial.
 
 Rodada `37992860235` sobre `4530b91f`: artefatos Linux conferidos em
 `target/ci-37992860235/linux`. AOT/A1/B0/B1/ARC 238/238 em

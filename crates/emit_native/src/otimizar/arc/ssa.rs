@@ -166,6 +166,19 @@ pub(super) fn verificar(f: &Function) -> Result<(), String> {
             }
         });
         resultado?;
+        if f.return_ty == Type::Ref
+            && let Terminator::Return(Some(op)) = &b.terminator
+            && !referencia(op)
+            && !matches!(
+                op,
+                Operand::Constant(Constant::String(_) | Constant::StringWtf8(_))
+            )
+        {
+            return Err(erro(format!(
+                "retorno Ref em b{} exige SSA Ref, null ou literal permanente",
+                b.id.0
+            )));
+        }
     }
     Ok(())
 }
@@ -173,6 +186,59 @@ pub(super) fn verificar(f: &Function) -> Result<(), String> {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn retorno_ref_nao_aceita_escalar_com_contrato_owned() {
+        let f = Function {
+            symbol: "retorno_ref".into(),
+            name: "retorno_ref".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "bits".into(), Type::I64)],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
+            }],
+        };
+        let mut classes = HashMap::from([(ValueId(0), super::super::Ownership::Owned)]);
+        let antes = classes.clone();
+        let mut plano = super::super::PlanoTokens {
+            retorno: super::super::RetornoTokens::Owned,
+            ..Default::default()
+        };
+        assert!(
+            super::super::produzir_e_verificar_tokens(
+                &f,
+                &mut classes,
+                &mut plano,
+                &TabelasDaFuncao::default(),
+                &super::super::PlanoEscopos::default()
+            )
+            .unwrap_err()
+            .contains("retorno Ref")
+        );
+        assert_eq!(classes, antes);
+        assert!(plano.instrucoes.is_empty());
+        let mut valida = f.clone();
+        valida.params[0].2 = Type::Ref;
+        super::super::produzir_e_verificar_tokens(
+            &valida,
+            &mut classes,
+            &mut plano,
+            &TabelasDaFuncao::default(),
+            &super::super::PlanoEscopos::default(),
+        )
+        .unwrap();
+        for constante in [
+            Constant::Null,
+            Constant::String("literal".into()),
+            Constant::StringWtf8(vec![120]),
+        ] {
+            valida.blocks[0].terminator = Terminator::Return(Some(Operand::Constant(constante)));
+            verificar(&valida).unwrap();
+        }
+    }
 
     fn funcao() -> Function {
         Function {
