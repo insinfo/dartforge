@@ -673,6 +673,15 @@ finally e suspensão/retomada continuam pendentes. route_return pode
 entrar em finally: a obrigação deve considerar os escopos atravessados e
 a transferência do valor de retorno, não só o fechamento estrutural de bloco.
 
+Parâmetros ligados por declarar_parametros agora recebem explicitamente
+p.ty do outline, inclusive os que não têm offset no corpo. Reconstrução de
+parâmetros no corpo async/sync* preserva o TypeId da origem, também sem
+offset. atribuir_tipo_semantico exige local já ligado e atualiza tipo e
+classificação juntos; None não se torna falso. Suíte release do emissor
+108/108, sete manuais ignorados (`target/emissor-parametros-semanticos-release.log`).
+Ainda faltam this e outras entradas especializadas; não afirmar cobertura
+de todos os produtores nem emissão de proteção de vida.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

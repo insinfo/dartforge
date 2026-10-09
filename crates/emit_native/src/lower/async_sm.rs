@@ -342,6 +342,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Some(off) => b.declarar_variavel(*sym, off, l.ty, v),
                 None => b.declarar_local_com_valor(*sym, l.ty, v),
             }
+            // A representação do quadro não substitui o tipo da declaração.
+            b.atribuir_tipo_semantico(*sym, l.tipo_estatico);
         }
         // O tratador do topo: exceção que ninguém no corpo pegou completa o
         // `Future` com erro (`async`) ou vai ao stream (`async*`). No

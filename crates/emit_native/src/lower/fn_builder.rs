@@ -499,6 +499,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                     None => self.declarar_local_com_valor(sym, p_ty, Operand::Val(vid)),
                 }
+                // O outline guarda o tipo Dart mesmo sem offset no corpo.
+                self.atribuir_tipo_semantico(sym, Some(p.ty));
             }
         }
     }

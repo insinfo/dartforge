@@ -350,6 +350,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
     }
 
+    /// Completa o tipo de um local já ligado usando a origem semântica.
+    /// None mantém a obrigação indeterminada; não infere pelo tipo HIR.
+    ///
+    /// # Panics
+    /// Se o chamador não ligou o local no escopo visível antes desta atualização.
+    pub(super) fn atribuir_tipo_semantico(&mut self, sym: SymbolId, tipo: Option<dartforge_types::TypeId>) {
+        let finalizavel = tipo.and_then(|t| self.ctx.classificar_finalizavel(t));
+        let local = self.escopos.iter_mut().rev().find_map(|e| e.get_mut(&sym))
+            .expect("local semântico deve estar ligado");
+        local.tipo_estatico = tipo;
+        local.finalizavel = finalizavel;
+    }
+
     /// O local visível com esse nome, do escopo mais interno para fora.
     pub fn buscar_local(&self, sym: SymbolId) -> Option<Local> {
         self.escopos.iter().rev().find_map(|e| e.get(&sym).cloned())
