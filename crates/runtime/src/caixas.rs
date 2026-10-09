@@ -34,10 +34,11 @@ pub struct ClosureRef {
 const CAMPOS_DA_CLOSURE: usize = 4;
 
 impl Heap {
-    /// Executa `f` com os `refs` enraizados num quadro do runtime (os que não
-    /// são handle são ignorados).
+    /// Executa `f` com cópias proprietárias dos `refs` num quadro temporário
+    /// do runtime (os que não são handle são ignorados). As ocorrências são
+    /// soltadas após a construção, quando o resultado já guarda suas arestas.
     fn com_refs_enraizados<R>(&mut self, refs: impl IntoIterator<Item = Ref>, f: impl FnOnce(&mut Self) -> R) -> R {
-        let quadro = self.push_frame();
+        let quadro = self.push_frame_proprietario(0);
         for r in refs {
             self.root(quadro, r);
         }

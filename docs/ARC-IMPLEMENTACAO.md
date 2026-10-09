@@ -305,6 +305,15 @@ rejeição de destino observacional aprovada em debug, preservando o owner.
 Suíte debug completa: 107 aprovados, três microbenchmarks ignorados; exemplo
 de movimento aprovado em doctest.
 
+O auxiliar de construção de células, contextos, closures e records em
+`caixas.rs` agora guarda cópias proprietárias dos argumentos. O quadro
+temporário de `asFunction` em `ffi.rs` também conta o ambiente até a closure
+guardar a aresta forte. Esses caminhos não executam Dart entre abrir e fechar
+o quadro. Teste dirigido com coleta forçada verifica a passagem da proteção
+para a aresta da closure, a contagem e a liberação nos modos puro e berçário.
+Suítes completas debug/release: 108 aprovados, zero falhas, três microbenchmarks
+ignorados. Os demais quadros Rust ainda exigem migração e revisão das saídas.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais

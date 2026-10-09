@@ -181,9 +181,10 @@ pub extern "C" fn dartforge_nativo_DartForge_ffi_funcao(endereco: i64, ns: i64, 
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
         // O contexto guarda os dois escalares (sem referência); a closure o
-        // guarda como `Ref` (enraizado durante a alocação dela).
+        // guarda como `Ref`. O owner temporário é contado durante a alocação
+        // e soltado depois que a closure passa a guardar a aresta forte.
         let env = h.novo_contexto(&[(endereco, false), (ns, false)]);
-        let frame = h.push_frame_with_slots(1);
+        let frame = h.push_frame_proprietario(1);
         h.set_root(frame, 0, env);
         let clo = h.nova_closure(entrada as i64, (env, true), 0, 0);
         h.set_metadado(clo, df + 1);

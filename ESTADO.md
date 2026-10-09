@@ -251,6 +251,13 @@ passaram, zero falhas, três microbenchmarks ignorados, com
 com o código restaurado; SHA-256:
 `33619EB5424E767C463DBBA4AD948F281CC369BA1BCAC31EE46D45CE43ECA3D7`.
 
+O runtime passou a distinguir quadros proprietários e observacionais
+(`d8039a51`). Cópias retêm, substituição retém antes de soltar e fechamento
+solta cada ocorrência; ativação e promoção preservam multiplicidade. A
+auditoria inclui só os owners. `mover_raiz` (`d2497ce7`) transfere entre
+slots proprietários sem reter novamente, consumindo o conteúdo substituído.
+O código gerado ainda usa quadros observacionais; HIR/ABI permanecem pendentes.
+
 Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
 suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior
 estava concluída e nenhuma Pesado ativa. Valida as análises auxiliares ARC,

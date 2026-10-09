@@ -5548,6 +5548,27 @@ mod arc_no_heap {
     }
 
     #[test]
+    fn construcao_de_closure_transfere_protecao_para_aresta_forte() {
+        for puro in [true, false] {
+            let mut heap = heap_arc();
+            heap.arc.as_mut().unwrap().puro = puro;
+            heap.stress = true;
+            let quadro = heap.push_frame_proprietario(1);
+            let ambiente = heap.novo_contexto(&[(42, false)]);
+            heap.set_root(quadro, 0, ambiente);
+            let closure = heap.nova_closure(123, (ambiente, true), 0, 0);
+            heap.set_root(quadro, 0, closure);
+            heap.collect();
+            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(ambiente).unwrap().rc, 1);
+            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(closure).unwrap().rc, 1);
+            assert_eq!(heap.closure(closure).unwrap().contexto.0, ambiente);
+            heap.pop_frame(quadro);
+            heap.collect();
+            assert!(!vivo(&heap, ambiente) && !vivo(&heap, closure));
+        }
+    }
+
+    #[test]
     fn ativacao_arc_conta_quadros_proprietarios_ja_abertos() {
         let mut heap = Heap::new(false);
         let quadro = heap.push_frame_proprietario(0);
