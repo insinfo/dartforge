@@ -1,0 +1,27 @@
+{
+  "codigoArc": 0,
+  "codigoTracing": 0,
+  "perfilCargo": "dev",
+  "codigoSemCleanup": 1,
+  "flagsTracing": {
+    "DARTFORGE_GC_STRESS": "1"
+  },
+  "hashes": {
+    "bench/resultados/2026-10-09-arc-slots-verificados-aot/tracing-saida.txt": "D911FB55501F60530CAB10ACF2E264747BDEFE512F5264FF9B350C7AEB86C219",
+    "bench/resultados/2026-10-09-arc-slots-verificados-aot/arc-saida.txt": "D911FB55501F60530CAB10ACF2E264747BDEFE512F5264FF9B350C7AEB86C219",
+    "target/prova-slots-verificados-tracing.exe": "179D2CCFA0BA75A7E9483E5C327949F98C373969BB2B8735F41CB361496D926C",
+    "crates/emit_native/examples/arc_slots_fortes.rs": "0D7FAF5B62F6CCF7C66ABF9ADAA69ADCBDD3487109F4BF12346D40CDD2F0FD7C",
+    "bench/resultados/2026-10-09-arc-slots-verificados-aot/sem-cleanup.log": "8D6AA3C75399434ECE91CE6A8F2A4335FB52BB2455539657EE7F77F7A563650E",
+    "bench/resultados/2026-10-09-arc-slots-verificados-aot/arc.ll": "0A76329C0F712874ED14A605187714B01F726F9049B121A1CDD200870CD5A5C0",
+    "target/prova-slots-verificados-arc.exe": "5B33943C16933C2A8BD530B90F0F23332EA308662AA8D6BEA7E23E8C04D27023",
+    "bench/resultados/2026-10-09-arc-slots-verificados-aot/tracing.ll": "C9774EDB825C727E114F8417BA3C361BE2A81C3FCB87121A814DEC8FB95DB29B"
+  },
+  "flagsArc": {
+    "DARTFORGE_GC_STRESS": "1",
+    "DARTFORGE_ARC_BERCARIO": "0",
+    "DARTFORGE_ARC_CONFERIR": "1"
+  },
+  "base": "4dec99d8",
+  "imagemOtimizacao": true,
+  "irSemCleanupPublicado": false
+}

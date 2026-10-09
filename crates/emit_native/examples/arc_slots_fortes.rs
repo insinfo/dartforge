@@ -1,14 +1,17 @@
-//! Prova AOT dirigida das operações fortes, antes do produtor automático.
+//! Prova AOT dirigida das operações fortes com planos produzidos/verificados.
 //! Usa um literal permanente, Smi e null: não certifica coleta de um objeto
 //! mortal, escopos/borrows ou o restante dos contratos do pipeline ARC.
 
+use dartforge_emit_native::otimizar::arc::*;
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
     let saida = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
     let arc = args.next().as_deref() != Some("tracing");
+    let sem_cleanup = args.next().as_deref() == Some("sem-cleanup");
     let mut m = Module::new();
     m.memoria_arc = arc;
     m.entry_symbol = Some("prova_slots".into());
@@ -188,6 +191,101 @@ fn main() -> Result<(), String> {
         }],
     });
     dartforge_emit_native::otimizar::otimizar(&mut m);
+    let f = &mut m.functions[0];
+    let originais = std::mem::take(&mut f.blocks[0].instructions);
+    f.blocks.clear();
+    let mut corrente = BlockId(0);
+    let mut corpo = Vec::new();
+    let mut proximo = 21;
+    for instrucao in originais {
+        let impresso = match &instrucao.1 {
+            Instruction::CallRuntime { name, args, .. } if name == "dartforge_print_handle" => {
+                Some(args[0].0.clone())
+            }
+            _ => None,
+        };
+        corpo.push(instrucao);
+        if let Some(impresso) = impresso {
+            let p = ValueId(proximo);
+            let c = ValueId(proximo + 1);
+            proximo += 2;
+            corpo.push((
+                p,
+                chamada("dartforge_exception_pending", vec![], Type::I8),
+                Type::I8,
+            ));
+            corpo.push((
+                c,
+                Instruction::ICmp(
+                    ICmpOp::Ne,
+                    Operand::Val(p),
+                    Operand::Constant(Constant::Int(0)),
+                ),
+                Type::I1,
+            ));
+            let erro = BlockId(corrente.0 + 1);
+            let sucesso = BlockId(corrente.0 + 2);
+            f.blocks.push(BasicBlock {
+                id: corrente,
+                instructions: std::mem::take(&mut corpo),
+                terminator: Terminator::CondBranch {
+                    cond: Operand::Val(c),
+                    then_block: erro,
+                    else_block: sucesso,
+                },
+            });
+            let mut cleanup = Vec::new();
+            if !sem_cleanup {
+                cleanup.push((
+                    ValueId(proximo),
+                    Instruction::ArcDrop { value: impresso },
+                    Type::Void,
+                ));
+                proximo += 1;
+            }
+            cleanup.push((
+                ValueId(proximo),
+                Instruction::ArcStoreStrong {
+                    slot: SlotForte::Global {
+                        simbolo: "dfg.prova".into(),
+                    },
+                    value: Operand::Constant(Constant::Null),
+                    modo: ModoStoreForte::Copy,
+                },
+                Type::Void,
+            ));
+            proximo += 1;
+            f.blocks.push(BasicBlock {
+                id: erro,
+                instructions: cleanup,
+                terminator: Terminator::Return(None),
+            });
+            corrente = sucesso;
+        }
+    }
+    f.blocks.push(BasicBlock {
+        id: corrente,
+        instructions: corpo,
+        terminator: Terminator::Return(None),
+    });
+    // Contratos semânticos específicos desta prova: literal permanente e
+    // caixa de 42 (Smi imediato), ambos sem obrigação física de liberação.
+    let mut classes = HashMap::from([
+        (ValueId(1), Ownership::Trivial),
+        (ValueId(11), Ownership::Trivial),
+    ]);
+    let mut plano = PlanoTokens::default();
+    plano.instrucoes.insert(ValueId(1), EfeitoTokens::default());
+    plano
+        .instrucoes
+        .insert(ValueId(11), EfeitoTokens::default());
+    produzir_e_verificar_tokens(
+        f,
+        &mut classes,
+        &mut plano,
+        &TabelasDaFuncao::default(),
+        &PlanoEscopos::default(),
+    )?;
     let erros = dartforge_emit_native::lower::verificador::verificar(&m);
     if !erros.is_empty() {
         return Err(erros.join("\n"));

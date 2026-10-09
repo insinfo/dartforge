@@ -1371,6 +1371,20 @@ Formas não reconhecidas não recebem mapa implícito e continuam recusadas na
 verificação completa quando pode_falhar não tem saída. Demais formas de
 conferência, testes runtime sintéticos e integração AOT continuam pendentes.
 
+Prova AOT arc_slots_fortes agora passa a HIR final por
+produzir_e_verificar_tokens antes de emitir LLVM. Impressões têm leitura
+exception_pending I8, comparação e bifurcação explícita; no erro, drop do
+owner carregado e limpeza do global. Produtor gera classes das primitivas,
+contratos auditados e mapa de pendências. Só literal permanente e caixa de
+42 (Smi imediato) recebem contratos Trivial específicos fornecidos pelo harness.
+ARC com ARC_CONFERIR=1/ARC_BERCARIO=0/GC_STRESS=1 e tracing com GC_STRESS=1
+executaram com código zero e saída slots ARC/42/null. Variante sem-cleanup
+recusada com v8 não consumido no caminho [0, 1], código 1, antes de gravar IR.
+Evidência congelada em `bench/resultados/2026-10-09-arc-slots-verificados-aot`
+com IRs, saídas, log negativo, hashes dos executáveis/fonte e reprodução.
+Não executa erro real de impressão, não prova coleta mortal/vida de slots,
+não insere cleanup automaticamente e não integra a emissão padrão de Dart.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
