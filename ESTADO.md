@@ -606,6 +606,19 @@ textos 2,48× e hashes 3,31×. Dados e hashes em
 comprovado nem aprovação de ARC ≥ A0; esta rodada não substitui os 32
 kernels e não inclui a validação posterior de callbacks NativeFinalizer.
 
+A ABI de anexar NativeFinalizer agora recusa os trampolins síncronos
+conhecidos (Pointer.fromFunction e NativeCallable.isolateLocal), com
+ArgumentError antes de tocar handles/anexos ou contabilizar externalSize.
+O callback pode executar fora da thread do isolado; esses modos exigem a
+thread dona. Consulta do modo imutável sob o mutex do registro mantém o
+contexto vivo até terminar a leitura. Ouvintes não recebem essa recusa;
+ponteiros desconhecidos seguem sujeitos ao contrato nativo do chamador.
+A validação fica no attach, sem alterar o sentinela de asTypedList.
+Teste cobre os três modos, recusa antes de criar anexo e remoção do registro.
+Suíte release: 146 unitários, três microbenchmarks ignorados, 13 integrações
+e 12 doctests aprovados (`target/runtime-finalizador-callback-release.log`).
+Ainda falta exercitar essa revisão pelo caminho AOT/JIT compilado.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

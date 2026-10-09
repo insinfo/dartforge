@@ -35,6 +35,12 @@ pub extern "C" fn dartforge_nativo_DartForge_finalizador_anexar_nativo(dono: i64
         lancar_erro_de_argumento("NativeFinalizer callback must not be nullptr");
         return;
     }
+    // NativeFinalizer pode rodar fora da thread do isolado. Um trampolim
+    // síncrono entraria em Dart durante a coleta ou abortaria noutra thread.
+    if callback_exige_thread_do_isolado(funcao as usize) {
+        lancar_erro_de_argumento("NativeFinalizer callback must not require the isolate thread");
+        return;
+    }
     if tamanho_externo < 0 || usize::try_from(tamanho_externo).ok().and_then(|n| isize::try_from(n).ok()).is_none() {
         lancar_erro_de_argumento("externalSize fora do intervalo suportado");
         return;

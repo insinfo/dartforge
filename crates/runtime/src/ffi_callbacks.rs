@@ -68,6 +68,17 @@ fn callbacks_vivos() -> &'static std::sync::Mutex<crate::hash::HashMap<usize, us
     T.get_or_init(Default::default)
 }
 
+/// Reconhece trampolins síncronos que exigem a thread do isolado dono.
+/// Ouvintes só postam mensagens e não entram em Dart nesta thread.
+fn callback_exige_thread_do_isolado(endereco: usize) -> bool {
+    let vivos = callbacks_vivos().lock().unwrap_or_else(|e| e.into_inner());
+    let Some(&ctx) = vivos.get(&endereco) else { return false };
+    // SAFETY: o registro mantém o contexto vivo; close precisa deste mutex
+    // para removê-lo antes de liberar. O modo é imutável após a instalação.
+    let modo = unsafe { (*(ctx as *const ContextoCallback)).modo };
+    matches!(modo, MODO_PERSISTENTE | MODO_LOCAL)
+}
+
 thread_local! {
     /// Os `fromFunction` deste isolado: (chave, sítio, código da função,
     /// excepcional) → ponteiro de função.
@@ -587,5 +598,35 @@ fn inteiro_do_argumento(v: crate::heap::Valor) -> Option<i64> {
         crate::heap::Valor::Bool(b) => Some(i64::from(b)),
         crate::heap::Valor::Double(_) => None,
         crate::heap::Valor::Ref(r) => HEAP.with(|h| h.borrow().int_de(r)),
+    }
+}
+
+#[cfg(test)]
+mod finalizador_callback_tests {
+    use super::*;
+
+    #[test]
+    fn finalizador_recusa_trampolins_sincronos_antes_de_criar_anexo() {
+        for modo in [MODO_PERSISTENTE, MODO_LOCAL, MODO_OUVINTE] {
+            let ctx = Box::new(ContextoCallback {
+                modo, isolado: 0, closure: 0, porta: 0, assinatura: 0,
+                chave: String::new(), excepcional: 0, ativas: 0,
+                fechado: false, trampolim: 0,
+            });
+            // Identidade exclusiva para este registro de teste; nunca é chamada.
+            let endereco = (&*ctx as *const ContextoCallback) as usize;
+            callbacks_vivos().lock().unwrap().insert(endereco, endereco);
+            let sincrono = modo != MODO_OUVINTE;
+            assert_eq!(callback_exige_thread_do_isolado(endereco), sincrono);
+            if sincrono {
+                dartforge_exception_clear();
+                // Handles nulos denunciariam uma criação indevida de anexo.
+                dartforge_nativo_DartForge_finalizador_anexar_nativo(0, 0, endereco as i64, 0, 0, 17);
+                assert_eq!(dartforge_exception_pending(), 1);
+                dartforge_exception_clear();
+            }
+            callbacks_vivos().lock().unwrap().remove(&endereco);
+            assert!(!callback_exige_thread_do_isolado(endereco));
+        }
     }
 }
