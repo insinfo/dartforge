@@ -9,6 +9,62 @@ use crate::hir::*;
 use dartforge_runtime::ownership::{ModoParametro, ModoResultado, contrato};
 use std::collections::{HashMap, HashSet, VecDeque};
 
+/// Produz contratos dos parâmetros Ref pela convenção de chamadas Dart (§20.1).
+///
+/// Ref é emprestado pelo chamador durante a invocação. Outros tipos exigem
+/// produtores próprios: I64 não se torna escalar/referência pela largura.
+/// Use somente para funções que seguem essa convenção, antes da produção
+/// das instruções. Não certifica contratos de callees nem insere RC/cleanup.
+///
+/// # Erros
+/// Parâmetro repetido ou contrato fornecido diferente de Borrowed(Chamador, 0)
+/// para um parâmetro Ref. Nenhuma classe é publicada em caso de erro.
+///
+/// ```
+/// use dartforge_emit_native::{hir::*, otimizar::arc::*};
+/// use std::collections::HashMap;
+/// let f = Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+///     params: vec![(ValueId(0), "x".into(), Type::Ref)], return_ty: Type::Void,
+///     blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
+///         (ValueId(1), Instruction::ArcCopy { value: Operand::Val(ValueId(0)) }, Type::Ref),
+///         (ValueId(2), Instruction::ArcDrop { value: Operand::Val(ValueId(1)) }, Type::Void)],
+///         terminator: Terminator::Return(None) }] };
+/// let mut classes = HashMap::new();
+/// produzir_parametros_ref_dart(&f, &mut classes)?;
+/// produzir_e_verificar_tokens(&f, &mut classes, &mut PlanoTokens::default(),
+///     &TabelasDaFuncao::default(), &PlanoEscopos::default())?;
+/// # Ok::<(), String>(())
+/// ```
+pub fn produzir_parametros_ref_dart(
+    f: &Function,
+    classes: &mut HashMap<ValueId, Ownership>,
+) -> Result<(), String> {
+    let esperado = Ownership::Borrowed {
+        owner: OrigemOwner::Chamador,
+        escopo: 0,
+    };
+    let mut ids = HashSet::new();
+    let mut produzidos = Vec::new();
+    for (v, _, ty) in &f.params {
+        if !ids.insert(*v) {
+            return Err(format!("parâmetro Dart v{} repetido", v.0));
+        }
+        if *ty == Type::Ref {
+            if classes.get(v).is_some_and(|c| *c != esperado) {
+                return Err(format!(
+                    "parâmetro Dart Ref v{} exige Borrowed(Chamador, 0)",
+                    v.0
+                ));
+            }
+            produzidos.push(*v);
+        }
+    }
+    for v in produzidos {
+        classes.insert(v, esperado.clone());
+    }
+    Ok(())
+}
+
 /// Produz metadados ARC e os publica após verificar CFG/SSA, tokens e escopos.
 ///
 /// Parâmetros e instruções fora da cobertura do produtor exigem contratos
@@ -835,6 +891,34 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn parametros_dart_nao_classificam_i64_e_rejeitam_conflito_atomicamente() {
+        let mut f = Function {
+            symbol: "parametros".into(),
+            name: "parametros".into(),
+            depuracao: None,
+            params: vec![
+                (ValueId(0), "ref".into(), Type::Ref),
+                (ValueId(1), "bits".into(), Type::I64),
+                (ValueId(2), "outra_ref".into(), Type::Ref),
+            ],
+            return_ty: Type::Void,
+            blocks: vec![],
+        };
+        let mut classes = HashMap::from([(ValueId(2), Ownership::Owned)]);
+        let antes = classes.clone();
+        assert!(produzir_parametros_ref_dart(&f, &mut classes).is_err());
+        assert_eq!(classes, antes);
+        classes.clear();
+        produzir_parametros_ref_dart(&f, &mut classes).unwrap();
+        assert!(!classes.contains_key(&ValueId(1)));
+        assert_eq!(classes.len(), 2);
+        let antes = classes.clone();
+        f.params.push((ValueId(0), "duplicado".into(), Type::Ref));
+        assert!(produzir_parametros_ref_dart(&f, &mut classes).is_err());
+        assert_eq!(classes, antes);
+    }
 
     #[test]
     fn produtor_phi_ref_trivial_respeita_transferencia_owned_explicita() {

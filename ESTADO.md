@@ -1525,6 +1525,30 @@ ou pendências. Suíte ARC 58/58
 (`target/ownership-record-consultas-produtor.log`).
 
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
+Disponível produtor `produzir_parametros_ref_dart` para a convenção §20.1:
+parâmetros Type::Ref recebem Borrowed(Chamador,0); outros tipos permanecem
+para seus produtores semânticos, sem deduzir I64 pela largura. Conflito de
+classe ou parâmetro duplicado rejeita sem publicação parcial. Exemplo público
+exercita produção do parâmetro e wrapper completo com copy/drop, sem sementes
+manuais. Suíte ARC 68/68 e exemplos públicos 37/37
+(`target/ownership-parametros-dart-test.log`,
+`target/ownership-parametros-dart-doc.log`). A API deve ser usada somente
+para funções dessa convenção; não infere contratos de callees, resultados
+nem tipos originais perdidos, e ainda não está no lowering padrão.
+Prova AOT de slots fortes repetida no HEAD `d22f564d`, após as mudanças de
+Phis e catálogo 22: ARC com ARC_CONFERIR=1, BERCARIO=0 e GC_STRESS=1,
+e tracing com GC_STRESS=1, saíram zero com `slots ARC`, `42`, `null`.
+Saídas idênticas por SHA256
+`ae77d0d327c27325eb89d55726350cdbd595b6c54ae17f696c287b04a2a90246`.
+Variante sem-cleanup saiu 1 por token v8 não consumido no caminho [0,1];
+ausência de IR/executável negativo conferida. Evidências locais em
+`target/ownership-slots-d22f564d-*`; arquivo congelado anterior permanece
+sem alteração. Essa prova continua limitada ao exemplo HIR, sem demonstrar
+inserção automática no lowering de programas Dart ou erro real de impressão.
+Na rodada `37992860235` sobre `4530b91f`, SDK da fonte completed/success:
+artefatos AOT 238/238 em 59,7 s e JIT 238/238 em 122,4 s, zero divergências,
+sete sem IR iguais por construção e zero timeouts nos dois. Relatórios
+em `target/ci-37992860235/sdk-aot` e `sdk-jit`. Só macOS segue ativo.
 Produtor agora infere Trivial para Phis Ref com origem null/Trivial conhecida,
 inclusive ciclos ancorados, sem classe manual do resultado. Demandas explícitas
 de consumo ARC, efeitos de chamadas e retorno Owned são propagadas para trás
