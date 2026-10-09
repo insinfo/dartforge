@@ -99,6 +99,8 @@ pub fn produzir_contratos_runtime(
 /// Copy/move/load produzem Owned; drop/store produzem Trivial. Operações ARC
 /// não recebem entrada em PlanoTokens, pois o verificador possui suas regras.
 /// ICmp/FCmp/LNot produzem bool Trivial sem consumo nem saída excepcional.
+/// Constantes escalares/null e literais permanentes também produzem Trivial,
+/// com tipo determinado pela variante da constante, nunca por largura.
 /// Phi I1 exige entradas booleanas e produz Trivial, inclusive em laços.
 /// Phi Ref ainda não classificado exige entradas owned/null e origem externa
 /// ao ciclo de Phi/move. Parâmetros e demais operações exigem produtores próprios.
@@ -296,19 +298,28 @@ fn produzir(
             return Err(format!("v{} repetido", v.0));
         }
         if incluir_arc {
-            // Comparações e negação lógica produzem bool por semântica da
-            // instrução; não se infere Trivial pela largura de um I64.
-            if matches!(
-                inst,
-                Instruction::ICmp(..) | Instruction::FCmp(..) | Instruction::LNot(_)
-            ) {
+            // Constantes escalares/null e literais permanentes não produzem
+            // token. A variante da constante determina seu tipo semântico.
+            let puro = match inst {
+                Instruction::Const(Constant::Int(_)) => Some(Type::I64),
+                Instruction::Const(Constant::Double(_)) => Some(Type::F64),
+                Instruction::Const(Constant::Bool(_)) => Some(Type::I1),
+                Instruction::Const(
+                    Constant::Null | Constant::String(_) | Constant::StringWtf8(_),
+                ) => Some(Type::Ref),
+                Instruction::ICmp(..) | Instruction::FCmp(..) | Instruction::LNot(_) => {
+                    Some(Type::I1)
+                }
+                _ => None,
+            };
+            if let Some(esperado) = puro {
                 let efeito = EfeitoTokens::default();
-                if *ty != Type::I1
+                if *ty != esperado
                     || classes.get(v).is_some_and(|c| *c != Ownership::Trivial)
                     || plano.instrucoes.get(v).is_some_and(|e| *e != efeito)
                 {
                     return Err(format!(
-                        "v{}: contrato incompatível com comparação/negação lógica",
+                        "v{}: contrato incompatível com constante/operação pura",
                         v.0
                     ));
                 }
@@ -522,6 +533,59 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn constantes_tipadas_e_literais_permanentes_nao_exigem_seed_manual() {
+        let constantes = [
+            Constant::Int(7),
+            Constant::Double(1.0),
+            Constant::Bool(true),
+            Constant::Null,
+            Constant::String("literal".into()),
+            Constant::StringWtf8(vec![120]),
+        ];
+        let tipos = [
+            Type::I64,
+            Type::F64,
+            Type::I1,
+            Type::Ref,
+            Type::Ref,
+            Type::Ref,
+        ];
+        let mut f = Function {
+            symbol: "constantes".into(),
+            name: "constantes".into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::Void,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: constantes
+                    .into_iter()
+                    .zip(tipos)
+                    .enumerate()
+                    .map(|(i, (k, t))| (ValueId(i as u32), Instruction::Const(k), t))
+                    .collect(),
+                terminator: Terminator::Return(None),
+            }],
+        };
+        let mut classes = HashMap::new();
+        let mut plano = PlanoTokens::default();
+        f.blocks[0].instructions[0].2 = Type::Ref;
+        assert!(produzir_contratos_arc(&f, &mut classes, &mut plano).is_err());
+        assert!(classes.is_empty() && plano.instrucoes.is_empty());
+        f.blocks[0].instructions[0].2 = Type::I64;
+        produzir_e_verificar_tokens(
+            &f,
+            &mut classes,
+            &mut plano,
+            &TabelasDaFuncao::default(),
+            &PlanoEscopos::default(),
+        )
+        .unwrap();
+        assert_eq!(classes.len(), 6);
+        assert!(classes.values().all(|c| *c == Ownership::Trivial));
+    }
 
     #[test]
     fn phi_bool_de_laco_e_produzido_sem_inventar_owner() {

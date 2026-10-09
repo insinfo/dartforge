@@ -268,14 +268,10 @@ fn main() -> Result<(), String> {
         instructions: corpo,
         terminator: Terminator::Return(None),
     });
-    // Contratos semânticos específicos desta prova: literal permanente e
-    // caixa de 42 (Smi imediato), ambos sem obrigação física de liberação.
-    let mut classes = HashMap::from([
-        (ValueId(1), Ownership::Trivial),
-        (ValueId(11), Ownership::Trivial),
-    ]);
+    // A caixa de 42 é Smi imediato; o literal permanente é classificado
+    // pelo produtor de constantes, sem contrato manual desta prova.
+    let mut classes = HashMap::from([(ValueId(11), Ownership::Trivial)]);
     let mut plano = PlanoTokens::default();
-    plano.instrucoes.insert(ValueId(1), EfeitoTokens::default());
     plano
         .instrucoes
         .insert(ValueId(11), EfeitoTokens::default());

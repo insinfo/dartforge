@@ -1433,6 +1433,25 @@ slots ARC/42/null (`target/ownership-quadros-limites-aot.log`). Capacidade ou
 índice dinâmico ainda não recebe prova de limite; isso não certifica descritores
 gerais, ABI importada ou efeitos interprocedurais.
 
+Produtor agora classifica Const de inteiro/double/bool/null e texto permanente
+como Trivial, com tipo determinado pela variante, rejeitando inteira anotada
+como Ref e conflitos antes de publicar. Literal de texto é estático no AOT
+ou canônico/permanente no cache JIT (llvm/textos_ir.rs::emitir_const_string).
+Regressão produz seis constantes sem sementes manuais; prova AOT de slots
+retirou o contrato manual do literal, conservando só o Smi 42 específico.
+Quinquenta e três testes ARC e 36 exemplos públicos aprovados
+(`target/ownership-constantes-produtor-test.log`, `target/ownership-constantes-produtor-doc.log`).
+AOT com auditoria/estresse passou (`target/ownership-constantes-produtor-aot.log`).
+Não classifica caixas gerais, parâmetros ou endereços por largura.
+
+Fechamento da rodada pesada 37986946507 sobre 54b5c836: sucesso. Relatórios
+finais em `target/ci-37986946507`: macOS AOT/A1/B0/B1/ARC 238/238, ARC 43,9 s,
+io 130/130 (52,9 s), JIT 238/238 sem divergências, sete sem IR iguais por
+construção e zero timeouts nos dois (54,2 s). SDK fonte JIT também 238/238,
+zero divergências, sete sem IR e zero timeouts nos dois (76,6 s). Completa
+os resultados Windows/Linux conferidos acima, mantendo a limitação dos seis
+oráculos indisponíveis de interop. Não contém as mudanças posteriores a 54b5c836.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
