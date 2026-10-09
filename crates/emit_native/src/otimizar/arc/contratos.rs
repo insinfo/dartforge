@@ -1,10 +1,53 @@
 //! Tradução das externs auditadas para o plano de tokens da HIR.
 //! Não presume contratos para símbolos ausentes nem certifica proveniência/borrows.
 
-use super::{EfeitoTokens, Ownership, PlanoTokens};
+use super::{
+    EfeitoTokens, Ownership, PlanoEscopos, PlanoTokens, verificar_escopos, verificar_tokens,
+};
 use crate::hir::*;
 use dartforge_runtime::ownership::{ModoParametro, ModoResultado, contrato};
 use std::collections::{HashMap, HashSet, VecDeque};
+
+/// Produz metadados ARC e os publica após verificar tokens e escopos no CFG.
+///
+/// Parâmetros e instruções fora da cobertura do produtor exigem contratos
+/// semânticos fornecidos pelo chamador. O CFG e os planos devem ser da mesma
+/// versão da função. Não insere RC, certifica slots/invalidação ou Finalizable.
+///
+/// # Erros
+/// Falha de produção, inventário incompleto, token indisponível/não consumido,
+/// CFG excepcional incompatível ou empréstimo fora de escopo. Em qualquer
+/// desses casos, classes e plano de tokens permanecem intactos.
+///
+/// ```
+/// use dartforge_emit_native::{hir::*, otimizar::arc::*};
+/// use std::collections::HashMap;
+/// let f = Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+///     params: vec![], return_ty: Type::Void,
+///     blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
+///         (ValueId(0), Instruction::ArcCopy { value: Operand::Constant(Constant::Null) }, Type::Ref),
+///         (ValueId(1), Instruction::ArcDrop { value: Operand::Val(ValueId(0)) }, Type::Void)],
+///         terminator: Terminator::Return(None) }] };
+/// produzir_e_verificar_tokens(&f, &mut HashMap::new(), &mut PlanoTokens::default(),
+///     &TabelasDaFuncao::default(), &PlanoEscopos::default())?;
+/// # Ok::<(), String>(())
+/// ```
+pub fn produzir_e_verificar_tokens(
+    f: &Function,
+    classes: &mut HashMap<ValueId, Ownership>,
+    plano: &mut PlanoTokens,
+    tabelas: &TabelasDaFuncao,
+    escopos: &PlanoEscopos,
+) -> Result<HashMap<ValueId, ContratoChamadaRuntime>, String> {
+    let mut novas_classes = classes.clone();
+    let mut novo_plano = plano.clone();
+    let contratos = produzir_contratos_arc(f, &mut novas_classes, &mut novo_plano)?;
+    verificar_tokens(f, &novas_classes, tabelas, &novo_plano)?;
+    verificar_escopos(f, &novas_classes, escopos)?;
+    *classes = novas_classes;
+    *plano = novo_plano;
+    Ok(contratos)
+}
 
 /// Produz classes de resultado e consumo de todas as chamadas runtime da função.
 ///

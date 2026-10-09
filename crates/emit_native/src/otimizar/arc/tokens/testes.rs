@@ -406,6 +406,40 @@ fn produtor_phi_recusa_emprestimo_e_ciclo_sem_origem_sem_alterar_mapas() {
 }
 
 #[test]
+fn producao_verificada_nao_publica_metadados_de_funcao_com_token_vazado() {
+    let mut f = funcao(vec![bloco(0, vec![copia(1, 0)], Terminator::Return(None))]);
+    let mut c = classes(&[], &[]);
+    let inicial = c.clone();
+    let mut p = PlanoTokens::default();
+    let t = TabelasDaFuncao::default();
+    let s = super::super::PlanoEscopos::default();
+    assert!(
+        super::super::produzir_e_verificar_tokens(&f, &mut c, &mut p, &t, &s)
+            .unwrap_err()
+            .contains("não consumidos")
+    );
+    assert_eq!(c, inicial);
+    assert!(p.instrucoes.is_empty());
+    f.blocks[0].instructions.push(drop(2, 1));
+    super::super::produzir_e_verificar_tokens(&f, &mut c, &mut p, &t, &s).unwrap();
+    assert_eq!(c[&ValueId(1)], Ownership::Owned);
+    assert_eq!(c[&ValueId(2)], Ownership::Trivial);
+    // A classificação do parâmetro vem do produtor semântico; escopo
+    // inexistente não pode ser escondido pela geração das primitivas.
+    let mut c = inicial.clone();
+    c.insert(
+        ValueId(0),
+        Ownership::Borrowed {
+            owner: OrigemOwner::Chamador,
+            escopo: 7,
+        },
+    );
+    let antes = c.clone();
+    assert!(super::super::produzir_e_verificar_tokens(&f, &mut c, &mut p, &t, &s).is_err());
+    assert_eq!(c, antes);
+}
+
+#[test]
 fn emprestimo_nao_sobrevive_ao_owner_consumido_nem_escapa_no_retorno() {
     let mut f = funcao(vec![bloco(
         0,

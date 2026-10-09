@@ -1201,6 +1201,16 @@ geração completa do ownership nem desempenho. Rodada 37978604806 sobre
 c3effdd7 ainda ativa: macOS no corpus AOT/JIT na consulta; não contém este
 produtor nem o catálogo posteriores.
 
+Entrada `produzir_e_verificar_tokens` produz metadados ARC e confere tokens
+e escopos antes de publicar classes/plano. As entradas permanecem intactas
+quando a produção passa, mas a verificação encontra vazamento ou empréstimo
+em escopo inexistente; testes dos dois casos passaram. 38 testes ARC e
+36 exemplos públicos aprovados (`target/ownership-producao-verificada-test.log`,
+`target/ownership-producao-verificada-doc.log`). Exige planos da mesma versão
+do CFG e contratos semânticos dos parâmetros/demais instruções; ainda não
+certifica vida de slots, invalidação, Finalizable nem integra automaticamente
+a emissão padrão. Rodada pesada 37978604806 segue ativa na consulta.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

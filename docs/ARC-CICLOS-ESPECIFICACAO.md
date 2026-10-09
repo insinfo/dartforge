@@ -1158,6 +1158,14 @@ O verificador de tokens prova disponibilidade e transferência simultânea nas
 arestas; a conectividade do grafo não substitui essa prova. Testes nullable,
 laço com move e troca simultânea de dois Phi usam as classes geradas.
 
+`produzir_e_verificar_tokens` combina produção ARC, verificação de tokens e
+verificação de escopos antes de publicar os dois mapas. Falha de inventário,
+consumo, CFG excepcional ou escopo conserva as entradas originais. Os planos
+devem corresponder à mesma versão do CFG. Isso não certifica vida de slots,
+invalidação de borrows, Finalizable nem cobertura dos produtores ausentes;
+a emissão padrão ainda precisa integrar essa entrada após obter os metadados
+semânticos completos.
+
 Externs **novas** mínimas: `dartforge_arc_retain`, `dartforge_arc_release`,
 `dartforge_arc_collect`, `dartforge_arc_verificar_abi`. Retain/release são
 `nounwind` somente se falhas internas não desenrolarem pelo limite C. Elas
