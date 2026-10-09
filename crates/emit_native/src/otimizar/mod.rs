@@ -16,6 +16,7 @@
 //! `DARTFORGE_OTIMIZAR_HIR=0` desliga tudo (para comparar).
 
 mod cfg;
+pub mod arc;
 mod efeitos;
 mod escape;
 mod inline;

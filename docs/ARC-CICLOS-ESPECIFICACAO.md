@@ -885,6 +885,16 @@ Implementar `arc::inserir(module) -> Result<(), DiagnosticoArc>` em fases:
    nunca dar drop em resultado inexistente/default escalar.
 8. Recalcular vivacidade depois de inserir blocos e passar pelo verificador.
 
+Base disponível: `otimizar::arc::vivacidade` calcula o ponto fixo reverso
+nos blocos alcançáveis e expõe conjuntos antes/depois das instruções, por
+bloco e por aresta. As entradas de `Phi` são usos apenas na aresta do seu
+predecessor, inclusive backedges e as arestas excepcionais preparadas.
+O inventário de referências/slots é fornecido pelo chamador; a análise não
+infere ownership por largura de representação. Ainda falta a classificação
+semântica, materialização de dependências de borrows/keep-alive, tokens,
+inserção e verificação. A análise permanece fora do pipeline de emissão
+até esses consumidores serem implementados.
+
 Exemplo de redução legítima, conservando a ordem das chamadas Dart:
 
 ```text

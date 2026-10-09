@@ -153,6 +153,21 @@ inválida (`DARTFORGE_MEMORIA=rastreamento`, rejeitada antes de compilar),
 seguida das quatro rodadas válidas com `tracing`. São verificações de
 correção; os tempos totais do harness não medem desempenho dos modos.
 
+A base `otimizar::arc::vivacidade` calcula vivacidade reversa por ponto fixo
+em blocos alcançáveis, com usos de `Phi` por predecessor e conjuntos por
+instrução, bloco e aresta. Recebe o inventário semântico; não classifica
+valores pela largura `i64`. Testes dirigidos cobrem junção, backedge,
+inalcançáveis e o resultado de chamada ausente na aresta excepcional.
+Suíte unitária do emissor: 94 testes passaram, sete manuais ignorados.
+Os dois exemplos da API passaram como doctests; formatação dos dois módulos
+novos conferida com rustfmt, edição 2024.
+A análise ainda não é chamada pelo pipeline; classificação, dependências
+de borrows/keep-alive, tokens, inserção e verificação de ownership faltam.
+
+Na rodada remota `37896396380` sobre `719e94cc`, os quatro testes dirigidos
+de mapas também passaram, sem ignorados/filtrados, em 752 s; log do job B0
+conferido. Esta rodada ainda antecede a preparação excepcional separada.
+
 ## Situação geral (2026-10-08, fim da tarde)
 
 Foco pedido: o nativo AOT/JIT funcionando por inteiro, com `docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md` e
