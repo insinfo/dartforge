@@ -1,0 +1,18 @@
+[
+  {
+    "nome": "invalidos-arc.exe",
+    "sha256": "ec99e8bad7cb1c8301c05017293c83ca98ef43622ce46ef4bba824fa55029da8"
+  },
+  {
+    "nome": "invalidos-tracing.exe",
+    "sha256": "6ca702f148c2a9e769bac66b411da6d8a4646a9249d6a6e97aa14a826148badf"
+  },
+  {
+    "nome": "validos-arc.exe",
+    "sha256": "5c66da52be4008b875141185e0524274b27d825aba0b89d08a17e135702cd7b7"
+  },
+  {
+    "nome": "validos-tracing.exe",
+    "sha256": "d8e32647a474240ca645eff7df00dffc810b565e613aff654b8b27fdec38c4fe"
+  }
+]

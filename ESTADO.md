@@ -617,7 +617,13 @@ A validação fica no attach, sem alterar o sentinela de asTypedList.
 Teste cobre os três modos, recusa antes de criar anexo e remoção do registro.
 Suíte release: 146 unitários, três microbenchmarks ignorados, 13 integrações
 e 12 doctests aprovados (`target/runtime-finalizador-callback-release.log`).
-Ainda falta exercitar essa revisão pelo caminho AOT/JIT compilado.
+Validação compilada de `0f6629ad` concluída: callbacks inválidos recusados
+em AOT tracing, AOT ARC e JIT; caso válido `14_finalizadores.dart`, incluindo
+asTypedList(finalizer:), igual ao Dart 3.6.2 nos três caminhos. Onze etapas
+terminaram com zero, sob estresse e auditoria ARC quando aplicável. JIT no
+modo padrão da CLI; não afirmar ARC no JIT. Dados, hashes, diagnóstico e
+roteiro em `bench/resultados/2026-10-09-finalizador-callback`. Não cobre
+listener compilado, corpus completo ou encerramento por grupo.
 
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 

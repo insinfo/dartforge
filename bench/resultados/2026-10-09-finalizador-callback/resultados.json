@@ -1,0 +1,142 @@
+[
+  {
+    "etapa": "Dart-validos",
+    "cmd": [
+      "E:\\DartSDKs\\3.6.2\\bin\\dart.exe",
+      "run",
+      "E:\\MyRustProjects\\dartforge\\corpus\\nativo\\14_finalizadores.dart"
+    ],
+    "codigo": 0,
+    "stdout": "[false, false, true]\n1225\n[9, true]\n",
+    "stderr": "",
+    "segundos": 0.7381867000367492
+  },
+  {
+    "etapa": "compilar-invalidos-tracing",
+    "cmd": [
+      "E:\\MyRustProjects\\dartforge\\target\\release\\dartforge.exe",
+      "aot",
+      "E:\\MyRustProjects\\dartforge\\target\\native-finalizer-callback-invalido.dart",
+      "E:\\MyRustProjects\\dartforge\\target\\finalizador-callback-validacao\\invalidos-tracing.exe",
+      "--optimize",
+      "--memoria",
+      "tracing"
+    ],
+    "codigo": 0,
+    "stdout": "",
+    "stderr": "",
+    "segundos": 48.972284300019965
+  },
+  {
+    "etapa": "executar-invalidos-tracing",
+    "cmd": [
+      "E:\\MyRustProjects\\dartforge\\target\\finalizador-callback-validacao\\invalidos-tracing.exe"
+    ],
+    "codigo": 0,
+    "stdout": "[true, true]\n",
+    "stderr": "",
+    "segundos": 0.05158749996917322
+  },
+  {
+    "etapa": "compilar-validos-tracing",
+    "cmd": [
+      "E:\\MyRustProjects\\dartforge\\target\\release\\dartforge.exe",
+      "aot",
+      "E:\\MyRustProjects\\dartforge\\corpus\\nativo\\14_finalizadores.dart",
+      "E:\\MyRustProjects\\dartforge\\target\\finalizador-callback-validacao\\validos-tracing.exe",
+      "--optimize",
+      "--memoria",
+      "tracing"
+    ],
+    "codigo": 0,
+    "stdout": "",
+    "stderr": "",
+    "segundos": 9.690329899953213
+  },
+  {
+    "etapa": "executar-validos-tracing",
+    "cmd": [
+      "E:\\MyRustProjects\\dartforge\\target\\finalizador-callback-validacao\\validos-tracing.exe"
+    ],
+    "codigo": 0,
+    "stdout": "[false, false, true]\n1225\n[9, true]\n",
+    "stderr": "",
+    "segundos": 0.4825270000146702
+  },
+  {
+    "etapa": "compilar-invalidos-arc",
+    "cmd": [
+      "E:\\MyRustProjects\\dartforge\\target\\release\\dartforge.exe",
+      "aot",
+      "E:\\MyRustProjects\\dartforge\\target\\native-finalizer-callback-invalido.dart",
+      "E:\\MyRustProjects\\dartforge\\target\\finalizador-callback-validacao\\invalidos-arc.exe",
+      "--optimize",
+      "--memoria",
+      "arc"
+    ],
+    "codigo": 0,
+    "stdout": "",
+    "stderr": "",
+    "segundos": 39.372948199976236
+  },
+  {
+    "etapa": "executar-invalidos-arc",
+    "cmd": [
+      "E:\\MyRustProjects\\dartforge\\target\\finalizador-callback-validacao\\invalidos-arc.exe"
+    ],
+    "codigo": 0,
+    "stdout": "[true, true]\n",
+    "stderr": "",
+    "segundos": 0.051892399962525815
+  },
+  {
+    "etapa": "compilar-validos-arc",
+    "cmd": [
+      "E:\\MyRustProjects\\dartforge\\target\\release\\dartforge.exe",
+      "aot",
+      "E:\\MyRustProjects\\dartforge\\corpus\\nativo\\14_finalizadores.dart",
+      "E:\\MyRustProjects\\dartforge\\target\\finalizador-callback-validacao\\validos-arc.exe",
+      "--optimize",
+      "--memoria",
+      "arc"
+    ],
+    "codigo": 0,
+    "stdout": "",
+    "stderr": "",
+    "segundos": 8.512236599985044
+  },
+  {
+    "etapa": "executar-validos-arc",
+    "cmd": [
+      "E:\\MyRustProjects\\dartforge\\target\\finalizador-callback-validacao\\validos-arc.exe"
+    ],
+    "codigo": 0,
+    "stdout": "[false, false, true]\n1225\n[9, true]\n",
+    "stderr": "",
+    "segundos": 4.218900499981828
+  },
+  {
+    "etapa": "JIT-invalidos",
+    "cmd": [
+      "E:\\MyRustProjects\\dartforge\\target\\release\\dartforge.exe",
+      "run",
+      "E:\\MyRustProjects\\dartforge\\target\\native-finalizer-callback-invalido.dart"
+    ],
+    "codigo": 0,
+    "stdout": "[true, true]\n",
+    "stderr": "",
+    "segundos": 14.47107580001466
+  },
+  {
+    "etapa": "JIT-validos",
+    "cmd": [
+      "E:\\MyRustProjects\\dartforge\\target\\release\\dartforge.exe",
+      "run",
+      "E:\\MyRustProjects\\dartforge\\corpus\\nativo\\14_finalizadores.dart"
+    ],
+    "codigo": 0,
+    "stdout": "[false, false, true]\n1225\n[9, true]\n",
+    "stderr": "",
+    "segundos": 0.6922702000010759
+  }
+]
