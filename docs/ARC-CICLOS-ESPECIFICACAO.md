@@ -1129,6 +1129,16 @@ gerador; não há ainda uma extern real do catálogo que consuma por uma única
 aresta. Retornos borrowed, execução Dart, cobertura geral e geração automática
 do plano completo continuam pendentes.
 
+`produzir_contratos_runtime` gera classes dos resultados e efeitos de todas
+as CallRuntime de uma função auditável, sem modificar as entradas se alguma
+chamada falhar na validação. Metadados anteriores incompatíveis, extern sem
+contrato, IDs duplicados e resultado mal tipado são erros. Os contratos
+retornados conservam retenção/invalidação para os próximos passes. Parâmetros,
+outras instruções e chamadas Dart ainda exigem produtores próprios; esta API
+não está ligada à emissão padrão, não insere contadores nem certifica
+proveniência, slots, borrows ou cleanup. Um teste de CFG usa o plano gerado
+para gc_collect e verifica que retirar o pouso ou negar pending é recusado.
+
 Externs **novas** mínimas: `dartforge_arc_retain`, `dartforge_arc_release`,
 `dartforge_arc_collect`, `dartforge_arc_verificar_abi`. Retain/release são
 `nounwind` somente se falhas internas não desenrolarem pelo limite C. Elas

@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 /// let efeito = EfeitoTokens::default();
 /// assert!(!efeito.pode_falhar && efeito.erro.is_empty());
 /// ```
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EfeitoTokens {
     /// Consumo tanto no sucesso quanto na falha, antes do resultado.
     pub sempre: Vec<ValueId>,

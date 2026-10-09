@@ -1,9 +1,76 @@
 //! Tradução das externs auditadas para o plano de tokens da HIR.
 //! Não presume contratos para símbolos ausentes nem certifica proveniência/borrows.
 
-use super::{EfeitoTokens, Ownership};
+use super::{EfeitoTokens, Ownership, PlanoTokens};
 use crate::hir::*;
 use dartforge_runtime::ownership::{ModoParametro, ModoResultado, contrato};
+use std::collections::HashMap;
+
+/// Produz classes de resultado e consumo de todas as chamadas runtime da função.
+///
+/// Aplica as alterações apenas depois de conferir todas as chamadas. Parâmetros,
+/// operações ordinárias e chamadas Dart exigem metadados de outros produtores.
+/// Retorna os contratos para análise posterior de retenção/invalidação.
+/// Não insere contadores, limpa escopos ou certifica argumentos/proveniência.
+///
+/// # Erros
+/// Extern sem contrato, assinatura inválida, resultado incompatível com o tipo
+/// da instrução, IDs repetidos ou conflito com classe/efeito já fornecido.
+/// As duas entradas permanecem intactas em caso de erro.
+///
+/// ```
+/// use dartforge_emit_native::{hir::*, otimizar::arc::*};
+/// use std::collections::HashMap;
+/// let f = Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+///     params: vec![], return_ty: Type::Void,
+///     blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![(ValueId(0),
+///         Instruction::CallRuntime { name: "dartforge_arc_collect".into(), args: vec![], ret_ty: Type::Void }, Type::Void)],
+///         terminator: Terminator::Return(None) }] };
+/// let mut classes = HashMap::new();
+/// let mut plano = PlanoTokens::default();
+/// produzir_contratos_runtime(&f, &mut classes, &mut plano)?;
+/// assert_eq!(classes[&ValueId(0)], Ownership::Trivial);
+/// assert!(!plano.instrucoes[&ValueId(0)].pode_falhar);
+/// # Ok::<(), String>(())
+/// ```
+pub fn produzir_contratos_runtime(
+    f: &Function,
+    classes: &mut HashMap<ValueId, Ownership>,
+    plano: &mut PlanoTokens,
+) -> Result<HashMap<ValueId, ContratoChamadaRuntime>, String> {
+    let mut contratos = HashMap::new();
+    let mut ids = std::collections::HashSet::new();
+    for (v, _, _) in &f.params {
+        if !ids.insert(*v) {
+            return Err(format!("v{} repetido", v.0));
+        }
+    }
+    for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
+        if !ids.insert(*v) {
+            return Err(format!("v{} repetido", v.0));
+        }
+        if let Instruction::CallRuntime { ret_ty, .. } = inst {
+            if ty != ret_ty {
+                return Err(format!("v{}: tipo do resultado incompatível", v.0));
+            }
+            let c = contrato_chamada_runtime(inst).map_err(|e| format!("v{}: {e}", v.0))?;
+            if classes.get(v).is_some_and(|classe| *classe != c.resultado)
+                || plano.instrucoes.get(v).is_some_and(|e| *e != c.efeito)
+            {
+                return Err(format!(
+                    "v{}: metadados conflitam com contrato runtime",
+                    v.0
+                ));
+            }
+            contratos.insert(*v, c);
+        }
+    }
+    for (v, c) in &contratos {
+        classes.insert(*v, c.resultado);
+        plano.instrucoes.insert(*v, c.efeito.clone());
+    }
+    Ok(contratos)
+}
 
 /// Contrato semântico de uma chamada ordinária auditada.
 ///
@@ -196,5 +263,53 @@ mod testes {
         assert!(
             c.efeito.sempre.is_empty() && c.efeito.sucesso.is_empty() && c.efeito.erro.is_empty()
         );
+    }
+
+    #[test]
+    fn produtor_e_atomico_e_produz_owned_sem_inferir_pela_largura() {
+        let mut f = Function {
+            symbol: "f".into(),
+            name: "f".into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::Void,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![(
+                    ValueId(0),
+                    Instruction::CallRuntime {
+                        name: "dartforge_arc_quadro_carregar_v1".into(),
+                        args: vec![
+                            (Operand::Constant(Constant::Int(1)), Type::I64),
+                            (Operand::Constant(Constant::Int(0)), Type::I64),
+                        ],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                )],
+                terminator: Terminator::Return(None),
+            }],
+        };
+        let mut classes = HashMap::new();
+        let mut plano = PlanoTokens::default();
+        f.blocks[0].instructions.push((
+            ValueId(1),
+            Instruction::CallRuntime {
+                name: "extern_sem_contrato".into(),
+                args: vec![],
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        ));
+        assert!(produzir_contratos_runtime(&f, &mut classes, &mut plano).is_err());
+        assert!(classes.is_empty() && plano.instrucoes.is_empty());
+        f.blocks[0].instructions.pop();
+        produzir_contratos_runtime(&f, &mut classes, &mut plano).unwrap();
+        assert_eq!(classes[&ValueId(0)], Ownership::Owned);
+        classes.insert(ValueId(0), Ownership::Trivial);
+        let antes = plano.instrucoes.clone();
+        assert!(produzir_contratos_runtime(&f, &mut classes, &mut plano).is_err());
+        assert_eq!(classes[&ValueId(0)], Ownership::Trivial);
+        assert_eq!(plano.instrucoes, antes);
     }
 }

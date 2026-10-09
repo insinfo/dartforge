@@ -97,6 +97,45 @@ fn extern_auditada_nao_aceita_plano_que_omite_consumo() {
 }
 
 #[test]
+fn produtor_runtime_e_invoke_auditado_exigem_saida_de_erro() {
+    let f = funcao(vec![
+        bloco(
+            0,
+            vec![(
+                ValueId(1),
+                Instruction::CallRuntime {
+                    name: "dartforge_gc_collect".into(),
+                    args: vec![],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            )],
+            Terminator::CondBranch {
+                cond: Operand::Constant(Constant::Bool(false)),
+                then_block: BlockId(1),
+                else_block: BlockId(2),
+            },
+        ),
+        bloco(1, vec![], Terminator::Return(None)),
+        bloco(2, vec![], Terminator::Return(None)),
+    ]);
+    let mut c = classes(&[], &[]);
+    let mut p = PlanoTokens::default();
+    super::super::produzir_contratos_runtime(&f, &mut c, &mut p).unwrap();
+    let mut t = TabelasDaFuncao::default();
+    t.invocacoes.insert(ValueId(1), BlockId(1));
+    t.pousos.insert(BlockId(1));
+    verificar_tokens(&f, &c, &t, &p).unwrap();
+    assert!(verificar_tokens(&f, &c, &TabelasDaFuncao::default(), &p).is_err());
+    p.instrucoes.get_mut(&ValueId(1)).unwrap().pode_falhar = false;
+    assert!(
+        verificar_tokens(&f, &c, &t, &p)
+            .unwrap_err()
+            .contains("ownership.tsv")
+    );
+}
+
+#[test]
 fn copia_movimento_drop_e_consumo_duplo() {
     let mut f = funcao(vec![bloco(
         0,

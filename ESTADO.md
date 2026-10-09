@@ -1160,6 +1160,18 @@ extern real do catálogo ainda usa esses dois modos. Não comprova caminhos
 excepcionais das demais externs, retorno borrowed, callbacks Dart, inserção
 automática ou análise de invalidação dos borrows.
 
+Produtor `produzir_contratos_runtime` preenche classes dos resultados e
+efeitos de todas as CallRuntime auditadas de uma função. Faz validação antes
+de alterar os dois mapas: símbolo desconhecido, tipo/ID inválido ou conflito
+com metadados existentes não deixam alteração parcial. Retorna contratos
+com retenção/invalidação para análise posterior. Teste de CFG com plano gerado
+para gc_collect passou com invoke preparado e recusou falta do pouso/negação
+da pendência. Teste de atomicidade e resultado owned também passou.
+35 testes ARC e 34 exemplos públicos do emissor aprovados
+(`target/ownership-produtor-runtime-test.log`, `target/ownership-produtor-runtime-doc.log`).
+Parâmetros, outras instruções, chamadas Dart e integração no pipeline padrão
+ainda exigem seus produtores; não há inserção completa de RC ou cleanup.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
