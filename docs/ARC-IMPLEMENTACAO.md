@@ -364,6 +364,18 @@ tabelas canônicas, eventos e filas ainda exigem seus contratos de owners.
 O código gerado ainda não fornece a ABI owned/borrowed completa.
 Doctests do runtime: oito aprovados, incluindo os quatro métodos persistentes.
 
+As tabelas de literais, tear-offs de topo e singletons enum contam um owner
+por entrada. Repetir o registro do mesmo handle não retém novamente; trocar
+uma entrada solta o owner anterior. A ativação, promoção e auditoria incluem
+essas entradas com multiplicidade. A construção do enum também usa quadro
+proprietário para o nome temporário. Teste dirigido cobre registros repetidos,
+promoção, substituição e morte do tear-off que perdeu sua entrada, nos modos
+puro e berçário. `permanentes` é índice de identidade, não raiz adicional:
+o percurso de raízes e a purga desse índice permitem reclamar a entrada
+substituída quando perde seus owners. Release: 117 aprovados, três
+microbenchmarks ignorados. Doctests: 11 aprovados.
+Filas, eventos e demais tabelas persistentes continuam pendentes.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais

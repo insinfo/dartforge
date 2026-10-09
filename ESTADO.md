@@ -267,6 +267,10 @@ anterior e a ausência de Pesado ativa. Valida os quadros proprietários,
 movimento e primeiros caminhos Rust migrados. Relatórios Windows ARC e ARC
 com estresse conferidos: 238/238 cada, em 38,1 s e 53,4 s de harness.
 A rodada segue ativa; estes placares não provam conclusão nas três plataformas.
+Linux x86-64 também concluiu: relatórios finais conferidos, AOT, A1/B0/B1
+e ARC 238/238, `dart:io` 130/130, JIT × AOT 238/238 no placar, zero
+divergências (sete sem IR, iguais por construção). macOS, SDK da fonte e
+testes dirigidos de mapas B0 ainda em execução na última consulta.
 As migrações posteriores das listas (`0fa1d363`), visões e resultados I/O
 (`838df90e`), records da ABI e concatenação (`7cc04df8`) ainda não estão
 nesta rodada. Validação local debug/release até `7cc04df8`: 113 aprovados,

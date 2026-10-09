@@ -1643,7 +1643,19 @@ impl Heap {
     }
     /// Interna `h` (uma string com as `unidades`) como literal canônico: raiz
     /// (`literais`) e permanente (identidade entre portas do mesmo isolado).
+    /// A entrada conta um owner; repetir o mesmo registro não retém novamente.
+    ///
+    /// ```
+    /// use dartforge_runtime::heap::Heap;
+    /// let mut heap = Heap::new(false);
+    /// let texto = heap.alocar_str("A");
+    /// heap.guardar_literal(vec![65], texto);
+    /// assert_eq!(heap.literal(&[65]), Some(texto));
+    /// ```
     pub fn guardar_literal(&mut self, unidades: Vec<u16>, h: Ref) {
+        if smi::e_handle(h) { self.conferir_vivo(h); }
+        let antigo = self.literais.get(&unidades).copied().unwrap_or(0);
+        self.arc_trocar_raiz_proprietaria(h, antigo);
         self.literais.insert(unidades, h);
         self.permanentes.insert(h);
     }
@@ -1777,15 +1789,27 @@ impl Heap {
     }
 
     /// Obtém o singleton de um valor enum, protegendo as alocações internas.
+    /// A tabela guarda um owner persistente para cada singleton criado.
+    ///
+    /// # Panics
+    /// A identidade da classe ou o índice é negativo.
+    ///
+    /// ```
+    /// use dartforge_runtime::heap::Heap;
+    /// let mut heap = Heap::new(false);
+    /// let valor = heap.enum_value(900, 0, "zero");
+    /// assert_eq!(heap.enum_value(900, 0, "zero"), valor);
+    /// ```
     pub fn enum_value(&mut self, class_id: i64, index: i64, name: &str) -> i64 {
         assert!(class_id >= 0 && index >= 0, "identidade enum inválida");
         if let Some(&handle) = self.enum_values.get(&(class_id, index)) {
             return handle;
         }
-        let frame = self.push_frame_with_slots(1);
+        let frame = self.push_frame_proprietario(1);
         let text = self.alocar_str(name);
         self.set_root(frame, 0, text);
         let object = self.novo_objeto(class_id, &[(index, false), (text, true)]);
+        self.arc_trocar_raiz_proprietaria(object, 0);
         self.enum_values.insert((class_id, index), object);
         self.permanentes.insert(object);
         self.pop_frame(frame);
@@ -1798,7 +1822,19 @@ impl Heap {
     }
     /// Registra `h` como o tear-off canônico de `codigo`: raiz (`tearoffs`), o
     /// inverso (`codigo_do_tearoff`) e permanente.
+    /// A tabela conta um owner, incluindo substituição sem duplicar aliases.
+    ///
+    /// ```
+    /// use dartforge_runtime::heap::Heap;
+    /// let mut heap = Heap::new(false);
+    /// let closure = heap.nova_closure(123, (0, false), 0, 0);
+    /// heap.registrar_tearoff(123, closure);
+    /// assert_eq!(heap.tearoff_registrado(123), Some(closure));
+    /// ```
     pub fn registrar_tearoff(&mut self, codigo: i64, h: Ref) {
+        if smi::e_handle(h) { self.conferir_vivo(h); }
+        let antigo = self.tearoffs.get(&codigo).copied().unwrap_or(0);
+        self.arc_trocar_raiz_proprietaria(h, antigo);
         self.tearoffs.insert(codigo, h);
         self.codigo_do_tearoff.insert(h, codigo);
         self.permanentes.insert(h);
@@ -1843,6 +1879,9 @@ impl Heap {
         self.frames.iter().filter(|(_, _, dono)| *dono)
             .flat_map(|(_, slots, _)| slots.iter().copied())
             .chain(self.globais.values().copied())
+            .chain(self.literais.values().copied())
+            .chain(self.tearoffs.values().copied())
+            .chain(self.enum_values.values().copied())
             .chain(self.raizes_do_runtime.iter().copied()).collect()
     }
 
@@ -5712,6 +5751,40 @@ mod arc_no_heap {
         heap.set_global_root(10, smi::de(7).unwrap());
         heap.collect();
         assert!(!vivo(&heap, b));
+    }
+
+    #[test]
+    fn tabelas_canonicas_contam_slots_sem_duplicar_registro() {
+        for puro in [true, false] {
+            let mut heap = heap_arc();
+            heap.arc.as_mut().unwrap().puro = puro;
+            heap.stress = true;
+            let unidades = vec![65u16];
+            let texto = heap.alocar_str("A");
+            heap.guardar_literal(unidades.clone(), texto);
+            heap.guardar_literal(unidades.clone(), texto);
+            let tearoff = heap.nova_closure(123, (0, false), 0, 0);
+            heap.registrar_tearoff(123, tearoff);
+            heap.registrar_tearoff(123, tearoff);
+            let valor_enum = heap.enum_value(900, 0, "zero");
+            assert_eq!(heap.enum_value(900, 0, "zero"), valor_enum);
+            for _ in 0..2 {
+                heap.coletar(true);
+                for h in [texto, tearoff, valor_enum] {
+                    assert_eq!(heap.arc.as_ref().unwrap().estado.meta(h).unwrap().rc, 1);
+                }
+            }
+            assert_eq!(heap.literal(&unidades), Some(texto));
+            assert_eq!(heap.tearoff_registrado(123), Some(tearoff));
+            let substituto = heap.nova_closure(123, (0, false), 0, 0);
+            heap.registrar_tearoff(123, substituto);
+            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(tearoff).unwrap().rc, 0);
+            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(substituto).unwrap().rc, 1);
+            heap.collect();
+            assert_eq!(heap.tearoff_registrado(123), Some(substituto));
+            assert!(!vivo(&heap, tearoff), "o índice de identidade não é owner");
+            assert!([texto, substituto, valor_enum].iter().all(|&h| vivo(&heap, h)));
+        }
     }
 
     #[test]
