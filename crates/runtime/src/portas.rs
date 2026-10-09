@@ -815,6 +815,36 @@ fn refazer_indices_copiados(g: &Grafo, handles: &[i64]) {
 mod testes_owners_materializacao {
     use super::*;
 
+    #[test]
+    fn encerramento_do_isolado_solta_owners_de_mensagens_pendentes() {
+        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+        let (quadro, texto) = HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.ativar_arc();
+            let quadro = h.push_frame_proprietario(1);
+            let texto = h.alocar_str("mensagem não atendida");
+            h.set_root(quadro, 0, texto);
+            (quadro, texto)
+        });
+        let porta = dartforge_nativo_DartForge_porta_abrir(0);
+        assert_eq!(dartforge_nativo_DartForge_porta_enviar(porta, texto), 0);
+        assert_eq!(dartforge_nativo_DartForge_porta_enviar(porta, texto), 0);
+        HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.pop_frame(quadro);
+            h.collect();
+            assert!(h.e_objeto_vivo(texto));
+        });
+        fechar_portas_do_isolado();
+        FILA.with(|f| assert!(f.mensagens.lock().unwrap().normal.is_empty()));
+        HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.collect();
+            assert!(!h.e_objeto_vivo(texto));
+        });
+        HEAP.with(|h| { h.replace(anterior); });
+    }
+
     extern "C" fn verificar_mensagem(_: i64) -> i64 {
         let valor = dartforge_nativo_DartForge_mensagem_atual();
         HEAP.with(|h| {

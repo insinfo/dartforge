@@ -411,6 +411,14 @@ com auditoria nos modos puro e berçário. As mensagens de controle, o término
 concorrente e a ABI completa de callbacks continuam exigindo validação própria.
 Suíte release: 122 aprovados, três microbenchmarks ignorados.
 
+O fechamento de todas as portas do isolado foi testado com duas mensagens
+pendentes compartilhando uma string: a fila é drenada e ambas as ocorrências
+são soltadas. Aprovado com auditoria nos modos puro e berçário. O contador
+de raízes percorridas pelo tracing inclui a tabela de owners de mensagens;
+teste de duas ocorrências, uma e nenhuma confere os números e a liberação.
+Isso não cobre uma postagem concorrente à terminação do isolado.
+Suíte release atual: 124 aprovados, três microbenchmarks ignorados.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais

@@ -2800,6 +2800,7 @@ impl Heap {
         self.stats.roots_scanned += self.enum_values.len() as u64;
         self.stats.roots_scanned += self.tearoffs.len() as u64;
         self.stats.roots_scanned += self.literais.len() as u64;
+        self.stats.roots_scanned += self.owners_mensagens.len() as u64;
         self.stats.roots_scanned += self
             .frames
             .iter()
@@ -5837,6 +5838,25 @@ mod arc_no_heap {
             assert!(!vivo(&heap, tearoff), "o índice de identidade não é owner");
             assert!([texto, substituto, valor_enum].iter().all(|&h| vivo(&heap, h)));
         }
+    }
+
+    #[test]
+    fn owners_de_mensagem_contam_no_percurso_do_tracing() {
+        let mut heap = Heap::new(false);
+        let texto = heap.alocar_str("fila");
+        let a = heap.reter_owner_mensagem(texto);
+        let b = heap.reter_owner_mensagem(texto);
+        let antes = heap.stats().roots_scanned;
+        heap.collect();
+        assert_eq!(heap.stats().roots_scanned - antes, 2);
+        assert!(heap.e_objeto_vivo(texto));
+        heap.soltar_owner_mensagem(a);
+        let antes = heap.stats().roots_scanned;
+        heap.collect();
+        assert_eq!(heap.stats().roots_scanned - antes, 1);
+        heap.soltar_owner_mensagem(b);
+        heap.collect();
+        assert!(!heap.e_objeto_vivo(texto));
     }
 
     #[test]
