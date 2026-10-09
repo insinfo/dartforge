@@ -835,6 +835,36 @@ Inspeção de simplificar::pura confirma que a ABI dartforge_arc_quadro_*
 não é classificada como chamada pura: efeitos de GC/exceção nulos não
 autorizam sua remoção. Isso é inspeção, não prova de execução integrada.
 
+ABI mínima ARC implementada em arc_abi.rs: dartforge_arc_retain/release,
+dartforge_arc_collect e dartforge_arc_verificar_abi. Tokens do código têm
+inventário por handle/multiplicidade separado de owners de slots e mensagens;
+entram no alcance e na auditoria, sem contar raízes observacionais novamente.
+Null/Smi são no-op. Release exige token do código; owner de quadro não o
+substitui. Retain/release não coletam nem executam Dart; collect é safepoint
+explícito, com callbacks nativos possíveis e ações Dart apenas enfileiradas.
+verificar_abi retorna 1 só para versão 1 e heap ARC; não certifica contratos
+do módulo ou retornos owned. Declarações LLVM nounwind e efeitos registrados.
+Teste dirigido cobre tracing, ARC puro e berçário, multiplicidade RC 2 -> 1,
+raiz observacional sem dupla contagem, release sem token, ativação com tokens
+existentes e ciclo recuperado após o último release. Runtime release final:
+152 aprovados, três microbenchmarks ignorados, 13 testes de integração e
+20 exemplos de documentação (`target/runtime-arc-tokens-validado-release.log`).
+Emissor release com o runtime atualizado: 115 aprovados, sete manuais
+ignorados (`target/emissor-arc-tokens-release.log`).
+Ainda não inseridos pelo lowering; ownership.tsv, contratos de resultados,
+consumo CFG, ArcKeepAlive e gate >= A0 continuam pendentes. O inventário por
+handle é uma base auditável, não uma alegação de custo mínimo.
+
+Rodada Pesado 37954216065 (ba5f3b69), artefatos parciais baixados em
+target/ci-37954216065: Windows ARC 238/238 (42 s, harness 45 s), estresse
+238/238 (54 s, harness 56 s), io 130/130 (91 s, harness 96 s). Linux
+AOT/A1/B0/B1/ARC 238/238, io 130/130; JIT x AOT 238/238 idênticos, zero
+divergências, sete sem IR iguais por construção, zero timeouts nos dois.
+SDK da fonte AOT 238/238 (76 s). Os seis DART! de interop são falhas da VM
+por biblioteca web não suportada; não equivalem a seis oráculos Dart válidos.
+Jobs Windows/Linux/SDK/B0 terminaram com sucesso; macOS segue ativo na última
+consulta. Não contém o novo CFG excepcional, teste semântico ou ABI mínima.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

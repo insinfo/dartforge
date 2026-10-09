@@ -1445,6 +1445,9 @@ pub struct Heap {
     /// Ocorrências compartilhadas mantidas por mensagens neste isolado.
     owners_mensagens: crate::hash::HashMap<u64, Ref>,
     proximo_owner_mensagem: u64,
+    /// Tokens SSA da ABI ARC, com multiplicidade separada de slots e mapas.
+    /// O inventário sustenta alcance e auditoria; mapas não contam outra vez.
+    owners_codigo: crate::hash::HashMap<Ref, usize>,
     /// Campos `late` já escritos, por handle e índice físico. A marca fica
     /// fora do valor: zero e null são atribuições válidas do programa.
     campos_late_inicializados: crate::hash::HashSet<(i64, i64)>,
@@ -1603,6 +1606,7 @@ impl Heap {
             raizes_do_runtime: [0, 0],
             owners_mensagens: crate::hash::HashMap::default(),
             proximo_owner_mensagem: 0,
+            owners_codigo: crate::hash::HashMap::default(),
             campos_late_inicializados: crate::hash::HashSet::default(),
             late_novos: Vec::new(),
             epoca_de_layout: EPOCA_DE_LAYOUT.load(std::sync::atomic::Ordering::Acquire),
@@ -1907,6 +1911,7 @@ impl Heap {
             .chain(self.tearoffs.values().copied())
             .chain(self.enum_values.values().copied())
             .chain(self.owners_mensagens.values().copied())
+            .chain(self.owners_codigo.iter().flat_map(|(&h, &n)| std::iter::repeat_n(h, n)))
             .chain(self.finalizacoes_prontas.iter().copied())
             .chain(self.raizes_do_runtime.iter().copied()).collect()
     }
@@ -1956,6 +1961,29 @@ impl Heap {
     pub(crate) fn soltar_owner_mensagem(&mut self, id: u64) {
         let valor = self.owners_mensagens.remove(&id).expect("owner de mensagem inexistente");
         self.arc_trocar_raiz_proprietaria(0, valor);
+    }
+
+    /// Cria uma ocorrência do código gerado, sem coleta ou execução Dart.
+    /// A localização observacional publicada não cria outro owner.
+    pub(crate) fn reter_owner_codigo(&mut self, valor: Ref) {
+        if !smi::e_handle(valor) { return; }
+        self.conferir_vivo(valor);
+        let n = self.owners_codigo.get(&valor).copied().unwrap_or(0)
+            .checked_add(1).expect("tokens ARC do código esgotados");
+        self.arc_trocar_raiz_proprietaria(valor, 0);
+        self.owners_codigo.insert(valor, n);
+    }
+
+    /// Consome exatamente uma ocorrência da ABI, nunca um owner de slot.
+    pub(crate) fn soltar_owner_codigo(&mut self, valor: Ref) {
+        if !smi::e_handle(valor) { return; }
+        let n = *self.owners_codigo.get(&valor).expect("release ARC sem token do código");
+        self.arc_trocar_raiz_proprietaria(0, valor);
+        if n == 1 {
+            self.owners_codigo.remove(&valor);
+        } else {
+            self.owners_codigo.insert(valor, n - 1);
+        }
     }
 
     /// Retém antes de soltar, sem coleta nem chamada Dart entre as operações.
@@ -2818,6 +2846,7 @@ impl Heap {
     /// pilha-sombra do código gerado).
     fn raizes(&self, destino: &mut Vec<i64>) {
         destino.extend(self.owners_mensagens.values().copied());
+        destino.extend(self.owners_codigo.keys().copied());
         destino.extend(self.enum_values.values().copied());
         destino.extend(self.tearoffs.values().copied());
         destino.extend(self.literais.values().copied());
@@ -2909,6 +2938,7 @@ impl Heap {
         self.stats.roots_scanned += self.tearoffs.len() as u64;
         self.stats.roots_scanned += self.literais.len() as u64;
         self.stats.roots_scanned += self.owners_mensagens.len() as u64;
+        self.stats.roots_scanned += self.owners_codigo.len() as u64;
         self.stats.roots_scanned += self
             .frames
             .iter()
@@ -5870,6 +5900,74 @@ mod arc_no_heap {
         heap.ativar_arc();
         heap.arc.as_mut().unwrap().conferir = true;
         heap
+    }
+
+    #[test]
+    fn tokens_do_codigo_contam_aliases_sem_duplicar_raizes_observacionais() {
+        for modo in [None, Some(false), Some(true)] {
+            let mut heap = if modo.is_some() { heap_arc() } else { Heap::new(true) };
+            if let Some(puro) = modo { heap.arc.as_mut().unwrap().puro = puro; }
+            let quadro = heap.push_frame_with_slots(1);
+            let valor = heap.alocar_str("tokens do código");
+            heap.set_root(quadro, 0, valor);
+            heap.reter_owner_codigo(valor);
+            heap.reter_owner_codigo(valor);
+            heap.collect();
+            assert!(heap.e_objeto_vivo(valor));
+            if let Some(arc) = &heap.arc {
+                assert_eq!(arc.estado.meta(valor).unwrap().rc, 2);
+            }
+            heap.set_root(quadro, 0, 0);
+            heap.soltar_owner_codigo(valor);
+            heap.collect();
+            assert!(heap.e_objeto_vivo(valor));
+            if let Some(arc) = &heap.arc {
+                assert_eq!(arc.estado.meta(valor).unwrap().rc, 1);
+            }
+            heap.soltar_owner_codigo(valor);
+            assert!(heap.e_objeto_vivo(valor), "release não coleta");
+            heap.collect();
+            assert!(!heap.e_objeto_vivo(valor));
+            assert!(heap.owners_codigo.is_empty());
+            heap.pop_frame(quadro);
+            for escalar in [0, smi::de(42).unwrap()] {
+                heap.reter_owner_codigo(escalar);
+                heap.soltar_owner_codigo(escalar);
+            }
+            assert!(heap.owners_codigo.is_empty());
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "release ARC sem token do código")]
+    fn release_do_codigo_nao_consume_owner_de_quadro() {
+        let mut heap = heap_arc();
+        let quadro = heap.push_frame_proprietario(1);
+        let valor = heap.alocar_str("somente slot");
+        heap.set_root(quadro, 0, valor);
+        heap.soltar_owner_codigo(valor);
+    }
+
+    #[test]
+    fn ativacao_arc_reconta_tokens_e_ultimo_release_permite_coletar_ciclo() {
+        let mut heap = Heap::new(true);
+        let a = lista(&mut heap, 1);
+        heap.reter_owner_codigo(a);
+        heap.reter_owner_codigo(a);
+        let b = lista(&mut heap, 1);
+        heap.gravar_refs(a, 1, &[b]);
+        heap.gravar_refs(b, 1, &[a]);
+        heap.ativar_arc();
+        heap.arc.as_mut().unwrap().conferir = true;
+        heap.collect();
+        assert_eq!(heap.arc.as_ref().unwrap().estado.meta(a).unwrap().rc, 3);
+        heap.soltar_owner_codigo(a);
+        heap.collect();
+        assert!(heap.e_objeto_vivo(a) && heap.e_objeto_vivo(b));
+        heap.soltar_owner_codigo(a);
+        assert!(heap.e_objeto_vivo(a) && heap.e_objeto_vivo(b));
+        heap.collect();
+        assert!(!heap.e_objeto_vivo(a) && !heap.e_objeto_vivo(b));
     }
 
     #[test]

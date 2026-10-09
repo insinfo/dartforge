@@ -1062,8 +1062,22 @@ borrowed e cria ocorrência no slot, mover transfere a ocorrência entre
 slots, fechar consome as ocorrências do quadro do topo. Todos usam o
 inventário proprietário existente do Heap, inclusive em tracing. Não
 coletam nem chamam Dart. Cópia/fechamento rejeitam quadro observacional.
-Essa base ainda não é inserida pelo lowering e não substitui as quatro
-externs mínimas, a tabela ownership.tsv ou a ABI geral de retornos owned.
+Essa base ainda não é inserida pelo lowering e não substitui a tabela
+ownership.tsv ou a ABI geral de retornos owned.
+
+As quatro externs mínimas passam a ter implementação em `arc_abi.rs`:
+retain/release recebem Ref e criam/consomem ocorrências no inventário
+`Heap::owners_codigo`, separado de owners de quadros, campos e mensagens.
+Null/Smi não contam. Releases sem token do código abortam, mesmo quando
+outro slot ainda sustenta o objeto. A multiplicidade participa da auditoria
+de RC; o inventário também sustenta alcance em tracing e promoção de jovens.
+Retain/release não coletam; `arc_collect()` é o safepoint explícito e pode
+executar callbacks nativos, mas apenas enfileira callbacks Dart.
+`arc_verificar_abi(versao: i64) -> i8` devolve 1 para versão 1 com ARC ativo,
+0 para versão/modo incompatível. O chamador deve recusar o módulo nesse caso.
+Isso ainda não certifica contratos de externs de um módulo, retornos owned
+ou tokens produzidos/consumidos pelo lowering. O inventário por handle é
+uma implementação inicial auditável; não demonstra o gate de desempenho.
 
 ### 21.3 Raízes: contadas versus observacionais
 

@@ -163,6 +163,22 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
+        decl: "declare void @dartforge_arc_retain(i64) nounwind",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
+        decl: "declare void @dartforge_arc_release(i64) nounwind",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
+        decl: "declare void @dartforge_arc_collect() nounwind",
+        efeitos: Efeitos { aloca: true, lanca: false, chama_dart: false },
+    },
+    Extern {
+        decl: "declare i8 @dartforge_arc_verificar_abi(i64) nounwind",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
         decl: "declare void @dartforge_object_set(i64, i64, i64, i8)",
         // Lê/grava um campo: não aloca (o emissor a expande em linha com
         // índice constante).
