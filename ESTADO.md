@@ -1525,6 +1525,15 @@ ou pendências. Suíte ARC 58/58
 (`target/ownership-record-consultas-produtor.log`).
 
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
+Produtor agora infere Trivial para Phis Ref com origem null/Trivial conhecida,
+inclusive ciclos ancorados, sem classe manual do resultado. Demandas explícitas
+de consumo ARC, efeitos de chamadas e retorno Owned são propagadas para trás
+pelas entradas de Phis e preservam o token lógico, inclusive para null.
+Regressão verifica o mesmo laço de null com retorno Trivial e Owned, além
+de laço sobre literal permanente. Suíte ARC 67/67 e exemplos públicos 36/36
+(`target/ownership-phi-ref-trivial-auto-test-final.log`,
+`target/ownership-phi-ref-trivial-auto-doc.log`). Não mede ganho de desempenho
+nem infere ownership de parâmetros/representações managed-I64.
 Regressão de ciclo emprestado ampliada para dois Phis mutuamente dependentes,
 com blocos em ordem inversa: âncora externa produz ambos e o wrapper completo
 aceita o retorno Borrowed. Trocar a fonte do segundo Phi por cópia Owned

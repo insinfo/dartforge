@@ -108,6 +108,8 @@ pub fn produzir_contratos_runtime(
 /// correspondentes, e origem conhecida fora do ciclo de Phis, inclusive em laços.
 /// Phi Ref explicitamente Trivial exige entradas Trivial/null e origem externa;
 /// a classe fornecida não permite apagar ownership de uma entrada gerenciada.
+/// Phis Ref sem demanda Owned e com origem Trivial/null conhecida recebem
+/// Trivial automaticamente, inclusive ciclos ancorados.
 /// Phis Ref ainda não classificados preservam automaticamente contratos Borrowed
 /// idênticos nas entradas conhecidas; cadeias e ciclos ancorados independem
 /// da ordem dos blocos. Entradas pendentes são conferidas após a propagação.
@@ -176,6 +178,100 @@ fn produzir_phi(
                 .map(|(v, _, ty)| (*v, *ty)),
         )
         .collect();
+    // Demandas explícitas de transferência/consumo conservam o token lógico,
+    // inclusive para null, cuja contagem física pode ser vazia.
+    let mut exigem_owned: HashSet<_> = plano
+        .instrucoes
+        .values()
+        .flat_map(|e| e.sempre.iter().chain(&e.sucesso).chain(&e.erro))
+        .copied()
+        .collect();
+    for b in &f.blocks {
+        for (v, inst, _) in &b.instructions {
+            let op = match inst {
+                Instruction::ArcMove { value }
+                | Instruction::ArcDrop { value }
+                | Instruction::ArcStoreStrong {
+                    value,
+                    modo: ModoStoreForte::Move,
+                    ..
+                } => Some(value),
+                _ => None,
+            };
+            if let Some(Operand::Val(de)) = op {
+                exigem_owned.insert(*de);
+            }
+            if classes.get(v) == Some(&Ownership::Owned) {
+                exigem_owned.insert(*v);
+            }
+        }
+        if plano.retorno == super::RetornoTokens::Owned
+            && let Terminator::Return(Some(Operand::Val(v))) = b.terminator
+        {
+            exigem_owned.insert(v);
+        }
+    }
+    loop {
+        let anterior = exigem_owned.len();
+        for v in exigem_owned.clone() {
+            if let Some(Instruction::Phi { incoming, .. }) = defs.get(&v) {
+                exigem_owned.extend(incoming.iter().filter_map(|(_, op)| {
+                    if let Operand::Val(de) = op {
+                        Some(*de)
+                    } else {
+                        None
+                    }
+                }));
+            }
+        }
+        if anterior == exigem_owned.len() {
+            break;
+        }
+    }
+    loop {
+        let mut mudou = false;
+        for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
+            if *ty != Type::Ref || classes.contains_key(v) || exigem_owned.contains(v) {
+                continue;
+            }
+            let Instruction::Phi { incoming, .. } = inst else {
+                continue;
+            };
+            let mut ancora = false;
+            let compativeis = !incoming.is_empty()
+                && incoming.iter().all(|(_, op)| match op {
+                    Operand::Constant(Constant::Null) => {
+                        ancora = true;
+                        true
+                    }
+                    Operand::Val(de) if tipos.get(de) == Some(&Type::Ref) => {
+                        match classes.get(de) {
+                            Some(Ownership::Trivial) => {
+                                ancora = true;
+                                true
+                            }
+                            None if !exigem_owned.contains(de)
+                                && matches!(
+                                    defs.get(de),
+                                    Some(Instruction::Phi { ty: Type::Ref, .. })
+                                ) =>
+                            {
+                                true
+                            }
+                            _ => false,
+                        }
+                    }
+                    _ => false,
+                });
+            if compativeis && ancora {
+                classes.insert(*v, Ownership::Trivial);
+                mudou = true;
+            }
+        }
+        if !mudou {
+            break;
+        }
+    }
     // Resolve primeiro empréstimos com premissas conhecidas. Não transforma
     // entradas Owned em borrow implícito; um ciclo precisa de âncora externa.
     let mut emprestados = HashMap::new();
@@ -739,6 +835,93 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn produtor_phi_ref_trivial_respeita_transferencia_owned_explicita() {
+        let mut f = Function {
+            symbol: "phi_trivial_auto".into(),
+            name: "phi_trivial_auto".into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::Ref,
+            blocks: vec![
+                BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![],
+                    terminator: Terminator::Branch(BlockId(1)),
+                },
+                BasicBlock {
+                    id: BlockId(1),
+                    instructions: vec![(
+                        ValueId(1),
+                        Instruction::Phi {
+                            ty: Type::Ref,
+                            incoming: vec![
+                                (BlockId(0), Operand::Constant(Constant::Null)),
+                                (BlockId(1), Operand::Val(ValueId(1))),
+                            ],
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::CondBranch {
+                        cond: Operand::Constant(Constant::Bool(false)),
+                        then_block: BlockId(1),
+                        else_block: BlockId(2),
+                    },
+                },
+                BasicBlock {
+                    id: BlockId(2),
+                    instructions: vec![],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+                },
+            ],
+        };
+        for retorno in [
+            super::super::RetornoTokens::Trivial,
+            super::super::RetornoTokens::Owned,
+        ] {
+            let mut classes = HashMap::new();
+            let mut plano = PlanoTokens {
+                retorno,
+                ..Default::default()
+            };
+            produzir_e_verificar_tokens(
+                &f,
+                &mut classes,
+                &mut plano,
+                &TabelasDaFuncao::default(),
+                &PlanoEscopos::default(),
+            )
+            .unwrap();
+            assert_eq!(
+                classes[&ValueId(1)],
+                if retorno == super::super::RetornoTokens::Owned {
+                    Ownership::Owned
+                } else {
+                    Ownership::Trivial
+                }
+            );
+        }
+        f.blocks[0].instructions.push((
+            ValueId(0),
+            Instruction::Const(Constant::String("permanente".into())),
+            Type::Ref,
+        ));
+        if let Instruction::Phi { incoming, .. } = &mut f.blocks[1].instructions[0].1 {
+            incoming[0].1 = Operand::Val(ValueId(0));
+        }
+        let mut classes = HashMap::new();
+        let mut plano = PlanoTokens::default();
+        produzir_e_verificar_tokens(
+            &f,
+            &mut classes,
+            &mut plano,
+            &TabelasDaFuncao::default(),
+            &PlanoEscopos::default(),
+        )
+        .unwrap();
+        assert_eq!(classes[&ValueId(1)], Ownership::Trivial);
+    }
 
     #[test]
     fn produtor_confere_dependencia_pendente_em_ciclo_de_phis_borrowed() {
