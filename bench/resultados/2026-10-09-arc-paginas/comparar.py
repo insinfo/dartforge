@@ -5,7 +5,10 @@ import json
 from pathlib import Path
 import statistics
 
-raiz = Path(__file__).resolve().parents[2]
+raiz = next(
+    p for p in Path(__file__).resolve().parents
+    if (p / "scripts/medir-modos-desempenho.py").is_file()
+)
 spec = importlib.util.spec_from_file_location("medidor", raiz / "scripts/medir-modos-desempenho.py")
 medidor = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(medidor)
