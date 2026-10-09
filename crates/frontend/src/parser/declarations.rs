@@ -1974,7 +1974,12 @@ impl<'s, 'i> Parser<'s, 'i> {
                 if !self.features.tem(Feature::PrimaryConstructors) {
                     self.erro_em(codigos::parser::EXPECTED_REPRESENTATION_TYPE, depois_abre, &[]);
                     self.so_3_6.push((codigos::parser::EXPECTED_REPRESENTATION_TYPE, depois_abre));
-                    if let Some(nome) = p.name {
+                    // Com mais de um parâmetro, o 3.13.4 só relata
+                    // `MULTIPLE_REPRESENTATION_FIELDS` (`extension type
+                    // ET3(final i, final x)`).
+                    if let Some(nome) = p.name
+                        && n == 1
+                    {
                         self.erro_em(codigos::parser::EXPECTED_REPRESENTATION_TYPE, nome.span, &[]);
                         self.so_3_13.push((codigos::parser::EXPECTED_REPRESENTATION_TYPE, nome.span));
                     }

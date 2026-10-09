@@ -19016,7 +19016,9 @@ os mesmos códigos saíram do AstBuilder para o `ErrorVerifier`, com **retorno c
 | 11 | vírgula depois do 1º | `representation_field_trailing_comma` | a vírgula |
 
 Diferenças práticas contra o 3.6.2: (i) com dois ou mais parâmetros só sai
-`multiple_representation_fields` (`ET3(final i, final x)`: 3.6.2 dá três relatos, `d38`; 3.13.4 um);
+`multiple_representation_fields` (`ET3(final i, final x)`: 3.6.2 dá três relatos, `d38`; 3.13.4 um) — o `expected_representation_type` da
+linha 10 também só sai com um parâmetro (o `ET3(final i, final x)` não o relata no `i`; antes dávamos FP em
+`primary_constructors/header/extension_type_error_test.dart:29:26`);
 (ii) `expected_representation_type` vai no nome (`E03(var x)`: 3.13.4 em `x`, 38:24; 3.6.2 em `var`,
 `d21`), inclusive quando o "nome" é `int` em `E00(int)` e `E26(@anno int)`; (iii)
 `expected_representation_field` vai no `this`/`super`/delimitador; (iv) a mensagem de
