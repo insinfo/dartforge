@@ -1030,6 +1030,27 @@ initialization e a identidade do armazenamento por isolate/módulo.
 Check do emissor passou, com apenas aviso preexistente de atribuir_slots
 (`target/arc-global-extern-check.log`).
 
+`SlotForte::Global { simbolo }` conecta as operações
+fortes à área real de globais do isolate. Carga lê os bits e retém resultado;
+Move publica antes de chamar global_receber_v1; Copy protege temporariamente
+o valor, publica e atualiza o owner antes de retirar a proteção. O símbolo
+precisa de declaração Ref única no catálogo do módulo; não inferir por I64.
+Visitantes e detecção da área global incluem o descritor. Não altera inicialização
+lazy nem insere operações no lowering. A primeira rodada passou 128 testes e
+falhou no teste novo por selecionar uma gravação do parâmetro no prologue em
+vez do slot global; a comparação foi restringida ao endereço global específico.
+Validação release repetida terminou com 129 aprovados, zero falhas e sete
+manuais ignorados (`target/emissor-arc-global-validado-release.log`). Todos
+os 31 exemplos públicos passaram (`target/arc-global-emissor-doc-release.log`)
+e check do workspace passou, com avisos preexistentes
+(`target/arc-global-workspace-check.log`).
+Não comprova execução LLVM das operações novas, transporte da proveniência,
+ABI de globais importados, regiões ou inserção automática/KeepAlive.
+Da rodada pesada 37970899962, SDK da fonte AOT 238/238 (56,6 s), JIT
+238/238, zero divergências, sete sem IR iguais por construção e zero timeouts
+nos dois; Windows B0 238/238 (116,3 s). Artefatos conferidos em
+`target/ci-37970899962`. Só macOS permanecia ativo na consulta.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

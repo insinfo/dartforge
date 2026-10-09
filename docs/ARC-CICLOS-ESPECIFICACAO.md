@@ -909,7 +909,15 @@ retém uma ocorrência, Move consome o token do código sem reter a origem;
 ambos publicam antes de soltar o conteúdo antigo. O verificador de tokens
 aplica esses efeitos fixos e exige ID do quadro Trivial. Ainda não certifica
 abertura/fechamento ou vida do quadro, nem produz descritores automaticamente.
-Slots de heap/globais/nativos, as demais operações e o produtor semântico
+`SlotForte::Global { simbolo }` identifica o armazenamento Ref declarado
+exatamente uma vez no módulo. A carga lê os bits da área de globais do isolate
+e retém o resultado, inclusive null/Smi. Store Move publica os bits e transfere
+o token ao registro de owner, sem safepoint no intervalo. Store Copy usa token
+temporário até publicar e atualizar o registro. Esse registro não é o valor
+do global: ele omite null/Smi. O verificador rejeita símbolo ausente/duplicado
+ou representação diferente de Ref. Não insere inicialização lazy nem certifica
+proveniência geral/ABI importada; inserção no lowering continua pendente.
+Slots de heap/nativos, as demais operações e o produtor semântico
 continuam pendentes.
 
 `Alloca` de Ref representa slot proprietário inicializado com null. `Load` faz

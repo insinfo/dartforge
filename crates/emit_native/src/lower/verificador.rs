@@ -301,6 +301,13 @@ pub fn verificar(module: &Module) -> Vec<String> {
         for b in &f.blocks {
             for (_, inst, ty) in &b.instructions {
                 verificar_instrucao(&mut c, inst, *ty);
+                if let Instruction::ArcLoadStrong { slot: SlotForte::Global { simbolo } }
+                    | Instruction::ArcStoreStrong { slot: SlotForte::Global { simbolo }, .. } = inst {
+                    let declaracoes: Vec<_> = module.globais.iter().filter(|(_, _, s)| s == simbolo).collect();
+                    if declaracoes.len() != 1 || declaracoes[0].1 != Type::Ref {
+                        c.erro(format!("slot ARC global @{simbolo} exige uma declaração Ref única"));
+                    }
+                }
             }
             if let Terminator::Return(Some(op)) = &b.terminator {
                 c.checar_ref("return", op, f.return_ty);
@@ -318,9 +325,10 @@ fn verificar_instrucao(c: &mut Contexto, inst: &Instruction, ty: Type) {
             if ty != resultado {
                 c.erro(format!("slot ARC: resultado {ty:?}, esperado {resultado:?}"));
             }
-            let SlotForte::Quadro { quadro, .. } = slot;
-            if c.tipo(quadro) != Type::I64 || !matches!(quadro, Operand::Val(_)) {
-                c.erro(format!("slot ARC exige ID de quadro SSA I64: {quadro:?}"));
+            if let SlotForte::Quadro { quadro, .. } = slot {
+                if c.tipo(quadro) != Type::I64 || !matches!(quadro, Operand::Val(_)) {
+                    c.erro(format!("slot ARC exige ID de quadro SSA I64: {quadro:?}"));
+                }
             }
             if let Instruction::ArcStoreStrong { value, .. } = inst {
                 if c.tipo(value) != Type::Ref || !matches!(value, Operand::Val(_) | Operand::Constant(Constant::Null)) {

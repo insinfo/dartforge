@@ -200,7 +200,7 @@ pub enum FCmpOp {
 ///
 /// Quadros são IDs escalares da ABI ARC, com slots Ref inicialmente nulos.
 /// O runtime confere identidade, propriedade e limite do índice.
-/// Slots de heap/globais/nativos ainda exigem seus próprios descritores.
+/// Slots de heap/nativos ainda exigem seus próprios descritores.
 ///
 /// ```
 /// use dartforge_emit_native::hir::*;
@@ -211,6 +211,15 @@ pub enum FCmpOp {
 pub enum SlotForte {
     /// Slot Ref num quadro proprietário aberto pela ABI, identificado por SSA I64.
     Quadro { quadro: Operand, indice: u32 },
+    /// Armazenamento global Ref declarado exatamente uma vez no módulo.
+    /// Inicialização lazy continua sendo responsabilidade do lowering.
+    ///
+    /// ```
+    /// use dartforge_emit_native::hir::*;
+    /// let slot = SlotForte::Global { simbolo: "dfg.recurso".into() };
+    /// assert!(matches!(slot, SlotForte::Global { .. }));
+    /// ```
+    Global { simbolo: String },
 }
 
 /// Como publicar uma referência no slot proprietário.

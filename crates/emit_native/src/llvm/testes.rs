@@ -32,6 +32,35 @@ fn corpo_de<'a>(ir: &'a str, symbol: &str) -> &'a str {
 }
 
 #[test]
+fn global_arc_carrega_bits_reais_e_publica_antes_de_transferir_owner() {
+    let slot = SlotForte::Global { simbolo: "dfg.recurso".into() };
+    let f = funcao("arc_global", vec![(ValueId(0), "x".into(), Type::Ref)], Type::Void,
+        vec![BasicBlock { id: BlockId(0), instructions: vec![
+            (ValueId(1), Instruction::ArcStoreStrong { slot: slot.clone(), value: Operand::Val(ValueId(0)), modo: ModoStoreForte::Copy }, Type::Void),
+            (ValueId(2), Instruction::ArcLoadStrong { slot: slot.clone() }, Type::Ref),
+            (ValueId(3), Instruction::ArcStoreStrong { slot, value: Operand::Val(ValueId(2)), modo: ModoStoreForte::Move }, Type::Void),
+        ], terminator: Terminator::Return(None) }]);
+    let mut m = Module::new();
+    m.globais.push((0, Type::Ref, "dfg.recurso".into()));
+    m.functions.push(f);
+    assert!(crate::lower::verificador::verificar(&m).is_empty());
+    crate::otimizar::otimizar(&mut m);
+    let ir = LlvmEmitter::new(&m).emit_all();
+    let corpo = corpo_de(&ir, "arc_global");
+    assert!(corpo.contains("%v2 = load i64, ptr %ga2"));
+    assert!(corpo.contains("@dartforge_arc_retain(i64 %v2)"));
+    assert!(corpo.find("@dartforge_arc_retain(i64 %v0)").unwrap() < corpo.find("store i64 %v0, ptr %ga1").unwrap());
+    assert!(corpo.find("store i64 %v2, ptr %ga3").unwrap() < corpo.find("@dartforge_arc_global_receber_v1").unwrap());
+    assert!(!corpo.contains("@dartforge_arc_release(i64 %v2)"));
+    m.globais[0].1 = Type::I64;
+    assert!(!crate::lower::verificador::verificar(&m).is_empty());
+    m.globais.clear();
+    assert!(!crate::lower::verificador::verificar(&m).is_empty());
+    m.globais.extend([(0, Type::Ref, "dfg.recurso".into()), (1, Type::Ref, "dfg.recurso".into())]);
+    assert!(!crate::lower::verificador::verificar(&m).is_empty());
+}
+
+#[test]
 fn slots_arc_emitidos_preservam_descritor_e_modos_apos_otimizar() {
     let slot = SlotForte::Quadro {
         quadro: Operand::Val(ValueId(0)),

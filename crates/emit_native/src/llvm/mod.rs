@@ -1120,6 +1120,28 @@ impl<'a> LlvmEmitter<'a> {
                         let valor = self.referencia_arc(value);
                         writeln!(self.out, "  call void @dartforge_arc_release(i64 {valor})").unwrap();
                     }
+                    Instruction::ArcLoadStrong { slot: SlotForte::Global { simbolo } } => {
+                        self.conferir_global_arc(simbolo);
+                        self.endereco_do_global(v, simbolo);
+                        writeln!(self.out, "  %v{v} = load i64, ptr %ga{v}").unwrap();
+                        writeln!(self.out, "  call void @dartforge_arc_retain(i64 %v{v})").unwrap();
+                    }
+                    Instruction::ArcStoreStrong { slot: SlotForte::Global { simbolo }, value, modo } => {
+                        self.conferir_global_arc(simbolo);
+                        let valor = self.referencia_arc(value);
+                        self.endereco_do_global(v, simbolo);
+                        if *modo == ModoStoreForte::Copy {
+                            writeln!(self.out, "  call void @dartforge_arc_retain(i64 {valor})").unwrap();
+                        }
+                        writeln!(self.out, "  store i64 {valor}, ptr %ga{v}").unwrap();
+                        writeln!(self.out, "  %gr{v} = ptrtoint ptr %ga{v} to i64").unwrap();
+                        if *modo == ModoStoreForte::Move {
+                            writeln!(self.out, "  call void @dartforge_arc_global_receber_v1(i64 %gr{v}, i64 {valor})").unwrap();
+                        } else {
+                            writeln!(self.out, "  call void @dartforge_gc_global_root(i64 %gr{v}, i64 {valor}) nounwind").unwrap();
+                            writeln!(self.out, "  call void @dartforge_arc_release(i64 {valor})").unwrap();
+                        }
+                    }
                     Instruction::ArcLoadStrong { slot } => {
                         let (quadro, indice) = self.slot_arc(slot);
                         writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_quadro_carregar_v1(i64 {quadro}, i64 {indice})").unwrap();
@@ -2328,6 +2350,8 @@ impl<'a> LlvmEmitter<'a> {
                     i,
                     Instruction::LoadGlobal { .. }
                         | Instruction::StoreGlobal { .. }
+                        | Instruction::ArcLoadStrong { slot: SlotForte::Global { .. } }
+                        | Instruction::ArcStoreStrong { slot: SlotForte::Global { .. }, .. }
                         | Instruction::CallSeletor { .. }
                         | Instruction::CallSeletorRepasse { .. }
                         | Instruction::Const(Constant::String(_) | Constant::StringWtf8(_))
@@ -2463,7 +2487,7 @@ impl<'a> LlvmEmitter<'a> {
 
     /// Descritor de quadro classificado; nunca coagir um ponteiro para um ID.
     fn slot_arc(&self, slot: &SlotForte) -> (String, u32) {
-        let SlotForte::Quadro { quadro, indice } = slot;
+        let SlotForte::Quadro { quadro, indice } = slot else { panic!("descritor não é quadro") };
         let Operand::Val(v) = quadro else {
             panic!("slot ARC exige quadro SSA")
         };
@@ -2473,6 +2497,13 @@ impl<'a> LlvmEmitter<'a> {
             "quadro ARC exige ID escalar I64"
         );
         (format!("%v{}", v.0), *indice)
+    }
+
+    /// Schema do armazenamento real; não inferir Ref por largura ou endereço.
+    fn conferir_global_arc(&self, simbolo: &str) {
+        let mut declaracoes = self.module.globais.iter().filter(|(_, _, s)| s == simbolo);
+        assert_eq!(declaracoes.next().map(|(_, ty, _)| *ty), Some(Type::Ref), "global ARC deve ser Ref declarado");
+        assert!(declaracoes.next().is_none(), "global ARC deve ter declaração única");
     }
 
     /// Confere a ABI de tokens antes dos registros e de qualquer código Dart.

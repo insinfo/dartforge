@@ -63,6 +63,8 @@ macro_rules! visitar {
                 }
                 Instruction::Load { ptr, .. } => f(ptr),
                 Instruction::ArcLoadStrong { slot: SlotForte::Quadro { quadro, .. } } => f(quadro),
+                Instruction::ArcLoadStrong { slot: SlotForte::Global { .. } } => {},
+                Instruction::ArcStoreStrong { slot: SlotForte::Global { .. }, value, .. } => f(value),
                 Instruction::ArcStoreStrong { slot: SlotForte::Quadro { quadro, .. }, value, .. } => {
                     f(quadro);
                     f(value);

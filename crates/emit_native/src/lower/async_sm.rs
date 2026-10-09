@@ -1209,6 +1209,8 @@ pub(crate) fn usos_de(inst: &Instruction) -> Vec<ValueId> {
             elements.iter().for_each(|(a, _)| op(a))
         }
         Instruction::ArcLoadStrong { slot: SlotForte::Quadro { quadro, .. } } => op(quadro),
+        Instruction::ArcLoadStrong { slot: SlotForte::Global { .. } } => {},
+        Instruction::ArcStoreStrong { slot: SlotForte::Global { .. }, value, .. } => op(value),
         Instruction::ArcStoreStrong { slot: SlotForte::Quadro { quadro, .. }, value, .. } => {
             op(quadro);
             op(value);
@@ -1353,6 +1355,8 @@ fn trocar_usos(inst: &mut Instruction, troca: &dyn Fn(ValueId) -> Option<ValueId
             elements.iter_mut().for_each(|(a, _)| t(a))
         }
         Instruction::ArcLoadStrong { slot: SlotForte::Quadro { quadro, .. } } => t(quadro),
+        Instruction::ArcLoadStrong { slot: SlotForte::Global { .. } } => {},
+        Instruction::ArcStoreStrong { slot: SlotForte::Global { .. }, value, .. } => t(value),
         Instruction::ArcStoreStrong { slot: SlotForte::Quadro { quadro, .. }, value, .. } => {
             t(quadro);
             t(value);
