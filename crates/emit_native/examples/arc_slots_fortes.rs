@@ -11,7 +11,12 @@ fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
     let saida = PathBuf::from(args.next().ok_or("informe o executável de saída")?);
     let arc = args.next().as_deref() != Some("tracing");
-    let sem_cleanup = args.next().as_deref() == Some("sem-cleanup");
+    let variante = args.next();
+    let sem_cleanup = matches!(
+        variante.as_deref(),
+        Some("sem-cleanup" | "retorno-sem-cleanup")
+    );
+    let prova_retorno = matches!(variante.as_deref(), Some("retorno" | "retorno-sem-cleanup"));
     let mut m = Module::new();
     m.memoria_arc = arc;
     m.entry_symbol = Some("prova_slots".into());
@@ -191,6 +196,47 @@ fn main() -> Result<(), String> {
         }],
     });
     dartforge_emit_native::otimizar::otimizar(&mut m);
+    if prova_retorno {
+        let mut identidade = Function {
+            symbol: "prova_retorno".into(),
+            name: "prova_retorno".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "valor".into(), Type::Ref)],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![],
+                terminator: Terminator::Return(Some(valor(0))),
+            }],
+        };
+        let mut classes = HashMap::new();
+        let mut plano = PlanoTokens {
+            retorno: RetornoTokens::Owned,
+            ..Default::default()
+        };
+        let copias = inserir_retencao_retornos_dart(
+            &mut identidade,
+            &mut classes,
+            &mut plano,
+            &TabelasDaFuncao::default(),
+            &PlanoEscopos::default(),
+        )?;
+        if copias != 1 {
+            return Err("prova de retorno exige uma retenção inserida".into());
+        }
+        // A função é acrescentada depois da otimização geral, para conferir
+        // a chamada/retorno real sem inlining esconder essa fronteira.
+        m.functions.push(identidade);
+        for (v, inst, _) in &mut m.functions[0].blocks[0].instructions {
+            if *v == ValueId(2) {
+                *inst = Instruction::CallStatic {
+                    symbol: "prova_retorno".into(),
+                    args: vec![valor(1)],
+                    ret_ty: Type::Ref,
+                };
+            }
+        }
+    }
     let f = &mut m.functions[0];
     let originais = std::mem::take(&mut f.blocks[0].instructions);
     f.blocks.clear();
@@ -272,6 +318,12 @@ fn main() -> Result<(), String> {
     // pelo produtor de constantes, sem contrato manual desta prova.
     let mut classes = HashMap::from([(ValueId(11), Ownership::Trivial)]);
     let mut plano = PlanoTokens::default();
+    if prova_retorno {
+        // Contrato do callee preparado/verificado acima: receptor emprestado,
+        // resultado Owned normal. Não presume contratos de outras chamadas.
+        classes.insert(ValueId(2), Ownership::Owned);
+        plano.instrucoes.insert(ValueId(2), EfeitoTokens::default());
+    }
     plano
         .instrucoes
         .insert(ValueId(11), EfeitoTokens::default());

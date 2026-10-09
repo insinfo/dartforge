@@ -1525,6 +1525,19 @@ ou pendências. Suíte ARC 58/58
 (`target/ownership-record-consultas-produtor.log`).
 
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
+Prova AOT da retenção inserida disponível na variante `retorno` do exemplo
+de slots fortes: função identidade Ref começa retornando o parâmetro, recebe
+uma ArcCopy pelo passe e é verificada antes de emitir. Acrescentada após a
+otimização geral para conservar a fronteira de chamada real; LLVM mostra
+chamada ao callee e um retain antes do retorno Owned. Contrato dessa chamada
+é explícito no fixture. ARC com auditoria/berçário desligado/estresse e tracing
+com estresse saíram zero e mesma saída; variante retorno-sem-cleanup saiu 1
+por token v8 restante, sem IR/executável negativo. Evidência congelada em
+`bench/resultados/2026-10-09-arc-retorno-inserido-aot`, incluindo LLVM,
+saídas, diagnóstico, hashes e reprodução. Variante normal do exemplo também
+compilou/executou sob auditoria/estresse. Continua sendo literal permanente:
+não prova contagem física/morte de objeto mortal nem inserção automática de
+drops/cleanup ou integração no lowering padrão.
 Primeira inserção automática de retenção disponível em
 `inserir_retencao_retornos_dart`: retorno SSA Ref Borrowed/Trivial recebe
 ArcCopy e transfere token Owned; Owned existente transfere diretamente;
