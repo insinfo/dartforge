@@ -2,6 +2,18 @@
 
 ## Retomada de 2026-10-09
 
+Resumos ARC agora respeitam `TabelasDaFuncao.confere_pilha`: o prólogo
+LLVM marcado pode lançar mesmo que o corpo seja uma folha sem operações
+falíveis. A preparação conjunta propaga essa falha aos chamadores por
+lista de trabalho, em O(V+E); o resumo individual também inclui a marca.
+Regressão: folha marcada torna caller→intermediária→folha falível, rejeita
+o primeiro caller sem saída e preserva todos os corpos/mapas. Com invoke
+e pouso preparados, a chamada verifica e transfere o resultado só no
+sucesso. 81 testes ARC e 45 doctests passaram, logs
+`target/ownership-pilha-resumos-*`. Esta é uma prova dos contratos sobre
+HIR, sem induzir estouro de pilha nativo; produção completa dos metadados,
+demais origens de contexto e integração no pipeline continuam pendentes.
+
 Preparação conjunta: o índice de símbolos dos resumos agora é construído
 uma vez e reutilizado por todos os corpos. Antes havia uma reconstrução
 com N entradas por função, impondo trabalho quadrático em N, inadequado

@@ -9,7 +9,8 @@ use std::collections::{HashMap, HashSet};
 /// Campos privados impedem fabricar um resumo sem verificar o corpo.
 /// Refaça o resumo após mudar a função ou seus contratos. Não certifica
 /// proveniência, invalidação de borrows nem os contratos externos fornecidos.
-/// Chamadas diretas no corpo são conservadoramente consideradas falíveis.
+/// Chamadas diretas no corpo são conservadoramente consideradas falíveis,
+/// assim como a conferência de pilha explicitamente marcada nas tabelas.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, otimizar::arc::*};
@@ -121,12 +122,13 @@ pub fn verificar_contrato_funcao_dart(
         }
     }
     let desconhecidas = HashSet::new();
-    let pode_falhar = f.blocks.iter().any(|b| {
-        matches!(b.terminator, Terminator::Throw(_))
-            || b.instructions
-                .iter()
-                .any(|(_, inst, _)| super::super::efeitos::instrucao_lanca(inst, &desconhecidas))
-    });
+    let pode_falhar = tabelas.confere_pilha
+        || f.blocks.iter().any(|b| {
+            matches!(b.terminator, Terminator::Throw(_))
+                || b.instructions.iter().any(|(_, inst, _)| {
+                    super::super::efeitos::instrucao_lanca(inst, &desconhecidas)
+                })
+        });
     Ok(ContratoFuncaoDart {
         simbolo: f.symbol.clone(),
         parametros: f.params.iter().map(|(_, _, ty)| *ty).collect(),

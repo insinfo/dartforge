@@ -79,7 +79,32 @@ pub fn inserir_arc_funcoes_dart(
     }
     let mut modulo = Module::new();
     modulo.functions = funcoes.to_vec();
-    let nao_lancam = super::super::efeitos::nao_lancam(&modulo);
+    let mut nao_lancam = super::super::efeitos::nao_lancam(&modulo);
+    // A conferência explícita do prólogo também pode lançar. O resumo do
+    // corpo não vê esses metadados; propaga a falha aos chamadores em O(V+E).
+    if planos.values().any(|p| p.tabelas.confere_pilha) {
+        let mut chamadores: HashMap<&str, Vec<&str>> = HashMap::new();
+        for f in &modulo.functions {
+            for (_, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
+                if let Instruction::CallStatic { symbol, .. } = inst {
+                    chamadores.entry(symbol).or_default().push(&f.symbol);
+                }
+            }
+        }
+        let mut fila: Vec<_> = modulo
+            .functions
+            .iter()
+            .filter(|f| planos[&f.symbol].tabelas.confere_pilha)
+            .map(|f| f.symbol.as_str())
+            .collect();
+        while let Some(simbolo) = fila.pop() {
+            if nao_lancam.remove(simbolo) {
+                if let Some(anteriores) = chamadores.get(simbolo) {
+                    fila.extend(anteriores.iter().copied());
+                }
+            }
+        }
+    }
     let resumos: Vec<_> = modulo
         .functions
         .iter()
@@ -115,6 +140,66 @@ pub fn inserir_arc_funcoes_dart(
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn conferencia_de_pilha_propaga_falha_e_exige_aresta_no_chamador() {
+        let (mut funcoes, mut planos) = conjunto();
+        planos.get_mut("folha").unwrap().tabelas.confere_pilha = true;
+        let antes = format!("{funcoes:?}");
+        let planos_antes = format!("{planos:?}");
+        let erro = inserir_arc_funcoes_dart(&mut funcoes, &mut planos).unwrap_err();
+        assert!(
+            erro.contains("caller") && erro.contains("saídas excepcionais"),
+            "{erro}"
+        );
+        assert_eq!(format!("{funcoes:?}"), antes);
+        assert_eq!(format!("{planos:?}"), planos_antes);
+        // Com a saída preparada, o resultado só é transferido no sucesso.
+        let (mut funcoes, mut planos) = conjunto();
+        funcoes.remove(1);
+        planos.remove("intermediaria");
+        let caller = &mut funcoes[0];
+        if let Instruction::CallStatic { symbol, .. } = &mut caller.blocks[0].instructions[0].1 {
+            *symbol = "folha".into();
+        }
+        caller.blocks[0].terminator = Terminator::CondBranch {
+            cond: Operand::Constant(Constant::Bool(false)),
+            then_block: BlockId(1),
+            else_block: BlockId(2),
+        };
+        caller.blocks.push(BasicBlock {
+            id: BlockId(1),
+            instructions: vec![],
+            terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))),
+        });
+        caller.blocks.push(BasicBlock {
+            id: BlockId(2),
+            instructions: vec![],
+            terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+        });
+        let tabelas = &mut planos.get_mut("caller").unwrap().tabelas;
+        tabelas.invocacoes.insert(ValueId(1), BlockId(1));
+        tabelas.pousos.insert(BlockId(1));
+        planos.get_mut("folha").unwrap().tabelas.confere_pilha = true;
+        assert_eq!(
+            inserir_arc_funcoes_dart(&mut funcoes, &mut planos).unwrap(),
+            (1, 0)
+        );
+        assert!(planos["caller"].tokens.instrucoes[&ValueId(1)].pode_falhar);
+        let folha = &planos["folha"];
+        let resumo = verificar_contrato_funcao_dart(
+            &funcoes[1],
+            &folha.classes,
+            &folha.tokens,
+            &folha.tabelas,
+            &folha.escopos,
+        )
+        .unwrap();
+        let mut classes = HashMap::new();
+        let mut tokens = PlanoTokens::default();
+        produzir_chamadas_dart(&funcoes[0], &[resumo], &mut classes, &mut tokens).unwrap();
+        assert!(tokens.instrucoes[&ValueId(1)].pode_falhar);
+    }
 
     #[test]
     fn argumentos_escalares_com_phi_e_aritmetica_sao_produzidos_no_conjunto() {
