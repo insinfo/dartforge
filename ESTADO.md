@@ -532,6 +532,23 @@ amostragem de sete pares ocorreu com outro caso local ativo e não é usada
 neste registro. O caso original após o corte continuou excedendo 60 s:
 com auditoria 0/1 (60,7 s de harness), sem auditoria 0/1 (60,6 s).
 Os oito timeouts não estão resolvidos. A exigência de ARC ≥ A0 continua aberta.
+
+Medição completa de `5bbfc80f`, nove programas e 32 kernels, somente A0/ARC,
+sete execuções alternadas em afinidade `0x4`: 126 processos válidos, resultados
+iguais e 18 hashes de executáveis inalterados. Média geométrica ARC/A0
+**1,968695**; árvores 13,25×, construção de textos 8,31× e lista ligada 5,27×.
+ARC ≥ A0 permanece não atingido. Resultados também conferidos contra os do
+Dart AOT na rodada anterior; entradas do benchmark não mudaram. A rodada
+atual não reexecutou Dart nem mediu A1/B0/B1. Registro e dados brutos em
+`bench/resultados/2026-10-09-modos-5bbfc80f-windows`.
+CLI recompilada com LLVM embutido, SHA-256
+`3F9B8C99A1131044E9E12B569ECB32B058879F0384F5B103F9DFC69ADBA477CD`.
+A tentativa inicial definiu `DARTFORGE_GC_STRESS=0`, mas a presença ativa
+estresse no runtime. Foi encerrada e preservada como inválida. A medição
+válida removeu a variável e reutilizou os 18 executáveis após conferir hashes.
+As mudanças acumuladas e a dispersão impedem atribuir o agregado ao corte
+de raízes isoladamente. A rodada remota `37936255800` está ativa sobre
+`5bbfc80f`; aguardar fechamento antes de outro disparo no main.
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
