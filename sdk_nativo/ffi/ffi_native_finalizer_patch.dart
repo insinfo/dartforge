@@ -42,7 +42,7 @@ final class _NativeFinalizer implements NativeFinalizer {
       checkValidWeakTarget(detach, 'detach');
     }
     _anexarFinalizadorNativo(
-        this, value, _callback.address, token.address, detach);
+        this, value, _callback.address, token.address, detach, externalSize);
   }
 
   void detach(Object detach) {
@@ -62,12 +62,12 @@ void _attachAsTypedListFinalizer(
   int? externalSize,
 ) {
   _anexarFinalizadorNativo(_asTypedListFinalizer, typedList, callback.address,
-      pointer.address, null);
+      pointer.address, null, externalSize ?? 0);
 }
 
 @pragma("vm:external-name", "DartForge_finalizador_anexar_nativo")
 external void _anexarFinalizadorNativo(
-    Object dono, Object valor, int funcao, int token, Object? desanexo);
+    Object dono, Object valor, int funcao, int token, Object? desanexo, int tamanhoExterno);
 
 @pragma("vm:external-name", "DartForge_finalizador_desanexar")
 external void _desanexarFinalizadorNativo(Object dono, Object desanexo);

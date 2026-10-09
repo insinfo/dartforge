@@ -1544,8 +1544,8 @@ pub struct AnexoDeFinalizador {
 pub enum AcaoDeFinalizador {
     /// Uma closure Dart sem argumentos (`callback(token)` já aplicada).
     Dart(i64),
-    /// `funcao(token)`, uma função C (`NativeFinalizerFunction`).
-    Nativa(usize, usize),
+    /// `funcao(token)`, uma função C, e bytes externos contabilizados até execução/detach.
+    Nativa(usize, usize, usize),
 }
 
 #[allow(unsafe_code)]
@@ -1561,7 +1561,8 @@ impl Heap {
             if let AcaoDeFinalizador::Dart(acao) = a.acao {
                 self.arc_gravacao_crua(a.dono, acao, 0);
             }
-            if let AcaoDeFinalizador::Nativa(f, token) = a.acao {
+            if let AcaoDeFinalizador::Nativa(f, token, bytes) = a.acao {
+                self.contar_externos(-(bytes as isize));
                 // SAFETY: `f` é a `NativeFinalizerFunction` que o programa
                 // registrou, `void f(void* token)`.
                 let f: extern "C" fn(usize) = unsafe { std::mem::transmute(f) };
@@ -2773,6 +2774,10 @@ impl Heap {
             if let Some(arc) = &mut self.arc { arc.estado.marcar_arestas_laterais(anexo.dono); }
             self.anexos_por_dono.entry(anexo.dono).or_default().push(self.anexos.len());
         }
+        if let AcaoDeFinalizador::Nativa(_, _, bytes) = anexo.acao {
+            let delta = isize::try_from(bytes).expect("externalSize excede o tamanho de endereço");
+            self.contar_externos(delta);
+        }
         self.anexos.push(anexo);
     }
 
@@ -2780,13 +2785,16 @@ impl Heap {
     pub(crate) fn desanexar_finalizador(&mut self, dono: Ref, desanexo: Ref) {
         if dono == 0 { return; }
         let mut acoes = Vec::new();
+        let mut externos = Vec::new();
         self.anexos.retain(|a| {
             if a.dono != dono || a.desanexo != desanexo { return true; }
             if let AcaoDeFinalizador::Dart(acao) = a.acao { acoes.push(acao); }
+            if let AcaoDeFinalizador::Nativa(_, _, bytes) = a.acao { externos.push(bytes); }
             false
         });
         self.reindexar_anexos();
         for acao in acoes { self.arc_gravacao_crua(dono, acao, 0); }
+        for bytes in externos { self.contar_externos(-(bytes as isize)); }
     }
 
     /// A coleta completa (o `dartforge_gc_collect` e os testes): marca a
@@ -2979,7 +2987,7 @@ impl Heap {
         let mut nativas = Vec::new();
         self.anexos.retain_mut(|a| {
             if matches!(a.acao, AcaoDeFinalizador::Dart(_)) && !vivo(&a.dono) { return false; }
-            if matches!(a.acao, AcaoDeFinalizador::Nativa(_, _)) && smi::e_handle(a.dono) && !vivo(&a.dono) {
+            if matches!(a.acao, AcaoDeFinalizador::Nativa(_, _, _)) && smi::e_handle(a.dono) && !vivo(&a.dono) {
                 a.dono = 0;
             }
             if smi::e_handle(a.desanexo) && !vivo(&a.desanexo) {
@@ -2993,7 +3001,7 @@ impl Heap {
                         prontas.push(acao);
                         arestas_de_anexos.push((a.dono, acao));
                     },
-                AcaoDeFinalizador::Nativa(f, token) => nativas.push((f, token)),
+                AcaoDeFinalizador::Nativa(f, token, bytes) => nativas.push((f, token, bytes)),
             }
             false
         });
@@ -3038,7 +3046,8 @@ impl Heap {
         for (finalizador, par) in finalizar {
             finalizador(par);
         }
-        for (f, token) in nativas {
+        for (f, token, bytes) in nativas {
+            self.contar_externos(-(bytes as isize));
             #[allow(unsafe_code)]
             // SAFETY: a `NativeFinalizerFunction` do anexo, `void f(void*)`;
             // como na VM, roda durante a coleta e não pode tocar o heap.
@@ -5271,7 +5280,7 @@ impl Heap {
                 }
             }
             self.anexos.retain_mut(|a| {
-                if matches!(a.acao, AcaoDeFinalizador::Nativa(_, _)) && morto.contains(&a.dono) {
+                if matches!(a.acao, AcaoDeFinalizador::Nativa(_, _, _)) && morto.contains(&a.dono) {
                     a.dono = 0;
                 }
                 if morto.contains(&a.desanexo) {
@@ -5285,7 +5294,7 @@ impl Heap {
                         prontas.push(acao);
                         arestas_de_anexos.push((a.dono, acao));
                     },
-                    AcaoDeFinalizador::Nativa(f, token) => nativas.push((f, token)),
+                    AcaoDeFinalizador::Nativa(f, token, bytes) => nativas.push((f, token, bytes)),
                 }
                 false
             });
@@ -5337,7 +5346,8 @@ impl Heap {
         for (finalizador, par) in finalizar {
             finalizador(par);
         }
-        for (f, token) in nativas {
+        for (f, token, bytes) in nativas {
+            self.contar_externos(-(bytes as isize));
             // SAFETY: a `NativeFinalizerFunction` do anexo, `void f(void*)`;
             // como na VM, roda durante a coleta e não pode tocar o heap.
             let f: extern "C" fn(usize) = unsafe { std::mem::transmute(f) };
@@ -5552,7 +5562,7 @@ impl Heap {
                 }
             }
             self.anexos.retain_mut(|a| {
-                if matches!(a.acao, AcaoDeFinalizador::Nativa(_, _)) && morto(&a.dono) {
+                if matches!(a.acao, AcaoDeFinalizador::Nativa(_, _, _)) && morto(&a.dono) {
                     a.dono = 0;
                 }
                 if morto(&a.desanexo) {
@@ -5566,7 +5576,7 @@ impl Heap {
                         prontas.push(acao);
                         arestas_de_anexos.push((a.dono, acao));
                     },
-                    AcaoDeFinalizador::Nativa(f, token) => nativas.push((f, token)),
+                    AcaoDeFinalizador::Nativa(f, token, bytes) => nativas.push((f, token, bytes)),
                 }
                 false
             });
@@ -5660,7 +5670,8 @@ impl Heap {
         for (finalizador, par) in finalizar {
             finalizador(par);
         }
-        for (f, token) in nativas {
+        for (f, token, bytes) in nativas {
+            self.contar_externos(-(bytes as isize));
             // SAFETY: a `NativeFinalizerFunction` do anexo, `void f(void*)`;
             // como na VM, roda durante a coleta e não pode tocar o heap.
             let f: extern "C" fn(usize) = unsafe { std::mem::transmute(f) };
@@ -5885,6 +5896,54 @@ mod arc_no_heap {
     }
 
     #[test]
+    fn tamanho_externo_do_finalizador_sai_uma_vez_por_transicao() {
+        static EXECUCOES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        extern "C" fn finalizar(_: usize) {
+            EXECUCOES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        for modo in [None, Some(false), Some(true)] {
+            let mut heap = if modo.is_some() { heap_arc() } else { Heap::new(false) };
+            if let Some(puro) = modo { heap.arc.as_mut().unwrap().puro = puro; }
+            heap.contar_externos(17);
+            let quadro = heap.push_frame_proprietario(2);
+            let dono = lista(&mut heap, 0);
+            heap.set_root(quadro, 0, dono);
+            let alvo = lista(&mut heap, 0);
+            heap.set_root(quadro, 1, alvo);
+            let tamanho = heap.byte_threshold + 1;
+            let antes = EXECUCOES.load(std::sync::atomic::Ordering::Relaxed);
+            let anexo = AnexoDeFinalizador {
+                dono, valor: alvo, desanexo: alvo,
+                acao: AcaoDeFinalizador::Nativa(finalizar as *const () as usize, 0, tamanho),
+            };
+            heap.adicionar_anexo(anexo);
+            assert!(heap.precisa_coletar(16), "externalSize deve provocar pressão de memória");
+            heap.collect();
+            assert_eq!(heap.externos, tamanho + 17);
+            heap.desanexar_finalizador(dono, alvo);
+            heap.desanexar_finalizador(dono, alvo);
+            assert_eq!(heap.externos, 17);
+            assert_eq!(EXECUCOES.load(std::sync::atomic::Ordering::Relaxed), antes);
+
+            heap.adicionar_anexo(anexo);
+            heap.set_root(quadro, 1, 0);
+            heap.collect();
+            heap.collect();
+            assert_eq!(heap.externos, 17);
+            assert_eq!(EXECUCOES.load(std::sync::atomic::Ordering::Relaxed), antes + 1);
+
+            let alvo = lista(&mut heap, 0);
+            heap.set_root(quadro, 1, alvo);
+            heap.adicionar_anexo(AnexoDeFinalizador { valor: alvo, ..anexo });
+            heap.encerrar_finalizadores();
+            heap.encerrar_finalizadores();
+            assert_eq!(heap.externos, 17);
+            assert_eq!(EXECUCOES.load(std::sync::atomic::Ordering::Relaxed), antes + 2);
+            heap.pop_frame(quadro);
+        }
+    }
+
+    #[test]
     fn anexo_nativo_nao_aceita_dono_reutilizado_apos_morte_do_wrapper() {
         static EXECUCOES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         extern "C" fn finalizar(token: usize) {
@@ -5901,7 +5960,7 @@ mod arc_no_heap {
             heap.set_root(quadro, 1, alvo);
             heap.adicionar_anexo(AnexoDeFinalizador {
                 dono, valor: alvo, desanexo: alvo,
-                acao: AcaoDeFinalizador::Nativa(finalizar as *const () as usize, 17),
+                acao: AcaoDeFinalizador::Nativa(finalizar as *const () as usize, 17, 0),
             });
             let antes = EXECUCOES.load(std::sync::atomic::Ordering::Relaxed);
             heap.set_root(quadro, 0, 0);

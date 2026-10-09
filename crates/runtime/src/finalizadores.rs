@@ -28,11 +28,15 @@ pub extern "C" fn dartforge_nativo_DartForge_finalizador_anexar(dono: i64, valor
 }
 
 /// `DartForge_finalizador_anexar_nativo(dono, valor, funcao, token,
-/// desanexo)`.
+/// desanexo, tamanho_externo)`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_nativo_DartForge_finalizador_anexar_nativo(dono: i64, valor: i64, funcao: i64, token: i64, desanexo: i64) {
+pub extern "C" fn dartforge_nativo_DartForge_finalizador_anexar_nativo(dono: i64, valor: i64, funcao: i64, token: i64, desanexo: i64, tamanho_externo: i64) {
     if funcao == 0 {
         lancar_erro_de_argumento("NativeFinalizer callback must not be nullptr");
+        return;
+    }
+    if tamanho_externo < 0 || usize::try_from(tamanho_externo).ok().and_then(|n| isize::try_from(n).ok()).is_none() {
+        lancar_erro_de_argumento("externalSize fora do intervalo suportado");
         return;
     }
     HEAP.with(|h| {
@@ -40,7 +44,7 @@ pub extern "C" fn dartforge_nativo_DartForge_finalizador_anexar_nativo(dono: i64
             dono,
             valor,
             desanexo,
-            acao: crate::heap::AcaoDeFinalizador::Nativa(funcao as usize, token as usize),
+            acao: crate::heap::AcaoDeFinalizador::Nativa(funcao as usize, token as usize, tamanho_externo as usize),
         })
     });
 }

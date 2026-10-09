@@ -449,6 +449,30 @@ Release: 141 unitários, 13 de integração e 12 doctests aprovados, três
 microbenchmarks ignorados; fonte única AOT/JIT aprovada. Sem nova medição
 de desempenho; estados explícitos e identidades com geração seguem pendentes.
 
+Rodada [37928965861](https://github.com/insinfo/dartforge/actions/runs/37928965861),
+suíte nativo em dois fragmentos sobre `12409870`, iniciada após confirmar
+a anterior terminal e nenhuma Pesado ativa. Na última consulta, compilação
+Windows e os jobs Linux/macOS estão em andamento. Cobre os owners de entrada
+de isolado e as correções de finalizadores até a transferência antes do callback;
+não cobre a propagação posterior de `externalSize`.
+
+`externalSize` deixa de ser descartado pelo patch de `NativeFinalizer`:
+attach e `asTypedList(finalizer:)` passam o tamanho à ABI de seis argumentos.
+O anexo nativo registra esses bytes sem aresta Dart, soma-os à pressão
+de memória e os desconta em detach, execução por coleta ou encerramento.
+Teste nos três coletores confirma pressão, persistência enquanto o alvo vive,
+ausência de callback em detach, execução única e preservação de outros bytes
+externos após repetir cada transição. Release: 142 unitários, 13 de integração
+e 12 doctests aprovados, três microbenchmarks ignorados; fonte única AOT/JIT
+aprovada. Harness release recompilado com runtime atual; corpus
+`14_finalizadores` com coleta sob estresse: tracing 1/1 (14,3 s), ARC
+com auditoria e ciclos em toda drenagem 1/1 (22,3 s). São tempos do harness,
+não benchmark. Esses testes cobrem attach/detach e `asTypedList(finalizer:)`;
+não substituem o corpus completo das três plataformas.
+Revisar também a soma não saturada de `bytes_jovens` ao aceitar tamanhos
+externos extremos; esse contador de dívida antecede a mudança da ABI.
+Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
+
 Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
 suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior
 estava concluída e nenhuma Pesado ativa. Valida as análises auxiliares ARC,
