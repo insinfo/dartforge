@@ -2732,6 +2732,7 @@ impl Heap {
                 self.arc_trocou(b, anexo.dono, 0, acao);
             }
             self.lembrar_objeto(anexo.dono);
+            if let Some(arc) = &mut self.arc { arc.estado.marcar_arestas_laterais(anexo.dono); }
         }
         self.anexos.push(anexo);
     }
@@ -4983,10 +4984,23 @@ impl Heap {
         for h in self.raizes_proprietarias() {
             self.arc_reter_registrando(&mut arc, h);
         }
+        self.marcar_arestas_laterais(&mut arc);
         for &x in &alcancados {
             arc.estado.revisar(x);
         }
         self.arc = Some(arc);
+    }
+
+    /// Restaura indicações laterais após ativação ou reconstrução de metadados.
+    fn marcar_arestas_laterais(&self, arc: &mut ArcDoHeap) {
+        for a in &self.anexos {
+            if matches!(a.acao, AcaoDeFinalizador::Dart(_)) {
+                arc.estado.marcar_arestas_laterais(a.dono);
+            }
+        }
+        for &(chave, _) in arc.efemeros.contados.values() {
+            arc.estado.marcar_arestas_laterais(chave);
+        }
     }
 
     /// Os objetos do espaço alcançáveis das raízes, com a regra dos efêmeros
@@ -5155,6 +5169,7 @@ impl Heap {
         for v in soltar {
             arc.estado.soltar(v).unwrap_or_else(|e| falha_do_arc(e));
         }
+        self.marcar_arestas_laterais(&mut arc);
         for &h in &promovidos {
             arc.estado.revisar(h);
         }
@@ -5413,6 +5428,7 @@ impl Heap {
             }
         }
         fases.push(inicio.elapsed().as_micros());
+        self.marcar_arestas_laterais(&mut arc);
         // As raízes não geram decremento ao sumir: o que elas seguram volta a
         // ser candidato a ciclo.
         for &h in &protegidos {

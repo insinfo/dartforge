@@ -50,6 +50,8 @@ pub struct MetaArc {
     pub imortal: bool,
     /// Está na lista dos adiados (RC zero com raiz), uma vez só.
     pub adiado: bool,
+    /// O corpo não basta para provar ausência de arestas nesta geração.
+    pub arestas_laterais: bool,
 }
 
 /// Identidade de um objeto nas filas: o handle e a geração do registro.
@@ -382,7 +384,7 @@ impl EstadoDoArc {
         self.proxima_geracao = self.proxima_geracao.checked_add(1).expect("ARC: geração esgotada");
         self.objetos.insert(
             h,
-            MetaArc { geracao, rc: 1, estado: EstadoArc::Construindo, candidato: false, protegido_condicional: false, imortal: false, adiado: false },
+            MetaArc { geracao, rc: 1, estado: EstadoArc::Construindo, candidato: false, protegido_condicional: false, imortal: false, adiado: false, arestas_laterais: false },
             None,
         );
         self.estatisticas.registrados += 1;
@@ -404,7 +406,7 @@ impl EstadoDoArc {
     pub fn registrar_imortal(&mut self, h: Ref) {
         let geracao = self.proxima_geracao;
         self.proxima_geracao = self.proxima_geracao.checked_add(1).expect("ARC: geração esgotada");
-        self.objetos.insert(h, MetaArc { geracao, rc: 0, estado: EstadoArc::Vivo, candidato: false, protegido_condicional: false, imortal: true, adiado: false }, None);
+        self.objetos.insert(h, MetaArc { geracao, rc: 0, estado: EstadoArc::Vivo, candidato: false, protegido_condicional: false, imortal: true, adiado: false, arestas_laterais: false }, None);
     }
 
     /// Registra um objeto que já existe e passa a ser contado (o jovem
@@ -438,7 +440,7 @@ impl EstadoDoArc {
         if self.traco {
             eprintln!("[arc-traco] registrar {h} ja={}", self.objetos.contains_key(&h));
         }
-        self.objetos.insert(h, MetaArc { geracao, rc: 0, estado: EstadoArc::Vivo, candidato: false, protegido_condicional: false, imortal: false, adiado: false }, geometria);
+        self.objetos.insert(h, MetaArc { geracao, rc: 0, estado: EstadoArc::Vivo, candidato: false, protegido_condicional: false, imortal: false, adiado: false, arestas_laterais: false }, geometria);
         self.estatisticas.registrados += 1;
         IdArc { handle: h, geracao }
     }
@@ -479,11 +481,18 @@ impl EstadoDoArc {
             && !m.candidato
             && !m.imortal
             && m.estado == EstadoArc::Vivo
-            && !sem_arestas.is_some_and(|f| f(h))
+            && (m.arestas_laterais || !sem_arestas.is_some_and(|f| f(h)))
         {
             m.candidato = true;
             self.candidatos.push(IdArc { handle: h, geracao: m.geracao });
         }
+    }
+
+    /// Impede o filtro do corpo de excluir um objeto com arestas laterais.
+    /// A indicação é conservadora até o próximo registro da identidade.
+    pub(crate) fn marcar_arestas_laterais(&mut self, h: Ref) {
+        if let Some(m) = self.objetos.get_mut(&h) { m.arestas_laterais = true; }
+        self.candidatar(h);
     }
 
     /// O jovem `h` sobreviveu à drenagem (tem metadados): o RC zero vai para
@@ -500,7 +509,7 @@ impl EstadoDoArc {
         if m.rc == 0 {
             self.zeros.push(id);
         }
-        if !m.candidato && !sem_arestas.is_some_and(|f| f(h)) {
+        if !m.candidato && (m.arestas_laterais || !sem_arestas.is_some_and(|f| f(h))) {
             m.candidato = true;
             self.candidatos.push(id);
         }
@@ -565,7 +574,7 @@ impl EstadoDoArc {
         let id = IdArc { handle: h, geracao: m.geracao };
         if m.rc == 0 {
             self.zeros.push(id);
-        } else if !m.candidato && !self.sem_arestas.is_some_and(|f| f(h)) {
+        } else if !m.candidato && (m.arestas_laterais || !self.sem_arestas.is_some_and(|f| f(h))) {
             m.candidato = true;
             self.candidatos.push(id);
         }
@@ -987,6 +996,27 @@ mod testes {
         a.reter(7).unwrap();
         a.soltar(7).unwrap();
         assert_eq!(a.estatisticas.retains, 0);
+    }
+
+    #[test]
+    fn aresta_lateral_impede_filtro_de_corpo_sem_referencias() {
+        let mut a = EstadoDoArc::novo();
+        a.sem_arestas = Some(|_| true);
+        let mut g = Grafo::default();
+        a.registrar_vivo(2);
+        a.registrar_vivo(4);
+        ligar(&mut a, &mut g, 2, 4);
+        ligar(&mut a, &mut g, 4, 2);
+        a.reter(2).unwrap();
+        a.soltar(2).unwrap();
+        assert_eq!(a.candidatos(), 0);
+        a.marcar_arestas_laterais(2);
+        assert_eq!(a.candidatos(), 1);
+        a.coletar_ciclos(&mut g, &|_| false).unwrap();
+        assert!(morto(&a, 2) && morto(&a, 4));
+        a.registrar_vivo(2);
+        assert!(!a.meta(2).unwrap().arestas_laterais);
+        assert_eq!(std::mem::size_of::<MetaArc>(), 24);
     }
 
     #[test]

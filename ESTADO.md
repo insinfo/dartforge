@@ -403,6 +403,15 @@ sem ignorados/filtrados, 770,09 s. Log SDK `113796236661` conferido:
 recarga 2/2 (52,23 s), Script/Spawn 1/1 (1,41 s), produção autocontida
 1/1 (47,31 s). Relatório Windows ARC 238/238, 42,6 s de harness.
 Só macOS permanece ativo na última consulta; a rodada valida `a49ab81b`.
+O filtro de candidatos por corpo BRUTO agora respeita a indicação de
+arestas laterais no metadado. A indicação é conservadora por geração,
+restaurada na ativação/promoção/drenagem para anexos e chaves de ephemerons.
+Teste com filtro que responde sem referências exige coleta do ciclo lateral
+e reset no registro seguinte. `MetaArc` continua com 24 bytes.
+Release: 139 unitários, 13 de integração e 12 doctests aprovados, três
+microbenchmarks ignorados; fonte única AOT/JIT aprovada. Desempenho desta
+mudança ainda não foi medido. A rodada remota continua nos testes JIT macOS
+e não contém as mudanças posteriores de finalizadores.
 
 Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
 suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior

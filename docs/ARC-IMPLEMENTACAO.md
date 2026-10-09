@@ -524,6 +524,17 @@ os estados explícitos do registro ou a retenção do módulo de código nativo.
 Release: 138 unitários, 13 de integração e 12 doctests aprovados;
 três microbenchmarks ignorados. Fonte única AOT/JIT aprovada.
 
+O filtro de candidatos a ciclo pelo corpo `BRUTO` passa a respeitar uma
+indicação conservadora de arestas laterais nos metadados. Ela é restaurada
+na ativação/promoção e na drenagem, incluindo anexos Dart e chaves com arestas
+de ephemerons contadas. Uma vez marcada, permanece até o próximo registro
+da identidade; remover a última aresta pode deixar um candidato excedente,
+sem excluir um ciclo possível. O teste força filtro sem referências,
+exige coleta do ciclo lateral e confere reset no registro seguinte.
+O metadado continua com 24 bytes; desempenho ainda precisa ser medido.
+Release: 139 unitários, 13 de integração e 12 doctests aprovados;
+três microbenchmarks ignorados. Fonte única AOT/JIT aprovada.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais
