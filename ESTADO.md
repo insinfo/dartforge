@@ -571,6 +571,15 @@ AOT/A1/B0/B1/ARC 238/238, `dart:io` 130/130, JIT 238/238 e JIT × AOT
 nenhum timeout nos dois executores. Não inferir desses relatórios o
 fechamento dos jobs macOS e SDK.
 
+Medição dirigida da instrumentação condicional (`296c001e`), objetos/textos:
+28 processos, quatro kernels, sete repetições A0/ARC, resultados iguais,
+código zero e stderr vazio. ARC/A0: árvores 12,02×, lista ligada 6,23×,
+construção de textos 2,30× e hashes 2,89×. Dados e hashes em
+`bench/resultados/2026-10-09-arc-rastro-condicional`. Afinidade/configuração
+iguais à rodada anterior; não comparar os quatro kernels como se fossem
+os 32 completos nem atribuir a diferença causalmente só à instrumentação.
+B0 remoto `113842810178` conferido: 4/4, zero ignorados/filtros, 769,54 s.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
