@@ -111,9 +111,9 @@ fn concatenar_listas(a: i64, b: i64) -> Option<i64> {
         if !heap.e_lista(a) || !heap.e_lista(b) {
             return None;
         }
-        // `a` e `b` só estão nos argumentos: raízes enquanto a nova é alocada
-        // (e os elementos, se a forma mudar, encaixotados).
-        let quadro = heap.push_frame();
+        // Cópias proprietárias de `a`, `b` e da saída protegem a alocação
+        // e as caixas quando as formas dos elementos são diferentes.
+        let quadro = heap.push_frame_proprietario(0);
         heap.root(quadro, a);
         heap.root(quadro, b);
         let (len_a, len_b) = (heap.lista_len(a), heap.lista_len(b));

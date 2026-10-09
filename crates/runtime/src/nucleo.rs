@@ -678,8 +678,9 @@ pub unsafe extern "C" fn dartforge_record_new(pairs: *const i64, len: i64) -> i6
     };
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        // Os `Ref` e cada caixa nova ficam enraizados até o record existir.
-        let quadro = heap.push_frame();
+        // Cópias proprietárias dos argumentos e das caixas duram até o
+        // record guardar as arestas; nenhuma coleta ocorre após fechar.
+        let quadro = heap.push_frame_proprietario(0);
         for v in &valores {
             if let crate::heap::Valor::Ref(r) = v {
                 heap.root(quadro, *r);
@@ -698,6 +699,82 @@ pub unsafe extern "C" fn dartforge_record_new(pairs: *const i64, len: i64) -> i6
 }
 
 // ─── Espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md §3.6): esqueleto da P0a ──
+
+#[cfg(test)]
+mod testes_owners_record_e_concat {
+    use super::*;
+
+    fn com_heap_arc(f: impl FnOnce()) {
+        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+        HEAP.with(|h| h.borrow_mut().ativar_arc());
+        f();
+        HEAP.with(|h| { h.replace(anterior); });
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn record_da_abi_preserva_aliases_e_caixas_ate_publicar() {
+        com_heap_arc(|| {
+            let (quadro, texto) = HEAP.with(|h| {
+                let mut h = h.borrow_mut();
+                let quadro = h.push_frame_proprietario(1);
+                let texto = h.alocar_str("record");
+                h.set_root(quadro, 0, texto);
+                (quadro, texto)
+            });
+            let pares = [texto, 3, i64::MAX, 1, texto, 3, 2.5f64.to_bits() as i64, 4];
+            // SAFETY: quatro pares bits/tag válidos, vivos durante a chamada.
+            let record = unsafe { dartforge_record_new(pares.as_ptr(), 4) };
+            HEAP.with(|h| {
+                let mut h = h.borrow_mut();
+                h.set_root(quadro, 0, record);
+                h.collect();
+                let campos = h.record(record).unwrap().to_vec();
+                assert_eq!(campos[0], texto);
+                assert_eq!(campos[2], texto);
+                assert!(matches!(h.valor(campos[1]), crate::heap::Valor::Int(i64::MAX)));
+                assert!(matches!(h.valor(campos[3]), crate::heap::Valor::Double(x) if x == 2.5));
+                h.pop_frame(quadro);
+                h.collect();
+                assert!(!h.e_objeto_vivo(record));
+                assert!(campos.iter().all(|&r| !h.e_objeto_vivo(r)));
+            });
+        });
+    }
+
+    #[test]
+    fn concatenacao_de_formas_distintas_preserva_caixas_e_libera_entradas() {
+        com_heap_arc(|| {
+            let (quadro, a, b) = HEAP.with(|h| {
+                let mut h = h.borrow_mut();
+                let quadro = h.push_frame_proprietario(2);
+                let a = h.nova_lista(crate::layout::cid::LIST, 1, crate::listas::Elemento::Int);
+                h.set_root(quadro, 0, a);
+                h.lista_set(a, 0, crate::heap::Valor::Int(i64::MAX));
+                let b = h.nova_lista(crate::layout::cid::LIST, 1, crate::listas::Elemento::Double);
+                h.set_root(quadro, 1, b);
+                h.lista_set(b, 0, crate::heap::Valor::Double(2.5));
+                (quadro, a, b)
+            });
+            let saida = concatenar_listas(a, b).unwrap();
+            HEAP.with(|h| {
+                let mut h = h.borrow_mut();
+                h.set_root(quadro, 0, saida);
+                h.set_root(quadro, 1, 0);
+                h.collect();
+                assert!(!h.e_objeto_vivo(a) && !h.e_objeto_vivo(b));
+                let dados = h.lista_dados(saida);
+                let caixas = h.palavras(dados)[1..3].to_vec();
+                assert!(matches!(h.valor(caixas[0]), crate::heap::Valor::Int(i64::MAX)));
+                assert!(matches!(h.valor(caixas[1]), crate::heap::Valor::Double(x) if x == 2.5));
+                h.pop_frame(quadro);
+                h.collect();
+                assert!(!h.e_objeto_vivo(saida) && !h.e_objeto_vivo(dados));
+                assert!(caixas.iter().all(|&r| !h.e_objeto_vivo(r)));
+            });
+        });
+    }
+}
 
 /// Um record posicional (`_Record`, `REFS`) com os `n` `Ref` em `refs`: o
 /// caminho do `AllocRecord` grande demais para a TLAB. Não lança.

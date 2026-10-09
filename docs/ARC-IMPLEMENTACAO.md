@@ -332,6 +332,16 @@ resultado de I/O, incluindo liberação ao sair o último owner. Suítes debug/r
 111 aprovados, três microbenchmarks ignorados. A rodada remota atual também
 antecede estas migrações.
 
+A montagem `dartforge_record_new` e a concatenação `List.+` também usam
+quadros proprietários para argumentos e caixas temporárias. Os resultados
+são devolvidos sem coleta depois de soltar o quadro. Testes sobre as funções
+da ABI, com coleta forçada, cobrem aliases repetidos num record e concatenação
+de formas int/double, valores encaixotados e liberação das entradas e da
+cadeia de saída. Suítes debug/release: 113 aprovados, três microbenchmarks ignorados.
+Os três testes ABI de owners (I/O, record e concatenação) também passaram
+com `DARTFORGE_ARC_CONFERIR=1`, auditando RC nas coletas.
+O corpus remoto atual ainda não contém estas migrações.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais
