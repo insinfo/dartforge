@@ -559,6 +559,13 @@ Teste de ciclo com `DARTFORGE_GC_RASTRO=1`: 1/1, com métricas emitidas
 (`target/runtime-rastro-condicional-ligado.log`). Ainda não há comparação
 antes/depois desta mudança; a razão 1,968695 acima pertence a `5bbfc80f`.
 
+Artefatos concluídos da rodada `37936255800` (`5bbfc80f`) conferidos:
+Windows ARC 238/238 (52 s de programas, 55 s de harness), ARC sob estresse
+238/238 (54 s, 58 s de harness) e `dart:io` 130/130 (89 s, 91 s de harness).
+Relatórios em `target/ci-37936255800/{arc,arc-stress,io}`. Não incluem a
+instrumentação condicional posterior. A rodada inteira ainda está ativa;
+macOS, SDK e B0 continuam pendentes na consulta atual.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
