@@ -1,6 +1,104 @@
 use super::*;
 
 #[test]
+fn emprestimo_transitivo_segura_owner_ate_o_ultimo_uso() {
+    let mut f = funcao(vec![bloco(
+        0,
+        vec![(
+            ValueId(3),
+            Instruction::CallRuntime {
+                name: "dartforge_print".into(),
+                args: vec![(Operand::Val(ValueId(2)), Type::Ref)],
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        )],
+        Terminator::Return(None),
+    )]);
+    f.params.push((ValueId(2), "alias2".into(), Type::Ref));
+    f.return_ty = Type::Void;
+    let v = vivacidade_com_emprestimos(
+        &f,
+        &refs(&[0, 1, 2]),
+        &HashMap::from([(ValueId(2), ValueId(1)), (ValueId(1), ValueId(0))]),
+    )
+    .unwrap();
+    assert_eq!(v.antes[&ValueId(3)], refs(&[0, 1, 2]));
+    assert!(v.depois[&ValueId(3)].is_empty());
+    assert_eq!(
+        vivacidade(&f, &refs(&[0, 1, 2])).antes[&ValueId(3)],
+        refs(&[2])
+    );
+}
+
+#[test]
+fn owners_de_emprestimos_em_phi_ficam_na_aresta_correta() {
+    let mut f = funcao(vec![
+        bloco(
+            0,
+            vec![],
+            Terminator::CondBranch {
+                cond: Operand::Val(ValueId(9)),
+                then_block: BlockId(1),
+                else_block: BlockId(2),
+            },
+        ),
+        bloco(1, vec![], Terminator::Branch(BlockId(3))),
+        bloco(2, vec![], Terminator::Branch(BlockId(3))),
+        bloco(
+            3,
+            vec![(
+                ValueId(4),
+                Instruction::Phi {
+                    incoming: vec![
+                        (BlockId(1), Operand::Val(ValueId(2))),
+                        (BlockId(2), Operand::Val(ValueId(3))),
+                    ],
+                    ty: Type::Ref,
+                },
+                Type::Ref,
+            )],
+            Terminator::Return(Some(Operand::Val(ValueId(4)))),
+        ),
+    ]);
+    f.params.extend([
+        (ValueId(2), "alias_x".into(), Type::Ref),
+        (ValueId(3), "alias_y".into(), Type::Ref),
+    ]);
+    let v = vivacidade_com_emprestimos(
+        &f,
+        &refs(&[0, 1, 2, 3, 4]),
+        &HashMap::from([(ValueId(2), ValueId(0)), (ValueId(3), ValueId(1))]),
+    )
+    .unwrap();
+    assert_eq!(v.arestas[&(BlockId(1), BlockId(3))], refs(&[0, 2]));
+    assert_eq!(v.arestas[&(BlockId(2), BlockId(3))], refs(&[1, 3]));
+}
+
+#[test]
+fn emprestimo_recusa_owner_ausente_e_ciclo_com_caminho_estavel() {
+    let f = funcao(vec![bloco(0, vec![], Terminator::Return(None))]);
+    let faltante = vivacidade_com_emprestimos(
+        &f,
+        &refs(&[0, 1, 2]),
+        &HashMap::from([(ValueId(1), ValueId(2))]),
+    )
+    .unwrap_err();
+    assert_eq!(faltante.funcao, "f");
+    assert_eq!(faltante.caminho, vec![ValueId(1), ValueId(2)]);
+    let fora_do_inventario =
+        vivacidade_com_emprestimos(&f, &refs(&[1]), &HashMap::from([(ValueId(1), ValueId(0))]))
+            .unwrap_err();
+    assert!(fora_do_inventario.to_string().contains("ARC003"));
+    let ciclo = [(ValueId(1), ValueId(0)), (ValueId(0), ValueId(1))];
+    let a = vivacidade_com_emprestimos(&f, &refs(&[0, 1]), &HashMap::from(ciclo)).unwrap_err();
+    let b = vivacidade_com_emprestimos(&f, &refs(&[0, 1]), &HashMap::from([ciclo[1], ciclo[0]]))
+        .unwrap_err();
+    assert_eq!(a, b);
+    assert_eq!(a.caminho, vec![ValueId(0), ValueId(1), ValueId(0)]);
+}
+
+#[test]
 fn resultado_da_chamada_so_e_vivo_na_aresta_normal() {
     let mut m = Module {
         functions: vec![funcao(vec![bloco(

@@ -164,6 +164,16 @@ novos conferida com rustfmt, edição 2024.
 A análise ainda não é chamada pelo pipeline; classificação, dependências
 de borrows/keep-alive, tokens, inserção e verificação de ownership faltam.
 
+A variante `vivacidade_com_emprestimos` agora inclui owners e aliases
+intermediários nos usos de cada borrowed, inclusive por aresta de `Phi`.
+Valida os IDs contra função/inventário e rejeita ciclos com `ARC003`, origem
+e caminho determinísticos. Testes cobrem cadeia transitiva até o último uso,
+owners distintos nos dois predecessores e dependências inválidas.
+Suíte: 97 testes passaram, sete manuais ignorados; quatro doctests passaram.
+Formatação dos módulos ARC conferida. Escopo, dominância, escape, keep-alive,
+classificação e integração ao pipeline ainda faltam; não é o verificador
+completo de ownership da §20.3 nem altera as contagens do runtime.
+
 Na rodada remota `37896396380` sobre `719e94cc`, os quatro testes dirigidos
 de mapas também passaram, sem ignorados/filtrados, em 752 s; log do job B0
 conferido. Esta rodada ainda antecede a preparação excepcional separada.

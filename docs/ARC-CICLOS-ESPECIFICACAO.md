@@ -890,8 +890,12 @@ nos blocos alcançáveis e expõe conjuntos antes/depois das instruções, por
 bloco e por aresta. As entradas de `Phi` são usos apenas na aresta do seu
 predecessor, inclusive backedges e as arestas excepcionais preparadas.
 O inventário de referências/slots é fornecido pelo chamador; a análise não
-infere ownership por largura de representação. Ainda falta a classificação
-semântica, materialização de dependências de borrows/keep-alive, tokens,
+infere ownership por largura de representação.
+`vivacidade_com_emprestimos` inclui a cadeia de sustentação em cada uso do
+alias, também nas entradas de `Phi` por predecessor. Rejeita dependências
+cíclicas e IDs ausentes com `ARC003`, origem e caminho; diagnósticos seguem
+ordem de ID. Isso não verifica escopo, dominância ou escape do empréstimo.
+Ainda falta a classificação semântica, escopos e keep-alive, tokens,
 inserção e verificação. A análise permanece fora do pipeline de emissão
 até esses consumidores serem implementados.
 
