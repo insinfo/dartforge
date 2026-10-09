@@ -256,7 +256,11 @@ e produção autocontida. A etapa de recarga filtrava um nome antigo:
 executou zero testes (sete filtrados), portanto não valida recarga nesta
 rodada. O comando foi corrigido para executar os dois testes ignorados
 existentes de preservação de estado com SDK da fonte; falta validar a
-correção numa próxima rodada. macOS ainda está em andamento.
+correção numa próxima rodada. A rodada `37902293030` concluiu com sucesso.
+Relatórios finais do macOS conferidos: AOT, A1/B0/B1 e ARC 238/238;
+`dart:io` 130/130; JIT × AOT 238/238 no placar, zero divergências (sete
+sem IR, iguais por construção). Isso valida a preparação excepcional da
+revisão `8b4b79b8`, sem provar as alterações posteriores ou ownership.
 O job agora lista os testes ignorados de recarga antes de executá-los e
 reprova seleção vazia. O filtro PowerShell foi conferido com listagens de
 binários anteriores: dois testes com JIT, rejeição da lista vazia sem JIT;
