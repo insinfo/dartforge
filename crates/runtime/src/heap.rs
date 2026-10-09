@@ -1553,7 +1553,7 @@ impl Heap {
     /// descarta os de `Finalizer`.
     pub fn encerrar_finalizadores(&mut self) {
         let anexos = std::mem::take(&mut self.anexos);
-        self.finalizacoes_prontas.clear();
+        while self.concluir_finalizacao_pronta().is_some() {}
         for a in anexos {
             if let AcaoDeFinalizador::Nativa(f, token) = a.acao {
                 // SAFETY: `f` é a `NativeFinalizerFunction` que o programa
@@ -1888,7 +1888,23 @@ impl Heap {
             .chain(self.tearoffs.values().copied())
             .chain(self.enum_values.values().copied())
             .chain(self.owners_mensagens.values().copied())
+            .chain(self.finalizacoes_prontas.iter().copied())
             .chain(self.raizes_do_runtime.iter().copied()).collect()
+    }
+
+    /// Publica uma ocorrência proprietária na fila, sem coleta entre retenção e escrita.
+    #[cfg(test)]
+    pub(crate) fn adicionar_finalizacao_pronta(&mut self, acao: Ref) {
+        self.conferir_vivo(acao);
+        self.arc_trocar_raiz_proprietaria(acao, 0);
+        self.finalizacoes_prontas.push_back(acao);
+    }
+
+    /// Consome o owner da primeira finalização; fila vazia é um no-op.
+    pub(crate) fn concluir_finalizacao_pronta(&mut self) -> Option<Ref> {
+        let acao = self.finalizacoes_prontas.pop_front()?;
+        self.arc_trocar_raiz_proprietaria(0, acao);
+        Some(acao)
     }
 
     /// Retém uma ocorrência de mensagem no domínio deste heap.
@@ -2897,6 +2913,11 @@ impl Heap {
             }
             false
         });
+        if let Some(arc) = &mut self.arc {
+            for &acao in &prontas {
+                arc.estado.reter(acao).unwrap_or_else(|e| falha_do_arc(e));
+            }
+        }
         self.finalizacoes_prontas.extend(prontas);
         // As tabelas de identidade entre portas: purgadas pelo bit de marca
         // como as demais (quem precisa da constante viva a guarda num global,
@@ -5121,6 +5142,7 @@ impl Heap {
                 fica
             });
         }
+        for &acao in &prontas { self.arc_reter_registrando(&mut arc, acao); }
         self.finalizacoes_prontas.extend(prontas);
         if completa {
             self.reclamar_arc(&arc);
@@ -5395,6 +5417,7 @@ impl Heap {
             }
             laco[3] += t3.elapsed().as_micros();
         }
+        for &acao in &prontas { self.arc_reter_registrando(&mut arc, acao); }
         self.finalizacoes_prontas.extend(prontas);
         fases.push(inicio.elapsed().as_micros());
         // 6. A memória.
@@ -5568,6 +5591,56 @@ mod arc_no_heap {
         heap.ativar_arc();
         heap.arc.as_mut().unwrap().conferir = true;
         heap
+    }
+
+    #[test]
+    fn fila_de_finalizacoes_conta_aliases_e_consumo() {
+        for puro in [false, true] {
+            let mut heap = heap_arc();
+            heap.arc.as_mut().unwrap().puro = puro;
+            let acao = heap.alocar_str("duas finalizações");
+            heap.adicionar_finalizacao_pronta(acao);
+            heap.adicionar_finalizacao_pronta(acao);
+            heap.collect();
+            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(acao).unwrap().rc, 2);
+            assert_eq!(heap.concluir_finalizacao_pronta(), Some(acao));
+            heap.collect();
+            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(acao).unwrap().rc, 1);
+            heap.encerrar_finalizadores();
+            assert_eq!(heap.concluir_finalizacao_pronta(), None);
+            heap.collect();
+            assert!(!heap.e_objeto_vivo(acao));
+        }
+    }
+
+    #[test]
+    fn anexo_morto_publica_owner_da_acao_na_fila() {
+        for (puro, menor) in [(false, false), (false, true), (true, false), (true, true)] {
+            let mut heap = heap_arc();
+            heap.arc.as_mut().unwrap().puro = puro;
+            let quadro = heap.push_frame_proprietario(3);
+            let dono = heap.alocar_str("finalizador");
+            heap.set_root(quadro, 0, dono);
+            let acao = heap.alocar_str("ação pronta");
+            heap.set_root(quadro, 1, acao);
+            let valor = heap.alocar_str("alvo fraco");
+            heap.set_root(quadro, 2, valor);
+            heap.anexos.push(AnexoDeFinalizador {
+                dono, valor, desanexo: 0, acao: AcaoDeFinalizador::Dart(acao),
+            });
+            heap.set_root(quadro, 2, 0);
+            heap.coletar(menor);
+            assert!(heap.anexos.is_empty());
+            assert_eq!(heap.finalizacoes_prontas.front(), Some(&acao));
+            assert!(!heap.e_objeto_vivo(valor));
+            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(acao).unwrap().rc, 2);
+            heap.pop_frame(quadro);
+            heap.collect();
+            assert_eq!(heap.arc.as_ref().unwrap().estado.meta(acao).unwrap().rc, 1);
+            assert_eq!(heap.concluir_finalizacao_pronta(), Some(acao));
+            heap.collect();
+            assert!(!heap.e_objeto_vivo(acao));
+        }
     }
 
     fn vivo(heap: &Heap, h: Ref) -> bool {

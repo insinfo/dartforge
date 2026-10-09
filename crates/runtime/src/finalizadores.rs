@@ -61,7 +61,7 @@ fn proxima_finalizacao() -> Option<i64> {
 }
 
 fn concluir_finalizacao() {
-    HEAP.with(|h| h.borrow_mut().finalizacoes_prontas.pop_front());
+    HEAP.with(|h| h.borrow_mut().concluir_finalizacao_pronta());
 }
 
 /// Fim do isolado: os `NativeFinalizer` ainda anexados rodam.
@@ -90,7 +90,7 @@ mod testes_owner_finalizacao {
             let mut h = h.borrow_mut();
             h.ativar_arc();
             let closure = h.nova_closure(123, (0, false), 0, 0);
-            h.finalizacoes_prontas.push_back(closure);
+            h.adicionar_finalizacao_pronta(closure);
             closure
         });
         dartforge_laco_de_eventos(encerrar_durante_callback);

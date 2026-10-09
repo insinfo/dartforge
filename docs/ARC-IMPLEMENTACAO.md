@@ -477,6 +477,18 @@ isso não valida o protocolo inteiro de `Finalizer`/`NativeFinalizer` (§22).
 Release: 131 unitários, 13 de integração e 12 doctests aprovados;
 três microbenchmarks ignorados, incluindo conferência de fonte única AOT/JIT.
 
+A fila de finalizações passa a contar cada ocorrência como owner. Nos
+coletores com o estado ARC retirado do heap, a publicação retém pelo estado
+local; na menor por tracing, retém ações já registradas e a sincronização
+reconstrói ocorrências das promovidas. A ativação ARC também inclui a fila.
+Consumo e encerramento soltam cada entrada, preservando aliases. O teste de
+anexo real exige RC 2 com owner externo e fila, RC 1 após retirar o externo,
+e morte depois de consumir a entrada; cobre puro/berçário e menor/completa.
+Os owners condicionais dos anexos permanecem pendentes, assim como a
+validação nativa completa e os casos excepcionais de callbacks.
+Release final com fontes estáveis: 133 unitários, 13 de integração e 12
+doctests aprovados; três microbenchmarks ignorados. Fonte única AOT/JIT aprovada.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais

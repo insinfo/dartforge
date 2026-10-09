@@ -347,6 +347,16 @@ e 12 doctests aprovados, três microbenchmarks ignorados; fonte única conferida
 A fila continua raiz observacional: seus owners e os anexos condicionais,
 nos três caminhos de coleta, permanecem pendentes. A rodada `37922301282`
 está ativa e não contém esta alteração de callback.
+A fila de finalizações passou a contar owners por ocorrência: publicação
+retém, consumo e encerramento soltam, ativação/promoção incluem sua
+multiplicidade. A publicação nos coletores ARC usa o estado local retirado
+do heap; no tracing com berçário, retém ações registradas e a sincronização
+reconstrói as promovidas. Teste de anexo real confere RC 2 com owner externo
+e fila, RC 1 só na fila e morte após consumo, em puro/berçário e menor/completa.
+Aliases e encerramento também testados. Release final: 133 unitários,
+13 de integração e 12 doctests aprovados, três microbenchmarks ignorados;
+fonte única AOT/JIT conferida. Os owners condicionais de anexos continuam
+pendentes; a rodada `37922301282` não contém esta mudança da fila.
 
 Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
 suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior
