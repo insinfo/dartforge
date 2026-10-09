@@ -816,6 +816,31 @@ mod testes_owners_materializacao {
     use super::*;
 
     #[test]
+    fn fila_encerrada_descarta_grafo_sem_consultar_handle_ja_morto() {
+        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+        let fila = FILA.with(|f| f.clone());
+        let (quadro, texto) = HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.ativar_arc();
+            let quadro = h.push_frame_proprietario(1);
+            let texto = h.alocar_str("não publicar");
+            h.set_root(quadro, 0, texto);
+            (quadro, texto)
+        });
+        let grafo = copiar_para_grafo(texto, true).ok().unwrap();
+        fechar_portas_do_isolado();
+        HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.pop_frame(quadro);
+            h.collect();
+            assert!(!h.e_objeto_vivo(texto));
+        });
+        postar_na_fila(&fila, 123, grafo);
+        assert!(fila.mensagens.lock().unwrap().normal.is_empty());
+        HEAP.with(|h| { h.replace(anterior); });
+    }
+
+    #[test]
     fn remetente_com_clone_antigo_nao_publica_apos_encerramento() {
         let fila = FILA.with(|f| f.clone());
         let barreira = std::sync::Arc::new(std::sync::Barrier::new(2));
@@ -1232,6 +1257,9 @@ pub fn postar(porta: i64, grafo: Grafo) {
 
 /// Publica com a referência já obtida do registro; o mutex lineariza o fechamento.
 fn postar_na_fila(f: &FilaDoIsolado, porta: i64, grafo: Grafo) {
+    let mut m = f.mensagens.lock().unwrap_or_else(|e| e.into_inner());
+    if m.encerrada { return; }
+    // Retenção não coleta nem chama Dart; o fechamento usa este mesmo mutex.
     let mut owners = Vec::new();
     grafo.visitar_valores(|v| {
         if let ValG::Mesmo(h) = *v {
@@ -1240,12 +1268,6 @@ fn postar_na_fila(f: &FilaDoIsolado, porta: i64, grafo: Grafo) {
             owners.push(HEAP.with(|heap| heap.borrow_mut().reter_owner_mensagem(h)));
         }
     });
-    let mut m = f.mensagens.lock().unwrap_or_else(|e| e.into_inner());
-    if m.encerrada {
-        drop(m);
-        soltar_owners_da_mensagem(&owners);
-        return;
-    }
     m.normal.push_back(Mensagem { porta, grafo, owners, chegada: std::time::Instant::now() });
     f.avisar();
 }

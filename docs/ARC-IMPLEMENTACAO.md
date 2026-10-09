@@ -422,11 +422,17 @@ Suíte release atual: 124 aprovados, três microbenchmarks ignorados.
 O encerramento marca `Filas::encerrada` sob o mutex usado para publicar e
 drena mensagens normais e de controle. Um remetente que obteve o `Arc` da
 fila antes de sua retirada do registro não pode publicar depois dessa marca.
-Se a publicação normal já preparou tokens, a rejeição os solta no domínio
-do remetente, que é o destinatário dos handles compartilhados. Teste com
+Na publicação normal, a admissão precede a leitura dos handles e a criação
+dos tokens, sob o mesmo mutex. A retenção não coleta nem chama Dart. Teste com
 barreira entre duas threads força publicação por clone antigo depois do
 fechamento; aprovado em debug. Suíte release: 125 aprovados, três
 microbenchmarks ignorados. A validação remota desta mudança ainda está pendente.
+
+Uma fila já encerrada descarta o grafo sem consultar handles compartilhados,
+que podem já ter morrido após o fechamento. Teste com handle comprovadamente
+coletado aprovado em debug; a rejeição não tenta registrar ou reter esse handle.
+Suíte release: 126 aprovados, três microbenchmarks ignorados. Os seis testes
+de materialização passaram também com auditoria ARC e berçário habilitados.
 
 ## 5. Pendências
 
