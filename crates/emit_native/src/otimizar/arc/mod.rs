@@ -19,6 +19,7 @@ pub use contratos::{ContratoChamadaRuntime, contrato_chamada_runtime, produzir_c
 pub use contratos::produzir_e_verificar_tokens;
 pub use contratos::produzir_parametros_ref_dart;
 pub use contratos::produzir_e_verificar_tokens_dart;
+pub use contratos::inserir_retencao_retornos_dart;
 pub use tokens::{EfeitoTokens, PlanoTokens, RetornoTokens, verificar_tokens};
 pub use escopos::{AlteracaoEscopo, PlanoEscopos, verificar_escopos};
 pub use classificacao::{

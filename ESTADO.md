@@ -1525,6 +1525,19 @@ ou pendências. Suíte ARC 58/58
 (`target/ownership-record-consultas-produtor.log`).
 
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
+Primeira inserção automática de retenção disponível em
+`inserir_retencao_retornos_dart`: retorno SSA Ref Borrowed/Trivial recebe
+ArcCopy e transfere token Owned; Owned existente transfere diretamente;
+null direto não precisa cópia; literal permanente direto ganha Const antes
+da cópia. Publica HIR/classes/plano somente após wrapper Dart completo.
+IDs novos não coincidem com IDs existentes dos planos/tabelas. Regressão
+confere idempotência, retorno de parâmetro sem sementes, null/literal e
+rejeição atômica quando outro token permanece sem cleanup. Suíte ARC 70/70
+e exemplos públicos 39/39 (`target/ownership-retornos-insercao-test.log`,
+`target/ownership-retornos-insercao-doc.log`). ArcCopy já emite retain LLVM,
+mas esta alteração ainda não tem prova AOT própria da transformação nem
+está no lowering padrão; drops, cleanup excepcional e suspensão continuam
+pendentes. Não confundir inserção dos retornos com ARC automático completo.
 Wrapper `produzir_e_verificar_tokens_dart` integra o produtor dos parâmetros
 Ref à transação de CFG/SSA, instruções, tokens, escopos e quadros. Exige plano
 de retorno Owned para Ref e Trivial para os demais tipos, conforme §20.1.

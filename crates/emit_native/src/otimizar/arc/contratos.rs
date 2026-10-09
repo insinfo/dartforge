@@ -65,6 +65,99 @@ pub fn produzir_parametros_ref_dart(
     Ok(())
 }
 
+/// Insere retenção nos retornos Ref Dart e publica somente a função verificada.
+///
+/// Retorno SSA Borrowed/Trivial recebe ArcCopy; Owned transfere seu token.
+/// Null direto dispensa contagem, e literais permanentes diretos são avaliados
+/// por Const antes da cópia. Exige plano de retorno Owned para Ref. Demais
+/// limpezas, contratos de callees e metadados não cobertos são premissas do
+/// lowering; não insere drops, cleanup excepcional ou proteção de suspensão.
+///
+/// # Erros
+/// HIR/contratos inválidos, IDs esgotados ou falha do wrapper Dart completo.
+/// Função, classes e plano permanecem intactos. Retorna o número de cópias.
+///
+/// ```
+/// use dartforge_emit_native::{hir::*, otimizar::arc::*};
+/// use std::collections::HashMap;
+/// let mut f = Function { symbol: "identidade".into(), name: "identidade".into(), depuracao: None,
+///     params: vec![(ValueId(0), "x".into(), Type::Ref)], return_ty: Type::Ref,
+///     blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
+///         terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }] };
+/// let mut plano = PlanoTokens { retorno: RetornoTokens::Owned, ..Default::default() };
+/// assert_eq!(inserir_retencao_retornos_dart(&mut f, &mut HashMap::new(), &mut plano,
+///     &TabelasDaFuncao::default(), &PlanoEscopos::default())?, 1);
+/// # Ok::<(), String>(())
+/// ```
+pub fn inserir_retencao_retornos_dart(
+    f: &mut Function,
+    classes: &mut HashMap<ValueId, Ownership>,
+    plano: &mut PlanoTokens,
+    tabelas: &TabelasDaFuncao,
+    escopos: &PlanoEscopos,
+) -> Result<usize, String> {
+    super::ssa::verificar(f)?;
+    let mut nova = f.clone();
+    let mut novas_classes = classes.clone();
+    let mut novo_plano = plano.clone();
+    produzir_parametros_ref_dart(&nova, &mut novas_classes)?;
+    produzir_contratos_arc(&nova, &mut novas_classes, &mut novo_plano)?;
+    super::vivacidade_classificada(&nova, &novas_classes)?;
+    // Reserva também IDs de metadados: uma inserção não pode mascarar entrada
+    // obsoleta fazendo-a coincidir com uma definição recém-criada.
+    let mut proximo = nova
+        .params
+        .iter()
+        .map(|(v, _, _)| v.0)
+        .chain(
+            nova.blocks
+                .iter()
+                .flat_map(|b| &b.instructions)
+                .map(|(v, _, _)| v.0),
+        )
+        .chain(novo_plano.instrucoes.keys().map(|v| v.0))
+        .chain(novo_plano.pendencias.keys().map(|v| v.0))
+        .chain(tabelas.invocacoes.keys().map(|v| v.0))
+        .chain(escopos.antes.keys().map(|v| v.0))
+        .max()
+        .map_or(0, |v| u64::from(v) + 1);
+    let mut id = || -> Result<ValueId, String> {
+        let v = u32::try_from(proximo).map_err(|_| "IDs SSA esgotados ao preparar retorno Dart")?;
+        proximo += 1;
+        Ok(ValueId(v))
+    };
+    let mut copias = 0;
+    if nova.return_ty == Type::Ref {
+        for b in &mut nova.blocks {
+            let Terminator::Return(Some(op)) = &b.terminator else {
+                continue;
+            };
+            let mut op = op.clone();
+            match &op {
+                Operand::Val(v) if novas_classes[v] == Ownership::Owned => continue,
+                Operand::Constant(Constant::Null) => continue,
+                Operand::Constant(c @ (Constant::String(_) | Constant::StringWtf8(_))) => {
+                    let v = id()?;
+                    b.instructions
+                        .push((v, Instruction::Const(c.clone()), Type::Ref));
+                    op = Operand::Val(v);
+                }
+                _ => {}
+            }
+            let v = id()?;
+            b.instructions
+                .push((v, Instruction::ArcCopy { value: op }, Type::Ref));
+            b.terminator = Terminator::Return(Some(Operand::Val(v)));
+            copias += 1;
+        }
+    }
+    produzir_e_verificar_tokens_dart(&nova, &mut novas_classes, &mut novo_plano, tabelas, escopos)?;
+    *f = nova;
+    *classes = novas_classes;
+    *plano = novo_plano;
+    Ok(copias)
+}
+
 /// Produz e verifica parâmetros/instruções pela convenção Dart, atomicamente.
 ///
 /// Parâmetros Ref são Borrowed(Chamador,0). Resultado Ref exige retorno Owned
@@ -941,6 +1034,110 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn insercao_retornos_dart_e_idempotente_e_atomica_se_cleanup_falta() {
+        let original = Function {
+            symbol: "identidade".into(),
+            name: "identidade".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "x".into(), Type::Ref)],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
+            }],
+        };
+        let mut f = original.clone();
+        let mut classes = HashMap::new();
+        let mut plano = PlanoTokens {
+            retorno: super::super::RetornoTokens::Owned,
+            ..Default::default()
+        };
+        assert_eq!(
+            inserir_retencao_retornos_dart(
+                &mut f,
+                &mut classes,
+                &mut plano,
+                &TabelasDaFuncao::default(),
+                &PlanoEscopos::default()
+            )
+            .unwrap(),
+            1
+        );
+        assert!(matches!(
+            f.blocks[0].instructions[0].1,
+            Instruction::ArcCopy {
+                value: Operand::Val(ValueId(0))
+            }
+        ));
+        let pronta = format!("{f:?}");
+        assert_eq!(
+            inserir_retencao_retornos_dart(
+                &mut f,
+                &mut classes,
+                &mut plano,
+                &TabelasDaFuncao::default(),
+                &PlanoEscopos::default()
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(format!("{f:?}"), pronta);
+        f = original.clone();
+        f.blocks[0].instructions.push((
+            ValueId(5),
+            Instruction::ArcCopy {
+                value: Operand::Val(ValueId(0)),
+            },
+            Type::Ref,
+        ));
+        classes.clear();
+        plano = PlanoTokens {
+            retorno: super::super::RetornoTokens::Owned,
+            ..Default::default()
+        };
+        let antes = format!("{f:?}");
+        assert!(
+            inserir_retencao_retornos_dart(
+                &mut f,
+                &mut classes,
+                &mut plano,
+                &TabelasDaFuncao::default(),
+                &PlanoEscopos::default()
+            )
+            .unwrap_err()
+            .contains("não consumidos")
+        );
+        assert_eq!(format!("{f:?}"), antes);
+        assert!(classes.is_empty());
+        assert!(plano.instrucoes.is_empty());
+        for constante in [
+            Constant::Null,
+            Constant::String("retorno permanente".into()),
+        ] {
+            f = original.clone();
+            f.blocks[0].terminator = Terminator::Return(Some(Operand::Constant(constante.clone())));
+            classes.clear();
+            plano = PlanoTokens {
+                retorno: super::super::RetornoTokens::Owned,
+                ..Default::default()
+            };
+            let quantidade = inserir_retencao_retornos_dart(
+                &mut f,
+                &mut classes,
+                &mut plano,
+                &TabelasDaFuncao::default(),
+                &PlanoEscopos::default(),
+            )
+            .unwrap();
+            assert_eq!(
+                quantidade,
+                usize::from(!matches!(constante, Constant::Null))
+            );
+        }
+    }
 
     #[test]
     fn wrapper_dart_nao_publica_parametros_quando_transferencia_falha() {
