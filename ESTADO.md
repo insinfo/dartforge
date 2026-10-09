@@ -1257,6 +1257,19 @@ Quarenta e um testes ARC e 36 exemplos públicos aprovados nos logs
 Isso fecha a validação das constantes no adaptador auditado, sem certificar
 proveniência de endereços ou integração completa no lowering.
 
+Publicação por produzir_e_verificar_tokens agora começa por checagem CFG/SSA:
+entrada existente, IDs de blocos/valores únicos, destinos existentes, Phi antes
+das instruções ordinárias, predecessores sem duplicação e cobertura exata,
+existência de operandos e dominância dos usos alcançáveis. Entradas de Phi são
+conferidas no fim do predecessor, preservando produção simultânea e backedges.
+Blocos mortos exigem existência, sem inventar dominância. Regressões recusam
+uso antes da definição, destino/valor ausente e Phi incompleto/duplicado;
+aceitam Phi de laço e recusam usar valor do corpo na aresta de entrada.
+CFG inválido preserva os mapas de publicação. Quarenta e três testes ARC
+aprovados (`target/ownership-ssa-cfg-test.log`), assim como 36 exemplos públicos
+(`target/ownership-ssa-cfg-doc.log`); tipagem completa, representação,
+invalidação/proveniência e integração no pipeline padrão continuam pendentes.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

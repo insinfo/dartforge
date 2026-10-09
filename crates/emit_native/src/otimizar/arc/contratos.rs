@@ -9,14 +9,14 @@ use crate::hir::*;
 use dartforge_runtime::ownership::{ModoParametro, ModoResultado, contrato};
 use std::collections::{HashMap, HashSet, VecDeque};
 
-/// Produz metadados ARC e os publica após verificar tokens e escopos no CFG.
+/// Produz metadados ARC e os publica após verificar CFG/SSA, tokens e escopos.
 ///
 /// Parâmetros e instruções fora da cobertura do produtor exigem contratos
 /// semânticos fornecidos pelo chamador. O CFG e os planos devem ser da mesma
 /// versão da função. Não insere RC, certifica slots/invalidação ou Finalizable.
 ///
 /// # Erros
-/// Falha de produção, inventário incompleto, token indisponível/não consumido,
+/// CFG/SSA inválido, falha de produção, inventário incompleto, token indisponível/não consumido,
 /// CFG excepcional incompatível ou empréstimo fora de escopo. Em qualquer
 /// desses casos, classes e plano de tokens permanecem intactos.
 ///
@@ -40,6 +40,7 @@ pub fn produzir_e_verificar_tokens(
     tabelas: &TabelasDaFuncao,
     escopos: &PlanoEscopos,
 ) -> Result<HashMap<ValueId, ContratoChamadaRuntime>, String> {
+    super::ssa::verificar(f)?;
     let mut novas_classes = classes.clone();
     let mut novo_plano = plano.clone();
     let contratos = produzir_contratos_arc(f, &mut novas_classes, &mut novo_plano)?;
