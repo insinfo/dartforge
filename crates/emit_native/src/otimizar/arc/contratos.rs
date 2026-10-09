@@ -109,7 +109,8 @@ pub fn produzir_contratos_runtime(
 /// Phi Ref explicitamente Trivial exige entradas Trivial/null e origem externa;
 /// a classe fornecida não permite apagar ownership de uma entrada gerenciada.
 /// Phis Ref ainda não classificados preservam automaticamente contratos Borrowed
-/// idênticos nas entradas conhecidas; cadeias acíclicas independem da ordem dos blocos.
+/// idênticos nas entradas conhecidas; cadeias e ciclos ancorados independem
+/// da ordem dos blocos. Entradas pendentes são conferidas após a propagação.
 /// Phi Ref ainda não classificado exige entradas owned/null e origem externa
 /// ao ciclo de Phi/move. Parâmetros e demais operações exigem produtores próprios.
 /// Não insere ARC nem certifica vida dos slots, proveniência ou cleanup.
@@ -176,7 +177,8 @@ fn produzir_phi(
         )
         .collect();
     // Resolve primeiro empréstimos com premissas conhecidas. Não transforma
-    // entradas Owned em borrow implícito nem presume contratos em ciclos.
+    // entradas Owned em borrow implícito; um ciclo precisa de âncora externa.
+    let mut emprestados = HashMap::new();
     loop {
         let mut mudou = false;
         for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
@@ -201,12 +203,20 @@ fn produzir_phi(
                                 }
                             }
                             Some(Ownership::Trivial) => true,
+                            None if matches!(
+                                defs.get(de),
+                                Some(Instruction::Phi { ty: Type::Ref, .. })
+                            ) =>
+                            {
+                                true
+                            }
                             _ => false,
                         }
                     }
                     _ => false,
                 });
             if compativeis && let Some((de, mut classe)) = origem {
+                emprestados.insert(*v, classe.clone());
                 // Valores locais não declaram Chamador diretamente: conservam
                 // a dependência no parâmetro que sustenta esse empréstimo.
                 if let Ownership::Borrowed {
@@ -225,6 +235,25 @@ fn produzir_phi(
         }
         if !mudou {
             break;
+        }
+    }
+    // A âncora permite percorrer o ciclo, mas não dispensa verificar cada
+    // entrada depois que o ponto fixo fornece as classes dos Phis dependentes.
+    for (v, origem) in &emprestados {
+        let Instruction::Phi { incoming, .. } = defs[v] else {
+            unreachable!()
+        };
+        if incoming.iter().any(|(_, op)| match op {
+            Operand::Constant(Constant::Null) => false,
+            Operand::Val(de) if tipos.get(de) == Some(&Type::Ref) => !classes
+                .get(de)
+                .is_some_and(|c| *c == Ownership::Trivial || c == origem || c == &classes[v]),
+            _ => true,
+        }) {
+            return Err(format!(
+                "Phi borrowed v{}: entrada incompatível após propagação",
+                v.0
+            ));
         }
     }
     let mut ordem = Vec::new();
@@ -710,6 +739,82 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn produtor_preserva_emprestimo_em_phi_de_laco_ancorado() {
+        let mut f = Function {
+            symbol: "phi_borrowed_laco".into(),
+            name: "phi_borrowed_laco".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "entrada".into(), Type::Ref)],
+            return_ty: Type::Ref,
+            blocks: vec![
+                BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![],
+                    terminator: Terminator::Branch(BlockId(1)),
+                },
+                BasicBlock {
+                    id: BlockId(1),
+                    instructions: vec![(
+                        ValueId(1),
+                        Instruction::Phi {
+                            ty: Type::Ref,
+                            incoming: vec![
+                                (BlockId(0), Operand::Val(ValueId(0))),
+                                (BlockId(1), Operand::Val(ValueId(1))),
+                            ],
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::CondBranch {
+                        cond: Operand::Constant(Constant::Bool(false)),
+                        then_block: BlockId(1),
+                        else_block: BlockId(2),
+                    },
+                },
+                BasicBlock {
+                    id: BlockId(2),
+                    instructions: vec![],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+                },
+            ],
+        };
+        let mut classes = HashMap::from([(
+            ValueId(0),
+            Ownership::Borrowed {
+                owner: OrigemOwner::Chamador,
+                escopo: 0,
+            },
+        )]);
+        let mut plano = PlanoTokens {
+            retorno: super::super::RetornoTokens::Borrowed,
+            ..Default::default()
+        };
+        produzir_e_verificar_tokens(
+            &f,
+            &mut classes,
+            &mut plano,
+            &TabelasDaFuncao::default(),
+            &PlanoEscopos::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            classes[&ValueId(1)],
+            Ownership::Borrowed {
+                owner: OrigemOwner::Valor(ValueId(0)),
+                escopo: 0
+            }
+        );
+        classes.remove(&ValueId(1));
+        if let Instruction::Phi { incoming, .. } = &mut f.blocks[1].instructions[0].1 {
+            incoming[0].1 = Operand::Val(ValueId(1));
+        }
+        let antes = classes.clone();
+        assert!(produzir_contratos_arc(&f, &mut classes, &mut plano).is_err());
+        assert_eq!(classes, antes);
+        assert!(plano.instrucoes.is_empty());
+    }
 
     #[test]
     fn produtor_preserva_empréstimo_em_cadeia_de_phis_sem_classe_manual() {

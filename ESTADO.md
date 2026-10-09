@@ -1525,6 +1525,15 @@ ou pendências. Suíte ARC 58/58
 (`target/ownership-record-consultas-produtor.log`).
 
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
+Produtor de Phi Borrowed agora atravessa dependências de Phis Ref ainda sem
+classe quando há entrada emprestada externa conhecida. Após o ponto fixo,
+confere todas as entradas antes de publicar: dependência não resolvida ou
+contrato divergente rejeita a produção inteira. Regressão produz/verifica
+Phi de laço com parâmetro emprestado e backedge próprio; remover a origem
+externa é recusado sem alterar mapas. Suíte ARC 65/65 e exemplos públicos
+36/36 (`target/ownership-phi-borrowed-laco-test.log`,
+`target/ownership-phi-borrowed-laco-doc.log`). Não resolve todos os contratos
+equivalentes de owners/escopos nem certifica invalidação de slots.
 Produtor agora propaga contratos Borrowed idênticos por Phis Ref ainda sem
 classe, quando todas as entradas estão conhecidas (null/Trivial também são
 compatíveis). Não converte entrada Owned em empréstimo implícito. Dependência
