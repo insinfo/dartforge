@@ -342,6 +342,17 @@ Os três testes ABI de owners (I/O, record e concatenação) também passaram
 com `DARTFORGE_ARC_CONFERIR=1`, auditando RC nas coletas.
 O corpus remoto atual ainda não contém estas migrações.
 
+O quadro dos nós em `materializar` (mensagens entre isolados) agora conta
+owners durante a alocação, ligação de arestas e reconstrução de índices.
+O retorno não introduz safepoint depois de fechar o quadro. Teste dirigido
+monta dois nós cíclicos com duas referências ao mesmo filho, coleta durante
+a construção e verifica preservação e morte do ciclo depois da última raiz.
+Passou com auditoria RC no modo puro; os quatro testes ABI de owners também
+passaram com `DARTFORGE_ARC_CONFERIR=1` e `DARTFORGE_ARC_BERCARIO=1`.
+Isso cobre os nós temporários; os owners da fila de mensagens e sua
+transferência ao despacho continuam pendentes (§21.3/§23.2).
+Suíte release completa: 114 aprovados, três microbenchmarks ignorados.
+
 ## 5. Pendências
 
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais

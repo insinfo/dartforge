@@ -264,7 +264,15 @@ puro e berçário aprovado. Os demais owners temporários Rust seguem pendentes.
 Nova rodada [37915929494](https://github.com/insinfo/dartforge/actions/runs/37915929494),
 suíte `nativo`, sobre `2f3256b3`, disparada após confirmar a conclusão da
 anterior e a ausência de Pesado ativa. Valida os quadros proprietários,
-movimento e primeiros caminhos Rust migrados; resultados ainda pendentes.
+movimento e primeiros caminhos Rust migrados. Relatórios Windows ARC e ARC
+com estresse conferidos: 238/238 cada, em 38,1 s e 53,4 s de harness.
+A rodada segue ativa; estes placares não provam conclusão nas três plataformas.
+As migrações posteriores das listas (`0fa1d363`), visões e resultados I/O
+(`838df90e`), records da ABI e concatenação (`7cc04df8`) ainda não estão
+nesta rodada. Validação local debug/release até `7cc04df8`: 113 aprovados,
+três microbenchmarks ignorados; os três testes ABI de owners passaram com
+`DARTFORGE_ARC_CONFERIR=1`. HIR, contratos por extern, slots persistentes,
+saídas excepcionais e desempenho global continuam pendentes.
 
 Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
 suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior

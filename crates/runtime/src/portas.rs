@@ -681,9 +681,9 @@ fn materializar(g: &Grafo) -> i64 {
         }
         _ => {}
     });
-    // O quadro de raízes dos nós, e os nós com anexo nativo, que o runtime
-    // cria fora do empréstimo do heap (cada um enraizado logo que nasce).
-    let frame = HEAP.with(|heap| heap.borrow_mut().push_frame_with_slots(g.nos.len()));
+    // Cópias proprietárias dos nós, inclusive anexos criados fora do
+    // empréstimo do heap, duram até ligar as arestas e refazer os índices.
+    let frame = HEAP.with(|heap| heap.borrow_mut().push_frame_proprietario(g.nos.len()));
     let mut handles = vec![0i64; g.nos.len()];
     for (i, (no, _)) in g.nos.iter().enumerate() {
         if let Some(h) = alocar_anexo(no) {
@@ -810,6 +810,46 @@ fn refazer_indices_copiados(g: &Grafo, handles: &[i64]) {
 
 // ---------------------------------------------------------------------------
 // O registro das portas e a fila do isolado.
+
+#[cfg(test)]
+mod testes_owners_materializacao {
+    use super::*;
+
+    #[test]
+    fn grafo_ciclico_com_aliases_preserva_nos_ate_ligar_arestas() {
+        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+        let quadro = HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.ativar_arc();
+            h.push_frame_proprietario(1)
+        });
+        let grafo = Grafo {
+            nos: vec![
+                (NoG::Refs { cid: crate::layout::cid::LIST, palavra0: 2,
+                    refs: vec![ValG::No(1), ValG::No(1)] }, 0),
+                (NoG::Refs { cid: crate::layout::cid::LIST, palavra0: 1,
+                    refs: vec![ValG::No(0)] }, 0),
+            ],
+            raiz: ValG::No(0),
+            origem: id_do_isolado(),
+            tipos: None,
+            tabelas: Vec::new(),
+        };
+        let raiz = materializar(&grafo);
+        HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.set_root(quadro, 0, raiz);
+            h.collect();
+            let filho = h.palavras(raiz)[1];
+            assert_eq!(h.palavras(raiz)[2], filho);
+            assert_eq!(h.palavras(filho)[1], raiz);
+            h.pop_frame(quadro);
+            h.collect();
+            assert!(!h.e_objeto_vivo(raiz) && !h.e_objeto_vivo(filho));
+        });
+        HEAP.with(|h| { h.replace(anterior); });
+    }
+}
 
 /// Uma mensagem na fila de um isolado.
 struct Mensagem {
