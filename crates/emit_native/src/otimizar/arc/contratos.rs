@@ -13,7 +13,9 @@ use std::collections::{HashMap, HashSet, VecDeque};
 ///
 /// Parâmetros e instruções fora da cobertura do produtor exigem contratos
 /// semânticos fornecidos pelo chamador. O CFG e os planos devem ser da mesma
-/// versão da função. Não insere RC, certifica slots/invalidação ou Finalizable.
+/// versão da função. Quadros locais exigem abertura/fechamento LIFO e pilha
+/// consistente por caminho; IDs importados/aliases de quadros são recusados.
+/// Não insere RC nem certifica índices, proveniência geral, invalidação ou Finalizable.
 ///
 /// # Erros
 /// CFG/SSA inválido, falha de produção, inventário incompleto, token indisponível/não consumido,
@@ -46,6 +48,7 @@ pub fn produzir_e_verificar_tokens(
     let contratos = produzir_contratos_arc(f, &mut novas_classes, &mut novo_plano)?;
     verificar_tokens(f, &novas_classes, tabelas, &novo_plano)?;
     verificar_escopos(f, &novas_classes, escopos)?;
+    super::quadros::verificar(f)?;
     *classes = novas_classes;
     *plano = novo_plano;
     Ok(contratos)

@@ -1406,6 +1406,21 @@ e executada em ARC com auditoria/berçário desligado/estresse, código zero e
 saída slots ARC/42/null (`target/ownership-runtime-sem-invoke-aot.log`).
 Não autoriza CallRuntime desconhecida nem prova cobertura geral da ABI.
 
+Publicação dos planos agora verifica pilha intraprocedural dos quadros
+proprietários locais abertos pela ABI ARC. Uso exige ID SSA aberto, fechar
+exige topo LIFO, junções/backedges exigem pilhas idênticas, saídas alcançáveis
+exigem pilha vazia. Operações fortes e externs de quadro conferem IDs ativos,
+incluindo os dois quadros de mover_v1. Quadros importados/aliases não recebem
+presunção de vida. Regressões recusam uso após fechamento, fechamento duplo,
+ordem LIFO inválida, quadro aberto na saída e pilhas divergentes em junção;
+falha preserva classes/planos. Quinquenta e um testes ARC e 36 exemplos
+aprovados (`target/ownership-quadros-vida-test-final.log`,
+`target/ownership-quadros-vida-doc.log`). Prova AOT de slots passou novamente
+em ARC com auditoria/estresse e saída slots ARC/42/null
+(`target/ownership-quadros-vida-aot.log`). Não certifica índices/capacidade,
+aliases, efeitos interprocedurais de quadros, suspensão/cancelamento ou ABI
+importada, nem insere abertura/cleanup automaticamente no lowering.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
