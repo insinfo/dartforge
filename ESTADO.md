@@ -257,6 +257,14 @@ solta cada ocorrência; ativação e promoção preservam multiplicidade. A
 auditoria inclui só os owners. `mover_raiz` (`d2497ce7`) transfere entre
 slots proprietários sem reter novamente, consumindo o conteúdo substituído.
 O código gerado ainda usa quadros observacionais; HIR/ABI permanecem pendentes.
+O auxiliar de construção de caixas e o ambiente temporário de closures FFI
+foram migrados em `2f3256b3`. Suítes locais debug/release: 108 aprovados,
+três microbenchmarks ignorados; teste de closure com coleta forçada nos modos
+puro e berçário aprovado. Os demais owners temporários Rust seguem pendentes.
+Nova rodada [37915929494](https://github.com/insinfo/dartforge/actions/runs/37915929494),
+suíte `nativo`, sobre `2f3256b3`, disparada após confirmar a conclusão da
+anterior e a ausência de Pesado ativa. Valida os quadros proprietários,
+movimento e primeiros caminhos Rust migrados; resultados ainda pendentes.
 
 Rodada [37908897460](https://github.com/insinfo/dartforge/actions/runs/37908897460),
 suíte `nativo`, sobre `2cf783e0`, iniciada depois de confirmar que a anterior
