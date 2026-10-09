@@ -81,12 +81,14 @@ pub fn inserir_arc_funcoes_dart(
     let mut modulo = Module::new();
     modulo.functions = funcoes.to_vec();
     let mut nao_lancam = super::super::efeitos::nao_lancam(&modulo);
-    // A conferência explícita do prólogo também pode lançar. O resumo do
-    // corpo não vê esses metadados; propaga a falha aos chamadores em O(V+E).
-    if planos
-        .values()
-        .any(|p| p.tabelas.confere_pilha || !p.tabelas.saidas.is_empty())
-    {
+    // Contexto explícito implica conferência de pilha no LLVM. Inclui
+    // leituras/limpeza de pendência e pousos, além das marcas nas tabelas.
+    // Propaga esta falha do prólogo aos chamadores em O(V+E).
+    let falha_no_prologo_ou_saida = |f: &Function| {
+        let t = &planos[&f.symbol].tabelas;
+        crate::llvm::LlvmEmitter::exige_contexto_explicito(f, Some(t)) || !t.saidas.is_empty()
+    };
+    if modulo.functions.iter().any(falha_no_prologo_ou_saida) {
         let mut chamadores: HashMap<&str, Vec<&str>> = HashMap::new();
         for f in &modulo.functions {
             for (_, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
@@ -98,10 +100,7 @@ pub fn inserir_arc_funcoes_dart(
         let mut fila: Vec<_> = modulo
             .functions
             .iter()
-            .filter(|f| {
-                planos[&f.symbol].tabelas.confere_pilha
-                    || !planos[&f.symbol].tabelas.saidas.is_empty()
-            })
+            .filter(|f| falha_no_prologo_ou_saida(f))
             .map(|f| f.symbol.as_str())
             .collect();
         while let Some(simbolo) = fila.pop() {
@@ -157,6 +156,78 @@ pub fn inserir_arc_funcoes_dart(
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn contexto_implicito_no_corpo_propaga_unwind_do_prologo() {
+        for (name, ret_ty) in [
+            ("dartforge_exception_pending", Type::I8),
+            ("dartforge_exception_clear", Type::Void),
+        ] {
+            let (mut funcoes, mut planos) = conjunto();
+            funcoes[2].blocks[0].instructions.push((
+                ValueId(2),
+                Instruction::CallRuntime {
+                    name: name.into(),
+                    args: vec![],
+                    ret_ty,
+                },
+                ret_ty,
+            ));
+            let antes = format!("{funcoes:?}");
+            let planos_antes = format!("{planos:?}");
+            let erro = inserir_arc_funcoes_dart(&mut funcoes, &mut planos).unwrap_err();
+            assert!(
+                erro.contains("caller") && erro.contains("saídas excepcionais"),
+                "{erro}"
+            );
+            assert_eq!(format!("{funcoes:?}"), antes);
+            assert_eq!(format!("{planos:?}"), planos_antes);
+            // A folha isolada prepara seu retorno; o resumo deve continuar
+            // falível mesmo sem a marca confere_pilha ou saída Lanca.
+            funcoes.drain(..2);
+            planos.retain(|s, _| s == "folha");
+            assert_eq!(
+                inserir_arc_funcoes_dart(&mut funcoes, &mut planos).unwrap(),
+                (1, 0)
+            );
+            let p = &planos["folha"];
+            let resumo = verificar_contrato_funcao_dart(
+                &funcoes[0],
+                &p.classes,
+                &p.tokens,
+                &p.tabelas,
+                &p.escopos,
+            )
+            .unwrap();
+            let (caller, _) = conjunto();
+            let caller = caller[1].clone();
+            let mut classes = HashMap::new();
+            let mut tokens = PlanoTokens::default();
+            produzir_chamadas_dart(&caller, &[resumo], &mut classes, &mut tokens).unwrap();
+            assert!(tokens.instrucoes[&ValueId(1)].pode_falhar);
+            // O emissor também materializa a conferência na folha.
+            let mut modulo = Module::new();
+            modulo.functions = funcoes;
+            modulo.excecoes_por_tabelas = true;
+            modulo.tabelas.push(p.tabelas.clone());
+            let ir = crate::llvm::LlvmEmitter::new(&modulo).emit_all();
+            let corpo = ir
+                .split("define i64 @folha(")
+                .nth(1)
+                .unwrap()
+                .split("\n}")
+                .next()
+                .unwrap();
+            let estouro = corpo
+                .split("pilha.estouro:")
+                .nth(1)
+                .unwrap()
+                .split("pilha.ok:")
+                .next()
+                .unwrap();
+            assert!(estouro.contains("call void @df.lancar()"));
+        }
+    }
 
     #[test]
     fn conferencia_de_pilha_propaga_falha_e_exige_aresta_no_chamador() {

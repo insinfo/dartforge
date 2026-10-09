@@ -2,6 +2,21 @@
 
 ## Retomada de 2026-10-09
 
+Resumos ARC agora compartilham com LLVM a decisão de contexto explícito:
+leitura/limpeza de pendência, operações em linha que usam contexto,
+pousos e marcas nas tabelas implicam conferência de pilha no prólogo.
+Antes, uma folha que só lia ou limpava pendência podia ser considerada
+infalível, omitindo a exigência de saída excepcional nos callers.
+A preparação conjunta propaga essa falha transitivamente; o resumo
+isolado também a registra. Regressão cobre pending/clear na cadeia
+caller→intermediária→folha, rejeição atômica e emissão de df.lancar
+no prólogo. Passaram 87 testes ARC, 39 LLVM e 45 doctests; quatro AOT
+ARC/tracing normal/erro sob stress e auditoria terminaram com código 0,
+LLVM e stdout idênticos ao arquivo da prova Guarda anterior. Logs
+`target/ownership-contexto-*`. Não induz estouro de pilha nativo nem
+gera os invokes dos callers; contexto adicional por quadros calculados
+por vivacidade e integração no pipeline padrão continuam pendentes.
+
 Separação de múltiplos retornos Guarda: o passe guarda os índices originais
 dos blocos e acrescenta as folhas, eliminando a busca linear por retorno.
 A localização das saídas passa de O(G*B) para O(B+G), sem medir ganho no

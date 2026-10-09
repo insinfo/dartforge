@@ -10,7 +10,8 @@ use std::collections::{HashMap, HashSet};
 /// Refaça o resumo após mudar a função ou seus contratos. Não certifica
 /// proveniência, invalidação de borrows nem os contratos externos fornecidos.
 /// Chamadas diretas no corpo são conservadoramente consideradas falíveis,
-/// assim como a conferência de pilha explicitamente marcada nas tabelas.
+/// assim como a conferência de pilha exigida pelo contexto explícito do
+/// corpo/tabelas. Quadros calculados por vivacidade ainda exigem metadados.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, otimizar::arc::*};
@@ -125,7 +126,7 @@ pub fn verificar_contrato_funcao_dart(
         }
     }
     let desconhecidas = HashSet::new();
-    let pode_falhar = tabelas.confere_pilha
+    let pode_falhar = crate::llvm::LlvmEmitter::exige_contexto_explicito(f, Some(tabelas))
         || !tabelas.saidas.is_empty()
         || f.blocks.iter().any(|b| {
             matches!(b.terminator, Terminator::Throw(_))

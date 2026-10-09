@@ -942,17 +942,7 @@ impl<'a> LlvmEmitter<'a> {
                 })
             })
             .collect();
-        self.tem_ctx = self.tem_frame
-            || func.blocks.iter().any(|b| {
-                b.instructions.iter().any(|(_, i, _)| {
-                    matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending")
-                        || Self::usa_contexto(i)
-                })
-            })
-            // O pouso restaura o topo da pilha-sombra e a saída guardada lê
-            // a pendência: os dois pelo contexto.
-            || tem_pouso
-            || tab.is_some_and(|t| t.confere_pilha || t.saidas.values().any(|s| *s == SaidaPorExcecao::Guarda));
+        self.tem_ctx = self.tem_frame || Self::exige_contexto_explicito(func, tab);
 
         for block in &func.blocks {
             writeln!(self.out, "b{}:", block.id.0).unwrap();
@@ -3546,6 +3536,22 @@ impl<'a> LlvmEmitter<'a> {
         }
         writeln!(o, "wb{v}.fim:").unwrap();
         self.rotulo_atual = format!("wb{v}.fim");
+    }
+
+    /// Contexto exigido pelo corpo ou pelas tabelas, antes de decidir os
+    /// quadros de raízes. Também exige conferência de pilha no prólogo;
+    /// os resumos ARC compartilham esta decisão para não omitir unwind.
+    /// Quadros calculados por vivacidade podem exigir contexto adicional.
+    pub(crate) fn exige_contexto_explicito(func: &Function, tab: Option<&TabelasDaFuncao>) -> bool {
+        func.blocks.iter().any(|b| {
+            b.instructions.iter().any(|(_, i, _)| {
+                matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending")
+                    || Self::usa_contexto(i)
+            })
+        }) || tab.is_some_and(|t| {
+            !t.pousos.is_empty() || t.confere_pilha
+                || t.saidas.values().any(|s| *s == SaidaPorExcecao::Guarda)
+        })
     }
 
     /// A instrução lê o contexto da thread (`%ctx`): campos em linha ou
