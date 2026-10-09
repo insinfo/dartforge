@@ -1525,6 +1525,18 @@ ou pendências. Suíte ARC 58/58
 (`target/ownership-record-consultas-produtor.log`).
 
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
+Produtor agora propaga contratos Borrowed idênticos por Phis Ref ainda sem
+classe, quando todas as entradas estão conhecidas (null/Trivial também são
+compatíveis). Não converte entrada Owned em empréstimo implícito. Dependência
+direta no Chamador é representada pelo parâmetro de origem, como exige o
+inventário para valores locais. Ponto fixo resolve cadeias acíclicas mesmo
+com ordem física inversa dos blocos. Regressão usa apenas contrato do
+parâmetro e retorno Borrowed, sem classes manuais para os dois Phis, e
+passa pelo wrapper completo. Suíte ARC 64/64 e exemplos públicos 36/36
+(`target/ownership-phi-borrowed-produtor-test.log`,
+`target/ownership-phi-borrowed-produtor-doc.log`). Ciclos emprestados e
+contratos diferentes porém equivalentes ainda exigem produção mais geral;
+invalidação de slots e inserção RC/cleanup permanecem pendentes.
 Prova de escopo herdado ampliada ao wrapper completo: aliases locais de
 chamadas Dart com contratos explícitos alimentam Phi Borrowed; PlanoEscopos
 abre 7 antes da primeira chamada e fecha na saída. Uso do Phi enquanto

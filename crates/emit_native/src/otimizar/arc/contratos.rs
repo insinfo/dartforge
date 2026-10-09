@@ -108,6 +108,8 @@ pub fn produzir_contratos_runtime(
 /// correspondentes, e origem conhecida fora do ciclo de Phis, inclusive em laços.
 /// Phi Ref explicitamente Trivial exige entradas Trivial/null e origem externa;
 /// a classe fornecida não permite apagar ownership de uma entrada gerenciada.
+/// Phis Ref ainda não classificados preservam automaticamente contratos Borrowed
+/// idênticos nas entradas conhecidas; cadeias acíclicas independem da ordem dos blocos.
 /// Phi Ref ainda não classificado exige entradas owned/null e origem externa
 /// ao ciclo de Phi/move. Parâmetros e demais operações exigem produtores próprios.
 /// Não insere ARC nem certifica vida dos slots, proveniência ou cleanup.
@@ -173,6 +175,58 @@ fn produzir_phi(
                 .map(|(v, _, ty)| (*v, *ty)),
         )
         .collect();
+    // Resolve primeiro empréstimos com premissas conhecidas. Não transforma
+    // entradas Owned em borrow implícito nem presume contratos em ciclos.
+    loop {
+        let mut mudou = false;
+        for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
+            if *ty != Type::Ref || classes.contains_key(v) {
+                continue;
+            }
+            let Instruction::Phi { incoming, .. } = inst else {
+                continue;
+            };
+            let mut origem = None;
+            let compativeis = !incoming.is_empty()
+                && incoming.iter().all(|(_, op)| match op {
+                    Operand::Constant(Constant::Null) => true,
+                    Operand::Val(de) if tipos.get(de) == Some(&Type::Ref) => {
+                        match classes.get(de) {
+                            Some(c @ Ownership::Borrowed { .. }) => {
+                                if let Some((_, anterior)) = &origem {
+                                    anterior == c
+                                } else {
+                                    origem = Some((*de, c.clone()));
+                                    true
+                                }
+                            }
+                            Some(Ownership::Trivial) => true,
+                            _ => false,
+                        }
+                    }
+                    _ => false,
+                });
+            if compativeis && let Some((de, mut classe)) = origem {
+                // Valores locais não declaram Chamador diretamente: conservam
+                // a dependência no parâmetro que sustenta esse empréstimo.
+                if let Ownership::Borrowed {
+                    owner: OrigemOwner::Chamador,
+                    escopo,
+                } = classe
+                {
+                    classe = Ownership::Borrowed {
+                        owner: OrigemOwner::Valor(de),
+                        escopo,
+                    };
+                }
+                classes.insert(*v, classe);
+                mudou = true;
+            }
+        }
+        if !mudou {
+            break;
+        }
+    }
     let mut ordem = Vec::new();
     let escalares: HashSet<_> = f
         .blocks
@@ -656,6 +710,78 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn produtor_preserva_empréstimo_em_cadeia_de_phis_sem_classe_manual() {
+        let f = Function {
+            symbol: "phis_borrowed".into(),
+            name: "phis_borrowed".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "entrada".into(), Type::Ref)],
+            return_ty: Type::Ref,
+            blocks: vec![
+                BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![],
+                    terminator: Terminator::Branch(BlockId(1)),
+                },
+                // Ordem física inversa exige mais de uma rodada de propagação.
+                BasicBlock {
+                    id: BlockId(2),
+                    instructions: vec![(
+                        ValueId(2),
+                        Instruction::Phi {
+                            ty: Type::Ref,
+                            incoming: vec![(BlockId(1), Operand::Val(ValueId(1)))],
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))),
+                },
+                BasicBlock {
+                    id: BlockId(1),
+                    instructions: vec![(
+                        ValueId(1),
+                        Instruction::Phi {
+                            ty: Type::Ref,
+                            incoming: vec![(BlockId(0), Operand::Val(ValueId(0)))],
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::Branch(BlockId(2)),
+                },
+            ],
+        };
+        let mut classes = HashMap::from([(
+            ValueId(0),
+            Ownership::Borrowed {
+                owner: OrigemOwner::Chamador,
+                escopo: 0,
+            },
+        )]);
+        let mut plano = PlanoTokens {
+            retorno: super::super::RetornoTokens::Borrowed,
+            ..Default::default()
+        };
+        produzir_e_verificar_tokens(
+            &f,
+            &mut classes,
+            &mut plano,
+            &TabelasDaFuncao::default(),
+            &PlanoEscopos::default(),
+        )
+        .unwrap();
+        for v in [ValueId(1), ValueId(2)] {
+            assert_eq!(
+                classes[&v],
+                Ownership::Borrowed {
+                    owner: OrigemOwner::Valor(ValueId(0)),
+                    escopo: 0
+                }
+            );
+        }
+        assert!(plano.instrucoes.is_empty());
+    }
 
     #[test]
     fn phi_ref_trivial_nao_apaga_ownership_das_entradas() {
