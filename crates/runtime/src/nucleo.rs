@@ -717,6 +717,10 @@ mod testes_owners_record_e_concat {
             let record = unsafe { dartforge_record_new(pares.as_ptr(), 1) };
             dartforge_arc_retain(record);
             dartforge_arc_release(texto);
+            assert_eq!(dartforge_nativo_DartForge_record_numFields(record), 1);
+            assert_eq!(dartforge_nativo_DartForge_record_shape(record), 1);
+            assert_eq!(dartforge_nativo_DartForge_record_numFields(0), 0);
+            assert_eq!(dartforge_nativo_DartForge_record_shape(0), 0);
             let campo = dartforge_nativo_DartForge_record_fieldAt(record, 0);
             assert_eq!(campo, texto);
             dartforge_arc_collect();

@@ -21,3 +21,5 @@ dartforge_marcar_permanente	ref:borrow	void:scalar	1	0	pending
 dartforge_nativo_DartForge_record_fieldAt	ref:borrow,i64:scalar	ref:borrow(0)	0	0	pending
 dartforge_print_handle	ref:borrow	void:scalar	0	0	pending
 dartforge_exception_pending	-	u8:scalar	0	0	normal
+dartforge_nativo_DartForge_record_numFields	ref:borrow	i64:scalar	0	0	pending
+dartforge_nativo_DartForge_record_shape	ref:borrow	i64:scalar	0	0	pending

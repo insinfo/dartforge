@@ -1505,6 +1505,19 @@ o laço com LNot continua aprovado. Suíte ARC 57/57 e exemplos públicos 36/36
 `target/ownership-phi-bool-origem-doc.log`). Não se deduz o contrato de
 parâmetros pela representação física, inclusive para booleanos.
 
+Catálogo ownership ampliado de 20 para 22 externs: consultas posicionais
+`record_numFields` e `record_shape` emprestam o receptor e devolvem i64 escalar,
+sem reter nem invalidar empréstimos. O corpo somente lê `Heap::record`;
+`shape` delega a `numFields`. Mantida saída pending conforme efeitos.tsv.
+Gerador exige as duas entradas e o teste confere modos e marcas (2/2 em
+`target/ownership-record-consultas-catalogo.log`). Teste runtime verifica
+resultados para record/null e liberação do record/campo após as consultas,
+em tracing e ARC, sob GC_STRESS=1, ARC_CONFERIR=1 e BERCARIO=0 (1/1 em
+`target/ownership-record-consultas-runtime.log`). Não cobre fieldNames,
+alocadores ou demais consultas do SDK; ausência continua sem contrato.
+Suíte ARC do emissor após regenerar o runtime embutido: 57/57
+(`target/ownership-record-consultas-arc.log`).
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238

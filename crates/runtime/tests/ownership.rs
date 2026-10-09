@@ -24,6 +24,8 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
                         | "dartforge_gc_collect"
                         | "dartforge_marcar_permanente"
                         | "dartforge_nativo_DartForge_record_fieldAt"
+                        | "dartforge_nativo_DartForge_record_numFields"
+                        | "dartforge_nativo_DartForge_record_shape"
                         | "dartforge_print_handle"
                         | "dartforge_exception_pending"
                 )
@@ -55,7 +57,20 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
         .find(|c| c.nome == "dartforge_nativo_DartForge_record_fieldAt")
         .unwrap();
     assert_eq!(campo.resultado, ModoResultado::BorrowArg(0));
-    let imprimir = CONTRATOS.iter().find(|c| c.nome == "dartforge_print_handle").unwrap();
+    for nome in [
+        "dartforge_nativo_DartForge_record_numFields",
+        "dartforge_nativo_DartForge_record_shape",
+    ] {
+        let c = CONTRATOS.iter().find(|c| c.nome == nome).unwrap();
+        assert_eq!(c.parametros, &[ModoParametro::Borrow]);
+        assert_eq!(c.resultado, ModoResultado::ScalarI64);
+        assert!(c.pode_falhar);
+        assert!(!c.retencao_persistente && !c.invalida_borrows);
+    }
+    let imprimir = CONTRATOS
+        .iter()
+        .find(|c| c.nome == "dartforge_print_handle")
+        .unwrap();
     assert_eq!(imprimir.parametros, &[ModoParametro::Borrow]);
     assert_eq!(imprimir.resultado, ModoResultado::Void);
     assert!(imprimir.pode_falhar);
