@@ -190,6 +190,97 @@ fn phi_borrowed_nao_perde_escopo_herdado_de_alias() {
 }
 
 #[test]
+fn phi_borrowed_confere_limite_lexico_no_wrapper_completo() {
+    use super::super::{AlteracaoEscopo, PlanoEscopos, produzir_e_verificar_tokens};
+    let f = funcao(vec![
+        bloco(
+            0,
+            vec![
+                (
+                    ValueId(6),
+                    Instruction::CallStatic {
+                        symbol: "emprestar".into(),
+                        args: vec![valor(0)],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                ),
+                (
+                    ValueId(7),
+                    Instruction::CallStatic {
+                        symbol: "alias".into(),
+                        args: vec![valor(6)],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                ),
+            ],
+            Terminator::Branch(BlockId(1)),
+        ),
+        bloco(
+            1,
+            vec![
+                (
+                    ValueId(2),
+                    Instruction::Phi {
+                        ty: Type::Ref,
+                        incoming: vec![(BlockId(0), valor(7))],
+                    },
+                    Type::Ref,
+                ),
+                copia(3, 2),
+                drop(4, 3),
+                drop(5, 0),
+            ],
+            Terminator::Return(None),
+        ),
+    ]);
+    let mut c = classes(&[0], &[]);
+    c.insert(
+        ValueId(6),
+        Ownership::Borrowed {
+            owner: OrigemOwner::Valor(ValueId(0)),
+            escopo: 7,
+        },
+    );
+    c.insert(
+        ValueId(7),
+        Ownership::Borrowed {
+            owner: OrigemOwner::Valor(ValueId(6)),
+            escopo: 0,
+        },
+    );
+    c.insert(
+        ValueId(2),
+        Ownership::Borrowed {
+            owner: OrigemOwner::Valor(ValueId(7)),
+            escopo: 0,
+        },
+    );
+    // Contratos das chamadas Dart são premissas semânticas explícitas do fixture.
+    let mut p = PlanoTokens::default();
+    p.instrucoes.insert(ValueId(6), EfeitoTokens::default());
+    p.instrucoes.insert(ValueId(7), EfeitoTokens::default());
+    let mut e = PlanoEscopos {
+        antes: HashMap::from([(ValueId(6), vec![AlteracaoEscopo::Abrir(7)])]),
+        saidas: HashMap::from([(BlockId(1), vec![AlteracaoEscopo::Fechar(7)])]),
+        ..Default::default()
+    };
+    produzir_e_verificar_tokens(&f, &mut c, &mut p, &TabelasDaFuncao::default(), &e).unwrap();
+    let antes = c.clone();
+    let efeitos = p.instrucoes.clone();
+    e.saidas.clear();
+    e.antes.insert(ValueId(3), vec![AlteracaoEscopo::Fechar(7)]);
+    assert!(
+        produzir_e_verificar_tokens(&f, &mut c, &mut p, &TabelasDaFuncao::default(), &e)
+            .unwrap_err()
+            .contains("fora do escopo 7")
+    );
+    assert_eq!(c, antes);
+    assert_eq!(p.instrucoes, efeitos);
+}
+
+#[test]
 fn extern_auditada_nao_aceita_plano_que_omite_consumo() {
     let chamada = Instruction::CallRuntime {
         name: "dartforge_arc_release".into(),

@@ -1525,6 +1525,13 @@ ou pendências. Suíte ARC 58/58
 (`target/ownership-record-consultas-produtor.log`).
 
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
+Prova de escopo herdado ampliada ao wrapper completo: aliases locais de
+chamadas Dart com contratos explícitos alimentam Phi Borrowed; PlanoEscopos
+abre 7 antes da primeira chamada e fecha na saída. Uso do Phi enquanto
+aberto passa; fechar antes do ArcCopy rejeita uso fora do escopo 7 e preserva
+classes/efeitos. Suíte ARC 63/63
+(`target/ownership-phi-borrowed-wrapper-test.log`). Não prova o corpo dos
+callees Dart nem infere seus contratos: eles são premissas do fixture.
 Conferência de Phi Borrowed ampliada para os escopos de toda a cadeia de
 owners: o resultado deve conservar todos os limites não zero herdados da
 entrada, além da mesma raiz. Substitui a igualdade somente do escopo direto,
