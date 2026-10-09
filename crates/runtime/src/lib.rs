@@ -56,6 +56,29 @@ pub mod efeitos {
     include!(concat!(env!("OUT_DIR"), "/efeitos.rs"));
 }
 
+/// Contratos auditados das externs ARC, gerados de `ownership.tsv`.
+/// O catálogo está em migração: ausência não autoriza empréstimo implícito.
+pub mod ownership {
+    include!(concat!(env!("OUT_DIR"), "/ownership.rs"));
+
+    /// Obtém um contrato auditado sem atribuir borrow a símbolos ausentes.
+    ///
+    /// # Erros
+    /// Retorna erro quando o símbolo ainda não tem contrato explícito.
+    ///
+    /// ```
+    /// use dartforge_runtime::ownership::{contrato, ModoResultado};
+    /// assert_eq!(contrato("dartforge_arc_quadro_carregar_v1").unwrap().resultado, ModoResultado::Owned);
+    /// assert!(contrato("dartforge_alocar").is_err());
+    /// ```
+    pub fn contrato(nome: &str) -> Result<&'static Contrato, &'static str> {
+        CONTRATOS
+            .iter()
+            .find(|c| c.nome == nome)
+            .ok_or("extern sem contrato explícito de ownership")
+    }
+}
+
 /// Programa Rust 2024 completo: heap e harness ligados ao objeto LLVM.
 /// O compilador mantém referências vivas por frames e tags de campos explícitas.
 pub const RUNTIME_MAIN: &str = concat!(

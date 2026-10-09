@@ -1,0 +1,16 @@
+# Catálogo em migração: cobre as externs dartforge_arc_; ausência NÃO é borrow.
+# nome<TAB>parâmetros separados por vírgula<TAB>resultado<TAB>retenção persistente<TAB>invalida borrows
+# Ref usa a ABI i64. consume ocorre sempre no retorno normal; estas externs não lançam Dart.
+dartforge_arc_collect	-	void:scalar	0	1
+dartforge_arc_global_receber_v1	i64:native,ref:consume	void:scalar	1	1
+dartforge_arc_gravar_ref	ref:borrow,i64:scalar,ref:borrow	void:scalar	1	1
+dartforge_arc_inicial	ref:borrow	void:scalar	1	0
+dartforge_arc_quadro_abrir_v1	i64:scalar	i64:scalar	0	0
+dartforge_arc_quadro_carregar_v1	i64:scalar,i64:scalar	ref:owned	0	0
+dartforge_arc_quadro_copiar_v1	i64:scalar,i64:scalar,ref:borrow	void:scalar	1	1
+dartforge_arc_quadro_fechar_v1	i64:scalar	void:scalar	0	1
+dartforge_arc_quadro_mover_v1	i64:scalar,i64:scalar,i64:scalar,i64:scalar	void:scalar	1	1
+dartforge_arc_quadro_receber_v1	i64:scalar,i64:scalar,ref:consume	void:scalar	1	1
+dartforge_arc_release	ref:consume	void:scalar	0	1
+dartforge_arc_retain	ref:borrow	void:scalar	1	0
+dartforge_arc_verificar_abi	i64:scalar	i8:scalar	0	0

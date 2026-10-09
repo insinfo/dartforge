@@ -1087,6 +1087,17 @@ parâmetro inexistente e resultado incompatível. Gerar acesso tipado em
 a tabela. Uma extern que guarda argumentos retém internamente; entrada
 `consume` só se sua implementação tomar posse nos caminhos documentados.
 
+Catálogo inicial disponível em `crates/runtime/ownership.tsv`: 13 externs da
+família `dartforge_arc_`, auditadas com Ref borrow/consume, escalar/native e
+resultado owned/escalar/void, retenção persistente e invalidação de borrows.
+O build rejeita duplicatas, símbolo inexistente, tipos/modos inválidos,
+ausência de contrato nessa família e efeito que passe a lançar/rodar Dart.
+Coerções de ponteiros de função gerados conferem aridade e representação Rust.
+`dartforge_runtime::ownership::contrato` retorna erro para símbolos ausentes.
+Este catálogo ainda é parcial: cobertura completa das externs, retornos
+borrowed, saídas excepcionais e consumo pelo produtor HIR/LLVM permanecem
+pendentes. Não há convenção borrowed implícita para completar a cobertura.
+
 Externs **novas** mínimas: `dartforge_arc_retain`, `dartforge_arc_release`,
 `dartforge_arc_collect`, `dartforge_arc_verificar_abi`. Retain/release são
 `nounwind` somente se falhas internas não desenrolarem pelo limite C. Elas

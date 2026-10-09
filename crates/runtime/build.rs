@@ -201,8 +201,177 @@ fn main() {
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
     std::fs::write(out.join("simbolos.rs"), saida).expect("gravar simbolos.rs");
     std::fs::write(out.join("efeitos.rs"), tabela_de_efeitos(&manifesto, &nomes)).expect("gravar efeitos.rs");
+    std::fs::write(out.join("ownership.rs"), tabela_de_ownership(&manifesto, &nomes)).expect("gravar ownership.rs");
     std::fs::write(out.join("runtime_main.rs"), texto).expect("gravar runtime_main.rs");
     std::fs::write(out.join("abi.rs"), abi).expect("gravar abi.rs");
+}
+
+/// Contratos auditados ARC; não inventa contratos para as externs ainda ausentes.
+/// A coerção dos ponteiros gerados confere aridade e representação com Rust.
+fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String {
+    let caminho = manifesto.join("ownership.tsv");
+    println!("cargo::rerun-if-changed={}", caminho.display());
+    let texto = std::fs::read_to_string(caminho).expect("ler ownership.tsv");
+    let efeitos = std::fs::read_to_string(manifesto.join("efeitos.tsv")).expect("ler efeitos.tsv");
+    let mut linhas = std::collections::BTreeMap::new();
+    let tipo = |s: &str, resultado: bool| -> (&str, &str) {
+        match (s, resultado) {
+            ("ref:borrow", false) => ("i64", "ModoParametro::Borrow"),
+            ("ref:consume", false) => ("i64", "ModoParametro::Consume"),
+            ("i64:scalar", false) => ("i64", "ModoParametro::Scalar"),
+            ("i64:native", false) => ("i64", "ModoParametro::Native"),
+            ("ref:owned", true) => ("i64", "ModoResultado::Owned"),
+            ("i64:scalar", true) => ("i64", "ModoResultado::ScalarI64"),
+            ("i8:scalar", true) => ("i8", "ModoResultado::ScalarI8"),
+            ("void:scalar", true) => ("()", "ModoResultado::Void"),
+            _ => panic!("ownership.tsv: tipo/contrato não suportado: {s}"),
+        }
+    };
+    for (n, linha) in texto.lines().enumerate() {
+        if linha.trim().is_empty() || linha.starts_with('#') {
+            continue;
+        }
+        let c: Vec<_> = linha.split('\t').collect();
+        assert_eq!(c.len(), 5, "ownership.tsv:{}: cinco campos", n + 1);
+        assert!(
+            nomes.iter().any(|nome| nome == c[0]),
+            "ownership.tsv: símbolo desconhecido {}",
+            c[0]
+        );
+        // A primeira etapa só admite a família auditada, que não lança Dart.
+        assert!(
+            c[0].starts_with("dartforge_arc_"),
+            "ownership.tsv: família ainda não auditada {}",
+            c[0]
+        );
+        let efeito = efeitos
+            .lines()
+            .find(|linha| linha.split('\t').next() == Some(c[0]))
+            .expect("ownership.tsv: símbolo sem efeitos");
+        let efeito: Vec<_> = efeito.split('\t').collect();
+        assert!(
+            efeito.len() == 4 && efeito[2] == "0" && efeito[3] == "0",
+            "ownership.tsv: contrato sem saída excepcional incompatível com {}",
+            c[0]
+        );
+        let parametros: Vec<_> = if c[1] == "-" {
+            vec![]
+        } else {
+            c[1].split(',').map(|s| tipo(s, false)).collect()
+        };
+        let resultado = tipo(c[2], true);
+        let marca = |s: &str| match s {
+            "0" => false,
+            "1" => true,
+            _ => panic!("ownership.tsv: marca inválida {s}"),
+        };
+        assert!(
+            linhas
+                .insert(c[0], (parametros, resultado, marca(c[3]), marca(c[4])))
+                .is_none(),
+            "ownership.tsv: símbolo duplicado {}",
+            c[0]
+        );
+    }
+    for nome in nomes.iter().filter(|n| n.starts_with("dartforge_arc_")) {
+        assert!(
+            linhas.contains_key(nome.as_str()),
+            "ownership.tsv: extern ARC sem contrato {nome}"
+        );
+    }
+    let mut saida = String::from(
+        r#"
+/// Modo semântico do argumento, independente da largura i64.
+///
+/// ```
+/// use dartforge_runtime::ownership::ModoParametro;
+/// assert_ne!(ModoParametro::Borrow, ModoParametro::Consume);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModoParametro { Borrow, Consume, Scalar, Native }
+/// Resultado das externs auditadas, sem convenção implícita.
+///
+/// ```
+/// use dartforge_runtime::ownership::ModoResultado;
+/// assert_ne!(ModoResultado::Owned, ModoResultado::Void);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModoResultado { Owned, ScalarI64, ScalarI8, Void }
+/// Contrato de retorno normal de uma extern ARC que não lança Dart.
+///
+/// ```
+/// use dartforge_runtime::ownership::{CONTRATOS, ModoResultado};
+/// let c = CONTRATOS.iter().find(|c| c.nome == "dartforge_arc_quadro_carregar_v1").unwrap();
+/// assert_eq!(c.resultado, ModoResultado::Owned);
+/// ```
+#[derive(Debug)]
+pub struct Contrato {
+    /// Símbolo C exato, associado à tabela de efeitos.
+    pub nome: &'static str,
+    /// Um modo por parâmetro, na ordem da assinatura Rust.
+    pub parametros: &'static [ModoParametro],
+    /// Convenção semântica do resultado normal.
+    pub resultado: ModoResultado,
+    /// Pode guardar ocorrências proprietárias após retornar.
+    pub retencao_persistente: bool,
+    /// Pode remover owners ou invalidar empréstimos associados.
+    pub invalida_borrows: bool,
+}
+/// Catálogo parcial auditado; nomes ausentes continuam sem contrato.
+pub const CONTRATOS: &[Contrato] = &[
+"#,
+    );
+    for (nome, (params, (_, resultado), retencao, invalida)) in &linhas {
+        let modos = params
+            .iter()
+            .map(|(_, modo)| *modo)
+            .collect::<Vec<_>>()
+            .join(", ");
+        saida.push_str(&format!("Contrato {{ nome: {nome:?}, parametros: &[{modos}], resultado: {resultado}, retencao_persistente: {retencao}, invalida_borrows: {invalida} }},\n"));
+    }
+    saida.push_str("];\n");
+    for (nome, (params, (ret, _), _, _)) in &linhas {
+        let tipos = params
+            .iter()
+            .map(|(ty, _)| *ty)
+            .collect::<Vec<_>>()
+            .join(", ");
+        saida.push_str(&format!(
+            "const _: extern \"C\" fn({tipos}) -> {ret} = crate::abi::{nome};\n"
+        ));
+    }
+    saida
+}
+
+#[cfg(test)]
+mod testes_ownership {
+    use super::*;
+
+    #[test]
+    fn tabela_recusa_contratos_incompletos_duplicados_e_invalidos() {
+        let raiz = std::env::temp_dir().join(format!("dartforge-ownership-{}", std::process::id()));
+        std::fs::create_dir_all(&raiz).unwrap();
+        std::fs::write(raiz.join("efeitos.tsv"), "dartforge_arc_retain\t0\t0\t0\n").unwrap();
+        let boa = "dartforge_arc_retain\tref:borrow\tvoid:scalar\t1\t0\n";
+        let nomes = vec!["dartforge_arc_retain".to_string()];
+        for ruim in [
+            String::new(),
+            format!("{boa}{boa}"),
+            boa.replace("ref:borrow", "ref:inventado"),
+            boa.replace("\t1\t0", "\t2\t0"),
+            boa.replace("arc_retain", "arc_ausente"),
+        ] {
+            std::fs::write(raiz.join("ownership.tsv"), ruim).unwrap();
+            assert!(std::panic::catch_unwind(|| tabela_de_ownership(&raiz, &nomes)).is_err());
+        }
+        std::fs::write(raiz.join("ownership.tsv"), boa).unwrap();
+        assert!(tabela_de_ownership(&raiz, &nomes).contains("const _: extern \"C\" fn(i64) -> ()"));
+        std::fs::write(raiz.join("efeitos.tsv"), "dartforge_arc_retain\t1\t1\t1\n").unwrap();
+        assert!(std::panic::catch_unwind(|| tabela_de_ownership(&raiz, &nomes)).is_err());
+        std::fs::remove_file(raiz.join("ownership.tsv")).unwrap();
+        std::fs::remove_file(raiz.join("efeitos.tsv")).unwrap();
+        std::fs::remove_dir(raiz).unwrap();
+    }
 }
 
 /// A tabela de efeitos das externs (`efeitos.tsv`,

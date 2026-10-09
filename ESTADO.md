@@ -1105,6 +1105,18 @@ após mudança no exemplo levou 1m03s, gerações posteriores usaram cache.
 HIR explícita e observadores LLVM: não certificam lowering automático,
 promoção weak com retenção, escopos Finalizable, ABI de SDK ou desempenho.
 
+Catálogo inicial `crates/runtime/ownership.tsv`, com 13 externs ARC auditadas.
+Build gera acesso tipado e coerções contra assinaturas Rust reais; distingue
+Ref borrow/consume, escalar/native, resultado owned/escalar/void, retenção
+persistente e invalidação. Extern ausente gera erro na consulta pública,
+sem default borrow. Todas as externs `dartforge_arc_` exigem contrato; outras
+famílias ainda estão sem cobertura. Teste do gerador rejeitou falta, duplicata,
+nome desconhecido, tipo/marca inválidos e incompatibilidade excepcional.
+Check do runtime e teste de integração passaram; 27 exemplos públicos
+passaram (`target/ownership-runtime-check.log`, `target/ownership-runtime-test.log`,
+`target/ownership-runtime-doc.log`). O catálogo não é ainda consumido pelo
+produtor HIR/LLVM, e cobertura total/contratos excepcionais continuam pendentes.
+
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
