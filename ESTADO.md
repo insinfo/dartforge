@@ -1517,8 +1517,29 @@ em tracing e ARC, sob GC_STRESS=1, ARC_CONFERIR=1 e BERCARIO=0 (1/1 em
 alocadores ou demais consultas do SDK; ausência continua sem contrato.
 Suíte ARC do emissor após regenerar o runtime embutido: 57/57
 (`target/ownership-record-consultas-arc.log`).
+Regressão no produtor/verificador exercita ambas as consultas com receptor
+Borrowed do chamador e conferência real de exception_pending/ICmp/CondBranch:
+resultado Trivial e mapa de pendência produzidos automaticamente. Retorno
+do resultado no ramo excepcional é recusado sem alterar classes, efeitos
+ou pendências. Suíte ARC 58/58
+(`target/ownership-record-consultas-produtor.log`).
 
 Retenção de módulo/biblioteca nativa e encerramento por grupo continuam pendentes.
+
+Rodada `37992860235` sobre `4530b91f`: artefatos Linux conferidos em
+`target/ci-37992860235/linux`. AOT/A1/B0/B1/ARC 238/238 em
+68,7/39,0/82,4/86,2/37,9 s; io 130/130 em 51,9 s; JIT 238/238,
+zero divergências JIT × AOT, sete sem IR iguais por construção e zero
+timeouts nos dois, 41,2 s. Os seis DART! de interop continuam sendo
+oráculos indisponíveis na plataforma, não provas diferenciais válidas.
+Windows ARC 238/238 em 55,8 s, ARC sob estresse 238/238 em 37,3 s e io
+130/130 em 90,5 s; relatórios baixados em `target/ci-37992860235/windows-*`.
+São tempos de harness desta rodada, não benchmark isolado ARC/A0.
+macOS, SDK da fonte e job B0 ainda ativos nesta consulta; não fechar a
+rodada nem iniciar outra Pesado. GitHub recusou disponibilizar o log do
+job Linux enquanto a rodada está ativa: a geração DDC portátil ainda
+exige conferir esse log ao fechamento. Esta rodada antecede as mudanças
+de FCmp/LNot, Phis escalares e catálogo de 22 externs.
 
 Na rodada `37928965861`, artefatos Windows já conferidos: ARC 238/238
 (33,0 s de harness), ARC sob estresse 238/238 (62,5 s), `dart:io` 130/130

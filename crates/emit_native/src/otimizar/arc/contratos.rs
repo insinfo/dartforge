@@ -652,6 +652,107 @@ mod testes {
     use super::*;
 
     #[test]
+    fn consultas_record_produzem_escalar_apenas_na_saida_normal() {
+        for nome in [
+            "dartforge_nativo_DartForge_record_numFields",
+            "dartforge_nativo_DartForge_record_shape",
+        ] {
+            let mut f = Function {
+                symbol: "consulta_record".into(),
+                name: "consulta_record".into(),
+                depuracao: None,
+                params: vec![(ValueId(0), "record".into(), Type::Ref)],
+                return_ty: Type::I64,
+                blocks: vec![
+                    BasicBlock {
+                        id: BlockId(0),
+                        instructions: vec![
+                            (
+                                ValueId(1),
+                                Instruction::CallRuntime {
+                                    name: nome.into(),
+                                    args: vec![(Operand::Val(ValueId(0)), Type::Ref)],
+                                    ret_ty: Type::I64,
+                                },
+                                Type::I64,
+                            ),
+                            (
+                                ValueId(2),
+                                Instruction::CallRuntime {
+                                    name: "dartforge_exception_pending".into(),
+                                    args: vec![],
+                                    ret_ty: Type::I8,
+                                },
+                                Type::I8,
+                            ),
+                            (
+                                ValueId(3),
+                                Instruction::ICmp(
+                                    ICmpOp::Ne,
+                                    Operand::Val(ValueId(2)),
+                                    Operand::Constant(Constant::Int(0)),
+                                ),
+                                Type::I1,
+                            ),
+                        ],
+                        terminator: Terminator::CondBranch {
+                            cond: Operand::Val(ValueId(3)),
+                            then_block: BlockId(1),
+                            else_block: BlockId(2),
+                        },
+                    },
+                    BasicBlock {
+                        id: BlockId(1),
+                        instructions: vec![],
+                        terminator: Terminator::Return(Some(Operand::Constant(Constant::Int(0)))),
+                    },
+                    BasicBlock {
+                        id: BlockId(2),
+                        instructions: vec![],
+                        terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+                    },
+                ],
+            };
+            let mut classes = HashMap::from([(
+                ValueId(0),
+                Ownership::Borrowed {
+                    owner: OrigemOwner::Chamador,
+                    escopo: 0,
+                },
+            )]);
+            let mut plano = PlanoTokens::default();
+            produzir_e_verificar_tokens(
+                &f,
+                &mut classes,
+                &mut plano,
+                &TabelasDaFuncao::default(),
+                &PlanoEscopos::default(),
+            )
+            .unwrap();
+            assert_eq!(classes[&ValueId(1)], Ownership::Trivial);
+            assert_eq!(plano.pendencias[&ValueId(1)], BlockId(1));
+            assert!(plano.instrucoes[&ValueId(1)].sempre.is_empty());
+            let antes = classes.clone();
+            let efeitos = plano.instrucoes.clone();
+            let pendencias = plano.pendencias.clone();
+            f.blocks[1].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
+            assert!(
+                produzir_e_verificar_tokens(
+                    &f,
+                    &mut classes,
+                    &mut plano,
+                    &TabelasDaFuncao::default(),
+                    &PlanoEscopos::default()
+                )
+                .is_err()
+            );
+            assert_eq!(classes, antes);
+            assert_eq!(plano.instrucoes, efeitos);
+            assert_eq!(plano.pendencias, pendencias);
+        }
+    }
+
+    #[test]
     fn aritmetica_tipificada_produz_plano_sem_sementes_e_recusa_ref() {
         let mut f = Function {
             symbol: "aritmetica".into(),
