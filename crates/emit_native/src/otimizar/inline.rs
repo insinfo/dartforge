@@ -63,6 +63,14 @@ pub fn copiavel(f: &Function) -> bool {
 /// Copia, em `func`, as chamadas a funções de `copias` (com se a função
 /// pode lançar). Devolve se mudou.
 pub fn inlining(func: &mut Function, copias: &HashMap<String, (Function, bool)>) -> bool {
+    inlining_com_origens(func, copias, &HashMap::new(), &mut HashMap::new())
+}
+
+pub(super) fn inlining_com_origens(
+    func: &mut Function, copias: &HashMap<String, (Function, bool)>,
+    fontes: &HashMap<String, HashMap<ValueId, crate::otimizar::arc::analise::modelo::SitioArc>>,
+    sitios: &mut HashMap<ValueId, crate::otimizar::arc::analise::modelo::SitioArc>,
+) -> bool {
     let mut mudou = false;
     let mut orcamento = 64;
     while orcamento > 0 && tamanho(func) < LIMITE_DE_QUEM_CHAMA {
@@ -89,14 +97,17 @@ pub fn inlining(func: &mut Function, copias: &HashMap<String, (Function, bool)>)
             })
         });
         let Some((bi, ii)) = achado else { break };
-        copiar(func, bi, ii, copias);
+        copiar(func, bi, ii, copias, fontes, sitios);
         mudou = true;
         orcamento -= 1;
     }
     mudou
 }
 
-fn copiar(func: &mut Function, bi: usize, ii: usize, copias: &HashMap<String, (Function, bool)>) {
+fn copiar(func: &mut Function, bi: usize, ii: usize, copias: &HashMap<String, (Function, bool)>,
+    fontes: &HashMap<String, HashMap<ValueId, crate::otimizar::arc::analise::modelo::SitioArc>>,
+    sitios: &mut HashMap<ValueId, crate::otimizar::arc::analise::modelo::SitioArc>,
+) {
     let (mut prox_v, mut prox_b) = maiores_ids(func);
     let (chamada, args, ty) = match &func.blocks[bi].instructions[ii] {
         (v, Instruction::CallStatic { symbol, args, .. }, ty) => (*v, (symbol.clone(), args.clone()), *ty),
@@ -117,6 +128,16 @@ fn copiar(func: &mut Function, bi: usize, ii: usize, copias: &HashMap<String, (F
             valores.insert(*v, Operand::Val(ValueId(prox_v)));
         }
     }
+    // A identidade pertence à origem; somente o índice SSA da cópia muda.
+    // Contextos são unidos conservadoramente, sem inferir singleton por clone.
+    if let Some(origens) = fontes.get(&simbolo) {
+        for (v, sitio) in origens {
+            if let Some(Operand::Val(novo)) = valores.get(v) {
+                sitios.insert(*novo, sitio.clone());
+            }
+        }
+    }
+    sitios.remove(&chamada);
     let mut blocos: HashMap<BlockId, BlockId> = HashMap::new();
     for b in &alvo.blocks {
         prox_b += 1;

@@ -160,11 +160,21 @@ void main() { Base().exercitar(Object()); }
                     if !arc {
                         assert!(modulo.layouts_campos_arc.is_empty());
                         assert!(modulo.retornos_ref_dart.is_empty());
+                        assert!(modulo.sitios_arc.is_empty());
                         assert!(!acessos.iter().any(|(_, i, _)| matches!(
                             i,
                             Instruction::GetField { .. } | Instruction::SetField { .. }
                         )));
                         continue;
+                    }
+                    assert!(!modulo.sitios_arc.is_empty());
+                    for f in &modulo.functions {
+                        for (v, i, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
+                            if crate::otimizar::arc::analise::origens::alocacao(i) {
+                                let sitio = &modulo.sitios_arc[&f.symbol][v];
+                                assert_eq!(sitio.funcao, f.symbol);
+                            }
+                        }
                     }
                     for (indice, tipo) in [
                         (0, Type::I64),

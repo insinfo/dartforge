@@ -153,6 +153,9 @@ pub fn otimizar(module: &mut Module) {
             limpar(f, &nao_lancam);
             false
         });
+        // A limpeza pode liberar IDs SSA que as próximas cópias reutilizam.
+        // Não deixar uma origem morta aderir a uma instrução nova com esse ID.
+        if module.memoria_arc { arc::analise::origens::podar(module); }
         let copias: HashMap<String, (Function, bool)> = module
             .functions
             .iter()
@@ -162,14 +165,24 @@ pub fn otimizar(module: &mut Module) {
             .filter(|f| f.depuracao.is_none() && inline::copiavel(f))
             .map(|f| (f.symbol.clone(), (f.clone(), !nao_lancam.contains(&f.symbol))))
             .collect();
+        let origens = &module.sitios_arc;
+        let atualizadas = std::sync::Mutex::new(HashMap::new());
+        let memoria_arc = module.memoria_arc;
         let mudou = em_paralelo(&mut module.functions, &|f| {
-            if inline::inlining(f, &copias) {
-                limpar(f, &nao_lancam);
-                true
+            let mudou = if memoria_arc {
+                let mut sitios = origens.get(&f.symbol).cloned().unwrap_or_default();
+                let mudou = inline::inlining_com_origens(f, &copias, origens, &mut sitios);
+                if !sitios.is_empty() {
+                    atualizadas.lock().unwrap().insert(f.symbol.clone(), sitios);
+                }
+                mudou
             } else {
-                false
-            }
+                inline::inlining(f, &copias)
+            };
+            if mudou { limpar(f, &nao_lancam); }
+            mudou
         });
+        if memoria_arc { module.sitios_arc.extend(atualizadas.into_inner().unwrap()); }
         if !mudou {
             break;
         }
@@ -182,4 +195,5 @@ pub fn otimizar(module: &mut Module) {
         }
         false
     });
+    if module.memoria_arc { arc::analise::origens::podar(module); }
 }

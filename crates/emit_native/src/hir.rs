@@ -1037,6 +1037,10 @@ pub struct Module {
     /// Proveniência nominal do lowering; não inclui automaticamente entradas
     /// uniformes, callbacks FFI ou funções HIR fornecidas por outro produtor.
     pub retornos_ref_dart: std::collections::HashSet<String>,
+    /// Origem nominal pré-otimização das alocações reconhecidas do lowering ARC.
+    /// IDs SSA indexam a versão atual; cópias do inliner conservam o sítio de
+    /// origem. Contextos especializados e dependências de recarga ainda faltam.
+    pub sitios_arc: std::collections::HashMap<String, std::collections::HashMap<ValueId, crate::otimizar::arc::analise::modelo::SitioArc>>,
     /// Representações declaradas dos campos por classe/posição, somente no ARC.
     /// Inclui herança, mixins e prefixo de enum; late com inicializador fica Ref.
     /// Não certifica o tipo do receiver, forma física do heap ou versão/pins de recarga.

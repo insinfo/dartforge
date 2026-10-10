@@ -2,6 +2,30 @@
 
 ## Retomada de 2026-10-10
 
+Lowering ARC registra origens nominais de alocações reconhecidas em
+Module::sitios_arc, por símbolo e índice SSA atual. Origem é ordinal da
+alocação original, não ValueId; registro adicional conserva identidades
+anteriores e atribui novos ordinais a corpos sintéticos/alocações novos.
+Inclui variantes Alloc*, Box/JuntarTextos e fábricas object_new conhecidas;
+operações opacas sem contrato não recebem origem fabricada.
+Junção paralela e poda de fonte transportam/removem fatos. Inliner remapeia
+índices SSA de cópias conservando SitioArc, com atualização por função nos
+workers. Contextos ainda unidos conservadoramente; cópia não prova singleton.
+Poda antes de cada rodada evita que ID reutilizado herde uma origem morta;
+poda final remove alocações eliminadas por limpeza/substituição escalar.
+Registro usa a seleção do Context, inclusive nos módulos parciais, e tracing
+não recebe esses fatos. Corpos sintéticos finais também são registrados.
+Teste da fonte confere origens das alocações antes dos passes e ausência
+no tracing. Regressão do inliner confere duas cópias da mesma origem com
+IDs distintos, poda, otimização/idempotência e ativação explícita.
+Passaram 276 testes do emissor (sete ignorados), dois testes focados,
+74 exemplos públicos e a matriz AOT da cadeia da fonte com 16 casos no
+Windows. Logs target/arc-sitios-origem-{suite,focado,doc,aot}.log.
+Identidades ainda não são dependências versionadas de recarga; contexto,
+instância genérica, esquema semântico/capturas e exportação SDK permanecem
+pendentes. Extração points-to ainda recebe fatos nominais explicitamente;
+esta etapa não conclui S0/S1 ou o gate e não torna ARC padrão.
+
 Extração HIR inicial em otimizar/arc/analise/hir.rs valida SSA e consome
 fatos explícitos de origem/esquema de AllocObject e GetField/SetField.
 Produz restrições para campos iniciais, stores inclusivos, leituras,
