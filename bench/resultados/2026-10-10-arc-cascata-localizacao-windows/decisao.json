@@ -1,0 +1,7 @@
+{
+  "manter_alteracao": true,
+  "motivo": "Lista ligada: mediana 9,5075% menor e sete de sete pares mais r\u00e1pidos; sem aumento relevante de pico de mem\u00f3ria observado.",
+  "arvores": "Mediana 0,4792% menor, mas somente tr\u00eas de sete pares mais r\u00e1pidos; ganho consistente n\u00e3o demonstrado.",
+  "limite": "Medi\u00e7\u00e3o local de dois kernels, n\u00e3o signific\u00e2ncia estat\u00edstica nem prova de desempenho ARC >= A0. Gate completo anterior continua reprovado e n\u00e3o foi reexecutado nesta rodada.",
+  "gate_anterior_arc_a0": 2.022459729137558
+}

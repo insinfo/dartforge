@@ -1,0 +1,182 @@
+diff --git a/crates/runtime/src/arc.rs b/crates/runtime/src/arc.rs
+index aa79d64b..8c73cfc0 100644
+--- a/crates/runtime/src/arc.rs
++++ b/crates/runtime/src/arc.rs
+@@ -192,6 +192,15 @@ struct Tabela {
+ const BITS_DA_PAGINA: u32 = 16;
+ const BITS_DA_REGIAO: u32 = 16;
+ 
++// Localização privada, válida apenas enquanto não registrar/reclamar objetos.
++// A drenagem de um zero altera contadores/filas, não a geometria das páginas
++// ou a identidade dos slots. Não conservar este valor entre drenagens.
++#[derive(Clone, Copy)]
++enum LocalMetadado {
++    Pagina { pagina: usize, indice: usize },
++    Avulso(Ref),
++}
++
+ impl Tabela {
+     #[inline]
+     fn chave(h: Ref) -> (u64, usize) {
+@@ -215,6 +224,27 @@ impl Tabela {
+         Some((p, self.paginas[p].indice(h)?))
+     }
+ 
++    fn localizar(&self, h: Ref) -> LocalMetadado {
++        match self.lugar(h) {
++            Some((pagina, indice)) => LocalMetadado::Pagina { pagina, indice },
++            None => LocalMetadado::Avulso(h),
++        }
++    }
++
++    fn no_local(&self, local: LocalMetadado) -> Option<&MetaArc> {
++        match local {
++            LocalMetadado::Pagina { pagina, indice } => self.paginas[pagina].metas[indice].as_ref(),
++            LocalMetadado::Avulso(h) => self.avulsos.get(&h),
++        }
++    }
++
++    fn no_local_mut(&mut self, local: LocalMetadado) -> Option<&mut MetaArc> {
++        match local {
++            LocalMetadado::Pagina { pagina, indice } => self.paginas[pagina].metas[indice].as_mut(),
++            LocalMetadado::Avulso(h) => self.avulsos.get_mut(&h),
++        }
++    }
++
+     fn get(&self, h: &Ref) -> Option<&MetaArc> {
+         match self.lugar(*h) {
+             Some((p, i)) => self.paginas[p].metas[i].as_ref(),
+@@ -613,10 +643,6 @@ impl EstadoDoArc {
+         }
+     }
+ 
+-    fn valido(&self, id: IdArc) -> Option<&MetaArc> {
+-        self.objetos.get(&id.handle).filter(|m| m.geracao == id.geracao)
+-    }
+-
+     /// Processa a fila de zeros (§19.3): cada objeto vivo, da geração da
+     /// entrada, com RC ainda zero e sem proteção morre; os destinos das suas
+     /// arestas perdem uma ocorrência, o que pode encadear mais zeros (fila
+@@ -631,7 +657,8 @@ impl EstadoDoArc {
+         while feitos < limite {
+             let Some(id) = self.zeros.pop() else { break };
+             self.estatisticas.zeros_vistos += 1;
+-            let Some(m) = self.valido(id) else { continue };
++            let local = self.objetos.localizar(id.handle);
++            let Some(m) = self.objetos.no_local(local).filter(|m| m.geracao == id.geracao) else { continue };
+             if m.estado == EstadoArc::Vivo && m.rc > 0 {
+                 // Desceu a zero e voltou a subir antes da drenagem: a
+                 // ocorrência nova pode fechar um ciclo sem raiz (o
+@@ -649,7 +676,7 @@ impl EstadoDoArc {
+                 // cópia dele, a cada vez que o RC voltou a zero) era o custo
+                 // maior da cascata.
+                 self.estatisticas.zeros_adiados += 1;
+-                if let Some(m) = self.objetos.get_mut(&id.handle)
++                if let Some(m) = self.objetos.no_local_mut(local)
+                     && !m.adiado
+                 {
+                     m.adiado = true;
+@@ -657,7 +684,7 @@ impl EstadoDoArc {
+                 }
+                 continue;
+             }
+-            self.descartar(grafo, &[id.handle])?;
++            self.descartar_localizado(grafo, &[id.handle], Some(local))?;
+             self.estatisticas.mortos_por_rc += 1;
+             feitos += 1;
+         }
+@@ -689,6 +716,14 @@ impl EstadoDoArc {
+     /// `v` se `v` não pertence a `d`; rompe as arestas; marca `Morto` e
+     /// publica os mortos para o reclamador.
+     pub fn descartar(&mut self, grafo: &mut dyn GrafoArc, d: &[Ref]) -> Result<(), ErroArc> {
++        self.descartar_localizado(grafo, d, None)
++    }
++
++    // O slot já validado pela geração vale durante esta transação: soltar
++    // saídas não registra nem remove metadados. O descarte coletivo continua
++    // resolvendo cada handle, sem reutilizar localização de outro objeto.
++    fn descartar_localizado(&mut self, grafo: &mut dyn GrafoArc, d: &[Ref], local: Option<LocalMetadado>) -> Result<(), ErroArc> {
++        debug_assert!(local.is_none() || d.len() == 1);
+         assert!(!self.transacao, "ARC: descarte reentrante");
+         self.transacao = true;
+         // A cascata dos zeros descarta um objeto por vez: aí a única
+@@ -702,7 +737,11 @@ impl EstadoDoArc {
+             None => conjunto.contains(&v),
+         };
+         for &u in d {
+-            if let Some(m) = self.objetos.get_mut(&u) {
++            let m = match local {
++                Some(local) => self.objetos.no_local_mut(local),
++                None => self.objetos.get_mut(&u),
++            };
++            if let Some(m) = m {
+                 m.estado = EstadoArc::Coletando;
+             }
+         }
+@@ -738,7 +777,11 @@ impl EstadoDoArc {
+             if unico.is_none() {
+                 grafo.romper(u);
+             }
+-            if let Some(m) = self.objetos.get_mut(&u) {
++            let m = match local {
++                Some(local) => self.objetos.no_local_mut(local),
++                None => self.objetos.get_mut(&u),
++            };
++            if let Some(m) = m {
+                 m.estado = EstadoArc::Morto;
+                 m.rc = 0;
+                 m.candidato = false;
+@@ -1400,4 +1443,53 @@ mod testes {
+         a.reter(2).unwrap();
+         assert!(matches!(a.auditar(&g, &[2]), Err(ErroArc::Auditoria { handle: 2, rc: 2, recontado: 1 })));
+     }
++
++    #[test]
++    fn cascata_limitada_preserva_raiz_multiplicidade_e_geracao_em_pagina_reformatada() {
++        use crate::layout::DESLOCAMENTO_DO_HANDLE;
++        for paginada in [false, true] {
++            let primeiro = (1u64 << 32) + 1024;
++            let h1 = primeiro as Ref + DESLOCAMENTO_DO_HANDLE;
++            let h2 = h1 + 24;
++            let h3 = 2; // Reserva por hash, mesmo quando os outros usam página.
++            let geometria = paginada.then_some(Geometria { primeiro, tamanho: 24, blocos: 4 });
++            let (mut a, mut g) = (EstadoDoArc::novo(), Grafo::default());
++            let id1 = a.registrar_vivo_em(h1, geometria);
++            let id2 = a.registrar_vivo_em(h2, geometria);
++            a.registrar_vivo(h3);
++            for h in [h1, h2, h3] { a.reter(h).unwrap(); }
++            for (de, para) in [(h1, h2), (h1, h2), (h1, h3), (h2, h3)] {
++                ligar(&mut a, &mut g, de, para);
++            }
++            for h in [h2, h3, h1] { a.soltar(h).unwrap(); }
++            let raiz = |h| h == h2;
++            assert_eq!(a.drenar_zeros(&mut g, 1, &raiz), Ok(1));
++            assert_eq!(a.tomar_mortos(), vec![h1]);
++            assert_eq!(a.meta(h2).unwrap().rc, 0);
++            assert_eq!(a.meta(h3).unwrap().rc, 1);
++            assert_eq!(a.drenar_zeros(&mut g, usize::MAX, &raiz), Ok(0));
++            assert!(a.vivo(h2) && a.vivo(h3));
++            a.auditar(&g, &[]).unwrap();
++            a.retomar_adiados();
++            assert_eq!(a.drenar_zeros(&mut g, 1, &|_| false), Ok(1));
++            assert!(a.vivo(h3));
++            assert_eq!(a.meta(h3).unwrap().rc, 0);
++            assert_eq!(a.drenar_zeros(&mut g, 1, &|_| false), Ok(1));
++            assert_eq!(a.tomar_mortos(), vec![h2, h3]);
++            assert_eq!(a.registrados(), 0);
++            // Todos os slots da página morreram; outro tamanho pode ocupar
++            // o mesmo endereço. Nenhuma localização atravessa esta fronteira.
++            let nova = paginada.then_some(Geometria { primeiro, tamanho: 48, blocos: 2 });
++            let atual = a.registrar_vivo_em(h1, nova);
++            a.reter(h1).unwrap();
++            a.zeros.extend([id1, id2]);
++            assert_eq!(a.drenar_zeros(&mut g, usize::MAX, &|_| false), Ok(0));
++            let m = a.meta(h1).unwrap();
++            assert_eq!((m.geracao, m.rc, m.candidato), (atual.geracao, 1, false));
++            a.soltar(h1).unwrap();
++            assert_eq!(a.drenar_zeros(&mut g, 1, &|_| false), Ok(1));
++            assert_eq!(a.tomar_mortos(), vec![h1]);
++            a.auditar(&g, &[]).unwrap();
++        }
++    }
+ }

@@ -1,0 +1,63 @@
+{
+  "base": "7f91f6ae183b1439d020ccbd96173c248d0a9a9d",
+  "runtime_antes_blob": "aa79d64b7d115a3f60d479162ba2ced60a824731",
+  "runtime_depois_sha256": "bbf0e6949dc61aa038ef508546ea93a5b308f900d51ca2144dca15622546964f",
+  "patch_sha256": "827a039e8179cf505dd3570abeaccf5024239a463865b46de266f88a2616661a",
+  "cli_antes_sha256": "4f1a0abc9b39d305f7572bc37faf49e1c99d55c4057833717ea1a6f989689daf",
+  "cli_depois_sha256": "7a747d5a57a5403d84245b504f9988db24bc08dc65a83985d55d6168edd0c16b",
+  "entradas": {
+    "objetos_escapam.dart": "977eb9b5654a8c742dee4d052603609bc3e145c4a07e15a8580cd1c1ea665599",
+    "comum.dart": "c58f998dc36b84b102705a77c6cafa75e85b5bff6dda90c086a8d9a6c21f40c3"
+  },
+  "afinidade": "0x4",
+  "repeticoes": 7,
+  "comando_compilacao": [
+    "E:\\MyRustProjects\\dartforge\\target\\release\\dartforge.exe",
+    "aot",
+    "E:\\MyRustProjects\\dartforge\\bench\\desempenho\\objetos_escapam.dart",
+    "E:\\MyRustProjects\\dartforge\\target\\arc-cascata-localizacao-7f91f6ae\\depois.exe",
+    "--optimize",
+    "--excecoes",
+    "checagem",
+    "--memoria=arc"
+  ],
+  "medicao_memoria": "GetProcessMemoryInfo depois do t\u00e9rmino; pico do processo inteiro, n\u00e3o por kernel",
+  "ambiente": {
+    "DARTFORGE_RAIZES": "sombra",
+    "DARTFORGE_GC_RASTRO": "0",
+    "DARTFORGE_GC_OFF": "0",
+    "DARTFORGE_ARC_CONFERIR": "0",
+    "DARTFORGE_ARC_BERCARIO": "0",
+    "DARTFORGE_HEAP_MAX_MB": "256",
+    "DARTFORGE_GC_STRESS": null,
+    "DARTFORGE_ARC_CICLOS": null,
+    "DARTFORGE_ARC_TRACO": null
+  },
+  "executaveis_sha256": {
+    "antes": "900a701131b49d02b0b8648125016ad8122bf6ceef5e211836bb2172de6b017f",
+    "depois": "b56ab751042285af3304a02fc2c28fb72c39b56a1acae97099c87f82e1a65894"
+  },
+  "runtimes_nome_antes": [
+    "dartforge_rtdll_03836da49ead88e60ec4048398fca4d7.lib",
+    "dartforge_rtprod_c24fad2ea88c4c6c1229c8c1e8214f1d.lib",
+    "dartforge_runtime_037391e3ce38a633e2a1a4c34eec79b2.lib"
+  ],
+  "runtimes_nome_depois": [
+    "dartforge_rtdll_7231551639f2118cdc1f94801e7c59eb.lib",
+    "dartforge_rtprod_f79b11a7e7a5d6feeb52fe49799321ec.lib",
+    "dartforge_runtime_1bbd56e7b29de9480e1b0899cb376497.lib"
+  ],
+  "validacoes": {
+    "unitarios_runtime": 194,
+    "integracao_runtime": 16,
+    "exemplos_runtime": 42,
+    "oraculos_grafos": 3,
+    "sementes_por_oraculo": 1000,
+    "suite": "cargo test --release --locked -p dartforge-runtime -- --include-ignored",
+    "oraculos": "DF_ARC_SEMENTES=1000 cargo test --release --locked -p dartforge-runtime grafos_aleatorios -- --include-ignored"
+  },
+  "cli_preservadas": {
+    "antes": "E:\\MyRustProjects\\dartforge\\target\\arc-cascata-localizacao-7f91f6ae\\cli-antes\\dartforge.exe",
+    "depois": "E:\\MyRustProjects\\dartforge\\target\\arc-cascata-localizacao-7f91f6ae\\cli-depois\\dartforge.exe"
+  }
+}

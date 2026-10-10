@@ -1,0 +1,22 @@
+{
+  "antes": {
+    "working_set_pico_bytes": {
+      "mediana_bytes": 288632832,
+      "maximo_bytes": 288665600
+    },
+    "commit_pico_bytes": {
+      "mediana_bytes": 420384768,
+      "maximo_bytes": 420392960
+    }
+  },
+  "depois": {
+    "working_set_pico_bytes": {
+      "mediana_bytes": 288612352,
+      "maximo_bytes": 288694272
+    },
+    "commit_pico_bytes": {
+      "mediana_bytes": 420372480,
+      "maximo_bytes": 420397056
+    }
+  }
+}

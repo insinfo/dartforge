@@ -1,0 +1,13 @@
+{
+  "processos_conferidos": 14,
+  "ordem_pareada": true,
+  "resultados_iguais": true,
+  "medianas_reconstruidas": true,
+  "picos_memoria_reconstruidos": true,
+  "patch_conferido": true,
+  "pares_mais_rapidos": {
+    "arvores": 3,
+    "lista_ligada": 7
+  },
+  "limite": "Dois kernels; n\u00e3o comprova o gate ARC/A0 nem signific\u00e2ncia estat\u00edstica."
+}
