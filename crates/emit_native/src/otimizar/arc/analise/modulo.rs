@@ -226,6 +226,102 @@ mod testes {
     use super::*;
 
     #[test]
+    fn anexo_e_captura_local_preservam_ciclo_conhecido_apesar_de_campos_opacos() {
+        use super::super::grafo::construir_local_no_modulo;
+        use std::collections::BTreeSet;
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.layouts_campos_arc.insert(1, vec![]);
+        m.functions.push(Function {
+            symbol: "anexo_local".into(),
+            name: "anexo_local".into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::Void,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![
+                    (
+                        ValueId(0),
+                        Instruction::AllocObject {
+                            class_id: 1,
+                            fields: vec![],
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(1),
+                        Instruction::AllocClosureTipada {
+                            code_symbol: "entrada".into(),
+                            env: Operand::Val(ValueId(0)),
+                            tipado: "acao".into(),
+                            abi: 0,
+                            direto: true,
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(2),
+                        Instruction::CallRuntime {
+                            name: "dartforge_nativo_DartForge_finalizador_anexar".into(),
+                            args: vec![
+                                (Operand::Val(ValueId(0)), Type::Ref),
+                                (Operand::Constant(Constant::Null), Type::Ref),
+                                (Operand::Val(ValueId(1)), Type::Ref),
+                                (Operand::Constant(Constant::Null), Type::Ref),
+                            ],
+                            ret_ty: Type::Void,
+                        },
+                        Type::Void,
+                    ),
+                ],
+                terminator: Terminator::Return(None),
+            }],
+        });
+        super::super::origens::registrar(&mut m, 0, true);
+        let a = analisar_no_modulo(&m, "anexo_local", 8).unwrap().unwrap();
+        let dono = a
+            .valor(ValueId(0))
+            .unwrap()
+            .nos()
+            .unwrap()
+            .first()
+            .unwrap()
+            .clone();
+        let acao = a
+            .valor(ValueId(1))
+            .unwrap()
+            .nos()
+            .unwrap()
+            .first()
+            .unwrap()
+            .clone();
+        let g = construir_local_no_modulo(&m, "anexo_local", 8)
+            .unwrap()
+            .unwrap();
+        assert_eq!(g.arestas()[&dono], BTreeSet::from([acao.clone()]));
+        assert_eq!(g.arestas()[&acao], BTreeSet::from([dono.clone()]));
+        assert!(g.componentes().any(|(nos, ciclo)| ciclo
+            && nos.iter().cloned().collect::<BTreeSet<_>>()
+                == BTreeSet::from([dono.clone(), acao.clone()])));
+        assert!(g.opaco());
+        g.conferir_no_modulo(&m, "anexo_local").unwrap();
+        // Uma captura null não fecha o ciclo, nem cobre os efeitos do anexo.
+        if let Instruction::AllocClosureTipada { env, .. } =
+            &mut m.functions[0].blocks[0].instructions[1].1
+        {
+            *env = Operand::Constant(Constant::Null);
+        }
+        assert!(g.conferir_no_modulo(&m, "anexo_local").is_err());
+        let g = construir_local_no_modulo(&m, "anexo_local", 8)
+            .unwrap()
+            .unwrap();
+        assert!(g.arestas()[&acao].is_empty());
+        assert!(!g.componentes().any(|(_, ciclo)| ciclo));
+        assert!(g.opaco());
+    }
+
+    #[test]
     fn anexo_finalizador_compõe_aresta_lateral_sem_inventar_campo_fisico() {
         use super::super::{escritas::InclusoesEscritas, grafo::construir_local_no_modulo};
         use std::collections::{BTreeSet, HashSet};

@@ -434,6 +434,11 @@ pub(crate) fn analisar_com_resumos(
                         campo: campo.clone(),
                         valor: operando(o),
                     });
+                    if *ty == Type::Ref && super::resumos::argumento_exato(o, Type::Ref, &tipos) {
+                        // A inclusão testemunhada sobrevive a escritores opacos;
+                        // não refina o estado completo do campo nem sua vida.
+                        inclusoes_escritas.push((destino, operando(o)));
+                    }
                 }
             }
             Instruction::AllocEnv { values } if values.is_empty() && *ty == Type::Ref => {}
@@ -571,6 +576,7 @@ pub(crate) fn analisar_com_resumos(
                     indice: index,
                     valor: operando(value),
                 });
+                inclusoes_escritas.push((operando(object), operando(value)));
             }
             Instruction::GetField { object, .. } if fatos.acessos.contains_key(v) => {
                 rs.push(Restricao::Ler {
@@ -579,12 +585,19 @@ pub(crate) fn analisar_com_resumos(
                     destino,
                 })
             }
-            Instruction::SetField { object, value, .. } if fatos.acessos.contains_key(v) => rs
-                .push(Restricao::Gravar {
+            Instruction::SetField { object, value, .. } if fatos.acessos.contains_key(v) => {
+                rs.push(Restricao::Gravar {
                     objeto: operando(object),
                     campo: fatos.acessos[v].clone(),
                     valor: operando(value),
-                }),
+                });
+                if *ty == Type::Void
+                    && super::resumos::argumento_exato(object, Type::Ref, &tipos)
+                    && super::resumos::argumento_exato(value, Type::Ref, &tipos)
+                {
+                    inclusoes_escritas.push((operando(object), operando(value)));
+                }
+            }
             i if escalar_puro(i, *ty, &tipos) => {}
             _ => {
                 if let Some((dono, acao)) = anexo_dart(i, *ty, &tipos) {
