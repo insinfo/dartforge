@@ -230,12 +230,6 @@ pub(crate) fn analisar_com_resumos(
     let mut inclusoes_escritas = Vec::new();
     let mut inclusoes_publicacoes = Vec::new();
     let mut numero_variaveis = ids.len() + 2;
-    let campos: BTreeSet<_> = fatos
-        .acessos
-        .values()
-        .cloned()
-        .chain(fatos.objetos.values().flat_map(|o| o.campos.clone()))
-        .collect();
     let operando = |o: &Operand| match o {
         Operand::Val(v) => ids[v],
         Operand::Constant(Constant::Null) => vazio,
@@ -256,6 +250,47 @@ pub(crate) fn analisar_com_resumos(
             return Err("points-to HIR: esquemas conflitantes para a mesma origem".into());
         }
     }
+    for (_, resumo) in resumos.values() {
+        let mut caminhos = Vec::new();
+        if let Some(retornos) = &resumo.retorno_caminhos.caminhos {
+            caminhos.extend(retornos.iter());
+        }
+        if let super::escritas::InclusoesPublicacoes::Conhecidas(publicacoes) =
+            &resumo.inclusoes_publicacoes
+        {
+            caminhos.extend(publicacoes.values().filter_map(Option::as_ref).flatten());
+        }
+        if let super::escritas::InclusoesEscritas::Conhecidas(escritas) = &resumo.inclusoes_escritas
+        {
+            for escrita in escritas {
+                caminhos.extend([&escrita.objeto, &escrita.valor]);
+            }
+        }
+        for caminho in caminhos {
+            if let super::escritas::OrigemCaminho::Alocacao { no, campos } = &caminho.origem {
+                if esquemas_por_indice
+                    .insert(no.clone(), campos.clone())
+                    .is_some_and(|anterior| anterior != *campos)
+                {
+                    return Err("points-to HIR: esquema de alocação importada conflitante".into());
+                }
+                // Identidade do resultado não resume o estado dos campos
+                // do callee. Não deixar inicialização ausente parecer null.
+                rs.extend(
+                    campos
+                        .iter()
+                        .cloned()
+                        .map(|campo| Restricao::DesconhecerCampo { campo }),
+                );
+            }
+        }
+    }
+    let campos: BTreeSet<_> = fatos
+        .acessos
+        .values()
+        .cloned()
+        .chain(esquemas_por_indice.values().flatten().cloned())
+        .collect();
     let esquemas_por_indice = std::sync::Arc::new(esquemas_por_indice);
     let mut acessos_selecionados = Vec::new();
     for (v, i, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
@@ -344,12 +379,10 @@ pub(crate) fn analisar_com_resumos(
                     && *ret_ty == Type::Ref
                 {
                     for caminho in caminhos {
-                        let arg = args
-                            .get(caminho.parametro)
-                            .ok_or("points-to: retorno de resumo inválido")?;
-                        let origem = materializar_caminho(
-                            operando(arg),
-                            &caminho.campos,
+                        let origem = materializar_resumo(
+                            caminho,
+                            args,
+                            &operando,
                             &esquemas_por_indice,
                             &mut numero_variaveis,
                             &mut rs,
@@ -370,12 +403,10 @@ pub(crate) fn analisar_com_resumos(
                                 inclusoes_publicacoes.push((simbolo.clone(), vazio));
                             }
                             for caminho in caminhos {
-                                let arg = args
-                                    .get(caminho.parametro)
-                                    .ok_or("points-to: publicação de resumo inválida")?;
-                                let origem = materializar_caminho(
-                                    operando(arg),
-                                    &caminho.campos,
+                                let origem = materializar_resumo(
+                                    caminho,
+                                    args,
+                                    &operando,
                                     &esquemas_por_indice,
                                     &mut numero_variaveis,
                                     &mut rs,
@@ -392,22 +423,18 @@ pub(crate) fn analisar_com_resumos(
                         &resumo.inclusoes_escritas
                 {
                     for escrita in escritas {
-                        let object = args
-                            .get(escrita.objeto.parametro)
-                            .ok_or("points-to: receiver de resumo inválido")?;
-                        let value = args
-                            .get(escrita.valor.parametro)
-                            .ok_or("points-to: valor de resumo inválido")?;
-                        let objeto = materializar_caminho(
-                            operando(object),
-                            &escrita.objeto.campos,
+                        let objeto = materializar_resumo(
+                            &escrita.objeto,
+                            args,
+                            &operando,
                             &esquemas_por_indice,
                             &mut numero_variaveis,
                             &mut rs,
                         )?;
-                        let valor = materializar_caminho(
-                            operando(value),
-                            &escrita.valor.campos,
+                        let valor = materializar_resumo(
+                            &escrita.valor,
+                            args,
+                            &operando,
                             &esquemas_por_indice,
                             &mut numero_variaveis,
                             &mut rs,
@@ -510,11 +537,11 @@ pub(crate) fn analisar_com_resumos(
     desconhecidos.sort_by_key(|v| v.0);
     desconhecidos.dedup();
     let mut esquemas: HashMap<_, BTreeSet<_>> = HashMap::new();
-    for origem in fatos.objetos.values() {
+    for (no, campos) in esquemas_por_indice.iter() {
         esquemas
-            .entry(origem.no.clone())
+            .entry(no.clone())
             .or_default()
-            .extend(origem.campos.iter().cloned());
+            .extend(campos.iter().cloned());
     }
     Ok(AnaliseHir {
         pontos,
@@ -530,6 +557,34 @@ pub(crate) fn analisar_com_resumos(
         inclusoes_escritas,
         inclusoes_publicacoes,
     })
+}
+
+fn materializar_resumo(
+    caminho: &super::escritas::CaminhoResumo,
+    args: &[Operand],
+    operando: &impl Fn(&Operand) -> usize,
+    esquemas: &std::sync::Arc<std::collections::BTreeMap<NoAbstrato, Vec<CampoArc>>>,
+    numero_variaveis: &mut usize,
+    rs: &mut Vec<Restricao>,
+) -> Result<usize, String> {
+    let origem = match &caminho.origem {
+        super::escritas::OrigemCaminho::Parametro(p) => operando(
+            args.get(*p)
+                .ok_or("points-to: parâmetro de resumo inválido")?,
+        ),
+        super::escritas::OrigemCaminho::Alocacao { no, .. } => {
+            let origem = *numero_variaveis;
+            *numero_variaveis = numero_variaveis
+                .checked_add(1)
+                .ok_or("points-to: variáveis auxiliares demais")?;
+            rs.push(Restricao::Semear {
+                destino: origem,
+                no: no.clone(),
+            });
+            origem
+        }
+    };
+    materializar_caminho(origem, &caminho.campos, esquemas, numero_variaveis, rs)
 }
 
 // Caminhos usam o mesmo ponto fixo fraco dos stores e layouts nominais,

@@ -4,19 +4,31 @@
 
 use super::escape::CausaEscape;
 use super::resumos::*;
+use super::{hir::OrigemObjeto, modelo::NoAbstrato, points_to::CampoArc};
 use crate::hir::*;
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct CaminhoParametro {
-    pub parametro: usize,
+pub(super) enum OrigemCaminho {
+    Parametro(usize),
+    // Contexto insensível: chamadas repetidas podem representar muitas
+    // instâncias. Esquema acompanha a origem; não é prova de singleton.
+    Alocacao {
+        no: NoAbstrato,
+        campos: Vec<CampoArc>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct CaminhoResumo {
+    pub origem: OrigemCaminho,
     pub campos: Vec<usize>,
 }
 
-impl CaminhoParametro {
+impl CaminhoResumo {
     fn raiz(parametro: usize) -> Self {
         Self {
-            parametro,
+            origem: OrigemCaminho::Parametro(parametro),
             campos: Vec::new(),
         }
     }
@@ -29,13 +41,28 @@ impl CaminhoParametro {
         caminho.campos.extend_from_slice(campos);
         Some(caminho)
     }
+
+    fn instanciar(
+        &self,
+        args: &[Operand],
+        operando: impl Fn(&Operand) -> AliasesCaminhos,
+        limite: usize,
+    ) -> Result<AliasesCaminhos, String> {
+        match &self.origem {
+            OrigemCaminho::Parametro(p) => {
+                let arg = args.get(*p).ok_or("resumo ARC: parâmetro inválido")?;
+                Ok(prolongar(operando(arg), &self.campos, limite))
+            }
+            OrigemCaminho::Alocacao { .. } => Ok(Some(BTreeSet::from([self.clone()]))),
+        }
+    }
 }
 
 // Bottom sem evidência de resultado normal fica interno à solução da SCC.
 // Null é separado dos caminhos: nunca ganha identidade de objeto abstrato.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RetornoCaminhos {
-    pub caminhos: Option<BTreeSet<CaminhoParametro>>,
+    pub caminhos: Option<BTreeSet<CaminhoResumo>>,
     pub nulo: bool,
 }
 
@@ -64,9 +91,9 @@ impl RetornoCaminhos {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct EscritaParametro {
-    pub objeto: CaminhoParametro,
+    pub objeto: CaminhoResumo,
     pub indice: usize,
-    pub valor: CaminhoParametro,
+    pub valor: CaminhoResumo,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,7 +128,7 @@ impl InclusoesEscritas {
 // instanciação deve incluir todos os stores, sem apagar valores anteriores.
 // O comprimento e a quantidade de aliases são limitados; crescer além do
 // orçamento produz topo, inclusive em Phis ou chamadas recursivas.
-type AliasesCaminhos = Option<BTreeSet<CaminhoParametro>>;
+type AliasesCaminhos = Option<BTreeSet<CaminhoResumo>>;
 
 // Apenas inclusões explícitas: mapa vazio não certifica ausência de
 // publicação por SDK, callback, finalizador ou emissão implícita.
@@ -179,7 +206,7 @@ fn extrair<'a>(
                         parametros
                             .iter()
                             .copied()
-                            .map(CaminhoParametro::raiz)
+                            .map(CaminhoResumo::raiz)
                             .collect(),
                     ),
                     nulo: *nulo,
@@ -218,6 +245,23 @@ pub(super) fn extrair_com_efeitos<'a>(
         InclusoesPublicacoes,
     )>,
 ) -> Result<(RetornoCaminhos, InclusoesEscritas, InclusoesPublicacoes), String> {
+    extrair_com_origens(f, limite, interno, &HashMap::new(), chamada)
+}
+
+pub(super) fn extrair_com_origens<'a>(
+    f: &Function,
+    limite: usize,
+    interno: bool,
+    origens: &HashMap<ValueId, OrigemObjeto>,
+    chamada: impl Fn(
+        &str,
+    ) -> Option<(
+        &'a Function,
+        RetornoCaminhos,
+        &'a InclusoesEscritas,
+        InclusoesPublicacoes,
+    )>,
+) -> Result<(RetornoCaminhos, InclusoesEscritas, InclusoesPublicacoes), String> {
     super::super::ssa::verificar(f)?;
     let tipos: HashMap<_, _> = f
         .params
@@ -238,7 +282,7 @@ pub(super) fn extrair_com_efeitos<'a>(
     let mut escritas_opacas = false;
     for (p, (v, _, t)) in f.params.iter().enumerate() {
         aliases[ids[v]] = if *t == Type::Ref && limite > 0 {
-            Some(BTreeSet::from([CaminhoParametro::raiz(p)]))
+            Some(BTreeSet::from([CaminhoResumo::raiz(p)]))
         } else {
             None
         };
@@ -271,6 +315,23 @@ pub(super) fn extrair_com_efeitos<'a>(
         let (v, i, t) = instrucoes[indice];
         let mut novo_nulo = false;
         let novo = match i {
+            _ if *t == Type::Ref && origens.contains_key(v) => {
+                // Saber a identidade do resultado normal não cobre os
+                // efeitos da alocação, construção ou dos seus campos.
+                escritas_opacas = true;
+                if limite == 0 {
+                    None
+                } else {
+                    let origem = &origens[v];
+                    Some(BTreeSet::from([CaminhoResumo {
+                        origem: OrigemCaminho::Alocacao {
+                            no: origem.no.clone(),
+                            campos: origem.campos.clone(),
+                        },
+                        campos: Vec::new(),
+                    }]))
+                }
+            }
             Instruction::Const(Constant::Null) if *t == Type::Ref => {
                 novo_nulo = true;
                 Some(BTreeSet::new())
@@ -331,13 +392,14 @@ pub(super) fn extrair_com_efeitos<'a>(
                         if let Some(caminhos) = &retorno.caminhos {
                             let mut a = Some(BTreeSet::new());
                             for caminho in caminhos {
-                                let arg = args
-                                    .get(caminho.parametro)
-                                    .ok_or("escritas ARC: parâmetro de retorno inválido")?;
-                                novo_nulo |= nulo(arg, &nulos);
+                                if let OrigemCaminho::Parametro(p) = &caminho.origem {
+                                    let arg =
+                                        args.get(*p).ok_or("resumo ARC: parâmetro inválido")?;
+                                    novo_nulo |= nulo(arg, &nulos);
+                                }
                                 unir_aliases(
                                     &mut a,
-                                    prolongar(operando(arg, &aliases), &caminho.campos, limite),
+                                    caminho.instanciar(args, |o| operando(o, &aliases), limite)?,
                                     limite,
                                 );
                             }
@@ -459,12 +521,9 @@ pub(super) fn extrair_com_efeitos<'a>(
                         let mut valores = Some(BTreeSet::new());
                         if let Some(caminhos) = caminhos {
                             for caminho in caminhos {
-                                let arg = args
-                                    .get(caminho.parametro)
-                                    .ok_or("publicacoes ARC: parâmetro inválido")?;
                                 unir_aliases(
                                     &mut valores,
-                                    prolongar(operando(arg, &aliases), &caminho.campos, limite),
+                                    caminho.instanciar(args, |o| operando(o, &aliases), limite)?,
                                     limite,
                                 );
                             }
@@ -536,16 +595,14 @@ pub(super) fn extrair_com_efeitos<'a>(
                     return Ok((retorno, InclusoesEscritas::Desconhecidas, publicacoes));
                 };
                 for escrita in escritas {
-                    let object = args
-                        .get(escrita.objeto.parametro)
-                        .ok_or("escritas ARC: receiver inválido")?;
-                    let value = args
-                        .get(escrita.valor.parametro)
-                        .ok_or("escritas ARC: valor inválido")?;
                     if !incluir(
-                        prolongar(operando(object, &aliases), &escrita.objeto.campos, limite),
+                        escrita
+                            .objeto
+                            .instanciar(args, |o| operando(o, &aliases), limite)?,
                         escrita.indice,
-                        prolongar(operando(value, &aliases), &escrita.valor.campos, limite),
+                        escrita
+                            .valor
+                            .instanciar(args, |o| operando(o, &aliases), limite)?,
                     ) {
                         return Ok((retorno, InclusoesEscritas::Desconhecidas, publicacoes));
                     }
@@ -623,15 +680,15 @@ mod testes {
                 InclusoesPublicacoes::Conhecidas(BTreeMap::from([
                     (
                         CausaEscape::Excecao,
-                        Some(BTreeSet::from([CaminhoParametro {
-                            parametro: 0,
+                        Some(BTreeSet::from([CaminhoResumo {
+                            origem: OrigemCaminho::Parametro(0),
                             campos: vec![9, 2]
                         }]))
                     ),
                     (
                         CausaEscape::Global("Excecao".into()),
-                        Some(BTreeSet::from([CaminhoParametro {
-                            parametro: 0,
+                        Some(BTreeSet::from([CaminhoResumo {
+                            origem: OrigemCaminho::Parametro(0),
                             campos: vec![9]
                         }]))
                     ),
@@ -687,8 +744,8 @@ mod testes {
                 r["wrapper"].1.inclusoes_publicacoes,
                 InclusoesPublicacoes::Conhecidas(BTreeMap::from([(
                     CausaEscape::Global("g".into()),
-                    Some(BTreeSet::from([CaminhoParametro {
-                        parametro: 0,
+                    Some(BTreeSet::from([CaminhoResumo {
+                        origem: OrigemCaminho::Parametro(0),
                         campos: vec![9, 2]
                     }]))
                 )]))
@@ -754,8 +811,8 @@ mod testes {
                 InclusoesPublicacoes::Conhecidas(BTreeMap::from([(
                     CausaEscape::Global("g".into()),
                     Some(BTreeSet::from([
-                        CaminhoParametro::raiz(0),
-                        CaminhoParametro::raiz(1)
+                        CaminhoResumo::raiz(0),
+                        CaminhoResumo::raiz(1)
                     ]))
                 )]))
             );
@@ -791,7 +848,7 @@ mod testes {
         assert_eq!(
             retorno,
             RetornoCaminhos {
-                caminhos: Some(BTreeSet::from([CaminhoParametro::raiz(0)])),
+                caminhos: Some(BTreeSet::from([CaminhoResumo::raiz(0)])),
                 nulo: false,
             }
         );
@@ -852,8 +909,8 @@ mod testes {
             assert_eq!(
                 r["wrapper"].1.retorno_caminhos,
                 RetornoCaminhos {
-                    caminhos: Some(BTreeSet::from([CaminhoParametro {
-                        parametro: 0,
+                    caminhos: Some(BTreeSet::from([CaminhoResumo {
+                        origem: OrigemCaminho::Parametro(0),
                         campos: vec![9, 2]
                     }])),
                     nulo: true,
@@ -862,12 +919,12 @@ mod testes {
             assert_eq!(
                 r["writer"].1.inclusoes_escritas,
                 InclusoesEscritas::Conhecidas(BTreeSet::from([EscritaParametro {
-                    objeto: CaminhoParametro {
-                        parametro: 0,
+                    objeto: CaminhoResumo {
+                        origem: OrigemCaminho::Parametro(0),
                         campos: vec![9, 2]
                     },
                     indice: 0,
-                    valor: CaminhoParametro::raiz(1),
+                    valor: CaminhoResumo::raiz(1),
                 }]))
             );
             for (_, resumo) in r.values() {
@@ -990,9 +1047,9 @@ mod testes {
             pares
                 .iter()
                 .map(|&(objeto, valor)| EscritaParametro {
-                    objeto: CaminhoParametro::raiz(objeto),
+                    objeto: CaminhoResumo::raiz(objeto),
                     indice: 0,
-                    valor: CaminhoParametro::raiz(valor),
+                    valor: CaminhoResumo::raiz(valor),
                 })
                 .collect(),
         )
@@ -1038,13 +1095,13 @@ mod testes {
         ];
         let esperado = |prefixo: Vec<usize>| {
             InclusoesEscritas::Conhecidas(BTreeSet::from([EscritaParametro {
-                objeto: CaminhoParametro {
-                    parametro: 0,
+                objeto: CaminhoResumo {
+                    origem: OrigemCaminho::Parametro(0),
                     campos: prefixo,
                 },
                 indice: 4,
-                valor: CaminhoParametro {
-                    parametro: 1,
+                valor: CaminhoResumo {
+                    origem: OrigemCaminho::Parametro(1),
                     campos: vec![2],
                 },
             }]))

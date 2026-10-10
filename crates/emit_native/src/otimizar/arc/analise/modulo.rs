@@ -63,55 +63,7 @@ pub fn analisar_no_modulo(
         })
         .collect();
     let resumos = super::chamadas::resolver(m, &chamadas, limite)?;
-    let instrucoes: HashMap<_, _> = f
-        .blocks
-        .iter()
-        .flat_map(|b| &b.instructions)
-        .map(|(v, i, _)| (*v, i))
-        .collect();
-    let constantes = super::hir::constantes_inteiras(f);
-    let mut fatos = FatosHir::default();
-    let mut classes = HashMap::new();
-    if let Some(sitios) = m.sitios_arc.get(simbolo) {
-        for (v, sitio) in sitios {
-            let i = instrucoes
-                .get(v)
-                .ok_or_else(|| format!("points-to: sítio obsoleto v{}", v.0))?;
-            if !super::origens::alocacao(i) {
-                return Err(format!("points-to: sítio não aloca v{}", v.0));
-            }
-            let (classe, quantidade) = match i {
-                Instruction::AllocObject { class_id, fields } => (*class_id, fields.len()),
-                _ => match super::hir::fabrica_zerada(i, &constantes) {
-                    Some(c) => c,
-                    None => continue,
-                },
-            };
-            let Some(layout) = m.layouts_campos_arc.get(&classe) else {
-                continue;
-            };
-            if layout.len() != quantidade {
-                return Err(format!("points-to: layout incompatível v{}", v.0));
-            }
-            let no = NoAbstrato::Alocacao {
-                sitio: sitio.clone(),
-                contexto: String::new(),
-            };
-            if classes
-                .insert(no.clone(), classe)
-                .is_some_and(|anterior| anterior != classe)
-            {
-                return Err("points-to: origem com classes conflitantes".into());
-            }
-            let campos = (0..quantidade)
-                .map(|posicao| CampoArc {
-                    layout: format!("classe:{classe}"),
-                    posicao: posicao as u32,
-                })
-                .collect();
-            fatos.objetos.insert(*v, OrigemObjeto { no, campos });
-        }
-    }
+    let fatos = fatos_no_modulo(m, f)?;
     // A seleção acompanha aliases e campos na mesma solução. Não refinar
     // topo de uma primeira passagem nem pressupor um layout único do Phi.
     let mut analise = analisar_com_resumos(f, &fatos, limite, &resumos, true)?;
@@ -158,17 +110,78 @@ pub fn analisar_no_modulo(
     Ok(Some(analise))
 }
 
+// Uma única validação das origens/layouts para o corpo local e para os
+// objetos mencionados pelos resumos de callees. Não fabrica origem por SSA.
+pub(super) fn fatos_no_modulo(m: &Module, f: &Function) -> Result<FatosHir, String> {
+    let instrucoes: HashMap<_, _> = f
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .map(|(v, i, _)| (*v, i))
+        .collect();
+    let constantes = super::hir::constantes_inteiras(f);
+    let mut fatos = FatosHir::default();
+    let mut classes = HashMap::new();
+    if let Some(sitios) = m.sitios_arc.get(&f.symbol) {
+        for (v, sitio) in sitios {
+            let i = instrucoes
+                .get(v)
+                .ok_or_else(|| format!("points-to: sítio obsoleto v{}", v.0))?;
+            if !super::origens::alocacao(i) {
+                return Err(format!("points-to: sítio não aloca v{}", v.0));
+            }
+            let (classe, quantidade) = match i {
+                Instruction::AllocObject { class_id, fields } => (*class_id, fields.len()),
+                _ => match super::hir::fabrica_zerada(i, &constantes) {
+                    Some(c) => c,
+                    None => continue,
+                },
+            };
+            let Some(layout) = m.layouts_campos_arc.get(&classe) else {
+                continue;
+            };
+            if layout.len() != quantidade {
+                return Err(format!("points-to: layout incompatível v{}", v.0));
+            }
+            let no = NoAbstrato::Alocacao {
+                sitio: sitio.clone(),
+                contexto: String::new(),
+            };
+            if classes
+                .insert(no.clone(), classe)
+                .is_some_and(|anterior| anterior != classe)
+            {
+                return Err("points-to: origem com classes conflitantes".into());
+            }
+            let campos = (0..quantidade)
+                .map(|posicao| CampoArc {
+                    layout: format!("classe:{classe}"),
+                    posicao: posicao as u32,
+                })
+                .collect();
+            fatos.objetos.insert(*v, OrigemObjeto { no, campos });
+        }
+    }
+    Ok(fatos)
+}
+
 // Guarda local dos fatos lidos; ordenação nominal evita depender da ordem
 // de inserção/capacidade dos HashMaps. Layouts não usados também invalidam,
 // conservadoramente, até termos dependências finas/versionadas de esquema.
 pub(super) fn assinatura_premissas(m: &Module, simbolo: &str) -> blake3::Hash {
     let layouts: std::collections::BTreeMap<_, _> = m.layouts_campos_arc.iter().collect();
-    let sitios = m.sitios_arc.get(simbolo).map(|origens| {
-        origens
-            .iter()
-            .map(|(v, sitio)| (v.0, sitio))
-            .collect::<std::collections::BTreeMap<_, _>>()
-    });
+    // A identidade de um resultado alocado pode vir de outro corpo. Guarda
+    // nominal do módulo antes de consumir essas origens entre chamadas;
+    // mudar só a proveniência também precisa invalidar a solução anterior.
+    let sitios: std::collections::BTreeMap<_, _> = m
+        .sitios_arc
+        .iter()
+        .map(|(funcao, origens)| {
+            let origens: std::collections::BTreeMap<_, _> =
+                origens.iter().map(|(v, sitio)| (v.0, sitio)).collect();
+            (funcao, origens)
+        })
+        .collect();
     // Preservar duplicatas: uma declaração repetida deixa de ser ABI válida.
     let mut globais: Vec<_> = m
         .globais
@@ -182,6 +195,357 @@ pub(super) fn assinatura_premissas(m: &Module, simbolo: &str) -> blake3::Hash {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn origem_de_callee_invalida_escape_sem_depender_da_ordem_dos_mapas() {
+        use super::super::escape::calcular_no_modulo;
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.layouts_campos_arc.insert(1, vec![]);
+        m.functions = vec![
+            Function {
+                symbol: "caller".into(),
+                name: "caller".into(),
+                depuracao: None,
+                params: vec![],
+                return_ty: Type::Ref,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(
+                        ValueId(0),
+                        Instruction::CallStatic {
+                            symbol: "criar".into(),
+                            args: vec![],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
+                }],
+            },
+            Function {
+                symbol: "criar".into(),
+                name: "criar".into(),
+                depuracao: None,
+                params: vec![],
+                return_ty: Type::Ref,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(
+                        ValueId(37),
+                        Instruction::AllocObject {
+                            class_id: 1,
+                            fields: vec![],
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(37)))),
+                }],
+            },
+        ];
+        super::super::origens::registrar(&mut m, 0, true);
+        let a = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+        assert_eq!(
+            a.valor(ValueId(0)).unwrap().nos(),
+            Some(&std::collections::BTreeSet::from([NoAbstrato::Alocacao {
+                sitio: m.sitios_arc["criar"][&ValueId(37)].clone(),
+                contexto: String::new(),
+            }]))
+        );
+        calcular_no_modulo(&m, "caller", &a).unwrap();
+        // Reconstruir tabelas com outra ordem/capacidade não muda premissas.
+        let mut origens: Vec<_> = m.sitios_arc.drain().collect();
+        origens.reverse();
+        m.sitios_arc = origens.into_iter().collect();
+        calcular_no_modulo(&m, "caller", &a).unwrap();
+        let corpo = assinatura_corpo(&m.functions[1]);
+        m.sitios_arc
+            .get_mut("criar")
+            .unwrap()
+            .get_mut(&ValueId(37))
+            .unwrap()
+            .origem += 1;
+        assert_eq!(assinatura_corpo(&m.functions[1]), corpo);
+        assert!(calcular_no_modulo(&m, "caller", &a).is_err());
+        let nova = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+        calcular_no_modulo(&m, "caller", &nova).unwrap();
+        m.sitios_arc.remove("criar");
+        assert!(calcular_no_modulo(&m, "caller", &nova).is_err());
+    }
+
+    #[test]
+    fn fabrica_zerada_publica_origem_alocada_em_global_e_excecao_por_wrapper() {
+        use super::super::{escape::*, grafo::construir_local_no_modulo};
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.layouts_campos_arc.insert(1, vec![]);
+        m.globais.push((0, Type::Ref, "g".into()));
+        let wrapper = |nome: &str, alvo: &str| Function {
+            symbol: nome.into(),
+            name: nome.into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::Void,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![(
+                    ValueId(0),
+                    Instruction::CallStatic {
+                        symbol: alvo.into(),
+                        args: vec![],
+                        ret_ty: Type::Void,
+                    },
+                    Type::Void,
+                )],
+                terminator: Terminator::Return(None),
+            }],
+        };
+        m.functions = vec![
+            wrapper("caller", "wrapper"),
+            wrapper("wrapper", "criar"),
+            Function {
+                symbol: "criar".into(),
+                name: "criar".into(),
+                depuracao: None,
+                params: vec![],
+                return_ty: Type::Void,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![
+                        (
+                            ValueId(37),
+                            Instruction::CallRuntime {
+                                name: "dartforge_object_new".into(),
+                                args: vec![
+                                    (Operand::Constant(Constant::Int(1)), Type::I64),
+                                    (Operand::Constant(Constant::Int(0)), Type::I64),
+                                ],
+                                ret_ty: Type::Ref,
+                            },
+                            Type::Ref,
+                        ),
+                        (
+                            ValueId(38),
+                            Instruction::StoreGlobal {
+                                simbolo: "g".into(),
+                                val: Operand::Val(ValueId(37)),
+                                ty: Type::Ref,
+                                raiz: Some(0),
+                            },
+                            Type::Void,
+                        ),
+                    ],
+                    terminator: Terminator::Throw(Operand::Val(ValueId(37))),
+                }],
+            },
+        ];
+        super::super::origens::registrar(&mut m, 0, true);
+        let esperado = std::collections::BTreeSet::from([NoAbstrato::Alocacao {
+            sitio: m.sitios_arc["criar"][&ValueId(37)].clone(),
+            contexto: String::new(),
+        }]);
+        for reversa in [false, true] {
+            if reversa {
+                m.functions.reverse();
+            }
+            let a = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+            let e = calcular_no_modulo(&m, "caller", &a).unwrap();
+            assert_eq!(
+                e.publicacoes[&CausaEscape::Global("g".into())].nos(),
+                Some(&esperado)
+            );
+            assert_eq!(e.publicacoes[&CausaEscape::Excecao].nos(), Some(&esperado));
+            assert!(
+                e.publicacoes[&CausaEscape::OperacaoOpaca(0)]
+                    .nos()
+                    .is_none()
+            );
+            let g = construir_local_no_modulo(&m, "caller", 8).unwrap().unwrap();
+            g.conferir_no_modulo(&m, "caller").unwrap();
+            assert_eq!(
+                g.arestas()
+                    .keys()
+                    .cloned()
+                    .collect::<std::collections::BTreeSet<_>>(),
+                esperado
+            );
+            assert!(g.opaco());
+        }
+        let criar = m
+            .functions
+            .iter_mut()
+            .find(|f| f.symbol == "criar")
+            .unwrap();
+        if let Instruction::CallRuntime { args, .. } = &mut criar.blocks[0].instructions[0].1 {
+            args[0].1 = Type::Ref;
+        }
+        let a = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+        let e = calcular_no_modulo(&m, "caller", &a).unwrap();
+        assert!(e.publicacoes[&CausaEscape::Excecao].nos().is_none());
+    }
+
+    #[test]
+    fn retorno_alocado_compõe_parametro_null_recursao_e_campos_importados_opacos() {
+        use super::super::escape::*;
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.layouts_campos_arc.insert(1, vec![Type::Ref]);
+        m.layouts_campos_arc.insert(2, vec![]);
+        let criar = Function {
+            symbol: "criar".into(),
+            name: "criar".into(),
+            depuracao: None,
+            params: vec![
+                (ValueId(0), "x".into(), Type::Ref),
+                (ValueId(1), "cond".into(), Type::I1),
+            ],
+            return_ty: Type::Ref,
+            blocks: vec![
+                BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![],
+                    terminator: Terminator::CondBranch {
+                        cond: Operand::Val(ValueId(1)),
+                        then_block: BlockId(1),
+                        else_block: BlockId(2),
+                    },
+                },
+                BasicBlock {
+                    id: BlockId(1),
+                    instructions: vec![(
+                        ValueId(37),
+                        Instruction::AllocObject {
+                            class_id: 1,
+                            fields: vec![Operand::Val(ValueId(0))],
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::Branch(BlockId(3)),
+                },
+                BasicBlock {
+                    id: BlockId(2),
+                    instructions: vec![],
+                    terminator: Terminator::Branch(BlockId(3)),
+                },
+                BasicBlock {
+                    id: BlockId(3),
+                    instructions: vec![(
+                        ValueId(38),
+                        Instruction::Phi {
+                            incoming: vec![
+                                (BlockId(1), Operand::Val(ValueId(37))),
+                                (BlockId(2), Operand::Val(ValueId(0))),
+                            ],
+                            ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(38)))),
+                },
+            ],
+        };
+        let chamada = |x| Instruction::CallStatic {
+            symbol: "criar".into(),
+            args: vec![x, Operand::Constant(Constant::Bool(true))],
+            ret_ty: Type::Ref,
+        };
+        let caller = Function {
+            symbol: "caller".into(),
+            name: "caller".into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![
+                    (
+                        ValueId(0),
+                        Instruction::AllocObject {
+                            class_id: 2,
+                            fields: vec![],
+                        },
+                        Type::Ref,
+                    ),
+                    (ValueId(1), chamada(Operand::Val(ValueId(0))), Type::Ref),
+                    (
+                        ValueId(2),
+                        chamada(Operand::Constant(Constant::Null)),
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(3),
+                        Instruction::GetField {
+                            object: Operand::Val(ValueId(2)),
+                            index: 0,
+                        },
+                        Type::Ref,
+                    ),
+                ],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+            }],
+        };
+        m.functions = vec![caller, criar];
+        super::super::origens::registrar(&mut m, 0, true);
+        let no = |funcao: &str, id| NoAbstrato::Alocacao {
+            sitio: m.sitios_arc[funcao][&ValueId(id)].clone(),
+            contexto: String::new(),
+        };
+        let alocado = no("criar", 37);
+        let parametro = no("caller", 0);
+        for reversa in [false, true] {
+            if reversa {
+                m.functions.reverse();
+            }
+            let a = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+            assert_eq!(
+                a.valor(ValueId(1)).unwrap().nos(),
+                Some(&std::collections::BTreeSet::from([
+                    parametro.clone(),
+                    alocado.clone()
+                ]))
+            );
+            assert_eq!(
+                a.valor(ValueId(2)).unwrap().nos(),
+                Some(&std::collections::BTreeSet::from([alocado.clone()]))
+            );
+            assert!(a.valor(ValueId(3)).unwrap().nos().is_none());
+            assert!(
+                calcular_no_modulo(&m, "caller", &a).unwrap().publicacoes
+                    [&CausaEscape::OperacaoOpaca(1)]
+                    .nos()
+                    .is_none()
+            );
+            let a = analisar_no_modulo(&m, "caller", 1).unwrap().unwrap();
+            assert!(a.valor(ValueId(1)).unwrap().nos().is_none());
+        }
+        let criar = m
+            .functions
+            .iter_mut()
+            .find(|f| f.symbol == "criar")
+            .unwrap();
+        criar.blocks[2].instructions.push((
+            ValueId(39),
+            Instruction::CallStatic {
+                symbol: "criar".into(),
+                args: vec![Operand::Val(ValueId(0)), Operand::Val(ValueId(1))],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        ));
+        if let Instruction::Phi { incoming, .. } = &mut criar.blocks[3].instructions[0].1 {
+            incoming[1].1 = Operand::Val(ValueId(39));
+        }
+        let a = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+        assert_eq!(
+            a.valor(ValueId(1)).unwrap().nos(),
+            Some(&std::collections::BTreeSet::from([alocado]))
+        );
+        m.sitios_arc.remove("criar");
+        let a = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+        assert!(a.valor(ValueId(1)).unwrap().nos().is_none());
+        m.memoria_arc = false;
+        assert!(analisar_no_modulo(&m, "caller", 8).unwrap().is_none());
+    }
 
     #[test]
     fn excecao_por_chamada_preserva_payload_sem_fechar_fronteira_e_valida_corpos() {

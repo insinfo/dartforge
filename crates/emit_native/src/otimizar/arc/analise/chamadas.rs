@@ -39,6 +39,10 @@ pub(super) fn resolver<'a>(
     for f in &corpos {
         conferir_globais(m, f)?;
     }
+    let fatos: Vec<_> = corpos
+        .iter()
+        .map(|f| super::modulo::fatos_no_modulo(m, f))
+        .collect::<Result<_, _>>()?;
     let ids: HashMap<_, _> = corpos
         .iter()
         .enumerate()
@@ -189,8 +193,12 @@ pub(super) fn resolver<'a>(
         loop {
             while let Some(v) = fila.pop_front() {
                 enfileirados.remove(&v);
-                let (resultado, novo, publicacoes) =
-                    super::escritas::extrair_com_efeitos(corpos[v], limite, true, |s| {
+                let (resultado, novo, publicacoes) = super::escritas::extrair_com_origens(
+                    corpos[v],
+                    limite,
+                    true,
+                    &fatos[v].objetos,
+                    |s| {
                         ids.get(s).map(|&w| {
                             (
                                 corpos[w],
@@ -199,7 +207,8 @@ pub(super) fn resolver<'a>(
                                 globais[w].clone(),
                             )
                         })
-                    })?;
+                    },
+                )?;
                 let mudou_escrita = escritas[v].unir(&novo, limite);
                 let mudou_global = globais[v].unir(&publicacoes, limite);
                 if caminhos[v].unir(&resultado, limite) || mudou_escrita || mudou_global {
