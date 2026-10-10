@@ -2,6 +2,30 @@
 
 ## Retomada de 2026-10-10
 
+Entrada analisar_no_modulo liga sítios/layouts do lowering à análise local
+sem fatos de objeto escritos manualmente. Reconhece AllocObject e fábrica
+reservada dartforge_object_new com ABI, classe e contagem constantes; esquema
+deve corresponder ao layout registrado. Fábrica zerada inicializa os campos
+sem arestas; construtor/callback não é tratado como parte dessa primitiva.
+Passo preliminar resolve origens/cópias/Phis e só registra esquema de acesso
+quando todos os nós possíveis do receiver pertencem à mesma classe/layout
+com índice válido. Receiver opaco/multilayout continua desconhecido.
+Sítio obsoleto, origem com classes conflitantes ou quantidade incompatível
+são erros. Falta de origem/layout e ABI não reconhecida conservam topo;
+não há inferência de sítio a partir do ValueId. Tracing devolve None antes
+de executar a análise. Chaves de layout valem só nesta versão do módulo.
+Teste HIR preserva autoaresta criada por store, perde precisão sem layout
+e recusa quantidade incompatível. Teste com frontend/SDK reais confere nó
+da alocação em main e igualdade com o sítio registrado pelo lowering,
+sem plano manual de objeto. Passaram 277 testes do emissor (sete ignorados),
+o teste focado da fonte e 75 exemplos públicos. Logs
+target/arc-points-to-modulo-{suite,fonte,doc}.log.
+Entrada ainda explícita, sem certificados/seleção de política: chamadas,
+efeitos transitivos, escape/observadores, resumos SDK, contextos e dependências
+de versão permanecem pendentes; não conclui S0/S1 nem o gate ARC/A0.
+ARC continua exclusivo de --memoria=arc. CI 38051323600 permanece ativa:
+Linux passou; macOS chegou a unwind estrangeiro e Windows a keepalive pending.
+
 Lowering ARC registra origens nominais de alocações reconhecidas em
 Module::sitios_arc, por símbolo e índice SSA atual. Origem é ordinal da
 alocação original, não ValueId; registro adicional conserva identidades

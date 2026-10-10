@@ -176,6 +176,24 @@ void main() { Base().exercitar(Object()); }
                             }
                         }
                     }
+                    let principal = modulo.functions.iter().find(|f| f.name == "main").unwrap();
+                    let analise = crate::otimizar::arc::analise::modulo::analisar_no_modulo(
+                        &modulo, &principal.symbol, 8,
+                    ).unwrap().unwrap();
+                    let mut alocacoes = 0;
+                    for (v, i, _) in principal.blocks.iter().flat_map(|b| &b.instructions) {
+                        if matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_object_new") {
+                            if let Some(nos) = analise.valor(*v).and_then(|p| p.nos()) {
+                                assert_eq!(nos.len(), 1);
+                                let esperado = &modulo.sitios_arc[&principal.symbol][v];
+                                assert!(nos.iter().all(|n| matches!(n,
+                                    crate::otimizar::arc::analise::modelo::NoAbstrato::Alocacao { sitio, .. }
+                                        if sitio == esperado)));
+                                alocacoes += 1;
+                            }
+                        }
+                    }
+                    assert!(alocacoes > 0, "origem/layout da fonte não alimentou points-to");
                     for (indice, tipo) in [
                         (0, Type::I64),
                         (1, Type::F64),

@@ -6,7 +6,7 @@ use super::{modelo::*, points_to::*};
 use crate::hir::*;
 use std::collections::{BTreeSet, HashMap};
 
-/// Origem e esquema completo dos campos iniciais de um AllocObject.
+/// Origem/esquema dos campos de AllocObject ou da fábrica reservada zerada.
 /// O produtor deve preservar origem/contexto nos clones e conferir layouts.
 /// Índices SSA não são usados como identidade persistente do nó abstrato.
 ///
@@ -35,7 +35,7 @@ pub struct OrigemObjeto {
 /// ```
 #[derive(Debug, Default)]
 pub struct FatosHir {
-    /// Origem/esquema de cada AllocObject identificado pelo produtor.
+    /// Origem/esquema de cada alocação de objeto identificada pelo produtor.
     pub objetos: HashMap<ValueId, OrigemObjeto>,
     /// Campo nominal de cada GetField/SetField, identificado pelo resultado SSA.
     pub acessos: HashMap<ValueId, CampoArc>,
@@ -106,11 +106,16 @@ pub fn analisar(f: &Function, fatos: &FatosHir, limite: usize) -> Result<Analise
         .flat_map(|b| &b.instructions)
         .map(|(v, i, _)| (*v, i))
         .collect();
+    let constantes = constantes_inteiras(f);
     for (v, origem) in &fatos.objetos {
-        let Some(Instruction::AllocObject { fields, .. }) = instrucoes.get(v) else {
-            return Err(format!("points-to HIR: origem obsoleta v{}", v.0));
+        let quantidade = match instrucoes.get(v) {
+            Some(Instruction::AllocObject { fields, .. }) => fields.len(),
+            Some(i) => fabrica_zerada(i, &constantes)
+                .map(|(_, n)| n)
+                .ok_or_else(|| format!("points-to HIR: origem obsoleta v{}", v.0))?,
+            None => return Err(format!("points-to HIR: origem obsoleta v{}", v.0)),
         };
-        if fields.len() != origem.campos.len()
+        if quantidade != origem.campos.len()
             || origem
                 .campos
                 .iter()
@@ -201,13 +206,17 @@ pub fn analisar(f: &Function, fatos: &FatosHir, limite: usize) -> Result<Analise
                 origem: ids[origem],
                 destino,
             }),
-            Instruction::AllocObject { fields, .. } if fatos.objetos.contains_key(v) => {
+            i if fatos.objetos.contains_key(v) => {
                 let origem = &fatos.objetos[v];
                 rs.push(Restricao::Semear {
                     destino,
                     no: origem.no.clone(),
                 });
-                for (o, campo) in fields.iter().zip(&origem.campos) {
+                let iniciais = match i {
+                    Instruction::AllocObject { fields, .. } => fields.clone(),
+                    _ => vec![Operand::Constant(Constant::Null); origem.campos.len()],
+                };
+                for (o, campo) in iniciais.iter().zip(&origem.campos) {
                     rs.push(Restricao::Gravar {
                         objeto: destino,
                         campo: campo.clone(),
@@ -273,6 +282,49 @@ pub fn analisar(f: &Function, fatos: &FatosHir, limite: usize) -> Result<Analise
         desconhecidos,
         ids,
     })
+}
+
+pub(super) fn constantes_inteiras(f: &Function) -> HashMap<ValueId, i64> {
+    f.blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .filter_map(|(v, i, ty)| {
+            if let Instruction::Const(Constant::Int(n)) = i
+                && *ty == Type::I64
+            {
+                Some((*v, *n))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+// Somente a fábrica reservada de instância zerada, sem callback ou construtor.
+// Classe/contagem dinâmicas não são inferidas por largura ou nome de usuário.
+pub(super) fn fabrica_zerada(
+    i: &Instruction,
+    constantes: &HashMap<ValueId, i64>,
+) -> Option<(u32, usize)> {
+    let Instruction::CallRuntime { name, args, ret_ty } = i else {
+        return None;
+    };
+    if name != "dartforge_object_new"
+        || args.len() != 2
+        || *ret_ty != Type::Ref
+        || args.iter().any(|(_, t)| *t != Type::I64)
+    {
+        return None;
+    }
+    let inteiro = |o: &Operand| match o {
+        Operand::Constant(Constant::Int(n)) => Some(*n),
+        Operand::Val(v) => constantes.get(v).copied(),
+        _ => None,
+    };
+    Some((
+        u32::try_from(inteiro(&args[0].0)?).ok()?,
+        usize::try_from(inteiro(&args[1].0)?).ok()?,
+    ))
 }
 
 #[cfg(test)]
