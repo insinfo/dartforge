@@ -43,6 +43,8 @@ pub struct PlanoFuncaoDart {
 /// constantes/aritmética/Phis/runtime cobertos não exigem mapas manuais.
 /// Boxing escalar explícito vira fábrica Owned para int/double; bool usa caixas
 /// estáticas Trivial. SIMD e outras representações exigem produtores próprios.
+/// Unbox int/double vira chamada Borrow falível auditada; exige saída de erro.
+/// Unbox bool ainda exige adaptar a ABI u8 ao resultado I1 e sua pendência.
 /// Parâmetros F64/I1/I8 são escalares Trivial. I64/Ptr e operações não
 /// cobertas exigem contratos prévios; largura não prova semântica gerenciada.
 /// Separa saídas Guarda em sucesso/erro e transporta os limites de saída.
@@ -246,6 +248,126 @@ fn inserir(
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn unboxing_escalar_preserva_borrow_e_exige_type_error_preparado() {
+        for ty in [Type::I64, Type::F64] {
+            let f = Function {
+                symbol: "unboxing".into(),
+                name: "unboxing".into(),
+                depuracao: None,
+                params: vec![(ValueId(0), "valor".into(), Type::Ref)],
+                return_ty: ty,
+                blocks: vec![
+                    BasicBlock {
+                        id: BlockId(0),
+                        instructions: vec![
+                            (
+                                ValueId(1),
+                                Instruction::Unbox {
+                                    op: Operand::Val(ValueId(0)),
+                                    to: ty,
+                                },
+                                ty,
+                            ),
+                            (
+                                ValueId(2),
+                                Instruction::CallRuntime {
+                                    name: "dartforge_exception_pending".into(),
+                                    args: vec![],
+                                    ret_ty: Type::I8,
+                                },
+                                Type::I8,
+                            ),
+                            (
+                                ValueId(3),
+                                Instruction::ICmp(
+                                    ICmpOp::Ne,
+                                    Operand::Val(ValueId(2)),
+                                    Operand::Constant(Constant::Int(0)),
+                                ),
+                                Type::I1,
+                            ),
+                        ],
+                        terminator: Terminator::CondBranch {
+                            cond: Operand::Val(ValueId(3)),
+                            then_block: BlockId(1),
+                            else_block: BlockId(2),
+                        },
+                    },
+                    BasicBlock {
+                        id: BlockId(1),
+                        instructions: vec![],
+                        terminator: Terminator::Return(None),
+                    },
+                    BasicBlock {
+                        id: BlockId(2),
+                        instructions: vec![],
+                        terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+                    },
+                ],
+            };
+            let mut p = PlanoFuncaoDart::default();
+            p.tabelas.saidas.insert(BlockId(1), SaidaPorExcecao::Lanca);
+            let mut fs = vec![f.clone()];
+            let mut ps = HashMap::from([("unboxing".into(), p)]);
+            assert_eq!(inserir_arc_funcoes_dart(&mut fs, &mut ps).unwrap(), (0, 0));
+            assert_eq!(ps["unboxing"].classes[&ValueId(1)], Ownership::Trivial);
+            assert_eq!(ps["unboxing"].tokens.pendencias[&ValueId(1)], BlockId(1));
+            assert!(
+                matches!(&fs[0].blocks[0].instructions[0].1, Instruction::CallRuntime { name, .. } if name == if ty == Type::I64 { "dartforge_unbox_int" } else { "dartforge_unbox_double" })
+            );
+            let mut owned = f.clone();
+            owned.params.clear();
+            if let Instruction::Unbox { op, .. } = &mut owned.blocks[0].instructions[0].1 {
+                *op = Operand::Val(ValueId(4));
+            }
+            owned.blocks[0].instructions.insert(
+                0,
+                (
+                    ValueId(4),
+                    Instruction::Box {
+                        op: Operand::Constant(Constant::Int(i64::MAX)),
+                        from: Type::I64,
+                    },
+                    Type::Ref,
+                ),
+            );
+            let mut plano_owned = PlanoFuncaoDart::default();
+            plano_owned
+                .tabelas
+                .saidas
+                .insert(BlockId(1), SaidaPorExcecao::Lanca);
+            let mut owned = vec![owned];
+            let mut planos_owned = HashMap::from([("unboxing".into(), plano_owned)]);
+            assert_eq!(
+                inserir_arc_funcoes_dart(&mut owned, &mut planos_owned).unwrap(),
+                (0, 2)
+            );
+            for b in &owned[0].blocks[1..] {
+                assert_eq!(
+                    b.instructions
+                        .iter()
+                        .filter(|(_, i, _)| matches!(
+                            i,
+                            Instruction::ArcDrop {
+                                value: Operand::Val(ValueId(4))
+                            }
+                        ))
+                        .count(),
+                    1
+                );
+            }
+            let mut fs = vec![f];
+            fs[0].blocks.truncate(1);
+            fs[0].blocks[0].instructions.truncate(1);
+            fs[0].blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
+            let mut ps = HashMap::from([("unboxing".into(), PlanoFuncaoDart::default())]);
+            let antes = format!("{fs:?}/{ps:?}");
+            assert!(inserir_arc_funcoes_dart(&mut fs, &mut ps).is_err());
+            assert_eq!(format!("{fs:?}/{ps:?}"), antes);
+        }
+    }
 
     #[test]
     fn parametros_double_e_bool_preparam_boxing_sem_contrato_manual() {

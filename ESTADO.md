@@ -2,6 +2,17 @@
 
 ## Retomada de 2026-10-10
 
+Unbox I64/F64 na preparação do conjunto fechado vira chamada auditada
+Borrow, preservando ID SSA e resultado escalar. Exige CFG de TypeError
+preparado; sem saída de erro, a transação rejeita sem alterar corpos/planos.
+Teste cobre referência emprestada do chamador e caixa Mint Owned local:
+o owner permanece durante unbox e recebe um drop em cada saída normal/erro.
+O resultado só fica disponível no sucesso. Log target/arc-unboxing-hir.log.
+Bool ainda exige adaptar u8/I1 e transportar a conferência de pendência;
+prova de empréstimos através da reentrada e integração padrão seguem pendentes.
+Validação completa: 207 testes do emissor passaram (7 ignorados), mais
+49 exemplos de documentação; logs target/arc-unboxing-{suite,doc}.log.
+
 Catálogo validado de unbox int/double/bool com argumento Borrow,
 resultado escalar e falha pending. O TypeError pode chamar helper Dart
 do SDK; a marca pending-dart preserva essa reentrada e exige invalidação

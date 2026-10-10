@@ -1,8 +1,27 @@
-//! Traduz boxing escalar explícito em fábricas Owned antes da produção ARC.
+//! Prepara boxing Owned e unboxing escalar auditado antes da produção ARC.
 use crate::hir::*;
 
 pub(super) fn preparar(f: &mut Function) -> Result<(), String> {
     for (id, inst, ty) in f.blocks.iter_mut().flat_map(|b| &mut b.instructions) {
+        if let Instruction::Unbox { op, to } = inst {
+            if *ty != *to {
+                return Err(format!(
+                    "unboxing ARC em {} v{} exige resultado {to:?}",
+                    f.symbol, id.0
+                ));
+            }
+            let nome = match *to {
+                Type::I64 => "dartforge_unbox_int",
+                Type::F64 => "dartforge_unbox_double",
+                _ => continue,
+            };
+            *inst = Instruction::CallRuntime {
+                name: nome.into(),
+                args: vec![(op.clone(), Type::Ref)],
+                ret_ty: *to,
+            };
+            continue;
+        }
         let Instruction::Box { op, from } = inst else {
             continue;
         };
