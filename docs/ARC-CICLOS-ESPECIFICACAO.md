@@ -1983,6 +1983,18 @@ Não deduzir essa propriedade de Borrowed nem apenas do alias normal.
 Cobertura interprocedural de retenções, observadores/SDK e políticas permanece
 pendente; nenhum retain/release é removido por essa etapa.
 
+Preservação de campos e publicação somente pelo resultado também podem ser
+compostas por chamadas diretas locais. Uma worklist separada dos aliases
+normais começa nas folhas positivamente cobertas e promove um chamador só
+quando todos os callees têm ambas as propriedades e a ABI de cada chamada
+é exata. O corpo do chamador continua sujeito à lista positiva de operações
+e à conferência de contexto, raízes e tabelas. Dependências de corpos/tabelas
+transitivos permanecem na guarda de consumo. Ciclos recursivos de chamadas
+não recebem cobertura por hipótese; externos, throws, stores, conversões e
+caminhos implícitos sem cobertura conservam desconhecimento. Isso ainda não
+resume escritas por caminhos de campo, callbacks, observadores ou SDK e não
+certifica políticas de memória.
+
 Extração HIR registra materialização de texto e Phis com representações não
 exatas como operações opacas, além de invalidar campos conhecidos. Resultado
 escalar não prova ausência de efeito: aritmética só dispensa opacidade com

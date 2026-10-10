@@ -1,5 +1,6 @@
 //! Solução local monotônica de aliases normais por SCC de chamadas (§28.3).
-//! Efeitos de heap/escape permanecem opacos; não certifica políticas ARC.
+//! Compõe preservação/publicação de corpos positivos por chamadas diretas.
+//! Demais efeitos permanecem opacos; não certifica políticas ARC.
 
 use super::resumos::{ResumoHeapArc, RetornoHeapArc, extrair_com_chamadas};
 use crate::hir::*;
@@ -107,7 +108,8 @@ pub(super) fn resolver<'a>(
     }
     // Reextração com dependências estabilizadas constrói o resumo guardado
     // pela assinatura do próprio corpo, sem publicar aproximações da worklist.
-    corpos
+    let mut contexto_opaco = vec![false; corpos.len()];
+    let mut resumos: Vec<_> = corpos
         .iter()
         .enumerate()
         .map(|(v, &f)| {
@@ -123,13 +125,49 @@ pub(super) fn resolver<'a>(
             if (m.excecoes_por_tabelas && tabela.is_none())
                 || crate::llvm::LlvmEmitter::exige_contexto_explicito(f, tabela)
                 || crate::llvm::LlvmEmitter::pode_exigir_contexto_por_raizes(f)
+                || tabela.is_some_and(|t| {
+                    !t.invocacoes.is_empty()
+                        || !t.pousos.is_empty()
+                        || !t.saidas.is_empty()
+                        || t.cleanup_estrangeiro.is_some()
+                })
             {
+                contexto_opaco[v] = true;
                 resumo.invalidar_cobertura();
             }
             debug_assert_eq!(resumo.retorno(), &retornos[v]);
-            Ok((f.symbol.clone(), (f, resumo)))
+            Ok(resumo)
         })
-        .collect()
+        .collect::<Result<_, String>>()?;
+    // O estado inicial é desconhecido nas chamadas. Só promover quando
+    // todas as dependências já têm cobertura positiva; nunca supor uma
+    // SCC recursiva pura apenas porque nenhum store foi encontrado nela.
+    let mut fila: VecDeque<_> = (0..corpos.len()).collect();
+    let mut enfileirados: HashSet<_> = (0..corpos.len()).collect();
+    while let Some(v) = fila.pop_front() {
+        enfileirados.remove(&v);
+        if contexto_opaco[v]
+            || (resumos[v].campos() == super::resumos::CamposHeapArc::Preservados
+                && resumos[v].publicacoes() == super::resumos::PublicacoesHeapArc::SomenteResultado)
+        {
+            continue;
+        }
+        if super::resumos::cobertura_com_chamadas(corpos[v], |s| {
+            ids.get(s).map(|&w| (corpos[w], &resumos[w]))
+        }) {
+            resumos[v].marcar_cobertura();
+            for &w in &dependentes[v] {
+                if enfileirados.insert(w) {
+                    fila.push_back(w);
+                }
+            }
+        }
+    }
+    Ok(corpos
+        .into_iter()
+        .zip(resumos)
+        .map(|(f, resumo)| (f.symbol.clone(), (f, resumo)))
+        .collect())
 }
 
 fn alvos(f: &Function) -> impl Iterator<Item = &str> {
@@ -171,6 +209,171 @@ fn unir(destino: &mut RetornoHeapArc, origem: &RetornoHeapArc, limite: usize) ->
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    fn escalar(nome: &str, alvo: Option<&str>) -> Function {
+        Function {
+            symbol: nome.into(),
+            name: nome.into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "x".into(), Type::I64)],
+            return_ty: Type::I64,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: alvo
+                    .into_iter()
+                    .map(|symbol| {
+                        (
+                            ValueId(1),
+                            Instruction::CallStatic {
+                                symbol: symbol.into(),
+                                args: vec![Operand::Val(ValueId(0))],
+                                ret_ty: Type::I64,
+                            },
+                            Type::I64,
+                        )
+                    })
+                    .collect(),
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(if alvo.is_some() {
+                    1
+                } else {
+                    0
+                })))),
+            }],
+        }
+    }
+
+    #[test]
+    fn cobertura_composta_cadeia_profunda_e_ordem_dos_corpos() {
+        let mut m = Module::new();
+        for v in 0..1000 {
+            let alvo = (v < 999).then(|| format!("f{}", v + 1));
+            m.functions.push(escalar(&format!("f{v}"), alvo.as_deref()));
+        }
+        for _ in 0..2 {
+            let r = resolver(&m, &HashSet::from(["f0"]), 8).unwrap();
+            assert_eq!(r.len(), 1000);
+            for (_, resumo) in r.values() {
+                assert_eq!(
+                    resumo.campos(),
+                    super::super::resumos::CamposHeapArc::Preservados
+                );
+                assert_eq!(
+                    resumo.publicacoes(),
+                    super::super::resumos::PublicacoesHeapArc::SomenteResultado
+                );
+            }
+            m.functions.reverse();
+        }
+    }
+
+    #[test]
+    fn cobertura_composta_recusa_dependencia_opaca_recursao_e_abi() {
+        use super::super::resumos::*;
+        let base = vec![
+            escalar("f", Some("g")),
+            escalar("g", Some("h")),
+            escalar("h", None),
+        ];
+        for caso in 0..4 {
+            let mut m = Module::new();
+            m.functions = base.clone();
+            match caso {
+                0 => m.functions[2] = escalar("h", Some("externo")),
+                1 => m.functions[2] = escalar("h", Some("g")),
+                2 => {
+                    m.functions[2].blocks[0].terminator =
+                        Terminator::Throw(Operand::Constant(Constant::Null))
+                }
+                3 => {
+                    if let Instruction::CallStatic { args, .. } =
+                        &mut m.functions[1].blocks[0].instructions[0].1
+                    {
+                        args[0] = Operand::Constant(Constant::Null);
+                    }
+                }
+                _ => unreachable!(),
+            }
+            let r = resolver(&m, &HashSet::from(["f"]), 8).unwrap();
+            assert_eq!(
+                r["f"].1.campos(),
+                CamposHeapArc::Desconhecidos,
+                "caso {caso}"
+            );
+            assert_eq!(
+                r["f"].1.publicacoes(),
+                PublicacoesHeapArc::Desconhecidas,
+                "caso {caso}"
+            );
+        }
+    }
+
+    #[test]
+    fn cobertura_composta_nao_reaprova_contexto_ou_tabela_ausente() {
+        use super::super::resumos::*;
+        let mut m = Module::new();
+        m.functions = vec![escalar("f", Some("g")), escalar("g", None)];
+        m.excecoes_por_tabelas = true;
+        for tabelas in [
+            vec![],
+            vec![
+                TabelasDaFuncao::default(),
+                TabelasDaFuncao {
+                    confere_pilha: true,
+                    ..Default::default()
+                },
+            ],
+        ] {
+            m.tabelas = tabelas;
+            let r = resolver(&m, &HashSet::from(["f"]), 8).unwrap();
+            assert_eq!(r["f"].1.campos(), CamposHeapArc::Desconhecidos);
+            assert_eq!(r["g"].1.publicacoes(), PublicacoesHeapArc::Desconhecidas);
+        }
+        m.tabelas = vec![TabelasDaFuncao::default(); 2];
+        let r = resolver(&m, &HashSet::from(["f"]), 8).unwrap();
+        assert_eq!(r["f"].1.campos(), CamposHeapArc::Preservados);
+        // Alterar o próprio prólogo impede a propagação mesmo com g coberto.
+        m.tabelas[0].confere_pilha = true;
+        let r = resolver(&m, &HashSet::from(["f"]), 8).unwrap();
+        assert_eq!(r["f"].1.campos(), CamposHeapArc::Desconhecidos);
+        assert_eq!(r["g"].1.campos(), CamposHeapArc::Preservados);
+    }
+
+    #[test]
+    fn cobertura_composta_consumida_no_modulo_invalida_dependencia_transitiva() {
+        use super::super::{escape::*, modulo::analisar_no_modulo};
+        let mut m = Module::new();
+        m.functions = vec![
+            escalar("f", Some("g")),
+            escalar("g", Some("h")),
+            escalar("h", None),
+        ];
+        assert!(analisar_no_modulo(&m, "f", 8).unwrap().is_none());
+        m.memoria_arc = true;
+        let a = analisar_no_modulo(&m, "f", 8).unwrap().unwrap();
+        assert!(a.desconhecidos().is_empty());
+        let e = calcular_no_modulo(&m, "f", &a).unwrap();
+        assert!(
+            !e.publicacoes
+                .keys()
+                .any(|c| matches!(c, CausaEscape::OperacaoOpaca(_)))
+        );
+        // Efeito implícito de materialização em h, apesar do retorno escalar:
+        // invalida a solução antiga de f e torna a nova chamada opaca.
+        m.functions[2].blocks[0].instructions.push((
+            ValueId(2),
+            Instruction::Const(Constant::String("novo efeito".into())),
+            Type::Ref,
+        ));
+        assert!(calcular_no_modulo(&m, "f", &a).is_err());
+        let nova = analisar_no_modulo(&m, "f", 8).unwrap().unwrap();
+        assert_eq!(nova.desconhecidos(), &[ValueId(1)]);
+        assert!(
+            calcular_no_modulo(&m, "f", &nova)
+                .unwrap()
+                .publicacoes
+                .contains_key(&CausaEscape::OperacaoOpaca(1))
+        );
+    }
 
     fn corpo(nome: &str, base: Option<Operand>, alvos: &[String]) -> Function {
         let mut opcoes: Vec<_> = base.into_iter().map(|o| (vec![], o)).collect();

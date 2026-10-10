@@ -2,6 +2,29 @@
 
 ## Retomada de 2026-10-10
 
+Resumos de campos/publicações da §28.3 passam a compor cobertura por
+chamadas diretas locais. Worklist separada dos aliases normais parte de
+folhas cobertas e só promove o chamador quando todos os callees preservam
+campos/publicam somente pelo resultado e a ABI é exata. Guarda de contexto
+impede reaprovar prólogos/raízes/tabelas opacos; recursão sem base de
+cobertura, externos, throws, stores e conversões continuam desconhecidos.
+Regressões conferem cadeia de 1.000 funções nas duas ordens, recursão,
+dependência externa/falível, ABI, tabela ausente/conferência de pilha e
+consumo no módulo. Alterar um callee transitivo para materializar texto
+invalida a análise antiga e torna a chamada opaca na reanálise.
+Passaram 318 testes unitários do emissor incluindo ignorados, 24 integrações,
+97 exemplos e um compile-fail; rustfmt dos dois módulos e git diff --check
+passaram. Logs target/arc-cobertura-composta-{focado,suite}.log.
+Clippy com -D warnings encontrou erros em frontend e runtime/build.rs,
+arquivos não alterados nesta etapa; não afirmar lint completo aprovado.
+Documentação com RUSTDOCFLAGS=-D warnings falhou em 15 links públicos para
+itens privados, também fora dos dois módulos alterados. Logs
+target/arc-cobertura-composta-{clippy,doc}.log; ambos terminaram em 101.
+Não resume escritas por campo/SDK, observadores ou vidas nem seleciona
+políticas/remove contagens. Análise pelo módulo só em ARC; tracing padrão,
+ARC apenas --memoria=arc. §§27–34 e gate completo continuam incompletos.
+CI 38064260616: Linux/mensagens passaram; Windows/macOS ainda executam.
+
 Comparação do trial deletion denso concluída: antes b706e0b0, depois
 687a7fd4; diferença de produção somente em arc.rs, benchmark inalterado.
 CLI release recompilada com jit; novo AOT otimizado com --memoria=arc.

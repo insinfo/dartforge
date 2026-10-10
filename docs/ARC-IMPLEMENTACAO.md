@@ -593,6 +593,15 @@ ou incompletos; conserva catch/saídas preparados e é idempotente. O produtor
 importação não certifica contratos de ownership. Ambos respeitam a seleção
 ARC anterior; tracing permanece sem alterações.
 
+Os resumos locais da §28.3 agora compõem preservação de campos e publicação
+somente pelo resultado através de chamadas diretas com ABI exata. A
+worklist parte de folhas cobertas; contexto/tabela opacos impedem promoção,
+e SCCs recursivas não recebem cobertura por hipótese. O consumidor guarda
+dependências transitivas: mudar um callee invalida a solução antiga; uma
+operação nova sem cobertura torna a chamada opaca na reanálise. Isso não
+resume escritas por campos, SDK, observadores ou vidas, nem remove RC ou
+seleciona políticas. A análise pelo módulo continua exclusiva de ARC.
+
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais
   (§20.4).
 * `ownership.tsv` por extern (§21.2).

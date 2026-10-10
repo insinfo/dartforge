@@ -1,5 +1,5 @@
 //! Resumos iniciais de aliases de retorno normal (§28.3).
-//! Preservação de campos só para corpos sem chamadas/conversões opacas.
+//! Preservação de campos por cobertura positiva de corpos e chamadas diretas.
 //! Publicação só pelo resultado exige cobertura positiva do corpo inteiro.
 //! Não certificam políticas, vidas ou efeitos completos de callbacks/SDK.
 
@@ -36,7 +36,7 @@ pub enum RetornoHeapArc {
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CamposHeapArc {
-    /// Corpo só transfere valores já avaliados, sem escrever/coletar/chamar.
+    /// Corpo coberto preserva campos, incluindo callees com a mesma cobertura.
     Preservados,
     /// Escrita possível ou operação/caminho implícito ainda não coberto.
     Desconhecidos,
@@ -115,6 +115,11 @@ impl ResumoHeapArc {
     pub(super) fn invalidar_cobertura(&mut self) {
         self.campos = CamposHeapArc::Desconhecidos;
         self.publicacoes = PublicacoesHeapArc::Desconhecidas;
+    }
+
+    pub(super) fn marcar_cobertura(&mut self) {
+        self.campos = CamposHeapArc::Preservados;
+        self.publicacoes = PublicacoesHeapArc::SomenteResultado;
     }
 
     /// Consulta aliases normais; isso não fornece noescape ou noheapmutation.
@@ -360,7 +365,7 @@ pub(super) fn extrair_com_chamadas<'a>(
             nulo: pode_null,
         }
     };
-    let coberto = cobertura_de_valores(f, &tipos);
+    let coberto = cobertura_de_valores(f, &tipos, |_| None);
     Ok(ResumoHeapArc {
         corpo: assinatura_corpo(f),
         retorno,
@@ -377,10 +382,14 @@ pub(super) fn extrair_com_chamadas<'a>(
     })
 }
 
-// Lista positiva independente dos aliases normais. Excluir chamadas, throws,
+// Lista positiva independente dos aliases normais. Excluir chamadas opacas, throws,
 // stores, alocações, constantes de texto e ARC que possa exigir contexto:
 // conferência implícita de pilha pode construir erro pelo SDK/reentrar.
-fn cobertura_de_valores(f: &Function, tipos: &HashMap<ValueId, Type>) -> bool {
+fn cobertura_de_valores<'a>(
+    f: &Function,
+    tipos: &HashMap<ValueId, Type>,
+    chamada: impl Fn(&str) -> Option<(&'a Function, &'a ResumoHeapArc)>,
+) -> bool {
     let exato = |o: &Operand, t: Type| argumento_exato(o, t, tipos);
     let corpo_coberto = f.blocks.iter().all(|b| {
         let saida = match &b.terminator {
@@ -397,10 +406,45 @@ fn cobertura_de_valores(f: &Function, tipos: &HashMap<ValueId, Type>) -> bool {
                 Instruction::Phi { incoming, ty } => {
                     ty == t && incoming.iter().all(|(_, o)| exato(o, *t))
                 }
+                Instruction::CallStatic {
+                    symbol,
+                    args,
+                    ret_ty,
+                } => chamada(symbol).is_some_and(|(callee, resumo)| {
+                    resumo.campos == CamposHeapArc::Preservados
+                        && resumo.publicacoes == PublicacoesHeapArc::SomenteResultado
+                        && *t == *ret_ty
+                        && *ret_ty == callee.return_ty
+                        && args.len() == callee.params.len()
+                        && args
+                            .iter()
+                            .zip(&callee.params)
+                            .all(|(o, (_, _, ty))| exato(o, *ty))
+                }),
                 _ => false,
             })
     });
     corpo_coberto
+}
+
+// Cobertura composta exige todos os callees já cobertos; desconhecimento
+// não é hipótese coindutiva para aprovar uma SCC recursiva sem uma base.
+pub(super) fn cobertura_com_chamadas<'a>(
+    f: &Function,
+    chamada: impl Fn(&str) -> Option<(&'a Function, &'a ResumoHeapArc)>,
+) -> bool {
+    let tipos = f
+        .params
+        .iter()
+        .map(|(v, _, t)| (*v, *t))
+        .chain(
+            f.blocks
+                .iter()
+                .flat_map(|b| &b.instructions)
+                .map(|(v, _, t)| (*v, *t)),
+        )
+        .collect();
+    cobertura_de_valores(f, &tipos, chamada)
 }
 
 // Igualdade física não permite converter I64 em Ref ou materializar texto.
