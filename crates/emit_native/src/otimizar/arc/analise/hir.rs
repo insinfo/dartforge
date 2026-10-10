@@ -260,8 +260,7 @@ pub(crate) fn analisar_com_resumos(
         {
             caminhos.extend(publicacoes.values().filter_map(Option::as_ref).flatten());
         }
-        if let super::escritas::InclusoesEscritas::Conhecidas(escritas) = &resumo.inclusoes_escritas
-        {
+        if let Some(escritas) = resumo.inclusoes_escritas.positivas() {
             for escrita in escritas {
                 caminhos.extend([&escrita.objeto, &escrita.valor]);
             }
@@ -418,10 +417,7 @@ pub(crate) fn analisar_com_resumos(
                         }
                     }
                 }
-                if abi_exata
-                    && let super::escritas::InclusoesEscritas::Conhecidas(escritas) =
-                        &resumo.inclusoes_escritas
-                {
+                if abi_exata && let Some(escritas) = resumo.inclusoes_escritas.positivas() {
                     for escrita in escritas {
                         let objeto = materializar_resumo(
                             &escrita.objeto,

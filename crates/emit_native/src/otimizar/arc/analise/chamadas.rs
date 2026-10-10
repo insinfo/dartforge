@@ -173,7 +173,8 @@ pub(super) fn resolver<'a>(
     }
     // Inclusões de stores têm ponto fixo próprio, sem promover a cobertura
     // de campos/publicações nem ignorar prólogos/saídas opacos. Recursão
-    // propaga uniões; desconhecimento e orçamento excedido são absorventes.
+    // propaga inclusões positivas mesmo com opacidade; orçamento excedido
+    // é absorvente e não autoriza reconstruir um conjunto truncado.
     let mut escritas = vec![super::escritas::InclusoesEscritas::vazio(); corpos.len()];
     let mut globais = vec![super::escritas::InclusoesPublicacoes::vazio(); corpos.len()];
     let mut caminhos: Vec<_> = corpos

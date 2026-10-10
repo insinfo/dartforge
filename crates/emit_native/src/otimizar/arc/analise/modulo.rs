@@ -197,6 +197,124 @@ mod testes {
     use super::*;
 
     #[test]
+    fn inicializador_por_wrapper_preserva_aresta_sem_fechar_efeitos_externos() {
+        use super::super::grafo::construir_local_no_modulo;
+        use std::collections::BTreeSet;
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.layouts_campos_arc.insert(1, vec![Type::Ref]);
+        m.layouts_campos_arc.insert(2, vec![]);
+        let encaminhar = |nome: &str, alvo: &str| Function {
+            symbol: nome.into(),
+            name: nome.into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "filho".into(), Type::Ref)],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![(
+                    ValueId(1),
+                    Instruction::CallStatic {
+                        symbol: alvo.into(),
+                        args: vec![Operand::Val(ValueId(0))],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                )],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+            }],
+        };
+        let mut criar = encaminhar("criar", "externo");
+        criar.blocks[0].instructions = vec![
+            (
+                ValueId(1),
+                Instruction::AllocObject {
+                    class_id: 1,
+                    fields: vec![Operand::Val(ValueId(0))],
+                },
+                Type::Ref,
+            ),
+            (
+                ValueId(2),
+                Instruction::CallStatic {
+                    symbol: "externo".into(),
+                    args: vec![Operand::Val(ValueId(1))],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            ),
+        ];
+        let mut caller = encaminhar("caller", "wrapper");
+        caller.params.clear();
+        caller.blocks[0].instructions.insert(
+            0,
+            (
+                ValueId(0),
+                Instruction::AllocObject {
+                    class_id: 2,
+                    fields: vec![],
+                },
+                Type::Ref,
+            ),
+        );
+        m.functions = vec![caller, encaminhar("wrapper", "criar"), criar];
+        super::super::origens::registrar(&mut m, 0, true);
+        let pai = NoAbstrato::Alocacao {
+            sitio: m.sitios_arc["criar"][&ValueId(1)].clone(),
+            contexto: String::new(),
+        };
+        let filho = NoAbstrato::Alocacao {
+            sitio: m.sitios_arc["caller"][&ValueId(0)].clone(),
+            contexto: String::new(),
+        };
+        for reversa in [false, true] {
+            if reversa {
+                m.functions.reverse();
+            }
+            let g = construir_local_no_modulo(&m, "caller", 8).unwrap().unwrap();
+            g.conferir_no_modulo(&m, "caller").unwrap();
+            assert_eq!(g.arestas()[&pai], BTreeSet::from([filho.clone()]));
+            assert!(g.opaco());
+            let a = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+            assert_eq!(
+                a.valor(ValueId(1)).unwrap().nos(),
+                Some(&BTreeSet::from([pai.clone()]))
+            );
+            // A aresta conhecida não torna o campo importado completamente conhecido.
+            assert!(
+                a.pontos()
+                    .campo(
+                        &pai,
+                        &CampoArc {
+                            layout: "classe:1".into(),
+                            posicao: 0
+                        }
+                    )
+                    .is_none_or(|p| p.nos().is_none())
+            );
+        }
+        let g = construir_local_no_modulo(&m, "caller", 8).unwrap().unwrap();
+        let criar = m
+            .functions
+            .iter_mut()
+            .find(|f| f.symbol == "criar")
+            .unwrap();
+        if let Instruction::AllocObject { fields, .. } = &mut criar.blocks[0].instructions[0].1 {
+            fields[0] = Operand::Constant(Constant::Null);
+        }
+        assert!(g.conferir_no_modulo(&m, "caller").is_err());
+        let g = construir_local_no_modulo(&m, "caller", 8).unwrap().unwrap();
+        assert!(g.arestas()[&pai].is_empty());
+        assert!(g.opaco());
+        m.memoria_arc = false;
+        assert!(
+            construir_local_no_modulo(&m, "caller", 8)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
     fn origem_de_callee_invalida_escape_sem_depender_da_ordem_dos_mapas() {
         use super::super::escape::calcular_no_modulo;
         let mut m = Module::new();

@@ -99,7 +99,11 @@ pub(super) struct EscritaParametro {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum InclusoesEscritas {
     Conhecidas(BTreeSet<EscritaParametro>),
+    // Inclusões positivas não certificam ausência de outros escritores.
+    Parciais(BTreeSet<EscritaParametro>),
     Desconhecidas,
+    // Orçamento esgotado não volta a acumular fatos dentro do ponto fixo.
+    Excedidas,
 }
 
 impl InclusoesEscritas {
@@ -107,19 +111,43 @@ impl InclusoesEscritas {
         Self::Conhecidas(BTreeSet::new())
     }
 
-    // Topo é absorvente; orçamento vale para o resumo inteiro, não por store.
+    pub(super) fn positivas(&self) -> Option<&BTreeSet<EscritaParametro>> {
+        match self {
+            Self::Conhecidas(pares) | Self::Parciais(pares) => Some(pares),
+            Self::Desconhecidas | Self::Excedidas => None,
+        }
+    }
+
+    fn marcar_opacas(&mut self) {
+        self.unir(&Self::Desconhecidas, usize::MAX);
+    }
+
+    // Opacidade é monotônica, mas não apaga inclusões testemunhadas.
+    // Só o orçamento esgotado é absorvente também para essas inclusões.
     pub(super) fn unir(&mut self, outro: &Self, limite: usize) -> bool {
         let antes = self.clone();
-        match (&mut *self, outro) {
-            (Self::Conhecidas(a), Self::Conhecidas(b)) => {
-                a.extend(b.iter().cloned());
-                if a.len() > limite {
-                    *self = Self::Desconhecidas;
-                }
-            }
-            (_, Self::Desconhecidas) => *self = Self::Desconhecidas,
-            _ => {}
+        if matches!(self, Self::Excedidas) || matches!(outro, Self::Excedidas) {
+            *self = Self::Excedidas;
+            return *self != antes;
         }
+        let opacas = !matches!(self, Self::Conhecidas(_)) || !matches!(outro, Self::Conhecidas(_));
+        let mut pares = match std::mem::replace(self, Self::vazio()) {
+            Self::Conhecidas(pares) | Self::Parciais(pares) => pares,
+            Self::Desconhecidas => BTreeSet::new(),
+            Self::Excedidas => unreachable!(),
+        };
+        if let Some(outros) = outro.positivas() {
+            pares.extend(outros.iter().cloned());
+        }
+        *self = if pares.len() > limite {
+            Self::Excedidas
+        } else if !opacas {
+            Self::Conhecidas(pares)
+        } else if pares.is_empty() {
+            Self::Desconhecidas
+        } else {
+            Self::Parciais(pares)
+        };
         *self != antes
     }
 }
@@ -552,50 +580,78 @@ pub(super) fn extrair_com_origens<'a>(
             );
         }
     }
-    if escritas_opacas {
-        return Ok((retorno, InclusoesEscritas::Desconhecidas, publicacoes));
-    }
     let mut resultado = InclusoesEscritas::vazio();
-    let mut incluir = |origens: AliasesCaminhos, indice, destinos: AliasesCaminhos| -> bool {
-        let (Some(origens), Some(destinos)) = (origens, destinos) else {
-            return false;
-        };
-        for origem in origens {
-            for destino in &destinos {
-                resultado.unir(
-                    &InclusoesEscritas::Conhecidas(BTreeSet::from([EscritaParametro {
-                        objeto: origem.clone(),
-                        indice,
-                        valor: destino.clone(),
-                    }])),
-                    limite,
-                );
-            }
-        }
-        true
-    };
-    for (_, i, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
+    if escritas_opacas {
+        resultado.marcar_opacas();
+    }
+    for (v, i, t) in f.blocks.iter().flat_map(|b| &b.instructions) {
         match i {
+            Instruction::AllocObject { fields, .. }
+                if *t == Type::Ref && origens.contains_key(v) =>
+            {
+                // A origem/layout foi validada pelo módulo. Registrar cada
+                // inicializador possível sem fechar a fronteira da alocação.
+                for (indice, value) in fields.iter().enumerate() {
+                    if argumento_exato(value, Type::Ref, &tipos) {
+                        incluir_escrita(
+                            &mut resultado,
+                            operando(&Operand::Val(*v), &aliases),
+                            indice,
+                            operando(value, &aliases),
+                            limite,
+                        );
+                    }
+                }
+            }
             Instruction::SetField {
                 object,
                 index,
                 value,
-            } => {
-                if !incluir(
+            } if *t == Type::Void
+                && argumento_exato(object, Type::Ref, &tipos)
+                && argumento_exato(value, Type::Ref, &tipos) =>
+            {
+                incluir_escrita(
+                    &mut resultado,
                     operando(object, &aliases),
                     *index,
                     operando(value, &aliases),
-                ) {
-                    return Ok((retorno, InclusoesEscritas::Desconhecidas, publicacoes));
-                }
+                    limite,
+                );
             }
-            Instruction::CallStatic { symbol, args, .. } => {
-                let (_, _, escritas, _) = chamada(symbol).unwrap();
-                let InclusoesEscritas::Conhecidas(escritas) = escritas else {
-                    return Ok((retorno, InclusoesEscritas::Desconhecidas, publicacoes));
+            Instruction::CallStatic {
+                symbol,
+                args,
+                ret_ty,
+            } => {
+                let Some((callee, _, escritas, _)) = chamada(symbol) else {
+                    resultado.marcar_opacas();
+                    continue;
+                };
+                if *t != *ret_ty
+                    || *ret_ty != callee.return_ty
+                    || args.len() != callee.params.len()
+                    || !args
+                        .iter()
+                        .zip(&callee.params)
+                        .all(|(o, (_, _, ty))| argumento_exato(o, *ty, &tipos))
+                {
+                    resultado.marcar_opacas();
+                    continue;
+                }
+                if matches!(escritas, InclusoesEscritas::Excedidas) {
+                    resultado.unir(escritas, limite);
+                    continue;
+                }
+                if !matches!(escritas, InclusoesEscritas::Conhecidas(_)) {
+                    resultado.marcar_opacas();
+                }
+                let Some(escritas) = escritas.positivas() else {
+                    continue;
                 };
                 for escrita in escritas {
-                    if !incluir(
+                    incluir_escrita(
+                        &mut resultado,
                         escrita
                             .objeto
                             .instanciar(args, |o| operando(o, &aliases), limite)?,
@@ -603,15 +659,42 @@ pub(super) fn extrair_com_origens<'a>(
                         escrita
                             .valor
                             .instanciar(args, |o| operando(o, &aliases), limite)?,
-                    ) {
-                        return Ok((retorno, InclusoesEscritas::Desconhecidas, publicacoes));
-                    }
+                        limite,
+                    );
                 }
             }
             _ => {}
         }
     }
     Ok((retorno, resultado, publicacoes))
+}
+
+fn incluir_escrita(
+    resultado: &mut InclusoesEscritas,
+    origens: AliasesCaminhos,
+    indice: usize,
+    destinos: AliasesCaminhos,
+    limite: usize,
+) {
+    let (Some(origens), Some(destinos)) = (origens, destinos) else {
+        resultado.marcar_opacas();
+        return;
+    };
+    for origem in origens {
+        for destino in &destinos {
+            resultado.unir(
+                &InclusoesEscritas::Conhecidas(BTreeSet::from([EscritaParametro {
+                    objeto: origem.clone(),
+                    indice,
+                    valor: destino.clone(),
+                }])),
+                limite,
+            );
+            if matches!(resultado, InclusoesEscritas::Excedidas) {
+                return;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1174,7 +1257,7 @@ mod testes {
         let r = super::super::chamadas::resolver(&m, &HashSet::from(["recursivo"]), 4).unwrap();
         assert_eq!(
             r["recursivo"].1.inclusoes_escritas,
-            InclusoesEscritas::Desconhecidas
+            InclusoesEscritas::Excedidas
         );
         let mut f = ligar("phi_crescente", false);
         f.params.push((ValueId(5), "cond".into(), Type::I1));
@@ -1393,7 +1476,7 @@ mod testes {
         );
         assert_eq!(
             extrair(&f, 3, |_| None).unwrap(),
-            InclusoesEscritas::Desconhecidas
+            InclusoesEscritas::Excedidas
         );
         // Um caminho null não se torna uma alocação ou argumento fresco.
         let Instruction::Phi { incoming, .. } = &mut f.blocks[3].instructions[0].1 else {
@@ -1468,7 +1551,7 @@ mod testes {
             let r = super::super::chamadas::resolver(&m, &HashSet::from(["f"]), 1).unwrap();
             assert!(
                 r.values()
-                    .all(|(_, r)| r.inclusoes_escritas == InclusoesEscritas::Desconhecidas)
+                    .all(|(_, r)| r.inclusoes_escritas == InclusoesEscritas::Excedidas)
             );
         }
         let f = m.functions.iter_mut().find(|f| f.symbol == "f").unwrap();
@@ -1482,9 +1565,16 @@ mod testes {
             Type::Void,
         ));
         let r = super::super::chamadas::resolver(&m, &HashSet::from(["f"]), 8).unwrap();
-        assert!(
-            r.values()
-                .all(|(_, r)| r.inclusoes_escritas == InclusoesEscritas::Desconhecidas)
-        );
+        let InclusoesEscritas::Conhecidas(positivas) = esperadas(&[(0, 1), (1, 0)]) else {
+            unreachable!()
+        };
+        for (_, resumo) in r.values() {
+            assert_eq!(
+                resumo.inclusoes_escritas,
+                InclusoesEscritas::Parciais(positivas.clone())
+            );
+            assert_eq!(resumo.campos(), CamposHeapArc::Desconhecidos);
+            assert_eq!(resumo.publicacoes(), PublicacoesHeapArc::Desconhecidas);
+        }
     }
 }
