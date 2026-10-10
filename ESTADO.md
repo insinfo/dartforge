@@ -2,6 +2,14 @@
 
 ## Retomada de 2026-10-09
 
+Evidência Unix da captura Owned congelada em
+`bench/resultados/2026-10-09-excecao-owned-unix-ci`: fonte 7418650d,
+CI 38013924479, 16 execuções Linux/macOS e 32 arquivos IR/stdout byte exatos.
+JSON registra hashes, jobs, fonte e digests. Auditoria dos oito erros confere
+captura antes de release original, coleta e impressão da cópia. Fonte anterior
+à captura Owned do rastro; não estende a prova a morte final/inlining/unwind
+estrangeiro/SEH/statepoints ou integração completa da especificação ARC.
+
 Prova AOT com rastro explícito: caller cria StackTrace Owned conhecido e
 empresta-o ao propagador/callee. Lançamento publica esse rastro; catch captura
 valor e rastro Owned e compara as duas identidades. Depois libera os owners
