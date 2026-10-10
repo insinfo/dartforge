@@ -30,6 +30,7 @@ pub mod listas;
 pub mod literais;
 pub mod locais;
 pub mod membros;
+mod layouts_arc;
 pub mod operadores;
 pub mod padroes;
 pub mod registros;
@@ -296,11 +297,14 @@ fn lower_classes_e_funcoes(ctx: &Context, mut module: Module) -> Module {
         let Some(class_id) = ctx.id_de_classe(dartforge_elements::model::ClassId(c_idx as u32)) else {
             continue;
         };
+        let cid = dartforge_elements::model::ClassId(c_idx as u32);
+        let campos = membros::layout(ctx, cid);
+        let base = enums::base_do_layout(ctx, cid);
+        layouts_arc::registrar(ctx, &mut module, class_id, &campos, base);
         module.classes.push(ClassDef {
             id: class_id,
             name,
-            field_count: membros::layout(ctx, dartforge_elements::model::ClassId(c_idx as u32)).len()
-                + enums::base_do_layout(ctx, dartforge_elements::model::ClassId(c_idx as u32)),
+            field_count: campos.len() + base,
             vtable: Vec::new(),
             to_string_symbol: None,
         });

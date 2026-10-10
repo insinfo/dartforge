@@ -1033,6 +1033,10 @@ pub struct Module {
     /// IDs nativos do universo canônico de RTI, produzidos explicitamente.
     /// Não são Ref nem escalares Dart; vida do universo/pins exige outro protocolo.
     pub parametros_rti_dart: std::collections::HashMap<String, std::collections::HashSet<ValueId>>,
+    /// Representações declaradas dos campos por classe/posição, somente no ARC.
+    /// Inclui herança, mixins e prefixo de enum; late com inicializador fica Ref.
+    /// Não certifica o tipo do receiver, forma física do heap ou versão/pins de recarga.
+    pub layouts_campos_arc: std::collections::HashMap<u32, Vec<Type>>,
     pub classes: Vec<ClassDef>,
     pub selectors: Vec<SelectorDef>,
     pub subtyping_edges: Vec<(u32, u32)>,

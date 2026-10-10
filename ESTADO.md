@@ -2,6 +2,20 @@
 
 ## Retomada de 2026-10-10
 
+Lowering ARC registra layouts_campos_arc por classe/posição com as mesmas
+regras usadas para ler/gravar campos. Inicializador e representação do campo
+têm implementação compartilhada; late escalar com inicializador permanece
+Ref. Fatos incluem herança, mixins e prefixo int/Ref de enum, excluem estáticos
+e ficam ausentes em tracing. Teste parte de fonte Dart e confere os fatos
+após otimização. Preparação atômica do módulo valida classe única, quantidade
+de campos e representações válidas, recusando dados obsoletos/ambíguos sem
+publicar alterações. Esses fatos declarados não provam receiver, forma física,
+versão/pins de recarga nem inicialização; a ABI escalar ainda não é escolhida
+pelo lowering. Integração padrão/borrows permanecem pendentes e exclusivos
+de --memoria=arc. Passaram 223 testes do emissor (7 ignorados), 52 exemplos
+de documentação e cargo check --locked -p dartforge-jit --all-targets;
+logs target/arc-layouts-{suite,doc,jit-check}.log.
+
 ABI dartforge_arc_ler_campo_escalar_v1 copia bits somente após conferir
 objeto vivo, índice e ausência da marca de referência no mapa real do heap.
 Borrow do receiver, resultado I64 escalar, sem retenção/invalidação/GC/Dart;
@@ -69,7 +83,7 @@ logs target/arc-larguras-{suite,doc}.log. Passe padrão ainda pendente e
 restrito a --memoria=arc; contratos de loads/campos e borrows exigem cobertura.
 
 CI 38025125587 na fonte f81c7d2b: Windows, Linux e mensagens concluídos com
-sucesso; macOS ainda nos testes JIT com ignorados na última consulta. As provas
+sucesso; macOS ainda na recarga JIT da CLI na última consulta. As provas
 AOT Unix de unwind passaram nos dois sistemas. Avanços locais de bitcasts,
 larguras inteiras, locais e verificação são posteriores a essa fonte.
 CI Sem toolchain do sistema 38025125631 concluída com sucesso na fonte f81c7d2b.

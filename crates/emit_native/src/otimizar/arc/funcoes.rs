@@ -132,6 +132,9 @@ pub fn preparar_arc_funcoes_dart(
 /// Tracing devolve (0, 0) sem tocar corpos ou planos. Em ARC, produz parâmetros
 /// escalares/RTI nas cópias dos planos e prepara/verifica todas as funções antes
 /// de publicar. Os planos devem descrever o CFG final após as otimizações.
+/// Confere também os layouts de campos declarados fornecidos pelo lowering:
+/// classe única, quantidade coerente e representações válidas. Isso não prova
+/// o tipo/forma física dos receivers nem a versão/pins de recarga.
 /// Retorno Ref exige convenção Owned e operações não cobertas exigem contratos
 /// explícitos. Não materializa tabelas nem chama este passe no pipeline padrão.
 /// Demais limites são os de [`preparar_arc_funcoes_dart`].
@@ -161,6 +164,7 @@ pub fn preparar_arc_modulo_dart(
     if !modulo.memoria_arc {
         return Ok((0, 0));
     }
+    super::layouts::verificar(modulo)?;
     let mut novos = planos.clone();
     produzir_parametros_escalares_do_lowering(modulo, &mut novos)?;
     produzir_parametros_rti_do_lowering(modulo, &mut novos)?;

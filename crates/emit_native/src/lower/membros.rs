@@ -144,12 +144,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `late` escalar com inicializador, que mora em caixa (`Ref`) — o null
     /// é o "ainda não inicializado" (P4; a VM usa o sentinela `_sentinel`).
     pub fn repr_do_campo(&self, vid: VariableId) -> Type {
-        let repr = self.repr(tipo_da_variavel(self.ctx, vid));
-        let var = &self.ctx.program.variables[vid.0 as usize];
-        if var.late && repr != Type::Ref && self.variable_initializer_em(vid).is_some() {
-            return Type::Ref;
-        }
-        repr
+        super::layouts_arc::representacao(self.ctx, vid)
     }
 
     /// Converte os bits `i64` lidos do heap para a representação `repr`.

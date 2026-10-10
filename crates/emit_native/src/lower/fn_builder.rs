@@ -745,26 +745,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         &self,
         var_id: dartforge_elements::model::VariableId,
     ) -> Option<dartforge_frontend::ast::ExprId> {
-        use dartforge_elements::model::VariableRef;
-        use dartforge_frontend::ast::{DeclKind, MemberKind};
-        let v_elem = &self.ctx.program.variables[var_id.0 as usize];
-        match v_elem.node {
-            VariableRef::Field {
-                unit,
-                member,
-                index,
-            } => match &self.ctx.program.unit(unit).ast.member(member).kind {
-                MemberKind::Field(list) => list.variables.get(index)?.initializer,
-                _ => None,
-            },
-            VariableRef::TopLevel { unit, decl, index } => {
-                match &self.ctx.program.unit(unit).ast.decl(decl).kind {
-                    DeclKind::Variables(list) => list.variables.get(index)?.initializer,
-                    _ => None,
-                }
-            }
-            _ => None,
-        }
+        super::layouts_arc::inicializador(self.ctx, var_id)
     }
 
     pub fn add_param(&mut self, name: String, ty: Type) -> ValueId {
