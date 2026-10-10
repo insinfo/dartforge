@@ -5081,10 +5081,12 @@ impl Heap {
         if antigo == novo || arc.fotos.contains_key(&h) || (!arc.puro && e != VELHO && e != LEMBRADO) {
             return;
         }
-        if arc.puro && novo_no_espaco {
-            Self::arc_registrar_se_preciso(&self.objetos, arc, novo);
+        if !arc.puro {
+            arc.estado.reter(novo).unwrap_or_else(|e| falha_do_arc(e));
+        } else if !arc.estado.reter_se_registrado(novo).unwrap_or_else(|e| falha_do_arc(e)) && novo_no_espaco {
+            arc.estado.registrar_vivo_em(novo, geometria_arc(&self.objetos, novo));
+            arc.estado.reter(novo).unwrap_or_else(|e| falha_do_arc(e));
         }
-        arc.estado.reter(novo).unwrap_or_else(|e| falha_do_arc(e));
         arc.estado.soltar(antigo).unwrap_or_else(|e| falha_do_arc(e));
     }
 
@@ -5099,10 +5101,13 @@ impl Heap {
     /// Retém `v` (registrando o objeto do espaço sem metadados): uma
     /// ocorrência nova, no ARC puro.
     fn arc_reter_registrando(&self, arc: &mut ArcDoHeap, v: Ref) {
-        if smi::e_handle(v) && self.bloco_do_espaco(v).is_some() {
-            Self::arc_registrar_se_preciso(&self.objetos, arc, v);
+        if arc.estado.reter_se_registrado(v).unwrap_or_else(|e| falha_do_arc(e)) {
+            return;
         }
-        arc.estado.reter(v).unwrap_or_else(|e| falha_do_arc(e));
+        if self.bloco_do_espaco(v).is_some() {
+            arc.estado.registrar_vivo_em(v, geometria_arc(&self.objetos, v));
+            arc.estado.reter(v).unwrap_or_else(|e| falha_do_arc(e));
+        }
     }
 
     /// As referências que o código gerado gravou em linha num objeto recém

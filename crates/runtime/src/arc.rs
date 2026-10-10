@@ -532,12 +532,19 @@ impl EstadoDoArc {
 
     /// Uma ocorrência forte a mais de `h` (§19.3).
     pub fn reter(&mut self, h: Ref) -> Result<(), ErroArc> {
+        self.reter_se_registrado(h).map(|_| ())
+    }
+
+    // Retém numa única consulta, informando se o handle já foi resolvido.
+    // false é só ausência de metadados, nunca um estado inválido/imortal;
+    // o heap pode registrar o destino ausente antes de contar a ocorrência.
+    pub(crate) fn reter_se_registrado(&mut self, h: Ref) -> Result<bool, ErroArc> {
         if !e_handle(h) {
-            return Ok(());
+            return Ok(true);
         }
-        let Some(m) = self.objetos.get_mut(&h) else { return Ok(()) };
+        let Some(m) = self.objetos.get_mut(&h) else { return Ok(false) };
         if m.imortal {
-            return Ok(());
+            return Ok(true);
         }
         if matches!(m.estado, EstadoArc::Coletando | EstadoArc::Morto) {
             return Err(ErroArc::EstadoInvalido(h, m.estado));
@@ -547,7 +554,7 @@ impl EstadoDoArc {
         if self.traco {
             eprintln!("[arc-traco] reter {h} rc={}", m.rc);
         }
-        Ok(())
+        Ok(true)
     }
 
     /// Uma ocorrência forte a menos de `h` (§19.3): zero vai para a fila de
@@ -1124,6 +1131,34 @@ mod testes {
         assert_eq!(a.coletar_ciclos(&mut g, &|_| false).unwrap(), 2);
         assert!(morto(&a, 2) && morto(&a, 4));
         assert_eq!(a.estatisticas.mortos_por_ciclo, 2);
+    }
+
+    #[test]
+    fn reter_se_registrado_distingue_ausencia_sem_ocultar_erros() {
+        let mut a = EstadoDoArc::novo();
+        for h in [0, 1, 3] { assert_eq!(a.reter_se_registrado(h), Ok(true)); }
+        assert_eq!(a.reter_se_registrado(2), Ok(false));
+        assert_eq!(a.reter(2), Ok(()));
+        assert_eq!(a.registrados(), 0);
+        assert_eq!(a.estatisticas.retains, 0);
+        let id = a.registrar(2).unwrap();
+        assert_eq!(a.reter_se_registrado(2), Ok(true));
+        assert_eq!(a.meta(2).unwrap().rc, 2);
+        assert_eq!(a.meta(2).unwrap().geracao, id.geracao);
+        a.concluir_construcao(2);
+        a.objetos.get_mut(&2).unwrap().rc = u64::MAX;
+        assert_eq!(a.reter_se_registrado(2), Err(ErroArc::Overflow(2)));
+        assert_eq!(a.meta(2).unwrap().rc, u64::MAX);
+        assert_eq!(a.estatisticas.retains, 1);
+        for estado in [EstadoArc::Coletando, EstadoArc::Morto] {
+            a.objetos.get_mut(&2).unwrap().estado = estado;
+            assert_eq!(a.reter_se_registrado(2), Err(ErroArc::EstadoInvalido(2, estado)));
+            assert_eq!(a.estatisticas.retains, 1);
+        }
+        a.registrar_imortal(4);
+        assert_eq!(a.reter_se_registrado(4), Ok(true));
+        assert_eq!(a.meta(4).unwrap().rc, 0);
+        assert_eq!(a.estatisticas.retains, 1);
     }
 
     #[test]
