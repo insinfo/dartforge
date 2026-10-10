@@ -544,6 +544,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         b.fechar_rastro();
         self.erros.extend(b.erros);
         self.globais_extras.extend(b.globais_extras);
+        self.parametros_escalares_dart.extend(b.parametros_escalares_dart);
         self.extra_functions.push(b.func);
         self.extra_functions.extend(b.extra_functions);
     }

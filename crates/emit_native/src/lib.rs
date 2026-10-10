@@ -373,6 +373,7 @@ fn emitir_ir_interno(
 
     let te = apagamento::calcular(&program, &outline, &mut table);
     let mut ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
+    ctx.memoria_arc = memoria_arc;
     ctx.te = te;
     if options.depuracao {
         ctx.ligar_depuracao();

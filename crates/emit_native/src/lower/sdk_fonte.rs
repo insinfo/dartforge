@@ -1559,6 +1559,7 @@ pub fn lower_funcao_ou_recusa(ctx: &Context, module: &mut Module, fid: usize) {
     match (r, motivo) {
         (Ok(m), None) => {
             module.functions.extend(m.functions);
+        module.parametros_escalares_dart.extend(m.parametros_escalares_dart);
             module.globais.extend(m.globais);
         }
         (_, Some(motivo)) => {
@@ -1827,6 +1828,7 @@ fn adaptadores_ou_recusa(ctx: &Context, module: &mut Module, gerar: impl FnOnce(
     let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| gerar(&mut m)));
     if r.is_ok() && m.erros.is_empty() {
         module.functions.extend(m.functions);
+        module.parametros_escalares_dart.extend(m.parametros_escalares_dart);
         module.globais.extend(m.globais);
         return;
     }
@@ -1894,6 +1896,7 @@ pub fn lower_getter_late_ou_recusa(
     let motivo = match r {
         Ok(m) if m.erros.is_empty() => {
             module.functions.extend(m.functions);
+        module.parametros_escalares_dart.extend(m.parametros_escalares_dart);
             module.globais.extend(m.globais);
             return;
         }
@@ -1961,6 +1964,7 @@ pub fn lower_global_ou_recusa(
     match r {
         Ok(m) if m.erros.is_empty() => {
             module.functions.extend(m.functions);
+        module.parametros_escalares_dart.extend(m.parametros_escalares_dart);
             module.globais.extend(m.globais);
         }
         r => {

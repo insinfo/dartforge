@@ -46,6 +46,8 @@ pub struct FnBuilder<'a, 'c> {
     /// Quantos `alloca` já estão no começo do bloco de entrada.
     pub n_allocas: usize,
     pub value_types: HashMap<ValueId, Type>,
+    /// Fatos dos parâmetros declarados, incluindo funções absorvidas.
+    pub parametros_escalares_dart: HashMap<String, std::collections::HashSet<ValueId>>,
     pub break_targets: Vec<BlockId>,
     pub continue_targets: Vec<BlockId>,
     pub this_param: Option<Operand>,
@@ -307,6 +309,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             late_inicializadores_em_lowering: std::collections::HashSet::new(),
             n_allocas: 0,
             value_types: HashMap::new(),
+            parametros_escalares_dart: HashMap::new(),
             break_targets: Vec::new(),
             continue_targets: Vec::new(),
             this_param: None,
@@ -500,6 +503,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .unwrap_or_else(|| "arg".to_string());
             let p_ty = self.repr(p.ty);
             let vid = self.add_param(p_name, p_ty);
+            if self.ctx.memoria_arc && matches!(p_ty, Type::I64 | Type::F64 | Type::I1 | Type::I8) {
+                self.parametros_escalares_dart.entry(self.func.symbol.clone()).or_default().insert(vid);
+            }
             if let Some(sym) = p.name {
                 match ast_params.get(i).and_then(|a| a.name) {
                     Some(n) => {
@@ -527,6 +533,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             module.erros.extend(self.erros);
         }
         module.globais.extend(self.globais_extras);
+        module.parametros_escalares_dart.extend(self.parametros_escalares_dart);
         module.functions.push(self.func);
         module.functions.extend(self.extra_functions);
     }

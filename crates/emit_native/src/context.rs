@@ -36,6 +36,8 @@ pub struct Context<'a> {
     raiz: Option<std::path::PathBuf>,
     /// Este contexto baixa uma biblioteca do SDK em um objeto separado.
     pub biblioteca_sdk: bool,
+    /// Produz fatos de ownership somente para a política --memoria=arc.
+    pub memoria_arc: bool,
     /// Por biblioteca: o corpo das funções dela é compilado (as do programa;
     /// com [`Context::com_sdk_da_fonte`], também as do SDK da fonte).
     pub compiladas: Vec<bool>,
@@ -299,6 +301,7 @@ impl<'a> Context<'a> {
             formas_de_record: Vec::new(),
             raiz,
             biblioteca_sdk: false,
+            memoria_arc: false,
             compiladas: program.libraries.iter().map(|l| !l.is_sdk).collect(),
             no_modulo: program.libraries.iter().map(|l| !l.is_sdk).collect(),
             da_fonte: std::collections::HashSet::new(),

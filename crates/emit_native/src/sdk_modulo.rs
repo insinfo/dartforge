@@ -316,6 +316,7 @@ pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path, producao: bool) -> Result<Vec<B
         let mut ctx = crate::context::Context::new(&program, &interner, &table, &core, &outline, &corpos)
             .com_sdk_da_fonte()
             .so_a_biblioteca(lib);
+        ctx.memoria_arc = memoria_arc;
         if rastro_simbolico {
             ctx.ligar_depuracao();
             ctx.rastro = true;

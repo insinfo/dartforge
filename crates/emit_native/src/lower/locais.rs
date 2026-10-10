@@ -664,6 +664,7 @@ class Finalizable {}
 extension type Envelope(Recurso recurso) implements Recurso {}
 void testar(Envelope envelope, Recurso? recurso, Finalizable homonimo,
     dynamic outro, Never nunca) {}
+int escalares<T>(int numero, double fracao, bool ligado, T valor) => numero;
 void main() {}
 "#,
                 )
@@ -782,6 +783,30 @@ void main() {}
                     assert_eq!(b.buscar_local(parametro).unwrap().escopo, 0);
                     b.fechar_escopo();
                     assert_eq!(b.escopos.len(), 1);
+                }
+                let fid = program.functions.iter().position(|f| ctx.symbol_name(f.name) == "escalares").unwrap();
+                let mut tracing = FnBuilder::new(&ctx, unit, "tracing".into(), "tracing".into(), Type::I64);
+                tracing.declarar_parametros(fid, false);
+                assert!(tracing.parametros_escalares_dart.is_empty());
+                drop(tracing);
+                ctx.memoria_arc = true;
+                let mut b = FnBuilder::new(&ctx, unit, "escalares".into(), "escalares".into(), Type::I64);
+                b.declarar_parametros(fid, false);
+                let nativo = b.add_param("$tipos".into(), Type::I64);
+                let escalares = &b.parametros_escalares_dart["escalares"];
+                for (v, _, ty) in &b.func.params {
+                    assert_eq!(escalares.contains(v), *v != nativo && *ty != Type::Ref);
+                }
+                assert_eq!(escalares.len(), 3);
+                b.terminate(Terminator::Return(Some(Operand::Val(b.func.params[0].0))));
+                let mut modulo = Module::new();
+                b.finalizar(&mut modulo);
+                assert_eq!(modulo.parametros_escalares_dart["escalares"].len(), 3);
+                assert!(!modulo.parametros_escalares_dart["escalares"].contains(&nativo));
+                crate::otimizar::otimizar(&mut modulo);
+                assert_eq!(modulo.parametros_escalares_dart["escalares"].len(), 3);
+                for id in &modulo.parametros_escalares_dart["escalares"] {
+                    assert!(modulo.functions[0].params.iter().any(|(v, _, _)| v == id));
                 }
             })
             .unwrap()

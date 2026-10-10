@@ -419,6 +419,7 @@ fn baixar_funcoes(ctx: &Context, module: &mut Module, funcoes: &[usize]) {
     let partes = feitos.into_iter().map(|m| m.into_inner().unwrap_or_else(|e| e.into_inner()).expect("pedaço baixado"));
     for m in partes {
         module.functions.extend(m.functions);
+        module.parametros_escalares_dart.extend(m.parametros_escalares_dart);
         module.globais.extend(m.globais);
         module.erros.extend(m.erros);
         module.erros_da_fonte.extend(m.erros_da_fonte);

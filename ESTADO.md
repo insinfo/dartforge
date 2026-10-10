@@ -2,6 +2,19 @@
 
 ## Retomada de 2026-10-10
 
+Lowering preserva fatos de parâmetros escalares Dart por símbolo/ID SSA,
+somente quando Context.memoria_arc está ativo. Programa e SDK propagam
+o modo escolhido antes do lowering. Declarar parâmetros do outline marca
+int/double/bool sem caixa; add_param nativo/oculto não inventa essa marca.
+Os mapas são transportados ao finalizar/absorver funções e combinar módulos
+do lowering paralelo, FFI e SDK. Teste com declaração Dart genérica distingue
+três escalares, T/Ref e o parâmetro oculto i64; tracing deixa o mapa vazio.
+Log target/arc-parametros-lowering.log. O fato ainda precisa alimentar os
+planos ARC; parâmetros manuais, clones especializados e transporte completo
+após todos os passes ainda exigem cobertura. Não liga inserção ao pipeline.
+Passaram 207 testes (7 ignorados) e 49 exemplos de documentação após esses
+metadados; logs target/arc-parametros-lowering-{suite,doc}.log.
+
 Unbox bool agora tem contrato ARC produzido e reconferido pelo verificador:
 conserva o helper LLVM u8/I1 e o ID original, exige a mesma saída TypeError,
 preserva Borrow e não consome o owner. A conferência de pending admite

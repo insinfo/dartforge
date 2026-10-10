@@ -1025,6 +1025,11 @@ pub struct Module {
     /// `dart:ffi`: as structs e unions do programa (`lower/ffi.rs`).
     pub ffi_compostos: Vec<FfiComposto>,
     pub functions: Vec<Function>,
+    /// Parâmetros escalares declarados na fonte, por símbolo/ID SSA.
+    /// O lowering registra somente int/double/bool sem caixa. Parâmetros
+    /// ocultos/nativos i64 não são classificados pela largura. Estes fatos
+    /// ainda precisam alimentar os planos ARC e sobreviver aos passes.
+    pub parametros_escalares_dart: std::collections::HashMap<String, std::collections::HashSet<ValueId>>,
     pub classes: Vec<ClassDef>,
     pub selectors: Vec<SelectorDef>,
     pub subtyping_edges: Vec<(u32, u32)>,

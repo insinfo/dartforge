@@ -379,6 +379,7 @@ pub fn lower_ffi(ctx: &Context, module: &mut Module) {
         b.corpo_do_trampolim(&assinatura);
         module.functions.push(b.func);
         module.functions.extend(b.extra_functions);
+        module.parametros_escalares_dart.extend(b.parametros_escalares_dart);
         module.ffi_trampolins.push((chave.clone(), simbolo));
         // O callback da mesma assinatura (`Pointer.fromFunction`,
         // `NativeCallable`): o corpo HIR; a entrada C sai no emissor. Um
@@ -391,6 +392,7 @@ pub fn lower_ffi(ctx: &Context, module: &mut Module) {
         b.corpo_do_callback(ctx, &assinatura);
         module.functions.push(b.func);
         module.functions.extend(b.extra_functions);
+        module.parametros_escalares_dart.extend(b.parametros_escalares_dart);
         module.ffi_callbacks.push(FfiCallback { chave, corpo, ret: assinatura.ret.clone(), params: assinatura.params.clone() });
     }
 }
