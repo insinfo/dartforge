@@ -936,6 +936,14 @@ carregada com `dlopen(RTLD_NOW | RTLD_LOCAL)` e os nomes vêm de
 sozinhos (o cache, compilada na primeira vez) quando `DARTFORGE_SDK_DLL` não
 está definida.
 
+Um `@Native` que nomeia uma função do catálogo reservado DartForge resolve
+o endereço no próprio runtime que atende o programa. Isso mantém a mesma
+instância de heap/TLS quando o SDK está em uma biblioteca `RTLD_LOCAL` e o
+executável hospedeiro contém outro runtime. A seleção é gerada do catálogo
+para o módulo Cargo e para a fonte avulsa do AOT. Símbolos estrangeiros
+continuam sendo procurados no processo; a opção `--memoria=arc` conserva
+seu papel de selecionar explicitamente a política de memória.
+
 Ambiente mínimo, medido num Linux x86-64 (o mesmo que o CI prepara):
 
 ```sh

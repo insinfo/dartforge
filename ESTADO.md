@@ -2,6 +2,28 @@
 
 ## Retomada de 2026-10-10
 
+CI 38048561639 da fonte 137e428c: Linux e mensagens passaram; macOS
+falhou na seleção explícita de memória via FFI no JIT (esperado 1, obtido
+0). AOT do mesmo teste passou. O JIT usa o runtime do SDK RTLD_LOCAL,
+mas @Native procurava a ABI no processo e podia alcançar o runtime do
+hospedeiro com outro heap/TLS. Resolvedor agora obtém símbolos do catálogo
+reservado na própria instância do runtime; símbolos estrangeiros continuam
+no lookup do processo. Seleção local é gerada para módulo Cargo e fonte
+avulsa do AOT a partir do mesmo catálogo, incluindo as condições Unix.
+Não altera ativação ARC: somente --memoria=arc escolhe essa política na CLI.
+
+Regressões passaram: 184 testes do runtime (três ignorados), quatro de
+fonte única (incluindo resolver/cache para todo o catálogo), 42 exemplos
+públicos e três testes da CLI com oito execuções AOT/JIT/recarga no Windows.
+Teste com lookup estrangeiro simulado verifica que homônimo do hospedeiro
+não é consultado para a ABI, e consulta local acompanha o heap tracing/ARC.
+Logs target/arc-ffi-runtime-local-{focado,suite,doc,cli}.log e
+target/arc-ffi-runtime-local-fonte-final.log. Confirmação macOS depende da
+CI seguinte. Windows da rodada 38048561639 registrou falha no passo test
+e ainda executa os testes ignorados; logs completos indisponíveis até o
+término do job. Sem toolchain 38048561628 passou. Não considerar esta
+rodada integralmente aprovada nem descartar a falha Windows sem diagnóstico.
+
 Lowering agora registra a convenção Ref Owned pelo símbolo do corpo tipado
 Dart da fonte. Fatos acompanham a junção paralela e a poda; não são inferidos
 para thunks, callbacks FFI ou funções extras por terem a mesma largura.

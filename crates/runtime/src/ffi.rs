@@ -746,9 +746,11 @@ pub extern "C" fn dartforge_ffi_ponteiro_novo(endereco: i64) -> i64 {
     novo_ponteiro(endereco, None)
 }
 
-/// O endereço do símbolo nativo `nome` (UTF-8) no processo, para um
+/// O endereço do símbolo nativo `nome` (UTF-8), para um
 /// `external` com `@Native` (com cache: o `Ffi_GetFfiNativeResolver` da VM
 /// resolve uma vez por função). Símbolo ausente: `ArgumentError`, como a VM.
+/// A ABI reservada DartForge vem deste runtime, inclusive no SDK RTLD_LOCAL;
+/// símbolos estrangeiros continuam sendo procurados no processo.
 ///
 /// # Safety
 /// `nome` aponta para `n` bytes legíveis.
@@ -762,7 +764,7 @@ pub unsafe extern "C" fn dartforge_ffi_simbolo_nativo(nome: *const u8, n: i64) -
     if let Some(&e) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(&nome) {
         return e;
     }
-    let e = std::ffi::CString::new(nome.clone()).map_or(0, |c| procurar(HANDLE_DO_PROCESSO, &c) as i64);
+    let e = resolver_endereco_nativo(&nome, |c| procurar(HANDLE_DO_PROCESSO, c)) as i64;
     match e {
         e if e != 0 => {
             cache.lock().unwrap_or_else(|e| e.into_inner()).insert(nome, e);
@@ -772,6 +774,46 @@ pub unsafe extern "C" fn dartforge_ffi_simbolo_nativo(nome: *const u8, n: i64) -
             lancar_erro_de_argumento(&format!("Couldn't resolve native function '{nome}' in the process: symbol not found"));
             0
         }
+    }
+}
+
+/// A seleção local precede o lookup estrangeiro para não cruzar heaps/TLS.
+fn resolver_endereco_nativo(nome: &str, processo: impl FnOnce(&std::ffi::CStr) -> usize) -> usize {
+    endereco_nativo_do_runtime(nome).unwrap_or_else(|| {
+        std::ffi::CString::new(nome).map_or(0, |c| processo(&c))
+    })
+}
+
+#[cfg(test)]
+mod testes_resolver_nativo {
+    use super::*;
+
+    #[test]
+    fn abi_reservada_nao_consulta_runtime_homonimo_do_processo() {
+        let consultou = std::cell::Cell::new(false);
+        let endereco = resolver_endereco_nativo("dartforge_arc_verificar_abi", |_| {
+            consultou.set(true);
+            0xdead
+        });
+        assert!(!consultou.get());
+        assert_eq!(endereco, dartforge_arc_verificar_abi as *const () as usize);
+        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+        // SAFETY: o endereço foi conferido contra a função com esta assinatura.
+        let consulta: extern "C" fn(i64) -> u8 = unsafe { std::mem::transmute(endereco) };
+        assert_eq!(consulta(1), 0);
+        HEAP.with(|h| h.borrow_mut().ativar_arc());
+        assert_eq!(consulta(1), 1);
+        HEAP.with(|h| h.replace(anterior));
+    }
+
+    #[test]
+    fn simbolo_estrangeiro_conserva_lookup_e_nome_invalido_nao_o_chama() {
+        assert_eq!(resolver_endereco_nativo("simbolo_da_biblioteca_do_usuario", |c| {
+            assert_eq!(c.to_bytes(), b"simbolo_da_biblioteca_do_usuario");
+            0xbeef
+        }), 0xbeef);
+        assert_eq!(resolver_endereco_nativo("ausente", |_| 0), 0);
+        assert_eq!(resolver_endereco_nativo("nome\0invalido", |_| panic!("nome inválido chegou ao lookup")), 0);
     }
 }
 

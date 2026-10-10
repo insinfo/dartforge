@@ -198,6 +198,19 @@ fn main() {
         ));
     }
     saida.push_str("    ]\n}\n");
+    // @Native para a ABI reservada precisa do runtime que atende o programa,
+    // não de um homônimo no executável hospedeiro de uma biblioteca RTLD_LOCAL.
+    // Gera a mesma seleção no módulo Cargo e no texto avulso do AOT.
+    let mut resolver = String::from("fn endereco_nativo_do_runtime(nome: &str) -> Option<usize> {\n    match nome {\n");
+    for nome in &nomes {
+        if matches!(nome.as_str(), "dartforge_objeto_de_desenrolamento" | "dartforge_desenrolamento_falhou" | "dartforge_personalidade_cleanup_itanium") {
+            resolver.push_str("        #[cfg(unix)]\n");
+        }
+        resolver.push_str(&format!("        \"{nome}\" => Some({nome} as *const () as usize),\n"));
+    }
+    resolver.push_str("        _ => None,\n    }\n}\n");
+    texto.insert_str(0, &resolver);
+    abi.push_str(&resolver);
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
     std::fs::write(out.join("simbolos.rs"), saida).expect("gravar simbolos.rs");
     std::fs::write(out.join("efeitos.rs"), tabela_de_efeitos(&manifesto, &nomes)).expect("gravar efeitos.rs");

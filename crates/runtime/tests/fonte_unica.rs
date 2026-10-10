@@ -43,6 +43,25 @@ fn a_tabela_cobre_os_simbolos_do_runtime() {
     }
 }
 
+/// @Native resolve todo o catálogo reservado na instância que atende a chamada,
+/// mesmo quando o executável não exporta suas funções para o lookup do processo.
+#[test]
+#[allow(unsafe_code)] // A prova chama a ABI cujo contrato exige bytes válidos.
+fn o_resolver_nativo_e_seu_cache_conservam_os_enderecos_deste_runtime() {
+    for (nome, esperado) in dartforge_runtime::simbolos::tabela() {
+        for _ in 0..2 {
+            // SAFETY: nome é uma string estática UTF-8 e vive durante a chamada.
+            let endereco = unsafe {
+                dartforge_runtime::abi::dartforge_ffi_simbolo_nativo(
+                    nome.as_ptr(),
+                    nome.len() as i64,
+                )
+            };
+            assert_eq!(endereco as usize, esperado, "{nome}");
+        }
+    }
+}
+
 /// O perfil deste pacote é o do AOT (`rustc -O`): estouro de inteiro é
 /// modular, não `panic`. A sobreposição `[profile.dev.package.dartforge-runtime]`
 /// do `Cargo.toml` da raiz vale para todos os alvos do pacote, inclusive este
