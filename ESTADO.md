@@ -33,6 +33,9 @@ integração, dois adicionais e 55 exemplos), mas foi interrompido ainda na
 compilação/ligação dos testes JIT, sem iniciar essa bateria. Não inferir
 aprovação do JIT nem da rodada integral. Log target/ci-macos-37497527.log.
 Sem toolchain 38051323611 terminou aprovada.
+Prazo da matriz macOS ampliado de 90 para 150 min para concluir a compilação
+fria JIT e as verificações restantes; Linux permanece com 90 min, Windows
+com a ampliação anterior para 90 min. YAML conferido; não é aprovação de CI.
 
 Aliases de retorno normal agora convergem nas SCCs de chamadas diretas locais
 em otimizar/arc/analise/chamadas.rs. Alcance dos corpos é descoberto sem

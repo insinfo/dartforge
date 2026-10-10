@@ -294,15 +294,19 @@ jobs:
   nativo-unix:
     name: nativo e jit (${{ matrix.nome }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    # No macOS a rodada fria excedeu 90 min ainda ligando os testes JIT,
+    # após concluir as matrizes AOT e os testes do emissor com ignorados.
+    timeout-minutes: ${{ matrix.prazo_minutos }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             nome: Linux, libLLVM compartilhada
+            prazo_minutos: 90
           - os: macos-latest
             nome: macOS arm64
+            prazo_minutos: 150
     env:
       CARGO_PROFILE_RELEASE_LTO: 'false'
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
