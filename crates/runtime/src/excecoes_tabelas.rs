@@ -298,9 +298,9 @@ unsafe fn ler_uleb128(p: &mut *const u8) -> u64 {
 /// # Safety
 /// `lsda` aponta para a LSDA de uma função gerada.
 #[cfg(any(all(windows, target_arch = "x86_64"), unix))]
-unsafe fn sitio_da_lsda(lsda: *const u8, ip_relativo: u64) -> (u64, u64) {
+unsafe fn sitio_e_tabela_de_acoes(lsda: *const u8, ip_relativo: u64) -> (u64, u64, *const u8) {
     if lsda.is_null() {
-        return (0, 0);
+        return (0, 0, std::ptr::null());
     }
     let mut p = lsda;
     // SAFETY: a LSDA tem pelo menos o cabeçalho de três bytes.
@@ -341,11 +341,65 @@ unsafe fn sitio_da_lsda(lsda: *const u8, ip_relativo: u64) -> (u64, u64) {
                 break;
             }
             if ip_relativo - inicio < comprimento {
-                return (pouso, acao);
+                return (pouso, acao, fim);
             }
         }
     }
-    (0, 0)
+    (0, 0, std::ptr::null())
+}
+
+/// Consulta legada: preserva o índice sem interpretar a cadeia.
+#[cfg(any(all(windows, target_arch = "x86_64"), unix))]
+unsafe fn sitio_da_lsda(lsda: *const u8, ip_relativo: u64) -> (u64, u64) {
+    // SAFETY: mesma LSDA bem formada do chamador.
+    let (pouso, acao, _) = unsafe { sitio_e_tabela_de_acoes(lsda, ip_relativo) };
+    (pouso, acao)
+}
+
+/// Lê SLEB128, incluindo deslocamentos negativos entre ações.
+#[cfg(any(unix, test))]
+unsafe fn ler_sleb128(p: &mut *const u8) -> i64 {
+    let mut bits = 0_u64;
+    let mut deslocamento = 0_u32;
+    loop {
+        // SAFETY: o chamador fornece uma codificação válida e completa.
+        let byte = unsafe { **p };
+        *p = unsafe { p.add(1) };
+        if deslocamento < 64 { bits |= u64::from(byte & 0x7f) << deslocamento; }
+        deslocamento += 7;
+        if byte & 0x80 == 0 {
+            if deslocamento < 64 && byte & 0x40 != 0 { bits |= u64::MAX << deslocamento; }
+            return bits as i64;
+        }
+    }
+}
+
+/// Descobre cleanup e o primeiro seletor catch-all numa cadeia válida.
+/// O índice do sítio é deslocamento em bytes, não o seletor do catch.
+#[cfg(any(unix, test))]
+unsafe fn acoes_itanium(tabela: *const u8, indice: u64) -> (bool, i32) {
+    if indice == 0 { return (true, 0); }
+    let mut limpeza = false;
+    let mut seletor = 0;
+    // SAFETY: índice e elos pertencem à LSDA válida fornecida pelo sistema.
+    unsafe {
+        let mut p = tabela.add((indice - 1) as usize);
+        loop {
+            let filtro = ler_sleb128(&mut p);
+            if filtro == 0 { limpeza = true; }
+            else if filtro > 0 && seletor == 0 {
+                seletor = i32::try_from(filtro).unwrap_or_else(|_| abortar_desenrolamento("seletor Itanium excede i32"));
+            } else if filtro < 0 {
+                abortar_desenrolamento("filtros negativos não suportados no protocolo cleanup");
+            }
+            // O elo é relativo ao início do campo de deslocamento, e pode
+            // apontar para trás; não é relativo ao fim do SLEB128.
+            let origem = p;
+            let proximo = ler_sleb128(&mut p);
+            if proximo == 0 { return (limpeza, seletor); }
+            p = origem.offset(proximo as isize);
+        }
+    }
 }
 
 /// `EXCEPTION_RECORD` (x86-64).
@@ -563,13 +617,14 @@ pub unsafe extern "C" fn dartforge_personalidade(versao: i32, acoes: i32, classe
     unsafe { personalidade_itanium(versao, acoes, classe, _objeto, contexto, false) }
 }
 
-/// Personalidade Itanium para pousos de cleanup puro e catch-all separados.
+/// Personalidade Itanium para cleanup e catch-all, inclusive em pousos mistos.
 ///
 /// Cleanup não termina a busca; executa na fase de unwind, inclusive para
 /// exceção estrangeira/forçada. Entrega ao landingpad o objeto original e
 /// seletor zero, permitindo resume sem reinicializar sua área privada.
-/// Catch-all Dart usa seletor 1 e só instala no quadro escolhido pelo sistema.
-/// Não interpreta filtros tipados nem pousos mistos de catch e cleanup.
+/// Catch-all Dart usa o seletor da ação e só trata no quadro escolhido.
+/// Pousos mistos executam cleanup para exceção estrangeira/forçada com seletor
+/// zero. Não interpreta filtros tipados: as ações positivas são catch-all.
 /// O emissor legado continua usando `dartforge_personalidade`.
 ///
 /// # Erros
@@ -578,8 +633,8 @@ pub unsafe extern "C" fn dartforge_personalidade(versao: i32, acoes: i32, classe
 ///
 /// # Safety
 /// Só o desenrolador do sistema chama, com contexto/objeto e LSDA válidos.
-/// Os sítios deste protocolo são cleanup puro (ação zero) ou catch-all
-/// com uma ação positiva. O código do pouso precisa preservar o par recebido.
+/// A LSDA contém apenas cleanup e catch-all (tipo null); ações e elos são
+/// válidos. O pouso precisa distinguir os seletores e preservar o par recebido.
 ///
 /// ```
 /// # #[cfg(unix)] {
@@ -598,7 +653,7 @@ pub unsafe extern "C" fn dartforge_personalidade_cleanup_itanium(
 
 /// Decisão das fases, independente das APIs e registradores do alvo.
 #[cfg(any(unix, test))]
-fn decisao_itanium(versao: i32, acoes: i32, nossa: bool, pouso: u64, acao: u64, cleanup: bool) -> i32 {
+fn decisao_itanium(versao: i32, acoes: i32, nossa: bool, pouso: u64, limpeza: bool, seletor: i32, cleanup: bool) -> i32 {
     const FATAL_NA_FASE_1: i32 = 3;
     const TRATADOR_ACHADO: i32 = 6;
     const INSTALAR_CONTEXTO: i32 = 7;
@@ -615,9 +670,9 @@ fn decisao_itanium(versao: i32, acoes: i32, nossa: bool, pouso: u64, acao: u64, 
         return if forcado { CONTINUAR } else { INSTALAR_CONTEXTO };
     }
     if busca {
-        return if nossa && !forcado && acao != 0 { TRATADOR_ACHADO } else { CONTINUAR };
+        return if nossa && !forcado && seletor > 0 { TRATADOR_ACHADO } else { CONTINUAR };
     }
-    if unwind && (acao == 0 || (nossa && !forcado && quadro_tratador)) {
+    if unwind && (limpeza || (nossa && !forcado && quadro_tratador && seletor > 0)) {
         INSTALAR_CONTEXTO
     } else {
         CONTINUAR
@@ -639,13 +694,18 @@ unsafe fn personalidade_itanium(
         let ip = _Unwind_GetIPInfo(contexto, &mut antes) as u64;
         let ip = if antes == 0 { ip.wrapping_sub(1) } else { ip };
         let inicio = _Unwind_GetRegionStart(contexto) as u64;
-        let (pouso, acao) = sitio_da_lsda(_Unwind_GetLanguageSpecificData(contexto), ip.wrapping_sub(inicio));
-        let decisao = decisao_itanium(versao, acoes, nossa, pouso, acao, cleanup);
+        let (pouso, acao, tabela) = sitio_e_tabela_de_acoes(_Unwind_GetLanguageSpecificData(contexto), ip.wrapping_sub(inicio));
+        let (limpeza, seletor) = if cleanup && pouso != 0 {
+            acoes_itanium(tabela, acao)
+        } else { (acao == 0, if acao != 0 { 1 } else { 0 }) };
+        let decisao = decisao_itanium(versao, acoes, nossa, pouso, limpeza, seletor, cleanup);
         if decisao != 7 { return decisao; }
-        // O par legado não era lido. O novo protocolo entrega o objeto
-        // original para resume; jamais passa por df.lancar nesta etapa.
+        // Cleanup intermediário ou estrangeiro usa seletor zero. Um pouso
+        // misto escolhido como handler também executa cleanup, com o seletor
+        // do catch, antes de desviar para o tratador ou retomar a exceção.
+        let trata = nossa && acoes & 4 != 0 && acoes & 8 == 0 && seletor > 0;
         _Unwind_SetGR(contexto, 0, if cleanup { objeto as usize } else { 0 });
-        _Unwind_SetGR(contexto, 1, if cleanup && acao != 0 { 1 } else { 0 });
+        _Unwind_SetGR(contexto, 1, if cleanup && trata { seletor as usize } else { 0 });
         _Unwind_SetIP(contexto, (inicio + pouso) as usize);
         decisao
     }
@@ -656,36 +716,73 @@ mod testes_excecoes_tabelas {
     use super::*;
 
     #[test]
+    fn cadeia_de_acoes_separa_indice_seletor_e_cleanup() {
+        // SAFETY: cadeias completas em arrays locais, com elos válidos.
+        unsafe {
+            assert_eq!(acoes_itanium(std::ptr::null(), 0), (true, 0));
+            assert_eq!(acoes_itanium([0, 0].as_ptr(), 1), (true, 0));
+            assert_eq!(acoes_itanium([2, 0].as_ptr(), 1), (false, 2));
+            assert_eq!(acoes_itanium([0, 1, 1, 0].as_ptr(), 1), (true, 1));
+            // O registro no índice 3 volta três bytes desde seu campo elo.
+            assert_eq!(acoes_itanium([0, 0, 1, 0x7d].as_ptr(), 3), (true, 1));
+        }
+    }
+
+    #[test]
+    fn sleb128_preserva_sinal_e_extremos() {
+        for (bytes, esperado) in [
+            (vec![0x7f], -1), (vec![0x7d], -3), (vec![0x80, 0x01], 128),
+            (vec![0x80, 0x7f], -128),
+            (vec![0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00], i64::MAX),
+            (vec![0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x7f], i64::MIN),
+        ] {
+            let mut p = bytes.as_ptr();
+            // SAFETY: SLEB128 completo no vetor.
+            assert_eq!(unsafe { ler_sleb128(&mut p) }, esperado);
+            assert_eq!(p, unsafe { bytes.as_ptr().add(bytes.len()) });
+        }
+    }
+
+    #[test]
+    fn pouso_misto_limpa_estrangeira_sem_capturar_e_seleciona_catch_dart() {
+        assert_eq!(decisao_itanium(1, 1, false, 7, true, 1, true), 8);
+        assert_eq!(decisao_itanium(1, 2, false, 7, true, 1, true), 7);
+        assert_eq!(decisao_itanium(1, 2 | 8, false, 7, true, 1, true), 7);
+        assert_eq!(decisao_itanium(1, 1, true, 7, true, 1, true), 6);
+        assert_eq!(decisao_itanium(1, 2 | 4, true, 7, true, 1, true), 7);
+    }
+
+    #[test]
     fn cleanup_nao_para_busca_e_instala_na_fase_de_unwind() {
         for nossa in [false, true] {
             for forcado in [0, 8] {
-                assert_eq!(decisao_itanium(1, 1 | forcado, nossa, 7, 0, true), 8);
-                assert_eq!(decisao_itanium(1, 2 | forcado, nossa, 7, 0, true), 7);
-                assert_eq!(decisao_itanium(1, 0 | forcado, nossa, 7, 0, true), 8);
+                assert_eq!(decisao_itanium(1, 1 | forcado, nossa, 7, true, 0, true), 8);
+                assert_eq!(decisao_itanium(1, 2 | forcado, nossa, 7, true, 0, true), 7);
+                assert_eq!(decisao_itanium(1, 0 | forcado, nossa, 7, true, 0, true), 8);
             }
         }
-        assert_eq!(decisao_itanium(1, 2, true, 0, 0, true), 8);
-        assert_eq!(decisao_itanium(0, 1, true, 7, 0, true), 3);
+        assert_eq!(decisao_itanium(1, 2, true, 0, true, 0, true), 8);
+        assert_eq!(decisao_itanium(0, 1, true, 7, true, 0, true), 3);
     }
 
     #[test]
     fn catch_all_so_instala_no_quadro_escolhido_para_excecao_dart() {
-        assert_eq!(decisao_itanium(1, 1, true, 7, 1, true), 6);
-        assert_eq!(decisao_itanium(1, 2, true, 7, 1, true), 8);
-        assert_eq!(decisao_itanium(1, 2 | 4, true, 7, 1, true), 7);
+        assert_eq!(decisao_itanium(1, 1, true, 7, false, 1, true), 6);
+        assert_eq!(decisao_itanium(1, 2, true, 7, false, 1, true), 8);
+        assert_eq!(decisao_itanium(1, 2 | 4, true, 7, false, 1, true), 7);
         for acoes in [1, 2, 2 | 4, 2 | 8, 2 | 4 | 8] {
-            assert_eq!(decisao_itanium(1, acoes, false, 7, 1, true), 8);
+            assert_eq!(decisao_itanium(1, acoes, false, 7, false, 1, true), 8);
         }
-        assert_eq!(decisao_itanium(1, 2 | 4 | 8, true, 7, 1, true), 8);
+        assert_eq!(decisao_itanium(1, 2 | 4 | 8, true, 7, false, 1, true), 8);
     }
 
     #[test]
     fn protocolo_legado_preserva_pousos_de_statepoint() {
         for acao in [0, 1] {
-            assert_eq!(decisao_itanium(1, 1, true, 7, acao, false), 6);
-            assert_eq!(decisao_itanium(1, 2, true, 7, acao, false), 7);
-            assert_eq!(decisao_itanium(1, 2 | 8, true, 7, acao, false), 8);
-            assert_eq!(decisao_itanium(1, 2, false, 7, acao, false), 8);
+            assert_eq!(decisao_itanium(1, 1, true, 7, acao == 0, acao as i32, false), 6);
+            assert_eq!(decisao_itanium(1, 2, true, 7, acao == 0, acao as i32, false), 7);
+            assert_eq!(decisao_itanium(1, 2 | 8, true, 7, acao == 0, acao as i32, false), 8);
+            assert_eq!(decisao_itanium(1, 2, false, 7, acao == 0, acao as i32, false), 8);
         }
     }
 

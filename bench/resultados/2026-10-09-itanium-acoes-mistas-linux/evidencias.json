@@ -1,0 +1,59 @@
+{
+  "base_commit": "8c70e1d3f5195f5b53893730e8dea49cb0b0541b",
+  "runtime_source_sha256": "c36fd2c45592c2f22a6238ac3c920f1d41ce27c34dbe5d070b94ac3475f5b8de",
+  "runtime_prova_sha256": "2d04a62408c6200b26117740d78622de3dcf79447e990d63de6e2b49a795e7ef",
+  "alvo": "x86_64-unknown-linux-gnu",
+  "execucao": "WSLg-Builder (WSL)",
+  "clang": "22.1.8",
+  "execucoes": [
+    {
+      "variante": "puro",
+      "otimizacao_llvm": "O2",
+      "exit_code": 0,
+      "llvm_sha256": "0d4b56b21a8c6d30f075cc377e9b34f2d51178c4ce74ce14cd419544595a06e4",
+      "llvm_otimizado_sha256": "a4dc94dc56a954acf5b23945addd17c41e0b10347b177da3051373f77176c984",
+      "executavel_sha256": "1f31e6232e99c77cda03064c2034a177386938e282d70a2f360861f6aa5f55ee",
+      "inlining_comprovado": false
+    },
+    {
+      "variante": "inline",
+      "otimizacao_llvm": "O2",
+      "exit_code": 0,
+      "llvm_sha256": "8420282e0b6894b13875f65449f63f6d5921b8f652917f8c17e78ef9b87e76be",
+      "llvm_otimizado_sha256": "bd098e9361641c510ef3f1fdda9d73e1e5b669be49c4df2b80e8bf503bf93ffc",
+      "executavel_sha256": "f48887cc9048be86844350a1a9ec5ad541a2e0c2b28ccac8bbe890a1d90f24f3",
+      "inlining_comprovado": true
+    },
+    {
+      "variante": "estrangeira",
+      "otimizacao_llvm": "O2",
+      "exit_code": 0,
+      "llvm_sha256": "925a96747374df9fe10d20e2dfc05c04baaeea6fb813d7f938cabe7e7dd51962",
+      "llvm_otimizado_sha256": "3f6b1104d5c9914e17757829772d641c32feee78f495c40177efa46c9ff06a99",
+      "executavel_sha256": "4d20358c28b11befd9a8e9e50a401fc1926ce299a6b8d6add697dafa1ff1cb71",
+      "inlining_comprovado": false
+    },
+    {
+      "variante": "estrangeira-inline",
+      "otimizacao_llvm": "O2",
+      "exit_code": 0,
+      "llvm_sha256": "758d29cbd2cdea7c81293fd5edef4ca754ca05d019a49ce94e266ead8156f806",
+      "llvm_otimizado_sha256": "6fb98f19701e3694c60422b8fea005352f3bedafb2655bfb1d53c73c5cec1228",
+      "executavel_sha256": "56a12e7a187cde1cbb43d181be1e7662a2d73b062c4b1bd12f190fcc62486e0b",
+      "inlining_comprovado": true
+    }
+  ],
+  "invariantes": [
+    "mesmo objeto em todos os pousos e handler externo",
+    "cleanup id=1 e id=2 uma vez cada, nessa ordem",
+    "seletores 0 nos cleanups puros/estrangeiros e 1 nos pousos Dart inlined que também são handlers",
+    "estrangeira-inlined retoma o unwind e chega ao handler C++, sem captura como Dart"
+  ],
+  "limites": [
+    "IR construído na prova; sem frontend/emissor ARC",
+    "sem heap/pendência/rastro Dart ou drops ARC",
+    "tipos positivos restritos a catch-all null; filtros tipados/negativos não suportados",
+    "forced unwind testado só na decisão unitária",
+    "macOS: compilação de metadados, sem execução; SEH/funclets pendentes"
+  ]
+}

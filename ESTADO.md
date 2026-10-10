@@ -2,6 +2,26 @@
 
 ## Retomada de 2026-10-09
 
+Itanium agora percorre as cadeias de ações SLEB128: separa índice de ação,
+seletor catch e presença de cleanup, incluindo registros filtro zero em
+índice positivo e elos negativos relativos ao campo de deslocamento.
+Pouso misto instala cleanup para estrangeira/forced unwind sem tratá-la
+como Dart; no quadro handler Dart, entrega o seletor da ação correspondente.
+O protocolo legado mantém suas decisões. Passaram 12 testes LSDA/fases e
+29 doctests; trechos reais compilados como metadados Linux x86-64/macOS ARM64.
+Quatro provas Linux O2 passaram: puro, inlining Dart, estrangeira em pousos
+mistos e estrangeira com inlining. Comprovam objeto original, cleanups 1→2
+uma vez cada e seletores corretos; a última retoma até o handler C++ real,
+sem capturar estrangeira como Dart. IR otimizado confirma que as funções
+de cleanup foram incorporadas e o teste de seletor antes do resume foi
+preservado. Artefatos em `bench/resultados/2026-10-09-itanium-acoes-mistas-linux`;
+logs `target/ownership-itanium-acoes-*`. A estrangeira é objeto de fixture,
+não throw C++ de um objeto de linguagem. Sem heap/pendência/rastro/drops ARC
+ou fonte Dart. O emissor ainda usa o protocolo legado; filtros tipados,
+statepoints, SEH/funclets e integração no pipeline continuam pendentes.
+Forced unwind tem somente prova unitária; macOS somente compilação.
+Não altera o gate ARC/A0 nem conclui o objetivo completo.
+
 Personalidade Itanium de cleanup: nova entrada Unix
 `dartforge_personalidade_cleanup_itanium` separa cleanup puro de catch-all
 Dart. Cleanup não para a busca; instala na fase de unwind, inclusive para
