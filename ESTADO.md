@@ -2,6 +2,24 @@
 
 ## Retomada de 2026-10-10
 
+Prova arc_retorno_da_fonte ampliada para repassar(valor) chamar
+identidade(identidade(valor)), usando os dois corpos reais do lowering.
+Planos continuam padrão, preenchidos pelos produtores: retorno Ref Owned,
+retenção no callee e liberação automática do resultado intermediário.
+Modo de depuração do Context preserva as fronteiras no inliner; os demais
+passes HIR e o passe de exceções continuam ativos. Preparação é idempotente
+e HIR final passa pelo verificador. Harness confere owner antes de soltar
+o argumento, sobrevivência do retorno e morte após a liberação final.
+Novo controle retira a liberação intermediária identificada no HIR,
+exigindo alvo único no LLVM. Matriz Windows aprovou quatro positivos e
+12 traps em ARC/tracing × O0/O2, com auditoria, ARC puro e GC stress.
+Log target/arc-retorno-cadeia-matriz.log; artefatos e manifesto em
+target/prova-retorno-da-fonte. Tracing compara o protocolo explícito do
+harness sem ativar ARC. Isso amplia a prova entre corpos da fonte, sem
+certificar o programa/SDK completo, dispatch ou o gate ARC/A0.
+CI 38051323600 da revisão publicada 37497527 está executando; esta
+ampliação é posterior e ainda não tem confirmação remota.
+
 CI 38048561639 da fonte 137e428c: Linux e mensagens passaram; macOS
 falhou na seleção explícita de memória via FFI no JIT (esperado 1, obtido
 0). AOT do mesmo teste passou. O JIT usa o runtime do SDK RTLD_LOCAL,

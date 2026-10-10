@@ -1,4 +1,4 @@
-//! Prova AOT de retorno Owned produzido a partir de um corpo Dart da fonte.
+//! Prova AOT de retorno Owned e cleanup numa cadeia de corpos Dart da fonte.
 //! O harness nativo observa identidade, sobrevivência após soltar o argumento
 //! e morte após soltar o retorno. Não certifica todo o programa/SDK ou dispatch.
 
@@ -15,7 +15,7 @@ use std::{
 fn modulo(entrada: &Path) -> Result<Module, String> {
     std::fs::write(
         entrada,
-        "Object? identidade(Object? valor) => valor;\nvoid main() {}\n",
+        "Object? identidade(Object? valor) => valor;\nObject? repassar(Object? valor) => identidade(identidade(valor));\nvoid main() {}\n",
     )
     .map_err(|e| e.to_string())?;
     let lib = std::env::var_os("DARTFORGE_SDK_LIB").ok_or("defina DARTFORGE_SDK_LIB")?;
@@ -46,11 +46,14 @@ fn modulo(entrada: &Path) -> Result<Module, String> {
     let mut ctx = Context::new(&programa, &interner, &tipos, &core, &outline, &corpos);
     ctx.te = te;
     ctx.memoria_arc = true;
+    // O modo de depuração preserva as fronteiras das chamadas no inliner;
+    // assim a prova exercita o token intermediário em vez de só o corpo copiado.
+    ctx.ligar_depuracao();
     let fonte = dartforge_emit_native::lower::lower_program(&ctx);
     let f = fonte
         .functions
         .iter()
-        .find(|f| f.name == "identidade")
+        .find(|f| f.name == "repassar")
         .ok_or("corpo ausente")?;
     if !fonte.retornos_ref_dart.contains(&f.symbol)
         || f.params.len() != 1
@@ -58,19 +61,35 @@ fn modulo(entrada: &Path) -> Result<Module, String> {
     {
         return Err("ABI/fato do lowering incompatível".into());
     }
-    // Grupo fechado contendo o corpo real da fonte. A chamada nativa abaixo
-    // sustenta o argumento; o produtor deve entregar outro token ao retorno.
+    // Grupo fechado contendo os corpos reais da fonte. A chamada nativa abaixo
+    // sustenta o argumento; o produtor deve entregar outro token ao retorno
+    // e liberar o token da primeira chamada, usado como argumento na segunda.
     let mut m = Module::new();
     m.memoria_arc = true;
     m.modo_sdk = true;
     m.biblioteca_sdk = true;
-    m.functions.push(f.clone());
-    m.retornos_ref_dart.insert(f.symbol.clone());
+    for corpo in fonte
+        .functions
+        .iter()
+        .filter(|f| matches!(f.name.as_str(), "identidade" | "repassar"))
+    {
+        m.functions.push(corpo.clone());
+        if fonte.retornos_ref_dart.contains(&corpo.symbol) {
+            m.retornos_ref_dart.insert(corpo.symbol.clone());
+        }
+    }
     otimizar::otimizar(&mut m);
     otimizar::excecoes_por_tabelas(&mut m);
-    let mut planos = HashMap::from([(f.symbol.clone(), PlanoFuncaoDart::default())]);
-    if preparar_arc_modulo_tabelado(&mut m, &mut planos)? != (1, 0) {
-        return Err("retenção não produzida".into());
+    let mut planos: HashMap<_, _> = m
+        .functions
+        .iter()
+        .map(|f| (f.symbol.clone(), PlanoFuncaoDart::default()))
+        .collect();
+    let produzido = preparar_arc_modulo_tabelado(&mut m, &mut planos)?;
+    if produzido.0 == 0 || produzido.1 == 0 {
+        return Err(format!(
+            "retenção/cleanup da cadeia não produzidos: {produzido:?}"
+        ));
     }
     let antes = format!("{m:?}/{planos:?}");
     if preparar_arc_modulo_tabelado(&mut m, &mut planos)? != (0, 0)
@@ -113,7 +132,13 @@ fn provar() -> Result<(), String> {
     let mut m = modulo(&saida.with_extension("dart"))?;
     // Tracing compara o mesmo protocolo explícito de tokens neste harness.
     m.memoria_arc = arc;
-    let simbolo = m.functions[0].symbol.clone();
+    let simbolo = m
+        .functions
+        .iter()
+        .find(|f| f.name == "repassar")
+        .ok_or("cadeia ausente")?
+        .symbol
+        .clone();
     let mut ir = LlvmEmitter::new(&m).emit_all();
     ir.push_str(
         r#"
@@ -121,8 +146,12 @@ declare void @dartforge_print_handle(i64)
 define void @prova_retorno_da_fonte() {
   %argumento = call i64 @dartforge_arc_box_int_owned_v1(i64 9223372036854775807)
   %retorno = call i64 @SIMBOLO_FONTE(i64 %argumento)
+  call void @dartforge_arc_collect()
+  %antes = call i8 @dartforge_arc_observar_heap_v1(i64 %retorno)
+  %tem_owner = icmp eq i8 %antes, 3
   %igual = icmp eq i64 %retorno, %argumento
-  br i1 %igual, label %soltar_argumento, label %falha
+  %valido = and i1 %igual, %tem_owner
+  br i1 %valido, label %soltar_argumento, label %falha
 soltar_argumento:
   call void @dartforge_arc_release(i64 %argumento)
   call void @dartforge_arc_collect()
@@ -153,14 +182,36 @@ passou:
     ir.push_str("define i64 @dartforge_dispatch_toString(i64 %obj) {\n  ret i64 0\n}\n");
     if let Some(controle) = args.next() {
         let alvo = match controle.as_str() {
-            "sem-retencao" => "  call void @dartforge_arc_retain(i64 %v0)\n",
-            "sem-drop-retorno" => "  call void @dartforge_arc_release(i64 %retorno)\n",
+            "sem-retencao" => "  call void @dartforge_arc_retain(i64 %v0)\n".to_string(),
+            "sem-drop-retorno" => "  call void @dartforge_arc_release(i64 %retorno)\n".to_string(),
+            "sem-drop-intermediario" => {
+                let corpo = m.functions.iter().find(|f| f.name == "repassar").unwrap();
+                let drops: Vec<_> = corpo
+                    .blocks
+                    .iter()
+                    .flat_map(|b| &b.instructions)
+                    .filter_map(|(_, i, _)| {
+                        if let Instruction::ArcDrop {
+                            value: Operand::Val(v),
+                        } = i
+                        {
+                            Some(v)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                if drops.len() != 1 {
+                    return Err("cleanup intermediário sem alvo único".into());
+                }
+                format!("  call void @dartforge_arc_release(i64 %v{})\n", drops[0].0)
+            }
             _ => return Err(format!("controle desconhecido: {controle}")),
         };
-        if ir.matches(alvo).count() != 1 {
+        if ir.matches(&alvo).count() != 1 {
             return Err("controle sem alvo único".into());
         }
-        ir = ir.replace(alvo, "");
+        ir = ir.replace(&alvo, "");
     }
     std::fs::write(saida.with_extension("ll"), &ir).map_err(|e| e.to_string())?;
     driver::compile_and_link(

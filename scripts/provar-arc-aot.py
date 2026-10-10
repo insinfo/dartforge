@@ -18,6 +18,7 @@ import tempfile
 PROVAS = {
     "arc_retorno_da_fonte": ("prova-retorno-da-fonte", False, [
         ("normal", None), ("normal", "sem-retencao"), ("normal", "sem-drop-retorno"),
+        ("normal", "sem-drop-intermediario"),
     ]),
     "arc_instancia_zerada": ("prova-instancia-zerada", False, [
         ("normal", None), ("normal", "sem-owner"),
