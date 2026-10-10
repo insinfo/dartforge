@@ -97,6 +97,15 @@ pub fn calcular_no_modulo(
     simbolo: &str,
     a: &AnaliseHir,
 ) -> Result<ResultadoEscape, String> {
+    calcular_validado(conferir_analise_no_modulo(m, simbolo, a)?, a)
+}
+
+// Guarda comum aos consumidores de escape e de grafo, sem resolver points-to.
+pub(super) fn conferir_analise_no_modulo<'m>(
+    m: &'m Module,
+    simbolo: &str,
+    a: &AnaliseHir,
+) -> Result<&'m Function, String> {
     if let Some(assinatura) = a.premissas_modulo
         && assinatura != super::modulo::assinatura_premissas(m, simbolo)
     {
@@ -131,7 +140,10 @@ pub fn calcular_no_modulo(
     let f = indice
         .get(&simbolo.to_string())
         .ok_or("escape ARC: corpo ausente")?;
-    calcular_validado(f, a)
+    if a.corpo != assinatura_corpo(f) {
+        return Err("escape ARC: corpo mudou após points-to".into());
+    }
+    Ok(f)
 }
 
 fn calcular_validado(f: &Function, a: &AnaliseHir) -> Result<ResultadoEscape, String> {

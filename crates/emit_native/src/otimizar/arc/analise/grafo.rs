@@ -20,9 +20,34 @@ pub struct GrafoHeapArc {
     arestas: BTreeMap<NoAbstrato, BTreeSet<NoAbstrato>>,
     componentes: Vec<(Vec<NoAbstrato>, bool)>,
     opaco: bool,
+    analise: AnaliseHir,
 }
 
 impl GrafoHeapArc {
+    /// Confere dependências locais e a projeção do points-to sem repetir o solver
+    /// nem Tarjan. Exige todos os nós/arestas inferidos, preserva desconhecimento
+    /// e confere a partição SCC e suas marcas de ciclo independentemente.
+    /// Sobreaproximações são aceitas, mas não podem apagar fronteiras opacas.
+    /// Não prova cobertura global, vida, SDK, observadores ou política.
+    ///
+    /// # Erros
+    /// Módulo/corpo/tabelas obsoletos, nó/aresta omitido, destino ausente,
+    /// opacidade apagada ou partição/marca de ciclo inválida.
+    ///
+    /// ```
+    /// use dartforge_emit_native::{hir::*, otimizar::arc::analise::grafo::*};
+    /// let mut m = Module::new(); m.memoria_arc = true;
+    /// m.functions.push(Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+    /// params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
+    /// id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] });
+    /// construir_local_no_modulo(&m, "f", 8)?.unwrap().conferir_no_modulo(&m, "f")?;
+    /// # Ok::<(), String>(())
+    /// ```
+    pub fn conferir_no_modulo(&self, m: &Module, simbolo: &str) -> Result<(), String> {
+        let f = super::escape::conferir_analise_no_modulo(m, simbolo, &self.analise)?;
+        conferir_projecao(f, self)
+    }
+
     /// Consulta arestas conhecidas sem apagar as fronteiras opacas.
     ///
     /// ```
@@ -91,20 +116,20 @@ pub fn construir_local_no_modulo(
     simbolo: &str,
     limite: usize,
 ) -> Result<Option<GrafoHeapArc>, String> {
-    Ok(super::modulo::analisar_no_modulo(m, simbolo, limite)?
-        .as_ref()
-        .map(|a| {
-            construir(
-                m.functions
-                    .iter()
-                    .find(|f| f.symbol == simbolo)
-                    .expect("corpo analisado"),
-                a,
-            )
-        }))
+    let Some(a) = super::modulo::analisar_no_modulo(m, simbolo, limite)? else {
+        return Ok(None);
+    };
+    let f = m
+        .functions
+        .iter()
+        .find(|f| f.symbol == simbolo)
+        .expect("corpo analisado");
+    let g = construir(f, a);
+    g.conferir_no_modulo(m, simbolo)?;
+    Ok(Some(g))
 }
 
-fn construir(f: &Function, a: &AnaliseHir) -> GrafoHeapArc {
+fn construir(f: &Function, a: AnaliseHir) -> GrafoHeapArc {
     let mut arestas: BTreeMap<_, BTreeSet<_>> = a
         .esquemas
         .keys()
@@ -163,7 +188,93 @@ fn construir(f: &Function, a: &AnaliseHir) -> GrafoHeapArc {
         arestas,
         componentes,
         opaco,
+        analise: a,
     }
+}
+
+// Confere obrigações por inclusão, não por igualdade com uma nova execução
+// do produtor. A análise é premissa local imutável, não certificado global.
+fn conferir_projecao(f: &Function, g: &GrafoHeapArc) -> Result<(), String> {
+    let a = &g.analise;
+    let exigir_opaco = || {
+        if g.opaco {
+            Ok(())
+        } else {
+            Err("grafo ARC: fronteira opaca apagada".to_string())
+        }
+    };
+    if !a.desconhecidos().is_empty() || a.emissao_implicita_opaca {
+        exigir_opaco()?;
+    }
+    for (v, t) in f.params.iter().map(|(v, _, t)| (v, t)).chain(
+        f.blocks
+            .iter()
+            .flat_map(|b| &b.instructions)
+            .map(|(v, _, t)| (v, t)),
+    ) {
+        if matches!(t, Type::Ref | Type::I64 | Type::Ptr)
+            && a.valor(*v).is_none_or(|p| p.nos().is_none())
+        {
+            exigir_opaco()?;
+        }
+    }
+    for (no, campos) in &a.esquemas {
+        let saidas = g
+            .arestas
+            .get(no)
+            .ok_or("grafo ARC: nó de esquema omitido")?;
+        for campo in campos {
+            match a.pontos().campo(no, campo).and_then(|p| p.nos()) {
+                None => exigir_opaco()?,
+                Some(destinos) => {
+                    for destino in destinos {
+                        if !saidas.contains(destino) {
+                            return Err("grafo ARC: aresta inferida omitida".into());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Inclui nós extras de sobreaproximações: um destino sem esquema não
+    // pode ser tratado como folha fechada só por não ter arestas explícitas.
+    for (no, saidas) in &g.arestas {
+        if !a.esquemas.contains_key(no) {
+            exigir_opaco()?;
+        }
+        if saidas
+            .iter()
+            .any(|destino| !g.arestas.contains_key(destino))
+        {
+            return Err("grafo ARC: destino fora do grafo".into());
+        }
+    }
+    let ids: BTreeMap<_, _> = g
+        .arestas
+        .keys()
+        .enumerate()
+        .map(|(i, no)| (no, i))
+        .collect();
+    let adjacentes: Vec<Vec<_>> = g
+        .arestas
+        .values()
+        .map(|saidas| saidas.iter().map(|no| ids[no]).collect())
+        .collect();
+    let mut cs = Vec::new();
+    for (membros, ciclo) in &g.componentes {
+        let c: Vec<_> = membros
+            .iter()
+            .map(|no| ids.get(no).copied().ok_or("grafo ARC: membro SCC ausente"))
+            .collect::<Result<_, _>>()?;
+        if c.is_empty() {
+            return Err("grafo ARC: SCC vazia".into());
+        }
+        if *ciclo != (c.len() > 1 || adjacentes[c[0]].contains(&c[0])) {
+            return Err("grafo ARC: marca de ciclo inválida".into());
+        }
+        cs.push(c);
+    }
+    crate::otimizar::scc::conferir(&adjacentes, &cs)
 }
 
 #[cfg(test)]
@@ -222,7 +333,7 @@ mod testes {
     fn scc_de_campos_confere_com_floyd_nos_512_grafos_hir() {
         for mascara in 0..512 {
             let m = modulo(mascara);
-            let g = construir_local_no_modulo(&m, "f", 8).unwrap().unwrap();
+            let mut g = construir_local_no_modulo(&m, "f", 8).unwrap().unwrap();
             // Campos/alocação em linha exigem contexto: a conferência de
             // pilha do prólogo permanece opaca, sem apagar as arestas.
             assert!(g.opaco());
@@ -240,6 +351,32 @@ mod testes {
                     assert_eq!(g.arestas()[&nos[v]].contains(&nos[w]), *destino);
                 }
             }
+            // Adulterações são conferidas contra as obrigações inferidas,
+            // não contra uma nova execução do produtor/Tarjan.
+            g.conferir_no_modulo(&m, "f").unwrap();
+            for no in &nos {
+                let destinos: Vec<_> = g.arestas[no].iter().cloned().collect();
+                for destino in destinos {
+                    g.arestas.get_mut(no).unwrap().remove(&destino);
+                    assert!(g.conferir_no_modulo(&m, "f").is_err());
+                    g.arestas.get_mut(no).unwrap().insert(destino);
+                }
+                let saidas = g.arestas.remove(no).unwrap();
+                assert!(g.conferir_no_modulo(&m, "f").is_err());
+                g.arestas.insert(no.clone(), saidas);
+            }
+            g.opaco = false;
+            assert!(g.conferir_no_modulo(&m, "f").is_err());
+            g.opaco = true;
+            for id in 0..g.componentes.len() {
+                g.componentes[id].1 = !g.componentes[id].1;
+                assert!(g.conferir_no_modulo(&m, "f").is_err());
+                g.componentes[id].1 = !g.componentes[id].1;
+            }
+            let ultimo = g.componentes.pop().unwrap();
+            assert!(g.conferir_no_modulo(&m, "f").is_err());
+            g.componentes.push(ultimo);
+            g.conferir_no_modulo(&m, "f").unwrap();
             // Fecho sem identidade: diagonal só verdadeira quando há ciclo.
             for k in 0..3 {
                 for v in 0..3 {
@@ -266,6 +403,122 @@ mod testes {
                 }
             }
         }
+    }
+
+    #[test]
+    fn conferir_grafo_aceita_sobregrafo_e_rejeita_sccs_adulteradas() {
+        let m = modulo(0);
+        let mut g = construir_local_no_modulo(&m, "f", 8).unwrap().unwrap();
+        let nos: Vec<_> = g.arestas.keys().cloned().collect();
+        g.arestas.get_mut(&nos[0]).unwrap().insert(nos[1].clone());
+        g.componentes = vec![
+            (vec![nos[1].clone()], false),
+            (vec![nos[0].clone()], false),
+            (vec![nos[2].clone()], false),
+        ];
+        g.conferir_no_modulo(&m, "f").unwrap();
+        // União de nós sem alcance de volta não é componente forte.
+        g.componentes = vec![
+            (vec![nos[0].clone(), nos[1].clone()], true),
+            (vec![nos[2].clone()], false),
+        ];
+        assert!(g.conferir_no_modulo(&m, "f").is_err());
+        // Acrescentar aresta de volta torna a união forte, sem executar Tarjan.
+        g.arestas.get_mut(&nos[1]).unwrap().insert(nos[0].clone());
+        g.conferir_no_modulo(&m, "f").unwrap();
+        // Dividir o ciclo em duas SCCs é inválido mesmo com cobertura única.
+        g.componentes = vec![
+            (vec![nos[1].clone()], false),
+            (vec![nos[0].clone()], false),
+            (vec![nos[2].clone()], false),
+        ];
+        assert!(g.conferir_no_modulo(&m, "f").is_err());
+        g.componentes = vec![
+            (vec![nos[0].clone(), nos[1].clone()], true),
+            (vec![nos[2].clone()], false),
+        ];
+        g.componentes.push((vec![nos[2].clone()], false));
+        assert!(g.conferir_no_modulo(&m, "f").is_err());
+        g.componentes.pop();
+        g.componentes.push((vec![], false));
+        assert!(g.conferir_no_modulo(&m, "f").is_err());
+        g.componentes.pop();
+        let externo = NoAbstrato::Global("externo".into());
+        g.arestas.get_mut(&nos[0]).unwrap().insert(externo.clone());
+        assert!(g.conferir_no_modulo(&m, "f").is_err());
+        g.arestas.insert(externo.clone(), BTreeSet::new());
+        // Nó extra sem esquema exige fronteira opaca e partição completa.
+        g.componentes.insert(0, (vec![externo], false));
+        g.conferir_no_modulo(&m, "f").unwrap();
+        g.opaco = false;
+        assert!(g.conferir_no_modulo(&m, "f").is_err());
+    }
+
+    #[test]
+    fn conferir_grafo_recusa_mudancas_de_corpo_callee_layout_sitio_e_modo() {
+        let mut m = modulo(0);
+        m.functions.push(Function {
+            symbol: "id".into(),
+            name: "id".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "x".into(), Type::Ref)],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
+            }],
+        });
+        m.functions[0].blocks[0].instructions.push((
+            ValueId(3),
+            Instruction::CallStatic {
+                symbol: "id".into(),
+                args: vec![Operand::Val(ValueId(0))],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        ));
+        let g = construir_local_no_modulo(&m, "f", 8).unwrap().unwrap();
+        g.conferir_no_modulo(&m, "f").unwrap();
+        // Reordenação nominal mantém dependências; símbolo é a identidade.
+        m.functions.swap(0, 1);
+        g.conferir_no_modulo(&m, "f").unwrap();
+        m.functions.swap(0, 1);
+        m.memoria_arc = false;
+        assert!(g.conferir_no_modulo(&m, "f").is_err());
+        m.memoria_arc = true;
+        m.excecoes_por_tabelas = true;
+        assert!(g.conferir_no_modulo(&m, "f").is_err());
+        m.excecoes_por_tabelas = false;
+        m.layouts_campos_arc.insert(1, vec![Type::I64]);
+        assert!(g.conferir_no_modulo(&m, "f").is_err());
+        m.layouts_campos_arc.insert(1, vec![Type::Ref]);
+        let sitio = m
+            .sitios_arc
+            .get_mut("f")
+            .unwrap()
+            .remove(&ValueId(0))
+            .unwrap();
+        assert!(g.conferir_no_modulo(&m, "f").is_err());
+        m.sitios_arc.get_mut("f").unwrap().insert(ValueId(0), sitio);
+        let retorno = m.functions[1].blocks[0].terminator.clone();
+        m.functions[1].blocks[0].terminator =
+            Terminator::Return(Some(Operand::Constant(Constant::Null)));
+        assert!(g.conferir_no_modulo(&m, "f").is_err());
+        m.functions[1].blocks[0].terminator = retorno;
+        let retorno = m.functions[0].blocks[0].terminator.clone();
+        m.functions[0].blocks[0].terminator =
+            Terminator::Return(Some(Operand::Constant(Constant::Null)));
+        assert!(g.conferir_no_modulo(&m, "f").is_err());
+        m.functions[0].blocks[0].terminator = retorno;
+        let callee = m.functions.pop().unwrap();
+        assert!(g.conferir_no_modulo(&m, "f").is_err());
+        m.functions.push(callee.clone());
+        m.functions.push(callee);
+        assert!(g.conferir_no_modulo(&m, "f").is_err());
+        m.functions.pop();
+        g.conferir_no_modulo(&m, "f").unwrap();
+        assert!(g.conferir_no_modulo(&m, "id").is_err());
     }
 
     #[test]
