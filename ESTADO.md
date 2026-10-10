@@ -2,6 +2,19 @@
 
 ## Retomada de 2026-10-10
 
+Verificador ARC reconfere constantes, boxing bool, aritmética e conversões
+pelas mesmas regras do produtor, no módulo privado puros. Regressão reproduziu
+aceitação de Bitcast Ref/F64 com resultado falseado Trivial
+(target/arc-puras-verificador-antes.log); agora rejeita esse caso, larguras
+inválidas, operações sobre referência, constante com tipo falso e destino Ref
+de Bitcast. HIR permite apenas I64/F64 para essa reinterpretação. Operandos
+escalares exigem origem Trivial, inclusive LNot/boxing bool, e operações
+cobertas exigem efeito vazio. Preserva diagnóstico de contrato ausente.
+Passaram 220 testes do emissor (7 ignorados) e 52 exemplos de documentação;
+logs target/arc-puras-verificador-{suite,doc}.log. Proveniência geral,
+domínio/estouro, demais operações e integração padrão continuam pendentes;
+preparação ARC permanece exclusiva de --memoria=arc.
+
 Verificador de tokens reconstrói os contratos dos locais escalares no corpo
 atual: não aceita só mapas produzidos antes de uma alteração de CFG/instruções.
 Regressão reproduziu aceitação indevida de leitura após retirar a gravação
@@ -38,9 +51,10 @@ Passaram 212 testes do emissor (7 ignorados) e 52 exemplos de documentação;
 logs target/arc-larguras-{suite,doc}.log. Passe padrão ainda pendente e
 restrito a --memoria=arc; contratos de loads/campos e borrows exigem cobertura.
 
-CI 38025125587 na fonte f81c7d2b: Linux e mensagens concluídos com sucesso;
-Windows e macOS ainda em andamento na última consulta. Os avanços locais
-de bitcasts e larguras inteiras são posteriores a essa fonte.
+CI 38025125587 na fonte f81c7d2b: Windows, Linux e mensagens concluídos com
+sucesso; macOS ainda nos testes com ignorados na última consulta. As provas
+AOT Unix de unwind passaram nos dois sistemas. Avanços locais de bitcasts,
+larguras inteiras, locais e verificação são posteriores a essa fonte.
 
 Contratos ARC cobrem os bitcasts F64/I64 usados pelo lowering de campos.
 Exigem representações opostas, resultado compatível e origem Trivial após

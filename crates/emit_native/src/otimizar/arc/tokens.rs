@@ -253,6 +253,8 @@ fn erro_fluxo(f: &Function, pais: &[Option<usize>], b: usize, mensagem: String) 
 /// Borrowed só pode voltar quando sua cadeia termina no chamador.
 /// Reconstrói contratos de locais escalares privados no corpo atual, incluindo
 /// ausência de escape, tipagem, inicialização e valores gravados Trivial.
+/// Confere também as operações puras cobertas, seu tipo, efeito vazio e
+/// origem Trivial dos operandos escalares, pelas mesmas regras do produtor.
 ///
 /// Não insere operações, certifica os demais contratos, verifica escopos léxicos,
 /// invalidação de slots/borrows, regiões ou limpeza de estados suspensos.
@@ -432,6 +434,7 @@ fn analisar_tokens(
     permitir_cleanup: bool,
 ) -> Result<FluxoTokens, String> {
     super::locais::verificar(f, classes, plano)?;
+    super::puros::verificar(f, classes, plano)?;
     conferir_saidas_excepcionais(f, tabelas, true)?;
     super::conferir_retomas(f, tabelas)?;
     super::classificacao::vivacidade_com_saidas(f, classes, tabelas, &plano.pendencias)?;

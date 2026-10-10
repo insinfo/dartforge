@@ -423,47 +423,7 @@ pub fn produzir_contratos_arc(
     let contratos = produzir(f, &mut novas_classes, &mut novo_plano, true)?;
     produzir_phi(f, &mut novas_classes, &novo_plano)?;
     super::locais::verificar_valores(f, &locais, &novas_classes)?;
-    // Confere após resolver todos os produtores e Phis, independentemente
-    // da ordem física dos blocos. Um i64 gerenciado não vira escalar por cast.
-    for (v, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
-        let operandos = match inst {
-            Instruction::Bitcast {
-                op,
-                to: Type::I64 | Type::F64,
-            }
-            | Instruction::Neg(op)
-            | Instruction::Not(op)
-            | Instruction::FNeg(op)
-            | Instruction::IntToDouble(op)
-            | Instruction::DoubleToInt(op)
-            | Instruction::ZExt { op, .. }
-            | Instruction::Trunc { op, .. } => [Some(op), None],
-            Instruction::Add(a, b)
-            | Instruction::Sub(a, b)
-            | Instruction::Mul(a, b)
-            | Instruction::SDiv(a, b)
-            | Instruction::SRem(a, b)
-            | Instruction::Shl(a, b)
-            | Instruction::AShr(a, b)
-            | Instruction::LShr(a, b)
-            | Instruction::And(a, b)
-            | Instruction::Or(a, b)
-            | Instruction::Xor(a, b)
-            | Instruction::FAdd(a, b)
-            | Instruction::FSub(a, b)
-            | Instruction::FMul(a, b)
-            | Instruction::FDiv(a, b)
-            | Instruction::FCmp(_, a, b) => [Some(a), Some(b)],
-            _ => continue,
-        };
-        for op in operandos.into_iter().flatten() {
-            if let Operand::Val(origem) = op
-                && novas_classes.get(origem) != Some(&Ownership::Trivial)
-            {
-                return Err(format!("v{}: operação escalar exige origem Trivial", v.0));
-            }
-        }
-    }
+    super::puros::conferir_origens(f, &novas_classes)?;
     *classes = novas_classes;
     *plano = novo_plano;
     Ok(contratos)
@@ -864,139 +824,9 @@ fn produzir(
             return Err(format!("v{} repetido", v.0));
         }
         if incluir_arc {
-            // Constantes escalares/null e literais permanentes não produzem
-            // token. A variante da constante determina seu tipo semântico.
-            let puro = match inst {
-                Instruction::Const(Constant::Int(_)) => Some(Type::I64),
-                Instruction::Const(Constant::Double(_)) => Some(Type::F64),
-                Instruction::Const(Constant::Bool(_)) => Some(Type::I1),
-                Instruction::Const(
-                    Constant::Null | Constant::String(_) | Constant::StringWtf8(_),
-                ) => Some(Type::Ref),
-                Instruction::Box {
-                    from: Type::I1 | Type::I8,
-                    ..
-                } => Some(Type::Ref),
-                Instruction::ICmp(..) | Instruction::FCmp(..) | Instruction::LNot(_) => {
-                    Some(Type::I1)
-                }
-                Instruction::Add(..)
-                | Instruction::Sub(..)
-                | Instruction::Mul(..)
-                | Instruction::SDiv(..)
-                | Instruction::SRem(..)
-                | Instruction::Shl(..)
-                | Instruction::AShr(..)
-                | Instruction::LShr(..)
-                | Instruction::And(..)
-                | Instruction::Or(..)
-                | Instruction::Xor(..)
-                | Instruction::Neg(_)
-                | Instruction::Not(_)
-                | Instruction::DoubleToInt(_) => Some(Type::I64),
-                Instruction::FAdd(..)
-                | Instruction::FSub(..)
-                | Instruction::FMul(..)
-                | Instruction::FDiv(..)
-                | Instruction::FNeg(_)
-                | Instruction::IntToDouble(_) => Some(Type::F64),
-                Instruction::Bitcast {
-                    to: to @ (Type::I64 | Type::F64),
-                    ..
-                } => Some(*to),
-                Instruction::ZExt { to, .. } | Instruction::Trunc { to, .. } => Some(*to),
-                _ => None,
-            };
-            if let Some(esperado) = puro {
-                let numerico = |op: &Operand| match op {
-                    Operand::Constant(Constant::Int(_) | Constant::Double(_)) => true,
-                    Operand::Val(v) => matches!(tipos.get(v), Some(Type::I64 | Type::F64)),
-                    _ => false,
-                };
-                let booleano = |op: &Operand| match op {
-                    Operand::Constant(Constant::Bool(_)) => true,
-                    Operand::Val(v) => matches!(tipos.get(v), Some(Type::I1 | Type::I8)),
-                    _ => false,
-                };
-                let inteiro = |op: &Operand| match op {
-                    Operand::Constant(Constant::Int(_)) => true,
-                    Operand::Val(v) => tipos.get(v) == Some(&Type::I64),
-                    _ => false,
-                };
-                let invalido = match inst {
-                    Instruction::ZExt { op, from, to } | Instruction::Trunc { op, from, to } => {
-                        let origem = match op {
-                            Operand::Val(v) => tipos.get(v).copied(),
-                            Operand::Constant(Constant::Int(_)) => Some(Type::I64),
-                            Operand::Constant(Constant::Bool(_)) => Some(Type::I1),
-                            _ => None,
-                        };
-                        let larguras_validas = if matches!(inst, Instruction::ZExt { .. }) {
-                            matches!(
-                                (from, to),
-                                (Type::I1, Type::I8 | Type::I64) | (Type::I8, Type::I64)
-                            )
-                        } else {
-                            matches!(
-                                (from, to),
-                                (Type::I64, Type::I1 | Type::I8) | (Type::I8, Type::I1)
-                            )
-                        };
-                        origem != Some(*from) || !larguras_validas
-                    }
-                    Instruction::Bitcast { op, to } => {
-                        let origem = match op {
-                            Operand::Val(v) => tipos.get(v).copied(),
-                            Operand::Constant(Constant::Int(_)) => Some(Type::I64),
-                            Operand::Constant(Constant::Double(_)) => Some(Type::F64),
-                            _ => None,
-                        };
-                        !matches!(
-                            (origem, to),
-                            (Some(Type::I64), Type::F64) | (Some(Type::F64), Type::I64)
-                        )
-                    }
-                    Instruction::Box { op, from } => match op {
-                        Operand::Val(v) => tipos.get(v) != Some(from),
-                        Operand::Constant(Constant::Bool(_)) => *from != Type::I1,
-                        Operand::Constant(Constant::Int(n)) => {
-                            *from != Type::I8 || !(0..=255).contains(n)
-                        }
-                        _ => true,
-                    },
-                    Instruction::Add(a, b)
-                    | Instruction::Sub(a, b)
-                    | Instruction::Mul(a, b)
-                    | Instruction::SDiv(a, b)
-                    | Instruction::SRem(a, b)
-                    | Instruction::Shl(a, b)
-                    | Instruction::AShr(a, b)
-                    | Instruction::LShr(a, b)
-                    | Instruction::And(a, b)
-                    | Instruction::Or(a, b)
-                    | Instruction::Xor(a, b) => !inteiro(a) || !inteiro(b),
-                    Instruction::Neg(op) | Instruction::Not(op) | Instruction::IntToDouble(op) => {
-                        !inteiro(op)
-                    }
-                    Instruction::FAdd(a, b)
-                    | Instruction::FSub(a, b)
-                    | Instruction::FMul(a, b)
-                    | Instruction::FDiv(a, b) => !numerico(a) || !numerico(b),
-                    Instruction::FNeg(op) | Instruction::DoubleToInt(op) => !numerico(op),
-                    _ => false,
-                };
-                if invalido
-                    || matches!(inst, Instruction::FCmp(_, a, b) if !numerico(a) || !numerico(b))
-                    || matches!(inst, Instruction::LNot(op) if !booleano(op))
-                {
-                    return Err(format!(
-                        "v{}: operação pura exige escalares já avaliados",
-                        v.0
-                    ));
-                }
+            if super::puros::conferir(*v, inst, ty, &tipos)? {
                 let efeito = EfeitoTokens::default();
-                if *ty != esperado
-                    || classes.get(v).is_some_and(|c| *c != Ownership::Trivial)
+                if classes.get(v).is_some_and(|c| *c != Ownership::Trivial)
                     || plano.instrucoes.get(v).is_some_and(|e| *e != efeito)
                 {
                     return Err(format!(
@@ -2789,6 +2619,96 @@ mod testes {
         assert!(ir.contains("zext i8 %v0 to i64"));
         assert!(ir.contains("trunc i64 %v1 to i8"));
         assert!(ir.contains("trunc i8 %v2 to i1"));
+    }
+
+    #[test]
+    fn verificador_recusa_operacao_pura_com_metadados_falseados() {
+        for (inst, ty) in [
+            (
+                Instruction::Bitcast {
+                    op: Operand::Constant(Constant::Double(0.0)),
+                    to: Type::Ref,
+                },
+                Type::Ref,
+            ),
+            (
+                Instruction::Bitcast {
+                    op: Operand::Val(ValueId(0)),
+                    to: Type::F64,
+                },
+                Type::F64,
+            ),
+            (
+                Instruction::ZExt {
+                    op: Operand::Val(ValueId(0)),
+                    from: Type::Ref,
+                    to: Type::I64,
+                },
+                Type::I64,
+            ),
+            (
+                Instruction::Trunc {
+                    op: Operand::Val(ValueId(0)),
+                    from: Type::Ref,
+                    to: Type::I8,
+                },
+                Type::I8,
+            ),
+            (
+                Instruction::Add(
+                    Operand::Val(ValueId(0)),
+                    Operand::Constant(Constant::Int(1)),
+                ),
+                Type::I64,
+            ),
+            (
+                Instruction::FCmp(
+                    FCmpOp::Eq,
+                    Operand::Val(ValueId(0)),
+                    Operand::Constant(Constant::Double(0.0)),
+                ),
+                Type::I1,
+            ),
+            (Instruction::LNot(Operand::Val(ValueId(0))), Type::I1),
+            (
+                Instruction::Box {
+                    op: Operand::Val(ValueId(0)),
+                    from: Type::I1,
+                },
+                Type::Ref,
+            ),
+            (Instruction::Const(Constant::Int(7)), Type::Ref),
+        ] {
+            let f = Function {
+                symbol: "pura_falseada".into(),
+                name: "pura_falseada".into(),
+                depuracao: None,
+                params: vec![(ValueId(0), "ref".into(), Type::Ref)],
+                return_ty: Type::Void,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(ValueId(1), inst, ty)],
+                    terminator: Terminator::Return(None),
+                }],
+            };
+            let classes = HashMap::from([
+                (
+                    ValueId(0),
+                    Ownership::Borrowed {
+                        owner: OrigemOwner::Chamador,
+                        escopo: 0,
+                    },
+                ),
+                (ValueId(1), Ownership::Trivial),
+            ]);
+            let mut plano = PlanoTokens::default();
+            plano.instrucoes.insert(ValueId(1), EfeitoTokens::default());
+            assert!(
+                verificar_tokens(&f, &classes, &TabelasDaFuncao::default(), &plano).is_err(),
+                "{:?}",
+                f.blocks[0].instructions[0].1
+            );
+        }
     }
 
     #[test]
