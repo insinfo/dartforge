@@ -2,6 +2,28 @@
 
 ## Retomada de 2026-10-10
 
+Base de domínio da §28.1 em otimizar/arc/analise/modelo.rs:
+SitioArc usa identidade nominal de origem/especialização, independente de
+ValueId; NoAbstrato distingue alocação/contexto, parâmetro, resultado
+externo, global e unidade sintética. Placeholders não são objetos frescos:
+instanciação futura deve substituí-los pelos aliases reais. Chaves ainda
+não são produzidas/preservadas automaticamente pelo lowering/inliner/async.
+ConjuntoPontos separa conjunto conhecido vazio de topo desconhecido.
+Inclusão/união são monotônicas; budget imutável excedido eleva ao topo,
+sem conjunto truncado. Topo é absorvente mesmo entre budgets distintos.
+API não fornece atualização forte, singleton ou certificado de política;
+limites de contextos, motivos de desconhecimento e resumos SDK ainda
+precisam de produtores/solver e versionamento no plano.
+Testes exaustivos de três conjuntos sobre três nós, com quatro budgets,
+conferem união exata/ou topo, comutatividade, associatividade e idempotência.
+Regressões distinguem placeholders/contextos e recusam perda de aliases
+ao reduzir budget. Passaram 266 testes do emissor (sete ignorados) e
+63 exemplos públicos; logs target/arc-dominio-pontos-{suite,doc}.log.
+Este é o domínio usado pela futura worklist, não a conclusão de S0/S1,
+integração ao pipeline ou mudança da seleção explícita --memoria=arc.
+CI 38051323600 continua ativa; macOS chegou à seleção de memória na CLI,
+Linux chegou aos testes JIT e Windows continua no passo test.
+
 Infraestrutura comum prevista na §33.2 agora em otimizar/scc.rs:
 Tarjan iterativo recebe grafo indexado, devolve a partição completa em
 ordem de dependências e recusa destinos fora do grafo. Resumo de exceções

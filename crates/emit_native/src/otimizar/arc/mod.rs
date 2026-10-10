@@ -11,6 +11,7 @@ use crate::hir::*;
 use std::collections::{HashMap, HashSet};
 
 mod classificacao;
+pub mod analise;
 mod caixas;
 mod escopos;
 mod tokens;
