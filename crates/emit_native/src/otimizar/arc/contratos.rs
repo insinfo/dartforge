@@ -2712,6 +2712,83 @@ mod testes {
     }
 
     #[test]
+    fn campo_escalar_auditado_produz_bits_sem_classificar_get_generico() {
+        let mut f = Function {
+            symbol: "campo_escalar".into(),
+            name: "campo_escalar".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "objeto".into(), Type::Ref)],
+            return_ty: Type::F64,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![
+                    (
+                        ValueId(1),
+                        Instruction::CallRuntime {
+                            name: "dartforge_arc_ler_campo_escalar_v1".into(),
+                            args: vec![
+                                (Operand::Val(ValueId(0)), Type::Ref),
+                                (Operand::Constant(Constant::Int(2)), Type::I64),
+                            ],
+                            ret_ty: Type::I64,
+                        },
+                        Type::I64,
+                    ),
+                    (
+                        ValueId(2),
+                        Instruction::Bitcast {
+                            op: Operand::Val(ValueId(1)),
+                            to: Type::F64,
+                        },
+                        Type::F64,
+                    ),
+                ],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))),
+            }],
+        };
+        let origem = HashMap::from([(
+            ValueId(0),
+            Ownership::Borrowed {
+                owner: OrigemOwner::Chamador,
+                escopo: 0,
+            },
+        )]);
+        let mut classes = origem.clone();
+        let mut plano = PlanoTokens::default();
+        let contratos = produzir_e_verificar_tokens(
+            &f,
+            &mut classes,
+            &mut plano,
+            &TabelasDaFuncao::default(),
+            &PlanoEscopos::default(),
+        )
+        .unwrap();
+        let c = &contratos[&ValueId(1)];
+        assert_eq!(c.resultado, Ownership::Trivial);
+        assert_eq!(c.efeito, EfeitoTokens::default());
+        assert!(!c.invalida_borrows && !c.chama_dart);
+        assert_eq!(classes[&ValueId(2)], Ownership::Trivial);
+        // O get genérico pode devolver Ref; nenhuma anotação I64 o certifica.
+        if let Instruction::CallRuntime { name, .. } = &mut f.blocks[0].instructions[0].1 {
+            *name = "dartforge_object_get".into();
+        }
+        let mut classes = origem.clone();
+        let mut plano = PlanoTokens::default();
+        assert!(produzir_contratos_arc(&f, &mut classes, &mut plano).is_err());
+        assert_eq!(classes, origem);
+        assert!(plano.instrucoes.is_empty());
+        // A ABI escalar não aceita ser anotada como produtora de Ref.
+        if let Instruction::CallRuntime { name, ret_ty, .. } = &mut f.blocks[0].instructions[0].1 {
+            *name = "dartforge_arc_ler_campo_escalar_v1".into();
+            *ret_ty = Type::Ref;
+        }
+        f.blocks[0].instructions[0].2 = Type::Ref;
+        assert!(produzir_contratos_arc(&f, &mut classes, &mut plano).is_err());
+        assert_eq!(classes, origem);
+        assert!(plano.instrucoes.is_empty());
+    }
+
+    #[test]
     fn operacao_pura_nao_reinterpreta_referencia_como_escalar() {
         for i in [
             Instruction::FCmp(

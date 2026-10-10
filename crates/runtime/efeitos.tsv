@@ -674,6 +674,7 @@ dartforge_nsm_chamada	1	1	1
 dartforge_null_check_error_new	1	1	1
 dartforge_object_campos	0	0	0
 dartforge_object_get	0	0	0
+dartforge_arc_ler_campo_escalar_v1	0	0	0
 dartforge_object_new	1	0	0
 dartforge_object_new_t	1	0	0
 dartforge_object_set	0	0	0

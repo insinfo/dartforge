@@ -4,6 +4,40 @@
 // A fábrica owned de caixas é uma operação de alocação, com safepoint próprio.
 // O lançamento Ref publica uma raiz runtime e pode alocar o rastro.
 
+/// Copia os bits de um campo escalar de um objeto emprestado.
+///
+/// Exige objeto vivo, índice válido e campo não marcado como referência no
+/// mapa do heap. O lowering deve provar o layout correspondente antes de
+/// escolher esta ABI. Não aloca, coleta, retém o objeto, invalida empréstimos
+/// nem converte os bits. O catálogo pode declarar resultado escalar porque
+/// a implementação confere o mapa, não porque a representação é i64.
+///
+/// # Panics
+/// Violação das precondições de layout/objeto/índice; aborta no limite C.
+/// Não substitui as verificações Dart de receiver, tipo ou inicialização late.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let objeto = dartforge_object_new(123, 1);
+/// dartforge_arc_retain(objeto);
+/// dartforge_object_set(objeto, 0, i64::MAX, 0);
+/// assert_eq!(dartforge_arc_ler_campo_escalar_v1(objeto, 0), i64::MAX);
+/// dartforge_arc_release(objeto);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_ler_campo_escalar_v1(objeto: i64, indice: i64) -> i64 {
+    HEAP.with(|heap| ler_campo_escalar_auditado(&heap.borrow(), objeto, indice)
+        .expect("contrato de leitura escalar ARC violado"))
+}
+
+fn ler_campo_escalar_auditado(heap: &Heap, objeto: i64, indice: i64) -> Result<i64, &'static str> {
+    let objeto = heap.objeto(objeto).ok_or("receiver não é objeto vivo")?;
+    let indice = usize::try_from(indice).map_err(|_| "índice negativo")?;
+    let (bits, referencia) = objeto.get(indice).ok_or("índice fora do objeto")?;
+    if referencia { return Err("campo é referência gerenciada"); }
+    Ok(bits)
+}
+
 /// Lança um valor Ref emprestado e o mantém como raiz da exceção pendente.
 ///
 /// Não consome o token do chamador. O protocolo de exceções mantém uma raiz
@@ -714,6 +748,51 @@ mod testes_caixa_double_owned {
                 dartforge_arc_collect();
                 assert_eq!(dartforge_arc_observar_heap_v1(valor), 0);
             }
+            HEAP.with(|h| { h.replace(anterior); });
+        }
+    }
+}
+
+#[cfg(test)]
+mod testes_campo_escalar {
+    use super::*;
+
+    #[test]
+    fn leitura_confere_mapa_sem_confundir_bits_com_handle_e_sem_coletar() {
+        for arc in [false, true] {
+            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+            let objeto = HEAP.with(|h| {
+                let mut h = h.borrow_mut();
+                let filho = h.alocar_str("campo de referência");
+                h.reter_owner_codigo(filho);
+                let mut campos = vec![(0, false); 40];
+                campos[0] = (filho, false);
+                campos[1] = (filho, true);
+                campos[2] = ((-0.0_f64).to_bits() as i64, false);
+                campos[3] = (0x7ff80000deadbeef, false);
+                campos[32] = (i64::MAX, false);
+                campos[37] = (filho, true);
+                let objeto = h.novo_objeto(123, &campos);
+                h.reter_owner_codigo(objeto);
+                h.collect();
+                objeto
+            });
+            let antes = HEAP.with(|h| h.borrow().stats());
+            for i in [0, 2, 3, 32, 39] {
+                let esperado = HEAP.with(|h| h.borrow().objeto(objeto).unwrap().campo(i).0);
+                assert_eq!(dartforge_arc_ler_campo_escalar_v1(objeto, i as i64), esperado);
+            }
+            HEAP.with(|h| {
+                let h = h.borrow();
+                for i in [1, 37] {
+                    assert_eq!(ler_campo_escalar_auditado(&h, objeto, i), Err("campo é referência gerenciada"));
+                }
+                for i in [-1, 40] { assert!(ler_campo_escalar_auditado(&h, objeto, i).is_err()); }
+                assert!(ler_campo_escalar_auditado(&h, 0, 0).is_err());
+                assert_eq!(h.stats().allocations, antes.allocations);
+                assert_eq!(h.stats().collections, antes.collections);
+            });
             HEAP.with(|h| { h.replace(anterior); });
         }
     }

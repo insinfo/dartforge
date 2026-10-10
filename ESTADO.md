@@ -2,6 +2,23 @@
 
 ## Retomada de 2026-10-10
 
+ABI dartforge_arc_ler_campo_escalar_v1 copia bits somente após conferir
+objeto vivo, índice e ausência da marca de referência no mapa real do heap.
+Borrow do receiver, resultado I64 escalar, sem retenção/invalidação/GC/Dart;
+catálogo ownership, efeitos e extern LLVM auditados juntos. Violação de
+precondição é falha interna com aborto C, não TypeError Dart. Lowering ainda
+deve provar receiver/layout e guardas de tipo/late antes de escolher a ABI;
+não troca dartforge_object_get no fluxo padrão nem classifica seu resultado.
+Prova de heap com stress em ARC/tracing inclui mapa estendido (40 campos),
+bits de handle em campo escalar, referência com os mesmos bits, -0/NaN e
+ausência de alocação/coleta. HIR liga resultado escalar ao bitcast e recusa
+getter genérico e retorno Ref falseado, sem publicação parcial. Sem nova
+prova AOT desta ABI; integração/layouts/borrows completos continuam pendentes.
+Passaram 176 testes runtime (3 ignorados), 2 testes do catálogo e 37 exemplos
+runtime; emissor: 221 testes (7 ignorados) e 52 exemplos de documentação.
+Logs target/arc-campo-runtime-{suite,doc}.log, target/arc-campo-ownership.log
+e target/arc-campo-emissor-{suite,doc}.log. ARC continua exclusivo de --memoria=arc.
+
 Verificador ARC reconfere constantes, boxing bool, aritmética e conversões
 pelas mesmas regras do produtor, no módulo privado puros. Regressão reproduziu
 aceitação de Bitcast Ref/F64 com resultado falseado Trivial
@@ -52,9 +69,10 @@ logs target/arc-larguras-{suite,doc}.log. Passe padrão ainda pendente e
 restrito a --memoria=arc; contratos de loads/campos e borrows exigem cobertura.
 
 CI 38025125587 na fonte f81c7d2b: Windows, Linux e mensagens concluídos com
-sucesso; macOS ainda nos testes com ignorados na última consulta. As provas
+sucesso; macOS ainda nos testes JIT com ignorados na última consulta. As provas
 AOT Unix de unwind passaram nos dois sistemas. Avanços locais de bitcasts,
 larguras inteiras, locais e verificação são posteriores a essa fonte.
+CI Sem toolchain do sistema 38025125631 concluída com sucesso na fonte f81c7d2b.
 
 Contratos ARC cobrem os bitcasts F64/I64 usados pelo lowering de campos.
 Exigem representações opostas, resultado compatível e origem Trivial após
