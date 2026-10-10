@@ -2,6 +2,26 @@
 
 ## Retomada de 2026-10-10
 
+Análise HIR consome aliases de retorno normal de CallStatic com corpo local
+disponível no módulo. Substitui parâmetros pelos argumentos reais, sem
+fabricar objeto fresco; retorno só null conserva conjunto vazio. Aridade e
+representação Ref são conferidas. Chamadas continuam opacas para escrita,
+retenção e efeitos excepcionais: campos conhecidos perdem precisão e escape
+da operação permanece topo, sem deduzir noescape do alias normal.
+Dependências dos corpos usados ficam registradas; calcular_no_modulo confere
+presença e assinatura local de cada callee antes de consumir escape.
+Consumo sem módulo é recusado quando há dependências. Regressão altera o
+callee para null, remove o corpo e confere invalidação/reanálise conservadora.
+Fixture com frontend/SDK reais também extrai alias de um método identidade.
+Passaram 286 testes do emissor (sete ignorados), um teste focado da fonte e
+85 exemplos públicos. Logs target/arc-chamadas-resumos-{suite,fonte,doc}.log.
+Chamadas encadeadas/SCC recursivas, efeitos de campos/escape/observadores,
+resumos SDK e dependências de layouts/pins/gerações JIT continuam pendentes.
+Guarda de corpo é local, não formato de exportação versionada. Entrada de
+análise permanece explícita e só no módulo ARC; não seleciona política nem
+remove contagens. ARC só com --memoria=arc; tracing permanece padrão.
+Não conclui S0/S1, §§27–34 ou o gate de desempenho ARC/A0.
+
 ResumoHeapArc inicial em otimizar/arc/analise/resumos.rs separa retorno
 normal paramétrico dos resumos de alcance/efeitos.tsv. Extrator sobre SSA
 propaga placeholders de parâmetros Ref por Copy/Move/Phi/bitcast Ref→Ref;

@@ -12,6 +12,8 @@ use std::collections::HashMap;
 /// classe/layout e o índice existe. Cópias/Phis preservam essa união; leitura
 /// opaca, parâmetro e call sem resumo não provam a classe do receiver.
 /// Chaves de layout são locais à versão do módulo, sem validade de recarga.
+/// CallStatic usa aliases normais dos corpos locais; efeitos continuam opacos.
+/// Versões dos callees usados são registradas para conferência no consumo.
 ///
 /// # Erros
 /// Símbolo ausente/duplicado, fato de sítio obsoleto, origem com classes
@@ -38,6 +40,32 @@ pub fn analisar_no_modulo(
         .ok_or_else(|| format!("points-to: corpo ausente {simbolo}"))?;
     if corpos.next().is_some() {
         return Err(format!("points-to: corpo duplicado {simbolo}"));
+    }
+    let chamadas: std::collections::HashSet<_> = f
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .filter_map(|(_, i, _)| {
+            if let Instruction::CallStatic { symbol, .. } = i {
+                Some(symbol.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
+    let mut resumos = HashMap::new();
+    for callee in &m.functions {
+        if chamadas.contains(callee.symbol.as_str()) {
+            if resumos
+                .insert(
+                    callee.symbol.clone(),
+                    (callee, super::resumos::extrair(callee, limite)?),
+                )
+                .is_some()
+            {
+                return Err(format!("points-to: callee duplicado {}", callee.symbol));
+            }
+        }
     }
     let instrucoes: HashMap<_, _> = f
         .blocks
@@ -90,7 +118,7 @@ pub fn analisar_no_modulo(
     }
     // Primeiro resolve origens/cópias/Phis sem supor layouts de receivers.
     // Falta de contrato mantém topo; só os conjuntos fechados abaixo refinam.
-    let preliminar = analisar(f, &fatos, limite)?;
+    let preliminar = analisar_com_resumos(f, &fatos, limite, &resumos)?;
     for (v, i, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
         let (objeto, indice) = match i {
             Instruction::GetField { object, index }
@@ -135,12 +163,82 @@ pub fn analisar_no_modulo(
             },
         );
     }
-    Ok(Some(analisar(f, &fatos, limite)?))
+    Ok(Some(analisar_com_resumos(f, &fatos, limite, &resumos)?))
 }
 
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn chamada_direta_preserva_alias_e_confere_dependencia_sem_provar_noescape() {
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.layouts_campos_arc.insert(1, vec![]);
+        m.functions.push(Function {
+            symbol: "caller".into(),
+            name: "caller".into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![
+                    (
+                        ValueId(0),
+                        Instruction::AllocObject {
+                            class_id: 1,
+                            fields: vec![],
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(1),
+                        Instruction::CallStatic {
+                            symbol: "id".into(),
+                            args: vec![Operand::Val(ValueId(0))],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    ),
+                ],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+            }],
+        });
+        m.functions.push(Function {
+            symbol: "id".into(),
+            name: "id".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "x".into(), Type::Ref)],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
+            }],
+        });
+        super::super::origens::registrar(&mut m, 0, true);
+        let a = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+        assert_eq!(a.valor(ValueId(0)), a.valor(ValueId(1)));
+        assert_eq!(a.valor(ValueId(1)).unwrap().nos().unwrap().len(), 1);
+        assert_eq!(a.desconhecidos, vec![ValueId(1)]);
+        assert!(super::super::escape::calcular(&m.functions[0], &a).is_err());
+        let r = super::super::escape::calcular_no_modulo(&m, "caller", &a).unwrap();
+        assert!(
+            r.publicacoes[&super::super::escape::CausaEscape::OperacaoOpaca(1)]
+                .nos()
+                .is_none()
+        );
+        m.functions[1].blocks[0].terminator =
+            Terminator::Return(Some(Operand::Constant(Constant::Null)));
+        assert!(super::super::escape::calcular_no_modulo(&m, "caller", &a).is_err());
+        let a = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+        assert!(a.valor(ValueId(1)).unwrap().nos().unwrap().is_empty());
+        m.functions.pop();
+        assert!(super::super::escape::calcular_no_modulo(&m, "caller", &a).is_err());
+        let a = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+        assert!(a.valor(ValueId(1)).unwrap().nos().is_none());
+    }
 
     #[test]
     fn fabrica_zerada_usa_origem_layout_e_stores_sem_plano_manual() {

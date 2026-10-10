@@ -46,7 +46,8 @@ pub struct ResultadoEscape {
 /// do contrato Borrowed da ABI. Não transforma HIR nem seleciona política.
 ///
 /// # Erros
-/// O corpo mudou depois da solução points-to. Recalcular antes de consumir.
+/// O corpo mudou depois da solução points-to, ou há dependências de callees
+/// que precisam ser conferidas por [`calcular_no_modulo`]. Recalcular quando necessário.
 /// O hash é uma guarda local, não dependência versionada SDK/JIT.
 ///
 /// ```
@@ -60,6 +61,52 @@ pub struct ResultadoEscape {
 /// # Ok::<(), String>(())
 /// ```
 pub fn calcular(f: &Function, a: &AnaliseHir) -> Result<ResultadoEscape, String> {
+    if !a.dependencias_corpos.is_empty() {
+        return Err("escape ARC: validar dependências pelo módulo".into());
+    }
+    calcular_validado(f, a)
+}
+
+/// Confere no módulo as versões dos callees usados para aliases, antes do escape.
+/// Não valida gerações JIT, layouts/pins ou resumos SDK ainda não implementados.
+///
+/// # Erros
+/// Corpo/callee ausente, duplicado ou alterado após a análise.
+///
+/// ```
+/// use dartforge_emit_native::{hir::*, otimizar::arc::analise::{hir::*, escape::*}};
+/// let f = Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+/// params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
+/// id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] };
+/// let a = analisar(&f, &FatosHir::default(), 8)?;
+/// let mut m = Module::new(); m.functions.push(f);
+/// assert!(calcular_no_modulo(&m, "f", &a)?.publicacoes.is_empty());
+/// # Ok::<(), String>(())
+/// ```
+pub fn calcular_no_modulo(
+    m: &Module,
+    simbolo: &str,
+    a: &AnaliseHir,
+) -> Result<ResultadoEscape, String> {
+    let mut indice = std::collections::HashMap::new();
+    for f in &m.functions {
+        if indice.insert(&f.symbol, f).is_some() {
+            return Err("escape ARC: corpo duplicado".into());
+        }
+    }
+    for (s, assinatura) in &a.dependencias_corpos {
+        let f = indice.get(s).ok_or("escape ARC: callee ausente")?;
+        if assinatura_corpo(f) != *assinatura {
+            return Err(format!("escape ARC: callee mudou {s}"));
+        }
+    }
+    let f = indice
+        .get(&simbolo.to_string())
+        .ok_or("escape ARC: corpo ausente")?;
+    calcular_validado(f, a)
+}
+
+fn calcular_validado(f: &Function, a: &AnaliseHir) -> Result<ResultadoEscape, String> {
     if a.corpo != assinatura_corpo(f) {
         return Err("escape ARC: corpo mudou após points-to".into());
     }

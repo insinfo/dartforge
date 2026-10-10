@@ -60,6 +60,7 @@ pub struct AnaliseHir {
     pub desconhecidos: Vec<ValueId>,
     ids: HashMap<ValueId, usize>,
     pub(crate) corpo: blake3::Hash,
+    pub(crate) dependencias_corpos: HashMap<String, blake3::Hash>,
     pub(crate) limite: usize,
     pub(crate) esquemas: HashMap<NoAbstrato, BTreeSet<CampoArc>>,
 }
@@ -102,6 +103,22 @@ impl AnaliseHir {
 /// # Ok::<(), String>(())
 /// ```
 pub fn analisar(f: &Function, fatos: &FatosHir, limite: usize) -> Result<AnaliseHir, String> {
+    analisar_com_resumos(f, fatos, limite, &HashMap::new())
+}
+
+pub(crate) fn analisar_com_resumos(
+    f: &Function,
+    fatos: &FatosHir,
+    limite: usize,
+    resumos: &HashMap<String, (&Function, super::resumos::ResumoHeapArc)>,
+) -> Result<AnaliseHir, String> {
+    for (simbolo, (corpo, resumo)) in resumos {
+        if simbolo != &corpo.symbol {
+            return Err("points-to: símbolo de resumo incompatível".into());
+        }
+        resumo.conferir(corpo)?;
+    }
+    let mut dependencias_corpos = HashMap::new();
     super::super::ssa::verificar(f)?;
     let instrucoes: HashMap<_, _> = f
         .blocks
@@ -227,6 +244,46 @@ pub fn analisar(f: &Function, fatos: &FatosHir, limite: usize) -> Result<Analise
                     });
                 }
             }
+            Instruction::CallStatic {
+                symbol,
+                args,
+                ret_ty,
+            } if *ty == Type::Ref
+                && *ret_ty == Type::Ref
+                && resumos.get(symbol).is_some_and(|(_, r)| {
+                    matches!(r.retorno(), super::resumos::RetornoHeapArc::Aliases { .. })
+                }) =>
+            {
+                let (callee, resumo) = &resumos[symbol];
+                if args.len() != callee.params.len() {
+                    return Err(format!("points-to: aridade de {symbol}"));
+                }
+                let super::resumos::RetornoHeapArc::Aliases { parametros, .. } = resumo.retorno()
+                else {
+                    unreachable!()
+                };
+                for &p in parametros {
+                    if let Operand::Val(arg) = &args[p] {
+                        if tipos[arg] != Type::Ref {
+                            return Err(format!(
+                                "points-to: argumento Ref incompatível em {symbol}"
+                            ));
+                        }
+                    }
+                    rs.push(Restricao::Copiar {
+                        origem: operando(&args[p]),
+                        destino,
+                    });
+                }
+                dependencias_corpos.insert(symbol.clone(), assinatura_corpo(callee));
+                // Alias normal não implica ausência de escrita/retenção/erro.
+                desconhecidos.push(*v);
+                for campo in &campos {
+                    rs.push(Restricao::DesconhecerCampo {
+                        campo: campo.clone(),
+                    });
+                }
+            }
             Instruction::GetField { object, .. } if fatos.acessos.contains_key(v) => {
                 rs.push(Restricao::Ler {
                     objeto: operando(object),
@@ -292,6 +349,7 @@ pub fn analisar(f: &Function, fatos: &FatosHir, limite: usize) -> Result<Analise
         desconhecidos,
         ids,
         corpo: assinatura_corpo(f),
+        dependencias_corpos,
         limite,
         esquemas,
     })

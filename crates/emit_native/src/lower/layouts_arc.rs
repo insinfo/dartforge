@@ -240,6 +240,10 @@ void main() { Base().exercitar(Object()); }
                         .find(|f| f.name == "identidade")
                         .unwrap();
                     assert!(modulo.retornos_ref_dart.contains(&identidade.symbol));
+                    let resumo = crate::otimizar::arc::analise::resumos::extrair(identidade, 8).unwrap();
+                    assert!(matches!(resumo.retorno(),
+                        crate::otimizar::arc::analise::resumos::RetornoHeapArc::Aliases { parametros, .. }
+                            if !parametros.is_empty() && parametros.iter().all(|&p| identidade.params[p].2 == Type::Ref)));
                     assert!(
                         modulo
                             .functions
