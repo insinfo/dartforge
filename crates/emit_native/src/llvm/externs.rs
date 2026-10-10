@@ -171,6 +171,10 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: Efeitos { aloca: true, lanca: false, chama_dart: false },
     },
     Extern {
+        decl: "declare i64 @dartforge_arc_objeto_owned_t_v1(i64, i64, ptr) nounwind",
+        efeitos: Efeitos { aloca: true, lanca: false, chama_dart: false },
+    },
+    Extern {
         decl: "declare void @dartforge_arc_gravar_campo_escalar_v1(i64, i64, i64) nounwind",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },

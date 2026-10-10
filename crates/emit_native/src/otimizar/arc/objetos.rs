@@ -1,7 +1,7 @@
 //! Materializa alocação Owned e inicialização de campos com layout explícito.
 //! Não deduz layout de receivers, guardas late/tipo ou versões do heap.
-//! Só roda na transação privada do módulo ARC; não registra métodos nem
-//! executa construtores Dart. Estes permanecem nas operações do lowering.
+//! Só roda na transação privada do módulo ARC. O emissor conserva o registro
+//! de métodos da fábrica; construtores e inicializadores continuam separados.
 
 use super::{PlanoFuncaoDart, arestas::proximo_valor};
 use crate::hir::*;
@@ -42,6 +42,47 @@ pub(super) fn preparar(
     for b in &mut f.blocks {
         let mut instructions = Vec::new();
         for (v, inst, ty) in &b.instructions {
+            if let Instruction::CallRuntime { name, args, ret_ty } = inst
+                && name == "dartforge_object_new"
+            {
+                let erro = || {
+                    format!(
+                        "alocação zerada ARC em {} v{}: classe/quantidade/layout incompatível",
+                        f.symbol, v.0
+                    )
+                };
+                let [
+                    (Operand::Constant(Constant::Int(classe)), Type::I64),
+                    (Operand::Constant(Constant::Int(campos)), Type::I64),
+                ] = args.as_slice()
+                else {
+                    return Err(erro());
+                };
+                let classe = u32::try_from(*classe).map_err(|_| erro())?;
+                let campos = u16::try_from(*campos).map_err(|_| erro())?;
+                if *ty != Type::Ref
+                    || *ret_ty != Type::Ref
+                    || i32::try_from(classe).is_err()
+                    || layouts
+                        .get(&classe)
+                        .is_none_or(|l| l.len() != usize::from(campos))
+                {
+                    return Err(erro());
+                }
+                // Instância ainda em construção: apenas a alocação ganha um
+                // token. Guardas, RTI, inicializadores e construtor continuam
+                // nas operações seguintes. Não certifica seus campos zerados.
+                instructions.push((
+                    *v,
+                    Instruction::CallRuntime {
+                        name: "dartforge_arc_objeto_owned_v1".into(),
+                        args: args.clone(),
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                ));
+                continue;
+            }
             let Instruction::AllocObject { class_id, fields } = inst else {
                 instructions.push((*v, inst.clone(), *ty));
                 continue;
@@ -136,6 +177,126 @@ pub(super) fn preparar(
 #[cfg(test)]
 mod testes {
     use crate::otimizar::arc::*;
+
+    #[test]
+    fn ponteiro_de_tabela_sem_proveniencia_nao_ganha_contrato_runtime() {
+        let (mut m, _) = modulo();
+        m.functions[0].params.clear();
+        m.functions[0].blocks[0].instructions = vec![(
+            ValueId(2),
+            Instruction::CallRuntime {
+                name: "dartforge_arc_objeto_owned_t_v1".into(),
+                args: vec![
+                    (Operand::Constant(Constant::Int(123)), Type::I64),
+                    (Operand::Constant(Constant::Int(5)), Type::I64),
+                    (
+                        Operand::Constant(Constant::Funcao("arbitraria".into())),
+                        Type::Ptr,
+                    ),
+                ],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        )];
+        let mut classes = HashMap::new();
+        let mut tokens = PlanoTokens::default();
+        let antes = format!("{classes:?}{tokens:?}");
+        let erro =
+            produzir_contratos_runtime(&m.functions[0], &mut classes, &mut tokens).unwrap_err();
+        assert!(
+            erro.contains("tabela estática exige proveniência"),
+            "{erro}"
+        );
+        assert_eq!(format!("{classes:?}{tokens:?}"), antes);
+    }
+
+    #[test]
+    fn instancia_zerada_preserva_construtor_e_recusa_metadados_invalidos_atomicamente() {
+        for caso in 0..7 {
+            let (mut m, mut planos) = modulo();
+            m.functions[0].params.clear();
+            m.functions[0].blocks[0].instructions = vec![
+                (
+                    ValueId(2),
+                    Instruction::CallRuntime {
+                        name: "dartforge_object_new".into(),
+                        args: vec![
+                            (Operand::Constant(Constant::Int(123)), Type::I64),
+                            (Operand::Constant(Constant::Int(5)), Type::I64),
+                        ],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                ),
+                (
+                    ValueId(3),
+                    Instruction::CallStatic {
+                        symbol: "construtor".into(),
+                        args: vec![Operand::Val(ValueId(2))],
+                        ret_ty: Type::Void,
+                    },
+                    Type::Void,
+                ),
+            ];
+            m.functions.push(Function {
+                symbol: "construtor".into(),
+                name: "construtor".into(),
+                depuracao: None,
+                params: vec![(ValueId(0), "this".into(), Type::Ref)],
+                return_ty: Type::Void,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![],
+                    terminator: Terminator::Return(None),
+                }],
+            });
+            planos.insert("construtor".into(), PlanoFuncaoDart::default());
+            let Instruction::CallRuntime { args, ret_ty, .. } =
+                &mut m.functions[0].blocks[0].instructions[0].1
+            else {
+                unreachable!()
+            };
+            match caso {
+                1 => args[1].0 = Operand::Constant(Constant::Int(4)),
+                2 => args[0].0 = Operand::Constant(Constant::Int(999)),
+                3 => args[1].1 = Type::Ref,
+                4 => *ret_ty = Type::I64,
+                5 => args[1].0 = Operand::Constant(Constant::Int(-1)),
+                6 => {
+                    m.memoria_arc = false;
+                }
+                _ => {}
+            }
+            let antes = format!("{m:?}{planos:?}");
+            let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
+            if (1..6).contains(&caso) {
+                assert!(resultado.is_err(), "caso {caso}");
+                assert_eq!(format!("{m:?}{planos:?}"), antes);
+            } else if caso == 6 {
+                assert_eq!(resultado.unwrap(), (0, 0));
+                assert_eq!(format!("{m:?}{planos:?}"), antes);
+            } else {
+                resultado.unwrap();
+                assert_eq!(planos["objeto"].classes[&ValueId(2)], Ownership::Owned);
+                let ops: Vec<_> = m.functions[0]
+                    .blocks
+                    .iter()
+                    .flat_map(|b| &b.instructions)
+                    .collect();
+                assert!(ops.iter().any(|(_, i, _)| matches!(i,
+                    Instruction::CallRuntime { name, .. } if name == "dartforge_arc_objeto_owned_v1")));
+                assert!(ops.iter().any(|(_, i, _)| matches!(i,
+                    Instruction::CallStatic { symbol, args, .. }
+                    if symbol == "construtor" && args == &vec![Operand::Val(ValueId(2))])));
+                assert!(!ops.iter().any(|(_, i, _)| matches!(i,
+                    Instruction::CallRuntime { name, .. } if name.starts_with("dartforge_arc_gravar_campo"))));
+                assert_eq!(
+                    preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+                    (0, 0)
+                );
+            }
+        }
+    }
 
     fn modulo() -> (Module, HashMap<String, PlanoFuncaoDart>) {
         let mut m = Module::new();

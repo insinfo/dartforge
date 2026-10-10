@@ -16,6 +16,10 @@ import tempfile
 
 
 PROVAS = {
+    "arc_instancia_zerada": ("prova-instancia-zerada", False, [
+        ("normal", None), ("normal", "sem-owner"),
+        ("normal", "sem-tabela"), ("normal", "sem-drop"),
+    ]),
     "arc_campos_locais": ("prova-campos-locais", False, [
         ("normal", None), ("normal", "sem-retencao"),
         ("normal", "sem-drop-objeto"), ("normal", "sem-drop-retorno"),

@@ -232,6 +232,7 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
             ("i64:scalar", false) => ("i64", "ModoParametro::Scalar"),
             ("f64:scalar", false) => ("f64", "ModoParametro::ScalarF64"),
             ("i64:native", false) => ("i64", "ModoParametro::Native"),
+            ("tabela:native", false) => ("extern \"C\" fn() -> *const i64", "ModoParametro::TabelaEstatica"),
             ("ref:owned", true) => ("i64", "ModoResultado::Owned"),
             ("i64:scalar", true) => ("i64", "ModoResultado::ScalarI64"),
             ("f64:scalar", true) => ("f64", "ModoResultado::ScalarF64"),
@@ -347,7 +348,7 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
 /// assert_ne!(ModoParametro::Borrow, ModoParametro::Consume);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModoParametro { Borrow, Consume, ConsumeSuccess, ConsumeError, Scalar, ScalarF64, Native }
+pub enum ModoParametro { Borrow, Consume, ConsumeSuccess, ConsumeError, Scalar, ScalarF64, Native, TabelaEstatica }
 /// Resultado das externs auditadas, sem convenção implícita.
 ///
 /// ```
@@ -400,7 +401,7 @@ pub const CONTRATOS: &[Contrato] = &[
             .collect::<Vec<_>>()
             .join(", ");
         saida.push_str(&format!(
-            "const _: extern \"C\" fn({tipos}) -> {ret} = crate::abi::{nome};\n"
+            "const _: unsafe extern \"C\" fn({tipos}) -> {ret} = crate::abi::{nome};\n"
         ));
     }
     saida

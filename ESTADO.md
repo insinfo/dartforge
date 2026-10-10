@@ -7,6 +7,42 @@ tracing permanece padrão. Integração dos passes ao fluxo normal de
 compilação deve respeitar essa seleção. C++ aparece nas fixtures de
 exceções estrangeiras; compilador e runtime são implementados em Rust.
 
+Correção da seleção na CLI registrada em 4fe197ef: AOT/compile-native/run/
+reload partem de tracing, mesmo com DARTFORGE_MEMORIA=arc herdado; somente
+a opção explícita escolhe ARC. run/reload agora reconhecem --memoria=arc.
+Em run a opção deve preceder o arquivo; depois dele é argumento de main.
+O reinício da recarga transporta a seleção para o filho e mantém a variante
+do SDK. Três testes passaram, incluindo oito execuções que consultam o modo
+real do heap pela ABI via FFI (AOT, JIT e recarga com/sem reinício), além da
+recusa de política inválida antes de carregar fonte. Log local:
+target/arc-memoria-cli-test.log. Commit ainda local enquanto a CI anterior
+termina; a regra opt-in está documentada em ARC-IMPLEMENTACAO.md e JIT.md.
+
+Preparação explícita ARC agora reconhece a fábrica zerada object_new usada
+pelo lowering de instâncias. Confere classe/quantidade constantes, tipos e
+layout, preserva ID, RTI/inicializadores/construtor subsequentes e entrega
+token Owned. Campos ainda em construção conservam seu protocolo; isso não
+certifica receivers/campos nem inicialização completa. Casos inválidos são
+atômicos, a preparação é idempotente e tracing conserva o corpo.
+LLVM conserva o registro preguiçoso de métodos pela nova fábrica
+dartforge_arc_objeto_owned_t_v1. Seu callback segue o protocolo estático de
+tabelas, sem Dart/GC/exceções; função Rust unsafe documenta a validade da
+memória devolvida. Catálogo confere a assinatura Rust completa e distingue
+TabelaEstatica de um inteiro/endereço genérico. Produtor runtime genérico
+recusa essa entrada sem proveniência do emissor, sem publicar mapas.
+
+Regressões aprovadas: 253 testes do emissor, 182 do runtime, 52 exemplos
+públicos do emissor e 42 do runtime; sete/três testes ignorados das respectivas
+bibliotecas permanecem fora desta rodada. Exemplo arc_instancia_zerada usa
+o thunk real emitido para uma biblioteca e registra somente na fábrica.
+Matriz nativa Windows aprovou quatro positivos e 12 controles por trap,
+ARC/tracing × O0/O2: owner vivo, campo zero, lookup/chamada do método e morte
+após release; retirada do owner/tabela/release é detectada. Repetição final
+após explicitar unsafe na assinatura Rust também aprovada. Logs em
+target/arc-instancia-*; matriz e regressão da CLI adicionadas à CI local.
+Integração automática completa no fluxo ARC, construção parcialmente falha,
+versões/pins, contratos do SDK e gate ARC/A0 continuam pendentes.
+
 Lowering de campos da fonte agora conserva I64/F64/I1/Ref em GetField e
 SetField somente no modo ARC, com índice constante e campo não-late.
 FFI, late e índices dinâmicos conservam seus protocolos atuais. Emissão

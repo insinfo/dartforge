@@ -149,7 +149,11 @@ pub fn preparar_arc_funcoes_dart(
 /// AllocObject com layout completo vira fábrica Owned e setters auditados:
 /// Ref mantém uma aresta; escalares gravam bits, com bitcast de double e
 /// extensão sem sinal de bool/byte. Literais em argumentos precisam estar
-/// materializados na HIR. Não registra métodos nem executa construtor Dart.
+/// materializados na HIR. A fábrica zerada object_new, com classe/quantidade
+/// constantes e layout válido, também ganha token Owned. Inicializadores,
+/// RTI e construtor continuam nas operações seguintes. A emissão conserva
+/// o registro preguiçoso da tabela de métodos pela fábrica Owned específica.
+/// A alocação zerada não certifica os campos ainda em construção.
 /// GetField/SetField de alocações locais não publicadas escolhem as ABIs
 /// auditadas pela representação de todos os layouts candidatos. Cópias,
 /// moves e Phis conservam conjuntos de origens, inclusive entradas opacas;

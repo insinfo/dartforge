@@ -46,6 +46,44 @@ fn parametros_instancia_owned(classe: i64, campos: i64) -> Result<(i32, usize), 
     Ok((classe, usize::from(campos)))
 }
 
+/// Registra a tabela estática de métodos e aloca uma instância zerada Owned.
+///
+/// A função `tabela` é o thunk estático do emissor: devolve uma tabela válida
+/// `{cid, n, [hash, entrada]…}`, sem executar Dart, coletar ou lançar. A memória
+/// e as entradas precisam permanecer válidas segundo o protocolo de gerações.
+/// O registro ocorre antes da alocação; o token tem o mesmo contrato de
+/// [`dartforge_arc_objeto_owned_v1`]. Não executa o construtor Dart.
+///
+/// # Safety
+/// `tabela` deve cumprir o protocolo acima: ponteiro legível, quantidade e
+/// entradas válidas, memória durável e ausência de Dart/GC/exceções. A função
+/// de registro lê a memória devolvida; um ponteiro inválido não é verificável.
+///
+/// # Panics
+/// Classe/quantidade inválida ou falha interna; aborta no limite C. Tabela
+/// inválida viola o protocolo nativo, como em `dartforge_object_new_t`.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// extern "C" fn tabela() -> *const i64 {
+///     static TABELA: [i64; 2] = [32000, 0];
+///     TABELA.as_ptr()
+/// }
+/// // SAFETY: thunk puro, tabela estática válida e sem entradas.
+/// let objeto = unsafe { dartforge_arc_objeto_owned_t_v1(32000, 0, tabela) };
+/// dartforge_arc_collect();
+/// assert_eq!(dartforge_arc_observar_heap_v1(objeto), 3);
+/// dartforge_arc_release(objeto);
+/// dartforge_arc_collect();
+/// assert_eq!(dartforge_arc_observar_heap_v1(objeto), 0);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_arc_objeto_owned_t_v1(classe: i64, campos: i64, tabela: extern "C" fn() -> *const i64) -> i64 {
+    parametros_instancia_owned(classe, campos).expect("contrato de alocação de instância ARC violado");
+    dartforge_registrar_tabela(classe, tabela);
+    dartforge_arc_objeto_owned_v1(classe, campos)
+}
+
 /// Grava bits escalares num campo de uma instância emprestada.
 ///
 /// Exige receiver vivo e mutável, índice válido e layout escalar certificado
@@ -1024,6 +1062,33 @@ mod testes_gravacao_campo {
 #[cfg(test)]
 mod testes_instancia_owned {
     use super::*;
+
+    #[test]
+    fn instancia_owned_registra_metodos_antes_de_alocar_e_preserva_token() {
+        use std::sync::{OnceLock, atomic::{AtomicUsize, Ordering}};
+        static CHAMADAS: AtomicUsize = AtomicUsize::new(0);
+        extern "C" fn entrada(_: i64, _: *const i64, _: *const i64) -> i64 { 85 }
+        extern "C" fn tabela() -> *const i64 {
+            static TABELA: OnceLock<[i64; 4]> = OnceLock::new();
+            CHAMADAS.fetch_add(1, Ordering::Relaxed);
+            TABELA.get_or_init(|| [32001, 1, 42, entrada as *const () as usize as i64]).as_ptr()
+        }
+        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+        HEAP.with(|h| h.borrow_mut().ativar_arc());
+        for _ in 0..2 {
+            // SAFETY: tabela estática válida com uma entrada nativa durável.
+            let objeto = unsafe { dartforge_arc_objeto_owned_t_v1(32001, 1, tabela) };
+            assert_eq!(metodo_da_classe(32001, 42), Some(entrada as *const () as usize));
+            dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observar_heap_v1(objeto), 3);
+            assert_eq!(dartforge_arc_ler_campo_escalar_v1(objeto, 0), 0);
+            dartforge_arc_release(objeto);
+            dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observar_heap_v1(objeto), 0);
+        }
+        assert_eq!(CHAMADAS.load(Ordering::Relaxed), 1);
+        HEAP.with(|h| { h.replace(anterior); });
+    }
 
     #[test]
     fn instancia_zerada_e_token_sobrevivem_a_stress_ate_uma_liberacao() {

@@ -100,6 +100,23 @@ jobs:
       - name: Getters e setters de campos locais (AOT Windows)
         shell: pwsh
         run: python scripts/provar-arc-aot.py arc_campos_locais --features llvm-embutido
+      - name: Seleção explícita de memória na CLI (AOT, JIT e reload)
+        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test memoria_cli -- --include-ignored
+      - name: Instâncias zeradas Owned e registro de métodos (AOT Windows)
+        shell: pwsh
+        run: python scripts/provar-arc-aot.py arc_instancia_zerada --features llvm-embutido
+      - name: Artefatos das instâncias zeradas Windows
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: prova-instancia-zerada-windows
+          path: |
+            target/prova-instancia-zerada/*.ll
+            target/prova-instancia-zerada/*.stdout
+            target/prova-instancia-zerada/*.stderr
+            target/prova-instancia-zerada/*.exit
+            target/prova-instancia-zerada/*.build.log
+            target/prova-instancia-zerada/evidencia.json
       - name: Campos tipados da fonte Dart (ARC opt-in e tracing padrão)
         shell: pwsh
         run: python scripts/provar-campos-tipados-aot.py --dartforge target/release/dartforge.exe --saida target/prova-campos-tipados
@@ -305,6 +322,23 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Compilar dartforge (nativo, jit)
         run: cargo build --locked --release -p dartforge-cli --features nativo,jit -p dartforge-jit
+      - name: Seleção explícita de memória na CLI (AOT, JIT e reload)
+        run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test memoria_cli -- --include-ignored
+      - name: Instâncias zeradas Owned e registro de métodos (AOT Unix)
+        shell: bash
+        run: python3 scripts/provar-arc-aot.py arc_instancia_zerada --features llvm-embutido
+      - name: Artefatos das instâncias zeradas Unix
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: prova-instancia-zerada-${{ runner.os }}
+          path: |
+            target/prova-instancia-zerada/*.ll
+            target/prova-instancia-zerada/*.stdout
+            target/prova-instancia-zerada/*.stderr
+            target/prova-instancia-zerada/*.exit
+            target/prova-instancia-zerada/*.build.log
+            target/prova-instancia-zerada/evidencia.json
       - name: Campos tipados da fonte Dart (ARC opt-in e tracing padrão)
         shell: bash
         run: python3 scripts/provar-campos-tipados-aot.py --dartforge target/release/dartforge --saida target/prova-campos-tipados

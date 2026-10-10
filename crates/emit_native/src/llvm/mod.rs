@@ -1483,7 +1483,7 @@ impl<'a> LlvmEmitter<'a> {
                         self.emitir_alocacao_em_linha(v, c, n);
                     }
                     Instruction::CallRuntime { name, args, ret_ty }
-                        if name == "dartforge_object_new"
+                        if (name == "dartforge_object_new" || name == "dartforge_arc_objeto_owned_v1")
                             && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
                                 if self.module.funcoes_de_tabela.contains_key(&(*c as u32))) =>
                     {
@@ -1493,7 +1493,10 @@ impl<'a> LlvmEmitter<'a> {
                         let f = self.module.funcoes_de_tabela[&(*c as u32)].clone();
                         self.anotar_externo(&f, Type::Ptr, &[]);
                         let n = self.coagir(&args[1].0, Type::I64);
-                        writeln!(self.out, "  %v{v} = call i64 @dartforge_object_new_t(i64 {c}, i64 {n}, ptr @{f})").unwrap();
+                        let fabrica = if name == "dartforge_arc_objeto_owned_v1" {
+                            "dartforge_arc_objeto_owned_t_v1"
+                        } else { "dartforge_object_new_t" };
+                        writeln!(self.out, "  %v{v} = call i64 @{fabrica}(i64 {c}, i64 {n}, ptr @{f})").unwrap();
                         let _ = ret_ty;
                     }
                     Instruction::CallRuntime { name, args, ret_ty }

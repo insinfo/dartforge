@@ -1018,6 +1018,12 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
         ..Default::default()
     };
     for (n, (modo, (op, ty))) in c.parametros.iter().zip(args).enumerate() {
+        if *modo == ModoParametro::TabelaEstatica {
+            // A seleção LLVM usa apenas o thunk registrado do módulo. O
+            // produtor genérico não tem essa proveniência: um Ptr ou endereço
+            // de função arbitrário não prova ausência de Dart/GC/exceções.
+            return Err(format!("{name}: tabela estática exige proveniência do emissor"));
+        }
         let referencia = matches!(
             modo,
             ModoParametro::Borrow

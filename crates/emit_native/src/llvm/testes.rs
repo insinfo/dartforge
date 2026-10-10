@@ -4,6 +4,28 @@ use super::LlvmEmitter;
 use crate::hir::*;
 
 #[test]
+fn fabrica_owned_preserva_registro_da_tabela_de_metodos() {
+    for owned in [false, true] {
+        let nome = if owned { "dartforge_arc_objeto_owned_v1" } else { "dartforge_object_new" };
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.funcoes_de_tabela.insert(32001, "df.mt.C".into());
+        m.functions.push(funcao("criar", vec![], Type::Ref,
+            vec![BasicBlock { id: BlockId(0), instructions: vec![
+                (ValueId(0), Instruction::CallRuntime { name: nome.into(),
+                    args: vec![(Operand::Constant(Constant::Int(32001)), Type::I64),
+                        (Operand::Constant(Constant::Int(40)), Type::I64)], ret_ty: Type::Ref }, Type::Ref),
+            ], terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }]));
+        let ir = LlvmEmitter::new(&m).emit_all();
+        let corpo = corpo_de(&ir, "criar");
+        let esperado = if owned { "dartforge_arc_objeto_owned_t_v1" } else { "dartforge_object_new_t" };
+        assert!(ir.contains(&format!("declare i64 @{esperado}(i64, i64, ptr)")), "{ir}");
+        assert!(corpo.contains(&format!("call i64 @{esperado}(i64 32001, i64 40, ptr @df.mt.C)")), "{corpo}");
+        assert!(ir.contains("declare ptr @df.mt.C()"), "{ir}");
+    }
+}
+
+#[test]
 fn campos_tipados_conservam_tipo_llvm_em_linha_e_extensao() {
     let limite = dartforge_runtime::layout::CAMPOS_EM_LINHA;
     for index in [0, limite] {
