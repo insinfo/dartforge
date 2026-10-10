@@ -18,6 +18,7 @@ mod contratos;
 mod locais;
 mod puros;
 mod emprestimos;
+mod arestas;
 mod layouts;
 mod chamadas;
 mod funcoes;

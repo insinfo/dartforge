@@ -174,31 +174,7 @@ fn inserir_saidas_dart(
         proximo += 1;
         Ok(ValueId(v))
     };
-    let mut copias = 0;
-    if nova.return_ty == Type::Ref {
-        for b in &mut nova.blocks {
-            let Terminator::Return(Some(op)) = &b.terminator else {
-                continue;
-            };
-            let mut op = op.clone();
-            match &op {
-                Operand::Val(v) if novas_classes[v] == Ownership::Owned => continue,
-                Operand::Constant(Constant::Null) => continue,
-                Operand::Constant(c @ (Constant::String(_) | Constant::StringWtf8(_))) => {
-                    let v = id()?;
-                    b.instructions
-                        .push((v, Instruction::Const(c.clone()), Type::Ref));
-                    op = Operand::Val(v);
-                }
-                _ => {}
-            }
-            let v = id()?;
-            b.instructions
-                .push((v, Instruction::ArcCopy { value: op }, Type::Ref));
-            b.terminator = Terminator::Return(Some(Operand::Val(v)));
-            copias += 1;
-        }
-    }
+    let copias = copiar_retornos(&mut nova, &novas_classes, &mut id)?;
     let mut liberacoes = 0;
     if cleanup {
         produzir_contratos_arc(&nova, &mut novas_classes, &mut novo_plano)?;
@@ -224,6 +200,39 @@ fn inserir_saidas_dart(
     *classes = novas_classes;
     *plano = novo_plano;
     Ok((copias, liberacoes))
+}
+
+pub(super) fn copiar_retornos(
+    f: &mut Function,
+    classes: &HashMap<ValueId, Ownership>,
+    id: &mut impl FnMut() -> Result<ValueId, String>,
+) -> Result<usize, String> {
+    let mut copias = 0;
+    if f.return_ty == Type::Ref {
+        for b in &mut f.blocks {
+            let Terminator::Return(Some(op)) = &b.terminator else {
+                continue;
+            };
+            let mut op = op.clone();
+            match &op {
+                Operand::Val(v) if classes[v] == Ownership::Owned => continue,
+                Operand::Constant(Constant::Null) => continue,
+                Operand::Constant(c @ (Constant::String(_) | Constant::StringWtf8(_))) => {
+                    let v = id()?;
+                    b.instructions
+                        .push((v, Instruction::Const(c.clone()), Type::Ref));
+                    op = Operand::Val(v);
+                }
+                _ => {}
+            }
+            let v = id()?;
+            b.instructions
+                .push((v, Instruction::ArcCopy { value: op }, Type::Ref));
+            b.terminator = Terminator::Return(Some(Operand::Val(v)));
+            copias += 1;
+        }
+    }
+    Ok(copias)
 }
 
 /// Produz e verifica parâmetros/instruções pela convenção Dart, atomicamente.

@@ -289,7 +289,7 @@ pub fn verificar_tokens(
     tabelas: &TabelasDaFuncao,
     plano: &PlanoTokens,
 ) -> Result<(), String> {
-    analisar_tokens(f, classes, tabelas, plano, false).map(|_| ())
+    analisar_tokens(f, classes, tabelas, plano, false, false).map(|_| ())
 }
 
 /// Confere o mesmo fluxo, admitindo somente tokens restantes em Return.
@@ -300,7 +300,18 @@ pub(super) fn saidas_para_cleanup(
     tabelas: &TabelasDaFuncao,
     plano: &PlanoTokens,
 ) -> Result<HashMap<BlockId, Vec<ValueId>>, String> {
-    analisar_tokens(f, classes, tabelas, plano, true).map(|fluxo| fluxo.saidas)
+    analisar_tokens(f, classes, tabelas, plano, true, false).map(|fluxo| fluxo.saidas)
+}
+
+// O modo de planejamento admite somente descarte de tokens mortos por aresta.
+// O verificador público continua exigindo inventários idênticos sem descarte.
+pub(super) fn arestas_para_cleanup(
+    f: &Function,
+    classes: &HashMap<ValueId, Ownership>,
+    tabelas: &TabelasDaFuncao,
+    plano: &PlanoTokens,
+) -> Result<HashMap<(BlockId, BlockId), Vec<ValueId>>, String> {
+    analisar_tokens(f, classes, tabelas, plano, true, true).map(|fluxo| fluxo.arestas)
 }
 
 /// Entrega o inventário linear validado na entrada de cada pouso alcançável.
@@ -329,7 +340,7 @@ pub fn tokens_na_entrada_dos_pousos(
     tabelas: &TabelasDaFuncao,
     plano: &PlanoTokens,
 ) -> Result<HashMap<BlockId, Vec<ValueId>>, String> {
-    let entradas = analisar_tokens(f, classes, tabelas, plano, false)?.entradas;
+    let entradas = analisar_tokens(f, classes, tabelas, plano, false, false)?.entradas;
     let mut pousos: Vec<_> = tabelas.pousos.iter().copied().collect();
     pousos.sort_by_key(|b| b.0);
     let mut resultado = HashMap::new();
@@ -427,6 +438,7 @@ pub(super) fn normalizar_saidas_lanca(
 struct FluxoTokens {
     saidas: HashMap<BlockId, Vec<ValueId>>,
     entradas: HashMap<BlockId, Vec<ValueId>>,
+    arestas: HashMap<(BlockId, BlockId), Vec<ValueId>>,
 }
 
 fn analisar_tokens(
@@ -435,12 +447,14 @@ fn analisar_tokens(
     tabelas: &TabelasDaFuncao,
     plano: &PlanoTokens,
     permitir_cleanup: bool,
+    limpar_arestas: bool,
 ) -> Result<FluxoTokens, String> {
     super::locais::verificar(f, classes, plano)?;
     super::puros::verificar(f, classes, plano)?;
     conferir_saidas_excepcionais(f, tabelas, true)?;
     super::conferir_retomas(f, tabelas)?;
-    super::classificacao::vivacidade_com_saidas(f, classes, tabelas, &plano.pendencias)?;
+    let vivos = super::classificacao::vivacidade_com_saidas(f, classes, tabelas, &plano.pendencias)?;
+    let mut arestas = HashMap::new();
     let erro_meta = |m: String| format!("tokens em {}: {m}", f.symbol);
     let mut esperados = HashSet::new();
     for b in &f.blocks {
@@ -737,8 +751,37 @@ fn analisar_tokens(
                     }
                 }
                 aplicar(&consumidos, classes, &mut r)?;
-                for v in produzidos {
+                for &v in &produzidos {
                     produzir(v, classes, &mut r)?;
+                }
+                // Resultados Phi nascem no destino. Tokens transferidos já
+                // saíram de r; nenhum dos dois recebe drop no predecessor.
+                let erro = invoke.is_some_and(|v| tabelas.invocacoes.get(&v)
+                    .or_else(|| plano.pendencias.get(&v)) == Some(&destino.id));
+                if limpar_arestas && !erro && !tabelas.pousos.contains(&destino.id) {
+                    let mut usados = vivos.entrada[&destino.id].clone();
+                    for (_, inst, _) in &destino.instructions {
+                        if let Instruction::Phi { incoming, .. } = inst {
+                            for (de, op) in incoming {
+                                if *de != b.id { continue; }
+                                if let Operand::Val(v) = op {
+                                    let mut atual = *v;
+                                    let mut vistos = HashSet::new();
+                                    while vistos.insert(atual) {
+                                        usados.insert(atual);
+                                        if let Some(Ownership::Borrowed { owner: OrigemOwner::Valor(p), .. }) = classes.get(&atual) {
+                                            atual = *p;
+                                        } else { break; }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    let mut mortos: Vec<_> = r.iter().copied()
+                        .filter(|v| !usados.contains(v) && !produzidos.contains(v)).collect();
+                    mortos.sort_unstable_by_key(|v| v.0);
+                    for v in &mortos { r.remove(v); }
+                    if !mortos.is_empty() { arestas.insert((b.id, destino.id), mortos); }
                 }
                 Ok(r)
             })()
@@ -785,7 +828,7 @@ fn analisar_tokens(
         })
         .collect();
     super::emprestimos::verificar(f, classes)?;
-    Ok(FluxoTokens { saidas, entradas })
+    Ok(FluxoTokens { saidas, entradas, arestas })
 }
 
 #[cfg(test)]

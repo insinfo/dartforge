@@ -220,10 +220,12 @@ mod testes {
             .insert(BlockId(0), vec![AlteracaoEscopo::Fechar(7)]);
         assert_eq!(
             preparar_arc_funcoes_dart(&mut funcoes, &mut planos).unwrap(),
-            (1, 5)
+            (1, 4)
         );
         let p = &planos["caller"];
-        for (v, esperado) in [(2, vec![1]), (3, vec![1, 2])] {
+        // O owner v1 termina na continuação normal da primeira chamada;
+        // não precisa permanecer até o pouso da segunda.
+        for (v, esperado) in [(2, vec![1]), (3, vec![2])] {
             let erro = p.tabelas.invocacoes[&ValueId(v)];
             assert!(p.tabelas.pousos.contains(&erro));
             assert_eq!(
@@ -336,7 +338,7 @@ mod testes {
         p.tabelas.pousos.insert(BlockId(7));
         assert_eq!(
             preparar_arc_funcoes_dart(&mut funcoes, &mut planos).unwrap(),
-            (1, 5)
+            (1, 4)
         );
         let p = &planos["caller"];
         assert_eq!(p.tabelas.invocacoes[&ValueId(2)], BlockId(7));

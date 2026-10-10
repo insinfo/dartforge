@@ -403,9 +403,9 @@ fn main() -> Result<(), String> {
         inserir_arc_funcoes_dart(&mut modulo.functions, &mut planos)?
     };
     let esperado = if misto {
-        (1, 21)
+        (1, 17)
     } else if automatico {
-        (1, 18)
+        (1, 13)
     } else {
         (1, 16)
     };

@@ -2,6 +2,33 @@
 
 ## Retomada de 2026-10-10
 
+Preparação ARC agora insere cleanup de tokens mortos em arestas normais,
+incluindo arestas críticas, Switch e voltas de laços. Planejamento usa o
+mesmo fluxo linear de tokens, com vivacidade e dependências de borrows;
+consumos/Phi continuam conferidos antes do descarte. Não libera entradas
+transferidas nem resultados Phi antes de sua definição. Divide a aresta,
+transporta Phi/limites lexicais e reserva IDs acima de corpos/metadados.
+O verificador isolado mantém inventários estritos, sem descarte implícito.
+Release introduz barreira conservadora: keepalive e cleanup repetem até
+estabilizar, sobre cópias privadas do grupo. Retenções de retorno são
+preparadas antes do planejamento e compartilham o produtor existente.
+Testes cobrem junção crítica, owner sustentando Phi Borrowed até a cópia
+do retorno, alocação em laço sem acumular token, tracing, idempotência e
+IDs SSA/bloco esgotados sem publicação parcial. Inventário do segundo
+invoke deixa de carregar o owner morto após o primeiro, conservando seu
+tratador. Passaram 130 testes ARC, 238 testes do emissor (7 ignorados) e
+52 exemplos de documentação. No Windows passaram 8 execuções AOT de
+retorno/erro simples/misto em ARC/tracing e 32 regressões nativas de campos
+e pending com controles negativos. Prova resume automática passa a emitir
+13/17 drops estáticos em vez de 18/21, com convenção e fluxo verificados;
+não é medição de desempenho. Logs target/arc-arestas-{focado,suite,doc,
+resume,nativa}.log e target/prova-{arc-resume-arestas,arestas-nativa}.
+Isso não prova morte nativa em laços/junções gerais. Arestas excepcionais e
+pousos ainda exigem cleanup preparado; Finalizable, captura e suspensão
+exigem extensões de vida materializadas como usos na HIR. Produção dessas
+extensões, slots/regiões/pins, lowering completo e desempenho ARC≥A0
+continuam pendentes. ARC permanece exclusivo de --memoria=arc.
+
 Keepalive de Phi agora prepara todas as origens emprestadas num mesmo lote,
 antes de reconstruir a classificação da junção. Evita rejeitar o estado
 intermediário com uma entrada promovida a Owned e outra ainda Borrowed.

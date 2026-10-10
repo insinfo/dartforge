@@ -100,10 +100,14 @@ pub fn inserir_arc_funcoes_dart(
 /// exige Owned, preservando IDs dos usos. Em chamadas falíveis, retém somente
 /// na aresta de sucesso de uma guarda de pendência conferida. Phis protegem
 /// todas as origens emprestadas antes de reconstruir a transferência Owned.
-/// Origens não
-/// auditadas e laços que exigem cleanup de aresta continuam
+/// Divide arestas normais para liberar tokens mortos por vivacidade, inclusive
+/// nas voltas de laços, preservando transferências Phi e dependências de borrows.
+/// Release pode exigir outro keepalive; a preparação repete até estabilizar.
+/// Extensões de vida semânticas precisam estar materializadas como usos na HIR;
+/// não infere limites de Finalizable, capturas ou suspensão por ausência de uso.
+/// Origens não auditadas e cleanup em arestas excepcionais/pousos continuam
 /// exigindo preparação explícita; nenhum plano parcial é publicado.
-/// Retorna (retenções de retorno/keepalive, liberações nas saídas).
+/// Retorna (retenções de retorno/keepalive, liberações em arestas/saídas).
 ///
 /// # Erros
 /// CFG/SSA ou limites inválidos, IDs esgotados ou qualquer erro de produção
@@ -276,6 +280,9 @@ fn inserir(
         )?;
         if preparar_chamadas {
             total.0 += super::emprestimos::proteger(f, novo)?;
+            let (copias, drops) = super::arestas::preparar(f, novo)?;
+            total.0 += copias;
+            total.1 += drops;
         }
         let (copias, drops) = inserir_arc_saidas_dart(
             f,
