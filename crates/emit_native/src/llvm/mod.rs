@@ -1377,18 +1377,21 @@ impl<'a> LlvmEmitter<'a> {
                     }
                     // O campo em linha: a palavra de 8 bytes depois do
                     // cabeçalho do corpo do objeto (`heap::Cabecalho`).
-                    Instruction::GetField { object, index } if (*index as usize) < CAMPOS_EM_LINHA => {
-                        let so = self.coagir(object, Type::I64);
-                        self.emitir_endereco_dos_campos(v, &so);
-                        writeln!(self.out, "  %fg{v} = getelementptr inbounds i64, ptr %fp{v}, i64 {index}").unwrap();
-                        writeln!(self.out, "  %v{v} = load i64, ptr %fg{v}, align 8").unwrap();
-                    }
                     Instruction::GetField { object, index } => {
                         let so = self.coagir(object, Type::I64);
-                        writeln!(
-                            self.out,
-                            "  %v{v} = call i64 @dartforge_object_get(i64 {so}, i64 {index})"
-                        ).unwrap();
+                        let bits = if matches!(ty, Type::Ref | Type::I64) {
+                            format!("%v{v}")
+                        } else { format!("%fb{v}") };
+                        if *index < CAMPOS_EM_LINHA {
+                            self.emitir_endereco_dos_campos(v, &so);
+                            writeln!(self.out, "  %fg{v} = getelementptr inbounds i64, ptr %fp{v}, i64 {index}").unwrap();
+                            writeln!(self.out, "  {bits} = load i64, ptr %fg{v}, align 8").unwrap();
+                        } else {
+                            writeln!(self.out, "  {bits} = call i64 @dartforge_object_get(i64 {so}, i64 {index})").unwrap();
+                        }
+                        if !matches!(ty, Type::Ref | Type::I64) {
+                            self.emitir_conversao_nomeada(&format!("%v{v}"), Type::I64, &bits, *ty);
+                        }
                     }
                     // No ARC a gravação vai ao runtime (`dartforge_object_set`), que conta a troca.
                     Instruction::SetField { object, index, value } if (*index as usize) < CAMPOS_EM_LINHA && !self.module.memoria_arc => {
@@ -3320,7 +3323,7 @@ impl<'a> LlvmEmitter<'a> {
             Instruction::ConstArray(_) | Instruction::TabelaDeFuncoes(_) => Type::Ptr,
             Instruction::Unbox { to, .. } => *to,
             Instruction::Alloca(_) => Type::Ptr,
-            Instruction::GetField { .. } => Type::I64,
+            Instruction::GetField { .. } => registrado,
             Instruction::FAdd(..)
             | Instruction::FSub(..)
             | Instruction::FMul(..)

@@ -25,6 +25,59 @@ fn c(n: i64) -> Operand {
     Operand::Constant(Constant::Int(n))
 }
 
+#[test]
+fn campos_tipados_reinicializam_no_ponto_da_alocacao_e_recusam_bits_mistos() {
+    for (ty, zero, valor) in [
+        (Type::F64, Constant::Double(0.0), Constant::Double(-0.0)),
+        (Type::I1, Constant::Bool(false), Constant::Bool(true)),
+        (Type::I8, Constant::Int(0), Constant::Int(255)),
+    ] {
+        let mut f = Function {
+            symbol: "local_tipado".into(), name: "local_tipado".into(),
+            depuracao: None, params: vec![], return_ty: ty,
+            blocks: vec![
+                BasicBlock { id: BlockId(0), instructions: vec![],
+                    terminator: Terminator::Branch(BlockId(1)) },
+                BasicBlock { id: BlockId(1), instructions: vec![
+                    (ValueId(0), Instruction::CallRuntime {
+                        name: "dartforge_object_new".into(),
+                        args: vec![(c(128), Type::I64), (c(1), Type::I64)],
+                        ret_ty: Type::Ref,
+                    }, Type::Ref),
+                    (ValueId(3), if ty == Type::I8 {
+                        Instruction::Trunc { op: Operand::Constant(valor), from: Type::I64, to: Type::I8 }
+                    } else { Instruction::Const(valor) }, ty),
+                    (ValueId(1), Instruction::GetField { object: Operand::Val(ValueId(0)), index: 0 }, ty),
+                    (ValueId(2), Instruction::SetField { object: Operand::Val(ValueId(0)), index: 0,
+                        value: Operand::Val(ValueId(3)) }, Type::Void),
+                ], terminator: Terminator::CondBranch {
+                    cond: Operand::Constant(Constant::Bool(false)),
+                    then_block: BlockId(1), else_block: BlockId(2),
+                } },
+                BasicBlock { id: BlockId(2), instructions: vec![],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) },
+            ],
+        };
+        let mut misto = f.clone();
+        misto.blocks[1].instructions[3].1 = Instruction::CallRuntime {
+            name: "dartforge_object_set".into(),
+            args: vec![(Operand::Val(ValueId(0)), Type::Ref), (c(0), Type::I64),
+                (c(0), Type::I64), (c(0), Type::I8)], ret_ty: Type::Void,
+        };
+        let antes = format!("{misto:?}");
+        assert!(!escape::substituir_objetos(&mut misto));
+        assert_eq!(format!("{misto:?}"), antes);
+        assert!(escape::substituir_objetos(&mut f));
+        assert!(matches!(f.blocks[0].instructions.as_slice(),
+            [(_, Instruction::Alloca(t), Type::Ptr)] if *t == ty));
+        assert!(matches!(&f.blocks[1].instructions[0].1,
+            Instruction::Store { val: Operand::Constant(z), .. } if *z == zero));
+        assert!(matches!(&f.blocks[1].instructions[2].1,
+            Instruction::Load { ty: t, .. } if *t == ty));
+        assert!(!escape::substituir_objetos(&mut f));
+    }
+}
+
 /// `p = Ponto(a, b); return p.x + p.y` na forma que o lowering produz: o
 /// objeto some, e sobra a soma dos argumentos.
 #[test]

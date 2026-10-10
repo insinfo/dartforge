@@ -100,6 +100,20 @@ jobs:
       - name: Getters e setters de campos locais (AOT Windows)
         shell: pwsh
         run: python scripts/provar-arc-aot.py arc_campos_locais --features llvm-embutido
+      - name: Campos tipados da fonte Dart (ARC opt-in e tracing padrão)
+        shell: pwsh
+        run: python scripts/provar-campos-tipados-aot.py --dartforge target/release/dartforge.exe --saida target/prova-campos-tipados
+      - name: Artefatos dos campos tipados Windows
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: prova-campos-tipados-windows
+          path: |
+            target/prova-campos-tipados/*.dart
+            target/prova-campos-tipados/*.stdout
+            target/prova-campos-tipados/*.stderr
+            target/prova-campos-tipados/*.exit
+            target/prova-campos-tipados/evidencia.json
       - name: Artefatos dos campos locais Windows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -291,6 +305,20 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Compilar dartforge (nativo, jit)
         run: cargo build --locked --release -p dartforge-cli --features nativo,jit -p dartforge-jit
+      - name: Campos tipados da fonte Dart (ARC opt-in e tracing padrão)
+        shell: bash
+        run: python3 scripts/provar-campos-tipados-aot.py --dartforge target/release/dartforge --saida target/prova-campos-tipados
+      - name: Artefatos dos campos tipados Unix
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: prova-campos-tipados-${{ runner.os }}
+          path: |
+            target/prova-campos-tipados/*.dart
+            target/prova-campos-tipados/*.stdout
+            target/prova-campos-tipados/*.stderr
+            target/prova-campos-tipados/*.exit
+            target/prova-campos-tipados/evidencia.json
       - name: Getters e setters de campos locais (AOT Unix)
         shell: bash
         run: python3 scripts/provar-arc-aot.py arc_campos_locais --features llvm-embutido

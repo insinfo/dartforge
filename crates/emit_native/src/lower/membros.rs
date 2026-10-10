@@ -282,6 +282,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
         };
         let repr = self.repr_do_campo(vid);
+        if self.ctx.memoria_arc && !self.ctx.program.variables[vid.0 as usize].late
+            && let Operand::Constant(Constant::Int(i)) = &idx
+            && let Ok(index) = usize::try_from(*i)
+        {
+            // Transporta a representação sem escolher uma ABI auditada:
+            // origem do receiver e guardas ainda são conferidas depois.
+            return self.emit(Instruction::GetField { object: obj, index }, repr);
+        }
         let ret = if repr == Type::Ref {
             Type::Ref
         } else {
@@ -343,6 +351,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let repr = self.repr_do_campo(vid);
         let val = self.coagir(val, repr);
+        if self.ctx.memoria_arc && !var.late
+            && let Operand::Constant(Constant::Int(i)) = &idx
+            && let Ok(index) = usize::try_from(*i)
+        {
+            self.emit(Instruction::SetField { object: obj, index, value: val }, Type::Void);
+            return;
+        }
         let (bits, is_ref) = self.para_bits(val);
         self.emit(
             Instruction::CallRuntime {

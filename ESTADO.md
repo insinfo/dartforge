@@ -2,12 +2,42 @@
 
 ## Retomada de 2026-10-10
 
+Contrato de ativação: ARC é opt-in por `--memoria=arc`; sem a opção,
+tracing permanece padrão. Integração dos passes ao fluxo normal de
+compilação deve respeitar essa seleção. C++ aparece nas fixtures de
+exceções estrangeiras; compilador e runtime são implementados em Rust.
+
+Lowering de campos da fonte agora conserva I64/F64/I1/Ref em GetField e
+SetField somente no modo ARC, com índice constante e campo não-late.
+FFI, late e índices dinâmicos conservam seus protocolos atuais. Emissão
+LLVM converte bits de leitura para a representação lógica, tanto inline
+quanto na extensão; tipo_do_resultado também respeita essa representação.
+A primeira prova AOT encontrou uma comparação de bool do SDK dart:ffi
+ainda classificada como i64; corrigida e coberta por regressão LLVM.
+Substituição escalar aceita F64/I1/I8 consistentes, recusa mistura com
+bits legados e reinicializa os novos locais no ponto da alocação, inclusive
+em laços. Regressões de fonte, LLVM e substituição escalar passaram;
+250 testes da biblioteca e 52 exemplos públicos aprovados, sete ignorados
+da biblioteca permanecem fora desta rodada local.
+
+Prova nativa reproduzível: scripts/provar-campos-tipados-aot.py recebe uma
+CLI recompilada e executa a fixture campos_tipados_arc.dart em tracing
+sem --memoria e ARC explícito, com/sem otimização. Gera também uma variante
+com padding até CAMPOS_EM_LINHA=4096: double/bool/Ref ficam na extensão.
+Oito casos aprovados no Windows, com GC_STRESS=1; ARC_CONFERIR=1 e
+ARC_BERCARIO=0 na execução. Verifica int máximo, -0.0, bool, identidade,
+null, herança, mixin, enum e erros de late. Manifesto registra hashes da
+CLI/fontes/executáveis/saídas; logs locais em target/arc-fonte-campos-*.
+Matriz adicionada à CI Windows/Linux/macOS, execução remota ainda pendente.
+Preparação automática completa de owners/cleanup a partir da fonte,
+contratos do SDK e gate ARC/A0 continuam pendentes.
+
 Na CI 38038842350 da fonte b198aadd, as matrizes de campos, pending e
 laços do script compartilhado terminaram com sucesso nas três plataformas
-(144 casos no total). Windows/Linux e mensagens estão completos; macOS
-ainda executa testes do JIT. Sem toolchain 38038842352 terminou com sucesso.
-Isso não inclui as preparações novas de AllocObject/campos locais, ainda
-em commits locais aguardando a conclusão da CI para publicação.
+(144 casos no total). A rodada completa terminou com sucesso em
+Windows/Linux/macOS e mensagens. Sem toolchain 38038842352 terminou com
+sucesso. Isso não inclui as preparações novas de AllocObject/campos locais
+nem os campos tipados da fonte, publicados na rodada seguinte.
 
 Campos locais registrados no commit 5d0272e9. Evidência congelada em
 bench/resultados/2026-10-10-campos-locais-windows: 16 execuções,

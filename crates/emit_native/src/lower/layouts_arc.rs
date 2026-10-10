@@ -90,11 +90,21 @@ class Base {
   late int pendente;
   late double preparado = 2.5;
   static int fora = 0;
+  bool exercitar(Object valor) {
+    inteiro = 7;
+    fracao = -0.0;
+    ligado = false;
+    referencia = valor;
+    pendente = 9;
+    preparado = 4.5;
+    return inteiro == 7 && fracao == 0.0 && !ligado &&
+        referencia == valor && pendente == 9 && preparado == 4.5;
+  }
 }
 mixin Mistura { bool misto = false; }
 class Folha extends Base with Mistura { String? texto; }
 enum Cor { azul, vermelho }
-void main() {}
+void main() { Base().exercitar(Object()); }
 "#
                     ),
                 )
@@ -137,10 +147,50 @@ void main() {}
                 for arc in [false, true] {
                     ctx.memoria_arc = arc;
                     let mut modulo = crate::lower::lower_program(&ctx);
+                    let acessos = modulo
+                        .functions
+                        .iter()
+                        .filter(|f| f.name.contains("exercitar"))
+                        .flat_map(|f| &f.blocks)
+                        .flat_map(|b| &b.instructions)
+                        .collect::<Vec<_>>();
+                    assert!(!acessos.is_empty(), "corpo do método ausente");
                     if !arc {
                         assert!(modulo.layouts_campos_arc.is_empty());
+                        assert!(!acessos.iter().any(|(_, i, _)| matches!(
+                            i,
+                            Instruction::GetField { .. } | Instruction::SetField { .. }
+                        )));
                         continue;
                     }
+                    for (indice, tipo) in [
+                        (0, Type::I64),
+                        (1, Type::F64),
+                        (2, Type::I1),
+                        (3, Type::Ref),
+                    ] {
+                        assert!(
+                            acessos.iter().any(|(_, i, t)| matches!(i,
+                            Instruction::GetField { index, .. } if *index == indice)
+                                && *t == tipo),
+                            "leitura {indice}: {tipo:?}"
+                        );
+                        assert!(
+                            acessos.iter().any(|(_, i, _)| matches!(i,
+                            Instruction::SetField { index, .. } if *index == indice)),
+                            "gravação {indice}"
+                        );
+                    }
+                    // late conserva seu protocolo, inclusive os indicadores de
+                    // inicialização; não pode virar um acesso direto tipado.
+                    assert!(!acessos.iter().any(|(_, i, _)| matches!(
+                        i,
+                        Instruction::GetField { index: 4 | 5, .. }
+                            | Instruction::SetField { index: 4 | 5, .. }
+                    )));
+                    assert!(acessos.iter().any(|(_, i, _)| matches!(i,
+                        Instruction::CallRuntime { name, .. }
+                        if name == "dartforge_late_field_initialized")));
                     for (nome, esperado) in [
                         ("Base", &base),
                         ("Folha", &folha),

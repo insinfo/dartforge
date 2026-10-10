@@ -16,7 +16,7 @@ use std::collections::HashMap;
 
 /// Um acesso ao campo `indice` de um objeto candidato.
 enum Acesso {
-    /// Leitura: o tipo do resultado (`Ref` ou os bits em `I64`).
+    /// Leitura: representação lógica tipada ou bits legados em `I64`.
     Le(Type),
     /// Gravação: o valor e se é referência.
     Grava(Type, bool),
@@ -115,8 +115,8 @@ pub fn substituir_objetos(func: &mut Function) -> bool {
         });
     }
 
-    // O tipo de cada campo: `Ref` (referência) ou os bits em `I64`, igual
-    // em todos os acessos.
+    // Todos os acessos devem concordar na representação do campo;
+    // leituras tipadas não podem carregar uma gravação legada em bits.
     let mut locais: HashMap<(ValueId, usize), Type> = HashMap::new();
     let mut ordem: Vec<ValueId> = candidatos.keys().copied().filter(|v| !fugiu.contains(v)).collect();
     ordem.sort_by_key(|v| v.0);
@@ -127,10 +127,10 @@ pub fn substituir_objetos(func: &mut Function) -> bool {
             let t = match a {
                 Acesso::Le(t) => *t,
                 Acesso::Grava(t, true) if *t == Type::Ref => Type::Ref,
-                Acesso::Grava(t, false) if *t == Type::I64 => Type::I64,
+                Acesso::Grava(t, false) if matches!(t, Type::I64 | Type::F64 | Type::I1 | Type::I8) => *t,
                 _ => continue 'objetos,
             };
-            if !matches!(t, Type::Ref | Type::I64) || *campos.entry(*i).or_insert(t) != t {
+            if !matches!(t, Type::Ref | Type::I64 | Type::F64 | Type::I1 | Type::I8) || *campos.entry(*i).or_insert(t) != t {
                 continue 'objetos;
             }
         }
@@ -149,14 +149,32 @@ pub fn substituir_objetos(func: &mut Function) -> bool {
     chaves.sort_by_key(|(v, i)| (v.0, *i));
     let mut enderecos: HashMap<(ValueId, usize), ValueId> = HashMap::new();
     let mut allocas = Vec::new();
+    let mut inicializacoes: HashMap<ValueId, Vec<(ValueId, Instruction, Type)>> = HashMap::new();
     for k in chaves {
         prox += 1;
         enderecos.insert(k, ValueId(prox));
         allocas.push((ValueId(prox), Instruction::Alloca(locais[&k]), Type::Ptr));
+        if matches!(locais[&k], Type::F64 | Type::I1 | Type::I8) {
+            // Reinicializa no ponto da alocação, não na entrada: uma alocação
+            // dentro de um laço começa zerada em cada iteração.
+            let val = match locais[&k] {
+                Type::F64 => Operand::Constant(Constant::Double(0.0)),
+                Type::I1 => Operand::Constant(Constant::Bool(false)),
+                _ => Operand::Constant(Constant::Int(0)),
+            };
+            prox += 1;
+            inicializacoes.entry(k.0).or_default().push((ValueId(prox), Instruction::Store {
+                ptr: Operand::Val(enderecos[&k]), val,
+            }, Type::Void));
+        }
     }
     let aceitos: std::collections::HashSet<ValueId> = aceitos.into_iter().collect();
     for b in &mut func.blocks {
-        b.instructions.retain(|(v, _, _)| !aceitos.contains(v));
+        b.instructions = std::mem::take(&mut b.instructions).into_iter().flat_map(|inst| {
+            if aceitos.contains(&inst.0) {
+                inicializacoes.remove(&inst.0).unwrap_or_default()
+            } else { vec![inst] }
+        }).collect();
         for (_, inst, ty) in &mut b.instructions {
             let novo = match inst {
                 Instruction::CallRuntime { name, args, .. } if name == "dartforge_object_get" && args.len() == 2 => {

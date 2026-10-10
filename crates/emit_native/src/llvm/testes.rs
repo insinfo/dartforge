@@ -3,6 +3,38 @@
 use super::LlvmEmitter;
 use crate::hir::*;
 
+#[test]
+fn campos_tipados_conservam_tipo_llvm_em_linha_e_extensao() {
+    let limite = dartforge_runtime::layout::CAMPOS_EM_LINHA;
+    for index in [0, limite] {
+        for (ty, llvm_ty, conversao) in [
+            (Type::Ref, "i64", None), (Type::I64, "i64", None),
+            (Type::F64, "double", Some("bitcast i64 %fb1 to double")),
+            (Type::I1, "i1", Some("trunc i64 %fb1 to i1")),
+            (Type::I8, "i8", Some("trunc i64 %fb1 to i8")),
+        ] {
+            let leitura = Instruction::GetField {
+                object: Operand::Val(ValueId(0)), index,
+            };
+            assert_eq!(LlvmEmitter::tipo_do_resultado(&leitura, ty), ty);
+            let ir = emitir(funcao("campo_tipado", vec![(ValueId(0), "obj".into(), Type::Ref)],
+                ty, vec![BasicBlock { id: BlockId(0), instructions: vec![
+                    (ValueId(1), leitura, ty),
+                ], terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }]));
+            let corpo = corpo_de(&ir, "campo_tipado");
+            assert!(corpo.contains(&format!("ret {llvm_ty} %v1")), "{corpo}");
+            if let Some(conversao) = conversao {
+                assert!(corpo.contains(conversao), "{corpo}");
+            }
+            if index == limite {
+                assert!(corpo.contains(&format!("@dartforge_object_get(i64 %v0, i64 {limite})")), "{corpo}");
+            } else {
+                assert!(corpo.contains("load i64"), "{corpo}");
+            }
+        }
+    }
+}
+
 fn funcao(
     symbol: &str,
     params: Vec<(ValueId, String, Type)>,
