@@ -226,6 +226,122 @@ mod testes {
     use super::*;
 
     #[test]
+    fn ambiente_resolve_celula_e_escrita_fraca_sem_confundir_captura_escalar() {
+        use std::collections::BTreeSet;
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.layouts_campos_arc.insert(1, vec![]);
+        m.functions.push(Function {
+            symbol: "captura".into(),
+            name: "captura".into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![
+                    (
+                        ValueId(0),
+                        Instruction::AllocObject {
+                            class_id: 1,
+                            fields: vec![],
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(1),
+                        Instruction::AllocObject {
+                            class_id: 1,
+                            fields: vec![],
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(2),
+                        Instruction::AllocCell {
+                            value: Operand::Val(ValueId(0)),
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(3),
+                        Instruction::AllocEnv {
+                            values: vec![
+                                Operand::Constant(Constant::Int(41)),
+                                Operand::Val(ValueId(2)),
+                            ],
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(4),
+                        Instruction::EnvGet {
+                            env: Operand::Val(ValueId(3)),
+                            index: 1,
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(5),
+                        Instruction::CellSet {
+                            cell: Operand::Val(ValueId(4)),
+                            value: Operand::Val(ValueId(1)),
+                        },
+                        Type::Void,
+                    ),
+                    (
+                        ValueId(6),
+                        Instruction::CellGet {
+                            cell: Operand::Val(ValueId(4)),
+                        },
+                        Type::Ref,
+                    ),
+                ],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(6)))),
+            }],
+        });
+        super::super::origens::registrar(&mut m, 0, true);
+        let a = analisar_no_modulo(&m, "captura", 8).unwrap().unwrap();
+        assert_eq!(a.valor(ValueId(4)), a.valor(ValueId(2)));
+        let mut esperados = a.valor(ValueId(0)).unwrap().nos().unwrap().clone();
+        esperados.extend(a.valor(ValueId(1)).unwrap().nos().unwrap().iter().cloned());
+        assert_eq!(a.valor(ValueId(6)).unwrap().nos(), Some(&esperados));
+        assert!(a.desconhecidos().is_empty());
+        let g = super::super::grafo::construir_local_no_modulo(&m, "captura", 8)
+            .unwrap()
+            .unwrap();
+        let celula = a.valor(ValueId(2)).unwrap().nos().unwrap().first().unwrap();
+        assert_eq!(g.arestas()[celula], esperados);
+        g.conferir_no_modulo(&m, "captura").unwrap();
+        // Nem o bit escalar nem índice ausente viram referência null precisa.
+        for index in [0, 2] {
+            if let Instruction::EnvGet { index: alvo, .. } =
+                &mut m.functions[0].blocks[0].instructions[4].1
+            {
+                *alvo = index;
+            }
+            let a = analisar_no_modulo(&m, "captura", 8).unwrap().unwrap();
+            assert!(a.valor(ValueId(4)).unwrap().nos().is_none());
+            assert!(a.valor(ValueId(6)).unwrap().nos().is_none());
+        }
+        if let Instruction::EnvGet { index, .. } = &mut m.functions[0].blocks[0].instructions[4].1 {
+            *index = 1;
+        }
+        if let Instruction::CellSet { value, .. } = &mut m.functions[0].blocks[0].instructions[5].1
+        {
+            *value = Operand::Constant(Constant::Null);
+        }
+        let a = analisar_no_modulo(&m, "captura", 8).unwrap().unwrap();
+        assert_eq!(
+            a.valor(ValueId(6)).unwrap().nos(),
+            Some(&BTreeSet::from([NoAbstrato::Alocacao {
+                sitio: m.sitios_arc["captura"][&ValueId(0)].clone(),
+                contexto: String::new()
+            }]))
+        );
+    }
+
+    #[test]
     fn capturas_sinteticas_compostas_seguem_slots_fisicos_e_ambiente_vazio_e_null() {
         use super::super::grafo::construir_local_no_modulo;
         use std::collections::BTreeSet;

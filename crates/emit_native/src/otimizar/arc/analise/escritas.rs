@@ -395,10 +395,12 @@ pub(super) fn extrair_com_origens<'a>(
                 }
                 a
             }
-            Instruction::GetField { object, index }
-                if *t == Type::Ref && argumento_exato(object, Type::Ref, &tipos) =>
+            i if *t == Type::Ref
+                && super::hir::leitura_campo(i)
+                    .is_some_and(|(object, _)| argumento_exato(object, Type::Ref, &tipos)) =>
             {
-                let a = prolongar(operando(object, &aliases), &[*index], limite);
+                let (object, index) = super::hir::leitura_campo(i).unwrap();
+                let a = prolongar(operando(object, &aliases), &[index], limite);
                 // Campo pode ser null, mas bottom sem receiver não é uma
                 // evidência de execução normal em recursão sem base.
                 novo_nulo = a.as_ref().is_none_or(|c| !c.is_empty()) || nulo(object, &nulos);
@@ -447,10 +449,11 @@ pub(super) fn extrair_com_origens<'a>(
                     None
                 }
             }
-            Instruction::SetField { object, value, .. }
-                if *t == Type::Void
-                    && argumento_exato(object, Type::Ref, &tipos)
-                    && argumento_exato(value, Type::Ref, &tipos) =>
+            i if *t == Type::Void
+                && super::hir::escrita_campo(i).is_some_and(|(object, _, value)| {
+                    argumento_exato(object, Type::Ref, &tipos)
+                        && argumento_exato(value, Type::Ref, &tipos)
+                }) =>
             {
                 Some(BTreeSet::new())
             }
@@ -623,18 +626,17 @@ pub(super) fn extrair_com_origens<'a>(
                     }
                 }
             }
-            Instruction::SetField {
-                object,
-                index,
-                value,
-            } if *t == Type::Void
-                && argumento_exato(object, Type::Ref, &tipos)
-                && argumento_exato(value, Type::Ref, &tipos) =>
+            i if *t == Type::Void
+                && super::hir::escrita_campo(i).is_some_and(|(object, _, value)| {
+                    argumento_exato(object, Type::Ref, &tipos)
+                        && argumento_exato(value, Type::Ref, &tipos)
+                }) =>
             {
+                let (object, index, value) = super::hir::escrita_campo(i).unwrap();
                 incluir_escrita(
                     &mut resultado,
                     operando(object, &aliases),
-                    *index,
+                    index,
                     operando(value, &aliases),
                     limite,
                 );
@@ -721,6 +723,95 @@ fn incluir_escrita(
 mod testes {
     use super::*;
     use std::collections::HashSet;
+
+    #[test]
+    fn leitura_e_escrita_de_captura_compõem_caminhos_sem_certificar_cobertura() {
+        let mut f = ligar("capturar", false);
+        f.blocks[0].instructions = vec![
+            (
+                ValueId(2),
+                Instruction::EnvGet {
+                    env: Operand::Val(ValueId(0)),
+                    index: 3,
+                },
+                Type::Ref,
+            ),
+            (
+                ValueId(3),
+                Instruction::CellSet {
+                    cell: Operand::Val(ValueId(2)),
+                    value: Operand::Val(ValueId(1)),
+                },
+                Type::Void,
+            ),
+            (
+                ValueId(4),
+                Instruction::CellGet {
+                    cell: Operand::Val(ValueId(2)),
+                },
+                Type::Ref,
+            ),
+        ];
+        f.return_ty = Type::Ref;
+        f.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(4))));
+        let mut wrapper = f.clone();
+        wrapper.symbol = "wrapper".into();
+        wrapper.blocks[0].instructions = vec![(
+            ValueId(2),
+            Instruction::CallStatic {
+                symbol: "capturar".into(),
+                args: vec![Operand::Val(ValueId(1)), Operand::Val(ValueId(0))],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        )];
+        wrapper.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(2))));
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.functions = vec![wrapper, f];
+        for reversa in [false, true] {
+            if reversa {
+                m.functions.reverse();
+            }
+            let r = super::super::chamadas::resolver(&m, &HashSet::from(["wrapper"]), 8).unwrap();
+            assert_eq!(
+                r["wrapper"].1.inclusoes_escritas,
+                InclusoesEscritas::Conhecidas(BTreeSet::from([EscritaParametro {
+                    objeto: CaminhoResumo {
+                        origem: OrigemCaminho::Parametro(1),
+                        campos: vec![3]
+                    },
+                    indice: 0,
+                    valor: CaminhoResumo::raiz(0),
+                }]))
+            );
+            assert_eq!(
+                r["wrapper"].1.retorno_caminhos.caminhos,
+                Some(BTreeSet::from([CaminhoResumo {
+                    origem: OrigemCaminho::Parametro(1),
+                    campos: vec![3, 0]
+                }]))
+            );
+            assert_eq!(r["wrapper"].1.campos(), CamposHeapArc::Desconhecidos);
+            assert_eq!(
+                r["wrapper"].1.publicacoes(),
+                PublicacoesHeapArc::Desconhecidas
+            );
+        }
+        let f = m
+            .functions
+            .iter_mut()
+            .find(|f| f.symbol == "capturar")
+            .unwrap();
+        if let Instruction::CellSet { value, .. } = &mut f.blocks[0].instructions[1].1 {
+            *value = Operand::Constant(Constant::Int(41));
+        }
+        let r = super::super::chamadas::resolver(&m, &HashSet::from(["wrapper"]), 8).unwrap();
+        assert_eq!(
+            r["wrapper"].1.inclusoes_escritas,
+            InclusoesEscritas::Desconhecidas
+        );
+    }
 
     fn getter(nome: &str, indice: usize) -> Function {
         Function {

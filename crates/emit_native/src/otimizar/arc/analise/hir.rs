@@ -63,6 +63,27 @@ pub(super) fn capturas_sinteticas(
     }
 }
 
+pub(super) fn leitura_campo(i: &Instruction) -> Option<(&Operand, usize)> {
+    match i {
+        Instruction::GetField { object, index } => Some((object, *index)),
+        Instruction::EnvGet { env, index } => Some((env, *index)),
+        Instruction::CellGet { cell } => Some((cell, 0)),
+        _ => None,
+    }
+}
+
+pub(super) fn escrita_campo(i: &Instruction) -> Option<(&Operand, usize, &Operand)> {
+    match i {
+        Instruction::SetField {
+            object,
+            index,
+            value,
+        } => Some((object, *index, value)),
+        Instruction::CellSet { cell, value } => Some((cell, 0, value)),
+        _ => None,
+    }
+}
+
 /// Resultado local imutável; IDs desconhecidos identificam operações sem transferência precisa.
 /// Não certifica cobertura completa do programa, escape, observadores ou singleton.
 ///
@@ -244,17 +265,6 @@ pub(crate) fn analisar_com_resumos(
             return Err(format!("points-to HIR: índice incompatível v{}", v.0));
         }
     }
-    let tipos: HashMap<_, _> = f
-        .params
-        .iter()
-        .map(|(v, _, t)| (*v, *t))
-        .chain(
-            f.blocks
-                .iter()
-                .flat_map(|b| &b.instructions)
-                .map(|(v, _, t)| (*v, *t)),
-        )
-        .collect();
     let mut valores: Vec<_> = tipos.keys().copied().collect();
     valores.sort_by_key(|v| v.0);
     let ids: HashMap<_, _> = valores.iter().enumerate().map(|(i, v)| (*v, i)).collect();
@@ -506,33 +516,34 @@ pub(crate) fn analisar_com_resumos(
                     }
                 }
             }
-            Instruction::GetField { object, index }
-                if selecionar_por_esquema
-                    && *ty == Type::Ref
-                    && super::resumos::argumento_exato(object, Type::Ref, &tipos) =>
+            i if selecionar_por_esquema
+                && *ty == Type::Ref
+                && leitura_campo(i).is_some_and(|(object, _)| {
+                    super::resumos::argumento_exato(object, Type::Ref, &tipos)
+                }) =>
             {
-                acessos_selecionados.push((*v, operando(object), *index));
+                let (object, index) = leitura_campo(i).unwrap();
+                acessos_selecionados.push((*v, operando(object), index));
                 rs.push(Restricao::LerPorEsquema {
                     objeto: operando(object),
                     esquemas: esquemas_por_indice.clone(),
-                    indice: *index,
+                    indice: index,
                     destino,
                 });
             }
-            Instruction::SetField {
-                object,
-                index,
-                value,
-            } if selecionar_por_esquema
+            i if selecionar_por_esquema
                 && *ty == Type::Void
-                && super::resumos::argumento_exato(object, Type::Ref, &tipos)
-                && super::resumos::argumento_exato(value, Type::Ref, &tipos) =>
+                && escrita_campo(i).is_some_and(|(object, _, value)| {
+                    super::resumos::argumento_exato(object, Type::Ref, &tipos)
+                        && super::resumos::argumento_exato(value, Type::Ref, &tipos)
+                }) =>
             {
-                acessos_selecionados.push((*v, operando(object), *index));
+                let (object, index, value) = escrita_campo(i).unwrap();
+                acessos_selecionados.push((*v, operando(object), index));
                 rs.push(Restricao::GravarPorEsquema {
                     objeto: operando(object),
                     esquemas: esquemas_por_indice.clone(),
-                    indice: *index,
+                    indice: index,
                     valor: operando(value),
                 });
             }
