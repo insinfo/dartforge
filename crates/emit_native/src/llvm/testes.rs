@@ -738,7 +738,8 @@ fn retoma_nao_promete_suporte_seh_no_emissor_publico() {
 fn conferir_objetos_cleanup(ir: &str) {
     // O corpo emitido é verificado e gera código Itanium, sem usar o
     // cabeçalho Windows nem prometer cross-compilation de módulos Dart.
-    let completo = format!(r#"target triple = "x86_64-unknown-linux-gnu"
+    let triple = if cfg!(target_arch = "aarch64") { "aarch64-unknown-linux-gnu" } else { "x86_64-unknown-linux-gnu" };
+    let completo = format!(r#"target triple = "{triple}"
         declare i32 @dartforge_personalidade_cleanup_itanium(...)
         declare i32 @llvm.eh.typeid.for(ptr)
         declare ptr @dartforge_contexto()

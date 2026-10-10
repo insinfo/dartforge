@@ -2,6 +2,18 @@
 
 ## Retomada de 2026-10-09
 
+Fechamento parcial da CI 38010046028: Linux terminou com sucesso, incluindo
+as quatro provas ARC resume. macOS falhou no novo doctest de emit_all, antes
+da prova AOT: o exemplo exigia target triple explícito, mas o cabeçalho macOS
+é genérico e o gerador completa o alvo. Corrigida a asserção para presença de
+declarações. Prova de geração do corpo escolhe Linux x86-64 ou aarch64 conforme
+a arquitetura nativa registrada no LLVM, sem exigir backend x86 no runner ARM.
+CI Unix passa a testar emit_native com llvm-embutido explicitamente, cobrindo
+a geração O0/O2 dos dois corpos de cleanup/catch. Log macOS terminal obtido
+pela API do job 114087818227 em `target/ci-38010046028/macos-falha.log`.
+Não valida execução macOS; requer nova rodada com a correção e a variante mista.
+
+
 Primeira execução AOT Linux do resume ARC integrado: o passo da CI 38010046028
 (job 114087818147, fonte f626bb6887cdefb079eeba0910625111905e63bc) passou nas
 quatro variantes automático ARC/tracing × normal/erro. Runtime real com Mint,

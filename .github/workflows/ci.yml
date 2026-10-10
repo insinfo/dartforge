@@ -248,7 +248,7 @@ jobs:
       - name: Testes do emit_native (com os ignorados)
         env:
           DARTFORGE_TEST_SDK_LIB: ${{ env.DARTFORGE_SDK_LIB }}
-        run: cargo test --locked --release -p dartforge-emit-native -- --include-ignored
+        run: cargo test --locked --release -p dartforge-emit-native --features llvm-embutido -- --include-ignored
       - name: Testes do JIT (com os ignorados)
         run: cargo test --locked --release -p dartforge-jit -- --include-ignored
       - name: Recarga JIT da CLI (com e sem o SDK da fonte)

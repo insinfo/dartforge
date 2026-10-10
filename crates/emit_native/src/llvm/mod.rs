@@ -451,7 +451,7 @@ impl<'a> LlvmEmitter<'a> {
     /// use dartforge_emit_native::{hir::Module, llvm::LlvmEmitter};
     /// let modulo = Module::new();
     /// let ir = LlvmEmitter::new(&modulo).emit_all();
-    /// assert!(ir.contains("target triple"));
+    /// assert!(ir.contains("declare"));
     /// ```
     ///
     /// # Panics
