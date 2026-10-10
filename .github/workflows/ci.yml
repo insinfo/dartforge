@@ -97,6 +97,21 @@ jobs:
       - name: recarga JIT com estado pela CLI
         if: success() || failure()
         run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test reload_estado
+      - name: Getters e setters de campos locais (AOT Windows)
+        shell: pwsh
+        run: python scripts/provar-arc-aot.py arc_campos_locais --features llvm-embutido
+      - name: Artefatos dos campos locais Windows
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: prova-campos-locais-windows
+          path: |
+            target/prova-campos-locais/*.ll
+            target/prova-campos-locais/*.stdout
+            target/prova-campos-locais/*.stderr
+            target/prova-campos-locais/*.exit
+            target/prova-campos-locais/*.build.log
+            target/prova-campos-locais/evidencia.json
       - name: Alocação e inicialização de campos Owned (AOT Windows)
         shell: pwsh
         run: python scripts/provar-arc-aot.py arc_alocacao_campos --features llvm-embutido
@@ -276,6 +291,21 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Compilar dartforge (nativo, jit)
         run: cargo build --locked --release -p dartforge-cli --features nativo,jit -p dartforge-jit
+      - name: Getters e setters de campos locais (AOT Unix)
+        shell: bash
+        run: python3 scripts/provar-arc-aot.py arc_campos_locais --features llvm-embutido
+      - name: Artefatos dos campos locais Unix
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: prova-campos-locais-${{ matrix.os }}
+          path: |
+            target/prova-campos-locais/*.ll
+            target/prova-campos-locais/*.stdout
+            target/prova-campos-locais/*.stderr
+            target/prova-campos-locais/*.exit
+            target/prova-campos-locais/*.build.log
+            target/prova-campos-locais/evidencia.json
       - name: Alocação e inicialização de campos Owned (AOT Unix)
         shell: bash
         run: python3 scripts/provar-arc-aot.py arc_alocacao_campos --features llvm-embutido

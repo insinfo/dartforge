@@ -2,6 +2,37 @@
 
 ## Retomada de 2026-10-10
 
+Preparação ARC do módulo agora escolhe getters/setters auditados para
+GetField/SetField de objetos locais com inicialização completa. Prova mantém
+conjuntos de sítios por cópia/move/Phi, inclusive origem desconhecida nas
+junções e ciclos ancorados; não faz forte atualização nem presume singleton.
+Todos os layouts candidatos devem concordar na representação/índice.
+Publicação/contenção, setter nativo de bits ou chamada sem contrato fechado
+de heap invalidam a origem inteira, conservadoramente no corpo todo.
+Ausência de chamada Dart no catálogo de ownership não basta para esse fato.
+Ref vira empréstimo do receiver; keepalive existente retém antes da
+invalidação. Escalares usam leitura de bits e conversões explícitas de
+double/bool/byte. IDs dos resultados/usos são preservados e limites antes
+da operação seguem seu primeiro auxiliar. Erros não publicam corpos/planos;
+tracing não recebe essa preparação. Testes cobrem retenção antes da
+sobrescrita, escalares/escopos, aliases publicados, entrada opaca em Phi,
+layouts divergentes, Phi de dois sítios/classes e Phi ancorado em laço.
+Passaram 248 testes do emissor (7 ignorados) e 52 exemplos de documentação.
+
+Prova AOT arc_campos_locais passou no Windows com llvm-embutido:
+ARC/tracing × O0/O2, quatro positivas e doze controles por trap, retirando
+keepalive, cleanup do receiver ou release final do retorno. HIR aloca 40
+campos/Mint, muda e relê int 85, double -0.0, bool true e byte 255, lê o
+campo Ref 39 e o substitui por null. Confere valor/owner do retorno, morte
+do receiver após sair da função/coletar e morte do retorno após release.
+Endereço diagnóstico não é raiz Ref. Logs target/arc-campos-{focado,suite,
+doc}.log e target/arc-campos-locais-{example,matriz}.log. CI preparada para
+a matriz nas três plataformas, ainda não publicada. Não prova receivers
+recebidos por parâmetro, chamadas de SDK com resumos de heap, guardas late,
+fonte Dart completa, versões/pins, suspensão, certificados contra
+adulteração ou desempenho ARC≥A0. Integração ao pipeline padrão continua
+pendente e será exclusiva de --memoria=arc; tracing permanece o padrão.
+
 Alocação Owned/inicialização de campos registrada no commit bee4dceb.
 Evidência Windows congelada em
 bench/resultados/2026-10-10-alocacao-campos-windows: 12 execuções,

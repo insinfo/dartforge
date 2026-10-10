@@ -16,6 +16,10 @@ import tempfile
 
 
 PROVAS = {
+    "arc_campos_locais": ("prova-campos-locais", False, [
+        ("normal", None), ("normal", "sem-retencao"),
+        ("normal", "sem-drop-objeto"), ("normal", "sem-drop-retorno"),
+    ]),
     "arc_alocacao_campos": ("prova-alocacao-campos", False, [
         ("normal", None), ("normal", "sem-drop-filho"), ("normal", "sem-owner-objeto"),
     ]),

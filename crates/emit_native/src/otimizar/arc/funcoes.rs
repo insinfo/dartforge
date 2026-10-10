@@ -150,6 +150,12 @@ pub fn preparar_arc_funcoes_dart(
 /// Ref mantém uma aresta; escalares gravam bits, com bitcast de double e
 /// extensão sem sinal de bool/byte. Literais em argumentos precisam estar
 /// materializados na HIR. Não registra métodos nem executa construtor Dart.
+/// GetField/SetField de alocações locais não publicadas escolhem as ABIs
+/// auditadas pela representação de todos os layouts candidatos. Cópias,
+/// moves e Phis conservam conjuntos de origens, inclusive entradas opacas;
+/// escalar estreito usa conversão de bits explícita e mantém o ID do uso.
+/// Publicação/contenção, chamada sem resumo fechado e layout ambíguo recusam
+/// a prova; não certifica receivers recebidos por parâmetro ou guardas late.
 /// Retorno Ref exige convenção Owned e operações não cobertas exigem contratos
 /// explícitos. Não materializa tabelas nem chama este passe no pipeline padrão.
 /// Demais limites são os de [`preparar_arc_funcoes_dart`].
@@ -215,9 +221,12 @@ fn inserir(
     }
     let mut modulo = Module::new();
     modulo.functions = funcoes.to_vec();
+    let mut novos_planos = planos.clone();
     for f in &mut modulo.functions {
         if let Some(layouts) = layouts {
-            super::objetos::preparar(f, layouts, &planos[&f.symbol])?;
+            let plano = novos_planos.get_mut(&f.symbol).unwrap();
+            super::campos::preparar(f, layouts, plano)?;
+            super::objetos::preparar(f, layouts, plano)?;
         }
         super::caixas::preparar(f)?;
     }
@@ -252,7 +261,6 @@ fn inserir(
             }
         }
     }
-    let mut novos_planos = planos.clone();
     for f in &modulo.functions {
         let classes = &mut novos_planos.get_mut(&f.symbol).unwrap().classes;
         for (v, _, ty) in &f.params {
