@@ -1,5 +1,5 @@
 //! Barreiras conservadoras para aliases derivados de owners locais.
-//! Protege resultados runtime Ref sem falha quando uma barreira exige Owned.
+//! Protege resultados runtime Ref quando uma barreira exige Owned.
 //! Não prova aliases de slots, produz cleanup de laços ou certifica versões/pins.
 
 use super::super::{
@@ -217,6 +217,11 @@ pub(super) fn proteger(
 ) -> Result<usize, String> {
     let mut copias = 0;
     while let Some((valor, mensagem)) = primeiro_invalido(f, &plano.classes)? {
+        // Um Phi fresco pode ser invalidado no próprio bloco de junção.
+        // Protege suas origens emprestadas; a reconstrução abaixo promove o
+        // Phi somente quando todas as entradas transferem tokens Owned.
+        let valor = origem_para_copia(f, &plano.classes, valor, &mut HashSet::new())
+            .ok_or_else(|| mensagem.clone())?;
         let Some((bi, ii)) = f.blocks.iter().enumerate().find_map(|(bi, b)| {
             b.instructions
                 .iter()
@@ -231,16 +236,57 @@ pub(super) fn proteger(
         };
         let contrato = super::contrato_chamada_runtime(inst)?;
         if *ty != Type::Ref
-            || contrato.efeito.pode_falhar
             || !matches!(contrato.resultado, Ownership::Borrowed { .. })
             || plano.tabelas.invocacoes.contains_key(&valor)
-            || plano.tokens.pendencias.contains_key(&valor)
         {
             return Err(mensagem);
         }
         if plano.classes.get(&valor) != Some(&contrato.resultado) {
             return Err(mensagem);
         }
+        let origem = f.blocks[bi].id;
+        let continuacao = if contrato.efeito.pode_falhar {
+            let erro = *plano
+                .tokens
+                .pendencias
+                .get(&valor)
+                .ok_or_else(|| mensagem.clone())?;
+            let normal = super::classificacao::conferir_pendencia(&f.blocks[bi], valor, erro)
+                .ok_or_else(|| mensagem.clone())?;
+            // Confere o corpo original antes de transformar o resultado em
+            // Owned: uma utilização no erro não pode ser escondida pela cópia.
+            super::classificacao::vivacidade_com_saidas(
+                f,
+                &plano.classes,
+                &plano.tabelas,
+                &plano.tokens.pendencias,
+            )?;
+            let maior_bloco = f
+                .blocks
+                .iter()
+                .map(|b| b.id.0)
+                .chain(plano.tabelas.saidas.keys().map(|b| b.0))
+                .chain(plano.tabelas.pousos.iter().map(|b| b.0))
+                .chain(plano.tabelas.invocacoes.values().map(|b| b.0))
+                .chain(plano.tokens.pendencias.values().map(|b| b.0))
+                .chain(plano.escopos.saidas.keys().map(|b| b.0))
+                .chain(plano.escopos.arestas.keys().flat_map(|(a, b)| [a.0, b.0]))
+                .max()
+                .unwrap_or(0);
+            Some((
+                normal,
+                BlockId(
+                    maior_bloco
+                        .checked_add(1)
+                        .ok_or("IDs de blocos esgotados ao proteger empréstimo")?,
+                ),
+            ))
+        } else {
+            if plano.tokens.pendencias.contains_key(&valor) {
+                return Err(mensagem);
+            }
+            None
+        };
         let maior = f
             .params
             .iter()
@@ -265,16 +311,45 @@ pub(super) fn proteger(
         // Conserva o ID original como Owned: todos os usos e aliases passam
         // a depender do token independente, sem remapear operadores/arestas.
         f.blocks[bi].instructions[ii].0 = emprestado;
-        f.blocks[bi].instructions.insert(
-            ii + 1,
-            (
-                valor,
-                Instruction::ArcCopy {
-                    value: Operand::Val(emprestado),
-                },
-                Type::Ref,
-            ),
+        let copia = (
+            valor,
+            Instruction::ArcCopy {
+                value: Operand::Val(emprestado),
+            },
+            Type::Ref,
         );
+        if let Some((normal, bloco_copia)) = continuacao {
+            let Terminator::CondBranch { else_block, .. } = &mut f.blocks[bi].terminator else {
+                unreachable!("guarda de pendência conferida antes da transformação")
+            };
+            *else_block = bloco_copia;
+            for b in &mut f.blocks {
+                if b.id == normal {
+                    for (_, inst, _) in &mut b.instructions {
+                        if let Instruction::Phi { incoming, .. } = inst {
+                            for (p, _) in incoming {
+                                if *p == origem {
+                                    *p = bloco_copia;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            f.blocks.push(BasicBlock {
+                id: bloco_copia,
+                instructions: vec![copia],
+                terminator: Terminator::Branch(normal),
+            });
+            // A cópia sustenta o resultado antes dos limites da antiga aresta.
+            if let Some(limites) = plano.escopos.arestas.remove(&(origem, normal)) {
+                plano.escopos.arestas.insert((bloco_copia, normal), limites);
+            }
+            let erro = plano.tokens.pendencias.remove(&valor).unwrap();
+            plano.tokens.pendencias.insert(emprestado, erro);
+        } else {
+            f.blocks[bi].instructions.insert(ii + 1, copia);
+        }
         plano.classes.insert(emprestado, contrato.resultado);
         plano.classes.insert(valor, Ownership::Owned);
         plano.tokens.instrucoes.remove(&valor);
@@ -293,6 +368,34 @@ pub(super) fn proteger(
         copias += 1;
     }
     Ok(copias)
+}
+
+fn origem_para_copia(
+    f: &Function,
+    classes: &HashMap<ValueId, Ownership>,
+    valor: ValueId,
+    vistos: &mut HashSet<ValueId>,
+) -> Option<ValueId> {
+    if !vistos.insert(valor) || !matches!(classes.get(&valor), Some(Ownership::Borrowed { .. })) {
+        return None;
+    }
+    let (_, inst, _) = f
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .find(|(v, _, _)| *v == valor)?;
+    if let Instruction::Phi { incoming, .. } = inst {
+        for (_, op) in incoming {
+            if let Operand::Val(v) = op {
+                if let Some(origem) = origem_para_copia(f, classes, *v, vistos) {
+                    return Some(origem);
+                }
+            }
+        }
+        None
+    } else {
+        Some(valor)
+    }
 }
 
 #[cfg(test)]

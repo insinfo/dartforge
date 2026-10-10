@@ -96,9 +96,10 @@ pub fn inserir_arc_funcoes_dart(
 /// Conferência de pilha por quadros de raízes calculados por vivacidade
 /// exige a marca `tabelas.confere_pilha` enquanto não integrar esse inventário.
 /// Os demais contratos são os de [`inserir_arc_funcoes_dart`].
-/// Protege resultados Ref borrowed de externs auditadas sem falha quando
-/// uma barreira exige Owned, preservando IDs dos usos. Resultados falíveis,
-/// origens não auditadas e laços que exigem cleanup de aresta continuam
+/// Protege resultados Ref borrowed de externs auditadas quando uma barreira
+/// exige Owned, preservando IDs dos usos. Em chamadas falíveis, retém somente
+/// na aresta de sucesso de uma guarda de pendência conferida. Origens não
+/// auditadas e laços que exigem cleanup de aresta continuam
 /// exigindo preparação explícita; nenhum plano parcial é publicado.
 /// Retorna (retenções de retorno/keepalive, liberações nas saídas).
 ///
@@ -304,6 +305,192 @@ fn inserir(
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn keepalive_falivel_so_retem_no_sucesso_e_transporta_phi_e_limites() {
+        for caso in 0..6 {
+            let mut m = Module::new();
+            m.memoria_arc = caso != 4;
+            let erro = if caso == 3 {
+                BlockId(u32::MAX)
+            } else {
+                BlockId(1)
+            };
+            m.functions.push(Function {
+                symbol: "borrow_pending".into(),
+                name: "borrow_pending".into(),
+                depuracao: None,
+                params: vec![(ValueId(0), "record".into(), Type::Ref)],
+                return_ty: Type::Ref,
+                blocks: vec![
+                    BasicBlock {
+                        id: BlockId(0),
+                        instructions: vec![
+                            (
+                                ValueId(1),
+                                Instruction::CallRuntime {
+                                    name: "dartforge_nativo_DartForge_record_fieldAt".into(),
+                                    args: vec![
+                                        (Operand::Val(ValueId(0)), Type::Ref),
+                                        (Operand::Constant(Constant::Int(0)), Type::I64),
+                                    ],
+                                    ret_ty: Type::Ref,
+                                },
+                                Type::Ref,
+                            ),
+                            (
+                                ValueId(2),
+                                Instruction::CallRuntime {
+                                    name: "dartforge_exception_pending".into(),
+                                    args: vec![],
+                                    ret_ty: Type::I8,
+                                },
+                                Type::I8,
+                            ),
+                            (
+                                ValueId(3),
+                                Instruction::ICmp(
+                                    ICmpOp::Ne,
+                                    Operand::Val(ValueId(2)),
+                                    Operand::Constant(Constant::Int(if caso == 2 { 1 } else { 0 })),
+                                ),
+                                Type::I1,
+                            ),
+                        ],
+                        terminator: Terminator::CondBranch {
+                            cond: Operand::Val(ValueId(3)),
+                            then_block: erro,
+                            else_block: BlockId(2),
+                        },
+                    },
+                    BasicBlock {
+                        id: erro,
+                        instructions: vec![],
+                        terminator: Terminator::Return(Some(if caso == 1 {
+                            Operand::Val(ValueId(1))
+                        } else {
+                            Operand::Constant(Constant::Null)
+                        })),
+                    },
+                    BasicBlock {
+                        id: BlockId(2),
+                        instructions: vec![
+                            (
+                                ValueId(4),
+                                Instruction::Phi {
+                                    incoming: vec![(BlockId(0), Operand::Val(ValueId(1)))],
+                                    ty: Type::Ref,
+                                },
+                                Type::Ref,
+                            ),
+                            (
+                                ValueId(5),
+                                Instruction::CallRuntime {
+                                    name: "dartforge_arc_gravar_campo_ref_v1".into(),
+                                    args: vec![
+                                        (Operand::Val(ValueId(0)), Type::Ref),
+                                        (Operand::Constant(Constant::Int(0)), Type::I64),
+                                        (Operand::Constant(Constant::Null), Type::Ref),
+                                    ],
+                                    ret_ty: Type::Void,
+                                },
+                                Type::Void,
+                            ),
+                        ],
+                        terminator: Terminator::Return(Some(Operand::Val(ValueId(4)))),
+                    },
+                ],
+            });
+            if caso == 5 {
+                let f = &mut m.functions[0];
+                f.return_ty = Type::Void;
+                f.blocks[1].terminator = Terminator::Return(None);
+                f.blocks[2].instructions.extend([
+                    (
+                        ValueId(6),
+                        Instruction::ArcCopy {
+                            value: Operand::Val(ValueId(4)),
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(7),
+                        Instruction::ArcDrop {
+                            value: Operand::Val(ValueId(6)),
+                        },
+                        Type::Void,
+                    ),
+                ]);
+                f.blocks[2].terminator = Terminator::Return(None);
+            }
+            let mut plano = PlanoFuncaoDart::default();
+            if caso != 5 {
+                plano.tokens.retorno = RetornoTokens::Owned;
+            }
+            plano
+                .escopos
+                .antes
+                .insert(ValueId(1), vec![AlteracaoEscopo::Abrir(1)]);
+            for destino in [erro, BlockId(2)] {
+                plano
+                    .escopos
+                    .arestas
+                    .insert((BlockId(0), destino), vec![AlteracaoEscopo::Fechar(1)]);
+            }
+            let mut planos = HashMap::from([("borrow_pending".into(), plano)]);
+            let antes = format!("{m:?}/{planos:?}");
+            if caso == 0 || caso == 5 {
+                assert_eq!(
+                    preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+                    (1, usize::from(caso == 5))
+                );
+                let f = &m.functions[0];
+                let p = &planos["borrow_pending"];
+                let copia = f.blocks.last().unwrap();
+                assert_eq!(copia.id, BlockId(3));
+                assert!(matches!(
+                    copia.instructions[0],
+                    (ValueId(1), Instruction::ArcCopy { .. }, Type::Ref)
+                ));
+                assert!(
+                    f.blocks[0]
+                        .instructions
+                        .iter()
+                        .all(|(_, i, _)| !matches!(i, Instruction::ArcCopy { .. }))
+                );
+                assert!(f.blocks[1].instructions.iter().all(|(_, i, _)| !matches!(
+                    i,
+                    Instruction::ArcCopy { .. } | Instruction::ArcDrop { .. }
+                )));
+                assert!(matches!(&f.blocks[2].instructions[0].1,
+                    Instruction::Phi { incoming, .. } if incoming[0].0 == copia.id));
+                assert_eq!(p.classes[&ValueId(1)], Ownership::Owned);
+                assert_eq!(p.classes[&ValueId(4)], Ownership::Owned);
+                assert_eq!(p.tokens.pendencias.len(), 1);
+                assert!(!p.tokens.pendencias.contains_key(&ValueId(1)));
+                assert!(p.escopos.arestas.contains_key(&(copia.id, BlockId(2))));
+                assert!(!p.escopos.arestas.contains_key(&(BlockId(0), BlockId(2))));
+                assert!(p.escopos.arestas.contains_key(&(BlockId(0), erro)));
+                let preparado = format!("{m:?}/{planos:?}");
+                assert_eq!(
+                    preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+                    (0, 0)
+                );
+                assert_eq!(format!("{m:?}/{planos:?}"), preparado);
+                let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+                assert!(ir.contains("call void @dartforge_arc_retain"));
+            } else if caso == 4 {
+                assert_eq!(
+                    preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+                    (0, 0)
+                );
+                assert_eq!(format!("{m:?}/{planos:?}"), antes);
+            } else {
+                assert!(preparar_arc_modulo_dart(&mut m, &mut planos).is_err());
+                assert_eq!(format!("{m:?}/{planos:?}"), antes);
+            }
+        }
+    }
 
     #[test]
     fn keepalive_para_chamada_dart_e_atomico_idempotente_e_exclusivo_de_arc() {

@@ -2,6 +2,22 @@
 
 ## Retomada de 2026-10-10
 
+Keepalive ARC agora cobre resultado Ref borrowed de runtime falível com
+guarda canônica de pendência. Divide somente a aresta de sucesso e retém
+num bloco novo; a chamada/guarda permanecem juntas e o caminho de erro não
+recebe token nem release desse resultado. Confere disponibilidade no corpo
+original antes da promoção, transporta os predecessores de Phi e os limites
+da aresta normal, move a pendência para o ID auxiliar e reconstrói ownership.
+Phi invalidado no próprio bloco busca suas origens emprestadas para proteção.
+Testes conferem retorno Owned e cleanup normal, ausência de cópia/drop no
+erro, limites lexicais, repetição idempotente, tracing intacto e recusa sem
+publicação parcial de uso no erro, guarda adulterada e IDs de bloco esgotados.
+Passaram 126 testes ARC, 234 testes do emissor (7 ignorados) e 52 exemplos
+de documentação. Logs target/arc-keepalive-pending-{focado,suite,doc}.log.
+Não é prova AOT nem integração completa do lowering; regiões/slots,
+cleanup geral de laços/arestas, suspensão, Finalizable e versões/pins
+continuam pendentes. Preparação permanece exclusiva de --memoria=arc.
+
 Preparação ARC do módulo protege automaticamente resultados runtime Ref
 borrowed sem falha quando o checker detecta invalidação/reentrada. Retém na
 definição, antes da barreira, conservando o ID original como Owned e criando
@@ -92,7 +108,7 @@ target/arc-instancia-runtime-{focado,suite,doc}.log e
 target/arc-instancia-emissor-{focado,suite,doc}.log.
 
 Conjunto publicado b5887c94 em validação na CI 38029919066: Windows, Linux
-e mensagens concluídos com sucesso; macOS nos testes JIT com ignorados na
+e mensagens concluídos com sucesso; macOS na recarga JIT da CLI na
 consulta desta retomada. CI Sem toolchain do sistema
 38029919046 concluída com sucesso. ABIs de instâncias/campos e barreiras de
 empréstimos acima são posteriores a essa fonte e ainda exigem CI própria.
