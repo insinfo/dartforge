@@ -40,6 +40,9 @@ ARC/tracing × O0/O2: owner vivo, campo zero, lookup/chamada do método e morte
 após release; retirada do owner/tabela/release é detectada. Repetição final
 após explicitar unsafe na assinatura Rust também aprovada. Logs em
 target/arc-instancia-*; matriz e regressão da CLI adicionadas à CI local.
+Fontes registradas em 7ab36e24. Evidência congelada em
+bench/resultados/2026-10-10-instancia-zerada-windows: 80 arquivos brutos
+e seis logs, com hashes e vínculos aos blobs das fontes.
 Integração automática completa no fluxo ARC, construção parcialmente falha,
 versões/pins, contratos do SDK e gate ARC/A0 continuam pendentes.
 

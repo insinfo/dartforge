@@ -1,0 +1,16 @@
+arc_instancia_zerada: arc-O0-normal: passou
+arc_instancia_zerada: arc-O0-normal-sem-owner: trap
+arc_instancia_zerada: arc-O0-normal-sem-tabela: trap
+arc_instancia_zerada: arc-O0-normal-sem-drop: trap
+arc_instancia_zerada: tracing-O0-normal: passou
+arc_instancia_zerada: tracing-O0-normal-sem-owner: trap
+arc_instancia_zerada: tracing-O0-normal-sem-tabela: trap
+arc_instancia_zerada: tracing-O0-normal-sem-drop: trap
+arc_instancia_zerada: arc-O2-normal: passou
+arc_instancia_zerada: arc-O2-normal-sem-owner: trap
+arc_instancia_zerada: arc-O2-normal-sem-tabela: trap
+arc_instancia_zerada: arc-O2-normal-sem-drop: trap
+arc_instancia_zerada: tracing-O2-normal: passou
+arc_instancia_zerada: tracing-O2-normal-sem-owner: trap
+arc_instancia_zerada: tracing-O2-normal-sem-tabela: trap
+arc_instancia_zerada: tracing-O2-normal-sem-drop: trap

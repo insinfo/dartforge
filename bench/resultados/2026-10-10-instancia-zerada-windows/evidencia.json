@@ -1,0 +1,1193 @@
+{
+  "fonte": "4fe197ef8686c3c8abc7a5dceb6db564979952ed",
+  "exemplo": "arc_instancia_zerada",
+  "exemplo_sha256": "1701006e58d101f3399065f701a38743a2e0ae7e5fc885cf94ad0dbcba117566",
+  "script_sha256": "9c85b9f668df35b1e9272a70331d156b35924428eca9d937d28648bf49ca26eb",
+  "estado_git_fontes": "M crates/emit_native/src/llvm/externs.rs\n M crates/emit_native/src/llvm/mod.rs\n M crates/emit_native/src/llvm/testes.rs\n M crates/emit_native/src/otimizar/arc/contratos.rs\n M crates/emit_native/src/otimizar/arc/funcoes.rs\n M crates/emit_native/src/otimizar/arc/objetos.rs\n M crates/runtime/build.rs\n M crates/runtime/efeitos.tsv\n M crates/runtime/ownership.tsv\n M crates/runtime/src/arc_abi.rs\n M scripts/provar-arc-aot.py\n?? crates/emit_native/examples/arc_instancia_zerada.rs",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "ambiente": {
+    "DARTFORGE_ARC_CONFERIR": "1",
+    "DARTFORGE_ARC_BERCARIO": "0",
+    "DARTFORGE_GC_STRESS": "1"
+  },
+  "execucoes": [
+    {
+      "modo": "arc",
+      "nivel": 0,
+      "caminho": "normal",
+      "controle": null,
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_instancia_zerada",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-instancia-zerada\\arc-O0-normal.exe",
+        "--memoria=arc",
+        "0"
+      ],
+      "arquivos": [
+        {
+          "nome": "arc-O0-normal.build.log",
+          "bytes": 614,
+          "sha256": "e6c79aa6d2c3bc8f22814e831ba6260156df9ee4a3114029a15efdc8240e71c1"
+        },
+        {
+          "nome": "arc-O0-normal.ll",
+          "bytes": 32328,
+          "sha256": "c59d3379eb2a3167e709edbe438a43e7d79614d25fa21e5557cb910fca82c1a3"
+        },
+        {
+          "nome": "arc-O0-normal.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "nome": "arc-O0-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O0-normal.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 0
+    },
+    {
+      "modo": "arc",
+      "nivel": 0,
+      "caminho": "normal",
+      "controle": "sem-owner",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_instancia_zerada",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-instancia-zerada\\arc-O0-normal-sem-owner.exe",
+        "--memoria=arc",
+        "0",
+        "sem-owner"
+      ],
+      "arquivos": [
+        {
+          "nome": "arc-O0-normal-sem-owner.build.log",
+          "bytes": 543,
+          "sha256": "6b1d61189e32bb7fb5d3bbe11d9206e378b476496af6e5ac681417691d8278e6"
+        },
+        {
+          "nome": "arc-O0-normal-sem-owner.ll",
+          "bytes": 32319,
+          "sha256": "787cc5bc95184ea4b67fd3d67de85ac7a014b8ec69ceeb2996c238aec4c59803"
+        },
+        {
+          "nome": "arc-O0-normal-sem-owner.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O0-normal-sem-owner.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O0-normal-sem-owner.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "arc",
+      "nivel": 0,
+      "caminho": "normal",
+      "controle": "sem-tabela",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_instancia_zerada",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-instancia-zerada\\arc-O0-normal-sem-tabela.exe",
+        "--memoria=arc",
+        "0",
+        "sem-tabela"
+      ],
+      "arquivos": [
+        {
+          "nome": "arc-O0-normal-sem-tabela.build.log",
+          "bytes": 545,
+          "sha256": "d1074393cf2c9a831bcb698fd7fcfaf47f08f27c92300663dccac9ea8f75eab2"
+        },
+        {
+          "nome": "arc-O0-normal-sem-tabela.ll",
+          "bytes": 32312,
+          "sha256": "e7663145214adc61cfa737f953bcfddbadf2d49baca99055bed654461c581522"
+        },
+        {
+          "nome": "arc-O0-normal-sem-tabela.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O0-normal-sem-tabela.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O0-normal-sem-tabela.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "arc",
+      "nivel": 0,
+      "caminho": "normal",
+      "controle": "sem-drop",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_instancia_zerada",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-instancia-zerada\\arc-O0-normal-sem-drop.exe",
+        "--memoria=arc",
+        "0",
+        "sem-drop"
+      ],
+      "arquivos": [
+        {
+          "nome": "arc-O0-normal-sem-drop.build.log",
+          "bytes": 541,
+          "sha256": "1f8303cebc912bc6d6aea055aead2d1f77f49733fc591b326a19718a698a1788"
+        },
+        {
+          "nome": "arc-O0-normal-sem-drop.ll",
+          "bytes": 32283,
+          "sha256": "002ce94012c101dbd8574e8df84b2b3229b4b0b215e1ab5d734f5f7ec0b66fb3"
+        },
+        {
+          "nome": "arc-O0-normal-sem-drop.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O0-normal-sem-drop.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O0-normal-sem-drop.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "tracing",
+      "nivel": 0,
+      "caminho": "normal",
+      "controle": null,
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_instancia_zerada",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-instancia-zerada\\tracing-O0-normal.exe",
+        "--memoria=tracing",
+        "0"
+      ],
+      "arquivos": [
+        {
+          "nome": "tracing-O0-normal.build.log",
+          "bytes": 531,
+          "sha256": "b42fdc39dfaf2add81c2d21cf9cb3c4e17357ded16e4e86d5e3dae73e4d81e4f"
+        },
+        {
+          "nome": "tracing-O0-normal.ll",
+          "bytes": 32427,
+          "sha256": "76f11e96dd3d8f405a2d6781f1686da03a73a03d91899b52729afe545c046303"
+        },
+        {
+          "nome": "tracing-O0-normal.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "nome": "tracing-O0-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O0-normal.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 0
+    },
+    {
+      "modo": "tracing",
+      "nivel": 0,
+      "caminho": "normal",
+      "controle": "sem-owner",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_instancia_zerada",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-instancia-zerada\\tracing-O0-normal-sem-owner.exe",
+        "--memoria=tracing",
+        "0",
+        "sem-owner"
+      ],
+      "arquivos": [
+        {
+          "nome": "tracing-O0-normal-sem-owner.build.log",
+          "bytes": 551,
+          "sha256": "24fd49ce4515dbb428adeae14cb9fb707e6f3a7dd06761f094d2bd3f81f95529"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-owner.ll",
+          "bytes": 32418,
+          "sha256": "811a1fa70ba7ba81b21187c19d96252e545ea8a160c5140f6a162e707f8fe0a2"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-owner.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-owner.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-owner.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "tracing",
+      "nivel": 0,
+      "caminho": "normal",
+      "controle": "sem-tabela",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_instancia_zerada",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-instancia-zerada\\tracing-O0-normal-sem-tabela.exe",
+        "--memoria=tracing",
+        "0",
+        "sem-tabela"
+      ],
+      "arquivos": [
+        {
+          "nome": "tracing-O0-normal-sem-tabela.build.log",
+          "bytes": 553,
+          "sha256": "5129c698f0d55ea2c79fa03a7a7d5b03783b571c0cecf950df8804e5cf61b1e8"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-tabela.ll",
+          "bytes": 32411,
+          "sha256": "cf9ae00e2d7d8f8b3bb41a24e6df9a80f71a25c1c3258006d0c07d3ef519e25c"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-tabela.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-tabela.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-tabela.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "tracing",
+      "nivel": 0,
+      "caminho": "normal",
+      "controle": "sem-drop",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_instancia_zerada",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-instancia-zerada\\tracing-O0-normal-sem-drop.exe",
+        "--memoria=tracing",
+        "0",
+        "sem-drop"
+      ],
+      "arquivos": [
+        {
+          "nome": "tracing-O0-normal-sem-drop.build.log",
+          "bytes": 549,
+          "sha256": "d0cbd8cfc586a275bc018edd21e0d18c3a828749cf0d7a40afac0158161d6e57"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-drop.ll",
+          "bytes": 32382,
+          "sha256": "2942e22904aea6fb61ff81f86d9b1620d74d369d53327f602c01ddd2dd728b46"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-drop.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-drop.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-drop.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "arc",
+      "nivel": 2,
+      "caminho": "normal",
+      "controle": null,
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_instancia_zerada",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-instancia-zerada\\arc-O2-normal.exe",
+        "--memoria=arc",
+        "2"
+      ],
+      "arquivos": [
+        {
+          "nome": "arc-O2-normal.build.log",
+          "bytes": 523,
+          "sha256": "7df9a43b99a5732f126d795740156455316cc654c5ca5f46ec99e2666012c7ad"
+        },
+        {
+          "nome": "arc-O2-normal.ll",
+          "bytes": 32328,
+          "sha256": "c59d3379eb2a3167e709edbe438a43e7d79614d25fa21e5557cb910fca82c1a3"
+        },
+        {
+          "nome": "arc-O2-normal.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "nome": "arc-O2-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O2-normal.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 0
+    },
+    {
+      "modo": "arc",
+      "nivel": 2,
+      "caminho": "normal",
+      "controle": "sem-owner",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_instancia_zerada",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-instancia-zerada\\arc-O2-normal-sem-owner.exe",
+        "--memoria=arc",
+        "2",
+        "sem-owner"
+      ],
+      "arquivos": [
+        {
+          "nome": "arc-O2-normal-sem-owner.build.log",
+          "bytes": 543,
+          "sha256": "617f80def8ad506bd06f72e5f8249e89e97aef7dd22351deb5ec030a55851e63"
+        },
+        {
+          "nome": "arc-O2-normal-sem-owner.ll",
+          "bytes": 32319,
+          "sha256": "787cc5bc95184ea4b67fd3d67de85ac7a014b8ec69ceeb2996c238aec4c59803"
+        },
+        {
+          "nome": "arc-O2-normal-sem-owner.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O2-normal-sem-owner.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O2-normal-sem-owner.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "arc",
+      "nivel": 2,
+      "caminho": "normal",
+      "controle": "sem-tabela",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_instancia_zerada",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-instancia-zerada\\arc-O2-normal-sem-tabela.exe",
+        "--memoria=arc",
+        "2",
+        "sem-tabela"
+      ],
+      "arquivos": [
+        {
+          "nome": "arc-O2-normal-sem-tabela.build.log",
+          "bytes": 545,
+          "sha256": "6a6d375a633bf3e933b9aa9df02fc8b58da34deb7071befe6393fd970baae430"
+        },
+        {
+          "nome": "arc-O2-normal-sem-tabela.ll",
+          "bytes": 32312,
+          "sha256": "e7663145214adc61cfa737f953bcfddbadf2d49baca99055bed654461c581522"
+        },
+        {
+          "nome": "arc-O2-normal-sem-tabela.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O2-normal-sem-tabela.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O2-normal-sem-tabela.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "arc",
+      "nivel": 2,
+      "caminho": "normal",
+      "controle": "sem-drop",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_instancia_zerada",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-instancia-zerada\\arc-O2-normal-sem-drop.exe",
+        "--memoria=arc",
+        "2",
+        "sem-drop"
+      ],
+      "arquivos": [
+        {
+          "nome": "arc-O2-normal-sem-drop.build.log",
+          "bytes": 541,
+          "sha256": "cede9f9f61fdb58f2b8357051fdf1da778d9c111ae7739a7d99ab9f9eb1ed8ef"
+        },
+        {
+          "nome": "arc-O2-normal-sem-drop.ll",
+          "bytes": 32283,
+          "sha256": "002ce94012c101dbd8574e8df84b2b3229b4b0b215e1ab5d734f5f7ec0b66fb3"
+        },
+        {
+          "nome": "arc-O2-normal-sem-drop.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O2-normal-sem-drop.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O2-normal-sem-drop.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "tracing",
+      "nivel": 2,
+      "caminho": "normal",
+      "controle": null,
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_instancia_zerada",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-instancia-zerada\\tracing-O2-normal.exe",
+        "--memoria=tracing",
+        "2"
+      ],
+      "arquivos": [
+        {
+          "nome": "tracing-O2-normal.build.log",
+          "bytes": 531,
+          "sha256": "b96a5aa9b553f8b8313be2d9c56a2f537def2430bb10540d99bebdd33a8e09ed"
+        },
+        {
+          "nome": "tracing-O2-normal.ll",
+          "bytes": 32427,
+          "sha256": "76f11e96dd3d8f405a2d6781f1686da03a73a03d91899b52729afe545c046303"
+        },
+        {
+          "nome": "tracing-O2-normal.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "nome": "tracing-O2-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O2-normal.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 0
+    },
+    {
+      "modo": "tracing",
+      "nivel": 2,
+      "caminho": "normal",
+      "controle": "sem-owner",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_instancia_zerada",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-instancia-zerada\\tracing-O2-normal-sem-owner.exe",
+        "--memoria=tracing",
+        "2",
+        "sem-owner"
+      ],
+      "arquivos": [
+        {
+          "nome": "tracing-O2-normal-sem-owner.build.log",
+          "bytes": 551,
+          "sha256": "a0b74383d9e84ca8208ad5f8d0ee23f7ec227e109fba7a60a75e863e69a21c16"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-owner.ll",
+          "bytes": 32418,
+          "sha256": "811a1fa70ba7ba81b21187c19d96252e545ea8a160c5140f6a162e707f8fe0a2"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-owner.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-owner.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-owner.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "tracing",
+      "nivel": 2,
+      "caminho": "normal",
+      "controle": "sem-tabela",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_instancia_zerada",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-instancia-zerada\\tracing-O2-normal-sem-tabela.exe",
+        "--memoria=tracing",
+        "2",
+        "sem-tabela"
+      ],
+      "arquivos": [
+        {
+          "nome": "tracing-O2-normal-sem-tabela.build.log",
+          "bytes": 553,
+          "sha256": "5778a76b27d3a6ee873555860644439cc580e2041b3f80645711b15e7515c087"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-tabela.ll",
+          "bytes": 32411,
+          "sha256": "cf9ae00e2d7d8f8b3bb41a24e6df9a80f71a25c1c3258006d0c07d3ef519e25c"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-tabela.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-tabela.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-tabela.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "tracing",
+      "nivel": 2,
+      "caminho": "normal",
+      "controle": "sem-drop",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_instancia_zerada",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-instancia-zerada\\tracing-O2-normal-sem-drop.exe",
+        "--memoria=tracing",
+        "2",
+        "sem-drop"
+      ],
+      "arquivos": [
+        {
+          "nome": "tracing-O2-normal-sem-drop.build.log",
+          "bytes": 549,
+          "sha256": "fc87d9a081efc29611f8869b9667f84a8b0914146b174dd4c45d61563b10f7d5"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-drop.ll",
+          "bytes": 32382,
+          "sha256": "2942e22904aea6fb61ff81f86d9b1620d74d369d53327f602c01ddd2dd728b46"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-drop.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-drop.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-drop.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    }
+  ],
+  "resultado": "sucesso",
+  "commit_fontes": "7ab36e2450bfeb590b4ad8ef3d547651bbb84221",
+  "vinculos_fontes": {
+    "crates/emit_native/examples/arc_instancia_zerada.rs": {
+      "trabalho_sha256": "1701006e58d101f3399065f701a38743a2e0ae7e5fc885cf94ad0dbcba117566",
+      "blob_sha256": "1701006e58d101f3399065f701a38743a2e0ae7e5fc885cf94ad0dbcba117566"
+    },
+    "scripts/provar-arc-aot.py": {
+      "trabalho_sha256": "9c85b9f668df35b1e9272a70331d156b35924428eca9d937d28648bf49ca26eb",
+      "blob_sha256": "9c85b9f668df35b1e9272a70331d156b35924428eca9d937d28648bf49ca26eb"
+    },
+    "crates/emit_native/src/llvm/externs.rs": {
+      "trabalho_sha256": "536717a39ad44a113b58db948b71037f20c278ac89b8498130fadc678aaac832",
+      "blob_sha256": "536717a39ad44a113b58db948b71037f20c278ac89b8498130fadc678aaac832"
+    },
+    "crates/emit_native/src/llvm/mod.rs": {
+      "trabalho_sha256": "d3e28a45aaf78f840f9c3a21f46faf8ec517eb30e9696b147f26dfba02726acd",
+      "blob_sha256": "d3e28a45aaf78f840f9c3a21f46faf8ec517eb30e9696b147f26dfba02726acd"
+    },
+    "crates/emit_native/src/llvm/testes.rs": {
+      "trabalho_sha256": "f9cf4ac4faa0598130789bddafba6c6f84ea555ea4e41eed2332ac41abf6eaff",
+      "blob_sha256": "f9cf4ac4faa0598130789bddafba6c6f84ea555ea4e41eed2332ac41abf6eaff"
+    },
+    "crates/emit_native/src/otimizar/arc/contratos.rs": {
+      "trabalho_sha256": "602fba9b60a1829c1e5eed02f0ba3924e61892caa816168c566eb4bd82444308",
+      "blob_sha256": "602fba9b60a1829c1e5eed02f0ba3924e61892caa816168c566eb4bd82444308"
+    },
+    "crates/emit_native/src/otimizar/arc/funcoes.rs": {
+      "trabalho_sha256": "dca26ea0b6b2408bfb9297af807edea673c34278915c28d3e6d1983e72c19bde",
+      "blob_sha256": "dca26ea0b6b2408bfb9297af807edea673c34278915c28d3e6d1983e72c19bde"
+    },
+    "crates/emit_native/src/otimizar/arc/objetos.rs": {
+      "trabalho_sha256": "5b97e2755dafafd1542f6bef377b8faad674d59cb6c47389884781f4ccea277d",
+      "blob_sha256": "5b97e2755dafafd1542f6bef377b8faad674d59cb6c47389884781f4ccea277d"
+    },
+    "crates/runtime/build.rs": {
+      "trabalho_sha256": "22086f9eb0597378c1dda4fd42a0448468b9b679981a0a6fa39c26ba734251fc",
+      "blob_sha256": "22086f9eb0597378c1dda4fd42a0448468b9b679981a0a6fa39c26ba734251fc"
+    },
+    "crates/runtime/efeitos.tsv": {
+      "trabalho_sha256": "e4f56637a1f43ba893f0f41aa20321ec36bd3b2a3d1fc3a5d7f62332fc838e3c",
+      "blob_sha256": "e4f56637a1f43ba893f0f41aa20321ec36bd3b2a3d1fc3a5d7f62332fc838e3c"
+    },
+    "crates/runtime/ownership.tsv": {
+      "trabalho_sha256": "b7a632dc2d8fe0dfc1c8ffa939730e175eccaad007a363ab824abc62c32772d1",
+      "blob_sha256": "b7a632dc2d8fe0dfc1c8ffa939730e175eccaad007a363ab824abc62c32772d1"
+    },
+    "crates/runtime/src/arc_abi.rs": {
+      "trabalho_sha256": "acc5fdc81d4fa8d452841f26dc2890aa49554c8bcf11bfb5de740ba472bf2ae9",
+      "blob_sha256": "b938fcb39cdd984e18bc9a19cc7211f47083daf58109cd534eac06c78ca11ab3"
+    }
+  },
+  "artefatos_congelados": [
+    {
+      "nome": "arc-O0-normal.build.log",
+      "sha256": "e6c79aa6d2c3bc8f22814e831ba6260156df9ee4a3114029a15efdc8240e71c1"
+    },
+    {
+      "nome": "arc-O0-normal.ll",
+      "sha256": "c59d3379eb2a3167e709edbe438a43e7d79614d25fa21e5557cb910fca82c1a3"
+    },
+    {
+      "nome": "arc-O0-normal.stdout",
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "nome": "arc-O0-normal.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "arc-O0-normal.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "nome": "arc-O0-normal-sem-owner.build.log",
+      "sha256": "6b1d61189e32bb7fb5d3bbe11d9206e378b476496af6e5ac681417691d8278e6"
+    },
+    {
+      "nome": "arc-O0-normal-sem-owner.ll",
+      "sha256": "787cc5bc95184ea4b67fd3d67de85ac7a014b8ec69ceeb2996c238aec4c59803"
+    },
+    {
+      "nome": "arc-O0-normal-sem-owner.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "arc-O0-normal-sem-owner.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "arc-O0-normal-sem-owner.exit",
+      "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+    },
+    {
+      "nome": "arc-O0-normal-sem-tabela.build.log",
+      "sha256": "d1074393cf2c9a831bcb698fd7fcfaf47f08f27c92300663dccac9ea8f75eab2"
+    },
+    {
+      "nome": "arc-O0-normal-sem-tabela.ll",
+      "sha256": "e7663145214adc61cfa737f953bcfddbadf2d49baca99055bed654461c581522"
+    },
+    {
+      "nome": "arc-O0-normal-sem-tabela.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "arc-O0-normal-sem-tabela.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "arc-O0-normal-sem-tabela.exit",
+      "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+    },
+    {
+      "nome": "arc-O0-normal-sem-drop.build.log",
+      "sha256": "1f8303cebc912bc6d6aea055aead2d1f77f49733fc591b326a19718a698a1788"
+    },
+    {
+      "nome": "arc-O0-normal-sem-drop.ll",
+      "sha256": "002ce94012c101dbd8574e8df84b2b3229b4b0b215e1ab5d734f5f7ec0b66fb3"
+    },
+    {
+      "nome": "arc-O0-normal-sem-drop.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "arc-O0-normal-sem-drop.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "arc-O0-normal-sem-drop.exit",
+      "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+    },
+    {
+      "nome": "tracing-O0-normal.build.log",
+      "sha256": "b42fdc39dfaf2add81c2d21cf9cb3c4e17357ded16e4e86d5e3dae73e4d81e4f"
+    },
+    {
+      "nome": "tracing-O0-normal.ll",
+      "sha256": "76f11e96dd3d8f405a2d6781f1686da03a73a03d91899b52729afe545c046303"
+    },
+    {
+      "nome": "tracing-O0-normal.stdout",
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "nome": "tracing-O0-normal.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "tracing-O0-normal.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "nome": "tracing-O0-normal-sem-owner.build.log",
+      "sha256": "24fd49ce4515dbb428adeae14cb9fb707e6f3a7dd06761f094d2bd3f81f95529"
+    },
+    {
+      "nome": "tracing-O0-normal-sem-owner.ll",
+      "sha256": "811a1fa70ba7ba81b21187c19d96252e545ea8a160c5140f6a162e707f8fe0a2"
+    },
+    {
+      "nome": "tracing-O0-normal-sem-owner.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "tracing-O0-normal-sem-owner.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "tracing-O0-normal-sem-owner.exit",
+      "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+    },
+    {
+      "nome": "tracing-O0-normal-sem-tabela.build.log",
+      "sha256": "5129c698f0d55ea2c79fa03a7a7d5b03783b571c0cecf950df8804e5cf61b1e8"
+    },
+    {
+      "nome": "tracing-O0-normal-sem-tabela.ll",
+      "sha256": "cf9ae00e2d7d8f8b3bb41a24e6df9a80f71a25c1c3258006d0c07d3ef519e25c"
+    },
+    {
+      "nome": "tracing-O0-normal-sem-tabela.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "tracing-O0-normal-sem-tabela.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "tracing-O0-normal-sem-tabela.exit",
+      "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+    },
+    {
+      "nome": "tracing-O0-normal-sem-drop.build.log",
+      "sha256": "d0cbd8cfc586a275bc018edd21e0d18c3a828749cf0d7a40afac0158161d6e57"
+    },
+    {
+      "nome": "tracing-O0-normal-sem-drop.ll",
+      "sha256": "2942e22904aea6fb61ff81f86d9b1620d74d369d53327f602c01ddd2dd728b46"
+    },
+    {
+      "nome": "tracing-O0-normal-sem-drop.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "tracing-O0-normal-sem-drop.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "tracing-O0-normal-sem-drop.exit",
+      "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+    },
+    {
+      "nome": "arc-O2-normal.build.log",
+      "sha256": "7df9a43b99a5732f126d795740156455316cc654c5ca5f46ec99e2666012c7ad"
+    },
+    {
+      "nome": "arc-O2-normal.ll",
+      "sha256": "c59d3379eb2a3167e709edbe438a43e7d79614d25fa21e5557cb910fca82c1a3"
+    },
+    {
+      "nome": "arc-O2-normal.stdout",
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "nome": "arc-O2-normal.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "arc-O2-normal.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "nome": "arc-O2-normal-sem-owner.build.log",
+      "sha256": "617f80def8ad506bd06f72e5f8249e89e97aef7dd22351deb5ec030a55851e63"
+    },
+    {
+      "nome": "arc-O2-normal-sem-owner.ll",
+      "sha256": "787cc5bc95184ea4b67fd3d67de85ac7a014b8ec69ceeb2996c238aec4c59803"
+    },
+    {
+      "nome": "arc-O2-normal-sem-owner.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "arc-O2-normal-sem-owner.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "arc-O2-normal-sem-owner.exit",
+      "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+    },
+    {
+      "nome": "arc-O2-normal-sem-tabela.build.log",
+      "sha256": "6a6d375a633bf3e933b9aa9df02fc8b58da34deb7071befe6393fd970baae430"
+    },
+    {
+      "nome": "arc-O2-normal-sem-tabela.ll",
+      "sha256": "e7663145214adc61cfa737f953bcfddbadf2d49baca99055bed654461c581522"
+    },
+    {
+      "nome": "arc-O2-normal-sem-tabela.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "arc-O2-normal-sem-tabela.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "arc-O2-normal-sem-tabela.exit",
+      "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+    },
+    {
+      "nome": "arc-O2-normal-sem-drop.build.log",
+      "sha256": "cede9f9f61fdb58f2b8357051fdf1da778d9c111ae7739a7d99ab9f9eb1ed8ef"
+    },
+    {
+      "nome": "arc-O2-normal-sem-drop.ll",
+      "sha256": "002ce94012c101dbd8574e8df84b2b3229b4b0b215e1ab5d734f5f7ec0b66fb3"
+    },
+    {
+      "nome": "arc-O2-normal-sem-drop.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "arc-O2-normal-sem-drop.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "arc-O2-normal-sem-drop.exit",
+      "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+    },
+    {
+      "nome": "tracing-O2-normal.build.log",
+      "sha256": "b96a5aa9b553f8b8313be2d9c56a2f537def2430bb10540d99bebdd33a8e09ed"
+    },
+    {
+      "nome": "tracing-O2-normal.ll",
+      "sha256": "76f11e96dd3d8f405a2d6781f1686da03a73a03d91899b52729afe545c046303"
+    },
+    {
+      "nome": "tracing-O2-normal.stdout",
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "nome": "tracing-O2-normal.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "tracing-O2-normal.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "nome": "tracing-O2-normal-sem-owner.build.log",
+      "sha256": "a0b74383d9e84ca8208ad5f8d0ee23f7ec227e109fba7a60a75e863e69a21c16"
+    },
+    {
+      "nome": "tracing-O2-normal-sem-owner.ll",
+      "sha256": "811a1fa70ba7ba81b21187c19d96252e545ea8a160c5140f6a162e707f8fe0a2"
+    },
+    {
+      "nome": "tracing-O2-normal-sem-owner.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "tracing-O2-normal-sem-owner.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "tracing-O2-normal-sem-owner.exit",
+      "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+    },
+    {
+      "nome": "tracing-O2-normal-sem-tabela.build.log",
+      "sha256": "5778a76b27d3a6ee873555860644439cc580e2041b3f80645711b15e7515c087"
+    },
+    {
+      "nome": "tracing-O2-normal-sem-tabela.ll",
+      "sha256": "cf9ae00e2d7d8f8b3bb41a24e6df9a80f71a25c1c3258006d0c07d3ef519e25c"
+    },
+    {
+      "nome": "tracing-O2-normal-sem-tabela.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "tracing-O2-normal-sem-tabela.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "tracing-O2-normal-sem-tabela.exit",
+      "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+    },
+    {
+      "nome": "tracing-O2-normal-sem-drop.build.log",
+      "sha256": "fc87d9a081efc29611f8869b9667f84a8b0914146b174dd4c45d61563b10f7d5"
+    },
+    {
+      "nome": "tracing-O2-normal-sem-drop.ll",
+      "sha256": "2942e22904aea6fb61ff81f86d9b1620d74d369d53327f602c01ddd2dd728b46"
+    },
+    {
+      "nome": "tracing-O2-normal-sem-drop.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "tracing-O2-normal-sem-drop.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "nome": "tracing-O2-normal-sem-drop.exit",
+      "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+    },
+    {
+      "nome": "arc-instancia-emissor-final.log",
+      "sha256": "3b13e5bc29c2d3815ced2e50f39129c385e5306e6ff535fd2f3fc7d0e0dd640d"
+    },
+    {
+      "nome": "arc-instancia-emissor-doc-final.log",
+      "sha256": "f427e175e32703274f72d41359c3abef05039b2f0ddaca7faf976e1b8939b0f5"
+    },
+    {
+      "nome": "arc-instancia-runtime-final.log",
+      "sha256": "f300bbb498169c30921531a52bf3ce74fb4fdef24008d0ed358b9148b77c066f"
+    },
+    {
+      "nome": "arc-instancia-runtime-doc-final.log",
+      "sha256": "fe5eed06581ff6b0207dafb6ec35ed8b877e27d07617b7498b66f0d87207b6bb"
+    },
+    {
+      "nome": "arc-memoria-cli-test.log",
+      "sha256": "d0b668449f1a1f53bc613ba7ef179c32f8e1203b234aeb126eba93b4cb9b2515"
+    },
+    {
+      "nome": "arc-instancia-zerada-matriz-final.log",
+      "sha256": "66f906ff5e8edff1d93146f7ad6f9f3b413cb1414cfa0b7720f25f1d7e9c96a8"
+    }
+  ]
+}

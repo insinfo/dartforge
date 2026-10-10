@@ -1,0 +1,193 @@
+   Compiling dartforge-runtime v0.1.0 (E:\MyRustProjects\dartforge\crates\runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 29.20s
+     Running unittests src\lib.rs (target\debug\deps\dartforge_runtime-4941a8e795119ad3.exe)
+
+running 185 tests
+test abi::testes::ber_indefinido_e_octetos_segmentados ... ok
+test abi::testes::kdf_pkcs12_do_rfc ... ok
+test abi::testes::rc4_vetor_conhecido ... ok
+test abi::testes::base64_com_e_sem_preenchimento ... ok
+test abi::function_apply_tests::function_apply_encaminha_descritor_nomeado_a_entrada_uniforme ... ok
+test abi::finalizador_callback_tests::finalizador_recusa_trampolins_sincronos_antes_de_criar_anexo ... ok
+test abi::testes_arc_abi_quadros::abi_recusa_quadro_observacional_antes_de_alterar_slots - should panic ... ok
+test abi::testes_arc_abi_quadros::abi_carrega_owner_independente_e_recebe_token_no_slot ... ok
+test abi::testes_arc_abi_quadros::abi_minima_confere_modo_e_sustenta_tokens_ate_release ... ok
+test abi::testes_arc_abi_quadros::captura_owned_preserva_identidade_e_sobrevive_clear_nos_dois_modos ... ok
+test abi::testes_arc_abi_quadros::abi_global_recebe_objeto_mortal_e_libera_ultimo_owner ... ok
+test abi::testes_arc_abi_quadros::captura_owned_encaixota_escalar_sem_consumir_pendencia ... ok
+test abi::testes_arc_abi_quadros::excecao_ref_preserva_mint_apos_release_e_clear_remove_raiz ... ok
+test abi::testes_arc_abi_quadros::copia_movimento_e_fecho_preservam_occorrencias_ate_o_ultimo_owner ... ok
+test abi::testes_excecoes_tabelas::acao_uleb128_independe_da_codificacao_dos_enderecos ... ok
+test abi::testes_excecoes_tabelas::cadeia_de_acoes_separa_indice_seletor_e_cleanup ... ok
+test abi::testes_arc_abi_quadros::fabrica_owned_entrega_token_e_mint_morre_apos_ultimo_release ... ok
+test abi::testes_arc_abi_quadros::rastro_owned_preserva_identidade_e_morre_apos_ultimo_release ... ok
+test abi::testes_excecoes_tabelas::catch_all_so_instala_no_quadro_escolhido_para_excecao_dart ... ok
+test abi::testes_excecoes_tabelas::cleanup_nao_para_busca_e_instala_na_fase_de_unwind ... ok
+test abi::testes_caixa_double_owned::double_owned_preserva_bits_e_morre_apos_ultimo_token ... ok
+test abi::testes_excecoes_tabelas::faixa_no_limite_do_endereco_nao_soma_comprimento ... ok
+test abi::testes_campo_ref::leitura_empresta_aresta_e_copia_owned_sobrevive_a_substituicao ... ok
+test abi::testes_excecoes_tabelas::lsda_ausente_nao_tem_pouso ... ok
+test abi::testes_excecoes_tabelas::pouso_misto_limpa_estrangeira_sem_capturar_e_seleciona_catch_dart ... ok
+test abi::testes_arc_abi_quadros::observacao_nativa_nao_cria_owner_e_rejeita_enderecos_fora_do_heap ... ok
+test abi::testes_campo_escalar::leitura_confere_mapa_sem_confundir_bits_com_handle_e_sem_coletar ... ok
+test abi::testes_excecoes_tabelas::pouso_pela_faixa_do_ponto_da_chamada ... ok
+test abi::testes_excecoes_tabelas::protocolo_legado_preserva_pousos_de_statepoint ... ok
+test abi::testes_excecoes_tabelas::sem_porta_registrada_a_chamada_e_direta ... ok
+test abi::testes_excecoes_tabelas::sleb128_preserva_sinal_e_extremos ... ok
+test abi::testes_excecoes_tabelas::sem_tabela_de_tipos_e_com_uleb128_de_dois_bytes ... ok
+test abi::testes_gc_raizes::descritor_enxuto_da_n_slots_zerados_e_a_mesma_area ... ok
+test abi::testes_instancia_owned::parametros_devem_caber_no_cabecalho_sem_truncar ... ok
+test abi::testes_gravacao_campo::receiver_e_indice_invalidos_nao_gravam_nem_coletam ... ok
+test abi::testes_modulo_double::segue_sinais_e_zero_da_vm ... ok
+test abi::testes_nativos_numeros::double_to_string_e_o_da_vm ... ok
+test abi::testes_instancia_owned::instancia_owned_registra_metodos_antes_de_alocar_e_preserva_token ... ok
+test abi::testes_gravacao_campo::gravacao_distingue_bits_de_arestas_e_substitui_sem_consumir_tokens ... ok
+test abi::testes_nativos_numeros::inteiros_com_a_regra_da_vm ... ok
+test abi::testes_instancia_owned::instancia_zerada_e_token_sobrevivem_a_stress_ate_uma_liberacao ... ok
+test abi::testes_owner_controle::entrada_com_excecao_solta_argumento_e_preserva_owner_da_pendencia ... ok
+test abi::testes_owner_controle::copia_portatil_sobrevive_na_fila_e_owner_ativo_termina_no_retorno ... ok
+test abi::testes_owner_finalizacao::finalizacao_ativa_sobrevive_ao_encerramento_reentrante ... ok
+test abi::testes_owner_finalizacao::finalizacoes_reentrantes_consumem_cada_entrada_uma_vez ... ok
+test abi::testes_owner_controle::entrada_de_isolado_preserva_valores_e_solta_owners_no_retorno ... ok
+test abi::testes_owner_controle::erro_e_rastro_sobrevivem_ao_clear_ate_terminar_o_relato ... ok
+test abi::testes_owners_eventos::callback_com_excecao_solta_owner_ativo_e_preserva_pendencia ... ok
+test abi::testes_owners_eventos::evento_unico_transfere_owner_da_fila_e_solta_apos_callback ... ok
+test abi::testes_owners_eventos::timer_periodico_cancelado_no_callback_preserva_owner_ativo ... ok
+test abi::testes_owners_lista_io::resultado_io_com_copias_sobrevive_a_coleta_e_libera_a_cadeia ... ok
+test abi::testes_owners_materializacao::encerramento_do_isolado_solta_owners_de_mensagens_pendentes ... ok
+test abi::testes_owners_materializacao::remetente_com_clone_antigo_nao_publica_apos_encerramento ... ok
+test abi::testes_owners_materializacao::fila_encerrada_descarta_grafo_sem_consultar_handle_ja_morto ... ok
+test abi::testes_owners_materializacao::aliases_compartilhados_passam_da_fila_ao_despacho_sem_owner_residual ... ok
+test abi::testes_owners_materializacao::grafo_ciclico_com_aliases_preserva_nos_ate_ligar_arestas ... ok
+test abi::testes_owners_materializacao::texto_compartilhado_na_fila_sobrevive_sem_owner_do_emissor ... ok
+test abi::testes_rastro::casa_a_pilha_do_rastro_pelo_topo_do_quadro ... ok
+test abi::testes_owners_record_e_concat::concatenacao_de_formas_distintas_preserva_caixas_e_libera_entradas ... ok
+test abi::testes_rastro::escreve_a_cadeia_de_quem_espera ... ok
+test abi::testes_rastro::simboliza_no_formato_da_vm ... ok
+test abi::testes_restauracao_efeitos::unwind_preserva_nivel_externo_e_libera_proibicoes_abandonadas ... ok
+test abi::testes_owners_record_e_concat::getter_record_empresta_campo_sem_criar_owner_independente ... ok
+test abi::testes_owners_record_e_concat::record_da_abi_preserva_aliases_e_caixas_ate_publicar ... ok
+test abi::testes_to_string_as::exponencial_sem_precisao_usa_decimal_curto_da_vm ... ok
+test abi::testes_runtime_type::native_retorna_tipo_canonico_do_valor ... ok
+test arc::testes::aresta_lateral_impede_filtro_de_corpo_sem_referencias ... ok
+test arc::testes::auditoria_acha_rc_errado ... ok
+test arc::testes::cadeia_aciclica_morre_em_cascata_ao_soltar_a_raiz ... ok
+test arc::testes::ciclo_com_referencia_externa_sobrevive_e_a_coleta_nao_muda_rc ... ok
+test arc::testes::ciclo_isolado_so_morre_pela_coleta_de_ciclos ... ok
+test arc::testes::ciclo_que_segura_um_acíclico_libera_os_dois ... ok
+test arc::testes::em_construcao_e_protegido_nao_morrem ... ok
+test abi::testes_to_string_as::as_tres_formas_sao_as_da_vm ... ok
+test arc::testes::entrada_obsoleta_de_fila_e_ignorada_pela_geracao ... ok
+test arc::testes::indice_por_inverso_confere_tamanhos_grandes_e_limites_de_u64 ... ok
+test arc::testes::imortal_nao_reutiliza_geracao_apos_esgotamento ... ok
+test arc::testes::multiplicidade_de_ocorrencias ... ok
+test arc::testes::null_e_smi_nao_sao_contados ... ok
+test arc::testes::raiz_observacional_segura_zero_e_ciclo ... ok
+test arc::testes::pagina_reformatada_atualiza_o_inverso_e_preserva_o_metadado ... ok
+test arc::testes::raiz_protegida_nao_expande_trial_e_preserva_candidato ... ok
+test arc::testes::soltar_com_rc_zero_e_erro_e_overflow_tambem ... ok
+test caixas::testes_caixas::caixas_de_bool_sao_as_estaticas ... ok
+test espaco::testes_faixas::blocos_separados_por_vivo_nao_se_juntam ... ok
+test espaco::testes_faixas::quarentena_so_entrega_os_blocos_que_sairam_do_anel ... ok
+test espaco::testes_faixas::mortos_contiguos_reabastecem_uma_faixa_sem_tocar_o_vivo ... ok
+test heap::arc_no_heap::anexo_de_dono_velho_guarda_acao_jovem_e_desanexo_solta_cadeia ... ok
+test heap::arc_no_heap::anexo_dart_nao_enraiza_ciclo_entre_dono_e_acao ... ok
+test heap::arc_no_heap::arc_ciclo_morre_na_completa_e_a_raiz_o_segura ... ok
+test heap::arc_no_heap::arc_escrita_crua_num_velho_reconcilia_pela_foto ... ok
+test heap::arc_no_heap::anexo_morto_publica_owner_da_acao_na_fila ... ok
+test heap::arc_no_heap::arc_promove_conta_e_solta_pelo_rc ... ok
+test heap::arc_no_heap::arc_raizes_registram_jovens_sem_reter_lixo_nem_recontar_velhos ... ok
+test heap::arc_no_heap::ativacao_arc_conta_globais_e_slots_runtime_abertos_no_tracing ... ok
+test heap::arc_no_heap::anexo_nativo_nao_aceita_dono_reutilizado_apos_morte_do_wrapper ... ok
+test heap::arc_no_heap::ativacao_arc_conta_quadros_proprietarios_ja_abertos ... ok
+test heap::arc_no_heap::ativacao_arc_reconta_tokens_e_ultimo_release_permite_coletar_ciclo ... ok
+test heap::arc_no_heap::construcao_de_closure_transfere_protecao_para_aresta_forte ... ok
+test heap::arc_no_heap::fila_de_finalizacoes_conta_aliases_e_consumo ... ok
+test heap::arc_no_heap::global_recebe_token_sem_reter_e_nao_confunde_owner_com_valor_escalar ... ok
+test heap::arc_no_heap::indice_de_anexos_preserva_aliases_apos_remover_posicao_intermediaria ... ok
+test heap::arc_no_heap::movimento_recusa_raiz_observacional_antes_de_consumir_owner ... ok
+test heap::arc_no_heap::movimento_proprietario_consumindo_alias_e_retorno_preserva_rc ... ok
+test heap::arc_no_heap::owners_de_mensagem_contam_no_percurso_do_tracing ... ok
+test heap::arc_no_heap::owners_temporarios_das_listas_sobrevivem_a_crescimento_e_descompactacao ... ok
+test heap::arc_no_heap::proprietarios_e_arestas_fortes_contam_ocorrencias_distintas ... ok
+test heap::arc_no_heap::owners_persistentes_contam_aliases_movimento_e_promocao ... ok
+test heap::arc_no_heap::release_do_codigo_nao_consume_owner_de_quadro - should panic ... ok
+test heap::arc_no_heap::quadros_proprietarios_contam_copias_trocas_e_promocao ... ok
+test heap::arc_no_heap::slots_e_tokens_transferem_sem_reter_movimento_e_com_alias_no_destino ... ok
+test heap::arc_no_heap::tabelas_canonicas_contam_slots_sem_duplicar_registro ... ok
+test heap::arc_no_heap::tamanho_externo_do_finalizador_sai_uma_vez_por_transicao ... ok
+test arc::testes::indice_por_inverso_confere_todos_os_bytes_das_classes ... ok
+test heap::arc_no_heap::transferencia_recusa_destino_ou_token_invalidos_antes_de_mutar ... ok
+test heap::arc_no_heap::tokens_do_codigo_contam_aliases_sem_duplicar_raizes_observacionais ... ok
+test heap::espaco_de_objetos::coleta_menor_segue_os_lembrados_e_solta_os_jovens_mortos ... ok
+test heap::arc_no_heap::visao_tipadas_guarda_base_apos_consumir_owners_temporarios ... ok
+test heap::espaco_de_objetos::corpo_de_fora_segue_na_coleta_e_na_barreira ... ok
+test heap::espaco_de_objetos::handles_de_objeto_e_escalares_nao_se_confundem ... ok
+test heap::espaco_de_objetos::lista_ligada_no_heap ... ignored, medição
+test heap::espaco_de_objetos::hash_de_identidade_estavel_e_distinto ... ok
+test heap::espaco_de_objetos::mapa_de_referencias_alem_de_32_campos ... ok
+test heap::espaco_de_objetos::objeto_grande_tem_pagina_propria ... ok
+test heap::espaco_de_objetos::faixas_da_tlab_sobrevivem_e_voltam_a_lista ... ok
+test heap::espaco_de_objetos::coleta_devolve_blocos_e_mantem_os_alcancaveis ... ok
+test heap::espaco_de_objetos::objeto_que_cresce_segue_pelo_ponteiro_dos_campos ... ok
+test heap::espaco_de_objetos::verificacao_aceita_barreira_do_anexo_lateral ... ok
+test heap::espaco_de_objetos::verificacao_acha_barreira_faltando_em_anexo_lateral - should panic ... ok
+test heap::espaco_unificado::anexo_solto_quando_o_dono_morre ... ok
+test heap::espaco_de_objetos::verificacao_acha_barreira_faltando - should panic ... ok
+test heap::espaco_unificado::bytes_externos_disparam_o_gatilho ... ok
+test heap::espaco_unificado::bruto_guarda_bits_e_nao_segue_nada ... ok
+test heap::espaco_unificado::classes_medias_e_exatas_convivem ... ok
+test heap::espaco_unificado::definir_flags_troca_so_a_forma ... ok
+test heap::espaco_unificado::divida_extrema_de_bytes_externos_nao_perde_o_gatilho ... ok
+test heap::espaco_unificado::descontar_externos_apos_saturacao_preserva_outros_bytes ... ok
+test heap::espaco_unificado::estatico_nao_e_gravado - should panic ... ok
+test heap::espaco_unificado::estatico_nunca_marcado_nem_varrido ... ok
+test heap::espaco_unificado::cartoes_mantem_o_jovem_gravado_em_lista_grande_velha ... ok
+test heap::espaco_unificado::instancia_segue_so_os_campos_referencia ... ok
+test heap::espaco_unificado::permanentes_e_constantes_purgados ... ok
+test heap::espaco_unificado::refs_segue_os_elementos_e_a_barreira_lembra ... ok
+test heap::espaco_unificado::regiao_grande_devolvida ... ok
+test heap::falhas_de_handle::handle_alem_da_tabela - should panic ... ok
+test heap::falhas_de_handle::handle_coletado - should panic ... ok
+test heap::falhas_de_handle::handle_negativo - should panic ... ok
+test heap::falhas_de_handle::null_desreferenciado - should panic ... ok
+test heap::fixed_root_tests::fixed_slot_microbenchmark ... ignored, microbenchmark de slots fixos; execute release --ignored --nocapture
+test heap::raizes_do_runtime::coleta_menor_purga_so_as_marcas_dos_jovens_mortos ... ok
+test heap::fixed_root_tests::byte_trigger_collects_large_payloads ... ok
+test heap::raizes_do_runtime::excecao_pendente_sobrevive_a_coleta_sem_frame ... ok
+test heap::espaco_de_objetos::varredura_sem_tocar_os_mortos_entrega_blocos_zerados ... ok
+test heap::review_tests::gc_microbenchmark ... ignored, microbenchmark; execute em release com --ignored --nocapture
+test heap::raizes_do_runtime::tabela_lateral_purgada_quando_o_bloco_e_reutilizado ... ok
+test heap::review_tests::returned_handles_and_identity ... ok
+test heap::fixed_root_tests::fixed_slots_preserve_copies_and_nested_returns ... ok
+test heap::review_tests::unicode_nul_nullable_and_concat ... ok
+test heap::review_tests::large_cycle_is_iterative ... ok
+test heap::tests::cycles_and_slot_reuse ... ok
+test heap::testes_observacao_sem_zerar::diagnostico_distingue_bloco_livre_com_cabecalho_antigo ... ok
+test heap::tests::enum_singletons_survive_collection_and_keep_nominal_identity ... ok
+test heap::tests::scalar_bits_do_not_trace ... ok
+test heap::tests::tagged_edges_keep_unrooted_children_alive ... ok
+test layout::testes_layout::layout_cids_do_sdk_em_ordem_e_predicados ... ok
+test layout::testes_layout::layout_classe_de_tamanho_monotona_e_cobre ... ok
+test layout::testes_layout::layout_classes_medias_enchem_a_pagina ... ok
+test layout::testes_layout::layout_hash_de_texto_igual_ao_da_vm ... ok
+test layout::testes_layout::layout_palavra_do_cabecalho_e_handles ... ok
+test layout::testes_layout::layout_tamanhos_dos_corpos ... ok
+test listas::testes_listas::listas_bits_de_cada_forma ... ok
+test listas::testes_listas::listas_flags_e_codigos_ida_e_volta ... ok
+test textos::testes_textos::textos_busca ... ok
+test textos::testes_textos::textos_forma_canonica_e_fatia ... ok
+test textos::testes_textos::textos_hash_igual_ao_do_layout ... ok
+test textos::testes_textos::textos_igualdade_entre_formas ... ok
+test textos::testes_textos::textos_iterador_dos_dois_lados ... ok
+test textos::testes_textos::textos_pontos_e_codificacao ... ok
+test tipadas::testes_tipadas::tipadas_tipo_do_cid_cobre_as_faixas ... ok
+test heap::tests::nested_frames_stress ... ok
+test heap::raizes_do_runtime::coleta_sem_frame_aberto ... ok
+test heap::arc_no_heap::arc_grafos_aleatorios_o_modelo_vale_no_rastreamento ... ok
+test heap::arc_no_heap::arc_grafos_aleatorios_contra_o_modelo ... ok
+test heap::arc_no_heap::arc_grafos_aleatorios_com_ciclos_sempre ... ok
+test abi::testes_nativos_numeros::double_to_string_sem_alocar_e_o_de_antes ... ok
+
+test result: ok. 182 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.47s
+

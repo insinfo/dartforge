@@ -1,0 +1,51 @@
+   Compiling dartforge-runtime v0.1.0 (E:\MyRustProjects\dartforge\crates\runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 25.14s
+   Doc-tests dartforge_runtime
+
+running 42 tests
+test E:\MyRustProjects\dartforge\crates\runtime\src\arc_abi.rs - abi::dartforge_arc_box_int_owned_v1 (line 342) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\arc_abi.rs - abi::dartforge_arc_excecao_owned_v1 (line 261) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\arc_abi.rs - abi::dartforge_arc_gravar_campo_escalar_v1 (line 99) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\arc_abi.rs - abi::dartforge_arc_lancar_com_rastro_ref_v1 (line 315) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\arc_abi.rs - abi::dartforge_arc_collect (line 453) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\arc_abi.rs - abi::dartforge_arc_global_receber_v1 (line 568) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\arc_abi.rs - abi::dartforge_arc_gravar_campo_ref_v1 (line 124) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\arc_abi.rs - abi::dartforge_arc_box_double_owned_v1 (line 366) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\arc_abi.rs - abi::dartforge_arc_lancar_ref_v1 (line 237) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\arc_abi.rs - abi::dartforge_arc_ler_campo_escalar_v1 (line 163) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\arc_abi.rs - abi::dartforge_arc_ler_campo_ref_v1 (line 198) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\arc_abi.rs - abi::dartforge_arc_objeto_owned_t_v1 (line 66) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\arc_abi.rs - abi::dartforge_arc_objeto_owned_v1 (line 20) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\arc_abi.rs - abi::dartforge_arc_observar_heap_v1 (line 396) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\arc_abi.rs - abi::dartforge_arc_quadro_abrir_v1 (line 481) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\arc_abi.rs - abi::dartforge_arc_quadro_carregar_v1 (line 524) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\arc_abi.rs - abi::dartforge_arc_quadro_copiar_v1 (line 500) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\arc_abi.rs - abi::dartforge_arc_quadro_fechar_v1 (line 607) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\arc_abi.rs - abi::dartforge_arc_quadro_mover_v1 (line 584) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\arc_abi.rs - abi::dartforge_arc_quadro_receber_v1 (line 546) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\arc_abi.rs - abi::dartforge_arc_rastro_owned_v1 (line 292) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\arc_abi.rs - abi::dartforge_arc_release (line 435) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\arc_abi.rs - abi::dartforge_arc_retain (line 417) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\arc_abi.rs - abi::dartforge_arc_verificar_abi (line 467) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\efeitos_conferir.rs - abi::dartforge_efeitos_nivel (line 58) ... ok
+test E:\MyRustProjects\dartforge\crates\runtime\src\efeitos_conferir.rs - abi::dartforge_efeitos_restaurar (line 76) ... ok
+test E:\MyRustProjects\dartforge\target\debug\build\dartforge-runtime-5c59db02738cb795\out/ownership.rs - ownership::Contrato (line 20) ... ok
+test E:\MyRustProjects\dartforge\target\debug\build\dartforge-runtime-5c59db02738cb795\out/ownership.rs - ownership::ModoParametro (line 4) ... ok
+test E:\MyRustProjects\dartforge\target\debug\build\dartforge-runtime-5c59db02738cb795\out/ownership.rs - ownership::ModoResultado (line 12) ... ok
+test crates\runtime\src\arc.rs - arc::EstadoDoArc::registrar_imortal (line 400) ... ok
+test crates\runtime\src\arc.rs - arc::EstadoDoArc::registrar_vivo_em (line 423) ... ok
+test crates\runtime\src\heap.rs - heap::Heap::enum_value (line 1839) ... ok
+test crates\runtime\src\heap.rs - heap::Heap::guardar_literal (line 1669) ... ok
+test crates\runtime\src\heap.rs - heap::Heap::mover_global_para_slot (line 2128) ... ok
+test crates\runtime\src\heap.rs - heap::Heap::mover_raiz (line 2098) ... ok
+test crates\runtime\src\heap.rs - heap::Heap::mover_raiz_global (line 1728) ... ok
+test crates\runtime\src\heap.rs - heap::Heap::push_frame_proprietario (line 1907) ... ok
+test crates\runtime\src\heap.rs - heap::Heap::registrar_tearoff (line 1869) ... ok
+test crates\runtime\src\heap.rs - heap::Heap::set_global_root (line 1685) ... ok
+test crates\runtime\src\heap.rs - heap::Heap::set_raiz_do_runtime (line 1646) ... ok
+test crates\runtime\src\heap.rs - heap::Heap::soltar_raiz_global (line 1744) ... ok
+test crates\runtime\src\lib.rs - ownership::contrato (line 69) ... ok
+
+test result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+all doctests ran in 1.04s; merged doctests compilation took 0.78s
