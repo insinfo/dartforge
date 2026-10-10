@@ -608,14 +608,20 @@ ARC anterior; tracing permanece sem alterações.
   os sobreviventes. Trial negativo identifica o handle e interrompe antes
   de alterar RC, romper arestas ou publicar mortos. Regressões cobrem handles
   esparsos, arestas repetidas e inventário adulterado; os três oráculos de
-  grafos aleatórios passaram com `DF_ARC_SEMENTES=1000`. Não há medição de
-  desempenho dessa mudança.
+  grafos aleatórios passaram com `DF_ARC_SEMENTES=1000`. Comparação local
+  em sete pares mostrou resultado misto: árvores 1,59% mais lentas e
+  lista ligada 4,59% mais rápida nas medianas. Não demonstra ganho geral;
+  A0 e os outros 30 kernels não foram reexecutados. Dados brutos em
+  [trial denso](../bench/resultados/2026-10-10-arc-trial-denso-windows/README.md).
 * A entrega dos mortos ao reclamador usa `EstadoDoArc::transferir_mortos`:
   destino vazio recebe o buffer por troca; rodadas seguintes acrescentam
   handles sem apagar os anteriores. Remove os mesmos metadados mortos antes
   da entrega. O heap testa separadamente jovens da primeira rodada, que
   continuam reclamados pela varredura. Evita duplicar a lista inteira só
-  para testar se houve mortes; ganho de tempo ainda precisa de medição.
+  para testar se houve mortes. Comparação local anterior em sete pares
+  observou medianas 3,31% menores em árvores e 3,74% em lista ligada,
+  sem reavaliar A0 ou os outros 30 kernels. Dados brutos em
+  [transferência de mortos](../bench/resultados/2026-10-10-arc-transferencia-mortos-windows/README.md).
 * Reduzir o custo da reclamação por bloco (`EspacoDeObjetos::soltar_morto`,
   já usada pela drenagem pura, sem varrer páginas): a junção dos vizinhos
   na ponta da lista está feita (§6.2), sem ganho demonstrado na média

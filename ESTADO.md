@@ -2,6 +2,25 @@
 
 ## Retomada de 2026-10-10
 
+Comparação do trial deletion denso concluída: antes b706e0b0, depois
+687a7fd4; diferença de produção somente em arc.rs, benchmark inalterado.
+CLI release recompilada com jit; novo AOT otimizado com --memoria=arc.
+Sete pares alternados, afinidade 0x4, ARC puro, 256 MiB, sem rastro,
+auditoria ou stress. Passaram 14 processos com resultados iguais e hashes
+inalterados. Auditoria reconstrói medianas do stdout sem aquecimento.
+Árvores 633,281 → 643,327 ms (1,59% mais lento); lista ligada
+156,701 → 149,509 ms (4,59% mais rápido). Depois menor em 2/7 pares de
+árvores e 4/7 de lista; resultado misto, sem ganho geral demonstrado ou
+significância estabelecida. Não comparar tempos de rodadas diferentes como
+pares. A0/outros 30 kernels não reexecutados: ARC/A0=2,000274 anterior
+continua reprovado. Dados/scripts/logs/hashes em
+bench/resultados/2026-10-10-arc-trial-denso-windows. CLI SHA-256
+4daefc7bc235f40bd72a0b0aeabff2f49881f313b8615554c37372e632d7f418.
+ARC somente --memoria=arc; tracing padrão. §§27–34 continuam incompletos.
+Commits até 687a7fd4 publicados em main após CI 38057171425 verde.
+Nova CI 38064260616 em execução; mensagens passaram. Evidência ainda local
+para preservar a rodada de CI ativa.
+
 Trial deletion em `EstadoDoArc::coletar_ciclos` passa a usar um mapa
 handle→índice e vetores de contadores/marcas, em vez de três tabelas de hash
 para a mesma região. Mantém multiplicidade, entradas externas, proteção de

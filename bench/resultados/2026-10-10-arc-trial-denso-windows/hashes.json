@@ -1,0 +1,15 @@
+{
+  ".gitattributes": "8b9c3028d6467ff3be7c793141927841d70f47f52d0590677438f488ca154992",
+  "amostras.jsonl": "d3ed8c49d7f195c1b0de6125cd5d189f149ff49a02c03cc0702f603ef351db33",
+  "arc-trial-denso-cli-build.log": "bfc26b0579c95d29ac8af7370ace40040821c569b51cdde6213a6d30bb1f7c9b",
+  "arc-trial-denso-comparacao.log": "948ea2712fcd65ad685b15169f03db7797a03ea340fe327938840213b754887c",
+  "arc-trial-denso-oraculo.log": "45c6a7d034b87cf38270c7e3e9f70c1ce65151e481ce38210e32fa9a4504c218",
+  "arc-trial-denso-suite.log": "1fdd6fed8bf7f1e6192e239130fac943874ebc34423af660dafc338e65620003",
+  "auditar.py": "e20a5df59cf5a9556c65017cbc435d152627700844f0b3c83b186e61c0ee6a43",
+  "auditoria.json": "21e9ab3717f8c251c98b82cb6239303b83cc32234ed694baa9f82ac1bfe32afd",
+  "build.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "comparar.py": "a2a881b4cf10d0458702af48c823f4113e887f32de27052ee9ef3e56b4483910",
+  "manifesto.json": "a07ac07b97b429c5eab24198bb66c8d340e8ef4ce7df62ea954187d3a8deda38",
+  "README.md": "51eeb8dde86910ce0d0e0e60f3c262635a3a621e5bbe677dc49a3e6234c81dd8",
+  "resultado.json": "2b7191ed86a2a04a5f6e2909c8cf339d284dc0354ca9a919d054ab237e5130b8"
+}

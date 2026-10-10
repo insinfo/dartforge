@@ -1,0 +1,11 @@
+   Compiling dartforge-runtime v0.1.0 (E:\MyRustProjects\dartforge\crates\runtime)
+    Finished `release` profile [optimized] target(s) in 55.05s
+     Running unittests src\lib.rs (target\release\deps\dartforge_runtime-af7d276acea297e4.exe)
+
+running 3 tests
+test heap::arc_no_heap::arc_grafos_aleatorios_o_modelo_vale_no_rastreamento ... ok
+test heap::arc_no_heap::arc_grafos_aleatorios_contra_o_modelo ... ok
+test heap::arc_no_heap::arc_grafos_aleatorios_com_ciclos_sempre ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 187 filtered out; finished in 1.51s
+
