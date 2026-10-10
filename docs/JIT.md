@@ -2,6 +2,12 @@
 
 O DartForge passa a ter dois perfis de execução nativa sobre **o mesmo LLVM IR**:
 
+Tracing é o padrão da CLI. Para compilar e executar fonte com ARC, use
+`dartforge run --memoria=arc entrada.dart` ou
+`dartforge reload entrada.dart --memoria=arc`. Um ambiente
+`DARTFORGE_MEMORIA=arc` herdado não ativa ARC na CLI. Em `run`, opções depois
+do arquivo são argumentos de `main`; a opção de memória deve vir antes dele.
+
 | | Desenvolvimento (`crates/jit`) | Produção (`crates/emit_native`, feature `nativo`) |
 | --- | --- | --- |
 | Comando | `dartforge run <entrada.dart>`, `dartforge reload <entrada.dart> [--reiniciar]` | `dartforge aot <entrada.dart> <saida.exe>` |

@@ -105,7 +105,8 @@ fn biblioteca_do_sdk(ir: &str) -> Result<Option<PathBuf>, String> {
 /// fases da emissão e do JIT (`docs/JIT.md`, «Medição por fase»).
 #[cfg(feature = "jit")]
 pub fn run(args: &[std::ffi::OsString]) -> Resultado {
-    let usage = "usage: dartforge run [--sdk <lib>] [--packages <package_config.json>] [--timings] <input.dart> [<argumentos do main>…]\n       dartforge run --ir <programa.ll> [--timings] [<argumentos do main>…]";
+    crate::nativo::definir_memoria("tracing")?;
+    let usage = "usage: dartforge run [--sdk <lib>] [--packages <package_config.json>] [--timings] [--memoria=tracing|arc] <input.dart> [<argumentos do main>…]\n       dartforge run --ir <programa.ll> [--timings] [<argumentos do main>…]";
     let mut entrada: Option<PathBuf> = None;
     let mut ir_pronto: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;
@@ -128,6 +129,13 @@ pub fn run(args: &[std::ffi::OsString]) -> Resultado {
             Some("--sdk") => sdk = Some(PathBuf::from(it.next().ok_or(usage)?)),
             Some("--packages") => packages = Some(PathBuf::from(it.next().ok_or(usage)?)),
             Some("--timings") => timings = true,
+            Some("--memoria") => {
+                let valor = it.next().and_then(|v| v.to_str()).ok_or("--memoria exige tracing ou arc")?;
+                crate::nativo::definir_memoria(valor)?;
+            }
+            Some(opcao) if opcao.starts_with("--memoria=") => {
+                crate::nativo::definir_memoria(&opcao["--memoria=".len()..])?;
+            }
             _ => entrada = Some(PathBuf::from(a)),
         }
     }
@@ -266,7 +274,8 @@ impl Drop for DiretorioGeracoes {
 /// geração num processo próprio (`dartforge run --ir`).
 #[cfg(feature = "jit")]
 pub fn reload(args: &[std::ffi::OsString]) -> Resultado {
-    let usage = "usage: dartforge reload <input.dart> [--sdk <lib>] [--packages <package_config.json>] [--intervalo <ms>] [--uma-vez] [--timings] [--reiniciar]";
+    crate::nativo::definir_memoria("tracing")?;
+    let usage = "usage: dartforge reload <input.dart> [--sdk <lib>] [--packages <package_config.json>] [--intervalo <ms>] [--uma-vez] [--timings] [--reiniciar] [--memoria=tracing|arc]";
     let mut entrada: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
@@ -291,6 +300,13 @@ pub fn reload(args: &[std::ffi::OsString]) -> Resultado {
             }
             Some("--uma-vez") => uma_vez = true,
             Some("--timings") => timings = true,
+            Some("--memoria") => {
+                let valor = it.next().and_then(|v| v.to_str()).ok_or("--memoria exige tracing ou arc")?;
+                crate::nativo::definir_memoria(valor)?;
+            }
+            Some(opcao) if opcao.starts_with("--memoria=") => {
+                crate::nativo::definir_memoria(&opcao["--memoria=".len()..])?;
+            }
             Some("--reiniciar") => reiniciar = true,
             // A forma antiga do hot reload com estado, que agora é o padrão.
             Some("--preservar-estado") => {}
@@ -367,7 +383,11 @@ pub fn reload(args: &[std::ffi::OsString]) -> Resultado {
                         );
                     }
                     let mut comando = std::process::Command::new(&proprio);
-                    comando.arg("run").arg("--ir").arg(&arquivo);
+                    // O filho também parte de tracing; transporta a seleção
+                    // explícita para manter a mesma variante do SDK no cache.
+                    comando.arg("run")
+                        .arg(format!("--memoria={}", std::env::var("DARTFORGE_MEMORIA").unwrap_or_else(|_| "tracing".into())))
+                        .arg("--ir").arg(&arquivo);
                     if timings {
                         comando.arg("--timings");
                     }

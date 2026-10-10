@@ -72,7 +72,7 @@ fn definir_modelo_de_excecoes(valor: &str) -> Result<(), String> {
 /// Como [`definir_modelo_de_excecoes`]: o emissor lê `DARTFORGE_MEMORIA`, que
 /// entra na chave do SDK compilado.
 #[allow(unsafe_code)]
-fn definir_memoria(valor: &str) -> Result<(), String> {
+pub(crate) fn definir_memoria(valor: &str) -> Result<(), String> {
     if valor != "tracing" && valor != "arc" {
         return Err(format!("--memoria={valor}: as políticas de memória são `tracing` e `arc`"));
     }
@@ -130,6 +130,8 @@ fn definir_rastro(valor: &str) -> Result<(), String> {
 /// aceitas e ignoradas, porque silenciosamente não fazer o que a bandeira diz
 /// é pior do que não ter a bandeira.
 pub fn aot(args: &[std::ffi::OsString]) -> Resultado {
+    // A opção da CLI seleciona ARC; um ambiente herdado não muda o padrão.
+    definir_memoria("tracing")?;
     let usage = "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--depuracao] [--timings] [--cpu x86-64|x86-64-v2|x86-64-v3|x86-64-v4|native] [--excecoes checagem|tabelas] [--memoria tracing|arc] [--rastro simbolico|nenhum] [--sdk <lib>] [--packages <package_config.json>]";
     if args.len() < 3 {
         return Err(usage.into());
@@ -228,6 +230,7 @@ pub fn aot(args: &[std::ffi::OsString]) -> Resultado {
 
 #[cfg(feature = "nativo")]
 pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
+    definir_memoria("tracing")?;
     use dartforge_elements::sdk::Linguagem;
     let usage = "usage: dartforge compile-native <input.dart> -o <output.exe> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--optimize] [--depuracao] [--cpu <cpu>] [--excecoes checagem|tabelas] [--memoria tracing|arc] [--rastro simbolico|nenhum] [--versao-linguagem x.y] [--enable-experiment=a,b]
        dartforge compile-native <input.dart> --emit-ir -o <saida.ll> [--resumo] [...]

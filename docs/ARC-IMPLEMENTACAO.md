@@ -7,10 +7,19 @@ alvo; aqui fica só o que o código faz hoje.
 
 ## 1. Seleção
 
-`--memoria tracing|arc` (ou `--memoria=`) em `aot` e `compile-native`. A
+`--memoria tracing|arc` (ou `--memoria=`) em `aot`, `compile-native`, `run`
+e `reload`. Em `run`, a opção deve preceder o arquivo; argumentos depois
+dele pertencem ao programa. Cada comando parte de tracing e somente a
+opção explícita seleciona ARC, mesmo com `DARTFORGE_MEMORIA=arc` herdado.
+A recarga com reinício transporta a seleção para o processo filho. A
 opção define `DARTFORGE_MEMORIA`, lida uma vez por `alvo::memoria_arc` e
 transportada em `Module::memoria_arc` (programa e SDK). O padrão continua
-`tracing`, e o IR dele não muda.
+`tracing`.
+
+Regressão `crates/cli/tests/memoria_cli.rs` consulta o modo do heap pela
+ABI versionada: AOT/JIT/reload retornam 0 sem a opção e 1 com ARC explícito,
+inclusive com ambiente ARC herdado e recarga com reinício. Também prende
+a separação entre opção do compilador e argumento de `main`.
 
 | Combinação | Resultado |
 | --- | --- |
