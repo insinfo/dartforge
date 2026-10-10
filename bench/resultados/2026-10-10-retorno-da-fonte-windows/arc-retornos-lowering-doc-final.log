@@ -1,0 +1,73 @@
+   Compiling dartforge-emit-native v0.1.0 (E:\MyRustProjects\dartforge\crates\emit_native)
+warning: function `atribuir_slots` is never used
+  --> crates\emit_native\src\llvm\raizes.rs:81:8
+   |
+81 | pub fn atribuir_slots(
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.94s
+   Doc-tests dartforge_emit_native
+
+running 55 tests
+test crates\emit_native\src\hir.rs - hir::Instruction::ArcMove (line 266) ... ok
+test crates\emit_native\src\hir.rs - hir::ModoStoreForte (line 227) ... ok
+test crates\emit_native\src\hir.rs - hir::Instruction::ArcLoadStrong (line 275) ... ok
+test crates\emit_native\src\hir.rs - hir::Instruction::ArcCopy (line 248) ... ok
+test crates\emit_native\src\hir.rs - hir::Instruction::ArcDrop (line 257) ... ok
+test crates\emit_native\src\hir.rs - hir::Instruction::ArcStoreStrong (line 284) ... ok
+test crates\emit_native\src\alvo.rs - alvo::sistema (line 25) ... ok
+test crates\emit_native\src\alvo.rs - alvo::nome_compartilhada (line 321) ... ok
+test crates\emit_native\src\hir.rs - hir::SlotForte (line 205) ... ok
+test crates\emit_native\src\hir.rs - hir::SlotForte::Global (line 217) ... ok
+test crates\emit_native\src\ligador_macos.rs - ligador_macos::tbd (line 767) ... ok
+test crates\emit_native\src\ligador_windows.rs - ligador_windows::biblioteca_de_importacao (line 657) ... ok
+test crates\emit_native\src\llvm\mod.rs - llvm::LlvmEmitter<'a>::emit_all (line 450) ... ok
+test crates\emit_native\src\otimizar\arc\chamadas.rs - otimizar::arc::chamadas::ContratoFuncaoDart (line 17) ... ok
+test crates\emit_native\src\otimizar\arc\chamadas.rs - otimizar::arc::chamadas::produzir_chamadas_dart (line 174) ... ok
+test crates\emit_native\src\otimizar\arc\chamadas.rs - otimizar::arc::chamadas::verificar_contrato_funcao_dart (line 75) ... ok
+test crates\emit_native\src\otimizar\arc\classificacao.rs - otimizar::arc::classificacao::OrigemOwner (line 12) ... ok
+test crates\emit_native\src\otimizar\arc\classificacao.rs - otimizar::arc::classificacao::Ownership (line 31) ... ok
+test crates\emit_native\src\otimizar\arc\classificacao.rs - otimizar::arc::classificacao::vivacidade_classificada (line 70) ... ok
+test crates\emit_native\src\otimizar\arc\classificacao.rs - otimizar::arc::classificacao::vivacidade_classificada_com_excecoes (line 221) ... ok
+test crates\emit_native\src\otimizar\arc\cleanup_estrangeiro.rs - otimizar::arc::cleanup_estrangeiro::CleanupEstrangeiro (line 12) ... ok
+test crates\emit_native\src\otimizar\arc\contratos.rs - otimizar::arc::contratos::ContratoChamadaRuntime (line 934) ... ok
+test crates\emit_native\src\otimizar\arc\contratos.rs - otimizar::arc::contratos::contrato_chamada_runtime (line 967) ... ok
+test crates\emit_native\src\otimizar\arc\contratos.rs - otimizar::arc::contratos::inserir_arc_saidas_dart (line 116) ... ok
+test crates\emit_native\src\otimizar\arc\contratos.rs - otimizar::arc::contratos::inserir_retencao_retornos_dart (line 80) ... ok
+test crates\emit_native\src\otimizar\arc\contratos.rs - otimizar::arc::contratos::produzir_contratos_arc (line 410) ... ok
+test crates\emit_native\src\otimizar\arc\contratos.rs - otimizar::arc::contratos::produzir_contratos_runtime (line 351) ... ok
+test crates\emit_native\src\otimizar\arc\contratos.rs - otimizar::arc::contratos::produzir_e_verificar_tokens (line 303) ... ok
+test crates\emit_native\src\otimizar\arc\contratos.rs - otimizar::arc::contratos::produzir_e_verificar_tokens_dart (line 250) ... ok
+test crates\emit_native\src\otimizar\arc\contratos.rs - otimizar::arc::contratos::produzir_parametros_ref_dart (line 23) ... ok
+test crates\emit_native\src\otimizar\arc\escopos.rs - otimizar::arc::escopos::AlteracaoEscopo (line 14) ... ok
+test crates\emit_native\src\otimizar\arc\escopos.rs - otimizar::arc::escopos::PlanoEscopos (line 33) ... ok
+test crates\emit_native\src\otimizar\arc\escopos.rs - otimizar::arc::escopos::verificar_escopos (line 128) ... ok
+test crates\emit_native\src\otimizar\arc\funcoes.rs - otimizar::arc::funcoes::PlanoFuncaoDart (line 13) ... ok
+test crates\emit_native\src\otimizar\arc\funcoes.rs - otimizar::arc::funcoes::inserir_arc_funcoes_dart (line 64) ... ok
+test crates\emit_native\src\otimizar\arc\funcoes.rs - otimizar::arc::funcoes::preparar_arc_funcoes_dart (line 116) ... ok
+test crates\emit_native\src\otimizar\arc\funcoes.rs - otimizar::arc::funcoes::preparar_arc_modulo_dart (line 173) ... ok
+test crates\emit_native\src\otimizar\arc\mod.rs - otimizar::arc::ErroEmprestimo (line 181) ... ok
+test crates\emit_native\src\otimizar\arc\mod.rs - otimizar::arc::Vivacidade (line 58) ... ok
+test crates\emit_native\src\otimizar\arc\mod.rs - otimizar::arc::vivacidade (line 155) ... ok
+test crates\emit_native\src\otimizar\arc\mod.rs - otimizar::arc::vivacidade_com_emprestimos (line 224) ... ok
+test crates\emit_native\src\otimizar\arc\parametros.rs - otimizar::arc::parametros::produzir_parametros_escalares_do_lowering (line 17) ... ok
+test crates\emit_native\src\otimizar\arc\parametros.rs - otimizar::arc::parametros::produzir_parametros_rti_do_lowering (line 49) ... ok
+test crates\emit_native\src\otimizar\arc\planos.rs - otimizar::arc::planos::preparar_arc_modulo_tabelado (line 18) ... ok
+test crates\emit_native\src\otimizar\arc\planos.rs - otimizar::arc::planos::produzir_tabelas_arc_do_modulo (line 58) ... ok
+test crates\emit_native\src\otimizar\arc\retornos.rs - otimizar::arc::retornos::produzir_retornos_ref_do_lowering (line 18) ... ok
+test crates\emit_native\src\otimizar\arc\tokens.rs - otimizar::arc::tokens::EfeitoTokens (line 19) ... ok
+test crates\emit_native\src\otimizar\arc\tokens.rs - otimizar::arc::tokens::PlanoTokens (line 59) ... ok
+test crates\emit_native\src\otimizar\arc\tokens.rs - otimizar::arc::tokens::RetornoTokens (line 38) ... ok
+test crates\emit_native\src\otimizar\arc\tokens.rs - otimizar::arc::tokens::tokens_na_entrada_dos_pousos (line 327) ... ok
+test crates\emit_native\src\otimizar\arc\tokens.rs - otimizar::arc::tokens::verificar_tokens (line 271) ... ok
+test crates\emit_native\src\poda.rs - poda::linha_de_tabela (line 72) ... ok
+test crates\emit_native\src\poda.rs - poda::resumir (line 389) ... ok
+test crates\emit_native\src\sdk_modulo.rs - sdk_modulo::com_optsize (line 873) ... ok
+test crates\emit_native\src\sdk_modulo.rs - sdk_modulo::geracao_do_sdk (line 520) ... ok
+
+test result: ok. 55 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+
+all doctests ran in 2.89s; merged doctests compilation took 2.57s

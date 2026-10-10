@@ -25,6 +25,11 @@ Matriz e upload de fonte/IR/saídas/logs adicionados à CI. Logs locais:
 target/arc-retornos-lowering-{suite,doc}-final.log e
 target/arc-retornos-lowering-aot.log. CI da fonte 137e428c está executando
 nas três plataformas; estas mudanças ainda são locais.
+Fontes registradas em e1233a12; a matriz final foi repetida nessa revisão
+sem alterações locais e passou nos 12 casos. Evidência congelada em
+bench/resultados/2026-10-10-retorno-da-fonte-windows: 72 arquivos brutos,
+incluindo fontes Dart, e três logs, com 75 hashes conferidos. Manifesto
+registra SDK 3.6.2, backend/flags e a precedência dos logs de suite/doctests.
 
 CI 38043719059 da fonte 124624db terminou com sucesso em Windows,
 Linux, macOS arm64 e mensagens; Sem toolchain 38043719100 também passou.

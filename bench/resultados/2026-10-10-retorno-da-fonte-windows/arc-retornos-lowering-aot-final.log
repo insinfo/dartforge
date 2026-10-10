@@ -1,0 +1,12 @@
+arc_retorno_da_fonte: arc-O0-normal: passou
+arc_retorno_da_fonte: arc-O0-normal-sem-retencao: trap
+arc_retorno_da_fonte: arc-O0-normal-sem-drop-retorno: trap
+arc_retorno_da_fonte: tracing-O0-normal: passou
+arc_retorno_da_fonte: tracing-O0-normal-sem-retencao: trap
+arc_retorno_da_fonte: tracing-O0-normal-sem-drop-retorno: trap
+arc_retorno_da_fonte: arc-O2-normal: passou
+arc_retorno_da_fonte: arc-O2-normal-sem-retencao: trap
+arc_retorno_da_fonte: arc-O2-normal-sem-drop-retorno: trap
+arc_retorno_da_fonte: tracing-O2-normal: passou
+arc_retorno_da_fonte: tracing-O2-normal-sem-retencao: trap
+arc_retorno_da_fonte: tracing-O2-normal-sem-drop-retorno: trap
