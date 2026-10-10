@@ -1,0 +1,74 @@
+# Fase 1: compila��o
+  chamadas A0: ok (71 s)
+  chamadas ARC: ok (1 s)
+  chamadas dart: ok (1 s)
+  colecoes A0: ok (1 s)
+  colecoes ARC: ok (3 s)
+  colecoes dart: ok (2 s)
+  json A0: ok (1 s)
+  json ARC: ok (1 s)
+  json dart: ok (1 s)
+  numerico A0: ok (2 s)
+  numerico ARC: ok (2 s)
+  numerico dart: ok (1 s)
+  objetos_em_colecoes A0: ok (1 s)
+  objetos_em_colecoes ARC: ok (1 s)
+  objetos_em_colecoes dart: ok (1 s)
+  objetos_escapam A0: ok (1 s)
+  objetos_escapam ARC: ok (1 s)
+  objetos_escapam dart: ok (1 s)
+  objetos_temporarios A0: ok (1 s)
+  objetos_temporarios ARC: ok (1 s)
+  objetos_temporarios dart: ok (1 s)
+  textos A0: ok (1 s)
+  textos ARC: ok (1 s)
+  textos dart: ok (1 s)
+  tipados A0: ok (2 s)
+  tipados ARC: ok (2 s)
+  tipados dart: ok (1 s)
+# Fase 2: execu��o
+  repeti��o 1/7
+  repeti��o 2/7
+  repeti��o 3/7
+  repeti��o 4/7
+  repeti��o 5/7
+  repeti��o 6/7
+  repeti��o 7/7
+| programa/n�cleo | A0 | ARC | dart | A1/A0 | B0/A0 | B1/A0 | ARC/A0 | A0/dart |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| chamadas/closures | 28.8 | 27.4 | 18.1 | � | � | � | 0.95 | 1.59 |
+| chamadas/fib | 7.7 | 6.2 | 4.3 | � | � | � | 0.80 | 1.82 |
+| chamadas/formas | 3.7 | 3.6 | 4.4 | � | � | � | 0.98 | 0.83 |
+| colecoes/conjunto_str | 31.2 | 78.2 | 16.5 | � | � | � | 2.51 | 1.89 |
+| colecoes/crivo | 32.5 | 32.0 | 24.9 | � | � | � | 0.99 | 1.30 |
+| colecoes/lista_add | 6.8 | 6.7 | 8.9 | � | � | � | 0.99 | 0.76 |
+| colecoes/lista_leitura | 1.9 | 1.9 | 5.7 | � | � | � | 1.02 | 0.33 |
+| colecoes/lista_sort | 87.4 | 107.9 | 315.6 | � | � | � | 1.23 | 0.28 |
+| colecoes/mapa | 56.3 | 78.6 | 49.8 | � | � | � | 1.40 | 1.13 |
+| json/decode_grande | 132.7 | 386.5 | 121.6 | � | � | � | 2.91 | 1.09 |
+| json/decode_medio | 63.9 | 191.1 | 35.5 | � | � | � | 2.99 | 1.80 |
+| json/decode_pequeno | 50.6 | 159.7 | 24.2 | � | � | � | 3.15 | 2.09 |
+| json/encode_grande | 147.8 | 363.4 | 92.4 | � | � | � | 2.46 | 1.60 |
+| json/encode_medio | 75.4 | 156.8 | 38.2 | � | � | � | 2.08 | 1.97 |
+| json/encode_pequeno | 58.4 | 133.2 | 25.4 | � | � | � | 2.28 | 2.30 |
+| json/indentado | 63.1 | 139.5 | 46.8 | � | � | � | 2.21 | 1.35 |
+| json/reviver | 44.1 | 126.9 | 24.4 | � | � | � | 2.88 | 1.81 |
+| json/utf8_bytes | 88.6 | 240.1 | 39.0 | � | � | � | 2.71 | 2.27 |
+| numerico/collatz | 35.3 | 36.6 | 58.6 | � | � | � | 1.04 | 0.60 |
+| numerico/mandelbrot | 8.5 | 8.2 | 9.6 | � | � | � | 0.96 | 0.88 |
+| objetos_em_colecoes/lista_objetos | 25.0 | 72.7 | 11.3 | � | � | � | 2.91 | 2.21 |
+| objetos_em_colecoes/mapa_int_objeto | 32.2 | 143.2 | 18.8 | � | � | � | 4.45 | 1.72 |
+| objetos_em_colecoes/mapa_str_objeto | 20.4 | 113.7 | 15.0 | � | � | � | 5.57 | 1.36 |
+| objetos_em_colecoes/ordenar_objetos | 103.3 | 320.6 | 49.6 | � | � | � | 3.10 | 2.08 |
+| objetos_escapam/arvores | 51.8 | 668.0 | 25.3 | � | � | � | 12.90 | 2.05 |
+| objetos_escapam/lista_ligada | 24.3 | 126.3 | 6.9 | � | � | � | 5.20 | 3.52 |
+| objetos_temporarios/pontos | 28.9 | 86.0 | 13.1 | � | � | � | 2.97 | 2.21 |
+| objetos_temporarios/soma_ponto | 3.2 | 3.3 | 21.5 | � | � | � | 1.04 | 0.15 |
+| textos/construir | 77.9 | 219.8 | 65.8 | � | � | � | 2.82 | 1.18 |
+| textos/hashes | 37.3 | 109.1 | 26.8 | � | � | � | 2.93 | 1.39 |
+| tipados/fnv_bytes | 10.3 | 10.0 | 15.0 | � | � | � | 0.98 | 0.68 |
+| tipados/produto_f64 | 2.5 | 2.4 | 2.4 | � | � | � | 0.94 | 1.05 |
+
+M�dia geom�trica: A1/A0 nan, B0/A0 nan, B1/A0 nan, ARC/A0 2.022, A0/dart 1.249
+Tempos em ms (mediana de 7 execu��es alternadas; em cada uma, a mediana das rodadas sem a primeira); presos aos processadores 0x4.
+Resultados iguais em todos os modos e repeti��es; amostras brutas em amostras.jsonl.

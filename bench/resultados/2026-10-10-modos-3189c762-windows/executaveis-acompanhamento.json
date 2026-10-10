@@ -1,0 +1,114 @@
+{
+  "instante_utc": "2026-10-10T17:22:54.404945+00:00",
+  "linhas_amostras_no_snapshot": 35,
+  "executaveis": [
+    {
+      "nome": "chamadas-A0.exe",
+      "sha256": "d98714275e35a4900c6ef9b245ac35e2e550a0e925e7c6fc0421ad9b12436028"
+    },
+    {
+      "nome": "chamadas-ARC.exe",
+      "sha256": "bea7b84e01f63a358c180c70ae8f63745aaae42e13f74ca81e97377314ace1b8"
+    },
+    {
+      "nome": "chamadas-dart.exe",
+      "sha256": "2544533b2593ab80158b641ae6ac8f7810d815369c7e5897d1b292830750e58b"
+    },
+    {
+      "nome": "colecoes-A0.exe",
+      "sha256": "ce388fd077923cab82fe03c72285e9452617cc0b9b6e2febcf011db0a8f91019"
+    },
+    {
+      "nome": "colecoes-ARC.exe",
+      "sha256": "618fc8ce962c694ab62d42c75982ce2d9bb85d00c0cdfeea22c04d8d6d08ef47"
+    },
+    {
+      "nome": "colecoes-dart.exe",
+      "sha256": "a151a8e179444b6a196a1dfa33488131d4401cb65beb83b3375606e314963373"
+    },
+    {
+      "nome": "json-A0.exe",
+      "sha256": "d71ffbe6d8c1161f723d786de0651933baee689ae96e1843e0b99e9955b4f377"
+    },
+    {
+      "nome": "json-ARC.exe",
+      "sha256": "c9500a17d0ec135ca07d8eb56eed17f2a6bf27c3f327bf9be6ecc1396274673f"
+    },
+    {
+      "nome": "json-dart.exe",
+      "sha256": "a2749e031223b6acb082fba5cfa38a8ebabeca0c542645396fde6f05ffd25d66"
+    },
+    {
+      "nome": "numerico-A0.exe",
+      "sha256": "b1d1f25c29c51af3b5e505ad57c95cd57014b656a1b99db905d54cec75937be4"
+    },
+    {
+      "nome": "numerico-ARC.exe",
+      "sha256": "f29d3fec501e3ceab284fe9d6d8d22687c2e9d117b9821ba33dfcbec2e17d7b3"
+    },
+    {
+      "nome": "numerico-dart.exe",
+      "sha256": "dcc1357ac53362f40f627744b190d45fd3a2e7f5c649e9674f841126f63e0ad1"
+    },
+    {
+      "nome": "objetos_em_colecoes-A0.exe",
+      "sha256": "097c7624d0ca49e2c106b254e7811de6fe1f882d640ea777dfd643355da97678"
+    },
+    {
+      "nome": "objetos_em_colecoes-ARC.exe",
+      "sha256": "2a8528ec748915ea6474fe56b0cbfd831166855be6c33b2d1f2e34f2e319a45b"
+    },
+    {
+      "nome": "objetos_em_colecoes-dart.exe",
+      "sha256": "a13530c3f6cbf8773af0c44ea123640b354e76c3669860a22b6c2e66d291da2c"
+    },
+    {
+      "nome": "objetos_escapam-A0.exe",
+      "sha256": "480fa9747580130e147989a266cc5282c8b0895144eb1573cfc4e7424e394df2"
+    },
+    {
+      "nome": "objetos_escapam-ARC.exe",
+      "sha256": "ec9eb250fac567afd2f0fe54c8088974a878d1ea40ea94075b2ada3fc17b3b23"
+    },
+    {
+      "nome": "objetos_escapam-dart.exe",
+      "sha256": "ac7e6646c7c19011cad45ab2c771857a6765222df2bce21c2a5e5a8ddeee8ce8"
+    },
+    {
+      "nome": "objetos_temporarios-A0.exe",
+      "sha256": "de0e8265e05903f5741858edd94b661eec721f4d5ad14a6a89926d8d6174286a"
+    },
+    {
+      "nome": "objetos_temporarios-ARC.exe",
+      "sha256": "c576fd93f173d988e44cdb70ffa5235d35ee09cc7d498b0bad180e673f69551f"
+    },
+    {
+      "nome": "objetos_temporarios-dart.exe",
+      "sha256": "1b1614a323398a07468d2ef92cf805526c7a76335dd02f47f57902297ba69046"
+    },
+    {
+      "nome": "textos-A0.exe",
+      "sha256": "6d2c7fece0e913e5a66592d60b3f2a5fc40d8772bf854efb9686374a0fb9fb4f"
+    },
+    {
+      "nome": "textos-ARC.exe",
+      "sha256": "52831eb7800e9f84ea9e53d9ed751d40ba9983c173d42cb863ddc52317e1ccbd"
+    },
+    {
+      "nome": "textos-dart.exe",
+      "sha256": "f53e9f2b8b95ce0116f1fac3295d2c256df2b237d8e04f91c9b38440f8c2e32f"
+    },
+    {
+      "nome": "tipados-A0.exe",
+      "sha256": "a689ebe9e8f688ab660e4de7398c207d34a5b8811e3d2e05128100c09fc1ad81"
+    },
+    {
+      "nome": "tipados-ARC.exe",
+      "sha256": "8508878d9c97cd6bf0fa6f3e208033bfbc837da4188aa9c2013e26660dad8853"
+    },
+    {
+      "nome": "tipados-dart.exe",
+      "sha256": "ddbe92e8716cde7ec1a0cb7708b73ef9b9fed6298a762b7a897214e44ac84b48"
+    }
+  ]
+}
