@@ -1,0 +1,34 @@
+{
+  "manifesto.json": {
+    "bytes": 1297,
+    "sha256": "131fc655c8e16081ffc57dbb7137ebe3ba8981d5f9d29fa3b7b5c25a2c77ca10"
+  },
+  "amostras.jsonl": {
+    "bytes": 7346,
+    "sha256": "fd9a543bbe177bfa1540e5a3dbba846c24289c811a6a374a76ec3796ee9b0985"
+  },
+  "resultado.json": {
+    "bytes": 648,
+    "sha256": "1f3199d2989d623e8f9822c6d9853710488dbdf2886cecc5d6272a863df33c3d"
+  },
+  "auditoria.json": {
+    "bytes": 342,
+    "sha256": "268514bb7cbac497f5157af7fe1e9b74df15acf6a6faf7d12ba352fd4d42270f"
+  },
+  "build.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "comparar.py": {
+    "bytes": 5005,
+    "sha256": "04b257b04f663493bdf9ff13efdd63f34342814df1a93a458a8455bfd51d9b08"
+  },
+  "build-cli.log": {
+    "bytes": 698,
+    "sha256": "86fe41091c0e167a95026f7fdab435f34d1c03b4ac5e34503c0d06414a1f330c"
+  },
+  "execucao.log": {
+    "bytes": 705,
+    "sha256": "fa59a7b69b307a70ab8f07a96fd49f11ad2180b56fa502c326a4595ad9d52eed"
+  }
+}

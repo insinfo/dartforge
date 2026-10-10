@@ -2,6 +2,24 @@
 
 ## Retomada de 2026-10-10
 
+Comparação local da transferência de mortos concluída: antes 55beeb34,
+depois b706e0b0, diferença de produção restrita a arc.rs/heap.rs. CLI release
+recompilada; novo AOT --optimize com --memoria=arc. Sete pares alternados,
+afinidade 0x4, sem rastro/auditoria/stress, ARC puro e heap 256 MiB.
+14 processos com resultados iguais; hashes dos dois executáveis e CLI
+inalterados. Auditoria posterior confere cobertura/ordem e reconstrói medianas
+do stdout, descartando aquecimento. Árvores 676,749 → 654,343 ms (3,31% menor),
+lista ligada 129,341 → 124,507 ms (3,74% menor), nas medianas desta amostra.
+Depois menor em 6/7 pares de árvores e 5/7 de lista; há pares mais lentos.
+Não afirmar ganho uniforme/significância ou extrapolar para o gate completo:
+A0 e os outros 30 kernels não foram reexecutados. ARC/A0=2,000274 permanece
+o agregado anterior reprovado. Dados/manifesto/comparador em
+bench/resultados/2026-10-10-arc-transferencia-mortos-windows.
+CLI nova SHA-256 3a3c71197e2cc6cf1e2434f43d9a76ed1e5d1051f6a4d5a774f4042d6b2dabc3.
+ARC só --memoria=arc; tracing padrão. §§27–34 continuam incompletos.
+CI 38057171425: Windows/Linux/mensagens passaram; macOS continua nos testes
+JIT com ignorados. Mudança local para preservar a rodada publicada.
+
 Perfil diagnóstico de objetos_escapam-ARC da revisão 55beeb34, com rastro,
 afinidade 0x4 e resultados iguais, inclui árvores/lista e aquecimentos:
 382 drenagens, 3.182.096 µs acumulados. Zeros iniciais 35,67%, ciclos mais

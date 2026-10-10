@@ -1,0 +1,16 @@
+{
+  "processos": 14,
+  "pares": 7,
+  "kernels": 2,
+  "paridade_resultados": true,
+  "hashes_inalterados": true,
+  "reducoes_percentuais_observadas": {
+    "arvores": 3.310828682421396,
+    "lista_ligada": 3.7374073186383305
+  },
+  "pares_com_depois_menor": {
+    "arvores": 6,
+    "lista_ligada": 5
+  },
+  "gate_completo": "nao_reavaliado"
+}

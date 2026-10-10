@@ -1,0 +1,9 @@
+Executável novo compilado; iniciando sete pares.
+Par 1/7 concluído.
+Par 2/7 concluído.
+Par 3/7 concluído.
+Par 4/7 concluído.
+Par 5/7 concluído.
+Par 6/7 concluído.
+Par 7/7 concluído.
+{'arvores': {'antes_us': 676749, 'depois_us': 654343, 'depois_antes': 0.966891713175786, 'razoes_pareadas': [0.9606792788640616, 0.9420276416238403, 0.9335083258386344, 0.8162047631155183, 0.9466748446609129, 0.9750625113623156, 1.0230247846690574]}, 'lista_ligada': {'antes_us': 129341, 'depois_us': 124507, 'depois_antes': 0.9626259268136167, 'razoes_pareadas': [0.9842436808534212, 0.9044212826134127, 0.9669995961353257, 0.9431519699812383, 0.9634247649511269, 1.093675838381694, 1.0030848686804648]}}
