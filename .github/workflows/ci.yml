@@ -132,6 +132,42 @@ jobs:
             target/prova-keepalive-campos/*.stdout
             target/prova-keepalive-campos/*.stderr
             target/prova-keepalive-campos/*.exit
+      - name: Keepalive pending com heap real (AOT Windows)
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $env:DARTFORGE_ARC_CONFERIR = '1'
+          $env:DARTFORGE_ARC_BERCARIO = '0'
+          $env:DARTFORGE_GC_STRESS = '1'
+          foreach ($nivel in @(0, 2)) {
+            foreach ($modo in @('arc', 'tracing')) {
+              foreach ($caso in @('normal:normal', 'erro:normal', 'normal:sem-retencao', 'normal:sem-liberar', 'erro:copia-no-erro')) {
+                $caminho, $controle = $caso.Split(':')
+                $exe = "target/prova-keepalive-pending/$modo-O$nivel-$caminho-$controle.exe"
+                $argumentos = @($exe, "--memoria=$modo", "$nivel", $caminho)
+                if ($controle -ne 'normal') { $argumentos += $controle }
+                cargo run --locked --release -p dartforge-emit-native --features llvm-embutido --example arc_keepalive_pending -- @argumentos
+                if ($LASTEXITCODE) { throw "compilação falhou: $exe" }
+                & $exe > "$exe.stdout" 2> "$exe.stderr"
+                $codigo = $LASTEXITCODE
+                Set-Content "$exe.exit" "$codigo"
+                if ($controle -eq 'normal') {
+                  if ($codigo -ne 0 -or (Get-Content "$exe.stdout" -Raw).Trim() -ne '1') { throw "prova falhou: $exe" }
+                } elseif ($codigo -eq 0) { throw "controle negativo passou: $exe" }
+              }
+            }
+          }
+          exit 0
+      - name: Artefatos do keepalive pending Windows
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: prova-keepalive-pending-windows
+          path: |
+            target/prova-keepalive-pending/*.ll
+            target/prova-keepalive-pending/*.stdout
+            target/prova-keepalive-pending/*.stderr
+            target/prova-keepalive-pending/*.exit
       - name: regressões do dart:io nativo (escuta compartilhada, rajada de sinais)
         if: success() || failure()
         run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test io_regressao -- --include-ignored
@@ -254,6 +290,7 @@ jobs:
       - name: Keepalive de campos com heap real (AOT Unix)
         shell: bash
         run: |
+          ulimit -c 0
           mkdir -p target/prova-keepalive-campos
           printf '1\n' > target/prova-keepalive-campos/normal.esperado
           for nivel in 0 2; do
@@ -285,6 +322,43 @@ jobs:
             target/prova-keepalive-campos/*.stdout
             target/prova-keepalive-campos/*.stderr
             target/prova-keepalive-campos/*.exit
+      - name: Keepalive pending com heap real (AOT Unix)
+        shell: bash
+        run: |
+          ulimit -c 0
+          mkdir -p target/prova-keepalive-pending
+          printf '1\n' > target/prova-keepalive-pending/normal.esperado
+          for nivel in 0 2; do
+            for modo in arc tracing; do
+              for caso in normal:normal erro:normal normal:sem-retencao normal:sem-liberar erro:copia-no-erro; do
+                caminho=${caso%%:*}
+                controle=${caso#*:}
+                exe="target/prova-keepalive-pending/${modo}-O${nivel}-${caminho}-${controle}"
+                extra=()
+                if [ "$controle" != normal ]; then extra=("$controle"); fi
+                cargo run --locked --release -p dartforge-emit-native --features llvm-embutido --example arc_keepalive_pending -- "$exe" "--memoria=$modo" "$nivel" "$caminho" "${extra[@]}"
+                if DARTFORGE_ARC_CONFERIR=1 DARTFORGE_ARC_BERCARIO=0 DARTFORGE_GC_STRESS=1 "$exe" > "${exe}.stdout" 2> "${exe}.stderr"; then
+                  printf '0\n' > "${exe}.exit"
+                  if [ "$controle" != normal ]; then echo "controle negativo passou: $exe"; exit 1; fi
+                  cmp target/prova-keepalive-pending/normal.esperado "${exe}.stdout"
+                else
+                  codigo=$?
+                  printf '%s\n' "$codigo" > "${exe}.exit"
+                  if [ "$controle" = normal ]; then echo "prova falhou: $exe ($codigo)"; exit 1; fi
+                fi
+              done
+            done
+          done
+      - name: Artefatos do keepalive pending Unix
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: prova-keepalive-pending-${{ matrix.os }}
+          path: |
+            target/prova-keepalive-pending/*.ll
+            target/prova-keepalive-pending/*.stdout
+            target/prova-keepalive-pending/*.stderr
+            target/prova-keepalive-pending/*.exit
       - name: Cleanup ARC com resume Itanium (AOT, normal e erro)
         shell: bash
         run: |

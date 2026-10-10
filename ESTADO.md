@@ -2,6 +2,27 @@
 
 ## Retomada de 2026-10-10
 
+Prova AOT arc_keepalive_pending passou no Windows: ARC/tracing × O0/O2
+× sucesso/erro, oito execuções positivas e doze controles negativos. O
+getter auditado de record retorna BorrowArg(0); preparação insere cópia
+somente na continuação normal e cleanup do owner temporário no erro.
+Harness LLVM prepara record/Mint, confere identidade do retorno, morte do
+record, sobrevivência do resultado Owned e morte após a liberação final.
+No erro, uma exceção real é pré-carregada: o getter atual não lança por si
+mesmo. A prova cobre o desvio pending, não uma falha originada dentro dele.
+Confere retorno null, ausência de owner do resultado, identidade da exceção,
+clear e morte de record/filho após cleanup. Controles sem retenção, sem
+liberação final e retenção antes da guarda no erro falham por trap
+(-1073741795); nenhuma falha de geração conta como controle aprovado.
+Teste do exemplo confirma posição da cópia/cleanup e idempotência. Logs
+target/arc-keepalive-pending-{example,build}.log e target/prova-keepalive-pending.
+Matriz nova preparada na CI Windows/Linux/macOS, ainda não publicada nesta
+retomada para não cancelar a validação em curso de ed5897e9. Não certifica
+alocador de record no lowering (harness usa ABI legada com retain imediato),
+fonte Dart, suspensão/recarga ou unwind. Tracing mantém tokens explícitos
+somente no harness de comparação; ARC no produto continua exclusivo de
+--memoria=arc.
+
 Prova AOT arc_keepalive_campos passou no Windows: ARC/tracing × O0/O2,
 quatro execuções positivas e oito controles negativos sem retenção ou sem
 liberação final, todos recusados por trap (-1073741795). HIR de leitura Ref
