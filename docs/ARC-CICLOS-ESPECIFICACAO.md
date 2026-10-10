@@ -2531,7 +2531,15 @@ Sob `crates/emit_native/src/otimizar/arc/analise/`, criar:
 | `relatorio.rs` | Explicações por sítio/aresta e dados para comparar com perfil de execução. |
 
 O algoritmo comum já está em `crates/emit_native/src/otimizar/scc.rs`,
-sem associar o domínio dos nós a um grafo específico. No runtime, criar `arc_regioes.rs` e
+sem associar o domínio dos nós a um grafo específico. Sua saída passa por
+`conferir`, independente de Tarjan: cobertura única dos nós, alcance interno
+nos dois sentidos e ordem estrita das arestas entre componentes. Isso rejeita
+SCC dividida, fusão sem conexão forte, nó omitido/duplicado e dependências
+invertidas. Conferência iterativa O(V + E), incluindo arestas inversas, não
+certifica completude do produtor, ciclo concreto, vida ou política de memória.
+Oráculo Floyd confere 27 atribuições de componentes em cada um dos 512 grafos
+de três nós; cadeia e ciclo de 100 mil nós conferem ausência de recursão Rust.
+No runtime, criar `arc_regioes.rs` e
 `arc_grupos.rs`, registrá-los em `MODULOS`, `lib.rs` e `RUNTIME_MAIN` conforme
 §18; externs públicas correspondentes entram no fragmento `arc_abi.rs`, na
 tabela de símbolos e em `ownership.tsv`/`efeitos.tsv` com os efeitos reais.

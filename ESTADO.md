@@ -2,6 +2,26 @@
 
 ## Retomada de 2026-10-10
 
+Saídas do Tarjan compartilhado passam por conferência independente em
+otimizar/scc.rs::conferir: cobertura única dos nós, alcance interno direto/
+inverso e ordem estrita das arestas externas. Não executa Tarjan novamente;
+recusa componente vazio, nó omitido/duplicado/inexistente, aresta fora do
+grafo, SCC dividida, fusão sem conexão forte ou dependência invertida.
+Guarda ocorre antes de devolver qualquer partição, incluindo grafos de heap,
+chamadas e efeitos. Tempo/espaço O(V + E), sem recursão; marcas por direção
+evitam limpar V posições para cada componente. Precondição de destino válido
+do Tarjan permanece conferida antes de construir a partição.
+Oráculo Floyd agora confere 27 atribuições × 512 grafos (13.824 candidatas),
+além dos casos adulterados e cadeia/ciclo de 100 mil nós. Passaram cinco
+testes focados antes da ampliação do oráculo, depois 307 testes do emissor
+(sete ignorados), 97 exemplos públicos e um exemplo de rejeição na compilação.
+Logs target/arc-verificador-scc-{focado,suite,doc}.log. Rustfmt e git diff --check
+passaram; aviso preexistente de atribuir_slots não usado. Não verifica produtor
+de arestas, ciclo concreto, vida ou certificado de política; não conclui
+§§27–34 nem aprova gate ARC/A0. ARC só --memoria=arc; tracing padrão.
+CI 38057171425: Windows, Linux e mensagens passaram; macOS está nos testes
+emit_native com ignorados. Alteração local para preservar essa rodada.
+
 Preparação compartilhada de tipos/raízes validada também em AOT real:
 python scripts/provar-arc-aot.py arc_retorno_da_fonte --debug passou as
 16 execuções ARC/tracing × O0/O2 da revisão 5cb4e56d, sem mudanças nos fontes.

@@ -1,7 +1,8 @@
 //! Componentes fortemente conexos de um grafo dirigido, sem recursão Rust.
 //! O domínio dos nós pertence ao chamador: chamadas, sítios, tipos ou unidades.
 
-/// Decompõe o grafo por Tarjan iterativo em O(V + E), com espaço O(V).
+/// Decompõe o grafo por Tarjan iterativo em O(V + E), com espaço O(V + E),
+/// incluindo a conferência independente da partição antes de devolvê-la.
 /// Cada nó aparece em exatamente um componente; componentes são emitidos
 /// depois dos sucessores externos, permitindo resolver dependências primeiro.
 /// Não interpreta uma SCC como prova de ciclos de instâncias ou de ownership.
@@ -66,12 +67,99 @@ pub(crate) fn componentes(arestas: &[Vec<usize>]) -> Vec<Vec<usize>> {
             }
         }
     }
+    conferir(arestas, &componentes).expect("partição SCC inválida");
     componentes
+}
+
+/// Confere uma partição sem executar Tarjan: cobertura única dos nós,
+/// alcance interno nos dois sentidos e ordem estrita das dependências externas.
+/// Essa ordem impede ciclos entre componentes, portanto também confere que
+/// uma SCC não foi dividida. Não interpreta os nós nem certifica o produtor
+/// das arestas. Tempo/espaço O(V + E), sem recursão Rust.
+///
+/// # Erros
+/// Aresta/nó fora do grafo, componente vazio, nó omitido/duplicado, componente
+/// sem conexão forte ou dependência externa fora da ordem declarada.
+pub(crate) fn conferir(arestas: &[Vec<usize>], cs: &[Vec<usize>]) -> Result<(), String> {
+    let n = arestas.len();
+    let mut donos = vec![usize::MAX; n];
+    for (id, c) in cs.iter().enumerate() {
+        if c.is_empty() {
+            return Err("SCC: componente vazio".into());
+        }
+        for &v in c {
+            let dono = donos.get_mut(v).ok_or("SCC: nó fora do grafo")?;
+            if *dono != usize::MAX {
+                return Err("SCC: nó duplicado".into());
+            }
+            *dono = id;
+        }
+    }
+    if donos.contains(&usize::MAX) {
+        return Err("SCC: nó omitido".into());
+    }
+    let mut inversas = vec![Vec::new(); n];
+    for (v, destinos) in arestas.iter().enumerate() {
+        for &w in destinos {
+            if w >= n {
+                return Err("SCC: aresta fora do grafo".into());
+            }
+            if donos[v] != donos[w] && donos[v] <= donos[w] {
+                return Err("SCC: dependência fora da ordem".into());
+            }
+            inversas[w].push(v);
+        }
+    }
+    for adjacentes in [arestas, inversas.as_slice()] {
+        // Cada nó é visitado no máximo uma vez por direção; componentes
+        // são disjuntos. Não zerar um vetor de V marcas para cada SCC.
+        let mut vistos = vec![false; n];
+        for (id, c) in cs.iter().enumerate() {
+            let mut fila = vec![c[0]];
+            vistos[c[0]] = true;
+            let mut quantidade = 0;
+            while let Some(v) = fila.pop() {
+                quantidade += 1;
+                for &w in &adjacentes[v] {
+                    if donos[w] == id && !vistos[w] {
+                        vistos[w] = true;
+                        fila.push(w);
+                    }
+                }
+            }
+            if quantidade != c.len() {
+                return Err("SCC: componente sem conexão forte".into());
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn conferir_recusa_particoes_adulteradas_e_ordem_invertida() {
+        let g = vec![vec![1], vec![0, 2], vec![]];
+        assert!(conferir(&g, &[vec![2], vec![0, 1]]).is_ok());
+        assert!(conferir(&g, &[vec![2], vec![1, 0]]).is_ok());
+        for cs in [
+            vec![vec![2], vec![0]],       // Omissão.
+            vec![vec![2], vec![0, 1, 1]], // Duplicação.
+            vec![vec![], vec![2], vec![0, 1]],
+            vec![vec![2], vec![0, 1, 3]],    // Nó inexistente.
+            vec![vec![0, 1], vec![2]],       // Ordem invertida.
+            vec![vec![2], vec![0], vec![1]], // Ciclo dividido.
+            vec![vec![0, 1, 2]],             // Fusão de SCCs diferentes.
+        ] {
+            assert!(conferir(&g, &cs).is_err(), "{cs:?}");
+        }
+        // Alcance somente no sentido direto não prova conexão forte.
+        assert!(conferir(&[vec![1], vec![]], &[vec![0, 1]]).is_err());
+        assert!(conferir(&[vec![3]], &[vec![0]]).is_err());
+        assert!(conferir(&[], &[]).is_ok());
+    }
 
     #[test]
     fn componentes_conferem_com_alcance_independente_em_todos_os_grafos_de_tres_nos() {
@@ -97,6 +185,32 @@ mod testes {
                         alcance[v][w] |= alcance[v][k] && alcance[k][w];
                     }
                 }
+            }
+            // Todas as atribuições de três nós a até três componentes:
+            // Floyd decide equivalência; as arestas decidem a ordem. Isso
+            // testa também candidatos incorretos, sem usar a saída de Tarjan.
+            for atribuicao in 0..27 {
+                let mut codigo = atribuicao;
+                let mut candidato = vec![vec![]; 3];
+                let mut donos = [0; 3];
+                for (v, dono) in donos.iter_mut().enumerate() {
+                    *dono = codigo % 3;
+                    codigo /= 3;
+                    candidato[*dono].push(v);
+                }
+                while candidato.last().is_some_and(Vec::is_empty) {
+                    candidato.pop();
+                }
+                let esperado = candidato.iter().all(|c| !c.is_empty())
+                    && (0..3).all(|v| {
+                        (0..3).all(|w| (donos[v] == donos[w]) == (alcance[v][w] && alcance[w][v]))
+                            && grafo[v].iter().all(|&w| donos[v] >= donos[w])
+                    });
+                assert_eq!(
+                    conferir(&grafo, &candidato).is_ok(),
+                    esperado,
+                    "grafo {mascara}, atribuição {atribuicao}"
+                );
             }
             let cs = componentes(&grafo);
             let mut donos = [usize::MAX; 3];
