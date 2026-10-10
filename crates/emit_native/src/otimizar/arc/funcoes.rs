@@ -78,7 +78,7 @@ pub fn inserir_arc_funcoes_dart(
     funcoes: &mut [Function],
     planos: &mut HashMap<String, PlanoFuncaoDart>,
 ) -> Result<(usize, usize), String> {
-    inserir(funcoes, planos, false)
+    inserir(funcoes, planos, false, None)
 }
 
 /// Prepara invokes ausentes e insere ARC num conjunto fechado de funções Dart.
@@ -135,7 +135,7 @@ pub fn preparar_arc_funcoes_dart(
     funcoes: &mut [Function],
     planos: &mut HashMap<String, PlanoFuncaoDart>,
 ) -> Result<(usize, usize), String> {
-    inserir(funcoes, planos, true)
+    inserir(funcoes, planos, true, None)
 }
 
 /// Prepara atomicamente os fatos do lowering e o conjunto fechado de um módulo ARC.
@@ -146,6 +146,10 @@ pub fn preparar_arc_funcoes_dart(
 /// Confere também os layouts de campos declarados fornecidos pelo lowering:
 /// classe única, quantidade coerente e representações válidas. Isso não prova
 /// o tipo/forma física dos receivers nem a versão/pins de recarga.
+/// AllocObject com layout completo vira fábrica Owned e setters auditados:
+/// Ref mantém uma aresta; escalares gravam bits, com bitcast de double e
+/// extensão sem sinal de bool/byte. Literais em argumentos precisam estar
+/// materializados na HIR. Não registra métodos nem executa construtor Dart.
 /// Retorno Ref exige convenção Owned e operações não cobertas exigem contratos
 /// explícitos. Não materializa tabelas nem chama este passe no pipeline padrão.
 /// Demais limites são os de [`preparar_arc_funcoes_dart`].
@@ -181,7 +185,12 @@ pub fn preparar_arc_modulo_dart(
     produzir_parametros_rti_do_lowering(modulo, &mut novos)?;
     // O conjunto já mantém os corpos privados até verificar todos eles.
     // Após seu sucesso, a atribuição dos planos não introduz nova falha.
-    let total = preparar_arc_funcoes_dart(&mut modulo.functions, &mut novos)?;
+    let total = inserir(
+        &mut modulo.functions,
+        &mut novos,
+        true,
+        Some(&modulo.layouts_campos_arc),
+    )?;
     *planos = novos;
     Ok(total)
 }
@@ -190,6 +199,7 @@ fn inserir(
     funcoes: &mut [Function],
     planos: &mut HashMap<String, PlanoFuncaoDart>,
     preparar_chamadas: bool,
+    layouts: Option<&HashMap<u32, Vec<Type>>>,
 ) -> Result<(usize, usize), String> {
     let mut simbolos = HashSet::new();
     for f in funcoes.iter() {
@@ -206,6 +216,9 @@ fn inserir(
     let mut modulo = Module::new();
     modulo.functions = funcoes.to_vec();
     for f in &mut modulo.functions {
+        if let Some(layouts) = layouts {
+            super::objetos::preparar(f, layouts, &planos[&f.symbol])?;
+        }
         super::caixas::preparar(f)?;
     }
     let mut nao_lancam = super::super::efeitos::nao_lancam(&modulo);

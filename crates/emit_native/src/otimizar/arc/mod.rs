@@ -20,6 +20,7 @@ mod puros;
 mod emprestimos;
 mod arestas;
 mod layouts;
+mod objetos;
 mod chamadas;
 mod funcoes;
 mod parametros;

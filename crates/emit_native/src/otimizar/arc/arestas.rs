@@ -6,7 +6,7 @@
 
 use super::*;
 
-fn proximo_valor(f: &Function, p: &PlanoFuncaoDart) -> u64 {
+pub(super) fn proximo_valor(f: &Function, p: &PlanoFuncaoDart) -> u64 {
     f.params
         .iter()
         .map(|(v, _, _)| v.0)

@@ -2,6 +2,33 @@
 
 ## Retomada de 2026-10-10
 
+Preparação explícita do módulo ARC agora materializa AllocObject com layout
+completo em fábrica Owned e setters auditados. Mantém IDs dos objetos,
+reserva auxiliares acima dos metadados e inicializa as arestas Ref antes
+do cleanup dos filhos. Escalares preservam bits; double usa bitcast, bool/byte
+extensão sem sinal. Recusa classe/layout/tipo/quantidade incompatíveis,
+literais implícitos e IDs esgotados, sem publicar corpos/planos se outra
+função ou verificação posterior falhar. Usa a cópia privada já existente
+do grupo, sem duplicar a cópia do módulo. Tracing permanece intacto.
+Teste adicional confere keepalive de campo borrowed antes do safepoint da
+alocação e release depois da inicialização. Passaram 242 testes do emissor
+(7 ignorados) e 52 exemplos de documentação.
+Prova AOT arc_alocacao_campos passou no Windows com llvm-embutido:
+ARC/tracing × O0/O2, quatro positivas e oito controles por trap sem owner
+do objeto ou sem release do filho. HIR cria objeto de 40 campos/Mint;
+confere bits 85, -0.0, true e byte 255, aresta Ref no índice 39, owner do
+retorno e morte final de objeto/filho após liberação/coleta. Logs
+target/arc-objetos-{suite,doc}.log e target/arc-alocacao-campos-matriz.log.
+CI nova preparada para essa matriz, ainda não publicada. Não certifica
+lowering Dart completo, origem de receivers para getters, guardas late/tipo,
+registro de métodos, construtores, versões/pins, suspensão ou desempenho.
+Não integra o passe ao pipeline padrão; ARC permanece exclusivo de
+--memoria=arc e tracing continua o padrão.
+
+Commits até b198aadd publicados em main após a aprovação de ed5897e9.
+CI 38038842350 e sem toolchain 38038842352 da fonte b198aadd estão em
+execução; elas não incluem a preparação de AllocObject acima.
+
 CI 38034929874 da fonte ed5897e9 terminou com sucesso nos quatro jobs:
 mensagens, Windows, Linux e macOS. Sem toolchain 38034929845 também passou.
 Os registros de artefatos abaixo conservam o estado observado ao congelar

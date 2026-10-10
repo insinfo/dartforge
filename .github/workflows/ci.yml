@@ -97,6 +97,21 @@ jobs:
       - name: recarga JIT com estado pela CLI
         if: success() || failure()
         run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test reload_estado
+      - name: Alocação e inicialização de campos Owned (AOT Windows)
+        shell: pwsh
+        run: python scripts/provar-arc-aot.py arc_alocacao_campos --features llvm-embutido
+      - name: Artefatos da alocação Owned Windows
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: prova-alocacao-campos-windows
+          path: |
+            target/prova-alocacao-campos/*.ll
+            target/prova-alocacao-campos/*.stdout
+            target/prova-alocacao-campos/*.stderr
+            target/prova-alocacao-campos/*.exit
+            target/prova-alocacao-campos/*.build.log
+            target/prova-alocacao-campos/evidencia.json
       - name: Keepalive de campos com heap real (AOT Windows)
         shell: pwsh
         run: python scripts/provar-arc-aot.py arc_keepalive_campos --features llvm-embutido
@@ -261,6 +276,21 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Compilar dartforge (nativo, jit)
         run: cargo build --locked --release -p dartforge-cli --features nativo,jit -p dartforge-jit
+      - name: Alocação e inicialização de campos Owned (AOT Unix)
+        shell: bash
+        run: python3 scripts/provar-arc-aot.py arc_alocacao_campos --features llvm-embutido
+      - name: Artefatos da alocação Owned Unix
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: prova-alocacao-campos-${{ matrix.os }}
+          path: |
+            target/prova-alocacao-campos/*.ll
+            target/prova-alocacao-campos/*.stdout
+            target/prova-alocacao-campos/*.stderr
+            target/prova-alocacao-campos/*.exit
+            target/prova-alocacao-campos/*.build.log
+            target/prova-alocacao-campos/evidencia.json
       - name: Keepalive de campos com heap real (AOT Unix)
         shell: bash
         run: python3 scripts/provar-arc-aot.py arc_keepalive_campos --features llvm-embutido
