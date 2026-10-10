@@ -35,6 +35,8 @@ use std::collections::HashMap;
 /// O modelo de memória fica definido antes dos passes; a materialização das
 /// exceções permanece por último, pois seus IDs descrevem a HIR final.
 /// A inserção de owners ARC ainda não faz parte deste pipeline (§20).
+/// Sua integração deve ficar condicionada a `memoria_arc` (`--memoria=arc`):
+/// tracing não recebe fábricas Owned, retenções ou liberações ARC.
 pub(crate) fn preparar_para_emissao(module: &mut Module, memoria_arc: bool, por_tabelas: bool) {
     module.memoria_arc = memoria_arc;
     otimizar(module);

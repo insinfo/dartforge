@@ -1,5 +1,26 @@
 use super::*;
 
+#[test]
+fn pipeline_tracing_nao_prepara_boxing_owned() {
+    for por_tabelas in [false, true] {
+        let mut m = Module::new();
+        m.functions.push(Function {
+            symbol: "caixa_tracing".into(), name: "caixa_tracing".into(),
+            depuracao: None, params: vec![], return_ty: Type::Ref,
+            blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
+                (ValueId(0), Instruction::Box { op: Operand::Constant(Constant::Double(-0.0)), from: Type::F64 }, Type::Ref)
+            ], terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }],
+        });
+        preparar_para_emissao(&mut m, false, por_tabelas);
+        assert!(!m.memoria_arc);
+        assert!(m.functions[0].blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)| matches!(i, Instruction::Box { from: Type::F64, .. })));
+        for (_, i, _) in m.functions.iter().flat_map(|f| &f.blocks).flat_map(|b| &b.instructions) {
+            assert!(!matches!(i, Instruction::ArcCopy { .. } | Instruction::ArcMove { .. } | Instruction::ArcDrop { .. }));
+            assert!(!matches!(i, Instruction::CallRuntime { name, .. } if name.starts_with("dartforge_arc_")));
+        }
+    }
+}
+
 fn c(n: i64) -> Operand {
     Operand::Constant(Constant::Int(n))
 }

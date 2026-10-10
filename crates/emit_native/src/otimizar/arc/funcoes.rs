@@ -43,7 +43,8 @@ pub struct PlanoFuncaoDart {
 /// constantes/aritmética/Phis/runtime cobertos não exigem mapas manuais.
 /// Boxing escalar explícito vira fábrica Owned para int/double; bool usa caixas
 /// estáticas Trivial. SIMD e outras representações exigem produtores próprios.
-/// Parâmetros não Ref e operações não cobertas exigem contratos prévios.
+/// Parâmetros F64/I1/I8 são escalares Trivial. I64/Ptr e operações não
+/// cobertas exigem contratos prévios; largura não prova semântica gerenciada.
 /// Separa saídas Guarda em sucesso/erro e transporta os limites de saída.
 /// Demais CFG/escopos precisam estar preparados. Não divide arestas gerais,
 /// resolve finally/cancelamento/suspensão nem materializa tabelas.
@@ -177,6 +178,22 @@ fn inserir(
         }
     }
     let mut novos_planos = planos.clone();
+    for f in &modulo.functions {
+        let classes = &mut novos_planos.get_mut(&f.symbol).unwrap().classes;
+        for (v, _, ty) in &f.params {
+            // Essas representações não transportam handles nem slots fortes.
+            // I64 e Ptr continuam dependentes da proveniência do lowering.
+            if matches!(ty, Type::F64 | Type::I1 | Type::I8) {
+                if classes.get(v).is_some_and(|c| *c != Ownership::Trivial) {
+                    return Err(format!(
+                        "parâmetro escalar {} v{} exige Trivial",
+                        f.symbol, v.0
+                    ));
+                }
+                classes.insert(*v, Ownership::Trivial);
+            }
+        }
+    }
     if preparar_chamadas {
         for f in &mut modulo.functions {
             super::invocacoes::preparar(f, novos_planos.get_mut(&f.symbol).unwrap(), &nao_lancam)?;
@@ -229,6 +246,43 @@ fn inserir(
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn parametros_double_e_bool_preparam_boxing_sem_contrato_manual() {
+        for ty in [Type::F64, Type::I1, Type::I8] {
+            let (mut fs, mut ps) = boxing(Operand::Val(ValueId(3)), ty);
+            fs[0].params.push((ValueId(3), "valor".into(), ty));
+            assert_eq!(
+                inserir_arc_funcoes_dart(&mut fs, &mut ps).unwrap(),
+                (0, usize::from(ty == Type::F64))
+            );
+            assert_eq!(ps["boxing"].classes[&ValueId(3)], Ownership::Trivial);
+            let (mut fs, mut ps) = boxing(Operand::Val(ValueId(3)), ty);
+            fs[0].params.push((ValueId(3), "valor".into(), ty));
+            ps.get_mut("boxing")
+                .unwrap()
+                .classes
+                .insert(ValueId(3), Ownership::Owned);
+            let antes = format!("{fs:?}/{ps:?}");
+            assert!(
+                inserir_arc_funcoes_dart(&mut fs, &mut ps)
+                    .unwrap_err()
+                    .contains("exige Trivial")
+            );
+            assert_eq!(format!("{fs:?}/{ps:?}"), antes);
+        }
+        // A mesma preparação não autoriza presumir o significado de I64.
+        let (mut fs, mut ps) = boxing(Operand::Val(ValueId(3)), Type::I64);
+        fs[0].params.push((ValueId(3), "valor".into(), Type::I64));
+        let antes = format!("{fs:?}/{ps:?}");
+        assert!(inserir_arc_funcoes_dart(&mut fs, &mut ps).is_err());
+        assert_eq!(format!("{fs:?}/{ps:?}"), antes);
+        ps.get_mut("boxing")
+            .unwrap()
+            .classes
+            .insert(ValueId(3), Ownership::Trivial);
+        assert_eq!(inserir_arc_funcoes_dart(&mut fs, &mut ps).unwrap(), (0, 1));
+    }
 
     fn boxing(op: Operand, from: Type) -> (Vec<Function>, HashMap<String, PlanoFuncaoDart>) {
         let f = Function {

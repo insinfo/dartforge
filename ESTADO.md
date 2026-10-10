@@ -2,6 +2,23 @@
 
 ## Retomada de 2026-10-10
 
+Condição reafirmada pelo proprietário: integração de ownership no pipeline
+somente com --memoria=arc; tracing permanece o modo sem essa opção.
+A CLI já traduz a opção para DARTFORGE_MEMORIA, consultada antes de preparar
+programa/SDK. O pipeline documenta essa condição; regressão cobre boxing
+double no tracing com exceções checagem/tabelas, sem fábricas Owned ou RC ARC.
+
+Preparação do conjunto fechado classifica parâmetros F64/I1/I8 como Trivial:
+são representações escalares sem handle ou slot forte. Classificação prévia
+incompatível rejeita atomicamente a preparação. I64/Ptr continuam exigindo
+proveniência e contrato explícitos; não há inferência por largura.
+Teste parametrizado cobre boxing de double/bool por SSA, conflito de token,
+I64 sem contrato rejeitado e I64 com contrato Trivial aceito.
+Log local: target/arc-parametros-escalar.log. Integração padrão segue pendente.
+Suíte do emissor após a regressão tracing: 205 testes passaram, 7 ignorados;
+49 exemplos de documentação passaram (target/arc-parametros-suite.log e
+target/arc-parametros-doc.log). A rodada anterior interrompida não foi contada.
+
 Prova Unix de unwind estrangeiro/forçado congelada em
 bench/resultados/2026-10-10-unwind-forcado-unix-ci: fonte 34198a54,
 CI 38021212710, 72 execuções Linux/macOS. As três modalidades de unwind
