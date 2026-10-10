@@ -44,7 +44,8 @@ pub struct PlanoFuncaoDart {
 /// Boxing escalar explícito vira fábrica Owned para int/double; bool usa caixas
 /// estáticas Trivial. SIMD e outras representações exigem produtores próprios.
 /// Unbox int/double vira chamada Borrow falível auditada; exige saída de erro.
-/// Unbox bool ainda exige adaptar a ABI u8 ao resultado I1 e sua pendência.
+/// Unbox bool conserva o helper LLVM que converte u8/I1, com o mesmo contrato
+/// Borrow falível e sua checagem de pendência, sem mudar IDs do CFG.
 /// Parâmetros F64/I1/I8 são escalares Trivial. I64/Ptr e operações não
 /// cobertas exigem contratos prévios; largura não prova semântica gerenciada.
 /// Separa saídas Guarda em sucesso/erro e transporta os limites de saída.
@@ -251,7 +252,7 @@ mod testes {
 
     #[test]
     fn unboxing_escalar_preserva_borrow_e_exige_type_error_preparado() {
-        for ty in [Type::I64, Type::F64] {
+        for ty in [Type::I64, Type::F64, Type::I1] {
             let f = Function {
                 symbol: "unboxing".into(),
                 name: "unboxing".into(),
@@ -314,9 +315,37 @@ mod testes {
             assert_eq!(inserir_arc_funcoes_dart(&mut fs, &mut ps).unwrap(), (0, 0));
             assert_eq!(ps["unboxing"].classes[&ValueId(1)], Ownership::Trivial);
             assert_eq!(ps["unboxing"].tokens.pendencias[&ValueId(1)], BlockId(1));
-            assert!(
-                matches!(&fs[0].blocks[0].instructions[0].1, Instruction::CallRuntime { name, .. } if name == if ty == Type::I64 { "dartforge_unbox_int" } else { "dartforge_unbox_double" })
-            );
+            if ty == Type::I1 {
+                assert!(matches!(
+                    fs[0].blocks[0].instructions[0].1,
+                    Instruction::Unbox { to: Type::I1, .. }
+                ));
+                let p = &ps["unboxing"];
+                let mut adulterado = p.tokens.clone();
+                adulterado
+                    .instrucoes
+                    .get_mut(&ValueId(1))
+                    .unwrap()
+                    .pode_falhar = false;
+                adulterado.pendencias.remove(&ValueId(1));
+                assert!(
+                    verificar_tokens(&fs[0], &p.classes, &p.tabelas, &adulterado)
+                        .unwrap_err()
+                        .contains("ownership.tsv")
+                );
+                let mut m = Module::new();
+                m.functions = fs.clone();
+                m.excecoes_por_tabelas = true;
+                m.tabelas.push(p.tabelas.clone());
+                let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+                assert!(ir.contains("%v1 = call i1 @df.desencaixa_bool(i64 %v0)"));
+                assert!(ir.contains("%u = call i8 @dartforge_unbox_bool(i64 %r)"));
+                assert!(ir.contains("%x = icmp ne i8 %u, 0"));
+            } else {
+                assert!(
+                    matches!(&fs[0].blocks[0].instructions[0].1, Instruction::CallRuntime { name, .. } if name == if ty == Type::I64 { "dartforge_unbox_int" } else { "dartforge_unbox_double" })
+                );
+            }
             let mut owned = f.clone();
             owned.params.clear();
             if let Instruction::Unbox { op, .. } = &mut owned.blocks[0].instructions[0].1 {

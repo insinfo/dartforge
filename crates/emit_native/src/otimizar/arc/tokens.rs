@@ -488,9 +488,11 @@ fn analisar_tokens(
                 .instrucoes
                 .get(v)
                 .ok_or_else(|| erro_meta(format!("v{} sem contrato de consumo", v.0)))?;
-            if let Instruction::CallRuntime { name, .. } = inst {
+            let unbox_bool = super::contratos::chamada_unbox_bool(inst);
+            let chamada = unbox_bool.as_ref().unwrap_or(inst);
+            if let Instruction::CallRuntime { name, .. } = chamada {
                 if dartforge_runtime::ownership::contrato(name).is_ok() {
-                    let c = super::contrato_chamada_runtime(inst).map_err(erro_meta)?;
+                    let c = super::contrato_chamada_runtime(chamada).map_err(erro_meta)?;
                     if classes[v] != c.resultado
                         || e.sempre != c.efeito.sempre
                         || e.sucesso != c.efeito.sucesso

@@ -2,6 +2,18 @@
 
 ## Retomada de 2026-10-10
 
+Unbox bool agora tem contrato ARC produzido e reconferido pelo verificador:
+conserva o helper LLVM u8/I1 e o ID original, exige a mesma saída TypeError,
+preserva Borrow e não consome o owner. A conferência de pending admite
+essa operação explícita. Teste int/double/bool cobre parâmetros Borrow,
+caixa Owned com drops em sucesso/erro, falta de saída excepcional e
+adulteração que tentava retirar pode_falhar/pending. Emissão textual LLVM
+confere chamada I1 e conversão u8; não é prova AOT nova.
+Log target/arc-unboxing-bool.log. Reentrada/borrows e integração padrão
+condicionada a --memoria=arc continuam pendentes.
+Após unbox bool: 207 testes passaram (7 ignorados) e 49 exemplos de
+documentação passaram; logs target/arc-unboxing-bool-{suite,doc}.log.
+
 Unbox I64/F64 na preparação do conjunto fechado vira chamada auditada
 Borrow, preservando ID SSA e resultado escalar. Exige CFG de TypeError
 preparado; sem saída de erro, a transação rejeita sem alterar corpos/planos.

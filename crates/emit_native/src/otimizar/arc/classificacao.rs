@@ -341,7 +341,10 @@ pub(super) fn conferir_pendencia(b: &BasicBlock, call: ValueId, erro: BlockId) -
     let (p, leitura, ty_p) = &b.instructions[n - 2];
     let (c, comparacao, ty_c) = &b.instructions[n - 1];
     if *v != call
-        || !matches!(chamada, Instruction::CallRuntime { .. })
+        || !matches!(
+            chamada,
+            Instruction::CallRuntime { .. } | Instruction::Unbox { to: Type::I1, .. }
+        )
         || *ty_p != Type::I8
         || *ty_c != Type::I1
         || !matches!(leitura, Instruction::CallRuntime { name, args, ret_ty }

@@ -366,6 +366,8 @@ pub fn produzir_contratos_runtime(
 /// Copy/move/load produzem Owned; drop/store produzem Trivial. Operações ARC
 /// não recebem entrada em PlanoTokens, pois o verificador possui suas regras.
 /// ICmp/FCmp/LNot produzem bool Trivial sem consumo nem saída excepcional.
+/// Unbox bool produz I1 Trivial com o contrato Borrow falível da ABI u8;
+/// o helper LLVM converte o resultado e preserva a conferência de pendência.
 /// Constantes escalares/null e literais permanentes também produzem Trivial,
 /// com tipo determinado pela variante da constante, nunca por largura.
 /// Aritmética inteira/flutuante e conversões numéricas produzem Trivial;
@@ -768,6 +770,19 @@ fn produzir_phi(
     Ok(())
 }
 
+// O helper LLVM mantém o ID e converte u8 em I1; o caminho lento tem
+// exatamente o contrato da ABI auditada, incluindo TypeError/reentrada.
+pub(super) fn chamada_unbox_bool(inst: &Instruction) -> Option<Instruction> {
+    let Instruction::Unbox { op, to: Type::I1 } = inst else {
+        return None;
+    };
+    Some(Instruction::CallRuntime {
+        name: "dartforge_unbox_bool".into(),
+        args: vec![(op.clone(), Type::Ref)],
+        ret_ty: Type::I8,
+    })
+}
+
 fn produzir(
     f: &Function,
     classes: &mut HashMap<ValueId, Ownership>,
@@ -926,11 +941,21 @@ fn produzir(
                 fixas.insert(*v, classe);
             }
         }
-        if let Instruction::CallRuntime { ret_ty, args, .. } = inst {
-            if ty != ret_ty {
+        let unbox_bool = if incluir_arc {
+            chamada_unbox_bool(inst)
+        } else {
+            None
+        };
+        let chamada = unbox_bool.as_ref().unwrap_or(inst);
+        if let Instruction::CallRuntime { ret_ty, args, .. } = chamada {
+            if if unbox_bool.is_some() {
+                *ty != Type::I1
+            } else {
+                ty != ret_ty
+            } {
                 return Err(format!("v{}: tipo do resultado incompatível", v.0));
             }
-            let c = contrato_chamada_runtime(inst).map_err(|e| format!("v{}: {e}", v.0))?;
+            let c = contrato_chamada_runtime(chamada).map_err(|e| format!("v{}: {e}", v.0))?;
             for (n, (op, ty)) in args.iter().enumerate() {
                 if let Operand::Val(arg) = op
                     && tipos.get(arg) != Some(ty)
