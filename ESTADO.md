@@ -19,10 +19,20 @@ Teste com lookup estrangeiro simulado verifica que homônimo do hospedeiro
 não é consultado para a ABI, e consulta local acompanha o heap tracing/ARC.
 Logs target/arc-ffi-runtime-local-{focado,suite,doc,cli}.log e
 target/arc-ffi-runtime-local-fonte-final.log. Confirmação macOS depende da
-CI seguinte. Windows da rodada 38048561639 registrou falha no passo test
-e ainda executa os testes ignorados; logs completos indisponíveis até o
-término do job. Sem toolchain 38048561628 passou. Não considerar esta
-rodada integralmente aprovada nem descartar a falha Windows sem diagnóstico.
+CI seguinte. Rodada 38048561639 terminou com falha: Windows tinha uma
+expectativa desatualizada de assinatura no teste do catálogo ownership.
+Expectativa agora confere a assinatura unsafe exata; regressão adicional
+confere a fábrica Owned e seu callback de tabela estática.
+Reprodução local de todo o workspace terminou com duas falhas: essa
+expectativa e a auditoria de portas, que detectou um transmute desnecessário
+no novo teste do resolvedor. Conversão removida em favor do ponteiro de
+função tipado, sem ampliar a lista de exceções da auditoria.
+Após as correções, passaram 184 testes do runtime (três ignorados), quatro
+de fonte única, dois de ownership e dois de portas. Logs
+target/arc-ci-windows-workspace-local.log e
+target/arc-ci-windows-correcoes-focado.log. Demais alvos da reprodução
+completa passaram antes dessas correções restritas aos testes.
+Sem toolchain 38048561628 passou. Esta rodada não foi integralmente aprovada.
 
 Lowering agora registra a convenção Ref Owned pelo símbolo do corpo tipado
 Dart da fonte. Fatos acompanham a junção paralela e a poda; não são inferidos

@@ -796,10 +796,9 @@ mod testes_resolver_nativo {
             0xdead
         });
         assert!(!consultou.get());
-        assert_eq!(endereco, dartforge_arc_verificar_abi as *const () as usize);
+        let consulta: extern "C" fn(i64) -> i8 = dartforge_arc_verificar_abi;
+        assert_eq!(endereco, consulta as *const () as usize);
         let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
-        // SAFETY: o endereço foi conferido contra a função com esta assinatura.
-        let consulta: extern "C" fn(i64) -> u8 = unsafe { std::mem::transmute(endereco) };
         assert_eq!(consulta(1), 0);
         HEAP.with(|h| h.borrow_mut().ativar_arc());
         assert_eq!(consulta(1), 1);

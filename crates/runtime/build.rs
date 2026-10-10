@@ -447,7 +447,7 @@ mod testes_ownership {
             assert!(std::panic::catch_unwind(|| tabela_de_ownership(&raiz, &nomes)).is_err());
         }
         std::fs::write(raiz.join("ownership.tsv"), boa).unwrap();
-        assert!(tabela_de_ownership(&raiz, &nomes).contains("const _: extern \"C\" fn(i64) -> ()"));
+        assert!(tabela_de_ownership(&raiz, &nomes).contains("const _: unsafe extern \"C\" fn(i64) -> () = crate::abi::dartforge_arc_retain;"));
         std::fs::write(raiz.join("efeitos.tsv"), "dartforge_arc_retain\t1\t1\t1\n").unwrap();
         assert!(std::panic::catch_unwind(|| tabela_de_ownership(&raiz, &nomes)).is_err());
         std::fs::write(raiz.join("efeitos.tsv"), "dartforge_arc_retain\t1\t1\t0\n").unwrap();
@@ -470,6 +470,14 @@ mod testes_ownership {
         std::fs::write(raiz.join("ownership.tsv"), &reentrada).unwrap();
         std::fs::write(raiz.join("efeitos.tsv"), "dartforge_arc_retain\t1\t1\t0\n").unwrap();
         assert!(std::panic::catch_unwind(|| tabela_de_ownership(&raiz, &nomes)).is_err());
+        // O callback tem representação Rust própria: não aceitar um inteiro
+        // ou ponteiro genérico no lugar da função que devolve a tabela estática.
+        let fabrica = "dartforge_arc_objeto_owned_t_v1".to_string();
+        std::fs::write(raiz.join("efeitos.tsv"), format!("{fabrica}\t1\t0\t0\n")).unwrap();
+        std::fs::write(raiz.join("ownership.tsv"), format!("{fabrica}\ti64:native,i64:scalar,tabela:native\tref:owned\t0\t1\tnormal\n")).unwrap();
+        let gerado = tabela_de_ownership(&raiz, &[fabrica]);
+        assert!(gerado.contains("const _: unsafe extern \"C\" fn(i64, i64, extern \"C\" fn() -> *const i64) -> i64 = crate::abi::dartforge_arc_objeto_owned_t_v1;"));
+        assert!(gerado.contains("ModoParametro::TabelaEstatica"));
         std::fs::remove_file(raiz.join("ownership.tsv")).unwrap();
         std::fs::remove_file(raiz.join("efeitos.tsv")).unwrap();
         std::fs::remove_dir(raiz).unwrap();
