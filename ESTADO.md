@@ -2,6 +2,28 @@
 
 ## Retomada de 2026-10-10
 
+Extração HIR deixa de tratar materialização/conversão como transferência pura.
+Constantes String/StringWtf8 registram operação opaca e invalidam campos,
+pois o caminho JIT pode materializar texto. Phi não exato também perde precisão
+do resultado e dos campos; Phi Ref com texto literal já é rejeitado pelo SSA,
+enquanto Phi I64 com esse operando exige fronteira opaca. Aritmética só dispensa
+efeitos com entradas/saída exatas por operação, sem concluir pureza pela largura
+do resultado. Divisão/resto, DoubleToInt e CheckNotNull conservam efeitos
+opacos até cobertura própria de erro; CheckNotNull ainda transfere aliases
+normais separadamente dos efeitos. Não é mudança na emissão LLVM.
+Regressões conferem texto em constante, operando Add e Phi, Add com entrada
+Ref, divisão por zero e assert de null; em todos a leitura posterior de campo
+fica desconhecida e a publicação opaca permanece topo. Controles positivos
+conservam soma escalar exata e Phi de referências já avaliadas.
+Passaram 36 testes focados, 299 testes do emissor (sete ignorados), 96 exemplos
+públicos e um exemplo de rejeição na compilação. Logs
+target/arc-conversoes-opacas-{focado,suite,doc}.log. Rustfmt de hir.rs e
+git diff --check passaram. Cobertura global/implícita, verificador independente,
+observadores, vidas e políticas continuam pendentes; não conclui §§27–34 nem
+aprova o gate ARC/A0. ARC só com --memoria=arc; tracing permanece padrão.
+CI 38057171425: Linux e mensagens passaram; Windows/macOS continuam ativos.
+Alteração local para preservar a rodada da revisão publicada b0ee6645.
+
 GrafoHeapArc local em otimizar/arc/analise/grafo.rs extrai arestas de campos
 do points-to HIR e executa Tarjan sobre sítios/contextos de objetos, sem
 reutilizar SCC de chamadas como SCC de heap. Fotografia imutável expõe arestas,

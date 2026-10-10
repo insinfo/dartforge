@@ -1962,6 +1962,13 @@ Não deduzir essa propriedade de Borrowed nem apenas do alias normal.
 Cobertura interprocedural de retenções, observadores/SDK e políticas permanece
 pendente; nenhum retain/release é removido por essa etapa.
 
+Extração HIR registra materialização de texto e Phis com representações não
+exatas como operações opacas, além de invalidar campos conhecidos. Resultado
+escalar não prova ausência de efeito: aritmética só dispensa opacidade com
+representações exatas por operação; operações falíveis (divisão/resto,
+toInt e CheckNotNull) ainda exigem cobertura dos caminhos de erro. Transferir
+aliases no caminho normal não dispensa efeitos nesses caminhos.
+
 Especialização cria versões internas por política/região quando reduzir
 trabalho estimado e respeitar limite de código. Resumos podem ser paramétricos
 sem clonar todas as funções. Entradas públicas, dispatch aberto e FFI mantêm

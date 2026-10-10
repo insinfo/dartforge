@@ -240,23 +240,41 @@ pub(crate) fn analisar_com_resumos(
     for (v, i, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
         let destino = ids[v];
         match i {
+            Instruction::Const(Constant::String(_) | Constant::StringWtf8(_)) => {
+                rs.push(Restricao::Desconhecer { destino });
+                invalidar_campos(*v, &campos, &mut desconhecidos, &mut rs);
+            }
             Instruction::Const(_) if matches!(ty, Type::F64 | Type::I1 | Type::I8) => {}
             Instruction::Const(c) => rs.push(Restricao::Copiar {
                 origem: operando(&Operand::Constant(c.clone())),
                 destino,
             }),
-            Instruction::ArcCopy { value }
-            | Instruction::ArcMove { value }
-            | Instruction::CheckNotNull(value) => rs.push(Restricao::Copiar {
-                origem: operando(value),
-                destino,
-            }),
+            Instruction::ArcCopy { value } | Instruction::ArcMove { value } => {
+                rs.push(Restricao::Copiar {
+                    origem: operando(value),
+                    destino,
+                })
+            }
+            Instruction::CheckNotNull(value) => {
+                rs.push(Restricao::Copiar {
+                    origem: operando(value),
+                    destino,
+                });
+                invalidar_campos(*v, &campos, &mut desconhecidos, &mut rs);
+            }
             Instruction::Phi { incoming, .. } => {
                 for (_, o) in incoming {
                     rs.push(Restricao::Copiar {
                         origem: operando(o),
                         destino,
                     });
+                }
+                if incoming
+                    .iter()
+                    .any(|(_, o)| !super::resumos::argumento_exato(o, *ty, &tipos))
+                {
+                    rs.push(Restricao::Desconhecer { destino });
+                    invalidar_campos(*v, &campos, &mut desconhecidos, &mut rs);
                 }
             }
             Instruction::Bitcast {
@@ -348,32 +366,7 @@ pub(crate) fn analisar_com_resumos(
                     campo: fatos.acessos[v].clone(),
                     valor: operando(value),
                 }),
-            Instruction::Add(..)
-            | Instruction::Sub(..)
-            | Instruction::Mul(..)
-            | Instruction::SDiv(..)
-            | Instruction::SRem(..)
-            | Instruction::Shl(..)
-            | Instruction::AShr(..)
-            | Instruction::LShr(..)
-            | Instruction::And(..)
-            | Instruction::Or(..)
-            | Instruction::Xor(..)
-            | Instruction::Neg(..)
-            | Instruction::Not(..)
-            | Instruction::FAdd(..)
-            | Instruction::FSub(..)
-            | Instruction::FMul(..)
-            | Instruction::FDiv(..)
-            | Instruction::FNeg(..)
-            | Instruction::ICmp(..)
-            | Instruction::FCmp(..)
-            | Instruction::LNot(..)
-            | Instruction::IntToDouble(..)
-            | Instruction::DoubleToInt(..)
-            | Instruction::ZExt { .. }
-            | Instruction::Trunc { .. }
-                if matches!(ty, Type::I64 | Type::F64 | Type::I1 | Type::I8) => {}
+            i if escalar_puro(i, *ty, &tipos) => {}
             _ => {
                 desconhecidos.push(*v);
                 if *ty != Type::Void {
@@ -406,6 +399,57 @@ pub(crate) fn analisar_com_resumos(
         limite,
         esquemas,
     })
+}
+
+fn invalidar_campos(
+    v: ValueId,
+    campos: &BTreeSet<CampoArc>,
+    desconhecidos: &mut Vec<ValueId>,
+    rs: &mut Vec<Restricao>,
+) {
+    desconhecidos.push(v);
+    rs.extend(
+        campos
+            .iter()
+            .cloned()
+            .map(|campo| Restricao::DesconhecerCampo { campo }),
+    );
+}
+
+// Lista positiva por operação e representações de entrada/saída. Não supor
+// ausência de materialização/conversão só porque o resultado ocupa I64/F64.
+fn escalar_puro(i: &Instruction, t: Type, tipos: &HashMap<ValueId, Type>) -> bool {
+    let exato = |o: &Operand, esperado| super::resumos::argumento_exato(o, esperado, tipos);
+    match i {
+        Instruction::Add(a, b)
+        | Instruction::Sub(a, b)
+        | Instruction::Mul(a, b)
+        | Instruction::Shl(a, b)
+        | Instruction::AShr(a, b)
+        | Instruction::LShr(a, b)
+        | Instruction::And(a, b)
+        | Instruction::Or(a, b)
+        | Instruction::Xor(a, b) => t == Type::I64 && exato(a, Type::I64) && exato(b, Type::I64),
+        Instruction::FAdd(a, b)
+        | Instruction::FSub(a, b)
+        | Instruction::FMul(a, b)
+        | Instruction::FDiv(a, b) => t == Type::F64 && exato(a, Type::F64) && exato(b, Type::F64),
+        Instruction::ICmp(_, a, b) => t == Type::I1 && exato(a, Type::I64) && exato(b, Type::I64),
+        Instruction::FCmp(_, a, b) => t == Type::I1 && exato(a, Type::F64) && exato(b, Type::F64),
+        Instruction::Neg(a) | Instruction::Not(a) => t == Type::I64 && exato(a, Type::I64),
+        Instruction::FNeg(a) => t == Type::F64 && exato(a, Type::F64),
+        Instruction::LNot(a) => t == Type::I1 && exato(a, Type::I1),
+        Instruction::IntToDouble(a) => t == Type::F64 && exato(a, Type::I64),
+        Instruction::ZExt { op, from, to } | Instruction::Trunc { op, from, to } => {
+            *to == t
+                && matches!(from, Type::I64 | Type::I1 | Type::I8)
+                && matches!(to, Type::I64 | Type::I1 | Type::I8)
+                && exato(op, *from)
+        }
+        // Divisão/resto, toInt e demais operações falíveis exigem cobertura
+        // própria dos caminhos de erro antes de dispensar efeitos opacos.
+        _ => false,
+    }
 }
 
 // Identidade local para rejeitar consumo de uma solução de outra versão.
@@ -543,6 +587,127 @@ mod testes {
             }],
         };
         (f, fatos)
+    }
+
+    #[test]
+    fn materializacao_e_operacao_falivel_nao_preservam_campos_como_aritmetica_pura() {
+        let (base, fatos) = fixture();
+        let casos = [
+            (
+                Instruction::Const(Constant::String("texto".into())),
+                Type::Ref,
+            ),
+            (
+                Instruction::Add(
+                    Operand::Constant(Constant::String("texto".into())),
+                    Operand::Constant(Constant::Int(1)),
+                ),
+                Type::I64,
+            ),
+            (
+                Instruction::Add(
+                    Operand::Val(ValueId(0)),
+                    Operand::Constant(Constant::Int(1)),
+                ),
+                Type::I64,
+            ),
+            (
+                Instruction::CheckNotNull(Operand::Constant(Constant::Null)),
+                Type::Ref,
+            ),
+            (
+                Instruction::SDiv(
+                    Operand::Constant(Constant::Int(1)),
+                    Operand::Constant(Constant::Int(0)),
+                ),
+                Type::I64,
+            ),
+        ];
+        for (operacao, t) in casos {
+            let mut f = base.clone();
+            f.blocks[0]
+                .instructions
+                .insert(3, (ValueId(4), operacao, t));
+            let a = analisar(&f, &fatos, 8).unwrap();
+            assert_eq!(a.desconhecidos(), &[ValueId(4)]);
+            assert!(a.valor(ValueId(3)).unwrap().nos().is_none());
+            assert!(
+                super::super::escape::calcular(&f, &a).unwrap().publicacoes
+                    [&super::super::escape::CausaEscape::OperacaoOpaca(4)]
+                    .nos()
+                    .is_none()
+            );
+        }
+        let mut f = base;
+        f.blocks[0].instructions.insert(
+            3,
+            (
+                ValueId(4),
+                Instruction::Add(
+                    Operand::Constant(Constant::Int(1)),
+                    Operand::Constant(Constant::Int(2)),
+                ),
+                Type::I64,
+            ),
+        );
+        let a = analisar(&f, &fatos, 8).unwrap();
+        assert!(a.desconhecidos().is_empty());
+        assert!(a.valor(ValueId(4)).unwrap().nos().unwrap().is_empty());
+        assert_eq!(a.valor(ValueId(3)), a.valor(ValueId(1)));
+    }
+
+    #[test]
+    fn phi_com_texto_materializado_nao_e_copia_sem_efeitos() {
+        let (mut f, fatos) = fixture();
+        let leitura = f.blocks[0].instructions.pop().unwrap();
+        f.blocks[0].terminator = Terminator::CondBranch {
+            cond: Operand::Constant(Constant::Bool(true)),
+            then_block: BlockId(1),
+            else_block: BlockId(2),
+        };
+        for id in [1, 2] {
+            f.blocks.push(BasicBlock {
+                id: BlockId(id),
+                instructions: vec![],
+                terminator: Terminator::Branch(BlockId(3)),
+            });
+        }
+        f.blocks.push(BasicBlock {
+            id: BlockId(3),
+            instructions: vec![
+                (
+                    ValueId(4),
+                    Instruction::Phi {
+                        incoming: vec![
+                            (BlockId(1), Operand::Val(ValueId(0))),
+                            (
+                                BlockId(2),
+                                Operand::Constant(Constant::String("texto".into())),
+                            ),
+                        ],
+                        ty: Type::I64,
+                    },
+                    Type::I64,
+                ),
+                leitura,
+            ],
+            terminator: Terminator::Return(Some(Operand::Val(ValueId(3)))),
+        });
+        let a = analisar(&f, &fatos, 8).unwrap();
+        assert_eq!(a.desconhecidos(), &[ValueId(4)]);
+        assert!(a.valor(ValueId(3)).unwrap().nos().is_none());
+        f.blocks[3].instructions[0].2 = Type::Ref;
+        if let Instruction::Phi { ty, .. } = &mut f.blocks[3].instructions[0].1 {
+            *ty = Type::Ref;
+        }
+        assert!(analisar(&f, &fatos, 8).is_err());
+        if let Instruction::Phi { incoming, .. } = &mut f.blocks[3].instructions[0].1 {
+            incoming[1].1 = Operand::Val(ValueId(1));
+        }
+        let a = analisar(&f, &fatos, 8).unwrap();
+        assert!(a.desconhecidos().is_empty());
+        assert_eq!(a.valor(ValueId(4)).unwrap().nos().unwrap().len(), 2);
+        assert_eq!(a.valor(ValueId(3)), a.valor(ValueId(1)));
     }
 
     #[test]
