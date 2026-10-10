@@ -299,6 +299,128 @@ mod testes {
     use super::*;
 
     #[test]
+    fn gravacao_de_campos_preserva_owners_e_recusa_assinatura_falseada() {
+        let inteiro = |n| (Operand::Constant(Constant::Int(n)), Type::I64);
+        let referencia = |n| (Operand::Val(ValueId(n)), Type::Ref);
+        let chamada = |id, nome: &str, args, ret_ty| {
+            (
+                ValueId(id),
+                Instruction::CallRuntime {
+                    name: nome.into(),
+                    args,
+                    ret_ty,
+                },
+                ret_ty,
+            )
+        };
+        for caso in 0..4 {
+            let mut m = Module::new();
+            m.memoria_arc = true;
+            m.functions.push(Function {
+                symbol: "campos".into(),
+                name: "campos".into(),
+                depuracao: None,
+                params: vec![],
+                return_ty: Type::Void,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![
+                        chamada(
+                            0,
+                            "dartforge_arc_objeto_owned_v1",
+                            vec![inteiro(123), inteiro(40)],
+                            Type::Ref,
+                        ),
+                        chamada(
+                            1,
+                            "dartforge_arc_box_int_owned_v1",
+                            vec![inteiro(i64::MAX)],
+                            Type::Ref,
+                        ),
+                        chamada(
+                            2,
+                            if caso == 3 {
+                                "dartforge_object_set"
+                            } else {
+                                "dartforge_arc_gravar_campo_ref_v1"
+                            },
+                            vec![
+                                referencia(0),
+                                inteiro(37),
+                                if caso == 1 {
+                                    (Operand::Val(ValueId(1)), Type::I64)
+                                } else {
+                                    referencia(1)
+                                },
+                            ],
+                            Type::Void,
+                        ),
+                        chamada(
+                            3,
+                            "dartforge_arc_gravar_campo_escalar_v1",
+                            vec![
+                                referencia(0),
+                                inteiro(39),
+                                if caso == 2 {
+                                    referencia(1)
+                                } else {
+                                    inteiro(i64::MAX)
+                                },
+                            ],
+                            Type::Void,
+                        ),
+                        chamada(
+                            4,
+                            "dartforge_arc_ler_campo_escalar_v1",
+                            vec![referencia(0), inteiro(39)],
+                            Type::I64,
+                        ),
+                    ],
+                    terminator: Terminator::Return(None),
+                }],
+            });
+            let mut planos = HashMap::from([("campos".into(), PlanoFuncaoDart::default())]);
+            let antes = format!("{m:?}/{planos:?}");
+            if caso != 0 {
+                assert!(preparar_arc_modulo_dart(&mut m, &mut planos).is_err());
+                assert_eq!(format!("{m:?}/{planos:?}"), antes);
+            } else {
+                assert_eq!(
+                    preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+                    (0, 2)
+                );
+                let p = &planos["campos"];
+                for id in [0, 1] {
+                    assert_eq!(p.classes[&ValueId(id)], Ownership::Owned);
+                }
+                for id in [2, 3, 4] {
+                    assert_eq!(p.classes[&ValueId(id)], Ownership::Trivial);
+                }
+                let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+                assert!(ir.contains(
+                    "call void @dartforge_arc_gravar_campo_ref_v1(i64 %v0, i64 37, i64 %v1)"
+                ));
+                assert!(ir.contains("call void @dartforge_arc_gravar_campo_escalar_v1(i64 %v0, i64 39, i64 9223372036854775807)"));
+                assert!(ir.contains("call void @dartforge_arc_release(i64 %v0)"));
+                assert!(ir.contains("call void @dartforge_arc_release(i64 %v1)"));
+                let preparado = format!("{m:?}/{planos:?}");
+                assert_eq!(
+                    preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+                    (0, 0)
+                );
+                assert_eq!(format!("{m:?}/{planos:?}"), preparado);
+            }
+            m.memoria_arc = false;
+            let antes = format!("{m:?}/{planos:?}");
+            assert_eq!(
+                preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+                (0, 0)
+            );
+            assert_eq!(format!("{m:?}/{planos:?}"), antes);
+        }
+    }
+
+    #[test]
     fn fabrica_de_instancia_publica_owned_e_cleanup_sem_classificar_alocador_legado() {
         for caso in 0..4 {
             let mut m = Module::new();

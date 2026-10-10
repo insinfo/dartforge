@@ -46,6 +46,70 @@ fn parametros_instancia_owned(classe: i64, campos: i64) -> Result<(i32, usize), 
     Ok((classe, usize::from(campos)))
 }
 
+/// Grava bits escalares num campo de uma instância emprestada.
+///
+/// Exige receiver vivo e mutável, índice válido e layout escalar certificado
+/// pelo lowering. Não interpreta os bits como handle: remove a marca Ref e
+/// a aresta forte anterior, mesmo quando os bits novos parecem um endereço.
+/// Aplica a barreira do heap. Não aloca, coleta ou executa Dart; invalida
+/// empréstimos porque a substituição pode retirar a última aresta do filho.
+/// Não faz guardas Dart de tipo/late nem certifica versão ou pin de layout.
+///
+/// # Panics
+/// Violação das precondições ou falha interna de contagem; aborta no limite C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let objeto = dartforge_arc_objeto_owned_v1(123, 40);
+/// dartforge_arc_gravar_campo_escalar_v1(objeto, 39, i64::MAX);
+/// assert_eq!(dartforge_arc_ler_campo_escalar_v1(objeto, 39), i64::MAX);
+/// dartforge_arc_release(objeto);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_gravar_campo_escalar_v1(objeto: i64, indice: i64, bits: i64) {
+    HEAP.with(|heap| gravar_campo_auditado(&mut heap.borrow_mut(), objeto, indice, bits, false)
+        .expect("contrato de gravação escalar ARC violado"));
+}
+
+/// Publica uma referência emprestada como aresta forte de uma instância.
+///
+/// Não consome token do receiver nem do valor. Exige receiver vivo e mutável,
+/// índice válido, valor Ref vivo (ou null/Smi/permanente) e layout Ref
+/// certificado. Atualiza bits, mapa e barreira, retendo a nova aresta antes
+/// de soltar a anterior. Autoatribuição não muda a multiplicidade.
+/// Não aloca, coleta ou executa Dart. Invalida empréstimos pela substituição
+/// da aresta; guardas Dart de tipo/late e versão/pins são obrigações do lowering.
+///
+/// # Panics
+/// Violação das precondições ou falha interna de contagem; aborta no limite C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let objeto = dartforge_arc_objeto_owned_v1(123, 40);
+/// let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
+/// dartforge_arc_gravar_campo_ref_v1(objeto, 39, filho);
+/// dartforge_arc_release(filho);
+/// dartforge_arc_collect();
+/// assert_eq!(dartforge_arc_observar_heap_v1(filho), 1);
+/// dartforge_arc_gravar_campo_ref_v1(objeto, 39, 0);
+/// dartforge_arc_collect();
+/// assert_eq!(dartforge_arc_observar_heap_v1(filho), 0);
+/// dartforge_arc_release(objeto);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_gravar_campo_ref_v1(objeto: i64, indice: i64, valor: i64) {
+    HEAP.with(|heap| gravar_campo_auditado(&mut heap.borrow_mut(), objeto, indice, valor, true)
+        .expect("contrato de gravação Ref ARC violado"));
+}
+
+fn gravar_campo_auditado(heap: &mut Heap, objeto: i64, indice: i64, bits: i64, referencia: bool) -> Result<(), &'static str> {
+    let vista = heap.objeto(objeto).ok_or("receiver não é objeto vivo")?;
+    let indice = usize::try_from(indice).map_err(|_| "índice negativo")?;
+    if indice >= vista.len() { return Err("índice fora do objeto"); }
+    heap.definir_campo(objeto, indice, bits, referencia);
+    Ok(())
+}
+
 /// Copia os bits de um campo escalar de um objeto emprestado.
 ///
 /// Exige objeto vivo, índice válido e campo não marcado como referência no
@@ -791,6 +855,74 @@ mod testes_caixa_double_owned {
                 assert_eq!(dartforge_arc_observar_heap_v1(valor), 0);
             }
             HEAP.with(|h| { h.replace(anterior); });
+        }
+    }
+}
+
+#[cfg(test)]
+mod testes_gravacao_campo {
+    use super::*;
+
+    #[test]
+    fn gravacao_distingue_bits_de_arestas_e_substitui_sem_consumir_tokens() {
+        for arc in [false, true] {
+            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+            let objeto = dartforge_arc_objeto_owned_v1(123, 40);
+            let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
+            let antes = HEAP.with(|h| h.borrow().stats());
+            for indice in [0, 37, 38] {
+                dartforge_arc_gravar_campo_ref_v1(objeto, indice, filho);
+                dartforge_arc_gravar_campo_ref_v1(objeto, indice, filho);
+            }
+            for (indice, bits) in [(1, i64::MAX), (32, (-0.0_f64).to_bits() as i64), (39, 0x7ff80000deadbeef)] {
+                dartforge_arc_gravar_campo_escalar_v1(objeto, indice, bits);
+                assert_eq!(dartforge_arc_ler_campo_escalar_v1(objeto, indice), bits);
+            }
+            HEAP.with(|h| {
+                let h = h.borrow();
+                assert_eq!(h.stats().allocations, antes.allocations);
+                assert_eq!(h.stats().collections, antes.collections);
+                assert_eq!(h.observar_owner_codigo(objeto), 3);
+                assert_eq!(h.observar_owner_codigo(filho), 3);
+            });
+            dartforge_arc_release(filho);
+            dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observar_heap_v1(filho), 1);
+            // Os mesmos bits deixam de constituir aresta nos dois mapas.
+            for indice in [0, 37] { dartforge_arc_gravar_campo_escalar_v1(objeto, indice, filho); }
+            dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observar_heap_v1(filho), 1);
+            dartforge_arc_gravar_campo_ref_v1(objeto, 38, 0);
+            dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observar_heap_v1(filho), 0);
+            for indice in [0, 37] { assert_eq!(dartforge_arc_ler_campo_escalar_v1(objeto, indice), filho); }
+            dartforge_arc_gravar_campo_ref_v1(objeto, 33, objeto);
+            dartforge_arc_collect();
+            dartforge_arc_gravar_campo_escalar_v1(objeto, 33, 0);
+            dartforge_arc_release(objeto);
+            dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observar_heap_v1(objeto), 0);
+            HEAP.with(|h| { h.replace(anterior); });
+        }
+    }
+
+    #[test]
+    fn receiver_e_indice_invalidos_nao_gravam_nem_coletam() {
+        let mut heap = Heap::new(true);
+        let objeto = heap.alocar_instancia(123, 40);
+        heap.reter_owner_codigo(objeto);
+        let caixa = heap.caixa_int(i64::MAX);
+        heap.reter_owner_codigo(caixa);
+        let antes = heap.objeto(objeto).unwrap().to_vec();
+        let stats = heap.stats();
+        for referencia in [false, true] {
+            for (receiver, indice) in [(objeto, -1), (objeto, 40), (0, 0), (caixa, 0)] {
+                assert!(gravar_campo_auditado(&mut heap, receiver, indice, 0, referencia).is_err());
+                assert_eq!(heap.objeto(objeto).unwrap().to_vec(), antes);
+                assert_eq!(heap.stats().allocations, stats.allocations);
+                assert_eq!(heap.stats().collections, stats.collections);
+            }
         }
     }
 }

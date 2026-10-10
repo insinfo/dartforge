@@ -2,6 +2,28 @@
 
 ## Retomada de 2026-10-10
 
+ABIs dartforge_arc_gravar_campo_{escalar,ref}_v1 distinguem valor escalar
+de referência emprestada sem uma flag dinâmica de classificação. Atualizam
+bits, mapa real e barreira via Heap::definir_campo; a operação Ref conserva
+uma aresta forte sem consumir tokens do chamador, com retenção antes da
+liberação anterior e autoatribuição sem mudar multiplicidade. Escalar remove
+a aresta antiga e nunca segue os bits novos, mesmo iguais a um handle.
+Ambas invalidam borrows pela substituição de aresta; não alocam/coletam nem
+executam Dart. Catálogos ownership/efeitos e externs LLVM auditados juntos.
+Testes ARC/tracing com stress cobrem mapa estendido, arestas repetidas,
+autoatribuição, null, autociclo desfeito, -0/NaN/MAX e morte do filho quando
+a última aresta é retirada, preservando os mesmos bits em posições escalares.
+Receiver/índice inválidos não gravam. HIR liga duas fábricas Owned, gravações,
+leitura escalar e dois drops; assinaturas falseadas e setter legado sem
+contrato são recusados sem publicação parcial. Preparação é idempotente e
+não altera tracing. Seleção no lowering, receiver/layout, guardas Dart de
+tipo/late, versões/pins e proteção de borrows continuam pendentes; não é
+integração no fluxo normal nem nova prova AOT. ARC só por --memoria=arc.
+Passaram 180 testes runtime (3 ignorados), 2 testes do catálogo e 40 exemplos
+runtime; 225 testes do emissor (7 ignorados) e 52 exemplos de documentação.
+Logs target/arc-gravacao-runtime-{focado,suite,doc}.log e
+target/arc-gravacao-emissor-{suite,doc}.log.
+
 ABI dartforge_arc_objeto_owned_v1 aloca INSTANCIA zerada e publica um único
 token Owned no mesmo empréstimo do heap, antes do retorno/reabastecimento
 TLAB. Confere classe i32 e número de campos u16 sem truncar o cabeçalho.
@@ -22,9 +44,10 @@ target/arc-instancia-runtime-{focado,suite,doc}.log e
 target/arc-instancia-emissor-{focado,suite,doc}.log.
 
 Conjunto publicado b5887c94 em validação na CI 38029919066 e na CI
-Sem toolchain do sistema 38029919046. Na consulta desta retomada, Linux
-passou as provas AOT de unwind e avançou aos testes JIT; Windows/macOS
-ainda executavam. A ABI de instâncias acima é posterior a essa fonte.
+Sem toolchain do sistema 38029919046. Linux e mensagens concluídos com
+sucesso; Windows na recarga JIT com estado e macOS no unwind estrangeiro
+na consulta desta retomada. As ABIs de instâncias/gravações acima são
+posteriores a essa fonte e ainda exigem CI própria.
 
 Auditoria dos layouts declarados percorre as 15 bibliotecas do SDK da fonte
 usando a mesma etapa de registro de classes da produção, sem baixar seus

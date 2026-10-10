@@ -7,6 +7,8 @@ dartforge_arc_box_int_owned_v1	i64:scalar	ref:owned	0	1	normal
 dartforge_arc_collect	-	void:scalar	0	1	normal
 dartforge_arc_excecao_owned_v1	-	ref:owned	0	1	normal
 dartforge_arc_global_receber_v1	i64:native,ref:consume	void:scalar	1	1	normal
+dartforge_arc_gravar_campo_escalar_v1	ref:borrow,i64:scalar,i64:scalar	void:scalar	0	1	normal
+dartforge_arc_gravar_campo_ref_v1	ref:borrow,i64:scalar,ref:borrow	void:scalar	1	1	normal
 dartforge_arc_gravar_ref	ref:borrow,i64:scalar,ref:borrow	void:scalar	1	1	normal
 dartforge_arc_inicial	ref:borrow	void:scalar	1	0	normal
 dartforge_arc_ler_campo_escalar_v1	ref:borrow,i64:scalar	i64:scalar	0	0	normal
