@@ -160,8 +160,10 @@ pub fn preparar_arc_funcoes_dart(
 /// escalar estreito usa conversão de bits explícita e mantém o ID do uso.
 /// Publicação/contenção, chamada sem resumo fechado e layout ambíguo recusam
 /// a prova; não certifica receivers recebidos por parâmetro ou guardas late.
-/// Retorno Ref exige convenção Owned e operações não cobertas exigem contratos
-/// explícitos. Se `excecoes_por_tabelas` já estiver selecionado, publica também
+/// Fatos nominais do lowering produzem a convenção Owned dos retornos Ref
+/// de corpos Dart. Outros produtores continuam exigindo essa convenção
+/// explícita; operações não cobertas exigem contratos próprios.
+/// Se `excecoes_por_tabelas` já estiver selecionado, publica também
 /// as tabelas verificadas, na ordem final das funções, na mesma transação.
 /// Não seleciona esse modo nem chama este passe no pipeline padrão.
 /// Demais limites são os de [`preparar_arc_funcoes_dart`].
@@ -195,6 +197,7 @@ pub fn preparar_arc_modulo_dart(
     let mut novos = planos.clone();
     produzir_parametros_escalares_do_lowering(modulo, &mut novos)?;
     produzir_parametros_rti_do_lowering(modulo, &mut novos)?;
+    produzir_retornos_ref_do_lowering(modulo, &mut novos)?;
     // O conjunto já mantém os corpos privados até verificar todos eles.
     // Após seu sucesso, a atribuição dos planos não introduz nova falha.
     let total = inserir(

@@ -102,6 +102,22 @@ jobs:
         run: python scripts/provar-arc-aot.py arc_campos_locais --features llvm-embutido
       - name: Seleção explícita de memória na CLI (AOT, JIT e reload)
         run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test memoria_cli -- --include-ignored
+      - name: Retorno Owned do corpo Dart da fonte (AOT Windows)
+        shell: pwsh
+        run: python scripts/provar-arc-aot.py arc_retorno_da_fonte --features llvm-embutido
+      - name: Artefatos do retorno da fonte Windows
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: prova-retorno-da-fonte-windows
+          path: |
+            target/prova-retorno-da-fonte/*.dart
+            target/prova-retorno-da-fonte/*.ll
+            target/prova-retorno-da-fonte/*.stdout
+            target/prova-retorno-da-fonte/*.stderr
+            target/prova-retorno-da-fonte/*.exit
+            target/prova-retorno-da-fonte/*.build.log
+            target/prova-retorno-da-fonte/evidencia.json
       - name: Instâncias zeradas Owned e registro de métodos (AOT Windows)
         shell: pwsh
         run: python scripts/provar-arc-aot.py arc_instancia_zerada --features llvm-embutido
@@ -324,6 +340,22 @@ jobs:
         run: cargo build --locked --release -p dartforge-cli --features nativo,jit -p dartforge-jit
       - name: Seleção explícita de memória na CLI (AOT, JIT e reload)
         run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test memoria_cli -- --include-ignored
+      - name: Retorno Owned do corpo Dart da fonte (AOT Unix)
+        shell: bash
+        run: python3 scripts/provar-arc-aot.py arc_retorno_da_fonte --features llvm-embutido
+      - name: Artefatos do retorno da fonte Unix
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: prova-retorno-da-fonte-${{ runner.os }}
+          path: |
+            target/prova-retorno-da-fonte/*.dart
+            target/prova-retorno-da-fonte/*.ll
+            target/prova-retorno-da-fonte/*.stdout
+            target/prova-retorno-da-fonte/*.stderr
+            target/prova-retorno-da-fonte/*.exit
+            target/prova-retorno-da-fonte/*.build.log
+            target/prova-retorno-da-fonte/evidencia.json
       - name: Instâncias zeradas Owned e registro de métodos (AOT Unix)
         shell: bash
         run: python3 scripts/provar-arc-aot.py arc_instancia_zerada --features llvm-embutido

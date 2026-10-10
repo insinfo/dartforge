@@ -16,6 +16,9 @@ import tempfile
 
 
 PROVAS = {
+    "arc_retorno_da_fonte": ("prova-retorno-da-fonte", False, [
+        ("normal", None), ("normal", "sem-retencao"), ("normal", "sem-drop-retorno"),
+    ]),
     "arc_instancia_zerada": ("prova-instancia-zerada", False, [
         ("normal", None), ("normal", "sem-owner"),
         ("normal", "sem-tabela"), ("normal", "sem-drop"),
@@ -78,6 +81,12 @@ def main():
         "execucoes": [],
     }
     manifesto_path = destino / "evidencia.json"
+    if args.exemplo == "arc_retorno_da_fonte":
+        sdk_lib = ambiente.get("DARTFORGE_SDK_LIB")
+        if not sdk_lib:
+            raise RuntimeError("a prova da fonte exige DARTFORGE_SDK_LIB")
+        manifesto["sdk_lib"] = str(Path(sdk_lib).resolve())
+        manifesto["sdk_versao"] = (Path(sdk_lib).parent / "version").read_text(encoding="utf-8").strip()
     target = (root / "target").resolve()
     if not target.is_relative_to(root):
         raise RuntimeError("diretório de temporários fora do repositório")
@@ -124,7 +133,10 @@ def main():
                             raise RuntimeError(f"controle negativo não terminou por trap: {stem} ({code})")
                     elif code != 0 or stdout.read_bytes() != b"1\n":
                         raise RuntimeError(f"prova falhou: {stem} ({code}); consulte {stdout} e {stderr}")
-                    for arquivo in (log, exe.with_suffix(".ll"), stdout, stderr, destino / f"{stem}.exit"):
+                    arquivos = [log, exe.with_suffix(".ll"), stdout, stderr, destino / f"{stem}.exit"]
+                    if args.exemplo == "arc_retorno_da_fonte":
+                        arquivos.append(exe.with_suffix(".dart"))
+                    for arquivo in arquivos:
                         dados = arquivo.read_bytes()
                         registro["arquivos"].append({"nome": arquivo.name, "bytes": len(dados),
                             "sha256": hashlib.sha256(dados).hexdigest()})

@@ -90,6 +90,8 @@ class Base {
   late int pendente;
   late double preparado = 2.5;
   static int fora = 0;
+  Object? identidade(Object? valor) => valor;
+  Object? get atual => referencia;
   bool exercitar(Object valor) {
     inteiro = 7;
     fracao = -0.0;
@@ -157,6 +159,7 @@ void main() { Base().exercitar(Object()); }
                     assert!(!acessos.is_empty(), "corpo do método ausente");
                     if !arc {
                         assert!(modulo.layouts_campos_arc.is_empty());
+                        assert!(modulo.retornos_ref_dart.is_empty());
                         assert!(!acessos.iter().any(|(_, i, _)| matches!(
                             i,
                             Instruction::GetField { .. } | Instruction::SetField { .. }
@@ -203,6 +206,47 @@ void main() { Base().exercitar(Object()); }
                     let antes = modulo.layouts_campos_arc.clone();
                     crate::otimizar::otimizar(&mut modulo);
                     assert_eq!(modulo.layouts_campos_arc, antes);
+                    let identidade = modulo
+                        .functions
+                        .iter()
+                        .find(|f| f.name == "identidade")
+                        .unwrap();
+                    assert!(modulo.retornos_ref_dart.contains(&identidade.symbol));
+                    assert!(
+                        modulo
+                            .functions
+                            .iter()
+                            .filter(|f| f.name == "atual")
+                            .any(|f| modulo.retornos_ref_dart.contains(&f.symbol))
+                    );
+                    assert!(
+                        modulo
+                            .functions
+                            .iter()
+                            .filter(|f| f.name == "exercitar")
+                            .all(|f| !modulo.retornos_ref_dart.contains(&f.symbol))
+                    );
+                    // Corpo realmente baixado da fonte: apenas o fato nominal
+                    // de retorno, sem plano de ownership escrito para o método.
+                    let mut prova = Module::new();
+                    prova.functions.push(identidade.clone());
+                    prova.retornos_ref_dart.insert(identidade.symbol.clone());
+                    crate::otimizar::preparar_para_emissao(&mut prova, true, true);
+                    let mut planos = std::collections::HashMap::from([(
+                        identidade.symbol.clone(),
+                        crate::otimizar::arc::PlanoFuncaoDart::default(),
+                    )]);
+                    assert_eq!(
+                        crate::otimizar::arc::preparar_arc_modulo_tabelado(&mut prova, &mut planos)
+                            .unwrap(),
+                        (1, 0)
+                    );
+                    assert_eq!(
+                        planos[&identidade.symbol].tokens.retorno,
+                        crate::otimizar::arc::RetornoTokens::Owned
+                    );
+                    let ir = crate::llvm::LlvmEmitter::new(&prova).emit_all();
+                    assert!(ir.contains("call void @dartforge_arc_retain("));
                 }
                 // Usa a mesma etapa de registro da produção para auditar os
                 // layouts declarados do SDK, sem confundir isso com seus corpos

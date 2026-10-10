@@ -30,6 +30,8 @@ pub use planos::preparar_arc_modulo_tabelado;
 mod parametros;
 pub use parametros::produzir_parametros_escalares_do_lowering;
 pub use parametros::produzir_parametros_rti_do_lowering;
+mod retornos;
+pub use retornos::produzir_retornos_ref_do_lowering;
 mod invocacoes;
 mod saidas;
 mod ssa;

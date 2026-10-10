@@ -2,6 +2,30 @@
 
 ## Retomada de 2026-10-10
 
+Lowering agora registra a convenção Ref Owned pelo símbolo do corpo tipado
+Dart da fonte. Fatos acompanham a junção paralela e a poda; não são inferidos
+para thunks, callbacks FFI ou funções extras por terem a mesma largura.
+Produtor produzir_retornos_ref_do_lowering confere símbolos/representações,
+preenche os planos padrão e recusa Borrowed conflitante atomicamente.
+Preparação do módulo usa esse produtor antes de verificar os corpos.
+Teste com método realmente baixado da fonte passa pelo CFG excepcional,
+preparação ARC e LLVM sem um plano manual de retorno; produz retain do
+argumento emprestado. Tracing não recebe os fatos nem a preparação.
+Passaram 258 testes do emissor (sete ignorados) e 55 exemplos públicos.
+
+Prova AOT arc_retorno_da_fonte baixa uma identidade Object? da fonte Dart
+com o SDK 3.6.2, extrai seu corpo no grupo fechado e usa a nova entrada de
+preparação. Harness nativo recebe Mint real, solta o argumento, confere
+sobrevivência/identidade do retorno e morte após soltá-lo. ARC/tracing ×
+O0/O2 aprovou quatro positivos e oito controles por trap, retirando retain
+ou release do retorno. Tracing compara os tokens explícitos do harness,
+sem ativar ARC no heap. Isso não certifica preparação completa de um
+programa/SDK, construção, dispatch, Finalizable ou exceções gerais.
+Matriz e upload de fonte/IR/saídas/logs adicionados à CI. Logs locais:
+target/arc-retornos-lowering-{suite,doc}-final.log e
+target/arc-retornos-lowering-aot.log. CI da fonte 137e428c está executando
+nas três plataformas; estas mudanças ainda são locais.
+
 CI 38043719059 da fonte 124624db terminou com sucesso em Windows,
 Linux, macOS arm64 e mensagens; Sem toolchain 38043719100 também passou.
 Essa rodada inclui os campos tipados da fonte e as matrizes anteriores,

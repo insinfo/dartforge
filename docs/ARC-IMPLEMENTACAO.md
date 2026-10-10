@@ -568,6 +568,16 @@ três microbenchmarks ignorados. Fonte única AOT/JIT aprovada.
 
 ## 5. Pendências
 
+O lowering registra nominalmente os retornos Ref de corpos tipados Dart
+como convenção Owned. Os fatos sobrevivem à junção paralela e acompanham a
+poda; `produzir_retornos_ref_do_lowering` preenche planos e recusa fatos
+obsoletos ou conflitantes antes de publicar. A preparação ainda precisa
+provar a transferência no corpo e reter resultados emprestados. Thunks,
+callbacks FFI e funções extras não recebem essa convenção por largura;
+seus produtores precisam de contratos próprios. A prova AOT
+`arc_retorno_da_fonte` verifica identidade, vida e morte de um Mint devolvido
+pelo corpo realmente baixado da fonte, com controles sem retain/release.
+
 Na API explícita `preparar_arc_modulo_dart`, corpos, planos e tabelas de
 exceções selecionadas são publicados juntos após a verificação do conjunto.
 O emissor recebe os IDs e certificados do CFG final, inclusive quando a

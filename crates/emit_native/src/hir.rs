@@ -1033,6 +1033,10 @@ pub struct Module {
     /// IDs nativos do universo canônico de RTI, produzidos explicitamente.
     /// Não são Ref nem escalares Dart; vida do universo/pins exige outro protocolo.
     pub parametros_rti_dart: std::collections::HashMap<String, std::collections::HashSet<ValueId>>,
+    /// Corpos tipados de funções Dart da fonte cuja ABI devolve Ref Owned.
+    /// Proveniência nominal do lowering; não inclui automaticamente entradas
+    /// uniformes, callbacks FFI ou funções HIR fornecidas por outro produtor.
+    pub retornos_ref_dart: std::collections::HashSet<String>,
     /// Representações declaradas dos campos por classe/posição, somente no ARC.
     /// Inclui herança, mixins e prefixo de enum; late com inicializador fica Ref.
     /// Não certifica o tipo do receiver, forma física do heap ou versão/pins de recarga.
