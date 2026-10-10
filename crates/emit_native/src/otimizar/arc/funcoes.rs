@@ -98,7 +98,9 @@ pub fn inserir_arc_funcoes_dart(
 /// Os demais contratos são os de [`inserir_arc_funcoes_dart`].
 /// Protege resultados Ref borrowed de externs auditadas quando uma barreira
 /// exige Owned, preservando IDs dos usos. Em chamadas falíveis, retém somente
-/// na aresta de sucesso de uma guarda de pendência conferida. Origens não
+/// na aresta de sucesso de uma guarda de pendência conferida. Phis protegem
+/// todas as origens emprestadas antes de reconstruir a transferência Owned.
+/// Origens não
 /// auditadas e laços que exigem cleanup de aresta continuam
 /// exigindo preparação explícita; nenhum plano parcial é publicado.
 /// Retorna (retenções de retorno/keepalive, liberações nas saídas).
@@ -305,6 +307,223 @@ fn inserir(
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn keepalive_phi_prepara_todas_as_origens_antes_de_reclassificar() {
+        for caso in 0..5 {
+            let falivel = caso == 1;
+            let mut m = Module::new();
+            m.memoria_arc = caso != 3;
+            let mut ramos = Vec::new();
+            for (bloco, resultado, pending, cmp) in [(1, 2, 6, 7), (2, 3, 8, 9)] {
+                let mut instructions = vec![(
+                    ValueId(resultado),
+                    if caso == 2 && bloco == 2 {
+                        Instruction::EnvGet {
+                            env: Operand::Val(ValueId(0)),
+                            index: 0,
+                        }
+                    } else {
+                        Instruction::CallRuntime {
+                            name: if falivel {
+                                "dartforge_nativo_DartForge_record_fieldAt"
+                            } else {
+                                "dartforge_arc_ler_campo_ref_v1"
+                            }
+                            .into(),
+                            args: vec![
+                                (Operand::Val(ValueId(0)), Type::Ref),
+                                (Operand::Constant(Constant::Int(0)), Type::I64),
+                            ],
+                            ret_ty: Type::Ref,
+                        }
+                    },
+                    Type::Ref,
+                )];
+                let terminator = if falivel {
+                    instructions.extend([
+                        (
+                            ValueId(pending),
+                            Instruction::CallRuntime {
+                                name: "dartforge_exception_pending".into(),
+                                args: vec![],
+                                ret_ty: Type::I8,
+                            },
+                            Type::I8,
+                        ),
+                        (
+                            ValueId(cmp),
+                            Instruction::ICmp(
+                                ICmpOp::Ne,
+                                Operand::Val(ValueId(pending)),
+                                Operand::Constant(Constant::Int(0)),
+                            ),
+                            Type::I1,
+                        ),
+                    ]);
+                    Terminator::CondBranch {
+                        cond: Operand::Val(ValueId(cmp)),
+                        then_block: BlockId(4),
+                        else_block: BlockId(3),
+                    }
+                } else {
+                    Terminator::Branch(BlockId(3))
+                };
+                ramos.push(BasicBlock {
+                    id: BlockId(bloco),
+                    instructions,
+                    terminator,
+                });
+            }
+            let mut blocks = vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![],
+                terminator: Terminator::CondBranch {
+                    cond: Operand::Val(ValueId(1)),
+                    then_block: BlockId(1),
+                    else_block: BlockId(2),
+                },
+            }];
+            blocks.extend(ramos);
+            blocks.push(BasicBlock {
+                id: BlockId(3),
+                instructions: vec![
+                    (
+                        ValueId(4),
+                        Instruction::Phi {
+                            incoming: vec![
+                                (BlockId(1), Operand::Val(ValueId(2))),
+                                (BlockId(2), Operand::Val(ValueId(3))),
+                            ],
+                            ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(5),
+                        Instruction::CallRuntime {
+                            name: "dartforge_arc_gravar_campo_ref_v1".into(),
+                            args: vec![
+                                (Operand::Val(ValueId(0)), Type::Ref),
+                                (Operand::Constant(Constant::Int(0)), Type::I64),
+                                (Operand::Constant(Constant::Null), Type::Ref),
+                            ],
+                            ret_ty: Type::Void,
+                        },
+                        Type::Void,
+                    ),
+                ],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(4)))),
+            });
+            if falivel {
+                blocks.push(BasicBlock {
+                    id: BlockId(4),
+                    instructions: vec![],
+                    terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))),
+                });
+            }
+            m.functions.push(Function {
+                symbol: "phi_multiplos_borrows".into(),
+                name: "phi_multiplos_borrows".into(),
+                depuracao: None,
+                params: vec![
+                    (ValueId(0), "objeto".into(), Type::Ref),
+                    (ValueId(1), "cond".into(), Type::I1),
+                ],
+                return_ty: Type::Ref,
+                blocks,
+            });
+            if caso == 4 {
+                let f = &mut m.functions[0];
+                f.params.push((ValueId(10), "repetir".into(), Type::I1));
+                let Instruction::Phi { incoming, .. } = &mut f.blocks[3].instructions[0].1 else {
+                    panic!("Phi ausente")
+                };
+                incoming.push((BlockId(5), Operand::Val(ValueId(4))));
+                f.blocks[3].terminator = Terminator::CondBranch {
+                    cond: Operand::Val(ValueId(10)),
+                    then_block: BlockId(5),
+                    else_block: BlockId(4),
+                };
+                f.blocks.extend([
+                    BasicBlock {
+                        id: BlockId(4),
+                        instructions: vec![],
+                        terminator: Terminator::Return(Some(Operand::Val(ValueId(4)))),
+                    },
+                    BasicBlock {
+                        id: BlockId(5),
+                        instructions: vec![],
+                        terminator: Terminator::Branch(BlockId(3)),
+                    },
+                ]);
+            }
+            let mut plano = PlanoFuncaoDart::default();
+            plano.tokens.retorno = RetornoTokens::Owned;
+            if caso == 2 {
+                // Proveniência explícita do alias; sem ABI que possa produzir
+                // keepalive na origem. Falha após a primeira promoção privada.
+                plano.classes.insert(
+                    ValueId(3),
+                    Ownership::Borrowed {
+                        owner: OrigemOwner::Valor(ValueId(0)),
+                        escopo: 0,
+                    },
+                );
+                plano
+                    .tokens
+                    .instrucoes
+                    .insert(ValueId(3), EfeitoTokens::default());
+            }
+            let mut planos = HashMap::from([("phi_multiplos_borrows".into(), plano)]);
+            let antes = format!("{m:?}/{planos:?}");
+            if caso == 2 {
+                assert!(
+                    preparar_arc_modulo_dart(&mut m, &mut planos)
+                        .unwrap_err()
+                        .contains("empréstimo invalidado")
+                );
+                assert_eq!(format!("{m:?}/{planos:?}"), antes);
+            } else if caso == 3 {
+                assert_eq!(
+                    preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+                    (0, 0)
+                );
+                assert_eq!(format!("{m:?}/{planos:?}"), antes);
+            } else {
+                assert_eq!(
+                    preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+                    (2, 0)
+                );
+                for v in [2, 3, 4] {
+                    assert_eq!(
+                        planos["phi_multiplos_borrows"].classes[&ValueId(v)],
+                        Ownership::Owned
+                    );
+                }
+                if falivel {
+                    let Instruction::Phi { incoming, .. } =
+                        &m.functions[0].blocks[3].instructions[0].1
+                    else {
+                        panic!("Phi ausente")
+                    };
+                    assert_eq!(
+                        incoming.iter().map(|(b, _)| b.0).collect::<Vec<_>>(),
+                        [5, 6]
+                    );
+                    assert!(m.functions[0].blocks[4].instructions.is_empty());
+                    assert_eq!(planos["phi_multiplos_borrows"].tokens.pendencias.len(), 2);
+                }
+                let preparado = format!("{m:?}/{planos:?}");
+                assert_eq!(
+                    preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+                    (0, 0)
+                );
+                assert_eq!(format!("{m:?}/{planos:?}"), preparado);
+                crate::llvm::LlvmEmitter::new(&m).emit_all();
+            }
+        }
+    }
 
     #[test]
     fn keepalive_falivel_so_retem_no_sucesso_e_transporta_phi_e_limites() {

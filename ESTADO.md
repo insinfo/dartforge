@@ -2,6 +2,21 @@
 
 ## Retomada de 2026-10-10
 
+Keepalive de Phi agora prepara todas as origens emprestadas num mesmo lote,
+antes de reconstruir a classificação da junção. Evita rejeitar o estado
+intermediário com uma entrada promovida a Owned e outra ainda Borrowed.
+Percurso das origens deduplica SSA e termina em ciclos ancorados; cópias
+falíveis continuam somente na aresta normal, com pendências/Phis transportados.
+Disponibilidade excepcional é conferida antes da primeira promoção do lote.
+Testes cobrem dois getters distintos em diamante normal/falível, Phi com
+volta já transferindo o próprio token, repetição idempotente e tracing intacto.
+Origem sem ABI suportada no segundo ramo recusa o grupo sem publicar a
+primeira promoção privada. Passaram 127 testes ARC, 235 testes do emissor
+(7 ignorados) e 52 exemplos de documentação; logs
+target/arc-keepalive-phi-{focado,suite,doc}.log. Não é prova nativa desses Phis,
+cleanup geral de laços/arestas nem integração do lowering. ARC continua
+exclusivo de --memoria=arc.
+
 Prova AOT arc_keepalive_pending passou no Windows: ARC/tracing × O0/O2
 × sucesso/erro, oito execuções positivas e doze controles negativos. O
 getter auditado de record retorna BorrowArg(0); preparação insere cópia
