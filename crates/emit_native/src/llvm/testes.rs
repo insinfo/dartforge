@@ -701,26 +701,7 @@ fn cleanup_retoma_par_original_e_recusa_metadados_incoerentes() {
     let ir = e.out;
     assert!(ir.contains("personality ptr @dartforge_personalidade_cleanup_itanium"));
     #[cfg(feature = "llvm-embutido")]
-    {
-        // O corpo emitido é verificado e gera código Itanium, sem usar o
-        // cabeçalho Windows nem prometer cross-compilation de módulos Dart.
-        let completo = format!(r#"target triple = "x86_64-unknown-linux-gnu"
-            declare i32 @dartforge_personalidade_cleanup_itanium(...)
-            declare ptr @dartforge_contexto()
-            declare void @dartforge_estouro_de_pilha()
-            declare i1 @llvm.expect.i1(i1, i1)
-            declare void @df.lancar()
-            declare void @dartforge_arc_retain(i64)
-            declare void @dartforge_arc_release(i64)
-            declare void @falha()
-            {ir}"#);
-        for otimizar in [false, true] {
-            let objeto = dartforge_llvm::gerar("cleanup-retoma", &completo, &dartforge_llvm::Opcoes {
-                otimizar, formato: dartforge_llvm::Formato::Objeto, cpu: None,
-            }).unwrap_or_else(|erro| panic!("{erro}\n{completo}"));
-            assert!(!objeto.is_empty());
-        }
-    }
+    conferir_objetos_cleanup(&ir);
     let pouso = &ir[ir.find("b2:").unwrap()..];
     assert!(pouso.contains("%lpad2 = landingpad { ptr, i32 } cleanup"));
     assert!(pouso.contains("resume { ptr, i32 } %lpad2"));
@@ -751,4 +732,63 @@ fn retoma_nao_promete_suporte_seh_no_emissor_publico() {
     let mut m = Module::new();
     m.tabelas.push(TabelasDaFuncao { saidas: [(BlockId(1), SaidaPorExcecao::Retoma)].into(), ..Default::default() });
     LlvmEmitter::new(&m).emit_all();
+}
+
+#[cfg(feature = "llvm-embutido")]
+fn conferir_objetos_cleanup(ir: &str) {
+    // O corpo emitido é verificado e gera código Itanium, sem usar o
+    // cabeçalho Windows nem prometer cross-compilation de módulos Dart.
+    let completo = format!(r#"target triple = "x86_64-unknown-linux-gnu"
+        declare i32 @dartforge_personalidade_cleanup_itanium(...)
+        declare i32 @llvm.eh.typeid.for(ptr)
+        declare ptr @dartforge_contexto()
+        declare void @dartforge_estouro_de_pilha()
+        declare i1 @llvm.expect.i1(i1, i1)
+        declare void @df.lancar()
+        declare void @dartforge_arc_retain(i64)
+        declare void @dartforge_arc_release(i64)
+        declare void @falha()
+        {ir}"#);
+    for otimizar in [false, true] {
+        let objeto = dartforge_llvm::gerar("cleanup-retoma", &completo, &dartforge_llvm::Opcoes {
+            otimizar, formato: dartforge_llvm::Formato::Objeto, cpu: None,
+        }).unwrap_or_else(|erro| panic!("{erro}\n{completo}"));
+        assert!(!objeto.is_empty());
+    }
+}
+
+#[test]
+fn catch_no_perfil_cleanup_confere_seletor_e_remapeia_phi_do_pouso() {
+    let chamada = |v| (ValueId(v), Instruction::CallStatic { symbol: "falha".into(), args: vec![], ret_ty: Type::Void }, Type::Void);
+    let drop = |v| (ValueId(v), Instruction::ArcDrop { value: Operand::Val(ValueId(1)) }, Type::Void);
+    let desvio = |p, n| Terminator::CondBranch { cond: Operand::Constant(Constant::Bool(false)), then_block: BlockId(p), else_block: BlockId(n) };
+    let f = funcao("misto", vec![(ValueId(0), "x".into(), Type::Ref)], Type::Void, vec![
+        BasicBlock { id: BlockId(0), instructions: vec![
+            (ValueId(1), Instruction::ArcCopy { value: Operand::Val(ValueId(0)) }, Type::Ref), chamada(2),
+        ], terminator: desvio(4, 1) },
+        BasicBlock { id: BlockId(1), instructions: vec![chamada(5)], terminator: desvio(2, 3) },
+        BasicBlock { id: BlockId(2), instructions: vec![drop(3)], terminator: Terminator::Return(None) },
+        BasicBlock { id: BlockId(3), instructions: vec![drop(4)], terminator: Terminator::Return(None) },
+        BasicBlock { id: BlockId(4), instructions: vec![], terminator: Terminator::Branch(BlockId(5)) },
+        BasicBlock { id: BlockId(5), instructions: vec![
+            (ValueId(6), Instruction::Phi { incoming: vec![(BlockId(4), Operand::Constant(Constant::Int(1)))], ty: Type::I64 }, Type::I64), drop(7),
+        ], terminator: Terminator::Return(None) },
+    ]);
+    let t = TabelasDaFuncao {
+        invocacoes: [(ValueId(2), BlockId(4)), (ValueId(5), BlockId(2))].into(),
+        pousos: [BlockId(2), BlockId(4)].into(),
+        saidas: [(BlockId(2), SaidaPorExcecao::Retoma)].into(), ..Default::default()
+    };
+    let m = Module::new();
+    let mut e = LlvmEmitter::new(&m);
+    e.tab = Some(&t);
+    e.emit_function(&f);
+    let ir = e.out;
+    assert!(ir.contains("%lpseletor4 = extractvalue { ptr, i32 } %lpad4, 1"));
+    assert!(ir.contains("%lptipo4 = call i32 @llvm.eh.typeid.for(ptr null)"));
+    assert!(ir.contains("lpad4.estrangeira:\n  resume { ptr, i32 } %lpad4"));
+    assert!(ir.contains("%lpad4.dart ]"), "{ir}");
+    assert!(!ir.contains("%lpseletor2"));
+    #[cfg(feature = "llvm-embutido")]
+    conferir_objetos_cleanup(&ir);
 }

@@ -2,6 +2,26 @@
 
 ## Retomada de 2026-10-09
 
+Catch no perfil de cleanup Itanium: quando a mesma função contém Retoma e
+catch preparado, o pouso catch agora compara o seletor com
+llvm.eh.typeid.for(null). O caminho não selecionado retoma o par original,
+antes de entrar no tratador Dart. Isso é necessário quando o inliner combina
+cleanup e catch. Atualiza o rótulo predecessor dos Phis do sucessor do pouso.
+Passaram 42 testes LLVM, incluindo objetos Linux O0/O2 do corpo real com
+catch+cleanup e Phi; não é execução de estrangeira com heap ARC.
+A prova AOT `arc_retornos_guardados` aceita `automatico misto`: o caller
+mantém seu catch e ganha um segundo invoke automático sem tratador, ficando
+com ambos os modos em Unix. Quatro variantes mistas Windows passaram sob
+ARC_CONFERIR=1, BER=0, GC_STRESS=1, stdout byte exato (normal MAX, erro vazio).
+Logs `target/retoma-misto-win-*` e `target/retoma-catch-*`.
+CI passa a rodar simples/misto × ARC/tracing × normal/erro em Linux/macOS,
+antes dos testes lentos do SDK. A execução Unix dessas variantes está pendente.
+A prova não certifica estrangeira/forced unwind com owners locais do catch:
+limpeza desses owners fora do caminho Dart ainda precisa de CFG/metadata ARC.
+Também não certifica morte final, rastro/identidade em AOT, SEH/statepoints,
+pipeline semântico completo ou o gate de desempenho.
+
+
 Integração de resume ao protótipo ARC: HIR ganha saída Retoma, cujo Return
 é placeholder sem transferência. A preparação automática usa esse modo
 em Unix e mantém Lanca em Windows, até a integração SEH. O emissor escolhe

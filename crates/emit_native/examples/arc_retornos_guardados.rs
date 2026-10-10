@@ -1,6 +1,8 @@
 //! Prova AOT de retorno Guarda, cleanup e unwind entre duas funções Dart.
 //! O argumento final `automatico` acrescenta um propagador cujo invoke,
 //! pouso, fechamento léxico e cleanup são gerados pela preparação ARC.
+//! O argumento adicional `misto` dá ao caller um catch preparado e outro
+//! invoke automático, exercitando o seletor catch no perfil de cleanup Unix.
 //! Não observa morte final nem certifica o restante do pipeline ARC.
 
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*};
@@ -12,6 +14,10 @@ fn main() -> Result<(), String> {
     let arc = args.next().as_deref() != Some("tracing");
     let lancar = args.next().as_deref() == Some("erro");
     let automatico = args.next().as_deref() == Some("automatico");
+    let misto = args.next().as_deref() == Some("misto");
+    if misto && !automatico {
+        return Err("misto exige preparação automática".into());
+    }
     let val = |v| Operand::Val(ValueId(v));
     let runtime = |name: &str, args, ret_ty| Instruction::CallRuntime {
         name: name.into(),
@@ -203,12 +209,37 @@ fn main() -> Result<(), String> {
             .insert(BlockId(0), vec![AlteracaoEscopo::Fechar(7)]);
         planos.insert("propagador".into(), propagador);
     }
+    if misto {
+        // O catch inicial permanece explícito. O segundo invoke, sem catch,
+        // faz a mesma função receber também Retoma no protótipo Unix.
+        modulo.functions[0]
+            .blocks
+            .iter_mut()
+            .find(|b| b.id == BlockId(4))
+            .unwrap()
+            .instructions
+            .push((
+                ValueId(9),
+                Instruction::CallStatic {
+                    symbol: "propagador".into(),
+                    args: vec![val(0)],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            ));
+    }
     let inseridos = if automatico {
         preparar_arc_funcoes_dart(&mut modulo.functions, &mut planos)?
     } else {
         inserir_arc_funcoes_dart(&mut modulo.functions, &mut planos)?
     };
-    let esperado = if automatico { (1, 5) } else { (1, 3) };
+    let esperado = if misto {
+        (1, 7)
+    } else if automatico {
+        (1, 5)
+    } else {
+        (1, 3)
+    };
     if inseridos != esperado {
         return Err(format!(
             "inserção esperada {esperado:?}, encontrada {inseridos:?}"

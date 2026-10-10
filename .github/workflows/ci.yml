@@ -216,24 +216,25 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Compilar dartforge (nativo, jit)
         run: cargo build --locked --release -p dartforge-cli --features nativo,jit -p dartforge-jit
-      - name: Testes do emit_native (com os ignorados)
-        env:
-          DARTFORGE_TEST_SDK_LIB: ${{ env.DARTFORGE_SDK_LIB }}
-        run: cargo test --locked --release -p dartforge-emit-native -- --include-ignored
       - name: Cleanup ARC com resume Itanium (AOT, normal e erro)
         shell: bash
         run: |
           mkdir -p target/prova-arc-resume
           printf '9223372036854775807\n' > target/prova-arc-resume/normal.esperado
           : > target/prova-arc-resume/erro.esperado
-          for modo in arc tracing; do
-            for caminho in normal erro; do
-              exe="target/prova-arc-resume/${modo}-${caminho}"
-              cargo run --locked --release -p dartforge-emit-native --features llvm-embutido --example arc_retornos_guardados -- "$exe" "$modo" "$caminho" automatico
-              grep -F 'personality ptr @dartforge_personalidade_cleanup_itanium' "${exe}.ll"
-              grep -F 'resume { ptr, i32 } %lpad' "${exe}.ll"
-              ARC_CONFERIR=1 BER=0 GC_STRESS=1 "$exe" > "${exe}.stdout"
-              cmp "target/prova-arc-resume/${caminho}.esperado" "${exe}.stdout"
+          for perfil in simples misto; do
+            for modo in arc tracing; do
+              for caminho in normal erro; do
+                exe="target/prova-arc-resume/${perfil}-${modo}-${caminho}"
+                cargo run --locked --release -p dartforge-emit-native --features llvm-embutido --example arc_retornos_guardados -- "$exe" "$modo" "$caminho" automatico "$perfil"
+                grep -F 'personality ptr @dartforge_personalidade_cleanup_itanium' "${exe}.ll"
+                grep -F 'resume { ptr, i32 } %lpad' "${exe}.ll"
+                if [ "$perfil" = misto ]; then
+                  grep -F '@llvm.eh.typeid.for(ptr null)' "${exe}.ll"
+                fi
+                ARC_CONFERIR=1 BER=0 GC_STRESS=1 "$exe" > "${exe}.stdout"
+                cmp "target/prova-arc-resume/${caminho}.esperado" "${exe}.stdout"
+              done
             done
           done
       - name: Artefatos da prova ARC resume
@@ -244,6 +245,10 @@ jobs:
           path: |
             target/prova-arc-resume/*.ll
             target/prova-arc-resume/*.stdout
+      - name: Testes do emit_native (com os ignorados)
+        env:
+          DARTFORGE_TEST_SDK_LIB: ${{ env.DARTFORGE_SDK_LIB }}
+        run: cargo test --locked --release -p dartforge-emit-native -- --include-ignored
       - name: Testes do JIT (com os ignorados)
         run: cargo test --locked --release -p dartforge-jit -- --include-ignored
       - name: Recarga JIT da CLI (com e sem o SDK da fonte)

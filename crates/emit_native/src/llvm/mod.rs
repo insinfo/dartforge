@@ -987,6 +987,20 @@ impl<'a> LlvmEmitter<'a> {
                 if !crate::alvo::sabotagem("pouso_sem_topo") {
                     writeln!(self.out, "  store ptr {topo}, ptr %ctxtopo, align 8").unwrap();
                 }
+                if tem_retoma && tab.is_some_and(|t| t.saidas.get(&block.id) != Some(&SaidaPorExcecao::Retoma)) {
+                    // O inliner pode combinar catch e cleanup. Seletor zero
+                    // executa cleanup, mas não autoriza tratar estrangeira como Dart.
+                    let b = block.id.0;
+                    writeln!(self.out, "  %lpseletor{b} = extractvalue {{ ptr, i32 }} %lpad{b}, 1").unwrap();
+                    writeln!(self.out, "  %lptipo{b} = call i32 @llvm.eh.typeid.for(ptr null)").unwrap();
+                    writeln!(self.out, "  %lpdart{b} = icmp eq i32 %lpseletor{b}, %lptipo{b}").unwrap();
+                    writeln!(self.out, "  br i1 %lpdart{b}, label %lpad{b}.dart, label %lpad{b}.estrangeira").unwrap();
+                    writeln!(self.out, "lpad{b}.estrangeira:").unwrap();
+                    writeln!(self.out, "  resume {{ ptr, i32 }} %lpad{b}").unwrap();
+                    writeln!(self.out, "lpad{b}.dart:").unwrap();
+                    self.rotulo_atual = format!("lpad{b}.dart");
+                    self.rotulos_de_saida.entry(b).or_insert_with(|| format!("lpad{b}.dart"));
+                }
                 // Raízes por mapas: o que o tratador ainda lê estava vivo na
                 // entrada do `invoke` e vai no `"deopt"` dele.
             }
@@ -3959,6 +3973,7 @@ define internal void @df.lancar() noreturn noinline cold \"gc-leaf-function\" {\
 const EXCECOES_POR_TABELAS_ITANIUM: &str = "; Exceções por tabelas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md)
 declare i32 @dartforge_personalidade(...)
 declare i32 @dartforge_personalidade_cleanup_itanium(...)
+declare i32 @llvm.eh.typeid.for(ptr)
 declare void @dartforge_registrar_portas(ptr, i64)
 declare ptr @dartforge_objeto_de_desenrolamento()
 declare i32 @_Unwind_RaiseException(ptr)
