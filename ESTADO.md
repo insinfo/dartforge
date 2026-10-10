@@ -2,7 +2,7 @@
 
 ## Retomada de 2026-10-10
 
-Alocação Owned/initialização de campos registrada no commit bee4dceb.
+Alocação Owned/inicialização de campos registrada no commit bee4dceb.
 Evidência Windows congelada em
 bench/resultados/2026-10-10-alocacao-campos-windows: 12 execuções,
 60 arquivos AOT e três logs de verificação, com SHA-256/blobs de fontes.
@@ -34,7 +34,10 @@ Não integra o passe ao pipeline padrão; ARC permanece exclusivo de
 
 Commits até b198aadd publicados em main após a aprovação de ed5897e9.
 CI 38038842350 e sem toolchain 38038842352 da fonte b198aadd estão em
-execução; elas não incluem a preparação de AllocObject acima.
+execução; elas não incluem a preparação de AllocObject acima. Na CI Linux,
+as três matrizes do script compartilhado (campos, pending e laços) já
+terminaram com sucesso; o job completo continua em execução. Windows e
+macOS ainda executando, sem atribuir suas matrizes pendentes como aprovadas.
 
 CI 38034929874 da fonte ed5897e9 terminou com sucesso nos quatro jobs:
 mensagens, Windows, Linux e macOS. Sem toolchain 38034929845 também passou.
