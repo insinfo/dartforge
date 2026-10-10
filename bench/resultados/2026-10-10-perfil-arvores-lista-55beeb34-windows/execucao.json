@@ -1,0 +1,17 @@
+{
+  "fonte_executavel": "55beeb34b8c57e44cd7563274b396b7550a5d19d",
+  "executavel": "E:\\MyRustProjects\\dartforge\\target\\modos-2026-10-10-55beeb34-a0-arc\\objetos_escapam-ARC.exe",
+  "sha256": "56a2136351e329c4880bc737e61c47f4a44c178d9ef7676998b797c2cf5a8a32",
+  "afinidade": "0x4",
+  "codigo": 0,
+  "segundos_processo_com_rastro": 4.814043499995023,
+  "ambiente": {
+    "DARTFORGE_GC_STRESS": null,
+    "DARTFORGE_ARC_CICLOS": null,
+    "DARTFORGE_GC_RASTRO": "1",
+    "DARTFORGE_GC_OFF": "0",
+    "DARTFORGE_ARC_CONFERIR": "0",
+    "DARTFORGE_ARC_BERCARIO": "0",
+    "DARTFORGE_HEAP_MAX_MB": "256"
+  }
+}

@@ -5718,13 +5718,12 @@ impl Heap {
                 }
             }
             let t3 = rastrear.then(std::time::Instant::now);
-            let mut mortos = arc.estado.tomar_mortos();
-            mortos_rc.extend_from_slice(&mortos);
-            if primeira {
-                primeira = false;
-                mortos.extend_from_slice(&mortos_jovens);
-            }
-            if mortos.is_empty() {
+            let quantidade = arc.estado.transferir_mortos(&mut mortos_rc);
+            // Jovens também exigem limpeza lateral na primeira rodada, mas
+            // são reclamados pela varredura: não entram nos mortos por RC.
+            let tem_mortos = quantidade != 0 || (primeira && !mortos_jovens.is_empty());
+            primeira = false;
+            if !tem_mortos {
                 break;
             }
             // As tabelas laterais (pequenas) perdem os mortos: o objeto do
@@ -5732,7 +5731,6 @@ impl Heap {
             // todo vivo do espaço é registrado. Um conjunto com os mortos da
             // rodada (milhões, nas árvores que caem de uma vez) custava mais
             // que a cascata.
-            drop(mortos);
             let validar = self.validar_handles;
             let espaco = &self.objetos;
             let estado = &arc.estado;

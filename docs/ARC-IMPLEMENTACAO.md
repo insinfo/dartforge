@@ -602,6 +602,12 @@ ARC anterior; tracing permanece sem alterações.
   chave, que retém (nunca mata antes da hora).
 * Política de agendamento da rodada de ciclos por orçamento (§22.5); hoje
   ela roda na completa.
+* A entrega dos mortos ao reclamador usa `EstadoDoArc::transferir_mortos`:
+  destino vazio recebe o buffer por troca; rodadas seguintes acrescentam
+  handles sem apagar os anteriores. Remove os mesmos metadados mortos antes
+  da entrega. O heap testa separadamente jovens da primeira rodada, que
+  continuam reclamados pela varredura. Evita duplicar a lista inteira só
+  para testar se houve mortes; ganho de tempo ainda precisa de medição.
 * Reduzir o custo da reclamação por bloco (`EspacoDeObjetos::soltar_morto`,
   já usada pela drenagem pura, sem varrer páginas): a junção dos vizinhos
   na ponta da lista está feita (§6.2), sem ganho demonstrado na média

@@ -1,0 +1,18 @@
+{
+  "execucao.json": {
+    "bytes": 609,
+    "sha256": "9239985fe8510600e8dfc289939482cbc8740d8d1c3f1bb0e88fede8727cb9f7"
+  },
+  "stdout.txt": {
+    "bytes": 138,
+    "sha256": "41abe8d34309e230dd4b2dfa8b132aebce81754849be90f4d92ccc573c036741"
+  },
+  "stderr.txt": {
+    "bytes": 105048,
+    "sha256": "27cdc77783cc5d34bc1be83d922126c31e2cbb7f7be98dc10d4b460367422ca6"
+  },
+  "fases.json": {
+    "bytes": 337,
+    "sha256": "3154ea8c91b1dc46d8f91fe4689b75bda03d7da9fe93f338e5c2b0216684d53e"
+  }
+}

@@ -2,6 +2,26 @@
 
 ## Retomada de 2026-10-10
 
+Perfil diagnóstico de objetos_escapam-ARC da revisão 55beeb34, com rastro,
+afinidade 0x4 e resultados iguais, inclui árvores/lista e aquecimentos:
+382 drenagens, 3.182.096 µs acumulados. Zeros iniciais 35,67%, ciclos mais
+zeros posteriores 22,29%, mortos/tabelas laterais 7,33%. Não é nova medição
+do gate nem tempo exclusivo de árvores. Registro em
+bench/resultados/2026-10-10-perfil-arvores-lista-55beeb34-windows.
+Inspeção remove cópia da lista inteira de mortos no heap: transferir_mortos
+remove os mesmos metadados e troca o buffer com o destino vazio; rodadas
+seguintes acrescentam handles. Jovens continuam na varredura e ainda exigem
+limpeza lateral na primeira rodada. API tomar_mortos conserva seu resultado.
+Regressão confere cascata, identidade do primeiro buffer (sem cópia), entrega
+incremental, rodada vazia e remoção dos metadados. Passaram teste focado,
+188 testes unitários release do runtime (incluindo os ignorados), 16 integrações
+e 42 exemplos públicos; logs target/arc-transferencia-mortos-{focado,suite}.log.
+Inclui fonte única AOT/JIT. git diff --check passou antes dos artefatos brutos.
+Sem comparação de tempo antes/depois da transferência; ARC/A0=2,000274 pertence
+ao produtor anterior 55beeb34. Gate reprovado; §§27–34 incompletos. ARC apenas
+--memoria=arc, tracing padrão. CI 38057171425: Windows/Linux/mensagens passaram;
+macOS chegou aos testes JIT com ignorados. Mudança local sem interromper rodada.
+
 Medição ARC/A0 atualizada para 55beeb34: CLI release recompilada com LLVM
 embutido, 18 executáveis novos, nove programas/32 kernels, sete pares alternados
 em afinidade Windows 0x4. Passaram 126 execuções com resultados iguais entre

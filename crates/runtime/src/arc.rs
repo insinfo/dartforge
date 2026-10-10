@@ -851,13 +851,27 @@ impl EstadoDoArc {
     /// Os mortos lógicos publicados desde a última chamada, para o reclamador
     /// físico; os metadados deles saem aqui (§19.4, passo 2).
     pub fn tomar_mortos(&mut self) -> Vec<Ref> {
-        let mortos = std::mem::take(&mut self.mortos);
-        for h in &mortos {
+        let mut mortos = Vec::new();
+        self.transferir_mortos(&mut mortos);
+        mortos
+    }
+
+    /// Remove metadados e transfere mortos para o reclamador físico.
+    /// Destino vazio recebe o buffer por troca, sem copiar cada handle;
+    /// rodadas posteriores acrescentam seus mortos, preservando os anteriores.
+    pub(crate) fn transferir_mortos(&mut self, destino: &mut Vec<Ref>) -> usize {
+        let quantidade = self.mortos.len();
+        for h in &self.mortos {
             if self.objetos.get(h).is_some_and(|m| m.estado == EstadoArc::Morto) {
                 self.objetos.remove(h);
             }
         }
-        mortos
+        if destino.is_empty() {
+            std::mem::swap(destino, &mut self.mortos);
+        } else {
+            destino.append(&mut self.mortos);
+        }
+        quantidade
     }
 
     /// Reconta, com o heap estabilizado, `owners de raiz + arestas fortes` de
@@ -1005,6 +1019,37 @@ mod testes {
         a.reter(7).unwrap();
         a.soltar(7).unwrap();
         assert_eq!(a.estatisticas.retains, 0);
+    }
+
+    #[test]
+    fn mortos_transferidos_preservam_cascata_e_rodadas_sem_copiar_primeiro_buffer() {
+        let mut a = EstadoDoArc::novo();
+        let mut g = Grafo::default();
+        novo(&mut a, 2);
+        novo(&mut a, 4);
+        ligar(&mut a, &mut g, 2, 4);
+        a.soltar(4).unwrap();
+        a.soltar(2).unwrap();
+        assert_eq!(a.drenar_zeros(&mut g, usize::MAX, &|_| false).unwrap(), 2);
+        let buffer = a.mortos.as_ptr();
+        let mut destino = Vec::new();
+        assert_eq!(a.transferir_mortos(&mut destino), 2);
+        assert_eq!(destino, [2, 4]);
+        assert_eq!(destino.as_ptr(), buffer);
+        assert!(a.meta(2).is_none() && a.meta(4).is_none());
+        novo(&mut a, 6);
+        a.soltar(6).unwrap();
+        a.drenar_zeros(&mut g, usize::MAX, &|_| false).unwrap();
+        assert_eq!(a.transferir_mortos(&mut destino), 1);
+        assert_eq!(destino, [2, 4, 6]);
+        assert!(a.meta(6).is_none());
+        assert_eq!(a.transferir_mortos(&mut destino), 0);
+        assert_eq!(destino, [2, 4, 6]);
+        novo(&mut a, 8);
+        a.soltar(8).unwrap();
+        a.drenar_zeros(&mut g, usize::MAX, &|_| false).unwrap();
+        assert_eq!(a.tomar_mortos(), [8]);
+        assert!(a.meta(8).is_none());
     }
 
     #[test]
