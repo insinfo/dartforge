@@ -173,10 +173,24 @@ fn calcular_validado(f: &Function, a: &AnaliseHir) -> Result<ResultadoEscape, St
             _ => {}
         }
         for (_, i, _) in &b.instructions {
-            if let Instruction::StoreGlobal { simbolo, val, .. } = i {
-                publicar(CausaEscape::Global(simbolo.clone()), operando(val));
+            match i {
+                Instruction::StoreGlobal { simbolo, val, .. }
+                | Instruction::ArcStoreStrong {
+                    slot: SlotForte::Global { simbolo },
+                    value: val,
+                    ..
+                } => publicar(CausaEscape::Global(simbolo.clone()), operando(val)),
+                _ => {}
             }
         }
+    }
+    // Inclusões não dispensam a publicação opaca da chamada nem da emissão.
+    for (simbolo, variavel) in &a.inclusoes_globais {
+        let pontos = a
+            .pontos()
+            .variavel(*variavel)
+            .ok_or("escape ARC: variável de publicação inválida")?;
+        publicar(CausaEscape::Global(simbolo.clone()), pontos.clone());
     }
     for id in a.desconhecidos() {
         publicar(

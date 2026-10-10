@@ -70,6 +70,7 @@ pub struct AnaliseHir {
     // Inclusões por argumentos reais de calls; não refinam campos topo nem
     // substituem cobertura de mutações/vidas/caminhos de emissão.
     pub(crate) inclusoes_escritas: Vec<(usize, usize)>,
+    pub(crate) inclusoes_globais: Vec<(String, usize)>,
 }
 
 impl AnaliseHir {
@@ -227,6 +228,7 @@ pub(crate) fn analisar_com_resumos(
     let opaco = vazio + 1;
     let mut rs = vec![Restricao::Desconhecer { destino: opaco }];
     let mut inclusoes_escritas = Vec::new();
+    let mut inclusoes_globais = Vec::new();
     let mut numero_variaveis = ids.len() + 2;
     let campos: BTreeSet<_> = fatos
         .acessos
@@ -358,6 +360,33 @@ pub(crate) fn analisar_com_resumos(
                     rs.push(Restricao::Desconhecer { destino });
                 }
                 dependencias_corpos.insert(symbol.clone(), assinatura_corpo(callee));
+                if abi_exata
+                    && let super::escritas::InclusoesGlobais::Conhecidas(globais) =
+                        &resumo.inclusoes_globais
+                {
+                    for (simbolo, caminhos) in globais {
+                        if let Some(caminhos) = caminhos {
+                            if caminhos.is_empty() {
+                                inclusoes_globais.push((simbolo.clone(), vazio));
+                            }
+                            for caminho in caminhos {
+                                let arg = args
+                                    .get(caminho.parametro)
+                                    .ok_or("points-to: publicação de resumo inválida")?;
+                                let origem = materializar_caminho(
+                                    operando(arg),
+                                    &caminho.campos,
+                                    &esquemas_por_indice,
+                                    &mut numero_variaveis,
+                                    &mut rs,
+                                )?;
+                                inclusoes_globais.push((simbolo.clone(), origem));
+                            }
+                        } else {
+                            inclusoes_globais.push((simbolo.clone(), opaco));
+                        }
+                    }
+                }
                 if abi_exata
                     && let super::escritas::InclusoesEscritas::Conhecidas(escritas) =
                         &resumo.inclusoes_escritas
@@ -499,6 +528,7 @@ pub(crate) fn analisar_com_resumos(
         limite,
         esquemas,
         inclusoes_escritas,
+        inclusoes_globais,
     })
 }
 

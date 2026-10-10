@@ -49,6 +49,7 @@ pub fn analisar_no_modulo(
     if corpos.next().is_some() {
         return Err(format!("points-to: corpo duplicado {simbolo}"));
     }
+    super::chamadas::conferir_globais(m, f)?;
     let chamadas: std::collections::HashSet<_> = f
         .blocks
         .iter()
@@ -168,12 +169,167 @@ pub(super) fn assinatura_premissas(m: &Module, simbolo: &str) -> blake3::Hash {
             .map(|(v, sitio)| (v.0, sitio))
             .collect::<std::collections::BTreeMap<_, _>>()
     });
-    blake3::hash(format!("{:?}", (m.memoria_arc, simbolo, layouts, sitios)).as_bytes())
+    // Preservar duplicatas: uma declaração repetida deixa de ser ABI válida.
+    let mut globais: Vec<_> = m
+        .globais
+        .iter()
+        .map(|(slot, ty, nome)| (nome, slot, format!("{ty:?}")))
+        .collect();
+    globais.sort();
+    blake3::hash(format!("{:?}", (m.memoria_arc, simbolo, layouts, sitios, globais)).as_bytes())
 }
 
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn publicacao_por_chamada_conserva_identidade_e_opacidade_e_confere_globais() {
+        use super::super::escape::*;
+        for modo in [ModoStoreForte::Copy, ModoStoreForte::Move] {
+            let mut m = Module::new();
+            m.memoria_arc = true;
+            m.globais = vec![(0, Type::Ref, "g".into()), (1, Type::Ref, "h".into())];
+            m.layouts_campos_arc.insert(1, vec![]);
+            let publica = Function {
+                symbol: "pub".into(),
+                name: "pub".into(),
+                depuracao: None,
+                params: vec![(ValueId(0), "x".into(), Type::Ref)],
+                return_ty: Type::Void,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(
+                        ValueId(1),
+                        Instruction::ArcStoreStrong {
+                            slot: SlotForte::Global {
+                                simbolo: "g".into(),
+                            },
+                            value: Operand::Val(ValueId(0)),
+                            modo,
+                        },
+                        Type::Void,
+                    )],
+                    terminator: Terminator::Return(None),
+                }],
+            };
+            let caller = Function {
+                symbol: "caller".into(),
+                name: "caller".into(),
+                depuracao: None,
+                params: vec![],
+                return_ty: Type::Void,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![
+                        (
+                            ValueId(0),
+                            Instruction::AllocObject {
+                                class_id: 1,
+                                fields: vec![],
+                            },
+                            Type::Ref,
+                        ),
+                        (
+                            ValueId(1),
+                            Instruction::CallStatic {
+                                symbol: "pub".into(),
+                                args: vec![Operand::Val(ValueId(0))],
+                                ret_ty: Type::Void,
+                            },
+                            Type::Void,
+                        ),
+                    ],
+                    terminator: Terminator::Return(None),
+                }],
+            };
+            m.functions = vec![caller, publica];
+            super::super::origens::registrar(&mut m, 0, true);
+            let a = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+            let e = calcular_no_modulo(&m, "caller", &a).unwrap();
+            assert_eq!(
+                e.publicacoes[&CausaEscape::Global("g".into())].nos(),
+                a.valor(ValueId(0)).unwrap().nos()
+            );
+            assert!(
+                e.publicacoes[&CausaEscape::OperacaoOpaca(1)]
+                    .nos()
+                    .is_none()
+            );
+            // Ordem nominal das declarações não muda a premissa; duplicação muda.
+            m.globais.reverse();
+            assert!(calcular_no_modulo(&m, "caller", &a).is_ok());
+            m.globais.push((0, Type::Ref, "g".into()));
+            assert!(calcular_no_modulo(&m, "caller", &a).is_err());
+            assert!(analisar_no_modulo(&m, "caller", 0).is_err());
+            m.globais.pop();
+            m.globais.iter_mut().find(|(_, _, s)| s == "g").unwrap().1 = Type::I64;
+            assert!(calcular_no_modulo(&m, "caller", &a).is_err());
+            m.globais.iter_mut().find(|(_, _, s)| s == "g").unwrap().1 = Type::Ref;
+            if let Instruction::CallStatic { args, .. } =
+                &mut m.functions[0].blocks[0].instructions[1].1
+            {
+                args[0] = Operand::Constant(Constant::Null);
+            }
+            let n = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+            let e = calcular_no_modulo(&m, "caller", &n).unwrap();
+            assert!(
+                e.publicacoes[&CausaEscape::Global("g".into())]
+                    .nos()
+                    .unwrap()
+                    .is_empty()
+            );
+            m.memoria_arc = false;
+            assert!(analisar_no_modulo(&m, "caller", 8).unwrap().is_none());
+        }
+    }
+
+    #[test]
+    fn publicacao_direta_em_slot_forte_exige_declaracao_e_conserva_fronteira() {
+        use super::super::escape::*;
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.functions.push(Function {
+            symbol: "pub".into(),
+            name: "pub".into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::Void,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![(
+                    ValueId(0),
+                    Instruction::ArcStoreStrong {
+                        slot: SlotForte::Global {
+                            simbolo: "g".into(),
+                        },
+                        value: Operand::Constant(Constant::Null),
+                        modo: ModoStoreForte::Copy,
+                    },
+                    Type::Void,
+                )],
+                terminator: Terminator::Return(None),
+            }],
+        });
+        assert!(analisar_no_modulo(&m, "pub", 0).is_err());
+        m.globais.push((0, Type::Ref, "g".into()));
+        let a = analisar_no_modulo(&m, "pub", 8).unwrap().unwrap();
+        let e = calcular_no_modulo(&m, "pub", &a).unwrap();
+        assert!(
+            e.publicacoes[&CausaEscape::Global("g".into())]
+                .nos()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            e.publicacoes[&CausaEscape::OperacaoOpaca(0)]
+                .nos()
+                .is_none()
+        );
+        m.globais[0].1 = Type::I64;
+        assert!(analisar_no_modulo(&m, "pub", 0).is_err());
+        assert!(calcular_no_modulo(&m, "pub", &a).is_err());
+    }
 
     #[test]
     fn retorno_por_campo_conserva_opacidade_guarda_do_corpo_e_abi_exata() {
@@ -619,6 +775,7 @@ mod testes {
                 .is_none()
         );
         m.functions[1] = folha.clone();
+        m.globais.push((0, Type::Ref, "g".into()));
         m.functions[1].blocks[0].instructions.push((
             ValueId(1),
             Instruction::StoreGlobal {

@@ -4,7 +4,7 @@
 
 use super::resumos::*;
 use crate::hir::*;
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct CaminhoParametro {
@@ -102,6 +102,46 @@ impl InclusoesEscritas {
 // orçamento produz topo, inclusive em Phis ou chamadas recursivas.
 type AliasesCaminhos = Option<BTreeSet<CaminhoParametro>>;
 
+// Apenas inclusões explícitas: mapa vazio não certifica ausência de
+// publicação por SDK, callback, finalizador ou emissão implícita.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum InclusoesGlobais {
+    Conhecidas(BTreeMap<String, AliasesCaminhos>),
+    Desconhecidas,
+}
+
+impl InclusoesGlobais {
+    pub(super) fn vazio() -> Self {
+        Self::Conhecidas(BTreeMap::new())
+    }
+
+    pub(super) fn unir(&mut self, outro: &Self, limite: usize) -> bool {
+        let antes = self.clone();
+        match (&mut *self, outro) {
+            (Self::Conhecidas(a), Self::Conhecidas(b)) => {
+                for (simbolo, caminhos) in b {
+                    unir_aliases(
+                        a.entry(simbolo.clone())
+                            .or_insert_with(|| Some(BTreeSet::new())),
+                        caminhos.clone(),
+                        limite,
+                    );
+                }
+                // Nomes também consomem orçamento, inclusive publicação de null.
+                let tamanho = a.values().try_fold(a.len(), |n, c| {
+                    n.checked_add(c.as_ref().map_or(0, BTreeSet::len))
+                });
+                if tamanho.is_none_or(|n| n > limite) {
+                    *self = Self::Desconhecidas;
+                }
+            }
+            (_, Self::Desconhecidas) => *self = Self::Desconhecidas,
+            _ => {}
+        }
+        *self != antes
+    }
+}
+
 fn unir_aliases(destino: &mut AliasesCaminhos, origem: AliasesCaminhos, limite: usize) -> bool {
     let antes = destino.clone();
     match (&mut *destino, origem) {
@@ -151,12 +191,32 @@ fn extrair<'a>(
     .1)
 }
 
-pub(super) fn extrair_com_resultado<'a>(
+#[cfg(test)]
+fn extrair_com_resultado<'a>(
     f: &Function,
     limite: usize,
     interno: bool,
     chamada: impl Fn(&str) -> Option<(&'a Function, RetornoCaminhos, &'a InclusoesEscritas)>,
 ) -> Result<(RetornoCaminhos, InclusoesEscritas), String> {
+    let (r, e, _) = extrair_com_efeitos(f, limite, interno, |s| {
+        chamada(s).map(|(f, r, e)| (f, r, e, InclusoesGlobais::vazio()))
+    })?;
+    Ok((r, e))
+}
+
+pub(super) fn extrair_com_efeitos<'a>(
+    f: &Function,
+    limite: usize,
+    interno: bool,
+    chamada: impl Fn(
+        &str,
+    ) -> Option<(
+        &'a Function,
+        RetornoCaminhos,
+        &'a InclusoesEscritas,
+        InclusoesGlobais,
+    )>,
+) -> Result<(RetornoCaminhos, InclusoesEscritas, InclusoesGlobais), String> {
     super::super::ssa::verificar(f)?;
     let tipos: HashMap<_, _> = f
         .params
@@ -256,7 +316,7 @@ pub(super) fn extrair_com_resultado<'a>(
                 ret_ty,
             } => {
                 let callee = chamada(symbol);
-                if let Some((callee, retorno, _)) = callee
+                if let Some((callee, retorno, _, _)) = callee
                     && *t == *ret_ty
                     && *ret_ty == callee.return_ty
                     && args.len() == callee.params.len()
@@ -346,8 +406,81 @@ pub(super) fn extrair_com_resultado<'a>(
     if !interno && (!normal || retorno == RetornoCaminhos::vazio()) {
         retorno = RetornoCaminhos::desconhecido();
     }
+    let mut globais = InclusoesGlobais::vazio();
+    for (_, i, t) in &instrucoes {
+        let publicacao = match i {
+            Instruction::StoreGlobal {
+                simbolo,
+                val,
+                ty: Type::Ref,
+                ..
+            } if *t == Type::Void && argumento_exato(val, Type::Ref, &tipos) => {
+                Some((simbolo, val))
+            }
+            Instruction::ArcStoreStrong {
+                slot: SlotForte::Global { simbolo },
+                value,
+                ..
+            } if *t == Type::Void && argumento_exato(value, Type::Ref, &tipos) => {
+                Some((simbolo, value))
+            }
+            _ => None,
+        };
+        if let Some((simbolo, valor)) = publicacao {
+            globais.unir(
+                &InclusoesGlobais::Conhecidas(BTreeMap::from([(
+                    simbolo.clone(),
+                    operando(valor, &aliases),
+                )])),
+                limite,
+            );
+        }
+        if let Instruction::CallStatic {
+            symbol,
+            args,
+            ret_ty,
+        } = i
+            && let Some((callee, _, _, inclusoes)) = chamada(symbol)
+            && *t == *ret_ty
+            && *ret_ty == callee.return_ty
+            && args.len() == callee.params.len()
+            && args
+                .iter()
+                .zip(&callee.params)
+                .all(|(o, (_, _, ty))| argumento_exato(o, *ty, &tipos))
+        {
+            match inclusoes {
+                InclusoesGlobais::Desconhecidas => {
+                    globais.unir(&InclusoesGlobais::Desconhecidas, limite);
+                }
+                InclusoesGlobais::Conhecidas(inclusoes) => {
+                    for (simbolo, caminhos) in inclusoes {
+                        let mut valores = Some(BTreeSet::new());
+                        if let Some(caminhos) = caminhos {
+                            for caminho in caminhos {
+                                let arg = args
+                                    .get(caminho.parametro)
+                                    .ok_or("publicacoes ARC: parâmetro inválido")?;
+                                unir_aliases(
+                                    &mut valores,
+                                    prolongar(operando(arg, &aliases), &caminho.campos, limite),
+                                    limite,
+                                );
+                            }
+                        } else {
+                            valores = None;
+                        }
+                        globais.unir(
+                            &InclusoesGlobais::Conhecidas(BTreeMap::from([(simbolo, valores)])),
+                            limite,
+                        );
+                    }
+                }
+            }
+        }
+    }
     if escritas_opacas {
-        return Ok((retorno, InclusoesEscritas::Desconhecidas));
+        return Ok((retorno, InclusoesEscritas::Desconhecidas, globais));
     }
     let mut resultado = InclusoesEscritas::vazio();
     let mut incluir = |origens: AliasesCaminhos, indice, destinos: AliasesCaminhos| -> bool {
@@ -380,13 +513,13 @@ pub(super) fn extrair_com_resultado<'a>(
                     *index,
                     operando(value, &aliases),
                 ) {
-                    return Ok((retorno, InclusoesEscritas::Desconhecidas));
+                    return Ok((retorno, InclusoesEscritas::Desconhecidas, globais));
                 }
             }
             Instruction::CallStatic { symbol, args, .. } => {
-                let (_, _, escritas) = chamada(symbol).unwrap();
+                let (_, _, escritas, _) = chamada(symbol).unwrap();
                 let InclusoesEscritas::Conhecidas(escritas) = escritas else {
-                    return Ok((retorno, InclusoesEscritas::Desconhecidas));
+                    return Ok((retorno, InclusoesEscritas::Desconhecidas, globais));
                 };
                 for escrita in escritas {
                     let object = args
@@ -400,14 +533,14 @@ pub(super) fn extrair_com_resultado<'a>(
                         escrita.indice,
                         prolongar(operando(value, &aliases), &escrita.valor.campos, limite),
                     ) {
-                        return Ok((retorno, InclusoesEscritas::Desconhecidas));
+                        return Ok((retorno, InclusoesEscritas::Desconhecidas, globais));
                     }
                 }
             }
             _ => {}
         }
     }
-    Ok((retorno, resultado))
+    Ok((retorno, resultado, globais))
 }
 
 #[cfg(test)]
@@ -434,6 +567,128 @@ mod testes {
                 )],
                 terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
             }],
+        }
+    }
+
+    #[test]
+    fn publicacoes_globais_compostas_preservam_caminhos_e_null() {
+        let mut g = getter("get", 2);
+        g.blocks[0].instructions.push((
+            ValueId(2),
+            Instruction::ArcStoreStrong {
+                slot: SlotForte::Global {
+                    simbolo: "g".into(),
+                },
+                value: Operand::Val(ValueId(1)),
+                modo: ModoStoreForte::Copy,
+            },
+            Type::Void,
+        ));
+        let mut wrapper = getter("wrapper", 9);
+        wrapper.blocks[0].instructions.push((
+            ValueId(2),
+            Instruction::CallStatic {
+                symbol: "get".into(),
+                args: vec![Operand::Val(ValueId(1))],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        ));
+        wrapper.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(2))));
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.globais.push((0, Type::Ref, "g".into()));
+        m.functions = vec![wrapper, g];
+        for ordem in [false, true] {
+            if ordem {
+                m.functions.reverse();
+            }
+            let r = super::super::chamadas::resolver(&m, &HashSet::from(["wrapper"]), 8).unwrap();
+            assert_eq!(
+                r["wrapper"].1.inclusoes_globais,
+                InclusoesGlobais::Conhecidas(BTreeMap::from([(
+                    "g".into(),
+                    Some(BTreeSet::from([CaminhoParametro {
+                        parametro: 0,
+                        campos: vec![9, 2]
+                    }]))
+                )]))
+            );
+            assert_eq!(
+                r["wrapper"].1.publicacoes(),
+                PublicacoesHeapArc::Desconhecidas
+            );
+        }
+        let g = m.functions.iter_mut().find(|f| f.symbol == "get").unwrap();
+        if let Instruction::ArcStoreStrong { value, .. } = &mut g.blocks[0].instructions[1].1 {
+            *value = Operand::Constant(Constant::Null);
+        }
+        let r = super::super::chamadas::resolver(&m, &HashSet::from(["wrapper"]), 8).unwrap();
+        assert_eq!(
+            r["wrapper"].1.inclusoes_globais,
+            InclusoesGlobais::Conhecidas(BTreeMap::from([("g".into(), Some(BTreeSet::new()))]))
+        );
+    }
+
+    #[test]
+    fn scc_publica_ambos_os_argumentos_e_orcamento_nao_esconde_abi_invalida() {
+        for variante in 0..3 {
+            let mut f = ligar("pub", false);
+            f.blocks[0].instructions[0].1 = match variante {
+                0 => Instruction::StoreGlobal {
+                    simbolo: "g".into(),
+                    val: Operand::Val(ValueId(0)),
+                    ty: Type::Ref,
+                    raiz: Some(0),
+                },
+                _ => Instruction::ArcStoreStrong {
+                    slot: SlotForte::Global {
+                        simbolo: "g".into(),
+                    },
+                    value: Operand::Val(ValueId(0)),
+                    modo: if variante == 1 {
+                        ModoStoreForte::Copy
+                    } else {
+                        ModoStoreForte::Move
+                    },
+                },
+            };
+            f.blocks[0].instructions.push((
+                ValueId(3),
+                Instruction::CallStatic {
+                    symbol: "pub".into(),
+                    args: vec![Operand::Val(ValueId(1)), Operand::Val(ValueId(0))],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            ));
+            let mut m = Module::new();
+            m.memoria_arc = true;
+            m.functions.push(f);
+            m.globais.push((0, Type::Ref, "g".into()));
+            let r = super::super::chamadas::resolver(&m, &HashSet::from(["pub"]), 3).unwrap();
+            assert_eq!(
+                r["pub"].1.inclusoes_globais,
+                InclusoesGlobais::Conhecidas(BTreeMap::from([(
+                    "g".into(),
+                    Some(BTreeSet::from([
+                        CaminhoParametro::raiz(0),
+                        CaminhoParametro::raiz(1)
+                    ]))
+                )]))
+            );
+            let r = super::super::chamadas::resolver(&m, &HashSet::from(["pub"]), 2).unwrap();
+            assert_eq!(
+                r["pub"].1.inclusoes_globais,
+                InclusoesGlobais::Desconhecidas
+            );
+            m.globais.push((0, Type::Ref, "g".into()));
+            assert!(super::super::chamadas::resolver(&m, &HashSet::from(["pub"]), 0).is_err());
+            m.globais.pop();
+            m.globais[0].1 = Type::I64;
+            assert!(super::super::chamadas::resolver(&m, &HashSet::from(["pub"]), 8).is_err());
+            m.globais.clear();
+            assert!(super::super::chamadas::resolver(&m, &HashSet::from(["pub"]), 8).is_err());
         }
     }
 

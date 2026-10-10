@@ -81,6 +81,7 @@ pub struct ResumoHeapArc {
     publicacoes: PublicacoesHeapArc,
     pub(super) inclusoes_escritas: super::escritas::InclusoesEscritas,
     pub(super) retorno_caminhos: super::escritas::RetornoCaminhos,
+    pub(super) inclusoes_globais: super::escritas::InclusoesGlobais,
 }
 
 impl ResumoHeapArc {
@@ -368,13 +369,14 @@ pub(super) fn extrair_com_chamadas<'a>(
         }
     };
     let coberto = cobertura_de_valores(f, &tipos, |_| None);
-    let (retorno_caminhos, inclusoes_escritas) =
-        super::escritas::extrair_com_resultado(f, limite, interno, |_| None)?;
+    let (retorno_caminhos, inclusoes_escritas, inclusoes_globais) =
+        super::escritas::extrair_com_efeitos(f, limite, interno, |_| None)?;
     Ok(ResumoHeapArc {
         corpo: assinatura_corpo(f),
         retorno,
         inclusoes_escritas,
         retorno_caminhos,
+        inclusoes_globais,
         campos: if coberto {
             CamposHeapArc::Preservados
         } else {

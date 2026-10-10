@@ -35,6 +35,10 @@ pub(super) fn resolver<'a>(
     }
     // Ordem nominal torna solução e diagnósticos independentes do HashSet.
     corpos.sort_by(|a, b| a.symbol.cmp(&b.symbol));
+    // Declaração é premissa de ABI, independente do orçamento de precisão.
+    for f in &corpos {
+        conferir_globais(m, f)?;
+    }
     let ids: HashMap<_, _> = corpos
         .iter()
         .enumerate()
@@ -167,6 +171,7 @@ pub(super) fn resolver<'a>(
     // de campos/publicações nem ignorar prólogos/saídas opacos. Recursão
     // propaga uniões; desconhecimento e orçamento excedido são absorventes.
     let mut escritas = vec![super::escritas::InclusoesEscritas::vazio(); corpos.len()];
+    let mut globais = vec![super::escritas::InclusoesGlobais::vazio(); corpos.len()];
     let mut caminhos: Vec<_> = corpos
         .iter()
         .map(|f| {
@@ -184,13 +189,20 @@ pub(super) fn resolver<'a>(
         loop {
             while let Some(v) = fila.pop_front() {
                 enfileirados.remove(&v);
-                let (resultado, novo) =
-                    super::escritas::extrair_com_resultado(corpos[v], limite, true, |s| {
-                        ids.get(s)
-                            .map(|&w| (corpos[w], caminhos[w].clone(), &escritas[w]))
+                let (resultado, novo, publicacoes) =
+                    super::escritas::extrair_com_efeitos(corpos[v], limite, true, |s| {
+                        ids.get(s).map(|&w| {
+                            (
+                                corpos[w],
+                                caminhos[w].clone(),
+                                &escritas[w],
+                                globais[w].clone(),
+                            )
+                        })
                     })?;
                 let mudou_escrita = escritas[v].unir(&novo, limite);
-                if caminhos[v].unir(&resultado, limite) || mudou_escrita {
+                let mudou_global = globais[v].unir(&publicacoes, limite);
+                if caminhos[v].unir(&resultado, limite) || mudou_escrita || mudou_global {
                     for &w in &dependentes[v] {
                         if membros.contains(&w) && enfileirados.insert(w) {
                             fila.push_back(w);
@@ -216,15 +228,47 @@ pub(super) fn resolver<'a>(
             }
         }
     }
-    for ((resumo, inclusoes), retorno) in resumos.iter_mut().zip(escritas).zip(caminhos) {
+    for (((resumo, inclusoes), retorno), publicacoes) in
+        resumos.iter_mut().zip(escritas).zip(caminhos).zip(globais)
+    {
         resumo.inclusoes_escritas = inclusoes;
         resumo.retorno_caminhos = retorno;
+        resumo.inclusoes_globais = publicacoes;
     }
     Ok(corpos
         .into_iter()
         .zip(resumos)
         .map(|(f, resumo)| (f.symbol.clone(), (f, resumo)))
         .collect())
+}
+
+pub(super) fn conferir_globais(m: &Module, f: &Function) -> Result<(), String> {
+    for (_, i, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
+        let simbolo = match i {
+            Instruction::StoreGlobal {
+                simbolo,
+                ty: Type::Ref,
+                ..
+            }
+            | Instruction::ArcStoreStrong {
+                slot: SlotForte::Global { simbolo },
+                ..
+            }
+            | Instruction::ArcLoadStrong {
+                slot: SlotForte::Global { simbolo },
+            } => Some(simbolo),
+            _ => None,
+        };
+        if let Some(simbolo) = simbolo {
+            let declaracoes: Vec<_> = m.globais.iter().filter(|(_, _, s)| s == simbolo).collect();
+            if declaracoes.len() != 1 || declaracoes[0].1 != Type::Ref {
+                return Err(format!(
+                    "publicacoes ARC: global @{simbolo} exige declaração Ref única"
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn alvos(f: &Function) -> impl Iterator<Item = &str> {
