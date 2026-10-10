@@ -92,7 +92,8 @@ impl RetornoCaminhos {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct EscritaParametro {
     pub objeto: CaminhoResumo,
-    pub indice: usize,
+    // None representa uma aresta lateral, sem posição no corpo do objeto.
+    pub indice: Option<usize>,
     pub valor: CaminhoResumo,
 }
 
@@ -601,7 +602,7 @@ pub(super) fn extrair_com_origens<'a>(
                     incluir_escrita(
                         &mut resultado,
                         operando(&Operand::Val(*v), &aliases),
-                        indice,
+                        Some(indice),
                         operando(&value, &aliases),
                         limite,
                     );
@@ -609,6 +610,16 @@ pub(super) fn extrair_com_origens<'a>(
             }
         }
         match i {
+            i if super::hir::anexo_dart(i, *t, &tipos).is_some() => {
+                let (dono, acao) = super::hir::anexo_dart(i, *t, &tipos).unwrap();
+                incluir_escrita(
+                    &mut resultado,
+                    operando(dono, &aliases),
+                    None,
+                    operando(acao, &aliases),
+                    limite,
+                );
+            }
             Instruction::AllocObject { fields, .. }
                 if *t == Type::Ref && origens.contains_key(v) =>
             {
@@ -619,7 +630,7 @@ pub(super) fn extrair_com_origens<'a>(
                         incluir_escrita(
                             &mut resultado,
                             operando(&Operand::Val(*v), &aliases),
-                            indice,
+                            Some(indice),
                             operando(value, &aliases),
                             limite,
                         );
@@ -636,7 +647,7 @@ pub(super) fn extrair_com_origens<'a>(
                 incluir_escrita(
                     &mut resultado,
                     operando(object, &aliases),
-                    index,
+                    Some(index),
                     operando(value, &aliases),
                     limite,
                 );
@@ -694,7 +705,7 @@ pub(super) fn extrair_com_origens<'a>(
 fn incluir_escrita(
     resultado: &mut InclusoesEscritas,
     origens: AliasesCaminhos,
-    indice: usize,
+    indice: Option<usize>,
     destinos: AliasesCaminhos,
     limite: usize,
 ) {
@@ -781,7 +792,7 @@ mod testes {
                         origem: OrigemCaminho::Parametro(1),
                         campos: vec![3]
                     },
-                    indice: 0,
+                    indice: Some(0),
                     valor: CaminhoResumo::raiz(0),
                 }]))
             );
@@ -1117,7 +1128,7 @@ mod testes {
                         origem: OrigemCaminho::Parametro(0),
                         campos: vec![9, 2]
                     },
-                    indice: 0,
+                    indice: Some(0),
                     valor: CaminhoResumo::raiz(1),
                 }]))
             );
@@ -1242,7 +1253,7 @@ mod testes {
                 .iter()
                 .map(|&(objeto, valor)| EscritaParametro {
                     objeto: CaminhoResumo::raiz(objeto),
-                    indice: 0,
+                    indice: Some(0),
                     valor: CaminhoResumo::raiz(valor),
                 })
                 .collect(),
@@ -1293,7 +1304,7 @@ mod testes {
                     origem: OrigemCaminho::Parametro(0),
                     campos: prefixo,
                 },
-                indice: 4,
+                indice: Some(4),
                 valor: CaminhoResumo {
                     origem: OrigemCaminho::Parametro(1),
                     campos: vec![2],

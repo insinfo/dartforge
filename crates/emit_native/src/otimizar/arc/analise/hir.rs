@@ -84,6 +84,29 @@ pub(super) fn escrita_campo(i: &Instruction) -> Option<(&Operand, usize, &Operan
     }
 }
 
+// O anexo Dart guarda a ação como aresta forte do dono, fora dos campos.
+// Reconhecer essa inclusão não cobre weak targets, reentrada ou safepoints.
+pub(super) fn anexo_dart<'a>(
+    i: &'a Instruction,
+    ty: Type,
+    tipos: &HashMap<ValueId, Type>,
+) -> Option<(&'a Operand, &'a Operand)> {
+    let Instruction::CallRuntime { name, args, ret_ty } = i else {
+        return None;
+    };
+    if name != "dartforge_nativo_DartForge_finalizador_anexar"
+        || ty != Type::Void
+        || *ret_ty != Type::Void
+        || args.len() != 4
+        || !args
+            .iter()
+            .all(|(o, t)| *t == Type::Ref && super::resumos::argumento_exato(o, Type::Ref, tipos))
+    {
+        return None;
+    }
+    Some((&args[0].0, &args[2].0))
+}
+
 /// Resultado local imutável; IDs desconhecidos identificam operações sem transferência precisa.
 /// Não certifica cobertura completa do programa, escape, observadores ou singleton.
 ///
@@ -492,12 +515,14 @@ pub(crate) fn analisar_com_resumos(
                             &mut numero_variaveis,
                             &mut rs,
                         )?;
-                        rs.push(Restricao::GravarPorEsquema {
-                            objeto,
-                            esquemas: esquemas_por_indice.clone(),
-                            indice: escrita.indice,
-                            valor,
-                        });
+                        if let Some(indice) = escrita.indice {
+                            rs.push(Restricao::GravarPorEsquema {
+                                objeto,
+                                esquemas: esquemas_por_indice.clone(),
+                                indice,
+                                valor,
+                            });
+                        }
                         inclusoes_escritas.push((objeto, valor));
                     }
                 }
@@ -562,6 +587,9 @@ pub(crate) fn analisar_com_resumos(
                 }),
             i if escalar_puro(i, *ty, &tipos) => {}
             _ => {
+                if let Some((dono, acao)) = anexo_dart(i, *ty, &tipos) {
+                    inclusoes_escritas.push((operando(dono), operando(acao)));
+                }
                 desconhecidos.push(*v);
                 if *ty != Type::Void {
                     rs.push(Restricao::Desconhecer { destino });

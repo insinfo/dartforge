@@ -226,6 +226,138 @@ mod testes {
     use super::*;
 
     #[test]
+    fn anexo_finalizador_compõe_aresta_lateral_sem_inventar_campo_fisico() {
+        use super::super::{escritas::InclusoesEscritas, grafo::construir_local_no_modulo};
+        use std::collections::{BTreeSet, HashSet};
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.layouts_campos_arc.insert(1, vec![]);
+        let mut anexar = Function {
+            symbol: "anexar".into(),
+            name: "anexar".into(),
+            depuracao: None,
+            params: vec![
+                (ValueId(0), "dono".into(), Type::Ref),
+                (ValueId(1), "acao".into(), Type::Ref),
+            ],
+            return_ty: Type::Void,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![(
+                    ValueId(2),
+                    Instruction::CallRuntime {
+                        name: "dartforge_nativo_DartForge_finalizador_anexar".into(),
+                        args: vec![
+                            (Operand::Val(ValueId(0)), Type::Ref),
+                            (Operand::Constant(Constant::Null), Type::Ref),
+                            (Operand::Val(ValueId(1)), Type::Ref),
+                            (Operand::Constant(Constant::Null), Type::Ref),
+                        ],
+                        ret_ty: Type::Void,
+                    },
+                    Type::Void,
+                )],
+                terminator: Terminator::Return(None),
+            }],
+        };
+        let mut wrapper = anexar.clone();
+        wrapper.symbol = "wrapper".into();
+        wrapper.blocks[0].instructions[0].1 = Instruction::CallStatic {
+            symbol: "anexar".into(),
+            args: vec![Operand::Val(ValueId(0)), Operand::Val(ValueId(1))],
+            ret_ty: Type::Void,
+        };
+        let mut caller = wrapper.clone();
+        caller.symbol = "caller".into();
+        caller.params.clear();
+        caller.return_ty = Type::Ref;
+        caller.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(0))));
+        caller.blocks[0].instructions = vec![
+            (
+                ValueId(0),
+                Instruction::AllocObject {
+                    class_id: 1,
+                    fields: vec![],
+                },
+                Type::Ref,
+            ),
+            (
+                ValueId(1),
+                Instruction::AllocObject {
+                    class_id: 1,
+                    fields: vec![],
+                },
+                Type::Ref,
+            ),
+            (
+                ValueId(2),
+                Instruction::CallStatic {
+                    symbol: "wrapper".into(),
+                    args: vec![Operand::Val(ValueId(0)), Operand::Val(ValueId(1))],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            ),
+        ];
+        m.functions = vec![caller, wrapper, anexar.clone()];
+        super::super::origens::registrar(&mut m, 0, true);
+        let no = |id| NoAbstrato::Alocacao {
+            sitio: m.sitios_arc["caller"][&ValueId(id)].clone(),
+            contexto: String::new(),
+        };
+        let dono = no(0);
+        let acao = no(1);
+        for reversa in [false, true] {
+            if reversa {
+                m.functions.reverse();
+            }
+            let r = super::super::chamadas::resolver(&m, &HashSet::from(["wrapper"]), 8).unwrap();
+            let InclusoesEscritas::Parciais(arestas) = &r["wrapper"].1.inclusoes_escritas else {
+                panic!("anexo não pode certificar cobertura completa");
+            };
+            assert_eq!(arestas.len(), 1);
+            assert_eq!(arestas.first().unwrap().indice, None);
+            let g = construir_local_no_modulo(&m, "caller", 8).unwrap().unwrap();
+            assert_eq!(g.arestas()[&dono], BTreeSet::from([acao.clone()]));
+            assert!(g.opaco());
+            g.conferir_no_modulo(&m, "caller").unwrap();
+            let a = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+            assert!(a.esquemas[&dono].is_empty());
+            assert!(a.esquemas[&acao].is_empty());
+            let e = super::super::escape::calcular_no_modulo(&m, "caller", &a).unwrap();
+            assert_eq!(
+                e.publicacoes[&super::super::escape::CausaEscape::Retorno].nos(),
+                Some(&BTreeSet::from([dono.clone(), acao.clone()]))
+            );
+            let a = analisar_no_modulo(&m, "caller", 1).unwrap().unwrap();
+            let e = super::super::escape::calcular_no_modulo(&m, "caller", &a).unwrap();
+            assert!(
+                e.publicacoes[&super::super::escape::CausaEscape::Retorno]
+                    .nos()
+                    .is_none()
+            );
+        }
+        let g = construir_local_no_modulo(&m, "caller", 8).unwrap().unwrap();
+        if let Instruction::CallRuntime { args, .. } = &mut anexar.blocks[0].instructions[0].1 {
+            args[2].1 = Type::I64;
+        }
+        *m.functions
+            .iter_mut()
+            .find(|f| f.symbol == "anexar")
+            .unwrap() = anexar;
+        assert!(g.conferir_no_modulo(&m, "caller").is_err());
+        let g = construir_local_no_modulo(&m, "caller", 8).unwrap().unwrap();
+        assert!(g.arestas()[&dono].is_empty());
+        assert!(g.opaco());
+        m.memoria_arc = false;
+        assert!(
+            construir_local_no_modulo(&m, "caller", 8)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
     fn ambiente_resolve_celula_e_escrita_fraca_sem_confundir_captura_escalar() {
         use std::collections::BTreeSet;
         let mut m = Module::new();

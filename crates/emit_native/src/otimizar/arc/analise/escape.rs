@@ -221,6 +221,30 @@ fn alcance(a: &AnaliseHir, raizes: &ConjuntoPontos) -> ConjuntoPontos {
         let Some(campos) = a.esquemas.get(&no) else {
             return ConjuntoPontos::desconhecido(a.limite);
         };
+        // As inclusões podem representar referências laterais (anexos), sem
+        // campo físico. Elas também publicam transitivamente seus destinos.
+        for &(objeto, valor) in &a.inclusoes_escritas {
+            let Some(destinos) = a.pontos().variavel(valor) else {
+                return ConjuntoPontos::desconhecido(a.limite);
+            };
+            if destinos.nos().is_some_and(|ns| ns.is_empty()) {
+                continue;
+            }
+            let Some(origens) = a.pontos().variavel(objeto).and_then(|p| p.nos()) else {
+                return ConjuntoPontos::desconhecido(a.limite);
+            };
+            if !origens.contains(&no) {
+                continue;
+            }
+            let Some(nos) = destinos.nos() else {
+                return ConjuntoPontos::desconhecido(a.limite);
+            };
+            fila.extend(nos.iter().cloned());
+            resultado.unir(destinos);
+            if resultado.nos().is_none() {
+                return resultado;
+            }
+        }
         for campo in campos {
             let Some(destinos) = a.pontos().campo(&no, campo) else {
                 return ConjuntoPontos::desconhecido(a.limite);
