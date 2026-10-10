@@ -7,3 +7,4 @@ pub mod points_to;
 pub mod hir;
 pub(crate) mod origens;
 pub mod modulo;
+pub mod escape;

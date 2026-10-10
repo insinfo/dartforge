@@ -59,6 +59,9 @@ pub struct AnaliseHir {
     /// Operações sem contrato de heap preciso; não confundir com ausência de efeito.
     pub desconhecidos: Vec<ValueId>,
     ids: HashMap<ValueId, usize>,
+    pub(crate) corpo: blake3::Hash,
+    pub(crate) limite: usize,
+    pub(crate) esquemas: HashMap<NoAbstrato, BTreeSet<CampoArc>>,
 }
 
 impl AnaliseHir {
@@ -277,11 +280,27 @@ pub fn analisar(f: &Function, fatos: &FatosHir, limite: usize) -> Result<Analise
         }
     }
     let pontos = resolver(ids.len() + 2, limite, &rs)?;
+    let mut esquemas: HashMap<_, BTreeSet<_>> = HashMap::new();
+    for origem in fatos.objetos.values() {
+        esquemas
+            .entry(origem.no.clone())
+            .or_default()
+            .extend(origem.campos.iter().cloned());
+    }
     Ok(AnaliseHir {
         pontos,
         desconhecidos,
         ids,
+        corpo: assinatura_corpo(f),
+        limite,
+        esquemas,
     })
+}
+
+// Identidade local para rejeitar consumo de uma solução de outra versão.
+// Não é formato canônico de resumo SDK nem certificado de recarga.
+pub(crate) fn assinatura_corpo(f: &Function) -> blake3::Hash {
+    blake3::hash(format!("{f:?}").as_bytes())
 }
 
 pub(super) fn constantes_inteiras(f: &Function) -> HashMap<ValueId, i64> {

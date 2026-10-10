@@ -2,6 +2,30 @@
 
 ## Retomada de 2026-10-10
 
+Análise local de escape em otimizar/arc/analise/escape.rs agrupa publicações
+por retorno, exceção, global e operação opaca. Percorre transitivamente os
+campos do esquema de cada nó sem recursão, preservando ciclos/aliases.
+Esquema/campo ausente, campo opaco e budget excedido propagam topo;
+operação sem resumo conserva alcance desconhecido mesmo sem argumentos,
+pois pode acessar globais/callbacks. Borrowed na ABI não fornece noescape.
+Solução HIR conserva esquema e assinatura local do corpo; consumo de
+escape após alteração do corpo é recusado. Hash é guarda local do objeto
+HIR, não formato canônico de resumo SDK nem dependência de geração JIT.
+Oráculo independente confere retorno/descendentes nos 512 grafos de três
+nós; regressões cobrem payload de exceção, corpo obsoleto, opacidade,
+budget, fatos ausentes e publicação global sem retorno do objeto.
+StoreGlobal ainda opaco ao domínio de efeitos, sem inventar precisão
+transitiva antes de um contrato específico. Passaram 280 testes do
+emissor (sete ignorados), 18 testes focados finais incluindo a regressão
+global acrescentada, e 78 exemplos públicos. Logs
+target/arc-escape-transitivo-{suite,focado,doc}.log.
+Não certifica confinamento/região ou cobertura global: observadores,
+resumos interprocedurais, callbacks/async, vidas, esquemas/versionamento e
+certificados continuam pendentes. Nenhuma política ou ativação ARC foi
+alterada; somente --memoria=arc seleciona ARC. CI 38051323600 continua
+ativa: Linux passou, macOS executa testes do emissor com ignorados e
+Windows chegou aos ignorados após as matrizes nativas.
+
 Entrada analisar_no_modulo liga sítios/layouts do lowering à análise local
 sem fatos de objeto escritos manualmente. Reconhece AllocObject e fábrica
 reservada dartforge_object_new com ABI, classe e contagem constantes; esquema
