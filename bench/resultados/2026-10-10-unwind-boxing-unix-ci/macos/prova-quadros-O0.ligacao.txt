@@ -1,0 +1,1 @@
+"c++" "-std=c++17" "-O2" "target/prova-unwind-estrangeiro/prova-quadros-O0.cpp" "target/prova-unwind-estrangeiro/prova-quadros-O0.o" "/Users/runner/work/dartforge/dartforge/target/prova-unwind-estrangeiro/prova-quadros-O0.runtime.dylib" "-o" "target/prova-unwind-estrangeiro/prova-quadros-O0" "-lSystem" "-lc" "-lm" "-liconv" "-framework" "CoreFoundation" "-framework" "Security"

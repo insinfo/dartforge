@@ -73,9 +73,15 @@ mod testes {
             .spawn(|| {
                 let dir = tempfile::tempdir().unwrap();
                 let entrada = dir.path().join("main.dart");
+                let imports = crate::sdk_modulo::BIBLIOTECAS_DA_FONTE
+                    .iter()
+                    .map(|lib| format!("import 'dart:{lib}';\n"))
+                    .collect::<String>();
                 std::fs::write(
                     &entrada,
-                    r#"
+                    format!(
+                        "{imports}{}",
+                        r#"
 class Base {
   int inteiro = 1;
   double fracao = 3.25;
@@ -89,7 +95,8 @@ mixin Mistura { bool misto = false; }
 class Folha extends Base with Mistura { String? texto; }
 enum Cor { azul, vermelho }
 void main() {}
-"#,
+"#
+                    ),
                 )
                 .unwrap();
                 let sdk = crate::sdk_modulo::carregar_sdk_nativo(crate::sdk_testes()).unwrap();
@@ -147,6 +154,46 @@ void main() {}
                     crate::otimizar::otimizar(&mut modulo);
                     assert_eq!(modulo.layouts_campos_arc, antes);
                 }
+                // Usa a mesma etapa de registro da produção para auditar os
+                // layouts declarados do SDK, sem confundir isso com seus corpos
+                // ou com a representação física das instâncias no runtime.
+                let mut auditadas = 0;
+                for (i, lib) in program.libraries.iter().enumerate() {
+                    let Some(nome) = lib.uri.strip_prefix("dart:") else {
+                        continue;
+                    };
+                    if !crate::sdk_modulo::BIBLIOTECAS_DA_FONTE.contains(&nome) {
+                        continue;
+                    }
+                    auditadas += 1;
+                    let mut sdk_ctx =
+                        Context::new(&program, &interner, &table, &core, &outline, &bodies)
+                            .com_sdk_da_fonte()
+                            .so_a_biblioteca(dartforge_elements::model::LibraryId(i as u32));
+                    sdk_ctx.te = std::mem::take(&mut ctx.te);
+                    sdk_ctx.memoria_arc = true;
+                    let mut m = Module::default();
+                    m.memoria_arc = true;
+                    m.classes.push(ClassDef {
+                        id: 0,
+                        name: "Object".into(),
+                        field_count: 0,
+                        vtable: vec![],
+                        to_string_symbol: None,
+                    });
+                    super::super::registrar_classes_do_programa(&sdk_ctx, &mut m);
+                    let mut planos = std::collections::HashMap::new();
+                    assert_eq!(
+                        crate::otimizar::arc::preparar_arc_modulo_dart(&mut m, &mut planos)
+                            .unwrap_or_else(|e| panic!(
+                                "{}: {e}; classes {:?}",
+                                lib.uri, m.classes
+                            )),
+                        (0, 0)
+                    );
+                    ctx.te = std::mem::take(&mut sdk_ctx.te);
+                }
+                assert_eq!(auditadas, crate::sdk_modulo::BIBLIOTECAS_DA_FONTE.len());
             })
             .unwrap()
             .join()

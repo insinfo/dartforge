@@ -284,11 +284,11 @@ fn tearoffs_do_rastro(ctx: &Context, module: &mut Module) {
     }
 }
 
-fn lower_classes_e_funcoes(ctx: &Context, mut module: Module) -> Module {
-    campos_do_rastro(ctx, &mut module);
+// Compartilhado com a auditoria dos fatos de layout, sem baixar corpos.
+fn registrar_classes_do_programa(ctx: &Context, module: &mut Module) {
     for (c_idx, class) in ctx.program.classes.iter().enumerate() {
-        // Classes do SDK não viram objetos do nosso heap (o runtime tem as
-        // suas próprias representações); só as do usuário são registradas.
+        // Registra as classes das bibliotecas emitidas neste módulo. O layout
+        // declarado do SDK não certifica a forma física usada pelo runtime.
         if !ctx.biblioteca_no_modulo(class.library) {
             continue;
         }
@@ -300,7 +300,7 @@ fn lower_classes_e_funcoes(ctx: &Context, mut module: Module) -> Module {
         let cid = dartforge_elements::model::ClassId(c_idx as u32);
         let campos = membros::layout(ctx, cid);
         let base = enums::base_do_layout(ctx, cid);
-        layouts_arc::registrar(ctx, &mut module, class_id, &campos, base);
+        layouts_arc::registrar(ctx, module, class_id, &campos, base);
         module.classes.push(ClassDef {
             id: class_id,
             name,
@@ -335,6 +335,11 @@ fn lower_classes_e_funcoes(ctx: &Context, mut module: Module) -> Module {
             }
         }
     }
+}
+
+fn lower_classes_e_funcoes(ctx: &Context, mut module: Module) -> Module {
+    campos_do_rastro(ctx, &mut module);
+    registrar_classes_do_programa(ctx, &mut module);
 
     // 2. Funções do usuário
     let funcoes: Vec<usize> = (0..ctx.program.functions.len())

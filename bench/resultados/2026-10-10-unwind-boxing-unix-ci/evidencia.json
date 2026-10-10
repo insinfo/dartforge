@@ -1,0 +1,633 @@
+{
+  "fonte": "f81c7d2b2d2243fcf0eedf53bfc2a210dfca26b7",
+  "ci": 38025125587,
+  "url": "https://github.com/insinfo/dartforge/actions/runs/38025125587",
+  "estado_workflow_observado": "completed",
+  "ambiente_execucao": {
+    "DARTFORGE_ARC_CONFERIR": "1",
+    "DARTFORGE_ARC_BERCARIO": "0",
+    "DARTFORGE_GC_STRESS": "1"
+  },
+  "ambiente_geracao": {
+    "DARTFORGE_EFEITOS": "conferir"
+  },
+  "conclusao_workflow_observada": "success",
+  "plataformas": [
+    {
+      "nome": "linux",
+      "job": 114134244946,
+      "estado_job_observado": "completed",
+      "conclusao_job_observada": "success",
+      "etapa": {
+        "completedAt": "2026-10-10T04:49:04Z",
+        "conclusion": "success",
+        "name": "Unwind estrangeiro com owners ARC e heap real",
+        "number": 11,
+        "startedAt": "2026-10-10T04:49:01Z",
+        "status": "completed"
+      },
+      "artefato": {
+        "id": 11659858774,
+        "name": "prova-unwind-estrangeiro-ubuntu-latest",
+        "digest": "sha256:d09375246a74968e6e3db15abc03ab781b95ef4edfdfc4e35ba3ddbd4b1ac910",
+        "size_in_bytes": 66137
+      },
+      "execucoes": 36,
+      "arquivos": [
+        {
+          "arquivo": "linux/prova-quadros-O0-arc-cpp.stdout",
+          "bytes": 19,
+          "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+        },
+        {
+          "arquivo": "linux/prova-quadros-O0-arc-forcado.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "linux/prova-quadros-O0-arc-forcado_dart.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "linux/prova-quadros-O0-tracing-cpp.stdout",
+          "bytes": 19,
+          "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+        },
+        {
+          "arquivo": "linux/prova-quadros-O0-tracing-forcado.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "linux/prova-quadros-O0-tracing-forcado_dart.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "linux/prova-quadros-O0.cpp",
+          "bytes": 5345,
+          "sha256": "1cd350dce224b6b7acee6ff5f5c8193bf360fa3d5f0b4c41d0b9ed3919f32af2"
+        },
+        {
+          "arquivo": "linux/prova-quadros-O0.ligacao.txt",
+          "bytes": 402,
+          "sha256": "9d2cdf72d3e2e328022288a0aa5d4e37d680a4992b42ea6e6f0545eee579c0a6"
+        },
+        {
+          "arquivo": "linux/prova-quadros-O0.ll",
+          "bytes": 44481,
+          "sha256": "b4701227dc14034262a52d1d7bd211745fac86db3bef532e322cd83f067c0d2b"
+        },
+        {
+          "arquivo": "linux/prova-quadros-O2-arc-cpp.stdout",
+          "bytes": 19,
+          "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+        },
+        {
+          "arquivo": "linux/prova-quadros-O2-arc-forcado.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "linux/prova-quadros-O2-arc-forcado_dart.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "linux/prova-quadros-O2-tracing-cpp.stdout",
+          "bytes": 19,
+          "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+        },
+        {
+          "arquivo": "linux/prova-quadros-O2-tracing-forcado.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "linux/prova-quadros-O2-tracing-forcado_dart.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "linux/prova-quadros-O2.cpp",
+          "bytes": 5345,
+          "sha256": "1cd350dce224b6b7acee6ff5f5c8193bf360fa3d5f0b4c41d0b9ed3919f32af2"
+        },
+        {
+          "arquivo": "linux/prova-quadros-O2.ligacao.txt",
+          "bytes": 402,
+          "sha256": "083c0925283ee6dc69e84889e37d6e4b24cc3c3c73773a0d7d193361315300ae"
+        },
+        {
+          "arquivo": "linux/prova-quadros-O2.ll",
+          "bytes": 44481,
+          "sha256": "b4701227dc14034262a52d1d7bd211745fac86db3bef532e322cd83f067c0d2b"
+        },
+        {
+          "arquivo": "linux/prova-retoma-O0-arc-cpp.stdout",
+          "bytes": 19,
+          "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+        },
+        {
+          "arquivo": "linux/prova-retoma-O0-arc-forcado.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "linux/prova-retoma-O0-arc-forcado_dart.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "linux/prova-retoma-O0-tracing-cpp.stdout",
+          "bytes": 19,
+          "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+        },
+        {
+          "arquivo": "linux/prova-retoma-O0-tracing-forcado.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "linux/prova-retoma-O0-tracing-forcado_dart.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "linux/prova-retoma-O0.cpp",
+          "bytes": 5345,
+          "sha256": "1cd350dce224b6b7acee6ff5f5c8193bf360fa3d5f0b4c41d0b9ed3919f32af2"
+        },
+        {
+          "arquivo": "linux/prova-retoma-O0.ligacao.txt",
+          "bytes": 399,
+          "sha256": "1f9643f91f6e7423e3df508a3fa4032ba4736234f77c4577c354835736f3fea6"
+        },
+        {
+          "arquivo": "linux/prova-retoma-O0.ll",
+          "bytes": 43709,
+          "sha256": "1ed71316f14a5cf0a98e16e2a6f5dbd65a3b5bb3d3d3a8552ca96e694f69fd99"
+        },
+        {
+          "arquivo": "linux/prova-retoma-O2-arc-cpp.stdout",
+          "bytes": 19,
+          "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+        },
+        {
+          "arquivo": "linux/prova-retoma-O2-arc-forcado.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "linux/prova-retoma-O2-arc-forcado_dart.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "linux/prova-retoma-O2-tracing-cpp.stdout",
+          "bytes": 19,
+          "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+        },
+        {
+          "arquivo": "linux/prova-retoma-O2-tracing-forcado.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "linux/prova-retoma-O2-tracing-forcado_dart.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "linux/prova-retoma-O2.cpp",
+          "bytes": 5345,
+          "sha256": "1cd350dce224b6b7acee6ff5f5c8193bf360fa3d5f0b4c41d0b9ed3919f32af2"
+        },
+        {
+          "arquivo": "linux/prova-retoma-O2.ligacao.txt",
+          "bytes": 399,
+          "sha256": "997c41be01f04a828a529c7700c527813091d1fde5f214792473ce5a0ffeea1d"
+        },
+        {
+          "arquivo": "linux/prova-retoma-O2.ll",
+          "bytes": 43709,
+          "sha256": "1ed71316f14a5cf0a98e16e2a6f5dbd65a3b5bb3d3d3a8552ca96e694f69fd99"
+        },
+        {
+          "arquivo": "linux/prova-simples-O0-arc-cpp.stdout",
+          "bytes": 19,
+          "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+        },
+        {
+          "arquivo": "linux/prova-simples-O0-arc-forcado.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "linux/prova-simples-O0-arc-forcado_dart.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "linux/prova-simples-O0-tracing-cpp.stdout",
+          "bytes": 19,
+          "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+        },
+        {
+          "arquivo": "linux/prova-simples-O0-tracing-forcado.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "linux/prova-simples-O0-tracing-forcado_dart.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "linux/prova-simples-O0.cpp",
+          "bytes": 5345,
+          "sha256": "1cd350dce224b6b7acee6ff5f5c8193bf360fa3d5f0b4c41d0b9ed3919f32af2"
+        },
+        {
+          "arquivo": "linux/prova-simples-O0.ligacao.txt",
+          "bytes": 402,
+          "sha256": "1a5b4151baad6bb63eca5f43c0fe9ec6f2d2731e18441f457d0f29c00c057b04"
+        },
+        {
+          "arquivo": "linux/prova-simples-O0.ll",
+          "bytes": 42997,
+          "sha256": "8579d00007a80b5cf2a60a91e777db466b22aded19c418fcb983467f0c8d57ca"
+        },
+        {
+          "arquivo": "linux/prova-simples-O2-arc-cpp.stdout",
+          "bytes": 19,
+          "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+        },
+        {
+          "arquivo": "linux/prova-simples-O2-arc-forcado.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "linux/prova-simples-O2-arc-forcado_dart.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "linux/prova-simples-O2-tracing-cpp.stdout",
+          "bytes": 19,
+          "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+        },
+        {
+          "arquivo": "linux/prova-simples-O2-tracing-forcado.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "linux/prova-simples-O2-tracing-forcado_dart.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "linux/prova-simples-O2.cpp",
+          "bytes": 5345,
+          "sha256": "1cd350dce224b6b7acee6ff5f5c8193bf360fa3d5f0b4c41d0b9ed3919f32af2"
+        },
+        {
+          "arquivo": "linux/prova-simples-O2.ligacao.txt",
+          "bytes": 402,
+          "sha256": "ebffe509d89e7b3d5d830310a7ec15ac3c94d4fd0a7ed45e7a9461530240da7b"
+        },
+        {
+          "arquivo": "linux/prova-simples-O2.ll",
+          "bytes": 42997,
+          "sha256": "8579d00007a80b5cf2a60a91e777db466b22aded19c418fcb983467f0c8d57ca"
+        }
+      ]
+    },
+    {
+      "nome": "macos",
+      "job": 114134244926,
+      "estado_job_observado": "completed",
+      "conclusao_job_observada": "success",
+      "etapa": {
+        "completedAt": "2026-10-10T05:07:21Z",
+        "conclusion": "success",
+        "name": "Unwind estrangeiro com owners ARC e heap real",
+        "number": 11,
+        "startedAt": "2026-10-10T05:05:02Z",
+        "status": "completed"
+      },
+      "artefato": {
+        "id": 11660690627,
+        "name": "prova-unwind-estrangeiro-macos-latest",
+        "digest": "sha256:388a71b4e616bf412506fd566eadacb9d23a08fa083a55ed7580697f08a6c578",
+        "size_in_bytes": 67752
+      },
+      "execucoes": 36,
+      "arquivos": [
+        {
+          "arquivo": "macos/prova-quadros-O0-arc-cpp.stdout",
+          "bytes": 19,
+          "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+        },
+        {
+          "arquivo": "macos/prova-quadros-O0-arc-forcado.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "macos/prova-quadros-O0-arc-forcado_dart.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "macos/prova-quadros-O0-tracing-cpp.stdout",
+          "bytes": 19,
+          "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+        },
+        {
+          "arquivo": "macos/prova-quadros-O0-tracing-forcado.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "macos/prova-quadros-O0-tracing-forcado_dart.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "macos/prova-quadros-O0.cpp",
+          "bytes": 5345,
+          "sha256": "1cd350dce224b6b7acee6ff5f5c8193bf360fa3d5f0b4c41d0b9ed3919f32af2"
+        },
+        {
+          "arquivo": "macos/prova-quadros-O0.ligacao.txt",
+          "bytes": 380,
+          "sha256": "ff7c130f2ea3e377023081e6801f5b23fdea7a9516810a56c2f2506db30a02f0"
+        },
+        {
+          "arquivo": "macos/prova-quadros-O0.ll",
+          "bytes": 44335,
+          "sha256": "eefddf202dceff7fd277b3344e23089b818c0536c2d6c1f95a8901c3ee6aa529"
+        },
+        {
+          "arquivo": "macos/prova-quadros-O0.runtime.ligacao.txt",
+          "bytes": 551,
+          "sha256": "1d8dc86bb011ba38b54ab063877d522828801ce7d3117a2bc9a79426cfe96ea7"
+        },
+        {
+          "arquivo": "macos/prova-quadros-O2-arc-cpp.stdout",
+          "bytes": 19,
+          "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+        },
+        {
+          "arquivo": "macos/prova-quadros-O2-arc-forcado.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "macos/prova-quadros-O2-arc-forcado_dart.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "macos/prova-quadros-O2-tracing-cpp.stdout",
+          "bytes": 19,
+          "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+        },
+        {
+          "arquivo": "macos/prova-quadros-O2-tracing-forcado.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "macos/prova-quadros-O2-tracing-forcado_dart.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "macos/prova-quadros-O2.cpp",
+          "bytes": 5345,
+          "sha256": "1cd350dce224b6b7acee6ff5f5c8193bf360fa3d5f0b4c41d0b9ed3919f32af2"
+        },
+        {
+          "arquivo": "macos/prova-quadros-O2.ligacao.txt",
+          "bytes": 380,
+          "sha256": "7dc0efd53a02ee7c8b964a3f47a46b381b288f516632e757f2a40f750e91b971"
+        },
+        {
+          "arquivo": "macos/prova-quadros-O2.ll",
+          "bytes": 44335,
+          "sha256": "eefddf202dceff7fd277b3344e23089b818c0536c2d6c1f95a8901c3ee6aa529"
+        },
+        {
+          "arquivo": "macos/prova-quadros-O2.runtime.ligacao.txt",
+          "bytes": 551,
+          "sha256": "a37956810cc60b397fd924a4a8570f61892eacdbb1b515fb120ae1e004e04bb0"
+        },
+        {
+          "arquivo": "macos/prova-retoma-O0-arc-cpp.stdout",
+          "bytes": 19,
+          "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+        },
+        {
+          "arquivo": "macos/prova-retoma-O0-arc-forcado.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "macos/prova-retoma-O0-arc-forcado_dart.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "macos/prova-retoma-O0-tracing-cpp.stdout",
+          "bytes": 19,
+          "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+        },
+        {
+          "arquivo": "macos/prova-retoma-O0-tracing-forcado.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "macos/prova-retoma-O0-tracing-forcado_dart.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "macos/prova-retoma-O0.cpp",
+          "bytes": 5345,
+          "sha256": "1cd350dce224b6b7acee6ff5f5c8193bf360fa3d5f0b4c41d0b9ed3919f32af2"
+        },
+        {
+          "arquivo": "macos/prova-retoma-O0.ligacao.txt",
+          "bytes": 376,
+          "sha256": "e8c39cbf140effb100461efa723709bbf07e2834a13351850fbef047529e5af0"
+        },
+        {
+          "arquivo": "macos/prova-retoma-O0.ll",
+          "bytes": 43563,
+          "sha256": "d3855ba70d3b028c59685c5f2ec2aab089ac0954e2de8592ae9d166293714641"
+        },
+        {
+          "arquivo": "macos/prova-retoma-O0.runtime.ligacao.txt",
+          "bytes": 549,
+          "sha256": "78a4b944ac734048914af3317877b232c43defa89fd539bc303cc8eed39bde51"
+        },
+        {
+          "arquivo": "macos/prova-retoma-O2-arc-cpp.stdout",
+          "bytes": 19,
+          "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+        },
+        {
+          "arquivo": "macos/prova-retoma-O2-arc-forcado.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "macos/prova-retoma-O2-arc-forcado_dart.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "macos/prova-retoma-O2-tracing-cpp.stdout",
+          "bytes": 19,
+          "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+        },
+        {
+          "arquivo": "macos/prova-retoma-O2-tracing-forcado.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "macos/prova-retoma-O2-tracing-forcado_dart.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "macos/prova-retoma-O2.cpp",
+          "bytes": 5345,
+          "sha256": "1cd350dce224b6b7acee6ff5f5c8193bf360fa3d5f0b4c41d0b9ed3919f32af2"
+        },
+        {
+          "arquivo": "macos/prova-retoma-O2.ligacao.txt",
+          "bytes": 376,
+          "sha256": "90ab72bd2700a175da737ae05e1f2d4a74ed5ccf4494df5c18c514f7412d55ca"
+        },
+        {
+          "arquivo": "macos/prova-retoma-O2.ll",
+          "bytes": 43563,
+          "sha256": "d3855ba70d3b028c59685c5f2ec2aab089ac0954e2de8592ae9d166293714641"
+        },
+        {
+          "arquivo": "macos/prova-retoma-O2.runtime.ligacao.txt",
+          "bytes": 549,
+          "sha256": "e47c5cbcdfe2c8020d2e4c614ac1a379ba265d769633861ecb5c01ab0c20f388"
+        },
+        {
+          "arquivo": "macos/prova-simples-O0-arc-cpp.stdout",
+          "bytes": 19,
+          "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+        },
+        {
+          "arquivo": "macos/prova-simples-O0-arc-forcado.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "macos/prova-simples-O0-arc-forcado_dart.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "macos/prova-simples-O0-tracing-cpp.stdout",
+          "bytes": 19,
+          "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+        },
+        {
+          "arquivo": "macos/prova-simples-O0-tracing-forcado.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "macos/prova-simples-O0-tracing-forcado_dart.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "macos/prova-simples-O0.cpp",
+          "bytes": 5345,
+          "sha256": "1cd350dce224b6b7acee6ff5f5c8193bf360fa3d5f0b4c41d0b9ed3919f32af2"
+        },
+        {
+          "arquivo": "macos/prova-simples-O0.ligacao.txt",
+          "bytes": 380,
+          "sha256": "7e803a723d445e698272643f80d190500981f1666e26a6e9603da497c8836bb9"
+        },
+        {
+          "arquivo": "macos/prova-simples-O0.ll",
+          "bytes": 42851,
+          "sha256": "747c4fa4fd61bb2e343a86416eefba92b4667f3211c1a2517c9e0628c54626ec"
+        },
+        {
+          "arquivo": "macos/prova-simples-O0.runtime.ligacao.txt",
+          "bytes": 551,
+          "sha256": "bfbf0a276558c89c860ef1ddbc416c10fa5d1d5d2326727b374cdd12c0eb6a5c"
+        },
+        {
+          "arquivo": "macos/prova-simples-O2-arc-cpp.stdout",
+          "bytes": 19,
+          "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+        },
+        {
+          "arquivo": "macos/prova-simples-O2-arc-forcado.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "macos/prova-simples-O2-arc-forcado_dart.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "macos/prova-simples-O2-tracing-cpp.stdout",
+          "bytes": 19,
+          "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+        },
+        {
+          "arquivo": "macos/prova-simples-O2-tracing-forcado.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "macos/prova-simples-O2-tracing-forcado_dart.stdout",
+          "bytes": 18,
+          "sha256": "18bbc4be374aaf86bd367701565ea30eb7a7a987db9526185f74ff130919e8de"
+        },
+        {
+          "arquivo": "macos/prova-simples-O2.cpp",
+          "bytes": 5345,
+          "sha256": "1cd350dce224b6b7acee6ff5f5c8193bf360fa3d5f0b4c41d0b9ed3919f32af2"
+        },
+        {
+          "arquivo": "macos/prova-simples-O2.ligacao.txt",
+          "bytes": 380,
+          "sha256": "47a602b593389d8a5e87542ba1e17ad40208b9e7103f159e73110d4bc084aba6"
+        },
+        {
+          "arquivo": "macos/prova-simples-O2.ll",
+          "bytes": 42851,
+          "sha256": "747c4fa4fd61bb2e343a86416eefba92b4667f3211c1a2517c9e0628c54626ec"
+        },
+        {
+          "arquivo": "macos/prova-simples-O2.runtime.ligacao.txt",
+          "bytes": 551,
+          "sha256": "b6e72ebcbffef74a08e1f0ffc6ab8cdee09f7ad2be33cc78328578445bc49ee9"
+        }
+      ]
+    }
+  ]
+}

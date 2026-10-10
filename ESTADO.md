@@ -2,6 +2,23 @@
 
 ## Retomada de 2026-10-10
 
+Auditoria dos layouts declarados percorre as 15 bibliotecas do SDK da fonte
+usando a mesma etapa de registro de classes da produção, sem baixar seus
+corpos. Preparação ARC valida os fatos de cada módulo sem produzir operações
+de ownership quando não há funções. Isso não certifica forma física dos
+objetos do SDK, receiver, versões/pins ou integração de todos os corpos.
+Passaram 223 testes do emissor (7 ignorados) e 52 exemplos de documentação;
+logs target/arc-layouts-sdk-{suite,doc}.log. ARC só é ativado na CLI por
+--memoria=arc; tracing continua o padrão.
+
+Provas AOT da fonte f81c7d2b preservadas em
+bench/resultados/2026-10-10-unwind-boxing-unix-ci: 72 execuções Unix, 114
+arquivos com SHA-256 e bytes originais. Os 12 IR ligam Box HIR de i64::MAX
+à fábrica Owned auditada antes do cleanup. C++ é apenas a fixture que lança
+exceções estrangeiras; compilador/runtime continuam Rust. Workflow, jobs e
+etapas concluídos com sucesso. Não cobre a ABI escalar de campos nem os
+contratos locais posteriores a essa fonte, e não prova unwind Dart real.
+
 Lowering ARC registra layouts_campos_arc por classe/posição com as mesmas
 regras usadas para ler/gravar campos. Inicializador e representação do campo
 têm implementação compartilhada; late escalar com inicializador permanece
@@ -82,10 +99,10 @@ Passaram 212 testes do emissor (7 ignorados) e 52 exemplos de documentação;
 logs target/arc-larguras-{suite,doc}.log. Passe padrão ainda pendente e
 restrito a --memoria=arc; contratos de loads/campos e borrows exigem cobertura.
 
-CI 38025125587 na fonte f81c7d2b: Windows, Linux e mensagens concluídos com
-sucesso; macOS ainda na recarga JIT da CLI na última consulta. As provas
-AOT Unix de unwind passaram nos dois sistemas. Avanços locais de bitcasts,
-larguras inteiras, locais e verificação são posteriores a essa fonte.
+CI 38025125587 na fonte f81c7d2b concluída com sucesso: Windows, Linux,
+macOS e mensagens. As provas AOT Unix de unwind passaram nos dois sistemas.
+Avanços locais de bitcasts, larguras inteiras, locais, verificação e layouts
+são posteriores a essa fonte e ainda exigem CI própria.
 CI Sem toolchain do sistema 38025125631 concluída com sucesso na fonte f81c7d2b.
 
 Contratos ARC cobrem os bitcasts F64/I64 usados pelo lowering de campos.
