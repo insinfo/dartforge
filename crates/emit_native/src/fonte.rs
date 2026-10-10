@@ -59,7 +59,7 @@ pub fn bibliotecas_da_fonte(program: &Program, interner: &Interner) -> Vec<Libra
 /// `Duration.zero`); o runtime em Rust nunca teve `Duration`.
 const PARTES_DO_CORE: &[&str] = &["core/duration.dart"];
 
-/// Tira do `dart:core` as unidades de [`PARTES_DO_CORE`] para uma biblioteca
+/// Tira do `dart:core` as unidades de `PARTES_DO_CORE` para uma biblioteca
 /// nova, de mesmo URI e mesmo escopo, que não é do SDK — as classes delas
 /// passam a ser compiladas da fonte como as do `dart:async`, e o resto do
 /// `dart:core` continua sendo o do runtime. Os elementos não mudam de id

@@ -2,6 +2,18 @@
 
 ## Retomada de 2026-10-10
 
+Referências da documentação Rust corrigidas no workspace: nomes antigos
+como Heap::allocate passam a Heap::alocar; referências públicas para itens
+privados usam texto de código, e links públicos válidos são qualificados.
+Descrições de opções do emissor foram corrigidas. Removido o wrapper privado
+atribuir_slots sem chamadores; o emissor já usa raizes::analisar.
+Passou cargo doc --locked --workspace --no-deps --document-private-items
+com RUSTDOCFLAGS=-D warnings (53,58 s), log
+target/workspace-doc-links-correcao.log. Isso resolve a pendência de
+documentação descrita abaixo; não altera algoritmos de memória ou políticas.
+Clippy continua com as pendências registradas. ARC apenas --memoria=arc;
+tracing padrão. §§27–34 e gate ARC/A0 continuam incompletos/reprovados.
+
 Acessos a campos pelo módulo agora são resolvidos no mesmo ponto fixo de
 aliases/arestas, com LerPorEsquema/GravarPorEsquema. Cada receiver usa seu
 campo nominal; uniões de layouts não confundem índices iguais. Elimina

@@ -72,7 +72,7 @@ afirmado por documento ou por terceiros e não conferido. O §11 junta o que nã
 
 ### 1.1 Raízes: pilha-sombra com slots por vivacidade (A)
 
-* **Slots.** `raizes::atribuir_slots` (`EN/llvm/raizes.rs:61-258`) dá um slot a cada `alloca` `Ref` e a cada
+* **Slots.** `raizes::analisar`, pelo resultado `Raizes::slots` (`EN/llvm/raizes.rs`), dá um slot a cada `alloca` `Ref` e a cada
   valor SSA `Ref` vivo na entrada de um ponto de coleta, inclusive os operandos dele. Dois valores que não
   interferem dividem o slot (`raizes.rs:1-24`).
 * **Quadro.** O prólogo faz (`EN/llvm/mod.rs:646-699`):

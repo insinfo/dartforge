@@ -14,7 +14,7 @@
 //!   `crates/analise/verificados.txt` que o servidor do Dart 3.6.2 corrige),
 //!   sobre os diagnósticos imediatos e os tipados da versão vigente, com os
 //!   títulos e espécies do Dart ([`corrigir_publicados`]).
-//! * **Assistência** `Add type annotation` ([`assistencias`]).
+//! * **Assistência** `Add type annotation` (`crate::assistencias`).
 //!
 //! Dos códigos publicados, os três de enum
 //! (`enum_constant_same_name_as_enclosing`, `enum_with_name_values`,

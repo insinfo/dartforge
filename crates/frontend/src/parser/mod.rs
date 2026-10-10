@@ -17,11 +17,11 @@
 //! Regras comuns a todos os módulos:
 //!
 //! * `>` chega sempre isolado do lexer; em contexto de expressão use
-//!   [`Parser::composed_gt`] para ler `>>`, `>>>`, `>=`, `>>=` e `>>>=`.
+//!   `Parser::composed_gt` para ler `>>`, `>>>`, `>=`, `>>=` e `>>>=`.
 //! * Identificadores embutidos e contextuais (`abstract`, `async`, `show`,
 //!   `when`, `on`…) são [`Kind::Ident`]; compare o texto com
-//!   [`Parser::at_ident`]. Só palavras reservadas são [`Kind::Keyword`].
-//! * Um erro produz um [`Diagnostic`] em [`Parser::diagnostics`] e devolve
+//!   `Parser::at_ident`. Só palavras reservadas são [`Kind::Keyword`].
+//! * Um erro produz um [`Diagnostic`] em `Parser::diagnostics` e devolve
 //!   [`ParseError`]; o chamador propaga com `?`. A recuperação, quando houver,
 //!   fica nas fronteiras de declaração de topo e de membro.
 //! * O parser aceita um **superconjunto** de programas válidos onde a
@@ -43,7 +43,7 @@ use crate::token::{Keyword, Kind, Op, Token};
 use dartforge_diagnostics::{Codigo, Diagnostic, Span, codigos};
 use dartforge_intern::Interner;
 
-/// Marcador de falha: o diagnóstico já foi registrado em [`Parser::diagnostics`].
+/// Marcador de falha: o diagnóstico já foi registrado em `Parser::diagnostics`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParseError;
 
@@ -1013,7 +1013,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         })
     }
 
-    /// Consome a composição devolvida por [`Parser::composed_gt`].
+    /// Consome a composição devolvida por `Parser::composed_gt`.
     pub(crate) fn eat_composed_gt(&mut self, composed: ComposedGt) {
         for _ in 0..composed.len() {
             self.advance();

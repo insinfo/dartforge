@@ -5,10 +5,10 @@
 //! `dartforge_runtime::layout`. O módulo não depende de nenhum outro (é compilado
 //! também dentro do `RUNTIME_MAIN`, o texto que o AOT passa ao `rustc` avulso).
 //!
-//! Um bloco é um cabeçalho de 16 bytes ([`Cabecalho`]) seguido do corpo, em palavras
-//! de 8 bytes. O handle de um bloco é `bloco + 2` ([`DESLOCAMENTO_DO_HANDLE`]); o
-//! `Smi` é ímpar e o null é `0` ([`smi`]). O coletor percorre o corpo pelo formato
-//! que está em `flags` ([`flags::FORMA`]), sem olhar a classe.
+//! Um bloco é um cabeçalho de 16 bytes ([`crate::layout::Cabecalho`]) seguido do corpo, em palavras
+//! de 8 bytes. O handle de um bloco é `bloco + 2` ([`crate::layout::DESLOCAMENTO_DO_HANDLE`]); o
+//! `Smi` é ímpar e o null é `0` ([`crate::layout::smi`]). O coletor percorre o corpo pelo formato
+//! que está em `flags` ([`crate::layout::flags::FORMA`]), sem olhar a classe.
 
 /// Um valor em posição de referência: `0` (null), `Smi` (ímpar) ou handle de bloco
 /// (`bloco + 2`).

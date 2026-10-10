@@ -466,7 +466,7 @@ impl ModoSdk {
 // --------------------------------------------------------------------- consultas
 
 /// Os membros de uma classe com os das declarações `@patch` dela (no modo
-/// SDK); fora dele, os de sempre ([`Program::membros_da_classe`]).
+/// SDK); fora dele, os de sempre ([`dartforge_elements::model::Program::membros_da_classe`]).
 pub fn membros_da_classe(ctx: &Ctx, c: ClassId) -> Vec<(UnitId, ast::MemberId)> {
     let mut out = ctx.program.membros_da_classe(c);
     if let Some(ps) = ctx.sdk.as_ref().and_then(|s| s.patches.get(&c)) {

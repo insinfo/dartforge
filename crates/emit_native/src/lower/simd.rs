@@ -7,7 +7,7 @@
 //! `llvm/simd.rs`). A caixa (`Ref`) continua sendo o valor em toda
 //! fronteira — parâmetros, retornos, campos, coleções, `dynamic`: o
 //! `lower_expr` geral coage ao tipo estático, que é `Ref`, e só
-//! [`FnBuilder::lower_simd`] entrega o vetor.
+//! `FnBuilder::lower_simd` entrega o vetor.
 //!
 //! O que não é reconhecido (máscara de `shuffle` que não é constante, um
 //! membro sem forma vetorial) segue o caminho de sempre, pela caixa e pelo

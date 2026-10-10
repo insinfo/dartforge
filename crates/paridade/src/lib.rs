@@ -528,7 +528,7 @@ fn filho(
     Some((regs, amb?))
 }
 
-/// O lado filho de [`filho`]: analisa e escreve os registros (com os
+/// O lado filho de `filho`: analisa e escreve os registros (com os
 /// comentários de ignore; as opções o pai aplica) e `#ambiguos N`. Um vigia
 /// encerra o processo se a memória viva (`vivos`) passar de `teto` bytes.
 pub fn executar_lote_filho(

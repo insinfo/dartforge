@@ -156,7 +156,7 @@ fn tipo_da_funcao(k: FunctionKind) -> Tipo {
 /// `juntar_mesma_localizacao`: o comportamento do analyzer 6.11 (Dart
 /// 3.6.2), em que duas declarações de mesmo nome e espécie na mesma unidade
 /// são o mesmo elemento e os membros de uma se conferem com os da outra
-/// ([`ChaveDeElemento`]). O 3.13.4 não junta (conferido com os dois SDKs):
+/// (`ChaveDeElemento`). O 3.13.4 não junta (conferido com os dois SDKs):
 /// passe `false` numa biblioteca cuja referência é o 3.13.4
 /// (`dartforge_elements::Program::referencia_da_biblioteca`, ou
 /// `dartforge_frontend::parser::Parsed::referencia` para um arquivo só).

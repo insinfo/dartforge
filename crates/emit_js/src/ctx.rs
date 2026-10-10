@@ -1655,7 +1655,7 @@ impl<'a> Ctx<'a> {
 
     /// Membros abstratos (nome, kind) alcançáveis pelos supertipos que não
     /// têm implementação concreta, na ordem em que o CFE cria os
-    /// encaminhadores de `noSuchMethod` ([`Self::ordem_membros_cfe`]; getter
+    /// encaminhadores de `noSuchMethod` (`Self::ordem_membros_cfe`; getter
     /// antes do setter de mesmo nome).
     pub fn unimplemented_abstract(&self, c: ClassId) -> Vec<(String, MemberKind)> {
         let mut out: Vec<(String, MemberKind)> = Vec::new();

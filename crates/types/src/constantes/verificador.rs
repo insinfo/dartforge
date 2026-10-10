@@ -134,7 +134,7 @@ const ERROS_DE_CONSTANTE: &[&str] = &[
 /// `canBeConst` de uma criação de instância (`_canBeConstInstanceCreation`,
 /// `analyzer/lib/src/lint/linter.dart`): o construtor resolvido é `const`
 /// e o `ConstantVerifier` sobre a criação, como se ela tivesse `const`,
-/// não relata nenhum dos [`ERROS_DE_CONSTANTE`]. A criação constante aqui
+/// não relata nenhum dos `ERROS_DE_CONSTANTE`. A criação constante aqui
 /// é o mesmo `visitInstanceCreationExpression` da verificação de sempre
 /// (`criacao_constante`), com os argumentos visitados em contexto
 /// constante.
@@ -187,7 +187,7 @@ fn verificador_avulso<'v, 'm>(m: &'v mut Motor<'m>, lib: LibraryId, unidade: Uni
 
 /// `canBeConst` de um literal tipado (`_canBeConstTypedLiteral`): o
 /// `ConstantVerifier` sobre o literal com `const` não relata nenhum dos
-/// [`ERROS_DE_CONSTANTE`].
+/// `ERROS_DE_CONSTANTE`.
 pub fn literal_pode_ser_const(m: &mut Motor<'_>, lib: LibraryId, unidade: UnitId, e: ExprId) -> bool {
     let a = m.ast(unidade);
     let mut v = verificador_avulso(m, lib, unidade);
@@ -198,7 +198,7 @@ pub fn literal_pode_ser_const(m: &mut Motor<'_>, lib: LibraryId, unidade: UnitId
 /// `ConstructorDeclaration.canBeConst` (`analyzer/lib/src/lint/linter.dart`):
 /// a classe não tem campo de instância que não é `final`, e o
 /// `ConstantVerifier` sobre o construtor marcado `const` não relata nenhum
-/// dos [`ERROS_DE_CONSTANTE`]: inicializadores potencialmente constantes,
+/// dos `ERROS_DE_CONSTANTE`: inicializadores potencialmente constantes,
 /// campos de instância com inicializador constante e valores padrão
 /// constantes.
 pub fn construtor_pode_ser_const(m: &mut Motor<'_>, lib: LibraryId, unidade: UnitId, mid: ast::MemberId) -> bool {

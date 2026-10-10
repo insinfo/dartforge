@@ -26,7 +26,7 @@
 //!
 //! O cast implícito dos argumentos `dynamic` (e a regra de quando a chamada
 //! pode ser tipada) é o de [`FnBuilder::avaliar_args`] com os tipos
-//! armados por [`FnBuilder::armar_tipos_dos_args`]: o tipo do parâmetro na
+//! armados por `FnBuilder::armar_tipos_dos_args`: o tipo do parâmetro na
 //! invocação, sem variáveis de tipo livres. Só a chamada cujos argumentos
 //! têm todos o tipo garantido (`args_conferidos`) usa o seletor tipado; a
 //! outra volta ao que confere tudo.
@@ -223,7 +223,7 @@ pub fn conferido_na_entrada(ctx: &Context, fid: usize, ty: TypeId) -> bool {
 }
 
 /// O parâmetro `i` de `fid` precisa de conferência mesmo numa chamada
-/// tipada: é covariante (ver [`covariante_herdado`]).
+/// tipada: é covariante (ver `covariante_herdado`).
 pub fn parametro_covariante(ctx: &Context, fid: usize, i: usize) -> bool {
     covariante_herdado(ctx, fid, i)
 }

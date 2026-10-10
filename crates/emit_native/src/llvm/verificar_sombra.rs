@@ -244,7 +244,7 @@ fn blocos<'a>(corpo: &[&'a str], ajudantes: &HashMap<&str, bool>) -> Vec<Bloco<'
     v
 }
 
-/// Confere as funções do módulo que trazem [`MARCA_DE_REFS`].
+/// Confere as funções do módulo que trazem `MARCA_DE_REFS`.
 ///
 /// # Errors
 /// A primeira violação: a função, o ponto de coleta e o valor vivo sem slot.

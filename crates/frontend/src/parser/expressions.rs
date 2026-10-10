@@ -2,14 +2,14 @@
 //!
 //! A gramática de expressões de Dart 3.6 (§17 da especificação) é lida por
 //! descida recursiva com *precedence climbing* para os operadores binários:
-//! uma única função ([`Parser::parse_binary`]) trata todos os níveis de `??`
+//! uma única função (`Parser::parse_binary`) trata todos os níveis de `??`
 //! até `*`, então a profundidade da pilha cresce com o aninhamento real da
 //! expressão e não com o número de níveis da gramática.
 //!
 //! Decisões de desambiguação que seguem o parser do SDK
 //! (`parser_impl.dart`), porque o corpus alvo foi validado por ele:
 //!
-//! * `>` chega isolado do lexer; [`Parser::composed_gt`] o recompõe em
+//! * `>` chega isolado do lexer; `Parser::composed_gt` o recompõe em
 //!   `>=`, `>>`, `>>>`, `>>=`, `>>>=` só entre tokens colados e só fora de
 //!   listas de argumentos de tipo.
 //! * `e<T>(...)`/`e<T>.x`: `<...>` é lido como argumentos de tipo quando a
@@ -49,7 +49,7 @@ use crate::token::{Interp, Keyword, Kind, Op, StrFlags, Token};
 use dartforge_diagnostics::{Span, codigos};
 
 /// Níveis de precedência dos operadores binários, do mais baixo ao mais alto.
-/// Os valores são contíguos porque [`Parser::parse_binary`] usa `nível + 1`
+/// Os valores são contíguos porque `Parser::parse_binary` usa `nível + 1`
 /// para o operando direito (associatividade à esquerda).
 const LEVEL_IF_NULL: u8 = 0;
 const LEVEL_OR: u8 = 1;
@@ -593,7 +593,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.parse_binary_rest(start, left, min_level)
     }
 
-    /// Continuação de [`Parser::parse_binary`] com o operando esquerdo já
+    /// Continuação de `Parser::parse_binary` com o operando esquerdo já
     /// lido (o padrão constante lê o operando com as regras dele).
     pub(crate) fn parse_binary_rest(&mut self, start: Span, mut left: ExprId, min_level: u8) -> PResult<ExprId> {
         // `lastBinaryExpressionLevel` do fasta (`parser_impl.dart:6094`): dois

@@ -263,7 +263,7 @@ impl Mundo {
     }
     /// `nome` mantém vivo um membro da `classe`: seletor irrestrito vale para
     /// todas; restrito, só para as classes alcançáveis do cone do receptor
-    /// (a mesma regra do ponto fixo, [`Motor::alcanca`]).
+    /// (a mesma regra do ponto fixo, `alcance`).
     pub fn seletor_vivo_para(&self, _program: &Program, nome: &str, classe: ClassId) -> bool {
         if self.seletores.contains(nome) {
             return true;
@@ -904,7 +904,7 @@ impl<'a> Motor<'a> {
     }
 
     /// O seletor `nome` (irrestrito ou restrito) mantém vivo um membro da
-    /// `classe` instanciada (a regra é [`Motor::alcanca`]).
+    /// `classe` instanciada (a regra é `alcance`).
     pub(crate) fn seletor_para(&mut self, nome: &str, classe: ClassId) -> bool {
         if self.sel.contains(nome) {
             return true;

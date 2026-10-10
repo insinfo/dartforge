@@ -4,7 +4,7 @@
 //! ciclos por *trial deletion* lateral, sem alterar o RC real (§22.1).
 //!
 //! O módulo não conhece o layout dos blocos: as arestas de cada objeto vêm de
-//! um [`GrafoArc`] (no heap, a enumeração pela forma do corpo; nos testes, um
+//! um [`crate::arc::GrafoArc`] (no heap, a enumeração pela forma do corpo; nos testes, um
 //! grafo de mentira). Nenhuma operação daqui aloca objeto Dart, lança exceção
 //! Dart ou chama código Dart (§19.3).
 //!
@@ -13,7 +13,7 @@
 //!   de uma lista apontando para `x` contam duas vezes;
 //! * `null` (0) e `Smi` (ímpar) não são gerenciados; um handle sem metadados
 //!   (objeto da imagem, permanente) é tratado como imortal;
-//! * a geração é monotônica por registro; as filas guardam [`IdArc`] e
+//! * a geração é monotônica por registro; as filas guardam [`crate::arc::IdArc`] e
 //!   descartam a entrada cuja geração não bate (§19.1);
 //! * a coleta de ciclos roda com o mutador parado e sem reentrada (§18.1,
 //!   decisão 5): o chamador garante isso.

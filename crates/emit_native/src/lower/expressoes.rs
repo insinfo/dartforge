@@ -1,7 +1,7 @@
 //! Expressões: literais, identificadores, operadores, curto-circuito,
 //! condicional, cadeias `?.`, propriedades, índices, coleções, `is`/`as`.
 //! As chamadas estão em `chamadas.rs`; o membro do SDK sem elemento útil vai
-//! pela classe dinâmica do receptor ([`FnBuilder::propriedade_por_seletor`]).
+//! pela classe dinâmica do receptor (`FnBuilder::propriedade_por_seletor`).
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;

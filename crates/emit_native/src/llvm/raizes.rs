@@ -77,16 +77,6 @@ pub struct Raizes {
     pub vivos_na_entrada: HashMap<BlockId, Vec<ValueId>>,
 }
 
-/// Os slots do quadro ([`Raizes::slots`]).
-pub fn atribuir_slots(
-    func: &Function,
-    tipos: &HashMap<ValueId, Type>,
-    pode_coletar: &dyn Fn(&Instruction) -> bool,
-    blocos_que_convertem_phi: &dyn Fn(BlockId) -> bool,
-) -> HashMap<ValueId, usize> {
-    analisar(func, tipos, pode_coletar, blocos_que_convertem_phi).slots
-}
-
 /// A análise completa: os slots (a pilha-sombra) e a vivacidade em cada
 /// ponto de coleta (as raízes por mapas,
 /// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8).

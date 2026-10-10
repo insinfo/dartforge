@@ -9,7 +9,7 @@
 //! * nenhum `ptr addrspace(1)`: a forma não tem ponteiro do coletor, e um
 //!   que aparecesse entraria no mapa como raiz relocável que o runtime não
 //!   lê;
-//! * toda chamada que pode coletar ([`super::chamada_que_coleta`]) dentro de
+//! * toda chamada que pode coletar (`super::chamada_que_coleta`) dentro de
 //!   uma função definida leva o operando `"deopt"` — fora os intermediários
 //!   `@df.vararg.<k>` (`noinline`, a chamada variádica não vira
 //!   statepoint). Sem ele, a chamada não teria raízes no mapa, nem as de

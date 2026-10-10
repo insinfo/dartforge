@@ -8,7 +8,7 @@
 //! | `Join 'if' statement with inner 'if' statement` | `refactor.joinWithInnerIf` |
 //!
 //! As três usam o `invertCondition` do `CorrectionUtils`
-//! (`correction_utils.dart:345-410`), aqui [`inverter`]. Diferença
+//! (`correction_utils.dart:345-410`), aqui `Projeto::inverter`. Diferença
 //! conhecida: no `Invert conditional expression` o cursor vale em qualquer
 //! ponto da condicional mais interna que não esteja dentro dos argumentos
 //! de uma chamada aninhada (o original sobe um número fixo de nós).

@@ -16,7 +16,7 @@
 //! Toda chamada da API C do LLVM é `unsafe`, e a posse dos recursos
 //! (contexto, módulo, máquina-alvo, buffers, mensagens) segue o contrato de
 //! `llvm-c/*.h`, não o borrow checker. Cada recurso aqui pertence a um valor
-//! Rust com `Drop` ([`Contexto`], [`Modulo`], [`MaquinaAlvo`]); nada cru sai
+//! Rust com `Drop` (`Contexto`, `Modulo`, `MaquinaAlvo`); nada cru sai
 //! deste arquivo: a API pública só troca `&str`, `Vec<u8>` e `String`.
 //
 // Único `allow` do crate: qualquer `unsafe` novo fora daqui é erro de
@@ -145,7 +145,7 @@ pub struct Opcoes {
     pub formato: Formato,
     /// A CPU-alvo (o nome do LLVM, como o `-march` do Clang; `native` é a
     /// desta máquina, com os recursos dela); `None`, a padrão do Clang
-    /// ([`cpu_padrao`]).
+    /// (`cpu_padrao`).
     pub cpu: Option<&'static str>,
 }
 

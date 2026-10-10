@@ -1,7 +1,7 @@
 //! Chamadas: funções de topo, locais e estáticas do usuário, construtores
 //! (`C(…)`, `C.nome(…)`) e métodos de instância pelo elemento resolvido.
 //! O membro do SDK sem elemento útil vai pela classe dinâmica do receptor
-//! ([`FnBuilder::metodo_por_seletor`]; o SDK vem sempre da fonte).
+//! (`FnBuilder::metodo_por_seletor`; o SDK vem sempre da fonte).
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;

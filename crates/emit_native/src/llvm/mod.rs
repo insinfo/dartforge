@@ -301,7 +301,8 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    /// Veja [`LlvmEmitter::rastro_no_jit`].
+    /// Delega o registro das seções do rastro ao gerenciador de memória do JIT.
+    /// O módulo deixa de emitir os símbolos do ligador e a chamada de registro.
     pub fn com_rastro_no_jit(mut self, sim: bool) -> Self {
         self.rastro_no_jit = sim;
         self
@@ -357,27 +358,28 @@ impl<'a> LlvmEmitter<'a> {
         Some(format!("  call void @dartforge_registrar_rastro(ptr {inicio}, ptr {fim})\n"))
     }
 
-    /// Os literais de string como objetos estáticos do módulo (§2.11 da
-    /// especificação do espaço unificado): o AOT e os módulos do SDK.
-    /// Veja [`LlvmEmitter::campos_por_chamada`].
+    /// Obtém o endereço dos campos por chamada a `@df.corpo`, fora de linha.
+    /// Usado no perfil de desenvolvimento para reduzir o tamanho do IR.
     pub fn com_campos_por_chamada(mut self, sim: bool) -> Self {
         self.campos_por_chamada = sim;
         self
     }
 
-    /// Veja [`LlvmEmitter::producao`].
+    /// Seleciona o perfil de produção; com campos por chamada, mantém
+    /// `@df.corpo` fora de linha por meio de `noinline`.
     pub fn com_producao(mut self, sim: bool) -> Self {
         self.producao = sim;
         self
     }
 
-    /// Veja [`LlvmEmitter::quadros_ordenados`].
+    /// Marca quadros de raízes como ordenados para a conferência do runtime.
+    /// Requer emissão sem inlining, com um quadro nativo por função.
     pub fn com_quadros_ordenados(mut self, sim: bool) -> Self {
         self.quadros_ordenados = sim;
         self
     }
 
-    /// `optsize` em cada função do módulo (veja [`LlvmEmitter::otimizar_tamanho`]).
+    /// Aplica `optsize` a cada função emitida no módulo.
     pub fn com_otimizar_tamanho(mut self, sim: bool) -> Self {
         self.otimizar_tamanho = sim;
         self
@@ -402,18 +404,15 @@ impl<'a> LlvmEmitter<'a> {
         self
     }
 
-    /// As tabelas de métodos do módulo ficam para a ligação
-    /// (docs/NATIVO-PODA-DE-TABELAS.md §3.2): nem o `$d` nem a função que o
-    /// devolve são definidos aqui, só declarados por quem os cita; o
-    /// conteúdo vai para o resumo da biblioteca (`poda::resumir`). Só o SDK
-    /// de produção.
-    /// Veja [`LlvmEmitter::mapas_no_jit`].
+    /// Delega o registro dos mapas de pilha ao gerenciador de memória do JIT.
+    /// O módulo deixa de emitir o registro e a opção de layout `-ni:1`.
     pub fn com_mapas_no_jit(mut self, sim: bool) -> Self {
         self.mapas_no_jit = sim;
         self
     }
 
-    /// Veja [`LlvmEmitter::mapas`].
+    /// Emite raízes SSA pelos mapas de pilha dos statepoints do LLVM.
+    /// Os `alloca` de referências continuam no quadro da pilha-sombra.
     pub fn com_raizes_por_mapas(mut self, sim: bool) -> Self {
         self.mapas = sim;
         self

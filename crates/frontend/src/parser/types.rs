@@ -3,8 +3,8 @@
 //! Cobre as seções `type`, `typeParameters`, `typeArguments`,
 //! `formalParameterList` e `parameterTypeList` da gramática de Dart 3.6, mais
 //! os *lookaheads* que o resto do parser usa para decidir se uma sequência de
-//! tokens é um tipo sem consumir nada ([`Parser::skip_type`],
-//! [`Parser::skip_type_arguments`], [`Parser::looks_like_type_then_identifier`]).
+//! tokens é um tipo sem consumir nada (`Parser::skip_type`,
+//! `Parser::skip_type_arguments`, `Parser::looks_like_type_then_identifier`).
 //!
 //! Decisões que não são tradução direta da gramática:
 //!
@@ -15,7 +15,7 @@
 //! * **Records** podem ser tipo de retorno de função (`(int, int) Function()`),
 //!   como no parser do SDK (`computeRecordTypeGFT`).
 //! * **`?` após `is`/`as`**: `x is int ? a : b` é uma condicional, não um tipo
-//!   nulável. [`Parser::parse_type_after_is_or_as`] reproduz a regra de
+//!   nulável. `Parser::parse_type_after_is_or_as` reproduz a regra de
 //!   `computeTypeAfterIsOrAs` do SDK: o `?` final só pertence ao tipo se o
 //!   token seguinte não puder começar o ramo de uma condicional.
 //! * **Identificadores embutidos** (`get`, `set`, `static`, `typedef`…) não
@@ -27,8 +27,8 @@
 //!   parâmetros de declaração (`this.x`, `super.x`, defaults, forma antiga
 //!   `int f(int x)`) e de tipo de função (`Function(int, String)`, onde o nome
 //!   é opcional). O modo é um booleano interno; publicamente
-//!   [`Parser::parse_formal_parameters`] é o modo declaração e
-//!   [`Parser::parse_function_type_parameters`] o modo tipo de função.
+//!   `Parser::parse_formal_parameters` é o modo declaração e
+//!   `Parser::parse_function_type_parameters` o modo tipo de função.
 //! * `>` sempre chega isolado do lexer, então `<` … `>` de tipos nunca precisa
 //!   de retrocesso; `in_type_args` é incrementado durante a leitura para que
 //!   expressões dentro de metadata não componham `>>`.
@@ -364,7 +364,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `<T, U>` de argumentos, ou lista vazia se não houver `<`.
     ///
     /// Em contexto de tipo `<` é sempre argumento; quem está em contexto de
-    /// expressão decide antes com [`Parser::skip_type_arguments`].
+    /// expressão decide antes com `Parser::skip_type_arguments`.
     pub(crate) fn parse_type_arguments_opt(&mut self) -> PResult<Vec<TypeId>> {
         if !self.at_op(Op::Lt) {
             return Ok(Vec::new());
@@ -1060,7 +1060,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         ) && self.kind_of(pos + 1) == Kind::Op(Op::Dot)
     }
 
-    /// Variante de [`Parser::looks_like_type_then_identifier`] para listas de
+    /// Variante de `Parser::looks_like_type_then_identifier` para listas de
     /// parâmetros: aceita `this.`/`super.` como "nome" e não aplica a
     /// heurística da condicional, porque `{int? a: 1}` é legítimo aqui.
     fn looks_like_type_then_name(&self, pos: usize) -> bool {
@@ -1289,7 +1289,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.looks_like_type_then_identifier_com(pos, false)
     }
 
-    /// Variante de [`Parser::looks_like_type_then_identifier`] para contextos
+    /// Variante de `Parser::looks_like_type_then_identifier` para contextos
     /// que já decidiram por declaração (membro de classe, topo): `int? a]` e
     /// `int? a}` continuam declaração — o fasta 3.6.2 relata o `;` que falta
     /// no nome e denuncia o fecho (`expected_class_member`/`expected_executable`

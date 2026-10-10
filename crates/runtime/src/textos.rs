@@ -7,16 +7,16 @@
 //!
 //! Três tipos:
 //!
-//! * [`TextoRef`] é a vista emprestada das unidades (de um bloco do heap ou de um
-//!   [`Texto`] de construção); os algoritmos de busca, comparação e codificação
+//! * [`crate::textos::TextoRef`] é a vista emprestada das unidades (de um bloco do heap ou de um
+//!   [`crate::textos::Texto`] de construção); os algoritmos de busca, comparação e codificação
 //!   moram nela;
-//! * [`Texto`] é o dono das unidades antes de alocar (a saída de `toString`, os
+//! * [`crate::textos::Texto`] é o dono das unidades antes de alocar (a saída de `toString`, os
 //!   pedaços que o runtime monta); a forma é canônica, como na VM;
-//! * [`TextoMut`] junta unidades sem passar pelo `String` do Rust (que perderia os
+//! * [`crate::textos::TextoMut`] junta unidades sem passar pelo `String` do Rust (que perderia os
 //!   surrogates soltos).
 //!
 //! As funções de `impl Heap` usam só a API de `heap.rs` (§3.2); o endereço do
-//! bloco sai do handle (`h - 2`), conferido vivo por [`Heap::cabecalho`].
+//! bloco sai do handle (`h - 2`), conferido vivo por [`crate::heap::Heap::cabecalho`].
 #![allow(unsafe_code)]
 
 use crate::heap::Heap;

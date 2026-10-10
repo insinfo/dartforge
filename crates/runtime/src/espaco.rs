@@ -1,11 +1,11 @@
 //! O espaço de objetos (docs/NATIVO-ESPACO-UNIFICADO.md §2.6–§2.8 e §3.2).
 //!
-//! Todo bloco do heap mora aqui: um [`Cabecalho`] de 16 bytes seguido do corpo,
-//! em palavras de 8 bytes. As páginas de [`PAGINA`] bytes guardam blocos de uma
+//! Todo bloco do heap mora aqui: um [`crate::layout::Cabecalho`] de 16 bytes seguido do corpo,
+//! em palavras de 8 bytes. As páginas de [`crate::layout::PAGINA`] bytes guardam blocos de uma
 //! só **classe de tamanho** (`layout::classe_de_tamanho`: as exatas de 1 a 64
 //! palavras e 24 médias até 2014 palavras, cada uma enchendo a página); um corpo
 //! maior tem uma **região grande** própria, arredondada a 4 KiB e alinhada a
-//! [`PAGINA`] (`VirtualAlloc`/`mmap`), solta já na coleta menor que a acha
+//! [`crate::layout::PAGINA`] (`VirtualAlloc`/`mmap`), solta já na coleta menor que a acha
 //! morta, para um cache por tamanho com teto. As páginas saem de pedaços
 //! reservados do sistema e só ocupam memória onde se escreve; as soltas voltam
 //! ao sistema salvo um cache quente pequeno (docs/NATIVO-PLANO.md §14).

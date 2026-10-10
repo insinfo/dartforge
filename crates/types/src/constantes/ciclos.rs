@@ -49,7 +49,7 @@ pub enum Alvo {
     Param(UnitId, usize, Option<ExprId>),
     /// Constante local: a unidade e o offset do nome.
     Local(UnitId, usize),
-    /// Anotação: o índice em [`Estado::anotacoes`].
+    /// Anotação: o índice em `Estado::anotacoes`.
     Anot(u32),
     /// O campo `const` sintético `values` de um enum, cujo inicializador é
     /// a lista das constantes (`LibraryBuilder.buildEnumChildren`): depende

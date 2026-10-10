@@ -7,19 +7,19 @@
 //!
 //! Organização:
 //!
-//! * [`corpo`] — estado de um corpo (locais, escopos, contexto de função);
-//! * [`fluxo`] — modelo de fluxo: promoção, atribuição definitiva, alcance;
-//! * [`membros`] — busca de membros (interface, estáticos, extensões);
-//! * [`expr`] — expressões, com contexto (esquema) para baixo e tipo para cima;
-//! * [`chamadas`] — invocações e inferência de argumentos de tipo;
-//! * [`colecoes`] — literais de lista, conjunto e mapa;
-//! * [`funcoes`] — corpos, expressões de função e funções locais;
-//! * [`instrucoes`] — instruções;
-//! * [`padroes`] — padrões (Dart 3);
-//! * [`tipos`] — operações de tipo usadas por todos (subtipo, UP, flatten…).
+//! * `corpo` — estado de um corpo (locais, escopos, contexto de função);
+//! * `fluxo` — modelo de fluxo: promoção, atribuição definitiva, alcance;
+//! * `membros` — busca de membros (interface, estáticos, extensões);
+//! * `expr` — expressões, com contexto (esquema) para baixo e tipo para cima;
+//! * `chamadas` — invocações e inferência de argumentos de tipo;
+//! * `colecoes` — literais de lista, conjunto e mapa;
+//! * `funcoes` — corpos, expressões de função e funções locais;
+//! * `instrucoes` — instruções;
+//! * `padroes` — padrões (Dart 3);
+//! * `tipos` — operações de tipo usadas por todos (subtipo, UP, flatten…).
 //!
 //! A inferência de topo (variáveis e campos sem tipo) é sob demanda
-//! ([`BodyInferrer::tipo_variavel`]): quem lê a variável dispara a inferência
+//! (`BodyInferrer::tipo_variavel`): quem lê a variável dispara a inferência
 //! do inicializador, com detecção de ciclo (`inference.md`, "Top-level
 //! inference procedure").
 
@@ -342,7 +342,7 @@ pub struct BodyInferrer<'a> {
 }
 
 /// As extensões acessíveis em `lib` (as da biblioteca e as que os imports
-/// trazem, [`BodyInferrer::extensoes_acessiveis`]) que se aplicam a `recv`,
+/// trazem, `BodyInferrer::extensoes_acessiveis`) que se aplicam a `recv`,
 /// com os argumentos de tipo inferidos (`applicableTo` do analyzer, usado
 /// pelo completar: `InstanceExtensionMembersOperation` e os membros de
 /// extensão do `DeclarationHelper`). O receptor é tomado como está: quem

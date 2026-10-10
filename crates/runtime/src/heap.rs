@@ -279,7 +279,7 @@ pub struct Contexto {
     /// *bump pointer* da VM, `llvm/mod.rs`); faixa esgotada vai ao runtime,
     /// que reabastece.
     pub tlab: [[std::cell::Cell<*mut u8>; 2]; TLAB_N + 1],
-    /// Os mapas de bits de subtipo (`seletores.rs`, [`crate::nucleo`]): para
+    /// Os mapas de bits de subtipo (`seletores.rs`, fragmento `nucleo.rs`): para
     /// cada classe alvo `C` (índice; deslocamento 336), o endereço do mapa
     /// em que o bit `cid` diz se `cid <: C` (nulo = ainda não calculado), e
     /// quantos alvos (344); a largura de todos os mapas em bits (352): um
@@ -300,7 +300,7 @@ pub struct Contexto {
     /// cada função que chama outra compara o endereço do seu quadro com ele
     /// e, abaixo, lança `StackOverflowError` em vez de estourar a pilha do
     /// sistema (o `stack_overflow_check` da VM). 0 = ainda não calculado
-    /// ([`crate::gc_raizes`], `dartforge_contexto`); 1 = sem limite conhecido.
+    /// (fragmento `gc_raizes.rs`, `dartforge_contexto`); 1 = sem limite conhecido.
     pub limite_da_pilha: std::cell::Cell<usize>,
 }
 
@@ -1181,7 +1181,7 @@ fn visitar_quadros_por_mapas(_f: impl FnMut(i64)) {}
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14) os guarda no `throw` e
 /// só os simboliza quando o texto é pedido; o topo casa o quadro com a pilha
 /// do rastro (a cadeia de quem espera).
-/// O mesmo percurso de [`visitar_quadros_por_mapas`], sem ler raízes: não
+/// O mesmo percurso de `visitar_quadros_por_mapas`, sem ler raízes: não
 /// depende dos mapas, e vale nos dois modos de raízes.
 #[cfg(all(windows, target_arch = "x86_64"))]
 #[allow(unsafe_code)]
@@ -1533,7 +1533,7 @@ pub struct Heap {
     arc: Option<Box<ArcDoHeap>>,
 }
 
-/// Um anexo de finalizador (ver [`Heap::anexos`]).
+/// Um anexo de finalizador (ver `Heap::anexos`).
 #[derive(Debug, Clone, Copy)]
 pub struct AnexoDeFinalizador {
     /// O `Finalizer`/`NativeFinalizer` (identidade do `detach`).
@@ -2195,7 +2195,7 @@ impl Heap {
     }
     /// Um objeto do usuário novo com os campos `campos` (os que o runtime
     /// monta à mão: erros, valores de enum, a classe `Type`…). Coleta antes
-    /// como [`Heap::allocate`]: as referências em `campos` precisam de raiz
+    /// como [`Heap::alocar`]: as referências em `campos` precisam de raiz
     /// de quem chama.
     pub fn novo_objeto(&mut self, class_id: i64, campos: &[Campo]) -> i64 {
         let h = self.alocar_objeto(class_id, campos.len());
@@ -2238,7 +2238,7 @@ impl Heap {
     /// Aloca um objeto do usuário de `n` campos zerados (o caminho do
     /// `dartforge_object_new`), no espaço de objetos.
     ///
-    /// O caminho rápido confere os gatilhos de [`Heap::allocate`] numa
+    /// O caminho rápido confere os gatilhos de [`Heap::alocar`] numa
     /// comparação cada; se algum dispara (coleta, teto, `--gc-stress`), vai
     /// ao caminho geral.
     #[inline]
@@ -2290,7 +2290,7 @@ impl Heap {
         self.objetos.alocar(cid, palavras, flags, n)
     }
     /// Reabastece a TLAB de `n` campos do [`Contexto`] (se esgotada) com
-    /// uma faixa contígua de até [`TLAB_BLOCOS`] blocos livres, contados
+    /// uma faixa contígua de até `TLAB_BLOCOS` blocos livres, contados
     /// como alocados agora — sem coletar: só o que cabe antes do próximo
     /// gatilho (o que passa dele fica para o runtime, que coleta). Sem TLAB
     /// no `--gc-stress` (toda alocação passa pelo runtime, que coleta antes)
@@ -2344,8 +2344,8 @@ impl Heap {
             }
         }
     }
-    /// O bloco vivo do objeto `h` (`h & 3 == 2`), ou `panic` como
-    /// [`Heap::indice_vivo`] (N4).
+    /// O bloco vivo do objeto `h` (`h & 3 == 2`), ou `panic` N4 para handle
+    /// inválido ou objeto já coletado.
     ///
     /// Um objeto estático (seção da imagem, `PERMANENTE`) também é devolvido:
     /// ele se lê como qualquer bloco; quem grava confere
@@ -2611,7 +2611,7 @@ impl Heap {
     }
 
     /// Garante ao objeto `handle` pelo menos `n` campos (os novos,
-    /// zerados): num corpo de fora ([`Heap::trocar_campos`]).
+    /// zerados): num corpo de fora (`Heap::trocar_campos`).
     pub fn garantir_campos(&mut self, handle: i64, n: usize) {
         let Some(o) = self.objeto(handle) else { return };
         if o.len() >= n {
