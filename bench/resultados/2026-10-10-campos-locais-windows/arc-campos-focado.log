@@ -1,0 +1,23 @@
+   Compiling dartforge-emit-native v0.1.0 (E:\MyRustProjects\dartforge\crates\emit_native)
+warning: function `atribuir_slots` is never used
+  --> crates\emit_native\src\llvm\raizes.rs:81:8
+   |
+81 | pub fn atribuir_slots(
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.82s
+     Running unittests src\lib.rs (target\debug\deps\dartforge_emit_native-6725050f6cf5f944.exe)
+
+running 6 tests
+test otimizar::arc::campos::testes::phi_com_origem_desconhecida_nao_esconde_escape_da_alocacao ... ok
+test otimizar::arc::campos::testes::aliases_publicados_e_layouts_incompativeis_rejeitam_atomicamente ... ok
+test otimizar::arc::campos::testes::phi_e_copia_conservam_todos_os_layouts_candidatos ... ok
+test otimizar::arc::campos::testes::campos_estreitos_preservam_bits_e_limite_antes_da_leitura ... ok
+test otimizar::arc::campos::testes::phi_ancorado_em_laco_conserva_origem_sem_presumir_singleton ... ok
+test otimizar::arc::campos::testes::leitura_ref_retida_antes_da_substituicao_da_aresta ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 249 filtered out; finished in 0.01s
+

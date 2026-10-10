@@ -2,6 +2,11 @@
 
 ## Retomada de 2026-10-10
 
+Campos locais registrados no commit 5d0272e9. Evidência congelada em
+bench/resultados/2026-10-10-campos-locais-windows: 16 execuções,
+80 arquivos AOT e quatro logs, com hashes e blobs das fontes. A base
+abff112f e as modificações durante a execução são explícitas no manifesto.
+
 Preparação ARC do módulo agora escolhe getters/setters auditados para
 GetField/SetField de objetos locais com inicialização completa. Prova mantém
 conjuntos de sítios por cópia/move/Phi, inclusive origem desconhecida nas
