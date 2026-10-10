@@ -1,6 +1,7 @@
 //! Disponibilidade linear de tokens no CFG preparado, com Phi por aresta.
 //! O inventário e os efeitos são contratos semânticos fornecidos pelo produtor.
-//! Esta análise não certifica externs, slots, regiões ou invalidação de borrows.
+//! Barreiras de borrows derivados são conservadoras; externs, aliases de
+//! slots, regiões, keepalive e versões/pins continuam exigindo produtores.
 
 use super::super::{
     cfg::Cfg,
@@ -257,7 +258,9 @@ fn erro_fluxo(f: &Function, pais: &[Option<usize>], b: usize, mensagem: String) 
 /// origem Trivial dos operandos escalares, pelas mesmas regras do produtor.
 ///
 /// Não insere operações, certifica os demais contratos, verifica escopos léxicos,
-/// invalidação de slots/borrows, regiões ou limpeza de estados suspensos.
+/// aliases/invalidação de slots, regiões ou limpeza de estados suspensos.
+/// Rejeita aliases derivados após barreiras e como argumentos de reentrada;
+/// não insere keepalive e depende da classificação/proveniência fornecida.
 /// Essas obrigações continuam necessárias para aceitar o pipeline ARC inteiro.
 ///
 /// # Erros
@@ -781,6 +784,7 @@ fn analisar_tokens(
             })
         })
         .collect();
+    super::emprestimos::verificar(f, classes)?;
     Ok(FluxoTokens { saidas, entradas })
 }
 

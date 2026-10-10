@@ -12,6 +12,7 @@ dartforge_arc_gravar_campo_ref_v1	ref:borrow,i64:scalar,ref:borrow	void:scalar	1
 dartforge_arc_gravar_ref	ref:borrow,i64:scalar,ref:borrow	void:scalar	1	1	normal
 dartforge_arc_inicial	ref:borrow	void:scalar	1	0	normal
 dartforge_arc_ler_campo_escalar_v1	ref:borrow,i64:scalar	i64:scalar	0	0	normal
+dartforge_arc_ler_campo_ref_v1	ref:borrow,i64:scalar	ref:borrow(0)	0	0	normal
 dartforge_arc_lancar_com_rastro_ref_v1	ref:borrow,ref:borrow	void:scalar	1	1	pending
 dartforge_arc_lancar_ref_v1	ref:borrow	void:scalar	1	1	pending
 dartforge_arc_observar_heap_v1	i64:native	u8:scalar	0	0	normal

@@ -2,6 +2,33 @@
 
 ## Retomada de 2026-10-10
 
+ABI dartforge_arc_ler_campo_ref_v1 confere instância viva, índice e marca Ref
+no mapa físico e devolve BorrowArg(0), sem alocação, coleta, retenção ou Dart.
+Null/Smi são Ref válidos; bits iguais a handle num campo escalar são recusados.
+O receiver vivo não basta após substituir sua aresta: prova runtime em
+ARC/tracing com stress demonstra morte do filho sem cópia e sobrevivência
+quando o empréstimo é copiado para Owned antes da substituição. Contrato
+HIR liga leitura borrowed e retenção do retorno Ref Owned, rejeita anotação
+Owned falseada/getter legado sem contrato e preserva tracing atomicamente.
+
+Verificador de tokens agora reconstrói barreiras conservadoras de aliases
+Borrowed(Valor): catálogo runtime fornece invalidação/reentrada, chamadas
+Dart/opacas exigem owner independente do argumento derivado, outras
+operações não provadas são barreiras. União dos caminhos inválidos chega a
+ponto fixo nos laços; Phi confere cada aresta e nova leitura renova seu SSA.
+Recusa empréstimo após substituir campo mesmo com receiver ainda disponível;
+cópia anterior para Owned passa. Mantém prioridade de diagnósticos de owner
+consumido. Fixture de escopo usa getters EnvGet sem reentrada em vez de
+presumir que chamadas desconhecidas sejam aliases puros. Testes cobrem
+junção, volta de laço, releitura, argumento de callback opaco e não publicação
+parcial. Não insere keepalive, não refina regiões/aliases de slots nem prova
+proveniência geral, layouts, versões/pins ou suspensão. Seleção das ABIs no
+lowering e integração no fluxo normal continuam pendentes, somente por
+--memoria=arc. Sem nova prova AOT. Passaram 181 testes runtime (3 ignorados),
+2 testes do catálogo, 41 exemplos runtime, 229 testes do emissor (7 ignorados)
+e 52 exemplos do emissor. Logs target/arc-leitura-ref-runtime-{suite,doc}.log
+e target/arc-leitura-ref-emissor-{suite,doc}.log.
+
 ABIs dartforge_arc_gravar_campo_{escalar,ref}_v1 distinguem valor escalar
 de referência emprestada sem uma flag dinâmica de classificação. Atualizam
 bits, mapa real e barreira via Heap::definir_campo; a operação Ref conserva
@@ -43,11 +70,11 @@ Sem nova prova AOT desta ABI. Passaram 178 testes runtime (3 ignorados),
 target/arc-instancia-runtime-{focado,suite,doc}.log e
 target/arc-instancia-emissor-{focado,suite,doc}.log.
 
-Conjunto publicado b5887c94 em validação na CI 38029919066 e na CI
-Sem toolchain do sistema 38029919046. Linux e mensagens concluídos com
-sucesso; Windows na recarga JIT com estado e macOS no unwind estrangeiro
-na consulta desta retomada. As ABIs de instâncias/gravações acima são
-posteriores a essa fonte e ainda exigem CI própria.
+Conjunto publicado b5887c94 em validação na CI 38029919066: Linux e mensagens
+concluídos com sucesso; Windows nos testes ignorados e macOS nos testes do
+emissor com ignorados na consulta desta retomada. CI Sem toolchain do sistema
+38029919046 concluída com sucesso. ABIs de instâncias/campos e barreiras de
+empréstimos acima são posteriores a essa fonte e ainda exigem CI própria.
 
 Auditoria dos layouts declarados percorre as 15 bibliotecas do SDK da fonte
 usando a mesma etapa de registro de classes da produção, sem baixar seus

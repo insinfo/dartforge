@@ -144,6 +144,48 @@ fn ler_campo_escalar_auditado(heap: &Heap, objeto: i64, indice: i64) -> Result<i
     Ok(bits)
 }
 
+/// Empresta uma referência de campo, sem criar token Owned para o resultado.
+///
+/// Exige instância viva, índice válido e marca Ref no mapa real do heap.
+/// Null/Smi são referências válidas. O resultado depende da aresta do receiver:
+/// manter só o receiver vivo não protege o filho após substituir o campo.
+/// O lowering deve provar layout e limites de empréstimo; antes de uma
+/// invalidação, deve copiar o empréstimo para Owned ou encerrar seu uso.
+/// Não aloca, coleta, retém, invalida outros borrows ou executa Dart.
+/// Não substitui guardas Dart de tipo/late nem certifica versões/pins.
+///
+/// # Panics
+/// Receiver/índice/mapa incompatível; falha interna aborta no limite C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let objeto = dartforge_arc_objeto_owned_v1(123, 40);
+/// let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
+/// dartforge_arc_gravar_campo_ref_v1(objeto, 39, filho);
+/// dartforge_arc_release(filho);
+/// let emprestado = dartforge_arc_ler_campo_ref_v1(objeto, 39);
+/// assert_eq!(emprestado, filho);
+/// dartforge_arc_retain(emprestado); // Copia o empréstimo antes da substituição.
+/// dartforge_arc_gravar_campo_ref_v1(objeto, 39, 0);
+/// dartforge_arc_collect();
+/// assert_eq!(dartforge_arc_observar_heap_v1(emprestado), 3);
+/// dartforge_arc_release(emprestado);
+/// dartforge_arc_release(objeto);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_ler_campo_ref_v1(objeto: i64, indice: i64) -> i64 {
+    HEAP.with(|heap| ler_campo_ref_auditado(&heap.borrow(), objeto, indice)
+        .expect("contrato de leitura Ref ARC violado"))
+}
+
+fn ler_campo_ref_auditado(heap: &Heap, objeto: i64, indice: i64) -> Result<i64, &'static str> {
+    let objeto = heap.objeto(objeto).ok_or("receiver não é objeto vivo")?;
+    let indice = usize::try_from(indice).map_err(|_| "índice negativo")?;
+    let (bits, referencia) = objeto.get(indice).ok_or("índice fora do objeto")?;
+    if !referencia { return Err("campo é escalar"); }
+    Ok(bits)
+}
+
 /// Lança um valor Ref emprestado e o mantém como raiz da exceção pendente.
 ///
 /// Não consome o token do chamador. O protocolo de exceções mantém uma raiz
@@ -854,6 +896,58 @@ mod testes_caixa_double_owned {
                 dartforge_arc_collect();
                 assert_eq!(dartforge_arc_observar_heap_v1(valor), 0);
             }
+            HEAP.with(|h| { h.replace(anterior); });
+        }
+    }
+}
+
+#[cfg(test)]
+mod testes_campo_ref {
+    use super::*;
+
+    #[test]
+    fn leitura_empresta_aresta_e_copia_owned_sobrevive_a_substituicao() {
+        for arc in [false, true] {
+            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+            let objeto = dartforge_arc_objeto_owned_v1(123, 40);
+            let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
+            dartforge_arc_gravar_campo_ref_v1(objeto, 0, 0);
+            dartforge_arc_gravar_campo_ref_v1(objeto, 1, smi::de(42).unwrap());
+            dartforge_arc_gravar_campo_ref_v1(objeto, 39, filho);
+            dartforge_arc_gravar_campo_escalar_v1(objeto, 37, filho);
+            dartforge_arc_release(filho);
+            dartforge_arc_collect();
+            let stats = HEAP.with(|h| h.borrow().stats());
+            assert_eq!(dartforge_arc_ler_campo_ref_v1(objeto, 0), 0);
+            assert_eq!(dartforge_arc_ler_campo_ref_v1(objeto, 1), smi::de(42).unwrap());
+            assert_eq!(dartforge_arc_ler_campo_ref_v1(objeto, 39), filho);
+            assert_eq!(dartforge_arc_observar_heap_v1(filho), 1);
+            HEAP.with(|h| {
+                let h = h.borrow();
+                for (receiver, indice) in [(objeto, 37), (objeto, 38), (objeto, -1), (objeto, 40), (0, 0), (filho, 0)] {
+                    assert!(ler_campo_ref_auditado(&h, receiver, indice).is_err());
+                }
+                assert_eq!(h.stats().allocations, stats.allocations);
+                assert_eq!(h.stats().collections, stats.collections);
+            });
+            dartforge_arc_gravar_campo_ref_v1(objeto, 39, 0);
+            dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observar_heap_v1(filho), 0);
+            let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
+            dartforge_arc_gravar_campo_ref_v1(objeto, 39, filho);
+            dartforge_arc_release(filho);
+            let copia = dartforge_arc_ler_campo_ref_v1(objeto, 39);
+            assert_eq!(copia, filho);
+            dartforge_arc_retain(copia);
+            dartforge_arc_gravar_campo_ref_v1(objeto, 39, 0);
+            dartforge_arc_release(objeto);
+            dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observar_heap_v1(objeto), 0);
+            assert_eq!(dartforge_arc_observar_heap_v1(copia), 3);
+            dartforge_arc_release(copia);
+            dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observar_heap_v1(copia), 0);
             HEAP.with(|h| { h.replace(anterior); });
         }
     }

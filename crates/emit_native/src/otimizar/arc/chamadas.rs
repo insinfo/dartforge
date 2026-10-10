@@ -8,7 +8,8 @@ use std::collections::{HashMap, HashSet};
 ///
 /// Campos privados impedem fabricar um resumo sem verificar o corpo.
 /// Refaça o resumo após mudar a função ou seus contratos. Não certifica
-/// proveniência, invalidação de borrows nem os contratos externos fornecidos.
+/// proveniência, aliases de slots/keepalive nem os contratos externos fornecidos.
+/// Barreiras conservadoras de borrows derivados são conferidas no corpo.
 /// Chamadas diretas no corpo são conservadoramente consideradas falíveis,
 /// assim como a conferência de pilha exigida pelo contexto explícito do
 /// corpo/tabelas. Quadros calculados por vivacidade ainda exigem metadados.
@@ -109,7 +110,10 @@ pub fn verificar_contrato_funcao_dart(
         )
         .collect();
     for b in &f.blocks {
-        if matches!(tabelas.saidas.get(&b.id), Some(SaidaPorExcecao::Lanca | SaidaPorExcecao::Retoma)) {
+        if matches!(
+            tabelas.saidas.get(&b.id),
+            Some(SaidaPorExcecao::Lanca | SaidaPorExcecao::Retoma)
+        ) {
             continue;
         }
         if let Terminator::Return(op) = &b.terminator {

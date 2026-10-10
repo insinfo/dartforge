@@ -17,6 +17,7 @@ mod tokens;
 mod contratos;
 mod locais;
 mod puros;
+mod emprestimos;
 mod layouts;
 mod chamadas;
 mod funcoes;

@@ -119,6 +119,22 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
         .iter()
         .find(|c| c.nome == "dartforge_arc_lancar_ref_v1")
         .unwrap();
+    let leitura_ref = CONTRATOS
+        .iter()
+        .find(|c| c.nome == "dartforge_arc_ler_campo_ref_v1")
+        .unwrap();
+    assert_eq!(
+        leitura_ref.parametros,
+        &[ModoParametro::Borrow, ModoParametro::Scalar]
+    );
+    assert_eq!(leitura_ref.resultado, ModoResultado::BorrowArg(0));
+    assert!(
+        !leitura_ref.pode_falhar
+            && !leitura_ref.chama_dart
+            && !leitura_ref.retencao_persistente
+            && !leitura_ref.invalida_borrows
+    );
+    assert!(!EFEITOS.iter().find(|e| e.0 == leitura_ref.nome).unwrap().1);
     assert_eq!(lancar.parametros, &[ModoParametro::Borrow]);
     assert_eq!(lancar.resultado, ModoResultado::Void);
     assert!(lancar.pode_falhar && lancar.retencao_persistente && lancar.invalida_borrows);

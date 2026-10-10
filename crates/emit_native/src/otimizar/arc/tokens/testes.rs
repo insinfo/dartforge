@@ -198,20 +198,12 @@ fn phi_borrowed_confere_limite_lexico_no_wrapper_completo() {
             vec![
                 (
                     ValueId(6),
-                    Instruction::CallStatic {
-                        symbol: "emprestar".into(),
-                        args: vec![valor(0)],
-                        ret_ty: Type::Ref,
-                    },
+                    Instruction::EnvGet { env: valor(0), index: 0 },
                     Type::Ref,
                 ),
                 (
                     ValueId(7),
-                    Instruction::CallStatic {
-                        symbol: "alias".into(),
-                        args: vec![valor(6)],
-                        ret_ty: Type::Ref,
-                    },
+                    Instruction::EnvGet { env: valor(6), index: 0 },
                     Type::Ref,
                 ),
             ],
@@ -257,7 +249,7 @@ fn phi_borrowed_confere_limite_lexico_no_wrapper_completo() {
             escopo: 0,
         },
     );
-    // Contratos das chamadas Dart são premissas semânticas explícitas do fixture.
+    // Proveniência dos getters é premissa; a leitura não executa Dart.
     let mut p = PlanoTokens::default();
     p.instrucoes.insert(ValueId(6), EfeitoTokens::default());
     p.instrucoes.insert(ValueId(7), EfeitoTokens::default());

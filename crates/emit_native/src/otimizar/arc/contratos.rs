@@ -283,7 +283,8 @@ pub fn produzir_e_verificar_tokens_dart(
 /// versão da função. Quadros locais exigem abertura/fechamento LIFO e pilha
 /// consistente por caminho; IDs importados/aliases de quadros são recusados.
 /// Limites constantes são conferidos quando a capacidade é conhecida. Não insere
-/// RC nem certifica limites dinâmicos, proveniência geral, invalidação ou Finalizable.
+/// RC nem certifica limites dinâmicos, proveniência geral, aliases de slots ou Finalizable.
+/// Rejeita borrows derivados após barreiras conservadoras, sem produzir keepalive.
 ///
 /// # Erros
 /// CFG/SSA inválido, falha de produção, inventário incompleto, token indisponível/não consumido,

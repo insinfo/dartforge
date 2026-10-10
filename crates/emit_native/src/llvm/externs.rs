@@ -159,6 +159,10 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
+        decl: "declare i64 @dartforge_arc_ler_campo_ref_v1(i64, i64) nounwind",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
         decl: "declare i64 @dartforge_arc_box_int_owned_v1(i64) nounwind",
         efeitos: Efeitos { aloca: true, lanca: false, chama_dart: false },
     },
