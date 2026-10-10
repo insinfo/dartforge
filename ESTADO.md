@@ -2,6 +2,11 @@
 
 ## Retomada de 2026-10-10
 
+CI 38034929874 da fonte ed5897e9 terminou com sucesso nos quatro jobs:
+mensagens, Windows, Linux e macOS. Sem toolchain 38034929845 também passou.
+Os registros de artefatos abaixo conservam o estado observado ao congelar
+as provas; a conclusão posterior não certifica as mudanças locais novas.
+
 CI pesada 38031768190 da fonte b5887c94 terminou com sucesso: 26 jobs
 aprovados, incluindo corpus nativo ARC/ARC stress, tracing, SDK da fonte,
 JIT×AOT, determinismo, variantes A1/B0/B1, paridade de análise e custo zero.
