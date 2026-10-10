@@ -21,8 +21,16 @@ target/retoma-quadros-doc.log. YAML e sintaxe POSIX do workflow passaram.
 Workflow local inclui simples/quadros/retoma × O0/O2 × ARC/tracing, com nomes
 de ambiente corrigidos. Execução nativa do novo perfil ainda não foi provada.
 
-CI 38019611633, fonte f460ce72, continua ativa; Linux/macOS ainda compilam.
-Não tratar esse estado como resultado das provas. O escopo completo ARC,
+CI 38019611633, fonte f460ce72: as duas provas Linux terminaram com sucesso.
+Artefato estrangeiro conferido byte a byte: oito stdout foreign-cleanup-ok LF,
+quatro IR e quatro C++, simples/quadros × O0/O2 × ARC/tracing. Rodada usa
+DARTFORGE_ARC_CONFERIR=1, DARTFORGE_ARC_BERCARIO=0 e DARTFORGE_GC_STRESS=1,
+nomes efetivamente consumidos pelo runtime. Morte final do Mint, liberação dos
+dois quadros, identidade C++, destrutores e restauração de raízes passaram.
+Evidência congelada em bench/resultados/2026-10-10-unwind-estrangeiro-linux-ci,
+com SHA-256, fonte, etapa, job e digest Actions. macOS e workflow completo
+continuam ativos; não extrapolar a prova Linux para macOS ou para o perfil
+Retoma com quadros, que foi desenvolvido depois desta fonte. O escopo completo ARC,
 §§27–34, SEH/statepoints, forced unwind, finally, async/cancelamento e gate de
 desempenho continuam pendentes conforme os registros anteriores.
 

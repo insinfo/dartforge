@@ -1,0 +1,111 @@
+{
+  "fonte": "f460ce72e3c570bfb9fe4cd192141ede8937d966",
+  "ci": 38019611633,
+  "url": "https://github.com/insinfo/dartforge/actions/runs/38019611633",
+  "job": 114117516525,
+  "etapa": {
+    "completedAt": "2026-10-10T03:15:42Z",
+    "conclusion": "success",
+    "name": "Unwind estrangeiro com owners ARC e heap real",
+    "number": 11,
+    "startedAt": "2026-10-10T03:15:39Z",
+    "status": "completed"
+  },
+  "estado_workflow_observado": "in_progress",
+  "artefato": {
+    "nome": "prova-unwind-estrangeiro-ubuntu-latest",
+    "id": 11657069341,
+    "digest": "sha256:7bd8905c437fca824be38f3f9cf9b4c279394bdbbd031c228bc411e1433b8baf"
+  },
+  "ambiente_execucao": {
+    "DARTFORGE_ARC_CONFERIR": "1",
+    "DARTFORGE_ARC_BERCARIO": "0",
+    "DARTFORGE_GC_STRESS": "1"
+  },
+  "ambiente_geracao": {
+    "DARTFORGE_EFEITOS": "conferir"
+  },
+  "execucoes": 8,
+  "arquivos": [
+    {
+      "arquivo": "prova-quadros-O0-arc.stdout",
+      "bytes": 19,
+      "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+    },
+    {
+      "arquivo": "prova-quadros-O0-tracing.stdout",
+      "bytes": 19,
+      "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+    },
+    {
+      "arquivo": "prova-quadros-O0.cpp",
+      "bytes": 2859,
+      "sha256": "fb15c1e898cef69cc04b5b48a39f7a5d6dd9d0073c7832d776c89eb1cd2c3bfc"
+    },
+    {
+      "arquivo": "prova-quadros-O0.ll",
+      "bytes": 44417,
+      "sha256": "df75ea93e98231e17db16e1d1ce927caaf2db1d3977e4b6b9c737633a38ea2f0"
+    },
+    {
+      "arquivo": "prova-quadros-O2-arc.stdout",
+      "bytes": 19,
+      "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+    },
+    {
+      "arquivo": "prova-quadros-O2-tracing.stdout",
+      "bytes": 19,
+      "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+    },
+    {
+      "arquivo": "prova-quadros-O2.cpp",
+      "bytes": 2859,
+      "sha256": "fb15c1e898cef69cc04b5b48a39f7a5d6dd9d0073c7832d776c89eb1cd2c3bfc"
+    },
+    {
+      "arquivo": "prova-quadros-O2.ll",
+      "bytes": 44417,
+      "sha256": "df75ea93e98231e17db16e1d1ce927caaf2db1d3977e4b6b9c737633a38ea2f0"
+    },
+    {
+      "arquivo": "prova-simples-O0-arc.stdout",
+      "bytes": 19,
+      "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+    },
+    {
+      "arquivo": "prova-simples-O0-tracing.stdout",
+      "bytes": 19,
+      "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+    },
+    {
+      "arquivo": "prova-simples-O0.cpp",
+      "bytes": 2859,
+      "sha256": "fb15c1e898cef69cc04b5b48a39f7a5d6dd9d0073c7832d776c89eb1cd2c3bfc"
+    },
+    {
+      "arquivo": "prova-simples-O0.ll",
+      "bytes": 42933,
+      "sha256": "8045b42fcd63f03e6abe729fef3f9ef9460fcd560d20841c7883ad081f459489"
+    },
+    {
+      "arquivo": "prova-simples-O2-arc.stdout",
+      "bytes": 19,
+      "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+    },
+    {
+      "arquivo": "prova-simples-O2-tracing.stdout",
+      "bytes": 19,
+      "sha256": "561a175b8c275bf82b3264f146beb79b6918d4a509f1fde29d5ee42e5efdfe61"
+    },
+    {
+      "arquivo": "prova-simples-O2.cpp",
+      "bytes": 2859,
+      "sha256": "fb15c1e898cef69cc04b5b48a39f7a5d6dd9d0073c7832d776c89eb1cd2c3bfc"
+    },
+    {
+      "arquivo": "prova-simples-O2.ll",
+      "bytes": 42933,
+      "sha256": "8045b42fcd63f03e6abe729fef3f9ef9460fcd560d20841c7883ad081f459489"
+    }
+  ]
+}
