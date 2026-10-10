@@ -61,17 +61,22 @@ pub struct ResultadoEscape {
 /// # Ok::<(), String>(())
 /// ```
 pub fn calcular(f: &Function, a: &AnaliseHir) -> Result<ResultadoEscape, String> {
-    if !a.dependencias_corpos.is_empty() || !a.dependencias_tabelas.is_empty() {
+    if !a.dependencias_corpos.is_empty()
+        || !a.dependencias_tabelas.is_empty()
+        || a.premissas_modulo.is_some()
+    {
         return Err("escape ARC: validar dependências pelo módulo".into());
     }
     calcular_validado(f, a)
 }
 
 /// Confere corpos e tabelas dos callees usados para aliases/campos, antes do escape.
-/// Não valida gerações JIT, layouts/pins ou resumos SDK ainda não implementados.
+/// Confere modo de memória, sítios do chamador e layouts locais quando a
+/// solução veio do módulo. Não valida pins, gerações JIT ou resumos SDK.
 ///
 /// # Erros
-/// Corpo/callee ausente, duplicado, alterado ou com tabela de emissão modificada.
+/// Corpo/callee ausente, duplicado, alterado, tabela de emissão modificada
+/// ou premissas locais de modo/sítios/layouts diferentes.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, otimizar::arc::analise::{hir::*, escape::*}};
@@ -88,6 +93,11 @@ pub fn calcular_no_modulo(
     simbolo: &str,
     a: &AnaliseHir,
 ) -> Result<ResultadoEscape, String> {
+    if let Some(assinatura) = a.premissas_modulo
+        && assinatura != super::modulo::assinatura_premissas(m, simbolo)
+    {
+        return Err("escape ARC: modo, sítios ou layouts mudaram".into());
+    }
     let mut indice = std::collections::HashMap::new();
     let posicoes: std::collections::HashMap<_, _> = m
         .functions
@@ -152,7 +162,7 @@ fn calcular_validado(f: &Function, a: &AnaliseHir) -> Result<ResultadoEscape, St
             }
         }
     }
-    for id in &a.desconhecidos {
+    for id in a.desconhecidos() {
         publicar(
             CausaEscape::OperacaoOpaca(id.0),
             ConjuntoPontos::desconhecido(a.limite),
@@ -176,7 +186,7 @@ fn alcance(a: &AnaliseHir, raizes: &ConjuntoPontos) -> ConjuntoPontos {
             return ConjuntoPontos::desconhecido(a.limite);
         };
         for campo in campos {
-            let Some(destinos) = a.pontos.campo(&no, campo) else {
+            let Some(destinos) = a.pontos().campo(&no, campo) else {
                 return ConjuntoPontos::desconhecido(a.limite);
             };
             let Some(nos) = destinos.nos() else {

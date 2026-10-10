@@ -1943,6 +1943,14 @@ na guarda local de consumo. Escape/retenção continuam desconhecidos; nenhuma
 contagem ou política é alterada por essa cobertura. Propagação de escrita
 por chamadas e caminhos implícitos do SDK ainda precisa de contrato completo.
 
+`AnaliseHir` oferece consultas imutáveis de points-to e operações opacas.
+Solução produzida pelo módulo só pode ser consumida com conferência do modo
+de memória, dos sítios nominais do chamador, dos layouts locais e das
+dependências de corpos/tabelas. Ordenação nominal das premissas evita
+invalidação apenas por reconstrução dos HashMaps em ordem diferente.
+Essa guarda local não substitui validação independente do certificado,
+esquemas exportados, pins ou geração de recarga.
+
 Especialização cria versões internas por política/região quando reduzir
 trabalho estimado e respeitar limite de código. Resumos podem ser paramétricos
 sem clonar todas as funções. Entradas públicas, dispatch aberto e FFI mantêm

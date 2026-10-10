@@ -2,6 +2,28 @@
 
 ## Retomada de 2026-10-10
 
+AnaliseHir agora expõe points-to e operações opacas apenas por consultas
+imutáveis, sem permitir substituir a solução ou apagar evidência de efeitos.
+Doctest compile_fail confere que desconhecidos().clear() não é permitido.
+Solução produzida pelo módulo guarda também modo de memória, sítios nominais
+do chamador e layouts locais; consumo de escape exige o módulo mesmo quando
+não há chamadas. Mudança Ref→I64 no layout, troca da origem nominal ou mudança
+para tracing invalida consumo sem alterar o corpo HIR. Premissas são ordenadas
+nominalmente: reconstruir HashMaps em ordem diferente não causa invalidação.
+Guarda de layouts inclui conservadoramente todos os layouts do módulo; não
+é cache SDK, versão de pins ou certificado independente. Fatos fornecidos
+manualmente à entrada analisar continuam premissas explícitas, não certificados.
+Passaram 292 testes do emissor (sete ignorados), 89 exemplos públicos e um
+exemplo de rejeição na compilação. Logs target/arc-premissas-modulo-{suite,doc}.log;
+29 testes focados iniciais também passaram antes de ampliar a regressão de
+premissas. Rustfmt dos três arquivos de análise e git diff --check passaram.
+Verificador independente, exportação SDK, vidas/observadores, seleção de
+política e §§27–34 completos permanecem pendentes. Não altera ativação ARC:
+somente --memoria=arc; tracing permanece padrão. Gate ARC/A0 não aprovado.
+CI 38057171425 da revisão publicada b0ee6645 continua em execução nos três
+alvos; mensagens passaram. Esta alteração permanece local para preservar a
+rodada em execução. Não considerar a CI ou o objetivo integral concluídos.
+
 ResumoHeapArc agora separa aliases normais de CamposHeapArc, com cobertura
 positiva inicial para preservação de campos: constantes primitivas/null,
 Phis e saídas de representação exata, sem chamada/store/alocação/throw.

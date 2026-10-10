@@ -153,6 +153,7 @@ pub fn analisar_no_modulo(
         );
     }
     let mut analise = analisar_com_resumos(f, &fatos, limite, &resumos)?;
+    analise.premissas_modulo = Some(assinatura_premissas(m, simbolo));
     // Guarda conservadora de todo o alcance consultado, inclusive corpos
     // transitivos. Não é cache persistente nem dependência de geração JIT.
     let posicoes: HashMap<_, _> = m
@@ -171,6 +172,20 @@ pub fn analisar_no_modulo(
             .insert(s.clone(), assinatura_tabela(m, indice));
     }
     Ok(Some(analise))
+}
+
+// Guarda local dos fatos lidos; ordenação nominal evita depender da ordem
+// de inserção/capacidade dos HashMaps. Layouts não usados também invalidam,
+// conservadoramente, até termos dependências finas/versionadas de esquema.
+pub(super) fn assinatura_premissas(m: &Module, simbolo: &str) -> blake3::Hash {
+    let layouts: std::collections::BTreeMap<_, _> = m.layouts_campos_arc.iter().collect();
+    let sitios = m.sitios_arc.get(simbolo).map(|origens| {
+        origens
+            .iter()
+            .map(|(v, sitio)| (v.0, sitio))
+            .collect::<std::collections::BTreeMap<_, _>>()
+    });
+    blake3::hash(format!("{:?}", (m.memoria_arc, simbolo, layouts, sitios)).as_bytes())
 }
 
 #[cfg(test)]
@@ -414,7 +429,7 @@ mod testes {
         // Devolver o argumento não garante que o campo continue null:
         // o callee acima escreve uma autoaresta antes do retorno normal.
         assert!(a.valor(ValueId(2)).unwrap().nos().is_none());
-        assert_eq!(a.desconhecidos, vec![ValueId(1)]);
+        assert_eq!(a.desconhecidos(), &[ValueId(1)]);
         assert!(super::super::escape::calcular(&m.functions[0], &a).is_err());
         let r = super::super::escape::calcular_no_modulo(&m, "caller", &a).unwrap();
         assert!(
@@ -484,7 +499,36 @@ mod testes {
         let a = analisar_no_modulo(&m, "criar", 8).unwrap().unwrap();
         assert_eq!(a.valor(ValueId(0)), a.valor(ValueId(2)));
         assert_eq!(a.valor(ValueId(0)).unwrap().nos().unwrap().len(), 1);
-        assert!(a.desconhecidos.is_empty());
+        assert!(a.desconhecidos().is_empty());
+        assert!(super::super::escape::calcular(&m.functions[0], &a).is_err());
+        assert!(super::super::escape::calcular_no_modulo(&m, "criar", &a).is_ok());
+        m.layouts_campos_arc.insert(1, vec![Type::I64]);
+        assert!(super::super::escape::calcular_no_modulo(&m, "criar", &a).is_err());
+        m.layouts_campos_arc.insert(1, vec![Type::Ref]);
+        let origem = m.sitios_arc["criar"][&ValueId(0)].clone();
+        m.sitios_arc
+            .get_mut("criar")
+            .unwrap()
+            .get_mut(&ValueId(0))
+            .unwrap()
+            .origem += 1;
+        assert!(super::super::escape::calcular_no_modulo(&m, "criar", &a).is_err());
+        m.sitios_arc
+            .get_mut("criar")
+            .unwrap()
+            .insert(ValueId(0), origem);
+        m.memoria_arc = false;
+        assert!(super::super::escape::calcular_no_modulo(&m, "criar", &a).is_err());
+        m.memoria_arc = true;
+        assert!(super::super::escape::calcular_no_modulo(&m, "criar", &a).is_ok());
+        // Reconstruir HashMaps em outra ordem não muda as premissas nominais.
+        m.layouts_campos_arc.insert(2, vec![Type::F64]);
+        m.layouts_campos_arc.insert(3, vec![Type::I1]);
+        let ordenada = analisar_no_modulo(&m, "criar", 8).unwrap().unwrap();
+        let mut layouts: Vec<_> = m.layouts_campos_arc.drain().collect();
+        layouts.sort_by_key(|(id, _)| std::cmp::Reverse(*id));
+        m.layouts_campos_arc.extend(layouts);
+        assert!(super::super::escape::calcular_no_modulo(&m, "criar", &ordenada).is_ok());
         // ABI/contagem alteradas invalidam o reconhecimento, sem reinterpretar bits.
         if let Instruction::CallRuntime { args, .. } =
             &mut m.functions[0].blocks[0].instructions[0].1

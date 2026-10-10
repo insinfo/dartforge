@@ -41,7 +41,7 @@ pub struct FatosHir {
     pub acessos: HashMap<ValueId, CampoArc>,
 }
 
-/// Resultado local; IDs desconhecidos identificam operações sem transferência precisa.
+/// Resultado local imutável; IDs desconhecidos identificam operações sem transferência precisa.
 /// Não certifica cobertura completa do programa, escape, observadores ou singleton.
 ///
 /// ```
@@ -49,24 +49,63 @@ pub struct FatosHir {
 /// let f = Function { symbol: "f".into(), name: "f".into(), depuracao: None,
 /// params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
 /// id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] };
-/// assert!(analisar(&f, &FatosHir::default(), 8)?.desconhecidos.is_empty());
+/// assert!(analisar(&f, &FatosHir::default(), 8)?.desconhecidos().is_empty());
 /// # Ok::<(), String>(())
 /// ```
 #[derive(Debug)]
 pub struct AnaliseHir {
     /// Solução do sistema extraído, com desconhecimento explícito.
-    pub pontos: ResultadoPointsTo,
+    pontos: ResultadoPointsTo,
     /// Operações sem contrato de heap preciso; não confundir com ausência de efeito.
-    pub desconhecidos: Vec<ValueId>,
+    desconhecidos: Vec<ValueId>,
     ids: HashMap<ValueId, usize>,
     pub(crate) corpo: blake3::Hash,
     pub(crate) dependencias_corpos: HashMap<String, blake3::Hash>,
     pub(crate) dependencias_tabelas: HashMap<String, blake3::Hash>,
+    pub(crate) premissas_modulo: Option<blake3::Hash>,
     pub(crate) limite: usize,
     pub(crate) esquemas: HashMap<NoAbstrato, BTreeSet<CampoArc>>,
 }
 
 impl AnaliseHir {
+    /// Consulta a solução sem permitir substituir ou refinar conjuntos.
+    ///
+    /// ```
+    /// use dartforge_emit_native::{hir::*, otimizar::arc::analise::hir::*};
+    /// let f = Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+    /// params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
+    /// id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] };
+    /// let a = analisar(&f, &FatosHir::default(), 8)?;
+    /// assert!(a.pontos().variavel(0).unwrap().nos().unwrap().is_empty());
+    /// # Ok::<(), String>(())
+    /// ```
+    pub fn pontos(&self) -> &ResultadoPointsTo {
+        &self.pontos
+    }
+
+    /// Consulta operações opacas sem permitir apagar evidência de efeitos.
+    ///
+    /// ```
+    /// use dartforge_emit_native::{hir::*, otimizar::arc::analise::hir::*};
+    /// let f = Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+    /// params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
+    /// id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] };
+    /// assert!(analisar(&f, &FatosHir::default(), 8)?.desconhecidos().is_empty());
+    /// # Ok::<(), String>(())
+    /// ```
+    ///
+    /// ```compile_fail
+    /// use dartforge_emit_native::{hir::*, otimizar::arc::analise::hir::*};
+    /// let f = Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+    /// params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
+    /// id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] };
+    /// let mut a = analisar(&f, &FatosHir::default(), 8).unwrap();
+    /// a.desconhecidos().clear();
+    /// ```
+    pub fn desconhecidos(&self) -> &[ValueId] {
+        &self.desconhecidos
+    }
+
     /// Consulta aliases de um valor SSA, ou None se o ID não existe.
     ///
     /// ```
@@ -359,6 +398,7 @@ pub(crate) fn analisar_com_resumos(
         corpo: assinatura_corpo(f),
         dependencias_corpos,
         dependencias_tabelas: HashMap::new(),
+        premissas_modulo: None,
         limite,
         esquemas,
     })
