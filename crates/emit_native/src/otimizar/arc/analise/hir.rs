@@ -41,6 +41,28 @@ pub struct FatosHir {
     pub acessos: HashMap<ValueId, CampoArc>,
 }
 
+// Espelha somente os slots físicos de referência das unidades sintéticas.
+// None é um slot escalar/endereço, não uma referência null comprovada.
+pub(super) fn capturas_sinteticas(
+    i: &Instruction,
+    tipos: &HashMap<ValueId, Type>,
+) -> Option<(&'static str, Vec<Option<Operand>>)> {
+    let referencia =
+        |o: &Operand| super::resumos::argumento_exato(o, Type::Ref, tipos).then(|| o.clone());
+    match i {
+        Instruction::AllocCell { value } => Some(("celula:v1", vec![referencia(value)])),
+        Instruction::AllocEnv { values } if !values.is_empty() => {
+            Some(("ambiente:v1", values.iter().map(referencia).collect()))
+        }
+        Instruction::AllocClosure { env, .. } | Instruction::AllocClosureTipada { env, .. }
+            if referencia(env).is_some() =>
+        {
+            Some(("closure:v1", vec![None, referencia(env), None, None]))
+        }
+        _ => None,
+    }
+}
+
 /// Resultado local imutável; IDs desconhecidos identificam operações sem transferência precisa.
 /// Não certifica cobertura completa do programa, escape, observadores ou singleton.
 ///
@@ -174,11 +196,23 @@ pub(crate) fn analisar_com_resumos(
         .map(|(v, i, _)| (*v, i))
         .collect();
     let constantes = constantes_inteiras(f);
+    let tipos: HashMap<_, _> = f
+        .params
+        .iter()
+        .map(|(v, _, t)| (*v, *t))
+        .chain(
+            f.blocks
+                .iter()
+                .flat_map(|b| &b.instructions)
+                .map(|(v, _, t)| (*v, *t)),
+        )
+        .collect();
     for (v, origem) in &fatos.objetos {
         let quantidade = match instrucoes.get(v) {
             Some(Instruction::AllocObject { fields, .. }) => fields.len(),
-            Some(i) => fabrica_zerada(i, &constantes)
-                .map(|(_, n)| n)
+            Some(i) => capturas_sinteticas(i, &tipos)
+                .map(|(_, campos)| campos.len())
+                .or_else(|| fabrica_zerada(i, &constantes).map(|(_, n)| n))
                 .ok_or_else(|| format!("points-to HIR: origem obsoleta v{}", v.0))?,
             None => return Err(format!("points-to HIR: origem obsoleta v{}", v.0)),
         };
@@ -346,10 +380,22 @@ pub(crate) fn analisar_com_resumos(
                     no: origem.no.clone(),
                 });
                 let iniciais = match i {
-                    Instruction::AllocObject { fields, .. } => fields.clone(),
-                    _ => vec![Operand::Constant(Constant::Null); origem.campos.len()],
+                    Instruction::AllocObject { fields, .. } => {
+                        fields.iter().cloned().map(Some).collect()
+                    }
+                    _ => capturas_sinteticas(i, &tipos)
+                        .map(|(_, campos)| campos)
+                        .unwrap_or_else(|| {
+                            vec![Some(Operand::Constant(Constant::Null)); origem.campos.len()]
+                        }),
                 };
                 for (o, campo) in iniciais.iter().zip(&origem.campos) {
+                    let Some(o) = o else {
+                        rs.push(Restricao::DesconhecerCampo {
+                            campo: campo.clone(),
+                        });
+                        continue;
+                    };
                     rs.push(Restricao::Gravar {
                         objeto: destino,
                         campo: campo.clone(),
@@ -357,6 +403,7 @@ pub(crate) fn analisar_com_resumos(
                     });
                 }
             }
+            Instruction::AllocEnv { values } if values.is_empty() && *ty == Type::Ref => {}
             Instruction::CallStatic {
                 symbol,
                 args,

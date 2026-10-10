@@ -364,6 +364,10 @@ pub(super) fn extrair_com_origens<'a>(
                 novo_nulo = true;
                 Some(BTreeSet::new())
             }
+            Instruction::AllocEnv { values } if values.is_empty() && *t == Type::Ref => {
+                novo_nulo = true;
+                Some(BTreeSet::new())
+            }
             Instruction::ArcCopy { value } | Instruction::ArcMove { value }
                 if *t == Type::Ref && argumento_exato(value, Type::Ref, &tipos) =>
             {
@@ -585,6 +589,22 @@ pub(super) fn extrair_com_origens<'a>(
         resultado.marcar_opacas();
     }
     for (v, i, t) in f.blocks.iter().flat_map(|b| &b.instructions) {
+        if *t == Type::Ref
+            && origens.contains_key(v)
+            && let Some((_, campos)) = super::hir::capturas_sinteticas(i, &tipos)
+        {
+            for (indice, value) in campos.into_iter().enumerate() {
+                if let Some(value) = value {
+                    incluir_escrita(
+                        &mut resultado,
+                        operando(&Operand::Val(*v), &aliases),
+                        indice,
+                        operando(&value, &aliases),
+                        limite,
+                    );
+                }
+            }
+        }
         match i {
             Instruction::AllocObject { fields, .. }
                 if *t == Type::Ref && origens.contains_key(v) =>

@@ -120,6 +120,17 @@ pub(super) fn fatos_no_modulo(m: &Module, f: &Function) -> Result<FatosHir, Stri
         .map(|(v, i, _)| (*v, i))
         .collect();
     let constantes = super::hir::constantes_inteiras(f);
+    let tipos: HashMap<_, _> = f
+        .params
+        .iter()
+        .map(|(v, _, t)| (*v, *t))
+        .chain(
+            f.blocks
+                .iter()
+                .flat_map(|b| &b.instructions)
+                .map(|(v, _, t)| (*v, *t)),
+        )
+        .collect();
     let mut fatos = FatosHir::default();
     let mut classes = HashMap::new();
     if let Some(sitios) = m.sitios_arc.get(&f.symbol) {
@@ -129,6 +140,24 @@ pub(super) fn fatos_no_modulo(m: &Module, f: &Function) -> Result<FatosHir, Stri
                 .ok_or_else(|| format!("points-to: sítio obsoleto v{}", v.0))?;
             if !super::origens::alocacao(i) {
                 return Err(format!("points-to: sítio não aloca v{}", v.0));
+            }
+            if let Some((papel, capturas)) = super::hir::capturas_sinteticas(i, &tipos) {
+                if tipos[v] != Type::Ref {
+                    return Err(format!("points-to: unidade sintética não Ref v{}", v.0));
+                }
+                let no = NoAbstrato::UnidadeSintetica {
+                    sitio: sitio.clone(),
+                    contexto: String::new(),
+                    papel: papel.into(),
+                };
+                let campos = (0..capturas.len())
+                    .map(|posicao| CampoArc {
+                        layout: format!("{papel}:{sitio:?}"),
+                        posicao: posicao as u32,
+                    })
+                    .collect();
+                fatos.objetos.insert(*v, OrigemObjeto { no, campos });
+                continue;
             }
             let (classe, quantidade) = match i {
                 Instruction::AllocObject { class_id, fields } => (*class_id, fields.len()),
@@ -195,6 +224,151 @@ pub(super) fn assinatura_premissas(m: &Module, simbolo: &str) -> blake3::Hash {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn capturas_sinteticas_compostas_seguem_slots_fisicos_e_ambiente_vazio_e_null() {
+        use super::super::grafo::construir_local_no_modulo;
+        use std::collections::BTreeSet;
+        for variante in 0..3 {
+            let mut m = Module::new();
+            m.memoria_arc = true;
+            m.layouts_campos_arc.insert(1, vec![]);
+            let encaminhar = |nome: &str, alvo: &str| Function {
+                symbol: nome.into(),
+                name: nome.into(),
+                depuracao: None,
+                params: vec![(ValueId(0), "captura".into(), Type::Ref)],
+                return_ty: Type::Ref,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(
+                        ValueId(1),
+                        Instruction::CallStatic {
+                            symbol: alvo.into(),
+                            args: vec![Operand::Val(ValueId(0))],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+                }],
+            };
+            let mut criar = encaminhar("criar", "externo");
+            let env = Operand::Val(ValueId(if variante == 2 { 1 } else { 2 }));
+            criar.blocks[0].instructions = vec![
+                (
+                    ValueId(1),
+                    Instruction::AllocCell {
+                        value: Operand::Val(ValueId(0)),
+                    },
+                    Type::Ref,
+                ),
+                (
+                    ValueId(2),
+                    Instruction::AllocEnv {
+                        values: vec![
+                            Operand::Constant(Constant::Int(41)),
+                            Operand::Val(ValueId(1)),
+                        ],
+                    },
+                    Type::Ref,
+                ),
+                (
+                    ValueId(3),
+                    if variante == 0 {
+                        Instruction::AllocClosure {
+                            code_symbol: "entrada".into(),
+                            env,
+                        }
+                    } else {
+                        Instruction::AllocClosureTipada {
+                            code_symbol: "entrada".into(),
+                            env,
+                            tipado: "corpo".into(),
+                            abi: 7,
+                            direto: variante == 2,
+                        }
+                    },
+                    Type::Ref,
+                ),
+                (
+                    ValueId(4),
+                    Instruction::AllocEnv { values: vec![] },
+                    Type::Ref,
+                ),
+            ];
+            criar.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(3))));
+            let mut caller = encaminhar("caller", "wrapper");
+            caller.params.clear();
+            caller.blocks[0].instructions.insert(
+                0,
+                (
+                    ValueId(0),
+                    Instruction::AllocObject {
+                        class_id: 1,
+                        fields: vec![],
+                    },
+                    Type::Ref,
+                ),
+            );
+            m.functions = vec![caller, encaminhar("wrapper", "criar"), criar];
+            super::super::origens::registrar(&mut m, 0, true);
+            let unidade = |id, papel: &str| NoAbstrato::UnidadeSintetica {
+                sitio: m.sitios_arc["criar"][&ValueId(id)].clone(),
+                contexto: String::new(),
+                papel: papel.into(),
+            };
+            let celula = unidade(1, "celula:v1");
+            let ambiente = unidade(2, "ambiente:v1");
+            let closure = unidade(3, "closure:v1");
+            let filho = NoAbstrato::Alocacao {
+                sitio: m.sitios_arc["caller"][&ValueId(0)].clone(),
+                contexto: String::new(),
+            };
+            for reversa in [false, true] {
+                if reversa {
+                    m.functions.reverse();
+                }
+                let g = construir_local_no_modulo(&m, "caller", 8).unwrap().unwrap();
+                g.conferir_no_modulo(&m, "caller").unwrap();
+                assert_eq!(g.arestas().len(), 4);
+                assert_eq!(g.arestas()[&celula], BTreeSet::from([filho.clone()]));
+                assert_eq!(g.arestas()[&ambiente], BTreeSet::from([celula.clone()]));
+                assert_eq!(
+                    g.arestas()[&closure],
+                    BTreeSet::from([if variante == 2 {
+                        celula.clone()
+                    } else {
+                        ambiente.clone()
+                    }])
+                );
+                assert!(g.opaco());
+                let a = analisar_no_modulo(&m, "criar", 8).unwrap().unwrap();
+                assert!(a.valor(ValueId(4)).unwrap().nos().unwrap().is_empty());
+                assert!(!a.esquemas.keys().any(|n| matches!(n,
+                    NoAbstrato::UnidadeSintetica { sitio, .. }
+                        if sitio == &m.sitios_arc["criar"][&ValueId(4)])));
+            }
+            let g = construir_local_no_modulo(&m, "caller", 8).unwrap().unwrap();
+            let criar = m
+                .functions
+                .iter_mut()
+                .find(|f| f.symbol == "criar")
+                .unwrap();
+            if let Instruction::AllocCell { value } = &mut criar.blocks[0].instructions[0].1 {
+                *value = Operand::Constant(Constant::Int(41));
+            }
+            assert!(g.conferir_no_modulo(&m, "caller").is_err());
+            let g = construir_local_no_modulo(&m, "caller", 8).unwrap().unwrap();
+            assert!(g.arestas()[&celula].is_empty());
+            m.memoria_arc = false;
+            assert!(
+                construir_local_no_modulo(&m, "caller", 8)
+                    .unwrap()
+                    .is_none()
+            );
+        }
+    }
 
     #[test]
     fn inicializador_por_wrapper_preserva_aresta_sem_fechar_efeitos_externos() {
