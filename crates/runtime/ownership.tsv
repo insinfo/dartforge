@@ -1,6 +1,7 @@
 # Catálogo em migração: ARC e publicação de raízes/globais; ausência NÃO é borrow.
 # nome<TAB>parâmetros separados por vírgula<TAB>resultado<TAB>retenção persistente<TAB>invalida borrows<TAB>saída normal/pending
 # Consume vale nas duas saídas; consume-success/error é específico de aresta.
+# pending-dart declara reentrada Dart e exige invalidação de empréstimos.
 dartforge_arc_box_double_owned_v1	f64:scalar	ref:owned	0	1	normal
 dartforge_arc_box_int_owned_v1	i64:scalar	ref:owned	0	1	normal
 dartforge_arc_collect	-	void:scalar	0	1	normal
@@ -31,3 +32,6 @@ dartforge_exception_pending	-	u8:scalar	0	0	normal
 dartforge_exception_clear	-	void:scalar	0	1	normal
 dartforge_nativo_DartForge_record_numFields	ref:borrow	i64:scalar	0	0	pending
 dartforge_nativo_DartForge_record_shape	ref:borrow	i64:scalar	0	0	pending
+dartforge_unbox_int	ref:borrow	i64:scalar	0	1	pending-dart
+dartforge_unbox_double	ref:borrow	f64:scalar	0	1	pending-dart
+dartforge_unbox_bool	ref:borrow	u8:scalar	0	1	pending-dart

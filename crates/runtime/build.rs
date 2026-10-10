@@ -234,6 +234,7 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
             ("i64:native", false) => ("i64", "ModoParametro::Native"),
             ("ref:owned", true) => ("i64", "ModoResultado::Owned"),
             ("i64:scalar", true) => ("i64", "ModoResultado::ScalarI64"),
+            ("f64:scalar", true) => ("f64", "ModoResultado::ScalarF64"),
             ("i8:scalar", true) => ("i8", "ModoResultado::ScalarI8"),
             ("u8:scalar", true) => ("u8", "ModoResultado::ScalarI8"),
             ("void:scalar", true) => ("()", "ModoResultado::Void"),
@@ -260,13 +261,13 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
         let efeito: Vec<_> = efeito.split('\t').collect();
         let pode_falhar = match c[5] {
             "normal" => false,
-            "pending" => true,
+            "pending" | "pending-dart" => true,
             _ => panic!("ownership.tsv: saída desconhecida {}", c[5]),
         };
         assert!(
             efeito.len() == 4
                 && efeito[2] == if pode_falhar { "1" } else { "0" }
-                && efeito[3] == "0",
+                && efeito[3] == if c[5] == "pending-dart" { "1" } else { "0" },
             "ownership.tsv: saídas incompatíveis com efeitos de {}",
             c[0]
         );
@@ -301,11 +302,13 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
             "1" => true,
             _ => panic!("ownership.tsv: marca inválida {s}"),
         };
+        let chama_dart = c[5] == "pending-dart";
+        assert!(!chama_dart || marca(c[4]), "ownership.tsv: reentrada Dart exige invalidação de borrows");
         assert!(
             linhas
                 .insert(
                     c[0],
-                    (parametros, resultado, marca(c[3]), marca(c[4]), pode_falhar)
+                    (parametros, resultado, marca(c[3]), marca(c[4]), pode_falhar, chama_dart)
                 )
                 .is_none(),
             "ownership.tsv: símbolo duplicado {}",
@@ -325,6 +328,9 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
                     | "dartforge_nativo_DartForge_record_shape"
                     | "dartforge_print_handle"
                     | "dartforge_exception_pending"
+                    | "dartforge_unbox_int"
+                    | "dartforge_unbox_double"
+                    | "dartforge_unbox_bool"
             )
     }) {
         assert!(
@@ -349,7 +355,7 @@ pub enum ModoParametro { Borrow, Consume, ConsumeSuccess, ConsumeError, Scalar, 
 /// assert_ne!(ModoResultado::Owned, ModoResultado::Void);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModoResultado { Owned, BorrowArg(usize), ScalarI64, ScalarI8, Void }
+pub enum ModoResultado { Owned, BorrowArg(usize), ScalarI64, ScalarF64, ScalarI8, Void }
 /// Contrato auditado, com resultado disponível somente no sucesso.
 ///
 /// ```
@@ -371,21 +377,23 @@ pub struct Contrato {
     pub invalida_borrows: bool,
     /// Exige saída de exceção pendente preparada no CFG.
     pub pode_falhar: bool,
+    /// Pode reentrar em código Dart; exige invalidação de empréstimos.
+    pub chama_dart: bool,
 }
 /// Catálogo parcial auditado; nomes ausentes continuam sem contrato.
 pub const CONTRATOS: &[Contrato] = &[
 "#,
     );
-    for (nome, (params, (_, resultado), retencao, invalida, pode_falhar)) in &linhas {
+    for (nome, (params, (_, resultado), retencao, invalida, pode_falhar, chama_dart)) in &linhas {
         let modos = params
             .iter()
             .map(|(_, modo)| modo.as_str())
             .collect::<Vec<_>>()
             .join(", ");
-        saida.push_str(&format!("Contrato {{ nome: {nome:?}, parametros: &[{modos}], resultado: {resultado}, retencao_persistente: {retencao}, invalida_borrows: {invalida}, pode_falhar: {pode_falhar} }},\n"));
+        saida.push_str(&format!("Contrato {{ nome: {nome:?}, parametros: &[{modos}], resultado: {resultado}, retencao_persistente: {retencao}, invalida_borrows: {invalida}, pode_falhar: {pode_falhar}, chama_dart: {chama_dart} }},\n"));
     }
     saida.push_str("];\n");
-    for (nome, (params, (ret, _), _, _, _)) in &linhas {
+    for (nome, (params, (ret, _), _, _, _, _)) in &linhas {
         let tipos = params
             .iter()
             .map(|(ty, _)| *ty)
@@ -439,6 +447,15 @@ mod testes_ownership {
             let gerado = tabela_de_ownership(&raiz, &nomes);
             assert!(gerado.contains("pode_falhar: true"));
         }
+        std::fs::write(raiz.join("efeitos.tsv"), "dartforge_arc_retain\t1\t1\t1\n").unwrap();
+        let reentrada = boa.replace("normal", "pending-dart").replace("\t1\t0\t", "\t1\t1\t");
+        std::fs::write(raiz.join("ownership.tsv"), &reentrada).unwrap();
+        assert!(tabela_de_ownership(&raiz, &nomes).contains("chama_dart: true"));
+        std::fs::write(raiz.join("ownership.tsv"), reentrada.replace("\t1\t1\t", "\t1\t0\t")).unwrap();
+        assert!(std::panic::catch_unwind(|| tabela_de_ownership(&raiz, &nomes)).is_err());
+        std::fs::write(raiz.join("ownership.tsv"), &reentrada).unwrap();
+        std::fs::write(raiz.join("efeitos.tsv"), "dartforge_arc_retain\t1\t1\t0\n").unwrap();
+        assert!(std::panic::catch_unwind(|| tabela_de_ownership(&raiz, &nomes)).is_err());
         std::fs::remove_file(raiz.join("ownership.tsv")).unwrap();
         std::fs::remove_file(raiz.join("efeitos.tsv")).unwrap();
         std::fs::remove_dir(raiz).unwrap();

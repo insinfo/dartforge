@@ -998,6 +998,8 @@ pub struct ContratoChamadaRuntime {
     pub retencao_persistente: bool,
     /// Exige prova separada das dependências borrowed após a chamada.
     pub invalida_borrows: bool,
+    /// Reentrada Dart auditada, inclusive construção de TypeError pelo SDK.
+    pub chama_dart: bool,
 }
 
 /// Traduz uma chamada auditada para efeitos de consumo e classe do resultado.
@@ -1052,6 +1054,7 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
             },
         ),
         ModoResultado::ScalarI64 => (Type::I64, Ownership::Trivial),
+        ModoResultado::ScalarF64 => (Type::F64, Ownership::Trivial),
         ModoResultado::ScalarI8 => (Type::I8, Ownership::Trivial),
         ModoResultado::Void => (Type::Void, Ownership::Trivial),
     };
@@ -1119,12 +1122,49 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
         resultado,
         retencao_persistente: c.retencao_persistente,
         invalida_borrows: c.invalida_borrows,
+        chama_dart: c.chama_dart,
     })
 }
 
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn unbox_empresta_referencia_e_devolve_escalar_falivel_sem_consumo() {
+        for (name, ret_ty) in [
+            ("dartforge_unbox_int", Type::I64),
+            ("dartforge_unbox_double", Type::F64),
+            ("dartforge_unbox_bool", Type::I8),
+        ] {
+            let mut inst = Instruction::CallRuntime {
+                name: name.into(),
+                args: vec![(Operand::Val(ValueId(0)), Type::Ref)],
+                ret_ty,
+            };
+            let c = contrato_chamada_runtime(&inst).unwrap();
+            assert_eq!(c.resultado, Ownership::Trivial);
+            assert!(c.efeito.pode_falhar && c.invalida_borrows && c.chama_dart);
+            assert!(!c.retencao_persistente);
+            assert!(
+                c.efeito.sempre.is_empty()
+                    && c.efeito.sucesso.is_empty()
+                    && c.efeito.erro.is_empty()
+            );
+            if let Instruction::CallRuntime { ret_ty: r, .. } = &mut inst {
+                *r = Type::Ref;
+            }
+            assert!(contrato_chamada_runtime(&inst).is_err());
+            if let Instruction::CallRuntime {
+                args, ret_ty: r, ..
+            } = &mut inst
+            {
+                *r = ret_ty;
+                args[0].1 = Type::I64;
+            }
+            assert!(contrato_chamada_runtime(&inst).is_err());
+        }
+    }
 
     #[test]
     fn saida_lanca_libera_resultado_e_guarda_exige_cfg_sem_publicar() {

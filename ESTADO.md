@@ -2,6 +2,16 @@
 
 ## Retomada de 2026-10-10
 
+Catálogo validado de unbox int/double/bool com argumento Borrow,
+resultado escalar e falha pending. O TypeError pode chamar helper Dart
+do SDK; a marca pending-dart preserva essa reentrada e exige invalidação
+de borrows. O gerador continua rejeitando reentrada não declarada.
+Novo resultado ScalarF64 distingue double de referências/i64. Isso ainda
+não traduz Unbox HIR nem fornece a prova de empréstimos através da reentrada.
+Passaram o teste unbox do emissor, os dois testes do catálogo/gerador,
+a suíte completa com 206 testes (7 ignorados) e 85 exemplos de documentação.
+Logs target/arc-unbox-{contratos,runtime-catalogo,suite,doc}.log.
+
 Condição reafirmada pelo proprietário: integração de ownership no pipeline
 somente com --memoria=arc; tracing permanece o modo sem essa opção.
 A CLI já traduz a opção para DARTFORGE_MEMORIA, consultada antes de preparar

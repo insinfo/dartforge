@@ -29,6 +29,9 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
                         | "dartforge_print_handle"
                         | "dartforge_exception_pending"
                         | "dartforge_exception_clear"
+                        | "dartforge_unbox_int"
+                        | "dartforge_unbox_double"
+                        | "dartforge_unbox_bool"
                 )
         })
         .collect();
@@ -37,7 +40,8 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
         let c = CONTRATOS.iter().find(|c| c.nome == *nome).unwrap();
         let efeito = EFEITOS.iter().find(|e| e.0 == c.nome).unwrap();
         assert_eq!(efeito.2, c.pode_falhar);
-        assert!(!efeito.3);
+        assert_eq!(efeito.3, c.chama_dart);
+        assert!(!c.chama_dart || c.invalida_borrows);
     }
     let receber = CONTRATOS
         .iter()
