@@ -16,6 +16,9 @@ preservar IR/stdout/stderr/exit em Windows, Linux e macOS; execução desses
 novos jobs ainda pendente. No tracing, o harness mantém o mesmo corpo de
 tokens explícitos para testar compatibilidade runtime; não ativa preparação
 ARC no fluxo padrão. Não prova lowering de fonte nem keepalive pending.
+Evidência Windows congelada em
+bench/resultados/2026-10-10-keepalive-campos-windows: fonte 663fe2ab,
+12 execuções e 50 arquivos brutos com SHA-256 e bytes originais.
 
 Keepalive ARC agora cobre resultado Ref borrowed de runtime falível com
 guarda canônica de pendência. Divide somente a aresta de sucesso e retém

@@ -1,0 +1,512 @@
+{
+  "fonte": "663fe2ab77c64c9d87d85fe5e7b07d491986d62e",
+  "fonte_exemplo_sha256": "86ad0747c9f8f3fdf19985fadb255f2e4fa1a5fdde4376a7a0167d86a480e385",
+  "arvore_runtime": "70ff8d37cb43f77a79b8d4053cbfab009926daeb",
+  "registrado_utc": "2026-10-10T07:34:14.313716+00:00",
+  "plataforma": "Windows x86_64 MSVC, máquina local",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "clang": "clang version 22.1.8 (https://github.com/llvm/llvm-project ca7933e47d3a3451d81e72ac174dcb5aa28b59d1)\nTarget: x86_64-pc-windows-msvc\nThread model: posix\nInstalledDir: E:\\llvm\\clang+llvm-22.1.8-x86_64-pc-windows-msvc\\bin",
+  "ambiente": {
+    "DARTFORGE_ARC_CONFERIR": "1",
+    "DARTFORGE_ARC_BERCARIO": "0",
+    "DARTFORGE_GC_STRESS": "1"
+  },
+  "execucoes": [
+    {
+      "modo": "arc",
+      "nivel": 0,
+      "controle": "normal",
+      "exit": 0,
+      "comando_geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_keepalive_campos",
+        "--",
+        "target\\prova-keepalive-campos\\arc-O0.exe",
+        "--memoria=arc",
+        "0"
+      ]
+    },
+    {
+      "modo": "arc",
+      "nivel": 0,
+      "controle": "sem-retencao",
+      "exit": -1073741795,
+      "comando_geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_keepalive_campos",
+        "--",
+        "target\\prova-keepalive-campos\\arc-O0-sem-retencao.exe",
+        "--memoria=arc",
+        "0",
+        "sem-retencao"
+      ]
+    },
+    {
+      "modo": "arc",
+      "nivel": 0,
+      "controle": "sem-liberar",
+      "exit": -1073741795,
+      "comando_geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_keepalive_campos",
+        "--",
+        "target\\prova-keepalive-campos\\arc-O0-sem-liberar.exe",
+        "--memoria=arc",
+        "0",
+        "sem-liberar"
+      ]
+    },
+    {
+      "modo": "tracing",
+      "nivel": 0,
+      "controle": "normal",
+      "exit": 0,
+      "comando_geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_keepalive_campos",
+        "--",
+        "target\\prova-keepalive-campos\\tracing-O0.exe",
+        "--memoria=tracing",
+        "0"
+      ]
+    },
+    {
+      "modo": "tracing",
+      "nivel": 0,
+      "controle": "sem-retencao",
+      "exit": -1073741795,
+      "comando_geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_keepalive_campos",
+        "--",
+        "target\\prova-keepalive-campos\\tracing-O0-sem-retencao.exe",
+        "--memoria=tracing",
+        "0",
+        "sem-retencao"
+      ]
+    },
+    {
+      "modo": "tracing",
+      "nivel": 0,
+      "controle": "sem-liberar",
+      "exit": -1073741795,
+      "comando_geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_keepalive_campos",
+        "--",
+        "target\\prova-keepalive-campos\\tracing-O0-sem-liberar.exe",
+        "--memoria=tracing",
+        "0",
+        "sem-liberar"
+      ]
+    },
+    {
+      "modo": "arc",
+      "nivel": 2,
+      "controle": "normal",
+      "exit": 0,
+      "comando_geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_keepalive_campos",
+        "--",
+        "target\\prova-keepalive-campos\\arc-O2.exe",
+        "--memoria=arc",
+        "2"
+      ]
+    },
+    {
+      "modo": "arc",
+      "nivel": 2,
+      "controle": "sem-retencao",
+      "exit": -1073741795,
+      "comando_geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_keepalive_campos",
+        "--",
+        "target\\prova-keepalive-campos\\arc-O2-sem-retencao.exe",
+        "--memoria=arc",
+        "2",
+        "sem-retencao"
+      ]
+    },
+    {
+      "modo": "arc",
+      "nivel": 2,
+      "controle": "sem-liberar",
+      "exit": -1073741795,
+      "comando_geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_keepalive_campos",
+        "--",
+        "target\\prova-keepalive-campos\\arc-O2-sem-liberar.exe",
+        "--memoria=arc",
+        "2",
+        "sem-liberar"
+      ]
+    },
+    {
+      "modo": "tracing",
+      "nivel": 2,
+      "controle": "normal",
+      "exit": 0,
+      "comando_geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_keepalive_campos",
+        "--",
+        "target\\prova-keepalive-campos\\tracing-O2.exe",
+        "--memoria=tracing",
+        "2"
+      ]
+    },
+    {
+      "modo": "tracing",
+      "nivel": 2,
+      "controle": "sem-retencao",
+      "exit": -1073741795,
+      "comando_geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_keepalive_campos",
+        "--",
+        "target\\prova-keepalive-campos\\tracing-O2-sem-retencao.exe",
+        "--memoria=tracing",
+        "2",
+        "sem-retencao"
+      ]
+    },
+    {
+      "modo": "tracing",
+      "nivel": 2,
+      "controle": "sem-liberar",
+      "exit": -1073741795,
+      "comando_geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_keepalive_campos",
+        "--",
+        "target\\prova-keepalive-campos\\tracing-O2-sem-liberar.exe",
+        "--memoria=tracing",
+        "2",
+        "sem-liberar"
+      ]
+    }
+  ],
+  "arquivos": [
+    {
+      "arquivo": "arc-O0.ll",
+      "bytes": 33784,
+      "sha256": "e424f15e620792e196820a6916c141f31c597e59374c9655c9ff83447b0d3ab2"
+    },
+    {
+      "arquivo": "arc-O0.exe.stdout",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "arquivo": "arc-O0.exe.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "arquivo": "arc-O0.exe.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "arquivo": "arc-O0-sem-retencao.ll",
+      "bytes": 33741,
+      "sha256": "d421b802d11b04745d667d3619f661dc37c93e5e78080868c3b9543e35caf868"
+    },
+    {
+      "arquivo": "arc-O0-sem-retencao.exe.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "arquivo": "arc-O0-sem-retencao.exe.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "arquivo": "arc-O0-sem-retencao.exe.exit",
+      "bytes": 12,
+      "sha256": "2c527ab69a46f8114930794dfce012454d6e29c94f0544a04210fec47a032081"
+    },
+    {
+      "arquivo": "arc-O0-sem-liberar.ll",
+      "bytes": 33735,
+      "sha256": "fad9c07b5a98937afd54adf81c7abab7186e8bc4a47254a2e583b82283ec16fc"
+    },
+    {
+      "arquivo": "arc-O0-sem-liberar.exe.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "arquivo": "arc-O0-sem-liberar.exe.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "arquivo": "arc-O0-sem-liberar.exe.exit",
+      "bytes": 12,
+      "sha256": "2c527ab69a46f8114930794dfce012454d6e29c94f0544a04210fec47a032081"
+    },
+    {
+      "arquivo": "tracing-O0.ll",
+      "bytes": 33537,
+      "sha256": "cb1609ea78779cfc51f852bd3e5875451b415193308b8400f2ee708be19a8c24"
+    },
+    {
+      "arquivo": "tracing-O0.exe.stdout",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "arquivo": "tracing-O0.exe.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "arquivo": "tracing-O0.exe.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "arquivo": "tracing-O0-sem-retencao.ll",
+      "bytes": 33494,
+      "sha256": "ddaeb0314f68e80c8683b17f130ee84044973622448f04f248b46ae9f45394e3"
+    },
+    {
+      "arquivo": "tracing-O0-sem-retencao.exe.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "arquivo": "tracing-O0-sem-retencao.exe.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "arquivo": "tracing-O0-sem-retencao.exe.exit",
+      "bytes": 12,
+      "sha256": "2c527ab69a46f8114930794dfce012454d6e29c94f0544a04210fec47a032081"
+    },
+    {
+      "arquivo": "tracing-O0-sem-liberar.ll",
+      "bytes": 33488,
+      "sha256": "c7efbc51e5507687f1845bce55101c1a70d1ed6222ffb0876e4b3b139c2a608d"
+    },
+    {
+      "arquivo": "tracing-O0-sem-liberar.exe.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "arquivo": "tracing-O0-sem-liberar.exe.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "arquivo": "tracing-O0-sem-liberar.exe.exit",
+      "bytes": 12,
+      "sha256": "2c527ab69a46f8114930794dfce012454d6e29c94f0544a04210fec47a032081"
+    },
+    {
+      "arquivo": "arc-O2.ll",
+      "bytes": 33784,
+      "sha256": "e424f15e620792e196820a6916c141f31c597e59374c9655c9ff83447b0d3ab2"
+    },
+    {
+      "arquivo": "arc-O2.exe.stdout",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "arquivo": "arc-O2.exe.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "arquivo": "arc-O2.exe.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "arquivo": "arc-O2-sem-retencao.ll",
+      "bytes": 33741,
+      "sha256": "d421b802d11b04745d667d3619f661dc37c93e5e78080868c3b9543e35caf868"
+    },
+    {
+      "arquivo": "arc-O2-sem-retencao.exe.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "arquivo": "arc-O2-sem-retencao.exe.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "arquivo": "arc-O2-sem-retencao.exe.exit",
+      "bytes": 12,
+      "sha256": "2c527ab69a46f8114930794dfce012454d6e29c94f0544a04210fec47a032081"
+    },
+    {
+      "arquivo": "arc-O2-sem-liberar.ll",
+      "bytes": 33735,
+      "sha256": "fad9c07b5a98937afd54adf81c7abab7186e8bc4a47254a2e583b82283ec16fc"
+    },
+    {
+      "arquivo": "arc-O2-sem-liberar.exe.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "arquivo": "arc-O2-sem-liberar.exe.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "arquivo": "arc-O2-sem-liberar.exe.exit",
+      "bytes": 12,
+      "sha256": "2c527ab69a46f8114930794dfce012454d6e29c94f0544a04210fec47a032081"
+    },
+    {
+      "arquivo": "tracing-O2.ll",
+      "bytes": 33537,
+      "sha256": "cb1609ea78779cfc51f852bd3e5875451b415193308b8400f2ee708be19a8c24"
+    },
+    {
+      "arquivo": "tracing-O2.exe.stdout",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "arquivo": "tracing-O2.exe.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "arquivo": "tracing-O2.exe.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "arquivo": "tracing-O2-sem-retencao.ll",
+      "bytes": 33494,
+      "sha256": "ddaeb0314f68e80c8683b17f130ee84044973622448f04f248b46ae9f45394e3"
+    },
+    {
+      "arquivo": "tracing-O2-sem-retencao.exe.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "arquivo": "tracing-O2-sem-retencao.exe.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "arquivo": "tracing-O2-sem-retencao.exe.exit",
+      "bytes": 12,
+      "sha256": "2c527ab69a46f8114930794dfce012454d6e29c94f0544a04210fec47a032081"
+    },
+    {
+      "arquivo": "tracing-O2-sem-liberar.ll",
+      "bytes": 33488,
+      "sha256": "c7efbc51e5507687f1845bce55101c1a70d1ed6222ffb0876e4b3b139c2a608d"
+    },
+    {
+      "arquivo": "tracing-O2-sem-liberar.exe.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "arquivo": "tracing-O2-sem-liberar.exe.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "arquivo": "tracing-O2-sem-liberar.exe.exit",
+      "bytes": 12,
+      "sha256": "2c527ab69a46f8114930794dfce012454d6e29c94f0544a04210fec47a032081"
+    },
+    {
+      "arquivo": "arc-keepalive-campos-build.log",
+      "bytes": 6919,
+      "sha256": "3dd59fb09e45a576fe2d159586fbf9d5989a237acbe719538ee290c1131acfc7"
+    },
+    {
+      "arquivo": "arc-keepalive-campos-example.log",
+      "bytes": 784,
+      "sha256": "7f821f0727513f72ff734f0e7e80bee9c61d768d5014f903942251f5dba8d784"
+    }
+  ],
+  "limites": [
+    "HIR explícita, não lowering Dart da fonte",
+    "Harness LLVM de observação fora do plano ARC",
+    "Tracing executa o mesmo corpo com tokens explícitos",
+    "Sem prova de keepalive pending, suspensão ou recarga",
+    "Sem medição de desempenho ou aprovação ARC>=A0",
+    "CI da fonte ainda pendente"
+  ]
+}
