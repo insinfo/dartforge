@@ -1,0 +1,9 @@
+{
+  "correcao": "Resultados dos 32 kernels iguais ao Dart AOT recém-compilado em todas as repetições; saídas adicionais de ordenação/JSON também conferidas.",
+  "desempenho": "FAIL",
+  "geo_ARC_A0": 2.0059852976266774,
+  "arvores_ARC_A0": 12.815575836592785,
+  "lista_ligada_ARC_A0": 4.985826240203982,
+  "limites": "Rodada independente da anterior; não atribuir diferenças entre rodadas à alteração isolada. Hashes de 19 arquivos comprovadamente anteriores à primeira execução; os demais foram capturados durante a rodada.",
+  "pendencias": "ARC >= A0 e seleção estática de políticas/regiões/grupos/borrows ainda incompletos. ARC somente com --memoria=arc; tracing padrão."
+}

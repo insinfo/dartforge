@@ -1,0 +1,47 @@
+{
+  "fonte": "e14922fb7bbf14e87db2d2a58fa6fe1c92868acd",
+  "arvore_crates": "9158158f376214148d6819cf8e120e2e82b12f99",
+  "cli_sha256": "7a747d5a57a5403d84245b504f9988db24bc08dc65a83985d55d6168edd0c16b",
+  "runtime_arc_sha256": "bbf0e6949dc61aa038ef508546ea93a5b308f900d51ca2144dca15622546964f",
+  "runtimes_nome": [
+    "dartforge_rtdll_7231551639f2118cdc1f94801e7c59eb.lib",
+    "dartforge_rtprod_f79b11a7e7a5d6feeb52fe49799321ec.lib",
+    "dartforge_runtime_1bbd56e7b29de9480e1b0899cb376497.lib"
+  ],
+  "comando": [
+    "python",
+    "scripts/medir-modos-desempenho.py",
+    "E:\\MyRustProjects\\dartforge\\target\\modos-2026-10-10-e14922fb-a0-arc-dart",
+    "--repeticoes",
+    "7",
+    "--afinidade",
+    "0x4",
+    "--modos",
+    "ARC"
+  ],
+  "entradas": {
+    "chamadas.dart": "96cb426471296c0719d73cc37c5ff1555b162564d5bc4b21d7b6f312bbc1f67b",
+    "colecoes.dart": "d3e4adb239e5dd810ca47b36a7de32c78134a912902b53918ece7ca7a726cd61",
+    "comum.dart": "c58f998dc36b84b102705a77c6cafa75e85b5bff6dda90c086a8d9a6c21f40c3",
+    "json.dart": "0354c44a8e87678af58120ef68881e74cbc9e2ea178f42e5a000d8f2aca64aca",
+    "numerico.dart": "dbeaec175476eb3ddc20b1757512131c9b7c567f33351bf3272bd6f8864d575f",
+    "objetos_em_colecoes.dart": "1e7ee33404f2143536a67253f7924c99e84e6d73af4b65701fc6874721a1417e",
+    "objetos_escapam.dart": "977eb9b5654a8c742dee4d052603609bc3e145c4a07e15a8580cd1c1ea665599",
+    "objetos_temporarios.dart": "80578f13890ac2e6032d5ad1f1a68af17eba4e8be17872ca75b07ebfe345b8e7",
+    "textos.dart": "185fc234cf1e5e4452e1bb768d93b7e485884a0d801e0f6cb3118d7bfd3ae7fd",
+    "tipados.dart": "519b4d6ccc43adbbfc7ee0cb76b79d2bf19cbb79a2fb48c1f8a27b091bc243af"
+  },
+  "script_sha256": "3fd59029c3860a7c4549241bee4a4d86092c6b9c8901ea2a963231bda46805ee",
+  "dart_sha256": "0909d6f6bf6cc85863170e8694d55e63515a7ff9e66b6854404a9b5fd4688179",
+  "ambiente": {
+    "DARTFORGE_GC_RASTRO": "0",
+    "DARTFORGE_GC_OFF": "0",
+    "DARTFORGE_ARC_CONFERIR": "0",
+    "DARTFORGE_ARC_BERCARIO": "0",
+    "DARTFORGE_HEAP_MAX_MB": "256",
+    "DARTFORGE_GC_STRESS": null,
+    "DARTFORGE_ARC_CICLOS": null,
+    "DARTFORGE_ARC_TRACO": null
+  },
+  "escopo": "Todos os programas, A0 tracing, ARC expl\u00edcito e Dart AOT rec\u00e9m-compilado; sete repeti\u00e7\u00f5es."
+}
