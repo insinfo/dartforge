@@ -3,3 +3,4 @@
 //! conservar ARC geral; conjuntos de aliases não constituem certificados.
 
 pub mod modelo;
+pub mod points_to;

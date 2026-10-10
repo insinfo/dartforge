@@ -2,6 +2,29 @@
 
 ## Retomada de 2026-10-10
 
+Solver inicial de inclusão em otimizar/arc/analise/points_to.rs:
+worklist agenda dependentes de variáveis/campos alterados, com semeadura,
+cópias/Phi, leituras e stores monotônicos por campo/layout nominal.
+Stores nunca apagam arestas antigas; receiver desconhecido torna o campo
+opaco para qualquer nó, inclusive descoberto depois, sem contaminar outros
+layouts. Topo por budget se propaga aos dependentes. Validação de índices
+ocorre antes da solução. Consulta de campo ausente/opaco não prova vazio.
+Oráculo de fecho transitivo confere inclusão nos 512 grafos de três
+variáveis com três budgets. Regressões cobrem aliases tardios, stores
+após leitores, ordem invertida, opacidade, limites e cadeia de 20 mil
+variáveis com dependência cíclica. Passaram 270 testes do emissor (sete
+ignorados), cinco testes focados finais do solver, incluindo o oráculo
+acrescentado, e 69 exemplos públicos. Logs
+target/arc-points-to-worklist-{suite,oraculo,doc}.log.
+Restrição ausente não significa efeito ausente do programa: produtores
+HIR, valores iniciais, resumos SDK/callbacks, instanciação de placeholders,
+efeitos transitivos, escape/observadores e certificados ainda pendentes.
+Este solver consome fatos explícitos e não escolhe políticas nem altera
+a ativação exclusiva por --memoria=arc. Não concluir S0/S1 ou o gate ARC/A0.
+CI 38051323600: Linux terminou com sucesso; macOS passou pela seleção de
+memória e retorno da fonte e executa instâncias zeradas; Windows passou
+o teste geral e executa recarga JIT. Rodada ainda não concluída.
+
 Base de domínio da §28.1 em otimizar/arc/analise/modelo.rs:
 SitioArc usa identidade nominal de origem/especialização, independente de
 ValueId; NoAbstrato distingue alocação/contexto, parâmetro, resultado
