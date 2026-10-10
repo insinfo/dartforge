@@ -171,6 +171,10 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: Efeitos { aloca: true, lanca: true, chama_dart: false },
     },
     Extern {
+        decl: "declare i8 @dartforge_arc_observar_heap_v1(i64) nounwind",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
         decl: "declare i64 @dartforge_arc_quadro_abrir_v1(i64) nounwind",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
@@ -845,6 +849,8 @@ pub fn marcas_a_conferir(nome: &str) -> i64 {
     if !dartforge_runtime::efeitos::EFEITOS.iter().any(|(n, ..)| *n == nome)
         || nome == "dartforge_efeitos_antes"
         || nome == "dartforge_efeitos_depois"
+        || nome == "dartforge_efeitos_nivel"
+        || nome == "dartforge_efeitos_restaurar"
     {
         return 0;
     }

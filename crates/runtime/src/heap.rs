@@ -1985,6 +1985,18 @@ impl Heap {
         self.arc_trocar_raiz_proprietaria(0, valor);
     }
 
+    /// Snapshot de diagnóstico: bit 0 para bloco vivo do heap, bit 1 para owner do código.
+    /// Consulta o índice de páginas antes de ler o cabeçalho; não dereferencia
+    /// endereços fora do heap nem inclui objetos estáticos, null ou Smi.
+    #[allow(unsafe_code)]
+    pub(crate) fn observar_owner_codigo(&self, endereco: i64) -> u8 {
+        let vivo = self.objetos.bloco_de(endereco).is_some_and(|b| {
+            // SAFETY: bloco localizado e alinhado pelo índice de páginas deste espaço.
+            unsafe { (*b).estado != LIVRE }
+        });
+        u8::from(vivo) | (u8::from(self.owners_codigo.contains_key(&endereco)) << 1)
+    }
+
     /// Cria uma ocorrência do código gerado, sem coleta ou execução Dart.
     /// A localização observacional publicada não cria outro owner.
     pub(crate) fn reter_owner_codigo(&mut self, valor: Ref) {

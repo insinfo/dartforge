@@ -2,6 +2,33 @@
 
 ## Retomada de 2026-10-09
 
+Prova de unwind C++ com heap real preparada para CI Unix:
+`arc_unwind_estrangeiro` gera HIR com contrato auditado de print_handle Borrow,
+catch preparado e Mint Owned; depois injeta o hook C++ por troca explícita de
+símbolo no IR. Hook conserva assinatura/ownership, lança objeto C++ e não cria
+pendência Dart. Fixture confere identidade nativa, destrutores, catch Dart não
+executado, topo de raízes restaurado, owner consumido e Mint morto após coleta.
+É fault injection, não chamada C++ proveniente do lowering FFI completo.
+CI gera objetos LLVM O0/O2 e executa ARC/tracing sob ARC_CONFERIR/GC_STRESS,
+com conferência de efeitos na geração; artefatos IR/C++/stdout são publicados.
+Execução nativa desta fixture ainda pendente; teste HIR Windows e sintaxe C++
+no WSL passaram. Não valida forced unwind, finally ou inlining observado.
+Diagnóstico `dartforge_arc_observar_heap_v1` consulta páginas registradas e
+inventário de owners sem dereferenciar endereço externo nem criar referência:
+bit 0 bloco vivo, bit 1 owner do código. Catálogo parcial passa a 29 contratos,
+argumento i64 Native (pode já estar liberado), resultado u8 escalar, efeitos0/0/0.
+Teste cobre tracing/ARC × validação de handles ligada/desligada, dois tokens,
+último release/coleta e endereços fora do heap; 33 doctests iniciais passaram.
+Conferência de efeitos também precisa de unwind: snapshot de profundidade na
+entrada e restauração no pouso abandonam externs atravessadas e suas proibições
+de coleta. Não conferem saída normal nem alteram pendência. Teste nested do
+runtime e corpo LLVM em DARTFORGE_EFEITOS=conferir passaram, objetos Linux O0/O2;
+35 doctests do runtime e dois testes do catálogo passaram. Logs
+`target/observacao-heap-*`, `target/efeitos-unwind-*`, `target/unwind-estrangeiro-*`.
+Fonte anterior 24efc32a passou também na prova de rastro explícito macOS;
+16 stdout Linux/macOS conferidos byte a byte em `target/ci-38015289408`.
+Job Linux completo da CI 38015289408 terminou com sucesso; não contém esta fixture.
+
 Cleanup estrangeiro certificado no emissor: preparação ARC liga o inventário
 validado ao corpo e às tabelas (invokes/pousos/saídas/conferência de pilha).
 Campos privados impedem inventar owners; LLVM/materialização rejeitam certificado

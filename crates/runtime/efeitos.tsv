@@ -20,6 +20,7 @@ dartforge_arc_gravar_ref	0	0	0
 dartforge_arc_inicial	0	0	0
 dartforge_arc_lancar_com_rastro_ref_v1	1	1	0
 dartforge_arc_lancar_ref_v1	1	1	0
+dartforge_arc_observar_heap_v1	0	0	0
 dartforge_arc_quadro_abrir_v1	0	0	0
 dartforge_arc_quadro_carregar_v1	0	0	0
 dartforge_arc_quadro_copiar_v1	0	0	0
@@ -55,6 +56,8 @@ dartforge_desregistrar_mapa	0	0	0
 dartforge_dyn_op	1	1	1
 dartforge_efeitos_antes	0	0	0
 dartforge_efeitos_depois	0	0	0
+dartforge_efeitos_nivel	0	0	0
+dartforge_efeitos_restaurar	0	0	0
 dartforge_encaminhar_nsm	1	1	1
 dartforge_equal	1	1	0
 dartforge_estouro_de_pilha	1	1	1

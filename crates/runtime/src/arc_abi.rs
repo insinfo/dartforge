@@ -135,6 +135,31 @@ pub extern "C" fn dartforge_arc_box_int_owned_v1(valor: i64) -> i64 {
     })
 }
 
+/// Observa bloco vivo e owner do código sem adquirir referência ao objeto.
+///
+/// O argumento é um endereço nativo de diagnóstico, não um Ref emprestado:
+/// pode designar um handle já liberado. Bit 0 indica bloco vivo deste heap;
+/// bit 1 indica ao menos um token do código. Null, Smi, objetos estáticos e
+/// endereços fora das páginas registradas não contam como blocos do heap.
+/// Não coleta nem executa Dart. O snapshot não garante validade futura;
+/// reutilização do endereço pode fazer uma observação posterior ver outro objeto.
+///
+/// # Panics
+/// Empréstimo reentrante do heap; falha interna aborta no limite C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let endereco = dartforge_arc_box_int_owned_v1(i64::MAX);
+/// assert_eq!(dartforge_arc_observar_heap_v1(endereco), 3);
+/// dartforge_arc_release(endereco);
+/// dartforge_arc_collect();
+/// assert_eq!(dartforge_arc_observar_heap_v1(endereco), 0);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_observar_heap_v1(endereco: i64) -> u8 {
+    HEAP.with(|h| h.borrow().observar_owner_codigo(endereco))
+}
+
 /// Cria um token proprietário do código gerado a partir de um empréstimo.
 ///
 /// Null e Smi não têm contador. Não coleta nem executa Dart. O token fica
@@ -453,6 +478,29 @@ mod testes_arc_abi_quadros {
                 }
             }
             HEAP.with(|h| { h.replace(anterior); });
+        }
+    }
+
+    #[test]
+    fn observacao_nativa_nao_cria_owner_e_rejeita_enderecos_fora_do_heap() {
+        for validar in [false, true] {
+            for arc in [false, true] {
+                let anterior = HEAP.with(|h| h.replace(Heap::new(validar)));
+                if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+                for endereco in [0, 2, i64::MIN, i64::MAX, smi::de(42).unwrap()] {
+                    assert_eq!(dartforge_arc_observar_heap_v1(endereco), 0);
+                }
+                let endereco = dartforge_arc_box_int_owned_v1(i64::MAX);
+                assert_eq!(dartforge_arc_observar_heap_v1(endereco), 3);
+                dartforge_arc_retain(endereco);
+                dartforge_arc_release(endereco);
+                assert_eq!(dartforge_arc_observar_heap_v1(endereco), 3);
+                dartforge_arc_release(endereco);
+                assert_eq!(dartforge_arc_observar_heap_v1(endereco), 1);
+                dartforge_arc_collect();
+                assert_eq!(dartforge_arc_observar_heap_v1(endereco), 0);
+                HEAP.with(|h| { h.replace(anterior); });
+            }
         }
     }
 

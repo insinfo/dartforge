@@ -1,6 +1,5 @@
 //! Certificado do inventário usado pelo cleanup estrangeiro dos pousos.
 use super::*;
-use crate::hir::*;
 use std::collections::{HashMap, HashSet};
 
 /// Inventário de cleanup ligado ao corpo e às tabelas que foram verificados.

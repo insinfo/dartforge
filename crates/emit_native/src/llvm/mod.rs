@@ -731,6 +731,7 @@ impl<'a> LlvmEmitter<'a> {
             } else {
                 self.out.push_str("declare void @dartforge_efeitos_antes(ptr, i64, i64)\ndeclare void @dartforge_efeitos_depois()\n");
             }
+            self.out.push_str("declare i64 @dartforge_efeitos_nivel() nounwind \"gc-leaf-function\"\ndeclare void @dartforge_efeitos_restaurar(i64) nounwind \"gc-leaf-function\"\n");
         }
         self.out.push('\n');
     }
@@ -992,6 +993,9 @@ impl<'a> LlvmEmitter<'a> {
                 if !crate::alvo::sabotagem("pouso_sem_topo") {
                     writeln!(self.out, "  store ptr {topo}, ptr %ctxtopo, align 8").unwrap();
                 }
+                if externs::conferir_efeitos() {
+                    writeln!(self.out, "  call void @dartforge_efeitos_restaurar(i64 %efnivel)").unwrap();
+                }
                 if tem_cleanup && tab.is_some_and(|t| t.saidas.get(&block.id) != Some(&SaidaPorExcecao::Retoma)) {
                     // O inliner pode combinar catch e cleanup. Seletor zero
                     // executa cleanup, mas não autoriza tratar estrangeira como Dart.
@@ -1022,6 +1026,9 @@ impl<'a> LlvmEmitter<'a> {
             }
             if block.id.0 == 0 {
                 self.emit_buffers_de_closure(func);
+                if tem_pouso && externs::conferir_efeitos() {
+                    writeln!(self.out, "  %efnivel = call i64 @dartforge_efeitos_nivel()").unwrap();
+                }
                 // O quadro de raízes também nasce antes de qualquer chamada
                 // (N17): o `df.obter_area` abaixo é `alwaysinline` e tem
                 // desvios, e um `alloca` depois dele deixava de ser do bloco
@@ -3868,6 +3875,8 @@ const FOLHAS_DO_MAPA: &[&str] = &[
     "df.lancar",
     "dartforge_efeitos_antes",
     "dartforge_efeitos_depois",
+    "dartforge_efeitos_nivel",
+    "dartforge_efeitos_restaurar",
 ];
 
 /// Raízes por mapas: a chamada da linha pode coletar — a indireta, e a

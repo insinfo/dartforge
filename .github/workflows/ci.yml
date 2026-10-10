@@ -245,6 +245,28 @@ jobs:
           path: |
             target/prova-arc-resume/*.ll
             target/prova-arc-resume/*.stdout
+      - name: Unwind estrangeiro com owners ARC e heap real
+        shell: bash
+        run: |
+          mkdir -p target/prova-unwind-estrangeiro
+          printf 'foreign-cleanup-ok\n' > target/prova-unwind-estrangeiro/esperado
+          for nivel in 0 2; do
+            exe="target/prova-unwind-estrangeiro/prova-O${nivel}"
+            DARTFORGE_EFEITOS=conferir cargo run --locked --release -p dartforge-emit-native --features llvm-embutido --example arc_unwind_estrangeiro -- "$exe" "$nivel"
+            for modo in arc tracing; do
+              ARC_CONFERIR=1 BER=0 GC_STRESS=1 "$exe" "$modo" > "${exe}-${modo}.stdout"
+              cmp target/prova-unwind-estrangeiro/esperado "${exe}-${modo}.stdout"
+            done
+          done
+      - name: Artefatos do unwind estrangeiro
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: prova-unwind-estrangeiro-${{ matrix.os }}
+          path: |
+            target/prova-unwind-estrangeiro/*.ll
+            target/prova-unwind-estrangeiro/*.cpp
+            target/prova-unwind-estrangeiro/*.stdout
       - name: Testes do emit_native (com os ignorados)
         env:
           DARTFORGE_TEST_SDK_LIB: ${{ env.DARTFORGE_SDK_LIB }}

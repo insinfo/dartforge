@@ -52,3 +52,62 @@ pub extern "C" fn dartforge_efeitos_depois() {
         std::process::abort();
     }
 }
+
+/// Retorna a profundidade das externs em conferência nesta thread.
+///
+/// ```
+/// let nivel = dartforge_runtime::abi::dartforge_efeitos_nivel();
+/// assert!(nivel >= 0);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_efeitos_nivel() -> i64 {
+    EXTERNS_EM_CONFERENCIA.with(|p| p.borrow().len() as i64)
+}
+
+/// Abandona conferências de externs atravessadas por unwind nativo.
+///
+/// Remove somente níveis acima do snapshot da entrada da função, liberando
+/// suas proibições de coleta. Não confere uma saída normal nem altera pendência.
+/// Não coleta nem executa Dart; o lowering restaura também as raízes no pouso.
+///
+/// # Panics
+/// Nível negativo ou acima da profundidade corrente; aborta no limite C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let nivel = dartforge_efeitos_nivel();
+/// dartforge_efeitos_restaurar(nivel);
+/// assert_eq!(dartforge_efeitos_nivel(), nivel);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_efeitos_restaurar(nivel: i64) {
+    let nivel = usize::try_from(nivel).expect("nível negativo de conferência de efeitos");
+    EXTERNS_EM_CONFERENCIA.with(|p| {
+        let mut pilha = p.borrow_mut();
+        assert!(nivel <= pilha.len(), "nível de conferência de efeitos obsoleto");
+        while pilha.len() > nivel {
+            let (_, marcas, _) = pilha.pop().unwrap();
+            if marcas & 1 != 0 { crate::heap::permitir_coleta(); }
+        }
+    });
+}
+
+#[cfg(test)]
+mod testes_restauracao_efeitos {
+    use super::*;
+    #[test]
+    fn unwind_preserva_nivel_externo_e_libera_proibicoes_abandonadas() {
+        let inicial = dartforge_efeitos_nivel();
+        let nome = b"fixture-unwind";
+        // SAFETY: nome aponta para bytes válidos durante as duas chamadas.
+        unsafe {
+            dartforge_efeitos_antes(nome.as_ptr(), nome.len() as i64, 1);
+            dartforge_efeitos_antes(nome.as_ptr(), nome.len() as i64, 1);
+        }
+        dartforge_efeitos_restaurar(inicial + 1);
+        assert_eq!(dartforge_efeitos_nivel(), inicial + 1);
+        dartforge_efeitos_restaurar(inicial);
+        assert_eq!(dartforge_efeitos_nivel(), inicial);
+        dartforge_arc_collect();
+    }
+}

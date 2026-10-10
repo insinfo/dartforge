@@ -748,6 +748,8 @@ fn conferir_objetos_cleanup(ir: &str) {
         declare void @df.lancar()
         declare void @dartforge_arc_retain(i64)
         declare void @dartforge_arc_release(i64)
+        declare i64 @dartforge_efeitos_nivel() nounwind
+        declare void @dartforge_efeitos_restaurar(i64) nounwind
         declare void @falha()
         {ir}"#);
     for otimizar in [false, true] {
@@ -805,6 +807,11 @@ fn catch_no_perfil_cleanup_confere_seletor_e_remapeia_phi_do_pouso() {
     e.tab = Some(t);
     e.emit_function(f);
     let ir = e.out;
+    if super::externs::conferir_efeitos() {
+        assert!(ir.contains("%efnivel = call i64 @dartforge_efeitos_nivel()"));
+        let restauracao = ir.find("call void @dartforge_efeitos_restaurar(i64 %efnivel)").unwrap();
+        assert!(restauracao < ir.find("lpad4.estrangeira:").unwrap());
+    }
     assert!(ir.contains("%lpseletor4 = extractvalue { ptr, i32 } %lpad4, 1"));
     assert!(ir.contains("%lptipo4 = call i32 @llvm.eh.typeid.for(ptr null)"));
     assert!(ir.contains("lpad4.estrangeira:\n  call void @dartforge_arc_release(i64 %v1)"));
