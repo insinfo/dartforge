@@ -778,9 +778,7 @@ impl EstadoDoArc {
         let mut em_r: HashMap<Ref, usize> = HashMap::default();
         let mut pilha = sementes;
         while let Some(x) = pilha.pop() {
-            if em_r.contains_key(&x) {
-                continue;
-            }
+            let std::collections::hash_map::Entry::Vacant(entrada) = em_r.entry(x) else { continue };
             let Some(m) = self.objetos.get(&x) else { continue };
             if m.imortal || m.estado == EstadoArc::Morto {
                 continue;
@@ -789,7 +787,7 @@ impl EstadoDoArc {
                 self.candidatar(x);
                 continue;
             }
-            em_r.insert(x, r.len());
+            entrada.insert(r.len());
             r.push(x);
             grafo.arestas(x, &mut |v| {
                 if e_handle(v) {
@@ -812,24 +810,26 @@ impl EstadoDoArc {
         }
         // Sobreviventes: trial positivo, em construção ou protegido; propagam.
         let mut vivos = vec![false; r.len()];
-        let mut pilha: Vec<Ref> = r
-            .iter()
-            .enumerate()
-            .filter(|(indice, x)| {
-                let m = &self.objetos[*x];
-                trial[*indice] > 0 || m.estado == EstadoArc::Construindo || m.protegido_condicional || protegido(**x)
-            })
-            .map(|(_, &x)| x)
-            .collect();
-        while let Some(x) = pilha.pop() {
-            let Some(&indice) = em_r.get(&x) else { continue };
-            if vivos[indice] {
-                continue;
+        let mut pilha: Vec<usize> = Vec::new();
+        for (indice, &x) in r.iter().enumerate() {
+            let m = &self.objetos[&x];
+            if trial[indice] > 0 || m.estado == EstadoArc::Construindo || m.protegido_condicional || protegido(x) {
+                vivos[indice] = true;
+                pilha.push(indice);
             }
-            vivos[indice] = true;
-            grafo.arestas(x, &mut |v| {
-                if e_handle(v) {
-                    pilha.push(v);
+        }
+        // Marca ao enfileirar: convergência de caminhos e posições repetidas
+        // não multiplicam entradas na pilha. O trial acima continua contando
+        // cada ocorrência. A propagação usa índices, sem buscar o handle de
+        // novo ao retirar da pilha; destinos fora de R não são percorridos.
+        while let Some(indice) = pilha.pop() {
+            grafo.arestas(r[indice], &mut |v| {
+                if e_handle(v)
+                    && let Some(&destino) = em_r.get(&v)
+                    && !vivos[destino]
+                {
+                    vivos[destino] = true;
+                    pilha.push(destino);
                 }
             });
         }
@@ -1124,6 +1124,37 @@ mod testes {
         assert_eq!(a.coletar_ciclos(&mut g, &|_| false).unwrap(), 2);
         assert!(morto(&a, 2) && morto(&a, 4));
         assert_eq!(a.estatisticas.mortos_por_ciclo, 2);
+    }
+
+    #[test]
+    fn sobrevivencia_densa_preserva_caminhos_convergentes_e_arestas_repetidas() {
+        let (mut a, mut g) = (EstadoDoArc::novo(), Grafo::default());
+        let (x, y, z, w, raiz) = (2, 0x1_0002, 0x2_0002, 0x3_0002, 0x4_0002);
+        for h in [x, y, z, w, raiz] { novo(&mut a, h); }
+        ligar(&mut a, &mut g, raiz, x);
+        ligar(&mut a, &mut g, w, x);
+        for _ in 0..96 {
+            ligar(&mut a, &mut g, x, y);
+            ligar(&mut a, &mut g, x, z);
+            ligar(&mut a, &mut g, y, w);
+            ligar(&mut a, &mut g, z, w);
+        }
+        for h in [x, y, z, w] { a.soltar(h).unwrap(); }
+        let antes = g.0.clone();
+        let contagens: Vec<_> = [x, y, z, w, raiz].map(|h| a.meta(h).unwrap().rc).into();
+        assert_eq!(a.coletar_ciclos(&mut g, &|_| false).unwrap(), 0);
+        assert_eq!(g.0, antes);
+        assert_eq!([x, y, z, w, raiz].map(|h| a.meta(h).unwrap().rc).as_slice(), contagens);
+        a.auditar(&g, &[raiz]).unwrap();
+        // A mesma região, agora sem entrada externa, morre de uma vez;
+        // todas as ocorrências internas são abatidas, sem soltar RC interno.
+        a.soltar(raiz).unwrap();
+        assert_eq!(a.drenar_zeros(&mut g, usize::MAX, &|_| false).unwrap(), 1);
+        assert_eq!(a.coletar_ciclos(&mut g, &|_| false).unwrap(), 4);
+        for h in [x, y, z, w, raiz] { assert!(morto(&a, h)); }
+        let mortos = a.tomar_mortos();
+        assert_eq!(mortos.len(), 5);
+        assert_eq!(mortos.into_iter().collect::<HashSet<_>>(), [x, y, z, w, raiz].into_iter().collect::<HashSet<_>>());
     }
 
     #[test]
