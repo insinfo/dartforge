@@ -2,6 +2,36 @@
 
 ## Retomada de 2026-10-09
 
+Leitura Owned da exceção: nova ABI `dartforge_arc_excecao_owned_v1` conserva
+identidade de Ref, encaixota escalares e entrega owner independente antes de
+sair do empréstimo do heap. Não consome pendência/rastro; null sem pendência.
+Contrato auditado 26: resultado Ref Owned, sem parâmetros/falha nova,
+retenção persistente zero, invalidação conservadora e efeitos 1/0/0.
+Runtime testou Ref, Mint/Smi, double, bool e null em tracing/ARC sob coleta:
+a cópia sobrevive ao clear/liberação original; Mint/double morrem após o
+último release. Dois testes passaram e 30 doctests do runtime passaram.
+Passaram também 94 testes ARC, 42 LLVM e 47 doctests do emissor.
+Prova AOT agora compara identidade do valor Ref antes do clear, libera o
+owner original, coleta e imprime o Mint capturado. Erro passa a imprimir MAX;
+troca de identidade imprime null e reprova stdout. Não observa identidade do
+objeto nativo de unwind, rastro ou morte final em AOT. Oito variantes Windows
+simples/misto × ARC/tracing × normal/erro passaram, código zero e MAX byte exato,
+sob ARC_CONFERIR=1, BER=0, GC_STRESS=1. Variante erro ARC misto também passou
+com DARTFORGE_EFEITOS=conferir na geração; CI ativa essa conferência para os
+próximos oito casos Unix. Logs `target/ownership-excecao-owned-*` e
+`target/excecao-owned-*`. Execução Unix da leitura Owned ainda pendente.
+
+Resume simples/misto executado também em macOS ARM64: CI 38011679848, fonte
+5445efd54f24100d4cf3b1cd821de340bd115d85, passos AOT Linux/macOS terminaram
+com sucesso nas 16 execuções. Artefatos baixados e conferidos byte a byte:
+normal MAX+LF, erro vazio nessa fonte anterior à leitura Owned. Perfil misto
+conferiu seletor catch no runtime real, com heap e cleanup/resume interno.
+Congelado em `bench/resultados/2026-10-09-arc-resume-misto-unix-ci`, 32 IR/stdout,
+fonte/jobs/digests/hashes. Sem prova direta de inlining, estrangeira/forced
+unwind com owners do catch, rastro/identidade nativa/morte final ou SEH/statepoints.
+Não valida lowering completo, §§27–34 completos nem gate ARC/A0.
+
+
 Fechamento parcial da CI 38010046028: Linux terminou com sucesso, incluindo
 as quatro provas ARC resume. macOS falhou no novo doctest de emit_all, antes
 da prova AOT: o exemplo exigia target triple explícito, mas o cabeçalho macOS

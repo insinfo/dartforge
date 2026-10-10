@@ -2611,6 +2611,18 @@ mod testes {
     }
 
     #[test]
+    fn excecao_owned_tem_resultado_ref_independente_sem_falha_nova() {
+        let i = Instruction::CallRuntime { name: "dartforge_arc_excecao_owned_v1".into(), args: vec![], ret_ty: Type::Ref };
+        let c = contrato_chamada_runtime(&i).unwrap();
+        assert_eq!(c.resultado, Ownership::Owned);
+        assert!(!c.efeito.pode_falhar);
+        assert!(c.efeito.sempre.is_empty());
+        let mut escalar = i.clone();
+        if let Instruction::CallRuntime { ret_ty, .. } = &mut escalar { *ret_ty = Type::I64; }
+        assert!(contrato_chamada_runtime(&escalar).is_err());
+    }
+
+    #[test]
     fn constantes_runtime_preservam_distincao_entre_escalar_e_endereco() {
         for k in [
             Constant::Bool(true),

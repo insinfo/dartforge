@@ -28,6 +28,38 @@ pub extern "C" fn dartforge_arc_lancar_ref_v1(valor: i64) {
     dartforge_exception_throw(valor, 3);
 }
 
+/// Copia a exceção pendente para um token Owned independente do clear.
+///
+/// Preserva a identidade de valores Ref. Escalares são encaixotados dentro
+/// do mesmo empréstimo do heap que publica o owner, antes de devolver o handle.
+/// Sem pendência devolve null; release de null não altera contadores.
+/// Não consome a pendência nem modifica seu rastro. Pode alocar/coletar.
+///
+/// # Panics
+/// Falha interna de alocação/ownership; aborta no limite C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let original = dartforge_arc_box_int_owned_v1(i64::MAX);
+/// dartforge_arc_lancar_ref_v1(original);
+/// let capturada = dartforge_arc_excecao_owned_v1();
+/// assert_eq!(capturada, original);
+/// dartforge_arc_release(original);
+/// dartforge_exception_clear();
+/// dartforge_arc_collect();
+/// dartforge_arc_release(capturada);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_excecao_owned_v1() -> i64 {
+    let Some(valor) = EXCEPTION.with(|slot| *slot.borrow()) else { return 0; };
+    HEAP.with(|h| {
+        let mut heap = h.borrow_mut();
+        let referencia = heap.como_ref(valor);
+        heap.reter_owner_codigo(referencia);
+        referencia
+    })
+}
+
 /// Entrega um int em representação Ref com um token Owned para o chamador.
 ///
 /// Smi não tem contador; valores fora de sua faixa criam um Mint mortal.
@@ -285,6 +317,60 @@ mod testes_arc_abi_quadros {
             assert_eq!(dartforge_exception_pending(), 0);
             dartforge_arc_collect();
             HEAP.with(|h| assert!(!h.borrow().e_objeto_vivo(valor)));
+            HEAP.with(|h| { h.replace(anterior); });
+        }
+    }
+
+    #[test]
+    fn captura_owned_preserva_identidade_e_sobrevive_clear_nos_dois_modos() {
+        for arc in [false, true] {
+            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+            dartforge_exception_clear();
+            assert_eq!(dartforge_arc_excecao_owned_v1(), 0);
+            let original = dartforge_arc_box_int_owned_v1(i64::MAX);
+            dartforge_arc_lancar_ref_v1(original);
+            let capturada = dartforge_arc_excecao_owned_v1();
+            assert_eq!(capturada, original);
+            assert_ne!(dartforge_exception_pending(), 0);
+            dartforge_arc_release(original);
+            dartforge_exception_clear();
+            dartforge_arc_collect();
+            assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(capturada)));
+            assert_eq!(HEAP.with(|h| h.borrow().int_de(capturada)), Some(i64::MAX));
+            dartforge_arc_release(capturada);
+            dartforge_arc_collect();
+            assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(capturada)));
+            HEAP.with(|h| { h.replace(anterior); });
+        }
+    }
+
+    #[test]
+    fn captura_owned_encaixota_escalar_sem_consumir_pendencia() {
+        use crate::heap::Valor;
+        for arc in [false, true] {
+            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+            for (bits, tag, esperado) in [
+                (i64::MAX, 1, Valor::Int(i64::MAX)),
+                (42, 1, Valor::Int(42)),
+                (3.5_f64.to_bits() as i64, 4, Valor::Double(3.5)),
+                (1, 2, Valor::Bool(true)),
+                (0, 2, Valor::Bool(false)),
+                (0, 3, Valor::Ref(0)),
+            ] {
+                dartforge_exception_throw(bits, tag);
+                let capturada = dartforge_arc_excecao_owned_v1();
+                assert_eq!(EXCEPTION.with(|slot| *slot.borrow()), Some(esperado));
+                dartforge_exception_clear();
+                dartforge_arc_collect();
+                assert_eq!(HEAP.with(|h| h.borrow().valor(capturada)), esperado);
+                dartforge_arc_release(capturada);
+                dartforge_arc_collect();
+                if matches!(esperado, Valor::Int(i64::MAX) | Valor::Double(_)) {
+                    assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(capturada)));
+                }
+            }
             HEAP.with(|h| { h.replace(anterior); });
         }
     }

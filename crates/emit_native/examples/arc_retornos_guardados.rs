@@ -228,17 +228,145 @@ fn main() -> Result<(), String> {
                 Type::Ref,
             ));
     }
+    // Verifica identidade antes do clear; depois libera o owner original,
+    // coleta e lê a cópia Owned, sem depender da raiz de pendência.
+    let catch = modulo.functions[0]
+        .blocks
+        .iter_mut()
+        .find(|b| b.id == BlockId(1))
+        .unwrap();
+    catch.instructions = vec![
+        (
+            ValueId(10),
+            runtime("dartforge_arc_excecao_owned_v1", vec![], Type::Ref),
+            Type::Ref,
+        ),
+        (
+            ValueId(11),
+            Instruction::ICmp(ICmpOp::Ne, val(10), val(0)),
+            Type::I1,
+        ),
+        (
+            ValueId(2),
+            runtime("dartforge_exception_clear", vec![], Type::Void),
+            Type::Void,
+        ),
+        (
+            ValueId(16),
+            Instruction::ArcDrop { value: val(0) },
+            Type::Void,
+        ),
+        (
+            ValueId(17),
+            runtime("dartforge_arc_collect", vec![], Type::Void),
+            Type::Void,
+        ),
+    ];
+    catch.terminator = Terminator::CondBranch {
+        cond: val(11),
+        then_block: BlockId(6),
+        else_block: BlockId(7),
+    };
+    modulo.functions[0].blocks.extend([
+        BasicBlock {
+            id: BlockId(6),
+            instructions: vec![
+                // Troca de identidade produz null, distinto do MAX esperado.
+                (
+                    ValueId(12),
+                    runtime(
+                        "dartforge_print_handle",
+                        vec![(Operand::Constant(Constant::Null), Type::Ref)],
+                        Type::Void,
+                    ),
+                    Type::Void,
+                ),
+                (
+                    ValueId(13),
+                    runtime("dartforge_exception_pending", vec![], Type::I8),
+                    Type::I8,
+                ),
+                (
+                    ValueId(14),
+                    Instruction::ICmp(ICmpOp::Ne, val(13), Operand::Constant(Constant::Int(0))),
+                    Type::I1,
+                ),
+            ],
+            terminator: Terminator::CondBranch {
+                cond: val(14),
+                then_block: BlockId(8),
+                else_block: BlockId(9),
+            },
+        },
+        BasicBlock {
+            id: BlockId(7),
+            instructions: vec![
+                (
+                    ValueId(18),
+                    runtime(
+                        "dartforge_print_handle",
+                        vec![(val(10), Type::Ref)],
+                        Type::Void,
+                    ),
+                    Type::Void,
+                ),
+                (
+                    ValueId(19),
+                    runtime("dartforge_exception_pending", vec![], Type::I8),
+                    Type::I8,
+                ),
+                (
+                    ValueId(20),
+                    Instruction::ICmp(ICmpOp::Ne, val(19), Operand::Constant(Constant::Int(0))),
+                    Type::I1,
+                ),
+            ],
+            terminator: Terminator::CondBranch {
+                cond: val(20),
+                then_block: BlockId(10),
+                else_block: BlockId(11),
+            },
+        },
+        BasicBlock {
+            id: BlockId(8),
+            instructions: vec![(
+                ValueId(15),
+                runtime("dartforge_exception_clear", vec![], Type::Void),
+                Type::Void,
+            )],
+            terminator: Terminator::Return(None),
+        },
+        BasicBlock {
+            id: BlockId(9),
+            instructions: vec![],
+            terminator: Terminator::Return(None),
+        },
+        BasicBlock {
+            id: BlockId(10),
+            instructions: vec![(
+                ValueId(21),
+                runtime("dartforge_exception_clear", vec![], Type::Void),
+                Type::Void,
+            )],
+            terminator: Terminator::Return(None),
+        },
+        BasicBlock {
+            id: BlockId(11),
+            instructions: vec![],
+            terminator: Terminator::Return(None),
+        },
+    ]);
     let inseridos = if automatico {
         preparar_arc_funcoes_dart(&mut modulo.functions, &mut planos)?
     } else {
         inserir_arc_funcoes_dart(&mut modulo.functions, &mut planos)?
     };
     let esperado = if misto {
-        (1, 7)
+        (1, 10)
     } else if automatico {
-        (1, 5)
+        (1, 8)
     } else {
-        (1, 3)
+        (1, 6)
     };
     if inseridos != esperado {
         return Err(format!(

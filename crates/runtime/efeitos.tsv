@@ -14,6 +14,7 @@ dartforge_api_post_cobject	1	1	0
 dartforge_api_post_integer	1	1	0
 dartforge_arc_box_int_owned_v1	1	0	0
 dartforge_arc_collect	1	0	0
+dartforge_arc_excecao_owned_v1	1	0	0
 dartforge_arc_global_receber_v1	0	0	0
 dartforge_arc_gravar_ref	0	0	0
 dartforge_arc_inicial	0	0	0

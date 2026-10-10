@@ -1,0 +1,321 @@
+{
+  "fonte": "5445efd54f24100d4cf3b1cd821de340bd115d85",
+  "run": 38011679848,
+  "provas": "completed/success nos dois jobs; workflow inteiro ainda ativo",
+  "ambiente_execucao": {
+    "ARC_CONFERIR": "1",
+    "BER": "0",
+    "GC_STRESS": "1"
+  },
+  "geracao": "LLVM embutido O2",
+  "artefatos": [
+    {
+      "digest": "sha256:933a537d603b8c9ee63e4526e11cf9d9fe5f31704e03f41898210663c4388f6d",
+      "id": 11654735790,
+      "name": "prova-arc-resume-macos-latest",
+      "size_in_bytes": 62276
+    },
+    {
+      "digest": "sha256:2d44832e59eceb94a0736a27dbdced44a731130c24ff159627acfbf75df4afc1",
+      "id": 11653174005,
+      "name": "prova-arc-resume-ubuntu-latest",
+      "size_in_bytes": 63084
+    }
+  ],
+  "fontes_sha256": {
+    "crates/emit_native/examples/arc_retornos_guardados.rs": "658ed79a76b63c4d9b780389090dbce6588c15db170bf3722be4a2b37c9b0489",
+    "crates/emit_native/src/llvm/mod.rs": "0aa4bfb9fbc390af652d22d9ecc3defafaf105c48917b465beff7af5562c9bb0",
+    "crates/runtime/src/excecoes_tabelas.rs": "c36fd2c45592c2f22a6238ac3c920f1d41ce27c34dbe5d070b94ac3475f5b8de",
+    ".github/workflows/ci.yml": "0b1595d0030d94dfc4f55c92d76f1430edcc4414590a4f0c052d0566e95446ce"
+  },
+  "casos": [
+    {
+      "plataforma": "linux",
+      "job": 114092903543,
+      "perfil": "simples",
+      "modo": "arc",
+      "caminho": "normal",
+      "codigo": 0,
+      "arquivos": {
+        "simples-arc-normal.ll": {
+          "bytes": 44647,
+          "sha256": "0f1d21b15b0a4ee10eb831bf32acd761dc9808b68dbb78e3600c1512f713d260"
+        },
+        "simples-arc-normal.stdout": {
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        }
+      }
+    },
+    {
+      "plataforma": "linux",
+      "job": 114092903543,
+      "perfil": "simples",
+      "modo": "arc",
+      "caminho": "erro",
+      "codigo": 0,
+      "arquivos": {
+        "simples-arc-erro.ll": {
+          "bytes": 44697,
+          "sha256": "6ba6869b40a8a8603728fa235123b9895dc5c212ee2ea747158088c9d7465996"
+        },
+        "simples-arc-erro.stdout": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    {
+      "plataforma": "linux",
+      "job": 114092903543,
+      "perfil": "simples",
+      "modo": "tracing",
+      "caminho": "normal",
+      "codigo": 0,
+      "arquivos": {
+        "simples-tracing-normal.ll": {
+          "bytes": 44400,
+          "sha256": "89aaf7f470762499829f5dde10b85951bce5d9a6ff201a11b1fd134029390aee"
+        },
+        "simples-tracing-normal.stdout": {
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        }
+      }
+    },
+    {
+      "plataforma": "linux",
+      "job": 114092903543,
+      "perfil": "simples",
+      "modo": "tracing",
+      "caminho": "erro",
+      "codigo": 0,
+      "arquivos": {
+        "simples-tracing-erro.ll": {
+          "bytes": 44450,
+          "sha256": "3a78de5f0e5e1a295da50e2d90283744c9445210656ab0ed10dd7c1a0627c7fc"
+        },
+        "simples-tracing-erro.stdout": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    {
+      "plataforma": "linux",
+      "job": 114092903543,
+      "perfil": "misto",
+      "modo": "arc",
+      "caminho": "normal",
+      "codigo": 0,
+      "arquivos": {
+        "misto-arc-normal.ll": {
+          "bytes": 45272,
+          "sha256": "e487b7137e3bd4f376c2358acfe61a374ba376502239a0e9aa46ec7388ed5936"
+        },
+        "misto-arc-normal.stdout": {
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        }
+      }
+    },
+    {
+      "plataforma": "linux",
+      "job": 114092903543,
+      "perfil": "misto",
+      "modo": "arc",
+      "caminho": "erro",
+      "codigo": 0,
+      "arquivos": {
+        "misto-arc-erro.ll": {
+          "bytes": 45322,
+          "sha256": "21ed80cc77306a8f54f893adce822aed360866ba2610e5436b9f1fc37a7bbc99"
+        },
+        "misto-arc-erro.stdout": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    {
+      "plataforma": "linux",
+      "job": 114092903543,
+      "perfil": "misto",
+      "modo": "tracing",
+      "caminho": "normal",
+      "codigo": 0,
+      "arquivos": {
+        "misto-tracing-normal.ll": {
+          "bytes": 45025,
+          "sha256": "b29a2b9788aeda255d4c0fe56ef76b455968ea967353287ade132ab6b93772c3"
+        },
+        "misto-tracing-normal.stdout": {
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        }
+      }
+    },
+    {
+      "plataforma": "linux",
+      "job": 114092903543,
+      "perfil": "misto",
+      "modo": "tracing",
+      "caminho": "erro",
+      "codigo": 0,
+      "arquivos": {
+        "misto-tracing-erro.ll": {
+          "bytes": 45075,
+          "sha256": "50d10363d145a92219c28e66fd99cb30c445b855c38431798f041f050d450ece"
+        },
+        "misto-tracing-erro.stdout": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    {
+      "plataforma": "macos",
+      "job": 114092903494,
+      "perfil": "simples",
+      "modo": "arc",
+      "caminho": "normal",
+      "codigo": 0,
+      "arquivos": {
+        "simples-arc-normal.ll": {
+          "bytes": 44501,
+          "sha256": "9044abe18332bbaf446f1ec91699adf799ca4dd293d52c138ee7956e45abbe6c"
+        },
+        "simples-arc-normal.stdout": {
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        }
+      }
+    },
+    {
+      "plataforma": "macos",
+      "job": 114092903494,
+      "perfil": "simples",
+      "modo": "arc",
+      "caminho": "erro",
+      "codigo": 0,
+      "arquivos": {
+        "simples-arc-erro.ll": {
+          "bytes": 44551,
+          "sha256": "1406c2d529e55937443849000121883df98a191df936c949ec41fdf2fac356a9"
+        },
+        "simples-arc-erro.stdout": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    {
+      "plataforma": "macos",
+      "job": 114092903494,
+      "perfil": "simples",
+      "modo": "tracing",
+      "caminho": "normal",
+      "codigo": 0,
+      "arquivos": {
+        "simples-tracing-normal.ll": {
+          "bytes": 44254,
+          "sha256": "cb746078ad23b3da1cbcc5bb66afe23276486ff69667c2b3333f76c0aec9a909"
+        },
+        "simples-tracing-normal.stdout": {
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        }
+      }
+    },
+    {
+      "plataforma": "macos",
+      "job": 114092903494,
+      "perfil": "simples",
+      "modo": "tracing",
+      "caminho": "erro",
+      "codigo": 0,
+      "arquivos": {
+        "simples-tracing-erro.ll": {
+          "bytes": 44304,
+          "sha256": "4ff1197ae7110a9fb58af9af04824d692529521bb51a023aa5f939de0127e602"
+        },
+        "simples-tracing-erro.stdout": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    {
+      "plataforma": "macos",
+      "job": 114092903494,
+      "perfil": "misto",
+      "modo": "arc",
+      "caminho": "normal",
+      "codigo": 0,
+      "arquivos": {
+        "misto-arc-normal.ll": {
+          "bytes": 45126,
+          "sha256": "cebecd560b0b3ed9b1bdab3cab7daca23b926337fab1e29ab20908c1d47ace80"
+        },
+        "misto-arc-normal.stdout": {
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        }
+      }
+    },
+    {
+      "plataforma": "macos",
+      "job": 114092903494,
+      "perfil": "misto",
+      "modo": "arc",
+      "caminho": "erro",
+      "codigo": 0,
+      "arquivos": {
+        "misto-arc-erro.ll": {
+          "bytes": 45176,
+          "sha256": "8fe3826854b76af68fbf0745f147f46d4a6e2be5ab99dae550631afeb766f42b"
+        },
+        "misto-arc-erro.stdout": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    {
+      "plataforma": "macos",
+      "job": 114092903494,
+      "perfil": "misto",
+      "modo": "tracing",
+      "caminho": "normal",
+      "codigo": 0,
+      "arquivos": {
+        "misto-tracing-normal.ll": {
+          "bytes": 44879,
+          "sha256": "4df13686efbc2efffbbb28cdd2861e14f0e086ebf3587aac59225f5127a281b5"
+        },
+        "misto-tracing-normal.stdout": {
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        }
+      }
+    },
+    {
+      "plataforma": "macos",
+      "job": 114092903494,
+      "perfil": "misto",
+      "modo": "tracing",
+      "caminho": "erro",
+      "codigo": 0,
+      "arquivos": {
+        "misto-tracing-erro.ll": {
+          "bytes": 44929,
+          "sha256": "ba4b5885aa7700daf4064b981d4c81151beff1feaf84ad9ce18f55a314a891dd"
+        },
+        "misto-tracing-erro.stdout": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    }
+  ]
+}

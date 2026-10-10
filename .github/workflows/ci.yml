@@ -221,12 +221,12 @@ jobs:
         run: |
           mkdir -p target/prova-arc-resume
           printf '9223372036854775807\n' > target/prova-arc-resume/normal.esperado
-          : > target/prova-arc-resume/erro.esperado
+          printf '9223372036854775807\n' > target/prova-arc-resume/erro.esperado
           for perfil in simples misto; do
             for modo in arc tracing; do
               for caminho in normal erro; do
                 exe="target/prova-arc-resume/${perfil}-${modo}-${caminho}"
-                cargo run --locked --release -p dartforge-emit-native --features llvm-embutido --example arc_retornos_guardados -- "$exe" "$modo" "$caminho" automatico "$perfil"
+                DARTFORGE_EFEITOS=conferir cargo run --locked --release -p dartforge-emit-native --features llvm-embutido --example arc_retornos_guardados -- "$exe" "$modo" "$caminho" automatico "$perfil"
                 grep -F 'personality ptr @dartforge_personalidade_cleanup_itanium' "${exe}.ll"
                 grep -F 'resume { ptr, i32 } %lpad' "${exe}.ll"
                 if [ "$perfil" = misto ]; then
