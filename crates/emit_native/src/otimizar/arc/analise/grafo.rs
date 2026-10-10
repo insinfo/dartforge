@@ -169,6 +169,28 @@ fn construir(f: &Function, a: AnaliseHir) -> GrafoHeapArc {
             }
         }
     }
+    // Um escritor coberto apenas na HIR explícita pode manter campos topo.
+    // Mesmo assim suas inclusões positivas não desaparecem do supergrafo;
+    // isso não fecha a fronteira ou fornece uma prova de não participação.
+    for &(objeto, valor) in &a.inclusoes_escritas {
+        match (
+            a.pontos().variavel(objeto).and_then(|p| p.nos()),
+            a.pontos().variavel(valor).and_then(|p| p.nos()),
+        ) {
+            (Some(origens), Some(destinos)) => {
+                for origem in origens {
+                    arestas
+                        .entry(origem.clone())
+                        .or_default()
+                        .extend(destinos.iter().cloned());
+                    for destino in destinos {
+                        arestas.entry(destino.clone()).or_default();
+                    }
+                }
+            }
+            _ => opaco = true,
+        }
+    }
     let nos: Vec<_> = arestas.keys().cloned().collect();
     let ids: BTreeMap<_, _> = nos.iter().enumerate().map(|(i, no)| (no, i)).collect();
     let adjacentes: Vec<Vec<_>> = nos
@@ -234,6 +256,25 @@ fn conferir_projecao(f: &Function, g: &GrafoHeapArc) -> Result<(), String> {
                     }
                 }
             }
+        }
+    }
+    for &(objeto, valor) in &a.inclusoes_escritas {
+        match (
+            a.pontos().variavel(objeto).and_then(|p| p.nos()),
+            a.pontos().variavel(valor).and_then(|p| p.nos()),
+        ) {
+            (Some(origens), Some(destinos)) => {
+                for origem in origens {
+                    let saidas = g
+                        .arestas
+                        .get(origem)
+                        .ok_or("grafo ARC: receiver de store omitido")?;
+                    if !destinos.is_subset(saidas) {
+                        return Err("grafo ARC: inclusão de store omitida".into());
+                    }
+                }
+            }
+            _ => exigir_opaco()?,
         }
     }
     // Inclui nós extras de sobreaproximações: um destino sem esquema não
@@ -327,6 +368,93 @@ mod testes {
         });
         super::super::origens::registrar(&mut m, 0, true);
         m
+    }
+
+    #[test]
+    fn stores_por_chamada_preservam_os_512_grafos_sem_fechar_fronteiras() {
+        for mascara in 0..512 {
+            let mut m = modulo(mascara);
+            for (_, i, _) in &mut m.functions[0].blocks[0].instructions {
+                if let Instruction::SetField { object, value, .. } = i {
+                    *i = Instruction::CallStatic {
+                        symbol: "ligar".into(),
+                        args: vec![object.clone(), value.clone()],
+                        ret_ty: Type::Void,
+                    };
+                }
+            }
+            m.functions.push(Function {
+                symbol: "ligar".into(),
+                name: "ligar".into(),
+                depuracao: None,
+                params: vec![
+                    (ValueId(0), "a".into(), Type::Ref),
+                    (ValueId(1), "b".into(), Type::Ref),
+                ],
+                return_ty: Type::Void,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(
+                        ValueId(2),
+                        Instruction::SetField {
+                            object: Operand::Val(ValueId(0)),
+                            index: 0,
+                            value: Operand::Val(ValueId(1)),
+                        },
+                        Type::Void,
+                    )],
+                    terminator: Terminator::Return(None),
+                }],
+            });
+            let mut g = construir_local_no_modulo(&m, "f", 16).unwrap().unwrap();
+            assert!(g.opaco());
+            assert_eq!(g.arestas.len(), 3);
+            let nos: Vec<_> = (0..3)
+                .map(|v| NoAbstrato::Alocacao {
+                    sitio: m.sitios_arc["f"][&ValueId(v)].clone(),
+                    contexto: "".into(),
+                })
+                .collect();
+            let mut alcance = [[false; 3]; 3];
+            for v in 0..3 {
+                for w in 0..3 {
+                    alcance[v][w] = mascara & (1 << (3 * v + w)) != 0;
+                    assert_eq!(g.arestas[&nos[v]].contains(&nos[w]), alcance[v][w]);
+                    if alcance[v][w] {
+                        g.arestas.get_mut(&nos[v]).unwrap().remove(&nos[w]);
+                        assert!(g.conferir_no_modulo(&m, "f").is_err());
+                        g.arestas.get_mut(&nos[v]).unwrap().insert(nos[w].clone());
+                    }
+                }
+            }
+            for k in 0..3 {
+                for v in 0..3 {
+                    for w in 0..3 {
+                        alcance[v][w] |= alcance[v][k] && alcance[k][w];
+                    }
+                }
+            }
+            for v in 0..3 {
+                for w in 0..3 {
+                    let juntos = g
+                        .componentes
+                        .iter()
+                        .any(|(c, _)| c.contains(&nos[v]) && c.contains(&nos[w]));
+                    assert_eq!(juntos, v == w || (alcance[v][w] && alcance[w][v]));
+                }
+            }
+            g.conferir_no_modulo(&m, "f").unwrap();
+            if mascara != 0 {
+                m.functions[1].blocks[0].instructions[0].1 = Instruction::SetField {
+                    object: Operand::Val(ValueId(1)),
+                    index: 0,
+                    value: Operand::Val(ValueId(0)),
+                };
+                assert!(g.conferir_no_modulo(&m, "f").is_err());
+            }
+            m.memoria_arc = false;
+            assert!(construir_local_no_modulo(&m, "f", 16).unwrap().is_none());
+        }
     }
 
     #[test]

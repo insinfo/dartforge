@@ -11,3 +11,4 @@ pub mod escape;
 pub mod resumos;
 pub mod grafo;
 mod chamadas;
+mod escritas;

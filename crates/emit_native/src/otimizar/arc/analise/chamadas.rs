@@ -163,6 +163,31 @@ pub(super) fn resolver<'a>(
             }
         }
     }
+    // Inclusões de stores têm ponto fixo próprio, sem promover a cobertura
+    // de campos/publicações nem ignorar prólogos/saídas opacos. Recursão
+    // propaga uniões; desconhecimento e orçamento excedido são absorventes.
+    let mut escritas = vec![super::escritas::InclusoesEscritas::vazio(); corpos.len()];
+    for componente in crate::otimizar::scc::componentes(&arestas) {
+        let membros: HashSet<_> = componente.iter().copied().collect();
+        let mut fila: VecDeque<_> = componente.iter().copied().collect();
+        let mut enfileirados = membros.clone();
+        while let Some(v) = fila.pop_front() {
+            enfileirados.remove(&v);
+            let novo = super::escritas::extrair(corpos[v], limite, |s| {
+                ids.get(s).map(|&w| (corpos[w], &retornos[w], &escritas[w]))
+            })?;
+            if escritas[v].unir(&novo, limite) {
+                for &w in &dependentes[v] {
+                    if membros.contains(&w) && enfileirados.insert(w) {
+                        fila.push_back(w);
+                    }
+                }
+            }
+        }
+    }
+    for (resumo, inclusoes) in resumos.iter_mut().zip(escritas) {
+        resumo.inclusoes_escritas = inclusoes;
+    }
     Ok(corpos
         .into_iter()
         .zip(resumos)

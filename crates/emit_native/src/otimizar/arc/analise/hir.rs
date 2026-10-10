@@ -67,6 +67,9 @@ pub struct AnaliseHir {
     pub(crate) emissao_implicita_opaca: bool,
     pub(crate) limite: usize,
     pub(crate) esquemas: HashMap<NoAbstrato, BTreeSet<CampoArc>>,
+    // Inclusões por argumentos reais de calls; não refinam campos topo nem
+    // substituem cobertura de mutações/vidas/caminhos de emissão.
+    pub(crate) inclusoes_escritas: Vec<(usize, usize)>,
 }
 
 impl AnaliseHir {
@@ -223,6 +226,7 @@ pub(crate) fn analisar_com_resumos(
     let vazio = ids.len();
     let opaco = vazio + 1;
     let mut rs = vec![Restricao::Desconhecer { destino: opaco }];
+    let mut inclusoes_escritas = Vec::new();
     let campos: BTreeSet<_> = fatos
         .acessos
         .values()
@@ -352,6 +356,20 @@ pub(crate) fn analisar_com_resumos(
                     rs.push(Restricao::Desconhecer { destino });
                 }
                 dependencias_corpos.insert(symbol.clone(), assinatura_corpo(callee));
+                if abi_exata
+                    && let super::escritas::InclusoesEscritas::Conhecidas(escritas) =
+                        &resumo.inclusoes_escritas
+                {
+                    for escrita in escritas {
+                        let object = args
+                            .get(escrita.objeto)
+                            .ok_or("points-to: receiver de resumo inválido")?;
+                        let value = args
+                            .get(escrita.valor)
+                            .ok_or("points-to: valor de resumo inválido")?;
+                        inclusoes_escritas.push((operando(object), operando(value)));
+                    }
+                }
                 // Cobertura de campos é separada do alias normal. Conversões
                 // de argumentos podem alocar/reentrar antes do corpo coberto.
                 if !abi_exata
@@ -458,6 +476,7 @@ pub(crate) fn analisar_com_resumos(
         emissao_implicita_opaca: false,
         limite,
         esquemas,
+        inclusoes_escritas,
     })
 }
 

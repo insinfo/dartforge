@@ -79,6 +79,7 @@ pub struct ResumoHeapArc {
     retorno: RetornoHeapArc,
     campos: CamposHeapArc,
     publicacoes: PublicacoesHeapArc,
+    pub(super) inclusoes_escritas: super::escritas::InclusoesEscritas,
 }
 
 impl ResumoHeapArc {
@@ -369,6 +370,7 @@ pub(super) fn extrair_com_chamadas<'a>(
     Ok(ResumoHeapArc {
         corpo: assinatura_corpo(f),
         retorno,
+        inclusoes_escritas: super::escritas::extrair(f, limite, |_| None)?,
         campos: if coberto {
             CamposHeapArc::Preservados
         } else {
