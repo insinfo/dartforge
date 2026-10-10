@@ -97,6 +97,41 @@ jobs:
       - name: recarga JIT com estado pela CLI
         if: success() || failure()
         run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test reload_estado
+      - name: Keepalive de campos com heap real (AOT Windows)
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $env:DARTFORGE_ARC_CONFERIR = '1'
+          $env:DARTFORGE_ARC_BERCARIO = '0'
+          $env:DARTFORGE_GC_STRESS = '1'
+          foreach ($nivel in @(0, 2)) {
+            foreach ($modo in @('arc', 'tracing')) {
+              foreach ($controle in @('normal', 'sem-retencao', 'sem-liberar')) {
+                $exe = "target/prova-keepalive-campos/$modo-O$nivel-$controle.exe"
+                $argumentos = @($exe, "--memoria=$modo", "$nivel")
+                if ($controle -ne 'normal') { $argumentos += $controle }
+                cargo run --locked --release -p dartforge-emit-native --features llvm-embutido --example arc_keepalive_campos -- @argumentos
+                if ($LASTEXITCODE) { throw "compilação falhou: $exe" }
+                & $exe > "$exe.stdout" 2> "$exe.stderr"
+                $codigo = $LASTEXITCODE
+                Set-Content "$exe.exit" "$codigo"
+                if ($controle -eq 'normal') {
+                  if ($codigo -ne 0 -or (Get-Content "$exe.stdout" -Raw).Trim() -ne '1') { throw "prova falhou: $exe" }
+                } elseif ($codigo -eq 0) { throw "controle negativo passou: $exe" }
+              }
+            }
+          }
+          exit 0
+      - name: Artefatos do keepalive de campos Windows
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: prova-keepalive-campos-windows
+          path: |
+            target/prova-keepalive-campos/*.ll
+            target/prova-keepalive-campos/*.stdout
+            target/prova-keepalive-campos/*.stderr
+            target/prova-keepalive-campos/*.exit
       - name: regressões do dart:io nativo (escuta compartilhada, rajada de sinais)
         if: success() || failure()
         run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test io_regressao -- --include-ignored
@@ -216,6 +251,40 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Compilar dartforge (nativo, jit)
         run: cargo build --locked --release -p dartforge-cli --features nativo,jit -p dartforge-jit
+      - name: Keepalive de campos com heap real (AOT Unix)
+        shell: bash
+        run: |
+          mkdir -p target/prova-keepalive-campos
+          printf '1\n' > target/prova-keepalive-campos/normal.esperado
+          for nivel in 0 2; do
+            for modo in arc tracing; do
+              for controle in normal sem-retencao sem-liberar; do
+                exe="target/prova-keepalive-campos/${modo}-O${nivel}-${controle}"
+                extra=()
+                if [ "$controle" != normal ]; then extra=("$controle"); fi
+                cargo run --locked --release -p dartforge-emit-native --features llvm-embutido --example arc_keepalive_campos -- "$exe" "--memoria=$modo" "$nivel" "${extra[@]}"
+                if DARTFORGE_ARC_CONFERIR=1 DARTFORGE_ARC_BERCARIO=0 DARTFORGE_GC_STRESS=1 "$exe" > "${exe}.stdout" 2> "${exe}.stderr"; then
+                  printf '0\n' > "${exe}.exit"
+                  if [ "$controle" != normal ]; then echo "controle negativo passou: $exe"; exit 1; fi
+                  cmp target/prova-keepalive-campos/normal.esperado "${exe}.stdout"
+                else
+                  codigo=$?
+                  printf '%s\n' "$codigo" > "${exe}.exit"
+                  if [ "$controle" = normal ]; then echo "prova falhou: $exe ($codigo)"; exit 1; fi
+                fi
+              done
+            done
+          done
+      - name: Artefatos do keepalive de campos Unix
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: prova-keepalive-campos-${{ matrix.os }}
+          path: |
+            target/prova-keepalive-campos/*.ll
+            target/prova-keepalive-campos/*.stdout
+            target/prova-keepalive-campos/*.stderr
+            target/prova-keepalive-campos/*.exit
       - name: Cleanup ARC com resume Itanium (AOT, normal e erro)
         shell: bash
         run: |

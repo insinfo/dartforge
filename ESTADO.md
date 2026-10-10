@@ -2,6 +2,21 @@
 
 ## Retomada de 2026-10-10
 
+Prova AOT arc_keepalive_campos passou no Windows: ARC/tracing × O0/O2,
+quatro execuções positivas e oito controles negativos sem retenção ou sem
+liberação final, todos recusados por trap (-1073741795). HIR de leitura Ref
+seguida de substituição da aresta recebe keepalive automaticamente e retorna
+Owned; o harness LLVM cria instância de 40 campos e Mint mortal, observa
+owner 1→3→0 e morte do receiver após sair da função, sem alocar entre morte
+e observação. Compilação usa o driver normal e as ABIs auditadas de objeto,
+campo Ref e caixa Owned. Teste do exemplo confere retenção antes do setter
+e preparação idempotente. Logs target/arc-keepalive-campos-{build,example}.log
+e target/prova-keepalive-campos. CI foi ampliada para executar a matriz e
+preservar IR/stdout/stderr/exit em Windows, Linux e macOS; execução desses
+novos jobs ainda pendente. No tracing, o harness mantém o mesmo corpo de
+tokens explícitos para testar compatibilidade runtime; não ativa preparação
+ARC no fluxo padrão. Não prova lowering de fonte nem keepalive pending.
+
 Keepalive ARC agora cobre resultado Ref borrowed de runtime falível com
 guarda canônica de pendência. Divide somente a aresta de sucesso e retém
 num bloco novo; a chamada/guarda permanecem juntas e o caminho de erro não
@@ -107,11 +122,11 @@ Sem nova prova AOT desta ABI. Passaram 178 testes runtime (3 ignorados),
 target/arc-instancia-runtime-{focado,suite,doc}.log e
 target/arc-instancia-emissor-{focado,suite,doc}.log.
 
-Conjunto publicado b5887c94 em validação na CI 38029919066: Windows, Linux
-e mensagens concluídos com sucesso; macOS na recarga JIT da CLI na
-consulta desta retomada. CI Sem toolchain do sistema
-38029919046 concluída com sucesso. ABIs de instâncias/campos e barreiras de
-empréstimos acima são posteriores a essa fonte e ainda exigem CI própria.
+Conjunto publicado b5887c94 validado na CI 38029919066: Windows, Linux,
+macOS e mensagens concluídos com sucesso. CI Sem toolchain do sistema
+38029919046 concluída com sucesso. ABIs de instâncias/campos, barreiras de
+empréstimos e prova de keepalive acima são posteriores a essa fonte e ainda
+exigem CI própria.
 
 Auditoria dos layouts declarados percorre as 15 bibliotecas do SDK da fonte
 usando a mesma etapa de registro de classes da produção, sem baixar seus
