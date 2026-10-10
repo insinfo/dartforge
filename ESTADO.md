@@ -2,6 +2,21 @@
 
 ## Retomada de 2026-10-10
 
+Fixture macOS da CI 38019611633 terminou com falha de ligação: o compact unwind
+recusou quatro personalidades (Dart legada, cleanup Itanium, Rust e C++). Não
+executou a fixture; não é falha observada de ownership ou destrutores.
+A fixture local agora liga o runtime de produção numa dylib macOS, usando
+force_load e install_name absoluto, e liga C++/LLVM a essa imagem separada.
+Conserva as informações de unwind; não desliga compact unwind. O limite por
+imagem consta no código da Apple:
+https://github.com/apple-oss-distributions/ld64/blob/main/src/ld/passes/compact_unwind.cpp
+Comandos de ligação são publicados como *.ligacao.txt. Em Linux, a fixture
+continua usando a staticlib. Três testes HIR passaram novamente
+(target/unwind-dylib-fixture.log); driver Clang 22 aceitou a composição Darwin
+dynamiclib/force_load na consulta -###. Ligação e execução macOS do novo
+conjunto, incluindo Retoma e forçado, precisam ser verificadas pela próxima CI.
+
+
 Provas de retomada sob estresse ativo nos dois sistemas: fonte f460ce72,
 CI 38019611633, Linux e macOS passaram as etapas AOT. Dezesseis stdout
 MAX LF e dezesseis IR conferidos, com rastro explícito e capturas Owned.

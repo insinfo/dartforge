@@ -272,6 +272,7 @@ jobs:
           path: |
             target/prova-unwind-estrangeiro/*.ll
             target/prova-unwind-estrangeiro/*.cpp
+            target/prova-unwind-estrangeiro/*.ligacao.txt
             target/prova-unwind-estrangeiro/*.stdout
       - name: Testes do emit_native (com os ignorados)
         env:

@@ -241,14 +241,50 @@ fn main() -> Result<(), String> {
     )
     .map_err(|e| e.to_string())?;
     let runtime = RuntimeCache::para_producao()?;
-    let mut cmd = Command::new(std::env::var_os("CXX").unwrap_or_else(|| "c++".into()));
+    let cxx = std::env::var_os("CXX").unwrap_or_else(|| "c++".into());
+    #[cfg(not(target_os = "macos"))]
+    let biblioteca = runtime.lib_path.clone();
+    #[cfg(target_os = "macos")]
+    let biblioteca = {
+        // Compact unwind admite três personalidades por imagem. A fixture
+        // combina C++, Dart legado/cleanup e Rust; separa o runtime numa dylib
+        // conservando as informações de unwind de ambas as imagens.
+        let dylib = std::env::current_dir()
+            .map_err(|e| e.to_string())?
+            .join(saida.with_extension("runtime.dylib"));
+        let mut ligar_runtime = Command::new(&cxx);
+        ligar_runtime
+            .args(["-dynamiclib", "-Xlinker", "-force_load", "-Xlinker"])
+            .arg(&runtime.lib_path)
+            .args(["-Xlinker", "-install_name", "-Xlinker"])
+            .arg(&dylib)
+            .args(dartforge_emit_native::alvo::bibliotecas_do_sistema())
+            .arg("-o")
+            .arg(&dylib);
+        std::fs::write(
+            saida.with_extension("runtime.ligacao.txt"),
+            format!("{ligar_runtime:?}\n"),
+        )
+        .map_err(|e| e.to_string())?;
+        let resultado = ligar_runtime.output().map_err(|e| e.to_string())?;
+        if !resultado.status.success() {
+            return Err(format!(
+                "ligação da dylib do runtime falhou: {}",
+                String::from_utf8_lossy(&resultado.stderr)
+            ));
+        }
+        dylib
+    };
+    let mut cmd = Command::new(&cxx);
     cmd.args(["-std=c++17", "-O2"])
         .arg(&cpp)
         .arg(&obj)
-        .arg(&runtime.lib_path)
+        .arg(&biblioteca)
         .arg("-o")
         .arg(&saida);
     cmd.args(dartforge_emit_native::alvo::bibliotecas_do_sistema());
+    std::fs::write(saida.with_extension("ligacao.txt"), format!("{cmd:?}\n"))
+        .map_err(|e| e.to_string())?;
     let resultado = cmd.output().map_err(|e| e.to_string())?;
     if !resultado.status.success() {
         return Err(format!(
