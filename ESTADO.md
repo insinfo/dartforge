@@ -2,6 +2,23 @@
 
 ## Retomada de 2026-10-10
 
+Preparação explícita do módulo ARC agora publica também as tabelas de
+exceções verificadas quando esse modo já foi selecionado. Antes, corpos e
+planos podiam ganhar novos invokes/pousos enquanto Module::tabelas ainda
+descrevia o CFG antigo. A publicação acompanha a ordem final das funções e
+só ocorre após verificar todo o conjunto; erros conservam corpos, planos e
+tabelas anteriores. Tracing permanece sem alterações, e a API não seleciona
+o modo de exceções nem ativa ARC implicitamente.
+Regressão cobre seis situações: publicação, plano ausente, tracing, modo
+de tabelas desligado, falha posterior em um corpo e ordem invertida das
+funções; confere invoke LLVM e idempotência. Passaram 254 testes do emissor
+(sete ignorados) e 52 exemplos públicos. A fixture arc_retornos_guardados
+passa a usar a publicação pelo módulo no caminho ARC automático; prova
+AOT normal no Windows, com auditoria/puro/GC stress, terminou em zero e
+imprimiu 9223372036854775807. Logs target/arc-publicacao-tabelas-*. Isso
+valida a API explícita, sem certificar unwind Windows ou a integração
+automática completa da fonte/SDK.
+
 Contrato de ativação: ARC é opt-in por `--memoria=arc`; sem a opção,
 tracing permanece padrão. Integração dos passes ao fluxo normal de
 compilação deve respeitar essa seleção. C++ aparece nas fixtures de

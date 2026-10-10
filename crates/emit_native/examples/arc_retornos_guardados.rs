@@ -397,7 +397,11 @@ fn main() -> Result<(), String> {
             terminator: Terminator::Return(None),
         },
     ]);
-    let inseridos = if automatico {
+    let inseridos = if automatico && arc {
+        // O módulo selecionou exceções por tabelas antes da preparação.
+        // A transação publica o inventário da HIR final para o emissor.
+        preparar_arc_modulo_dart(&mut modulo, &mut planos)?
+    } else if automatico {
         preparar_arc_funcoes_dart(&mut modulo.functions, &mut planos)?
     } else {
         inserir_arc_funcoes_dart(&mut modulo.functions, &mut planos)?
@@ -414,11 +418,13 @@ fn main() -> Result<(), String> {
             "inserção esperada {esperado:?}, encontrada {inseridos:?}"
         ));
     }
-    modulo.tabelas = modulo
-        .functions
-        .iter()
-        .map(|f| planos[&f.symbol].tabelas.clone())
-        .collect();
+    if !(automatico && arc) {
+        modulo.tabelas = modulo
+            .functions
+            .iter()
+            .map(|f| planos[&f.symbol].tabelas.clone())
+            .collect();
+    }
     let erros = dartforge_emit_native::lower::verificador::verificar(&modulo);
     if !erros.is_empty() {
         return Err(erros.join("\n"));

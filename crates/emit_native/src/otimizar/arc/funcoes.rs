@@ -161,7 +161,9 @@ pub fn preparar_arc_funcoes_dart(
 /// Publicação/contenção, chamada sem resumo fechado e layout ambíguo recusam
 /// a prova; não certifica receivers recebidos por parâmetro ou guardas late.
 /// Retorno Ref exige convenção Owned e operações não cobertas exigem contratos
-/// explícitos. Não materializa tabelas nem chama este passe no pipeline padrão.
+/// explícitos. Se `excecoes_por_tabelas` já estiver selecionado, publica também
+/// as tabelas verificadas, na ordem final das funções, na mesma transação.
+/// Não seleciona esse modo nem chama este passe no pipeline padrão.
 /// Demais limites são os de [`preparar_arc_funcoes_dart`].
 ///
 /// # Erros
@@ -201,6 +203,15 @@ pub fn preparar_arc_modulo_dart(
         true,
         Some(&modulo.layouts_campos_arc),
     )?;
+    // Os IDs de invokes/pousos e os certificados pertencem aos corpos novos.
+    // Não deixar o emissor consultar um inventário da versão anterior do CFG.
+    if modulo.excecoes_por_tabelas {
+        modulo.tabelas = modulo
+            .functions
+            .iter()
+            .map(|f| novos[&f.symbol].tabelas.clone())
+            .collect();
+    }
     *planos = novos;
     Ok(total)
 }
@@ -339,6 +350,72 @@ fn inserir(
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn modulo_publica_tabelas_do_cfg_arc_final_sem_habilitar_modos() {
+        for caso in 0..6 {
+            let (funcoes, mut planos) = conjunto();
+            planos.get_mut("folha").unwrap().tabelas.confere_pilha = true;
+            let mut m = Module::new();
+            m.functions = funcoes;
+            m.memoria_arc = caso != 2;
+            m.excecoes_por_tabelas = caso != 3;
+            // Inventário anterior incompleto: não pode sobreviver ao novo CFG.
+            m.tabelas.push(TabelasDaFuncao::default());
+            if caso == 1 {
+                planos.remove("folha");
+            } else if caso == 4 {
+                // Falha depois da preparação privada dos callers: não publicar
+                // nem seus CFGs novos nem as tabelas parcialmente recalculadas.
+                m.functions[2].blocks[0].instructions.push((
+                    ValueId(2),
+                    Instruction::ArcDrop {
+                        value: Operand::Val(ValueId(0)),
+                    },
+                    Type::Void,
+                ));
+            } else if caso == 5 {
+                m.functions.reverse();
+            }
+            let antes = format!("{m:?}/{planos:?}");
+            let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
+            if caso == 1 || caso == 4 {
+                assert!(resultado.is_err());
+                assert_eq!(format!("{m:?}/{planos:?}"), antes);
+            } else if caso == 2 {
+                assert_eq!(resultado.unwrap(), (0, 0));
+                assert_eq!(format!("{m:?}/{planos:?}"), antes);
+            } else {
+                resultado.unwrap();
+                if caso == 3 {
+                    assert!(!m.excecoes_por_tabelas);
+                    assert_eq!(m.tabelas.len(), 1);
+                    continue;
+                }
+                assert_eq!(m.tabelas.len(), m.functions.len());
+                for (f, tabela) in m.functions.iter().zip(&m.tabelas) {
+                    assert_eq!(
+                        format!("{tabela:?}"),
+                        format!("{:?}", planos[&f.symbol].tabelas)
+                    );
+                }
+                let caller = m
+                    .functions
+                    .iter()
+                    .position(|f| f.symbol == "caller")
+                    .unwrap();
+                assert!(!m.tabelas[caller].invocacoes.is_empty());
+                let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+                assert!(ir.contains("invoke i64 @folha("), "{ir}");
+                let verificado = format!("{m:?}/{planos:?}");
+                assert_eq!(
+                    preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+                    (0, 0)
+                );
+                assert_eq!(format!("{m:?}/{planos:?}"), verificado);
+            }
+        }
+    }
 
     #[test]
     fn keepalive_phi_prepara_todas_as_origens_antes_de_reclassificar() {

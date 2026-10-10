@@ -568,6 +568,13 @@ três microbenchmarks ignorados. Fonte única AOT/JIT aprovada.
 
 ## 5. Pendências
 
+Na API explícita `preparar_arc_modulo_dart`, corpos, planos e tabelas de
+exceções selecionadas são publicados juntos após a verificação do conjunto.
+O emissor recebe os IDs e certificados do CFG final, inclusive quando a
+preparação acrescenta invokes e pousos. Erros preservam a versão anterior;
+tracing não passa pela preparação ARC. Isso ainda exige contratos fornecidos
+e não representa inserção automática completa no pipeline da fonte/SDK.
+
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais
   (§20.4).
 * `ownership.tsv` por extern (§21.2).
