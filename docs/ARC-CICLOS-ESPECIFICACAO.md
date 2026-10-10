@@ -1953,6 +1953,14 @@ seu prólogo e cleanup podem mudar sem alterar a HIR. Fotografias das tabelas
 são comparadas por conteúdo, incluindo mapas/conjuntos, e acompanham o símbolo
 quando funções/tabelas mudam de posição. Isso invalida análise antiga, mas não
 prova que uma análise nova cobre todos os efeitos implícitos da emissão.
+O módulo registra uma fronteira de emissão opaca quando contexto explícito
+introduz conferência de pilha, quando faltam tabelas esperadas ou quando
+tabelas acrescentam invocações/pousos/saídas/cleanup sem resumo de heap.
+Escape publica topo em `CausaEscape::EmissaoImplicita`; grafo conserva as
+arestas conhecidas, mas fica opaco. Não há ID SSA fictício para o prólogo.
+Regressão compara essa fronteira com o caminho `pilha.estouro` no LLVM
+gerado para um corpo vazio. Quadros por vivacidade e opções de instrumentação
+ainda não têm cobertura completa; ausência dessa fronteira não é certificado.
 Essa guarda local não substitui validação independente do certificado,
 esquemas exportados, pins ou geração de recarga.
 

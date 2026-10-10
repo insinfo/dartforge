@@ -22,6 +22,8 @@ pub enum CausaEscape {
     Global(String),
     /// ID local de uma operação sem resumo de heap/retencão válido.
     OperacaoOpaca(u32),
+    /// Prólogo/saída inserido na emissão, sem resumo de heap validado.
+    EmissaoImplicita,
 }
 
 /// Alcance possível publicado, agrupado por causa. Topo impede prova negativa.
@@ -73,6 +75,8 @@ pub fn calcular(f: &Function, a: &AnaliseHir) -> Result<ResultadoEscape, String>
 /// Confere corpos e tabelas dos callees usados para aliases/campos, antes do escape.
 /// Confere modo de memória, sítios do chamador e layouts locais quando a
 /// solução veio do módulo. Não valida pins, gerações JIT ou resumos SDK.
+/// Caminhos implícitos registrados pelo módulo publicam topo sob
+/// [`CausaEscape::EmissaoImplicita`], sem fabricar instrução HIR.
 ///
 /// # Erros
 /// Corpo/callee ausente, duplicado, alterado, tabela de emissão modificada
@@ -165,6 +169,12 @@ fn calcular_validado(f: &Function, a: &AnaliseHir) -> Result<ResultadoEscape, St
     for id in a.desconhecidos() {
         publicar(
             CausaEscape::OperacaoOpaca(id.0),
+            ConjuntoPontos::desconhecido(a.limite),
+        );
+    }
+    if a.emissao_implicita_opaca {
+        publicar(
+            CausaEscape::EmissaoImplicita,
             ConjuntoPontos::desconhecido(a.limite),
         );
     }

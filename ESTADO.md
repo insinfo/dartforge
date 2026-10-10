@@ -2,6 +2,26 @@
 
 ## Retomada de 2026-10-10
 
+Análise nova registra fronteira de emissão implícita no próprio corpo:
+contexto explícito insere conferência de pilha antes da HIR, com possível
+StackOverflowError; tabela ausente no modo tabelas ou caminhos de
+invocações/pousos/saídas/cleanup sem resumo também conservam opacidade.
+Escape publica topo sob CausaEscape::EmissaoImplicita, sem fabricar ValueId;
+grafo mantém arestas/SCCs conhecidas, mas registra opacidade do prólogo.
+Regressão com corpo vazio compara análise e LLVM gerado (pilha.estouro),
+inclui controle sem conferência, tabela ausente e tracing sem análise.
+Os 512 grafos HIR continuam conferindo arestas/SCCs contra Floyd; agora
+não confundem precisão desses campos com cobertura do prólogo com contexto.
+Passaram o teste focado, 304 testes do emissor (sete ignorados), 97 exemplos
+públicos e um exemplo de rejeição na compilação; logs
+target/arc-emissao-implicita-{focado,suite,doc}.log. Rustfmt dos quatro arquivos
+e git diff --check passaram; aviso preexistente de atribuir_slots não usado.
+Quadros por vivacidade, instrumentação, SDK/observadores e vidas continuam
+pendentes; não certifica política ou conclui §§27–34. Gate ARC/A0 não aprovado.
+ARC apenas --memoria=arc; tracing padrão. CI 38057171425: Linux/mensagens
+passaram; Windows está nos testes ignorados, macOS no cleanup de laços AOT.
+Mudança local para preservar a rodada publicada.
+
 Guarda das tabelas de emissão inclui agora o próprio chamador, mesmo sem
 chamadas locais: mudar confere_pilha, saídas ou cleanup invalida o consumo
 da análise anterior. Tabelas são fotografadas e comparadas por conteúdo,

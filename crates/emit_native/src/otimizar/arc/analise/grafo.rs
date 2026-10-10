@@ -111,7 +111,7 @@ fn construir(f: &Function, a: &AnaliseHir) -> GrafoHeapArc {
         .cloned()
         .map(|no| (no, BTreeSet::new()))
         .collect();
-    let mut opaco = !a.desconhecidos().is_empty();
+    let mut opaco = !a.desconhecidos().is_empty() || a.emissao_implicita_opaca;
     // Valores que podem ser handles/endereços sem origem fechada conservam
     // uma fronteira, mesmo quando nenhuma aresta desse valor foi materializada.
     for (v, t) in f.params.iter().map(|(v, _, t)| (v, t)).chain(
@@ -223,7 +223,9 @@ mod testes {
         for mascara in 0..512 {
             let m = modulo(mascara);
             let g = construir_local_no_modulo(&m, "f", 8).unwrap().unwrap();
-            assert!(!g.opaco());
+            // Campos/alocação em linha exigem contexto: a conferência de
+            // pilha do prólogo permanece opaca, sem apagar as arestas.
+            assert!(g.opaco());
             assert_eq!(g.arestas().len(), 3);
             let nos: Vec<_> = (0..3)
                 .map(|v| NoAbstrato::Alocacao {
@@ -300,7 +302,7 @@ mod testes {
         let g = construir_local_no_modulo(&m, "f", 8).unwrap().unwrap();
         assert_eq!(g.arestas().len(), 2);
         assert!(g.componentes().any(|(_, ciclo)| ciclo));
-        assert!(!g.opaco());
+        assert!(g.opaco()); // O prólogo com contexto ainda não possui resumo.
     }
 
     #[test]

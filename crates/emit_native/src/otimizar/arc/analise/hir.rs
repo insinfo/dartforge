@@ -63,6 +63,8 @@ pub struct AnaliseHir {
     pub(crate) dependencias_corpos: HashMap<String, blake3::Hash>,
     pub(crate) dependencias_tabelas: HashMap<String, EstadoTabelaArc>,
     pub(crate) premissas_modulo: Option<blake3::Hash>,
+    // Caminhos inseridos pelo emissor que ainda não têm resumo de heap.
+    pub(crate) emissao_implicita_opaca: bool,
     pub(crate) limite: usize,
     pub(crate) esquemas: HashMap<NoAbstrato, BTreeSet<CampoArc>>,
 }
@@ -396,6 +398,7 @@ pub(crate) fn analisar_com_resumos(
         dependencias_corpos,
         dependencias_tabelas: HashMap::new(),
         premissas_modulo: None,
+        emissao_implicita_opaca: false,
         limite,
         esquemas,
     })

@@ -17,6 +17,9 @@ use std::collections::HashMap;
 /// publicação pode ser limitada ao resultado pela cobertura própria; demais
 /// escapes/retenções continuam opacos. Guarda corpos transitivos e tabelas de
 /// emissão consultadas, inclusive conferência implícita de pilha.
+/// Contexto explícito e caminhos de tabelas sem resumo conservam uma fronteira
+/// de emissão opaca, separada dos IDs de instruções. Quadros por vivacidade,
+/// instrumentação e demais opções do emissor ainda exigem cobertura própria.
 ///
 /// # Erros
 /// Símbolo ausente/duplicado, fato de sítio obsoleto, origem com classes
@@ -168,6 +171,22 @@ pub fn analisar_no_modulo(
     analise
         .dependencias_tabelas
         .insert(simbolo.to_string(), estado_tabela(m, posicoes[simbolo]));
+    let tabela = if m.excecoes_por_tabelas {
+        m.tabelas.get(posicoes[simbolo])
+    } else {
+        None
+    };
+    // Contexto implica CheckStackOverflow no prólogo, mesmo se toda a HIR
+    // explícita tiver cobertura. Pousos/saídas/cleanup também inserem caminhos
+    // sem contrato de heap aqui. Não inventar um ValueId para esses efeitos.
+    analise.emissao_implicita_opaca = (m.excecoes_por_tabelas && tabela.is_none())
+        || crate::llvm::LlvmEmitter::exige_contexto_explicito(f, tabela)
+        || tabela.is_some_and(|t| {
+            !t.invocacoes.is_empty()
+                || !t.pousos.is_empty()
+                || !t.saidas.is_empty()
+                || t.cleanup_estrangeiro.is_some()
+        });
     for (s, (corpo, _)) in &resumos {
         analise
             .dependencias_corpos
@@ -197,6 +216,63 @@ pub(super) fn assinatura_premissas(m: &Module, simbolo: &str) -> blake3::Hash {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn prologo_implicito_publica_topo_sem_inventar_instrucao_hir() {
+        use super::super::{escape::*, grafo::construir_local_no_modulo};
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.excecoes_por_tabelas = true;
+        m.functions.push(Function {
+            symbol: "f".into(),
+            name: "f".into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::Void,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![],
+                terminator: Terminator::Return(None),
+            }],
+        });
+        for confere in [false, true] {
+            m.tabelas = vec![TabelasDaFuncao {
+                confere_pilha: confere,
+                ..Default::default()
+            }];
+            let a = analisar_no_modulo(&m, "f", 8).unwrap().unwrap();
+            assert!(a.desconhecidos().is_empty()); // Não há instrução explícita.
+            let e = calcular_no_modulo(&m, "f", &a).unwrap();
+            if confere {
+                assert!(
+                    e.publicacoes[&CausaEscape::EmissaoImplicita]
+                        .nos()
+                        .is_none()
+                );
+            } else {
+                assert!(e.publicacoes.is_empty());
+            }
+            assert_eq!(
+                construir_local_no_modulo(&m, "f", 8)
+                    .unwrap()
+                    .unwrap()
+                    .opaco(),
+                confere
+            );
+            // Confere o caminho realmente inserido na emissão, além da metadata.
+            let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+            assert_eq!(ir.contains("pilha.estouro:"), confere);
+        }
+        m.tabelas.clear(); // Sem tabela, não há cobertura da emissão disponível.
+        let a = analisar_no_modulo(&m, "f", 8).unwrap().unwrap();
+        assert!(
+            calcular_no_modulo(&m, "f", &a).unwrap().publicacoes[&CausaEscape::EmissaoImplicita]
+                .nos()
+                .is_none()
+        );
+        m.memoria_arc = false;
+        assert!(analisar_no_modulo(&m, "f", 8).unwrap().is_none());
+    }
 
     #[test]
     fn tabela_do_proprio_corpo_invalida_consumo_sem_chamadas_e_acompanha_simbolo() {
