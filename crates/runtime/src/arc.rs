@@ -326,6 +326,32 @@ impl std::ops::Index<&Ref> for Tabela {
     }
 }
 
+// Memória de trabalho sem owners: só conserva capacidade entre rodadas.
+// Todos os comprimentos são zerados também nas saídas com diagnóstico, para
+// que nenhum handle/índice/marca de uma região anterior entre na próxima.
+#[derive(Default)]
+struct TrabalhoCiclos {
+    pendentes: Vec<Ref>,
+    regiao: Vec<Ref>,
+    indice: HashMap<Ref, usize>,
+    trial: Vec<i128>,
+    vivos: Vec<bool>,
+    sobreviventes: Vec<usize>,
+    mortos: Vec<Ref>,
+}
+
+impl TrabalhoCiclos {
+    fn limpar(&mut self) {
+        self.pendentes.clear();
+        self.regiao.clear();
+        self.indice.clear();
+        self.trial.clear();
+        self.vivos.clear();
+        self.sobreviventes.clear();
+        self.mortos.clear();
+    }
+}
+
 /// O estado do ARC de um isolate (§19.1).
 #[derive(Default)]
 pub struct EstadoDoArc {
@@ -342,6 +368,7 @@ pub struct EstadoDoArc {
     transacao: bool,
     /// As saídas do conjunto em descarte, reaproveitado ([`Self::descartar`]).
     saidas: Vec<Ref>,
+    trabalho_ciclos: TrabalhoCiclos,
     pub estatisticas: EstatisticasArc,
     /// Uma linha no stderr por evento (registro, retain, release, morte): o
     /// diagnóstico de `DARTFORGE_ARC_TRACO=1`.
@@ -760,8 +787,16 @@ impl EstadoDoArc {
     /// commit; um trial negativo aborta com diagnóstico. `protegido`: as
     /// raízes observacionais, que fazem sobreviver como uma referência externa.
     pub fn coletar_ciclos(&mut self, grafo: &mut dyn GrafoArc, protegido: &dyn Fn(Ref) -> bool) -> Result<usize, ErroArc> {
+        let mut trabalho = std::mem::take(&mut self.trabalho_ciclos);
+        let resultado = self.coletar_ciclos_com_trabalho(grafo, protegido, &mut trabalho);
+        trabalho.limpar();
+        self.trabalho_ciclos = trabalho;
+        resultado
+    }
+
+    fn coletar_ciclos_com_trabalho(&mut self, grafo: &mut dyn GrafoArc, protegido: &dyn Fn(Ref) -> bool, trabalho: &mut TrabalhoCiclos) -> Result<usize, ErroArc> {
+        let TrabalhoCiclos { pendentes, regiao: r, indice: em_r, trial, vivos, sobreviventes, mortos } = trabalho;
         let candidatos = std::mem::take(&mut self.candidatos);
-        let mut sementes: Vec<Ref> = Vec::new();
         for id in candidatos {
             let Some(m) = self.objetos.get_mut(&id.handle).filter(|m| m.geracao == id.geracao) else { continue };
             m.candidato = false;
@@ -769,22 +804,19 @@ impl EstadoDoArc {
                 if protegido(id.handle) {
                     self.candidatar(id.handle);
                 } else {
-                    sementes.push(id.handle);
+                    pendentes.push(id.handle);
                 }
             }
         }
-        if sementes.is_empty() {
+        if pendentes.is_empty() {
             return Ok(0);
         }
         self.estatisticas.rodadas_de_ciclo += 1;
         // A raiz protegida fica fora de R: suas arestas continuam entradas
         // externas no trial. Reenfileirá-la permite coletar quando a raiz sumir.
-        let mut r: Vec<Ref> = Vec::new();
         // Um índice denso por handle; contadores e marcas ficam em vetores,
         // sem três tabelas de hash distintas para a mesma região.
-        let mut em_r: HashMap<Ref, usize> = HashMap::default();
-        let mut pilha = sementes;
-        while let Some(x) = pilha.pop() {
+        while let Some(x) = pendentes.pop() {
             let std::collections::hash_map::Entry::Vacant(entrada) = em_r.entry(x) else { continue };
             let Some(m) = self.objetos.get(&x) else { continue };
             if m.imortal || m.estado == EstadoArc::Morto {
@@ -798,14 +830,14 @@ impl EstadoDoArc {
             r.push(x);
             grafo.arestas(x, &mut |v| {
                 if e_handle(v) {
-                    pilha.push(v);
+                    pendentes.push(v);
                 }
             });
         }
         self.estatisticas.examinados += r.len() as u64;
         // trial = rc − ocorrências internas.
-        let mut trial: Vec<i128> = r.iter().map(|x| self.objetos[x].rc as i128).collect();
-        for &u in &r {
+        trial.extend(r.iter().map(|x| self.objetos[x].rc as i128));
+        for &u in r.iter() {
             grafo.arestas(u, &mut |v| {
                 if let Some(&indice) = em_r.get(&v) {
                     trial[indice] -= 1;
@@ -816,27 +848,26 @@ impl EstadoDoArc {
             return Err(ErroArc::TrialNegativo(r[indice]));
         }
         // Sobreviventes: trial positivo, em construção ou protegido; propagam.
-        let mut vivos = vec![false; r.len()];
-        let mut pilha: Vec<usize> = Vec::new();
+        vivos.resize(r.len(), false);
         for (indice, &x) in r.iter().enumerate() {
             let m = &self.objetos[&x];
             if trial[indice] > 0 || m.estado == EstadoArc::Construindo || m.protegido_condicional || protegido(x) {
                 vivos[indice] = true;
-                pilha.push(indice);
+                sobreviventes.push(indice);
             }
         }
         // Marca ao enfileirar: convergência de caminhos e posições repetidas
         // não multiplicam entradas na pilha. O trial acima continua contando
         // cada ocorrência. A propagação usa índices, sem buscar o handle de
         // novo ao retirar da pilha; destinos fora de R não são percorridos.
-        while let Some(indice) = pilha.pop() {
+        while let Some(indice) = sobreviventes.pop() {
             grafo.arestas(r[indice], &mut |v| {
                 if e_handle(v)
                     && let Some(&destino) = em_r.get(&v)
                     && !vivos[destino]
                 {
                     vivos[destino] = true;
-                    pilha.push(destino);
+                    sobreviventes.push(destino);
                 }
             });
         }
@@ -847,12 +878,12 @@ impl EstadoDoArc {
                 self.candidatar(x);
             }
         }
-        let mortos: Vec<Ref> = r.into_iter().enumerate().filter_map(|(i, x)| (!vivos[i]).then_some(x)).collect();
+        mortos.extend(r.iter().copied().enumerate().filter_map(|(i, x)| (!vivos[i]).then_some(x)));
         if mortos.is_empty() {
             return Ok(0);
         }
         let n = mortos.len();
-        self.descartar(grafo, &mortos)?;
+        self.descartar(grafo, mortos)?;
         self.estatisticas.mortos_por_ciclo += n as u64;
         Ok(n)
     }
@@ -1231,6 +1262,43 @@ mod testes {
             assert_eq!(a.meta(h).unwrap().estado, EstadoArc::Vivo);
         }
         assert!(a.tomar_mortos().is_empty());
+        // Corrigir o inventário e reenfileirar não pode herdar índices/trial
+        // do diagnóstico anterior nem aplicar um descarte parcial dele.
+        g.0.insert(x, vec![y]);
+        a.candidatar(x);
+        assert_eq!(a.coletar_ciclos(&mut g, &|_| false), Ok(2));
+        let mortos = a.tomar_mortos();
+        assert_eq!(mortos.len(), 2);
+        assert!([x, y].iter().all(|h| mortos.contains(h)));
+    }
+
+    #[test]
+    fn ciclos_sucessivos_nao_herdam_sobreviventes_nem_geracoes_reclamadas() {
+        let (mut a, mut g) = (EstadoDoArc::novo(), Grafo::default());
+        let (x, y) = (2, 0x1_0002);
+        for h in [x, y] { novo(&mut a, h); }
+        ligar(&mut a, &mut g, x, y);
+        ligar(&mut a, &mut g, y, x);
+        a.soltar(y).unwrap();
+        a.candidatar(x);
+        let geracao = a.meta(x).unwrap().geracao;
+        // O owner externo de x preserva os dois nós; na rodada seguinte
+        // nenhum deles pode herdar a marca de sobrevivente.
+        assert_eq!(a.coletar_ciclos(&mut g, &|_| false), Ok(0));
+        assert_eq!((a.meta(x).unwrap().rc, a.meta(y).unwrap().rc), (2, 1));
+        a.soltar(x).unwrap();
+        assert_eq!(a.coletar_ciclos(&mut g, &|_| false), Ok(2));
+        assert_eq!(a.tomar_mortos().len(), 2);
+        assert_eq!(a.coletar_ciclos(&mut g, &|_| false), Ok(0));
+        // Mesmo endereço, região menor e geração nova: o mapa e os vetores
+        // antigos não podem impedir a descoberta ou proteger o autociclo.
+        novo(&mut a, x);
+        assert!(a.meta(x).unwrap().geracao > geracao);
+        ligar(&mut a, &mut g, x, x);
+        a.soltar(x).unwrap();
+        assert_eq!(a.coletar_ciclos(&mut g, &|_| false), Ok(1));
+        assert_eq!(a.tomar_mortos(), vec![x]);
+        assert_eq!(a.registrados(), 0);
     }
 
     #[test]
