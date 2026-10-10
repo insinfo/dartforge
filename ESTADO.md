@@ -2,6 +2,21 @@
 
 ## Retomada de 2026-10-09
 
+Captura Owned do StackTrace: `dartforge_arc_rastro_owned_v1` retém o rastro
+antes de devolver o handle, sem safepoint entre leitura e retenção. Quando
+não há rastro corrente, cria um StackTrace sem instalá-lo para um throw futuro.
+`dartforge_arc_lancar_com_rastro_ref_v1` publica valor/rastro Ref emprestados
+em raízes runtime independentes, sem consumir os owners do chamador.
+Catálogo parcial passa a 28 contratos. Teste do runtime passou em tracing/ARC:
+identidade do valor e rastro, sobrevivência ao clear/liberação dos originais,
+texto não vazio após coleta e morte dos dois objetos após o último release.
+32 doctests do runtime, 95 testes ARC e dois testes do catálogo passaram.
+Logs `target/rastro-owned-*`.
+Ainda falta integrar a observação do rastro na prova AOT de unwind; este teste
+é do protocolo runtime, não prova SEH/Itanium, finally ou identidade nativa.
+CI 38013924479 da fonte 7418650d já passou pelas oito variantes AOT Linux
+com captura Owned da exceção; job Linux completo terminou com sucesso; workflow e macOS continuam em execução.
+
 Leitura Owned da exceção: nova ABI `dartforge_arc_excecao_owned_v1` conserva
 identidade de Ref, encaixota escalares e entrega owner independente antes de
 sair do empréstimo do heap. Não consome pendência/rastro; null sem pendência.

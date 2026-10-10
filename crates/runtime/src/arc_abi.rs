@@ -60,6 +60,56 @@ pub extern "C" fn dartforge_arc_excecao_owned_v1() -> i64 {
     })
 }
 
+/// Copia o rastro corrente para um token Owned independente do clear.
+///
+/// Sem rastro corrente cria um StackTrace não vazio, sem instalá-lo como
+/// rastro de uma exceção futura. Pode alocar/coletar; publica o owner antes
+/// de devolver o handle, sem safepoint entre a leitura e a retenção.
+///
+/// # Panics
+/// Falha interna de alocação/ownership; aborta no limite C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let rastro = dartforge_arc_rastro_owned_v1();
+/// dartforge_arc_collect();
+/// dartforge_arc_release(rastro);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_rastro_owned_v1() -> i64 {
+    let rastro = dartforge_stack_trace_get();
+    HEAP.with(|h| h.borrow_mut().reter_owner_codigo(rastro));
+    rastro
+}
+
+/// Lança um Ref emprestado com um StackTrace explícito emprestado.
+///
+/// Não consome os dois tokens do chamador. Publica raízes independentes
+/// para valor e rastro até clear/consumo. Exige ambos vivos e um StackTrace
+/// válido; não aplica a semântica Dart de `throw null`.
+/// O lowering deve conferir a pendência imediatamente após a chamada.
+///
+/// # Panics
+/// Falha interna do protocolo de exceções/heap; aborta no limite C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let valor = dartforge_arc_box_int_owned_v1(i64::MAX);
+/// let rastro = dartforge_arc_rastro_owned_v1();
+/// dartforge_arc_lancar_com_rastro_ref_v1(valor, rastro);
+/// let copia = dartforge_arc_rastro_owned_v1();
+/// assert_eq!(copia, rastro);
+/// dartforge_arc_release(valor);
+/// dartforge_arc_release(rastro);
+/// dartforge_exception_clear();
+/// dartforge_arc_collect();
+/// dartforge_arc_release(copia);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_lancar_com_rastro_ref_v1(valor: i64, rastro: i64) {
+    dartforge_throw_with_stack_trace(valor, 3, rastro);
+}
+
 /// Entrega um int em representação Ref com um token Owned para o chamador.
 ///
 /// Smi não tem contador; valores fora de sua faixa criam um Mint mortal.
@@ -341,6 +391,37 @@ mod testes_arc_abi_quadros {
             dartforge_arc_release(capturada);
             dartforge_arc_collect();
             assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(capturada)));
+            HEAP.with(|h| { h.replace(anterior); });
+        }
+    }
+
+    #[test]
+    fn rastro_owned_preserva_identidade_e_morre_apos_ultimo_release() {
+        for arc in [false, true] {
+            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+            dartforge_exception_clear();
+            let original = dartforge_arc_box_int_owned_v1(i64::MAX);
+            let rastro = dartforge_arc_rastro_owned_v1();
+            assert!(CURRENT_STACK_TRACE.with(|slot| slot.borrow().is_none()));
+            dartforge_arc_lancar_com_rastro_ref_v1(original, rastro);
+            let capturado = dartforge_arc_rastro_owned_v1();
+            let valor = dartforge_arc_excecao_owned_v1();
+            assert_eq!(capturado, rastro);
+            assert_eq!(valor, original);
+            assert_eq!(CURRENT_STACK_TRACE.with(|slot| *slot.borrow()), Some(rastro));
+            dartforge_arc_release(original);
+            dartforge_arc_release(rastro);
+            dartforge_exception_clear();
+            dartforge_arc_collect();
+            assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(capturado)));
+            assert!(!texto_do_rastro(capturado).unwrap().is_empty());
+            assert_eq!(HEAP.with(|h| h.borrow().int_de(valor)), Some(i64::MAX));
+            dartforge_arc_release(capturado);
+            dartforge_arc_release(valor);
+            dartforge_arc_collect();
+            assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(capturado)));
+            assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(valor)));
             HEAP.with(|h| { h.replace(anterior); });
         }
     }

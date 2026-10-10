@@ -7,6 +7,7 @@ dartforge_arc_excecao_owned_v1	-	ref:owned	0	1	normal
 dartforge_arc_global_receber_v1	i64:native,ref:consume	void:scalar	1	1	normal
 dartforge_arc_gravar_ref	ref:borrow,i64:scalar,ref:borrow	void:scalar	1	1	normal
 dartforge_arc_inicial	ref:borrow	void:scalar	1	0	normal
+dartforge_arc_lancar_com_rastro_ref_v1	ref:borrow,ref:borrow	void:scalar	1	1	pending
 dartforge_arc_lancar_ref_v1	ref:borrow	void:scalar	1	1	pending
 dartforge_arc_quadro_abrir_v1	i64:scalar	i64:scalar	0	0	normal
 dartforge_arc_quadro_carregar_v1	i64:scalar,i64:scalar	ref:owned	0	0	normal
@@ -14,6 +15,7 @@ dartforge_arc_quadro_copiar_v1	i64:scalar,i64:scalar,ref:borrow	void:scalar	1	1	
 dartforge_arc_quadro_fechar_v1	i64:scalar	void:scalar	0	1	normal
 dartforge_arc_quadro_mover_v1	i64:scalar,i64:scalar,i64:scalar,i64:scalar	void:scalar	1	1	normal
 dartforge_arc_quadro_receber_v1	i64:scalar,i64:scalar,ref:consume	void:scalar	1	1	normal
+dartforge_arc_rastro_owned_v1	-	ref:owned	1	1	normal
 dartforge_arc_release	ref:consume	void:scalar	0	1	normal
 dartforge_arc_retain	ref:borrow	void:scalar	1	0	normal
 dartforge_arc_verificar_abi	i64:scalar	i8:scalar	0	0	normal

@@ -2612,14 +2612,46 @@ mod testes {
 
     #[test]
     fn excecao_owned_tem_resultado_ref_independente_sem_falha_nova() {
-        let i = Instruction::CallRuntime { name: "dartforge_arc_excecao_owned_v1".into(), args: vec![], ret_ty: Type::Ref };
+        for nome in [
+            "dartforge_arc_excecao_owned_v1",
+            "dartforge_arc_rastro_owned_v1",
+        ] {
+            let i = Instruction::CallRuntime {
+                name: nome.into(),
+                args: vec![],
+                ret_ty: Type::Ref,
+            };
+            let c = contrato_chamada_runtime(&i).unwrap();
+            assert_eq!(c.resultado, Ownership::Owned);
+            assert!(!c.efeito.pode_falhar);
+            assert!(c.efeito.sempre.is_empty());
+            let mut escalar = i.clone();
+            if let Instruction::CallRuntime { ret_ty, .. } = &mut escalar {
+                *ret_ty = Type::I64;
+            }
+            assert!(contrato_chamada_runtime(&escalar).is_err());
+        }
+    }
+
+    #[test]
+    fn lancamento_com_rastro_exige_dois_borrows_ref_sem_consumir_tokens() {
+        let mut i = Instruction::CallRuntime {
+            name: "dartforge_arc_lancar_com_rastro_ref_v1".into(),
+            args: vec![
+                (Operand::Val(ValueId(0)), Type::Ref),
+                (Operand::Val(ValueId(1)), Type::Ref),
+            ],
+            ret_ty: Type::Void,
+        };
         let c = contrato_chamada_runtime(&i).unwrap();
-        assert_eq!(c.resultado, Ownership::Owned);
-        assert!(!c.efeito.pode_falhar);
+        assert!(c.efeito.pode_falhar);
         assert!(c.efeito.sempre.is_empty());
-        let mut escalar = i.clone();
-        if let Instruction::CallRuntime { ret_ty, .. } = &mut escalar { *ret_ty = Type::I64; }
-        assert!(contrato_chamada_runtime(&escalar).is_err());
+        assert!(c.efeito.sucesso.is_empty());
+        assert!(c.efeito.erro.is_empty());
+        if let Instruction::CallRuntime { args, .. } = &mut i {
+            args[1].1 = Type::I64;
+        }
+        assert!(contrato_chamada_runtime(&i).is_err());
     }
 
     #[test]
