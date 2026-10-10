@@ -1,0 +1,13 @@
+{
+  ".gitattributes": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da",
+  "amostras.jsonl": "2af184950701f6fad381ddb510dfab40492bd24792c503d2fc0935d3bf2315df",
+  "arc-sobrevivencia-densa-cli-build.log": "29fdec8dbffd9a2ad1044b2308e7d68c3cd0dd1b4c23eff9e093c6e4e7e20c00",
+  "arc-sobrevivencia-densa-oraculo.log": "4c696eabdc88f5584ee788b49552d3e3703c35f8113540e97037f41e19249920",
+  "arc-sobrevivencia-densa-suite.log": "a7270e880c8677a76610cbed10486adb646ad91ada2ab5edb9cb4e38d19bcbe9",
+  "auditar.py": "1a826fb61bc845b8e0bbbc3ebfd9b3c2c09d4a73a4d3585f6e6fc326aa9e19b9",
+  "auditoria.json": "ae9b2631213a4dd304f01a80bd63b5214f2b55af2c4741de149eaa9535a14194",
+  "build.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "comparar.py": "598560d8db223a594813c4311b0b22d01fc62e10c4d65ecd44d76eaa2aa925a0",
+  "manifesto.json": "27d17a6479ea5db1444cf15ab672ac9e23adcae64ba39450bdbe2155768d18d2",
+  "resultado.json": "68251334495e3115f9abdeb6cd8aef39b57770711d68021ed0c8d83eb1204e32"
+}

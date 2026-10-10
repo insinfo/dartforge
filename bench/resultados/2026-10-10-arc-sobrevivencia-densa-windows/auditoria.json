@@ -1,0 +1,81 @@
+{
+  "estado": "ok",
+  "execucoes": 14,
+  "rodadas_por_execucao": 6,
+  "aquecimento_descartado": 1,
+  "pares": 7,
+  "resultado_reconstruido": {
+    "arvores": {
+      "antes_us": 668781,
+      "depois_us": 693242,
+      "depois_antes": 1.0365755007992152,
+      "razoes_pareadas": [
+        0.7530108892223633,
+        0.9710673694307537,
+        0.7674523388054728,
+        1.0375947204162044,
+        0.9918015015378726,
+        0.9771180776822767,
+        1.065890376828696
+      ]
+    },
+    "lista_ligada": {
+      "antes_us": 131074,
+      "depois_us": 126561,
+      "depois_antes": 0.9655690678547996,
+      "razoes_pareadas": [
+        0.9085606797860319,
+        0.9906747739232256,
+        0.8864726992726223,
+        0.9556138986626426,
+        0.9720329302398866,
+        0.9811614763820732,
+        0.965248638173856
+      ]
+    }
+  },
+  "depois_menor_por_kernel": {
+    "arvores": 5,
+    "lista_ligada": 7
+  },
+  "hashes_cli_executaveis_e_fontes_conferidos": true,
+  "gate_completo_arc_a0": "nao_reavaliado",
+  "arquivos_crates_alterados": [
+    "crates/analise/src/duplicatas.rs",
+    "crates/emit_js/src/ctx.rs",
+    "crates/emit_js/src/sdk_proprio.rs",
+    "crates/emit_native/src/fonte.rs",
+    "crates/emit_native/src/llvm/mod.rs",
+    "crates/emit_native/src/llvm/raizes.rs",
+    "crates/emit_native/src/llvm/verificar_mapas.rs",
+    "crates/emit_native/src/llvm/verificar_sombra.rs",
+    "crates/emit_native/src/lower/chamadas.rs",
+    "crates/emit_native/src/lower/entrada_tipada.rs",
+    "crates/emit_native/src/lower/expressoes.rs",
+    "crates/emit_native/src/lower/simd.rs",
+    "crates/emit_native/src/otimizar/arc/analise/chamadas.rs",
+    "crates/emit_native/src/otimizar/arc/analise/escape.rs",
+    "crates/emit_native/src/otimizar/arc/analise/grafo.rs",
+    "crates/emit_native/src/otimizar/arc/analise/hir.rs",
+    "crates/emit_native/src/otimizar/arc/analise/modulo.rs",
+    "crates/emit_native/src/otimizar/arc/analise/points_to.rs",
+    "crates/emit_native/src/otimizar/arc/analise/resumos.rs",
+    "crates/frontend/src/parser/expressions.rs",
+    "crates/frontend/src/parser/mod.rs",
+    "crates/frontend/src/parser/types.rs",
+    "crates/llvm/src/lib.rs",
+    "crates/lsp/src/acoes.rs",
+    "crates/lsp/src/assistencias3.rs",
+    "crates/mundo/src/lib.rs",
+    "crates/paridade/src/lib.rs",
+    "crates/runtime/src/arc.rs",
+    "crates/runtime/src/espaco.rs",
+    "crates/runtime/src/heap.rs",
+    "crates/runtime/src/layout.rs",
+    "crates/runtime/src/textos.rs",
+    "crates/types/src/constantes/ciclos.rs",
+    "crates/types/src/constantes/verificador.rs",
+    "crates/types/src/inferencia/mod.rs"
+  ],
+  "atribuicao_isolada_ao_runtime": false
+}

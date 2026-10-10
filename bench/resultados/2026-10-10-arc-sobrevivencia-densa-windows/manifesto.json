@@ -1,0 +1,73 @@
+{
+  "fonte_antes": "687a7fd4e062188847c13069eed33f6598751b24",
+  "fonte_depois": "2a9baa0ecd834924e7e6b9621cc004c9faa1f1c2",
+  "escopo": "compara\u00e7\u00e3o local de dois kernels entre revis\u00f5es; n\u00e3o substitui gate ARC/A0 ou isola o runtime",
+  "arquivos_crates_alterados": [
+    "crates/analise/src/duplicatas.rs",
+    "crates/emit_js/src/ctx.rs",
+    "crates/emit_js/src/sdk_proprio.rs",
+    "crates/emit_native/src/fonte.rs",
+    "crates/emit_native/src/llvm/mod.rs",
+    "crates/emit_native/src/llvm/raizes.rs",
+    "crates/emit_native/src/llvm/verificar_mapas.rs",
+    "crates/emit_native/src/llvm/verificar_sombra.rs",
+    "crates/emit_native/src/lower/chamadas.rs",
+    "crates/emit_native/src/lower/entrada_tipada.rs",
+    "crates/emit_native/src/lower/expressoes.rs",
+    "crates/emit_native/src/lower/simd.rs",
+    "crates/emit_native/src/otimizar/arc/analise/chamadas.rs",
+    "crates/emit_native/src/otimizar/arc/analise/escape.rs",
+    "crates/emit_native/src/otimizar/arc/analise/grafo.rs",
+    "crates/emit_native/src/otimizar/arc/analise/hir.rs",
+    "crates/emit_native/src/otimizar/arc/analise/modulo.rs",
+    "crates/emit_native/src/otimizar/arc/analise/points_to.rs",
+    "crates/emit_native/src/otimizar/arc/analise/resumos.rs",
+    "crates/frontend/src/parser/expressions.rs",
+    "crates/frontend/src/parser/mod.rs",
+    "crates/frontend/src/parser/types.rs",
+    "crates/llvm/src/lib.rs",
+    "crates/lsp/src/acoes.rs",
+    "crates/lsp/src/assistencias3.rs",
+    "crates/mundo/src/lib.rs",
+    "crates/paridade/src/lib.rs",
+    "crates/runtime/src/arc.rs",
+    "crates/runtime/src/espaco.rs",
+    "crates/runtime/src/heap.rs",
+    "crates/runtime/src/layout.rs",
+    "crates/runtime/src/textos.rs",
+    "crates/types/src/constantes/ciclos.rs",
+    "crates/types/src/constantes/verificador.rs",
+    "crates/types/src/inferencia/mod.rs"
+  ],
+  "cli_sha256": "9e595229812175fcb304cda53256c11b84953e290ac013111698ec431c3ef171",
+  "entradas": {
+    "objetos_escapam.dart": "977eb9b5654a8c742dee4d052603609bc3e145c4a07e15a8580cd1c1ea665599",
+    "comum.dart": "c58f998dc36b84b102705a77c6cafa75e85b5bff6dda90c086a8d9a6c21f40c3"
+  },
+  "afinidade": "0x4",
+  "repeticoes": 7,
+  "comando_compilacao": [
+    "E:\\MyRustProjects\\dartforge\\target\\release\\dartforge.exe",
+    "aot",
+    "E:\\MyRustProjects\\dartforge\\bench\\desempenho\\objetos_escapam.dart",
+    "E:\\MyRustProjects\\dartforge\\target\\comparacao-arc-sobrevivencia-densa-2a9baa0e\\objetos_escapam-ARC.exe",
+    "--optimize",
+    "--excecoes",
+    "checagem",
+    "--memoria=arc"
+  ],
+  "ambiente": {
+    "DARTFORGE_RAIZES": "sombra",
+    "DARTFORGE_GC_RASTRO": "0",
+    "DARTFORGE_GC_OFF": "0",
+    "DARTFORGE_ARC_CONFERIR": "0",
+    "DARTFORGE_ARC_BERCARIO": "0",
+    "DARTFORGE_HEAP_MAX_MB": "256",
+    "DARTFORGE_GC_STRESS": null,
+    "DARTFORGE_ARC_CICLOS": null
+  },
+  "executaveis_sha256": {
+    "antes": "82acd4d5a83f5b2baa102eef6e0ead7608bb19d382435aa7c06cb00c89ac159a",
+    "depois": "9405b4e0c122fb74f1516f85285bf03b1b2e8f37ea2e9ee41cfdcf629276df9a"
+  }
+}
