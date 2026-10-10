@@ -602,6 +602,14 @@ ARC anterior; tracing permanece sem alterações.
   chave, que retém (nunca mata antes da hora).
 * Política de agendamento da rodada de ciclos por orçamento (§22.5); hoje
   ela roda na completa.
+* A região da trial deletion usa um mapa handle→índice e vetores densos
+  para contadores `i128` e marcas de sobrevivência. As ocorrências internas
+  continuam contadas com multiplicidade e as entradas externas preservam
+  os sobreviventes. Trial negativo identifica o handle e interrompe antes
+  de alterar RC, romper arestas ou publicar mortos. Regressões cobrem handles
+  esparsos, arestas repetidas e inventário adulterado; os três oráculos de
+  grafos aleatórios passaram com `DF_ARC_SEMENTES=1000`. Não há medição de
+  desempenho dessa mudança.
 * A entrega dos mortos ao reclamador usa `EstadoDoArc::transferir_mortos`:
   destino vazio recebe o buffer por troca; rodadas seguintes acrescentam
   handles sem apagar os anteriores. Remove os mesmos metadados mortos antes

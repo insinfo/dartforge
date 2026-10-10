@@ -773,10 +773,12 @@ impl EstadoDoArc {
         // A raiz protegida fica fora de R: suas arestas continuam entradas
         // externas no trial. Reenfileirá-la permite coletar quando a raiz sumir.
         let mut r: Vec<Ref> = Vec::new();
-        let mut em_r: HashSet<Ref> = HashSet::default();
+        // Um índice denso por handle; contadores e marcas ficam em vetores,
+        // sem três tabelas de hash distintas para a mesma região.
+        let mut em_r: HashMap<Ref, usize> = HashMap::default();
         let mut pilha = sementes;
         while let Some(x) = pilha.pop() {
-            if em_r.contains(&x) {
+            if em_r.contains_key(&x) {
                 continue;
             }
             let Some(m) = self.objetos.get(&x) else { continue };
@@ -787,7 +789,7 @@ impl EstadoDoArc {
                 self.candidatar(x);
                 continue;
             }
-            em_r.insert(x);
+            em_r.insert(x, r.len());
             r.push(x);
             grafo.arestas(x, &mut |v| {
                 if e_handle(v) {
@@ -797,34 +799,34 @@ impl EstadoDoArc {
         }
         self.estatisticas.examinados += r.len() as u64;
         // trial = rc − ocorrências internas.
-        let mut trial: HashMap<Ref, i128> = HashMap::default();
-        for &x in &r {
-            trial.insert(x, self.objetos[&x].rc as i128);
-        }
+        let mut trial: Vec<i128> = r.iter().map(|x| self.objetos[x].rc as i128).collect();
         for &u in &r {
             grafo.arestas(u, &mut |v| {
-                if let Some(t) = trial.get_mut(&v) {
-                    *t -= 1;
+                if let Some(&indice) = em_r.get(&v) {
+                    trial[indice] -= 1;
                 }
             });
         }
-        if let Some((&h, _)) = trial.iter().find(|&(_, &t)| t < 0) {
-            return Err(ErroArc::TrialNegativo(h));
+        if let Some(indice) = trial.iter().position(|&t| t < 0) {
+            return Err(ErroArc::TrialNegativo(r[indice]));
         }
         // Sobreviventes: trial positivo, em construção ou protegido; propagam.
-        let mut vivos: HashSet<Ref> = HashSet::default();
+        let mut vivos = vec![false; r.len()];
         let mut pilha: Vec<Ref> = r
             .iter()
-            .copied()
-            .filter(|x| {
-                let m = &self.objetos[x];
-                trial[x] > 0 || m.estado == EstadoArc::Construindo || m.protegido_condicional || protegido(*x)
+            .enumerate()
+            .filter(|(indice, x)| {
+                let m = &self.objetos[*x];
+                trial[*indice] > 0 || m.estado == EstadoArc::Construindo || m.protegido_condicional || protegido(**x)
             })
+            .map(|(_, &x)| x)
             .collect();
         while let Some(x) = pilha.pop() {
-            if !em_r.contains(&x) || !vivos.insert(x) {
+            let Some(&indice) = em_r.get(&x) else { continue };
+            if vivos[indice] {
                 continue;
             }
+            vivos[indice] = true;
             grafo.arestas(x, &mut |v| {
                 if e_handle(v) {
                     pilha.push(v);
@@ -833,12 +835,12 @@ impl EstadoDoArc {
         }
         // O sobrevivente que só a raiz observacional segura volta a ser
         // candidato: a raiz pode sumir sem decremento.
-        for &x in &r {
-            if vivos.contains(&x) && protegido(x) {
+        for (indice, &x) in r.iter().enumerate() {
+            if vivos[indice] && protegido(x) {
                 self.candidatar(x);
             }
         }
-        let mortos: Vec<Ref> = r.into_iter().filter(|x| !vivos.contains(x)).collect();
+        let mortos: Vec<Ref> = r.into_iter().enumerate().filter_map(|(i, x)| (!vivos[i]).then_some(x)).collect();
         if mortos.is_empty() {
             return Ok(0);
         }
@@ -1122,6 +1124,47 @@ mod testes {
         assert_eq!(a.coletar_ciclos(&mut g, &|_| false).unwrap(), 2);
         assert!(morto(&a, 2) && morto(&a, 4));
         assert_eq!(a.estatisticas.mortos_por_ciclo, 2);
+    }
+
+    #[test]
+    fn trial_denso_preserva_multiplicidade_e_entrada_externa_em_handles_esparsos() {
+        let (mut a, mut g) = (EstadoDoArc::novo(), Grafo::default());
+        let (x, y, raiz) = (2, 0x1_0002, 0x4_0002);
+        for h in [x, y, raiz] { novo(&mut a, h); }
+        ligar(&mut a, &mut g, x, y);
+        ligar(&mut a, &mut g, x, y);
+        ligar(&mut a, &mut g, y, x);
+        ligar(&mut a, &mut g, raiz, y);
+        a.soltar(x).unwrap();
+        a.soltar(y).unwrap();
+        assert_eq!(a.coletar_ciclos(&mut g, &|_| false).unwrap(), 0);
+        assert_eq!((a.meta(x).unwrap().rc, a.meta(y).unwrap().rc), (1, 3));
+        a.soltar(raiz).unwrap();
+        assert_eq!(a.drenar_zeros(&mut g, usize::MAX, &|_| false).unwrap(), 1);
+        assert_eq!(a.coletar_ciclos(&mut g, &|_| false).unwrap(), 2);
+        let mortos = a.tomar_mortos();
+        assert_eq!(mortos.len(), 3);
+        assert!([x, y, raiz].iter().all(|h| mortos.contains(h)));
+    }
+
+    #[test]
+    fn trial_denso_negativo_identifica_handle_e_aborta_antes_do_descarte() {
+        let (mut a, mut g) = (EstadoDoArc::novo(), Grafo::default());
+        let (x, y) = (2, 0x1_0002);
+        novo(&mut a, x);
+        novo(&mut a, y);
+        // Inventário adulterado: duas arestas internas, mas RC de y é um.
+        g.0.insert(x, vec![y, y]);
+        g.0.insert(y, vec![x]);
+        a.candidatar(x);
+        let antes = g.0.clone();
+        assert_eq!(a.coletar_ciclos(&mut g, &|_| false), Err(ErroArc::TrialNegativo(y)));
+        assert_eq!(g.0, antes);
+        for h in [x, y] {
+            assert_eq!(a.meta(h).unwrap().rc, 1);
+            assert_eq!(a.meta(h).unwrap().estado, EstadoArc::Vivo);
+        }
+        assert!(a.tomar_mortos().is_empty());
     }
 
     #[test]

@@ -2,6 +2,23 @@
 
 ## Retomada de 2026-10-10
 
+Trial deletion em `EstadoDoArc::coletar_ciclos` passa a usar um mapa
+handle→índice e vetores de contadores/marcas, em vez de três tabelas de hash
+para a mesma região. Mantém multiplicidade, entradas externas, proteção de
+raízes/construção, gerações e validação de trial negativo antes do descarte.
+Regressões cobrem handles esparsos com arestas repetidas e inventário
+adulterado, sem alterar RC, romper arestas ou publicar mortos no erro.
+Passaram 190 testes unitários release do runtime (incluindo ignorados),
+16 integrações e 42 exemplos públicos. Rodada ampliada com
+DF_ARC_SEMENTES=1000 passou nos três oráculos de grafos aleatórios.
+Logs target/arc-trial-denso-{suite,oraculo}.log. Sem medição de desempenho
+dessa mudança; o agregado ARC/A0=2,000274 anterior continua reprovado.
+ARC somente com --memoria=arc; tracing permanece padrão. Integrar passes
+ao fluxo normal significa executá-los quando ARC for explicitamente
+selecionado. C++ serve às fixtures de exceções estrangeiras; compilador e
+runtime são Rust. §§27–34 continuam incompletos. CI 38057171425 terminou
+com sucesso em Windows, Linux, macOS arm64 e mensagens de commit.
+
 Comparação local da transferência de mortos concluída: antes 55beeb34,
 depois b706e0b0, diferença de produção restrita a arc.rs/heap.rs. CLI release
 recompilada; novo AOT --optimize com --memoria=arc. Sete pares alternados,
