@@ -18,8 +18,19 @@ original e rejeição de ordem invertida, quadro esquecido e coleta. Logs target
 e target/retoma-quadros-llvm.log. Suíte completa do emissor: 202 aprovados,
 7 ignorados; 49 doctests aprovados. Logs target/retoma-quadros-emit-lib.log e
 target/retoma-quadros-doc.log. YAML e sintaxe POSIX do workflow passaram.
-Workflow local inclui simples/quadros/retoma × O0/O2 × ARC/tracing, com nomes
-de ambiente corrigidos. Execução nativa do novo perfil ainda não foi provada.
+Workflow local inclui simples/quadros/retoma × O0/O2 × ARC/tracing ×
+C++/forçado, com nomes de ambiente corrigidos (24 execuções por runner).
+Execução nativa do novo perfil Retoma e do caminho forçado ainda não foi provada.
+
+A fixture C++ agora também chama _Unwind_ForcedUnwind com objeto nativo
+prealocado. O callback confere identidade, fase cleanup/force e, somente ao fim
+da pilha, destrutor local, ausência de catch Dart, topo de raízes, pendência zero,
+owner consumido e morte do Mint após coleta. Imprime forced-cleanup-ok, faz
+fflush e encerra o processo no callback terminal; retorno ao lançador ou descarte
+prematuro do objeto falham. Não é simulação de pthread_cancel nem comprova
+shutdown/finally/async. Sintaxe C++ GCC C++17 Wall/Wextra/Werror e script POSIX
+passaram no WSL; três testes HIR passaram novamente. Log
+target/unwind-forcado-fixture.log. Prova com runtime completo pendente.
 
 CI 38019611633, fonte f460ce72: as duas provas Linux terminaram com sucesso.
 Artefato estrangeiro conferido byte a byte: oito stdout foreign-cleanup-ok LF,
@@ -28,8 +39,8 @@ DARTFORGE_ARC_CONFERIR=1, DARTFORGE_ARC_BERCARIO=0 e DARTFORGE_GC_STRESS=1,
 nomes efetivamente consumidos pelo runtime. Morte final do Mint, liberação dos
 dois quadros, identidade C++, destrutores e restauração de raízes passaram.
 Evidência congelada em bench/resultados/2026-10-10-unwind-estrangeiro-linux-ci,
-com SHA-256, fonte, etapa, job e digest Actions. macOS e workflow completo
-continuam ativos; não extrapolar a prova Linux para macOS ou para o perfil
+com SHA-256, fonte, etapa, job e digest Actions. o job Linux completo terminou com sucesso depois da captura; macOS e workflow
+completo continuam ativos; não extrapolar a prova Linux para macOS ou para o perfil
 Retoma com quadros, que foi desenvolvido depois desta fonte. O escopo completo ARC,
 §§27–34, SEH/statepoints, forced unwind, finally, async/cancelamento e gate de
 desempenho continuam pendentes conforme os registros anteriores.
