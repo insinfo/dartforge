@@ -2,6 +2,15 @@
 
 ## Retomada de 2026-10-10
 
+Poda transporta os fatos escalares com os corpos: produção remove entradas
+de funções eliminadas; poda da fonte conserva somente símbolos vivos.
+Regressão cobre conservação de fatos vivos e retirada de fatos mortos nos
+dois caminhos, evitando que planos ARC recebam símbolo obsoleto após poda.
+Log target/arc-parametros-poda.log. Clones especializados e o restante dos
+contratos/borrows ainda exigem cobertura antes da inserção padrão ARC.
+Passaram os 15 testes de poda e 50 exemplos de documentação;
+logs target/arc-parametros-poda-{suite,doc}.log.
+
 Fatos de parâmetros do lowering agora alimentam PlanoFuncaoDart pela API
 produzir_parametros_escalares_do_lowering: verifica símbolos/IDs/tipos e
 conflitos antes de publicar qualquer Trivial. Tracing não aplica os fatos;

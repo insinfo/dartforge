@@ -345,6 +345,7 @@ pub fn podar(module: &mut Module) {
         k += 1;
         v
     });
+    module.parametros_escalares_dart.retain(|simbolo, _| vivos.contains(simbolo));
     for (dono, erros) in std::mem::take(&mut module.erros_da_fonte) {
         if vivos.contains(&dono) {
             module.erros.extend(erros);
