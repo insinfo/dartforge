@@ -2,6 +2,29 @@
 
 ## Retomada de 2026-10-10
 
+Extração HIR inicial em otimizar/arc/analise/hir.rs valida SSA e consome
+fatos explícitos de origem/esquema de AllocObject e GetField/SetField.
+Produz restrições para campos iniciais, stores inclusivos, leituras,
+ArcCopy/ArcMove, CheckNotNull e Phis. IDs locais SSA só indexam variáveis;
+identidade dos nós vem da origem nominal fornecida, nunca de ValueId.
+Fatos obsoletos, número de campos ou índice incompatível são recusados.
+Parâmetros Ref/I64/Ptr são topo sem resumo; bitcast I64→Ref, operações
+não cobertas e valores inteiros em campos sem esquema de representação
+não provam trivialidade. Calls/operações sem contrato preciso tornam
+opacos os campos nominais fornecidos, inclusive após outras escritas.
+Regressões HIR preservam ciclo/identidade de inicializadores e stores,
+conservam desconhecimento de chamadas/origens ausentes e recusam inferir
+ausência de handle pela largura. Passaram 274 testes do emissor (sete
+ignorados) antes do endurecimento de constantes/representações, os 12
+testes focados finais do domínio/solver/extração e 74 exemplos públicos.
+Logs target/arc-points-to-hir-{suite,focado,doc}.log.
+Produtor automático de origens/layouts, contratos SDK, escape/observadores,
+dependências de versão e integração no pipeline continuam pendentes.
+Esta análise explícita não certifica políticas nem ativa ARC: somente
+--memoria=arc escolhe ARC na CLI. CI 38051323600 continua executando;
+Linux passou, macOS passou retorno da fonte/instâncias zeradas/campos
+tipados e chegou a campos locais; Windows executa recarga JIT.
+
 Solver inicial de inclusão em otimizar/arc/analise/points_to.rs:
 worklist agenda dependentes de variáveis/campos alterados, com semeadura,
 cópias/Phi, leituras e stores monotônicos por campo/layout nominal.

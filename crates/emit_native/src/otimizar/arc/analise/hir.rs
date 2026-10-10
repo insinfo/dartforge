@@ -1,0 +1,434 @@
+//! Extração conservadora de restrições da HIR após SSA (§28.2).
+//! Fatos nominais de alocação/layout são premissas explícitas do produtor.
+//! Não exporta certificados, resumos SDK ou política de memória.
+
+use super::{modelo::*, points_to::*};
+use crate::hir::*;
+use std::collections::{BTreeSet, HashMap};
+
+/// Origem e esquema completo dos campos iniciais de um AllocObject.
+/// O produtor deve preservar origem/contexto nos clones e conferir layouts.
+/// Índices SSA não são usados como identidade persistente do nó abstrato.
+///
+/// ```
+/// use dartforge_emit_native::otimizar::arc::analise::{hir::OrigemObjeto, modelo::*, points_to::*};
+/// let origem = OrigemObjeto {
+///     no: NoAbstrato::Alocacao { sitio: SitioArc { funcao: "f".into(), origem: 1, especializacao: "".into() }, contexto: "".into() },
+///     campos: vec![CampoArc { layout: "No:v1".into(), posicao: 0 }],
+/// };
+/// assert_eq!(origem.campos.len(), 1);
+/// ```
+#[derive(Debug, Clone)]
+pub struct OrigemObjeto {
+    /// Nó nominal produzido para a alocação, nunca placeholder de parâmetro.
+    pub no: NoAbstrato,
+    /// Campos nas posições físicas do inicializador, incluindo campos triviais.
+    pub campos: Vec<CampoArc>,
+}
+
+/// Fatos nominais da mesma versão da função/layout, ainda fornecidos explicitamente.
+/// Fatos ausentes causam desconhecimento; fatos obsoletos/incompatíveis são erros.
+///
+/// ```
+/// use dartforge_emit_native::otimizar::arc::analise::hir::FatosHir;
+/// assert!(FatosHir::default().objetos.is_empty());
+/// ```
+#[derive(Debug, Default)]
+pub struct FatosHir {
+    /// Origem/esquema de cada AllocObject identificado pelo produtor.
+    pub objetos: HashMap<ValueId, OrigemObjeto>,
+    /// Campo nominal de cada GetField/SetField, identificado pelo resultado SSA.
+    pub acessos: HashMap<ValueId, CampoArc>,
+}
+
+/// Resultado local; IDs desconhecidos identificam operações sem transferência precisa.
+/// Não certifica cobertura completa do programa, escape, observadores ou singleton.
+///
+/// ```
+/// use dartforge_emit_native::{hir::*, otimizar::arc::analise::hir::*};
+/// let f = Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+/// params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
+/// id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] };
+/// assert!(analisar(&f, &FatosHir::default(), 8)?.desconhecidos.is_empty());
+/// # Ok::<(), String>(())
+/// ```
+#[derive(Debug)]
+pub struct AnaliseHir {
+    /// Solução do sistema extraído, com desconhecimento explícito.
+    pub pontos: ResultadoPointsTo,
+    /// Operações sem contrato de heap preciso; não confundir com ausência de efeito.
+    pub desconhecidos: Vec<ValueId>,
+    ids: HashMap<ValueId, usize>,
+}
+
+impl AnaliseHir {
+    /// Consulta aliases de um valor SSA, ou None se o ID não existe.
+    ///
+    /// ```
+    /// use dartforge_emit_native::{hir::*, otimizar::arc::analise::hir::*};
+    /// let f = Function { symbol: "f".into(), name: "f".into(), depuracao: None,
+    /// params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
+    /// id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] };
+    /// assert!(analisar(&f, &FatosHir::default(), 8)?.valor(ValueId(0)).is_none());
+    /// # Ok::<(), String>(())
+    /// ```
+    pub fn valor(&self, id: ValueId) -> Option<&ConjuntoPontos> {
+        self.ids.get(&id).and_then(|&i| self.pontos.variavel(i))
+    }
+}
+
+/// Extrai e resolve inclusão de aliases da HIR verificada estruturalmente.
+/// Parâmetros Ref/I64/Ptr são desconhecidos sem resumo do chamador; largura
+/// I64 não prova valor trivial. Null e constantes F64/I1/I8 não geram nós;
+/// constantes inteiras usadas como handles/endereços permanecem desconhecidas.
+/// Calls/operações não cobertas invalidam todos os campos nominais fornecidos;
+/// resultados opacos são topo. Stores conhecidos são sempre inclusivos.
+/// Bitcast só conserva aliases se origem e resultado forem Ref.
+///
+/// # Erros
+/// SSA inválida ou fato obsoleto/esquema incompatível com o inicializador/acesso.
+/// A função e os fatos não são modificados.
+///
+/// ```
+/// use dartforge_emit_native::{hir::*, otimizar::arc::analise::hir::*};
+/// let f = Function { symbol: "id".into(), name: "id".into(), depuracao: None,
+/// params: vec![(ValueId(0), "x".into(), Type::Ref)], return_ty: Type::Ref,
+/// blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
+/// terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }] };
+/// assert!(analisar(&f, &FatosHir::default(), 8)?.valor(ValueId(0)).unwrap().nos().is_none());
+/// # Ok::<(), String>(())
+/// ```
+pub fn analisar(f: &Function, fatos: &FatosHir, limite: usize) -> Result<AnaliseHir, String> {
+    super::super::ssa::verificar(f)?;
+    let instrucoes: HashMap<_, _> = f
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .map(|(v, i, _)| (*v, i))
+        .collect();
+    for (v, origem) in &fatos.objetos {
+        let Some(Instruction::AllocObject { fields, .. }) = instrucoes.get(v) else {
+            return Err(format!("points-to HIR: origem obsoleta v{}", v.0));
+        };
+        if fields.len() != origem.campos.len()
+            || origem
+                .campos
+                .iter()
+                .enumerate()
+                .any(|(i, c)| c.posicao as usize != i)
+            || !matches!(
+                origem.no,
+                NoAbstrato::Alocacao { .. } | NoAbstrato::UnidadeSintetica { .. }
+            )
+        {
+            return Err(format!(
+                "points-to HIR: esquema/origem incompatível v{}",
+                v.0
+            ));
+        }
+    }
+    for (v, campo) in &fatos.acessos {
+        let indice = match instrucoes.get(v) {
+            Some(Instruction::GetField { index, .. } | Instruction::SetField { index, .. }) => {
+                *index
+            }
+            _ => return Err(format!("points-to HIR: campo obsoleto v{}", v.0)),
+        };
+        if campo.posicao as usize != indice {
+            return Err(format!("points-to HIR: índice incompatível v{}", v.0));
+        }
+    }
+    let tipos: HashMap<_, _> = f
+        .params
+        .iter()
+        .map(|(v, _, t)| (*v, *t))
+        .chain(
+            f.blocks
+                .iter()
+                .flat_map(|b| &b.instructions)
+                .map(|(v, _, t)| (*v, *t)),
+        )
+        .collect();
+    let mut valores: Vec<_> = tipos.keys().copied().collect();
+    valores.sort_by_key(|v| v.0);
+    let ids: HashMap<_, _> = valores.iter().enumerate().map(|(i, v)| (*v, i)).collect();
+    let vazio = ids.len();
+    let opaco = vazio + 1;
+    let mut rs = vec![Restricao::Desconhecer { destino: opaco }];
+    let campos: BTreeSet<_> = fatos
+        .acessos
+        .values()
+        .cloned()
+        .chain(fatos.objetos.values().flat_map(|o| o.campos.clone()))
+        .collect();
+    let operando = |o: &Operand| match o {
+        Operand::Val(v) => ids[v],
+        Operand::Constant(Constant::Null) => vazio,
+        _ => opaco,
+    };
+    for (v, _, ty) in &f.params {
+        if matches!(ty, Type::Ref | Type::I64 | Type::Ptr) {
+            rs.push(Restricao::Desconhecer { destino: ids[v] });
+        }
+    }
+    let mut desconhecidos = Vec::new();
+    for (v, i, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
+        let destino = ids[v];
+        match i {
+            Instruction::Const(_) if matches!(ty, Type::F64 | Type::I1 | Type::I8) => {}
+            Instruction::Const(c) => rs.push(Restricao::Copiar {
+                origem: operando(&Operand::Constant(c.clone())),
+                destino,
+            }),
+            Instruction::ArcCopy { value }
+            | Instruction::ArcMove { value }
+            | Instruction::CheckNotNull(value) => rs.push(Restricao::Copiar {
+                origem: operando(value),
+                destino,
+            }),
+            Instruction::Phi { incoming, .. } => {
+                for (_, o) in incoming {
+                    rs.push(Restricao::Copiar {
+                        origem: operando(o),
+                        destino,
+                    });
+                }
+            }
+            Instruction::Bitcast {
+                op: Operand::Val(origem),
+                ..
+            } if *ty == Type::Ref && tipos[origem] == Type::Ref => rs.push(Restricao::Copiar {
+                origem: ids[origem],
+                destino,
+            }),
+            Instruction::AllocObject { fields, .. } if fatos.objetos.contains_key(v) => {
+                let origem = &fatos.objetos[v];
+                rs.push(Restricao::Semear {
+                    destino,
+                    no: origem.no.clone(),
+                });
+                for (o, campo) in fields.iter().zip(&origem.campos) {
+                    rs.push(Restricao::Gravar {
+                        objeto: destino,
+                        campo: campo.clone(),
+                        valor: operando(o),
+                    });
+                }
+            }
+            Instruction::GetField { object, .. } if fatos.acessos.contains_key(v) => {
+                rs.push(Restricao::Ler {
+                    objeto: operando(object),
+                    campo: fatos.acessos[v].clone(),
+                    destino,
+                })
+            }
+            Instruction::SetField { object, value, .. } if fatos.acessos.contains_key(v) => rs
+                .push(Restricao::Gravar {
+                    objeto: operando(object),
+                    campo: fatos.acessos[v].clone(),
+                    valor: operando(value),
+                }),
+            Instruction::Add(..)
+            | Instruction::Sub(..)
+            | Instruction::Mul(..)
+            | Instruction::SDiv(..)
+            | Instruction::SRem(..)
+            | Instruction::Shl(..)
+            | Instruction::AShr(..)
+            | Instruction::LShr(..)
+            | Instruction::And(..)
+            | Instruction::Or(..)
+            | Instruction::Xor(..)
+            | Instruction::Neg(..)
+            | Instruction::Not(..)
+            | Instruction::FAdd(..)
+            | Instruction::FSub(..)
+            | Instruction::FMul(..)
+            | Instruction::FDiv(..)
+            | Instruction::FNeg(..)
+            | Instruction::ICmp(..)
+            | Instruction::FCmp(..)
+            | Instruction::LNot(..)
+            | Instruction::IntToDouble(..)
+            | Instruction::DoubleToInt(..)
+            | Instruction::ZExt { .. }
+            | Instruction::Trunc { .. }
+                if matches!(ty, Type::I64 | Type::F64 | Type::I1 | Type::I8) => {}
+            _ => {
+                desconhecidos.push(*v);
+                if *ty != Type::Void {
+                    rs.push(Restricao::Desconhecer { destino });
+                }
+                for campo in &campos {
+                    rs.push(Restricao::DesconhecerCampo {
+                        campo: campo.clone(),
+                    });
+                }
+            }
+        }
+    }
+    let pontos = resolver(ids.len() + 2, limite, &rs)?;
+    Ok(AnaliseHir {
+        pontos,
+        desconhecidos,
+        ids,
+    })
+}
+
+#[cfg(test)]
+mod testes {
+    use super::*;
+
+    fn fixture() -> (Function, FatosHir) {
+        let campo = CampoArc {
+            layout: "No:v1".into(),
+            posicao: 0,
+        };
+        let mut fatos = FatosHir::default();
+        for v in [0, 1] {
+            fatos.objetos.insert(
+                ValueId(v),
+                OrigemObjeto {
+                    no: NoAbstrato::Alocacao {
+                        sitio: SitioArc {
+                            funcao: "ligar".into(),
+                            origem: v as u64,
+                            especializacao: "".into(),
+                        },
+                        contexto: "".into(),
+                    },
+                    campos: vec![campo.clone()],
+                },
+            );
+        }
+        fatos.acessos.insert(ValueId(2), campo.clone());
+        fatos.acessos.insert(ValueId(3), campo);
+        let f = Function {
+            symbol: "ligar".into(),
+            name: "ligar".into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![
+                    (
+                        ValueId(0),
+                        Instruction::AllocObject {
+                            class_id: 1,
+                            fields: vec![Operand::Constant(Constant::Null)],
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(1),
+                        Instruction::AllocObject {
+                            class_id: 1,
+                            fields: vec![Operand::Val(ValueId(0))],
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(2),
+                        Instruction::SetField {
+                            object: Operand::Val(ValueId(0)),
+                            index: 0,
+                            value: Operand::Val(ValueId(1)),
+                        },
+                        Type::Void,
+                    ),
+                    (
+                        ValueId(3),
+                        Instruction::GetField {
+                            object: Operand::Val(ValueId(0)),
+                            index: 0,
+                        },
+                        Type::Ref,
+                    ),
+                ],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(3)))),
+            }],
+        };
+        (f, fatos)
+    }
+
+    #[test]
+    fn inicializadores_e_stores_da_hir_preservam_ciclo_e_identidade() {
+        let (f, fatos) = fixture();
+        let a = analisar(&f, &fatos, 8).unwrap();
+        assert!(a.desconhecidos.is_empty());
+        assert_eq!(a.valor(ValueId(3)), a.valor(ValueId(1)));
+        assert_eq!(
+            a.pontos
+                .campo(&fatos.objetos[&ValueId(1)].no, &fatos.acessos[&ValueId(3)]),
+            a.valor(ValueId(0))
+        );
+    }
+
+    #[test]
+    fn chamadas_opacas_e_fatos_ausentes_nunca_provam_ausencia_de_aliases() {
+        let (mut f, mut fatos) = fixture();
+        f.blocks[0].instructions.insert(
+            3,
+            (
+                ValueId(4),
+                Instruction::CallRuntime {
+                    name: "externa_sem_resumo".into(),
+                    args: vec![],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            ),
+        );
+        let a = analisar(&f, &fatos, 8).unwrap();
+        assert_eq!(a.desconhecidos, vec![ValueId(4)]);
+        assert!(a.valor(ValueId(3)).unwrap().nos().is_none());
+        f.blocks[0].instructions.remove(3);
+        fatos.objetos.remove(&ValueId(1));
+        let a = analisar(&f, &fatos, 8).unwrap();
+        assert!(a.valor(ValueId(1)).unwrap().nos().is_none());
+        assert!(a.valor(ValueId(3)).unwrap().nos().is_none());
+    }
+
+    #[test]
+    fn fatos_obsoletos_e_esquemas_incompativeis_sao_recusados() {
+        let (f, mut fatos) = fixture();
+        fatos.objetos.get_mut(&ValueId(0)).unwrap().campos.clear();
+        assert!(analisar(&f, &fatos, 8).is_err());
+        let (f, mut fatos) = fixture();
+        fatos.acessos.get_mut(&ValueId(3)).unwrap().posicao = 1;
+        assert!(analisar(&f, &fatos, 8).is_err());
+    }
+
+    #[test]
+    fn bits_inteiros_e_campos_iniciais_sem_tipo_nao_provam_ausencia_de_handle() {
+        let (mut f, fatos) = fixture();
+        if let Instruction::AllocObject { fields, .. } = &mut f.blocks[0].instructions[0].1 {
+            fields[0] = Operand::Constant(Constant::Int(42));
+        }
+        let a = analisar(&f, &fatos, 8).unwrap();
+        assert!(a.valor(ValueId(3)).unwrap().nos().is_none());
+        let f = Function {
+            symbol: "bits".into(),
+            name: "bits".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "bits".into(), Type::I64)],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![(
+                    ValueId(1),
+                    Instruction::Bitcast {
+                        op: Operand::Val(ValueId(0)),
+                        to: Type::Ref,
+                    },
+                    Type::Ref,
+                )],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+            }],
+        };
+        let a = analisar(&f, &FatosHir::default(), 8).unwrap();
+        assert!(a.valor(ValueId(0)).unwrap().nos().is_none());
+        assert!(a.valor(ValueId(1)).unwrap().nos().is_none());
+    }
+}
