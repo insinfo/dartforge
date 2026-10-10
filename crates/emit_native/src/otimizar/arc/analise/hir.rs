@@ -336,22 +336,23 @@ pub(crate) fn analisar_com_resumos(
                         .iter()
                         .zip(&callee.params)
                         .all(|(o, (_, _, t))| super::resumos::argumento_exato(o, *t, &tipos));
-                if let super::resumos::RetornoHeapArc::Aliases { parametros, .. } = resumo.retorno()
+                if let Some(caminhos) = &resumo.retorno_caminhos.caminhos
+                    && abi_exata
                     && *ty == Type::Ref
                     && *ret_ty == Type::Ref
                 {
-                    for &p in parametros {
-                        if let Operand::Val(arg) = &args[p] {
-                            if tipos[arg] != Type::Ref {
-                                return Err(format!(
-                                    "points-to: argumento Ref incompatível em {symbol}"
-                                ));
-                            }
-                        }
-                        rs.push(Restricao::Copiar {
-                            origem: operando(&args[p]),
-                            destino,
-                        });
+                    for caminho in caminhos {
+                        let arg = args
+                            .get(caminho.parametro)
+                            .ok_or("points-to: retorno de resumo inválido")?;
+                        let origem = materializar_caminho(
+                            operando(arg),
+                            &caminho.campos,
+                            &esquemas_por_indice,
+                            &mut numero_variaveis,
+                            &mut rs,
+                        )?;
+                        rs.push(Restricao::Copiar { origem, destino });
                     }
                 } else if *ty != Type::Void {
                     rs.push(Restricao::Desconhecer { destino });

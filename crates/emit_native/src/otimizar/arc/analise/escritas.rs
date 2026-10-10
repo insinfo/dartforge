@@ -30,6 +30,37 @@ impl CaminhoParametro {
     }
 }
 
+// Bottom sem evidência de resultado normal fica interno à solução da SCC.
+// Null é separado dos caminhos: nunca ganha identidade de objeto abstrato.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RetornoCaminhos {
+    pub caminhos: Option<BTreeSet<CaminhoParametro>>,
+    pub nulo: bool,
+}
+
+impl RetornoCaminhos {
+    pub(super) fn vazio() -> Self {
+        Self {
+            caminhos: Some(BTreeSet::new()),
+            nulo: false,
+        }
+    }
+
+    pub(super) fn desconhecido() -> Self {
+        Self {
+            caminhos: None,
+            nulo: true,
+        }
+    }
+
+    pub(super) fn unir(&mut self, outro: &Self, limite: usize) -> bool {
+        let antes = self.clone();
+        unir_aliases(&mut self.caminhos, outro.caminhos.clone(), limite);
+        self.nulo |= outro.nulo || self.caminhos.is_none();
+        *self != antes
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct EscritaParametro {
     pub objeto: CaminhoParametro,
@@ -93,11 +124,39 @@ fn prolongar(aliases: AliasesCaminhos, campos: &[usize], limite: usize) -> Alias
         .collect()
 }
 
-pub(super) fn extrair<'a>(
+#[cfg(test)]
+fn extrair<'a>(
     f: &Function,
     limite: usize,
     chamada: impl Fn(&str) -> Option<(&'a Function, &'a RetornoHeapArc, &'a InclusoesEscritas)>,
 ) -> Result<InclusoesEscritas, String> {
+    Ok(extrair_com_resultado(f, limite, false, |s| {
+        chamada(s).map(|(callee, retorno, escritas)| {
+            let caminhos = match retorno {
+                RetornoHeapArc::Aliases { parametros, nulo } => RetornoCaminhos {
+                    caminhos: Some(
+                        parametros
+                            .iter()
+                            .copied()
+                            .map(CaminhoParametro::raiz)
+                            .collect(),
+                    ),
+                    nulo: *nulo,
+                },
+                RetornoHeapArc::Desconhecido => RetornoCaminhos::desconhecido(),
+            };
+            (callee, caminhos, escritas)
+        })
+    })?
+    .1)
+}
+
+pub(super) fn extrair_com_resultado<'a>(
+    f: &Function,
+    limite: usize,
+    interno: bool,
+    chamada: impl Fn(&str) -> Option<(&'a Function, RetornoCaminhos, &'a InclusoesEscritas)>,
+) -> Result<(RetornoCaminhos, InclusoesEscritas), String> {
     super::super::ssa::verificar(f)?;
     let tipos: HashMap<_, _> = f
         .params
@@ -114,6 +173,8 @@ pub(super) fn extrair<'a>(
     valores.sort_by_key(|v| v.0);
     let ids: HashMap<_, _> = valores.iter().enumerate().map(|(i, v)| (*v, i)).collect();
     let mut aliases = vec![Some(BTreeSet::new()); ids.len()];
+    let mut nulos = vec![false; ids.len()];
+    let mut escritas_opacas = false;
     for (p, (v, _, t)) in f.params.iter().enumerate() {
         aliases[ids[v]] = if *t == Type::Ref && limite > 0 {
             Some(BTreeSet::from([CaminhoParametro::raiz(p)]))
@@ -125,6 +186,11 @@ pub(super) fn extrair<'a>(
         Operand::Val(v) => aliases[ids[v]].clone(),
         Operand::Constant(Constant::Null) => Some(BTreeSet::new()),
         _ => None,
+    };
+    let nulo = |o: &Operand, nulos: &[bool]| match o {
+        Operand::Val(v) => nulos[ids[v]],
+        Operand::Constant(Constant::Null) => true,
+        _ => false,
     };
     // Bottom fica interno até a convergência. Stores só são extraídos após
     // estabilizar cópias, caminhos e aliases de resultados normais locais.
@@ -142,16 +208,22 @@ pub(super) fn extrair<'a>(
     while let Some(indice) = fila.pop_front() {
         enfileirados[indice] = false;
         let (v, i, t) = instrucoes[indice];
+        let mut novo_nulo = false;
         let novo = match i {
-            Instruction::Const(Constant::Null) if *t == Type::Ref => Some(BTreeSet::new()),
+            Instruction::Const(Constant::Null) if *t == Type::Ref => {
+                novo_nulo = true;
+                Some(BTreeSet::new())
+            }
             Instruction::ArcCopy { value } | Instruction::ArcMove { value }
                 if *t == Type::Ref && argumento_exato(value, Type::Ref, &tipos) =>
             {
+                novo_nulo = nulo(value, &nulos);
                 operando(value, &aliases)
             }
             Instruction::Bitcast { op, to: Type::Ref }
                 if *t == Type::Ref && argumento_exato(op, Type::Ref, &tipos) =>
             {
+                novo_nulo = nulo(op, &nulos);
                 operando(op, &aliases)
             }
             Instruction::Phi {
@@ -164,6 +236,7 @@ pub(super) fn extrair<'a>(
             {
                 let mut a = Some(BTreeSet::new());
                 for (_, o) in incoming {
+                    novo_nulo |= nulo(o, &nulos);
                     unir_aliases(&mut a, operando(o, &aliases), limite);
                 }
                 a
@@ -171,41 +244,52 @@ pub(super) fn extrair<'a>(
             Instruction::GetField { object, index }
                 if *t == Type::Ref && argumento_exato(object, Type::Ref, &tipos) =>
             {
-                prolongar(operando(object, &aliases), &[*index], limite)
+                let a = prolongar(operando(object, &aliases), &[*index], limite);
+                // Campo pode ser null, mas bottom sem receiver não é uma
+                // evidência de execução normal em recursão sem base.
+                novo_nulo = a.as_ref().is_none_or(|c| !c.is_empty()) || nulo(object, &nulos);
+                a
             }
             Instruction::CallStatic {
                 symbol,
                 args,
                 ret_ty,
             } => {
-                let Some((callee, retorno, _)) = chamada(symbol) else {
-                    return Ok(InclusoesEscritas::Desconhecidas);
-                };
-                if *t != *ret_ty
-                    || *ret_ty != callee.return_ty
-                    || args.len() != callee.params.len()
-                    || !args
+                let callee = chamada(symbol);
+                if let Some((callee, retorno, _)) = callee
+                    && *t == *ret_ty
+                    && *ret_ty == callee.return_ty
+                    && args.len() == callee.params.len()
+                    && args
                         .iter()
                         .zip(&callee.params)
                         .all(|(o, (_, _, ty))| argumento_exato(o, *ty, &tipos))
                 {
-                    return Ok(InclusoesEscritas::Desconhecidas);
-                }
-                if *t == Type::Ref {
-                    if let RetornoHeapArc::Aliases { parametros, .. } = retorno {
-                        let mut a = Some(BTreeSet::new());
-                        for &p in parametros {
-                            let arg = args
-                                .get(p)
-                                .ok_or("escritas ARC: parâmetro de retorno inválido")?;
-                            unir_aliases(&mut a, operando(arg, &aliases), limite);
+                    if *t == Type::Ref {
+                        novo_nulo = retorno.nulo;
+                        if let Some(caminhos) = &retorno.caminhos {
+                            let mut a = Some(BTreeSet::new());
+                            for caminho in caminhos {
+                                let arg = args
+                                    .get(caminho.parametro)
+                                    .ok_or("escritas ARC: parâmetro de retorno inválido")?;
+                                novo_nulo |= nulo(arg, &nulos);
+                                unir_aliases(
+                                    &mut a,
+                                    prolongar(operando(arg, &aliases), &caminho.campos, limite),
+                                    limite,
+                                );
+                            }
+                            a
+                        } else {
+                            None
                         }
-                        a
                     } else {
-                        None
+                        Some(BTreeSet::new())
                     }
                 } else {
-                    Some(BTreeSet::new())
+                    escritas_opacas = true;
+                    None
                 }
             }
             Instruction::SetField { object, value, .. }
@@ -219,9 +303,16 @@ pub(super) fn extrair<'a>(
                 None
             }
             i if super::hir::escalar_puro(i, *t, &tipos) => None,
-            _ => return Ok(InclusoesEscritas::Desconhecidas),
+            _ => {
+                escritas_opacas = true;
+                None
+            }
         };
-        if unir_aliases(&mut aliases[ids[v]], novo, limite) {
+        novo_nulo |= *t == Type::Ref && novo.is_none();
+        let mudou_alias = unir_aliases(&mut aliases[ids[v]], novo, limite);
+        let mudou_nulo = novo_nulo && !nulos[ids[v]];
+        nulos[ids[v]] |= novo_nulo;
+        if mudou_alias || mudou_nulo {
             for &dependente in &dependentes[ids[v]] {
                 if !enfileirados[dependente] {
                     enfileirados[dependente] = true;
@@ -229,6 +320,34 @@ pub(super) fn extrair<'a>(
                 }
             }
         }
+    }
+    let mut retorno = if f.return_ty == Type::Ref {
+        RetornoCaminhos::vazio()
+    } else {
+        RetornoCaminhos::desconhecido()
+    };
+    let mut normal = false;
+    for b in &f.blocks {
+        if let Terminator::Return(Some(o)) = &b.terminator {
+            normal = true;
+            retorno.unir(
+                &RetornoCaminhos {
+                    caminhos: if f.return_ty == Type::Ref && argumento_exato(o, Type::Ref, &tipos) {
+                        operando(o, &aliases)
+                    } else {
+                        None
+                    },
+                    nulo: nulo(o, &nulos),
+                },
+                limite,
+            );
+        }
+    }
+    if !interno && (!normal || retorno == RetornoCaminhos::vazio()) {
+        retorno = RetornoCaminhos::desconhecido();
+    }
+    if escritas_opacas {
+        return Ok((retorno, InclusoesEscritas::Desconhecidas));
     }
     let mut resultado = InclusoesEscritas::vazio();
     let mut incluir = |origens: AliasesCaminhos, indice, destinos: AliasesCaminhos| -> bool {
@@ -261,13 +380,13 @@ pub(super) fn extrair<'a>(
                     *index,
                     operando(value, &aliases),
                 ) {
-                    return Ok(InclusoesEscritas::Desconhecidas);
+                    return Ok((retorno, InclusoesEscritas::Desconhecidas));
                 }
             }
             Instruction::CallStatic { symbol, args, .. } => {
                 let (_, _, escritas) = chamada(symbol).unwrap();
                 let InclusoesEscritas::Conhecidas(escritas) = escritas else {
-                    return Ok(InclusoesEscritas::Desconhecidas);
+                    return Ok((retorno, InclusoesEscritas::Desconhecidas));
                 };
                 for escrita in escritas {
                     let object = args
@@ -281,20 +400,227 @@ pub(super) fn extrair<'a>(
                         escrita.indice,
                         prolongar(operando(value, &aliases), &escrita.valor.campos, limite),
                     ) {
-                        return Ok(InclusoesEscritas::Desconhecidas);
+                        return Ok((retorno, InclusoesEscritas::Desconhecidas));
                     }
                 }
             }
             _ => {}
         }
     }
-    Ok(resultado)
+    Ok((retorno, resultado))
 }
 
 #[cfg(test)]
 mod testes {
     use super::*;
     use std::collections::HashSet;
+
+    fn getter(nome: &str, indice: usize) -> Function {
+        Function {
+            symbol: nome.into(),
+            name: nome.into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "x".into(), Type::Ref)],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![(
+                    ValueId(1),
+                    Instruction::GetField {
+                        object: Operand::Val(ValueId(0)),
+                        index: indice,
+                    },
+                    Type::Ref,
+                )],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+            }],
+        }
+    }
+
+    #[test]
+    fn alias_do_resultado_nao_apaga_efeito_externo_e_budget_zero_conserva_topo() {
+        let mut f = getter("externo", 0);
+        f.blocks[0].instructions = vec![(
+            ValueId(1),
+            Instruction::CallStatic {
+                symbol: "desconhecido".into(),
+                args: vec![Operand::Val(ValueId(0))],
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        )];
+        f.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(0))));
+        let (retorno, escritas) = extrair_com_resultado(&f, 8, false, |_| None).unwrap();
+        assert_eq!(
+            retorno,
+            RetornoCaminhos {
+                caminhos: Some(BTreeSet::from([CaminhoParametro::raiz(0)])),
+                nulo: false,
+            }
+        );
+        assert_eq!(escritas, InclusoesEscritas::Desconhecidas);
+        let (retorno, escritas) = extrair_com_resultado(&f, 0, false, |_| None).unwrap();
+        assert_eq!(retorno, RetornoCaminhos::desconhecido());
+        assert_eq!(escritas, InclusoesEscritas::Desconhecidas);
+        f.blocks[0].terminator = Terminator::Return(Some(Operand::Constant(Constant::Null)));
+        let (retorno, escritas) = extrair_com_resultado(&f, 0, false, |_| None).unwrap();
+        assert_eq!(
+            retorno,
+            RetornoCaminhos {
+                caminhos: Some(BTreeSet::new()),
+                nulo: true
+            }
+        );
+        assert_eq!(escritas, InclusoesEscritas::Desconhecidas);
+    }
+
+    #[test]
+    fn retorno_de_campo_composto_alimenta_escritas_sem_promover_cobertura() {
+        let g = getter("get", 2);
+        let mut wrapper = getter("wrapper", 9);
+        wrapper.blocks[0].instructions.push((
+            ValueId(2),
+            Instruction::CallStatic {
+                symbol: "get".into(),
+                args: vec![Operand::Val(ValueId(1))],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        ));
+        wrapper.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(2))));
+        let mut writer = ligar("writer", false);
+        writer.blocks[0].instructions.insert(
+            0,
+            (
+                ValueId(3),
+                Instruction::CallStatic {
+                    symbol: "wrapper".into(),
+                    args: vec![Operand::Val(ValueId(0))],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            ),
+        );
+        if let Instruction::SetField { object, .. } = &mut writer.blocks[0].instructions[1].1 {
+            *object = Operand::Val(ValueId(3));
+        }
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.functions = vec![writer, wrapper, g];
+        for ordem in [false, true] {
+            if ordem {
+                m.functions.reverse();
+            }
+            let r = super::super::chamadas::resolver(&m, &HashSet::from(["writer"]), 8).unwrap();
+            assert_eq!(
+                r["wrapper"].1.retorno_caminhos,
+                RetornoCaminhos {
+                    caminhos: Some(BTreeSet::from([CaminhoParametro {
+                        parametro: 0,
+                        campos: vec![9, 2]
+                    }])),
+                    nulo: true,
+                }
+            );
+            assert_eq!(
+                r["writer"].1.inclusoes_escritas,
+                InclusoesEscritas::Conhecidas(BTreeSet::from([EscritaParametro {
+                    objeto: CaminhoParametro {
+                        parametro: 0,
+                        campos: vec![9, 2]
+                    },
+                    indice: 0,
+                    valor: CaminhoParametro::raiz(1),
+                }]))
+            );
+            for (_, resumo) in r.values() {
+                assert_eq!(resumo.campos(), CamposHeapArc::Desconhecidos);
+                assert_eq!(resumo.publicacoes(), PublicacoesHeapArc::Desconhecidas);
+            }
+            // A API sem estado de campos continua conservadora.
+            assert_eq!(r["wrapper"].1.retorno(), &RetornoHeapArc::Desconhecido);
+        }
+    }
+
+    #[test]
+    fn retorno_de_campo_recursivo_cresce_ate_topo_e_ciclo_sem_base_nao_expoe_bottom() {
+        let mut f = getter("rec", 0);
+        f.blocks[0].instructions.push((
+            ValueId(2),
+            Instruction::CallStatic {
+                symbol: "rec".into(),
+                args: vec![Operand::Val(ValueId(1))],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        ));
+        f.blocks[0].instructions.push((
+            ValueId(3),
+            Instruction::Phi {
+                incoming: vec![
+                    (BlockId(1), Operand::Val(ValueId(1))),
+                    (BlockId(2), Operand::Val(ValueId(2))),
+                ],
+                ty: Type::Ref,
+            },
+            Type::Ref,
+        ));
+        // As duas saídas alimentam o Phi com predecessores SSA reais.
+        let mut corpo = f.blocks.remove(0);
+        let phi = corpo.instructions.pop().unwrap();
+        corpo.terminator = Terminator::CondBranch {
+            cond: Operand::Val(ValueId(4)),
+            then_block: BlockId(1),
+            else_block: BlockId(2),
+        };
+        f.params.push((ValueId(4), "cond".into(), Type::I1));
+        if let Instruction::CallStatic { args, .. } = &mut corpo.instructions[1].1 {
+            args.push(Operand::Val(ValueId(4)));
+        }
+        f.blocks = vec![
+            corpo,
+            BasicBlock {
+                id: BlockId(1),
+                instructions: vec![],
+                terminator: Terminator::Branch(BlockId(3)),
+            },
+            BasicBlock {
+                id: BlockId(2),
+                instructions: vec![],
+                terminator: Terminator::Branch(BlockId(3)),
+            },
+            BasicBlock {
+                id: BlockId(3),
+                instructions: vec![phi],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(3)))),
+            },
+        ];
+        let mut sem_base = getter("sem_base", 0);
+        sem_base.blocks[0].instructions = vec![(
+            ValueId(1),
+            Instruction::CallStatic {
+                symbol: "sem_base".into(),
+                args: vec![Operand::Val(ValueId(0))],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        )];
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.functions = vec![f, sem_base];
+        for ordem in [false, true] {
+            if ordem {
+                m.functions.reverse();
+            }
+            let r = super::super::chamadas::resolver(&m, &HashSet::from(["rec", "sem_base"]), 3)
+                .unwrap();
+            assert_eq!(r["rec"].1.retorno_caminhos, RetornoCaminhos::desconhecido());
+            assert_eq!(
+                r["sem_base"].1.retorno_caminhos,
+                RetornoCaminhos::desconhecido()
+            );
+        }
+    }
 
     fn ligar(symbol: &str, invertido: bool) -> Function {
         Function {

@@ -167,16 +167,47 @@ pub(super) fn resolver<'a>(
     // de campos/publicações nem ignorar prólogos/saídas opacos. Recursão
     // propaga uniões; desconhecimento e orçamento excedido são absorventes.
     let mut escritas = vec![super::escritas::InclusoesEscritas::vazio(); corpos.len()];
+    let mut caminhos: Vec<_> = corpos
+        .iter()
+        .map(|f| {
+            if f.return_ty == Type::Ref {
+                super::escritas::RetornoCaminhos::vazio()
+            } else {
+                super::escritas::RetornoCaminhos::desconhecido()
+            }
+        })
+        .collect();
     for componente in crate::otimizar::scc::componentes(&arestas) {
         let membros: HashSet<_> = componente.iter().copied().collect();
         let mut fila: VecDeque<_> = componente.iter().copied().collect();
         let mut enfileirados = membros.clone();
-        while let Some(v) = fila.pop_front() {
-            enfileirados.remove(&v);
-            let novo = super::escritas::extrair(corpos[v], limite, |s| {
-                ids.get(s).map(|&w| (corpos[w], &retornos[w], &escritas[w]))
-            })?;
-            if escritas[v].unir(&novo, limite) {
+        loop {
+            while let Some(v) = fila.pop_front() {
+                enfileirados.remove(&v);
+                let (resultado, novo) =
+                    super::escritas::extrair_com_resultado(corpos[v], limite, true, |s| {
+                        ids.get(s)
+                            .map(|&w| (corpos[w], caminhos[w].clone(), &escritas[w]))
+                    })?;
+                let mudou_escrita = escritas[v].unir(&novo, limite);
+                if caminhos[v].unir(&resultado, limite) || mudou_escrita {
+                    for &w in &dependentes[v] {
+                        if membros.contains(&w) && enfileirados.insert(w) {
+                            fila.push_back(w);
+                        }
+                    }
+                }
+            }
+            let sem_evidencia: Vec<_> = componente
+                .iter()
+                .copied()
+                .filter(|&v| caminhos[v] == super::escritas::RetornoCaminhos::vazio())
+                .collect();
+            if sem_evidencia.is_empty() {
+                break;
+            }
+            for v in sem_evidencia {
+                caminhos[v] = super::escritas::RetornoCaminhos::desconhecido();
                 for &w in &dependentes[v] {
                     if membros.contains(&w) && enfileirados.insert(w) {
                         fila.push_back(w);
@@ -185,8 +216,9 @@ pub(super) fn resolver<'a>(
             }
         }
     }
-    for (resumo, inclusoes) in resumos.iter_mut().zip(escritas) {
+    for ((resumo, inclusoes), retorno) in resumos.iter_mut().zip(escritas).zip(caminhos) {
         resumo.inclusoes_escritas = inclusoes;
+        resumo.retorno_caminhos = retorno;
     }
     Ok(corpos
         .into_iter()

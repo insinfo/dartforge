@@ -176,6 +176,80 @@ mod testes {
     use super::*;
 
     #[test]
+    fn retorno_por_campo_conserva_opacidade_guarda_do_corpo_e_abi_exata() {
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        let id = Function {
+            symbol: "id".into(),
+            name: "id".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "x".into(), Type::Ref)],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
+            }],
+        };
+        let caller = Function {
+            symbol: "caller".into(),
+            name: "caller".into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![(
+                    ValueId(0),
+                    Instruction::CallStatic {
+                        symbol: "id".into(),
+                        args: vec![Operand::Constant(Constant::Null)],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                )],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
+            }],
+        };
+        m.functions = vec![caller, id];
+        let a = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+        assert!(a.valor(ValueId(0)).unwrap().nos().unwrap().is_empty());
+        if let Instruction::CallStatic { args, .. } =
+            &mut m.functions[0].blocks[0].instructions[0].1
+        {
+            args[0] = Operand::Constant(Constant::Int(0));
+        }
+        let b = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+        assert!(b.valor(ValueId(0)).unwrap().nos().is_none());
+        if let Instruction::CallStatic { args, .. } =
+            &mut m.functions[0].blocks[0].instructions[0].1
+        {
+            args[0] = Operand::Constant(Constant::Null);
+        }
+        m.functions[1].blocks[0].instructions.push((
+            ValueId(1),
+            Instruction::GetField {
+                object: Operand::Val(ValueId(0)),
+                index: 0,
+            },
+            Type::Ref,
+        ));
+        m.functions[1].blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
+        assert!(super::super::escape::calcular_no_modulo(&m, "caller", &a).is_err());
+        let c = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+        assert!(c.valor(ValueId(0)).unwrap().nos().is_none());
+        assert_eq!(c.desconhecidos(), &[ValueId(0)]);
+        let e = super::super::escape::calcular_no_modulo(&m, "caller", &c).unwrap();
+        assert!(
+            e.publicacoes[&super::super::escape::CausaEscape::OperacaoOpaca(0)]
+                .nos()
+                .is_none()
+        );
+        m.memoria_arc = false;
+        assert!(analisar_no_modulo(&m, "caller", 8).unwrap().is_none());
+    }
+
+    #[test]
     fn leituras_encadeadas_e_escrita_por_alias_resolvem_no_mesmo_ponto_fixo() {
         let mut m = Module::new();
         m.memoria_arc = true;
