@@ -2,6 +2,23 @@
 
 ## Retomada de 2026-10-09
 
+Prova AOT com rastro explícito: caller cria StackTrace Owned conhecido e
+empresta-o ao propagador/callee. Lançamento publica esse rastro; catch captura
+valor e rastro Owned e compara as duas identidades. Depois libera os owners
+originais, limpa a pendência, coleta e retém a captura do rastro novamente:
+ARC_CONFERIR confere sua validade após coleta. Oito variantes Windows
+simples/misto × ARC/tracing × normal/erro passaram com código zero e MAX+LF
+byte exato; dois caminhos ARC estritos também passaram. Geração com
+DARTFORGE_EFEITOS=conferir, execução ARC_CONFERIR=1, BER=0, GC_STRESS=1.
+Logs/IR/stdout `target/rastro-aot-*`. CI Unix usa o mesmo exemplo e requer
+nova execução desta fonte. Não observa morte final em AOT nem identidade do
+objeto nativo de unwind; não cobre rastro implicitamente capturado da pilha,
+SEH/statepoints ou limpeza de owners do catch em unwind estrangeiro.
+Prova anterior de captura Owned da exceção, fonte 7418650d, passou nas oito
+variantes de cada plataforma Linux/macOS na CI 38013924479. Downloads em
+`target/ci-38013924479/{linux,macos}`: 16 stdout MAX+LF conferidos byte a byte,
+IR com getter Owned e resume. Job Linux completo terminou com sucesso.
+
 Captura Owned do StackTrace: `dartforge_arc_rastro_owned_v1` retém o rastro
 antes de devolver o handle, sem safepoint entre leitura e retenção. Quando
 não há rastro corrente, cria um StackTrace sem instalá-lo para um throw futuro.

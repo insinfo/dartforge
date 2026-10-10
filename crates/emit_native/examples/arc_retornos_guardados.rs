@@ -48,6 +48,11 @@ fn main() -> Result<(), String> {
                         Type::Ref,
                     ),
                     (
+                        ValueId(22),
+                        runtime("dartforge_arc_rastro_owned_v1", vec![], Type::Ref),
+                        Type::Ref,
+                    ),
+                    (
                         ValueId(1),
                         Instruction::CallStatic {
                             symbol: if automatico {
@@ -56,7 +61,7 @@ fn main() -> Result<(), String> {
                                 "retorno_guardado"
                             }
                             .into(),
-                            args: vec![val(0)],
+                            args: vec![val(0), val(22)],
                             ret_ty: Type::Ref,
                         },
                         Type::Ref,
@@ -136,7 +141,10 @@ fn main() -> Result<(), String> {
         symbol: "retorno_guardado".into(),
         name: "retorno_guardado".into(),
         depuracao: None,
-        params: vec![(ValueId(0), "x".into(), Type::Ref)],
+        params: vec![
+            (ValueId(0), "x".into(), Type::Ref),
+            (ValueId(2), "rastro".into(), Type::Ref),
+        ],
         return_ty: Type::Ref,
         blocks: vec![BasicBlock {
             id: BlockId(0),
@@ -144,8 +152,8 @@ fn main() -> Result<(), String> {
                 vec![(
                     ValueId(1),
                     runtime(
-                        "dartforge_arc_lancar_ref_v1",
-                        vec![(val(0), Type::Ref)],
+                        "dartforge_arc_lancar_com_rastro_ref_v1",
+                        vec![(val(0), Type::Ref), (val(2), Type::Ref)],
                         Type::Void,
                     ),
                     Type::Void,
@@ -174,7 +182,10 @@ fn main() -> Result<(), String> {
             symbol: "propagador".into(),
             name: "propagador".into(),
             depuracao: None,
-            params: vec![(ValueId(0), "x".into(), Type::Ref)],
+            params: vec![
+                (ValueId(0), "x".into(), Type::Ref),
+                (ValueId(3), "rastro".into(), Type::Ref),
+            ],
             return_ty: Type::Ref,
             blocks: vec![BasicBlock {
                 id: BlockId(0),
@@ -188,7 +199,7 @@ fn main() -> Result<(), String> {
                         ValueId(2),
                         Instruction::CallStatic {
                             symbol: "retorno_guardado".into(),
-                            args: vec![val(1)],
+                            args: vec![val(1), val(3)],
                             ret_ty: Type::Ref,
                         },
                         Type::Ref,
@@ -222,7 +233,7 @@ fn main() -> Result<(), String> {
                 ValueId(9),
                 Instruction::CallStatic {
                     symbol: "propagador".into(),
-                    args: vec![val(0)],
+                    args: vec![val(0), val(22)],
                     ret_ty: Type::Ref,
                 },
                 Type::Ref,
@@ -247,6 +258,16 @@ fn main() -> Result<(), String> {
             Type::I1,
         ),
         (
+            ValueId(23),
+            runtime("dartforge_arc_rastro_owned_v1", vec![], Type::Ref),
+            Type::Ref,
+        ),
+        (
+            ValueId(24),
+            Instruction::ICmp(ICmpOp::Ne, val(23), val(22)),
+            Type::I1,
+        ),
+        (
             ValueId(2),
             runtime("dartforge_exception_clear", vec![], Type::Void),
             Type::Void,
@@ -257,17 +278,37 @@ fn main() -> Result<(), String> {
             Type::Void,
         ),
         (
+            ValueId(27),
+            Instruction::ArcDrop { value: val(22) },
+            Type::Void,
+        ),
+        (
             ValueId(17),
             runtime("dartforge_arc_collect", vec![], Type::Void),
             Type::Void,
         ),
     ];
+    // Retain após a coleta confere que a captura do rastro continua viva.
+    catch.instructions.push((
+        ValueId(26),
+        Instruction::ArcCopy { value: val(23) },
+        Type::Ref,
+    ));
     catch.terminator = Terminator::CondBranch {
         cond: val(11),
         then_block: BlockId(6),
-        else_block: BlockId(7),
+        else_block: BlockId(12),
     };
     modulo.functions[0].blocks.extend([
+        BasicBlock {
+            id: BlockId(12),
+            instructions: vec![],
+            terminator: Terminator::CondBranch {
+                cond: val(24),
+                then_block: BlockId(6),
+                else_block: BlockId(7),
+            },
+        },
         BasicBlock {
             id: BlockId(6),
             instructions: vec![
@@ -362,11 +403,11 @@ fn main() -> Result<(), String> {
         inserir_arc_funcoes_dart(&mut modulo.functions, &mut planos)?
     };
     let esperado = if misto {
-        (1, 10)
+        (1, 21)
     } else if automatico {
-        (1, 8)
+        (1, 18)
     } else {
-        (1, 6)
+        (1, 16)
     };
     if inseridos != esperado {
         return Err(format!(
