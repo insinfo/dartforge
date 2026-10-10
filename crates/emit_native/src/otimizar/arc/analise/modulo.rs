@@ -1,5 +1,5 @@
 //! Liga origens/layouts do lowering à extração local, sem selecionar políticas.
-//! Accessos de receivers opacos ou com layouts distintos continuam desconhecidos.
+//! Acessos selecionam o campo nominal pelo esquema de cada receiver possível.
 
 use super::{hir::*, modelo::*, points_to::*};
 use crate::hir::*;
@@ -8,9 +8,10 @@ use std::collections::HashMap;
 /// Analisa um corpo ARC usando origens e layouts já registrados no módulo.
 /// Tracing devolve None sem executar a análise. Origem/layout ausente conserva
 /// desconhecimento; nunca cria sítio a partir do ID SSA atual. Campos de um
-/// receiver só recebem esquema quando todos os nós conhecidos têm a mesma
-/// classe/layout e o índice existe. Cópias/Phis preservam essa união; leitura
-/// opaca, parâmetro e call sem resumo não provam a classe do receiver.
+/// receiver selecionam o campo do próprio layout, incluindo uniões de classes
+/// e leituras encadeadas, no mesmo ponto fixo dos aliases. Esquema/índice
+/// ausente e receiver opaco ou vazio conservam uma fronteira desconhecida.
+/// Cópias/Phis preservam a união; parâmetro e call sem resumo não provam layout.
 /// Chaves de layout são locais à versão do módulo, sem validade de recarga.
 /// CallStatic usa aliases normais dos corpos locais até ponto fixo por SCC.
 /// Folha com cobertura de campos e ABI exata preserva a precisão dos campos;
@@ -110,54 +111,9 @@ pub fn analisar_no_modulo(
             fatos.objetos.insert(*v, OrigemObjeto { no, campos });
         }
     }
-    // Primeiro resolve origens/cópias/Phis sem supor layouts de receivers.
-    // Falta de contrato mantém topo; só os conjuntos fechados abaixo refinam.
-    let preliminar = analisar_com_resumos(f, &fatos, limite, &resumos)?;
-    for (v, i, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
-        let (objeto, indice) = match i {
-            Instruction::GetField { object, index }
-            | Instruction::SetField { object, index, .. } => (object, *index),
-            _ => continue,
-        };
-        let Operand::Val(objeto) = objeto else {
-            continue;
-        };
-        let Some(nos) = preliminar
-            .valor(*objeto)
-            .and_then(|p| p.nos())
-            .filter(|ns| !ns.is_empty())
-        else {
-            continue;
-        };
-        let mut classe = None;
-        let mut fechado = true;
-        for no in nos {
-            let Some(&atual) = classes.get(no) else {
-                fechado = false;
-                break;
-            };
-            if classe.is_some_and(|c| c != atual) {
-                fechado = false;
-                break;
-            }
-            classe = Some(atual);
-        }
-        if !fechado {
-            continue;
-        }
-        let classe = classe.unwrap();
-        if indice >= m.layouts_campos_arc[&classe].len() {
-            continue;
-        }
-        fatos.acessos.insert(
-            *v,
-            CampoArc {
-                layout: format!("classe:{classe}"),
-                posicao: indice as u32,
-            },
-        );
-    }
-    let mut analise = analisar_com_resumos(f, &fatos, limite, &resumos)?;
+    // A seleção acompanha aliases e campos na mesma solução. Não refinar
+    // topo de uma primeira passagem nem pressupor um layout único do Phi.
+    let mut analise = analisar_com_resumos(f, &fatos, limite, &resumos, true)?;
     analise.premissas_modulo = Some(assinatura_premissas(m, simbolo));
     // Guarda conservadora de todo o alcance consultado, inclusive corpos
     // transitivos. Não é cache persistente nem dependência de geração JIT.
@@ -218,6 +174,95 @@ pub(super) fn assinatura_premissas(m: &Module, simbolo: &str) -> blake3::Hash {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn leituras_encadeadas_e_escrita_por_alias_resolvem_no_mesmo_ponto_fixo() {
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.layouts_campos_arc.insert(1, vec![Type::Ref]);
+        m.layouts_campos_arc.insert(2, vec![Type::Ref]);
+        m.layouts_campos_arc.insert(3, vec![]);
+        m.functions.push(Function {
+            symbol: "cadeia".into(),
+            name: "cadeia".into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![
+                    (
+                        ValueId(0),
+                        Instruction::AllocObject {
+                            class_id: 3,
+                            fields: vec![],
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(1),
+                        Instruction::AllocObject {
+                            class_id: 2,
+                            fields: vec![Operand::Constant(Constant::Null)],
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(2),
+                        Instruction::AllocObject {
+                            class_id: 1,
+                            fields: vec![Operand::Val(ValueId(1))],
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(3),
+                        Instruction::GetField {
+                            object: Operand::Val(ValueId(2)),
+                            index: 0,
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(4),
+                        Instruction::SetField {
+                            object: Operand::Val(ValueId(3)),
+                            index: 0,
+                            value: Operand::Val(ValueId(0)),
+                        },
+                        Type::Void,
+                    ),
+                    (
+                        ValueId(5),
+                        Instruction::GetField {
+                            object: Operand::Val(ValueId(3)),
+                            index: 0,
+                        },
+                        Type::Ref,
+                    ),
+                ],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(5)))),
+            }],
+        });
+        super::super::origens::registrar(&mut m, 0, true);
+        let a = analisar_no_modulo(&m, "cadeia", 8).unwrap().unwrap();
+        assert_eq!(a.valor(ValueId(3)), a.valor(ValueId(1)));
+        assert_eq!(a.valor(ValueId(5)), a.valor(ValueId(0)));
+        assert!(a.desconhecidos().is_empty());
+        let g = super::super::grafo::construir_local_no_modulo(&m, "cadeia", 8)
+            .unwrap()
+            .unwrap();
+        // O prólogo ainda é opaco; esta etapa só resolve as arestas conhecidas.
+        assert!(g.opaco());
+        // Índice fora do esquema não pode produzir resultado vazio preciso.
+        if let Instruction::GetField { index, .. } = &mut m.functions[0].blocks[0].instructions[5].1
+        {
+            *index = 1;
+        }
+        let a = analisar_no_modulo(&m, "cadeia", 8).unwrap().unwrap();
+        assert!(a.valor(ValueId(5)).unwrap().nos().is_none());
+        assert!(a.desconhecidos().contains(&ValueId(5)));
+    }
 
     #[test]
     fn chamada_coberta_ainda_exige_contexto_pelas_raizes_vivas() {

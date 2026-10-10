@@ -4,6 +4,7 @@
 
 use super::modelo::{ConjuntoPontos, NoAbstrato};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::sync::Arc;
 
 /// Campo nominal de um layout; índices iguais de layouts distintos não coincidem.
 /// Versão/validação de layout pertence ao produtor das restrições.
@@ -49,6 +50,25 @@ pub enum Restricao {
         objeto: usize,
         campo: CampoArc,
         destino: usize,
+    },
+    /// Leitura por índice físico, selecionando o campo nominal de cada nó.
+    /// Esquemas são premissas locais do produtor. Receiver sem esquema/índice
+    /// ou vazio ao fim da solução exige topo e invalida os campos conhecidos:
+    /// o caminho de erro/helper ainda não tem resumo de heap.
+    LerPorEsquema {
+        objeto: usize,
+        esquemas: Arc<BTreeMap<NoAbstrato, Vec<CampoArc>>>,
+        indice: usize,
+        destino: usize,
+    },
+    /// Escrita fraca por esquema; nunca remove os destinos anteriores.
+    /// Fronteira não coberta invalida todos os campos fornecidos nos esquemas,
+    /// inclusive objetos descobertos depois, sem supor receiver singleton.
+    GravarPorEsquema {
+        objeto: usize,
+        esquemas: Arc<BTreeMap<NoAbstrato, Vec<CampoArc>>>,
+        indice: usize,
+        valor: usize,
     },
     /// Escritor opaco pode tocar qualquer receiver desse campo/layout.
     /// Não torna opacos campos de outros layouts; efeitos adicionais exigem
@@ -112,7 +132,8 @@ impl ResultadoPointsTo {
 /// fornecer fatos de inicialização/externs; isso não infere zero inicial do heap.
 ///
 /// # Erros
-/// Índice de variável fora do domínio declarado. Validação precede a solução.
+/// Índice de variável fora do domínio declarado ou posições incompatíveis
+/// no esquema de um acesso selecionado. Validação precede a solução.
 ///
 /// ```
 /// use dartforge_emit_native::otimizar::arc::analise::{modelo::NoAbstrato, points_to::*};
@@ -136,7 +157,8 @@ pub fn resolver(
                 (vec![], Some(*destino))
             }
             Restricao::Copiar { origem, destino } => (vec![*origem], Some(*destino)),
-            Restricao::Gravar { objeto, valor, .. } => (vec![*objeto, *valor], None),
+            Restricao::Gravar { objeto, valor, .. }
+            | Restricao::GravarPorEsquema { objeto, valor, .. } => (vec![*objeto, *valor], None),
             Restricao::Ler {
                 objeto,
                 campo,
@@ -146,7 +168,26 @@ pub fn resolver(
                 (vec![*objeto], Some(*destino))
             }
             Restricao::DesconhecerCampo { .. } => (vec![], None),
+            Restricao::LerPorEsquema {
+                objeto,
+                esquemas,
+                indice,
+                destino,
+            } => {
+                for campo in esquemas.values().filter_map(|cs| cs.get(*indice)) {
+                    leitores.entry(campo.clone()).or_default().push(id);
+                }
+                (vec![*objeto], Some(*destino))
+            }
         };
+        if let Restricao::LerPorEsquema { esquemas, .. }
+        | Restricao::GravarPorEsquema { esquemas, .. } = r
+            && esquemas
+                .values()
+                .any(|cs| cs.iter().enumerate().any(|(i, c)| c.posicao as usize != i))
+        {
+            return Err(format!("points-to: esquema incompatível na restrição {id}"));
+        }
         if usos.iter().chain(destino.iter()).any(|&v| v >= n) {
             return Err(format!(
                 "points-to: variável fora do domínio na restrição {id}"
@@ -163,88 +204,194 @@ pub fn resolver(
     };
     let mut fila: VecDeque<_> = (0..restricoes.len()).collect();
     let mut agendada = vec![true; restricoes.len()];
-    while let Some(id) = fila.pop_front() {
-        agendada[id] = false;
-        let r = &restricoes[id];
-        let mut variavel_alterada = None;
-        let mut campo_alterado = None;
-        match r {
-            Restricao::Semear { destino, no } => {
-                if resultado.variaveis[*destino].incluir(no.clone()) {
-                    variavel_alterada = Some(*destino);
+    loop {
+        while let Some(id) = fila.pop_front() {
+            agendada[id] = false;
+            let r = &restricoes[id];
+            let mut variavel_alterada = None;
+            let mut campos_alterados = BTreeSet::new();
+            match r {
+                Restricao::Semear { destino, no } => {
+                    if resultado.variaveis[*destino].incluir(no.clone()) {
+                        variavel_alterada = Some(*destino);
+                    }
                 }
-            }
-            Restricao::Desconhecer { destino } => {
-                if resultado.variaveis[*destino].unir(&ConjuntoPontos::desconhecido(limite)) {
-                    variavel_alterada = Some(*destino);
+                Restricao::Desconhecer { destino } => {
+                    if resultado.variaveis[*destino].unir(&ConjuntoPontos::desconhecido(limite)) {
+                        variavel_alterada = Some(*destino);
+                    }
                 }
-            }
-            Restricao::Copiar { origem, destino } => {
-                let origem = resultado.variaveis[*origem].clone();
-                if resultado.variaveis[*destino].unir(&origem) {
-                    variavel_alterada = Some(*destino);
+                Restricao::Copiar { origem, destino } => {
+                    let origem = resultado.variaveis[*origem].clone();
+                    if resultado.variaveis[*destino].unir(&origem) {
+                        variavel_alterada = Some(*destino);
+                    }
                 }
-            }
-            Restricao::Gravar {
-                objeto,
-                campo,
-                valor,
-            } => {
-                if let Some(nos) = resultado.variaveis[*objeto].nos() {
-                    let valor = &resultado.variaveis[*valor];
-                    for no in nos {
-                        let destinos = resultado
-                            .campos
-                            .entry((no.clone(), campo.clone()))
-                            .or_insert_with(|| ConjuntoPontos::vazio(limite));
-                        if destinos.unir(valor) {
-                            campo_alterado = Some(campo);
+                Restricao::Gravar {
+                    objeto,
+                    campo,
+                    valor,
+                } => {
+                    if let Some(nos) = resultado.variaveis[*objeto].nos() {
+                        let valor = &resultado.variaveis[*valor];
+                        for no in nos {
+                            let destinos = resultado
+                                .campos
+                                .entry((no.clone(), campo.clone()))
+                                .or_insert_with(|| ConjuntoPontos::vazio(limite));
+                            if destinos.unir(valor) {
+                                campos_alterados.insert(campo);
+                            }
+                        }
+                    } else if resultado.campos_opacos.insert(campo.clone()) {
+                        campos_alterados.insert(campo);
+                    }
+                }
+                Restricao::DesconhecerCampo { campo } => {
+                    if resultado.campos_opacos.insert(campo.clone()) {
+                        campos_alterados.insert(campo);
+                    }
+                }
+                Restricao::Ler {
+                    objeto,
+                    campo,
+                    destino,
+                } => {
+                    let mut valor = ConjuntoPontos::vazio(limite);
+                    if let Some(nos) = resultado.variaveis[*objeto]
+                        .nos()
+                        .filter(|_| !resultado.campos_opacos.contains(campo))
+                    {
+                        for no in nos {
+                            if let Some(c) = resultado.campos.get(&(no.clone(), campo.clone())) {
+                                valor.unir(c);
+                            }
+                        }
+                    } else {
+                        valor = ConjuntoPontos::desconhecido(limite);
+                    }
+                    if resultado.variaveis[*destino].unir(&valor) {
+                        variavel_alterada = Some(*destino);
+                    }
+                }
+                Restricao::LerPorEsquema {
+                    objeto,
+                    esquemas,
+                    indice,
+                    destino,
+                }
+                | Restricao::GravarPorEsquema {
+                    objeto,
+                    esquemas,
+                    indice,
+                    valor: destino,
+                } => {
+                    let nos = resultado.variaveis[*objeto].nos();
+                    let fronteira = nos.is_none_or(|ns| {
+                        ns.iter()
+                            .any(|no| esquemas.get(no).and_then(|cs| cs.get(*indice)).is_none())
+                    });
+                    if fronteira {
+                        for campo in esquemas.values().flatten() {
+                            if resultado.campos_opacos.insert(campo.clone()) {
+                                campos_alterados.insert(campo);
+                            }
                         }
                     }
-                } else if resultado.campos_opacos.insert(campo.clone()) {
-                    campo_alterado = Some(campo);
-                }
-            }
-            Restricao::DesconhecerCampo { campo } => {
-                if resultado.campos_opacos.insert(campo.clone()) {
-                    campo_alterado = Some(campo);
-                }
-            }
-            Restricao::Ler {
-                objeto,
-                campo,
-                destino,
-            } => {
-                let mut valor = ConjuntoPontos::vazio(limite);
-                if let Some(nos) = resultado.variaveis[*objeto]
-                    .nos()
-                    .filter(|_| !resultado.campos_opacos.contains(campo))
-                {
-                    for no in nos {
-                        if let Some(c) = resultado.campos.get(&(no.clone(), campo.clone())) {
-                            valor.unir(c);
+                    if matches!(r, Restricao::LerPorEsquema { .. }) {
+                        let mut valor = if fronteira {
+                            ConjuntoPontos::desconhecido(limite)
+                        } else {
+                            ConjuntoPontos::vazio(limite)
+                        };
+                        if let Some(nos) = nos {
+                            for no in nos {
+                                if let Some(campo) = esquemas.get(no).and_then(|cs| cs.get(*indice))
+                                {
+                                    if resultado.campos_opacos.contains(campo) {
+                                        valor.unir(&ConjuntoPontos::desconhecido(limite));
+                                    } else if let Some(c) =
+                                        resultado.campos.get(&(no.clone(), campo.clone()))
+                                    {
+                                        valor.unir(c);
+                                    }
+                                }
+                            }
+                        }
+                        if resultado.variaveis[*destino].unir(&valor) {
+                            variavel_alterada = Some(*destino);
+                        }
+                    } else if !fronteira && let Some(nos) = nos {
+                        let valor = &resultado.variaveis[*destino];
+                        for no in nos {
+                            let campo = &esquemas[no][*indice];
+                            if resultado
+                                .campos
+                                .entry((no.clone(), campo.clone()))
+                                .or_insert_with(|| ConjuntoPontos::vazio(limite))
+                                .unir(valor)
+                            {
+                                campos_alterados.insert(campo);
+                            }
                         }
                     }
-                } else {
-                    valor = ConjuntoPontos::desconhecido(limite);
                 }
-                if resultado.variaveis[*destino].unir(&valor) {
-                    variavel_alterada = Some(*destino);
+            }
+            let eventos = variavel_alterada
+                .into_iter()
+                .flat_map(|v| dependentes[v].iter())
+                .chain(
+                    campos_alterados
+                        .into_iter()
+                        .flat_map(|c| leitores.get(c).into_iter().flatten()),
+                );
+            for &proximo in eventos {
+                if !agendada[proximo] {
+                    agendada[proximo] = true;
+                    fila.push_back(proximo);
                 }
             }
         }
-        let eventos = variavel_alterada
-            .into_iter()
-            .flat_map(|v| dependentes[v].iter())
-            .chain(
-                campo_alterado
-                    .into_iter()
-                    .flat_map(|c| leitores.get(c).into_iter().flatten()),
-            );
-        for &proximo in eventos {
-            if !agendada[proximo] {
-                agendada[proximo] = true;
-                fila.push_back(proximo);
+        // Bottom intermediário pode receber aliases tardios. Só depois de
+        // esvaziar a fila, receiver ainda vazio deixa de ser acesso coberto:
+        // null/ausência de objeto não prova ausência de efeitos do helper.
+        let mut eventos: BTreeSet<usize> = BTreeSet::new();
+        for r in restricoes {
+            let (objeto, esquemas, destino) = match r {
+                Restricao::LerPorEsquema {
+                    objeto,
+                    esquemas,
+                    destino,
+                    ..
+                } => (*objeto, esquemas, Some(*destino)),
+                Restricao::GravarPorEsquema {
+                    objeto, esquemas, ..
+                } => (*objeto, esquemas, None),
+                _ => continue,
+            };
+            if resultado.variaveis[objeto]
+                .nos()
+                .is_some_and(|ns| ns.is_empty())
+            {
+                if let Some(destino) = destino
+                    && resultado.variaveis[destino].unir(&ConjuntoPontos::desconhecido(limite))
+                {
+                    eventos.extend(dependentes[destino].iter().copied());
+                }
+                for campo in esquemas.values().flatten() {
+                    if resultado.campos_opacos.insert(campo.clone()) {
+                        eventos.extend(leitores.get(campo).into_iter().flatten().copied());
+                    }
+                }
+            }
+        }
+        if eventos.is_empty() {
+            break;
+        }
+        for id in eventos {
+            if !agendada[id] {
+                agendada[id] = true;
+                fila.push_back(id);
             }
         }
     }
@@ -339,6 +486,59 @@ pub fn verificar(
                     })
                 }
             }
+            Restricao::LerPorEsquema {
+                objeto,
+                esquemas,
+                indice,
+                destino,
+            }
+            | Restricao::GravarPorEsquema {
+                objeto,
+                esquemas,
+                indice,
+                valor: destino,
+            } => {
+                if esquemas
+                    .values()
+                    .any(|cs| cs.iter().enumerate().any(|(i, c)| c.posicao as usize != i))
+                {
+                    return Err(format!("verificador points-to: esquema na restrição {id}"));
+                }
+                let receiver = variavel(*objeto)?;
+                let valor = variavel(*destino)?;
+                let fronteira = receiver.nos().is_none_or(|ns| {
+                    ns.is_empty()
+                        || ns
+                            .iter()
+                            .any(|no| esquemas.get(no).and_then(|cs| cs.get(*indice)).is_none())
+                });
+                if fronteira {
+                    esquemas
+                        .values()
+                        .flatten()
+                        .all(|c| r.campos_opacos.contains(c))
+                        && (!matches!(restricao, Restricao::LerPorEsquema { .. })
+                            || valor.nos().is_none())
+                } else {
+                    receiver.nos().unwrap().iter().all(|no| {
+                        let campo = &esquemas[no][*indice];
+                        if matches!(restricao, Restricao::LerPorEsquema { .. }) {
+                            if r.campos_opacos.contains(campo) {
+                                valor.nos().is_none()
+                            } else {
+                                r.campos
+                                    .get(&(no.clone(), campo.clone()))
+                                    .is_none_or(|c| inclui(valor, c))
+                            }
+                        } else {
+                            r.campos_opacos.contains(campo)
+                                || r.campos
+                                    .get(&(no.clone(), campo.clone()))
+                                    .is_some_and(|c| inclui(c, valor))
+                        }
+                    })
+                }
+            }
         };
         if !valida {
             return Err(format!(
@@ -360,6 +560,229 @@ fn inclui(destino: &ConjuntoPontos, origem: &ConjuntoPontos) -> bool {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn leituras_por_esquema_conferem_com_caminhadas_em_343_grafos() {
+        let esquemas = Arc::new(
+            (0..3)
+                .map(|i| (no(&format!("n{i}")), vec![campo(&format!("L{i}"))]))
+                .collect::<BTreeMap<_, _>>(),
+        );
+        let mut conferidos = 0;
+        for mascara in 0..512usize {
+            // Cada nó tem saída: os testes de fronteira tratam separadamente
+            // receivers null/vazios, sem supor que sejam reads puros.
+            if (0..3).any(|v| mascara & (7 << (3 * v)) == 0) {
+                continue;
+            }
+            conferidos += 1;
+            let mut rs = Vec::new();
+            for passo in 0..7 {
+                rs.push(Restricao::LerPorEsquema {
+                    objeto: if passo == 0 { 0 } else { 2 + passo },
+                    esquemas: esquemas.clone(),
+                    indice: 0,
+                    destino: 3 + passo,
+                });
+            }
+            for v in 0..3 {
+                for w in 0..3 {
+                    if mascara & (1 << (3 * v + w)) != 0 {
+                        rs.push(Restricao::Gravar {
+                            objeto: v,
+                            campo: campo(&format!("L{v}")),
+                            valor: w,
+                        });
+                    }
+                }
+                rs.push(Restricao::Semear {
+                    destino: v,
+                    no: no(&format!("n{v}")),
+                });
+            }
+            // Oráculo de caminhadas de comprimento exato no grafo original;
+            // não usa restrições, fila, esquema do solver ou seu verificador.
+            let mut atuais = BTreeSet::from([0]);
+            let mut esperados = Vec::new();
+            for _ in 0..7 {
+                atuais = (0..3)
+                    .filter(|&w| atuais.iter().any(|&v| mascara & (1 << (3 * v + w)) != 0))
+                    .collect();
+                esperados.push(
+                    atuais
+                        .iter()
+                        .map(|i| no(&format!("n{i}")))
+                        .collect::<BTreeSet<_>>(),
+                );
+            }
+            for _ in 0..2 {
+                let r = resolver(10, 8, &rs).unwrap();
+                for (passo, esperado) in esperados.iter().enumerate() {
+                    assert_eq!(
+                        r.variavel(3 + passo).unwrap().nos().unwrap(),
+                        esperado,
+                        "grafo {mascara}, passo {passo}"
+                    );
+                }
+                assert!(r.campos_opacos.is_empty());
+                rs.reverse();
+            }
+        }
+        assert_eq!(conferidos, 343);
+    }
+
+    #[test]
+    fn selecao_por_esquema_preserva_layouts_escrita_fraca_e_aliases_tardios() {
+        let esquemas = Arc::new(BTreeMap::from([
+            (no("a"), vec![campo("A")]),
+            (no("b"), vec![campo("B")]),
+        ]));
+        let mut rs = vec![
+            Restricao::LerPorEsquema {
+                objeto: 0,
+                esquemas: esquemas.clone(),
+                indice: 0,
+                destino: 3,
+            },
+            Restricao::LerPorEsquema {
+                objeto: 6,
+                esquemas: esquemas.clone(),
+                indice: 0,
+                destino: 7,
+            },
+            Restricao::GravarPorEsquema {
+                objeto: 0,
+                esquemas,
+                indice: 0,
+                valor: 4,
+            },
+            Restricao::Gravar {
+                objeto: 5,
+                campo: campo("A"),
+                valor: 1,
+            },
+            Restricao::Gravar {
+                objeto: 6,
+                campo: campo("B"),
+                valor: 2,
+            },
+            // Mesmo índice, outro layout: esta aresta não é lida em b.B.
+            Restricao::Gravar {
+                objeto: 6,
+                campo: campo("A"),
+                valor: 1,
+            },
+            Restricao::Semear {
+                destino: 5,
+                no: no("a"),
+            },
+            Restricao::Semear {
+                destino: 6,
+                no: no("b"),
+            },
+            Restricao::Copiar {
+                origem: 5,
+                destino: 0,
+            },
+            Restricao::Copiar {
+                origem: 6,
+                destino: 0,
+            },
+            Restricao::Semear {
+                destino: 1,
+                no: no("x"),
+            },
+            Restricao::Semear {
+                destino: 2,
+                no: no("y"),
+            },
+            Restricao::Semear {
+                destino: 4,
+                no: no("z"),
+            },
+        ];
+        for _ in 0..2 {
+            let mut r = resolver(8, 8, &rs).unwrap();
+            assert_eq!(
+                r.variavel(3).unwrap().nos().unwrap(),
+                &BTreeSet::from([no("x"), no("y"), no("z")])
+            );
+            assert_eq!(
+                r.variavel(7).unwrap().nos().unwrap(),
+                &BTreeSet::from([no("y"), no("z")])
+            );
+            assert!(r.campos_opacos.is_empty());
+            r.variaveis[3] = ConjuntoPontos::vazio(8);
+            assert!(verificar(8, 8, &rs, &r).is_err());
+            r = resolver(8, 8, &rs).unwrap();
+            r.campos
+                .insert((no("b"), campo("B")), ConjuntoPontos::vazio(8));
+            assert!(verificar(8, 8, &rs, &r).is_err());
+            rs.reverse();
+        }
+    }
+
+    #[test]
+    fn selecao_por_esquema_fecha_fronteiras_e_verificador_recusa_opacidade_apagada() {
+        let esquemas = Arc::new(BTreeMap::from([(no("a"), vec![campo("A")])]));
+        for caso in 0..5 {
+            let mut rs = vec![Restricao::LerPorEsquema {
+                objeto: 0,
+                esquemas: esquemas.clone(),
+                indice: if caso == 3 { 1 } else { 0 },
+                destino: 1,
+            }];
+            match caso {
+                0 => {} // Receiver vazio só é fechado após os aliases convergirem.
+                1 => rs.push(Restricao::Desconhecer { destino: 0 }),
+                2 => rs.push(Restricao::Semear {
+                    destino: 0,
+                    no: no("sem esquema"),
+                }),
+                3 | 4 => rs.push(Restricao::Semear {
+                    destino: 0,
+                    no: no("a"),
+                }),
+                _ => unreachable!(),
+            }
+            let limite = if caso == 4 { 0 } else { 8 };
+            let mut r = resolver(2, limite, &rs).unwrap();
+            assert!(r.variavel(1).unwrap().nos().is_none(), "caso {caso}");
+            assert!(r.campos_opacos.contains(&campo("A")));
+            r.campos_opacos.clear();
+            assert!(verificar(2, limite, &rs, &r).is_err());
+        }
+        let rs = [Restricao::GravarPorEsquema {
+            objeto: 0,
+            esquemas,
+            indice: 0,
+            valor: 1,
+        }];
+        let mut r = resolver(2, 8, &rs).unwrap();
+        assert!(r.campos_opacos.contains(&campo("A")));
+        r.campos_opacos.clear();
+        assert!(verificar(2, 8, &rs, &r).is_err());
+        let invalido = Arc::new(BTreeMap::from([(
+            no("a"),
+            vec![CampoArc {
+                layout: "A".into(),
+                posicao: 9,
+            }],
+        )]));
+        assert!(
+            resolver(
+                2,
+                8,
+                &[Restricao::LerPorEsquema {
+                    objeto: 0,
+                    esquemas: invalido,
+                    indice: 0,
+                    destino: 1
+                }]
+            )
+            .is_err()
+        );
+    }
     #[test]
     fn verificador_rejeita_truncamento_copia_e_desconhecimento_apagados() {
         let rs = vec![

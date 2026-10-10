@@ -2012,6 +2012,23 @@ Isso não verifica completude do produtor HIR/SDK nem cobertura durante a vida;
 inicialização ausente permanece bottom só no sistema de restrições. Verificador
 de certificados de política ainda precisa conferir todas essas obrigações.
 
+A extração pelo módulo resolve índices de campos no mesmo ponto fixo de
+aliases e arestas, usando `LerPorEsquema`/`GravarPorEsquema`. Cada receiver
+seleciona o campo nominal de seu próprio esquema; layouts diferentes num
+Phi não fundem campos com o mesmo índice. Leituras encadeadas e escritas
+através dos aliases descobertos conservam inclusão e atualização fraca.
+Isso substitui a inferência preliminar de um layout único. Receiver topo,
+esquema ausente ou índice fora do esquema invalida os campos conhecidos
+e torna o resultado da leitura desconhecido. Receiver ainda vazio só é
+tratado como fronteira após a worklist convergir, para não confundir
+bottom intermediário com ausência provada de objeto/efeitos do helper.
+O verificador independente confere seleção, inclusões e essa opacidade;
+esquemas/inicializadores continuam premissas do produtor local, guardadas
+pelo módulo. Caminhos implícitos do emissor permanecem separados e opacos.
+Seleção pelo esquema não prova não nulabilidade do receiver nem cobertura
+dos caminhos de erro; conjuntos de nós não representam esse certificado.
+Não é prova de aciclicidade, vida, observadores ou política de alocação.
+
 Especialização cria versões internas por política/região quando reduzir
 trabalho estimado e respeitar limite de código. Resumos podem ser paramétricos
 sem clonar todas as funções. Entradas públicas, dispatch aberto e FFI mantêm

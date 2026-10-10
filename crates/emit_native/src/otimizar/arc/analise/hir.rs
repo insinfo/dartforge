@@ -145,7 +145,7 @@ impl AnaliseHir {
 /// # Ok::<(), String>(())
 /// ```
 pub fn analisar(f: &Function, fatos: &FatosHir, limite: usize) -> Result<AnaliseHir, String> {
-    analisar_com_resumos(f, fatos, limite, &HashMap::new())
+    analisar_com_resumos(f, fatos, limite, &HashMap::new(), false)
 }
 
 pub(crate) fn analisar_com_resumos(
@@ -153,6 +153,7 @@ pub(crate) fn analisar_com_resumos(
     fatos: &FatosHir,
     limite: usize,
     resumos: &HashMap<String, (&Function, super::resumos::ResumoHeapArc)>,
+    selecionar_por_esquema: bool,
 ) -> Result<AnaliseHir, String> {
     for (simbolo, (corpo, resumo)) in resumos {
         if simbolo != &corpo.symbol {
@@ -239,6 +240,17 @@ pub(crate) fn analisar_com_resumos(
         }
     }
     let mut desconhecidos = Vec::new();
+    let mut esquemas_por_indice = std::collections::BTreeMap::new();
+    for origem in fatos.objetos.values() {
+        if esquemas_por_indice
+            .insert(origem.no.clone(), origem.campos.clone())
+            .is_some_and(|anterior| anterior != origem.campos)
+        {
+            return Err("points-to HIR: esquemas conflitantes para a mesma origem".into());
+        }
+    }
+    let esquemas_por_indice = std::sync::Arc::new(esquemas_por_indice);
+    let mut acessos_selecionados = Vec::new();
     for (v, i, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
         let destino = ids[v];
         match i {
@@ -355,6 +367,36 @@ pub(crate) fn analisar_com_resumos(
                     }
                 }
             }
+            Instruction::GetField { object, index }
+                if selecionar_por_esquema
+                    && *ty == Type::Ref
+                    && super::resumos::argumento_exato(object, Type::Ref, &tipos) =>
+            {
+                acessos_selecionados.push((*v, operando(object), *index));
+                rs.push(Restricao::LerPorEsquema {
+                    objeto: operando(object),
+                    esquemas: esquemas_por_indice.clone(),
+                    indice: *index,
+                    destino,
+                });
+            }
+            Instruction::SetField {
+                object,
+                index,
+                value,
+            } if selecionar_por_esquema
+                && *ty == Type::Void
+                && super::resumos::argumento_exato(object, Type::Ref, &tipos)
+                && super::resumos::argumento_exato(value, Type::Ref, &tipos) =>
+            {
+                acessos_selecionados.push((*v, operando(object), *index));
+                rs.push(Restricao::GravarPorEsquema {
+                    objeto: operando(object),
+                    esquemas: esquemas_por_indice.clone(),
+                    indice: *index,
+                    valor: operando(value),
+                });
+            }
             Instruction::GetField { object, .. } if fatos.acessos.contains_key(v) => {
                 rs.push(Restricao::Ler {
                     objeto: operando(object),
@@ -383,6 +425,21 @@ pub(crate) fn analisar_com_resumos(
         }
     }
     let pontos = resolver(ids.len() + 2, limite, &rs)?;
+    for (v, objeto, indice) in acessos_selecionados {
+        if pontos.variavel(objeto).unwrap().nos().is_none_or(|ns| {
+            ns.is_empty()
+                || ns.iter().any(|no| {
+                    esquemas_por_indice
+                        .get(no)
+                        .and_then(|cs| cs.get(indice))
+                        .is_none()
+                })
+        }) {
+            desconhecidos.push(v);
+        }
+    }
+    desconhecidos.sort_by_key(|v| v.0);
+    desconhecidos.dedup();
     let mut esquemas: HashMap<_, BTreeSet<_>> = HashMap::new();
     for origem in fatos.objetos.values() {
         esquemas

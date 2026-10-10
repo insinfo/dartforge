@@ -2,6 +2,29 @@
 
 ## Retomada de 2026-10-10
 
+Acessos a campos pelo módulo agora são resolvidos no mesmo ponto fixo de
+aliases/arestas, com LerPorEsquema/GravarPorEsquema. Cada receiver usa seu
+campo nominal; uniões de layouts não confundem índices iguais. Elimina
+a inferência preliminar de layout único que perdia leituras encadeadas.
+Escritas permanecem fracas. Topo, esquema ausente e índice inválido tornam
+a fronteira opaca e invalidam campos conhecidos; receiver vazio só é fechado
+após convergir a fila, sem confundir bottom intermediário com prova negativa.
+Verificador independente cobre seleção, inclusões e opacidade. Regressões
+conferem a.filho.proximo após escrita pelo alias, layouts distintos,
+aliases tardios, ordem invertida, budget, esquema/índice inválidos e
+adulteração de arestas/opacidade. Oráculo de caminhadas de comprimento exato
+confere sete leituras em 343 grafos de três nós com saída em todos os nós,
+nas duas ordens de restrições (686 soluções); fronteiras vazias têm testes
+separados. Passaram 322 testes unitários do emissor incluindo ignorados,
+24 integrações, 97 exemplos e um compile-fail. Rustfmt dos três módulos
+e git diff --check passaram. Logs target/arc-campos-esquemas-{focado,suite}.log.
+Esquemas/inicializadores são premissas locais guardadas pelo módulo; seleção
+não prova não nulabilidade, vida, observadores/SDK ou política. Contexto
+implícito do emissor continua opaco. ARC apenas --memoria=arc; tracing padrão.
+Sem nova medição/gate: ARC/A0=2,000274 anterior continua reprovado; §§27–34
+incompletos. Pendências de Clippy/documentação da etapa anterior permanecem.
+CI 38064260616: Linux/mensagens passaram; Windows/macOS ainda executam.
+
 Resumos de campos/publicações da §28.3 passam a compor cobertura por
 chamadas diretas locais. Worklist separada dos aliases normais parte de
 folhas cobertas e só promove o chamador quando todos os callees preservam

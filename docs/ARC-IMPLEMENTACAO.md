@@ -602,6 +602,14 @@ operação nova sem cobertura torna a chamada opaca na reanálise. Isso não
 resume escritas por campos, SDK, observadores ou vidas, nem remove RC ou
 seleciona políticas. A análise pelo módulo continua exclusiva de ARC.
 
+A análise local de campos passa a selecionar o esquema por receiver no
+próprio ponto fixo, incluindo uniões de layouts e leituras encadeadas.
+Escritas continuam fracas; não há poda por singleton. Receiver desconhecido,
+vazio ao fim da solução, sem esquema ou com índice inválido conserva a
+fronteira opaca e invalida campos conhecidos. O verificador de inclusão
+também confere essas obrigações. Esquemas são fatos locais do lowering;
+provas de vida/política e cobertura SDK/observadores permanecem pendentes.
+
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais
   (§20.4).
 * `ownership.tsv` por extern (§21.2).
