@@ -1,0 +1,899 @@
+{
+  "fonte": "5cb4e56d237a452b61aa3f8fa648fbad050a2df9",
+  "exemplo": "arc_retorno_da_fonte",
+  "exemplo_sha256": "e4b178c1058b67ed3d22e3a765e4531aba76c0bfcd7f4580639a066ab2d96523",
+  "script_sha256": "3a9337cba8e8c6418e99d485db2eb5a582136c4eb7f3e9b2cf1f04c16a42d62b",
+  "estado_git_fontes": "",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "ambiente": {
+    "DARTFORGE_ARC_CONFERIR": "1",
+    "DARTFORGE_ARC_BERCARIO": "0",
+    "DARTFORGE_GC_STRESS": "1"
+  },
+  "execucoes": [
+    {
+      "modo": "arc",
+      "nivel": 0,
+      "caminho": "normal",
+      "controle": null,
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_retorno_da_fonte",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-retorno-da-fonte\\arc-O0-normal.exe",
+        "--memoria=arc",
+        "0"
+      ],
+      "arquivos": [
+        {
+          "nome": "arc-O0-normal.build.log",
+          "bytes": 614,
+          "sha256": "759ced0235c564c289b34e1159b8605d863d3236c20b63bae43dd785752fe2bf"
+        },
+        {
+          "nome": "arc-O0-normal.ll",
+          "bytes": 34527,
+          "sha256": "fa59419274f39783f3caf267d89275a9cb86f81a52dce1b86d87affa69bae614"
+        },
+        {
+          "nome": "arc-O0-normal.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "nome": "arc-O0-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O0-normal.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        },
+        {
+          "nome": "arc-O0-normal.dart",
+          "bytes": 125,
+          "sha256": "0919d39e82a811cff833b5d697cb15bda21bf80003652097d3ddb4a8784c7008"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 0
+    },
+    {
+      "modo": "arc",
+      "nivel": 0,
+      "caminho": "normal",
+      "controle": "sem-retencao",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_retorno_da_fonte",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-retorno-da-fonte\\arc-O0-normal-sem-retencao.exe",
+        "--memoria=arc",
+        "0",
+        "sem-retencao"
+      ],
+      "arquivos": [
+        {
+          "nome": "arc-O0-normal-sem-retencao.build.log",
+          "bytes": 549,
+          "sha256": "9aae75774c7c7a3b0c04e2d7c331f26f14078571e7d8380e99e1fdf8c61b6fcf"
+        },
+        {
+          "nome": "arc-O0-normal-sem-retencao.ll",
+          "bytes": 34569,
+          "sha256": "5c2178b4e13ecdd4bf8abf9ec8693cdf23ca000c5bb34ad246df07072346ed6f"
+        },
+        {
+          "nome": "arc-O0-normal-sem-retencao.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O0-normal-sem-retencao.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O0-normal-sem-retencao.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        },
+        {
+          "nome": "arc-O0-normal-sem-retencao.dart",
+          "bytes": 125,
+          "sha256": "0919d39e82a811cff833b5d697cb15bda21bf80003652097d3ddb4a8784c7008"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "arc",
+      "nivel": 0,
+      "caminho": "normal",
+      "controle": "sem-drop-retorno",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_retorno_da_fonte",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-retorno-da-fonte\\arc-O0-normal-sem-drop-retorno.exe",
+        "--memoria=arc",
+        "0",
+        "sem-drop-retorno"
+      ],
+      "arquivos": [
+        {
+          "nome": "arc-O0-normal-sem-drop-retorno.build.log",
+          "bytes": 557,
+          "sha256": "a93a442699af399b30a405f3817d315285c8b7908df5c246e6a9b725afac8da9"
+        },
+        {
+          "nome": "arc-O0-normal-sem-drop-retorno.ll",
+          "bytes": 34593,
+          "sha256": "27d3664997647fc51944d6d7c91110470d059634984c007360929187e007b226"
+        },
+        {
+          "nome": "arc-O0-normal-sem-drop-retorno.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O0-normal-sem-drop-retorno.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O0-normal-sem-drop-retorno.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        },
+        {
+          "nome": "arc-O0-normal-sem-drop-retorno.dart",
+          "bytes": 125,
+          "sha256": "0919d39e82a811cff833b5d697cb15bda21bf80003652097d3ddb4a8784c7008"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "arc",
+      "nivel": 0,
+      "caminho": "normal",
+      "controle": "sem-drop-intermediario",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_retorno_da_fonte",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-retorno-da-fonte\\arc-O0-normal-sem-drop-intermediario.exe",
+        "--memoria=arc",
+        "0",
+        "sem-drop-intermediario"
+      ],
+      "arquivos": [
+        {
+          "nome": "arc-O0-normal-sem-drop-intermediario.build.log",
+          "bytes": 569,
+          "sha256": "f0cdffe457a3a88ef5ed553e8690201f841f2aa30b58a71c437d0db38b08bef0"
+        },
+        {
+          "nome": "arc-O0-normal-sem-drop-intermediario.ll",
+          "bytes": 34628,
+          "sha256": "3a12bcded7d25a5ee6115e66ea6ee9376c8b8bf233583cb74956f08c9ea89393"
+        },
+        {
+          "nome": "arc-O0-normal-sem-drop-intermediario.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O0-normal-sem-drop-intermediario.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O0-normal-sem-drop-intermediario.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        },
+        {
+          "nome": "arc-O0-normal-sem-drop-intermediario.dart",
+          "bytes": 125,
+          "sha256": "0919d39e82a811cff833b5d697cb15bda21bf80003652097d3ddb4a8784c7008"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "tracing",
+      "nivel": 0,
+      "caminho": "normal",
+      "controle": null,
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_retorno_da_fonte",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-retorno-da-fonte\\tracing-O0-normal.exe",
+        "--memoria=tracing",
+        "0"
+      ],
+      "arquivos": [
+        {
+          "nome": "tracing-O0-normal.build.log",
+          "bytes": 531,
+          "sha256": "c574bff071905f35d87b4bd6d78d2cac13c913436f9ecf18e11f524ceb87db98"
+        },
+        {
+          "nome": "tracing-O0-normal.ll",
+          "bytes": 34646,
+          "sha256": "8d8929b448f7035e27595fe2a73013ad15cfc73f512efd1b6cda318dcbc1fb2d"
+        },
+        {
+          "nome": "tracing-O0-normal.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "nome": "tracing-O0-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O0-normal.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        },
+        {
+          "nome": "tracing-O0-normal.dart",
+          "bytes": 125,
+          "sha256": "0919d39e82a811cff833b5d697cb15bda21bf80003652097d3ddb4a8784c7008"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 0
+    },
+    {
+      "modo": "tracing",
+      "nivel": 0,
+      "caminho": "normal",
+      "controle": "sem-retencao",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_retorno_da_fonte",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-retorno-da-fonte\\tracing-O0-normal-sem-retencao.exe",
+        "--memoria=tracing",
+        "0",
+        "sem-retencao"
+      ],
+      "arquivos": [
+        {
+          "nome": "tracing-O0-normal-sem-retencao.build.log",
+          "bytes": 557,
+          "sha256": "3db973c137c4a2b91ac90612c20f2a976fd91f8b66087d64f831f62a75e3ba20"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-retencao.ll",
+          "bytes": 34688,
+          "sha256": "156905751868d1e0c62ba5e093d6d21887c5a7c72b68b873a20a6178795cfd0f"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-retencao.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-retencao.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-retencao.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-retencao.dart",
+          "bytes": 125,
+          "sha256": "0919d39e82a811cff833b5d697cb15bda21bf80003652097d3ddb4a8784c7008"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "tracing",
+      "nivel": 0,
+      "caminho": "normal",
+      "controle": "sem-drop-retorno",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_retorno_da_fonte",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-retorno-da-fonte\\tracing-O0-normal-sem-drop-retorno.exe",
+        "--memoria=tracing",
+        "0",
+        "sem-drop-retorno"
+      ],
+      "arquivos": [
+        {
+          "nome": "tracing-O0-normal-sem-drop-retorno.build.log",
+          "bytes": 565,
+          "sha256": "787995b45930b2bf5c4e76ff63f9edada55de35c65f3a19302ffd6ea94cbdbb0"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-drop-retorno.ll",
+          "bytes": 34712,
+          "sha256": "04aa9211953f41e97e3846944d01464f4d898d524b554d047225fbb830192765"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-drop-retorno.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-drop-retorno.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-drop-retorno.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-drop-retorno.dart",
+          "bytes": 125,
+          "sha256": "0919d39e82a811cff833b5d697cb15bda21bf80003652097d3ddb4a8784c7008"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "tracing",
+      "nivel": 0,
+      "caminho": "normal",
+      "controle": "sem-drop-intermediario",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_retorno_da_fonte",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-retorno-da-fonte\\tracing-O0-normal-sem-drop-intermediario.exe",
+        "--memoria=tracing",
+        "0",
+        "sem-drop-intermediario"
+      ],
+      "arquivos": [
+        {
+          "nome": "tracing-O0-normal-sem-drop-intermediario.build.log",
+          "bytes": 577,
+          "sha256": "f3df5cd7cc8af543964b64de44955c9c55102c9d44967dc879c8df92d6434dfd"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-drop-intermediario.ll",
+          "bytes": 34747,
+          "sha256": "3883c01a01e6ed476b3c2585f1cb4d7b20af51d5a46956997af013e1709852f9"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-drop-intermediario.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-drop-intermediario.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-drop-intermediario.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-drop-intermediario.dart",
+          "bytes": 125,
+          "sha256": "0919d39e82a811cff833b5d697cb15bda21bf80003652097d3ddb4a8784c7008"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "arc",
+      "nivel": 2,
+      "caminho": "normal",
+      "controle": null,
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_retorno_da_fonte",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-retorno-da-fonte\\arc-O2-normal.exe",
+        "--memoria=arc",
+        "2"
+      ],
+      "arquivos": [
+        {
+          "nome": "arc-O2-normal.build.log",
+          "bytes": 523,
+          "sha256": "4439a01775fd81d98ac1f3023e7c5e84ae3a974323e27e989c380ab25057f57f"
+        },
+        {
+          "nome": "arc-O2-normal.ll",
+          "bytes": 34527,
+          "sha256": "a2c2345a2d557b28fcdacfb07d419bff84899cd90255863a43f0c51078cc5d60"
+        },
+        {
+          "nome": "arc-O2-normal.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "nome": "arc-O2-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O2-normal.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        },
+        {
+          "nome": "arc-O2-normal.dart",
+          "bytes": 125,
+          "sha256": "0919d39e82a811cff833b5d697cb15bda21bf80003652097d3ddb4a8784c7008"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 0
+    },
+    {
+      "modo": "arc",
+      "nivel": 2,
+      "caminho": "normal",
+      "controle": "sem-retencao",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_retorno_da_fonte",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-retorno-da-fonte\\arc-O2-normal-sem-retencao.exe",
+        "--memoria=arc",
+        "2",
+        "sem-retencao"
+      ],
+      "arquivos": [
+        {
+          "nome": "arc-O2-normal-sem-retencao.build.log",
+          "bytes": 549,
+          "sha256": "aaec2ef38cddf1d1ff20fd8c7f573a5c9050b841f19c9d80c3d3ffc48b2dd3c5"
+        },
+        {
+          "nome": "arc-O2-normal-sem-retencao.ll",
+          "bytes": 34569,
+          "sha256": "65f2319b666929f4e3f03fae68cc3bf57f2864688ec3de9227c65a56f077135c"
+        },
+        {
+          "nome": "arc-O2-normal-sem-retencao.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O2-normal-sem-retencao.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O2-normal-sem-retencao.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        },
+        {
+          "nome": "arc-O2-normal-sem-retencao.dart",
+          "bytes": 125,
+          "sha256": "0919d39e82a811cff833b5d697cb15bda21bf80003652097d3ddb4a8784c7008"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "arc",
+      "nivel": 2,
+      "caminho": "normal",
+      "controle": "sem-drop-retorno",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_retorno_da_fonte",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-retorno-da-fonte\\arc-O2-normal-sem-drop-retorno.exe",
+        "--memoria=arc",
+        "2",
+        "sem-drop-retorno"
+      ],
+      "arquivos": [
+        {
+          "nome": "arc-O2-normal-sem-drop-retorno.build.log",
+          "bytes": 557,
+          "sha256": "3306bb536937e3785131c923459671b5c6c0c131fdd32487a020d1fadace4fbe"
+        },
+        {
+          "nome": "arc-O2-normal-sem-drop-retorno.ll",
+          "bytes": 34593,
+          "sha256": "ba683aab405f507e159c227b67c06c45eea5e73105df46fcb109be8ea2b3634e"
+        },
+        {
+          "nome": "arc-O2-normal-sem-drop-retorno.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O2-normal-sem-drop-retorno.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O2-normal-sem-drop-retorno.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        },
+        {
+          "nome": "arc-O2-normal-sem-drop-retorno.dart",
+          "bytes": 125,
+          "sha256": "0919d39e82a811cff833b5d697cb15bda21bf80003652097d3ddb4a8784c7008"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "arc",
+      "nivel": 2,
+      "caminho": "normal",
+      "controle": "sem-drop-intermediario",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_retorno_da_fonte",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-retorno-da-fonte\\arc-O2-normal-sem-drop-intermediario.exe",
+        "--memoria=arc",
+        "2",
+        "sem-drop-intermediario"
+      ],
+      "arquivos": [
+        {
+          "nome": "arc-O2-normal-sem-drop-intermediario.build.log",
+          "bytes": 569,
+          "sha256": "553bbe3d7b4b4cab45672166e68dc680b00d0bda5cdc9de8beed95216568cb17"
+        },
+        {
+          "nome": "arc-O2-normal-sem-drop-intermediario.ll",
+          "bytes": 34628,
+          "sha256": "9d08b233c2d2366e173bd26ce07e1be804988e1f356c8431f77dd0642d625da8"
+        },
+        {
+          "nome": "arc-O2-normal-sem-drop-intermediario.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O2-normal-sem-drop-intermediario.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O2-normal-sem-drop-intermediario.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        },
+        {
+          "nome": "arc-O2-normal-sem-drop-intermediario.dart",
+          "bytes": 125,
+          "sha256": "0919d39e82a811cff833b5d697cb15bda21bf80003652097d3ddb4a8784c7008"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "tracing",
+      "nivel": 2,
+      "caminho": "normal",
+      "controle": null,
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_retorno_da_fonte",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-retorno-da-fonte\\tracing-O2-normal.exe",
+        "--memoria=tracing",
+        "2"
+      ],
+      "arquivos": [
+        {
+          "nome": "tracing-O2-normal.build.log",
+          "bytes": 531,
+          "sha256": "5021c7877e2acf60fdca6e7ea4054857b6ab1184634b37ade90039811b301d90"
+        },
+        {
+          "nome": "tracing-O2-normal.ll",
+          "bytes": 34646,
+          "sha256": "1344c18c2773e5a85f95f1c7bba8a399754bf7958f4653785a4cb210a5f7d036"
+        },
+        {
+          "nome": "tracing-O2-normal.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "nome": "tracing-O2-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O2-normal.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        },
+        {
+          "nome": "tracing-O2-normal.dart",
+          "bytes": 125,
+          "sha256": "0919d39e82a811cff833b5d697cb15bda21bf80003652097d3ddb4a8784c7008"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 0
+    },
+    {
+      "modo": "tracing",
+      "nivel": 2,
+      "caminho": "normal",
+      "controle": "sem-retencao",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_retorno_da_fonte",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-retorno-da-fonte\\tracing-O2-normal-sem-retencao.exe",
+        "--memoria=tracing",
+        "2",
+        "sem-retencao"
+      ],
+      "arquivos": [
+        {
+          "nome": "tracing-O2-normal-sem-retencao.build.log",
+          "bytes": 557,
+          "sha256": "33d24fca862ef73259a7b3cd3887df6da0937e28dea4abbd87ed3148e7c4c621"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-retencao.ll",
+          "bytes": 34688,
+          "sha256": "f07e4472c448e8150926427e9e26a10d1080c60d5a9deffbccca6c36215d3b4c"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-retencao.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-retencao.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-retencao.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-retencao.dart",
+          "bytes": 125,
+          "sha256": "0919d39e82a811cff833b5d697cb15bda21bf80003652097d3ddb4a8784c7008"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "tracing",
+      "nivel": 2,
+      "caminho": "normal",
+      "controle": "sem-drop-retorno",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_retorno_da_fonte",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-retorno-da-fonte\\tracing-O2-normal-sem-drop-retorno.exe",
+        "--memoria=tracing",
+        "2",
+        "sem-drop-retorno"
+      ],
+      "arquivos": [
+        {
+          "nome": "tracing-O2-normal-sem-drop-retorno.build.log",
+          "bytes": 565,
+          "sha256": "59b5ec9fe5de98b2d504f436693a43599d238e3d018c459d85c5b18f8f1a9e55"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-drop-retorno.ll",
+          "bytes": 34712,
+          "sha256": "436ae97a7618b4180cf80523217c16d90810a8386bab32efba3120011cdcd954"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-drop-retorno.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-drop-retorno.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-drop-retorno.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-drop-retorno.dart",
+          "bytes": 125,
+          "sha256": "0919d39e82a811cff833b5d697cb15bda21bf80003652097d3ddb4a8784c7008"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "tracing",
+      "nivel": 2,
+      "caminho": "normal",
+      "controle": "sem-drop-intermediario",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--example",
+        "arc_retorno_da_fonte",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-retorno-da-fonte\\tracing-O2-normal-sem-drop-intermediario.exe",
+        "--memoria=tracing",
+        "2",
+        "sem-drop-intermediario"
+      ],
+      "arquivos": [
+        {
+          "nome": "tracing-O2-normal-sem-drop-intermediario.build.log",
+          "bytes": 577,
+          "sha256": "4378ba94efe7bb507eab71542d2ace47f79d26d1e0cf82f3b9d3c9144f1a21e9"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-drop-intermediario.ll",
+          "bytes": 34747,
+          "sha256": "9bb16320d98bfc33e4ff494bcdc31460f3b61717c01ad20f23a864e9a1718ee3"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-drop-intermediario.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-drop-intermediario.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-drop-intermediario.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-drop-intermediario.dart",
+          "bytes": 125,
+          "sha256": "0919d39e82a811cff833b5d697cb15bda21bf80003652097d3ddb4a8784c7008"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    }
+  ],
+  "sdk_lib": "C:\\tools\\dartsdk-3.6.2\\lib",
+  "sdk_versao": "3.6.2",
+  "resultado": "sucesso",
+  "arquivamento": {
+    "arquivos_brutos": 96,
+    "logs": [
+      {
+        "nome": "arc-contexto-raizes-aot.log",
+        "bytes": 940,
+        "sha256": "ed48814ef9e5541399d5758cfca7381bb6b179204a45b5ba334ec7f737566f94"
+      },
+      {
+        "nome": "arc-contexto-raizes-suite.log",
+        "bytes": 29639,
+        "sha256": "49d2fb0f4e944c1988fe0bf513bce3172efa96776d2026624b41b8b776aedae7"
+      },
+      {
+        "nome": "arc-contexto-raizes-doc.log",
+        "bytes": 12404,
+        "sha256": "7853d7460887bd59982763a572bf650f02343493ed8c9ea7194e5dc2f6303ed7"
+      }
+    ],
+    "clang": "clang version 22.1.8 (https://github.com/llvm/llvm-project ca7933e47d3a3451d81e72ac174dcb5aa28b59d1)\nTarget: x86_64-pc-windows-msvc\nThread model: posix\nInstalledDir: E:\\llvm\\clang+llvm-22.1.8-x86_64-pc-windows-msvc\\bin"
+  }
+}

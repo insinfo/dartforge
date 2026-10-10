@@ -2,6 +2,22 @@
 
 ## Retomada de 2026-10-10
 
+Preparação compartilhada de tipos/raízes validada também em AOT real:
+python scripts/provar-arc-aot.py arc_retorno_da_fonte --debug passou as
+16 execuções ARC/tracing × O0/O2 da revisão 5cb4e56d, sem mudanças nos fontes.
+Quatro positivas e 12 controles por trap conferem sobrevivência/morte do Mint
+na cadeia identidade(identidade(valor)); retirar retain, drop do retorno ou
+drop intermediário reprova a prova. Auditoria, ARC puro e GC stress ligados;
+compilação malsucedida ou saída inesperada não contam como negativo aprovado.
+Evidência congelada em
+bench/resultados/2026-10-10-raizes-retorno-cadeia-windows: 96 arquivos brutos,
+manifesto com comandos/versões/hashes e três logs (AOT, 306 testes, 98 exemplos).
+Artefatos anteriores de 12 casos permanecem preservados. Gerador Rust debug,
+Clang 22.1.8, SDK 3.6.2, executáveis O0/O2; não é medição de desempenho nem
+certificado global. Gate ARC/A0 reprovado; §§27–34 continuam incompletos.
+ARC só --memoria=arc; tracing padrão. CI 38057171425 ainda ativa no
+Windows/macOS, Linux/mensagens passaram. Nenhum push para interromper a rodada.
+
 Contexto implícito por raízes entra na análise ARC e na guarda de cobertura
 dos resumos locais. Preparação de tipos/apontados e conversões de Phi foi
 extraída para llvm/contexto_arc.rs e compartilhada com a emissão, conservando

@@ -1,0 +1,121 @@
+   Compiling dartforge-emit-native v0.1.0 (E:\MyRustProjects\dartforge\crates\emit_native)
+warning: function `atribuir_slots` is never used
+  --> crates\emit_native\src\llvm\raizes.rs:81:8
+   |
+81 | pub fn atribuir_slots(
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.48s
+   Doc-tests dartforge_emit_native
+
+running 97 tests
+test crates\emit_native\src\hir.rs - hir::Instruction::ArcCopy (line 248) ... ok
+test crates\emit_native\src\hir.rs - hir::Instruction::ArcDrop (line 257) ... ok
+test crates\emit_native\src\hir.rs - hir::ModoStoreForte (line 227) ... ok
+test crates\emit_native\src\hir.rs - hir::Instruction::ArcMove (line 266) ... ok
+test crates\emit_native\src\alvo.rs - alvo::sistema (line 25) ... ok
+test crates\emit_native\src\hir.rs - hir::Instruction::ArcLoadStrong (line 275) ... ok
+test crates\emit_native\src\hir.rs - hir::Instruction::ArcStoreStrong (line 284) ... ok
+test crates\emit_native\src\alvo.rs - alvo::nome_compartilhada (line 321) ... ok
+test crates\emit_native\src\hir.rs - hir::SlotForte (line 205) ... ok
+test crates\emit_native\src\hir.rs - hir::SlotForte::Global (line 217) ... ok
+test crates\emit_native\src\ligador_macos.rs - ligador_macos::tbd (line 767) ... ok
+test crates\emit_native\src\ligador_windows.rs - ligador_windows::biblioteca_de_importacao (line 657) ... ok
+test crates\emit_native\src\llvm\mod.rs - llvm::LlvmEmitter<'a>::emit_all (line 451) ... ok
+test crates\emit_native\src\otimizar\arc\analise\escape.rs - otimizar::arc::analise::escape::CausaEscape (line 11) ... ok
+test crates\emit_native\src\otimizar\arc\analise\escape.rs - otimizar::arc::analise::escape::ResultadoEscape (line 33) ... ok
+test crates\emit_native\src\otimizar\arc\analise\escape.rs - otimizar::arc::analise::escape::calcular (line 55) ... ok
+test crates\emit_native\src\otimizar\arc\analise\escape.rs - otimizar::arc::analise::escape::calcular_no_modulo (line 85) ... ok
+test crates\emit_native\src\otimizar\arc\analise\grafo.rs - otimizar::arc::analise::grafo::GrafoHeapArc (line 13) ... ok
+test crates\emit_native\src\otimizar\arc\analise\grafo.rs - otimizar::arc::analise::grafo::GrafoHeapArc::arestas (line 28) ... ok
+test crates\emit_native\src\otimizar\arc\analise\grafo.rs - otimizar::arc::analise::grafo::GrafoHeapArc::componentes (line 61) ... ok
+test crates\emit_native\src\otimizar\arc\analise\grafo.rs - otimizar::arc::analise::grafo::GrafoHeapArc::opaco (line 44) ... ok
+test crates\emit_native\src\otimizar\arc\analise\grafo.rs - otimizar::arc::analise::grafo::construir_local_no_modulo (line 84) ... ok
+test crates\emit_native\src\otimizar\arc\analise\hir.rs - otimizar::arc::analise::hir::AnaliseHir (line 47) ... ok
+test crates\emit_native\src\otimizar\arc\analise\hir.rs - otimizar::arc::analise::hir::AnaliseHir::desconhecidos (line 90) ... ok
+test crates\emit_native\src\otimizar\arc\analise\hir.rs - otimizar::arc::analise::hir::AnaliseHir::pontos (line 75) ... ok
+test crates\emit_native\src\otimizar\arc\analise\hir.rs - otimizar::arc::analise::hir::AnaliseHir::valor (line 113) ... ok
+test crates\emit_native\src\otimizar\arc\analise\hir.rs - otimizar::arc::analise::hir::FatosHir (line 32) ... ok
+test crates\emit_native\src\otimizar\arc\analise\hir.rs - otimizar::arc::analise::hir::OrigemObjeto (line 13) ... ok
+test crates\emit_native\src\otimizar\arc\analise\hir.rs - otimizar::arc::analise::hir::analisar (line 138) ... ok
+test crates\emit_native\src\otimizar\arc\analise\modelo.rs - otimizar::arc::analise::modelo::ConjuntoPontos (line 79) ... ok
+test crates\emit_native\src\otimizar\arc\analise\modelo.rs - otimizar::arc::analise::modelo::ConjuntoPontos::desconhecido (line 113) ... ok
+test crates\emit_native\src\otimizar\arc\analise\modelo.rs - otimizar::arc::analise::modelo::ConjuntoPontos::incluir (line 141) ... ok
+test crates\emit_native\src\otimizar\arc\analise\modelo.rs - otimizar::arc::analise::modelo::ConjuntoPontos::nos (line 127) ... ok
+test crates\emit_native\src\otimizar\arc\analise\modelo.rs - otimizar::arc::analise::modelo::ConjuntoPontos::unir (line 166) ... ok
+test crates\emit_native\src\otimizar\arc\analise\modelo.rs - otimizar::arc::analise::modelo::ConjuntoPontos::vazio (line 100) ... ok
+test crates\emit_native\src\otimizar\arc\analise\modelo.rs - otimizar::arc::analise::modelo::NoAbstrato (line 30) ... ok
+test crates\emit_native\src\otimizar\arc\analise\modelo.rs - otimizar::arc::analise::modelo::SitioArc (line 10) ... ok
+test crates\emit_native\src\otimizar\arc\analise\modulo.rs - otimizar::arc::analise::modulo::analisar_no_modulo (line 30) ... ok
+test crates\emit_native\src\otimizar\arc\analise\points_to.rs - otimizar::arc::analise::points_to::CampoArc (line 11) ... ok
+test crates\emit_native\src\otimizar\arc\analise\points_to.rs - otimizar::arc::analise::points_to::Restricao (line 28) ... ok
+test crates\emit_native\src\otimizar\arc\analise\points_to.rs - otimizar::arc::analise::points_to::ResultadoPointsTo (line 63) ... ok
+test crates\emit_native\src\otimizar\arc\analise\points_to.rs - otimizar::arc::analise::points_to::ResultadoPointsTo::campo (line 92) ... ok
+test crates\emit_native\src\otimizar\arc\analise\points_to.rs - otimizar::arc::analise::points_to::ResultadoPointsTo::variavel (line 79) ... ok
+test crates\emit_native\src\otimizar\arc\analise\points_to.rs - otimizar::arc::analise::points_to::resolver (line 117) ... ok
+test crates\emit_native\src\otimizar\arc\analise\points_to.rs - otimizar::arc::analise::points_to::verificar (line 264) ... ok
+test crates\emit_native\src\otimizar\arc\analise\resumos.rs - otimizar::arc::analise::resumos::CamposHeapArc (line 33) ... ok
+test crates\emit_native\src\otimizar\arc\analise\resumos.rs - otimizar::arc::analise::resumos::PublicacoesHeapArc (line 48) ... ok
+test crates\emit_native\src\otimizar\arc\analise\resumos.rs - otimizar::arc::analise::resumos::ResumoHeapArc (line 66) ... ok
+test crates\emit_native\src\otimizar\arc\analise\resumos.rs - otimizar::arc::analise::resumos::ResumoHeapArc::campos (line 102) ... ok
+test crates\emit_native\src\otimizar\arc\analise\resumos.rs - otimizar::arc::analise::resumos::ResumoHeapArc::conferir (line 139) ... ok
+test crates\emit_native\src\otimizar\arc\analise\resumos.rs - otimizar::arc::analise::resumos::ResumoHeapArc::instanciar (line 163) ... ok
+test crates\emit_native\src\otimizar\arc\analise\resumos.rs - otimizar::arc::analise::resumos::ResumoHeapArc::publicacoes (line 87) ... ok
+test crates\emit_native\src\otimizar\arc\analise\resumos.rs - otimizar::arc::analise::resumos::ResumoHeapArc::retorno (line 122) ... ok
+test crates\emit_native\src\otimizar\arc\analise\resumos.rs - otimizar::arc::analise::resumos::RetornoHeapArc (line 13) ... ok
+test crates\emit_native\src\otimizar\arc\analise\resumos.rs - otimizar::arc::analise::resumos::extrair (line 202) ... ok
+test crates\emit_native\src\otimizar\arc\chamadas.rs - otimizar::arc::chamadas::ContratoFuncaoDart (line 17) ... ok
+test crates\emit_native\src\otimizar\arc\chamadas.rs - otimizar::arc::chamadas::produzir_chamadas_dart (line 174) ... ok
+test crates\emit_native\src\otimizar\arc\chamadas.rs - otimizar::arc::chamadas::verificar_contrato_funcao_dart (line 75) ... ok
+test crates\emit_native\src\otimizar\arc\classificacao.rs - otimizar::arc::classificacao::OrigemOwner (line 12) ... ok
+test crates\emit_native\src\otimizar\arc\classificacao.rs - otimizar::arc::classificacao::Ownership (line 31) ... ok
+test crates\emit_native\src\otimizar\arc\classificacao.rs - otimizar::arc::classificacao::vivacidade_classificada (line 70) ... ok
+test crates\emit_native\src\otimizar\arc\classificacao.rs - otimizar::arc::classificacao::vivacidade_classificada_com_excecoes (line 221) ... ok
+test crates\emit_native\src\otimizar\arc\cleanup_estrangeiro.rs - otimizar::arc::cleanup_estrangeiro::CleanupEstrangeiro (line 12) ... ok
+test crates\emit_native\src\otimizar\arc\contratos.rs - otimizar::arc::contratos::ContratoChamadaRuntime (line 934) ... ok
+test crates\emit_native\src\otimizar\arc\contratos.rs - otimizar::arc::contratos::contrato_chamada_runtime (line 967) ... ok
+test crates\emit_native\src\otimizar\arc\contratos.rs - otimizar::arc::contratos::inserir_arc_saidas_dart (line 116) ... ok
+test crates\emit_native\src\otimizar\arc\contratos.rs - otimizar::arc::contratos::inserir_retencao_retornos_dart (line 80) ... ok
+test crates\emit_native\src\otimizar\arc\contratos.rs - otimizar::arc::contratos::produzir_contratos_arc (line 410) ... ok
+test crates\emit_native\src\otimizar\arc\contratos.rs - otimizar::arc::contratos::produzir_contratos_runtime (line 351) ... ok
+test crates\emit_native\src\otimizar\arc\contratos.rs - otimizar::arc::contratos::produzir_e_verificar_tokens (line 303) ... ok
+test crates\emit_native\src\otimizar\arc\contratos.rs - otimizar::arc::contratos::produzir_e_verificar_tokens_dart (line 250) ... ok
+test crates\emit_native\src\otimizar\arc\contratos.rs - otimizar::arc::contratos::produzir_parametros_ref_dart (line 23) ... ok
+test crates\emit_native\src\otimizar\arc\escopos.rs - otimizar::arc::escopos::AlteracaoEscopo (line 14) ... ok
+test crates\emit_native\src\otimizar\arc\escopos.rs - otimizar::arc::escopos::PlanoEscopos (line 33) ... ok
+test crates\emit_native\src\otimizar\arc\escopos.rs - otimizar::arc::escopos::verificar_escopos (line 128) ... ok
+test crates\emit_native\src\otimizar\arc\funcoes.rs - otimizar::arc::funcoes::PlanoFuncaoDart (line 13) ... ok
+test crates\emit_native\src\otimizar\arc\funcoes.rs - otimizar::arc::funcoes::inserir_arc_funcoes_dart (line 64) ... ok
+test crates\emit_native\src\otimizar\arc\funcoes.rs - otimizar::arc::funcoes::preparar_arc_funcoes_dart (line 116) ... ok
+test crates\emit_native\src\otimizar\arc\funcoes.rs - otimizar::arc::funcoes::preparar_arc_modulo_dart (line 175) ... ok
+test crates\emit_native\src\otimizar\arc\mod.rs - otimizar::arc::ErroEmprestimo (line 182) ... ok
+test crates\emit_native\src\otimizar\arc\mod.rs - otimizar::arc::Vivacidade (line 59) ... ok
+test crates\emit_native\src\otimizar\arc\mod.rs - otimizar::arc::vivacidade (line 156) ... ok
+test crates\emit_native\src\otimizar\arc\mod.rs - otimizar::arc::vivacidade_com_emprestimos (line 225) ... ok
+test crates\emit_native\src\otimizar\arc\parametros.rs - otimizar::arc::parametros::produzir_parametros_escalares_do_lowering (line 17) ... ok
+test crates\emit_native\src\otimizar\arc\parametros.rs - otimizar::arc::parametros::produzir_parametros_rti_do_lowering (line 49) ... ok
+test crates\emit_native\src\otimizar\arc\planos.rs - otimizar::arc::planos::preparar_arc_modulo_tabelado (line 18) ... ok
+test crates\emit_native\src\otimizar\arc\planos.rs - otimizar::arc::planos::produzir_tabelas_arc_do_modulo (line 58) ... ok
+test crates\emit_native\src\otimizar\arc\retornos.rs - otimizar::arc::retornos::produzir_retornos_ref_do_lowering (line 18) ... ok
+test crates\emit_native\src\otimizar\arc\tokens.rs - otimizar::arc::tokens::EfeitoTokens (line 19) ... ok
+test crates\emit_native\src\otimizar\arc\tokens.rs - otimizar::arc::tokens::PlanoTokens (line 59) ... ok
+test crates\emit_native\src\otimizar\arc\tokens.rs - otimizar::arc::tokens::tokens_na_entrada_dos_pousos (line 327) ... ok
+test crates\emit_native\src\otimizar\arc\tokens.rs - otimizar::arc::tokens::RetornoTokens (line 38) ... ok
+test crates\emit_native\src\otimizar\arc\tokens.rs - otimizar::arc::tokens::verificar_tokens (line 271) ... ok
+test crates\emit_native\src\poda.rs - poda::linha_de_tabela (line 72) ... ok
+test crates\emit_native\src\poda.rs - poda::resumir (line 389) ... ok
+test crates\emit_native\src\sdk_modulo.rs - sdk_modulo::com_optsize (line 873) ... ok
+test crates\emit_native\src\sdk_modulo.rs - sdk_modulo::geracao_do_sdk (line 520) ... ok
+
+test result: ok. 97 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.56s
+
+
+running 1 test
+test crates\emit_native\src\otimizar\arc\analise\hir.rs - otimizar::arc::analise::hir::AnaliseHir::desconhecidos (line 99) - compile fail ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.69s
+
+all doctests ran in 5.51s; merged doctests compilation took 3.14s
