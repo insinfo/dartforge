@@ -2,6 +2,27 @@
 
 ## Retomada de 2026-10-10
 
+Preparação ARC do módulo protege automaticamente resultados runtime Ref
+borrowed sem falha quando o checker detecta invalidação/reentrada. Retém na
+definição, antes da barreira, conservando o ID original como Owned e criando
+um ID auxiliar para a leitura emprestada; usos/arestas mantêm seus IDs.
+Move efeitos e limites anteriores para a leitura auxiliar, reconstrói Phis
+após promoção e usa o cleanup/retorno Owned já verificado. Só copia quando
+há necessidade detectada; caminho já protegido e repetição são idempotentes.
+Ancestral invalidado é escolhido na cadeia de aliases, evitando tentar
+proteger repetidamente um alias cuja sustentação já se perdeu. Verificador
+isolado continua somente de leitura e recusa o corpo sem proteção.
+Testes cobrem campo substituído, argumento de chamada Dart, diamante com
+transferência Owned no Phi, ancestral/alias, tracing intacto, IDs esgotados
+e falha de função posterior sem publicação parcial. Origem não auditada e
+resultado falível não recebem cópia antes da guarda; proteção somente na
+aresta normal, cleanup de laços/arestas gerais, regiões/slots, suspensão,
+Finalizable e versões/pins continuam pendentes. Isso não escolhe ABIs de
+campos no lowering nem integra ownership ao fluxo padrão; ARC permanece
+exclusivo de --memoria=arc. Não é nova prova AOT nem medição de desempenho.
+Passaram 233 testes do emissor (7 ignorados), incluindo 125 testes ARC,
+e 52 exemplos de documentação. Logs target/arc-keepalive-{focado,suite,doc}.log.
+
 ABI dartforge_arc_ler_campo_ref_v1 confere instância viva, índice e marca Ref
 no mapa físico e devolve BorrowArg(0), sem alocação, coleta, retenção ou Dart.
 Null/Smi são Ref válidos; bits iguais a handle num campo escalar são recusados.
@@ -70,9 +91,9 @@ Sem nova prova AOT desta ABI. Passaram 178 testes runtime (3 ignorados),
 target/arc-instancia-runtime-{focado,suite,doc}.log e
 target/arc-instancia-emissor-{focado,suite,doc}.log.
 
-Conjunto publicado b5887c94 em validação na CI 38029919066: Linux e mensagens
-concluídos com sucesso; Windows nos testes ignorados e macOS nos testes do
-emissor com ignorados na consulta desta retomada. CI Sem toolchain do sistema
+Conjunto publicado b5887c94 em validação na CI 38029919066: Windows, Linux
+e mensagens concluídos com sucesso; macOS nos testes JIT com ignorados na
+consulta desta retomada. CI Sem toolchain do sistema
 38029919046 concluída com sucesso. ABIs de instâncias/campos e barreiras de
 empréstimos acima são posteriores a essa fonte e ainda exigem CI própria.
 

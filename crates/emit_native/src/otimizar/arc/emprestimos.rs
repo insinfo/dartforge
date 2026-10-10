@@ -1,5 +1,6 @@
 //! Barreiras conservadoras para aliases derivados de owners locais.
-//! Não produz keepalive, prova aliases de slots ou certifica versões/pins.
+//! Protege resultados runtime Ref sem falha quando uma barreira exige Owned.
+//! Não prova aliases de slots, produz cleanup de laços ou certifica versões/pins.
 
 use super::super::{
     cfg::Cfg,
@@ -10,6 +11,16 @@ use crate::hir::*;
 use std::collections::{HashMap, HashSet};
 
 pub(super) fn verificar(f: &Function, classes: &HashMap<ValueId, Ownership>) -> Result<(), String> {
+    match primeiro_invalido(f, classes)? {
+        Some((_, mensagem)) => Err(mensagem),
+        None => Ok(()),
+    }
+}
+
+fn primeiro_invalido(
+    f: &Function,
+    classes: &HashMap<ValueId, Ownership>,
+) -> Result<Option<(ValueId, String)>, String> {
     let derivados: HashSet<_> = classes
         .iter()
         .filter_map(|(v, c)| {
@@ -24,7 +35,7 @@ pub(super) fn verificar(f: &Function, classes: &HashMap<ValueId, Ownership>) -> 
         })
         .collect();
     if derivados.is_empty() {
-        return Ok(());
+        return Ok(None);
     }
     let tipos: HashMap<_, _> = f
         .params
@@ -128,9 +139,12 @@ pub(super) fn verificar(f: &Function, classes: &HashMap<ValueId, Ownership>) -> 
             let mut vistos = HashSet::new();
             while vistos.insert(atual) {
                 if estado.contains(&atual) {
-                    return Err(format!(
-                        "empréstimo invalidado em {}: {ponto}: v{} depende de v{}; copie para Owned antes da barreira",
-                        f.symbol, v.0, atual.0
+                    return Some((
+                        atual,
+                        format!(
+                            "empréstimo invalidado em {}: {ponto}: v{} depende de v{}; copie para Owned antes da barreira",
+                            f.symbol, v.0, atual.0
+                        ),
                     ));
                 }
                 match classes.get(&atual) {
@@ -142,7 +156,7 @@ pub(super) fn verificar(f: &Function, classes: &HashMap<ValueId, Ownership>) -> 
                 }
             }
         }
-        Ok(())
+        None
     };
     for &bi in &cfg.rpo {
         let b = &f.blocks[bi];
@@ -152,11 +166,13 @@ pub(super) fn verificar(f: &Function, classes: &HashMap<ValueId, Ownership>) -> 
                 for (p, op) in incoming {
                     let pi = pos[p];
                     if cfg.idom[pi] != usize::MAX {
-                        conferir(
+                        if let Some(erro) = conferir(
                             op,
                             &saidas[pi],
                             format!("b{} -> b{} Phi v{}", p.0, b.id.0, v.0),
-                        )?;
+                        ) {
+                            return Ok(Some(erro));
+                        }
                     }
                 }
             } else {
@@ -168,11 +184,11 @@ pub(super) fn verificar(f: &Function, classes: &HashMap<ValueId, Ownership>) -> 
                 let mut erro = None;
                 operandos(inst, &mut |op| {
                     if erro.is_none() {
-                        erro = conferir(op, &estado, format!("b{} v{}", b.id.0, v.0)).err();
+                        erro = conferir(op, &estado, format!("b{} v{}", b.id.0, v.0));
                     }
                 });
                 if let Some(erro) = erro {
-                    return Err(erro);
+                    return Ok(Some(erro));
                 }
             }
             if barreiras.contains(v) {
@@ -183,19 +199,224 @@ pub(super) fn verificar(f: &Function, classes: &HashMap<ValueId, Ownership>) -> 
         let mut erro = None;
         operandos_do_terminador(&b.terminator, &mut |op| {
             if erro.is_none() {
-                erro = conferir(op, &estado, format!("b{} saída", b.id.0)).err();
+                erro = conferir(op, &estado, format!("b{} saída", b.id.0));
             }
         });
         if let Some(erro) = erro {
-            return Err(erro);
+            return Ok(Some(erro));
         }
     }
-    Ok(())
+    Ok(None)
+}
+
+// Opera apenas sobre a cópia transacional do conjunto de funções. O checker
+// continua somente de leitura; este produtor usa suas mesmas necessidades.
+pub(super) fn proteger(
+    f: &mut Function,
+    plano: &mut super::PlanoFuncaoDart,
+) -> Result<usize, String> {
+    let mut copias = 0;
+    while let Some((valor, mensagem)) = primeiro_invalido(f, &plano.classes)? {
+        let Some((bi, ii)) = f.blocks.iter().enumerate().find_map(|(bi, b)| {
+            b.instructions
+                .iter()
+                .position(|(v, _, _)| *v == valor)
+                .map(|ii| (bi, ii))
+        }) else {
+            return Err(mensagem);
+        };
+        let (_, inst, ty) = &f.blocks[bi].instructions[ii];
+        let Instruction::CallRuntime { .. } = inst else {
+            return Err(mensagem);
+        };
+        let contrato = super::contrato_chamada_runtime(inst)?;
+        if *ty != Type::Ref
+            || contrato.efeito.pode_falhar
+            || !matches!(contrato.resultado, Ownership::Borrowed { .. })
+            || plano.tabelas.invocacoes.contains_key(&valor)
+            || plano.tokens.pendencias.contains_key(&valor)
+        {
+            return Err(mensagem);
+        }
+        if plano.classes.get(&valor) != Some(&contrato.resultado) {
+            return Err(mensagem);
+        }
+        let maior = f
+            .params
+            .iter()
+            .map(|(v, _, _)| v.0)
+            .chain(
+                f.blocks
+                    .iter()
+                    .flat_map(|b| b.instructions.iter().map(|(v, _, _)| v.0)),
+            )
+            .chain(plano.classes.keys().map(|v| v.0))
+            .chain(plano.tokens.instrucoes.keys().map(|v| v.0))
+            .chain(plano.tokens.pendencias.keys().map(|v| v.0))
+            .chain(plano.tabelas.invocacoes.keys().map(|v| v.0))
+            .chain(plano.escopos.antes.keys().map(|v| v.0))
+            .max()
+            .unwrap_or(0);
+        let emprestado = ValueId(
+            maior
+                .checked_add(1)
+                .ok_or("IDs SSA esgotados ao proteger empréstimo")?,
+        );
+        // Conserva o ID original como Owned: todos os usos e aliases passam
+        // a depender do token independente, sem remapear operadores/arestas.
+        f.blocks[bi].instructions[ii].0 = emprestado;
+        f.blocks[bi].instructions.insert(
+            ii + 1,
+            (
+                valor,
+                Instruction::ArcCopy {
+                    value: Operand::Val(emprestado),
+                },
+                Type::Ref,
+            ),
+        );
+        plano.classes.insert(emprestado, contrato.resultado);
+        plano.classes.insert(valor, Ownership::Owned);
+        plano.tokens.instrucoes.remove(&valor);
+        plano.tokens.instrucoes.insert(emprestado, contrato.efeito);
+        if let Some(limites) = plano.escopos.antes.remove(&valor) {
+            plano.escopos.antes.insert(emprestado, limites);
+        }
+        // Os Phis já foram conferidos no corpo original. Reconstrói sua
+        // classificação depois da promoção, inclusive transferência Owned.
+        for (v, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
+            if matches!(inst, Instruction::Phi { .. }) {
+                plano.classes.remove(v);
+            }
+        }
+        super::produzir_contratos_arc(f, &mut plano.classes, &mut plano.tokens)?;
+        copias += 1;
+    }
+    Ok(copias)
 }
 
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn keepalive_protege_ancestral_invalidado_em_vez_de_repetir_copia_do_alias() {
+        let (mut f, mut classes) = funcao(vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![
+                leitura(),
+                troca(),
+                (
+                    ValueId(4),
+                    Instruction::EnvGet {
+                        env: Operand::Val(ValueId(0)),
+                        index: 1,
+                    },
+                    Type::Ref,
+                ),
+                (
+                    ValueId(3),
+                    Instruction::ArcCopy {
+                        value: Operand::Val(ValueId(4)),
+                    },
+                    Type::Ref,
+                ),
+                (
+                    ValueId(6),
+                    Instruction::ArcDrop {
+                        value: Operand::Val(ValueId(3)),
+                    },
+                    Type::Void,
+                ),
+            ],
+            terminator: Terminator::Return(None),
+        }]);
+        // A identidade/proveniência deste alias é premissa explícita. O seu
+        // ancestral perde a aresta antes de o alias ser materializado.
+        classes.insert(ValueId(1), Ownership::Trivial);
+        classes.insert(ValueId(3), Ownership::Owned);
+        classes.insert(
+            ValueId(4),
+            Ownership::Borrowed {
+                owner: OrigemOwner::Valor(ValueId(2)),
+                escopo: 0,
+            },
+        );
+        let mut plano = super::super::PlanoFuncaoDart {
+            classes,
+            ..Default::default()
+        };
+        plano
+            .tokens
+            .instrucoes
+            .insert(ValueId(4), super::super::EfeitoTokens::default());
+        assert_eq!(proteger(&mut f, &mut plano).unwrap(), 1);
+        assert_eq!(plano.classes[&ValueId(2)], Ownership::Owned);
+        assert!(matches!(
+            plano.classes[&ValueId(4)],
+            Ownership::Borrowed {
+                owner: OrigemOwner::Valor(ValueId(2)),
+                ..
+            }
+        ));
+        verificar(&f, &plano.classes).unwrap();
+        assert_eq!(proteger(&mut f, &mut plano).unwrap(), 0);
+    }
+
+    #[test]
+    fn origem_sem_abi_ou_resultado_falivel_nao_recebem_copia_antes_da_guarda() {
+        for falivel in [false, true] {
+            let (mut f, mut classes) = funcao(vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![
+                    if falivel {
+                        (
+                            ValueId(2),
+                            Instruction::CallRuntime {
+                                name: "dartforge_nativo_DartForge_record_fieldAt".into(),
+                                args: vec![
+                                    (Operand::Val(ValueId(0)), Type::Ref),
+                                    (Operand::Constant(Constant::Int(0)), Type::I64),
+                                ],
+                                ret_ty: Type::Ref,
+                            },
+                            Type::Ref,
+                        )
+                    } else {
+                        (
+                            ValueId(2),
+                            Instruction::EnvGet {
+                                env: Operand::Val(ValueId(0)),
+                                index: 0,
+                            },
+                            Type::Ref,
+                        )
+                    },
+                    troca(),
+                    (
+                        ValueId(3),
+                        Instruction::ArcCopy {
+                            value: Operand::Val(ValueId(2)),
+                        },
+                        Type::Ref,
+                    ),
+                ],
+                terminator: Terminator::Return(None),
+            }]);
+            classes.insert(ValueId(3), Ownership::Owned);
+            let mut plano = super::super::PlanoFuncaoDart {
+                classes,
+                ..Default::default()
+            };
+            let antes = format!("{f:?}/{plano:?}");
+            assert!(
+                proteger(&mut f, &mut plano)
+                    .unwrap_err()
+                    .contains("empréstimo invalidado")
+            );
+            assert_eq!(format!("{f:?}/{plano:?}"), antes);
+        }
+    }
 
     fn leitura() -> (ValueId, Instruction, Type) {
         (

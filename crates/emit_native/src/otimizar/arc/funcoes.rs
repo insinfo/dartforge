@@ -96,7 +96,11 @@ pub fn inserir_arc_funcoes_dart(
 /// Conferência de pilha por quadros de raízes calculados por vivacidade
 /// exige a marca `tabelas.confere_pilha` enquanto não integrar esse inventário.
 /// Os demais contratos são os de [`inserir_arc_funcoes_dart`].
-/// Retorna (retenções de retorno, liberações nas saídas).
+/// Protege resultados Ref borrowed de externs auditadas sem falha quando
+/// uma barreira exige Owned, preservando IDs dos usos. Resultados falíveis,
+/// origens não auditadas e laços que exigem cleanup de aresta continuam
+/// exigindo preparação explícita; nenhum plano parcial é publicado.
+/// Retorna (retenções de retorno/keepalive, liberações nas saídas).
 ///
 /// # Erros
 /// CFG/SSA ou limites inválidos, IDs esgotados ou qualquer erro de produção
@@ -267,6 +271,9 @@ fn inserir(
             &mut novo.classes,
             &mut novo.tokens,
         )?;
+        if preparar_chamadas {
+            total.0 += super::emprestimos::proteger(f, novo)?;
+        }
         let (copias, drops) = inserir_arc_saidas_dart(
             f,
             &mut novo.classes,
@@ -297,6 +304,214 @@ fn inserir(
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn keepalive_para_chamada_dart_e_atomico_idempotente_e_exclusivo_de_arc() {
+        for caso in 0..4 {
+            let mut m = Module::new();
+            m.memoria_arc = caso != 2;
+            m.functions.push(Function {
+                symbol: "caller_borrow".into(),
+                name: "caller_borrow".into(),
+                depuracao: None,
+                params: vec![(ValueId(0), "objeto".into(), Type::Ref)],
+                return_ty: Type::Void,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![
+                        (
+                            ValueId(1),
+                            Instruction::CallRuntime {
+                                name: "dartforge_arc_ler_campo_ref_v1".into(),
+                                args: vec![
+                                    (Operand::Val(ValueId(0)), Type::Ref),
+                                    (Operand::Constant(Constant::Int(0)), Type::I64),
+                                ],
+                                ret_ty: Type::Ref,
+                            },
+                            Type::Ref,
+                        ),
+                        (
+                            ValueId(2),
+                            Instruction::CallStatic {
+                                symbol: "sink".into(),
+                                args: vec![Operand::Val(ValueId(1))],
+                                ret_ty: Type::Void,
+                            },
+                            Type::Void,
+                        ),
+                    ],
+                    terminator: Terminator::Return(None),
+                }],
+            });
+            let mut sink = Function {
+                symbol: "sink".into(),
+                name: "sink".into(),
+                depuracao: None,
+                params: vec![(ValueId(0), "valor".into(), Type::Ref)],
+                return_ty: Type::Void,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![],
+                    terminator: Terminator::Return(None),
+                }],
+            };
+            if caso == 1 {
+                sink.blocks[0].instructions.push((
+                    ValueId(1),
+                    Instruction::CallRuntime {
+                        name: "runtime_sem_contrato".into(),
+                        args: vec![],
+                        ret_ty: Type::Void,
+                    },
+                    Type::Void,
+                ));
+            }
+            if caso == 3 {
+                m.functions[0].blocks[0].instructions.push((
+                    ValueId(u32::MAX),
+                    Instruction::Const(Constant::Int(0)),
+                    Type::I64,
+                ));
+            }
+            m.functions.push(sink);
+            let mut planos = HashMap::from([
+                ("caller_borrow".into(), PlanoFuncaoDart::default()),
+                ("sink".into(), PlanoFuncaoDart::default()),
+            ]);
+            let antes = format!("{m:?}/{planos:?}");
+            match caso {
+                0 => {
+                    assert_eq!(
+                        preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+                        (1, 1)
+                    );
+                    assert_eq!(
+                        planos["caller_borrow"].classes[&ValueId(1)],
+                        Ownership::Owned
+                    );
+                    let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+                    assert!(
+                        ir.find("call void @dartforge_arc_retain").unwrap()
+                            < ir.find("@sink(i64 %v1)").unwrap()
+                    );
+                    let preparado = format!("{m:?}/{planos:?}");
+                    assert_eq!(
+                        preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+                        (0, 0)
+                    );
+                    assert_eq!(format!("{m:?}/{planos:?}"), preparado);
+                }
+                2 => {
+                    assert_eq!(
+                        preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+                        (0, 0)
+                    );
+                    assert_eq!(format!("{m:?}/{planos:?}"), antes);
+                }
+                _ => {
+                    assert!(preparar_arc_modulo_dart(&mut m, &mut planos).is_err());
+                    assert_eq!(format!("{m:?}/{planos:?}"), antes);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn keepalive_antes_do_diamante_reconstroi_phi_com_transferencia_owned() {
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.functions.push(Function {
+            symbol: "diamante_borrow".into(),
+            name: "diamante_borrow".into(),
+            depuracao: None,
+            params: vec![
+                (ValueId(0), "objeto".into(), Type::Ref),
+                (ValueId(5), "cond".into(), Type::I1),
+            ],
+            return_ty: Type::Ref,
+            blocks: vec![
+                BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(
+                        ValueId(1),
+                        Instruction::CallRuntime {
+                            name: "dartforge_arc_ler_campo_ref_v1".into(),
+                            args: vec![
+                                (Operand::Val(ValueId(0)), Type::Ref),
+                                (Operand::Constant(Constant::Int(0)), Type::I64),
+                            ],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::CondBranch {
+                        cond: Operand::Val(ValueId(5)),
+                        then_block: BlockId(1),
+                        else_block: BlockId(2),
+                    },
+                },
+                BasicBlock {
+                    id: BlockId(1),
+                    instructions: vec![(
+                        ValueId(2),
+                        Instruction::CallRuntime {
+                            name: "dartforge_arc_gravar_campo_ref_v1".into(),
+                            args: vec![
+                                (Operand::Val(ValueId(0)), Type::Ref),
+                                (Operand::Constant(Constant::Int(0)), Type::I64),
+                                (Operand::Constant(Constant::Null), Type::Ref),
+                            ],
+                            ret_ty: Type::Void,
+                        },
+                        Type::Void,
+                    )],
+                    terminator: Terminator::Branch(BlockId(3)),
+                },
+                BasicBlock {
+                    id: BlockId(2),
+                    instructions: vec![],
+                    terminator: Terminator::Branch(BlockId(3)),
+                },
+                BasicBlock {
+                    id: BlockId(3),
+                    instructions: vec![(
+                        ValueId(4),
+                        Instruction::Phi {
+                            incoming: vec![
+                                (BlockId(1), Operand::Val(ValueId(1))),
+                                (BlockId(2), Operand::Val(ValueId(1))),
+                            ],
+                            ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(4)))),
+                },
+            ],
+        });
+        let mut p = PlanoFuncaoDart::default();
+        p.tokens.retorno = RetornoTokens::Owned;
+        let mut planos = HashMap::from([("diamante_borrow".into(), p)]);
+        assert_eq!(
+            preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+            (1, 0)
+        );
+        assert_eq!(
+            planos["diamante_borrow"].classes[&ValueId(1)],
+            Ownership::Owned
+        );
+        assert_eq!(
+            planos["diamante_borrow"].classes[&ValueId(4)],
+            Ownership::Owned
+        );
+        let preparado = format!("{m:?}/{planos:?}");
+        assert_eq!(
+            preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+            (0, 0)
+        );
+        assert_eq!(format!("{m:?}/{planos:?}"), preparado);
+    }
 
     #[test]
     fn campo_emprestado_exige_copia_antes_de_substituir_aresta() {
@@ -377,20 +592,33 @@ mod testes {
             m.memoria_arc = true;
             m.functions.push(f);
             let mut planos = HashMap::from([("borrow_campo".into(), PlanoFuncaoDart::default())]);
-            let antes = format!("{m:?}/{planos:?}");
             if copia_antes {
                 assert_eq!(
                     preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
                     (0, 0)
                 );
             } else {
-                assert!(
-                    preparar_arc_modulo_dart(&mut m, &mut planos)
-                        .unwrap_err()
-                        .contains("empréstimo invalidado")
+                assert_eq!(
+                    preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+                    (1, 1)
                 );
-                assert_eq!(format!("{m:?}/{planos:?}"), antes);
+                assert_eq!(
+                    planos["borrow_campo"].classes[&ValueId(1)],
+                    Ownership::Owned
+                );
+                let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+                assert!(
+                    ir.find("call void @dartforge_arc_retain").unwrap()
+                        < ir.find("call void @dartforge_arc_gravar_campo_ref_v1")
+                            .unwrap()
+                );
             }
+            let antes = format!("{m:?}/{planos:?}");
+            assert_eq!(
+                preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+                (0, 0)
+            );
+            assert_eq!(format!("{m:?}/{planos:?}"), antes);
         }
     }
 
