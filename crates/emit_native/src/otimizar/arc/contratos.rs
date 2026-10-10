@@ -371,8 +371,9 @@ pub fn produzir_contratos_runtime(
 /// Constantes escalares/null e literais permanentes também produzem Trivial,
 /// com tipo determinado pela variante da constante, nunca por largura.
 /// Aritmética inteira/flutuante e conversões numéricas produzem Trivial;
-/// operandos devem estar em representações escalares compatíveis. Guardas
+/// operandos devem ter contrato Trivial e representações escalares compatíveis. Guardas
 /// de domínio/estouro e semântica Dart permanecem responsabilidade do lowering.
+/// Bitcasts F64/I64 exigem origem escalar Trivial; largura não certifica ownership.
 /// Phi I1/I64/F64 exige entradas de mesmo tipo com contrato Trivial ou constantes
 /// correspondentes, e origem conhecida fora do ciclo de Phis, inclusive em laços.
 /// Phi Ref explicitamente Trivial exige entradas Trivial/null e origem externa;
@@ -416,6 +417,45 @@ pub fn produzir_contratos_arc(
     let mut novo_plano = plano.clone();
     let contratos = produzir(f, &mut novas_classes, &mut novo_plano, true)?;
     produzir_phi(f, &mut novas_classes, &novo_plano)?;
+    // Confere após resolver todos os produtores e Phis, independentemente
+    // da ordem física dos blocos. Um i64 gerenciado não vira escalar por cast.
+    for (v, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
+        let operandos = match inst {
+            Instruction::Bitcast {
+                op,
+                to: Type::I64 | Type::F64,
+            }
+            | Instruction::Neg(op)
+            | Instruction::Not(op)
+            | Instruction::FNeg(op)
+            | Instruction::IntToDouble(op)
+            | Instruction::DoubleToInt(op) => [Some(op), None],
+            Instruction::Add(a, b)
+            | Instruction::Sub(a, b)
+            | Instruction::Mul(a, b)
+            | Instruction::SDiv(a, b)
+            | Instruction::SRem(a, b)
+            | Instruction::Shl(a, b)
+            | Instruction::AShr(a, b)
+            | Instruction::LShr(a, b)
+            | Instruction::And(a, b)
+            | Instruction::Or(a, b)
+            | Instruction::Xor(a, b)
+            | Instruction::FAdd(a, b)
+            | Instruction::FSub(a, b)
+            | Instruction::FMul(a, b)
+            | Instruction::FDiv(a, b)
+            | Instruction::FCmp(_, a, b) => [Some(a), Some(b)],
+            _ => continue,
+        };
+        for op in operandos.into_iter().flatten() {
+            if let Operand::Val(origem) = op
+                && novas_classes.get(origem) != Some(&Ownership::Trivial)
+            {
+                return Err(format!("v{}: operação escalar exige origem Trivial", v.0));
+            }
+        }
+    }
     *classes = novas_classes;
     *plano = novo_plano;
     Ok(contratos)
@@ -852,6 +892,10 @@ fn produzir(
                 | Instruction::FDiv(..)
                 | Instruction::FNeg(_)
                 | Instruction::IntToDouble(_) => Some(Type::F64),
+                Instruction::Bitcast {
+                    to: to @ (Type::I64 | Type::F64),
+                    ..
+                } => Some(*to),
                 _ => None,
             };
             if let Some(esperado) = puro {
@@ -871,6 +915,18 @@ fn produzir(
                     _ => false,
                 };
                 let invalido = match inst {
+                    Instruction::Bitcast { op, to } => {
+                        let origem = match op {
+                            Operand::Val(v) => tipos.get(v).copied(),
+                            Operand::Constant(Constant::Int(_)) => Some(Type::I64),
+                            Operand::Constant(Constant::Double(_)) => Some(Type::F64),
+                            _ => None,
+                        };
+                        !matches!(
+                            (origem, to),
+                            (Some(Type::I64), Type::F64) | (Some(Type::F64), Type::I64)
+                        )
+                    }
                     Instruction::Box { op, from } => match op {
                         Operand::Val(v) => tipos.get(v) != Some(from),
                         Operand::Constant(Constant::Bool(_)) => *from != Type::I1,
@@ -2369,6 +2425,171 @@ mod testes {
             .contains("SSA Ref ou null")
         );
         assert_eq!(classes, antes);
+    }
+
+    #[test]
+    fn bitcast_escalar_exige_origem_e_independe_da_ordem_dos_blocos() {
+        let mut f = Function {
+            symbol: "bits".into(),
+            name: "bits".into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::F64,
+            blocks: vec![
+                BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![],
+                    terminator: Terminator::Branch(BlockId(2)),
+                },
+                BasicBlock {
+                    id: BlockId(1),
+                    instructions: vec![(
+                        ValueId(2),
+                        Instruction::Bitcast {
+                            op: Operand::Val(ValueId(1)),
+                            to: Type::F64,
+                        },
+                        Type::F64,
+                    )],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))),
+                },
+                BasicBlock {
+                    id: BlockId(2),
+                    instructions: vec![
+                        (
+                            ValueId(0),
+                            Instruction::Const(Constant::Double(-0.0)),
+                            Type::F64,
+                        ),
+                        (
+                            ValueId(1),
+                            Instruction::Bitcast {
+                                op: Operand::Val(ValueId(0)),
+                                to: Type::I64,
+                            },
+                            Type::I64,
+                        ),
+                    ],
+                    terminator: Terminator::Branch(BlockId(1)),
+                },
+            ],
+        };
+        super::super::ssa::verificar(&f).unwrap();
+        let mut classes = HashMap::new();
+        let mut plano = PlanoTokens::default();
+        produzir_contratos_arc(&f, &mut classes, &mut plano).unwrap();
+        for id in [ValueId(0), ValueId(1), ValueId(2)] {
+            assert_eq!(classes[&id], Ownership::Trivial);
+            assert_eq!(plano.instrucoes[&id], EfeitoTokens::default());
+        }
+        let mut modulo = Module::default();
+        modulo.memoria_arc = true;
+        modulo.functions.push(f.clone());
+        let ir = crate::llvm::LlvmEmitter::new(&modulo).emit_all();
+        assert!(ir.contains("bitcast double %v0 to i64"));
+        assert!(ir.contains("bitcast i64 %v1 to double"));
+        // O sucesso escalar anterior não autoriza a reinterpretar um handle
+        // nem a confiar numa representação cujo produtor não deu contrato.
+        f.blocks.remove(2);
+        f.blocks[0].terminator = Terminator::Branch(BlockId(1));
+        f.blocks[1].instructions.remove(0);
+        f.blocks[1].instructions.push((
+            ValueId(2),
+            Instruction::Bitcast {
+                op: Operand::Val(ValueId(0)),
+                to: Type::F64,
+            },
+            Type::F64,
+        ));
+        for (tipo, classe) in [
+            (Type::Ref, Some(Ownership::Trivial)),
+            (Type::Ptr, Some(Ownership::Trivial)),
+            (Type::I64, Some(Ownership::Owned)),
+            (
+                Type::I64,
+                Some(Ownership::Borrowed {
+                    owner: OrigemOwner::Chamador,
+                    escopo: 0,
+                }),
+            ),
+            (Type::I64, None),
+            (Type::F64, Some(Ownership::Trivial)),
+        ] {
+            f.params = vec![(ValueId(0), "origem".into(), tipo)];
+            let mut classes: HashMap<_, _> = classe.map(|c| (ValueId(0), c)).into_iter().collect();
+            let antes = classes.clone();
+            let mut plano = PlanoTokens::default();
+            assert!(produzir_contratos_arc(&f, &mut classes, &mut plano).is_err());
+            assert_eq!(classes, antes);
+            assert!(plano.instrucoes.is_empty());
+        }
+        f.params = vec![(ValueId(0), "bits".into(), Type::I64)];
+        let mut classes = HashMap::from([(ValueId(0), Ownership::Trivial)]);
+        produzir_contratos_arc(&f, &mut classes, &mut PlanoTokens::default()).unwrap();
+        // Anotação divergente do destino também falha sem publicar o resultado.
+        f.blocks[1].instructions[0].2 = Type::I64;
+        let mut classes = HashMap::from([(ValueId(0), Ownership::Trivial)]);
+        let antes = classes.clone();
+        assert!(produzir_contratos_arc(&f, &mut classes, &mut PlanoTokens::default()).is_err());
+        assert_eq!(classes, antes);
+    }
+
+    #[test]
+    fn aritmetica_nao_apaga_ownership_antes_do_bitcast() {
+        let f = Function {
+            symbol: "origem".into(),
+            name: "origem".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "origem".into(), Type::I64)],
+            return_ty: Type::F64,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![
+                    (
+                        ValueId(1),
+                        Instruction::Add(
+                            Operand::Val(ValueId(0)),
+                            Operand::Constant(Constant::Int(0)),
+                        ),
+                        Type::I64,
+                    ),
+                    (
+                        ValueId(2),
+                        Instruction::Bitcast {
+                            op: Operand::Val(ValueId(1)),
+                            to: Type::F64,
+                        },
+                        Type::F64,
+                    ),
+                ],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))),
+            }],
+        };
+        for classe in [
+            None,
+            Some(Ownership::Owned),
+            Some(Ownership::Borrowed {
+                owner: OrigemOwner::Chamador,
+                escopo: 0,
+            }),
+        ] {
+            let mut classes: HashMap<_, _> = classe.map(|c| (ValueId(0), c)).into_iter().collect();
+            let antes = classes.clone();
+            let mut plano = PlanoTokens::default();
+            assert!(
+                produzir_contratos_arc(&f, &mut classes, &mut plano)
+                    .unwrap_err()
+                    .contains("origem Trivial")
+            );
+            assert_eq!(classes, antes);
+            assert!(plano.instrucoes.is_empty());
+        }
+        produzir_contratos_arc(
+            &f,
+            &mut HashMap::from([(ValueId(0), Ownership::Trivial)]),
+            &mut PlanoTokens::default(),
+        )
+        .unwrap();
     }
 
     #[test]

@@ -2,6 +2,18 @@
 
 ## Retomada de 2026-10-10
 
+Contratos ARC cobrem os bitcasts F64/I64 usados pelo lowering de campos.
+Exigem representações opostas, resultado compatível e origem Trivial após
+resolver produtores/Phis, sem depender da ordem física dos blocos. Operações
+numéricas também exigem operandos Trivial: aritmética não pode apagar um
+contrato Owned/Borrowed ou fabricar origem para o bitcast seguinte. Falhas
+preservam classes e planos. Regressões cobrem referência/ponteiro, origem
+ausente/gerenciada, destino divergente e cadeia aritmética; emissão LLVM
+confere bitcast nas duas direções, sem nova prova AOT de payloads double.
+Passaram 211 testes do emissor (7 ignorados) e 52 exemplos de documentação;
+logs target/arc-bitcast-{suite,doc}.log. Integração padrão permanece pendente
+e será exclusiva de --memoria=arc; tracing continua sem essa preparação.
+
 CI 38021212710 concluída com sucesso na fonte 34198a54: Windows, Linux,
 macOS arm64 e mensagens verdes. Inclui as etapas completas com ignorados,
 SDK/JIT/recarga e as provas AOT Unix já preservadas. Avanços posteriores
