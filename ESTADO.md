@@ -2,6 +2,16 @@
 
 ## Retomada de 2026-10-10
 
+Keepalive de campos conferido também nos artefatos da CI 38034929874,
+fonte ed5897e9: 36 execuções Windows/Linux/macOS, doze positivas com stdout
+exato 1 LF e código 0, 24 controles vazios por trap (Windows -1073741795,
+Linux 132/SIGILL, macOS 133/SIGTRAP). Os 144 arquivos brutos foram
+congelados em bench/resultados/2026-10-10-keepalive-campos-ci, com hashes,
+IDs/digests dos artefatos e etapas. Windows/Linux estavam completos com
+sucesso; macOS ainda em execução ao registrar. Não certifica o workflow
+inteiro, o script compartilhado novo ou mudanças posteriores de pending,
+Phi/cleanup/laços. Limites de HIR explícita e tracing de comparação mantidos.
+
 Prova AOT arc_cleanup_laco passou no Windows: ARC/tracing × O0/O2 ×
 normal/erro, oito execuções positivas e oito controles negativos por trap.
 A HIR aloca Mint Owned em cada volta; preparação produz release na aresta

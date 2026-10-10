@@ -1,0 +1,1033 @@
+{
+  "fonte": "ed5897e95836972de0c9091bd23a0ad5bd4662f0",
+  "ci": 38034929874,
+  "url": "https://github.com/insinfo/dartforge/actions/runs/38034929874",
+  "registrado_utc": "2026-10-10T08:39:41.333850+00:00",
+  "estado_workflow_observado": "in_progress",
+  "conclusao_workflow_observada": "",
+  "ambiente_execucao": {
+    "DARTFORGE_ARC_CONFERIR": "1",
+    "DARTFORGE_ARC_BERCARIO": "0",
+    "DARTFORGE_GC_STRESS": "1"
+  },
+  "fontes": {
+    "exemplo": {
+      "caminho": "crates/emit_native/examples/arc_keepalive_campos.rs",
+      "sha256": "86ad0747c9f8f3fdf19985fadb255f2e4fa1a5fdde4376a7a0167d86a480e385"
+    },
+    "workflow": {
+      "caminho": ".github/workflows/ci.yml",
+      "sha256": "ffc8681fb55844b33b07392ebbf8731a551095f3d20104f1a2d67f55eb0fed7a"
+    }
+  },
+  "plataformas": [
+    {
+      "nome": "windows",
+      "job": 114163279271,
+      "estado_job_observado": "completed",
+      "conclusao_job_observada": "success",
+      "etapa": {
+        "completedAt": "2026-10-10T08:05:29Z",
+        "conclusion": "success",
+        "name": "Keepalive de campos com heap real (AOT Windows)",
+        "number": 12,
+        "startedAt": "2026-10-10T08:01:32Z",
+        "status": "completed"
+      },
+      "artefato": {
+        "id": 11663622219,
+        "name": "prova-keepalive-campos-windows",
+        "digest": "sha256:e7b9fb258e362d6da2964c79dd7ad9f0a941dbbe4331d7641f600868b960388f",
+        "size_in_bytes": 88144
+      },
+      "execucoes": [
+        {
+          "modo": "arc",
+          "nivel": 0,
+          "controle": "normal",
+          "exit": 0
+        },
+        {
+          "modo": "arc",
+          "nivel": 0,
+          "controle": "sem-retencao",
+          "exit": -1073741795
+        },
+        {
+          "modo": "arc",
+          "nivel": 0,
+          "controle": "sem-liberar",
+          "exit": -1073741795
+        },
+        {
+          "modo": "tracing",
+          "nivel": 0,
+          "controle": "normal",
+          "exit": 0
+        },
+        {
+          "modo": "tracing",
+          "nivel": 0,
+          "controle": "sem-retencao",
+          "exit": -1073741795
+        },
+        {
+          "modo": "tracing",
+          "nivel": 0,
+          "controle": "sem-liberar",
+          "exit": -1073741795
+        },
+        {
+          "modo": "arc",
+          "nivel": 2,
+          "controle": "normal",
+          "exit": 0
+        },
+        {
+          "modo": "arc",
+          "nivel": 2,
+          "controle": "sem-retencao",
+          "exit": -1073741795
+        },
+        {
+          "modo": "arc",
+          "nivel": 2,
+          "controle": "sem-liberar",
+          "exit": -1073741795
+        },
+        {
+          "modo": "tracing",
+          "nivel": 2,
+          "controle": "normal",
+          "exit": 0
+        },
+        {
+          "modo": "tracing",
+          "nivel": 2,
+          "controle": "sem-retencao",
+          "exit": -1073741795
+        },
+        {
+          "modo": "tracing",
+          "nivel": 2,
+          "controle": "sem-liberar",
+          "exit": -1073741795
+        }
+      ],
+      "arquivos": [
+        {
+          "arquivo": "windows/arc-O0-normal.ll",
+          "bytes": 33784,
+          "sha256": "e424f15e620792e196820a6916c141f31c597e59374c9655c9ff83447b0d3ab2"
+        },
+        {
+          "arquivo": "windows/arc-O0-normal.exe.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "arquivo": "windows/arc-O0-normal.exe.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "windows/arc-O0-normal.exe.exit",
+          "bytes": 3,
+          "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+        },
+        {
+          "arquivo": "windows/arc-O0-sem-retencao.ll",
+          "bytes": 33741,
+          "sha256": "d421b802d11b04745d667d3619f661dc37c93e5e78080868c3b9543e35caf868"
+        },
+        {
+          "arquivo": "windows/arc-O0-sem-retencao.exe.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "windows/arc-O0-sem-retencao.exe.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "windows/arc-O0-sem-retencao.exe.exit",
+          "bytes": 13,
+          "sha256": "f298e1cc0f3039d13bdfc7ceaf96c48f805bb12fd78d552a47e8e5467867a45d"
+        },
+        {
+          "arquivo": "windows/arc-O0-sem-liberar.ll",
+          "bytes": 33735,
+          "sha256": "fad9c07b5a98937afd54adf81c7abab7186e8bc4a47254a2e583b82283ec16fc"
+        },
+        {
+          "arquivo": "windows/arc-O0-sem-liberar.exe.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "windows/arc-O0-sem-liberar.exe.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "windows/arc-O0-sem-liberar.exe.exit",
+          "bytes": 13,
+          "sha256": "f298e1cc0f3039d13bdfc7ceaf96c48f805bb12fd78d552a47e8e5467867a45d"
+        },
+        {
+          "arquivo": "windows/tracing-O0-normal.ll",
+          "bytes": 33537,
+          "sha256": "cb1609ea78779cfc51f852bd3e5875451b415193308b8400f2ee708be19a8c24"
+        },
+        {
+          "arquivo": "windows/tracing-O0-normal.exe.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "arquivo": "windows/tracing-O0-normal.exe.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "windows/tracing-O0-normal.exe.exit",
+          "bytes": 3,
+          "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+        },
+        {
+          "arquivo": "windows/tracing-O0-sem-retencao.ll",
+          "bytes": 33494,
+          "sha256": "ddaeb0314f68e80c8683b17f130ee84044973622448f04f248b46ae9f45394e3"
+        },
+        {
+          "arquivo": "windows/tracing-O0-sem-retencao.exe.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "windows/tracing-O0-sem-retencao.exe.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "windows/tracing-O0-sem-retencao.exe.exit",
+          "bytes": 13,
+          "sha256": "f298e1cc0f3039d13bdfc7ceaf96c48f805bb12fd78d552a47e8e5467867a45d"
+        },
+        {
+          "arquivo": "windows/tracing-O0-sem-liberar.ll",
+          "bytes": 33488,
+          "sha256": "c7efbc51e5507687f1845bce55101c1a70d1ed6222ffb0876e4b3b139c2a608d"
+        },
+        {
+          "arquivo": "windows/tracing-O0-sem-liberar.exe.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "windows/tracing-O0-sem-liberar.exe.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "windows/tracing-O0-sem-liberar.exe.exit",
+          "bytes": 13,
+          "sha256": "f298e1cc0f3039d13bdfc7ceaf96c48f805bb12fd78d552a47e8e5467867a45d"
+        },
+        {
+          "arquivo": "windows/arc-O2-normal.ll",
+          "bytes": 33784,
+          "sha256": "e424f15e620792e196820a6916c141f31c597e59374c9655c9ff83447b0d3ab2"
+        },
+        {
+          "arquivo": "windows/arc-O2-normal.exe.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "arquivo": "windows/arc-O2-normal.exe.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "windows/arc-O2-normal.exe.exit",
+          "bytes": 3,
+          "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+        },
+        {
+          "arquivo": "windows/arc-O2-sem-retencao.ll",
+          "bytes": 33741,
+          "sha256": "d421b802d11b04745d667d3619f661dc37c93e5e78080868c3b9543e35caf868"
+        },
+        {
+          "arquivo": "windows/arc-O2-sem-retencao.exe.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "windows/arc-O2-sem-retencao.exe.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "windows/arc-O2-sem-retencao.exe.exit",
+          "bytes": 13,
+          "sha256": "f298e1cc0f3039d13bdfc7ceaf96c48f805bb12fd78d552a47e8e5467867a45d"
+        },
+        {
+          "arquivo": "windows/arc-O2-sem-liberar.ll",
+          "bytes": 33735,
+          "sha256": "fad9c07b5a98937afd54adf81c7abab7186e8bc4a47254a2e583b82283ec16fc"
+        },
+        {
+          "arquivo": "windows/arc-O2-sem-liberar.exe.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "windows/arc-O2-sem-liberar.exe.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "windows/arc-O2-sem-liberar.exe.exit",
+          "bytes": 13,
+          "sha256": "f298e1cc0f3039d13bdfc7ceaf96c48f805bb12fd78d552a47e8e5467867a45d"
+        },
+        {
+          "arquivo": "windows/tracing-O2-normal.ll",
+          "bytes": 33537,
+          "sha256": "cb1609ea78779cfc51f852bd3e5875451b415193308b8400f2ee708be19a8c24"
+        },
+        {
+          "arquivo": "windows/tracing-O2-normal.exe.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "arquivo": "windows/tracing-O2-normal.exe.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "windows/tracing-O2-normal.exe.exit",
+          "bytes": 3,
+          "sha256": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354"
+        },
+        {
+          "arquivo": "windows/tracing-O2-sem-retencao.ll",
+          "bytes": 33494,
+          "sha256": "ddaeb0314f68e80c8683b17f130ee84044973622448f04f248b46ae9f45394e3"
+        },
+        {
+          "arquivo": "windows/tracing-O2-sem-retencao.exe.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "windows/tracing-O2-sem-retencao.exe.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "windows/tracing-O2-sem-retencao.exe.exit",
+          "bytes": 13,
+          "sha256": "f298e1cc0f3039d13bdfc7ceaf96c48f805bb12fd78d552a47e8e5467867a45d"
+        },
+        {
+          "arquivo": "windows/tracing-O2-sem-liberar.ll",
+          "bytes": 33488,
+          "sha256": "c7efbc51e5507687f1845bce55101c1a70d1ed6222ffb0876e4b3b139c2a608d"
+        },
+        {
+          "arquivo": "windows/tracing-O2-sem-liberar.exe.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "windows/tracing-O2-sem-liberar.exe.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "windows/tracing-O2-sem-liberar.exe.exit",
+          "bytes": 13,
+          "sha256": "f298e1cc0f3039d13bdfc7ceaf96c48f805bb12fd78d552a47e8e5467867a45d"
+        }
+      ]
+    },
+    {
+      "nome": "ubuntu-latest",
+      "job": 114163279258,
+      "estado_job_observado": "completed",
+      "conclusao_job_observada": "success",
+      "etapa": {
+        "completedAt": "2026-10-10T07:41:21Z",
+        "conclusion": "success",
+        "name": "Keepalive de campos com heap real (AOT Unix)",
+        "number": 9,
+        "startedAt": "2026-10-10T07:39:59Z",
+        "status": "completed"
+      },
+      "artefato": {
+        "id": 11663496190,
+        "name": "prova-keepalive-campos-ubuntu-latest",
+        "digest": "sha256:0bfb5b83559f75fd827c4d6b61f63b76e7da23b4deb49a216643d57f81e8c9f5",
+        "size_in_bytes": 87808
+      },
+      "execucoes": [
+        {
+          "modo": "arc",
+          "nivel": 0,
+          "controle": "normal",
+          "exit": 0
+        },
+        {
+          "modo": "arc",
+          "nivel": 0,
+          "controle": "sem-retencao",
+          "exit": 132
+        },
+        {
+          "modo": "arc",
+          "nivel": 0,
+          "controle": "sem-liberar",
+          "exit": 132
+        },
+        {
+          "modo": "tracing",
+          "nivel": 0,
+          "controle": "normal",
+          "exit": 0
+        },
+        {
+          "modo": "tracing",
+          "nivel": 0,
+          "controle": "sem-retencao",
+          "exit": 132
+        },
+        {
+          "modo": "tracing",
+          "nivel": 0,
+          "controle": "sem-liberar",
+          "exit": 132
+        },
+        {
+          "modo": "arc",
+          "nivel": 2,
+          "controle": "normal",
+          "exit": 0
+        },
+        {
+          "modo": "arc",
+          "nivel": 2,
+          "controle": "sem-retencao",
+          "exit": 132
+        },
+        {
+          "modo": "arc",
+          "nivel": 2,
+          "controle": "sem-liberar",
+          "exit": 132
+        },
+        {
+          "modo": "tracing",
+          "nivel": 2,
+          "controle": "normal",
+          "exit": 0
+        },
+        {
+          "modo": "tracing",
+          "nivel": 2,
+          "controle": "sem-retencao",
+          "exit": 132
+        },
+        {
+          "modo": "tracing",
+          "nivel": 2,
+          "controle": "sem-liberar",
+          "exit": 132
+        }
+      ],
+      "arquivos": [
+        {
+          "arquivo": "ubuntu-latest/arc-O0-normal.ll",
+          "bytes": 33786,
+          "sha256": "9073abc295183e0ca0641ef7a1d99f407e48394d33c340c7af2b9099a8e21afe"
+        },
+        {
+          "arquivo": "ubuntu-latest/arc-O0-normal.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "arquivo": "ubuntu-latest/arc-O0-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "ubuntu-latest/arc-O0-normal.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        },
+        {
+          "arquivo": "ubuntu-latest/arc-O0-sem-retencao.ll",
+          "bytes": 33743,
+          "sha256": "e21386e3810a2f522766e8fea2b464d3a64eaaa25984d94514aeea9d08c397dc"
+        },
+        {
+          "arquivo": "ubuntu-latest/arc-O0-sem-retencao.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "ubuntu-latest/arc-O0-sem-retencao.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "ubuntu-latest/arc-O0-sem-retencao.exit",
+          "bytes": 4,
+          "sha256": "586900065999e00dfd03caec2bd5eb43dd939f082db4718edecd72fabfdcdbec"
+        },
+        {
+          "arquivo": "ubuntu-latest/arc-O0-sem-liberar.ll",
+          "bytes": 33737,
+          "sha256": "c12c4ff4b5bac731be604cc7a2d41a6ad96f76b1e63168ed7c2daed8e128bd04"
+        },
+        {
+          "arquivo": "ubuntu-latest/arc-O0-sem-liberar.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "ubuntu-latest/arc-O0-sem-liberar.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "ubuntu-latest/arc-O0-sem-liberar.exit",
+          "bytes": 4,
+          "sha256": "586900065999e00dfd03caec2bd5eb43dd939f082db4718edecd72fabfdcdbec"
+        },
+        {
+          "arquivo": "ubuntu-latest/tracing-O0-normal.ll",
+          "bytes": 33539,
+          "sha256": "e3c60785538ee259d624c4a80bade35358aaae77432abbed9275959f42cfa8ae"
+        },
+        {
+          "arquivo": "ubuntu-latest/tracing-O0-normal.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "arquivo": "ubuntu-latest/tracing-O0-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "ubuntu-latest/tracing-O0-normal.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        },
+        {
+          "arquivo": "ubuntu-latest/tracing-O0-sem-retencao.ll",
+          "bytes": 33496,
+          "sha256": "3df851982045ffa744042120f7da53894e58d5cdc7313c30db0c5fd503d516bd"
+        },
+        {
+          "arquivo": "ubuntu-latest/tracing-O0-sem-retencao.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "ubuntu-latest/tracing-O0-sem-retencao.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "ubuntu-latest/tracing-O0-sem-retencao.exit",
+          "bytes": 4,
+          "sha256": "586900065999e00dfd03caec2bd5eb43dd939f082db4718edecd72fabfdcdbec"
+        },
+        {
+          "arquivo": "ubuntu-latest/tracing-O0-sem-liberar.ll",
+          "bytes": 33490,
+          "sha256": "abadccad6b64266357446d48ecca990178b8c8d08785b0367f943d577d24f24c"
+        },
+        {
+          "arquivo": "ubuntu-latest/tracing-O0-sem-liberar.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "ubuntu-latest/tracing-O0-sem-liberar.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "ubuntu-latest/tracing-O0-sem-liberar.exit",
+          "bytes": 4,
+          "sha256": "586900065999e00dfd03caec2bd5eb43dd939f082db4718edecd72fabfdcdbec"
+        },
+        {
+          "arquivo": "ubuntu-latest/arc-O2-normal.ll",
+          "bytes": 33786,
+          "sha256": "9073abc295183e0ca0641ef7a1d99f407e48394d33c340c7af2b9099a8e21afe"
+        },
+        {
+          "arquivo": "ubuntu-latest/arc-O2-normal.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "arquivo": "ubuntu-latest/arc-O2-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "ubuntu-latest/arc-O2-normal.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        },
+        {
+          "arquivo": "ubuntu-latest/arc-O2-sem-retencao.ll",
+          "bytes": 33743,
+          "sha256": "e21386e3810a2f522766e8fea2b464d3a64eaaa25984d94514aeea9d08c397dc"
+        },
+        {
+          "arquivo": "ubuntu-latest/arc-O2-sem-retencao.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "ubuntu-latest/arc-O2-sem-retencao.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "ubuntu-latest/arc-O2-sem-retencao.exit",
+          "bytes": 4,
+          "sha256": "586900065999e00dfd03caec2bd5eb43dd939f082db4718edecd72fabfdcdbec"
+        },
+        {
+          "arquivo": "ubuntu-latest/arc-O2-sem-liberar.ll",
+          "bytes": 33737,
+          "sha256": "c12c4ff4b5bac731be604cc7a2d41a6ad96f76b1e63168ed7c2daed8e128bd04"
+        },
+        {
+          "arquivo": "ubuntu-latest/arc-O2-sem-liberar.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "ubuntu-latest/arc-O2-sem-liberar.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "ubuntu-latest/arc-O2-sem-liberar.exit",
+          "bytes": 4,
+          "sha256": "586900065999e00dfd03caec2bd5eb43dd939f082db4718edecd72fabfdcdbec"
+        },
+        {
+          "arquivo": "ubuntu-latest/tracing-O2-normal.ll",
+          "bytes": 33539,
+          "sha256": "e3c60785538ee259d624c4a80bade35358aaae77432abbed9275959f42cfa8ae"
+        },
+        {
+          "arquivo": "ubuntu-latest/tracing-O2-normal.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "arquivo": "ubuntu-latest/tracing-O2-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "ubuntu-latest/tracing-O2-normal.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        },
+        {
+          "arquivo": "ubuntu-latest/tracing-O2-sem-retencao.ll",
+          "bytes": 33496,
+          "sha256": "3df851982045ffa744042120f7da53894e58d5cdc7313c30db0c5fd503d516bd"
+        },
+        {
+          "arquivo": "ubuntu-latest/tracing-O2-sem-retencao.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "ubuntu-latest/tracing-O2-sem-retencao.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "ubuntu-latest/tracing-O2-sem-retencao.exit",
+          "bytes": 4,
+          "sha256": "586900065999e00dfd03caec2bd5eb43dd939f082db4718edecd72fabfdcdbec"
+        },
+        {
+          "arquivo": "ubuntu-latest/tracing-O2-sem-liberar.ll",
+          "bytes": 33490,
+          "sha256": "abadccad6b64266357446d48ecca990178b8c8d08785b0367f943d577d24f24c"
+        },
+        {
+          "arquivo": "ubuntu-latest/tracing-O2-sem-liberar.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "ubuntu-latest/tracing-O2-sem-liberar.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "ubuntu-latest/tracing-O2-sem-liberar.exit",
+          "bytes": 4,
+          "sha256": "586900065999e00dfd03caec2bd5eb43dd939f082db4718edecd72fabfdcdbec"
+        }
+      ]
+    },
+    {
+      "nome": "macos-latest",
+      "job": 114163279175,
+      "estado_job_observado": "in_progress",
+      "conclusao_job_observada": "",
+      "etapa": {
+        "completedAt": "2026-10-10T07:49:32Z",
+        "conclusion": "success",
+        "name": "Keepalive de campos com heap real (AOT Unix)",
+        "number": 9,
+        "startedAt": "2026-10-10T07:46:34Z",
+        "status": "completed"
+      },
+      "artefato": {
+        "id": 11663551935,
+        "name": "prova-keepalive-campos-macos-latest",
+        "digest": "sha256:6601d39758739950827a07cf5e3e5176ef99400f5f5b32574955b6ee905406d3",
+        "size_in_bytes": 86572
+      },
+      "execucoes": [
+        {
+          "modo": "arc",
+          "nivel": 0,
+          "controle": "normal",
+          "exit": 0
+        },
+        {
+          "modo": "arc",
+          "nivel": 0,
+          "controle": "sem-retencao",
+          "exit": 133
+        },
+        {
+          "modo": "arc",
+          "nivel": 0,
+          "controle": "sem-liberar",
+          "exit": 133
+        },
+        {
+          "modo": "tracing",
+          "nivel": 0,
+          "controle": "normal",
+          "exit": 0
+        },
+        {
+          "modo": "tracing",
+          "nivel": 0,
+          "controle": "sem-retencao",
+          "exit": 133
+        },
+        {
+          "modo": "tracing",
+          "nivel": 0,
+          "controle": "sem-liberar",
+          "exit": 133
+        },
+        {
+          "modo": "arc",
+          "nivel": 2,
+          "controle": "normal",
+          "exit": 0
+        },
+        {
+          "modo": "arc",
+          "nivel": 2,
+          "controle": "sem-retencao",
+          "exit": 133
+        },
+        {
+          "modo": "arc",
+          "nivel": 2,
+          "controle": "sem-liberar",
+          "exit": 133
+        },
+        {
+          "modo": "tracing",
+          "nivel": 2,
+          "controle": "normal",
+          "exit": 0
+        },
+        {
+          "modo": "tracing",
+          "nivel": 2,
+          "controle": "sem-retencao",
+          "exit": 133
+        },
+        {
+          "modo": "tracing",
+          "nivel": 2,
+          "controle": "sem-liberar",
+          "exit": 133
+        }
+      ],
+      "arquivos": [
+        {
+          "arquivo": "macos-latest/arc-O0-normal.ll",
+          "bytes": 33640,
+          "sha256": "bf76f92e4453f2263d011c85c6abd175e1cce297edabfca118dbccf44434ca74"
+        },
+        {
+          "arquivo": "macos-latest/arc-O0-normal.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "arquivo": "macos-latest/arc-O0-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "macos-latest/arc-O0-normal.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        },
+        {
+          "arquivo": "macos-latest/arc-O0-sem-retencao.ll",
+          "bytes": 33597,
+          "sha256": "d3117b1f8d7095d5ec7294bba1736a3aef830b1307e1e7841f600572fe93c3f5"
+        },
+        {
+          "arquivo": "macos-latest/arc-O0-sem-retencao.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "macos-latest/arc-O0-sem-retencao.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "macos-latest/arc-O0-sem-retencao.exit",
+          "bytes": 4,
+          "sha256": "49453b5778ba23c77e35a6b10436f27867635c679b926429b4a9fd2ebce2c6c9"
+        },
+        {
+          "arquivo": "macos-latest/arc-O0-sem-liberar.ll",
+          "bytes": 33591,
+          "sha256": "8d1e01552c88dda1a43b21c22dfce145a7c2170aeca859c6f8af9f4b1ca7bdc7"
+        },
+        {
+          "arquivo": "macos-latest/arc-O0-sem-liberar.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "macos-latest/arc-O0-sem-liberar.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "macos-latest/arc-O0-sem-liberar.exit",
+          "bytes": 4,
+          "sha256": "49453b5778ba23c77e35a6b10436f27867635c679b926429b4a9fd2ebce2c6c9"
+        },
+        {
+          "arquivo": "macos-latest/tracing-O0-normal.ll",
+          "bytes": 33393,
+          "sha256": "181d359d5eaee7f6b58ee135c77ec3b0e530399dc5736088b76e0a5d5d77ef66"
+        },
+        {
+          "arquivo": "macos-latest/tracing-O0-normal.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "arquivo": "macos-latest/tracing-O0-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "macos-latest/tracing-O0-normal.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        },
+        {
+          "arquivo": "macos-latest/tracing-O0-sem-retencao.ll",
+          "bytes": 33350,
+          "sha256": "4733440b696bcb2203d35941c72a214843ee302ff080e1204b3a9f07c7795398"
+        },
+        {
+          "arquivo": "macos-latest/tracing-O0-sem-retencao.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "macos-latest/tracing-O0-sem-retencao.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "macos-latest/tracing-O0-sem-retencao.exit",
+          "bytes": 4,
+          "sha256": "49453b5778ba23c77e35a6b10436f27867635c679b926429b4a9fd2ebce2c6c9"
+        },
+        {
+          "arquivo": "macos-latest/tracing-O0-sem-liberar.ll",
+          "bytes": 33344,
+          "sha256": "018c912f3fdbf5fc326581472dae608e4fe4b9a50cf2baf05e7e970838c28a81"
+        },
+        {
+          "arquivo": "macos-latest/tracing-O0-sem-liberar.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "macos-latest/tracing-O0-sem-liberar.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "macos-latest/tracing-O0-sem-liberar.exit",
+          "bytes": 4,
+          "sha256": "49453b5778ba23c77e35a6b10436f27867635c679b926429b4a9fd2ebce2c6c9"
+        },
+        {
+          "arquivo": "macos-latest/arc-O2-normal.ll",
+          "bytes": 33640,
+          "sha256": "bf76f92e4453f2263d011c85c6abd175e1cce297edabfca118dbccf44434ca74"
+        },
+        {
+          "arquivo": "macos-latest/arc-O2-normal.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "arquivo": "macos-latest/arc-O2-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "macos-latest/arc-O2-normal.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        },
+        {
+          "arquivo": "macos-latest/arc-O2-sem-retencao.ll",
+          "bytes": 33597,
+          "sha256": "d3117b1f8d7095d5ec7294bba1736a3aef830b1307e1e7841f600572fe93c3f5"
+        },
+        {
+          "arquivo": "macos-latest/arc-O2-sem-retencao.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "macos-latest/arc-O2-sem-retencao.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "macos-latest/arc-O2-sem-retencao.exit",
+          "bytes": 4,
+          "sha256": "49453b5778ba23c77e35a6b10436f27867635c679b926429b4a9fd2ebce2c6c9"
+        },
+        {
+          "arquivo": "macos-latest/arc-O2-sem-liberar.ll",
+          "bytes": 33591,
+          "sha256": "8d1e01552c88dda1a43b21c22dfce145a7c2170aeca859c6f8af9f4b1ca7bdc7"
+        },
+        {
+          "arquivo": "macos-latest/arc-O2-sem-liberar.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "macos-latest/arc-O2-sem-liberar.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "macos-latest/arc-O2-sem-liberar.exit",
+          "bytes": 4,
+          "sha256": "49453b5778ba23c77e35a6b10436f27867635c679b926429b4a9fd2ebce2c6c9"
+        },
+        {
+          "arquivo": "macos-latest/tracing-O2-normal.ll",
+          "bytes": 33393,
+          "sha256": "181d359d5eaee7f6b58ee135c77ec3b0e530399dc5736088b76e0a5d5d77ef66"
+        },
+        {
+          "arquivo": "macos-latest/tracing-O2-normal.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "arquivo": "macos-latest/tracing-O2-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "macos-latest/tracing-O2-normal.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        },
+        {
+          "arquivo": "macos-latest/tracing-O2-sem-retencao.ll",
+          "bytes": 33350,
+          "sha256": "4733440b696bcb2203d35941c72a214843ee302ff080e1204b3a9f07c7795398"
+        },
+        {
+          "arquivo": "macos-latest/tracing-O2-sem-retencao.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "macos-latest/tracing-O2-sem-retencao.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "macos-latest/tracing-O2-sem-retencao.exit",
+          "bytes": 4,
+          "sha256": "49453b5778ba23c77e35a6b10436f27867635c679b926429b4a9fd2ebce2c6c9"
+        },
+        {
+          "arquivo": "macos-latest/tracing-O2-sem-liberar.ll",
+          "bytes": 33344,
+          "sha256": "018c912f3fdbf5fc326581472dae608e4fe4b9a50cf2baf05e7e970838c28a81"
+        },
+        {
+          "arquivo": "macos-latest/tracing-O2-sem-liberar.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "macos-latest/tracing-O2-sem-liberar.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "arquivo": "macos-latest/tracing-O2-sem-liberar.exit",
+          "bytes": 4,
+          "sha256": "49453b5778ba23c77e35a6b10436f27867635c679b926429b4a9fd2ebce2c6c9"
+        }
+      ]
+    }
+  ]
+}
