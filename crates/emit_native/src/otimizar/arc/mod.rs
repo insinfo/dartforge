@@ -329,3 +329,6 @@ fn analisar(f: &Function, referencias: &Inventario<'_>) -> Vivacidade {
 
 #[cfg(test)]
 mod testes;
+
+mod retomas;
+pub(crate) use retomas::conferir as conferir_retomas;

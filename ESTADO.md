@@ -2,6 +2,40 @@
 
 ## Retomada de 2026-10-09
 
+Integração de resume ao protótipo ARC: HIR ganha saída Retoma, cujo Return
+é placeholder sem transferência. A preparação automática usa esse modo
+em Unix e mantém Lanca em Windows, até a integração SEH. O emissor escolhe
+`dartforge_personalidade_cleanup_itanium`, emite landingpad cleanup e retoma
+o par original. Drops ARC precedem resume; não chama df.lancar nesse pouso.
+Tokens/emissor/materialização conferem pouso não inicial, um invoke estático,
+entrada exclusivamente excepcional, retorno canônico e corpo só de drops.
+Rejeitam limpeza da pendência e demais operações no cleanup; emissor rejeita
+statepoint token e Retoma no módulo público Windows. Esses limites continuam
+pendências de integração, não substituem SEH/statepoints/finally/cancelamento.
+A materialização preserva Retoma em vez de recalcular Lanca/Guarda.
+Passaram 93 testes ARC, 41 LLVM, seis tabelas, 47 doctests e quatro testes dirigidos,
+incluindo rollback/idempotência e materialização. O corpo real do emissor
+gerou objetos Linux O0/O2 no LLVM embutido. Isso é geração, não execução
+com heap ARC Unix; a CI agora executa a prova AOT automática em Linux/macOS,
+ARC/tracing × normal/erro sob ARC_CONFERIR=1, BER=0, GC_STRESS=1 e compara
+stdout. Essa execução ainda está pendente. AOT Windows ARC/tracing × normal/erro
+passou nas quatro variantes, código zero e stdout conferido byte a byte;
+Windows mantém Lanca. Logs locais `target/retoma-*`.
+A primeira execução com LLVM embutido não iniciou por falta da DLL no PATH;
+repetida com o binário da toolchain instalada, passou. Não certifica identidade
+/rastro/morte final em AOT nem o pipeline semântico completo ou gate ARC/A0.
+
+Pesado 38003888914 terminou com sucesso no commit
+351c99d7b5a26a5d6ecb3f98012485cce2350499. Relatórios baixados em
+`target/ci-38003888914`: A1/B0/B1/ARC Linux e macOS 238/238; JIT×AOT
+238/238 sem divergências (sete sem IR, iguais por construção); dart:io
+Linux/Windows 130/130 e SDK da fonte 238/238. Seis casos interop têm DART!
+por falta de oráculo Dart nativo. O placar Windows 476/476 soma AOT+ARC,
+não 476 programas distintos. Essa rodada precede Guarda explícita,
+invokes automáticos e Itanium/Retoma; não valida as integrações novas nem
+DDC portátil e não altera o gate de desempenho.
+
+
 Itanium agora percorre as cadeias de ações SLEB128: separa índice de ação,
 seletor catch e presença de cleanup, incluindo registros filtro zero em
 índice positivo e elos negativos relativos ao campo de deslocamento.

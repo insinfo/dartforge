@@ -425,6 +425,7 @@ fn da_funcao(f: &mut Function, nl: &HashSet<String>, preservar_cleanup: bool) ->
 ///   `invoke`;
 /// * o pouso não tem instruções e desvia sem condição.
 fn conferir(f: &Function, t: &TabelasDaFuncao) {
+    super::arc::conferir_retomas(f, t).expect("bug do compilador: Retoma inválida");
     let mut chegadas: HashMap<BlockId, u32> = HashMap::new();
     for b in &f.blocks {
         let invocadas: Vec<BlockId> = b.instructions.iter().filter_map(|(v, _, _)| t.invocacoes.get(v).copied()).collect();
@@ -470,7 +471,10 @@ fn conferir(f: &Function, t: &TabelasDaFuncao) {
         }
         if t.pousos.contains(&b.id) {
             assert!(
-                b.instructions.is_empty() && matches!(b.terminator, Terminator::Branch(_)),
+                (b.instructions.is_empty() && matches!(b.terminator, Terminator::Branch(_)))
+                    || (t.saidas.get(&b.id) == Some(&SaidaPorExcecao::Retoma)
+                        && b.instructions.iter().all(|(_, i, _)| matches!(i, Instruction::ArcDrop { .. }))
+                        && matches!(b.terminator, Terminator::Return(_))),
                 "bug do compilador (exceções por tabelas): em {}, o pouso b{} não é só um desvio",
                 f.symbol,
                 b.id.0
@@ -634,6 +638,7 @@ fn saidas(f: &mut Function, nl: &HashSet<String>, t: &mut TabelasDaFuncao) {
         if !matches!(b.terminator, Terminator::Return(_)) {
             continue;
         }
+        if t.saidas.get(&b.id) == Some(&SaidaPorExcecao::Retoma) { continue; }
         match percorrer(b, e, nl).0 {
             Pendencia::Limpa => {}
             Pendencia::Ligada => {
@@ -673,6 +678,27 @@ fn saidas(f: &mut Function, nl: &HashSet<String>, t: &mut TabelasDaFuncao) {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn materializacao_preserva_retoma_e_confere_cleanup_antes_de_publicar() {
+        let mut m = modulo();
+        m.functions[0].blocks[0].terminator = Terminator::CondBranch {
+            cond: Operand::Constant(Constant::Bool(false)), then_block: BlockId(2), else_block: BlockId(1),
+        };
+        m.functions[0].blocks.extend([
+            BasicBlock { id: BlockId(1), instructions: vec![], terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) },
+            BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) },
+        ]);
+        let t = TabelasDaFuncao {
+            invocacoes: [(ValueId(0), BlockId(2))].into(), pousos: [BlockId(2)].into(),
+            saidas: [(BlockId(2), SaidaPorExcecao::Retoma)].into(), ..Default::default()
+        };
+        let plano = PlanoExcecoes { funcoes: vec![(m.functions[0].symbol.clone(), t.clone())] };
+        materializar(&mut m, plano);
+        assert_eq!(m.tabelas[0].saidas[&BlockId(2)], SaidaPorExcecao::Retoma);
+        m.functions[0].blocks[2].terminator = Terminator::Return(Some(Operand::Val(ValueId(0))));
+        assert!(std::panic::catch_unwind(|| conferir(&m.functions[0], &t)).is_err());
+    }
 
     fn modulo() -> Module {
         Module {

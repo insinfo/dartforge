@@ -673,3 +673,82 @@ fn verificador_confere_capturas_records_e_instrucoes_que_sairam() {
     // A captura 1 (a célula, `Ref`) lida como `Ref`: sem erro.
     assert!(!tem("captura 1"), "{erros:?}");
 }
+
+// Testa o emissor do corpo também no host Windows, sem fingir suporte AOT Unix.
+#[test]
+fn cleanup_retoma_par_original_e_recusa_metadados_incoerentes() {
+    let f = funcao("retoma", vec![(ValueId(0), "x".into(), Type::Ref)], Type::Void, vec![
+        BasicBlock { id: BlockId(0), instructions: vec![
+            (ValueId(1), Instruction::ArcCopy { value: Operand::Val(ValueId(0)) }, Type::Ref),
+            (ValueId(2), Instruction::CallStatic { symbol: "falha".into(), args: vec![], ret_ty: Type::Void }, Type::Void),
+        ], terminator: Terminator::CondBranch { cond: Operand::Constant(Constant::Bool(false)), then_block: BlockId(2), else_block: BlockId(1) } },
+        BasicBlock { id: BlockId(1), instructions: vec![(ValueId(4), Instruction::ArcDrop { value: Operand::Val(ValueId(1)) }, Type::Void)], terminator: Terminator::Return(None) },
+        BasicBlock { id: BlockId(2), instructions: vec![
+            (ValueId(3), Instruction::ArcDrop { value: Operand::Val(ValueId(1)) }, Type::Void),
+        ], terminator: Terminator::Return(None) },
+    ]);
+    let t = TabelasDaFuncao {
+        invocacoes: [(ValueId(2), BlockId(2))].into(),
+        pousos: [BlockId(2)].into(),
+        saidas: [(BlockId(2), SaidaPorExcecao::Retoma)].into(),
+        ..Default::default()
+    };
+    crate::otimizar::arc::conferir_retomas(&f, &t).unwrap();
+    let m = Module::new();
+    let mut e = LlvmEmitter::new(&m);
+    e.tab = Some(&t);
+    e.emit_function(&f);
+    let ir = e.out;
+    assert!(ir.contains("personality ptr @dartforge_personalidade_cleanup_itanium"));
+    #[cfg(feature = "llvm-embutido")]
+    {
+        // O corpo emitido é verificado e gera código Itanium, sem usar o
+        // cabeçalho Windows nem prometer cross-compilation de módulos Dart.
+        let completo = format!(r#"target triple = "x86_64-unknown-linux-gnu"
+            declare i32 @dartforge_personalidade_cleanup_itanium(...)
+            declare ptr @dartforge_contexto()
+            declare void @dartforge_estouro_de_pilha()
+            declare i1 @llvm.expect.i1(i1, i1)
+            declare void @df.lancar()
+            declare void @dartforge_arc_retain(i64)
+            declare void @dartforge_arc_release(i64)
+            declare void @falha()
+            {ir}"#);
+        for otimizar in [false, true] {
+            let objeto = dartforge_llvm::gerar("cleanup-retoma", &completo, &dartforge_llvm::Opcoes {
+                otimizar, formato: dartforge_llvm::Formato::Objeto, cpu: None,
+            }).unwrap_or_else(|erro| panic!("{erro}\n{completo}"));
+            assert!(!objeto.is_empty());
+        }
+    }
+    let pouso = &ir[ir.find("b2:").unwrap()..];
+    assert!(pouso.contains("%lpad2 = landingpad { ptr, i32 } cleanup"));
+    assert!(pouso.contains("resume { ptr, i32 } %lpad2"));
+    assert!(!pouso.contains("@df.lancar"));
+    assert!(pouso.find("@dartforge_arc_release").unwrap() < pouso.find("resume").unwrap());
+    let mut ruim = t.clone();
+    ruim.pousos.clear();
+    assert!(crate::otimizar::arc::conferir_retomas(&f, &ruim).unwrap_err().contains("pouso"));
+    ruim = t.clone();
+    ruim.invocacoes.insert(ValueId(1000), BlockId(2));
+    assert!(crate::otimizar::arc::conferir_retomas(&f, &ruim).unwrap_err().contains("exatamente um invoke"));
+    let mut corpo = f.clone();
+    corpo.blocks[0].terminator = Terminator::Branch(BlockId(2));
+    assert!(crate::otimizar::arc::conferir_retomas(&corpo, &t).unwrap_err().contains("sem invoke"));
+    corpo = f.clone();
+    corpo.blocks[2].instructions.push((ValueId(5), Instruction::CallRuntime { name: "dartforge_exception_clear".into(), args: vec![], ret_ty: Type::Void }, Type::Void));
+    assert!(crate::otimizar::arc::conferir_retomas(&corpo, &t).unwrap_err().contains("só admite drops"));
+    let mut e = LlvmEmitter::new(&m);
+    e.tab = Some(&t);
+    e.mapas = true;
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| e.emit_function(&f))).is_err());
+}
+
+#[cfg(windows)]
+#[test]
+#[should_panic(expected = "Windows precisa de funclets SEH")]
+fn retoma_nao_promete_suporte_seh_no_emissor_publico() {
+    let mut m = Module::new();
+    m.tabelas.push(TabelasDaFuncao { saidas: [(BlockId(1), SaidaPorExcecao::Retoma)].into(), ..Default::default() });
+    LlvmEmitter::new(&m).emit_all();
+}

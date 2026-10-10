@@ -446,8 +446,22 @@ impl<'a> LlvmEmitter<'a> {
 
     /// O módulo inteiro. Um módulo com diagnósticos não chega aqui:
     /// `emitir_ir` devolve o erro antes (N1).
+    ///
+    /// ```
+    /// use dartforge_emit_native::{hir::Module, llvm::LlvmEmitter};
+    /// let modulo = Module::new();
+    /// let ir = LlvmEmitter::new(&modulo).emit_all();
+    /// assert!(ir.contains("target triple"));
+    /// ```
+    ///
+    /// # Panics
+    /// Módulo com diagnósticos ou metadados excepcionais incoerentes.
+    /// Retoma ainda exige Itanium sem statepoints; Windows precisa de funclets.
     pub fn emit_all(mut self) -> String {
         assert!(self.module.erros.is_empty(), "emit_all com diagnósticos: {:?}", self.module.erros);
+        assert!(!cfg!(windows) || !self.module.tabelas.iter().any(|t|
+            t.saidas.values().any(|s| *s == SaidaPorExcecao::Retoma)),
+            "Retoma exige Itanium; Windows precisa de funclets SEH");
         // Coleta literais de strings do módulo para declaração como constantes globais
         self.collect_string_constants();
 
@@ -850,7 +864,13 @@ impl<'a> LlvmEmitter<'a> {
         // pousos); as outras o desenrolamento atravessa.
         let tab = self.tab;
         let tem_pouso = tab.is_some_and(|t| !t.pousos.is_empty());
-        let personalidade = if tem_pouso { " personality ptr @dartforge_personalidade" } else { "" };
+        let tem_retoma = tab.is_some_and(|t| t.saidas.values().any(|s| *s == SaidaPorExcecao::Retoma));
+        assert!(!tem_retoma || !self.mapas, "Retoma não admite landingpad token de statepoint");
+        if tem_retoma {
+            crate::otimizar::arc::conferir_retomas(func, tab.unwrap()).expect("Retoma inválida");
+        }
+        let personalidade = if tem_retoma { " personality ptr @dartforge_personalidade_cleanup_itanium" }
+            else if tem_pouso { " personality ptr @dartforge_personalidade" } else { "" };
 
         // G1/G2 (docs/NATIVO-PLANO.md §6.5): um slot por `alloca` de tipo
         // `Ref`, e os valores SSA `Ref` vivos em algum ponto de coleta, com
@@ -953,7 +973,9 @@ impl<'a> LlvmEmitter<'a> {
             // atravessados) ainda encadeados — o topo da pilha-sombra volta
             // a ser o desta função, antes de qualquer outra instrução.
             if tab.is_some_and(|t| t.pousos.contains(&block.id)) {
-                if tem_gc {
+                if tab.is_some_and(|t| t.saidas.get(&block.id) == Some(&SaidaPorExcecao::Retoma)) {
+                    writeln!(self.out, "  %lpad{} = landingpad {{ ptr, i32 }} cleanup", block.id.0).unwrap();
+                } else if tem_gc {
                     // Numa função `gc` o `invoke` vira statepoint, e o pouso
                     // dele é `token` (o que as relocações do caminho de
                     // exceção referenciam).
@@ -1804,6 +1826,10 @@ impl<'a> LlvmEmitter<'a> {
                     Some(SaidaPorExcecao::Lanca) => {
                         writeln!(self.out, "  call void @df.lancar()").unwrap();
                         writeln!(self.out, "  unreachable").unwrap();
+                        continue;
+                    }
+                    Some(SaidaPorExcecao::Retoma) => {
+                        writeln!(self.out, "  resume {{ ptr, i32 }} %lpad{}", block.id.0).unwrap();
                         continue;
                     }
                     Some(SaidaPorExcecao::Guarda) => {
@@ -3932,6 +3958,7 @@ define internal void @df.lancar() noreturn noinline cold \"gc-leaf-function\" {\
 /// que encerra.
 const EXCECOES_POR_TABELAS_ITANIUM: &str = "; Exceções por tabelas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md)
 declare i32 @dartforge_personalidade(...)
+declare i32 @dartforge_personalidade_cleanup_itanium(...)
 declare void @dartforge_registrar_portas(ptr, i64)
 declare ptr @dartforge_objeto_de_desenrolamento()
 declare i32 @_Unwind_RaiseException(ptr)

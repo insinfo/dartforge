@@ -72,7 +72,8 @@ pub fn inserir_arc_funcoes_dart(
 /// Prepara invokes ausentes e insere ARC num conjunto fechado de funções Dart.
 ///
 /// Chamadas diretas falíveis sem pouso fornecido ganham uma continuação
-/// normal e um pouso que libera owners e propaga a exceção por Lanca.
+/// normal e um pouso que libera owners. Em Unix, propaga por Retoma usando
+/// o objeto Itanium original; em Windows, usa Lanca até a integração SEH.
 /// Um sítio já preparado conserva seu tratador. Phis e limites lexicais
 /// seguem o terminador original; a saída excepcional fecha os escopos ativos.
 /// Conferência de pendência logo após chamada exige sítio preparado, pois

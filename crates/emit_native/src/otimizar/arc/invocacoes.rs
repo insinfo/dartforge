@@ -78,7 +78,14 @@ pub(super) fn preparar(
             };
             plano.tabelas.invocacoes.insert(v, erro);
             plano.tabelas.pousos.insert(erro);
-            plano.tabelas.saidas.insert(erro, SaidaPorExcecao::Lanca);
+            plano.tabelas.saidas.insert(
+                erro,
+                if cfg!(unix) {
+                    SaidaPorExcecao::Retoma
+                } else {
+                    SaidaPorExcecao::Lanca
+                },
+            );
             // O pouso libera os tokens antes de sair dos escopos ativos.
             // Chamadas inalcançáveis não têm pilha executável a fechar.
             let fechar: Vec<_> = pilhas
@@ -219,7 +226,14 @@ mod testes {
         for (v, esperado) in [(2, vec![1]), (3, vec![1, 2])] {
             let erro = p.tabelas.invocacoes[&ValueId(v)];
             assert!(p.tabelas.pousos.contains(&erro));
-            assert_eq!(p.tabelas.saidas[&erro], SaidaPorExcecao::Lanca);
+            assert_eq!(
+                p.tabelas.saidas[&erro],
+                if cfg!(unix) {
+                    SaidaPorExcecao::Retoma
+                } else {
+                    SaidaPorExcecao::Lanca
+                }
+            );
             assert_eq!(p.escopos.saidas[&erro], vec![AlteracaoEscopo::Fechar(7)]);
             let b = funcoes[0].blocks.iter().find(|b| b.id == erro).unwrap();
             let drops: Vec<_> = b
@@ -329,7 +343,11 @@ mod testes {
         assert!(!p.tabelas.saidas.contains_key(&BlockId(7)));
         assert_eq!(
             p.tabelas.saidas[&p.tabelas.invocacoes[&ValueId(3)]],
-            SaidaPorExcecao::Lanca
+            if cfg!(unix) {
+                SaidaPorExcecao::Retoma
+            } else {
+                SaidaPorExcecao::Lanca
+            }
         );
     }
 
@@ -384,6 +402,63 @@ mod testes {
             preparar_arc_funcoes_dart(&mut funcoes, &mut planos)
                 .unwrap_err()
                 .contains("conferência de pendência Dart exige sítio preparado")
+        );
+        assert_eq!(format!("{funcoes:?}"), antes);
+        assert_eq!(format!("{planos:?}"), planos_antes);
+    }
+    #[test]
+    fn retoma_limpa_owners_sem_transferir_resultado_e_rejeita_alterar_excecao() {
+        let (mut funcoes, mut planos) = conjunto();
+        preparar_arc_funcoes_dart(&mut funcoes, &mut planos).unwrap();
+        for modo in planos
+            .get_mut("caller")
+            .unwrap()
+            .tabelas
+            .saidas
+            .values_mut()
+        {
+            *modo = SaidaPorExcecao::Retoma;
+        }
+        let antes = format!("{funcoes:?}");
+        assert_eq!(
+            super::super::inserir_arc_funcoes_dart(&mut funcoes, &mut planos).unwrap(),
+            (0, 0)
+        );
+        assert_eq!(format!("{funcoes:?}"), antes);
+        let p = &planos["caller"];
+        for b in p.tabelas.saidas.keys() {
+            assert!(matches!(
+                funcoes[0]
+                    .blocks
+                    .iter()
+                    .find(|bl| bl.id == *b)
+                    .unwrap()
+                    .terminator,
+                Terminator::Return(Some(Operand::Constant(Constant::Null)))
+            ));
+        }
+        let id = p.tabelas.invocacoes[&ValueId(2)];
+        funcoes[0]
+            .blocks
+            .iter_mut()
+            .find(|b| b.id == id)
+            .unwrap()
+            .instructions
+            .push((
+                ValueId(1000),
+                Instruction::CallRuntime {
+                    name: "dartforge_exception_clear".into(),
+                    args: vec![],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            ));
+        let antes = format!("{funcoes:?}");
+        let planos_antes = format!("{planos:?}");
+        assert!(
+            super::super::inserir_arc_funcoes_dart(&mut funcoes, &mut planos)
+                .unwrap_err()
+                .contains("só admite drops")
         );
         assert_eq!(format!("{funcoes:?}"), antes);
         assert_eq!(format!("{planos:?}"), planos_antes);

@@ -109,7 +109,7 @@ pub fn verificar_contrato_funcao_dart(
         )
         .collect();
     for b in &f.blocks {
-        if tabelas.saidas.get(&b.id) == Some(&SaidaPorExcecao::Lanca) {
+        if matches!(tabelas.saidas.get(&b.id), Some(SaidaPorExcecao::Lanca | SaidaPorExcecao::Retoma)) {
             continue;
         }
         if let Terminator::Return(op) = &b.terminator {

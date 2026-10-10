@@ -968,6 +968,9 @@ pub enum SaidaPorExcecao {
     /// A exceção está pendente em todo caminho até este `Return`: desenrola
     /// (`@df.lancar`) em vez de retornar.
     Lanca,
+    /// Retoma o objeto nativo recebido neste pouso de cleanup Itanium.
+    /// Só admite drops ARC antes do Return; não publica uma nova exceção.
+    Retoma,
     /// Pode estar pendente: confere a pendência e desenrola ou retorna.
     Guarda,
 }

@@ -106,7 +106,7 @@ pub fn inserir_retencao_retornos_dart(
 /// Inclui retornos de caminhos excepcionais já preparados. Exige junções
 /// com inventários compatíveis; não divide arestas, fecha quadros nem prepara
 /// finally/cancelamento/suspensão. Contratos não cobertos continuam explícitos.
-/// Saída Lanca devolve apenas o placeholder e libera todos os tokens locais;
+/// Saídas Lanca/Retoma devolvem apenas o placeholder e liberam tokens locais;
 /// saída Guarda exige separar sucesso/erro no CFG antes deste passe.
 ///
 /// # Erros

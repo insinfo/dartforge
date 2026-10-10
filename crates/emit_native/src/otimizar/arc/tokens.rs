@@ -301,13 +301,16 @@ pub(super) fn conferir_saidas_excepcionais(
     tabelas: &TabelasDaFuncao,
     exigir_canonico: bool,
 ) -> Result<(), String> {
+    if tabelas.saidas.is_empty() {
+        return Ok(());
+    }
+    let blocos: HashMap<_, _> = f.blocks.iter().map(|b| (b.id, b)).collect();
+    let destinos: HashSet<_> = tabelas.invocacoes.values().copied().collect();
     let mut saidas: Vec<_> = tabelas.saidas.iter().collect();
     saidas.sort_by_key(|(b, _)| b.0);
     for (id, modo) in saidas {
-        let b = f
-            .blocks
-            .iter()
-            .find(|b| b.id == *id)
+        let b = blocos
+            .get(id)
             .ok_or_else(|| format!("saída excepcional obsoleta b{}", id.0))?;
         let Terminator::Return(op) = &b.terminator else {
             return Err(format!("saída excepcional b{} não é Return", id.0));
@@ -318,6 +321,20 @@ pub(super) fn conferir_saidas_excepcionais(
                 id.0
             ));
         }
+        if *modo == SaidaPorExcecao::Retoma {
+            if !tabelas.pousos.contains(id)
+                || !destinos.contains(id)
+                || f.blocks.first().is_some_and(|entrada| entrada.id == *id)
+            {
+                return Err(format!("saída Retoma b{} exige pouso de invoke", id.0));
+            }
+            if b.instructions
+                .iter()
+                .any(|(_, i, _)| !matches!(i, Instruction::ArcDrop { .. }))
+            {
+                return Err(format!("saída Retoma b{} só admite drops ARC", id.0));
+            }
+        }
         let esperado = if f.return_ty == Type::Void {
             None
         } else {
@@ -325,7 +342,7 @@ pub(super) fn conferir_saidas_excepcionais(
         };
         if exigir_canonico && *op != esperado {
             return Err(format!(
-                "saída Lanca b{} exige retorno canônico sem transferência",
+                "saída {modo:?} b{} exige retorno canônico sem transferência",
                 id.0
             ));
         }
@@ -341,7 +358,10 @@ pub(super) fn normalizar_saidas_lanca(
     super::ssa::verificar(f)?;
     conferir_saidas_excepcionais(f, tabelas, false)?;
     for b in &mut f.blocks {
-        if tabelas.saidas.get(&b.id) == Some(&SaidaPorExcecao::Lanca) {
+        if matches!(
+            tabelas.saidas.get(&b.id),
+            Some(SaidaPorExcecao::Lanca | SaidaPorExcecao::Retoma)
+        ) {
             b.terminator = Terminator::Return(if f.return_ty == Type::Void {
                 None
             } else {
@@ -360,6 +380,7 @@ fn analisar_tokens(
     permitir_cleanup: bool,
 ) -> Result<HashMap<BlockId, Vec<ValueId>>, String> {
     conferir_saidas_excepcionais(f, tabelas, true)?;
+    super::conferir_retomas(f, tabelas)?;
     super::classificacao::vivacidade_com_saidas(f, classes, tabelas, &plano.pendencias)?;
     let erro_meta = |m: String| format!("tokens em {}: {m}", f.symbol);
     let mut esperados = HashSet::new();
@@ -547,7 +568,10 @@ fn analisar_tokens(
             return Err(erro_fluxo(f, &pais, i, m));
         }
         if let Terminator::Return(valor) = &b.terminator
-            && tabelas.saidas.get(&b.id) != Some(&SaidaPorExcecao::Lanca)
+            && !matches!(
+                tabelas.saidas.get(&b.id),
+                Some(SaidaPorExcecao::Lanca | SaidaPorExcecao::Retoma)
+            )
         {
             match (plano.retorno, valor) {
                 (RetornoTokens::Owned, Some(v)) => consumir_operando(v, classes, &mut ativos)
