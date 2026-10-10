@@ -2,6 +2,13 @@
 
 ## Retomada de 2026-10-10
 
+Na CI 38038842350 da fonte b198aadd, as matrizes de campos, pending e
+laços do script compartilhado terminaram com sucesso nas três plataformas
+(144 casos no total). Windows/Linux e mensagens estão completos; macOS
+ainda executa testes do JIT. Sem toolchain 38038842352 terminou com sucesso.
+Isso não inclui as preparações novas de AllocObject/campos locais, ainda
+em commits locais aguardando a conclusão da CI para publicação.
+
 Campos locais registrados no commit 5d0272e9. Evidência congelada em
 bench/resultados/2026-10-10-campos-locais-windows: 16 execuções,
 80 arquivos AOT e quatro logs, com hashes e blobs das fontes. A base
