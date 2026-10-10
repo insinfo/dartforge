@@ -171,7 +171,7 @@ pub(super) fn resolver<'a>(
     // de campos/publicações nem ignorar prólogos/saídas opacos. Recursão
     // propaga uniões; desconhecimento e orçamento excedido são absorventes.
     let mut escritas = vec![super::escritas::InclusoesEscritas::vazio(); corpos.len()];
-    let mut globais = vec![super::escritas::InclusoesGlobais::vazio(); corpos.len()];
+    let mut globais = vec![super::escritas::InclusoesPublicacoes::vazio(); corpos.len()];
     let mut caminhos: Vec<_> = corpos
         .iter()
         .map(|f| {
@@ -233,7 +233,7 @@ pub(super) fn resolver<'a>(
     {
         resumo.inclusoes_escritas = inclusoes;
         resumo.retorno_caminhos = retorno;
-        resumo.inclusoes_globais = publicacoes;
+        resumo.inclusoes_publicacoes = publicacoes;
     }
     Ok(corpos
         .into_iter()

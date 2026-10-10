@@ -184,6 +184,104 @@ mod testes {
     use super::*;
 
     #[test]
+    fn excecao_por_chamada_preserva_payload_sem_fechar_fronteira_e_valida_corpos() {
+        use super::super::escape::*;
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.layouts_campos_arc.insert(1, vec![]);
+        let explode = Function {
+            symbol: "explode".into(),
+            name: "explode".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "x".into(), Type::Ref)],
+            return_ty: Type::Void,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![],
+                terminator: Terminator::Throw(Operand::Val(ValueId(0))),
+            }],
+        };
+        let ponte = Function {
+            symbol: "ponte".into(),
+            name: "ponte".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "x".into(), Type::Ref)],
+            return_ty: Type::Void,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![(
+                    ValueId(1),
+                    Instruction::CallStatic {
+                        symbol: "explode".into(),
+                        args: vec![Operand::Val(ValueId(0))],
+                        ret_ty: Type::Void,
+                    },
+                    Type::Void,
+                )],
+                terminator: Terminator::Return(None),
+            }],
+        };
+        let caller = Function {
+            symbol: "caller".into(),
+            name: "caller".into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::Void,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![
+                    (
+                        ValueId(0),
+                        Instruction::AllocObject {
+                            class_id: 1,
+                            fields: vec![],
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(1),
+                        Instruction::CallStatic {
+                            symbol: "ponte".into(),
+                            args: vec![Operand::Val(ValueId(0))],
+                            ret_ty: Type::Void,
+                        },
+                        Type::Void,
+                    ),
+                ],
+                terminator: Terminator::Return(None),
+            }],
+        };
+        m.functions = vec![caller, ponte, explode];
+        super::super::origens::registrar(&mut m, 0, true);
+        let a = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+        let e = calcular_no_modulo(&m, "caller", &a).unwrap();
+        assert_eq!(
+            e.publicacoes[&CausaEscape::Excecao].nos(),
+            a.valor(ValueId(0)).unwrap().nos()
+        );
+        assert!(
+            e.publicacoes[&CausaEscape::OperacaoOpaca(1)]
+                .nos()
+                .is_none()
+        );
+        m.functions[2].blocks[0].terminator =
+            Terminator::Throw(Operand::Constant(Constant::String("erro".into())));
+        assert!(calcular_no_modulo(&m, "caller", &a).is_err());
+        let a = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+        let e = calcular_no_modulo(&m, "caller", &a).unwrap();
+        assert!(e.publicacoes[&CausaEscape::Excecao].nos().is_none());
+        let a = analisar_no_modulo(&m, "caller", 0).unwrap().unwrap();
+        let e = calcular_no_modulo(&m, "caller", &a).unwrap();
+        assert!(
+            e.publicacoes[&CausaEscape::OperacaoOpaca(1)]
+                .nos()
+                .is_none()
+        );
+        m.memoria_arc = false;
+        assert!(analisar_no_modulo(&m, "caller", 8).unwrap().is_none());
+    }
+
+    #[test]
     fn publicacao_por_chamada_conserva_identidade_e_opacidade_e_confere_globais() {
         use super::super::escape::*;
         for modo in [ModoStoreForte::Copy, ModoStoreForte::Move] {

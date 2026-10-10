@@ -70,7 +70,7 @@ pub struct AnaliseHir {
     // Inclusões por argumentos reais de calls; não refinam campos topo nem
     // substituem cobertura de mutações/vidas/caminhos de emissão.
     pub(crate) inclusoes_escritas: Vec<(usize, usize)>,
-    pub(crate) inclusoes_globais: Vec<(String, usize)>,
+    pub(crate) inclusoes_publicacoes: Vec<(super::escape::CausaEscape, usize)>,
 }
 
 impl AnaliseHir {
@@ -228,7 +228,7 @@ pub(crate) fn analisar_com_resumos(
     let opaco = vazio + 1;
     let mut rs = vec![Restricao::Desconhecer { destino: opaco }];
     let mut inclusoes_escritas = Vec::new();
-    let mut inclusoes_globais = Vec::new();
+    let mut inclusoes_publicacoes = Vec::new();
     let mut numero_variaveis = ids.len() + 2;
     let campos: BTreeSet<_> = fatos
         .acessos
@@ -361,13 +361,13 @@ pub(crate) fn analisar_com_resumos(
                 }
                 dependencias_corpos.insert(symbol.clone(), assinatura_corpo(callee));
                 if abi_exata
-                    && let super::escritas::InclusoesGlobais::Conhecidas(globais) =
-                        &resumo.inclusoes_globais
+                    && let super::escritas::InclusoesPublicacoes::Conhecidas(globais) =
+                        &resumo.inclusoes_publicacoes
                 {
                     for (simbolo, caminhos) in globais {
                         if let Some(caminhos) = caminhos {
                             if caminhos.is_empty() {
-                                inclusoes_globais.push((simbolo.clone(), vazio));
+                                inclusoes_publicacoes.push((simbolo.clone(), vazio));
                             }
                             for caminho in caminhos {
                                 let arg = args
@@ -380,10 +380,10 @@ pub(crate) fn analisar_com_resumos(
                                     &mut numero_variaveis,
                                     &mut rs,
                                 )?;
-                                inclusoes_globais.push((simbolo.clone(), origem));
+                                inclusoes_publicacoes.push((simbolo.clone(), origem));
                             }
                         } else {
-                            inclusoes_globais.push((simbolo.clone(), opaco));
+                            inclusoes_publicacoes.push((simbolo.clone(), opaco));
                         }
                     }
                 }
@@ -528,7 +528,7 @@ pub(crate) fn analisar_com_resumos(
         limite,
         esquemas,
         inclusoes_escritas,
-        inclusoes_globais,
+        inclusoes_publicacoes,
     })
 }
 

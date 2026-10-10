@@ -2,6 +2,7 @@
 //! Não são cobertura de vida/publicação: campos opacos e caminhos implícitos
 //! continuam exigindo ARC geral mesmo quando estas inclusões são conhecidas.
 
+use super::escape::CausaEscape;
 use super::resumos::*;
 use crate::hir::*;
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
@@ -105,12 +106,12 @@ type AliasesCaminhos = Option<BTreeSet<CaminhoParametro>>;
 // Apenas inclusões explícitas: mapa vazio não certifica ausência de
 // publicação por SDK, callback, finalizador ou emissão implícita.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum InclusoesGlobais {
-    Conhecidas(BTreeMap<String, AliasesCaminhos>),
+pub(super) enum InclusoesPublicacoes {
+    Conhecidas(BTreeMap<CausaEscape, AliasesCaminhos>),
     Desconhecidas,
 }
 
-impl InclusoesGlobais {
+impl InclusoesPublicacoes {
     pub(super) fn vazio() -> Self {
         Self::Conhecidas(BTreeMap::new())
     }
@@ -127,7 +128,7 @@ impl InclusoesGlobais {
                         limite,
                     );
                 }
-                // Nomes também consomem orçamento, inclusive publicação de null.
+                // Destinos também consomem orçamento, inclusive publicação de null.
                 let tamanho = a.values().try_fold(a.len(), |n, c| {
                     n.checked_add(c.as_ref().map_or(0, BTreeSet::len))
                 });
@@ -199,7 +200,7 @@ fn extrair_com_resultado<'a>(
     chamada: impl Fn(&str) -> Option<(&'a Function, RetornoCaminhos, &'a InclusoesEscritas)>,
 ) -> Result<(RetornoCaminhos, InclusoesEscritas), String> {
     let (r, e, _) = extrair_com_efeitos(f, limite, interno, |s| {
-        chamada(s).map(|(f, r, e)| (f, r, e, InclusoesGlobais::vazio()))
+        chamada(s).map(|(f, r, e)| (f, r, e, InclusoesPublicacoes::vazio()))
     })?;
     Ok((r, e))
 }
@@ -214,9 +215,9 @@ pub(super) fn extrair_com_efeitos<'a>(
         &'a Function,
         RetornoCaminhos,
         &'a InclusoesEscritas,
-        InclusoesGlobais,
+        InclusoesPublicacoes,
     )>,
-) -> Result<(RetornoCaminhos, InclusoesEscritas, InclusoesGlobais), String> {
+) -> Result<(RetornoCaminhos, InclusoesEscritas, InclusoesPublicacoes), String> {
     super::super::ssa::verificar(f)?;
     let tipos: HashMap<_, _> = f
         .params
@@ -406,7 +407,7 @@ pub(super) fn extrair_com_efeitos<'a>(
     if !interno && (!normal || retorno == RetornoCaminhos::vazio()) {
         retorno = RetornoCaminhos::desconhecido();
     }
-    let mut globais = InclusoesGlobais::vazio();
+    let mut publicacoes = InclusoesPublicacoes::vazio();
     for (_, i, t) in &instrucoes {
         let publicacao = match i {
             Instruction::StoreGlobal {
@@ -427,9 +428,9 @@ pub(super) fn extrair_com_efeitos<'a>(
             _ => None,
         };
         if let Some((simbolo, valor)) = publicacao {
-            globais.unir(
-                &InclusoesGlobais::Conhecidas(BTreeMap::from([(
-                    simbolo.clone(),
+            publicacoes.unir(
+                &InclusoesPublicacoes::Conhecidas(BTreeMap::from([(
+                    CausaEscape::Global(simbolo.clone()),
                     operando(valor, &aliases),
                 )])),
                 limite,
@@ -450,10 +451,10 @@ pub(super) fn extrair_com_efeitos<'a>(
                 .all(|(o, (_, _, ty))| argumento_exato(o, *ty, &tipos))
         {
             match inclusoes {
-                InclusoesGlobais::Desconhecidas => {
-                    globais.unir(&InclusoesGlobais::Desconhecidas, limite);
+                InclusoesPublicacoes::Desconhecidas => {
+                    publicacoes.unir(&InclusoesPublicacoes::Desconhecidas, limite);
                 }
-                InclusoesGlobais::Conhecidas(inclusoes) => {
+                InclusoesPublicacoes::Conhecidas(inclusoes) => {
                     for (simbolo, caminhos) in inclusoes {
                         let mut valores = Some(BTreeSet::new());
                         if let Some(caminhos) = caminhos {
@@ -470,8 +471,8 @@ pub(super) fn extrair_com_efeitos<'a>(
                         } else {
                             valores = None;
                         }
-                        globais.unir(
-                            &InclusoesGlobais::Conhecidas(BTreeMap::from([(simbolo, valores)])),
+                        publicacoes.unir(
+                            &InclusoesPublicacoes::Conhecidas(BTreeMap::from([(simbolo, valores)])),
                             limite,
                         );
                     }
@@ -479,8 +480,21 @@ pub(super) fn extrair_com_efeitos<'a>(
             }
         }
     }
+    // Incluir todos os throws é conservador mesmo quando uma tabela pode
+    // capturá-los no próprio corpo. Isso não resume wrappers/erros do SDK.
+    for b in &f.blocks {
+        if let Terminator::Throw(valor) = &b.terminator {
+            publicacoes.unir(
+                &InclusoesPublicacoes::Conhecidas(BTreeMap::from([(
+                    CausaEscape::Excecao,
+                    operando(valor, &aliases),
+                )])),
+                limite,
+            );
+        }
+    }
     if escritas_opacas {
-        return Ok((retorno, InclusoesEscritas::Desconhecidas, globais));
+        return Ok((retorno, InclusoesEscritas::Desconhecidas, publicacoes));
     }
     let mut resultado = InclusoesEscritas::vazio();
     let mut incluir = |origens: AliasesCaminhos, indice, destinos: AliasesCaminhos| -> bool {
@@ -513,13 +527,13 @@ pub(super) fn extrair_com_efeitos<'a>(
                     *index,
                     operando(value, &aliases),
                 ) {
-                    return Ok((retorno, InclusoesEscritas::Desconhecidas, globais));
+                    return Ok((retorno, InclusoesEscritas::Desconhecidas, publicacoes));
                 }
             }
             Instruction::CallStatic { symbol, args, .. } => {
                 let (_, _, escritas, _) = chamada(symbol).unwrap();
                 let InclusoesEscritas::Conhecidas(escritas) = escritas else {
-                    return Ok((retorno, InclusoesEscritas::Desconhecidas, globais));
+                    return Ok((retorno, InclusoesEscritas::Desconhecidas, publicacoes));
                 };
                 for escrita in escritas {
                     let object = args
@@ -533,14 +547,14 @@ pub(super) fn extrair_com_efeitos<'a>(
                         escrita.indice,
                         prolongar(operando(value, &aliases), &escrita.valor.campos, limite),
                     ) {
-                        return Ok((retorno, InclusoesEscritas::Desconhecidas, globais));
+                        return Ok((retorno, InclusoesEscritas::Desconhecidas, publicacoes));
                     }
                 }
             }
             _ => {}
         }
     }
-    Ok((retorno, resultado, globais))
+    Ok((retorno, resultado, publicacoes))
 }
 
 #[cfg(test)]
@@ -567,6 +581,71 @@ mod testes {
                 )],
                 terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
             }],
+        }
+    }
+
+    #[test]
+    fn excecao_composta_preserva_caminhos_e_nao_colide_com_nome_global() {
+        let mut explode = getter("explode", 2);
+        explode.return_ty = Type::Void;
+        explode.blocks[0].terminator = Terminator::Throw(Operand::Val(ValueId(1)));
+        let mut wrapper = getter("wrapper", 9);
+        wrapper.blocks[0].instructions.push((
+            ValueId(2),
+            Instruction::CallStatic {
+                symbol: "explode".into(),
+                args: vec![Operand::Val(ValueId(1))],
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        ));
+        wrapper.blocks[0].instructions.push((
+            ValueId(3),
+            Instruction::StoreGlobal {
+                simbolo: "Excecao".into(),
+                val: Operand::Val(ValueId(1)),
+                ty: Type::Ref,
+                raiz: Some(0),
+            },
+            Type::Void,
+        ));
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.globais.push((0, Type::Ref, "Excecao".into()));
+        m.functions = vec![wrapper, explode];
+        for ordem in [false, true] {
+            if ordem {
+                m.functions.reverse();
+            }
+            let r = super::super::chamadas::resolver(&m, &HashSet::from(["wrapper"]), 8).unwrap();
+            assert_eq!(
+                r["wrapper"].1.inclusoes_publicacoes,
+                InclusoesPublicacoes::Conhecidas(BTreeMap::from([
+                    (
+                        CausaEscape::Excecao,
+                        Some(BTreeSet::from([CaminhoParametro {
+                            parametro: 0,
+                            campos: vec![9, 2]
+                        }]))
+                    ),
+                    (
+                        CausaEscape::Global("Excecao".into()),
+                        Some(BTreeSet::from([CaminhoParametro {
+                            parametro: 0,
+                            campos: vec![9]
+                        }]))
+                    ),
+                ]))
+            );
+            assert_eq!(
+                r["wrapper"].1.publicacoes(),
+                PublicacoesHeapArc::Desconhecidas
+            );
+            let r = super::super::chamadas::resolver(&m, &HashSet::from(["wrapper"]), 3).unwrap();
+            assert_eq!(
+                r["wrapper"].1.inclusoes_publicacoes,
+                InclusoesPublicacoes::Desconhecidas
+            );
         }
     }
 
@@ -605,9 +684,9 @@ mod testes {
             }
             let r = super::super::chamadas::resolver(&m, &HashSet::from(["wrapper"]), 8).unwrap();
             assert_eq!(
-                r["wrapper"].1.inclusoes_globais,
-                InclusoesGlobais::Conhecidas(BTreeMap::from([(
-                    "g".into(),
+                r["wrapper"].1.inclusoes_publicacoes,
+                InclusoesPublicacoes::Conhecidas(BTreeMap::from([(
+                    CausaEscape::Global("g".into()),
                     Some(BTreeSet::from([CaminhoParametro {
                         parametro: 0,
                         campos: vec![9, 2]
@@ -625,8 +704,11 @@ mod testes {
         }
         let r = super::super::chamadas::resolver(&m, &HashSet::from(["wrapper"]), 8).unwrap();
         assert_eq!(
-            r["wrapper"].1.inclusoes_globais,
-            InclusoesGlobais::Conhecidas(BTreeMap::from([("g".into(), Some(BTreeSet::new()))]))
+            r["wrapper"].1.inclusoes_publicacoes,
+            InclusoesPublicacoes::Conhecidas(BTreeMap::from([(
+                CausaEscape::Global("g".into()),
+                Some(BTreeSet::new())
+            )]))
         );
     }
 
@@ -668,9 +750,9 @@ mod testes {
             m.globais.push((0, Type::Ref, "g".into()));
             let r = super::super::chamadas::resolver(&m, &HashSet::from(["pub"]), 3).unwrap();
             assert_eq!(
-                r["pub"].1.inclusoes_globais,
-                InclusoesGlobais::Conhecidas(BTreeMap::from([(
-                    "g".into(),
+                r["pub"].1.inclusoes_publicacoes,
+                InclusoesPublicacoes::Conhecidas(BTreeMap::from([(
+                    CausaEscape::Global("g".into()),
                     Some(BTreeSet::from([
                         CaminhoParametro::raiz(0),
                         CaminhoParametro::raiz(1)
@@ -679,8 +761,8 @@ mod testes {
             );
             let r = super::super::chamadas::resolver(&m, &HashSet::from(["pub"]), 2).unwrap();
             assert_eq!(
-                r["pub"].1.inclusoes_globais,
-                InclusoesGlobais::Desconhecidas
+                r["pub"].1.inclusoes_publicacoes,
+                InclusoesPublicacoes::Desconhecidas
             );
             m.globais.push((0, Type::Ref, "g".into()));
             assert!(super::super::chamadas::resolver(&m, &HashSet::from(["pub"]), 0).is_err());

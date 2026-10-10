@@ -185,12 +185,12 @@ fn calcular_validado(f: &Function, a: &AnaliseHir) -> Result<ResultadoEscape, St
         }
     }
     // Inclusões não dispensam a publicação opaca da chamada nem da emissão.
-    for (simbolo, variavel) in &a.inclusoes_globais {
+    for (causa, variavel) in &a.inclusoes_publicacoes {
         let pontos = a
             .pontos()
             .variavel(*variavel)
             .ok_or("escape ARC: variável de publicação inválida")?;
-        publicar(CausaEscape::Global(simbolo.clone()), pontos.clone());
+        publicar(causa.clone(), pontos.clone());
     }
     for id in a.desconhecidos() {
         publicar(
