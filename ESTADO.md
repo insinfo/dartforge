@@ -2,6 +2,27 @@
 
 ## Retomada de 2026-10-10
 
+Medição ARC/A0 atualizada para 55beeb34: CLI release recompilada com LLVM
+embutido, 18 executáveis novos, nove programas/32 kernels, sete pares alternados
+em afinidade Windows 0x4. Passaram 126 execuções com resultados iguais entre
+modos/repetições e aos resultados Dart AOT anteriores. Fontes do benchmark
+conferidas contra 5bbfc80f, sem alterações; Dart não foi reexecutado.
+Auditoria independente confere cobertura/alternância, reconstrói medianas do
+stdout sem aquecimento, compara resultados e recalcula média geométrica:
+ARC/A0 = 2,000274042309175. Gate ARC≥A0 continua reprovado; árvores 12,82×,
+lista ligada 5,28× e mapa str→objeto 4,88× são os maiores custos relativos.
+Não atribuir agregado/diferenças à instrumentação condicional isoladamente.
+Rastro/auditoria/GC off desligados, ARC puro, heap 256 MiB, stress e opção de
+ciclos ausentes. CLI SHA-256
+2A63E6782B507291A3277FBCB00B0307DEA0CDB10AB7184BE33125E8FB7239B5.
+Evidência em bench/resultados/2026-10-10-modos-55beeb34-windows. Captura inicial
+de hashes ocorreu após duas execuções, no começo da fase de medição; os 18
+hashes permaneceram iguais no fechamento. Ponto de captura explícito no
+manifesto; não alegar captura anterior à primeira execução. ARC somente com
+parâmetro explícito --memoria=arc; tracing padrão. §§27–34 ainda incompletos.
+CI 38057171425: Windows/Linux/mensagens passaram; macOS continua nos testes
+emit_native com ignorados. Mudança local sem interromper essa rodada.
+
 Saídas do Tarjan compartilhado passam por conferência independente em
 otimizar/scc.rs::conferir: cobertura única dos nós, alcance interno direto/
 inverso e ordem estrita das arestas externas. Não executa Tarjan novamente;
@@ -3721,7 +3742,7 @@ microbenchmark só valem presos a um núcleo P).
 | **JIT** (`crates/jit`, `dartforge run`/`reload`) | 238/238 e JIT × AOT sem divergência nos três sistemas; recarga de estado e `io_regressao` verdes | recarga com mudança de layout em todos os casos do R0 |
 | **Exceções por tabelas (A1)** | 238/238 (+ `--gc-stress`); o pouso pega-tudo do `$ent` saiu (`a4b5ac42`): A1/A0 = 1,001 | tamanho: +3,2% no `new_sali/backend` (meta −3%); segue opt-in |
 | **Raízes por mapas (B0/B1)** | forma nova por `"deopt"` (§14.12, abaixo): raiz no registrador preservado, sem derrame por chamada. Windows: corpus 238/238 em desenvolvimento com `--gc-stress` e as três conferências, e 238/238 em produção com o conferidor do RS4GC | testes dirigidos (`mapas_dirigidos`) caem num esgotamento de registradores do LLVM em `dart:convert` no modo de desenvolvimento (em curso); B1; Linux/macOS com a forma nova; o `bench/desempenho` inteiro; commit |
-| **ARC** (`--memoria=arc`) | ARC puro correto: corpus 238/238 com auditoria, `--gc-stress`, ciclos em toda drenagem e JIT × AOT; grafos aleatórios contra oráculo (3000 sementes); efêmeros pelo ponto fixo | desempenho: ARC/A0 = 2,97 (até 21× em `lista_ligada`); as drenagens custam ~230 ns por jovem por causa do `HashMap` de metadados. Próximo: metadados por bloco indexados pela página (§19.1), retain/release em linha, donos da HIR (§20) |
+| **ARC** (`--memoria=arc`) | ARC puro correto: corpus 238/238 com auditoria, `--gc-stress`, ciclos em toda drenagem e JIT × AOT; grafos aleatórios contra oráculo (3000 sementes); efêmeros pelo ponto fixo | desempenho: ARC/A0 = 2,000274 em 55beeb34 (árvores 12,82×, lista ligada 5,28×); gate reprovado. Metadados por página já disponíveis; análise, provas, políticas e integração dos §§27–34 continuam incompletas. Evidência: `bench/resultados/2026-10-10-modos-55beeb34-windows` |
 | **JS desenvolvimento** (`crates/emit_js`, contrato do DDC) | corpus diferencial **238/238** byte a byte contra `dart run` (medido hoje, 60 s); `limitless_ui` 26/26 no e2e; `new_sali/frontend` com os 11 passos do fluxo iguais ao oficial | — |
 | **JS produção** (`crates/emit_js_producao`) | corpus `--producao` 238/238; `new_sali` 12.082.759 bytes, `limitless_ui` 6.693.718 bytes (brutos) | piso de ~1 MB enquanto o runtime for o `dart_sdk.js` do DDC: compilar o SDK pela nossa trilha (PLANO passo 4); precisão do mundo fechado, minificação, *code splitting* (`docs/JS-PRODUCAO.md` §6) |
 | **Analisador** (`crates/analise`, `types`) | placar **22.900/23.012** (99,5%, posição exata), FP 17, FN 95; projetos reais sem diagnóstico a mais; CLI e LSP publicam os 167 códigos de `verificados.txt` | os 17 FP e 95 FN; conferir nos projetos reais os 391 códigos com zero FP no corpus para entrarem em `verificados.txt` |

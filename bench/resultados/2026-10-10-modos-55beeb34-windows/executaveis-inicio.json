@@ -1,0 +1,92 @@
+[
+  {
+    "nome": "chamadas-A0.exe",
+    "bytes": 3569664,
+    "sha256": "697278e52f8ed8a9b43e1162fc58cd8af282eb0c4bff94b5904b67aff8512649"
+  },
+  {
+    "nome": "chamadas-ARC.exe",
+    "bytes": 3507712,
+    "sha256": "6b2ec1ea3c25cd2eab066c931b23da86e58ab55b5dd631efecac9016fe92c587"
+  },
+  {
+    "nome": "colecoes-A0.exe",
+    "bytes": 3880960,
+    "sha256": "e4b57663c80b12cd3c9ea21324107da64c269c38ecb7eca6905fa59ab9204a4b"
+  },
+  {
+    "nome": "colecoes-ARC.exe",
+    "bytes": 3817984,
+    "sha256": "043207339c8f60f1d44f0335d91416d26fb8b9ef539b1f723f9f6711caa9a83b"
+  },
+  {
+    "nome": "json-A0.exe",
+    "bytes": 3899392,
+    "sha256": "ca98d56c39c57bf3cc88510a771d7db0d54a2319969d84c725a89612a8ca9263"
+  },
+  {
+    "nome": "json-ARC.exe",
+    "bytes": 3828736,
+    "sha256": "b09c3ba64a674e31e9c7666a63db879aeea8ff41ce8a27ecee4b9b62413bcd88"
+  },
+  {
+    "nome": "numerico-A0.exe",
+    "bytes": 3561984,
+    "sha256": "1fbe0c29413515d695776252de956ac48bb42882966251f61527b9f7b2c7d58b"
+  },
+  {
+    "nome": "numerico-ARC.exe",
+    "bytes": 3499008,
+    "sha256": "58feedfa114f303f6938aa73b27d03ad97d8d1aef0a2c321ffbf5ff6cbcbc7c7"
+  },
+  {
+    "nome": "objetos_em_colecoes-A0.exe",
+    "bytes": 3812864,
+    "sha256": "c617d47ad664d44a53085599a3b4119b701da5992e748dce04ea88c4b2d7022b"
+  },
+  {
+    "nome": "objetos_em_colecoes-ARC.exe",
+    "bytes": 3749888,
+    "sha256": "d6035149157adf9ce400bfc3b26846ebe4545c589cae96afe660ea7b053c2cfa"
+  },
+  {
+    "nome": "objetos_escapam-A0.exe",
+    "bytes": 3563520,
+    "sha256": "aa780cdd33cdce49b3a1da656e4ac603c568b9fb29a2c58c93a808488a0b922d"
+  },
+  {
+    "nome": "objetos_escapam-ARC.exe",
+    "bytes": 3500544,
+    "sha256": "56a2136351e329c4880bc737e61c47f4a44c178d9ef7676998b797c2cf5a8a32"
+  },
+  {
+    "nome": "objetos_temporarios-A0.exe",
+    "bytes": 3564544,
+    "sha256": "281a21af5f6b38633ac717733432b8e69e4a13ff68761ac16d709990fce852df"
+  },
+  {
+    "nome": "objetos_temporarios-ARC.exe",
+    "bytes": 3501568,
+    "sha256": "64f9d716cb17bac9e9609932e6c9564732dfde76a6c46f4d9cabaac9dc00be8e"
+  },
+  {
+    "nome": "textos-A0.exe",
+    "bytes": 3575808,
+    "sha256": "f7dc5865c0de54287c47f0f7921b88763fdeda99352d7bc988721efbf29e7fbe"
+  },
+  {
+    "nome": "textos-ARC.exe",
+    "bytes": 3513344,
+    "sha256": "eb5610edb3d294608a12eb22571645cdb47eaecefc2de449f0629845283b5b03"
+  },
+  {
+    "nome": "tipados-A0.exe",
+    "bytes": 3565056,
+    "sha256": "88209efd4c939cf7286f09109e216bbcf7efeccf68c7766b0eb44d2bc53c0776"
+  },
+  {
+    "nome": "tipados-ARC.exe",
+    "bytes": 3502592,
+    "sha256": "b5c92bf1449c4730640615846bdd1b0c48146c5fe30358715d8636d83a6afbcc"
+  }
+]

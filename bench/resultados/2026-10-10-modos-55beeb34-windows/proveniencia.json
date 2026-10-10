@@ -1,0 +1,86 @@
+{
+  "fonte": "55beeb34b8c57e44cd7563274b396b7550a5d19d",
+  "estado_git_fontes": "",
+  "inicio_registro_utc": "2026-10-10T14:41:41.298920+00:00",
+  "comando_build": [
+    "cargo",
+    "build",
+    "--locked",
+    "--release",
+    "-p",
+    "dartforge-cli",
+    "--features",
+    "jit"
+  ],
+  "comando_medicao": [
+    "python",
+    "scripts/medir-modos-desempenho.py",
+    "target/modos-2026-10-10-55beeb34-a0-arc",
+    "--repeticoes",
+    "7",
+    "--afinidade",
+    "0x4",
+    "--modos",
+    "A0,ARC",
+    "--sem-dart"
+  ],
+  "ambiente_medicao": {
+    "DARTFORGE_GC_STRESS": null,
+    "DARTFORGE_ARC_CICLOS": null,
+    "DARTFORGE_GC_RASTRO": "0",
+    "DARTFORGE_GC_OFF": "0",
+    "DARTFORGE_ARC_CONFERIR": "0",
+    "DARTFORGE_ARC_BERCARIO": "0",
+    "DARTFORGE_HEAP_MAX_MB": "256"
+  },
+  "fontes_benchmark": [
+    {
+      "nome": "chamadas.dart",
+      "sha256": "96cb426471296c0719d73cc37c5ff1555b162564d5bc4b21d7b6f312bbc1f67b"
+    },
+    {
+      "nome": "colecoes.dart",
+      "sha256": "d3e4adb239e5dd810ca47b36a7de32c78134a912902b53918ece7ca7a726cd61"
+    },
+    {
+      "nome": "comum.dart",
+      "sha256": "c58f998dc36b84b102705a77c6cafa75e85b5bff6dda90c086a8d9a6c21f40c3"
+    },
+    {
+      "nome": "json.dart",
+      "sha256": "0354c44a8e87678af58120ef68881e74cbc9e2ea178f42e5a000d8f2aca64aca"
+    },
+    {
+      "nome": "numerico.dart",
+      "sha256": "dbeaec175476eb3ddc20b1757512131c9b7c567f33351bf3272bd6f8864d575f"
+    },
+    {
+      "nome": "objetos_em_colecoes.dart",
+      "sha256": "1e7ee33404f2143536a67253f7924c99e84e6d73af4b65701fc6874721a1417e"
+    },
+    {
+      "nome": "objetos_escapam.dart",
+      "sha256": "977eb9b5654a8c742dee4d052603609bc3e145c4a07e15a8580cd1c1ea665599"
+    },
+    {
+      "nome": "objetos_temporarios.dart",
+      "sha256": "80578f13890ac2e6032d5ad1f1a68af17eba4e8be17872ca75b07ebfe345b8e7"
+    },
+    {
+      "nome": "textos.dart",
+      "sha256": "185fc234cf1e5e4452e1bb768d93b7e485884a0d801e0f6cb3118d7bfd3ae7fd"
+    },
+    {
+      "nome": "tipados.dart",
+      "sha256": "519b4d6ccc43adbbfc7ee0cb76b79d2bf19cbb79a2fb48c1f8a27b091bc243af"
+    }
+  ],
+  "sdk_versao": "3.6.2",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "script_sha256": "3fd59029c3860a7c4549241bee4a4d86092c6b9c8901ea2a963231bda46805ee",
+  "cli": {
+    "bytes": 28942848,
+    "sha256": "2a63e6782b507291a3277fbcb00b0307dea0cdb10ab7184be33125e8fb7239b5"
+  },
+  "execucoes_concluidas_ao_capturar_hashes": 2
+}

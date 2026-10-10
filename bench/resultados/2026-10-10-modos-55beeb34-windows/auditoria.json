@@ -1,0 +1,173 @@
+{
+  "fonte": "55beeb34b8c57e44cd7563274b396b7550a5d19d",
+  "execucoes": 126,
+  "programas": 9,
+  "kernels": 32,
+  "resultados_iguais_ao_dart_anterior": true,
+  "executaveis_inalterados": 18,
+  "geo_ARC_A0": 2.000274042309175,
+  "razoes": {
+    "chamadas/closures": {
+      "ARC_us": 29176,
+      "A0_us": 30229,
+      "ARC_A0": 0.9651659002944193
+    },
+    "chamadas/fib": {
+      "ARC_us": 7387,
+      "A0_us": 8556,
+      "ARC_A0": 0.8633707339878448
+    },
+    "chamadas/formas": {
+      "ARC_us": 4207,
+      "A0_us": 4073,
+      "ARC_A0": 1.0328995826172354
+    },
+    "colecoes/crivo": {
+      "ARC_us": 33512,
+      "A0_us": 33630,
+      "ARC_A0": 0.9964912280701754
+    },
+    "colecoes/conjunto_str": {
+      "ARC_us": 83299,
+      "A0_us": 29671,
+      "ARC_A0": 2.8074213878871626
+    },
+    "colecoes/mapa": {
+      "ARC_us": 76010,
+      "A0_us": 58041,
+      "ARC_A0": 1.3095914956668562
+    },
+    "colecoes/lista_sort": {
+      "ARC_us": 103975,
+      "A0_us": 98109,
+      "ARC_A0": 1.0597906410217208
+    },
+    "colecoes/lista_add": {
+      "ARC_us": 6471,
+      "A0_us": 7091,
+      "ARC_A0": 0.9125652235227754
+    },
+    "colecoes/lista_leitura": {
+      "ARC_us": 1951,
+      "A0_us": 1941,
+      "ARC_A0": 1.0051519835136526
+    },
+    "json/encode_grande": {
+      "ARC_us": 376899,
+      "A0_us": 153309,
+      "ARC_A0": 2.458427098213412
+    },
+    "json/decode_medio": {
+      "ARC_us": 225601,
+      "A0_us": 75497,
+      "ARC_A0": 2.9882114521106797
+    },
+    "json/decode_pequeno": {
+      "ARC_us": 164936,
+      "A0_us": 51822,
+      "ARC_A0": 3.182740920844429
+    },
+    "json/utf8_bytes": {
+      "ARC_us": 239313,
+      "A0_us": 94356,
+      "ARC_A0": 2.5362775022256137
+    },
+    "json/encode_medio": {
+      "ARC_us": 167403,
+      "A0_us": 86240,
+      "ARC_A0": 1.9411294063079778
+    },
+    "json/decode_grande": {
+      "ARC_us": 399799,
+      "A0_us": 134684,
+      "ARC_A0": 2.9684223812776573
+    },
+    "json/reviver": {
+      "ARC_us": 133906,
+      "A0_us": 45031,
+      "ARC_A0": 2.973640381070818
+    },
+    "json/indentado": {
+      "ARC_us": 142243,
+      "A0_us": 67411,
+      "ARC_A0": 2.110085891026687
+    },
+    "json/encode_pequeno": {
+      "ARC_us": 126681,
+      "A0_us": 61980,
+      "ARC_A0": 2.0439012584704743
+    },
+    "numerico/collatz": {
+      "ARC_us": 38432,
+      "A0_us": 39918,
+      "ARC_A0": 0.9627736860564157
+    },
+    "numerico/mandelbrot": {
+      "ARC_us": 8931,
+      "A0_us": 9555,
+      "ARC_A0": 0.9346938775510204
+    },
+    "objetos_em_colecoes/mapa_int_objeto": {
+      "ARC_us": 139720,
+      "A0_us": 33916,
+      "ARC_A0": 4.119589574242245
+    },
+    "objetos_em_colecoes/mapa_str_objeto": {
+      "ARC_us": 111847,
+      "A0_us": 22918,
+      "ARC_A0": 4.880312418186578
+    },
+    "objetos_em_colecoes/lista_objetos": {
+      "ARC_us": 90949,
+      "A0_us": 25067,
+      "ARC_A0": 3.6282363266445925
+    },
+    "objetos_em_colecoes/ordenar_objetos": {
+      "ARC_us": 323979,
+      "A0_us": 116375,
+      "ARC_A0": 2.783922663802363
+    },
+    "objetos_escapam/lista_ligada": {
+      "ARC_us": 132086,
+      "A0_us": 25024,
+      "ARC_A0": 5.278372762148337
+    },
+    "objetos_escapam/arvores": {
+      "ARC_us": 686233,
+      "A0_us": 53548,
+      "ARC_A0": 12.815287218943752
+    },
+    "objetos_temporarios/soma_ponto": {
+      "ARC_us": 3405,
+      "A0_us": 3508,
+      "ARC_A0": 0.9706385404789054
+    },
+    "objetos_temporarios/pontos": {
+      "ARC_us": 108191,
+      "A0_us": 34450,
+      "ARC_A0": 3.140522496371553
+    },
+    "textos/hashes": {
+      "ARC_us": 124455,
+      "A0_us": 36828,
+      "ARC_A0": 3.3793580971000328
+    },
+    "textos/construir": {
+      "ARC_us": 215433,
+      "A0_us": 84858,
+      "ARC_A0": 2.5387470833627943
+    },
+    "tipados/produto_f64": {
+      "ARC_us": 2870,
+      "A0_us": 2914,
+      "ARC_A0": 0.9849004804392587
+    },
+    "tipados/fnv_bytes": {
+      "ARC_us": 12034,
+      "A0_us": 11932,
+      "ARC_A0": 1.0085484411666108
+    }
+  },
+  "gold_sha256": "12014e052bf7125b6fb6a8380c9e4921d8dcf71ef7775bfd98774f72867e0811",
+  "gate_ARC_A0": "FAIL"
+}
