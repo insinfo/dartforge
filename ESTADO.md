@@ -2,6 +2,17 @@
 
 ## Retomada de 2026-10-10
 
+Fatos RTI do lowering agora alimentam planos pela API
+produzir_parametros_rti_do_lowering. Exige ID de parâmetro I64 com origem
+RTI explícita e rejeita a mesma definição marcada como escalar Dart.
+Não prova vida do universo/pins/recarga. Publicação atômica, idempotente,
+e tracing permanece sem alteração. Teste da declaração Dart genérica já
+prepara o parâmetro oculto pelo produtor RTI, sem inserir classe manual.
+Negativos cobrem origens conflitantes, representações, ownership, símbolos,
+IDs e parâmetros duplicados nos dois produtores. Integração padrão segue pendente.
+Passaram 208 testes (7 ignorados) e 51 exemplos de documentação;
+logs target/arc-rti-planos-{suite,doc}.log.
+
 Parâmetros ocultos de RTI ($tipos/$tipos_de_fora) têm produtor explícito
 add_param_rti e mapa separado dos escalares. Auditoria: tipos.rs representa
 tuplas como IDs do universo canônico (Tipo::Tupla), não handles do heap Dart.

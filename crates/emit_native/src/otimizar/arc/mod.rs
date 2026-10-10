@@ -19,6 +19,7 @@ mod chamadas;
 mod funcoes;
 mod parametros;
 pub use parametros::produzir_parametros_escalares_do_lowering;
+pub use parametros::produzir_parametros_rti_do_lowering;
 mod invocacoes;
 mod saidas;
 mod ssa;

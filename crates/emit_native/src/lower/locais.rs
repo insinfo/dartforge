@@ -818,7 +818,8 @@ void main() {}
                 assert!(!planos["escalares"].classes.contains_key(&nativo));
                 assert_eq!(crate::otimizar::arc::produzir_parametros_escalares_do_lowering(&modulo, &mut planos).unwrap(), 0);
                 assert!(crate::otimizar::arc::inserir_arc_funcoes_dart(&mut modulo.functions, &mut planos).is_err());
-                planos.get_mut("escalares").unwrap().classes.insert(nativo, crate::otimizar::arc::Ownership::Trivial);
+                assert_eq!(crate::otimizar::arc::produzir_parametros_rti_do_lowering(&modulo, &mut planos).unwrap(), 1);
+                assert_eq!(crate::otimizar::arc::produzir_parametros_rti_do_lowering(&modulo, &mut planos).unwrap(), 0);
                 assert_eq!(crate::otimizar::arc::inserir_arc_funcoes_dart(&mut modulo.functions, &mut planos).unwrap(), (0, 0));
             })
             .unwrap()
