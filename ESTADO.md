@@ -2,6 +2,28 @@
 
 ## Retomada de 2026-10-10
 
+GrafoHeapArc local em otimizar/arc/analise/grafo.rs extrai arestas de campos
+do points-to HIR e executa Tarjan sobre sítios/contextos de objetos, sem
+reutilizar SCC de chamadas como SCC de heap. Fotografia imutável expõe arestas,
+componentes e fronteiras opacas; campo/esquema ausente, valor sem origem
+fechada, operação não coberta e budget não viram grafo fechado/vazio conhecido.
+Componente unitário é cíclico só com autoaresta. Oráculo Floyd-Warshall confere
+arestas, partição e ciclo nos 512 grafos HIR de três objetos. Regressões cobrem
+parâmetro opaco sem arestas materializadas, falta de layout, orçamento 0/1,
+tracing sem análise, recursão sem fabricar autoaresta de objeto e duas instâncias
+resumidas no mesmo sítio produzindo autoaresta abstrata conservadora.
+Passaram 297 testes do emissor (sete ignorados), 96 exemplos públicos e um
+exemplo de rejeição na compilação. Três testes focados iniciais passaram antes
+das duas regressões finais; logs target/arc-grafo-sitios-{focado,suite,doc}.log.
+Rustfmt do novo arquivo e git diff --check passaram.
+Fotografia sem ciclo/opacidade não certifica toda a vida/continuações; não
+emite NaoParticipa/AciclicoProvado, não forma grupo concreto e não seleciona
+política. Supergrafo de tipos/layouts completos, contexto/fluxo/forma,
+observadores, fronteiras globais e certificados continuam pendentes.
+Não conclui §29.1/S2 ou §§27–34; gate ARC/A0 segue não aprovado. ARC permanece
+exclusivo de --memoria=arc, tracing padrão. CI 38057171425 ainda executa nos
+três alvos; mensagens passaram. Mudança local, sem cancelar a rodada publicada.
+
 PublicacoesHeapArc separa publicação somente pelo resultado de cobertura
 desconhecida. Extrator exige inspeção positiva de todo o corpo de folha de
 valores já avaliados, sem stores/chamadas/alocações/throw; não deduz a

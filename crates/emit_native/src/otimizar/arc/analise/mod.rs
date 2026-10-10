@@ -9,4 +9,5 @@ pub(crate) mod origens;
 pub mod modulo;
 pub mod escape;
 pub mod resumos;
+pub mod grafo;
 mod chamadas;

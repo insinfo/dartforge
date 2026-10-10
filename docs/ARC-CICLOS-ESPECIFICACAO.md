@@ -1994,6 +1994,17 @@ Tarjan é linear no tamanho do grafo fornecido; construção de points-to,
 sensibilidade de contexto e análise de forma têm custo próprio. Reutilizar
 algoritmo de SCC não equivale a reutilizar SCC de chamadas como SCC de objetos.
 
+Base local disponível em `otimizar::arc::analise::grafo`: extrai arestas de
+campos do points-to do corpo e executa Tarjan sobre nós nominais de objetos.
+Fotografia imutável mantém sinalização de fronteiras opacas (valor sem origem,
+campo/esquema ausente, orçamento ou operação sem cobertura). Componente
+unitário só tem ciclo conhecido com autoaresta. Oráculo independente confere
+512 grafos HIR; recursão de chamada não fabrica autoaresta de objeto.
+Instâncias resumidas no mesmo sítio podem produzir ciclo abstrato falso,
+conservadoramente. Grafo local sem ciclo/opacidade não cobre continuações ou
+vida completa; não emite `NaoParticipa` nem seleciona política. Supergrafo de
+tipos, fronteiras globais, observadores e certificados ainda são necessários.
+
 ### 29.2 Precisão de fluxo e forma
 
 Refinamentos obrigatórios para evitar que loops e branches simples caiam
