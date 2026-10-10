@@ -1959,8 +1959,16 @@ tabelas acrescentam invocações/pousos/saídas/cleanup sem resumo de heap.
 Escape publica topo em `CausaEscape::EmissaoImplicita`; grafo conserva as
 arestas conhecidas, mas fica opaco. Não há ID SSA fictício para o prólogo.
 Regressão compara essa fronteira com o caminho `pilha.estouro` no LLVM
-gerado para um corpo vazio. Quadros por vivacidade e opções de instrumentação
-ainda não têm cobertura completa; ausência dessa fronteira não é certificado.
+gerado para um corpo vazio. Quadros por vivacidade também entram nessa
+fronteira: a consulta compartilha preparação de tipos/conversões de Phi e
+classificação de coleta com o emissor, executando a análise de raízes antes
+da redução por mapas. Slots da pilha-sombra cobrem conservadoramente fallback
+por orçamento e slots adicionais de conferência. Regressões com chamada à
+folha identidade e alloca Ref conferem quadro/prólogo no LLVM gerado;
+identidade sem chamada e alloca escalar não exigem quadro. Resumos de callees
+também perdem cobertura quando podem exigir esse contexto. Opções de
+instrumentação e demais efeitos não têm cobertura completa; ausência dessa
+fronteira não é certificado.
 Essa guarda local não substitui validação independente do certificado,
 esquemas exportados, pins ou geração de recarga.
 

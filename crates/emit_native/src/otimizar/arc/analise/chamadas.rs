@@ -122,6 +122,7 @@ pub(super) fn resolver<'a>(
             };
             if (m.excecoes_por_tabelas && tabela.is_none())
                 || crate::llvm::LlvmEmitter::exige_contexto_explicito(f, tabela)
+                || crate::llvm::LlvmEmitter::pode_exigir_contexto_por_raizes(f)
             {
                 resumo.invalidar_cobertura();
             }

@@ -18,8 +18,9 @@ use std::collections::HashMap;
 /// escapes/retenções continuam opacos. Guarda corpos transitivos e tabelas de
 /// emissão consultadas, inclusive conferência implícita de pilha.
 /// Contexto explícito e caminhos de tabelas sem resumo conservam uma fronteira
-/// de emissão opaca, separada dos IDs de instruções. Quadros por vivacidade,
-/// instrumentação e demais opções do emissor ainda exigem cobertura própria.
+/// de emissão opaca, separada dos IDs de instruções. Quadros por vivacidade
+/// também conservam essa fronteira antes de reduções por mapas. Instrumentação
+/// e demais opções do emissor ainda exigem cobertura própria.
 ///
 /// # Erros
 /// Símbolo ausente/duplicado, fato de sítio obsoleto, origem com classes
@@ -181,6 +182,7 @@ pub fn analisar_no_modulo(
     // sem contrato de heap aqui. Não inventar um ValueId para esses efeitos.
     analise.emissao_implicita_opaca = (m.excecoes_por_tabelas && tabela.is_none())
         || crate::llvm::LlvmEmitter::exige_contexto_explicito(f, tabela)
+        || crate::llvm::LlvmEmitter::pode_exigir_contexto_por_raizes(f)
         || tabela.is_some_and(|t| {
             !t.invocacoes.is_empty()
                 || !t.pousos.is_empty()
@@ -216,6 +218,57 @@ pub(super) fn assinatura_premissas(m: &Module, simbolo: &str) -> blake3::Hash {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn chamada_coberta_ainda_exige_contexto_pelas_raizes_vivas() {
+        use super::super::escape::*;
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.functions.push(Function {
+            symbol: "id".into(),
+            name: "id".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "x".into(), Type::Ref)],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
+            }],
+        });
+        let mut f = m.functions[0].clone();
+        f.symbol = "f".into();
+        f.blocks[0].instructions.push((
+            ValueId(1),
+            Instruction::CallStatic {
+                symbol: "id".into(),
+                args: vec![Operand::Val(ValueId(0))],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        ));
+        f.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
+        assert!(!crate::llvm::LlvmEmitter::exige_contexto_explicito(
+            &f, None
+        ));
+        assert!(crate::llvm::LlvmEmitter::pode_exigir_contexto_por_raizes(
+            &f
+        ));
+        assert!(!crate::llvm::LlvmEmitter::pode_exigir_contexto_por_raizes(
+            &m.functions[0]
+        ));
+        m.functions.push(f);
+        let a = analisar_no_modulo(&m, "f", 8).unwrap().unwrap();
+        assert!(a.desconhecidos().is_empty()); // A folha id é coberta.
+        assert!(
+            calcular_no_modulo(&m, "f", &a).unwrap().publicacoes[&CausaEscape::EmissaoImplicita]
+                .nos()
+                .is_none()
+        );
+        let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+        assert!(ir.contains("pilha.estouro:"));
+        assert!(ir.contains("%gcq = alloca"));
+    }
 
     #[test]
     fn prologo_implicito_publica_topo_sem_inventar_instrucao_hir() {

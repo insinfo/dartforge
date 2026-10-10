@@ -2,6 +2,26 @@
 
 ## Retomada de 2026-10-10
 
+Contexto implícito por raízes entra na análise ARC e na guarda de cobertura
+dos resumos locais. Preparação de tipos/apontados e conversões de Phi foi
+extraída para llvm/contexto_arc.rs e compartilhada com a emissão, conservando
+a ordem de preparação. Consulta executa a mesma análise de raízes/classificação
+de coleta antes da redução por mapas: slots da pilha-sombra conservam a
+possibilidade de prólogo tanto no fallback por orçamento quanto na conferência.
+Regressão demonstra chamada coberta à folha identidade com Ref viva: nenhuma
+instrução opaca/contexto explícito, mas quadro e pilha.estouro reais no LLVM;
+escape agora conserva EmissaoImplicita topo. Alloca Ref também exige quadro
+mesmo sem SSA vivo; alloca escalar e identidade sem chamada são controles.
+Passaram teste focado, 306 testes do emissor (sete ignorados), 97 exemplos
+públicos e um exemplo de rejeição na compilação; logs
+target/arc-contexto-raizes-{focado,suite,doc}.log. Rustfmt dos arquivos novos/
+de análise e git diff --check passaram; llvm/mod.rs recebeu apenas extração
+local, sem reformatação geral. Aviso preexistente de atribuir_slots não usado.
+Não há nova prova AOT ou desempenho. Instrumentação, SDK/observadores, vidas
+e certificados continuam pendentes; não conclui §§27–34. Gate ARC/A0 reprovado.
+ARC só --memoria=arc; tracing padrão. CI 38057171425: Linux/mensagens passaram;
+Windows/macOS continuam ativos. Mudança local para preservar essa rodada.
+
 Análise nova registra fronteira de emissão implícita no próprio corpo:
 contexto explícito insere conferência de pilha antes da HIR, com possível
 StackOverflowError; tabela ausente no modo tabelas ou caminhos de

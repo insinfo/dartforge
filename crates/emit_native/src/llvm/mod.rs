@@ -4,6 +4,7 @@ pub mod abi_c;
 pub mod externs;
 mod depuracao;
 mod raizes;
+mod contexto_arc;
 mod rastro;
 pub mod verificar_mapas;
 pub mod verificar_sombra;
@@ -774,61 +775,8 @@ impl<'a> LlvmEmitter<'a> {
     fn emit_function(&mut self, func: &Function) {
         self.funcao_atual.clone_from(&func.symbol);
         self.cache_na_funcao = 0;
-        // Tabela de tipos da funcao: sem ela o emissor nao sabe se %v8 e um
-        // i1 (resultado de icmp) ou um i64, e imprime "ret i64 %v8" para um
-        // valor i1 — modulo inteiro recusado pelo Clang.
-        self.tipos.clear();
-        self.apontado.clear();
         self.allocas_no_quadro = Self::allocas_ref_que_escapam(func);
-        for block in &func.blocks {
-            for (vid, inst, _) in &block.instructions {
-                if let Instruction::Alloca(t) = inst {
-                    self.apontado.insert(*vid, *t);
-                }
-            }
-        }
-        self.prox_coercao = 0;
-        for (vid, _, ty) in &func.params {
-            self.tipos.insert(*vid, *ty);
-        }
-        for block in &func.blocks {
-            for (vid, inst, ty) in &block.instructions {
-                self.tipos.insert(*vid, Self::tipo_do_resultado(inst, *ty));
-            }
-        }
-
-        // Uma entrada de phi nao pode ser convertida onde o phi esta: phi tem de
-        // ser a primeira instrucao do bloco. A conversao pertence ao bloco de
-        // ORIGEM daquela entrada, emitida logo antes do terminador dele. Aqui
-        // so planejamos; a emissao acontece bloco a bloco, mais abaixo.
-        self.conv_phi.clear();
-        let blocos_existentes: std::collections::HashSet<u32> =
-            func.blocks.iter().map(|b| b.id.0).collect();
-        for block in &func.blocks {
-            for (_, inst, _) in &block.instructions {
-                let Instruction::Phi { incoming, ty } = inst else { continue };
-                for (origem, op) in incoming {
-                    let Operand::Val(v) = op else { continue };
-                    if !blocos_existentes.contains(&origem.0) {
-                        continue;
-                    }
-                    let de = self.tipos.get(v).copied().unwrap_or(Type::I64);
-                    let igual = de.llvm_ir() == ty.llvm_ir() && (de == Type::F64) == (*ty == Type::F64);
-                    if igual {
-                        continue;
-                    }
-                    let ja = self.conv_phi.iter().any(|(b, _, _, vv, para)| {
-                        *b == origem.0 && vv == v && para.llvm_ir() == ty.llvm_ir()
-                    });
-                    if ja {
-                        continue;
-                    }
-                    let nome = format!("%p{}", self.prox_coercao);
-                    self.prox_coercao += 1;
-                    self.conv_phi.push((origem.0, nome, de, *v, *ty));
-                }
-            }
-        }
+        self.preparar_tipos_e_phis(func);
 
         let ret_ty = func.return_ty.llvm_ir();
         let params: Vec<String> = func
