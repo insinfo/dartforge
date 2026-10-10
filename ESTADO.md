@@ -2,6 +2,18 @@
 
 ## Retomada de 2026-10-10
 
+Verificador de tokens reconstrói os contratos dos locais escalares no corpo
+atual: não aceita só mapas produzidos antes de uma alteração de CFG/instruções.
+Regressão reproduziu aceitação indevida de leitura após retirar a gravação
+de um ramo (target/arc-locais-verificador-antes.log); a correção rejeita esse
+caso e escape do endereço, leitura/gravação incompatível e efeito falseado,
+sem alterar mapas. Produção e verificação compartilham análise somente de
+leitura; verificação exige o inventário completo e valores gravados Trivial.
+Demais contratos/proveniência/borrows continuam obrigações separadas.
+Passaram 219 testes do emissor (7 ignorados) e 52 exemplos de documentação;
+logs target/arc-locais-verificador-{suite,doc}.log. Integração padrão pendente,
+sempre condicionada a --memoria=arc.
+
 Produtor ARC de locais escalares privados cobre Alloca/Store/Load de
 I1/I8/I64/F64. Exige alloca Ptr na entrada, endereço usado só por leituras/
 gravações diretas, tipos compatíveis e valores SSA Trivial. Inicialização é

@@ -251,8 +251,10 @@ fn erro_fluxo(f: &Function, pais: &[Option<usize>], b: usize, mensagem: String) 
 /// Junções exigem inventários iguais, sem união que esconda consumo condicional.
 /// Saídas devem consumir todos os tokens locais, transferindo o retorno owned.
 /// Borrowed só pode voltar quando sua cadeia termina no chamador.
+/// Reconstrói contratos de locais escalares privados no corpo atual, incluindo
+/// ausência de escape, tipagem, inicialização e valores gravados Trivial.
 ///
-/// Não insere operações, certifica os contratos, verifica escopos léxicos,
+/// Não insere operações, certifica os demais contratos, verifica escopos léxicos,
 /// invalidação de slots/borrows, regiões ou limpeza de estados suspensos.
 /// Essas obrigações continuam necessárias para aceitar o pipeline ARC inteiro.
 ///
@@ -429,6 +431,7 @@ fn analisar_tokens(
     plano: &PlanoTokens,
     permitir_cleanup: bool,
 ) -> Result<FluxoTokens, String> {
+    super::locais::verificar(f, classes, plano)?;
     conferir_saidas_excepcionais(f, tabelas, true)?;
     super::conferir_retomas(f, tabelas)?;
     super::classificacao::vivacidade_com_saidas(f, classes, tabelas, &plano.pendencias)?;

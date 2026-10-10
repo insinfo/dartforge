@@ -14,6 +14,36 @@ pub(super) fn produzir(
     classes: &mut HashMap<ValueId, Ownership>,
     plano: &mut PlanoTokens,
 ) -> Result<HashMap<ValueId, Type>, String> {
+    let (locais, produzidas) = analisar(f, classes, plano)?;
+    for v in produzidas {
+        classes.insert(v, Ownership::Trivial);
+        plano.instrucoes.insert(v, EfeitoTokens::default());
+    }
+    Ok(locais)
+}
+
+/// Reconstrói o contrato no corpo atual sem completar metadados ausentes.
+pub(super) fn verificar(
+    f: &Function,
+    classes: &HashMap<ValueId, Ownership>,
+    plano: &PlanoTokens,
+) -> Result<(), String> {
+    let (locais, produzidas) = analisar(f, classes, plano)?;
+    for v in produzidas {
+        if classes.get(&v) != Some(&Ownership::Trivial)
+            || plano.instrucoes.get(&v) != Some(&EfeitoTokens::default())
+        {
+            return Err(format!("v{}: local escalar sem contrato completo", v.0));
+        }
+    }
+    verificar_valores(f, &locais, classes)
+}
+
+fn analisar(
+    f: &Function,
+    classes: &HashMap<ValueId, Ownership>,
+    plano: &PlanoTokens,
+) -> Result<(HashMap<ValueId, Type>, HashSet<ValueId>), String> {
     let mut locais = HashMap::new();
     for (bi, b) in f.blocks.iter().enumerate() {
         for (v, inst, ty) in &b.instructions {
@@ -29,7 +59,7 @@ pub(super) fn produzir(
         }
     }
     if locais.is_empty() {
-        return Ok(locais);
+        return Ok((locais, HashSet::new()));
     }
     super::ssa::verificar(f)?;
     let tipos: HashMap<_, _> = f
@@ -205,11 +235,7 @@ pub(super) fn produzir(
             }
         }
     }
-    for v in produzidas {
-        classes.insert(v, Ownership::Trivial);
-        plano.instrucoes.insert(v, EfeitoTokens::default());
-    }
-    Ok(locais)
+    Ok((locais, produzidas))
 }
 
 pub(super) fn verificar_valores(
@@ -514,6 +540,64 @@ mod testes {
             } else {
                 assert_eq!(format!("{modulo:?}/{planos:?}"), antes);
             }
+        }
+    }
+
+    #[test]
+    fn verificador_recusa_plano_local_obsoleto_apos_mudar_o_corpo() {
+        use crate::otimizar::arc::verificar_tokens;
+        let base = diamante();
+        let mut classes = HashMap::from([(ValueId(0), Ownership::Trivial)]);
+        let mut plano = PlanoTokens::default();
+        produzir_contratos_arc(&base, &mut classes, &mut plano).unwrap();
+        verificar_tokens(&base, &classes, &TabelasDaFuncao::default(), &plano).unwrap();
+        for caso in 0..5 {
+            let mut f = base.clone();
+            let mut classes = classes.clone();
+            let mut plano = plano.clone();
+            match caso {
+                0 => {
+                    f.blocks[2].instructions.clear();
+                    classes.remove(&ValueId(3));
+                    plano.instrucoes.remove(&ValueId(3));
+                }
+                1 => {
+                    f.blocks[1].instructions.push((
+                        ValueId(6),
+                        Instruction::CallRuntime {
+                            name: "extern_sem_ownership".into(),
+                            args: vec![(Operand::Val(ValueId(1)), Type::Ptr)],
+                            ret_ty: Type::Void,
+                        },
+                        Type::Void,
+                    ));
+                    classes.insert(ValueId(6), Ownership::Trivial);
+                    plano.instrucoes.insert(ValueId(6), EfeitoTokens::default());
+                }
+                2 => {
+                    f.blocks[1].instructions[0].1 = Instruction::Load {
+                        ptr: Operand::Val(ValueId(1)),
+                        ty: Type::F64,
+                    }
+                }
+                3 => {
+                    f.blocks[2].instructions[0].1 = Instruction::Store {
+                        ptr: Operand::Val(ValueId(1)),
+                        val: Operand::Constant(Constant::Null),
+                    }
+                }
+                4 => {
+                    plano.instrucoes.get_mut(&ValueId(4)).unwrap().pode_falhar = true;
+                    plano.pendencias.insert(ValueId(4), BlockId(2));
+                }
+                _ => unreachable!(),
+            }
+            let antes = format!("{classes:?}/{plano:?}");
+            assert!(
+                verificar_tokens(&f, &classes, &TabelasDaFuncao::default(), &plano).is_err(),
+                "caso {caso}"
+            );
+            assert_eq!(format!("{classes:?}/{plano:?}"), antes);
         }
     }
 
