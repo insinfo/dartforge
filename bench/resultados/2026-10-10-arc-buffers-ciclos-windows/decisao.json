@@ -1,0 +1,21 @@
+{
+  "decisao": "retirar_reutilizacao_sem_limite_preservando_regressoes",
+  "motivo": "Ganho de tempo pequeno e não uniforme entre pares; aumento observado nos picos de memória do processo inteiro.",
+  "produtor_experimento": "a4fc87a7630c6f471265c6edb07d67279977f9d3",
+  "producao_restaurada_para": "585f0749bf03ff579bdf1148eeae007b275ad932",
+  "tempos_variacao_percentual": {
+    "arvores": -0.5506129853276476,
+    "lista_ligada": -0.6202571387002198
+  },
+  "picos_memoria_variacao_mediana_bytes": {
+    "working_set_pico_bytes": 5369856,
+    "commit_pico_bytes": 5898240
+  },
+  "picos_memoria_variacao_mediana_percentual": {
+    "working_set_pico_bytes": 1.8611320111866725,
+    "commit_pico_bytes": 1.4026201724054
+  },
+  "significancia_estatistica": "nao_estabelecida",
+  "gate_completo_arc_a0": "nao_reavaliado",
+  "arc": "somente_--memoria=arc"
+}

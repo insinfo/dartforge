@@ -326,32 +326,6 @@ impl std::ops::Index<&Ref> for Tabela {
     }
 }
 
-// Memória de trabalho sem owners: só conserva capacidade entre rodadas.
-// Todos os comprimentos são zerados também nas saídas com diagnóstico, para
-// que nenhum handle/índice/marca de uma região anterior entre na próxima.
-#[derive(Default)]
-struct TrabalhoCiclos {
-    pendentes: Vec<Ref>,
-    regiao: Vec<Ref>,
-    indice: HashMap<Ref, usize>,
-    trial: Vec<i128>,
-    vivos: Vec<bool>,
-    sobreviventes: Vec<usize>,
-    mortos: Vec<Ref>,
-}
-
-impl TrabalhoCiclos {
-    fn limpar(&mut self) {
-        self.pendentes.clear();
-        self.regiao.clear();
-        self.indice.clear();
-        self.trial.clear();
-        self.vivos.clear();
-        self.sobreviventes.clear();
-        self.mortos.clear();
-    }
-}
-
 /// O estado do ARC de um isolate (§19.1).
 #[derive(Default)]
 pub struct EstadoDoArc {
@@ -368,7 +342,6 @@ pub struct EstadoDoArc {
     transacao: bool,
     /// As saídas do conjunto em descarte, reaproveitado ([`Self::descartar`]).
     saidas: Vec<Ref>,
-    trabalho_ciclos: TrabalhoCiclos,
     pub estatisticas: EstatisticasArc,
     /// Uma linha no stderr por evento (registro, retain, release, morte): o
     /// diagnóstico de `DARTFORGE_ARC_TRACO=1`.
@@ -787,16 +760,8 @@ impl EstadoDoArc {
     /// commit; um trial negativo aborta com diagnóstico. `protegido`: as
     /// raízes observacionais, que fazem sobreviver como uma referência externa.
     pub fn coletar_ciclos(&mut self, grafo: &mut dyn GrafoArc, protegido: &dyn Fn(Ref) -> bool) -> Result<usize, ErroArc> {
-        let mut trabalho = std::mem::take(&mut self.trabalho_ciclos);
-        let resultado = self.coletar_ciclos_com_trabalho(grafo, protegido, &mut trabalho);
-        trabalho.limpar();
-        self.trabalho_ciclos = trabalho;
-        resultado
-    }
-
-    fn coletar_ciclos_com_trabalho(&mut self, grafo: &mut dyn GrafoArc, protegido: &dyn Fn(Ref) -> bool, trabalho: &mut TrabalhoCiclos) -> Result<usize, ErroArc> {
-        let TrabalhoCiclos { pendentes, regiao: r, indice: em_r, trial, vivos, sobreviventes, mortos } = trabalho;
         let candidatos = std::mem::take(&mut self.candidatos);
+        let mut sementes: Vec<Ref> = Vec::new();
         for id in candidatos {
             let Some(m) = self.objetos.get_mut(&id.handle).filter(|m| m.geracao == id.geracao) else { continue };
             m.candidato = false;
@@ -804,19 +769,22 @@ impl EstadoDoArc {
                 if protegido(id.handle) {
                     self.candidatar(id.handle);
                 } else {
-                    pendentes.push(id.handle);
+                    sementes.push(id.handle);
                 }
             }
         }
-        if pendentes.is_empty() {
+        if sementes.is_empty() {
             return Ok(0);
         }
         self.estatisticas.rodadas_de_ciclo += 1;
         // A raiz protegida fica fora de R: suas arestas continuam entradas
         // externas no trial. Reenfileirá-la permite coletar quando a raiz sumir.
+        let mut r: Vec<Ref> = Vec::new();
         // Um índice denso por handle; contadores e marcas ficam em vetores,
         // sem três tabelas de hash distintas para a mesma região.
-        while let Some(x) = pendentes.pop() {
+        let mut em_r: HashMap<Ref, usize> = HashMap::default();
+        let mut pilha = sementes;
+        while let Some(x) = pilha.pop() {
             let std::collections::hash_map::Entry::Vacant(entrada) = em_r.entry(x) else { continue };
             let Some(m) = self.objetos.get(&x) else { continue };
             if m.imortal || m.estado == EstadoArc::Morto {
@@ -830,14 +798,14 @@ impl EstadoDoArc {
             r.push(x);
             grafo.arestas(x, &mut |v| {
                 if e_handle(v) {
-                    pendentes.push(v);
+                    pilha.push(v);
                 }
             });
         }
         self.estatisticas.examinados += r.len() as u64;
         // trial = rc − ocorrências internas.
-        trial.extend(r.iter().map(|x| self.objetos[x].rc as i128));
-        for &u in r.iter() {
+        let mut trial: Vec<i128> = r.iter().map(|x| self.objetos[x].rc as i128).collect();
+        for &u in &r {
             grafo.arestas(u, &mut |v| {
                 if let Some(&indice) = em_r.get(&v) {
                     trial[indice] -= 1;
@@ -848,26 +816,27 @@ impl EstadoDoArc {
             return Err(ErroArc::TrialNegativo(r[indice]));
         }
         // Sobreviventes: trial positivo, em construção ou protegido; propagam.
-        vivos.resize(r.len(), false);
+        let mut vivos = vec![false; r.len()];
+        let mut pilha: Vec<usize> = Vec::new();
         for (indice, &x) in r.iter().enumerate() {
             let m = &self.objetos[&x];
             if trial[indice] > 0 || m.estado == EstadoArc::Construindo || m.protegido_condicional || protegido(x) {
                 vivos[indice] = true;
-                sobreviventes.push(indice);
+                pilha.push(indice);
             }
         }
         // Marca ao enfileirar: convergência de caminhos e posições repetidas
         // não multiplicam entradas na pilha. O trial acima continua contando
         // cada ocorrência. A propagação usa índices, sem buscar o handle de
         // novo ao retirar da pilha; destinos fora de R não são percorridos.
-        while let Some(indice) = sobreviventes.pop() {
+        while let Some(indice) = pilha.pop() {
             grafo.arestas(r[indice], &mut |v| {
                 if e_handle(v)
                     && let Some(&destino) = em_r.get(&v)
                     && !vivos[destino]
                 {
                     vivos[destino] = true;
-                    sobreviventes.push(destino);
+                    pilha.push(destino);
                 }
             });
         }
@@ -878,12 +847,12 @@ impl EstadoDoArc {
                 self.candidatar(x);
             }
         }
-        mortos.extend(r.iter().copied().enumerate().filter_map(|(i, x)| (!vivos[i]).then_some(x)));
+        let mortos: Vec<Ref> = r.into_iter().enumerate().filter_map(|(i, x)| (!vivos[i]).then_some(x)).collect();
         if mortos.is_empty() {
             return Ok(0);
         }
         let n = mortos.len();
-        self.descartar(grafo, mortos)?;
+        self.descartar(grafo, &mortos)?;
         self.estatisticas.mortos_por_ciclo += n as u64;
         Ok(n)
     }

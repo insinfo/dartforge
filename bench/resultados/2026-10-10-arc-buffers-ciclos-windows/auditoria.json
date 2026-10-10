@@ -1,0 +1,65 @@
+{
+  "estado": "ok",
+  "execucoes": 14,
+  "rodadas_por_execucao": 6,
+  "aquecimento_descartado": 1,
+  "pares": 7,
+  "resultado_reconstruido": {
+    "arvores": {
+      "antes_us": 656541,
+      "depois_us": 652926,
+      "depois_antes": 0.9944938701467235,
+      "razoes_pareadas": [
+        0.9507491092087502,
+        0.9678508343879773,
+        1.0158009933880747,
+        1.0219215931196568,
+        1.0020924360662202,
+        1.0196568562838546,
+        0.9602873071125434
+      ]
+    },
+    "lista_ligada": {
+      "antes_us": 130591,
+      "depois_us": 129781,
+      "depois_antes": 0.9937974286129978,
+      "razoes_pareadas": [
+        0.9608780957316847,
+        1.0168523970543446,
+        0.9799728445349627,
+        0.9946686684693103,
+        0.9537562449885894,
+        0.9761392438988904,
+        0.9899949631393379
+      ]
+    }
+  },
+  "depois_menor_por_kernel": {
+    "arvores": 3,
+    "lista_ligada": 6
+  },
+  "hashes_cli_executaveis_e_fontes_conferidos": true,
+  "gate_completo_arc_a0": "nao_reavaliado",
+  "picos_memoria_processo_reconstruidos": {
+    "antes": {
+      "working_set_pico_bytes": {
+        "mediana_bytes": 288526336,
+        "maximo_bytes": 288567296
+      },
+      "commit_pico_bytes": {
+        "mediana_bytes": 420515840,
+        "maximo_bytes": 420569088
+      }
+    },
+    "depois": {
+      "working_set_pico_bytes": {
+        "mediana_bytes": 293896192,
+        "maximo_bytes": 293937152
+      },
+      "commit_pico_bytes": {
+        "mediana_bytes": 426414080,
+        "maximo_bytes": 426450944
+      }
+    }
+  }
+}
