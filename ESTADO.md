@@ -2,6 +2,30 @@
 
 ## Retomada de 2026-10-10
 
+ABI dartforge_arc_objeto_owned_v1 aloca INSTANCIA zerada e publica um único
+token Owned no mesmo empréstimo do heap, antes do retorno/reabastecimento
+TLAB. Confere classe i32 e número de campos u16 sem truncar o cabeçalho.
+Ownership (classe nativa, quantidade escalar, resultado Owned), efeitos de
+alocação/invalidação e extern LLVM foram auditados juntos. Testes em
+ARC/tracing com GC stress cobrem 0/1/32/33/40 campos, mapa estendido zerado,
+filho forte, sobrevivência a outra alocação/coleta e morte após um release.
+Contrato HIR liga fábrica, leitura escalar, bitcast e cleanup automático;
+assinatura incompatível ou alocador legado sem contrato são recusados sem
+publicação parcial. Preparação é idempotente e não altera tracing.
+Não escolhe a fábrica no lowering, não executa construtores/registra métodos
+nem certifica layouts/recarga; inicialização de campos e integração no fluxo
+normal continuam pendentes, sempre exclusivas de --memoria=arc.
+Sem nova prova AOT desta ABI. Passaram 178 testes runtime (3 ignorados),
+2 testes do catálogo e 38 exemplos runtime; 224 testes do emissor
+(7 ignorados) e 52 exemplos de documentação. Logs
+target/arc-instancia-runtime-{focado,suite,doc}.log e
+target/arc-instancia-emissor-{focado,suite,doc}.log.
+
+Conjunto publicado b5887c94 em validação na CI 38029919066 e na CI
+Sem toolchain do sistema 38029919046. Na consulta desta retomada, Linux
+passou as provas AOT de unwind e avançou aos testes JIT; Windows/macOS
+ainda executavam. A ABI de instâncias acima é posterior a essa fonte.
+
 Auditoria dos layouts declarados percorre as 15 bibliotecas do SDK da fonte
 usando a mesma etapa de registro de classes da produção, sem baixar seus
 corpos. Preparação ARC valida os fatos de cada módulo sem produzir operações

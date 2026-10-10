@@ -676,6 +676,7 @@ dartforge_object_campos	0	0	0
 dartforge_object_get	0	0	0
 dartforge_arc_ler_campo_escalar_v1	0	0	0
 dartforge_object_new	1	0	0
+dartforge_arc_objeto_owned_v1	1	0	0
 dartforge_object_new_t	1	0	0
 dartforge_object_set	0	0	0
 dartforge_parar_isolados	1	1	1

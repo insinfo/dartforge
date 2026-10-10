@@ -299,6 +299,102 @@ mod testes {
     use super::*;
 
     #[test]
+    fn fabrica_de_instancia_publica_owned_e_cleanup_sem_classificar_alocador_legado() {
+        for caso in 0..4 {
+            let mut m = Module::new();
+            m.memoria_arc = true;
+            let ret_ty = if caso == 1 { Type::I64 } else { Type::Ref };
+            let nome = if caso == 3 {
+                "dartforge_object_new"
+            } else {
+                "dartforge_arc_objeto_owned_v1"
+            };
+            m.functions.push(Function {
+                symbol: "instancia".into(),
+                name: "instancia".into(),
+                depuracao: None,
+                params: vec![],
+                return_ty: Type::Void,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![
+                        (
+                            ValueId(0),
+                            Instruction::CallRuntime {
+                                name: nome.into(),
+                                args: vec![
+                                    (Operand::Constant(Constant::Int(123)), Type::I64),
+                                    (
+                                        Operand::Constant(Constant::Int(40)),
+                                        if caso == 2 { Type::Ref } else { Type::I64 },
+                                    ),
+                                ],
+                                ret_ty,
+                            },
+                            ret_ty,
+                        ),
+                        (
+                            ValueId(1),
+                            Instruction::CallRuntime {
+                                name: "dartforge_arc_ler_campo_escalar_v1".into(),
+                                args: vec![
+                                    (Operand::Val(ValueId(0)), Type::Ref),
+                                    (Operand::Constant(Constant::Int(39)), Type::I64),
+                                ],
+                                ret_ty: Type::I64,
+                            },
+                            Type::I64,
+                        ),
+                        (
+                            ValueId(2),
+                            Instruction::Bitcast {
+                                op: Operand::Val(ValueId(1)),
+                                to: Type::F64,
+                            },
+                            Type::F64,
+                        ),
+                    ],
+                    terminator: Terminator::Return(None),
+                }],
+            });
+            let mut planos = HashMap::from([("instancia".into(), PlanoFuncaoDart::default())]);
+            let antes = format!("{m:?}/{planos:?}");
+            if caso != 0 {
+                assert!(preparar_arc_modulo_dart(&mut m, &mut planos).is_err());
+                assert_eq!(format!("{m:?}/{planos:?}"), antes);
+            } else {
+                assert_eq!(
+                    preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+                    (0, 1)
+                );
+                let p = &planos["instancia"];
+                assert_eq!(p.classes[&ValueId(0)], Ownership::Owned);
+                assert_eq!(p.classes[&ValueId(1)], Ownership::Trivial);
+                assert_eq!(p.classes[&ValueId(2)], Ownership::Trivial);
+                let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+                assert!(
+                    ir.contains("declare i64 @dartforge_arc_objeto_owned_v1(i64, i64) nounwind")
+                );
+                assert!(ir.contains("call i64 @dartforge_arc_objeto_owned_v1(i64 123, i64 40)"));
+                assert!(ir.contains("call void @dartforge_arc_release(i64 %v0)"));
+                let preparado = format!("{m:?}/{planos:?}");
+                assert_eq!(
+                    preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+                    (0, 0)
+                );
+                assert_eq!(format!("{m:?}/{planos:?}"), preparado);
+            }
+            m.memoria_arc = false;
+            let antes = format!("{m:?}/{planos:?}");
+            assert_eq!(
+                preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+                (0, 0)
+            );
+            assert_eq!(format!("{m:?}/{planos:?}"), antes);
+        }
+    }
+
+    #[test]
     fn modulo_publica_fatos_e_cleanup_juntos_e_tracing_nao_prepara() {
         for falha in 0..3 {
             let (mut fs, mut ps) = boxing(Operand::Val(ValueId(3)), Type::I64);

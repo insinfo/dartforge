@@ -66,6 +66,18 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
     assert!(!caixa.pode_falhar && !caixa.retencao_persistente);
     assert!(caixa.invalida_borrows);
     assert!(EFEITOS.iter().find(|e| e.0 == caixa.nome).unwrap().1);
+    let instancia = CONTRATOS
+        .iter()
+        .find(|c| c.nome == "dartforge_arc_objeto_owned_v1")
+        .unwrap();
+    assert_eq!(
+        instancia.parametros,
+        &[ModoParametro::Native, ModoParametro::Scalar]
+    );
+    assert_eq!(instancia.resultado, ModoResultado::Owned);
+    assert!(instancia.invalida_borrows);
+    assert!(!instancia.pode_falhar && !instancia.chama_dart && !instancia.retencao_persistente);
+    assert!(EFEITOS.iter().find(|e| e.0 == instancia.nome).unwrap().1);
     let escalar = CONTRATOS
         .iter()
         .find(|c| c.nome == "dartforge_arc_ler_campo_escalar_v1")

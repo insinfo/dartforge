@@ -4,6 +4,48 @@
 // A fábrica owned de caixas é uma operação de alocação, com safepoint próprio.
 // O lançamento Ref publica uma raiz runtime e pode alocar o rastro.
 
+/// Aloca uma instância zerada e entrega exatamente um token Owned ao chamador.
+///
+/// Classe deve caber em i32 e quantidade de campos em u16, como o cabeçalho
+/// físico. Todos os campos começam com bits zero e sem marca de referência,
+/// inclusive no mapa estendido. A alocação pode coletar; a retenção ocorre
+/// no mesmo empréstimo do heap, antes de devolver o handle ou reabastecer TLAB.
+/// Não executa construtor Dart, registra métodos ou certifica layout/recarga.
+/// O chamador deve transferir o token ou liberá-lo exatamente uma vez.
+///
+/// # Panics
+/// Classe/quantidade inválida ou falha interna de alocação/contagem; aborta
+/// no limite C. Não representa uma exceção Dart.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let objeto = dartforge_arc_objeto_owned_v1(123, 40);
+/// dartforge_arc_collect();
+/// assert_eq!(dartforge_arc_observar_heap_v1(objeto), 3);
+/// assert_eq!(dartforge_arc_ler_campo_escalar_v1(objeto, 39), 0);
+/// dartforge_arc_release(objeto);
+/// dartforge_arc_collect();
+/// assert_eq!(dartforge_arc_observar_heap_v1(objeto), 0);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_objeto_owned_v1(classe: i64, campos: i64) -> i64 {
+    let (classe, campos) = parametros_instancia_owned(classe, campos)
+        .expect("contrato de alocação de instância ARC violado");
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let objeto = heap.alocar_instancia(classe, campos);
+        heap.reter_owner_codigo(objeto);
+        heap.reabastecer_tlab(crate::layout::palavras_de_instancia(campos));
+        objeto
+    })
+}
+
+fn parametros_instancia_owned(classe: i64, campos: i64) -> Result<(i32, usize), &'static str> {
+    let classe = i32::try_from(classe).map_err(|_| "classe fora de i32")?;
+    let campos = u16::try_from(campos).map_err(|_| "quantidade de campos fora de u16")?;
+    Ok((classe, usize::from(campos)))
+}
+
 /// Copia os bits de um campo escalar de um objeto emprestado.
 ///
 /// Exige objeto vivo, índice válido e campo não marcado como referência no
@@ -749,6 +791,65 @@ mod testes_caixa_double_owned {
                 assert_eq!(dartforge_arc_observar_heap_v1(valor), 0);
             }
             HEAP.with(|h| { h.replace(anterior); });
+        }
+    }
+}
+
+#[cfg(test)]
+mod testes_instancia_owned {
+    use super::*;
+
+    #[test]
+    fn instancia_zerada_e_token_sobrevivem_a_stress_ate_uma_liberacao() {
+        for arc in [false, true] {
+            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+            for campos in [0, 1, 32, 33, 40] {
+                let objeto = dartforge_arc_objeto_owned_v1(123, campos);
+                assert_eq!(dartforge_arc_observar_heap_v1(objeto), 3);
+                // A próxima fábrica pode coletar antes de publicar seu token.
+                let outro = dartforge_arc_objeto_owned_v1(124, 1);
+                dartforge_arc_collect();
+                HEAP.with(|h| {
+                    let h = h.borrow();
+                    let vista = h.objeto(objeto).unwrap();
+                    assert_eq!(vista.class_id, 123);
+                    assert_eq!(vista.len(), campos as usize);
+                    assert!(vista.iter().all(|campo| campo == (0, false)));
+                });
+                let filho = if campos > 0 {
+                    let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
+                    dartforge_object_set(objeto, campos - 1, filho, 1);
+                    dartforge_arc_release(filho);
+                    dartforge_arc_collect();
+                    assert_eq!(dartforge_arc_observar_heap_v1(filho), 1);
+                    assert_eq!(HEAP.with(|h| h.borrow().objeto(objeto).unwrap().campo(campos as usize - 1)), (filho, true));
+                    Some(filho)
+                } else { None };
+                dartforge_arc_release(outro);
+                dartforge_arc_release(objeto);
+                assert_eq!(dartforge_arc_observar_heap_v1(objeto) & 2, 0);
+                dartforge_arc_collect();
+                assert_eq!(dartforge_arc_observar_heap_v1(objeto), 0);
+                assert_eq!(dartforge_arc_observar_heap_v1(outro), 0);
+                if let Some(filho) = filho { assert_eq!(dartforge_arc_observar_heap_v1(filho), 0); }
+            }
+            HEAP.with(|h| { h.replace(anterior); });
+        }
+    }
+
+    #[test]
+    fn parametros_devem_caber_no_cabecalho_sem_truncar() {
+        for classe in [i32::MIN as i64, 0, i32::MAX as i64] {
+            for campos in [0, 40, u16::MAX as i64] {
+                assert_eq!(parametros_instancia_owned(classe, campos), Ok((classe as i32, campos as usize)));
+            }
+        }
+        for classe in [i32::MIN as i64 - 1, i32::MAX as i64 + 1] {
+            assert!(parametros_instancia_owned(classe, 1).is_err());
+        }
+        for campos in [-1, u16::MAX as i64 + 1, i64::MAX] {
+            assert!(parametros_instancia_owned(123, campos).is_err());
         }
     }
 }
