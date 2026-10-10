@@ -18,6 +18,7 @@
 mod cfg;
 pub mod arc;
 mod efeitos;
+pub(crate) mod scc;
 mod escape;
 mod inline;
 mod mem2reg;

@@ -111,61 +111,10 @@ fn em_ciclo(module: &Module) -> Vec<bool> {
         })
         .collect();
     let mut ciclo = vec![false; n];
-    let mut ordem = vec![usize::MAX; n];
-    let mut baixo = vec![0usize; n];
-    let mut na_pilha = vec![false; n];
-    let mut pilha: Vec<usize> = Vec::new();
-    let mut proximo = 0usize;
-    for raiz in 0..n {
-        if ordem[raiz] != usize::MAX {
-            continue;
-        }
-        // (nó, próxima aresta a visitar)
-        let mut chamadas: Vec<(usize, usize)> = vec![(raiz, 0)];
-        ordem[raiz] = proximo;
-        baixo[raiz] = proximo;
-        proximo += 1;
-        pilha.push(raiz);
-        na_pilha[raiz] = true;
-        while let Some(topo) = chamadas.last_mut() {
-            let v = topo.0;
-            if topo.1 < arestas[v].len() {
-                let w = arestas[v][topo.1];
-                topo.1 += 1;
-                if w == v {
-                    ciclo[v] = true;
-                }
-                if ordem[w] == usize::MAX {
-                    ordem[w] = proximo;
-                    baixo[w] = proximo;
-                    proximo += 1;
-                    pilha.push(w);
-                    na_pilha[w] = true;
-                    chamadas.push((w, 0));
-                } else if na_pilha[w] {
-                    baixo[v] = baixo[v].min(ordem[w]);
-                }
-                continue;
-            }
-            chamadas.pop();
-            if let Some(&(pai, _)) = chamadas.last() {
-                baixo[pai] = baixo[pai].min(baixo[v]);
-            }
-            if baixo[v] == ordem[v] {
-                let mut componente = Vec::new();
-                loop {
-                    let w = pilha.pop().expect("componente na pilha");
-                    na_pilha[w] = false;
-                    componente.push(w);
-                    if w == v {
-                        break;
-                    }
-                }
-                if componente.len() > 1 {
-                    for w in componente {
-                        ciclo[w] = true;
-                    }
-                }
+    for componente in super::scc::componentes(&arestas) {
+        if componente.len() > 1 || arestas[componente[0]].contains(&componente[0]) {
+            for v in componente {
+                ciclo[v] = true;
             }
         }
     }
@@ -188,4 +137,35 @@ pub fn confere_tudo(func: &Function, nao_lancam: &HashSet<String>) -> bool {
 
 pub fn e_conferencia(inst: &Instruction) -> bool {
     matches!(inst, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending")
+}
+
+#[cfg(test)]
+mod testes_scc {
+    use super::*;
+
+    #[test]
+    fn recursao_exige_pilha_e_propaga_falha_sem_contaminar_folha() {
+        let mut m = Module::new();
+        for (simbolo, destinos) in [
+            ("folha", vec![]), ("auto", vec!["auto"]),
+            ("a", vec!["b", "folha"]), ("b", vec!["a"]),
+            ("chamador", vec!["a"]), ("externo", vec!["ausente"]),
+        ] {
+            m.functions.push(Function {
+                symbol: simbolo.into(), name: simbolo.into(), depuracao: None,
+                params: vec![], return_ty: Type::Void,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: destinos.into_iter().enumerate().map(|(i, destino)| (
+                        ValueId(i as u32), Instruction::CallStatic {
+                            symbol: destino.into(), args: vec![], ret_ty: Type::Void,
+                        }, Type::Void,
+                    )).collect(),
+                    terminator: Terminator::Return(None),
+                }],
+            });
+        }
+        assert_eq!(em_ciclo(&m), vec![false, true, true, true, false, false]);
+        assert_eq!(nao_lancam(&m), HashSet::from(["folha".into()]));
+    }
 }

@@ -2405,7 +2405,7 @@ deve ser apresentado como análise de regiões/points-to já implementada:
 | `otimizar/mod.rs::otimizar` | Integrar planejamento depois de transformações normais e antes de ARC; não perder metadados em limpeza/inlining. Centralizar programa e SDK na mesma entrada. |
 | `otimizar/escape.rs::substituir_objetos` | Preservar a substituição escalar existente. Hoje reconhece objetos com acessos simples por índice constante; argumento, retorno, phi ou identidade impedem essa transformação. Acrescentar análise interprocedural separada, sem tratar o passe atual como prova de região. |
 | `otimizar/inline.rs::{copiavel,inlining}` | Remapear origem/contexto ao clonar e aplicar orçamento de especializações; invalidar resumos dependentes do corpo. |
-| `otimizar/efeitos.rs::{instrucao_lanca,nao_lancam,em_ciclo}` | Separar efeitos de heap dos efeitos de exceção existentes. Extrair Tarjan iterativo de `em_ciclo` como utilitário reutilizável, preservando testes; seus resultados atuais são SCCs de chamadas. |
+| `otimizar/efeitos.rs::{instrucao_lanca,nao_lancam,em_ciclo}` e `otimizar/scc.rs::componentes` | Separar efeitos de heap dos efeitos de exceção existentes. Tarjan iterativo compartilhado já decompõe grafos indexados; `em_ciclo` continua aplicando-o a chamadas. Isso não fornece aliases, SCCs de instâncias ou certificados de memória. |
 | `lower/captura.rs::{analisar,analisar_com,livres}` | Alimentar o grafo com capturas/células; ausência de resolução vira desconhecido, nunca ausência de captura. |
 | `lower/funcoes_diretas.rs::{Passagem,Captura,Direta}` e `FnBuilder::{declarar_funcao_direta,chamar_direta}` | Reaproveitar a eliminação existente de closures que só têm chamadas diretas; expandir com contratos de não retenção verificados. |
 | `lower/closures.rs::{preparar_capturas,lower_closure,tearoff_de_metodo,tearoff_instanciado}` | Registrar todos os objetos sintéticos, receptor, ambiente, células e tipos capturados. |
@@ -2443,8 +2443,8 @@ Sob `crates/emit_native/src/otimizar/arc/analise/`, criar:
 | `certificados.rs` | `verificar_plano(module, plano)` independente da heurística de seleção. |
 | `relatorio.rs` | Explicações por sítio/aresta e dados para comparar com perfil de execução. |
 
-Adicionar `crates/emit_native/src/otimizar/scc.rs` para o algoritmo comum,
-sem associá-lo a um grafo específico. No runtime, criar `arc_regioes.rs` e
+O algoritmo comum já está em `crates/emit_native/src/otimizar/scc.rs`,
+sem associar o domínio dos nós a um grafo específico. No runtime, criar `arc_regioes.rs` e
 `arc_grupos.rs`, registrá-los em `MODULOS`, `lib.rs` e `RUNTIME_MAIN` conforme
 §18; externs públicas correspondentes entram no fragmento `arc_abi.rs`, na
 tabela de símbolos e em `ownership.tsv`/`efeitos.tsv` com os efeitos reais.

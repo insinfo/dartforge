@@ -2,6 +2,22 @@
 
 ## Retomada de 2026-10-10
 
+Infraestrutura comum prevista na §33.2 agora em otimizar/scc.rs:
+Tarjan iterativo recebe grafo indexado, devolve a partição completa em
+ordem de dependências e recusa destinos fora do grafo. Resumo de exceções
+usa esse utilitário para recursão direta/mútua; SCCs de chamadas continuam
+distintas dos futuros grafos de tipos, sítios e unidades de memória.
+Oráculo independente por fecho transitivo confere partição e ordem nos
+512 grafos de três nós. Cadeia e ciclo com 100 mil nós passam sem recursão
+Rust; casos vazio, isolado, autoaresta e duplicação de arestas passam.
+Regressão do consumidor confere recursão, propagação a chamadores,
+chamada externa desconhecida e folha que continua sem lançar.
+Passaram 263 testes do emissor (sete ignorados), 55 exemplos públicos e
+os 16 casos AOT da cadeia da fonte no Windows. Logs
+target/arc-scc-compartilhado-{suite,doc,aot}.log. Extração não certifica
+points-to, aciclicidade de instâncias, regiões/grupos ou o gate ARC/A0;
+seleção de ARC continua exclusiva de --memoria=arc. Mudança ainda local.
+
 Prova arc_retorno_da_fonte ampliada para repassar(valor) chamar
 identidade(identidade(valor)), usando os dois corpos reais do lowering.
 Planos continuam padrão, preenchidos pelos produtores: retorno Ref Owned,
