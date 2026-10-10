@@ -575,6 +575,14 @@ preparação acrescenta invokes e pousos. Erros preservam a versão anterior;
 tracing não passa pela preparação ARC. Isso ainda exige contratos fornecidos
 e não representa inserção automática completa no pipeline da fonte/SDK.
 
+`preparar_arc_modulo_tabelado` liga essa etapa ao inventário de exceções
+produzido pelo compilador: importa as tabelas na cópia privada dos planos,
+verifica ownership e só publica após sucesso. Recusa inventários conflitantes
+ou incompletos; conserva catch/saídas preparados e é idempotente. O produtor
+`produzir_tabelas_arc_do_modulo` também está disponível separadamente, mas sua
+importação não certifica contratos de ownership. Ambos respeitam a seleção
+ARC anterior; tracing permanece sem alterações.
+
 * Owners na HIR, inserção e verificador (§20), com as saídas excepcionais
   (§20.4).
 * `ownership.tsv` por extern (§21.2).

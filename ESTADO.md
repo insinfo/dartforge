@@ -2,6 +2,30 @@
 
 ## Retomada de 2026-10-10
 
+CI 38043719059 da fonte 124624db terminou com sucesso em Windows,
+Linux, macOS arm64 e mensagens; Sem toolchain 38043719100 também passou.
+Essa rodada inclui os campos tipados da fonte e as matrizes anteriores,
+mas não as correções/preparações locais posteriores.
+
+Nova entrada preparar_arc_modulo_tabelado importa o inventário excepcional
+do módulo, prepara ownership e publica corpos/planos/tabelas numa transação.
+O produtor produzir_tabelas_arc_do_modulo exige o mesmo conjunto de símbolos,
+SSA válida e tabelas vazias ou iguais às fornecidas; recusa conflitos e
+inventário incompleto sem alterar planos. Tracing devolve sem alterações.
+Teste usa o passe real de exceções sobre a forma de chamada/conferência/catch
+da fonte e verifica invoke, preservação do clear e owner no pouso. Falha de
+ownership depois da importação conserva módulo e planos; repetição é
+idempotente. Contratos de ownership/callees/escopos ainda são fornecidos;
+essa entrada não constitui cobertura automática completa da fonte/SDK.
+Passaram 257 testes do emissor (sete ignorados) e 54 exemplos públicos.
+Fixture arc_retornos_guardados exercita a entrada integrada no caminho ARC
+automático: AOT normal Windows com auditoria, ARC puro e GC stress terminou
+em zero com saída 9223372036854775807. Nessa fixture o inventário inicial é
+explícito; o teste unitário usa o passe real de exceções. Logs finais em
+target/arc-planos-excecoes-{suite,doc,aot}-final.log e saída
+target/arc-planos-excecoes-normal.stdout. Unwind executado desta etapa em
+Unix permanece para a CI; não há certificação de unwind Windows.
+
 Preparação explícita do módulo ARC agora publica também as tabelas de
 exceções verificadas quando esse modo já foi selecionado. Antes, corpos e
 planos podiam ganhar novos invokes/pousos enquanto Module::tabelas ainda

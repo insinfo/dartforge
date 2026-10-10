@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 /// let plano = PlanoFuncaoDart::default();
 /// assert!(plano.tabelas.cleanup_estrangeiro.is_none());
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CleanupEstrangeiro {
     corpo: String,
     invocacoes: HashMap<ValueId, BlockId>,

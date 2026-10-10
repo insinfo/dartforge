@@ -398,9 +398,18 @@ fn main() -> Result<(), String> {
         },
     ]);
     let inseridos = if automatico && arc {
-        // O módulo selecionou exceções por tabelas antes da preparação.
-        // A transação publica o inventário da HIR final para o emissor.
-        preparar_arc_modulo_dart(&mut modulo, &mut planos)?
+        // O harness fornece o CFG inicial de catch/saídas, como o passe de
+        // exceções do compilador. A entrada integrada importa esse inventário
+        // e publica o CFG final, inclusive os invokes criados no propagador.
+        modulo.tabelas = modulo
+            .functions
+            .iter()
+            .map(|f| planos[&f.symbol].tabelas.clone())
+            .collect();
+        for plano in planos.values_mut() {
+            plano.tabelas = TabelasDaFuncao::default();
+        }
+        preparar_arc_modulo_tabelado(&mut modulo, &mut planos)?
     } else if automatico {
         preparar_arc_funcoes_dart(&mut modulo.functions, &mut planos)?
     } else {

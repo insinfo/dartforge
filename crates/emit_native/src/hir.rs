@@ -979,7 +979,7 @@ pub enum SaidaPorExcecao {
 /// O que o passe das exceções por tabelas (`otimizar/tabelas.rs`) decidiu
 /// para uma função: quem é `invoke`, onde pousa e como cada `Return` sai. O
 /// emissor (`llvm/mod.rs`) só lê.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TabelasDaFuncao {
     /// A instrução (chamada Dart) que vira `invoke`, e o bloco de pouso dela.
     pub invocacoes: std::collections::HashMap<ValueId, BlockId>,
