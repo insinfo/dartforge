@@ -17,6 +17,8 @@ mod tokens;
 mod contratos;
 mod chamadas;
 mod funcoes;
+mod parametros;
+pub use parametros::produzir_parametros_escalares_do_lowering;
 mod invocacoes;
 mod saidas;
 mod ssa;

@@ -181,6 +181,7 @@ pub fn simbolo_getter_campo_late(ctx: &Context, vid: VariableId) -> String {
 
 pub fn lower_program(ctx: &Context) -> Module {
     let mut module = Module::new();
+    module.memoria_arc = ctx.memoria_arc;
 
     // 1. Registra classes conhecidas
     // Classe Object padrão como id 0

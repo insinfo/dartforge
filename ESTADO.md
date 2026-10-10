@@ -2,6 +2,19 @@
 
 ## Retomada de 2026-10-10
 
+Fatos de parâmetros do lowering agora alimentam PlanoFuncaoDart pela API
+produzir_parametros_escalares_do_lowering: verifica símbolos/IDs/tipos e
+conflitos antes de publicar qualquer Trivial. Tracing não aplica os fatos;
+repetição válida é idempotente. Lower_program já conserva o modo escolhido.
+Teste da declaração Dart genérica liga lowering, otimização, planos e
+preparação ARC; parâmetro oculto exige contrato próprio e continua fora
+do fato escalar. Casos negativos cobrem ID obsoleto, Ref indevido, classe
+conflitante, plano ausente e função removida, sem publicação parcial.
+Ainda não chama essa preparação no pipeline padrão: contratos de operações,
+parâmetros nativos, retornos e exceções/borrows precisam de cobertura completa.
+Passaram 208 testes do emissor (7 ignorados) e 50 exemplos de documentação;
+logs target/arc-parametros-planos-{suite,doc}.log.
+
 Lowering preserva fatos de parâmetros escalares Dart por símbolo/ID SSA,
 somente quando Context.memoria_arc está ativo. Programa e SDK propagam
 o modo escolhido antes do lowering. Declarar parâmetros do outline marca
