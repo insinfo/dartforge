@@ -322,7 +322,11 @@ pub(crate) fn analisar_com_resumos(
                 dependencias_corpos.insert(symbol.clone(), assinatura_corpo(callee));
                 // Cobertura de campos é separada do alias normal. Conversões
                 // de argumentos podem alocar/reentrar antes do corpo coberto.
-                desconhecidos.push(*v);
+                if !abi_exata
+                    || resumo.publicacoes() != super::resumos::PublicacoesHeapArc::SomenteResultado
+                {
+                    desconhecidos.push(*v);
+                }
                 if !abi_exata || resumo.campos() != super::resumos::CamposHeapArc::Preservados {
                     for campo in &campos {
                         rs.push(Restricao::DesconhecerCampo {

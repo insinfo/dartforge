@@ -2,6 +2,27 @@
 
 ## Retomada de 2026-10-10
 
+PublicacoesHeapArc separa publicação somente pelo resultado de cobertura
+desconhecida. Extrator exige inspeção positiva de todo o corpo de folha de
+valores já avaliados, sem stores/chamadas/alocações/throw; não deduz a
+propriedade do alias normal ou Borrowed. Consumo exige ABI exata e cobertura
+dos caminhos implícitos de emissão; contexto/tabela com confere_pilha invalida
+tanto campos quanto publicação. Conversões de argumento e texto seguem opacos.
+Chamada coberta não acrescenta OperacaoOpaca: resultado devolvido conserva
+seu alcance, e resultado descartado não publica o argumento por essa chamada.
+Regressão confere retorno do filho, descarte da identidade, StoreGlobal que
+mantém alias mas publica, ArcCopy fora da cobertura e guarda implícita opaca.
+Não propaga essa prova a chamadas encadeadas/recursivas enquanto faltar
+contrato completo de SDK/caminhos implícitos. Passaram 29 testes focados,
+292 testes do emissor (sete ignorados), 91 exemplos públicos e um exemplo
+de rejeição na compilação. Logs target/arc-publicacao-folha-{focado,suite,doc}.log.
+Rustfmt dos quatro arquivos de análise e git diff --check passaram.
+Retenções interprocedurais, observadores, vidas, certificados e seleção de
+políticas continuam pendentes; nenhum retain/release foi eliminado. Não
+conclui §28.3/S1 ou §§27–34; gate ARC/A0 segue não aprovado. ARC permanece
+exclusivo de --memoria=arc; tracing padrão. CI 38057171425 ainda em execução
+nos três alvos; mensagens passaram. Alteração local, sem interromper a rodada.
+
 AnaliseHir agora expõe points-to e operações opacas apenas por consultas
 imutáveis, sem permitir substituir a solução ou apagar evidência de efeitos.
 Doctest compile_fail confere que desconhecidos().clear() não é permitido.

@@ -1,6 +1,7 @@
 //! Resumos iniciais de aliases de retorno normal (§28.3).
 //! Preservação de campos só para corpos sem chamadas/conversões opacas.
-//! Não certificam ausência de retenção, callbacks ou efeitos excepcionais.
+//! Publicação só pelo resultado exige cobertura positiva do corpo inteiro.
+//! Não certificam políticas, vidas ou efeitos completos de callbacks/SDK.
 
 use super::{hir::assinatura_corpo, modelo::*, points_to::*};
 use crate::hir::*;
@@ -41,10 +42,26 @@ pub enum CamposHeapArc {
     Desconhecidos,
 }
 
+/// Publicações possíveis do corpo, separadas dos aliases do resultado.
+/// Consumo requer conferir corpo, ABI e caminhos implícitos de emissão.
+///
+/// ```
+/// use dartforge_emit_native::otimizar::arc::analise::resumos::PublicacoesHeapArc;
+/// assert_ne!(PublicacoesHeapArc::SomenteResultado, PublicacoesHeapArc::Desconhecidas);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PublicacoesHeapArc {
+    /// Referências só podem sair pelos valores devolvidos ao chamador.
+    /// Não há publicação em global/campo, retenção, callback ou throw no corpo.
+    SomenteResultado,
+    /// Cobertura insuficiente de qualquer saída/operação, incluindo implícitas.
+    Desconhecidas,
+}
+
 /// Resumo de uma versão local do corpo, separado de alcance e efeitos.tsv.
 /// Só o extrator constrói seus campos. Aliases são de retorno normal;
-/// preservação de campos tem cobertura própria. Publicações, retenções e
-/// saídas excepcionais continuam desconhecidas.
+/// preservação de campos e publicação pelo resultado exigem cobertura própria
+/// do corpo inteiro. Demais corpos conservam efeitos desconhecidos.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, otimizar::arc::analise::resumos::*};
@@ -61,9 +78,25 @@ pub struct ResumoHeapArc {
     corpo: blake3::Hash,
     retorno: RetornoHeapArc,
     campos: CamposHeapArc,
+    publicacoes: PublicacoesHeapArc,
 }
 
 impl ResumoHeapArc {
+    /// Consulta publicações sem confundir alias normal com ausência de retenção.
+    ///
+    /// ```
+    /// use dartforge_emit_native::{hir::*, otimizar::arc::analise::resumos::*};
+    /// let f = Function { symbol: "id".into(), name: "id".into(), depuracao: None,
+    /// params: vec![(ValueId(0), "x".into(), Type::Ref)], return_ty: Type::Ref,
+    /// blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
+    /// terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }] };
+    /// assert_eq!(extrair(&f, 8)?.publicacoes(), PublicacoesHeapArc::SomenteResultado);
+    /// # Ok::<(), String>(())
+    /// ```
+    pub fn publicacoes(&self) -> PublicacoesHeapArc {
+        self.publicacoes
+    }
+
     /// Consulta preservação de campos; isso não fornece noescape ou vida.
     ///
     /// ```
@@ -79,8 +112,9 @@ impl ResumoHeapArc {
         self.campos
     }
 
-    pub(super) fn invalidar_campos(&mut self) {
+    pub(super) fn invalidar_cobertura(&mut self) {
         self.campos = CamposHeapArc::Desconhecidos;
+        self.publicacoes = PublicacoesHeapArc::Desconhecidas;
     }
 
     /// Consulta aliases normais; isso não fornece noescape ou noheapmutation.
@@ -326,17 +360,27 @@ pub(super) fn extrair_com_chamadas<'a>(
             nulo: pode_null,
         }
     };
+    let coberto = cobertura_de_valores(f, &tipos);
     Ok(ResumoHeapArc {
         corpo: assinatura_corpo(f),
         retorno,
-        campos: preservar_campos(f, &tipos),
+        campos: if coberto {
+            CamposHeapArc::Preservados
+        } else {
+            CamposHeapArc::Desconhecidos
+        },
+        publicacoes: if coberto {
+            PublicacoesHeapArc::SomenteResultado
+        } else {
+            PublicacoesHeapArc::Desconhecidas
+        },
     })
 }
 
 // Lista positiva independente dos aliases normais. Excluir chamadas, throws,
 // stores, alocações, constantes de texto e ARC que possa exigir contexto:
 // conferência implícita de pilha pode construir erro pelo SDK/reentrar.
-fn preservar_campos(f: &Function, tipos: &HashMap<ValueId, Type>) -> CamposHeapArc {
+fn cobertura_de_valores(f: &Function, tipos: &HashMap<ValueId, Type>) -> bool {
     let exato = |o: &Operand, t: Type| argumento_exato(o, t, tipos);
     let corpo_coberto = f.blocks.iter().all(|b| {
         let saida = match &b.terminator {
@@ -356,11 +400,7 @@ fn preservar_campos(f: &Function, tipos: &HashMap<ValueId, Type>) -> CamposHeapA
                 _ => false,
             })
     });
-    if corpo_coberto {
-        CamposHeapArc::Preservados
-    } else {
-        CamposHeapArc::Desconhecidos
-    }
+    corpo_coberto
 }
 
 // Igualdade física não permite converter I64 em Ref ou materializar texto.
@@ -413,6 +453,7 @@ mod testes {
         let resumo = extrair(&f, 8).unwrap();
         assert!(matches!(resumo.retorno(), RetornoHeapArc::Aliases { .. }));
         assert_eq!(resumo.campos(), CamposHeapArc::Desconhecidos);
+        assert_eq!(resumo.publicacoes(), PublicacoesHeapArc::Desconhecidas);
         // Uma constante de texto aloca no JIT, mesmo sem chamada HIR explícita.
         f = identidade();
         f.blocks[0].instructions.push((

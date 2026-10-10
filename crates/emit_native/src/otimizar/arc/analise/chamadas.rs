@@ -123,7 +123,7 @@ pub(super) fn resolver<'a>(
             if (m.excecoes_por_tabelas && tabela.is_none())
                 || crate::llvm::LlvmEmitter::exige_contexto_explicito(f, tabela)
             {
-                resumo.invalidar_campos();
+                resumo.invalidar_cobertura();
             }
             debug_assert_eq!(resumo.retorno(), &retornos[v]);
             Ok((f.symbol.clone(), (f, resumo)))

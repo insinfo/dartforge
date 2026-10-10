@@ -14,7 +14,8 @@ use std::collections::HashMap;
 /// Chaves de layout são locais à versão do módulo, sem validade de recarga.
 /// CallStatic usa aliases normais dos corpos locais até ponto fixo por SCC.
 /// Folha com cobertura de campos e ABI exata preserva a precisão dos campos;
-/// escape/retenção continuam opacos. Guarda corpos transitivos e tabelas de
+/// publicação pode ser limitada ao resultado pela cobertura própria; demais
+/// escapes/retenções continuam opacos. Guarda corpos transitivos e tabelas de
 /// emissão consultadas, inclusive conferência implícita de pilha.
 ///
 /// # Erros
@@ -262,10 +263,29 @@ mod testes {
         assert_eq!(a.valor(ValueId(3)).unwrap().nos().unwrap().len(), 1);
         let e = super::super::escape::calcular_no_modulo(&m, "caller", &a).unwrap();
         assert!(
-            e.publicacoes[&super::super::escape::CausaEscape::OperacaoOpaca(2)]
-                .nos()
-                .is_none()
+            !e.publicacoes
+                .contains_key(&super::super::escape::CausaEscape::OperacaoOpaca(2))
         );
+        assert_eq!(
+            e.publicacoes[&super::super::escape::CausaEscape::Retorno],
+            *a.valor(ValueId(0)).unwrap()
+        );
+        // Ignorar o resultado da identidade não publica o argumento.
+        m.functions[0].blocks[0].terminator =
+            Terminator::Return(Some(Operand::Constant(Constant::Null)));
+        let descartado = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+        let e = super::super::escape::calcular_no_modulo(&m, "caller", &descartado).unwrap();
+        assert!(
+            e.publicacoes[&super::super::escape::CausaEscape::Retorno]
+                .nos()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            !e.publicacoes
+                .contains_key(&super::super::escape::CausaEscape::OperacaoOpaca(2))
+        );
+        m.functions[0].blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(3))));
         // Metadados de emissão podem introduzir chamada implícita, mesmo
         // sem mudança do corpo HIR; devem invalidar o consumo anterior.
         m.excecoes_por_tabelas = true;
@@ -275,6 +295,8 @@ mod testes {
         assert_eq!(com_tabelas.valor(ValueId(0)), com_tabelas.valor(ValueId(3)));
         m.tabelas[1].confere_pilha = true;
         assert!(super::super::escape::calcular_no_modulo(&m, "caller", &com_tabelas).is_err());
+        let com_guarda = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+        assert!(com_guarda.desconhecidos().contains(&ValueId(2)));
         assert!(
             analisar_no_modulo(&m, "caller", 8)
                 .unwrap()
@@ -304,6 +326,25 @@ mod testes {
                 .unwrap()
                 .valor(ValueId(3))
                 .unwrap()
+                .nos()
+                .is_none()
+        );
+        m.functions[1] = folha.clone();
+        m.functions[1].blocks[0].instructions.push((
+            ValueId(1),
+            Instruction::StoreGlobal {
+                simbolo: "g".into(),
+                val: Operand::Val(ValueId(0)),
+                ty: Type::Ref,
+                raiz: Some(0),
+            },
+            Type::Void,
+        ));
+        let global = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+        assert!(global.desconhecidos().contains(&ValueId(2)));
+        let e = super::super::escape::calcular_no_modulo(&m, "caller", &global).unwrap();
+        assert!(
+            e.publicacoes[&super::super::escape::CausaEscape::OperacaoOpaca(2)]
                 .nos()
                 .is_none()
         );

@@ -1951,6 +1951,17 @@ invalidação apenas por reconstrução dos HashMaps em ordem diferente.
 Essa guarda local não substitui validação independente do certificado,
 esquemas exportados, pins ou geração de recarga.
 
+`PublicacoesHeapArc::SomenteResultado` separa a publicação pelo retorno das
+demais retenções/publicações. Cobertura positiva inicial é a mesma inspeção
+completa de folhas de valores já avaliados: sem stores, chamadas, alocações
+ou throw. Com ABI exata e caminhos implícitos conferidos, a análise do
+chamador acompanha o resultado sem acrescentar publicação opaca da chamada.
+Descartar o resultado não publica o argumento; devolvê-lo publica seu alcance.
+StoreGlobal, conversões, texto e conferência de pilha permanecem desconhecidos.
+Não deduzir essa propriedade de Borrowed nem apenas do alias normal.
+Cobertura interprocedural de retenções, observadores/SDK e políticas permanece
+pendente; nenhum retain/release é removido por essa etapa.
+
 Especialização cria versões internas por política/região quando reduzir
 trabalho estimado e respeitar limite de código. Resumos podem ser paramétricos
 sem clonar todas as funções. Entradas públicas, dispatch aberto e FFI mantêm
