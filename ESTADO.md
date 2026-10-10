@@ -13,8 +13,15 @@ presença e assinatura local de cada callee antes de consumir escape.
 Consumo sem módulo é recusado quando há dependências. Regressão altera o
 callee para null, remove o corpo e confere invalidação/reanálise conservadora.
 Fixture com frontend/SDK reais também extrai alias de um método identidade.
+Regressão focada adicional cobre callee que grava autoaresta em campo antes
+de devolver o argumento: alias preservado, leitura do campo permanece topo.
 Passaram 286 testes do emissor (sete ignorados), um teste focado da fonte e
 85 exemplos públicos. Logs target/arc-chamadas-resumos-{suite,fonte,doc}.log.
+Teste final de mutação passou em target/arc-chamadas-resumos-mutacao.log.
+Clippy --locked -p dartforge-emit-native --all-targets -- -D warnings parou
+antes da análise do emissor por collapsible_if preexistente em
+crates/runtime/build.rs:231; log target/arc-chamadas-resumos-clippy.log.
+Não considerar esse check aprovado nem equivalente ao gate do workspace.
 Chamadas encadeadas/SCC recursivas, efeitos de campos/escape/observadores,
 resumos SDK e dependências de layouts/pins/gerações JIT continuam pendentes.
 Guarda de corpo é local, não formato de exportação versionada. Entrada de

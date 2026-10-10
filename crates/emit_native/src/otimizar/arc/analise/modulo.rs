@@ -174,7 +174,7 @@ mod testes {
     fn chamada_direta_preserva_alias_e_confere_dependencia_sem_provar_noescape() {
         let mut m = Module::new();
         m.memoria_arc = true;
-        m.layouts_campos_arc.insert(1, vec![]);
+        m.layouts_campos_arc.insert(1, vec![Type::Ref]);
         m.functions.push(Function {
             symbol: "caller".into(),
             name: "caller".into(),
@@ -188,7 +188,7 @@ mod testes {
                         ValueId(0),
                         Instruction::AllocObject {
                             class_id: 1,
-                            fields: vec![],
+                            fields: vec![Operand::Constant(Constant::Null)],
                         },
                         Type::Ref,
                     ),
@@ -198,6 +198,14 @@ mod testes {
                             symbol: "id".into(),
                             args: vec![Operand::Val(ValueId(0))],
                             ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(2),
+                        Instruction::GetField {
+                            object: Operand::Val(ValueId(1)),
+                            index: 0,
                         },
                         Type::Ref,
                     ),
@@ -213,7 +221,15 @@ mod testes {
             return_ty: Type::Ref,
             blocks: vec![BasicBlock {
                 id: BlockId(0),
-                instructions: vec![],
+                instructions: vec![(
+                    ValueId(1),
+                    Instruction::SetField {
+                        object: Operand::Val(ValueId(0)),
+                        index: 0,
+                        value: Operand::Val(ValueId(0)),
+                    },
+                    Type::Void,
+                )],
                 terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
             }],
         });
@@ -221,6 +237,9 @@ mod testes {
         let a = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
         assert_eq!(a.valor(ValueId(0)), a.valor(ValueId(1)));
         assert_eq!(a.valor(ValueId(1)).unwrap().nos().unwrap().len(), 1);
+        // Devolver o argumento não garante que o campo continue null:
+        // o callee acima escreve uma autoaresta antes do retorno normal.
+        assert!(a.valor(ValueId(2)).unwrap().nos().is_none());
         assert_eq!(a.desconhecidos, vec![ValueId(1)]);
         assert!(super::super::escape::calcular(&m.functions[0], &a).is_err());
         let r = super::super::escape::calcular_no_modulo(&m, "caller", &a).unwrap();
