@@ -421,7 +421,7 @@ fn cobertura_de_valores<'a>(
                             .zip(&callee.params)
                             .all(|(o, (_, _, ty))| exato(o, *ty))
                 }),
-                _ => false,
+                i => super::hir::escalar_puro(i, *t, tipos),
             })
     });
     corpo_coberto
@@ -476,6 +476,174 @@ mod testes {
             }],
         }
     }
+    #[test]
+    fn cobertura_escalar_exige_operacao_e_representacoes_exatas() {
+        let x = Operand::Val(ValueId(0));
+        let y = Operand::Val(ValueId(1));
+        let casos = vec![
+            (Instruction::Add(x.clone(), y.clone()), Type::I64, Type::I64),
+            (Instruction::Sub(x.clone(), y.clone()), Type::I64, Type::I64),
+            (Instruction::Mul(x.clone(), y.clone()), Type::I64, Type::I64),
+            (Instruction::Shl(x.clone(), y.clone()), Type::I64, Type::I64),
+            (
+                Instruction::AShr(x.clone(), y.clone()),
+                Type::I64,
+                Type::I64,
+            ),
+            (
+                Instruction::LShr(x.clone(), y.clone()),
+                Type::I64,
+                Type::I64,
+            ),
+            (Instruction::And(x.clone(), y.clone()), Type::I64, Type::I64),
+            (Instruction::Or(x.clone(), y.clone()), Type::I64, Type::I64),
+            (Instruction::Xor(x.clone(), y.clone()), Type::I64, Type::I64),
+            (Instruction::Neg(x.clone()), Type::I64, Type::I64),
+            (Instruction::Not(x.clone()), Type::I64, Type::I64),
+            (
+                Instruction::ICmp(ICmpOp::Eq, x.clone(), y.clone()),
+                Type::I64,
+                Type::I1,
+            ),
+            (
+                Instruction::FAdd(x.clone(), y.clone()),
+                Type::F64,
+                Type::F64,
+            ),
+            (
+                Instruction::FSub(x.clone(), y.clone()),
+                Type::F64,
+                Type::F64,
+            ),
+            (
+                Instruction::FMul(x.clone(), y.clone()),
+                Type::F64,
+                Type::F64,
+            ),
+            (
+                Instruction::FDiv(x.clone(), y.clone()),
+                Type::F64,
+                Type::F64,
+            ),
+            (Instruction::FNeg(x.clone()), Type::F64, Type::F64),
+            (
+                Instruction::FCmp(FCmpOp::Eq, x.clone(), y.clone()),
+                Type::F64,
+                Type::I1,
+            ),
+            (Instruction::LNot(x.clone()), Type::I1, Type::I1),
+            (Instruction::IntToDouble(x.clone()), Type::I64, Type::F64),
+            (
+                Instruction::ZExt {
+                    op: x.clone(),
+                    from: Type::I1,
+                    to: Type::I64,
+                },
+                Type::I1,
+                Type::I64,
+            ),
+            (
+                Instruction::Trunc {
+                    op: x.clone(),
+                    from: Type::I64,
+                    to: Type::I8,
+                },
+                Type::I64,
+                Type::I8,
+            ),
+        ];
+        for (i, entrada, saida) in casos {
+            let mut f = Function {
+                symbol: "calculo".into(),
+                name: "calculo".into(),
+                depuracao: None,
+                params: vec![
+                    (ValueId(0), "x".into(), entrada),
+                    (ValueId(1), "y".into(), entrada),
+                ],
+                return_ty: saida,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(ValueId(2), i.clone(), saida)],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))),
+                }],
+            };
+            let r = extrair(&f, 8).unwrap();
+            assert_eq!(r.campos(), CamposHeapArc::Preservados, "{i:?}");
+            assert_eq!(
+                r.publicacoes(),
+                PublicacoesHeapArc::SomenteResultado,
+                "{i:?}"
+            );
+            // Mesmo um resultado escalar não fornece alias Ref nem frescor.
+            assert_eq!(r.retorno(), &RetornoHeapArc::Desconhecido);
+            let mut m = Module::new();
+            m.memoria_arc = true;
+            m.functions.push(f.clone());
+            let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+            // O módulo também contém portas/registro do runtime; a obrigação
+            // de ausência de chamada vale para o corpo resumido, não para elas.
+            let corpo: Vec<_> = ir
+                .lines()
+                .skip_while(|l| !(l.starts_with("define ") && l.contains("@calculo(")))
+                .take_while(|l| *l != "}")
+                .collect();
+            assert!(!corpo.is_empty(), "corpo não emitido: {i:?}");
+            assert!(!corpo.iter().any(|l| l.contains("pilha.estouro:")), "{i:?}");
+            assert!(
+                !corpo
+                    .iter()
+                    .any(|l| l.trim_start().starts_with("call ") || l.contains(" = call ")),
+                "{i:?}"
+            );
+            f.params[0].2 = Type::Ref;
+            let r = extrair(&f, 8).unwrap();
+            assert_eq!(r.campos(), CamposHeapArc::Desconhecidos, "entrada {i:?}");
+            assert_eq!(r.publicacoes(), PublicacoesHeapArc::Desconhecidas);
+            f.params[0].2 = entrada;
+            f.blocks[0].instructions[0].2 = Type::Ref;
+            f.return_ty = Type::Ref;
+            assert_eq!(
+                extrair(&f, 8).unwrap().campos(),
+                CamposHeapArc::Desconhecidos,
+                "saída {i:?}"
+            );
+        }
+        for (i, entrada) in [
+            (Instruction::SDiv(x.clone(), y.clone()), Type::I64),
+            (Instruction::SRem(x.clone(), y.clone()), Type::I64),
+            (Instruction::DoubleToInt(x.clone()), Type::F64),
+            (
+                Instruction::Box {
+                    op: x.clone(),
+                    from: Type::I64,
+                },
+                Type::I64,
+            ),
+            (
+                Instruction::Unbox {
+                    op: x,
+                    to: Type::I64,
+                },
+                Type::Ref,
+            ),
+        ] {
+            let mut f = identidade();
+            f.params[0].2 = entrada;
+            f.params.push((ValueId(1), "y".into(), entrada));
+            f.return_ty = Type::I64;
+            f.blocks[0]
+                .instructions
+                .push((ValueId(2), i.clone(), Type::I64));
+            f.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(2))));
+            assert_eq!(
+                extrair(&f, 8).unwrap().campos(),
+                CamposHeapArc::Desconhecidos,
+                "falível {i:?}"
+            );
+        }
+    }
+
     #[test]
     fn cobertura_de_campos_nao_deriva_de_alias_e_inclui_saidas_excepcionais() {
         let mut f = identidade();

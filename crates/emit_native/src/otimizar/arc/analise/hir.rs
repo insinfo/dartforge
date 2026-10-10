@@ -478,7 +478,7 @@ fn invalidar_campos(
 
 // Lista positiva por operação e representações de entrada/saída. Não supor
 // ausência de materialização/conversão só porque o resultado ocupa I64/F64.
-fn escalar_puro(i: &Instruction, t: Type, tipos: &HashMap<ValueId, Type>) -> bool {
+pub(super) fn escalar_puro(i: &Instruction, t: Type, tipos: &HashMap<ValueId, Type>) -> bool {
     let exato = |o: &Operand, esperado| super::resumos::argumento_exato(o, esperado, tipos);
     match i {
         Instruction::Add(a, b)

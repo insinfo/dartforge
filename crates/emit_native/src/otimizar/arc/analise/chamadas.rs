@@ -375,6 +375,140 @@ mod testes {
         );
     }
 
+    #[test]
+    fn cadeia_com_calculo_preserva_campos_e_recusa_conversao_ou_efeito_falivel() {
+        use super::super::{escape::*, modulo::analisar_no_modulo, resumos::*};
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.layouts_campos_arc.insert(1, vec![Type::Ref]);
+        m.layouts_campos_arc.insert(2, vec![]);
+        m.functions.push(Function {
+            symbol: "caller".into(),
+            name: "caller".into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![
+                    (
+                        ValueId(0),
+                        Instruction::AllocObject {
+                            class_id: 2,
+                            fields: vec![],
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(1),
+                        Instruction::AllocObject {
+                            class_id: 1,
+                            fields: vec![Operand::Val(ValueId(0))],
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(2),
+                        Instruction::CallStatic {
+                            symbol: "f0".into(),
+                            args: vec![Operand::Constant(Constant::Int(4))],
+                            ret_ty: Type::I64,
+                        },
+                        Type::I64,
+                    ),
+                    (
+                        ValueId(3),
+                        Instruction::GetField {
+                            object: Operand::Val(ValueId(1)),
+                            index: 0,
+                        },
+                        Type::Ref,
+                    ),
+                ],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(3)))),
+            }],
+        });
+        super::super::origens::registrar(&mut m, 0, true);
+        for v in 0..64 {
+            let alvo = (v < 63).then(|| format!("f{}", v + 1));
+            m.functions.push(escalar(&format!("f{v}"), alvo.as_deref()));
+        }
+        m.functions[64].blocks[0].instructions.push((
+            ValueId(1),
+            Instruction::Add(
+                Operand::Val(ValueId(0)),
+                Operand::Constant(Constant::Int(1)),
+            ),
+            Type::I64,
+        ));
+        m.functions[64].blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
+        for _ in 0..2 {
+            let r = resolver(&m, &HashSet::from(["f0"]), 8).unwrap();
+            for (_, resumo) in r.values() {
+                assert_eq!(resumo.campos(), CamposHeapArc::Preservados);
+                assert_eq!(resumo.publicacoes(), PublicacoesHeapArc::SomenteResultado);
+                assert_eq!(resumo.retorno(), &RetornoHeapArc::Desconhecido);
+            }
+            let a = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+            assert_eq!(a.valor(ValueId(0)), a.valor(ValueId(3)));
+            assert_eq!(a.valor(ValueId(3)).unwrap().nos().unwrap().len(), 1);
+            assert!(a.desconhecidos().is_empty());
+            // Resultado I64 não recebe prova de representação trivial/frescor.
+            assert!(a.valor(ValueId(2)).unwrap().nos().is_none());
+            assert!(
+                !calcular_no_modulo(&m, "caller", &a)
+                    .unwrap()
+                    .publicacoes
+                    .contains_key(&CausaEscape::OperacaoOpaca(2))
+            );
+            m.functions.reverse();
+            calcular_no_modulo(&m, "caller", &a).unwrap();
+        }
+        let anterior = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+        for i in [
+            Instruction::SDiv(
+                Operand::Val(ValueId(0)),
+                Operand::Constant(Constant::Int(0)),
+            ),
+            Instruction::SRem(
+                Operand::Val(ValueId(0)),
+                Operand::Constant(Constant::Int(0)),
+            ),
+        ] {
+            m.functions[64].blocks[0].instructions[0].1 = i;
+            assert!(calcular_no_modulo(&m, "caller", &anterior).is_err());
+            let a = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+            assert!(a.valor(ValueId(3)).unwrap().nos().is_none());
+            assert_eq!(a.desconhecidos(), &[ValueId(2)]);
+            assert!(
+                calcular_no_modulo(&m, "caller", &a)
+                    .unwrap()
+                    .publicacoes
+                    .contains_key(&CausaEscape::OperacaoOpaca(2))
+            );
+        }
+        m.functions[64].blocks[0].instructions[0].1 = Instruction::Add(
+            Operand::Val(ValueId(0)),
+            Operand::Constant(Constant::Int(1)),
+        );
+        for arg in [
+            Constant::Double(4.0),
+            Constant::Null,
+            Constant::String("4".into()),
+        ] {
+            if let Instruction::CallStatic { args, .. } =
+                &mut m.functions[0].blocks[0].instructions[2].1
+            {
+                args[0] = Operand::Constant(arg);
+            }
+            let a = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+            assert!(a.valor(ValueId(3)).unwrap().nos().is_none());
+            assert_eq!(a.desconhecidos(), &[ValueId(2)]);
+        }
+        m.memoria_arc = false;
+        assert!(analisar_no_modulo(&m, "caller", 8).unwrap().is_none());
+    }
+
     fn corpo(nome: &str, base: Option<Operand>, alvos: &[String]) -> Function {
         let mut opcoes: Vec<_> = base.into_iter().map(|o| (vec![], o)).collect();
         for (k, s) in alvos.iter().enumerate() {
