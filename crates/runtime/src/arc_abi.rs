@@ -135,6 +135,32 @@ pub extern "C" fn dartforge_arc_box_int_owned_v1(valor: i64) -> i64 {
     })
 }
 
+/// Encaixota um double e entrega um token Owned antes de outra coleta.
+///
+/// Preserva todos os bits, inclusive zero negativo e payload de NaN. A caixa
+/// pertence ao chamador até release ou transferência para slot/retorno.
+///
+/// # Panics
+/// Empréstimo reentrante do heap ou falha de alocação; aborta no limite C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let valor = dartforge_arc_box_double_owned_v1(-0.0);
+/// assert_eq!(dartforge_arc_observar_heap_v1(valor), 3);
+/// dartforge_arc_release(valor);
+/// dartforge_arc_collect();
+/// assert_eq!(dartforge_arc_observar_heap_v1(valor), 0);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_box_double_owned_v1(valor: f64) -> i64 {
+    HEAP.with(|h| {
+        let mut heap = h.borrow_mut();
+        let caixa = heap.caixa_double(valor);
+        heap.reter_owner_codigo(caixa);
+        caixa
+    })
+}
+
 /// Observa bloco vivo e owner do código sem adquirir referência ao objeto.
 ///
 /// O argumento é um endereço nativo de diagnóstico, não um Ref emprestado:
@@ -665,6 +691,30 @@ mod testes_arc_abi_quadros {
             HEAP.with(|h| {
                 h.replace(anterior);
             });
+        }
+    }
+}
+
+#[cfg(test)]
+mod testes_caixa_double_owned {
+    use super::*;
+    #[test]
+    fn double_owned_preserva_bits_e_morre_apos_ultimo_token() {
+        for arc in [false, true] {
+            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+            for bits in [(-0.0_f64).to_bits(), 3.25_f64.to_bits(), f64::INFINITY.to_bits(), 0x7ff80000deadbeef] {
+                let valor = dartforge_arc_box_double_owned_v1(f64::from_bits(bits));
+                dartforge_arc_retain(valor);
+                dartforge_arc_release(valor);
+                dartforge_arc_collect();
+                assert_eq!(HEAP.with(|h| h.borrow().double_de(valor).unwrap().to_bits()), bits);
+                assert_eq!(dartforge_arc_observar_heap_v1(valor), 3);
+                dartforge_arc_release(valor);
+                dartforge_arc_collect();
+                assert_eq!(dartforge_arc_observar_heap_v1(valor), 0);
+            }
+            HEAP.with(|h| { h.replace(anterior); });
         }
     }
 }

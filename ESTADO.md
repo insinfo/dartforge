@@ -2,6 +2,25 @@
 
 ## Retomada de 2026-10-10
 
+Boxing escalar preparado pelo conjunto fechado ARC: Box I64/F64 vira chamada
+às fábricas Owned; bool permanece caixa estática Trivial. A nova ABI
+dartforge_arc_box_double_owned_v1 retém antes de qualquer coleta e conserva
+bits de -0.0/NaN. O catálogo distingue f64:scalar de i64:scalar. Formas
+incompatíveis são rejeitadas sem publicar corpos ou planos parciais.
+Teste de runtime com Heap::new(true) passou nos dois modos; a suíte local
+passou com 175 testes de runtime e 203 do emissor (3/7 ignorados).
+Dois testes do conjunto cobrem liberações, transferência de retorno sem
+retenção extra e atomicidade. A fixture estrangeira agora começa com Box
+I64 e seus três testes HIR passaram. Logs: target/boxing-runtime-suite.log,
+target/boxing-compiler-suite.log e target/boxing-fixture.log.
+Ainda não liga a inserção ARC ao pipeline padrão nem cobre boxing SIMD.
+
+CI 38021212710, fonte 34198a54: job Linux completo passou; macOS passou
+as etapas de resume ARC e unwind estrangeiro, incluindo os perfis Retoma,
+quadros locais e unwind forçado. A separação do runtime em dylib resolveu
+a ligação macOS. A rodada completa Windows/macOS ainda estava em andamento
+na consulta; boxing desta retomada ainda não pertence àquela fonte.
+
 Fixture macOS da CI 38019611633 terminou com falha de ligação: o compact unwind
 recusou quatro personalidades (Dart legada, cleanup Itanium, Rust e C++). Não
 executou a fixture; não é falha observada de ownership ou destrutores.
@@ -14,7 +33,7 @@ Comandos de ligação são publicados como *.ligacao.txt. Em Linux, a fixture
 continua usando a staticlib. Três testes HIR passaram novamente
 (target/unwind-dylib-fixture.log); driver Clang 22 aceitou a composição Darwin
 dynamiclib/force_load na consulta -###. Ligação e execução macOS do novo
-conjunto, incluindo Retoma e forçado, precisam ser verificadas pela próxima CI.
+conjunto, incluindo Retoma e forçado, passaram na CI 38021212710.
 
 
 Provas de retomada sob estresse ativo nos dois sistemas: fonte f460ce72,

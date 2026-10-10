@@ -36,10 +36,9 @@ fn modulo(com_quadros: bool, retoma: bool) -> Result<Module, String> {
                 instructions: vec![
                     (
                         ValueId(0),
-                        Instruction::CallRuntime {
-                            name: "dartforge_arc_box_int_owned_v1".into(),
-                            args: vec![(Operand::Constant(Constant::Int(i64::MAX)), Type::I64)],
-                            ret_ty: Type::Ref,
+                        Instruction::Box {
+                            op: Operand::Constant(Constant::Int(i64::MAX)),
+                            from: Type::I64,
                         },
                         Type::Ref,
                     ),

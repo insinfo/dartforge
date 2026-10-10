@@ -230,6 +230,7 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
             ("ref:consume-success", false) => ("i64", "ModoParametro::ConsumeSuccess"),
             ("ref:consume-error", false) => ("i64", "ModoParametro::ConsumeError"),
             ("i64:scalar", false) => ("i64", "ModoParametro::Scalar"),
+            ("f64:scalar", false) => ("f64", "ModoParametro::ScalarF64"),
             ("i64:native", false) => ("i64", "ModoParametro::Native"),
             ("ref:owned", true) => ("i64", "ModoResultado::Owned"),
             ("i64:scalar", true) => ("i64", "ModoResultado::ScalarI64"),
@@ -340,7 +341,7 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
 /// assert_ne!(ModoParametro::Borrow, ModoParametro::Consume);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModoParametro { Borrow, Consume, ConsumeSuccess, ConsumeError, Scalar, Native }
+pub enum ModoParametro { Borrow, Consume, ConsumeSuccess, ConsumeError, Scalar, ScalarF64, Native }
 /// Resultado das externs auditadas, sem convenção implícita.
 ///
 /// ```

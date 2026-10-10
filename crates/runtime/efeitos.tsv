@@ -12,6 +12,7 @@ dartforge_api_close_native_port	1	1	0
 dartforge_api_new_native_port	1	1	0
 dartforge_api_post_cobject	1	1	0
 dartforge_api_post_integer	1	1	0
+dartforge_arc_box_double_owned_v1	1	0	0
 dartforge_arc_box_int_owned_v1	1	0	0
 dartforge_arc_collect	1	0	0
 dartforge_arc_excecao_owned_v1	1	0	0

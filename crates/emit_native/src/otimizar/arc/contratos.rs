@@ -810,6 +810,10 @@ fn produzir(
                 Instruction::Const(
                     Constant::Null | Constant::String(_) | Constant::StringWtf8(_),
                 ) => Some(Type::Ref),
+                Instruction::Box {
+                    from: Type::I1 | Type::I8,
+                    ..
+                } => Some(Type::Ref),
                 Instruction::ICmp(..) | Instruction::FCmp(..) | Instruction::LNot(_) => {
                     Some(Type::I1)
                 }
@@ -852,6 +856,14 @@ fn produzir(
                     _ => false,
                 };
                 let invalido = match inst {
+                    Instruction::Box { op, from } => match op {
+                        Operand::Val(v) => tipos.get(v) != Some(from),
+                        Operand::Constant(Constant::Bool(_)) => *from != Type::I1,
+                        Operand::Constant(Constant::Int(n)) => {
+                            *from != Type::I8 || !(0..=255).contains(n)
+                        }
+                        _ => true,
+                    },
                     Instruction::Add(a, b)
                     | Instruction::Sub(a, b)
                     | Instruction::Mul(a, b)
@@ -1060,7 +1072,14 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
                 | ModoParametro::ConsumeSuccess
                 | ModoParametro::ConsumeError
         );
-        if *ty != if referencia { Type::Ref } else { Type::I64 } {
+        let esperado = if referencia {
+            Type::Ref
+        } else if *modo == ModoParametro::ScalarF64 {
+            Type::F64
+        } else {
+            Type::I64
+        };
+        if *ty != esperado {
             return Err(format!("{name}: tipo do argumento {n} incompatível"));
         }
         if referencia {
@@ -1082,9 +1101,13 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
         } else if let Operand::Constant(k) = op {
             // Um endereço de função só tem significado em parâmetro nativo;
             // a anotação I64 não transforma bool/double/literal em inteiro.
-            if !matches!(k, Constant::Int(_))
-                && !(*modo == ModoParametro::Native && matches!(k, Constant::Funcao(_)))
-            {
+            let compativel = if *modo == ModoParametro::ScalarF64 {
+                matches!(k, Constant::Double(_))
+            } else {
+                matches!(k, Constant::Int(_))
+                    || (*modo == ModoParametro::Native && matches!(k, Constant::Funcao(_)))
+            };
+            if !compativel {
                 return Err(format!(
                     "{name}: constante do argumento {n} incompatível com seu contrato"
                 ));

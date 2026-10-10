@@ -41,6 +41,8 @@ pub struct PlanoFuncaoDart {
 /// Exige um plano por símbolo e somente callees do conjunto. Argumentos
 /// passam pela classificação ARC após classificar resultados das chamadas:
 /// constantes/aritmética/Phis/runtime cobertos não exigem mapas manuais.
+/// Boxing escalar explícito vira fábrica Owned para int/double; bool usa caixas
+/// estáticas Trivial. SIMD e outras representações exigem produtores próprios.
 /// Parâmetros não Ref e operações não cobertas exigem contratos prévios.
 /// Separa saídas Guarda em sucesso/erro e transporta os limites de saída.
 /// Demais CFG/escopos precisam estar preparados. Não divide arestas gerais,
@@ -140,6 +142,9 @@ fn inserir(
     }
     let mut modulo = Module::new();
     modulo.functions = funcoes.to_vec();
+    for f in &mut modulo.functions {
+        super::caixas::preparar(f)?;
+    }
     let mut nao_lancam = super::super::efeitos::nao_lancam(&modulo);
     // Contexto explícito implica conferência de pilha no LLVM. Inclui
     // leituras/limpeza de pendência e pousos, além das marcas nas tabelas.
@@ -224,6 +229,99 @@ fn inserir(
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    fn boxing(op: Operand, from: Type) -> (Vec<Function>, HashMap<String, PlanoFuncaoDart>) {
+        let f = Function {
+            symbol: "boxing".into(),
+            name: "boxing".into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::Void,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![(ValueId(0), Instruction::Box { op, from }, Type::Ref)],
+                terminator: Terminator::Return(None),
+            }],
+        };
+        (
+            vec![f],
+            HashMap::from([("boxing".into(), PlanoFuncaoDart::default())]),
+        )
+    }
+
+    #[test]
+    fn boxing_owned_libera_mortais_e_preserva_bool_estatico() {
+        for (constante, from, fabrica) in [
+            (
+                Constant::Int(i64::MAX),
+                Type::I64,
+                Some("dartforge_arc_box_int_owned_v1"),
+            ),
+            (
+                Constant::Double(-0.0),
+                Type::F64,
+                Some("dartforge_arc_box_double_owned_v1"),
+            ),
+            (
+                Constant::Double(f64::from_bits(0x7ff80000deadbeef)),
+                Type::F64,
+                Some("dartforge_arc_box_double_owned_v1"),
+            ),
+            (Constant::Bool(false), Type::I1, None),
+        ] {
+            let (mut fs, mut ps) = boxing(Operand::Constant(constante), from);
+            assert_eq!(
+                inserir_arc_funcoes_dart(&mut fs, &mut ps).unwrap(),
+                (0, usize::from(fabrica.is_some()))
+            );
+            assert_eq!(
+                ps["boxing"].classes[&ValueId(0)],
+                if fabrica.is_some() {
+                    Ownership::Owned
+                } else {
+                    Ownership::Trivial
+                }
+            );
+            if let Some(nome) = fabrica {
+                assert!(
+                    matches!(&fs[0].blocks[0].instructions[0].1, Instruction::CallRuntime { name, .. } if name == nome)
+                );
+                assert!(matches!(
+                    &fs[0].blocks[0].instructions[1].1,
+                    Instruction::ArcDrop {
+                        value: Operand::Val(ValueId(0))
+                    }
+                ));
+            } else {
+                assert!(matches!(
+                    fs[0].blocks[0].instructions[0].1,
+                    Instruction::Box { .. }
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn boxing_owned_transfere_retorno_sem_reter_e_rejeita_formas_invalidas_atomicamente() {
+        let (mut fs, mut ps) = boxing(Operand::Constant(Constant::Double(3.25)), Type::F64);
+        fs[0].return_ty = Type::Ref;
+        fs[0].blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(0))));
+        ps.get_mut("boxing").unwrap().tokens.retorno = RetornoTokens::Owned;
+        assert_eq!(inserir_arc_funcoes_dart(&mut fs, &mut ps).unwrap(), (0, 0));
+        assert_eq!(fs[0].blocks[0].instructions.len(), 1);
+        for (op, from) in [
+            (Operand::Constant(Constant::Int(1)), Type::F64),
+            (Operand::Constant(Constant::Double(1.0)), Type::I64),
+            (Operand::Constant(Constant::Null), Type::I1),
+            (Operand::Constant(Constant::Int(256)), Type::I8),
+            (Operand::Constant(Constant::Null), Type::Ref),
+        ] {
+            let (mut fs, mut ps) = boxing(op, from);
+            let antes = format!("{fs:?}/{ps:?}");
+            assert!(inserir_arc_funcoes_dart(&mut fs, &mut ps).is_err());
+            assert_eq!(format!("{fs:?}/{ps:?}"), antes);
+        }
+    }
 
     #[test]
     fn contexto_implicito_no_corpo_propaga_unwind_do_prologo() {
