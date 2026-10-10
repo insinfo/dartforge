@@ -376,6 +376,8 @@ pub fn produzir_contratos_runtime(
 /// Bitcasts F64/I64 exigem origem escalar Trivial; largura não certifica ownership.
 /// ZExt/Trunc entre I1/I8/I64 exigem origem Trivial, tipo exato e aumento/redução
 /// de largura respectivamente; não convertem handles nem ponteiros em escalares.
+/// Locais escalares na entrada exigem endereço sem escape, gravações tipadas
+/// Trivial e inicialização em todos os caminhos até cada leitura.
 /// Phi I1/I64/F64 exige entradas de mesmo tipo com contrato Trivial ou constantes
 /// correspondentes, e origem conhecida fora do ciclo de Phis, inclusive em laços.
 /// Phi Ref explicitamente Trivial exige entradas Trivial/null e origem externa;
@@ -417,8 +419,10 @@ pub fn produzir_contratos_arc(
 ) -> Result<HashMap<ValueId, ContratoChamadaRuntime>, String> {
     let mut novas_classes = classes.clone();
     let mut novo_plano = plano.clone();
+    let locais = super::locais::produzir(f, &mut novas_classes, &mut novo_plano)?;
     let contratos = produzir(f, &mut novas_classes, &mut novo_plano, true)?;
     produzir_phi(f, &mut novas_classes, &novo_plano)?;
+    super::locais::verificar_valores(f, &locais, &novas_classes)?;
     // Confere após resolver todos os produtores e Phis, independentemente
     // da ordem física dos blocos. Um i64 gerenciado não vira escalar por cast.
     for (v, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {

@@ -15,6 +15,7 @@ mod caixas;
 mod escopos;
 mod tokens;
 mod contratos;
+mod locais;
 mod chamadas;
 mod funcoes;
 mod parametros;

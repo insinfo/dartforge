@@ -2,6 +2,20 @@
 
 ## Retomada de 2026-10-10
 
+Produtor ARC de locais escalares privados cobre Alloca/Store/Load de
+I1/I8/I64/F64. Exige alloca Ptr na entrada, endereço usado só por leituras/
+gravações diretas, tipos compatíveis e valores SSA Trivial. Inicialização é
+análise must por interseção de predecessores, com ponto fixo nos laços;
+gravação na volta não autoriza a primeira leitura. Bytes literais de estado
+late exigem faixa 0..255; não certifica a semântica completa de late.
+Regressões cobrem diamante, laço, quatro tipos, escape, erro de tipo e origem
+gerenciada/ausente, sem publicação parcial. Preparação do módulo liga leitura
+escalar a boxing Owned e cleanup, é idempotente e preserva tracing. Emissão
+LLVM é conferida; não é nova prova AOT. Campos/layouts, locais Ref, endereços
+capturados/importados e integração padrão continuam pendentes.
+Passaram 218 testes do emissor (7 ignorados) e 52 exemplos de documentação;
+logs target/arc-locais-{suite,doc}.log e target/arc-locais-modulo.log.
+
 Contratos ARC cobrem ZExt/Trunc entre I1/I8/I64: exigem tipo exato de
 origem, contrato Trivial e aumento/redução de largura respectivamente.
 Não classificam handles/ponteiros por largura. Regressão cobre as seis
