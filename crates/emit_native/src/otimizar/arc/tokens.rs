@@ -372,9 +372,12 @@ pub(super) fn conferir_saidas_excepcionais(
             }
             if b.instructions
                 .iter()
-                .any(|(_, i, _)| !matches!(i, Instruction::ArcDrop { .. }))
+                .any(|(_, i, _)| !super::instrucao_de_retoma(i))
             {
-                return Err(format!("saída Retoma b{} só admite drops ARC", id.0));
+                return Err(format!(
+                    "saída Retoma b{} só admite drops ARC e fechamento de quadros locais",
+                    id.0
+                ));
             }
         }
         let esperado = if f.return_ty == Type::Void {

@@ -27,7 +27,7 @@ pub struct PlanoFuncaoDart {
     /// Limites lexicais dos empréstimos, sem inferência por último uso.
     pub escopos: PlanoEscopos,
     /// Inventário validado após inserção; inclui somente owners da aresta de erro.
-    /// Recalculado atomicamente; ainda não gera cleanup de unwind estrangeiro.
+    /// Recalculado atomicamente e ligado ao certificado de cleanup estrangeiro.
     pub owners_no_pouso: HashMap<BlockId, Vec<ValueId>>,
 }
 

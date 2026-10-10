@@ -11,7 +11,7 @@ use dartforge_emit_native::{hir::*, otimizar::arc::*};
 use std::collections::HashMap;
 
 #[cfg(any(unix, test))]
-fn modulo(com_quadros: bool) -> Result<Module, String> {
+fn modulo(com_quadros: bool, retoma: bool) -> Result<Module, String> {
     let val = |v| Operand::Val(ValueId(v));
     let print = |v, argumento| {
         (
@@ -144,6 +144,11 @@ fn modulo(com_quadros: bool) -> Result<Module, String> {
         caller.blocks[1].instructions = vec![fechar(13, 11), fechar(14, 6), print(3, val(8))];
         caller.blocks[2].instructions = vec![fechar(15, 11), fechar(16, 6)];
     }
+    if retoma {
+        caller.blocks[1]
+            .instructions
+            .retain(|(id, _, _)| *id != ValueId(3));
+    }
     let folha = Function {
         symbol: "prova_falha_estrangeira".into(),
         name: "prova_falha_estrangeira".into(),
@@ -162,10 +167,14 @@ fn modulo(com_quadros: bool) -> Result<Module, String> {
         .invocacoes
         .insert(ValueId(2), BlockId(1));
     caller_plano.tabelas.pousos.insert(BlockId(1));
-    caller_plano
-        .tabelas
-        .saidas
-        .insert(BlockId(1), SaidaPorExcecao::Guarda);
+    caller_plano.tabelas.saidas.insert(
+        BlockId(1),
+        if retoma {
+            SaidaPorExcecao::Retoma
+        } else {
+            SaidaPorExcecao::Guarda
+        },
+    );
     let mut folha_plano = PlanoFuncaoDart::default();
     folha_plano
         .tabelas
@@ -181,7 +190,7 @@ fn modulo(com_quadros: bool) -> Result<Module, String> {
     m.entry_symbol = Some("prova_owner_estrangeiro".into());
     assert_eq!(
         inserir_arc_funcoes_dart(&mut m.functions, &mut planos)?,
-        (0, 3)
+        (0, if retoma { 2 } else { 3 })
     );
     assert_eq!(
         planos["prova_owner_estrangeiro"].owners_no_pouso[&BlockId(1)],
@@ -210,7 +219,11 @@ fn main() -> Result<(), String> {
     if let Some(dir) = saida.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    let m = modulo(std::env::args().nth(3).as_deref() == Some("quadros"))?;
+    let perfil = std::env::args().nth(3).unwrap_or_else(|| "simples".into());
+    let m = modulo(
+        perfil == "quadros" || perfil == "retoma",
+        perfil == "retoma",
+    )?;
     let mut ir = LlvmEmitter::new(&m).emit_all();
     ir.push_str("\ndeclare void @dartforge_print_handle(i64)\n");
     ir = ir.replace("@dartforge_print_handle(", "@prova_print_estrangeira(");
@@ -256,7 +269,7 @@ mod testes {
     use super::*;
     #[test]
     fn prova_estrangeira_tem_inventario_certificado() {
-        let m = modulo(false).unwrap();
+        let m = modulo(false, false).unwrap();
         assert!(m.tabelas[0].cleanup_estrangeiro.is_some());
         #[cfg(unix)]
         {
@@ -272,7 +285,7 @@ mod testes_quadros {
     use super::*;
     #[test]
     fn prova_estrangeira_com_dois_quadros_locais() {
-        let m = modulo(true).unwrap();
+        let m = modulo(true, false).unwrap();
         assert!(m.tabelas[0].cleanup_estrangeiro.is_some());
         assert!(dartforge_emit_native::lower::verificador::verificar(&m).is_empty());
         #[cfg(unix)]
@@ -293,5 +306,20 @@ mod testes_quadros {
                 .unwrap();
             assert!(interno < externo);
         }
+    }
+}
+
+#[cfg(test)]
+mod testes_retoma {
+    use super::*;
+    #[test]
+    fn retoma_fecha_dois_quadros_sem_executar_catch_dart() {
+        let m = modulo(true, true).unwrap();
+        assert_eq!(
+            m.tabelas[0].saidas.get(&BlockId(1)),
+            Some(&SaidaPorExcecao::Retoma)
+        );
+        assert!(m.tabelas[0].cleanup_estrangeiro.is_none());
+        assert!(dartforge_emit_native::lower::verificador::verificar(&m).is_empty());
     }
 }

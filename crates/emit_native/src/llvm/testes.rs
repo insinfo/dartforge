@@ -842,11 +842,11 @@ fn cleanup_estrangeiro_fecha_quadros_locais_em_lifo() {
             (ValueId(2), Instruction::CallStatic { symbol: "falha".into(), args: vec![], ret_ty: Type::Void }, Type::Void),
         ], terminator: Terminator::CondBranch { cond: Operand::Constant(Constant::Bool(false)), then_block: BlockId(1), else_block: BlockId(2) } },
         BasicBlock { id: BlockId(1), instructions: vec![fechar(3, 1), fechar(4, 0)], terminator: Terminator::Return(None) },
-        BasicBlock { id: BlockId(2), instructions: vec![fechar(5, 1), fechar(6, 0),
+        BasicBlock { id: BlockId(2), instructions: vec![
             (ValueId(7), Instruction::CallStatic { symbol: "falha".into(), args: vec![], ret_ty: Type::Void }, Type::Void),
         ], terminator: Terminator::CondBranch { cond: Operand::Constant(Constant::Bool(false)), then_block: BlockId(3), else_block: BlockId(4) } },
-        BasicBlock { id: BlockId(3), instructions: vec![], terminator: Terminator::Return(None) },
-        BasicBlock { id: BlockId(4), instructions: vec![], terminator: Terminator::Return(None) },
+        BasicBlock { id: BlockId(3), instructions: vec![fechar(5, 1), fechar(6, 0)], terminator: Terminator::Return(None) },
+        BasicBlock { id: BlockId(4), instructions: vec![fechar(8, 1), fechar(9, 0)], terminator: Terminator::Return(None) },
     ]);
     let falha = funcao("falha", vec![], Type::Void, vec![BasicBlock { id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }]);
     let mut plano = crate::otimizar::arc::PlanoFuncaoDart::default();
@@ -873,6 +873,24 @@ fn cleanup_estrangeiro_fecha_quadros_locais_em_lifo() {
     let externo = trecho.find("call void @dartforge_arc_quadro_fechar_v1(i64 %v0)").unwrap();
     assert!(interno < externo);
     assert_eq!(trecho.matches("@dartforge_arc_quadro_fechar_v1").count(), 2);
+    let retoma = ir.split("b3:\n").nth(1).unwrap().split("resume ").next().unwrap();
+    assert!(!retoma.contains("catch ptr null"));
+    assert!(retoma.find("@dartforge_arc_quadro_fechar_v1(i64 %v1)").unwrap()
+        < retoma.find("@dartforge_arc_quadro_fechar_v1(i64 %v0)").unwrap());
+    let mut invalida = funcoes[0].clone();
+    invalida.blocks.iter_mut().find(|b| b.id == BlockId(3)).unwrap().instructions.swap(0, 1);
+    assert!(crate::otimizar::arc::conferir_retomas(&invalida, t).unwrap_err().contains("fora de LIFO"));
+    let mut sem_fechar = funcoes[0].clone();
+    sem_fechar.blocks.iter_mut().find(|b| b.id == BlockId(3)).unwrap().instructions.pop();
+    assert!(crate::otimizar::arc::conferir_retomas(&sem_fechar, t).unwrap_err().contains("quadros ainda abertos"));
+    let mut coleta = funcoes[0].clone();
+    coleta.blocks.iter_mut().find(|b| b.id == BlockId(3)).unwrap().instructions.push((
+        ValueId(10), Instruction::CallRuntime { name: "dartforge_arc_collect".into(), args: vec![], ret_ty: Type::Void }, Type::Void,
+    ));
+    assert!(crate::otimizar::arc::conferir_retomas(&coleta, t).unwrap_err().contains("só admite drops"));
+    assert!(ir.contains("resume { ptr, i32 } %lpad3"));
+
+
     #[cfg(feature = "llvm-embutido")]
     {
         let completo = format!("declare i64 @dartforge_arc_quadro_abrir_v1(i64) nounwind\ndeclare void @dartforge_arc_quadro_fechar_v1(i64) nounwind\n{ir}");

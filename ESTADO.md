@@ -1,5 +1,31 @@
 # Estado do DartForge — 2026-10-08
 
+## Retomada de 2026-10-10
+
+Em validação local: Retoma aceita fechamento explícito de quadros locais,
+além de ArcDrop. O fechamento permitido é somente a ABI auditada
+quadro_fechar_v1 com um ID SSA Native/i64, retorno Void, sem coleta ou Dart.
+Tokens, materialização das tabelas e emissor compartilham essa regra; a pilha
+LIFO completa é conferida antes de admitir o cleanup. Externs arbitrárias,
+coleta, alteração de pendência, aliases/importados e quadros esquecidos continuam
+rejeitados. O par do landingpad permanece o mesmo até resume.
+
+Fixture com perfil retoma prepara dois quadros fortes e um owner independente;
+o pouso fecha os quadros, libera o owner e retoma sem executar o catch Dart.
+Três testes HIR da fixture passaram. Teste LLVM local gera objetos Linux O0/O2
+e verifica LIFO no catch estrangeiro e na Retoma pura; também verifica resume
+original e rejeição de ordem invertida, quadro esquecido e coleta. Logs target/retoma-quadros-fixture.log
+e target/retoma-quadros-llvm.log. Suíte completa do emissor: 202 aprovados,
+7 ignorados; 49 doctests aprovados. Logs target/retoma-quadros-emit-lib.log e
+target/retoma-quadros-doc.log. YAML e sintaxe POSIX do workflow passaram.
+Workflow local inclui simples/quadros/retoma × O0/O2 × ARC/tracing, com nomes
+de ambiente corrigidos. Execução nativa do novo perfil ainda não foi provada.
+
+CI 38019611633, fonte f460ce72, continua ativa; Linux/macOS ainda compilam.
+Não tratar esse estado como resultado das provas. O escopo completo ARC,
+§§27–34, SEH/statepoints, forced unwind, finally, async/cancelamento e gate de
+desempenho continuam pendentes conforme os registros anteriores.
+
 ## Retomada de 2026-10-09
 
 Atualização da investigação de unwind estrangeiro (fonte publicada 414cc174):

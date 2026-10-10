@@ -969,7 +969,8 @@ pub enum SaidaPorExcecao {
     /// (`@df.lancar`) em vez de retornar.
     Lanca,
     /// Retoma o objeto nativo recebido neste pouso de cleanup Itanium.
-    /// Só admite drops ARC antes do Return; não publica uma nova exceção.
+    /// Só admite drops ARC e fechamento LIFO de quadros locais antes do Return.
+    /// Não coleta, chama Dart nem publica uma nova exceção.
     Retoma,
     /// Pode estar pendente: confere a pendência e desenrola ou retorna.
     Guarda,

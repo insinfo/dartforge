@@ -476,7 +476,7 @@ fn conferir(f: &Function, t: &TabelasDaFuncao) {
             assert!(
                 (b.instructions.is_empty() && matches!(b.terminator, Terminator::Branch(_)))
                     || (t.saidas.get(&b.id) == Some(&SaidaPorExcecao::Retoma)
-                        && b.instructions.iter().all(|(_, i, _)| matches!(i, Instruction::ArcDrop { .. }))
+                        && b.instructions.iter().all(|(_, i, _)| super::arc::instrucao_de_retoma(i))
                         && matches!(b.terminator, Terminator::Return(_))),
                 "bug do compilador (exceções por tabelas): em {}, o pouso b{} não é só um desvio",
                 f.symbol,
