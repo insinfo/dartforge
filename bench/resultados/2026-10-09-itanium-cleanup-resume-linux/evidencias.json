@@ -1,0 +1,34 @@
+{
+  "base_commit": "eb27211cb5c35bbe05b2a06986c0d2e9c8e9d3d2",
+  "runtime_source_sha256": "2414c80aadad6285fc9cfb946c954a92b9b24192ad7ebd250ed67182ddcd0b36",
+  "rust_prova_sha256": "2928096d4bb3afd6f0d359f9c44c9683d5684f26c43ba9268ff7c236e00e2562",
+  "llvm_sha256": "d32aa0cb54c9f4aecc7d56ed3c898f1161f5546f9ecafdd6dfca78aa115dbd35",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "alvo": "x86_64-unknown-linux-gnu",
+  "execucao": "WSLg-Builder x86_64 (WSL)",
+  "personalidade": "dartforge_personalidade_cleanup_itanium",
+  "verificacoes": [
+    "cleanup interno id=1 e externo id=2, uma vez cada, nessa ordem",
+    "mesmo ponteiro de objeto nos dois cleanups e no handler",
+    "seletor zero nos cleanups e seletor 1 no catch-all externo",
+    "resume entrega ao sistema o par original de cada landingpad"
+  ],
+  "execucoes": [
+    {
+      "otimizacao_llvm": "O0",
+      "exit_code": 0,
+      "executavel_sha256": "7d9320ffc502d754368cedb771ca03987462c192108063f6e7327fd335fdb0e9"
+    },
+    {
+      "otimizacao_llvm": "O2",
+      "exit_code": 0,
+      "executavel_sha256": "e0e0a29945f5db4f8d26262bae55987f38e3c0ec0bcf0654318a51d228b61173"
+    }
+  ],
+  "limites": [
+    "IR de prova construído diretamente; emissor ARC ainda não usa o protocolo",
+    "objeto nativo da fixture com classe Dart, sem heap/pendência/rastro Dart",
+    "sem execução macOS/SEH ou prova de statepoints mistos",
+    "exceções estrangeiras e forced unwind cobertas só na decisão unitária"
+  ]
+}

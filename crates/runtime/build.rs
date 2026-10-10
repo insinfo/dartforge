@@ -180,7 +180,7 @@ fn main() {
     );
     for nome in &nomes {
         // Só de unix, como na [`tabela`].
-        if matches!(nome.as_str(), "dartforge_objeto_de_desenrolamento" | "dartforge_desenrolamento_falhou") {
+        if matches!(nome.as_str(), "dartforge_objeto_de_desenrolamento" | "dartforge_desenrolamento_falhou" | "dartforge_personalidade_cleanup_itanium") {
             saida.push_str("    #[cfg(unix)]\n");
         }
         saida.push_str(&format!("    \"{nome}\",\n"));
@@ -190,7 +190,7 @@ fn main() {
          pub fn tabela() -> Vec<(&'static str, usize)> {\n    vec![\n",
     );
     for nome in &nomes {
-        if matches!(nome.as_str(), "dartforge_objeto_de_desenrolamento" | "dartforge_desenrolamento_falhou") {
+        if matches!(nome.as_str(), "dartforge_objeto_de_desenrolamento" | "dartforge_desenrolamento_falhou" | "dartforge_personalidade_cleanup_itanium") {
             saida.push_str("        #[cfg(unix)]\n");
         }
         saida.push_str(&format!(

@@ -559,51 +559,135 @@ pub extern "C" fn dartforge_desenrolamento_falhou(motivo: i32) -> ! {
 #[cfg(unix)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_personalidade(versao: i32, acoes: i32, classe: u64, _objeto: *mut u8, contexto: *mut u8) -> i32 {
-    // `_Unwind_Reason_Code` e `_Unwind_Action`.
+    // SAFETY: contrato do despachante, preservando o protocolo legado.
+    unsafe { personalidade_itanium(versao, acoes, classe, _objeto, contexto, false) }
+}
+
+/// Personalidade Itanium para pousos de cleanup puro e catch-all separados.
+///
+/// Cleanup não termina a busca; executa na fase de unwind, inclusive para
+/// exceção estrangeira/forçada. Entrega ao landingpad o objeto original e
+/// seletor zero, permitindo resume sem reinicializar sua área privada.
+/// Catch-all Dart usa seletor 1 e só instala no quadro escolhido pelo sistema.
+/// Não interpreta filtros tipados nem pousos mistos de catch e cleanup.
+/// O emissor legado continua usando `dartforge_personalidade`.
+///
+/// # Erros
+/// Devolve os códigos do protocolo Itanium; versão diferente de 1 devolve
+/// erro fatal na fase de busca. Ausência de sítio permite continuar a busca.
+///
+/// # Safety
+/// Só o desenrolador do sistema chama, com contexto/objeto e LSDA válidos.
+/// Os sítios deste protocolo são cleanup puro (ação zero) ou catch-all
+/// com uma ação positiva. O código do pouso precisa preservar o par recebido.
+///
+/// ```
+/// # #[cfg(unix)] {
+/// let _: unsafe extern "C" fn(i32, i32, u64, *mut u8, *mut u8) -> i32 =
+///     dartforge_runtime::abi::dartforge_personalidade_cleanup_itanium;
+/// # }
+/// ```
+#[cfg(unix)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_personalidade_cleanup_itanium(
+    versao: i32, acoes: i32, classe: u64, objeto: *mut u8, contexto: *mut u8,
+) -> i32 {
+    // SAFETY: contrato do despachante para sítios do protocolo de cleanup.
+    unsafe { personalidade_itanium(versao, acoes, classe, objeto, contexto, true) }
+}
+
+/// Decisão das fases, independente das APIs e registradores do alvo.
+#[cfg(any(unix, test))]
+fn decisao_itanium(versao: i32, acoes: i32, nossa: bool, pouso: u64, acao: u64, cleanup: bool) -> i32 {
     const FATAL_NA_FASE_1: i32 = 3;
     const TRATADOR_ACHADO: i32 = 6;
     const INSTALAR_CONTEXTO: i32 = 7;
     const CONTINUAR: i32 = 8;
-    const FASE_DE_BUSCA: i32 = 1;
-    const DESENROLAR_A_FORCA: i32 = 8;
-    if versao != 1 {
-        return FATAL_NA_FASE_1;
+    if versao != 1 { return FATAL_NA_FASE_1; }
+    if pouso == 0 { return CONTINUAR; }
+    let busca = acoes & 1 != 0;
+    let unwind = acoes & 2 != 0;
+    let quadro_tratador = acoes & 4 != 0;
+    let forcado = acoes & 8 != 0;
+    if !cleanup {
+        if !nossa { return CONTINUAR; }
+        if busca { return TRATADOR_ACHADO; }
+        return if forcado { CONTINUAR } else { INSTALAR_CONTEXTO };
     }
-    // Uma exceção estrangeira (C++, Rust) não é nossa.
-    if classe != CLASSE_DE_DESENROLAMENTO_DART {
-        return CONTINUAR;
+    if busca {
+        return if nossa && !forcado && acao != 0 { TRATADOR_ACHADO } else { CONTINUAR };
     }
-    // SAFETY: `contexto` é o do desenrolador; a LSDA é a de uma função
-    // gerada (só elas têm esta personalidade).
+    if unwind && (acao == 0 || (nossa && !forcado && quadro_tratador)) {
+        INSTALAR_CONTEXTO
+    } else {
+        CONTINUAR
+    }
+}
+
+#[cfg(unix)]
+unsafe fn personalidade_itanium(
+    versao: i32, acoes: i32, classe: u64, objeto: *mut u8, contexto: *mut u8, cleanup: bool,
+) -> i32 {
+    // Valida versão/classe antes de acessar o contexto, como no protocolo
+    // legado. Cleanup também precisa acompanhar exceções estrangeiras.
+    if versao != 1 { return 3; }
+    let nossa = classe == CLASSE_DE_DESENROLAMENTO_DART;
+    if !cleanup && !nossa { return 8; }
+    // SAFETY: contexto e LSDA entregues pelo desenrolador do sistema.
     unsafe {
         let mut antes: i32 = 0;
         let ip = _Unwind_GetIPInfo(contexto, &mut antes) as u64;
-        // O endereço de retorno é o da instrução seguinte à chamada.
         let ip = if antes == 0 { ip.wrapping_sub(1) } else { ip };
         let inicio = _Unwind_GetRegionStart(contexto) as u64;
-        let (pouso, _acao) = sitio_da_lsda(_Unwind_GetLanguageSpecificData(contexto), ip.wrapping_sub(inicio));
-        if pouso == 0 {
-            return CONTINUAR;
-        }
-        if acoes & FASE_DE_BUSCA != 0 {
-            return TRATADOR_ACHADO;
-        }
-        // Um desenrolar forçado (`pthread_cancel`) não para aqui.
-        if acoes & DESENROLAR_A_FORCA != 0 {
-            return CONTINUAR;
-        }
-        // Os dois registradores de dados da exceção (0 e 1, no x86-64 e no
-        // aarch64): o par do `landingpad`, que o código gerado não lê.
-        _Unwind_SetGR(contexto, 0, 0);
-        _Unwind_SetGR(contexto, 1, 0);
+        let (pouso, acao) = sitio_da_lsda(_Unwind_GetLanguageSpecificData(contexto), ip.wrapping_sub(inicio));
+        let decisao = decisao_itanium(versao, acoes, nossa, pouso, acao, cleanup);
+        if decisao != 7 { return decisao; }
+        // O par legado não era lido. O novo protocolo entrega o objeto
+        // original para resume; jamais passa por df.lancar nesta etapa.
+        _Unwind_SetGR(contexto, 0, if cleanup { objeto as usize } else { 0 });
+        _Unwind_SetGR(contexto, 1, if cleanup && acao != 0 { 1 } else { 0 });
         _Unwind_SetIP(contexto, (inicio + pouso) as usize);
-        INSTALAR_CONTEXTO
+        decisao
     }
 }
 
 #[cfg(all(test, any(all(windows, target_arch = "x86_64"), unix)))]
 mod testes_excecoes_tabelas {
     use super::*;
+
+    #[test]
+    fn cleanup_nao_para_busca_e_instala_na_fase_de_unwind() {
+        for nossa in [false, true] {
+            for forcado in [0, 8] {
+                assert_eq!(decisao_itanium(1, 1 | forcado, nossa, 7, 0, true), 8);
+                assert_eq!(decisao_itanium(1, 2 | forcado, nossa, 7, 0, true), 7);
+                assert_eq!(decisao_itanium(1, 0 | forcado, nossa, 7, 0, true), 8);
+            }
+        }
+        assert_eq!(decisao_itanium(1, 2, true, 0, 0, true), 8);
+        assert_eq!(decisao_itanium(0, 1, true, 7, 0, true), 3);
+    }
+
+    #[test]
+    fn catch_all_so_instala_no_quadro_escolhido_para_excecao_dart() {
+        assert_eq!(decisao_itanium(1, 1, true, 7, 1, true), 6);
+        assert_eq!(decisao_itanium(1, 2, true, 7, 1, true), 8);
+        assert_eq!(decisao_itanium(1, 2 | 4, true, 7, 1, true), 7);
+        for acoes in [1, 2, 2 | 4, 2 | 8, 2 | 4 | 8] {
+            assert_eq!(decisao_itanium(1, acoes, false, 7, 1, true), 8);
+        }
+        assert_eq!(decisao_itanium(1, 2 | 4 | 8, true, 7, 1, true), 8);
+    }
+
+    #[test]
+    fn protocolo_legado_preserva_pousos_de_statepoint() {
+        for acao in [0, 1] {
+            assert_eq!(decisao_itanium(1, 1, true, 7, acao, false), 6);
+            assert_eq!(decisao_itanium(1, 2, true, 7, acao, false), 7);
+            assert_eq!(decisao_itanium(1, 2 | 8, true, 7, acao, false), 8);
+            assert_eq!(decisao_itanium(1, 2, false, 7, acao, false), 8);
+        }
+    }
 
     /// A LSDA do §13.10 (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md): cabeçalho
     /// com tabela de tipos (`catch ptr null`), três faixas — sem pouso, com

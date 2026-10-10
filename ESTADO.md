@@ -2,6 +2,28 @@
 
 ## Retomada de 2026-10-09
 
+Personalidade Itanium de cleanup: nova entrada Unix
+`dartforge_personalidade_cleanup_itanium` separa cleanup puro de catch-all
+Dart. Cleanup não para a busca; instala na fase de unwind, inclusive para
+exceção estrangeira/forçada. Catch-all só instala o quadro selecionado para
+exceção Dart. Entrega o objeto original ao landingpad e seletores 0/1,
+sem reinicializar o objeto entre os pousos. A entrada legada conserva as
+decisões e o par zero dos pousos/statepoints atuais. Símbolo registrado
+somente em Unix; efeito auditado 0/0/0 no novo callback.
+Passaram nove testes LSDA/fases/portas e 29 doctests do runtime. Os trechos
+reais compilaram como metadados Linux x86-64 e macOS ARM64. Prova executada
+em Linux x86-64 via WSL: dois cleanups aninhados usam resume real, cada um
+uma vez, na ordem interno→externo; ambos e o handler recebem o mesmo objeto,
+com seletores corretos. LLVM O0 e O2 terminaram com código 0; funções
+noinline, sem prova de inlining. Artefatos
+em `bench/resultados/2026-10-09-itanium-cleanup-resume-linux`; logs
+`target/ownership-itanium-*`. A fixture usa objeto nativo com classe Dart,
+sem heap/pendência/rastro Dart. O emissor ARC ainda não usa essa entrada;
+integração de resume aos cleanups ARC, ações tipadas/pousos mistos/statepoints,
+SEH/funclets e execução macOS continuam pendentes. Exceção estrangeira e
+forced unwind foram conferidos só na decisão unitária. Não certifica ARC
+completo nem altera o gate de desempenho.
+
 Preparação de resume nativo: o leitor de LSDA agora devolve pouso e índice
 de ação, em vez de descartar a ação. Preserva zero (cleanup sem ação tipada)
 e índices positivos da tabela; ainda não interpreta cadeias de ações.
