@@ -1,0 +1,12 @@
+   Compiling dartforge-emit-native v0.1.0 (E:\MyRustProjects\dartforge\crates\emit_native)
+warning: function `atribuir_slots` is never used
+  --> crates\emit_native\src\llvm\raizes.rs:81:8
+   |
+81 | pub fn atribuir_slots(
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib) generated 1 warning
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.70s
+     Running `target\debug\examples\arc_alocacao_campos.exe E:\MyRustProjects\dartforge\target\prova-alocacao-campos\arc-O0-normal.exe --memoria=arc 0`

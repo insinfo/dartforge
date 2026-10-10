@@ -2,6 +2,13 @@
 
 ## Retomada de 2026-10-10
 
+Alocação Owned/initialização de campos registrada no commit bee4dceb.
+Evidência Windows congelada em
+bench/resultados/2026-10-10-alocacao-campos-windows: 12 execuções,
+60 arquivos AOT e três logs de verificação, com SHA-256/blobs de fontes.
+Base/alterações durante a execução são explícitas no manifesto; nenhum
+resultado nativo é atribuído apenas à revisão base b198aadd.
+
 Preparação explícita do módulo ARC agora materializa AllocObject com layout
 completo em fábrica Owned e setters auditados. Mantém IDs dos objetos,
 reserva auxiliares acima dos metadados e inicializa as arestas Ref antes
