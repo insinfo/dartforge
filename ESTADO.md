@@ -2,6 +2,21 @@
 
 ## Retomada de 2026-10-09
 
+Primeira execução AOT Linux do resume ARC integrado: o passo da CI 38010046028
+(job 114087818147, fonte f626bb6887cdefb079eeba0910625111905e63bc) passou nas
+quatro variantes automático ARC/tracing × normal/erro. Runtime real com Mint,
+ARC_CONFERIR=1, BER=0, GC_STRESS=1; códigos zero e stdout byte exato.
+Download auditado: propagador usa personalidade de cleanup, landingpad cleanup,
+release antes de resume do par recebido, sem df.lancar nesse pouso.
+Congelado em `bench/resultados/2026-10-09-arc-resume-linux-ci`, oito IR/stdout,
+hashes de fontes/arquivos e digest do artefato Actions. IR é entrada, não
+otimizado; não há executáveis nem versão exata da libLLVM no artefato.
+O workflow inteiro e a prova macOS ainda estavam ativos/pendentes nesta
+conferência. Fonte anterior à variante mista e à guarda de seletor do catch;
+não testa estrangeira/forced unwind/catch no perfil novo, não observa
+identidade/rastro/morte final em AOT nem valida o lowering completo/gate ARC/A0.
+
+
 Catch no perfil de cleanup Itanium: quando a mesma função contém Retoma e
 catch preparado, o pouso catch agora compara o seletor com
 llvm.eh.typeid.for(null). O caminho não selecionado retoma o par original,

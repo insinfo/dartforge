@@ -1,0 +1,96 @@
+{
+  "fonte": "f626bb6887cdefb079eeba0910625111905e63bc",
+  "workflow": "CI",
+  "run": 38010046028,
+  "job": 114087818147,
+  "plataforma": "Linux x86-64",
+  "prova": "Cleanup ARC com resume Itanium (AOT, normal e erro)",
+  "estado_da_prova": "completed/success; não implica conclusão do workflow inteiro",
+  "artefato": {
+    "id": 11652989229,
+    "nome": "prova-arc-resume-ubuntu-latest",
+    "digest": "sha256:828500a16a3f23e89d689bba841d6d748087c55049602fb8c6162cc51314a39d"
+  },
+  "geracao": {
+    "llvm_embutido": true,
+    "optimize": true,
+    "llvm": "22 conforme workflow; versão específica não registrada no artefato"
+  },
+  "ambiente_execucao": {
+    "ARC_CONFERIR": "1",
+    "BER": "0",
+    "GC_STRESS": "1"
+  },
+  "fontes_sha256": {
+    "crates/emit_native/examples/arc_retornos_guardados.rs": "093133c20c974df6c248cdde53834af5b827f4e3e965c93e893b0f24d5cbe6cf",
+    "crates/emit_native/src/llvm/mod.rs": "7de10b793a198e65e9a989efdf7aa58919dd3af457e34687de89fbf2cab53fa0",
+    "crates/runtime/src/excecoes_tabelas.rs": "c36fd2c45592c2f22a6238ac3c920f1d41ce27c34dbe5d070b94ac3475f5b8de",
+    ".github/workflows/ci.yml": "d2742685141d26d03889b27321f14bb333e5d788e33c66763f2ff6e0f629a4ff"
+  },
+  "casos": [
+    {
+      "modo": "arc",
+      "caminho": "normal",
+      "codigo": 0,
+      "stdout": "MAX + LF",
+      "arquivos": {
+        "arc-normal.ll": {
+          "bytes": 44610,
+          "sha256": "704ca23e6793f38607c17ef91c9ba737393778642dcfc1f2c057bcf62e3e581d"
+        },
+        "arc-normal.stdout": {
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        }
+      }
+    },
+    {
+      "modo": "arc",
+      "caminho": "erro",
+      "codigo": 0,
+      "stdout": "vazio",
+      "arquivos": {
+        "arc-erro.ll": {
+          "bytes": 44660,
+          "sha256": "cd527f20689f6e437e82a2ca5cf6710e5d4bdcd7cc5a313b653cc5a9a9539bbd"
+        },
+        "arc-erro.stdout": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    {
+      "modo": "tracing",
+      "caminho": "normal",
+      "codigo": 0,
+      "stdout": "MAX + LF",
+      "arquivos": {
+        "tracing-normal.ll": {
+          "bytes": 44363,
+          "sha256": "8c3482ccd389214efad14910e6a3f70764cea363b5dd9d504a366c1205b0d4f7"
+        },
+        "tracing-normal.stdout": {
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        }
+      }
+    },
+    {
+      "modo": "tracing",
+      "caminho": "erro",
+      "codigo": 0,
+      "stdout": "vazio",
+      "arquivos": {
+        "tracing-erro.ll": {
+          "bytes": 44413,
+          "sha256": "bd68f02d4a5310367ccaee2b47a54aa9e9b8a42533672d6f779eb02483f48004"
+        },
+        "tracing-erro.stdout": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    }
+  ]
+}
