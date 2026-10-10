@@ -250,7 +250,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.enclosing_class = Some(c);
         self.classe_do_membro = Some(c);
         if self.classe_generica(c) {
-            let t = self.add_param("$tipos".to_string(), Type::I64);
+            let t = self.add_param_rti("$tipos".to_string());
             self.tupla_de_tipos = Some(Operand::Val(t));
             self.classe_por_tupla = true;
         }

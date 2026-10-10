@@ -788,11 +788,14 @@ void main() {}
                 let mut tracing = FnBuilder::new(&ctx, unit, "tracing".into(), "tracing".into(), Type::I64);
                 tracing.declarar_parametros(fid, false);
                 assert!(tracing.parametros_escalares_dart.is_empty());
+                tracing.add_param_rti("$tipos".into());
+                assert!(tracing.parametros_rti_dart.is_empty());
                 drop(tracing);
                 ctx.memoria_arc = true;
                 let mut b = FnBuilder::new(&ctx, unit, "escalares".into(), "escalares".into(), Type::I64);
                 b.declarar_parametros(fid, false);
-                let nativo = b.add_param("$tipos".into(), Type::I64);
+                let nativo = b.add_param_rti("$tipos".into());
+                assert!(b.parametros_rti_dart["escalares"].contains(&nativo));
                 let escalares = &b.parametros_escalares_dart["escalares"];
                 for (v, _, ty) in &b.func.params {
                     assert_eq!(escalares.contains(v), *v != nativo && *ty != Type::Ref);
@@ -803,6 +806,7 @@ void main() {}
                 b.finalizar(&mut modulo);
                 assert_eq!(modulo.parametros_escalares_dart["escalares"].len(), 3);
                 assert!(!modulo.parametros_escalares_dart["escalares"].contains(&nativo));
+                assert!(modulo.parametros_rti_dart["escalares"].contains(&nativo));
                 crate::otimizar::otimizar(&mut modulo);
                 assert_eq!(modulo.parametros_escalares_dart["escalares"].len(), 3);
                 for id in &modulo.parametros_escalares_dart["escalares"] {

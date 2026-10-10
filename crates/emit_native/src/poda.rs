@@ -1244,6 +1244,7 @@ pub fn podar_hir(m: &mut crate::hir::Module, sdk: &[&Resumo]) -> PodaDaHir {
     });
     e.funcoes_vivas = m.functions.len();
     m.parametros_escalares_dart.retain(|simbolo, _| !removidas.contains(simbolo));
+    m.parametros_rti_dart.retain(|simbolo, _| !removidas.contains(simbolo));
     // O par de tabela cujo seletor ninguém chama sai, e o da função que saiu
     // também (a entrada de um par vivo é sempre alcançada).
     for (_, _, pares) in &mut m.tabelas_de_metodos {
@@ -1412,9 +1413,13 @@ mod testes {
         let mut m = modulo_hir();
         m.parametros_escalares_dart.insert("f".into(), HashSet::new());
         m.parametros_escalares_dart.insert("g".into(), HashSet::new());
+        m.parametros_rti_dart.insert("f".into(), HashSet::new());
+        m.parametros_rti_dart.insert("g".into(), HashSet::new());
         let e = podar_hir(&mut m, &[]);
         assert!(m.parametros_escalares_dart.contains_key("f"));
         assert!(!m.parametros_escalares_dart.contains_key("g"));
+        assert!(m.parametros_rti_dart.contains_key("f"));
+        assert!(!m.parametros_rti_dart.contains_key("g"));
         let nomes: Vec<&str> = m.functions.iter().map(|f| f.symbol.as_str()).collect();
         assert_eq!(nomes, vec!["dart_main", "f", "P.usado$c"], "{e:?}");
         assert_eq!(m.tabelas_de_metodos[0].2, vec![("c:usado".to_string(), "P.usado$c".to_string())]);
@@ -1424,9 +1429,11 @@ mod testes {
         sdk_morto.symbol = "df.dart$3acore.morto".into();
         m.functions = vec![f, sdk_morto];
         m.parametros_escalares_dart.insert("df.dart$3acore.morto".into(), HashSet::new());
+        m.parametros_rti_dart.insert("df.dart$3acore.morto".into(), HashSet::new());
         crate::fonte::podar(&mut m);
         assert!(m.parametros_escalares_dart.contains_key("f"));
         assert!(!m.parametros_escalares_dart.contains_key("df.dart$3acore.morto"));
+        assert!(!m.parametros_rti_dart.contains_key("df.dart$3acore.morto"));
     }
 
     #[test]

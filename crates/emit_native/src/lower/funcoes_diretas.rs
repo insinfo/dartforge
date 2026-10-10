@@ -207,7 +207,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             b.ligar_local_como(c.sym, local);
         }
         if com_tupla {
-            let t = b.add_param("$tipos_de_fora".to_string(), Type::I64);
+            let t = b.add_param_rti("$tipos_de_fora".to_string());
             b.tupla_de_tipos = Some(Operand::Val(t));
         }
         b.params_de_tipo_da_funcao = self.params_de_tipo_da_funcao.clone();

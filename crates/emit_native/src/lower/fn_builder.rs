@@ -48,6 +48,8 @@ pub struct FnBuilder<'a, 'c> {
     pub value_types: HashMap<ValueId, Type>,
     /// Fatos dos parâmetros declarados, incluindo funções absorvidas.
     pub parametros_escalares_dart: HashMap<String, std::collections::HashSet<ValueId>>,
+    /// IDs de RTI com origem nativa explícita, incluindo funções absorvidas.
+    pub parametros_rti_dart: HashMap<String, std::collections::HashSet<ValueId>>,
     pub break_targets: Vec<BlockId>,
     pub continue_targets: Vec<BlockId>,
     pub this_param: Option<Operand>,
@@ -310,6 +312,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             n_allocas: 0,
             value_types: HashMap::new(),
             parametros_escalares_dart: HashMap::new(),
+            parametros_rti_dart: HashMap::new(),
             break_targets: Vec::new(),
             continue_targets: Vec::new(),
             this_param: None,
@@ -534,6 +537,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         module.globais.extend(self.globais_extras);
         module.parametros_escalares_dart.extend(self.parametros_escalares_dart);
+        module.parametros_rti_dart.extend(self.parametros_rti_dart);
         module.functions.push(self.func);
         module.functions.extend(self.extra_functions);
     }
@@ -769,6 +773,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.value_types.insert(vid, ty);
         self.func.params.push((vid, name, ty));
         vid
+    }
+
+    /// Declara um ID do universo RTI, sem inferir referência pela largura.
+    /// O chamador deve passar somente IDs canônicos nativos de tipos/tuplas.
+    pub fn add_param_rti(&mut self, name: String) -> ValueId {
+        let v = self.add_param(name, Type::I64);
+        if self.ctx.memoria_arc {
+            self.parametros_rti_dart.entry(self.func.symbol.clone()).or_default().insert(v);
+        }
+        v
     }
 
     pub fn operand_type(&self, op: &Operand) -> Type {

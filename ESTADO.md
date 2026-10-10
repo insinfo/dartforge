@@ -2,6 +2,17 @@
 
 ## Retomada de 2026-10-10
 
+Parâmetros ocultos de RTI ($tipos/$tipos_de_fora) têm produtor explícito
+add_param_rti e mapa separado dos escalares. Auditoria: tipos.rs representa
+tuplas como IDs do universo canônico (Tipo::Tupla), não handles do heap Dart.
+Fatos são produzidos somente no modo ARC e transportados por finalização,
+absorção, combinação dos módulos e poda. Teste distingue RTI de escalar e
+confere ausência dos fatos em tracing; ainda falta consumir o mapa RTI nos
+planos e provar vida do universo/pins/recarga. Não infere Trivial por largura
+nem ativa ownership no pipeline padrão.
+Passaram 208 testes (7 ignorados) e 50 exemplos de documentação;
+logs target/arc-parametros-rti-{suite,doc}.log.
+
 Poda transporta os fatos escalares com os corpos: produção remove entradas
 de funções eliminadas; poda da fonte conserva somente símbolos vivos.
 Regressão cobre conservação de fatos vivos e retirada de fatos mortos nos

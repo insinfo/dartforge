@@ -1560,6 +1560,7 @@ pub fn lower_funcao_ou_recusa(ctx: &Context, module: &mut Module, fid: usize) {
         (Ok(m), None) => {
             module.functions.extend(m.functions);
         module.parametros_escalares_dart.extend(m.parametros_escalares_dart);
+        module.parametros_rti_dart.extend(m.parametros_rti_dart);
             module.globais.extend(m.globais);
         }
         (_, Some(motivo)) => {
@@ -1829,6 +1830,7 @@ fn adaptadores_ou_recusa(ctx: &Context, module: &mut Module, gerar: impl FnOnce(
     if r.is_ok() && m.erros.is_empty() {
         module.functions.extend(m.functions);
         module.parametros_escalares_dart.extend(m.parametros_escalares_dart);
+        module.parametros_rti_dart.extend(m.parametros_rti_dart);
         module.globais.extend(m.globais);
         return;
     }
@@ -1897,6 +1899,7 @@ pub fn lower_getter_late_ou_recusa(
         Ok(m) if m.erros.is_empty() => {
             module.functions.extend(m.functions);
         module.parametros_escalares_dart.extend(m.parametros_escalares_dart);
+        module.parametros_rti_dart.extend(m.parametros_rti_dart);
             module.globais.extend(m.globais);
             return;
         }
@@ -1965,6 +1968,7 @@ pub fn lower_global_ou_recusa(
         Ok(m) if m.erros.is_empty() => {
             module.functions.extend(m.functions);
         module.parametros_escalares_dart.extend(m.parametros_escalares_dart);
+        module.parametros_rti_dart.extend(m.parametros_rti_dart);
             module.globais.extend(m.globais);
         }
         r => {

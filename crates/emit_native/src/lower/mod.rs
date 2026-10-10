@@ -421,6 +421,7 @@ fn baixar_funcoes(ctx: &Context, module: &mut Module, funcoes: &[usize]) {
     for m in partes {
         module.functions.extend(m.functions);
         module.parametros_escalares_dart.extend(m.parametros_escalares_dart);
+        module.parametros_rti_dart.extend(m.parametros_rti_dart);
         module.globais.extend(m.globais);
         module.erros.extend(m.erros);
         module.erros_da_fonte.extend(m.erros_da_fonte);
@@ -589,7 +590,7 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                 // RTI: a função genérica recebe a tupla dos argumentos de
                 // tipo no último parâmetro (`M<i>` das receitas).
                 if builder.funcao_generica(f_idx) {
-                    let t = builder.add_param("$tipos".to_string(), Type::I64);
+                    let t = builder.add_param_rti("$tipos".to_string());
                     builder.tupla_de_tipos = Some(Operand::Val(t));
                     builder.params_de_tipo_da_funcao =
                         builder.params_de_tipo_de(f_idx).iter().map(|&p| ctx.table.param(p).name).collect();
@@ -673,7 +674,7 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                     // de tipo da classe na tupla (não há `this`).
                     builder.enclosing_class = Some(cid);
                     if builder.classe_generica(cid) {
-                        let t = builder.add_param("$tipos".to_string(), Type::I64);
+                        let t = builder.add_param_rti("$tipos".to_string());
                         builder.tupla_de_tipos = Some(Operand::Val(t));
                         builder.classe_por_tupla = true;
                     }

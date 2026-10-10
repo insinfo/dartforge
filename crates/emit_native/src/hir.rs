@@ -1030,6 +1030,9 @@ pub struct Module {
     /// ocultos/nativos i64 não são classificados pela largura. Estes fatos
     /// ainda precisam alimentar os planos ARC e sobreviver aos passes.
     pub parametros_escalares_dart: std::collections::HashMap<String, std::collections::HashSet<ValueId>>,
+    /// IDs nativos do universo canônico de RTI, produzidos explicitamente.
+    /// Não são Ref nem escalares Dart; vida do universo/pins exige outro protocolo.
+    pub parametros_rti_dart: std::collections::HashMap<String, std::collections::HashSet<ValueId>>,
     pub classes: Vec<ClassDef>,
     pub selectors: Vec<SelectorDef>,
     pub subtyping_edges: Vec<(u32, u32)>,

@@ -372,7 +372,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // A tupla juntada (a de fora e a da chamada) chega ao corpo da
         // closure genérica como o último parâmetro.
         if generica {
-            let t = b.add_param("$tipos".to_string(), Type::I64);
+            let t = b.add_param_rti("$tipos".to_string());
             b.tupla_de_tipos = Some(Operand::Val(t));
         }
         if f.modifier != AsyncModifier::None {
@@ -545,6 +545,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.erros.extend(b.erros);
         self.globais_extras.extend(b.globais_extras);
         self.parametros_escalares_dart.extend(b.parametros_escalares_dart);
+        self.parametros_rti_dart.extend(b.parametros_rti_dart);
         self.extra_functions.push(b.func);
         self.extra_functions.extend(b.extra_functions);
     }
