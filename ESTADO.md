@@ -2,6 +2,20 @@
 
 ## Retomada de 2026-10-10
 
+Contratos ARC cobrem ZExt/Trunc entre I1/I8/I64: exigem tipo exato de
+origem, contrato Trivial e aumento/redução de largura respectivamente.
+Não classificam handles/ponteiros por largura. Regressão cobre as seis
+conversões válidas, direção inversa inválida, origem ausente/gerenciada e
+sequência bool/byte/palavra até boxing permanente, sem Owned ou pending.
+Emissão LLVM confere zext/trunc; não constitui prova AOT do código assíncrono.
+Passaram 212 testes do emissor (7 ignorados) e 52 exemplos de documentação;
+logs target/arc-larguras-{suite,doc}.log. Passe padrão ainda pendente e
+restrito a --memoria=arc; contratos de loads/campos e borrows exigem cobertura.
+
+CI 38025125587 na fonte f81c7d2b: Linux e mensagens concluídos com sucesso;
+Windows e macOS ainda em andamento na última consulta. Os avanços locais
+de bitcasts e larguras inteiras são posteriores a essa fonte.
+
 Contratos ARC cobrem os bitcasts F64/I64 usados pelo lowering de campos.
 Exigem representações opostas, resultado compatível e origem Trivial após
 resolver produtores/Phis, sem depender da ordem física dos blocos. Operações

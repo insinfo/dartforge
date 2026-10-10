@@ -374,6 +374,8 @@ pub fn produzir_contratos_runtime(
 /// operandos devem ter contrato Trivial e representações escalares compatíveis. Guardas
 /// de domínio/estouro e semântica Dart permanecem responsabilidade do lowering.
 /// Bitcasts F64/I64 exigem origem escalar Trivial; largura não certifica ownership.
+/// ZExt/Trunc entre I1/I8/I64 exigem origem Trivial, tipo exato e aumento/redução
+/// de largura respectivamente; não convertem handles nem ponteiros em escalares.
 /// Phi I1/I64/F64 exige entradas de mesmo tipo com contrato Trivial ou constantes
 /// correspondentes, e origem conhecida fora do ciclo de Phis, inclusive em laços.
 /// Phi Ref explicitamente Trivial exige entradas Trivial/null e origem externa;
@@ -429,7 +431,9 @@ pub fn produzir_contratos_arc(
             | Instruction::Not(op)
             | Instruction::FNeg(op)
             | Instruction::IntToDouble(op)
-            | Instruction::DoubleToInt(op) => [Some(op), None],
+            | Instruction::DoubleToInt(op)
+            | Instruction::ZExt { op, .. }
+            | Instruction::Trunc { op, .. } => [Some(op), None],
             Instruction::Add(a, b)
             | Instruction::Sub(a, b)
             | Instruction::Mul(a, b)
@@ -896,6 +900,7 @@ fn produzir(
                     to: to @ (Type::I64 | Type::F64),
                     ..
                 } => Some(*to),
+                Instruction::ZExt { to, .. } | Instruction::Trunc { to, .. } => Some(*to),
                 _ => None,
             };
             if let Some(esperado) = puro {
@@ -915,6 +920,26 @@ fn produzir(
                     _ => false,
                 };
                 let invalido = match inst {
+                    Instruction::ZExt { op, from, to } | Instruction::Trunc { op, from, to } => {
+                        let origem = match op {
+                            Operand::Val(v) => tipos.get(v).copied(),
+                            Operand::Constant(Constant::Int(_)) => Some(Type::I64),
+                            Operand::Constant(Constant::Bool(_)) => Some(Type::I1),
+                            _ => None,
+                        };
+                        let larguras_validas = if matches!(inst, Instruction::ZExt { .. }) {
+                            matches!(
+                                (from, to),
+                                (Type::I1, Type::I8 | Type::I64) | (Type::I8, Type::I64)
+                            )
+                        } else {
+                            matches!(
+                                (from, to),
+                                (Type::I64, Type::I1 | Type::I8) | (Type::I8, Type::I1)
+                            )
+                        };
+                        origem != Some(*from) || !larguras_validas
+                    }
                     Instruction::Bitcast { op, to } => {
                         let origem = match op {
                             Operand::Val(v) => tipos.get(v).copied(),
@@ -2590,6 +2615,176 @@ mod testes {
             &mut PlanoTokens::default(),
         )
         .unwrap();
+    }
+
+    #[test]
+    fn larguras_inteiras_preservam_contrato_escalar_e_rejeitam_handles() {
+        for (from, to, ampliar) in [
+            (Type::I1, Type::I8, true),
+            (Type::I1, Type::I64, true),
+            (Type::I8, Type::I64, true),
+            (Type::I64, Type::I8, false),
+            (Type::I64, Type::I1, false),
+            (Type::I8, Type::I1, false),
+        ] {
+            let inst = if ampliar {
+                Instruction::ZExt {
+                    op: Operand::Val(ValueId(0)),
+                    from,
+                    to,
+                }
+            } else {
+                Instruction::Trunc {
+                    op: Operand::Val(ValueId(0)),
+                    from,
+                    to,
+                }
+            };
+            let mut f = Function {
+                symbol: "largura".into(),
+                name: "largura".into(),
+                depuracao: None,
+                params: vec![(ValueId(0), "x".into(), from)],
+                return_ty: Type::Void,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(ValueId(1), inst, to)],
+                    terminator: Terminator::Return(None),
+                }],
+            };
+            let mut classes = HashMap::from([(ValueId(0), Ownership::Trivial)]);
+            let mut plano = PlanoTokens::default();
+            produzir_e_verificar_tokens(
+                &f,
+                &mut classes,
+                &mut plano,
+                &TabelasDaFuncao::default(),
+                &PlanoEscopos::default(),
+            )
+            .unwrap();
+            assert_eq!(classes[&ValueId(1)], Ownership::Trivial);
+            assert_eq!(plano.instrucoes[&ValueId(1)], EfeitoTokens::default());
+            for (tipo, classe) in [
+                (Type::Ref, Some(Ownership::Trivial)),
+                (Type::Ptr, Some(Ownership::Trivial)),
+                (from, Some(Ownership::Owned)),
+                (
+                    from,
+                    Some(Ownership::Borrowed {
+                        owner: OrigemOwner::Chamador,
+                        escopo: 0,
+                    }),
+                ),
+                (from, None),
+            ] {
+                f.params[0].2 = tipo;
+                let mut classes: HashMap<_, _> =
+                    classe.map(|c| (ValueId(0), c)).into_iter().collect();
+                let antes = classes.clone();
+                let mut plano = PlanoTokens::default();
+                assert!(produzir_contratos_arc(&f, &mut classes, &mut plano).is_err());
+                assert_eq!(classes, antes);
+                assert!(plano.instrucoes.is_empty());
+            }
+            f.params[0].2 = from;
+            // A operação oposta com as mesmas larguras é inválida.
+            f.blocks[0].instructions[0].1 = if ampliar {
+                Instruction::Trunc {
+                    op: Operand::Val(ValueId(0)),
+                    from,
+                    to,
+                }
+            } else {
+                Instruction::ZExt {
+                    op: Operand::Val(ValueId(0)),
+                    from,
+                    to,
+                }
+            };
+            let mut classes = HashMap::from([(ValueId(0), Ownership::Trivial)]);
+            assert!(produzir_contratos_arc(&f, &mut classes, &mut PlanoTokens::default()).is_err());
+            assert_eq!(classes.len(), 1);
+        }
+        // Sequência do transporte de bool por byte e palavra, com boxing
+        // permanente no fim: nenhum token Owned nem saída pending é criado.
+        let f = Function {
+            symbol: "bool_bits".into(),
+            name: "bool_bits".into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::Void,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![
+                    (
+                        ValueId(0),
+                        Instruction::ZExt {
+                            op: Operand::Constant(Constant::Bool(true)),
+                            from: Type::I1,
+                            to: Type::I8,
+                        },
+                        Type::I8,
+                    ),
+                    (
+                        ValueId(1),
+                        Instruction::ZExt {
+                            op: Operand::Val(ValueId(0)),
+                            from: Type::I8,
+                            to: Type::I64,
+                        },
+                        Type::I64,
+                    ),
+                    (
+                        ValueId(2),
+                        Instruction::Trunc {
+                            op: Operand::Val(ValueId(1)),
+                            from: Type::I64,
+                            to: Type::I8,
+                        },
+                        Type::I8,
+                    ),
+                    (
+                        ValueId(3),
+                        Instruction::Trunc {
+                            op: Operand::Val(ValueId(2)),
+                            from: Type::I8,
+                            to: Type::I1,
+                        },
+                        Type::I1,
+                    ),
+                    (
+                        ValueId(4),
+                        Instruction::Box {
+                            op: Operand::Val(ValueId(3)),
+                            from: Type::I1,
+                        },
+                        Type::Ref,
+                    ),
+                ],
+                terminator: Terminator::Return(None),
+            }],
+        };
+        let mut classes = HashMap::new();
+        let mut plano = PlanoTokens::default();
+        produzir_e_verificar_tokens(
+            &f,
+            &mut classes,
+            &mut plano,
+            &TabelasDaFuncao::default(),
+            &PlanoEscopos::default(),
+        )
+        .unwrap();
+        assert_eq!(classes.len(), 5);
+        assert!(classes.values().all(|c| *c == Ownership::Trivial));
+        assert!(plano.pendencias.is_empty());
+        let mut modulo = Module::default();
+        modulo.memoria_arc = true;
+        modulo.functions.push(f);
+        let ir = crate::llvm::LlvmEmitter::new(&modulo).emit_all();
+        assert!(ir.contains("zext i1 true to i8"));
+        assert!(ir.contains("zext i8 %v0 to i64"));
+        assert!(ir.contains("trunc i64 %v1 to i8"));
+        assert!(ir.contains("trunc i8 %v2 to i1"));
     }
 
     #[test]
