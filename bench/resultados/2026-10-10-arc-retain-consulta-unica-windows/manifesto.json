@@ -1,0 +1,35 @@
+{
+  "fonte_antes": "2a9baa0ecd834924e7e6b9621cc004c9faa1f1c2",
+  "fonte_depois": "585f0749bf03ff579bdf1148eeae007b275ad932",
+  "cli_sha256": "c619f5902bc7052a2f84527e339605628ecb34ba4c91168a66c84750a9ccfe00",
+  "entradas": {
+    "objetos_escapam.dart": "977eb9b5654a8c742dee4d052603609bc3e145c4a07e15a8580cd1c1ea665599",
+    "comum.dart": "c58f998dc36b84b102705a77c6cafa75e85b5bff6dda90c086a8d9a6c21f40c3"
+  },
+  "afinidade": "0x4",
+  "repeticoes": 7,
+  "comando_compilacao": [
+    "E:\\MyRustProjects\\dartforge\\target\\release\\dartforge.exe",
+    "aot",
+    "E:\\MyRustProjects\\dartforge\\bench\\desempenho\\objetos_escapam.dart",
+    "E:\\MyRustProjects\\dartforge\\target\\comparacao-arc-retain-585f0749\\objetos_escapam-ARC.exe",
+    "--optimize",
+    "--excecoes",
+    "checagem",
+    "--memoria=arc"
+  ],
+  "ambiente": {
+    "DARTFORGE_RAIZES": "sombra",
+    "DARTFORGE_GC_RASTRO": "0",
+    "DARTFORGE_GC_OFF": "0",
+    "DARTFORGE_ARC_CONFERIR": "0",
+    "DARTFORGE_ARC_BERCARIO": "0",
+    "DARTFORGE_HEAP_MAX_MB": "256",
+    "DARTFORGE_GC_STRESS": null,
+    "DARTFORGE_ARC_CICLOS": null
+  },
+  "executaveis_sha256": {
+    "antes": "ec9eb250fac567afd2f0fe54c8088974a878d1ea40ea94075b2ada3fc17b3b23",
+    "depois": "3fb8ad46ffe8162310d5c3a6973d9686bdb6ef459ed920a3701760d25006eeb0"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "estado": "ok",
+  "execucoes": 14,
+  "rodadas_por_execucao": 6,
+  "aquecimento_descartado": 1,
+  "pares": 7,
+  "resultado_reconstruido": {
+    "arvores": {
+      "antes_us": 652711,
+      "depois_us": 646211,
+      "depois_antes": 0.990041534461653,
+      "razoes_pareadas": [
+        0.9600832642676792,
+        0.9964071636756915,
+        0.987745520065923,
+        1.0338672684792494,
+        1.0103819591569974,
+        0.9848891775992744,
+        0.9920132016260992
+      ]
+    },
+    "lista_ligada": {
+      "antes_us": 125969,
+      "depois_us": 125792,
+      "depois_antes": 0.9985948923941604,
+      "razoes_pareadas": [
+        1.0007462153386943,
+        0.9881711855396066,
+        1.030738044344184,
+        0.9987693236043733,
+        0.9999592425638058,
+        1.008005159417953,
+        0.9838229533881708
+      ]
+    }
+  },
+  "depois_menor_por_kernel": {
+    "arvores": 5,
+    "lista_ligada": 4
+  },
+  "hashes_cli_executaveis_e_fontes_conferidos": true,
+  "gate_completo_arc_a0": "nao_reavaliado"
+}
