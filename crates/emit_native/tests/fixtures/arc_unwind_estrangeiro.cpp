@@ -20,6 +20,7 @@ static int destruicoes_local;
 static int destruicoes_excecao;
 static const void* endereco_excecao;
 static bool forcar_unwind;
+static bool classe_dart_no_forcado;
 static void* topo_anterior;
 static _Unwind_Exception objeto_forcado{};
 static void* topo();
@@ -80,7 +81,10 @@ extern "C" void prova_print_estrangeira(std::int64_t endereco) {
              "Mint deve estar vivo e ter owner antes do unwind");
     Local local;
     if (forcar_unwind) {
-        objeto_forcado.exception_class = UINT64_C(0x4446544553544621);
+        // Mesmo com a classe Dart, FORCE_UNWIND não autoriza tratar o catch.
+        // O objeto é de fault injection; não cria pendência nem payload Dart.
+        objeto_forcado.exception_class = classe_dart_no_forcado
+            ? UINT64_C(0x4441525446524745) : UINT64_C(0x4446544553544621);
         objeto_forcado.exception_cleanup = limpar_forcado;
         _Unwind_ForcedUnwind(&objeto_forcado, parar_forcado, &objeto_forcado);
         conferir(false, 27, "unwind forcado retornou ao lancador");
@@ -97,7 +101,8 @@ static void* topo() {
 
 int main(int argc, char** argv) {
     if (argc >= 2 && std::strcmp(argv[1], "arc") == 0) dartforge_memoria_arc_v1();
-    forcar_unwind = argc >= 3 && std::strcmp(argv[2], "forcado") == 0;
+    classe_dart_no_forcado = argc >= 3 && std::strcmp(argv[2], "forcado_dart") == 0;
+    forcar_unwind = classe_dart_no_forcado || (argc >= 3 && std::strcmp(argv[2], "forcado") == 0);
     void* anterior = topo();
     topo_anterior = anterior;
     bool capturada = false;
