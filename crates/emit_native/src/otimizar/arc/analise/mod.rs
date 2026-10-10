@@ -8,3 +8,4 @@ pub mod hir;
 pub(crate) mod origens;
 pub mod modulo;
 pub mod escape;
+pub mod resumos;

@@ -2,6 +2,31 @@
 
 ## Retomada de 2026-10-10
 
+ResumoHeapArc inicial em otimizar/arc/analise/resumos.rs separa retorno
+normal paramétrico dos resumos de alcance/efeitos.tsv. Extrator sobre SSA
+propaga placeholders de parâmetros Ref por Copy/Move/Phi/bitcast Ref→Ref;
+outros produtores, representações opacas e budget viram desconhecidos.
+Null é propagado por worklist de nulabilidade sem criar objeto abstrato.
+Marca nulo indica literal adicional; aliases de parâmetros ainda podem ser
+null mesmo com essa marca falsa. Não inferir não nulabilidade dos argumentos.
+Instanciação substitui placeholders pelos conjuntos reais do chamador,
+preservando aliases existentes em vez de criar objetos frescos. Confere
+assinatura local do corpo/aridade; orçamento menor e argumento opaco
+conservam topo. Resumo não prova noescape/noheapmutation, não elimina
+retenções nem efeitos normais/excepcionais e não muda ownership da ABI.
+Passaram 284 testes do emissor (sete ignorados), quatro focados finais
+incluindo união Phi/parametros/null e instanciação, e 84 exemplos públicos.
+Logs target/arc-resumo-alias-{suite,focado,doc}.log. Consumo automático nas
+chamadas HIR, SCC recursivas, resumos de campos/escape/observadores,
+dependências SDK/JIT e exportação versionada ainda pendentes. ARC continua
+exclusivo de --memoria=arc; esta etapa não conclui S0/S1 ou o gate ARC/A0.
+
+CI 38051323600: Windows cancelado ao exceder limite do job de 1h,
+conforme anotação do check 114210866777. Não houve falha de teste nesse
+ponto: matrizes nativas concluídas, interrupção durante ng_transparencia
+no passo dos ignorados. Log target/ci-windows-37497527.log. Linux passou;
+macOS ainda ativo. Não considerar rodada integralmente aprovada.
+
 Análise local de escape em otimizar/arc/analise/escape.rs agrupa publicações
 por retorno, exceção, global e operação opaca. Percorre transitivamente os
 campos do esquema de cada nó sem recursão, preservando ciclos/aliases.
