@@ -1548,6 +1548,28 @@ impl EspacoDeObjetos {
         p.indice(b - base).map(|i| p.bloco(i))
     }
 
+    /// O handle aponta para um bloco ocupado, mesmo sem zerar cabeçalhos mortos.
+    /// Consulta faixas livres e região ainda não entregue antes do cabeçalho.
+    pub(crate) fn bloco_ocupado(&self, h: i64) -> bool {
+        let Some(b) = self.bloco_de(h) else { return false; };
+        let endereco = b as usize;
+        let pagina = &self.paginas[self.mapa.get(endereco & !(PAGINA - 1)).unwrap()];
+        if pagina.classe != GRANDE {
+            let c = pagina.classe;
+            if self.livres[c].iter().any(|&(inicio, fim)|
+                (inicio as usize) <= endereco && endereco < fim as usize) {
+                return false;
+            }
+            let (inicio, fim) = self.regiao[c];
+            if (inicio as usize) <= endereco && endereco < fim as usize {
+                return false;
+            }
+        }
+        // SAFETY: bloco localizado pelo índice de páginas deste espaço.
+        let estado = unsafe { (*b).estado };
+        estado != LIVRE && estado != ESTADO_DE_VENENO
+    }
+
     /// O endereço do handle `h` cai numa página deste espaço (viva ou vazia)?
     /// Distingue o handle de um objeto coletado do escalar usado como handle.
     pub(crate) fn na_pagina(&self, h: i64) -> bool {

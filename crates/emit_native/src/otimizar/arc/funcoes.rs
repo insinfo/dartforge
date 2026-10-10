@@ -47,8 +47,8 @@ pub struct PlanoFuncaoDart {
 /// resolve finally/cancelamento/suspensão nem materializa tabelas.
 /// Descritores de slots e proveniência continuam premissas do lowering.
 /// Pousos catch ganham inventário certificado para cleanup estrangeiro Unix;
-/// funções com abertura de quadros proprietários e catch ainda são rejeitadas,
-/// até integrar o fechamento desses quadros no braço estrangeiro.
+/// quadros locais são fechados em LIFO nesse braço, segundo a pilha validada.
+/// Aliases e quadros importados permanecem fora desse protocolo.
 ///
 /// # Erros
 /// Símbolo repetido, plano ausente/obsoleto ou falha de produção/inserção/

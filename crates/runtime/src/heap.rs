@@ -1988,12 +1988,8 @@ impl Heap {
     /// Snapshot de diagnóstico: bit 0 para bloco vivo do heap, bit 1 para owner do código.
     /// Consulta o índice de páginas antes de ler o cabeçalho; não dereferencia
     /// endereços fora do heap nem inclui objetos estáticos, null ou Smi.
-    #[allow(unsafe_code)]
     pub(crate) fn observar_owner_codigo(&self, endereco: i64) -> u8 {
-        let vivo = self.objetos.bloco_de(endereco).is_some_and(|b| {
-            // SAFETY: bloco localizado e alinhado pelo índice de páginas deste espaço.
-            unsafe { (*b).estado != LIVRE }
-        });
+        let vivo = self.objetos.bloco_ocupado(endereco);
         u8::from(vivo) | (u8::from(self.owners_codigo.contains_key(&endereco)) << 1)
     }
 
@@ -7061,6 +7057,29 @@ mod arc_no_heap {
     fn arc_grafos_aleatorios_o_modelo_vale_no_rastreamento() {
         for semente in 0..sementes(60) {
             grafo_aleatorio(semente, false, false, 400);
+        }
+    }
+}
+
+#[cfg(test)]
+mod testes_observacao_sem_zerar {
+    use super::*;
+    #[test]
+    fn diagnostico_distingue_bloco_livre_com_cabecalho_antigo() {
+        for arc in [false, true] {
+            let mut heap = Heap::new(false);
+            heap.objetos.zerar_mortos = false;
+            if arc { heap.ativar_arc(); }
+            let primeiro = heap.caixa_int(i64::MAX);
+            heap.reter_owner_codigo(primeiro);
+            let vizinho = heap.caixa_int(i64::MAX - 1);
+            heap.reter_owner_codigo(vizinho);
+            heap.soltar_owner_codigo(primeiro);
+            heap.collect();
+            assert_eq!(heap.observar_owner_codigo(primeiro), 0, "ARC={arc}");
+            assert_eq!(heap.observar_owner_codigo(vizinho), 3);
+            heap.soltar_owner_codigo(vizinho);
+            heap.collect();
         }
     }
 }

@@ -7,6 +7,10 @@ use crate::hir::*;
 use std::collections::{HashMap, VecDeque};
 
 pub(super) fn verificar(f: &Function) -> Result<(), String> {
+    analisar(f).map(|_| ())
+}
+
+fn analisar(f: &Function) -> Result<HashMap<BlockId, Vec<ValueId>>, String> {
     let cfg = Cfg::novo(f);
     let capacidades: HashMap<_, _> = f
         .blocks
@@ -120,7 +124,28 @@ pub(super) fn verificar(f: &Function) -> Result<(), String> {
             }
         }
     }
-    Ok(())
+    Ok(f.blocks
+        .iter()
+        .zip(entradas)
+        .filter_map(|(b, q)| q.map(|q| (b.id, q)))
+        .collect())
+}
+
+pub(super) fn na_entrada_dos_pousos(
+    f: &Function,
+    t: &TabelasDaFuncao,
+) -> Result<HashMap<BlockId, Vec<ValueId>>, String> {
+    let entradas = analisar(f)?;
+    let mut resultado = HashMap::new();
+    let mut pousos: Vec<_> = t.pousos.iter().copied().collect();
+    pousos.sort_by_key(|b| b.0);
+    for b in pousos {
+        let quadros = entradas
+            .get(&b)
+            .ok_or_else(|| format!("quadros ARC: pouso b{} sem entrada", b.0))?;
+        resultado.insert(b, quadros.clone());
+    }
+    Ok(resultado)
 }
 
 #[cfg(test)]

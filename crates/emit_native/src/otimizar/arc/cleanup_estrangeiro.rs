@@ -6,7 +6,8 @@ use std::collections::{HashMap, HashSet};
 ///
 /// Criado pela preparação ARC do conjunto de funções; campos privados evitam
 /// inventar owners no emissor. Mudanças posteriores exigem nova preparação.
-/// Ainda não cobre quadros proprietários abertos no caminho excepcional.
+/// Quadros locais acompanham a pilha LIFO validada; aliases e quadros
+/// importados continuam fora do protocolo verificado.
 ///
 /// ```
 /// use dartforge_emit_native::otimizar::arc::PlanoFuncaoDart;
@@ -21,6 +22,7 @@ pub struct CleanupEstrangeiro {
     saidas: HashMap<BlockId, SaidaPorExcecao>,
     confere_pilha: bool,
     owners: HashMap<BlockId, Vec<ValueId>>,
+    quadros: HashMap<BlockId, Vec<ValueId>>,
 }
 
 impl CleanupEstrangeiro {
@@ -33,10 +35,7 @@ impl CleanupEstrangeiro {
         {
             return Ok(None);
         }
-        if f.blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)|
-            matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_quadro_abrir_v1")) {
-            return Err(format!("cleanup estrangeiro em {} exige fechamento de quadros proprietários", f.symbol));
-        }
+        let quadros = super::quadros::na_entrada_dos_pousos(f, &plano.tabelas)?;
         Ok(Some(Self {
             corpo: format!("{f:?}"),
             invocacoes: plano.tabelas.invocacoes.clone(),
@@ -44,6 +43,7 @@ impl CleanupEstrangeiro {
             saidas: plano.tabelas.saidas.clone(),
             confere_pilha: plano.tabelas.confere_pilha,
             owners: plano.owners_no_pouso.clone(),
+            quadros,
         }))
     }
 
@@ -63,5 +63,10 @@ impl CleanupEstrangeiro {
         self.owners
             .get(&b)
             .expect("pouso sem inventário certificado")
+    }
+    pub(crate) fn quadros(&self, b: BlockId) -> &[ValueId] {
+        self.quadros
+            .get(&b)
+            .expect("pouso sem inventário de quadros certificado")
     }
 }

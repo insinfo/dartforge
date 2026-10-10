@@ -11,7 +11,7 @@ use dartforge_emit_native::{hir::*, otimizar::arc::*};
 use std::collections::HashMap;
 
 #[cfg(any(unix, test))]
-fn modulo() -> Result<Module, String> {
+fn modulo(com_quadros: bool) -> Result<Module, String> {
     let val = |v| Operand::Val(ValueId(v));
     let print = |v, argumento| {
         (
@@ -24,7 +24,7 @@ fn modulo() -> Result<Module, String> {
             Type::Void,
         )
     };
-    let caller = Function {
+    let mut caller = Function {
         symbol: "prova_owner_estrangeiro".into(),
         name: "prova_owner_estrangeiro".into(),
         depuracao: None,
@@ -71,6 +71,79 @@ fn modulo() -> Result<Module, String> {
             },
         ],
     };
+    if com_quadros {
+        let chamada = |id, nome: &str, args, ty| {
+            (
+                ValueId(id),
+                Instruction::CallRuntime {
+                    name: nome.into(),
+                    args,
+                    ret_ty: ty,
+                },
+                ty,
+            )
+        };
+        let abrir = |id| {
+            chamada(
+                id,
+                "dartforge_arc_quadro_abrir_v1",
+                vec![(Operand::Constant(Constant::Int(1)), Type::I64)],
+                Type::I64,
+            )
+        };
+        let fechar = |id, quadro| {
+            chamada(
+                id,
+                "dartforge_arc_quadro_fechar_v1",
+                vec![(val(quadro), Type::I64)],
+                Type::Void,
+            )
+        };
+        let slot = |quadro| SlotForte::Quadro {
+            quadro: val(quadro),
+            indice: 0,
+        };
+        let fabrica = caller.blocks[0].instructions.remove(0);
+        caller.blocks[0].instructions = vec![
+            abrir(6),
+            abrir(11),
+            fabrica,
+            (
+                ValueId(7),
+                Instruction::ArcStoreStrong {
+                    slot: slot(6),
+                    value: val(0),
+                    modo: ModoStoreForte::Copy,
+                },
+                Type::Void,
+            ),
+            (
+                ValueId(12),
+                Instruction::ArcStoreStrong {
+                    slot: slot(11),
+                    value: val(0),
+                    modo: ModoStoreForte::Move,
+                },
+                Type::Void,
+            ),
+            (
+                ValueId(8),
+                Instruction::ArcLoadStrong { slot: slot(11) },
+                Type::Ref,
+            ),
+            (
+                ValueId(2),
+                Instruction::CallStatic {
+                    symbol: "prova_falha_estrangeira".into(),
+                    args: vec![val(8)],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            ),
+        ];
+        caller.blocks[1].instructions = vec![fechar(13, 11), fechar(14, 6), print(3, val(8))];
+        caller.blocks[2].instructions = vec![fechar(15, 11), fechar(16, 6)];
+    }
     let folha = Function {
         symbol: "prova_falha_estrangeira".into(),
         name: "prova_falha_estrangeira".into(),
@@ -112,7 +185,7 @@ fn modulo() -> Result<Module, String> {
     );
     assert_eq!(
         planos["prova_owner_estrangeiro"].owners_no_pouso[&BlockId(1)],
-        vec![ValueId(0)]
+        vec![ValueId(if com_quadros { 8 } else { 0 })]
     );
     m.tabelas = m
         .functions
@@ -137,7 +210,7 @@ fn main() -> Result<(), String> {
     if let Some(dir) = saida.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    let m = modulo()?;
+    let m = modulo(std::env::args().nth(3).as_deref() == Some("quadros"))?;
     let mut ir = LlvmEmitter::new(&m).emit_all();
     ir.push_str("\ndeclare void @dartforge_print_handle(i64)\n");
     ir = ir.replace("@dartforge_print_handle(", "@prova_print_estrangeira(");
@@ -162,8 +235,7 @@ fn main() -> Result<(), String> {
         .arg(&runtime.lib_path)
         .arg("-o")
         .arg(&saida);
-    #[cfg(target_os = "linux")]
-    cmd.args(["-ldl", "-lpthread", "-lm"]);
+    cmd.args(dartforge_emit_native::alvo::bibliotecas_do_sistema());
     let resultado = cmd.output().map_err(|e| e.to_string())?;
     if !resultado.status.success() {
         return Err(format!(
@@ -184,13 +256,42 @@ mod testes {
     use super::*;
     #[test]
     fn prova_estrangeira_tem_inventario_certificado() {
-        let m = modulo().unwrap();
+        let m = modulo(false).unwrap();
         assert!(m.tabelas[0].cleanup_estrangeiro.is_some());
         #[cfg(unix)]
         {
             let ir = LlvmEmitter::new(&m).emit_all();
             assert!(ir.contains("lpad1.estrangeira:"));
             assert!(ir.contains("call void @dartforge_arc_release(i64 %v0)"));
+        }
+    }
+}
+
+#[cfg(test)]
+mod testes_quadros {
+    use super::*;
+    #[test]
+    fn prova_estrangeira_com_dois_quadros_locais() {
+        let m = modulo(true).unwrap();
+        assert!(m.tabelas[0].cleanup_estrangeiro.is_some());
+        assert!(dartforge_emit_native::lower::verificador::verificar(&m).is_empty());
+        #[cfg(unix)]
+        {
+            let ir = LlvmEmitter::new(&m).emit_all();
+            let estrangeiro = ir
+                .split("lpad1.estrangeira:")
+                .nth(1)
+                .unwrap()
+                .split("resume ")
+                .next()
+                .unwrap();
+            let interno = estrangeiro
+                .find("call void @dartforge_arc_quadro_fechar_v1(i64 %v11)")
+                .unwrap();
+            let externo = estrangeiro
+                .find("call void @dartforge_arc_quadro_fechar_v1(i64 %v6)")
+                .unwrap();
+            assert!(interno < externo);
         }
     }
 }

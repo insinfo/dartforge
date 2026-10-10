@@ -232,7 +232,7 @@ jobs:
                 if [ "$perfil" = misto ]; then
                   grep -F '@llvm.eh.typeid.for(ptr null)' "${exe}.ll"
                 fi
-                ARC_CONFERIR=1 BER=0 GC_STRESS=1 "$exe" > "${exe}.stdout"
+                DARTFORGE_ARC_CONFERIR=1 DARTFORGE_ARC_BERCARIO=0 DARTFORGE_GC_STRESS=1 "$exe" > "${exe}.stdout"
                 cmp "target/prova-arc-resume/${caminho}.esperado" "${exe}.stdout"
               done
             done
@@ -250,12 +250,14 @@ jobs:
         run: |
           mkdir -p target/prova-unwind-estrangeiro
           printf 'foreign-cleanup-ok\n' > target/prova-unwind-estrangeiro/esperado
-          for nivel in 0 2; do
-            exe="target/prova-unwind-estrangeiro/prova-O${nivel}"
-            DARTFORGE_EFEITOS=conferir cargo run --locked --release -p dartforge-emit-native --features llvm-embutido --example arc_unwind_estrangeiro -- "$exe" "$nivel"
-            for modo in arc tracing; do
-              ARC_CONFERIR=1 BER=0 GC_STRESS=1 "$exe" "$modo" > "${exe}-${modo}.stdout"
-              cmp target/prova-unwind-estrangeiro/esperado "${exe}-${modo}.stdout"
+          for perfil in simples quadros; do
+            for nivel in 0 2; do
+              exe="target/prova-unwind-estrangeiro/prova-${perfil}-O${nivel}"
+              DARTFORGE_EFEITOS=conferir cargo run --locked --release -p dartforge-emit-native --features llvm-embutido --example arc_unwind_estrangeiro -- "$exe" "$nivel" "$perfil"
+              for modo in arc tracing; do
+                DARTFORGE_ARC_CONFERIR=1 DARTFORGE_ARC_BERCARIO=0 DARTFORGE_GC_STRESS=1 "$exe" "$modo" > "${exe}-${modo}.stdout"
+                cmp target/prova-unwind-estrangeiro/esperado "${exe}-${modo}.stdout"
+              done
             done
           done
       - name: Artefatos do unwind estrangeiro

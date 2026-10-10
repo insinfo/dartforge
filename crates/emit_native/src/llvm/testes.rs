@@ -826,3 +826,56 @@ fn catch_no_perfil_cleanup_confere_seletor_e_remapeia_phi_do_pouso() {
     #[cfg(feature = "llvm-embutido")]
     conferir_objetos_cleanup(&ir);
 }
+
+#[test]
+fn cleanup_estrangeiro_fecha_quadros_locais_em_lifo() {
+    let val = |id| Operand::Val(ValueId(id));
+    let abrir = |id| (ValueId(id), Instruction::CallRuntime {
+        name: "dartforge_arc_quadro_abrir_v1".into(),
+        args: vec![(Operand::Constant(Constant::Int(1)), Type::I64)], ret_ty: Type::I64,
+    }, Type::I64);
+    let fechar = |id, q| (ValueId(id), Instruction::CallRuntime {
+        name: "dartforge_arc_quadro_fechar_v1".into(), args: vec![(val(q), Type::I64)], ret_ty: Type::Void,
+    }, Type::Void);
+    let f = funcao("quadros_estrangeiros", vec![], Type::Void, vec![
+        BasicBlock { id: BlockId(0), instructions: vec![abrir(0), abrir(1),
+            (ValueId(2), Instruction::CallStatic { symbol: "falha".into(), args: vec![], ret_ty: Type::Void }, Type::Void),
+        ], terminator: Terminator::CondBranch { cond: Operand::Constant(Constant::Bool(false)), then_block: BlockId(1), else_block: BlockId(2) } },
+        BasicBlock { id: BlockId(1), instructions: vec![fechar(3, 1), fechar(4, 0)], terminator: Terminator::Return(None) },
+        BasicBlock { id: BlockId(2), instructions: vec![fechar(5, 1), fechar(6, 0),
+            (ValueId(7), Instruction::CallStatic { symbol: "falha".into(), args: vec![], ret_ty: Type::Void }, Type::Void),
+        ], terminator: Terminator::CondBranch { cond: Operand::Constant(Constant::Bool(false)), then_block: BlockId(3), else_block: BlockId(4) } },
+        BasicBlock { id: BlockId(3), instructions: vec![], terminator: Terminator::Return(None) },
+        BasicBlock { id: BlockId(4), instructions: vec![], terminator: Terminator::Return(None) },
+    ]);
+    let falha = funcao("falha", vec![], Type::Void, vec![BasicBlock { id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }]);
+    let mut plano = crate::otimizar::arc::PlanoFuncaoDart::default();
+    plano.tabelas.invocacoes.insert(ValueId(2), BlockId(1));
+    plano.tabelas.pousos.insert(BlockId(1));
+    plano.tabelas.saidas.insert(BlockId(1), SaidaPorExcecao::Guarda);
+    plano.tabelas.invocacoes.insert(ValueId(7), BlockId(3));
+    plano.tabelas.pousos.insert(BlockId(3));
+    plano.tabelas.saidas.insert(BlockId(3), SaidaPorExcecao::Retoma);
+    let mut folha = crate::otimizar::arc::PlanoFuncaoDart::default();
+    folha.tabelas.confere_pilha = true;
+    let mut planos = std::collections::HashMap::from([("quadros_estrangeiros".into(), plano), ("falha".into(), folha)]);
+    let mut funcoes = vec![f, falha];
+    crate::otimizar::arc::inserir_arc_funcoes_dart(&mut funcoes, &mut planos).unwrap();
+    let t = &planos["quadros_estrangeiros"].tabelas;
+    assert_eq!(t.cleanup_estrangeiro.as_ref().unwrap().quadros(BlockId(1)), &[ValueId(0), ValueId(1)]);
+    let m = Module::new();
+    let mut e = LlvmEmitter::new(&m);
+    e.tab = Some(t);
+    e.emit_function(&funcoes[0]);
+    let ir = e.out;
+    let trecho = ir.split("lpad1.estrangeira:").nth(1).unwrap().split("resume ").next().unwrap();
+    let interno = trecho.find("call void @dartforge_arc_quadro_fechar_v1(i64 %v1)").unwrap();
+    let externo = trecho.find("call void @dartforge_arc_quadro_fechar_v1(i64 %v0)").unwrap();
+    assert!(interno < externo);
+    assert_eq!(trecho.matches("@dartforge_arc_quadro_fechar_v1").count(), 2);
+    #[cfg(feature = "llvm-embutido")]
+    {
+        let completo = format!("declare i64 @dartforge_arc_quadro_abrir_v1(i64) nounwind\ndeclare void @dartforge_arc_quadro_fechar_v1(i64) nounwind\n{ir}");
+        conferir_objetos_cleanup(&completo);
+    }
+}

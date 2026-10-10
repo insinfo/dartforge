@@ -2,6 +2,50 @@
 
 ## Retomada de 2026-10-09
 
+Atualização da investigação de unwind estrangeiro (fonte publicada 414cc174):
+o job Linux da CI 38017693830 passou as oito provas de retomada Dart, mas a
+fixture C++ O0/ARC terminou com código 18 na observação após coleta. Identidade
+C++, destrutores locais, desvio do catch Dart, restauração de raízes, pendência
+zero e consumo do owner passaram antes dessa observação. O diagnóstico lia
+cabeçalhos antigos em faixas livres quando o heap não zerava mortos. Correção
+local consulta também faixas livres e região disponível; regressão reproduziu
+o falso positivo e agora passa em tracing e ARC sem zerar cabeçalhos.
+A execução C++ completa precisa ser repetida antes de afirmar morte final.
+
+Revisão dos ambientes de prova: o runtime lê DARTFORGE_ARC_CONFERIR,
+DARTFORGE_ARC_BERCARIO e DARTFORGE_GC_STRESS. Atribuições anteriores a
+ARC_CONFERIR, BER e GC_STRESS eram ignoradas. Os resultados anteriores
+comprovam as saídas e propriedades observadas, mas não ativação dessas opções.
+Arquivos históricos congelados permanecem intactos; suas alegações de execução
+sob essas opções devem ser lidas com esta correção. Testes unitários que usam
+Heap::new(true) ativam estresse diretamente e não dependem dessas variáveis.
+O workflow local agora usa os nomes efetivamente consumidos pelo runtime.
+
+O job macOS da mesma CI falhou antes de executar a fixture: faltaram frameworks
+Security/CoreFoundation na ligação da staticlib do runtime. A fixture local
+agora usa alvo::bibliotecas_do_sistema(), a lista já mantida pelo projeto.
+Os dois testes HIR da fixture passaram no Windows, inclusive com dois quadros
+locais; log target/unwind-quadros-fixture.log. O novo teste LLVM passou: verifica
+inventário de dois quadros, fechamento LIFO no braço estrangeiro e objetos
+Linux O0/O2; log target/unwind-quadros-llvm.log. A ligação/execução macOS
+precisa ser repetida.
+
+Em preparação local: certificado de cleanup passa a guardar a pilha de quadros
+locais no pouso e o emissor fecha esses quadros em ordem LIFO no braço estrangeiro.
+Fixture adicional guarda o mesmo Mint em dois quadros, transfere um token por
+Move e carrega um owner independente; caminhos Dart/normal fecham os quadros,
+o unwind estrangeiro deve liberar o owner e ambos os quadros antes da coleta.
+Não amplia a cobertura para quadros importados, aliases, Retoma com quadros
+ativos, forced unwind, finally, suspensão ou cancelamento. Prova nativa pendente.
+Suítes locais completas de biblioteca: emissor 202 aprovados/7 ignorados,
+runtime 174 aprovados/3 ignorados; sem falhas. Logs target/unwind-quadros-emit-lib.log
+e target/unwind-quadros-runtime-lib.log. Teste de regressão do diagnóstico e
+grafos ARC aleatórios incluídos. Ignorados não foram convertidos em passes.
+Fixture recompilada: 2 testes aprovados. Doctests: emissor 49 e runtime 35
+aprovados; log target/unwind-quadros-doc.log. YAML e script POSIX do workflow
+validados. Aviso preexistente atribuir_slots não utilizado continua presente.
+
+
 Prova de unwind C++ com heap real preparada para CI Unix:
 `arc_unwind_estrangeiro` gera HIR com contrato auditado de print_handle Borrow,
 catch preparado e Mint Owned; depois injeta o hook C++ por troca explícita de
@@ -17,7 +61,7 @@ Diagnóstico `dartforge_arc_observar_heap_v1` consulta páginas registradas e
 inventário de owners sem dereferenciar endereço externo nem criar referência:
 bit 0 bloco vivo, bit 1 owner do código. Catálogo parcial passa a 29 contratos,
 argumento i64 Native (pode já estar liberado), resultado u8 escalar, efeitos0/0/0.
-Teste cobre tracing/ARC × validação de handles ligada/desligada, dois tokens,
+Teste cobre tracing/ARC × estresse direto ligado/desligado, dois tokens,
 último release/coleta e endereços fora do heap; 33 doctests iniciais passaram.
 Conferência de efeitos também precisa de unwind: snapshot de profundidade na
 entrada e restauração no pouso abandonam externs atravessadas e suas proibições

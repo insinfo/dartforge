@@ -1009,6 +1009,9 @@ impl<'a> LlvmEmitter<'a> {
                         for v in c.owners(block.id) {
                             writeln!(self.out, "  call void @dartforge_arc_release(i64 %v{})", v.0).unwrap();
                         }
+                        for q in c.quadros(block.id).iter().rev() {
+                            writeln!(self.out, "  call void @dartforge_arc_quadro_fechar_v1(i64 %v{})", q.0).unwrap();
+                        }
                     }
                     if self.rastro.is_some() {
                         writeln!(self.out, "  call void @dartforge_rastro_saida()").unwrap();
