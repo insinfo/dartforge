@@ -26,6 +26,9 @@ pub struct PlanoFuncaoDart {
     pub tabelas: TabelasDaFuncao,
     /// Limites lexicais dos empréstimos, sem inferência por último uso.
     pub escopos: PlanoEscopos,
+    /// Inventário validado após inserção; inclui somente owners da aresta de erro.
+    /// Recalculado atomicamente; ainda não gera cleanup de unwind estrangeiro.
+    pub owners_no_pouso: HashMap<BlockId, Vec<ValueId>>,
 }
 
 /// Insere e verifica retornos/cleanup de um conjunto fechado de funções Dart.
@@ -202,6 +205,8 @@ fn inserir(
             &novo.tabelas,
             &novo.escopos,
         )?;
+        novo.owners_no_pouso =
+            tokens_na_entrada_dos_pousos(f, &novo.classes, &novo.tabelas, &novo.tokens)?;
         total.0 += copias;
         total.1 += drops;
     }
@@ -452,10 +457,16 @@ mod testes {
             .unwrap()
             .classes
             .insert(ValueId(0), Ownership::Trivial);
+        planos
+            .get_mut("caller")
+            .unwrap()
+            .owners_no_pouso
+            .insert(BlockId(99), vec![ValueId(99)]);
         assert_eq!(
             inserir_arc_funcoes_dart(&mut funcoes, &mut planos).unwrap(),
             (0, 0)
         );
+        assert!(planos["caller"].owners_no_pouso.is_empty());
         for v in 1..=5 {
             assert_eq!(planos["caller"].classes[&ValueId(v)], Ownership::Trivial);
         }

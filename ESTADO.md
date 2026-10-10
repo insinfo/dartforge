@@ -2,6 +2,19 @@
 
 ## Retomada de 2026-10-09
 
+Inventário de owners na entrada dos pousos: análise linear agora entrega
+snapshots validados e ordenados por ValueId, após consumo da aresta de erro,
+sem resultados exclusivos do sucesso. API `tokens_na_entrada_dos_pousos`
+rejeita inventário/CFG inválido e pouso sem entrada alcançável. Preparação
+atômica recalcula `PlanoFuncaoDart.owners_no_pouso` após conferir o corpo;
+metadados anteriores são substituídos somente no sucesso da transação.
+Teste confere argumento consumido ausente, owner independente presente e
+resultado ausente no erro, além de substituição de snapshot obsoleto.
+95 testes ARC e 48 doctests passaram; logs `target/owners-pouso-*`.
+Este inventário prepara geração de cleanup estrangeiro: o emissor ainda
+retoma sem liberar owners locais no braço estrangeiro do catch misto.
+Não fecha essa pendência nem cobre quadros/escopos/finally/cancelamento.
+
 Evidência Unix da captura Owned congelada em
 `bench/resultados/2026-10-09-excecao-owned-unix-ci`: fonte 7418650d,
 CI 38013924479, 16 execuções Linux/macOS e 32 arquivos IR/stdout byte exatos.

@@ -955,6 +955,22 @@ fn invoke_consume_argumento_nas_duas_saidas_e_so_produz_no_sucesso() {
         },
     );
     verificar_tokens(&f, &c, &t, &p).unwrap();
+    assert_eq!(
+        tokens_na_entrada_dos_pousos(&f, &c, &t, &p).unwrap()[&BlockId(1)],
+        vec![]
+    );
+    // Owner independente deve permanecer no erro; resultado da chamada não existe.
+    f.blocks[0].instructions.insert(1, copia(6, 0));
+    f.blocks[1].instructions.push(drop(7, 6));
+    f.blocks[2].instructions.push(drop(8, 6));
+    let mut c = c;
+    c.insert(ValueId(6), Ownership::Owned);
+    c.insert(ValueId(7), Ownership::Trivial);
+    c.insert(ValueId(8), Ownership::Trivial);
+    assert_eq!(
+        tokens_na_entrada_dos_pousos(&f, &c, &t, &p).unwrap()[&BlockId(1)],
+        vec![ValueId(6)]
+    );
     p.instrucoes.get_mut(&ValueId(2)).unwrap().erro.clear();
     assert!(
         verificar_tokens(&f, &c, &t, &p)

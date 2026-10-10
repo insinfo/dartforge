@@ -293,7 +293,49 @@ pub(super) fn saidas_para_cleanup(
     tabelas: &TabelasDaFuncao,
     plano: &PlanoTokens,
 ) -> Result<HashMap<BlockId, Vec<ValueId>>, String> {
-    analisar_tokens(f, classes, tabelas, plano, true)
+    analisar_tokens(f, classes, tabelas, plano, true).map(|fluxo| fluxo.saidas)
+}
+
+/// Entrega o inventário linear validado na entrada de cada pouso alcançável.
+///
+/// Aplica os consumos da aresta de erro e exclui resultados exclusivos do
+/// sucesso. Inclui tokens Phi transferidos pela aresta; ordena por ValueId.
+/// Não gera cleanup estrangeiro nem substitui a conferência dos escopos.
+/// Deve ser recalculado após qualquer mudança do CFG ou dos contratos.
+///
+/// # Erros
+/// Falha de verificação de tokens ou pouso sem entrada alcançável.
+///
+/// ```
+/// use dartforge_emit_native::{hir::*, otimizar::arc::*};
+/// use std::collections::HashMap;
+/// let f = Function { symbol: "vazia".into(), name: "vazia".into(), depuracao: None,
+///     params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock {
+///     id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }] };
+/// assert!(tokens_na_entrada_dos_pousos(&f, &HashMap::new(),
+///     &TabelasDaFuncao::default(), &PlanoTokens::default())?.is_empty());
+/// # Ok::<(), String>(())
+/// ```
+pub fn tokens_na_entrada_dos_pousos(
+    f: &Function,
+    classes: &HashMap<ValueId, Ownership>,
+    tabelas: &TabelasDaFuncao,
+    plano: &PlanoTokens,
+) -> Result<HashMap<BlockId, Vec<ValueId>>, String> {
+    let entradas = analisar_tokens(f, classes, tabelas, plano, false)?.entradas;
+    let mut pousos: Vec<_> = tabelas.pousos.iter().copied().collect();
+    pousos.sort_by_key(|b| b.0);
+    let mut resultado = HashMap::new();
+    for b in pousos {
+        let owners = entradas.get(&b).ok_or_else(|| {
+            format!(
+                "tokens em {}: pouso b{} sem entrada alcançável",
+                f.symbol, b.0
+            )
+        })?;
+        resultado.insert(b, owners.clone());
+    }
+    Ok(resultado)
 }
 
 pub(super) fn conferir_saidas_excepcionais(
@@ -372,13 +414,18 @@ pub(super) fn normalizar_saidas_lanca(
     Ok(())
 }
 
+struct FluxoTokens {
+    saidas: HashMap<BlockId, Vec<ValueId>>,
+    entradas: HashMap<BlockId, Vec<ValueId>>,
+}
+
 fn analisar_tokens(
     f: &Function,
     classes: &HashMap<ValueId, Ownership>,
     tabelas: &TabelasDaFuncao,
     plano: &PlanoTokens,
     permitir_cleanup: bool,
-) -> Result<HashMap<BlockId, Vec<ValueId>>, String> {
+) -> Result<FluxoTokens, String> {
     conferir_saidas_excepcionais(f, tabelas, true)?;
     super::conferir_retomas(f, tabelas)?;
     super::classificacao::vivacidade_com_saidas(f, classes, tabelas, &plano.pendencias)?;
@@ -711,7 +758,19 @@ fn analisar_tokens(
             }
         }
     }
-    Ok(saidas)
+    let entradas = f
+        .blocks
+        .iter()
+        .zip(entradas)
+        .filter_map(|(b, owners)| {
+            owners.map(|owners| {
+                let mut owners: Vec<_> = owners.into_iter().collect();
+                owners.sort_by_key(|v| v.0);
+                (b.id, owners)
+            })
+        })
+        .collect();
+    Ok(FluxoTokens { saidas, entradas })
 }
 
 #[cfg(test)]
