@@ -61,7 +61,7 @@ pub struct AnaliseHir {
     ids: HashMap<ValueId, usize>,
     pub(crate) corpo: blake3::Hash,
     pub(crate) dependencias_corpos: HashMap<String, blake3::Hash>,
-    pub(crate) dependencias_tabelas: HashMap<String, blake3::Hash>,
+    pub(crate) dependencias_tabelas: HashMap<String, EstadoTabelaArc>,
     pub(crate) premissas_modulo: Option<blake3::Hash>,
     pub(crate) limite: usize,
     pub(crate) esquemas: HashMap<NoAbstrato, BTreeSet<CampoArc>>,
@@ -460,13 +460,22 @@ pub(crate) fn assinatura_corpo(f: &Function) -> blake3::Hash {
 
 // Só metadados de emissão usados para a cobertura local de campos.
 // Não substitui versões de layouts, runtime ou geração JIT.
-pub(crate) fn assinatura_tabela(m: &Module, indice: usize) -> blake3::Hash {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EstadoTabelaArc {
+    modo_tabelas: bool,
+    tabela: Option<TabelasDaFuncao>,
+}
+
+pub(crate) fn estado_tabela(m: &Module, indice: usize) -> EstadoTabelaArc {
     let tabela = if m.excecoes_por_tabelas {
         m.tabelas.get(indice)
     } else {
         None
     };
-    blake3::hash(format!("{}:{tabela:?}", m.excecoes_por_tabelas).as_bytes())
+    EstadoTabelaArc {
+        modo_tabelas: m.excecoes_por_tabelas,
+        tabela: tabela.cloned(),
+    }
 }
 
 pub(super) fn constantes_inteiras(f: &Function) -> HashMap<ValueId, i64> {

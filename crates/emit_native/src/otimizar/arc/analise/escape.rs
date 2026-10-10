@@ -120,7 +120,7 @@ pub fn calcular_no_modulo(
         let indice = posicoes
             .get(s.as_str())
             .ok_or("escape ARC: callee ausente")?;
-        if super::hir::assinatura_tabela(m, *indice) != *assinatura {
+        if super::hir::estado_tabela(m, *indice) != *assinatura {
             return Err(format!("escape ARC: tabela mudou {s}"));
         }
     }

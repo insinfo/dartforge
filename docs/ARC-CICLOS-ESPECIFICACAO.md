@@ -1948,6 +1948,11 @@ Solução produzida pelo módulo só pode ser consumida com conferência do modo
 de memória, dos sítios nominais do chamador, dos layouts locais e das
 dependências de corpos/tabelas. Ordenação nominal das premissas evita
 invalidação apenas por reconstrução dos HashMaps em ordem diferente.
+A tabela do próprio chamador integra essas dependências mesmo sem chamadas;
+seu prólogo e cleanup podem mudar sem alterar a HIR. Fotografias das tabelas
+são comparadas por conteúdo, incluindo mapas/conjuntos, e acompanham o símbolo
+quando funções/tabelas mudam de posição. Isso invalida análise antiga, mas não
+prova que uma análise nova cobre todos os efeitos implícitos da emissão.
 Essa guarda local não substitui validação independente do certificado,
 esquemas exportados, pins ou geração de recarga.
 

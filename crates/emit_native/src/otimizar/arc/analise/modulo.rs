@@ -163,6 +163,11 @@ pub fn analisar_no_modulo(
         .enumerate()
         .map(|(i, f)| (f.symbol.as_str(), i))
         .collect();
+    // O prólogo/cleanup do próprio chamador também depende destas tabelas,
+    // inclusive quando o corpo não possui nenhuma chamada direta local.
+    analise
+        .dependencias_tabelas
+        .insert(simbolo.to_string(), estado_tabela(m, posicoes[simbolo]));
     for (s, (corpo, _)) in &resumos {
         analise
             .dependencias_corpos
@@ -170,7 +175,7 @@ pub fn analisar_no_modulo(
         let indice = posicoes[s.as_str()];
         analise
             .dependencias_tabelas
-            .insert(s.clone(), assinatura_tabela(m, indice));
+            .insert(s.clone(), estado_tabela(m, indice));
     }
     Ok(Some(analise))
 }
@@ -192,6 +197,42 @@ pub(super) fn assinatura_premissas(m: &Module, simbolo: &str) -> blake3::Hash {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn tabela_do_proprio_corpo_invalida_consumo_sem_chamadas_e_acompanha_simbolo() {
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.excecoes_por_tabelas = true;
+        for s in ["f", "g"] {
+            m.functions.push(Function {
+                symbol: s.into(),
+                name: s.into(),
+                depuracao: None,
+                params: vec![],
+                return_ty: Type::Void,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![],
+                    terminator: Terminator::Return(None),
+                }],
+            });
+        }
+        m.tabelas = vec![TabelasDaFuncao::default(); 2];
+        let a = analisar_no_modulo(&m, "f", 8).unwrap().unwrap();
+        assert!(super::super::escape::calcular_no_modulo(&m, "f", &a).is_ok());
+        m.tabelas[0].confere_pilha = true;
+        assert!(super::super::escape::calcular_no_modulo(&m, "f", &a).is_err());
+        m.tabelas[0].confere_pilha = false;
+        assert!(super::super::escape::calcular_no_modulo(&m, "f", &a).is_ok());
+        m.functions.reverse();
+        m.tabelas.reverse();
+        m.tabelas[0].confere_pilha = true; // Mudança só em g, fora das dependências.
+        assert!(super::super::escape::calcular_no_modulo(&m, "f", &a).is_ok());
+        m.tabelas[1].confere_pilha = true;
+        assert!(super::super::escape::calcular_no_modulo(&m, "f", &a).is_err());
+        m.excecoes_por_tabelas = false;
+        assert!(super::super::escape::calcular_no_modulo(&m, "f", &a).is_err());
+    }
 
     #[test]
     fn folha_preserva_campos_mas_conversoes_e_caminhos_opacos_invalidam() {

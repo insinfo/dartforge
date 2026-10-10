@@ -2,6 +2,21 @@
 
 ## Retomada de 2026-10-10
 
+Guarda das tabelas de emissão inclui agora o próprio chamador, mesmo sem
+chamadas locais: mudar confere_pilha, saídas ou cleanup invalida o consumo
+da análise anterior. Tabelas são fotografadas e comparadas por conteúdo,
+incluindo mapas/conjuntos, em vez de hash da representação Debug. Dependência
+acompanha o símbolo após reordenar funções/tabelas; alteração só numa função
+fora das dependências não invalida o chamador. Regressão cobre mudança/restauro
+da tabela própria, reordenação e troca do modo de exceções.
+Passaram 303 testes do emissor (sete ignorados), 97 exemplos públicos e um
+exemplo de rejeição na compilação. Logs target/arc-tabela-chamador-{suite,doc}.log;
+há aviso preexistente de atribuir_slots não usado em llvm/raizes.rs.
+Não certifica cobertura de todos os efeitos implícitos nem vida/observadores;
+não remove contagens ou aprova o gate ARC/A0. ARC só com --memoria=arc;
+tracing permanece padrão. CI 38057171425: Linux/mensagens passaram,
+Windows/macOS ainda ativos. Mudança local para preservar essa rodada.
+
 Verificador independente da solução de inclusão em analise/points_to.rs
 confere cada restrição sem executar novamente a worklist: domínio/budgets,
 sementes, desconhecimento, cópias, materialização/inclusão de stores e leituras.
