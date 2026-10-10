@@ -248,12 +248,223 @@ pub fn resolver(
             }
         }
     }
+    verificar(n, limite, restricoes, &resultado)?;
     Ok(resultado)
+}
+
+/// Confere independentemente se a solução cobre todas as restrições fornecidas.
+/// Não executa a worklist nem exige o menor ponto fixo: sobreaproximações são
+/// válidas, incluindo topo. Confere índices, budgets e inclusão de cada aresta.
+/// Não prova que o produtor cobriu a HIR, inicializações, observadores ou SDK;
+/// não é certificado de vida, singleton ou política ARC.
+///
+/// # Erros
+/// Domínio/budget incompatível, índice inválido ou restrição não satisfeita.
+///
+/// ```
+/// use dartforge_emit_native::otimizar::arc::analise::{modelo::*, points_to::*};
+/// let rs = vec![Restricao::Semear { destino: 0, no: NoAbstrato::Global("g".into()) },
+///     Restricao::Copiar { origem: 0, destino: 1 }];
+/// let r = resolver(2, 8, &rs)?;
+/// verificar(2, 8, &rs, &r)?;
+/// assert!(verificar(3, 8, &rs, &r).is_err());
+/// # Ok::<(), String>(())
+/// ```
+pub fn verificar(
+    n: usize,
+    limite: usize,
+    restricoes: &[Restricao],
+    r: &ResultadoPointsTo,
+) -> Result<(), String> {
+    if r.variaveis.len() != n {
+        return Err("verificador points-to: domínio incompatível".into());
+    }
+    if r.variaveis
+        .iter()
+        .chain(r.campos.values())
+        .any(|p| p.limite_interno() != limite || p.nos().is_some_and(|nos| nos.len() > limite))
+    {
+        return Err("verificador points-to: budget incompatível".into());
+    }
+    for (id, restricao) in restricoes.iter().enumerate() {
+        let variavel = |v: usize| {
+            r.variaveis
+                .get(v)
+                .ok_or_else(|| format!("verificador points-to: índice na restrição {id}"))
+        };
+        let valida = match restricao {
+            Restricao::Semear { destino, no } => {
+                variavel(*destino)?.nos().is_none_or(|nos| nos.contains(no))
+            }
+            Restricao::Desconhecer { destino } => variavel(*destino)?.nos().is_none(),
+            Restricao::Copiar { origem, destino } => {
+                inclui(variavel(*destino)?, variavel(*origem)?)
+            }
+            Restricao::DesconhecerCampo { campo } => r.campos_opacos.contains(campo),
+            Restricao::Gravar {
+                objeto,
+                campo,
+                valor,
+            } => {
+                let receiver = variavel(*objeto)?;
+                let valor = variavel(*valor)?;
+                match receiver.nos() {
+                    None => r.campos_opacos.contains(campo),
+                    Some(nos) => {
+                        r.campos_opacos.contains(campo)
+                            || nos.iter().all(|no| {
+                                r.campos
+                                    .get(&(no.clone(), campo.clone()))
+                                    .is_some_and(|p| inclui(p, valor))
+                            })
+                    }
+                }
+            }
+            Restricao::Ler {
+                objeto,
+                campo,
+                destino,
+            } => {
+                let receiver = variavel(*objeto)?;
+                let destino = variavel(*destino)?;
+                if r.campos_opacos.contains(campo) || receiver.nos().is_none() {
+                    destino.nos().is_none()
+                } else {
+                    receiver.nos().unwrap().iter().all(|no| {
+                        // Ausente é bottom só no sistema de restrições; não
+                        // prova inicialização vazia de um campo do heap real.
+                        r.campos
+                            .get(&(no.clone(), campo.clone()))
+                            .is_none_or(|p| inclui(destino, p))
+                    })
+                }
+            }
+        };
+        if !valida {
+            return Err(format!(
+                "verificador points-to: restrição {id} não satisfeita"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn inclui(destino: &ConjuntoPontos, origem: &ConjuntoPontos) -> bool {
+    match (destino.nos(), origem.nos()) {
+        (None, _) => true,
+        (Some(_), None) => false,
+        (Some(d), Some(o)) => o.is_subset(d),
+    }
 }
 
 #[cfg(test)]
 mod testes {
     use super::*;
+    #[test]
+    fn verificador_rejeita_truncamento_copia_e_desconhecimento_apagados() {
+        let rs = vec![
+            Restricao::Semear {
+                destino: 0,
+                no: no("a"),
+            },
+            Restricao::Copiar {
+                origem: 0,
+                destino: 1,
+            },
+            Restricao::Desconhecer { destino: 2 },
+        ];
+        let mut r = resolver(3, 8, &rs).unwrap();
+        r.variaveis[1] = ConjuntoPontos::vazio(8);
+        assert!(verificar(3, 8, &rs, &r).is_err());
+        r = resolver(3, 8, &rs).unwrap();
+        r.variaveis[0] = ConjuntoPontos::vazio(8);
+        assert!(verificar(3, 8, &rs, &r).is_err());
+        r = resolver(3, 8, &rs).unwrap();
+        r.variaveis[2] = ConjuntoPontos::vazio(8);
+        assert!(verificar(3, 8, &rs, &r).is_err());
+        r = resolver(3, 8, &rs).unwrap();
+        assert!(verificar(3, 7, &rs, &r).is_err());
+        assert!(verificar(2, 8, &rs, &r).is_err());
+        assert!(
+            verificar(
+                3,
+                8,
+                &[Restricao::Copiar {
+                    origem: 99,
+                    destino: 0
+                }],
+                &r
+            )
+            .is_err()
+        );
+        // Aceitar sobreaproximação segura sem depender de igualdade ao solver.
+        r.variaveis.fill(ConjuntoPontos::desconhecido(8));
+        verificar(3, 8, &rs, &r).unwrap();
+    }
+
+    #[test]
+    fn verificador_rejeita_arestas_de_store_leitura_e_opacidade_omitidas() {
+        let rs = vec![
+            Restricao::Semear {
+                destino: 0,
+                no: no("obj"),
+            },
+            Restricao::Semear {
+                destino: 1,
+                no: no("filho"),
+            },
+            Restricao::Gravar {
+                objeto: 0,
+                campo: campo("L"),
+                valor: 1,
+            },
+            Restricao::Ler {
+                objeto: 0,
+                campo: campo("L"),
+                destino: 2,
+            },
+        ];
+        let mut r = resolver(3, 8, &rs).unwrap();
+        r.campos.clear();
+        assert!(verificar(3, 8, &rs, &r).is_err());
+        r = resolver(3, 8, &rs).unwrap();
+        r.campos
+            .insert((no("obj"), campo("L")), ConjuntoPontos::vazio(8));
+        assert!(verificar(3, 8, &rs, &r).is_err());
+        r = resolver(3, 8, &rs).unwrap();
+        r.variaveis[2] = ConjuntoPontos::vazio(8);
+        assert!(verificar(3, 8, &rs, &r).is_err());
+        let mut opacas = rs;
+        opacas.push(Restricao::DesconhecerCampo { campo: campo("L") });
+        r = resolver(3, 8, &opacas).unwrap();
+        r.campos_opacos.clear();
+        assert!(verificar(3, 8, &opacas, &r).is_err());
+    }
+
+    #[test]
+    fn receiver_topo_exige_opacidade_global_para_receivers_futuros() {
+        let rs = vec![
+            Restricao::Desconhecer { destino: 0 },
+            Restricao::Gravar {
+                objeto: 0,
+                campo: campo("L"),
+                valor: 1,
+            },
+            Restricao::Semear {
+                destino: 2,
+                no: no("tardio"),
+            },
+            Restricao::Ler {
+                objeto: 2,
+                campo: campo("L"),
+                destino: 3,
+            },
+        ];
+        let mut r = resolver(4, 8, &rs).unwrap();
+        r.campos_opacos.clear();
+        assert!(verificar(4, 8, &rs, &r).is_err());
+    }
+
     #[test]
     fn inclusao_confere_com_fecho_transitivo_em_todos_os_grafos_de_tres_variaveis() {
         for mascara in 0..512 {
@@ -425,24 +636,28 @@ mod testes {
 
     #[test]
     fn indices_invalidos_sao_erros_e_nunca_fatos_vazios() {
-        assert!(resolver(
-            1,
-            8,
-            &[Restricao::Copiar {
-                origem: 1,
-                destino: 0
-            }]
-        )
-        .is_err());
-        assert!(resolver(
-            1,
-            8,
-            &[Restricao::Ler {
-                objeto: 0,
-                campo: campo("L"),
-                destino: 1
-            }]
-        )
-        .is_err());
+        assert!(
+            resolver(
+                1,
+                8,
+                &[Restricao::Copiar {
+                    origem: 1,
+                    destino: 0
+                }]
+            )
+            .is_err()
+        );
+        assert!(
+            resolver(
+                1,
+                8,
+                &[Restricao::Ler {
+                    objeto: 0,
+                    campo: campo("L"),
+                    destino: 1
+                }]
+            )
+            .is_err()
+        );
     }
 }

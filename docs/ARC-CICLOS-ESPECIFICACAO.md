@@ -1969,6 +1969,16 @@ representações exatas por operação; operações falíveis (divisão/resto,
 toInt e CheckNotNull) ainda exigem cobertura dos caminhos de erro. Transferir
 aliases no caminho normal não dispensa efeitos nesses caminhos.
 
+O solver de inclusão dispõe de verificador separado da worklist em
+`analise::points_to::verificar`. Toda solução é conferida antes de ser
+devolvida: domínio/budgets, sementes, cópias, stores, leituras e opacidade
+global de campos devem satisfazer as restrições. Admite sobreaproximações
+seguras sem exigir igualdade ao menor ponto fixo. Testes adversariais apagam
+aliases, arestas, resultados de leitura e opacidade para conferir rejeição.
+Isso não verifica completude do produtor HIR/SDK nem cobertura durante a vida;
+inicialização ausente permanece bottom só no sistema de restrições. Verificador
+de certificados de política ainda precisa conferir todas essas obrigações.
+
 Especialização cria versões internas por política/região quando reduzir
 trabalho estimado e respeitar limite de código. Resumos podem ser paramétricos
 sem clonar todas as funções. Entradas públicas, dispatch aberto e FFI mantêm

@@ -2,6 +2,26 @@
 
 ## Retomada de 2026-10-10
 
+Verificador independente da solução de inclusão em analise/points_to.rs
+confere cada restrição sem executar novamente a worklist: domínio/budgets,
+sementes, desconhecimento, cópias, materialização/inclusão de stores e leituras.
+Receiver topo em store exige opacidade global do campo, inclusive para nós
+materializados depois. Solução conservadora maior que o menor ponto fixo é
+aceita; conjuntos truncados, resultados de leitura apagados, campo omitido e
+marcador opaco removido são rejeitados. Toda saída de resolver passa por essa
+conferência, incluindo os domínios HIR e resumos paramétricos que o consomem.
+Verificação não prova que o produtor cobriu toda a HIR/SDK, inicializações,
+observadores ou vida completa: campo ausente é bottom só nas restrições,
+nunca certificado de ausência no heap. Certificado de política permanece pendente.
+Passaram oito testes focados (incluindo os 512 grafos de inclusão e cadeia
+profunda), 302 testes do emissor (sete ignorados), 97 exemplos públicos e um
+exemplo de rejeição na compilação. Logs
+target/arc-verificador-inclusao-{focado,suite,doc}.log. Rustfmt dos dois arquivos
+e git diff --check passaram. Não conclui §§27–34, não remove contagens nem
+aprova o gate ARC/A0. ARC só com --memoria=arc; tracing padrão.
+CI 38057171425: Linux/mensagens passaram; Windows/macOS ainda executam.
+Mudança local para preservar a rodada da revisão publicada b0ee6645.
+
 Extração HIR deixa de tratar materialização/conversão como transferência pura.
 Constantes String/StringWtf8 registram operação opaca e invalidam campos,
 pois o caminho JIT pode materializar texto. Phi não exato também perde precisão

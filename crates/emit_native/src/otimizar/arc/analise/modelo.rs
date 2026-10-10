@@ -91,6 +91,10 @@ pub struct ConjuntoPontos {
 }
 
 impl ConjuntoPontos {
+    pub(super) fn limite_interno(&self) -> usize {
+        self.limite
+    }
+
     /// Cria o conjunto vazio; só usar quando ausência de nós for um fato.
     ///
     /// ```
