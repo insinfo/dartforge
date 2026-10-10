@@ -241,6 +241,7 @@ void main() { Base().exercitar(Object()); }
                         .unwrap();
                     assert!(modulo.retornos_ref_dart.contains(&identidade.symbol));
                     let resumo = crate::otimizar::arc::analise::resumos::extrair(identidade, 8).unwrap();
+                    assert_eq!(resumo.campos(), crate::otimizar::arc::analise::resumos::CamposHeapArc::Preservados);
                     assert!(matches!(resumo.retorno(),
                         crate::otimizar::arc::analise::resumos::RetornoHeapArc::Aliases { parametros, .. }
                             if !parametros.is_empty() && parametros.iter().all(|&p| identidade.params[p].2 == Type::Ref)));

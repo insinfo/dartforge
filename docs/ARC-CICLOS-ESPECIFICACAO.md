@@ -1933,6 +1933,16 @@ Isso ainda não cobre resumos de campos/globais/frescor, observadores, efeitos,
 alvos dinâmicos RTA, vidas, SDK exportado ou versões de layouts/gerações JIT;
 não prova noescape nem autoriza selecionar política ou eliminar contagens.
 
+`ResumoHeapArc::campos` dispõe de cobertura positiva inicial de preservação:
+corpos com constantes primitivas/null, Phis e saídas de representação exata,
+sem chamadas, stores, alocações ou throw. Consumo exige também ABI exata dos
+argumentos e ausência de contexto/tabela que introduza conferência de pilha.
+Conversão de argumento e materialização de texto podem coletar antes da
+folha, portanto invalidam campos. Modo/tabelas de emissão dos callees ficam
+na guarda local de consumo. Escape/retenção continuam desconhecidos; nenhuma
+contagem ou política é alterada por essa cobertura. Propagação de escrita
+por chamadas e caminhos implícitos do SDK ainda precisa de contrato completo.
+
 Especialização cria versões internas por política/região quando reduzir
 trabalho estimado e respeitar limite de código. Resumos podem ser paramétricos
 sem clonar todas as funções. Entradas públicas, dispatch aberto e FFI mantêm

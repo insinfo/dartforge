@@ -61,6 +61,7 @@ pub struct AnaliseHir {
     ids: HashMap<ValueId, usize>,
     pub(crate) corpo: blake3::Hash,
     pub(crate) dependencias_corpos: HashMap<String, blake3::Hash>,
+    pub(crate) dependencias_tabelas: HashMap<String, blake3::Hash>,
     pub(crate) limite: usize,
     pub(crate) esquemas: HashMap<NoAbstrato, BTreeSet<CampoArc>>,
 }
@@ -248,40 +249,47 @@ pub(crate) fn analisar_com_resumos(
                 symbol,
                 args,
                 ret_ty,
-            } if *ty == Type::Ref
-                && *ret_ty == Type::Ref
-                && resumos.get(symbol).is_some_and(|(_, r)| {
-                    matches!(r.retorno(), super::resumos::RetornoHeapArc::Aliases { .. })
-                }) =>
-            {
+            } if resumos.contains_key(symbol) => {
                 let (callee, resumo) = &resumos[symbol];
                 if args.len() != callee.params.len() {
                     return Err(format!("points-to: aridade de {symbol}"));
                 }
-                let super::resumos::RetornoHeapArc::Aliases { parametros, .. } = resumo.retorno()
-                else {
-                    unreachable!()
-                };
-                for &p in parametros {
-                    if let Operand::Val(arg) = &args[p] {
-                        if tipos[arg] != Type::Ref {
-                            return Err(format!(
-                                "points-to: argumento Ref incompatível em {symbol}"
-                            ));
+                let abi_exata = *ty == *ret_ty
+                    && *ret_ty == callee.return_ty
+                    && args
+                        .iter()
+                        .zip(&callee.params)
+                        .all(|(o, (_, _, t))| super::resumos::argumento_exato(o, *t, &tipos));
+                if let super::resumos::RetornoHeapArc::Aliases { parametros, .. } = resumo.retorno()
+                    && *ty == Type::Ref
+                    && *ret_ty == Type::Ref
+                {
+                    for &p in parametros {
+                        if let Operand::Val(arg) = &args[p] {
+                            if tipos[arg] != Type::Ref {
+                                return Err(format!(
+                                    "points-to: argumento Ref incompatível em {symbol}"
+                                ));
+                            }
                         }
+                        rs.push(Restricao::Copiar {
+                            origem: operando(&args[p]),
+                            destino,
+                        });
                     }
-                    rs.push(Restricao::Copiar {
-                        origem: operando(&args[p]),
-                        destino,
-                    });
+                } else if *ty != Type::Void {
+                    rs.push(Restricao::Desconhecer { destino });
                 }
                 dependencias_corpos.insert(symbol.clone(), assinatura_corpo(callee));
-                // Alias normal não implica ausência de escrita/retenção/erro.
+                // Cobertura de campos é separada do alias normal. Conversões
+                // de argumentos podem alocar/reentrar antes do corpo coberto.
                 desconhecidos.push(*v);
-                for campo in &campos {
-                    rs.push(Restricao::DesconhecerCampo {
-                        campo: campo.clone(),
-                    });
+                if !abi_exata || resumo.campos() != super::resumos::CamposHeapArc::Preservados {
+                    for campo in &campos {
+                        rs.push(Restricao::DesconhecerCampo {
+                            campo: campo.clone(),
+                        });
+                    }
                 }
             }
             Instruction::GetField { object, .. } if fatos.acessos.contains_key(v) => {
@@ -350,6 +358,7 @@ pub(crate) fn analisar_com_resumos(
         ids,
         corpo: assinatura_corpo(f),
         dependencias_corpos,
+        dependencias_tabelas: HashMap::new(),
         limite,
         esquemas,
     })
@@ -359,6 +368,17 @@ pub(crate) fn analisar_com_resumos(
 // Não é formato canônico de resumo SDK nem certificado de recarga.
 pub(crate) fn assinatura_corpo(f: &Function) -> blake3::Hash {
     blake3::hash(format!("{f:?}").as_bytes())
+}
+
+// Só metadados de emissão usados para a cobertura local de campos.
+// Não substitui versões de layouts, runtime ou geração JIT.
+pub(crate) fn assinatura_tabela(m: &Module, indice: usize) -> blake3::Hash {
+    let tabela = if m.excecoes_por_tabelas {
+        m.tabelas.get(indice)
+    } else {
+        None
+    };
+    blake3::hash(format!("{}:{tabela:?}", m.excecoes_por_tabelas).as_bytes())
 }
 
 pub(super) fn constantes_inteiras(f: &Function) -> HashMap<ValueId, i64> {

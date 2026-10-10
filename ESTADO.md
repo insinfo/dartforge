@@ -2,6 +2,38 @@
 
 ## Retomada de 2026-10-10
 
+ResumoHeapArc agora separa aliases normais de CamposHeapArc, com cobertura
+positiva inicial para preservação de campos: constantes primitivas/null,
+Phis e saídas de representação exata, sem chamada/store/alocação/throw.
+Análise HIR conserva arestas dos campos através de folha coberta com ABI
+exata, inclusive retorno Void, sem deduzir noescape ou apagar retenções.
+Conversão de argumento (I64→Ref) e materialização de texto continuam opacas,
+pois podem coletar/reentrar antes do corpo. Texto constante dentro da folha,
+ArcCopy, stores e saídas excepcionais também ficam fora da cobertura inicial.
+Resumo do módulo confere o contexto exigido pelo backend e a tabela de
+emissão: confere_pilha pode construir erro SDK sem instrução HIR explícita.
+Modo/tabelas dos callees transitivos passam a integrar a guarda local do
+escape; alteração de tabela invalida análise mesmo sem mudança de corpo.
+Índices dos corpos são consultados por mapa, sem busca linear por dependência.
+Regressões conferem filho preservado através de identidade, retorno Void,
+campo opaco após escrita, conversões, texto e mudança de confere_pilha.
+Fonte/SDK reais confirmam cobertura do método identidade. Passaram 29 testes
+focados, 292 testes do emissor (sete ignorados) e 87 exemplos públicos.
+Logs target/arc-campos-preservados-{focado,suite,doc}.log. Rustfmt dos cinco
+arquivos de análise e git diff --check passaram. Check Clippy integral ainda
+não aprovado pela limitação preexistente registrada abaixo.
+Escritas por caminho, cobertura de chamadas/callbacks/SDK, escape/retenção,
+observadores e certificados permanecem pendentes. Não conclui §28.3/S1 ou
+§§27–34. ARC só com --memoria=arc, tracing padrão; gate ARC/A0 segue reprovado.
+
+CI 38051323600 terminou cancelada: Linux e mensagens passaram; Windows
+excedeu 60 min e macOS excedeu 90 min (check 114210866774). macOS aprovou todas
+as matrizes AOT e testes emit_native com ignorados (266 unitários, 22 de
+integração, dois adicionais e 55 exemplos), mas foi interrompido ainda na
+compilação/ligação dos testes JIT, sem iniciar essa bateria. Não inferir
+aprovação do JIT nem da rodada integral. Log target/ci-macos-37497527.log.
+Sem toolchain 38051323611 terminou aprovada.
+
 Aliases de retorno normal agora convergem nas SCCs de chamadas diretas locais
 em otimizar/arc/analise/chamadas.rs. Alcance dos corpos é descoberto sem
 recursão Rust; Tarjan ordena dependências e worklist monotônica reaplica

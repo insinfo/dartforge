@@ -14,7 +14,9 @@ pub(super) fn resolver<'a>(
     limite: usize,
 ) -> Result<HashMap<String, (&'a Function, ResumoHeapArc)>, String> {
     let mut indice = HashMap::new();
-    for f in &m.functions {
+    let mut posicoes = HashMap::new();
+    for (posicao, f) in m.functions.iter().enumerate() {
+        posicoes.insert(f.symbol.as_str(), posicao);
         if indice.insert(f.symbol.as_str(), f).is_some() {
             return Err(format!("resumo: corpo duplicado {}", f.symbol));
         }
@@ -109,9 +111,20 @@ pub(super) fn resolver<'a>(
         .iter()
         .enumerate()
         .map(|(v, &f)| {
-            let resumo = extrair_com_chamadas(f, limite, false, |s| {
+            let mut resumo = extrair_com_chamadas(f, limite, false, |s| {
                 ids.get(s).map(|&w| (corpos[w], &retornos[w]))
             })?;
+            let indice = posicoes[f.symbol.as_str()];
+            let tabela = if m.excecoes_por_tabelas {
+                m.tabelas.get(indice)
+            } else {
+                None
+            };
+            if (m.excecoes_por_tabelas && tabela.is_none())
+                || crate::llvm::LlvmEmitter::exige_contexto_explicito(f, tabela)
+            {
+                resumo.invalidar_campos();
+            }
             debug_assert_eq!(resumo.retorno(), &retornos[v]);
             Ok((f.symbol.clone(), (f, resumo)))
         })

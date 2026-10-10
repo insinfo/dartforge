@@ -12,9 +12,10 @@ use std::collections::HashMap;
 /// classe/layout e o índice existe. Cópias/Phis preservam essa união; leitura
 /// opaca, parâmetro e call sem resumo não provam a classe do receiver.
 /// Chaves de layout são locais à versão do módulo, sem validade de recarga.
-/// CallStatic usa aliases normais dos corpos locais até ponto fixo por SCC;
-/// efeitos continuam opacos. Todo corpo transitivo consultado tem sua versão
-/// registrada para conferência conservadora no consumo.
+/// CallStatic usa aliases normais dos corpos locais até ponto fixo por SCC.
+/// Folha com cobertura de campos e ABI exata preserva a precisão dos campos;
+/// escape/retenção continuam opacos. Guarda corpos transitivos e tabelas de
+/// emissão consultadas, inclusive conferência implícita de pilha.
 ///
 /// # Erros
 /// Símbolo ausente/duplicado, fato de sítio obsoleto, origem com classes
@@ -154,10 +155,20 @@ pub fn analisar_no_modulo(
     let mut analise = analisar_com_resumos(f, &fatos, limite, &resumos)?;
     // Guarda conservadora de todo o alcance consultado, inclusive corpos
     // transitivos. Não é cache persistente nem dependência de geração JIT.
+    let posicoes: HashMap<_, _> = m
+        .functions
+        .iter()
+        .enumerate()
+        .map(|(i, f)| (f.symbol.as_str(), i))
+        .collect();
     for (s, (corpo, _)) in &resumos {
         analise
             .dependencias_corpos
             .insert(s.clone(), assinatura_corpo(corpo));
+        let indice = posicoes[s.as_str()];
+        analise
+            .dependencias_tabelas
+            .insert(s.clone(), assinatura_tabela(m, indice));
     }
     Ok(Some(analise))
 }
@@ -165,6 +176,159 @@ pub fn analisar_no_modulo(
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn folha_preserva_campos_mas_conversoes_e_caminhos_opacos_invalidam() {
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.layouts_campos_arc.insert(1, vec![Type::Ref]);
+        m.layouts_campos_arc.insert(2, vec![]);
+        m.functions.push(Function {
+            symbol: "caller".into(),
+            name: "caller".into(),
+            depuracao: None,
+            params: vec![],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![
+                    (
+                        ValueId(0),
+                        Instruction::AllocObject {
+                            class_id: 2,
+                            fields: vec![],
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(1),
+                        Instruction::AllocObject {
+                            class_id: 1,
+                            fields: vec![Operand::Val(ValueId(0))],
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(2),
+                        Instruction::CallStatic {
+                            symbol: "id".into(),
+                            args: vec![Operand::Val(ValueId(1))],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(3),
+                        Instruction::GetField {
+                            object: Operand::Val(ValueId(2)),
+                            index: 0,
+                        },
+                        Type::Ref,
+                    ),
+                ],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(3)))),
+            }],
+        });
+        m.functions.push(Function {
+            symbol: "id".into(),
+            name: "id".into(),
+            depuracao: None,
+            params: vec![(ValueId(0), "x".into(), Type::Ref)],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
+            }],
+        });
+        super::super::origens::registrar(&mut m, 0, true);
+        let a = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+        assert_eq!(a.valor(ValueId(0)), a.valor(ValueId(3)));
+        assert_eq!(a.valor(ValueId(3)).unwrap().nos().unwrap().len(), 1);
+        let e = super::super::escape::calcular_no_modulo(&m, "caller", &a).unwrap();
+        assert!(
+            e.publicacoes[&super::super::escape::CausaEscape::OperacaoOpaca(2)]
+                .nos()
+                .is_none()
+        );
+        // Metadados de emissão podem introduzir chamada implícita, mesmo
+        // sem mudança do corpo HIR; devem invalidar o consumo anterior.
+        m.excecoes_por_tabelas = true;
+        m.tabelas = vec![TabelasDaFuncao::default(); 2];
+        assert!(super::super::escape::calcular_no_modulo(&m, "caller", &a).is_err());
+        let com_tabelas = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+        assert_eq!(com_tabelas.valor(ValueId(0)), com_tabelas.valor(ValueId(3)));
+        m.tabelas[1].confere_pilha = true;
+        assert!(super::super::escape::calcular_no_modulo(&m, "caller", &com_tabelas).is_err());
+        assert!(
+            analisar_no_modulo(&m, "caller", 8)
+                .unwrap()
+                .unwrap()
+                .valor(ValueId(3))
+                .unwrap()
+                .nos()
+                .is_none()
+        );
+        m.excecoes_por_tabelas = false;
+        m.tabelas.clear();
+        let folha = m.functions[1].clone();
+        // Alias normal não apaga escrita explícita.
+        m.functions[1].blocks[0].instructions.push((
+            ValueId(1),
+            Instruction::SetField {
+                object: Operand::Val(ValueId(0)),
+                index: 0,
+                value: Operand::Val(ValueId(0)),
+            },
+            Type::Void,
+        ));
+        assert!(super::super::escape::calcular_no_modulo(&m, "caller", &a).is_err());
+        assert!(
+            analisar_no_modulo(&m, "caller", 8)
+                .unwrap()
+                .unwrap()
+                .valor(ValueId(3))
+                .unwrap()
+                .nos()
+                .is_none()
+        );
+        m.functions[1] = folha;
+        // Preservação de campos independe de existir retorno Ref/alias.
+        m.functions[1].return_ty = Type::Void;
+        m.functions[1].blocks[0].terminator = Terminator::Return(None);
+        m.functions[0].blocks[0].instructions[2].2 = Type::Void;
+        if let Instruction::CallStatic { ret_ty, .. } =
+            &mut m.functions[0].blocks[0].instructions[2].1
+        {
+            *ret_ty = Type::Void;
+        }
+        if let Instruction::GetField { object, .. } =
+            &mut m.functions[0].blocks[0].instructions[3].1
+        {
+            *object = Operand::Val(ValueId(1));
+        }
+        let a = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
+        assert_eq!(a.valor(ValueId(0)), a.valor(ValueId(3)));
+        for constante in [Constant::Int(42), Constant::String("texto".into())] {
+            // Converter/materializar um argumento pode coletar antes da folha.
+            if let Instruction::CallStatic { args, .. } =
+                &mut m.functions[0].blocks[0].instructions[2].1
+            {
+                args[0] = Operand::Constant(constante);
+            }
+            assert!(
+                analisar_no_modulo(&m, "caller", 8)
+                    .unwrap()
+                    .unwrap()
+                    .valor(ValueId(3))
+                    .unwrap()
+                    .nos()
+                    .is_none()
+            );
+        }
+        m.memoria_arc = false;
+        assert!(analisar_no_modulo(&m, "caller", 8).unwrap().is_none());
+    }
 
     #[test]
     fn chamada_direta_preserva_alias_e_confere_dependencia_sem_provar_noescape() {

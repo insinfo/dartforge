@@ -1,5 +1,6 @@
 //! Resumos iniciais de aliases de retorno normal (§28.3).
-//! Não certificam ausência de escrita, retenção, callbacks ou efeitos excepcionais.
+//! Preservação de campos só para corpos sem chamadas/conversões opacas.
+//! Não certificam ausência de retenção, callbacks ou efeitos excepcionais.
 
 use super::{hir::assinatura_corpo, modelo::*, points_to::*};
 use crate::hir::*;
@@ -25,9 +26,25 @@ pub enum RetornoHeapArc {
     Desconhecido,
 }
 
+/// Efeito conservador sobre campos existentes, em todas as saídas do corpo.
+/// Não cobre vida, retenção, publicação ou a convenção Owned/Borrowed.
+///
+/// ```
+/// use dartforge_emit_native::otimizar::arc::analise::resumos::CamposHeapArc;
+/// assert_ne!(CamposHeapArc::Preservados, CamposHeapArc::Desconhecidos);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CamposHeapArc {
+    /// Corpo só transfere valores já avaliados, sem escrever/coletar/chamar.
+    Preservados,
+    /// Escrita possível ou operação/caminho implícito ainda não coberto.
+    Desconhecidos,
+}
+
 /// Resumo de uma versão local do corpo, separado de alcance e efeitos.tsv.
-/// Só o extrator constrói seus campos. É um resumo de retorno normal;
-/// efeitos de heap/publicação e saídas excepcionais continuam desconhecidos.
+/// Só o extrator constrói seus campos. Aliases são de retorno normal;
+/// preservação de campos tem cobertura própria. Publicações, retenções e
+/// saídas excepcionais continuam desconhecidas.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, otimizar::arc::analise::resumos::*};
@@ -43,9 +60,29 @@ pub enum RetornoHeapArc {
 pub struct ResumoHeapArc {
     corpo: blake3::Hash,
     retorno: RetornoHeapArc,
+    campos: CamposHeapArc,
 }
 
 impl ResumoHeapArc {
+    /// Consulta preservação de campos; isso não fornece noescape ou vida.
+    ///
+    /// ```
+    /// use dartforge_emit_native::{hir::*, otimizar::arc::analise::resumos::*};
+    /// let f = Function { symbol: "id".into(), name: "id".into(), depuracao: None,
+    /// params: vec![(ValueId(0), "x".into(), Type::Ref)], return_ty: Type::Ref,
+    /// blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
+    /// terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }] };
+    /// assert_eq!(extrair(&f, 8)?.campos(), CamposHeapArc::Preservados);
+    /// # Ok::<(), String>(())
+    /// ```
+    pub fn campos(&self) -> CamposHeapArc {
+        self.campos
+    }
+
+    pub(super) fn invalidar_campos(&mut self) {
+        self.campos = CamposHeapArc::Desconhecidos;
+    }
+
     /// Consulta aliases normais; isso não fornece noescape ou noheapmutation.
     ///
     /// ```
@@ -292,7 +329,50 @@ pub(super) fn extrair_com_chamadas<'a>(
     Ok(ResumoHeapArc {
         corpo: assinatura_corpo(f),
         retorno,
+        campos: preservar_campos(f, &tipos),
     })
+}
+
+// Lista positiva independente dos aliases normais. Excluir chamadas, throws,
+// stores, alocações, constantes de texto e ARC que possa exigir contexto:
+// conferência implícita de pilha pode construir erro pelo SDK/reentrar.
+fn preservar_campos(f: &Function, tipos: &HashMap<ValueId, Type>) -> CamposHeapArc {
+    let exato = |o: &Operand, t: Type| argumento_exato(o, t, tipos);
+    let corpo_coberto = f.blocks.iter().all(|b| {
+        let saida = match &b.terminator {
+            Terminator::Return(Some(o)) => exato(o, f.return_ty),
+            Terminator::Return(None) => f.return_ty == Type::Void,
+            Terminator::CondBranch { cond, .. } => exato(cond, Type::I1),
+            Terminator::Switch { val, .. } => exato(val, Type::I64),
+            Terminator::Branch(_) | Terminator::Unreachable => true,
+            Terminator::Throw(_) => false,
+        };
+        saida
+            && b.instructions.iter().all(|(_, i, t)| match i {
+                Instruction::Const(c) => exato(&Operand::Constant(c.clone()), *t),
+                Instruction::Phi { incoming, ty } => {
+                    ty == t && incoming.iter().all(|(_, o)| exato(o, *t))
+                }
+                _ => false,
+            })
+    });
+    if corpo_coberto {
+        CamposHeapArc::Preservados
+    } else {
+        CamposHeapArc::Desconhecidos
+    }
+}
+
+// Igualdade física não permite converter I64 em Ref ou materializar texto.
+pub(super) fn argumento_exato(o: &Operand, t: Type, tipos: &HashMap<ValueId, Type>) -> bool {
+    match o {
+        Operand::Val(v) => tipos.get(v) == Some(&t),
+        Operand::Constant(Constant::Null) => t == Type::Ref,
+        Operand::Constant(Constant::Int(_)) => t == Type::I64,
+        Operand::Constant(Constant::Double(_)) => t == Type::F64,
+        Operand::Constant(Constant::Bool(_)) => t == Type::I1,
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -312,6 +392,40 @@ mod testes {
             }],
         }
     }
+    #[test]
+    fn cobertura_de_campos_nao_deriva_de_alias_e_inclui_saidas_excepcionais() {
+        let mut f = identidade();
+        assert_eq!(extrair(&f, 8).unwrap().campos(), CamposHeapArc::Preservados);
+        f.blocks[0].terminator = Terminator::Throw(Operand::Val(ValueId(0)));
+        assert_eq!(
+            extrair(&f, 8).unwrap().campos(),
+            CamposHeapArc::Desconhecidos
+        );
+        f = identidade();
+        f.blocks[0].instructions.push((
+            ValueId(1),
+            Instruction::ArcCopy {
+                value: Operand::Val(ValueId(0)),
+            },
+            Type::Ref,
+        ));
+        f.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
+        let resumo = extrair(&f, 8).unwrap();
+        assert!(matches!(resumo.retorno(), RetornoHeapArc::Aliases { .. }));
+        assert_eq!(resumo.campos(), CamposHeapArc::Desconhecidos);
+        // Uma constante de texto aloca no JIT, mesmo sem chamada HIR explícita.
+        f = identidade();
+        f.blocks[0].instructions.push((
+            ValueId(1),
+            Instruction::Const(Constant::String("texto".into())),
+            Type::Ref,
+        ));
+        assert_eq!(
+            extrair(&f, 8).unwrap().campos(),
+            CamposHeapArc::Desconhecidos
+        );
+    }
+
     #[test]
     fn identidade_preserva_placeholder_e_recusa_versao_obsoleta() {
         let mut f = identidade();

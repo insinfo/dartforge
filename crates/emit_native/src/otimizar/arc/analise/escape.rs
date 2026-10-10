@@ -61,17 +61,17 @@ pub struct ResultadoEscape {
 /// # Ok::<(), String>(())
 /// ```
 pub fn calcular(f: &Function, a: &AnaliseHir) -> Result<ResultadoEscape, String> {
-    if !a.dependencias_corpos.is_empty() {
+    if !a.dependencias_corpos.is_empty() || !a.dependencias_tabelas.is_empty() {
         return Err("escape ARC: validar dependências pelo módulo".into());
     }
     calcular_validado(f, a)
 }
 
-/// Confere no módulo as versões dos callees usados para aliases, antes do escape.
+/// Confere corpos e tabelas dos callees usados para aliases/campos, antes do escape.
 /// Não valida gerações JIT, layouts/pins ou resumos SDK ainda não implementados.
 ///
 /// # Erros
-/// Corpo/callee ausente, duplicado ou alterado após a análise.
+/// Corpo/callee ausente, duplicado, alterado ou com tabela de emissão modificada.
 ///
 /// ```
 /// use dartforge_emit_native::{hir::*, otimizar::arc::analise::{hir::*, escape::*}};
@@ -89,6 +89,12 @@ pub fn calcular_no_modulo(
     a: &AnaliseHir,
 ) -> Result<ResultadoEscape, String> {
     let mut indice = std::collections::HashMap::new();
+    let posicoes: std::collections::HashMap<_, _> = m
+        .functions
+        .iter()
+        .enumerate()
+        .map(|(i, f)| (f.symbol.as_str(), i))
+        .collect();
     for f in &m.functions {
         if indice.insert(&f.symbol, f).is_some() {
             return Err("escape ARC: corpo duplicado".into());
@@ -98,6 +104,14 @@ pub fn calcular_no_modulo(
         let f = indice.get(s).ok_or("escape ARC: callee ausente")?;
         if assinatura_corpo(f) != *assinatura {
             return Err(format!("escape ARC: callee mudou {s}"));
+        }
+    }
+    for (s, assinatura) in &a.dependencias_tabelas {
+        let indice = posicoes
+            .get(s.as_str())
+            .ok_or("escape ARC: callee ausente")?;
+        if super::hir::assinatura_tabela(m, *indice) != *assinatura {
+            return Err(format!("escape ARC: tabela mudou {s}"));
         }
     }
     let f = indice
