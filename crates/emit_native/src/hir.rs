@@ -993,6 +993,8 @@ pub struct TabelasDaFuncao {
     /// conferência da pilha mora; aqui a leitura some, e sem esta marca
     /// `f() => f()` estouraria a pilha do sistema.
     pub confere_pilha: bool,
+    /// Inventário certificado de owners para cleanup estrangeiro; recalcular após mutações.
+    pub cleanup_estrangeiro: Option<crate::otimizar::arc::CleanupEstrangeiro>,
 }
 
 /// Módulo HIR completo representando um programa Dart compilável.

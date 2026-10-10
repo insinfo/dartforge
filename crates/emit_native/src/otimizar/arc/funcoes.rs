@@ -46,6 +46,9 @@ pub struct PlanoFuncaoDart {
 /// Demais CFG/escopos precisam estar preparados. Não divide arestas gerais,
 /// resolve finally/cancelamento/suspensão nem materializa tabelas.
 /// Descritores de slots e proveniência continuam premissas do lowering.
+/// Pousos catch ganham inventário certificado para cleanup estrangeiro Unix;
+/// funções com abertura de quadros proprietários e catch ainda são rejeitadas,
+/// até integrar o fechamento desses quadros no braço estrangeiro.
 ///
 /// # Erros
 /// Símbolo repetido, plano ausente/obsoleto ou falha de produção/inserção/
@@ -207,6 +210,7 @@ fn inserir(
         )?;
         novo.owners_no_pouso =
             tokens_na_entrada_dos_pousos(f, &novo.classes, &novo.tabelas, &novo.tokens)?;
+        novo.tabelas.cleanup_estrangeiro = CleanupEstrangeiro::novo(f, novo)?;
         total.0 += copias;
         total.1 += drops;
     }

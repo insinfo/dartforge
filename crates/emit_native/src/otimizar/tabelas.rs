@@ -113,6 +113,9 @@ pub(super) fn materializar(module: &mut Module, plano: PlanoExcecoes) {
         if super::valida(f) {
             saidas(f, &nl, &mut t);
         }
+        if let Some(c) = &t.cleanup_estrangeiro {
+            c.conferir(f, &t).expect("cleanup estrangeiro obsoleto na materialização");
+        }
         tabelas.push(t);
     }
     module.tabelas = tabelas;

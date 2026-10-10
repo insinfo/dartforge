@@ -780,14 +780,40 @@ fn catch_no_perfil_cleanup_confere_seletor_e_remapeia_phi_do_pouso() {
         pousos: [BlockId(2), BlockId(4)].into(),
         saidas: [(BlockId(2), SaidaPorExcecao::Retoma)].into(), ..Default::default()
     };
+    let falha = funcao("falha", vec![], Type::Void, vec![BasicBlock {
+        id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None),
+    }]);
+    let mut funcoes = vec![f, falha];
+    let mut plano = crate::otimizar::arc::PlanoFuncaoDart::default();
+    plano.tabelas = t;
+    let mut folha = crate::otimizar::arc::PlanoFuncaoDart::default();
+    folha.tabelas.confere_pilha = true;
+    let mut planos = std::collections::HashMap::from([("misto".into(), plano), ("falha".into(), folha)]);
+    assert_eq!(crate::otimizar::arc::inserir_arc_funcoes_dart(&mut funcoes, &mut planos).unwrap(), (0, 0));
+    let f = &funcoes[0];
+    let t = &planos["misto"].tabelas;
+    let certificado = t.cleanup_estrangeiro.as_ref().unwrap();
+    assert_eq!(certificado.owners(BlockId(4)), &[ValueId(1)]);
+    let mut obsoleta = f.clone();
+    obsoleta.name.push_str(" alterada");
+    assert!(certificado.conferir(&obsoleta, t).is_err());
+    let mut tabelas_obsoletas = t.clone();
+    tabelas_obsoletas.invocacoes.remove(&ValueId(2));
+    assert!(certificado.conferir(f, &tabelas_obsoletas).is_err());
     let m = Module::new();
     let mut e = LlvmEmitter::new(&m);
-    e.tab = Some(&t);
-    e.emit_function(&f);
+    e.tab = Some(t);
+    e.emit_function(f);
     let ir = e.out;
     assert!(ir.contains("%lpseletor4 = extractvalue { ptr, i32 } %lpad4, 1"));
     assert!(ir.contains("%lptipo4 = call i32 @llvm.eh.typeid.for(ptr null)"));
-    assert!(ir.contains("lpad4.estrangeira:\n  resume { ptr, i32 } %lpad4"));
+    assert!(ir.contains("lpad4.estrangeira:\n  call void @dartforge_arc_release(i64 %v1)"));
+    let estrangeira = ir.split("lpad4.estrangeira:\n").nth(1).unwrap().split("lpad4.dart:").next().unwrap();
+    assert!(estrangeira.contains("resume { ptr, i32 } %lpad4"));
+    assert_eq!(estrangeira.matches("@dartforge_arc_release").count(), 1);
+    if ir.contains("%gcant =") {
+        assert!(estrangeira.contains("store ptr %gcant, ptr %ctxtopo"));
+    }
     assert!(ir.contains("%lpad4.dart ]"), "{ir}");
     assert!(!ir.contains("%lpseletor2"));
     #[cfg(feature = "llvm-embutido")]

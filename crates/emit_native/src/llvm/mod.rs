@@ -865,11 +865,15 @@ impl<'a> LlvmEmitter<'a> {
         let tab = self.tab;
         let tem_pouso = tab.is_some_and(|t| !t.pousos.is_empty());
         let tem_retoma = tab.is_some_and(|t| t.saidas.values().any(|s| *s == SaidaPorExcecao::Retoma));
-        assert!(!tem_retoma || !self.mapas, "Retoma não admite landingpad token de statepoint");
+        if let Some(c) = tab.and_then(|t| t.cleanup_estrangeiro.as_ref()) {
+            c.conferir(func, tab.unwrap()).expect("cleanup estrangeiro inválido");
+        }
+        let tem_cleanup = tem_retoma || (cfg!(unix) && tab.is_some_and(|t| t.cleanup_estrangeiro.is_some()));
+        assert!(!tem_cleanup || !self.mapas, "Retoma não admite landingpad token de statepoint");
         if tem_retoma {
             crate::otimizar::arc::conferir_retomas(func, tab.unwrap()).expect("Retoma inválida");
         }
-        let personalidade = if tem_retoma { " personality ptr @dartforge_personalidade_cleanup_itanium" }
+        let personalidade = if tem_cleanup { " personality ptr @dartforge_personalidade_cleanup_itanium" }
             else if tem_pouso { " personality ptr @dartforge_personalidade" } else { "" };
 
         // G1/G2 (docs/NATIVO-PLANO.md §6.5): um slot por `alloca` de tipo
@@ -981,13 +985,14 @@ impl<'a> LlvmEmitter<'a> {
                     // exceção referenciam).
                     writeln!(self.out, "  %lpad{} = landingpad token cleanup", block.id.0).unwrap();
                 } else {
-                    writeln!(self.out, "  %lpad{} = landingpad {{ ptr, i32 }} catch ptr null", block.id.0).unwrap();
+                    let cleanup = if tem_cleanup { " cleanup" } else { "" };
+                    writeln!(self.out, "  %lpad{} = landingpad {{ ptr, i32 }}{cleanup} catch ptr null", block.id.0).unwrap();
                 }
                 let topo = if self.tem_frame { "%gcq" } else { "%topo0" };
                 if !crate::alvo::sabotagem("pouso_sem_topo") {
                     writeln!(self.out, "  store ptr {topo}, ptr %ctxtopo, align 8").unwrap();
                 }
-                if tem_retoma && tab.is_some_and(|t| t.saidas.get(&block.id) != Some(&SaidaPorExcecao::Retoma)) {
+                if tem_cleanup && tab.is_some_and(|t| t.saidas.get(&block.id) != Some(&SaidaPorExcecao::Retoma)) {
                     // O inliner pode combinar catch e cleanup. Seletor zero
                     // executa cleanup, mas não autoriza tratar estrangeira como Dart.
                     let b = block.id.0;
@@ -996,6 +1001,17 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  %lpdart{b} = icmp eq i32 %lpseletor{b}, %lptipo{b}").unwrap();
                     writeln!(self.out, "  br i1 %lpdart{b}, label %lpad{b}.dart, label %lpad{b}.estrangeira").unwrap();
                     writeln!(self.out, "lpad{b}.estrangeira:").unwrap();
+                    if let Some(c) = tab.and_then(|t| t.cleanup_estrangeiro.as_ref()) {
+                        for v in c.owners(block.id) {
+                            writeln!(self.out, "  call void @dartforge_arc_release(i64 %v{})", v.0).unwrap();
+                        }
+                    }
+                    if self.rastro.is_some() {
+                        writeln!(self.out, "  call void @dartforge_rastro_saida()").unwrap();
+                    }
+                    if self.tem_frame {
+                        writeln!(self.out, "  store ptr %gcant, ptr %ctxtopo, align 8").unwrap();
+                    }
                     writeln!(self.out, "  resume {{ ptr, i32 }} %lpad{b}").unwrap();
                     writeln!(self.out, "lpad{b}.dart:").unwrap();
                     self.rotulo_atual = format!("lpad{b}.dart");
@@ -1843,6 +1859,12 @@ impl<'a> LlvmEmitter<'a> {
                         continue;
                     }
                     Some(SaidaPorExcecao::Retoma) => {
+                        if self.rastro.is_some() {
+                            writeln!(self.out, "  call void @dartforge_rastro_saida()").unwrap();
+                        }
+                        if self.tem_frame {
+                            writeln!(self.out, "  store ptr %gcant, ptr %ctxtopo, align 8").unwrap();
+                        }
                         writeln!(self.out, "  resume {{ ptr, i32 }} %lpad{}", block.id.0).unwrap();
                         continue;
                     }

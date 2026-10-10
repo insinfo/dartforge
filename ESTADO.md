@@ -2,6 +2,26 @@
 
 ## Retomada de 2026-10-09
 
+Cleanup estrangeiro certificado no emissor: preparação ARC liga o inventário
+validado ao corpo e às tabelas (invokes/pousos/saídas/conferência de pilha).
+Campos privados impedem inventar owners; LLVM/materialização rejeitam certificado
+obsoleto após mutações. Catch certificado Unix usa personalidade cleanup,
+landingpad cleanup+catch, guarda de seletor e libera owners locais antes de
+resume. Restaura quadro de raízes anterior e fecha entrada de rastro; Retoma
+pura também fecha quadro/rastro antes de resume, evitando topo apontando para
+um quadro abandonado quando o próximo tratador é estrangeiro.
+Teste do corpo misto confirma release único no braço estrangeiro, par original,
+Phi do catch Dart e rejeição de corpo/invoke obsoleto; LLVM gerou objetos Linux
+O0/O2. Suíte local passou: 201 unitários (sete ignorados), nove contratos
+(13 ignorados), dois de depuração e 49 doctests. Após ajuste de fechamento,
+42 testes LLVM passaram novamente. Logs `target/cleanup-estrangeiro-*`.
+Ainda falta execução de estrangeira/forced unwind com heap real e prova de
+morte final. Catch com abertura de quadro proprietário é rejeitado até
+integrar seu fechamento; SEH/statepoints/finally/cancelamento continuam pendentes.
+Em Windows o certificado é conferido, mas a emissão permanece no perfil legado.
+CI 38015289408 da fonte anterior 24efc32a passou na prova do rastro explícito
+Linux; macOS continua compilando. Essa fonte não contém o cleanup certificado.
+
 Inventário de owners na entrada dos pousos: análise linear agora entrega
 snapshots validados e ordenados por ValueId, após consumo da aresta de erro,
 sem resultados exclusivos do sucesso. API `tokens_na_entrada_dos_pousos`
