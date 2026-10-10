@@ -1,0 +1,846 @@
+{
+  "exemplo": "arc_cleanup_laco",
+  "exemplo_sha256": "99480249a1d92172f364acb22311b262851aad85c52fd60ad374e2fec3f4905d",
+  "script_sha256": "5a1a91391f749492dfc74aed4054e2cc9f7bf546c066dd15fcefc83a9df41726",
+  "estado_git_fontes": "?? crates/emit_native/examples/arc_cleanup_laco.rs\n?? scripts/provar-arc-aot.py",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "ambiente": {
+    "DARTFORGE_ARC_CONFERIR": "1",
+    "DARTFORGE_ARC_BERCARIO": "0",
+    "DARTFORGE_GC_STRESS": "1"
+  },
+  "execucoes": [
+    {
+      "modo": "arc",
+      "nivel": 0,
+      "caminho": "normal",
+      "controle": null,
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "llvm-embutido",
+        "--example",
+        "arc_cleanup_laco",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-cleanup-laco\\arc-O0-normal.exe",
+        "--memoria=arc",
+        "0",
+        "normal"
+      ],
+      "arquivos": [
+        {
+          "nome": "arc-O0-normal.build.log",
+          "bytes": 522,
+          "sha256": "c2b712b0df8c700d8c89fde41d87b214ba37a8ff12fa2792755aed82a2faa5b1"
+        },
+        {
+          "nome": "arc-O0-normal.ll",
+          "bytes": 35032,
+          "sha256": "7df3444cd5e95687af4b64016fdacfaa71cf8e81ea45d61cb691d637bf871a53"
+        },
+        {
+          "nome": "arc-O0-normal.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "nome": "arc-O0-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O0-normal.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 0
+    },
+    {
+      "modo": "arc",
+      "nivel": 0,
+      "caminho": "erro",
+      "controle": null,
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "llvm-embutido",
+        "--example",
+        "arc_cleanup_laco",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-cleanup-laco\\arc-O0-erro.exe",
+        "--memoria=arc",
+        "0",
+        "erro"
+      ],
+      "arquivos": [
+        {
+          "nome": "arc-O0-erro.build.log",
+          "bytes": 518,
+          "sha256": "530a2c8492195b32922ba2b615b4a350c0202919213ba1996b95835b7f9170cd"
+        },
+        {
+          "nome": "arc-O0-erro.ll",
+          "bytes": 35080,
+          "sha256": "f75ab1035b644a005b6fca8be6bb8b70f934a86d28d612aafb16a9024e716576"
+        },
+        {
+          "nome": "arc-O0-erro.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "nome": "arc-O0-erro.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O0-erro.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 0
+    },
+    {
+      "modo": "arc",
+      "nivel": 0,
+      "caminho": "normal",
+      "controle": "sem-drop-normal",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "llvm-embutido",
+        "--example",
+        "arc_cleanup_laco",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-cleanup-laco\\arc-O0-normal-sem-drop-normal.exe",
+        "--memoria=arc",
+        "0",
+        "normal",
+        "sem-drop-normal"
+      ],
+      "arquivos": [
+        {
+          "nome": "arc-O0-normal-sem-drop-normal.build.log",
+          "bytes": 554,
+          "sha256": "58c87afdcff51bdcf102ebb82850d42267de8bd9b645613007b8898d923b8469"
+        },
+        {
+          "nome": "arc-O0-normal-sem-drop-normal.ll",
+          "bytes": 34988,
+          "sha256": "72d521b55aa0b6114bc07cedabdb0a369ac3f611956d38a26901b770b60c98b8"
+        },
+        {
+          "nome": "arc-O0-normal-sem-drop-normal.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O0-normal-sem-drop-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O0-normal-sem-drop-normal.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "arc",
+      "nivel": 0,
+      "caminho": "erro",
+      "controle": "sem-drop-erro",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "llvm-embutido",
+        "--example",
+        "arc_cleanup_laco",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-cleanup-laco\\arc-O0-erro-sem-drop-erro.exe",
+        "--memoria=arc",
+        "0",
+        "erro",
+        "sem-drop-erro"
+      ],
+      "arquivos": [
+        {
+          "nome": "arc-O0-erro-sem-drop-erro.build.log",
+          "bytes": 546,
+          "sha256": "99c919e19f55f0766ee32947362ed5511916415675c6efa01bfa5aa8693d7644"
+        },
+        {
+          "nome": "arc-O0-erro-sem-drop-erro.ll",
+          "bytes": 35036,
+          "sha256": "ad2c289bd9613e55965159c3c5458a1074eb7eeba6b626ac52e4cac1498c3569"
+        },
+        {
+          "nome": "arc-O0-erro-sem-drop-erro.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O0-erro-sem-drop-erro.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O0-erro-sem-drop-erro.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "tracing",
+      "nivel": 0,
+      "caminho": "normal",
+      "controle": null,
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "llvm-embutido",
+        "--example",
+        "arc_cleanup_laco",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-cleanup-laco\\tracing-O0-normal.exe",
+        "--memoria=tracing",
+        "0",
+        "normal"
+      ],
+      "arquivos": [
+        {
+          "nome": "tracing-O0-normal.build.log",
+          "bytes": 530,
+          "sha256": "ad1a50eca5527169dc67c2012ede6f9d67a7ceeb2aaa98bf4a74b22de5ec299a"
+        },
+        {
+          "nome": "tracing-O0-normal.ll",
+          "bytes": 34785,
+          "sha256": "3adf8309bd599a4378a97a5dd80acd06ced39ab2df531b03b577a2ce885369db"
+        },
+        {
+          "nome": "tracing-O0-normal.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "nome": "tracing-O0-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O0-normal.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 0
+    },
+    {
+      "modo": "tracing",
+      "nivel": 0,
+      "caminho": "erro",
+      "controle": null,
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "llvm-embutido",
+        "--example",
+        "arc_cleanup_laco",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-cleanup-laco\\tracing-O0-erro.exe",
+        "--memoria=tracing",
+        "0",
+        "erro"
+      ],
+      "arquivos": [
+        {
+          "nome": "tracing-O0-erro.build.log",
+          "bytes": 526,
+          "sha256": "7aa500b32ff89cd1e95eb5e0466cb47037b59d37cfa4279c71a741e816ee0ff8"
+        },
+        {
+          "nome": "tracing-O0-erro.ll",
+          "bytes": 34833,
+          "sha256": "1cfda67f4469770ed0e6714985125dfcc3c260e1a5bb99a427dee0644003e81c"
+        },
+        {
+          "nome": "tracing-O0-erro.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "nome": "tracing-O0-erro.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O0-erro.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 0
+    },
+    {
+      "modo": "tracing",
+      "nivel": 0,
+      "caminho": "normal",
+      "controle": "sem-drop-normal",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "llvm-embutido",
+        "--example",
+        "arc_cleanup_laco",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-cleanup-laco\\tracing-O0-normal-sem-drop-normal.exe",
+        "--memoria=tracing",
+        "0",
+        "normal",
+        "sem-drop-normal"
+      ],
+      "arquivos": [
+        {
+          "nome": "tracing-O0-normal-sem-drop-normal.build.log",
+          "bytes": 562,
+          "sha256": "f575e562cab3779768f6b1b662a20c967c022f066be754561a51e4d1dc166982"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-drop-normal.ll",
+          "bytes": 34741,
+          "sha256": "331491b9913570d0c15d1fe3d4e6c9ad41b560f64e1f63adafbfe3322f7352af"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-drop-normal.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-drop-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O0-normal-sem-drop-normal.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "tracing",
+      "nivel": 0,
+      "caminho": "erro",
+      "controle": "sem-drop-erro",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "llvm-embutido",
+        "--example",
+        "arc_cleanup_laco",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-cleanup-laco\\tracing-O0-erro-sem-drop-erro.exe",
+        "--memoria=tracing",
+        "0",
+        "erro",
+        "sem-drop-erro"
+      ],
+      "arquivos": [
+        {
+          "nome": "tracing-O0-erro-sem-drop-erro.build.log",
+          "bytes": 554,
+          "sha256": "74fcd68a288f6bc048fe32a141d8f03af508babdd5a7b49c1471c7b62ebe54ba"
+        },
+        {
+          "nome": "tracing-O0-erro-sem-drop-erro.ll",
+          "bytes": 34789,
+          "sha256": "4fd1254f489bcba33c3bf2d247c4f6adee8875bff3b9a4091dd7d714bcbbf431"
+        },
+        {
+          "nome": "tracing-O0-erro-sem-drop-erro.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O0-erro-sem-drop-erro.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O0-erro-sem-drop-erro.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "arc",
+      "nivel": 2,
+      "caminho": "normal",
+      "controle": null,
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "llvm-embutido",
+        "--example",
+        "arc_cleanup_laco",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-cleanup-laco\\arc-O2-normal.exe",
+        "--memoria=arc",
+        "2",
+        "normal"
+      ],
+      "arquivos": [
+        {
+          "nome": "arc-O2-normal.build.log",
+          "bytes": 522,
+          "sha256": "087e86666cd4e5b5247b012a5b76b524b024299f7393424a757d611aeb4f5a61"
+        },
+        {
+          "nome": "arc-O2-normal.ll",
+          "bytes": 35032,
+          "sha256": "7df3444cd5e95687af4b64016fdacfaa71cf8e81ea45d61cb691d637bf871a53"
+        },
+        {
+          "nome": "arc-O2-normal.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "nome": "arc-O2-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O2-normal.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 0
+    },
+    {
+      "modo": "arc",
+      "nivel": 2,
+      "caminho": "erro",
+      "controle": null,
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "llvm-embutido",
+        "--example",
+        "arc_cleanup_laco",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-cleanup-laco\\arc-O2-erro.exe",
+        "--memoria=arc",
+        "2",
+        "erro"
+      ],
+      "arquivos": [
+        {
+          "nome": "arc-O2-erro.build.log",
+          "bytes": 518,
+          "sha256": "b6d37d008a43698b471563b773bd87fc77c63b7a081073cce531569cfca28bbb"
+        },
+        {
+          "nome": "arc-O2-erro.ll",
+          "bytes": 35080,
+          "sha256": "f75ab1035b644a005b6fca8be6bb8b70f934a86d28d612aafb16a9024e716576"
+        },
+        {
+          "nome": "arc-O2-erro.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "nome": "arc-O2-erro.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O2-erro.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 0
+    },
+    {
+      "modo": "arc",
+      "nivel": 2,
+      "caminho": "normal",
+      "controle": "sem-drop-normal",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "llvm-embutido",
+        "--example",
+        "arc_cleanup_laco",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-cleanup-laco\\arc-O2-normal-sem-drop-normal.exe",
+        "--memoria=arc",
+        "2",
+        "normal",
+        "sem-drop-normal"
+      ],
+      "arquivos": [
+        {
+          "nome": "arc-O2-normal-sem-drop-normal.build.log",
+          "bytes": 554,
+          "sha256": "b21df80470a8d99f9ddbc3ba0f4eeeeb9326f6225d78e72a214d96327673569a"
+        },
+        {
+          "nome": "arc-O2-normal-sem-drop-normal.ll",
+          "bytes": 34988,
+          "sha256": "72d521b55aa0b6114bc07cedabdb0a369ac3f611956d38a26901b770b60c98b8"
+        },
+        {
+          "nome": "arc-O2-normal-sem-drop-normal.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O2-normal-sem-drop-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O2-normal-sem-drop-normal.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "arc",
+      "nivel": 2,
+      "caminho": "erro",
+      "controle": "sem-drop-erro",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "llvm-embutido",
+        "--example",
+        "arc_cleanup_laco",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-cleanup-laco\\arc-O2-erro-sem-drop-erro.exe",
+        "--memoria=arc",
+        "2",
+        "erro",
+        "sem-drop-erro"
+      ],
+      "arquivos": [
+        {
+          "nome": "arc-O2-erro-sem-drop-erro.build.log",
+          "bytes": 546,
+          "sha256": "7639f5755d7c3cbb9740b3a39fecd407419f9778e06fa787e1616fc0f5770a60"
+        },
+        {
+          "nome": "arc-O2-erro-sem-drop-erro.ll",
+          "bytes": 35036,
+          "sha256": "ad2c289bd9613e55965159c3c5458a1074eb7eeba6b626ac52e4cac1498c3569"
+        },
+        {
+          "nome": "arc-O2-erro-sem-drop-erro.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O2-erro-sem-drop-erro.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "arc-O2-erro-sem-drop-erro.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "tracing",
+      "nivel": 2,
+      "caminho": "normal",
+      "controle": null,
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "llvm-embutido",
+        "--example",
+        "arc_cleanup_laco",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-cleanup-laco\\tracing-O2-normal.exe",
+        "--memoria=tracing",
+        "2",
+        "normal"
+      ],
+      "arquivos": [
+        {
+          "nome": "tracing-O2-normal.build.log",
+          "bytes": 530,
+          "sha256": "db60449a5fcbcbb417758c7ecbe2831527f0fb25e107e8ce27af277348d086da"
+        },
+        {
+          "nome": "tracing-O2-normal.ll",
+          "bytes": 34785,
+          "sha256": "3adf8309bd599a4378a97a5dd80acd06ced39ab2df531b03b577a2ce885369db"
+        },
+        {
+          "nome": "tracing-O2-normal.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "nome": "tracing-O2-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O2-normal.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 0
+    },
+    {
+      "modo": "tracing",
+      "nivel": 2,
+      "caminho": "erro",
+      "controle": null,
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "llvm-embutido",
+        "--example",
+        "arc_cleanup_laco",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-cleanup-laco\\tracing-O2-erro.exe",
+        "--memoria=tracing",
+        "2",
+        "erro"
+      ],
+      "arquivos": [
+        {
+          "nome": "tracing-O2-erro.build.log",
+          "bytes": 526,
+          "sha256": "6b5fabe955ef3d40d314e1022360fca1fd4cb19c550818f5749c281de19a5796"
+        },
+        {
+          "nome": "tracing-O2-erro.ll",
+          "bytes": 34833,
+          "sha256": "1cfda67f4469770ed0e6714985125dfcc3c260e1a5bb99a427dee0644003e81c"
+        },
+        {
+          "nome": "tracing-O2-erro.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "nome": "tracing-O2-erro.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O2-erro.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 0
+    },
+    {
+      "modo": "tracing",
+      "nivel": 2,
+      "caminho": "normal",
+      "controle": "sem-drop-normal",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "llvm-embutido",
+        "--example",
+        "arc_cleanup_laco",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-cleanup-laco\\tracing-O2-normal-sem-drop-normal.exe",
+        "--memoria=tracing",
+        "2",
+        "normal",
+        "sem-drop-normal"
+      ],
+      "arquivos": [
+        {
+          "nome": "tracing-O2-normal-sem-drop-normal.build.log",
+          "bytes": 562,
+          "sha256": "39cf7b833dd0df851a950b103856d2b251cb9b99545f19ff081c43e11d43edb3"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-drop-normal.ll",
+          "bytes": 34741,
+          "sha256": "331491b9913570d0c15d1fe3d4e6c9ad41b560f64e1f63adafbfe3322f7352af"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-drop-normal.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-drop-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O2-normal-sem-drop-normal.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    },
+    {
+      "modo": "tracing",
+      "nivel": 2,
+      "caminho": "erro",
+      "controle": "sem-drop-erro",
+      "geracao": [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "llvm-embutido",
+        "--example",
+        "arc_cleanup_laco",
+        "--",
+        "E:\\MyRustProjects\\dartforge\\target\\prova-cleanup-laco\\tracing-O2-erro-sem-drop-erro.exe",
+        "--memoria=tracing",
+        "2",
+        "erro",
+        "sem-drop-erro"
+      ],
+      "arquivos": [
+        {
+          "nome": "tracing-O2-erro-sem-drop-erro.build.log",
+          "bytes": 554,
+          "sha256": "75dba37f0cac99de9add43b75ea388f8de8e169ef6c9dc575bccde295461e964"
+        },
+        {
+          "nome": "tracing-O2-erro-sem-drop-erro.ll",
+          "bytes": 34789,
+          "sha256": "4fd1254f489bcba33c3bf2d247c4f6adee8875bff3b9a4091dd7d714bcbbf431"
+        },
+        {
+          "nome": "tracing-O2-erro-sem-drop-erro.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O2-erro-sem-drop-erro.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "nome": "tracing-O2-erro-sem-drop-erro.exit",
+          "bytes": 11,
+          "sha256": "88ee242b87444799d7111464a7d264262d236dd6ff11fdb464148ba7f6bec876"
+        }
+      ],
+      "exit_geracao": 0,
+      "exit": 3221225501
+    }
+  ],
+  "resultado": "sucesso",
+  "fonte_base": "66fd85dbfb679d53a109c8fbd79716e65d9e4727",
+  "arvore_runtime_base": "70ff8d37cb43f77a79b8d4053cbfab009926daeb",
+  "exemplo_blob": "f724b22ed0571d424846ee4b6b35f2d3d7350aa0",
+  "script_blob": "d121845324fb36cde28ac8bf102f661dba989f23",
+  "registrado_utc": "2026-10-10T08:37:26.670975+00:00",
+  "plataforma": "Windows x86_64 MSVC, máquina local",
+  "clang": "clang version 22.1.8 (https://github.com/llvm/llvm-project ca7933e47d3a3451d81e72ac174dcb5aa28b59d1)\nTarget: x86_64-pc-windows-msvc\nThread model: posix\nInstalledDir: E:\\llvm\\clang+llvm-22.1.8-x86_64-pc-windows-msvc\\bin"
+}

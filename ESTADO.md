@@ -2,6 +2,37 @@
 
 ## Retomada de 2026-10-10
 
+Prova AOT arc_cleanup_laco passou no Windows: ARC/tracing × O0/O2 ×
+normal/erro, oito execuções positivas e oito controles negativos por trap.
+A HIR aloca Mint Owned em cada volta; preparação produz release na aresta
+normal antes da coleta e na saída de erro. Hooks LLVM com assinatura Borrow
+conferem owner antes/depois do release em dez iterações normais; depois da
+saída da função e coleta, conferem morte física do último objeto. No erro,
+uma pendência real pré-carregada encerra a primeira iteração; identidade da
+exceção, ausência de owner e morte final são verificadas. Retirar o release
+normal ou de erro produz trap, não uma falha de compilação aceita como prova.
+Endereços de diagnóstico não são raízes Ref. Tracing compara o mesmo corpo
+com tokens explícitos; isso não ativa preparação ARC no seu fluxo normal.
+Não certifica throw originado no hook, unwind, morte de todas as alocações
+anteriores, junções gerais, lowering Dart, Finalizable ou suspensão.
+Evidência congelada em bench/resultados/2026-10-10-cleanup-laco-windows:
+16 execuções e 80 arquivos brutos. Manifesto registra base 66fd85db,
+modificações locais, hashes SHA-256 e blobs das fontes novas; não atribui
+as fontes modificadas durante a prova à revisão base.
+
+scripts/provar-arc-aot.py reúne campos, pending e laços, com saída positiva
+exata 1 LF e controles exigindo trap de instrução, rejeitando erro de carga,
+abort e falha de geração. Registra comandos, saídas, versões e hashes;
+temporários ficam em target e são removidos ao encerrar. As três matrizes
+locais passaram: 20 positivas e 28 negativas, 240 hashes conferidos. Laços
+também passaram com llvm-embutido. Teste do exemplo passou (1 teste), YAML
+confere 48 steps válidos. CI preparada para usar o script e guardar logs e
+manifestos nas três plataformas; essa revisão ainda não foi publicada.
+Na CI 38034929874 da fonte ed5897e9, Windows e Linux terminaram com sucesso;
+macOS ainda em execução. A etapa de campos passou nas três plataformas,
+mas essa execução não cobre o script novo nem pending/laços novos.
+ARC continua exclusivo de --memoria=arc; tracing permanece o padrão.
+
 Preparação ARC agora insere cleanup de tokens mortos em arestas normais,
 incluindo arestas críticas, Switch e voltas de laços. Planejamento usa o
 mesmo fluxo linear de tokens, com vivacidade e dependências de borrows;
