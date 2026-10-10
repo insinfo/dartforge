@@ -2,6 +2,13 @@
 
 ## Retomada de 2026-10-10
 
+CI pesada 38031768190 da fonte b5887c94 terminou com sucesso: 26 jobs
+aprovados, incluindo corpus nativo ARC/ARC stress, tracing, SDK da fonte,
+JIT×AOT, determinismo, variantes A1/B0/B1, paridade de análise e custo zero.
+Dois jobs foram skipped pela configuração (limitless_ui e sonda AOT do
+executor de macros). É validação daquela revisão, não das mudanças de
+ownership posteriores nem do critério de desempenho ARC≥A0.
+
 Keepalive de campos conferido também nos artefatos da CI 38034929874,
 fonte ed5897e9: 36 execuções Windows/Linux/macOS, doze positivas com stdout
 exato 1 LF e código 0, 24 controles vazios por trap (Windows -1073741795,
