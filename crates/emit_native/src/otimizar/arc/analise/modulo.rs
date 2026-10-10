@@ -12,8 +12,9 @@ use std::collections::HashMap;
 /// classe/layout e o índice existe. Cópias/Phis preservam essa união; leitura
 /// opaca, parâmetro e call sem resumo não provam a classe do receiver.
 /// Chaves de layout são locais à versão do módulo, sem validade de recarga.
-/// CallStatic usa aliases normais dos corpos locais; efeitos continuam opacos.
-/// Versões dos callees usados são registradas para conferência no consumo.
+/// CallStatic usa aliases normais dos corpos locais até ponto fixo por SCC;
+/// efeitos continuam opacos. Todo corpo transitivo consultado tem sua versão
+/// registrada para conferência conservadora no consumo.
 ///
 /// # Erros
 /// Símbolo ausente/duplicado, fato de sítio obsoleto, origem com classes
@@ -53,20 +54,7 @@ pub fn analisar_no_modulo(
             }
         })
         .collect();
-    let mut resumos = HashMap::new();
-    for callee in &m.functions {
-        if chamadas.contains(callee.symbol.as_str()) {
-            if resumos
-                .insert(
-                    callee.symbol.clone(),
-                    (callee, super::resumos::extrair(callee, limite)?),
-                )
-                .is_some()
-            {
-                return Err(format!("points-to: callee duplicado {}", callee.symbol));
-            }
-        }
-    }
+    let resumos = super::chamadas::resolver(m, &chamadas, limite)?;
     let instrucoes: HashMap<_, _> = f
         .blocks
         .iter()
@@ -163,7 +151,15 @@ pub fn analisar_no_modulo(
             },
         );
     }
-    Ok(Some(analisar_com_resumos(f, &fatos, limite, &resumos)?))
+    let mut analise = analisar_com_resumos(f, &fatos, limite, &resumos)?;
+    // Guarda conservadora de todo o alcance consultado, inclusive corpos
+    // transitivos. Não é cache persistente nem dependência de geração JIT.
+    for (s, (corpo, _)) in &resumos {
+        analise
+            .dependencias_corpos
+            .insert(s.clone(), assinatura_corpo(corpo));
+    }
+    Ok(Some(analise))
 }
 
 #[cfg(test)]
@@ -195,7 +191,7 @@ mod testes {
                     (
                         ValueId(1),
                         Instruction::CallStatic {
-                            symbol: "id".into(),
+                            symbol: "ponte".into(),
                             args: vec![Operand::Val(ValueId(0))],
                             ret_ty: Type::Ref,
                         },
@@ -233,6 +229,20 @@ mod testes {
                 terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
             }],
         });
+        let mut ponte = m.functions[1].clone();
+        ponte.symbol = "ponte".into();
+        ponte.name = "ponte".into();
+        ponte.blocks[0].instructions = vec![(
+            ValueId(1),
+            Instruction::CallStatic {
+                symbol: "id".into(),
+                args: vec![Operand::Val(ValueId(0))],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        )];
+        ponte.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
+        m.functions.push(ponte);
         super::super::origens::registrar(&mut m, 0, true);
         let a = analisar_no_modulo(&m, "caller", 8).unwrap().unwrap();
         assert_eq!(a.valor(ValueId(0)), a.valor(ValueId(1)));

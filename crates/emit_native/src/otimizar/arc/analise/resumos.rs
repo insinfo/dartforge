@@ -137,6 +137,17 @@ impl ResumoHeapArc {
 /// # Ok::<(), String>(())
 /// ```
 pub fn extrair(f: &Function, limite: usize) -> Result<ResumoHeapArc, String> {
+    extrair_com_chamadas(f, limite, false, |_| None)
+}
+
+// Vazio sem null é bottom somente durante a solução interprocedural.
+// O solver o eleva a desconhecido antes de disponibilizar o resultado.
+pub(super) fn extrair_com_chamadas<'a>(
+    f: &Function,
+    limite: usize,
+    interno: bool,
+    chamada: impl Fn(&str) -> Option<(&'a Function, &'a RetornoHeapArc)>,
+) -> Result<ResumoHeapArc, String> {
     super::super::ssa::verificar(f)?;
     let tipos: HashMap<_, _> = f
         .params
@@ -192,6 +203,35 @@ pub fn extrair(f: &Function, limite: usize) -> Result<ResumoHeapArc, String> {
                     copias.push((op(o), destino));
                 }
             }
+            Instruction::CallStatic {
+                symbol,
+                args,
+                ret_ty,
+            } if *t == Type::Ref && *ret_ty == Type::Ref => match chamada(symbol) {
+                Some((
+                    callee,
+                    RetornoHeapArc::Aliases {
+                        parametros,
+                        nulo: null,
+                    },
+                )) => {
+                    if args.len() != callee.params.len() {
+                        return Err(format!("resumo: aridade de {symbol}"));
+                    }
+                    for &p in parametros {
+                        if let Operand::Val(v) = &args[p]
+                            && tipos[v] != Type::Ref
+                        {
+                            return Err(format!("resumo: argumento Ref de {symbol}"));
+                        }
+                        copias.push((op(&args[p]), destino));
+                    }
+                    if *null {
+                        copias.push((nulo, destino));
+                    }
+                }
+                _ => rs.push(Restricao::Desconhecer { destino }),
+            },
             _ => rs.push(Restricao::Desconhecer { destino }),
         }
     }
@@ -238,7 +278,10 @@ pub fn extrair(f: &Function, limite: usize) -> Result<ResumoHeapArc, String> {
             }
         }
     }
-    let retorno = if desconhecido || !normal || (parametros.is_empty() && !pode_null) {
+    let retorno = if desconhecido
+        || parametros.len() > limite
+        || (!interno && (!normal || (parametros.is_empty() && !pode_null)))
+    {
         RetornoHeapArc::Desconhecido
     } else {
         RetornoHeapArc::Aliases {

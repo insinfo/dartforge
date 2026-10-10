@@ -1924,6 +1924,15 @@ Usar a hierarquia/RTA para um superconjunto de alvos; points-to pode reduzi-lo
 apenas com prova. Método ainda não analisado não é `noescape` por padrão.
 SDK já compilado precisa exportar esses resumos ou ser tratado como opaco.
 
+Base local disponível: `otimizar::arc::analise::chamadas` resolve aliases de
+parâmetro e null nas chamadas diretas com corpos HIR presentes, por Tarjan e
+worklist monotônica. Instancia argumentos reais, une aliases/nulabilidade e
+eleva orçamento excedido a desconhecido; bottom fica interno à solução.
+Corpos transitivos consultados integram a guarda local de consumo do escape.
+Isso ainda não cobre resumos de campos/globais/frescor, observadores, efeitos,
+alvos dinâmicos RTA, vidas, SDK exportado ou versões de layouts/gerações JIT;
+não prova noescape nem autoriza selecionar política ou eliminar contagens.
+
 Especialização cria versões internas por política/região quando reduzir
 trabalho estimado e respeitar limite de código. Resumos podem ser paramétricos
 sem clonar todas as funções. Entradas públicas, dispatch aberto e FFI mantêm

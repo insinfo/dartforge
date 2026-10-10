@@ -2,6 +2,32 @@
 
 ## Retomada de 2026-10-10
 
+Aliases de retorno normal agora convergem nas SCCs de chamadas diretas locais
+em otimizar/arc/analise/chamadas.rs. Alcance dos corpos é descoberto sem
+recursão Rust; Tarjan ordena dependências e worklist monotônica reaplica
+chamadores da SCC quando aliases/null crescem. Substituição usa argumentos
+reais, inclusive permutações na recursão. Bottom vazio sem null é interno;
+SCC sem evidência de retorno normal é elevada a desconhecido antes do consumo.
+União de retornos de blocos diferentes agora também respeita orçamento:
+oráculo encontrou excesso antes da correção; não truncar conjunto de aliases.
+Análise do módulo guarda todos os corpos transitivos consultados, sem cache
+persistente: mudança no fim de caller→ponte→id invalida o escape do caller.
+Operações continuam opacas para efeitos/escape; retornar argumento não prova
+que seus campos ou publicações ficaram intactos. Ausência de corpo externo
+mantém resultado desconhecido. Oráculo Floyd-Warshall confere todos os 512
+grafos de três funções em três budgets; testes cobrem recursão com permutação,
+null, SCC sem base, externo e cadeia de 2.000 funções em ambas as ordens.
+Passaram 27 testes focados, 290 testes do emissor (sete ignorados) e 85 exemplos
+públicos. Logs target/arc-resumos-scc-{focado,suite,doc}.log. Rustfmt dos três
+arquivos de análise alterados e git diff --check passaram. Clippy do workspace
+não aprovado: limitação preexistente registrada abaixo permanece.
+Ainda pendentes: efeitos/observadores, campos/globais/frescor, alvos dinâmicos
+RTA, vidas, resumos SDK e versões de layouts/pins/gerações JIT. Não conclui
+§28.3/S1 ou §§27–34; entrada continua explícita, sem seleção de política ou
+eliminação de contagens. ARC só com --memoria=arc; tracing permanece padrão.
+Gate ARC/A0 segue não aprovado. CI 38051323600: Linux passou, Windows cancelado
+por prazo antigo; macOS continua nos testes JIT com ignorados. Mudança local.
+
 Análise HIR consome aliases de retorno normal de CallStatic com corpo local
 disponível no módulo. Substitui parâmetros pelos argumentos reais, sem
 fabricar objeto fresco; retorno só null conserva conjunto vazio. Aridade e
