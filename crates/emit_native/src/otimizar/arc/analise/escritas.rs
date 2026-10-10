@@ -2,15 +2,39 @@
 //! Não são cobertura de vida/publicação: campos opacos e caminhos implícitos
 //! continuam exigindo ARC geral mesmo quando estas inclusões são conhecidas.
 
-use super::{modelo::*, points_to::*, resumos::*};
+use super::resumos::*;
 use crate::hir::*;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, VecDeque};
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct CaminhoParametro {
+    pub parametro: usize,
+    pub campos: Vec<usize>,
+}
+
+impl CaminhoParametro {
+    fn raiz(parametro: usize) -> Self {
+        Self {
+            parametro,
+            campos: Vec::new(),
+        }
+    }
+
+    fn continuar(&self, campos: &[usize], limite: usize) -> Option<Self> {
+        if self.campos.len().checked_add(campos.len())? > limite {
+            return None;
+        }
+        let mut caminho = self.clone();
+        caminho.campos.extend_from_slice(campos);
+        Some(caminho)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct EscritaParametro {
-    pub objeto: usize,
+    pub objeto: CaminhoParametro,
     pub indice: usize,
-    pub valor: usize,
+    pub valor: CaminhoParametro,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,9 +65,34 @@ impl InclusoesEscritas {
     }
 }
 
-// Aliases reais dos argumentos substituem placeholders; nenhuma chamada
-// cria um objeto fresco. Campos lidos/alocações/externos não são parâmetros
-// por aproximação: sem uma representação de caminho, conservam topo.
+// Caminhos representam leituras no superestado fraco do chamador: sua
+// instanciação deve incluir todos os stores, sem apagar valores anteriores.
+// O comprimento e a quantidade de aliases são limitados; crescer além do
+// orçamento produz topo, inclusive em Phis ou chamadas recursivas.
+type AliasesCaminhos = Option<BTreeSet<CaminhoParametro>>;
+
+fn unir_aliases(destino: &mut AliasesCaminhos, origem: AliasesCaminhos, limite: usize) -> bool {
+    let antes = destino.clone();
+    match (&mut *destino, origem) {
+        (Some(a), Some(b)) => {
+            a.extend(b);
+            if a.len() > limite {
+                *destino = None;
+            }
+        }
+        (_, None) => *destino = None,
+        _ => {}
+    }
+    *destino != antes
+}
+
+fn prolongar(aliases: AliasesCaminhos, campos: &[usize], limite: usize) -> AliasesCaminhos {
+    aliases?
+        .into_iter()
+        .map(|c| c.continuar(campos, limite))
+        .collect()
+}
+
 pub(super) fn extrair<'a>(
     f: &Function,
     limite: usize,
@@ -64,46 +113,46 @@ pub(super) fn extrair<'a>(
     let mut valores: Vec<_> = tipos.keys().copied().collect();
     valores.sort_by_key(|v| v.0);
     let ids: HashMap<_, _> = valores.iter().enumerate().map(|(i, v)| (*v, i)).collect();
-    let nulo = ids.len();
-    let opaco = nulo + 1;
-    let operando = |o: &Operand| match o {
-        Operand::Val(v) => ids[v],
-        Operand::Constant(Constant::Null) => nulo,
-        _ => opaco,
-    };
-    let mut rs = vec![Restricao::Desconhecer { destino: opaco }];
+    let mut aliases = vec![Some(BTreeSet::new()); ids.len()];
     for (p, (v, _, t)) in f.params.iter().enumerate() {
-        rs.push(if *t == Type::Ref {
-            Restricao::Semear {
-                destino: ids[v],
-                no: NoAbstrato::Parametro {
-                    funcao: f.symbol.clone(),
-                    indice: u32::try_from(p).map_err(|_| "escritas ARC: parâmetros demais")?,
-                },
-            }
+        aliases[ids[v]] = if *t == Type::Ref && limite > 0 {
+            Some(BTreeSet::from([CaminhoParametro::raiz(p)]))
         } else {
-            Restricao::Desconhecer { destino: ids[v] }
+            None
+        };
+    }
+    let operando = |o: &Operand, aliases: &[AliasesCaminhos]| match o {
+        Operand::Val(v) => aliases[ids[v]].clone(),
+        Operand::Constant(Constant::Null) => Some(BTreeSet::new()),
+        _ => None,
+    };
+    // Bottom fica interno até a convergência. Stores só são extraídos após
+    // estabilizar cópias, caminhos e aliases de resultados normais locais.
+    let instrucoes: Vec<_> = f.blocks.iter().flat_map(|b| &b.instructions).collect();
+    let mut dependentes = vec![Vec::new(); ids.len()];
+    for (indice, (_, i, _)) in instrucoes.iter().enumerate() {
+        crate::otimizar::operandos::operandos(i, &mut |o| {
+            if let Operand::Val(v) = o {
+                dependentes[ids[v]].push(indice);
+            }
         });
     }
-    for (v, i, t) in f.blocks.iter().flat_map(|b| &b.instructions) {
-        let destino = ids[v];
-        match i {
-            Instruction::Const(Constant::Null) if *t == Type::Ref => {}
+    let mut fila: VecDeque<_> = (0..instrucoes.len()).collect();
+    let mut enfileirados = vec![true; instrucoes.len()];
+    while let Some(indice) = fila.pop_front() {
+        enfileirados[indice] = false;
+        let (v, i, t) = instrucoes[indice];
+        let novo = match i {
+            Instruction::Const(Constant::Null) if *t == Type::Ref => Some(BTreeSet::new()),
             Instruction::ArcCopy { value } | Instruction::ArcMove { value }
                 if *t == Type::Ref && argumento_exato(value, Type::Ref, &tipos) =>
             {
-                rs.push(Restricao::Copiar {
-                    origem: operando(value),
-                    destino,
-                })
+                operando(value, &aliases)
             }
             Instruction::Bitcast { op, to: Type::Ref }
                 if *t == Type::Ref && argumento_exato(op, Type::Ref, &tipos) =>
             {
-                rs.push(Restricao::Copiar {
-                    origem: operando(op),
-                    destino,
-                })
+                operando(op, &aliases)
             }
             Instruction::Phi {
                 incoming,
@@ -113,10 +162,16 @@ pub(super) fn extrair<'a>(
                     .iter()
                     .all(|(_, o)| argumento_exato(o, Type::Ref, &tipos)) =>
             {
-                rs.extend(incoming.iter().map(|(_, o)| Restricao::Copiar {
-                    origem: operando(o),
-                    destino,
-                }));
+                let mut a = Some(BTreeSet::new());
+                for (_, o) in incoming {
+                    unir_aliases(&mut a, operando(o, &aliases), limite);
+                }
+                a
+            }
+            Instruction::GetField { object, index }
+                if *t == Type::Ref && argumento_exato(object, Type::Ref, &tipos) =>
+            {
+                prolongar(operando(object, &aliases), &[*index], limite)
             }
             Instruction::CallStatic {
                 symbol,
@@ -138,56 +193,55 @@ pub(super) fn extrair<'a>(
                 }
                 if *t == Type::Ref {
                     if let RetornoHeapArc::Aliases { parametros, .. } = retorno {
+                        let mut a = Some(BTreeSet::new());
                         for &p in parametros {
                             let arg = args
                                 .get(p)
                                 .ok_or("escritas ARC: parâmetro de retorno inválido")?;
-                            rs.push(Restricao::Copiar {
-                                origem: operando(arg),
-                                destino,
-                            });
+                            unir_aliases(&mut a, operando(arg, &aliases), limite);
                         }
+                        a
                     } else {
-                        rs.push(Restricao::Desconhecer { destino });
+                        None
                     }
+                } else {
+                    Some(BTreeSet::new())
                 }
             }
             Instruction::SetField { object, value, .. }
                 if *t == Type::Void
                     && argumento_exato(object, Type::Ref, &tipos)
-                    && argumento_exato(value, Type::Ref, &tipos) => {}
+                    && argumento_exato(value, Type::Ref, &tipos) =>
+            {
+                Some(BTreeSet::new())
+            }
             Instruction::Const(c) if argumento_exato(&Operand::Constant(c.clone()), *t, &tipos) => {
-                rs.push(Restricao::Desconhecer { destino });
+                None
             }
-            i if super::hir::escalar_puro(i, *t, &tipos) => {
-                rs.push(Restricao::Desconhecer { destino });
-            }
+            i if super::hir::escalar_puro(i, *t, &tipos) => None,
             _ => return Ok(InclusoesEscritas::Desconhecidas),
+        };
+        if unir_aliases(&mut aliases[ids[v]], novo, limite) {
+            for &dependente in &dependentes[ids[v]] {
+                if !enfileirados[dependente] {
+                    enfileirados[dependente] = true;
+                    fila.push_back(dependente);
+                }
+            }
         }
     }
-    let pontos = resolver(ids.len() + 2, limite, &rs)?;
     let mut resultado = InclusoesEscritas::vazio();
-    let mut incluir = |object: &Operand, indice, value: &Operand| -> bool {
-        let (Some(origens), Some(destinos)) = (
-            pontos.variavel(operando(object)).unwrap().nos(),
-            pontos.variavel(operando(value)).unwrap().nos(),
-        ) else {
+    let mut incluir = |origens: AliasesCaminhos, indice, destinos: AliasesCaminhos| -> bool {
+        let (Some(origens), Some(destinos)) = (origens, destinos) else {
             return false;
         };
         for origem in origens {
-            for destino in destinos {
-                let (
-                    NoAbstrato::Parametro { indice: a, .. },
-                    NoAbstrato::Parametro { indice: b, .. },
-                ) = (origem, destino)
-                else {
-                    return false;
-                };
+            for destino in &destinos {
                 resultado.unir(
                     &InclusoesEscritas::Conhecidas(BTreeSet::from([EscritaParametro {
-                        objeto: *a as usize,
+                        objeto: origem.clone(),
                         indice,
-                        valor: *b as usize,
+                        valor: destino.clone(),
                     }])),
                     limite,
                 );
@@ -202,7 +256,11 @@ pub(super) fn extrair<'a>(
                 index,
                 value,
             } => {
-                if !incluir(object, *index, value) {
+                if !incluir(
+                    operando(object, &aliases),
+                    *index,
+                    operando(value, &aliases),
+                ) {
                     return Ok(InclusoesEscritas::Desconhecidas);
                 }
             }
@@ -213,12 +271,16 @@ pub(super) fn extrair<'a>(
                 };
                 for escrita in escritas {
                     let object = args
-                        .get(escrita.objeto)
+                        .get(escrita.objeto.parametro)
                         .ok_or("escritas ARC: receiver inválido")?;
                     let value = args
-                        .get(escrita.valor)
+                        .get(escrita.valor.parametro)
                         .ok_or("escritas ARC: valor inválido")?;
-                    if !incluir(object, escrita.indice, value) {
+                    if !incluir(
+                        prolongar(operando(object, &aliases), &escrita.objeto.campos, limite),
+                        escrita.indice,
+                        prolongar(operando(value, &aliases), &escrita.valor.campos, limite),
+                    ) {
                         return Ok(InclusoesEscritas::Desconhecidas);
                     }
                 }
@@ -265,12 +327,191 @@ mod testes {
             pares
                 .iter()
                 .map(|&(objeto, valor)| EscritaParametro {
-                    objeto,
+                    objeto: CaminhoParametro::raiz(objeto),
                     indice: 0,
-                    valor,
+                    valor: CaminhoParametro::raiz(valor),
                 })
                 .collect(),
         )
+    }
+
+    #[test]
+    fn leituras_encadeadas_e_wrapper_preservam_caminhos_dos_argumentos() {
+        let mut f = ligar("profundo", false);
+        f.blocks[0].instructions = vec![
+            (
+                ValueId(2),
+                Instruction::GetField {
+                    object: Operand::Val(ValueId(0)),
+                    index: 0,
+                },
+                Type::Ref,
+            ),
+            (
+                ValueId(3),
+                Instruction::GetField {
+                    object: Operand::Val(ValueId(2)),
+                    index: 1,
+                },
+                Type::Ref,
+            ),
+            (
+                ValueId(4),
+                Instruction::GetField {
+                    object: Operand::Val(ValueId(1)),
+                    index: 2,
+                },
+                Type::Ref,
+            ),
+            (
+                ValueId(5),
+                Instruction::SetField {
+                    object: Operand::Val(ValueId(3)),
+                    index: 4,
+                    value: Operand::Val(ValueId(4)),
+                },
+                Type::Void,
+            ),
+        ];
+        let esperado = |prefixo: Vec<usize>| {
+            InclusoesEscritas::Conhecidas(BTreeSet::from([EscritaParametro {
+                objeto: CaminhoParametro {
+                    parametro: 0,
+                    campos: prefixo,
+                },
+                indice: 4,
+                valor: CaminhoParametro {
+                    parametro: 1,
+                    campos: vec![2],
+                },
+            }]))
+        };
+        assert_eq!(extrair(&f, 8, |_| None).unwrap(), esperado(vec![0, 1]));
+        assert_eq!(
+            extrair(&f, 1, |_| None).unwrap(),
+            InclusoesEscritas::Desconhecidas
+        );
+        let mut wrapper = ligar("wrapper", false);
+        wrapper.blocks[0].instructions = vec![
+            (
+                ValueId(2),
+                Instruction::GetField {
+                    object: Operand::Val(ValueId(0)),
+                    index: 9,
+                },
+                Type::Ref,
+            ),
+            (
+                ValueId(3),
+                Instruction::CallStatic {
+                    symbol: "profundo".into(),
+                    args: vec![Operand::Val(ValueId(2)), Operand::Val(ValueId(1))],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            ),
+        ];
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.functions = vec![wrapper, f];
+        for ordem in [false, true] {
+            if ordem {
+                m.functions.reverse();
+            }
+            let r = super::super::chamadas::resolver(&m, &HashSet::from(["wrapper"]), 8).unwrap();
+            assert_eq!(r["wrapper"].1.inclusoes_escritas, esperado(vec![9, 0, 1]));
+            assert_eq!(r["wrapper"].1.campos(), CamposHeapArc::Desconhecidos);
+            assert_eq!(
+                r["wrapper"].1.publicacoes(),
+                PublicacoesHeapArc::Desconhecidas
+            );
+        }
+    }
+
+    #[test]
+    fn caminhos_crescentes_em_scc_e_phi_atingem_topo_sem_truncar() {
+        let mut f = ligar("recursivo", false);
+        f.blocks[0].instructions.push((
+            ValueId(3),
+            Instruction::GetField {
+                object: Operand::Val(ValueId(0)),
+                index: 0,
+            },
+            Type::Ref,
+        ));
+        f.blocks[0].instructions.push((
+            ValueId(4),
+            Instruction::CallStatic {
+                symbol: "recursivo".into(),
+                args: vec![Operand::Val(ValueId(3)), Operand::Val(ValueId(1))],
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        ));
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.functions.push(f);
+        let r = super::super::chamadas::resolver(&m, &HashSet::from(["recursivo"]), 4).unwrap();
+        assert_eq!(
+            r["recursivo"].1.inclusoes_escritas,
+            InclusoesEscritas::Desconhecidas
+        );
+        let mut f = ligar("phi_crescente", false);
+        f.params.push((ValueId(5), "cond".into(), Type::I1));
+        f.blocks = vec![
+            BasicBlock {
+                id: BlockId(0),
+                instructions: vec![],
+                terminator: Terminator::Branch(BlockId(1)),
+            },
+            BasicBlock {
+                id: BlockId(1),
+                instructions: vec![
+                    (
+                        ValueId(2),
+                        Instruction::Phi {
+                            incoming: vec![
+                                (BlockId(0), Operand::Val(ValueId(0))),
+                                (BlockId(1), Operand::Val(ValueId(3))),
+                            ],
+                            ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(3),
+                        Instruction::GetField {
+                            object: Operand::Val(ValueId(2)),
+                            index: 0,
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(4),
+                        Instruction::SetField {
+                            object: Operand::Val(ValueId(2)),
+                            index: 0,
+                            value: Operand::Val(ValueId(1)),
+                        },
+                        Type::Void,
+                    ),
+                ],
+                terminator: Terminator::CondBranch {
+                    cond: Operand::Val(ValueId(5)),
+                    then_block: BlockId(1),
+                    else_block: BlockId(2),
+                },
+            },
+            BasicBlock {
+                id: BlockId(2),
+                instructions: vec![],
+                terminator: Terminator::Return(None),
+            },
+        ];
+        assert_eq!(
+            extrair(&f, 3, |_| None).unwrap(),
+            InclusoesEscritas::Desconhecidas
+        );
     }
 
     #[test]

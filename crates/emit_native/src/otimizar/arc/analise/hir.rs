@@ -227,6 +227,7 @@ pub(crate) fn analisar_com_resumos(
     let opaco = vazio + 1;
     let mut rs = vec![Restricao::Desconhecer { destino: opaco }];
     let mut inclusoes_escritas = Vec::new();
+    let mut numero_variaveis = ids.len() + 2;
     let campos: BTreeSet<_> = fatos
         .acessos
         .values()
@@ -362,12 +363,32 @@ pub(crate) fn analisar_com_resumos(
                 {
                     for escrita in escritas {
                         let object = args
-                            .get(escrita.objeto)
+                            .get(escrita.objeto.parametro)
                             .ok_or("points-to: receiver de resumo inválido")?;
                         let value = args
-                            .get(escrita.valor)
+                            .get(escrita.valor.parametro)
                             .ok_or("points-to: valor de resumo inválido")?;
-                        inclusoes_escritas.push((operando(object), operando(value)));
+                        let objeto = materializar_caminho(
+                            operando(object),
+                            &escrita.objeto.campos,
+                            &esquemas_por_indice,
+                            &mut numero_variaveis,
+                            &mut rs,
+                        )?;
+                        let valor = materializar_caminho(
+                            operando(value),
+                            &escrita.valor.campos,
+                            &esquemas_por_indice,
+                            &mut numero_variaveis,
+                            &mut rs,
+                        )?;
+                        rs.push(Restricao::GravarPorEsquema {
+                            objeto,
+                            esquemas: esquemas_por_indice.clone(),
+                            indice: escrita.indice,
+                            valor,
+                        });
+                        inclusoes_escritas.push((objeto, valor));
                     }
                 }
                 // Cobertura de campos é separada do alias normal. Conversões
@@ -442,7 +463,7 @@ pub(crate) fn analisar_com_resumos(
             }
         }
     }
-    let pontos = resolver(ids.len() + 2, limite, &rs)?;
+    let pontos = resolver(numero_variaveis, limite, &rs)?;
     for (v, objeto, indice) in acessos_selecionados {
         if pontos.variavel(objeto).unwrap().nos().is_none_or(|ns| {
             ns.is_empty()
@@ -478,6 +499,33 @@ pub(crate) fn analisar_com_resumos(
         esquemas,
         inclusoes_escritas,
     })
+}
+
+// Caminhos usam o mesmo ponto fixo fraco dos stores e layouts nominais,
+// inclusive efeitos de outras chamadas. Não congelar uma leitura antes da
+// convergência nem inventar identidade de sítio para uma variável auxiliar.
+fn materializar_caminho(
+    origem: usize,
+    campos: &[usize],
+    esquemas: &std::sync::Arc<std::collections::BTreeMap<NoAbstrato, Vec<CampoArc>>>,
+    numero_variaveis: &mut usize,
+    rs: &mut Vec<Restricao>,
+) -> Result<usize, String> {
+    let mut objeto = origem;
+    for &indice in campos {
+        let destino = *numero_variaveis;
+        *numero_variaveis = numero_variaveis
+            .checked_add(1)
+            .ok_or("points-to: variáveis auxiliares demais")?;
+        rs.push(Restricao::LerPorEsquema {
+            objeto,
+            esquemas: esquemas.clone(),
+            indice,
+            destino,
+        });
+        objeto = destino;
+    }
+    Ok(objeto)
 }
 
 fn invalidar_campos(
@@ -603,6 +651,59 @@ pub(super) fn fabrica_zerada(
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn caminho_instanciado_inclui_stores_tardios_e_ambos_os_destinos_anteriores() {
+        let nos = [
+            NoAbstrato::Global("a".into()),
+            NoAbstrato::Global("b".into()),
+            NoAbstrato::Global("c".into()),
+        ];
+        let campos: Vec<_> = ["A", "B", "C"]
+            .into_iter()
+            .map(|layout| CampoArc {
+                layout: layout.into(),
+                posicao: 0,
+            })
+            .collect();
+        let esquemas = std::sync::Arc::new(
+            nos.iter()
+                .cloned()
+                .zip(campos.iter().cloned().map(|c| vec![c]))
+                .collect(),
+        );
+        let mut rs: Vec<_> = nos
+            .iter()
+            .enumerate()
+            .map(|(destino, no)| Restricao::Semear {
+                destino,
+                no: no.clone(),
+            })
+            .collect();
+        let mut variaveis = 3;
+        let leitura = materializar_caminho(0, &[0, 0], &esquemas, &mut variaveis, &mut rs).unwrap();
+        for (objeto, valor) in [(0, 1), (1, 2), (2, 0), (0, 2)] {
+            rs.push(Restricao::GravarPorEsquema {
+                objeto,
+                esquemas: esquemas.clone(),
+                indice: 0,
+                valor,
+            });
+        }
+        // a.filho pode ser b ou c; a.filho.filho pode ser c ou a. Uma
+        // leitura congelada antes do store tardio a.filho=c perderia a.
+        let esperado = BTreeSet::from([nos[0].clone(), nos[2].clone()]);
+        for ordem in [false, true] {
+            if ordem {
+                rs.reverse();
+            }
+            let p = resolver(variaveis, 8, &rs).unwrap();
+            assert_eq!(p.variavel(leitura).unwrap().nos().unwrap(), &esperado);
+            super::super::points_to::verificar(variaveis, 8, &rs, &p).unwrap();
+        }
+        let p = resolver(variaveis, 1, &rs).unwrap();
+        assert!(p.variavel(leitura).unwrap().nos().is_none());
+    }
 
     fn fixture() -> (Function, FatosHir) {
         let campo = CampoArc {
