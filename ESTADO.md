@@ -2,6 +2,20 @@
 
 ## Retomada de 2026-10-10
 
+CI 38021212710 concluída com sucesso na fonte 34198a54: Windows, Linux,
+macOS arm64 e mensagens verdes. Inclui as etapas completas com ignorados,
+SDK/JIT/recarga e as provas AOT Unix já preservadas. Avanços posteriores
+de boxing/unbox/fatos/plano de módulo ainda precisam da nova rodada CI.
+
+Preparação ARC de módulo reúne fatos escalares/RTI e preparação do conjunto
+em uma transação: preparar_arc_modulo_dart. Tracing é no-op; ARC só publica
+corpos e planos depois da validação completa. Testes cobrem idempotência,
+fato RTI inválido e runtime sem contrato após parâmetros válidos, sem
+publicação parcial. Não materializa tabelas nem ativa o passe no pipeline;
+contratos/CFG/borrows ainda exigem cobertura. Log target/arc-modulo-atomico.log.
+Passaram 209 testes do emissor (7 ignorados) e 52 exemplos de documentação;
+logs target/arc-modulo-atomico-{suite,doc}.log.
+
 Fatos RTI do lowering agora alimentam planos pela API
 produzir_parametros_rti_do_lowering. Exige ID de parâmetro I64 com origem
 RTI explícita e rejeita a mesma definição marcada como escalar Dart.

@@ -127,6 +127,50 @@ pub fn preparar_arc_funcoes_dart(
     inserir(funcoes, planos, true)
 }
 
+/// Prepara atomicamente os fatos do lowering e o conjunto fechado de um módulo ARC.
+///
+/// Tracing devolve (0, 0) sem tocar corpos ou planos. Em ARC, produz parâmetros
+/// escalares/RTI nas cópias dos planos e prepara/verifica todas as funções antes
+/// de publicar. Os planos devem descrever o CFG final após as otimizações.
+/// Retorno Ref exige convenção Owned e operações não cobertas exigem contratos
+/// explícitos. Não materializa tabelas nem chama este passe no pipeline padrão.
+/// Demais limites são os de [`preparar_arc_funcoes_dart`].
+///
+/// # Erros
+/// Fatos inválidos ou qualquer erro de preparação do conjunto. Nenhum corpo
+/// ou plano é publicado, incluindo fatos de parâmetros previamente válidos.
+///
+/// ```
+/// use dartforge_emit_native::{hir::*, otimizar::arc::*};
+/// use std::collections::{HashMap, HashSet};
+/// let mut m = Module::new(); m.memoria_arc = true;
+/// m.functions.push(Function { symbol: "caixa".into(), name: "caixa".into(),
+///     depuracao: None, params: vec![(ValueId(0), "numero".into(), Type::I64)],
+///     return_ty: Type::Void, blocks: vec![BasicBlock { id: BlockId(0),
+///     instructions: vec![(ValueId(1), Instruction::Box { op: Operand::Val(ValueId(0)),
+///     from: Type::I64 }, Type::Ref)], terminator: Terminator::Return(None) }] });
+/// m.parametros_escalares_dart.insert("caixa".into(), HashSet::from([ValueId(0)]));
+/// let mut planos = HashMap::from([("caixa".into(), PlanoFuncaoDart::default())]);
+/// assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos)?, (0, 1));
+/// # Ok::<(), String>(())
+/// ```
+pub fn preparar_arc_modulo_dart(
+    modulo: &mut Module,
+    planos: &mut HashMap<String, PlanoFuncaoDart>,
+) -> Result<(usize, usize), String> {
+    if !modulo.memoria_arc {
+        return Ok((0, 0));
+    }
+    let mut novos = planos.clone();
+    produzir_parametros_escalares_do_lowering(modulo, &mut novos)?;
+    produzir_parametros_rti_do_lowering(modulo, &mut novos)?;
+    // O conjunto já mantém os corpos privados até verificar todos eles.
+    // Após seu sucesso, a atribuição dos planos não introduz nova falha.
+    let total = preparar_arc_funcoes_dart(&mut modulo.functions, &mut novos)?;
+    *planos = novos;
+    Ok(total)
+}
+
 fn inserir(
     funcoes: &mut [Function],
     planos: &mut HashMap<String, PlanoFuncaoDart>,
@@ -249,6 +293,59 @@ fn inserir(
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn modulo_publica_fatos_e_cleanup_juntos_e_tracing_nao_prepara() {
+        for falha in 0..3 {
+            let (mut fs, mut ps) = boxing(Operand::Val(ValueId(3)), Type::I64);
+            fs[0].params = vec![
+                (ValueId(3), "numero".into(), Type::I64),
+                (ValueId(4), "$tipos".into(), Type::I64),
+            ];
+            let mut m = Module::new();
+            m.memoria_arc = true;
+            m.functions = fs;
+            m.parametros_escalares_dart
+                .insert("boxing".into(), HashSet::from([ValueId(3)]));
+            m.parametros_rti_dart
+                .insert("boxing".into(), HashSet::from([ValueId(4)]));
+            if falha == 1 {
+                m.parametros_rti_dart
+                    .get_mut("boxing")
+                    .unwrap()
+                    .insert(ValueId(99));
+            }
+            if falha == 2 {
+                m.functions[0].blocks[0].instructions.push((
+                    ValueId(9),
+                    Instruction::CallRuntime {
+                        name: "sem_contrato".into(),
+                        args: vec![],
+                        ret_ty: Type::Void,
+                    },
+                    Type::Void,
+                ));
+            }
+            let antes = format!("{m:?}/{ps:?}");
+            if falha == 0 {
+                assert_eq!(preparar_arc_modulo_dart(&mut m, &mut ps).unwrap(), (0, 1));
+                assert_eq!(ps["boxing"].classes[&ValueId(3)], Ownership::Trivial);
+                assert_eq!(ps["boxing"].classes[&ValueId(4)], Ownership::Trivial);
+                assert!(matches!(
+                    m.functions[0].blocks[0].instructions.last().unwrap().1,
+                    Instruction::ArcDrop { .. }
+                ));
+                assert_eq!(preparar_arc_modulo_dart(&mut m, &mut ps).unwrap(), (0, 0));
+            } else {
+                assert!(preparar_arc_modulo_dart(&mut m, &mut ps).is_err());
+                assert_eq!(format!("{m:?}/{ps:?}"), antes);
+            }
+            m.memoria_arc = false;
+            let antes = format!("{m:?}/{ps:?}");
+            assert_eq!(preparar_arc_modulo_dart(&mut m, &mut ps).unwrap(), (0, 0));
+            assert_eq!(format!("{m:?}/{ps:?}"), antes);
+        }
+    }
 
     #[test]
     fn unboxing_escalar_preserva_borrow_e_exige_type_error_preparado() {

@@ -34,6 +34,7 @@ pub use contratos::inserir_retencao_retornos_dart;
 pub use contratos::inserir_arc_saidas_dart;
 pub use chamadas::{ContratoFuncaoDart, verificar_contrato_funcao_dart, produzir_chamadas_dart};
 pub use funcoes::{PlanoFuncaoDart, inserir_arc_funcoes_dart, preparar_arc_funcoes_dart};
+pub use funcoes::preparar_arc_modulo_dart;
 pub use tokens::{EfeitoTokens, PlanoTokens, RetornoTokens, verificar_tokens, tokens_na_entrada_dos_pousos};
 pub use escopos::{AlteracaoEscopo, PlanoEscopos, verificar_escopos};
 pub use classificacao::{
