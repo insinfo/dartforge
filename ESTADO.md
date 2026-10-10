@@ -2,6 +2,17 @@
 
 ## Retomada de 2026-10-10
 
+Provas de retomada sob estresse ativo nos dois sistemas: fonte f460ce72,
+CI 38019611633, Linux e macOS passaram as etapas AOT. Dezesseis stdout
+MAX LF e dezesseis IR conferidos, com rastro explícito e capturas Owned.
+Evidência congelada em bench/resultados/2026-10-10-rastro-owned-estresse-unix-ci,
+com fonte, etapas, jobs, digests Actions e SHA-256. Variáveis DARTFORGE_* agora
+ativam de fato GC_STRESS/ARC_CONFERIR; as rodadas antigas com nomes sem prefixo
+não comprovavam essa ativação. A fixture estrangeira macOS ainda executa.
+Não prova morte final das capturas, identidade do objeto nativo de unwind Dart,
+forced unwind, finally, inlining observado ou integração padrão de ownership.
+
+
 Em validação local: Retoma aceita fechamento explícito de quadros locais,
 além de ArcDrop. O fechamento permitido é somente a ABI auditada
 quadro_fechar_v1 com um ID SSA Native/i64, retorno Void, sem coleta ou Dart.

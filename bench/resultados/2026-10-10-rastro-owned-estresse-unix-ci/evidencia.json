@@ -1,0 +1,214 @@
+{
+  "fonte": "f460ce72e3c570bfb9fe4cd192141ede8937d966",
+  "ci": 38019611633,
+  "url": "https://github.com/insinfo/dartforge/actions/runs/38019611633",
+  "estado_workflow_observado": "in_progress",
+  "ambiente_execucao": {
+    "DARTFORGE_ARC_CONFERIR": "1",
+    "DARTFORGE_ARC_BERCARIO": "0",
+    "DARTFORGE_GC_STRESS": "1"
+  },
+  "ambiente_geracao": {
+    "DARTFORGE_EFEITOS": "conferir"
+  },
+  "sistemas": {
+    "linux": {
+      "job": 114117516525,
+      "estado_job_observado": "completed",
+      "etapa": {
+        "completedAt": "2026-10-10T03:15:38Z",
+        "conclusion": "success",
+        "name": "Cleanup ARC com resume Itanium (AOT, normal e erro)",
+        "number": 9,
+        "startedAt": "2026-10-10T03:14:35Z",
+        "status": "completed"
+      },
+      "artefato": {
+        "id": 11657574008,
+        "digest": "sha256:765580fa459392097d5f9d9c030e65da987ee885087c21987785c0f24364773a"
+      },
+      "execucoes": 8,
+      "arquivos": [
+        {
+          "arquivo": "linux/misto-arc-erro.ll",
+          "bytes": 50362,
+          "sha256": "7752636151d393210a552f19b2303217e89182d66438fdeb1298c3df214d2395"
+        },
+        {
+          "arquivo": "linux/misto-arc-erro.stdout",
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        },
+        {
+          "arquivo": "linux/misto-arc-normal.ll",
+          "bytes": 50177,
+          "sha256": "c87f03740ab996492926d71d823861f077b55519ea1450713b4be18114461c4c"
+        },
+        {
+          "arquivo": "linux/misto-arc-normal.stdout",
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        },
+        {
+          "arquivo": "linux/misto-tracing-erro.ll",
+          "bytes": 50115,
+          "sha256": "768374528d8da82d66cb42020f5925b8ec12a4a07bfac4b83bedc81ae7095598"
+        },
+        {
+          "arquivo": "linux/misto-tracing-erro.stdout",
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        },
+        {
+          "arquivo": "linux/misto-tracing-normal.ll",
+          "bytes": 49930,
+          "sha256": "7c359b17644eb5e540370b3355cab986fe468e5586e5fd49495288c3cf5b4d14"
+        },
+        {
+          "arquivo": "linux/misto-tracing-normal.stdout",
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        },
+        {
+          "arquivo": "linux/simples-arc-erro.ll",
+          "bytes": 49866,
+          "sha256": "8895fa7a4770ed45b4f4ac0b77a5347af8e079a8188d7afc933fb7cccb341a66"
+        },
+        {
+          "arquivo": "linux/simples-arc-erro.stdout",
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        },
+        {
+          "arquivo": "linux/simples-arc-normal.ll",
+          "bytes": 49681,
+          "sha256": "47c66d1651261c33aa81791e0422de1d40277b083711192413ad0df9c74dacaa"
+        },
+        {
+          "arquivo": "linux/simples-arc-normal.stdout",
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        },
+        {
+          "arquivo": "linux/simples-tracing-erro.ll",
+          "bytes": 49619,
+          "sha256": "48cdca88f246cd7804a599880c0ca3886dc37bc4466e115bdf05e81161703234"
+        },
+        {
+          "arquivo": "linux/simples-tracing-erro.stdout",
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        },
+        {
+          "arquivo": "linux/simples-tracing-normal.ll",
+          "bytes": 49434,
+          "sha256": "f69fde45ed6c302b8d659112ace67872ee2cba3ecd176ce75d6c07d0ed9e4f77"
+        },
+        {
+          "arquivo": "linux/simples-tracing-normal.stdout",
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        }
+      ]
+    },
+    "macos": {
+      "job": 114117516649,
+      "estado_job_observado": "in_progress",
+      "etapa": {
+        "completedAt": "2026-10-10T03:27:14Z",
+        "conclusion": "success",
+        "name": "Cleanup ARC com resume Itanium (AOT, normal e erro)",
+        "number": 9,
+        "startedAt": "2026-10-10T03:23:09Z",
+        "status": "completed"
+      },
+      "artefato": {
+        "id": 11658021883,
+        "digest": "sha256:2570aef559798b8829823f4b0cb193755615a0dae29c9aebc2ffab1a0a91a6db"
+      },
+      "execucoes": 8,
+      "arquivos": [
+        {
+          "arquivo": "macos/misto-arc-erro.ll",
+          "bytes": 50216,
+          "sha256": "8ebd9f2a693c4f538a0b484a44a187434dc2027adc53f05678a54467c816b76e"
+        },
+        {
+          "arquivo": "macos/misto-arc-erro.stdout",
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        },
+        {
+          "arquivo": "macos/misto-arc-normal.ll",
+          "bytes": 50031,
+          "sha256": "34c3e9a0335e26424a608d11f14ef8272e7aeccc5653b9832c098cdbdb4c25c4"
+        },
+        {
+          "arquivo": "macos/misto-arc-normal.stdout",
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        },
+        {
+          "arquivo": "macos/misto-tracing-erro.ll",
+          "bytes": 49969,
+          "sha256": "2f71831d27e9e29cea703c212173548496b4deac2ddd4ceb0bed9948285c56f0"
+        },
+        {
+          "arquivo": "macos/misto-tracing-erro.stdout",
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        },
+        {
+          "arquivo": "macos/misto-tracing-normal.ll",
+          "bytes": 49784,
+          "sha256": "848ee05655ba4f8eb29c70d1f6d994e3d8b105e1cc8dc37912837d4bc07f4dca"
+        },
+        {
+          "arquivo": "macos/misto-tracing-normal.stdout",
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        },
+        {
+          "arquivo": "macos/simples-arc-erro.ll",
+          "bytes": 49720,
+          "sha256": "6799786d51c9467ec1cfaa9eb4f2e327bc40b98a36c3e0052182f1d2e2c89d6b"
+        },
+        {
+          "arquivo": "macos/simples-arc-erro.stdout",
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        },
+        {
+          "arquivo": "macos/simples-arc-normal.ll",
+          "bytes": 49535,
+          "sha256": "112586c54ef426ac8c7363b33f1db68380bfbae16b296afde7af0bfb1a4dfb62"
+        },
+        {
+          "arquivo": "macos/simples-arc-normal.stdout",
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        },
+        {
+          "arquivo": "macos/simples-tracing-erro.ll",
+          "bytes": 49473,
+          "sha256": "26a0b04d26f5be0d111425d054fd2e3f2816ab36229bc466da115774b3c1b543"
+        },
+        {
+          "arquivo": "macos/simples-tracing-erro.stdout",
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        },
+        {
+          "arquivo": "macos/simples-tracing-normal.ll",
+          "bytes": 49288,
+          "sha256": "5a9e4e9e37834aeed6f370362eb8fc6b20bd0d80bf9b1618198be621d379d9d2"
+        },
+        {
+          "arquivo": "macos/simples-tracing-normal.stdout",
+          "bytes": 20,
+          "sha256": "26d928ca7798882c482edb82cf892a2036308dff7482080e65ac947719112ef2"
+        }
+      ]
+    }
+  }
+}
