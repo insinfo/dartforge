@@ -2,6 +2,15 @@
 
 ## Retomada de 2026-10-10
 
+Prova Unix de unwind estrangeiro/forçado congelada em
+bench/resultados/2026-10-10-unwind-forcado-unix-ci: fonte 34198a54,
+CI 38021212710, 72 execuções Linux/macOS. As três modalidades de unwind
+(C++, forçado estrangeiro e forçado com tag Dart) passaram nos perfis
+simples/quadros/Retoma, O0/O2, ARC/tracing, com GC_STRESS ativo.
+Foram conferidos stdout exatos e preservados 114 arquivos com SHA-256,
+incluindo as ligações macOS. O tag Dart forçado não é payload Dart real;
+não prova finally/cancelamento, SEH/statepoints ou ownership no pipeline padrão.
+
 Boxing escalar preparado pelo conjunto fechado ARC: Box I64/F64 vira chamada
 às fábricas Owned; bool permanece caixa estática Trivial. A nova ABI
 dartforge_arc_box_double_owned_v1 retém antes de qualquer coleta e conserva

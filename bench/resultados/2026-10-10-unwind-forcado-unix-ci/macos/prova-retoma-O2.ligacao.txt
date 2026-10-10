@@ -1,0 +1,1 @@
+"c++" "-std=c++17" "-O2" "target/prova-unwind-estrangeiro/prova-retoma-O2.cpp" "target/prova-unwind-estrangeiro/prova-retoma-O2.o" "/Users/runner/work/dartforge/dartforge/target/prova-unwind-estrangeiro/prova-retoma-O2.runtime.dylib" "-o" "target/prova-unwind-estrangeiro/prova-retoma-O2" "-lSystem" "-lc" "-lm" "-liconv" "-framework" "CoreFoundation" "-framework" "Security"
