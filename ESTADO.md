@@ -26,6 +26,9 @@ conforme anotação do check 114210866777. Não houve falha de teste nesse
 ponto: matrizes nativas concluídas, interrupção durante ng_transparencia
 no passo dos ignorados. Log target/ci-windows-37497527.log. Linux passou;
 macOS ainda ativo. Não considerar rodada integralmente aprovada.
+Limite Windows ampliado para 90 minutos, como nos jobs Unix, para permitir
+conclusão dos testes ignorados após compilação/matrizes. Alteração local,
+sem nova rodada enquanto macOS da revisão publicada continua ativo.
 
 Análise local de escape em otimizar/arc/analise/escape.rs agrupa publicações
 por retorno, exceção, global e operação opaca. Percorre transitivamente os
