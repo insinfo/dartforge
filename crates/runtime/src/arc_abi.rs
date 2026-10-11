@@ -4,6 +4,131 @@
 // A fábrica owned de caixas é uma operação de alocação, com safepoint próprio.
 // O lançamento Ref publica uma raiz runtime e pode alocar o rastro.
 
+fn ler_elemento_ref_auditado(heap: &Heap, lista: i64, indice: i64) -> Result<i64, &'static str> {
+    use crate::layout::{cid, flags};
+    if !heap.e_lista(lista) { return Err("receiver não é lista viva"); }
+    let (dados, comprimento) = if heap.cabecalho(lista).class_id == cid::GROWABLE_LIST {
+        let objeto = heap.objeto(lista).ok_or("lista expansível sem mapa de instância")?;
+        if objeto.len() != 2 { return Err("layout da lista expansível inválido"); }
+        let (n, marca_n) = objeto.get(0).ok_or("comprimento ausente")?;
+        let (dados, marca_dados) = objeto.get(1).ok_or("armazenamento ausente")?;
+        if marca_n || !marca_dados { return Err("mapa da lista expansível inválido"); }
+        (dados, usize::try_from(n).map_err(|_| "comprimento negativo")?)
+    } else {
+        let n = *heap.palavras(lista).first().ok_or("comprimento ausente")?;
+        (lista, usize::try_from(n).map_err(|_| "comprimento negativo")?)
+    };
+    if !heap.e_lista(dados) || !cid::e_lista_fixa(heap.cabecalho(dados).class_id)
+        || heap.cabecalho(dados).flags & flags::FORMA != flags::REFS {
+        return Err("armazenamento não contém referências");
+    }
+    let palavras = heap.palavras(dados);
+    let capacidade = usize::try_from(*palavras.first().ok_or("capacidade ausente")?)
+        .map_err(|_| "capacidade negativa")?;
+    if comprimento > capacidade || capacidade > palavras.len().saturating_sub(1) {
+        return Err("comprimento/capacidade fora do armazenamento");
+    }
+    let indice = usize::try_from(indice).map_err(|_| "índice negativo")?;
+    if indice >= comprimento { return Err("índice fora da lista"); }
+    Ok(palavras[1 + indice])
+}
+
+/// Lê um elemento da lista geral e devolve um owner independente.
+///
+/// Confere lista fixa/imutável/expansível viva, mapa, representação Ref e
+/// limites físicos e lógicos. Retém sem alocar, coletar ou executar Dart.
+/// O chamador deve consumir o token; as guardas Dart de índice já devem ter
+/// sido executadas. Não converte elementos compactos em referências.
+///
+/// # Panics
+/// Lista/layout/índice inválido ou falha de retenção; aborta na fronteira C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// // SAFETY: um elemento Ref vivo e alinhado durante a cópia.
+/// let lista = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 0) };
+/// dartforge_arc_retain(lista);
+/// assert_eq!(dartforge_arc_lista_ref_owned_v1(lista, 0), 0);
+/// dartforge_arc_release(lista);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_lista_ref_owned_v1(lista: i64, indice: i64) -> i64 {
+    HEAP.with(|h| {
+        let mut heap = h.borrow_mut();
+        let valor = ler_elemento_ref_auditado(&heap, lista, indice).expect("leitura ARC de lista inválida");
+        heap.reter_owner_codigo(valor);
+        valor
+    })
+}
+
+#[cfg(test)]
+mod testes_lista_ref_owned {
+    use super::*;
+    use crate::{layout::{cid, smi}, listas::Elemento, heap::Valor};
+
+    #[test]
+    fn elemento_owned_sobrevive_a_slot_limpo_e_lista_liberada() {
+        for arc in [false, true] {
+            for classe in [cid::LIST, cid::IMMUTABLE_LIST, cid::GROWABLE_LIST] {
+                let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+                if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+                let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
+                let lista = HEAP.with(|h| {
+                    let mut heap = h.borrow_mut();
+                    let lista = if classe == cid::GROWABLE_LIST { heap.nova_expansivel(3, 5, Elemento::Geral) }
+                        else { heap.nova_lista(classe, 3, Elemento::Geral) };
+                    heap.reter_owner_codigo(lista);
+                    heap.lista_set(lista, 1, Valor::Ref(filho));
+                    heap.lista_set(lista, 2, Valor::Ref(smi::de(7).unwrap()));
+                    lista
+                });
+                dartforge_arc_release(filho);
+                let stats = HEAP.with(|h| h.borrow().stats());
+                let recebido = dartforge_arc_lista_ref_owned_v1(lista, 1);
+                assert_eq!(recebido, filho);
+                assert_eq!(dartforge_arc_lista_ref_owned_v1(lista, 0), 0);
+                assert_eq!(dartforge_arc_lista_ref_owned_v1(lista, 2), smi::de(7).unwrap());
+                HEAP.with(|h| {
+                    let mut heap = h.borrow_mut();
+                    assert_eq!(heap.stats().allocations, stats.allocations);
+                    assert_eq!(heap.stats().collections, stats.collections);
+                    heap.lista_set(lista, 1, Valor::Ref(0));
+                });
+                dartforge_arc_release(lista);
+                dartforge_arc_collect();
+                assert_eq!(dartforge_arc_observar_heap_v1(lista), 0);
+                assert_eq!(dartforge_arc_observar_heap_v1(recebido), 3);
+                assert_eq!(dartforge_unbox_int(recebido), i64::MAX);
+                dartforge_arc_release(recebido);
+                dartforge_arc_collect();
+                assert_eq!(dartforge_arc_observar_heap_v1(recebido), 0);
+                HEAP.with(|h| h.replace(anterior));
+            }
+        }
+    }
+
+    #[test]
+    fn leitura_recusa_compactos_indices_e_layouts_falsos() {
+        let mut heap = Heap::new(true);
+        for forma in [Elemento::Geral, Elemento::Int, Elemento::Double, Elemento::Bool] {
+            let lista = heap.nova_lista(cid::LIST, 2, forma);
+            for indice in [-1, 2, i64::MAX] { assert!(ler_elemento_ref_auditado(&heap, lista, indice).is_err()); }
+            assert_eq!(ler_elemento_ref_auditado(&heap, lista, 0).is_ok(), forma == Elemento::Geral);
+        }
+        for receiver in [0, smi::de(3).unwrap(), i64::MAX] {
+            assert!(ler_elemento_ref_auditado(&heap, receiver, 0).is_err());
+        }
+        let falsa = heap.alocar_instancia(cid::GROWABLE_LIST, 2);
+        heap.definir_campo(falsa, 0, 1, false);
+        heap.definir_campo(falsa, 1, 0, false);
+        assert!(ler_elemento_ref_auditado(&heap, falsa, 0).is_err());
+        let lista = heap.nova_expansivel(1, 3, Elemento::Geral);
+        assert!(ler_elemento_ref_auditado(&heap, lista, 1).is_err());
+        heap.definir_campo(lista, 0, 4, false);
+        assert!(ler_elemento_ref_auditado(&heap, lista, 0).is_err());
+    }
+}
+
 fn indice_argumento_arc(posicionais: i64, nomeados: i64, indice: i64) -> Result<usize, &'static str> {
     let total = posicionais.checked_add(nomeados).filter(|_| posicionais >= 0 && nomeados >= 0)
         .and_then(|n| usize::try_from(n).ok()).filter(|n| *n <= isize::MAX as usize / std::mem::size_of::<i64>())

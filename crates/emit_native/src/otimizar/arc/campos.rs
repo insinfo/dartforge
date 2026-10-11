@@ -296,12 +296,13 @@ pub(super) fn preparar(
         // caminho pending. A guarda de acesso continua recusando null;
         // isto não atribui classe nem transforma bits escalares em Ref.
         let derivado = match inst {
-            Instruction::CallRuntime { name, ret_ty: Type::Ref, .. } if name == super::vetores::LER_ARGUMENTO => true,
+            Instruction::CallRuntime { name, ret_ty: Type::Ref, .. } if matches!(name.as_str(), super::vetores::LER_ARGUMENTO | "dartforge_arc_lista_ref_owned_v1") => true,
             Instruction::AllocObject { .. } => true,
             Instruction::CallRuntime { name, ret_ty: Type::Ref, .. }
                 if matches!(name.as_str(), "dartforge_object_new" | "dartforge_arc_objeto_owned_v1")
                     && classes.contains_key(v) => true,
-            Instruction::GetField { .. }
+            Instruction::Box { from: Type::I64 | Type::F64 | Type::I1 | Type::I8, .. }
+            | Instruction::GetField { .. }
             | Instruction::EnvGet { .. }
             | Instruction::Const(Constant::Null)
             | Instruction::CallStatic { ret_ty: Type::Ref, .. }

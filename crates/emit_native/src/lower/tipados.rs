@@ -582,8 +582,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// O elemento `indice` de um armazenamento da forma `k`, na
     /// representação natural dela: o `Ref` (`@df.palavra_ref`, que o
-    /// emissor enraíza como qualquer `Ref`), ou os bits do escalar.
-    fn carregar_na_forma(&mut self, dados: &Operand, indice: &Operand, k: i64) -> Operand {
+    /// emissor enraíza como qualquer `Ref`), ou os bits do escalar. Em ARC,
+    /// a lista geral passa pela leitura conferida que produz um owner.
+    fn carregar_na_forma(&mut self, lista: &Operand, dados: &Operand, indice: &Operand, k: i64) -> Operand {
         match k {
             FORMA_INT => self.emit(
                 Instruction::CargaNativa { endereco: dados.clone(), indice: indice.clone(), tipo: TipoC::I64 },
@@ -600,6 +601,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 );
                 self.emit(Instruction::ICmp(ICmpOp::Ne, b, Operand::Constant(Constant::Int(0))), Type::I1)
             }
+            _ if self.ctx.memoria_arc => self.emit(Instruction::CallRuntime {
+                name: "dartforge_arc_lista_ref_owned_v1".into(),
+                args: vec![(lista.clone(), Type::Ref), (indice.clone(), Type::I64)],
+                ret_ty: Type::Ref,
+            }, Type::Ref),
             _ => self.ajudante_tipado("df.palavra_ref", vec![(dados.clone(), Type::I64), (indice.clone(), Type::I64)], Type::Ref),
         }
     }
@@ -639,7 +645,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let (dados, forma) = self.elementos_e_forma(lista);
         let f = match forma {
             Ok(k) if formas.contains(&k) => {
-                let v = self.carregar_na_forma(&dados, indice, k);
+                let v = self.carregar_na_forma(lista, &dados, indice, k);
                 return self.coagir(v, repr);
             }
             Ok(_) => return self.elemento_pelo_sdk(lista, indice, repr),
@@ -653,7 +659,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let nao = self.new_block();
             self.terminate(Terminator::CondBranch { cond: ok, then_block: sim, else_block: nao });
             self.set_block(sim);
-            let v = self.carregar_na_forma(&dados, indice, k);
+            let v = self.carregar_na_forma(lista, &dados, indice, k);
             let v = self.coagir(v, repr);
             if !self.is_terminated() {
                 entradas.push((self.current_block, v));
@@ -890,5 +896,54 @@ impl FnBuilder<'_, '_> {
             Some(v) if chega => self.emit(Instruction::Phi { incoming: vec![(fim_rapido, v), (fim_lento, s)], ty: repr }, repr),
             Some(v) => v,
         }
+    }
+}
+
+#[cfg(test)]
+mod testes_arc {
+    use super::*;
+    use crate::context::Context;
+    use dartforge_intern::Interner;
+    use dartforge_types::table::{CoreTypes, TypeTable};
+
+    #[test]
+    fn leitura_da_fonte_produz_owner_so_com_arc() {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let entrada = dir.path().join("main.dart");
+            std::fs::write(&entrada, "Object ler(List<Object> valores, int i) => valores[i]; void main() { ler([1], 0); }\n").unwrap();
+            let sdk = crate::sdk_modulo::carregar_sdk_nativo(crate::sdk_testes()).unwrap();
+            let mut interner = Interner::new();
+            let (program, diags) = dartforge_elements::load::load_lenient(&entrada, &sdk, None, &mut interner);
+            assert!(diags.is_empty(), "{diags:?}");
+            let mut table = TypeTable::new();
+            let core = CoreTypes::init(&mut table, &program, &interner);
+            let (mut outline, diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+            let (bodies, diags_corpos) = dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
+            for d in diags.iter().chain(&diags_corpos) {
+                assert!(!dartforge_types::codes::e_erro_de_compilacao(&d.message), "{d:?}");
+            }
+            let te = crate::apagamento::calcular(&program, &outline, &mut table);
+            let mut ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
+            ctx.te = te;
+            for arc in [false, true] {
+                ctx.memoria_arc = arc;
+                let m = crate::lower::lower_program(&ctx);
+                assert!(m.erros.is_empty(), "{:?}", m.erros);
+                let mut owned = 0; let mut cruas = 0;
+                for (_, inst, ty) in m.functions.iter().filter(|f| f.name == "ler").flat_map(|f| &f.blocks).flat_map(|b| &b.instructions) {
+                    if let Instruction::CallRuntime { name, args, ret_ty } = inst {
+                        if name == "dartforge_arc_lista_ref_owned_v1" {
+                            owned += 1;
+                            assert_eq!((*ret_ty, *ty), (Type::Ref, Type::Ref));
+                            assert_eq!(args.iter().map(|a| a.1).collect::<Vec<_>>(), vec![Type::Ref, Type::I64]);
+                        }
+                        if name == "df.palavra_ref" { cruas += 1; }
+                    }
+                }
+                if arc { assert!(owned > 0); assert_eq!(cruas, 0); }
+                else { assert_eq!(owned, 0); assert!(cruas > 0); }
+            }
+        }).unwrap().join().unwrap();
     }
 }
