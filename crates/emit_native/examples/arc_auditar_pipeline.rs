@@ -98,10 +98,16 @@ fn auditar(entrada: &Path, sdk_no_grupo: bool) -> Result<(), String> {
                 ),
             }
             match baixar_slots_ref_compartilhados(modulo) {
-                Ok(rascunho) => println!(
-                    "Baixamento intermediário dos slots no módulo {indice}: {} quadros locais, {} assinaturas novas",
-                    rascunho.locais.len(), rascunho.simbolos.len()
-                ),
+                Ok(rascunho) => {
+                    println!(
+                        "Baixamento intermediário dos slots no módulo {indice}: {} quadros locais, {} assinaturas novas",
+                        rascunho.locais.len(), rascunho.simbolos.len()
+                    );
+                    let mut planos_slots = rascunho.funcoes.iter().map(|f|
+                        (f.symbol.clone(), PlanoFuncaoDart::default())).collect();
+                    let papeis = produzir_planos_slots_ref_cfg(modulo, &rascunho, &mut planos_slots);
+                    println!("Papéis nativos dos slots no módulo {indice}: {papeis:?}");
+                }
                 Err(erro) => println!("Baixamento intermediário dos slots no módulo {indice}: {erro}"),
             }
         }

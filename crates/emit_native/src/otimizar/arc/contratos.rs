@@ -330,7 +330,7 @@ pub fn produzir_e_verificar_tokens(
     let contratos = produzir_contratos_arc(f, &mut novas_classes, &mut novo_plano)?;
     verificar_tokens(f, &novas_classes, tabelas, &novo_plano)?;
     verificar_escopos(f, &novas_classes, escopos)?;
-    super::quadros::verificar(f)?;
+    super::quadros::verificar_com_plano(f, &novo_plano)?;
     *classes = novas_classes;
     *plano = novo_plano;
     Ok(contratos)

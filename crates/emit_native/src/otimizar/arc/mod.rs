@@ -19,6 +19,8 @@ mod contratos;
 mod locais;
 mod slots_compartilhados;
 mod slots_vidas;
+mod slots_planos;
+pub use slots_planos::{ContratoQuadrosCompartilhadosCfg, produzir_planos_slots_ref_cfg};
 pub use slots_vidas::verificar_vidas_slots_ref_cfg;
 pub use slots_compartilhados::{auditar_slots_ref_compartilhados, baixar_slots_ref_compartilhados, RascunhoSlotsRefArc};
 mod puros;

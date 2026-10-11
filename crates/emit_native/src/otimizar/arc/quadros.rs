@@ -12,6 +12,13 @@ pub(super) fn verificar(f: &Function) -> Result<(), String> {
     analisar(f).map(|_| ())
 }
 
+pub(super) fn verificar_com_plano(f: &Function, p: &super::PlanoTokens) -> Result<(), String> {
+    if let Some(c) = &p.quadros_compartilhados {
+        c.conferir(f)?;
+        analisar_compartilhados(f, c.pares(), &c.alvos()).map(|_| ())
+    } else { verificar(f) }
+}
+
 fn analisar(f: &Function) -> Result<HashMap<BlockId, Vec<ValueId>>, String> {
     analisar_compartilhados(f, &HashMap::new(), &HashMap::new())
 }
@@ -206,7 +213,10 @@ pub(super) fn na_entrada_dos_pousos(
     f: &Function,
     t: &TabelasDaFuncao,
 ) -> Result<HashMap<BlockId, Vec<ValueId>>, String> {
-    let entradas = analisar(f)?;
+    let entradas = if let Some(c) = &t.quadros_compartilhados {
+        c.conferir(f)?;
+        analisar_compartilhados(f, c.pares(), &c.alvos())?
+    } else { analisar(f)? };
     let mut resultado = HashMap::new();
     let mut pousos: Vec<_> = t.pousos.iter().copied().collect();
     pousos.sort_by_key(|b| b.0);

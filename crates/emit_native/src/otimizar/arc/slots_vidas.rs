@@ -385,7 +385,7 @@ pub fn verificar_vidas_slots_ref_cfg(m: &Module, r: &RascunhoSlotsRefArc) -> Res
 }
 
 #[cfg(test)]
-mod testes {
+pub(super) mod testes {
     use super::super::baixar_slots_ref_compartilhados;
     use super::*;
 
@@ -420,7 +420,7 @@ mod testes {
             }],
         }
     }
-    fn origem() -> Module {
+    pub(in crate::otimizar::arc) fn origem() -> Module {
         let mut m = Module::new();
         m.memoria_arc = true;
         m.functions = vec![

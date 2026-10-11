@@ -31,7 +31,10 @@ pub(crate) fn conferir(f: &Function, t: &TabelasDaFuncao) -> Result<(), String> 
         return Ok(());
     }
     tokens::conferir_saidas_excepcionais(f, &retomas, true)?;
-    super::quadros::verificar(f)?;
+    if let Some(c) = &t.quadros_compartilhados {
+        c.conferir(f)?;
+        super::quadros::analisar_compartilhados(f, c.pares(), &c.alvos())?;
+    } else { super::quadros::verificar(f)?; }
     let mut invocacoes = HashMap::<BlockId, usize>::new();
     for id in t.invocacoes.values() {
         *invocacoes.entry(*id).or_default() += 1;

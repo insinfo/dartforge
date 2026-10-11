@@ -71,6 +71,9 @@ pub struct PlanoTokens {
     /// Não são pousos LLVM. Exige sufixo exception_pending/ICmp Ne zero e
     /// CondBranch para erro/sucesso, sem outra operação entre chamada e teste.
     pub pendencias: HashMap<ValueId, BlockId>,
+    /// Papéis nativos de pares quadro/índice de uma família fechada verificada.
+    /// Não é um owner Ref nem substitui o certificado de unwind estrangeiro.
+    pub quadros_compartilhados: Option<super::ContratoQuadrosCompartilhadosCfg>,
 }
 
 fn propria(inst: &Instruction) -> bool {
@@ -289,6 +292,9 @@ pub fn verificar_tokens(
     tabelas: &TabelasDaFuncao,
     plano: &PlanoTokens,
 ) -> Result<(), String> {
+    if plano.quadros_compartilhados != tabelas.quadros_compartilhados {
+        return Err("tokens ARC: contratos de quadros compartilhados divergem das tabelas".into());
+    }
     analisar_tokens(f, classes, tabelas, plano, false, false).map(|_| ())
 }
 

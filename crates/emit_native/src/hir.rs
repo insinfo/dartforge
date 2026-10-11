@@ -1002,6 +1002,9 @@ pub struct TabelasDaFuncao {
     pub confere_pilha: bool,
     /// Inventário certificado de owners para cleanup estrangeiro; recalcular após mutações.
     pub cleanup_estrangeiro: Option<crate::otimizar::arc::CleanupEstrangeiro>,
+    /// Papéis nativos de quadros compartilhados para conferir Retoma/cleanup.
+    /// Não substitui o certificado de owners nem prova unwind por si só.
+    pub quadros_compartilhados: Option<crate::otimizar::arc::ContratoQuadrosCompartilhadosCfg>,
 }
 
 /// Papel semântico dos vetores nativos da ABI de entrada uniforme.
