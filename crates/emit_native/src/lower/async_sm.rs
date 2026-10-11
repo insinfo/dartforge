@@ -1053,7 +1053,11 @@ fn ler_do_quadro(quadro: &Operand, slot: usize, ty: Type, destino: ValueId, prox
         ret_ty: ret,
     };
     match ty {
-        Type::Ref | Type::I64 => vec![(destino, get(ty), ty)],
+        // A restauração de locais e SSA usa a mesma representação explícita
+        // das leituras do cabeçalho. Só a preparação ARC escolhe o empréstimo
+        // auditado; tracing conserva seu acesso físico pelo emissor.
+        Type::Ref => vec![(destino, Instruction::GetField { object: quadro.clone(), index: slot }, Type::Ref)],
+        Type::I64 => vec![(destino, get(ty), ty)],
         Type::F64 => {
             let t = novo_valor(prox);
             vec![
@@ -1079,6 +1083,56 @@ fn ler_do_quadro(quadro: &Operand, slot: usize, ty: Type, destino: ValueId, prox
         // Vetores SIMD sem caixa só existem em funções síncronas
         // (`lower/simd.rs` não os produz num corpo assíncrono).
         Type::V4F32 | Type::V4I32 | Type::V2F64 => unreachable!("vetor SIMD sem caixa num quadro assíncrono"),
+    }
+}
+
+#[cfg(test)]
+mod testes_restauracao_ref {
+    use super::*;
+    use crate::otimizar::arc::*;
+
+    #[test]
+    fn ref_restaurada_do_quadro_recebe_keepalive_antes_de_mutar_o_filho() {
+        let mut prox = 2;
+        let mut instrucoes = ler_do_quadro(&Operand::Val(ValueId(0)), 40, Type::Ref, ValueId(1), &mut prox);
+        instrucoes.push((ValueId(2), Instruction::SetField {
+            object: Operand::Val(ValueId(1)), index: 2, value: Operand::Constant(Constant::Int(42)),
+        }, Type::Void));
+        let f = Function { symbol: "restaurar".into(), name: "restaurar".into(), depuracao: None,
+            params: vec![(ValueId(0), "quadro".into(), Type::Ref)], return_ty: Type::Ref,
+            blocks: vec![BasicBlock { id: BlockId(0), instructions: instrucoes,
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }] };
+        let mut m = Module::new();
+        m.memoria_arc = true;
+        m.functions.push(f.clone());
+        m.layouts_campos_arc.insert(123, vec![Type::Ref, Type::I64, Type::I64]);
+        m.classes.push(ClassDef { id: 123, name: "Filho".into(), field_count: 3,
+            vtable: vec![], to_string_symbol: None });
+        let mut p = PlanoFuncaoDart::default();
+        p.tokens.retorno = RetornoTokens::Owned;
+        let mut planos = HashMap::from([("restaurar".into(), p)]);
+        assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (1, 0));
+        let leitor = m.functions[0].blocks.iter().flat_map(|b| &b.instructions).find_map(|(v, i, _)|
+            matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_ler_campo_ref_v1").then_some(*v)).unwrap();
+        assert_eq!(planos["restaurar"].classes[&leitor], Ownership::Borrowed {
+            owner: OrigemOwner::Valor(ValueId(0)), escopo: 0,
+        });
+        assert_eq!(planos["restaurar"].classes[&ValueId(1)], Ownership::Owned);
+        let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+        assert!(ir.contains("i64 %v0, i64 40)"));
+        assert!(ir.find("call void @dartforge_arc_retain").unwrap()
+            < ir.find("call void @dartforge_arc_gravar_campo_escalar_conferido_v1").unwrap());
+        assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+        // O mesmo acesso tipado é emitível em tracing; os tokens ARC surgem
+        // somente na preparação explicitamente selecionada acima.
+        let mut tracing = Module::new();
+        tracing.functions.push(f);
+        let mut sem_planos = HashMap::new();
+        let antes = format!("{tracing:?}");
+        assert_eq!(preparar_arc_modulo_dart(&mut tracing, &mut sem_planos).unwrap(), (0, 0));
+        assert_eq!(format!("{tracing:?}"), antes);
+        let ir = crate::llvm::LlvmEmitter::new(&tracing).emit_all();
+        assert!(!ir.contains("call i64 @dartforge_arc_ler_campo_ref_v1"));
     }
 }
 
