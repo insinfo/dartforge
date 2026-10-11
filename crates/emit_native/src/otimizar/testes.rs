@@ -246,3 +246,46 @@ fn local_vira_phi() {
     let texto = format!("{:?}", m.functions[0].blocks);
     assert!(texto.contains("Phi") && !texto.contains("Alloca") && !texto.contains("Load"), "{texto}");
 }
+
+#[test]
+fn classe_de_alocacao_elimina_acesso_impossivel_de_outro_mixin() {
+    for caso in 0..4 {
+        let (inst, ty) = match caso {
+            0 => (Instruction::CallRuntime { name: "dartforge_object_new".into(), args: vec![(c(547), Type::I64), (c(5), Type::I64)], ret_ty: Type::Ref }, Type::Ref),
+            1 => (Instruction::AllocObject { class_id: 547, fields: vec![] }, Type::Ref),
+            2 => (Instruction::CallRuntime { name: "opaca".into(), args: vec![], ret_ty: Type::Ref }, Type::Ref),
+            _ => (Instruction::Const(Constant::Int(547)), Type::I64),
+        };
+        let mut f = Function { symbol: "mixin".into(), name: "mixin".into(), depuracao: None, params: vec![], return_ty: Type::I64,
+            blocks: vec![
+                BasicBlock { id: BlockId(0), instructions: vec![
+                    (ValueId(0), inst, ty),
+                    (ValueId(1), Instruction::CallRuntime { name: "dartforge_value_class".into(), args: vec![(Operand::Val(ValueId(0)), Type::Ref)], ret_ty: Type::I64 }, Type::I64),
+                ], terminator: Terminator::Switch { val: Operand::Val(ValueId(1)), default: BlockId(1), cases: vec![(547, BlockId(1)), (554, BlockId(2))] } },
+                BasicBlock { id: BlockId(1), instructions: vec![], terminator: Terminator::Return(Some(c(1))) },
+                BasicBlock { id: BlockId(2), instructions: vec![(ValueId(2), Instruction::GetField { object: Operand::Val(ValueId(0)), index: 6 }, Type::I64)], terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))) },
+            ] };
+        simplificar::dobrar_constantes(&mut f);
+        simplificar::tirar_inalcancaveis(&mut f);
+        if caso < 2 { assert_eq!(f.blocks.len(), 2); assert!(matches!(f.blocks[0].terminator, Terminator::Branch(BlockId(1)))); }
+        else { assert_eq!(f.blocks.len(), 3); assert!(matches!(f.blocks[0].terminator, Terminator::Switch { .. })); }
+    }
+}
+
+#[test]
+fn switch_constante_remove_so_a_entrada_phi_da_aresta_eliminada() {
+    for (valor, esperado) in [(547, BlockId(1)), (999, BlockId(1)), (554, BlockId(2))] {
+        let mut f = Function { symbol: "switch_phi".into(), name: "switch_phi".into(), depuracao: None,
+            params: vec![], return_ty: Type::I64, blocks: vec![
+                BasicBlock { id: BlockId(0), instructions: vec![], terminator: Terminator::Switch { val: c(valor), default: BlockId(1), cases: vec![(547, BlockId(1)), (554, BlockId(2)), (555, BlockId(2))] } },
+                BasicBlock { id: BlockId(1), instructions: vec![], terminator: Terminator::Branch(BlockId(3)) },
+                BasicBlock { id: BlockId(2), instructions: vec![(ValueId(0), Instruction::Phi { incoming: vec![(BlockId(0), c(7)), (BlockId(3), c(9))], ty: Type::I64 }, Type::I64)], terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) },
+                BasicBlock { id: BlockId(3), instructions: vec![], terminator: Terminator::Branch(BlockId(2)) },
+            ] };
+        simplificar::dobrar_constantes(&mut f);
+        assert!(matches!(f.blocks[0].terminator, Terminator::Branch(b) if b == esperado));
+        let Instruction::Phi { incoming, .. } = &f.blocks[2].instructions[0].1 else { panic!("Phi removido sem conferir suas arestas"); };
+        assert!(incoming.contains(&(BlockId(3), c(9))));
+        assert_eq!(incoming.contains(&(BlockId(0), c(7))), esperado == BlockId(2));
+    }
+}

@@ -269,11 +269,51 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         ))
     }
 
+    // Em ARC, escolhe o acesso físico no ramo de cada aplicação do mixin.
+    // A junção carrega o resultado tipado, nunca um índice bruto cuja leitura
+    // perderia o mapa Ref. As guardas/owners são produzidas depois pela HIR.
+    fn acessar_campo_mixin_arc(&mut self, obj: Operand, vid: VariableId, valor: Option<Operand>) -> Option<Operand> {
+        let dono = self.ctx.program.variables[vid.0 as usize].class?;
+        if !e_mixin(self.ctx, dono) { return None; }
+        let casos = self.indices_de_campo_de_mixin(vid);
+        if casos.is_empty() {
+            self.terminate(Terminator::Unreachable);
+            let morto = self.new_block(); self.set_block(morto);
+            return Some(Operand::Constant(Constant::Null));
+        }
+        let repr = self.repr_do_campo(vid);
+        let cls = self.emit(Instruction::CallRuntime {
+            name: "dartforge_value_class".into(), args: vec![(obj.clone(), Type::Ref)], ret_ty: Type::I64,
+        }, Type::I64);
+        let juncao = self.new_block();
+        let blocos: Vec<_> = casos.iter().map(|&(c, i)| (c, i, self.new_block())).collect();
+        self.terminate(Terminator::Switch { val: cls, default: blocos[0].2,
+            cases: blocos.iter().map(|&(c, _, b)| (c, b)).collect() });
+        let mut entradas = Vec::new();
+        for &(_, index, b) in &blocos {
+            self.set_block(b);
+            if let Some(value) = &valor {
+                self.emit(Instruction::SetField { object: obj.clone(), index, value: value.clone() }, Type::Void);
+            } else {
+                let v = self.emit(Instruction::GetField { object: obj.clone(), index }, repr);
+                entradas.push((b, v));
+            }
+            self.terminate(Terminator::Branch(juncao));
+        }
+        self.set_block(juncao);
+        Some(if valor.is_some() { Operand::Constant(Constant::Null) }
+            else { self.emit(Instruction::Phi { incoming: entradas, ty: repr }, repr) })
+    }
+
     /// Lê um campo de instância na representação do seu tipo declarado.
     pub fn ler_campo(&mut self, obj: Operand, vid: VariableId, span: Span) -> Operand {
         if let Some(r) = self.ler_campo_ffi(obj.clone(), vid) {
             return r;
         }
+        if self.ctx.memoria_arc && !self.ctx.program.variables[vid.0 as usize].late
+            && self.indice_campo(vid).is_none()
+            && let Some(v) = self.acessar_campo_mixin_arc(obj.clone(), vid, None)
+        { return v; }
         let idx = match self.indice_campo(vid) {
             Some(i) => Operand::Constant(Constant::Int(i as i64)),
             None => match self.indice_dinamico(obj.clone(), vid, span) {
@@ -310,6 +350,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn gravar_campo(&mut self, obj: Operand, vid: VariableId, val: Operand, span: Span) {
         if self.gravar_campo_ffi(obj.clone(), vid, val.clone()) {
             return;
+        }
+        let var = &self.ctx.program.variables[vid.0 as usize];
+        if self.ctx.memoria_arc && !var.late && self.indice_campo(vid).is_none()
+            && var.class.is_some_and(|dono| e_mixin(self.ctx, dono))
+        {
+            let repr = self.repr_do_campo(vid);
+            let value = self.coagir(val.clone(), repr);
+            if self.acessar_campo_mixin_arc(obj.clone(), vid, Some(value)).is_some() { return; }
         }
         let idx = match self.indice_campo(vid) {
             Some(i) => Operand::Constant(Constant::Int(i as i64)),
@@ -2276,4 +2324,54 @@ pub fn padrao_exportado(ctx: &crate::context::Context, fid: usize, unit: UnitId,
 /// O símbolo da função que devolve o padrão do parâmetro `i` de `fid`.
 pub fn simbolo_do_padrao(ctx: &crate::context::Context, fid: usize, i: usize) -> String {
     format!("{}.padrao.{i}", super::simbolo_de(ctx, fid))
+}
+
+#[cfg(test)]
+mod testes_campos_mixin_arc {
+    use super::*;
+    use dartforge_intern::Interner;
+    use dartforge_types::table::{CoreTypes, TypeTable};
+
+    #[test]
+    fn aplicacoes_com_indices_distintos_transportam_acessos_tipados_em_arc() {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let entrada = dir.path().join("main.dart");
+            std::fs::write(&entrada, "mixin M { Object? campo; int contador = 0; Object? ler() => campo; void trocar(Object? valor) { campo = valor; contador += 1; } } class Base { int a = 0; int b = 0; } class A with M {} class B extends Base with M {} void main() { A().trocar(1); B().trocar(2); A().ler(); B().ler(); }\n").unwrap();
+            let sdk = crate::sdk_modulo::carregar_sdk_nativo(crate::sdk_testes()).unwrap();
+            let mut interner = Interner::new();
+            let (program, diags) = dartforge_elements::load::load_lenient(&entrada, &sdk, None, &mut interner);
+            assert!(diags.is_empty(), "{diags:?}");
+            let mut table = TypeTable::new();
+            let core = CoreTypes::init(&mut table, &program, &interner);
+            let (mut outline, diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+            let (bodies, diags_corpos) = dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
+            for d in diags.iter().chain(&diags_corpos) {
+                assert!(!dartforge_types::codes::e_erro_de_compilacao(&d.message), "{d:?}");
+            }
+            let te = crate::apagamento::calcular(&program, &outline, &mut table);
+            let mut ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
+            ctx.te = te;
+            for arc in [false, true] {
+                ctx.memoria_arc = arc;
+                let m = crate::lower::lower_program(&ctx);
+                assert!(m.erros.is_empty(), "{:?}", m.erros);
+                let metodos: Vec<_> = m.functions.iter().filter(|f| matches!(f.name.as_str(), "ler" | "trocar")).collect();
+                assert!(!metodos.is_empty());
+                let mut leituras = std::collections::HashSet::new();
+                let mut escritas = std::collections::HashSet::new();
+                let mut cruas = 0;
+                for (_, inst, ty) in metodos.iter().flat_map(|f| &f.blocks).flat_map(|b| &b.instructions) {
+                    match inst {
+                        Instruction::GetField { index, .. } if *ty == Type::Ref => { leituras.insert(*index); }
+                        Instruction::SetField { index, .. } => { escritas.insert(*index); }
+                        Instruction::CallRuntime { name, .. } if matches!(name.as_str(), "dartforge_object_get" | "dartforge_object_set") => cruas += 1,
+                        _ => {}
+                    }
+                }
+                if arc { assert!(leituras.len() >= 2, "{leituras:?}"); assert!(escritas.len() >= 2, "{escritas:?}"); assert_eq!(cruas, 0); }
+                else { assert!(leituras.is_empty()); assert!(escritas.is_empty()); assert!(cruas > 0); }
+            }
+        }).unwrap().join().unwrap();
+    }
 }

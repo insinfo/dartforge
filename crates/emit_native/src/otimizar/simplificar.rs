@@ -58,10 +58,30 @@ pub fn dobrar_constantes(func: &mut Function) -> bool {
                 }
             }
         }
+        // A classe do cabeçalho é imutável. Só alocações explícitas com
+        // resultado Ref provam este fato; bits, parâmetros e calls opacas não.
+        let classes: HashMap<_, _> = func.blocks.iter().flat_map(|b| &b.instructions).filter_map(|(v, inst, ty)| {
+            if *ty != Type::Ref { return None; }
+            let cid = match inst {
+                Instruction::AllocObject { class_id, .. } => i64::from(*class_id),
+                Instruction::CallRuntime { name, args, ret_ty: Type::Ref }
+                    if matches!(name.as_str(), "dartforge_object_new" | "dartforge_arc_objeto_owned_v1") => match args.as_slice() {
+                        [(Operand::Constant(Constant::Int(cid)), Type::I64), (_, Type::I64)] => *cid,
+                        _ => return None,
+                    },
+                _ => return None,
+            };
+            i32::try_from(cid).ok().map(|_| (*v, cid))
+        }).collect();
         let mut valores: HashMap<ValueId, Operand> = HashMap::new();
         for b in &func.blocks {
             for (v, inst, _) in &b.instructions {
                 let r = match inst {
+                    Instruction::CallRuntime { name, args, ret_ty: Type::I64 }
+                        if name == "dartforge_value_class" => match args.as_slice() {
+                            [(Operand::Val(obj), Type::Ref)] => classes.get(obj).map(|&cid| Operand::Constant(Constant::Int(cid))),
+                            _ => None,
+                        },
                     Instruction::ICmp(op, a, c) => match (inteiro(a), inteiro(c)) {
                         (Some(x), Some(y)) => Some(match op {
                             ICmpOp::Eq => x == y,
@@ -131,6 +151,15 @@ pub fn dobrar_constantes(func: &mut Function) -> bool {
                 let (vai, fica) = if c != 0 { (*then_block, *else_block) } else { (*else_block, *then_block) };
                 if vai != fica {
                     arestas_tiradas.push((ids[i], fica));
+                }
+                b.terminator = Terminator::Branch(vai);
+                mudou_aqui = true;
+            } else if let Terminator::Switch { val, default, cases } = &b.terminator
+                && let Some(c) = inteiro(val)
+            {
+                let vai = cases.iter().find(|(n, _)| *n == c).map(|(_, d)| *d).unwrap_or(*default);
+                for destino in sucessores(&b.terminator) {
+                    if destino != vai { arestas_tiradas.push((ids[i], destino)); }
                 }
                 b.terminator = Terminator::Branch(vai);
                 mudou_aqui = true;
