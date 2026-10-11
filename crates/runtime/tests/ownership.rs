@@ -31,6 +31,7 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
                         | "dartforge_interrupcao_pendente"
                         | "dartforge_ponto_seguro"
                         | "dartforge_exception_clear"
+                        | "dartforge_rti_definir"
                         | "dartforge_unbox_int"
                         | "dartforge_unbox_double"
                         | "dartforge_unbox_bool"

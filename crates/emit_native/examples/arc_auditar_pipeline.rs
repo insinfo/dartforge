@@ -83,7 +83,12 @@ fn auditar(entrada: &Path) -> Result<(), String> {
             return Err("preparação recusada alterou o módulo ou os planos".into());
         }
         for f in &m.functions {
-            if erro.contains(&f.symbol) {
+            if erro.contains(&f.symbol) || f.blocks.iter().flat_map(|b| &b.instructions)
+                .any(|(_, i, _)| match i {
+                    dartforge_emit_native::hir::Instruction::CallRuntime { name, .. } => erro.contains(name),
+                    dartforge_emit_native::hir::Instruction::CallStatic { symbol, .. } => erro.contains(symbol),
+                    _ => false,
+                }) {
                 println!("Corpo associado ao diagnóstico: {f:#?}");
             }
         }

@@ -23,6 +23,58 @@ fn numa_thread(f: impl FnOnce() + Send + 'static) {
 }
 
 #[test]
+#[allow(unsafe_code)]
+fn definir_rti_preserva_owner_pendencia_e_elementos_ao_descompactar() {
+    numa_thread(|| {
+        dartforge_memoria_arc_v1();
+        dartforge_rti_classe_do_runtime(0, 201);
+        dartforge_rti_classe_do_runtime(4, 200);
+        dartforge_rti_regra(8, receita("C200<P0>"));
+        let tipo_int = receita("C200<C201>");
+        let tipo_geral = receita("C200<D>");
+        let valores = [i64::MAX, i64::MIN];
+        // SAFETY: vetor de palavras vivo e completo para a lista compacta.
+        let lista = unsafe { dartforge_lista_nova(valores.as_ptr(), 2, 8, 1) };
+        dartforge_arc_retain(lista);
+        let definir = |tipo| {
+            let nome = b"dartforge_rti_definir";
+            // SAFETY: nome constante vivo, com seu comprimento exato.
+            unsafe { dartforge_efeitos_antes(nome.as_ptr(), nome.len() as i64, 2); }
+            dartforge_rti_definir(lista, tipo);
+            dartforge_efeitos_depois();
+            assert_eq!(dartforge_efeitos_nivel(), 0);
+        };
+        definir(tipo_int);
+        dartforge_arc_collect();
+        assert_eq!(dartforge_arc_observar_heap_v1(lista), 3);
+        definir(tipo_geral);
+        assert_eq!(dartforge_exception_pending(), 0);
+        definir(tipo_int);
+        // A chamada não limpa nem substitui uma pendência anterior.
+        let rastro = dartforge_stack_trace_get();
+        dartforge_throw_with_stack_trace(0, 3, rastro);
+        definir(tipo_geral);
+        assert_eq!(dartforge_exception_pending(), 1);
+        assert_eq!(dartforge_exception_peek_ref(), 0);
+        assert_eq!(dartforge_stack_trace_get(), rastro);
+        dartforge_exception_clear();
+        dartforge_arc_collect();
+        assert_eq!(dartforge_arc_observar_heap_v1(lista), 3);
+        let primeiro = dartforge_nativo_DartForge_lista_get(lista, 0);
+        let segundo = dartforge_nativo_DartForge_lista_get(lista, 1);
+        assert_eq!(dartforge_unbox_int(primeiro), valores[0]);
+        assert_eq!(dartforge_unbox_int(segundo), valores[1]);
+        assert_ne!(dartforge_rti_e(lista, tipo_geral), 0);
+        dartforge_arc_release(lista);
+        dartforge_arc_collect();
+        for h in [lista, primeiro, segundo] {
+            assert_eq!(dartforge_arc_observar_heap_v1(h), 0);
+        }
+        assert_eq!(dartforge_exception_pending(), 0);
+    });
+}
+
+#[test]
 fn campo_late_distingue_valor_zero_de_ausencia_de_escrita() {
     numa_thread(|| {
         let primeiro = dartforge_object_new(1, 1);

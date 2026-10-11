@@ -38,6 +38,7 @@ dartforge_exception_pending	-	u8:scalar	0	0	normal
 dartforge_interrupcao_pendente	-	u8:scalar	0	0	normal
 dartforge_ponto_seguro	-	void:scalar	0	1	pending-dart
 dartforge_exception_clear	-	void:scalar	0	1	normal
+dartforge_rti_definir	ref:borrow,i64:scalar	void:scalar	0	1	normal
 dartforge_nativo_DartForge_record_numFields	ref:borrow	i64:scalar	0	0	pending
 dartforge_nativo_DartForge_record_shape	ref:borrow	i64:scalar	0	0	pending
 dartforge_unbox_int	ref:borrow	i64:scalar	0	1	pending-dart

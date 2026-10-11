@@ -751,7 +751,9 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare void @dartforge_rti_definir(i64, i64)",
-        efeitos: CONSERVADOR,
+        // Interna IDs e pode reformatar a lista com caixas/GC, sem lançar
+        // exceção Dart nem executar getters/callbacks Dart.
+        efeitos: Efeitos { aloca: true, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare void @dartforge_rti_registro_nomeado(i64, i64, i64)",

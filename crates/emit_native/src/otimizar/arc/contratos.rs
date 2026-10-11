@@ -3279,6 +3279,32 @@ mod testes {
     }
 
     #[test]
+    fn rti_definir_empresta_objeto_sem_transformar_id_de_tipo_em_ref() {
+        let i = Instruction::CallRuntime {
+            name: "dartforge_rti_definir".into(),
+            args: vec![(Operand::Val(ValueId(0)), Type::Ref),
+                (Operand::Val(ValueId(1)), Type::I64)], ret_ty: Type::Void,
+        };
+        let c = contrato_chamada_runtime(&i).unwrap();
+        assert_eq!(c.resultado, Ownership::Trivial);
+        assert_eq!(c.efeito, EfeitoTokens::default());
+        assert!(c.invalida_borrows);
+        assert!(!c.chama_dart && !c.retencao_persistente);
+        for caso in 0..4 {
+            let mut errado = i.clone();
+            if let Instruction::CallRuntime { args, ret_ty, .. } = &mut errado {
+                match caso {
+                    0 => args[0].1 = Type::I64,
+                    1 => args[1].1 = Type::Ref,
+                    2 => args[1].0 = Operand::Constant(Constant::Funcao("codigo".into())),
+                    _ => *ret_ty = Type::Ref,
+                }
+            }
+            assert!(contrato_chamada_runtime(&errado).is_err());
+        }
+    }
+
+    #[test]
     fn byte_da_abi_nao_e_booleano_i1() {
         let mut i = Instruction::CallRuntime {
             name: "dartforge_arc_verificar_abi".into(),

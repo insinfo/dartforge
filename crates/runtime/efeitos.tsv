@@ -730,7 +730,7 @@ dartforge_rti_avaliar_cache	1	1	0
 dartforge_rti_classe_do_runtime	1	1	0
 dartforge_rti_como	1	1	1
 dartforge_rti_como_em	1	1	1
-dartforge_rti_definir	1	1	0
+dartforge_rti_definir	1	0	0
 dartforge_rti_do_valor	1	1	0
 dartforge_rti_e	1	1	0
 dartforge_rti_iniciar_tabela	1	1	0
