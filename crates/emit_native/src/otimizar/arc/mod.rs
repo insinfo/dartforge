@@ -25,6 +25,8 @@ mod objetos;
 mod campos;
 mod chamadas;
 mod funcoes;
+mod modulos;
+pub use modulos::preparar_arc_modulos_dart;
 mod planos;
 pub use planos::produzir_tabelas_arc_do_modulo;
 pub use planos::preparar_arc_modulo_tabelado;
