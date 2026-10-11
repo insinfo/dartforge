@@ -31,6 +31,7 @@ mod objetos;
 mod campos;
 mod globais;
 mod receivers;
+mod classes_cfg;
 mod chamadas;
 mod funcoes;
 mod modulos;

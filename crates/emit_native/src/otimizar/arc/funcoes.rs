@@ -203,13 +203,15 @@ pub(super) fn preparar_com_variantes(
     if !modulo.memoria_arc {
         return Ok((0, 0));
     }
-    let mut slots = super::baixar_slots_ref_compartilhados(modulo)?;
-    let mut trabalho = modulo.clone();
+    let mut origem = modulo.clone();
+    let mut novos = planos.clone();
+    super::classes_cfg::preparar(&mut origem, &mut novos)?;
+    let mut slots = super::baixar_slots_ref_compartilhados(&origem)?;
+    let mut trabalho = origem.clone();
     trabalho.functions = slots.funcoes.clone();
     super::slots_planos::remapear_fatos(&mut trabalho, &slots.simbolos);
-    let mut novos = planos.clone();
     super::slots_planos::remapear_planos(&mut novos, &slots.simbolos);
-    super::produzir_planos_slots_ref_cfg(modulo, &slots, &mut novos)?;
+    super::produzir_planos_slots_ref_cfg(&origem, &slots, &mut novos)?;
     let variantes: HashMap<_, _> = variantes.iter().map(|(s, vs)| (
         slots.simbolos.get(s).cloned().unwrap_or_else(|| s.clone()),
         vs.iter().map(|v| slots.simbolos.get(v).cloned().unwrap_or_else(|| v.clone())).collect::<Vec<_>>()
@@ -248,7 +250,7 @@ pub(super) fn preparar_com_variantes(
         &preservam_campos,
     )?;
     slots.funcoes = preparadas.clone();
-    super::verificar_vidas_slots_ref_cfg(modulo, &slots)?;
+    super::verificar_vidas_slots_ref_cfg(&origem, &slots)?;
     trabalho.functions = preparadas;
     // Os IDs de invokes/pousos e os certificados pertencem aos corpos novos.
     // Não deixar o emissor consultar um inventário da versão anterior do CFG.

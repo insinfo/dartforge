@@ -38,6 +38,14 @@ pub(super) fn produzir(m: &Module) -> HashMap<String, HashMap<ValueId, u32>> {
         }))
         .chain(m.entry_symbol.iter().cloned())
         .chain(m.chamar_dart.iter().cloned())
+        .chain(m.ffi_callbacks.iter().map(|c| c.corpo.clone()))
+        .chain(m.ffi_trampolins.iter().map(|(_, s)| s.clone()))
+        .chain(m.raizes_da_fonte.iter().cloned())
+        .chain(m.funcoes_de_tabela.values().cloned())
+        .chain(m.registro.iter().cloned())
+        .chain(m.registros_do_sdk.iter().cloned())
+        .chain(m.iniciar_rti.iter().cloned())
+        .chain(m.tearoffs_do_rastro.iter().map(|(s, _)| s.clone()))
         .chain(
             m.tabelas_de_metodos
                 .iter()
