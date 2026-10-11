@@ -721,8 +721,8 @@ mod testes_portas_arc {
             assert_eq!(alvo, pc);
             assert_eq!(HEAP.with(|h| h.borrow().stats().allocations), stats.allocations);
             assert_eq!(HEAP.with(|h| h.borrow().stats().collections), stats.collections);
-            let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(alvo as usize) };
-            let r = f(dartforge_arc_contexto_closure_v1(c), filho);
+            let corpo_de_teste: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(alvo as usize) };
+            let r = corpo_de_teste(dartforge_arc_contexto_closure_v1(c), filho);
             dartforge_arc_release(filho); dartforge_arc_release(c); dartforge_arc_collect();
             assert_eq!(dartforge_arc_observar_heap_v1(r), 3);
             assert_eq!(dartforge_unbox_int(r), i64::MAX);

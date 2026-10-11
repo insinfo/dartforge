@@ -16,6 +16,7 @@ pub struct PortasArcAot {
     estado: String,
     uniformes: Vec<String>,
     callbacks: Vec<(String, usize)>,
+    tipadas: Vec<(String, i64)>,
 }
 
 fn estado(m: &Module) -> String {
@@ -71,6 +72,54 @@ impl PortasArcAot {
     pub(crate) fn callbacks(&self) -> &[(String, usize)] {
         &self.callbacks
     }
+    pub(crate) fn tipadas(&self) -> &[(String, i64)] {
+        &self.tipadas
+    }
+}
+
+// O construtor preparado conserva o endereço nominal e o descritor original.
+// Não registrar palavras arbitrárias ou deduzir Owned da largura do retorno.
+fn conferir_tipadas(
+    m: &Module,
+    planos: &HashMap<String, PlanoFuncaoDart>,
+) -> Result<Vec<(String, i64)>, String> {
+    let funcoes: HashMap<_, _> = m.functions.iter().map(|f| (&f.symbol, f)).collect();
+    let mut tipadas = Vec::new();
+    for f in &m.functions {
+        for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
+            let Instruction::CallRuntime { name, args, ret_ty } = inst else { continue };
+            if name != "dartforge_arc_closure_owned_v1" { continue; }
+            let erro = || format!("portas ARC: closure tipada {} v{} sem corpo/ABI/retorno Owned verificado", f.symbol, v.0);
+            let [
+                (Operand::Constant(Constant::Funcao(uniforme)), Type::I64),
+                (_, Type::Ref),
+                (alvo, Type::I64),
+                (Operand::Constant(Constant::Int(abi)), Type::I64),
+            ] = args.as_slice() else { return Err(erro()); };
+            if *ty != Type::Ref || *ret_ty != Type::Ref
+                || !m.retornos_uniformes_arc.contains(uniforme)
+            { return Err(erro()); }
+            match alvo {
+                Operand::Constant(Constant::Int(0)) if *abi == 0 => continue,
+                Operand::Constant(Constant::Funcao(s)) => {
+                    let corpo = funcoes.get(s).ok_or_else(erro)?;
+                    // ABI zero desativa o caminho tipado, inclusive para corpos
+                    // escalares que ainda usam somente a entrada uniforme.
+                    if *abi == 0 { continue; }
+                    let params: Vec<_> = corpo.params.iter().map(|(_, _, t)| *t).collect();
+                    if corpo.return_ty != Type::Ref
+                        || super::objetos::abi_tipada(&params, corpo.return_ty) != Some(*abi)
+                        || planos.get(s).map(|p| p.tokens.retorno) != Some(RetornoTokens::Owned)
+                    { return Err(erro()); }
+                    tipadas.push((s.clone(), *abi));
+                }
+                _ => return Err(erro()),
+            }
+        }
+    }
+    tipadas.sort();
+    tipadas.dedup();
+    Ok(tipadas)
 }
 
 // Cada endereço de vetor só pode ser lido ou repassado ao mesmo papel de um
@@ -359,11 +408,13 @@ pub fn certificar_portas_arc_aot(
     }
     callbacks.sort();
     callbacks.dedup();
-    let total = callbacks.len() + uniformes.len();
+    let tipadas = conferir_tipadas(m, planos)?;
+    let total = callbacks.len() + uniformes.len() + tipadas.len();
     m.portas_arc_aot = Some(PortasArcAot {
         estado: estado(m),
         uniformes,
         callbacks,
+        tipadas,
     });
     Ok(total)
 }
@@ -532,6 +583,84 @@ mod testes {
                     assert!(ir.contains("call i64 @dartforge_arc_invocar_uniforme_v1(i64 %sc3"));
                 }
                 assert!(!ir.contains("call i64 %sf3("));
+            }
+        }
+    }
+
+    #[test]
+    fn tipadas_derivam_do_construtor_e_exigem_corpo_owned_e_abi_exata() {
+        for caso in 0..10 {
+            let (mut m, mut p) = modulo(false);
+            m.functions.push(Function {
+                symbol: "tipada".into(), name: "tipada".into(), depuracao: None,
+                params: vec![(ValueId(0), "contexto".into(), Type::Ref),
+                    (ValueId(1), "x".into(), Type::Ref)], return_ty: Type::Ref,
+                blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }],
+            });
+            m.retornos_ref_dart.insert("tipada".into());
+            m.functions.push(Function {
+                symbol: "capturar".into(), name: "capturar".into(), depuracao: None,
+                params: vec![], return_ty: Type::Ref,
+                blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
+                    (ValueId(0), Instruction::AllocClosureTipada {
+                        code_symbol: "folha".into(), env: Operand::Constant(Constant::Null),
+                        tipado: "tipada".into(), abi: 31, direto: false,
+                    }, Type::Ref),
+                ], terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }],
+            });
+            m.retornos_ref_dart.insert("capturar".into());
+            p.insert("tipada".into(), PlanoFuncaoDart::default());
+            p.insert("capturar".into(), PlanoFuncaoDart::default());
+            preparar_arc_modulo_dart(&mut m, &mut p).unwrap();
+            // Duplicar a construção não pode duplicar o registro do mesmo PC/ABI.
+            let inst = m.functions[3].blocks[0].instructions[0].1.clone();
+            m.functions[3].blocks[0].instructions.insert(0, (ValueId(5), inst, Type::Ref));
+            preparar_arc_modulo_dart(&mut m, &mut p).unwrap();
+            if caso == 7 {
+                certificar_portas_arc_aot(&mut m, &p).unwrap();
+                m.functions[2].params[1].2 = Type::F64;
+                assert!(m.portas_arc_aot.as_ref().unwrap().conferir(&m).is_err());
+                continue;
+            }
+            if caso == 8 {
+                m.functions[2].blocks[0].instructions.retain(|(_, i, _)| !matches!(i, Instruction::ArcCopy { .. }));
+                m.functions[2].blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
+            } else if caso == 9 {
+                // O produtor nominal não pode substituir uma prova de retorno
+                // Borrowed depois da verificação dos corpos pelo certificado.
+                p.get_mut("tipada").unwrap().tokens.retorno = RetornoTokens::Borrowed;
+            } else if caso != 0 {
+                for (_, inst, _) in &mut m.functions[3].blocks[0].instructions {
+                    if let Instruction::CallRuntime { name, args, .. } = inst
+                        && name == "dartforge_arc_closure_owned_v1"
+                    {
+                        match caso {
+                            1 => args[2].0 = Operand::Constant(Constant::Int(123)),
+                            2 => args[2].0 = Operand::Constant(Constant::Funcao("ausente".into())),
+                            3 => args[3].0 = Operand::Constant(Constant::Int(41)),
+                            4 => args[0].0 = Operand::Constant(Constant::Funcao("tipada".into())),
+                            5 => args[2].0 = Operand::Constant(Constant::Int(0)),
+                            6 => args[3].0 = Operand::Constant(Constant::Int(0)),
+                            _ => unreachable!(),
+                        }
+                    }
+                }
+            }
+            let antes = format!("{m:?}/{p:?}");
+            let resultado = certificar_portas_arc_aot(&mut m, &p);
+            if matches!(caso, 0 | 6) {
+                assert_eq!(resultado.unwrap(), if caso == 0 { 3 } else { 2 });
+                let certificado = m.portas_arc_aot.clone();
+                assert_eq!(certificado.as_ref().unwrap().tipadas().len(), usize::from(caso == 0));
+                certificar_portas_arc_aot(&mut m, &p).unwrap();
+                assert_eq!(m.portas_arc_aot, certificado);
+                let ir = LlvmEmitter::new(&m).emit_all();
+                assert_eq!(ir.matches(" = call i64 @dartforge_arc_registrar_tipada_v1").count(), usize::from(caso == 0));
+                if caso == 0 { assert!(ir.contains("i64 %t0, i64 31)")); }
+            } else {
+                assert!(resultado.is_err(), "caso {caso}: {resultado:?}");
+                assert_eq!(antes, format!("{m:?}/{p:?}"));
             }
         }
     }

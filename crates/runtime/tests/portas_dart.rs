@@ -17,6 +17,7 @@ use std::path::Path;
 
 /// (arquivo, trecho da linha, motivo).
 const PERMITIDOS: &[(&str, &str, &str)] = &[
+    ("arc_portas_nativas.rs", "let corpo_de_teste: extern \"C\" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(alvo as usize) };", "somente teste cfg(test): alvo conferido igual ao corpo Rust estático extern C, que apenas retém a referência e não lança nem chama Dart"),
     ("ffi_api_nativa.rs", "let f: FinalizadorDeHandle = unsafe { std::mem::transmute(f) };", "o `Dart_HandleFinalizer` em C do chamador da API nativa"),
     ("ffi_api_nativa.rs", "let handler: HandlerDePortaNativa = unsafe { std::mem::transmute(handler) };", "o `Dart_NativeMessageHandler` em C"),
     ("heap.rs", "let f: extern \"C\" fn(usize) = unsafe { std::mem::transmute(f) };", "a `NativeFinalizerFunction` em C do `dart:ffi`"),

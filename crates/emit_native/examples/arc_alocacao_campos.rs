@@ -28,6 +28,12 @@ fn modulo(quadro: bool, tipada: bool) -> Result<Module, String> {
     fields[2] = Operand::Constant(Constant::Bool(true));
     fields[3] = Operand::Val(ValueId(3));
     fields[39] = Operand::Val(ValueId(0));
+    if tipada {
+        fields[0] = Operand::Val(ValueId(12));
+        fields[1] = Operand::Val(ValueId(11));
+        fields[2] = Operand::Val(ValueId(13));
+        m.parametros_escalares_dart.insert("criar_objeto".into(), std::collections::HashSet::from([ValueId(12)]));
+    }
     if quadro {
         m.classes.clear(); m.layouts_campos_arc.clear();
         fields[0] = Operand::Constant(Constant::Int(0));
@@ -39,7 +45,9 @@ fn modulo(quadro: bool, tipada: bool) -> Result<Module, String> {
         symbol: "criar_objeto".into(),
         name: "criar_objeto".into(),
         depuracao: None,
-        params: if tipada { vec![(ValueId(10), "contexto".into(), Type::Ref)] } else { vec![] },
+        params: if tipada { vec![(ValueId(10), "contexto".into(), Type::Ref),
+            (ValueId(11), "double".into(), Type::F64), (ValueId(12), "int".into(), Type::I64),
+            (ValueId(13), "bool".into(), Type::I1)] } else { vec![] },
         return_ty: Type::Ref,
         blocks: vec![BasicBlock {
             id: BlockId(0),
@@ -83,6 +91,28 @@ fn modulo(quadro: bool, tipada: bool) -> Result<Module, String> {
             ], terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }] });
     }
     let mut planos = HashMap::from([("criar_objeto".into(), plano)]);
+    if tipada {
+        m.functions.push(Function { symbol: "entrada_objeto".into(), name: "entrada_objeto".into(), depuracao: None,
+            params: vec![(ValueId(0), "recv".into(), Type::Ref),
+                (ValueId(1), "args".into(), Type::Ptr), (ValueId(2), "desc".into(), Type::Ptr)],
+            return_ty: Type::Ref, blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
+                terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) }] });
+        m.retornos_uniformes_arc.insert("entrada_objeto".into());
+        m.parametros_vetores_dart.insert("entrada_objeto".into(), HashMap::from([
+            (ValueId(1), VetorEntradaDart::Argumentos), (ValueId(2), VetorEntradaDart::Descritor),
+        ]));
+        m.functions.push(Function { symbol: "criar_closure".into(), name: "criar_closure".into(), depuracao: None,
+            params: vec![], return_ty: Type::Ref,
+            blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
+                (ValueId(0), Instruction::AllocClosureTipada {
+                    code_symbol: "entrada_objeto".into(), env: Operand::Constant(Constant::Null),
+                    tipado: "criar_objeto".into(), abi: 1071, direto: false,
+                }, Type::Ref),
+            ], terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }] });
+        let mut p = PlanoFuncaoDart::default(); p.tokens.retorno = RetornoTokens::Owned;
+        planos.insert("criar_closure".into(), p);
+        planos.insert("entrada_objeto".into(), PlanoFuncaoDart::default());
+    }
     if quadro {
         let mut p = PlanoFuncaoDart::default(); p.tokens.retorno = RetornoTokens::Owned;
         planos.insert("ler_quadro".into(), p);
@@ -101,6 +131,9 @@ fn modulo(quadro: bool, tipada: bool) -> Result<Module, String> {
     let erros = dartforge_emit_native::lower::verificador::verificar(&m);
     if !erros.is_empty() {
         return Err(erros.join("\n"));
+    }
+    if tipada && certificar_portas_arc_aot(&mut m, &planos)? != 2 {
+        return Err("imagem tipada sem as duas portas verificadas".into());
     }
     Ok(m)
 }
@@ -125,6 +158,7 @@ fn main() -> Result<(), String> {
     if args.next().is_some() { return Err("argumentos excedentes".into()); }
     let mut m = modulo(quadro, tipada)?;
     m.memoria_arc = arc;
+    if !arc { m.portas_arc_aot = None; }
     let mut ir = LlvmEmitter::new(&m).emit_all();
     let cid = if quadro { dartforge_emit_native::lower::async_sm::ID_QUADRO_ASYNC } else { 123 };
     let owned = format!("call i64 @dartforge_arc_objeto_owned_v1(i64 {cid}, i64 40)");
@@ -210,10 +244,14 @@ passou:
             "  call void @dartforge_arc_release(i64 %obj)\n  call void @dartforge_arc_collect()\n  %sobreviveu = call i8 @dartforge_arc_observar_heap_v1(i64 %ref)\n  %ainda_owned = icmp eq i8 %sobreviveu, 3\n  br i1 %ainda_owned, label %soltar_leitura, label %falha\nsoltar_leitura:\n  call void @dartforge_arc_release(i64 %ref)\n  call void @dartforge_arc_collect()");
     }
     if tipada {
-        // A fixture verificou o corpo e mantém a imagem estática. O registro
-        // declara essa ABI, e a consulta confere os campos antes de chamar.
+        // ARC usa o registro automático do certificado antes da entrada Dart.
+        // Tracing registra manualmente apenas para comparar a mesma ABI nativa;
+        // esse registro não prepara nem certifica o pipeline tracing.
+        let registro_tracing = if arc { "" } else {
+            "  %pc = ptrtoint ptr @criar_objeto to i64\n  %versao = call i64 @dartforge_arc_registrar_tipada_v1(i64 %pc, i64 1071)\n"
+        };
         ir = ir.replace("  %obj = call i64 @criar_objeto()",
-            "  %pc = ptrtoint ptr @criar_objeto to i64\n  %versao = call i64 @dartforge_arc_registrar_tipada_v1(i64 %pc, i64 6)\n  %closure = call i64 @dartforge_arc_closure_owned_v1(i64 0, i64 0, i64 %pc, i64 6)\n  %alvo = call i64 @dartforge_arc_alvo_tipada_v1(i64 %closure, i64 6)\n  %funcao = inttoptr i64 %alvo to ptr\n  %obj = call i64 %funcao(i64 0)\n  call void @dartforge_arc_release(i64 %closure)\n  call void @dartforge_arc_retirar_tipada_v1(i64 %pc, i64 6, i64 %versao)");
+            &format!("{registro_tracing}  %closure = call i64 @criar_closure()\n  %alvo = call i64 @dartforge_arc_alvo_tipada_v1(i64 %closure, i64 1071)\n  %funcao = inttoptr i64 %alvo to ptr\n  %obj = call i64 %funcao(i64 0, double -0.0, i64 85, i1 true)\n  call void @dartforge_arc_release(i64 %closure)"));
     }
     if let Some(dir) = saida.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;

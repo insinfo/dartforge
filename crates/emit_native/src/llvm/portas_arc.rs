@@ -33,6 +33,14 @@ impl LlvmEmitter<'_> {
             )
             .unwrap();
         }
+        for (i, (s, abi)) in certificado.tipadas().iter().enumerate() {
+            writeln!(self.out, "  %t{i} = ptrtoint ptr @{s} to i64").unwrap();
+            writeln!(
+                self.out,
+                "  %tv{i} = call i64 @dartforge_arc_registrar_tipada_v1(i64 %t{i}, i64 {abi})"
+            )
+            .unwrap();
+        }
         self.out.push_str("  ret void\n}\n");
     }
 

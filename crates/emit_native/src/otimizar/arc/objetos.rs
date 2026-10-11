@@ -7,7 +7,7 @@ use super::{PlanoFuncaoDart, arestas::proximo_valor};
 use crate::hir::*;
 use std::{borrow::Cow, collections::HashMap};
 
-fn abi_tipada(params: &[Type], ret: Type) -> Option<i64> {
+pub(super) fn abi_tipada(params: &[Type], ret: Type) -> Option<i64> {
     let (Type::Ref, args) = params.split_first()? else { return None };
     if args.len() > 12 { return None; }
     args.iter().copied().chain(std::iter::once(ret)).try_fold(1_i64, |abi, ty|
