@@ -667,6 +667,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::Void,
             );
             g.terminate(Terminator::Return(Some(t)));
+            if self.ctx.memoria_arc { self.caches_rti_arc.insert(global.clone()); }
             self.globais_extras.push((0, Type::I64, global));
             self.absorver(g);
         }

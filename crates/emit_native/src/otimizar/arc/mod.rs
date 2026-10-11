@@ -30,6 +30,7 @@ pub use planos::produzir_tabelas_arc_do_modulo;
 pub use planos::preparar_arc_modulo_tabelado;
 mod parametros;
 mod vetores;
+mod caches_rti;
 pub use parametros::produzir_parametros_escalares_do_lowering;
 pub use parametros::produzir_parametros_rti_do_lowering;
 mod retornos;

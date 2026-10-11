@@ -136,6 +136,10 @@ mod testes_contexto {
                 if arc {
                     assert!(!m.parametros_vetores_dart.is_empty());
                     assert!(!m.retornos_uniformes_arc.is_empty());
+                    assert!(!m.caches_rti_arc.is_empty());
+                    for cache in &m.caches_rti_arc {
+                        assert!(m.globais.iter().any(|g| g.0 == 0 && g.1 == Type::I64 && &g.2 == cache));
+                    }
                     for (simbolo, papeis) in &m.parametros_vetores_dart {
                         let f = m.functions.iter().find(|f| &f.symbol == simbolo).unwrap();
                         assert_eq!(papeis.len(), 2);
@@ -146,7 +150,7 @@ mod testes_contexto {
                             assert_eq!(p.1, match papel { VetorEntradaDart::Argumentos => "args", VetorEntradaDart::Descritor => "desc" });
                         }
                     }
-                } else { assert!(m.parametros_vetores_dart.is_empty()); assert!(m.retornos_uniformes_arc.is_empty()); }
+                } else { assert!(m.parametros_vetores_dart.is_empty()); assert!(m.retornos_uniformes_arc.is_empty()); assert!(m.caches_rti_arc.is_empty()); }
 
                 let mut emprestimos = 0;
                 let mut leituras_cruas = 0;

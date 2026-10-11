@@ -1059,6 +1059,9 @@ pub struct Module {
     /// São premissas para preparar o corpo inteiro, não certificados de dispatch
     /// indireto ou de callbacks C; as fronteiras exigem verificação própria.
     pub retornos_uniformes_arc: std::collections::HashSet<String>,
+    /// Caches de IDs nativos RTI declarados pelo lowering, com flag implícita `$ok`.
+    /// Todas as escritas e representações exigem conferência antes de produzir contratos.
+    pub caches_rti_arc: std::collections::HashSet<String>,
     /// Origem nominal pré-otimização das alocações reconhecidas do lowering ARC.
     /// IDs SSA indexam a versão atual; cópias do inliner conservam o sítio de
     /// origem. Contextos especializados e dependências de recarga ainda faltam.

@@ -197,6 +197,7 @@ pub fn preparar_arc_modulo_dart(
     let mut novos = planos.clone();
     produzir_parametros_escalares_do_lowering(modulo, &mut novos)?;
     super::vetores::produzir(modulo, &mut novos)?;
+    super::caches_rti::produzir(modulo, &mut novos)?;
     produzir_parametros_rti_do_lowering(modulo, &mut novos)?;
     produzir_retornos_ref_do_lowering(modulo, &mut novos)?;
     // O conjunto já mantém os corpos privados até verificar todos eles.

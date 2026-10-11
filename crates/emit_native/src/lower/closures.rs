@@ -549,6 +549,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.parametros_rti_dart.extend(b.parametros_rti_dart);
         self.parametros_vetores_dart.extend(b.parametros_vetores_dart);
         self.retornos_uniformes_arc.extend(b.retornos_uniformes_arc);
+        self.caches_rti_arc.extend(b.caches_rti_arc);
         self.extra_functions.push(b.func);
         self.extra_functions.extend(b.extra_functions);
     }

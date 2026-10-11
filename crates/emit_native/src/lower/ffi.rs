@@ -383,6 +383,8 @@ pub fn lower_ffi(ctx: &Context, module: &mut Module) {
         module.parametros_rti_dart.extend(b.parametros_rti_dart);
         module.parametros_vetores_dart.extend(b.parametros_vetores_dart);
         module.retornos_uniformes_arc.extend(b.retornos_uniformes_arc);
+        module.caches_rti_arc.extend(b.caches_rti_arc);
+        module.globais.extend(b.globais_extras);
         module.ffi_trampolins.push((chave.clone(), simbolo));
         // O callback da mesma assinatura (`Pointer.fromFunction`,
         // `NativeCallable`): o corpo HIR; a entrada C sai no emissor. Um
@@ -399,6 +401,8 @@ pub fn lower_ffi(ctx: &Context, module: &mut Module) {
         module.parametros_rti_dart.extend(b.parametros_rti_dart);
         module.parametros_vetores_dart.extend(b.parametros_vetores_dart);
         module.retornos_uniformes_arc.extend(b.retornos_uniformes_arc);
+        module.caches_rti_arc.extend(b.caches_rti_arc);
+        module.globais.extend(b.globais_extras);
         module.ffi_callbacks.push(FfiCallback { chave, corpo, ret: assinatura.ret.clone(), params: assinatura.params.clone() });
     }
 }
