@@ -6,7 +6,7 @@
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*};
 use std::{collections::HashMap, path::PathBuf};
 
-fn modulo() -> Result<Module, String> {
+fn modulo(quadro: bool) -> Result<Module, String> {
     let mut m = Module::new();
     m.memoria_arc = true;
     m.entry_symbol = Some("prova_alocacao_campos".into());
@@ -28,6 +28,13 @@ fn modulo() -> Result<Module, String> {
     fields[2] = Operand::Constant(Constant::Bool(true));
     fields[3] = Operand::Val(ValueId(3));
     fields[39] = Operand::Val(ValueId(0));
+    if quadro {
+        m.classes.clear(); m.layouts_campos_arc.clear();
+        fields[0] = Operand::Constant(Constant::Int(0));
+        fields[6] = fields[1].clone(); fields[7] = fields[2].clone(); fields[8] = fields[3].clone();
+        fields[1..5].fill(Operand::Constant(Constant::Null));
+        fields[5] = Operand::Constant(Constant::Int(0));
+    }
     m.functions.push(Function {
         symbol: "criar_objeto".into(),
         name: "criar_objeto".into(),
@@ -57,7 +64,7 @@ fn modulo() -> Result<Module, String> {
                 (
                     ValueId(1),
                     Instruction::AllocObject {
-                        class_id: 123,
+                        class_id: if quadro { dartforge_emit_native::lower::async_sm::ID_QUADRO_ASYNC } else { 123 },
                         fields,
                     },
                     Type::Ref,
@@ -99,15 +106,22 @@ fn main() -> Result<(), String> {
         Some("0") | None => false,
         Some(outro) => return Err(format!("nível desconhecido: {outro}")),
     };
-    let mut m = modulo()?;
+    let mut controle = args.next();
+    let quadro = controle.as_deref() == Some("--quadro");
+    if quadro { controle = args.next(); }
+    if args.next().is_some() { return Err("argumentos excedentes".into()); }
+    let mut m = modulo(quadro)?;
     m.memoria_arc = arc;
     let mut ir = LlvmEmitter::new(&m).emit_all();
-    if let Some(controle) = args.next() {
+    let cid = if quadro { dartforge_emit_native::lower::async_sm::ID_QUADRO_ASYNC } else { 123 };
+    let owned = format!("call i64 @dartforge_arc_objeto_owned_v1(i64 {cid}, i64 40)");
+    let sem_owner = format!("call i64 @dartforge_object_new(i64 {cid}, i64 40)");
+    if let Some(controle) = controle {
         let (antes, depois) = match controle.as_str() {
             "sem-drop-filho" => ("  call void @dartforge_arc_release(i64 %v0)\n", ""),
             "sem-owner-objeto" => (
-                "call i64 @dartforge_arc_objeto_owned_v1(i64 123, i64 40)",
-                "call i64 @dartforge_object_new(i64 123, i64 40)",
+                owned.as_str(),
+                sem_owner.as_str(),
             ),
             _ => return Err(format!("controle desconhecido: {controle}")),
         };
@@ -163,6 +177,14 @@ passou:
 }
 "#,
     );
+    if quadro {
+        // O cabeçalho reserva quatro Ref e a tupla RTI; os escalares desta
+        // fixture ficam na cauda. O heap observa o mapa real da instância.
+        for (de, para) in [(1, 6), (2, 7), (3, 8)] {
+            ir = ir.replace(&format!("i64 %obj, i64 {de})"), &format!("i64 %obj, i64 {para})"));
+        }
+        ir = ir.replace("%aok = icmp eq i64 %a, 85", "%aok = icmp eq i64 %a, 0");
+    }
     if let Some(dir) = saida.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
@@ -183,6 +205,6 @@ mod testes {
     use super::*;
     #[test]
     fn preparacao_de_alocacao_e_campos_gera_ir_verificado() {
-        LlvmEmitter::new(&modulo().unwrap()).emit_all();
+        for quadro in [false, true] { LlvmEmitter::new(&modulo(quadro).unwrap()).emit_all(); }
     }
 }

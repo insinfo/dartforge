@@ -37,6 +37,7 @@ PROVAS = {
     ]),
     "arc_alocacao_campos": ("prova-alocacao-campos", False, [
         ("normal", None), ("normal", "sem-drop-filho"), ("normal", "sem-owner-objeto"),
+        ("--quadro", None), ("--quadro", "sem-drop-filho"), ("--quadro", "sem-owner-objeto"),
     ]),
     "arc_keepalive_campos": ("prova-keepalive-campos", False, [
         ("normal", None), ("normal", "sem-retencao"), ("normal", "sem-liberar"),

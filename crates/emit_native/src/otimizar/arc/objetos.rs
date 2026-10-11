@@ -139,18 +139,19 @@ pub(super) fn preparar(
                 }, Type::Ref));
                 continue;
             }
-            // As capturas usam classes físicas reservadas e representações
-            // dos operandos. Não são um layout nominal único para o cid:
-            // células/ambientes diferentes podem ter mapas Ref diferentes.
+            // Capturas e quadros suspensos têm mapas por instância, não um
+            // layout nominal único por cid. Só a construção inicial é
+            // conferida aqui; leituras, escritas e suspensão têm seus contratos.
             let (class_id, fields, sintetico): (u32, &[Operand], bool) = match inst {
-                Instruction::AllocObject { class_id, fields } => (*class_id, fields, false),
+                Instruction::AllocObject { class_id, fields } => (*class_id, fields,
+                    *class_id == crate::lower::async_sm::ID_QUADRO_ASYNC && !layouts.contains_key(class_id)),
                 Instruction::AllocCell { value } => (dartforge_runtime::layout::cid::CELULA as u32,
                     std::slice::from_ref(value), true),
                 Instruction::AllocEnv { values } => (dartforge_runtime::layout::cid::CONTEXTO as u32,
                     values, true),
                 _ => { instructions.push((*v, inst.clone(), *ty)); continue; }
             };
-            if sintetico && fields.is_empty() {
+            if sintetico && fields.is_empty() && class_id != crate::lower::async_sm::ID_QUADRO_ASYNC {
                 if *ty != Type::Ref {
                     return Err(format!("ambiente ARC em {} v{} exige Ref", f.symbol, v.0));
                 }
@@ -162,6 +163,10 @@ pub(super) fn preparar(
                     format!("captura ARC em {} v{}: materialização implícita não coberta", f.symbol, v.0))?;
                 if tipos.iter().any(|t| !matches!(t, Type::Ref | Type::I64 | Type::F64 | Type::I1 | Type::I8)) {
                     return Err(format!("captura ARC em {} v{}: representação não coberta", f.symbol, v.0));
+                }
+                if class_id == crate::lower::async_sm::ID_QUADRO_ASYNC
+                    && !tipos.starts_with(&[Type::I64, Type::Ref, Type::Ref, Type::Ref, Type::Ref, Type::I64]) {
+                    return Err(format!("quadro suspenso ARC em {} v{}: cabeçalho incompatível", f.symbol, v.0));
                 }
                 Cow::Owned(tipos)
             } else { Cow::Borrowed(layouts.get(&class_id).ok_or_else(|| {
@@ -254,6 +259,59 @@ pub(super) fn preparar(
 #[cfg(test)]
 mod testes {
     use crate::otimizar::arc::*;
+
+    #[test]
+    fn quadros_suspensos_inicializam_mapa_por_instancia_sem_layout_nominal() {
+        for caso in 0..9 {
+            let (mut m, mut planos) = modulo();
+            m.classes.clear(); m.layouts_campos_arc.clear();
+            let mut campos = vec![Operand::Constant(Constant::Int(0)),
+                Operand::Constant(Constant::Null), Operand::Constant(Constant::Null),
+                Operand::Val(ValueId(0)), Operand::Constant(Constant::Null),
+                Operand::Constant(Constant::Int(0)), Operand::Constant(Constant::Double(-0.0)),
+                Operand::Constant(Constant::Bool(true)), Operand::Val(ValueId(1))];
+            match caso {
+                1 => campos[0] = Operand::Constant(Constant::Null),
+                2 => campos[1] = Operand::Constant(Constant::Int(0)),
+                3 => campos.truncate(5),
+                4 => campos.push(Operand::Constant(Constant::String("implícita".into()))),
+                5 => m.functions[0].params[1].2 = Type::Ptr,
+                8 => campos.clear(),
+                _ => {}
+            }
+            let cid = if caso == 6 { 124 } else { crate::lower::async_sm::ID_QUADRO_ASYNC };
+            m.functions[0].blocks[0].instructions[0].1 = Instruction::AllocObject { class_id: cid, fields: campos };
+            if caso == 7 { m.memoria_arc = false; }
+            if caso == 0 {
+                let mut outro = m.functions[0].clone();
+                outro.symbol = "outro_quadro".into();
+                if let Instruction::AllocObject { fields, .. } = &mut outro.blocks[0].instructions[0].1 {
+                    fields.resize(40, Operand::Val(ValueId(0)));
+                }
+                m.functions.push(outro);
+                planos.insert("outro_quadro".into(), planos["objeto"].clone());
+            }
+            let antes = format!("{m:?}/{planos:?}");
+            let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
+            if caso == 0 {
+                resultado.unwrap();
+                assert!(!m.layouts_campos_arc.contains_key(&cid));
+                for f in &m.functions {
+                    assert_eq!(planos[&f.symbol].classes[&ValueId(2)], Ownership::Owned);
+                    assert!(f.blocks[0].instructions.iter().any(|(_, i, _)| matches!(i,
+                        Instruction::CallRuntime { name, args, .. } if name == "dartforge_arc_gravar_campo_ref_v1"
+                            && args[1].0 == Operand::Constant(Constant::Int(3)))));
+                }
+                crate::llvm::LlvmEmitter::new(&m).emit_all();
+                let preparado = format!("{m:?}/{planos:?}");
+                assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+                assert_eq!(preparado, format!("{m:?}/{planos:?}"));
+            } else {
+                assert_eq!(resultado.is_ok(), caso == 7, "{resultado:?}");
+                assert_eq!(antes, format!("{m:?}/{planos:?}"));
+            }
+        }
+    }
 
     #[test]
     fn capturas_owned_conservam_mapa_codigo_e_cleanup_sem_assumir_layout_do_cid() {
