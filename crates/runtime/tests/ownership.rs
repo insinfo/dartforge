@@ -28,6 +28,7 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
                         | "dartforge_nativo_DartForge_record_shape"
                         | "dartforge_print_handle"
                         | "dartforge_exception_pending"
+                        | "dartforge_interrupcao_pendente"
                         | "dartforge_exception_clear"
                         | "dartforge_unbox_int"
                         | "dartforge_unbox_double"

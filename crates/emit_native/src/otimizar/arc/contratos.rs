@@ -3248,6 +3248,36 @@ mod testes {
     }
 
     #[test]
+    fn interrupcao_e_byte_sem_owners_mas_abi_inexata_e_recusada() {
+        // A carga atômica do controle não toca o heap nem atende mensagens.
+        // Isso não certifica o ponto seguro que executa o caminho lento.
+        let i = Instruction::CallRuntime {
+            name: "dartforge_interrupcao_pendente".into(),
+            args: vec![],
+            ret_ty: Type::I8,
+        };
+        let c = contrato_chamada_runtime(&i).unwrap();
+        assert_eq!(c.resultado, Ownership::Trivial);
+        assert_eq!(c.efeito, EfeitoTokens::default());
+        assert!(!c.invalida_borrows && !c.retencao_persistente);
+        for ty in [Type::I1, Type::I64, Type::Ref, Type::Void] {
+            let mut errado = i.clone();
+            if let Instruction::CallRuntime { ret_ty, .. } = &mut errado {
+                *ret_ty = ty;
+            }
+            assert!(contrato_chamada_runtime(&errado).is_err());
+        }
+        let mut errado = i;
+        if let Instruction::CallRuntime { args, .. } = &mut errado {
+            args.push((Operand::Constant(Constant::Null), Type::Ref));
+        }
+        assert!(contrato_chamada_runtime(&errado).is_err());
+        assert!(contrato_chamada_runtime(&Instruction::CallRuntime {
+            name: "dartforge_ponto_seguro".into(), args: vec![], ret_ty: Type::Void,
+        }).is_err());
+    }
+
+    #[test]
     fn byte_da_abi_nao_e_booleano_i1() {
         let mut i = Instruction::CallRuntime {
             name: "dartforge_arc_verificar_abi".into(),
