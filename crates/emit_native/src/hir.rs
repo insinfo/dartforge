@@ -1055,6 +1055,10 @@ pub struct Module {
     /// Proveniência nominal do lowering; não inclui automaticamente entradas
     /// uniformes, callbacks FFI ou funções HIR fornecidas por outro produtor.
     pub retornos_ref_dart: std::collections::HashSet<String>,
+    /// Entradas uniformes declaradas pelo lowering para a ABI ARC com retorno Owned.
+    /// São premissas para preparar o corpo inteiro, não certificados de dispatch
+    /// indireto ou de callbacks C; as fronteiras exigem verificação própria.
+    pub retornos_uniformes_arc: std::collections::HashSet<String>,
     /// Origem nominal pré-otimização das alocações reconhecidas do lowering ARC.
     /// IDs SSA indexam a versão atual; cópias do inliner conservam o sítio de
     /// origem. Contextos especializados e dependências de recarga ainda faltam.

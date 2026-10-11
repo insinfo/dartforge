@@ -215,7 +215,11 @@ pub(super) fn copiar_retornos(
             };
             let mut op = op.clone();
             match &op {
-                Operand::Val(v) if classes[v] == Ownership::Owned => continue,
+                Operand::Val(v) => match classes.get(v) {
+                    Some(Ownership::Owned) => continue,
+                    Some(_) => {},
+                    None => return Err(format!("retorno em {} b{}: v{} sem classificação", f.symbol, b.id.0, v.0)),
+                },
                 Operand::Constant(Constant::Null) => continue,
                 Operand::Constant(c @ (Constant::String(_) | Constant::StringWtf8(_))) => {
                     let v = id()?;

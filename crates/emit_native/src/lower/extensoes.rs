@@ -121,6 +121,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
             let args = Operand::Val(e.add_param_vetor(VetorEntradaDart::Argumentos));
             let desc = Operand::Val(e.add_param_vetor(VetorEntradaDart::Descritor));
+            e.declarar_retorno_uniforme_arc();
             let env = e.contexto_da_closure(clo);
             let receptor_op = e.emit(Instruction::EnvGet { env, index: 0 }, Type::Ref);
             if let Some(vals) = e.desempacotar(&infos, args, desc) {

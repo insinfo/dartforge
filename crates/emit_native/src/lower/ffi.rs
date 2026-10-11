@@ -382,6 +382,7 @@ pub fn lower_ffi(ctx: &Context, module: &mut Module) {
         module.parametros_escalares_dart.extend(b.parametros_escalares_dart);
         module.parametros_rti_dart.extend(b.parametros_rti_dart);
         module.parametros_vetores_dart.extend(b.parametros_vetores_dart);
+        module.retornos_uniformes_arc.extend(b.retornos_uniformes_arc);
         module.ffi_trampolins.push((chave.clone(), simbolo));
         // O callback da mesma assinatura (`Pointer.fromFunction`,
         // `NativeCallable`): o corpo HIR; a entrada C sai no emissor. Um
@@ -397,6 +398,7 @@ pub fn lower_ffi(ctx: &Context, module: &mut Module) {
         module.parametros_escalares_dart.extend(b.parametros_escalares_dart);
         module.parametros_rti_dart.extend(b.parametros_rti_dart);
         module.parametros_vetores_dart.extend(b.parametros_vetores_dart);
+        module.retornos_uniformes_arc.extend(b.retornos_uniformes_arc);
         module.ffi_callbacks.push(FfiCallback { chave, corpo, ret: assinatura.ret.clone(), params: assinatura.params.clone() });
     }
 }
@@ -533,6 +535,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let clo = Operand::Val(self.add_param("closure".to_string(), Type::Ref));
         let args = Operand::Val(self.add_param_vetor(VetorEntradaDart::Argumentos));
         let desc = Operand::Val(self.add_param_vetor(VetorEntradaDart::Descritor));
+        self.declarar_retorno_uniforme_arc();
         let infos: Vec<ParamEntrada> = a
             .params
             .iter()

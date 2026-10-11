@@ -52,6 +52,7 @@ pub struct FnBuilder<'a, 'c> {
     pub parametros_rti_dart: HashMap<String, std::collections::HashSet<ValueId>>,
     /// Vetores nativos com papel declarado pela ABI do produtor.
     pub parametros_vetores_dart: HashMap<String, HashMap<ValueId, VetorEntradaDart>>,
+    pub retornos_uniformes_arc: std::collections::HashSet<String>,
     pub break_targets: Vec<BlockId>,
     pub continue_targets: Vec<BlockId>,
     pub this_param: Option<Operand>,
@@ -316,6 +317,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             parametros_escalares_dart: HashMap::new(),
             parametros_rti_dart: HashMap::new(),
             parametros_vetores_dart: HashMap::new(),
+            retornos_uniformes_arc: Default::default(),
             break_targets: Vec::new(),
             continue_targets: Vec::new(),
             this_param: None,
@@ -542,6 +544,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         module.parametros_escalares_dart.extend(self.parametros_escalares_dart);
         module.parametros_rti_dart.extend(self.parametros_rti_dart);
         module.parametros_vetores_dart.extend(self.parametros_vetores_dart);
+        module.retornos_uniformes_arc.extend(self.retornos_uniformes_arc);
         module.functions.push(self.func);
         module.functions.extend(self.extra_functions);
     }
@@ -768,6 +771,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.parametros_vetores_dart.entry(self.func.symbol.clone()).or_default().insert(id, papel);
         }
         id
+    }
+
+    /// Declara a convenção alvo de uma entrada uniforme gerada nesta imagem.
+    /// Só a preparação/verificação completa pode publicar seu corpo Owned;
+    /// callbacks e dispatch indireto ainda exigem contratos dos chamadores.
+    pub(super) fn declarar_retorno_uniforme_arc(&mut self) {
+        if !self.ctx.memoria_arc || self.func.return_ty != Type::Ref { return; }
+        assert_eq!(self.func.params.iter().map(|p| p.2).collect::<Vec<_>>(),
+            [Type::Ref, Type::Ptr, Type::Ptr], "declaração de entrada uniforme incompatível");
+        let papeis = &self.parametros_vetores_dart[&self.func.symbol];
+        assert_eq!(papeis.get(&self.func.params[1].0), Some(&VetorEntradaDart::Argumentos));
+        assert_eq!(papeis.get(&self.func.params[2].0), Some(&VetorEntradaDart::Descritor));
+        self.retornos_uniformes_arc.insert(self.func.symbol.clone());
     }
 
     /// Declara um ID do universo RTI, sem inferir referência pela largura.

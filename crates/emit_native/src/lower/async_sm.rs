@@ -483,6 +483,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
         let args = Operand::Val(e.add_param_vetor(VetorEntradaDart::Argumentos));
         let desc = Operand::Val(e.add_param_vetor(VetorEntradaDart::Descritor));
+        e.declarar_retorno_uniforme_arc();
         let env_e = e.contexto_da_closure(clo);
         if let Some(vals) = e.desempacotar(&infos, args, desc) {
             let mut todos = vec![env_e];
@@ -632,6 +633,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
         let args = Operand::Val(e.add_param_vetor(VetorEntradaDart::Argumentos));
         let desc = Operand::Val(e.add_param_vetor(VetorEntradaDart::Descritor));
+        e.declarar_retorno_uniforme_arc();
         let env = e.contexto_da_closure(clo);
         if e.desempacotar(&[], args, desc).is_some() {
             let modelo = e.emit(Instruction::EnvGet { env, index: 0 }, Type::Ref);

@@ -409,6 +409,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
         let args = Operand::Val(e.add_param_vetor(VetorEntradaDart::Argumentos));
         let desc = Operand::Val(e.add_param_vetor(VetorEntradaDart::Descritor));
+        e.declarar_retorno_uniforme_arc();
         let env_e = e.contexto_da_closure(clo);
         // Os argumentos de tipo que a closure genérica usa quando a chamada
         // não passa nenhum (chamada dinâmica): os limites escritos, como a
@@ -547,6 +548,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.parametros_escalares_dart.extend(b.parametros_escalares_dart);
         self.parametros_rti_dart.extend(b.parametros_rti_dart);
         self.parametros_vetores_dart.extend(b.parametros_vetores_dart);
+        self.retornos_uniformes_arc.extend(b.retornos_uniformes_arc);
         self.extra_functions.push(b.func);
         self.extra_functions.extend(b.extra_functions);
     }
@@ -968,6 +970,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             e.add_param("closure".to_string(), Type::Ref);
             let args = Operand::Val(e.add_param_vetor(VetorEntradaDart::Argumentos));
             let desc = Operand::Val(e.add_param_vetor(VetorEntradaDart::Descritor));
+            e.declarar_retorno_uniforme_arc();
             if let Some(vals) = e.desempacotar(&infos, args.clone(), desc.clone()) {
                 // Os argumentos de uma chamada dinâmica, conferidos como na
                 // VM (" of 'nome'") antes de convertidos.
@@ -1016,6 +1019,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
             let args = Operand::Val(e.add_param_vetor(VetorEntradaDart::Argumentos));
             let desc = Operand::Val(e.add_param_vetor(VetorEntradaDart::Descritor));
+            e.declarar_retorno_uniforme_arc();
             let env = e.contexto_da_closure(clo);
             let receptor = e.emit(Instruction::EnvGet { env, index: 0 }, Type::Ref);
             if self.tearoff_pelo_seletor(fid) {
@@ -1212,6 +1216,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
             let args = Operand::Val(e.add_param_vetor(VetorEntradaDart::Argumentos));
             let desc = Operand::Val(e.add_param_vetor(VetorEntradaDart::Descritor));
+            e.declarar_retorno_uniforme_arc();
             let env = e.contexto_da_closure(clo);
             let t = e.emit(Instruction::EnvGet { env, index: 0 }, Type::I64);
             if let Some(vals) = e.desempacotar(&infos, args, desc) {
@@ -1260,6 +1265,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
             let args = Operand::Val(e.add_param_vetor(VetorEntradaDart::Argumentos));
             let desc = Operand::Val(e.add_param_vetor(VetorEntradaDart::Descritor));
+            e.declarar_retorno_uniforme_arc();
             let env = e.contexto_da_closure(clo);
             let obj = e.emit(Instruction::EnvGet { env: env.clone(), index: 0 }, Type::I64);
             let t = e.emit(Instruction::EnvGet { env, index: 1 }, Type::I64);
@@ -1381,6 +1387,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             e.add_param("closure".to_string(), Type::Ref);
             let a = Operand::Val(e.add_param_vetor(VetorEntradaDart::Argumentos));
             let d = Operand::Val(e.add_param_vetor(VetorEntradaDart::Descritor));
+            e.declarar_retorno_uniforme_arc();
             if let Some(vals) = e.desempacotar(&infos, a.clone(), d.clone()) {
                 let avaliados: Vec<Avaliado> = self.ctx.outline.functions[fid]
                     .parameters
@@ -1436,6 +1443,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             e.add_param("closure".to_string(), Type::Ref);
             let args = Operand::Val(e.add_param_vetor(VetorEntradaDart::Argumentos));
             let desc = Operand::Val(e.add_param_vetor(VetorEntradaDart::Descritor));
+            e.declarar_retorno_uniforme_arc();
             if let Some(vals) = e.desempacotar(&infos, args.clone(), desc.clone()) {
                 let avaliados: Vec<Avaliado> = self.ctx.outline.functions[fid]
                     .parameters

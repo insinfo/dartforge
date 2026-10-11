@@ -1274,6 +1274,7 @@ fn gerar_encaminhador_nsm(ctx: &Context, module: &mut Module, unit: UnitId, simb
     let this = Operand::Val(b.add_param("this".to_string(), Type::Ref));
     let args = Operand::Val(b.add_param_vetor(VetorEntradaDart::Argumentos));
     let desc = Operand::Val(b.add_param_vetor(VetorEntradaDart::Descritor));
+    b.declarar_retorno_uniforme_arc();
     let (codigo, valores, nomes, tupla) = match tipo {
         Tipo::Chamar => {
             let infos = b.params_da_funcao(fid);
@@ -1367,6 +1368,7 @@ pub fn lower_adaptadores_da_funcao(ctx: &Context, module: &mut Module, fid: usiz
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
         let args = Operand::Val(b.add_param_vetor(VetorEntradaDart::Argumentos));
         let desc = Operand::Val(b.add_param_vetor(VetorEntradaDart::Descritor));
+        b.declarar_retorno_uniforme_arc();
         let span = Span { start: 0, end: 0 };
         let r = match (a, f.kind) {
             (Adaptador::Ler, FunctionKind::Getter) => {
@@ -1447,6 +1449,7 @@ pub fn lower_adaptadores_do_campo(ctx: &Context, module: &mut Module, vid: Varia
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
         let args = Operand::Val(b.add_param_vetor(VetorEntradaDart::Argumentos));
         let desc = Operand::Val(b.add_param_vetor(VetorEntradaDart::Descritor));
+        b.declarar_retorno_uniforme_arc();
         let r = match a {
             Adaptador::Ler => {
                 if b.desempacotar(&[], args, desc).is_none() {
@@ -1562,6 +1565,7 @@ pub fn lower_funcao_ou_recusa(ctx: &Context, module: &mut Module, fid: usize) {
         module.parametros_escalares_dart.extend(m.parametros_escalares_dart);
         module.parametros_rti_dart.extend(m.parametros_rti_dart);
         module.parametros_vetores_dart.extend(m.parametros_vetores_dart);
+        module.retornos_uniformes_arc.extend(m.retornos_uniformes_arc);
             module.globais.extend(m.globais);
         }
         (_, Some(motivo)) => {
@@ -1689,6 +1693,7 @@ pub fn lower_adaptadores_e_tabelas(ctx: &Context, module: &mut Module) {
                 let this = Operand::Val(b.add_param("this".to_string(), Type::Ref));
                 b.add_param_vetor(VetorEntradaDart::Argumentos);
                 b.add_param_vetor(VetorEntradaDart::Descritor);
+                b.declarar_retorno_uniforme_arc();
                 let texto = b.emit(Instruction::CallRuntime {
                     name: "dartforge_rastro_texto".to_string(),
                     args: vec![(this, Type::Ref)],
@@ -1714,6 +1719,7 @@ pub fn lower_adaptadores_e_tabelas(ctx: &Context, module: &mut Module) {
                 let this = Operand::Val(b.add_param("this".to_string(), Type::Ref));
                 b.add_param_vetor(VetorEntradaDart::Argumentos);
                 b.add_param_vetor(VetorEntradaDart::Descritor);
+                b.declarar_retorno_uniforme_arc();
                 let nome = b.emit(Instruction::CallRuntime {
                     name: "dartforge_object_get".to_string(),
                     args: vec![
@@ -1738,6 +1744,7 @@ pub fn lower_adaptadores_e_tabelas(ctx: &Context, module: &mut Module) {
                 let this = Operand::Val(b.add_param("this".to_string(), Type::Ref));
                 b.add_param_vetor(VetorEntradaDart::Argumentos);
                 b.add_param_vetor(VetorEntradaDart::Descritor);
+                b.declarar_retorno_uniforme_arc();
                 let indice = b.emit(Instruction::CallRuntime {
                     name: "dartforge_object_get".to_string(),
                     args: vec![
@@ -1769,6 +1776,7 @@ pub fn lower_adaptadores_e_tabelas(ctx: &Context, module: &mut Module) {
                 let this = Operand::Val(b.add_param("this".to_string(), Type::Ref));
                 b.add_param_vetor(VetorEntradaDart::Argumentos);
                 b.add_param_vetor(VetorEntradaDart::Descritor);
+                b.declarar_retorno_uniforme_arc();
                 let texto = b.emit_call_with_check(
                     Instruction::CallStatic { symbol: base, args: vec![this], ret_ty: Type::Ref },
                     Type::Ref,
@@ -1833,6 +1841,7 @@ fn adaptadores_ou_recusa(ctx: &Context, module: &mut Module, gerar: impl FnOnce(
         module.parametros_escalares_dart.extend(m.parametros_escalares_dart);
         module.parametros_rti_dart.extend(m.parametros_rti_dart);
         module.parametros_vetores_dart.extend(m.parametros_vetores_dart);
+        module.retornos_uniformes_arc.extend(m.retornos_uniformes_arc);
         module.globais.extend(m.globais);
         return;
     }
@@ -1865,6 +1874,7 @@ fn adaptadores_ou_recusa(ctx: &Context, module: &mut Module, gerar: impl FnOnce(
         b.add_param("this".to_string(), Type::Ref);
         b.add_param_vetor(VetorEntradaDart::Argumentos);
         b.add_param_vetor(VetorEntradaDart::Descritor);
+        b.declarar_retorno_uniforme_arc();
         let t = b.emit(Instruction::Const(Constant::String(format!("{simbolo} ({motivo})"))), Type::Ref);
         b.emit(
             Instruction::CallRuntime { name: "dartforge_membro_recusado".to_string(), args: vec![(t, Type::Ref)], ret_ty: Type::Void },
@@ -1903,6 +1913,7 @@ pub fn lower_getter_late_ou_recusa(
         module.parametros_escalares_dart.extend(m.parametros_escalares_dart);
         module.parametros_rti_dart.extend(m.parametros_rti_dart);
         module.parametros_vetores_dart.extend(m.parametros_vetores_dart);
+        module.retornos_uniformes_arc.extend(m.retornos_uniformes_arc);
             module.globais.extend(m.globais);
             return;
         }
@@ -1973,6 +1984,7 @@ pub fn lower_global_ou_recusa(
         module.parametros_escalares_dart.extend(m.parametros_escalares_dart);
         module.parametros_rti_dart.extend(m.parametros_rti_dart);
         module.parametros_vetores_dart.extend(m.parametros_vetores_dart);
+        module.retornos_uniformes_arc.extend(m.retornos_uniformes_arc);
             module.globais.extend(m.globais);
         }
         r => {
@@ -2390,6 +2402,7 @@ pub fn tabelas_das_formas_de_record(ctx: &Context, module: &mut Module) {
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
         b.add_param_vetor(VetorEntradaDart::Argumentos);
         b.add_param_vetor(VetorEntradaDart::Descritor);
+        b.declarar_retorno_uniforme_arc();
         let r = b.emit_call_with_check(
             Instruction::CallStatic { symbol: format!("{base}.toString"), args: vec![recv], ret_ty: Type::Ref },
             Type::Ref,
@@ -2401,6 +2414,7 @@ pub fn tabelas_das_formas_de_record(ctx: &Context, module: &mut Module) {
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
         let args = Operand::Val(b.add_param_vetor(VetorEntradaDart::Argumentos));
         b.add_param_vetor(VetorEntradaDart::Descritor);
+        b.declarar_retorno_uniforme_arc();
         let outro = b.emit(Instruction::LoadIndexed { base: args, index: Operand::Constant(Constant::Int(0)) }, Type::Ref);
         let r = b.emit_call_with_check(
             Instruction::CallStatic {
@@ -2418,6 +2432,7 @@ pub fn tabelas_das_formas_de_record(ctx: &Context, module: &mut Module) {
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
         b.add_param_vetor(VetorEntradaDart::Argumentos);
         b.add_param_vetor(VetorEntradaDart::Descritor);
+        b.declarar_retorno_uniforme_arc();
         let r = b.emit_call_with_check(
             Instruction::CallStatic { symbol: format!("{base}.hashCode"), args: vec![recv], ret_ty: Type::I64 },
             Type::I64,

@@ -1320,6 +1320,7 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
         let recv = Operand::Val(igualdade.add_param("this".to_string(), Type::Ref));
         let args = Operand::Val(igualdade.add_param_vetor(VetorEntradaDart::Argumentos));
         igualdade.add_param_vetor(VetorEntradaDart::Descritor);
+        igualdade.declarar_retorno_uniforme_arc();
         let outro = igualdade.emit(
             Instruction::LoadIndexed { base: args, index: Operand::Constant(Constant::Int(0)) },
             Type::Ref,
@@ -1332,6 +1333,7 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
         let recv = Operand::Val(texto.add_param("this".to_string(), Type::Ref));
         texto.add_param_vetor(VetorEntradaDart::Argumentos);
         texto.add_param_vetor(VetorEntradaDart::Descritor);
+        texto.declarar_retorno_uniforme_arc();
         let valor = texto.emit_call_with_check(
             Instruction::CallStatic { symbol: simbolo.clone(), args: vec![recv], ret_ty: Type::Ref },
             Type::Ref,

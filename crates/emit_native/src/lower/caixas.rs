@@ -135,16 +135,18 @@ mod testes_contexto {
                 assert!(m.erros.is_empty(), "{:?}", m.erros);
                 if arc {
                     assert!(!m.parametros_vetores_dart.is_empty());
+                    assert!(!m.retornos_uniformes_arc.is_empty());
                     for (simbolo, papeis) in &m.parametros_vetores_dart {
                         let f = m.functions.iter().find(|f| &f.symbol == simbolo).unwrap();
                         assert_eq!(papeis.len(), 2);
+                        assert!(m.retornos_uniformes_arc.contains(simbolo));
                         for (id, papel) in papeis {
                             let p = f.params.iter().find(|(v, _, _)| v == id).unwrap();
                             assert_eq!(p.2, Type::Ptr);
                             assert_eq!(p.1, match papel { VetorEntradaDart::Argumentos => "args", VetorEntradaDart::Descritor => "desc" });
                         }
                     }
-                } else { assert!(m.parametros_vetores_dart.is_empty()); }
+                } else { assert!(m.parametros_vetores_dart.is_empty()); assert!(m.retornos_uniformes_arc.is_empty()); }
 
                 let mut emprestimos = 0;
                 let mut leituras_cruas = 0;

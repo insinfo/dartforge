@@ -222,6 +222,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             e.add_param("closure".to_string(), Type::Ref);
             let args = Operand::Val(e.add_param_vetor(VetorEntradaDart::Argumentos));
             let desc = Operand::Val(e.add_param_vetor(VetorEntradaDart::Descritor));
+            e.declarar_retorno_uniforme_arc();
             let infos = [ParamEntrada { nome: nome_rep, kind: ParameterKind::Required, required: true, padrao: Padrao::Nenhum }];
             if let Some(vals) = e.desempacotar(&infos, args, desc) {
                 let v = e.coagir(vals[0].clone(), Type::Ref);

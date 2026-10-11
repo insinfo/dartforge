@@ -72,6 +72,22 @@ pub(super) fn produzir(
                 continue;
             }
             match inst {
+                // Encaminhamento somente ao descritor declarado de um corpo
+                // local. Todos esses corpos são validados nesta transação;
+                // inclusive ciclos só podem ler/encaminhar, nunca publicar.
+                Instruction::CallStatic { symbol, args, .. }
+                    if funcoes.get(symbol).is_some_and(|callee| {
+                        args.len() == callee.params.len()
+                            && args.iter().enumerate().all(|(i, o)| {
+                                !descritor(o)
+                                    || (callee.params[i].2 == Type::Ptr
+                                        && modulo
+                                            .parametros_vetores_dart
+                                            .get(symbol)
+                                            .and_then(|p| p.get(&callee.params[i].0))
+                                            == Some(&VetorEntradaDart::Descritor))
+                            })
+                    }) => {}
                 Instruction::LoadIndexed { base, index }
                     if descritor(base)
                         && matches!(index, Operand::Constant(Constant::Int(0 | 1)))
