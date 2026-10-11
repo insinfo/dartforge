@@ -399,30 +399,32 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let repr = self.repr_do_campo(vid);
         let val = self.coagir(val, repr);
-        if self.ctx.memoria_arc && !var.late
+        if self.ctx.memoria_arc
             && let Operand::Constant(Constant::Int(i)) = &idx
             && let Ok(index) = usize::try_from(*i)
         {
-            self.emit(Instruction::SetField { object: obj, index, value: val }, Type::Void);
-            return;
+            // A escrita tipada também vale para late; o estado lateral só
+            // muda depois de gravar, inclusive para null/false/zero.
+            self.emit(Instruction::SetField { object: obj.clone(), index, value: val }, Type::Void);
+        } else {
+            let (bits, is_ref) = self.para_bits(val);
+            self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_object_set".to_string(),
+                    args: vec![
+                        (obj.clone(), Type::Ref),
+                        (idx.clone(), Type::I64),
+                        (bits, Type::I64),
+                        (
+                            Operand::Constant(Constant::Int(i64::from(is_ref))),
+                            Type::I8,
+                        ),
+                    ],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            );
         }
-        let (bits, is_ref) = self.para_bits(val);
-        self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_object_set".to_string(),
-                args: vec![
-                    (obj.clone(), Type::Ref),
-                    (idx.clone(), Type::I64),
-                    (bits, Type::I64),
-                    (
-                        Operand::Constant(Constant::Int(i64::from(is_ref))),
-                        Type::I8,
-                    ),
-                ],
-                ret_ty: Type::Void,
-            },
-            Type::Void,
-        );
         if var.late {
             self.emit(
                 Instruction::CallRuntime {
@@ -2331,6 +2333,80 @@ mod testes_campos_mixin_arc {
     use super::*;
     use dartforge_intern::Interner;
     use dartforge_types::table::{CoreTypes, TypeTable};
+
+    #[test]
+    fn escrita_late_arc_preserva_marca_e_guarda_final_com_representacao_tipificada() {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let entrada = dir.path().join("main.dart");
+            std::fs::write(&entrada,
+                "class C { late Object? ref; late final int inteiro; late bool booleano; late double real; void trocar() { ref = null; inteiro = 0; booleano = false; real = 0.0; } } void main() { C().trocar(); }\n").unwrap();
+            let sdk = crate::sdk_modulo::carregar_sdk_nativo(crate::sdk_testes()).unwrap();
+            let mut interner = Interner::new();
+            let (program, diags) = dartforge_elements::load::load_lenient(&entrada, &sdk, None, &mut interner);
+            assert!(diags.is_empty(), "{diags:?}");
+            let mut table = TypeTable::new();
+            let core = CoreTypes::init(&mut table, &program, &interner);
+            let (mut outline, diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+            let (bodies, diags_corpos) = dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
+            for d in diags.iter().chain(&diags_corpos) {
+                assert!(!dartforge_types::codes::e_erro_de_compilacao(&d.message), "{d:?}");
+            }
+            let te = crate::apagamento::calcular(&program, &outline, &mut table);
+            let mut ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
+            ctx.te = te;
+            for arc in [false, true] {
+                ctx.memoria_arc = arc;
+                let m = crate::lower::lower_program(&ctx);
+                assert!(m.erros.is_empty(), "{:?}", m.erros);
+                let f = m.functions.iter().find(|f| f.name == "trocar").unwrap();
+                let mut tipos = std::collections::HashSet::new();
+                let mut marcas = 0;
+                let mut guardas = 0;
+                for b in &f.blocks {
+                    for (pos, (_, i, _)) in b.instructions.iter().enumerate() {
+                        if let Instruction::CallRuntime { name, args, .. } = i {
+                            if name == "dartforge_late_field_initialized" { guardas += 1; }
+                            if name == "dartforge_late_field_mark_initialized" {
+                                marcas += 1;
+                                let (obj, idx) = (&args[0].0, &args[1].0);
+                                let anteriores = &b.instructions[..pos];
+                                if arc {
+                                    let (_, Instruction::SetField { object, index, value }, _) = anteriores.last().unwrap() else {
+                                        panic!("marca late sem escrita tipada imediatamente anterior");
+                                    };
+                                    assert_eq!(object, obj);
+                                    assert_eq!(*idx, Operand::Constant(Constant::Int(*index as i64)));
+                                    let ty = match value {
+                                        Operand::Constant(Constant::Null) => Type::Ref,
+                                        Operand::Constant(Constant::Int(_)) => Type::I64,
+                                        Operand::Constant(Constant::Bool(_)) => Type::I1,
+                                        Operand::Constant(Constant::Double(_)) => Type::F64,
+                                        Operand::Val(v) => f.blocks.iter().flat_map(|b| &b.instructions)
+                                            .find(|(id, _, _)| id == v).unwrap().2,
+                                        _ => panic!("valor late sem representação"),
+                                    };
+                                    tipos.insert(ty);
+                                } else {
+                                    assert!(matches!(&anteriores.last().unwrap().1, Instruction::CallRuntime { name, .. }
+                                        if name == "dartforge_object_set"));
+                                }
+                            }
+                        }
+                    }
+                }
+                assert_eq!(marcas, 4);
+                assert_eq!(guardas, 1, "late final mantém a conferência antes da segunda escrita");
+                if arc {
+                    assert_eq!(tipos, std::collections::HashSet::from([Type::Ref, Type::I64, Type::I1, Type::F64]));
+                    assert!(!f.blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)|
+                        matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_object_set")));
+                } else {
+                    assert!(!f.blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)| matches!(i, Instruction::SetField { .. })));
+                }
+            }
+        }).unwrap().join().unwrap();
+    }
 
     #[test]
     fn aplicacoes_com_indices_distintos_transportam_acessos_tipados_em_arc() {

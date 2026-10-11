@@ -212,13 +212,17 @@ void main() { Base().exercitar(Object()); }
                             "gravação {indice}"
                         );
                     }
-                    // late conserva seu protocolo, inclusive os indicadores de
-                    // inicialização; não pode virar um acesso direto tipado.
+                    // Leituras late ainda conservam a inspeção do estado vazio.
+                    // Escritas tipadas mantêm a marca posterior de inicialização.
                     assert!(!acessos.iter().any(|(_, i, _)| matches!(
                         i,
                         Instruction::GetField { index: 4 | 5, .. }
-                            | Instruction::SetField { index: 4 | 5, .. }
                     )));
+                    assert!(acessos.iter().any(|(_, i, _)| matches!(i,
+                        Instruction::SetField { index: 4, .. })));
+                    assert!(acessos.iter().any(|(_, i, _)| matches!(i,
+                        Instruction::CallRuntime { name, .. }
+                        if name == "dartforge_late_field_mark_initialized")));
                     assert!(acessos.iter().any(|(_, i, _)| matches!(i,
                         Instruction::CallRuntime { name, .. }
                         if name == "dartforge_late_field_initialized")));
