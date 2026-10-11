@@ -3272,9 +3272,10 @@ mod testes {
             args.push((Operand::Constant(Constant::Null), Type::Ref));
         }
         assert!(contrato_chamada_runtime(&errado).is_err());
-        assert!(contrato_chamada_runtime(&Instruction::CallRuntime {
+        let lento = contrato_chamada_runtime(&Instruction::CallRuntime {
             name: "dartforge_ponto_seguro".into(), args: vec![], ret_ty: Type::Void,
-        }).is_err());
+        }).unwrap();
+        assert!(lento.efeito.pode_falhar && lento.invalida_borrows && lento.chama_dart);
     }
 
     #[test]

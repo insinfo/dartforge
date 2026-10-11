@@ -1775,6 +1775,77 @@ mod testes {
     }
 
     #[test]
+    fn ponto_seguro_preserva_owner_no_sucesso_e_libera_na_falha() {
+        for caso in 0..5 {
+            let mut m = Module::new();
+            m.memoria_arc = caso != 4;
+            m.functions.push(Function {
+                symbol: "controle".into(), name: "controle".into(), depuracao: None,
+                params: vec![(ValueId(0), "valor".into(), Type::Ref)], return_ty: Type::Ref,
+                blocks: vec![
+                    BasicBlock { id: BlockId(0), instructions: vec![
+                        (ValueId(1), Instruction::ArcCopy { value: Operand::Val(ValueId(0)) }, Type::Ref),
+                        (ValueId(2), Instruction::CallRuntime {
+                            name: "dartforge_ponto_seguro".into(), args: vec![],
+                            ret_ty: if caso == 3 { Type::Ref } else { Type::Void },
+                        }, if caso == 3 { Type::Ref } else { Type::Void }),
+                        (ValueId(3), Instruction::CallRuntime {
+                            name: "dartforge_exception_pending".into(), args: vec![], ret_ty: Type::I8,
+                        }, Type::I8),
+                        (ValueId(4), Instruction::ICmp(
+                            if caso == 2 { ICmpOp::Eq } else { ICmpOp::Ne },
+                            Operand::Val(ValueId(3)), Operand::Constant(Constant::Int(0)),
+                        ), Type::I1),
+                    ], terminator: Terminator::CondBranch {
+                        cond: Operand::Val(ValueId(4)), then_block: BlockId(2), else_block: BlockId(1),
+                    } },
+                    BasicBlock { id: BlockId(1), instructions: vec![],
+                        terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) },
+                    BasicBlock { id: BlockId(2), instructions: vec![],
+                        terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) },
+                ],
+            });
+            let mut planos = HashMap::from([("controle".into(), PlanoFuncaoDart::default())]);
+            planos.get_mut("controle").unwrap().tokens.retorno = RetornoTokens::Owned;
+            if caso == 1 {
+                m.functions[0].blocks[0].instructions.truncate(2);
+                m.functions[0].blocks[0].terminator = Terminator::Branch(BlockId(1));
+            }
+            let antes = format!("{m:?}/{planos:?}");
+            let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
+            if (1..4).contains(&caso) {
+                assert!(resultado.is_err(), "caso {caso}");
+                assert_eq!(format!("{m:?}/{planos:?}"), antes);
+            } else if caso == 4 {
+                assert_eq!(resultado.unwrap(), (0, 0));
+                assert_eq!(format!("{m:?}/{planos:?}"), antes);
+            } else {
+                resultado.unwrap();
+                assert_eq!(planos["controle"].tokens.pendencias[&ValueId(2)], BlockId(2));
+                let f = &m.functions[0];
+                let erro = f.blocks.iter().find(|b| b.id == BlockId(2)).unwrap();
+                assert!(erro.instructions.iter().any(|(_, i, _)| matches!(i,
+                    Instruction::ArcDrop { value: Operand::Val(ValueId(1)) })));
+                let sucesso = f.blocks.iter().find(|b| b.id == BlockId(1)).unwrap();
+                assert!(!sucesso.instructions.iter().any(|(_, i, _)| matches!(i,
+                    Instruction::ArcDrop { value: Operand::Val(ValueId(1)) })));
+                let pronto = format!("{m:?}");
+                let plano = planos["controle"].clone();
+                assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+                assert_eq!(format!("{m:?}"), pronto);
+                let depois = &planos["controle"];
+                assert_eq!(depois.classes, plano.classes);
+                assert_eq!(depois.tokens.instrucoes, plano.tokens.instrucoes);
+                assert_eq!(depois.tokens.pendencias, plano.tokens.pendencias);
+                assert_eq!(depois.tokens.retorno, plano.tokens.retorno);
+                assert_eq!(depois.tabelas, plano.tabelas);
+                assert_eq!(format!("{:?}", depois.escopos), format!("{:?}", plano.escopos));
+                assert_eq!(depois.owners_no_pouso, plano.owners_no_pouso);
+            }
+        }
+    }
+
+    #[test]
     fn contexto_implicito_no_corpo_propaga_unwind_do_prologo() {
         for (name, ret_ty) in [
             ("dartforge_exception_pending", Type::I8),
