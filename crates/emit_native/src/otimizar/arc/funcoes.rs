@@ -269,6 +269,7 @@ fn inserir(
     let assinaturas: HashMap<_, _> = funcoes.iter().map(|f| (f.symbol.clone(),
         (f.params.iter().map(|(_, _, ty)| *ty).collect::<Vec<_>>(), f.return_ty))).collect();
     for f in &mut modulo.functions {
+        super::tipadas::preparar(f)?;
         if let Some(layouts) = layouts {
             let plano = novos_planos.get_mut(&f.symbol).unwrap();
             super::campos::preparar(f, layouts, plano, receivers.get(&f.symbol), preservam_campos)?;

@@ -119,6 +119,17 @@ fn conferir_tipadas(
     }
     tipadas.sort();
     tipadas.dedup();
+    for f in &m.functions {
+        for (_, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
+            if let Instruction::ChamadaTipada { args, ret, .. } = inst {
+                let params: Vec<_> = args.iter().map(|(_, t)| *t).collect();
+                let abi = super::objetos::abi_tipada(&params, *ret);
+                if !tipadas.iter().any(|(_, codigo)| Some(*codigo) == abi) {
+                    return Err(format!("portas ARC: {} chama ABI tipada sem corpo registrado na imagem", f.symbol));
+                }
+            }
+        }
+    }
     Ok(tipadas)
 }
 
@@ -303,6 +314,8 @@ pub fn certificar_portas_arc_aot(
             ));
         }
         for (_, i, t) in f.blocks.iter().flat_map(|b| &b.instructions) {
+            super::tipadas::conferir(f, i, *t)?;
+            super::seletores::conferir_closure(f, i, *t)?;
             if matches!(i, Instruction::ICmp(_, a, b) if referencia(a) || referencia(b))
                 || matches!(i, Instruction::StoreGlobal { val, ty, .. } if *ty == Type::Ref || referencia(val))
             {
@@ -315,7 +328,6 @@ pub fn certificar_portas_arc_aot(
                 i,
                 Instruction::CallDynamic { .. }
                     | Instruction::CallInterface { .. }
-                    | Instruction::CallClosure { .. }
                     | Instruction::CallClosureRepasse {
                         arc_owned: false,
                         ..
@@ -325,7 +337,6 @@ pub fn certificar_portas_arc_aot(
                         arc_owned: false,
                         ..
                     }
-                    | Instruction::ChamadaTipada { .. }
                     | Instruction::ChamadaNativa { .. }
                     | Instruction::ChamadaNativaComposta { .. }
                     | Instruction::GravacaoNativa { .. }
@@ -350,6 +361,8 @@ pub fn certificar_portas_arc_aot(
                             ..
                         }
                         | Instruction::CallRuntime { .. }
+                        | Instruction::ChamadaTipada { .. }
+                        | Instruction::CallClosure { .. }
                 ))
             {
                 return Err(format!(
@@ -378,9 +391,10 @@ pub fn certificar_portas_arc_aot(
             }
         }
     }
-    let antes = format!("{fs:?}/{ps:?}");
+    let antes = format!("{fs:?}");
+    let planos_antes = ps.clone();
     let alteracoes = preparar_arc_funcoes_dart(&mut fs, &mut ps)?;
-    if alteracoes != (0, 0) || antes != format!("{fs:?}/{ps:?}") {
+    if alteracoes != (0, 0) || antes != format!("{fs:?}") || planos_antes != ps {
         return Err("portas ARC: corpos/planos ainda não preparados ou divergentes".into());
     }
     let mut uniformes: Vec<_> = m.retornos_uniformes_arc.iter().cloned().collect();

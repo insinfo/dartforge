@@ -346,6 +346,8 @@ pub(super) fn conferir_pendencia(b: &BasicBlock, call: ValueId, erro: BlockId) -
             Instruction::CallRuntime { .. } | Instruction::CallStatic { .. }
                 | Instruction::CallSeletorRepasse { arc_owned: true, .. }
                 | Instruction::CallClosureRepasse { arc_owned: true, .. }
+                | Instruction::ChamadaTipada { .. }
+                | Instruction::CallClosure { .. }
                 | Instruction::Unbox { to: Type::I1, .. }
         )
         || *ty_p != Type::I8

@@ -270,6 +270,7 @@ pub(super) fn preparar(
                 | Instruction::CallInterface { ret_ty: Type::Ref, .. }
                 | Instruction::CallDynamic { ret_ty: Type::Ref, .. }
                 | Instruction::CallClosure { ret_ty: Type::Ref, .. } => true,
+                Instruction::ChamadaTipada { ret: Type::Ref, .. } => super::tipadas::conferir(f, inst, *ty)?,
                 Instruction::ArcCopy { value } | Instruction::ArcMove { value } => entrada(value),
                 Instruction::Phi { incoming, .. } => !incoming.is_empty()
                     && incoming.iter().all(|(_, op)| entrada(op)),

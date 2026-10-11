@@ -2,6 +2,30 @@
 
 use super::*;
 
+// O vetor de uma CallClosure é construído pelo emissor a partir destas Ref;
+// não aceita words implícitas nem uma tupla RTI sem produtor de proveniência.
+pub(super) fn conferir_closure(f: &Function, inst: &Instruction, ty: Type) -> Result<bool, String> {
+    let Instruction::CallClosure { closure, args, nomes, tupla_tipos, ret_ty } = inst else { return Ok(false) };
+    let tipos: HashMap<_, _> = f.params.iter().map(|(v, _, t)| (*v, *t))
+        .chain(f.blocks.iter().flat_map(|b| &b.instructions).map(|(v, _, t)| (*v, *t))).collect();
+    let referencia = |op: &Operand| matches!(op, Operand::Val(v) if tipos.get(v) == Some(&Type::Ref))
+        || matches!(op, Operand::Constant(Constant::Null));
+    // A avaliação auditada produz ID no universo RTI, que vive com a imagem
+    // AOT; não é endereço do heap nem word Dart. Seus argumentos/receita ainda
+    // passam pelos contratos runtime e pelos produtores dos caches/callees.
+    let tupla_nativa = *tupla_tipos == Operand::Constant(Constant::Int(0))
+        || matches!(tupla_tipos, Operand::Val(id) if f.blocks.iter().flat_map(|b| &b.instructions).any(|(v, i, t)|
+            v == id && *t == Type::I64 && matches!(i, Instruction::CallRuntime { name, ret_ty: Type::I64, .. }
+                if name == "dartforge_rti_avaliar")));
+    if ty != Type::Ref || *ret_ty != Type::Ref || !referencia(closure)
+        || !args.iter().all(referencia) || nomes.len() > args.len()
+        || nomes.windows(2).any(|par| par[0] >= par[1])
+        || !tupla_nativa {
+        return Err(format!("closure ARC em {}: argumentos Ref, descritor ou tupla RTI sem ABI conferida", f.symbol));
+    }
+    Ok(true)
+}
+
 pub(super) fn conferir(m: &Module) -> Result<(), String> {
     for (indice, f) in m.functions.iter().enumerate() {
         let tipos: HashMap<_, _> = f
@@ -22,6 +46,16 @@ pub(super) fn conferir(m: &Module) -> Result<(), String> {
         };
         for b in &f.blocks {
             for (v, i, t) in &b.instructions {
+                if conferir_closure(f, i, *t)? {
+                    let Terminator::CondBranch { then_block, .. } = b.terminator else {
+                        return Err(format!("closure ARC: {} v{} exige guarda pending", f.symbol, v.0));
+                    };
+                    if super::classificacao::conferir_pendencia(b, *v, then_block).is_none()
+                        || m.tabelas.get(indice).is_some_and(|t| t.invocacoes.contains_key(v)) {
+                        return Err(format!("closure ARC: {} v{} exige pending, sem invoke LLVM", f.symbol, v.0));
+                    }
+                    continue;
+                }
                 let (recv, args, desc) = match i {
                     Instruction::CallSeletorRepasse {
                         recv, args, desc, ..

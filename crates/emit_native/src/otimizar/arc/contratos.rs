@@ -870,6 +870,19 @@ fn produzir(
                 fixas.insert(*v, classe);
             }
         }
+        if incluir_arc && (super::tipadas::conferir(f, inst, *ty)?
+            || super::seletores::conferir_closure(f, inst, *ty)?) {
+            let c = ContratoChamadaRuntime {
+                efeito: EfeitoTokens { pode_falhar: true, ..Default::default() },
+                resultado: Ownership::Owned, retencao_persistente: true,
+                invalida_borrows: true, chama_dart: true,
+            };
+            if classes.get(v).is_some_and(|classe| *classe != c.resultado)
+                || plano.instrucoes.get(v).is_some_and(|e| *e != c.efeito) {
+                return Err(format!("v{}: contrato conflitante da chamada tipada ARC", v.0));
+            }
+            contratos.insert(*v, c);
+        }
         if incluir_arc && matches!(inst, Instruction::CallSeletorRepasse { arc_owned: true, .. } | Instruction::CallClosureRepasse { arc_owned: true, .. }) {
             let (recv, args, desc) = match inst {
                 Instruction::CallSeletorRepasse { recv, args, desc, .. }
@@ -948,6 +961,21 @@ fn produzir(
                 return Err(format!("v{}: saída pending conflita com CFG", call.0));
             }
             pendencias.insert(*call, *then_block);
+        }
+    }
+    if incluir_arc {
+        for (_, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
+            if let Instruction::ChamadaTipada { args, .. } = inst {
+                for (op, t) in args {
+                    if *t != Type::Ref && let Operand::Val(v) = op {
+                        let classe = contratos.get(v).map(|c| &c.resultado)
+                            .or_else(|| fixas.get(v)).or_else(|| classes.get(v));
+                        if classe != Some(&Ownership::Trivial) {
+                            return Err(format!("v{}: argumento escalar tipado exige Trivial, sem word Dart", v.0));
+                        }
+                    }
+                }
+            }
         }
     }
     classes.extend(fixas);

@@ -145,7 +145,7 @@ mod testes {
             let resultado = preparar_arc_modulo_dart(&mut m, &mut ps);
             if (2..12).contains(&caso) || caso >= 15 {
                 let erro = resultado.expect_err(&format!("caso {caso}"));
-                if caso == 2 { assert!(erro.contains("v3 sem classificação"), "{erro}"); }
+                if caso == 2 { assert!(erro.contains("v3 exige guarda pending"), "{erro}"); }
                 assert_eq!(format!("{m:?}/{ps:?}"), antes, "caso {caso}");
             } else if caso == 12 {
                 assert_eq!(resultado.unwrap(), (0, 0));
