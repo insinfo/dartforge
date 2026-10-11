@@ -11,7 +11,7 @@ use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*}
 use std::{collections::HashMap, path::PathBuf};
 
 #[derive(Clone, Copy)]
-enum Cenario { Campo, Captura, Vizinho, CapturaVizinho, Argumento, Anulavel, Misto, Ciclo, Celula }
+enum Cenario { Campo, Captura, Vizinho, CapturaVizinho, Argumento, Anulavel, Misto, Ciclo, Celula, Contexto }
 
 fn modulo(cenario: Cenario) -> Result<Module, String> {
     let captura = matches!(cenario, Cenario::Captura | Cenario::CapturaVizinho);
@@ -62,6 +62,15 @@ fn modulo(cenario: Cenario) -> Result<Module, String> {
         m.functions[0].blocks[0].instructions[1].1 = Instruction::SetField {
             object: val(0), index: 0, value: Operand::Constant(Constant::Null),
         };
+    }
+    if matches!(cenario, Cenario::Contexto) {
+        let f = &mut m.functions[0];
+        for (_, inst, _) in &mut f.blocks[0].instructions {
+            if let Instruction::GetField { object, .. } | Instruction::SetField { object, .. } = inst { *object = val(9); }
+        }
+        f.blocks[0].instructions.insert(0, (ValueId(9), Instruction::CallRuntime {
+            name: "dartforge_arc_contexto_closure_v1".into(), args: vec![(val(0), Type::Ref)], ret_ty: Type::Ref,
+        }, Type::Ref));
     }
     if captura {
         // Exercita a tradução EnvGet e o mapa real do ambiente, inclusive
@@ -232,6 +241,7 @@ fn main() -> Result<(), String> {
         Some("--misto") => Cenario::Misto,
         Some("--ciclo") => Cenario::Ciclo,
         Some("--celula") => Cenario::Celula,
+        Some("--contexto") => Cenario::Contexto,
         _ => Cenario::Campo,
     };
     if !matches!(cenario, Cenario::Campo) { controle = args.next(); }
@@ -304,6 +314,15 @@ passou:
         let fim = ir[inicio..].find("  br i1 %ok_inicio,").map(|n| inicio + n).ok_or("fim da conferência escalar ausente")?;
         ir.replace_range(inicio..fim, "  %ok_inicio = icmp eq i8 %aresta, 1\n");
     }
+    if matches!(cenario, Cenario::Contexto) {
+        // O endereço permanece na imagem AOT e nunca é invocado nesta prova;
+        // só a aresta forte da closure e o empréstimo do contexto são usados.
+        ir.push_str("\ndefine i64 @entrada_contexto(i64 %clo, ptr %args, ptr %desc) { ret i64 0 }\n");
+        ir = ir.replace("  %retorno = call i64 @ler_e_substituir(i64 %obj)\n",
+            "  %codigo = ptrtoint ptr @entrada_contexto to i64\n  %closure = call i64 @dartforge_arc_closure_owned_v1(i64 %codigo, i64 %obj, i64 0, i64 0)\n  %retorno = call i64 @ler_e_substituir(i64 %closure)\n  call void @dartforge_arc_release(i64 %closure)\n");
+        ir = ir.replace("  %ok = and i1 %ok_obj, %ok_filho\n",
+            "  %closure_estado = call i8 @dartforge_arc_observar_heap_v1(i64 %closure)\n  %closure_morta = icmp eq i8 %closure_estado, 0\n  %ok_par = and i1 %ok_obj, %ok_filho\n  %ok = and i1 %ok_par, %closure_morta\n");
+    }
     if captura {
         ir = ir.replace("@dartforge_arc_objeto_owned_v1(i64 123, i64 40)",
             &format!("@dartforge_arc_objeto_owned_v1(i64 {}, i64 40)",
@@ -373,6 +392,12 @@ passou:
 
 #[cfg(test)]
 mod testes {
+    #[test]
+    fn contexto_auditado_sustenta_campos_e_retorno_owned() {
+        let m = super::modulo(super::Cenario::Contexto).unwrap();
+        super::LlvmEmitter::new(&m).emit_all();
+    }
+
     #[test]
     fn celula_ref_promove_owner_antes_de_limpar_o_slot() {
         let m = super::modulo(super::Cenario::Celula).unwrap();

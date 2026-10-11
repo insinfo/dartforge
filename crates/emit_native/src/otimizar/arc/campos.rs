@@ -299,8 +299,13 @@ pub(super) fn preparar(
             Instruction::CallRuntime { name, ret_ty: Type::Ref, .. } if matches!(name.as_str(), super::vetores::LER_ARGUMENTO | "dartforge_arc_lista_ref_owned_v1") => true,
             Instruction::AllocObject { .. } => true,
             Instruction::CallRuntime { name, ret_ty: Type::Ref, .. }
-                if matches!(name.as_str(), "dartforge_object_new" | "dartforge_arc_objeto_owned_v1")
-                    && classes.contains_key(v) => true,
+                if matches!(name.as_str(), "dartforge_object_new" | "dartforge_arc_objeto_owned_v1") => classes.contains_key(v),
+            // O catálogo confere resultado Ref, aridade e tipos declarados.
+            // Isto só autoriza a guarda física; a transação ainda reconfere
+            // tipos SSA, proveniência nativa, tokens e fronteiras Dart. Uma
+            // extern opaca ou um resultado escalar não se tornam referências.
+            Instruction::CallRuntime { ret_ty: Type::Ref, .. } =>
+                super::contratos::contrato_chamada_runtime(inst).is_ok(),
             Instruction::Box { from: Type::I64 | Type::F64 | Type::I1 | Type::I8, .. }
             | Instruction::GetField { .. }
             | Instruction::EnvGet { .. }
@@ -740,6 +745,43 @@ mod testes {
             m,
             HashMap::from([("campos".into(), PlanoFuncaoDart::default())]),
         )
+    }
+
+    #[test]
+    fn ref_runtime_auditada_confere_campos_sem_promover_extern_opaca_ou_fabrica_sem_layout() {
+        for caso in 0..8 {
+            let (mut m, mut planos) = modulo(vec![Type::I64], vec![Operand::Constant(Constant::Int(0))]);
+            let f = &mut m.functions[0];
+            f.params = vec![(ValueId(0), "closure".into(), Type::Ref)];
+            let (nome, args) = match caso {
+                0 => ("dartforge_arc_contexto_closure_v1", vec![(Operand::Val(ValueId(0)), Type::Ref)]),
+                1 => ("dartforge_arc_ler_campo_ref_v1", vec![(Operand::Val(ValueId(0)), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)]),
+                2 => ("opaca", vec![(Operand::Val(ValueId(0)), Type::Ref)]),
+                3 => ("dartforge_arc_contexto_closure_v1", vec![(Operand::Val(ValueId(0)), Type::I64)]),
+                4 => ("dartforge_arc_objeto_owned_v1", vec![(Operand::Constant(Constant::Int(999)), Type::I64), (Operand::Constant(Constant::Int(1)), Type::I64)]),
+                5 => ("dartforge_arc_ler_campo_escalar_v1", vec![(Operand::Val(ValueId(0)), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)]),
+                6 => ("dartforge_arc_excecao_owned_v1", vec![]),
+                _ => ("dartforge_arc_contexto_closure_v1", vec![(Operand::Val(ValueId(0)), Type::Ref)]),
+            };
+            if caso == 7 { f.params[0].2 = Type::I64; }
+            f.blocks[0].instructions = vec![
+                (ValueId(1), Instruction::CallRuntime { name: nome.into(), args, ret_ty: Type::Ref }, Type::Ref),
+                (ValueId(2), Instruction::GetField { object: Operand::Val(ValueId(1)), index: 0 }, Type::I64),
+            ];
+            f.return_ty = Type::I64;
+            f.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(2))));
+            let antes = format!("{m:?}"); let ps_antes = planos.clone();
+            let r = preparar_arc_modulo_dart(&mut m, &mut planos);
+            if caso < 2 || caso == 6 {
+                r.unwrap();
+                let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+                assert!(ir.contains("call i64 @dartforge_arc_ler_campo_escalar_conferido_v1"));
+                assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+            } else {
+                assert!(r.is_err(), "caso {caso}");
+                assert_eq!(format!("{m:?}"), antes); assert_eq!(planos, ps_antes);
+            }
+        }
     }
 
     #[test]
