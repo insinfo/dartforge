@@ -68,8 +68,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             (ast::AssignOp::Compound(b), Some(cur)) => {
                 let ty = self.operand_type(&cur);
+                // Basta um lado excluir int para a junção Smi ser impossível.
+                // O destino pode ser getter/índice sem tipo conhecido aqui.
+                let admite_smi = match value {
+                    Rhs::Expr(e) => self.tipo_admite_smi(self.ctx.get_type(self.unit_id, e)),
+                    Rhs::Um => true,
+                };
                 let rhs = self.lower_rhs(ast, value, ty);
-                self.lower_binary_op_helper(b, cur, rhs)
+                self.lower_binary_op_helper(b, cur, rhs, admite_smi)
             }
             _ => self.lower_rhs(ast, value, Type::Ref),
         }

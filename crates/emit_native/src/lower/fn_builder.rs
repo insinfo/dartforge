@@ -1518,7 +1518,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// Operador de uma atribuição composta (`a op= b`).
-    pub fn lower_binary_op_helper(&mut self, op: BinaryOp, lop: Operand, rop: Operand) -> Operand {
+    pub fn lower_binary_op_helper(&mut self, op: BinaryOp, lop: Operand, rop: Operand, admite_smi: bool) -> Operand {
         // O valor corrente em `Ref` pode ser `String`, um número anulável ou
         // outro objeto. O tipo do operando direito não prova que ele seja
         // numérico (`s *= 2`); o despacho dinâmico trata esses casos.
@@ -1535,11 +1535,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         } else {
             rop
         };
-        self.operar(
+        self.operar_com_smi(
             op,
             lop,
             rop,
             false,
+            admite_smi,
             dartforge_diagnostics::Span { start: 0, end: 0 },
         )
     }

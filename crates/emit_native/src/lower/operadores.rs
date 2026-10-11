@@ -167,6 +167,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         )
     }
 
+    // Uma interface que não intersecta a família fechada de int nunca
+    // contém Smi. Sem tipo ou sem a prova de fechamento, mantém a guarda.
+    // Inclui as interfaces dos subtipos de int, não apenas as de int.
+    pub(super) fn tipo_admite_smi(&self, tipo: Option<dartforge_types::table::TypeId>) -> bool {
+        let Some(tipo) = tipo else { return true; };
+        let dartforge_types::table::Type::Interface { class, .. } = self.ctx.table.get(tipo)
+            else { return true; };
+        let Some(int) = self.ctx.core.int_class else { return true; };
+        if !super::sdk_fonte::classe_fechada_por_modificador(self.ctx, int) { return true; }
+        self.ctx.subtipos(int).iter().any(|&c| super::membros::subclasse_de(self.ctx, c, *class))
+    }
+
     /// `a op b` com algum lado `Ref` (`num`, `dynamic`, `Object`…): se os
     /// dois são `int` pequenos — só um `int` pode ser `Smi` (R10), então o
     /// operador é o de `int`, qualquer que seja o tipo estático —, a conta
@@ -246,6 +258,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         texto: bool,
         span: dartforge_diagnostics::Span,
     ) -> Operand {
+        self.operar_com_smi(op, lop, rop, texto, true, span)
+    }
+
+    // O tipo da fonte pode excluir o caminho inteiro. Os chamadores sem
+    // esse fato continuam usando operar, que preserva a guarda dinâmica.
+    pub(super) fn operar_com_smi(
+        &mut self, op: BinaryOp, lop: Operand, rop: Operand, texto: bool,
+        admite_smi: bool, span: dartforge_diagnostics::Span,
+    ) -> Operand {
         if texto && matches!(op, BinaryOp::Add) {
             let a = self.coagir(lop, Type::Ref);
             let b = self.coagir(rop, Type::Ref);
@@ -276,7 +297,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let (ta, tb) = (self.operand_type(&lop), self.operand_type(&rop));
         if !Self::e_escalar_numerico(ta) || !Self::e_escalar_numerico(tb) {
-            if Self::op_de_smi(op) && matches!(ta, Type::I64 | Type::Ref) && matches!(tb, Type::I64 | Type::Ref) {
+            if admite_smi && Self::op_de_smi(op) && matches!(ta, Type::I64 | Type::Ref) && matches!(tb, Type::I64 | Type::Ref) {
                 return self.operar_smi(op, lop, rop, span);
             }
             return self.operar_dinamico(op, lop, rop, span);

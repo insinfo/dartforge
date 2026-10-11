@@ -627,6 +627,28 @@ mod testes {
         emitir_ir(entrada, &options).expect("emitir IR")
     }
 
+    #[test]
+    fn operador_bigint_exclui_smi_sem_retirar_caminho_de_num_e_dynamic() {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let entrada = dir.path().join("main.dart");
+            std::fs::write(&entrada, "BigInt big(BigInt a, BigInt b) => a - b;\nnum numero(num a, num b) => a - b;\ndynamic aberto(dynamic a, dynamic b) => a - b;\nBigInt composto(BigInt a, BigInt b) { a += b; return a; }\nnum compostoNumero(num a, num b) { a += b; return a; }\nvoid main() { print(big(BigInt.from(9), BigInt.from(4))); print(numero(9, 4)); print(aberto(9, 4)); print(composto(BigInt.from(9), BigInt.from(4))); print(compostoNumero(9, 4)); }\n").unwrap();
+            let ir = emitir(&entrada).texto;
+            let corpo = |nome: &str| {
+                let simbolo = format!("@df.main$2edart..{nome}(");
+                let inicio = ir.lines().find(|l| l.starts_with("define ") && l.contains(&simbolo))
+                    .unwrap_or_else(|| panic!("função {nome} não emitida"));
+                let pos = ir.find(inicio).unwrap();
+                ir[pos..].split("\n}").next().unwrap()
+            };
+            for nome in ["big", "composto"] { assert!(!corpo(nome).contains("ashr i64"), "{}", corpo(nome)); }
+            assert!(corpo("big").contains("call "));
+            for nome in ["numero", "aberto", "compostoNumero"] {
+                assert!(corpo(nome).contains("ashr i64"), "{}", corpo(nome));
+            }
+        }).unwrap().join().unwrap();
+    }
+
     /// O mesmo programa emitido duas vezes em sequência e quatro vezes ao
     /// mesmo tempo dá o mesmo IR: nada da emissão depende de estado global,
     /// de endereço ou de ordem de conclusão.

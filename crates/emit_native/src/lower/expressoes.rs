@@ -687,7 +687,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let r = self.desnulificar_numerico(*right, rop);
                     (l, r)
                 };
-                self.operar(*op, lop, rop, texto, expr.span)
+                let admite_smi = self.tipo_admite_smi(l_ty) && self.tipo_admite_smi(r_ty);
+                self.operar_com_smi(*op, lop, rop, texto, admite_smi, expr.span)
             }
             ExprKind::Unary { op, operand } => {
                 match op {
