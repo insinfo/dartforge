@@ -1064,14 +1064,14 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
         );
         let esperado = if referencia {
             Type::Ref
-        } else if *modo == ModoParametro::VetorEstatico {
+        } else if matches!(modo, ModoParametro::VetorEstatico | ModoParametro::EnderecoNative) {
             Type::Ptr
         } else if *modo == ModoParametro::ScalarF64 {
             Type::F64
         } else {
             Type::I64
         };
-        if *ty != esperado || (*modo == ModoParametro::VetorEstatico && !matches!(op, Operand::Val(_))) {
+        if *ty != esperado || (matches!(modo, ModoParametro::VetorEstatico | ModoParametro::EnderecoNative) && !matches!(op, Operand::Val(_))) {
             return Err(format!("{name}: tipo do argumento {n} incompatível"));
         }
         if referencia {

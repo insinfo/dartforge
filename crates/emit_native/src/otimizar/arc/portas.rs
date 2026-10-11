@@ -132,13 +132,13 @@ fn conferir_vetores(m: &Module) -> Result<(), String> {
                             && *t == Type::I64
                     }
                     Instruction::CallRuntime { name, args, .. } => {
-                        *papel == VetorEntradaDart::Descritor
+                        super::vetores::leitura_conferida(i, papeis) || (*papel == VetorEntradaDart::Descritor
                             && matches!(
                                 name.as_str(),
                                 "dartforge_args_casam" | "dartforge_arg_indice"
                             )
                             && args.first().is_some_and(|(o, t)| usa(o) && *t == Type::Ptr)
-                            && args.iter().skip(1).all(|(o, _)| !usa(o))
+                            && args.iter().skip(1).all(|(o, _)| !usa(o)))
                     }
                     _ => false,
                 };
@@ -166,8 +166,9 @@ fn conferir_vetores(m: &Module) -> Result<(), String> {
 /// Certifica portas Owned de corpos já preparados num módulo AOT fechado.
 ///
 /// Verifica novamente todos os corpos/callees e exige preparação idempotente.
-/// Entradas uniformes também exigem vetores readonly; leituras de argumentos
-/// ainda precisam de ABI/bounds próprios e não recebem certificado aqui.
+/// Entradas uniformes também exigem vetores readonly; leituras Ref de
+/// argumentos usam o adaptador que confere índice e produz owner. Extensão
+/// real dos vetores continua sendo precondição da ABI do chamador.
 /// A imagem AOT permanece viva até terminar o processo. Recarga/retirada de
 /// código JIT exige outro protocolo. Tracing não produz registros nem muda HIR.
 ///

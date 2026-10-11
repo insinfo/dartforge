@@ -1,7 +1,36 @@
 //! Fatos da ABI uniforme: endereço nativo e contagens do descritor imutável.
-//! Não classifica palavras do vetor de argumentos, bounds ou pins da imagem.
+//! Leituras Ref ganham owner e conferem limites pelo descritor. Não prova
+//! extensão de ponteiros externos, palavras RTI nem pins da imagem JIT.
 
 use super::*;
+
+pub(super) const LER_ARGUMENTO: &str = "dartforge_arc_argumento_owned_v1";
+
+pub(super) fn leitura_conferida(inst: &Instruction, papeis: &HashMap<ValueId, VetorEntradaDart>) -> bool {
+    matches!(inst, Instruction::CallRuntime { name, args, ret_ty: Type::Ref }
+        if name == LER_ARGUMENTO && matches!(args.as_slice(),
+            [(Operand::Val(a), Type::Ptr), (Operand::Val(d), Type::Ptr), (_, Type::I64)]
+                if papeis.get(a) == Some(&VetorEntradaDart::Argumentos)
+                    && papeis.get(d) == Some(&VetorEntradaDart::Descritor)))
+}
+
+pub(super) fn preparar_leituras(modulo: &Module, funcoes: &mut [Function]) -> Result<(), String> {
+    for f in funcoes {
+        let Some(papeis) = modulo.parametros_vetores_dart.get(&f.symbol) else { continue; };
+        let descritores: Vec<_> = papeis.iter().filter(|(_, p)| **p == VetorEntradaDart::Descritor).map(|(v, _)| *v).collect();
+        for (v, inst, ty) in f.blocks.iter_mut().flat_map(|b| &mut b.instructions) {
+            let Instruction::LoadIndexed { base: Operand::Val(base), index } = inst else { continue; };
+            if *ty != Type::Ref || papeis.get(base) != Some(&VetorEntradaDart::Argumentos) { continue; }
+            let [descritor] = descritores.as_slice() else {
+                return Err(format!("vetores ABI: {} v{} sem descritor único", f.symbol, v.0));
+            };
+            *inst = Instruction::CallRuntime { name: LER_ARGUMENTO.into(), args: vec![
+                (Operand::Val(*base), Type::Ptr), (Operand::Val(*descritor), Type::Ptr), (index.clone(), Type::I64),
+            ], ret_ty: Type::Ref };
+        }
+    }
+    Ok(())
+}
 
 pub(super) fn produzir(
     modulo: &Module,
@@ -14,6 +43,13 @@ pub(super) fn produzir(
     for f in &modulo.functions {
         if funcoes.insert(&f.symbol, f).is_some() {
             return Err(format!("vetores ABI: símbolo repetido {}", f.symbol));
+        }
+        for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
+            if matches!(inst, Instruction::CallRuntime { name, .. } if name == LER_ARGUMENTO)
+                && (*ty != Type::Ref || modulo.parametros_vetores_dart.get(&f.symbol)
+                    .is_none_or(|p| !leitura_conferida(inst, p))) {
+                return Err(format!("vetores ABI: {} v{} sem proveniência da leitura", f.symbol, v.0));
+            }
         }
     }
     let mut novos = planos.clone();
@@ -62,6 +98,12 @@ pub(super) fn produzir(
             marcar(&mut plano.classes, v)?;
         }
         for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
+            if matches!(inst, Instruction::CallRuntime { name, .. } if name == LER_ARGUMENTO) {
+                if *ty != Type::Ref || !leitura_conferida(inst, papeis) {
+                    return Err(format!("vetores ABI: {simbolo} v{} sem par argumentos/descritor", v.0));
+                }
+                continue;
+            }
             let descritor = |o: &Operand| {
                 matches!(o, Operand::Val(p)
                 if papeis.get(p) == Some(&VetorEntradaDart::Descritor))
@@ -144,6 +186,36 @@ pub(super) fn produzir(
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn argumento_ref_exige_papeis_originais_e_reconfere_chamada_preparada() {
+        for caso in 0..5 {
+            let mut m = Module::new(); m.memoria_arc = true;
+            m.functions.push(Function { symbol: "entrada".into(), name: "entrada".into(), depuracao: None,
+                params: vec![(ValueId(0), "args".into(), Type::Ptr), (ValueId(1), "desc".into(), Type::Ptr)],
+                return_ty: Type::Ref, blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
+                    (ValueId(2), Instruction::LoadIndexed { base: Operand::Val(ValueId(0)), index: Operand::Constant(Constant::Int(0)) }, Type::Ref),
+                ], terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))) }] });
+            m.parametros_vetores_dart.insert("entrada".into(), HashMap::from([
+                (ValueId(0), VetorEntradaDart::Argumentos), (ValueId(1), VetorEntradaDart::Descritor)]));
+            let mut p = PlanoFuncaoDart::default(); p.tokens.retorno = RetornoTokens::Owned;
+            let mut planos = HashMap::from([("entrada".into(), p)]);
+            preparar_arc_modulo_dart(&mut m, &mut planos).unwrap();
+            assert!(leitura_conferida(&m.functions[0].blocks[0].instructions[0].1, &m.parametros_vetores_dart["entrada"]));
+            assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+            match caso {
+                1 => m.parametros_vetores_dart.clear(),
+                2 => if let Instruction::CallRuntime { args, .. } = &mut m.functions[0].blocks[0].instructions[0].1 { args.swap(0, 1); },
+                3 => if let Instruction::CallRuntime { args, .. } = &mut m.functions[0].blocks[0].instructions[0].1 { args[0].0 = Operand::Constant(Constant::Int(0)); },
+                4 => m.functions[0].blocks[0].instructions[0].2 = Type::I64,
+                _ => {}
+            }
+            let antes = format!("{m:?}/{planos:?}");
+            let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
+            assert_eq!(resultado.is_ok(), caso == 0, "caso {caso}: {resultado:?}");
+            assert_eq!(antes, format!("{m:?}/{planos:?}"));
+        }
+    }
 
     #[test]
     fn descritor_produz_contagens_sem_certificar_palavras_dos_argumentos() {

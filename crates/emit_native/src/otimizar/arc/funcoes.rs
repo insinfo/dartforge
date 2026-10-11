@@ -211,6 +211,7 @@ pub(super) fn preparar_com_variantes(
     let mut novos = planos.clone();
     produzir_parametros_escalares_do_lowering(modulo, &mut novos)?;
     super::vetores::produzir(modulo, &mut novos)?;
+    super::vetores::preparar_leituras(modulo, &mut preparadas)?;
     super::caches_rti::produzir(modulo, &mut novos)?;
     produzir_parametros_rti_do_lowering(modulo, &mut novos)?;
     produzir_retornos_ref_do_lowering(modulo, &mut novos)?;

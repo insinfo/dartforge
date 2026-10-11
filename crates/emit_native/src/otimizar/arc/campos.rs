@@ -232,7 +232,9 @@ pub(super) fn preparar(
             if *ty != Type::Ref { continue; }
             let entrada = |op: &Operand| matches!(op, Operand::Val(v) if entradas_ref.contains(v));
             let derivado = match inst {
+                Instruction::CallRuntime { name, ret_ty: Type::Ref, .. } if name == super::vetores::LER_ARGUMENTO => true,
                 Instruction::GetField { .. }
+                | Instruction::EnvGet { .. }
                 | Instruction::CallStatic { ret_ty: Type::Ref, .. }
                 | Instruction::CallSeletor { .. }
                 | Instruction::CallInterface { ret_ty: Type::Ref, .. }

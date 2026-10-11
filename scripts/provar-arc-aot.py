@@ -41,6 +41,8 @@ PROVAS = {
     "arc_keepalive_campos": ("prova-keepalive-campos", False, [
         ("normal", None), ("normal", "sem-retencao"), ("normal", "sem-liberar"),
         ("--vizinho", None), ("--vizinho", "sem-retencao"), ("--vizinho", "sem-liberar"),
+        ("--argumento", None), ("--argumento", "sem-retencao"), ("--argumento", "sem-liberar"),
+        ("--captura-vizinho", None), ("--captura-vizinho", "sem-retencao"), ("--captura-vizinho", "sem-liberar"),
     ]),
     "arc_keepalive_pending": ("prova-keepalive-pending", True, [
         ("normal", None), ("erro", None), ("normal", "sem-retencao"),

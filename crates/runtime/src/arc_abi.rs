@@ -4,6 +4,85 @@
 // A fábrica owned de caixas é uma operação de alocação, com safepoint próprio.
 // O lançamento Ref publica uma raiz runtime e pode alocar o rastro.
 
+fn indice_argumento_arc(posicionais: i64, nomeados: i64, indice: i64) -> Result<usize, &'static str> {
+    let total = posicionais.checked_add(nomeados).filter(|_| posicionais >= 0 && nomeados >= 0)
+        .and_then(|n| usize::try_from(n).ok()).filter(|n| *n <= isize::MAX as usize / std::mem::size_of::<i64>())
+        .ok_or("contagens inválidas do descritor")?;
+    usize::try_from(indice).ok().filter(|i| *i < total).ok_or("índice fora dos argumentos Ref")
+}
+
+/// Lê um argumento Ref da ABI uniforme e entrega um owner independente.
+///
+/// Confere o índice contra a soma dos posicionais e nomeados: o slot RTI
+/// posterior não é uma Ref. Retém antes de devolver, sem alocar, coletar,
+/// executar Dart ou alterar os vetores. O chamador deve consumir o token.
+///
+/// # Safety
+/// `descritor` deve apontar para ao menos dois i64 alinhados e imutáveis.
+/// `argumentos` deve conter ao menos a quantidade declarada de Ref válidos,
+/// alinhados e sustentados pelo chamador, sem mutação durante esta chamada.
+/// A conferência do índice não prova a extensão real de ponteiros externos.
+///
+/// # Panics
+/// Ponteiro nulo, contagem/índice inválido ou falha interna de retenção;
+/// aborta na fronteira C, sem exceção Dart.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let objeto = dartforge_arc_objeto_owned_v1(123, 0);
+/// let argumentos = [objeto];
+/// let descritor = [1, 0];
+/// // SAFETY: vetores vivos e imutáveis; objeto sustentado pelo chamador.
+/// let recebido = unsafe { dartforge_arc_argumento_owned_v1(argumentos.as_ptr(), descritor.as_ptr(), 0) };
+/// dartforge_arc_release(objeto);
+/// assert_eq!(dartforge_arc_observar_heap_v1(recebido), 3);
+/// dartforge_arc_release(recebido);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_arc_argumento_owned_v1(argumentos: *const i64, descritor: *const i64, indice: i64) -> i64 {
+    assert!(!descritor.is_null() && !argumentos.is_null(), "vetores ABI ARC nulos");
+    // SAFETY: dois elementos válidos conforme o contrato da ABI.
+    let indice = indice_argumento_arc(unsafe { *descritor }, unsafe { *descritor.add(1) }, indice)
+        .expect("argumento ARC fora do descritor");
+    // SAFETY: índice conferido e extensão garantida pelo chamador.
+    let valor = unsafe { *argumentos.add(indice) };
+    HEAP.with(|heap| heap.borrow_mut().reter_owner_codigo(valor));
+    valor
+}
+
+#[cfg(test)]
+mod testes_argumento_owned {
+    use super::*;
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn argumentos_ref_conferem_limites_e_sobrevivem_ao_owner_do_chamador() {
+        for (pos, nom, i) in [(-1, 0, 0), (0, -1, 0), (1, 0, -1), (1, 0, 1), (0, 0, 0), (i64::MAX, 1, 0)] {
+            assert!(indice_argumento_arc(pos, nom, i).is_err());
+        }
+        assert_eq!(indice_argumento_arc(1, 2, 2), Ok(2));
+        for arc in [false, true] {
+            let anterior = HEAP.with(|h| h.replace(crate::heap::Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+            let objeto = dartforge_arc_objeto_owned_v1(32001, 0);
+            let argumentos = [0, objeto, crate::layout::smi::de(7).unwrap(), i64::MAX];
+            let descritor = [1, 2, 101, 102];
+            let stats = HEAP.with(|h| h.borrow().stats());
+            // SAFETY: três argumentos válidos seguidos de RTI que não será lido.
+            let recebido = unsafe { dartforge_arc_argumento_owned_v1(argumentos.as_ptr(), descritor.as_ptr(), 1) };
+            assert_eq!(recebido, objeto);
+            dartforge_arc_release(objeto);
+            assert_eq!(dartforge_arc_observar_heap_v1(recebido), 3);
+            HEAP.with(|h| { assert_eq!(h.borrow().stats().allocations, stats.allocations);
+                assert_eq!(h.borrow().stats().collections, stats.collections); });
+            dartforge_arc_release(recebido);
+            dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observar_heap_v1(recebido), 0);
+            HEAP.with(|h| h.replace(anterior));
+        }
+    }
+}
+
 /// Aloca uma instância zerada e entrega exatamente um token Owned ao chamador.
 ///
 /// Classe deve caber em i32 e quantidade de campos em u16, como o cabeçalho
