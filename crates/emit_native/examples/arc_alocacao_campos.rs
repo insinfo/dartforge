@@ -75,10 +75,22 @@ fn modulo(quadro: bool) -> Result<Module, String> {
     });
     let mut plano = PlanoFuncaoDart::default();
     plano.tokens.retorno = RetornoTokens::Owned;
+    if quadro {
+        m.functions.push(Function { symbol: "ler_quadro".into(), name: "ler_quadro".into(), depuracao: None,
+            params: vec![(ValueId(0), "quadro".into(), Type::Ref)], return_ty: Type::Ref,
+            blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
+                (ValueId(1), Instruction::GetField { object: Operand::Val(ValueId(0)), index: 39 }, Type::Ref),
+            ], terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }] });
+    }
     let mut planos = HashMap::from([("criar_objeto".into(), plano)]);
+    if quadro {
+        let mut p = PlanoFuncaoDart::default(); p.tokens.retorno = RetornoTokens::Owned;
+        planos.insert("ler_quadro".into(), p);
+    }
     let produzido = preparar_arc_modulo_dart(&mut m, &mut planos)?;
-    if produzido != (0, 1) {
-        return Err(format!("esperado (0, 1), encontrado {produzido:?}"));
+    let esperado = if quadro { (1, 1) } else { (0, 1) };
+    if produzido != esperado {
+        return Err(format!("esperado {esperado:?}, encontrado {produzido:?}"));
     }
     let antes = format!("{m:?}/{planos:?}");
     if preparar_arc_modulo_dart(&mut m, &mut planos)? != (0, 0)
@@ -116,9 +128,15 @@ fn main() -> Result<(), String> {
     let cid = if quadro { dartforge_emit_native::lower::async_sm::ID_QUADRO_ASYNC } else { 123 };
     let owned = format!("call i64 @dartforge_arc_objeto_owned_v1(i64 {cid}, i64 40)");
     let sem_owner = format!("call i64 @dartforge_object_new(i64 {cid}, i64 40)");
+    let reter_leitura = m.functions.iter().find(|f| f.symbol == "ler_quadro")
+        .and_then(|f| f.blocks.iter().flat_map(|b| &b.instructions).find_map(|(_, i, _)|
+            if let Instruction::ArcCopy { value: Operand::Val(v) } = i {
+                Some(format!("  call void @dartforge_arc_retain(i64 %v{})\n", v.0))
+            } else { None })).unwrap_or_default();
     if let Some(controle) = controle {
         let (antes, depois) = match controle.as_str() {
             "sem-drop-filho" => ("  call void @dartforge_arc_release(i64 %v0)\n", ""),
+            "sem-retencao-leitura" if quadro => (reter_leitura.as_str(), ""),
             "sem-owner-objeto" => (
                 owned.as_str(),
                 sem_owner.as_str(),
@@ -184,6 +202,11 @@ passou:
             ir = ir.replace(&format!("i64 %obj, i64 {de})"), &format!("i64 %obj, i64 {para})"));
         }
         ir = ir.replace("%aok = icmp eq i64 %a, 85", "%aok = icmp eq i64 %a, 0");
+        ir = ir.replace("%ref = call i64 @dartforge_arc_ler_campo_ref_v1(i64 %obj, i64 39)",
+            "%ref = call i64 @ler_quadro(i64 %obj)");
+        ir = ir.replace("%sem_owner = icmp eq i8 %ef, 1", "%sem_owner = icmp eq i8 %ef, 3");
+        ir = ir.replace("  call void @dartforge_arc_release(i64 %obj)\n  call void @dartforge_arc_collect()",
+            "  call void @dartforge_arc_release(i64 %obj)\n  call void @dartforge_arc_collect()\n  %sobreviveu = call i8 @dartforge_arc_observar_heap_v1(i64 %ref)\n  %ainda_owned = icmp eq i8 %sobreviveu, 3\n  br i1 %ainda_owned, label %soltar_leitura, label %falha\nsoltar_leitura:\n  call void @dartforge_arc_release(i64 %ref)\n  call void @dartforge_arc_collect()");
     }
     if let Some(dir) = saida.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;

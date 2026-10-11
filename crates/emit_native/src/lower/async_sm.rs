@@ -162,16 +162,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         r
     }
 
-    /// `dartforge_object_get` na representação `ty`.
+    /// A referência fica explícita na HIR para a preparação de ownership.
+    /// Os bits escalares conservam a conversão da representação `ty`.
     fn ler_posicao(&mut self, obj: Operand, idx: usize, ty: Type) -> Operand {
-        let ret = if ty == Type::Ref { Type::Ref } else { Type::I64 };
+        if ty == Type::Ref {
+            return self.emit(Instruction::GetField { object: obj, index: idx }, Type::Ref);
+        }
         let bits = self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_object_get".to_string(),
                 args: vec![(obj, Type::Ref), (Operand::Constant(Constant::Int(idx as i64)), Type::I64)],
-                ret_ty: ret,
+                ret_ty: Type::I64,
             },
-            ret,
+            Type::I64,
         );
         self.bits_para(bits, ty)
     }
