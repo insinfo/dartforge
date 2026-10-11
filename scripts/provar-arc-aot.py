@@ -44,6 +44,7 @@ PROVAS = {
         ("--argumento", None), ("--argumento", "sem-retencao"), ("--argumento", "sem-liberar"),
         ("--captura-vizinho", None), ("--captura-vizinho", "sem-retencao"), ("--captura-vizinho", "sem-liberar"),
         ("--anulavel", None), ("--anulavel", "sem-retencao"), ("--anulavel", "sem-liberar"),
+        ("--misto", None), ("--misto", "sem-retencao"), ("--misto", "sem-liberar"),
     ]),
     "arc_keepalive_pending": ("prova-keepalive-pending", True, [
         ("normal", None), ("erro", None), ("normal", "sem-retencao"),

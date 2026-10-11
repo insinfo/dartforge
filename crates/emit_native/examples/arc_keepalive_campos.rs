@@ -11,13 +11,14 @@ use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*}
 use std::{collections::HashMap, path::PathBuf};
 
 #[derive(Clone, Copy)]
-enum Cenario { Campo, Captura, Vizinho, CapturaVizinho, Argumento, Anulavel }
+enum Cenario { Campo, Captura, Vizinho, CapturaVizinho, Argumento, Anulavel, Misto }
 
 fn modulo(cenario: Cenario) -> Result<Module, String> {
     let captura = matches!(cenario, Cenario::Captura | Cenario::CapturaVizinho);
     let vizinho = matches!(cenario, Cenario::Vizinho | Cenario::CapturaVizinho);
     let argumento = matches!(cenario, Cenario::Argumento);
-    let anulavel = matches!(cenario, Cenario::Anulavel);
+    let anulavel = matches!(cenario, Cenario::Anulavel | Cenario::Misto);
+    let misto = matches!(cenario, Cenario::Misto);
     let mut m = Module::new();
     m.memoria_arc = true;
     m.entry_symbol = Some("prova_keepalive".into());
@@ -115,6 +116,16 @@ fn modulo(cenario: Cenario) -> Result<Module, String> {
             BasicBlock { id: BlockId(4), instructions: vec![], terminator: Terminator::Return(Some(val(105))) },
             corpo,
         ];
+        if misto {
+            let mut campos = vec![Operand::Constant(Constant::Null); 40];
+            campos[..4].clone_from_slice(&[Operand::Constant(Constant::Int(42)),
+                Operand::Constant(Constant::Double(-0.0)), Operand::Constant(Constant::Bool(true)), val(109)]);
+            f.blocks[2].instructions = vec![
+                (ValueId(109), Instruction::Trunc { op: Operand::Constant(Constant::Int(255)),
+                    from: Type::I64, to: Type::I8 }, Type::I8),
+                (ValueId(108), Instruction::AllocObject { class_id: 123, fields: campos }, Type::Ref),
+            ];
+        }
     }
     let mut plano = PlanoFuncaoDart::default();
     plano.tokens.retorno = RetornoTokens::Owned;
@@ -186,6 +197,7 @@ fn main() -> Result<(), String> {
         Some("--captura-vizinho") => Cenario::CapturaVizinho,
         Some("--argumento") => Cenario::Argumento,
         Some("--anulavel") => Cenario::Anulavel,
+        Some("--misto") => Cenario::Misto,
         _ => Cenario::Campo,
     };
     if !matches!(cenario, Cenario::Campo) { controle = args.next(); }
@@ -267,11 +279,21 @@ passou:
         ir = ir.replace("  %retorno = call i64 @ler_e_substituir(i64 %obj)\n",
             "  %argumentos = alloca [1 x i64], align 8\n  store i64 %obj, ptr %argumentos\n  %retorno = call i64 @ler_e_substituir(i64 %obj, ptr %argumentos, ptr @desc.argumento)\n");
     }
-    if matches!(cenario, Cenario::Anulavel) {
+    if matches!(cenario, Cenario::Anulavel | Cenario::Misto) {
         ir = ir.replace("  %retorno = call i64 @ler_e_substituir(i64 %obj)\n",
             "  %retorno = call i64 @ler_e_substituir(i64 %obj, i1 true)\n");
         ir = ir.replace("passou:\n  call void @dartforge_print_handle(i64 3)",
             "passou:\n  %obj_nulo = call i64 @dartforge_arc_objeto_owned_v1(i64 123, i64 40)\n  %filho_nulo = call i64 @dartforge_arc_box_int_owned_v1(i64 9223372036854775807)\n  call void @inicializar(i64 %obj_nulo, i64 %filho_nulo)\n  call void @dartforge_arc_release(i64 %filho_nulo)\n  %ret_nulo = call i64 @ler_e_substituir(i64 %obj_nulo, i1 false)\n  %eh_nulo = icmp eq i64 %ret_nulo, 0\n  call void @dartforge_arc_release(i64 %obj_nulo)\n  call void @dartforge_arc_collect()\n  %obj_nulo_estado = call i8 @dartforge_arc_observar_heap_v1(i64 %obj_nulo)\n  %filho_nulo_estado = call i8 @dartforge_arc_observar_heap_v1(i64 %filho_nulo)\n  %obj_nulo_morto = icmp eq i8 %obj_nulo_estado, 0\n  %filho_nulo_morto = icmp eq i8 %filho_nulo_estado, 0\n  %ambos_nulos_mortos = and i1 %obj_nulo_morto, %filho_nulo_morto\n  %ok_nulo = and i1 %ambos_nulos_mortos, %eh_nulo\n  br i1 %ok_nulo, label %passou_nulo, label %falha\npassou_nulo:\n  call void @dartforge_print_handle(i64 3)");
+    }
+    if matches!(cenario, Cenario::Misto) {
+        // Registra apenas o endereço nativo, sem criar raiz ou owner. A
+        // observação posterior deve encontrar a alocação local já destruída.
+        let linha = ir.lines().find(|l| l.contains("%v108 = call i64 @dartforge_arc_objeto_owned_v1"))
+            .ok_or("alocação local da prova mista não encontrada")?.to_owned();
+        ir = ir.replace(&linha, &format!("{linha}\n  store i64 %v108, ptr @misto.local"));
+        ir.push_str("\n@misto.local = internal global i64 0\n");
+        ir = ir.replace("  %ok_nulo = and i1 %ambos_nulos_mortos, %eh_nulo",
+            "  %local = load i64, ptr @misto.local\n  %local_estado = call i8 @dartforge_arc_observar_heap_v1(i64 %local)\n  %local_morto = icmp eq i8 %local_estado, 0\n  %originais_mortos = and i1 %ambos_nulos_mortos, %eh_nulo\n  %ok_nulo = and i1 %originais_mortos, %local_morto");
     }
     match controle.as_deref() {
         None => {}
@@ -311,6 +333,19 @@ passou:
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn phi_misto_preserva_layout_local_e_confere_receiver_emprestado() {
+        let m = modulo(Cenario::Misto).unwrap();
+        let f = &m.functions[0];
+        assert!(f.blocks[2].instructions.iter().any(|(v, i, _)| *v == ValueId(108)
+            && matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_objeto_owned_v1")));
+        let b = f.blocks.iter().find(|b| b.id == BlockId(5)).unwrap();
+        assert!(b.instructions.iter().any(|(_, i, _)| matches!(i, Instruction::CallRuntime { name, .. }
+            if name == "dartforge_arc_ler_campo_escalar_conferido_v1")));
+        assert!(b.instructions.iter().any(|(_, i, _)| matches!(i, Instruction::CallRuntime { name, .. }
+            if name == "dartforge_arc_gravar_campo_ref_conferido_v1")));
+    }
 
     #[test]
     fn phi_anulavel_confere_campos_e_transfere_owner_nas_duas_saidas() {

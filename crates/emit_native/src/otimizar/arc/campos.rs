@@ -126,10 +126,19 @@ fn representacao(
     if o.desconhecido || o.sitios.is_empty() || !o.sitios.is_disjoint(escapam) {
         return Err("receiver sem origem local não publicada".into());
     }
+    representacao_conhecida(&o, index, classes, layouts)
+}
+
+// A parte desconhecida da junção exige guarda física. A parte nominal
+// continua obrigatória: não esconder um layout contraditório atrás da guarda.
+fn representacao_conhecida(
+    o: &Origem, index: usize, classes: &HashMap<ValueId, u32>,
+    layouts: &HashMap<u32, Vec<Type>>,
+) -> Result<Type, String> {
     let mut repr = None;
-    for sitio in o.sitios {
+    for sitio in &o.sitios {
         let t = layouts
-            .get(&classes[&sitio])
+            .get(&classes[sitio])
             .and_then(|l| l.get(index))
             .ok_or("classe/layout/índice de campo não certificado")?;
         if repr.is_some_and(|anterior| anterior != *t) {
@@ -137,7 +146,7 @@ fn representacao(
         }
         repr = Some(*t);
     }
-    Ok(repr.unwrap())
+    repr.ok_or_else(|| "receiver sem origem nominal".into())
 }
 
 const GRAVAR_ESCALAR: &str = "dartforge_arc_gravar_campo_escalar_conferido_v1";
@@ -249,6 +258,10 @@ pub(super) fn preparar(
                 || matches!(op, Operand::Val(v) if entradas_ref.contains(v));
             let derivado = match inst {
                 Instruction::CallRuntime { name, ret_ty: Type::Ref, .. } if name == super::vetores::LER_ARGUMENTO => true,
+                Instruction::AllocObject { .. } => true,
+                Instruction::CallRuntime { name, ret_ty: Type::Ref, .. }
+                    if matches!(name.as_str(), "dartforge_object_new" | "dartforge_arc_objeto_owned_v1")
+                        && classes.contains_key(v) => true,
                 Instruction::GetField { .. }
                 | Instruction::EnvGet { .. }
                 | Instruction::Const(Constant::Null)
@@ -418,11 +431,13 @@ pub(super) fn preparar(
             // aceitar contradições de classe, tamanho ou tipo na própria HIR.
             let nominal_exposto = !o.desconhecido && !o.sitios.is_empty()
                 && !o.sitios.is_disjoint(&atuais);
-            let nominal = if nominal_exposto {
-                Some(representacao(object, index, &origens, &classes, layouts, &HashSet::new())
+            let nominal_misto = o.desconhecido && !o.sitios.is_empty()
+                && matches!(object, Operand::Val(v) if entradas_ref.contains(v));
+            let nominal = if nominal_exposto || nominal_misto {
+                Some(representacao_conhecida(&o, index, &classes, layouts)
                     .map_err(|e| format!("campo ARC em {} v{}: {e}", f.symbol, v.0))?)
             } else { None };
-            let receiver_conferido = entrada_aberta || nominal_exposto;
+            let receiver_conferido = entrada_aberta || nominal_exposto || nominal_misto;
             let leitura_ref_conferida = value.is_none() && *ty == Type::Ref && receiver_conferido;
             let gravacao_ref_conferida = value.is_some_and(|valor| tipo(valor) == Some(Type::Ref))
                 && *ty == Type::Void && receiver_conferido;
@@ -1335,18 +1350,73 @@ mod testes {
                 },
             ];
             let antes = format!("{m:?}/{planos:?}");
-            if caso != 0 {
+            if caso == 1 {
                 assert!(preparar_arc_modulo_dart(&mut m, &mut planos).is_err());
                 assert_eq!(format!("{m:?}/{planos:?}"), antes);
             } else {
                 assert_eq!(
                     preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
-                    (0, 2)
+                    if caso == 2 { (0, 3) } else { (0, 2) }
                 );
                 let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-                assert!(
-                    ir.contains("call i64 @dartforge_arc_ler_campo_escalar_v1(i64 %v4, i64 0)")
-                );
+                if caso == 0 {
+                    assert!(ir.contains("call i64 @dartforge_arc_ler_campo_escalar_v1(i64 %v4, i64 0)"));
+                } else {
+                    // O caminho null é recusado pela guarda física, sem
+                    // invalidar a representação conhecida do outro caminho.
+                    assert!(ir.contains("call i64 @dartforge_arc_ler_campo_escalar_conferido_v1(i64 %v4, i64 0,"));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn phi_misto_confere_origem_nominal_sem_ocultar_tipo_ou_owner() {
+        for caso in 0..4 {
+            let repr = if caso == 1 { Type::Ref } else { Type::I64 };
+            let campo = if repr == Type::Ref { Operand::Constant(Constant::Null) }
+                else { Operand::Constant(Constant::Int(85)) };
+            let (mut m, mut planos) = modulo(vec![repr], vec![campo.clone()]);
+            let f = &mut m.functions[0];
+            f.params = vec![(ValueId(7), "receiver".into(), Type::Ref),
+                (ValueId(8), "cond".into(), Type::I1)];
+            f.return_ty = Type::I64;
+            f.blocks = vec![
+                BasicBlock { id: BlockId(0), instructions: vec![], terminator: Terminator::CondBranch {
+                    cond: Operand::Val(ValueId(8)), then_block: BlockId(1), else_block: BlockId(2) } },
+                BasicBlock { id: BlockId(1), instructions: vec![
+                    (ValueId(0), Instruction::AllocObject { class_id: 123, fields: vec![campo] }, Type::Ref),
+                ], terminator: Terminator::Branch(BlockId(3)) },
+                BasicBlock { id: BlockId(2), instructions: vec![
+                    (ValueId(9), if caso == 2 { Instruction::Const(Constant::Int(0)) }
+                        else { Instruction::ArcCopy { value: Operand::Val(ValueId(7)) } },
+                        if caso == 2 { Type::I64 } else { Type::Ref }),
+                ], terminator: Terminator::Branch(BlockId(3)) },
+                BasicBlock { id: BlockId(3), instructions: vec![
+                    (ValueId(10), Instruction::Phi { ty: Type::Ref, incoming: vec![
+                        (BlockId(1), Operand::Val(ValueId(0))),
+                        (BlockId(2), Operand::Val(ValueId(if caso == 3 { 7 } else { 9 }))),
+                    ] }, Type::Ref),
+                    (ValueId(11), Instruction::SetField { object: Operand::Val(ValueId(10)), index: 0,
+                        value: Operand::Constant(Constant::Int(86)) }, Type::Void),
+                    (ValueId(12), Instruction::GetField { object: Operand::Val(ValueId(10)), index: 0 }, Type::I64),
+                ], terminator: Terminator::Return(Some(Operand::Val(ValueId(12)))) },
+            ];
+            let antes = format!("{m:?}/{planos:?}");
+            let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
+            if caso == 0 {
+                resultado.unwrap();
+                let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+                assert!(ir.contains(super::GRAVAR_ESCALAR));
+                assert!(ir.contains(super::LER_ESCALAR));
+                let preparado = format!("{m:?}/{planos:?}");
+                assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+                assert_eq!(preparado, format!("{m:?}/{planos:?}"));
+            } else {
+                let erro = resultado.unwrap_err();
+                if caso == 1 { assert!(erro.contains("tipo ou guarda incompatível"), "{erro}"); }
+                if caso == 3 { assert!(erro.contains("entrada não é owned/null"), "{erro}"); }
+                assert_eq!(antes, format!("{m:?}/{planos:?}"));
             }
         }
     }
