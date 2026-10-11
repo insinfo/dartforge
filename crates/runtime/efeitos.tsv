@@ -726,7 +726,7 @@ dartforge_registrar_portas	1	1	0
 dartforge_registrar_tabela	1	1	0
 dartforge_registrar_tearoff_do_rastro	0	0	0
 dartforge_registrar_versao_do_sdk	1	1	0
-dartforge_rti_avaliar	1	1	0
+dartforge_rti_avaliar	0	0	0
 dartforge_rti_avaliar_cache	1	1	0
 dartforge_rti_classe_do_runtime	1	1	0
 dartforge_rti_como	1	1	1

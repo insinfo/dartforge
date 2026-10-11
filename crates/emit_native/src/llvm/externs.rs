@@ -791,7 +791,7 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i64 @dartforge_rti_avaliar(i64, i64, i64, i64)",
-        efeitos: CONSERVADOR,
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare i64 @dartforge_rti_avaliar_cache(ptr, i64, i64, i64)",

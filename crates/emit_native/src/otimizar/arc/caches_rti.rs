@@ -118,6 +118,74 @@ pub(super) fn produzir(
     Ok(())
 }
 
+// Corpos atuais e caches já auditados, sem pressupor prefixo de símbolo.
+// A conclusão não cobre recarga nem funções com contexto/saída Dart implícita.
+pub(super) fn preservam_campos(m: &Module, planos: &HashMap<String, PlanoFuncaoDart>) -> HashSet<String> {
+    let mut globais = HashMap::new();
+    for nome in &m.caches_rti_arc {
+        globais.insert(nome.clone(), Type::I64);
+        globais.insert(format!("{nome}$ok"), Type::I8);
+    }
+    let mut pendentes = HashMap::new();
+    let mut pais: HashMap<String, Vec<String>> = HashMap::new();
+    let mut fila = std::collections::VecDeque::new();
+    for f in &m.functions {
+        if !f.params.is_empty() || f.return_ty != Type::I64
+            || crate::llvm::LlvmEmitter::exige_contexto_explicito(f, planos.get(&f.symbol).map(|p| &p.tabelas)) {
+            continue;
+        }
+        let tipos: HashMap<_, _> = f.blocks.iter().flat_map(|b| &b.instructions).map(|(v, _, t)| (*v, *t)).collect();
+        let numerico = |o: &Operand| match o {
+            Operand::Val(v) => matches!(tipos.get(v), Some(Type::I64 | Type::I8 | Type::I1)),
+            Operand::Constant(Constant::Int(_) | Constant::Bool(_)) => true,
+            _ => false,
+        };
+        let mut dependencias = HashSet::new();
+        let fechado = f.blocks.iter().all(|b| {
+            let saida = match &b.terminator {
+                Terminator::Return(Some(o)) => numerico(o),
+                Terminator::Branch(_) | Terminator::Unreachable => true,
+                Terminator::CondBranch { cond, .. } => numerico(cond),
+                _ => false,
+            };
+            saida && b.instructions.iter().all(|(_, inst, ty)| match inst {
+                Instruction::Const(Constant::Int(_)) => *ty == Type::I64,
+                Instruction::Const(Constant::Bool(_)) => *ty == Type::I1,
+                Instruction::Const(Constant::String(_) | Constant::StringWtf8(_)) => *ty == Type::Ref,
+                Instruction::ICmp(_, a, b) => *ty == Type::I1 && numerico(a) && numerico(b),
+                Instruction::Phi { incoming, .. } => matches!(ty, Type::I64 | Type::I8 | Type::I1)
+                    && incoming.iter().all(|(_, o)| numerico(o)),
+                Instruction::LoadGlobal { simbolo, ty: lido } => globais.get(simbolo) == Some(lido) && ty == lido,
+                Instruction::StoreGlobal { simbolo, ty: gravado, raiz, val } => globais.get(simbolo) == Some(gravado)
+                    && *ty == Type::Void && raiz.is_none() && numerico(val),
+                Instruction::CallRuntime { name, args, ret_ty } => name == "dartforge_rti_receita"
+                    && *ty == Type::I64 && *ret_ty == Type::I64 && args.len() == 1 && args[0].1 == Type::Ref,
+                Instruction::CallStatic { symbol, args, ret_ty } => {
+                    dependencias.insert(symbol.clone());
+                    args.is_empty() && *ty == Type::I64 && *ret_ty == Type::I64
+                }
+                _ => false,
+            })
+        });
+        if !fechado { continue; }
+        if dependencias.is_empty() { fila.push_back(f.symbol.clone()); }
+        pendentes.insert(f.symbol.clone(), dependencias.len());
+        for dep in dependencias { pais.entry(dep).or_default().push(f.symbol.clone()); }
+    }
+    let mut seguros = HashSet::new();
+    while let Some(s) = fila.pop_front() {
+        if !seguros.insert(s.clone()) { continue; }
+        if let Some(chamadores) = pais.get(&s) {
+            for caller in chamadores {
+                let n = pendentes.get_mut(caller).unwrap();
+                *n -= 1;
+                if *n == 0 { fila.push_back(caller.clone()); }
+            }
+        }
+    }
+    seguros
+}
+
 #[cfg(test)]
 mod testes {
     use super::*;
@@ -192,6 +260,38 @@ mod testes {
             }],
         });
         m
+    }
+
+    #[test]
+    fn receitas_preservam_campos_pelo_corpo_e_dependencias_sem_confiar_no_nome() {
+        let base = modulo();
+        for caso in 0..7 {
+            let mut m = modulo();
+            m.functions.push(Function { symbol: "ponte".into(), name: "ponte".into(), depuracao: None,
+                params: vec![], return_ty: Type::I64, blocks: vec![BasicBlock { id: BlockId(0),
+                    instructions: vec![(ValueId(0), Instruction::CallStatic { symbol: "getter".into(), args: vec![], ret_ty: Type::I64 }, Type::I64)],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }] });
+            let mut planos = HashMap::from([("getter".into(), PlanoFuncaoDart::default()), ("ponte".into(), PlanoFuncaoDart::default())]);
+            match caso {
+                1 => m.functions[0].blocks[0].instructions.push((ValueId(9), Instruction::CallRuntime {
+                    name: "dartforge_print_handle".into(), args: vec![(Operand::Val(ValueId(0)), Type::Ref)], ret_ty: Type::Void,
+                }, Type::Void)),
+                2 => m.functions[0].params.push((ValueId(9), "receiver".into(), Type::Ref)),
+                3 => planos.get_mut("getter").unwrap().tabelas.confere_pilha = true,
+                4 => m.caches_rti_arc.clear(),
+                5 => m.functions[0].blocks[0].instructions.push((ValueId(9), Instruction::CallStatic {
+                    symbol: "ponte".into(), args: vec![], ret_ty: Type::I64,
+                }, Type::I64)),
+                6 => m.functions[0].blocks[0].instructions.push((ValueId(9), Instruction::StoreGlobal {
+                    simbolo: "objeto_global".into(), val: Operand::Val(ValueId(0)), ty: Type::Ref, raiz: Some(1),
+                }, Type::Void)),
+                _ => {}
+            }
+            let seguros = super::preservam_campos(&m, &planos);
+            assert_eq!(seguros.contains("getter"), caso == 0, "caso {caso}");
+            assert_eq!(seguros.contains("ponte"), caso == 0, "caso {caso}");
+        }
+        assert!(super::preservam_campos(&base, &HashMap::new()).contains("getter"));
     }
 
     #[test]

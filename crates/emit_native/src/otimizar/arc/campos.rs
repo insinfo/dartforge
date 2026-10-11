@@ -1,7 +1,8 @@
 //! Acessos físicos a campos por origem estática ou guarda de layout da imagem.
 //! Alocações HIR completas são as âncoras; cópias/moves/Phis transportam
 //! conjuntos de sítios, sem forte atualização por instância. Publicação,
-//! uso opaco ou contenção invalidam o sítio inteiro, inclusive antes do uso.
+//! uso opaco ou contenção invalidam o sítio inteiro na prova global. IDs
+//! recém-produzidos no mesmo bloco mantêm a prova até a primeira exposição.
 //! Leituras Ref sem origem estática usam a conferência do mapa real do heap;
 //! o plano de tokens protege o empréstimo antes de invalidar a aresta.
 //! Não substitui guardas Dart late/tipo, resumos de heap ou versões/pins.
@@ -198,6 +199,7 @@ pub(super) fn preparar(
     layouts: &HashMap<u32, Vec<Type>>,
     plano: &mut PlanoFuncaoDart,
     receivers: Option<&HashMap<ValueId, u32>>,
+    preservam_campos: &HashSet<String>,
 ) -> Result<(), String> {
     for (_, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
         conferir_chamada(f, inst, Some(layouts))?;
@@ -261,6 +263,8 @@ pub(super) fn preparar(
                         | "dartforge_arc_box_int_owned_v1"
                         | "dartforge_arc_box_double_owned_v1"
                         | "dartforge_exception_pending"
+                        | "dartforge_rti_receita"
+                        | "dartforge_rti_avaliar"
                 );
                 let campo = match name.as_str() {
                     "dartforge_arc_ler_campo_ref_v1" => Some(true),
@@ -283,7 +287,15 @@ pub(super) fn preparar(
                 {
                     seguro_campo = (repr == Type::Ref) == refs;
                 }
-                if !seguro && !seguro_campo {
+                // Definir RTI pode compactar listas. Só a origem física de
+                // instâncias não-lista fecha a obrigação de layout aqui.
+                let definir_instancia = name == "dartforge_rti_definir" && args.len() == 2 && {
+                    let o = origem(&args[0].0, &origens);
+                    !o.desconhecido && !o.sitios.is_empty() && o.sitios.iter().all(|s|
+                        i32::try_from(classes[s]).ok().is_some_and(|cid|
+                            !dartforge_runtime::layout::cid::e_lista(cid)))
+                };
+                if !seguro && !seguro_campo && !definir_instancia {
                     // Setter de bits nativo não certifica a representação
                     // lógica (bool/byte). Só SetField tipado mantém a prova.
                     args.iter().for_each(|(o, _)| expor(o));
@@ -293,6 +305,7 @@ pub(super) fn preparar(
                     expostos.extend(classes.keys().copied());
                 }
             }
+            Instruction::CallStatic { symbol, args, .. } if preservam_campos.contains(symbol) && args.is_empty() => {}
             Instruction::CallStatic { .. }
             | Instruction::CallInterface { .. }
             | Instruction::CallClosure { .. }
@@ -335,6 +348,9 @@ pub(super) fn preparar(
         let mut invalidos = if Some(b.id) == entrada && entrada_sem_volta {
             HashSet::new()
         } else { parametros.clone() };
+        // IDs efetivamente produzidos neste bloco, não sítios abstratos de
+        // Phis que podem representar objetos de uma iteração anterior.
+        let mut frescos: HashSet<ValueId> = HashSet::new();
         let mut instructions = Vec::new();
         for (v, inst, ty) in &b.instructions {
             let (object, index, value) = match inst {
@@ -345,12 +361,23 @@ pub(super) fn preparar(
                     value,
                 } => (object, *index, Some(value)),
                 _ => {
+                    frescos.retain(|id| origem(&Operand::Val(*id), &origens).sitios.is_disjoint(&exposicoes[v]));
+                    if classes.contains_key(v) && !parametros.contains(v) {
+                        frescos.insert(*v);
+                    } else if let Instruction::ArcCopy { value } | Instruction::ArcMove { value } = inst
+                        && matches!(value, Operand::Val(de) if frescos.contains(de)) {
+                        frescos.insert(*v);
+                    }
                     invalidos.extend(exposicoes[v].intersection(&parametros).copied());
                     instructions.push((*v, inst.clone(), *ty));
                     continue;
                 }
             };
-            let atuais: HashSet<_> = globais_locais.union(&invalidos).copied().collect();
+            let atuais: HashSet<_> = if matches!(object, Operand::Val(id) if frescos.contains(id)) {
+                // Uma publicação futura não pode afetar a escrita anterior.
+                // Não reviver a prova após uma exposição já executada.
+                HashSet::new()
+            } else { globais_locais.union(&invalidos).copied().collect() };
             let o = origem(object, &origens);
             // Sem âncora nominal, o accessor Ref confere receiver, índice e
             // bitmap antes de emprestar. Não reinterpretar bits escalares,
@@ -384,6 +411,7 @@ pub(super) fn preparar(
                     f.symbol, v.0
                 ));
             }
+            frescos.retain(|id| origem(&Operand::Val(*id), &origens).sitios.is_disjoint(&exposicoes[v]));
             invalidos.extend(exposicoes[v].intersection(&parametros).copied());
             let estreito = !matches!(repr, Type::I64 | Type::Ref);
             let auxiliar = if estreito {
@@ -563,6 +591,77 @@ mod testes {
     }
 
     #[test]
+    fn alocacao_no_bloco_prova_prefixo_sem_reviver_alias_antigo_ou_exposto() {
+        for caso in 0..5 {
+            let (mut m, mut planos) = modulo(vec![Type::I64], vec![Operand::Constant(Constant::Int(0))]);
+            let opaco = (ValueId(7), Instruction::CallRuntime { name: "dartforge_arc_collect".into(),
+                args: vec![], ret_ty: Type::Void }, Type::Void);
+            let b = &mut m.functions[0].blocks[0];
+            if caso == 0 { b.instructions.insert(0, opaco.clone()); }
+            if caso == 2 { b.instructions.push(opaco.clone()); }
+            if caso == 3 {
+                b.instructions.push((ValueId(8), Instruction::ArcCopy { value: Operand::Val(ValueId(0)) }, Type::Ref));
+                b.instructions.push(opaco.clone());
+            }
+            b.instructions.push((ValueId(1), Instruction::GetField { object: Operand::Val(ValueId(if caso == 3 { 8 } else { 0 })), index: 0 }, Type::I64));
+            if caso == 1 { b.instructions.push(opaco.clone()); }
+            if caso == 4 {
+                let alocar = b.instructions[0].clone();
+                b.instructions = vec![(ValueId(9), alocar.1.clone(), Type::Ref)];
+                b.terminator = Terminator::Branch(BlockId(1));
+                m.functions[0].blocks.push(BasicBlock { id: BlockId(1), instructions: vec![
+                    (ValueId(8), Instruction::Phi { ty: Type::Ref, incoming: vec![
+                        (BlockId(0), Operand::Val(ValueId(9))), (BlockId(1), Operand::Val(ValueId(0))),
+                    ] }, Type::Ref),
+                    opaco, alocar,
+                    (ValueId(1), Instruction::GetField { object: Operand::Val(ValueId(8)), index: 0 }, Type::I64),
+                ], terminator: Terminator::CondBranch { cond: Operand::Constant(Constant::Bool(true)),
+                    then_block: BlockId(1), else_block: BlockId(2) } });
+                m.functions[0].blocks.push(BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Return(None) });
+            }
+            let antes = format!("{m:?}/{planos:?}");
+            let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
+            if caso >= 2 {
+                assert!(resultado.is_err(), "caso {caso}: {resultado:?}");
+                assert_eq!(antes, format!("{m:?}/{planos:?}"));
+            } else {
+                resultado.unwrap();
+                assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+            }
+        }
+    }
+
+    #[test]
+    fn definir_rti_nao_publica_instancia_mas_listas_continuam_opacas() {
+        for lista in [false, true] {
+            let (mut m, mut planos) = modulo(vec![Type::Ref], vec![Operand::Constant(Constant::Null)]);
+            if lista {
+                let cid = dartforge_runtime::layout::cid::LIST as u32;
+                m.classes[0].id = cid;
+                m.layouts_campos_arc = HashMap::from([(cid, vec![Type::Ref])]);
+                let Instruction::AllocObject { class_id, .. } = &mut m.functions[0].blocks[0].instructions[0].1 else { panic!(); };
+                *class_id = cid;
+            }
+            m.functions[0].blocks[0].instructions.extend([
+                (ValueId(1), Instruction::CallRuntime { name: "dartforge_rti_definir".into(), args: vec![
+                    (Operand::Val(ValueId(0)), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64),
+                ], ret_ty: Type::Void }, Type::Void),
+                (ValueId(2), Instruction::SetField { object: Operand::Val(ValueId(0)), index: 0,
+                    value: Operand::Constant(Constant::Null) }, Type::Void),
+            ]);
+            let antes = format!("{m:?}/{planos:?}");
+            let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
+            if lista {
+                assert!(resultado.is_err());
+                assert_eq!(antes, format!("{m:?}/{planos:?}"));
+            } else {
+                resultado.unwrap();
+                assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+            }
+        }
+    }
+
+    #[test]
     fn campos_escalares_abertos_conferem_layout_sem_confundir_representacoes() {
         for repr in [Type::I64, Type::F64, Type::I1, Type::I8] {
             let (mut m, mut planos) = modulo(vec![repr], vec![Operand::Constant(Constant::Null)]);
@@ -632,7 +731,7 @@ mod testes {
                 if caso == 3 { args[1].0 = Operand::Constant(Constant::Int(-1)); }
             }
             let antes = format!("{fs:?}/{ps:?}");
-            let resultado = super::preparar(&mut fs[0], &m.layouts_campos_arc, ps.get_mut("campos").unwrap(), None);
+            let resultado = super::preparar(&mut fs[0], &m.layouts_campos_arc, ps.get_mut("campos").unwrap(), None, &HashSet::new());
             assert!(resultado.is_err(), "caso {caso}: {resultado:?}");
             assert_eq!(antes, format!("{fs:?}/{ps:?}"));
         }

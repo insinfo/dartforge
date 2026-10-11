@@ -77,6 +77,26 @@ fn modulo() -> Result<Module, String> {
     });
     // O receptor do construtor é a instância física da fábrica acima. O
     // primeiro setter deve ser auditado antes de delegar ao corpo base.
+    m.functions.push(Function {
+        symbol: "receita".into(), name: "receita".into(), depuracao: None, params: vec![], return_ty: Type::I64,
+        blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
+            (ValueId(0), Instruction::Const(Constant::String("C32001".into())), Type::Ref),
+            (ValueId(1), Instruction::CallRuntime { name: "dartforge_rti_receita".into(),
+                args: vec![(Operand::Val(ValueId(0)), Type::Ref)], ret_ty: Type::I64 }, Type::I64),
+        ], terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }],
+    });
+    m.functions[0].blocks[0].instructions.extend([
+        (ValueId(3), Instruction::CallStatic { symbol: "receita".into(), args: vec![], ret_ty: Type::I64 }, Type::I64),
+        (ValueId(4), Instruction::CallRuntime { name: "dartforge_rti_avaliar".into(), args: vec![
+            (Operand::Val(ValueId(3)), Type::I64), (Operand::Constant(Constant::Null), Type::Ref),
+            (Operand::Constant(Constant::Int(0)), Type::I64), (Operand::Constant(Constant::Int(0)), Type::I64),
+        ], ret_ty: Type::I64 }, Type::I64),
+        (ValueId(5), Instruction::CallRuntime { name: "dartforge_rti_definir".into(), args: vec![
+            (Operand::Val(ValueId(0)), Type::Ref), (Operand::Val(ValueId(4)), Type::I64),
+        ], ret_ty: Type::Void }, Type::Void),
+        (ValueId(6), Instruction::SetField { object: Operand::Val(ValueId(0)), index: 0,
+            value: Operand::Constant(Constant::Int(42)) }, Type::Void),
+    ]);
     m.functions[0].blocks[0].instructions.push((
         ValueId(2),
         Instruction::Box {
@@ -162,6 +182,7 @@ fn modulo() -> Result<Module, String> {
         ("metodo".into(), metodo),
         ("construir".into(), PlanoFuncaoDart::default()),
         ("base".into(), PlanoFuncaoDart::default()),
+        ("receita".into(), PlanoFuncaoDart::default()),
     ]);
     preparar_arc_modulo_dart(&mut m, &mut planos)?;
     let antes = format!("{m:?}{planos:?}");

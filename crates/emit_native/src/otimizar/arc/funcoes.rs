@@ -78,7 +78,7 @@ pub fn inserir_arc_funcoes_dart(
     funcoes: &mut [Function],
     planos: &mut HashMap<String, PlanoFuncaoDart>,
 ) -> Result<(usize, usize), String> {
-    inserir(funcoes, planos, false, None, &HashMap::new(), &HashMap::new())
+    inserir(funcoes, planos, false, None, &HashMap::new(), &HashMap::new(), &HashSet::new())
 }
 
 /// Prepara invokes ausentes e insere ARC num conjunto fechado de funções Dart.
@@ -135,7 +135,7 @@ pub fn preparar_arc_funcoes_dart(
     funcoes: &mut [Function],
     planos: &mut HashMap<String, PlanoFuncaoDart>,
 ) -> Result<(usize, usize), String> {
-    inserir(funcoes, planos, true, None, &HashMap::new(), &HashMap::new())
+    inserir(funcoes, planos, true, None, &HashMap::new(), &HashMap::new(), &HashSet::new())
 }
 
 /// Prepara atomicamente os fatos do lowering e o conjunto fechado de um módulo ARC.
@@ -217,6 +217,7 @@ pub(super) fn preparar_com_variantes(
     // O conjunto já mantém os corpos privados até verificar todos eles.
     // Após seu sucesso, a atribuição dos planos não introduz nova falha.
     let receivers = super::receivers::produzir(modulo);
+    let preservam_campos = super::caches_rti::preservam_campos(modulo, &novos);
     let total = inserir(
         &mut preparadas,
         &mut novos,
@@ -224,6 +225,7 @@ pub(super) fn preparar_com_variantes(
         Some(&modulo.layouts_campos_arc),
         variantes,
         &receivers,
+        &preservam_campos,
     )?;
     modulo.functions = preparadas;
     // Os IDs de invokes/pousos e os certificados pertencem aos corpos novos.
@@ -246,6 +248,7 @@ fn inserir(
     layouts: Option<&HashMap<u32, Vec<Type>>>,
     variantes: &HashMap<String, Vec<String>>,
     receivers: &HashMap<String, HashMap<ValueId, u32>>,
+    preservam_campos: &HashSet<String>,
 ) -> Result<(usize, usize), String> {
     let mut simbolos = HashSet::new();
     for f in funcoes.iter() {
@@ -267,7 +270,7 @@ fn inserir(
     for f in &mut modulo.functions {
         if let Some(layouts) = layouts {
             let plano = novos_planos.get_mut(&f.symbol).unwrap();
-            super::campos::preparar(f, layouts, plano, receivers.get(&f.symbol))?;
+            super::campos::preparar(f, layouts, plano, receivers.get(&f.symbol), preservam_campos)?;
             super::objetos::preparar(f, layouts, plano, &assinaturas)?;
         }
         super::caixas::preparar(f)?;

@@ -1200,6 +1200,19 @@ fn receita_de_unidades(unidades: Vec<u16>) -> i64 {
 /// A receita `modelo` no ambiente: `P<i>` é o i-ésimo argumento do tipo de
 /// `this` visto como a classe `classe` (0 = sem `this`), `M<i>` o i-ésimo
 /// da tupla `tupla` (0 = nenhuma: `dynamic`).
+///
+/// O receiver é emprestado, inclusive os filhos de records sem metadado.
+/// Só lê o heap; internamento e memórias usam estruturas nativas, sem coleta,
+/// alocação Dart, escrita de campos, publicação de handles ou saída pending.
+/// Os IDs são do universo RTI, não referências gerenciadas.
+///
+/// # Panics
+/// IDs inconsistentes ou receiver sem vida válida: erro interno, sem exceção Dart.
+///
+/// ```
+/// use dartforge_runtime::abi::dartforge_rti_avaliar;
+/// assert_eq!(dartforge_rti_avaliar(0, 0, 0, 0), 0); // dynamic permanece dynamic.
+/// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_avaliar(modelo: i64, this: i64, classe: i64, tupla: i64) -> i64 {
     RTI.with(|u| {
@@ -1512,4 +1525,57 @@ fn dartforge_type_error_com_mensagem(mensagem: i64) -> i64 {
         return com_raizes(&[mensagem], || g(mensagem));
     }
     alocar_erro_com_rastro(1011, vec![(mensagem, true)])
+}
+
+#[cfg(test)]
+mod testes_avaliacao_emprestada_arc {
+    use super::*;
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn avaliar_tipos_preserva_campos_owners_heap_e_pendencia() {
+        for arc in [false, true] {
+            let anterior = HEAP.with(|h| h.replace(crate::heap::Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+            let universo_anterior = RTI.with(|u| u.replace(Universo::novo()));
+            let receita = |texto: &str| receita_de_unidades(texto.encode_utf16().collect());
+            let objeto = dartforge_arc_objeto_owned_v1(32001, 2);
+            let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
+            dartforge_arc_gravar_campo_escalar_v1(objeto, 0, 42);
+            dartforge_arc_gravar_campo_ref_v1(objeto, 1, filho);
+            dartforge_rti_definir(objeto, receita("C32001<C200>"));
+            let refs = [filho, 0, crate::layout::smi::de(7).unwrap()];
+            // SAFETY: vetor vivo de três Ref sustentados pelo chamador.
+            let registro = unsafe { dartforge_record_novo(refs.as_ptr(), refs.len() as i64) };
+            dartforge_arc_retain(registro);
+            let parametro = receita("P0");
+            let metodo = receita("M0");
+            let tupla = receita("L<C201>");
+            let esperado = receita("C200");
+            let esperado_metodo = receita("C201");
+            let stats = HEAP.with(|h| h.borrow().stats());
+            let pendente = dartforge_exception_pending();
+            for _ in 0..64 {
+                assert_eq!(dartforge_rti_avaliar(parametro, objeto, 32001, 0), esperado);
+                assert_eq!(dartforge_rti_avaliar(metodo, 0, 0, tupla), esperado_metodo);
+                assert_eq!(dartforge_rti_avaliar(parametro, registro, 32001, 0), T_DINAMICO);
+                assert_eq!(dartforge_rti_avaliar(parametro, crate::layout::smi::de(7).unwrap(), 32001, 0), T_DINAMICO);
+            }
+            HEAP.with(|h| {
+                let h = h.borrow();
+                assert_eq!(h.stats().allocations, stats.allocations);
+                assert_eq!(h.stats().collections, stats.collections);
+                assert_eq!(h.objeto(objeto).unwrap().class_id, 32001);
+                assert_eq!(h.objeto(objeto).unwrap().get(0), Some((42, false)));
+                assert_eq!(h.objeto(objeto).unwrap().get(1), Some((filho, true)));
+            });
+            assert_eq!(dartforge_exception_pending(), pendente);
+            assert_eq!(dartforge_arc_observar_heap_v1(filho), 3);
+            dartforge_arc_release(registro);
+            dartforge_arc_release(objeto);
+            dartforge_arc_release(filho);
+            HEAP.with(|h| h.replace(anterior));
+            RTI.with(|u| u.replace(universo_anterior));
+        }
+    }
 }
