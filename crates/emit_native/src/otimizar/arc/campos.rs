@@ -296,6 +296,7 @@ pub(super) fn preparar(
         // caminho pending. A guarda de acesso continua recusando null;
         // isto não atribui classe nem transforma bits escalares em Ref.
         let derivado = match inst {
+            Instruction::ArcLoadStrong { .. } => true,
             Instruction::CallRuntime { name, ret_ty: Type::Ref, .. } if matches!(name.as_str(), super::vetores::LER_ARGUMENTO | "dartforge_arc_lista_ref_owned_v1") => true,
             Instruction::AllocObject { .. } => true,
             Instruction::CallRuntime { name, ret_ty: Type::Ref, .. }

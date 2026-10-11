@@ -57,6 +57,7 @@ PROVAS = {
         ("--ciclo", None), ("--ciclo", "sem-retencao"), ("--ciclo", "sem-liberar"),
         ("--celula", None), ("--celula", "sem-retencao"), ("--celula", "sem-liberar"),
         ("--contexto", None), ("--contexto", "sem-retencao"), ("--contexto", "sem-liberar"),
+        ("--global", None), ("--global", "sem-retencao"), ("--global", "sem-liberar"),
     ]),
     "arc_keepalive_pending": ("prova-keepalive-pending", True, [
         ("normal", None), ("erro", None), ("normal", "sem-retencao"),

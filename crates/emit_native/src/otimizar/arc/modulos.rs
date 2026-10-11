@@ -374,7 +374,9 @@ fn remapear_area(f: &mut Function, area: &HashMap<String, String>) -> Result<(),
         }
     }
     for (_, i, _) in f.blocks.iter_mut().flat_map(|b| &mut b.instructions) {
-        if let Instruction::LoadGlobal { simbolo, .. } | Instruction::StoreGlobal { simbolo, .. } =
+        if let Instruction::LoadGlobal { simbolo, .. } | Instruction::StoreGlobal { simbolo, .. }
+            | Instruction::ArcLoadStrong { slot: SlotForte::Global { simbolo } }
+            | Instruction::ArcStoreStrong { slot: SlotForte::Global { simbolo }, .. } =
             i
         {
             *simbolo = area

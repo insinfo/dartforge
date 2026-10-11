@@ -29,6 +29,7 @@ mod arestas;
 mod layouts;
 mod objetos;
 mod campos;
+mod globais;
 mod receivers;
 mod chamadas;
 mod funcoes;

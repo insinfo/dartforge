@@ -224,6 +224,7 @@ pub(super) fn preparar_com_variantes(
     }
     // Convenções novas só são publicadas junto à preparação completa.
     super::seletores::conferir(&trabalho)?;
+    super::globais::preparar(&mut trabalho)?;
     let mut preparadas = trabalho.functions.clone();
     super::seletores::preparar(&mut preparadas);
     super::layouts::verificar(&trabalho)?;
