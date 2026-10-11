@@ -114,6 +114,19 @@ fn modulo() -> Result<Module, String> {
         },
         Type::Void,
     ));
+    m.functions[0].blocks[0].instructions.push((ValueId(8), Instruction::SetField {
+        object: Operand::Val(ValueId(0)), index: 1, value: Operand::Val(ValueId(2)),
+    }, Type::Void));
+    // Owner atravessa chamada e sucessor normal; ambos os campos precisam
+    // conferir o layout atual, em vez de reutilizar frescor do bloco anterior.
+    let inicio = m.functions[0].blocks[0].instructions.iter().position(|(v, _, _)| *v == ValueId(6)).unwrap();
+    let posteriores = m.functions[0].blocks[0].instructions.split_off(inicio);
+    m.functions[0].blocks[0].instructions.push((ValueId(7), Instruction::CallStatic {
+        symbol: "base".into(), args: vec![Operand::Val(ValueId(0))], ret_ty: Type::Void,
+    }, Type::Void));
+    m.functions[0].blocks[0].terminator = Terminator::Branch(BlockId(1));
+    m.functions[0].blocks.push(BasicBlock { id: BlockId(1), instructions: posteriores,
+        terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) });
     m.functions.push(Function {
         symbol: "construir".into(),
         name: "construir".into(),
@@ -289,6 +302,10 @@ passou:
                 "call i64 @dartforge_arc_objeto_owned_v1(i64 32001, i64 2)",
             ),
             "sem-drop" => ("  call void @dartforge_arc_release(i64 %obj)\n", ""),
+            "layout-obsoleto" => (
+                "constant [2 x i64] [i64 32001, i64 2]",
+                "constant [2 x i64] [i64 32001, i64 3]",
+            ),
             _ => return Err(format!("controle desconhecido: {controle}")),
         };
         if ir.matches(antes).count() != 1 {
@@ -319,5 +336,7 @@ mod testes {
         let ir = LlvmEmitter::new(&modulo().unwrap()).emit_all();
         assert!(ir.contains("call i64 @dartforge_arc_objeto_owned_t_v1"));
         assert!(ir.contains("define ptr @df.mt.C()"));
+        assert!(ir.contains("call void @dartforge_arc_gravar_campo_escalar_conferido_v1"));
+        assert!(ir.contains("call void @dartforge_arc_gravar_campo_ref_conferido_v1"));
     }
 }

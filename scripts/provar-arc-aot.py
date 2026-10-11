@@ -2,7 +2,9 @@
 
 Não aceita falha de compilação como resultado negativo. Os controles precisam
 terminar por trap; erro de carregamento, abort do runtime ou saída inesperada
-reprovam a prova. O manifesto conserva comandos, versões e hashes dos arquivos.
+reprovam a prova. O controle layout-obsoleto exige o abort específico da guarda
+física e sua mensagem, pois a ABI não permite desenrolar o pânico para o Dart.
+O manifesto conserva comandos, versões e hashes dos arquivos.
 """
 
 import argparse
@@ -27,6 +29,7 @@ PROVAS = {
     "arc_instancia_zerada": ("prova-instancia-zerada", False, [
         ("normal", None), ("normal", "sem-owner"),
         ("normal", "sem-tabela"), ("normal", "sem-drop"),
+        ("normal", "layout-obsoleto"),
     ]),
     "arc_campos_locais": ("prova-campos-locais", False, [
         ("normal", None), ("normal", "sem-retencao"),
@@ -133,7 +136,15 @@ def main():
                     code = processo.returncode
                     registro["exit"] = code
                     (destino / f"{stem}.exit").write_bytes(f"{code}\n".encode("ascii"))
-                    if controle:
+                    if args.exemplo == "arc_instancia_zerada" and controle == "layout-obsoleto":
+                        aborts = {0xC0000409, -1073740791} if os.name == "nt" else {-int(signal.SIGABRT)}
+                        diagnostico = stderr.read_bytes()
+                        if code not in aborts or stdout.read_bytes() != b"" or not all(
+                            trecho in diagnostico for trecho in (
+                                b"layout escalar ARC incompat", b"classe/tamanho fora dos layouts Ref")):
+                            raise RuntimeError(f"guarda de layout não recusou pelo motivo esperado: {stem} ({code})")
+                        registro["rejeicao"] = "guarda de layout físico"
+                    elif controle:
                         traps = {0xC000001D, -1073741795} if os.name == "nt" else {-int(signal.SIGILL), -int(signal.SIGTRAP)}
                         if code not in traps or stdout.read_bytes() != b"":
                             raise RuntimeError(f"controle negativo não terminou por trap: {stem} ({code})")
@@ -146,7 +157,8 @@ def main():
                         dados = arquivo.read_bytes()
                         registro["arquivos"].append({"nome": arquivo.name, "bytes": len(dados),
                             "sha256": hashlib.sha256(dados).hexdigest()})
-                    print(f"{args.exemplo}: {stem}: {'trap' if controle else 'passou'}", flush=True)
+                    resultado = "guarda de layout" if registro.get("rejeicao") else "trap" if controle else "passou"
+                    print(f"{args.exemplo}: {stem}: {resultado}", flush=True)
         manifesto["resultado"] = "sucesso"
     except Exception as erro:
         manifesto["resultado"] = "falha"

@@ -394,12 +394,23 @@ pub(super) fn preparar(
             // exigem a conferência adicional dos layouts declarados da imagem.
             let entrada_aberta = o.desconhecido && o.sitios.is_empty()
                 && matches!(object, Operand::Val(v) if entradas_ref.contains(v));
-            let leitura_ref_conferida = value.is_none() && *ty == Type::Ref && entrada_aberta;
+            // A exposição perde a prova estática, não o owner. Conferir a
+            // representação nominal antes de optar pela guarda física evita
+            // aceitar contradições de classe, tamanho ou tipo na própria HIR.
+            let nominal_exposto = !o.desconhecido && !o.sitios.is_empty()
+                && !o.sitios.is_disjoint(&atuais);
+            let nominal = if nominal_exposto {
+                Some(representacao(object, index, &origens, &classes, layouts, &HashSet::new())
+                    .map_err(|e| format!("campo ARC em {} v{}: {e}", f.symbol, v.0))?)
+            } else { None };
+            let receiver_conferido = entrada_aberta || nominal_exposto;
+            let leitura_ref_conferida = value.is_none() && *ty == Type::Ref && receiver_conferido;
             let gravacao_ref_conferida = value.is_some_and(|valor| tipo(valor) == Some(Type::Ref))
-                && *ty == Type::Void && entrada_aberta;
+                && *ty == Type::Void && receiver_conferido;
             let escalar = if let Some(value) = value { tipo(value) } else { Some(*ty) };
-            let escalar_conferido = entrada_aberta && matches!(escalar, Some(Type::I64 | Type::F64 | Type::I1 | Type::I8));
-            let repr = if leitura_ref_conferida || gravacao_ref_conferida {
+            let escalar_conferido = receiver_conferido && matches!(escalar, Some(Type::I64 | Type::F64 | Type::I1 | Type::I8));
+            let repr = if let Some(nominal) = nominal { nominal }
+            else if leitura_ref_conferida || gravacao_ref_conferida {
                 Type::Ref
             } else if escalar_conferido {
                 escalar.unwrap()
@@ -663,20 +674,28 @@ mod testes {
                     then_block: BlockId(1), else_block: BlockId(2) } });
                 m.functions[0].blocks.push(BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Return(None) });
             }
-            let antes = format!("{m:?}/{planos:?}");
-            let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
-            if caso >= 2 {
-                assert!(resultado.is_err(), "caso {caso}: {resultado:?}");
+            if caso == 4 {
+                let antes = format!("{m:?}/{planos:?}");
+                let erro = preparar_arc_modulo_dart(&mut m, &mut planos).unwrap_err();
+                assert!(erro.contains("token anterior ainda disponível"), "{erro}");
                 assert_eq!(antes, format!("{m:?}/{planos:?}"));
-            } else {
-                resultado.unwrap();
-                assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+                super::preparar(&mut m.functions[0], &m.layouts_campos_arc,
+                    planos.get_mut("campos").unwrap(), None, &HashSet::new()).unwrap();
+                assert!(m.functions[0].blocks[1].instructions.iter().any(|(_, i, _)|
+                    matches!(i, Instruction::CallRuntime { name, .. } if name == super::LER_ESCALAR)));
+                continue;
             }
+            let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
+            resultado.unwrap();
+            let conferido = m.functions[0].blocks.iter().flat_map(|b| &b.instructions)
+                .any(|(_, i, _)| matches!(i, Instruction::CallRuntime { name, .. } if name == super::LER_ESCALAR));
+            assert_eq!(conferido, caso >= 2, "caso {caso}: acesso exposto deve conferir layout");
+            assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
         }
     }
 
     #[test]
-    fn definir_rti_nao_publica_instancia_mas_listas_continuam_opacas() {
+    fn definir_rti_preserva_instancia_e_exige_guarda_nas_listas() {
         for lista in [false, true] {
             let (mut m, mut planos) = modulo(vec![Type::Ref], vec![Operand::Constant(Constant::Null)]);
             if lista {
@@ -693,15 +712,11 @@ mod testes {
                 (ValueId(2), Instruction::SetField { object: Operand::Val(ValueId(0)), index: 0,
                     value: Operand::Constant(Constant::Null) }, Type::Void),
             ]);
-            let antes = format!("{m:?}/{planos:?}");
             let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
-            if lista {
-                assert!(resultado.is_err());
-                assert_eq!(antes, format!("{m:?}/{planos:?}"));
-            } else {
-                resultado.unwrap();
-                assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
-            }
+            resultado.unwrap();
+            assert_eq!(m.functions[0].blocks[0].instructions.iter().any(|(_, i, _)|
+                matches!(i, Instruction::CallRuntime { name, .. } if name == super::GRAVAR_CONFERIDO)), lista);
+            assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
         }
     }
 
@@ -994,7 +1009,7 @@ mod testes {
     }
 
     #[test]
-    fn aliases_publicados_e_layouts_incompativeis_rejeitam_atomicamente() {
+    fn aliases_expostos_exigem_guarda_e_contradicoes_rejeitam_atomicamente() {
         for caso in 0..8 {
             let (mut m, mut planos) =
                 modulo(vec![Type::I64], vec![Operand::Constant(Constant::Int(85))]);
@@ -1086,14 +1101,15 @@ mod testes {
             ));
             let antes = format!("{m:?}/{planos:?}");
             let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
-            if caso == 1 {
+            if matches!(caso, 1 | 4) {
                 resultado.unwrap();
                 assert!(m.functions[0].blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)|
                     matches!(i, Instruction::CallRuntime { name, .. } if name == super::LER_ESCALAR)));
                 assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
             } else {
                 let erro = resultado.unwrap_err();
-                if matches!(caso, 0 | 4 | 7) { assert!(erro.contains("origem local"), "caso {caso}: {erro}"); }
+                if caso == 0 { assert!(erro.contains("saídas excepcionais"), "caso {caso}: {erro}"); }
+                if caso == 7 { assert!(erro.contains("extern_sem_resumo"), "caso {caso}: {erro}"); }
                 assert_eq!(format!("{m:?}/{planos:?}"), antes, "caso {caso}");
             }
             m.memoria_arc = false;
@@ -1107,7 +1123,7 @@ mod testes {
     }
 
     #[test]
-    fn phi_com_origem_desconhecida_nao_esconde_escape_da_alocacao() {
+    fn guarda_de_layout_nao_oculta_phi_sem_owner_na_aresta() {
         let (mut m, mut planos) =
             modulo(vec![Type::I64], vec![Operand::Constant(Constant::Int(85))]);
         let f = &mut m.functions[0];
@@ -1162,11 +1178,8 @@ mod testes {
             terminator: Terminator::Return(None),
         });
         let antes = format!("{m:?}/{planos:?}");
-        assert!(
-            preparar_arc_modulo_dart(&mut m, &mut planos)
-                .unwrap_err()
-                .contains("origem local")
-        );
+        let erro = preparar_arc_modulo_dart(&mut m, &mut planos).unwrap_err();
+        assert!(erro.contains("entrada não é owned/null"), "{erro}");
         assert_eq!(format!("{m:?}/{planos:?}"), antes);
     }
 

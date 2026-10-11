@@ -367,9 +367,9 @@ mod testes {
             }
             let antes = format!("{m:?}/{planos:?}");
             let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
-            if matches!(caso, 0 | 1 | 4) {
-                // Não ganha classe estática por haver callers conhecidos.
-                // A entrada aberta só grava após conferir o receiver real;
+            if matches!(caso, 0 | 1 | 2 | 4 | 5 | 6) {
+                // Entradas abertas não ganham classe por haver callers
+                // conhecidos. Entradas expostas também exigem guarda física;
                 // null, CID ou tamanho inválido serão recusados pelo runtime.
                 resultado.unwrap();
                 assert!(m.functions[1].blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)|
