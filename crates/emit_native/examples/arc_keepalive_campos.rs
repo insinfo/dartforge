@@ -14,6 +14,14 @@ fn modulo(captura: bool) -> Result<Module, String> {
     let mut m = Module::new();
     m.memoria_arc = true;
     m.entry_symbol = Some("prova_keepalive".into());
+    let mut layout = vec![Type::Ref; 40];
+    layout[..4].copy_from_slice(&[Type::I64, Type::F64, Type::I1, Type::I8]);
+    m.layouts_campos_arc.insert(123, layout.clone());
+    if captura { m.layouts_campos_arc.insert(dartforge_runtime::layout::cid::CONTEXTO as u32, layout); }
+    for id in m.layouts_campos_arc.keys() {
+        m.classes.push(ClassDef { id: *id, name: format!("C{id}"), field_count: 40,
+            vtable: vec![], to_string_symbol: None });
+    }
     let val = |n| Operand::Val(ValueId(n));
     m.functions.push(Function {
         symbol: "ler_e_substituir".into(),
@@ -31,15 +39,8 @@ fn modulo(captura: bool) -> Result<Module, String> {
                 ),
                 (
                     ValueId(2),
-                    Instruction::CallRuntime {
-                        name: "dartforge_arc_gravar_campo_ref_v1".into(),
-                        args: vec![
-                            (val(0), Type::Ref),
-                            (Operand::Constant(Constant::Int(39)), Type::I64),
-                            (Operand::Constant(Constant::Null), Type::Ref),
-                        ],
-                        ret_ty: Type::Void,
-                    },
+                    Instruction::SetField { object: val(0), index: 39,
+                        value: Operand::Constant(Constant::Null) },
                     Type::Void,
                 ),
             ],
@@ -55,7 +56,29 @@ fn modulo(captura: bool) -> Result<Module, String> {
     }
     let mut plano = PlanoFuncaoDart::default();
     plano.tokens.retorno = RetornoTokens::Owned;
-    let mut planos = HashMap::from([("ler_e_substituir".into(), plano)]);
+    m.functions.push(Function {
+        symbol: "inicializar".into(), name: "inicializar".into(), depuracao: None,
+        params: vec![(ValueId(0), "this".into(), Type::Ref), (ValueId(1), "filho".into(), Type::Ref)],
+        return_ty: Type::Void, blocks: vec![BasicBlock { id: BlockId(0),
+            instructions: vec![
+                (ValueId(2), Instruction::SetField { object: val(0), index: 39, value: val(1) }, Type::Void),
+                (ValueId(3), Instruction::Trunc { op: Operand::Constant(Constant::Int(255)), from: Type::I64, to: Type::I8 }, Type::I8),
+                (ValueId(4), Instruction::SetField { object: val(0), index: 0, value: Operand::Constant(Constant::Int(42)) }, Type::Void),
+                (ValueId(5), Instruction::SetField { object: val(0), index: 1, value: Operand::Constant(Constant::Double(-0.0)) }, Type::Void),
+                (ValueId(6), Instruction::SetField { object: val(0), index: 2, value: Operand::Constant(Constant::Bool(true)) }, Type::Void),
+                (ValueId(7), Instruction::SetField { object: val(0), index: 3, value: val(3) }, Type::Void),
+            ],
+            terminator: Terminator::Return(None) }],
+    });
+    m.functions.push(Function {
+        symbol: "ler_inteiro".into(), name: "ler_inteiro".into(), depuracao: None,
+        params: vec![(ValueId(0), "this".into(), Type::Ref)], return_ty: Type::I64,
+        blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
+            (ValueId(1), Instruction::GetField { object: val(0), index: 0 }, Type::I64),
+        ], terminator: Terminator::Return(Some(val(1))) }],
+    });
+    let mut planos = HashMap::from([("ler_e_substituir".into(), plano),
+        ("inicializar".into(), PlanoFuncaoDart::default()), ("ler_inteiro".into(), PlanoFuncaoDart::default())]);
     let produzido = preparar_arc_modulo_dart(&mut m, &mut planos)?;
     if produzido != (1, 0) || planos["ler_e_substituir"].classes[&ValueId(1)] != Ownership::Owned {
         return Err(format!(
@@ -104,11 +127,23 @@ declare void @dartforge_print_handle(i64)
 define void @prova_keepalive() {
   %obj = call i64 @dartforge_arc_objeto_owned_v1(i64 123, i64 40)
   %filho = call i64 @dartforge_arc_box_int_owned_v1(i64 9223372036854775807)
-  call void @dartforge_arc_gravar_campo_ref_v1(i64 %obj, i64 39, i64 %filho)
+  call void @inicializar(i64 %obj, i64 %filho)
   call void @dartforge_arc_release(i64 %filho)
   %aresta = call i8 @dartforge_arc_observar_heap_v1(i64 %filho)
   %ok_aresta = icmp eq i8 %aresta, 1
-  br i1 %ok_aresta, label %ler, label %falha
+  %inteiro = call i64 @ler_inteiro(i64 %obj)
+  %double = call i64 @dartforge_arc_ler_campo_escalar_v1(i64 %obj, i64 1)
+  %bool = call i64 @dartforge_arc_ler_campo_escalar_v1(i64 %obj, i64 2)
+  %byte = call i64 @dartforge_arc_ler_campo_escalar_v1(i64 %obj, i64 3)
+  %ok_int = icmp eq i64 %inteiro, 42
+  %ok_double = icmp eq i64 %double, -9223372036854775808
+  %ok_bool = icmp eq i64 %bool, 1
+  %ok_byte = icmp eq i64 %byte, 255
+  %ok_a = and i1 %ok_int, %ok_double
+  %ok_b = and i1 %ok_bool, %ok_byte
+  %ok_campos = and i1 %ok_a, %ok_b
+  %ok_inicio = and i1 %ok_campos, %ok_aresta
+  br i1 %ok_inicio, label %ler, label %falha
 ler:
   %retorno = call i64 @ler_e_substituir(i64 %obj)
   %mesmo = icmp eq i64 %retorno, %filho
@@ -187,7 +222,7 @@ mod testes {
         let ir = LlvmEmitter::new(&m).emit_all();
         assert!(
             ir.find("call void @dartforge_arc_retain").unwrap()
-                < ir.find("call void @dartforge_arc_gravar_campo_ref_v1")
+                < ir.find("call void @dartforge_arc_gravar_campo_ref_conferido_v1")
                     .unwrap()
         );
     }
@@ -203,7 +238,7 @@ mod testes_captura {
         let ir = LlvmEmitter::new(&m).emit_all();
         let ler = ir.find("call i64 @dartforge_arc_env_ref_v1").unwrap();
         let reter = ir.find("call void @dartforge_arc_retain").unwrap();
-        let gravar = ir.find("call void @dartforge_arc_gravar_campo_ref_v1").unwrap();
+        let gravar = ir.find("call void @dartforge_arc_gravar_campo_ref_conferido_v1").unwrap();
         assert!(ler < reter && reter < gravar);
     }
 }

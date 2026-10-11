@@ -910,6 +910,7 @@ fn produzir(
             } {
                 return Err(format!("v{}: tipo do resultado incompatível", v.0));
             }
+            super::campos::conferir_chamada(f, chamada, None)?;
             let c = contrato_chamada_runtime(chamada).map_err(|e| format!("v{}: {e}", v.0))?;
             for (n, (op, ty)) in args.iter().enumerate() {
                 if let Operand::Val(arg) = op
@@ -1063,12 +1064,14 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
         );
         let esperado = if referencia {
             Type::Ref
+        } else if *modo == ModoParametro::VetorEstatico {
+            Type::Ptr
         } else if *modo == ModoParametro::ScalarF64 {
             Type::F64
         } else {
             Type::I64
         };
-        if *ty != esperado {
+        if *ty != esperado || (*modo == ModoParametro::VetorEstatico && !matches!(op, Operand::Val(_))) {
             return Err(format!("{name}: tipo do argumento {n} incompatível"));
         }
         if referencia {

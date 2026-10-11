@@ -274,6 +274,156 @@ pub extern "C" fn dartforge_arc_gravar_campo_ref_v1(objeto: i64, indice: i64, va
         .expect("contrato de gravação Ref ARC violado"));
 }
 
+/// Grava uma aresta Ref somente após conferir o layout físico do receiver.
+///
+/// `layouts` contém pares ordenados `(cid, quantidade_de_campos)` de classes
+/// cujo campo `indice` foi declarado Ref pelo compilador. A conferência usa
+/// a classe e o tamanho reais, inclusive na primeira escrita do campo zerado.
+/// Não consome owners, aloca, coleta ou executa Dart; invalida empréstimos
+/// da aresta anterior. Guardas Dart de tipo/late continuam no lowering.
+///
+/// # Safety
+/// O vetor deve estar alinhado e conter `pares * 2` palavras legíveis e
+/// imutáveis durante a chamada. Cada par deve corresponder ao layout atual
+/// da imagem, com `indice` Ref. A função não guarda nem devolve o endereço.
+/// Vida/versões da imagem são obrigação do chamador.
+///
+/// # Panics
+/// Receiver, índice, classe ou tamanho fora dos layouts; aborta no limite C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let layouts = [123, 40];
+/// let objeto = dartforge_arc_objeto_owned_v1(123, 40);
+/// let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
+/// // SAFETY: vetor vivo e imutável, campo 39 declarado Ref nesta imagem.
+/// unsafe { dartforge_arc_gravar_campo_ref_conferido_v1(objeto, 39, filho, layouts.as_ptr(), 1); }
+/// dartforge_arc_release(filho);
+/// assert_eq!(dartforge_arc_ler_campo_ref_v1(objeto, 39), filho);
+/// dartforge_arc_release(objeto);
+/// ```
+#[unsafe(no_mangle)]
+#[allow(unsafe_code)]
+pub unsafe extern "C" fn dartforge_arc_gravar_campo_ref_conferido_v1(
+    objeto: i64, indice: i64, valor: i64, layouts: *const i64, pares: i64,
+) {
+    let palavras = usize::try_from(pares).ok().and_then(|n| n.checked_mul(2))
+        .filter(|n| *n > 0 && *n <= isize::MAX as usize / std::mem::size_of::<i64>())
+        .expect("vetor de layouts ARC inválido");
+    assert!(!layouts.is_null() && layouts.is_aligned(), "endereço dos layouts ARC inválido");
+    // SAFETY: o produtor garante a extensão, imutabilidade e vida do vetor.
+    let layouts = unsafe { std::slice::from_raw_parts(layouts, palavras) };
+    HEAP.with(|heap| gravar_campo_ref_conferido(&mut heap.borrow_mut(), objeto, indice, valor, layouts)
+        .expect("contrato de gravação Ref conferida ARC violado"));
+}
+
+fn gravar_campo_ref_conferido(
+    heap: &mut Heap, objeto: i64, indice: i64, valor: i64, layouts: &[i64],
+) -> Result<(), &'static str> {
+    conferir_layout_fisico(heap, objeto, indice, layouts)?;
+    gravar_campo_auditado(heap, objeto, indice, valor, true)
+}
+
+fn conferir_layout_fisico(heap: &Heap, objeto: i64, indice: i64, layouts: &[i64]) -> Result<(), &'static str> {
+    let vista = heap.objeto(objeto).ok_or("receiver não é objeto vivo")?;
+    let i = usize::try_from(indice).map_err(|_| "índice negativo")?;
+    if i >= vista.len() { return Err("índice fora do objeto"); }
+    if layouts.len() % 2 != 0 || !layouts.chunks_exact(2).any(|p|
+        p[0] == vista.class_id && usize::try_from(p[1]).ok() == Some(vista.len())) {
+        return Err("classe/tamanho fora dos layouts Ref");
+    }
+    Ok(())
+}
+
+/// Grava bits escalares após conferir classe e tamanho contra layouts declarados.
+///
+/// `representacao` é 1=int, 2=double, 3=bool, 4=byte. Os bits já devem estar
+/// convertidos pelo lowering; não faz coerções, aloca, coleta ou executa Dart.
+/// Mantém a barreira e invalida borrows anteriores ao substituir o campo.
+///
+/// # Safety
+/// `layouts` deve apontar para `pares * 2` palavras alinhadas, imutáveis e
+/// legíveis durante a chamada. Os pares `(cid, campos)` devem declarar o
+/// índice com a representação indicada na versão atual da imagem.
+/// Não guarda nem devolve esse endereço; versões/pins são dever do chamador.
+///
+/// # Panics
+/// Representação, receiver, índice, classe ou tamanho inválido; aborta no limite C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let layouts = [123, 1];
+/// let objeto = dartforge_arc_objeto_owned_v1(123, 1);
+/// // SAFETY: vetor vivo; o campo 0 é int no layout atual da imagem.
+/// unsafe { dartforge_arc_gravar_campo_escalar_conferido_v1(objeto, 0, 42, layouts.as_ptr(), 1, 1); }
+/// assert_eq!(dartforge_arc_ler_campo_escalar_v1(objeto, 0), 42);
+/// dartforge_arc_release(objeto);
+/// ```
+#[unsafe(no_mangle)]
+#[allow(unsafe_code)]
+pub unsafe extern "C" fn dartforge_arc_gravar_campo_escalar_conferido_v1(
+    objeto: i64, indice: i64, bits: i64, layouts: *const i64, pares: i64, representacao: i64,
+) {
+    assert!((1..=4).contains(&representacao), "representação escalar ARC inválida");
+    let palavras = usize::try_from(pares).ok().and_then(|n| n.checked_mul(2))
+        .filter(|n| *n > 0 && *n <= isize::MAX as usize / std::mem::size_of::<i64>())
+        .expect("vetor de layouts ARC inválido");
+    assert!(!layouts.is_null() && layouts.is_aligned(), "endereço dos layouts ARC inválido");
+    // SAFETY: vetor e extensão garantidos pelo produtor.
+    let layouts = unsafe { std::slice::from_raw_parts(layouts, palavras) };
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        conferir_layout_fisico(&heap, objeto, indice, layouts).expect("layout escalar ARC incompatível");
+        gravar_campo_auditado(&mut heap, objeto, indice, bits, false)
+            .expect("contrato de gravação escalar conferida ARC violado");
+    });
+}
+
+/// Lê os bits escalares após conferir o layout físico e o mapa real do campo.
+///
+/// A representação (1=int, 2=double, 3=bool, 4=byte) e as conversões são
+/// obrigações do lowering. Não cria owners, aloca, coleta ou executa Dart.
+///
+/// # Safety
+/// O vetor `(cid, campos)` deve conter `pares * 2` palavras alinhadas,
+/// imutáveis e legíveis. Cada par deve declarar o índice com a representação
+/// indicada no layout atual da imagem. Não guarda esse endereço.
+/// Vida/versões e guardas Dart de tipo/late são responsabilidade do chamador.
+///
+/// # Panics
+/// Representação, receiver, índice, classe, tamanho ou mapa incompatível;
+/// aborta no limite C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let layouts = [123, 1];
+/// let objeto = dartforge_arc_objeto_owned_v1(123, 1);
+/// dartforge_arc_gravar_campo_escalar_v1(objeto, 0, 42);
+/// // SAFETY: vetor vivo; o campo 0 é int no layout atual da imagem.
+/// let bits = unsafe { dartforge_arc_ler_campo_escalar_conferido_v1(objeto, 0, layouts.as_ptr(), 1, 1) };
+/// assert_eq!(bits, 42);
+/// dartforge_arc_release(objeto);
+/// ```
+#[unsafe(no_mangle)]
+#[allow(unsafe_code)]
+pub unsafe extern "C" fn dartforge_arc_ler_campo_escalar_conferido_v1(
+    objeto: i64, indice: i64, layouts: *const i64, pares: i64, representacao: i64,
+) -> i64 {
+    assert!((1..=4).contains(&representacao), "representação escalar ARC inválida");
+    let palavras = usize::try_from(pares).ok().and_then(|n| n.checked_mul(2))
+        .filter(|n| *n > 0 && *n <= isize::MAX as usize / std::mem::size_of::<i64>())
+        .expect("vetor de layouts ARC inválido");
+    assert!(!layouts.is_null() && layouts.is_aligned(), "endereço dos layouts ARC inválido");
+    // SAFETY: vetor e extensão garantidos pelo produtor.
+    let layouts = unsafe { std::slice::from_raw_parts(layouts, palavras) };
+    HEAP.with(|heap| {
+        let heap = heap.borrow();
+        conferir_layout_fisico(&heap, objeto, indice, layouts).expect("layout escalar ARC incompatível");
+        ler_campo_escalar_auditado(&heap, objeto, indice)
+            .expect("contrato de leitura escalar conferida ARC violado")
+    })
+}
+
 fn gravar_campo_auditado(heap: &mut Heap, objeto: i64, indice: i64, bits: i64, referencia: bool) -> Result<(), &'static str> {
     let vista = heap.objeto(objeto).ok_or("receiver não é objeto vivo")?;
     let indice = usize::try_from(indice).map_err(|_| "índice negativo")?;
@@ -1077,6 +1227,37 @@ mod testes_caixa_double_owned {
 #[cfg(test)]
 mod testes_campo_ref {
     use super::*;
+
+    #[test]
+    fn escrita_conferida_inicializa_ref_e_recusa_layout_sem_alterar_aresta() {
+        for arc in [false, true] {
+            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+            let objeto = dartforge_arc_objeto_owned_v1(123, 40);
+            let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
+            HEAP.with(|h| {
+                let mut heap = h.borrow_mut();
+                assert!(gravar_campo_ref_conferido(&mut heap, objeto, 39, filho, &[123, 40]).is_ok());
+                for (receiver, indice, layouts) in [
+                    (objeto, 39, vec![124, 40]), (objeto, 39, vec![123, 39]),
+                    (objeto, -1, vec![123, 40]), (objeto, 40, vec![123, 40]),
+                    (0, 39, vec![123, 40]), (filho, 0, vec![123, 40]),
+                    (objeto, 39, vec![123]),
+                ] {
+                    assert!(gravar_campo_ref_conferido(&mut heap, receiver, indice, 0, &layouts).is_err());
+                    assert_eq!(ler_campo_ref_auditado(&heap, objeto, 39), Ok(filho));
+                }
+            });
+            dartforge_arc_release(filho);
+            dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observar_heap_v1(filho), 1);
+            HEAP.with(|h| assert!(gravar_campo_ref_conferido(&mut h.borrow_mut(), objeto, 39, 0, &[123, 40]).is_ok()));
+            dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observar_heap_v1(filho), 0);
+            dartforge_arc_release(objeto);
+            HEAP.with(|h| h.replace(anterior));
+        }
+    }
 
     #[test]
     fn leitura_empresta_aresta_e_copia_owned_sobrevive_a_substituicao() {

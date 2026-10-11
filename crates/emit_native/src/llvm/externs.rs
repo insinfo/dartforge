@@ -219,6 +219,18 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
+        decl: "declare void @dartforge_arc_gravar_campo_escalar_conferido_v1(i64, i64, i64, ptr, i64, i64) nounwind",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_arc_ler_campo_escalar_conferido_v1(i64, i64, ptr, i64, i64) nounwind",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
+        decl: "declare void @dartforge_arc_gravar_campo_ref_conferido_v1(i64, i64, i64, ptr, i64) nounwind",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
         decl: "declare void @dartforge_arc_gravar_campo_ref_v1(i64, i64, i64) nounwind",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },

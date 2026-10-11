@@ -320,7 +320,7 @@ mod testes {
     }
 
     #[test]
-    fn fronteiras_abertas_e_chamada_anterior_ao_acesso_recusam_atomicamente() {
+    fn fronteiras_abertas_exigem_guarda_e_provas_estaticas_invalidas_recusam() {
         for caso in 0..7 {
             let (mut m, mut planos) = modulo();
             match caso {
@@ -366,11 +366,20 @@ mod testes {
                 );
             }
             let antes = format!("{m:?}/{planos:?}");
-            assert!(
-                preparar_arc_modulo_dart(&mut m, &mut planos).is_err(),
-                "caso {caso}"
-            );
-            assert_eq!(antes, format!("{m:?}/{planos:?}"));
+            let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
+            if matches!(caso, 0 | 1 | 4) {
+                // Não ganha classe estática por haver callers conhecidos.
+                // A entrada aberta só grava após conferir o receiver real;
+                // null, CID ou tamanho inválido serão recusados pelo runtime.
+                resultado.unwrap();
+                assert!(m.functions[1].blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)|
+                    matches!(i, Instruction::CallRuntime { name, .. }
+                        if name == "dartforge_arc_gravar_campo_ref_conferido_v1")));
+                assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+            } else {
+                assert!(resultado.is_err(), "caso {caso}: {resultado:?}");
+                assert_eq!(antes, format!("{m:?}/{planos:?}"));
+            }
         }
     }
 }

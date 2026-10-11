@@ -198,6 +198,11 @@ pub fn certificar_portas_arc_aot(
     if !m.memoria_arc {
         return Ok(0);
     }
+    for f in &m.functions {
+        for (_, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
+            super::campos::conferir_chamada(f, inst, Some(&m.layouts_campos_arc))?;
+        }
+    }
     super::seletores::conferir(m)?;
     conferir_vetores(m)?;
     let mut fs = m.functions.clone();

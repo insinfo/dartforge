@@ -14,6 +14,7 @@ pub(super) fn conferir(
     // Constantes escalares/null e literais permanentes não produzem
     // token. A variante da constante determina seu tipo semântico.
     let puro = match inst {
+        Instruction::ConstArray(_) => Some(Type::Ptr),
         Instruction::Const(Constant::Int(_)) => Some(Type::I64),
         Instruction::Const(Constant::Double(_)) => Some(Type::F64),
         Instruction::Const(Constant::Bool(_)) => Some(Type::I1),

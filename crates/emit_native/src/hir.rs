@@ -516,7 +516,8 @@ pub enum Instruction {
         index: Operand,
     },
     /// Endereço (`Ptr`) de um vetor constante de `i64`, global do módulo
-    /// (a assinatura de uma entrada uniforme para a checagem de aridade).
+    /// imutável: assinaturas uniformes e tabelas de layouts físicos ARC.
+    /// As palavras são dados nativos; não constituem slots Ref do heap.
     ConstArray(Vec<i64>),
     /// Endereço (`Ptr`) de um vetor constante com o endereço de cada função
     /// (`@df.fns.<k>`, global do módulo): os getters das constantes de um

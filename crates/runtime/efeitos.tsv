@@ -787,3 +787,6 @@ dartforge_arc_escopo_nativo_fechar_v1	0	0	0
 dartforge_arc_registrar_uniforme_owned_v1	0	0	0
 dartforge_arc_invocar_closure_uniforme_v1	1	1	1
 dartforge_arc_invocar_uniforme_v1	1	1	1
+dartforge_arc_gravar_campo_ref_conferido_v1	0	0	0
+dartforge_arc_gravar_campo_escalar_conferido_v1	0	0	0
+dartforge_arc_ler_campo_escalar_conferido_v1	0	0	0

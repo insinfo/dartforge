@@ -1,4 +1,4 @@
-//! Prova conservadora de origem local para acesso físico a campos.
+//! Acessos físicos a campos por origem estática ou guarda de layout da imagem.
 //! Alocações HIR completas são as âncoras; cópias/moves/Phis transportam
 //! conjuntos de sítios, sem forte atualização por instância. Publicação,
 //! uso opaco ou contenção invalidam o sítio inteiro, inclusive antes do uso.
@@ -139,12 +139,69 @@ fn representacao(
     Ok(repr.unwrap())
 }
 
+const GRAVAR_ESCALAR: &str = "dartforge_arc_gravar_campo_escalar_conferido_v1";
+const LER_ESCALAR: &str = "dartforge_arc_ler_campo_escalar_conferido_v1";
+const GRAVAR_CONFERIDO: &str = "dartforge_arc_gravar_campo_ref_conferido_v1";
+
+fn layouts_do_campo(layouts: &HashMap<u32, Vec<Type>>, indice: usize, repr: Type) -> Vec<i64> {
+    let mut pares: Vec<_> = layouts.iter().filter(|(cid, campos)|
+        i32::try_from(**cid).is_ok() && u16::try_from(campos.len()).is_ok()
+        && campos.get(indice) == Some(&repr)).collect();
+    pares.sort_by_key(|(cid, _)| **cid);
+    pares.into_iter().flat_map(|(cid, campos)| [i64::from(*cid), campos.len() as i64]).collect()
+}
+
+fn codigo_escalar(repr: Type) -> i64 {
+    match repr { Type::I64 => 1, Type::F64 => 2, Type::I1 => 3, Type::I8 => 4,
+        _ => unreachable!("representação escalar não conferida") }
+}
+
+// Um Ptr importado, alias ou tamanho calculado não prova extensão/imutabilidade.
+// A imagem certificada também reconfere o vetor contra os layouts atuais.
+pub(super) fn conferir_chamada(
+    f: &Function, inst: &Instruction, layouts: Option<&HashMap<u32, Vec<Type>>>,
+) -> Result<(), String> {
+    let Instruction::CallRuntime { name, args, ret_ty } = inst else { return Ok(()); };
+    if !matches!(name.as_str(), GRAVAR_CONFERIDO | GRAVAR_ESCALAR | LER_ESCALAR) { return Ok(()); }
+    let erro = || format!("campo conferido em {}: vetor de layouts sem proveniência/limites", f.symbol);
+    let (indice, vetor, pares, repr) = match (name.as_str(), args.as_slice(), ret_ty) {
+        (GRAVAR_CONFERIDO, [(_, Type::Ref), (Operand::Constant(Constant::Int(i)), Type::I64),
+            (_, Type::Ref), (Operand::Val(v), Type::Ptr), (Operand::Constant(Constant::Int(n)), Type::I64)], Type::Void) => (*i, *v, *n, Type::Ref),
+        (GRAVAR_ESCALAR, [(_, Type::Ref), (Operand::Constant(Constant::Int(i)), Type::I64),
+            (_, Type::I64), (Operand::Val(v), Type::Ptr), (Operand::Constant(Constant::Int(n)), Type::I64),
+            (Operand::Constant(Constant::Int(r)), Type::I64)], Type::Void)
+        | (LER_ESCALAR, [(_, Type::Ref), (Operand::Constant(Constant::Int(i)), Type::I64),
+            (Operand::Val(v), Type::Ptr), (Operand::Constant(Constant::Int(n)), Type::I64),
+            (Operand::Constant(Constant::Int(r)), Type::I64)], Type::I64) => {
+                let repr = match r { 1 => Type::I64, 2 => Type::F64, 3 => Type::I1, 4 => Type::I8, _ => return Err(erro()) };
+                (*i, *v, *n, repr)
+            }
+        _ => return Err(erro()),
+    };
+    let indice = usize::try_from(indice).map_err(|_| erro())?;
+    let Some((_, Instruction::ConstArray(valores), Type::Ptr)) = f.blocks.iter()
+        .flat_map(|b| &b.instructions).find(|(v, _, _)| *v == vetor) else { return Err(erro()); };
+    if valores.is_empty() || !valores.len().is_multiple_of(2)
+        || usize::try_from(pares).ok() != Some(valores.len() / 2)
+        || valores.chunks_exact(2).any(|p| i32::try_from(p[0]).is_err() || p[0] < 0
+            || u16::try_from(p[1]).is_err() || usize::try_from(p[1]).ok().is_none_or(|n| indice >= n))
+        || valores.chunks_exact(2).map(|p| p[0]).collect::<Vec<_>>().windows(2).any(|p| p[0] >= p[1])
+    { return Err(erro()); }
+    if let Some(layouts) = layouts && *valores != layouts_do_campo(layouts, indice, repr) {
+        return Err(format!("campo conferido em {}: layouts obsoletos/divergentes", f.symbol));
+    }
+    Ok(())
+}
+
 pub(super) fn preparar(
     f: &mut Function,
     layouts: &HashMap<u32, Vec<Type>>,
     plano: &mut PlanoFuncaoDart,
     receivers: Option<&HashMap<ValueId, u32>>,
 ) -> Result<(), String> {
+    for (_, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
+        conferir_chamada(f, inst, Some(layouts))?;
+    }
     if !f
         .blocks
         .iter()
@@ -297,12 +354,19 @@ pub(super) fn preparar(
             let o = origem(object, &origens);
             // Sem âncora nominal, o accessor Ref confere receiver, índice e
             // bitmap antes de emprestar. Não reinterpretar bits escalares,
-            // ignorar contradições de uma origem conhecida ou inferir setters.
-            let leitura_ref_conferida = value.is_none() && *ty == Type::Ref
-                && o.desconhecido && o.sitios.is_empty()
+            // ou ignorar contradições de uma origem conhecida. Escritas abertas
+            // exigem a conferência adicional dos layouts declarados da imagem.
+            let entrada_aberta = o.desconhecido && o.sitios.is_empty()
                 && matches!(object, Operand::Val(v) if entradas_ref.contains(v));
-            let repr = if leitura_ref_conferida {
+            let leitura_ref_conferida = value.is_none() && *ty == Type::Ref && entrada_aberta;
+            let gravacao_ref_conferida = value.is_some_and(|valor| tipo(valor) == Some(Type::Ref))
+                && *ty == Type::Void && entrada_aberta;
+            let escalar = if let Some(value) = value { tipo(value) } else { Some(*ty) };
+            let escalar_conferido = entrada_aberta && matches!(escalar, Some(Type::I64 | Type::F64 | Type::I1 | Type::I8));
+            let repr = if leitura_ref_conferida || gravacao_ref_conferida {
                 Type::Ref
+            } else if escalar_conferido {
+                escalar.unwrap()
             } else {
                 representacao(object, index, &origens, &classes, layouts, &atuais)
                     .map_err(|e| format!("campo ARC em {} v{}: {e}", f.symbol, v.0))?
@@ -366,10 +430,31 @@ pub(super) fn preparar(
                         Type::I64
                     },
                 ));
+                if gravacao_ref_conferida || escalar_conferido {
+                    let valores = layouts_do_campo(layouts, index, repr);
+                    if valores.is_empty() {
+                        return Err(format!("campo ARC em {} v{}: nenhum layout correspondente declarado", f.symbol, v.0));
+                    }
+                    let vetor = ValueId(u32::try_from(proximo).map_err(|_| "IDs SSA esgotados nos layouts Ref")?);
+                    proximo += 1;
+                    args.push((Operand::Val(vetor), Type::Ptr));
+                    args.push((Operand::Constant(Constant::Int((valores.len() / 2) as i64)), Type::I64));
+                    if let Some(limites) = plano.escopos.antes.remove(v) {
+                        plano.escopos.antes.insert(vetor, limites);
+                    }
+                    instructions.push((vetor, Instruction::ConstArray(valores), Type::Ptr));
+                    if escalar_conferido {
+                        args.push((Operand::Constant(Constant::Int(codigo_escalar(repr))), Type::I64));
+                    }
+                }
                 instructions.push((
                     *v,
                     Instruction::CallRuntime {
-                        name: if repr == Type::Ref {
+                        name: if escalar_conferido {
+                            GRAVAR_ESCALAR
+                        } else if gravacao_ref_conferida {
+                            GRAVAR_CONFERIDO
+                        } else if repr == Type::Ref {
                             "dartforge_arc_gravar_campo_ref_v1"
                         } else {
                             "dartforge_arc_gravar_campo_escalar_v1"
@@ -381,6 +466,16 @@ pub(super) fn preparar(
                     Type::Void,
                 ));
             } else {
+                if escalar_conferido {
+                    let valores = layouts_do_campo(layouts, index, repr);
+                    if valores.is_empty() { return Err(format!("campo ARC em {} v{}: nenhum layout correspondente declarado", f.symbol, v.0)); }
+                    let vetor = ValueId(u32::try_from(proximo).map_err(|_| "IDs SSA esgotados nos layouts escalares")?);
+                    proximo += 1;
+                    args.push((Operand::Val(vetor), Type::Ptr));
+                    args.push((Operand::Constant(Constant::Int((valores.len() / 2) as i64)), Type::I64));
+                    args.push((Operand::Constant(Constant::Int(codigo_escalar(repr))), Type::I64));
+                    instructions.push((vetor, Instruction::ConstArray(valores), Type::Ptr));
+                }
                 let ret_ty = if repr == Type::Ref {
                     Type::Ref
                 } else {
@@ -389,7 +484,9 @@ pub(super) fn preparar(
                 instructions.push((
                     auxiliar.unwrap_or(*v),
                     Instruction::CallRuntime {
-                        name: if repr == Type::Ref {
+                        name: if escalar_conferido {
+                            LER_ESCALAR
+                        } else if repr == Type::Ref {
                             "dartforge_arc_ler_campo_ref_v1"
                         } else {
                             "dartforge_arc_ler_campo_escalar_v1"
@@ -466,6 +563,85 @@ mod testes {
     }
 
     #[test]
+    fn campos_escalares_abertos_conferem_layout_sem_confundir_representacoes() {
+        for repr in [Type::I64, Type::F64, Type::I1, Type::I8] {
+            let (mut m, mut planos) = modulo(vec![repr], vec![Operand::Constant(Constant::Null)]);
+            let f = &mut m.functions[0];
+            f.params = vec![(ValueId(0), "this".into(), Type::Ref)];
+            f.blocks[0].instructions.clear();
+            let valor = match repr {
+                Type::I64 => Operand::Constant(Constant::Int(42)),
+                Type::F64 => Operand::Constant(Constant::Double(-0.0)),
+                Type::I1 => Operand::Constant(Constant::Bool(true)),
+                Type::I8 => {
+                    f.blocks[0].instructions.push((ValueId(1), Instruction::Trunc {
+                        op: Operand::Constant(Constant::Int(255)), from: Type::I64, to: Type::I8,
+                    }, Type::I8));
+                    Operand::Val(ValueId(1))
+                }
+                _ => unreachable!(),
+            };
+            f.blocks[0].instructions.extend([
+                (ValueId(2), Instruction::SetField { object: Operand::Val(ValueId(0)), index: 0, value: valor }, Type::Void),
+                (ValueId(3), Instruction::GetField { object: Operand::Val(ValueId(0)), index: 0 }, repr),
+            ]);
+            preparar_arc_modulo_dart(&mut m, &mut planos).unwrap();
+            let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+            assert!(ir.contains("call void @dartforge_arc_gravar_campo_escalar_conferido_v1"));
+            assert!(ir.contains("call i64 @dartforge_arc_ler_campo_escalar_conferido_v1"));
+            assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+            certificar_portas_arc_aot(&mut m, &planos).unwrap();
+            m.layouts_campos_arc.insert(123, vec![Type::Ref]);
+            let antes = format!("{m:?}/{planos:?}");
+            assert!(preparar_arc_modulo_dart(&mut m, &mut planos).is_err());
+            assert_eq!(antes, format!("{m:?}/{planos:?}"));
+            assert!(certificar_portas_arc_aot(&mut m, &planos).is_err());
+        }
+    }
+
+    #[test]
+    fn setter_ref_aberto_confere_classe_tamanho_e_tabela_atual() {
+        let (mut m, mut planos) = modulo(vec![Type::Ref], vec![Operand::Constant(Constant::Null)]);
+        m.layouts_campos_arc.insert(124, vec![Type::Ref, Type::I64]);
+        m.layouts_campos_arc.insert(125, vec![Type::I64]);
+        for (id, n) in [(124, 2), (125, 1)] {
+            m.classes.push(ClassDef { id, name: format!("C{id}"), field_count: n,
+                vtable: vec![], to_string_symbol: None });
+        }
+        m.functions[0].params = vec![(ValueId(0), "this".into(), Type::Ref),
+            (ValueId(1), "valor".into(), Type::Ref)];
+        m.functions[0].blocks[0].instructions = vec![(ValueId(2), Instruction::SetField {
+            object: Operand::Val(ValueId(0)), index: 0, value: Operand::Val(ValueId(1)),
+        }, Type::Void)];
+        preparar_arc_modulo_dart(&mut m, &mut planos).unwrap();
+        assert!(m.functions[0].blocks[0].instructions.iter().any(|(_, i, _)|
+            matches!(i, Instruction::ConstArray(v) if v == &vec![123, 1, 124, 2])));
+        let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+        assert!(ir.contains("call void @dartforge_arc_gravar_campo_ref_conferido_v1"));
+        assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+        for caso in 0..4 {
+            let mut fs = m.functions.clone();
+            let mut ps = planos.clone();
+            if caso == 0 {
+                let (_, Instruction::ConstArray(v), _) = &mut fs[0].blocks[0].instructions[0] else { panic!(); };
+                v[1] = 2;
+            } else {
+                let (_, Instruction::CallRuntime { args, .. }, _) = &mut fs[0].blocks[0].instructions[1] else { panic!(); };
+                if caso == 1 { args[4].0 = Operand::Constant(Constant::Int(1)); }
+                if caso == 2 { args[3] = (Operand::Val(ValueId(0)), Type::Ref); }
+                if caso == 3 { args[1].0 = Operand::Constant(Constant::Int(-1)); }
+            }
+            let antes = format!("{fs:?}/{ps:?}");
+            let resultado = super::preparar(&mut fs[0], &m.layouts_campos_arc, ps.get_mut("campos").unwrap(), None);
+            assert!(resultado.is_err(), "caso {caso}: {resultado:?}");
+            assert_eq!(antes, format!("{fs:?}/{ps:?}"));
+        }
+        certificar_portas_arc_aot(&mut m, &planos).unwrap();
+        m.layouts_campos_arc.insert(123, vec![Type::I64]);
+        assert!(certificar_portas_arc_aot(&mut m, &planos).is_err());
+    }
+
+    #[test]
     fn getter_ref_de_receiver_aberto_confere_mapa_e_devolve_owned() {
         let (mut m, _) = modulo(vec![], vec![]);
         m.functions[0].params = vec![(ValueId(0), "this".into(), Type::Ref)];
@@ -486,7 +662,7 @@ mod testes {
     }
 
     #[test]
-    fn receiver_aberto_nao_certifica_setter_ou_leitura_escalar() {
+    fn receiver_aberto_exige_layout_para_gravacao_ou_escalar_e_limites() {
         for caso in 0..3 {
             let (mut m, mut planos) = modulo(vec![], vec![]);
             m.functions[0].params = vec![(ValueId(0), "this".into(), Type::Ref)];
@@ -766,11 +942,17 @@ mod testes {
                 ty,
             ));
             let antes = format!("{m:?}/{planos:?}");
-            let erro = preparar_arc_modulo_dart(&mut m, &mut planos).unwrap_err();
-            if matches!(caso, 0 | 1 | 4 | 7) {
-                assert!(erro.contains("origem local"), "caso {caso}: {erro}");
+            let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
+            if caso == 1 {
+                resultado.unwrap();
+                assert!(m.functions[0].blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)|
+                    matches!(i, Instruction::CallRuntime { name, .. } if name == super::LER_ESCALAR)));
+                assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+            } else {
+                let erro = resultado.unwrap_err();
+                if matches!(caso, 0 | 4 | 7) { assert!(erro.contains("origem local"), "caso {caso}: {erro}"); }
+                assert_eq!(format!("{m:?}/{planos:?}"), antes, "caso {caso}");
             }
-            assert_eq!(format!("{m:?}/{planos:?}"), antes, "caso {caso}");
             m.memoria_arc = false;
             let antes = format!("{m:?}/{planos:?}");
             assert_eq!(
