@@ -750,7 +750,7 @@ mod testes {
 
     #[test]
     fn ref_runtime_auditada_confere_campos_sem_promover_extern_opaca_ou_fabrica_sem_layout() {
-        for caso in 0..8 {
+        for caso in 0..9 {
             let (mut m, mut planos) = modulo(vec![Type::I64], vec![Operand::Constant(Constant::Int(0))]);
             let f = &mut m.functions[0];
             f.params = vec![(ValueId(0), "closure".into(), Type::Ref)];
@@ -762,6 +762,7 @@ mod testes {
                 4 => ("dartforge_arc_objeto_owned_v1", vec![(Operand::Constant(Constant::Int(999)), Type::I64), (Operand::Constant(Constant::Int(1)), Type::I64)]),
                 5 => ("dartforge_arc_ler_campo_escalar_v1", vec![(Operand::Val(ValueId(0)), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)]),
                 6 => ("dartforge_arc_excecao_owned_v1", vec![]),
+                8 => ("dartforge_arc_ler_campo_late_ref_v1", vec![(Operand::Val(ValueId(0)), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)]),
                 _ => ("dartforge_arc_contexto_closure_v1", vec![(Operand::Val(ValueId(0)), Type::Ref)]),
             };
             if caso == 7 { f.params[0].2 = Type::I64; }
@@ -773,7 +774,7 @@ mod testes {
             f.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(2))));
             let antes = format!("{m:?}"); let ps_antes = planos.clone();
             let r = preparar_arc_modulo_dart(&mut m, &mut planos);
-            if caso < 2 || caso == 6 {
+            if caso < 2 || caso == 6 || caso == 8 {
                 r.unwrap();
                 let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
                 assert!(ir.contains("call i64 @dartforge_arc_ler_campo_escalar_conferido_v1"));

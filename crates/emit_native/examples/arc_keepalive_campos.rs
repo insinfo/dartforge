@@ -11,7 +11,7 @@ use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*}
 use std::{collections::HashMap, path::PathBuf};
 
 #[derive(Clone, Copy)]
-enum Cenario { Campo, Captura, Vizinho, CapturaVizinho, Argumento, Anulavel, Misto, Ciclo, Celula, Contexto, Global }
+enum Cenario { Campo, Captura, Vizinho, CapturaVizinho, Argumento, Anulavel, Misto, Ciclo, Celula, Contexto, Global, Late }
 
 fn modulo(cenario: Cenario) -> Result<Module, String> {
     let captura = matches!(cenario, Cenario::Captura | Cenario::CapturaVizinho);
@@ -74,6 +74,13 @@ fn modulo(cenario: Cenario) -> Result<Module, String> {
         m.functions[0].blocks[0].instructions[0].1 = Instruction::CellGet { cell: val(0) };
         m.functions[0].blocks[0].instructions[1].1 = Instruction::SetField {
             object: val(0), index: 0, value: Operand::Constant(Constant::Null),
+        };
+    }
+    if matches!(cenario, Cenario::Late) {
+        m.functions[0].blocks[0].instructions[0].1 = Instruction::CallRuntime {
+            name: "dartforge_arc_ler_campo_late_ref_v1".into(),
+            args: vec![(val(0), Type::Ref), (Operand::Constant(Constant::Int(39)), Type::I64)],
+            ret_ty: Type::Ref,
         };
     }
     if matches!(cenario, Cenario::Contexto) {
@@ -266,6 +273,7 @@ fn main() -> Result<(), String> {
         Some("--celula") => Cenario::Celula,
         Some("--contexto") => Cenario::Contexto,
         Some("--global") => Cenario::Global,
+        Some("--late") => Cenario::Late,
         _ => Cenario::Campo,
     };
     if !matches!(cenario, Cenario::Campo) { controle = args.next(); }
@@ -337,6 +345,19 @@ passou:
         let inicio = ir.find("  %inteiro = call i64 @ler_inteiro(i64 %obj)\n").ok_or("início da conferência escalar ausente")?;
         let fim = ir[inicio..].find("  br i1 %ok_inicio,").map(|n| inicio + n).ok_or("fim da conferência escalar ausente")?;
         ir.replace_range(inicio..fim, "  %ok_inicio = icmp eq i8 %aresta, 1\n");
+    }
+    if matches!(cenario, Cenario::Late) {
+        // A sondagem vazia não muda o estado late. O harness marca somente
+        // depois de inicializar; o corpo certificado copia antes de retirar
+        // a aresta e devolve Owned, como nos demais cenários.
+        for declaracao in ["declare i8 @dartforge_late_field_initialized(i64, i64)",
+            "declare void @dartforge_late_field_mark_initialized(i64, i64)"] {
+            if !ir.contains(declaracao) { ir.push_str(&format!("\n{declaracao}\n")); }
+        }
+        ir = ir.replace("  call void @inicializar(i64 %obj, i64 %filho)\n",
+            "  %late_vazio = call i64 @dartforge_arc_ler_campo_late_ref_v1(i64 %obj, i64 39)\n  %late_estado = call i8 @dartforge_late_field_initialized(i64 %obj, i64 39)\n  %late_null = icmp eq i64 %late_vazio, 0\n  %late_sem_marca = icmp eq i8 %late_estado, 0\n  %late_ok = and i1 %late_null, %late_sem_marca\n  call void @inicializar(i64 %obj, i64 %filho)\n  call void @dartforge_late_field_mark_initialized(i64 %obj, i64 39)\n");
+        ir = ir.replace("  %ok_inicio = and i1 %ok_campos, %ok_aresta\n",
+            "  %ok_inicializado = and i1 %ok_campos, %ok_aresta\n  %ok_inicio = and i1 %ok_inicializado, %late_ok\n");
     }
     if matches!(cenario, Cenario::Contexto) {
         // O endereço permanece na imagem AOT e nunca é invocado nesta prova;

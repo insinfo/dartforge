@@ -713,6 +713,43 @@ fn ler_campo_ref_auditado(heap: &Heap, objeto: i64, indice: i64) -> Result<i64, 
     Ok(bits)
 }
 
+/// Lê um empréstimo Ref de campo late ou o null anterior à inicialização.
+///
+/// Exige receiver vivo e índice válido. Um campo marcado Ref segue o mesmo
+/// contrato de aresta do leitor Ref. Sem essa marca, apenas zero de um campo
+/// ainda não inicializado pode sair como null; bits escalares não viram Ref.
+/// Não marca inicialização, retém, aloca, coleta ou executa Dart. Guardas late,
+/// inicializadores e cópia antes de invalidar a aresta continuam no chamador.
+///
+/// # Panics
+/// Receiver, índice ou representação incompatível; aborta no limite C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let objeto = dartforge_arc_objeto_owned_v1(123, 1);
+/// assert_eq!(dartforge_arc_ler_campo_late_ref_v1(objeto, 0), 0);
+/// dartforge_arc_gravar_campo_ref_v1(objeto, 0, 0);
+/// dartforge_late_field_mark_initialized(objeto, 0);
+/// assert_eq!(dartforge_arc_ler_campo_late_ref_v1(objeto, 0), 0);
+/// dartforge_arc_release(objeto);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_ler_campo_late_ref_v1(objeto: i64, indice: i64) -> i64 {
+    HEAP.with(|heap| ler_campo_late_ref_auditado(&heap.borrow(), objeto, indice)
+        .expect("contrato de leitura late Ref ARC violado"))
+}
+
+fn ler_campo_late_ref_auditado(heap: &Heap, objeto: i64, indice: i64) -> Result<i64, &'static str> {
+    let vista = heap.objeto(objeto).ok_or("receiver não é objeto vivo")?;
+    let index = usize::try_from(indice).map_err(|_| "índice negativo")?;
+    let (bits, referencia) = vista.get(index).ok_or("índice fora do objeto")?;
+    if referencia || (bits == 0 && !heap.late_inicializado((objeto, indice))) {
+        Ok(bits)
+    } else {
+        Err("campo late não contém Ref nem zero anterior à inicialização")
+    }
+}
+
 /// Lança um valor Ref emprestado e o mantém como raiz da exceção pendente.
 ///
 /// Não consome o token do chamador. O protocolo de exceções mantém uma raiz
@@ -1566,6 +1603,57 @@ mod testes_campo_ref {
             dartforge_arc_collect();
             assert_eq!(dartforge_arc_observar_heap_v1(objeto), 0);
             assert_eq!(dartforge_arc_observar_heap_v1(copia), 3);
+            dartforge_arc_release(copia);
+            dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observar_heap_v1(copia), 0);
+            HEAP.with(|h| { h.replace(anterior); });
+        }
+    }
+}
+
+#[cfg(test)]
+mod testes_leitura_late_ref {
+    use super::*;
+
+    #[test]
+    fn late_ref_distingue_zero_vazio_null_escrito_e_bits_escalares() {
+        for arc in [false, true] {
+            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+            let objeto = dartforge_arc_objeto_owned_v1(123, 40);
+            let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
+            let antes = HEAP.with(|h| h.borrow().stats());
+            assert_eq!(dartforge_arc_ler_campo_late_ref_v1(objeto, 39), 0);
+            HEAP.with(|h| {
+                let mut h = h.borrow_mut();
+                h.marcar_late((objeto, 39));
+                assert!(ler_campo_late_ref_auditado(&h, objeto, 39).is_err());
+                h.desmarcar_late((objeto, 39));
+                for (bits, marcado) in [(filho, false), (42, false), (0, true), (filho, true)] {
+                    h.definir_campo(objeto, 38, bits, false);
+                    if marcado { h.marcar_late((objeto, 38)); } else { h.desmarcar_late((objeto, 38)); }
+                    assert!(ler_campo_late_ref_auditado(&h, objeto, 38).is_err());
+                }
+                for (receiver, indice) in [(0, 0), (objeto, -1), (objeto, 40)] {
+                    assert!(ler_campo_late_ref_auditado(&h, receiver, indice).is_err());
+                }
+                assert_eq!(h.stats().allocations, antes.allocations);
+                assert_eq!(h.stats().collections, antes.collections);
+            });
+            for valor in [0, smi::de(42).unwrap(), filho] {
+                dartforge_arc_gravar_campo_ref_v1(objeto, 39, valor);
+                HEAP.with(|h| h.borrow_mut().marcar_late((objeto, 39)));
+                assert_eq!(dartforge_arc_ler_campo_late_ref_v1(objeto, 39), valor);
+            }
+            dartforge_arc_release(filho);
+            let copia = dartforge_arc_ler_campo_late_ref_v1(objeto, 39);
+            dartforge_arc_retain(copia);
+            dartforge_arc_gravar_campo_ref_v1(objeto, 39, 0);
+            dartforge_arc_release(objeto);
+            dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observar_heap_v1(copia), 3);
+            assert_eq!(dartforge_arc_observar_heap_v1(objeto), 0);
+            HEAP.with(|h| assert!(ler_campo_late_ref_auditado(&h.borrow(), objeto, 39).is_err()));
             dartforge_arc_release(copia);
             dartforge_arc_collect();
             assert_eq!(dartforge_arc_observar_heap_v1(copia), 0);

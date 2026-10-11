@@ -322,6 +322,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
         };
         let repr = self.repr_do_campo(vid);
+        if self.ctx.memoria_arc && self.ctx.program.variables[vid.0 as usize].late
+            && repr == Type::Ref
+        {
+            // A sondagem anterior à guarda late pode encontrar zero sem marca
+            // Ref. A ABI aceita somente esse estado vazio ou uma aresta real.
+            return self.emit(Instruction::CallRuntime {
+                name: "dartforge_arc_ler_campo_late_ref_v1".into(),
+                args: vec![(obj, Type::Ref), (idx, Type::I64)],
+                ret_ty: Type::Ref,
+            }, Type::Ref);
+        }
         if self.ctx.memoria_arc && !self.ctx.program.variables[vid.0 as usize].late
             && let Operand::Constant(Constant::Int(i)) = &idx
             && let Ok(index) = usize::try_from(*i)
@@ -2340,7 +2351,7 @@ mod testes_campos_mixin_arc {
             let dir = tempfile::tempdir().unwrap();
             let entrada = dir.path().join("main.dart");
             std::fs::write(&entrada,
-                "class C { late Object? ref; late final int inteiro; late bool booleano; late double real; void trocar() { ref = null; inteiro = 0; booleano = false; real = 0.0; } } void main() { C().trocar(); }\n").unwrap();
+                "class C { late Object? ref; late final int inteiro; late bool booleano; late double real; late int preparado = 1; Object? ler() => ref; int inicializado() => preparado; void trocar() { ref = null; inteiro = 0; booleano = false; real = 0.0; } } void main() { C().trocar(); }\n").unwrap();
             let sdk = crate::sdk_modulo::carregar_sdk_nativo(crate::sdk_testes()).unwrap();
             let mut interner = Interner::new();
             let (program, diags) = dartforge_elements::load::load_lenient(&entrada, &sdk, None, &mut interner);
@@ -2360,6 +2371,22 @@ mod testes_campos_mixin_arc {
                 let m = crate::lower::lower_program(&ctx);
                 assert!(m.erros.is_empty(), "{:?}", m.erros);
                 let f = m.functions.iter().find(|f| f.name == "trocar").unwrap();
+                let leituras: Vec<_> = m.functions.iter().filter(|f| f.name == "ler" || f.symbol.contains("preparado"))
+                    .flat_map(|f| &f.blocks).flat_map(|b| &b.instructions).collect();
+                let sondagens = leituras.iter().filter(|(_, i, ty)| matches!(i,
+                    Instruction::CallRuntime { name, ret_ty: Type::Ref, .. }
+                        if name == "dartforge_arc_ler_campo_late_ref_v1") && *ty == Type::Ref).count();
+                if arc {
+                    assert_eq!(sondagens, 2, "late Ref e late escalar com inicializador usam a sondagem Ref");
+                    assert!(!leituras.iter().any(|(_, i, _)| matches!(i,
+                        Instruction::CallRuntime { name, .. } if name == "dartforge_object_get")));
+                    assert!(leituras.iter().any(|(_, i, _)| matches!(i,
+                        Instruction::CallRuntime { name, .. } if name == "dartforge_late_field_initialized")));
+                } else {
+                    assert_eq!(sondagens, 0);
+                    assert!(leituras.iter().any(|(_, i, _)| matches!(i,
+                        Instruction::CallRuntime { name, .. } if name == "dartforge_object_get")));
+                }
                 let mut tipos = std::collections::HashSet::new();
                 let mut marcas = 0;
                 let mut guardas = 0;
