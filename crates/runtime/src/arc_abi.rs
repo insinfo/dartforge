@@ -92,6 +92,40 @@ pub extern "C" fn dartforge_arc_contexto_closure_v1(closure: i64) -> i64 {
         .expect("contrato de contexto da closure ARC violado"))
 }
 
+/// Empresta uma captura Ref de um ambiente, conferindo seu mapa físico.
+///
+/// Exige ambiente vivo da classe CONTEXTO, índice válido e campo marcado Ref.
+/// O resultado depende da aresta do ambiente; deve ser copiado antes de
+/// substituir a captura ou liberar o ambiente. Não retém, aloca, coleta,
+/// executa Dart ou altera a exceção pendente.
+///
+/// # Panics
+/// Classe, índice ou representação inválida; aborta no limite C.
+///
+/// ```
+/// use dartforge_runtime::{abi::*, layout::cid};
+/// let env = dartforge_arc_objeto_owned_v1(i64::from(cid::CONTEXTO), 1);
+/// dartforge_arc_gravar_campo_ref_v1(env, 0, 0);
+/// assert_eq!(dartforge_arc_env_ref_v1(env, 0), 0);
+/// dartforge_arc_release(env);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_env_ref_v1(env: i64, indice: i64) -> i64 {
+    HEAP.with(|heap| env_ref_auditado(&heap.borrow(), env, indice)
+        .expect("contrato de captura Ref ARC violado"))
+}
+
+fn env_ref_auditado(heap: &Heap, env: i64, indice: i64) -> Result<i64, &'static str> {
+    let objeto = heap.objeto(env).ok_or("receiver não é ambiente vivo")?;
+    if objeto.class_id != i64::from(crate::layout::cid::CONTEXTO) {
+        return Err("receiver não é ambiente");
+    }
+    let indice = usize::try_from(indice).map_err(|_| "índice negativo")?;
+    let (bits, referencia) = objeto.get(indice).ok_or("índice fora do ambiente")?;
+    if !referencia { return Err("captura é escalar"); }
+    Ok(bits)
+}
+
 fn contexto_closure_auditado(heap: &Heap, closure: i64) -> Result<i64, &'static str> {
     let contexto = heap.closure(closure).ok_or("receiver não é closure")?.contexto;
     if !contexto.1 && contexto.0 != 0 { return Err("contexto é escalar não nulo"); }
@@ -101,6 +135,29 @@ fn contexto_closure_auditado(heap: &Heap, closure: i64) -> Result<i64, &'static 
 #[cfg(test)]
 mod testes_contexto_closure {
     use super::*;
+
+    #[test]
+    fn ambiente_confere_classe_limites_e_mapa_estendido_sem_coletar() {
+        let mut heap = Heap::new(false);
+        let filho = heap.novo_objeto(32000, &[]);
+        let mut campos = vec![(0, false); 40];
+        campos[0] = (0, true);
+        campos[1] = (smi::de(42).unwrap(), true);
+        campos[38] = (filho, false);
+        campos[39] = (filho, true);
+        let env = heap.novo_objeto(i64::from(crate::layout::cid::CONTEXTO), &campos);
+        let falso = heap.novo_objeto(i64::from(crate::layout::cid::CELULA), &campos);
+        let stats = heap.stats();
+        for (indice, esperado) in [(0, 0), (1, campos[1].0), (39, filho)] {
+            assert_eq!(env_ref_auditado(&heap, env, indice), Ok(esperado));
+        }
+        for (receiver, indice) in [(env, -1), (env, 40), (env, 38), (env, 37),
+            (0, 0), (falso, 39), (filho, 0)] {
+            assert!(env_ref_auditado(&heap, receiver, indice).is_err());
+        }
+        assert_eq!(heap.stats().allocations, stats.allocations);
+        assert_eq!(heap.stats().collections, stats.collections);
+    }
 
     #[test]
     fn contexto_confere_classe_e_mapa_sem_confundir_bits_com_ref() {

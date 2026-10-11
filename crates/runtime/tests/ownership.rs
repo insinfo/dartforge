@@ -38,7 +38,7 @@ fn closure_owned_mantem_contexto_celula_e_arestas_repetidas_ate_o_drop() {
             assert_eq!(dartforge_closure_code(closure), codigo);
             assert_eq!(dartforge_closure_tipada(closure, 7), tipado);
             assert_eq!(dartforge_arc_contexto_closure_v1(closure), env);
-            assert_eq!(dartforge_arc_ler_campo_ref_v1(env, 39), celula);
+            assert_eq!(dartforge_arc_env_ref_v1(env, 39), celula);
             assert_eq!(dartforge_unbox_int(dartforge_arc_ler_campo_ref_v1(celula, 0)), i64::MAX);
             dartforge_arc_release(closure);
             dartforge_arc_collect();
@@ -259,4 +259,33 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
         assert!(c.retencao_persistente);
         assert!(!c.parametros.contains(&ModoParametro::Consume));
     }
+}
+
+#[test]
+fn captura_emprestada_copiada_sobrevive_ao_ambiente_e_preserva_pendencia() {
+    use dartforge_runtime::{abi::*, layout::cid};
+    std::thread::spawn(|| {
+        dartforge_memoria_arc_v1();
+        let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
+        let env = dartforge_arc_objeto_owned_v1(i64::from(cid::CONTEXTO), 40);
+        dartforge_arc_gravar_campo_ref_v1(env, 39, filho);
+        dartforge_arc_release(filho);
+        dartforge_exception_throw(42, 1);
+        let pendente = dartforge_exception_peek_ref();
+        let captura = dartforge_arc_env_ref_v1(env, 39);
+        assert_eq!(captura, filho);
+        assert_eq!(dartforge_arc_observar_heap_v1(captura), 1);
+        assert_ne!(dartforge_exception_pending(), 0);
+        assert_eq!(dartforge_exception_peek_ref(), pendente);
+        dartforge_arc_retain(captura);
+        dartforge_arc_release(env);
+        dartforge_arc_collect();
+        assert_eq!(dartforge_arc_observar_heap_v1(env), 0);
+        assert_eq!(dartforge_arc_observar_heap_v1(captura), 3);
+        assert_eq!(dartforge_unbox_int(captura), i64::MAX);
+        dartforge_arc_release(captura);
+        dartforge_exception_clear();
+        dartforge_arc_collect();
+        assert_eq!(dartforge_arc_observar_heap_v1(captura), 0);
+    }).join().unwrap();
 }

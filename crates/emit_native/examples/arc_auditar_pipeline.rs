@@ -91,11 +91,11 @@ fn auditar(entrada: &Path, sdk_no_grupo: bool) -> Result<(), String> {
         let resultado = preparar_arc_modulos_dart(&mut modulos, &mut planos);
         println!("Preparação conjunta com SDK da fonte: {resultado:?}");
         if let Err(erro) = &resultado {
-            if let Some(s) = erro.strip_prefix("módulos ARC: função repetida ").or_else(|| erro.strip_prefix("módulos ARC: corpo/contratos compartilhados divergentes ")) {
-                for (indice, m) in modulos.iter().enumerate() {
-                    for f in m.functions.iter().filter(|f| f.symbol == s) {
-                        println!("Definição compartilhada no módulo {indice}: {f:#?}");
-                    }
+            let tamanho = modulos.iter().flat_map(|m| &m.functions)
+                .filter(|f| erro.contains(&f.symbol)).map(|f| f.symbol.len()).max();
+            for (indice, m) in modulos.iter().enumerate() {
+                for f in m.functions.iter().filter(|f| Some(f.symbol.len()) == tamanho && erro.contains(&f.symbol)) {
+                    println!("Corpo associado no módulo {indice}: {f:#?}");
                 }
             }
         }

@@ -3326,6 +3326,31 @@ mod testes {
     }
 
     #[test]
+    fn captura_empresta_ambiente_e_rejeita_assinaturas_incompativeis() {
+        let i = Instruction::CallRuntime { name: "dartforge_arc_env_ref_v1".into(),
+            args: vec![(Operand::Val(ValueId(0)), Type::Ref),
+                (Operand::Constant(Constant::Int(39)), Type::I64)], ret_ty: Type::Ref };
+        let c = contrato_chamada_runtime(&i).unwrap();
+        assert_eq!(c.resultado, Ownership::Borrowed { owner: OrigemOwner::Valor(ValueId(0)), escopo: 0 });
+        assert!(!c.retencao_persistente && !c.invalida_borrows && !c.chama_dart && !c.efeito.pode_falhar);
+        assert!(c.efeito.sempre.is_empty());
+        for caso in 0..5 {
+            let mut invalida = i.clone();
+            if let Instruction::CallRuntime { args, ret_ty, .. } = &mut invalida {
+                match caso {
+                    0 => args[0].1 = Type::I64,
+                    1 => args[1].1 = Type::Ref,
+                    2 => *ret_ty = Type::I64,
+                    3 => { args.pop(); },
+                    4 => args.push((Operand::Constant(Constant::Int(0)), Type::I64)),
+                    _ => unreachable!(),
+                }
+            }
+            assert!(contrato_chamada_runtime(&invalida).is_err(), "caso {caso}");
+        }
+    }
+
+    #[test]
     fn receita_rti_empresta_texto_e_devolve_id_sem_inventar_ref_owned() {
         let i = Instruction::CallRuntime { name: "dartforge_rti_receita".into(),
             args: vec![(Operand::Val(ValueId(0)), Type::Ref)], ret_ty: Type::I64 };

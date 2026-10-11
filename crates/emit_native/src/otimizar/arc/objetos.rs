@@ -95,6 +95,22 @@ pub(super) fn preparar(
                 ));
                 continue;
             }
+            if let Instruction::EnvGet { env, index } = inst
+                && *ty == Type::Ref
+            {
+                if tipo(env) != Some(Type::Ref) {
+                    return Err(format!("captura ARC em {} v{} exige ambiente Ref", f.symbol, v.0));
+                }
+                let indice = i64::try_from(*index).map_err(|_|
+                    format!("captura ARC em {} v{}: índice fora da ABI", f.symbol, v.0))?;
+                instructions.push((*v, Instruction::CallRuntime {
+                    name: "dartforge_arc_env_ref_v1".into(),
+                    args: vec![(env.clone(), Type::Ref),
+                        (Operand::Constant(Constant::Int(indice)), Type::I64)],
+                    ret_ty: Type::Ref,
+                }, Type::Ref));
+                continue;
+            }
             let closure = match inst {
                 Instruction::AllocClosure { code_symbol, env } =>
                     Some((code_symbol, env, None, 0)),
@@ -674,6 +690,42 @@ mod testes {
                 );
             }
             crate::llvm::LlvmEmitter::new(&m).emit_all();
+        }
+    }
+
+    #[test]
+    fn captura_ref_ganha_owner_antes_de_coleta_e_tracing_conserva_leitura() {
+        for arc in [false, true] {
+            let (mut m, mut planos) = modulo();
+            m.memoria_arc = arc;
+            let f = &mut m.functions[0];
+            f.params.truncate(1);
+            f.blocks[0].instructions = vec![
+                (ValueId(1), Instruction::EnvGet {
+                    env: Operand::Val(ValueId(0)), index: 39,
+                }, Type::Ref),
+                (ValueId(2), Instruction::AllocEnv {
+                    values: vec![Operand::Val(ValueId(1))],
+                }, Type::Ref),
+            ];
+            let antes = format!("{m:?}");
+            let resultado = preparar_arc_modulo_dart(&mut m, &mut planos).unwrap();
+            if !arc {
+                assert_eq!(resultado, (0, 0));
+                assert_eq!(format!("{m:?}"), antes);
+                continue;
+            }
+            assert_eq!(resultado, (1, 1));
+            let ops = &m.functions[0].blocks[0].instructions;
+            assert!(matches!(&ops[0].1, Instruction::CallRuntime { name, args, .. }
+                if name == "dartforge_arc_env_ref_v1" && args[1].0 == Operand::Constant(Constant::Int(39))));
+            assert_eq!(ops[1].0, ValueId(1));
+            assert!(matches!(ops[1].1, Instruction::ArcCopy { .. }));
+            assert!(matches!(&ops[2].1, Instruction::CallRuntime { name, .. }
+                if name == "dartforge_arc_objeto_owned_v1"));
+            assert_eq!(planos["objeto"].classes[&ValueId(1)], Ownership::Owned);
+            let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+            assert!(ir.contains("@dartforge_arc_env_ref_v1(i64 %v0, i64 39)"));
         }
     }
 

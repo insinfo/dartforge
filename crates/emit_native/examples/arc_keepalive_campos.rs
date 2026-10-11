@@ -10,7 +10,7 @@
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*};
 use std::{collections::HashMap, path::PathBuf};
 
-fn modulo() -> Result<Module, String> {
+fn modulo(captura: bool) -> Result<Module, String> {
     let mut m = Module::new();
     m.memoria_arc = true;
     m.entry_symbol = Some("prova_keepalive".into());
@@ -53,6 +53,13 @@ fn modulo() -> Result<Module, String> {
             terminator: Terminator::Return(Some(val(1))),
         }],
     });
+    if captura {
+        // Exercita a tradução EnvGet e o mapa real do ambiente, inclusive
+        // o campo 39, antes de substituir a aresta que sustenta o empréstimo.
+        m.functions[0].blocks[0].instructions[0].1 = Instruction::EnvGet {
+            env: val(0), index: 39,
+        };
+    }
     let mut plano = PlanoFuncaoDart::default();
     plano.tokens.retorno = RetornoTokens::Owned;
     let mut planos = HashMap::from([("ler_e_substituir".into(), plano)]);
@@ -88,8 +95,11 @@ fn main() -> Result<(), String> {
         Some("0") | None => false,
         Some(outro) => return Err(format!("nível desconhecido: {outro}")),
     };
-    let controle = args.next();
-    let mut m = modulo()?;
+    let mut controle = args.next();
+    let captura = controle.as_deref() == Some("--captura");
+    if captura { controle = args.next(); }
+    if args.next().is_some() { return Err("argumentos excedentes".into()); }
+    let mut m = modulo(captura)?;
     m.memoria_arc = arc;
     let mut ir = LlvmEmitter::new(&m).emit_all();
     // Nenhum Ref observado passa pela HIR do harness: um endereço já morto
@@ -134,6 +144,11 @@ passou:
 }
 "#,
     );
+    if captura {
+        ir = ir.replace("@dartforge_arc_objeto_owned_v1(i64 123, i64 40)",
+            &format!("@dartforge_arc_objeto_owned_v1(i64 {}, i64 40)",
+                dartforge_runtime::layout::cid::CONTEXTO));
+    }
     match controle.as_deref() {
         None => {}
         Some("sem-retencao") => {
@@ -170,7 +185,7 @@ mod testes {
 
     #[test]
     fn retencao_produzida_antecede_substituicao_da_aresta() {
-        let m = modulo().unwrap();
+        let m = modulo(false).unwrap();
         let ops = &m.functions[0].blocks[0].instructions;
         assert!(matches!(
             ops[1],
@@ -182,5 +197,20 @@ mod testes {
                 < ir.find("call void @dartforge_arc_gravar_campo_ref_v1")
                     .unwrap()
         );
+    }
+}
+
+#[cfg(test)]
+mod testes_captura {
+    use super::*;
+
+    #[test]
+    fn captura_auditada_e_retida_antes_de_substituir_aresta() {
+        let m = modulo(true).unwrap();
+        let ir = LlvmEmitter::new(&m).emit_all();
+        let ler = ir.find("call i64 @dartforge_arc_env_ref_v1").unwrap();
+        let reter = ir.find("call void @dartforge_arc_retain").unwrap();
+        let gravar = ir.find("call void @dartforge_arc_gravar_campo_ref_v1").unwrap();
+        assert!(ler < reter && reter < gravar);
     }
 }

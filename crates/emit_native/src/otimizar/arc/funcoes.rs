@@ -440,7 +440,7 @@ mod testes {
 
     #[test]
     fn keepalive_phi_prepara_todas_as_origens_antes_de_reclassificar() {
-        for caso in 0..5 {
+        for caso in 0..6 {
             let falivel = caso == 1;
             let mut m = Module::new();
             m.memoria_arc = caso != 3;
@@ -449,6 +449,8 @@ mod testes {
                 let mut instructions = vec![(
                     ValueId(resultado),
                     if caso == 2 && bloco == 2 {
+                        Instruction::CellGet { cell: Operand::Val(ValueId(0)) }
+                    } else if caso == 5 && bloco == 2 {
                         Instruction::EnvGet {
                             env: Operand::Val(ValueId(0)),
                             index: 0,
