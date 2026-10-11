@@ -1777,7 +1777,8 @@ mod testes {
     }
 
     #[test]
-    fn ponto_seguro_preserva_owner_no_sucesso_e_libera_na_falha() {
+    fn controle_e_nsm_preservam_owner_no_sucesso_e_liberam_na_falha() {
+        for nome in ["dartforge_ponto_seguro", "dartforge_nsm_chamada"] {
         for caso in 0..5 {
             let mut m = Module::new();
             m.memoria_arc = caso != 4;
@@ -1788,7 +1789,7 @@ mod testes {
                     BasicBlock { id: BlockId(0), instructions: vec![
                         (ValueId(1), Instruction::ArcCopy { value: Operand::Val(ValueId(0)) }, Type::Ref),
                         (ValueId(2), Instruction::CallRuntime {
-                            name: "dartforge_ponto_seguro".into(), args: vec![],
+                            name: nome.into(), args: vec![],
                             ret_ty: if caso == 3 { Type::Ref } else { Type::Void },
                         }, if caso == 3 { Type::Ref } else { Type::Void }),
                         (ValueId(3), Instruction::CallRuntime {
@@ -1844,6 +1845,7 @@ mod testes {
                 assert_eq!(format!("{:?}", depois.escopos), format!("{:?}", plano.escopos));
                 assert_eq!(depois.owners_no_pouso, plano.owners_no_pouso);
             }
+        }
         }
     }
 

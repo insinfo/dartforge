@@ -640,14 +640,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 else_block: b_erro,
             });
             self.set_block(b_erro);
-            self.emit(
-                Instruction::CallRuntime {
-                    name: "dartforge_nsm_chamada".to_string(),
-                    args: Vec::new(),
-                    ret_ty: Type::Void,
-                },
-                Type::Void,
-            );
+            let chamada = Instruction::CallRuntime {
+                name: "dartforge_nsm_chamada".to_string(),
+                args: Vec::new(),
+                ret_ty: Type::Void,
+            };
+            if self.ctx.memoria_arc {
+                // O contrato de reentrada/pendência precisa de saída de erro
+                // explícita para validar o cleanup dos owners da entrada.
+                self.emit_call_with_check(chamada, Type::Void);
+            } else {
+                self.emit(chamada, Type::Void);
+            }
             self.terminate(Terminator::Return(Some(Operand::Constant(Constant::Null))));
             self.set_block(b_ok);
         }

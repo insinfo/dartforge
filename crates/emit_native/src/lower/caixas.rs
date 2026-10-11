@@ -149,6 +149,30 @@ mod testes_contexto {
                         }
                     }
                 }
+                let mut erros = 0;
+                for b in m.functions.iter().flat_map(|f| &f.blocks) {
+                    for (v, i, _) in &b.instructions {
+                        if matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_nsm_chamada") {
+                            erros += 1;
+                            if arc {
+                                let Terminator::CondBranch { cond, then_block, else_block } = &b.terminator else {
+                                    panic!("NSM sem saída pending em ARC");
+                                };
+                                assert_ne!(then_block, else_block);
+                                let ultimas = &b.instructions[b.instructions.len() - 3..];
+                                assert_eq!(ultimas[0].0, *v);
+                                assert!(matches!(&ultimas[1].1, Instruction::CallRuntime { name, args, ret_ty }
+                                    if name == "dartforge_exception_pending" && args.is_empty() && *ret_ty == Type::I8));
+                                assert!(matches!(&ultimas[2].1, Instruction::ICmp(ICmpOp::Ne, Operand::Val(p), Operand::Constant(Constant::Int(0)))
+                                    if *p == ultimas[1].0));
+                                assert_eq!(*cond, Operand::Val(ultimas[2].0));
+                            } else {
+                                assert!(matches!(b.terminator, Terminator::Return(_)));
+                            }
+                        }
+                    }
+                }
+                assert!(erros > 0);
                 if arc { assert!(emprestimos > 0); assert_eq!(leituras_cruas, 0); }
                 else { assert_eq!(emprestimos, 0); assert!(leituras_cruas > 0); }
             }

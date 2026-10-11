@@ -74,6 +74,24 @@ fn contexto_emprestado_precisa_de_owner_apos_liberar_closure() {
 }
 
 #[test]
+fn nsm_publica_erro_ate_clear_sem_owner_no_chamador() {
+    use dartforge_runtime::abi::*;
+    std::thread::spawn(|| {
+        dartforge_memoria_arc_v1();
+        dartforge_nsm_chamada();
+        assert_ne!(dartforge_exception_pending(), 0);
+        let erro = dartforge_exception_peek_ref();
+        assert_ne!(erro, 0);
+        dartforge_arc_collect();
+        assert_eq!(dartforge_exception_peek_ref(), erro);
+        assert_eq!(dartforge_arc_observar_heap_v1(erro), 1);
+        dartforge_exception_clear();
+        dartforge_arc_collect();
+        assert_eq!(dartforge_arc_observar_heap_v1(erro), 0);
+    }).join().unwrap();
+}
+
+#[test]
 fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs() {
     let auditadas: Vec<_> = NOMES
         .iter()
@@ -94,6 +112,7 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
                         | "dartforge_ponto_seguro"
                         | "dartforge_exception_clear"
                         | "dartforge_rti_definir"
+                        | "dartforge_nsm_chamada"
                         | "dartforge_unbox_int"
                         | "dartforge_unbox_double"
                         | "dartforge_unbox_bool"
