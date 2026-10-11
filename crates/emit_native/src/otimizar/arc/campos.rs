@@ -11,6 +11,49 @@ use super::{PlanoFuncaoDart, arestas::proximo_valor};
 use crate::{hir::*, otimizar::operandos::operandos};
 use std::collections::{HashMap, HashSet};
 
+// Transporta elegibilidade para a guarda física, sem provar ownership/layout.
+// Cada SCC exige âncora Ref/Null e todas as dependências externas conferidas.
+fn propagar_entradas_ref(f: &Function, entradas: &mut HashSet<ValueId>) {
+    let nos: Vec<_> = f.blocks.iter().flat_map(|b| &b.instructions).filter_map(|(v, i, t)| {
+        if *t != Type::Ref { return None; }
+        let ops: Vec<_> = match i {
+            Instruction::ArcCopy { value } | Instruction::ArcMove { value } => vec![value],
+            Instruction::Phi { incoming, .. } if !incoming.is_empty() => incoming.iter().map(|(_, op)| op).collect(),
+            _ => return None,
+        };
+        Some((*v, ops))
+    }).collect();
+    let indice: HashMap<_, _> = nos.iter().enumerate().map(|(i, (v, _))| (*v, i)).collect();
+    let mut grafo = vec![Vec::new(); nos.len()];
+    let mut ancoras = vec![false; nos.len()];
+    let mut invalidos = vec![false; nos.len()];
+    for (i, (_, ops)) in nos.iter().enumerate() {
+        for op in ops {
+            match op {
+                Operand::Constant(Constant::Null) => ancoras[i] = true,
+                Operand::Val(v) if entradas.contains(v) => ancoras[i] = true,
+                Operand::Val(v) if indice.contains_key(v) => grafo[i].push(indice[v]),
+                _ => invalidos[i] = true,
+            }
+        }
+    }
+    let sccs = super::super::scc::componentes(&grafo);
+    let mut componente = vec![usize::MAX; nos.len()];
+    for (i, scc) in sccs.iter().enumerate() { for &v in scc { componente[v] = i; } }
+    let mut validos = vec![false; sccs.len()];
+    for (i, scc) in sccs.iter().enumerate() {
+        let mut ancora = false; let mut valido = true;
+        for &v in scc {
+            ancora |= ancoras[v]; valido &= !invalidos[v];
+            for &dep in &grafo[v] {
+                if componente[dep] != i { valido &= validos[componente[dep]]; ancora |= validos[componente[dep]]; }
+            }
+        }
+        validos[i] = valido && ancora;
+        if validos[i] { for &v in scc { entradas.insert(nos[v].0); } }
+    }
+}
+
 #[derive(Clone, Default, PartialEq, Eq)]
 struct Origem {
     sitios: HashSet<ValueId>,
@@ -247,39 +290,31 @@ pub(super) fn preparar(
     // e pelo contrato de ownership; uma falha descarta o módulo inteiro.
     let mut entradas_ref: HashSet<_> = f.params.iter()
         .filter(|(_, _, ty)| *ty == Type::Ref).map(|(v, _, _)| *v).collect();
-    loop {
-        let mut mudou = false;
-        for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
-            if *ty != Type::Ref { continue; }
-            // Null pode acompanhar uma Ref válida na junção, inclusive no
-            // caminho pending. A guarda de acesso continua recusando null;
-            // isto não atribui classe nem transforma bits escalares em Ref.
-            let entrada = |op: &Operand| matches!(op, Operand::Constant(Constant::Null))
-                || matches!(op, Operand::Val(v) if entradas_ref.contains(v));
-            let derivado = match inst {
-                Instruction::CallRuntime { name, ret_ty: Type::Ref, .. } if name == super::vetores::LER_ARGUMENTO => true,
-                Instruction::AllocObject { .. } => true,
-                Instruction::CallRuntime { name, ret_ty: Type::Ref, .. }
-                    if matches!(name.as_str(), "dartforge_object_new" | "dartforge_arc_objeto_owned_v1")
-                        && classes.contains_key(v) => true,
-                Instruction::GetField { .. }
-                | Instruction::EnvGet { .. }
-                | Instruction::Const(Constant::Null)
-                | Instruction::CallStatic { ret_ty: Type::Ref, .. }
-                | Instruction::CallSeletor { .. }
-                | Instruction::CallInterface { ret_ty: Type::Ref, .. }
-                | Instruction::CallDynamic { ret_ty: Type::Ref, .. }
-                | Instruction::CallClosure { ret_ty: Type::Ref, .. } => true,
-                Instruction::ChamadaTipada { ret: Type::Ref, .. } => super::tipadas::conferir(f, inst, *ty)?,
-                Instruction::ArcCopy { value } | Instruction::ArcMove { value } => entrada(value),
-                Instruction::Phi { incoming, .. } => !incoming.is_empty()
-                    && incoming.iter().all(|(_, op)| entrada(op)),
-                _ => false,
-            };
-            if derivado { mudou |= entradas_ref.insert(*v); }
-        }
-        if !mudou { break; }
+    for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
+        if *ty != Type::Ref { continue; }
+        // Null pode acompanhar uma Ref válida na junção, inclusive no
+        // caminho pending. A guarda de acesso continua recusando null;
+        // isto não atribui classe nem transforma bits escalares em Ref.
+        let derivado = match inst {
+            Instruction::CallRuntime { name, ret_ty: Type::Ref, .. } if name == super::vetores::LER_ARGUMENTO => true,
+            Instruction::AllocObject { .. } => true,
+            Instruction::CallRuntime { name, ret_ty: Type::Ref, .. }
+                if matches!(name.as_str(), "dartforge_object_new" | "dartforge_arc_objeto_owned_v1")
+                    && classes.contains_key(v) => true,
+            Instruction::GetField { .. }
+            | Instruction::EnvGet { .. }
+            | Instruction::Const(Constant::Null)
+            | Instruction::CallStatic { ret_ty: Type::Ref, .. }
+            | Instruction::CallSeletor { .. }
+            | Instruction::CallInterface { ret_ty: Type::Ref, .. }
+            | Instruction::CallDynamic { ret_ty: Type::Ref, .. }
+            | Instruction::CallClosure { ret_ty: Type::Ref, .. } => true,
+            Instruction::ChamadaTipada { ret: Type::Ref, .. } => super::tipadas::conferir(f, inst, *ty)?,
+            _ => false,
+        };
+        if derivado { entradas_ref.insert(*v); }
     }
+    propagar_entradas_ref(f, &mut entradas_ref);
     let mut escapam = HashSet::new();
     let mut exposicoes = HashMap::new();
     for (v, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
@@ -605,6 +640,30 @@ pub(super) fn preparar(
 #[cfg(test)]
 mod testes {
     use crate::otimizar::arc::*;
+
+    #[test]
+    fn entradas_ref_em_scc_exigem_ancora_e_todas_as_dependencias_validas() {
+        for caso in 0..6 {
+            let val = |n| Operand::Val(ValueId(n));
+            let ancora = match caso { 1 => Operand::Constant(Constant::Null), 2 => Operand::Constant(Constant::Int(0)),
+                3 => val(99), _ => val(0) };
+            let mut incoming = vec![(BlockId(0), val(4))];
+            if caso != 4 { incoming.push((BlockId(0), ancora)); }
+            if caso == 5 { incoming.push((BlockId(0), val(99))); }
+            let f = Function { symbol: "grafo".into(), name: "grafo".into(), depuracao: None,
+                params: vec![(ValueId(0), "ref".into(), Type::Ref)], return_ty: Type::Void,
+                blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
+                    (ValueId(3), Instruction::Phi { ty: Type::Ref, incoming }, Type::Ref),
+                    (ValueId(4), Instruction::Phi { ty: Type::Ref, incoming: vec![(BlockId(0), val(3))] }, Type::Ref),
+                    (ValueId(5), Instruction::Phi { ty: Type::Ref, incoming: vec![(BlockId(0), val(6))] }, Type::Ref),
+                    (ValueId(6), Instruction::Phi { ty: Type::Ref, incoming: vec![(BlockId(0), val(5)), (BlockId(0), val(3)), (BlockId(0), val(0))] }, Type::Ref),
+                    (ValueId(7), Instruction::ArcCopy { value: val(6) }, Type::Ref),
+                ], terminator: Terminator::Return(None) }] };
+            let mut entradas = HashSet::from([ValueId(0)]);
+            super::propagar_entradas_ref(&f, &mut entradas);
+            for id in 3..=7 { assert_eq!(entradas.contains(&ValueId(id)), caso < 2, "caso {caso} v{id}"); }
+        }
+    }
 
     #[test]
     fn phi_ref_com_null_nao_admite_zero_escalar_como_receiver() {

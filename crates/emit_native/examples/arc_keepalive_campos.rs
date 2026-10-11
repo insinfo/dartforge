@@ -11,13 +11,13 @@ use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*}
 use std::{collections::HashMap, path::PathBuf};
 
 #[derive(Clone, Copy)]
-enum Cenario { Campo, Captura, Vizinho, CapturaVizinho, Argumento, Anulavel, Misto }
+enum Cenario { Campo, Captura, Vizinho, CapturaVizinho, Argumento, Anulavel, Misto, Ciclo }
 
 fn modulo(cenario: Cenario) -> Result<Module, String> {
     let captura = matches!(cenario, Cenario::Captura | Cenario::CapturaVizinho);
     let vizinho = matches!(cenario, Cenario::Vizinho | Cenario::CapturaVizinho);
     let argumento = matches!(cenario, Cenario::Argumento);
-    let anulavel = matches!(cenario, Cenario::Anulavel | Cenario::Misto);
+    let anulavel = matches!(cenario, Cenario::Anulavel | Cenario::Misto | Cenario::Ciclo);
     let misto = matches!(cenario, Cenario::Misto);
     let mut m = Module::new();
     m.memoria_arc = true;
@@ -127,6 +127,25 @@ fn modulo(cenario: Cenario) -> Result<Module, String> {
             ];
         }
     }
+    if matches!(cenario, Cenario::Ciclo) {
+        let f = &mut m.functions[0];
+        let saida = f.blocks[3].terminator.clone();
+        if let Instruction::Phi { incoming, .. } = &mut f.blocks[3].instructions[0].1 {
+            incoming.push((BlockId(6), val(110)));
+        }
+        f.blocks[3].instructions.insert(1, (ValueId(111), Instruction::Phi { ty: Type::I64, incoming: vec![
+            (BlockId(1), Operand::Constant(Constant::Int(0))), (BlockId(2), Operand::Constant(Constant::Int(0))), (BlockId(6), val(112)),
+        ] }, Type::I64));
+        f.blocks[3].instructions.push((ValueId(113), Instruction::ICmp(ICmpOp::Slt, val(111), Operand::Constant(Constant::Int(2))), Type::I1));
+        f.blocks[3].terminator = Terminator::CondBranch { cond: val(113), then_block: BlockId(6), else_block: BlockId(7) };
+        f.blocks.extend([
+            BasicBlock { id: BlockId(6), instructions: vec![
+                (ValueId(110), Instruction::Phi { ty: Type::Ref, incoming: vec![(BlockId(3), val(105))] }, Type::Ref),
+                (ValueId(112), Instruction::Add(val(111), Operand::Constant(Constant::Int(1))), Type::I64),
+            ], terminator: Terminator::Branch(BlockId(3)) },
+            BasicBlock { id: BlockId(7), instructions: vec![], terminator: saida },
+        ]);
+    }
     let mut plano = PlanoFuncaoDart::default();
     plano.tokens.retorno = RetornoTokens::Owned;
     m.functions.push(Function {
@@ -198,6 +217,7 @@ fn main() -> Result<(), String> {
         Some("--argumento") => Cenario::Argumento,
         Some("--anulavel") => Cenario::Anulavel,
         Some("--misto") => Cenario::Misto,
+        Some("--ciclo") => Cenario::Ciclo,
         _ => Cenario::Campo,
     };
     if !matches!(cenario, Cenario::Campo) { controle = args.next(); }
@@ -279,7 +299,7 @@ passou:
         ir = ir.replace("  %retorno = call i64 @ler_e_substituir(i64 %obj)\n",
             "  %argumentos = alloca [1 x i64], align 8\n  store i64 %obj, ptr %argumentos\n  %retorno = call i64 @ler_e_substituir(i64 %obj, ptr %argumentos, ptr @desc.argumento)\n");
     }
-    if matches!(cenario, Cenario::Anulavel | Cenario::Misto) {
+    if matches!(cenario, Cenario::Anulavel | Cenario::Misto | Cenario::Ciclo) {
         ir = ir.replace("  %retorno = call i64 @ler_e_substituir(i64 %obj)\n",
             "  %retorno = call i64 @ler_e_substituir(i64 %obj, i1 true)\n");
         ir = ir.replace("passou:\n  call void @dartforge_print_handle(i64 3)",
@@ -332,6 +352,11 @@ passou:
 
 #[cfg(test)]
 mod testes {
+    #[test]
+    fn ciclo_de_phis_preserva_owner_e_guardas_de_campo() {
+        let m = super::modulo(super::Cenario::Ciclo).unwrap();
+        super::LlvmEmitter::new(&m).emit_all();
+    }
     use super::*;
 
     #[test]
