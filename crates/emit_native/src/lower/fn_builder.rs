@@ -59,6 +59,7 @@ pub struct FnBuilder<'a, 'c> {
     /// Definições compartilháveis declaradas nominalmente pelo produtor ARC.
     /// Não certifica equivalência das cópias nem dependências da emissão.
     pub funcoes_compartilhadas_arc: std::collections::HashSet<String>,
+    pub funcoes_locais_diretas_arc: std::collections::HashSet<String>,
     pub break_targets: Vec<BlockId>,
     pub continue_targets: Vec<BlockId>,
     pub this_param: Option<Operand>,
@@ -326,6 +327,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             retornos_uniformes_arc: Default::default(),
             caches_rti_arc: Default::default(),
             funcoes_compartilhadas_arc: Default::default(),
+            funcoes_locais_diretas_arc: Default::default(),
             break_targets: Vec::new(),
             continue_targets: Vec::new(),
             this_param: None,
@@ -555,6 +557,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         module.retornos_uniformes_arc.extend(self.retornos_uniformes_arc);
         module.caches_rti_arc.extend(self.caches_rti_arc);
         module.funcoes_compartilhadas_arc.extend(self.funcoes_compartilhadas_arc);
+        module.funcoes_locais_diretas_arc.extend(self.funcoes_locais_diretas_arc);
         module.functions.push(self.func);
         module.functions.extend(self.extra_functions);
     }

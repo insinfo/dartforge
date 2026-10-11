@@ -355,6 +355,7 @@ pub(super) fn remapear_fatos(m: &mut Module, mapa: &HashMap<String, String>) {
     nomes(&mut m.retornos_ref_dart, mapa);
     nomes(&mut m.retornos_uniformes_arc, mapa);
     nomes(&mut m.funcoes_compartilhadas_arc, mapa);
+    nomes(&mut m.funcoes_locais_diretas_arc, mapa);
     if !mapa.is_empty() {
         m.portas_arc_aot = None;
     }

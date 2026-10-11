@@ -257,6 +257,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 b.nao_suportado("função local direta sem corpo", span);
             }
         }
+        if self.ctx.memoria_arc {
+            self.funcoes_locais_diretas_arc.insert(b.func.symbol.clone());
+        }
         self.absorver(b);
     }
 

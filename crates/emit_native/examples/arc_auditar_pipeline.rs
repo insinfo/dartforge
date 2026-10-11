@@ -120,6 +120,25 @@ fn auditar(entrada: &Path, sdk_no_grupo: bool) -> Result<(), String> {
             for (indice, m) in modulos.iter().enumerate() {
                 for f in m.functions.iter().filter(|f| Some(f.symbol.len()) == tamanho && erro.contains(&f.symbol)) {
                     println!("Corpo associado no módulo {indice}: {f:#?}");
+                    let mut chamadas = 0;
+                    for caller in modulos.iter().flat_map(|m| &m.functions) {
+                        for (v, i, _) in caller.blocks.iter().flat_map(|b| &b.instructions) {
+                            if let dartforge_emit_native::hir::Instruction::CallStatic { symbol, args, .. } = i
+                                && symbol == &f.symbol
+                            {
+                                chamadas += 1;
+                                println!("Chamador de captura {} v{}: {args:?}", caller.symbol, v.0);
+                                for arg in args {
+                                    if let dartforge_emit_native::hir::Operand::Val(id) = arg {
+                                        let definicao = caller.blocks.iter().flat_map(|b| &b.instructions)
+                                            .find(|(v, _, _)| v == id);
+                                        println!("Origem do argumento v{}: {definicao:?}", id.0);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    println!("Total de chamadores diretos de {}: {chamadas}", f.symbol);
                 }
             }
         }

@@ -21,6 +21,7 @@ mod efeitos;
 pub(crate) mod scc;
 mod escape;
 mod inline;
+mod locais_diretas;
 mod mem2reg;
 pub(crate) mod operandos;
 mod simplificar;
@@ -195,5 +196,8 @@ pub fn otimizar(module: &mut Module) {
         }
         false
     });
-    if module.memoria_arc { arc::analise::origens::podar(module); }
+    if module.memoria_arc {
+        locais_diretas::podar(module);
+        arc::analise::origens::podar(module);
+    }
 }

@@ -551,6 +551,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.retornos_uniformes_arc.extend(b.retornos_uniformes_arc);
         self.caches_rti_arc.extend(b.caches_rti_arc);
         self.funcoes_compartilhadas_arc.extend(b.funcoes_compartilhadas_arc);
+        self.funcoes_locais_diretas_arc.extend(b.funcoes_locais_diretas_arc);
         self.extra_functions.push(b.func);
         self.extra_functions.extend(b.extra_functions);
     }
