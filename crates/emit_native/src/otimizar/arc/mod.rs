@@ -17,6 +17,8 @@ mod escopos;
 mod tokens;
 mod contratos;
 mod locais;
+mod slots_compartilhados;
+pub use slots_compartilhados::auditar_slots_ref_compartilhados;
 mod puros;
 mod emprestimos;
 mod arestas;

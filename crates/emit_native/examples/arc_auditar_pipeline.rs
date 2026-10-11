@@ -87,6 +87,17 @@ fn auditar(entrada: &Path, sdk_no_grupo: bool) -> Result<(), String> {
             entrada.display(),
             modulos.len()
         );
+        for (indice, modulo) in modulos.iter().enumerate() {
+            match auditar_slots_ref_compartilhados(modulo) {
+                Ok(slots) => println!(
+                    "Slots Ref compartilhados no módulo {indice}: {} funções, {} endereços",
+                    slots.len(), slots.values().map(|s| s.len()).sum::<usize>()
+                ),
+                Err(erro) => println!(
+                    "Slots Ref compartilhados no módulo {indice}: {erro}"
+                ),
+            }
+        }
         let antes = format!("{modulos:?}/{planos:?}");
         let resultado = preparar_arc_modulos_dart(&mut modulos, &mut planos);
         println!("Preparação conjunta com SDK da fonte: {resultado:?}");
