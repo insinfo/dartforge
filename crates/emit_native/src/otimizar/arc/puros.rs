@@ -151,6 +151,10 @@ pub(super) fn conferir_origens(
     // Confere após resolver todos os produtores e Phis, independentemente
     // da ordem física dos blocos. Um i64 gerenciado não vira escalar por cast.
     for (v, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
+        if let Instruction::Box { op: Operand::Val(origem), from } = inst
+            && from.e_vetor() && classes.get(origem) != Some(&Ownership::Trivial) {
+            return Err(format!("v{}: caixa SIMD exige origem Trivial em {}", v.0, f.symbol));
+        }
         let operandos = match inst {
             Instruction::Bitcast {
                 op,

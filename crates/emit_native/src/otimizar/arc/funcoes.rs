@@ -340,7 +340,7 @@ fn inserir(
         for (v, _, ty) in &f.params {
             // Essas representações não transportam handles nem slots fortes.
             // I64 e Ptr continuam dependentes da proveniência do lowering.
-            if matches!(ty, Type::F64 | Type::I1 | Type::I8) {
+            if matches!(ty, Type::F64 | Type::I1 | Type::I8) || ty.e_vetor() {
                 if classes.get(v).is_some_and(|c| *c != Ownership::Trivial) {
                     return Err(format!(
                         "parâmetro escalar {} v{} exige Trivial",

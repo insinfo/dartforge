@@ -838,6 +838,23 @@ fn produzir(
             return Err(format!("v{} repetido", v.0));
         }
         if incluir_arc {
+            if let Instruction::Box { op, from } = inst && from.e_vetor() {
+                if *ty != Type::Ref || !matches!(op, Operand::Val(v) if tipos.get(v) == Some(from)) {
+                    return Err(format!("v{}: caixa SIMD exige vetor de mesmo tipo", v.0));
+                }
+                // A emissão separa os bits em palavras nativas; a fábrica
+                // possui os mesmos efeitos independentemente das pistas.
+                let c = contrato_chamada_runtime(&Instruction::CallRuntime {
+                    name: "dartforge_arc_box_simd_owned_v1".into(),
+                    args: vec![(Operand::Constant(Constant::Int(0)), Type::I64); 3],
+                    ret_ty: Type::Ref,
+                })?;
+                if classes.get(v).is_some_and(|classe| *classe != c.resultado)
+                    || plano.instrucoes.get(v).is_some_and(|e| *e != c.efeito) {
+                    return Err(format!("v{}: contrato conflitante de caixa SIMD", v.0));
+                }
+                contratos.insert(*v, c);
+            }
             if super::puros::conferir(*v, inst, ty, &tipos)? {
                 let efeito = EfeitoTokens::default();
                 if classes.get(v).is_some_and(|c| *c != Ownership::Trivial)

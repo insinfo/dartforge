@@ -870,6 +870,69 @@ pub extern "C" fn dartforge_arc_box_double_owned_v1(valor: f64) -> i64 {
     })
 }
 
+/// Encaixota os 128 bits de um SIMD e entrega um owner do código.
+///
+/// As palavras preservam os bits nativos das pistas, inclusive payload de NaN.
+/// `cid` deve identificar Float32x4, Int32x4 ou Float64x2. Nenhuma pista é Ref.
+///
+/// # Panics
+/// Classe incompatível, empréstimo reentrante ou falha de alocação; aborta no C.
+///
+/// ```
+/// use dartforge_runtime::{abi::*, layout::cid};
+/// let valor = dartforge_arc_box_simd_owned_v1(cid::FLOAT32X4 as i64, 0, 0);
+/// assert_eq!(dartforge_arc_observar_heap_v1(valor), 3);
+/// dartforge_arc_release(valor);
+/// dartforge_arc_collect();
+/// assert_eq!(dartforge_arc_observar_heap_v1(valor), 0);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_box_simd_owned_v1(cid: i64, baixo: i64, alto: i64) -> i64 {
+    let cid = i32::try_from(cid).expect("classe SIMD fora da representação");
+    assert!(matches!(cid, crate::layout::cid::FLOAT32X4 | crate::layout::cid::INT32X4 | crate::layout::cid::FLOAT64X2), "classe SIMD incompatível");
+    let mut bytes = [0; 16];
+    bytes[..8].copy_from_slice(&baixo.to_ne_bytes());
+    bytes[8..].copy_from_slice(&alto.to_ne_bytes());
+    HEAP.with(|h| {
+        let mut heap = h.borrow_mut();
+        let caixa = heap.novo_simd(cid, bytes);
+        heap.reter_owner_codigo(caixa);
+        caixa
+    })
+}
+
+#[cfg(test)]
+mod testes_caixas_simd_owned {
+    use super::*;
+
+    #[test]
+    fn pistas_mantem_bits_e_owner_protege_ate_release_nos_dois_modos() {
+        for arc in [false, true] {
+            for cid in [crate::layout::cid::FLOAT32X4, crate::layout::cid::INT32X4,
+                crate::layout::cid::FLOAT64X2] {
+                HEAP.with(|h| h.replace(Heap::new(true)));
+                if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+                for (baixo, alto) in [(0i64, 0i64), (i64::MIN, 0x7ff8_0000_0000_0123),
+                    (-1, i64::MAX), (0x7fc0_0123_8000_0000, 0x0000_0001_7f80_0000)] {
+                    let h = dartforge_arc_box_simd_owned_v1(cid as i64, baixo, alto);
+                    dartforge_arc_collect();
+                    assert_eq!(dartforge_arc_observar_heap_v1(h), 3);
+                    HEAP.with(|heap| {
+                        let heap = heap.borrow();
+                        assert_eq!(heap.cabecalho(h).class_id, cid);
+                        let b = heap.simd(h).unwrap();
+                        assert_eq!(&b[..8], &baixo.to_ne_bytes());
+                        assert_eq!(&b[8..], &alto.to_ne_bytes());
+                    });
+                    dartforge_arc_release(h);
+                    dartforge_arc_collect();
+                    assert_eq!(dartforge_arc_observar_heap_v1(h), 0);
+                }
+            }
+        }
+    }
+}
+
 /// Observa bloco vivo e owner do código sem adquirir referência ao objeto.
 ///
 /// O argumento é um endereço nativo de diagnóstico, não um Ref emprestado:

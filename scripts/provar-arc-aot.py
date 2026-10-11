@@ -18,6 +18,7 @@ import tempfile
 
 
 PROVAS = {
+    "arc_caixas_simd": ("prova-caixas-simd", False, [("normal", None), ("normal", "sem-liberar")]),
     "arc_retorno_tipado_escalar": ("prova-retorno-tipado-escalar", False, [
         (tipo, controle) for tipo in ("--int", "--double", "--bool")
         for controle in (None, "sem-liberar-contexto")

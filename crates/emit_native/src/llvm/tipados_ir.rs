@@ -194,7 +194,15 @@ impl LlvmEmitter<'_> {
             _ => dartforge_runtime::layout::cid::FLOAT64X2,
         };
         writeln!(self.out, "  %bx{v} = bitcast {} {so} to <2 x i64>", from.llvm_ir()).unwrap();
-        writeln!(self.out, "  %v{v} = call i64 @df.simd_caixa(<2 x i64> %bx{v}, i64 {cid})").unwrap();
+        if self.module.memoria_arc {
+            self.externos.insert("dartforge_arc_box_simd_owned_v1".into(),
+                "declare i64 @dartforge_arc_box_simd_owned_v1(i64, i64, i64) nounwind".into());
+            writeln!(self.out, "  %bl{v} = extractelement <2 x i64> %bx{v}, i32 0").unwrap();
+            writeln!(self.out, "  %bh{v} = extractelement <2 x i64> %bx{v}, i32 1").unwrap();
+            writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_box_simd_owned_v1(i64 {cid}, i64 %bl{v}, i64 %bh{v})").unwrap();
+        } else {
+            writeln!(self.out, "  %v{v} = call i64 @df.simd_caixa(<2 x i64> %bx{v}, i64 {cid})").unwrap();
+        }
     }
 
     /// O vetor SIMD (do tipo `to`) de uma caixa: as pistas em `h+14`. Sem
