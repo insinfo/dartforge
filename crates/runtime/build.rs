@@ -229,14 +229,13 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
     let efeitos = std::fs::read_to_string(manifesto.join("efeitos.tsv")).expect("ler efeitos.tsv");
     let mut linhas = std::collections::BTreeMap::new();
     let tipo = |s: &str, resultado: bool| -> (&str, String) {
-        if resultado {
-            if let Some(n) = s
+        if resultado
+            && let Some(n) = s
                 .strip_prefix("ref:borrow(")
                 .and_then(|s| s.strip_suffix(')'))
-            {
-                let n: usize = n.parse().expect("ownership.tsv: índice de borrow inválido");
-                return ("i64", format!("ModoResultado::BorrowArg({n})"));
-            }
+        {
+            let n: usize = n.parse().expect("ownership.tsv: índice de borrow inválido");
+            return ("i64", format!("ModoResultado::BorrowArg({n})"));
         }
         let (ty, modo) = match (s, resultado) {
             ("ref:borrow", false) => ("i64", "ModoParametro::Borrow"),

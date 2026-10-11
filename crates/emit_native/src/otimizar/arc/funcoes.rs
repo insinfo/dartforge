@@ -263,6 +263,9 @@ fn inserir(
             super::objetos::preparar(f, layouts, plano, &assinaturas)?;
         }
         super::caixas::preparar(f)?;
+        if preparar_chamadas {
+            super::saidas::preparar_lancamentos_ref(f, novos_planos.get_mut(&f.symbol).unwrap())?;
+        }
     }
     let mut nao_lancam = super::super::efeitos::nao_lancam(&modulo);
     // Contexto explícito implica conferência de pilha no LLVM. Inclui

@@ -784,3 +784,5 @@ dartforge_arc_registrar_retorno_owned_v1	0	0	0
 dartforge_arc_retirar_retorno_owned_v1	0	0	0
 dartforge_arc_escopo_nativo_abrir_v1	0	0	0
 dartforge_arc_escopo_nativo_fechar_v1	0	0	0
+dartforge_arc_registrar_uniforme_owned_v1	0	0	0
+dartforge_arc_invocar_uniforme_v1	1	1	1

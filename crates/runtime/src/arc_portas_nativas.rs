@@ -5,6 +5,7 @@
 struct RegistroRetornoArc {
     versao: i64,
     chamadas: usize,
+    uniforme: bool,
 }
 
 struct EscopoRetornosArc {
@@ -20,12 +21,24 @@ struct PortasNativasArc {
 
 impl PortasNativasArc {
     fn registrar(&mut self, codigo: usize, aridade: usize) -> Result<i64, &'static str> {
-        if codigo == 0 || !matches!(aridade, 0..=5 | 7) {
+        self.registrar_contrato(codigo, aridade, false)
+    }
+
+    fn registrar_contrato(
+        &mut self,
+        codigo: usize,
+        aridade: usize,
+        uniforme: bool,
+    ) -> Result<i64, &'static str> {
+        if codigo == 0 || !matches!(aridade, 0..=5 | 7) || (uniforme && aridade != 3) {
             return Err("ABI de callback não coberta");
         }
         // O ligador pode fundir código de funções com assinaturas distintas.
         // A declaração pertence à ABI lógica (endereço, aridade), não só ao PC.
         if let Some(r) = self.entradas.get(&(codigo, aridade)) {
+            if r.uniforme != uniforme {
+                return Err("contrato uniforme conflita com callback de palavras");
+            }
             return Ok(r.versao);
         }
         let versao = novo_id_porta_arc();
@@ -34,6 +47,7 @@ impl PortasNativasArc {
             RegistroRetornoArc {
                 versao,
                 chamadas: 0,
+                uniforme,
             },
         );
         Ok(versao)
@@ -136,6 +150,119 @@ pub unsafe extern "C" fn dartforge_arc_registrar_retorno_owned_v1(
     versao
 }
 
+/// Declara uma entrada uniforme Owned com vetores somente de leitura.
+///
+/// O contrato é distinto do callback genérico de três palavras. O registro
+/// não verifica o corpo nem seleciona o modo de memória.
+///
+/// # Safety
+/// O código tem ABI `(Ref, ptr args, ptr desc) -> Ref Owned`, null em pending.
+/// Receptor e elementos Ref são emprestados. Não altera, publica ou retém
+/// endereços dos vetores; pode copiar seus elementos respeitando ownership.
+/// Toda chamada transitiva que recebe esses endereços respeita o mesmo contrato.
+/// O produtor verifica o corpo emitido e restaura escopos em todas as saídas.
+/// A imagem vive até retirar o registro e todos os consumidores do código.
+///
+/// # Panics
+/// Código nulo ou contrato anterior incompatível; aborta no C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// extern "C" fn smi(_: i64, _: *const i64, _: *const i64) -> i64 { 3 }
+/// // SAFETY: corpo estático que não publica os vetores, retorna Smi sem token.
+/// let v = unsafe { dartforge_arc_registrar_uniforme_owned_v1(smi as *const () as usize as i64) };
+/// dartforge_arc_retirar_retorno_owned_v1(smi as *const () as usize as i64, v);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_arc_registrar_uniforme_owned_v1(codigo: i64) -> i64 {
+    let codigo = usize::try_from(codigo as u64).expect("endereço uniforme inválido");
+    let mut p = registros_portas_arc().lock().expect("registro de portas ARC envenenado");
+    let versao = p.registrar_contrato(codigo, 3, true).expect("contrato uniforme ARC violado");
+    HA_PORTAS_RETORNO_ARC.store(true, std::sync::atomic::Ordering::Release);
+    versao
+}
+
+struct EscopoUniformeArc(i64);
+
+impl Drop for EscopoUniformeArc {
+    fn drop(&mut self) {
+        dartforge_arc_escopo_nativo_fechar_v1(self.0);
+    }
+}
+
+fn arc_invocar_uniforme(
+    codigo: usize,
+    recv: i64,
+    args: i64,
+    desc: i64,
+) -> Result<i64, &'static str> {
+    let escopo = EscopoUniformeArc(dartforge_arc_escopo_nativo_abrir_v1());
+    let resultado = if codigo == dartforge_nsm_seletor as *const () as usize {
+        // Este corpo nativo lê/copia os vetores, sem os encaminhar ao SDK.
+        // O helper Dart usa dart_r7: seu Owned fica emprestado neste escopo.
+        let r = dartforge_nsm_seletor(recv, args as *const i64, desc as *const i64);
+        if dartforge_exception_pending() != 0 {
+            assert_eq!(r, 0, "noSuchMethod pendente deve devolver null");
+            0
+        } else {
+            // A convenção antiga devolve Borrowed, inclusive se o helper era
+            // Owned capturado pela fronteira. Copia antes de liberar o escopo.
+            dartforge_arc_retain(r);
+            r
+        }
+    } else {
+        let guarda = arc_preparar_porta_contrato(codigo, 3, true)?
+            .ok_or("entrada uniforme não registrada")?;
+        let r = dart_r3_invocar(codigo, recv, args, desc);
+        arc_conferir_escopo_porta(&guarda);
+        arc_validar_retorno_owned(r);
+        // O retorno direto já é Owned: não o transfere ao escopo nem retém.
+        // A guarda precisa terminar antes do fechamento do escopo que prende.
+        drop(guarda);
+        r
+    };
+    drop(escopo);
+    Ok(resultado)
+}
+
+/// Invoca entrada uniforme certificada e devolve exatamente um retorno Owned.
+///
+/// Aceita o fallback nativo noSuchMethod, adaptando seu retorno emprestado.
+/// Fecha o escopo de callbacks também em pending, sem limpar a exceção.
+/// Código desconhecido e callback genérico não são inferidos como uniformes.
+///
+/// # Safety
+/// `codigo` e sua imagem permanecem vivos durante a chamada. `args` e `desc`
+/// são endereços válidos da ABI uniforme: dois contadores não negativos,
+/// hashes nomeados e vetor com todos os argumentos mais a tupla RTI.
+/// Receptor e elementos Ref permanecem vivos por todo o alcance da chamada.
+///
+/// # Panics
+/// Entrada não certificada ou violação de ownership/escopos; aborta no C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// extern "C" fn nulo(_: i64, _: *const i64, _: *const i64) -> i64 { 0 }
+/// let pc = nulo as *const () as usize as i64;
+/// // SAFETY: corpo não publica vetores nem cria tokens, devolve Ref null.
+/// let v = unsafe { dartforge_arc_registrar_uniforme_owned_v1(pc) };
+/// let args = [0_i64]; let desc = [0_i64, 0];
+/// // SAFETY: vetores válidos e corpo registrado estático.
+/// assert_eq!(unsafe { dartforge_arc_invocar_uniforme_v1(pc, 0,
+///     args.as_ptr() as i64, desc.as_ptr() as i64) }, 0);
+/// dartforge_arc_retirar_retorno_owned_v1(pc, v);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_arc_invocar_uniforme_v1(
+    codigo: i64,
+    recv: i64,
+    args: i64,
+    desc: i64,
+) -> i64 {
+    let codigo = usize::try_from(codigo as u64).expect("endereço uniforme inválido");
+    arc_invocar_uniforme(codigo, recv, args, desc).expect("fronteira uniforme ARC inválida")
+}
+
 /// Retira exatamente a versão registrada, sem invalidar uma versão posterior.
 ///
 /// Deve ocorrer após retirar os consumidores do endereço. Recusa callbacks
@@ -231,6 +358,14 @@ fn arc_preparar_porta(
     codigo: usize,
     aridade: usize,
 ) -> Result<Option<GuardaPortaArc>, &'static str> {
+    arc_preparar_porta_contrato(codigo, aridade, false)
+}
+
+fn arc_preparar_porta_contrato(
+    codigo: usize,
+    aridade: usize,
+    uniforme: bool,
+) -> Result<Option<GuardaPortaArc>, &'static str> {
     // A convenção antiga não adquire lock nem cria escopo quando nenhuma
     // imagem declarou callbacks Owned. Isto não seleciona ARC implicitamente.
     if !HA_PORTAS_RETORNO_ARC.load(std::sync::atomic::Ordering::Acquire) {
@@ -246,6 +381,9 @@ fn arc_preparar_porta(
             Ok(None)
         };
     };
+    if uniforme && !r.uniforme {
+        return Err("entrada sem contrato uniforme");
+    }
     let ativas = r
         .chamadas
         .checked_add(1)
@@ -312,9 +450,11 @@ fn arc_validar_retorno_owned(resultado: i64) -> bool {
 }
 
 fn arc_concluir_porta(guarda: Option<GuardaPortaArc>, resultado: i64) -> i64 {
-    if let Some(g) = &guarda
-        && arc_validar_retorno_owned(resultado)
-    {
+    if let Some(g) = &guarda {
+        arc_conferir_escopo_porta(g);
+        if !arc_validar_retorno_owned(resultado) {
+            return resultado;
+        }
         PORTAS_NATIVAS_ARC.with(|p| {
             let mut p = p.borrow_mut();
             let e = p.escopos.last_mut().expect("escopo do callback ausente");
@@ -325,7 +465,7 @@ fn arc_concluir_porta(guarda: Option<GuardaPortaArc>, resultado: i64) -> i64 {
     resultado
 }
 
-fn arc_descartar_porta(guarda: GuardaPortaArc, resultado: i64) {
+fn arc_conferir_escopo_porta(guarda: &GuardaPortaArc) {
     PORTAS_NATIVAS_ARC.with(|p| {
         assert_eq!(
             p.borrow().escopos.last().map(|e| e.id),
@@ -333,6 +473,10 @@ fn arc_descartar_porta(guarda: GuardaPortaArc, resultado: i64) {
             "escopo reentrante não foi fechado"
         )
     });
+}
+
+fn arc_descartar_porta(guarda: GuardaPortaArc, resultado: i64) {
+    arc_conferir_escopo_porta(&guarda);
     // A guarda continua prendendo a versão e o escopo durante a liberação.
     if arc_validar_retorno_owned(resultado) {
         HEAP.with(|h| h.borrow_mut().soltar_owner_codigo(resultado));
@@ -535,6 +679,116 @@ mod testes_portas_arc {
 
     extern "C" fn nsm_owned(_: i64, _: i64, _: i64, _: i64, _: i64, _: i64, _: i64) -> i64 {
         novo()
+    }
+
+    extern "C" fn uniforme_reentrante(_: i64, _: *const i64, _: *const i64) -> i64 {
+        let x = dart_r0(novo as *const () as usize);
+        dartforge_arc_retain(x);
+        x
+    }
+
+    extern "C" fn uniforme_pending(_: i64, _: *const i64, _: *const i64) -> i64 {
+        let _x = dart_r0(novo as *const () as usize);
+        falhar()
+    }
+
+    fn registrar_uniforme(f: usize) -> i64 {
+        // SAFETY: fixtures não leem/publicam vetores; retornam Owned ou pending.
+        unsafe { dartforge_arc_registrar_uniforme_owned_v1(f as i64) }
+    }
+
+    #[test]
+    fn uniforme_fecha_callbacks_sem_consumir_o_token_de_retorno() {
+        let _serial = SERIAL.lock().unwrap();
+        std::thread::spawn(|| {
+            dartforge_memoria_arc_v1();
+            let f = uniforme_reentrante as *const () as usize;
+            let n = novo as *const () as usize;
+            let v = registrar_uniforme(f);
+            let vn = registrar(n, 0);
+            let x = arc_invocar_uniforme(f, 0, 0, 0).unwrap();
+            PORTAS_NATIVAS_ARC.with(|p| assert!(p.borrow().escopos.is_empty()));
+            dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observar_heap_v1(x), 3);
+            dartforge_arc_release(x);
+            dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observar_heap_v1(x), 0);
+            dartforge_arc_retirar_retorno_owned_v1(f as i64, v);
+            dartforge_arc_retirar_retorno_owned_v1(n as i64, vn);
+        }).join().unwrap();
+    }
+
+    #[test]
+    fn uniforme_pending_fecha_owners_internos_e_preserva_excecao() {
+        let _serial = SERIAL.lock().unwrap();
+        std::thread::spawn(|| {
+            dartforge_memoria_arc_v1();
+            let f = uniforme_pending as *const () as usize;
+            let n = novo as *const () as usize;
+            let v = registrar_uniforme(f);
+            let vn = registrar(n, 0);
+            assert_eq!(arc_invocar_uniforme(f, 0, 0, 0), Ok(0));
+            assert_ne!(dartforge_exception_pending(), 0);
+            PORTAS_NATIVAS_ARC.with(|p| assert!(p.borrow().escopos.is_empty()));
+            dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observar_heap_v1(ULTIMO.with(|u| u.get())), 0);
+            assert_ne!(dartforge_exception_pending(), 0);
+            dartforge_exception_clear();
+            dartforge_arc_retirar_retorno_owned_v1(f as i64, v);
+            dartforge_arc_retirar_retorno_owned_v1(n as i64, vn);
+        }).join().unwrap();
+    }
+
+    #[test]
+    fn uniforme_nao_infere_contrato_de_callback_generico_e_recusa_upgrade() {
+        let _serial = SERIAL.lock().unwrap();
+        std::thread::spawn(|| {
+            let f = tres as *const () as usize;
+            assert!(arc_invocar_uniforme(f, 0, 0, 0).is_err());
+            let v = registrar(f, 3);
+            assert!(arc_invocar_uniforme(f, 0, 0, 0).is_err());
+            {
+                let mut p = registros_portas_arc().lock().unwrap();
+                assert!(p.registrar_contrato(f, 0, true).is_err());
+                assert!(p.registrar_contrato(f, 3, true).is_err());
+                assert_eq!(p.entradas[&(f, 3)].versao, v);
+                assert_eq!(p.entradas[&(f, 3)].chamadas, 0);
+            }
+            PORTAS_NATIVAS_ARC.with(|p| assert!(p.borrow().escopos.is_empty()));
+            dartforge_arc_retirar_retorno_owned_v1(f as i64, v);
+            let f = uniforme_reentrante as *const () as usize;
+            let v = registrar_uniforme(f);
+            assert_eq!(registrar_uniforme(f), v);
+            assert!(registros_portas_arc().lock().unwrap().registrar(f, 3).is_err());
+            dartforge_arc_retirar_retorno_owned_v1(f as i64, v);
+            assert!(arc_invocar_uniforme(f, 0, 0, 0).is_err());
+        }).join().unwrap();
+    }
+
+    #[test]
+    fn uniforme_adapta_fallback_nativo_para_um_unico_owned() {
+        let _serial = SERIAL.lock().unwrap();
+        std::thread::spawn(|| {
+            dartforge_memoria_arc_v1();
+            let f = nsm_owned as *const () as usize;
+            let v = registrar(f, 7);
+            let nome = b"_dartforgeNoSuchMethod";
+            // SAFETY: helper estático de sete palavras com retorno Owned.
+            unsafe { dartforge_registrar_ajudante(nome.as_ptr(), nome.len() as i64, f); }
+            let recv = novo();
+            let args = [0_i64]; let desc = [0_i64, 0];
+            let x = arc_invocar_uniforme(dartforge_nsm_seletor as *const () as usize,
+                recv, args.as_ptr() as i64, desc.as_ptr() as i64).unwrap();
+            PORTAS_NATIVAS_ARC.with(|p| assert!(p.borrow().escopos.is_empty()));
+            assert_eq!(args, [0]); assert_eq!(desc, [0, 0]);
+            dartforge_arc_release(recv);
+            dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observar_heap_v1(x), 3);
+            dartforge_arc_release(x);
+            dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observar_heap_v1(x), 0);
+            dartforge_arc_retirar_retorno_owned_v1(f as i64, v);
+        }).join().unwrap();
     }
 
     #[test]

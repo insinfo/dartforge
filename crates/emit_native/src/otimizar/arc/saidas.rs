@@ -3,6 +3,84 @@
 
 use super::*;
 
+// Publica a exceção antes de liberar owners locais. O Throw Ref passa pela
+// ABI auditada e por duas saídas com cleanup; Lanca só desenrola após os drops.
+// O protocolo pending também funciona quando o emissor não usa tabelas.
+pub(super) fn preparar_lancamentos_ref(
+    f: &mut Function,
+    plano: &mut PlanoFuncaoDart,
+) -> Result<(), String> {
+    super::ssa::verificar(f)?;
+    let tipos: HashMap<_, _> = f.params.iter().map(|(v, _, t)| (*v, *t))
+        .chain(f.blocks.iter().flat_map(|b| &b.instructions).map(|(v, _, t)| (*v, *t)))
+        .collect();
+    let lancamentos: Vec<_> = f.blocks.iter().enumerate().filter_map(|(i, b)| {
+        if let Terminator::Throw(o) = &b.terminator { Some((i, b.id, o.clone())) } else { None }
+    }).collect();
+    if lancamentos.is_empty() { return Ok(()); }
+    let mut valor = tipos.keys().map(|v| v.0)
+        .chain(plano.classes.keys().map(|v| v.0))
+        .chain(plano.tokens.instrucoes.keys().map(|v| v.0))
+        .chain(plano.tokens.pendencias.keys().map(|v| v.0))
+        .chain(plano.tabelas.invocacoes.keys().map(|v| v.0))
+        .chain(plano.escopos.antes.keys().map(|v| v.0))
+        .max().map_or(0, |v| u64::from(v) + 1);
+    let mut bloco = f.blocks.iter().map(|b| b.id.0)
+        .chain(plano.tabelas.saidas.keys().map(|b| b.0))
+        .chain(plano.tabelas.pousos.iter().map(|b| b.0))
+        .chain(plano.tabelas.invocacoes.values().map(|b| b.0))
+        .chain(plano.tokens.pendencias.values().map(|b| b.0))
+        .chain(plano.escopos.saidas.keys().map(|b| b.0))
+        .chain(plano.escopos.arestas.keys().flat_map(|(a, b)| [a.0, b.0]))
+        .max().map_or(0, |b| u64::from(b) + 1);
+    let mut id_valor = || -> Result<ValueId, String> {
+        let id = u32::try_from(valor).map_err(|_| "IDs SSA esgotados ao preparar Throw")?;
+        valor += 1; Ok(ValueId(id))
+    };
+    let mut id_bloco = || -> Result<BlockId, String> {
+        let id = u32::try_from(bloco).map_err(|_| "IDs de bloco esgotados ao preparar Throw")?;
+        bloco += 1; Ok(BlockId(id))
+    };
+    for (i, origem, payload) in lancamentos {
+        if !matches!(&payload, Operand::Constant(Constant::Null))
+            && !matches!(&payload, Operand::Val(v) if tipos.get(v) == Some(&Type::Ref)) {
+            return Err(format!("{} b{}: Throw exige payload Ref preparado", f.symbol, origem.0));
+        }
+        if plano.tabelas.saidas.contains_key(&origem) {
+            return Err(format!("{} b{}: Throw conflita com saída fornecida", f.symbol, origem.0));
+        }
+        let chamada = id_valor()?;
+        let pending = id_valor()?;
+        let cond = id_valor()?;
+        let erro = id_bloco()?;
+        let normal = id_bloco()?;
+        f.blocks[i].instructions.extend([
+            (chamada, Instruction::CallRuntime { name: "dartforge_arc_lancar_ref_v1".into(),
+                args: vec![(payload, Type::Ref)], ret_ty: Type::Void }, Type::Void),
+            (pending, Instruction::CallRuntime { name: "dartforge_exception_pending".into(),
+                args: vec![], ret_ty: Type::I8 }, Type::I8),
+            (cond, Instruction::ICmp(ICmpOp::Ne, Operand::Val(pending),
+                Operand::Constant(Constant::Int(0))), Type::I1),
+        ]);
+        f.blocks[i].terminator = Terminator::CondBranch {
+            cond: Operand::Val(cond), then_block: erro, else_block: normal,
+        };
+        let placeholder = if f.return_ty == Type::Void { None } else {
+            Some(super::super::operandos::constante_padrao(f.return_ty))
+        };
+        for id in [erro, normal] {
+            f.blocks.push(BasicBlock { id, instructions: vec![],
+                terminator: Terminator::Return(placeholder.clone()) });
+        }
+        plano.tabelas.saidas.insert(erro, SaidaPorExcecao::Lanca);
+        if let Some(eventos) = plano.escopos.saidas.remove(&origem) {
+            plano.escopos.saidas.insert(erro, eventos.clone());
+            plano.escopos.saidas.insert(normal, eventos);
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn separar_guardas(f: &mut Function, plano: &mut PlanoFuncaoDart) -> Result<(), String> {
     super::ssa::verificar(f)?;
     let guardas: Vec<_> = f
@@ -124,6 +202,63 @@ pub(super) fn separar_guardas(f: &mut Function, plano: &mut PlanoFuncaoDart) -> 
 mod testes {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn throw_ref_publica_payload_e_libera_locais_sem_transferir_retorno() {
+        for caso in 0..4 {
+            let mut m = Module::new(); m.memoria_arc = true;
+            m.functions.push(Function { symbol: "lancar".into(), name: "lancar".into(),
+                depuracao: None, params: vec![(ValueId(0), "payload".into(),
+                    if caso == 3 { Type::I64 } else { Type::Ref })], return_ty: Type::Ref,
+                blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![(ValueId(1),
+                    Instruction::ArcCopy { value: Operand::Val(ValueId(0)) }, Type::Ref)],
+                    terminator: Terminator::Throw(match caso {
+                        1 => Operand::Val(ValueId(1)),
+                        2 => Operand::Constant(Constant::Null),
+                        _ => Operand::Val(ValueId(0)),
+                    }) }] });
+            m.retornos_ref_dart.insert("lancar".into());
+            if caso == 3 {
+                m.parametros_escalares_dart.insert("lancar".into(), HashSet::from([ValueId(0)]));
+                m.functions[0].blocks[0].instructions[0].1 = Instruction::ArcCopy {
+                    value: Operand::Constant(Constant::Null),
+                };
+            }
+            let mut planos = HashMap::from([("lancar".into(), PlanoFuncaoDart::default())]);
+            let antes = format!("{m:?}/{planos:?}");
+            let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
+            if caso == 3 {
+                let erro = resultado.unwrap_err();
+                assert!(erro.contains("Throw exige payload Ref"), "{erro}");
+                assert_eq!(format!("{m:?}/{planos:?}"), antes);
+                continue;
+            }
+            resultado.unwrap();
+            let f = &m.functions[0];
+            assert!(f.blocks.iter().all(|b| !matches!(b.terminator, Terminator::Throw(_))));
+            let publicacoes = f.blocks.iter().flat_map(|b| &b.instructions)
+                .filter(|(_, i, _)| matches!(i, Instruction::CallRuntime { name, .. }
+                    if name == "dartforge_arc_lancar_ref_v1")).count();
+            assert_eq!(publicacoes, 1);
+            // Um local morto pode ser liberado antes do Throw. O payload
+            // Owned, porém, só pode ser liberado depois de publicar a exceção.
+            assert!(f.blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)|
+                matches!(i, Instruction::ArcDrop { value: Operand::Val(ValueId(1)) })));
+            if caso == 1 {
+                let b = &f.blocks[0];
+                let publicacao = b.instructions.iter().position(|(_, i, _)| matches!(i,
+                    Instruction::CallRuntime { name, .. } if name == "dartforge_arc_lancar_ref_v1")).unwrap();
+                assert!(!b.instructions[..publicacao].iter().any(|(_, i, _)| matches!(i,
+                    Instruction::ArcDrop { value: Operand::Val(ValueId(1)) })));
+            }
+            for b in f.blocks.iter().filter(|b| matches!(b.terminator, Terminator::Return(_))) {
+                assert!(matches!(b.terminator, Terminator::Return(Some(Operand::Constant(Constant::Null)))));
+            }
+            let preparado = format!("{m:?}/{planos:?}");
+            assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+            assert_eq!(format!("{m:?}/{planos:?}"), preparado);
+        }
+    }
 
     fn folha(owned: bool) -> (Vec<Function>, HashMap<String, PlanoFuncaoDart>) {
         let f = Function {

@@ -44,12 +44,67 @@ fn modulo(tabelas: bool) -> Result<Module, String> {
     m.parametros_escalares_dart
         .insert("ajudante_nsm".into(), HashSet::from([ValueId(1)]));
     m.retornos_ref_dart.insert("ajudante_nsm".into());
+    m.functions.push(Function {
+        symbol: "entrada_uniforme".into(),
+        name: "entrada_uniforme".into(),
+        depuracao: None,
+        params: vec![
+            (ValueId(0), "recv".into(), Type::Ref),
+            (ValueId(1), "args".into(), Type::Ptr),
+            (ValueId(2), "desc".into(), Type::Ptr),
+        ],
+        return_ty: Type::Ref,
+        blocks: vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![(
+                ValueId(3),
+                Instruction::CallStatic {
+                    symbol: "ajudante_nsm".into(),
+                    args: (0..7)
+                        .map(|n| match n {
+                            0 => Operand::Val(ValueId(0)),
+                            1 => Operand::Constant(Constant::Int(0)),
+                            _ => Operand::Constant(Constant::Null),
+                        })
+                        .collect(),
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            )],
+            terminator: Terminator::Return(Some(Operand::Val(ValueId(3)))),
+        }],
+    });
+    m.retornos_uniformes_arc.insert("entrada_uniforme".into());
+    m.parametros_vetores_dart.insert(
+        "entrada_uniforme".into(),
+        HashMap::from([
+            (ValueId(1), VetorEntradaDart::Argumentos),
+            (ValueId(2), VetorEntradaDart::Descritor),
+        ]),
+    );
+    let mut falivel = m.functions[1].clone();
+    falivel.symbol = "uniforme_falivel".into();
+    falivel.name = "uniforme_falivel".into();
+    falivel.blocks[0].terminator = Terminator::Throw(Operand::Val(ValueId(0)));
+    m.functions.push(falivel);
+    m.retornos_uniformes_arc.insert("uniforme_falivel".into());
+    m.parametros_vetores_dart.insert(
+        "uniforme_falivel".into(),
+        m.parametros_vetores_dart["entrada_uniforme"].clone(),
+    );
     if tabelas {
         otimizar::excecoes_por_tabelas(&mut m);
     }
-    let mut planos = HashMap::from([("ajudante_nsm".into(), PlanoFuncaoDart::default())]);
+    let mut planos = HashMap::from([
+        ("ajudante_nsm".into(), PlanoFuncaoDart::default()),
+        ("entrada_uniforme".into(), PlanoFuncaoDart::default()),
+        ("uniforme_falivel".into(), PlanoFuncaoDart::default()),
+    ]);
     preparar_arc_modulo_dart(&mut m, &mut planos)?;
-    if planos["ajudante_nsm"].tokens.retorno != RetornoTokens::Owned {
+    if planos
+        .values()
+        .any(|p| p.tokens.retorno != RetornoTokens::Owned)
+    {
         return Err("corpo não possui convenção Owned".into());
     }
     let antes = format!("{m:?}/{planos:?}");
@@ -127,6 +182,68 @@ falha:
   call void @llvm.trap()
   unreachable
 sucesso:
+  %codigo_uniforme = ptrtoint ptr @entrada_uniforme to i64
+  %versao_uniforme = call i64 @dartforge_arc_registrar_uniforme_owned_v1(i64 %codigo_uniforme)
+  %args_ptr = ptrtoint ptr @args_nsm to i64
+  %desc_ptr = ptrtoint ptr @desc_nsm to i64
+  %ru = call i64 @dartforge_arc_invocar_uniforme_v1(i64 %codigo_uniforme, i64 0, i64 %args_ptr, i64 %desc_ptr)
+  call void @dartforge_arc_collect()
+  %uniforme_vivo = call i8 @dartforge_arc_observar_heap_v1(i64 %ru)
+  %uniforme_valor = call i64 @dartforge_unbox_int(i64 %ru)
+  %uniforme_ok_owner = icmp eq i8 %uniforme_vivo, 3
+  %uniforme_ok_valor = icmp eq i64 %uniforme_valor, 9223372036854775807
+  %uniforme_ok = and i1 %uniforme_ok_owner, %uniforme_ok_valor
+  br i1 %uniforme_ok, label %liberar_uniforme, label %falha
+liberar_uniforme:
+  call void @dartforge_arc_release(i64 %ru)
+  call void @dartforge_arc_collect()
+  %uniforme_final = call i8 @dartforge_arc_observar_heap_v1(i64 %ru)
+  %uniforme_morto = icmp eq i8 %uniforme_final, 0
+  br i1 %uniforme_morto, label %sucesso_uniforme, label %falha
+sucesso_uniforme:
+  %codigo_fallback = ptrtoint ptr %f to i64
+  %rf = call i64 @dartforge_arc_invocar_uniforme_v1(i64 %codigo_fallback, i64 0, i64 %args_ptr, i64 %desc_ptr)
+  call void @dartforge_arc_collect()
+  %fallback_vivo = call i8 @dartforge_arc_observar_heap_v1(i64 %rf)
+  %fallback_valor = call i64 @dartforge_unbox_int(i64 %rf)
+  %fallback_ok_owner = icmp eq i8 %fallback_vivo, 3
+  %fallback_ok_valor = icmp eq i64 %fallback_valor, 9223372036854775807
+  %fallback_ok = and i1 %fallback_ok_owner, %fallback_ok_valor
+  br i1 %fallback_ok, label %liberar_fallback, label %falha
+liberar_fallback:
+  call void @dartforge_arc_release(i64 %rf)
+  call void @dartforge_arc_collect()
+  %fallback_final = call i8 @dartforge_arc_observar_heap_v1(i64 %rf)
+  %fallback_morto = icmp eq i8 %fallback_final, 0
+  br i1 %fallback_morto, label %sucesso_fallback, label %falha
+sucesso_fallback:
+  %codigo_falivel = ptrtoint ptr @uniforme_falivel to i64
+  %versao_falivel = call i64 @dartforge_arc_registrar_uniforme_owned_v1(i64 %codigo_falivel)
+  %xp = call i64 @dartforge_arc_box_int_owned_v1(i64 9223372036854775806)
+  %rp = call i64 @dartforge_arc_invocar_uniforme_v1(i64 %codigo_falivel, i64 %xp, i64 %args_ptr, i64 %desc_ptr)
+  %pending_falivel = call i8 @dartforge_exception_pending()
+  %payload = call i64 @dartforge_arc_excecao_owned_v1()
+  call void @dartforge_arc_release(i64 %xp)
+  call void @dartforge_arc_collect()
+  %payload_vivo = call i8 @dartforge_arc_observar_heap_v1(i64 %payload)
+  %payload_ok_owner = icmp eq i8 %payload_vivo, 3
+  %payload_identico = icmp eq i64 %payload, %xp
+  %payload_ok = and i1 %payload_ok_owner, %payload_identico
+  %falivel_null = icmp eq i64 %rp, 0
+  %falivel_pending = icmp ne i8 %pending_falivel, 0
+  %pending_ok = and i1 %falivel_null, %falivel_pending
+  %falivel_ok = and i1 %pending_ok, %payload_ok
+  br i1 %falivel_ok, label %sucesso_pending, label %falha
+sucesso_pending:
+  call void @dartforge_exception_clear()
+  call void @dartforge_arc_release(i64 %payload)
+  call void @dartforge_arc_collect()
+  %payload_final = call i8 @dartforge_arc_observar_heap_v1(i64 %payload)
+  %payload_morto = icmp eq i8 %payload_final, 0
+  br i1 %payload_morto, label %sucesso_excecao, label %falha
+sucesso_excecao:
+  call void @dartforge_arc_retirar_retorno_owned_v1(i64 %codigo_falivel, i64 %versao_falivel)
+  call void @dartforge_arc_retirar_retorno_owned_v1(i64 %codigo_uniforme, i64 %versao_uniforme)
   call void @dartforge_arc_retirar_retorno_owned_v1(i64 %codigo, i64 %versao)
   call void @dartforge_print_handle(i64 3)
   ret void
