@@ -30,6 +30,8 @@ struct Grupo {
 pub struct ContratoQuadrosCompartilhadosCfg {
     grupo: Arc<Grupo>,
     simbolo: String,
+    interno: String,
+    nomes: HashMap<String, String>,
     assinatura: Vec<(ValueId, Type)>,
     retorno: Type,
     repasses: Vec<(ValueId, String, Vec<Operand>)>,
@@ -38,6 +40,8 @@ pub struct ContratoQuadrosCompartilhadosCfg {
 impl PartialEq for ContratoQuadrosCompartilhadosCfg {
     fn eq(&self, outro: &Self) -> bool {
         self.simbolo == outro.simbolo
+            && self.interno == outro.interno
+            && self.nomes == outro.nomes
             && self.assinatura == outro.assinatura
             && self.retorno == outro.retorno
             && self.repasses == outro.repasses
@@ -88,6 +92,59 @@ fn repasses(f: &Function, grupo: &Grupo) -> Vec<(ValueId, String, Vec<Operand>)>
 
 impl ContratoQuadrosCompartilhadosCfg {
     pub(super) fn conferir(&self, f: &Function) -> Result<(), String> {
+        let mut normalizado = f.clone();
+        normalizado.symbol = self.interno.clone();
+        let nome = |s: &mut String| {
+            if let Some((interno, _)) = self.nomes.iter().find(|(_, externo)| *externo == s) {
+                *s = interno.clone();
+            }
+        };
+        for b in &mut normalizado.blocks {
+            for (v, inst, _) in &mut b.instructions {
+                match inst {
+                    Instruction::CallStatic { symbol, .. } => {
+                        if let Some((_, interno, _)) =
+                            self.repasses.iter().find(|(id, _, _)| id == v)
+                        {
+                            if self.nomes.get(interno) == Some(symbol) {
+                                *symbol = interno.clone();
+                            } else {
+                                nome(symbol);
+                            }
+                        } else {
+                            nome(symbol);
+                        }
+                    }
+                    Instruction::Const(Constant::Funcao(s))
+                    | Instruction::TearOff { code_symbol: s }
+                    | Instruction::AllocClosure { code_symbol: s, .. } => nome(s),
+                    Instruction::AllocClosureTipada {
+                        code_symbol,
+                        tipado,
+                        ..
+                    } => {
+                        nome(code_symbol);
+                        nome(tipado);
+                    }
+                    Instruction::TabelaDeFuncoes(ss) => {
+                        for s in ss {
+                            nome(s);
+                        }
+                    }
+                    _ => {}
+                }
+                super::super::operandos::operandos_mut(inst, &mut |o| {
+                    if let Operand::Constant(Constant::Funcao(s)) = o {
+                        nome(s);
+                    }
+                });
+            }
+            super::super::operandos::operandos_do_terminador_mut(&mut b.terminator, &mut |o| {
+                if let Operand::Constant(Constant::Funcao(s)) = o {
+                    nome(s);
+                }
+            });
+        }
         if f.symbol != self.simbolo
             || f.return_ty != self.retorno
             || f.params
@@ -95,7 +152,7 @@ impl ContratoQuadrosCompartilhadosCfg {
                 .map(|(v, _, t)| (*v, *t))
                 .collect::<Vec<_>>()
                 != self.assinatura
-            || repasses(f, &self.grupo) != self.repasses
+            || repasses(&normalizado, &self.grupo) != self.repasses
         {
             return Err(format!(
                 "quadros compartilhados: assinatura/repasses obsoletos de {}",
@@ -114,16 +171,16 @@ impl ContratoQuadrosCompartilhadosCfg {
         let atual = r
             .funcoes
             .iter_mut()
-            .find(|c| c.symbol == f.symbol)
+            .find(|c| c.symbol == self.interno)
             .ok_or("quadros compartilhados: corpo fora da família")?;
-        *atual = f.clone();
+        *atual = normalizado;
         verificar_vidas_slots_ref_cfg(&m, &r)
     }
 
     pub(super) fn pares(&self) -> &HashMap<ValueId, ValueId> {
         static VAZIO: std::sync::LazyLock<HashMap<ValueId, ValueId>> =
             std::sync::LazyLock::new(HashMap::new);
-        self.grupo.emprestados.get(&self.simbolo).unwrap_or(&VAZIO)
+        self.grupo.emprestados.get(&self.interno).unwrap_or(&VAZIO)
     }
 
     pub(super) fn alvos(&self) -> HashMap<String, Vec<(usize, usize)>> {
@@ -141,9 +198,25 @@ impl ContratoQuadrosCompartilhadosCfg {
                 let mut ordem: Vec<_> =
                     ps.iter().map(|(q, i)| (posicoes[q], posicoes[i])).collect();
                 ordem.sort_unstable();
-                (s.clone(), ordem)
+                (
+                    self.nomes.get(s).cloned().unwrap_or_else(|| s.clone()),
+                    ordem,
+                )
             })
             .collect()
+    }
+
+    pub(super) fn remapear_nomes(&self, mapa: &HashMap<String, String>) -> Self {
+        let mut novo = self.clone();
+        if let Some(s) = mapa.get(&novo.simbolo) {
+            novo.simbolo = s.clone();
+        }
+        for s in novo.nomes.values_mut() {
+            if let Some(n) = mapa.get(s) {
+                *s = n.clone();
+            }
+        }
+        novo
     }
 }
 
@@ -214,6 +287,12 @@ pub fn produzir_planos_slots_ref_cfg(
         let contrato = ContratoQuadrosCompartilhadosCfg {
             grupo: grupo.clone(),
             simbolo: f.symbol.clone(),
+            interno: f.symbol.clone(),
+            nomes: grupo
+                .funcoes
+                .iter()
+                .map(|f| (f.symbol.clone(), f.symbol.clone()))
+                .collect(),
             assinatura: f.params.iter().map(|(v, _, t)| (*v, *t)).collect(),
             retorno: f.return_ty,
             repasses: repasses(f, &grupo),
@@ -238,6 +317,98 @@ pub fn produzir_planos_slots_ref_cfg(
     }
     *planos = novos;
     Ok(total)
+}
+
+pub(super) fn remapear_planos(
+    planos: &mut HashMap<String, PlanoFuncaoDart>,
+    mapa: &HashMap<String, String>,
+) {
+    if mapa.is_empty() {
+        return;
+    }
+    *planos = std::mem::take(planos)
+        .into_iter()
+        .map(|(s, p)| (mapa.get(&s).cloned().unwrap_or(s), p))
+        .collect();
+}
+
+pub(super) fn remapear_fatos(m: &mut Module, mapa: &HashMap<String, String>) {
+    if mapa.is_empty() {
+        return;
+    }
+    fn chaves<T>(xs: &mut HashMap<String, T>, mapa: &HashMap<String, String>) {
+        *xs = std::mem::take(xs)
+            .into_iter()
+            .map(|(s, v)| (mapa.get(&s).cloned().unwrap_or(s), v))
+            .collect();
+    }
+    fn nomes(xs: &mut HashSet<String>, mapa: &HashMap<String, String>) {
+        *xs = std::mem::take(xs)
+            .into_iter()
+            .map(|s| mapa.get(&s).cloned().unwrap_or(s))
+            .collect();
+    }
+    chaves(&mut m.parametros_escalares_dart, mapa);
+    chaves(&mut m.parametros_rti_dart, mapa);
+    chaves(&mut m.parametros_vetores_dart, mapa);
+    chaves(&mut m.sitios_arc, mapa);
+    nomes(&mut m.retornos_ref_dart, mapa);
+    nomes(&mut m.retornos_uniformes_arc, mapa);
+    nomes(&mut m.funcoes_compartilhadas_arc, mapa);
+    if !mapa.is_empty() {
+        m.portas_arc_aot = None;
+    }
+}
+
+pub(super) fn transportar_contrato(p: &mut PlanoFuncaoDart, mapa: &HashMap<String, String>) {
+    if let Some(c) = &p.tokens.quadros_compartilhados {
+        let novo = c.remapear_nomes(mapa);
+        p.tabelas.quadros_compartilhados = Some(novo.clone());
+        p.tokens.quadros_compartilhados = Some(novo);
+    }
+}
+
+pub(super) fn remapear_funcao(f: &mut Function, mapa: &HashMap<String, String>) {
+    let nome = |s: &mut String| {
+        if let Some(n) = mapa.get(s) {
+            *s = n.clone();
+        }
+    };
+    nome(&mut f.symbol);
+    for b in &mut f.blocks {
+        for (_, i, _) in &mut b.instructions {
+            match i {
+                Instruction::CallStatic { symbol, .. } => nome(symbol),
+                Instruction::Const(Constant::Funcao(s))
+                | Instruction::TearOff { code_symbol: s }
+                | Instruction::AllocClosure { code_symbol: s, .. } => nome(s),
+                Instruction::AllocClosureTipada {
+                    code_symbol,
+                    tipado,
+                    ..
+                } => {
+                    nome(code_symbol);
+                    nome(tipado);
+                }
+                Instruction::TabelaDeFuncoes(ss) => {
+                    for s in ss {
+                        nome(s);
+                    }
+                }
+                _ => {}
+            }
+            super::super::operandos::operandos_mut(i, &mut |o| {
+                if let Operand::Constant(Constant::Funcao(s)) = o {
+                    nome(s);
+                }
+            });
+        }
+        super::super::operandos::operandos_do_terminador_mut(&mut b.terminator, &mut |o| {
+            if let Operand::Constant(Constant::Funcao(s)) = o {
+                nome(s);
+            }
+        });
+    }
 }
 
 #[cfg(test)]

@@ -203,41 +203,62 @@ pub(super) fn preparar_com_variantes(
     if !modulo.memoria_arc {
         return Ok((0, 0));
     }
-    // Convenções novas só são publicadas junto à preparação completa.
-    super::seletores::conferir(modulo)?;
-    let mut preparadas = modulo.functions.clone();
-    super::seletores::preparar(&mut preparadas);
-    super::layouts::verificar(modulo)?;
+    let mut slots = super::baixar_slots_ref_compartilhados(modulo)?;
+    let mut trabalho = modulo.clone();
+    trabalho.functions = slots.funcoes.clone();
+    super::slots_planos::remapear_fatos(&mut trabalho, &slots.simbolos);
     let mut novos = planos.clone();
-    produzir_parametros_escalares_do_lowering(modulo, &mut novos)?;
-    super::vetores::produzir(modulo, &mut novos)?;
-    super::vetores::preparar_leituras(modulo, &mut preparadas)?;
-    super::caches_rti::produzir(modulo, &mut novos)?;
-    produzir_parametros_rti_do_lowering(modulo, &mut novos)?;
-    produzir_retornos_ref_do_lowering(modulo, &mut novos)?;
+    super::slots_planos::remapear_planos(&mut novos, &slots.simbolos);
+    super::produzir_planos_slots_ref_cfg(modulo, &slots, &mut novos)?;
+    let variantes: HashMap<_, _> = variantes.iter().map(|(s, vs)| (
+        slots.simbolos.get(s).cloned().unwrap_or_else(|| s.clone()),
+        vs.iter().map(|v| slots.simbolos.get(v).cloned().unwrap_or_else(|| v.clone())).collect::<Vec<_>>()
+    )).collect();
+    for (s, vs) in &variantes {
+        let assinatura = |nome: &str| trabalho.functions.iter().find(|f| f.symbol == nome)
+            .map(|f| (f.params.iter().map(|(_, _, t)| *t).collect::<Vec<_>>(), f.return_ty));
+        let base = assinatura(s);
+        if vs.iter().any(|v| assinatura(v) != base) {
+            return Err(format!("slots ARC: ABI incompatível em variantes de {s}"));
+        }
+    }
+    // Convenções novas só são publicadas junto à preparação completa.
+    super::seletores::conferir(&trabalho)?;
+    let mut preparadas = trabalho.functions.clone();
+    super::seletores::preparar(&mut preparadas);
+    super::layouts::verificar(&trabalho)?;
+    produzir_parametros_escalares_do_lowering(&trabalho, &mut novos)?;
+    super::vetores::produzir(&trabalho, &mut novos)?;
+    super::vetores::preparar_leituras(&trabalho, &mut preparadas)?;
+    super::caches_rti::produzir(&trabalho, &mut novos)?;
+    produzir_parametros_rti_do_lowering(&trabalho, &mut novos)?;
+    produzir_retornos_ref_do_lowering(&trabalho, &mut novos)?;
     // O conjunto já mantém os corpos privados até verificar todos eles.
     // Após seu sucesso, a atribuição dos planos não introduz nova falha.
-    let receivers = super::receivers::produzir(modulo);
-    let preservam_campos = super::caches_rti::preservam_campos(modulo, &novos);
+    let receivers = super::receivers::produzir(&trabalho);
+    let preservam_campos = super::caches_rti::preservam_campos(&trabalho, &novos);
     let total = inserir(
         &mut preparadas,
         &mut novos,
         true,
         Some(&modulo.layouts_campos_arc),
-        variantes,
+        &variantes,
         &receivers,
         &preservam_campos,
     )?;
-    modulo.functions = preparadas;
+    slots.funcoes = preparadas.clone();
+    super::verificar_vidas_slots_ref_cfg(modulo, &slots)?;
+    trabalho.functions = preparadas;
     // Os IDs de invokes/pousos e os certificados pertencem aos corpos novos.
     // Não deixar o emissor consultar um inventário da versão anterior do CFG.
     if modulo.excecoes_por_tabelas {
-        modulo.tabelas = modulo
+        trabalho.tabelas = trabalho
             .functions
             .iter()
             .map(|f| novos[&f.symbol].tabelas.clone())
             .collect();
     }
+    *modulo = trabalho;
     *planos = novos;
     Ok(total)
 }

@@ -237,6 +237,7 @@ pub fn preparar_arc_modulos_dart(
     if conjunto.excecoes_por_tabelas {
         produzir_tabelas_arc_do_modulo(&conjunto, &mut novos)?;
     }
+    let nomes_antes: Vec<_> = conjunto.functions.iter().map(|f| f.symbol.clone()).collect();
     let resultado = super::funcoes::preparar_com_variantes(&mut conjunto, &mut novos, &variantes)
         .map_err(|mut erro| {
         origens_variantes.sort_by_key(|(s, _, _)| std::cmp::Reverse(s.len()));
@@ -250,24 +251,42 @@ pub fn preparar_arc_modulos_dart(
     })?;
     // Restaura os nomes físicos e vincula novamente os certificados ainda em
     // cópias privadas. Qualquer falha preserva todos os módulos de entrada.
+    let mut nomes_fisicos = HashMap::new();
+    let mut fatos_fisicos = Vec::new();
+    for (m, (indices, _)) in modulos.iter().zip(&distribuicao) {
+        let mut mapa = HashMap::new();
+        for (original, &indice) in m.functions.iter().zip(indices) {
+            let antes = &nomes_antes[indice];
+            let atual = &conjunto.functions[indice].symbol;
+            let fisico = if atual == antes { original.symbol.clone() }
+                else if atual == &format!("{antes}$arcslots_v1") { format!("{}$arcslots_v1", original.symbol) }
+                else { return Err("módulos ARC: mudança de assinatura/símbolo não reconhecida".into()); };
+            nomes_fisicos.insert(atual.clone(), fisico.clone());
+            mapa.insert(original.symbol.clone(), fisico);
+        }
+        fatos_fisicos.push(mapa);
+    }
     let mut publicacoes = Vec::new();
-    for (indice_modulo, (m, (indices, area))) in modulos.iter().zip(distribuicao).enumerate() {
+    for (indice_modulo, ((m, (indices, area)), fatos)) in modulos.iter().zip(distribuicao).zip(fatos_fisicos).enumerate() {
         let inversa: HashMap<_, _> = area.into_iter().map(|(a, b)| (b, a)).collect();
         let mut funcoes = Vec::new();
         let mut ps = planos[indice_modulo].clone();
         for (original, indice) in m.functions.iter().zip(indices) {
             let mut f = conjunto.functions[indice].clone();
             let mut plano = novos[&f.symbol].clone();
-            f.symbol = original.symbol.clone();
+            super::slots_planos::remapear_funcao(&mut f, &nomes_fisicos);
             remapear_area(&mut f, &inversa)?;
+            super::slots_planos::transportar_contrato(&mut plano, &nomes_fisicos);
             plano.tabelas.cleanup_estrangeiro = CleanupEstrangeiro::novo(&f, &plano)?;
+            ps.remove(&original.symbol);
+            ps.insert(f.symbol.clone(), plano);
             funcoes.push(f);
-            ps.insert(original.symbol.clone(), plano);
         }
-        publicacoes.push((funcoes, ps));
+        publicacoes.push((funcoes, ps, fatos));
     }
-    for ((m, p), (fs, ps)) in modulos.iter_mut().zip(planos.iter_mut()).zip(publicacoes) {
+    for ((m, p), (fs, ps, fatos)) in modulos.iter_mut().zip(planos.iter_mut()).zip(publicacoes) {
         m.functions = fs;
+        super::slots_planos::remapear_fatos(m, &fatos);
         if m.excecoes_por_tabelas {
             m.tabelas = m
                 .functions
@@ -370,6 +389,37 @@ fn remapear_area(f: &mut Function, area: &HashMap<String, String>) -> Result<(),
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn slots_compartilhados_entre_modulos_publicam_abi_e_contratos_juntos() {
+        let mut origem = super::super::slots_vidas::testes::origem();
+        origem.functions.pop();
+        origem.functions[1].blocks[0].instructions
+            .retain(|(_, i, _)| !matches!(i, Instruction::CallStatic { .. }));
+        let folha = origem.functions.pop().unwrap();
+        let mut biblioteca = Module::new();
+        biblioteca.memoria_arc = true;
+        biblioteca.functions.push(folha);
+        let mut ms = [origem, biblioteca];
+        let mut ps: Vec<HashMap<String, PlanoFuncaoDart>> = ms.iter().map(|m| {
+            m.functions.iter().map(|f| (f.symbol.clone(), PlanoFuncaoDart::default())).collect()
+        }).collect();
+        preparar_arc_modulos_dart(&mut ms, &mut ps).unwrap();
+        assert_eq!(ms[1].functions[0].symbol, "a$arcslots_v1");
+        assert!(!ps[1].contains_key("a"));
+        assert_eq!(ms[1].functions[0].params.len(), 4);
+        assert!(ms[0].functions[0].blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)| {
+            matches!(i, Instruction::CallStatic { symbol, args, .. }
+                if symbol == "a$arcslots_v1" && args.len() == 4)
+        }));
+        for (m, planos) in ms.iter().zip(&ps) {
+            for f in &m.functions {
+                let p = &planos[&f.symbol];
+                assert!(p.tokens.quadros_compartilhados.is_some());
+                verificar_contrato_funcao_dart(f, &p.classes, &p.tokens, &p.tabelas, &p.escopos).unwrap();
+            }
+        }
+    }
 
     #[test]
     fn variante_falivel_propaga_cleanup_ao_simbolo_publico_e_chamador() {

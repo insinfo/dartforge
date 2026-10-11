@@ -1022,7 +1022,7 @@ pub enum VetorEntradaDart {
 }
 
 /// Módulo HIR completo representando um programa Dart compilável.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Module {
     /// J05: as posições das funções viram tabelas de linha (`--depuracao`).
     /// Sem isto, as posições que houver são só do rastro simbólico (§13.14).
