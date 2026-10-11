@@ -618,6 +618,37 @@ pub unsafe extern "C" fn dartforge_lista_de_tabela(dados: *const u8, len: i64) -
 /// `n` bytes legíveis.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_lista_nova(palavras: *const i64, n: i64, cid: i64, forma: i64) -> i64 {
+    // SAFETY: o contrato desta entrada é o mesmo da implementação comum.
+    unsafe { lista_literal(palavras, n, cid, forma, false) }
+}
+
+/// Cria uma lista literal e entrega um owner independente do código.
+/// Os elementos Ref são copiados, sem consumir owners do chamador, e ficam
+/// enraizados durante todas as alocações. Não executa Dart nem lança pending.
+///
+/// # Safety
+/// `n` deve ser não negativo e `palavras` conter `n` palavras legíveis.
+/// Fora de `0..=3`, `forma` aponta `n` tags legíveis (1 int, 2 bool,
+/// 3 Ref, 4 double). Referências devem estar vivas; bool usa somente 0/1.
+///
+/// # Panics
+/// Comprimento, classe, tag ou bool inválido; aborta na fronteira C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let lista = unsafe { dartforge_arc_lista_nova_owned_v1([42].as_ptr(), 1, 10, 1) };
+/// assert_eq!(dartforge_arc_lista_len_v1(lista), 1);
+/// dartforge_arc_release(lista);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_arc_lista_nova_owned_v1(palavras: *const i64, n: i64, cid: i64, forma: i64) -> i64 {
+    assert!(n >= 0, "comprimento de literal negativo");
+    assert!(matches!(cid, 8..=10), "classe de literal inválida");
+    // SAFETY: buffers e referências válidos pelo contrato da entrada.
+    unsafe { lista_literal(palavras, n, cid, forma, true) }
+}
+
+unsafe fn lista_literal(palavras: *const i64, n: i64, cid: i64, forma: i64, owned: bool) -> i64 {
     use crate::listas::Elemento;
     let n = usize::try_from(n).unwrap_or(0);
     // SAFETY: garantido por quem chama (o `alloca` do código gerado).
@@ -630,6 +661,20 @@ pub unsafe extern "C" fn dartforge_lista_nova(palavras: *const i64, n: i64, cid:
     };
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
+        // Tracing homogêneo conserva o preenchimento direto, sem vetor extra.
+        let refs: Vec<i64> = if !owned && tags.is_none() { Vec::new() } else { p.iter().enumerate().map(|(k, &w)| {
+            let tag = tags.map_or(if e == Elemento::Geral { 3 } else { 0 }, |t| t[k]);
+            if owned {
+                assert!(tags.is_none() || matches!(tag, 1..=4), "tag de literal inválida");
+                assert!(!(tag == 2 || e == Elemento::Bool) || matches!(w, 0 | 1), "bool de literal inválido");
+            }
+            if tag == 3 { w } else { 0 }
+        }).collect() };
+        let frame = owned.then(|| {
+            let frame = heap.push_frame_proprietario(refs.len());
+            for (k, &r) in refs.iter().enumerate() { heap.set_root(frame, k, r); }
+            frame
+        });
         let h = if cid == crate::layout::cid::GROWABLE_LIST {
             heap.nova_expansivel(n, n, e)
         } else {
@@ -639,13 +684,14 @@ pub unsafe extern "C" fn dartforge_lista_nova(palavras: *const i64, n: i64, cid:
         match tags {
             None => {
                 // Recém-alocada, jovem: as palavras entram sem barreira.
-                heap.palavras_mut(a)[1..1 + n].copy_from_slice(p);
+                if owned && e == Elemento::Geral { heap.gravar_refs(a, 1, p); }
+                else { heap.palavras_mut(a)[1..1 + n].copy_from_slice(p); }
             }
             Some(tags) => {
                 // Primeiro os `Ref` (sem alocação), depois as caixas (que
                 // podem coletar; `lista_set` enraíza `h`).
-                let refs: Vec<i64> = p.iter().zip(tags).map(|(&w, &t)| if t == 3 { w } else { 0 }).collect();
-                heap.palavras_mut(a)[1..1 + n].copy_from_slice(&refs);
+                if owned { heap.gravar_refs(a, 1, &refs); }
+                else { heap.palavras_mut(a)[1..1 + n].copy_from_slice(&refs); }
                 for (k, (&w, &t)) in p.iter().zip(tags).enumerate() {
                     let v = match t {
                         1 => crate::heap::Valor::Int(w),
@@ -656,6 +702,10 @@ pub unsafe extern "C" fn dartforge_lista_nova(palavras: *const i64, n: i64, cid:
                     heap.lista_set(h, k, v);
                 }
             }
+        }
+        if let Some(frame) = frame {
+            heap.reter_owner_codigo(h);
+            heap.pop_frame(frame);
         }
         h
     })
@@ -690,4 +740,70 @@ pub unsafe extern "C" fn dartforge_lista_nova(palavras: *const i64, n: i64, cid:
 pub extern "C" fn dartforge_lista_acrescentar(lista: i64, v: i64) -> i64 {
     HEAP.with(|heap| heap.borrow_mut().lista_push(lista, crate::heap::Valor::Ref(v)));
     lista
+}
+
+#[cfg(test)]
+mod testes_literal_owned {
+    use super::*;
+
+    #[test]
+    fn literal_misto_enraiza_refs_conta_arestas_e_preserva_caixas() {
+        for arc in [false, true] {
+            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+            for cid in [8, 9, 10] {
+                let filho = HEAP.with(|h| h.borrow_mut().alocar_str("elemento sem owner do código"));
+                let bits = 0xfff8_1234_5678_9abc_u64;
+                let palavras = [filho, i64::MAX, bits as i64, 1, filho, 0];
+                let tags = [3u8, 1, 4, 2, 3, 3];
+                let lista = unsafe { dartforge_arc_lista_nova_owned_v1(palavras.as_ptr(), 6, cid, tags.as_ptr() as i64) };
+                dartforge_arc_collect();
+                assert_eq!(dartforge_arc_observar_heap_v1(lista), 3);
+                assert_eq!(dartforge_arc_observar_heap_v1(filho), 1);
+                HEAP.with(|h| {
+                    let heap = h.borrow();
+                    assert_eq!(heap.lista_len(lista), 6);
+                    let a = heap.lista_dados(lista);
+                    let w = heap.palavras(a);
+                    assert_eq!(w[1], filho);
+                    assert_eq!(w[5], filho);
+                    assert_eq!(w[6], 0);
+                    assert_eq!(heap.valor(w[2]), crate::heap::Valor::Int(i64::MAX));
+                    let crate::heap::Valor::Double(d) = heap.valor(w[3]) else { panic!("caixa double esperada") };
+                    assert_eq!(d.to_bits(), bits);
+                    assert_eq!(heap.valor(w[4]), crate::heap::Valor::Bool(true));
+                });
+                dartforge_arc_release(lista);
+                dartforge_arc_collect();
+                assert_eq!(dartforge_arc_observar_heap_v1(lista), 0);
+                assert_eq!(dartforge_arc_observar_heap_v1(filho), 0);
+            }
+            HEAP.with(|h| { h.replace(anterior); });
+        }
+    }
+
+    #[test]
+    fn literal_vazio_e_compacto_preserva_bits_ate_soltar_owner() {
+        for arc in [false, true] {
+            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+            for cid in [8, 9, 10] {
+                for (forma, palavras) in [(0, vec![]), (1, vec![i64::MIN, i64::MAX]),
+                    (2, vec![i64::MIN, 0x7ff8_1234_5678_9abc]), (3, vec![0, 1])] {
+                    let lista = unsafe { dartforge_arc_lista_nova_owned_v1(palavras.as_ptr(), palavras.len() as i64, cid, forma) };
+                    dartforge_arc_collect();
+                    assert_eq!(dartforge_arc_observar_heap_v1(lista), 3);
+                    HEAP.with(|h| {
+                        let heap = h.borrow();
+                        let dados = heap.lista_dados(lista);
+                        assert_eq!(&heap.palavras(dados)[1..1 + palavras.len()], &palavras);
+                    });
+                    dartforge_arc_release(lista);
+                    dartforge_arc_collect();
+                    assert_eq!(dartforge_arc_observar_heap_v1(lista), 0);
+                }
+            }
+            HEAP.with(|h| { h.replace(anterior); });
+        }
+    }
 }

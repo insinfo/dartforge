@@ -90,6 +90,8 @@ fn primeiro_invalido(
                 true
             }
             Instruction::Const(Constant::String(_) | Constant::StringWtf8(_)) => true,
+            // A fábrica enraíza os elementos antes de alocar e não reentra Dart.
+            Instruction::AllocList { .. } => true,
             _ => {
                 let invalida = !super::puros::conferir(*v, inst, ty, &tipos)?;
                 if invalida {

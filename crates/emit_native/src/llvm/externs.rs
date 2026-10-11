@@ -923,6 +923,10 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
+        decl: "declare i64 @dartforge_arc_lista_nova_owned_v1(ptr, i64, i64, i64) nounwind",
+        efeitos: ALOCA_SEM_LANCAR,
+    },
+    Extern {
         // (lista, Ref): o `add` que cresce o armazenamento (P3).
         decl: "declare i64 @dartforge_lista_acrescentar(i64, i64) nounwind",
         efeitos: ALOCA_SEM_LANCAR,

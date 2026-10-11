@@ -18,6 +18,9 @@ import tempfile
 
 
 PROVAS = {
+    "arc_literal_listas": ("prova-literal-listas", False, [
+        ("normal", None), ("normal", "sem-owner"), ("normal", "sem-liberar"),
+    ]),
     "arc_armazenamento_listas": ("prova-armazenamento-listas", False, [
         ("normal", None), ("normal", "sem-retencao"), ("normal", "sem-liberar"),
         ("--crescer", None), ("--crescer", "sem-retencao"), ("--crescer", "sem-liberar"),

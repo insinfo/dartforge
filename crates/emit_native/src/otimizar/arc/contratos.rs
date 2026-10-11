@@ -834,6 +834,37 @@ fn produzir(
             return Err(format!("v{} repetido", v.0));
         }
         if incluir_arc {
+            if let Instruction::AllocList { elements } = inst {
+                if *ty != Type::Ref { return Err(format!("v{}: literal de lista exige resultado Ref", v.0)); }
+                for (op, _) in elements {
+                    // As pistas de tags não certificam representação. A emissão
+                    // deriva as tags dos tipos reais e monta buffers locais.
+                    let t = match op {
+                        Operand::Val(arg) => tipos.get(arg).copied(),
+                        Operand::Constant(Constant::Int(_)) => Some(Type::I64),
+                        Operand::Constant(Constant::Double(_)) => Some(Type::F64),
+                        Operand::Constant(Constant::Bool(_)) => Some(Type::I1),
+                        Operand::Constant(Constant::Null | Constant::String(_) | Constant::StringWtf8(_)) => Some(Type::Ref),
+                        Operand::Constant(Constant::Funcao(_)) => None,
+                    };
+                    if !matches!(t, Some(Type::Ref | Type::I64 | Type::F64 | Type::I1)) {
+                        return Err(format!("v{}: elemento de lista sem representação Dart auditada", v.0));
+                    }
+                }
+                let c = contrato_chamada_runtime(&Instruction::CallRuntime {
+                    name: "dartforge_arc_lista_nova_owned_v1".into(),
+                    args: vec![(Operand::Val(ValueId(0)), Type::Ptr),
+                        (Operand::Constant(Constant::Int(elements.len() as i64)), Type::I64),
+                        (Operand::Constant(Constant::Int(10)), Type::I64),
+                        (Operand::Constant(Constant::Int(0)), Type::I64)],
+                    ret_ty: Type::Ref,
+                })?;
+                if classes.get(v).is_some_and(|classe| *classe != c.resultado)
+                    || plano.instrucoes.get(v).is_some_and(|e| *e != c.efeito) {
+                    return Err(format!("v{}: contrato conflitante de literal de lista", v.0));
+                }
+                contratos.insert(*v, c);
+            }
             if let Instruction::Box { op, from } = inst && from.e_vetor() {
                 if *ty != Type::Ref || !matches!(op, Operand::Val(v) if tipos.get(v) == Some(from)) {
                     return Err(format!("v{}: caixa SIMD exige vetor de mesmo tipo", v.0));

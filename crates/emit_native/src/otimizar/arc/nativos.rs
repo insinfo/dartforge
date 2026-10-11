@@ -42,6 +42,47 @@ mod testes {
     use std::collections::HashMap;
 
     #[test]
+    fn literal_produz_owner_por_tipos_reais_e_recusa_abi_incompativel() {
+        for caso in 0..8 {
+            let mut m = Module::new();
+            m.memoria_arc = caso != 7;
+            let t = match caso { 2 => Type::Ptr, 3 => Type::V4I32, 4 => Type::I8, _ => Type::Ref };
+            let mut elements = if caso == 0 { vec![] } else { vec![(Operand::Val(ValueId(0)), 255),
+                (Operand::Constant(Constant::Int(i64::MAX)), 255),
+                (Operand::Constant(Constant::Double(-0.0)), 255),
+                (Operand::Constant(Constant::Bool(true)), 255)] };
+            if caso == 5 { elements.push((Operand::Constant(Constant::Funcao("alvo".into())), 1)); }
+            m.functions.push(Function { symbol: "literal".into(), name: "literal".into(), depuracao: None,
+                params: vec![(ValueId(0), "elemento".into(), t)], return_ty: Type::Ref,
+                blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![(ValueId(1),
+                    Instruction::AllocList { elements }, if caso == 6 { Type::I64 } else { Type::Ref })],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }] });
+            let mut p = PlanoFuncaoDart::default();
+            p.tokens.retorno = RetornoTokens::Owned;
+            let mut planos = HashMap::from([("literal".into(), p)]);
+            let antes = format!("{m:?}");
+            let ps = planos.clone();
+            let r = preparar_arc_modulo_dart(&mut m, &mut planos);
+            if caso < 2 {
+                r.unwrap();
+                assert_eq!(planos["literal"].classes[&ValueId(1)], Ownership::Owned);
+                let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+                assert!(ir.contains("call i64 @dartforge_arc_lista_nova_owned_v1(ptr %list_buf_1"));
+                if caso == 1 { assert!(ir.contains("store i8 3") && ir.contains("store i8 4")); }
+                assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+            } else {
+                if caso == 7 {
+                    assert_eq!(r.unwrap(), (0, 0));
+                    let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+                    assert!(ir.contains("call i64 @dartforge_lista_nova(ptr %list_buf_1"));
+                } else { assert!(r.is_err(), "caso {caso}"); }
+                assert_eq!(format!("{m:?}"), antes);
+                assert_eq!(planos, ps);
+            }
+        }
+    }
+
+    #[test]
     fn phi_null_aguarda_join_owned_e_recusa_premissa_trivial_incompativel() {
         for caso in 0..3 {
             let val = |n| Operand::Val(ValueId(n));
