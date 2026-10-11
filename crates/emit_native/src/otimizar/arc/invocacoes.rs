@@ -8,10 +8,31 @@ pub(super) fn preparar(
     plano: &mut PlanoFuncaoDart,
     nao_lancam: &HashSet<String>,
 ) -> Result<(), String> {
+    // O lowering de checagem já escolheu catch/finally e a continuação.
+    // Reconhecer a forma exata conserva esse CFG como pending, sem inventar
+    // invoke LLVM nem substituir o tratador por propagação da exceção.
+    super::ssa::verificar(f)?;
+    let mut pendencias = HashMap::new();
+    for b in &f.blocks {
+        let Terminator::CondBranch { then_block, .. } = b.terminator else { continue };
+        let Some((v, Instruction::CallStatic { symbol, .. }, _)) = b.instructions
+            .len().checked_sub(3).map(|i| &b.instructions[i]) else { continue };
+        if nao_lancam.contains(symbol) || plano.tabelas.invocacoes.contains_key(v) {
+            continue;
+        }
+        if super::classificacao::conferir_pendencia(b, *v, then_block).is_some() {
+            if plano.tokens.pendencias.get(v).is_some_and(|anterior| *anterior != then_block) {
+                return Err(format!("{}: v{}: saída pending conflita com CFG", f.symbol, v.0));
+            }
+            pendencias.insert(*v, then_block);
+        }
+    }
+    plano.tokens.pendencias.extend(pendencias);
     let ausente = |v: &ValueId, inst: &Instruction| {
         matches!(inst,
         Instruction::CallStatic { symbol, .. }
-        if !nao_lancam.contains(symbol) && !plano.tabelas.invocacoes.contains_key(v))
+        if !nao_lancam.contains(symbol) && !plano.tabelas.invocacoes.contains_key(v)
+            && !plano.tokens.pendencias.contains_key(v))
     };
     if !f
         .blocks
@@ -35,7 +56,6 @@ pub(super) fn preparar(
             f.symbol
         ));
     }
-    super::ssa::verificar(f)?;
     let pilhas = super::escopos::pilhas_nas_chamadas(f, &plano.escopos)?;
     let mut proximo = f
         .blocks
@@ -64,7 +84,8 @@ pub(super) fn preparar(
         let mut atual = indice;
         for (v, inst, ty) in instrucoes {
             let dividir = matches!(&inst, Instruction::CallStatic { symbol, .. }
-                if !nao_lancam.contains(symbol) && !plano.tabelas.invocacoes.contains_key(&v));
+                if !nao_lancam.contains(symbol) && !plano.tabelas.invocacoes.contains_key(&v)
+                    && !plano.tokens.pendencias.contains_key(&v));
             f.blocks[atual].instructions.push((v, inst, ty));
             if !dividir {
                 continue;
@@ -381,6 +402,80 @@ mod testes {
             );
             assert_eq!(format!("{funcoes:?}"), antes);
             assert_eq!(format!("{planos:?}"), planos_antes);
+        }
+    }
+
+    #[test]
+    fn pending_dart_preserva_catch_e_resultado_so_existe_no_sucesso() {
+        for caso in 0..7 {
+            let (mut funcoes, mut planos) = conjunto();
+            let caller = &mut funcoes[0];
+            caller.blocks[0].instructions.pop();
+            caller.blocks[0].instructions.extend([
+                (ValueId(3), Instruction::CallRuntime {
+                    name: "dartforge_exception_pending".into(),
+                    args: vec![], ret_ty: if caso == 2 { Type::I64 } else { Type::I8 },
+                }, if caso == 2 { Type::I64 } else { Type::I8 }),
+                (ValueId(4), Instruction::ICmp(
+                    if caso == 1 { ICmpOp::Eq } else { ICmpOp::Ne },
+                    Operand::Val(ValueId(3)), Operand::Constant(Constant::Int(0)),
+                ), Type::I1),
+            ]);
+            caller.blocks[0].terminator = Terminator::CondBranch {
+                cond: Operand::Val(ValueId(4)), then_block: BlockId(2), else_block: BlockId(1),
+            };
+            caller.blocks.extend([
+                BasicBlock { id: BlockId(1), instructions: vec![],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))) },
+                BasicBlock { id: BlockId(2), instructions: vec![
+                    (ValueId(5), Instruction::CallRuntime {
+                        name: "dartforge_exception_clear".into(), args: vec![], ret_ty: Type::Void,
+                    }, Type::Void),
+                ], terminator: Terminator::Return(Some(if caso == 3 {
+                    Operand::Val(ValueId(2))
+                } else { Operand::Constant(Constant::Null) })) },
+            ]);
+            if caso == 4 {
+                planos.get_mut("caller").unwrap().tokens.pendencias.insert(ValueId(2), BlockId(1));
+            }
+            let mut m = Module::new();
+            m.memoria_arc = caso != 5;
+            m.functions = funcoes;
+            if caso == 6 { m.functions.reverse(); }
+            let antes = format!("{m:?}/{planos:?}");
+            let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
+            if (1..5).contains(&caso) {
+                assert!(resultado.is_err(), "caso {caso}");
+                assert_eq!(format!("{m:?}/{planos:?}"), antes);
+                continue;
+            }
+            if caso == 5 {
+                assert_eq!(resultado.unwrap(), (0, 0));
+                assert_eq!(format!("{m:?}/{planos:?}"), antes);
+                continue;
+            }
+            resultado.unwrap();
+            let p = &planos["caller"];
+            assert_eq!(p.tokens.pendencias[&ValueId(2)], BlockId(2));
+            assert!(p.tabelas.invocacoes.is_empty());
+            assert!(p.tabelas.pousos.is_empty());
+            assert!(!m.excecoes_por_tabelas);
+            assert!(m.tabelas.is_empty());
+            let caller = m.functions.iter().find(|f| f.symbol == "caller").unwrap();
+            assert!(matches!(&caller.blocks[0].terminator,
+                Terminator::CondBranch { cond: Operand::Val(ValueId(4)), then_block: BlockId(2), .. }));
+            let catch = caller.blocks.iter().find(|b| b.id == BlockId(2)).unwrap();
+            assert!(catch.instructions.iter().any(|(_, i, _)| matches!(i,
+                Instruction::CallRuntime { name, .. } if name == "dartforge_exception_clear")));
+            assert!(catch.instructions.iter().any(|(_, i, _)| matches!(i,
+                Instruction::ArcDrop { value: Operand::Val(ValueId(1)) })));
+            assert!(!catch.instructions.iter().any(|(_, i, _)| matches!(i,
+                Instruction::ArcDrop { value: Operand::Val(ValueId(2)) })));
+            assert!(matches!(catch.terminator,
+                Terminator::Return(Some(Operand::Constant(Constant::Null)))));
+            let verificado = format!("{m:?}/{planos:?}");
+            assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+            assert_eq!(format!("{m:?}/{planos:?}"), verificado);
         }
     }
 

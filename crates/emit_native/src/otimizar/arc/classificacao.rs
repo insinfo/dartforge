@@ -343,7 +343,8 @@ pub(super) fn conferir_pendencia(b: &BasicBlock, call: ValueId, erro: BlockId) -
     if *v != call
         || !matches!(
             chamada,
-            Instruction::CallRuntime { .. } | Instruction::Unbox { to: Type::I1, .. }
+            Instruction::CallRuntime { .. } | Instruction::CallStatic { .. }
+                | Instruction::Unbox { to: Type::I1, .. }
         )
         || *ty_p != Type::I8
         || *ty_c != Type::I1
