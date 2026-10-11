@@ -435,6 +435,7 @@ fn baixar_funcoes(ctx: &Context, module: &mut Module, funcoes: &[usize]) {
         module.parametros_vetores_dart.extend(m.parametros_vetores_dart);
         module.retornos_uniformes_arc.extend(m.retornos_uniformes_arc);
         module.caches_rti_arc.extend(m.caches_rti_arc);
+        module.funcoes_compartilhadas_arc.extend(m.funcoes_compartilhadas_arc);
         module.retornos_ref_dart.extend(m.retornos_ref_dart);
         module.sitios_arc.extend(m.sitios_arc);
         module.globais.extend(m.globais);

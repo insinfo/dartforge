@@ -16,7 +16,7 @@ use std::collections::{HashMap, HashSet};
 /// plano.tokens.retorno = RetornoTokens::Owned;
 /// assert!(plano.classes.is_empty());
 /// ```
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PlanoFuncaoDart {
     /// Classificações semânticas fornecidas; os produtores completam cobertura.
     pub classes: HashMap<ValueId, Ownership>,

@@ -349,6 +349,7 @@ pub fn podar(module: &mut Module) {
     module.parametros_rti_dart.retain(|simbolo, _| vivos.contains(simbolo));
     module.parametros_vetores_dart.retain(|simbolo, _| vivos.contains(simbolo));
     module.retornos_uniformes_arc.retain(|simbolo| vivos.contains(simbolo));
+    module.funcoes_compartilhadas_arc.retain(|simbolo| vivos.contains(simbolo));
     module.retornos_ref_dart.retain(|simbolo| vivos.contains(simbolo));
     module.sitios_arc.retain(|simbolo, _| vivos.contains(simbolo));
     for (dono, erros) in std::mem::take(&mut module.erros_da_fonte) {

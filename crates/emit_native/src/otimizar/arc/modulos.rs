@@ -8,7 +8,8 @@ use super::*;
 /// SDK já emitido é presumido Owned: os corpos preparados devem ser os emitidos.
 /// Preserva a distribuição das funções, globais e demais metadados de cada
 /// módulo. Publica somente corpos, tabelas verificadas e planos após sucesso do
-/// conjunto inteiro. Símbolos de funções/globais precisam ser distintos; layouts
+/// conjunto inteiro. Cópias compartilhadas exigem declaração, corpo/contratos
+/// iguais e ausência de globais; demais símbolos precisam ser distintos. Layouts
 /// compartilhados precisam coincidir. Tracing é uma operação sem alterações.
 /// Não integra o pipeline nem certifica dispatch indireto, callbacks ou recarga.
 ///
@@ -57,10 +58,11 @@ pub fn preparar_arc_modulos_dart(
     conjunto.memoria_arc = true;
     conjunto.excecoes_por_tabelas = primeiro.excecoes_por_tabelas;
     let mut novos = HashMap::new();
-    let mut simbolos = HashSet::new();
+    let mut simbolos = HashMap::<String, (usize, usize, usize)>::new();
+    let mut distribuicao = Vec::new();
     let mut globais = HashSet::new();
     let mut classes = HashMap::<u32, usize>::new();
-    for (m, p) in modulos.iter().zip(planos.iter()) {
+    for (indice_modulo, (m, p)) in modulos.iter().zip(planos.iter()).enumerate() {
         let locais: HashSet<_> = m.functions.iter().map(|f| &f.symbol).collect();
         if locais.len() != m.functions.len()
             || locais.len() != p.len()
@@ -75,17 +77,82 @@ pub fn preparar_arc_modulos_dart(
             .chain(m.parametros_vetores_dart.keys())
             .chain(m.retornos_ref_dart.iter())
             .chain(m.retornos_uniformes_arc.iter())
+            .chain(m.funcoes_compartilhadas_arc.iter())
             .chain(m.sitios_arc.keys());
         for s in fatos {
             if !locais.contains(s) {
                 return Err(format!("módulos ARC: fato fora do módulo de {s}"));
             }
         }
-        for f in &m.functions {
-            if !simbolos.insert(f.symbol.clone()) {
-                return Err(format!("módulos ARC: função repetida {}", f.symbol));
+        let mut indices = Vec::new();
+        for (indice_funcao, f) in m.functions.iter().enumerate() {
+            if let Some(&(anterior_modulo, anterior_funcao, privado)) = simbolos.get(&f.symbol) {
+                let anterior = &modulos[anterior_modulo];
+                if !m.modo_sdk
+                    || !anterior.modo_sdk
+                    || !m.funcoes_compartilhadas_arc.contains(&f.symbol)
+                    || !anterior.funcoes_compartilhadas_arc.contains(&f.symbol)
+                {
+                    return Err(format!("módulos ARC: função repetida {}", f.symbol));
+                }
+                let iguais = format!("{:?}", anterior.functions[anterior_funcao])
+                    == format!("{f:?}")
+                    && planos[anterior_modulo][&f.symbol] == p[&f.symbol]
+                    && anterior.parametros_escalares_dart.get(&f.symbol)
+                        == m.parametros_escalares_dart.get(&f.symbol)
+                    && anterior.parametros_rti_dart.get(&f.symbol)
+                        == m.parametros_rti_dart.get(&f.symbol)
+                    && anterior.parametros_vetores_dart.get(&f.symbol)
+                        == m.parametros_vetores_dart.get(&f.symbol)
+                    && anterior.retornos_ref_dart.contains(&f.symbol)
+                        == m.retornos_ref_dart.contains(&f.symbol)
+                    && anterior.retornos_uniformes_arc.contains(&f.symbol)
+                        == m.retornos_uniformes_arc.contains(&f.symbol)
+                    && anterior.sitios_arc.get(&f.symbol) == m.sitios_arc.get(&f.symbol)
+                    && anterior.biblioteca_sdk == m.biblioteca_sdk;
+                if !iguais {
+                    return Err(format!(
+                        "módulos ARC: corpo/contratos compartilhados divergentes {}",
+                        f.symbol
+                    ));
+                }
+                if f.blocks
+                    .iter()
+                    .flat_map(|b| &b.instructions)
+                    .any(|(_, i, _)| {
+                        matches!(
+                            i,
+                            Instruction::LoadGlobal { .. } | Instruction::StoreGlobal { .. }
+                        )
+                    })
+                {
+                    return Err(format!(
+                        "módulos ARC: dependência de área global compartilhada não certificada {}",
+                        f.symbol
+                    ));
+                }
+                if conjunto.excecoes_por_tabelas
+                    && anterior.tabelas.get(anterior_funcao) != m.tabelas.get(indice_funcao)
+                {
+                    return Err(format!(
+                        "módulos ARC: tabelas compartilhadas divergentes {}",
+                        f.symbol
+                    ));
+                }
+                indices.push(privado);
+            } else {
+                let privado = conjunto.functions.len();
+                simbolos.insert(f.symbol.clone(), (indice_modulo, indice_funcao, privado));
+                conjunto.functions.push(f.clone());
+                if conjunto.excecoes_por_tabelas {
+                    if let Some(t) = m.tabelas.get(indice_funcao) {
+                        conjunto.tabelas.push(t.clone());
+                    }
+                }
+                indices.push(privado);
             }
         }
+        distribuicao.push(indices);
         for g in &m.globais {
             if !globais.insert(g.2.clone()) || !globais.insert(format!("{}$ok", g.2)) {
                 return Err(format!("módulos ARC: global sobreposto {}", g.2));
@@ -127,8 +194,7 @@ pub fn preparar_arc_modulos_dart(
         if conjunto.excecoes_por_tabelas && m.functions.len() != m.tabelas.len() {
             return Err("módulos ARC: inventário excepcional local incompleto".into());
         }
-        conjunto.functions.extend(m.functions.clone());
-        conjunto.tabelas.extend(m.tabelas.clone());
+
         conjunto.globais.extend(m.globais.clone());
         conjunto
             .parametros_escalares_dart
@@ -146,6 +212,9 @@ pub fn preparar_arc_modulos_dart(
             .retornos_uniformes_arc
             .extend(m.retornos_uniformes_arc.clone());
         conjunto.caches_rti_arc.extend(m.caches_rti_arc.clone());
+        conjunto
+            .funcoes_compartilhadas_arc
+            .extend(m.funcoes_compartilhadas_arc.clone());
         conjunto.sitios_arc.extend(m.sitios_arc.clone());
         novos.extend(p.clone());
     }
@@ -156,18 +225,19 @@ pub fn preparar_arc_modulos_dart(
     };
     // Nenhuma operação abaixo pode reprovar: todos os símbolos, quantidades e
     // tabelas foram validados. Distribuição e ordem pertencem aos módulos reais.
-    let mut inicio = 0;
-    for (m, p) in modulos.iter_mut().zip(planos.iter_mut()) {
-        let fim = inicio + m.functions.len();
-        m.functions
-            .clone_from_slice(&conjunto.functions[inicio..fim]);
+    for ((m, p), indices) in modulos.iter_mut().zip(planos.iter_mut()).zip(distribuicao) {
+        for (f, indice) in m.functions.iter_mut().zip(&indices) {
+            *f = conjunto.functions[*indice].clone();
+        }
         if conjunto.excecoes_por_tabelas {
-            m.tabelas = conjunto.tabelas[inicio..fim].to_vec();
+            m.tabelas = indices
+                .iter()
+                .map(|i| conjunto.tabelas[*i].clone())
+                .collect();
         }
         for (s, plano) in p {
             *plano = novos[s].clone();
         }
-        inicio = fim;
     }
     Ok(resultado)
 }
@@ -175,6 +245,123 @@ pub fn preparar_arc_modulos_dart(
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn compartilhamento_exige_declaracao_corpo_contratos_e_dependencias_compativeis() {
+        for caso in 0..11 {
+            let (mut ms, mut ps) = entrada();
+            let mut copia = Module::new();
+            copia.memoria_arc = true;
+            copia.functions.push(ms[1].functions[0].clone());
+            copia.retornos_ref_dart.insert("biblioteca".into());
+            ms.push(copia);
+            ps.push(ps[1].clone());
+            for m in &mut ms {
+                m.modo_sdk = true;
+                if m.functions[0].symbol == "biblioteca" {
+                    m.funcoes_compartilhadas_arc.insert("biblioteca".into());
+                }
+            }
+            match caso {
+                1 => ms[2].funcoes_compartilhadas_arc.clear(),
+                2 => ms[1].modo_sdk = false,
+                3 => ms[2].functions[0].params[0].1 = "outro".into(),
+                4 => ps[2].get_mut("biblioteca").unwrap().tokens.retorno = RetornoTokens::Borrowed,
+                5 => {
+                    for m in &mut ms[1..] {
+                        m.functions[0].blocks[0].instructions.push((
+                            ValueId(1),
+                            Instruction::LoadGlobal {
+                                simbolo: "cache".into(),
+                                ty: Type::I64,
+                            },
+                            Type::I64,
+                        ));
+                    }
+                }
+                6 => {
+                    for m in &mut ms {
+                        m.memoria_arc = false;
+                        m.funcoes_compartilhadas_arc.insert("obsoleto".into());
+                    }
+                }
+                7 => {
+                    ms[2].funcoes_compartilhadas_arc.insert("obsoleto".into());
+                }
+                8 => ms[2].retornos_ref_dart.clear(),
+                9 => {
+                    ps[2]
+                        .get_mut("biblioteca")
+                        .unwrap()
+                        .classes
+                        .insert(ValueId(0), Ownership::Trivial);
+                }
+                10 => {
+                    for m in &mut ms {
+                        m.excecoes_por_tabelas = true;
+                        m.tabelas.push(TabelasDaFuncao::default());
+                    }
+                }
+                _ => {}
+            }
+            let antes = format!("{ms:?}/{ps:?}");
+            let r = preparar_arc_modulos_dart(&mut ms, &mut ps);
+            if matches!(caso, 0 | 6 | 10) {
+                assert_eq!(r.unwrap(), if caso == 6 { (0, 0) } else { (1, 2) });
+                if caso == 6 {
+                    assert_eq!(format!("{ms:?}/{ps:?}"), antes);
+                    continue;
+                }
+                assert_eq!(
+                    format!("{:?}", ms[1].functions),
+                    format!("{:?}", ms[2].functions)
+                );
+                assert_eq!(ps[1], ps[2]);
+                let depois = format!("{ms:?}/{ps:?}");
+                assert_eq!(preparar_arc_modulos_dart(&mut ms, &mut ps).unwrap(), (0, 0));
+                assert_eq!(format!("{ms:?}/{ps:?}"), depois);
+            } else {
+                assert!(r.is_err(), "caso {caso}: {r:?}");
+                assert_eq!(format!("{ms:?}/{ps:?}"), antes, "caso {caso}");
+            }
+        }
+    }
+
+    #[test]
+    fn ligacao_arc_usa_declaracao_em_vez_do_nome_do_simbolo() {
+        for arc in [false, true] {
+            let mut m = Module::new();
+            m.modo_sdk = true;
+            m.memoria_arc = arc;
+            for s in ["dfc.nome_nao_certifica", "nome_sem_prefixo"] {
+                m.functions.push(Function {
+                    symbol: s.into(),
+                    name: s.into(),
+                    params: vec![],
+                    return_ty: Type::Void,
+                    depuracao: None,
+                    blocks: vec![BasicBlock {
+                        id: BlockId(0),
+                        instructions: vec![],
+                        terminator: Terminator::Return(None),
+                    }],
+                });
+            }
+            m.funcoes_compartilhadas_arc
+                .insert("nome_sem_prefixo".into());
+            let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+            assert_eq!(
+                ir.contains("define linkonce_odr void @nome_sem_prefixo("),
+                arc,
+                "{ir}"
+            );
+            assert_eq!(
+                ir.contains("define linkonce_odr void @dfc.nome_nao_certifica("),
+                !arc,
+                "{ir}"
+            );
+        }
+    }
 
     #[test]
     fn entrada_uniforme_encaminha_descritor_entre_modulos_sem_publica_lo() {

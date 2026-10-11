@@ -1062,6 +1062,9 @@ pub struct Module {
     /// Caches de IDs nativos RTI declarados pelo lowering, com flag implícita `$ok`.
     /// Todas as escritas e representações exigem conferência antes de produzir contratos.
     pub caches_rti_arc: std::collections::HashSet<String>,
+    /// Definições compartilháveis declaradas nominalmente pelo produtor ARC.
+    /// Não certifica equivalência das cópias nem dependências da emissão.
+    pub funcoes_compartilhadas_arc: std::collections::HashSet<String>,
     /// Origem nominal pré-otimização das alocações reconhecidas do lowering ARC.
     /// IDs SSA indexam a versão atual; cópias do inliner conservam o sítio de
     /// origem. Contextos especializados e dependências de recarga ainda faltam.

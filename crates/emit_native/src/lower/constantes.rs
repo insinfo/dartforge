@@ -386,6 +386,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let getter = format!("{simbolo_valor}.get");
         if !self.entradas_feitas.contains(&getter) {
             self.entradas_feitas.insert(getter.clone());
+            if self.ctx.memoria_arc { self.funcoes_compartilhadas_arc.insert(getter.clone()); }
             let raiz = 0x4000_0000 | (hash as u32 & 0x3fff_ffff);
             self.globais_extras.push((raiz, Type::Ref, simbolo_valor.clone()));
             let mut g = FnBuilder::new(self.ctx, self.unit_id, getter.clone(), "const".to_string(), Type::Ref);
@@ -461,6 +462,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let getter = format!("{simbolo_valor}.get");
         if !self.entradas_feitas.contains(&getter) {
             self.entradas_feitas.insert(getter.clone());
+            if self.ctx.memoria_arc { self.funcoes_compartilhadas_arc.insert(getter.clone()); }
             let hash = super::closures::hash_nome(simbolo_valor) as u64;
             let raiz = 0x4000_0000 | (hash as u32 & 0x3fff_ffff);
             self.globais_extras.push((raiz, Type::Ref, simbolo_valor.to_string()));

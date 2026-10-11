@@ -61,7 +61,7 @@ pub enum RetornoTokens {
 /// assert!(PlanoTokens::default().instrucoes.is_empty());
 /// assert!(PlanoTokens::default().pendencias.is_empty());
 /// ```
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PlanoTokens {
     /// Efeitos exatos antes do resultado e nas saídas de invoke/pendência.
     pub instrucoes: HashMap<ValueId, EfeitoTokens>,

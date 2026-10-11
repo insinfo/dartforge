@@ -1247,6 +1247,7 @@ pub fn podar_hir(m: &mut crate::hir::Module, sdk: &[&Resumo]) -> PodaDaHir {
     m.parametros_rti_dart.retain(|simbolo, _| !removidas.contains(simbolo));
     m.parametros_vetores_dart.retain(|simbolo, _| !removidas.contains(simbolo));
     m.retornos_uniformes_arc.retain(|simbolo| !removidas.contains(simbolo));
+    m.funcoes_compartilhadas_arc.retain(|simbolo| !removidas.contains(simbolo));
     // O par de tabela cujo seletor ninguém chama sai, e o da função que saiu
     // também (a entrada de um par vivo é sempre alcançada).
     for (_, _, pares) in &mut m.tabelas_de_metodos {
@@ -1420,6 +1421,7 @@ mod testes {
         m.parametros_vetores_dart.insert("f".into(), Default::default());
         m.parametros_vetores_dart.insert("g".into(), Default::default());
         m.retornos_uniformes_arc.extend(["f".into(), "g".into()]);
+        m.funcoes_compartilhadas_arc.extend(["f".into(), "g".into()]);
         let e = podar_hir(&mut m, &[]);
         assert!(m.parametros_escalares_dart.contains_key("f"));
         assert!(!m.parametros_escalares_dart.contains_key("g"));
@@ -1429,6 +1431,8 @@ mod testes {
         assert!(!m.parametros_vetores_dart.contains_key("g"));
         assert!(m.retornos_uniformes_arc.contains("f"));
         assert!(!m.retornos_uniformes_arc.contains("g"));
+        assert!(m.funcoes_compartilhadas_arc.contains("f"));
+        assert!(!m.funcoes_compartilhadas_arc.contains("g"));
         let nomes: Vec<&str> = m.functions.iter().map(|f| f.symbol.as_str()).collect();
         assert_eq!(nomes, vec!["dart_main", "f", "P.usado$c"], "{e:?}");
         assert_eq!(m.tabelas_de_metodos[0].2, vec![("c:usado".to_string(), "P.usado$c".to_string())]);
@@ -1441,6 +1445,7 @@ mod testes {
         m.parametros_rti_dart.insert("df.dart$3acore.morto".into(), HashSet::new());
         m.parametros_vetores_dart.insert("df.dart$3acore.morto".into(), Default::default());
         m.retornos_uniformes_arc.insert("df.dart$3acore.morto".into());
+        m.funcoes_compartilhadas_arc.insert("df.dart$3acore.morto".into());
         crate::fonte::podar(&mut m);
         assert!(m.parametros_escalares_dart.contains_key("f"));
         assert!(!m.parametros_escalares_dart.contains_key("df.dart$3acore.morto"));
@@ -1449,6 +1454,7 @@ mod testes {
         assert!(!m.parametros_vetores_dart.contains_key("df.dart$3acore.morto"));
         assert!(m.retornos_uniformes_arc.contains("f"));
         assert!(!m.retornos_uniformes_arc.contains("df.dart$3acore.morto"));
+        assert!(!m.funcoes_compartilhadas_arc.contains("df.dart$3acore.morto"));
     }
 
     #[test]

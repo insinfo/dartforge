@@ -550,6 +550,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.parametros_vetores_dart.extend(b.parametros_vetores_dart);
         self.retornos_uniformes_arc.extend(b.retornos_uniformes_arc);
         self.caches_rti_arc.extend(b.caches_rti_arc);
+        self.funcoes_compartilhadas_arc.extend(b.funcoes_compartilhadas_arc);
         self.extra_functions.push(b.func);
         self.extra_functions.extend(b.extra_functions);
     }
@@ -962,6 +963,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn tearoff_de_funcao(&mut self, fid: usize) -> Operand {
         let alvo = super::simbolo_de(self.ctx, fid);
         let simbolo_ent = format!("{alvo}$tear");
+        if self.ctx.memoria_arc { self.funcoes_compartilhadas_arc.insert(simbolo_ent.clone()); }
         if !self.entradas_feitas.contains(&simbolo_ent) {
             self.entradas_feitas.insert(simbolo_ent.clone());
             let infos = self.params_da_funcao(fid);
@@ -1012,6 +1014,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn tearoff_de_metodo(&mut self, recv: Operand, fid: usize, span: Span) -> Operand {
         let alvo = super::simbolo_de(self.ctx, fid);
         let simbolo_ent = format!("{alvo}$tearm");
+        if self.ctx.memoria_arc { self.funcoes_compartilhadas_arc.insert(simbolo_ent.clone()); }
         if !self.entradas_feitas.contains(&simbolo_ent) {
             self.entradas_feitas.insert(simbolo_ent.clone());
             let infos = self.params_da_funcao(fid);
@@ -1436,6 +1439,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn tearoff_de_construtor(&mut self, fid: usize, span: Span) -> Operand {
         let alvo = super::simbolo_de(self.ctx, fid);
         let simbolo_ent = format!("{alvo}$tear");
+        if self.ctx.memoria_arc { self.funcoes_compartilhadas_arc.insert(simbolo_ent.clone()); }
         if !self.entradas_feitas.contains(&simbolo_ent) {
             self.entradas_feitas.insert(simbolo_ent.clone());
             let infos = self.params_da_funcao(fid);

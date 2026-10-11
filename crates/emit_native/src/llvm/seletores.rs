@@ -320,8 +320,11 @@ impl LlvmEmitter<'_> {
         if !self.module.modo_sdk {
             return ("", String::new());
         }
-        let compartilhado =
-            simbolo.ends_with("$tear") || simbolo.ends_with("$tearm") || simbolo.starts_with("dfc.");
+        let compartilhado = if self.module.memoria_arc {
+            self.module.funcoes_compartilhadas_arc.contains(simbolo)
+        } else {
+            simbolo.ends_with("$tear") || simbolo.ends_with("$tearm") || simbolo.starts_with("dfc.")
+        };
         if !compartilhado {
             return ("", String::new());
         }

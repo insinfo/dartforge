@@ -1567,6 +1567,7 @@ pub fn lower_funcao_ou_recusa(ctx: &Context, module: &mut Module, fid: usize) {
         module.parametros_vetores_dart.extend(m.parametros_vetores_dart);
         module.retornos_uniformes_arc.extend(m.retornos_uniformes_arc);
         module.caches_rti_arc.extend(m.caches_rti_arc);
+        module.funcoes_compartilhadas_arc.extend(m.funcoes_compartilhadas_arc);
             module.globais.extend(m.globais);
         }
         (_, Some(motivo)) => {
@@ -1844,6 +1845,7 @@ fn adaptadores_ou_recusa(ctx: &Context, module: &mut Module, gerar: impl FnOnce(
         module.parametros_vetores_dart.extend(m.parametros_vetores_dart);
         module.retornos_uniformes_arc.extend(m.retornos_uniformes_arc);
         module.caches_rti_arc.extend(m.caches_rti_arc);
+        module.funcoes_compartilhadas_arc.extend(m.funcoes_compartilhadas_arc);
         module.globais.extend(m.globais);
         return;
     }
@@ -1917,6 +1919,7 @@ pub fn lower_getter_late_ou_recusa(
         module.parametros_vetores_dart.extend(m.parametros_vetores_dart);
         module.retornos_uniformes_arc.extend(m.retornos_uniformes_arc);
         module.caches_rti_arc.extend(m.caches_rti_arc);
+        module.funcoes_compartilhadas_arc.extend(m.funcoes_compartilhadas_arc);
             module.globais.extend(m.globais);
             return;
         }
@@ -1989,6 +1992,7 @@ pub fn lower_global_ou_recusa(
         module.parametros_vetores_dart.extend(m.parametros_vetores_dart);
         module.retornos_uniformes_arc.extend(m.retornos_uniformes_arc);
         module.caches_rti_arc.extend(m.caches_rti_arc);
+        module.funcoes_compartilhadas_arc.extend(m.funcoes_compartilhadas_arc);
             module.globais.extend(m.globais);
         }
         r => {

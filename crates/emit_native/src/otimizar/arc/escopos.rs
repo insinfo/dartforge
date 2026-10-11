@@ -35,7 +35,7 @@ pub enum AlteracaoEscopo {
 /// let plano = PlanoEscopos::default();
 /// assert!(plano.arestas.is_empty());
 /// ```
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PlanoEscopos {
     /// Alterações antes de uma definição identificada pelo ValueId.
     pub antes: HashMap<ValueId, Vec<AlteracaoEscopo>>,

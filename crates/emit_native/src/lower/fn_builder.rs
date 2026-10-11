@@ -56,6 +56,9 @@ pub struct FnBuilder<'a, 'c> {
     /// Caches de IDs nativos RTI declarados pelo lowering, com flag implícita `$ok`.
     /// Todas as escritas e representações exigem conferência antes de produzir contratos.
     pub caches_rti_arc: std::collections::HashSet<String>,
+    /// Definições compartilháveis declaradas nominalmente pelo produtor ARC.
+    /// Não certifica equivalência das cópias nem dependências da emissão.
+    pub funcoes_compartilhadas_arc: std::collections::HashSet<String>,
     pub break_targets: Vec<BlockId>,
     pub continue_targets: Vec<BlockId>,
     pub this_param: Option<Operand>,
@@ -322,6 +325,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             parametros_vetores_dart: HashMap::new(),
             retornos_uniformes_arc: Default::default(),
             caches_rti_arc: Default::default(),
+            funcoes_compartilhadas_arc: Default::default(),
             break_targets: Vec::new(),
             continue_targets: Vec::new(),
             this_param: None,
@@ -550,6 +554,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         module.parametros_vetores_dart.extend(self.parametros_vetores_dart);
         module.retornos_uniformes_arc.extend(self.retornos_uniformes_arc);
         module.caches_rti_arc.extend(self.caches_rti_arc);
+        module.funcoes_compartilhadas_arc.extend(self.funcoes_compartilhadas_arc);
         module.functions.push(self.func);
         module.functions.extend(self.extra_functions);
     }

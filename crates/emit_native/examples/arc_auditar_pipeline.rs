@@ -90,6 +90,16 @@ fn auditar(entrada: &Path, sdk_no_grupo: bool) -> Result<(), String> {
         let antes = format!("{modulos:?}/{planos:?}");
         let resultado = preparar_arc_modulos_dart(&mut modulos, &mut planos);
         println!("Preparação conjunta com SDK da fonte: {resultado:?}");
+        if let Err(erro) = &resultado {
+            if let Some(s) = erro.strip_prefix("módulos ARC: função repetida ").or_else(|| erro.strip_prefix("módulos ARC: corpo/contratos compartilhados divergentes ")) {
+                for (indice, m) in modulos.iter().enumerate() {
+                    for f in m.functions.iter().filter(|f| f.symbol == s) {
+                        println!("Definição compartilhada no módulo {indice}: {f:#?}");
+                    }
+                }
+            }
+        }
+
         if resultado.is_err() && format!("{modulos:?}/{planos:?}") != antes {
             return Err("preparação conjunta recusada alterou módulos/planos".into());
         }
@@ -211,6 +221,14 @@ fn baixar_sdk_para_auditoria(
             programa.library(lib).uri,
             m.functions.len()
         );
+        // Confere compatibilidade com o conjunto compartilhado pelo emissor
+        // anterior; esses nomes não produzem contratos de ownership.
+        let anteriores: std::collections::HashSet<_> = m.functions.iter()
+            .filter(|f| f.symbol.ends_with("$tear") || f.symbol.ends_with("$tearm") || f.symbol.starts_with("dfc."))
+            .map(|f| f.symbol.clone()).collect();
+        if anteriores != m.funcoes_compartilhadas_arc {
+            return Err(format!("declarações de compartilhamento SDK incompletas em {}", programa.library(lib).uri));
+        }
         modulos.push(m);
     }
     Ok(modulos)

@@ -113,7 +113,7 @@ mod testes_contexto {
             let dir = tempfile::tempdir().unwrap();
             let entrada = dir.path().join("main.dart");
             std::fs::write(&entrada,
-                "int topo() => 7; int Function() criar(int valor) => () => valor; void main() { criar(42)(); topo(); }\n").unwrap();
+                "int topo() => 7; int Function() criar(int valor) => () => valor; const List<int> valores = [1, 2]; void main() { valores; criar(42)(); topo(); }\n").unwrap();
             let sdk = crate::sdk_modulo::carregar_sdk_nativo(crate::sdk_testes()).unwrap();
             let mut interner = Interner::new();
             let (program, diags) = dartforge_elements::load::load_lenient(&entrada, &sdk, None, &mut interner);
@@ -137,6 +137,8 @@ mod testes_contexto {
                     assert!(!m.parametros_vetores_dart.is_empty());
                     assert!(!m.retornos_uniformes_arc.is_empty());
                     assert!(!m.caches_rti_arc.is_empty());
+                    assert!(!m.funcoes_compartilhadas_arc.is_empty());
+                    assert!(m.functions.iter().any(|f| f.name == "const" && m.funcoes_compartilhadas_arc.contains(&f.symbol)));
                     for cache in &m.caches_rti_arc {
                         assert!(m.globais.iter().any(|g| g.0 == 0 && g.1 == Type::I64 && &g.2 == cache));
                     }
@@ -150,7 +152,7 @@ mod testes_contexto {
                             assert_eq!(p.1, match papel { VetorEntradaDart::Argumentos => "args", VetorEntradaDart::Descritor => "desc" });
                         }
                     }
-                } else { assert!(m.parametros_vetores_dart.is_empty()); assert!(m.retornos_uniformes_arc.is_empty()); assert!(m.caches_rti_arc.is_empty()); }
+                } else { assert!(m.parametros_vetores_dart.is_empty()); assert!(m.retornos_uniformes_arc.is_empty()); assert!(m.caches_rti_arc.is_empty()); assert!(m.funcoes_compartilhadas_arc.is_empty()); }
 
                 let mut emprestimos = 0;
                 let mut leituras_cruas = 0;
