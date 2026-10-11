@@ -17,11 +17,12 @@ fn modulo() -> Result<Module, String> {
     m.classes.push(ClassDef {
         id: 32001,
         name: "C".into(),
-        field_count: 1,
+        field_count: 2,
         vtable: vec![],
         to_string_symbol: None,
     });
-    m.layouts_campos_arc.insert(32001, vec![Type::I64]);
+    m.layouts_campos_arc
+        .insert(32001, vec![Type::I64, Type::Ref]);
     m.funcoes_de_tabela.insert(32001, "df.mt.C".into());
     m.tabelas_de_metodos.push((
         32001,
@@ -42,7 +43,7 @@ fn modulo() -> Result<Module, String> {
                     name: "dartforge_object_new".into(),
                     args: vec![
                         (Operand::Constant(Constant::Int(32001)), Type::I64),
-                        (Operand::Constant(Constant::Int(1)), Type::I64),
+                        (Operand::Constant(Constant::Int(2)), Type::I64),
                     ],
                     ret_ty: Type::Ref,
                 },
@@ -74,6 +75,80 @@ fn modulo() -> Result<Module, String> {
             terminator: Terminator::Return(Some(Operand::Val(ValueId(3)))),
         }],
     });
+    // O receptor do construtor é a instância física da fábrica acima. O
+    // primeiro setter deve ser auditado antes de delegar ao corpo base.
+    m.functions[0].blocks[0].instructions.push((
+        ValueId(2),
+        Instruction::Box {
+            op: Operand::Constant(Constant::Int(i64::MAX)),
+            from: Type::I64,
+        },
+        Type::Ref,
+    ));
+    m.functions[0].blocks[0].instructions.push((
+        ValueId(1),
+        Instruction::CallStatic {
+            symbol: "construir".into(),
+            args: vec![Operand::Val(ValueId(0)), Operand::Val(ValueId(2))],
+            ret_ty: Type::Void,
+        },
+        Type::Void,
+    ));
+    m.functions.push(Function {
+        symbol: "construir".into(),
+        name: "construir".into(),
+        depuracao: None,
+        params: vec![
+            (ValueId(0), "this".into(), Type::Ref),
+            (ValueId(1), "filho".into(), Type::Ref),
+        ],
+        return_ty: Type::Void,
+        blocks: vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![
+                (
+                    ValueId(2),
+                    Instruction::SetField {
+                        object: Operand::Val(ValueId(0)),
+                        index: 0,
+                        value: Operand::Constant(Constant::Int(42)),
+                    },
+                    Type::Void,
+                ),
+                (
+                    ValueId(3),
+                    Instruction::SetField {
+                        object: Operand::Val(ValueId(0)),
+                        index: 1,
+                        value: Operand::Val(ValueId(1)),
+                    },
+                    Type::Void,
+                ),
+                (
+                    ValueId(4),
+                    Instruction::CallStatic {
+                        symbol: "base".into(),
+                        args: vec![Operand::Val(ValueId(0))],
+                        ret_ty: Type::Void,
+                    },
+                    Type::Void,
+                ),
+            ],
+            terminator: Terminator::Return(None),
+        }],
+    });
+    m.functions.push(Function {
+        symbol: "base".into(),
+        name: "base".into(),
+        depuracao: None,
+        params: vec![(ValueId(0), "this".into(), Type::Ref)],
+        return_ty: Type::Void,
+        blocks: vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![],
+            terminator: Terminator::Return(None),
+        }],
+    });
     let mut retorno = PlanoFuncaoDart::default();
     retorno.tokens.retorno = RetornoTokens::Owned;
     let mut metodo = retorno.clone();
@@ -82,7 +157,12 @@ fn modulo() -> Result<Module, String> {
         (ValueId(1), Ownership::Trivial),
         (ValueId(2), Ownership::Trivial),
     ]);
-    let mut planos = HashMap::from([("criar".into(), retorno), ("metodo".into(), metodo)]);
+    let mut planos = HashMap::from([
+        ("criar".into(), retorno),
+        ("metodo".into(), metodo),
+        ("construir".into(), PlanoFuncaoDart::default()),
+        ("base".into(), PlanoFuncaoDart::default()),
+    ]);
     preparar_arc_modulo_dart(&mut m, &mut planos)?;
     let antes = format!("{m:?}{planos:?}");
     if preparar_arc_modulo_dart(&mut m, &mut planos)? != (0, 0)
@@ -114,7 +194,7 @@ fn main() -> Result<(), String> {
     // Tracing usa tokens explícitos somente neste harness de comparação.
     m.memoria_arc = arc;
     let mut ir = LlvmEmitter::new(&m).emit_all();
-    let fabrica = "call i64 @dartforge_arc_objeto_owned_t_v1(i64 32001, i64 1, ptr @df.mt.C)";
+    let fabrica = "call i64 @dartforge_arc_objeto_owned_t_v1(i64 32001, i64 2, ptr @df.mt.C)";
     if ir.matches(fabrica).count() != 1 {
         return Err("fábrica com tabela ausente/ambígua".into());
     }
@@ -128,9 +208,18 @@ define void @prova_instancia_zerada() {
   %owned = icmp eq i8 %estado, 3
   br i1 %owned, label %campo, label %falha
 campo:
-  %zero = call i64 @dartforge_arc_ler_campo_escalar_v1(i64 %obj, i64 0)
-  %zerado = icmp eq i64 %zero, 0
-  br i1 %zerado, label %seletor, label %falha
+  %campo_atual = call i64 @dartforge_arc_ler_campo_escalar_v1(i64 %obj, i64 0)
+  %construido = icmp eq i64 %campo_atual, 42
+  br i1 %construido, label %filho, label %falha
+filho:
+  %hfilho = call i64 @dartforge_arc_ler_campo_ref_v1(i64 %obj, i64 1)
+  call void @dartforge_arc_collect()
+  %estado_filho = call i8 @dartforge_arc_observar_heap_v1(i64 %hfilho)
+  %valor_filho = call i64 @dartforge_unbox_int(i64 %hfilho)
+  %filho_sem_owner_codigo = icmp eq i8 %estado_filho, 1
+  %filho_valor_ok = icmp eq i64 %valor_filho, 9223372036854775807
+  %filho_ok = and i1 %filho_sem_owner_codigo, %filho_valor_ok
+  br i1 %filho_ok, label %seletor, label %falha
 seletor:
   %ptr = call ptr @dartforge_seletor(ptr @cache.prova, i64 %obj, i64 HASH_PROVA, ptr @nome.prova, i64 7)
   %tabela = icmp eq ptr %ptr, @metodo
@@ -144,7 +233,10 @@ liberar:
   call void @dartforge_arc_collect()
   %fim = call i8 @dartforge_arc_observar_heap_v1(i64 %obj)
   %morto = icmp eq i8 %fim, 0
-  br i1 %morto, label %passou, label %falha
+  %fim_filho = call i8 @dartforge_arc_observar_heap_v1(i64 %hfilho)
+  %filho_morto = icmp eq i8 %fim_filho, 0
+  %ambos_mortos = and i1 %morto, %filho_morto
+  br i1 %ambos_mortos, label %passou, label %falha
 falha:
   call void @llvm.trap()
   unreachable
@@ -169,11 +261,11 @@ passou:
         let (antes, depois) = match controle.as_str() {
             "sem-owner" => (
                 fabrica,
-                "call i64 @dartforge_object_new_t(i64 32001, i64 1, ptr @df.mt.C)",
+                "call i64 @dartforge_object_new_t(i64 32001, i64 2, ptr @df.mt.C)",
             ),
             "sem-tabela" => (
                 fabrica,
-                "call i64 @dartforge_arc_objeto_owned_v1(i64 32001, i64 1)",
+                "call i64 @dartforge_arc_objeto_owned_v1(i64 32001, i64 2)",
             ),
             "sem-drop" => ("  call void @dartforge_arc_release(i64 %obj)\n", ""),
             _ => return Err(format!("controle desconhecido: {controle}")),

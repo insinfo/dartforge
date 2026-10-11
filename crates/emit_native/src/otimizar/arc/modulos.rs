@@ -76,6 +76,9 @@ pub fn preparar_arc_modulos_dart(
         .collect();
     let mut proximo = 0u64;
     for (indice_modulo, (m, p)) in modulos.iter().zip(planos.iter()).enumerate() {
+        // Entradas nativas continuam abertas ao inferir argumentos do grupo.
+        conjunto.ajudantes.extend(m.ajudantes.iter().cloned());
+        conjunto.tabelas_de_metodos.extend(m.tabelas_de_metodos.iter().cloned());
         let locais: HashSet<_> = m.functions.iter().map(|f| &f.symbol).collect();
         if locais.len() != m.functions.len()
             || locais.len() != p.len()

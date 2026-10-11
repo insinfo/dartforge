@@ -27,7 +27,7 @@ fn origem(op: &Operand, origens: &HashMap<ValueId, Origem>) -> Origem {
     }
 }
 
-fn origens(f: &Function, layouts: &HashMap<u32, Vec<Type>>) -> (HashMap<ValueId, Origem>, HashMap<ValueId, u32>) {
+fn origens(f: &Function, layouts: &HashMap<u32, Vec<Type>>, receivers: Option<&HashMap<ValueId, u32>>) -> (HashMap<ValueId, Origem>, HashMap<ValueId, u32>) {
     let mut mapa = HashMap::new();
     let mut classes = HashMap::new();
     for (v, _, _) in &f.params {
@@ -38,6 +38,12 @@ fn origens(f: &Function, layouts: &HashMap<u32, Vec<Type>>) -> (HashMap<ValueId,
                 ..Default::default()
             },
         );
+    }
+    if let Some(receivers) = receivers {
+        for (v, cid) in receivers {
+            classes.insert(*v, *cid);
+            mapa.insert(*v, Origem { sitios: HashSet::from([*v]), desconhecido: false });
+        }
     }
     for (v, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
         let o = match inst {
@@ -135,6 +141,7 @@ pub(super) fn preparar(
     f: &mut Function,
     layouts: &HashMap<u32, Vec<Type>>,
     plano: &mut PlanoFuncaoDart,
+    receivers: Option<&HashMap<ValueId, u32>>,
 ) -> Result<(), String> {
     if !f
         .blocks
@@ -149,11 +156,13 @@ pub(super) fn preparar(
     {
         return Ok(());
     }
-    let (origens, classes) = origens(f, layouts);
+    let (origens, classes) = origens(f, layouts, receivers);
     let mut escapam = HashSet::new();
-    for (_, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
+    let mut exposicoes = HashMap::new();
+    for (v, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
+        let mut expostos = HashSet::new();
         let mut expor = |op: &Operand| {
-            escapam.extend(origem(op, &origens).sitios);
+            expostos.extend(origem(op, &origens).sitios);
         };
         match inst {
             Instruction::GetField { .. }
@@ -202,16 +211,18 @@ pub(super) fn preparar(
                     // Ausência de Dart no catálogo de ownership não prova
                     // ausência de mutação do layout, por exemplo na recarga.
                     // Só operações enumeradas acima têm contrato fechado aqui.
-                    escapam.extend(classes.keys().copied());
+                    expostos.extend(classes.keys().copied());
                 }
             }
             Instruction::CallStatic { .. }
             | Instruction::CallInterface { .. }
             | Instruction::CallClosure { .. }
             | Instruction::CallClosureRepasse { .. }
-            | Instruction::ChamadaTipada { .. } => escapam.extend(classes.keys().copied()),
+            | Instruction::ChamadaTipada { .. } => expostos.extend(classes.keys().copied()),
             _ => operandos(inst, &mut expor),
         }
+        escapam.extend(&expostos);
+        exposicoes.insert(*v, expostos);
     }
     let tipos: HashMap<_, _> = f
         .params
@@ -231,8 +242,20 @@ pub(super) fn preparar(
         Operand::Constant(Constant::Null) => Some(Type::Ref),
         _ => None,
     };
+    let parametros: HashSet<ValueId> = receivers.into_iter().flat_map(|m| m.keys().copied()).collect();
+    let entrada = f.blocks.first().map(|b| b.id);
+    let entrada_sem_volta = !f.blocks.iter().any(|b| {
+        super::super::cfg::sucessores(&b.terminator).into_iter().any(|destino| Some(destino) == entrada)
+    });
+    // Para parâmetros certificados, usa somente o prefixo de entrada que
+    // domina a primeira chamada/publicação. Não atribui frescor ao parâmetro,
+    // nem reutiliza essa prova em blocos posteriores ou numa volta de laço.
+    let globais_locais: HashSet<_> = escapam.difference(&parametros).copied().collect();
     let mut proximo = proximo_valor(f, plano);
     for b in &mut f.blocks {
+        let mut invalidos = if Some(b.id) == entrada && entrada_sem_volta {
+            HashSet::new()
+        } else { parametros.clone() };
         let mut instructions = Vec::new();
         for (v, inst, ty) in &b.instructions {
             let (object, index, value) = match inst {
@@ -243,11 +266,13 @@ pub(super) fn preparar(
                     value,
                 } => (object, *index, Some(value)),
                 _ => {
+                    invalidos.extend(exposicoes[v].intersection(&parametros).copied());
                     instructions.push((*v, inst.clone(), *ty));
                     continue;
                 }
             };
-            let repr = representacao(object, index, &origens, &classes, layouts, &escapam)
+            let atuais: HashSet<_> = globais_locais.union(&invalidos).copied().collect();
+            let repr = representacao(object, index, &origens, &classes, layouts, &atuais)
                 .map_err(|e| format!("campo ARC em {} v{}: {e}", f.symbol, v.0))?;
             if tipo(object) != Some(Type::Ref)
                 || (value.is_none() && *ty != repr)
@@ -260,6 +285,7 @@ pub(super) fn preparar(
                     f.symbol, v.0
                 ));
             }
+            invalidos.extend(exposicoes[v].intersection(&parametros).copied());
             let estreito = !matches!(repr, Type::I64 | Type::Ref);
             let auxiliar = if estreito {
                 let a = ValueId(

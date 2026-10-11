@@ -23,6 +23,7 @@ mod arestas;
 mod layouts;
 mod objetos;
 mod campos;
+mod receivers;
 mod chamadas;
 mod funcoes;
 mod modulos;
