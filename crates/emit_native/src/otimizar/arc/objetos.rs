@@ -95,6 +95,19 @@ pub(super) fn preparar(
                 ));
                 continue;
             }
+            if let Instruction::CellGet { cell } = inst && *ty == Type::Ref {
+                if tipo(cell) != Some(Type::Ref) {
+                    return Err(format!("célula ARC em {} v{} exige receiver Ref", f.symbol, v.0));
+                }
+                // O mapa físico deve marcar o slot como Ref antes de emprestar;
+                // não converter a palavra de uma célula escalar em referência.
+                instructions.push((*v, Instruction::CallRuntime {
+                    name: "dartforge_arc_ler_campo_ref_v1".into(),
+                    args: vec![(cell.clone(), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)],
+                    ret_ty: Type::Ref,
+                }, Type::Ref));
+                continue;
+            }
             if let Instruction::EnvGet { env, index } = inst
                 && *ty == Type::Ref
             {
@@ -748,6 +761,30 @@ mod testes {
                 );
             }
             crate::llvm::LlvmEmitter::new(&m).emit_all();
+        }
+    }
+
+    #[test]
+    fn leitura_ref_de_celula_promove_retorno_e_rejeita_receiver_escalar() {
+        for caso in 0..3 {
+            let (mut m, mut planos) = modulo();
+            m.memoria_arc = caso != 1;
+            let f = &mut m.functions[0];
+            f.params.truncate(1);
+            if caso == 2 { f.params[0].2 = Type::I64; }
+            f.blocks[0].instructions = vec![(ValueId(1), Instruction::CellGet { cell: Operand::Val(ValueId(0)) }, Type::Ref)];
+            f.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
+            let antes = format!("{m:?}"); let ps_antes = planos.clone();
+            let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
+            if caso == 2 { assert!(resultado.unwrap_err().contains("receiver Ref")); assert_eq!(format!("{m:?}"), antes); assert_eq!(planos, ps_antes); continue; }
+            if caso == 1 { assert_eq!(resultado.unwrap(), (0, 0)); assert_eq!(format!("{m:?}"), antes); continue; }
+            assert_eq!(resultado.unwrap(), (1, 0));
+            let Terminator::Return(Some(Operand::Val(retorno))) = m.functions[0].blocks[0].terminator else { panic!("retorno sem token SSA"); };
+            assert_eq!(planos["objeto"].classes[&retorno], Ownership::Owned);
+            assert!(matches!(planos["objeto"].classes[&ValueId(1)], Ownership::Borrowed { owner: OrigemOwner::Valor(ValueId(0)), .. }));
+            let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+            assert!(ir.contains("@dartforge_arc_ler_campo_ref_v1(i64 %v0, i64 0)"));
+            assert!(ir.contains("call void @dartforge_arc_retain("));
         }
     }
 

@@ -304,6 +304,7 @@ pub(super) fn preparar(
             Instruction::Box { from: Type::I64 | Type::F64 | Type::I1 | Type::I8, .. }
             | Instruction::GetField { .. }
             | Instruction::EnvGet { .. }
+            | Instruction::CellGet { .. }
             | Instruction::Const(Constant::Null)
             | Instruction::CallStatic { ret_ty: Type::Ref, .. }
             | Instruction::CallSeletor { .. }

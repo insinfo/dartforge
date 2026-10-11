@@ -456,7 +456,7 @@ mod testes {
 
     #[test]
     fn keepalive_phi_prepara_todas_as_origens_antes_de_reclassificar() {
-        for caso in 0..6 {
+        for caso in 0..7 {
             let falivel = caso == 1;
             let mut m = Module::new();
             m.memoria_arc = caso != 3;
@@ -466,6 +466,8 @@ mod testes {
                     ValueId(resultado),
                     if caso == 2 && bloco == 2 {
                         Instruction::CellGet { cell: Operand::Val(ValueId(0)) }
+                    } else if caso == 6 && bloco == 2 {
+                        Instruction::LoadIndexed { base: Operand::Val(ValueId(0)), index: Operand::Constant(Constant::Int(0)) }
                     } else if caso == 5 && bloco == 2 {
                         Instruction::EnvGet {
                             env: Operand::Val(ValueId(0)),
@@ -608,7 +610,7 @@ mod testes {
             }
             let mut plano = PlanoFuncaoDart::default();
             plano.tokens.retorno = RetornoTokens::Owned;
-            if caso == 2 {
+            if caso == 6 {
                 // Proveniência explícita do alias; sem ABI que possa produzir
                 // keepalive na origem. Falha após a primeira promoção privada.
                 plano.classes.insert(
@@ -625,7 +627,7 @@ mod testes {
             }
             let mut planos = HashMap::from([("phi_multiplos_borrows".into(), plano)]);
             let antes = format!("{m:?}/{planos:?}");
-            if caso == 2 {
+            if caso == 6 {
                 assert!(
                     preparar_arc_modulo_dart(&mut m, &mut planos)
                         .unwrap_err()

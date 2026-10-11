@@ -11,7 +11,7 @@ use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*}
 use std::{collections::HashMap, path::PathBuf};
 
 #[derive(Clone, Copy)]
-enum Cenario { Campo, Captura, Vizinho, CapturaVizinho, Argumento, Anulavel, Misto, Ciclo }
+enum Cenario { Campo, Captura, Vizinho, CapturaVizinho, Argumento, Anulavel, Misto, Ciclo, Celula }
 
 fn modulo(cenario: Cenario) -> Result<Module, String> {
     let captura = matches!(cenario, Cenario::Captura | Cenario::CapturaVizinho);
@@ -19,15 +19,17 @@ fn modulo(cenario: Cenario) -> Result<Module, String> {
     let argumento = matches!(cenario, Cenario::Argumento);
     let anulavel = matches!(cenario, Cenario::Anulavel | Cenario::Misto | Cenario::Ciclo);
     let misto = matches!(cenario, Cenario::Misto);
+    let celula = matches!(cenario, Cenario::Celula);
     let mut m = Module::new();
     m.memoria_arc = true;
     m.entry_symbol = Some("prova_keepalive".into());
     let mut layout = vec![Type::Ref; 40];
     layout[..4].copy_from_slice(&[Type::I64, Type::F64, Type::I1, Type::I8]);
     m.layouts_campos_arc.insert(123, layout.clone());
+    if celula { m.layouts_campos_arc.insert(dartforge_runtime::layout::cid::CELULA as u32, vec![Type::Ref]); }
     if captura { m.layouts_campos_arc.insert(dartforge_runtime::layout::cid::CONTEXTO as u32, layout); }
     for id in m.layouts_campos_arc.keys() {
-        m.classes.push(ClassDef { id: *id, name: format!("C{id}"), field_count: 40,
+        m.classes.push(ClassDef { id: *id, name: format!("C{id}"), field_count: m.layouts_campos_arc[id].len(),
             vtable: vec![], to_string_symbol: None });
     }
     let val = |n| Operand::Val(ValueId(n));
@@ -55,6 +57,12 @@ fn modulo(cenario: Cenario) -> Result<Module, String> {
             terminator: Terminator::Return(Some(val(1))),
         }],
     });
+    if celula {
+        m.functions[0].blocks[0].instructions[0].1 = Instruction::CellGet { cell: val(0) };
+        m.functions[0].blocks[0].instructions[1].1 = Instruction::SetField {
+            object: val(0), index: 0, value: Operand::Constant(Constant::Null),
+        };
+    }
     if captura {
         // Exercita a tradução EnvGet e o mapa real do ambiente, inclusive
         // o campo 39, antes de substituir a aresta que sustenta o empréstimo.
@@ -169,6 +177,11 @@ fn modulo(cenario: Cenario) -> Result<Module, String> {
             (ValueId(1), Instruction::GetField { object: val(0), index: 0 }, Type::I64),
         ], terminator: Terminator::Return(Some(val(1))) }],
     });
+    if celula {
+        m.functions[1].blocks[0].instructions = vec![(ValueId(2), Instruction::SetField {
+            object: val(0), index: 0, value: val(1),
+        }, Type::Void)];
+    }
     let mut planos = HashMap::from([("ler_e_substituir".into(), plano),
         ("inicializar".into(), PlanoFuncaoDart::default()), ("ler_inteiro".into(), PlanoFuncaoDart::default())]);
     let produzido = preparar_arc_modulo_dart(&mut m, &mut planos)?;
@@ -179,9 +192,9 @@ fn modulo(cenario: Cenario) -> Result<Module, String> {
             "keepalive esperado {esperado:?}, encontrado {produzido:?}"
         ));
     }
-    let preparado = format!("{m:?}/{planos:?}");
+    let preparado = format!("{m:?}"); let planos_preparados = planos.clone();
     if preparar_arc_modulo_dart(&mut m, &mut planos)? != (0, 0)
-        || format!("{m:?}/{planos:?}") != preparado
+        || format!("{m:?}") != preparado || planos != planos_preparados
     {
         return Err("preparação de keepalive não foi idempotente".into());
     }
@@ -218,6 +231,7 @@ fn main() -> Result<(), String> {
         Some("--anulavel") => Cenario::Anulavel,
         Some("--misto") => Cenario::Misto,
         Some("--ciclo") => Cenario::Ciclo,
+        Some("--celula") => Cenario::Celula,
         _ => Cenario::Campo,
     };
     if !matches!(cenario, Cenario::Campo) { controle = args.next(); }
@@ -283,6 +297,13 @@ passou:
 }
 "#,
     );
+    if matches!(cenario, Cenario::Celula) {
+        ir = ir.replace("@dartforge_arc_objeto_owned_v1(i64 123, i64 40)",
+            &format!("@dartforge_arc_objeto_owned_v1(i64 {}, i64 1)", dartforge_runtime::layout::cid::CELULA));
+        let inicio = ir.find("  %inteiro = call i64 @ler_inteiro(i64 %obj)\n").ok_or("início da conferência escalar ausente")?;
+        let fim = ir[inicio..].find("  br i1 %ok_inicio,").map(|n| inicio + n).ok_or("fim da conferência escalar ausente")?;
+        ir.replace_range(inicio..fim, "  %ok_inicio = icmp eq i8 %aresta, 1\n");
+    }
     if captura {
         ir = ir.replace("@dartforge_arc_objeto_owned_v1(i64 123, i64 40)",
             &format!("@dartforge_arc_objeto_owned_v1(i64 {}, i64 40)",
@@ -352,6 +373,12 @@ passou:
 
 #[cfg(test)]
 mod testes {
+    #[test]
+    fn celula_ref_promove_owner_antes_de_limpar_o_slot() {
+        let m = super::modulo(super::Cenario::Celula).unwrap();
+        super::LlvmEmitter::new(&m).emit_all();
+    }
+
     #[test]
     fn ciclo_de_phis_preserva_owner_e_guardas_de_campo() {
         let m = super::modulo(super::Cenario::Ciclo).unwrap();
