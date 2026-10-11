@@ -17,9 +17,57 @@ struct EscopoRetornosArc {
 #[derive(Default)]
 struct PortasNativasArc {
     entradas: HashMap<(usize, usize), RegistroRetornoArc>,
+    tipadas: HashMap<(usize, i64), i64>,
+}
+
+// A ABI base 5 omite o contexto Ref inicial; codifica argumentos e retorno.
+// O registro desta porta exige retorno Ref Owned, não um escalar de uma palavra.
+fn conferir_abi_tipada_arc(mut abi: i64) -> Result<(), &'static str> {
+    if abi <= 1 || abi % 5 != 1 { return Err("retorno tipado não é Ref"); }
+    let mut n = 0;
+    while abi > 1 {
+        if !matches!(abi % 5, 1..=4) { return Err("representação tipada inválida"); }
+        abi /= 5; n += 1;
+        if n > 13 { return Err("aridade tipada fora do limite"); }
+    }
+    if abi != 1 { return Err("prefixo da ABI tipada inválido"); }
+    Ok(())
+}
+
+fn alvo_tipada_arc(
+    heap: &Heap, portas: &PortasNativasArc, closure: i64, abi: i64,
+) -> Result<i64, &'static str> {
+    conferir_abi_tipada_arc(abi)?;
+    let objeto = heap.objeto(closure).ok_or("receiver tipado não é objeto vivo")?;
+    if objeto.class_id != i64::from(crate::layout::cid::CLOSURE) || objeto.len() != 4 {
+        return Err("receiver tipado não é closure de quatro campos");
+    }
+    let (codigo, ref_codigo) = objeto.get(2).ok_or("corpo tipado ausente")?;
+    let (declarada, ref_abi) = objeto.get(3).ok_or("ABI tipada ausente")?;
+    if ref_codigo || ref_abi || codigo == 0 || declarada != abi {
+        return Err("corpo/ABI tipada incompatível com o mapa físico");
+    }
+    let codigo_usize = usize::try_from(codigo as u64).map_err(|_| "endereço tipado inválido")?;
+    if !portas.tipadas.contains_key(&(codigo_usize, abi)) {
+        return Err("corpo tipado sem registro ARC desta ABI");
+    }
+    Ok(codigo)
 }
 
 impl PortasNativasArc {
+    fn registrar_tipada(&mut self, codigo: usize, abi: i64) -> Result<i64, &'static str> {
+        conferir_abi_tipada_arc(abi)?;
+        if codigo == 0 { return Err("corpo tipado nulo"); }
+        Ok(*self.tipadas.entry((codigo, abi)).or_insert_with(novo_id_porta_arc))
+    }
+
+    fn retirar_tipada(&mut self, codigo: usize, abi: i64, versao: i64) -> Result<(), &'static str> {
+        if self.tipadas.get(&(codigo, abi)) != Some(&versao) {
+            return Err("registro tipado ausente ou versão obsoleta");
+        }
+        self.tipadas.remove(&(codigo, abi));
+        Ok(())
+    }
     fn registrar(&mut self, codigo: usize, aridade: usize) -> Result<i64, &'static str> {
         self.registrar_contrato(codigo, aridade, false)
     }
@@ -180,6 +228,87 @@ pub unsafe extern "C" fn dartforge_arc_registrar_uniforme_owned_v1(codigo: i64) 
     let versao = p.registrar_contrato(codigo, 3, true).expect("contrato uniforme ARC violado");
     HA_PORTAS_RETORNO_ARC.store(true, std::sync::atomic::Ordering::Release);
     versao
+}
+
+/// Registra uma entrada tipada de closure com retorno Ref Owned.
+///
+/// A ABI base 5 codifica argumentos (Ref=1, i64=2, f64=3, bool=4) e retorno,
+/// depois do prefixo 1; o contexto Ref inicial é implícito. Não chama código.
+///
+/// # Safety
+/// O corpo foi verificado nessa ABI: Ref emprestadas, retorno Owned normal e
+/// null em pending, escopos restaurados. O registro não prova o corpo.
+/// Mantenha código/imagem válidos até retirar a versão e terminar todos os
+/// consumidores do endereço. Não estabelece pins de recarga JIT.
+///
+/// # Panics
+/// Código nulo, ABI inválida, mais de 12 argumentos ou retorno não Ref.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// extern "C" fn corpo(_: i64) -> i64 { 0 }
+/// let pc = corpo as *const () as usize as i64;
+/// // SAFETY: função estática, contexto emprestado e retorno null Owned.
+/// let v = unsafe { dartforge_arc_registrar_tipada_v1(pc, 6) };
+/// // SAFETY: nenhum consumidor/chamada do endereço está ativo.
+/// unsafe { dartforge_arc_retirar_tipada_v1(pc, 6, v); }
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_arc_registrar_tipada_v1(codigo: i64, abi: i64) -> i64 {
+    registros_portas_arc().lock().expect("registro de portas ARC envenenado")
+        .registrar_tipada(usize::try_from(codigo as u64).expect("endereço tipado inválido"), abi)
+        .expect("registro tipado ARC inválido")
+}
+
+/// Retira exatamente uma versão e ABI de entrada tipada.
+///
+/// # Safety
+/// Não pode haver chamada ativa nem consumidor de endereço obtido por
+/// `dartforge_arc_alvo_tipada_v1`. O código deve continuar válido até aqui.
+///
+/// # Panics
+/// Registro ausente ou versão obsoleta; aborta na fronteira C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// extern "C" fn corpo(_: i64) -> i64 { 0 }
+/// let pc = corpo as *const () as usize as i64;
+/// // SAFETY: ABI estática e nenhum consumidor ativo.
+/// let v = unsafe { dartforge_arc_registrar_tipada_v1(pc, 6) };
+/// unsafe { dartforge_arc_retirar_tipada_v1(pc, 6, v); }
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_arc_retirar_tipada_v1(codigo: i64, abi: i64, versao: i64) {
+    registros_portas_arc().lock().expect("registro de portas ARC envenenado")
+        .retirar_tipada(usize::try_from(codigo as u64).expect("endereço tipado inválido"), abi, versao)
+        .expect("retirada tipada ARC inválida");
+}
+
+/// Confere classe, mapa, ABI e registro ARC antes de devolver código nativo.
+///
+/// Não retém, aloca, coleta ou executa Dart. O resultado é endereço nativo,
+/// não Ref. Sua validade depende do contrato de registro e vida da imagem.
+///
+/// # Panics
+/// Receiver, campos, ABI ou registro inválidos; aborta na fronteira C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// extern "C" fn corpo(_: i64) -> i64 { 0 }
+/// let pc = corpo as *const () as usize as i64;
+/// // SAFETY: ABI estática de contexto Ref e resultado Ref null Owned.
+/// let v = unsafe { dartforge_arc_registrar_tipada_v1(pc, 6) };
+/// let c = dartforge_arc_closure_owned_v1(0, 0, pc, 6);
+/// assert_eq!(dartforge_arc_alvo_tipada_v1(c, 6), pc);
+/// dartforge_arc_release(c);
+/// // SAFETY: nenhum consumidor do endereço permanece.
+/// unsafe { dartforge_arc_retirar_tipada_v1(pc, 6, v); }
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_alvo_tipada_v1(closure: i64, abi: i64) -> i64 {
+    HEAP.with(|heap| alvo_tipada_arc(&heap.borrow(),
+        &registros_portas_arc().lock().expect("registro de portas ARC envenenado"), closure, abi)
+        .expect("alvo tipado ARC inválido"))
 }
 
 struct EscopoUniformeArc(i64);
@@ -535,6 +664,74 @@ fn arc_descartar_porta(guarda: GuardaPortaArc, resultado: i64) {
 mod testes_portas_arc {
     use super::*;
     static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn alvo_tipado_confere_abi_mapa_e_versao_sem_confundir_registro_de_palavras() {
+        let mut heap = Heap::new(false);
+        let mut portas = PortasNativasArc::default();
+        let c = heap.nova_closure(3, (0, false), 3, 31);
+        portas.registrar(3, 2).unwrap();
+        assert!(alvo_tipada_arc(&heap, &portas, c, 31).is_err());
+        let v = portas.registrar_tipada(3, 31).unwrap();
+        assert_eq!(portas.registrar_tipada(3, 31).unwrap(), v);
+        let outra = portas.registrar_tipada(3, 41).unwrap();
+        assert_ne!(outra, v);
+        let stats = heap.stats();
+        assert_eq!(alvo_tipada_arc(&heap, &portas, c, 31), Ok(3));
+        for abi in [-1, 0, 1, 5, 7, 11, 26, i64::MAX, 41] {
+            assert!(alvo_tipada_arc(&heap, &portas, c, abi).is_err(), "{abi}");
+        }
+        let limite = (0..13).fold(1_i64, |a, _| a * 5 + 1);
+        assert!(conferir_abi_tipada_arc(limite).is_ok());
+        assert!(conferir_abi_tipada_arc(limite * 5 + 1).is_err());
+        for (n, campo) in [(2, (3, true)), (3, (31, true)), (2, (0, false)), (3, (41, false))] {
+            heap.definir_campo(c, n, campo.0, campo.1);
+            assert!(alvo_tipada_arc(&heap, &portas, c, 31).is_err());
+            heap.definir_campo(c, 2, 3, false); heap.definir_campo(c, 3, 31, false);
+        }
+        for (cid, n) in [(32000, 4), (crate::layout::cid::CLOSURE, 3), (crate::layout::cid::CLOSURE, 5)] {
+            let falso = heap.novo_objeto(i64::from(cid), &vec![(0, false); n]);
+            assert!(alvo_tipada_arc(&heap, &portas, falso, 31).is_err());
+        }
+        assert!(portas.retirar_tipada(3, 31, outra).is_err());
+        portas.retirar_tipada(3, 31, v).unwrap();
+        assert!(alvo_tipada_arc(&heap, &portas, c, 31).is_err());
+        let novo = portas.registrar_tipada(3, 31).unwrap();
+        assert_ne!(novo, v);
+        assert!(portas.retirar_tipada(3, 31, v).is_err());
+        assert_eq!(heap.stats().collections, stats.collections);
+    }
+
+    #[test]
+    fn porta_tipada_verificada_devolve_owner_independente_em_ambos_os_modos() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        extern "C" fn corpo(_: i64, x: i64) -> i64 { dartforge_arc_retain(x); x }
+        for arc in [false, true] {
+            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+            let pc = corpo as *const () as usize as i64;
+            let v = unsafe { dartforge_arc_registrar_tipada_v1(pc, 31) };
+            let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
+            let env = dartforge_arc_objeto_owned_v1(i64::from(crate::layout::cid::CONTEXTO), 1);
+            dartforge_arc_gravar_campo_ref_v1(env, 0, filho);
+            let c = dartforge_arc_closure_owned_v1(0, env, pc, 31);
+            dartforge_arc_release(env);
+            let stats = HEAP.with(|h| h.borrow().stats());
+            let alvo = dartforge_arc_alvo_tipada_v1(c, 31);
+            assert_eq!(alvo, pc);
+            assert_eq!(HEAP.with(|h| h.borrow().stats().allocations), stats.allocations);
+            assert_eq!(HEAP.with(|h| h.borrow().stats().collections), stats.collections);
+            let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(alvo as usize) };
+            let r = f(dartforge_arc_contexto_closure_v1(c), filho);
+            dartforge_arc_release(filho); dartforge_arc_release(c); dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observar_heap_v1(r), 3);
+            assert_eq!(dartforge_unbox_int(r), i64::MAX);
+            dartforge_arc_release(r); dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observar_heap_v1(r), 0);
+            unsafe { dartforge_arc_retirar_tipada_v1(pc, 31, v); }
+            HEAP.with(|h| h.replace(anterior));
+        }
+    }
 
     thread_local! { static ULTIMO: std::cell::Cell<i64> = const { std::cell::Cell::new(0) }; }
     extern "C" fn novo() -> i64 {

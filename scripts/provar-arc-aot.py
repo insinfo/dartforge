@@ -39,6 +39,7 @@ PROVAS = {
         ("normal", None), ("normal", "sem-drop-filho"), ("normal", "sem-owner-objeto"),
         ("--quadro", None), ("--quadro", "sem-drop-filho"), ("--quadro", "sem-owner-objeto"),
         ("--quadro", "sem-retencao-leitura"),
+        ("--tipada", None), ("--tipada", "sem-drop-filho"), ("--tipada", "sem-owner-objeto"),
     ]),
     "arc_keepalive_campos": ("prova-keepalive-campos", False, [
         ("normal", None), ("normal", "sem-retencao"), ("normal", "sem-liberar"),

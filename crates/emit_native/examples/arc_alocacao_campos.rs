@@ -6,7 +6,7 @@
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*};
 use std::{collections::HashMap, path::PathBuf};
 
-fn modulo(quadro: bool) -> Result<Module, String> {
+fn modulo(quadro: bool, tipada: bool) -> Result<Module, String> {
     let mut m = Module::new();
     m.memoria_arc = true;
     m.entry_symbol = Some("prova_alocacao_campos".into());
@@ -39,7 +39,7 @@ fn modulo(quadro: bool) -> Result<Module, String> {
         symbol: "criar_objeto".into(),
         name: "criar_objeto".into(),
         depuracao: None,
-        params: vec![],
+        params: if tipada { vec![(ValueId(10), "contexto".into(), Type::Ref)] } else { vec![] },
         return_ty: Type::Ref,
         blocks: vec![BasicBlock {
             id: BlockId(0),
@@ -120,9 +120,10 @@ fn main() -> Result<(), String> {
     };
     let mut controle = args.next();
     let quadro = controle.as_deref() == Some("--quadro");
-    if quadro { controle = args.next(); }
+    let tipada = controle.as_deref() == Some("--tipada");
+    if quadro || tipada { controle = args.next(); }
     if args.next().is_some() { return Err("argumentos excedentes".into()); }
-    let mut m = modulo(quadro)?;
+    let mut m = modulo(quadro, tipada)?;
     m.memoria_arc = arc;
     let mut ir = LlvmEmitter::new(&m).emit_all();
     let cid = if quadro { dartforge_emit_native::lower::async_sm::ID_QUADRO_ASYNC } else { 123 };
@@ -208,6 +209,12 @@ passou:
         ir = ir.replace("  call void @dartforge_arc_release(i64 %obj)\n  call void @dartforge_arc_collect()",
             "  call void @dartforge_arc_release(i64 %obj)\n  call void @dartforge_arc_collect()\n  %sobreviveu = call i8 @dartforge_arc_observar_heap_v1(i64 %ref)\n  %ainda_owned = icmp eq i8 %sobreviveu, 3\n  br i1 %ainda_owned, label %soltar_leitura, label %falha\nsoltar_leitura:\n  call void @dartforge_arc_release(i64 %ref)\n  call void @dartforge_arc_collect()");
     }
+    if tipada {
+        // A fixture verificou o corpo e mantém a imagem estática. O registro
+        // declara essa ABI, e a consulta confere os campos antes de chamar.
+        ir = ir.replace("  %obj = call i64 @criar_objeto()",
+            "  %pc = ptrtoint ptr @criar_objeto to i64\n  %versao = call i64 @dartforge_arc_registrar_tipada_v1(i64 %pc, i64 6)\n  %closure = call i64 @dartforge_arc_closure_owned_v1(i64 0, i64 0, i64 %pc, i64 6)\n  %alvo = call i64 @dartforge_arc_alvo_tipada_v1(i64 %closure, i64 6)\n  %funcao = inttoptr i64 %alvo to ptr\n  %obj = call i64 %funcao(i64 0)\n  call void @dartforge_arc_release(i64 %closure)\n  call void @dartforge_arc_retirar_tipada_v1(i64 %pc, i64 6, i64 %versao)");
+    }
     if let Some(dir) = saida.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
@@ -228,6 +235,8 @@ mod testes {
     use super::*;
     #[test]
     fn preparacao_de_alocacao_e_campos_gera_ir_verificado() {
-        for quadro in [false, true] { LlvmEmitter::new(&modulo(quadro).unwrap()).emit_all(); }
+        for (quadro, tipada) in [(false, false), (true, false), (false, true)] {
+            LlvmEmitter::new(&modulo(quadro, tipada).unwrap()).emit_all();
+        }
     }
 }
