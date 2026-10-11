@@ -370,47 +370,92 @@ mod testes {
 
     #[test]
     fn variante_falivel_propaga_cleanup_ao_simbolo_publico_e_chamador() {
-        let (mut ms, mut ps) = entrada();
-        let mut copia = Module::new();
-        copia.memoria_arc = true;
-        copia.functions.push(ms[1].functions[0].clone());
-        copia.retornos_ref_dart.insert("biblioteca".into());
-        ms.push(copia);
-        ps.push(ps[1].clone());
-        for m in &mut ms {
-            m.modo_sdk = true;
+        for retoma in [false, true] {
+            let (mut ms, mut ps) = entrada();
+            let mut copia = Module::new();
+            copia.memoria_arc = true;
+            copia.functions.push(ms[1].functions[0].clone());
+            copia.retornos_ref_dart.insert("biblioteca".into());
+            ms.push(copia);
+            ps.push(ps[1].clone());
+            for m in &mut ms {
+                m.modo_sdk = true;
+            }
+            for m in &mut ms[1..] {
+                m.funcoes_compartilhadas_arc.insert("biblioteca".into());
+            }
+            // Somente a segunda definição confere a pilha no prólogo. O ligador
+            // pode escolhê-la; o chamador não pode presumir a primeira, pura.
+            ps[2].get_mut("biblioteca").unwrap().tabelas.confere_pilha = true;
+            // Exercita as duas formas de saída, independentemente do host da CI.
+            // A chamada continua dependendo da união das falhas das variantes.
+            let f = &mut ms[0].functions[0];
+            f.blocks[0].terminator = Terminator::CondBranch {
+                cond: Operand::Constant(Constant::Bool(false)),
+                then_block: BlockId(1),
+                else_block: BlockId(2),
+            };
+            for id in [1, 2] {
+                f.blocks.push(BasicBlock {
+                    id: BlockId(id),
+                    instructions: vec![],
+                    terminator: Terminator::Return(None),
+                });
+            }
+            let t = &mut ps[0].get_mut("programa").unwrap().tabelas;
+            t.invocacoes.insert(ValueId(1), BlockId(1));
+            t.pousos.insert(BlockId(1));
+            t.saidas.insert(
+                BlockId(1),
+                if retoma {
+                    SaidaPorExcecao::Retoma
+                } else {
+                    SaidaPorExcecao::Lanca
+                },
+            );
+            preparar_arc_modulos_dart(&mut ms, &mut ps).unwrap();
+            let p = &ps[0]["programa"];
+            assert!(p.tokens.instrucoes[&ValueId(1)].pode_falhar);
+            let pouso = p.tabelas.invocacoes[&ValueId(1)];
+            assert_eq!(p.owners_no_pouso[&pouso], vec![ValueId(0)]);
+            if p.tabelas.saidas.get(&pouso) == Some(&SaidaPorExcecao::Retoma) {
+                // Itanium executa a limpeza explícita antes do resume. O certificado
+                // adicional só atende pousos que o emissor ainda precisa limpar.
+                assert!(p.tabelas.cleanup_estrangeiro.is_none());
+                let bloco = ms[0].functions[0]
+                    .blocks
+                    .iter()
+                    .find(|b| b.id == pouso)
+                    .unwrap();
+                assert!(bloco.instructions.iter().any(|(_, i, _)| matches!(
+                    i,
+                    Instruction::ArcDrop {
+                        value: Operand::Val(ValueId(0))
+                    }
+                )));
+            } else {
+                p.tabelas
+                    .cleanup_estrangeiro
+                    .as_ref()
+                    .unwrap()
+                    .conferir(&ms[0].functions[0], &p.tabelas)
+                    .unwrap();
+            }
+            assert!(
+                ms[1].functions[0]
+                    .blocks
+                    .iter()
+                    .flat_map(|b| &b.instructions)
+                    .any(|(_, i, _)| matches!(i, Instruction::ArcCopy { .. }))
+            );
+            assert!(
+                ms[2].functions[0]
+                    .blocks
+                    .iter()
+                    .flat_map(|b| &b.instructions)
+                    .any(|(_, i, _)| matches!(i, Instruction::ArcCopy { .. }))
+            );
         }
-        for m in &mut ms[1..] {
-            m.funcoes_compartilhadas_arc.insert("biblioteca".into());
-        }
-        // Somente a segunda definição confere a pilha no prólogo. O ligador
-        // pode escolhê-la; o chamador não pode presumir a primeira, pura.
-        ps[2].get_mut("biblioteca").unwrap().tabelas.confere_pilha = true;
-        preparar_arc_modulos_dart(&mut ms, &mut ps).unwrap();
-        let p = &ps[0]["programa"];
-        assert!(p.tokens.instrucoes[&ValueId(1)].pode_falhar);
-        let pouso = p.tabelas.invocacoes[&ValueId(1)];
-        assert_eq!(p.owners_no_pouso[&pouso], vec![ValueId(0)]);
-        p.tabelas
-            .cleanup_estrangeiro
-            .as_ref()
-            .unwrap()
-            .conferir(&ms[0].functions[0], &p.tabelas)
-            .unwrap();
-        assert!(
-            ms[1].functions[0]
-                .blocks
-                .iter()
-                .flat_map(|b| &b.instructions)
-                .any(|(_, i, _)| matches!(i, Instruction::ArcCopy { .. }))
-        );
-        assert!(
-            ms[2].functions[0]
-                .blocks
-                .iter()
-                .flat_map(|b| &b.instructions)
-                .any(|(_, i, _)| matches!(i, Instruction::ArcCopy { .. }))
-        );
     }
 
     #[test]

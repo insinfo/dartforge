@@ -102,6 +102,21 @@ jobs:
         run: python scripts/provar-arc-aot.py arc_campos_locais --features llvm-embutido
       - name: Seleção explícita de memória na CLI (AOT, JIT e reload)
         run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test memoria_cli -- --include-ignored
+      - name: Retorno Owned pela fronteira nativa (AOT Windows)
+        shell: pwsh
+        run: python scripts/provar-arc-aot.py arc_porta_nativa_owned --features llvm-embutido
+      - name: Artefatos da fronteira nativa Windows
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: prova-porta-nativa-owned-windows
+          path: |
+            target/prova-porta-nativa-owned/*.ll
+            target/prova-porta-nativa-owned/*.stdout
+            target/prova-porta-nativa-owned/*.stderr
+            target/prova-porta-nativa-owned/*.exit
+            target/prova-porta-nativa-owned/*.build.log
+            target/prova-porta-nativa-owned/evidencia.json
       - name: Retorno Owned do corpo Dart da fonte (AOT Windows)
         shell: pwsh
         run: python scripts/provar-arc-aot.py arc_retorno_da_fonte --features llvm-embutido
@@ -344,6 +359,21 @@ jobs:
         run: cargo build --locked --release -p dartforge-cli --features nativo,jit -p dartforge-jit
       - name: Seleção explícita de memória na CLI (AOT, JIT e reload)
         run: cargo test --locked --release -p dartforge-cli --features nativo,jit --test memoria_cli -- --include-ignored
+      - name: Retorno Owned pela fronteira nativa (AOT Unix)
+        shell: bash
+        run: python3 scripts/provar-arc-aot.py arc_porta_nativa_owned --features llvm-embutido
+      - name: Artefatos da fronteira nativa Unix
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: prova-porta-nativa-owned-${{ runner.os }}
+          path: |
+            target/prova-porta-nativa-owned/*.ll
+            target/prova-porta-nativa-owned/*.stdout
+            target/prova-porta-nativa-owned/*.stderr
+            target/prova-porta-nativa-owned/*.exit
+            target/prova-porta-nativa-owned/*.build.log
+            target/prova-porta-nativa-owned/evidencia.json
       - name: Retorno Owned do corpo Dart da fonte (AOT Unix)
         shell: bash
         run: python3 scripts/provar-arc-aot.py arc_retorno_da_fonte --features llvm-embutido

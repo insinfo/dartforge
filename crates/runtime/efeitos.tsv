@@ -780,3 +780,7 @@ dartforge_view_nova	1	1	0
 dartforge_view_nova_t	1	1	0
 dartforge_arc_env_ref_v1	0	0	0
 dartforge_arc_contexto_closure_v1	0	0	0
+dartforge_arc_registrar_retorno_owned_v1	0	0	0
+dartforge_arc_retirar_retorno_owned_v1	0	0	0
+dartforge_arc_escopo_nativo_abrir_v1	0	0	0
+dartforge_arc_escopo_nativo_fechar_v1	0	0	0

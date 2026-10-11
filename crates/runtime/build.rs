@@ -37,6 +37,7 @@ const FRAGMENTOS: &[&str] = &[
     "nucleo",
     "gc_raizes",
     "arc_abi",
+    "arc_portas_nativas",
     "excecoes",
     // As portas Rust → Dart e a personalidade das exceções por tabelas.
     "excecoes_tabelas",

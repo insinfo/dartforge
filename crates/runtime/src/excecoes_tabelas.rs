@@ -111,91 +111,134 @@ fn porta_dart(i: usize) -> usize {
 // `dartforge_exception_pending`, como sempre.
 
 fn dart_r0(f: usize) -> i64 {
+    let guarda_arc = arc_preparar_porta(f, 0).expect("fronteira de callback ARC inválida");
+    arc_concluir_porta(guarda_arc, dart_r0_invocar(f))
+}
+
+fn dart_r0_invocar(f: usize) -> i64 {
     let p = porta_dart(1);
     if p != 0 {
-        // SAFETY: `@df.porta.r0` tem a assinatura (ptr) -> i64.
+        // SAFETY: a porta r0 recebe o alvo e 0 palavras, devolvendo uma palavra.
         let g: extern "C" fn(usize) -> i64 = unsafe { std::mem::transmute(p) };
         return g(f);
     }
-    // SAFETY: `f` é uma função gerada sem parâmetros que devolve uma palavra.
+    // SAFETY: a ABI declarada do alvo tem 0 parâmetros de palavra e retorno i64.
     let g: extern "C" fn() -> i64 = unsafe { std::mem::transmute(f) };
     direta(|| g())
 }
 
 fn dart_r1(f: usize, a: i64) -> i64 {
+    let guarda_arc = arc_preparar_porta(f, 1).expect("fronteira de callback ARC inválida");
+    arc_concluir_porta(guarda_arc, dart_r1_invocar(f, a))
+}
+
+fn dart_r1_invocar(f: usize, a: i64) -> i64 {
     let p = porta_dart(3);
     if p != 0 {
-        // SAFETY: `@df.porta.r1` tem a assinatura (ptr, i64) -> i64.
+        // SAFETY: a porta r1 recebe o alvo e 1 palavras, devolvendo uma palavra.
         let g: extern "C" fn(usize, i64) -> i64 = unsafe { std::mem::transmute(p) };
         return g(f, a);
     }
-    // SAFETY: `f` é uma função gerada com um parâmetro de uma palavra.
+    // SAFETY: a ABI declarada do alvo tem 1 parâmetros de palavra e retorno i64.
     let g: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(f) };
     direta(|| g(a))
 }
 
 fn dart_r2(f: usize, a: i64, b: i64) -> i64 {
+    let guarda_arc = arc_preparar_porta(f, 2).expect("fronteira de callback ARC inválida");
+    arc_concluir_porta(guarda_arc, dart_r2_invocar(f, a, b))
+}
+
+fn dart_r2_invocar(f: usize, a: i64, b: i64) -> i64 {
     let p = porta_dart(5);
     if p != 0 {
-        // SAFETY: `@df.porta.r2` tem a assinatura (ptr, i64, i64) -> i64.
+        // SAFETY: a porta r2 recebe o alvo e 2 palavras, devolvendo uma palavra.
         let g: extern "C" fn(usize, i64, i64) -> i64 = unsafe { std::mem::transmute(p) };
         return g(f, a, b);
     }
-    // SAFETY: `f` é uma função gerada com dois parâmetros de uma palavra.
+    // SAFETY: a ABI declarada do alvo tem 2 parâmetros de palavra e retorno i64.
     let g: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
     direta(|| g(a, b))
 }
 
 fn dart_r3(f: usize, a: i64, b: i64, c: i64) -> i64 {
+    let guarda_arc = arc_preparar_porta(f, 3).expect("fronteira de callback ARC inválida");
+    arc_concluir_porta(guarda_arc, dart_r3_invocar(f, a, b, c))
+}
+
+fn dart_r3_invocar(f: usize, a: i64, b: i64, c: i64) -> i64 {
     let p = porta_dart(7);
     if p != 0 {
-        // SAFETY: `@df.porta.r3` tem a assinatura (ptr, i64, i64, i64) -> i64.
+        // SAFETY: a porta r3 recebe o alvo e 3 palavras, devolvendo uma palavra.
         let g: extern "C" fn(usize, i64, i64, i64) -> i64 = unsafe { std::mem::transmute(p) };
         return g(f, a, b, c);
     }
-    // SAFETY: `f` é uma função gerada com três parâmetros de uma palavra.
+    // SAFETY: a ABI declarada do alvo tem 3 parâmetros de palavra e retorno i64.
     let g: extern "C" fn(i64, i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
     direta(|| g(a, b, c))
 }
 
 fn dart_r4(f: usize, a: i64, b: i64, c: i64, d: i64) -> i64 {
+    let guarda_arc = arc_preparar_porta(f, 4).expect("fronteira de callback ARC inválida");
+    arc_concluir_porta(guarda_arc, dart_r4_invocar(f, a, b, c, d))
+}
+
+fn dart_r4_invocar(f: usize, a: i64, b: i64, c: i64, d: i64) -> i64 {
     let p = porta_dart(9);
     if p != 0 {
-        // SAFETY: `@df.porta.r4` tem a assinatura (ptr, i64 × 4) -> i64.
+        // SAFETY: a porta r4 recebe o alvo e 4 palavras, devolvendo uma palavra.
         let g: extern "C" fn(usize, i64, i64, i64, i64) -> i64 = unsafe { std::mem::transmute(p) };
         return g(f, a, b, c, d);
     }
-    // SAFETY: `f` é uma função gerada com quatro parâmetros de uma palavra.
+    // SAFETY: a ABI declarada do alvo tem 4 parâmetros de palavra e retorno i64.
     let g: extern "C" fn(i64, i64, i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
     direta(|| g(a, b, c, d))
 }
 
 fn dart_r5(f: usize, a: i64, b: i64, c: i64, d: i64, e: i64) -> i64 {
+    let guarda_arc = arc_preparar_porta(f, 5).expect("fronteira de callback ARC inválida");
+    arc_concluir_porta(guarda_arc, dart_r5_invocar(f, a, b, c, d, e))
+}
+
+fn dart_r5_invocar(f: usize, a: i64, b: i64, c: i64, d: i64, e: i64) -> i64 {
     let p = porta_dart(11);
     if p != 0 {
-        // SAFETY: `@df.porta.r5` tem a assinatura (ptr, i64 × 5) -> i64.
+        // SAFETY: a porta r5 recebe o alvo e 5 palavras, devolvendo uma palavra.
         let g: extern "C" fn(usize, i64, i64, i64, i64, i64) -> i64 = unsafe { std::mem::transmute(p) };
         return g(f, a, b, c, d, e);
     }
-    // SAFETY: `f` é uma função gerada com cinco parâmetros de uma palavra.
+    // SAFETY: a ABI declarada do alvo tem 5 parâmetros de palavra e retorno i64.
     let g: extern "C" fn(i64, i64, i64, i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
     direta(|| g(a, b, c, d, e))
 }
 
 #[allow(clippy::too_many_arguments)]
+
 fn dart_r7(f: usize, a: i64, b: i64, c: i64, d: i64, e: i64, g6: i64, h: i64) -> i64 {
+    let guarda_arc = arc_preparar_porta(f, 7).expect("fronteira de callback ARC inválida");
+    arc_concluir_porta(guarda_arc, dart_r7_invocar(f, a, b, c, d, e, g6, h))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn dart_r7_invocar(f: usize, a: i64, b: i64, c: i64, d: i64, e: i64, g6: i64, h: i64) -> i64 {
     let p = porta_dart(15);
     if p != 0 {
-        // SAFETY: `@df.porta.r7` tem a assinatura (ptr, i64 × 7) -> i64.
+        // SAFETY: a porta r7 recebe o alvo e 7 palavras, devolvendo uma palavra.
         let g: extern "C" fn(usize, i64, i64, i64, i64, i64, i64, i64) -> i64 = unsafe { std::mem::transmute(p) };
         return g(f, a, b, c, d, e, g6, h);
     }
-    // SAFETY: `f` é uma função gerada com sete parâmetros de uma palavra.
+    // SAFETY: a ABI declarada do alvo tem 7 parâmetros de palavra e retorno i64.
     let g: extern "C" fn(i64, i64, i64, i64, i64, i64, i64) -> i64 = unsafe { std::mem::transmute(f) };
     direta(|| g(a, b, c, d, e, g6, h))
 }
 
 fn dart_v0(f: usize) {
+    if let Some(guarda) = arc_preparar_porta(f, 0).expect("fronteira de callback ARC inválida") {
+        // O consumidor ignora o valor, mas a ABI do corpo continua Ref Owned.
+        // Usa a porta de retorno e consome esse token antes de prosseguir.
+        arc_descartar_porta(guarda, dart_r0_invocar(f));
+        return;
+    }
     let p = porta_dart(0);
     if p != 0 {
         // SAFETY: `@df.porta.v0` tem a assinatura (ptr) -> void.
@@ -208,6 +251,12 @@ fn dart_v0(f: usize) {
 }
 
 fn dart_v1(f: usize, a: i64) {
+    if let Some(guarda) = arc_preparar_porta(f, 1).expect("fronteira de callback ARC inválida") {
+        // O consumidor ignora o valor, mas a ABI do corpo continua Ref Owned.
+        // Usa a porta de retorno e consome esse token antes de prosseguir.
+        arc_descartar_porta(guarda, dart_r1_invocar(f, a));
+        return;
+    }
     let p = porta_dart(2);
     if p != 0 {
         // SAFETY: `@df.porta.v1` tem a assinatura (ptr, i64) -> void.
@@ -220,6 +269,12 @@ fn dart_v1(f: usize, a: i64) {
 }
 
 fn dart_v2(f: usize, a: i64, b: i64) {
+    if let Some(guarda) = arc_preparar_porta(f, 2).expect("fronteira de callback ARC inválida") {
+        // O consumidor ignora o valor, mas a ABI do corpo continua Ref Owned.
+        // Usa a porta de retorno e consome esse token antes de prosseguir.
+        arc_descartar_porta(guarda, dart_r2_invocar(f, a, b));
+        return;
+    }
     let p = porta_dart(4);
     if p != 0 {
         // SAFETY: `@df.porta.v2` tem a assinatura (ptr, i64, i64) -> void.
@@ -232,6 +287,12 @@ fn dart_v2(f: usize, a: i64, b: i64) {
 }
 
 fn dart_v3(f: usize, a: i64, b: i64, c: i64) {
+    if let Some(guarda) = arc_preparar_porta(f, 3).expect("fronteira de callback ARC inválida") {
+        // O consumidor ignora o valor, mas a ABI do corpo continua Ref Owned.
+        // Usa a porta de retorno e consome esse token antes de prosseguir.
+        arc_descartar_porta(guarda, dart_r3_invocar(f, a, b, c));
+        return;
+    }
     let p = porta_dart(6);
     if p != 0 {
         // SAFETY: `@df.porta.v3` tem a assinatura (ptr, i64, i64, i64) -> void.

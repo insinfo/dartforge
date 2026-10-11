@@ -16,6 +16,10 @@ import tempfile
 
 
 PROVAS = {
+    "arc_porta_nativa_owned": ("prova-porta-nativa-owned", True, [
+        (modo, controle) for modo in ("checagem", "tabelas")
+        for controle in (None, "sem-registro", "sem-fechamento")
+    ]),
     "arc_retorno_da_fonte": ("prova-retorno-da-fonte", False, [
         ("normal", None), ("normal", "sem-retencao"), ("normal", "sem-drop-retorno"),
         ("normal", "sem-drop-intermediario"),
