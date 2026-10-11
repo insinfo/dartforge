@@ -223,6 +223,34 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
+        decl: "declare i64 @dartforge_arc_lista_armazenamento_ref_v1(i64) nounwind",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_arc_lista_forma_v1(i64) nounwind",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_arc_lista_capacidade_v1(i64) nounwind",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
+        decl: "declare void @dartforge_arc_lista_gravar_len_v1(i64, i64) nounwind",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
+        decl: "declare void @dartforge_arc_lista_gravar_bits_v1(i64, i64, i64, i64) nounwind",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
+        decl: "declare void @dartforge_arc_lista_gravar_ref_v1(i64, i64, i64) nounwind",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_arc_lista_gravar_dados_v1(i64, i64) nounwind",
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
+    },
+    Extern {
         decl: "declare i64 @dartforge_arc_lista_len_v1(i64) nounwind",
         efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },

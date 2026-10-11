@@ -26,6 +26,71 @@ fn c(n: i64) -> Operand {
     Operand::Constant(Constant::Int(n))
 }
 
+#[cfg(test)]
+mod testes_arc {
+    use super::*;
+    use crate::context::Context;
+    use dartforge_intern::Interner;
+    use dartforge_types::table::{CoreTypes, TypeTable};
+
+    #[test]
+    fn add_escalar_da_fonte_transporta_ref_em_arc_e_endereco_em_tracing() {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let entrada = dir.path().join("main.dart");
+            std::fs::write(&entrada,
+                "void inteiros(List<int> l, int v) { l.add(v); } void reais(List<double> l, double v) { l.add(v); } void booleanos(List<bool> l, bool v) { l.add(v); } void main() { inteiros(<int>[], 1); reais(<double>[], -0.0); booleanos(<bool>[], true); }\n").unwrap();
+            let sdk = crate::sdk_modulo::carregar_sdk_nativo(crate::sdk_testes()).unwrap();
+            let mut interner = Interner::new();
+            let (program, diags) = dartforge_elements::load::load_lenient(&entrada, &sdk, None, &mut interner);
+            assert!(diags.is_empty(), "{diags:?}");
+            let mut table = TypeTable::new();
+            let core = CoreTypes::init(&mut table, &program, &interner);
+            let (mut outline, diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+            let (bodies, diags_corpos) = dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
+            for d in diags.iter().chain(&diags_corpos) {
+                assert!(!dartforge_types::codes::e_erro_de_compilacao(&d.message), "{d:?}");
+            }
+            let te = crate::apagamento::calcular(&program, &outline, &mut table);
+            let mut ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
+            ctx.te = te;
+            for arc in [false, true] {
+                ctx.memoria_arc = arc;
+                let m = crate::lower::lower_program(&ctx);
+                assert!(m.erros.is_empty(), "{:?}", m.erros);
+                for nome in ["inteiros", "reais", "booleanos"] {
+                    let f = m.functions.iter().find(|f| f.name == nome).unwrap();
+                    let insts: Vec<_> = f.blocks.iter().flat_map(|b| &b.instructions).collect();
+                    let armazenamento = insts.iter().find(|(_, i, _)| matches!(i,
+                        Instruction::CallRuntime { name, .. } if name == if arc {
+                            "dartforge_arc_lista_armazenamento_ref_v1"
+                        } else { "df.lista_armazenamento" })).unwrap();
+                    assert_eq!(armazenamento.2, if arc { Type::Ref } else { Type::I64 });
+                    if arc {
+                        assert!(!insts.iter().any(|(_, i, _)| matches!(i, Instruction::GravacaoNativa { .. })));
+                        let escrita = insts.iter().find(|(_, i, _)| matches!(i,
+                            Instruction::CallRuntime { name, .. } if name == "dartforge_arc_lista_gravar_bits_v1")).unwrap();
+                        let Instruction::CallRuntime { args, .. } = &escrita.1 else { unreachable!() };
+                        assert_eq!(args[0], (Operand::Val(armazenamento.0), Type::Ref));
+                        assert_eq!(args[2].1, Type::I64);
+                        assert_eq!(args[3], (Operand::Constant(Constant::Int(match nome {
+                            "inteiros" => 0x22, "reais" => 0x42, _ => 0x62,
+                        })), Type::I64));
+                        if nome == "reais" {
+                            assert!(insts.iter().any(|(v, i, _)| args[2].0 == Operand::Val(*v)
+                                && matches!(i, Instruction::Bitcast { to: Type::I64, .. })));
+                        }
+                    } else {
+                        assert!(insts.iter().any(|(_, i, _)| matches!(i, Instruction::GravacaoNativa { .. })));
+                        assert!(!insts.iter().any(|(_, i, _)| matches!(i,
+                            Instruction::CallRuntime { name, .. } if name.starts_with("dartforge_arc_lista_"))));
+                    }
+                }
+            }
+        }).unwrap().join().unwrap();
+    }
+}
+
 /// Os bits `FORMA`/`ELEMENTO` (`@df.lista_forma`) do armazenamento geral.
 const FORMA_GERAL: i64 = flags::REFS as i64;
 
@@ -70,6 +135,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Um ajudante `@df.lista_*` (sem coleta nem exceção).
     fn ajudante_de_lista(&mut self, nome: &str, args: Vec<(Operand, Type)>, ret: Type) -> Operand {
+        let nome = if self.ctx.memoria_arc {
+            match nome {
+                "df.lista_armazenamento" => "dartforge_arc_lista_armazenamento_ref_v1",
+                "df.lista_capacidade" => "dartforge_arc_lista_capacidade_v1",
+                "df.lista_ler" => "dartforge_arc_lista_ref_owned_v1",
+                "df.lista_gravar_ref" => "dartforge_arc_lista_gravar_ref_v1",
+                "df.lista_gravar_len" => "dartforge_arc_lista_gravar_len_v1",
+                "df.lista_gravar_dados" => "dartforge_arc_lista_gravar_dados_v1",
+                _ => nome,
+            }
+        } else { nome };
         self.emit(Instruction::CallRuntime { name: nome.to_string(), args, ret_ty: ret }, ret)
     }
 
@@ -78,15 +154,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.ajudante_de_lista("df.lista_len", vec![(l, Type::Ref)], Type::I64)
     }
 
-    /// O armazenamento (`@df.lista_armazenamento`), como endereço (`I64`): só
-    /// para ler e gravar em seguida, sem ponto de coleta no meio (a lista, viva,
-    /// o mantém).
+    /// O armazenamento: Ref emprestado em ARC; endereço I64 em tracing,
+    /// mantido vivo pela lista e usado sem coleta entre acesso e uso.
     pub(super) fn lista_armazenamento_em_linha(&mut self, l: Operand) -> Operand {
-        self.ajudante_de_lista("df.lista_armazenamento", vec![(l, Type::Ref)], Type::I64)
+        let ty = if self.ctx.memoria_arc { Type::Ref } else { Type::I64 };
+        self.ajudante_de_lista("df.lista_armazenamento", vec![(l, Type::Ref)], ty)
     }
 
     /// Os bits `FORMA`/`ELEMENTO` do armazenamento `a` (`@df.lista_forma`), em `I64`.
     pub(super) fn lista_forma_em_linha(&mut self, a: Operand) -> Operand {
+        if self.ctx.memoria_arc {
+            return self.ajudante_de_lista("dartforge_arc_lista_forma_v1", vec![(a, Type::Ref)], Type::I64);
+        }
         let f = self.ajudante_de_lista("df.lista_forma", vec![(a, Type::I64)], Type::I8);
         self.emit(Instruction::ZExt { op: f, from: Type::I8, to: Type::I64 }, Type::I64)
     }
@@ -143,7 +222,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(rapido);
         self.ajudante_de_lista(
             "df.lista_gravar_ref",
-            vec![(a, Type::I64), (i.clone(), Type::I64), (v.clone(), Type::Ref)],
+            vec![(a.clone(), self.operand_type(&a)), (i.clone(), Type::I64), (v.clone(), Type::Ref)],
             Type::Void,
         );
         self.terminate(Terminator::Branch(fim));
@@ -183,7 +262,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::CondBranch { cond: geral, then_block: rapido, else_block: lento });
 
         self.set_block(rapido);
-        let r_rapido = self.ajudante_de_lista("df.lista_ler", vec![(a, Type::I64), (i.clone(), Type::I64)], Type::Ref);
+        let r_rapido = self.ajudante_de_lista("df.lista_ler", vec![(a.clone(), self.operand_type(&a)), (i.clone(), Type::I64)], Type::Ref);
         self.terminate(Terminator::Branch(fim));
 
         self.set_block(lento);
@@ -221,7 +300,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ) -> (BlockId, BlockId) {
         let len = self.lista_len_em_linha(lista.clone());
         let a = self.lista_armazenamento_em_linha(lista.clone());
-        let cap = self.ajudante_de_lista("df.lista_len", vec![(a.clone(), Type::I64)], Type::I64);
+        let cap = self.ajudante_de_lista("df.lista_len", vec![(a.clone(), self.operand_type(&a))], Type::I64);
         let f = self.lista_forma_em_linha(a.clone());
         let casa = self.emit(Instruction::ICmp(ICmpOp::Eq, f, c(i64::from(forma))), Type::I1);
         let b_casa = self.new_block();
@@ -234,8 +313,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::CondBranch { cond: tem, then_block: b_grava, else_block: cheio });
 
         self.set_block(b_grava);
-        let base = self.emit(Instruction::Add(a, c(layout::desl::ELEMENTOS as i64 - layout::DESLOCAMENTO_DO_HANDLE)), Type::I64);
-        self.emit(Instruction::GravacaoNativa { endereco: base, indice: len.clone(), tipo, valor }, Type::Void);
+        if self.ctx.memoria_arc {
+            let bits = if tipo == TipoC::F64 {
+                self.emit(Instruction::Bitcast { op: valor, to: Type::I64 }, Type::I64)
+            } else { valor };
+            self.ajudante_de_lista("dartforge_arc_lista_gravar_bits_v1",
+                vec![(a, Type::Ref), (len.clone(), Type::I64), (bits, Type::I64), (c(i64::from(forma)), Type::I64)], Type::Void);
+        } else {
+            let base = self.emit(Instruction::Add(a, c(layout::desl::ELEMENTOS as i64 - layout::DESLOCAMENTO_DO_HANDLE)), Type::I64);
+            self.emit(Instruction::GravacaoNativa { endereco: base, indice: len.clone(), tipo, valor }, Type::Void);
+        }
         let novo = self.emit(Instruction::Add(len, c(1)), Type::I64);
         self.ajudante_de_lista("df.lista_gravar_len", vec![(lista, Type::Ref), (novo, Type::I64)], Type::Void);
         let feito = self.current_block;

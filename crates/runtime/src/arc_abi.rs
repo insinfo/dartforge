@@ -4,7 +4,7 @@
 // A fábrica owned de caixas é uma operação de alocação, com safepoint próprio.
 // O lançamento Ref publica uma raiz runtime e pode alocar o rastro.
 
-fn armazenamento_lista_auditado(heap: &Heap, lista: i64) -> Result<(i64, usize), &'static str> {
+fn mapa_lista_auditado(heap: &Heap, lista: i64) -> Result<(i64, usize, usize), &'static str> {
     use crate::layout::cid;
     if !heap.e_lista(lista) { return Err("receiver não é lista viva"); }
     let (dados, comprimento) = if heap.cabecalho(lista).class_id == cid::GROWABLE_LIST {
@@ -24,9 +24,15 @@ fn armazenamento_lista_auditado(heap: &Heap, lista: i64) -> Result<(i64, usize),
     let palavras = heap.palavras(dados);
     let capacidade = usize::try_from(*palavras.first().ok_or("capacidade ausente")?)
         .map_err(|_| "capacidade negativa")?;
-    if comprimento > capacidade || capacidade > palavras.len().saturating_sub(1) {
-        return Err("comprimento/capacidade fora do armazenamento");
+    if capacidade > palavras.len().saturating_sub(1) {
+        return Err("capacidade fora do armazenamento");
     }
+    Ok((dados, comprimento, capacidade))
+}
+
+fn armazenamento_lista_auditado(heap: &Heap, lista: i64) -> Result<(i64, usize), &'static str> {
+    let (dados, comprimento, capacidade) = mapa_lista_auditado(heap, lista)?;
+    if comprimento > capacidade { return Err("comprimento fora do armazenamento"); }
     Ok((dados, comprimento))
 }
 
@@ -69,6 +75,213 @@ pub extern "C" fn dartforge_arc_lista_len_v1(lista: i64) -> i64 {
     })
 }
 
+/// Empresta o armazenamento Ref, mantido vivo pelo owner da lista recebida.
+///
+/// Confere classe, mapa e limites; não aloca, coleta, retém ou executa Dart.
+/// O empréstimo perde validade após uma operação que possa trocar arestas.
+///
+/// # Panics
+/// Lista morta ou layout inválido; aborta na fronteira C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// // SAFETY: um elemento Ref válido durante a criação.
+/// let lista = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 0) };
+/// dartforge_arc_retain(lista);
+/// assert_eq!(dartforge_arc_lista_armazenamento_ref_v1(lista), lista);
+/// dartforge_arc_release(lista);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_lista_armazenamento_ref_v1(lista: i64) -> i64 {
+    HEAP.with(|h| armazenamento_lista_auditado(&h.borrow(), lista)
+        .expect("armazenamento ARC inválido").0)
+}
+
+/// Lê a forma escalar do armazenamento de uma lista viva.
+///
+/// Não aloca, coleta, retém ou executa Dart; a referência fica emprestada.
+///
+/// # Panics
+/// Lista morta ou layout inválido; aborta na fronteira C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let lista = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 0) };
+/// dartforge_arc_retain(lista);
+/// assert_eq!(dartforge_arc_lista_forma_v1(lista), 4);
+/// dartforge_arc_release(lista);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_lista_forma_v1(lista: i64) -> i64 {
+    HEAP.with(|h| {
+        let heap = h.borrow();
+        let (dados, _) = armazenamento_lista_auditado(&heap, lista).expect("forma ARC inválida");
+        i64::from(heap.cabecalho(dados).flags & (crate::layout::flags::FORMA | crate::layout::flags::ELEMENTO))
+    })
+}
+
+/// Lê a capacidade escalar do armazenamento de uma lista viva.
+///
+/// Não aloca, coleta, retém ou executa Dart; a referência fica emprestada.
+///
+/// # Panics
+/// Lista morta ou layout inválido; aborta na fronteira C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let lista = unsafe { dartforge_lista_nova([0, 0].as_ptr(), 2, 8, 0) };
+/// dartforge_arc_retain(lista);
+/// assert_eq!(dartforge_arc_lista_capacidade_v1(lista), 2);
+/// dartforge_arc_release(lista);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_lista_capacidade_v1(lista: i64) -> i64 {
+    HEAP.with(|h| {
+        let heap = h.borrow();
+        let (dados, _) = armazenamento_lista_auditado(&heap, lista).expect("capacidade ARC inválida");
+        heap.lista_len(dados) as i64
+    })
+}
+
+fn conferir_len_lista_arc(heap: &Heap, lista: i64, novo: i64) -> Result<usize, &'static str> {
+    let (_, _, capacidade) = mapa_lista_auditado(heap, lista)?;
+    if heap.cabecalho(lista).class_id != crate::layout::cid::GROWABLE_LIST {
+        return Err("comprimento mutável exige lista expansível");
+    }
+    let novo = usize::try_from(novo).map_err(|_| "comprimento negativo")?;
+    if novo > capacidade { return Err("comprimento fora do armazenamento"); }
+    Ok(novo)
+}
+
+/// Grava o comprimento escalar de uma lista expansível dentro da capacidade.
+///
+/// Preserva a sequência `_setData` seguida de `_setLength` do SDK, mesmo
+/// quando o comprimento antigo excede temporariamente a capacidade nova.
+/// Não aloca, coleta ou executa Dart; invalida empréstimos anteriores.
+///
+/// # Panics
+/// Classe, mapa ou novo comprimento inválido; aborta na fronteira C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let lista = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 10, 0) };
+/// dartforge_arc_retain(lista);
+/// dartforge_arc_lista_gravar_len_v1(lista, 0);
+/// assert_eq!(dartforge_arc_lista_len_v1(lista), 0);
+/// dartforge_arc_release(lista);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_lista_gravar_len_v1(lista: i64, novo: i64) {
+    HEAP.with(|h| {
+        let mut heap = h.borrow_mut();
+        let novo = conferir_len_lista_arc(&heap, lista, novo).expect("gravação ARC de comprimento inválida");
+        heap.lista_definir_len(lista, novo);
+    })
+}
+
+fn conferir_bits_lista_arc(heap: &Heap, dados: i64, indice: i64, bits: i64, forma: i64)
+    -> Result<usize, &'static str> {
+    use crate::layout::{cid, flags};
+    let (armazenamento, comprimento) = armazenamento_lista_auditado(heap, dados)?;
+    if armazenamento != dados || heap.cabecalho(dados).class_id != cid::LIST {
+        return Err("gravação exige armazenamento fixo mutável");
+    }
+    let f = heap.cabecalho(dados).flags & (flags::FORMA | flags::ELEMENTO);
+    if forma != i64::from(f) || ![flags::BRUTO | flags::ELEMENTO_INT,
+        flags::BRUTO | flags::ELEMENTO_DOUBLE, flags::BRUTO | flags::ELEMENTO_BOOL].contains(&f) {
+        return Err("forma escalar incompatível");
+    }
+    if f == flags::BRUTO | flags::ELEMENTO_BOOL && ![0, 1].contains(&bits) {
+        return Err("booleano não canônico");
+    }
+    let i = usize::try_from(indice).map_err(|_| "índice negativo")?;
+    if i >= comprimento { return Err("índice fora do armazenamento"); }
+    Ok(i)
+}
+
+/// Grava bits de int, double ou bool num armazenamento compacto mutável.
+///
+/// Confere forma e índice; `forma` usa os bits FORMA/ELEMENTO do layout.
+/// Não encaixota, aloca, coleta ou executa Dart; invalida empréstimos anteriores.
+///
+/// # Panics
+/// Lista, forma, índice ou booleano inválido; aborta na fronteira C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let lista = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 1) };
+/// dartforge_arc_retain(lista);
+/// dartforge_arc_lista_gravar_bits_v1(lista, 0, 42, 0x22);
+/// dartforge_arc_release(lista);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_lista_gravar_bits_v1(dados: i64, indice: i64, bits: i64, forma: i64) {
+    HEAP.with(|h| {
+        let mut heap = h.borrow_mut();
+        let i = conferir_bits_lista_arc(&heap, dados, indice, bits, forma).expect("gravação ARC escalar inválida");
+        heap.palavras_mut(dados)[1 + i] = bits;
+    })
+}
+
+/// Copia uma referência emprestada para um elemento geral, com barreira ARC/GC.
+///
+/// Confere armazenamento mutável, forma Ref e índice. Não aloca, coleta ou
+/// executa Dart; não consome o owner do valor e invalida empréstimos anteriores.
+///
+/// # Panics
+/// Lista, índice ou referência morta inválida; aborta na fronteira C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let lista = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 0) };
+/// dartforge_arc_retain(lista);
+/// dartforge_arc_lista_gravar_ref_v1(lista, 0, 0);
+/// dartforge_arc_release(lista);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_lista_gravar_ref_v1(dados: i64, indice: i64, valor: i64) {
+    HEAP.with(|h| {
+        let mut heap = h.borrow_mut();
+        assert!(heap.e_lista(dados) && heap.cabecalho(dados).class_id == crate::layout::cid::LIST,
+            "gravação ARC Ref exige armazenamento mutável");
+        ler_elemento_ref_auditado(&heap, dados, indice).expect("gravação ARC Ref inválida");
+        assert!(!crate::layout::e_objeto(valor) || heap.e_objeto_vivo(valor), "referência ARC morta");
+        heap.gravar_refs(dados, 1 + indice as usize, &[valor]);
+    })
+}
+
+/// Troca o armazenamento de uma expansível se a forma do novo for a mesma.
+///
+/// Retorna 1 após copiar a aresta Ref com barreira, ou 0 sem alterar a lista
+/// quando as formas diferem. Não aloca, coleta ou executa Dart. A troca pode
+/// anteceder `_setLength` ao encolher e invalida empréstimos anteriores.
+///
+/// # Panics
+/// Receiver, mapa ou armazenamento inválido; aborta na fronteira C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let lista = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 10, 0) };
+/// dartforge_arc_retain(lista);
+/// let dados = dartforge_arc_lista_armazenamento_ref_v1(lista);
+/// assert_eq!(dartforge_arc_lista_gravar_dados_v1(lista, dados), 1);
+/// dartforge_arc_release(lista);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_lista_gravar_dados_v1(lista: i64, dados: i64) -> i64 {
+    HEAP.with(|h| {
+        let mut heap = h.borrow_mut();
+        let (velho, _, _) = mapa_lista_auditado(&heap, lista).expect("mapa ARC de lista inválido");
+        assert_eq!(heap.cabecalho(lista).class_id, crate::layout::cid::GROWABLE_LIST);
+        let (fixa, _) = armazenamento_lista_auditado(&heap, dados).expect("novo armazenamento ARC inválido");
+        assert_eq!(fixa, dados, "armazenamento ARC deve ser fixo");
+        let mascara = crate::layout::flags::FORMA | crate::layout::flags::ELEMENTO;
+        if heap.cabecalho(velho).flags & mascara != heap.cabecalho(dados).flags & mascara { return 0; }
+        heap.lista_definir_dados(lista, dados);
+        1
+    })
+}
+
 /// Lê um elemento da lista geral e devolve um owner independente.
 ///
 /// Confere lista fixa/imutável/expansível viva, mapa, representação Ref e
@@ -101,6 +314,124 @@ pub extern "C" fn dartforge_arc_lista_ref_owned_v1(lista: i64, indice: i64) -> i
 mod testes_lista_ref_owned {
     use super::*;
     use crate::{layout::{cid, smi}, listas::Elemento, heap::Valor};
+
+    #[test]
+    fn armazenamento_compacto_preserva_bits_e_sequencia_de_encolhimento() {
+        for arc in [false, true] {
+            for (forma, bits) in [(Elemento::Int, i64::MIN),
+                (Elemento::Double, 0xfff8_1234_5678_9abc_u64 as i64), (Elemento::Bool, 1)] {
+                let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+                let lista = HEAP.with(|h| {
+                    let mut heap = h.borrow_mut();
+                    if arc { heap.ativar_arc(); }
+                    let lista = heap.nova_expansivel(0, 3, forma);
+                    heap.reter_owner_codigo(lista);
+                    lista
+                });
+                let stats = HEAP.with(|h| h.borrow().stats());
+                let dados = dartforge_arc_lista_armazenamento_ref_v1(lista);
+                assert_ne!(dados, lista);
+                assert_eq!(dartforge_arc_lista_capacidade_v1(lista), 3);
+                assert_eq!(dartforge_arc_lista_len_v1(dados), 3);
+                assert_eq!(dartforge_arc_lista_forma_v1(dados), i64::from(forma.flags()));
+                dartforge_arc_lista_gravar_bits_v1(dados, 0, bits, i64::from(forma.flags()));
+                dartforge_arc_lista_gravar_len_v1(lista, 1);
+                HEAP.with(|h| {
+                    let heap = h.borrow();
+                    assert_eq!(heap.palavras(dados)[1], bits);
+                    assert_eq!(heap.stats().allocations, stats.allocations);
+                    assert_eq!(heap.stats().collections, stats.collections);
+                });
+                // Cópia explícita antes de retirar a aresta que sustenta o borrow.
+                dartforge_arc_retain(dados);
+                let novo = HEAP.with(|h| {
+                    let mut heap = h.borrow_mut();
+                    let novo = heap.nova_lista(cid::LIST, 0, forma);
+                    heap.reter_owner_codigo(novo);
+                    novo
+                });
+                assert_eq!(dartforge_arc_lista_gravar_dados_v1(lista, novo), 1);
+                assert!(HEAP.with(|h| armazenamento_lista_auditado(&h.borrow(), lista).is_err()));
+                dartforge_arc_lista_gravar_len_v1(lista, 0);
+                assert_eq!(dartforge_arc_lista_len_v1(lista), 0);
+                dartforge_arc_release(novo);
+                dartforge_arc_collect();
+                assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(dados)));
+                dartforge_arc_release(dados);
+                dartforge_arc_collect();
+                assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(dados)));
+                assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(novo)));
+                dartforge_arc_release(lista);
+                dartforge_arc_collect();
+                assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(novo)));
+                HEAP.with(|h| h.replace(anterior));
+            }
+        }
+    }
+
+    #[test]
+    fn armazenamento_ref_copia_arestas_e_preserva_owner_do_elemento() {
+        for arc in [false, true] {
+            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+            let lista = HEAP.with(|h| {
+                let mut heap = h.borrow_mut();
+                if arc { heap.ativar_arc(); }
+                let lista = heap.nova_expansivel(1, 3, Elemento::Geral);
+                heap.reter_owner_codigo(lista);
+                lista
+            });
+            let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
+            let dados = dartforge_arc_lista_armazenamento_ref_v1(lista);
+            let stats = HEAP.with(|h| h.borrow().stats());
+            dartforge_arc_lista_gravar_ref_v1(dados, 0, filho);
+            assert_eq!(HEAP.with(|h| h.borrow().stats().allocations), stats.allocations);
+            assert_eq!(HEAP.with(|h| h.borrow().stats().collections), stats.collections);
+            dartforge_arc_release(filho);
+            dartforge_arc_collect();
+            assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(filho)));
+            let recebido = dartforge_arc_lista_ref_owned_v1(dados, 0);
+            dartforge_arc_lista_gravar_ref_v1(dados, 0, 0);
+            dartforge_arc_release(lista);
+            dartforge_arc_collect();
+            assert_eq!(dartforge_unbox_int(recebido), i64::MAX);
+            dartforge_arc_release(recebido);
+            dartforge_arc_collect();
+            assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(filho)));
+            HEAP.with(|h| h.replace(anterior));
+        }
+    }
+
+    #[test]
+    fn escritas_recusam_forma_indice_e_len_invalidos_e_nao_trocam_forma() {
+        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+        let (lista, novo) = HEAP.with(|h| {
+            let mut heap = h.borrow_mut();
+            heap.ativar_arc();
+            let lista = heap.nova_expansivel(1, 2, Elemento::Bool);
+            heap.reter_owner_codigo(lista);
+            let novo = heap.nova_lista(cid::LIST, 1, Elemento::Int);
+            heap.reter_owner_codigo(novo);
+            (lista, novo)
+        });
+        let dados = dartforge_arc_lista_armazenamento_ref_v1(lista);
+        assert_eq!(dartforge_arc_lista_gravar_dados_v1(lista, novo), 0);
+        assert_eq!(dartforge_arc_lista_armazenamento_ref_v1(lista), dados);
+        HEAP.with(|h| {
+            let heap = h.borrow();
+            for (i, bits, forma) in [(-1, 1, 0x62), (2, 1, 0x62), (0, 2, 0x62),
+                (0, 1, 0x22), (0, 1, 0x04)] {
+                assert!(conferir_bits_lista_arc(&heap, dados, i, bits, forma).is_err());
+            }
+            assert!(conferir_bits_lista_arc(&heap, lista, 0, 1, 0x62).is_err());
+            assert!(conferir_len_lista_arc(&heap, dados, 0).is_err());
+            for n in [-1, 3] { assert!(conferir_len_lista_arc(&heap, lista, n).is_err()); }
+            assert_eq!(heap.palavras(dados)[1], 0);
+        });
+        dartforge_arc_release(novo);
+        dartforge_arc_release(lista);
+        dartforge_arc_collect();
+        HEAP.with(|h| h.replace(anterior));
+    }
 
     #[test]
     fn comprimento_geral_e_compacto_nao_aloca_coleta_ou_retem() {
