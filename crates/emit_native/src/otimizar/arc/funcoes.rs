@@ -78,7 +78,7 @@ pub fn inserir_arc_funcoes_dart(
     funcoes: &mut [Function],
     planos: &mut HashMap<String, PlanoFuncaoDart>,
 ) -> Result<(usize, usize), String> {
-    inserir(funcoes, planos, false, None)
+    inserir(funcoes, planos, false, None, &HashMap::new())
 }
 
 /// Prepara invokes ausentes e insere ARC num conjunto fechado de funções Dart.
@@ -135,7 +135,7 @@ pub fn preparar_arc_funcoes_dart(
     funcoes: &mut [Function],
     planos: &mut HashMap<String, PlanoFuncaoDart>,
 ) -> Result<(usize, usize), String> {
-    inserir(funcoes, planos, true, None)
+    inserir(funcoes, planos, true, None, &HashMap::new())
 }
 
 /// Prepara atomicamente os fatos do lowering e o conjunto fechado de um módulo ARC.
@@ -190,6 +190,16 @@ pub fn preparar_arc_modulo_dart(
     modulo: &mut Module,
     planos: &mut HashMap<String, PlanoFuncaoDart>,
 ) -> Result<(usize, usize), String> {
+    preparar_com_variantes(modulo, planos, &HashMap::new())
+}
+
+// Cada alias é um corpo real de uma definição compartilhada. Chamadas ao
+// símbolo público precisam considerar falhas de qualquer variante verificada.
+pub(super) fn preparar_com_variantes(
+    modulo: &mut Module,
+    planos: &mut HashMap<String, PlanoFuncaoDart>,
+    variantes: &HashMap<String, Vec<String>>,
+) -> Result<(usize, usize), String> {
     if !modulo.memoria_arc {
         return Ok((0, 0));
     }
@@ -207,6 +217,7 @@ pub fn preparar_arc_modulo_dart(
         &mut novos,
         true,
         Some(&modulo.layouts_campos_arc),
+        variantes,
     )?;
     // Os IDs de invokes/pousos e os certificados pertencem aos corpos novos.
     // Não deixar o emissor consultar um inventário da versão anterior do CFG.
@@ -226,6 +237,7 @@ fn inserir(
     planos: &mut HashMap<String, PlanoFuncaoDart>,
     preparar_chamadas: bool,
     layouts: Option<&HashMap<u32, Vec<Type>>>,
+    variantes: &HashMap<String, Vec<String>>,
 ) -> Result<(usize, usize), String> {
     let mut simbolos = HashSet::new();
     for f in funcoes.iter() {
@@ -260,7 +272,7 @@ fn inserir(
         let t = &planos[&f.symbol].tabelas;
         crate::llvm::LlvmEmitter::exige_contexto_explicito(f, Some(t)) || !t.saidas.is_empty()
     };
-    if modulo.functions.iter().any(falha_no_prologo_ou_saida) {
+    if !variantes.is_empty() || modulo.functions.iter().any(falha_no_prologo_ou_saida) {
         let mut chamadores: HashMap<&str, Vec<&str>> = HashMap::new();
         for f in &modulo.functions {
             for (_, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
@@ -269,18 +281,20 @@ fn inserir(
                 }
             }
         }
-        let mut fila: Vec<_> = modulo
-            .functions
-            .iter()
-            .filter(|f| falha_no_prologo_ou_saida(f))
-            .map(|f| f.symbol.as_str())
-            .collect();
-        while let Some(simbolo) = fila.pop() {
-            if nao_lancam.remove(simbolo) {
-                if let Some(anteriores) = chamadores.get(simbolo) {
-                    fila.extend(anteriores.iter().copied());
-                }
+        for (publico, alternativas) in variantes {
+            if !simbolos.contains(publico) || alternativas.iter().any(|s| !simbolos.contains(s)) {
+                return Err(format!("variantes ARC fora do conjunto: {publico}"));
             }
+            for alternativa in alternativas { chamadores.entry(alternativa).or_default().push(publico); }
+        }
+        let mut fila: Vec<_> = modulo.functions.iter()
+            .filter(|f| !nao_lancam.contains(&f.symbol) || falha_no_prologo_ou_saida(f))
+            .map(|f| f.symbol.as_str()).collect();
+        let mut visitados = HashSet::new();
+        while let Some(simbolo) = fila.pop() {
+            if !visitados.insert(simbolo) { continue; }
+            nao_lancam.remove(simbolo);
+            if let Some(anteriores) = chamadores.get(simbolo) { fila.extend(anteriores.iter().copied()); }
         }
     }
     for f in &modulo.functions {
