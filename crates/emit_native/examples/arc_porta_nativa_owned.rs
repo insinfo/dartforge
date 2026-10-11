@@ -190,7 +190,19 @@ fn modulo(tabelas: bool, certificar: bool) -> Result<Module, String> {
         if tabelas {
             m.tabelas.push(plano.tabelas.clone());
         }
-        planos.insert("repasse_closure".into(), plano);
+        planos.insert("repasse_closure".into(), plano.clone());
+        let mut local = m.functions.last().unwrap().clone();
+        local.symbol = "seletor_local".into();
+        local.name = "seletor_local".into();
+        local.blocks[0].instructions[0].1 = Instruction::CallSeletor {
+            seletor: "c:ausente".into(), recv: Operand::Val(ValueId(0)),
+            args: vec![], nomes: vec![], tupla_tipos: Operand::Constant(Constant::Int(0)),
+        };
+        m.functions.push(local);
+        m.retornos_uniformes_arc.insert("seletor_local".into());
+        m.parametros_vetores_dart.insert("seletor_local".into(), m.parametros_vetores_dart["entrada_uniforme"].clone());
+        if tabelas { m.tabelas.push(plano.tabelas.clone()); }
+        planos.insert("seletor_local".into(), plano);
     }
     preparar_arc_modulo_dart(&mut m, &mut planos)?;
     if planos
@@ -205,7 +217,7 @@ fn modulo(tabelas: bool, certificar: bool) -> Result<Module, String> {
     {
         return Err("preparação não idempotente".into());
     }
-    if certificar && certificar_portas_arc_aot(&mut m, &planos)? != 5 {
+    if certificar && certificar_portas_arc_aot(&mut m, &planos)? != 6 {
         return Err("inventário de portas certificado incompleto".into());
     }
     Ok(m)
@@ -383,6 +395,22 @@ liberar_closure:
   %closure_morto = icmp eq i8 %closure_final, 0
   br i1 %closure_morto, label %closure_concluida, label %falha
 closure_concluida:
+  %codigo_local = ptrtoint ptr @seletor_local to i64
+  %rl = call i64 @dartforge_arc_invocar_uniforme_v1(i64 %codigo_local, i64 0, i64 %args_ptr, i64 %desc_ptr)
+  call void @dartforge_arc_collect()
+  %local_vivo = call i8 @dartforge_arc_observar_heap_v1(i64 %rl)
+  %local_valor = call i64 @dartforge_unbox_int(i64 %rl)
+  %local_owner_ok = icmp eq i8 %local_vivo, 3
+  %local_valor_ok = icmp eq i64 %local_valor, 9223372036854775807
+  %local_ok = and i1 %local_owner_ok, %local_valor_ok
+  br i1 %local_ok, label %liberar_local, label %falha
+liberar_local:
+  call void @dartforge_arc_release(i64 %rl)
+  call void @dartforge_arc_collect()
+  %local_final = call i8 @dartforge_arc_observar_heap_v1(i64 %rl)
+  %local_morto = icmp eq i8 %local_final, 0
+  br i1 %local_morto, label %local_concluido, label %falha
+local_concluido:
 "#);
     }
     if arc {

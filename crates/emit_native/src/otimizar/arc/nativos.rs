@@ -42,6 +42,54 @@ mod testes {
     use std::collections::HashMap;
 
     #[test]
+    fn seletor_local_exige_refs_descritor_rti_e_pending_sem_alterar_tracing() {
+        for caso in 0..9 {
+            let mut m = Module::new();
+            m.memoria_arc = caso != 8;
+            let mut insts = vec![
+                (ValueId(2), Instruction::CallSeletor { seletor: "tc:start".into(),
+                    recv: Operand::Val(ValueId(0)), args: vec![Operand::Val(ValueId(1))],
+                    nomes: if caso == 3 { vec!["x".into(), "x".into()] } else { vec![] },
+                    tupla_tipos: Operand::Constant(Constant::Int(if caso == 4 { 7 } else { 0 })) },
+                    if caso == 5 { Type::I64 } else { Type::Ref }),
+                (ValueId(3), Instruction::CallRuntime { name: "dartforge_exception_pending".into(), args: vec![], ret_ty: Type::I8 }, Type::I8),
+                (ValueId(4), Instruction::ICmp(ICmpOp::Ne, Operand::Val(ValueId(3)), Operand::Constant(Constant::Int(0))), Type::I1),
+            ];
+            if caso == 6 { insts.pop(); }
+            if caso == 7 {
+                if let Instruction::CallSeletor { args, .. } = &mut insts[0].1 { args[0] = Operand::Val(ValueId(99)); }
+            }
+            m.functions.push(Function { symbol: "seletor".into(), name: "seletor".into(), depuracao: None,
+                params: vec![(ValueId(0), "recv".into(), if caso == 1 { Type::I64 } else { Type::Ref }),
+                    (ValueId(1), "arg".into(), if caso == 2 { Type::I64 } else { Type::Ref })], return_ty: Type::Ref,
+                blocks: vec![BasicBlock { id: BlockId(0), instructions: insts,
+                    terminator: Terminator::CondBranch { cond: Operand::Val(ValueId(4)), then_block: BlockId(1), else_block: BlockId(2) } },
+                    BasicBlock { id: BlockId(1), instructions: vec![], terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) },
+                    BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))) }] });
+            m.retornos_ref_dart.insert("seletor".into());
+            let mut planos = HashMap::from([("seletor".into(), PlanoFuncaoDart::default())]);
+            let antes = format!("{m:?}"); let ps = planos.clone();
+            let r = preparar_arc_modulo_dart(&mut m, &mut planos);
+            if caso == 0 {
+                r.unwrap();
+                assert_eq!(planos["seletor"].classes[&ValueId(2)], Ownership::Owned);
+                assert_eq!(planos["seletor"].tokens.pendencias[&ValueId(2)], BlockId(1));
+                certificar_portas_arc_aot(&mut m, &planos).unwrap();
+                let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+                assert!(ir.contains("call i64 @dartforge_arc_invocar_uniforme_v1(i64 %sc2"));
+                assert!(!ir.contains("call i64 %sf2("));
+                assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+            } else {
+                if caso == 8 {
+                    assert_eq!(r.unwrap(), (0, 0));
+                    assert!(crate::llvm::LlvmEmitter::new(&m).emit_all().contains("call i64 %sf2("));
+                } else { assert!(r.is_err(), "caso {caso}"); }
+                assert_eq!(format!("{m:?}"), antes); assert_eq!(planos, ps);
+            }
+        }
+    }
+
+    #[test]
     fn literal_produz_owner_por_tipos_reais_e_recusa_abi_incompativel() {
         for caso in 0..8 {
             let mut m = Module::new();

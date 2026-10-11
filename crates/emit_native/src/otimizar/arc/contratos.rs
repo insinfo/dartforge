@@ -915,7 +915,7 @@ fn produzir(
             }
         }
         if incluir_arc && (super::tipadas::conferir(f, inst, *ty)?
-            || super::seletores::conferir_closure(f, inst, *ty)?) {
+            || super::seletores::conferir_vetor_local(f, inst, *ty)?) {
             let c = ContratoChamadaRuntime {
                 efeito: EfeitoTokens { pode_falhar: true, ..Default::default() },
                 resultado: if *ty == Type::Ref { Ownership::Owned } else { Ownership::Trivial }, retencao_persistente: true,

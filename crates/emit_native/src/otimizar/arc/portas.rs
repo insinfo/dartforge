@@ -315,7 +315,7 @@ pub fn certificar_portas_arc_aot(
         }
         for (_, i, t) in f.blocks.iter().flat_map(|b| &b.instructions) {
             super::tipadas::conferir(f, i, *t)?;
-            super::seletores::conferir_closure(f, i, *t)?;
+            super::seletores::conferir_vetor_local(f, i, *t)?;
             if matches!(i, Instruction::ICmp(_, a, b) if referencia(a) || referencia(b))
                 || matches!(i, Instruction::StoreGlobal { val, ty, .. } if *ty == Type::Ref || referencia(val))
             {
@@ -332,7 +332,6 @@ pub fn certificar_portas_arc_aot(
                         arc_owned: false,
                         ..
                     }
-                    | Instruction::CallSeletor { .. }
                     | Instruction::CallSeletorRepasse {
                         arc_owned: false,
                         ..
@@ -363,6 +362,7 @@ pub fn certificar_portas_arc_aot(
                         | Instruction::CallRuntime { .. }
                         | Instruction::ChamadaTipada { .. }
                         | Instruction::CallClosure { .. }
+                        | Instruction::CallSeletor { .. }
                 ))
             {
                 return Err(format!(

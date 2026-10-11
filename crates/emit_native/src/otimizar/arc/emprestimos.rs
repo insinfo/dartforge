@@ -84,6 +84,7 @@ fn primeiro_invalido(
             | Instruction::EnvGet { .. } => false,
             Instruction::ArcDrop { .. } | Instruction::ArcStoreStrong { .. } => true,
             Instruction::CallStatic { .. }
+            | Instruction::CallSeletor { .. }
             | Instruction::CallClosure { .. }
             | Instruction::CallClosureRepasse { .. } => {
                 reentradas.insert(*v);

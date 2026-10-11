@@ -1,4 +1,124 @@
-# Estado do DartForge — 2026-10-08
+# Estado do DartForge — 2026-10-11
+
+## Fechamento de 2026-10-11
+
+Trabalho encerrado por pedido do proprietário. Não retomar automaticamente
+hoje. ARC somente com `--memoria=arc`; tracing permanece padrão. As §§27–34,
+a integração completa ao CLI AOT/JIT e o gate ARC >= A0 **não estão concluídos**.
+Este fechamento preserva também a mudança dos seletores ainda em validação.
+
+### Avanços desde a última atualização
+
+Os commits até `ba300764` acrescentaram:
+
+* Composição de inclusões/escritas por campos em chamadas locais; propagação
+  de publicações globais, objetos lançados, finalizadores e capturas.
+  Fronteiras opacas conservam tratamento conservador. Receivers emprestados,
+  derivados, anuláveis, de mixins e de junções têm origem, layout físico e
+  frescor conferidos no ponto de uso.
+* Owners explícitos para células, ambientes e closures; proteção das capturas
+  antes de substituir o armazenamento; preservação das checagens Dart,
+  reentrada e saídas de exceção pendente. Avaliação e caches RTI passam por
+  contratos de proveniência e conferência das escritas.
+* Convenção Owned das entradas uniformes; proveniência de vetores e
+  descritores; callbacks e alvos tipados registrados a partir dos corpos e
+  dependências verificados. Adaptadores de repasse de closures/seletores
+  exigem destinos certificados. Retornos int/double/bool têm ABIs próprias.
+  Os certificados são de imagens AOT fixas, não de recarga JIT.
+* Preparação conjunta de módulos Dart e SDK, com áreas globais separadas e
+  conferência das variantes compartilhadas. Slots Ref capturados por funções
+  diretas são transportados por quadro e índice, com contratos, tokens,
+  cleanup e verificação de vida/repasse. A integração ao CLI normal falta.
+* Mapas de quadros suspensos por instância e referências restauradas
+  explicitadas na HIR; leituras proprietárias de quadros assíncronos.
+  Ainda não é prova de todos os caminhos de suspensão/cancelamento.
+* Leitura proprietária de globais Ref; leitura `late` confere inicialização;
+  escritas preservam marcas e guarda `late final`. Provas AOT conferem vida
+  após limpar/substituir o armazenamento original.
+* Poda de funções locais sem entrada e ramos de classe comprovadamente
+  impossíveis. Phis Ref cíclicos ancorados e junções mistas com `null` deixam
+  de receber classificação Trivial prematura.
+* Boxing SIMD produz owner preservando os bits. Recepção UDP usa retorno
+  Owned e porta registrada, preservando a raiz da exceção em pending; foi
+  validada no runtime, sem prova AOT completa de um programa Dart com UDP.
+* Listas: leitura proprietária de elementos gerais; comprimento, forma,
+  capacidade e armazenamento auditados; escritas e troca de dados contam
+  arestas Ref e preservam owners durante crescimento e descompactação.
+  Armazenamento ARC é Ref, sem inferir referência de I64. Crescimento
+  empresta o receiver, sem produzir um owner adicional para ele.
+* Literais (`ba300764`): `dartforge_arc_lista_nova_owned_v1` enraíza elementos
+  antes de alocar, conta referências copiadas e entrega um owner da lista.
+  HIR confere tipos reais e recusa ponteiros/vetores sem caixa/representações
+  incompatíveis; pistas de tags não certificam representação. Tracing
+  conserva a fábrica anterior e preenchimento homogêneo sem vetor extra.
+* Efeitos e `ownership.tsv` entram nas chaves de cache do runtime e SDK.
+  O diagnóstico inventaria externs, assinaturas e primeiro uso antes da
+  preparação. Os 581 símbolos ausentes do catálogo bruto não são 581
+  bloqueios comprovados: existem normalizações e poda posteriores.
+
+### Evidências e trabalho preservado em andamento
+
+| verificação até a etapa dos literais | resultado | evidência local |
+| --- | --- | --- |
+| Runtime, unitários incluindo ignorados | 225 passaram | `target/arc-literal-runtime-test.log` |
+| Emissor, unitários incluindo ignorados | 451 passaram | `target/arc-literal-emitter-test.log` |
+| Exemplo executável da fábrica Owned | 1 passou | `target/arc-literal-api-test.log` |
+| Literais AOT, ARC/tracing, O0/O2 | 12 execuções aprovadas, com controles negativos | `target/prova-literal-listas/evidencia.json` |
+| Armazenamento/crescimento AOT, ARC/tracing, O0/O2 | 24 execuções aprovadas, com controles negativos | `target/prova-armazenamento-listas/evidencia.json` |
+
+As provas de literais conferem referências repetidas, caixas int/double,
+bits de NaN, vida após liberar referências do chamador e liberação final da
+lista, dos elementos e das caixas. Controles negativos precisam dar trap;
+falha de compilação não é aprovação. São provas de HIR preparada com harness
+explícito, sem demonstrar funcionamento do SDK inteiro ou do corpus do CLI.
+
+O diagnóstico conjunto de `bench/desempenho/numerico.dart` e SDK da fonte
+passou da lista literal v11 e chegou a `df.comum$2edart..medir` v26:
+`CallSeletor` de `tc:start` (`Stopwatch.start`) sem classificação de ownership.
+Evidência: `target/arc-literal-sdk.log`.
+
+A mudança dos seletores incluída neste fechamento encaminha `CallSeletor`
+em ARC ao adaptador uniforme certificado, confere receiver/argumentos Ref,
+descritor, tupla RTI e guarda pending; tracing conserva a chamada legada.
+Há teste de preparação/recusa transacional e extensão da prova
+`arc_porta_nativa_owned` para um seletor com vetor local.
+A primeira bateria terminou com 451 aprovados e uma falha no teste novo:
+emissão tentada sem certificar a imagem AOT. O teste foi corrigido para
+certificar os corpos preparados, preservando a guarda de emissão. O teste
+corrigido passou na repetição, mas a bateria completa ficou sem término
+confirmado e foi reiniciada. Essa execução foi interrompida a pedido do
+proprietário para encerrar imediatamente. Log parcial:
+`target/arc-seletor-local-emitter.log`. A prova AOT ampliada e o diagnóstico
+do SDK após essa mudança **ainda não foram executados**. Não afirmar 452
+testes aprovados, certificação final ou SDK completo funcionando.
+
+### Desempenho, limites e retomada
+
+Última medição completa:
+`bench/resultados/2026-10-10-modos-e14922fb-windows/decisao.json`.
+32 kernels, nove programas, sete repetições e 189 execuções com resultados
+iguais ao Dart AOT recém-compilado. Gate **reprovado**: ARC/A0 geométrico
+2,005985; árvores 12,815576; lista ligada 4,985826. São razões de tempo:
+ARC levou aproximadamente 2 vezes o tempo do padrão no agregado. Não existe
+medição posterior comprovando melhora; rodadas distintas não isolam mudanças.
+
+Na retomada, concluir a bateria do emissor incluindo ignorados e executar
+`python scripts/provar-arc-aot.py arc_porta_nativa_owned --debug`. Repetir
+`arc_auditar_pipeline --memoria=arc --sdk-no-grupo --inventario-externs` em
+`bench/desempenho/numerico.dart` e resolver o próximo erro observado, sem
+afrouxar ownership, certificação ou guardas. Fechar preparação do SDK e
+publicação conjunta no CLI AOT/JIT; conferir portas, lifetimes, exceções,
+cancelamento, suspensão e recarga JIT. Faltam provas nativas específicas dos
+slots compartilhados. Completar políticas/regiões/grupos/borrows das §§27–34,
+otimizar e medir até ARC >= A0; depois continuar analisador/LSP.
+
+A lentidão veio da resolução sucessiva de caminhos do SDK sem contrato,
+reconstruções de ABI/cache e baterias amplas repetidas. O avanço fragmentado
+ainda não entregou a integração completa utilizável; o inventário ajuda a
+organizar a retomada. Não há novo resultado de CI confirmado neste fechamento.
+Os testes locais não comprovam workspace inteiro, Clippy ou todos os sistemas
+do CI. A cópia pessoal `docs/ANALYZER-ESPECIFICACAO copy.md` permanece intacta,
+fora das alterações deste trabalho.
 
 ## Retomada de 2026-10-10
 

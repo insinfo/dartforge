@@ -2,10 +2,16 @@
 
 use super::*;
 
-// O vetor de uma CallClosure é construído pelo emissor a partir destas Ref;
+// O vetor de closure/seletor é construído pelo emissor a partir destas Ref;
 // não aceita words implícitas nem uma tupla RTI sem produtor de proveniência.
-pub(super) fn conferir_closure(f: &Function, inst: &Instruction, ty: Type) -> Result<bool, String> {
-    let Instruction::CallClosure { closure, args, nomes, tupla_tipos, ret_ty } = inst else { return Ok(false) };
+pub(super) fn conferir_vetor_local(f: &Function, inst: &Instruction, ty: Type) -> Result<bool, String> {
+    let (closure, args, nomes, tupla_tipos, ret_ty, origem) = match inst {
+        Instruction::CallClosure { closure, args, nomes, tupla_tipos, ret_ty } =>
+            (closure, args, nomes, tupla_tipos, *ret_ty, "closure"),
+        Instruction::CallSeletor { recv, args, nomes, tupla_tipos, .. } =>
+            (recv, args, nomes, tupla_tipos, ty, "seletor"),
+        _ => return Ok(false),
+    };
     let tipos: HashMap<_, _> = f.params.iter().map(|(v, _, t)| (*v, *t))
         .chain(f.blocks.iter().flat_map(|b| &b.instructions).map(|(v, _, t)| (*v, *t))).collect();
     let referencia = |op: &Operand| matches!(op, Operand::Val(v) if tipos.get(v) == Some(&Type::Ref))
@@ -17,11 +23,11 @@ pub(super) fn conferir_closure(f: &Function, inst: &Instruction, ty: Type) -> Re
         || matches!(tupla_tipos, Operand::Val(id) if f.blocks.iter().flat_map(|b| &b.instructions).any(|(v, i, t)|
             v == id && *t == Type::I64 && matches!(i, Instruction::CallRuntime { name, ret_ty: Type::I64, .. }
                 if name == "dartforge_rti_avaliar")));
-    if ty != Type::Ref || *ret_ty != Type::Ref || !referencia(closure)
+    if ty != Type::Ref || ret_ty != Type::Ref || !referencia(closure)
         || !args.iter().all(referencia) || nomes.len() > args.len()
         || nomes.windows(2).any(|par| par[0] >= par[1])
         || !tupla_nativa {
-        return Err(format!("closure ARC em {}: argumentos Ref, descritor ou tupla RTI sem ABI conferida", f.symbol));
+        return Err(format!("{origem} ARC em {}: argumentos Ref, descritor ou tupla RTI sem ABI conferida", f.symbol));
     }
     Ok(true)
 }
@@ -46,7 +52,7 @@ pub(super) fn conferir(m: &Module) -> Result<(), String> {
         };
         for b in &f.blocks {
             for (v, i, t) in &b.instructions {
-                if conferir_closure(f, i, *t)? {
+                if conferir_vetor_local(f, i, *t)? {
                     let Terminator::CondBranch { then_block, .. } = b.terminator else {
                         return Err(format!("closure ARC: {} v{} exige guarda pending", f.symbol, v.0));
                     };

@@ -86,7 +86,15 @@ impl LlvmEmitter<'_> {
             )
             .unwrap();
         }
-        writeln!(self.out, "  %v{v} = call i64 %sf{v}(i64 {r}, ptr %sargs{v}, ptr @df.arr.{k})").unwrap();
+        if self.module.memoria_arc {
+            assert!(self.module.portas_arc_aot.is_some(), "seletor ARC exige portas AOT certificadas");
+            writeln!(self.out, "  %sc{v} = ptrtoint ptr %sf{v} to i64").unwrap();
+            writeln!(self.out, "  %sav{v} = ptrtoint ptr %sargs{v} to i64").unwrap();
+            writeln!(self.out, "  %sdv{v} = ptrtoint ptr @df.arr.{k} to i64").unwrap();
+            writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_invocar_uniforme_v1(i64 %sc{v}, i64 {r}, i64 %sav{v}, i64 %sdv{v})").unwrap();
+        } else {
+            writeln!(self.out, "  %v{v} = call i64 %sf{v}(i64 {r}, ptr %sargs{v}, ptr @df.arr.{k})").unwrap();
+        }
     }
 
     /// `%v = recv.<seletor>` com o vetor de argumentos e o descritor de uma
