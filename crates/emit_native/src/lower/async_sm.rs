@@ -481,8 +481,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let simbolo_ent = format!("{simbolo_corpo}$ent");
         let mut e = FnBuilder::new(self.ctx, self.unit_id, simbolo_ent.clone(), legivel, Type::Ref);
         let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
-        let args = Operand::Val(e.add_param("args".to_string(), Type::Ptr));
-        let desc = Operand::Val(e.add_param("desc".to_string(), Type::Ptr));
+        let args = Operand::Val(e.add_param_vetor(VetorEntradaDart::Argumentos));
+        let desc = Operand::Val(e.add_param_vetor(VetorEntradaDart::Descritor));
         let env_e = e.contexto_da_closure(clo);
         if let Some(vals) = e.desempacotar(&infos, args, desc) {
             let mut todos = vec![env_e];
@@ -630,8 +630,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let legivel = self.func.name.clone();
         let mut e = FnBuilder::new(self.ctx, self.unit_id, format!("{simbolo_novo}$ent"), legivel, Type::Ref);
         let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
-        let args = Operand::Val(e.add_param("args".to_string(), Type::Ptr));
-        let desc = Operand::Val(e.add_param("desc".to_string(), Type::Ptr));
+        let args = Operand::Val(e.add_param_vetor(VetorEntradaDart::Argumentos));
+        let desc = Operand::Val(e.add_param_vetor(VetorEntradaDart::Descritor));
         let env = e.contexto_da_closure(clo);
         if e.desempacotar(&[], args, desc).is_some() {
             let modelo = e.emit(Instruction::EnvGet { env, index: 0 }, Type::Ref);

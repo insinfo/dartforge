@@ -1272,8 +1272,8 @@ fn gerar_encaminhador_nsm(ctx: &Context, module: &mut Module, unit: UnitId, simb
     let nome = ctx.symbol_name(f.name).to_string();
     let mut b = FnBuilder::new(ctx, unit, simbolo.to_string(), nome.clone(), Type::Ref);
     let this = Operand::Val(b.add_param("this".to_string(), Type::Ref));
-    let args = Operand::Val(b.add_param("args".to_string(), Type::Ptr));
-    let desc = Operand::Val(b.add_param("desc".to_string(), Type::Ptr));
+    let args = Operand::Val(b.add_param_vetor(VetorEntradaDart::Argumentos));
+    let desc = Operand::Val(b.add_param_vetor(VetorEntradaDart::Descritor));
     let (codigo, valores, nomes, tupla) = match tipo {
         Tipo::Chamar => {
             let infos = b.params_da_funcao(fid);
@@ -1365,8 +1365,8 @@ pub fn lower_adaptadores_da_funcao(ctx: &Context, module: &mut Module, fid: usiz
         b.em_adaptador = true;
         b.aridade_garantida = tipada;
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
-        let args = Operand::Val(b.add_param("args".to_string(), Type::Ptr));
-        let desc = Operand::Val(b.add_param("desc".to_string(), Type::Ptr));
+        let args = Operand::Val(b.add_param_vetor(VetorEntradaDart::Argumentos));
+        let desc = Operand::Val(b.add_param_vetor(VetorEntradaDart::Descritor));
         let span = Span { start: 0, end: 0 };
         let r = match (a, f.kind) {
             (Adaptador::Ler, FunctionKind::Getter) => {
@@ -1445,8 +1445,8 @@ pub fn lower_adaptadores_do_campo(ctx: &Context, module: &mut Module, vid: Varia
         let mut b = FnBuilder::new(ctx, unit, format!("{base}{}", a.sufixo()), ctx.symbol_name(v.name).to_string(), Type::Ref);
         b.em_adaptador = true;
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
-        let args = Operand::Val(b.add_param("args".to_string(), Type::Ptr));
-        let desc = Operand::Val(b.add_param("desc".to_string(), Type::Ptr));
+        let args = Operand::Val(b.add_param_vetor(VetorEntradaDart::Argumentos));
+        let desc = Operand::Val(b.add_param_vetor(VetorEntradaDart::Descritor));
         let r = match a {
             Adaptador::Ler => {
                 if b.desempacotar(&[], args, desc).is_none() {
@@ -1561,6 +1561,7 @@ pub fn lower_funcao_ou_recusa(ctx: &Context, module: &mut Module, fid: usize) {
             module.functions.extend(m.functions);
         module.parametros_escalares_dart.extend(m.parametros_escalares_dart);
         module.parametros_rti_dart.extend(m.parametros_rti_dart);
+        module.parametros_vetores_dart.extend(m.parametros_vetores_dart);
             module.globais.extend(m.globais);
         }
         (_, Some(motivo)) => {
@@ -1686,8 +1687,8 @@ pub fn lower_adaptadores_e_tabelas(ctx: &Context, module: &mut Module) {
                 let simbolo = "df.$stackTrace.toString$c".to_string();
                 let mut b = FnBuilder::new(ctx, u, simbolo.clone(), "toString".to_string(), Type::Ref);
                 let this = Operand::Val(b.add_param("this".to_string(), Type::Ref));
-                b.add_param("args".to_string(), Type::Ptr);
-                b.add_param("desc".to_string(), Type::Ptr);
+                b.add_param_vetor(VetorEntradaDart::Argumentos);
+                b.add_param_vetor(VetorEntradaDart::Descritor);
                 let texto = b.emit(Instruction::CallRuntime {
                     name: "dartforge_rastro_texto".to_string(),
                     args: vec![(this, Type::Ref)],
@@ -1711,8 +1712,8 @@ pub fn lower_adaptadores_e_tabelas(ctx: &Context, module: &mut Module) {
                 );
                 let mut b = FnBuilder::new(ctx, decl.unit, simbolo.clone(), "_name".to_string(), Type::Ref);
                 let this = Operand::Val(b.add_param("this".to_string(), Type::Ref));
-                b.add_param("args".to_string(), Type::Ptr);
-                b.add_param("desc".to_string(), Type::Ptr);
+                b.add_param_vetor(VetorEntradaDart::Argumentos);
+                b.add_param_vetor(VetorEntradaDart::Descritor);
                 let nome = b.emit(Instruction::CallRuntime {
                     name: "dartforge_object_get".to_string(),
                     args: vec![
@@ -1735,8 +1736,8 @@ pub fn lower_adaptadores_e_tabelas(ctx: &Context, module: &mut Module) {
                 );
                 let mut b = FnBuilder::new(ctx, decl.unit, simbolo.clone(), "index".to_string(), Type::Ref);
                 let this = Operand::Val(b.add_param("this".to_string(), Type::Ref));
-                b.add_param("args".to_string(), Type::Ptr);
-                b.add_param("desc".to_string(), Type::Ptr);
+                b.add_param_vetor(VetorEntradaDart::Argumentos);
+                b.add_param_vetor(VetorEntradaDart::Descritor);
                 let indice = b.emit(Instruction::CallRuntime {
                     name: "dartforge_object_get".to_string(),
                     args: vec![
@@ -1766,8 +1767,8 @@ pub fn lower_adaptadores_e_tabelas(ctx: &Context, module: &mut Module) {
                 let simbolo = format!("{base}$c");
                 let mut b = FnBuilder::new(ctx, decl.unit, simbolo.clone(), "toString".to_string(), Type::Ref);
                 let this = Operand::Val(b.add_param("this".to_string(), Type::Ref));
-                b.add_param("args".to_string(), Type::Ptr);
-                b.add_param("desc".to_string(), Type::Ptr);
+                b.add_param_vetor(VetorEntradaDart::Argumentos);
+                b.add_param_vetor(VetorEntradaDart::Descritor);
                 let texto = b.emit_call_with_check(
                     Instruction::CallStatic { symbol: base, args: vec![this], ret_ty: Type::Ref },
                     Type::Ref,
@@ -1831,6 +1832,7 @@ fn adaptadores_ou_recusa(ctx: &Context, module: &mut Module, gerar: impl FnOnce(
         module.functions.extend(m.functions);
         module.parametros_escalares_dart.extend(m.parametros_escalares_dart);
         module.parametros_rti_dart.extend(m.parametros_rti_dart);
+        module.parametros_vetores_dart.extend(m.parametros_vetores_dart);
         module.globais.extend(m.globais);
         return;
     }
@@ -1861,8 +1863,8 @@ fn adaptadores_ou_recusa(ctx: &Context, module: &mut Module, gerar: impl FnOnce(
         let Some(unit) = unit else { continue };
         let mut b = FnBuilder::new(ctx, unit, simbolo.clone(), nome, Type::Ref);
         b.add_param("this".to_string(), Type::Ref);
-        b.add_param("args".to_string(), Type::Ptr);
-        b.add_param("desc".to_string(), Type::Ptr);
+        b.add_param_vetor(VetorEntradaDart::Argumentos);
+        b.add_param_vetor(VetorEntradaDart::Descritor);
         let t = b.emit(Instruction::Const(Constant::String(format!("{simbolo} ({motivo})"))), Type::Ref);
         b.emit(
             Instruction::CallRuntime { name: "dartforge_membro_recusado".to_string(), args: vec![(t, Type::Ref)], ret_ty: Type::Void },
@@ -1900,6 +1902,7 @@ pub fn lower_getter_late_ou_recusa(
             module.functions.extend(m.functions);
         module.parametros_escalares_dart.extend(m.parametros_escalares_dart);
         module.parametros_rti_dart.extend(m.parametros_rti_dart);
+        module.parametros_vetores_dart.extend(m.parametros_vetores_dart);
             module.globais.extend(m.globais);
             return;
         }
@@ -1969,6 +1972,7 @@ pub fn lower_global_ou_recusa(
             module.functions.extend(m.functions);
         module.parametros_escalares_dart.extend(m.parametros_escalares_dart);
         module.parametros_rti_dart.extend(m.parametros_rti_dart);
+        module.parametros_vetores_dart.extend(m.parametros_vetores_dart);
             module.globais.extend(m.globais);
         }
         r => {
@@ -2384,8 +2388,8 @@ pub fn tabelas_das_formas_de_record(ctx: &Context, module: &mut Module) {
         // toString$c
         let mut b = FnBuilder::new(ctx, u, format!("{base}.toString$c"), "toString".to_string(), Type::Ref);
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
-        b.add_param("args".to_string(), Type::Ptr);
-        b.add_param("desc".to_string(), Type::Ptr);
+        b.add_param_vetor(VetorEntradaDart::Argumentos);
+        b.add_param_vetor(VetorEntradaDart::Descritor);
         let r = b.emit_call_with_check(
             Instruction::CallStatic { symbol: format!("{base}.toString"), args: vec![recv], ret_ty: Type::Ref },
             Type::Ref,
@@ -2395,8 +2399,8 @@ pub fn tabelas_das_formas_de_record(ctx: &Context, module: &mut Module) {
         // ==$c
         let mut b = FnBuilder::new(ctx, u, format!("{base}.$3d$3d$c"), "==".to_string(), Type::Ref);
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
-        let args = Operand::Val(b.add_param("args".to_string(), Type::Ptr));
-        b.add_param("desc".to_string(), Type::Ptr);
+        let args = Operand::Val(b.add_param_vetor(VetorEntradaDart::Argumentos));
+        b.add_param_vetor(VetorEntradaDart::Descritor);
         let outro = b.emit(Instruction::LoadIndexed { base: args, index: Operand::Constant(Constant::Int(0)) }, Type::Ref);
         let r = b.emit_call_with_check(
             Instruction::CallStatic {
@@ -2412,8 +2416,8 @@ pub fn tabelas_das_formas_de_record(ctx: &Context, module: &mut Module) {
         // hashCode$g: o hash acompanha a igualdade estrutural do record.
         let mut b = FnBuilder::new(ctx, u, format!("{base}.hashCode$g"), "hashCode".to_string(), Type::Ref);
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
-        b.add_param("args".to_string(), Type::Ptr);
-        b.add_param("desc".to_string(), Type::Ptr);
+        b.add_param_vetor(VetorEntradaDart::Argumentos);
+        b.add_param_vetor(VetorEntradaDart::Descritor);
         let r = b.emit_call_with_check(
             Instruction::CallStatic { symbol: format!("{base}.hashCode"), args: vec![recv], ret_ty: Type::I64 },
             Type::I64,

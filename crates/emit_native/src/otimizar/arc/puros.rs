@@ -189,7 +189,7 @@ pub(super) fn conferir_origens(
             if let Operand::Val(origem) = op
                 && classes.get(origem) != Some(&Ownership::Trivial)
             {
-                return Err(format!("v{}: operação escalar exige origem Trivial", v.0));
+                return Err(format!("v{}: operação escalar exige origem Trivial em {} (origem v{})", v.0, f.symbol, origem.0));
             }
         }
     }

@@ -220,8 +220,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .map(|v| self.ctx.symbol_name(self.ctx.program.variables[v.0 as usize].name).to_string());
             let mut e = FnBuilder::new(self.ctx, self.unit_id, simbolo_ent.clone(), "new".to_string(), Type::Ref);
             e.add_param("closure".to_string(), Type::Ref);
-            let args = Operand::Val(e.add_param("args".to_string(), Type::Ptr));
-            let desc = Operand::Val(e.add_param("desc".to_string(), Type::Ptr));
+            let args = Operand::Val(e.add_param_vetor(VetorEntradaDart::Argumentos));
+            let desc = Operand::Val(e.add_param_vetor(VetorEntradaDart::Descritor));
             let infos = [ParamEntrada { nome: nome_rep, kind: ParameterKind::Required, required: true, padrao: Padrao::Nenhum }];
             if let Some(vals) = e.desempacotar(&infos, args, desc) {
                 let v = e.coagir(vals[0].clone(), Type::Ref);

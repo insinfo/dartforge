@@ -381,6 +381,7 @@ pub fn lower_ffi(ctx: &Context, module: &mut Module) {
         module.functions.extend(b.extra_functions);
         module.parametros_escalares_dart.extend(b.parametros_escalares_dart);
         module.parametros_rti_dart.extend(b.parametros_rti_dart);
+        module.parametros_vetores_dart.extend(b.parametros_vetores_dart);
         module.ffi_trampolins.push((chave.clone(), simbolo));
         // O callback da mesma assinatura (`Pointer.fromFunction`,
         // `NativeCallable`): o corpo HIR; a entrada C sai no emissor. Um
@@ -395,6 +396,7 @@ pub fn lower_ffi(ctx: &Context, module: &mut Module) {
         module.functions.extend(b.extra_functions);
         module.parametros_escalares_dart.extend(b.parametros_escalares_dart);
         module.parametros_rti_dart.extend(b.parametros_rti_dart);
+        module.parametros_vetores_dart.extend(b.parametros_vetores_dart);
         module.ffi_callbacks.push(FfiCallback { chave, corpo, ret: assinatura.ret.clone(), params: assinatura.params.clone() });
     }
 }
@@ -529,8 +531,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// nela.
     fn corpo_do_trampolim(&mut self, a: &AssinaturaNativa) {
         let clo = Operand::Val(self.add_param("closure".to_string(), Type::Ref));
-        let args = Operand::Val(self.add_param("args".to_string(), Type::Ptr));
-        let desc = Operand::Val(self.add_param("desc".to_string(), Type::Ptr));
+        let args = Operand::Val(self.add_param_vetor(VetorEntradaDart::Argumentos));
+        let desc = Operand::Val(self.add_param_vetor(VetorEntradaDart::Descritor));
         let infos: Vec<ParamEntrada> = a
             .params
             .iter()

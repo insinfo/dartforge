@@ -50,6 +50,8 @@ pub struct FnBuilder<'a, 'c> {
     pub parametros_escalares_dart: HashMap<String, std::collections::HashSet<ValueId>>,
     /// IDs de RTI com origem nativa explícita, incluindo funções absorvidas.
     pub parametros_rti_dart: HashMap<String, std::collections::HashSet<ValueId>>,
+    /// Vetores nativos com papel declarado pela ABI do produtor.
+    pub parametros_vetores_dart: HashMap<String, HashMap<ValueId, VetorEntradaDart>>,
     pub break_targets: Vec<BlockId>,
     pub continue_targets: Vec<BlockId>,
     pub this_param: Option<Operand>,
@@ -313,6 +315,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             value_types: HashMap::new(),
             parametros_escalares_dart: HashMap::new(),
             parametros_rti_dart: HashMap::new(),
+            parametros_vetores_dart: HashMap::new(),
             break_targets: Vec::new(),
             continue_targets: Vec::new(),
             this_param: None,
@@ -538,6 +541,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         module.globais.extend(self.globais_extras);
         module.parametros_escalares_dart.extend(self.parametros_escalares_dart);
         module.parametros_rti_dart.extend(self.parametros_rti_dart);
+        module.parametros_vetores_dart.extend(self.parametros_vetores_dart);
         module.functions.push(self.func);
         module.functions.extend(self.extra_functions);
     }
@@ -754,6 +758,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.value_types.insert(vid, ty);
         self.func.params.push((vid, name, ty));
         vid
+    }
+
+    /// Declara um vetor da entrada uniforme, sem inferir papel pelo tipo Ptr.
+    pub(super) fn add_param_vetor(&mut self, papel: VetorEntradaDart) -> ValueId {
+        let nome = match papel { VetorEntradaDart::Argumentos => "args", VetorEntradaDart::Descritor => "desc" };
+        let id = self.add_param(nome.to_string(), Type::Ptr);
+        if self.ctx.memoria_arc {
+            self.parametros_vetores_dart.entry(self.func.symbol.clone()).or_default().insert(id, papel);
+        }
+        id
     }
 
     /// Declara um ID do universo RTI, sem inferir referência pela largura.

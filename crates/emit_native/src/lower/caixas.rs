@@ -133,6 +133,19 @@ mod testes_contexto {
                 ctx.memoria_arc = arc;
                 let m = crate::lower::lower_program(&ctx);
                 assert!(m.erros.is_empty(), "{:?}", m.erros);
+                if arc {
+                    assert!(!m.parametros_vetores_dart.is_empty());
+                    for (simbolo, papeis) in &m.parametros_vetores_dart {
+                        let f = m.functions.iter().find(|f| &f.symbol == simbolo).unwrap();
+                        assert_eq!(papeis.len(), 2);
+                        for (id, papel) in papeis {
+                            let p = f.params.iter().find(|(v, _, _)| v == id).unwrap();
+                            assert_eq!(p.2, Type::Ptr);
+                            assert_eq!(p.1, match papel { VetorEntradaDart::Argumentos => "args", VetorEntradaDart::Descritor => "desc" });
+                        }
+                    }
+                } else { assert!(m.parametros_vetores_dart.is_empty()); }
+
                 let mut emprestimos = 0;
                 let mut leituras_cruas = 0;
                 for (_, inst, ty) in m.functions.iter().flat_map(|f| &f.blocks).flat_map(|b| &b.instructions) {

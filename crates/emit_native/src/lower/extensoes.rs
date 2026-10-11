@@ -119,8 +119,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let nome = self.ctx.symbol_name(self.ctx.program.functions[fid].name).to_string();
             let mut e = FnBuilder::new(self.ctx, self.unit_id, simbolo_ent.clone(), nome, Type::Ref);
             let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
-            let args = Operand::Val(e.add_param("args".to_string(), Type::Ptr));
-            let desc = Operand::Val(e.add_param("desc".to_string(), Type::Ptr));
+            let args = Operand::Val(e.add_param_vetor(VetorEntradaDart::Argumentos));
+            let desc = Operand::Val(e.add_param_vetor(VetorEntradaDart::Descritor));
             let env = e.contexto_da_closure(clo);
             let receptor_op = e.emit(Instruction::EnvGet { env, index: 0 }, Type::Ref);
             if let Some(vals) = e.desempacotar(&infos, args, desc) {

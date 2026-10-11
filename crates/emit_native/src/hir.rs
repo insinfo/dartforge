@@ -998,6 +998,20 @@ pub struct TabelasDaFuncao {
     pub cleanup_estrangeiro: Option<crate::otimizar::arc::CleanupEstrangeiro>,
 }
 
+/// Papel semântico dos vetores nativos da ABI de entrada uniforme.
+/// O descritor contém contagens/hashes; argumentos podem conter handles Ref.
+/// O endereço do vetor não é um handle nem um slot proprietário do heap.
+///
+/// ```
+/// use dartforge_emit_native::hir::VetorEntradaDart;
+/// assert_ne!(VetorEntradaDart::Argumentos, VetorEntradaDart::Descritor);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VetorEntradaDart {
+    Argumentos,
+    Descritor,
+}
+
 /// Módulo HIR completo representando um programa Dart compilável.
 #[derive(Debug, Default)]
 pub struct Module {
@@ -1033,6 +1047,10 @@ pub struct Module {
     /// IDs nativos do universo canônico de RTI, produzidos explicitamente.
     /// Não são Ref nem escalares Dart; vida do universo/pins exige outro protocolo.
     pub parametros_rti_dart: std::collections::HashMap<String, std::collections::HashSet<ValueId>>,
+    /// Vetores da ABI uniforme registrados explicitamente pelo lowering.
+    /// Vida/bounds dependem do protocolo do chamador. Descritores são imutáveis;
+    /// os primeiros dois slots são contagens nativas, sem referências do heap.
+    pub parametros_vetores_dart: std::collections::HashMap<String, std::collections::HashMap<ValueId, VetorEntradaDart>>,
     /// Corpos tipados de funções Dart da fonte cuja ABI devolve Ref Owned.
     /// Proveniência nominal do lowering; não inclui automaticamente entradas
     /// uniformes, callbacks FFI ou funções HIR fornecidas por outro produtor.
