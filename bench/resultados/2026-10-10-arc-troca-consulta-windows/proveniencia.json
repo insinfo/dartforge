@@ -1,0 +1,27 @@
+{
+  "base": "8e77d2c07c477b2f4981dc0a5f5330a8265f97a8",
+  "arquivos_sha256": {
+    "referencia.json": "3d29d28e9ed5e6262cee4562b7be4bb11dfad2d121fa90b23d44a7baf724c878",
+    "manifesto.json": "94b24dd15facf4b51d63a01aec4c3f35cfb79e72af1f370665b0e9ccb9da7ca7",
+    "amostras.jsonl": "a00dc6309b7c49a06e0cd001e1972da9c81716a75af4d8bf4a34715b8053e839",
+    "resultado.json": "20cedd371ae5c7e0f85925687c2d6e14a119771e4014b74064fa84408a532592",
+    "auditoria.json": "56571147f1e87cc6d45c0b2299858a4b581778549cb140793eaf127ab836c5e9",
+    "decisao.json": "ca69cee8e999fcb6eb836844bca51f5c4b7984917af875f6d77a46b4ab44fcbf",
+    "preparar-antes.py": "d48e167c5e509aecf529b16b378d0ca16baca5534cba12c2c80430c162c53f94",
+    "comparar.py": "6cbab5e465e24e0d9a84de9850f6847478996a47d73e585eb64f4675e27da4d0",
+    "auditar.py": "7ea55363d62c910432fae117532b986d68339779e97abfcda8281012f5f62d11",
+    "mudanca.patch": "5ef9c0683957a10ddf8ed48829576776bdad9da4fe4adfc34e952a3aa9d062c7",
+    "runtime-testes.log": "0bab678505db86a61a11a1cc11c67f98be9ed2221e632ba5129327f3142682db",
+    "cli-depois-nativo-build-final.log": "ed919b71c460588709057f34fad2651d5a36543f1b57cdf6668a31d867b0e134"
+  },
+  "plataforma": "Windows x86_64",
+  "tipo": "comparacao_pareada_mesmo_modo_arc",
+  "gate_completo_arc_a0": false,
+  "testes": {
+    "unitarios": 194,
+    "integracoes": 16,
+    "exemplos": 42,
+    "sementes_oraculos": 1000
+  },
+  "observacao": "Executaveis preservados em target; hashes dos quatro anteriores a todas as amostras."
+}

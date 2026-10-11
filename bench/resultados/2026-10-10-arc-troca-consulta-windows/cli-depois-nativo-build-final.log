@@ -1,0 +1,4 @@
+   Compiling dartforge-runtime v0.1.0 (E:\MyRustProjects\dartforge\crates\runtime)
+   Compiling dartforge-emit-native v0.1.0 (E:\MyRustProjects\dartforge\crates\emit_native)
+   Compiling dartforge-cli v0.1.0 (E:\MyRustProjects\dartforge\crates\cli)
+    Finished `release` profile [optimized] target(s) in 8m 27s

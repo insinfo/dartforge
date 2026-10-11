@@ -1,0 +1,10 @@
+{
+  "manter": false,
+  "motivo": "Sem ganho consistente nos seis kernels; medianas piores em arvores e lista_objetos. Melhoras nos mapas nao foram consistentes entre pares. Memoria praticamente igual.",
+  "limitacao": "Variabilidade elevada em alguns pares; os deltas nao provam isoladamente regressao causal. A rodada nao justifica manter a alteracao.",
+  "correcao": "194 testes unitarios, 16 integracoes e 42 exemplos passaram; oraculos de grafos com DF_ARC_SEMENTES=1000. Todos os resultados das 28 execucoes de benchmark conferidos.",
+  "acao": "Restaurar apenas a alteracao experimental de Heap::arc_trocou; preservar evidencia e executaveis comparados.",
+  "gate_completo_arc_a0": false,
+  "ultimo_gate_completo_arc_a0": 2.0059852976266774,
+  "ultimo_gate_status": "FAIL"
+}

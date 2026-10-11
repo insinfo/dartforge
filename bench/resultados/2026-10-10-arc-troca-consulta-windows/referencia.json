@@ -1,0 +1,38 @@
+{
+  "base": "8e77d2c07c477b2f4981dc0a5f5330a8265f97a8",
+  "runtime_antes_sha256": "d271e3e0b614dfe2c82be1c4d19ce55a006a903166d007db84f9a2fd429ed989",
+  "cli_antes_sha256": "00f63fd677ee0f150f681495948ed8400796a5b27e9249d48a17b0c16d5fe60c",
+  "programas": {
+    "objetos_escapam": {
+      "comando": [
+        "E:\\MyRustProjects\\dartforge\\target\\arc-troca-consulta-8e77d2c0\\cli-antes-nativo\\dartforge.exe",
+        "aot",
+        "E:\\MyRustProjects\\dartforge\\bench\\desempenho\\objetos_escapam.dart",
+        "E:\\MyRustProjects\\dartforge\\target\\arc-troca-consulta-8e77d2c0\\objetos_escapam-antes.exe",
+        "--optimize",
+        "--excecoes",
+        "checagem",
+        "--memoria=arc"
+      ],
+      "executavel_sha256": "87bee5e43a9cd07382d9345637e9c19c431d1e66e84a54a2fdbc4b4d98e45b73"
+    },
+    "objetos_em_colecoes": {
+      "comando": [
+        "E:\\MyRustProjects\\dartforge\\target\\arc-troca-consulta-8e77d2c0\\cli-antes-nativo\\dartforge.exe",
+        "aot",
+        "E:\\MyRustProjects\\dartforge\\bench\\desempenho\\objetos_em_colecoes.dart",
+        "E:\\MyRustProjects\\dartforge\\target\\arc-troca-consulta-8e77d2c0\\objetos_em_colecoes-antes.exe",
+        "--optimize",
+        "--excecoes",
+        "checagem",
+        "--memoria=arc"
+      ],
+      "executavel_sha256": "7ab7c96054a5fcc7b3b528905f46cf8f8a501001988ba5f88e100693187235a9"
+    }
+  },
+  "entradas": {
+    "comum.dart": "c58f998dc36b84b102705a77c6cafa75e85b5bff6dda90c086a8d9a6c21f40c3",
+    "objetos_escapam.dart": "977eb9b5654a8c742dee4d052603609bc3e145c4a07e15a8580cd1c1ea665599",
+    "objetos_em_colecoes.dart": "1e7ee33404f2143536a67253f7924c99e84e6d73af4b65701fc6874721a1417e"
+  }
+}

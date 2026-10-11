@@ -1,0 +1,32 @@
+diff --git a/crates/runtime/src/heap.rs b/crates/runtime/src/heap.rs
+index 1c7b051c..22615a55 100644
+--- a/crates/runtime/src/heap.rs
++++ b/crates/runtime/src/heap.rs
+@@ -5074,7 +5074,6 @@ impl Heap {
+     /// que ganha a primeira ocorrência). No modo do berçário só conta com o
+     /// dono velho (as arestas do jovem entram na promoção).
+     fn arc_trocou(&mut self, b: *mut Cabecalho, h: Ref, antigo: Ref, novo: Ref) {
+-        let novo_no_espaco = self.bloco_do_espaco(novo).is_some();
+         let Some(arc) = self.arc.as_deref_mut() else { return };
+         // SAFETY: bloco vivo do espaço.
+         let e = unsafe { (*b).estado };
+@@ -5083,10 +5082,16 @@ impl Heap {
+         }
+         if !arc.puro {
+             arc.estado.reter(novo).unwrap_or_else(|e| falha_do_arc(e));
+-        } else if !arc.estado.reter_se_registrado(novo).unwrap_or_else(|e| falha_do_arc(e)) && novo_no_espaco {
+-            arc.estado.registrar_vivo_em(novo, geometria_arc(&self.objetos, novo));
+-            arc.estado.reter(novo).unwrap_or_else(|e| falha_do_arc(e));
++        } else if !arc.estado.reter_se_registrado(novo).unwrap_or_else(|e| falha_do_arc(e)) {
++            // Metadados presentes já resolvem a retenção. Consultar o espaço
++            // só é necessário para registrar a primeira ocorrência do jovem.
++            if self.bloco_do_espaco(novo).is_some() {
++                let arc = self.arc.as_deref_mut().expect("ARC ativo durante a troca");
++                arc.estado.registrar_vivo_em(novo, geometria_arc(&self.objetos, novo));
++                arc.estado.reter(novo).unwrap_or_else(|e| falha_do_arc(e));
++            }
+         }
++        let arc = self.arc.as_deref_mut().expect("ARC ativo durante a troca");
+         arc.estado.soltar(antigo).unwrap_or_else(|e| falha_do_arc(e));
+     }
+ 
