@@ -18,6 +18,10 @@ import tempfile
 
 
 PROVAS = {
+    "arc_retorno_tipado_escalar": ("prova-retorno-tipado-escalar", False, [
+        (tipo, controle) for tipo in ("--int", "--double", "--bool")
+        for controle in (None, "sem-liberar-contexto")
+    ]),
     "arc_porta_nativa_owned": ("prova-porta-nativa-owned", True, [
         (modo, controle) for modo in ("checagem", "tabelas")
         for controle in (None, "sem-registro", "sem-fechamento")

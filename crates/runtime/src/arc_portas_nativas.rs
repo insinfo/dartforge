@@ -21,9 +21,9 @@ struct PortasNativasArc {
 }
 
 // A ABI base 5 omite o contexto Ref inicial; codifica argumentos e retorno.
-// O registro desta porta exige retorno Ref Owned, não um escalar de uma palavra.
+// Ref transfere owner; i64/f64/bool são escalares sem token gerenciado.
 fn conferir_abi_tipada_arc(mut abi: i64) -> Result<(), &'static str> {
-    if abi <= 1 || abi % 5 != 1 { return Err("retorno tipado não é Ref"); }
+    if abi <= 1 || !matches!(abi % 5, 1..=4) { return Err("retorno tipado inválido"); }
     let mut n = 0;
     while abi > 1 {
         if !matches!(abi % 5, 1..=4) { return Err("representação tipada inválida"); }
@@ -230,19 +230,20 @@ pub unsafe extern "C" fn dartforge_arc_registrar_uniforme_owned_v1(codigo: i64) 
     versao
 }
 
-/// Registra uma entrada tipada de closure com retorno Ref Owned.
+/// Registra uma entrada tipada de closure com retorno Owned ou escalar.
 ///
 /// A ABI base 5 codifica argumentos (Ref=1, i64=2, f64=3, bool=4) e retorno,
 /// depois do prefixo 1; o contexto Ref inicial é implícito. Não chama código.
 ///
 /// # Safety
-/// O corpo foi verificado nessa ABI: Ref emprestadas, retorno Owned normal e
-/// null em pending, escopos restaurados. O registro não prova o corpo.
+/// O corpo foi verificado nessa ABI: Ref emprestadas, retorno Ref Owned ou
+/// escalar Trivial; resultado canônico em pending e escopos restaurados.
+/// Um i64 escalar não contém word Dart gerenciada. O registro não prova o corpo.
 /// Mantenha código/imagem válidos até retirar a versão e terminar todos os
 /// consumidores do endereço. Não estabelece pins de recarga JIT.
 ///
 /// # Panics
-/// Código nulo, ABI inválida, mais de 12 argumentos ou retorno não Ref.
+/// Código nulo, ABI inválida ou mais de 12 argumentos.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -682,6 +683,8 @@ mod testes_portas_arc {
             assert!(alvo_tipada_arc(&heap, &portas, c, abi).is_err(), "{abi}");
         }
         let limite = (0..13).fold(1_i64, |a, _| a * 5 + 1);
+        for abi in [6, 7, 8, 9, 31, 32, 33, 34] { assert!(conferir_abi_tipada_arc(abi).is_ok()); }
+        assert!(conferir_abi_tipada_arc(30).is_err());
         assert!(conferir_abi_tipada_arc(limite).is_ok());
         assert!(conferir_abi_tipada_arc(limite * 5 + 1).is_err());
         for (n, campo) in [(2, (3, true)), (3, (31, true)), (2, (0, false)), (3, (41, false))] {

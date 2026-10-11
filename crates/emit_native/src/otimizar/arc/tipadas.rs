@@ -28,7 +28,7 @@ fn contexto(f: &Function, op: &Operand) -> Option<Operand> {
 }
 
 fn assinatura(args: &[(Operand, Type)], ret: Type) -> Option<i64> {
-    if ret != Type::Ref { return None; }
+    if !matches!(ret, Type::Ref | Type::I64 | Type::F64 | Type::I1) { return None; }
     super::objetos::abi_tipada(&args.iter().map(|(_, t)| *t).collect::<Vec<_>>(), ret)
 }
 
@@ -110,6 +110,32 @@ pub(super) fn preparar(f: &mut Function) -> Result<(), String> {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn retornos_escalares_exigem_abi_e_plano_trivial_do_corpo() {
+        for (ty, valor, abi) in [(Type::I64, Constant::Int(i64::MIN), 32),
+            (Type::F64, Constant::Double(-0.0), 33), (Type::I1, Constant::Bool(true), 34)] {
+            let (mut m, mut p) = modulo();
+            m.retornos_ref_dart.remove("corpo"); m.retornos_ref_dart.remove("invocar");
+            m.functions[1].return_ty = ty;
+            m.functions[1].blocks[0].terminator = Terminator::Return(Some(Operand::Constant(valor.clone())));
+            m.functions[0].return_ty = ty;
+            m.functions[0].blocks[1].terminator = Terminator::Return(Some(Operand::Constant(valor)));
+            m.functions[0].blocks[0].instructions[3].2 = ty;
+            if let Instruction::ChamadaTipada { ret, .. } = &mut m.functions[0].blocks[0].instructions[3].1 { *ret = ty; }
+            if let Instruction::AllocClosureTipada { abi: codigo, .. } = &mut m.functions[3].blocks[0].instructions[0].1 { *codigo = abi; }
+            preparar_arc_modulo_dart(&mut m, &mut p).unwrap();
+            assert_eq!(p["invocar"].classes[&ValueId(4)], Ownership::Trivial);
+            assert_eq!(p["corpo"].tokens.retorno, RetornoTokens::Trivial);
+            certificar_portas_arc_aot(&mut m, &p).unwrap();
+            let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+            assert!(ir.contains(&format!("call {} %ct4(", ty.llvm_ir())));
+            let pronto = p.clone();
+            assert_eq!(preparar_arc_modulo_dart(&mut m, &mut p).unwrap(), (0, 0)); assert_eq!(p, pronto);
+            p.get_mut("corpo").unwrap().tokens.retorno = RetornoTokens::Owned;
+            assert!(certificar_portas_arc_aot(&mut m, &p).is_err());
+        }
+    }
 
     fn modulo() -> (Module, HashMap<String, PlanoFuncaoDart>) {
         let mut m = Module::new(); m.memoria_arc = true;

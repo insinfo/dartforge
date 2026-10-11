@@ -107,9 +107,9 @@ fn conferir_tipadas(
                     // escalares que ainda usam somente a entrada uniforme.
                     if *abi == 0 { continue; }
                     let params: Vec<_> = corpo.params.iter().map(|(_, _, t)| *t).collect();
-                    if corpo.return_ty != Type::Ref
-                        || super::objetos::abi_tipada(&params, corpo.return_ty) != Some(*abi)
-                        || planos.get(s).map(|p| p.tokens.retorno) != Some(RetornoTokens::Owned)
+                    let retorno = if corpo.return_ty == Type::Ref { RetornoTokens::Owned } else { RetornoTokens::Trivial };
+                    if super::objetos::abi_tipada(&params, corpo.return_ty) != Some(*abi)
+                        || planos.get(s).map(|p| p.tokens.retorno) != Some(retorno)
                     { return Err(erro()); }
                     tipadas.push((s.clone(), *abi));
                 }

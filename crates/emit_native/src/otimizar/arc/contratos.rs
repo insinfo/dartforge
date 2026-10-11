@@ -874,7 +874,7 @@ fn produzir(
             || super::seletores::conferir_closure(f, inst, *ty)?) {
             let c = ContratoChamadaRuntime {
                 efeito: EfeitoTokens { pode_falhar: true, ..Default::default() },
-                resultado: Ownership::Owned, retencao_persistente: true,
+                resultado: if *ty == Type::Ref { Ownership::Owned } else { Ownership::Trivial }, retencao_persistente: true,
                 invalida_borrows: true, chama_dart: true,
             };
             if classes.get(v).is_some_and(|classe| *classe != c.resultado)
