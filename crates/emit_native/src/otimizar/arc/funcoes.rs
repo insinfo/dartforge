@@ -375,7 +375,7 @@ fn inserir(
             &indice,
             &mut novo.classes,
             &mut novo.tokens,
-        )?;
+        ).map_err(|erro| format!("contratos ARC em {}: {erro}", f.symbol))?;
         if preparar_chamadas {
             total.0 += super::emprestimos::proteger(f, novo)?;
             let (copias, drops) = super::arestas::preparar(f, novo)?;

@@ -519,48 +519,44 @@ fn produzir_phi(
             break;
         }
     }
-    loop {
-        let mut mudou = false;
-        for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
-            if *ty != Type::Ref || classes.contains_key(v) || exigem_owned.contains(v) {
-                continue;
-            }
-            let Instruction::Phi { incoming, .. } = inst else {
-                continue;
-            };
-            let mut ancora = false;
-            let compativeis = !incoming.is_empty()
-                && incoming.iter().all(|(_, op)| match op {
-                    Operand::Constant(Constant::Null) => {
-                        ancora = true;
-                        true
-                    }
-                    Operand::Val(de) if tipos.get(de) == Some(&Type::Ref) => {
-                        match classes.get(de) {
-                            Some(Ownership::Trivial) => {
-                                ancora = true;
-                                true
-                            }
-                            None if !exigem_owned.contains(de)
-                                && matches!(
-                                    defs.get(de),
-                                    Some(Instruction::Phi { ty: Type::Ref, .. })
-                                ) =>
-                            {
-                                true
-                            }
-                            _ => false,
-                        }
-                    }
-                    _ => false,
-                });
-            if compativeis && ancora {
-                classes.insert(*v, Ownership::Trivial);
-                mudou = true;
+    // Uma âncora null não prova que todos os Phis ainda desconhecidos sejam
+    // triviais. Primeiro elimina a componente que depende de Owned, borrow
+    // ou origem sem contrato; só depois propaga as âncoras triviais restantes.
+    let livres: HashSet<_> = f.blocks.iter().flat_map(|b| &b.instructions)
+        .filter_map(|(v, i, ty)| (*ty == Type::Ref && classes.get(v).is_none()
+            && !exigem_owned.contains(v) && matches!(i, Instruction::Phi { .. })).then_some(*v))
+        .collect();
+    let mut pais_triviais: HashMap<ValueId, Vec<ValueId>> = HashMap::new();
+    let mut invalidos = VecDeque::new();
+    let mut ancoras_triviais = VecDeque::new();
+    for v in &livres {
+        let Instruction::Phi { incoming, .. } = defs[v] else { unreachable!() };
+        let mut compativel = !incoming.is_empty();
+        let mut ancora = false;
+        for (_, op) in incoming {
+            match op {
+                Operand::Constant(Constant::Null) => ancora = true,
+                Operand::Val(de) if tipos.get(de) == Some(&Type::Ref)
+                    && classes.get(de) == Some(&Ownership::Trivial) => ancora = true,
+                Operand::Val(de) if livres.contains(de) => {
+                    pais_triviais.entry(*de).or_default().push(*v);
+                },
+                _ => compativel = false,
             }
         }
-        if !mudou {
-            break;
+        if !compativel { invalidos.push_back(*v); }
+        if ancora { ancoras_triviais.push_back(*v); }
+    }
+    let mut compativeis = livres;
+    while let Some(v) = invalidos.pop_front() {
+        if compativeis.remove(&v) {
+            invalidos.extend(pais_triviais.get(&v).into_iter().flatten().copied());
+        }
+    }
+    while let Some(v) = ancoras_triviais.pop_front() {
+        if compativeis.contains(&v) && classes.get(&v).is_none() {
+            classes.insert(v, Ownership::Trivial);
+            ancoras_triviais.extend(pais_triviais.get(&v).into_iter().flatten().copied());
         }
     }
     // Resolve primeiro empréstimos com premissas conhecidas. Não transforma

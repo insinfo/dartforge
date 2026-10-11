@@ -4,9 +4,31 @@
 use dartforge_emit_native::{context::Context, driver, otimizar, otimizar::arc::*, sdk_modulo};
 use dartforge_intern::Interner;
 use dartforge_types::table::{CoreTypes, TypeTable};
-use std::{collections::HashMap, path::Path};
+use std::{collections::{BTreeMap, HashMap}, path::Path};
 
-fn auditar(entrada: &Path, sdk_no_grupo: bool) -> Result<(), String> {
+fn inventariar_externs(modulos: &[dartforge_emit_native::hir::Module]) {
+    use dartforge_emit_native::hir::Instruction;
+    let mut inventario = BTreeMap::<String, (usize, BTreeMap<String, usize>, String)>::new();
+    for f in modulos.iter().flat_map(|m| &m.functions) {
+        for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
+            let Instruction::CallRuntime { name, args, ret_ty } = inst else { continue };
+            if dartforge_runtime::ownership::contrato(name).is_ok() { continue; }
+            let tipos: Vec<_> = args.iter().map(|(_, ty)| ty).collect();
+            let assinatura = format!("{tipos:?} -> {ret_ty:?} (SSA {ty:?})");
+            let e = inventario.entry(name.clone()).or_insert_with(||
+                (0, BTreeMap::new(), format!("{} v{}", f.symbol, v.0)));
+            e.0 += 1;
+            *e.1.entry(assinatura).or_default() += 1;
+        }
+    }
+    println!("Inventário antes dos produtores ARC: {} símbolos sem contrato direto no catálogo; não certifica ABI, alcance ou ownership", inventario.len());
+    for (nome, (n, assinaturas, exemplo)) in inventario {
+        println!("Extern sem contrato direto: {nome}: {n} chamadas; exemplo {exemplo}");
+        for (assinatura, n) in assinaturas { println!("  {n} x {assinatura}"); }
+    }
+}
+
+fn auditar(entrada: &Path, sdk_no_grupo: bool, inventario_externs: bool) -> Result<(), String> {
     let lib = std::env::var_os("DARTFORGE_SDK_LIB").ok_or("defina DARTFORGE_SDK_LIB")?;
     let sdk_dir = Path::new(&lib);
     let sdk = sdk_modulo::carregar_sdk_nativo(sdk_dir)?;
@@ -67,6 +89,7 @@ fn auditar(entrada: &Path, sdk_no_grupo: bool) -> Result<(), String> {
     if sdk_no_grupo {
         let mut modulos = vec![m];
         modulos.extend(baixar_sdk_para_auditoria(sdk_dir, por_tabelas)?);
+        if inventario_externs { inventariar_externs(&modulos); }
         let mut planos: Vec<HashMap<_, _>> = modulos
             .iter()
             .map(|m| {
@@ -148,6 +171,7 @@ fn auditar(entrada: &Path, sdk_no_grupo: bool) -> Result<(), String> {
         }
         return Ok(());
     }
+    if inventario_externs { inventariar_externs(std::slice::from_ref(&m)); }
     let mut planos: HashMap<_, _> = m
         .functions
         .iter()
@@ -284,11 +308,14 @@ fn main() -> Result<(), String> {
             let mut entradas = Vec::new();
             let mut selecionou_arc = false;
             let mut sdk_no_grupo = false;
+            let mut inventario_externs = false;
             for argumento in std::env::args_os().skip(1) {
                 if argumento == "--memoria=arc" {
                     selecionou_arc = true;
                 } else if argumento == "--sdk-no-grupo" {
                     sdk_no_grupo = true;
+                } else if argumento == "--inventario-externs" {
+                    inventario_externs = true;
                 } else {
                     entradas.push(argumento);
                 }
@@ -302,7 +329,7 @@ fn main() -> Result<(), String> {
                 return Err("informe os arquivos Dart a auditar".into());
             }
             for entrada in entradas {
-                auditar(Path::new(&entrada), sdk_no_grupo)?;
+                auditar(Path::new(&entrada), sdk_no_grupo, inventario_externs)?;
             }
             Ok(())
         })

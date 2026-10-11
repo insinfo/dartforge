@@ -1,6 +1,7 @@
 //! Prova AOT de storage Ref, escrita compacta e owner antes da troca da aresta.
 //! O corpo HIR é preparado em ARC; tracing executa o mesmo protocolo explícito.
 //! Controles negativos retiram retenção ou liberação somente após verificação.
+//! `--crescer` força crescimento e descompactação com coleta durante a chamada.
 
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*};
 use std::{collections::HashMap, fmt::Write, path::PathBuf};
@@ -18,7 +19,9 @@ fn main() -> Result<(), String> {
         Some("0") | None => false,
         Some(outro) => return Err(format!("nível desconhecido: {outro}")),
     };
-    let controle = args.next();
+    let primeiro = args.next();
+    let crescer = primeiro.as_deref() == Some("--crescer");
+    let controle = if crescer { args.next() } else { primeiro };
     if args.next().is_some() {
         return Err("argumentos excedentes".into());
     }
@@ -94,6 +97,19 @@ fn main() -> Result<(), String> {
             terminator: Terminator::Return(Some(val(4))),
         }],
     });
+    if crescer {
+        let insts = &mut m.functions[0].blocks[0].instructions;
+        insts[2] = (
+            ValueId(6),
+            chamada(
+                "dartforge_lista_acrescentar",
+                vec![(val(0), Type::Ref), (val(1), Type::Ref)],
+                Type::Ref,
+            ),
+            Type::Ref,
+        );
+        insts.remove(3);
+    }
     let mut plano = PlanoFuncaoDart::default();
     plano.tokens.retorno = RetornoTokens::Owned;
     for v in [ValueId(2), ValueId(3)] {
@@ -140,6 +156,29 @@ fn main() -> Result<(), String> {
         writeln!(ir, "  %endereco{n} = add i64 %retorno{n}, 22\n  %ptr{n} = inttoptr i64 %endereco{n} to ptr\n  %bits{n} = load i64, ptr %ptr{n}, align 8\n  %iguais{n} = icmp eq i64 %bits{n}, {bits}\n  br i1 %iguais{n}, label %liberar{n}, label %falha\nliberar{n}:\n  call void @dartforge_arc_release(i64 %retorno{n})\n  call void @dartforge_arc_collect()\n  %final{n} = call i8 @dartforge_arc_observar_heap_v1(i64 %retorno{n})\n  %morto{n} = icmp eq i8 %final{n}, 0\n  br i1 %morto{n}, label %passou{n}, label %falha\npassou{n}:").unwrap();
     }
     ir.push_str("  call void @dartforge_print_handle(i64 3)\n  ret void\nfalha:\n  call void @llvm.trap()\n  unreachable\n}\n");
+    if crescer {
+        for n in 0..3 {
+            ir = ir.replace(
+                &format!("icmp eq i64 %len{n}, 0"),
+                &format!("icmp eq i64 %len{n}, 2"),
+            );
+            ir = ir.replace(
+                &format!("icmp eq i64 %cap{n}, 0"),
+                &format!("icmp eq i64 %cap{n}, 3"),
+            );
+            let liberar = format!(
+                "  call void @dartforge_arc_release(i64 %pai{n})\n  call void @dartforge_arc_release(i64 %novo{n})\n"
+            );
+            if ir.matches(&liberar).count() != 1 {
+                return Err("liberação do par não localizada unicamente".into());
+            }
+            // O valor anexado deve viver só pela aresta copiada, antes de matar a lista.
+            let conferir = format!(
+                "  call void @dartforge_arc_release(i64 %novo{n})\n  call void @dartforge_arc_collect()\n  %forma{n} = call i64 @dartforge_arc_lista_forma_v1(i64 %pai{n})\n  %geral{n} = icmp eq i64 %forma{n}, 4\n  %filhoestado{n} = call i8 @dartforge_arc_observar_heap_v1(i64 %novo{n})\n  %filhovivo{n} = icmp eq i8 %filhoestado{n}, 1\n  %aresta{n} = and i1 %geral{n}, %filhovivo{n}\n  br i1 %aresta{n}, label %conferir{n}, label %falha\nconferir{n}:\n  %ultimo{n} = call i64 @dartforge_arc_lista_ref_owned_v1(i64 %pai{n}, i64 1)\n  %elemento{n} = icmp eq i64 %ultimo{n}, %novo{n}\n  call void @dartforge_arc_release(i64 %ultimo{n})\n  br i1 %elemento{n}, label %soltarpai{n}, label %falha\nsoltarpai{n}:\n  call void @dartforge_arc_release(i64 %pai{n})\n"
+            );
+            ir = ir.replace(&liberar, &conferir);
+        }
+    }
     match controle.as_deref() {
         None => {}
         Some("sem-retencao") => {

@@ -20,6 +20,7 @@ import tempfile
 PROVAS = {
     "arc_armazenamento_listas": ("prova-armazenamento-listas", False, [
         ("normal", None), ("normal", "sem-retencao"), ("normal", "sem-liberar"),
+        ("--crescer", None), ("--crescer", "sem-retencao"), ("--crescer", "sem-liberar"),
     ]),
     "arc_caixas_simd": ("prova-caixas-simd", False, [("normal", None), ("normal", "sem-liberar")]),
     "arc_retorno_tipado_escalar": ("prova-retorno-tipado-escalar", False, [

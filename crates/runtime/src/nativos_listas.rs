@@ -667,6 +667,25 @@ pub unsafe extern "C" fn dartforge_lista_nova(palavras: *const i64, n: i64, cid:
 /// `(capacidade * 2) | 3` se preciso e grava (descompactando, se for o caso).
 /// Devolve `lista`. Não lança; pode coletar (`lista` e `v` são operandos,
 /// enraizados pelo código gerado).
+/// O retorno é emprestado do primeiro argumento; não cria owner independente.
+/// O valor é armazenado sem consumir o owner do chamador; na forma geral,
+/// copia a aresta Ref. Crescimento e descompactação invalidam empréstimos
+/// anteriores do armazenamento.
+///
+/// # Panics
+/// Receiver não expansível, referências mortas ou layout inválido; aborta na
+/// fronteira C. Quem chama deve manter ambos os argumentos vivos.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let lista = unsafe { dartforge_lista_nova(std::ptr::null(), 0, 10, 0) };
+/// dartforge_arc_retain(lista);
+/// let valor = dartforge_arc_box_int_owned_v1(i64::MAX);
+/// assert_eq!(dartforge_lista_acrescentar(lista, valor), lista);
+/// dartforge_arc_release(valor);
+/// assert_eq!(dartforge_arc_lista_len_v1(lista), 1);
+/// dartforge_arc_release(lista);
+/// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_lista_acrescentar(lista: i64, v: i64) -> i64 {
     HEAP.with(|heap| heap.borrow_mut().lista_push(lista, crate::heap::Valor::Ref(v)));

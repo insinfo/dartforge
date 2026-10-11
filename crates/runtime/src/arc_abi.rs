@@ -316,6 +316,83 @@ mod testes_lista_ref_owned {
     use crate::{layout::{cid, smi}, listas::Elemento, heap::Valor};
 
     #[test]
+    fn acrescentar_empresta_receiver_e_preserva_raizes_em_crescimento_e_descompactacao() {
+        for arc in [false, true] {
+            for cheia in [false, true] {
+                for forma in [Elemento::Geral, Elemento::Int, Elemento::Double, Elemento::Bool] {
+                    for compativel in [false, true] {
+                        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+                        let (lista, valor) = HEAP.with(|h| {
+                            let mut heap = h.borrow_mut();
+                            if arc { heap.ativar_arc(); }
+                            let lista = heap.nova_expansivel(usize::from(cheia), if cheia { 1 } else { 2 }, forma);
+                            heap.reter_owner_codigo(lista);
+                            if cheia {
+                                let dados = heap.lista_dados(lista);
+                                heap.palavras_mut(dados)[1] = match forma {
+                                    Elemento::Geral => 0, Elemento::Int => i64::MIN,
+                                    Elemento::Double => (-0.0_f64).to_bits() as i64, Elemento::Bool => 1,
+                                };
+                            }
+                            let v = if !compativel || forma == Elemento::Geral {
+                                Valor::Ref(heap.alocar_instancia(123, 1))
+                            } else { match forma {
+                                Elemento::Int => Valor::Int(i64::MAX),
+                                Elemento::Double => Valor::Double(f64::from_bits(0xfff8_1234_5678_9abc)),
+                                Elemento::Bool => Valor::Bool(true), Elemento::Geral => unreachable!(),
+                            }};
+                            let valor = heap.como_ref(v);
+                            heap.reter_owner_codigo(valor);
+                            (lista, valor)
+                        });
+                        let stats = HEAP.with(|h| h.borrow().stats());
+                        let r = dartforge_lista_acrescentar(lista, valor);
+                        assert_eq!(r, lista);
+                        HEAP.with(|h| {
+                            let heap = h.borrow();
+                            assert_eq!(heap.lista_len(lista), 1 + usize::from(cheia));
+                            assert_eq!(heap.lista_capacidade(lista), if cheia { 3 } else { 2 });
+                            let general = !compativel || forma == Elemento::Geral;
+                            assert_eq!(heap.lista_forma(lista), if general { Elemento::Geral } else { forma });
+                            let ultimo = heap.lista_get(lista, usize::from(cheia));
+                            match forma {
+                                _ if general => assert_eq!(ultimo, Valor::Ref(valor)),
+                                Elemento::Int => assert_eq!(ultimo, Valor::Int(i64::MAX)),
+                                Elemento::Double => {
+                                    let Valor::Double(d) = ultimo else { panic!("elemento double esperado") };
+                                    assert_eq!(d.to_bits(), 0xfff8_1234_5678_9abc);
+                                },
+                                Elemento::Bool => assert_eq!(ultimo, Valor::Bool(true)),
+                                Elemento::Geral => unreachable!(),
+                            }
+                            if cheia || (!compativel && forma != Elemento::Geral) {
+                                assert!(heap.stats().allocations > stats.allocations);
+                                assert!(heap.stats().collections > stats.collections);
+                            } else {
+                                assert_eq!(heap.stats().allocations, stats.allocations);
+                                assert_eq!(heap.stats().collections, stats.collections);
+                            }
+                        });
+                        dartforge_arc_release(valor);
+                        dartforge_arc_collect();
+                        if !compativel || forma == Elemento::Geral {
+                            assert!(HEAP.with(|h| h.borrow().e_objeto_vivo(valor)));
+                        }
+                        // O retorno borrowed não pode deixar um owner adicional da lista.
+                        dartforge_arc_release(lista);
+                        dartforge_arc_collect();
+                        assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(r)));
+                        if !compativel || forma == Elemento::Geral {
+                            assert!(!HEAP.with(|h| h.borrow().e_objeto_vivo(valor)));
+                        }
+                        HEAP.with(|h| h.replace(anterior));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn armazenamento_compacto_preserva_bits_e_sequencia_de_encolhimento() {
         for arc in [false, true] {
             for (forma, bits) in [(Elemento::Int, i64::MIN),

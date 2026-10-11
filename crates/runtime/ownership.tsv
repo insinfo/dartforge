@@ -77,3 +77,4 @@ dartforge_arc_lista_gravar_len_v1	ref:borrow,i64:scalar	void:scalar	0	1	normal
 dartforge_arc_lista_gravar_bits_v1	ref:borrow,i64:scalar,i64:scalar,i64:scalar	void:scalar	0	1	normal
 dartforge_arc_lista_gravar_ref_v1	ref:borrow,i64:scalar,ref:borrow	void:scalar	1	1	normal
 dartforge_arc_lista_gravar_dados_v1	ref:borrow,ref:borrow	i64:scalar	1	1	normal
+dartforge_lista_acrescentar	ref:borrow,ref:borrow	ref:borrow(0)	1	1	normal
