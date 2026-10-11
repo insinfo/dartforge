@@ -1,6 +1,8 @@
 //! Vida dos quadros proprietários locais abertos pela ABI ARC auditada.
 //! Exige IDs SSA diretos e confere limites constantes quando a capacidade é
-//! conhecida; não certifica quadros importados, aliases ou limites dinâmicos.
+//! conhecida. A entrada ordinária recusa importados. A auditoria do conjunto
+//! fechado pode fornecer pares emprestados, sem incluí-los na pilha de cleanup.
+//! Aliases e índices dinâmicos sem esse par continuam fora do repasse.
 
 use super::super::cfg::Cfg;
 use crate::hir::*;
@@ -11,6 +13,16 @@ pub(super) fn verificar(f: &Function) -> Result<(), String> {
 }
 
 fn analisar(f: &Function) -> Result<HashMap<BlockId, Vec<ValueId>>, String> {
+    analisar_compartilhados(f, &HashMap::new(), &HashMap::new())
+}
+
+// Os pares importados precisam vir da auditoria do conjunto fechado. A pilha
+// retornada contém somente quadros locais: um empréstimo nunca vira cleanup.
+pub(super) fn analisar_compartilhados(
+    f: &Function,
+    emprestados: &HashMap<ValueId, ValueId>,
+    alvos: &HashMap<String, Vec<(usize, usize)>>,
+) -> Result<HashMap<BlockId, Vec<ValueId>>, String> {
     let cfg = Cfg::novo(f);
     let capacidades: HashMap<_, _> = f
         .blocks
@@ -43,14 +55,41 @@ fn analisar(f: &Function) -> Result<HashMap<BlockId, Vec<ValueId>>, String> {
                 let Operand::Val(q) = op else {
                     return Err(erro("quadro exige ID SSA local".into()));
                 };
-                if !ativos.contains(q) {
+                if !ativos.contains(q) && !emprestados.contains_key(q) {
                     return Err(erro(format!("quadro v{} não está aberto", q.0)));
                 }
                 Ok(*q)
             };
             let indice = |q: ValueId, i: i64| -> Result<(), String> {
+                if emprestados.contains_key(&q) {
+                    return Err(erro(
+                        "quadro emprestado exige seu parâmetro de índice".into(),
+                    ));
+                }
                 if i < 0 || capacidades.get(&q).is_some_and(|n| i >= *n) {
                     return Err(erro(format!("índice {i} fora do quadro v{}", q.0)));
+                }
+                Ok(())
+            };
+            let par = |q: ValueId, op: &Operand| -> Result<(), String> {
+                if let Some(i) = emprestados.get(&q) {
+                    if op != &Operand::Val(*i) {
+                        return Err(erro(format!(
+                            "índice não pertence ao quadro emprestado v{}",
+                            q.0
+                        )));
+                    }
+                } else if let Operand::Constant(Constant::Int(i)) = op {
+                    if !capacidades.contains_key(&q) {
+                        return Err(erro(
+                            "repasse exige capacidade constante do quadro local".into(),
+                        ));
+                    }
+                    indice(q, *i)?;
+                } else {
+                    return Err(erro(
+                        "repasse exige índice constante local ou par emprestado".into(),
+                    ));
                 }
                 Ok(())
             };
@@ -81,6 +120,21 @@ fn analisar(f: &Function) -> Result<HashMap<BlockId, Vec<ValueId>>, String> {
                             .first()
                             .ok_or_else(|| erro("quadro sem argumento".into()))?;
                         let q = usar(&primeiro.0, &ativos)?;
+                        if emprestados.contains_key(&q) {
+                            if !matches!(
+                                name.as_str(),
+                                "dartforge_arc_quadro_carregar_v1"
+                                    | "dartforge_arc_quadro_copiar_v1"
+                            ) {
+                                return Err(erro(
+                                    "função não pode fechar ou transferir quadro emprestado".into(),
+                                ));
+                            }
+                            let i = args
+                                .get(1)
+                                .ok_or_else(|| erro("quadro emprestado sem índice".into()))?;
+                            par(q, &i.0)?;
+                        }
                         if name != "dartforge_arc_quadro_fechar_v1" {
                             if let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1) {
                                 indice(q, *i)?;
@@ -96,10 +150,27 @@ fn analisar(f: &Function) -> Result<HashMap<BlockId, Vec<ValueId>>, String> {
                                 .get(2)
                                 .ok_or_else(|| erro("move sem quadro destino".into()))?;
                             let q_destino = usar(&destino.0, &ativos)?;
+                            if emprestados.contains_key(&q_destino) {
+                                return Err(erro(
+                                    "move não pode transferir para quadro emprestado".into(),
+                                ));
+                            }
                             if let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(3) {
                                 indice(q_destino, *i)?;
                             }
                         }
+                    }
+                }
+                Instruction::CallStatic { symbol, args, .. } if alvos.contains_key(symbol) => {
+                    for &(qi, ii) in &alvos[symbol] {
+                        let q = args
+                            .get(qi)
+                            .ok_or_else(|| erro("repasse sem quadro".into()))?;
+                        let i = args
+                            .get(ii)
+                            .ok_or_else(|| erro("repasse sem índice".into()))?;
+                        let q = usar(q, &ativos)?;
+                        par(q, i)?;
                     }
                 }
                 _ => {}

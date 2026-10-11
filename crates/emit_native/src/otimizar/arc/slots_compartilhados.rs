@@ -287,8 +287,9 @@ pub fn auditar_slots_ref_compartilhados(
 
 /// Corpos intermediários com slots fortes e capturas por quadro/índice.
 ///
-/// Ainda exige verificação interprocedural dos pares importados, produção de
-/// tokens e preparação excepcional antes da emissão. Não é um certificado
+/// O produtor verifica a origem e vida explícita dos pares importados.
+/// Mudanças posteriores exigem repetir essa verificação. Ainda precisa de
+/// tokens e preparação excepcional antes da emissão; não é um certificado
 /// ARC. Os quadros locais aparecem separados dos emprestados, pois somente
 /// a função que abre um quadro pode fechá-lo.
 ///
@@ -323,8 +324,9 @@ pub struct RascunhoSlotsRefArc {
 ///
 /// O resultado é intermediário: não publica módulo/planos, não classifica
 /// os parâmetros nativos como escalares Dart e não certifica unwind implícito,
-/// tokens, chamada entre módulos ou a vida dos quadros emprestados. Esses
-/// protocolos precisam ser concluídos antes de emitir os corpos retornados.
+/// tokens ou chamada entre módulos. Confere a vida dos pares nas arestas
+/// explícitas do CFG. Os demais protocolos precisam ser concluídos antes
+/// de emitir os corpos retornados.
 /// Tracing copia os corpos sem mudar instruções ou assinaturas.
 ///
 /// # Erros
@@ -591,6 +593,7 @@ pub fn baixar_slots_ref_compartilhados(m: &Module) -> Result<RascunhoSlotsRefArc
             }
         }
     }
+    super::slots_vidas::verificar_vidas_slots_ref_cfg(m, &r)?;
     Ok(r)
 }
 
