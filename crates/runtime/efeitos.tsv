@@ -604,6 +604,7 @@ dartforge_nativo_Socket_LeaveMulticast	1	1	1
 dartforge_nativo_Socket_Read	1	1	1
 dartforge_nativo_Socket_ReceiveMessage	1	1	1
 dartforge_nativo_Socket_RecvFrom	1	1	1
+dartforge_arc_socket_recvfrom_owned_v1	1	1	1
 dartforge_nativo_Socket_SendMessage	1	1	1
 dartforge_nativo_Socket_SendTo	1	1	1
 dartforge_nativo_Socket_SetOption	1	1	1

@@ -48,6 +48,8 @@ dartforge_unbox_double	ref:borrow	f64:scalar	0	1	pending-dart
 dartforge_unbox_bool	ref:borrow	u8:scalar	0	1	pending-dart
 dartforge_arc_env_ref_v1	ref:borrow,i64:scalar	ref:borrow(0)	0	0	normal
 dartforge_arc_ler_campo_late_ref_v1	ref:borrow,i64:scalar	ref:borrow(0)	0	0	normal
+dartforge_arc_socket_recvfrom_owned_v1	ref:borrow	ref:owned	0	1	pending-dart
+dartforge_value_class	ref:borrow	i64:scalar	0	0	normal
 dartforge_arc_contexto_closure_v1	ref:borrow	ref:borrow(0)	0	0	normal
 dartforge_nsm_chamada	-	void:scalar	0	1	pending-dart
 dartforge_rti_receita	ref:borrow	i64:scalar	0	0	normal

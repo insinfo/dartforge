@@ -570,6 +570,45 @@ const TAMANHO_MAXIMO_DE_DATAGRAMA: usize = 65536;
 /// patch), ou `null` se não havia nenhum.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Socket_RecvFrom(this: i64) -> i64 {
+    socket_recvfrom(this, false)
+}
+
+/// Recebe um datagrama com retorno Owned na saída normal e null na pending.
+///
+/// O receiver fica emprestado durante a chamada. Quando há dados, o helper
+/// Dart deve estar registrado como callback Owned de aridade cinco. A cópia
+/// do resultado ocorre antes de fechar o escopo nativo; não consome o token
+/// do receiver nem limpa exceção. Pode alocar, coletar e executar Dart.
+///
+/// # Panics
+/// Helper ausente ou sem registro Owned, retorno/escopo incompatível;
+/// falhas internas abortam no limite C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// // Receiver sem peer: a saída pending não entrega um owner.
+/// let socket = dartforge_arc_objeto_owned_v1(123, 1);
+/// assert_eq!(dartforge_arc_socket_recvfrom_owned_v1(socket), 0);
+/// assert_ne!(dartforge_exception_pending(), 0);
+/// dartforge_exception_clear();
+/// dartforge_arc_release(socket);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_socket_recvfrom_owned_v1(this: i64) -> i64 {
+    let escopo = EscopoUniformeArc(dartforge_arc_escopo_nativo_abrir_v1());
+    let resultado = socket_recvfrom(this, true);
+    let resultado = if dartforge_exception_pending() != 0 {
+        assert_eq!(resultado, 0, "recepção ARC pendente deve devolver null");
+        0
+    } else {
+        dartforge_arc_retain(resultado);
+        resultado
+    };
+    drop(escopo);
+    resultado
+}
+
+fn socket_recvfrom(this: i64, owned: bool) -> i64 {
     let Some(s) = soquete_do_objeto(this) else { return 0 };
     let (buf, e) = match receber_datagrama(s.descritor(), TAMANHO_MAXIMO_DE_DATAGRAMA) {
         Ok(Some(x)) => x,
@@ -584,7 +623,16 @@ pub extern "C" fn dartforge_nativo_Socket_RecvFrom(this: i64) -> i64 {
     };
     // SAFETY: registrada pela sobreposição de `dart:io` com a assinatura
     // (`Uint8List`, `String`, `Uint8List`, `int`, `int`).
-    let g = { let alvo_dart: usize = f; move |a0: i64, a1: i64, a2: i64, a3: i64, a4: i64| -> i64 { dart_r5(alvo_dart, a0, a1, a2, a3, a4) } };
+    let g = { let alvo_dart: usize = f; move |a0: i64, a1: i64, a2: i64, a3: i64, a4: i64| -> i64 {
+        if owned {
+            let guarda = arc_preparar_porta(alvo_dart, 5)
+                .expect("callback do datagrama ARC incompatível")
+                .expect("callback do datagrama ARC sem registro Owned");
+            arc_concluir_porta(Some(guarda), dart_r5_invocar(alvo_dart, a0, a1, a2, a3, a4))
+        } else {
+            dart_r5(alvo_dart, a0, a1, a2, a3, a4)
+        }
+    } };
     let dados = dart_bytes(buf);
     let texto = com_raizes(&[dados], || alocar_str(&e.texto()));
     let ip = com_raizes(&[dados, texto], || dart_bytes(e.ip()));

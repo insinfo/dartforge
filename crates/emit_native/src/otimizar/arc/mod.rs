@@ -13,6 +13,7 @@ use std::collections::{HashMap, HashSet};
 mod classificacao;
 pub mod analise;
 mod caixas;
+mod nativos;
 mod escopos;
 mod tokens;
 mod contratos;

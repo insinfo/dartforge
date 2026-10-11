@@ -737,6 +737,75 @@ mod testes_portas_arc {
     }
 
     thread_local! { static ULTIMO: std::cell::Cell<i64> = const { std::cell::Cell::new(0) }; }
+
+    #[test]
+    fn datagrama_owned_escapa_do_escopo_e_pending_nao_cria_owner() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        extern "C" fn datagrama(dados: i64, texto: i64, ip: i64, porta: i64, tipo: i64) -> i64 {
+            assert_eq!(bytes_da_lista_tipada(dados).unwrap(), [1, 2, 3]);
+            let r = dartforge_arc_objeto_owned_v1(500, 5);
+            for (i, v) in [(0, dados), (1, texto), (2, ip)] { dartforge_arc_gravar_campo_ref_v1(r, i, v); }
+            dartforge_arc_gravar_campo_escalar_v1(r, 3, porta);
+            dartforge_arc_gravar_campo_escalar_v1(r, 4, tipo);
+            r
+        }
+        extern "C" fn erro(_: i64, _: i64, _: i64, _: i64, _: i64) -> i64 {
+            let e = dartforge_arc_box_int_owned_v1(i64::MAX);
+            dartforge_arc_lancar_ref_v1(e);
+            dartforge_arc_release(e);
+            0
+        }
+        for arc in [false, true] {
+            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+            // Usa o descritor da camada do runtime: no Windows ele identifica
+            // um Manipulador, não o SOCKET bruto que std::net devolve.
+            let e = EnderecoSo::de_ip(&[127, 0, 0, 1]).unwrap();
+            let fd = criar_datagrama(&e, false, false, 1).unwrap();
+            let destino = std::net::SocketAddr::from(([127, 0, 0, 1], porta_local(fd) as u16));
+            let socket = dartforge_arc_objeto_owned_v1(123, 1);
+            definir_soquete_no_objeto(socket, fd, FinalizadorDeSoquete::Normal);
+            let escopos = PORTAS_NATIVAS_ARC.with(|p| p.borrow().escopos.len());
+            assert_eq!(dartforge_arc_socket_recvfrom_owned_v1(socket), 0);
+            assert_eq!(dartforge_exception_pending(), 0);
+            let p = campo_nativo(socket);
+            SoqueteNativo::reter(p);
+            manipulador_de_eventos().enviar(ComandoDeEvento { soquete: p, porta: 0,
+                dados: (1 << COMANDO_MASCARA) | (1 << EVENTO_ENTRADA) });
+            let emissor = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+            for (pc, pending) in [(datagrama as *const () as usize, false), (erro as *const () as usize, true)] {
+                let versao = registrar(pc, 5);
+                AJUDANTES.with(|a| a.borrow_mut().insert("_dartforgeDatagrama".into(), pc));
+                emissor.send_to(&[1, 2, 3], destino).unwrap();
+                let mut r = 0;
+                let limite = std::time::Instant::now() + std::time::Duration::from_secs(2);
+                while std::time::Instant::now() < limite {
+                    r = dartforge_arc_socket_recvfrom_owned_v1(socket);
+                    if r != 0 || dartforge_exception_pending() != 0 { break; }
+                    std::thread::yield_now();
+                }
+                assert_eq!(PORTAS_NATIVAS_ARC.with(|p| p.borrow().escopos.len()), escopos);
+                if pending {
+                    assert_eq!(r, 0); assert_ne!(dartforge_exception_pending(), 0);
+                    dartforge_exception_clear();
+                } else {
+                    assert_eq!(dartforge_exception_pending(), 0); assert_ne!(r, 0);
+                    let dados = dartforge_arc_ler_campo_ref_v1(r, 0);
+                    dartforge_arc_collect();
+                    assert_eq!(dartforge_arc_observar_heap_v1(r), 3);
+                    assert_eq!(bytes_da_lista_tipada(dados).unwrap(), [1, 2, 3]);
+                    dartforge_arc_release(r); dartforge_arc_collect();
+                    assert_eq!(dartforge_arc_observar_heap_v1(r), 0);
+                    assert_eq!(dartforge_arc_observar_heap_v1(dados), 0);
+                }
+                dartforge_arc_retirar_retorno_owned_v1(pc as i64, versao);
+            }
+            AJUDANTES.with(|a| a.borrow_mut().remove("_dartforgeDatagrama"));
+            dartforge_arc_release(socket); dartforge_arc_collect();
+            HEAP.with(|h| { h.replace(anterior); });
+        }
+    }
+
     extern "C" fn novo() -> i64 {
         let x = dartforge_arc_box_int_owned_v1(i64::MAX);
         ULTIMO.with(|u| u.set(x));

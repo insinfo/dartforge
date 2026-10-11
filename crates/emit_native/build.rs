@@ -35,9 +35,13 @@ fn main() {
     }
     // A tabela de efeitos das externs decide onde a exceção pendente é
     // conferida: muda o código do SDK como uma fonte.
-    let efeitos = raiz.join("../runtime/efeitos.tsv");
-    println!("cargo::rerun-if-changed={}", efeitos.display());
-    arquivos.push(efeitos);
+    // Ownership também decide retenções, limpeza e ABI dos corpos ARC.
+    // Uma alteração isolada do catálogo deve invalidar o SDK em cache.
+    for tabela in ["../runtime/efeitos.tsv", "../runtime/ownership.tsv"] {
+        let caminho = raiz.join(tabela);
+        println!("cargo::rerun-if-changed={}", caminho.display());
+        arquivos.push(caminho);
+    }
     arquivos.sort();
     let mut h = blake3::Hasher::new();
     for a in &arquivos {
@@ -105,7 +109,8 @@ fn precompilar_runtime() {
     for d in ["../runtime/src", "../runtime_estatico/src"] {
         juntar(&raiz.join(d), &mut fontes);
     }
-    for f in ["../runtime/build.rs", "../runtime/Cargo.toml", "../runtime_estatico/Cargo.toml", "../../Cargo.lock"] {
+    for f in ["../runtime/build.rs", "../runtime/Cargo.toml", "../runtime/efeitos.tsv",
+        "../runtime/ownership.tsv", "../runtime_estatico/Cargo.toml", "../../Cargo.lock"] {
         let p = raiz.join(f);
         println!("cargo::rerun-if-changed={}", p.display());
         fontes.push(p);
