@@ -102,6 +102,77 @@ fn modulo(tabelas: bool, certificar: bool) -> Result<Module, String> {
         ("entrada_uniforme".into(), PlanoFuncaoDart::default()),
         ("uniforme_falivel".into(), PlanoFuncaoDart::default()),
     ]);
+    if certificar {
+        let mut repasse = m.functions[1].clone();
+        repasse.symbol = "repasse_seletor".into();
+        repasse.name = "repasse_seletor".into();
+        repasse.blocks = vec![
+            BasicBlock {
+                id: BlockId(0),
+                instructions: vec![
+                    (
+                        ValueId(3),
+                        Instruction::CallSeletorRepasse {
+                            arc_owned: false,
+                            seletor: "c:ausente".into(),
+                            recv: Operand::Val(ValueId(0)),
+                            args: Operand::Val(ValueId(1)),
+                            desc: Operand::Val(ValueId(2)),
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(4),
+                        Instruction::CallRuntime {
+                            name: "dartforge_exception_pending".into(),
+                            args: vec![],
+                            ret_ty: Type::I8,
+                        },
+                        Type::I8,
+                    ),
+                    (
+                        ValueId(5),
+                        Instruction::ICmp(
+                            ICmpOp::Ne,
+                            Operand::Val(ValueId(4)),
+                            Operand::Constant(Constant::Int(0)),
+                        ),
+                        Type::I1,
+                    ),
+                ],
+                terminator: Terminator::CondBranch {
+                    cond: Operand::Val(ValueId(5)),
+                    then_block: BlockId(1),
+                    else_block: BlockId(2),
+                },
+            },
+            BasicBlock {
+                id: BlockId(1),
+                instructions: vec![],
+                terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))),
+            },
+            BasicBlock {
+                id: BlockId(2),
+                instructions: vec![],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(3)))),
+            },
+        ];
+        m.functions.push(repasse);
+        m.retornos_uniformes_arc.insert("repasse_seletor".into());
+        m.parametros_vetores_dart.insert(
+            "repasse_seletor".into(),
+            m.parametros_vetores_dart["entrada_uniforme"].clone(),
+        );
+        let mut plano = PlanoFuncaoDart::default();
+        if tabelas {
+            plano
+                .tabelas
+                .saidas
+                .insert(BlockId(1), SaidaPorExcecao::Lanca);
+            m.tabelas.push(plano.tabelas.clone());
+        }
+        planos.insert("repasse_seletor".into(), plano);
+    }
     preparar_arc_modulo_dart(&mut m, &mut planos)?;
     if planos
         .values()
@@ -115,7 +186,7 @@ fn modulo(tabelas: bool, certificar: bool) -> Result<Module, String> {
     {
         return Err("preparação não idempotente".into());
     }
-    if certificar && certificar_portas_arc_aot(&mut m, &planos)? != 3 {
+    if certificar && certificar_portas_arc_aot(&mut m, &planos)? != 4 {
         return Err("inventário de portas certificado incompleto".into());
     }
     Ok(m)
@@ -255,6 +326,28 @@ sucesso_excecao:
 }
 "#,
     );
+    if arc {
+        // Exercita a busca real por seletor emitida pelo compilador: o fallback
+        // transfere seu único owner através do adaptador e do corpo Dart.
+        ir = ir.replace("sucesso_excecao:\n", r#"sucesso_excecao:
+  %codigo_repasse = ptrtoint ptr @repasse_seletor to i64
+  %rs = call i64 @dartforge_arc_invocar_uniforme_v1(i64 %codigo_repasse, i64 0, i64 %args_ptr, i64 %desc_ptr)
+  call void @dartforge_arc_collect()
+  %repasse_vivo = call i8 @dartforge_arc_observar_heap_v1(i64 %rs)
+  %repasse_valor = call i64 @dartforge_unbox_int(i64 %rs)
+  %repasse_owner_ok = icmp eq i8 %repasse_vivo, 3
+  %repasse_valor_ok = icmp eq i64 %repasse_valor, 9223372036854775807
+  %repasse_ok = and i1 %repasse_owner_ok, %repasse_valor_ok
+  br i1 %repasse_ok, label %liberar_repasse, label %falha
+liberar_repasse:
+  call void @dartforge_arc_release(i64 %rs)
+  call void @dartforge_arc_collect()
+  %repasse_final = call i8 @dartforge_arc_observar_heap_v1(i64 %rs)
+  %repasse_morto = icmp eq i8 %repasse_final, 0
+  br i1 %repasse_morto, label %repasse_concluido, label %falha
+repasse_concluido:
+"#);
+    }
     if arc {
         // O emissor registra os corpos certificados na entrada da imagem.
         // Não repetir os registros no harness: isso esconderia um registro

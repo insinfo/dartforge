@@ -93,6 +93,19 @@ fn conferir_vetores(m: &Module) -> Result<(), String> {
                     continue;
                 }
                 let permitido = match i {
+                    Instruction::CallSeletorRepasse {
+                        arc_owned: true,
+                        recv,
+                        args,
+                        desc,
+                        ..
+                    } => {
+                        !usa(recv)
+                            && match papel {
+                                VetorEntradaDart::Argumentos => usa(args) && !usa(desc),
+                                VetorEntradaDart::Descritor => usa(desc) && !usa(args),
+                            }
+                    }
                     Instruction::CallStatic { symbol, args, .. } => {
                         funcoes.get(symbol).is_some_and(|callee| {
                             args.len() == callee.params.len()
@@ -178,6 +191,7 @@ pub fn certificar_portas_arc_aot(
     if !m.memoria_arc {
         return Ok(0);
     }
+    super::seletores::conferir(m)?;
     conferir_vetores(m)?;
     let mut fs = m.functions.clone();
     let mut ps = planos.clone();
@@ -242,7 +256,10 @@ pub fn certificar_portas_arc_aot(
                     | Instruction::CallClosure { .. }
                     | Instruction::CallClosureRepasse { .. }
                     | Instruction::CallSeletor { .. }
-                    | Instruction::CallSeletorRepasse { .. }
+                    | Instruction::CallSeletorRepasse {
+                        arc_owned: false,
+                        ..
+                    }
                     | Instruction::ChamadaTipada { .. }
                     | Instruction::ChamadaNativa { .. }
                     | Instruction::ChamadaNativaComposta { .. }
@@ -259,6 +276,10 @@ pub fn certificar_portas_arc_aot(
                         | Instruction::ArcCopy { .. }
                         | Instruction::ArcMove { .. }
                         | Instruction::CallStatic { .. }
+                        | Instruction::CallSeletorRepasse {
+                            arc_owned: true,
+                            ..
+                        }
                         | Instruction::CallRuntime { .. }
                 ))
             {
@@ -384,6 +405,97 @@ mod testes {
         ]);
         preparar_arc_modulo_dart(&mut m, &mut p).unwrap();
         (m, p)
+    }
+
+    #[test]
+    fn repasse_por_seletor_prepara_owned_e_emite_adaptador_com_pending() {
+        for caso in 0..4 {
+            let (mut m, mut planos) = modulo(false);
+            planos.insert("repasse".into(), PlanoFuncaoDart::default());
+            let g = &mut m.functions[1];
+            g.blocks.truncate(1);
+            g.blocks[0].instructions = vec![
+                (
+                    ValueId(3),
+                    Instruction::CallSeletorRepasse {
+                        arc_owned: false,
+                        seletor: "c:identidade".into(),
+                        recv: Operand::Val(ValueId(0)),
+                        args: Operand::Val(ValueId(1)),
+                        desc: Operand::Val(ValueId(2)),
+                    },
+                    Type::Ref,
+                ),
+                (
+                    ValueId(4),
+                    Instruction::CallRuntime {
+                        name: "dartforge_exception_pending".into(),
+                        args: vec![],
+                        ret_ty: Type::I8,
+                    },
+                    Type::I8,
+                ),
+                (
+                    ValueId(5),
+                    Instruction::ICmp(
+                        ICmpOp::Ne,
+                        Operand::Val(ValueId(4)),
+                        Operand::Constant(Constant::Int(0)),
+                    ),
+                    Type::I1,
+                ),
+            ];
+            g.blocks[0].terminator = Terminator::CondBranch {
+                cond: Operand::Val(ValueId(5)),
+                then_block: BlockId(1),
+                else_block: BlockId(2),
+            };
+            g.blocks.extend([
+                BasicBlock {
+                    id: BlockId(1),
+                    instructions: vec![],
+                    terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))),
+                },
+                BasicBlock {
+                    id: BlockId(2),
+                    instructions: vec![],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(3)))),
+                },
+            ]);
+            if caso == 1 {
+                if let Instruction::CallSeletorRepasse { args, .. } =
+                    &mut g.blocks[0].instructions[0].1
+                {
+                    *args = Operand::Val(ValueId(2));
+                }
+            } else if caso == 2 {
+                g.blocks[0].instructions.pop();
+            } else if caso == 3 {
+                m.memoria_arc = false;
+            }
+            let antes = format!("{m:?}/{planos:?}");
+            let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
+            if matches!(caso, 1 | 2) {
+                assert!(resultado.is_err(), "{resultado:?}");
+                assert_eq!(antes, format!("{m:?}/{planos:?}"));
+                continue;
+            }
+            resultado.unwrap();
+            if caso == 3 {
+                assert_eq!(antes, format!("{m:?}/{planos:?}"));
+                continue;
+            }
+            assert_eq!(planos["repasse"].classes[&ValueId(3)], Ownership::Owned);
+            assert_eq!(planos["repasse"].tokens.pendencias[&ValueId(3)], BlockId(1));
+            assert_eq!(
+                preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(),
+                (0, 0)
+            );
+            certificar_portas_arc_aot(&mut m, &planos).unwrap();
+            let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+            assert!(ir.contains("call i64 @dartforge_arc_invocar_uniforme_v1(i64 %sc3"));
+            assert!(!ir.contains("call i64 %sf3("));
+        }
     }
 
     #[test]

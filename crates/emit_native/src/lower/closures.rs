@@ -1047,6 +1047,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 );
                 let r = e.emit_call_with_check(
                     Instruction::CallSeletorRepasse {
+                        arc_owned: false,
                         seletor,
                         recv: receptor,
                         args,

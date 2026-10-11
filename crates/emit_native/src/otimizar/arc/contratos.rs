@@ -870,6 +870,28 @@ fn produzir(
                 fixas.insert(*v, classe);
             }
         }
+        if incluir_arc && matches!(inst, Instruction::CallSeletorRepasse { arc_owned: true, .. }) {
+            let Instruction::CallSeletorRepasse { recv, args, desc, .. } = inst else { unreachable!() };
+            let compativel = |op: &Operand, t| match op {
+                Operand::Val(v) => tipos.get(v) == Some(&t),
+                Operand::Constant(Constant::Null) => t == Type::Ref,
+                _ => false,
+            };
+            if *ty != Type::Ref || !compativel(recv, Type::Ref)
+                || !compativel(args, Type::Ptr) || !compativel(desc, Type::Ptr) {
+                return Err(format!("v{}: ABI do repasse ARC incompatível", v.0));
+            }
+            let c = ContratoChamadaRuntime {
+                efeito: EfeitoTokens { pode_falhar: true, ..Default::default() },
+                resultado: Ownership::Owned, retencao_persistente: true,
+                invalida_borrows: true, chama_dart: true,
+            };
+            if classes.get(v).is_some_and(|classe| *classe != c.resultado)
+                || plano.instrucoes.get(v).is_some_and(|e| *e != c.efeito) {
+                return Err(format!("v{}: contrato conflitante do repasse ARC", v.0));
+            }
+            contratos.insert(*v, c);
+        }
         let unbox_bool = if incluir_arc {
             chamada_unbox_bool(inst)
         } else {

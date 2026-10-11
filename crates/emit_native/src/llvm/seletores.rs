@@ -99,6 +99,7 @@ impl LlvmEmitter<'_> {
         recv: &Operand,
         args: &Operand,
         desc: &Operand,
+        arc_owned: bool,
     ) {
         let r = self.coagir(recv, Type::Ref);
         let a = self.operand_str(args);
@@ -126,7 +127,16 @@ impl LlvmEmitter<'_> {
             )
             .unwrap();
         }
-        writeln!(self.out, "  %v{v} = call i64 %sf{v}(i64 {r}, ptr {a}, ptr {d})").unwrap();
+        if arc_owned {
+            assert!(self.module.memoria_arc && self.module.portas_arc_aot.is_some(),
+                "repasse ARC exige portas AOT certificadas");
+            writeln!(self.out, "  %sc{v} = ptrtoint ptr %sf{v} to i64").unwrap();
+            writeln!(self.out, "  %sav{v} = ptrtoint ptr {a} to i64").unwrap();
+            writeln!(self.out, "  %sdv{v} = ptrtoint ptr {d} to i64").unwrap();
+            writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_invocar_uniforme_v1(i64 %sc{v}, i64 {r}, i64 %sav{v}, i64 %sdv{v})").unwrap();
+        } else {
+            writeln!(self.out, "  %v{v} = call i64 %sf{v}(i64 {r}, ptr {a}, ptr {d})").unwrap();
+        }
     }
 
     /// Os nomes das funções do rastro (`DARTFORGE_RASTRO=1`).

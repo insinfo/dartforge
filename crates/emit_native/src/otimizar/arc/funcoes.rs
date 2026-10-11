@@ -203,6 +203,10 @@ pub(super) fn preparar_com_variantes(
     if !modulo.memoria_arc {
         return Ok((0, 0));
     }
+    // Convenções novas só são publicadas junto à preparação completa.
+    super::seletores::conferir(modulo)?;
+    let mut preparadas = modulo.functions.clone();
+    super::seletores::preparar(&mut preparadas);
     super::layouts::verificar(modulo)?;
     let mut novos = planos.clone();
     produzir_parametros_escalares_do_lowering(modulo, &mut novos)?;
@@ -213,12 +217,13 @@ pub(super) fn preparar_com_variantes(
     // O conjunto já mantém os corpos privados até verificar todos eles.
     // Após seu sucesso, a atribuição dos planos não introduz nova falha.
     let total = inserir(
-        &mut modulo.functions,
+        &mut preparadas,
         &mut novos,
         true,
         Some(&modulo.layouts_campos_arc),
         variantes,
     )?;
+    modulo.functions = preparadas;
     // Os IDs de invokes/pousos e os certificados pertencem aos corpos novos.
     // Não deixar o emissor consultar um inventário da versão anterior do CFG.
     if modulo.excecoes_por_tabelas {

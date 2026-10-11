@@ -32,6 +32,7 @@ pub use planos::produzir_tabelas_arc_do_modulo;
 pub use planos::preparar_arc_modulo_tabelado;
 mod parametros;
 mod vetores;
+mod seletores;
 mod portas;
 pub use portas::{PortasArcAot, certificar_portas_arc_aot};
 mod caches_rti;

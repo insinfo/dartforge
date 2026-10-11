@@ -103,6 +103,9 @@ pub(super) fn produzir(
                     }
                     plano.tokens.instrucoes.insert(*v, efeito);
                 }
+                // O adaptador recusa destinos sem contrato uniforme readonly.
+                Instruction::CallSeletorRepasse { recv, args, desc, .. }
+                    if descritor(desc) && !descritor(recv) && !descritor(args) => {}
                 // Consultas nativas somente de leitura da ABI; seus contratos
                 // de chamada/representações ainda são conferidos pelo catálogo.
                 Instruction::CallRuntime { name, args, .. }

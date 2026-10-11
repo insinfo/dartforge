@@ -2202,8 +2202,8 @@ impl<'a> LlvmEmitter<'a> {
             Instruction::CallSeletor { seletor, recv, args, nomes, tupla_tipos } => {
                 self.emitir_chamada_por_seletor(v, seletor, recv, args, nomes, tupla_tipos);
             }
-            Instruction::CallSeletorRepasse { seletor, recv, args, desc } => {
-                self.emitir_repasse_por_seletor(v, seletor, recv, args, desc);
+            Instruction::CallSeletorRepasse { arc_owned, seletor, recv, args, desc } => {
+                self.emitir_repasse_por_seletor(v, seletor, recv, args, desc, *arc_owned);
             }
             Instruction::LoadIndexed { base, index } => {
                 let b = self.operand_str(base);

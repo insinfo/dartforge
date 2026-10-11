@@ -554,6 +554,9 @@ pub enum Instruction {
     /// implementação do receptor, que confere os argumentos e completa os
     /// opcionais com os padrões dela. Resultado `Ref`.
     CallSeletorRepasse {
+        /// Usa o adaptador ARC com retorno Owned e guarda de pendência.
+        /// Só pode ser emitida junto ao inventário AOT certificado.
+        arc_owned: bool,
         seletor: String,
         recv: Operand,
         args: Operand,
