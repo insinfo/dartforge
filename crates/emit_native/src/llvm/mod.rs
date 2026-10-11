@@ -5,6 +5,7 @@ pub mod externs;
 mod depuracao;
 mod raizes;
 mod contexto_arc;
+mod portas_arc;
 mod rastro;
 pub mod verificar_mapas;
 pub mod verificar_sombra;
@@ -470,6 +471,7 @@ impl<'a> LlvmEmitter<'a> {
 
         // 2. Declarações do runtime
         self.emit_runtime_decls();
+        self.emitir_portas_arc_aot();
 
         // 3. Constantes de strings globais
         self.emit_string_constants();
@@ -2536,6 +2538,9 @@ impl<'a> LlvmEmitter<'a> {
             \x20 call void @llvm.trap()\n\
             \x20 unreachable\n\
             df.arc.compativel:\n");
+        if !self.module.modo_sdk {
+            self.registrar_portas_arc_aot();
+        }
     }
 
     fn emit_entry(&mut self) {

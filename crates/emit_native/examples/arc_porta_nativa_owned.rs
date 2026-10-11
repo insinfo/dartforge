@@ -10,7 +10,7 @@ use std::{
     path::PathBuf,
 };
 
-fn modulo(tabelas: bool) -> Result<Module, String> {
+fn modulo(tabelas: bool, certificar: bool) -> Result<Module, String> {
     let mut m = Module::new();
     m.memoria_arc = true;
     m.entry_symbol = Some("prova_porta_owned".into());
@@ -44,6 +44,8 @@ fn modulo(tabelas: bool) -> Result<Module, String> {
     m.parametros_escalares_dart
         .insert("ajudante_nsm".into(), HashSet::from([ValueId(1)]));
     m.retornos_ref_dart.insert("ajudante_nsm".into());
+    m.ajudantes
+        .push(("_dartforgeNoSuchMethod".into(), "ajudante_nsm".into()));
     m.functions.push(Function {
         symbol: "entrada_uniforme".into(),
         name: "entrada_uniforme".into(),
@@ -113,6 +115,9 @@ fn modulo(tabelas: bool) -> Result<Module, String> {
     {
         return Err("preparação não idempotente".into());
     }
+    if certificar && certificar_portas_arc_aot(&mut m, &planos)? != 3 {
+        return Err("inventário de portas certificado incompleto".into());
+    }
     Ok(m)
 }
 
@@ -138,7 +143,7 @@ fn main() -> Result<(), String> {
     if args.next().is_some() {
         return Err("argumentos excedentes".into());
     }
-    let mut m = modulo(tabelas)?;
+    let mut m = modulo(tabelas, arc)?;
     m.memoria_arc = arc;
     let mut ir = LlvmEmitter::new(&m).emit_all();
     // O callback registrado é exatamente o corpo verificado acima. O harness
@@ -250,10 +255,32 @@ sucesso_excecao:
 }
 "#,
     );
+    if arc {
+        // O emissor registra os corpos certificados na entrada da imagem.
+        // Não repetir os registros no harness: isso esconderia um registro
+        // ausente na partida. A imagem fixa conserva as versões até o exit.
+        for linha in [
+            "  %versao = call i64 @dartforge_arc_registrar_retorno_owned_v1(i64 %codigo, i64 7)\n",
+            "  %versao_uniforme = call i64 @dartforge_arc_registrar_uniforme_owned_v1(i64 %codigo_uniforme)\n",
+            "  %versao_falivel = call i64 @dartforge_arc_registrar_uniforme_owned_v1(i64 %codigo_falivel)\n",
+            "  call void @dartforge_arc_retirar_retorno_owned_v1(i64 %codigo_falivel, i64 %versao_falivel)\n",
+            "  call void @dartforge_arc_retirar_retorno_owned_v1(i64 %codigo_uniforme, i64 %versao_uniforme)\n",
+            "  call void @dartforge_arc_retirar_retorno_owned_v1(i64 %codigo, i64 %versao)\n",
+        ] {
+            ir = ir.replace(linha, "");
+        }
+    }
     match controle.as_deref() {
         None => {}
         Some("sem-registro") => {
-            ir = ir.replace("  %versao = call i64 @dartforge_arc_registrar_retorno_owned_v1(i64 %codigo, i64 7)\n", "  %versao = add i64 0, 0\n");
+            if arc {
+                ir = ir.replace(
+                    "  %cv0 = call i64 @dartforge_arc_registrar_retorno_owned_v1(i64 %c0, i64 7)\n",
+                    "",
+                );
+            } else {
+                ir = ir.replace("  %versao = call i64 @dartforge_arc_registrar_retorno_owned_v1(i64 %codigo, i64 7)\n", "  %versao = add i64 0, 0\n");
+            }
         }
         Some("sem-fechamento") => {
             ir = ir.replace(
@@ -284,14 +311,17 @@ mod testes {
     #[test]
     fn corpo_do_callback_tem_fabrica_owned_e_nao_retem_o_retorno_duas_vezes() {
         for tabelas in [false, true] {
-            let m = modulo(tabelas).unwrap();
+            let m = modulo(tabelas, true).unwrap();
             let ir = LlvmEmitter::new(&m).emit_all();
             assert!(ir.contains("call i64 @dartforge_arc_box_int_owned_v1"));
-            assert!(!m.functions[0]
-                .blocks
-                .iter()
-                .flat_map(|b| &b.instructions)
-                .any(|(_, i, _)| matches!(i, Instruction::ArcCopy { .. })));
+            assert!(ir.contains("call void @df.arc.registrar_portas()"));
+            assert!(
+                !m.functions[0]
+                    .blocks
+                    .iter()
+                    .flat_map(|b| &b.instructions)
+                    .any(|(_, i, _)| matches!(i, Instruction::ArcCopy { .. }))
+            );
         }
     }
 }

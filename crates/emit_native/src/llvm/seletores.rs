@@ -170,6 +170,9 @@ impl LlvmEmitter<'_> {
     pub(super) fn emitir_registro(&mut self, registro: &str) {
         let modulo = self.module;
         let mut corpo = String::new();
+        if modulo.portas_arc_aot.is_some() {
+            corpo.push_str("  call void @df.arc.registrar_portas()\n");
+        }
         for class in &modulo.classes {
             let idx = self.string_const_index(class.name.as_bytes()).unwrap_or(0);
             writeln!(

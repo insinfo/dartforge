@@ -1059,6 +1059,9 @@ pub struct Module {
     /// São premissas para preparar o corpo inteiro, não certificados de dispatch
     /// indireto ou de callbacks C; as fronteiras exigem verificação própria.
     pub retornos_uniformes_arc: std::collections::HashSet<String>,
+    /// Portas de uma imagem AOT fixa, após verificar os corpos e dependências.
+    /// Alterações posteriores invalidam o inventário; não certifica recarga JIT.
+    pub portas_arc_aot: Option<crate::otimizar::arc::PortasArcAot>,
     /// Caches de IDs nativos RTI declarados pelo lowering, com flag implícita `$ok`.
     /// Todas as escritas e representações exigem conferência antes de produzir contratos.
     pub caches_rti_arc: std::collections::HashSet<String>,
