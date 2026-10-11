@@ -27,7 +27,7 @@ fn origem(op: &Operand, origens: &HashMap<ValueId, Origem>) -> Origem {
     }
 }
 
-fn origens(f: &Function) -> (HashMap<ValueId, Origem>, HashMap<ValueId, u32>) {
+fn origens(f: &Function, layouts: &HashMap<u32, Vec<Type>>) -> (HashMap<ValueId, Origem>, HashMap<ValueId, u32>) {
     let mut mapa = HashMap::new();
     let mut classes = HashMap::new();
     for (v, _, _) in &f.params {
@@ -46,6 +46,27 @@ fn origens(f: &Function) -> (HashMap<ValueId, Origem>, HashMap<ValueId, u32>) {
                 Origem {
                     sitios: HashSet::from([*v]),
                     desconhecido: false,
+                }
+            }
+            Instruction::CallRuntime { name, args, ret_ty }
+                if matches!(name.as_str(), "dartforge_object_new" | "dartforge_arc_objeto_owned_v1")
+                    && *ret_ty == Type::Ref => {
+                // A fábrica zerada também fixa a classe física. Não inferir
+                // tamanho/layout pela largura nem por parâmetros não constantes.
+                let classe = match args.as_slice() {
+                    [(Operand::Constant(Constant::Int(cid)), Type::I64),
+                     (Operand::Constant(Constant::Int(n)), Type::I64)] => {
+                        u32::try_from(*cid).ok().filter(|cid| i32::try_from(*cid).is_ok())
+                            .filter(|cid| usize::try_from(*n).ok().is_some_and(|n|
+                                u16::try_from(n).is_ok() && layouts.get(cid).is_some_and(|l| l.len() == n)))
+                    }
+                    _ => None,
+                };
+                if let Some(cid) = classe {
+                    classes.insert(*v, cid);
+                    Origem { sitios: HashSet::from([*v]), desconhecido: false }
+                } else {
+                    Origem { desconhecido: true, ..Default::default() }
                 }
             }
             Instruction::ArcCopy { .. } | Instruction::ArcMove { .. } | Instruction::Phi { .. } => {
@@ -128,7 +149,7 @@ pub(super) fn preparar(
     {
         return Ok(());
     }
-    let (origens, classes) = origens(f);
+    let (origens, classes) = origens(f, layouts);
     let mut escapam = HashSet::new();
     for (_, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
         let mut expor = |op: &Operand| {
@@ -146,6 +167,7 @@ pub(super) fn preparar(
                 let seguro = matches!(
                     name.as_str(),
                     "dartforge_arc_retain"
+                        | "dartforge_object_new"
                         | "dartforge_arc_release"
                         | "dartforge_arc_objeto_owned_v1"
                         | "dartforge_arc_box_int_owned_v1"
@@ -380,6 +402,40 @@ mod testes {
             m,
             HashMap::from([("campos".into(), PlanoFuncaoDart::default())]),
         )
+    }
+
+    #[test]
+    fn fabrica_zerada_fixa_origem_apenas_com_classe_e_tamanho_conferidos() {
+        for caso in 0..5 {
+            let (mut m, mut planos) = modulo(vec![Type::Ref], vec![Operand::Constant(Constant::Null)]);
+            m.functions[0].params.push((ValueId(7), "filho".into(), Type::Ref));
+            let nome = if caso == 1 { "dartforge_arc_objeto_owned_v1" } else { "dartforge_object_new" };
+            m.functions[0].blocks[0].instructions[0].1 = Instruction::CallRuntime {
+                name: nome.into(), args: vec![
+                    (Operand::Constant(Constant::Int(if caso == 2 { 124 } else { 123 })), Type::I64),
+                    (Operand::Constant(Constant::Int(if caso == 3 { 2 } else { 1 })), Type::I64),
+                ], ret_ty: Type::Ref,
+            };
+            if caso == 4 {
+                m.functions[0].blocks[0].instructions.push((ValueId(8), Instruction::CallRuntime {
+                    name: "dartforge_print_handle".into(), args: vec![(Operand::Val(ValueId(0)), Type::Ref)], ret_ty: Type::Void,
+                }, Type::Void));
+            }
+            m.functions[0].blocks[0].instructions.push((ValueId(1), Instruction::SetField {
+                object: Operand::Val(ValueId(0)), index: 0, value: Operand::Val(ValueId(7)),
+            }, Type::Void));
+            let antes = format!("{m:?}/{planos:?}");
+            let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
+            if caso >= 2 {
+                assert!(resultado.is_err(), "caso {caso}: {resultado:?}");
+                assert_eq!(antes, format!("{m:?}/{planos:?}"));
+            } else {
+                resultado.unwrap();
+                assert!(m.functions[0].blocks[0].instructions.iter().any(|(_, i, _)|
+                    matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_gravar_campo_ref_v1")));
+                assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+            }
+        }
     }
 
     #[test]
