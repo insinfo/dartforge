@@ -201,6 +201,18 @@ pub(super) fn preparar(
     receivers: Option<&HashMap<ValueId, u32>>,
     preservam_campos: &HashSet<String>,
 ) -> Result<(), String> {
+    // Const Null em SSA não tem token. Na entrada de Phi, usa a forma
+    // literal para o protocolo nullable, sem confundir Const Int(0) ou
+    // Bool(false). A definição permanece e seu contrato ainda é conferido.
+    let nulos: HashSet<_> = f.blocks.iter().flat_map(|b| &b.instructions)
+        .filter_map(|(v, i, t)| (*t == Type::Ref && matches!(i, Instruction::Const(Constant::Null))).then_some(*v)).collect();
+    for (_, i, _) in f.blocks.iter_mut().flat_map(|b| &mut b.instructions) {
+        if let Instruction::Phi { incoming, ty: Type::Ref } = i {
+            for (_, op) in incoming {
+                if matches!(op, Operand::Val(v) if nulos.contains(v)) { *op = Operand::Constant(Constant::Null); }
+            }
+        }
+    }
     for (_, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
         conferir_chamada(f, inst, Some(layouts))?;
     }
@@ -230,11 +242,16 @@ pub(super) fn preparar(
         let mut mudou = false;
         for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
             if *ty != Type::Ref { continue; }
-            let entrada = |op: &Operand| matches!(op, Operand::Val(v) if entradas_ref.contains(v));
+            // Null pode acompanhar uma Ref válida na junção, inclusive no
+            // caminho pending. A guarda de acesso continua recusando null;
+            // isto não atribui classe nem transforma bits escalares em Ref.
+            let entrada = |op: &Operand| matches!(op, Operand::Constant(Constant::Null))
+                || matches!(op, Operand::Val(v) if entradas_ref.contains(v));
             let derivado = match inst {
                 Instruction::CallRuntime { name, ret_ty: Type::Ref, .. } if name == super::vetores::LER_ARGUMENTO => true,
                 Instruction::GetField { .. }
                 | Instruction::EnvGet { .. }
+                | Instruction::Const(Constant::Null)
                 | Instruction::CallStatic { ret_ty: Type::Ref, .. }
                 | Instruction::CallSeletor { .. }
                 | Instruction::CallInterface { ret_ty: Type::Ref, .. }
@@ -572,6 +589,42 @@ pub(super) fn preparar(
 #[cfg(test)]
 mod testes {
     use crate::otimizar::arc::*;
+
+    #[test]
+    fn phi_ref_com_null_nao_admite_zero_escalar_como_receiver() {
+        for (constante, valido) in [(Constant::Null, true), (Constant::Int(0), false), (Constant::Bool(false), false)] {
+            let (mut m, mut planos) = modulo(vec![Type::I1], vec![Operand::Constant(Constant::Bool(true))]);
+            let f = &mut m.functions[0];
+            f.params = vec![(ValueId(0), "receiver".into(), Type::Ref), (ValueId(7), "cond".into(), Type::I1)];
+            f.return_ty = Type::I1;
+            f.blocks = vec![
+                BasicBlock { id: BlockId(0), instructions: vec![], terminator: Terminator::CondBranch {
+                    cond: Operand::Val(ValueId(7)), then_block: BlockId(1), else_block: BlockId(2) } },
+                BasicBlock { id: BlockId(1), instructions: vec![
+                    (ValueId(8), Instruction::ArcCopy { value: Operand::Val(ValueId(0)) }, Type::Ref),
+                ], terminator: Terminator::Branch(BlockId(3)) },
+                BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Branch(BlockId(3)) },
+                BasicBlock { id: BlockId(3), instructions: vec![
+                    (ValueId(9), Instruction::Phi { ty: Type::Ref, incoming: vec![
+                        (BlockId(1), Operand::Val(ValueId(8))), (BlockId(2), Operand::Constant(constante.clone())),
+                    ] }, Type::Ref),
+                    (ValueId(10), Instruction::GetField { object: Operand::Val(ValueId(9)), index: 0 }, Type::I1),
+                ], terminator: Terminator::Return(Some(Operand::Val(ValueId(10)))) },
+            ];
+            // A forma SSA também aparece no lowering de operadores e casts.
+            f.blocks[2].instructions.push((ValueId(11), Instruction::Const(constante.clone()),
+                if valido { Type::Ref } else { Type::I64 }));
+            if let Instruction::Phi { incoming, .. } = &mut f.blocks[3].instructions[0].1 {
+                incoming[1].1 = Operand::Val(ValueId(11));
+            }
+            let antes = format!("{m:?}/{planos:?}");
+            let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
+            assert_eq!(resultado.is_ok(), valido, "{resultado:?}");
+            if valido {
+                assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+            } else { assert_eq!(antes, format!("{m:?}/{planos:?}")); }
+        }
+    }
 
     fn modulo(
         layout: Vec<Type>,

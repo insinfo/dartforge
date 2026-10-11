@@ -10,7 +10,14 @@
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*};
 use std::{collections::HashMap, path::PathBuf};
 
-fn modulo(captura: bool, vizinho: bool, argumento: bool) -> Result<Module, String> {
+#[derive(Clone, Copy)]
+enum Cenario { Campo, Captura, Vizinho, CapturaVizinho, Argumento, Anulavel }
+
+fn modulo(cenario: Cenario) -> Result<Module, String> {
+    let captura = matches!(cenario, Cenario::Captura | Cenario::CapturaVizinho);
+    let vizinho = matches!(cenario, Cenario::Vizinho | Cenario::CapturaVizinho);
+    let argumento = matches!(cenario, Cenario::Argumento);
+    let anulavel = matches!(cenario, Cenario::Anulavel);
     let mut m = Module::new();
     m.memoria_arc = true;
     m.entry_symbol = Some("prova_keepalive".into());
@@ -82,6 +89,33 @@ fn modulo(captura: bool, vizinho: bool, argumento: bool) -> Result<Module, Strin
         m.parametros_vetores_dart.insert("ler_e_substituir".into(), HashMap::from([
             (ValueId(100), VetorEntradaDart::Argumentos), (ValueId(101), VetorEntradaDart::Descritor)]));
     }
+    if anulavel {
+        let f = &mut m.functions[0];
+        f.params.push((ValueId(100), "presente".into(), Type::I1));
+        let mut corpo = f.blocks[0].clone(); corpo.id = BlockId(5);
+        for (_, i, _) in &mut corpo.instructions {
+            if let Instruction::GetField { object, .. } | Instruction::SetField { object, .. } = i { *object = val(105); }
+        }
+        corpo.instructions.insert(0, (ValueId(107), Instruction::GetField { object: val(105), index: 2 }, Type::I1));
+        f.blocks = vec![
+            BasicBlock { id: BlockId(0), instructions: vec![], terminator: Terminator::CondBranch {
+                cond: val(100), then_block: BlockId(1), else_block: BlockId(2) } },
+            BasicBlock { id: BlockId(1), instructions: vec![
+                (ValueId(104), Instruction::ArcCopy { value: val(0) }, Type::Ref),
+            ], terminator: Terminator::Branch(BlockId(3)) },
+            BasicBlock { id: BlockId(2), instructions: vec![
+                (ValueId(108), Instruction::Const(Constant::Null), Type::Ref),
+            ], terminator: Terminator::Branch(BlockId(3)) },
+            BasicBlock { id: BlockId(3), instructions: vec![
+                (ValueId(105), Instruction::Phi { ty: Type::Ref, incoming: vec![
+                    (BlockId(1), val(104)), (BlockId(2), val(108)),
+                ] }, Type::Ref),
+                (ValueId(106), Instruction::ICmp(ICmpOp::Eq, val(105), Operand::Constant(Constant::Null)), Type::I1),
+            ], terminator: Terminator::CondBranch { cond: val(106), then_block: BlockId(4), else_block: BlockId(5) } },
+            BasicBlock { id: BlockId(4), instructions: vec![], terminator: Terminator::Return(Some(val(105))) },
+            corpo,
+        ];
+    }
     let mut plano = PlanoFuncaoDart::default();
     plano.tokens.retorno = RetornoTokens::Owned;
     m.functions.push(Function {
@@ -108,7 +142,7 @@ fn modulo(captura: bool, vizinho: bool, argumento: bool) -> Result<Module, Strin
     let mut planos = HashMap::from([("ler_e_substituir".into(), plano),
         ("inicializar".into(), PlanoFuncaoDart::default()), ("ler_inteiro".into(), PlanoFuncaoDart::default())]);
     let produzido = preparar_arc_modulo_dart(&mut m, &mut planos)?;
-    let esperado = if vizinho { (2, 1) } else if argumento { (1, 1) } else { (1, 0) };
+    let esperado = if vizinho { (2, 1) } else if argumento || anulavel { (1, 1) } else { (1, 0) };
     let retorno = ValueId(if vizinho { 2 } else { 1 });
     if produzido != esperado || planos["ler_e_substituir"].classes[&retorno] != Ownership::Owned {
         return Err(format!(
@@ -146,12 +180,20 @@ fn main() -> Result<(), String> {
         Some(outro) => return Err(format!("nível desconhecido: {outro}")),
     };
     let mut controle = args.next();
-    let captura = matches!(controle.as_deref(), Some("--captura" | "--captura-vizinho"));
-    let vizinho = matches!(controle.as_deref(), Some("--vizinho" | "--captura-vizinho"));
-    let argumento = controle.as_deref() == Some("--argumento");
-    if captura || vizinho || argumento { controle = args.next(); }
+    let cenario = match controle.as_deref() {
+        Some("--captura") => Cenario::Captura,
+        Some("--vizinho") => Cenario::Vizinho,
+        Some("--captura-vizinho") => Cenario::CapturaVizinho,
+        Some("--argumento") => Cenario::Argumento,
+        Some("--anulavel") => Cenario::Anulavel,
+        _ => Cenario::Campo,
+    };
+    if !matches!(cenario, Cenario::Campo) { controle = args.next(); }
+    let captura = matches!(cenario, Cenario::Captura | Cenario::CapturaVizinho);
+    let vizinho = matches!(cenario, Cenario::Vizinho | Cenario::CapturaVizinho);
+    let argumento = matches!(cenario, Cenario::Argumento);
     if args.next().is_some() { return Err("argumentos excedentes".into()); }
-    let mut m = modulo(captura, vizinho, argumento)?;
+    let mut m = modulo(cenario)?;
     m.memoria_arc = arc;
     if !arc { m.portas_arc_aot = None; }
     let mut ir = LlvmEmitter::new(&m).emit_all();
@@ -225,10 +267,16 @@ passou:
         ir = ir.replace("  %retorno = call i64 @ler_e_substituir(i64 %obj)\n",
             "  %argumentos = alloca [1 x i64], align 8\n  store i64 %obj, ptr %argumentos\n  %retorno = call i64 @ler_e_substituir(i64 %obj, ptr %argumentos, ptr @desc.argumento)\n");
     }
+    if matches!(cenario, Cenario::Anulavel) {
+        ir = ir.replace("  %retorno = call i64 @ler_e_substituir(i64 %obj)\n",
+            "  %retorno = call i64 @ler_e_substituir(i64 %obj, i1 true)\n");
+        ir = ir.replace("passou:\n  call void @dartforge_print_handle(i64 3)",
+            "passou:\n  %obj_nulo = call i64 @dartforge_arc_objeto_owned_v1(i64 123, i64 40)\n  %filho_nulo = call i64 @dartforge_arc_box_int_owned_v1(i64 9223372036854775807)\n  call void @inicializar(i64 %obj_nulo, i64 %filho_nulo)\n  call void @dartforge_arc_release(i64 %filho_nulo)\n  %ret_nulo = call i64 @ler_e_substituir(i64 %obj_nulo, i1 false)\n  %eh_nulo = icmp eq i64 %ret_nulo, 0\n  call void @dartforge_arc_release(i64 %obj_nulo)\n  call void @dartforge_arc_collect()\n  %obj_nulo_estado = call i8 @dartforge_arc_observar_heap_v1(i64 %obj_nulo)\n  %filho_nulo_estado = call i8 @dartforge_arc_observar_heap_v1(i64 %filho_nulo)\n  %obj_nulo_morto = icmp eq i8 %obj_nulo_estado, 0\n  %filho_nulo_morto = icmp eq i8 %filho_nulo_estado, 0\n  %ambos_nulos_mortos = and i1 %obj_nulo_morto, %filho_nulo_morto\n  %ok_nulo = and i1 %ambos_nulos_mortos, %eh_nulo\n  br i1 %ok_nulo, label %passou_nulo, label %falha\npassou_nulo:\n  call void @dartforge_print_handle(i64 3)");
+    }
     match controle.as_deref() {
         None => {}
         Some("sem-retencao") => {
-            let emprestado = m.functions[0].blocks[0].instructions.iter()
+            let emprestado = m.functions[0].blocks.iter().flat_map(|b| &b.instructions)
                 .find_map(|(v, i, _)| match i {
                     Instruction::ArcCopy { value: Operand::Val(de) }
                         if *v == ValueId(if vizinho { 2 } else { 1 }) => Some(de.0),
@@ -265,8 +313,23 @@ mod testes {
     use super::*;
 
     #[test]
+    fn phi_anulavel_confere_campos_e_transfere_owner_nas_duas_saidas() {
+        let m = modulo(Cenario::Anulavel).unwrap();
+        let b = m.functions[0].blocks.iter().find(|b| b.id == BlockId(5)).unwrap();
+        let guardar = b.instructions.iter().position(|(v, _, _)| *v == ValueId(2)).unwrap();
+        let copiar = b.instructions.iter().position(|(v, i, _)| *v == ValueId(1) && matches!(i, Instruction::ArcCopy { .. })).unwrap();
+        assert!(copiar < guardar);
+        assert!(b.instructions.iter().any(|(_, i, _)| matches!(i, Instruction::CallRuntime { name, .. }
+            if name == "dartforge_arc_gravar_campo_ref_conferido_v1")));
+        let nulo = m.functions[0].blocks.iter().find(|b| b.id == BlockId(4)).unwrap();
+        assert!(matches!(nulo.terminator, Terminator::Return(Some(Operand::Val(ValueId(105))))));
+        assert!(b.instructions.iter().any(|(_, i, _)| matches!(i, Instruction::CallRuntime { name, .. }
+            if name == "dartforge_arc_ler_campo_escalar_conferido_v1")));
+    }
+
+    #[test]
     fn argumento_owned_sustenta_receiver_e_certifica_vetores_readonly() {
-        let m = modulo(false, false, true).unwrap();
+        let m = modulo(Cenario::Argumento).unwrap();
         let ops = &m.functions[0].blocks[0].instructions;
         assert!(matches!(&ops[0].1, Instruction::CallRuntime { name, .. }
             if name == "dartforge_arc_argumento_owned_v1"));
@@ -279,7 +342,7 @@ mod testes {
 
     #[test]
     fn captura_derivada_conserva_owners_antes_de_mutar_ambiente() {
-        let m = modulo(true, true, false).unwrap();
+        let m = modulo(Cenario::CapturaVizinho).unwrap();
         let ops = &m.functions[0].blocks[0].instructions;
         assert!(matches!(&ops[0].1, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_env_ref_v1"));
         let retirar = ops.iter().position(|(v, _, _)| *v == ValueId(3)).unwrap();
@@ -291,7 +354,7 @@ mod testes {
 
     #[test]
     fn filho_e_vizinho_sobrevivem_a_remocao_da_aresta_da_raiz() {
-        let m = modulo(false, true, false).unwrap();
+        let m = modulo(Cenario::Vizinho).unwrap();
         let ops = &m.functions[0].blocks[0].instructions;
         let retirar_raiz = ops.iter().position(|(v, _, _)| *v == ValueId(3)).unwrap();
         for id in [ValueId(1), ValueId(2)] {
@@ -306,7 +369,7 @@ mod testes {
 
     #[test]
     fn retencao_produzida_antecede_substituicao_da_aresta() {
-        let m = modulo(false, false, false).unwrap();
+        let m = modulo(Cenario::Campo).unwrap();
         let ops = &m.functions[0].blocks[0].instructions;
         assert!(matches!(
             ops[1],
@@ -327,7 +390,7 @@ mod testes_captura {
 
     #[test]
     fn captura_auditada_e_retida_antes_de_substituir_aresta() {
-        let m = modulo(true, false, false).unwrap();
+        let m = modulo(Cenario::Captura).unwrap();
         let ir = LlvmEmitter::new(&m).emit_all();
         let ler = ir.find("call i64 @dartforge_arc_env_ref_v1").unwrap();
         let reter = ir.find("call void @dartforge_arc_retain").unwrap();
