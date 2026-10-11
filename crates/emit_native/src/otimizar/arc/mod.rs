@@ -18,7 +18,7 @@ mod tokens;
 mod contratos;
 mod locais;
 mod slots_compartilhados;
-pub use slots_compartilhados::auditar_slots_ref_compartilhados;
+pub use slots_compartilhados::{auditar_slots_ref_compartilhados, baixar_slots_ref_compartilhados, RascunhoSlotsRefArc};
 mod puros;
 mod emprestimos;
 mod arestas;

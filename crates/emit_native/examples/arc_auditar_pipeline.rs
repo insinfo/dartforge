@@ -97,6 +97,13 @@ fn auditar(entrada: &Path, sdk_no_grupo: bool) -> Result<(), String> {
                     "Slots Ref compartilhados no módulo {indice}: {erro}"
                 ),
             }
+            match baixar_slots_ref_compartilhados(modulo) {
+                Ok(rascunho) => println!(
+                    "Baixamento intermediário dos slots no módulo {indice}: {} quadros locais, {} assinaturas novas",
+                    rascunho.locais.len(), rascunho.simbolos.len()
+                ),
+                Err(erro) => println!("Baixamento intermediário dos slots no módulo {indice}: {erro}"),
+            }
         }
         let antes = format!("{modulos:?}/{planos:?}");
         let resultado = preparar_arc_modulos_dart(&mut modulos, &mut planos);

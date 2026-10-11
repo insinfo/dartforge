@@ -285,6 +285,315 @@ pub fn auditar_slots_ref_compartilhados(
     Ok(resultado)
 }
 
+/// Corpos intermediários com slots fortes e capturas por quadro/índice.
+///
+/// Ainda exige verificação interprocedural dos pares importados, produção de
+/// tokens e preparação excepcional antes da emissão. Não é um certificado
+/// ARC. Os quadros locais aparecem separados dos emprestados, pois somente
+/// a função que abre um quadro pode fechá-lo.
+///
+/// ```
+/// use dartforge_emit_native::{hir::Module, otimizar::arc::*};
+/// let mut m = Module::new(); m.memoria_arc = true;
+/// let r: RascunhoSlotsRefArc = baixar_slots_ref_compartilhados(&m)?;
+/// assert!(r.locais.is_empty() && r.emprestados.is_empty());
+/// # Ok::<(), String>(())
+/// ```
+#[derive(Debug)]
+pub struct RascunhoSlotsRefArc {
+    /// Corpos novos; o módulo de entrada continua intacto.
+    pub funcoes: Vec<Function>,
+    /// Por função, parâmetro do quadro → parâmetro de seu índice.
+    pub emprestados: HashMap<String, HashMap<ValueId, ValueId>>,
+    /// Por função, quadro proprietário aberto na entrada e sua capacidade.
+    pub locais: HashMap<String, (ValueId, usize)>,
+    /// Símbolos cuja assinatura de captura mudou; todos os calls são refeitos.
+    pub simbolos: HashMap<String, String>,
+}
+
+/// Baixa os slots auditados para a ABI de quadros proprietários ARC.
+///
+/// Abre um quadro por ativação que declara slots, inicializado com null pelo
+/// runtime. Load produz uma referência Owned independente do slot; Store
+/// copia para ele antes de liberar o conteúdo anterior. Capturas recebem
+/// dois i64 nativos, quadro e índice, em lugar do endereço da pilha. O novo
+/// símbolo impede reutilizar a assinatura antiga na ligação ou recarga.
+/// Repassar a mesma captura preserva o mesmo par, inclusive em recursão.
+/// Fecha o quadro local nas saídas explícitas do CFG, sem fechar importados.
+///
+/// O resultado é intermediário: não publica módulo/planos, não classifica
+/// os parâmetros nativos como escalares Dart e não certifica unwind implícito,
+/// tokens, chamada entre módulos ou a vida dos quadros emprestados. Esses
+/// protocolos precisam ser concluídos antes de emitir os corpos retornados.
+/// Tracing copia os corpos sem mudar instruções ou assinaturas.
+///
+/// # Erros
+/// Falha da auditoria de origem, entrada com predecessores, IDs esgotados,
+/// tipos reais de chamada incompatíveis ou colisão do símbolo da nova ABI.
+/// O módulo fornecido permanece intacto.
+///
+/// ```
+/// use dartforge_emit_native::{hir::Module, otimizar::arc::*};
+/// let mut m = Module::new(); m.memoria_arc = true;
+/// let r = baixar_slots_ref_compartilhados(&m)?;
+/// assert!(r.funcoes.is_empty() && r.emprestados.is_empty());
+/// # Ok::<(), String>(())
+/// ```
+pub fn baixar_slots_ref_compartilhados(m: &Module) -> Result<RascunhoSlotsRefArc, String> {
+    let slots = auditar_slots_ref_compartilhados(m)?;
+    let mut r = RascunhoSlotsRefArc {
+        funcoes: m.functions.clone(),
+        emprestados: HashMap::new(),
+        locais: HashMap::new(),
+        simbolos: HashMap::new(),
+    };
+    if slots.is_empty() {
+        return Ok(r);
+    }
+    let nomes: HashSet<_> = m.functions.iter().map(|f| f.symbol.as_str()).collect();
+    let mut ligacoes = HashMap::<String, HashMap<ValueId, (Operand, Operand)>>::new();
+    for f in &mut r.funcoes {
+        let Some(ids) = slots.get(&f.symbol) else {
+            continue;
+        };
+        let mut proximo = f
+            .params
+            .iter()
+            .map(|(v, _, _)| u64::from(v.0))
+            .chain(
+                f.blocks
+                    .iter()
+                    .flat_map(|b| &b.instructions)
+                    .map(|(v, _, _)| u64::from(v.0)),
+            )
+            .max()
+            .map_or(0, |v| v + 1);
+        let mut novo = || -> Result<ValueId, String> {
+            let id = u32::try_from(proximo)
+                .map_err(|_| format!("slots Ref ARC em {}: IDs esgotados", f.symbol))?;
+            proximo += 1;
+            Ok(ValueId(id))
+        };
+        let mut pares = HashMap::new();
+        let mut parametros = Vec::new();
+        for (v, nome, ty) in &f.params {
+            if ids.contains(v) {
+                let indice = novo()?;
+                parametros.push((*v, format!("{nome}$quadro"), Type::I64));
+                parametros.push((indice, format!("{nome}$indice"), Type::I64));
+                pares.insert(*v, (Operand::Val(*v), Operand::Val(indice)));
+                r.emprestados
+                    .entry(f.symbol.clone())
+                    .or_default()
+                    .insert(*v, indice);
+            } else {
+                parametros.push((*v, nome.clone(), *ty));
+            }
+        }
+        f.params = parametros;
+        let mut raizes: Vec<_> = f.blocks[0]
+            .instructions
+            .iter()
+            .filter_map(|(v, i, _)| {
+                (ids.contains(v) && matches!(i, Instruction::Alloca(Type::Ref))).then_some(*v)
+            })
+            .collect();
+        raizes.sort_by_key(|v| v.0);
+        if !raizes.is_empty() {
+            let cfg = super::super::cfg::Cfg::novo(f);
+            if cfg.sucessores.iter().any(|ss| ss.contains(&0)) {
+                return Err(format!(
+                    "slots Ref ARC em {}: entrada com predecessores",
+                    f.symbol
+                ));
+            }
+            let quadro = novo()?;
+            for (indice, v) in raizes.iter().enumerate() {
+                pares.insert(
+                    *v,
+                    (
+                        Operand::Val(quadro),
+                        Operand::Constant(Constant::Int(indice as i64)),
+                    ),
+                );
+            }
+            r.locais.insert(f.symbol.clone(), (quadro, raizes.len()));
+            f.blocks[0].instructions.insert(
+                0,
+                (
+                    quadro,
+                    Instruction::CallRuntime {
+                        name: "dartforge_arc_quadro_abrir_v1".into(),
+                        args: vec![(
+                            Operand::Constant(Constant::Int(raizes.len() as i64)),
+                            Type::I64,
+                        )],
+                        ret_ty: Type::I64,
+                    },
+                    Type::I64,
+                ),
+            );
+            for b in &mut f.blocks {
+                if super::super::cfg::sucessores(&b.terminator).is_empty() {
+                    b.instructions.push((
+                        novo()?,
+                        Instruction::CallRuntime {
+                            name: "dartforge_arc_quadro_fechar_v1".into(),
+                            args: vec![(Operand::Val(quadro), Type::I64)],
+                            ret_ty: Type::Void,
+                        },
+                        Type::Void,
+                    ));
+                }
+            }
+        }
+        ligacoes.insert(f.symbol.clone(), pares);
+        if r.emprestados.contains_key(&f.symbol) {
+            let nome = format!("{}$arcslots_v1", f.symbol);
+            if nomes.contains(nome.as_str()) {
+                return Err(format!(
+                    "slots Ref ARC: símbolo da nova ABI já existe {nome}"
+                ));
+            }
+            r.simbolos.insert(f.symbol.clone(), nome);
+        }
+    }
+    let antigas: HashMap<_, _> = m.functions.iter().map(|f| (f.symbol.as_str(), f)).collect();
+    for f in &mut r.funcoes {
+        if !slots.contains_key(&f.symbol) {
+            continue;
+        }
+        let pares = ligacoes.get(&f.symbol);
+        for (v, i, ty) in f.blocks.iter_mut().flat_map(|b| &mut b.instructions) {
+            match i {
+                Instruction::Alloca(Type::Ref) if pares.is_some_and(|p| p.contains_key(v)) => {
+                    // O antigo ID não continua sendo um endereço. Mantê-lo
+                    // como constante também evita reciclar IDs de metadados.
+                    let indice = pares.unwrap()[v].1.clone();
+                    let Operand::Constant(c) = indice else {
+                        unreachable!()
+                    };
+                    *i = Instruction::Const(c);
+                    *ty = Type::I64;
+                }
+                Instruction::Load {
+                    ptr: Operand::Val(p),
+                    ..
+                } if pares.is_some_and(|ps| ps.contains_key(p)) => {
+                    let (quadro, indice) = &pares.unwrap()[p];
+                    *i = Instruction::CallRuntime {
+                        name: "dartforge_arc_quadro_carregar_v1".into(),
+                        args: vec![(quadro.clone(), Type::I64), (indice.clone(), Type::I64)],
+                        ret_ty: Type::Ref,
+                    };
+                }
+                Instruction::Store {
+                    ptr: Operand::Val(p),
+                    val,
+                } if pares.is_some_and(|ps| ps.contains_key(p)) => {
+                    let (quadro, indice) = &pares.unwrap()[p];
+                    *i = Instruction::CallRuntime {
+                        name: "dartforge_arc_quadro_copiar_v1".into(),
+                        args: vec![
+                            (quadro.clone(), Type::I64),
+                            (indice.clone(), Type::I64),
+                            (val.clone(), Type::Ref),
+                        ],
+                        ret_ty: Type::Void,
+                    };
+                }
+                Instruction::CallStatic { symbol, args, .. } if r.simbolos.contains_key(symbol) => {
+                    let callee = antigas[symbol.as_str()];
+                    let mut novos = Vec::new();
+                    for (arg, (p, _, _)) in args.iter().zip(&callee.params) {
+                        if slots.get(symbol).is_some_and(|ss| ss.contains(p)) {
+                            let Operand::Val(origem) = arg else {
+                                unreachable!()
+                            };
+                            let (q, indice) = &pares.unwrap()[origem];
+                            novos.extend([q.clone(), indice.clone()]);
+                        } else {
+                            novos.push(arg.clone());
+                        }
+                    }
+                    *args = novos;
+                    *symbol = r.simbolos[symbol].clone();
+                }
+                _ => {}
+            }
+        }
+        if let Some(nome) = r.simbolos.get(&f.symbol) {
+            f.symbol = nome.clone();
+        }
+        super::ssa::verificar(f)?;
+        for (_, i, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
+            if let Instruction::CallRuntime { name, .. } = i
+                && name.starts_with("dartforge_arc_quadro_")
+            {
+                super::contratos::contrato_chamada_runtime(i)?;
+            }
+        }
+    }
+    r.emprestados = r
+        .emprestados
+        .into_iter()
+        .map(|(s, p)| (r.simbolos.get(&s).cloned().unwrap_or(s), p))
+        .collect();
+    r.locais = r
+        .locais
+        .into_iter()
+        .map(|(s, p)| (r.simbolos.get(&s).cloned().unwrap_or(s), p))
+        .collect();
+    let novas: HashMap<_, _> = r.funcoes.iter().map(|f| (f.symbol.as_str(), f)).collect();
+    let alvos: HashSet<_> = r.simbolos.values().map(String::as_str).collect();
+    for f in &r.funcoes {
+        let tipos: HashMap<_, _> = f
+            .params
+            .iter()
+            .map(|(v, _, t)| (*v, *t))
+            .chain(
+                f.blocks
+                    .iter()
+                    .flat_map(|b| &b.instructions)
+                    .map(|(v, _, t)| (*v, *t)),
+            )
+            .collect();
+        for (_, i, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
+            if let Instruction::CallStatic {
+                symbol,
+                args,
+                ret_ty,
+            } = i
+                && alvos.contains(symbol.as_str())
+            {
+                let callee = novas[symbol.as_str()];
+                let tipo = |o: &Operand| match o {
+                    Operand::Val(v) => tipos.get(v).copied(),
+                    Operand::Constant(Constant::Null | Constant::String(_)) => Some(Type::Ref),
+                    Operand::Constant(Constant::Int(_)) => Some(Type::I64),
+                    Operand::Constant(Constant::Double(_)) => Some(Type::F64),
+                    Operand::Constant(Constant::Bool(_)) => Some(Type::I1),
+                    _ => None,
+                };
+                if args.len() != callee.params.len()
+                    || *ret_ty != callee.return_ty
+                    || *ty != *ret_ty
+                    || args
+                        .iter()
+                        .zip(&callee.params)
+                        .any(|(a, (_, _, t))| tipo(a) != Some(*t))
+                {
+                    return Err(format!(
+                        "slots Ref ARC: tipos reais da chamada de {} para {symbol} incompatíveis",
+                        f.symbol
+                    ));
+                }
+            }
+        }
+    }
+    Ok(r)
+}
+
 #[cfg(test)]
 mod testes {
     use super::*;
@@ -545,5 +854,189 @@ mod testes {
         let antes = format!("{m:?}");
         assert!(auditar_slots_ref_compartilhados(&m).unwrap().is_empty());
         assert_eq!(format!("{m:?}"), antes);
+    }
+
+    #[test]
+    fn baixamento_usa_um_quadro_e_preserva_identidade_de_capturas_aliadas() {
+        for alias in [false, true] {
+            let mut m = modulo();
+            if !alias {
+                m.functions[0].blocks[0]
+                    .instructions
+                    .insert(1, (ValueId(3), Instruction::Alloca(Type::Ref), Type::Ptr));
+            }
+            let Instruction::CallStatic { args, .. } =
+                &mut m.functions[0].blocks[0].instructions.last_mut().unwrap().1
+            else {
+                unreachable!()
+            };
+            args.push(val(if alias { 0 } else { 3 }));
+            m.functions[1]
+                .params
+                .push((ValueId(4), "segundo".into(), Type::Ptr));
+            m.functions[1].blocks[0].instructions.push((
+                ValueId(3),
+                Instruction::Load {
+                    ptr: val(4),
+                    ty: Type::Ref,
+                },
+                Type::Ref,
+            ));
+            let antes = format!("{m:?}");
+            let r = baixar_slots_ref_compartilhados(&m).unwrap();
+            assert_eq!(format!("{m:?}"), antes);
+            let raiz = &r.funcoes[0];
+            let direta = &r.funcoes[1];
+            assert_eq!(r.locais.len(), 1);
+            assert_eq!(r.locais["raiz"].1, if alias { 1 } else { 2 });
+            assert_eq!(direta.symbol, "direta$arcslots_v1");
+            assert_eq!(
+                direta.params.iter().map(|(_, _, t)| *t).collect::<Vec<_>>(),
+                vec![Type::I64; 4]
+            );
+            assert_eq!(r.emprestados[&direta.symbol].len(), 2);
+            let (q, _) = r.locais["raiz"];
+            let chamada = raiz.blocks[0]
+                .instructions
+                .iter()
+                .find_map(|(_, i, _)| {
+                    if let Instruction::CallStatic { symbol, args, .. } = i {
+                        Some((symbol, args))
+                    } else {
+                        None
+                    }
+                })
+                .unwrap();
+            assert_eq!(chamada.0, &direta.symbol);
+            assert_eq!(
+                chamada.1,
+                &vec![
+                    Operand::Val(q),
+                    Operand::Constant(Constant::Int(0)),
+                    Operand::Val(q),
+                    Operand::Constant(Constant::Int(if alias { 0 } else { 1 }))
+                ]
+            );
+            assert!(
+                r.funcoes
+                    .iter()
+                    .flat_map(|f| &f.blocks)
+                    .flat_map(|b| &b.instructions)
+                    .all(|(_, i, _)| !matches!(
+                        i,
+                        Instruction::Alloca(Type::Ref)
+                            | Instruction::Load { .. }
+                            | Instruction::Store { .. }
+                    ))
+            );
+            let leituras: Vec<_> = direta.blocks[0]
+                .instructions
+                .iter()
+                .filter_map(|(_, i, _)| {
+                    if let Instruction::CallRuntime { name, args, .. } = i
+                        && name == "dartforge_arc_quadro_carregar_v1"
+                    {
+                        Some(args)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            assert_eq!(leituras.len(), 2);
+            for (_, inst, _) in &direta.blocks[0].instructions {
+                if matches!(inst, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_quadro_carregar_v1")
+                {
+                    assert_eq!(
+                        super::super::contratos::contrato_chamada_runtime(inst)
+                            .unwrap()
+                            .resultado,
+                        super::super::Ownership::Owned
+                    );
+                }
+            }
+            for (li, args) in leituras.iter().enumerate() {
+                assert_eq!(args[0], (Operand::Val(direta.params[2 * li].0), Type::I64));
+                assert_eq!(
+                    args[1],
+                    (Operand::Val(direta.params[2 * li + 1].0), Type::I64)
+                );
+            }
+            assert!(direta.blocks[0].instructions.iter().all(|(_, i, _)|
+                !matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_quadro_fechar_v1")));
+            super::super::quadros::verificar(raiz).unwrap();
+        }
+    }
+
+    #[test]
+    fn baixamento_repassa_pares_recursivos_e_fecha_cada_saida_explicita() {
+        let mut m = modulo();
+        m.functions[1].blocks[0].instructions.push((
+            ValueId(3),
+            chamar("direta", vec![val(0)]),
+            Type::Void,
+        ));
+        m.functions[0].blocks[0].terminator = Terminator::CondBranch {
+            cond: Operand::Constant(Constant::Bool(true)),
+            then_block: BlockId(1),
+            else_block: BlockId(2),
+        };
+        for id in [1, 2] {
+            m.functions[0].blocks.push(BasicBlock {
+                id: BlockId(id),
+                instructions: vec![],
+                terminator: Terminator::Return(None),
+            });
+        }
+        let r = baixar_slots_ref_compartilhados(&m).unwrap();
+        let raiz = &r.funcoes[0];
+        let direta = &r.funcoes[1];
+        let pares = &r.emprestados[&direta.symbol];
+        assert!(matches!(&direta.blocks[0].instructions.last().unwrap().1,
+            Instruction::CallStatic { symbol, args, .. } if symbol == &direta.symbol && args == &vec![val(0), Operand::Val(pares[&ValueId(0)])]));
+        for b in &raiz.blocks[1..] {
+            assert!(matches!(&b.instructions.last().unwrap().1,
+                Instruction::CallRuntime { name, .. } if name == "dartforge_arc_quadro_fechar_v1"));
+        }
+        super::super::quadros::verificar(raiz).unwrap();
+    }
+
+    #[test]
+    fn baixamento_recusa_colisao_ids_esgotados_e_quadro_reaberto_em_laco() {
+        for caso in 0..4 {
+            let mut m = modulo();
+            match caso {
+                0 => m
+                    .functions
+                    .push(funcao("direta$arcslots_v1", false, vec![])),
+                1 => m.functions[0].blocks[0].instructions.push((
+                    ValueId(u32::MAX),
+                    Instruction::Const(Constant::Null),
+                    Type::Ref,
+                )),
+                2 => m.functions[0].blocks[0].terminator = Terminator::Branch(BlockId(0)),
+                _ => {
+                    m.functions[1]
+                        .params
+                        .push((ValueId(4), "objeto".into(), Type::Ref));
+                    let Instruction::CallStatic { args, .. } =
+                        &mut m.functions[0].blocks[0].instructions[2].1
+                    else {
+                        unreachable!()
+                    };
+                    args.push(Operand::Constant(Constant::Int(0)));
+                    // O endereço está fechado, mas isso não autoriza passar
+                    // uma palavra escalar como outro argumento Ref.
+                    assert!(auditar_slots_ref_compartilhados(&m).is_ok());
+                }
+            }
+            let antes = format!("{m:?}");
+            assert!(baixar_slots_ref_compartilhados(&m).is_err(), "caso {caso}");
+            assert_eq!(format!("{m:?}"), antes);
+        }
+        let mut m = modulo();
+        m.memoria_arc = false;
+        let r = baixar_slots_ref_compartilhados(&m).unwrap();
+        assert_eq!(format!("{:?}", r.funcoes), format!("{:?}", m.functions));
+        assert!(r.locais.is_empty() && r.emprestados.is_empty() && r.simbolos.is_empty());
     }
 }
