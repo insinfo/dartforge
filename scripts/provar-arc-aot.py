@@ -37,6 +37,7 @@ PROVAS = {
     ]),
     "arc_keepalive_campos": ("prova-keepalive-campos", False, [
         ("normal", None), ("normal", "sem-retencao"), ("normal", "sem-liberar"),
+        ("--vizinho", None), ("--vizinho", "sem-retencao"), ("--vizinho", "sem-liberar"),
     ]),
     "arc_keepalive_pending": ("prova-keepalive-pending", True, [
         ("normal", None), ("erro", None), ("normal", "sem-retencao"),
@@ -112,7 +113,7 @@ def main():
                     if args.features:
                         comando += ["--features", args.features]
                     comando += ["--example", args.exemplo, "--", str(exe), f"--memoria={modo}", str(nivel)]
-                    if tem_caminho:
+                    if tem_caminho or caminho.startswith("--"):
                         comando.append(caminho)
                     if controle:
                         comando.append(controle)

@@ -221,6 +221,9 @@ pub(super) fn preparar(
     // Entradas emprestadas já devem ser instâncias válidas pela semântica
     // Dart. Uma fábrica local sem layout pode ainda conter campos zerados
     // sem marca Ref; não a confundir com um receiver de entrada aberto.
+    // Estes valores podem ser receivers conferidos, sem alegar classe ou
+    // frescor. Cada leitura e chamada ainda precisa passar pela preparação
+    // e pelo contrato de ownership; uma falha descarta o módulo inteiro.
     let mut entradas_ref: HashSet<_> = f.params.iter()
         .filter(|(_, _, ty)| *ty == Type::Ref).map(|(v, _, _)| *v).collect();
     loop {
@@ -229,6 +232,12 @@ pub(super) fn preparar(
             if *ty != Type::Ref { continue; }
             let entrada = |op: &Operand| matches!(op, Operand::Val(v) if entradas_ref.contains(v));
             let derivado = match inst {
+                Instruction::GetField { .. }
+                | Instruction::CallStatic { ret_ty: Type::Ref, .. }
+                | Instruction::CallSeletor { .. }
+                | Instruction::CallInterface { ret_ty: Type::Ref, .. }
+                | Instruction::CallDynamic { ret_ty: Type::Ref, .. }
+                | Instruction::CallClosure { ret_ty: Type::Ref, .. } => true,
                 Instruction::ArcCopy { value } | Instruction::ArcMove { value } => entrada(value),
                 Instruction::Phi { incoming, .. } => !incoming.is_empty()
                     && incoming.iter().all(|(_, op)| entrada(op)),
@@ -588,6 +597,41 @@ mod testes {
             m,
             HashMap::from([("campos".into(), PlanoFuncaoDart::default())]),
         )
+    }
+
+    #[test]
+    fn retorno_de_getter_tem_layout_conferido_sem_inventar_classe() {
+        for destino_valido in [false, true] {
+            let (mut m, mut planos) = modulo(vec![Type::Ref], vec![Operand::Constant(Constant::Null)]);
+            m.functions[0].params = vec![(ValueId(0), "this".into(), Type::Ref)];
+            m.functions[0].blocks[0].instructions = vec![
+                (ValueId(1), Instruction::CallStatic { symbol: "getter".into(),
+                    args: vec![Operand::Val(ValueId(0))], ret_ty: Type::Ref }, Type::Ref),
+                (ValueId(2), Instruction::SetField { object: Operand::Val(ValueId(1)), index: 0,
+                    value: Operand::Constant(Constant::Null) }, Type::Void),
+            ];
+            if destino_valido {
+                m.functions.push(Function { symbol: "getter".into(), name: "getter".into(), depuracao: None,
+                    params: vec![(ValueId(0), "this".into(), Type::Ref)], return_ty: Type::Ref,
+                    blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
+                        (ValueId(1), Instruction::GetField { object: Operand::Val(ValueId(0)), index: 0 }, Type::Ref),
+                    ], terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }] });
+                let mut p = PlanoFuncaoDart::default();
+                p.tokens.retorno = RetornoTokens::Owned;
+                planos.insert("getter".into(), p);
+            }
+            let antes = format!("{m:?}/{planos:?}");
+            let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
+            if destino_valido {
+                resultado.unwrap();
+                let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+                assert!(ir.contains("call void @dartforge_arc_gravar_campo_ref_conferido_v1"));
+                assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+            } else {
+                assert!(resultado.is_err());
+                assert_eq!(antes, format!("{m:?}/{planos:?}"));
+            }
+        }
     }
 
     #[test]

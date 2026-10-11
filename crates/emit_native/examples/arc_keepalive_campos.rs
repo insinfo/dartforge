@@ -10,7 +10,7 @@
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*};
 use std::{collections::HashMap, path::PathBuf};
 
-fn modulo(captura: bool) -> Result<Module, String> {
+fn modulo(captura: bool, vizinho: bool) -> Result<Module, String> {
     let mut m = Module::new();
     m.memoria_arc = true;
     m.entry_symbol = Some("prova_keepalive".into());
@@ -54,6 +54,19 @@ fn modulo(captura: bool) -> Result<Module, String> {
             env: val(0), index: 39,
         };
     }
+    if vizinho {
+        // O filho depende do vizinho e este da raiz. Retirar a aresta da
+        // raiz deve preservar ambos até terminar a mutação e devolver o filho.
+        m.functions[0].blocks[0].instructions = vec![
+            (ValueId(1), Instruction::GetField { object: val(0), index: 39 }, Type::Ref),
+            (ValueId(2), Instruction::GetField { object: val(1), index: 39 }, Type::Ref),
+            (ValueId(3), Instruction::SetField { object: val(0), index: 39,
+                value: Operand::Constant(Constant::Null) }, Type::Void),
+            (ValueId(4), Instruction::SetField { object: val(1), index: 39,
+                value: Operand::Constant(Constant::Null) }, Type::Void),
+        ];
+        m.functions[0].blocks[0].terminator = Terminator::Return(Some(val(2)));
+    }
     let mut plano = PlanoFuncaoDart::default();
     plano.tokens.retorno = RetornoTokens::Owned;
     m.functions.push(Function {
@@ -80,9 +93,11 @@ fn modulo(captura: bool) -> Result<Module, String> {
     let mut planos = HashMap::from([("ler_e_substituir".into(), plano),
         ("inicializar".into(), PlanoFuncaoDart::default()), ("ler_inteiro".into(), PlanoFuncaoDart::default())]);
     let produzido = preparar_arc_modulo_dart(&mut m, &mut planos)?;
-    if produzido != (1, 0) || planos["ler_e_substituir"].classes[&ValueId(1)] != Ownership::Owned {
+    let esperado = if vizinho { (2, 1) } else { (1, 0) };
+    let retorno = ValueId(if vizinho { 2 } else { 1 });
+    if produzido != esperado || planos["ler_e_substituir"].classes[&retorno] != Ownership::Owned {
         return Err(format!(
-            "keepalive esperado (1, 0), encontrado {produzido:?}"
+            "keepalive esperado {esperado:?}, encontrado {produzido:?}"
         ));
     }
     let preparado = format!("{m:?}/{planos:?}");
@@ -113,9 +128,10 @@ fn main() -> Result<(), String> {
     };
     let mut controle = args.next();
     let captura = controle.as_deref() == Some("--captura");
-    if captura { controle = args.next(); }
+    let vizinho = controle.as_deref() == Some("--vizinho");
+    if captura || vizinho { controle = args.next(); }
     if args.next().is_some() { return Err("argumentos excedentes".into()); }
-    let mut m = modulo(captura)?;
+    let mut m = modulo(captura, vizinho)?;
     m.memoria_arc = arc;
     let mut ir = LlvmEmitter::new(&m).emit_all();
     // Nenhum Ref observado passa pela HIR do harness: um endereço já morto
@@ -177,10 +193,21 @@ passou:
             &format!("@dartforge_arc_objeto_owned_v1(i64 {}, i64 40)",
                 dartforge_runtime::layout::cid::CONTEXTO));
     }
+    if vizinho {
+        ir = ir.replace("  call void @inicializar(i64 %obj, i64 %filho)\n",
+            "  %vizinho = call i64 @dartforge_arc_objeto_owned_v1(i64 123, i64 40)\n  call void @inicializar(i64 %vizinho, i64 %filho)\n  call void @inicializar(i64 %obj, i64 %vizinho)\n  call void @dartforge_arc_release(i64 %vizinho)\n");
+        ir = ir.replace("  %ok = and i1 %ok_obj, %ok_filho\n",
+            "  %vizinho_morto = call i8 @dartforge_arc_observar_heap_v1(i64 %vizinho)\n  %ok_vizinho = icmp eq i8 %vizinho_morto, 0\n  %ok_par = and i1 %ok_obj, %ok_filho\n  %ok = and i1 %ok_par, %ok_vizinho\n");
+    }
     match controle.as_deref() {
         None => {}
         Some("sem-retencao") => {
-            let emprestado = m.functions[0].blocks[0].instructions[0].0.0;
+            let emprestado = m.functions[0].blocks[0].instructions.iter()
+                .find_map(|(v, i, _)| match i {
+                    Instruction::ArcCopy { value: Operand::Val(de) }
+                        if *v == ValueId(if vizinho { 2 } else { 1 }) => Some(de.0),
+                    _ => None,
+                }).ok_or("cópia do retorno não encontrada")?;
             let chamada = format!("  call void @dartforge_arc_retain(i64 %v{emprestado})\n");
             if ir.matches(&chamada).count() != 1 {
                 return Err("retenção produzida não foi localizada unicamente no IR".into());
@@ -212,8 +239,23 @@ mod testes {
     use super::*;
 
     #[test]
+    fn filho_e_vizinho_sobrevivem_a_remocao_da_aresta_da_raiz() {
+        let m = modulo(false, true).unwrap();
+        let ops = &m.functions[0].blocks[0].instructions;
+        let retirar_raiz = ops.iter().position(|(v, _, _)| *v == ValueId(3)).unwrap();
+        for id in [ValueId(1), ValueId(2)] {
+            let reter = ops.iter().position(|(v, i, _)| *v == id && matches!(i, Instruction::ArcCopy { .. })).unwrap();
+            assert!(reter < retirar_raiz);
+        }
+        let retirar_filho = ops.iter().position(|(v, _, _)| *v == ValueId(4)).unwrap();
+        let soltar_vizinho = ops.iter().position(|(_, i, _)| matches!(i,
+            Instruction::ArcDrop { value: Operand::Val(ValueId(1)) })).unwrap();
+        assert!(soltar_vizinho > retirar_filho);
+    }
+
+    #[test]
     fn retencao_produzida_antecede_substituicao_da_aresta() {
-        let m = modulo(false).unwrap();
+        let m = modulo(false, false).unwrap();
         let ops = &m.functions[0].blocks[0].instructions;
         assert!(matches!(
             ops[1],
@@ -234,7 +276,7 @@ mod testes_captura {
 
     #[test]
     fn captura_auditada_e_retida_antes_de_substituir_aresta() {
-        let m = modulo(true).unwrap();
+        let m = modulo(true, false).unwrap();
         let ir = LlvmEmitter::new(&m).emit_all();
         let ler = ir.find("call i64 @dartforge_arc_env_ref_v1").unwrap();
         let reter = ir.find("call void @dartforge_arc_retain").unwrap();
