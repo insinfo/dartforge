@@ -60,6 +60,10 @@ impl Extern {
 /// Todas as externs que o código gerado pode chamar.
 pub const EXTERNS: &[Extern] = &[
     Extern {
+        decl: "declare i64 @dartforge_arc_closure_owned_v1(i64, i64, i64, i64)",
+        efeitos: ALOCA_SEM_LANCAR,
+    },
+    Extern {
         decl: "declare i64 @dartforge_string_new(ptr, i64)",
         efeitos: ALOCA_SEM_LANCAR,
     },

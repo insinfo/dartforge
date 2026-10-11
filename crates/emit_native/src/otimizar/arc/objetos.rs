@@ -5,12 +5,21 @@
 
 use super::{PlanoFuncaoDart, arestas::proximo_valor};
 use crate::hir::*;
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
+
+fn abi_tipada(params: &[Type], ret: Type) -> Option<i64> {
+    let (Type::Ref, args) = params.split_first()? else { return None };
+    if args.len() > 12 { return None; }
+    args.iter().copied().chain(std::iter::once(ret)).try_fold(1_i64, |abi, ty|
+        Some(abi * 5 + match ty { Type::Ref => 1, Type::I64 => 2,
+            Type::F64 => 3, Type::I1 => 4, _ => return None }))
+}
 
 pub(super) fn preparar(
     f: &mut Function,
     layouts: &HashMap<u32, Vec<Type>>,
     plano: &PlanoFuncaoDart,
+    assinaturas: &HashMap<String, (Vec<Type>, Type)>,
 ) -> Result<(), String> {
     let tipos: HashMap<_, _> = f
         .params
@@ -86,18 +95,67 @@ pub(super) fn preparar(
                 ));
                 continue;
             }
-            let Instruction::AllocObject { class_id, fields } = inst else {
-                instructions.push((*v, inst.clone(), *ty));
-                continue;
+            let closure = match inst {
+                Instruction::AllocClosure { code_symbol, env } =>
+                    Some((code_symbol, env, None, 0)),
+                Instruction::AllocClosureTipada { code_symbol, env, tipado, abi, .. } =>
+                    Some((code_symbol, env, Some(tipado), *abi)),
+                _ => None,
             };
-            let layout = layouts.get(class_id).ok_or_else(|| {
+            if let Some((codigo, env, tipado, abi)) = closure {
+                let uniforme = assinaturas.get(codigo).is_some_and(|(ps, ret)|
+                    ps == &[Type::Ref, Type::Ptr, Type::Ptr] && *ret == Type::Ref);
+                let corpo = tipado.is_none_or(|t| assinaturas.get(t).is_some_and(|(ps, ret)|
+                    abi == 0 || abi_tipada(ps, *ret) == Some(abi)));
+                if *ty != Type::Ref || tipo(env) != Some(Type::Ref)
+                    || !uniforme || !corpo {
+                    return Err(format!("closure ARC em {} v{}: ABI, contexto ou corpo não coberto", f.symbol, v.0));
+                }
+                instructions.push((*v, Instruction::CallRuntime {
+                    name: "dartforge_arc_closure_owned_v1".into(),
+                    args: vec![
+                        (Operand::Constant(Constant::Funcao(codigo.clone())), Type::I64),
+                        (env.clone(), Type::Ref),
+                        (tipado.map_or(Operand::Constant(Constant::Int(0)), |t|
+                            Operand::Constant(Constant::Funcao(t.clone()))), Type::I64),
+                        (Operand::Constant(Constant::Int(abi)), Type::I64),
+                    ], ret_ty: Type::Ref,
+                }, Type::Ref));
+                continue;
+            }
+            // As capturas usam classes físicas reservadas e representações
+            // dos operandos. Não são um layout nominal único para o cid:
+            // células/ambientes diferentes podem ter mapas Ref diferentes.
+            let (class_id, fields, sintetico): (u32, &[Operand], bool) = match inst {
+                Instruction::AllocObject { class_id, fields } => (*class_id, fields, false),
+                Instruction::AllocCell { value } => (dartforge_runtime::layout::cid::CELULA as u32,
+                    std::slice::from_ref(value), true),
+                Instruction::AllocEnv { values } => (dartforge_runtime::layout::cid::CONTEXTO as u32,
+                    values, true),
+                _ => { instructions.push((*v, inst.clone(), *ty)); continue; }
+            };
+            if sintetico && fields.is_empty() {
+                if *ty != Type::Ref {
+                    return Err(format!("ambiente ARC em {} v{} exige Ref", f.symbol, v.0));
+                }
+                instructions.push((*v, Instruction::Const(Constant::Null), Type::Ref));
+                continue;
+            }
+            let layout = if sintetico {
+                let tipos = fields.iter().map(&tipo).collect::<Option<Vec<_>>>().ok_or_else(||
+                    format!("captura ARC em {} v{}: materialização implícita não coberta", f.symbol, v.0))?;
+                if tipos.iter().any(|t| !matches!(t, Type::Ref | Type::I64 | Type::F64 | Type::I1 | Type::I8)) {
+                    return Err(format!("captura ARC em {} v{}: representação não coberta", f.symbol, v.0));
+                }
+                Cow::Owned(tipos)
+            } else { Cow::Borrowed(layouts.get(&class_id).ok_or_else(|| {
                 format!(
                     "alocação ARC em {} v{}: classe {class_id} sem layout",
                     f.symbol, v.0
                 )
-            })?;
+            })?) };
             if *ty != Type::Ref
-                || i32::try_from(*class_id).is_err()
+                || i32::try_from(class_id).is_err()
                 || u16::try_from(fields.len()).is_err()
                 || layout.len() != fields.len()
             {
@@ -106,7 +164,7 @@ pub(super) fn preparar(
                     f.symbol, v.0
                 ));
             }
-            for (i, (op, esperado)) in fields.iter().zip(layout).enumerate() {
+            for (i, (op, esperado)) in fields.iter().zip(layout.iter()).enumerate() {
                 if tipo(op) != Some(*esperado) {
                     return Err(format!(
                         "alocação ARC em {} v{}: campo {i} incompatível com {esperado:?}",
@@ -120,7 +178,7 @@ pub(super) fn preparar(
                     name: "dartforge_arc_objeto_owned_v1".into(),
                     args: vec![
                         (
-                            Operand::Constant(Constant::Int(i64::from(*class_id))),
+                            Operand::Constant(Constant::Int(i64::from(class_id))),
                             Type::I64,
                         ),
                         (
@@ -132,7 +190,7 @@ pub(super) fn preparar(
                 },
                 Type::Ref,
             ));
-            for (i, (op, repr)) in fields.iter().zip(layout).enumerate() {
+            for (i, (op, repr)) in fields.iter().zip(layout.iter()).enumerate() {
                 let (valor, argumento, nome) = if *repr == Type::Ref {
                     (op.clone(), Type::Ref, "dartforge_arc_gravar_campo_ref_v1")
                 } else {
@@ -180,6 +238,105 @@ pub(super) fn preparar(
 #[cfg(test)]
 mod testes {
     use crate::otimizar::arc::*;
+
+    #[test]
+    fn capturas_owned_conservam_mapa_codigo_e_cleanup_sem_assumir_layout_do_cid() {
+        for caso in 0..14 {
+            let mut m = Module::new();
+            m.memoria_arc = caso != 7;
+            m.modo_sdk = true;
+            m.biblioteca_sdk = true;
+            let mut values = vec![Operand::Val(ValueId(5)), Operand::Val(ValueId(1)),
+                Operand::Val(ValueId(2)), Operand::Val(ValueId(3)), Operand::Val(ValueId(4))];
+            values.resize(40, Operand::Val(ValueId(0)));
+            if caso == 2 { values.clear(); }
+            if caso == 5 { values[0] = Operand::Constant(Constant::String("implícita".into())); }
+            if caso == 10 { values[0] = Operand::Val(ValueId(8)); }
+            let closure = if caso == 1 {
+                Instruction::AllocClosure { code_symbol: "entrada".into(), env: Operand::Val(ValueId(6)) }
+            } else { Instruction::AllocClosureTipada {
+                code_symbol: if caso == 4 { "externo" } else { "entrada" }.into(),
+                env: Operand::Val(ValueId(if caso == 3 { 1 } else { 6 })),
+                tipado: "corpo".into(), abi: 7, direto: false,
+            } };
+            m.functions = vec![
+                Function { symbol: "capturar".into(), name: "capturar".into(), depuracao: None,
+                    params: vec![(ValueId(0), "ref".into(), Type::Ref),
+                        (ValueId(1), "int".into(), Type::I64), (ValueId(2), "double".into(), Type::F64),
+                        (ValueId(3), "bool".into(), Type::I1), (ValueId(4), "byte".into(), Type::I8),
+                        (ValueId(8), "ptr".into(), Type::Ptr)], return_ty: Type::Ref,
+                    blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
+                        (ValueId(5), Instruction::AllocCell { value: Operand::Val(ValueId(0)) },
+                            if caso == 8 { Type::I64 } else { Type::Ref }),
+                        (ValueId(6), Instruction::AllocEnv { values }, Type::Ref),
+                        (ValueId(7), closure, Type::Ref),
+                    ], terminator: Terminator::Return(Some(Operand::Val(ValueId(7)))) }] },
+                Function { symbol: "entrada".into(), name: "entrada".into(), depuracao: None,
+                    params: vec![(ValueId(0), "closure".into(), Type::Ref),
+                        (ValueId(1), "args".into(), Type::Ptr), (ValueId(2), "desc".into(), Type::Ptr)],
+                    return_ty: Type::Ref, blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
+                        terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) }] },
+                Function { symbol: "corpo".into(), name: "corpo".into(), depuracao: None,
+                    params: vec![(ValueId(0), "env".into(), Type::Ref)], return_ty: Type::I64,
+                    blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
+                        terminator: Terminator::Return(Some(Operand::Constant(Constant::Int(7)))) }] },
+            ];
+            if caso == 11 { m.functions[1].params[1].2 = Type::I64; }
+            if caso == 12 {
+                m.functions[2].return_ty = Type::F64;
+                m.functions[2].blocks[0].terminator = Terminator::Return(Some(
+                    Operand::Constant(Constant::Double(7.0))));
+            }
+            if caso == 13 {
+                if let Instruction::AllocClosureTipada { abi, .. } = &mut m.functions[0].blocks[0].instructions[2].1 {
+                    *abi = 8;
+                }
+            }
+            if caso == 9 { m.functions.reverse(); }
+            m.retornos_ref_dart.extend(["capturar".into(), "entrada".into()]);
+            if caso != 6 { m.parametros_escalares_dart.insert("capturar".into(), HashSet::from([ValueId(1)])); }
+            let mut planos: HashMap<_, _> = m.functions.iter()
+                .map(|f| (f.symbol.clone(), PlanoFuncaoDart::default())).collect();
+            // Proveniência explícita dos vetores da ABI uniforme, não da largura.
+            planos.get_mut("entrada").unwrap().classes.extend([
+                (ValueId(1), Ownership::Trivial), (ValueId(2), Ownership::Trivial)]);
+            planos.get_mut("capturar").unwrap().classes.insert(ValueId(8), Ownership::Trivial);
+            let antes = format!("{m:?}/{planos:?}");
+            let r = preparar_arc_modulo_dart(&mut m, &mut planos);
+            if [3, 4, 5, 6, 8, 10, 11, 12, 13].contains(&caso) {
+                assert!(r.is_err(), "caso {caso}");
+                assert_eq!(format!("{m:?}/{planos:?}"), antes);
+                continue;
+            }
+            if caso == 7 {
+                assert_eq!(r.unwrap(), (0, 0));
+                assert_eq!(format!("{m:?}/{planos:?}"), antes);
+                continue;
+            }
+            r.unwrap();
+            let f = m.functions.iter().find(|f| f.symbol == "capturar").unwrap();
+            let p = &planos["capturar"];
+            assert_eq!(p.classes[&ValueId(5)], Ownership::Owned);
+            assert_eq!(p.classes[&ValueId(7)], Ownership::Owned);
+            assert_eq!(p.classes[&ValueId(6)], if caso == 2 { Ownership::Trivial } else { Ownership::Owned });
+            assert!(f.blocks.iter().flat_map(|b| &b.instructions).any(|(v, i, _)| *v == ValueId(7)
+                && matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_closure_owned_v1")));
+            if caso != 2 {
+                assert!(f.blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)| matches!(i,
+                    Instruction::CallRuntime { name, args, .. }
+                    if name == "dartforge_arc_gravar_campo_ref_v1"
+                        && args[1].0 == Operand::Constant(Constant::Int(39)))));
+            }
+            let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+            assert!(ir.contains("@dartforge_arc_closure_owned_v1(i64 ptrtoint (ptr @entrada to i64)"));
+            assert!(!ir.contains("call void @dartforge_arc_release(i64 %v7)"));
+            let corpo_antes = format!("{m:?}");
+            let classes_antes = p.classes.clone();
+            assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+            assert_eq!(format!("{m:?}"), corpo_antes);
+            assert_eq!(planos["capturar"].classes, classes_antes);
+        }
+    }
 
     #[test]
     fn ponteiro_de_tabela_sem_proveniencia_nao_ganha_contrato_runtime() {

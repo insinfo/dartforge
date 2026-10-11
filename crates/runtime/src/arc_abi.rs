@@ -40,6 +40,35 @@ pub extern "C" fn dartforge_arc_objeto_owned_v1(classe: i64, campos: i64) -> i64
     })
 }
 
+/// Cria uma closure com owner independente e contexto emprestado.
+///
+/// Código e corpo tipado são endereços nativos da imagem; sua ABI e vida
+/// continuam sob responsabilidade do emissor. Não chama esses endereços.
+/// O contexto ganha a aresta da closure sem consumir o token do chamador.
+/// Inicialização e retenção ocorrem no mesmo empréstimo do heap. Pode
+/// coletar, mas não executa Dart nem deixa exceção Dart pendente.
+///
+/// # Panics
+/// Falha interna de alocação/contagem; aborta no limite C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// extern "C" fn entrada(_: i64, _: *const i64, _: *const i64) -> i64 { 0 }
+/// let closure = dartforge_arc_closure_owned_v1(entrada as usize as i64, 0, 0, 0);
+/// dartforge_arc_collect();
+/// assert_eq!(dartforge_arc_observar_heap_v1(closure), 3);
+/// dartforge_arc_release(closure);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_closure_owned_v1(codigo: i64, contexto: i64, tipado: i64, abi: i64) -> i64 {
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let closure = heap.nova_closure(codigo, (contexto, true), tipado, abi);
+        heap.reter_owner_codigo(closure);
+        closure
+    })
+}
+
 fn parametros_instancia_owned(classe: i64, campos: i64) -> Result<(i32, usize), &'static str> {
     let classe = i32::try_from(classe).map_err(|_| "classe fora de i32")?;
     let campos = u16::try_from(campos).map_err(|_| "quantidade de campos fora de u16")?;

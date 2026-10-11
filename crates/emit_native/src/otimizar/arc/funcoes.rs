@@ -240,11 +240,13 @@ fn inserir(
     let mut modulo = Module::new();
     modulo.functions = funcoes.to_vec();
     let mut novos_planos = planos.clone();
+    let assinaturas: HashMap<_, _> = funcoes.iter().map(|f| (f.symbol.clone(),
+        (f.params.iter().map(|(_, _, ty)| *ty).collect::<Vec<_>>(), f.return_ty))).collect();
     for f in &mut modulo.functions {
         if let Some(layouts) = layouts {
             let plano = novos_planos.get_mut(&f.symbol).unwrap();
             super::campos::preparar(f, layouts, plano)?;
-            super::objetos::preparar(f, layouts, plano)?;
+            super::objetos::preparar(f, layouts, plano, &assinaturas)?;
         }
         super::caixas::preparar(f)?;
     }

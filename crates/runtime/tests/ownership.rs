@@ -12,6 +12,42 @@ use dartforge_runtime::{
 };
 
 #[test]
+fn closure_owned_mantem_contexto_celula_e_arestas_repetidas_ate_o_drop() {
+    use dartforge_runtime::{abi::*, layout::cid};
+    extern "C" fn entrada(_: i64, _: *const i64, _: *const i64) -> i64 { 0 }
+    extern "C" fn corpo(_: i64) -> i64 { 7 }
+    std::thread::spawn(|| {
+        dartforge_memoria_arc_v1();
+        for ciclo in [false, true] {
+            let valor = dartforge_arc_box_int_owned_v1(i64::MAX);
+            let celula = dartforge_arc_objeto_owned_v1(i64::from(cid::CELULA), 1);
+            dartforge_arc_gravar_campo_ref_v1(celula, 0, valor);
+            dartforge_arc_release(valor);
+            let env = dartforge_arc_objeto_owned_v1(i64::from(cid::CONTEXTO), 40);
+            for i in [0, 39] { dartforge_arc_gravar_campo_ref_v1(env, i, celula); }
+            dartforge_arc_release(celula);
+            let codigo = entrada as usize as i64;
+            let tipado = corpo as usize as i64;
+            let closure = dartforge_arc_closure_owned_v1(codigo, env, tipado, 7);
+            assert_eq!(dartforge_arc_observar_heap_v1(env), 3);
+            dartforge_arc_release(env);
+            if ciclo { dartforge_arc_gravar_campo_ref_v1(env, 38, closure); }
+            dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observar_heap_v1(closure), 3);
+            for h in [env, celula, valor] { assert_eq!(dartforge_arc_observar_heap_v1(h), 1); }
+            assert_eq!(dartforge_closure_code(closure), codigo);
+            assert_eq!(dartforge_closure_tipada(closure, 7), tipado);
+            assert_eq!(dartforge_arc_ler_campo_ref_v1(closure, 1), env);
+            assert_eq!(dartforge_arc_ler_campo_ref_v1(env, 39), celula);
+            assert_eq!(dartforge_unbox_int(dartforge_arc_ler_campo_ref_v1(celula, 0)), i64::MAX);
+            dartforge_arc_release(closure);
+            dartforge_arc_collect();
+            for h in [closure, env, celula, valor] { assert_eq!(dartforge_arc_observar_heap_v1(h), 0); }
+        }
+    }).join().unwrap();
+}
+
+#[test]
 fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs() {
     let auditadas: Vec<_> = NOMES
         .iter()
