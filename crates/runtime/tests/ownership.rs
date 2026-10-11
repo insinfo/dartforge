@@ -26,8 +26,8 @@ fn closure_owned_mantem_contexto_celula_e_arestas_repetidas_ate_o_drop() {
             let env = dartforge_arc_objeto_owned_v1(i64::from(cid::CONTEXTO), 40);
             for i in [0, 39] { dartforge_arc_gravar_campo_ref_v1(env, i, celula); }
             dartforge_arc_release(celula);
-            let codigo = entrada as usize as i64;
-            let tipado = corpo as usize as i64;
+            let codigo = entrada as *const () as usize as i64;
+            let tipado = corpo as *const () as usize as i64;
             let closure = dartforge_arc_closure_owned_v1(codigo, env, tipado, 7);
             assert_eq!(dartforge_arc_observar_heap_v1(env), 3);
             dartforge_arc_release(env);
@@ -37,13 +37,39 @@ fn closure_owned_mantem_contexto_celula_e_arestas_repetidas_ate_o_drop() {
             for h in [env, celula, valor] { assert_eq!(dartforge_arc_observar_heap_v1(h), 1); }
             assert_eq!(dartforge_closure_code(closure), codigo);
             assert_eq!(dartforge_closure_tipada(closure, 7), tipado);
-            assert_eq!(dartforge_arc_ler_campo_ref_v1(closure, 1), env);
+            assert_eq!(dartforge_arc_contexto_closure_v1(closure), env);
             assert_eq!(dartforge_arc_ler_campo_ref_v1(env, 39), celula);
             assert_eq!(dartforge_unbox_int(dartforge_arc_ler_campo_ref_v1(celula, 0)), i64::MAX);
             dartforge_arc_release(closure);
             dartforge_arc_collect();
             for h in [closure, env, celula, valor] { assert_eq!(dartforge_arc_observar_heap_v1(h), 0); }
         }
+    }).join().unwrap();
+}
+
+#[test]
+fn contexto_emprestado_precisa_de_owner_apos_liberar_closure() {
+    use dartforge_runtime::abi::*;
+    extern "C" fn entrada(_: i64, _: *const i64, _: *const i64) -> i64 { 0 }
+    std::thread::spawn(|| {
+        dartforge_memoria_arc_v1();
+        let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
+        let closure = dartforge_arc_closure_owned_v1(entrada as *const () as usize as i64, filho, 0, 0);
+        dartforge_arc_release(filho);
+        let emprestado = dartforge_arc_contexto_closure_v1(closure);
+        assert_eq!(emprestado, filho);
+        assert_eq!(dartforge_arc_observar_heap_v1(emprestado), 1);
+        dartforge_arc_retain(emprestado);
+        dartforge_arc_release(closure);
+        dartforge_arc_collect();
+        assert_eq!(dartforge_arc_observar_heap_v1(closure), 0);
+        assert_eq!(dartforge_unbox_int(emprestado), i64::MAX);
+        assert_eq!(dartforge_arc_observar_heap_v1(emprestado), 3);
+        dartforge_arc_release(emprestado);
+        dartforge_arc_collect();
+        assert_eq!(dartforge_arc_observar_heap_v1(emprestado), 0);
+        let canonica = dartforge_tearoff(123);
+        assert_eq!(dartforge_arc_contexto_closure_v1(canonica), 0);
     }).join().unwrap();
 }
 

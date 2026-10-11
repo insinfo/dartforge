@@ -69,6 +69,54 @@ pub extern "C" fn dartforge_arc_closure_owned_v1(codigo: i64, contexto: i64, tip
     })
 }
 
+/// Empresta o contexto Ref de uma closure sem reter ou coletar.
+///
+/// Confere a classe e o mapa físico. Contexto escalar só é aceito quando
+/// vale zero, usado pelas closures canônicas sem capturas. O empréstimo
+/// depende da closure e de sua aresta; deve ser copiado antes de invalidá-la.
+/// Não executa Dart nem deixa exceção pendente.
+///
+/// # Panics
+/// Receiver não closure ou contexto escalar não nulo; aborta no limite C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// extern "C" fn entrada(_: i64, _: *const i64, _: *const i64) -> i64 { 0 }
+/// let closure = dartforge_arc_closure_owned_v1(entrada as usize as i64, 0, 0, 0);
+/// assert_eq!(dartforge_arc_contexto_closure_v1(closure), 0);
+/// dartforge_arc_release(closure);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_contexto_closure_v1(closure: i64) -> i64 {
+    HEAP.with(|heap| contexto_closure_auditado(&heap.borrow(), closure)
+        .expect("contrato de contexto da closure ARC violado"))
+}
+
+fn contexto_closure_auditado(heap: &Heap, closure: i64) -> Result<i64, &'static str> {
+    let contexto = heap.closure(closure).ok_or("receiver não é closure")?.contexto;
+    if !contexto.1 && contexto.0 != 0 { return Err("contexto é escalar não nulo"); }
+    Ok(contexto.0)
+}
+
+#[cfg(test)]
+mod testes_contexto_closure {
+    use super::*;
+
+    #[test]
+    fn contexto_confere_classe_e_mapa_sem_confundir_bits_com_ref() {
+        let mut heap = Heap::new(false);
+        for campo in [(0, false), (0, true), (42, false)] {
+            let closure = heap.nova_closure(123, campo, 0, 0);
+            assert_eq!(contexto_closure_auditado(&heap, closure).is_ok(), campo.0 == 0);
+        }
+        let filho = heap.novo_objeto(32000, &[]);
+        let closure = heap.nova_closure(123, (filho, true), 0, 0);
+        assert_eq!(contexto_closure_auditado(&heap, closure), Ok(filho));
+        let falsa = heap.novo_objeto(32001, &[(123, false), (filho, true), (0, false), (0, false)]);
+        for invalida in [0, falsa] { assert!(contexto_closure_auditado(&heap, invalida).is_err()); }
+    }
+}
+
 fn parametros_instancia_owned(classe: i64, campos: i64) -> Result<(i32, usize), &'static str> {
     let classe = i32::try_from(classe).map_err(|_| "classe fora de i32")?;
     let campos = u16::try_from(campos).map_err(|_| "quantidade de campos fora de u16")?;

@@ -35,7 +35,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// O contexto da closure `clo` (o `env` que o corpo recebe): o `_Contexto`
     /// das capturas, o valor do ambiente direto ou null.
     pub(super) fn contexto_da_closure(&mut self, clo: Operand) -> Operand {
-        self.palavra_do_objeto(clo, CLOSURE_CONTEXTO, Type::Ref)
+        if self.ctx.memoria_arc {
+            // A ABI verifica classe/mapa e devolve um empréstimo da closure,
+            // inclusive para o null escalar de tear-offs canônicos.
+            self.emit(Instruction::CallRuntime {
+                name: "dartforge_arc_contexto_closure_v1".to_string(),
+                args: vec![(clo, Type::Ref)],
+                ret_ty: Type::Ref,
+            }, Type::Ref)
+        } else {
+            self.palavra_do_objeto(clo, CLOSURE_CONTEXTO, Type::Ref)
+        }
     }
 
     /// O membro externo de caixa/closure/record feito em linha, ou `None` (a
@@ -88,5 +98,60 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod testes_contexto {
+    use crate::{context::Context, hir::*};
+    use dartforge_intern::Interner;
+    use dartforge_types::table::{CoreTypes, TypeTable};
+
+    #[test]
+    fn fonte_usa_contexto_emprestado_apenas_no_modo_arc() {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let entrada = dir.path().join("main.dart");
+            std::fs::write(&entrada,
+                "int topo() => 7; int Function() criar(int valor) => () => valor; void main() { criar(42)(); topo(); }\n").unwrap();
+            let sdk = crate::sdk_modulo::carregar_sdk_nativo(crate::sdk_testes()).unwrap();
+            let mut interner = Interner::new();
+            let (program, diags) = dartforge_elements::load::load_lenient(&entrada, &sdk, None, &mut interner);
+            assert!(diags.is_empty(), "{diags:?}");
+            let mut table = TypeTable::new();
+            let core = CoreTypes::init(&mut table, &program, &interner);
+            let (mut outline, diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+            let (bodies, diags_corpos) = dartforge_types::infer_program_bodies(
+                &program, &interner, &mut table, &core, &mut outline);
+            for d in diags.iter().chain(&diags_corpos) {
+                assert!(!dartforge_types::codes::e_erro_de_compilacao(&d.message), "{d:?}");
+            }
+            let te = crate::apagamento::calcular(&program, &outline, &mut table);
+            let mut ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
+            ctx.te = te;
+            for arc in [false, true] {
+                ctx.memoria_arc = arc;
+                let m = crate::lower::lower_program(&ctx);
+                assert!(m.erros.is_empty(), "{:?}", m.erros);
+                let mut emprestimos = 0;
+                let mut leituras_cruas = 0;
+                for (_, inst, ty) in m.functions.iter().flat_map(|f| &f.blocks).flat_map(|b| &b.instructions) {
+                    if let Instruction::CallRuntime { name, args, ret_ty } = inst {
+                        if name == "dartforge_arc_contexto_closure_v1" {
+                            assert_eq!((*ret_ty, *ty), (Type::Ref, Type::Ref));
+                            assert_eq!(args.len(), 1);
+                            assert_eq!(args[0].1, Type::Ref);
+                            emprestimos += 1;
+                        }
+                        if name == "dartforge_object_get" && *ret_ty == Type::Ref
+                            && args.get(1).is_some_and(|a| a.0 == Operand::Constant(Constant::Int(1))) {
+                            leituras_cruas += 1;
+                        }
+                    }
+                }
+                if arc { assert!(emprestimos > 0); assert_eq!(leituras_cruas, 0); }
+                else { assert_eq!(emprestimos, 0); assert!(leituras_cruas > 0); }
+            }
+        }).unwrap().join().unwrap();
     }
 }
