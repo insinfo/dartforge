@@ -65,13 +65,16 @@ pub(super) fn preparar(
                     || i32::try_from(classe).is_err()
                     || layouts
                         .get(&classe)
-                        .is_none_or(|l| l.len() != usize::from(campos))
+                        .is_some_and(|l| l.len() != usize::from(campos))
                 {
                     return Err(erro());
                 }
                 // Instância ainda em construção: apenas a alocação ganha um
                 // token. Guardas, RTI, inicializadores e construtor continuam
                 // nas operações seguintes. Não certifica seus campos zerados.
+                // A fábrica é a mesma alocar_instancia da operação original:
+                // zero não contém referências. Layout ausente não impede o
+                // token; leituras/escritas físicas continuam exigindo prova.
                 instructions.push((
                     *v,
                     Instruction::CallRuntime {
@@ -212,7 +215,7 @@ mod testes {
 
     #[test]
     fn instancia_zerada_preserva_construtor_e_recusa_metadados_invalidos_atomicamente() {
-        for caso in 0..7 {
+        for caso in 0..9 {
             let (mut m, mut planos) = modulo();
             m.functions[0].params.clear();
             m.functions[0].blocks[0].instructions = vec![
@@ -258,18 +261,30 @@ mod testes {
             };
             match caso {
                 1 => args[1].0 = Operand::Constant(Constant::Int(4)),
-                2 => args[0].0 = Operand::Constant(Constant::Int(999)),
+                2 => args[0].0 = Operand::Constant(Constant::Int(i64::from(i32::MAX) + 1)),
                 3 => args[1].1 = Type::Ref,
                 4 => *ret_ty = Type::I64,
                 5 => args[1].0 = Operand::Constant(Constant::Int(-1)),
                 6 => {
                     m.memoria_arc = false;
                 }
+                7 => m.layouts_campos_arc.clear(),
+                8 => {
+                    m.layouts_campos_arc.clear();
+                    m.functions[0].blocks[0].instructions.push((
+                        ValueId(4),
+                        Instruction::GetField {
+                            object: Operand::Val(ValueId(2)),
+                            index: 0,
+                        },
+                        Type::Ref,
+                    ));
+                }
                 _ => {}
             }
             let antes = format!("{m:?}{planos:?}");
             let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
-            if (1..6).contains(&caso) {
+            if (1..6).contains(&caso) || caso == 8 {
                 assert!(resultado.is_err(), "caso {caso}");
                 assert_eq!(format!("{m:?}{planos:?}"), antes);
             } else if caso == 6 {

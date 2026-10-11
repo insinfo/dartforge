@@ -1339,7 +1339,7 @@ mod testes {
     }
 
     #[test]
-    fn fabrica_de_instancia_publica_owned_e_cleanup_sem_classificar_alocador_legado() {
+    fn fabrica_de_instancia_converte_zerado_sem_classificar_alocador_legado_diretamente() {
         for caso in 0..4 {
             let mut m = Module::new();
             m.memoria_arc = true;
@@ -1398,8 +1398,17 @@ mod testes {
                 }],
             });
             let mut planos = HashMap::from([("instancia".into(), PlanoFuncaoDart::default())]);
+            if caso == 3 {
+                // A ABI original não publica token. Somente a substituição
+                // pela fábrica Owned na transação do módulo muda o contrato.
+                let mut classes = HashMap::new();
+                let mut tokens = PlanoTokens::default();
+                let antes = format!("{classes:?}/{tokens:?}");
+                assert!(produzir_contratos_runtime(&m.functions[0], &mut classes, &mut tokens).is_err());
+                assert_eq!(format!("{classes:?}/{tokens:?}"), antes);
+            }
             let antes = format!("{m:?}/{planos:?}");
-            if caso != 0 {
+            if caso == 1 || caso == 2 {
                 assert!(preparar_arc_modulo_dart(&mut m, &mut planos).is_err());
                 assert_eq!(format!("{m:?}/{planos:?}"), antes);
             } else {
