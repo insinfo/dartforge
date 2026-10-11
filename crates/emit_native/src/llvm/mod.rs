@@ -2192,12 +2192,20 @@ impl<'a> LlvmEmitter<'a> {
                 self.entrada_da_closure(v, &c);
                 writeln!(self.out, "  %v{v} = call i64 %cf{v}(i64 {c}, ptr %cargs{v}, ptr @df.arr.{k})").unwrap();
             }
-            Instruction::CallClosureRepasse { closure, args, desc } => {
+            Instruction::CallClosureRepasse { arc_owned, closure, args, desc } => {
                 let c = self.coagir(closure, Type::Ref);
                 let a = self.operand_str(args);
                 let d = self.operand_str(desc);
-                self.entrada_da_closure(v, &c);
-                writeln!(self.out, "  %v{v} = call i64 %cf{v}(i64 {c}, ptr {a}, ptr {d})").unwrap();
+                if *arc_owned {
+                    assert!(self.module.memoria_arc && self.module.portas_arc_aot.is_some(),
+                        "repasse de closure ARC exige portas AOT certificadas");
+                    writeln!(self.out, "  %cav{v} = ptrtoint ptr {a} to i64").unwrap();
+                    writeln!(self.out, "  %cdv{v} = ptrtoint ptr {d} to i64").unwrap();
+                    writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_invocar_closure_uniforme_v1(i64 {c}, i64 %cav{v}, i64 %cdv{v})").unwrap();
+                } else {
+                    self.entrada_da_closure(v, &c);
+                    writeln!(self.out, "  %v{v} = call i64 %cf{v}(i64 {c}, ptr {a}, ptr {d})").unwrap();
+                }
             }
             Instruction::CallSeletor { seletor, recv, args, nomes, tupla_tipos } => {
                 self.emitir_chamada_por_seletor(v, seletor, recv, args, nomes, tupla_tipos);

@@ -1381,7 +1381,7 @@ pub fn lower_adaptadores_da_funcao(ctx: &Context, module: &mut Module, fid: usiz
             (Adaptador::Chamar, FunctionKind::Getter) => {
                 let v = b.chamar_direto(fid, Some(recv), Vec::new());
                 let v = b.coagir(v, Type::Ref);
-                b.emit_call_with_check(Instruction::CallClosureRepasse { closure: v, args, desc }, Type::Ref)
+                b.emit_call_with_check(Instruction::CallClosureRepasse { arc_owned: false, closure: v, args, desc }, Type::Ref)
             }
             (Adaptador::Ler, _) => {
                 if b.desempacotar(&[], args, desc).is_none() {
@@ -1461,7 +1461,7 @@ pub fn lower_adaptadores_do_campo(ctx: &Context, module: &mut Module, vid: Varia
             Adaptador::Chamar => {
                 let x = b.ler_campo_com_late(recv, vid, span);
                 let x = b.coagir(x, Type::Ref);
-                b.emit_call_with_check(Instruction::CallClosureRepasse { closure: x, args, desc }, Type::Ref)
+                b.emit_call_with_check(Instruction::CallClosureRepasse { arc_owned: false, closure: x, args, desc }, Type::Ref)
             }
             Adaptador::Gravar => {
                 let um = [super::closures::ParamEntrada {

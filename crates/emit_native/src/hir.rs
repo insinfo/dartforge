@@ -544,6 +544,8 @@ pub enum Instruction {
     /// descritor já montados (os parâmetros de uma entrada uniforme): o
     /// adaptador `c:x` de um getter ou campo chama o valor lido.
     CallClosureRepasse {
+        /// Retorno Owned pelo adaptador ARC, com entrada uniforme certificada.
+        arc_owned: bool,
         closure: Operand,
         args: Operand,
         desc: Operand,

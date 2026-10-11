@@ -263,6 +263,54 @@ pub unsafe extern "C" fn dartforge_arc_invocar_uniforme_v1(
     arc_invocar_uniforme(codigo, recv, args, desc).expect("fronteira uniforme ARC inválida")
 }
 
+fn arc_invocar_closure_uniforme(closure: i64, args: i64, desc: i64) -> Result<i64, &'static str> {
+    // A busca de entrada também pode executar o helper Dart de erro. Prende
+    // seus retornos intermediários até publicar a exceção, inclusive se falhar.
+    let escopo = EscopoUniformeArc(dartforge_arc_escopo_nativo_abrir_v1());
+    let codigo = dartforge_closure_entry(closure);
+    let resultado = if codigo == 0 {
+        assert_ne!(dartforge_exception_pending(), 0, "closure inválida sem exceção");
+        0
+    } else {
+        arc_invocar_uniforme(codigo as u64 as usize, closure, args, desc)?
+    };
+    drop(escopo);
+    Ok(resultado)
+}
+
+/// Invoca uma closure ou objeto chamável com retorno uniforme Owned.
+///
+/// A busca inválida preserva a exceção e devolve null, sem invocar código.
+/// Entradas válidas precisam do registro uniforme; callback genérico não basta.
+/// Fecha os escopos de busca e chamada, preservando o único owner do resultado.
+///
+/// # Safety
+/// Closure/receptor e elementos Ref ficam vivos por toda a chamada. `args` e
+/// `desc` apontam para vetores válidos da ABI uniforme, somente de leitura.
+/// A imagem de código permanece viva enquanto houver consumidores da closure.
+///
+/// # Panics
+/// Destino sem contrato uniforme ou violação de ownership/escopos; aborta no C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// extern "C" fn nulo(_: i64, _: *const i64, _: *const i64) -> i64 { 0 }
+/// let pc = nulo as *const () as usize as i64;
+/// // SAFETY: corpo estático readonly com retorno Ref null.
+/// let v = unsafe { dartforge_arc_registrar_uniforme_owned_v1(pc) };
+/// let c = dartforge_arc_closure_owned_v1(pc, 0, 0, 0);
+/// let args = [0_i64]; let desc = [0_i64, 0];
+/// // SAFETY: closure e vetores vivos; código registrado e estático.
+/// assert_eq!(unsafe { dartforge_arc_invocar_closure_uniforme_v1(c,
+///     args.as_ptr() as i64, desc.as_ptr() as i64) }, 0);
+/// dartforge_arc_release(c);
+/// dartforge_arc_retirar_retorno_owned_v1(pc, v);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_arc_invocar_closure_uniforme_v1(closure: i64, args: i64, desc: i64) -> i64 {
+    arc_invocar_closure_uniforme(closure, args, desc).expect("fronteira closure uniforme ARC inválida")
+}
+
 /// Retira exatamente a versão registrada, sem invalidar uma versão posterior.
 ///
 /// Deve ocorrer após retirar os consumidores do endereço. Recusa callbacks

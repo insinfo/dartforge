@@ -22,11 +22,17 @@ pub(super) fn conferir(m: &Module) -> Result<(), String> {
         };
         for b in &f.blocks {
             for (v, i, t) in &b.instructions {
-                let Instruction::CallSeletorRepasse {
-                    recv, args, desc, ..
-                } = i
-                else {
-                    continue;
+                let (recv, args, desc) = match i {
+                    Instruction::CallSeletorRepasse {
+                        recv, args, desc, ..
+                    }
+                    | Instruction::CallClosureRepasse {
+                        closure: recv,
+                        args,
+                        desc,
+                        ..
+                    } => (recv, args, desc),
+                    _ => continue,
                 };
                 let ref_valida = matches!(recv, Operand::Val(v) if tipos.get(v) == Some(&Type::Ref))
                     || matches!(recv, Operand::Constant(Constant::Null));
@@ -51,7 +57,9 @@ pub(super) fn conferir(m: &Module) -> Result<(), String> {
                     // convenção nova permite validar antes de publicar a mudança.
                     let mut copia = b.clone();
                     for (_, i, _) in &mut copia.instructions {
-                        if let Instruction::CallSeletorRepasse { arc_owned, .. } = i {
+                        if let Instruction::CallSeletorRepasse { arc_owned, .. }
+                        | Instruction::CallClosureRepasse { arc_owned, .. } = i
+                        {
                             *arc_owned = true;
                         }
                     }
@@ -80,7 +88,9 @@ pub(super) fn conferir(m: &Module) -> Result<(), String> {
 pub(super) fn preparar(funcoes: &mut [Function]) {
     for f in funcoes {
         for (_, i, _) in f.blocks.iter_mut().flat_map(|b| &mut b.instructions) {
-            if let Instruction::CallSeletorRepasse { arc_owned, .. } = i {
+            if let Instruction::CallSeletorRepasse { arc_owned, .. }
+            | Instruction::CallClosureRepasse { arc_owned, .. } = i
+            {
                 *arc_owned = true;
             }
         }

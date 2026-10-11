@@ -105,6 +105,7 @@ pub(super) fn produzir(
                 }
                 // O adaptador recusa destinos sem contrato uniforme readonly.
                 Instruction::CallSeletorRepasse { recv, args, desc, .. }
+                | Instruction::CallClosureRepasse { closure: recv, args, desc, .. }
                     if descritor(desc) && !descritor(recv) && !descritor(args) => {}
                 // Consultas nativas somente de leitura da ABI; seus contratos
                 // de chamada/representações ainda são conferidos pelo catálogo.

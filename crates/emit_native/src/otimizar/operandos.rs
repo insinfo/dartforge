@@ -116,7 +116,7 @@ macro_rules! visitar {
                     args.$nome_t().for_each(|a| f(a));
                     f(tupla_tipos);
                 }
-                Instruction::CallClosureRepasse { closure, args, desc } => {
+                Instruction::CallClosureRepasse { closure, args, desc, .. } => {
                     f(closure);
                     f(args);
                     f(desc);

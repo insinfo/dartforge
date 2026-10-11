@@ -870,8 +870,12 @@ fn produzir(
                 fixas.insert(*v, classe);
             }
         }
-        if incluir_arc && matches!(inst, Instruction::CallSeletorRepasse { arc_owned: true, .. }) {
-            let Instruction::CallSeletorRepasse { recv, args, desc, .. } = inst else { unreachable!() };
+        if incluir_arc && matches!(inst, Instruction::CallSeletorRepasse { arc_owned: true, .. } | Instruction::CallClosureRepasse { arc_owned: true, .. }) {
+            let (recv, args, desc) = match inst {
+                Instruction::CallSeletorRepasse { recv, args, desc, .. }
+                | Instruction::CallClosureRepasse { closure: recv, args, desc, .. } => (recv, args, desc),
+                _ => unreachable!(),
+            };
             let compativel = |op: &Operand, t| match op {
                 Operand::Val(v) => tipos.get(v) == Some(&t),
                 Operand::Constant(Constant::Null) => t == Type::Ref,

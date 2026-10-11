@@ -171,7 +171,26 @@ fn modulo(tabelas: bool, certificar: bool) -> Result<Module, String> {
                 .insert(BlockId(1), SaidaPorExcecao::Lanca);
             m.tabelas.push(plano.tabelas.clone());
         }
-        planos.insert("repasse_seletor".into(), plano);
+        planos.insert("repasse_seletor".into(), plano.clone());
+        let mut closure = m.functions.last().unwrap().clone();
+        closure.symbol = "repasse_closure".into();
+        closure.name = "repasse_closure".into();
+        closure.blocks[0].instructions[0].1 = Instruction::CallClosureRepasse {
+            arc_owned: false,
+            closure: Operand::Val(ValueId(0)),
+            args: Operand::Val(ValueId(1)),
+            desc: Operand::Val(ValueId(2)),
+        };
+        m.functions.push(closure);
+        m.retornos_uniformes_arc.insert("repasse_closure".into());
+        m.parametros_vetores_dart.insert(
+            "repasse_closure".into(),
+            m.parametros_vetores_dart["entrada_uniforme"].clone(),
+        );
+        if tabelas {
+            m.tabelas.push(plano.tabelas.clone());
+        }
+        planos.insert("repasse_closure".into(), plano);
     }
     preparar_arc_modulo_dart(&mut m, &mut planos)?;
     if planos
@@ -186,7 +205,7 @@ fn modulo(tabelas: bool, certificar: bool) -> Result<Module, String> {
     {
         return Err("preparação não idempotente".into());
     }
-    if certificar && certificar_portas_arc_aot(&mut m, &planos)? != 4 {
+    if certificar && certificar_portas_arc_aot(&mut m, &planos)? != 5 {
         return Err("inventário de portas certificado incompleto".into());
     }
     Ok(m)
@@ -346,6 +365,24 @@ liberar_repasse:
   %repasse_morto = icmp eq i8 %repasse_final, 0
   br i1 %repasse_morto, label %repasse_concluido, label %falha
 repasse_concluido:
+  %closure = call i64 @dartforge_arc_closure_owned_v1(i64 %codigo_uniforme, i64 0, i64 0, i64 0)
+  %codigo_closure = ptrtoint ptr @repasse_closure to i64
+  %rc = call i64 @dartforge_arc_invocar_uniforme_v1(i64 %codigo_closure, i64 %closure, i64 %args_ptr, i64 %desc_ptr)
+  call void @dartforge_arc_release(i64 %closure)
+  call void @dartforge_arc_collect()
+  %closure_vivo = call i8 @dartforge_arc_observar_heap_v1(i64 %rc)
+  %closure_valor = call i64 @dartforge_unbox_int(i64 %rc)
+  %closure_owner_ok = icmp eq i8 %closure_vivo, 3
+  %closure_valor_ok = icmp eq i64 %closure_valor, 9223372036854775807
+  %closure_ok = and i1 %closure_owner_ok, %closure_valor_ok
+  br i1 %closure_ok, label %liberar_closure, label %falha
+liberar_closure:
+  call void @dartforge_arc_release(i64 %rc)
+  call void @dartforge_arc_collect()
+  %closure_final = call i8 @dartforge_arc_observar_heap_v1(i64 %rc)
+  %closure_morto = icmp eq i8 %closure_final, 0
+  br i1 %closure_morto, label %closure_concluida, label %falha
+closure_concluida:
 "#);
     }
     if arc {

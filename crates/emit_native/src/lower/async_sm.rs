@@ -1273,7 +1273,7 @@ pub(crate) fn usos_de(inst: &Instruction) -> Vec<ValueId> {
             args.iter().for_each(&mut op);
             op(tupla_tipos);
         }
-        Instruction::CallClosureRepasse { closure, args, desc } => {
+        Instruction::CallClosureRepasse { closure, args, desc, .. } => {
             op(closure);
             op(args);
             op(desc);
@@ -1418,7 +1418,7 @@ fn trocar_usos(inst: &mut Instruction, troca: &dyn Fn(ValueId) -> Option<ValueId
             args.iter_mut().for_each(t);
             t(tupla_tipos);
         }
-        Instruction::CallClosureRepasse { closure, args, desc } => {
+        Instruction::CallClosureRepasse { closure, args, desc, .. } => {
             t(closure);
             t(args);
             t(desc);
