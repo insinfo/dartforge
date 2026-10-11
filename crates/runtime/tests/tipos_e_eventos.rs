@@ -24,6 +24,53 @@ fn numa_thread(f: impl FnOnce() + Send + 'static) {
 
 #[test]
 #[allow(unsafe_code)]
+fn receita_interna_ids_sem_coletar_reter_texto_ou_alterar_pendencia() {
+    numa_thread(|| {
+        dartforge_memoria_arc_v1();
+        for receita in ["C350<C201>", "F<0;C201;1;C201;nome:C350!>", "R<C201;nome:C350>", "L<C201,C350>"] {
+            let mut anterior = None;
+            for pendente in [false, true] {
+                let meio = receita.len() / 2;
+                // SAFETY: receitas ASCII; as duas partes são regiões válidas.
+                let (a, b) = unsafe {
+                    (dartforge_string_new(receita.as_ptr(), meio as i64),
+                     dartforge_string_new(receita.as_ptr().add(meio), (receita.len() - meio) as i64))
+                };
+                // Os literais são raízes canônicas; a concatenação é dinâmica.
+                let texto = dartforge_string_concat(a, b);
+                dartforge_arc_retain(texto);
+                let rastro = if pendente {
+                    let r = dartforge_stack_trace_get();
+                    dartforge_throw_with_stack_trace(0, 3, r);
+                    Some(r)
+                } else { None };
+                let nome = b"dartforge_rti_receita";
+                // SAFETY: nome constante. Bit 0 proíbe coleta, bit 1 nova pendência.
+                unsafe { dartforge_efeitos_antes(nome.as_ptr(), nome.len() as i64, 3); }
+                let tipo = dartforge_rti_receita(texto);
+                dartforge_efeitos_depois();
+                assert_eq!(dartforge_efeitos_nivel(), 0);
+                assert_eq!(dartforge_exception_pending(), u8::from(pendente));
+                if let Some(rastro) = rastro {
+                    assert_eq!(dartforge_exception_peek_ref(), 0);
+                    assert_eq!(dartforge_stack_trace_get(), rastro);
+                    dartforge_exception_clear();
+                }
+                if let Some(id) = anterior { assert_eq!(tipo, id); }
+                anterior = Some(tipo);
+                assert_eq!(dartforge_arc_observar_heap_v1(texto), 3);
+                dartforge_arc_release(texto);
+                dartforge_arc_collect();
+                assert_eq!(dartforge_arc_observar_heap_v1(texto), 0, "receita {receita}; pendente {pendente}");
+                // O ID canônico permanece válido sem reter a string da receita.
+                assert_eq!(dartforge_rti_subtipo(tipo, tipo), 1);
+            }
+        }
+    });
+}
+
+#[test]
+#[allow(unsafe_code)]
 fn definir_rti_preserva_owner_pendencia_e_elementos_ao_descompactar() {
     numa_thread(|| {
         dartforge_memoria_arc_v1();

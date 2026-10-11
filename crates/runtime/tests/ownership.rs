@@ -112,6 +112,7 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
                         | "dartforge_ponto_seguro"
                         | "dartforge_exception_clear"
                         | "dartforge_rti_definir"
+                        | "dartforge_rti_receita"
                         | "dartforge_nsm_chamada"
                         | "dartforge_unbox_int"
                         | "dartforge_unbox_double"
