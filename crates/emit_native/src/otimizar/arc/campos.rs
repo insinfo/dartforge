@@ -2,6 +2,8 @@
 //! Alocações HIR completas são as âncoras; cópias/moves/Phis transportam
 //! conjuntos de sítios, sem forte atualização por instância. Publicação,
 //! uso opaco ou contenção invalidam o sítio inteiro, inclusive antes do uso.
+//! Leituras Ref sem origem estática usam a conferência do mapa real do heap;
+//! o plano de tokens protege o empréstimo antes de invalidar a aresta.
 //! Não substitui guardas Dart late/tipo, resumos de heap ou versões/pins.
 
 use super::{PlanoFuncaoDart, arestas::proximo_valor};
@@ -157,6 +159,26 @@ pub(super) fn preparar(
         return Ok(());
     }
     let (origens, classes) = origens(f, layouts, receivers);
+    // Entradas emprestadas já devem ser instâncias válidas pela semântica
+    // Dart. Uma fábrica local sem layout pode ainda conter campos zerados
+    // sem marca Ref; não a confundir com um receiver de entrada aberto.
+    let mut entradas_ref: HashSet<_> = f.params.iter()
+        .filter(|(_, _, ty)| *ty == Type::Ref).map(|(v, _, _)| *v).collect();
+    loop {
+        let mut mudou = false;
+        for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
+            if *ty != Type::Ref { continue; }
+            let entrada = |op: &Operand| matches!(op, Operand::Val(v) if entradas_ref.contains(v));
+            let derivado = match inst {
+                Instruction::ArcCopy { value } | Instruction::ArcMove { value } => entrada(value),
+                Instruction::Phi { incoming, .. } => !incoming.is_empty()
+                    && incoming.iter().all(|(_, op)| entrada(op)),
+                _ => false,
+            };
+            if derivado { mudou |= entradas_ref.insert(*v); }
+        }
+        if !mudou { break; }
+    }
     let mut escapam = HashSet::new();
     let mut exposicoes = HashMap::new();
     for (v, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
@@ -272,8 +294,21 @@ pub(super) fn preparar(
                 }
             };
             let atuais: HashSet<_> = globais_locais.union(&invalidos).copied().collect();
-            let repr = representacao(object, index, &origens, &classes, layouts, &atuais)
-                .map_err(|e| format!("campo ARC em {} v{}: {e}", f.symbol, v.0))?;
+            let o = origem(object, &origens);
+            // Sem âncora nominal, o accessor Ref confere receiver, índice e
+            // bitmap antes de emprestar. Não reinterpretar bits escalares,
+            // ignorar contradições de uma origem conhecida ou inferir setters.
+            let leitura_ref_conferida = value.is_none() && *ty == Type::Ref
+                && o.desconhecido && o.sitios.is_empty()
+                && matches!(object, Operand::Val(v) if entradas_ref.contains(v));
+            let repr = if leitura_ref_conferida {
+                Type::Ref
+            } else {
+                representacao(object, index, &origens, &classes, layouts, &atuais)
+                    .map_err(|e| format!("campo ARC em {} v{}: {e}", f.symbol, v.0))?
+            };
+            let indice = i64::try_from(index)
+                .map_err(|_| format!("campo ARC em {} v{}: índice fora da ABI", f.symbol, v.0))?;
             if tipo(object) != Some(Type::Ref)
                 || (value.is_none() && *ty != repr)
                 || value.is_some_and(|o| tipo(o) != Some(repr) || *ty != Type::Void)
@@ -302,7 +337,7 @@ pub(super) fn preparar(
             };
             let mut args = vec![
                 (object.clone(), Type::Ref),
-                (Operand::Constant(Constant::Int(index as i64)), Type::I64),
+                (Operand::Constant(Constant::Int(indice)), Type::I64),
             ];
             if let Some(value) = value {
                 let bits = if let Some(a) = auxiliar {
@@ -428,6 +463,44 @@ mod testes {
             m,
             HashMap::from([("campos".into(), PlanoFuncaoDart::default())]),
         )
+    }
+
+    #[test]
+    fn getter_ref_de_receiver_aberto_confere_mapa_e_devolve_owned() {
+        let (mut m, _) = modulo(vec![], vec![]);
+        m.functions[0].params = vec![(ValueId(0), "this".into(), Type::Ref)];
+        m.functions[0].return_ty = Type::Ref;
+        m.functions[0].blocks[0].instructions = vec![(ValueId(1), Instruction::GetField {
+            object: Operand::Val(ValueId(0)), index: 39,
+        }, Type::Ref)];
+        m.functions[0].blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
+        let mut plano = PlanoFuncaoDart::default();
+        plano.tokens.retorno = RetornoTokens::Owned;
+        let mut planos = HashMap::from([("campos".into(), plano)]);
+        assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (1, 0));
+        let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+        let ler = ir.find("call i64 @dartforge_arc_ler_campo_ref_v1").unwrap();
+        let reter = ir.find("call void @dartforge_arc_retain").unwrap();
+        assert!(ler < reter);
+        assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+    }
+
+    #[test]
+    fn receiver_aberto_nao_certifica_setter_ou_leitura_escalar() {
+        for caso in 0..3 {
+            let (mut m, mut planos) = modulo(vec![], vec![]);
+            m.functions[0].params = vec![(ValueId(0), "this".into(), Type::Ref)];
+            m.functions[0].blocks[0].instructions = vec![(ValueId(1), if caso == 0 {
+                Instruction::SetField { object: Operand::Val(ValueId(0)), index: 0,
+                    value: Operand::Constant(Constant::Null) }
+            } else {
+                Instruction::GetField { object: Operand::Val(ValueId(0)),
+                    index: if caso == 2 { usize::MAX } else { 0 } }
+            }, if caso == 0 { Type::Void } else if caso == 1 { Type::I64 } else { Type::Ref })];
+            let antes = format!("{m:?}/{planos:?}");
+            assert!(preparar_arc_modulo_dart(&mut m, &mut planos).is_err());
+            assert_eq!(antes, format!("{m:?}/{planos:?}"));
+        }
     }
 
     #[test]

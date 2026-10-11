@@ -321,8 +321,9 @@ fn ler_campo_escalar_auditado(heap: &Heap, objeto: i64, indice: i64) -> Result<i
 /// Exige instância viva, índice válido e marca Ref no mapa real do heap.
 /// Null/Smi são referências válidas. O resultado depende da aresta do receiver:
 /// manter só o receiver vivo não protege o filho após substituir o campo.
-/// O lowering deve provar layout e limites de empréstimo; antes de uma
-/// invalidação, deve copiar o empréstimo para Owned ou encerrar seu uso.
+/// O mapa real confere a representação Ref mesmo sem classe nominal estática.
+/// O lowering deve preservar guardas semânticas e limites de empréstimo; antes
+/// de uma invalidação, deve copiar para Owned ou encerrar seu uso.
 /// Não aloca, coleta, retém, invalida outros borrows ou executa Dart.
 /// Não substitui guardas Dart de tipo/late nem certifica versões/pins.
 ///

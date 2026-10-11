@@ -26,14 +26,7 @@ fn modulo(captura: bool) -> Result<Module, String> {
             instructions: vec![
                 (
                     ValueId(1),
-                    Instruction::CallRuntime {
-                        name: "dartforge_arc_ler_campo_ref_v1".into(),
-                        args: vec![
-                            (val(0), Type::Ref),
-                            (Operand::Constant(Constant::Int(39)), Type::I64),
-                        ],
-                        ret_ty: Type::Ref,
-                    },
+                    Instruction::GetField { object: val(0), index: 39 },
                     Type::Ref,
                 ),
                 (
