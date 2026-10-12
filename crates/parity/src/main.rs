@@ -16,7 +16,7 @@
 use dartforge_parity::analise::Motor;
 use dartforge_parity::corpus::{self, Grupo};
 use dartforge_parity::oraculo::{self, Meta, Record};
-use dartforge_parity::projetos::{self, Mutacao, Projeto};
+use dartforge_parity::projetos::{self, Mutation, Project};
 use dartforge_parity::scoreboard::Scoreboard;
 use dartforge_parity::{Execution, filtros, run_ours};
 use std::fmt::Write as _;
@@ -636,11 +636,11 @@ fn slices(dir: &Path, max: usize) -> Vec<Vec<PathBuf>> {
     }
     out
 }
-fn read_projects(corpus: &Path) -> Vec<(Projeto, Vec<Record>)> {
+fn read_projects(corpus: &Path) -> Vec<(Project, Vec<Record>)> {
     let path = corpus.join("projetos.json");
     match std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()) {
         Some(v) => v,
-        None => projetos::padrao().into_iter().map(|p| (p, Vec::new())).collect(),
+        None => projetos::default_projects().into_iter().map(|p| (p, Vec::new())).collect(),
     }
 }
 
@@ -737,9 +737,9 @@ samples:
     ExitCode::SUCCESS
 }
 
-fn mutations(a: &Args, engine: &Motor, list: &[Projeto]) -> String {
+fn mutations(a: &Args, engine: &Motor, list: &[Project]) -> String {
     let file = a.corpus.join("mutacoes.jsonl");
-    let mut recorded: Vec<Mutacao> = std::fs::read_to_string(&file)
+    let mut recorded: Vec<Mutation> = std::fs::read_to_string(&file)
         .map(|t| t.lines().filter_map(|l| serde_json::from_str(l).ok()).collect())
         .unwrap_or_default();
     let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/scratch-paridade/projetos");
@@ -752,7 +752,7 @@ fn mutations(a: &Args, engine: &Motor, list: &[Projeto]) -> String {
             continue;
         }
         let copy = scratch.join(&p.nome);
-        let cfg = match projetos::copiar(p, &copy) {
+        let cfg = match projetos::copy(p, &copy) {
             Ok(c) => c,
             Err(e) => {
                 let _ = writeln!(s, "{}: copy failed: {e}", p.nome);
@@ -761,19 +761,19 @@ fn mutations(a: &Args, engine: &Motor, list: &[Projeto]) -> String {
         };
         let options = filtros::Opcoes::ler(&copy);
         let files = projetos::arquivos(&copy, &options);
-        let mut ms: Vec<Mutacao> = if a.rerecord {
-            projetos::escolher(p, &copy, &files, a.mutations.max(1))
+        let mut ms: Vec<Mutation> = if a.rerecord {
+            projetos::choose(p, &copy, &files, a.mutations.max(1))
         } else {
             recorded.iter().filter(|m| m.projeto == p.nome).cloned().collect()
         };
         for m in ms.iter_mut() {
             let target = copy.join(&m.arquivo);
             let Ok(original) = std::fs::read_to_string(&target) else { continue };
-            if projetos::hash_texto(&original) != m.hash_original {
+            if projetos::text_hash(&original) != m.hash_original {
                 stale += 1;
                 continue;
             }
-            let mutant = m.aplicar(&original);
+            let mutant = m.apply(&original);
             if std::fs::write(&target, &mutant).is_err() {
                 continue;
             }
