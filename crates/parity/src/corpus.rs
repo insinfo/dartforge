@@ -18,7 +18,7 @@
 //! * `*-3.13`: os arquivos que declaram `// @dart = 3.7` ou mais, cujo
 //!   oráculo é o 3.13.4.
 
-use crate::oraculo::{FNV_INICIO, SdkOraculo, fnv};
+use crate::oraculo::{FNV_START, OracleSdk, fnv};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 /// `grupo.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Grupo {
-    pub sdk: SdkOraculo,
+    pub sdk: OracleSdk,
     /// Pacotes de apoio em `corpus/diagnosticos/pacotes/`.
     #[serde(default)]
     pub pacotes: Vec<String>,
@@ -102,7 +102,7 @@ pub fn arquivos_dart_todos(dir: &Path) -> Vec<PathBuf> {
 
 /// Hash das fontes do grupo (caminho relativo + conteúdo, em ordem).
 pub fn hash_fontes(dir: &Path) -> String {
-    let mut h = FNV_INICIO;
+    let mut h = FNV_START;
     for a in arquivos_dart(dir) {
         let rel = crate::oraculo::relativo(&a, dir).unwrap_or_default();
         h = fnv(rel.as_bytes(), h);
@@ -117,7 +117,7 @@ pub fn hash_fontes(dir: &Path) -> String {
 pub fn preparar(dir: &Path, nome: &str, g: &Grupo) -> std::io::Result<PathBuf> {
     let pacote = nome_pacote(nome);
     let mut pkgs = vec![serde_json::json!({
-        "name": pacote, "rootUri": "../", "packageUri": "lib/", "languageVersion": g.sdk.linguagem()
+        "name": pacote, "rootUri": "../", "packageUri": "lib/", "languageVersion": g.sdk.language()
     })];
     for p in &g.pacotes {
         pkgs.push(serde_json::json!({
@@ -140,7 +140,7 @@ fn escrever_grupo(dir: &Path, nome: &str, g: &Grupo) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     std::fs::write(
         dir.join("pubspec.yaml"),
-        format!("name: {}\npublish_to: none\nenvironment:\n  sdk: {}\n", nome_pacote(nome), g.sdk.restricao()),
+        format!("name: {}\npublish_to: none\nenvironment:\n  sdk: {}\n", nome_pacote(nome), g.sdk.constraint()),
     )?;
     std::fs::write(dir.join("grupo.json"), serde_json::to_string_pretty(g).expect("JSON") + "\n")
 }
@@ -230,7 +230,7 @@ pub fn gerar(referencias: &Path, destino: &Path, pub_cache: &Path) -> Result<Str
         std::fs::write(&d, t).map_err(|e| e.to_string())?;
         *por_grupo.entry(g).or_default() += 1;
     }
-    for (g, sdk) in [("linguagem", SdkOraculo::V362), ("linguagem-3.13", SdkOraculo::V3134)] {
+    for (g, sdk) in [("linguagem", OracleSdk::V362), ("linguagem-3.13", OracleSdk::V3134)] {
         if por_grupo.contains_key(g) {
             escrever_grupo(
                 &destino.join(g),
@@ -285,7 +285,7 @@ pub fn gerar(referencias: &Path, destino: &Path, pub_cache: &Path) -> Result<Str
             *n_trechos.entry(g).or_default() += 1;
         }
     }
-    for (g, sdk) in [("analyzer", SdkOraculo::V362), ("analyzer-3.13", SdkOraculo::V3134)] {
+    for (g, sdk) in [("analyzer", OracleSdk::V362), ("analyzer-3.13", OracleSdk::V3134)] {
         if n_trechos.contains_key(g) {
             escrever_grupo(
                 &destino.join(g),
@@ -316,13 +316,13 @@ pub fn nome_curto(stem: &str) -> String {
     while !stem.is_char_boundary(corte) {
         corte -= 1;
     }
-    format!("{}_{:08x}", &stem[..corte], fnv(stem.as_bytes(), FNV_INICIO) as u32)
+    format!("{}_{:08x}", &stem[..corte], fnv(stem.as_bytes(), FNV_START) as u32)
 }
 
 /// Renomeia os arquivos de nome longo de um grupo já gravado e reescreve o
 /// registro do oráculo (os offsets não mudam; só o caminho). Devolve quantos.
 pub fn encurtar(dir: &Path) -> Result<usize, String> {
-    let (mut regs, mut meta) = crate::oraculo::ler(dir)?;
+    let (mut regs, mut meta) = crate::oraculo::read(dir)?;
     let mut mapa = std::collections::BTreeMap::new();
     // Os testes de linguagem se importam pelo nome: lá não se renomeia (só
     // se regrava o registro com o hash das fontes).
@@ -344,7 +344,7 @@ pub fn encurtar(dir: &Path) -> Result<usize, String> {
         }
     }
     meta.hash = hash_fontes(dir);
-    crate::oraculo::gravar(dir, regs, &meta).map_err(|e| e.to_string())?;
+    crate::oraculo::write(dir, regs, &meta).map_err(|e| e.to_string())?;
     Ok(mapa.len())
 }
 

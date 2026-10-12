@@ -10,7 +10,7 @@
 //! `corpus/diagnosticos/projetos.json` e `corpus/diagnosticos/mutacoes.jsonl`;
 //! uma mutação cujo arquivo original mudou (hash) é acusada como desatualizada.
 
-use crate::oraculo::{FNV_INICIO, Registro, SdkOraculo, fnv};
+use crate::oraculo::{FNV_START, Record, OracleSdk, fnv};
 use dartforge_frontend::ast::{DirectiveKind, ExprKind, TypeKind, UnaryOp};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 pub struct Projeto {
     pub nome: String,
     pub caminho: PathBuf,
-    pub sdk: SdkOraculo,
+    pub sdk: OracleSdk,
     /// Diagnósticos do oráculo no projeto inteiro (registrado).
     #[serde(default)]
     pub oraculo: Option<usize>,
@@ -28,7 +28,7 @@ pub struct Projeto {
 
 /// Os três projetos do plano.
 pub fn padrao() -> Vec<Projeto> {
-    let p = |nome: &str, c: &str| Projeto { nome: nome.into(), caminho: c.into(), sdk: SdkOraculo::V362, oraculo: None };
+    let p = |nome: &str, c: &str| Projeto { nome: nome.into(), caminho: c.into(), sdk: OracleSdk::V362, oraculo: None };
     vec![
         p("new_sali-core", "C:/MyDartProjects/new_sali/core"),
         p("new_sali-frontend", "C:/MyDartProjects/new_sali/frontend"),
@@ -52,7 +52,7 @@ pub struct Mutacao {
     pub inserir: String,
     /// FNV-1a do arquivo original.
     pub hash_original: String,
-    pub oraculo: Vec<Registro>,
+    pub oraculo: Vec<Record>,
 }
 
 impl Mutacao {
@@ -62,7 +62,7 @@ impl Mutacao {
 }
 
 pub fn hash_texto(t: &str) -> String {
-    format!("{:016x}", fnv(t.as_bytes(), FNV_INICIO))
+    format!("{:016x}", fnv(t.as_bytes(), FNV_START))
 }
 
 /// Arquivos `.dart` do projeto que o `dart analyze` veria (sem `exclude`).
@@ -243,7 +243,7 @@ pub fn escolher(p: &Projeto, raiz_copia: &Path, arquivos: &[PathBuf], por_tipo: 
             if out.iter().any(|m: &Mutacao| m.arquivo == rel) {
                 continue;
             }
-            let h = fnv(rel.as_bytes(), FNV_INICIO) as usize;
+            let h = fnv(rel.as_bytes(), FNV_START) as usize;
             let (inicio, fim, inserir) = s[h % s.len()].clone();
             out.push(Mutacao {
                 projeto: p.nome.clone(),

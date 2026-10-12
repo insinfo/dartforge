@@ -8,7 +8,7 @@
 //! Everything is in `BTreeMap`s: the scoreboard text does not depend on the
 //! order in which the batches finished.
 
-use crate::oraculo::Registro;
+use crate::oraculo::Record;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
@@ -86,7 +86,7 @@ impl Scoreboard {
         }
     }
 
-    fn sample(&mut self, code: &str, cat: &'static str, r: &Registro, extra: &str) {
+    fn sample(&mut self, code: &str, cat: &'static str, r: &Record, extra: &str) {
         let v = self.samples.entry((code.to_string(), cat)).or_default();
         if v.len() < sample_limit() {
             v.push(format!("{}:{}:{} {}{extra}", r.arquivo, r.line, r.column, r.problem_message));
@@ -94,9 +94,9 @@ impl Scoreboard {
     }
 
     /// Compares the diagnostics of a group (both sides relative to the same root).
-    pub fn compare(&mut self, oracle: &[Registro], ours: &[Registro]) {
+    pub fn compare(&mut self, oracle: &[Record], ours: &[Record]) {
         // (file, code) → each side's records.
-        type Sides<'r> = (Vec<&'r Registro>, Vec<&'r Registro>);
+        type Sides<'r> = (Vec<&'r Record>, Vec<&'r Record>);
         let mut sides: BTreeMap<(&str, &str), Sides<'_>> = BTreeMap::new();
         for r in oracle {
             sides.entry((&r.arquivo, &r.code)).or_default().0.push(r);
@@ -129,7 +129,7 @@ impl Scoreboard {
                     None => rest_o.push(*ro),
                 }
             }
-            let rest_n: Vec<&Registro> = (0..n.len()).filter(|&i| !used[i]).map(|i| n[i]).collect();
+            let rest_n: Vec<&Record> = (0..n.len()).filter(|&i| !used[i]).map(|i| n[i]).collect();
             let pairs = rest_o.len().min(rest_n.len());
             count.wrong_position = pairs;
             for k in 0..pairs {
@@ -197,8 +197,8 @@ impl Scoreboard {
 mod tests {
     use super::*;
 
-    fn r(file: &str, code: &str, off: usize, len: usize, msg: &str) -> Registro {
-        Registro {
+    fn r(file: &str, code: &str, off: usize, len: usize, msg: &str) -> Record {
+        Record {
             arquivo: file.into(),
             offset: off,
             length: len,

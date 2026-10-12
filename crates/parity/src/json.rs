@@ -1,26 +1,26 @@
-//! O formato JSON v1 do `dart analyze --format=json`, lido do oráculo e
-//! emitido por nós campo a campo na mesma ordem.
+//! The JSON v1 format of `dart analyze --format=json`, read from the oracle
+//! and written by us field by field in the same order.
 //!
-//! Medido no SDK 3.6.2 (sonda de 7 erros): objeto compacto
-//! `{"version":1,"diagnostics":[...]}`; cada diagnóstico tem `code` (o
-//! `ErrorCode.name` em minúsculas), `severity`, `type`, `location` com o
-//! caminho absoluto do arquivo e o intervalo (`offset` em **unidades UTF-16**,
-//! `line` e `column` a partir de 1), `problemMessage`, e — só quando existem —
-//! `correctionMessage` e `documentation` (a URL de `hasPublishedDocs`).
-//! A ordem é a do `DiagnosticWithPath.compareTo` do dartdev: severidade
-//! (erros primeiro), caminho, linha, coluna, mensagem.
+//! Measured on SDK 3.6.2 (7-error probe): a compact object
+//! `{"version":1,"diagnostics":[...]}`; each diagnostic has `code` (the
+//! `ErrorCode.name` in lower case), `severity`, `type`, `location` with the
+//! file's absolute path and the range (`offset` in **UTF-16 code units**,
+//! `line` and `column` starting at 1), `problemMessage`, and — only when they
+//! exist — `correctionMessage` and `documentation` (the `hasPublishedDocs`
+//! URL). The order is dartdev's `DiagnosticWithPath.compareTo`: severity
+//! (errors first), path, line, column, message.
 
 use dartforge_diagnostics::{Diagnostic, Severidade};
 use serde::{Deserialize, Serialize};
 
-/// O documento inteiro.
+/// The whole document.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Relatorio {
+pub struct Report {
     pub version: u32,
     pub diagnostics: Vec<DiagJson>,
 }
 
-/// Um diagnóstico no JSON v1.
+/// A diagnostic in JSON v1.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiagJson {
@@ -32,16 +32,16 @@ pub struct DiagJson {
     pub problem_message: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub correction_message: Option<String>,
-    /// As mensagens de contexto; a chave só existe quando há alguma.
+    /// The context messages; the key only exists when there is one.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub context_messages: Vec<ContextoJson>,
+    pub context_messages: Vec<ContextJson>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub documentation: Option<String>,
 }
 
-/// Uma mensagem de contexto no JSON v1 (`analyze.dart:409-422`).
+/// A context message in JSON v1 (`analyze.dart:409-422`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ContextoJson {
+pub struct ContextJson {
     pub location: Local,
     pub message: String,
 }
@@ -65,30 +65,30 @@ pub struct Ponto {
     pub column: usize,
 }
 
-/// Converte offsets de bytes UTF-8 em (offset UTF-16, linha, coluna), como o
-/// `LineInfo` do analyzer: quebras são `\n`, `\r\n` e `\r` sozinho.
+/// Converts UTF-8 byte offsets to (UTF-16 offset, line, column), like the
+/// analyzer's `LineInfo`: line breaks are `\n`, `\r\n` and a lone `\r`.
 pub struct Linhas<'a> {
-    texto: &'a str,
-    /// Byte inicial de cada linha.
-    inicios: Vec<usize>,
-    /// Offset UTF-16 do início de cada linha.
-    inicios16: Vec<usize>,
+    text: &'a str,
+    /// The first byte of each line.
+    starts: Vec<usize>,
+    /// The UTF-16 offset of the start of each line.
+    starts16: Vec<usize>,
 }
 
 impl<'a> Linhas<'a> {
-    pub fn new(texto: &'a str) -> Self {
-        let mut inicios = vec![0];
-        let mut inicios16 = vec![0];
-        let b = texto.as_bytes();
+    pub fn new(text: &'a str) -> Self {
+        let mut starts = vec![0];
+        let mut starts16 = vec![0];
+        let b = text.as_bytes();
         let mut u16s = 0usize;
         let mut i = 0;
-        for (pos, ch) in texto.char_indices() {
+        for (pos, ch) in text.char_indices() {
             if pos < i {
                 continue;
             }
             u16s += ch.len_utf16();
             i = pos + ch.len_utf8();
-            let quebra = match ch {
+            let is_break = match ch {
                 '\n' => true,
                 '\r' => {
                     if b.get(i) == Some(&b'\n') {
@@ -99,66 +99,66 @@ impl<'a> Linhas<'a> {
                 }
                 _ => false,
             };
-            if quebra {
-                inicios.push(i);
-                inicios16.push(u16s);
+            if is_break {
+                starts.push(i);
+                starts16.push(u16s);
             }
         }
-        Self { texto, inicios, inicios16 }
+        Self { text, starts, starts16 }
     }
 
-    /// Ponto do byte `byte` (limitado ao fim do texto e a uma fronteira de caractere).
+    /// The point of byte `byte` (clamped to the end of the text and to a character boundary).
     pub fn ponto(&self, byte: usize) -> Ponto {
-        // Além do fim (o scanner do fasta relata o fecho que falta no fim do
-        // arquivo com comprimento 1): continua a linha final.
-        if byte > self.texto.len() {
-            let p = self.ponto(self.texto.len());
-            let a_mais = byte - self.texto.len();
-            return Ponto { offset: p.offset + a_mais, line: p.line, column: p.column + a_mais };
+        // Past the end (the fasta scanner reports the missing closer at the
+        // end of the file with length 1): the last line continues.
+        if byte > self.text.len() {
+            let p = self.ponto(self.text.len());
+            let extra = byte - self.text.len();
+            return Ponto { offset: p.offset + extra, line: p.line, column: p.column + extra };
         }
         let mut byte = byte;
-        while !self.texto.is_char_boundary(byte) {
+        while !self.text.is_char_boundary(byte) {
             byte -= 1;
         }
-        let linha = self.inicios.partition_point(|&s| s <= byte) - 1;
-        let col16: usize = self.texto[self.inicios[linha]..byte].chars().map(char::len_utf16).sum();
-        Ponto { offset: self.inicios16[linha] + col16, line: linha + 1, column: col16 + 1 }
+        let line = self.starts.partition_point(|&s| s <= byte) - 1;
+        let col16: usize = self.text[self.starts[line]..byte].chars().map(char::len_utf16).sum();
+        Ponto { offset: self.starts16[line] + col16, line: line + 1, column: col16 + 1 }
     }
 }
 
-/// Converte um diagnóstico nosso para o JSON v1. Sem código, o campo `code`
-/// sai `dartforge_sem_codigo` (nunca coincide com o oráculo: conta como falso
-/// positivo no placar).
-pub fn para_json(arquivo: &str, linhas: &Linhas<'_>, d: &Diagnostic, sintaxe: bool) -> DiagJson {
-    let (code, tipo, doc) = match d.code {
+/// Converts one of our diagnostics to JSON v1. Without a code, the `code`
+/// field is `dartforge_sem_codigo` (it never matches the oracle: it counts as
+/// a false positive in the scoreboard).
+pub fn para_json(file: &str, lines: &Linhas<'_>, d: &Diagnostic, syntax: bool) -> DiagJson {
+    let (code, kind, doc) = match d.code {
         Some(c) => {
             let i = c.info();
             (i.nome.to_string(), i.tipo.nome().to_string(), i.url())
         }
         None => {
-            let tipo = if sintaxe { "SYNTACTIC_ERROR" } else { "COMPILE_TIME_ERROR" };
-            ("dartforge_sem_codigo".to_string(), tipo.to_string(), None)
+            let kind = if syntax { "SYNTACTIC_ERROR" } else { "COMPILE_TIME_ERROR" };
+            ("dartforge_sem_codigo".to_string(), kind.to_string(), None)
         }
     };
     DiagJson {
         code,
         severity: d.severity.nome().to_string(),
-        tipo,
+        tipo: kind,
         location: Local {
-            file: arquivo.to_string(),
-            range: Faixa { start: linhas.ponto(d.span.start), end: linhas.ponto(d.span.end.max(d.span.start)) },
+            file: file.to_string(),
+            range: Faixa { start: lines.ponto(d.span.start), end: lines.ponto(d.span.end.max(d.span.start)) },
         },
         problem_message: d.message.clone(),
         correction_message: d.correcao(),
-        // Linha e coluna saem do `lineInfo` do arquivo do ERRO, mesmo quando
-        // a mensagem aponta outro arquivo (`protocol_server.dart:185-191`).
+        // Line and column come from the `lineInfo` of the ERROR's file, even
+        // when the message points at another file (`protocol_server.dart:185-191`).
         context_messages: d
             .contexto
             .iter()
-            .map(|c| ContextoJson {
+            .map(|c| ContextJson {
                 location: Local {
-                    file: c.arquivo.as_deref().unwrap_or(arquivo).to_string(),
-                    range: Faixa { start: linhas.ponto(c.span.start), end: linhas.ponto(c.span.end.max(c.span.start)) },
+                    file: c.arquivo.as_deref().unwrap_or(file).to_string(),
+                    range: Faixa { start: lines.ponto(c.span.start), end: lines.ponto(c.span.end.max(c.span.start)) },
                 },
                 message: c.mensagem.to_string(),
             })
@@ -167,7 +167,7 @@ pub fn para_json(arquivo: &str, linhas: &Linhas<'_>, d: &Diagnostic, sintaxe: bo
     }
 }
 
-fn prioridade(sev: &str) -> u8 {
+fn priority(sev: &str) -> u8 {
     match Severidade::por_nome(sev) {
         Some(Severidade::Error) => 0,
         Some(Severidade::Warning) => 1,
@@ -176,11 +176,11 @@ fn prioridade(sev: &str) -> u8 {
     }
 }
 
-/// A ordem do dartdev (`DiagnosticWithPath.compareTo`).
+/// dartdev's order (`DiagnosticWithPath.compareTo`).
 pub fn ordenar(v: &mut [DiagJson]) {
     v.sort_by(|a, b| {
-        prioridade(&a.severity)
-            .cmp(&prioridade(&b.severity))
+        priority(&a.severity)
+            .cmp(&priority(&b.severity))
             .then_with(|| a.location.file.cmp(&b.location.file))
             .then_with(|| a.location.range.start.line.cmp(&b.location.range.start.line))
             .then_with(|| a.location.range.start.column.cmp(&b.location.range.start.column))
@@ -188,22 +188,22 @@ pub fn ordenar(v: &mut [DiagJson]) {
     });
 }
 
-/// Serializa como o `dart analyze` (JSON compacto, sem quebra no fim).
+/// Serializes like `dart analyze` (compact JSON, no trailing newline).
 pub fn escrever(diags: Vec<DiagJson>) -> String {
-    serde_json::to_string(&Relatorio { version: 1, diagnostics: diags }).expect("JSON")
+    serde_json::to_string(&Report { version: 1, diagnostics: diags }).expect("JSON")
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn linhas_utf16_e_quebras() {
+    fn lines_utf16_and_breaks() {
         let t = "a\r\nb\u{1F600}c\rd\n";
         let l = Linhas::new(t);
         assert_eq!(l.ponto(0), Ponto { offset: 0, line: 1, column: 1 });
         assert_eq!(l.ponto(3), Ponto { offset: 3, line: 2, column: 1 });
-        // depois do emoji (4 bytes, 2 unidades UTF-16)
+        // after the emoji (4 bytes, 2 UTF-16 code units)
         assert_eq!(l.ponto(8), Ponto { offset: 6, line: 2, column: 4 });
         assert_eq!(l.ponto(10), Ponto { offset: 8, line: 3, column: 1 });
     }

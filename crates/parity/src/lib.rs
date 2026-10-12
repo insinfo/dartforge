@@ -26,7 +26,7 @@ pub mod projetos;
 pub mod output;
 
 use analise::{Analise, Motor};
-use oraculo::Registro;
+use oraculo::Record;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -312,11 +312,11 @@ pub fn publicaveis(a: &analise::Arquivo, opcoes: &filtros::Opcoes, so_publicados
 /// Like [`diagnosticos_json`], as records relative to `raiz`, with what
 /// `dart analyze` (the oracle) prints: a `TODO` only comes out when `errors:`
 /// promoted it (`analyze.dart:191-192`, the same filter as our CLI).
-pub fn records(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoes, so_publicados: bool) -> Vec<Registro> {
-    let mut out: Vec<Registro> = diagnosticos_json(analise, raiz, opcoes, so_publicados)
+pub fn records(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoes, so_publicados: bool) -> Vec<Record> {
+    let mut out: Vec<Record> = diagnosticos_json(analise, raiz, opcoes, so_publicados)
         .iter()
         .filter(|j| !(j.tipo == "TODO" && j.severity == "INFO"))
-        .filter_map(|j| Registro::de_json(j, raiz))
+        .filter_map(|j| Record::from_json(j, raiz))
         .collect();
     out.sort();
     out
@@ -325,7 +325,7 @@ pub fn records(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoes, so_publ
 /// Our side's result for a set of files.
 #[derive(Debug, Default)]
 pub struct Run {
-    pub records: Vec<Registro>,
+    pub records: Vec<Record>,
     pub files: usize,
     pub batches: usize,
     /// Files whose analysis panicked or exceeded the memory cap or the time
@@ -361,7 +361,7 @@ pub fn run_ours(
     ex: &Execution,
 ) -> Run {
     let batches: Vec<&[PathBuf]> = files.chunks(ex.batch_size.max(1)).collect();
-    type Partial = (Vec<Registro>, Vec<String>, usize);
+    type Partial = (Vec<Record>, Vec<String>, usize);
     let results: Mutex<Vec<Option<Partial>>> = Mutex::new((0..batches.len()).map(|_| None).collect());
     let next = AtomicUsize::new(0);
     let done = AtomicUsize::new(0);
@@ -419,7 +419,7 @@ pub fn run_ours(
 }
 
 /// A batch on the same thread; on a panic, each file on its own.
-fn analyze_batch(motor: &Motor, raiz: &Path, batch: &[PathBuf], packages: Option<&Path>) -> (Vec<Registro>, Vec<String>, usize) {
+fn analyze_batch(motor: &Motor, raiz: &Path, batch: &[PathBuf], packages: Option<&Path>) -> (Vec<Record>, Vec<String>, usize) {
     let attempt = |files: &[PathBuf]| {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let a = motor.analisar(raiz, files, packages);
@@ -451,7 +451,7 @@ fn isolated_batch(
     batch: &[PathBuf],
     packages: Option<&Path>,
     max_time: std::time::Duration,
-) -> (Vec<Registro>, Vec<String>, usize) {
+) -> (Vec<Record>, Vec<String>, usize) {
     if let Some((r, amb)) = child(exe, raiz, batch, packages, max_time) {
         return (r, Vec::new(), amb);
     }
@@ -478,7 +478,7 @@ fn child(
     batch: &[PathBuf],
     packages: Option<&Path>,
     max_time: std::time::Duration,
-) -> Option<(Vec<Registro>, usize)> {
+) -> Option<(Vec<Record>, usize)> {
     use std::io::{Read, Write};
     use std::process::{Command, Stdio};
     let pk = packages.map(|p| p.as_os_str().to_owned()).unwrap_or_else(|| "-".into());

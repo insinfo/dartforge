@@ -1,21 +1,21 @@
-//! O oráculo: `dart analyze --format=json` do SDK oficial, e o registro do
-//! que ele disse, gravado em disco ao lado do corpus.
+//! The oracle: `dart analyze --format=json` from the official SDK, and the
+//! record of what it said, written to disk next to the corpus.
 //!
-//! Dois SDKs, escolhidos pela versão de linguagem da biblioteca (plano §2.4):
-//! o 3.6.2 para as bibliotecas até 3.6, o 3.13.4 para as que declaram 3.7 ou
-//! mais (`// @dart = 3.7`). O registro (`oraculo.jsonl`) guarda, por linha,
-//! um diagnóstico com o caminho relativo ao grupo; o CI compara contra ele
-//! sem precisar do `dart`. `oraculo.json` guarda o SDK e o hash das fontes:
-//! fonte mudada sem regravar é acusada pelo placar.
+//! Two SDKs, chosen by the library's language version (plan §2.4): 3.6.2 for
+//! libraries up to 3.6, 3.13.4 for those declaring 3.7 or later
+//! (`// @dart = 3.7`). The record (`oraculo.jsonl`) holds one diagnostic per
+//! line, with the path relative to the group; CI compares against it without
+//! needing `dart`. `oraculo.json` holds the SDK and the hash of the sources: a
+//! source changed without re-recording is flagged by the scoreboard.
 
-use crate::json::{DiagJson, Relatorio};
+use crate::json::{DiagJson, Report};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Um SDK oficial usado como oráculo.
+/// An official SDK used as the oracle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum SdkOraculo {
+pub enum OracleSdk {
     /// Dart 3.6.2 (`E:/DartSDKs/3.6.2`).
     #[serde(rename = "3.6.2")]
     V362,
@@ -24,50 +24,50 @@ pub enum SdkOraculo {
     V3134,
 }
 
-impl SdkOraculo {
-    pub fn versao(self) -> &'static str {
+impl OracleSdk {
+    pub fn version(self) -> &'static str {
         match self {
-            SdkOraculo::V362 => "3.6.2",
-            SdkOraculo::V3134 => "3.13.4",
+            OracleSdk::V362 => "3.6.2",
+            OracleSdk::V3134 => "3.13.4",
         }
     }
 
-    /// Restrição `environment: sdk:` do pubspec do grupo.
-    pub fn restricao(self) -> &'static str {
+    /// The `environment: sdk:` constraint of the group's pubspec.
+    pub fn constraint(self) -> &'static str {
         match self {
-            SdkOraculo::V362 => "^3.6.0",
-            SdkOraculo::V3134 => "^3.13.0",
+            OracleSdk::V362 => "^3.6.0",
+            OracleSdk::V3134 => "^3.13.0",
         }
     }
 
-    /// Versão de linguagem padrão do grupo.
-    pub fn linguagem(self) -> &'static str {
+    /// The group's default language version.
+    pub fn language(self) -> &'static str {
         match self {
-            SdkOraculo::V362 => "3.6",
-            SdkOraculo::V3134 => "3.13",
+            OracleSdk::V362 => "3.6",
+            OracleSdk::V3134 => "3.13",
         }
     }
 
-    /// O executável `dart` deste SDK existe nesta máquina?
-    pub fn disponivel(self) -> bool {
-        self.raiz().join("bin").join(if cfg!(windows) { "dart.exe" } else { "dart" }).is_file()
+    /// Does this SDK's `dart` executable exist on this machine?
+    pub fn available(self) -> bool {
+        self.root().join("bin").join(if cfg!(windows) { "dart.exe" } else { "dart" }).is_file()
     }
 
-    /// Onde o SDK está nesta máquina (`DARTFORGE_ORACULO_3_6`/`_3_13` mudam).
-    pub fn raiz(self) -> PathBuf {
-        let (var, padrao) = match self {
-            SdkOraculo::V362 => ("DARTFORGE_ORACULO_3_6", "E:/DartSDKs/3.6.2"),
-            SdkOraculo::V3134 => ("DARTFORGE_ORACULO_3_13", "E:/DartSDKs/3.13.4/dart-sdk"),
+    /// Where the SDK is on this machine (`DARTFORGE_ORACULO_3_6`/`_3_13` override it).
+    pub fn root(self) -> PathBuf {
+        let (var, default) = match self {
+            OracleSdk::V362 => ("DARTFORGE_ORACULO_3_6", "E:/DartSDKs/3.6.2"),
+            OracleSdk::V3134 => ("DARTFORGE_ORACULO_3_13", "E:/DartSDKs/3.13.4/dart-sdk"),
         };
-        std::env::var_os(var).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(padrao))
+        std::env::var_os(var).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(default))
     }
 }
 
-/// Uma linha do registro do oráculo.
+/// One line of the oracle record.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Registro {
-    /// Caminho relativo à raiz do grupo, com `/`.
+pub struct Record {
+    /// Path relative to the group's root, with `/`.
     pub arquivo: String,
     pub offset: usize,
     pub length: usize,
@@ -82,16 +82,17 @@ pub struct Registro {
     pub correction_message: Option<String>,
 }
 
-impl Registro {
-    /// De um diagnóstico JSON v1, relativo a `raiz` (`None` fora dela ou fora de `.dart`).
-    pub fn de_json(d: &DiagJson, raiz: &Path) -> Option<Registro> {
-        let arquivo = relativo(Path::new(&d.location.file), raiz)?;
-        if !arquivo.ends_with(".dart") {
+impl Record {
+    /// From a JSON v1 diagnostic, relative to `root` (`None` outside it or
+    /// outside `.dart` files).
+    pub fn from_json(d: &DiagJson, root: &Path) -> Option<Record> {
+        let file = relativo(Path::new(&d.location.file), root)?;
+        if !file.ends_with(".dart") {
             return None;
         }
         let r = &d.location.range;
-        Some(Registro {
-            arquivo,
+        Some(Record {
+            arquivo: file,
             offset: r.start.offset,
             length: r.end.offset.saturating_sub(r.start.offset),
             code: d.code.clone(),
@@ -99,55 +100,55 @@ impl Registro {
             tipo: d.tipo.clone(),
             line: r.start.line,
             column: r.start.column,
-            problem_message: sem_raiz(&d.problem_message, raiz),
-            correction_message: d.correction_message.as_deref().map(|m| sem_raiz(m, raiz)),
+            problem_message: without_root(&d.problem_message, root),
+            correction_message: d.correction_message.as_deref().map(|m| without_root(m, root)),
         })
     }
 }
 
-/// Troca, numa mensagem, o caminho absoluto da raiz (como caminho nativo ou
-/// URI `file:`) por `<raiz>`, com `/` como separador no resto do caminho.
-/// Mensagens como "Target of URI doesn't exist: 'file:///…/a.dart'" ou
-/// "'C (where C is defined in …)'" dependem da máquina onde o oráculo rodou;
-/// normalizadas dos dois lados, o registro vale em qualquer máquina.
+/// Replaces, in a message, the root's absolute path (as a native path or as
+/// a `file:` URI) with `<raiz>`, with `/` as the separator in the rest of the
+/// path. Messages like "Target of URI doesn't exist: 'file:///…/a.dart'" or
+/// "'C (where C is defined in …)'" depend on the machine where the oracle
+/// ran; normalized on both sides, the record holds on any machine.
 ///
 /// ```
-/// use dartforge_parity::oraculo::sem_raiz;
+/// use dartforge_parity::oraculo::without_root;
 /// use std::path::Path;
-/// let m = sem_raiz("Target of URI doesn't exist: 'file:///g/x/a.dart'.", Path::new("/g/x"));
+/// let m = without_root("Target of URI doesn't exist: 'file:///g/x/a.dart'.", Path::new("/g/x"));
 /// assert_eq!(m, "Target of URI doesn't exist: '<raiz>/a.dart'.");
 /// ```
-pub fn sem_raiz(msg: &str, raiz: &Path) -> String {
-    let barra = crate::analise::chave(raiz).to_string_lossy().replace('\\', "/");
-    let barra = barra.trim_end_matches('/');
-    if barra.is_empty() {
+pub fn without_root(msg: &str, root: &Path) -> String {
+    let slash = crate::analise::chave(root).to_string_lossy().replace('\\', "/");
+    let slash = slash.trim_end_matches('/');
+    if slash.is_empty() {
         return msg.to_string();
     }
-    let invertida = barra.replace('/', "\\");
-    let uri = format!("file://{}{barra}", if barra.starts_with('/') { "" } else { "/" });
+    let backslash = slash.replace('/', "\\");
+    let uri = format!("file://{}{slash}", if slash.starts_with('/') { "" } else { "/" });
     let mut out = msg.to_string();
-    for forma in [uri.as_str(), barra, invertida.as_str()] {
+    for form in [uri.as_str(), slash, backslash.as_str()] {
         let mut s = String::with_capacity(out.len());
-        let mut resto = out.as_str();
-        while let Some(i) = resto.find(forma) {
-            s.push_str(&resto[..i]);
+        let mut rest = out.as_str();
+        while let Some(i) = rest.find(form) {
+            s.push_str(&rest[..i]);
             s.push_str("<raiz>");
-            resto = &resto[i + forma.len()..];
-            // O resto do caminho vai até aspas, parêntese ou espaço.
-            let fim = resto.find(['\'', ')', ' ', '"']).unwrap_or(resto.len());
-            s.push_str(&resto[..fim].replace('\\', "/"));
-            resto = &resto[fim..];
+            rest = &rest[i + form.len()..];
+            // The rest of the path runs up to a quote, parenthesis or space.
+            let end = rest.find(['\'', ')', ' ', '"']).unwrap_or(rest.len());
+            s.push_str(&rest[..end].replace('\\', "/"));
+            rest = &rest[end..];
         }
-        s.push_str(resto);
+        s.push_str(rest);
         out = s;
     }
     out
 }
 
-/// Caminho relativo com `/`, sem diferenciar maiúsculas na raiz (Windows).
-pub fn relativo(p: &Path, raiz: &Path) -> Option<String> {
+/// Relative path with `/`, ignoring case in the root (Windows).
+pub fn relativo(p: &Path, root: &Path) -> Option<String> {
     let p = crate::analise::chave(p).to_string_lossy().replace('\\', "/");
-    let r = crate::analise::chave(raiz).to_string_lossy().replace('\\', "/");
+    let r = crate::analise::chave(root).to_string_lossy().replace('\\', "/");
     let r = r.trim_end_matches('/');
     if p.len() > r.len() && p[..r.len()].eq_ignore_ascii_case(r) && p.as_bytes()[r.len()] == b'/' {
         Some(p[r.len() + 1..].to_string())
@@ -156,21 +157,21 @@ pub fn relativo(p: &Path, raiz: &Path) -> Option<String> {
     }
 }
 
-/// Metadados do registro.
+/// The record's metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Meta {
-    pub sdk: SdkOraculo,
-    /// Hash (FNV-1a 64, hexadecimal) das fontes `.dart` do grupo.
+    pub sdk: OracleSdk,
+    /// Hash (FNV-1a 64, hexadecimal) of the group's `.dart` sources.
     pub hash: String,
     pub arquivos: usize,
     pub diagnosticos: usize,
-    /// Arquivos retirados do grupo porque derrubam o servidor de análise do
-    /// oráculo (não há o que comparar).
+    /// Files removed from the group because they crash the oracle's analysis
+    /// server (there is nothing to compare).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub excluidos: Vec<String>,
 }
 
-/// FNV-1a 64: estável entre versões do Rust (o `DefaultHasher` não é).
+/// FNV-1a 64: stable across Rust versions (`DefaultHasher` is not).
 pub fn fnv(bytes: &[u8], mut h: u64) -> u64 {
     for b in bytes {
         h ^= *b as u64;
@@ -179,47 +180,48 @@ pub fn fnv(bytes: &[u8], mut h: u64) -> u64 {
     h
 }
 
-pub const FNV_INICIO: u64 = 0xcbf29ce484222325;
+pub const FNV_START: u64 = 0xcbf29ce484222325;
 
-/// Roda `dart analyze --format=json <alvos>...` com o SDK dado, no diretório do
-/// pacote. `cache` vai em `--cache` (fora do C:). Devolve os diagnósticos.
-pub fn rodar(sdk: SdkOraculo, pacote: &Path, alvos: &[PathBuf], cache: &Path) -> Result<Vec<DiagJson>, String> {
-    let dart = sdk.raiz().join("bin").join(if cfg!(windows) { "dart.exe" } else { "dart" });
+/// Runs `dart analyze --format=json <targets>...` with the given SDK, in the
+/// package's directory. `cache` goes to `--cache` (off the C: drive). Returns
+/// the diagnostics.
+pub fn run(sdk: OracleSdk, package: &Path, targets: &[PathBuf], cache: &Path) -> Result<Vec<DiagJson>, String> {
+    let dart = sdk.root().join("bin").join(if cfg!(windows) { "dart.exe" } else { "dart" });
     if !dart.exists() {
-        return Err(format!("SDK {} não encontrado em {}", sdk.versao(), dart.display()));
+        return Err(format!("SDK {} not found at {}", sdk.version(), dart.display()));
     }
-    let saida = Command::new(&dart)
+    let output = Command::new(&dart)
         .arg("analyze")
         .arg("--format=json")
         .arg("--cache")
         .arg(cache)
-        .args(alvos.iter().map(|a| std::path::absolute(a).unwrap_or_else(|_| a.clone())))
-        .current_dir(pacote)
+        .args(targets.iter().map(|a| std::path::absolute(a).unwrap_or_else(|_| a.clone())))
+        .current_dir(package)
         .env("DART_DISABLE_ANALYTICS", "1")
         .output()
         .map_err(|e| format!("{}: {e}", dart.display()))?;
-    let texto = String::from_utf8_lossy(&saida.stdout);
-    let codigo = saida.status.code().unwrap_or(-1);
-    if !(0..=3).contains(&codigo) {
+    let text = String::from_utf8_lossy(&output.stdout);
+    let code = output.status.code().unwrap_or(-1);
+    if !(0..=3).contains(&code) {
         return Err(format!(
-            "dart analyze saiu com {codigo}: {}{}",
-            texto.chars().take(2000).collect::<String>(),
-            String::from_utf8_lossy(&saida.stderr).chars().take(2000).collect::<String>()
+            "dart analyze exited with {code}: {}{}",
+            text.chars().take(2000).collect::<String>(),
+            String::from_utf8_lossy(&output.stderr).chars().take(2000).collect::<String>()
         ));
     }
-    // A saída pode vir precedida de avisos; o JSON é a linha que começa com `{`.
-    let json = texto.lines().find(|l| l.starts_with('{')).unwrap_or("");
+    // The output may be preceded by warnings; the JSON is the line starting with `{`.
+    let json = text.lines().find(|l| l.starts_with('{')).unwrap_or("");
     if json.is_empty() {
-        // Sem JSON: o servidor de análise caiu (ex.: `FormatException` do
-        // 3.6.2 com separador de dígitos em `1.234_456e0`).
-        return Err(format!("sem JSON (código {codigo}): {}", texto.lines().take(6).collect::<Vec<_>>().join(" | ")));
+        // No JSON: the analysis server crashed (e.g. 3.6.2's `FormatException`
+        // with a digit separator in `1.234_456e0`).
+        return Err(format!("no JSON (code {code}): {}", text.lines().take(6).collect::<Vec<_>>().join(" | ")));
     }
-    let r: Relatorio = serde_json::from_str(json).map_err(|e| format!("JSON do oráculo: {e}"))?;
+    let r: Report = serde_json::from_str(json).map_err(|e| format!("oracle JSON: {e}"))?;
     Ok(r.diagnostics)
 }
 
-/// Grava o registro (ordenado) e os metadados.
-pub fn gravar(dir: &Path, mut regs: Vec<Registro>, meta: &Meta) -> std::io::Result<()> {
+/// Writes the record (sorted) and the metadata.
+pub fn write(dir: &Path, mut regs: Vec<Record>, meta: &Meta) -> std::io::Result<()> {
     regs.sort();
     let mut s = String::new();
     for r in &regs {
@@ -230,76 +232,76 @@ pub fn gravar(dir: &Path, mut regs: Vec<Registro>, meta: &Meta) -> std::io::Resu
     std::fs::write(dir.join("oraculo.json"), serde_json::to_string_pretty(meta).expect("JSON") + "\n")
 }
 
-/// Lê o registro e os metadados de um grupo.
-pub fn ler(dir: &Path) -> Result<(Vec<Registro>, Meta), String> {
+/// Reads a group's record and metadata.
+pub fn read(dir: &Path) -> Result<(Vec<Record>, Meta), String> {
     let meta: Meta = serde_json::from_str(
         &std::fs::read_to_string(dir.join("oraculo.json")).map_err(|e| format!("{}: {e}", dir.display()))?,
     )
     .map_err(|e| e.to_string())?;
-    let texto = std::fs::read_to_string(dir.join("oraculo.jsonl")).map_err(|e| e.to_string())?;
+    let text = std::fs::read_to_string(dir.join("oraculo.jsonl")).map_err(|e| e.to_string())?;
     let mut regs = Vec::new();
-    for l in texto.lines().filter(|l| !l.is_empty()) {
+    for l in text.lines().filter(|l| !l.is_empty()) {
         regs.push(serde_json::from_str(l).map_err(|e| format!("{l}: {e}"))?);
     }
     Ok((regs, meta))
 }
 
-/// Recursos que o SDK 3.6.2 não conhece: numa biblioteca 3.6 ele responde
-/// com cascata de sintaxe, e o analyzer 3.13.4 com `experiment_not_enabled`
-/// (e segue analisando). O `enabledIn` de cada um é posterior ao 3.6.2
-/// (`experimental_features.yaml`); os demais recursos desligados (por
-/// exemplo `null-aware-elements`) o 3.6.2 já acusa do mesmo jeito. A lista
-/// é a do parser (`Feature::DESCONHECIDOS_NO_3_6`), que com ela decide a
-/// referência de cada unidade.
-pub fn recursos_desconhecidos_no_3_6_2() -> impl Iterator<Item = &'static str> {
+/// Features the 3.6.2 SDK does not know: in a 3.6 library it answers with a
+/// syntax cascade, and analyzer 3.13.4 with `experiment_not_enabled` (and
+/// keeps analyzing). Each one's `enabledIn` is later than 3.6.2
+/// (`experimental_features.yaml`); 3.6.2 already flags the other disabled
+/// features (for example `null-aware-elements`) the same way. The list is the
+/// parser's (`Feature::DESCONHECIDOS_NO_3_6`), which uses it to decide each
+/// unit's reference.
+pub fn features_unknown_to_3_6_2() -> impl Iterator<Item = &'static str> {
     dartforge_frontend::features::Feature::DESCONHECIDOS_NO_3_6.into_iter().map(|f| f.nome())
 }
 
-/// A ferramenta tem versão corrente 3.13 (VERSOES-LINGUAGEM.md, D2): numa
-/// biblioteca 3.6, o comportamento de referência é o do analyzer 3.13.4
-/// sobre a mesma biblioteca, não o de um SDK que não conhece o recurso. Um
-/// arquivo com sintaxe desses recursos tem o oráculo gravado pelo 3.13.4,
-/// com o pacote do grupo inalterado (linguagem 3.6).
-pub fn usa_sintaxe_nova(regs_313: &[&Registro]) -> bool {
+/// The tool's current version is 3.13 (VERSOES-LINGUAGEM.md, D2): in a 3.6
+/// library, the reference behaviour is that of analyzer 3.13.4 on the same
+/// library, not that of an SDK that does not know the feature. A file with
+/// syntax of these features has its oracle recorded by 3.13.4, with the
+/// group's package unchanged (language 3.6).
+pub fn uses_new_syntax(regs_313: &[&Record]) -> bool {
     regs_313.iter().any(|r| {
         r.code == "experiment_not_enabled"
-            && recursos_desconhecidos_no_3_6_2().any(|f| r.problem_message.contains(&format!("'{f}'")))
+            && features_unknown_to_3_6_2().any(|f| r.problem_message.contains(&format!("'{f}'")))
     })
 }
 
-/// Os arquivos de um grupo 3.6 que o **nosso** parser marca com a referência
-/// 3.13.4 (`Parsed::referencia`), em caminho relativo ao grupo: a lista que
-/// tem de coincidir com a de [`ler_sintaxe_nova`], feita pelo parser do
-/// 3.13.4 (docs/ANALYZER-ESPECIFICACAO.md, T2, passo 9 e critério de
-/// pronto). A versão é a do pacote do grupo, 3.6: os arquivos com marcador
-/// `// @dart` acima dela vivem nos grupos `*-3.13`, e um marcador abaixo
-/// não liga nenhum dos recursos que decidem a referência.
-pub fn marcador_3_13(dir: &Path, fontes: &[std::path::PathBuf]) -> std::collections::BTreeSet<String> {
-    let recursos = dartforge_frontend::features::LibraryFeatures::piso();
-    let mut marcados = std::collections::BTreeSet::new();
-    for f in fontes {
-        let Ok(texto) = std::fs::read_to_string(f) else { continue };
-        let mut nomes = dartforge_intern::Interner::new();
-        let lido = dartforge_frontend::parser::parse_com(&texto, &mut nomes, recursos);
-        if lido.referencia == dartforge_diagnostics::Referencia::V3_13
+/// The files of a 3.6 group that **our** parser marks with the 3.13.4
+/// reference (`Parsed::referencia`), as paths relative to the group: the list
+/// that must match [`read_new_syntax`]'s, produced by the 3.13.4 parser
+/// (docs/ANALYZER-ESPECIFICACAO.md, T2, step 9 and the done criterion). The
+/// version is the group package's, 3.6: files with a `// @dart` marker above
+/// it live in the `*-3.13` groups, and a marker below it enables none of the
+/// features that decide the reference.
+pub fn marker_3_13(dir: &Path, sources: &[std::path::PathBuf]) -> std::collections::BTreeSet<String> {
+    let features = dartforge_frontend::features::LibraryFeatures::piso();
+    let mut marked = std::collections::BTreeSet::new();
+    for f in sources {
+        let Ok(text) = std::fs::read_to_string(f) else { continue };
+        let mut names = dartforge_intern::Interner::new();
+        let parsed = dartforge_frontend::parser::parse_com(&text, &mut names, features);
+        if parsed.referencia == dartforge_diagnostics::Referencia::V3_13
             && let Some(r) = relativo(f, dir)
         {
-            marcados.insert(r);
+            marked.insert(r);
         }
     }
-    marcados
+    marked
 }
 
-/// `corpus/diagnosticos/sintaxe-nova.json`: por grupo, os arquivos cujo
-/// oráculo é o 3.13.4 (ver [`usa_sintaxe_nova`]).
-pub fn ler_sintaxe_nova(raiz: &Path) -> std::collections::BTreeMap<String, Vec<String>> {
-    std::fs::read_to_string(raiz.join("sintaxe-nova.json"))
+/// `corpus/diagnosticos/sintaxe-nova.json`: per group, the files whose oracle
+/// is 3.13.4 (see [`uses_new_syntax`]).
+pub fn read_new_syntax(root: &Path) -> std::collections::BTreeMap<String, Vec<String>> {
+    std::fs::read_to_string(root.join("sintaxe-nova.json"))
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_default()
 }
 
-/// Grava a lista de [`ler_sintaxe_nova`].
-pub fn gravar_sintaxe_nova(raiz: &Path, lista: &std::collections::BTreeMap<String, Vec<String>>) -> std::io::Result<()> {
-    std::fs::write(raiz.join("sintaxe-nova.json"), serde_json::to_string_pretty(lista).expect("JSON") + "\n")
+/// Writes the list of [`read_new_syntax`].
+pub fn write_new_syntax(root: &Path, list: &std::collections::BTreeMap<String, Vec<String>>) -> std::io::Result<()> {
+    std::fs::write(root.join("sintaxe-nova.json"), serde_json::to_string_pretty(list).expect("JSON") + "\n")
 }

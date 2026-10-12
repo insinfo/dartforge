@@ -17,7 +17,7 @@
 
 use dartforge_parity::analise::Motor;
 use dartforge_parity::corpus::{self, Grupo};
-use dartforge_parity::oraculo::{self, Registro, SdkOraculo};
+use dartforge_parity::oraculo::{self, Record, OracleSdk};
 use dartforge_parity::{Execution, filtros, run_ours};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -52,7 +52,7 @@ fn main() {
         let rel = rel.replace('\\', "/");
         println!("== {rel}");
         // (offset, length, code, side) → record; side 0 oracle, 1 ours.
-        let mut lines: BTreeMap<(usize, usize, String, u8), &Registro> = BTreeMap::new();
+        let mut lines: BTreeMap<(usize, usize, String, u8), &Record> = BTreeMap::new();
         for o in oracle.iter().filter(|o| o.arquivo == rel) {
             lines.insert((o.offset, o.length, o.code.clone(), 0), o);
         }
@@ -86,7 +86,7 @@ fn main() {
     }
 }
 
-type Setup = (PathBuf, PathBuf, Vec<Registro>, Vec<String>);
+type Setup = (PathBuf, PathBuf, Vec<Record>, Vec<String>);
 
 /// A corpus group, with the recorded oracle.
 fn from_corpus(group: &str, rels: &[String]) -> Setup {
@@ -98,7 +98,7 @@ fn from_corpus(group: &str, rels: &[String]) -> Setup {
     };
     let dir = root.join(group);
     let cfg = corpus::preparar(&dir, group, &g).expect("prepare the group");
-    let (oracle, _) = oraculo::ler(&dir).expect("recorded oracle");
+    let (oracle, _) = oraculo::read(&dir).expect("recorded oracle");
     (dir, cfg, oracle, rels.to_vec())
 }
 
@@ -108,7 +108,7 @@ fn free(d: &Path, rels: &[String]) -> Setup {
     let name = "sonda_livre";
     std::fs::write(dir.join("pubspec.yaml"), format!("name: {name}\npublish_to: none\nenvironment:\n  sdk: ^3.6.0\n"))
         .expect("pubspec");
-    let g = Grupo { sdk: SdkOraculo::V362, pacotes: Vec::new(), origem: String::new() };
+    let g = Grupo { sdk: OracleSdk::V362, pacotes: Vec::new(), origem: String::new() };
     let cfg = corpus::preparar(&dir, name, &g).expect("package_config");
     let rels: Vec<String> = if rels.is_empty() {
         corpus::arquivos_dart(&dir).iter().filter_map(|a| oraculo::relativo(a, &dir)).collect()
@@ -117,7 +117,7 @@ fn free(d: &Path, rels: &[String]) -> Setup {
     };
     let targets: Vec<PathBuf> = rels.iter().map(|r| dir.join(r)).collect();
     let cache = std::env::temp_dir().join("dartforge-sonda-cache");
-    let diags = oraculo::rodar(SdkOraculo::V362, &dir, &targets, &cache).expect("dart analyze 3.6.2");
-    let regs = diags.iter().filter_map(|j| Registro::de_json(j, &dir)).collect();
+    let diags = oraculo::run(OracleSdk::V362, &dir, &targets, &cache).expect("dart analyze 3.6.2");
+    let regs = diags.iter().filter_map(|j| Record::from_json(j, &dir)).collect();
     (dir, cfg, regs, rels)
 }
