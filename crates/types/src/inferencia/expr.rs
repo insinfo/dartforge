@@ -1003,7 +1003,9 @@ fn identificador(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, n: ast::
             // `p.x` e de `p.f()` (argumento, `p?.x`, `p[0]`, cascata, `p()`).
             resolver(inf, cx, e, Resolved::Prefix(cx.lib));
             prefixo_sem_ponto(inf, n);
-            inf.core.dynamic_
+            // `_resolve2` (`simple_identifier_resolver.dart:269-276`): fora de
+            // `p.x`/`p.f()` o tipo do prefixo é `InvalidType`.
+            inf.table.invalido(inf.core.dynamic_)
         }
         RefNome::ThisImplicito => {
             let this = cx.tipo_this.unwrap();
@@ -1121,6 +1123,13 @@ fn codigo_do_this_anulavel(inf: &mut BodyInferrer<'_>, cx: &Corpo, e: ExprId) ->
     }
     match &a.expr(pai).kind {
         ExprKind::Binary { .. } => c::UNCHECKED_OPERATOR_INVOCATION_OF_NULLABLE_VALUE,
+        // A escrita pelo `this` implícito (`nome += 1`, `nome ??= 1`,
+        // `nome++`): a variante de método, como a do `lookupSetter`
+        // (conferido no oráculo 3.6.2).
+        ExprKind::Assign { target, .. } if *target == e => c::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE,
+        ExprKind::Unary { op: UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec, operand } if *operand == e => {
+            c::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE
+        }
         // `nome()`: o `MethodInvocation` do nome.
         ExprKind::Call { target, .. } if *target == e => c::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE,
         // `nome.m()`: o nome é o alvo do `MethodInvocation`.
@@ -1575,6 +1584,23 @@ pub(crate) fn inferir_no(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, 
                         }
                         return (inf.table.invalido(inf.core.dynamic_), false);
                     }
+                }
+                // `p.f<T>` com `p` que não resolve no escopo
+                // (`_resolvePrefixedIdentifierFunction`, 3.6.2
+                // `function_reference_resolver.dart:413-426`): no prefixo, com o
+                // nome prefixado inteiro (`unresolved.Class<int>.named()`).
+                if let ExprKind::Property { target: r, name, null_aware: false } = &ast(inf, cx).expr(*target).kind
+                    && let ExprKind::Identifier(p) = &ast(inf, cx).expr(*r).kind
+                    && matches!(resolver_nome(inf, cx, p.sym, false), RefNome::Nenhum | RefNome::ThisImplicito)
+                    && !crate::scope::deve_ignorar_indefinido(inf.program, inf.interner, cx.unit, None, p.sym)
+                {
+                    let (p, name) = (*p, *name);
+                    let texto = format!("{}.{}", inf.interner.resolve(p.sym), inf.interner.resolve(name.sym));
+                    inf.aviso(format!("{}: '{}'", UNDEFINED_IDENTIFIER.template, texto), p.span);
+                    for &x in type_args.iter() {
+                        inf.tipo_de_argumento_de_tipo(cx, x);
+                    }
+                    return (inf.table.invalido(inf.core.dynamic_), false);
                 }
                 let t = inferir_livre(inf, cx, *target);
                 let targs: Vec<TypeId> = type_args.iter().map(|&x| inf.tipo_de_argumento_de_tipo(cx, x)).collect();
@@ -4112,12 +4138,14 @@ fn tipo_de_escrita_nome(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, alvo: ExprId
         }
         RefNome::ThisImplicito => {
             let this = cx.tipo_this.unwrap();
-            // `ThisLookup.lookupSetter` com `this` potencialmente anulável:
-            // o pai é a atribuição, então o código é o do acesso.
+            // `ThisLookup.lookupSetter` com `this` potencialmente anulável: o
+            // 3.6.2 relata a variante de método (`The method 'foo' can't be
+            // unconditionally invoked`) em toda escrita pelo `this`
+            // implícito — `=`, composta, `??=`, `++` — conferido no oráculo.
             if inf.exige_checagem_de_nulo(cx.lib, this, n.sym, true) {
                 let nome = inf.interner.resolve(n.sym).to_string();
                 let desde = inf.diagnostics.len();
-                inf.aviso_de_nulo(this, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE, n.span, &[&nome]);
+                inf.aviso_de_nulo(this, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE, n.span, &[&nome]);
                 inf.anexar_nao_promocao(desde, cx, None, n.span);
                 let nn = inf.nao_nulo(this);
                 return match inf.buscar_membro(cx.lib, nn, n.sym, true) {

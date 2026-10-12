@@ -138,6 +138,32 @@ const CASOS: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "void f(({int x, int y}) p) {\n  true ? p.x : p.y;\n}\nvoid g(({bool b, }) r) {\n  if (true || r.b) {}\n}\nf2() => [for (var (i) = throw 0; true; 1) 0];\n",
         &[("dead_code", 2, 16, 4), ("dead_code", 5, 12, 6), ("unused_local_variable", 7, 20, 1), ("dead_code", 7, 34, 7)],
     ),
+    // Mensagens do corpus (2026-10-12): alias no `implements` do extension type,\n`?` em cláusula de alias que não é classe, `p.f<T>` com `p` indefinido,\nescrita pelo `this` anulável e contagem errada de argumentos de tipo.
+    (
+        "clausula_anulavel.dart",
+        "typedef X1 = void Function();\ntypedef X2 = (int, String);\ntypedef X3 = Object;\nclass I {}\nextension type A1(int it) implements X1? {}\nextension type A2(int it) implements X2? {}\nextension type A3(int it) implements X3? {}\nextension type A4(int it) implements dynamic {}\nextension type A5(int it) implements Function? {}\nclass C1 implements X1? {}\nclass C2 implements X3? {}\nclass C3 extends X1? {}\nmixin M1 on X1? {}\nclass G<T> implements T? {}\nclass N1 implements Never? {}\nclass D1 implements dynamic? {}\nvar v = 1;\nclass V1 implements v? {}\n",
+        &[("extension_type_implements_disallowed_type", 5, 38, 3), ("nullable_type_in_implements_clause", 5, 38, 3), ("extension_type_implements_disallowed_type", 6, 38, 3), ("nullable_type_in_implements_clause", 6, 38, 3), ("nullable_type_in_implements_clause", 7, 38, 3), ("extension_type_implements_disallowed_type", 8, 38, 7), ("extension_type_implements_disallowed_type", 9, 38, 9), ("nullable_type_in_implements_clause", 9, 38, 9), ("implements_non_class", 10, 21, 2), ("nullable_type_in_implements_clause", 10, 21, 3), ("implements_super_class", 11, 21, 3), ("nullable_type_in_implements_clause", 11, 21, 3), ("extends_non_class", 12, 18, 2), ("nullable_type_in_extends_clause", 12, 18, 3), ("mixin_super_class_constraint_non_interface", 13, 13, 2), ("nullable_type_in_on_clause", 13, 13, 3), ("implements_non_class", 14, 23, 1), ("nullable_type_in_implements_clause", 14, 23, 2), ("implements_non_class", 15, 21, 5), ("nullable_type_in_implements_clause", 15, 21, 6), ("implements_non_class", 16, 21, 7), ("unnecessary_question_mark", 16, 28, 1), ("implements_non_class", 18, 21, 1)],
+    ),
+    (
+        "ffi_contagem.dart",
+        "import 'dart:ffi';\nimport 'dart:math' as prefix;\nint f(int x) => x;\nvoid main() {\n  Pointer.fromFunction<Int32 Function(Int32), Int8>(f, 0);\n  Pointer.fromFunction<Void Function()>(prefix);\n}\n",
+        &[("wrong_number_of_type_arguments_method", 5, 23, 29), ("must_be_a_native_function_type", 5, 24, 21), ("must_be_a_subtype", 6, 41, 6), ("prefix_identifier_not_followed_by_dot", 6, 41, 6)],
+    ),
+    (
+        "implementa_alias.dart",
+        "typedef X1 = void Function();\ntypedef X2 = (int, String);\ntypedef X3 = Function;\ntypedef X4 = Null;\ntypedef X5 = dynamic;\ntypedef X6 = Record;\ntypedef X7<T> = List<T> Function();\nextension type A1(int it) implements X1 {}\nextension type A2(int it) implements X2 {}\nextension type A3(int it) implements X3 {}\nextension type A4(int it) implements X4 {}\nextension type A5(int it) implements X5 {}\nextension type A6(int it) implements X6 {}\nextension type A7(int it) implements X7<int> {}\nextension type A8(int it) implements X1? {}\n",
+        &[("extension_type_implements_disallowed_type", 8, 38, 2), ("extension_type_implements_disallowed_type", 9, 38, 2), ("extension_type_implements_disallowed_type", 10, 38, 2), ("extension_type_implements_disallowed_type", 11, 38, 2), ("extension_type_implements_disallowed_type", 12, 38, 2), ("extension_type_implements_disallowed_type", 13, 38, 2), ("extension_type_implements_disallowed_type", 14, 38, 7), ("extension_type_implements_disallowed_type", 15, 38, 3), ("nullable_type_in_implements_clause", 15, 38, 3)],
+    ),
+    (
+        "referencia_prefixada.dart",
+        "import 'dart:math' as m;\nf() {\n  unresolved.Class<int>.named();\n  unresolved.foo<int>;\n  var x = unresolved.bar<int>();\n  m.max<int>;\n  m.zzz<int>;\n}\nclass C {\n  void g() {\n    other.h<int>;\n  }\n}\nclass B { List<int> Function<T>() get foo => throw 0; }\nclass D extends B {\n  void g() {\n    foo.call<int>;\n    print(foo.call<int>);\n  }\n}\n",
+        &[("undefined_identifier", 3, 3, 10), ("undefined_identifier", 4, 3, 10), ("unused_local_variable", 5, 7, 1), ("undefined_identifier", 5, 11, 10), ("undefined_prefixed_name", 7, 5, 3), ("undefined_identifier", 11, 5, 5), ("undefined_identifier", 17, 5, 3), ("undefined_identifier", 18, 11, 3)],
+    ),
+    (
+        "this_anulavel_escrita.dart",
+        "class A {\n  int foo = 0;\n  int get g => 0;\n  set s(int _) {}\n  void m() {}\n}\nextension E on A? {\n  void baz() {\n    foo = 0;\n    foo += 1;\n    foo++;\n    s = 1;\n    print(g);\n    m();\n    m;\n    foo ??= 1;\n  }\n}\n",
+        &[("unchecked_use_of_nullable_value", 9, 5, 3), ("unchecked_use_of_nullable_value", 10, 5, 3), ("unchecked_use_of_nullable_value", 11, 5, 3), ("unchecked_use_of_nullable_value", 12, 5, 1), ("unchecked_use_of_nullable_value", 13, 11, 1), ("unchecked_use_of_nullable_value", 14, 5, 1), ("unchecked_use_of_nullable_value", 15, 5, 1), ("unchecked_use_of_nullable_value", 16, 5, 3), ("dead_null_aware_expression", 16, 13, 1)],
+    ),
 ];
 
 #[test]

@@ -502,7 +502,10 @@ pub(crate) fn invocar(
     // Argumentos de tipo explícitos: instancia e segue como não genérica.
     if !type_params.is_empty() {
         if let Some(ex) = explicitos {
-            if ex.len() == type_params.len() {
+            // Contagem errada: `dynamic` para cada parâmetro de tipo, sem
+            // inferência (`invocation_inferrer.dart:174-183`).
+            let ex = if ex.len() == type_params.len() { ex } else { vec![inf.core.dynamic_; type_params.len()] };
+            {
                 let mut env = inf.env();
                 let inst = instanciar_funcao(f, &ex, &mut env);
                 drop(env);

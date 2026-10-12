@@ -277,6 +277,30 @@ impl Leitor<'_> {
         }
     }
 
+    /// O `_verifyNullability` vê o tipo resolvido (`nullabilitySuffix`): a
+    /// classe, o parâmetro de tipo, o alias de função ou de registro e o
+    /// `Never` levam o `?`; `dynamic` não, e o nome que não é tipo (ou não
+    /// existe) vira `InvalidType` sem relato.
+    fn anulabilidade_verificada(&self, u: UnitId, ast_: &ast::Ast, t: ast::TypeId, params: &[SymbolId], resolvido: &Resolvido) -> bool {
+        match resolvido {
+            Resolvido::Classe(_) => true,
+            Resolvido::NaoClasse => {
+                let TypeKind::Named { name, .. } = &ast_.ty(t).kind else { return false };
+                if let [n] = &name[..]
+                    && params.contains(&n.sym)
+                {
+                    return true;
+                }
+                match self.elemento(u, name) {
+                    Some(Element::Typedef(_)) => true,
+                    Some(_) => false,
+                    None => matches!(&name[..], [n] if self.nome(n.sym) == "Never"),
+                }
+            }
+            _ => false,
+        }
+    }
+
     /// A classe `nome` do `dart:core`.
     fn do_core(&self, nome: &str) -> Option<ClassId> {
         self.programa.classes.iter().position(|c| {
@@ -1522,7 +1546,7 @@ pub fn verificar(
             let params: Vec<SymbolId> = x.type_params.iter().map(|p| p.name.sym).collect();
             for &t in x.implements.iter() {
                 let resolvido = l.resolver(u, ast_, t, &params, 0, true);
-                if l.anulavel(u, ast_, t, 0) && matches!(resolvido, Resolvido::Classe(_)) {
+                if l.anulavel(u, ast_, t, 0) && l.anulabilidade_verificada(u, ast_, t, &params, &resolvido) {
                     saida.push((u, Diagnostic::com_codigo(c::NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE, ast_.ty(t).span, [] as [&str; 0])));
                 }
             }
@@ -1580,7 +1604,7 @@ pub fn verificar(
                 let resolvido = l.resolver(u, ast_, t, &cl.params, 0, fora_do_on);
                 // `NamedTypeResolver._verifyNullability`: `?` escrito num tipo
                 // de cláusula (o nó inteiro).
-                if l.anulavel(u, ast_, t, 0) && matches!(resolvido, Resolvido::Classe(_)) {
+                if l.anulavel(u, ast_, t, 0) && l.anulabilidade_verificada(u, ast_, t, &cl.params, &resolvido) {
                     let codigo_nulo = if codigo == c::IMPLEMENTS_NON_CLASS {
                         c::NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE
                     } else if codigo == c::MIXIN_OF_NON_CLASS {

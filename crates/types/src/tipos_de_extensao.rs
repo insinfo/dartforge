@@ -254,13 +254,17 @@ pub fn verificar(
                         _ => false,
                     };
                 if !valido {
-                    // O tipo como o analyzer o escreve: sem o alias (`void`,
-                    // `dynamic`), e `InvalidType` para o que não resolveu.
+                    // O tipo como o analyzer o escreve: com o alias com que foi
+                    // escrito (`implements X` com `typedef X = void Function()`
+                    // dá `X`, e `X?` também), salvo `void` e `dynamic` (que
+                    // não levam alias), e `InvalidType` para o que não resolveu.
                     let texto = if invalido {
                         "InvalidType".to_string()
-                    } else {
+                    } else if matches!(table.get(tipo), Type::Dynamic | Type::Void) {
                         let s = crate::ops::sem_exibicao(tipo, table);
                         table.format(s, interner, program)
+                    } else {
+                        table.format(tipo, interner, program)
                     };
                     saida.push((u, Diagnostic::com_codigo(c::EXTENSION_TYPE_IMPLEMENTS_DISALLOWED_TYPE, sp, [texto.as_str()])));
                     continue;
