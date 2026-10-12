@@ -1,30 +1,30 @@
-//! Renomeio de nomes de propriedade (`docs/JS-PRODUCAO-TAMANHO.md` §3.1).
+//! Renaming of property names (`docs/JS-PRODUCAO-TAMANHO.md` §3.1).
 //!
-//! O conjunto **renomeável** sai do modelo de elementos, nunca do texto: os
-//! nomes que o emissor dá a membros Dart (de instância, estáticos e de topo)
-//! e a classes, fora das classes nativas e de interop. Desse conjunto saem os
-//! nomes que o JavaScript enxerga: os `external`, os membros de classes
-//! `@JS`/`@JSExport`/nativas, as palavras dos *templates* `JS()` vivos, os
-//! parâmetros nomeados e os campos nomeados de *records* (a chave é montada
-//! em execução), o protocolo do JS e — já no texto — toda *string* literal
-//! com forma de identificador (`dsend(o, "foo")`, `js_util.getProperty`).
-//! Um nome que chega à execução como *string* fica o de origem: a saída do
-//! programa não muda.
+//! The **renamable** set comes from the element model, never from the text:
+//! the names the emitter gives to Dart members (instance, static and
+//! top-level) and to classes, outside native and interop classes. Removed
+//! from that set are the names JavaScript sees: the `external` ones, the
+//! members of `@JS`/`@JSExport`/native classes, the words of the live `JS()`
+//! *templates*, named parameters and named *record* fields (the key is built
+//! at run time), the JS protocol and — already in the text — every string
+//! literal shaped like an identifier (`dsend(o, "foo")`,
+//! `js_util.getProperty`). A name that reaches run time as a *string* keeps
+//! its source name: the program's output does not change.
 
 use dartforge_elements::model::{ClassId, FunctionKind, Program};
 use dartforge_intern::Interner;
 use dartforge_types::table::Type;
 use std::collections::HashSet;
 
-/// Nomes do protocolo do JavaScript (e do navegador) que o motor chama
-/// implicitamente num objeto qualquer.
-const PROTOCOLO_JS: &[&str] = &[
+/// Names of the JavaScript (and browser) protocol that the engine calls
+/// implicitly on any object.
+const JS_PROTOCOL: &[&str] = &[
     "toString", "valueOf", "toJSON", "then", "catch", "finally", "length", "name", "message", "stack", "constructor", "prototype", "call", "apply", "bind",
     "next", "done", "value", "return", "throw", "get", "set", "handleEvent", "caller", "callee", "arguments", "__proto__", "toLocaleString",
     "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable", "default", "enumerable", "configurable", "writable",
-    // Membros dos objetos embutidos que o emissor, o *bootstrap* e os
-    // *templates* chamam direto (`$constCache.get`, `Object.create`,
-    // `a.push`): um membro Dart de mesmo nome não pode ser renomeado.
+    // Members of built-in objects that the emitter, the *bootstrap* and the
+    // *templates* call directly (`$constCache.get`, `Object.create`,
+    // `a.push`): a Dart member with the same name cannot be renamed.
     "create", "defineProperty", "defineProperties", "getOwnPropertyDescriptor", "getOwnPropertyNames", "getOwnPropertySymbols", "getPrototypeOf",
     "setPrototypeOf", "keys", "values", "entries", "assign", "freeze", "isFrozen", "seal", "is", "fromEntries", "has", "delete", "clear", "add", "forEach",
     "size", "push", "pop", "shift", "unshift", "slice", "splice", "concat", "join", "reverse", "sort", "indexOf", "lastIndexOf", "includes", "find",
@@ -39,46 +39,46 @@ const PROTOCOLO_JS: &[&str] = &[
     "warn", "info", "debug", "cause", "lineNumber", "columnNumber", "fileName", "stackTraceLimit", "captureStackTrace",
 ];
 
-/// O que o minificador pode renomear e o que ele deve manter.
+/// What the minifier may rename and what it must keep.
 #[derive(Default)]
-pub struct Nomes {
-    pub renomeaveis: HashSet<String>,
-    pub reservados: HashSet<String>,
-    /// Rótulos das bibliotecas do programa (`dartforge_emit_js::tag_de_receita`):
-    /// as propriedades de nomes privados terminam com eles.
+pub struct Names {
+    pub renamable: HashSet<String>,
+    pub reserved: HashSet<String>,
+    /// Labels of the program's libraries (`dartforge_emit_js::tag_de_receita`):
+    /// the properties of private names end with them.
     pub tags: HashSet<String>,
 }
 
-fn anotacoes_de_interop(p: &Program, i: &Interner, c: ClassId) -> bool {
+fn has_interop_annotation(p: &Program, i: &Interner, c: ClassId) -> bool {
     let Some(d) = p.class(c).decl else { return false };
     p.unit(d.unit).ast.decl(d.decl).metadata.iter().any(|a| {
         a.name.last().is_some_and(|n| matches!(i.resolve(n.sym), "JS" | "JSExport" | "anonymous" | "staticInterop" | "Native" | "JsPeerInterface"))
     })
 }
 
-/// Calcula os conjuntos a partir do modelo. `nomes_js` são as palavras dos
-/// *templates* `JS()` vivos (`dartforge_world::Mundo::nomes_js`).
-pub fn calcular(a: &dartforge_emit_js::Analise<'_>, nomes_js: &HashSet<String>, nomeados: Option<&std::collections::HashMap<String, String>>) -> Nomes {
+/// Computes the sets from the model. `js_names` are the words of the live
+/// `JS()` *templates* (`dartforge_world::Mundo::nomes_js`).
+pub fn compute(a: &dartforge_emit_js::Analise<'_>, js_names: &HashSet<String>, named_args: Option<&std::collections::HashMap<String, String>>) -> Names {
     use dartforge_elements::model::ClassKind;
     use dartforge_emit_js::body::{js_member_name, static_member_name, top_level_name};
     let (p, i, table) = (a.program, a.interner, a.table);
     let ctx = a.ctx();
-    let mut n = Nomes::default();
+    let mut n = Names::default();
     for (k, l) in p.libraries.iter().enumerate() {
         if !l.is_sdk {
             n.tags.insert(dartforge_emit_js::tag_de_receita(dartforge_elements::model::LibraryId(k as u32)));
         }
     }
-    // Interop: classes `@JS`, tipos de extensão (os do `package:web` são o
-    // DOM) e as anotadas como nativas ou exportadas.
+    // Interop: `@JS` classes, extension types (those of `package:web` are the
+    // DOM) and the ones annotated as native or exported.
     let interop: Vec<bool> = (0..p.classes.len())
         .map(|k| {
             let c = ClassId(k as u32);
-            anotacoes_de_interop(p, i, c) || ctx.is_js_class(c) || p.class(c).kind == ClassKind::ExtensionType
+            has_interop_annotation(p, i, c) || ctx.is_js_class(c) || p.class(c).kind == ClassKind::ExtensionType
         })
         .collect();
-    // Os nomes JS dados por `@JS(a.b)` (classe, biblioteca, membro).
-    let partes = |s: &str, r: &mut HashSet<String>| {
+    // The JS names given by `@JS(a.b)` (class, library, member).
+    let parts = |s: &str, r: &mut HashSet<String>| {
         for x in s.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$')) {
             if !x.is_empty() {
                 r.insert(x.to_string());
@@ -87,103 +87,107 @@ pub fn calcular(a: &dartforge_emit_js::Analise<'_>, nomes_js: &HashSet<String>, 
     };
     for jc in ctx.js_classes.values() {
         if let Some(x) = &jc.name {
-            partes(x, &mut n.reservados);
+            parts(x, &mut n.reserved);
         }
     }
     for x in ctx.js_libs.values().chain(ctx.fn_js.values()).chain(ctx.var_js.values()).flatten() {
-        partes(x, &mut n.reservados);
+        parts(x, &mut n.reserved);
     }
-    let de_interop = |c: Option<ClassId>| c.is_some_and(|c| interop[c.0 as usize]);
+    let from_interop = |c: Option<ClassId>| c.is_some_and(|c| interop[c.0 as usize]);
     for (k, c) in p.classes.iter().enumerate() {
-        let nome = i.resolve(c.name).to_string();
+        let name = i.resolve(c.name).to_string();
         if interop[k] {
-            n.reservados.insert(nome);
+            n.reserved.insert(name);
         } else {
-            n.renomeaveis.insert(nome);
+            n.renamable.insert(name);
         }
     }
     for f in p.functions.iter() {
-        let nome = i.resolve(f.name);
+        let name = i.resolve(f.name);
         if matches!(f.kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor) {
-            // `C.new`, `C.nome`: propriedade da classe que só o texto cita
-            // (`new C.new(…)`, `C.nome.call(this, …)`).
+            // `C.new`, `C.name`: a class property that only the text cites
+            // (`new C.new(…)`, `C.name.call(this, …)`).
             if f.class.is_some_and(|c| !interop[c.0 as usize]) {
-                n.renomeaveis.insert(if nome.is_empty() { "new".to_string() } else { static_member_name(nome) });
+                n.renamable.insert(if name.is_empty() { "new".to_string() } else { static_member_name(name) });
             }
             continue;
         }
-        if nome.is_empty() {
+        if name.is_empty() {
             continue;
         }
         let js = if f.class.is_some() && !f.static_ {
-            js_member_name(nome)
+            js_member_name(name)
         } else if f.class.is_some() {
-            static_member_name(nome)
+            static_member_name(name)
         } else if f.extension.is_none() {
-            top_level_name(nome)
+            top_level_name(name)
         } else {
             continue;
         };
-        // `external` do SDK com *patch* (`unsafeCast`, `identical`) é Dart
-        // comum: o corpo vem do patch, nada do JS o chama pelo nome.
-        let externo_js = f.external && !(p.library(f.library).is_sdk && f.patched_by.is_some());
-        if externo_js || de_interop(f.class) {
-            n.reservados.insert(js);
-            n.reservados.insert(nome.to_string());
+        // An SDK `external` with a *patch* (`unsafeCast`, `identical`) is
+        // ordinary Dart: the body comes from the patch, nothing in JS calls
+        // it by name.
+        let external_js = f.external && !(p.library(f.library).is_sdk && f.patched_by.is_some());
+        if external_js || from_interop(f.class) {
+            n.reserved.insert(js);
+            n.reserved.insert(name.to_string());
         } else {
-            n.renomeaveis.insert(js);
+            n.renamable.insert(js);
         }
     }
     for v in p.variables.iter() {
-        let nome = i.resolve(v.name);
-        if nome.is_empty() || v.extension.is_some() {
+        let name = i.resolve(v.name);
+        if name.is_empty() || v.extension.is_some() {
             continue;
         }
         let js = if v.class.is_some() && !v.static_ {
-            js_member_name(nome)
+            js_member_name(name)
         } else if v.class.is_some() {
-            static_member_name(nome)
+            static_member_name(name)
         } else {
-            top_level_name(nome)
+            top_level_name(name)
         };
-        if v.external || de_interop(v.class) {
-            n.reservados.insert(js);
-            n.reservados.insert(nome.to_string());
+        if v.external || from_interop(v.class) {
+            n.reserved.insert(js);
+            n.reserved.insert(name.to_string());
         } else {
-            n.renomeaveis.insert(js);
+            n.renamable.insert(js);
         }
     }
-    // Parâmetros nomeados e campos nomeados de records: a chave do objeto de
-    // argumentos e o *getter* do record são montados por nome em execução.
+    // Named parameters and named record fields: the key of the arguments
+    // object and the record's *getter* are built by name at run time.
     for t in 0..table.len() {
         match table.get(dartforge_types::table::TypeId(t as u32)) {
             Type::Function { named, .. } => {
                 for (s, _, _) in named.iter() {
-                    // Com o mapa dos nomeados (`nomeados.rs`) a chave é a curta,
-                    // e o nome de origem fica livre para os membros homônimos.
-                    let nome = i.resolve(*s);
-                    match nomeados.and_then(|m| m.get(nome)) {
-                        Some(curto) => n.reservados.insert(curto.clone()),
-                        None => n.reservados.insert(nome.to_string()),
+                    // With the named-argument map (`named_args.rs`) the key is
+                    // the short one, and the source name stays free for the
+                    // members of the same name.
+                    let name = i.resolve(*s);
+                    match named_args.and_then(|m| m.get(name)) {
+                        Some(short) => n.reserved.insert(short.clone()),
+                        None => n.reserved.insert(name.to_string()),
                     };
                 }
             }
             Type::Record { named, .. } => {
                 for (s, _) in named.iter() {
-                    n.reservados.insert(i.resolve(*s).to_string());
+                    n.reserved.insert(i.resolve(*s).to_string());
                 }
             }
             _ => {}
         }
     }
-    // Os auxiliares que o *bootstrap* e o emissor penduram em `dart` e em
-    // cada biblioteca: nomes do JS gerado, chamados só pelo próprio texto.
+    // The helpers that the *bootstrap* and the emitter hang on `dart` and on
+    // each library: names of the generated JS, called only by the text
+    // itself.
     for x in ["privateName", "lateFields", "$constCache", "$C"] {
-        n.renomeaveis.insert(x.to_string());
+        n.renamable.insert(x.to_string());
     }
-    // `new` nos *templates* (`#.new = function`, `Object.getPrototypeOf(#).new`)
-    // é o construtor Dart, nunca uma propriedade do JavaScript: renomeado junto.
-    n.reservados.extend(nomes_js.iter().filter(|w| *w != "new").cloned());
-    n.reservados.extend(PROTOCOLO_JS.iter().map(|s| s.to_string()));
+    // `new` in the *templates* (`#.new = function`,
+    // `Object.getPrototypeOf(#).new`) is the Dart constructor, never a
+    // JavaScript property: renamed along with it.
+    n.reserved.extend(js_names.iter().filter(|w| *w != "new").cloned());
+    n.reserved.extend(JS_PROTOCOL.iter().map(|s| s.to_string()));
     n
 }

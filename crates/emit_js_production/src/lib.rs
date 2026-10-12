@@ -1,184 +1,193 @@
-//! Perfil de **produção** do backend JavaScript: um arquivo, com só o que o
-//! mundo fechado alcança. O plano inteiro, com a referência estudada e as
-//! medições que o motivam, está em `docs/JS-PRODUCAO.md`.
+//! **Production** profile of the JavaScript backend: one file, with only what
+//! the closed world reaches. The whole plan, with the reference studied and
+//! the measurements that motivate it, is in `docs/JS-PRODUCAO.md`.
 //!
-//! Duas podas, uma para cada natureza de código (`docs/JS-PRODUCAO.md` §1.2):
+//! Two prunings, one for each kind of code (`docs/JS-PRODUCAO.md` §1.2):
 //!
-//! * **o código do usuário e dos pacotes** é podado **antes** da emissão, pelo
-//!   mundo fechado calculado sobre o modelo de elementos (`crates/world`); o
-//!   emissor de desenvolvimento (`crates/emit_js`) recebe o mundo como filtro
-//!   e não emite o que está morto. Sem filtro ele é byte a byte o de sempre;
-//! * **o `dart_sdk.js`**, que já vem compilado pelo DDC, é podado sobre o
-//!   texto (`sdk.rs`), com as raízes lidas do texto do usuário já podado.
+//! * **user and package code** is pruned **before** emission, by the closed
+//!   world computed over the element model (`crates/world`); the development
+//!   emitter (`crates/emit_js`) receives the world as a filter and does not
+//!   emit what is dead. Without a filter it is byte for byte the usual one;
+//! * **`dart_sdk.js`**, which comes already compiled by DDC, is pruned on the
+//!   text (`sdk.rs`), with the roots read from the already-pruned user text.
 //!
-//! O texto emitido é conferido contra o mundo (`verificar.rs`): o que o texto
-//! cita e o mundo podou volta como raiz, e o mundo é recalculado.
+//! The emitted text is checked against the world (`verify.rs`): whatever the
+//! text cites and the world pruned comes back as a root, and the world is
+//! recomputed.
 
-pub mod achatar;
-pub mod alcance;
-pub mod aliasthis;
+pub mod alias_this;
 pub mod bundle;
 pub mod cache;
-pub mod filtro;
-pub mod formas;
-pub mod minificar;
-pub mod nomeados;
-pub mod propriedades;
-pub mod proprio;
-pub mod regras;
+pub mod filter;
+pub mod flatten;
+pub mod minify;
+pub mod named_args;
+pub mod own_sdk;
+pub mod properties;
+pub mod reach;
+pub mod rti_rules;
+pub mod scan;
 pub mod sdk;
-pub mod varredura;
-pub mod verificar;
+pub mod shapes;
+pub mod verify;
 
 use std::time::{Duration, Instant};
 
-/// O que a compilação de produção produziu, com os números que interessam ao
-/// relatório (e que o `crates/differential` imprime).
-pub struct Producao {
-    /// O arquivo único.
+/// What the production compilation produced, with the numbers the report
+/// cares about (and that `crates/differential` prints).
+pub struct Production {
+    /// The single file.
     pub js: String,
-    /// Módulos do perfil de desenvolvimento que entraram.
-    pub modulos: usize,
-    /// Ciclos de `import` encontrados (deveria ser vazio; ver `bundle::ordenar`).
-    pub ciclos: Vec<String>,
-    /// Tamanho do `dart_sdk.js` antes e depois da poda.
-    pub sdk_antes: usize,
-    pub sdk_depois: usize,
-    /// Unidades do `dart_sdk.js`: total e vivas.
-    pub sdk_unidades: usize,
-    pub sdk_vivas: usize,
-    /// Bytes dos módulos do usuário e dos pacotes que entraram no arquivo.
-    pub usuario: usize,
-    /// Tamanho do arquivo antes da compactação (igual a `js.len()` sem ela).
-    pub antes_de_compactar: usize,
-    /// O mundo fechado do usuário, quando calculado.
-    pub mundo: Option<RelatorioMundo>,
-    /// De onde veio o índice do `dart_sdk.js` (`cache.rs`) e quanto custou
-    /// obtê-lo; `None` quando a montagem o construiu por conta própria.
-    pub indice: Option<(cache::Origem, Duration)>,
-    /// Ponto fixo e reemissão do `dart_sdk.js` sobre o índice.
-    pub tempo_poda: Duration,
+    /// Development-profile modules that went in.
+    pub modules: usize,
+    /// `import` cycles found (should be empty; see `bundle::order`).
+    pub cycles: Vec<String>,
+    /// Size of `dart_sdk.js` before and after pruning.
+    pub sdk_before: usize,
+    pub sdk_after: usize,
+    /// Units of `dart_sdk.js`: total and live.
+    pub sdk_units: usize,
+    pub sdk_live: usize,
+    /// Bytes of the user and package modules that went into the file.
+    pub user: usize,
+    /// File size before compaction (equal to `js.len()` without it).
+    pub before_compaction: usize,
+    /// The user's closed world, when computed.
+    pub world: Option<WorldReport>,
+    /// Where the `dart_sdk.js` index came from (`cache.rs`) and how much it
+    /// cost to obtain; `None` when assembly built it on its own.
+    pub index: Option<(cache::Origin, Duration)>,
+    /// Fixed point and re-emission of `dart_sdk.js` over the index.
+    pub prune_time: Duration,
 }
 
-/// Números do mundo fechado do usuário (`docs/PESQUISA-OTIMIZACAO.md` §10:
-/// um relatório, não só um número).
+/// Numbers of the user's closed world (`docs/PESQUISA-OTIMIZACAO.md` §10:
+/// a report, not just a number).
 #[derive(Debug, Clone, Default)]
-pub struct RelatorioMundo {
-    pub estat: dartforge_world::Estatisticas,
-    /// Cálculo do mundo (todas as rodadas).
-    pub tempo_mundo: Duration,
-    /// Emissão com o filtro (todas as rodadas).
-    pub tempo_emissao: Duration,
-    /// Verificador do texto (todas as rodadas) — custo do verificador sempre ligado.
-    pub tempo_verificacao: Duration,
-    /// Rodadas mundo→emissão→verificação até o ponto fixo (1 = nada faltou).
-    pub rodadas: usize,
-    /// A análise não convergiu e o arquivo saiu sem a poda do código do
-    /// usuário (a emissão completa).
-    pub poda_desligada: bool,
-    /// O que o verificador achou faltando (lacunas da análise).
-    pub curas: Vec<String>,
-    /// Referências pendentes sem elemento correspondente (deveria ser vazio).
-    pub sem_elemento: Vec<String>,
-    /// Inconsistências da conferência a seco (`DARTFORGE_JSPROD_CONFERIR=1`).
-    pub inconsistencias: Option<usize>,
-    /// Palavras dos *templates* `JS()` vivos no mundo final (nomes do JS).
-    pub nomes_js: std::collections::HashSet<String>,
-    /// O mapa dos parâmetros nomeados usado na emissão final (`nomeados.rs`).
-    pub nomeados: Option<crate::nomeados::Nomeados>,
+pub struct WorldReport {
+    pub stats: dartforge_world::Estatisticas,
+    /// World computation (all rounds).
+    pub world_time: Duration,
+    /// Filtered emission (all rounds).
+    pub emit_time: Duration,
+    /// Text verifier (all rounds) — the cost of the always-on verifier.
+    pub verify_time: Duration,
+    /// World→emission→verification rounds until the fixed point (1 = nothing
+    /// was missing).
+    pub rounds: usize,
+    /// The analysis did not converge and the file went out without pruning
+    /// the user code (the full emission).
+    pub pruning_disabled: bool,
+    /// What the verifier found missing (gaps in the analysis).
+    pub fixes: Vec<String>,
+    /// Pending references with no matching element (should be empty).
+    pub no_element: Vec<String>,
+    /// Inconsistencies of the dry-run check (`DARTFORGE_JSPROD_CONFERIR=1`).
+    pub inconsistencies: Option<usize>,
+    /// Words of the live `JS()` *templates* in the final world (JS names).
+    pub js_names: std::collections::HashSet<String>,
+    /// The named-parameter map used in the final emission (`named_args.rs`).
+    pub named_args: Option<crate::named_args::NamedArgs>,
 }
 
-/// Opções do perfil.
+/// Profile options.
 #[derive(Clone, Copy)]
-pub struct Opcoes {
-    /// Podar o `dart_sdk.js` pelo alcance (etapa 2 do plano).
-    pub podar_sdk: bool,
-    /// Partir as classes do `dart_sdk.js` por membro (etapa 4 do plano).
-    pub por_membro: bool,
-    /// Podar o código do usuário pelo mundo fechado (etapa 5 do plano).
-    pub podar_usuario: bool,
-    /// Modo verificador: o que o mundo diz morto é emitido como *stub* que
-    /// denuncia a chamada (`DARTFORGE-PODADO: …` no stderr, saída 97).
+pub struct Options {
+    /// Prune `dart_sdk.js` by reachability (step 2 of the plan).
+    pub prune_sdk: bool,
+    /// Split the classes of `dart_sdk.js` per member (step 4 of the plan).
+    pub per_member: bool,
+    /// Prune user code by the closed world (step 5 of the plan).
+    pub prune_user: bool,
+    /// Verifier mode: what the world says is dead is emitted as a *stub*
+    /// that reports the call (`DARTFORGE-PODADO: …` on stderr, exit 97).
     pub stub: bool,
-    /// Compactar o arquivo (comentários e espaço que não separa tokens;
-    /// `minificar.rs`), etapa 7 do plano.
-    pub minificar: bool,
-    /// Compilar o SDK pela nossa trilha (modo SDK do emissor,
-    /// `docs/JS-PRODUCAO-SDK-PROPRIO.md`) em vez de podar o `dart_sdk.js`
-    /// do DDC. `--sdk-ddc` volta ao caminho antigo.
-    pub sdk_proprio: bool,
-    /// `--enable-asserts`: os `assert` do programa são emitidos. Desligados
-    /// por padrão, como no `dart2js` (`docs/JS-PRODUCAO-TAMANHO.md` §3.3).
+    /// Compact the file (comments and whitespace that does not separate
+    /// tokens; `minify.rs`), step 7 of the plan.
+    pub minify: bool,
+    /// Compile the SDK through our own pipeline (the emitter's SDK mode,
+    /// `docs/JS-PRODUCAO-SDK-PROPRIO.md`) instead of pruning DDC's
+    /// `dart_sdk.js`. `--sdk-ddc` goes back to the old path.
+    pub own_sdk: bool,
+    /// `--enable-asserts`: the program's `assert`s are emitted. Off by
+    /// default, as in `dart2js` (`docs/JS-PRODUCAO-TAMANHO.md` §3.3).
     pub asserts: bool,
-    /// `--omitir-checagens`: sem as conversões implícitas de `dynamic` nem as
-    /// checagens de covariância, como o `dart2js -O4`. Inseguro.
-    pub omitir_checagens: bool,
+    /// `--omitir-checagens`: no implicit `dynamic` conversions and no
+    /// covariance checks, like `dart2js -O4`. Unsafe.
+    pub omit_checks: bool,
 }
 
-impl Default for Opcoes {
+impl Default for Options {
     fn default() -> Self {
         let stub = std::env::var("DARTFORGE_JSPROD_VERIFICAR").is_ok_and(|v| v == "stub");
-        // O SDK próprio é o padrão (passa o corpus/js inteiro igual à VM);
-        // `DARTFORGE_JSPROD_SDK=ddc` ou `--sdk-ddc` voltam ao `dart_sdk.js`
-        // podado. O modo *stub* do verificador só existe no caminho antigo.
-        let sdk_proprio = !stub && !std::env::var("DARTFORGE_JSPROD_SDK").is_ok_and(|v| v == "ddc");
-        Opcoes { podar_sdk: true, por_membro: true, podar_usuario: true, stub, minificar: true, sdk_proprio, asserts: false, omitir_checagens: false }
+        // The own SDK is the default (it passes the whole corpus/js the same
+        // as the VM); `DARTFORGE_JSPROD_SDK=ddc` or `--sdk-ddc` go back to the
+        // pruned `dart_sdk.js`. The verifier's *stub* mode only exists on the
+        // old path.
+        let own_sdk = !stub && !std::env::var("DARTFORGE_JSPROD_SDK").is_ok_and(|v| v == "ddc");
+        Options { prune_sdk: true, per_member: true, prune_user: true, stub, minify: true, own_sdk, asserts: false, omit_checks: false }
     }
 }
 
-/// Compila `entrada` no perfil de produção com o SDK compilado pela nossa
-/// trilha (`docs/JS-PRODUCAO-SDK-PROPRIO.md`): nenhum byte do `dart_sdk.js`.
+/// Compiles `input` in the production profile with the SDK compiled through
+/// our own pipeline (`docs/JS-PRODUCAO-SDK-PROPRIO.md`): not a single byte of
+/// `dart_sdk.js`.
 ///
-/// # Erros
+/// # Errors
 ///
-/// Os da carga, da análise e da emissão do programa ou do SDK.
-pub fn compilar_sdk_proprio(
-    entrada: &std::path::Path,
+/// Those of loading, analyzing and emitting the program or the SDK.
+pub fn compile_own_sdk(
+    input: &std::path::Path,
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
-    op: Opcoes,
-    linguagem: &dartforge_elements::sdk::Linguagem,
-) -> Result<Producao, String> {
-    let ((e, rel, nomes, rti), _) = dartforge_emit_js::compilar_com_opcoes(entrada, sdk_lib, packages, linguagem, None, true, |a| {
-        let (e, rel) = proprio::emitir(a, op)?;
-        let vazio = std::collections::HashSet::new();
-        let nomes = propriedades::calcular(a, rel.as_ref().map_or(&vazio, |r| &r.nomes_js), rel.as_ref().and_then(|r| r.nomeados.as_ref()).map(|n| &n.mapa));
-        Ok((e, rel, nomes, proprio::nomes_de_receita(a)))
+    op: Options,
+    language: &dartforge_elements::sdk::Linguagem,
+) -> Result<Production, String> {
+    let ((e, report, names, rti), _) = dartforge_emit_js::compilar_com_opcoes(input, sdk_lib, packages, language, None, true, |a| {
+        let (e, report) = own_sdk::emit(a, op)?;
+        let empty = std::collections::HashSet::new();
+        let names = properties::compute(a, report.as_ref().map_or(&empty, |r| &r.js_names), report.as_ref().and_then(|r| r.named_args.as_ref()).map(|n| &n.map));
+        Ok((e, report, names, own_sdk::recipe_names(a)))
     })?;
-    let mut p = proprio::montar(&e, op, Some(&nomes), Some(&rti));
-    p.mundo = rel;
+    let mut p = own_sdk::assemble(&e, op, Some(&names), Some(&rti));
+    p.world = report;
     Ok(p)
 }
 
-/// Compila `entrada` no perfil de produção.
+/// Compiles `input` in the production profile.
 ///
-/// `dart_sdk_js` é o runtime do DDC (`runtime/ddc/dart_sdk.js`); ele é lido,
-/// podado e **embutido** no resultado.
-pub fn compilar(
-    entrada: &std::path::Path,
+/// `dart_sdk_js` is the DDC runtime (`runtime/ddc/dart_sdk.js`); it is read,
+/// pruned and **embedded** in the result.
+///
+/// # Errors
+///
+/// Failure to read `dart_sdk_js`, and those of loading, analyzing and
+/// emitting the program.
+pub fn compile(
+    input: &std::path::Path,
     sdk_lib: Option<&std::path::Path>,
     packages: Option<&std::path::Path>,
     dart_sdk_js: &std::path::Path,
-    op: Opcoes,
-    linguagem: &dartforge_elements::sdk::Linguagem,
-) -> Result<Producao, String> {
-    let sdk_texto = std::fs::read_to_string(dart_sdk_js).map_err(|e| format!("{}: {e}", dart_sdk_js.display()))?;
-    // O índice do runtime depende só do texto e da granularidade: vem do
-    // cache em disco quando há um válido (`cache.rs`).
+    op: Options,
+    language: &dartforge_elements::sdk::Linguagem,
+) -> Result<Production, String> {
+    let sdk_text = std::fs::read_to_string(dart_sdk_js).map_err(|e| format!("{}: {e}", dart_sdk_js.display()))?;
+    // The runtime index depends only on the text and on the granularity: it
+    // comes from the on-disk cache when there is a valid one (`cache.rs`).
     let t = Instant::now();
-    let (indice, origem) = cache::obter(&sdk_texto, op.por_membro);
-    let tempo_indice = t.elapsed();
-    let ((emitido, rel), _) = dartforge_emit_js::compilar_com(entrada, sdk_lib, packages, linguagem, |a| emitir_com_mundo(a, &indice, op))?;
-    let mut p = montar_com_indice(&emitido, &sdk_texto, op, &indice);
-    p.mundo = rel;
-    p.indice = Some((origem, tempo_indice));
+    let (index, origin) = cache::load(&sdk_text, op.per_member);
+    let index_time = t.elapsed();
+    let ((emitted, report), _) = dartforge_emit_js::compilar_com(input, sdk_lib, packages, language, |a| emit_with_world(a, &index, op))?;
+    let mut p = assemble_with_index(&emitted, &sdk_text, op, &index);
+    p.world = report;
+    p.index = Some((origin, index_time));
     Ok(p)
 }
 
-/// Raízes do mundo do usuário vistas do JS: `main` e os nomes que o
-/// `dart_sdk.js` chama por string (`sdk::seletores_dinamicos`, guardados no
-/// índice).
-fn raizes(a: &dartforge_emit_js::Analise<'_>, indice: &sdk::IndiceSdk) -> dartforge_world::Raizes {
+/// Roots of the user's world as seen from JS: `main` and the names that
+/// `dart_sdk.js` calls by string (`sdk::dynamic_selectors`, stored in the
+/// index).
+fn roots(a: &dartforge_emit_js::Analise<'_>, index: &sdk::SdkIndex) -> dartforge_world::Raizes {
     use dartforge_elements::model::Element;
     let mut r = dartforge_world::Raizes::default();
     if let (Some(lib), Some(sym)) = (a.program.entry, a.interner.lookup("main")) {
@@ -186,183 +195,193 @@ fn raizes(a: &dartforge_emit_js::Analise<'_>, indice: &sdk::IndiceSdk) -> dartfo
             r.funcoes.push(f);
         }
     }
-    r.seletores = indice.seletores_dinamicos();
+    r.seletores = index.dynamic_selectors();
     r
 }
 
-/// Mundo fechado → emissão filtrada → verificação do texto, até o ponto fixo.
-pub fn emitir_com_mundo(a: &dartforge_emit_js::Analise<'_>, indice: &sdk::IndiceSdk, op: Opcoes) -> Result<(dartforge_emit_js::Emitido, Option<RelatorioMundo>), String> {
-    if !op.podar_usuario {
+/// Closed world → filtered emission → text verification, until the fixed
+/// point.
+///
+/// # Errors
+///
+/// Those of the emission.
+pub fn emit_with_world(a: &dartforge_emit_js::Analise<'_>, index: &sdk::SdkIndex, op: Options) -> Result<(dartforge_emit_js::Emitido, Option<WorldReport>), String> {
+    if !op.prune_user {
         return Ok((a.emitir(None)?, None));
     }
-    let entrada = dartforge_world::Entrada { program: a.program, interner: a.interner, table: a.table, outline: a.outline, bodies: a.bodies };
-    let mut rel = RelatorioMundo::default();
+    let input = dartforge_world::Entrada { program: a.program, interner: a.interner, table: a.table, outline: a.outline, bodies: a.bodies };
+    let mut report = WorldReport::default();
     let t = Instant::now();
-    let mut raizes = raizes(a, indice);
-    rel.tempo_mundo += t.elapsed();
-    // `DARTFORGE_JSPROD_RODADAS=1` mostra as lacunas da análise sem curá-las.
-    let max_rodadas: usize = std::env::var("DARTFORGE_JSPROD_RODADAS").ok().and_then(|v| v.parse().ok()).unwrap_or(8).max(1);
-    for rodada in 1..=max_rodadas {
+    let mut roots = roots(a, index);
+    report.world_time += t.elapsed();
+    // `DARTFORGE_JSPROD_RODADAS=1` shows the gaps in the analysis without
+    // fixing them.
+    let max_rounds: usize = std::env::var("DARTFORGE_JSPROD_RODADAS").ok().and_then(|v| v.parse().ok()).unwrap_or(8).max(1);
+    for round in 1..=max_rounds {
         let t = Instant::now();
-        let mundo = dartforge_world::calcular(entrada, &raizes);
-        rel.tempo_mundo += t.elapsed();
-        let ad = filtro::Adaptador { mundo: &mundo, program: a.program, stub: op.stub, assinaturas: None, constantes: None, nomeados: None, omitir_checagens: false };
+        let world = dartforge_world::calcular(input, &roots);
+        report.world_time += t.elapsed();
+        let ad = filter::Adapter { world: &world, program: a.program, stub: op.stub, signatures: None, constants: None, named_args: None, omit_checks: false };
         let t = Instant::now();
-        let emitido = a.emitir(Some(&ad))?;
-        rel.tempo_emissao += t.elapsed();
+        let emitted = a.emitir(Some(&ad))?;
+        report.emit_time += t.elapsed();
         let t = Instant::now();
-        // Identificador JS → biblioteca, para traduzir `L$x.Nome` em elemento.
-        let libs = verificar::bibliotecas_do_texto(&emitido.modulos, a.program);
-        let faltas = verificar::conferir(&emitido.modulos, &libs, a.program, a.interner, &mundo);
-        rel.tempo_verificacao += t.elapsed();
-        rel.rodadas = rodada;
-        rel.sem_elemento = faltas.sem_elemento.clone();
-        if faltas.vazia() || rodada == max_rodadas {
-            let mut emitido = emitido;
-            if !faltas.vazia() {
-                rel.curas.extend(faltas.descricao.iter().cloned());
-                rel.curas.push(format!("ponto fixo não atingido em {max_rodadas} rodada(s)"));
-                // Sem o ponto fixo, a poda não foi validada: o arquivo sai com
-                // o código do usuário inteiro (o superconjunto seguro), nunca
-                // com a versão podada que ainda referencia o que tirou.
+        // JS identifier → library, to translate `L$x.Name` into an element.
+        let libs = verify::libraries_from_text(&emitted.modulos, a.program);
+        let missing = verify::check(&emitted.modulos, &libs, a.program, a.interner, &world);
+        report.verify_time += t.elapsed();
+        report.rounds = round;
+        report.no_element = missing.no_element.clone();
+        if missing.is_empty() || round == max_rounds {
+            let mut emitted = emitted;
+            if !missing.is_empty() {
+                report.fixes.extend(missing.description.iter().cloned());
+                report.fixes.push(format!("fixed point not reached in {max_rounds} round(s)"));
+                // Without the fixed point, the pruning was not validated: the
+                // file goes out with the whole user code (the safe superset),
+                // never with the pruned version that still references what it
+                // removed.
                 let t = Instant::now();
-                emitido = a.emitir(None)?;
-                rel.tempo_emissao += t.elapsed();
-                rel.poda_desligada = true;
-                rel.curas.push("poda do código do usuário desligada: a análise não convergiu".to_string());
+                emitted = a.emitir(None)?;
+                report.emit_time += t.elapsed();
+                report.pruning_disabled = true;
+                report.fixes.push("user code pruning disabled: the analysis did not converge".to_string());
             }
-            rel.estat = mundo.estat.clone();
+            report.stats = world.estat.clone();
             if std::env::var("DARTFORGE_JSPROD_CONFERIR").is_ok_and(|v| v != "0") {
-                let inc = dartforge_world::conferir(entrada, &raizes, &mundo);
+                let inc = dartforge_world::conferir(input, &roots, &world);
                 for i in inc.iter().take(10) {
-                    eprintln!("[jsprod] inconsistência do mundo: {i:?}");
+                    eprintln!("[jsprod] world inconsistency: {i:?}");
                 }
-                rel.inconsistencias = Some(inc.len());
+                report.inconsistencies = Some(inc.len());
             }
-            if let Ok(alvo) = std::env::var("DARTFORGE_JSPROD_POR") {
-                explicar(a, &mundo, &alvo);
+            if let Ok(target) = std::env::var("DARTFORGE_JSPROD_POR") {
+                explain(a, &world, &target);
             }
-            return Ok((emitido, Some(rel)));
+            return Ok((emitted, Some(report)));
         }
-        rel.curas.extend(faltas.descricao.iter().cloned());
-        raizes.funcoes.extend(faltas.funcoes);
-        raizes.variaveis.extend(faltas.variaveis);
-        raizes.classes_tipo.extend(faltas.classes);
-        raizes.classes_instanciadas.extend(faltas.classes_instanciadas);
-        raizes.tearoffs.extend(faltas.tearoffs);
-        raizes.seletores.extend(faltas.seletores);
+        report.fixes.extend(missing.description.iter().cloned());
+        roots.funcoes.extend(missing.functions);
+        roots.variaveis.extend(missing.variables);
+        roots.classes_tipo.extend(missing.classes);
+        roots.classes_instanciadas.extend(missing.instantiated_classes);
+        roots.tearoffs.extend(missing.tearoffs);
+        roots.seletores.extend(missing.selectors);
     }
     unreachable!()
 }
 
-/// `DARTFORGE_JSPROD_POR=Nome`: por que a classe (ou função) `Nome` está no
-/// arquivo — a cadeia de causas até a raiz.
-fn explicar(a: &dartforge_emit_js::Analise<'_>, mundo: &dartforge_world::Mundo, alvo: &str) {
+/// `DARTFORGE_JSPROD_POR=Name`: why the class (or function) `Name` is in the
+/// file — the chain of causes up to the root.
+fn explain(a: &dartforge_emit_js::Analise<'_>, world: &dartforge_world::Mundo, target: &str) {
     use dartforge_elements::model::{ClassId, FunctionElementId};
     use dartforge_world::Causa;
     let p = a.program;
-    let nome_fn = |f: FunctionElementId| {
+    let fn_name = |f: FunctionElementId| {
         let func = p.function(f);
         let c = func.class.map(|c| format!("{}.", a.interner.resolve(p.class(c).name))).unwrap_or_default();
         format!("{}::{c}{}", p.library(func.library).uri, a.interner.resolve(func.name))
     };
-    let mut inicio: Vec<Causa> = Vec::new();
+    let mut start: Vec<Causa> = Vec::new();
     for (i, c) in p.classes.iter().enumerate() {
-        if a.interner.resolve(c.name) == alvo && !p.library(c.library).is_sdk {
-            inicio.push(Causa::Classe(ClassId(i as u32)));
+        if a.interner.resolve(c.name) == target && !p.library(c.library).is_sdk {
+            start.push(Causa::Classe(ClassId(i as u32)));
         }
     }
     for (i, f) in p.functions.iter().enumerate() {
-        if a.interner.resolve(f.name) == alvo && !p.library(f.library).is_sdk && mundo.funcao(FunctionElementId(i as u32)) {
-            inicio.push(Causa::Funcao(FunctionElementId(i as u32)));
+        if a.interner.resolve(f.name) == target && !p.library(f.library).is_sdk && world.funcao(FunctionElementId(i as u32)) {
+            start.push(Causa::Funcao(FunctionElementId(i as u32)));
         }
     }
-    for c in inicio {
-        let mut cadeia: Vec<String> = Vec::new();
+    for c in start {
+        let mut chain: Vec<String> = Vec::new();
         let mut cur = Some(c);
         while let Some(x) = cur {
-            if cadeia.len() > 40 {
+            if chain.len() > 40 {
                 break;
             }
-            let (txt, prox) = match x {
-                Causa::Raiz => ("(raiz)".to_string(), None),
-                Causa::Funcao(f) => (nome_fn(f), mundo.causa_funcao(f)),
-                Causa::Classe(k) => (format!("classe {} [{:?}]", a.interner.resolve(p.class(k).name), mundo.classe(k)), mundo.causa_classe(k)),
-                Causa::Variavel(v) => (format!("variável {}", a.interner.resolve(p.variable(v).name)), mundo.causa_variavel(v)),
+            let (txt, next) = match x {
+                Causa::Raiz => ("(root)".to_string(), None),
+                Causa::Funcao(f) => (fn_name(f), world.causa_funcao(f)),
+                Causa::Classe(k) => (format!("class {} [{:?}]", a.interner.resolve(p.class(k).name), world.classe(k)), world.causa_classe(k)),
+                Causa::Variavel(v) => (format!("variable {}", a.interner.resolve(p.variable(v).name)), world.causa_variavel(v)),
             };
-            cadeia.push(txt);
-            cur = prox;
+            chain.push(txt);
+            cur = next;
         }
-        eprintln!("[jsprod] {}", cadeia.join(" <- "));
+        eprintln!("[jsprod] {}", chain.join(" <- "));
     }
 }
 
-/// Como [`compilar`], a partir de uma emissão de desenvolvimento já feita.
-/// Separado para que o teste não precise de disco nem de SDK; o índice do
-/// runtime é construído aqui, sem cache.
-pub fn montar(emitido: &dartforge_emit_js::Emitido, sdk_texto: &str, op: Opcoes) -> Producao {
-    montar_com_indice(emitido, sdk_texto, op, &sdk::indexar(sdk_texto, op.por_membro))
+/// Like [`compile`], starting from a development emission already done.
+/// Kept separate so that the test needs neither disk nor SDK; the runtime
+/// index is built here, without the cache.
+pub fn assemble(emitted: &dartforge_emit_js::Emitido, sdk_text: &str, op: Options) -> Production {
+    assemble_with_index(emitted, sdk_text, op, &sdk::index(sdk_text, op.per_member))
 }
 
-/// Como [`montar`], com o índice de `sdk_texto` já obtido (do cache).
-pub fn montar_com_indice(emitido: &dartforge_emit_js::Emitido, sdk_texto: &str, op: Opcoes, indice: &sdk::IndiceSdk) -> Producao {
-    let modulos: Vec<bundle::Modulo> = emitido
+/// Like [`assemble`], with the index of `sdk_text` already obtained (from
+/// the cache).
+pub fn assemble_with_index(emitted: &dartforge_emit_js::Emitido, sdk_text: &str, op: Options, index: &sdk::SdkIndex) -> Production {
+    let modules: Vec<bundle::Module> = emitted
         .modulos
         .iter()
-        // O `preambulo.js` do perfil de desenvolvimento existe só para dar
-        // `self` ao `dart_sdk.js` no Node; no bundle isso é a primeira linha.
+        // The development profile's `preambulo.js` exists only to give
+        // `self` to `dart_sdk.js` on Node; in the bundle that is the first
+        // line.
         .filter(|(p, _)| p != "preambulo.js")
-        .map(|(p, t)| bundle::separar(p, t))
+        .map(|(p, t)| bundle::split(p, t))
         .collect();
-    let (modulos, ciclos) = bundle::ordenar(modulos);
-    let entrada = bundle::entrada_do_mjs(&emitido.entrada, &modulos)
+    let (modules, cycles) = bundle::order(modules);
+    let entry = bundle::entry_from_mjs(&emitted.entrada, &modules)
         .unwrap_or_else(|| "L$main".to_string());
 
-    let sdk_antes = sdk_texto.len();
+    let sdk_before = sdk_text.len();
     let t = Instant::now();
-    let (sdk_podado, unidades, vivas) = if op.podar_sdk {
-        let raizes = sdk::raizes_do_usuario(&modulos);
-        sdk::podar_com_indice(sdk_texto, indice, &raizes)
+    let (sdk_pruned, units, live) = if op.prune_sdk {
+        let roots = sdk::user_roots(&modules);
+        sdk::prune_with_index(sdk_text, index, &roots)
     } else {
-        (bundle::sdk_sem_export(sdk_texto), 0, 0)
+        (bundle::sdk_without_export(sdk_text), 0, 0)
     };
-    let tempo_poda = t.elapsed();
-    let sdk_depois = sdk_podado.len();
-    let usuario = modulos.iter().map(|m| m.corpo.len() + m.namespaces.iter().map(|n| n.len() + 1).sum::<usize>()).sum();
+    let prune_time = t.elapsed();
+    let sdk_after = sdk_pruned.len();
+    let user = modules.iter().map(|m| m.body.len() + m.namespaces.iter().map(|n| n.len() + 1).sum::<usize>()).sum();
 
-    let preambulo = if op.stub { bundle::PREAMBULO_STUB } else { "" };
-    let js = bundle::montar(&sdk_podado, &modulos, &entrada, preambulo);
+    let preamble = if op.stub { bundle::STUB_PREAMBLE } else { "" };
+    let js = bundle::assemble(&sdk_pruned, &modules, &entry, preamble);
     debug_assert!(
-        // Determinismo é requisito (`docs/PESQUISA-OTIMIZACAO.md` §11): o
-        // `dartforge serve` recarrega por geração, e geração que muda à toa é
-        // um defeito que o usuário vê. Em depuração, confere de graça que o
-        // arquivo não depende da ordem interna de nada.
-        bundle::montar(&sdk_podado, &modulos, &entrada, preambulo) == js,
-        "a montagem não é determinística"
+        // Determinism is a requirement (`docs/PESQUISA-OTIMIZACAO.md` §11):
+        // `dartforge serve` reloads per generation, and a generation that
+        // changes for no reason is a defect the user sees. In debug builds,
+        // this checks for free that the file does not depend on the internal
+        // order of anything.
+        bundle::assemble(&sdk_pruned, &modules, &entry, preamble) == js,
+        "assembly is not deterministic"
     );
-    let antes_de_compactar = js.len();
-    let js = if op.minificar { minificar::compactar(&js) } else { js };
-    Producao {
+    let before_compaction = js.len();
+    let js = if op.minify { minify::compact(&js) } else { js };
+    Production {
         js,
-        modulos: modulos.len(),
-        ciclos,
-        sdk_antes,
-        sdk_depois,
-        sdk_unidades: unidades,
-        sdk_vivas: vivas,
-        usuario,
-        antes_de_compactar,
-        mundo: None,
-        indice: None,
-        tempo_poda,
+        modules: modules.len(),
+        cycles,
+        sdk_before,
+        sdk_after,
+        sdk_units: units,
+        sdk_live: live,
+        user,
+        before_compaction,
+        world: None,
+        index: None,
+        prune_time,
     }
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
-    fn emitido() -> dartforge_emit_js::Emitido {
+    fn emitted() -> dartforge_emit_js::Emitido {
         dartforge_emit_js::Emitido {
             modulos: vec![
                 (
@@ -400,51 +419,52 @@ mod testes {
     );
 
     #[test]
-    fn monta_um_arquivo_na_ordem_topologica() {
-        let p = montar(&emitido(), SDK, Opcoes { podar_sdk: false, por_membro: false, podar_usuario: false, stub: false, minificar: false, sdk_proprio: false, asserts: true, omitir_checagens: false });
-        assert!(p.ciclos.is_empty());
-        assert_eq!(p.modulos, 2);
-        // `util.js` não importa ninguém, então vem antes de `main.js`.
+    fn assembles_one_file_in_topological_order() {
+        let p = assemble(&emitted(), SDK, Options { prune_sdk: false, per_member: false, prune_user: false, stub: false, minify: false, own_sdk: false, asserts: true, omit_checks: false });
+        assert!(p.cycles.is_empty());
+        assert_eq!(p.modules, 2);
+        // `util.js` imports nothing, so it comes before `main.js`.
         let a = p.js.find("L$util.dobro").unwrap();
         let b = p.js.find("L$main.main").unwrap();
-        assert!(a < b, "dependência tem de vir antes de quem a importa");
-        // Nada de `import`/`export` no arquivo final.
-        assert!(!p.js.contains("\nimport "), "sobrou import");
-        assert!(!p.js.contains("\nexport "), "sobrou export");
-        // Os namespaces são içados; os corpos ficam em IIFE.
+        assert!(a < b, "a dependency must come before whoever imports it");
+        // No `import`/`export` in the final file.
+        assert!(!p.js.contains("\nimport "), "an import was left over");
+        assert!(!p.js.contains("\nexport "), "an export was left over");
+        // The namespaces are hoisted; the bodies stay in IIFEs.
         assert!(p.js.contains("var L$util = Object.create(dart.library);\n"));
         assert!(p.js.contains("(function () {"));
         assert!(p.js.trim_end().ends_with("L$main.main();"));
     }
 
-    /// As bibliotecas continuam **separadas** depois do empacotamento: é a
-    /// regra do topo de `docs/JS-PRODUCAO.md` (compartilhar representação,
-    /// sim; unificar identidade de biblioteca, não).
+    /// The libraries stay **separate** after bundling: this is the rule at
+    /// the top of `docs/JS-PRODUCAO.md` (share representation, yes; unify
+    /// library identity, no).
     #[test]
-    fn empacotar_nao_funde_bibliotecas() {
-        let p = montar(&emitido(), SDK, Opcoes { podar_sdk: false, por_membro: false, podar_usuario: false, stub: false, minificar: false, sdk_proprio: false, asserts: true, omitir_checagens: false });
-        assert_eq!(p.js.matches("Object.create(dart.library)").count(), 3, "core + as duas do usuário");
+    fn bundling_does_not_merge_libraries() {
+        let p = assemble(&emitted(), SDK, Options { prune_sdk: false, per_member: false, prune_user: false, stub: false, minify: false, own_sdk: false, asserts: true, omit_checks: false });
+        assert_eq!(p.js.matches("Object.create(dart.library)").count(), 3, "core + the user's two");
     }
 
-    /// Determinismo (`docs/PESQUISA-OTIMIZACAO.md` §11): duas montagens das
-    /// mesmas entradas dão o mesmo arquivo, byte a byte.
+    /// Determinism (`docs/PESQUISA-OTIMIZACAO.md` §11): two assemblies of the
+    /// same inputs give the same file, byte for byte.
     #[test]
-    fn montagem_e_deterministica() {
-        let op = Opcoes::default();
-        let a = montar(&emitido(), SDK, op);
-        let b = montar(&emitido(), SDK, op);
+    fn assembly_is_deterministic() {
+        let op = Options::default();
+        let a = assemble(&emitted(), SDK, op);
+        let b = assemble(&emitted(), SDK, op);
         assert_eq!(a.js, b.js);
-        assert_eq!(a.sdk_depois, b.sdk_depois);
+        assert_eq!(a.sdk_after, b.sdk_after);
     }
 
-    /// A poda tira do runtime o que o programa não alcança, e mantém o que
-    /// alcança — no arquivo único, não num `dart_sdk.js` ao lado.
+    /// Pruning removes from the runtime what the program does not reach, and
+    /// keeps what it reaches — in the single file, not in a `dart_sdk.js`
+    /// next to it.
     #[test]
-    fn poda_o_runtime_embutido() {
-        let com = montar(&emitido(), SDK, Opcoes { podar_sdk: true, por_membro: false, podar_usuario: false, stub: false, minificar: false, sdk_proprio: false, asserts: true, omitir_checagens: false });
-        let sem = montar(&emitido(), SDK, Opcoes { podar_sdk: false, por_membro: false, podar_usuario: false, stub: false, minificar: false, sdk_proprio: false, asserts: true, omitir_checagens: false });
-        assert!(com.js.contains("core.print = function"), "o que o programa usa fica");
-        assert!(!com.js.contains("core.Morta"), "o que ele não usa sai");
-        assert!(com.sdk_depois < sem.sdk_depois);
+    fn prunes_the_embedded_runtime() {
+        let with = assemble(&emitted(), SDK, Options { prune_sdk: true, per_member: false, prune_user: false, stub: false, minify: false, own_sdk: false, asserts: true, omit_checks: false });
+        let without = assemble(&emitted(), SDK, Options { prune_sdk: false, per_member: false, prune_user: false, stub: false, minify: false, own_sdk: false, asserts: true, omit_checks: false });
+        assert!(with.js.contains("core.print = function"), "what the program uses stays");
+        assert!(!with.js.contains("core.Morta"), "what it does not use goes");
+        assert!(with.sdk_after < without.sdk_after);
     }
 }

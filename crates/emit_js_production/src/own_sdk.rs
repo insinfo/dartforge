@@ -1,0 +1,460 @@
+//! Production profile with the SDK compiled through our own pipeline
+//! (`docs/JS-PRODUCAO-SDK-PROPRIO.md`).
+//!
+//! The final file is the *bootstrap* (`dart`, namespaces, `dartx`), the SDK
+//! module emitted by the SDK mode of `crates/emit_js` and the program's
+//! modules, as in the old path — but without a single byte of `dart_sdk.js`.
+//!
+//! There is a single closed world, with the SDK inside it (§4 of the
+//! specification): what the emitter writes without it being in the AST
+//! (`dart.fn`, `JSArray.of`, `dart.str`…) is found by the text verifier and
+//! comes back as a root, until the fixed point.
+
+use crate::{Options, Production, WorldReport, bundle, filter, minify, verify};
+use dartforge_elements::model::{Element, LibraryId};
+use dartforge_emit_js::EmitidoComSdk;
+use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
+
+/// `registerExtension` tags that are **JavaScript built-in** types: the value
+/// (`"olá"`, `42`, `[]`, a function) becomes a Dart instance through the tag,
+/// without any name in the program. They are roots, like the impacts of
+/// `js_backend/backend_impact.dart` in dart2js.
+const BUILTIN_TAGS: &[&str] = &["Object", "String", "Number", "Boolean", "Array", "Function", "Symbol", "BigInt", "Error", "TypeError", "RangeError"];
+
+/// Initial roots: `main`, `core.Object` and the classes of the built-in tags.
+/// The rest comes from the fixed point with the text.
+fn roots(a: &dartforge_emit_js::Analise<'_>, e: &dartforge_world::Entrada<'_>) -> dartforge_world::Raizes {
+    let mut r = dartforge_world::Raizes::default();
+    if let (Some(lib), Some(sym)) = (a.program.entry, a.interner.lookup("main")) {
+        if let Some(Element::Function(f)) = a.program.library(lib).declared.get(&sym).and_then(|b| b.getter) {
+            r.funcoes.push(f);
+        }
+    }
+    if let (Some(core), Some(sym)) = (a.program.core, a.interner.lookup("Object")) {
+        if let Some(Element::Class(c)) = a.program.library(core).declared.get(&sym).and_then(|b| b.getter) {
+            r.classes_instanciadas.push(c);
+        }
+    }
+    for (c, tags) in dartforge_world::tags_nativas(e) {
+        if tags.iter().any(|t| BUILTIN_TAGS.contains(&t.as_str())) {
+            r.classes_instanciadas.push(c);
+        }
+    }
+    r
+}
+
+/// JS namespace → library, for the verifier: the program's (`L$…`) and the
+/// SDK's (`core`, `dart`, `dart_rti`…).
+fn libraries(a: &dartforge_emit_js::Analise<'_>, modules: &[(String, String)]) -> HashMap<String, LibraryId> {
+    let mut libs = verify::libraries_from_text(modules, a.program);
+    for (i, l) in a.program.libraries.iter().enumerate() {
+        let Some(n) = l.uri.strip_prefix("dart:") else { continue };
+        let var = match n {
+            "_runtime" => "dart",
+            "_rti" => "dart_rti",
+            x => x,
+        };
+        libs.insert(var.to_string(), LibraryId(i as u32));
+    }
+    libs
+}
+
+/// What the production profile removes from the program's text before
+/// checking and assembling (`docs/JS-PRODUCAO-SDK-PROPRIO.md` §6):
+/// `dart.trackLibraries(…)` (registration for the debugger) and
+/// `dart._checkModuleNullSafetyMode(…)` (a check between separately compiled
+/// modules) — in a single file, neither has a consumer. Removed before
+/// verification, the runtime functions they call leave the world too.
+fn strip_unused(e: &mut EmitidoComSdk) {
+    for (_, t) in e.emitido.modulos.iter_mut() {
+        let mut out = String::with_capacity(t.len());
+        let mut skip = false;
+        for line in t.split_inclusive('\n') {
+            if skip {
+                if line.starts_with('}') && line.trim_end().ends_with(");") {
+                    skip = false;
+                }
+                continue;
+            }
+            if line.starts_with("dart._checkModuleNullSafetyMode(") {
+                continue;
+            }
+            if line.starts_with("dart.trackLibraries(") {
+                skip = !line.trim_end().ends_with(");");
+                continue;
+            }
+            out.push_str(line);
+        }
+        *t = out;
+    }
+}
+
+/// Member names that the text passes to dynamic dispatch or to a *tearoff*
+/// (`dsend`/`dgsend`/`dload`/`dput`/`bind` and the `Repl` variants): the
+/// literal strings and the private symbols (`var x = dart.privateName(L,
+/// "_n")` used as an argument).
+fn dynamic_names(texts: &[(String, String)]) -> HashSet<String> {
+    let mut out: HashSet<String> = HashSet::new();
+    for (_, t) in texts {
+        let (r, w) = crate::sdk::dynamic_selectors_by_kind(t);
+        out.extend(r);
+        out.extend(w);
+        let mut privates: HashMap<&str, &str> = HashMap::new();
+        for line in t.lines() {
+            let Some(r) = line.strip_prefix("var ") else { continue };
+            let Some((var, rest)) = r.split_once(" = dart.privateName(") else { continue };
+            let Some(q) = rest.find('"') else { continue };
+            let rest = &rest[q + 1..];
+            let Some(end) = rest.find('"') else { continue };
+            privates.insert(var, &rest[..end]);
+        }
+        let b = t.as_bytes();
+        for (p, _) in t.match_indices('(') {
+            let mut i = p;
+            while i > 0 && (b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_' || b[i - 1] == b'$') {
+                i -= 1;
+            }
+            let position = match &t[i..p] {
+                "dsend" | "dload" | "dput" | "bind" | "dsendRepl" | "dloadRepl" | "dputRepl" => 1,
+                "dgsend" | "dgsendRepl" => 2,
+                _ => continue,
+            };
+            // The argument at the requested position, up to the comma at
+            // depth zero.
+            let mut j = p + 1;
+            let mut arg = 0;
+            let mut depth = 0i32;
+            let mut start = j;
+            while j < b.len() {
+                match b[j] {
+                    b'(' | b'[' | b'{' => depth += 1,
+                    b')' | b']' | b'}' if depth == 0 => break,
+                    b')' | b']' | b'}' => depth -= 1,
+                    b',' if depth == 0 => {
+                        if arg == position {
+                            break;
+                        }
+                        arg += 1;
+                        start = j + 1;
+                    }
+                    _ => {}
+                }
+                j += 1;
+            }
+            if arg == position {
+                let a = t[start..j].trim();
+                if let Some(n) = privates.get(a) {
+                    out.insert(n.to_string());
+                } else if a.len() >= 2 && (a.starts_with('"') && a.ends_with('"') || a.starts_with('\'') && a.ends_with('\'')) {
+                    // Operators (`dsend(a, "+", [b])`), which extraction by
+                    // identifier does not accept, and the program's private
+                    // names (`"_n$1c"` → `_n`).
+                    let s = &a[1..a.len() - 1];
+                    out.insert(dartforge_emit_js::nome_dart_de_privado(s).unwrap_or(s).to_string());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// `DARTFORGE_JSPROD_POR=name`: each function (of the program or of the SDK)
+/// with that name, whether it is live, its owner class and that class's
+/// level, and whether the selector is live for it.
+fn diagnose(a: &dartforge_emit_js::Analise<'_>, world: &dartforge_world::Mundo, target: &str) {
+    let p = a.program;
+    for (i, f) in p.functions.iter().enumerate() {
+        if a.interner.resolve(f.name) != target {
+            continue;
+        }
+        let fid = dartforge_elements::model::FunctionElementId(i as u32);
+        let owner = f.class.map(|c| format!("{} [{:?}] selector={}", a.interner.resolve(p.class(c).name), world.classe(c), world.seletor_vivo_para(p, target, c))).unwrap_or_default();
+        eprintln!("[jsprod] {}::{target} live={} {owner} cause={:?}", p.library(f.library).uri, world.funcao(fid), world.causa_funcao(fid));
+    }
+}
+
+/// One phase of the fixed point: world → filtered emission → text
+/// verification. Returns the final emission, or `None` if it did not
+/// converge.
+fn fixed_point(
+    a: &dartforge_emit_js::Analise<'_>,
+    input: dartforge_world::Entrada<'_>,
+    op: Options,
+    signatures: Option<&HashSet<String>>,
+    report: &mut WorldReport,
+) -> Result<Option<EmitidoComSdk>, String> {
+    let mut roots = roots(a, &input);
+    let opm = dartforge_world::Opcoes { incluir_sdk: true, sem_asserts: !op.asserts };
+    let constants = dartforge_world::Constantes::nova(input, !op.asserts);
+    let max_rounds: usize = std::env::var("DARTFORGE_JSPROD_RODADAS").ok().and_then(|v| v.parse().ok()).unwrap_or(40).max(1);
+    let trace = std::env::var("DARTFORGE_JSPROD_RASTRO").is_ok();
+    // The engine stays alive between rounds: each one only adds roots.
+    let mut computation = dartforge_world::Calculo::novo(input, opm);
+    for round in 1..=max_rounds {
+        let t = Instant::now();
+        computation.semear(&roots);
+        let world = computation.mundo();
+        report.world_time += t.elapsed();
+        // `DARTFORGE_JSPROD_NOMEADOS=0` keeps the source names.
+        let named_args = if std::env::var("DARTFORGE_JSPROD_NOMEADOS").map_or(true, |v| v != "0") { crate::named_args::compute(a, &world) } else { None };
+        let ad = filter::Adapter { world: &world, program: a.program, stub: op.stub, signatures, constants: Some(&constants), named_args: named_args.as_ref(), omit_checks: op.omit_checks };
+        let t = Instant::now();
+        let mut e = a.emitir_com_sdk(Some(&ad))?;
+        // The namespace → library map comes from `trackLibraries`, which
+        // `strip_unused` removes: read before.
+        let libs = libraries(a, &e.emitido.modulos);
+        strip_unused(&mut e);
+        report.emit_time += t.elapsed();
+        let t = Instant::now();
+        let mut texts = e.emitido.modulos.clone();
+        texts.push(("dart_sdk.js".to_string(), format!("{}{}", e.bootstrap, e.sdk)));
+        let missing = verify::check(&texts, &libs, a.program, a.interner, &world);
+        report.verify_time += t.elapsed();
+        report.rounds += 1;
+        report.no_element = missing.no_element.clone();
+        // `DARTFORGE_JSPROD_DESPEJO=file`: the round's text (diagnostics).
+        if let Ok(p) = std::env::var("DARTFORGE_JSPROD_DESPEJO") {
+            let _ = std::fs::write(p, texts.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>().join("\n"));
+        }
+        if trace {
+            eprintln!("[jsprod] round {round}: {} missing", missing.description.len());
+            for d in missing.description.iter().take(40) {
+                eprintln!("[jsprod]   {d}");
+            }
+        }
+        if missing.is_empty() {
+            report.stats = world.estat.clone();
+            report.js_names = world.nomes_js.clone();
+            report.named_args = named_args.clone();
+            if let Ok(target) = std::env::var("DARTFORGE_JSPROD_POR") {
+                diagnose(a, &world, &target);
+            }
+            return Ok(Some(e));
+        }
+        report.fixes.extend(missing.description.iter().cloned());
+        roots.funcoes.extend(missing.functions);
+        roots.variaveis.extend(missing.variables);
+        roots.classes_tipo.extend(missing.classes);
+        roots.classes_instanciadas.extend(missing.instantiated_classes);
+        roots.tearoffs.extend(missing.tearoffs);
+        roots.seletores.extend(missing.selectors);
+    }
+    Ok(None)
+}
+
+/// Closed world (with the SDK) → filtered emission → text verification,
+/// until the fixed point; in two phases (§6.1 of the specification): the
+/// first, with every signature, finds the names of dynamic dispatch; the
+/// second starts again from the roots emitting only the signatures of those
+/// names — whatever they kept alive only as a type goes too. If the second
+/// finds new names, they go in and it starts again (the set only grows: it
+/// terminates).
+///
+/// # Errors
+///
+/// Those of the emission.
+pub fn emit(a: &dartforge_emit_js::Analise<'_>, op: Options) -> Result<(EmitidoComSdk, Option<WorldReport>), String> {
+    if !op.prune_user {
+        let mut e = a.emitir_com_sdk(None)?;
+        strip_unused(&mut e);
+        return Ok((e, None));
+    }
+    let input = dartforge_world::Entrada { program: a.program, interner: a.interner, table: a.table, outline: a.outline, bodies: a.bodies };
+    let mut report = WorldReport::default();
+    let Some(first) = fixed_point(a, input, op, None, &mut report)? else {
+        report.pruning_disabled = true;
+        report.fixes.push("fixed point not reached; pruning disabled".to_string());
+        let mut e = a.emitir_com_sdk(None)?;
+        strip_unused(&mut e);
+        return Ok((e, Some(report)));
+    };
+    if std::env::var("DARTFORGE_JSPROD_ASSINATURAS").is_ok_and(|v| v == "todas") {
+        return Ok((first, Some(report)));
+    }
+    let texts = |e: &EmitidoComSdk| {
+        let mut v = e.emitido.modulos.clone();
+        v.push(("dart_sdk.js".to_string(), e.sdk.clone()));
+        v
+    };
+    let mut names = dynamic_names(&texts(&first));
+    for _ in 0..8 {
+        let Some(e) = fixed_point(a, input, op, Some(&names), &mut report)? else { break };
+        let new = dynamic_names(&texts(&e));
+        if new.is_subset(&names) {
+            return Ok((e, Some(report)));
+        }
+        names.extend(new);
+    }
+    // The second phase did not close: the first one (with every signature)
+    // stands.
+    Ok((first, Some(report)))
+}
+
+/// The prefix of every closed rti recipe the emitter writes.
+const RTI_PREFIX: &str = "dart_rti._Universe.eval(dart_rti._theUniverse(), ";
+
+/// Replaces `dart_rti._Universe.eval(dart_rti._theUniverse(), "R", true)` with
+/// `t$R("R")` (§6.3 of the specification): the same call, through a function
+/// declared once. `t$` is a prefix reserved by the emitter (a Dart identifier
+/// starting with it is renamed), so `t$R` collides with nothing.
+pub fn alias_recipes(js: &str) -> String {
+    let mut out = String::with_capacity(js.len());
+    let mut rest = js;
+    while let Some(p) = rest.find(RTI_PREFIX) {
+        let after = &rest[p + RTI_PREFIX.len()..];
+        let b = after.as_bytes();
+        // A double-quoted JS string, then `, true)`.
+        let end = if b.first() == Some(&b'"') {
+            let mut i = 1;
+            while i < b.len() && b[i] != b'"' {
+                if b[i] == b'\\' {
+                    i += 1;
+                }
+                i += 1;
+            }
+            (i < b.len() && after[i + 1..].starts_with(", true)")).then_some(i + 1)
+        } else {
+            None
+        };
+        match end {
+            Some(f) => {
+                out.push_str(&rest[..p]);
+                out.push_str("t$R(");
+                out.push_str(&after[..f]);
+                out.push(')');
+                rest = &after[f + ", true)".len()..];
+            }
+            None => {
+                out.push_str(&rest[..p + RTI_PREFIX.len()]);
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Short recipe id → class name (`dartforge_emit_js::ids_de_receita`), for
+/// the table that `_rtiToString` looks up (§9.5 of
+/// `docs/JS-PRODUCAO-TAMANHO.md`).
+pub fn recipe_names(a: &dartforge_emit_js::Analise<'_>) -> HashMap<String, String> {
+    dartforge_emit_js::ids_de_receita(a.program, a.interner)
+        .into_iter()
+        .enumerate()
+        .map(|(i, id)| (id, a.interner.resolve(a.program.class(dartforge_elements::model::ClassId(i as u32)).name).to_string()))
+        .collect()
+}
+
+/// What DDC's `unmangleGlobalNameIfPreservedAnyways` (`js_names.dart`)
+/// returns: `null`. In SDK mode with short ids, it reads the `t$N` table.
+const UNMANGLE: &str = "unmangleGlobalNameIfPreservedAnyways = function unmangleGlobalNameIfPreservedAnyways(name) {\nreturn null;";
+
+/// Puts into the file the `t$N` table of the names of the classes the text
+/// can show and hooks `unmangleGlobalNameIfPreservedAnyways` to it. The
+/// table is a single *string*, with the names separated by spaces in id
+/// order (`dartforge_emit_js::numero_de_id`), empty for those that do not
+/// appear: one byte per class instead of the quotes and key of an object.
+/// `t$I` converts the id into the number, like `numero_de_id`. Without the
+/// function in the text (nobody shows types), nothing changes.
+fn name_table(js: &str, rti: &HashMap<String, String>) -> String {
+    let Some(p) = js.find(UNMANGLE) else { return js.to_string() };
+    let displayable = crate::rti_rules::displayable(js);
+    let mut names: Vec<&str> = Vec::new();
+    for k in &displayable {
+        let Some(id) = k.strip_prefix('|') else { continue };
+        let (Some(name), Some(n)) = (rti.get(id), dartforge_emit_js::numero_de_id(id)) else { continue };
+        if names.len() <= n {
+            names.resize(n + 1, "");
+        }
+        names[n] = name.as_str();
+    }
+    let list = names.join(" ");
+    let first = std::str::from_utf8(dartforge_emit_js::ID_PRIMEIRA).unwrap_or_default();
+    let others = std::str::from_utf8(dartforge_emit_js::ID_OUTRAS).unwrap_or_default();
+    let mut out = String::with_capacity(js.len() + list.len() + 400);
+    out.push_str(&format!(
+        "var t$N = {}.split(\" \");\nvar t$I = function(id) {{ let a = \"{first}\", b = \"{others}\", n = a.indexOf(id[1]), p = {}; for (let i = 2; i < id.length; i++) {{ n += (b.indexOf(id[i]) + 1) * p; p *= {}; }} return n; }};\n",
+        dartforge_emit_js::js::string_literal(&list),
+        first.len(),
+        others.len(),
+    ));
+    out.push_str(&js[..p]);
+    out.push_str(&UNMANGLE.replace("return null;", "return name[0] === \"|\" && t$N[t$I(name)] || null;"));
+    out.push_str(&js[p + UNMANGLE.len()..]);
+    out
+}
+
+/// Assembles the single file.
+pub fn assemble(e: &EmitidoComSdk, op: Options, names: Option<&crate::properties::Names>, rti: Option<&HashMap<String, String>>) -> Production {
+    let modules: Vec<bundle::Module> = e
+        .emitido
+        .modulos
+        .iter()
+        .filter(|(p, _)| p != "preambulo.js")
+        .map(|(p, t)| bundle::split(p, t))
+        .collect();
+    let (modules, cycles) = bundle::order(modules);
+    let entry = bundle::entry_from_mjs(&e.emitido.entrada, &modules).unwrap_or_else(|| "L$main".to_string());
+    // The SDK module in an IIFE, like the program's: the `var`s of its
+    // prelude (`dartx` aliases, private names) are locals; what is shared
+    // (`dart`, the namespaces, `dartx`) is in the *bootstrap*.
+    // The SDK end marker separates, for property renaming, the runtime's
+    // *strings* from the program's (`minify::SDK_END_MARKER`); it only exists
+    // when that renaming is going to run, and compression deletes it.
+    let names_ok = std::env::var("DARTFORGE_JSPROD_NOMES").map_or(true, |v| v != "0");
+    let props = names_ok && std::env::var("DARTFORGE_JSPROD_PROPS").map_or(true, |v| v != "0");
+    let marker = if op.minify && props && names.is_some() { format!("\"{}\";\n", minify::SDK_END_MARKER) } else { String::new() };
+    let sdk = format!("{}const t$R = r => {RTI_PREFIX}r, true);\n(function () {{\n{}}})();\n{marker}", e.bootstrap, e.sdk);
+    let user = modules.iter().map(|m| m.body.len() + m.namespaces.iter().map(|n| n.len() + 1).sum::<usize>()).sum();
+    let preamble = if op.stub { bundle::STUB_PREAMBLE } else { "" };
+    let js = bundle::assemble(&sdk, &modules, &entry, preamble);
+    // rti rules only for the supertypes that some recipe cites
+    // (`rti_rules.rs`); `DARTFORGE_JSPROD_REGRAS=0` turns it off.
+    let js = if std::env::var("DARTFORGE_JSPROD_REGRAS").map_or(true, |v| v != "0") { crate::rti_rules::prune(&js) } else { js };
+    // After pruning the rules: the table is not a citation.
+    let js = match rti {
+        Some(r) if std::env::var("DARTFORGE_JSPROD_RECEITA_CURTA").map_or(true, |v| v != "0") => name_table(&js, r),
+        _ => js,
+    };
+    let js = alias_recipes(&js);
+    let before_compaction = js.len();
+    // Identifiers by scope and whitespace (oxc); `DARTFORGE_JSPROD_NOMES=0`
+    // stays with whitespace compaction only, and `DARTFORGE_JSPROD_PROPS=0`
+    // turns off property renaming (`names_ok` and `props`, above).
+    let js = if op.minify && props && names.is_some() {
+        match minify::minify_with_properties(&js, names.unwrap_or(&crate::properties::Names::default())) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("warning: {e}; the file goes out only compacted");
+                minify::compact(&js)
+            }
+        }
+    } else if op.minify && names_ok {
+        match minify::minify_names(&js) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("warning: {e}; the file goes out only compacted");
+                minify::compact(&js)
+            }
+        }
+    } else if op.minify {
+        minify::compact(&js)
+    } else {
+        js
+    };
+    Production {
+        js,
+        modules: modules.len(),
+        cycles,
+        sdk_before: sdk.len(),
+        sdk_after: sdk.len(),
+        sdk_units: 0,
+        sdk_live: 0,
+        user,
+        before_compaction,
+        world: None,
+        index: None,
+        prune_time: Duration::ZERO,
+    }
+}

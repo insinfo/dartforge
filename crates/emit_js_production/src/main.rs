@@ -1,156 +1,157 @@
-//! `dartforge-jsprod` — compilação no perfil de produção.
+//! `dartforge-jsprod` — compilation in the production profile.
 //!
-//! Binário próprio, e não um subcomando do `dartforge`, porque
-//! `crates/cli/src/main.rs` é território de outro agente
+//! A separate binary, not a `dartforge` subcommand, because
+//! `crates/cli/src/main.rs` was another agent's territory
 //! (`docs/historico/briefs/BRIEF-JS-PRODUCAO.md` §0.2).
 
 use std::path::PathBuf;
 
-use dartforge_emit_js_production::{Opcoes, compilar};
+use dartforge_emit_js_production::{Options, compile};
 
-const USO: &str = "uso: dartforge-jsprod <entrada.dart> -o <saida.js> \
-[--sdk <lib>] [--packages <package_config.json>] [--dart-sdk-js <arquivo>] \
+const USAGE: &str = "usage: dartforge-jsprod <input.dart> -o <output.js> \
+[--sdk <lib>] [--packages <package_config.json>] [--dart-sdk-js <file>] \
 [--sem-poda] [--sem-membros] [--sem-poda-usuario] [--sem-minificar] [--verificar-stub] [--sdk-proprio|--sdk-ddc] [--enable-asserts] [--omitir-checagens|-O4] \
 [--versao-linguagem x.y] [--enable-experiment=a,b]";
 
 fn main() {
-    if let Err(e) = executar() {
-        eprintln!("erro: {e}");
+    if let Err(e) = run() {
+        eprintln!("error: {e}");
         std::process::exit(1);
     }
 }
 
-fn executar() -> Result<(), String> {
+fn run() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let mut entrada: Option<PathBuf> = None;
-    let mut saida: Option<PathBuf> = None;
+    let mut input: Option<PathBuf> = None;
+    let mut output: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
     let mut dart_sdk_js: Option<PathBuf> = None;
-    let mut op = Opcoes::default();
-    let mut linguagem = dartforge_elements::sdk::Linguagem::default();
+    let mut op = Options::default();
+    let mut language = dartforge_elements::sdk::Linguagem::default();
     let mut i = 0;
     while i < args.len() {
-        let proximo = |i: &mut usize| -> Result<PathBuf, String> {
+        let next = |i: &mut usize| -> Result<PathBuf, String> {
             *i += 1;
-            args.get(*i).map(PathBuf::from).ok_or_else(|| USO.to_string())
+            args.get(*i).map(PathBuf::from).ok_or_else(|| USAGE.to_string())
         };
         match args[i].as_str() {
-            "-o" => saida = Some(proximo(&mut i)?),
-            "--sdk" => sdk = Some(proximo(&mut i)?),
-            "--packages" => packages = Some(proximo(&mut i)?),
-            "--dart-sdk-js" => dart_sdk_js = Some(proximo(&mut i)?),
-            "--sem-poda" => op.podar_sdk = false,
-            "--sem-membros" => op.por_membro = false,
-            "--sem-poda-usuario" => op.podar_usuario = false,
-            "--sem-minificar" => op.minificar = false,
-            "--sdk-proprio" => op.sdk_proprio = true,
-            "--sdk-ddc" => op.sdk_proprio = false,
+            "-o" => output = Some(next(&mut i)?),
+            "--sdk" => sdk = Some(next(&mut i)?),
+            "--packages" => packages = Some(next(&mut i)?),
+            "--dart-sdk-js" => dart_sdk_js = Some(next(&mut i)?),
+            "--sem-poda" => op.prune_sdk = false,
+            "--sem-membros" => op.per_member = false,
+            "--sem-poda-usuario" => op.prune_user = false,
+            "--sem-minificar" => op.minify = false,
+            "--sdk-proprio" => op.own_sdk = true,
+            "--sdk-ddc" => op.own_sdk = false,
             "--enable-asserts" => op.asserts = true,
-            // O `omitImplicitChecks` do `dart2js -O4`: inseguro (ver `Opcoes`).
-            "--omitir-checagens" | "-O4" => op.omitir_checagens = true,
+            // The `omitImplicitChecks` of `dart2js -O4`: unsafe (see `Options`).
+            "--omitir-checagens" | "-O4" => op.omit_checks = true,
             "--verificar-stub" => {
                 op.stub = true;
-                op.sdk_proprio = false;
+                op.own_sdk = false;
             }
             "-h" | "--help" => {
-                println!("{USO}");
+                println!("{USAGE}");
                 return Ok(());
             }
-            outro if outro.starts_with("--versao-linguagem") || outro.starts_with("--enable-experiment") => {
-                let mut resto = args[i + 1..].iter().map(String::as_str);
-                let antes = resto.len();
-                linguagem.ler_opcao(outro, &mut resto)?;
-                i += antes - resto.len();
+            other if other.starts_with("--versao-linguagem") || other.starts_with("--enable-experiment") => {
+                let mut rest = args[i + 1..].iter().map(String::as_str);
+                let before = rest.len();
+                language.ler_opcao(other, &mut rest)?;
+                i += before - rest.len();
             }
-            outro if entrada.is_none() && !outro.starts_with('-') => entrada = Some(PathBuf::from(outro)),
-            outro => return Err(format!("argumento desconhecido: {outro}\n{USO}")),
+            other if input.is_none() && !other.starts_with('-') => input = Some(PathBuf::from(other)),
+            other => return Err(format!("unknown argument: {other}\n{USAGE}")),
         }
         i += 1;
     }
-    let (Some(entrada), Some(saida)) = (entrada, saida) else { return Err(USO.to_string()) };
+    let (Some(input), Some(output)) = (input, output) else { return Err(USAGE.to_string()) };
     let runtime = dart_sdk_js.unwrap_or_else(dartforge_emit_js::dart_sdk_js_padrao);
 
-    // Corpos profundos recursam fundo, como no `compile-js`: pilha própria.
-    let (e2, s2, p2, r2) = (entrada.clone(), sdk.clone(), packages.clone(), runtime.clone());
+    // Deep bodies recurse deeply, as in `compile-js`: a dedicated stack.
+    let (e2, s2, p2, r2) = (input.clone(), sdk.clone(), packages.clone(), runtime.clone());
     let prod = std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
-            if op.sdk_proprio {
-                dartforge_emit_js_production::compilar_sdk_proprio(&e2, s2.as_deref(), p2.as_deref(), op, &linguagem)
+            if op.own_sdk {
+                dartforge_emit_js_production::compile_own_sdk(&e2, s2.as_deref(), p2.as_deref(), op, &language)
             } else {
-                compilar(&e2, s2.as_deref(), p2.as_deref(), &r2, op, &linguagem)
+                compile(&e2, s2.as_deref(), p2.as_deref(), &r2, op, &language)
             }
         })
         .map_err(|e| e.to_string())?
         .join()
-        .map_err(|_| "a compilação abortou")??;
+        .map_err(|_| "the compilation aborted")??;
 
-    if let Some(pai) = saida.parent() {
-        if !pai.as_os_str().is_empty() {
-            std::fs::create_dir_all(pai).map_err(|e| format!("{}: {e}", pai.display()))?;
+    if let Some(parent) = output.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
         }
     }
-    std::fs::write(&saida, &prod.js).map_err(|e| format!("{}: {e}", saida.display()))?;
-    for c in &prod.ciclos {
-        eprintln!("aviso: ciclo de import entre módulos: {c}");
+    std::fs::write(&output, &prod.js).map_err(|e| format!("{}: {e}", output.display()))?;
+    for c in &prod.cycles {
+        eprintln!("warning: import cycle between modules: {c}");
     }
     let kb = |n: usize| n as f64 / 1024.0;
     println!(
-        "{} -> {} ({:.0} KB; {} módulos; usuário {:.0} KB; runtime {:.0} -> {:.0} KB, {}/{} unidades vivas)",
-        entrada.display(),
-        saida.display(),
+        "{} -> {} ({:.0} KB; {} modules; user {:.0} KB; runtime {:.0} -> {:.0} KB, {}/{} live units)",
+        input.display(),
+        output.display(),
         kb(prod.js.len()),
-        prod.modulos,
-        kb(prod.usuario),
-        kb(prod.sdk_antes),
-        kb(prod.sdk_depois),
-        prod.sdk_vivas,
-        prod.sdk_unidades,
+        prod.modules,
+        kb(prod.user),
+        kb(prod.sdk_before),
+        kb(prod.sdk_after),
+        prod.sdk_live,
+        prod.sdk_units,
     );
-    if prod.antes_de_compactar != prod.js.len() {
-        println!("compactação: {:.0} -> {:.0} KB", kb(prod.antes_de_compactar), kb(prod.js.len()));
+    if prod.before_compaction != prod.js.len() {
+        println!("compaction: {:.0} -> {:.0} KB", kb(prod.before_compaction), kb(prod.js.len()));
     }
-    if let Some((origem, t)) = prod.indice {
-        let de = match origem {
-            dartforge_emit_js_production::cache::Origem::Cache => "do cache",
-            dartforge_emit_js_production::cache::Origem::Construido => "construído",
+    if let Some((origin, t)) = prod.index {
+        let from = match origin {
+            dartforge_emit_js_production::cache::Origin::Cache => "from the cache",
+            dartforge_emit_js_production::cache::Origin::Built => "built",
         };
         println!(
-            "runtime: índice {de} em {:.0} ms; poda {:.0} ms",
+            "runtime: index {from} in {:.0} ms; pruning {:.0} ms",
             t.as_secs_f64() * 1000.0,
-            prod.tempo_poda.as_secs_f64() * 1000.0
+            prod.prune_time.as_secs_f64() * 1000.0
         );
     }
-    if let Some(m) = &prod.mundo {
+    if let Some(m) = &prod.world {
         let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
-        let e = &m.estat;
+        let e = &m.stats;
         println!(
-            "mundo: classes {}/{} instanciadas + {} só tipo; funções {}/{}; {} seletores; {} rodada(s); mundo {:.0} ms, emissão {:.0} ms, verificador {:.0} ms",
-            e.classes_instanciadas, e.classes_usuario, e.classes_tipo, e.funcoes_vivas, e.funcoes_usuario, e.seletores, m.rodadas,
-            ms(m.tempo_mundo), ms(m.tempo_emissao), ms(m.tempo_verificacao),
+            "world: classes {}/{} instantiated + {} type only; functions {}/{}; {} selectors; {} round(s); world {:.0} ms, emission {:.0} ms, verifier {:.0} ms",
+            e.classes_instanciadas, e.classes_usuario, e.classes_tipo, e.funcoes_vivas, e.funcoes_usuario, e.seletores, m.rounds,
+            ms(m.world_time), ms(m.emit_time), ms(m.verify_time),
         );
-        let limite = std::env::var("DARTFORGE_JSPROD_CURAS").ok().and_then(|v| v.parse().ok()).unwrap_or(20usize);
-        if m.curas.len() > limite {
-            eprintln!("aviso: verificador: {} lacuna(s) curada(s); DARTFORGE_JSPROD_CURAS=N mostra mais", m.curas.len());
+        let limit = std::env::var("DARTFORGE_JSPROD_CURAS").ok().and_then(|v| v.parse().ok()).unwrap_or(20usize);
+        if m.fixes.len() > limit {
+            eprintln!("warning: verifier: {} gap(s) fixed; DARTFORGE_JSPROD_CURAS=N shows more", m.fixes.len());
         }
-        for c in m.curas.iter().take(limite) {
-            eprintln!("aviso: verificador: {c}");
+        for c in m.fixes.iter().take(limit) {
+            eprintln!("warning: verifier: {c}");
         }
-        for s in m.sem_elemento.iter().take(20) {
-            eprintln!("aviso: referência pendente sem elemento: {s}");
+        for s in m.no_element.iter().take(20) {
+            eprintln!("warning: pending reference with no element: {s}");
         }
-        if let Some(n) = m.inconsistencias {
-            println!("conferência do mundo: {n} inconsistência(s)");
+        if let Some(n) = m.inconsistencies {
+            println!("world check: {n} inconsistency(ies)");
         }
-        if m.poda_desligada {
+        if m.pruning_disabled {
             eprintln!(
-                "aviso: a análise de alcance não convergiu em {} rodada(s): o arquivo saiu sem a poda do código do usuário",
-                m.rodadas
+                "warning: the reachability analysis did not converge in {} round(s): the file went out without pruning the user code",
+                m.rounds
             );
-            // `DARTFORGE_JSPROD_ESTRITO=1`: não convergir é erro (o CI de produção).
+            // `DARTFORGE_JSPROD_ESTRITO=1`: not converging is an error (the
+            // production CI).
             if std::env::var("DARTFORGE_JSPROD_ESTRITO").is_ok_and(|v| v == "1") {
-                return Err("a análise de alcance não convergiu (DARTFORGE_JSPROD_ESTRITO=1)".into());
+                return Err("the reachability analysis did not converge (DARTFORGE_JSPROD_ESTRITO=1)".into());
             }
         }
     }

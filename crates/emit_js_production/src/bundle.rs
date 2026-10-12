@@ -1,68 +1,70 @@
-//! Montagem do arquivo único.
+//! Assembly of the single file.
 //!
-//! O perfil de desenvolvimento entrega N módulos ES mais o `dart_sdk.js`, e
-//! deixa o navegador resolver a ordem. Em produção existe **um** arquivo, então
-//! a ordem passa a ser nossa: é a ordem topológica do grafo de `import` entre
-//! os módulos, que se lê do próprio texto emitido (cada módulo declara os seus
-//! `import { … } from './…'` no preâmbulo).
+//! The development profile delivers N ES modules plus `dart_sdk.js`, and
+//! leaves the order to the browser. In production there is **one** file, so
+//! the order becomes ours: it is the topological order of the `import` graph
+//! between the modules, read from the emitted text itself (each module
+//! declares its `import { … } from './…'` in the preamble).
 //!
-//! Cada módulo vira uma IIFE. Isso não é estética: o preâmbulo de um módulo
-//! declara `var`s com nomes gerados — `var _nome$ = dart.privateName(L$x,
-//! "_nome")`, os aliases de `dartx`, `_is`/`_as`/`_eval` — que são únicos
-//! **dentro** do módulo e não entre módulos. Concatenar faria a segunda
-//! declaração de `_nome$` sobrescrever a primeira, e dois `_nome` de
-//! bibliotecas diferentes são símbolos **diferentes**: seria um defeito
-//! silencioso de privacidade. O escopo da IIFE resolve isso sem reescrever
-//! texto. O que precisa ser compartilhado — os `var L$… = Object.create(
-//! dart.library)` — é içado para o topo do arquivo, que é exatamente o que os
-//! `import`/`export` do perfil de desenvolvimento compartilhavam.
+//! Each module becomes an IIFE. This is not aesthetics: a module's preamble
+//! declares `var`s with generated names — `var _nome$ = dart.privateName(L$x,
+//! "_nome")`, the `dartx` aliases, `_is`/`_as`/`_eval` — which are unique
+//! **within** the module but not across modules. Concatenating would make
+//! the second declaration of `_nome$` overwrite the first, and two `_nome`
+//! from different libraries are **different** symbols: it would be a silent
+//! privacy defect. The IIFE's scope solves this without rewriting text. What
+//! must be shared — the `var L$… = Object.create(dart.library)` — is hoisted
+//! to the top of the file, which is exactly what the development profile's
+//! `import`/`export` used to share.
 
 use std::collections::{HashMap, HashSet};
 
-/// Um módulo do perfil de desenvolvimento, já separado em partes.
-pub struct Modulo {
-    /// Caminho do módulo (`main.js`, `packages/x/y.js`) — é a chave do grafo.
-    pub caminho: String,
-    /// `var L$… = Object.create(dart.library);` — içadas para o topo do bundle.
+/// A development-profile module, already split into parts.
+pub struct Module {
+    /// Path of the module (`main.js`, `packages/x/y.js`) — the graph key.
+    pub path: String,
+    /// `var L$… = Object.create(dart.library);` — hoisted to the top of the
+    /// bundle.
     pub namespaces: Vec<String>,
-    /// Caminhos dos módulos de que este depende (já normalizados).
-    pub depende: Vec<String>,
-    /// O corpo, sem as linhas de `import`, `export` e de namespace.
-    pub corpo: String,
+    /// Paths of the modules this one depends on (already normalized).
+    pub deps: Vec<String>,
+    /// The body, without the `import`, `export` and namespace lines.
+    pub body: String,
 }
 
-/// Normaliza `base/../rel` em forma canônica com `/`.
-fn resolver(base: &str, rel: &str) -> String {
+/// Normalizes `base/../rel` into canonical form with `/`.
+fn resolve(base: &str, rel: &str) -> String {
     let dir: Vec<&str> = match base.rfind('/') {
         Some(i) => base[..i].split('/').collect(),
         None => Vec::new(),
     };
-    let mut partes: Vec<&str> = dir;
+    let mut parts: Vec<&str> = dir;
     for p in rel.split('/') {
         match p {
             "." | "" => {}
             ".." => {
-                partes.pop();
+                parts.pop();
             }
-            outro => partes.push(outro),
+            other => parts.push(other),
         }
     }
-    partes.join("/")
+    parts.join("/")
 }
 
-/// Separa um módulo ES emitido em namespaces içáveis, dependências e corpo.
+/// Splits an emitted ES module into hoistable namespaces, dependencies and
+/// body.
 ///
-/// As três formas de linha de preâmbulo que o emissor produz e que somem aqui:
-/// `var L$x = Object.create(dart.library);` (içada), `export { … };` (some,
-/// porque não há mais módulos) e `import { … } from './…';` (some: com um só
-/// arquivo os nomes já estão em escopo — os do SDK no topo, os de outro módulo
-/// pelo `var L$…` içado dele).
-pub fn separar(caminho: &str, texto: &str) -> Modulo {
+/// The three preamble line shapes the emitter produces and that disappear
+/// here: `var L$x = Object.create(dart.library);` (hoisted), `export { … };`
+/// (gone, because there are no more modules) and `import { … } from './…';`
+/// (gone: with a single file the names are already in scope — the SDK's at
+/// the top, another module's through its hoisted `var L$…`).
+pub fn split(path: &str, text: &str) -> Module {
     let mut namespaces = Vec::new();
-    let mut depende = Vec::new();
-    let mut corpo = String::with_capacity(texto.len());
-    for linha in texto.split_inclusive('\n') {
-        let t = linha.trim_end();
+    let mut deps = Vec::new();
+    let mut body = String::with_capacity(text.len());
+    for line in text.split_inclusive('\n') {
+        let t = line.trim_end();
         if t.starts_with("var L$") && t.ends_with("= Object.create(dart.library);") {
             namespaces.push(t.to_string());
             continue;
@@ -73,68 +75,70 @@ pub fn separar(caminho: &str, texto: &str) -> Modulo {
         if t.starts_with("import ") && t.ends_with("';") {
             // `import { a as b } from './x/y.js';`
             if let Some(i) = t.rfind("from '") {
-                let alvo = &t[i + 6..t.len() - 2];
-                if !alvo.ends_with("dart_sdk.js") {
-                    depende.push(resolver(caminho, alvo));
+                let target = &t[i + 6..t.len() - 2];
+                if !target.ends_with("dart_sdk.js") {
+                    deps.push(resolve(path, target));
                 }
             }
             continue;
         }
-        corpo.push_str(linha);
+        body.push_str(line);
     }
-    Modulo { caminho: caminho.to_string(), namespaces, depende, corpo }
+    Module { path: path.to_string(), namespaces, deps, body }
 }
 
-/// Ordem topológica dos módulos: uma dependência vem antes de quem a importa.
+/// Topological order of the modules: a dependency comes before whoever
+/// imports it.
 ///
-/// O emissor já funde ciclos de `import` num módulo só (`docs/EMISSAO-DDC.md`,
-/// "granularidade dos módulos"), então o grafo é um DAG. Um ciclo residual não
-/// é motivo para abortar — a ordem de entrada é um desempate legítimo, e o
-/// contrato do DDC tolera a declaração tardia porque as classes só se tocam
-/// dentro de funções. O ciclo é devolvido para quem chamar registrar.
-pub fn ordenar(modulos: Vec<Modulo>) -> (Vec<Modulo>, Vec<String>) {
-    let indice: HashMap<String, usize> =
-        modulos.iter().enumerate().map(|(i, m)| (m.caminho.clone(), i)).collect();
-    let mut estado = vec![0u8; modulos.len()]; // 0 = novo, 1 = visitando, 2 = pronto
-    let mut ordem = Vec::with_capacity(modulos.len());
-    let mut ciclos = Vec::new();
-    // Pilha explícita: um projeto real tem centenas de módulos e cadeias longas.
-    for raiz in 0..modulos.len() {
-        if estado[raiz] != 0 {
+/// The emitter already merges `import` cycles into a single module
+/// (`docs/EMISSAO-DDC.md`, "granularidade dos módulos"), so the graph is a
+/// DAG. A residual cycle is no reason to abort — the input order is a
+/// legitimate tie-breaker, and the DDC contract tolerates the late
+/// declaration because classes only touch each other inside functions. The
+/// cycle is returned for the caller to record.
+pub fn order(modules: Vec<Module>) -> (Vec<Module>, Vec<String>) {
+    let index: HashMap<String, usize> =
+        modules.iter().enumerate().map(|(i, m)| (m.path.clone(), i)).collect();
+    let mut state = vec![0u8; modules.len()]; // 0 = new, 1 = visiting, 2 = done
+    let mut order = Vec::with_capacity(modules.len());
+    let mut cycles = Vec::new();
+    // Explicit stack: a real project has hundreds of modules and long chains.
+    for root in 0..modules.len() {
+        if state[root] != 0 {
             continue;
         }
-        let mut pilha = vec![(raiz, 0usize)];
-        estado[raiz] = 1;
-        while let Some((n, k)) = pilha.pop() {
-            if k < modulos[n].depende.len() {
-                pilha.push((n, k + 1));
-                let Some(&d) = indice.get(&modulos[n].depende[k]) else { continue };
-                match estado[d] {
+        let mut stack = vec![(root, 0usize)];
+        state[root] = 1;
+        while let Some((n, k)) = stack.pop() {
+            if k < modules[n].deps.len() {
+                stack.push((n, k + 1));
+                let Some(&d) = index.get(&modules[n].deps[k]) else { continue };
+                match state[d] {
                     0 => {
-                        estado[d] = 1;
-                        pilha.push((d, 0));
+                        state[d] = 1;
+                        stack.push((d, 0));
                     }
-                    1 => ciclos.push(format!("{} → {}", modulos[n].caminho, modulos[d].caminho)),
+                    1 => cycles.push(format!("{} → {}", modules[n].path, modules[d].path)),
                     _ => {}
                 }
             } else {
-                estado[n] = 2;
-                ordem.push(n);
+                state[n] = 2;
+                order.push(n);
             }
         }
     }
-    let mut por_indice: Vec<Option<Modulo>> = modulos.into_iter().map(Some).collect();
-    let saida = ordem.into_iter().filter_map(|i| por_indice[i].take()).collect();
-    ciclos.sort();
-    ciclos.dedup();
-    (saida, ciclos)
+    let mut by_index: Vec<Option<Module>> = modules.into_iter().map(Some).collect();
+    let out = order.into_iter().filter_map(|i| by_index[i].take()).collect();
+    cycles.sort();
+    cycles.dedup();
+    (out, cycles)
 }
 
-/// Aliases que o DDC exporta para nomes de biblioteca diferentes dos nomes
-/// locais (`html$ as html`, `svg$ as svg`). Sem o `export`, os módulos do
-/// usuário continuam citando `html`/`svg`, portanto o bundle precisa recriar
-/// essas ligações antes de executar qualquer módulo.
-pub fn aliases_exportados(sdk: &str) -> Vec<(String, String)> {
+/// Aliases that DDC exports under library names different from the local
+/// names (`html$ as html`, `svg$ as svg`). Without the `export`, the user's
+/// modules keep citing `html`/`svg`, so the bundle must recreate those
+/// bindings before running any module.
+pub fn exported_aliases(sdk: &str) -> Vec<(String, String)> {
     sdk.lines()
         .filter_map(|l| l.trim().strip_prefix("export {").and_then(|r| r.split_once('}').map(|(body, _)| body)))
         .flat_map(|body| body.split(','))
@@ -145,31 +149,31 @@ pub fn aliases_exportados(sdk: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-/// O texto do `dart_sdk.js` sem `export { … };`. Os aliases importados por
-/// módulos são preservados como variáveis de topo no arquivo único.
-pub fn sdk_sem_export(sdk: &str) -> String {
+/// The text of `dart_sdk.js` without `export { … };`. The aliases imported
+/// by modules are kept as top-level variables in the single file.
+pub fn sdk_without_export(sdk: &str) -> String {
     let mut out = String::with_capacity(sdk.len());
-    for linha in sdk.split_inclusive('\n') {
-        if linha.starts_with("export {") {
+    for line in sdk.split_inclusive('\n') {
+        if line.starts_with("export {") {
             continue;
         }
-        out.push_str(linha);
+        out.push_str(line);
     }
-    for (original, alias) in aliases_exportados(sdk) {
+    for (original, alias) in exported_aliases(sdk) {
         out.push_str(&format!("var {alias} = {original};\n"));
     }
     out
 }
 
-/// Nome da variável de namespace da biblioteca de entrada e se `main` é `async`,
-/// lidos do `main.mjs` que o emissor gerou (`import { X as m } from './p.js'`).
-pub fn entrada_do_mjs(mjs: &str, modulos: &[Modulo]) -> Option<String> {
-    let linha = mjs.lines().find(|l| l.contains(" as m } from './"))?;
-    let ident = linha.split("import { ").nth(1)?.split(" as m }").next()?.trim();
-    let caminho = linha.rsplit("from './").nth(0)?.trim_end_matches("';");
-    // O `export { L$foo as foo }` sumiu no `separar`; o namespace correspondente
-    // é o `var L$foo` daquele módulo. Casa por sufixo do identificador.
-    let m = modulos.iter().find(|m| m.caminho == caminho)?;
+/// Name of the entry library's namespace variable and whether `main` is
+/// `async`, read from the `main.mjs` the emitter generated (`import { X as m } from './p.js'`).
+pub fn entry_from_mjs(mjs: &str, modules: &[Module]) -> Option<String> {
+    let line = mjs.lines().find(|l| l.contains(" as m } from './"))?;
+    let ident = line.split("import { ").nth(1)?.split(" as m }").next()?.trim();
+    let path = line.rsplit("from './").nth(0)?.trim_end_matches("';");
+    // The `export { L$foo as foo }` disappeared in `split`; the matching
+    // namespace is that module's `var L$foo`. Matched by identifier suffix.
+    let m = modules.iter().find(|m| m.path == path)?;
     for ns in &m.namespaces {
         let var = ns.trim_start_matches("var ").split(' ').next()?;
         if var.trim_start_matches("L$") == ident || var == ident {
@@ -179,108 +183,108 @@ pub fn entrada_do_mjs(mjs: &str, modulos: &[Modulo]) -> Option<String> {
     m.namespaces.first().and_then(|ns| ns.trim_start_matches("var ").split(' ').next().map(str::to_string))
 }
 
-/// O `dart_podado` do modo verificador (`DARTFORGE_JSPROD_VERIFICAR=stub`):
-/// um membro que o mundo fechado disse morto foi chamado. Escreve o nome no
-/// stderr e encerra com 97 — nunca um `throw`, que o programa poderia
-/// capturar e seguir com outro comportamento.
-pub const PREAMBULO_STUB: &str = "function dart_podado(nome) {\n  const m = 'DARTFORGE-PODADO: ' + nome;\n  if (typeof process !== 'undefined') { process.stderr.write(m + '\\n'); process.exit(97); }\n  throw new Error(m);\n}\n";
+/// The verifier mode's `dart_podado` (`DARTFORGE_JSPROD_VERIFICAR=stub`): a
+/// member the closed world said was dead was called. It writes the name to
+/// stderr and exits with 97 — never a `throw`, which the program could catch
+/// and go on with different behavior.
+pub const STUB_PREAMBLE: &str = "function dart_podado(nome) {\n  const m = 'DARTFORGE-PODADO: ' + nome;\n  if (typeof process !== 'undefined') { process.stderr.write(m + '\\n'); process.exit(97); }\n  throw new Error(m);\n}\n";
 
-/// Monta o arquivo único. `preambulo` vai logo depois do cabeçalho (vazio no
-/// modo normal).
-pub fn montar(sdk: &str, modulos: &[Modulo], entrada: &str, preambulo: &str) -> String {
-    let mut out = String::with_capacity(sdk.len() + modulos.iter().map(|m| m.corpo.len() + 64).sum::<usize>());
+/// Assembles the single file. `preamble` goes right after the header (empty
+/// in normal mode).
+pub fn assemble(sdk: &str, modules: &[Module], entry: &str, preamble: &str) -> String {
+    let mut out = String::with_capacity(sdk.len() + modules.iter().map(|m| m.body.len() + 64).sum::<usize>());
     out.push_str("// dartforge — perfil de produção (docs/JS-PRODUCAO.md)\n");
-    out.push_str(preambulo);
-    // O `dart_sdk.js` do DDC é o do navegador: `self` é o objeto global.
+    out.push_str(preamble);
+    // DDC's `dart_sdk.js` is the browser one: `self` is the global object.
     out.push_str("if (typeof self === 'undefined') globalThis.self = globalThis;\n");
     out.push_str("if (typeof process !== 'undefined') process.on('uncaughtException', (e) => {\n  console.error('Unhandled exception:\\n' + e);\n  process.exit(255);\n});\n");
     out.push_str(sdk);
     if !sdk.ends_with('\n') {
         out.push('\n');
     }
-    // `dart:html` declara o resultado nativo de querySelectorAll como
-    // `List<Node>`. No navegador ele é um NodeList, que não tem os métodos
-    // simbolizados de List (`every`, `firstWhere` etc.). A ponte do DDC para
-    // JSArray torna esses métodos disponíveis no protótipo nativo antes de
-    // executar o código do usuário; Node/servidores não têm NodeList.
+    // `dart:html` declares the native result of querySelectorAll as
+    // `List<Node>`. In the browser it is a NodeList, which lacks List's
+    // symbolized methods (`every`, `firstWhere` etc.). DDC's bridge to
+    // JSArray makes those methods available on the native prototype before
+    // running user code; Node/servers have no NodeList.
     out.push_str("if (typeof NodeList !== 'undefined' && !NodeList.prototype[dartx.every]) dart.registerExtension('NodeList', _interceptors.JSArray);\n");
-    // Namespaces de todas as bibliotecas, no topo: é o que substitui os
-    // `import`/`export` entre módulos.
-    let mut vistos = HashSet::new();
-    for m in modulos {
+    // Namespaces of every library, at the top: this is what replaces the
+    // `import`/`export` between modules.
+    let mut seen = HashSet::new();
+    for m in modules {
         for ns in &m.namespaces {
-            if vistos.insert(ns.clone()) {
+            if seen.insert(ns.clone()) {
                 out.push_str(ns);
                 out.push('\n');
             }
         }
     }
-    for m in modulos {
+    for m in modules {
         out.push_str("(function () {\n");
-        out.push_str(&m.corpo);
-        if !m.corpo.ends_with('\n') {
+        out.push_str(&m.body);
+        if !m.body.ends_with('\n') {
             out.push('\n');
         }
         out.push_str("})();\n");
     }
-    out.push_str(entrada);
+    out.push_str(entry);
     out.push_str(".main();\n");
     out
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn resolve_caminhos_relativos() {
-        assert_eq!(resolver("main.js", "./x.js"), "x.js");
-        assert_eq!(resolver("packages/a/b.js", "../../dart_sdk.js"), "dart_sdk.js");
-        assert_eq!(resolver("packages/a/b.js", "../c.js"), "packages/c.js");
+    fn resolves_relative_paths() {
+        assert_eq!(resolve("main.js", "./x.js"), "x.js");
+        assert_eq!(resolve("packages/a/b.js", "../../dart_sdk.js"), "dart_sdk.js");
+        assert_eq!(resolve("packages/a/b.js", "../c.js"), "packages/c.js");
     }
 
     #[test]
-    fn export_renomeado_vira_alias_no_bundle() {
+    fn renamed_export_becomes_alias_in_bundle() {
         let sdk = "var html$ = 1;\nvar svg$ = 2;\nexport { html$ as html, svg$ as svg };\n";
-        let out = sdk_sem_export(sdk);
+        let out = sdk_without_export(sdk);
         assert!(!out.contains("export {"));
         assert!(out.contains("var html = html$;\n"));
         assert!(out.contains("var svg = svg$;\n"));
     }
 
     #[test]
-    fn node_list_recebe_metodos_de_lista_antes_do_usuario() {
-        let m = separar("main.js", "var L$main = Object.create(dart.library);\nL$main.main = function () {};\n");
-        let js = montar("var dart = {};\n", &[m], "L$main", "");
-        let ponte = js.find("dart.registerExtension('NodeList', _interceptors.JSArray)").unwrap();
+    fn node_list_gets_list_methods_before_user_code() {
+        let m = split("main.js", "var L$main = Object.create(dart.library);\nL$main.main = function () {};\n");
+        let js = assemble("var dart = {};\n", &[m], "L$main", "");
+        let bridge = js.find("dart.registerExtension('NodeList', _interceptors.JSArray)").unwrap();
         let main = js.find("L$main.main = function").unwrap();
-        assert!(ponte < main);
+        assert!(bridge < main);
     }
 
     #[test]
-    fn separa_preambulo() {
-        let texto = "var L$x = Object.create(dart.library);\nexport { L$x as x };\nimport { core } from './dart_sdk.js';\nimport { y as L$y } from './sub/y.js';\nL$x.f = function () {};\n";
-        let m = separar("main.js", texto);
+    fn splits_preamble() {
+        let text = "var L$x = Object.create(dart.library);\nexport { L$x as x };\nimport { core } from './dart_sdk.js';\nimport { y as L$y } from './sub/y.js';\nL$x.f = function () {};\n";
+        let m = split("main.js", text);
         assert_eq!(m.namespaces, vec!["var L$x = Object.create(dart.library);"]);
-        assert_eq!(m.depende, vec!["sub/y.js"]);
-        assert_eq!(m.corpo, "L$x.f = function () {};\n");
+        assert_eq!(m.deps, vec!["sub/y.js"]);
+        assert_eq!(m.body, "L$x.f = function () {};\n");
     }
 
     #[test]
-    fn ordena_dependencia_antes() {
-        let a = separar("a.js", "var L$a = Object.create(dart.library);\nimport { b as L$b } from './b.js';\nL$a.f = 1;\n");
-        let b = separar("b.js", "var L$b = Object.create(dart.library);\nL$b.g = 2;\n");
-        let (ord, ciclos) = ordenar(vec![a, b]);
-        assert!(ciclos.is_empty());
-        assert_eq!(ord.iter().map(|m| m.caminho.as_str()).collect::<Vec<_>>(), vec!["b.js", "a.js"]);
+    fn orders_dependency_first() {
+        let a = split("a.js", "var L$a = Object.create(dart.library);\nimport { b as L$b } from './b.js';\nL$a.f = 1;\n");
+        let b = split("b.js", "var L$b = Object.create(dart.library);\nL$b.g = 2;\n");
+        let (ord, cycles) = order(vec![a, b]);
+        assert!(cycles.is_empty());
+        assert_eq!(ord.iter().map(|m| m.path.as_str()).collect::<Vec<_>>(), vec!["b.js", "a.js"]);
     }
 
     #[test]
-    fn ciclo_nao_aborta() {
-        let a = separar("a.js", "var L$a = Object.create(dart.library);\nimport { b as L$b } from './b.js';\n");
-        let b = separar("b.js", "var L$b = Object.create(dart.library);\nimport { a as L$a } from './a.js';\n");
-        let (ord, ciclos) = ordenar(vec![a, b]);
+    fn cycle_does_not_abort() {
+        let a = split("a.js", "var L$a = Object.create(dart.library);\nimport { b as L$b } from './b.js';\n");
+        let b = split("b.js", "var L$b = Object.create(dart.library);\nimport { a as L$a } from './a.js';\n");
+        let (ord, cycles) = order(vec![a, b]);
         assert_eq!(ord.len(), 2);
-        assert_eq!(ciclos.len(), 1);
+        assert_eq!(cycles.len(), 1);
     }
 }
