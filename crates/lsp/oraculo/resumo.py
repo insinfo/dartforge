@@ -288,7 +288,8 @@ for l in linhas:
         rb = lb.index(alvo) if tem_b else None
         conta("completion: mesmo top-1", (la[:1] == lb[:1]), bool(la), bool(lb), (onde, la[:3], lb[:3]))
         sa, sb = set(la[:5]), set(lb[:5])
-        conta("completion: top-5 ≥ 60% comum", len(sa & sb) >= 0.6 * max(1, len(sa)), bool(la), bool(lb),
+        # Lista vazia contra lista vazia conta como igual (ESTADO.md, rodada r6).
+        conta("completion: top-5 ≥ 60% comum", (not sa and not sb) or len(sa & sb) >= 0.6 * max(1, len(sa)), bool(la), bool(lb),
               (onde, la[:5], lb[:5]))
         continue
     if m == "textDocument/codeAction":
