@@ -14,6 +14,7 @@ dartforge-emit-js = { path = "../emit_js" }
 dartforge-dev = { path = "../dev" }
 dartforge-build = { path = "../build" }
 dartforge-elements = { path = "../elements" }
+dartforge-formatar = { path = "../formatar" }
 dartforge-intern = { path = "../intern" }
 dartforge-macros-host = { path = "../macros_host" }
 dartforge-paridade = { path = "../paridade" }

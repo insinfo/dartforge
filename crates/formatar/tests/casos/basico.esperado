@@ -1,0 +1,123 @@
+library exemplo;
+
+import 'dart:async';
+import 'package:foo/foo.dart' as foo show Bar, Baz hide Qux;
+export 'a.dart';
+part 'b.dart';
+
+// Um comentário.
+const int x = 1, y = 2;
+
+/// Doc.
+class A<T extends Object> extends B with C, D implements E {
+  final int campo;
+  static const String nome = 'a' 'b';
+  A(this.campo, {required int outro, int? opcional = 3})
+      : assert(campo > 0),
+        super(outro);
+  A.nomeado() : this(1, outro: 2);
+  factory A.fabrica() = A<T>.nomeado;
+  int get valor => campo * 2;
+  set valor(int v) {}
+  @override
+  bool operator ==(Object other) => other is A && other.campo == campo;
+  void metodo<U>(U u, [int a = 1, int b = 2]) async* {
+    yield* outro();
+    for (var i = 0; i < 10; i++) {
+      print(i);
+    }
+    for (final x in [1, 2, 3]) print(x);
+    while (true) break;
+    do {
+      continue;
+    } while (false);
+    switch (u) {
+      case 1:
+      case 2:
+        print('a');
+        break;
+      default:
+        print('b');
+    }
+    try {
+      throw Exception();
+    } on FormatException catch (e, s) {
+      rethrow;
+    } catch (e) {
+    } finally {
+      print('f');
+    }
+    var lista = <int>[1, 2, 3, ...outra, if (x) 4 else 5, for (var i in l) i];
+    var mapa = {'a': 1, 'b': 2};
+    final f = (int a, int b) => a + b;
+    final g = () {
+      return 1;
+    };
+    label:
+    for (;;) {
+      break label;
+    }
+    assert(x, 'mensagem');
+    var r = (1, 2, nome: 3);
+    var (a, b) = r;
+    if (r case (int x, int y) when x > y) {}
+    final s = switch (x) { 1 => 'um', 2 || 3 => 'dois ou três', _ => 'outro' };
+    objeto
+      ..metodo()
+      ..campo = 3
+      ..outro();
+    a?.b?.c;
+    a!.b[0]![1];
+    -(-x);
+    - -x;
+    !y;
+    ~z;
+    ++i;
+    i--;
+    x = y ??= z;
+    print('interpolação $x e ${x + y} e ${'aninhada ${x}'}');
+    print(r'cru $x');
+    print("""
+multilinha
+  $x
+""");
+    return;
+  }
+}
+
+mixin M on A, B implements C {}
+
+extension Ext on String {
+  int get len => length;
+}
+
+extension type ET(int v) implements Object {}
+
+enum Cor { vermelho, verde, azul }
+
+enum Planeta {
+  terra(1.0),
+  marte(0.5);
+
+  final double massa;
+  const Planeta(this.massa);
+}
+
+typedef F = int Function(int);
+typedef void G(int x);
+class H = I with J;
+int soma(int a, int b) => a + b;
+void main() {
+  final valorMuitoLongoParaCaberNaLinhaComOutroValor =
+      funcaoComNomeMuitoLongo(argumentoUm, argumentoDois, argumentoTres);
+  chamada(argumento1, argumento2, () {
+    corpo();
+  });
+  umaCadeia
+      .deMetodos()
+      .muitoLonga()
+      .quePrecisa()
+      .serQuebrada()
+      .emVariasLinhas()
+      .porqueNaoCabe();
+}

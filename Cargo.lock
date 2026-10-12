@@ -309,6 +309,7 @@ dependencies = [
  "dartforge-elements",
  "dartforge-emit-js",
  "dartforge-emit-native",
+ "dartforge-formatar",
  "dartforge-intern",
  "dartforge-jit",
  "dartforge-macros-host",
@@ -422,6 +423,14 @@ dependencies = [
  "dartforge-runtime",
  "dartforge-types",
  "tempfile",
+]
+
+[[package]]
+name = "dartforge-formatar"
+version = "0.1.0"
+dependencies = [
+ "dartforge-frontend",
+ "serde_json",
 ]
 
 [[package]]
