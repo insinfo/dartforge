@@ -1,139 +1,141 @@
-//! O modelo que o hospedeiro serve ao executor (docs/MACROS-PROTOCOLO.md §5):
-//! declarações e anotações de tipo do `elements` em JSON, com identificadores
-//! **estáveis** entre as fases.
+//! The model the host serves to the executor (docs/MACROS-PROTOCOLO.md §5):
+//! declarations and type annotations of `elements` as JSON, with identifiers
+//! that are **stable** across phases.
 //!
-//! Entre uma fase e outra o programa é recarregado com a augmentation
-//! parcial, e os ids do `elements` mudam (uma classe nova da fase 1 desloca
-//! os `ClassId`). A montagem funde os resultados de todas as fases pelo
-//! identificador do tipo aumentado (Regra 1), então o mesmo tipo tem de ter o
-//! mesmo id na fase 2 e na 3: o id é o de uma [`Chave`] textual (biblioteca,
-//! dono, nome, tipo), resolvida de novo no programa corrente a cada uso.
+//! Between one phase and the next the program is reloaded with the partial
+//! augmentation, and the `elements` ids change (a new class from phase 1
+//! shifts the `ClassId`s). The assembly merges the results of all phases by
+//! the identifier of the augmented type (Rule 1), so the same type must have
+//! the same id in phase 2 and in phase 3: the id is that of a textual [`Key`]
+//! (library, owner, name, kind), resolved again in the current program on
+//! every use.
 //!
-//! O que cada declaração mostra segue o CFE 3.6.2 (o oráculo), inclusive
-//! onde ele diverge da spec (`kernel_macro_introspectors.dart`): membros na
-//! ordem de declaração (não lexicográfica), `hasBody` sempre verdadeiro,
-//! metadados vazios, sem parâmetros de tipo em métodos e construtores, tipo
-//! de retorno de construtor omitido.
+//! What each declaration shows follows CFE 3.6.2 (the oracle), including
+//! where it diverges from the spec (`kernel_macro_introspectors.dart`):
+//! members in declaration order (not lexicographic), `hasBody` always true,
+//! empty metadata, no type parameters on methods and constructors, and the
+//! constructor return type omitted.
 use dartforge_elements::model::*;
 use dartforge_frontend::ast::{self, DeclKind, MemberKind, ParameterKind, TypeKind};
 use dartforge_intern::{Interner, SymbolId};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
-/// O que um identificador denota, em termos que sobrevivem à recarga.
+/// What an identifier denotes, in terms that survive the reload.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Chave {
-    /// Classe, mixin, enum ou extension type de topo.
-    Tipo { lib: String, nome: String },
-    Typedef { lib: String, nome: String },
-    Extension { lib: String, nome: String },
-    /// Função, getter ou setter de topo (`setter` distingue o par).
-    FuncaoDeTopo { lib: String, nome: String, setter: bool },
-    VariavelDeTopo { lib: String, nome: String },
-    /// Método, getter, setter ou operador.
-    Metodo { lib: String, dono: String, nome: String, setter: bool },
-    Campo { lib: String, dono: String, nome: String },
-    /// Construtor (`""` para o sem nome).
-    Construtor { lib: String, dono: String, nome: String },
-    /// Parâmetro formal de um membro ([`Chave`] do membro em `dono`).
-    Parametro { dono: Box<Chave>, nome: String },
-    /// Parâmetro de tipo de uma classe ou typedef.
-    ParametroDeTipo { dono: Box<Chave>, nome: String },
+pub enum Key {
+    /// Top-level class, mixin, enum or extension type.
+    Type { lib: String, name: String },
+    Typedef { lib: String, name: String },
+    Extension { lib: String, name: String },
+    /// Top-level function, getter or setter (`setter` tells the pair apart).
+    TopLevelFunction { lib: String, name: String, setter: bool },
+    TopLevelVariable { lib: String, name: String },
+    /// Method, getter, setter or operator.
+    Method { lib: String, owner: String, name: String, setter: bool },
+    Field { lib: String, owner: String, name: String },
+    /// Constructor (`""` for the unnamed one).
+    Constructor { lib: String, owner: String, name: String },
+    /// Formal parameter of a member (the member's [`Key`] in `owner`).
+    Parameter { owner: Box<Key>, name: String },
+    /// Type parameter of a class or typedef.
+    TypeParameter { owner: Box<Key>, name: String },
     Void,
     Dynamic,
-    /// Nome que não resolveu (programa inválido): sai como está.
-    Solto(String),
+    /// A name that did not resolve (invalid program): emitted as is.
+    Unresolved(String),
 }
 
-impl Chave {
-    /// O nome do identificador.
-    pub fn nome(&self) -> &str {
+impl Key {
+    /// The identifier's name.
+    pub fn name(&self) -> &str {
         match self {
-            Chave::Tipo { nome, .. }
-            | Chave::Typedef { nome, .. }
-            | Chave::Extension { nome, .. }
-            | Chave::FuncaoDeTopo { nome, .. }
-            | Chave::VariavelDeTopo { nome, .. }
-            | Chave::Metodo { nome, .. }
-            | Chave::Campo { nome, .. }
-            | Chave::Construtor { nome, .. }
-            | Chave::Parametro { nome, .. }
-            | Chave::ParametroDeTipo { nome, .. } => nome,
-            Chave::Void => "void",
-            Chave::Dynamic => "dynamic",
-            Chave::Solto(n) => n,
+            Key::Type { name, .. }
+            | Key::Typedef { name, .. }
+            | Key::Extension { name, .. }
+            | Key::TopLevelFunction { name, .. }
+            | Key::TopLevelVariable { name, .. }
+            | Key::Method { name, .. }
+            | Key::Field { name, .. }
+            | Key::Constructor { name, .. }
+            | Key::Parameter { name, .. }
+            | Key::TypeParameter { name, .. } => name,
+            Key::Void => "void",
+            Key::Dynamic => "dynamic",
+            Key::Unresolved(n) => n,
         }
     }
 }
 
-/// Onde fica um tipo omitido (para `inferType` e para a montagem).
+/// Where an omitted type is (for `inferType` and for the assembly).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Omitido {
-    pub dono: Chave,
-    /// `retorno`, `tipo` (de campo/variável) ou o nome do parâmetro.
-    pub lugar: String,
+pub struct Omitted {
+    pub owner: Key,
+    /// `retorno` (return), `tipo` (of a field/variable) or the parameter
+    /// name.
+    pub place: String,
 }
 
-/// A tabela de ids da sessão de macros: persistente entre as recargas.
+/// The id table of the macro session: persistent across reloads.
 #[derive(Debug, Default)]
-pub struct Tabela {
-    chaves: Vec<Chave>,
-    por_chave: HashMap<Chave, u64>,
-    omitidos: Vec<Omitido>,
-    por_omitido: HashMap<Omitido, u64>,
-    bibliotecas: Vec<String>,
+pub struct Table {
+    keys: Vec<Key>,
+    by_key: HashMap<Key, u64>,
+    omitted: Vec<Omitted>,
+    by_omitted: HashMap<Omitted, u64>,
+    libraries: Vec<String>,
 }
 
-impl Tabela {
-    /// O id de `c` (a partir de 1).
-    pub fn id(&mut self, c: Chave) -> u64 {
-        if let Some(&id) = self.por_chave.get(&c) {
+impl Table {
+    /// The id of `c` (starting at 1).
+    pub fn id(&mut self, c: Key) -> u64 {
+        if let Some(&id) = self.by_key.get(&c) {
             return id;
         }
-        self.chaves.push(c.clone());
-        let id = self.chaves.len() as u64;
-        self.por_chave.insert(c, id);
+        self.keys.push(c.clone());
+        let id = self.keys.len() as u64;
+        self.by_key.insert(c, id);
         id
     }
 
-    pub fn chave(&self, id: u64) -> Option<&Chave> {
-        self.chaves.get((id as usize).wrapping_sub(1))
+    pub fn key(&self, id: u64) -> Option<&Key> {
+        self.keys.get((id as usize).wrapping_sub(1))
     }
 
-    pub fn omitido(&mut self, o: Omitido) -> u64 {
-        if let Some(&id) = self.por_omitido.get(&o) {
+    pub fn omitted(&mut self, o: Omitted) -> u64 {
+        if let Some(&id) = self.by_omitted.get(&o) {
             return id;
         }
-        self.omitidos.push(o.clone());
-        let id = self.omitidos.len() as u64;
-        self.por_omitido.insert(o, id);
+        self.omitted.push(o.clone());
+        let id = self.omitted.len() as u64;
+        self.by_omitted.insert(o, id);
         id
     }
 
-    pub fn onde_omitido(&self, id: u64) -> Option<&Omitido> {
-        self.omitidos.get((id as usize).wrapping_sub(1))
+    pub fn omitted_at(&self, id: u64) -> Option<&Omitted> {
+        self.omitted.get((id as usize).wrapping_sub(1))
     }
 
-    /// O id de uma biblioteca (pela URI).
-    pub fn biblioteca(&mut self, uri: &str) -> u64 {
-        match self.bibliotecas.iter().position(|u| u == uri) {
+    /// The id of a library (by URI).
+    pub fn library(&mut self, uri: &str) -> u64 {
+        match self.libraries.iter().position(|u| u == uri) {
             Some(i) => i as u64 + 1,
             None => {
-                self.bibliotecas.push(uri.to_string());
-                self.bibliotecas.len() as u64
+                self.libraries.push(uri.to_string());
+                self.libraries.len() as u64
             }
         }
     }
 
-    pub fn uri_da_biblioteca(&self, id: u64) -> Option<&str> {
-        self.bibliotecas.get((id as usize).wrapping_sub(1)).map(String::as_str)
+    pub fn library_uri(&self, id: u64) -> Option<&str> {
+        self.libraries.get((id as usize).wrapping_sub(1)).map(String::as_str)
     }
 }
 
-/// Parâmetros de tipo visíveis numa anotação: nome → chave.
-type Escopo = Vec<(SymbolId, Chave)>;
+/// Type parameters visible in an annotation: name → key.
+type Scope = Vec<(SymbolId, Key)>;
 
-/// O programa corrente visto pelo modelo.
+/// The current program as seen by the model.
 pub struct Vista<'p> {
     pub program: &'p Program,
     pub interner: &'p Interner,
@@ -144,7 +146,7 @@ impl<'p> Vista<'p> {
         self.interner.resolve(s).to_string()
     }
 
-    pub fn biblioteca_por_uri(&self, uri: &str) -> Option<LibraryId> {
+    pub fn library_by_uri(&self, uri: &str) -> Option<LibraryId> {
         self.program.libraries.iter().position(|l| l.uri == uri).map(|i| LibraryId(i as u32))
     }
 
@@ -152,40 +154,40 @@ impl<'p> Vista<'p> {
         self.program.library(lib).uri.clone()
     }
 
-    /// A chave de um elemento de topo ou de classe.
-    pub fn chave_da_classe(&self, c: ClassId) -> Chave {
+    /// The key of a top-level or class element.
+    pub fn class_key(&self, c: ClassId) -> Key {
         let cl = self.program.class(c);
-        Chave::Tipo { lib: self.uri(cl.library), nome: self.n(cl.name) }
+        Key::Type { lib: self.uri(cl.library), name: self.n(cl.name) }
     }
 
-    /// A classe de uma chave de tipo, no programa corrente.
-    pub fn classe(&self, c: &Chave) -> Option<ClassId> {
-        let Chave::Tipo { lib, nome } = c else { return None };
-        let l = self.biblioteca_por_uri(lib)?;
-        let s = self.interner.lookup(nome)?;
+    /// The class of a type key, in the current program.
+    pub fn class_of(&self, c: &Key) -> Option<ClassId> {
+        let Key::Type { lib, name } = c else { return None };
+        let l = self.library_by_uri(lib)?;
+        let s = self.interner.lookup(name)?;
         match self.program.library(l).declared.get(&s)?.getter? {
             Element::Class(id) => Some(id),
             _ => None,
         }
     }
 
-    /// O elemento de função (método, acessor, construtor) de uma chave.
-    pub fn funcao(&self, c: &Chave) -> Option<FunctionElementId> {
+    /// The function element (method, accessor, constructor) of a key.
+    pub fn function(&self, c: &Key) -> Option<FunctionElementId> {
         match c {
-            Chave::Metodo { lib, dono, nome, setter } => {
-                let cl = self.program.class(self.classe(&Chave::Tipo { lib: lib.clone(), nome: dono.clone() })?);
-                let chave = if *setter { format!("{nome}_=") } else { nome.clone() };
-                let s = self.interner.lookup(&chave)?;
+            Key::Method { lib, owner, name, setter } => {
+                let cl = self.program.class(self.class_of(&Key::Type { lib: lib.clone(), name: owner.clone() })?);
+                let key = if *setter { format!("{name}_=") } else { name.clone() };
+                let s = self.interner.lookup(&key)?;
                 cl.instance_members.get(&s).or_else(|| cl.static_members.get(&s)).copied()
             }
-            Chave::Construtor { lib, dono, nome } => {
-                let cl = self.program.class(self.classe(&Chave::Tipo { lib: lib.clone(), nome: dono.clone() })?);
-                let s = self.interner.lookup(nome)?;
+            Key::Constructor { lib, owner, name } => {
+                let cl = self.program.class(self.class_of(&Key::Type { lib: lib.clone(), name: owner.clone() })?);
+                let s = self.interner.lookup(name)?;
                 cl.constructors.get(&s).copied()
             }
-            Chave::FuncaoDeTopo { lib, nome, setter } => {
-                let l = self.biblioteca_por_uri(lib)?;
-                let b = self.program.library(l).declared.get(&self.interner.lookup(nome)?)?;
+            Key::TopLevelFunction { lib, name, setter } => {
+                let l = self.library_by_uri(lib)?;
+                let b = self.program.library(l).declared.get(&self.interner.lookup(name)?)?;
                 match if *setter { b.setter } else { b.getter }? {
                     Element::Function(f) => Some(f),
                     _ => None,
@@ -195,93 +197,93 @@ impl<'p> Vista<'p> {
         }
     }
 
-    // ------------------------------------------------------------- tipos
+    // ------------------------------------------------------------- types
 
-    /// A chave de um nome de tipo escrito numa unidade.
-    fn chave_do_nome(&self, lib: LibraryId, nome: &[ast::Name], escopo: &Escopo) -> Chave {
-        let de_elemento = |el: Option<Element>, texto: String| match el {
-            Some(Element::Class(c)) => self.chave_da_classe(c),
+    /// The key of a type name written in a unit.
+    fn name_key(&self, lib: LibraryId, name: &[ast::Name], scope: &Scope) -> Key {
+        let from_element = |el: Option<Element>, text: String| match el {
+            Some(Element::Class(c)) => self.class_key(c),
             Some(Element::Typedef(t)) => {
                 let td = self.program.typedef(t);
-                Chave::Typedef { lib: self.uri(td.library), nome: self.n(td.name) }
+                Key::Typedef { lib: self.uri(td.library), name: self.n(td.name) }
             }
             Some(Element::Extension(e)) => {
                 let ex = self.program.extension(e);
-                Chave::Extension { lib: self.uri(ex.library), nome: ex.name.map(|s| self.n(s)).unwrap_or_default() }
+                Key::Extension { lib: self.uri(ex.library), name: ex.name.map(|s| self.n(s)).unwrap_or_default() }
             }
-            _ => Chave::Solto(texto),
+            _ => Key::Unresolved(text),
         };
-        match nome {
+        match name {
             [n] => {
-                if let Some((_, c)) = escopo.iter().rev().find(|(s, _)| *s == n.sym) {
+                if let Some((_, c)) = scope.iter().rev().find(|(s, _)| *s == n.sym) {
                     return c.clone();
                 }
-                let texto = self.n(n.sym);
-                if texto == "dynamic" {
-                    return Chave::Dynamic;
+                let text = self.n(n.sym);
+                if text == "dynamic" {
+                    return Key::Dynamic;
                 }
-                de_elemento(self.program.lookup(lib, n.sym).and_then(|b| b.getter), texto)
+                from_element(self.program.lookup(lib, n.sym).and_then(|b| b.getter), text)
             }
-            [p, n] => de_elemento(
+            [p, n] => from_element(
                 self.program.lookup_prefixed(lib, p.sym, n.sym).and_then(|b| b.getter),
                 format!("{}.{}", self.n(p.sym), self.n(n.sym)),
             ),
-            _ => Chave::Solto(nome.iter().map(|x| self.n(x.sym)).collect::<Vec<_>>().join(".")),
+            _ => Key::Unresolved(name.iter().map(|x| self.n(x.sym)).collect::<Vec<_>>().join(".")),
         }
     }
 
-    /// Uma anotação de tipo escrita, ou omitida (`None`).
-    pub fn tipo(
+    /// A written type annotation, or an omitted one (`None`).
+    pub fn type_annotation(
         &self,
-        t: &mut Tabela,
+        t: &mut Table,
         unit: UnitId,
-        tipo: Option<ast::TypeId>,
-        escopo: &Escopo,
-        omitido: impl FnOnce() -> Omitido,
+        ty: Option<ast::TypeId>,
+        scope: &Scope,
+        omitted: impl FnOnce() -> Omitted,
     ) -> Value {
-        let Some(tid) = tipo else {
-            return json!({"t": "omitido", "chave": t.omitido(omitido())});
+        let Some(tid) = ty else {
+            return json!({"t": "omitido", "chave": t.omitted(omitted())});
         };
-        self.tipo_escrito(t, unit, tid, escopo)
+        self.written_type(t, unit, tid, scope)
     }
 
-    fn tipo_escrito(&self, t: &mut Tabela, unit: UnitId, tid: ast::TypeId, escopo: &Escopo) -> Value {
+    fn written_type(&self, t: &mut Table, unit: UnitId, tid: ast::TypeId, scope: &Scope) -> Value {
         let u = self.program.unit(unit);
         let ty = u.ast.ty(tid);
         let lib = u.library;
         let mut v = match &ty.kind {
             TypeKind::Named { name, args } => {
-                let c = self.chave_do_nome(lib, name, escopo);
-                let nome = c.nome().to_string();
-                let args: Vec<Value> = args.iter().map(|a| self.tipo_escrito(t, unit, *a, escopo)).collect();
-                json!({"t": "nomeado", "ident": {"id": t.id(c), "nome": nome}, "args": args})
+                let c = self.name_key(lib, name, scope);
+                let name = c.name().to_string();
+                let args: Vec<Value> = args.iter().map(|a| self.written_type(t, unit, *a, scope)).collect();
+                json!({"t": "nomeado", "ident": {"id": t.id(c), "nome": name}, "args": args})
             }
-            TypeKind::Void => json!({"t": "nomeado", "ident": {"id": t.id(Chave::Void), "nome": "void"}, "args": []}),
+            TypeKind::Void => json!({"t": "nomeado", "ident": {"id": t.id(Key::Void), "nome": "void"}, "args": []}),
             TypeKind::Function { return_type, type_params, parameters } => {
-                let retorno = match return_type {
-                    Some(r) => self.tipo_escrito(t, unit, *r, escopo),
-                    None => json!({"t": "nomeado", "ident": {"id": t.id(Chave::Dynamic), "nome": "dynamic"}, "args": []}),
+                let ret = match return_type {
+                    Some(r) => self.written_type(t, unit, *r, scope),
+                    None => json!({"t": "nomeado", "ident": {"id": t.id(Key::Dynamic), "nome": "dynamic"}, "args": []}),
                 };
                 let tparams: Vec<Value> = type_params.iter().map(|p| json!({"nome": self.n(p.name.sym)})).collect();
-                let mut pos = Vec::new();
-                let mut nom = Vec::new();
+                let mut positional = Vec::new();
+                let mut named = Vec::new();
                 for p in parameters.iter() {
-                    let tipo = match p.ty {
-                        Some(x) => self.tipo_escrito(t, unit, x, escopo),
-                        None => json!({"t": "nomeado", "ident": {"id": t.id(Chave::Dynamic), "nome": "dynamic"}, "args": []}),
+                    let ty = match p.ty {
+                        Some(x) => self.written_type(t, unit, x, scope),
+                        None => json!({"t": "nomeado", "ident": {"id": t.id(Key::Dynamic), "nome": "dynamic"}, "args": []}),
                     };
-                    let j = json!({"nome": p.name.map(|n| self.n(n.sym)), "tipo": tipo,
+                    let j = json!({"nome": p.name.map(|n| self.n(n.sym)), "tipo": ty,
                         "nomeado": p.kind == ParameterKind::Named,
                         "obrigatorio": p.kind == ParameterKind::Required || p.required});
-                    if p.kind == ParameterKind::Named { nom.push(j) } else { pos.push(j) }
+                    if p.kind == ParameterKind::Named { named.push(j) } else { positional.push(j) }
                 }
-                json!({"t": "funcao", "retorno": retorno, "posicionais": pos, "nomeados": nom, "tparams": tparams})
+                json!({"t": "funcao", "retorno": ret, "posicionais": positional, "nomeados": named, "tparams": tparams})
             }
             TypeKind::Record { positional, named } => {
-                let pos: Vec<Value> = positional.iter().map(|x| json!({"tipo": self.tipo_escrito(t, unit, *x, escopo)})).collect();
-                let nom: Vec<Value> =
-                    named.iter().map(|(n, x)| json!({"nome": self.n(n.sym), "tipo": self.tipo_escrito(t, unit, *x, escopo)})).collect();
-                json!({"t": "record", "posicionais": pos, "nomeados": nom})
+                let pos: Vec<Value> = positional.iter().map(|x| json!({"tipo": self.written_type(t, unit, *x, scope)})).collect();
+                let nam: Vec<Value> =
+                    named.iter().map(|(n, x)| json!({"nome": self.n(n.sym), "tipo": self.written_type(t, unit, *x, scope)})).collect();
+                json!({"t": "record", "posicionais": pos, "nomeados": nam})
             }
         };
         if ty.nullable {
@@ -290,61 +292,61 @@ impl<'p> Vista<'p> {
         v
     }
 
-    // ------------------------------------------------------ declarações
+    // ------------------------------------------------------ declarations
 
-    pub fn biblioteca_json(&self, t: &mut Tabela, lib: LibraryId) -> Value {
+    pub fn library_json(&self, t: &mut Table, lib: LibraryId) -> Value {
         let l = self.program.library(lib);
         let v = l.features.versao();
-        json!({"k": "biblioteca", "id": t.biblioteca(&l.uri), "uri": l.uri, "versao": [v.major, v.minor]})
+        json!({"k": "biblioteca", "id": t.library(&l.uri), "uri": l.uri, "versao": [v.major, v.minor]})
     }
 
-    fn ident(&self, t: &mut Tabela, c: Chave) -> Value {
-        let nome = c.nome().to_string();
-        json!({"id": t.id(c), "nome": nome})
+    fn ident(&self, t: &mut Table, c: Key) -> Value {
+        let name = c.name().to_string();
+        json!({"id": t.id(c), "nome": name})
     }
 
-    fn escopo_da_classe(&self, c: ClassId) -> (Chave, Escopo) {
-        let dono = self.chave_da_classe(c);
-        let escopo = self
+    fn class_scope(&self, c: ClassId) -> (Key, Scope) {
+        let owner = self.class_key(c);
+        let scope = self
             .program
             .class(c)
             .type_params
             .iter()
-            .map(|p| (p.name, Chave::ParametroDeTipo { dono: Box::new(dono.clone()), nome: self.n(p.name) }))
+            .map(|p| (p.name, Key::TypeParameter { owner: Box::new(owner.clone()), name: self.n(p.name) }))
             .collect();
-        (dono, escopo)
+        (owner, scope)
     }
 
-    /// A declaração de uma classe, mixin, enum ou extension type.
-    pub fn classe_json(&self, t: &mut Tabela, c: ClassId) -> Value {
+    /// The declaration of a class, mixin, enum or extension type.
+    pub fn class_json(&self, t: &mut Table, c: ClassId) -> Value {
         let cl = self.program.class(c);
-        let (chave, escopo) = self.escopo_da_classe(c);
-        // A biblioteca vai inteira em cada declaração: a resposta de uma
-        // consulta pode citar uma biblioteca que o executor ainda não viu.
-        let lib = self.biblioteca_json(t, cl.library);
+        let (key, scope) = self.class_scope(c);
+        // The whole library goes in each declaration: a query answer may
+        // mention a library the executor has not seen yet.
+        let lib = self.library_json(t, cl.library);
         let tparams: Vec<Value> = cl
             .type_params
             .iter()
             .map(|p| {
-                let limite = p.bound.map(|(u, b)| self.tipo_escrito(t, u, b, &escopo));
-                json!({"k": "tparam", "ident": self.ident(t, Chave::ParametroDeTipo { dono: Box::new(chave.clone()), nome: self.n(p.name) }),
-                    "lib": lib, "limite": limite})
+                let bound = p.bound.map(|(u, b)| self.written_type(t, u, b, &scope));
+                json!({"k": "tparam", "ident": self.ident(t, Key::TypeParameter { owner: Box::new(key.clone()), name: self.n(p.name) }),
+                    "lib": lib, "limite": bound})
             })
             .collect();
-        let tipos = |t: &mut Tabela, l: &[(UnitId, ast::TypeId)]| -> Vec<Value> {
-            l.iter().map(|(u, x)| self.tipo_escrito(t, *u, *x, &escopo)).collect()
+        let types = |t: &mut Table, l: &[(UnitId, ast::TypeId)]| -> Vec<Value> {
+            l.iter().map(|(u, x)| self.written_type(t, *u, *x, &scope)).collect()
         };
-        let ident = self.ident(t, chave.clone());
+        let ident = self.ident(t, key.clone());
         let m = cl.modifiers;
         match cl.kind {
             ClassKind::Mixin => json!({"k": "mixin", "ident": ident, "lib": lib, "tparams": tparams, "base": m.base,
-                "interfaces": tipos(t, &cl.interfaces), "restricoes": tipos(t, &cl.on)}),
+                "interfaces": types(t, &cl.interfaces), "restricoes": types(t, &cl.on)}),
             ClassKind::Enum => json!({"k": "enum", "ident": ident, "lib": lib, "tparams": tparams,
-                "interfaces": tipos(t, &cl.interfaces), "mixins": tipos(t, &cl.mixins)}),
+                "interfaces": types(t, &cl.interfaces), "mixins": types(t, &cl.mixins)}),
             ClassKind::ExtensionType => {
                 let rep = cl.representation.and_then(|v| match self.program.variable(v).node {
                     VariableRef::Representation { unit, decl } => match &self.program.unit(unit).ast.decl(decl).kind {
-                        DeclKind::ExtensionType(et) => Some(self.tipo_escrito(t, unit, et.representation_type, &escopo)),
+                        DeclKind::ExtensionType(et) => Some(self.written_type(t, unit, et.representation_type, &scope)),
                         _ => None,
                     },
                     _ => None,
@@ -352,51 +354,51 @@ impl<'p> Vista<'p> {
                 json!({"k": "extensionType", "ident": ident, "lib": lib, "tparams": tparams, "representacao": rep})
             }
             _ => {
-                let superclasse = cl.supertype.map(|(u, x)| self.tipo_escrito(t, u, x, &escopo));
+                let superclass = cl.supertype.map(|(u, x)| self.written_type(t, u, x, &scope));
                 json!({"k": "classe", "ident": ident, "lib": lib, "tparams": tparams, "abstract": m.abstract_,
                     "base": m.base, "external": false, "final": m.final_, "interface": m.interface, "mixin": m.mixin,
-                    "sealed": m.sealed, "superclasse": superclasse,
-                    "interfaces": tipos(t, &cl.interfaces), "mixins": tipos(t, &cl.mixins)})
+                    "sealed": m.sealed, "superclasse": superclass,
+                    "interfaces": types(t, &cl.interfaces), "mixins": types(t, &cl.mixins)})
             }
         }
     }
 
-    fn parametros(
+    fn parameters(
         &self,
-        t: &mut Tabela,
+        t: &mut Table,
         unit: UnitId,
-        dono: &Chave,
+        owner: &Key,
         ps: &[ast::Parameter],
-        escopo: &Escopo,
+        scope: &Scope,
     ) -> (Vec<Value>, Vec<Value>) {
-        let lib = self.biblioteca_json(t, self.program.unit(unit).library);
-        let mut pos = Vec::new();
-        let mut nom = Vec::new();
+        let lib = self.library_json(t, self.program.unit(unit).library);
+        let mut positional = Vec::new();
+        let mut named = Vec::new();
         for p in ps {
             let Some(n) = p.name else { continue };
-            let nome = self.n(n.sym);
-            let tipo = self.tipo(t, unit, p.ty, escopo, || Omitido { dono: dono.clone(), lugar: nome.clone() });
-            let estilo = if p.this_ { "this" } else if p.super_ { "super" } else { "normal" };
-            let nomeado = p.kind == ParameterKind::Named;
+            let name = self.n(n.sym);
+            let ty = self.type_annotation(t, unit, p.ty, scope, || Omitted { owner: owner.clone(), place: name.clone() });
+            let style = if p.this_ { "this" } else if p.super_ { "super" } else { "normal" };
+            let is_named = p.kind == ParameterKind::Named;
             let j = json!({"k": "parametro",
-                "ident": self.ident(t, Chave::Parametro { dono: Box::new(dono.clone()), nome: nome.clone() }),
-                "lib": lib, "tipo": tipo, "nomeado": nomeado,
-                "obrigatorio": if nomeado { p.required } else { p.kind == ParameterKind::Required },
-                "estilo": estilo});
-            if nomeado { nom.push(j) } else { pos.push(j) }
+                "ident": self.ident(t, Key::Parameter { owner: Box::new(owner.clone()), name: name.clone() }),
+                "lib": lib, "tipo": ty, "nomeado": is_named,
+                "obrigatorio": if is_named { p.required } else { p.kind == ParameterKind::Required },
+                "estilo": style});
+            if is_named { named.push(j) } else { positional.push(j) }
         }
-        (pos, nom)
+        (positional, named)
     }
 
-    /// Os membros de `c` de um tipo (`campos`, `metodos`, `construtores`),
-    /// na ordem de declaração da cadeia (introdutória e augmentations), sem as
-    /// declarações `augment` (que não introduzem membro) — como o
-    /// `fullMemberIterator` do CFE 3.6.2.
-    pub fn membros_json(&self, t: &mut Tabela, c: ClassId, tipo: &str) -> Vec<Value> {
-        let (chave_da_classe, escopo) = self.escopo_da_classe(c);
-        let Chave::Tipo { lib: lib_uri, nome: dono } = chave_da_classe.clone() else { return Vec::new() };
-        let lib = self.biblioteca_json(t, self.program.class(c).library);
-        let definidor = self.ident(t, chave_da_classe);
+    /// The members of `c` of one kind (`campos`, `metodos`, `construtores`),
+    /// in declaration order along the chain (introductory declaration and
+    /// augmentations), without the `augment` declarations (which do not
+    /// introduce a member) — like CFE 3.6.2's `fullMemberIterator`.
+    pub fn members_json(&self, t: &mut Table, c: ClassId, kind: &str) -> Vec<Value> {
+        let (class_key, scope) = self.class_scope(c);
+        let Key::Type { lib: lib_uri, name: owner } = class_key.clone() else { return Vec::new() };
+        let lib = self.library_json(t, self.program.class(c).library);
+        let definer = self.ident(t, class_key);
         let mut out = Vec::new();
         for (unit, mid) in self.program.membros_da_classe(c) {
             let ast = &self.program.unit(unit).ast;
@@ -404,37 +406,37 @@ impl<'p> Vista<'p> {
             if m.augment {
                 continue;
             }
-            match (&m.kind, tipo) {
+            match (&m.kind, kind) {
                 (MemberKind::Field(v), "campos") => {
                     for var in v.variables.iter() {
-                        let nome = self.n(var.name.sym);
-                        let chave = Chave::Campo { lib: lib_uri.clone(), dono: dono.clone(), nome: nome.clone() };
-                        let tipo = self.tipo(t, unit, v.ty, &escopo, || Omitido { dono: chave.clone(), lugar: "tipo".into() });
-                        out.push(json!({"k": "campo", "ident": self.ident(t, chave), "lib": lib, "dono": definidor,
+                        let name = self.n(var.name.sym);
+                        let key = Key::Field { lib: lib_uri.clone(), owner: owner.clone(), name: name.clone() };
+                        let ty = self.type_annotation(t, unit, v.ty, &scope, || Omitted { owner: key.clone(), place: "tipo".into() });
+                        out.push(json!({"k": "campo", "ident": self.ident(t, key), "lib": lib, "dono": definer,
                             "static": v.static_, "abstract": v.abstract_, "const": v.const_, "external": v.external,
-                            "final": v.final_, "late": v.late, "inicializador": var.initializer.is_some(), "tipo": tipo}));
+                            "final": v.final_, "late": v.late, "inicializador": var.initializer.is_some(), "tipo": ty}));
                     }
                 }
                 (MemberKind::Method(fid), "metodos") => {
                     let f = ast.function(*fid);
                     let Some(n) = f.name else { continue };
                     let setter = f.kind == ast::FunctionKind::Setter;
-                    let chave = Chave::Metodo { lib: lib_uri.clone(), dono: dono.clone(), nome: self.n(n.sym), setter };
-                    let retorno = self.tipo(t, unit, f.return_type, &escopo, || Omitido { dono: chave.clone(), lugar: "retorno".into() });
-                    let (pos, nom) = self.parametros(t, unit, &chave, f.parameters.as_deref().unwrap_or(&[]), &escopo);
-                    out.push(json!({"k": "metodo", "ident": self.ident(t, chave), "lib": lib, "dono": definidor,
+                    let key = Key::Method { lib: lib_uri.clone(), owner: owner.clone(), name: self.n(n.sym), setter };
+                    let ret = self.type_annotation(t, unit, f.return_type, &scope, || Omitted { owner: key.clone(), place: "retorno".into() });
+                    let (positional, named) = self.parameters(t, unit, &key, f.parameters.as_deref().unwrap_or(&[]), &scope);
+                    out.push(json!({"k": "metodo", "ident": self.ident(t, key), "lib": lib, "dono": definer,
                         "static": f.static_, "corpo": true, "external": f.external,
                         "operador": f.kind == ast::FunctionKind::Operator, "getter": f.kind == ast::FunctionKind::Getter,
-                        "setter": setter, "retorno": retorno, "posicionais": pos, "nomeados": nom, "tparams": []}));
+                        "setter": setter, "retorno": ret, "posicionais": positional, "nomeados": named, "tparams": []}));
                 }
                 (MemberKind::Constructor(k), "construtores") => {
-                    let nome = k.name.map(|n| self.n(n.sym)).unwrap_or_default();
-                    let chave = Chave::Construtor { lib: lib_uri.clone(), dono: dono.clone(), nome };
-                    let retorno = json!({"t": "omitido", "chave": t.omitido(Omitido { dono: chave.clone(), lugar: "retorno".into() })});
-                    let (pos, nom) = self.parametros(t, unit, &chave, &k.parameters, &escopo);
-                    out.push(json!({"k": "construtor", "ident": self.ident(t, chave), "lib": lib, "dono": definidor,
+                    let name = k.name.map(|n| self.n(n.sym)).unwrap_or_default();
+                    let key = Key::Constructor { lib: lib_uri.clone(), owner: owner.clone(), name };
+                    let ret = json!({"t": "omitido", "chave": t.omitted(Omitted { owner: key.clone(), place: "retorno".into() })});
+                    let (positional, named) = self.parameters(t, unit, &key, &k.parameters, &scope);
+                    out.push(json!({"k": "construtor", "ident": self.ident(t, key), "lib": lib, "dono": definer,
                         "corpo": true, "external": k.external, "const": k.const_, "factory": k.factory,
-                        "retorno": retorno, "posicionais": pos, "nomeados": nom, "tparams": []}));
+                        "retorno": ret, "posicionais": positional, "nomeados": named, "tparams": []}));
                 }
                 _ => {}
             }
@@ -442,55 +444,55 @@ impl<'p> Vista<'p> {
         out
     }
 
-    /// A declaração de uma chave, no programa corrente.
-    pub fn declaracao_json(&self, t: &mut Tabela, c: &Chave) -> Option<Value> {
+    /// The declaration of a key, in the current program.
+    pub fn declaration_json(&self, t: &mut Table, c: &Key) -> Option<Value> {
         match c {
-            Chave::Tipo { .. } => self.classe(c).map(|id| self.classe_json(t, id)),
-            Chave::FuncaoDeTopo { .. } => {
-                let f = self.program.function(self.funcao(c)?);
+            Key::Type { .. } => self.class_of(c).map(|id| self.class_json(t, id)),
+            Key::TopLevelFunction { .. } => {
+                let f = self.program.function(self.function(c)?);
                 let FunctionRef::Function { unit, function } = f.node else { return None };
                 let ast = self.program.unit(unit).ast.function(function);
-                let lib = self.biblioteca_json(t, f.library);
-                let escopo = Vec::new();
-                let retorno = self.tipo(t, unit, ast.return_type, &escopo, || Omitido { dono: c.clone(), lugar: "retorno".into() });
-                let (pos, nom) = self.parametros(t, unit, c, ast.parameters.as_deref().unwrap_or(&[]), &escopo);
+                let lib = self.library_json(t, f.library);
+                let scope = Vec::new();
+                let ret = self.type_annotation(t, unit, ast.return_type, &scope, || Omitted { owner: c.clone(), place: "retorno".into() });
+                let (positional, named) = self.parameters(t, unit, c, ast.parameters.as_deref().unwrap_or(&[]), &scope);
                 Some(json!({"k": "funcao", "ident": self.ident(t, c.clone()), "lib": lib,
                     "corpo": true, "external": f.external,
                     "operador": ast.kind == ast::FunctionKind::Operator,
                     "getter": ast.kind == ast::FunctionKind::Getter,
                     "setter": ast.kind == ast::FunctionKind::Setter,
-                    "retorno": retorno, "posicionais": pos, "nomeados": nom, "tparams": []}))
+                    "retorno": ret, "posicionais": positional, "nomeados": named, "tparams": []}))
             }
-            Chave::VariavelDeTopo { lib, nome } => {
-                let lid = self.biblioteca_por_uri(lib)?;
-                let sym = self.interner.lookup(nome)?;
+            Key::TopLevelVariable { lib, name } => {
+                let lid = self.library_by_uri(lib)?;
+                let sym = self.interner.lookup(name)?;
                 let Element::Variable(id) = self.program.library(lid).declared.get(&sym)?.getter? else { return None };
                 let v = self.program.variable(id);
                 let VariableRef::TopLevel { unit, decl, index } = v.node else { return None };
-                let DeclKind::Variables(lista) = &self.program.unit(unit).ast.decl(decl).kind else { return None };
-                let item = lista.variables.get(index)?;
-                let biblioteca = self.biblioteca_json(t, lid);
-                let tipo = self.tipo(t, unit, lista.ty, &Vec::new(), || Omitido { dono: c.clone(), lugar: "tipo".into() });
-                Some(json!({"k": "variavel", "ident": self.ident(t, c.clone()), "lib": biblioteca,
+                let DeclKind::Variables(list) = &self.program.unit(unit).ast.decl(decl).kind else { return None };
+                let item = list.variables.get(index)?;
+                let library = self.library_json(t, lid);
+                let ty = self.type_annotation(t, unit, list.ty, &Vec::new(), || Omitted { owner: c.clone(), place: "tipo".into() });
+                Some(json!({"k": "variavel", "ident": self.ident(t, c.clone()), "lib": library,
                     "const": v.const_, "external": v.external, "final": v.final_, "late": v.late,
-                    "inicializador": item.initializer.is_some(), "tipo": tipo}))
+                    "inicializador": item.initializer.is_some(), "tipo": ty}))
             }
-            Chave::Metodo { lib, dono, .. } | Chave::Construtor { lib, dono, .. } | Chave::Campo { lib, dono, .. } => {
-                let cid = self.classe(&Chave::Tipo { lib: lib.clone(), nome: dono.clone() })?;
-                let tipo = match c {
-                    Chave::Metodo { .. } => "metodos",
-                    Chave::Construtor { .. } => "construtores",
+            Key::Method { lib, owner, .. } | Key::Constructor { lib, owner, .. } | Key::Field { lib, owner, .. } => {
+                let cid = self.class_of(&Key::Type { lib: lib.clone(), name: owner.clone() })?;
+                let kind = match c {
+                    Key::Method { .. } => "metodos",
+                    Key::Constructor { .. } => "construtores",
                     _ => "campos",
                 };
                 let id = t.id(c.clone());
-                self.membros_json(t, cid, tipo).into_iter().find(|d| d["ident"]["id"].as_u64() == Some(id))
+                self.members_json(t, cid, kind).into_iter().find(|d| d["ident"]["id"].as_u64() == Some(id))
             }
             _ => None,
         }
     }
 
-    /// As declarações de tipo de uma biblioteca (só classes, como o CFE).
-    pub fn tipos_da_biblioteca(&self, t: &mut Tabela, lib: LibraryId) -> Vec<Value> {
+    /// The type declarations of a library (classes only, like the CFE).
+    pub fn library_types(&self, t: &mut Table, lib: LibraryId) -> Vec<Value> {
         let mut out = Vec::new();
         for &u in &self.program.library(lib).units {
             let unit = self.program.unit(u);
@@ -499,13 +501,13 @@ impl<'p> Vista<'p> {
                 if decl.augment {
                     continue;
                 }
-                let nome = match &decl.kind {
+                let name = match &decl.kind {
                     DeclKind::Class(c) => c.name.sym,
                     DeclKind::Mixin(m) => m.name.sym,
                     _ => continue,
                 };
-                if let Some(Element::Class(c)) = self.program.library(lib).declared.get(&nome).and_then(|b| b.getter) {
-                    out.push(self.classe_json(t, c));
+                if let Some(Element::Class(c)) = self.program.library(lib).declared.get(&name).and_then(|b| b.getter) {
+                    out.push(self.class_json(t, c));
                 }
             }
         }

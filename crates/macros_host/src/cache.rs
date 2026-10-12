@@ -1,80 +1,83 @@
-//! O cache de expansões (docs/MACROS-PROTOCOLO.md §6): reaproveita o
-//! resultado de uma aplicação de macro numa fase sem falar com o executor,
-//! quando tudo o que a execução anterior **observou** continua igual.
+//! The expansion cache (docs/MACROS-PROTOCOLO.md §6): reuses the result of a
+//! macro application in a phase without talking to the executor, when
+//! everything the previous execution **observed** is still the same.
 //!
-//! Para cada `(aplicação, fase)` o cache guarda um registro:
+//! For each `(application, phase)` the cache keeps a record:
 //!
-//! * a impressão digital do **pedido** `macro.executar` — a identidade da
-//!   implementação da macro (o fonte do fecho de imports da biblioteca dela),
-//!   o construtor e os argumentos, a fase, o alvo e o modelo com os membros
-//!   pré-carregados —, mais a identidade do executor e a versão do
-//!   hospedeiro;
-//! * cada `macro.consulta`, **na ordem**, com a impressão digital da
-//!   resposta — inclusive as negativas (erro "não existe") e as coleções na
-//!   ordem em que o executor as recebeu;
-//! * o resultado.
+//! * the fingerprint of the `macro.executar` **request** — the identity of
+//!   the macro implementation (the source of its library's import closure),
+//!   the constructor and the arguments, the phase, the target and the model
+//!   with the prefetched members —, plus the executor identity and the host
+//!   version;
+//! * each `macro.consulta`, **in order**, with the fingerprint of the answer
+//!   — including the negative ones ("does not exist" errors) and the
+//!   collections in the order the executor received them;
+//! * the result.
 //!
-//! Numa nova aplicação o hospedeiro monta o pedido de novo; se a impressão
-//! bate, refaz as consultas gravadas contra o programa corrente (a
-//! *revalidação*, como a do motor de build, docs/BUILD-MOTOR.md §4). Tudo
-//! igual, o resultado gravado vale — a macro é uma função determinística do
-//! que recebeu (a spec proíbe E/S fora de `Resource`, e o estado da instância
-//! entre fases não é garantido). Qualquer diferença, a macro roda de novo e o
-//! registro é trocado. A primeira consulta que difere interrompe a
-//! revalidação: as seguintes dependiam da resposta antiga.
+//! On a new application the host builds the request again; if the
+//! fingerprint matches, it replays the recorded queries against the current
+//! program (the *revalidation*, like the build engine's,
+//! docs/BUILD-MOTOR.md §4). All equal, the recorded result holds — the macro
+//! is a deterministic function of what it received (the spec forbids I/O
+//! outside `Resource`, and instance state between phases is not
+//! guaranteed). Any difference, the macro runs again and the record is
+//! replaced. The first query that differs stops the revalidation: the
+//! following ones depended on the old answer.
 //!
-//! **Os ids.** O pedido e as respostas carregam os ids da [`Tabela`] e as
-//! chaves de `StaticType` ([`Estaticos`]). O cache guarda os dois e os usa
-//! em todas as compilações que servir: um id nunca muda de significado, e um
-//! identificador novo (um campo acrescentado) ganha id novo sem deslocar os
-//! outros. Por isso a edição que uma aplicação não observa não muda o pedido
-//! nem as respostas dela. Uma compilação sem cache começa de tabela vazia,
-//! com os ids de sempre (os da sessão gravada do CFE).
+//! **The ids.** The request and the answers carry the ids of the [`Table`]
+//! and the `StaticType` keys ([`Statics`]). The cache keeps both and uses
+//! them in every compilation it serves: an id never changes meaning, and a
+//! new identifier (an added field) gets a new id without shifting the
+//! others. That is why an edit an application does not observe changes
+//! neither its request nor its answers. A compilation without a cache starts
+//! from an empty table, with the usual ids (those of the recorded CFE
+//! session).
 //!
-//! **Onde vive.** Em memória, com quem compila várias vezes no mesmo processo
-//! (o `dartforge dev`, o LSP, os testes): o motor de build também não grava
-//! registro em disco (docs/BUILD-MOTOR.md §4, D-B1), e a regra governante 6
-//! das macros proíbe contabilidade em disco.
-use crate::aplicacoes::{Alvo, Aplicacao};
-use crate::consultas::Estaticos;
-use crate::executor::{ErroDeConsulta, Fase, ServicoDeConsultas};
-use crate::modelo::{Chave, Tabela};
-use crate::montagem::Resultado;
-use crate::protocolo::VERSAO_DO_HOSPEDEIRO;
+//! **Where it lives.** In memory, with whoever compiles several times in the
+//! same process (`dartforge dev`, the LSP, the tests): the build engine does
+//! not write records to disk either (docs/BUILD-MOTOR.md §4, D-B1), and
+//! governing rule 6 of macros forbids bookkeeping on disk.
+use crate::aplicacoes::{Application, Target};
+use crate::assembly::ExecutionResult;
+use crate::executor::{Phase, QueryError, QueryService};
+use crate::modelo::{Key, Table};
+use crate::protocol::HOST_VERSION;
+use crate::queries::Statics;
 use dartforge_elements::model::{LibraryId, Program};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
-/// Impressão digital (blake3).
+/// Fingerprint (blake3).
 pub type Digest = [u8; 32];
 
-/// A identidade **estável** de uma aplicação: o que ela é, não onde está na
-/// AST. Sobrevive a edições em outras declarações e a recargas; duas
-/// anotações iguais no mesmo alvo se distinguem pelo `ordinal`.
+/// The **stable** identity of an application: what it is, not where it is
+/// in the AST. It survives edits to other declarations and reloads; two
+/// equal annotations on the same target are told apart by `ordinal`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct IdentidadeDaAplicacao {
-    pub biblioteca: String,
-    pub alvo: Alvo,
-    /// `uri#Classe` da macro.
+pub struct ApplicationIdentity {
+    pub library: String,
+    pub target: Target,
+    /// `uri#Class` of the macro.
     pub macro_: String,
-    pub construtor: String,
-    /// Os argumentos no formato do protocolo, em JSON.
-    pub argumentos: String,
-    /// Quantas aplicações idênticas vêm antes desta no mesmo alvo.
+    pub constructor: String,
+    /// The arguments in the protocol format, as JSON.
+    pub arguments: String,
+    /// How many identical applications come before this one on the same
+    /// target.
     pub ordinal: usize,
 }
 
-impl IdentidadeDaAplicacao {
-    /// As identidades de `apps`, na mesma ordem.
-    pub fn de_todas(apps: &[Aplicacao]) -> Vec<IdentidadeDaAplicacao> {
-        let mut out: Vec<IdentidadeDaAplicacao> = Vec::with_capacity(apps.len());
+impl ApplicationIdentity {
+    /// The identities of `apps`, in the same order.
+    pub fn of_all(apps: &[Application]) -> Vec<ApplicationIdentity> {
+        let mut out: Vec<ApplicationIdentity> = Vec::with_capacity(apps.len());
         for a in apps {
-            let mut id = IdentidadeDaAplicacao {
-                biblioteca: a.biblioteca.clone(),
-                alvo: a.alvo.clone(),
+            let mut id = ApplicationIdentity {
+                library: a.library.clone(),
+                target: a.target.clone(),
                 macro_: a.macro_.clone(),
-                construtor: a.construtor.clone(),
-                argumentos: a.argumentos.to_string(),
+                constructor: a.constructor.clone(),
+                arguments: a.arguments.to_string(),
                 ordinal: 0,
             };
             id.ordinal = out.iter().filter(|x| **x == id).count();
@@ -84,18 +87,18 @@ impl IdentidadeDaAplicacao {
     }
 }
 
-impl std::fmt::Display for IdentidadeDaAplicacao {
+impl std::fmt::Display for ApplicationIdentity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let alvo = match &self.alvo {
-            Alvo::Biblioteca(_) => "library".to_string(),
-            Alvo::Declaracao(
-                Chave::Metodo { dono, nome, .. } | Chave::Campo { dono, nome, .. } | Chave::Construtor { dono, nome, .. },
-            ) => format!("{dono}.{nome}"),
-            Alvo::Declaracao(c) => c.nome().to_string(),
+        let target = match &self.target {
+            Target::Library(_) => "library".to_string(),
+            Target::Declaration(
+                Key::Method { owner, name, .. } | Key::Field { owner, name, .. } | Key::Constructor { owner, name, .. },
+            ) => format!("{owner}.{name}"),
+            Target::Declaration(c) => c.name().to_string(),
         };
-        let classe = self.macro_.rsplit('#').next().unwrap_or("");
-        let construtor = if self.construtor.is_empty() { String::new() } else { format!(".{}", self.construtor) };
-        write!(f, "{} {alvo} @{classe}{construtor}", self.biblioteca)?;
+        let class = self.macro_.rsplit('#').next().unwrap_or("");
+        let constructor = if self.constructor.is_empty() { String::new() } else { format!(".{}", self.constructor) };
+        write!(f, "{} {target} @{class}{constructor}", self.library)?;
         if self.ordinal > 0 {
             write!(f, " #{}", self.ordinal)?;
         }
@@ -103,239 +106,243 @@ impl std::fmt::Display for IdentidadeDaAplicacao {
     }
 }
 
-/// Uma instância de macro: a implementação, o construtor e os argumentos.
-/// A implementação entra pela impressão digital do fonte (não pelo nome):
-/// editar a macro invalida as instâncias dela.
+/// A macro instance: the implementation, the constructor and the arguments.
+/// The implementation enters through the fingerprint of its source (not its
+/// name): editing the macro invalidates its instances.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct ChaveDeInstancia {
-    pub implementacao: Digest,
+pub(crate) struct InstanceKey {
+    pub implementation: Digest,
     pub macro_: String,
-    pub construtor: String,
-    pub argumentos: String,
+    pub constructor: String,
+    pub arguments: String,
 }
 
-/// Uma consulta feita pela execução e a impressão digital da resposta.
+/// A query made by the execution and the fingerprint of its answer.
 #[derive(Debug, Clone)]
-pub(crate) struct ConsultaGravada {
-    tipo: String,
+pub(crate) struct RecordedQuery {
+    kind: String,
     args: Value,
-    resposta: Digest,
+    response: Digest,
 }
 
-/// O que uma execução leu e produziu.
+/// What an execution read and produced.
 #[derive(Debug, Clone)]
-pub(crate) struct Registro {
-    pedido: Digest,
-    consultas: Vec<ConsultaGravada>,
-    resultado: Resultado,
+pub(crate) struct Record {
+    request: Digest,
+    queries: Vec<RecordedQuery>,
+    result: ExecutionResult,
 }
 
-/// O cache de expansões de um executor. Um valor por configuração de
-/// executor: a identidade dada em [`CacheDeMacros::novo`] entra em todas as
-/// impressões digitais.
+/// The expansion cache of an executor. One value per executor
+/// configuration: the identity given to [`MacroCache::new`] goes into every
+/// fingerprint.
 ///
 /// ```
-/// use dartforge_macros_host::cache::CacheDeMacros;
-/// let cache = CacheDeMacros::novo("vm dart-3.6.2");
+/// use dartforge_macros_host::cache::MacroCache;
+/// let cache = MacroCache::new("vm dart-3.6.2");
 /// assert!(cache.is_empty());
 /// ```
 #[derive(Debug)]
-pub struct CacheDeMacros {
-    /// Sem cache (compilação única): nada é gravado nem revalidado.
-    pub(crate) ativo: bool,
-    pub(crate) identidade_do_executor: String,
-    pub(crate) tabela: Tabela,
-    pub(crate) estaticos: Estaticos,
-    /// As interfaces de macro de cada instância (as fases que ela roda):
-    /// com elas o hospedeiro decide as fases sem instanciar no executor.
-    pub(crate) interfaces: HashMap<ChaveDeInstancia, Vec<String>>,
-    pub(crate) registros: Registros,
+pub struct MacroCache {
+    /// Without a cache (single compilation): nothing is recorded or
+    /// revalidated.
+    pub(crate) enabled: bool,
+    pub(crate) executor_identity: String,
+    pub(crate) table: Table,
+    pub(crate) statics: Statics,
+    /// The macro interfaces of each instance (the phases it runs in): with
+    /// them the host decides the phases without instantiating in the
+    /// executor.
+    pub(crate) interfaces: HashMap<InstanceKey, Vec<String>>,
+    pub(crate) records: Records,
 }
 
-impl CacheDeMacros {
-    /// Um cache vazio para o executor identificado por `identidade_do_executor`
-    /// (o executável e a versão da API de macros, por exemplo).
-    pub fn novo(identidade_do_executor: impl Into<String>) -> Self {
-        CacheDeMacros {
-            ativo: true,
-            identidade_do_executor: identidade_do_executor.into(),
-            tabela: Tabela::default(),
-            estaticos: Estaticos::default(),
+impl MacroCache {
+    /// An empty cache for the executor identified by `executor_identity`
+    /// (the executable and the version of the macro API, for example).
+    pub fn new(executor_identity: impl Into<String>) -> Self {
+        MacroCache {
+            enabled: true,
+            executor_identity: executor_identity.into(),
+            table: Table::default(),
+            statics: Statics::default(),
             interfaces: HashMap::new(),
-            registros: HashMap::new(),
+            records: HashMap::new(),
         }
     }
 
-    /// O estado de uma compilação sem cache: tabela nova e nada gravado.
-    pub(crate) fn desligado() -> Self {
-        CacheDeMacros { ativo: false, ..CacheDeMacros::novo("") }
+    /// The state of a compilation without a cache: a new table and nothing
+    /// recorded.
+    pub(crate) fn disabled() -> Self {
+        MacroCache { enabled: false, ..MacroCache::new("") }
     }
 
-    /// Quantas expansões `(aplicação, fase)` estão gravadas.
+    /// How many `(application, phase)` expansions are recorded.
     pub fn len(&self) -> usize {
-        self.registros.len()
+        self.records.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.registros.is_empty()
+        self.records.is_empty()
     }
 
 }
 
-/// Os registros por `(aplicação, fase)`.
-pub(crate) type Registros = HashMap<(IdentidadeDaAplicacao, Fase), Registro>;
+/// The records per `(application, phase)`.
+pub(crate) type Records = HashMap<(ApplicationIdentity, Phase), Record>;
 
-/// O resultado gravado de `chave`, se ainda vale para `pedido` e as consultas
-/// gravadas respondem igual em `consultas` (o programa corrente).
-pub(crate) fn revalidar(
-    registros: &Registros,
-    chave: &(IdentidadeDaAplicacao, Fase),
-    pedido: &Digest,
-    consultas: &mut dyn ServicoDeConsultas,
-) -> Revalidacao {
-    let Some(r) = registros.get(chave) else { return Revalidacao::Ausente };
-    if r.pedido != *pedido {
-        return Revalidacao::PedidoMudou;
+/// The recorded result of `key`, if it still holds for `request` and the
+/// recorded queries answer the same in `queries` (the current program).
+pub(crate) fn revalidate(
+    records: &Records,
+    key: &(ApplicationIdentity, Phase),
+    request: &Digest,
+    queries: &mut dyn QueryService,
+) -> Revalidation {
+    let Some(r) = records.get(key) else { return Revalidation::Missing };
+    if r.request != *request {
+        return Revalidation::RequestChanged;
     }
-    for (i, c) in r.consultas.iter().enumerate() {
-        if digest_da_resposta(&consultas.consultar(&c.tipo, &c.args)) != c.resposta {
-            return Revalidacao::ConsultaMudou { refeitas: i + 1 };
+    for (i, c) in r.queries.iter().enumerate() {
+        if response_digest(&queries.query(&c.kind, &c.args)) != c.response {
+            return Revalidation::QueryChanged { replayed: i + 1 };
         }
     }
-    Revalidacao::Valido { resultado: Box::new(r.resultado.clone()), refeitas: r.consultas.len() }
+    Revalidation::Valid { result: Box::new(r.result.clone()), replayed: r.queries.len() }
 }
 
-/// O desfecho de uma revalidação.
-pub(crate) enum Revalidacao {
-    Ausente,
-    PedidoMudou,
-    /// A consulta de número `refeitas` respondeu diferente.
-    ConsultaMudou { refeitas: usize },
-    Valido { resultado: Box<Resultado>, refeitas: usize },
+/// The outcome of a revalidation.
+pub(crate) enum Revalidation {
+    Missing,
+    RequestChanged,
+    /// Query number `replayed` answered differently.
+    QueryChanged { replayed: usize },
+    Valid { result: Box<ExecutionResult>, replayed: usize },
 }
 
-/// Grava um [`Registro`] novo (depois de executar) e diz se o resultado é o
-/// mesmo do registro anterior — "saída igual": as aplicações seguintes não
-/// perdem o cache por causa desta, porque o programa que elas veem não muda.
-pub(crate) fn gravar(
-    registros: &mut Registros,
-    chave: (IdentidadeDaAplicacao, Fase),
-    pedido: Digest,
-    consultas: Vec<ConsultaGravada>,
-    resultado: &Resultado,
+/// Records a new [`Record`] (after executing) and says whether the result is
+/// the same as the previous record's — "same output": the following
+/// applications do not lose the cache because of this one, since the
+/// program they see does not change.
+pub(crate) fn record(
+    records: &mut Records,
+    key: (ApplicationIdentity, Phase),
+    request: Digest,
+    queries: Vec<RecordedQuery>,
+    result: &ExecutionResult,
 ) -> bool {
-    let igual = registros.get(&chave).is_some_and(|r| r.resultado == *resultado);
-    registros.insert(chave, Registro { pedido, consultas, resultado: resultado.clone() });
-    igual
+    let same = records.get(&key).is_some_and(|r| r.result == *result);
+    records.insert(key, Record { request, queries, result: result.clone() });
+    same
 }
 
-/// Esquece o que esta compilação não usou (aplicações removidas): o cache
-/// não cresce com o histórico de edições.
-pub(crate) fn podar(
-    registros: &mut Registros,
-    interfaces: &mut HashMap<ChaveDeInstancia, Vec<String>>,
-    usadas: &HashSet<(IdentidadeDaAplicacao, Fase)>,
-    instancias: &HashSet<ChaveDeInstancia>,
+/// Forgets what this compilation did not use (removed applications): the
+/// cache does not grow with the edit history.
+pub(crate) fn prune(
+    records: &mut Records,
+    interfaces: &mut HashMap<InstanceKey, Vec<String>>,
+    used: &HashSet<(ApplicationIdentity, Phase)>,
+    instances: &HashSet<InstanceKey>,
 ) {
-    registros.retain(|k, _| usadas.contains(k));
-    interfaces.retain(|k, _| instancias.contains(k));
+    records.retain(|k, _| used.contains(k));
+    interfaces.retain(|k, _| instances.contains(k));
 }
 
-/// Registra, em ordem, as consultas que passam para `interno` (só com o
-/// cache ligado: sem ele, não há o que revalidar depois).
-pub(crate) struct Gravador<'s> {
-    interno: &'s mut dyn ServicoDeConsultas,
-    ligado: bool,
-    pub(crate) consultas: Vec<ConsultaGravada>,
+/// Records, in order, the queries that go through to `inner` (only with the
+/// cache enabled: without it, there is nothing to revalidate later).
+pub(crate) struct Recorder<'s> {
+    inner: &'s mut dyn QueryService,
+    enabled: bool,
+    pub(crate) queries: Vec<RecordedQuery>,
 }
 
-impl<'s> Gravador<'s> {
-    pub fn novo(interno: &'s mut dyn ServicoDeConsultas, ligado: bool) -> Self {
-        Gravador { interno, ligado, consultas: Vec::new() }
+impl<'s> Recorder<'s> {
+    pub fn new(inner: &'s mut dyn QueryService, enabled: bool) -> Self {
+        Recorder { inner, enabled, queries: Vec::new() }
     }
 }
 
-impl ServicoDeConsultas for Gravador<'_> {
-    fn consultar(&mut self, tipo: &str, args: &Value) -> Result<Value, ErroDeConsulta> {
-        let r = self.interno.consultar(tipo, args);
-        if self.ligado {
-            self.consultas.push(ConsultaGravada { tipo: tipo.to_string(), args: args.clone(), resposta: digest_da_resposta(&r) });
+impl QueryService for Recorder<'_> {
+    fn query(&mut self, kind: &str, args: &Value) -> Result<Value, QueryError> {
+        let r = self.inner.query(kind, args);
+        if self.enabled {
+            self.queries.push(RecordedQuery { kind: kind.to_string(), args: args.clone(), response: response_digest(&r) });
         }
         r
     }
 }
 
-fn campo(h: &mut blake3::Hasher, s: &str) {
+fn hash_field(h: &mut blake3::Hasher, s: &str) {
     h.update(&(s.len() as u64).to_le_bytes());
     h.update(s.as_bytes());
 }
 
-/// A impressão digital de uma resposta, inclusive de erro (a resposta
-/// negativa também é dependência).
-fn digest_da_resposta(r: &Result<Value, ErroDeConsulta>) -> Digest {
+/// The fingerprint of an answer, including an error one (a negative answer
+/// is a dependency too).
+fn response_digest(r: &Result<Value, QueryError>) -> Digest {
     let mut h = blake3::Hasher::new();
     match r {
         Ok(v) => {
-            campo(&mut h, "ok");
-            campo(&mut h, &v.to_string());
+            hash_field(&mut h, "ok");
+            hash_field(&mut h, &v.to_string());
         }
         Err(e) => {
-            campo(&mut h, "erro");
-            campo(&mut h, e.tipo);
-            campo(&mut h, &e.mensagem);
+            hash_field(&mut h, "erro");
+            hash_field(&mut h, e.kind);
+            hash_field(&mut h, &e.message);
         }
     }
     *h.finalize().as_bytes()
 }
 
-/// A impressão digital do pedido `macro.executar`, sem o número da
-/// instância (que é do processo executor, não da macro).
-pub(crate) fn digest_do_pedido(executor: &str, instancia: &ChaveDeInstancia, fase: Fase, alvo: &Value, modelo: &Value) -> Digest {
+/// The fingerprint of the `macro.executar` request, without the instance
+/// number (which belongs to the executor process, not to the macro).
+pub(crate) fn request_digest(executor: &str, instance: &InstanceKey, phase: Phase, target: &Value, model: &Value) -> Digest {
     let mut h = blake3::Hasher::new();
-    campo(&mut h, VERSAO_DO_HOSPEDEIRO);
-    campo(&mut h, executor);
-    h.update(&instancia.implementacao);
-    campo(&mut h, &instancia.macro_);
-    campo(&mut h, &instancia.construtor);
-    campo(&mut h, &instancia.argumentos);
-    campo(&mut h, fase.nome());
-    campo(&mut h, &alvo.to_string());
-    campo(&mut h, &modelo.to_string());
+    hash_field(&mut h, HOST_VERSION);
+    hash_field(&mut h, executor);
+    h.update(&instance.implementation);
+    hash_field(&mut h, &instance.macro_);
+    hash_field(&mut h, &instance.constructor);
+    hash_field(&mut h, &instance.arguments);
+    hash_field(&mut h, phase.name());
+    hash_field(&mut h, &target.to_string());
+    hash_field(&mut h, &model.to_string());
     *h.finalize().as_bytes()
 }
 
-/// A identidade da implementação da macro declarada na biblioteca `uri`:
-/// o fonte de todas as unidades do fecho de imports e exports dela (as do
-/// SDK entram pela URI; a versão do SDK é da identidade do executor).
-pub(crate) fn identidade_da_implementacao(program: &Program, uri: &str) -> Digest {
+/// The identity of the implementation of the macro declared in library
+/// `uri`: the source of every unit of its import and export closure (SDK
+/// units enter by URI; the SDK version is part of the executor identity).
+pub(crate) fn implementation_identity(program: &Program, uri: &str) -> Digest {
     let mut h = blake3::Hasher::new();
-    campo(&mut h, VERSAO_DO_HOSPEDEIRO);
-    campo(&mut h, uri);
-    let Some(inicio) = program.libraries.iter().position(|l| l.uri == uri) else {
+    hash_field(&mut h, HOST_VERSION);
+    hash_field(&mut h, uri);
+    let Some(start) = program.libraries.iter().position(|l| l.uri == uri) else {
         return *h.finalize().as_bytes();
     };
-    let mut vistas: HashSet<LibraryId> = HashSet::new();
-    let mut pilha = vec![LibraryId(inicio as u32)];
-    while let Some(l) = pilha.pop() {
-        if !vistas.insert(l) {
+    let mut seen: HashSet<LibraryId> = HashSet::new();
+    let mut stack = vec![LibraryId(start as u32)];
+    while let Some(l) = stack.pop() {
+        if !seen.insert(l) {
             continue;
         }
         let lib = program.library(l);
-        pilha.extend(lib.imports.iter().map(|i| i.library));
-        pilha.extend(lib.exports.iter().map(|e| e.library));
+        stack.extend(lib.imports.iter().map(|i| i.library));
+        stack.extend(lib.exports.iter().map(|e| e.library));
     }
-    let mut libs: Vec<LibraryId> = vistas.into_iter().collect();
+    let mut libs: Vec<LibraryId> = seen.into_iter().collect();
     libs.sort_by(|a, b| program.library(*a).uri.cmp(&program.library(*b).uri));
     for l in libs {
         let lib = program.library(l);
-        campo(&mut h, &lib.uri);
+        hash_field(&mut h, &lib.uri);
         if lib.is_sdk {
             continue;
         }
         for &u in &lib.units {
             let unit = program.unit(u);
-            campo(&mut h, &unit.uri);
-            campo(&mut h, &unit.source);
+            hash_field(&mut h, &unit.uri);
+            hash_field(&mut h, &unit.source);
         }
     }
     *h.finalize().as_bytes()

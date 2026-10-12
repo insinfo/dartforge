@@ -1,42 +1,42 @@
-//! O hospedeiro das macros do DartForge (docs/MACROS-PROTOCOLO.md).
+//! The DartForge macro host (docs/MACROS-PROTOCOLO.md).
 //!
-//! * [`aplicacoes`] — detecção barata (custo zero sem classe `macro`) e a
-//!   ordem das aplicações, a do CFE 3.6.2;
-//! * [`modelo`] e [`consultas`] — o que a macro vê do programa, servido do
-//!   `elements` com identificadores estáveis entre as fases;
-//! * [`montagem`] — a biblioteca de augmentation com as Regras 1–4, byte a
-//!   byte com a do CFE 3.6.2;
-//! * [`protocolo`] e [`executor`] — o serviço `macro.*` do `dfexec/1` (o
-//!   mesmo protocolo e executor dos builders, docs/BUILD-PROTOCOLO.md) e o
-//!   trait [`executor::ExecutorMacros`];
-//! * [`sessao`] — as três fases com o programa recarregado entre elas (a
-//!   recarga por diferença reaproveita as unidades que não mudaram);
-//! * [`cache`] — o cache de expansões: uma aplicação cujo pedido e cujas
-//!   consultas respondem igual é reaproveitada sem falar com o executor;
-//! * [`vm`] — o executor de **materialização**: a mesma API de macros (Dart
-//!   puro, `packages/macros`) numa VM Dart, para gravar a augmentation que o
-//!   SDK oficial aceita com a flag experimental
-//!   (docs/MACROS-COMPATIBILIDADE.md). O JS o usa provisoriamente até o
-//!   executor nativo estar pronto.
+//! * [`aplicacoes`] — cheap detection (zero cost without a `macro` class) and
+//!   the order of the applications, the one of CFE 3.6.2;
+//! * [`modelo`] and [`queries`] — what the macro sees of the program, served
+//!   from `elements` with identifiers that are stable across phases;
+//! * [`assembly`] — the augmentation library with Rules 1–4, byte for byte
+//!   the one CFE 3.6.2 produces;
+//! * [`protocol`] and [`executor`] — the `macro.*` service of `dfexec/1` (the
+//!   same protocol and executor as the builders, docs/BUILD-PROTOCOLO.md) and
+//!   the [`executor::ExecutorMacros`] trait;
+//! * [`session`] — the three phases with the program reloaded between them
+//!   (the diff-based reload reuses the units that did not change);
+//! * [`cache`] — the expansion cache: an application whose request and whose
+//!   queries answer the same is reused without talking to the executor;
+//! * [`vm`] — the **materialization** executor: the same macro API (pure
+//!   Dart, `packages/macros`) on a Dart VM, to write the augmentation that the
+//!   official SDK accepts with the experimental flag
+//!   (docs/MACROS-COMPATIBILIDADE.md). The JS backend uses it provisionally
+//!   until the native executor is ready.
 #![allow(clippy::too_many_arguments)]
 
 pub mod aplicacoes;
+pub mod assembly;
 pub mod cache;
-pub mod consultas;
 pub mod executor;
 pub mod modelo;
-pub mod montagem;
 pub mod nativo;
-pub mod protocolo;
-pub mod sessao;
+pub mod protocol;
+pub mod queries;
+pub mod session;
 pub mod vm;
 
-pub use sessao::{Expansao, Medicao, Saida, TextoGerado, aplicar, aplicar_incremental, aplicacoes_pendentes, sessoes};
+pub use session::{Expansion, GeneratedText, Measurement, Output, aplicacoes_pendentes, aplicar, aplicar_incremental, sessions};
 
-/// O programa aplica alguma macro? Uma olhada em
-/// [`Program::classes_macro`](dartforge_elements::model::Program), que o
-/// outline preenche na mesma passada que cria os elementos: sem classe
-/// `macro`, nenhuma anotação é olhada (regra de custo zero, item 1).
+/// Does the program apply any macro? A look at
+/// [`Program::classes_macro`](dartforge_elements::model::Program), which the
+/// outline fills in the same pass that creates the elements: without a
+/// `macro` class, no annotation is looked at (zero-cost rule, item 1).
 pub fn tem_macros(program: &dartforge_elements::model::Program) -> bool {
     !program.classes_macro.is_empty()
 }

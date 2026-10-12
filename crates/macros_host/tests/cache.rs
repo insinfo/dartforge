@@ -1,31 +1,31 @@
-//! Aceite do cache de expansões (docs/MACROS-PROTOCOLO.md §6) e da recarga
-//! por diferença, sem VM: um executor falso implementa em Rust três macros
-//! determinísticas que usam o protocolo de verdade (pedido com a pré-busca
-//! dos membros, `macro.consulta` inclusive com resposta negativa, resultado
-//! estruturado montado e recarregado pelo hospedeiro).
+//! Acceptance of the expansion cache (docs/MACROS-PROTOCOLO.md §6) and of the
+//! diff-based reload, without a VM: a fake executor implements in Rust three
+//! deterministic macros that use the real protocol (request with the member
+//! prefetch, `macro.consulta` including a negative answer, a structured
+//! result assembled and reloaded by the host).
 //!
-//! * `@Rotulo` (declarações e definições) — declara `rotulo()` na classe; a
-//!   saída só depende do nome da classe;
-//! * `@Campos` (declarações) — declara um getter por campo (pré-busca) e
-//!   pergunta pela função de topo `ajuda` (a resposta "não existe" também é
-//!   dependência); emite um aviso;
-//! * `@Consome` (declarações) — lê os métodos de `A` (que `@Rotulo` aumenta)
-//!   e declara `comToJson()` ou `semToJson()`.
+//! * `@Label` (declarations and definitions) — declares `label()` on the
+//!   class; the output depends only on the class name;
+//! * `@Fields` (declarations) — declares one getter per field (prefetch) and
+//!   asks for the top-level function `helper` (the "does not exist" answer
+//!   is a dependency too); emits a warning;
+//! * `@Consumer` (declarations) — reads the methods of `A` (which `@Label`
+//!   augments) and declares `withToJson()` or `withoutToJson()`.
 //!
-//! Cada cenário compila uma vez, edita o fonte e compila de novo com o mesmo
-//! cache; a segunda compilação tem de dar **o mesmo** que uma compilação
-//! limpa (textos, ordem das expansões, diagnósticos) e só falar com o
-//! executor quando algo observado mudou.
+//! Each scenario compiles once, edits the source and compiles again with the
+//! same cache; the second compilation must give **the same** as a clean
+//! compilation (texts, order of the expansions, diagnostics) and only talk
+//! to the executor when something observed changed.
 use dartforge_elements::load::load_lenient_gerados;
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_elements::unidades::CacheUnidades;
 use dartforge_frontend::{Feature, LanguageVersion};
 use dartforge_intern::Interner;
-use dartforge_macros_host::cache::CacheDeMacros;
-use dartforge_macros_host::executor::{Disponibilidade, ExecutorMacros, Fase, PedidoDeExecucao, ServicoDeConsultas};
-use dartforge_macros_host::montagem::{Codigo, Parte, Resultado};
-use dartforge_macros_host::protocolo::Apresentacao;
-use dartforge_macros_host::{Saida, aplicar, aplicar_incremental};
+use dartforge_macros_host::assembly::{Code, ExecutionResult, Part};
+use dartforge_macros_host::cache::MacroCache;
+use dartforge_macros_host::executor::{Availability, ExecutionRequest, ExecutorMacros, Phase, QueryService};
+use dartforge_macros_host::protocol::Handshake;
+use dartforge_macros_host::{Output, aplicar, aplicar_incremental};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
@@ -37,419 +37,420 @@ fn sdk() -> Option<SdkLayout> {
     Some(sdk)
 }
 
-/// O executor falso. `permitido: false` reprova o teste se ele for tocado.
-struct Falso {
-    permitido: bool,
-    instancias: Vec<String>,
-    /// `(macro, fase, alvo)` de cada execução, na ordem.
-    execucoes: Vec<(String, Fase, String)>,
-    iniciado: bool,
-    /// A macro que lança exceção ao executar (o erro de uma macro).
-    falhar: Option<&'static str>,
+/// The fake executor. `allowed: false` fails the test if it is touched.
+struct Fake {
+    allowed: bool,
+    instances: Vec<String>,
+    /// `(macro, phase, target)` of each execution, in order.
+    executions: Vec<(String, Phase, String)>,
+    started: bool,
+    /// The macro that throws when executed (a macro's error).
+    fail: Option<&'static str>,
 }
 
-impl Falso {
-    fn novo() -> Self {
-        Falso { permitido: true, instancias: Vec::new(), execucoes: Vec::new(), iniciado: false, falhar: None }
+impl Fake {
+    fn new() -> Self {
+        Fake { allowed: true, instances: Vec::new(), executions: Vec::new(), started: false, fail: None }
     }
-    fn proibido() -> Self {
-        Falso { permitido: false, ..Falso::novo() }
+    fn forbidden() -> Self {
+        Fake { allowed: false, ..Fake::new() }
     }
-    fn tocar(&self) {
-        assert!(self.permitido, "o executor não podia ser tocado nesta compilação");
+    fn touch(&self) {
+        assert!(self.allowed, "the executor must not be touched in this compilation");
     }
 }
 
-fn texto(s: &str) -> Parte {
-    Parte::Texto(s.into())
+fn text(s: &str) -> Part {
+    Part::Text(s.into())
 }
 
-fn membro(partes: Vec<Parte>) -> Codigo {
-    Codigo { tipo: "declaration".into(), partes }
+fn member(parts: Vec<Part>) -> Code {
+    Code { kind: "declaration".into(), parts }
 }
 
-/// `resolverIdentificador` de `dart:core`.
-fn core(consultas: &mut dyn ServicoDeConsultas, nome: &str) -> u64 {
-    let r = consultas.consultar("resolverIdentificador", &json!({"uri": "dart:core", "nome": nome})).expect(nome);
+/// `resolverIdentificador` of `dart:core`.
+fn core(queries: &mut dyn QueryService, name: &str) -> u64 {
+    let r = queries.query("resolverIdentificador", &json!({"uri": "dart:core", "nome": name})).expect(name);
     r["id"].as_u64().unwrap()
 }
 
-impl ExecutorMacros for Falso {
-    fn disponibilidade(&self) -> Disponibilidade {
-        self.tocar();
-        Disponibilidade::Disponivel
+impl ExecutorMacros for Fake {
+    fn availability(&self) -> Availability {
+        self.touch();
+        Availability::Available
     }
-    fn iniciar(&mut self) -> Result<Apresentacao, String> {
-        self.tocar();
-        self.iniciado = true;
-        Ok(Apresentacao { executor: "falso".into(), abi: String::new(), macros: Vec::new() })
+    fn start(&mut self) -> Result<Handshake, String> {
+        self.touch();
+        self.started = true;
+        Ok(Handshake { executor: "fake".into(), abi: String::new(), macros: Vec::new() })
     }
-    fn instanciar(&mut self, macro_: &str, _: &str, _: &Value) -> Result<(u64, Vec<String>), String> {
-        self.tocar();
-        self.instancias.push(macro_.to_string());
+    fn instantiate(&mut self, macro_: &str, _: &str, _: &Value) -> Result<(u64, Vec<String>), String> {
+        self.touch();
+        self.instances.push(macro_.to_string());
         let interfaces: &[&str] = match macro_.rsplit('#').next() {
-            Some("Rotulo") => &["ClassDeclarationsMacro", "ClassDefinitionMacro"],
+            Some("Label") => &["ClassDeclarationsMacro", "ClassDefinitionMacro"],
             _ => &["ClassDeclarationsMacro"],
         };
-        Ok((self.instancias.len() as u64, interfaces.iter().map(|s| s.to_string()).collect()))
+        Ok((self.instances.len() as u64, interfaces.iter().map(|s| s.to_string()).collect()))
     }
-    fn executar(&mut self, p: &PedidoDeExecucao, consultas: &mut dyn ServicoDeConsultas) -> Result<Resultado, String> {
-        self.tocar();
-        let macro_ = self.instancias[(p.instancia - 1) as usize].rsplit('#').next().unwrap().to_string();
-        let classe = p.alvo["ident"]["id"].as_u64().unwrap();
-        let nome = p.alvo["ident"]["nome"].as_str().unwrap().to_string();
-        let uri = p.alvo["lib"]["uri"].as_str().unwrap().to_string();
-        self.execucoes.push((macro_.clone(), p.fase, nome.clone()));
-        if self.falhar == Some(macro_.as_str()) {
-            return Err(format!("{macro_}: exceção na macro"));
+    fn execute(&mut self, p: &ExecutionRequest, queries: &mut dyn QueryService) -> Result<ExecutionResult, String> {
+        self.touch();
+        let macro_ = self.instances[(p.instance - 1) as usize].rsplit('#').next().unwrap().to_string();
+        let class = p.target["ident"]["id"].as_u64().unwrap();
+        let name = p.target["ident"]["nome"].as_str().unwrap().to_string();
+        let uri = p.target["lib"]["uri"].as_str().unwrap().to_string();
+        self.executions.push((macro_.clone(), p.phase, name.clone()));
+        if self.fail == Some(macro_.as_str()) {
+            return Err(format!("{macro_}: exception in the macro"));
         }
-        let mut r = Resultado::default();
-        match (macro_.as_str(), p.fase) {
-            ("Rotulo", Fase::Declaracoes) => {
-                let string = core(consultas, "String");
-                r.tipos = vec![(classe, vec![membro(vec![texto("  external "), Parte::Ident(string), texto(" rotulo();")])])];
+        let mut r = ExecutionResult::default();
+        match (macro_.as_str(), p.phase) {
+            ("Label", Phase::Declarations) => {
+                let string = core(queries, "String");
+                r.types = vec![(class, vec![member(vec![text("  external "), Part::Ident(string), text(" label();")])])];
             }
-            ("Rotulo", Fase::Definicoes) => {
-                let string = core(consultas, "String");
-                let corpo = format!(" rotulo() => '{nome}';");
-                r.tipos = vec![(classe, vec![membro(vec![texto("  augment "), Parte::Ident(string), texto(&corpo)])])];
+            ("Label", Phase::Definitions) => {
+                let string = core(queries, "String");
+                let body = format!(" label() => '{name}';");
+                r.types = vec![(class, vec![member(vec![text("  augment "), Part::Ident(string), text(&body)])])];
             }
-            ("Campos", Fase::Declaracoes) => {
-                let int = core(consultas, "int");
-                let campos = p.modelo["membros"][classe.to_string()]["campos"].as_array().cloned().unwrap_or_default();
-                let mut membros = Vec::new();
-                for c in &campos {
+            ("Fields", Phase::Declarations) => {
+                let int = core(queries, "int");
+                let fields = p.model["membros"][class.to_string()]["campos"].as_array().cloned().unwrap_or_default();
+                let mut members = Vec::new();
+                for c in &fields {
                     let n = c["ident"]["nome"].as_str().unwrap();
-                    membros.push(membro(vec![texto("  external "), Parte::Ident(int), texto(&format!(" get campo_{n};"))]));
+                    members.push(member(vec![text("  external "), Part::Ident(int), text(&format!(" get field_{n};"))]));
                 }
-                // A resposta negativa ("não existe") também é dependência.
-                let ajuda = consultas.consultar("resolverIdentificador", &json!({"uri": uri, "nome": "ajuda"}));
-                let marca = if ajuda.is_ok() { "comAjuda" } else { "semAjuda" };
-                membros.push(membro(vec![texto(&format!("  external void {marca}();"))]));
-                r.tipos = vec![(classe, membros)];
-                r.diagnosticos =
-                    vec![json!({"severidade": "warning", "mensagem": {"texto": format!("{nome}: {} campos", campos.len())}})];
+                // The negative answer ("does not exist") is a dependency too.
+                let helper = queries.query("resolverIdentificador", &json!({"uri": uri, "nome": "helper"}));
+                let mark = if helper.is_ok() { "withHelper" } else { "withoutHelper" };
+                members.push(member(vec![text(&format!("  external void {mark}();"))]));
+                r.types = vec![(class, members)];
+                r.diagnostics =
+                    vec![json!({"severidade": "warning", "mensagem": {"texto": format!("{name}: {} fields", fields.len())}})];
             }
-            ("Consome", Fase::Declaracoes) => {
-                let a = consultas.consultar("resolverIdentificador", &json!({"uri": uri, "nome": "A"})).unwrap();
-                let metodos = consultas.consultar("membros", &json!({"dono": a["id"], "tipo": "metodos"})).unwrap();
-                let tem = metodos.as_array().unwrap().iter().any(|m| m["ident"]["nome"] == "toJson");
-                let int = core(consultas, "int");
-                let nome = if tem { " comToJson();" } else { " semToJson();" };
-                r.tipos = vec![(classe, vec![membro(vec![texto("  external "), Parte::Ident(int), texto(nome)])])];
+            ("Consumer", Phase::Declarations) => {
+                let a = queries.query("resolverIdentificador", &json!({"uri": uri, "nome": "A"})).unwrap();
+                let methods = queries.query("membros", &json!({"dono": a["id"], "tipo": "metodos"})).unwrap();
+                let has = methods.as_array().unwrap().iter().any(|m| m["ident"]["nome"] == "toJson");
+                let int = core(queries, "int");
+                let name = if has { " withToJson();" } else { " withoutToJson();" };
+                r.types = vec![(class, vec![member(vec![text("  external "), Part::Ident(int), text(name)])])];
             }
             _ => {}
         }
         Ok(r)
     }
-    fn encerrar(&mut self) {
-        self.tocar();
-        self.iniciado = false;
+    fn shut_down(&mut self) {
+        self.touch();
+        self.started = false;
     }
 }
 
-/// O fonte do caso, com as edições de cada cenário.
+/// The case's source, with each scenario's edits.
 #[derive(Clone, Default)]
-struct Fonte {
-    corpo_de_m: &'static str,
-    campo_extra_em_a: bool,
-    to_json_em_a: bool,
-    campo_extra_em_b: bool,
-    ajuda: bool,
+struct Source {
+    body_of_m: &'static str,
+    extra_field_in_a: bool,
+    to_json_in_a: bool,
+    extra_field_in_b: bool,
+    helper: bool,
 }
 
-impl Fonte {
-    fn texto(&self) -> String {
+impl Source {
+    fn text(&self) -> String {
         let mut s = String::from("import 'macros.dart';\n\n");
-        if self.ajuda {
-            s.push_str("void ajuda() {}\n\n");
+        if self.helper {
+            s.push_str("void helper() {}\n\n");
         }
-        s.push_str("@Rotulo()\nclass A {\n  final int a;\n");
-        if self.campo_extra_em_a {
-            s.push_str("  final int outro = 2;\n");
+        s.push_str("@Label()\nclass A {\n  final int a;\n");
+        if self.extra_field_in_a {
+            s.push_str("  final int other = 2;\n");
         }
-        s.push_str(&format!("  A(this.a);\n  void m() {{ {} }}\n", self.corpo_de_m));
-        if self.to_json_em_a {
+        s.push_str(&format!("  A(this.a);\n  void m() {{ {} }}\n", self.body_of_m));
+        if self.to_json_in_a {
             s.push_str("  Map<String, Object?> toJson() => {};\n");
         }
-        s.push_str("}\n\n@Campos()\nclass B {\n  final int x;\n");
-        if self.campo_extra_em_b {
+        s.push_str("}\n\n@Fields()\nclass B {\n  final int x;\n");
+        if self.extra_field_in_b {
             s.push_str("  final String y = '';\n");
         }
-        s.push_str("  B(this.x);\n}\n\n@Consome()\nclass C {}\n\nvoid main() {}\n");
+        s.push_str("  B(this.x);\n}\n\n@Consumer()\nclass C {}\n\nvoid main() {}\n");
         s
     }
 }
 
-/// Grava a biblioteca das macros (as aplicações ficam em outra, como exige
-/// a linguagem) e devolve o caminho da entrada.
-fn diretorio(dir: &Path) -> PathBuf {
+/// Writes the macros' library (the applications live in another one, as the
+/// language requires) and returns the path of the input.
+fn directory(dir: &Path) -> PathBuf {
     std::fs::write(
         dir.join("macros.dart"),
-        "macro class Rotulo { const Rotulo(); }\nmacro class Campos { const Campos(); }\nmacro class Consome { const Consome(); }\n",
+        "macro class Label { const Label(); }\nmacro class Fields { const Fields(); }\nmacro class Consumer { const Consumer(); }\n",
     )
     .unwrap();
     dir.join("main.dart")
 }
 
-/// O que uma compilação produziu, para comparar incremental com limpa.
+/// What a compilation produced, to compare incremental with clean.
 #[derive(Debug, PartialEq)]
-struct Produto {
-    textos: Vec<(PathBuf, String)>,
-    avisos: Vec<String>,
-    expansoes: Vec<(String, Fase)>,
+struct Product {
+    texts: Vec<(PathBuf, String)>,
+    warnings: Vec<String>,
+    expansions: Vec<(String, Phase)>,
 }
 
-fn produto(s: &Saida) -> Produto {
-    Produto {
-        textos: s.textos.iter().map(|t| (t.caminho.clone(), t.texto.clone())).collect(),
-        avisos: s.avisos.iter().map(|d| format!("{:?} {}", d.span, d.message)).collect(),
-        expansoes: s.expansoes.iter().map(|e| (e.aplicacao.to_string(), e.fase)).collect(),
+fn product(s: &Output) -> Product {
+    Product {
+        texts: s.textos.iter().map(|t| (t.caminho.clone(), t.texto.clone())).collect(),
+        warnings: s.avisos.iter().map(|d| format!("{:?} {}", d.span, d.message)).collect(),
+        expansions: s.expansions.iter().map(|e| (e.application.to_string(), e.phase)).collect(),
     }
 }
 
-fn compilar(entrada: &Path, sdk: &SdkLayout, executor: &mut dyn ExecutorMacros, cache: Option<&mut CacheDeMacros>) -> Saida {
-    let mut nomes = Interner::new();
-    let (p, d) = load_lenient_gerados(entrada, sdk, None, &mut nomes, None, None, None);
+fn compile(input: &Path, sdk: &SdkLayout, executor: &mut dyn ExecutorMacros, cache: Option<&mut MacroCache>) -> Output {
+    let mut names = Interner::new();
+    let (p, d) = load_lenient_gerados(input, sdk, None, &mut names, None, None, None);
     assert!(d.is_empty(), "{d:?}");
-    let mut carregar = |i: &mut Interner, g, u: &mut CacheUnidades| load_lenient_gerados(entrada, sdk, None, i, None, Some(u), g);
-    match aplicar_incremental(p, &mut nomes, None, &mut carregar, executor, cache) {
+    let mut load = |i: &mut Interner, g, u: &mut CacheUnidades| load_lenient_gerados(input, sdk, None, i, None, Some(u), g);
+    match aplicar_incremental(p, &mut names, None, &mut load, executor, cache) {
         Ok(s) => s,
         Err(ds) => panic!("{}", ds.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("\n")),
     }
 }
 
-/// Compila `fonte` do zero (cache novo, executor novo).
-fn limpa(entrada: &Path, sdk: &SdkLayout, fonte: &Fonte) -> Produto {
-    std::fs::write(entrada, fonte.texto()).unwrap();
-    let mut cache = CacheDeMacros::novo("falso");
-    produto(&compilar(entrada, sdk, &mut Falso::novo(), Some(&mut cache)))
+/// Compiles `source` from scratch (new cache, new executor).
+fn clean(input: &Path, sdk: &SdkLayout, source: &Source) -> Product {
+    std::fs::write(input, source.text()).unwrap();
+    let mut cache = MacroCache::new("fake");
+    product(&compile(input, sdk, &mut Fake::new(), Some(&mut cache)))
 }
 
-struct Cenario {
+struct Scenario {
     _dir: tempfile::TempDir,
-    entrada: PathBuf,
+    input: PathBuf,
     sdk: SdkLayout,
-    cache: CacheDeMacros,
+    cache: MacroCache,
 }
 
-impl Cenario {
-    /// Compila `inicial` uma vez, enchendo o cache.
-    fn novo(inicial: &Fonte) -> Option<Cenario> {
+impl Scenario {
+    /// Compiles `initial` once, filling the cache.
+    fn new(initial: &Source) -> Option<Scenario> {
         let Some(sdk) = sdk() else {
-            eprintln!("sem SDK: pulado");
+            eprintln!("no SDK: skipped");
             return None;
         };
         let dir = tempfile::tempdir().unwrap();
-        let entrada = diretorio(dir.path());
-        std::fs::write(&entrada, inicial.texto()).unwrap();
-        let mut cache = CacheDeMacros::novo("falso");
-        let mut executor = Falso::novo();
-        let s = compilar(&entrada, &sdk, &mut executor, Some(&mut cache));
-        assert_eq!(s.macros_executadas, 4, "{:?}", executor.execucoes);
-        assert_eq!(s.medicao.reutilizadas, 0);
-        assert!(!executor.iniciado, "a sessão encerra o executor");
-        Some(Cenario { _dir: dir, entrada, sdk, cache })
+        let input = directory(dir.path());
+        std::fs::write(&input, initial.text()).unwrap();
+        let mut cache = MacroCache::new("fake");
+        let mut executor = Fake::new();
+        let s = compile(&input, &sdk, &mut executor, Some(&mut cache));
+        assert_eq!(s.macros_executadas, 4, "{:?}", executor.executions);
+        assert_eq!(s.measurement.reused, 0);
+        assert!(!executor.started, "the session shuts the executor down");
+        Some(Scenario { _dir: dir, input, sdk, cache })
     }
 
-    /// Recompila `fonte` com o cache e confere contra a compilação limpa.
-    fn recompilar(&mut self, fonte: &Fonte, executor: &mut Falso) -> Saida {
-        std::fs::write(&self.entrada, fonte.texto()).unwrap();
-        let s = compilar(&self.entrada, &self.sdk, executor, Some(&mut self.cache));
-        let incremental = produto(&s);
-        assert_eq!(incremental, limpa(&self.entrada, &self.sdk, fonte), "incremental difere da compilação limpa");
+    /// Recompiles `source` with the cache and checks it against the clean
+    /// compilation.
+    fn recompile(&mut self, source: &Source, executor: &mut Fake) -> Output {
+        std::fs::write(&self.input, source.text()).unwrap();
+        let s = compile(&self.input, &self.sdk, executor, Some(&mut self.cache));
+        let incremental = product(&s);
+        assert_eq!(incremental, clean(&self.input, &self.sdk, source), "incremental differs from the clean compilation");
         s
     }
 }
 
 #[test]
-fn recompilacao_sem_mudanca_nao_fala_com_o_executor() {
-    let fonte = Fonte::default();
-    let Some(mut c) = Cenario::novo(&fonte) else { return };
-    let s = c.recompilar(&fonte, &mut Falso::proibido());
+fn recompilation_without_change_does_not_talk_to_the_executor() {
+    let source = Source::default();
+    let Some(mut c) = Scenario::new(&source) else { return };
+    let s = c.recompile(&source, &mut Fake::forbidden());
     assert_eq!(s.macros_executadas, 0);
-    assert_eq!(s.medicao.reutilizadas, 4);
-    assert!(!s.medicao.executor_iniciado);
-    assert!(s.expansoes.iter().all(|e| e.reutilizada));
-    // A segunda também (o cache continua cheio).
-    let s = c.recompilar(&fonte, &mut Falso::proibido());
-    assert_eq!(s.medicao.reutilizadas, 4);
+    assert_eq!(s.measurement.reused, 4);
+    assert!(!s.measurement.executor_started);
+    assert!(s.expansions.iter().all(|e| e.reused));
+    // The second one too (the cache stays full).
+    let s = c.recompile(&source, &mut Fake::forbidden());
+    assert_eq!(s.measurement.reused, 4);
 }
 
 #[test]
-fn edicao_nao_observada_reutiliza() {
-    let Some(mut c) = Cenario::novo(&Fonte::default()) else { return };
-    // Corpo de método: nenhuma macro vê corpo.
-    let fonte = Fonte { corpo_de_m: "print('outro corpo');", ..Fonte::default() };
-    let s = c.recompilar(&fonte, &mut Falso::proibido());
-    assert_eq!((s.macros_executadas, s.medicao.reutilizadas), (0, 4));
+fn unobserved_edit_reuses() {
+    let Some(mut c) = Scenario::new(&Source::default()) else { return };
+    // A method body: no macro sees bodies.
+    let source = Source { body_of_m: "print('another body');", ..Source::default() };
+    let s = c.recompile(&source, &mut Fake::forbidden());
+    assert_eq!((s.macros_executadas, s.measurement.reused), (0, 4));
 }
 
 #[test]
-fn campo_novo_invalida_so_quem_o_observa() {
-    let Some(mut c) = Cenario::novo(&Fonte::default()) else { return };
-    let fonte = Fonte { campo_extra_em_b: true, ..Fonte::default() };
-    let mut executor = Falso::novo();
-    let s = c.recompilar(&fonte, &mut executor);
-    assert_eq!(executor.execucoes, vec![("Campos".to_string(), Fase::Declaracoes, "B".to_string())]);
-    assert_eq!(s.medicao.reutilizadas, 3);
-    assert!(s.textos[0].texto.contains("campo_y"), "{}", s.textos[0].texto);
+fn new_field_invalidates_only_who_observes_it() {
+    let Some(mut c) = Scenario::new(&Source::default()) else { return };
+    let source = Source { extra_field_in_b: true, ..Source::default() };
+    let mut executor = Fake::new();
+    let s = c.recompile(&source, &mut executor);
+    assert_eq!(executor.executions, vec![("Fields".to_string(), Phase::Declarations, "B".to_string())]);
+    assert_eq!(s.measurement.reused, 3);
+    assert!(s.textos[0].texto.contains("field_y"), "{}", s.textos[0].texto);
 }
 
 #[test]
-fn membro_antes_inexistente_invalida() {
-    // `ajuda` não existia: a resposta negativa era dependência de @Campos.
-    let Some(mut c) = Cenario::novo(&Fonte::default()) else { return };
-    let fonte = Fonte { ajuda: true, ..Fonte::default() };
-    let mut executor = Falso::novo();
-    let s = c.recompilar(&fonte, &mut executor);
-    assert_eq!(executor.execucoes, vec![("Campos".to_string(), Fase::Declaracoes, "B".to_string())]);
-    assert!(s.textos[0].texto.contains("comAjuda"));
+fn previously_missing_member_invalidates() {
+    // `helper` did not exist: the negative answer was a dependency of @Fields.
+    let Some(mut c) = Scenario::new(&Source::default()) else { return };
+    let source = Source { helper: true, ..Source::default() };
+    let mut executor = Fake::new();
+    let s = c.recompile(&source, &mut executor);
+    assert_eq!(executor.executions, vec![("Fields".to_string(), Phase::Declarations, "B".to_string())]);
+    assert!(s.textos[0].texto.contains("withHelper"));
 
-    // `toJson` em `A`: muda o modelo de @Rotulo (que roda de novo e dá o
-    // mesmo) e a resposta de `membros` que @Consome leu (que roda de novo e
-    // muda).
-    let fonte = Fonte { ajuda: true, to_json_em_a: true, ..Fonte::default() };
-    let mut executor = Falso::novo();
-    let s = c.recompilar(&fonte, &mut executor);
+    // `toJson` in `A`: changes the model of @Label (which runs again and
+    // gives the same) and the `membros` answer that @Consumer read (which
+    // runs again and changes).
+    let source = Source { helper: true, to_json_in_a: true, ..Source::default() };
+    let mut executor = Fake::new();
+    let s = c.recompile(&source, &mut executor);
     assert_eq!(
-        executor.execucoes,
+        executor.executions,
         vec![
-            ("Rotulo".to_string(), Fase::Declaracoes, "A".to_string()),
-            ("Consome".to_string(), Fase::Declaracoes, "C".to_string()),
-            ("Rotulo".to_string(), Fase::Definicoes, "A".to_string()),
+            ("Label".to_string(), Phase::Declarations, "A".to_string()),
+            ("Consumer".to_string(), Phase::Declarations, "C".to_string()),
+            ("Label".to_string(), Phase::Definitions, "A".to_string()),
         ]
     );
-    assert!(s.textos[0].texto.contains("comToJson"));
+    assert!(s.textos[0].texto.contains("withToJson"));
 }
 
 #[test]
-fn saida_igual_nao_invalida_consumidores() {
-    let Some(mut c) = Cenario::novo(&Fonte::default()) else { return };
-    // Campo novo em `A`: @Rotulo roda de novo (o modelo dele mudou) e dá o
-    // mesmo resultado; @Consome lê os métodos de `A`, que não mudaram, e
-    // não roda.
-    let fonte = Fonte { campo_extra_em_a: true, ..Fonte::default() };
-    let mut executor = Falso::novo();
-    let s = c.recompilar(&fonte, &mut executor);
+fn same_output_does_not_invalidate_consumers() {
+    let Some(mut c) = Scenario::new(&Source::default()) else { return };
+    // A new field in `A`: @Label runs again (its model changed) and gives the
+    // same result; @Consumer reads the methods of `A`, which did not change,
+    // and does not run.
+    let source = Source { extra_field_in_a: true, ..Source::default() };
+    let mut executor = Fake::new();
+    let s = c.recompile(&source, &mut executor);
     assert_eq!(
-        executor.execucoes,
+        executor.executions,
         vec![
-            ("Rotulo".to_string(), Fase::Declaracoes, "A".to_string()),
-            ("Rotulo".to_string(), Fase::Definicoes, "A".to_string()),
+            ("Label".to_string(), Phase::Declarations, "A".to_string()),
+            ("Label".to_string(), Phase::Definitions, "A".to_string()),
         ]
     );
-    assert_eq!(s.medicao.reexecutadas_iguais, 2);
-    assert_eq!(s.medicao.reutilizadas, 2);
+    assert_eq!(s.measurement.rerun_unchanged, 2);
+    assert_eq!(s.measurement.reused, 2);
 }
 
 #[test]
-fn implementacao_editada_invalida_as_aplicacoes_dela() {
-    let fonte = Fonte::default();
-    let Some(mut c) = Cenario::novo(&fonte) else { return };
-    // O fonte da biblioteca das macros é a identidade da implementação.
-    let macros = c.entrada.with_file_name("macros.dart");
-    let mut texto = std::fs::read_to_string(&macros).unwrap();
-    texto.push_str("// versão 2\n");
-    std::fs::write(&macros, texto).unwrap();
-    let mut executor = Falso::novo();
-    let s = c.recompilar(&fonte, &mut executor);
-    assert_eq!((s.macros_executadas, s.medicao.reutilizadas), (4, 0));
-    assert_eq!(s.medicao.reexecutadas_iguais, 4);
+fn edited_implementation_invalidates_its_applications() {
+    let source = Source::default();
+    let Some(mut c) = Scenario::new(&source) else { return };
+    // The source of the macros' library is the implementation's identity.
+    let macros = c.input.with_file_name("macros.dart");
+    let mut text = std::fs::read_to_string(&macros).unwrap();
+    text.push_str("// version 2\n");
+    std::fs::write(&macros, text).unwrap();
+    let mut executor = Fake::new();
+    let s = c.recompile(&source, &mut executor);
+    assert_eq!((s.macros_executadas, s.measurement.reused), (4, 0));
+    assert_eq!(s.measurement.rerun_unchanged, 4);
 }
 
 #[test]
-fn sem_cache_e_com_cache_dao_o_mesmo() {
-    // A recarga completa de `aplicar` e a por diferença de
-    // `aplicar_incremental` produzem o mesmo programa e o mesmo texto.
+fn with_and_without_cache_give_the_same() {
+    // The full reload of `aplicar` and the diff-based one of
+    // `aplicar_incremental` produce the same program and the same text.
     let Some(sdk) = sdk() else { return };
     let dir = tempfile::tempdir().unwrap();
-    let entrada = diretorio(dir.path());
-    let fonte = Fonte { campo_extra_em_b: true, to_json_em_a: true, ..Fonte::default() };
-    std::fs::write(&entrada, fonte.texto()).unwrap();
-    let mut nomes = Interner::new();
-    let (p, _) = load_lenient_gerados(&entrada, &sdk, None, &mut nomes, None, None, None);
-    let mut carregar = |i: &mut Interner, g| load_lenient_gerados(&entrada, &sdk, None, i, None, None, g);
-    let completa = aplicar(p, &mut nomes, None, &mut carregar, &mut Falso::novo()).unwrap_or_else(|_| panic!("erro"));
-    let por_diferenca = compilar(&entrada, &sdk, &mut Falso::novo(), None);
-    assert_eq!(produto(&completa), produto(&por_diferenca));
-    assert!(por_diferenca.medicao.unidades_reaproveitadas > 0);
-    assert_eq!(completa.program.units.len(), por_diferenca.program.units.len());
+    let input = directory(dir.path());
+    let source = Source { extra_field_in_b: true, to_json_in_a: true, ..Source::default() };
+    std::fs::write(&input, source.text()).unwrap();
+    let mut names = Interner::new();
+    let (p, _) = load_lenient_gerados(&input, &sdk, None, &mut names, None, None, None);
+    let mut load = |i: &mut Interner, g| load_lenient_gerados(&input, &sdk, None, i, None, None, g);
+    let full = aplicar(p, &mut names, None, &mut load, &mut Fake::new()).unwrap_or_else(|_| panic!("error"));
+    let by_diff = compile(&input, &sdk, &mut Fake::new(), None);
+    assert_eq!(product(&full), product(&by_diff));
+    assert!(by_diff.measurement.reused_units > 0);
+    assert_eq!(full.program.units.len(), by_diff.program.units.len());
 }
 
-/// Compila sem entrar em pânico no erro: o que o hospedeiro devolve.
-fn tentar(entrada: &Path, sdk: &SdkLayout, executor: &mut dyn ExecutorMacros, cache: &mut CacheDeMacros) -> Result<Saida, String> {
-    let mut nomes = Interner::new();
-    let (p, d) = load_lenient_gerados(entrada, sdk, None, &mut nomes, None, None, None);
+/// Compiles without panicking on error: what the host returns.
+fn try_compile(input: &Path, sdk: &SdkLayout, executor: &mut dyn ExecutorMacros, cache: &mut MacroCache) -> Result<Output, String> {
+    let mut names = Interner::new();
+    let (p, d) = load_lenient_gerados(input, sdk, None, &mut names, None, None, None);
     assert!(d.is_empty(), "{d:?}");
-    let mut carregar = |i: &mut Interner, g, u: &mut CacheUnidades| load_lenient_gerados(entrada, sdk, None, i, None, Some(u), g);
-    aplicar_incremental(p, &mut nomes, None, &mut carregar, executor, Some(cache))
+    let mut load = |i: &mut Interner, g, u: &mut CacheUnidades| load_lenient_gerados(input, sdk, None, i, None, Some(u), g);
+    aplicar_incremental(p, &mut names, None, &mut load, executor, Some(cache))
         .map_err(|ds| ds.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("\n"))
 }
 
-/// B07: uma macro que lança exceção faz a compilação falhar com o erro dela,
-/// e o cache continua sendo o da última geração válida — voltar ao fonte
-/// anterior não executa nada e dá o mesmo texto de antes; corrigir a macro
-/// reexecuta só a aplicação que falhou.
+/// B07: a macro that throws makes the compilation fail with its error, and
+/// the cache remains that of the last valid generation — going back to the
+/// previous source executes nothing and gives the same text as before;
+/// fixing the macro reruns only the application that failed.
 #[test]
-fn erro_na_macro_preserva_a_ultima_geracao_valida() {
-    let inicial = Fonte::default();
-    let Some(mut c) = Cenario::novo(&inicial) else { return };
-    let antes = produto(&compilar(&c.entrada, &c.sdk, &mut Falso::proibido(), Some(&mut c.cache)));
+fn macro_error_keeps_the_last_valid_generation() {
+    let initial = Source::default();
+    let Some(mut c) = Scenario::new(&initial) else { return };
+    let before = product(&compile(&c.input, &c.sdk, &mut Fake::forbidden(), Some(&mut c.cache)));
 
-    // Campo novo em `B` acorda o @Campos, que agora lança.
-    let editada = Fonte { campo_extra_em_b: true, ..Fonte::default() };
-    std::fs::write(&c.entrada, editada.texto()).unwrap();
-    let mut quebrado = Falso::novo();
-    quebrado.falhar = Some("Campos");
-    let erro = tentar(&c.entrada, &c.sdk, &mut quebrado, &mut c.cache).err().expect("a exceção da macro vira erro");
-    assert!(erro.contains("Campos: exceção na macro"), "{erro}");
+    // A new field in `B` wakes @Fields, which now throws.
+    let edited = Source { extra_field_in_b: true, ..Source::default() };
+    std::fs::write(&c.input, edited.text()).unwrap();
+    let mut broken = Fake::new();
+    broken.fail = Some("Fields");
+    let error = try_compile(&c.input, &c.sdk, &mut broken, &mut c.cache).err().expect("the macro's exception becomes an error");
+    assert!(error.contains("Fields: exception in the macro"), "{error}");
 
-    // De volta ao fonte válido: nada executa e o texto é o da última
-    // geração válida.
-    std::fs::write(&c.entrada, inicial.texto()).unwrap();
-    let s = tentar(&c.entrada, &c.sdk, &mut Falso::proibido(), &mut c.cache).expect("fonte válido");
-    assert_eq!(s.medicao.reutilizadas, 4);
-    assert_eq!(produto(&s), antes, "a falha estragou a geração válida");
+    // Back to the valid source: nothing runs and the text is that of the
+    // last valid generation.
+    std::fs::write(&c.input, initial.text()).unwrap();
+    let s = try_compile(&c.input, &c.sdk, &mut Fake::forbidden(), &mut c.cache).expect("valid source");
+    assert_eq!(s.measurement.reused, 4);
+    assert_eq!(product(&s), before, "the failure spoiled the valid generation");
 
-    // A macro corrigida: só a aplicação observada roda de novo, e o
-    // resultado é o de uma compilação limpa.
-    let mut executor = Falso::novo();
-    let s = c.recompilar(&editada, &mut executor);
-    assert_eq!(executor.execucoes, vec![("Campos".to_string(), Fase::Declaracoes, "B".to_string())]);
-    assert!(s.textos[0].texto.contains("campo_y"));
+    // The fixed macro: only the observed application runs again, and the
+    // result is that of a clean compilation.
+    let mut executor = Fake::new();
+    let s = c.recompile(&edited, &mut executor);
+    assert_eq!(executor.executions, vec![("Fields".to_string(), Phase::Declarations, "B".to_string())]);
+    assert!(s.textos[0].texto.contains("field_y"));
 }
 
-/// B07: com o `main.macro.dart` materializado nas duas formas (a do 3.6.2,
-/// `import augment` + `augment library`, e a atual, `part` + `part of`), a
-/// biblioteca não roda as macros de novo: nenhuma execução e nenhuma
-/// augmentation nova — as declarações não saem duas vezes.
+/// B07: with `main.macro.dart` materialized in both forms (the 3.6.2 one,
+/// `import augment` + `augment library`, and the current one, `part` +
+/// `part of`), the library does not run the macros again: no execution and
+/// no new augmentation — the declarations do not come out twice.
 #[test]
-fn materializado_nas_duas_formas_nao_duplica() {
+fn materialized_in_both_forms_does_not_duplicate() {
     let Some(sdk) = sdk() else { return };
     let dir = tempfile::tempdir().unwrap();
-    let entrada = diretorio(dir.path());
-    let fonte = Fonte::default().texto();
-    std::fs::write(&entrada, &fonte).unwrap();
-    let mut cache = CacheDeMacros::novo("falso");
-    let s = compilar(&entrada, &sdk, &mut Falso::novo(), Some(&mut cache));
-    let (caminho, texto) = (s.textos[0].caminho.clone(), s.textos[0].texto.clone());
-    assert!(caminho.ends_with("main.macro.dart"), "{}", caminho.display());
-    let corpo = texto.split_once('\n').map(|(_, r)| r).unwrap();
-    for (cabecalho, diretiva) in [
+    let input = directory(dir.path());
+    let source = Source::default().text();
+    std::fs::write(&input, &source).unwrap();
+    let mut cache = MacroCache::new("fake");
+    let s = compile(&input, &sdk, &mut Fake::new(), Some(&mut cache));
+    let (path, text) = (s.textos[0].caminho.clone(), s.textos[0].texto.clone());
+    assert!(path.ends_with("main.macro.dart"), "{}", path.display());
+    let body = text.split_once('\n').map(|(_, r)| r).unwrap();
+    for (header, directive) in [
         ("augment library 'main.dart';", "import augment 'main.macro.dart';"),
         ("part of 'main.dart';", "part 'main.macro.dart';"),
     ] {
-        std::fs::write(&caminho, format!("{cabecalho}\n{corpo}")).unwrap();
-        std::fs::write(&entrada, fonte.replacen("import 'macros.dart';", &format!("import 'macros.dart';\n{diretiva}"), 1)).unwrap();
-        let mut nomes = Interner::new();
-        let (p, d) = load_lenient_gerados(&entrada, &sdk, None, &mut nomes, None, None, None);
-        assert!(d.is_empty(), "{diretiva}: {d:?}");
-        let mut carregar =
-            |i: &mut Interner, g, u: &mut CacheUnidades| load_lenient_gerados(&entrada, &sdk, None, i, None, Some(u), g);
-        let s = aplicar_incremental(p, &mut nomes, None, &mut carregar, &mut Falso::proibido(), None)
-            .unwrap_or_else(|ds| panic!("{diretiva}: {:?}", ds.iter().map(|d| d.message.clone()).collect::<Vec<_>>()));
-        assert_eq!(s.macros_executadas, 0, "{diretiva}");
-        assert!(s.textos.is_empty(), "{diretiva}: augmentation montada de novo sobre a materializada");
+        std::fs::write(&path, format!("{header}\n{body}")).unwrap();
+        std::fs::write(&input, source.replacen("import 'macros.dart';", &format!("import 'macros.dart';\n{directive}"), 1)).unwrap();
+        let mut names = Interner::new();
+        let (p, d) = load_lenient_gerados(&input, &sdk, None, &mut names, None, None, None);
+        assert!(d.is_empty(), "{directive}: {d:?}");
+        let mut load =
+            |i: &mut Interner, g, u: &mut CacheUnidades| load_lenient_gerados(&input, &sdk, None, i, None, Some(u), g);
+        let s = aplicar_incremental(p, &mut names, None, &mut load, &mut Fake::forbidden(), None)
+            .unwrap_or_else(|ds| panic!("{directive}: {:?}", ds.iter().map(|d| d.message.clone()).collect::<Vec<_>>()));
+        assert_eq!(s.macros_executadas, 0, "{directive}");
+        assert!(s.textos.is_empty(), "{directive}: augmentation assembled again over the materialized one");
     }
 }

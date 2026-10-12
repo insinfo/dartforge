@@ -1,40 +1,40 @@
-//! Handshake do serviço `macro.*` sobre o transporte comum de `crates/dfexec`
-//! (docs/BUILD-PROTOCOLO.md §1–§2). É o mesmo canal dos builders (regra governante,
-//! item 2); as macros são o serviço `macro.*` dele (§5 lá, e
-//! docs/MACROS-PROTOCOLO.md §5 aqui).
+//! Handshake of the `macro.*` service over the common transport of
+//! `crates/dfexec` (docs/BUILD-PROTOCOLO.md §1–§2). It is the same channel as
+//! the builders' (governing rule, item 2); macros are its `macro.*` service
+//! (§5 there, and docs/MACROS-PROTOCOLO.md §5 here).
 use serde_json::{Value, json};
 pub use dartforge_dfexec::{Canal, CanalDeProcesso, PROTOCOLO, escrever_quadro, ler_quadro};
 
-/// A versão do hospedeiro no handshake.
-pub const VERSAO_DO_HOSPEDEIRO: &str = concat!("dartforge-macros-host/", env!("CARGO_PKG_VERSION"));
+/// The host version announced in the handshake.
+pub const HOST_VERSION: &str = concat!("dartforge-macros-host/", env!("CARGO_PKG_VERSION"));
 
-/// O `ola` do hospedeiro.
-pub fn ola_do_hospedeiro() -> Value {
-    json!({"t": "ola", "protocolo": PROTOCOLO, "servicos": ["macro"], "motor": VERSAO_DO_HOSPEDEIRO})
+/// The host's `ola` (hello) message.
+pub fn host_hello() -> Value {
+    json!({"t": "ola", "protocolo": PROTOCOLO, "servicos": ["macro"], "motor": HOST_VERSION})
 }
 
-/// O que o executor respondeu no handshake.
+/// What the executor answered in the handshake.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Apresentacao {
+pub struct Handshake {
     pub executor: String,
     pub abi: String,
-    /// `uri#Classe` → nomes de construtor disponíveis no bootstrap.
+    /// `uri#Class` → constructor names available in the bootstrap.
     pub macros: Vec<(String, Vec<String>)>,
 }
 
-/// Confere a resposta ao `ola`: mesmo protocolo e o serviço `macro`.
-pub fn conferir_ola(v: &Value) -> Result<Apresentacao, String> {
+/// Checks the reply to `ola`: same protocol and the `macro` service.
+pub fn check_hello(v: &Value) -> Result<Handshake, String> {
     if v.get("t").and_then(Value::as_str) != Some("ola") {
-        return Err(format!("o executor não respondeu ao handshake: {v}"));
+        return Err(format!("the executor did not answer the handshake: {v}"));
     }
     let p = v.get("protocolo").and_then(Value::as_str).unwrap_or("");
     if p != PROTOCOLO {
-        return Err(format!("o executor fala {p}, o hospedeiro fala {PROTOCOLO}"));
+        return Err(format!("the executor speaks {p}, the host speaks {PROTOCOLO}"));
     }
-    let servicos: Vec<&str> =
+    let services: Vec<&str> =
         v.get("servicos").and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
-    if !servicos.contains(&"macro") {
-        return Err(format!("o executor não oferece o serviço macro (oferece {servicos:?})"));
+    if !services.contains(&"macro") {
+        return Err(format!("the executor does not offer the macro service (it offers {services:?})"));
     }
     let macros = v
         .get("macros")
@@ -42,18 +42,18 @@ pub fn conferir_ola(v: &Value) -> Result<Apresentacao, String> {
         .map(|l| {
             l.iter()
                 .map(|m| {
-                    let nome = m.get("macro").and_then(Value::as_str).unwrap_or("").to_string();
-                    let cs = m
+                    let name = m.get("macro").and_then(Value::as_str).unwrap_or("").to_string();
+                    let constructors = m
                         .get("construtores")
                         .and_then(Value::as_array)
                         .map(|c| c.iter().filter_map(Value::as_str).map(str::to_string).collect())
                         .unwrap_or_default();
-                    (nome, cs)
+                    (name, constructors)
                 })
                 .collect()
         })
         .unwrap_or_default();
-    Ok(Apresentacao {
+    Ok(Handshake {
         executor: v.get("executor").and_then(Value::as_str).unwrap_or("").to_string(),
         abi: v.get("abi").and_then(Value::as_str).unwrap_or("").to_string(),
         macros,
@@ -61,11 +61,11 @@ pub fn conferir_ola(v: &Value) -> Result<Apresentacao, String> {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn quadro_ida_e_volta() {
+    fn frame_round_trip() {
         let mut buf = Vec::new();
         let m = json!({"t": "macro.executar", "id": 7, "texto": "ação ✓"});
         escrever_quadro(&mut buf, &m).unwrap();
@@ -76,10 +76,10 @@ mod testes {
     }
 
     #[test]
-    fn handshake_recusa_outro_protocolo() {
-        assert!(conferir_ola(&json!({"t": "ola", "protocolo": "dfexec/2", "servicos": ["macro"]})).is_err());
-        assert!(conferir_ola(&json!({"t": "ola", "protocolo": "dfexec/1", "servicos": ["build"]})).is_err());
-        let a = conferir_ola(&json!({"t": "ola", "protocolo": "dfexec/1", "servicos": ["macro"], "executor": "x",
+    fn handshake_rejects_other_protocol() {
+        assert!(check_hello(&json!({"t": "ola", "protocolo": "dfexec/2", "servicos": ["macro"]})).is_err());
+        assert!(check_hello(&json!({"t": "ola", "protocolo": "dfexec/1", "servicos": ["build"]})).is_err());
+        let a = check_hello(&json!({"t": "ola", "protocolo": "dfexec/1", "servicos": ["macro"], "executor": "x",
             "macros": [{"macro": "package:json/json.dart#JsonCodable", "construtores": [""]}]}))
         .unwrap();
         assert_eq!(a.macros, vec![("package:json/json.dart#JsonCodable".to_string(), vec![String::new()])]);

@@ -1,99 +1,103 @@
-//! Aplicações de macro: detecção e ordem (spec de macros, "Application
-//! order", `:250-286`; a ordem de execução é a do CFE 3.6.2,
+//! Macro applications: detection and order (macro spec, "Application
+//! order", `:250-286`; the execution order is the one of CFE 3.6.2,
 //! `kernel_macro_macro.dart`).
 //!
-//! **Detecção** (regra de custo zero): uma anotação só é aplicação se o nome
-//! dela resolve para um construtor de classe declarada com `macro`
-//! ([`Program::classes_macro`]); sem classe `macro` no programa, [`detectar`]
-//! volta na primeira linha, sem olhar anotação nenhuma. A aplicação é sempre
-//! uma chamada de construtor (`@M()`, `@M.nome(…)`, `@p.M(…)`).
+//! **Detection** (zero-cost rule): an annotation is an application only if
+//! its name resolves to a constructor of a class declared with `macro`
+//! ([`Program::classes_macro`]); with no `macro` class in the program,
+//! [`detectar`] returns on its first line, without looking at any
+//! annotation. An application is always a constructor call (`@M()`,
+//! `@M.name(…)`, `@p.M(…)`).
 //!
-//! **Ordem**: numa declaração, da direita para a esquerda (`@C @B @A` roda
-//! `A` primeiro); membros antes do tipo que os contém. Entre declarações, a
-//! do CFE 3.6.2, que é o oráculo do texto:
+//! **Order**: within a declaration, right to left (`@C @B @A` runs `A`
+//! first); members before the type that contains them. Across declarations,
+//! the order of CFE 3.6.2, which is the oracle for the text:
 //!
-//! * fases de tipos e de definições, por biblioteca: as da diretiva
-//!   `library`, depois as de funções e variáveis de topo, depois, por classe
-//!   na ordem do fonte, as dos membros (campos e métodos, depois
-//!   construtores) e as da classe;
-//! * fase de declarações: as classes na ordem da hierarquia (supertipos
-//!   antes) — membros, depois a classe —, e só então, por biblioteca, as da
-//!   diretiva e as de topo.
-use crate::executor::Fase;
-use crate::modelo::{Chave, Vista};
+//! * types and definitions phases, per library: those on the `library`
+//!   directive, then those on top-level functions and variables, then, per
+//!   class in source order, those on the members (fields and methods, then
+//!   constructors) and those on the class;
+//! * declarations phase: the classes in hierarchy order (supertypes first) —
+//!   members, then the class —, and only then, per library, those on the
+//!   directive and the top-level ones.
+use crate::executor::Phase;
+use crate::modelo::{Key, Vista};
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::*;
 use dartforge_frontend::ast::{self, DeclKind, DirectiveKind, ExprKind, MemberKind};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 
-/// O que recebe a aplicação.
+/// What receives the application.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Alvo {
-    Biblioteca(String),
-    Declaracao(Chave),
+pub enum Target {
+    Library(String),
+    Declaration(Key),
 }
 
-/// Onde a aplicação entra na ordem do CFE.
+/// Where the application falls in the CFE order.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Grupo {
-    /// Na diretiva `library`.
-    Biblioteca,
-    /// Numa função ou variável de topo.
-    Topo,
-    /// Num membro da classe `classe` (`construtor` vai depois dos outros).
-    Membro { classe: Chave, construtor: bool },
-    /// Na própria classe.
-    Classe(Chave),
+pub enum Group {
+    /// On the `library` directive.
+    Library,
+    /// On a top-level function or variable.
+    TopLevel,
+    /// On a member of the class `owner` (`constructor` goes after the
+    /// others).
+    Member { owner: Key, constructor: bool },
+    /// On the class itself.
+    Class(Key),
 }
 
 #[derive(Debug, Clone)]
-pub struct Aplicacao {
-    /// URI da biblioteca da anotação (a que recebe a augmentation).
-    pub biblioteca: String,
-    pub alvo: Alvo,
-    pub grupo: Grupo,
-    /// `uri#Classe` da macro.
+pub struct Application {
+    /// URI of the annotation's library (the one that receives the
+    /// augmentation).
+    pub library: String,
+    pub target: Target,
+    pub group: Group,
+    /// `uri#Class` of the macro.
     pub macro_: String,
-    /// Nome do construtor (`""` para o sem nome).
-    pub construtor: String,
-    /// `{posicionais, nomeados}` no formato de argumento do protocolo.
-    pub argumentos: Value,
-    /// Unidade (URI) e intervalo da anotação, para diagnósticos.
-    pub unidade: String,
+    /// Constructor name (`""` for the unnamed one).
+    pub constructor: String,
+    /// `{posicionais, nomeados}` in the protocol's argument format.
+    pub arguments: Value,
+    /// Unit (URI) and range of the annotation, for diagnostics.
+    pub unit: String,
     pub span: Span,
 }
 
-/// A classe `macro` que uma anotação invoca, e o nome do construtor.
-fn macro_da_anotacao(v: &Vista<'_>, lib: LibraryId, a: &ast::Annotation, macros: &HashSet<ClassId>) -> Option<(ClassId, String)> {
+/// The `macro` class that an annotation invokes, and the constructor name.
+fn annotation_macro(v: &Vista<'_>, lib: LibraryId, a: &ast::Annotation, macros: &HashSet<ClassId>) -> Option<(ClassId, String)> {
     a.arguments.as_ref()?;
-    let classe = |el: Option<Element>| match el {
+    let class = |el: Option<Element>| match el {
         Some(Element::Class(c)) if macros.contains(&c) => Some(c),
         _ => None,
     };
-    let nome = |s: dartforge_intern::SymbolId| v.interner.resolve(s).to_string();
+    let name = |s: dartforge_intern::SymbolId| v.interner.resolve(s).to_string();
     match a.name.as_slice() {
-        [c] => classe(v.program.lookup(lib, c.sym).and_then(|b| b.getter)).map(|c| (c, String::new())),
+        [c] => class(v.program.lookup(lib, c.sym).and_then(|b| b.getter)).map(|c| (c, String::new())),
         [x, y] => {
-            if let Some(c) = classe(v.program.lookup(lib, x.sym).and_then(|b| b.getter)) {
-                return Some((c, nome(y.sym)));
+            if let Some(c) = class(v.program.lookup(lib, x.sym).and_then(|b| b.getter)) {
+                return Some((c, name(y.sym)));
             }
-            classe(v.program.lookup_prefixed(lib, x.sym, y.sym).and_then(|b| b.getter)).map(|c| (c, String::new()))
+            class(v.program.lookup_prefixed(lib, x.sym, y.sym).and_then(|b| b.getter)).map(|c| (c, String::new()))
         }
-        [p, c, k] => classe(v.program.lookup_prefixed(lib, p.sym, c.sym).and_then(|b| b.getter)).map(|c| (c, nome(k.sym))),
+        [p, c, k] => class(v.program.lookup_prefixed(lib, p.sym, c.sym).and_then(|b| b.getter)).map(|c| (c, name(k.sym))),
         _ => None,
     }
 }
 
-/// Um argumento de aplicação (spec, "Macro arguments"): literal, coleção de
-/// literais; qualquer outra expressão vai como `Code` com o texto dela.
-fn argumento(u: &Unit, e: ast::ExprId) -> Value {
+/// An application argument (spec, "Macro arguments"): a literal or a
+/// collection of literals; any other expression goes as `Code` with its
+/// text.
+fn argument(u: &Unit, e: ast::ExprId) -> Value {
     let ex = u.ast.expr(e);
-    let texto = |s: Span| u.source.get(s.start..s.end).unwrap_or("").to_string();
-    let elementos = |els: &[ast::CollectionElement]| -> Option<Vec<Value>> {
+    let text = |s: Span| u.source.get(s.start..s.end).unwrap_or("").to_string();
+    let elements = |els: &[ast::CollectionElement]| -> Option<Vec<Value>> {
         els.iter()
             .map(|el| match el {
-                ast::CollectionElement::Expression(x) => Some(argumento(u, *x)),
+                ast::CollectionElement::Expression(x) => Some(argument(u, *x)),
                 _ => None,
             })
             .collect()
@@ -101,9 +105,9 @@ fn argumento(u: &Unit, e: ast::ExprId) -> Value {
     match &ex.kind {
         ExprKind::Null => json!({"t": "null"}),
         ExprKind::Bool(b) => json!({"t": "bool", "v": b}),
-        ExprKind::Int(s) => json!({"t": "int", "v": texto(*s).replace('_', "")}),
+        ExprKind::Int(s) => json!({"t": "int", "v": text(*s).replace('_', "")}),
         ExprKind::Double(s) => {
-            json!({"t": "double", "v": texto(*s).replace('_', "").parse::<f64>().unwrap_or(0.0)})
+            json!({"t": "double", "v": text(*s).replace('_', "").parse::<f64>().unwrap_or(0.0)})
         }
         ExprKind::String(l) if l.parts.iter().all(|p| matches!(p, ast::StringPart::Text(_))) => {
             let s: String = l
@@ -116,55 +120,55 @@ fn argumento(u: &Unit, e: ast::ExprId) -> Value {
                 .collect();
             json!({"t": "string", "v": s})
         }
-        ExprKind::Parenthesized(x) => argumento(u, *x),
-        ExprKind::List { elements, .. } => match elementos(elements) {
+        ExprKind::Parenthesized(x) => argument(u, *x),
+        ExprKind::List { elements: els, .. } => match elements(els) {
             Some(l) => json!({"t": "lista", "v": l}),
-            None => codigo(texto(ex.span)),
+            None => code_argument(text(ex.span)),
         },
-        ExprKind::SetOrMap { elements, .. } => {
-            let pares: Option<Vec<Value>> = elements
+        ExprKind::SetOrMap { elements: els, .. } => {
+            let pairs: Option<Vec<Value>> = els
                 .iter()
                 .map(|el| match el {
                     ast::CollectionElement::MapEntry { key, value, null_aware_key: false, null_aware_value: false } => {
-                        Some(json!([argumento(u, *key), argumento(u, *value)]))
+                        Some(json!([argument(u, *key), argument(u, *value)]))
                     }
                     _ => None,
                 })
                 .collect();
-            match pares {
-                Some(p) if !p.is_empty() || elements.is_empty() => json!({"t": "mapa", "v": p}),
-                _ => match elementos(elements) {
+            match pairs {
+                Some(p) if !p.is_empty() || els.is_empty() => json!({"t": "mapa", "v": p}),
+                _ => match elements(els) {
                     Some(l) => json!({"t": "set", "v": l}),
-                    None => codigo(texto(ex.span)),
+                    None => code_argument(text(ex.span)),
                 },
             }
         }
-        _ => codigo(texto(ex.span)),
+        _ => code_argument(text(ex.span)),
     }
 }
 
-fn codigo(texto: String) -> Value {
-    json!({"t": "codigo", "v": {"k": "expression", "p": [texto]}})
+fn code_argument(text: String) -> Value {
+    json!({"t": "codigo", "v": {"k": "expression", "p": [text]}})
 }
 
-fn argumentos(u: &Unit, a: &ast::Annotation) -> Value {
-    let mut pos = Vec::new();
-    let mut nom = serde_json::Map::new();
+fn arguments(u: &Unit, a: &ast::Annotation) -> Value {
+    let mut positional = Vec::new();
+    let mut named = serde_json::Map::new();
     for arg in a.arguments.iter().flat_map(|x| x.args.iter()) {
         match arg.name {
             Some(n) => {
-                let nome = u.source.get(n.span.start..n.span.end).unwrap_or("").to_string();
-                nom.insert(nome, argumento(u, arg.value));
+                let name = u.source.get(n.span.start..n.span.end).unwrap_or("").to_string();
+                named.insert(name, argument(u, arg.value));
             }
-            None => pos.push(argumento(u, arg.value)),
+            None => positional.push(argument(u, arg.value)),
         }
     }
-    json!({"posicionais": pos, "nomeados": nom})
+    json!({"posicionais": positional, "nomeados": named})
 }
 
-/// As aplicações do programa, na ordem do fonte (a ordem de fase vem de
-/// [`ordem`]). Vazio — sem custo — quando não há classe `macro`.
-pub fn detectar(v: &Vista<'_>) -> Vec<Aplicacao> {
+/// The program's applications, in source order (the phase order comes from
+/// [`order`]). Empty — at no cost — when there is no `macro` class.
+pub fn detectar(v: &Vista<'_>) -> Vec<Application> {
     if v.program.classes_macro.is_empty() {
         return Vec::new();
     }
@@ -175,20 +179,20 @@ pub fn detectar(v: &Vista<'_>) -> Vec<Aplicacao> {
             continue;
         }
         let lib_id = LibraryId(li as u32);
-        let mut coletar = |out: &mut Vec<Aplicacao>, uid: UnitId, meta: &[ast::Annotation], alvo: Alvo, grupo: Grupo| {
+        let mut collect = |out: &mut Vec<Application>, uid: UnitId, meta: &[ast::Annotation], target: Target, group: Group| {
             let u = v.program.unit(uid);
-            // Da direita para a esquerda: a última anotação roda primeiro.
+            // Right to left: the last annotation runs first.
             for a in meta.iter().rev() {
-                let Some((c, construtor)) = macro_da_anotacao(v, lib_id, a, &macros) else { continue };
+                let Some((c, constructor)) = annotation_macro(v, lib_id, a, &macros) else { continue };
                 let mc = v.program.class(c);
-                out.push(Aplicacao {
-                    biblioteca: lib.uri.clone(),
-                    alvo: alvo.clone(),
-                    grupo: grupo.clone(),
+                out.push(Application {
+                    library: lib.uri.clone(),
+                    target: target.clone(),
+                    group: group.clone(),
                     macro_: format!("{}#{}", v.program.library(mc.library).uri, v.interner.resolve(mc.name)),
-                    construtor,
-                    argumentos: argumentos(u, a),
-                    unidade: u.uri.clone(),
+                    constructor,
+                    arguments: arguments(u, a),
+                    unit: u.uri.clone(),
                     span: a.span,
                 });
             }
@@ -197,7 +201,7 @@ pub fn detectar(v: &Vista<'_>) -> Vec<Aplicacao> {
             let u = v.program.unit(uid);
             for d in &u.unit.directives {
                 if matches!(d.kind, DirectiveKind::Library { .. }) {
-                    coletar(&mut out, uid, &d.metadata, Alvo::Biblioteca(lib.uri.clone()), Grupo::Biblioteca);
+                    collect(&mut out, uid, &d.metadata, Target::Library(lib.uri.clone()), Group::Library);
                 }
             }
             for &did in &u.unit.declarations {
@@ -208,33 +212,33 @@ pub fn detectar(v: &Vista<'_>) -> Vec<Aplicacao> {
                 let n = |s: dartforge_intern::SymbolId| v.interner.resolve(s).to_string();
                 match &d.kind {
                     DeclKind::Class(c) => {
-                        let chave = Chave::Tipo { lib: lib.uri.clone(), nome: n(c.name.sym) };
-                        membros(v, &mut out, &mut coletar, uid, &c.members, &chave);
-                        coletar(&mut out, uid, &d.metadata, Alvo::Declaracao(chave.clone()), Grupo::Classe(chave));
+                        let key = Key::Type { lib: lib.uri.clone(), name: n(c.name.sym) };
+                        members(v, &mut out, &mut collect, uid, &c.members, &key);
+                        collect(&mut out, uid, &d.metadata, Target::Declaration(key.clone()), Group::Class(key));
                     }
                     DeclKind::Mixin(m) => {
-                        let chave = Chave::Tipo { lib: lib.uri.clone(), nome: n(m.name.sym) };
-                        membros(v, &mut out, &mut coletar, uid, &m.members, &chave);
-                        coletar(&mut out, uid, &d.metadata, Alvo::Declaracao(chave.clone()), Grupo::Classe(chave));
+                        let key = Key::Type { lib: lib.uri.clone(), name: n(m.name.sym) };
+                        members(v, &mut out, &mut collect, uid, &m.members, &key);
+                        collect(&mut out, uid, &d.metadata, Target::Declaration(key.clone()), Group::Class(key));
                     }
                     DeclKind::Enum(e) => {
-                        let chave = Chave::Tipo { lib: lib.uri.clone(), nome: n(e.name.sym) };
-                        coletar(&mut out, uid, &d.metadata, Alvo::Declaracao(chave.clone()), Grupo::Classe(chave));
+                        let key = Key::Type { lib: lib.uri.clone(), name: n(e.name.sym) };
+                        collect(&mut out, uid, &d.metadata, Target::Declaration(key.clone()), Group::Class(key));
                     }
                     DeclKind::Function(fid) => {
                         let f = u.ast.function(*fid);
-                        let Some(nome) = f.name else { continue };
-                        let chave = Chave::FuncaoDeTopo {
+                        let Some(name) = f.name else { continue };
+                        let key = Key::TopLevelFunction {
                             lib: lib.uri.clone(),
-                            nome: n(nome.sym),
+                            name: n(name.sym),
                             setter: f.kind == ast::FunctionKind::Setter,
                         };
-                        coletar(&mut out, uid, &d.metadata, Alvo::Declaracao(chave), Grupo::Topo);
+                        collect(&mut out, uid, &d.metadata, Target::Declaration(key), Group::TopLevel);
                     }
                     DeclKind::Variables(l) => {
                         for var in l.variables.iter() {
-                            let chave = Chave::VariavelDeTopo { lib: lib.uri.clone(), nome: n(var.name.sym) };
-                            coletar(&mut out, uid, &d.metadata, Alvo::Declaracao(chave), Grupo::Topo);
+                            let key = Key::TopLevelVariable { lib: lib.uri.clone(), name: n(var.name.sym) };
+                            collect(&mut out, uid, &d.metadata, Target::Declaration(key), Group::TopLevel);
                         }
                     }
                     _ => {}
@@ -245,89 +249,90 @@ pub fn detectar(v: &Vista<'_>) -> Vec<Aplicacao> {
     out
 }
 
-type Coletor<'c> = dyn FnMut(&mut Vec<Aplicacao>, UnitId, &[ast::Annotation], Alvo, Grupo) + 'c;
+type Collector<'c> = dyn FnMut(&mut Vec<Application>, UnitId, &[ast::Annotation], Target, Group) + 'c;
 
-/// Membros de uma classe: campos e métodos na ordem, depois construtores
-/// (`localMemberIterator` e `localConstructorIterator` do CFE).
-fn membros(v: &Vista<'_>, out: &mut Vec<Aplicacao>, coletar: &mut Coletor<'_>, uid: UnitId, ids: &[ast::MemberId], classe: &Chave) {
+/// Members of a class: fields and methods in order, then constructors
+/// (CFE's `localMemberIterator` and `localConstructorIterator`).
+fn members(v: &Vista<'_>, out: &mut Vec<Application>, collect: &mut Collector<'_>, uid: UnitId, ids: &[ast::MemberId], class: &Key) {
     let u = v.program.unit(uid);
-    let Chave::Tipo { lib, nome: dono } = classe else { return };
+    let Key::Type { lib, name: owner } = class else { return };
     let n = |s: dartforge_intern::SymbolId| v.interner.resolve(s).to_string();
-    for construtores in [false, true] {
+    for constructors in [false, true] {
         for &mid in ids {
             let m = u.ast.member(mid);
             if m.metadata.is_empty() || m.augment {
                 continue;
             }
-            let chave = match (&m.kind, construtores) {
+            let key = match (&m.kind, constructors) {
                 (MemberKind::Constructor(k), true) => {
-                    Chave::Construtor { lib: lib.clone(), dono: dono.clone(), nome: k.name.map(|x| n(x.sym)).unwrap_or_default() }
+                    Key::Constructor { lib: lib.clone(), owner: owner.clone(), name: k.name.map(|x| n(x.sym)).unwrap_or_default() }
                 }
                 (MemberKind::Method(fid), false) => {
                     let f = u.ast.function(*fid);
-                    let Some(nome) = f.name else { continue };
-                    Chave::Metodo { lib: lib.clone(), dono: dono.clone(), nome: n(nome.sym), setter: f.kind == ast::FunctionKind::Setter }
+                    let Some(name) = f.name else { continue };
+                    Key::Method { lib: lib.clone(), owner: owner.clone(), name: n(name.sym), setter: f.kind == ast::FunctionKind::Setter }
                 }
                 (MemberKind::Field(l), false) => {
                     for var in l.variables.iter() {
-                        let chave = Chave::Campo { lib: lib.clone(), dono: dono.clone(), nome: n(var.name.sym) };
-                        coletar(out, uid, &m.metadata, Alvo::Declaracao(chave), Grupo::Membro { classe: classe.clone(), construtor: false });
+                        let key = Key::Field { lib: lib.clone(), owner: owner.clone(), name: n(var.name.sym) };
+                        collect(out, uid, &m.metadata, Target::Declaration(key), Group::Member { owner: class.clone(), constructor: false });
                     }
                     continue;
                 }
                 _ => continue,
             };
-            coletar(out, uid, &m.metadata, Alvo::Declaracao(chave), Grupo::Membro { classe: classe.clone(), construtor: construtores });
+            collect(out, uid, &m.metadata, Target::Declaration(key), Group::Member { owner: class.clone(), constructor: constructors });
         }
     }
 }
 
-/// A ordem de execução das aplicações numa fase (índices em `apps`).
-pub fn ordem(fase: Fase, apps: &[Aplicacao], v: &Vista<'_>) -> Vec<usize> {
-    let mut bibliotecas: Vec<&str> = Vec::new();
+/// The execution order of the applications in a phase (indices into
+/// `apps`).
+pub fn order(phase: Phase, apps: &[Application], v: &Vista<'_>) -> Vec<usize> {
+    let mut libraries: Vec<&str> = Vec::new();
     for a in apps {
-        if !bibliotecas.contains(&a.biblioteca.as_str()) {
-            bibliotecas.push(&a.biblioteca);
+        if !libraries.contains(&a.library.as_str()) {
+            libraries.push(&a.library);
         }
     }
-    let classes_da_biblioteca = |lib: &str| -> Vec<Chave> {
-        let mut cs: Vec<Chave> = Vec::new();
-        for a in apps.iter().filter(|a| a.biblioteca == lib) {
-            if let Grupo::Membro { classe, .. } | Grupo::Classe(classe) = &a.grupo {
-                if !cs.contains(classe) {
-                    cs.push(classe.clone());
+    let library_classes = |lib: &str| -> Vec<Key> {
+        let mut cs: Vec<Key> = Vec::new();
+        for a in apps.iter().filter(|a| a.library == lib) {
+            if let Group::Member { owner: class, .. } | Group::Class(class) = &a.group {
+                if !cs.contains(class) {
+                    cs.push(class.clone());
                 }
             }
         }
         cs
     };
-    let da_classe = |c: &Chave, out: &mut Vec<usize>| {
-        for construtor in [false, true] {
-            out.extend(apps.iter().enumerate().filter(|(_, a)| matches!(&a.grupo, Grupo::Membro { classe, construtor: k } if classe == c && *k == construtor)).map(|(i, _)| i));
+    let of_class = |c: &Key, out: &mut Vec<usize>| {
+        for constructor in [false, true] {
+            out.extend(apps.iter().enumerate().filter(|(_, a)| matches!(&a.group, Group::Member { owner, constructor: k } if owner == c && *k == constructor)).map(|(i, _)| i));
         }
-        out.extend(apps.iter().enumerate().filter(|(_, a)| matches!(&a.grupo, Grupo::Classe(k) if k == c)).map(|(i, _)| i));
+        out.extend(apps.iter().enumerate().filter(|(_, a)| matches!(&a.group, Group::Class(k) if k == c)).map(|(i, _)| i));
     };
-    let de_topo = |lib: &str, out: &mut Vec<usize>| {
-        out.extend(apps.iter().enumerate().filter(|(_, a)| a.biblioteca == lib && a.grupo == Grupo::Biblioteca).map(|(i, _)| i));
-        out.extend(apps.iter().enumerate().filter(|(_, a)| a.biblioteca == lib && a.grupo == Grupo::Topo).map(|(i, _)| i));
+    let top_level = |lib: &str, out: &mut Vec<usize>| {
+        out.extend(apps.iter().enumerate().filter(|(_, a)| a.library == lib && a.group == Group::Library).map(|(i, _)| i));
+        out.extend(apps.iter().enumerate().filter(|(_, a)| a.library == lib && a.group == Group::TopLevel).map(|(i, _)| i));
     };
     let mut out = Vec::new();
-    match fase {
-        Fase::Tipos | Fase::Definicoes => {
-            for lib in &bibliotecas {
-                de_topo(lib, &mut out);
-                for c in classes_da_biblioteca(lib) {
-                    da_classe(&c, &mut out);
+    match phase {
+        Phase::Types | Phase::Definitions => {
+            for lib in &libraries {
+                top_level(lib, &mut out);
+                for c in library_classes(lib) {
+                    of_class(&c, &mut out);
                 }
             }
         }
-        Fase::Declaracoes => {
-            // Supertipos antes: pós-ordem da hierarquia (`sortedSourceClassBuilders`).
-            let todas: Vec<Chave> = bibliotecas.iter().flat_map(|l| classes_da_biblioteca(l)).collect();
-            let ids: Vec<Option<ClassId>> = todas.iter().map(|c| v.classe(c)).collect();
-            let mut feitas: HashSet<usize> = HashSet::new();
-            fn visitar(i: usize, ids: &[Option<ClassId>], v: &Vista<'_>, feitas: &mut HashSet<usize>, seq: &mut Vec<usize>, pilha: &mut HashSet<usize>) {
-                if feitas.contains(&i) || !pilha.insert(i) {
+        Phase::Declarations => {
+            // Supertypes first: post-order of the hierarchy (`sortedSourceClassBuilders`).
+            let all: Vec<Key> = libraries.iter().flat_map(|l| library_classes(l)).collect();
+            let ids: Vec<Option<ClassId>> = all.iter().map(|c| v.class_of(c)).collect();
+            let mut done: HashSet<usize> = HashSet::new();
+            fn visit(i: usize, ids: &[Option<ClassId>], v: &Vista<'_>, done: &mut HashSet<usize>, seq: &mut Vec<usize>, stack: &mut HashSet<usize>) {
+                if done.contains(&i) || !stack.insert(i) {
                     return;
                 }
                 if let Some(c) = ids[i] {
@@ -335,24 +340,24 @@ pub fn ordem(fase: Fase, apps: &[Aplicacao], v: &Vista<'_>) -> Vec<usize> {
                     let supers = cl.supertype_class.into_iter().chain(cl.mixin_classes.iter().copied()).chain(cl.interface_classes.iter().copied()).chain(cl.on_classes.iter().copied());
                     for s in supers {
                         if let Some(j) = ids.iter().position(|x| *x == Some(s)) {
-                            visitar(j, ids, v, feitas, seq, pilha);
+                            visit(j, ids, v, done, seq, stack);
                         }
                     }
                 }
-                pilha.remove(&i);
-                if feitas.insert(i) {
+                stack.remove(&i);
+                if done.insert(i) {
                     seq.push(i);
                 }
             }
             let mut seq = Vec::new();
-            for i in 0..todas.len() {
-                visitar(i, &ids, v, &mut feitas, &mut seq, &mut HashSet::new());
+            for i in 0..all.len() {
+                visit(i, &ids, v, &mut done, &mut seq, &mut HashSet::new());
             }
             for i in seq {
-                da_classe(&todas[i], &mut out);
+                of_class(&all[i], &mut out);
             }
-            for lib in &bibliotecas {
-                de_topo(lib, &mut out);
+            for lib in &libraries {
+                top_level(lib, &mut out);
             }
         }
     }

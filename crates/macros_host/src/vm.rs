@@ -1,46 +1,46 @@
-//! O executor de **materialização**: roda a mesma macro — com a nossa API
-//! (`packages/macros`, Dart puro) — numa VM Dart, pelo mesmo protocolo
-//! `dfexec/1`, para gravar a augmentation num arquivo que o SDK oficial aceita
-//! com a flag experimental (docs/MACROS-COMPATIBILIDADE.md). É o caminho do
-//! builder para o `build_runner` e da compatibilidade com a toolchain
-//! oficial. O compilador JS também o usa, por padrão, para executar
-//! aplicações diretamente da fonte; o executor nativo D4 é o
+//! The **materialization** executor: runs the same macro — with our API
+//! (`packages/macros`, pure Dart) — on a Dart VM, over the same `dfexec/1`
+//! protocol, to write the augmentation into a file that the official SDK
+//! accepts with the experimental flag (docs/MACROS-COMPATIBILIDADE.md). It is
+//! the builder's path for `build_runner` and for compatibility with the
+//! official toolchain. The JS compiler also uses it, by default, to run
+//! applications straight from source; the D4 native executor is
 //! [`crate::nativo`].
 //!
-//! O hospedeiro gera o *bootstrap* (spec, "Macro execution"): um `main` que
-//! importa as bibliotecas das macros aplicadas e mapeia `uri#Classe` →
-//! construtor por *tear-off*, sem mirrors; e um `package_config.json` que é o
-//! do projeto com `macros` apontando para a nossa API.
-use crate::aplicacoes::Aplicacao;
-use crate::executor::ExecutorDfexec;
-use crate::protocolo::CanalDeProcesso;
+//! The host generates the *bootstrap* (spec, "Macro execution"): a `main`
+//! that imports the libraries of the applied macros and maps `uri#Class` →
+//! constructor by *tear-off*, without mirrors; and a `package_config.json`
+//! that is the project's own with `macros` pointing at our API.
+use crate::aplicacoes::Application;
+use crate::executor::DfexecExecutor;
+use crate::protocol::CanalDeProcesso;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
-/// Onde estão a VM e a nossa API.
+/// Where the VM and our API are.
 #[derive(Debug, Clone)]
 pub struct ConfigDaVm {
-    /// O executável `dart`.
+    /// The `dart` executable.
     pub dart: PathBuf,
-    /// A raiz do pacote da nossa API (`packages/macros`).
+    /// The package root of our API (`packages/macros`).
     pub api: PathBuf,
-    /// Onde gravar o bootstrap e o `package_config.json`.
+    /// Where to write the bootstrap and the `package_config.json`.
     pub trabalho: PathBuf,
 }
 
-/// O texto do bootstrap para as macros de `apps`.
-pub fn bootstrap(apps: &[Aplicacao]) -> String {
-    let mut bibliotecas: Vec<String> = Vec::new();
+/// The bootstrap text for the macros of `apps`.
+pub fn bootstrap(apps: &[Application]) -> String {
+    let mut libraries: Vec<String> = Vec::new();
     let mut macros: Vec<(String, Vec<String>)> = Vec::new();
     for a in apps {
         let (uri, _) = a.macro_.split_once('#').unwrap_or((&a.macro_, ""));
-        if !bibliotecas.iter().any(|b| b == uri) {
-            bibliotecas.push(uri.to_string());
+        if !libraries.iter().any(|b| b == uri) {
+            libraries.push(uri.to_string());
         }
         match macros.iter_mut().find(|(m, _)| *m == a.macro_) {
-            Some((_, cs)) if !cs.contains(&a.construtor) => cs.push(a.construtor.clone()),
+            Some((_, cs)) if !cs.contains(&a.constructor) => cs.push(a.constructor.clone()),
             Some(_) => {}
-            None => macros.push((a.macro_.clone(), vec![a.construtor.clone()])),
+            None => macros.push((a.macro_.clone(), vec![a.constructor.clone()])),
         }
     }
     let mut s = String::from(
@@ -48,25 +48,26 @@ pub fn bootstrap(apps: &[Aplicacao]) -> String {
          import 'package:macros/src/executor/canal_stdio.dart';\n\
          import 'package:macros/src/executor/servico.dart';\n",
     );
-    for (i, b) in bibliotecas.iter().enumerate() {
+    for (i, b) in libraries.iter().enumerate() {
         s.push_str(&format!("import '{b}' as m{i};\n"));
     }
     s.push_str("\nFuture<void> main() => servir({\n");
-    for (m, construtores) in &macros {
-        let (uri, classe) = m.split_once('#').unwrap_or((m, ""));
-        let i = bibliotecas.iter().position(|b| b == uri).unwrap_or(0);
+    for (m, constructors) in &macros {
+        let (uri, class) = m.split_once('#').unwrap_or((m, ""));
+        let i = libraries.iter().position(|b| b == uri).unwrap_or(0);
         s.push_str(&format!("  '{m}': {{\n"));
-        for c in construtores {
-            let tearoff = if c.is_empty() { format!("m{i}.{classe}.new") } else { format!("m{i}.{classe}.{c}") };
-            let sem_argumentos = apps.iter().filter(|a| a.macro_ == *m && a.construtor == *c)
+        for c in constructors {
+            let tearoff = if c.is_empty() { format!("m{i}.{class}.new") } else { format!("m{i}.{class}.{c}") };
+            let no_arguments = apps.iter().filter(|a| a.macro_ == *m && a.constructor == *c)
                 .all(|a| {
-                    a.argumentos.get("posicionais").and_then(Value::as_array).is_some_and(Vec::is_empty)
-                        && a.argumentos.get("nomeados").and_then(Value::as_object).is_some_and(|n| n.is_empty())
+                    a.arguments.get("posicionais").and_then(Value::as_array).is_some_and(Vec::is_empty)
+                        && a.arguments.get("nomeados").and_then(Value::as_object).is_some_and(|n| n.is_empty())
                 });
-            if sem_argumentos {
-                // A fábrica é usada apenas como @Macro(): invocar o
-                // construtor diretamente preserva defaults sem depender de
-                // Function.apply, Symbol ou Map.entries no executor nativo.
+            if no_arguments {
+                // The factory is only used as @Macro(): invoking the
+                // constructor directly keeps the defaults without depending
+                // on Function.apply, Symbol or Map.entries in the native
+                // executor.
                 s.push_str(&format!("    '{c}': (p, n) => {tearoff}(),\n"));
             } else {
                 s.push_str(&format!(
@@ -80,21 +81,21 @@ pub fn bootstrap(apps: &[Aplicacao]) -> String {
     s
 }
 
-/// O `package_config.json` do projeto com `macros` trocado pela nossa API.
-pub fn package_config(do_projeto: Option<&Path>, api: &Path) -> Result<Value, String> {
-    let mut cfg: Value = match do_projeto {
+/// The project's `package_config.json` with `macros` replaced by our API.
+pub fn package_config(project: Option<&Path>, api: &Path) -> Result<Value, String> {
+    let mut cfg: Value = match project {
         Some(p) => {
-            let texto = std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?;
-            let mut v: Value = serde_json::from_str(&texto).map_err(|e| format!("{}: {e}", p.display()))?;
-            // URIs relativas do projeto passam a absolutas: o arquivo novo mora
-            // em outro diretório.
+            let text = std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?;
+            let mut v: Value = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", p.display()))?;
+            // The project's relative URIs become absolute: the new file lives
+            // in another directory.
             let base = p.parent().unwrap_or(Path::new("."));
             if let Some(ps) = v.get_mut("packages").and_then(Value::as_array_mut) {
                 for pk in ps.iter_mut() {
                     if let Some(r) = pk.get("rootUri").and_then(Value::as_str) {
                         if !r.contains(':') {
                             let abs = base.join(r);
-                            pk["rootUri"] = json!(uri_de_arquivo(&abs, true));
+                            pk["rootUri"] = json!(file_uri(&abs, true));
                         }
                     }
                 }
@@ -103,34 +104,34 @@ pub fn package_config(do_projeto: Option<&Path>, api: &Path) -> Result<Value, St
         }
         None => json!({"configVersion": 2, "packages": []}),
     };
-    let ps = cfg["packages"].as_array_mut().ok_or("package_config sem 'packages'")?;
+    let ps = cfg["packages"].as_array_mut().ok_or("package_config without 'packages'")?;
     ps.retain(|p| p["name"] != "macros" && p["name"] != "_macros");
-    ps.push(json!({"name": "macros", "rootUri": uri_de_arquivo(api, true), "packageUri": "lib/", "languageVersion": "3.6"}));
+    ps.push(json!({"name": "macros", "rootUri": file_uri(api, true), "packageUri": "lib/", "languageVersion": "3.6"}));
     Ok(cfg)
 }
 
-fn uri_de_arquivo(p: &Path, diretorio: bool) -> String {
+fn file_uri(p: &Path, directory: bool) -> String {
     let abs = std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf());
     let mut s = abs.to_string_lossy().replace('\\', "/");
     if let Some(r) = s.strip_prefix("//?/") {
         s = r.to_string();
     }
-    if diretorio && !s.ends_with('/') {
+    if directory && !s.ends_with('/') {
         s.push('/');
     }
     if s.starts_with('/') { format!("file://{s}") } else { format!("file:///{s}") }
 }
 
-/// Grava o bootstrap e inicia a VM com ele. O canal é o de qualquer
-/// processo que fale `dfexec/1`.
-pub fn iniciar(cfg: &ConfigDaVm, apps: &[Aplicacao], package_config_do_projeto: Option<&Path>) -> Result<ExecutorDfexec<CanalDeProcesso>, String> {
+/// Writes the bootstrap and starts the VM with it. The channel is that of
+/// any process that speaks `dfexec/1`.
+pub fn iniciar(cfg: &ConfigDaVm, apps: &[Application], project_package_config: Option<&Path>) -> Result<DfexecExecutor<CanalDeProcesso>, String> {
     std::fs::create_dir_all(&cfg.trabalho).map_err(|e| format!("{}: {e}", cfg.trabalho.display()))?;
-    let principal = cfg.trabalho.join("bootstrap.dart");
-    std::fs::write(&principal, bootstrap(apps)).map_err(|e| format!("{}: {e}", principal.display()))?;
+    let main = cfg.trabalho.join("bootstrap.dart");
+    std::fs::write(&main, bootstrap(apps)).map_err(|e| format!("{}: {e}", main.display()))?;
     let pc = cfg.trabalho.join("package_config.json");
-    let json = package_config(package_config_do_projeto, &cfg.api)?;
+    let json = package_config(project_package_config, &cfg.api)?;
     std::fs::write(&pc, serde_json::to_string_pretty(&json).unwrap_or_default()).map_err(|e| format!("{}: {e}", pc.display()))?;
     let mut cmd = std::process::Command::new(&cfg.dart);
-    cmd.arg("--enable-experiment=macros").arg(format!("--packages={}", pc.display())).arg(&principal);
-    Ok(ExecutorDfexec::novo(CanalDeProcesso::iniciar(cmd)?))
+    cmd.arg("--enable-experiment=macros").arg(format!("--packages={}", pc.display())).arg(&main);
+    Ok(DfexecExecutor::new(CanalDeProcesso::iniciar(cmd)?))
 }
