@@ -4332,8 +4332,38 @@ microbenchmark só valem presos a um núcleo P).
 | **JS desenvolvimento** (`crates/emit_js`, contrato do DDC) | corpus diferencial **238/238** byte a byte contra `dart run` (medido hoje, 60 s); `limitless_ui` 26/26 no e2e; `new_sali/frontend` com os 11 passos do fluxo iguais ao oficial | — |
 | **JS produção** (`crates/emit_js_producao`) | corpus `--producao` 238/238; `new_sali` 12.082.759 bytes, `limitless_ui` 6.693.718 bytes (brutos) | piso de ~1 MB enquanto o runtime for o `dart_sdk.js` do DDC: compilar o SDK pela nossa trilha (PLANO passo 4); precisão do mundo fechado, minificação, *code splitting* (`docs/JS-PRODUCAO.md` §6) |
 | **Analisador** (`crates/analise`, `types`) | placar **22.900/23.012** (99,5%, posição exata), FP 17, FN 95; projetos reais sem diagnóstico a mais; CLI e LSP publicam os 167 códigos de `verificados.txt` | os 17 FP e 95 FN; conferir nos projetos reais os 391 códigos com zero FP no corpus para entrarem em `verificados.txt` |
-| **LSP** (`crates/lsp`) | oráculo contra o `dart language-server` 3.6.2 (`r6`): símbolos, dobras, tokens, correções, hover, rename, highlight, selectionRange e workspace/symbol 100%; references 96%, implementation 96%, completar top-1/top-5 97%, assistências 98% | `SnippetTextEdit` nas assistências; latência de references/implementation (~290/227 ms contra 3/2 ms do Dart); incremental I5–I6; formatação (porte do `dart_style`, fora do escopo) |
+| **LSP** (`crates/lsp`) | oráculo contra o `dart language-server` 3.6.2 (`r6`): símbolos, dobras, tokens, correções, hover, rename, highlight, selectionRange e workspace/symbol 100%; formatação (`formatting`, `rangeFormatting`, `onTypeFormatting`) pelo porte do `dart_style`, edições idênticas às do Dart; references 96%, implementation 96%, completar top-1/top-5 97%, assistências 98% | `SnippetTextEdit` nas assistências; latência de references/implementation (~290/227 ms contra 3/2 ms do Dart); incremental I5–I6 |
 | **Geração de código e ngdart** (`crates/build`, `dartforge serve`) | builders pelo executor nativo; `limitless_ui` e `new_sali/frontend` pela nossa trilha | compilador de visões do ngdart (§2.0) |
+
+### Formatador (`dart format`)
+
+`crates/formatar` é o porte do `dart_style` 2.3.8, o que o `dart format` do SDK 3.6.2 traz; o 3.6.2
+formata no estilo "curto" (o "alto" só existe atrás do experimento `tall-style` e não foi portado).
+Tokens do analyzer sobre o lexer do frontend, parser próprio que monta a árvore no formato do AST do
+analyzer, e o `SourceVisitor` com `ChunkBuilder`, `LineSplitter` (busca por custo, 5000 tentativas,
+fila com sobreposição) e a checagem de sanidade de brancos do original. `dartforge format` tem as
+opções principais (`-o write|show|json|none`, `--show`, `--summary`, `--set-exit-if-changed`,
+`-l/--line-length`, `-i/--indent`, stdin) com as mensagens e códigos de saída do `dart format`; o LSP
+responde `textDocument/formatting`, `rangeFormatting` e `onTypeFormatting` com as edições mínimas do
+`generateMinimalEdits` do analysis server.
+
+Oráculo (`cargo run --release -p dartforge-formatar --example oraculo`, referências do `dart format`
+em cache em `target/oraculo-formatar/`), saída byte a byte:
+
+| conjunto | idênticos |
+| --- | --- |
+| `.dart` do repositório (corpus/, examples/, sdk_nativo/, pacotes/…) | 9866/9866 |
+| `lib/` do SDK 3.6.2 | 426/426 |
+| pub cache (340 pacotes) | 27896/27899 |
+
+Os arquivos que o `dart format` recusa (erro de sintaxe) ficam fora do placar. LSP: contra o
+`dart language-server` 3.6.2, 80 arquivos não formatados do corpus com edições idênticas em
+`formatting` (80/80) e em `rangeFormatting`/`onTypeFormatting` (400/400).
+
+Falta: os 3 arquivos do pub cache (símbolo `#[]`, dois testes de metadados do
+`_fe_analyzer_shared`); as correções `--fix*` (não suportadas, o comando recusa); `--selection`; a
+mensagem de erro de sintaxe tem o formato do `dart format`, mas o texto do diagnóstico é o do nosso
+parser; o estilo "alto" (padrão do `dart format` a partir do SDK 3.7).
 
 ### Nativo: modos de raízes e exceções contra o padrão
 
