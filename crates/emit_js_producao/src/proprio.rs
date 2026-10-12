@@ -339,7 +339,13 @@ pub fn montar(e: &EmitidoComSdk, op: Opcoes, nomes: Option<&crate::propriedades:
     // O módulo do SDK numa IIFE, como os do programa: os `var` do prelúdio
     // dele (aliases `dartx`, nomes privados) são locais; o que é
     // compartilhado (`dart`, os namespaces, `dartx`) está no *bootstrap*.
-    let sdk = format!("{}const t$R = r => {PREFIXO_RTI}r, true);\n(function () {{\n{}}})();\n", e.bootstrap, e.sdk);
+    // A marca do fim do SDK separa, para o renomeio de propriedades, as
+    // *strings* do runtime das do programa (`minificar::MARCA_FIM_DO_SDK`);
+    // só existe quando esse renomeio vai rodar, e a compressão a apaga.
+    let nomes_ok = std::env::var("DARTFORGE_JSPROD_NOMES").map_or(true, |v| v != "0");
+    let props = nomes_ok && std::env::var("DARTFORGE_JSPROD_PROPS").map_or(true, |v| v != "0");
+    let marca = if op.minificar && props && nomes.is_some() { format!("\"{}\";\n", minificar::MARCA_FIM_DO_SDK) } else { String::new() };
+    let sdk = format!("{}const t$R = r => {PREFIXO_RTI}r, true);\n(function () {{\n{}}})();\n{marca}", e.bootstrap, e.sdk);
     let usuario = modulos.iter().map(|m| m.corpo.len() + m.namespaces.iter().map(|n| n.len() + 1).sum::<usize>()).sum();
     let preambulo = if op.stub { bundle::PREAMBULO_STUB } else { "" };
     let js = bundle::montar(&sdk, &modulos, &entrada, preambulo);
@@ -349,10 +355,8 @@ pub fn montar(e: &EmitidoComSdk, op: Opcoes, nomes: Option<&crate::propriedades:
     let js = apelidar_receitas(&js);
     let antes_de_compactar = js.len();
     // Identificadores por escopo e espaço (oxc); `DARTFORGE_JSPROD_NOMES=0`
-    // fica só na compactação de espaço.
-    let nomes_ok = std::env::var("DARTFORGE_JSPROD_NOMES").map_or(true, |v| v != "0");
-    // `DARTFORGE_JSPROD_PROPS=0` desliga o renomeio de propriedades.
-    let props = nomes_ok && std::env::var("DARTFORGE_JSPROD_PROPS").map_or(true, |v| v != "0");
+    // fica só na compactação de espaço, e `DARTFORGE_JSPROD_PROPS=0` desliga
+    // o renomeio de propriedades (`nomes_ok` e `props`, acima).
     let js = if op.minificar && props && nomes.is_some() {
         match minificar::minificar_com_propriedades(&js, nomes.unwrap_or(&crate::propriedades::Nomes::default())) {
             Ok(m) => m,

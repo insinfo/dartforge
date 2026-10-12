@@ -335,33 +335,169 @@ mod testes {
 ///
 /// O texto não é JS válido para o parser (o que seria defeito do emissor):
 /// a primeira mensagem do parser.
-/// *Strings* literais com forma de identificador: nomes que chegam à
-/// execução por texto (`dsend(o, "foo")`, `"a" in opts`,
-/// `defineExtensionMethods(C, ["foo"])`) e por isso não podem ser renomeados.
-struct StringsIdentificador(std::collections::HashSet<String>);
+/// Marca que `proprio::montar` põe logo depois do módulo do SDK: o que vem
+/// antes dela (o *bootstrap* e o SDK) é o runtime, cujas *strings* são todas
+/// nomes em potencial; o que vem depois é o programa. A compressão a apaga
+/// (expressão sem efeito).
+pub const MARCA_FIM_DO_SDK: &str = "dartforge:fim-do-sdk";
+
+/// Funções do runtime (`dart.X`) que recebem *strings* que **não** são nomes
+/// de propriedade: descrições de símbolo, mensagens, valores constantes,
+/// formas de *record*. As outras chamadas de `dart.X` (`dsend`, `dload`,
+/// `bind`, `defineExtensionMethods`, as assinaturas…) tratam as suas
+/// *strings* como nomes.
+const DART_SEM_NOMES: &[&str] = &[
+    "privateName", "const", "constList", "constMap", "constSet", "nullCheck", "throw", "fn", "equals", "toString", "str", "strSafe", "hashCode",
+    "identical", "lateFields", "recordLiteral", "registerExtension", "jsInteropNullCheck", "checkNativeNonNull",
+];
+
+/// Métodos do JavaScript cuja *string* é nome de propriedade
+/// (`Object.defineProperty(o, "x", …)`, `o.hasOwnProperty("x")`).
+const JS_COM_NOMES: &[&str] = &["defineProperty", "getOwnPropertyDescriptor", "hasOwnProperty", "propertyIsEnumerable", "get", "has", "set", "deleteProperty"];
+
+/// *Strings* literais com forma de identificador que chegam à execução como
+/// **nome de propriedade** e por isso não podem ser renomeadas
+/// (`docs/JS-PRODUCAO-TAMANHO.md` §9.1):
+///
+/// * todas as do runtime (o *bootstrap* e o SDK, antes de
+///   [`MARCA_FIM_DO_SDK`]): o `dart:_runtime` e os *templates* `JS()`
+///   indexam objetos por *strings* de várias formas;
+/// * no programa, só as que estão em posição de nome: dentro dos argumentos de
+///   uma chamada `dart.X` (fora de [`DART_SEM_NOMES`]) ou `js_util.X`, à
+///   esquerda de `in`, e nos argumentos de [`JS_COM_NOMES`].
+///
+/// Uma *string* de dados do programa (chave de JSON, nome de coluna, classe
+/// CSS, a mensagem de um `LateError`) não reserva o nome: no contrato do DDC
+/// ela nunca vira acesso a membro Dart sem passar por um desses lugares.
+/// `DARTFORGE_JSPROD_STRINGS=todas` volta à regra antiga (toda *string*).
+struct StringsIdentificador {
+    nomes: std::collections::HashSet<String>,
+    /// Início da marca do fim do SDK no fonte (`u32::MAX` sem marca: tudo é
+    /// runtime, a regra antiga).
+    fim_sdk: u32,
+    /// Para cada chamada aberta, se as *strings* dentro dela são nomes.
+    pilha: Vec<bool>,
+}
 
 impl<'a> oxc_ast_visit::Visit<'a> for StringsIdentificador {
     fn visit_string_literal(&mut self, it: &oxc_ast::ast::StringLiteral<'a>) {
-        self.guardar(it.value.as_str());
+        if self.e_nome(it.span.start) {
+            self.guardar(it.value.as_str());
+        }
     }
     fn visit_template_literal(&mut self, it: &oxc_ast::ast::TemplateLiteral<'a>) {
-        for q in &it.quasis {
-            if let Some(c) = &q.value.cooked {
-                self.guardar(c.as_str());
+        if self.e_nome(it.span.start) {
+            for q in &it.quasis {
+                if let Some(c) = &q.value.cooked {
+                    self.guardar(c.as_str());
+                }
             }
         }
         oxc_ast_visit::walk::walk_template_literal(self, it);
     }
+    fn visit_call_expression(&mut self, it: &oxc_ast::ast::CallExpression<'a>) {
+        use oxc_ast::ast::Expression;
+        let contexto = match &it.callee {
+            Expression::StaticMemberExpression(m) => {
+                let prop = m.property.name.as_str();
+                match &m.object {
+                    Expression::Identifier(o) if o.name == "dart" => !DART_SEM_NOMES.contains(&prop),
+                    Expression::Identifier(o) if o.name == "js_util" => true,
+                    _ => JS_COM_NOMES.contains(&prop),
+                }
+            }
+            // Os mesmos, já achatados (`dart$$dsend`, `achatar.rs`).
+            Expression::Identifier(i) => {
+                if let Some(x) = crate::achatar::membro(i.name.as_str(), "dart") {
+                    !DART_SEM_NOMES.contains(&x)
+                } else {
+                    crate::achatar::membro(i.name.as_str(), "js_util").is_some()
+                }
+            }
+            _ => false,
+        };
+        // O contexto vale para os argumentos e o que está dentro deles
+        // (`() => ["a"]` das assinaturas estáticas, `[…]` do
+        // `defineExtensionMethods`), até a próxima chamada, `new` ou corpo de
+        // função, que abrem o seu.
+        self.pilha.push(false);
+        self.visit_expression(&it.callee);
+        self.pilha.pop();
+        self.pilha.push(contexto);
+        for a in &it.arguments {
+            self.visit_argument(a);
+        }
+        self.pilha.pop();
+    }
+    fn visit_new_expression(&mut self, it: &oxc_ast::ast::NewExpression<'a>) {
+        self.pilha.push(false);
+        oxc_ast_visit::walk::walk_new_expression(self, it);
+        self.pilha.pop();
+    }
+    fn visit_function_body(&mut self, it: &oxc_ast::ast::FunctionBody<'a>) {
+        // Corpo de função com instruções (os *getters* do `defineLazy`, os
+        // métodos): o que ele faz não é argumento da chamada. A flecha de
+        // expressão (`() => ["a"]`) não tem instruções e herda.
+        let expressao = it.statements.len() == 1 && matches!(it.statements[0], oxc_ast::ast::Statement::ExpressionStatement(_)) && it.directives.is_empty();
+        let herdado = self.pilha.last().copied().unwrap_or(false);
+        self.pilha.push(expressao && herdado);
+        oxc_ast_visit::walk::walk_function_body(self, it);
+        self.pilha.pop();
+    }
+    fn visit_binary_expression(&mut self, it: &oxc_ast::ast::BinaryExpression<'a>) {
+        if it.operator == oxc_syntax::operator::BinaryOperator::In
+            && let oxc_ast::ast::Expression::StringLiteral(s) = &it.left
+        {
+            self.guardar(s.value.as_str());
+        }
+        oxc_ast_visit::walk::walk_binary_expression(self, it);
+    }
 }
 
 impl StringsIdentificador {
+    fn novo(fim_sdk: u32) -> Self {
+        StringsIdentificador { nomes: std::collections::HashSet::new(), fim_sdk, pilha: Vec::new() }
+    }
+    fn e_nome(&self, inicio: u32) -> bool {
+        inicio < self.fim_sdk || self.pilha.last().copied().unwrap_or(false)
+    }
     fn guardar(&mut self, v: &str) {
         let mut cs = v.chars();
         let ok = cs.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$') && cs.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
-        if ok && !self.0.contains(v) {
-            self.0.insert(v.to_string());
+        if ok && !self.nomes.contains(v) {
+            self.nomes.insert(v.to_string());
         }
     }
+}
+
+/// Início, no fonte, da *string* [`MARCA_FIM_DO_SDK`] (`u32::MAX` sem ela).
+fn inicio_da_marca(programa: &oxc_ast::ast::Program<'_>) -> u32 {
+    use oxc_ast::ast::{Expression, Statement};
+    fn em(stmts: &[Statement<'_>]) -> Option<u32> {
+        for s in stmts {
+            if let Statement::ExpressionStatement(e) = s {
+                match &e.expression {
+                    Expression::StringLiteral(l) if l.value == MARCA_FIM_DO_SDK => return Some(l.span.start),
+                    // O embrulho `(function () { … })();` do arquivo inteiro.
+                    Expression::CallExpression(c) => {
+                        if let Expression::ParenthesizedExpression(p) = &c.callee
+                            && let Expression::FunctionExpression(f) = &p.expression
+                            && let Some(b) = &f.body
+                            && let Some(x) = em(&b.statements)
+                        {
+                            return Some(x);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        None
+    }
+    if std::env::var("DARTFORGE_JSPROD_STRINGS").is_ok_and(|v| v == "todas") {
+        return u32::MAX;
+    }
+    em(&programa.body).unwrap_or(u32::MAX)
 }
 
 /// *Strings* literais em posição de expressão (não chaves de objeto nem
@@ -465,6 +601,8 @@ pub fn minificar_com_propriedades(js: &str, nomes: &crate::propriedades::Nomes) 
     // `this` repetido vira local (`aliasthis.rs`); `DARTFORGE_JSPROD_THIS=0` desliga.
     let fonte = if std::env::var("DARTFORGE_JSPROD_THIS").map_or(true, |v| v != "0") { crate::aliasthis::aplicar(&fonte) } else { fonte };
     let fonte = if std::env::var("DARTFORGE_JSPROD_DEDUP").map_or(true, |v| v != "0") { deduplicar_strings(&fonte)? } else { fonte };
+    // Membros de biblioteca como variáveis (`achatar.rs`); `DARTFORGE_JSPROD_ACHATAR=0` desliga.
+    let fonte = if std::env::var("DARTFORGE_JSPROD_ACHATAR").map_or(true, |v| v != "0") { crate::achatar::aplicar(&fonte)?.0 } else { fonte };
     let alocador = Allocator::default();
     let lido = Parser::new(&alocador, &fonte, SourceType::cjs()).parse();
     if let Some(e) = lido.diagnostics.first() {
@@ -476,11 +614,11 @@ pub fn minificar_com_propriedades(js: &str, nomes: &crate::propriedades::Nomes) 
     // `"a.b".split(".")` no `defineExtensionAccessors`), e o nome some do
     // texto sem deixar de ser lido em execução. E de novo depois, para o que
     // ela criar. `DARTFORGE_JSPROD_COMPRIMIR=0` desliga a compressão.
-    let mut strings = StringsIdentificador(std::collections::HashSet::new());
+    let mut strings = StringsIdentificador::novo(inicio_da_marca(&programa));
     strings.visit_program(&programa);
     if std::env::var("DARTFORGE_JSPROD_COMPRIMIR").map_or(true, |v| v != "0") {
         let mut c = oxc_minifier::CompressOptions::smallest();
-        c.treeshake.manual_pure_functions = ["dart.privateName", "dart.fnType", "dart.gFnType", "t$R"].iter().map(|s| s.to_string()).collect();
+        c.treeshake.manual_pure_functions = ["dart.privateName", "dart.fnType", "dart.gFnType", "dart$$privateName", "dart$$fnType", "dart$$gFnType", "t$R"].iter().map(|s| s.to_string()).collect();
         let _ = Minifier::new(MinifierOptions { mangle: None, mangle_properties: None, compress: Some(c) }).minify(&alocador, &mut programa);
     }
     strings.visit_program(&programa);
@@ -488,10 +626,22 @@ pub fn minificar_com_propriedades(js: &str, nomes: &crate::propriedades::Nomes) 
         .renomeaveis
         .iter()
         .map(String::as_str)
-        .filter(|n| !nomes.reservados.contains(*n) && !strings.0.contains(*n) && n.len() > 1)
+        .filter(|n| !nomes.reservados.contains(*n) && !strings.nomes.contains(*n) && n.len() > 1)
         .filter(|n| n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$') && !n.as_bytes()[0].is_ascii_digit())
         .collect();
     livres.sort_unstable();
+    // `DARTFORGE_JSPROD_PROPS_POR=a,b`: por que cada nome fica ou sai (diagnóstico).
+    if let Ok(alvos) = std::env::var("DARTFORGE_JSPROD_PROPS_POR") {
+        for a in alvos.split(',') {
+            eprintln!(
+                "[jsprod] propriedade {a}: renomeável={} reservado={} string-de-nome={} livre={}",
+                nomes.renomeaveis.contains(a),
+                nomes.reservados.contains(a),
+                strings.nomes.contains(a),
+                livres.contains(&a)
+            );
+        }
+    }
     // O `include` do `oxc` é uma regex; a lista de nomes livres não cabe
     // numa. Então: uma coleta com tudo elegível dá os candidatos que o `oxc`
     // enxerga; os que não são livres entram nos reservados; a segunda coleta
@@ -499,7 +649,7 @@ pub fn minificar_com_propriedades(js: &str, nomes: &crate::propriedades::Nomes) 
     if !livres.is_empty() {
         let livres: std::collections::HashSet<&str> = livres.iter().copied().collect();
         let mut base = ManglePropertiesOptions::from_pattern(".")?;
-        for r in nomes.reservados.iter().chain(strings.0.iter()) {
+        for r in nomes.reservados.iter().chain(strings.nomes.iter()) {
             base.reserved.insert(r.as_str().into());
         }
         let mut sonda = oxc_minifier::PropertyMangler::new_in(base.clone(), &alocador);
@@ -510,7 +660,7 @@ pub fn minificar_com_propriedades(js: &str, nomes: &crate::propriedades::Nomes) 
             // Propriedade de nome privado do programa (`_x$1c`, `$C$x$1c`):
             // gerada pelo emissor, só citada pelo próprio texto.
             let privado = c.rsplit_once('$').is_some_and(|(b, t)| !b.is_empty() && nomes.tags.contains(&format!("${t}")));
-            if !livres.contains(c.as_str()) && !(privado && !nomes.reservados.contains(&c) && !strings.0.contains(&c)) {
+            if !livres.contains(c.as_str()) && !(privado && !nomes.reservados.contains(&c) && !strings.nomes.contains(&c)) {
                 o.reserved.insert(c.as_str().into());
             }
         }

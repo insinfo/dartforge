@@ -295,8 +295,18 @@ async function main() {
   await new Promise((r) => srv.listen(op.porta, '127.0.0.1', r));
   const base = `http://127.0.0.1:${op.porta}`;
 
-  const edge = ['C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Microsoft/Edge/Application/msedge.exe'].find(existsSync);
-  if (!edge) throw new Error('Edge não encontrado');
+  // `NAVEGADOR` escolhe o executável; senão o Edge do Windows ou o Chrome/Edge
+  // do macOS e do Linux.
+  const edge = [
+    process.env.NAVEGADOR,
+    'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+    'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/usr/bin/google-chrome',
+    '/usr/bin/chromium',
+  ].filter(Boolean).find(existsSync);
+  if (!edge) throw new Error('navegador não encontrado (defina NAVEGADOR)');
   const perfil = mkdtempSync(join(DIR_TEMPORARIO, 'tmp-edge-'));
   const portaCdp = op.porta + 1;
   const navegador = spawn(edge, [

@@ -14,6 +14,7 @@
 //! O texto emitido é conferido contra o mundo (`verificar.rs`): o que o texto
 //! cita e o mundo podou volta como raiz, e o mundo é recalculado.
 
+pub mod achatar;
 pub mod alcance;
 pub mod aliasthis;
 pub mod bundle;

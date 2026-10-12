@@ -562,3 +562,66 @@ O limiar foi medido: com `2k > 13` o `new_sali` sai com 12.103.052 bytes; com
 Validação (2026-10-06): corpus `--producao` 238/238, `limitless_ui` 26/26 no
 e2e, `new_sali` com o `fluxo.mjs` nos 11 passos sem erro, igual ao controle
 sem o passo.
+
+## 9. Rodada de 2026-10-12 (macOS): rumo a menos que o `dart2js -O4`
+
+Meta do dono: arquivo **menor** que o do `dart compile js -O4`, com o corpus
+de produção 238/238 igual à VM. Medido antes de mexer
+(`scripts/medir-js-producao-tokens.py`, categorias de token do arquivo
+minificado; o `dart2js` é o `build_runner build --release` com `-O4`):
+
+| categoria | `new_sali` nosso | `new_sali` dart2js |
+| --- | ---: | ---: |
+| nomes de propriedade (`.x`) | 2.985.036 | 816.930 |
+| chaves de objeto (`x:`) | 319.424 | 65.883 |
+| *strings* e *templates* | 3.096.331 | 2.120.568 |
+| pontuação | 2.743.261 | 2.085.301 |
+| identificadores | 1.483.127 | 1.162.202 |
+| palavras-chave | 962.114 | 677.675 |
+| total | 12.077.217 | 7.614.136 |
+
+A maior diferença eram os nomes de propriedade: 1,72 MB em nomes de nove
+letras ou mais que o renomeio deixava como estavam.
+
+### 9.1 Só as *strings* em posição de nome reservam
+
+A regra da §3.1 reservava **toda** *string* com forma de identificador do
+arquivo. No `new_sali` isso prendia os campos dos modelos (`"codProcesso"`
+como chave de JSON ou nome de coluna), os nomes das constantes de `enum`
+(`"otherNeutrals"`, o `_name`) e as mensagens dos `LateError`. Agora
+(`minificar::StringsIdentificador`):
+
+* as *strings* do runtime (o *bootstrap* e o módulo do SDK, antes da marca
+  `"dartforge:fim-do-sdk"` que `proprio::montar` põe depois do SDK)
+  continuam todas reservadas;
+* no programa, só as que estão nos argumentos de uma chamada `dart.X` (fora
+  das que recebem mensagens, constantes e descrições: `privateName`,
+  `const*`, `nullCheck`, `throw`, `fn`, `str`, `lateFields`,
+  `recordLiteral`…) ou `js_util.X`, à esquerda de `in`, e nos argumentos de
+  `defineProperty`/`hasOwnProperty`/`Reflect.get`… O contexto vale até a
+  próxima chamada, `new` ou corpo de função com instruções (os *getters* do
+  `defineLazy` não herdam; a flecha `() => ["root"]` das assinaturas
+  estáticas herda).
+
+`DARTFORGE_JSPROD_STRINGS=todas` volta à regra antiga, e
+`DARTFORGE_JSPROD_PROPS_POR=a,b` diz por que cada nome fica.
+
+### 9.2 Membros de biblioteca como variáveis
+
+`dart.dsend(…)`, `core.print(…)`, `L$pacote__lib.Classe.new(…)`: no contrato do
+DDC a biblioteca é um objeto e o membro de topo, uma propriedade. Eram 110 mil
+acessos no `new_sali`, e o nome do membro disputava o espaço dos nomes de
+propriedade: `dart.throw`, `dart.bind`, `dart.const`, `html.document`, o
+`setAttribute` e o `appendText` do ngdart ficavam por extenso porque o mesmo
+nome é propriedade do JavaScript ou do DOM. `achatar.rs` troca `N.x` por uma
+variável `N$$x` declarada no topo do arquivo, que o `oxc` encurta como a um
+local, quando:
+
+* `N` é declarado no topo com `Object.create(…)` e não é sombreado;
+* `N` só é usado como objeto de `N.x`/`N["x"]` ou como primeiro argumento de
+  `defineLazy`/`copyProperties` (cujas chaves ficam propriedades) e de
+  `privateName`;
+* `x` tem uma escrita `N.x = …`, não é *getter* de `defineLazy`, e nenhuma
+  função atribuída a ele lê `this` (nem há `delete N.x`).
+
+`DARTFORGE_JSPROD_ACHATAR=0` desliga.
