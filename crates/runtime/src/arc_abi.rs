@@ -354,6 +354,28 @@ pub extern "C" fn dartforge_arc_lista_ref_owned_v1(lista: i64, indice: i64) -> i
     })
 }
 
+/// Lê um elemento da lista geral emprestado da lista, sem token do código.
+///
+/// As mesmas conferências de [`dartforge_arc_lista_ref_owned_v1`]. É a
+/// leitura do ARC sem preparação (o regime legado), em que ninguém consome
+/// tokens: o elemento fica vivo pela lista e pelas raízes do quadro.
+///
+/// # Panics
+/// Lista/layout/índice inválido; aborta na fronteira C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// // SAFETY: um elemento Ref vivo e alinhado durante a cópia.
+/// let lista = unsafe { dartforge_lista_nova([0].as_ptr(), 1, 8, 0) };
+/// dartforge_arc_retain(lista);
+/// assert_eq!(dartforge_arc_lista_ref_v1(lista, 0), 0);
+/// dartforge_arc_release(lista);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_lista_ref_v1(lista: i64, indice: i64) -> i64 {
+    HEAP.with(|h| ler_elemento_ref_auditado(&h.borrow(), lista, indice).expect("leitura ARC de lista inválida"))
+}
+
 #[cfg(test)]
 mod testes_lista_ref_owned {
     use super::*;

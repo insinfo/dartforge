@@ -608,7 +608,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.emit(Instruction::ICmp(ICmpOp::Ne, b, Operand::Constant(Constant::Int(0))), Type::I1)
             }
             _ if self.ctx.memoria_arc => self.emit(Instruction::CallRuntime {
-                name: "dartforge_arc_lista_ref_owned_v1".into(),
+                name: leitura_ref_de_lista_arc().into(),
                 args: vec![(lista.clone(), Type::Ref), (indice.clone(), Type::I64)],
                 ret_ty: Type::Ref,
             }, Type::Ref),
@@ -705,6 +705,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         let (dados, _) = self.elementos_e_forma(lista);
         self.emit(Instruction::GravacaoNativa { endereco: dados, indice: indice.clone(), tipo, valor }, Type::Void);
+    }
+}
+
+/// A leitura ARC de um elemento `Ref` de lista geral: com a preparação
+/// publicada, um owner que ela consome; sem ela (o ARC legado, em que
+/// ninguém solta tokens do código), o empréstimo da lista.
+pub(super) fn leitura_ref_de_lista_arc() -> &'static str {
+    if crate::alvo::arc_preparado().unwrap_or(false) {
+        "dartforge_arc_lista_ref_owned_v1"
+    } else {
+        "dartforge_arc_lista_ref_v1"
     }
 }
 
@@ -939,7 +950,7 @@ mod testes_arc {
                 let mut owned = 0; let mut cruas = 0;
                 for (_, inst, ty) in m.functions.iter().filter(|f| f.name == "ler").flat_map(|f| &f.blocks).flat_map(|b| &b.instructions) {
                     if let Instruction::CallRuntime { name, args, ret_ty } = inst {
-                        if name == "dartforge_arc_lista_ref_owned_v1" {
+                        if name == "dartforge_arc_lista_ref_owned_v1" || name == "dartforge_arc_lista_ref_v1" {
                             owned += 1;
                             assert_eq!((*ret_ty, *ty), (Type::Ref, Type::Ref));
                             assert_eq!(args.iter().map(|a| a.1).collect::<Vec<_>>(), vec![Type::Ref, Type::I64]);

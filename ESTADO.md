@@ -333,13 +333,16 @@ sequencial). No `json` ARCP: `encode_grande` 9060 → 600 ms, `reviver` 7452
 O que domina agora (perfil do `json` ARCP): os tokens do código num
 `HashMap<Ref, usize>` (`owners_codigo`, inserção e remoção a cada
 retain/release), a tabela ARC, a drenagem dos zeros e a conferência física
-das leituras e gravações de campo. O ARC legado aborta no `json` (saída 255,
-a investigar). `lista_leitura` (15×) espera N13 sob ARC; `chamadas/closures`
+das leituras e gravações de campo. O ARC legado estourava a memória no
+`json` (1,78 GB de pico, saída 255): desde 4758df70 a leitura de elemento
+`Ref` de lista geral sob ARC criava um token do código que, sem a
+preparação, ninguém soltava. Sem preparação, a leitura agora é emprestada
+(`dartforge_arc_lista_ref_v1`): pico de 331 MB e `json` 2,6–3× o A0 no ARC
+legado (antes 55–123×). `lista_leitura` (15×) espera N13 sob ARC; `chamadas/closures`
 (17×) e `formas` (23×) passam pela invocação uniforme.
 
 **Próximo passo:** tokens do código fora do hash (contador na tabela ARC),
-leituras de campo `final` emprestadas sem retain, o aborto do `json` no ARC
-legado; depois §§27–34 e o gate ARC >= A0.
+leituras de campo `final` emprestadas sem retain; depois §§27–34 e o gate ARC >= A0.
 
 ### Evidências (macOS arm64, logs em `target/`)
 

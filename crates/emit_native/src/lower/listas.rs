@@ -139,7 +139,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             match nome {
                 "df.lista_armazenamento" => "dartforge_arc_lista_armazenamento_ref_v1",
                 "df.lista_capacidade" => "dartforge_arc_lista_capacidade_v1",
-                "df.lista_ler" => "dartforge_arc_lista_ref_owned_v1",
+                "df.lista_ler" => super::tipados::leitura_ref_de_lista_arc(),
                 "df.lista_gravar_ref" => "dartforge_arc_lista_gravar_ref_v1",
                 "df.lista_gravar_len" => "dartforge_arc_lista_gravar_len_v1",
                 "df.lista_gravar_dados" => "dartforge_arc_lista_gravar_dados_v1",
