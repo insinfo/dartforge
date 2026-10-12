@@ -225,7 +225,8 @@ pub(super) fn preparar_com_variantes(
         }
     }
     // Convenções novas só são publicadas junto à preparação completa.
-    super::seletores::conferir(&trabalho)?;
+    let getters_rti = super::caches_rti::getters_rti(&trabalho, &novos);
+    super::seletores::conferir(&trabalho, &getters_rti)?;
     super::globais::preparar(&mut trabalho)?;
     let mut preparadas = trabalho.functions.clone();
     super::seletores::preparar(&mut preparadas);
@@ -261,6 +262,7 @@ pub(super) fn preparar_com_variantes(
             .map(|f| novos[&f.symbol].tabelas.clone())
             .collect();
     }
+    trabalho.arc_preparado = true;
     *modulo = trabalho;
     *planos = novos;
     Ok(total)

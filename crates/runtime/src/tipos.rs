@@ -1084,11 +1084,12 @@ pub(crate) fn tipo_lista_copiada(origem: i64, classe_concreta: Option<i64>) -> O
 /// uma forma do runtime) —, lidos na ordem.
 ///
 /// # Safety
-/// `dados` aponta para `len` bytes UTF-8 legíveis.
+/// `dados` aponta para as palavras do vetor constante do módulo, com ao menos
+/// `len` bytes UTF-8 legíveis (empacotados em little-endian).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_rti_iniciar_tabela(dados: *const u8, len: i64) {
+pub unsafe extern "C" fn dartforge_rti_iniciar_tabela(dados: *const i64, len: i64) {
     // SAFETY: garantido por quem chama (uma constante do módulo).
-    let bytes = unsafe { std::slice::from_raw_parts(dados, usize::try_from(len).unwrap_or(0)) };
+    let bytes = unsafe { std::slice::from_raw_parts(dados.cast::<u8>(), usize::try_from(len).unwrap_or(0)) };
     let texto = std::str::from_utf8(bytes).expect("tabela da RTI em UTF-8");
     for linha in texto.lines() {
         let (tipo, resto) = linha.split_at(1);
@@ -1513,6 +1514,31 @@ pub extern "C" fn dartforge_rti_objeto_tipo(t: i64) -> i64 {
 pub extern "C" fn dartforge_rti_texto(t: i64) -> i64 {
     let s = RTI.with(|u| u.borrow().texto(t));
     HEAP.with(|h| h.borrow_mut().alocar_str(&s))
+}
+
+/// O texto de um tipo sob ARC, com um owner do código do resultado.
+///
+/// `t` é um ID do universo RTI, não referência do heap. O chamador transfere
+/// o owner ou chama release exatamente uma vez. Não executa Dart nem deixa
+/// exceção pendente.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let texto = dartforge_arc_rti_texto_owned_v1(0);
+/// assert_eq!(dartforge_arc_observar_heap_v1(texto), 3);
+/// dartforge_arc_release(texto);
+/// dartforge_arc_collect();
+/// assert_eq!(dartforge_arc_observar_heap_v1(texto), 0);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_rti_texto_owned_v1(t: i64) -> i64 {
+    let s = RTI.with(|u| u.borrow().texto(t));
+    HEAP.with(|h| {
+        let mut heap = h.borrow_mut();
+        let texto = heap.alocar_str(&s);
+        heap.reter_owner_codigo(texto);
+        texto
+    })
 }
 
 /// `TypeError` com a mensagem. No SDK da fonte, a exceção precisa ser a classe

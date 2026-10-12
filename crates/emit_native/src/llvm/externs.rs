@@ -452,6 +452,11 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_string_juntar_tipado(ptr, i64) nounwind",
         efeitos: ALOCA_SEM_LANCAR,
     },
+    Extern {
+        // A mesma interpolação sob ARC: enraíza as partes e entrega owner.
+        decl: "declare i64 @dartforge_arc_string_juntar_owned_v1(ptr, i64) nounwind",
+        efeitos: ALOCA_SEM_LANCAR,
+    },
     // A ABI de quem chama conferida contra a da closure (`closures.rs`).
     Extern {
         decl: "declare i64 @dartforge_closure_tipada(i64, i64) memory(inaccessiblemem: read) nounwind willreturn",
@@ -758,8 +763,9 @@ pub const EXTERNS: &[Extern] = &[
         efeitos: CONSERVADOR,
     },
     Extern {
+        // Folha pura (universo RTI, sem heap): só aborta com tabela malformada.
         decl: "declare void @dartforge_rti_iniciar_tabela(ptr, i64)",
-        efeitos: CONSERVADOR,
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare i64 @dartforge_lista_de_tabela(ptr, i64)",
@@ -886,6 +892,11 @@ pub const EXTERNS: &[Extern] = &[
     Extern {
         decl: "declare i64 @dartforge_rti_texto(i64)",
         efeitos: CONSERVADOR,
+    },
+    Extern {
+        // O mesmo texto sob ARC, com owner do código do resultado.
+        decl: "declare i64 @dartforge_arc_rti_texto_owned_v1(i64) nounwind",
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare i64 @dartforge_rti_objeto_tipo(i64)",

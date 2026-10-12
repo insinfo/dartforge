@@ -21,6 +21,13 @@ pub(super) fn preparar(f: &mut Function) -> Result<(), String> {
             *name = "dartforge_arc_lista_len_v1".into();
             continue;
         }
+        if name == "dartforge_rti_texto" {
+            if *ty != Type::Ref || *ret_ty != Type::Ref || !matches!(args.as_slice(), [(_, Type::I64)]) {
+                return Err(format!("texto RTI ARC em {} v{}: ABI I64/Ref incompatível", f.symbol, v.0));
+            }
+            *name = "dartforge_arc_rti_texto_owned_v1".into();
+            continue;
+        }
         if name != "dartforge_nativo_Socket_RecvFrom" {
             continue;
         }
@@ -56,8 +63,8 @@ mod testes {
                 (ValueId(4), Instruction::ICmp(ICmpOp::Ne, Operand::Val(ValueId(3)), Operand::Constant(Constant::Int(0))), Type::I1),
             ];
             if caso == 6 { insts.pop(); }
-            if caso == 7 {
-                if let Instruction::CallSeletor { args, .. } = &mut insts[0].1 { args[0] = Operand::Val(ValueId(99)); }
+            if caso == 7 && let Instruction::CallSeletor { args, .. } = &mut insts[0].1 {
+                args[0] = Operand::Val(ValueId(99));
             }
             m.functions.push(Function { symbol: "seletor".into(), name: "seletor".into(), depuracao: None,
                 params: vec![(ValueId(0), "recv".into(), if caso == 1 { Type::I64 } else { Type::Ref }),
@@ -85,6 +92,61 @@ mod testes {
                     assert!(crate::llvm::LlvmEmitter::new(&m).emit_all().contains("call i64 %sf2("));
                 } else { assert!(r.is_err(), "caso {caso}"); }
                 assert_eq!(format!("{m:?}"), antes); assert_eq!(planos, ps);
+            }
+        }
+    }
+
+    #[test]
+    fn seletor_aceita_tupla_de_getter_rti_comprovado_e_recusa_constante() {
+        for caso in 0..4 {
+            let mut m = Module::new();
+            m.memoria_arc = caso != 3;
+            m.globais.push((0, Type::I64, "cache".into()));
+            m.caches_rti_arc.insert("cache".into());
+            let retorno = if caso == 1 { ValueId(9) } else { ValueId(1) };
+            m.functions.push(Function { symbol: "getter".into(), name: "getter".into(), depuracao: None,
+                params: vec![], return_ty: Type::I64, blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
+                    (ValueId(0), Instruction::Const(Constant::String("C201".into())), Type::Ref),
+                    (ValueId(1), Instruction::CallRuntime { name: "dartforge_rti_receita".into(),
+                        args: vec![(Operand::Val(ValueId(0)), Type::Ref)], ret_ty: Type::I64 }, Type::I64),
+                    (ValueId(2), Instruction::StoreGlobal { simbolo: "cache".into(), val: Operand::Val(ValueId(1)),
+                        ty: Type::I64, raiz: None }, Type::Void),
+                    (ValueId(3), Instruction::StoreGlobal { simbolo: "cache$ok".into(),
+                        val: Operand::Constant(Constant::Int(1)), ty: Type::I8, raiz: None }, Type::Void),
+                    (ValueId(9), Instruction::Const(Constant::Int(42)), Type::I64)],
+                    terminator: Terminator::Return(Some(Operand::Val(retorno))) }] });
+            let getter_args = if caso == 2 { vec![Operand::Constant(Constant::Int(0))] } else { vec![] };
+            m.functions.push(Function { symbol: "seletor".into(), name: "seletor".into(), depuracao: None,
+                params: vec![(ValueId(0), "recv".into(), Type::Ref)], return_ty: Type::Ref,
+                blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
+                    (ValueId(1), Instruction::CallStatic { symbol: "getter".into(), args: getter_args, ret_ty: Type::I64 }, Type::I64),
+                    (ValueId(2), Instruction::CallSeletor { seletor: "tc:fold".into(), recv: Operand::Val(ValueId(0)),
+                        args: vec![], nomes: vec![], tupla_tipos: Operand::Val(ValueId(1)) }, Type::Ref),
+                    (ValueId(3), Instruction::CallRuntime { name: "dartforge_exception_pending".into(), args: vec![], ret_ty: Type::I8 }, Type::I8),
+                    (ValueId(4), Instruction::ICmp(ICmpOp::Ne, Operand::Val(ValueId(3)), Operand::Constant(Constant::Int(0))), Type::I1)],
+                    terminator: Terminator::CondBranch { cond: Operand::Val(ValueId(4)), then_block: BlockId(1), else_block: BlockId(2) } },
+                    BasicBlock { id: BlockId(1), instructions: vec![], terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) },
+                    BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))) }] });
+            m.retornos_ref_dart.insert("seletor".into());
+            let mut planos = HashMap::from([("getter".into(), PlanoFuncaoDart::default()), ("seletor".into(), PlanoFuncaoDart::default())]);
+            let antes = format!("{m:?}"); let ps = planos.clone();
+            let r = preparar_arc_modulo_dart(&mut m, &mut planos);
+            match caso {
+                0 => {
+                    r.unwrap();
+                    assert_eq!(planos["seletor"].classes[&ValueId(2)], Ownership::Owned);
+                    certificar_portas_arc_aot(&mut m, &planos).unwrap();
+                    let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+                    assert!(ir.contains("call i64 @dartforge_arc_invocar_uniforme_v1(i64 %sc2"));
+                }
+                3 => {
+                    assert_eq!(r.unwrap(), (0, 0));
+                    assert!(crate::llvm::LlvmEmitter::new(&m).emit_all().contains("call i64 %sf2("));
+                }
+                _ => {
+                    assert!(r.is_err(), "caso {caso}");
+                    assert_eq!(format!("{m:?}"), antes); assert_eq!(planos, ps);
+                }
             }
         }
     }
@@ -124,6 +186,85 @@ mod testes {
                     let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
                     assert!(ir.contains("call i64 @dartforge_lista_nova(ptr %list_buf_1"));
                 } else { assert!(r.is_err(), "caso {caso}"); }
+                assert_eq!(format!("{m:?}"), antes);
+                assert_eq!(planos, ps);
+            }
+        }
+    }
+
+    #[test]
+    fn interpolacao_produz_owner_por_tipos_reais_e_recusa_partes_sem_abi() {
+        for caso in 0..7 {
+            let mut m = Module::new();
+            m.memoria_arc = caso != 6;
+            let t = match caso { 2 => Type::F64, 3 => Type::I1, _ => Type::Ref };
+            let mut partes = vec![Operand::Val(ValueId(0)), Operand::Constant(Constant::Int(i64::MIN)),
+                Operand::Val(ValueId(1)), Operand::Val(ValueId(3))];
+            if caso == 4 { partes.push(Operand::Constant(Constant::Null)); }
+            if caso == 5 { partes.push(Operand::Constant(Constant::StringWtf8(b" fim".to_vec()))); }
+            m.functions.push(Function { symbol: "juntar".into(), name: "juntar".into(), depuracao: None,
+                params: vec![(ValueId(0), "texto".into(), t)], return_ty: Type::Ref,
+                blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
+                    (ValueId(1), Instruction::Const(Constant::Int(42)), Type::I64),
+                    (ValueId(3), Instruction::Const(Constant::StringWtf8(b" fim".to_vec())), Type::Ref),
+                    (ValueId(2), Instruction::JuntarTextos { partes }, if caso == 1 { Type::I64 } else { Type::Ref })],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))) }] });
+            let mut p = PlanoFuncaoDart::default();
+            p.tokens.retorno = RetornoTokens::Owned;
+            let mut planos = HashMap::from([("juntar".into(), p)]);
+            let antes = format!("{m:?}");
+            let ps = planos.clone();
+            let r = preparar_arc_modulo_dart(&mut m, &mut planos);
+            match caso {
+                0 => {
+                    r.unwrap();
+                    assert_eq!(planos["juntar"].classes[&ValueId(2)], Ownership::Owned);
+                    let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+                    assert!(ir.contains("call i64 @dartforge_arc_string_juntar_owned_v1(ptr %jbuf2, i64 4)"));
+                    assert!(!ir.contains("call i64 @dartforge_string_juntar_tipado("));
+                    assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+                }
+                6 => {
+                    assert_eq!(r.unwrap(), (0, 0));
+                    let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+                    assert!(ir.contains("call i64 @dartforge_string_juntar_tipado(ptr %jbuf2, i64 4)"));
+                    assert_eq!(format!("{m:?}"), antes);
+                }
+                _ => {
+                    assert!(r.is_err(), "caso {caso}");
+                    assert_eq!(format!("{m:?}"), antes);
+                    assert_eq!(planos, ps);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn chamada_nativa_escalar_e_trivial_reentrante_e_recusa_ref() {
+        for caso in 0..4 {
+            let mut m = Module::new();
+            m.memoria_arc = true;
+            let arg = if caso == 1 { Operand::Val(ValueId(0)) } else { Operand::Val(ValueId(1)) };
+            let ret = if caso == 2 { TipoC::Ptr } else { TipoC::I64 };
+            m.functions.push(Function { symbol: "nativa".into(), name: "nativa".into(), depuracao: None,
+                params: vec![(ValueId(0), "objeto".into(), Type::Ref)], return_ty: Type::Ref,
+                blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
+                    (ValueId(1), Instruction::Const(Constant::Int(7)), Type::I64),
+                    (ValueId(2), Instruction::ChamadaNativa { alvo: Operand::Constant(Constant::Int(0x1000)),
+                        args: vec![(arg, TipoC::I64), (Operand::Constant(Constant::Double(0.5)), TipoC::F64)], ret },
+                        if caso == 3 { Type::Ref } else { Type::I64 })],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }] });
+            m.retornos_ref_dart.insert("nativa".into());
+            let mut planos = HashMap::from([("nativa".into(), PlanoFuncaoDart::default())]);
+            let antes = format!("{m:?}");
+            let ps = planos.clone();
+            let r = preparar_arc_modulo_dart(&mut m, &mut planos);
+            if caso == 0 || caso == 2 {
+                r.unwrap_or_else(|e| panic!("caso {caso}: {e}"));
+                assert_eq!(planos["nativa"].classes[&ValueId(2)], Ownership::Trivial);
+                assert_eq!(planos["nativa"].tokens.instrucoes[&ValueId(2)], EfeitoTokens::default());
+            } else {
+                assert!(r.is_err(), "caso {caso}");
                 assert_eq!(format!("{m:?}"), antes);
                 assert_eq!(planos, ps);
             }

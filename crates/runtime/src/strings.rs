@@ -164,11 +164,57 @@ fn escrever_decimal(buf: &mut [u8; 20], v: i64) -> usize {
 /// strings estão enraizadas pelo emissor.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_string_juntar_tipado(partes: *const i64, n: i64) -> i64 {
+    // SAFETY: o contrato acima.
+    unsafe { juntar_tipado(partes, n, false) }
+}
+
+/// A interpolação de `dartforge_string_juntar_tipado` sob ARC: entrega um
+/// owner do código do resultado.
+///
+/// Mesmos pares (espécie, bits). Os textos ficam enraizados num quadro
+/// proprietário durante a alocação, que pode coletar; o resultado copia as
+/// unidades e não retém as partes. O chamador transfere o owner ou chama
+/// release exatamente uma vez. Não reentra Dart nem deixa exceção pendente.
+///
+/// # Safety
+/// `partes` aponta para `2·n` palavras legíveis; cada parte de espécie 0 é
+/// uma string viva.
+///
+/// # Panics
+/// `n` negativo, espécie fora de 0/1 ou parte 0 que não é string; aborta na
+/// fronteira C.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let sete = dartforge_to_string_i64(7);
+/// let partes = [0, sete, 1, -42];
+/// let texto = unsafe { dartforge_arc_string_juntar_owned_v1(partes.as_ptr(), 2) };
+/// assert_eq!(dartforge_arc_observar_heap_v1(texto), 3);
+/// assert_eq!(dartforge_texto_iguais(texto, dartforge_to_string_i64(-742)), 0);
+/// dartforge_arc_release(texto);
+/// dartforge_arc_collect();
+/// assert_eq!(dartforge_arc_observar_heap_v1(texto), 0);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_arc_string_juntar_owned_v1(partes: *const i64, n: i64) -> i64 {
+    // SAFETY: o contrato acima.
+    unsafe { juntar_tipado(partes, n, true) }
+}
+
+/// O corpo das duas junções; `owned` enraíza as partes e entrega o owner.
+unsafe fn juntar_tipado(partes: *const i64, n: i64, owned: bool) -> i64 {
     let n = usize::try_from(n).expect("número de partes inválido");
     // SAFETY: garantido por quem chama.
-    let partes = unsafe { std::slice::from_raw_parts(partes, 2 * n) };
+    let partes: &[i64] = if n == 0 { &[] } else { unsafe { std::slice::from_raw_parts(partes, 2 * n) } };
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
+        let frame = owned.then(|| {
+            assert!(partes.chunks_exact(2).all(|p| matches!(p[0], 0 | 1)), "espécie de parte inválida");
+            let textos: Vec<i64> = partes.chunks_exact(2).filter(|p| p[0] == 0).map(|p| p[1]).collect();
+            let frame = heap.push_frame_proprietario(textos.len());
+            for (k, &t) in textos.iter().enumerate() { heap.set_root(frame, k, t); }
+            frame
+        });
         let mut buf = [0u8; 20];
         let (mut total, mut um) = (0usize, true);
         for p in partes.chunks_exact(2) {
@@ -192,6 +238,10 @@ pub unsafe extern "C" fn dartforge_string_juntar_tipado(partes: *const i64, n: i
                 heap.copiar_texto(r, pos, p[1], 0, k);
                 pos += k;
             }
+        }
+        if let Some(frame) = frame {
+            heap.reter_owner_codigo(r);
+            heap.pop_frame(frame);
         }
         r
     })
@@ -430,3 +480,40 @@ fn texto_para_parse(handle: i64) -> String {
     })
 }
 
+#[cfg(test)]
+mod testes_juntar_owned {
+    use super::*;
+
+    #[test]
+    fn juntar_owned_enraiza_partes_copia_unidades_e_solta_no_release() {
+        for arc in [false, true] {
+            let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().ativar_arc()); }
+            // As partes perdem a raiz do teste antes da chamada (sem coleta
+            // entre as duas): durante a alocação, só a fábrica as protege.
+            let frame = HEAP.with(|h| h.borrow_mut().push_frame_proprietario(2));
+            let um = HEAP.with(|h| h.borrow_mut().alocar_str("parte sem owner"));
+            HEAP.with(|h| h.borrow_mut().set_root(frame, 0, um));
+            let dois = alocar_texto(Texto::de_unidades(vec![0xD800, 0x41]));
+            HEAP.with(|h| h.borrow_mut().pop_frame(frame));
+            let partes = [0, um, 1, i64::MIN, 0, dois, 1, 0];
+            let r = unsafe { dartforge_arc_string_juntar_owned_v1(partes.as_ptr(), 4) };
+            dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observar_heap_v1(r), 3);
+            let esperado: Vec<u16> = "parte sem owner-9223372036854775808".encode_utf16()
+                .chain([0xD800, 0x41, u16::from(b'0')]).collect();
+            HEAP.with(|h| {
+                let heap = h.borrow();
+                let t = heap.texto(r).unwrap();
+                assert_eq!((0..t.len()).map(|i| t.unidade(i)).collect::<Vec<_>>(), esperado);
+            });
+            dartforge_arc_release(r);
+            dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observar_heap_v1(r), 0);
+            let vazio = unsafe { dartforge_arc_string_juntar_owned_v1(std::ptr::null(), 0) };
+            assert_eq!(dartforge_arc_observar_heap_v1(vazio), 3);
+            dartforge_arc_release(vazio);
+            HEAP.with(|h| { h.replace(anterior); });
+        }
+    }
+}

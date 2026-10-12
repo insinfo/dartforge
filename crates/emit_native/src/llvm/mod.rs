@@ -2039,6 +2039,28 @@ impl<'a> LlvmEmitter<'a> {
         self.rotulo_atual = format!("inv{v}.fim");
     }
 
+    /// Os invocadores uniformes ARC (closures, seletores, chamadas tipadas):
+    /// em corpos preparados pela passada ARC, somente com o certificado de
+    /// portas AOT. Sem preparação, a imagem ARC segue o regime legado do CLI,
+    /// com a chamada direta da entrada.
+    ///
+    /// # Panics
+    /// Corpos ARC preparados sem o certificado de portas.
+    pub(super) fn abi_uniforme_arc(&self) -> bool {
+        if !self.module.memoria_arc || !(self.module.arc_preparado || self.module.portas_arc_aot.is_some()) {
+            return false;
+        }
+        assert!(self.module.portas_arc_aot.is_some(), "invocação ARC preparada exige portas AOT certificadas");
+        true
+    }
+
+    /// As fábricas com owner do código (literal de lista, interpolação): só
+    /// quando a preparação ARC inseriu a liberação desse owner. No regime
+    /// legado ninguém o soltaria, e o objeto nunca seria liberado.
+    pub(super) fn fabricas_owned_arc(&self) -> bool {
+        self.module.memoria_arc && self.module.arc_preparado
+    }
+
     /// `%cf<v>`: o ponteiro da entrada uniforme da closure `c` — o código
     /// dela, ou `@df_clo_invalido` quando o valor não é closure (o runtime
     /// devolve 0 e deixa o `NoSuchMethodError` pendente).
@@ -2161,10 +2183,9 @@ impl<'a> LlvmEmitter<'a> {
                 self.emitir_alloc_closure_tipada(v, code_symbol, env, tipado, *abi, *direto);
             }
             Instruction::ChamadaTipada { alvo, args, ret } => {
-                if self.module.memoria_arc {
-                    assert!(self.module.portas_arc_aot.is_some(),
-                        "chamada tipada ARC exige certificado da imagem AOT fixa");
-                }
+                // A chamada é a mesma nos dois regimes; o predicado só confere
+                // o certificado quando os corpos foram preparados.
+                self.abi_uniforme_arc();
                 let a = self.coagir(alvo, Type::I64);
                 let mut partes = Vec::with_capacity(args.len());
                 for (x, t) in args {
@@ -2193,8 +2214,7 @@ impl<'a> LlvmEmitter<'a> {
                 writeln!(self.out, "  %cat{v} = getelementptr [{n} x i64], ptr %cargs{v}, i64 0, i64 {}", args.len()).unwrap();
                 writeln!(self.out, "  store i64 {tupla}, ptr %cat{v}").unwrap();
                 let c = self.coagir(closure, Type::Ref);
-                if self.module.memoria_arc {
-                    assert!(self.module.portas_arc_aot.is_some(), "closure ARC exige portas AOT certificadas");
+                if self.abi_uniforme_arc() {
                     writeln!(self.out, "  %cav{v} = ptrtoint ptr %cargs{v} to i64").unwrap();
                     writeln!(self.out, "  %cdv{v} = ptrtoint ptr @df.arr.{k} to i64").unwrap();
                     writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_invocar_closure_uniforme_v1(i64 {c}, i64 %cav{v}, i64 %cdv{v})").unwrap();

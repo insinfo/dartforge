@@ -118,6 +118,11 @@ fn contratos_arc_cobrem_exportacoes_sem_inventar_contratos_para_outras_externs()
                         | "dartforge_unbox_int"
                         | "dartforge_unbox_double"
                         | "dartforge_unbox_bool"
+                        | "dartforge_value_class"
+                        | "dartforge_lista_acrescentar"
+                        | "dartforge_rti_iniciar_tabela"
+                        | "dartforge_ffi_endereco_da_closure"
+                        | "dartforge_ffi_endereco_do_ponteiro"
                 )
         })
         .collect();

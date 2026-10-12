@@ -1071,6 +1071,10 @@ pub struct Module {
     /// Portas de uma imagem AOT fixa, após verificar os corpos e dependências.
     /// Alterações posteriores invalidam o inventário; não certifica recarga JIT.
     pub portas_arc_aot: Option<crate::otimizar::arc::PortasArcAot>,
+    /// A preparação ARC de ownership publicou estes corpos. Sem ela, uma imagem
+    /// ARC segue o regime legado (chamadas diretas, fábricas sem owner do
+    /// código); com ela, a emissão exige o certificado de portas AOT.
+    pub arc_preparado: bool,
     /// Caches de IDs nativos RTI declarados pelo lowering, com flag implícita `$ok`.
     /// Todas as escritas e representações exigem conferência antes de produzir contratos.
     pub caches_rti_arc: std::collections::HashSet<String>,

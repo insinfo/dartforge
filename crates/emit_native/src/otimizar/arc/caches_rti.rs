@@ -186,6 +186,72 @@ pub(super) fn preservam_campos(m: &Module, planos: &HashMap<String, PlanoFuncaoD
     seguros
 }
 
+// Getters cujo resultado é comprovadamente um ID do universo RTI: corpo
+// fechado de `preservam_campos` e todo retorno vindo de cache RTI auditado,
+// de `dartforge_rti_receita` ou de outro getter comprovado (maior ponto fixo).
+// Constante ou aritmética não bastam: preservar campos não prova a origem do
+// ID. Toda escrita I64 de cache no módulo precisa vir da receita; sem isso,
+// nenhum getter é aceito. Não cobre recarga JIT.
+pub(super) fn getters_rti(m: &Module, planos: &HashMap<String, PlanoFuncaoDart>) -> HashSet<String> {
+    let caches: HashSet<_> = m.caches_rti_arc.iter().collect();
+    let escritas_nativas = m.functions.iter().all(|f| {
+        let definicoes: HashMap<_, _> = f.blocks.iter().flat_map(|b| &b.instructions)
+            .map(|(v, i, t)| (*v, (i, *t))).collect();
+        f.blocks.iter().flat_map(|b| &b.instructions).all(|(_, inst, _)| match inst {
+            Instruction::StoreGlobal { simbolo, val, ty: Type::I64, .. } if caches.contains(simbolo) =>
+                matches!(val, Operand::Val(id) if definicoes.get(id).is_some_and(|(i, t)| *t == Type::I64
+                    && matches!(i, Instruction::CallRuntime { name, args, ret_ty: Type::I64 }
+                        if name == "dartforge_rti_receita" && args.len() == 1 && args[0].1 == Type::Ref))),
+            _ => true,
+        })
+    });
+    if !escritas_nativas {
+        return HashSet::new();
+    }
+    let funcoes: HashMap<_, _> = m.functions.iter().map(|f| (f.symbol.as_str(), f)).collect();
+    let mut aceitos = preservam_campos(m, planos);
+    loop {
+        let recusados: Vec<String> = aceitos.iter().filter(|s| {
+            let Some(f) = funcoes.get(s.as_str()) else { return true };
+            let definicoes: HashMap<_, _> = f.blocks.iter().flat_map(|b| &b.instructions)
+                .map(|(v, i, t)| (*v, (i, *t))).collect();
+            !f.blocks.iter().all(|b| match &b.terminator {
+                Terminator::Return(Some(Operand::Val(v))) =>
+                    origem_rti(*v, &definicoes, &caches, &aceitos, &mut HashSet::new()),
+                Terminator::Return(_) => false,
+                _ => true,
+            })
+        }).cloned().collect();
+        if recusados.is_empty() {
+            return aceitos;
+        }
+        for s in recusados { aceitos.remove(&s); }
+    }
+}
+
+// Origem de um I64 retornado por getter RTI; Phi exige todas as entradas.
+fn origem_rti(
+    v: ValueId,
+    definicoes: &HashMap<ValueId, (&Instruction, Type)>,
+    caches: &HashSet<&String>,
+    aceitos: &HashSet<String>,
+    visitados: &mut HashSet<ValueId>,
+) -> bool {
+    if !visitados.insert(v) {
+        return true;
+    }
+    match definicoes.get(&v) {
+        Some((Instruction::LoadGlobal { simbolo, ty: Type::I64 }, Type::I64)) => caches.contains(simbolo),
+        Some((Instruction::CallRuntime { name, args, ret_ty: Type::I64 }, Type::I64)) =>
+            name == "dartforge_rti_receita" && args.len() == 1 && args[0].1 == Type::Ref,
+        Some((Instruction::CallStatic { symbol, args, ret_ty: Type::I64 }, Type::I64)) =>
+            args.is_empty() && aceitos.contains(symbol),
+        Some((Instruction::Phi { incoming, .. }, Type::I64)) => incoming.iter().all(|(_, o)|
+            matches!(o, Operand::Val(id) if origem_rti(*id, definicoes, caches, aceitos, visitados))),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod testes {
     use super::*;
@@ -292,6 +358,50 @@ mod testes {
             assert_eq!(seguros.contains("ponte"), caso == 0, "caso {caso}");
         }
         assert!(super::preservam_campos(&base, &HashMap::new()).contains("getter"));
+    }
+
+    #[test]
+    fn getters_rti_exigem_retorno_do_cache_ou_da_receita_e_escritores_nativos() {
+        for caso in 0..8 {
+            let mut m = modulo();
+            m.functions.push(Function { symbol: "ponte".into(), name: "ponte".into(), depuracao: None,
+                params: vec![], return_ty: Type::I64, blocks: vec![BasicBlock { id: BlockId(0),
+                    instructions: vec![(ValueId(0), Instruction::CallStatic { symbol: "getter".into(), args: vec![], ret_ty: Type::I64 }, Type::I64)],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }] });
+            let planos = HashMap::from([("getter".into(), PlanoFuncaoDart::default()), ("ponte".into(), PlanoFuncaoDart::default())]);
+            let getter = &mut m.functions[0];
+            let fixa = |v: u32| (ValueId(v), Instruction::Const(Constant::Int(42)), Type::I64);
+            let phi = |a: Operand| (ValueId(8), Instruction::Phi { incoming: vec![(BlockId(0), Operand::Val(ValueId(4))), (BlockId(0), a)], ty: Type::I64 }, Type::I64);
+            match caso {
+                1 => {
+                    getter.blocks[0].instructions.push(fixa(9));
+                    getter.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(9))));
+                }
+                2 => getter.blocks[0].terminator = Terminator::Return(Some(Operand::Constant(Constant::Int(42)))),
+                3 => {
+                    getter.blocks[0].instructions.push(fixa(9));
+                    getter.blocks[0].instructions.push(phi(Operand::Val(ValueId(9))));
+                    getter.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(8))));
+                }
+                4 => {
+                    getter.blocks[0].instructions.push(phi(Operand::Val(ValueId(1))));
+                    getter.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(8))));
+                }
+                5 => m.functions.push(Function { symbol: "estranho".into(), name: "estranho".into(), depuracao: None,
+                    params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock { id: BlockId(0),
+                        instructions: vec![(ValueId(0), Instruction::StoreGlobal { simbolo: "cache_sem_prefixo".into(),
+                            val: Operand::Constant(Constant::Int(42)), ty: Type::I64, raiz: None }, Type::Void)],
+                        terminator: Terminator::Return(None) }] }),
+                6 => m.caches_rti_arc.clear(),
+                7 => if let Instruction::CallStatic { args, .. } = &mut m.functions[1].blocks[0].instructions[0].1 {
+                    args.push(Operand::Constant(Constant::Int(0)));
+                },
+                _ => {}
+            }
+            let aceitos = super::getters_rti(&m, &planos);
+            assert_eq!(aceitos.contains("getter"), matches!(caso, 0 | 4 | 7), "caso {caso}");
+            assert_eq!(aceitos.contains("ponte"), matches!(caso, 0 | 4), "caso {caso}");
+        }
     }
 
     #[test]

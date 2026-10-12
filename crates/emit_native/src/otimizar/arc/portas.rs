@@ -264,7 +264,8 @@ pub fn certificar_portas_arc_aot(
             super::campos::conferir_chamada(f, inst, Some(&m.layouts_campos_arc))?;
         }
     }
-    super::seletores::conferir(m)?;
+    let getters_rti = super::caches_rti::getters_rti(m, planos);
+    super::seletores::conferir(m, &getters_rti)?;
     conferir_vetores(m)?;
     let mut fs = m.functions.clone();
     let mut ps = planos.clone();
@@ -315,7 +316,7 @@ pub fn certificar_portas_arc_aot(
         }
         for (_, i, t) in f.blocks.iter().flat_map(|b| &b.instructions) {
             super::tipadas::conferir(f, i, *t)?;
-            super::seletores::conferir_vetor_local(f, i, *t)?;
+            super::seletores::conferir_vetor_local(f, i, *t, Some(&getters_rti))?;
             if matches!(i, Instruction::ICmp(_, a, b) if referencia(a) || referencia(b))
                 || matches!(i, Instruction::StoreGlobal { val, ty, .. } if *ty == Type::Ref || referencia(val))
             {

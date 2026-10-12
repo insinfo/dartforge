@@ -1299,9 +1299,13 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
         let simbolo = "df.$tipo.toString".to_string();
         let mut t = FnBuilder::new(ctx, u, simbolo.clone(), "toString".to_string(), Type::Ref);
         let obj = Operand::Val(t.add_param("this".to_string(), Type::Ref));
+        // O campo 0 do `_Type` é o ID RTI, escalar (`dartforge_rti_objeto_tipo`).
+        // Sob ARC, a leitura confere o mapa real do campo; o texto ganha owner
+        // na preparação ARC (`otimizar/arc/nativos.rs`), não aqui.
+        let ler = if ctx.memoria_arc { "dartforge_arc_ler_campo_escalar_v1" } else { "dartforge_object_get" };
         let id = t.emit(
             Instruction::CallRuntime {
-                name: "dartforge_object_get".to_string(),
+                name: ler.to_string(),
                 args: vec![(obj, Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)],
                 ret_ty: Type::I64,
             },
@@ -1317,6 +1321,11 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
         );
         t.terminate(Terminator::Return(Some(s)));
         t.finalizar(module);
+        // Corpo sintetizado: a convenção Dart (retorno Ref Owned) não vem de
+        // `lower_funcao`; o chamador uniforme `toString$c` a exige.
+        if ctx.memoria_arc {
+            module.retornos_ref_dart.insert(simbolo.clone());
+        }
         let mut igualdade = FnBuilder::new(ctx, u, "df.$tipo.$3d$3d$c".to_string(), "==".to_string(), Type::Ref);
         let recv = Operand::Val(igualdade.add_param("this".to_string(), Type::Ref));
         let args = Operand::Val(igualdade.add_param_vetor(VetorEntradaDart::Argumentos));

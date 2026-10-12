@@ -1,4 +1,99 @@
-# Estado do DartForge — 2026-10-11
+# Estado do DartForge — 2026-10-12
+
+## Retomada de 2026-10-12 (macOS arm64)
+
+ARC continua só com `--memoria=arc`; tracing é o padrão. §§27–34, a
+publicação da preparação ARC no CLI AOT/JIT e o gate ARC >= A0 **continuam
+incompletos**.
+
+### Ambiente desta máquina
+
+* LLVM 22.1.8 oficial (`LLVM-22.1.8-macOS-ARM64`, recorte igual ao da ação
+  `llvm-unix`) em `/Volumes/SSD Dock/llvm/LLVM-22.1.8-macOS-ARM64`; Dart 3.6.2
+  em `/Volumes/SSD Dock/DartSDKs/3.6.2`; `gh` 2.102.0 em
+  `/Volumes/SSD Dock/tools/gh` (já autenticado). Exportar `DARTFORGE_CLANG`,
+  `DARTFORGE_LLVM_DIR`, `LLVM_SYS_221_PREFIX`, `DARTFORGE_SDK_LIB` e
+  `SDKROOT="$(xcrun --show-sdk-path)"`: o clang do pacote não acha o SDK
+  sozinho.
+* Sem `llvm-embutido`/JIT, o Rust liga pelo linker da Apple e o emissor usa o
+  clang/`ld64.lld` do pacote. Com JIT, o linker do pacote exige
+  `SDKROOT=…/MacOSX26.5.sdk`: os `.tbd` do SDK 27 trazem `arm64e.x1`, que o
+  LLVM 22 não reconhece. Mesmo assim, o `llvm-sys` não compila a partir de
+  um caminho com espaço (“SSD Dock” vira dois argumentos de `-I`). O JIT
+  local fica pendente de um LLVM num caminho sem espaço.
+* `python3` do sistema é 3.9: `scripts/provar-arc-aot.py` deixou de usar
+  `write_text(newline=)`.
+
+### CI e regressões corrigidas
+
+O `main` estava vermelho desde `aa05983e`, e ninguém tinha percebido:
+* Windows: `runtime/tests/ownership.rs` não listava `dartforge_value_class`
+  e `dartforge_lista_acrescentar`, auditadas no catálogo (75 ≠ 77).
+* Linux, macOS e Windows: `memoria_cli` (AOT e JIT com `--memoria=arc`)
+  entrava em pânico. Desde `a1edd273`, closures, chamadas tipadas e, depois,
+  seletores exigiam portas certificadas sob ARC. Mas a CLI não prepara nem
+  certifica os corpos. Agora `Module::arc_preparado` marca a publicação da
+  preparação: corpos preparados exigem certificado para os invocadores
+  uniformes (guarda preservada). Sem preparação, a imagem ARC segue o regime
+  legado da CLI, com chamada direta. As fábricas com owner do código
+  (literal de lista, interpolação) só são emitidas em corpos preparados, que
+  inserem a liberação desse owner. `memoria_cli` (AOT) passa localmente.
+
+Runtime no macOS: os testes de `rastro.rs` alocavam seção e registros em
+blocos separados do heap e gravavam deslocamentos `i32` entre eles. No
+macOS, esses blocos podem ficar a centenas de GiB de distância, o que
+produzia SIGBUS/SIGSEGV em paralelo e uma falha em série. Agora os testes
+usam uma área única; as asserções não mudaram. Também foi removido um
+`unsafe` aninhado que só existe fora do Windows (`heap.rs`).
+
+### Preparação conjunta com o SDK da fonte
+
+`arc_auditar_pipeline --memoria=arc --sdk-no-grupo --inventario-externs`
+em `bench/desempenho/numerico.dart` passou, em ordem, por:
+* `Stopwatch.start` (`CallSeletor`): a mudança dos seletores preservada no
+  fechamento foi validada, inclusive pela prova AOT ampliada.
+* `Uri.splitQueryString`: a tupla RTI vinda de getter `df.rti.*` é aceita
+  só com prova estrita (`caches_rti::getters_rti`: retorno de cache auditado,
+  de `dartforge_rti_receita` ou de outro getter comprovado, e todos os
+  escritores do cache vindos da receita). Uma constante não basta. Os gates
+  com módulo exigem essa prova; a produção de contratos por corpo aceita só
+  a forma.
+* `medir` (`JuntarTextos`): nova fábrica
+  `dartforge_arc_string_juntar_owned_v1`, que enraíza as partes, copia as
+  unidades e entrega owner. Partes só Ref/`int` em SSA.
+* `df.$tipo.toString`: leitura escalar auditada do ID; o texto ganha owner
+  na preparação (`dartforge_arc_rti_texto_owned_v1`); convenção de retorno
+  Ref declarada.
+* `dartforge_rti_iniciar`: `dartforge_rti_iniciar_tabela` passou de `1 1 0`
+  para `0 0 0`. Isso foi confirmado pela análise estática (`folha_pura`) e
+  por execução AOT tracing com `DARTFORGE_EFEITOS=conferir`, normal e sob
+  GC stress (nome presente na tabela conferida, saída igual à do Dart). O
+  parâmetro Rust passou a `*const i64`, como no vetor constante do módulo.
+* `df.ffi.v_lp$ent`: contratos de `dartforge_ffi_endereco_da_closure`
+  (`pending`) e `dartforge_ffi_endereco_do_ponteiro` (`pending-dart`), e
+  `ChamadaNativa` só com escalares. O resultado é Trivial, sem pendência
+  (`dartforge_ffi_callback_sair` limpa a exceção do callback) e com
+  reentrada Dart.
+
+**Próximo erro:** `df.ffi.v_lp$cb`, `dartforge_ffi_callback_closure` sem
+contrato. A closure vem do contexto nativo (não de um parâmetro Ref), e
+`dartforge_ffi_callback_ponteiro` chama `_dartforgePonteiro` em Dart. Ambos
+pedem variantes Owned pelo protocolo de porta/escopo nativo do
+`recvfrom` UDP, não um contrato emprestado.
+
+### Evidências (macOS arm64, logs em `target/`)
+
+| verificação | resultado |
+| --- | --- |
+| emissor, unitários incluindo ignorados | 456 passaram (`arc-sdk-emitter-test.log`) |
+| runtime, todos os alvos incluindo ignorados | 226 + integrações + 77 doctests (`arc-sdk-runtime-test.log`) |
+| `provar-arc-aot.py arc_porta_nativa_owned --debug` | 24 execuções, `sucesso` (`prova-porta-nativa-owned/evidencia.json`) |
+| `memoria_cli` (nativo, sem JIT), incluindo ignorados | 2 passaram (`memoria-cli.log`) |
+| interpolação/lista/`runtimeType` pela CLI, tracing e ARC, GC stress | saída igual ao `dart run` 3.6.2 |
+
+As novas fábricas Owned têm testes unitários e de preparação, mas ainda
+**não têm prova AOT** própria. A CLI ainda não publica a preparação ARC, e
+o resultado do CI destes commits deve ser conferido com `gh run list`.
 
 ## Fechamento de 2026-10-11
 

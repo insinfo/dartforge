@@ -286,6 +286,7 @@ pub fn preparar_arc_modulos_dart(
     }
     for ((m, p), (fs, ps, fatos)) in modulos.iter_mut().zip(planos.iter_mut()).zip(publicacoes) {
         m.functions = fs;
+        m.arc_preparado = true;
         super::slots_planos::remapear_fatos(m, &fatos);
         if m.excecoes_por_tabelas {
             m.tabelas = m
@@ -574,8 +575,12 @@ mod testes {
         let originais: Vec<_> = ms.iter().map(|m| format!("{m:?}")).collect();
         preparar_arc_modulos_dart(&mut ms, &mut ps).unwrap();
         // Esta prova é de ownership/ABI, não de igualdade dos valores ODR.
+        // Fora a marca da preparação publicada, nada muda.
         for (m, original) in ms.iter().zip(originais) {
-            assert_eq!(format!("{m:?}"), original);
+            assert!(m.arc_preparado);
+            let mut sem_marca = m.clone();
+            sem_marca.arc_preparado = false;
+            assert_eq!(format!("{sem_marca:?}"), original);
         }
         for p in &ps {
             assert_eq!(p["getter"].classes[&ValueId(3)], Ownership::Trivial);

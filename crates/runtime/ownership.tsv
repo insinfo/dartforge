@@ -7,6 +7,11 @@ dartforge_arc_box_int_owned_v1	i64:scalar	ref:owned	0	1	normal
 dartforge_arc_box_simd_owned_v1	i64:native,i64:native,i64:native	ref:owned	0	1	normal
 dartforge_arc_collect	-	void:scalar	0	1	normal
 dartforge_arc_lista_nova_owned_v1	ptr:native,i64:scalar,i64:native,i64:native	ref:owned	1	1	normal
+dartforge_arc_string_juntar_owned_v1	ptr:native,i64:scalar	ref:owned	0	1	normal
+dartforge_arc_rti_texto_owned_v1	i64:native	ref:owned	0	1	normal
+dartforge_rti_iniciar_tabela	ptr:native,i64:scalar	void:scalar	0	0	normal
+dartforge_ffi_endereco_da_closure	ref:borrow	i64:scalar	0	1	pending
+dartforge_ffi_endereco_do_ponteiro	ref:borrow	i64:scalar	0	1	pending-dart
 dartforge_arc_closure_owned_v1	i64:native,ref:borrow,i64:native,i64:scalar	ref:owned	1	1	normal
 dartforge_arc_excecao_owned_v1	-	ref:owned	0	1	normal
 dartforge_arc_global_receber_v1	i64:native,ref:consume	void:scalar	1	1	normal

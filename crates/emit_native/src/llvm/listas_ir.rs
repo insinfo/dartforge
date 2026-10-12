@@ -212,7 +212,7 @@ impl LlvmEmitter<'_> {
         writeln!(
             self.out,
             "  %v{v} = call i64 @{}(ptr %list_buf_{v}, i64 {n}, i64 {}, i64 {forma})",
-            if self.module.memoria_arc { "dartforge_arc_lista_nova_owned_v1" } else { "dartforge_lista_nova" },
+            if self.fabricas_owned_arc() { "dartforge_arc_lista_nova_owned_v1" } else { "dartforge_lista_nova" },
             cid::GROWABLE_LIST
         )
         .unwrap();

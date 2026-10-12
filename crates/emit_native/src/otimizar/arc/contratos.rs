@@ -865,6 +865,30 @@ fn produzir(
                 }
                 contratos.insert(*v, c);
             }
+            if let Instruction::JuntarTextos { partes } = inst {
+                // A emissão deriva a espécie de cada par do tipo real: texto
+                // Ref ou `int` sem caixa. Textos chegam por `Const` (o emissor
+                // não materializa string em operando); outra forma não tem ABI.
+                let representavel = |op: &Operand| match op {
+                    Operand::Val(arg) => matches!(tipos.get(arg), Some(Type::Ref | Type::I64)),
+                    Operand::Constant(Constant::Int(_)) => true,
+                    _ => false,
+                };
+                if *ty != Type::Ref || !partes.iter().all(representavel) {
+                    return Err(format!("v{}: interpolação sem partes texto/int auditadas", v.0));
+                }
+                let c = contrato_chamada_runtime(&Instruction::CallRuntime {
+                    name: "dartforge_arc_string_juntar_owned_v1".into(),
+                    args: vec![(Operand::Val(ValueId(0)), Type::Ptr),
+                        (Operand::Constant(Constant::Int(partes.len() as i64)), Type::I64)],
+                    ret_ty: Type::Ref,
+                })?;
+                if classes.get(v).is_some_and(|classe| *classe != c.resultado)
+                    || plano.instrucoes.get(v).is_some_and(|e| *e != c.efeito) {
+                    return Err(format!("v{}: contrato conflitante de interpolação", v.0));
+                }
+                contratos.insert(*v, c);
+            }
             if let Instruction::Box { op, from } = inst && from.e_vetor() {
                 if *ty != Type::Ref || !matches!(op, Operand::Val(v) if tipos.get(v) == Some(from)) {
                     return Err(format!("v{}: caixa SIMD exige vetor de mesmo tipo", v.0));
@@ -915,7 +939,7 @@ fn produzir(
             }
         }
         if incluir_arc && (super::tipadas::conferir(f, inst, *ty)?
-            || super::seletores::conferir_vetor_local(f, inst, *ty)?) {
+            || super::seletores::conferir_vetor_local(f, inst, *ty, None)?) {
             let c = ContratoChamadaRuntime {
                 efeito: EfeitoTokens { pode_falhar: true, ..Default::default() },
                 resultado: if *ty == Type::Ref { Ownership::Owned } else { Ownership::Trivial }, retencao_persistente: true,
@@ -924,6 +948,29 @@ fn produzir(
             if classes.get(v).is_some_and(|classe| *classe != c.resultado)
                 || plano.instrucoes.get(v).is_some_and(|e| *e != c.efeito) {
                 return Err(format!("v{}: contrato conflitante da chamada tipada ARC", v.0));
+            }
+            contratos.insert(*v, c);
+        }
+        if incluir_arc && let Instruction::ChamadaNativa { alvo, args, ret } = inst {
+            // Só escalares atravessam a ABI C (a HIR converte Pointer em
+            // endereço). Um callback Dart pode reentrar, mas a saída C limpa
+            // a pendência (`dartforge_ffi_callback_sair`): nada fica pendente.
+            let escalar = |op: &Operand| match op {
+                Operand::Val(arg) => tipos.get(arg).is_some_and(|t| *t != Type::Ref && *t != Type::Void),
+                Operand::Constant(Constant::Int(_) | Constant::Double(_) | Constant::Bool(_)) => true,
+                _ => false,
+            };
+            if *ty != ret.tipo_hir() || *ty == Type::Ref || !escalar(alvo)
+                || !args.iter().all(|(op, _)| escalar(op)) {
+                return Err(format!("v{}: chamada nativa sem ABI escalar auditada", v.0));
+            }
+            let c = ContratoChamadaRuntime {
+                efeito: EfeitoTokens::default(), resultado: Ownership::Trivial,
+                retencao_persistente: false, invalida_borrows: true, chama_dart: true,
+            };
+            if classes.get(v).is_some_and(|classe| *classe != c.resultado)
+                || plano.instrucoes.get(v).is_some_and(|e| *e != c.efeito) {
+                return Err(format!("v{}: contrato conflitante de chamada nativa", v.0));
             }
             contratos.insert(*v, c);
         }

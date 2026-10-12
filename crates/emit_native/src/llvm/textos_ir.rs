@@ -321,7 +321,9 @@ impl LlvmEmitter<'_> {
             writeln!(self.out, "  %jp{v}_{i} = getelementptr [{} x i64], ptr %jbuf{v}, i64 0, i64 {}", 2 * n, 2 * i + 1).unwrap();
             writeln!(self.out, "  store i64 {s}, ptr %jp{v}_{i}").unwrap();
         }
-        writeln!(self.out, "  %v{v} = call i64 @dartforge_string_juntar_tipado(ptr %jbuf{v}, i64 {n})").unwrap();
+        // Sob ARC, a fábrica enraíza as partes e entrega o owner do resultado.
+        let nome = if self.fabricas_owned_arc() { "dartforge_arc_string_juntar_owned_v1" } else { "dartforge_string_juntar_tipado" };
+        writeln!(self.out, "  %v{v} = call i64 @{nome}(ptr %jbuf{v}, i64 {n})").unwrap();
     }
 
     /// Os globais de nível de módulo das strings: os literais estáticos usados

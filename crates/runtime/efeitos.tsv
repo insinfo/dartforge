@@ -34,6 +34,8 @@ dartforge_arc_quadro_receber_v1	0	0	0
 dartforge_arc_rastro_owned_v1	1	0	0
 dartforge_arc_release	0	0	0
 dartforge_arc_retain	0	0	0
+dartforge_arc_rti_texto_owned_v1	1	0	0
+dartforge_arc_string_juntar_owned_v1	1	0	0
 dartforge_arc_verificar_abi	0	0	0
 dartforge_area_de_globais	1	1	0
 dartforge_area_de_globais_id	1	1	0
@@ -739,7 +741,7 @@ dartforge_rti_como_em	1	1	1
 dartforge_rti_definir	1	0	0
 dartforge_rti_do_valor	1	1	0
 dartforge_rti_e	1	1	0
-dartforge_rti_iniciar_tabela	1	1	0
+dartforge_rti_iniciar_tabela	0	0	0
 dartforge_rti_objeto_tipo	1	1	0
 dartforge_rti_receita	0	0	0
 dartforge_rti_registro_nomeado	1	1	0

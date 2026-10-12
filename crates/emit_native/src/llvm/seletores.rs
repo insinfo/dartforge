@@ -86,8 +86,7 @@ impl LlvmEmitter<'_> {
             )
             .unwrap();
         }
-        if self.module.memoria_arc {
-            assert!(self.module.portas_arc_aot.is_some(), "seletor ARC exige portas AOT certificadas");
+        if self.abi_uniforme_arc() {
             writeln!(self.out, "  %sc{v} = ptrtoint ptr %sf{v} to i64").unwrap();
             writeln!(self.out, "  %sav{v} = ptrtoint ptr %sargs{v} to i64").unwrap();
             writeln!(self.out, "  %sdv{v} = ptrtoint ptr @df.arr.{k} to i64").unwrap();

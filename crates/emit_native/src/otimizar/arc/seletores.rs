@@ -4,7 +4,17 @@ use super::*;
 
 // O vetor de closure/seletor é construído pelo emissor a partir destas Ref;
 // não aceita words implícitas nem uma tupla RTI sem produtor de proveniência.
-pub(super) fn conferir_vetor_local(f: &Function, inst: &Instruction, ty: Type) -> Result<bool, String> {
+// `getters` são os getters RTI comprovados do módulo (`caches_rti::getters_rti`).
+// Sem módulo (`None`, produção de contratos de um corpo), a tupla vinda de
+// `CallStatic` sem argumentos com retorno I64 é aceita só pela forma: o
+// contrato é o mesmo, e a proveniência é exigida pelos gates com módulo
+// (`conferir` no início da preparação e a certificação das portas AOT).
+pub(super) fn conferir_vetor_local(
+    f: &Function,
+    inst: &Instruction,
+    ty: Type,
+    getters: Option<&HashSet<String>>,
+) -> Result<bool, String> {
     let (closure, args, nomes, tupla_tipos, ret_ty, origem) = match inst {
         Instruction::CallClosure { closure, args, nomes, tupla_tipos, ret_ty } =>
             (closure, args, nomes, tupla_tipos, *ret_ty, "closure"),
@@ -19,10 +29,16 @@ pub(super) fn conferir_vetor_local(f: &Function, inst: &Instruction, ty: Type) -
     // A avaliação auditada produz ID no universo RTI, que vive com a imagem
     // AOT; não é endereço do heap nem word Dart. Seus argumentos/receita ainda
     // passam pelos contratos runtime e pelos produtores dos caches/callees.
+    // O getter de receita constante (`df.rti.*`) também produz ID RTI, mas
+    // somente com o corpo e as escritas do cache comprovados, não pelo nome.
     let tupla_nativa = *tupla_tipos == Operand::Constant(Constant::Int(0))
         || matches!(tupla_tipos, Operand::Val(id) if f.blocks.iter().flat_map(|b| &b.instructions).any(|(v, i, t)|
-            v == id && *t == Type::I64 && matches!(i, Instruction::CallRuntime { name, ret_ty: Type::I64, .. }
-                if name == "dartforge_rti_avaliar")));
+            v == id && *t == Type::I64 && match i {
+                Instruction::CallRuntime { name, ret_ty: Type::I64, .. } => name == "dartforge_rti_avaliar",
+                Instruction::CallStatic { symbol, args, ret_ty: Type::I64 } =>
+                    args.is_empty() && getters.is_none_or(|g| g.contains(symbol)),
+                _ => false,
+            }));
     if ty != Type::Ref || ret_ty != Type::Ref || !referencia(closure)
         || !args.iter().all(referencia) || nomes.len() > args.len()
         || nomes.windows(2).any(|par| par[0] >= par[1])
@@ -32,7 +48,7 @@ pub(super) fn conferir_vetor_local(f: &Function, inst: &Instruction, ty: Type) -
     Ok(true)
 }
 
-pub(super) fn conferir(m: &Module) -> Result<(), String> {
+pub(super) fn conferir(m: &Module, getters: &HashSet<String>) -> Result<(), String> {
     for (indice, f) in m.functions.iter().enumerate() {
         let tipos: HashMap<_, _> = f
             .params
@@ -52,7 +68,7 @@ pub(super) fn conferir(m: &Module) -> Result<(), String> {
         };
         for b in &f.blocks {
             for (v, i, t) in &b.instructions {
-                if conferir_vetor_local(f, i, *t)? {
+                if conferir_vetor_local(f, i, *t, Some(getters))? {
                     let Terminator::CondBranch { then_block, .. } = b.terminator else {
                         return Err(format!("closure ARC: {} v{} exige guarda pending", f.symbol, v.0));
                     };
