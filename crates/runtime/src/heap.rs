@@ -1105,6 +1105,20 @@ fn visitar_quadros_por_mapas(mut f: impl FnMut(i64)) {
     QUADROS_PERCORRIDOS.fetch_add(quadros, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// O ponteiro de pilha de um quadro no ponto da chamada que ele fez, no
+/// passo do `_Unwind_Backtrace`: `cfa` é o `_Unwind_GetCFA` do próprio quadro
+/// e `cfa_do_chamado`, o do quadro anterior do percurso (o que ele chamou).
+/// A libgcc (Linux) devolve no `_Unwind_GetCFA` o CFA do quadro — o SP do
+/// chamador no ponto da chamada —, então o SP deste quadro é o CFA do
+/// chamado. A libunwind do LLVM (macOS) devolve o SP do próprio quadro, já
+/// restaurado: é ele. Usar o do chamado no macOS lia os slots `[SP + d]` do
+/// mapa no quadro de dentro (raízes por mapas na produção, em que o LTO do
+/// `ld64.lld` deixa as raízes em slots) e desalinhava o rastro simbólico.
+#[cfg(all(unix, any(target_arch = "x86_64", target_arch = "aarch64")))]
+fn topo_do_quadro(cfa: usize, cfa_do_chamado: usize) -> usize {
+    if cfg!(target_vendor = "apple") { cfa } else { cfa_do_chamado }
+}
+
 /// O mesmo nos alvos do desenrolador Itanium (Linux e macOS, x86-64 e
 /// aarch64; §3.6): `_Unwind_Backtrace` entrega os quadros de dentro para
 /// fora; o SP de um quadro no ponto da chamada é o CFA do quadro que ele
@@ -1146,11 +1160,12 @@ fn visitar_quadros_por_mapas(mut f: impl FnMut(i64)) {
                 return PARA;
             }
             let cfa = _Unwind_GetCFA(contexto);
-            if let Some(sp) = e.cfa_anterior {
-                if cfa < sp {
+            if let Some(anterior) = e.cfa_anterior {
+                if cfa < anterior {
                     anomalia_do_percurso("o CFA não cresce");
                     return PARA;
                 }
+                let sp = topo_do_quadro(cfa, anterior);
                 e.quadros += 1;
                 let inicio = _Unwind_GetRegionStart(contexto) as u64;
                 let fp = _Unwind_GetGR(contexto, i32::from(DWARF_FP)) as u64;
@@ -1272,8 +1287,10 @@ pub fn enderecos_de_retorno(maximo: usize) -> Vec<(u64, u64, u64)> {
             if ip == 0 || e.saida.len() >= e.maximo {
                 return PARA;
             }
-            e.saida.push((ip, _Unwind_GetRegionStart(contexto) as u64, e.cfa_anterior));
-            e.cfa_anterior = _Unwind_GetCFA(contexto) as u64;
+            let cfa = _Unwind_GetCFA(contexto) as u64;
+            let topo = if e.saida.is_empty() { e.cfa_anterior } else { topo_do_quadro(cfa as usize, e.cfa_anterior as usize) as u64 };
+            e.saida.push((ip, _Unwind_GetRegionStart(contexto) as u64, topo));
+            e.cfa_anterior = cfa;
             CONTINUA
         }
     }

@@ -371,7 +371,9 @@ pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path, producao: bool) -> Result<Vec<B
             crate::llvm::verificar_sombra::verificar(&ir).map_err(|e| format!("{uri}: {e}"))?;
         }
         let ir = if producao { com_optsize(&ir) } else { ir };
-        let ir = if excecoes_por_tabelas && cfg!(unix) { com_uwtable(&ir) } else { ir };
+        // Tabela de desenrolamento nas exceções por tabelas e nas raízes por
+        // mapas (o percurso do coletor; ver `lib.rs`).
+        let ir = if (excecoes_por_tabelas || raizes_por_mapas) && cfg!(unix) { com_uwtable(&ir) } else { ir };
         let ir = if cfg!(unix) && !excecoes_por_tabelas && !raizes_por_mapas { com_nounwind(&ir) } else { ir };
         // Só no Unix (macOS medido; o Windows não).
         let ir = if cfg!(unix) && producao && !excecoes_por_tabelas && !raizes_por_mapas && !memoria_arc {
@@ -494,7 +496,8 @@ fn chave_do_sdk(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     }
     // O modo de raízes muda o código (`llvm/mod.rs`); o padrão não entra.
     if std::env::var("DARTFORGE_RAIZES").is_ok_and(|v| v == "mapas") {
-        h.update(b"raizes=mapas\0");
+        // `_v2`: com a tabela de desenrolamento no Unix (`com_uwtable`).
+        h.update(b"raizes=mapas_v2\0");
         // O teto do orçamento decide que funções saem com mapa, e o build de
         // conferência acrescenta slots ao quadro.
         h.update(crate::alvo::orcamento_dos_mapas().to_string().as_bytes());

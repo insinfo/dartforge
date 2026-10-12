@@ -533,8 +533,12 @@ fn emitir_ir_interno(
         // O conferidor de dominância do modo sombra (§7.4).
         llvm::verificar_sombra::verificar(&llvm_ir)?;
     }
-    // Nos alvos Itanium, toda função precisa da tabela de desenrolamento.
-    let llvm_ir = if excecoes_por_tabelas && cfg!(unix) { sdk_modulo::com_uwtable(&llvm_ir) } else { llvm_ir };
+    // Nos alvos Itanium, toda função precisa da tabela de desenrolamento:
+    // nas exceções por tabelas (o desenrolamento) e nas raízes por mapas (o
+    // percurso do coletor pelo `_Unwind_Backtrace`, que para no quadro sem
+    // tabela — a libunwind do macOS o encerra ali, e as raízes dos quadros
+    // de fora ficavam sem visita).
+    let llvm_ir = if (excecoes_por_tabelas || raizes_por_mapas) && cfg!(unix) { sdk_modulo::com_uwtable(&llvm_ir) } else { llvm_ir };
     // Nas exceções por checagem com a pilha-sombra nada desenrola o código
     // Dart: sem o CFI de cada função (`sdk_modulo::com_nounwind`).
     // Só nos alvos Itanium: no COFF x64 toda função tem tabela de
