@@ -17,7 +17,7 @@ use dartforge_parity::analise::Motor;
 use dartforge_parity::corpus::{self, Grupo};
 use dartforge_parity::oraculo::{self, Meta, Registro};
 use dartforge_parity::projetos::{self, Mutacao, Projeto};
-use dartforge_parity::scoreboard::Placar;
+use dartforge_parity::scoreboard::Scoreboard;
 use dartforge_parity::{Execution, filtros, run_ours};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -188,7 +188,7 @@ fn engine() -> Motor {
 /// The whole (deterministic) report, and whether the oracle was up to date.
 fn scoreboard(a: &Args, workers: usize) -> (String, bool) {
     let engine = engine();
-    let mut total = Placar::default();
+    let mut total = Scoreboard::default();
     let mut body = String::new();
     let mut ok = true;
     let mut files = 0;
@@ -229,8 +229,8 @@ fn scoreboard(a: &Args, workers: usize) -> (String, bool) {
         batches += r.batches;
         ambiguous += r.ambiguous;
         panics.extend(r.panics.iter().map(|p| format!("{name}/{p}")));
-        let mut p = Placar::default();
-        p.comparar(&oracle, &r.records);
+        let mut p = Scoreboard::default();
+        p.compare(&oracle, &r.records);
         let tg = p.total();
         let _ = writeln!(
             body,
@@ -241,13 +241,13 @@ fn scoreboard(a: &Args, workers: usize) -> (String, bool) {
                 n => format!("; {n} with new syntax through 3.13.4"),
             },
             r.files,
-            tg.oraculo,
-            tg.nosso,
-            tg.acertos,
-            tg.mensagem_errada,
-            tg.posicao_errada,
-            tg.falsos_positivos,
-            tg.falsos_negativos
+            tg.oracle,
+            tg.ours,
+            tg.hits,
+            tg.wrong_message,
+            tg.wrong_position,
+            tg.false_positives,
+            tg.false_negatives
         );
         // T2, done criterion: our parser's reference marker against the list
         // the 3.13.4 parser produced for the group.
@@ -272,34 +272,34 @@ fn scoreboard(a: &Args, workers: usize) -> (String, bool) {
                 let _ = writeln!(body, "    only oracle: {f}");
             }
         }
-        total.somar(&p);
+        total.add(&p);
     }
     let t = total.total();
-    let pct = if t.oraculo > 0 { 100.0 * t.acertos as f64 / t.oraculo as f64 } else { 0.0 };
+    let pct = if t.oracle > 0 { 100.0 * t.hits as f64 / t.oracle as f64 } else { 0.0 };
     let mut s = String::new();
     // The `placar paridade: ` prefix is matched by CI (`pesado.yml`).
     let _ = writeln!(
         s,
         "placar paridade: {}/{} oracle diagnostics at the exact position ({pct:.1}%), {} with the same message; FP {}, FN {}, wrong position {}",
-        t.acertos,
-        t.oraculo,
-        t.acertos - t.mensagem_errada,
-        t.falsos_positivos,
-        t.falsos_negativos,
-        t.posicao_errada
+        t.hits,
+        t.oracle,
+        t.hits - t.wrong_message,
+        t.false_positives,
+        t.false_negatives,
+        t.wrong_position
     );
     let _ = writeln!(s, "DartForge parity — {} groups, {files} files, {batches} batches", groups.len());
     s.push_str(&body);
     s.push('\n');
-    s.push_str(&total.tabela("whole corpus"));
+    s.push_str(&total.table("whole corpus"));
     // Publication rule: a verified code that emits anything wrong in the
     // corpus (false positive, position or message) is an error. A false
     // negative is not.
     let verified = dartforge_parity::verificados();
     let mut broken = Vec::new();
     for c in &verified {
-        if let Some(k) = total.por_codigo.get(*c) {
-            if k.falsos_positivos > 0 || k.posicao_errada > 0 || k.mensagem_errada > 0 {
+        if let Some(k) = total.by_code.get(*c) {
+            if k.false_positives > 0 || k.wrong_position > 0 || k.wrong_message > 0 {
                 broken.push(*c);
             }
         }
@@ -315,9 +315,9 @@ fn scoreboard(a: &Args, workers: usize) -> (String, bool) {
             .is_some_and(|c| c.info().tipo == dartforge_diagnostics::TipoErro::SyntacticError)
     };
     let candidates: Vec<&String> = total
-        .por_codigo
+        .by_code
         .iter()
-        .filter(|(k, c)| c.sem_erro_emitido() && !verified.contains(&k.as_str()) && !syntactic(k))
+        .filter(|(k, c)| c.no_emitted_error() && !verified.contains(&k.as_str()) && !syntactic(k))
         .map(|(k, _)| k)
         .collect();
     let _ = writeln!(s, "no errors emitted in the corpus and not in the list (candidates, still need 0 FP in the projects): {candidates:?}");
@@ -325,7 +325,7 @@ fn scoreboard(a: &Args, workers: usize) -> (String, bool) {
     let _ = writeln!(s, "ambiguous attribution (diagnostic without a unit, more than one candidate): {ambiguous}");
     if a.details {
         s.push_str("\nsamples:\n");
-        s.push_str(&total.amostras_texto());
+        s.push_str(&total.samples_text());
     }
     (s, ok)
 }
@@ -649,7 +649,7 @@ fn cmd_projects(a: &Args) -> ExitCode {
     let mut registry = read_projects(&a.corpus);
     let workers = a.workers.first().copied().unwrap_or(1);
     let batch = if a.batch > 0 { a.batch } else { 400 };
-    let mut total = Placar::default();
+    let mut total = Scoreboard::default();
     let mut s = String::new();
     for (p, oracle_regs) in registry.iter_mut() {
         if !p.caminho.join("pubspec.yaml").is_file() {
@@ -691,8 +691,8 @@ fn cmd_projects(a: &Args) -> ExitCode {
             r.ambiguous += partial.ambiguous;
         }
         r.records.sort();
-        let mut pl = Placar::default();
-        pl.comparar(oracle_regs, &r.records);
+        let mut pl = Scoreboard::default();
+        pl.compare(oracle_regs, &r.records);
         let tg = pl.total();
         let published = r
             .records
@@ -707,21 +707,21 @@ fn cmd_projects(a: &Args) -> ExitCode {
             p.oraculo.map(|n| n.to_string()).unwrap_or_else(|| "?".into()),
             r.files,
             t.elapsed().as_secs_f64(),
-            tg.nosso,
-            tg.falsos_positivos,
-            tg.acertos,
+            tg.ours,
+            tg.false_positives,
+            tg.hits,
             published,
             r.panics.len()
         );
-        total.somar(&pl);
+        total.add(&pl);
     }
     s.push('\n');
-    s.push_str(&total.tabela("real projects (every diagnostic of ours without a pair in the oracle is an FP)"));
+    s.push_str(&total.table("real projects (every diagnostic of ours without a pair in the oracle is an FP)"));
     if a.details {
         s.push_str("
 samples:
 ");
-        s.push_str(&total.amostras_texto());
+        s.push_str(&total.samples_text());
     }
     if a.oracle {
         let text = serde_json::to_string_pretty(&registry).expect("JSON") + "\n";
@@ -744,7 +744,7 @@ fn mutations(a: &Args, engine: &Motor, list: &[Projeto]) -> String {
         .unwrap_or_default();
     let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/scratch-paridade/projetos");
     let mut s = String::new();
-    let mut scoreboard = Placar::default();
+    let mut scoreboard = Scoreboard::default();
     let mut stale = 0;
     let mut new = Vec::new();
     for p in list {
@@ -796,7 +796,7 @@ fn mutations(a: &Args, engine: &Motor, list: &[Projeto]) -> String {
                 .into_iter()
                 .filter(|x| x.arquivo == m.arquivo)
                 .collect();
-            scoreboard.comparar(&m.oraculo, &ours);
+            scoreboard.compare(&m.oraculo, &ours);
             let _ = std::fs::write(&target, &original);
         }
         new.extend(ms);
@@ -811,7 +811,7 @@ fn mutations(a: &Args, engine: &Motor, list: &[Projeto]) -> String {
         recorded = new;
     }
     let _ = writeln!(s, "mutations: {} recorded, {stale} stale", recorded.len());
-    s.push_str(&scoreboard.tabela("mutations of the real projects"));
-    s.push_str(&scoreboard.amostras_texto());
+    s.push_str(&scoreboard.table("mutations of the real projects"));
+    s.push_str(&scoreboard.samples_text());
     s
 }
