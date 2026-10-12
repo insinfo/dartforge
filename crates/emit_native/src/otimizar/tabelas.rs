@@ -88,9 +88,13 @@ pub(super) fn preparar(module: &mut Module) -> PlanoExcecoes {
     // Sem prova de ausência de owners, ARC precisa de uma saída local
     // para inserir cleanup mesmo quando não há catch/finally na fonte.
     let preservar_cleanup = module.memoria_arc;
+    // Preparação ARC publicada: closures e seletores vão pela invocação
+    // uniforme do runtime, cujas portas devolvem a exceção pendente; ficam
+    // com a conferência, sem invoke.
+    let uniformes = !(module.memoria_arc && crate::alvo::arc_preparado().unwrap_or(false));
     let mut funcoes = Vec::with_capacity(module.functions.len());
     for f in &mut module.functions {
-        let sitios = if super::valida(f) { da_funcao(f, &nl, preservar_cleanup) } else { TabelasDaFuncao::default() };
+        let sitios = if super::valida(f) { da_funcao(f, &nl, preservar_cleanup, uniformes) } else { TabelasDaFuncao::default() };
         funcoes.push((f.symbol.clone(), sitios));
     }
     PlanoExcecoes { funcoes }
@@ -131,16 +135,16 @@ pub(super) fn materializar(module: &mut Module, plano: PlanoExcecoes) {
 ///   lançar, o desenrolamento atravessa o quadro;
 /// * a chamada do corpo tipado de uma closure, a de um valor função e a por
 ///   seletor.
-fn e_sitio(inst: &Instruction, nl: &HashSet<String>) -> bool {
+fn e_sitio(inst: &Instruction, nl: &HashSet<String>, uniformes: bool) -> bool {
     match inst {
         Instruction::CallStatic { symbol, .. } => {
             !nl.contains(symbol) && !symbol.starts_with("df.rti.") && !symbol.starts_with("dartforge_")
         }
-        Instruction::ChamadaTipada { .. }
-        | Instruction::CallClosure { .. }
+        Instruction::ChamadaTipada { .. } => true,
+        Instruction::CallClosure { .. }
         | Instruction::CallClosureRepasse { .. }
         | Instruction::CallSeletor { .. }
-        | Instruction::CallSeletorRepasse { .. } => true,
+        | Instruction::CallSeletorRepasse { .. } => uniformes,
         _ => false,
     }
 }
@@ -264,9 +268,9 @@ fn falso() -> Operand {
     Operand::Constant(Constant::Bool(false))
 }
 
-fn da_funcao(f: &mut Function, nl: &HashSet<String>, preservar_cleanup: bool) -> TabelasDaFuncao {
+fn da_funcao(f: &mut Function, nl: &HashSet<String>, preservar_cleanup: bool, uniformes: bool) -> TabelasDaFuncao {
     let mut t = TabelasDaFuncao::default();
-    t.confere_pilha = f.blocks.iter().any(|b| b.instructions.iter().any(|(_, inst, _)| e_sitio(inst, nl)));
+    t.confere_pilha = f.blocks.iter().any(|b| b.instructions.iter().any(|(_, inst, _)| e_sitio(inst, nl, uniformes)));
     let (mut prox_v, mut prox_b) = maiores_ids(f);
     let mut usos = contar_usos(f);
     let mut pos: HashMap<BlockId, usize> = f.blocks.iter().enumerate().map(|(k, b)| (b.id, k)).collect();
@@ -275,7 +279,7 @@ fn da_funcao(f: &mut Function, nl: &HashSet<String>, preservar_cleanup: bool) ->
     // da lista, visitado adiante.
     let mut bi = 0;
     while bi < f.blocks.len() {
-        let Some(i) = f.blocks[bi].instructions.iter().position(|(_, inst, _)| e_sitio(inst, nl)) else {
+        let Some(i) = f.blocks[bi].instructions.iter().position(|(_, inst, _)| e_sitio(inst, nl, uniformes)) else {
             bi += 1;
             continue;
         };

@@ -936,12 +936,11 @@ fn invoke_consume_argumento_nas_duas_saidas_e_so_produz_no_sucesso() {
             .unwrap_err()
             .contains("não consumidos")
     );
+    // Invoke de callee que não falha: o pouso fica morto e a saída
+    // excepcional é aceita; o que falta continua sendo o consumo.
     p.instrucoes.get_mut(&ValueId(2)).unwrap().pode_falhar = false;
-    assert!(
-        verificar_tokens(&f, &c, &t, &p)
-            .unwrap_err()
-            .contains("saídas excepcionais")
-    );
+    let erro = verificar_tokens(&f, &c, &t, &p).unwrap_err();
+    assert!(!erro.contains("saídas excepcionais") && erro.contains("não consumidos"), "{erro}");
 }
 
 #[test]

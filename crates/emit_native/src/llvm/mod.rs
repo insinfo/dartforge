@@ -924,6 +924,15 @@ impl<'a> LlvmEmitter<'a> {
                 })
             })
             .collect();
+        // O pouso com o desvio Dart/estrangeira termina em `lpad{b}.dart`
+        // (abaixo): um `phi` emitido antes dele já precisa do rótulo.
+        if tem_cleanup && let Some(t) = tab {
+            for p in &t.pousos {
+                if t.saidas.get(p) != Some(&SaidaPorExcecao::Retoma) {
+                    self.rotulos_de_saida.entry(p.0).or_insert_with(|| format!("lpad{}.dart", p.0));
+                }
+            }
+        }
         self.tem_ctx = self.tem_frame || Self::exige_contexto_explicito(func, tab);
 
         for block in &func.blocks {

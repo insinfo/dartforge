@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Roda corpus/nativo contra o `dart run`, vários programas ao mesmo tempo.
 #
-#   scripts/corpus-nativo.sh [tracing|arc|preparado] [jobs] [filtro]
+#   scripts/corpus-nativo.sh [tracing|arc|preparado|tabelas] [jobs] [filtro]
 #
-# `preparado` liga DARTFORGE_ARC_PREPARADO=1 (programa e SDK preparados).
+# `preparado` liga DARTFORGE_ARC_PREPARADO=1 (programa e SDK preparados);
+# `tabelas` é o mesmo com --excecoes=tabelas.
 # As saídas de referência do Dart ficam em target/corpus-dart/ e só são
 # refeitas quando o .dart muda. O resumo vai para target/corpus-<modo>/resumo.tsv.
 # Usa target/release/dartforge (ou DARTFORGE_BIN) e o ambiente atual
@@ -31,6 +32,7 @@ um() {
   case $modo in
     arc) extra=(--memoria=arc); memoria=arc ;;
     preparado) extra=(--memoria=arc); memoria=arc; export DARTFORGE_ARC_PREPARADO=1 ;;
+    tabelas) extra=(--memoria=arc --excecoes=tabelas); memoria=arc; export DARTFORGE_ARC_PREPARADO=1 ;;
   esac
   if ! "$bin" compile-native "$f" -o "$dest/$n" "${extra[@]}" > "$dest/$n.build.log" 2>&1; then
     printf "%s\tbuild\t%s\n" "$n" "$(tail -1 "$dest/$n.build.log" | cut -c1-200)"

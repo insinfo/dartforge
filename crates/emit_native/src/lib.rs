@@ -465,8 +465,13 @@ fn emitir_ir_interno(
             .iter()
             .map(|f| (f.symbol.clone(), otimizar::arc::PlanoFuncaoDart::default()))
             .collect();
-        otimizar::arc::preparar_arc_modulo_dart(&mut hir_module, &mut planos)
-            .map_err(|e| format!("preparação ARC do programa: {e}"))?;
+        // Com tabelas, os planos partem dos invokes e pousos já materializados.
+        if excecoes_por_tabelas {
+            otimizar::arc::preparar_arc_modulo_tabelado(&mut hir_module, &mut planos)
+        } else {
+            otimizar::arc::preparar_arc_modulo_dart(&mut hir_module, &mut planos)
+        }
+        .map_err(|e| format!("preparação ARC do programa: {e}"))?;
         otimizar::arc::certificar_portas_arc_aot(&mut hir_module, &planos)
             .map_err(|e| format!("portas ARC do programa: {e}"))?;
     }

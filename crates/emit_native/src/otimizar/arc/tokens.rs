@@ -542,13 +542,17 @@ fn analisar_tokens(
                     }
                 }
             }
-            if e.pode_falhar
-                != (tabelas.invocacoes.contains_key(v) || plano.pendencias.contains_key(v))
+            // Um invoke de callee que não falha (a análise conjunta sabe mais
+            // que a do módulo que pôs o pouso) só deixa um pouso morto.
+            let invoke = tabelas.invocacoes.contains_key(v);
+            let pendencia = plano.pendencias.contains_key(v);
+            if (e.pode_falhar && !invoke && !pendencia)
+                || (!e.pode_falhar && pendencia)
                 || (!e.pode_falhar && !e.erro.is_empty())
             {
                 let nome = match inst {
-                    Instruction::CallRuntime { name, .. } | Instruction::CallStatic { symbol: name, .. } => name.as_str(),
-                    _ => "",
+                    Instruction::CallRuntime { name, .. } | Instruction::CallStatic { symbol: name, .. } => name.clone(),
+                    outra => format!("{outra:?}").chars().take(80).collect(),
                 };
                 return Err(erro_meta(format!(
                     "v{}: contrato não corresponde às saídas excepcionais {nome} (pode falhar: {})",
@@ -638,7 +642,9 @@ fn analisar_tokens(
                     _ => {
                         let e = &plano.instrucoes[v];
                         aplicar(&e.sempre, classes, &mut ativos)?;
-                        if e.pode_falhar {
+                        // Um invoke (mesmo de callee que não falha) só
+                        // produz o resultado na aresta de sucesso.
+                        if e.pode_falhar || tabelas.invocacoes.contains_key(v) {
                             invoke = Some(*v);
                             Ok(())
                         } else {

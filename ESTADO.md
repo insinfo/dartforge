@@ -277,19 +277,37 @@ era dobrado (`GetField` sobre `null`). O corpus fica com 125 de 126 iguais
 ao Dart, no preparado e no tracing; o `33` imprime `null` nos dois modos
 (anterior ao ARC, soquete Unix no macOS).
 
+Exceções por tabelas (`--excecoes=tabelas`) com a preparação publicada:
+
+* a preparação do programa importa os invokes e pousos materializados
+  (`preparar_arc_modulo_tabelado`); antes partia de planos vazios e
+  recusava o `invoke` de uma `ChamadaTipada` sem pendência;
+* closures e seletores ficam com a conferência, sem invoke: a invocação
+  uniforme do runtime devolve a exceção pendente (`uniformes` em
+  `tabelas.rs`); `ChamadaTipada` continua sítio;
+* no fluxo de tokens, um sítio com invoke conta como chamada que pode falhar
+  (o drop do resultado não vai para o pouso), e um invoke de callee que não
+  falha só deixa um pouso morto;
+* o emissor pré-nomeia os rótulos `lpad<b>.dart` dos pousos que não retomam,
+  para os phis das saídas.
+
+O corpus fica com 125 de 126 iguais também nesse modo
+(`scripts/corpus-nativo.sh tabelas`).
+
 **Próximo passo:** rastro simbólico (`dartforge_rastro_entrar` sem
-contrato) e o modelo por tabelas com a preparação; depois §§27–34 e o gate
-ARC >= A0.
+contrato); depois §§27–34 e o gate ARC >= A0.
 
 ### Evidências (macOS arm64, logs em `target/`)
 
 | verificação | resultado |
 | --- | --- |
-| emissor, unitários incluindo ignorados | 480 + 110 doctests |
+| emissor, unitários incluindo ignorados | 480 + 110 doctests (473 + 7 ignorados com tabelas) |
 | quatro programas de prova com programa e SDK preparados (`DARTFORGE_ARC_PREPARADO=1`), com/sem `conferir`, `DARTFORGE_ARC_CONFERIR=1`, normal/GC stress | 16 execuções, saída igual ao Dart (`p6-*`) |
 | os mesmos em tracing e ARC legado, com `conferir`, normal/GC stress | 16 execuções, saída igual ao Dart (`r6-*`) |
 | provas AOT do CI (`provar-arc-aot.py`, 8 exemplos) | todas `sucesso` (`prova6-*.log`) |
 | corpus nativo com programa e SDK preparados, `DARTFORGE_ARC_CONFERIR=1` | 125 de 126 iguais ao Dart (`corpus3-prep/resumo.tsv`) |
+| corpus nativo preparado com `--excecoes=tabelas` | 125 de 126 iguais (`corpus-tabelas/resumo.tsv`) |
+| quatro programas de prova, preparado com `--excecoes=tabelas`, `DARTFORGE_ARC_CONFERIR=1`, normal/GC stress | 8 execuções iguais ao Dart (`p7/`) |
 | corpus nativo em tracing, mesmo binário | 125 de 126 iguais (`corpus3-tracing/resumo.tsv`; o `33` difere nos dois) |
 | marcas rebaixadas (`41`, `122`, `gc_d02`, `95` do corpus) com `conferir`, tracing/ARC legado/preparado, normal/GC stress | 24 execuções iguais (`corpus-conferir/`) |
 | quatro programas de prova, tracing/ARC legado/preparado, `conferir`, normal/GC stress | 24 execuções iguais (`r7-*`) |
