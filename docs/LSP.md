@@ -611,6 +611,12 @@ python crates/lsp/oraculo/oraculo.py saida.jsonl target/release/dartforge-lsp.ex
 python crates/lsp/oraculo/resumo.py saida.jsonl
 ```
 
+O SDK do Dart 3.6.2 vem de `ORACULO_DART` (o executável) e `ORACULO_SDK_LIB` (a pasta `lib`); sem elas,
+os caminhos do Windows (`C:\tools\dartsdk-3.6.2`). `ORACULO_SNIPPETS=0` tira do cliente o
+`experimental.snippetTextEdit` (ligado por padrão, como no Dart-Code) e `ORACULO_METODOS=codeAction,references`
+pede só esses métodos. Num sistema de arquivos que não distingue caixa, passe os projetos com a caixa do disco.
+O `resumo.py` compara também a edição de cada ação de título comum (`TextEdit`/`SnippetTextEdit`).
+
 Projetos medidos: cópias de `args-2.7.0`, `path-1.9.1` e
 `string_scanner-1.4.1` do pub-cache (só `lib/`, `dev_dependencies` fora,
 `dart pub get --offline`) e um projeto `app` com erros comuns (método,
