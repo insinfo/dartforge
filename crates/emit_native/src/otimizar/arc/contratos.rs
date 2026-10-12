@@ -32,6 +32,9 @@ pub const CONTRATOS_DOS_AJUDANTES: &[Contrato] = &[
     Contrato { nome: "df.texto_igual_a", parametros: &[ModoParametro::Borrow, ModoParametro::Borrow], resultado: ModoResultado::ScalarI1, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
     Contrato { nome: "df.texto_len", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
     Contrato { nome: "df.texto_unidade", parametros: &[ModoParametro::Borrow, ModoParametro::Scalar], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    // `num` em Ref como double: o caminho que não é Smi/Mint desencaixa pelo
+    // runtime (TypeError pendente), como as marcas do ajudante dizem.
+    Contrato { nome: "df.num_para_double", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarF64, retencao_persistente: false, invalida_borrows: true, pode_falhar: true, chama_dart: false },
     Contrato { nome: "df.tipada_base", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::BorrowArg(0), retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
     Contrato { nome: "df.tipada_bytes", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
     Contrato { nome: "df.tipada_cid", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
@@ -794,7 +797,8 @@ fn produzir_phi(
         .flat_map(|b| &b.instructions)
         .filter_map(|(v, i, ty)| matches!(i, Instruction::Phi { .. }).then_some((*v, *ty)))
         .filter(|(v, ty)| {
-            matches!(ty, Type::I1 | Type::I8 | Type::I64 | Type::F64)
+            // Vetores SIMD sem caixa também: não guardam handle.
+            matches!(ty, Type::I1 | Type::I8 | Type::I64 | Type::F64) || ty.e_vetor()
                 || (*ty == Type::Ref && classes.get(v) == Some(&Ownership::Trivial))
         })
         .map(|(v, _)| v)
@@ -1464,9 +1468,12 @@ mod testes {
             assert!(nomes.insert(c.nome), "{} repetido", c.nome);
             assert!(c.nome.starts_with("df."), "{}", c.nome);
             assert!(dartforge_runtime::ownership::contrato(c.nome).is_err(), "{} também no runtime", c.nome);
+            // O contrato segue as marcas do ajudante: falha se lança, invalida
+            // empréstimos se aloca, nunca retém.
             let e = crate::llvm::externs::efeitos_de(c.nome);
-            assert!(!e.aloca && !e.lanca && !e.chama_dart, "{}: {e:?}", c.nome);
-            assert!(!c.pode_falhar && !c.chama_dart && !c.retencao_persistente && !c.invalida_borrows);
+            assert_eq!((c.pode_falhar, c.chama_dart), (e.lanca || e.chama_dart, e.chama_dart), "{}: {e:?}", c.nome);
+            assert!(!e.aloca || c.invalida_borrows, "{}: {e:?}", c.nome);
+            assert!(!c.retencao_persistente, "{}", c.nome);
             assert!(c.parametros.iter().all(|m| matches!(m, ModoParametro::Borrow | ModoParametro::Scalar)));
         }
         // Os de endereço derivado e o que aloca ficam sem contrato.

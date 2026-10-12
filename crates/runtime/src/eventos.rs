@@ -143,13 +143,15 @@ pub extern "C" fn dartforge_laco_de_eventos(chamar: extern "C" fn(i64) -> i64) {
         // 1. Microtarefas, todas, antes de qualquer timer.
         let imediata = EVENTOS.with(|e| e.borrow_mut().imediatas.pop_front());
         if let Some((raiz, closure)) = imediata {
-            chamar_evento(chamar, closure, Some(raiz));
+            // Cada evento no próprio escopo nativo: os owners que as portas
+            // Dart devolvem morrem no fim do evento, não do laço.
+            em_escopo_nativo_se_arc(|| chamar_evento(chamar, closure, Some(raiz)));
             continue;
         }
         // 1b. As finalizações prontas (`Finalizer`, `finalizadores.rs`):
         //     na VM chegam como mensagem ao isolado; aqui, entre eventos.
         if let Some((quadro, acao)) = iniciar_finalizacao() {
-            dart_r1(chamar as usize, acao);
+            em_escopo_nativo_se_arc(|| dart_r1(chamar as usize, acao));
             concluir_finalizacao(quadro);
             continue;
         }
@@ -189,7 +191,7 @@ pub extern "C" fn dartforge_laco_de_eventos(chamar: extern "C" fn(i64) -> i64) {
         if let Some(chegada) = chegada_da_proxima()
             && vencimento.is_none_or(|v| chegada < v)
         {
-            despachar_proxima(chamar);
+            em_escopo_nativo_se_arc(|| despachar_proxima(chamar));
             continue;
         }
         let Some((prazo, seq, id)) = proximo else {
@@ -219,7 +221,7 @@ pub extern "C" fn dartforge_laco_de_eventos(chamar: extern "C" fn(i64) -> i64) {
         let Some((closure, periodico, raiz)) = disparo else {
             continue;
         };
-        chamar_evento(chamar, closure, raiz);
+        em_escopo_nativo_se_arc(|| chamar_evento(chamar, closure, raiz));
         if periodico {
             // Como a VM (`_runTimers`): reagendado DEPOIS do callback, com
             // sequência nova, se o callback não o cancelou.

@@ -1100,6 +1100,11 @@ pub struct Module {
     /// Inclui herança, mixins e prefixo de enum; late com inicializador fica Ref.
     /// Não certifica o tipo do receiver, forma física do heap ou versão/pins de recarga.
     pub layouts_campos_arc: std::collections::HashMap<u32, Vec<Type>>,
+    /// Os layouts declarados das classes do SDK da fonte preparado (outra
+    /// imagem), na mesma forma de `layouts_campos_arc`: só para conferir
+    /// gravações e leituras abertas do programa preparado sozinho
+    /// (`arc_callees_externos`); não declaram classes deste módulo.
+    pub layouts_externos_arc: std::collections::HashMap<u32, Vec<Type>>,
     pub classes: Vec<ClassDef>,
     pub selectors: Vec<SelectorDef>,
     pub subtyping_edges: Vec<(u32, u32)>,

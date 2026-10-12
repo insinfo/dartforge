@@ -284,6 +284,23 @@ fn tearoffs_do_rastro(ctx: &Context, module: &mut Module) {
     }
 }
 
+/// Os layouts ARC declarados das classes do SDK da fonte (as que este módulo
+/// não emite), como o módulo de cada biblioteca do SDK os registra
+/// (`layouts_arc::registrar`): os `layouts_externos_arc` do programa
+/// preparado contra o SDK preparado.
+pub fn layouts_arc_do_sdk(ctx: &Context) -> std::collections::HashMap<u32, Vec<Type>> {
+    let mut m = Module::new();
+    for (c_idx, class) in ctx.program.classes.iter().enumerate() {
+        if ctx.biblioteca_no_modulo(class.library) || !ctx.program.library(class.library).is_sdk {
+            continue;
+        }
+        let cid = dartforge_elements::model::ClassId(c_idx as u32);
+        let Some(class_id) = ctx.id_de_classe(cid) else { continue };
+        layouts_arc::registrar(ctx, &mut m, class_id, &membros::layout(ctx, cid), enums::base_do_layout(ctx, cid));
+    }
+    m.layouts_campos_arc
+}
+
 // Compartilhado com a auditoria dos fatos de layout, sem baixar corpos.
 fn registrar_classes_do_programa(ctx: &Context, module: &mut Module) {
     for (c_idx, class) in ctx.program.classes.iter().enumerate() {
@@ -594,9 +611,10 @@ fn baixar_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                 let is_instance_member = func_elem.class.is_some() && !func_elem.static_;
                 if let Some(e) = func_elem.extension.filter(|_| !func_elem.static_) {
                     // Membro de instância de extensão (P4): o receptor é o
-                    // primeiro parâmetro, na representação do tipo `on`.
+                    // primeiro parâmetro, na representação do tipo `on` (com
+                    // fato de parâmetro escalar quando ela é escalar).
                     let r = builder.repr_do_receptor_de_extensao(e);
-                    let this = builder.add_param("this".to_string(), r);
+                    let this = builder.add_param_dart("this".to_string(), r);
                     builder.this_param = Some(Operand::Val(this));
                     builder.this_finalizavel = ctx.classificar_this(f_idx);
                     builder.declarar_parametros(f_idx, false);
@@ -612,7 +630,7 @@ fn baixar_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
                     // primeiro parâmetro, na representação; os parâmetros de
                     // tipo do tipo vêm na tupla (`tipos_de_extensao.rs`).
                     let r = builder.repr_do_this_estatico(f_idx).unwrap_or(Type::Ref);
-                    let this = builder.add_param("this".to_string(), r);
+                    let this = builder.add_param_dart("this".to_string(), r);
                     builder.this_param = Some(Operand::Val(this));
                     builder.this_finalizavel = ctx.classificar_this(f_idx);
                     builder.declarar_parametros(f_idx, false);

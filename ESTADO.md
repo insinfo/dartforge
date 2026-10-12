@@ -248,19 +248,49 @@ Os quatro programas de prova (`prova-lote5`, `-ajudantes`, `-efeitos`,
 `DARTFORGE_EFEITOS=conferir`, com `DARTFORGE_ARC_CONFERIR=1`, normal e GC
 stress: 16 execuções iguais ao `dart run` 3.6.2 (`p6-*`).
 
-**Próximo passo:** escopos por iteração do laço de eventos e nos isolados
-de `Isolate.spawn`; rastro simbólico (`dartforge_rastro_entrar` sem
-contrato) e o modelo por tabelas com a preparação; provar o corpus nativo
-com a opção; depois §§27–34 e o gate ARC >= A0.
+Corpus nativo (`corpus/nativo`, 130 programas) com a opção, contra o
+`dart run` (`target/corpus-preparado*/resumo.tsv`). A primeira rodada achou
+e corrigiu:
+* escopo nativo por evento do laço e por isolado de `Isolate.spawn`
+  (`em_escopo_nativo_se_arc`: só com portas ARC registradas);
+* a máquina de estados assíncrona gravava no quadro entre a chamada e a
+  guarda de pendência: a gravação vai para a aresta de sucesso e as
+  releituras para antes da chamada (vale para todos os modos);
+* `layouts_externos_arc`: os layouts declarados do SDK, para conferir campos
+  de objetos dele no programa preparado sozinho;
+* poda da HIR solta também `retornos_ref_dart`, `funcoes_locais_diretas_arc`
+  e `sitios_arc` das funções removidas;
+* `this` escalar de membros de extensão e de tipos de extensão com fato de
+  parâmetro escalar; Phis de vetor SIMD como escalares; função de literal em
+  pedaços com retorno Owned; `num` → `double` com guarda;
+* leituras auditadas aceitam objetos estáticos da imagem
+  (`Heap::objeto_legivel`) e o record posicional do runtime (contagem
+  escalar na palavra 0, campos Ref);
+* contratos: `ffi_ponteiro_novo` (thunk Owned), `ffi_simbolo_nativo` (modo
+  novo `bytes:native`), `rti_tupla_juntar` (`1 0 0`), `lista_de_tabela`
+  (`1 0 0`), `double_modulo` (`0 0 0`), `df.num_para_double`.
+
+Pendências do corpus: locais Ref em memória capturados por funções locais
+diretas (`54`, `58`, `gc_d14`: a preparação não tem produtor para `Alloca`
+Ref lido e gravado por `Load`/`Store`); `33` imprime `null` como o tracing
+(anterior ao ARC, soquete Unix no macOS).
+
+**Próximo passo:** produtor de locais Ref em memória (ou capturá-los em
+células sob a opção); rastro simbólico (`dartforge_rastro_entrar` sem
+contrato) e o modelo por tabelas com a preparação; depois §§27–34 e o gate
+ARC >= A0.
 
 ### Evidências (macOS arm64, logs em `target/`)
 
 | verificação | resultado |
 | --- | --- |
-| emissor, unitários incluindo ignorados | 478 + 110 doctests (`lote6-emit-*.log`) |
+| emissor, unitários incluindo ignorados | 478 + 110 doctests |
 | quatro programas de prova com programa e SDK preparados (`DARTFORGE_ARC_PREPARADO=1`), com/sem `conferir`, `DARTFORGE_ARC_CONFERIR=1`, normal/GC stress | 16 execuções, saída igual ao Dart (`p6-*`) |
 | os mesmos em tracing e ARC legado, com `conferir`, normal/GC stress | 16 execuções, saída igual ao Dart (`r6-*`) |
 | provas AOT do CI (`provar-arc-aot.py`, 8 exemplos) | todas `sucesso` (`prova6-*.log`) |
+| corpus nativo com programa e SDK preparados, `DARTFORGE_ARC_CONFERIR=1` | 122 de 126 iguais ao Dart (`corpus-preparado2/resumo.tsv`; pendências acima) |
+| marcas rebaixadas (`41`, `122`, `gc_d02`, `95` do corpus) com `conferir`, tracing/ARC legado/preparado, normal/GC stress | 24 execuções iguais (`corpus-conferir/`) |
+| quatro programas de prova, tracing/ARC legado/preparado, `conferir`, normal/GC stress | 24 execuções iguais (`r7-*`) |
 | runtime, todos os alvos incluindo ignorados | 227 + integrações + 83 doctests (`lote5-runtime.log`) |
 | `%` variável, setter `=>`, `late`, enums, `sync*`/`async`, captura escalar e por endereço, records, SIMD, `try`/`finally`, com e sem `DARTFORGE_EFEITOS=conferir`, tracing/ARC, normal/GC stress | 8 execuções, saída igual ao Dart (`prova-lote5/`) |
 | programas anteriores (`ajudantes`, `efeitos`, `handles`) refeitos com conferir, tracing/ARC, normal/GC stress | 12 execuções, saída igual ao Dart (`r5-*`) |

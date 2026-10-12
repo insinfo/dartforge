@@ -248,6 +248,8 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
             ("i8:scalar", false) => ("i8", "ModoParametro::ScalarI8"),
             ("i64:native", false) => ("i64", "ModoParametro::Native"),
             ("ptr:native", false) => ("*const i64", "ModoParametro::EnderecoNative"),
+            // Bytes constantes do módulo (um nome UTF-8), o mesmo endereço nativo.
+            ("bytes:native", false) => ("*const u8", "ModoParametro::EnderecoNative"),
             ("vetor:native", false) => ("*const i64", "ModoParametro::VetorEstatico"),
             ("tabela:native", false) => ("extern \"C\" fn() -> *const i64", "ModoParametro::TabelaEstatica"),
             ("ref:owned", true) => ("i64", "ModoResultado::Owned"),

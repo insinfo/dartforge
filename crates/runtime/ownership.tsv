@@ -14,6 +14,8 @@ dartforge_arc_rti_objeto_tipo_owned_v1	i64:native	ref:owned	0	1	normal
 dartforge_rti_iniciar_tabela	ptr:native,i64:scalar	void:scalar	0	0	normal
 dartforge_ffi_endereco_da_closure	ref:borrow	i64:scalar	0	1	pending
 dartforge_ffi_endereco_do_ponteiro	ref:borrow	i64:scalar	0	1	pending-dart
+dartforge_ffi_simbolo_nativo	bytes:native,i64:scalar	i64:scalar	0	1	pending-dart
+dartforge_rti_tupla_juntar	i64:scalar,i64:scalar,i64:scalar,i64:scalar	i64:scalar	0	0	normal
 dartforge_ffi_endereco_do_composto	ref:borrow	i64:scalar	0	1	pending-dart
 dartforge_ffi_handles_abrir	-	i64:scalar	0	0	normal
 dartforge_ffi_handle_novo	ref:borrow	i64:scalar	1	0	normal
@@ -155,7 +157,7 @@ dartforge_nativo_DartForge_capacidade_nova	-	i64:scalar	0	1	pending
 dartforge_nativo_DartForge_double_ceil	f64:scalar	f64:scalar	0	1	pending
 dartforge_nativo_DartForge_double_floor	f64:scalar	f64:scalar	0	1	pending
 dartforge_nativo_DartForge_double_hashCode	f64:scalar	i64:scalar	0	1	pending
-dartforge_nativo_DartForge_double_modulo	f64:scalar,f64:scalar	f64:scalar	0	1	pending
+dartforge_nativo_DartForge_double_modulo	f64:scalar,f64:scalar	f64:scalar	0	0	normal
 dartforge_nativo_DartForge_double_remainder	f64:scalar,f64:scalar	f64:scalar	0	1	pending
 dartforge_nativo_DartForge_double_round	f64:scalar	f64:scalar	0	1	pending
 dartforge_nativo_DartForge_double_toInt	f64:scalar	i64:scalar	0	1	pending-dart

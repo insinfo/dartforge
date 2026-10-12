@@ -1250,7 +1250,11 @@ pub extern "C" fn dartforge_arc_ler_campo_escalar_v1(objeto: i64, indice: i64) -
 }
 
 fn ler_campo_escalar_auditado(heap: &Heap, objeto: i64, indice: i64) -> Result<i64, &'static str> {
-    let objeto = heap.objeto(objeto).ok_or("receiver não é objeto vivo")?;
+    // O record posicional do runtime: a palavra 0 é o número de campos.
+    if let Some(campos) = heap.record(objeto) {
+        return if indice == 0 { Ok(campos.len() as i64) } else { Err("campo do record é referência") };
+    }
+    let objeto = heap.objeto_legivel(objeto).ok_or("receiver não é objeto vivo")?;
     let indice = usize::try_from(indice).map_err(|_| "índice negativo")?;
     let (bits, referencia) = objeto.get(indice).ok_or("índice fora do objeto")?;
     if referencia { return Err("campo é referência gerenciada"); }
@@ -1293,7 +1297,13 @@ pub extern "C" fn dartforge_arc_ler_campo_ref_v1(objeto: i64, indice: i64) -> i6
 }
 
 fn ler_campo_ref_auditado(heap: &Heap, objeto: i64, indice: i64) -> Result<i64, &'static str> {
-    let objeto = heap.objeto(objeto).ok_or("receiver não é objeto vivo")?;
+    // O record posicional do runtime: os campos `1..=n` são referências.
+    if let Some(campos) = heap.record(objeto) {
+        return usize::try_from(indice).ok().filter(|&i| i >= 1)
+            .and_then(|i| campos.get(i - 1).copied())
+            .ok_or("índice fora do record");
+    }
+    let objeto = heap.objeto_legivel(objeto).ok_or("receiver não é objeto vivo")?;
     let indice = usize::try_from(indice).map_err(|_| "índice negativo")?;
     let (bits, referencia) = objeto.get(indice).ok_or("índice fora do objeto")?;
     // O campo ainda não gravado nasce zerado e marcado escalar: é o null do
@@ -2120,6 +2130,24 @@ mod testes_caixa_double_owned {
 #[cfg(test)]
 mod testes_campo_ref {
     use super::*;
+
+    #[test]
+    fn record_posicional_le_contagem_escalar_e_campos_ref() {
+        let anterior = HEAP.with(|h| h.replace(Heap::new(true)));
+        let filho = dartforge_arc_box_int_owned_v1(i64::MAX);
+        let record = HEAP.with(|h| h.borrow_mut().novo_record_contado(&[filho, 0]));
+        HEAP.with(|h| {
+            let h = h.borrow();
+            assert_eq!(ler_campo_escalar_auditado(&h, record, 0), Ok(2));
+            assert!(ler_campo_escalar_auditado(&h, record, 1).is_err());
+            assert_eq!(ler_campo_ref_auditado(&h, record, 1), Ok(filho));
+            assert_eq!(ler_campo_ref_auditado(&h, record, 2), Ok(0));
+            for i in [0, 3, -1] {
+                assert!(ler_campo_ref_auditado(&h, record, i).is_err());
+            }
+        });
+        HEAP.with(|h| h.replace(anterior));
+    }
 
     #[test]
     fn escrita_conferida_inicializa_ref_e_recusa_layout_sem_alterar_aresta() {

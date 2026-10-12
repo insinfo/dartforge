@@ -279,6 +279,16 @@ pub(super) fn certificar(
     layouts_do_conjunto: Option<&HashMap<u32, Vec<Type>>>,
 ) -> Result<usize, String> {
     let idempotencia = layouts_do_conjunto.is_none();
+    // Programa preparado contra o SDK preparado: os layouts dele também.
+    let com_externos;
+    let layouts_do_conjunto = if layouts_do_conjunto.is_none() && !m.layouts_externos_arc.is_empty() {
+        let mut l = m.layouts_externos_arc.clone();
+        l.extend(m.layouts_campos_arc.iter().map(|(c, x)| (*c, x.clone())));
+        com_externos = l;
+        Some(&com_externos)
+    } else {
+        layouts_do_conjunto
+    };
     if !m.memoria_arc {
         return Ok(0);
     }

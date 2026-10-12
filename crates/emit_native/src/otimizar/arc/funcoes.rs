@@ -253,11 +253,15 @@ pub(super) fn preparar_com_variantes(
     // Após seu sucesso, a atribuição dos planos não introduz nova falha.
     let receivers = super::receivers::produzir(&trabalho);
     let preservam_campos = super::caches_rti::preservam_campos(&trabalho, &novos);
+    // Os layouts do SDK preparado valem para conferir os campos de objetos
+    // dele (os do módulo prevalecem).
+    let mut layouts = trabalho.layouts_externos_arc.clone();
+    layouts.extend(modulo.layouts_campos_arc.iter().map(|(c, l)| (*c, l.clone())));
     let total = inserir(
         &mut preparadas,
         &mut novos,
         true,
-        Some(&modulo.layouts_campos_arc),
+        Some(&layouts),
         &variantes,
         &receivers,
         &preservam_campos,

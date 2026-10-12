@@ -329,6 +329,16 @@ pub(crate) fn em_escopo_nativo<T>(f: impl FnOnce() -> T) -> T {
     r
 }
 
+/// `f` num escopo nativo só quando alguma imagem registrou portas ARC
+/// (um evento do laço, a vida de um isolado): sem elas, nada muda.
+pub(crate) fn em_escopo_nativo_se_arc<T>(f: impl FnOnce() -> T) -> T {
+    if HA_PORTAS_RETORNO_ARC.load(std::sync::atomic::Ordering::Acquire) {
+        em_escopo_nativo(f)
+    } else {
+        f()
+    }
+}
+
 /// Roda `f` (que pode executar Dart e devolve um objeto vivo ao voltar) num
 /// escopo nativo e entrega o resultado com um owner do código. Os tokens dos
 /// retornos Owned das portas Dart ficam no escopo e são soltos ao fechá-lo,

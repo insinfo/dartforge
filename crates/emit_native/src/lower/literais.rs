@@ -318,6 +318,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if !g.is_terminated() {
                 g.terminate(Terminator::Return(Some(Operand::Constant(Constant::Null))));
             }
+            // Chamado como função Dart (`CallStatic`): o retorno Ref é Owned.
+            if self.ctx.memoria_arc {
+                g.retornos_ref_dart.insert(simbolo.clone());
+            }
             self.absorver(g);
             self.emit_call_with_check(
                 Instruction::CallStatic { symbol: simbolo, args: vec![alvo.clone()], ret_ty: Type::Ref },

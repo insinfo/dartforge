@@ -840,7 +840,7 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i64 @dartforge_lista_de_tabela(ptr, i64)",
-        efeitos: CONSERVADOR,
+        efeitos: Efeitos { aloca: true, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare i64 @dartforge_lista_de_tabela_g(ptr, i64, ptr)",
@@ -962,7 +962,7 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i64 @dartforge_rti_tupla_juntar(i64, i64, i64, i64)",
-        efeitos: CONSERVADOR,
+        efeitos: Efeitos { aloca: true, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare void @dartforge_rti_definir(i64, i64)",

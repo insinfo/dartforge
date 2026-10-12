@@ -459,6 +459,7 @@ fn emitir_ir_interno(
     // chave do cache) pelos resumos das próprias chamadas.
     if alvo::arc_preparado()? {
         hir_module.arc_callees_externos = true;
+        hir_module.layouts_externos_arc = lower::layouts_arc_do_sdk(&ctx);
         let mut planos: std::collections::HashMap<_, _> = hir_module
             .functions
             .iter()

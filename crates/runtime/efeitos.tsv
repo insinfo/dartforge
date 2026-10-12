@@ -125,7 +125,7 @@ dartforge_late_field_set_initializing	0	0	0
 dartforge_lembrar	0	0	0
 dartforge_liberar_isolados	1	1	0
 dartforge_lista_acrescentar	1	0	0
-dartforge_lista_de_tabela	1	1	0
+dartforge_lista_de_tabela	1	0	0
 dartforge_lista_de_tabela_g	1	1	1
 dartforge_lista_nova	1	0	0
 dartforge_arc_lista_nova_owned_v1	1	0	0
@@ -152,7 +152,7 @@ dartforge_nativo_DartForge_double_bits	1	1	0
 dartforge_nativo_DartForge_double_ceil	1	1	0
 dartforge_nativo_DartForge_double_floor	1	1	0
 dartforge_nativo_DartForge_double_hashCode	1	1	0
-dartforge_nativo_DartForge_double_modulo	1	1	0
+dartforge_nativo_DartForge_double_modulo	0	0	0
 dartforge_nativo_DartForge_double_remainder	1	1	0
 dartforge_nativo_DartForge_double_round	1	1	0
 dartforge_nativo_DartForge_double_toInt	1	1	1
@@ -758,7 +758,7 @@ dartforge_rti_registro_nomeado	1	0	0
 dartforge_rti_regra	1	1	0
 dartforge_rti_subtipo	1	1	0
 dartforge_rti_texto	1	1	0
-dartforge_rti_tupla_juntar	1	1	0
+dartforge_rti_tupla_juntar	1	0	0
 dartforge_seletor	1	1	0
 dartforge_stack_overflow_error_new	1	1	1
 dartforge_stack_trace_get	1	1	0

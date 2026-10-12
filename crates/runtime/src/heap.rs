@@ -2481,6 +2481,26 @@ impl Heap {
             Some(Obj { corpo: corpo(b), class_id: i64::from((*b).class_id), _heap: std::marker::PhantomData })
         }
     }
+    /// A vista para leitura do objeto `h`: do espaço ou estático (as
+    /// constantes da imagem, nunca gravadas). As leituras auditadas do ARC
+    /// leem campos das duas; a gravação usa [`Heap::objeto`].
+    pub fn objeto_legivel(&self, h: i64) -> Option<Obj<'_>> {
+        if let Some(o) = self.objeto(h) {
+            return Some(o);
+        }
+        if !self.e_estatico(h) {
+            return None;
+        }
+        let b = (h - DESLOCAMENTO_DO_HANDLE) as *mut Cabecalho;
+        // SAFETY: bloco estático da imagem, vivo o processo inteiro.
+        #[allow(unsafe_code)]
+        unsafe {
+            if forma(b) != flags_do_bloco::INSTANCIA {
+                return None;
+            }
+            Some(Obj { corpo: corpo(b), class_id: i64::from((*b).class_id), _heap: std::marker::PhantomData })
+        }
+    }
     /// A classe do objeto `h` do espaço (`None` se não é objeto vivo).
     #[inline]
     pub fn classe_do_objeto(&self, h: i64) -> Option<i64> {

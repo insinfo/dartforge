@@ -589,6 +589,13 @@ fn rodar_isolado(p: PedidoDeIsolado) {
         encerrar_isolado();
         return;
     }
+    // A entrada e o laço do isolado num escopo nativo (imagens ARC
+    // preparadas): os owners das portas Dart chamadas pelo runtime.
+    em_escopo_nativo_se_arc(|| rodar_entrada_e_laco(&p, chamar, controle, pausa, termino));
+    encerrar_isolado();
+}
+
+fn rodar_entrada_e_laco(p: &PedidoDeIsolado, chamar: extern "C" fn(i64) -> i64, controle: i64, pausa: i64, termino: i64) {
     com_entrada_de_isolado(&p.entrada, &p.mensagem, |entrada, mensagem, quadro| {
         // SAFETY: registradas pela sobreposição de `dart:isolate` com as
         // assinaturas (`int`, `int`, `int`) → `List` e (`Function`,
@@ -606,7 +613,6 @@ fn rodar_isolado(p: PedidoDeIsolado) {
     if dartforge_exception_pending() == 0 || !relatar_erro_nao_tratado() {
         rodar_laco_do_isolado(chamar);
     }
-    encerrar_isolado();
 }
 
 /// `Isolate_spawnFunction(readyPort, uri, entryPoint, message, paused,

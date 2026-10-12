@@ -220,6 +220,7 @@ fn owned_generico(nome: &str) -> bool {
                 | "dartforge_ffi_composto"
                 | "dartforge_ffi_composto_copia"
                 | "dartforge_ffi_composto_novo"
+                | "dartforge_ffi_ponteiro_novo"
                 | "dartforge_lista_de_tabela"
                 | "dartforge_lista_de_tabela_g"
                 | "dartforge_rastro_texto"

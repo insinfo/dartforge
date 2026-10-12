@@ -1623,7 +1623,21 @@ fn guardar_vivos(
         .map(|(k, v)| (*v, (base + k, tipos[v])))
         .collect();
 
+    // A guarda de pendência no fim de um bloco (chamada, leitura da
+    // pendência, comparação e desvio): a forma que a preparação ARC
+    // reconhece. Nada entra entre a chamada e o desvio.
+    fn guarda(b: &BasicBlock) -> Option<(usize, BlockId)> {
+        let n = b.instructions.len();
+        let Terminator::CondBranch { cond: Operand::Val(c), else_block, .. } = &b.terminator else { return None };
+        let [(p, Instruction::CallRuntime { name, .. }, _), (ic, Instruction::ICmp(ICmpOp::Ne, Operand::Val(pv), _), _)] =
+            b.instructions.get(n.checked_sub(2)?..)? else { return None };
+        (name == "dartforge_exception_pending" && pv == p && ic == c && n >= 3).then_some((n - 3, *else_block))
+    }
+    // Gravações do resultado de uma chamada guardada: vão para a aresta de
+    // sucesso (bloco novo), depois da guarda.
+    let mut nas_arestas: Vec<(BlockId, BlockId, Vec<(ValueId, Instruction, Type)>)> = Vec::new();
     for b in &mut func.blocks {
+        let guardada = guarda(b);
         // Releituras no fim do bloco para as entradas de `phi` dos sucessores
         // são feitas numa segunda volta (abaixo).
         let antigas = std::mem::take(&mut b.instructions);
@@ -1653,6 +1667,10 @@ fn guardar_vivos(
                 let grava = gravar_no_quadro(quadro, s, Operand::Val(v), t, prox);
                 if e_phi {
                     depois_dos_phis.extend(grava);
+                } else if let Some((indice, sucesso)) = guardada
+                    && indice == k
+                {
+                    nas_arestas.push((b.id, sucesso, grava));
                 } else {
                     novas.extend(grava);
                 }
@@ -1678,8 +1696,31 @@ fn guardar_vivos(
         }
         b.instructions = novas;
     }
+    let mut proximo_bloco = func.blocks.iter().map(|b| b.id.0).max().map_or(0, |m| m + 1);
+    for (origem, sucesso, grava) in nas_arestas {
+        let aresta = BlockId(proximo_bloco);
+        proximo_bloco += 1;
+        for b in &mut func.blocks {
+            if b.id == origem
+                && let Terminator::CondBranch { else_block, .. } = &mut b.terminator
+            {
+                *else_block = aresta;
+            }
+            if b.id == sucesso {
+                for (_, inst, _) in &mut b.instructions {
+                    if let Instruction::Phi { incoming, .. } = inst {
+                        for (de, _) in incoming.iter_mut().filter(|(de, _)| *de == origem) {
+                            *de = aresta;
+                        }
+                    }
+                }
+            }
+        }
+        func.blocks.push(BasicBlock { id: aresta, instructions: grava, terminator: Terminator::Branch(sucesso) });
+    }
     // Entradas de `phi` com valor guardado: releitura no fim do bloco de
-    // origem (antes do terminador dele).
+    // origem (antes do terminador dele; antes da chamada guardada, que não
+    // grava no quadro).
     let mut releituras: Vec<(BlockId, ValueId, ValueId)> = Vec::new(); // (origem, antigo, novo)
     for b in &mut func.blocks {
         for (_, inst, _) in &mut b.instructions {
@@ -1699,7 +1740,13 @@ fn guardar_vivos(
     for (origem, antigo, novo) in releituras {
         if let Some(b) = func.blocks.iter_mut().find(|b| b.id == origem) {
             let (s, t) = posicao[&antigo];
-            b.instructions.extend(ler_do_quadro(quadro, s, t, novo, prox));
+            let leitura = ler_do_quadro(quadro, s, t, novo, prox);
+            match guarda(b) {
+                Some((indice, _)) => {
+                    b.instructions.splice(indice..indice, leitura);
+                }
+                None => b.instructions.extend(leitura),
+            }
         }
     }
     guardar.len()

@@ -1505,8 +1505,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let (tl, tr) = (self.operand_type(&lop), self.operand_type(&rop));
         let rop = if tr == Type::Ref && tl == Type::F64 {
             // `d op= n` com `d` `double` e `n` `num`: o `int` vira `double`
-            // (o `other.toDouble()` dos operadores de `_Double`).
-            self.emit(
+            // (o `other.toDouble()` dos operadores de `_Double`). O caminho
+            // que desencaixa pode deixar `TypeError` pendente.
+            self.emit_call_with_check(
                 Instruction::CallRuntime { name: "df.num_para_double".to_string(), args: vec![(rop, Type::Ref)], ret_ty: Type::F64 },
                 Type::F64,
             )

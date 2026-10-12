@@ -1247,6 +1247,9 @@ pub fn podar_hir(m: &mut crate::hir::Module, sdk: &[&Resumo]) -> PodaDaHir {
     m.parametros_rti_dart.retain(|simbolo, _| !removidas.contains(simbolo));
     m.parametros_vetores_dart.retain(|simbolo, _| !removidas.contains(simbolo));
     m.retornos_uniformes_arc.retain(|simbolo| !removidas.contains(simbolo));
+    m.retornos_ref_dart.retain(|simbolo| !removidas.contains(simbolo));
+    m.funcoes_locais_diretas_arc.retain(|simbolo| !removidas.contains(simbolo));
+    m.sitios_arc.retain(|simbolo, _| !removidas.contains(simbolo));
     m.funcoes_compartilhadas_arc.retain(|simbolo| !removidas.contains(simbolo));
     // O par de tabela cujo seletor ninguém chama sai, e o da função que saiu
     // também (a entrada de um par vivo é sempre alcançada).
