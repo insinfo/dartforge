@@ -69,7 +69,7 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i64 @dartforge_string_concat(i64, i64)",
-        efeitos: CONSERVADOR,
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare i8 @dartforge_equal(i64, i64)",
@@ -94,7 +94,7 @@ pub const EXTERNS: &[Extern] = &[
         // §13.14): o texto guardado, ou os endereços do `throw`
         // simbolizados agora (aloca o texto).
         decl: "declare i64 @dartforge_rastro_texto(i64)",
-        efeitos: CONSERVADOR,
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         // O registro da tabela do rastro da imagem (§13.14): não aloca nem
@@ -390,7 +390,7 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i8 @dartforge_exception_capturavel()",
-        efeitos: CONSERVADOR,
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare void @dartforge_registrar_isolados(ptr, ptr)",
@@ -558,11 +558,11 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i64 @dartforge_to_string_f64(double)",
-        efeitos: CONSERVADOR,
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare i64 @dartforge_to_string_bool(i8)",
-        efeitos: CONSERVADOR,
+        efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
         decl: "declare i64 @dartforge_to_string_handle(i64)",
@@ -613,6 +613,64 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_assertion_error_new(i64, i8)",
         efeitos: CONSERVADOR,
     },
+    // Os construtores de erro sob ARC (`excecoes.rs`): o objeto novo com
+    // owner do código; rodam Dart num escopo nativo.
+    Extern {
+        decl: "declare i64 @dartforge_arc_exception_new_owned_v1(i64)",
+        efeitos: Efeitos { aloca: true, lanca: true, chama_dart: true },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_arc_assertion_error_new_owned_v1(i64)",
+        efeitos: Efeitos { aloca: true, lanca: true, chama_dart: true },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_arc_state_error_new_owned_v1(i64)",
+        efeitos: Efeitos { aloca: true, lanca: true, chama_dart: true },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_arc_unsupported_error_new_owned_v1(i64)",
+        efeitos: Efeitos { aloca: true, lanca: true, chama_dart: true },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_arc_unimplemented_error_new_owned_v1(i64)",
+        efeitos: Efeitos { aloca: true, lanca: true, chama_dart: true },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_arc_argument_error_new_owned_v1(i64, i64)",
+        efeitos: Efeitos { aloca: true, lanca: true, chama_dart: true },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_arc_argument_error_value_owned_v1(i64, i64, i64)",
+        efeitos: Efeitos { aloca: true, lanca: true, chama_dart: true },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_arc_argument_error_not_null_owned_v1(i64)",
+        efeitos: Efeitos { aloca: true, lanca: true, chama_dart: true },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_arc_range_error_range_owned_v1(i64, i64, i64, i64, i64)",
+        efeitos: Efeitos { aloca: true, lanca: true, chama_dart: true },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_arc_type_error_new_owned_v1()",
+        efeitos: Efeitos { aloca: true, lanca: true, chama_dart: true },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_arc_null_check_error_new_owned_v1()",
+        efeitos: Efeitos { aloca: true, lanca: true, chama_dart: true },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_arc_late_error_new_owned_v1(i64, i64)",
+        efeitos: Efeitos { aloca: true, lanca: true, chama_dart: true },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_arc_stack_overflow_error_new_owned_v1()",
+        efeitos: Efeitos { aloca: true, lanca: true, chama_dart: true },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_arc_no_such_method_error_new_owned_v1(i64)",
+        efeitos: Efeitos { aloca: true, lanca: true, chama_dart: true },
+    },
     Extern {
         decl: "declare i64 @dartforge_type_error_new()",
         efeitos: CONSERVADOR,
@@ -652,11 +710,11 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i8 @dartforge_args_casam(ptr, ptr)",
-        efeitos: CONSERVADOR,
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare i64 @dartforge_arg_indice(ptr, i64)",
-        efeitos: CONSERVADOR,
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare void @dartforge_nsm_chamada()",
@@ -687,7 +745,7 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare void @dartforge_membro_recusado(i64)",
-        efeitos: CONSERVADOR,
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare void @dartforge_registrar_cids(ptr, i64)",
@@ -914,7 +972,7 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i8 @dartforge_rti_e(i64, i64)",
-        efeitos: CONSERVADOR,
+        efeitos: Efeitos { aloca: false, lanca: false, chama_dart: false },
     },
     Extern {
         decl: "declare void @dartforge_rti_como_em(i64, i64, i64, i64)",
@@ -927,6 +985,10 @@ pub const EXTERNS: &[Extern] = &[
     Extern {
         // O mesmo texto sob ARC, com owner do código do resultado.
         decl: "declare i64 @dartforge_arc_rti_texto_owned_v1(i64) nounwind",
+        efeitos: ALOCA_SEM_LANCAR,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_arc_rti_objeto_tipo_owned_v1(i64) nounwind",
         efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
@@ -947,6 +1009,11 @@ pub const EXTERNS: &[Extern] = &[
     Extern {
         // `@df.texto_alocar` sob ARC: a string nova com owner do código.
         decl: "declare i64 @dartforge_arc_texto_novo_owned_v1(i64, i64) nounwind",
+        efeitos: ALOCA_SEM_LANCAR,
+    },
+    Extern {
+        // `TearOff` sob ARC: o tear-off canônico com owner do código.
+        decl: "declare i64 @dartforge_arc_tearoff_owned_v1(i64) nounwind",
         efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
@@ -971,6 +1038,11 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare i64 @dartforge_arc_lista_nova_owned_v1(ptr, i64, i64, i64) nounwind",
+        efeitos: ALOCA_SEM_LANCAR,
+    },
+    Extern {
+        // O record literal sob ARC (`AllocRecord`), com owner do código.
+        decl: "declare i64 @dartforge_arc_record_novo_owned_v1(ptr, i64) nounwind",
         efeitos: ALOCA_SEM_LANCAR,
     },
     Extern {
@@ -999,6 +1071,10 @@ pub const GLOBAIS: &[(&str, &str)] = &[];
 
 /// Efeitos da extern `nome`; desconhecida é conservadora.
 pub fn efeitos_de(nome: &str) -> Efeitos {
+    // O thunk Owned genérico tem os efeitos da base, mais o retain.
+    if let Some(base) = nome.strip_prefix(crate::otimizar::arc::PREFIXO_OWNED_GENERICO) {
+        return Efeitos { aloca: true, ..efeitos_de(base) };
+    }
     // Os ajudantes `@df.*` de cada pacote do espaço unificado chamados por
     // `CallRuntime` (docs/NATIVO-ESPACO-UNIFICADO.md §3.5).
     for tabela in [

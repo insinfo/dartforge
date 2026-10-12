@@ -121,6 +121,12 @@ pub fn preparar_arc_modulos_dart(
                 .ok_or_else(|| format!("módulos ARC: cache fora do módulo de {s}"))?;
             conjunto.caches_rti_arc.insert(nome.clone());
         }
+        for s in &m.globais_escalares_dart {
+            let nome = area
+                .get(s)
+                .ok_or_else(|| format!("módulos ARC: global escalar fora do módulo de {s}"))?;
+            conjunto.globais_escalares_dart.insert(nome.clone());
+        }
         super::layouts::verificar(m)?;
         let mut ids_locais = HashSet::new();
         for c in &m.classes {

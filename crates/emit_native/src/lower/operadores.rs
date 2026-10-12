@@ -189,7 +189,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut conds = Vec::new();
         for x in [&lop, &rop] {
             if self.operand_type(x) == Type::Ref {
-                let b = self.emit(Instruction::And(x.clone(), um.clone()), Type::I64);
+                // Sob ARC, o bit de tag pelo ajudante com o `Ref` emprestado:
+                // um word Dart não vira operando escalar.
+                let b = if self.ctx.memoria_arc {
+                    self.emit(Instruction::CallRuntime { name: "df.bit_smi".into(), args: vec![(x.clone(), Type::Ref)], ret_ty: Type::I64 }, Type::I64)
+                } else {
+                    self.emit(Instruction::And(x.clone(), um.clone()), Type::I64)
+                };
                 conds.push(b);
             }
         }
@@ -208,7 +214,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
         self.set_block(rapido);
         let valor = |s: &mut Self, x: &Operand| {
-            if s.operand_type(x) == Type::Ref {
+            if s.operand_type(x) == Type::Ref && s.ctx.memoria_arc {
+                s.emit(Instruction::CallRuntime { name: "df.valor_smi".into(), args: vec![(x.clone(), Type::Ref)], ret_ty: Type::I64 }, Type::I64)
+            } else if s.operand_type(x) == Type::Ref {
                 s.emit(Instruction::AShr(x.clone(), um.clone()), Type::I64)
             } else {
                 x.clone()

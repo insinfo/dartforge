@@ -24,20 +24,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Some(m) => self.lower_expr(ast, m),
             None => Operand::Constant(Constant::Null),
         };
-        let (bits, is_ref) = self.para_bits(msg);
-        let err = self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_assertion_error_new".to_string(),
-                args: vec![
-                    (bits, Type::I64),
-                    (
-                        Operand::Constant(Constant::Int(i64::from(is_ref))),
-                        Type::I8,
-                    ),
-                ],
-                ret_ty: Type::Ref,
-            },
-            Type::Ref,
+        // Sob ARC a mensagem vai como `Ref` (`novo_erro_do_runtime`).
+        let (bits, is_ref) = if self.ctx.memoria_arc { (self.coagir(msg, Type::Ref), true) } else { self.para_bits(msg) };
+        let err = self.novo_erro_do_runtime(
+            "dartforge_assertion_error_new",
+            vec![(bits, Type::I64), (Operand::Constant(Constant::Int(i64::from(is_ref))), Type::I8)],
         );
         self.emit_throw_op(err);
         self.set_block(cont_b);
@@ -585,14 +576,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.set_block(dispatch_block);
             // A exceção como referência (R5): `throw 42` chega encaixotado, e
             // os testes `on T` e a variável do `catch` são sobre um `Ref`.
-            let ex_bits = self.emit(
-                Instruction::CallRuntime {
-                    name: "dartforge_exception_peek_ref".to_string(),
-                    args: Vec::new(),
-                    ret_ty: Type::Ref,
-                },
-                Type::Ref,
-            );
+            let ex_bits = self.excecao_pendente();
 
             // O desenrolar do isolado (`Isolate.exit`) não é capturável:
             // vai direto ao caminho de "nenhuma cláusula casou".
@@ -637,14 +621,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.set_block(body_b);
                 // O rastro explícito pertence à exceção pendente. Leia-o
                 // antes de `clear`, que libera o slot e a raiz do runtime.
-                let st_val = clause.stack_trace.as_ref().map(|_| self.emit(
-                    Instruction::CallRuntime {
-                        name: "dartforge_stack_trace_get".to_string(),
-                        args: Vec::new(),
-                        ret_ty: Type::Ref,
-                    },
-                    Type::Ref,
-                ));
+                let st_val = clause.stack_trace.as_ref().map(|_| self.rastro_pendente());
                 self.emit(
                     Instruction::CallRuntime {
                         name: "dartforge_exception_clear".to_string(),
@@ -748,14 +725,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // `finally` não roda (é a semântica da VM: o corpo do `finally`
             // executa normalmente e a exceção volta ao fim, a menos que ele
             // saia por `return`/`break`/`continue`/`throw`, que a descartam).
-            let guardada = self.emit(
-                Instruction::CallRuntime {
-                    name: "dartforge_exception_peek_ref".to_string(),
-                    args: Vec::new(),
-                    ret_ty: Type::Ref,
-                },
-                Type::Ref,
-            );
+            let guardada = self.excecao_pendente();
             self.emit(
                 Instruction::CallRuntime {
                     name: "dartforge_exception_clear".to_string(),
@@ -825,17 +795,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.route_return(ret_op);
 
                 self.set_block(b_exc);
-                self.emit(
-                    Instruction::CallRuntime {
-                        name: "dartforge_exception_throw".to_string(),
-                        args: vec![
-                            (guardada, Type::I64),
-                            (Operand::Constant(Constant::Int(3)), Type::I8),
-                        ],
-                        ret_ty: Type::Void,
-                    },
-                    Type::Void,
-                );
+                self.emitir_lancamento(guardada, None);
+                // Sob ARC o lançamento termina na guarda: o desvio sai dela.
+                let b_exc = self.current_block;
                 // A exceção sobe para o tratador mais interno: o alvo de
                 // exceção corrente (um `catch` de fora, ou o pouso do
                 // `finally` de fora, que registra a entrada do phi) vem antes

@@ -320,6 +320,23 @@ impl Drop for EscopoUniformeArc {
     }
 }
 
+/// Roda `f` (que pode executar Dart e devolve um objeto vivo ao voltar) num
+/// escopo nativo e entrega o resultado com um owner do código. Os tokens dos
+/// retornos Owned das portas Dart ficam no escopo e são soltos ao fechá-lo,
+/// depois da cópia. Com exceção pendente, null e nenhum owner.
+pub(crate) fn owner_em_escopo_nativo(f: impl FnOnce() -> i64) -> i64 {
+    let escopo = EscopoUniformeArc(dartforge_arc_escopo_nativo_abrir_v1());
+    let r = f();
+    let resultado = if dartforge_exception_pending() != 0 {
+        0
+    } else {
+        dartforge_arc_retain(r);
+        r
+    };
+    drop(escopo);
+    resultado
+}
+
 fn arc_invocar_uniforme(
     codigo: usize,
     recv: i64,

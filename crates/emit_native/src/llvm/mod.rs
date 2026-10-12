@@ -100,6 +100,9 @@ pub struct LlvmEmitter<'a> {
     /// Assinatura de cada símbolo chamado, para declarar o que o módulo não
     /// define.
     externos: std::collections::BTreeMap<String, String>,
+    /// Os thunks Owned genéricos chamados (`df.arc.owned.<base>`): a base e a
+    /// assinatura (`seletores::emitir_thunks_owned`).
+    thunks_owned: std::collections::BTreeMap<String, (String, Vec<Type>)>,
     /// Símbolos definidos em `comdat` (`seletores::ligacao_de`).
     comdats: Vec<String>,
     /// `DARTFORGE_RASTRO=1` na compilação: cada função conta a entrada e a
@@ -258,6 +261,7 @@ impl<'a> LlvmEmitter<'a> {
             indice_de_slot: std::collections::HashMap::new(),
             nomes_de_seletor: Vec::new(),
             externos: std::collections::BTreeMap::new(),
+            thunks_owned: std::collections::BTreeMap::new(),
             comdats: Vec::new(),
             rastro: std::env::var("DARTFORGE_RASTRO").is_ok_and(|v| v == "1").then_some(0),
             nomes_do_rastro: Vec::new(),
@@ -1528,6 +1532,19 @@ impl<'a> LlvmEmitter<'a> {
                         if name.starts_with("dartforge_nativo_") {
                             let tipos: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
                             self.anotar_externo(name, *ret_ty, &tipos);
+                        }
+                        // O código do tear-off pode morar em outro módulo.
+                        if name == "dartforge_arc_tearoff_owned_v1"
+                            && let [(Operand::Constant(Constant::Funcao(codigo)), _)] = args.as_slice()
+                        {
+                            self.anotar_externo(codigo, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
+                        }
+                        if let Some(base) = name.strip_prefix(crate::otimizar::arc::PREFIXO_OWNED_GENERICO) {
+                            let tipos: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
+                            if base.starts_with("dartforge_nativo_") {
+                                self.anotar_externo(base, Type::Ref, &tipos);
+                            }
+                            self.thunks_owned.insert(name.clone(), (base.to_string(), tipos));
                         }
                         let mut args_formatted = Vec::new();
                         for (a, ty) in args {

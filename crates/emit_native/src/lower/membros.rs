@@ -952,14 +952,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let b_avaliar = self.new_block();
         self.terminate(Terminator::CondBranch { cond: iniciando, then_block: b_pilha, else_block: b_avaliar });
         self.set_block(b_pilha);
-        let erro = self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_stack_overflow_error_new".to_string(),
-                args: Vec::new(),
-                ret_ty: Type::Ref,
-            },
-            Type::Ref,
-        );
+        let erro = self.novo_erro_do_runtime("dartforge_stack_overflow_error_new", Vec::new());
         self.emit_throw_op(erro);
 
         self.set_block(b_avaliar);
@@ -2011,19 +2004,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `codigo`: 0/1 campo não inicializado/já inicializado; 2/3 local.
     pub fn lancar_erro_late(&mut self, nome: &str, codigo: i64) {
         let n = self.emit(Instruction::Const(Constant::String(nome.to_string())), Type::Ref);
-        let erro = self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_late_error_new".to_string(),
-                args: vec![(n, Type::Ref), (Operand::Constant(Constant::Int(codigo)), Type::I64)],
-                ret_ty: Type::Ref,
-            },
-            Type::Ref,
-        );
+        let erro = self.novo_erro_do_runtime("dartforge_late_error_new", vec![(n, Type::Ref), (Operand::Constant(Constant::Int(codigo)), Type::I64)]);
         self.emit_throw_op(erro);
     }
 
     /// Corpo do getter preguiçoso de um global.
     pub fn lower_getter_global(&mut self, vid: VariableId, repr: Type) {
+        // O getter devolve o valor como as funções Dart: Ref é Owned.
+        if self.ctx.memoria_arc && repr == Type::Ref {
+            self.retornos_ref_dart.insert(self.func.symbol.clone());
+        }
         let valor = super::simbolo_valor_global(self.ctx, vid);
         let bandeira = format!("{valor}$ok");
         let Some(init) = self.variable_initializer_em(vid) else {
@@ -2091,14 +2081,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             else_block: b_avaliar,
         });
         self.set_block(b_pilha);
-        let erro = self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_stack_overflow_error_new".to_string(),
-                args: Vec::new(),
-                ret_ty: Type::Ref,
-            },
-            Type::Ref,
-        );
+        let erro = self.novo_erro_do_runtime("dartforge_stack_overflow_error_new", Vec::new());
         self.emit_throw_op(erro);
         self.set_block(b_avaliar);
         // 0 = não iniciado; 2 = avaliando; 1 = pronto. A leitura reentrante

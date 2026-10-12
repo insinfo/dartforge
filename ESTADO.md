@@ -120,22 +120,65 @@ O módulo 0 (programa e FFI) passa inteiro. No SDK:
   todo retorno Ref do SDK ficava sem a convenção Owned. As junções passam
   por `lower::juntar_fatos_arc`, também usada no lowering paralelo.
 
-**Próximo erro:** `hexDigitValue`: `dartforge_assertion_error_new` sem
-contrato. É o subsistema de exceções sob ARC: o lowering emite
-`dartforge_exception_throw` (Ref anotado como I64, sem guarda) e nunca o
-`Terminator::Throw` que `saidas.rs` prepara; `catch`/`finally` usam
-`dartforge_exception_peek_ref` (emprestado de uma raiz que o `clear` solta
-logo depois). Os construtores de erro do runtime rodam Dart e precisam de
-variantes Owned por escopo nativo.
+Depois disso, a preparação conjunta passou o módulo 1 do SDK inteiro e
+avançou pelo `dart:core` (módulo 2). O que entrou:
+* Exceções: um ponto único de lançamento (`emitir_lancamento`); sob ARC o
+  valor vai como `Ref` emprestado a `dartforge_arc_lancar_ref_v1`/
+  `…_com_rastro_ref_v1` com a guarda canônica e caminho morto
+  `Unreachable`. `catch`/`finally` leem a exceção e o rastro pela
+  preparação como owners (`dartforge_arc_excecao_owned_v1`,
+  `…_rastro_owned_v1`). Os 14 construtores de erro do runtime ganham
+  variantes `dartforge_arc_<nome>_owned_v1` (escopo nativo + retain,
+  `owner_em_escopo_nativo`). As trocas por variantes Owned ficam todas na
+  preparação (`otimizar::arc::nativos`): o regime ARC legado da CLI, sem
+  preparação, não ganha owners que ninguém soltaria.
+* Contratos gerados para 167 natives escalares e 79 sem resultado, das
+  assinaturas Rust reais (o `build.rs` confere) e de `efeitos.tsv`: `Ref`
+  emprestado, saída pelos efeitos, invalidação quando recebem `Ref`,
+  alocam ou rodam Dart. Novo modo de parâmetro `u8/i8:scalar`.
+* Thunk Owned genérico `df.arc.owned.<base>` (definido pelo emissor LLVM:
+  escopo nativo, guarda, retain) para natives que devolvem `Ref` e uma
+  lista explícita de construtores do runtime (`typed_novo`, `view_nova`,
+  `string_concat`…); contrato derivado na hora dos tipos da chamada.
+* Owners para records literais (`dartforge_arc_record_novo_owned_v1`,
+  arestas contadas), tear-offs canônicos, objeto `Type` canônico, `is`/`as`
+  (`rti_e`, `rti_como*`), consultas de record, ABI uniforme
+  (`args_casam`, `arg_indice`, slot da tupla de tipos).
+* Phis: cópia do empréstimo na aresta quando o Phi recebe owner, é
+  devolvido com entradas triviais ou recebe um owner ainda vivo depois da
+  junção (`arc/phis.rs`); Phis escalares I8; aliases de parâmetros não são
+  invalidados por barreiras locais.
+* Corpos gerados com a convenção Dart: closures, getters de constante e de
+  global, corpos e entradas uniformes de recusa (antes perdiam
+  `retornos_ref_dart`/vetores); globais Dart escalares (`I64` pelo tipo)
+  com fato próprio (`globais_escalares_dart`); saídas compartilhadas por
+  guardas separadas por caminho; `Unreachable` não exige tokens; retorno
+  implícito explícito; `And/Or/Xor` seguem a semântica do emissor (i64 com
+  operandos estendidos); bit/valor de Smi por `@df.bit_smi`/`@df.valor_smi`.
+* Marcas rebaixadas (`1 1 0` → `0 0 0` ou `1 0 0`): `rti_e`,
+  `exception_capturavel`, `args_casam`, `arg_indice`, natives de record,
+  `string_igual_a`, `string_concat`, `to_string_bool/f64`, `rastro_texto`,
+  `membro_recusado` (encerra o processo). Execução com
+  `DARTFORGE_EFEITOS=conferir` e GC stress, tracing e ARC legado
+  (`target/prova-efeitos/`), instrumentou no programa `arg_indice`,
+  `args_casam`, `capturavel`, `record_fieldAt/numFields`, `rti_e`,
+  `string_concat` e `to_string_bool`, com saída igual à do Dart. As
+  demais só são chamadas pelo SDK compilado à parte e ficam conferidas
+  pela leitura da implementação.
+
+**Próximo erro:** `_iterablePartsToStrings` (`dart:core`): token
+indisponível numa aresta de laço (`b86 -> b71`, v379).
 
 ### Evidências (macOS arm64, logs em `target/`)
 
 | verificação | resultado |
 | --- | --- |
-| emissor, unitários incluindo ignorados | 461 + 110 doctests (`arc-ajudantes-emitter-*.log`) |
-| runtime, todos os alvos incluindo ignorados | 227 + integrações + 79 doctests (`arc-ajudantes-runtime-test.log`) |
+| emissor, unitários incluindo ignorados | 467 + 110 doctests (`arc-lote3-emitter-*.log`) |
+| runtime, todos os alvos incluindo ignorados | 227 + integrações + 82 doctests (`arc-lote3-runtime-test.log`) |
 | `Handle` AOT, tracing/ARC, normal/GC stress, efeitos conferidos | 8 execuções, saída igual ao Dart (`prova-handles/`) |
 | listas compactas/gerais, tipadas, visões, `ByteData`, strings pela CLI, tracing e ARC, normal/GC stress | 4 execuções, saída igual ao Dart (`prova-ajudantes/`) |
+| efeitos rebaixados, exceções, records, nomeados, `is`, com `DARTFORGE_EFEITOS=conferir`, tracing/ARC, normal/GC stress | 12 execuções (três programas), saída igual ao Dart |
+| `memoria_cli` (nativo), incluindo ignorados | 2 passaram (`arc-lote3-memoria-cli.log`) |
 | `provar-arc-aot.py arc_porta_nativa_owned --debug` | 24 execuções, `sucesso` (`prova-porta-nativa-owned/evidencia.json`) |
 | `memoria_cli` (nativo, sem JIT), incluindo ignorados | 2 passaram (`memoria-cli.log`) |
 | interpolação/lista/`runtimeType` pela CLI, tracing e ARC, GC stress | saída igual ao `dart run` 3.6.2 |

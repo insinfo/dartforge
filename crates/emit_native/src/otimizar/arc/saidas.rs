@@ -81,6 +81,101 @@ pub(super) fn preparar_lancamentos_ref(
     Ok(())
 }
 
+/// Dá a cada guarda de pendência a própria cópia de um bloco de saída
+/// compartilhado (sem Phi, terminando em retorno ou `Unreachable`, sem ser
+/// pouso, alvo de invoke ou extremo de aresta de escopo; a classe da saída,
+/// os eventos de escopo dela e a saída pending da chamada vão junto): os
+/// owners vivos diferem de caminho para caminho, e
+/// o cleanup de cada saída precisa ver os seus. As definições da cópia ganham
+/// IDs novos; nada fora do bloco as usa. Devolve quantas cópias criou.
+pub(super) fn separar_saidas_compartilhadas(f: &mut Function, plano: &mut PlanoFuncaoDart) -> Result<usize, String> {
+    let guarda = |b: &BasicBlock| -> Option<BlockId> {
+        let Terminator::CondBranch { cond: Operand::Val(c), then_block, .. } = &b.terminator else { return None };
+        let n = b.instructions.len();
+        let [(p, Instruction::CallRuntime { name, .. }, _), (ic, Instruction::ICmp(ICmpOp::Ne, Operand::Val(pv), Operand::Constant(Constant::Int(0))), _)] =
+            b.instructions.get(n.checked_sub(2)?..)? else { return None };
+        (name == "dartforge_exception_pending" && pv == p && ic == c).then_some(*then_block)
+    };
+    let mut predecessores: HashMap<BlockId, Vec<BlockId>> = HashMap::new();
+    for b in &f.blocks {
+        for s in super::super::cfg::sucessores(&b.terminator) {
+            predecessores.entry(s).or_default().push(b.id);
+        }
+    }
+    let reservados = |id: &BlockId| plano.tabelas.pousos.contains(id)
+        || plano.tabelas.invocacoes.values().any(|b| b == id)
+        || plano.escopos.arestas.keys().any(|(a, b)| a == id || b == id);
+    let alvos: Vec<BlockId> = f.blocks.iter().filter(|b| {
+        matches!(b.terminator, Terminator::Return(_) | Terminator::Unreachable)
+            && !b.instructions.iter().any(|(_, i, _)| matches!(i, Instruction::Phi { .. }))
+            && predecessores.get(&b.id).is_some_and(|ps| ps.len() > 1)
+            && !reservados(&b.id)
+    }).map(|b| b.id).collect();
+    if alvos.is_empty() {
+        return Ok(0);
+    }
+    let mut valor = super::arestas::proximo_valor(f, plano);
+    let mut bloco = f.blocks.iter().map(|b| b.id.0)
+        .chain(plano.tabelas.saidas.keys().map(|b| b.0))
+        .chain(plano.tabelas.pousos.iter().map(|b| b.0))
+        .chain(plano.tabelas.invocacoes.values().map(|b| b.0))
+        .chain(plano.tokens.pendencias.values().map(|b| b.0))
+        .chain(plano.escopos.saidas.keys().map(|b| b.0))
+        .chain(plano.escopos.arestas.keys().flat_map(|(a, b)| [a.0, b.0]))
+        .max().map_or(0, |b| u64::from(b) + 1);
+    let mut copias = 0;
+    for alvo in alvos {
+        let ps = predecessores[&alvo].clone();
+        // A primeira guarda fica com o original; as outras ganham cópias.
+        let mut guardas: Vec<BlockId> = ps.iter().copied().filter(|p| {
+            f.blocks.iter().find(|b| b.id == *p).and_then(guarda) == Some(alvo)
+        }).collect();
+        if guardas.len() == ps.len() {
+            guardas.remove(0);
+        }
+        let original = f.blocks.iter().find(|b| b.id == alvo).expect("alvo existe").clone();
+        for p in guardas {
+            let id = BlockId(u32::try_from(bloco).map_err(|_| "IDs de bloco esgotados ao separar saídas")?);
+            bloco += 1;
+            let mut novos = HashMap::new();
+            let mut instrucoes = Vec::with_capacity(original.instructions.len());
+            for (v, inst, ty) in &original.instructions {
+                let n = ValueId(u32::try_from(valor).map_err(|_| "IDs SSA esgotados ao separar saídas")?);
+                valor += 1;
+                novos.insert(*v, n);
+                let mut inst = inst.clone();
+                super::super::operandos::operandos_mut(&mut inst, &mut |o| {
+                    if let Operand::Val(x) = o && let Some(y) = novos.get(x) { *x = *y; }
+                });
+                instrucoes.push((n, inst, *ty));
+            }
+            let mut terminador = original.terminator.clone();
+            if let Terminator::Return(Some(Operand::Val(x))) = &mut terminador && let Some(y) = novos.get(x) {
+                *x = *y;
+            }
+            f.blocks.push(BasicBlock { id, instructions: instrucoes, terminator: terminador });
+            if let Some(classe) = plano.tabelas.saidas.get(&alvo).cloned() {
+                plano.tabelas.saidas.insert(id, classe);
+            }
+            if let Some(eventos) = plano.escopos.saidas.get(&alvo).cloned() {
+                plano.escopos.saidas.insert(id, eventos);
+            }
+            let b = f.blocks.iter_mut().find(|b| b.id == p).expect("guarda existe");
+            if let Terminator::CondBranch { then_block, .. } = &mut b.terminator {
+                *then_block = id;
+            }
+            // A saída pending registrada da chamada da guarda segue a cópia.
+            if let Some((chamada, _, _)) = b.instructions.len().checked_sub(3).map(|k| &b.instructions[k])
+                && plano.tokens.pendencias.get(chamada) == Some(&alvo)
+            {
+                plano.tokens.pendencias.insert(*chamada, id);
+            }
+            copias += 1;
+        }
+    }
+    Ok(copias)
+}
+
 pub(super) fn separar_guardas(f: &mut Function, plano: &mut PlanoFuncaoDart) -> Result<(), String> {
     super::ssa::verificar(f)?;
     let guardas: Vec<_> = f
@@ -526,5 +621,53 @@ mod testes {
             assert_eq!(format!("{funcoes:?}"), antes);
             assert_eq!(format!("{planos:?}"), planos_antes);
         }
+    }
+}
+
+#[cfg(test)]
+mod testes_saidas_compartilhadas {
+    use super::*;
+
+    #[test]
+    fn cada_guarda_ganha_a_propria_saida_e_o_resto_fica() {
+        let val = |n| Operand::Val(ValueId(n));
+        let guarda = |p: u32, c: u32, erro: u32, segue: u32, chamada: Instruction| BasicBlock {
+            id: BlockId(p),
+            instructions: vec![
+                (ValueId(c), chamada, Type::Ref),
+                (ValueId(c + 1), Instruction::CallRuntime { name: "dartforge_exception_pending".into(), args: vec![], ret_ty: Type::I8 }, Type::I8),
+                (ValueId(c + 2), Instruction::ICmp(ICmpOp::Ne, val(c + 1), Operand::Constant(Constant::Int(0))), Type::I1),
+            ],
+            terminator: Terminator::CondBranch { cond: val(c + 2), then_block: BlockId(erro), else_block: BlockId(segue) },
+        };
+        let chamada = || Instruction::CallStatic { symbol: "g".into(), args: vec![], ret_ty: Type::Ref };
+        let mut f = Function { symbol: "f".into(), name: "f".into(), depuracao: None, params: vec![], return_ty: Type::Ref,
+            blocks: vec![
+                guarda(0, 1, 9, 1, chamada()),
+                guarda(1, 4, 9, 2, chamada()),
+                BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Return(Some(val(4))) },
+                BasicBlock { id: BlockId(9), instructions: vec![
+                    (ValueId(20), Instruction::StoreGlobal { simbolo: "ok".into(), val: Operand::Constant(Constant::Int(0)), ty: Type::I8, raiz: None }, Type::Void),
+                ], terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) },
+            ] };
+        let mut plano = PlanoFuncaoDart::default();
+        plano.tabelas.saidas.insert(BlockId(9), SaidaPorExcecao::Lanca);
+        assert_eq!(separar_saidas_compartilhadas(&mut f, &mut plano).unwrap(), 1);
+        let Terminator::CondBranch { then_block: a, .. } = f.blocks[0].terminator else { unreachable!() };
+        let Terminator::CondBranch { then_block: b, .. } = f.blocks[1].terminator else { unreachable!() };
+        assert_eq!(a, BlockId(9));
+        assert_ne!(b, BlockId(9));
+        assert_eq!(plano.tabelas.saidas.get(&b), Some(&SaidaPorExcecao::Lanca));
+        let copia = f.blocks.iter().find(|x| x.id == b).unwrap();
+        assert_ne!(copia.instructions[0].0, ValueId(20));
+        assert!(matches!(&copia.instructions[0].1, Instruction::StoreGlobal { simbolo, .. } if simbolo == "ok"));
+        super::super::ssa::verificar(&f).unwrap();
+        // Uma saída de pouso fica como está.
+        let mut g = f.clone();
+        if let Terminator::CondBranch { then_block, .. } = &mut g.blocks[1].terminator { *then_block = BlockId(9); }
+        g.blocks.retain(|x| x.id != b);
+        let mut plano = PlanoFuncaoDart::default();
+        plano.tabelas.pousos.insert(BlockId(9));
+        assert_eq!(separar_saidas_compartilhadas(&mut g, &mut plano).unwrap(), 0);
     }
 }

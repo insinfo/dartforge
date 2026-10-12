@@ -383,6 +383,7 @@ pub fn lower_ffi(ctx: &Context, module: &mut Module) {
         module.parametros_rti_dart.extend(b.parametros_rti_dart);
         module.parametros_vetores_dart.extend(b.parametros_vetores_dart);
         module.retornos_uniformes_arc.extend(b.retornos_uniformes_arc);
+        module.retornos_ref_dart.extend(b.retornos_ref_dart);
         module.caches_rti_arc.extend(b.caches_rti_arc);
         module.funcoes_compartilhadas_arc.extend(b.funcoes_compartilhadas_arc);
         module.funcoes_locais_diretas_arc.extend(b.funcoes_locais_diretas_arc);
@@ -403,6 +404,7 @@ pub fn lower_ffi(ctx: &Context, module: &mut Module) {
         module.parametros_rti_dart.extend(b.parametros_rti_dart);
         module.parametros_vetores_dart.extend(b.parametros_vetores_dart);
         module.retornos_uniformes_arc.extend(b.retornos_uniformes_arc);
+        module.retornos_ref_dart.extend(b.retornos_ref_dart);
         module.caches_rti_arc.extend(b.caches_rti_arc);
         module.funcoes_compartilhadas_arc.extend(b.funcoes_compartilhadas_arc);
         module.funcoes_locais_diretas_arc.extend(b.funcoes_locais_diretas_arc);

@@ -572,3 +572,92 @@ fn erro_da_fonte_com_texto(nome: &str, texto: &str) -> Option<i64> {
     let t = texto_de_erro(texto);
     Some(com_raizes(&[t], || g(t)))
 }
+
+// Os construtores de erro sob ARC: o objeto novo com um owner do código. Os
+// argumentos `Ref` ficam emprestados; o construtor pode rodar Dart (dentro de
+// um escopo nativo) e deixar exceção pendente, caso em que o resultado é null
+// sem owner.
+
+/// `Exception(msg)` sob ARC, com owner do código ([`dartforge_exception_new`]).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_exception_new_owned_v1(msg: i64) -> i64 {
+    owner_em_escopo_nativo(|| dartforge_exception_new(msg, 1))
+}
+
+/// `AssertionError(msg)` sob ARC, com owner do código ([`dartforge_assertion_error_new`]).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_assertion_error_new_owned_v1(msg: i64) -> i64 {
+    owner_em_escopo_nativo(|| dartforge_assertion_error_new(msg, 1))
+}
+
+/// `StateError(msg)` sob ARC, com owner do código ([`dartforge_state_error_new`]).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_state_error_new_owned_v1(msg: i64) -> i64 {
+    owner_em_escopo_nativo(|| dartforge_state_error_new(msg))
+}
+
+/// `UnsupportedError(msg)` sob ARC, com owner do código ([`dartforge_unsupported_error_new`]).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_unsupported_error_new_owned_v1(msg: i64) -> i64 {
+    owner_em_escopo_nativo(|| dartforge_unsupported_error_new(msg))
+}
+
+/// `UnimplementedError(msg)` sob ARC, com owner do código ([`dartforge_unimplemented_error_new`]).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_unimplemented_error_new_owned_v1(msg: i64) -> i64 {
+    owner_em_escopo_nativo(|| dartforge_unimplemented_error_new(msg))
+}
+
+/// `ArgumentError(msg, nome)` sob ARC, com owner do código ([`dartforge_argument_error_new`]).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_argument_error_new_owned_v1(msg: i64, nome: i64) -> i64 {
+    owner_em_escopo_nativo(|| dartforge_argument_error_new(msg, nome))
+}
+
+/// `ArgumentError.value(valor, nome, msg)` sob ARC, com owner do código ([`dartforge_argument_error_value`]).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_argument_error_value_owned_v1(valor: i64, nome: i64, msg: i64) -> i64 {
+    owner_em_escopo_nativo(|| dartforge_argument_error_value(valor, 1, nome, msg))
+}
+
+/// `ArgumentError.notNull(nome)` sob ARC, com owner do código ([`dartforge_argument_error_not_null`]).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_argument_error_not_null_owned_v1(nome: i64) -> i64 {
+    owner_em_escopo_nativo(|| dartforge_argument_error_not_null(nome))
+}
+
+/// `RangeError.range(...)` sob ARC, com owner do código ([`dartforge_range_error_range`]).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_range_error_range_owned_v1(valor: i64, min: i64, max: i64, nome: i64, msg: i64) -> i64 {
+    owner_em_escopo_nativo(|| dartforge_range_error_range(valor, min, max, nome, msg))
+}
+
+/// o `TypeError` do runtime sob ARC, com owner do código ([`dartforge_type_error_new`]).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_type_error_new_owned_v1() -> i64 {
+    owner_em_escopo_nativo(|| dartforge_type_error_new())
+}
+
+/// o erro do `!` sobre null sob ARC, com owner do código ([`dartforge_null_check_error_new`]).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_null_check_error_new_owned_v1() -> i64 {
+    owner_em_escopo_nativo(|| dartforge_null_check_error_new())
+}
+
+/// o `LateError` do campo/local `nome` sob ARC, com owner do código ([`dartforge_late_error_new`]).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_late_error_new_owned_v1(nome: i64, codigo: i64) -> i64 {
+    owner_em_escopo_nativo(|| dartforge_late_error_new(nome, codigo))
+}
+
+/// o `StackOverflowError` da reentrada sob ARC, com owner do código ([`dartforge_stack_overflow_error_new`]).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_stack_overflow_error_new_owned_v1() -> i64 {
+    owner_em_escopo_nativo(|| dartforge_stack_overflow_error_new())
+}
+
+/// o `NoSuchMethodError` de `nome` sob ARC, com owner do código ([`dartforge_no_such_method_error_new`]).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_no_such_method_error_new_owned_v1(nome: i64) -> i64 {
+    owner_em_escopo_nativo(|| dartforge_no_such_method_error_new(nome))
+}

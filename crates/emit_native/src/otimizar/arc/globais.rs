@@ -323,3 +323,46 @@ mod testes {
         }
     }
 }
+
+/// Classifica como Trivial as leituras I64 das globais Dart de tipo escalar
+/// (`Module::globais_escalares_dart`): o tipo Dart garante que o conteúdo é
+/// um `int` sem caixa. As escritas delas já exigem valor Trivial
+/// (`puros::conferir_origens`). Recusa declaração Ref, leitura de outra
+/// largura e classe conflitante; não publica nada em erro.
+pub(super) fn produzir_escalares(
+    m: &Module,
+    planos: &mut HashMap<String, PlanoFuncaoDart>,
+) -> Result<(), String> {
+    if !m.memoria_arc || m.globais_escalares_dart.is_empty() {
+        return Ok(());
+    }
+    let declaracoes: HashMap<&str, Type> = m.globais.iter().map(|(_, t, s)| (s.as_str(), *t)).collect();
+    for s in &m.globais_escalares_dart {
+        match declaracoes.get(s.as_str()) {
+            Some(Type::I64 | Type::F64 | Type::I1 | Type::I8) | None => {}
+            Some(t) => return Err(format!("global escalar {s} declarada {t:?}")),
+        }
+    }
+    let mut novos = planos.clone();
+    for f in &m.functions {
+        for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
+            let Instruction::LoadGlobal { simbolo, ty: lido } = inst else { continue };
+            if !m.globais_escalares_dart.contains(simbolo) || *lido != Type::I64 {
+                continue;
+            }
+            if *ty != Type::I64 || declaracoes.get(simbolo.as_str()).is_some_and(|d| *d != Type::I64) {
+                return Err(format!("global escalar {simbolo} lida em {} v{} com outra largura", f.symbol, v.0));
+            }
+            let Some(plano) = novos.get_mut(&f.symbol) else { continue };
+            if plano.classes.get(v).is_some_and(|c| *c != Ownership::Trivial)
+                || plano.tokens.instrucoes.get(v).is_some_and(|e| *e != EfeitoTokens::default())
+            {
+                return Err(format!("global escalar {simbolo} com contrato conflitante em {} v{}", f.symbol, v.0));
+            }
+            plano.classes.insert(*v, Ownership::Trivial);
+            plano.tokens.instrucoes.insert(*v, EfeitoTokens::default());
+        }
+    }
+    *planos = novos;
+    Ok(())
+}

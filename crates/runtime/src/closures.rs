@@ -36,6 +36,27 @@ pub extern "C" fn dartforge_tearoff(code_id: i64) -> i64 {
     HEAP.with(|heap| heap.borrow_mut().tearoff(code_id))
 }
 
+/// [`dartforge_tearoff`] sob ARC: o tear-off canônico com um owner do código,
+/// independente do registro que o mantém. Pode alocar na primeira vez; não
+/// lança nem executa Dart.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let a = dartforge_arc_tearoff_owned_v1(77);
+/// assert_eq!(a, dartforge_arc_tearoff_owned_v1(77));
+/// dartforge_arc_release(a);
+/// dartforge_arc_release(a);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_tearoff_owned_v1(code_id: i64) -> i64 {
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let h = heap.tearoff(code_id);
+        heap.reter_owner_codigo(h);
+        h
+    })
+}
+
 /// Consulta o código simbólico de uma closure para despacho indireto.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_closure_code(handle: i64) -> i64 {

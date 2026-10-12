@@ -360,7 +360,39 @@ impl LlvmEmitter<'_> {
     /// Dart chamadas diretamente, entradas de closure, natives do runtime
     /// fora da tabela de externs. Sem o SDK da fonte o módulo é o programa
     /// inteiro, e nada sai aqui.
+    /// Os thunks Owned genéricos (`otimizar::arc::nativos`): a base roda num
+    /// escopo nativo (os tokens que portas Dart devolvem ficam nele), e o
+    /// resultado ganha um owner do código antes de o escopo fechar; com
+    /// exceção pendente, null sem owner — o mesmo protocolo de
+    /// `owner_em_escopo_nativo` no runtime.
+    fn emitir_thunks_owned(&mut self) {
+        let thunks = std::mem::take(&mut self.thunks_owned);
+        for (nome, (base, tipos)) in thunks {
+            let params: Vec<String> = tipos.iter().enumerate().map(|(i, t)| format!("{} %a{i}", t.llvm_ir())).collect();
+            let params = params.join(", ");
+            let _ = write!(
+                self.out,
+                "define internal i64 @{nome}({params}) {{\n\
+                 entrada:\n\
+                 \x20 %e = call i64 @dartforge_arc_escopo_nativo_abrir_v1()\n\
+                 \x20 %r = call i64 @{base}({params})\n\
+                 \x20 %p = call i8 @dartforge_exception_pending()\n\
+                 \x20 %z = icmp ne i8 %p, 0\n\
+                 \x20 br i1 %z, label %fim, label %ok\n\
+                 ok:\n\
+                 \x20 call void @dartforge_arc_retain(i64 %r)\n\
+                 \x20 br label %fim\n\
+                 fim:\n\
+                 \x20 %res = phi i64 [ 0, %entrada ], [ %r, %ok ]\n\
+                 \x20 call void @dartforge_arc_escopo_nativo_fechar_v1(i64 %e)\n\
+                 \x20 ret i64 %res\n\
+                 }}\n"
+            );
+        }
+    }
+
     pub(super) fn emitir_declaracoes_externas(&mut self) {
+        self.emitir_thunks_owned();
         self.emitir_nomes_do_rastro();
         // `DARTFORGE_EFEITOS=conferir`: os nomes das externs conferidas.
         for (k, s) in std::mem::take(&mut self.externs_conferidas).iter().enumerate() {

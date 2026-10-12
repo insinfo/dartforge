@@ -21,6 +21,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 /// `@df.nucleo_armazenamento`, `@df.nucleo_forma`, `@df.palavra_ref`) ficam
 /// de fora: sob ARC o lowering usa as entradas auditadas do runtime.
 pub const CONTRATOS_DOS_AJUDANTES: &[Contrato] = &[
+    Contrato { nome: "df.bit_smi", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
+    Contrato { nome: "df.valor_smi", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
     Contrato { nome: "df.identico", parametros: &[ModoParametro::Borrow, ModoParametro::Borrow], resultado: ModoResultado::ScalarI1, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
     Contrato { nome: "df.nucleo_len", parametros: &[ModoParametro::Borrow], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
     Contrato { nome: "df.nucleo_len_gravavel", parametros: &[ModoParametro::Borrow, ModoParametro::Scalar], resultado: ModoResultado::ScalarI64, retencao_persistente: false, invalida_borrows: false, pode_falhar: false, chama_dart: false },
@@ -51,10 +53,68 @@ pub const CONTRATOS_DOS_AJUDANTES: &[Contrato] = &[
 /// assert!(contrato("df.tipada_dados").is_err());
 /// ```
 pub fn contrato(nome: &str) -> Result<&'static Contrato, &'static str> {
+    if let Some(base) = nome.strip_prefix(super::PREFIXO_OWNED_GENERICO) {
+        // Só as marcas valem aqui; os parâmetros saem dos tipos da chamada
+        // (`contrato_chamada_runtime`).
+        let e = crate::llvm::externs::efeitos_de(base);
+        return Ok(&OWNED_GENERICOS[usize::from(e.lanca || e.chama_dart) * 2 + usize::from(e.chama_dart)]);
+    }
+    #[cfg(test)]
+    if let Some(c) = CONTRATOS_DE_TESTE.iter().find(|c| c.nome == nome) {
+        return Ok(c);
+    }
     match CONTRATOS_DOS_AJUDANTES.iter().find(|c| c.nome == nome) {
         Some(c) => Ok(c),
         None => dartforge_runtime::ownership::contrato(nome),
     }
+}
+
+/// Formas de contrato que o catálogo real já não tem, mas que a preparação
+/// continua a suportar: um resultado emprestado do argumento 0 que só
+/// existe na saída normal.
+#[cfg(test)]
+pub(super) const CONTRATOS_DE_TESTE: &[Contrato] = &[Contrato {
+    nome: "df.teste.campo_falivel",
+    parametros: &[ModoParametro::Borrow, ModoParametro::Scalar],
+    resultado: ModoResultado::BorrowArg(0),
+    retencao_persistente: false,
+    invalida_borrows: false,
+    pode_falhar: true,
+    chama_dart: false,
+}];
+
+/// As marcas dos thunks Owned genéricos, por (pode falhar, chama Dart).
+const OWNED_GENERICOS: [Contrato; 4] = {
+    const fn c(pode_falhar: bool, chama_dart: bool) -> Contrato {
+        Contrato { nome: "df.arc.owned.*", parametros: &[], resultado: ModoResultado::Owned,
+            retencao_persistente: true, invalida_borrows: true, pode_falhar, chama_dart }
+    }
+    [c(false, false), c(false, true), c(true, false), c(true, true)]
+};
+
+/// O contrato do thunk Owned genérico de `base` com os argumentos da
+/// chamada: cada `Ref` emprestado (SSA ou null), os escalares por valor; o
+/// resultado é um owner; falha e reentrada são as da base (`efeitos.tsv`).
+fn contrato_owned_generico(base: &str, args: &[(Operand, Type)]) -> Result<ContratoChamadaRuntime, String> {
+    let e = crate::llvm::externs::efeitos_de(base);
+    for (n, (op, ty)) in args.iter().enumerate() {
+        match (ty, op) {
+            (Type::Ref, Operand::Val(_) | Operand::Constant(Constant::Null)) => {}
+            (Type::Ref, _) => return Err(format!("{base}: argumento Ref {n} exige SSA ou null")),
+            (Type::I64 | Type::F64 | Type::I8 | Type::I1, Operand::Val(_)) => {}
+            (Type::I64 | Type::I8, Operand::Constant(Constant::Int(_) | Constant::Bool(_))) => {}
+            (Type::I1, Operand::Constant(Constant::Bool(_))) => {}
+            (Type::F64, Operand::Constant(Constant::Double(_))) => {}
+            _ => return Err(format!("{base}: argumento {n} sem representação do thunk Owned")),
+        }
+    }
+    Ok(ContratoChamadaRuntime {
+        efeito: EfeitoTokens { pode_falhar: e.lanca || e.chama_dart, ..Default::default() },
+        resultado: Ownership::Owned,
+        retencao_persistente: true,
+        invalida_borrows: true,
+        chama_dart: e.chama_dart,
+    })
 }
 
 /// Produz contratos dos parâmetros Ref pela convenção de chamadas Dart (§20.1).
@@ -325,7 +385,10 @@ pub fn produzir_e_verificar_tokens_dart(
         super::RetornoTokens::Trivial
     };
     if plano.retorno != retorno {
-        return Err("convenção Dart exige resultado Ref Owned e demais resultados Trivial".into());
+        return Err(format!(
+            "convenção Dart em {} exige resultado Ref Owned e demais resultados Trivial ({:?} com {:?})",
+            f.symbol, f.return_ty, plano.retorno
+        ));
     }
     let mut novas_classes = classes.clone();
     let mut novo_plano = plano.clone();
@@ -484,11 +547,43 @@ pub fn produzir_contratos_arc(
     let locais = super::locais::produzir(f, &mut novas_classes, &mut novo_plano)?;
     let contratos = produzir(f, &mut novas_classes, &mut novo_plano, true)?;
     produzir_phi(f, &mut novas_classes, &novo_plano)?;
+    conferir_escalares_tipados(f, &novas_classes)?;
     super::locais::verificar_valores(f, &locais, &novas_classes)?;
     super::puros::conferir_origens(f, &novas_classes)?;
     *classes = novas_classes;
     *plano = novo_plano;
     Ok(contratos)
+}
+
+/// [`produzir_contratos_arc`] sem resolver os Phis nem as conferências que
+/// dependem deles. Não publica nada em erro.
+pub(super) fn produzir_contratos_sem_phi(
+    f: &Function,
+    classes: &mut HashMap<ValueId, Ownership>,
+    plano: &mut PlanoTokens,
+) -> Result<(), String> {
+    let mut novas_classes = classes.clone();
+    let mut novo_plano = plano.clone();
+    super::locais::produzir(f, &mut novas_classes, &mut novo_plano)?;
+    produzir(f, &mut novas_classes, &mut novo_plano, true)?;
+    *classes = novas_classes;
+    *plano = novo_plano;
+    Ok(())
+}
+
+/// Cada argumento escalar de uma `ChamadaTipada` (inclusive os Phis, já
+/// classificados) é Trivial: um word Dart não passa por um slot escalar.
+fn conferir_escalares_tipados(f: &Function, classes: &HashMap<ValueId, Ownership>) -> Result<(), String> {
+    for (_, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
+        if let Instruction::ChamadaTipada { args, .. } = inst {
+            for (op, t) in args {
+                if *t != Type::Ref && let Operand::Val(v) = op && classes.get(v) != Some(&Ownership::Trivial) {
+                    return Err(format!("v{}: argumento escalar tipado exige Trivial, sem word Dart", v.0));
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Resolve a propriedade dos Phi Ref, inclusive ciclos com origem conhecida.
@@ -694,7 +789,7 @@ fn produzir_phi(
         .flat_map(|b| &b.instructions)
         .filter_map(|(v, i, ty)| matches!(i, Instruction::Phi { .. }).then_some((*v, *ty)))
         .filter(|(v, ty)| {
-            matches!(ty, Type::I1 | Type::I64 | Type::F64)
+            matches!(ty, Type::I1 | Type::I8 | Type::I64 | Type::F64)
                 || (*ty == Type::Ref && classes.get(v) == Some(&Ownership::Trivial))
         })
         .map(|(v, _)| v)
@@ -721,7 +816,7 @@ fn produzir_phi(
                     match op {
                         Operand::Constant(Constant::Null) if *ty == Type::Ref => ancora = true,
                         Operand::Constant(Constant::Bool(_)) if *ty == Type::I1 => ancora = true,
-                        Operand::Constant(Constant::Int(_)) if *ty == Type::I64 => ancora = true,
+                        Operand::Constant(Constant::Int(_)) if matches!(ty, Type::I64 | Type::I8) => ancora = true,
                         Operand::Constant(Constant::Double(_)) if *ty == Type::F64 => ancora = true,
                         Operand::Val(de) if tipos.get(de) == Some(ty) && escalares.contains(de) => {
                             pais_escalares.entry(*de).or_default().push(*v);
@@ -910,6 +1005,29 @@ fn produzir(
                 if classes.get(v).is_some_and(|classe| *classe != c.resultado)
                     || plano.instrucoes.get(v).is_some_and(|e| *e != c.efeito) {
                     return Err(format!("v{}: contrato conflitante de literal de lista", v.0));
+                }
+                contratos.insert(*v, c);
+            }
+            if let Instruction::AllocRecord { elements } = inst {
+                // Sob ARC todo record literal vai à fábrica Owned, que só
+                // recebe referências (o lowering encaixota os escalares).
+                let referencia = |op: &Operand| match op {
+                    Operand::Val(arg) => tipos.get(arg) == Some(&Type::Ref),
+                    Operand::Constant(Constant::Null) => true,
+                    _ => false,
+                };
+                if *ty != Type::Ref || !elements.iter().all(|(op, _)| referencia(op)) {
+                    return Err(format!("v{}: record literal exige campos Ref em SSA", v.0));
+                }
+                let c = contrato_chamada_runtime(&Instruction::CallRuntime {
+                    name: "dartforge_arc_record_novo_owned_v1".into(),
+                    args: vec![(Operand::Val(ValueId(0)), Type::Ptr),
+                        (Operand::Constant(Constant::Int(elements.len() as i64)), Type::I64)],
+                    ret_ty: Type::Ref,
+                })?;
+                if classes.get(v).is_some_and(|classe| *classe != c.resultado)
+                    || plano.instrucoes.get(v).is_some_and(|e| *e != c.efeito) {
+                    return Err(format!("v{}: contrato conflitante de record literal", v.0));
                 }
                 contratos.insert(*v, c);
             }
@@ -1103,10 +1221,14 @@ fn produzir(
         }
     }
     if incluir_arc {
+        // Os Phis ainda não têm classe aqui: `conferir_escalares_tipados`
+        // os confere depois de `produzir_phi`.
+        let phis: HashSet<ValueId> = f.blocks.iter().flat_map(|b| &b.instructions)
+            .filter(|(_, i, _)| matches!(i, Instruction::Phi { .. })).map(|(v, _, _)| *v).collect();
         for (_, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
             if let Instruction::ChamadaTipada { args, .. } = inst {
                 for (op, t) in args {
-                    if *t != Type::Ref && let Operand::Val(v) = op {
+                    if *t != Type::Ref && let Operand::Val(v) = op && !phis.contains(v) {
                         let classe = contratos.get(v).map(|c| &c.resultado)
                             .or_else(|| fixas.get(v)).or_else(|| classes.get(v));
                         if classe != Some(&Ownership::Trivial) {
@@ -1174,6 +1296,12 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
     let Instruction::CallRuntime { name, args, ret_ty } = inst else {
         return Err("contrato runtime exige CallRuntime".into());
     };
+    if let Some(base) = name.strip_prefix(super::PREFIXO_OWNED_GENERICO) {
+        if *ret_ty != Type::Ref {
+            return Err(format!("{name}: thunk Owned exige resultado Ref"));
+        }
+        return contrato_owned_generico(base, args);
+    }
     let c = contrato(name).map_err(|e| format!("{name}: {e}"))?;
     // Retain produz um owner independente, mas a extern retorna void. A HIR
     // representa essa produção com ArcCopy; tratá-la como chamada borrowed
@@ -1236,6 +1364,8 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
             Type::Ptr
         } else if *modo == ModoParametro::ScalarF64 {
             Type::F64
+        } else if *modo == ModoParametro::ScalarI8 {
+            Type::I8
         } else {
             Type::I64
         };
@@ -1263,6 +1393,8 @@ pub fn contrato_chamada_runtime(inst: &Instruction) -> Result<ContratoChamadaRun
             // a anotação I64 não transforma bool/double/literal em inteiro.
             let compativel = if *modo == ModoParametro::ScalarF64 {
                 matches!(k, Constant::Double(_))
+            } else if *modo == ModoParametro::ScalarI8 {
+                matches!(k, Constant::Int(0..=255) | Constant::Bool(_))
             } else {
                 matches!(k, Constant::Int(_))
                     || (*modo == ModoParametro::Native && matches!(k, Constant::Funcao(_)))
@@ -2317,11 +2449,9 @@ mod testes {
     }
 
     #[test]
-    fn consultas_record_produzem_escalar_apenas_na_saida_normal() {
-        for nome in [
-            "dartforge_nativo_DartForge_record_numFields",
-            "dartforge_nativo_DartForge_record_shape",
-        ] {
+    fn consulta_falivel_produz_escalar_apenas_na_saida_normal() {
+        // As consultas de record não falham; o endereço da closure sim.
+        for nome in ["dartforge_ffi_endereco_da_closure"] {
             let mut f = Function {
                 symbol: "consulta_record".into(),
                 name: "consulta_record".into(),
@@ -3202,6 +3332,7 @@ mod testes {
         for (ty, constante) in [
             (Type::I1, Constant::Bool(true)),
             (Type::I64, Constant::Int(7)),
+            (Type::I8, Constant::Int(2)),
             (Type::F64, Constant::Double(7.0)),
         ] {
             let mut f = Function {

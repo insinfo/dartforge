@@ -1509,6 +1509,26 @@ pub extern "C" fn dartforge_rti_objeto_tipo(t: i64) -> i64 {
     h
 }
 
+/// [`dartforge_rti_objeto_tipo`] sob ARC: o objeto `Type` canônico com um
+/// owner do código, independente da raiz permanente do cache. Pode alocar
+/// na primeira consulta; não lança nem executa Dart.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let a = dartforge_arc_rti_objeto_tipo_owned_v1(7);
+/// let b = dartforge_arc_rti_objeto_tipo_owned_v1(7);
+/// assert_eq!(a, b);
+/// assert_eq!(dartforge_arc_observar_heap_v1(a), 3);
+/// dartforge_arc_release(a);
+/// dartforge_arc_release(b);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_rti_objeto_tipo_owned_v1(t: i64) -> i64 {
+    let h = dartforge_rti_objeto_tipo(t);
+    HEAP.with(|heap| heap.borrow_mut().reter_owner_codigo(h));
+    h
+}
+
 /// O texto de um tipo (`Type.toString()`), como `String` do heap.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_texto(t: i64) -> i64 {

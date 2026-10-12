@@ -674,7 +674,9 @@ fn analisar_tokens(
                 }
             }
         }
-        if cfg.sucessores[i].is_empty() && !ativos.is_empty() {
+        // `Unreachable` não continua (o caminho morto depois de um lançamento,
+        // o fim de quem encerra o processo): um token vivo ali não vaza.
+        if cfg.sucessores[i].is_empty() && !ativos.is_empty() && !matches!(b.terminator, Terminator::Unreachable) {
             if permitir_cleanup && matches!(b.terminator, Terminator::Return(_)) {
                 let mut restantes: Vec<_> = ativos.iter().copied().collect();
                 restantes.sort_unstable_by_key(|v| v.0);

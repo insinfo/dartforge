@@ -329,14 +329,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         else_block: b_ok,
                     });
                     self.set_block(b_erro);
-                    let e = self.emit(
-                        Instruction::CallRuntime {
-                            name: "dartforge_type_error_new".to_string(),
-                            args: Vec::new(),
-                            ret_ty: Type::Ref,
-                        },
-                        Type::Ref,
-                    );
+                    let e = self.novo_erro_do_runtime("dartforge_type_error_new", Vec::new());
                     self.emit_throw_op(e);
                     self.set_block(b_ok);
                 }
@@ -684,14 +677,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Instruction::Const(Constant::String("switch sem caso correspondente".to_string())),
             Type::Ref,
         );
-        let e = self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_state_error_new".to_string(),
-                args: vec![(msg, Type::Ref)],
-                ret_ty: Type::Ref,
-            },
-            Type::Ref,
-        );
+        let e = self.novo_erro_do_runtime("dartforge_state_error_new", vec![(msg, Type::Ref)]);
         self.emit_throw_op(e);
         self.terminate(Terminator::Unreachable);
         self.set_block(juncao);
@@ -756,14 +742,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Instruction::Const(Constant::String("padrão irrefutável não casou".to_string())),
             Type::Ref,
         );
-        let e = self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_state_error_new".to_string(),
-                args: vec![(msg, Type::Ref)],
-                ret_ty: Type::Ref,
-            },
-            Type::Ref,
-        );
+        let e = self.novo_erro_do_runtime("dartforge_state_error_new", vec![(msg, Type::Ref)]);
         self.emit_throw_op(e);
         self.terminate(Terminator::Unreachable);
         self.set_block(segue);

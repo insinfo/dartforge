@@ -4,10 +4,67 @@
 use crate::hir::*;
 
 pub(super) fn preparar(f: &mut Function) -> Result<(), String> {
+    // O tear-off canônico, com owner do código (`dartforge_arc_tearoff_owned_v1`).
+    for (v, inst, ty) in f.blocks.iter_mut().flat_map(|b| &mut b.instructions) {
+        if let Instruction::TearOff { code_symbol } = inst {
+            if *ty != Type::Ref {
+                return Err(format!("tear-off ARC em {} v{}: resultado não Ref", f.symbol, v.0));
+            }
+            *inst = Instruction::CallRuntime {
+                name: "dartforge_arc_tearoff_owned_v1".into(),
+                args: vec![(Operand::Constant(Constant::Funcao(std::mem::take(code_symbol))), Type::I64)],
+                ret_ty: Type::Ref,
+            };
+        }
+    }
     for (v, inst, ty) in f.blocks.iter_mut().flat_map(|b| &mut b.instructions) {
         let Instruction::CallRuntime { name, args, ret_ty } = inst else {
             continue;
         };
+        // A exceção e o rastro pendentes com owner independente do `clear`.
+        let pendente = match name.as_str() {
+            "dartforge_exception_peek_ref" => Some("dartforge_arc_excecao_owned_v1"),
+            "dartforge_stack_trace_get" => Some("dartforge_arc_rastro_owned_v1"),
+            _ => None,
+        };
+        if let Some(owned) = pendente {
+            if *ty != Type::Ref || *ret_ty != Type::Ref || !args.is_empty() {
+                return Err(format!("exceção pendente ARC em {} v{}: ABI incompatível", f.symbol, v.0));
+            }
+            *name = owned.into();
+            continue;
+        }
+        // A string nova (`@df.texto_alocar`) com owner do código.
+        if name == "df.texto_alocar" {
+            let [(len, Type::I64), (Operand::Constant(Constant::Bool(dois)), Type::I1)] = args.as_slice() else {
+                return Err(format!("alocação de texto ARC em {} v{}: ABI incompatível", f.symbol, v.0));
+            };
+            if *ty != Type::Ref || *ret_ty != Type::Ref {
+                return Err(format!("alocação de texto ARC em {} v{}: resultado não Ref", f.symbol, v.0));
+            }
+            *args = vec![(len.clone(), Type::I64), (Operand::Constant(Constant::Int(i64::from(*dois))), Type::I64)];
+            *name = "dartforge_arc_texto_novo_owned_v1".into();
+            continue;
+        }
+        // Os construtores de erro do runtime: a variante Owned (o par
+        // bits/é-referência vira o valor `Ref`).
+        if let Some(base) = name.strip_prefix("dartforge_")
+            && ERROS_COM_VARIANTE_ARC.contains(&base)
+        {
+            if *ty != Type::Ref || *ret_ty != Type::Ref {
+                return Err(format!("erro do runtime ARC em {} v{}: resultado não Ref", f.symbol, v.0));
+            }
+            if matches!(base, "exception_new" | "assertion_error_new" | "argument_error_value") {
+                let ref_valida = |o: &Operand| matches!(o, Operand::Val(_) | Operand::Constant(Constant::Null));
+                if args.len() < 2 || !ref_valida(&args[0].0) || !matches!(args[1].0, Operand::Constant(Constant::Int(1))) {
+                    return Err(format!("erro do runtime ARC em {} v{}: valor sem referência", f.symbol, v.0));
+                }
+                args.remove(1);
+                args[0].1 = Type::Ref;
+            }
+            *name = format!("dartforge_arc_{base}_owned_v1");
+            continue;
+        }
         if name == "df.lista_len" {
             if *ty != Type::I64
                 || *ret_ty != Type::I64
@@ -58,26 +115,69 @@ pub(super) fn preparar(f: &mut Function) -> Result<(), String> {
             *name = "dartforge_arc_ffi_ponteiro_de_retorno_owned_v1".into();
             continue;
         }
-        if name == "dartforge_rti_texto" {
+        let rti = match name.as_str() {
+            "dartforge_rti_texto" => Some("dartforge_arc_rti_texto_owned_v1"),
+            "dartforge_rti_objeto_tipo" => Some("dartforge_arc_rti_objeto_tipo_owned_v1"),
+            _ => None,
+        };
+        if let Some(owned) = rti {
             if *ty != Type::Ref || *ret_ty != Type::Ref || !matches!(args.as_slice(), [(_, Type::I64)]) {
-                return Err(format!("texto RTI ARC em {} v{}: ABI I64/Ref incompatível", f.symbol, v.0));
+                return Err(format!("texto/objeto RTI ARC em {} v{}: ABI I64/Ref incompatível", f.symbol, v.0));
             }
-            *name = "dartforge_arc_rti_texto_owned_v1".into();
+            *name = owned.into();
             continue;
         }
-        if name != "dartforge_nativo_Socket_RecvFrom" {
+        if name == "dartforge_nativo_Socket_RecvFrom" {
+            if *ty != Type::Ref || *ret_ty != Type::Ref || !matches!(args.as_slice(), [(_, Type::Ref)])
+            {
+                return Err(format!(
+                    "recepção ARC em {} v{}: ABI Ref incompatível",
+                    f.symbol, v.0
+                ));
+            }
+            *name = "dartforge_arc_socket_recvfrom_owned_v1".into();
             continue;
         }
-        if *ty != Type::Ref || *ret_ty != Type::Ref || !matches!(args.as_slice(), [(_, Type::Ref)])
-        {
-            return Err(format!(
-                "recepção ARC em {} v{}: ABI Ref incompatível",
-                f.symbol, v.0
-            ));
+        // Uma função do runtime que devolve um objeto vivo sem owner do
+        // código: o thunk Owned genérico (escopo nativo, guarda, retain).
+        if *ret_ty == Type::Ref && owned_generico(name) && super::contrato(name).is_err() {
+            if *ty != Type::Ref || args.iter().any(|(_, t)| !matches!(t, Type::Ref | Type::I64 | Type::F64 | Type::I8 | Type::I1)) {
+                return Err(format!("thunk Owned em {} v{}: ABI incompatível", f.symbol, v.0));
+            }
+            *name = format!("{}{name}", super::PREFIXO_OWNED_GENERICO);
         }
-        *name = "dartforge_arc_socket_recvfrom_owned_v1".into();
     }
     Ok(())
+}
+
+/// Os construtores de erro do runtime com variante Owned (o nome sem o
+/// prefixo `dartforge_`; `lower/erros_do_runtime.rs` os emite).
+pub(crate) const ERROS_COM_VARIANTE_ARC: &[&str] = &[
+    "exception_new", "assertion_error_new", "state_error_new", "unsupported_error_new",
+    "unimplemented_error_new", "argument_error_new", "argument_error_value",
+    "argument_error_not_null", "range_error_range", "type_error_new", "null_check_error_new",
+    "late_error_new", "stack_overflow_error_new", "no_such_method_error_new",
+];
+
+/// As funções do runtime cujo resultado `Ref` está vivo ao voltar, sem owner
+/// do código e sem consumir argumentos: os natives do SDK e os construtores
+/// do runtime chamados pelo lowering. Leitura de campo, alocação de objeto e
+/// as de endereço nativo têm produtores próprios.
+fn owned_generico(nome: &str) -> bool {
+    nome.starts_with("dartforge_nativo_")
+        || matches!(
+            nome,
+            "dartforge_collection_mark_unmodifiable"
+                | "dartforge_constante_canonica"
+                | "dartforge_encaminhar_nsm"
+                | "dartforge_rastro_texto"
+                | "dartforge_string_concat"
+                | "dartforge_to_string_bool"
+                | "dartforge_to_string_f64"
+                | "dartforge_typed_externo"
+                | "dartforge_typed_novo"
+                | "dartforge_view_nova"
+        )
 }
 
 #[cfg(test)]
@@ -304,6 +404,74 @@ mod testes {
                 assert!(r.is_err(), "caso {caso}");
                 assert_eq!(format!("{m:?}"), antes);
                 assert_eq!(planos, ps);
+            }
+        }
+    }
+
+    #[test]
+    fn thunk_owned_generico_envolve_construtor_e_native_com_guarda() {
+        for caso in 0..3 {
+            let mut m = Module::new();
+            m.memoria_arc = caso != 2;
+            let rt = |name: &str, args, ret_ty| Instruction::CallRuntime { name: name.into(), args, ret_ty };
+            let i64c = |n| (Operand::Constant(Constant::Int(n)), Type::I64);
+            let insts = vec![
+                (ValueId(2), rt("dartforge_typed_novo", vec![i64c(23), i64c(1), (Operand::Val(ValueId(1)), Type::I64)], Type::Ref), Type::Ref),
+                (ValueId(3), rt("dartforge_exception_pending", vec![], Type::I8), Type::I8),
+                (ValueId(4), Instruction::ICmp(ICmpOp::Ne, Operand::Val(ValueId(3)), Operand::Constant(Constant::Int(0))), Type::I1),
+            ];
+            let nativo = if caso == 1 {
+                // Um argumento sem representação no thunk: recusado.
+                rt("dartforge_nativo_X_y", vec![(Operand::Val(ValueId(0)), Type::Ptr)], Type::Ref)
+            } else {
+                rt("dartforge_nativo_X_y", vec![(Operand::Val(ValueId(0)), Type::Ref), (Operand::Constant(Constant::Double(1.5)), Type::F64)], Type::Ref)
+            };
+            let insts2 = vec![
+                (ValueId(5), nativo, Type::Ref),
+                (ValueId(6), rt("dartforge_exception_pending", vec![], Type::I8), Type::I8),
+                (ValueId(7), Instruction::ICmp(ICmpOp::Ne, Operand::Val(ValueId(6)), Operand::Constant(Constant::Int(0))), Type::I1),
+            ];
+            m.functions.push(Function { symbol: "g".into(), name: "g".into(), depuracao: None,
+                params: vec![(ValueId(0), "o".into(), Type::Ref), (ValueId(1), "n".into(), Type::I64)],
+                return_ty: Type::Ref,
+                blocks: vec![
+                    BasicBlock { id: BlockId(0), instructions: insts,
+                        terminator: Terminator::CondBranch { cond: Operand::Val(ValueId(4)), then_block: BlockId(1), else_block: BlockId(2) } },
+                    BasicBlock { id: BlockId(1), instructions: vec![], terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) },
+                    BasicBlock { id: BlockId(2), instructions: insts2,
+                        terminator: Terminator::CondBranch { cond: Operand::Val(ValueId(7)), then_block: BlockId(3), else_block: BlockId(4) } },
+                    BasicBlock { id: BlockId(3), instructions: vec![], terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) },
+                    BasicBlock { id: BlockId(4), instructions: vec![], terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))) },
+                ] });
+            m.retornos_ref_dart.insert("g".into());
+            m.parametros_escalares_dart.insert("g".into(), [ValueId(1)].into());
+            let mut planos = HashMap::from([("g".into(), PlanoFuncaoDart::default())]);
+            let antes = format!("{m:?}");
+            let ps = planos.clone();
+            let r = preparar_arc_modulo_dart(&mut m, &mut planos);
+            match caso {
+                0 => {
+                    r.unwrap();
+                    for (v, bloco) in [(2, 1), (5, 3)] {
+                        assert_eq!(planos["g"].classes[&ValueId(v)], Ownership::Owned);
+                        assert_eq!(planos["g"].tokens.pendencias[&ValueId(v)], BlockId(bloco));
+                    }
+                    let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+                    assert!(ir.contains("call i64 @df.arc.owned.dartforge_typed_novo(i64 23, i64 1, i64 %v1)"), "{ir}");
+                    assert!(ir.contains("define internal i64 @df.arc.owned.dartforge_typed_novo(i64 %a0, i64 %a1, i64 %a2)"));
+                    assert!(ir.contains("define internal i64 @df.arc.owned.dartforge_nativo_X_y(i64 %a0, double %a1)"));
+                    assert!(ir.contains("declare i64 @dartforge_nativo_X_y(i64, double)"));
+                    assert_eq!(preparar_arc_modulo_dart(&mut m, &mut planos).unwrap(), (0, 0));
+                }
+                2 => {
+                    assert_eq!(r.unwrap(), (0, 0));
+                    assert_eq!(format!("{m:?}"), antes);
+                }
+                _ => {
+                    assert!(r.is_err(), "caso {caso}");
+                    assert_eq!(format!("{m:?}"), antes);
+                    assert_eq!(planos, ps);
+                }
             }
         }
     }

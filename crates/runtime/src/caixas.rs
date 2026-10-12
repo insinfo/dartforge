@@ -228,6 +228,18 @@ impl Heap {
             h
         })
     }
+    /// [`Heap::novo_record`] com as arestas contadas pelo ARC (`gravar_refs`):
+    /// os campos ficam enraizados durante a alocação.
+    pub fn novo_record_contado(&mut self, campos: &[Ref]) -> Ref {
+        self.com_refs_enraizados(campos.iter().copied(), |heap| {
+            let h = heap.alocar(cid::RECORD, 1 + campos.len(), flags::REFS);
+            heap.palavras_mut(h)[0] = campos.len() as i64;
+            if !campos.is_empty() {
+                heap.gravar_refs(h, 1, campos);
+            }
+            h
+        })
+    }
     /// Os campos do record posicional `h`; `None` se não é `_Record`.
     pub fn record(&self, h: Ref) -> Option<&[i64]> {
         if !e_objeto(h) || self.cid_de(h) != cid::RECORD {

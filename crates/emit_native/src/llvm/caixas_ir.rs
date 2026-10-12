@@ -172,6 +172,14 @@ lento:\n\
   %x = icmp ne i8 %u, 0\n\
   ret i1 %x\n\
 }\n\
+define internal i64 @df.bit_smi(i64 %x) alwaysinline {\n\
+  %b = and i64 %x, 1\n\
+  ret i64 %b\n\
+}\n\
+define internal i64 @df.valor_smi(i64 %x) alwaysinline {\n\
+  %v = ashr i64 %x, 1\n\
+  ret i64 %v\n\
+}\n\
 define internal i1 @df.identico(i64 %a, i64 %b) alwaysinline {\n\
   %eq = icmp eq i64 %a, %b\n\
   br i1 %eq, label %sim, label %t1\n\
@@ -220,6 +228,8 @@ pub(super) const EFEITOS_DOS_AJUDANTES: &[(&str, bool, bool)] = &[
     ("df.num_para_double", true, true),
     ("df.desencaixa_bool", true, true),
     ("df.identico", false, false),
+    ("df.bit_smi", false, false),
+    ("df.valor_smi", false, false),
 ];
 
 /// O estado da emissão de caixas e closures por módulo.
@@ -315,7 +325,11 @@ impl LlvmEmitter<'_> {
     /// `(bits, tag)` do caminho lento (elemento sem caixa), ou os `Ref` de um
     /// record grande demais para a TLAB.
     pub(super) fn buffer_de_record(&mut self, v: u32, elements: &[(Operand, u8)]) {
-        if !self.record_so_de_refs(elements) {
+        if self.fabricas_owned_arc() {
+            if !elements.is_empty() {
+                writeln!(self.out, "  %rec_buf_{v} = alloca [{} x i64]", elements.len()).unwrap();
+            }
+        } else if !self.record_so_de_refs(elements) {
             writeln!(self.out, "  %rec_buf_{v} = alloca [{} x i64]", elements.len() * 2).unwrap();
         } else if 1 + elements.len() > layout::TLAB_N {
             writeln!(self.out, "  %rec_buf_{v} = alloca [{} x i64]", elements.len()).unwrap();
@@ -325,6 +339,18 @@ impl LlvmEmitter<'_> {
     /// O record posicional literal (`_Record`, `REFS`).
     pub(super) fn emitir_alloc_record(&mut self, v: u32, elements: &[(Operand, u8)]) {
         let n = elements.len();
+        // Sob ARC preparado, a fábrica Owned (os campos já são `Ref`,
+        // conferido pela preparação), que conta as arestas.
+        if self.fabricas_owned_arc() {
+            for (i, (elem, _)) in elements.iter().enumerate() {
+                let s = self.coagir(elem, Type::Ref);
+                writeln!(self.out, "  %rb{v}_{i} = getelementptr [{n} x i64], ptr %rec_buf_{v}, i64 0, i64 {i}").unwrap();
+                writeln!(self.out, "  store i64 {s}, ptr %rb{v}_{i}").unwrap();
+            }
+            let buf = if n == 0 { "null".to_string() } else { format!("%rec_buf_{v}") };
+            writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_record_novo_owned_v1(ptr {buf}, i64 {n})").unwrap();
+            return;
+        }
         if !self.record_so_de_refs(elements) {
             // Caminho lento (um elemento sem caixa, que o lowering ainda não
             // encaixotou): o runtime encaixota com as raízes certas.

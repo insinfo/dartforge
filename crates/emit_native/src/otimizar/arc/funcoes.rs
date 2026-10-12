@@ -235,6 +235,7 @@ pub(super) fn preparar_com_variantes(
     super::vetores::produzir(&trabalho, &mut novos)?;
     super::vetores::preparar_leituras(&trabalho, &mut preparadas)?;
     super::caches_rti::produzir(&trabalho, &mut novos)?;
+    super::globais::produzir_escalares(&trabalho, &mut novos)?;
     produzir_parametros_rti_do_lowering(&trabalho, &mut novos)?;
     produzir_retornos_ref_do_lowering(&trabalho, &mut novos)?;
     // O conjunto já mantém os corpos privados até verificar todos eles.
@@ -295,6 +296,17 @@ fn inserir(
     let assinaturas: HashMap<_, _> = funcoes.iter().map(|f| (f.symbol.clone(),
         (f.params.iter().map(|(_, _, ty)| *ty).collect::<Vec<_>>(), f.return_ty))).collect();
     for f in &mut modulo.functions {
+        // Um bloco sem retorno explícito (o fim do corpo, o placeholder do
+        // lowering) numa função não-void devolve o valor padrão, como o
+        // emissor LLVM já faz; aqui ele fica explícito para os tokens.
+        if matches!(f.return_ty, Type::Ref | Type::I64 | Type::I8 | Type::I1 | Type::F64) {
+            let padrao = super::super::operandos::constante_padrao(f.return_ty);
+            for b in &mut f.blocks {
+                if let Terminator::Return(r @ None) = &mut b.terminator {
+                    *r = Some(padrao.clone());
+                }
+            }
+        }
         super::tipadas::preparar(f)?;
         super::nativos::preparar(f)?;
         if let Some(layouts) = layouts {
@@ -370,8 +382,10 @@ fn inserir(
     let mut total = (0, 0);
     for f in &mut modulo.functions {
         let novo = novos_planos.get_mut(&f.symbol).unwrap();
+        super::saidas::separar_saidas_compartilhadas(f, novo)?;
         super::saidas::separar_guardas(f, novo)?;
         super::tokens::normalizar_saidas_lanca(f, &novo.tabelas)?;
+        total.0 += super::phis::copiar_emprestimos(f, &indice, novo)?;
         super::chamadas::produzir_chamadas_e_instrucoes_dart(
             f,
             &indice,
@@ -503,7 +517,7 @@ mod testes {
                     } else {
                         Instruction::CallRuntime {
                             name: if falivel {
-                                "dartforge_nativo_DartForge_record_fieldAt"
+                                "df.teste.campo_falivel"
                             } else {
                                 "dartforge_arc_ler_campo_ref_v1"
                             }
@@ -684,10 +698,11 @@ mod testes {
                     else {
                         panic!("Phi ausente")
                     };
-                    assert_eq!(
-                        incoming.iter().map(|(b, _)| b.0).collect::<Vec<_>>(),
-                        [5, 6]
-                    );
+                    // As entradas chegam pelos blocos novos das continuações
+                    // (a numeração depende de quantos blocos a preparação cria).
+                    let origens: Vec<_> = incoming.iter().map(|(b, _)| b.0).collect();
+                    assert_eq!(origens.len(), 2);
+                    assert!(origens.iter().all(|b| *b > 4) && origens[0] != origens[1], "{origens:?}");
                     assert!(m.functions[0].blocks[4].instructions.is_empty());
                     assert_eq!(planos["phi_multiplos_borrows"].tokens.pendencias.len(), 2);
                 }
@@ -725,7 +740,7 @@ mod testes {
                             (
                                 ValueId(1),
                                 Instruction::CallRuntime {
-                                    name: "dartforge_nativo_DartForge_record_fieldAt".into(),
+                                    name: "df.teste.campo_falivel".into(),
                                     args: vec![
                                         (Operand::Val(ValueId(0)), Type::Ref),
                                         (Operand::Constant(Constant::Int(0)), Type::I64),

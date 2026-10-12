@@ -513,17 +513,8 @@ pub unsafe extern "C" fn dartforge_arc_ffi_callback_closure_owned_v1(ctx: i64) -
 /// fechado; aborta no limite C.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_arc_ffi_callback_ponteiro_owned_v1(ctx: i64, i: i64, endereco: i64) -> i64 {
-    let escopo = EscopoUniformeArc(dartforge_arc_escopo_nativo_abrir_v1());
     // SAFETY: o contrato acima.
-    let ponteiro = unsafe { dartforge_ffi_callback_ponteiro(ctx, i, endereco) };
-    let resultado = if dartforge_exception_pending() != 0 {
-        0
-    } else {
-        dartforge_arc_retain(ponteiro);
-        ponteiro
-    };
-    drop(escopo);
-    resultado
+    owner_em_escopo_nativo(|| unsafe { dartforge_ffi_callback_ponteiro(ctx, i, endereco) })
 }
 
 /// A entrada C terminou a chamada: devolve 1 (e o retorno excepcional em

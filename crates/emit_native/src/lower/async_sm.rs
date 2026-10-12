@@ -381,22 +381,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             e.retorno_cru = true;
         }
         b.set_block(topo);
-        let erro = b.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_exception_peek_ref".to_string(),
-                args: Vec::new(),
-                ret_ty: Type::Ref,
-            },
-            Type::Ref,
-        );
-        let rastro = b.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_stack_trace_get".to_string(),
-                args: Vec::new(),
-                ret_ty: Type::Ref,
-            },
-            Type::Ref,
-        );
+        let erro = b.excecao_pendente();
+        let rastro = b.rastro_pendente();
         b.emit(
             Instruction::CallRuntime {
                 name: "dartforge_exception_clear".to_string(),
@@ -965,18 +951,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         let erro = self.ler_campo(valor.clone(), ve, span);
         let rastro = self.ler_campo(valor, vr, span);
-        self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_throw_with_stack_trace".to_string(),
-                args: vec![
-                    (erro, Type::I64),
-                    (Operand::Constant(Constant::Int(3)), Type::I8),
-                    (rastro, Type::Ref),
-                ],
-                ret_ty: Type::Void,
-            },
-            Type::Void,
-        );
+        self.emitir_lancamento(erro, Some(rastro));
         self.desviar_para_tratador();
     }
 

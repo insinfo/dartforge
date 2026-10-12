@@ -47,13 +47,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             (_, Some(n @ ("Internal_allocateOneByteString" | "Internal_allocateTwoByteString")), None) if args.len() == 1 => {
                 let len = self.coagir(args[0].clone(), Type::I64);
-                let dois = n == "Internal_allocateTwoByteString";
-                // Sob ARC, a string nova sai do runtime já com owner do código.
-                if self.ctx.memoria_arc {
-                    let dois = Operand::Constant(Constant::Int(i64::from(dois)));
-                    return Some(self.ajudante("dartforge_arc_texto_novo_owned_v1", vec![(len, Type::I64), (dois, Type::I64)], Type::Ref));
-                }
-                let dois = Operand::Constant(Constant::Bool(dois));
+                let dois = Operand::Constant(Constant::Bool(n == "Internal_allocateTwoByteString"));
                 Some(self.ajudante("df.texto_alocar", vec![(len, Type::I64), (dois, Type::I1)], Type::Ref))
             }
             (_, Some("Internal_writeIntoOneByteString" | "Internal_writeIntoTwoByteString"), None) if args.len() == 3 => {

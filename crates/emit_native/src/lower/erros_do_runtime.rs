@@ -15,6 +15,8 @@ use super::membros::Avaliado;
 use crate::hir::*;
 use dartforge_diagnostics::Span;
 
+use crate::otimizar::arc::ERROS_COM_VARIANTE_ARC;
+
 impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Os argumentos casados com os parâmetros do outline de `fid`, pelo
     /// nome do parâmetro (ausente = null).
@@ -43,14 +45,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     fn runtime_ref(&mut self, nome: &str, args: Vec<(Operand, Type)>) -> Operand {
-        self.emit(
-            Instruction::CallRuntime {
-                name: nome.to_string(),
-                args,
-                ret_ty: Type::Ref,
-            },
-            Type::Ref,
-        )
+        self.novo_erro_do_runtime(nome, args)
+    }
+
+    /// Um erro novo de um construtor do runtime (`dartforge_*_error_new`…).
+    ///
+    /// Sob ARC, a pendência é conferida e um par (bits, é-referência) no
+    /// começo dos argumentos leva o valor como `Ref`; a preparação ARC troca
+    /// pela variante `dartforge_arc_<nome>_owned_v1` (`excecoes.rs`). Sem a
+    /// preparação (o regime legado da CLI), fica a extern de sempre.
+    pub fn novo_erro_do_runtime(&mut self, nome: &str, mut args: Vec<(Operand, Type)>) -> Operand {
+        let base = nome.strip_prefix("dartforge_").unwrap_or(nome);
+        if !self.ctx.memoria_arc || !ERROS_COM_VARIANTE_ARC.contains(&base) {
+            return self.emit(Instruction::CallRuntime { name: nome.into(), args, ret_ty: Type::Ref }, Type::Ref);
+        }
+        // Sob ARC o valor do par (bits, é-referência) vai como `Ref` (a
+        // marca fica 1) e a pendência é conferida: a preparação troca pela
+        // variante Owned (`otimizar::arc::nativos`), que roda Dart.
+        if matches!(base, "exception_new" | "assertion_error_new" | "argument_error_value") {
+            let valor = self.coagir(args[0].0.clone(), Type::Ref);
+            args[0].0 = valor;
+            args[1].0 = Operand::Constant(Constant::Int(1));
+        }
+        self.emit_call_with_check(Instruction::CallRuntime { name: nome.into(), args, ret_ty: Type::Ref }, Type::Ref)
     }
 
     /// `C(...)`/`C.nome(...)` de uma classe de erro do runtime; `None` se não é.
@@ -122,14 +139,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let e = self.coagir(e, Type::Ref);
                 let s = Self::arg(&a, 1);
                 let s = self.coagir(s, Type::Ref);
-                self.emit(
-                    Instruction::CallRuntime {
-                        name: "dartforge_throw_with_stack_trace".to_string(),
-                        args: vec![(e, Type::I64), (Operand::Constant(Constant::Int(3)), Type::I8), (s, Type::Ref)],
-                        ret_ty: Type::Void,
-                    },
-                    Type::Void,
-                );
+                self.emitir_lancamento(e, Some(s));
                 self.desviar_para_tratador_de_excecao();
                 Some(Operand::Constant(Constant::Null))
             }
@@ -183,6 +193,71 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Depois de uma extern que deixou exceção pendente: o desvio para o
     /// tratador corrente (o `finally`, ou a saída da função).
+    /// Lança `valor` (com o `StackTrace` `rastro`, se dado) e deixa o bloco
+    /// corrente pronto para o desvio ao tratador.
+    ///
+    /// Sob tracing, `dartforge_exception_throw` com a etiqueta da
+    /// representação (1 `int`, 2 `bool`, 3 `Ref`, 4 `double`), ou
+    /// `dartforge_throw_with_stack_trace`. Sob ARC, o valor vai como `Ref`
+    /// emprestado (um escalar é encaixotado antes) a
+    /// `dartforge_arc_lancar_ref_v1`/`…_com_rastro_ref_v1`, que publicam a
+    /// raiz própria da exceção, seguido da guarda de pendência que a
+    /// preparação ARC reconhece; o caminho sem pendência é inalcançável.
+    pub fn emitir_lancamento(&mut self, valor: Operand, rastro: Option<Operand>) {
+        if self.ctx.memoria_arc {
+            let valor = self.coagir(valor, Type::Ref);
+            let (nome, mut args) = match rastro {
+                Some(s) => {
+                    let s = self.coagir(s, Type::Ref);
+                    ("dartforge_arc_lancar_com_rastro_ref_v1", vec![(s, Type::Ref)])
+                }
+                None => ("dartforge_arc_lancar_ref_v1", Vec::new()),
+            };
+            args.insert(0, (valor, Type::Ref));
+            self.emit(Instruction::CallRuntime { name: nome.into(), args, ret_ty: Type::Void }, Type::Void);
+            let pendente = self.emit(
+                Instruction::CallRuntime { name: "dartforge_exception_pending".into(), args: Vec::new(), ret_ty: Type::I8 },
+                Type::I8,
+            );
+            let lancou = self.emit(Instruction::ICmp(ICmpOp::Ne, pendente, Operand::Constant(Constant::Int(0))), Type::I1);
+            let sai = self.new_block();
+            let morto = self.new_block();
+            self.terminate(Terminator::CondBranch { cond: lancou, then_block: sai, else_block: morto });
+            self.set_block(morto);
+            self.terminate(Terminator::Unreachable);
+            self.set_block(sai);
+            return;
+        }
+        let (tag, bits) = match self.operand_type(&valor) {
+            Type::I64 => (1, valor),
+            Type::I1 => (2, self.emit(Instruction::ZExt { op: valor, from: Type::I1, to: Type::I8 }, Type::I8)),
+            Type::I8 => (2, valor),
+            Type::F64 => (4, valor),
+            _ => (3, valor),
+        };
+        let tag = Operand::Constant(Constant::Int(tag));
+        let (nome, args) = match rastro {
+            Some(s) => {
+                let s = self.coagir(s, Type::Ref);
+                ("dartforge_throw_with_stack_trace", vec![(bits, Type::I64), (tag, Type::I8), (s, Type::Ref)])
+            }
+            None => ("dartforge_exception_throw", vec![(bits, Type::I64), (tag, Type::I8)]),
+        };
+        self.emit(Instruction::CallRuntime { name: nome.into(), args, ret_ty: Type::Void }, Type::Void);
+    }
+
+    /// A exceção pendente como `Ref` (a variável do `catch`, a guardada pelo
+    /// `finally`).
+    pub fn excecao_pendente(&mut self) -> Operand {
+        self.emit(Instruction::CallRuntime { name: "dartforge_exception_peek_ref".into(), args: Vec::new(), ret_ty: Type::Ref }, Type::Ref)
+    }
+
+    /// O `StackTrace` da exceção pendente. A preparação ARC dá a ele (e à
+    /// exceção) um owner próprio, independente do `clear` que segue.
+    pub fn rastro_pendente(&mut self) -> Operand {
+        self.emit(Instruction::CallRuntime { name: "dartforge_stack_trace_get".into(), args: Vec::new(), ret_ty: Type::Ref }, Type::Ref)
+    }
+
     pub fn desviar_para_tratador_de_excecao(&mut self) {
         let curr_b = self.current_block;
         if let Some(&exc_target) = self.exception_targets.last() {

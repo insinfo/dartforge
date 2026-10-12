@@ -823,6 +823,42 @@ pub unsafe extern "C" fn dartforge_record_novo(refs: *const i64, n: i64) -> i64 
     HEAP.with(|heap| heap.borrow_mut().novo_record(campos))
 }
 
+/// [`dartforge_record_novo`] sob ARC, para todo record literal: os `Ref`
+/// emprestados ganham as arestas do record e o record um owner do código
+/// antes de outra coleta. Não lança nem executa Dart.
+///
+/// # Safety
+/// `refs` aponta `n` palavras legíveis com referências vivas (ou null).
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let a = dartforge_arc_box_int_owned_v1(i64::MAX);
+/// // SAFETY: um campo vivo durante a criação.
+/// let r = unsafe { dartforge_arc_record_novo_owned_v1([a].as_ptr(), 1) };
+/// dartforge_arc_release(a);
+/// dartforge_arc_collect();
+/// assert_eq!(dartforge_arc_observar_heap_v1(a), 1);
+/// dartforge_arc_release(r);
+/// dartforge_arc_collect();
+/// assert_eq!(dartforge_arc_observar_heap_v1(r), 0);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_arc_record_novo_owned_v1(refs: *const i64, n: i64) -> i64 {
+    let n = usize::try_from(n).expect("comprimento inválido");
+    let campos = if n == 0 {
+        &[][..]
+    } else {
+        // SAFETY: o contrato da função.
+        unsafe { std::slice::from_raw_parts(refs, n) }
+    };
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let r = heap.novo_record_contado(campos);
+        heap.reter_owner_codigo(r);
+        r
+    })
+}
+
 // ─── Natives de identidade, closures e records (vindos de `nativos_listas.rs`,
 // docs/NATIVO-ESPACO-UNIFICADO.md §4.9) ───────────────────────────────────────
 

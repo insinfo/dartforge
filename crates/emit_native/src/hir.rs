@@ -1064,6 +1064,9 @@ pub struct Module {
     /// Proveniência nominal do lowering; não inclui automaticamente entradas
     /// uniformes, callbacks FFI ou funções HIR fornecidas por outro produtor.
     pub retornos_ref_dart: std::collections::HashSet<String>,
+    /// Armazenamentos de globais Dart cuja representação, pelo tipo Dart, é
+    /// escalar sem caixa (`int`, `double`, `bool`): o conteúdo nunca é handle.
+    pub globais_escalares_dart: std::collections::HashSet<String>,
     /// Entradas uniformes declaradas pelo lowering para a ABI ARC com retorno Owned.
     /// São premissas para preparar o corpo inteiro, não certificados de dispatch
     /// indireto ou de callbacks C; as fronteiras exigem verificação própria.

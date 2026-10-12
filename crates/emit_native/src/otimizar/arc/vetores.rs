@@ -97,7 +97,33 @@ pub(super) fn produzir(
             }
             marcar(&mut plano.classes, v)?;
         }
+        let defs: HashMap<ValueId, &Instruction> =
+            f.blocks.iter().flat_map(|b| &b.instructions).map(|(v, i, _)| (*v, i)).collect();
+        // `desc[k]` lido do descritor declarado.
+        let leitura_do_descritor = |o: &Operand, k: i64| matches!(o, Operand::Val(x)
+            if matches!(defs.get(x), Some(Instruction::LoadIndexed { base: Operand::Val(d), index: Operand::Constant(Constant::Int(n)) })
+                if *n == k && papeis.get(d) == Some(&VetorEntradaDart::Descritor)));
         for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
+            // A palavra da tupla de tipos da chamada uniforme genérica: o
+            // slot logo depois dos posicionais e nomeados, `desc[0] + desc[1]`
+            // (`tupla_do_slot`), um ID do universo RTI.
+            if let Instruction::LoadIndexed { base: Operand::Val(base), index: Operand::Val(i) } = inst
+                && *ty == Type::I64
+                && papeis.get(base) == Some(&VetorEntradaDart::Argumentos)
+            {
+                let tupla = matches!(defs.get(i), Some(Instruction::Add(a, b))
+                    if leitura_do_descritor(a, 0) && leitura_do_descritor(b, 1));
+                if !tupla {
+                    return Err(format!("vetores ABI: {simbolo} v{} lê palavra escalar fora do slot da tupla", v.0));
+                }
+                marcar(&mut plano.classes, *v)?;
+                let efeito = EfeitoTokens::default();
+                if plano.tokens.instrucoes.get(v).is_some_and(|e| *e != efeito) {
+                    return Err(format!("vetores ABI: {simbolo} v{} conflita com efeito de leitura", v.0));
+                }
+                plano.tokens.instrucoes.insert(*v, efeito);
+                continue;
+            }
             if matches!(inst, Instruction::CallRuntime { name, .. } if name == LER_ARGUMENTO) {
                 if *ty != Type::Ref || !leitura_conferida(inst, papeis) {
                     return Err(format!("vetores ABI: {simbolo} v{} sem par argumentos/descritor", v.0));
@@ -186,6 +212,36 @@ pub(super) fn produzir(
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn tupla_de_tipos_so_no_slot_depois_dos_argumentos() {
+        for caso in 0..3 {
+            let mut m = Module::new();
+            m.memoria_arc = true;
+            let val = |n| Operand::Val(ValueId(n));
+            let ler = |base, k| Instruction::LoadIndexed { base: val(base), index: Operand::Constant(Constant::Int(k)) };
+            let indice = match caso { 1 => val(2), _ => val(4) };
+            let base_da_tupla = if caso == 2 { 1 } else { 0 };
+            m.functions.push(Function { symbol: "generica".into(), name: "generica".into(), depuracao: None,
+                params: vec![(ValueId(0), "args".into(), Type::Ptr), (ValueId(1), "desc".into(), Type::Ptr)],
+                return_ty: Type::I64, blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
+                    (ValueId(2), ler(1, 0), Type::I64),
+                    (ValueId(3), ler(1, 1), Type::I64),
+                    (ValueId(4), Instruction::Add(val(2), val(3)), Type::I64),
+                    (ValueId(5), Instruction::LoadIndexed { base: val(base_da_tupla), index: indice }, Type::I64),
+                ], terminator: Terminator::Return(Some(val(5))) }] });
+            m.parametros_vetores_dart.insert("generica".into(), HashMap::from([
+                (ValueId(0), VetorEntradaDart::Argumentos), (ValueId(1), VetorEntradaDart::Descritor)]));
+            let mut planos = HashMap::from([("generica".into(), PlanoFuncaoDart::default())]);
+            let r = produzir(&m, &mut planos);
+            if caso == 0 {
+                r.unwrap();
+                assert_eq!(planos["generica"].classes[&ValueId(5)], Ownership::Trivial);
+            } else {
+                assert!(r.is_err(), "caso {caso}");
+            }
+        }
+    }
 
     #[test]
     fn argumento_ref_exige_papeis_originais_e_reconfere_chamada_preparada() {

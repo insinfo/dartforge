@@ -26,6 +26,9 @@ pub(super) fn conferir(
             ..
         } => Some(Type::Ref),
         Instruction::ICmp(..) | Instruction::FCmp(..) | Instruction::LNot(_) => Some(Type::I1),
+        // A lógica bit a bit é emitida em i64 com os operandos estendidos
+        // (`llvm/mod.rs`); o lowering a declara I1 quando a usa como `bool`.
+        Instruction::And(..) | Instruction::Or(..) | Instruction::Xor(..) if *ty == Type::I1 => Some(Type::I1),
         Instruction::Add(..)
         | Instruction::Sub(..)
         | Instruction::Mul(..)
@@ -47,6 +50,11 @@ pub(super) fn conferir(
         | Instruction::FNeg(_)
         | Instruction::IntToDouble(_) => Some(Type::F64),
         Instruction::Bitcast { to, .. } => Some(*to),
+        // Uma global de 1 ou 8 bits, ou `double`, não guarda handle; I64 pode
+        // guardar e exige prova própria (`caches_rti`).
+        Instruction::LoadGlobal { ty: t @ (Type::I1 | Type::I8 | Type::F64), .. } => Some(*t),
+        // Gravar um escalar comprovado (`conferir_origens`) numa global não-Ref.
+        Instruction::StoreGlobal { ty: Type::I1 | Type::I8 | Type::I64 | Type::F64, raiz: None, .. } => Some(Type::Void),
         Instruction::ZExt { to, .. } | Instruction::Trunc { to, .. } => Some(*to),
         _ => None,
     };
@@ -59,6 +67,11 @@ pub(super) fn conferir(
         let booleano = |op: &Operand| match op {
             Operand::Constant(Constant::Bool(_)) => true,
             Operand::Val(v) => matches!(tipos.get(v), Some(Type::I1 | Type::I8)),
+            _ => false,
+        };
+        let integral = |op: &Operand| match op {
+            Operand::Constant(Constant::Int(_) | Constant::Bool(_)) => true,
+            Operand::Val(v) => matches!(tipos.get(v), Some(Type::I64 | Type::I1 | Type::I8)),
             _ => false,
         };
         let inteiro = |op: &Operand| match op {
@@ -112,10 +125,10 @@ pub(super) fn conferir(
             | Instruction::SRem(a, b)
             | Instruction::Shl(a, b)
             | Instruction::AShr(a, b)
-            | Instruction::LShr(a, b)
-            | Instruction::And(a, b)
-            | Instruction::Or(a, b)
-            | Instruction::Xor(a, b) => !inteiro(a) || !inteiro(b),
+            | Instruction::LShr(a, b) => !inteiro(a) || !inteiro(b),
+            Instruction::And(a, b) | Instruction::Or(a, b) | Instruction::Xor(a, b) => {
+                !integral(a) || !integral(b)
+            }
             Instruction::Neg(op) | Instruction::Not(op) | Instruction::IntToDouble(op) => {
                 !inteiro(op)
             }
@@ -124,6 +137,13 @@ pub(super) fn conferir(
             | Instruction::FMul(a, b)
             | Instruction::FDiv(a, b) => !numerico(a) || !numerico(b),
             Instruction::FNeg(op) | Instruction::DoubleToInt(op) => !numerico(op),
+            Instruction::StoreGlobal { val, ty: gravado, .. } => match val {
+                Operand::Val(v) => tipos.get(v) != Some(gravado),
+                Operand::Constant(Constant::Int(_)) => !matches!(gravado, Type::I64 | Type::I8),
+                Operand::Constant(Constant::Bool(_)) => !matches!(gravado, Type::I1 | Type::I8),
+                Operand::Constant(Constant::Double(_)) => *gravado != Type::F64,
+                _ => true,
+            },
             _ => false,
         };
         if invalido
@@ -172,6 +192,7 @@ pub(super) fn conferir_origens(
             }
             | Instruction::ZExt { op, .. }
             | Instruction::Trunc { op, .. } => [Some(op), None],
+            Instruction::StoreGlobal { val, ty: t, .. } if *t != Type::Ref => [Some(val), None],
             Instruction::Add(a, b)
             | Instruction::Sub(a, b)
             | Instruction::Mul(a, b)
@@ -229,4 +250,38 @@ pub(super) fn verificar(
         }
     }
     conferir_origens(f, classes)
+}
+
+#[cfg(test)]
+mod testes {
+    use super::*;
+
+    #[test]
+    fn logica_bit_a_bit_aceita_operandos_integrais_em_i1_ou_i64() {
+        let tipos = HashMap::from([(ValueId(1), Type::I1), (ValueId(2), Type::I1), (ValueId(3), Type::I64), (ValueId(4), Type::Ref), (ValueId(5), Type::F64)]);
+        let v = |n| Operand::Val(ValueId(n));
+        let ou = |a, b| Instruction::Or(a, b);
+        assert!(conferir(ValueId(9), &ou(v(1), v(2)), &Type::I1, &tipos).unwrap());
+        assert!(conferir(ValueId(9), &Instruction::And(v(1), v(2)), &Type::I64, &tipos).unwrap());
+        assert!(conferir(ValueId(9), &Instruction::And(v(1), Operand::Constant(Constant::Bool(true))), &Type::I1, &tipos).unwrap());
+        assert!(conferir(ValueId(9), &ou(v(3), Operand::Constant(Constant::Int(1))), &Type::I64, &tipos).unwrap());
+        assert!(conferir(ValueId(9), &ou(v(1), v(3)), &Type::I64, &tipos).unwrap());
+        // Referência, double ou resultado de outra representação.
+        assert!(conferir(ValueId(9), &Instruction::Xor(v(4), v(3)), &Type::I64, &tipos).is_err());
+        assert!(conferir(ValueId(9), &Instruction::And(v(5), v(3)), &Type::I64, &tipos).is_err());
+        assert!(conferir(ValueId(9), &ou(v(1), v(2)), &Type::F64, &tipos).is_err());
+        // Os deslocamentos seguem exigindo inteiros.
+        assert!(conferir(ValueId(9), &Instruction::Shl(v(1), v(3)), &Type::I64, &tipos).is_err());
+        // Globais estreitas ou `double` são escalares; I64 não é por largura.
+        let global = |ty| Instruction::LoadGlobal { simbolo: "g".into(), ty };
+        assert!(conferir(ValueId(9), &global(Type::I8), &Type::I8, &tipos).unwrap());
+        assert!(conferir(ValueId(9), &global(Type::F64), &Type::F64, &tipos).unwrap());
+        assert!(!conferir(ValueId(9), &global(Type::I64), &Type::I64, &tipos).unwrap());
+        assert!(conferir(ValueId(9), &global(Type::I8), &Type::I64, &tipos).is_err());
+        let gravar = |ty, val| Instruction::StoreGlobal { simbolo: "g".into(), val, ty, raiz: None };
+        assert!(conferir(ValueId(9), &gravar(Type::I8, Operand::Constant(Constant::Int(1))), &Type::Void, &tipos).unwrap());
+        assert!(conferir(ValueId(9), &gravar(Type::I64, v(3)), &Type::Void, &tipos).unwrap());
+        assert!(conferir(ValueId(9), &gravar(Type::I64, v(4)), &Type::Void, &tipos).is_err());
+        assert!(!conferir(ValueId(9), &gravar(Type::Ref, v(4)), &Type::Void, &tipos).unwrap());
+    }
 }

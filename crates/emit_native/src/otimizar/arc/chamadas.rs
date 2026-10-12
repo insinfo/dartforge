@@ -208,29 +208,33 @@ pub(super) fn produzir_chamadas_e_instrucoes_dart(
     produzir_chamadas(f, indice, classes, plano, true)
 }
 
-fn produzir_chamadas(
+/// Classifica parâmetros, chamadas Dart diretas e instruções com contrato,
+/// sem resolver Phis nem conferir argumentos: a base para decidir que
+/// entradas de Phi precisam de cópia (`phis.rs`). Não publica nada em erro.
+pub(super) fn classificar_sem_phis(
     f: &Function,
     indice: &IndiceFuncoesDart<'_>,
     classes: &mut HashMap<ValueId, Ownership>,
     plano: &mut PlanoTokens,
-    classificar_instrucoes: bool,
 ) -> Result<(), String> {
-    super::ssa::verificar(f)?;
-    let tipos: HashMap<_, _> = f
-        .params
-        .iter()
-        .map(|(v, _, ty)| (*v, *ty))
-        .chain(
-            f.blocks
-                .iter()
-                .flat_map(|b| &b.instructions)
-                .map(|(v, _, ty)| (*v, *ty)),
-        )
-        .collect();
     let mut novas_classes = classes.clone();
     let mut novo_plano = plano.clone();
-    // A convenção dos parâmetros Ref não depende dos contratos das chamadas.
     produzir_parametros_ref_dart(f, &mut novas_classes)?;
+    classificar_estaticas(f, indice, &mut novas_classes, &mut novo_plano)?;
+    super::contratos::produzir_contratos_sem_phi(f, &mut novas_classes, &mut novo_plano)?;
+    *classes = novas_classes;
+    *plano = novo_plano;
+    Ok(())
+}
+
+/// O resultado de cada chamada Dart direta pelo resumo do callee (Owned se
+/// Ref, senão Trivial) e o efeito de falha; devolve os argumentos a conferir.
+fn classificar_estaticas<'f, 'a>(
+    f: &'f Function,
+    indice: &IndiceFuncoesDart<'a>,
+    novas_classes: &mut HashMap<ValueId, Ownership>,
+    novo_plano: &mut PlanoTokens,
+) -> Result<Vec<(&'f Vec<Operand>, &'a ContratoFuncaoDart)>, String> {
     let mut chamadas = Vec::new();
     for b in &f.blocks {
         for (v, inst, ty) in &b.instructions {
@@ -268,6 +272,33 @@ fn produzir_chamadas(
             chamadas.push((args, *resumo));
         }
     }
+    Ok(chamadas)
+}
+
+fn produzir_chamadas(
+    f: &Function,
+    indice: &IndiceFuncoesDart<'_>,
+    classes: &mut HashMap<ValueId, Ownership>,
+    plano: &mut PlanoTokens,
+    classificar_instrucoes: bool,
+) -> Result<(), String> {
+    super::ssa::verificar(f)?;
+    let tipos: HashMap<_, _> = f
+        .params
+        .iter()
+        .map(|(v, _, ty)| (*v, *ty))
+        .chain(
+            f.blocks
+                .iter()
+                .flat_map(|b| &b.instructions)
+                .map(|(v, _, ty)| (*v, *ty)),
+        )
+        .collect();
+    let mut novas_classes = classes.clone();
+    let mut novo_plano = plano.clone();
+    // A convenção dos parâmetros Ref não depende dos contratos das chamadas.
+    produzir_parametros_ref_dart(f, &mut novas_classes)?;
+    let chamadas = classificar_estaticas(f, indice, &mut novas_classes, &mut novo_plano)?;
     // Os resultados têm contratos semânticos dos callees, independentemente
     // da ordem física dos blocos. SSA já conferiu sua dominância nos usos.
     if classificar_instrucoes {

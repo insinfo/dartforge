@@ -400,6 +400,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 _ => {}
             }
         }
+        // O corpo da closure é um corpo Dart: o retorno Ref é Owned, como o
+        // de uma função (`lower_funcao`).
+        if self.ctx.memoria_arc && b.func.return_ty == Type::Ref {
+            b.retornos_ref_dart.insert(simbolo.clone());
+        }
         self.absorver(b);
 
         // --- entrada uniforme ----------------------------------------------
@@ -549,6 +554,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.parametros_rti_dart.extend(b.parametros_rti_dart);
         self.parametros_vetores_dart.extend(b.parametros_vetores_dart);
         self.retornos_uniformes_arc.extend(b.retornos_uniformes_arc);
+        self.retornos_ref_dart.extend(b.retornos_ref_dart);
         self.caches_rti_arc.extend(b.caches_rti_arc);
         self.funcoes_compartilhadas_arc.extend(b.funcoes_compartilhadas_arc);
         self.funcoes_locais_diretas_arc.extend(b.funcoes_locais_diretas_arc);

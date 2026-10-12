@@ -751,14 +751,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         else_block: cont_block,
                     });
                     self.set_block(null_block);
-                    let err_op = self.emit(
-                        Instruction::CallRuntime {
-                            name: "dartforge_null_check_error_new".to_string(),
-                            args: Vec::new(),
-                            ret_ty: Type::Ref,
-                        },
-                        Type::Ref,
-                    );
+                    let err_op = self.novo_erro_do_runtime("dartforge_null_check_error_new", Vec::new());
                     self.emit_throw_op(err_op);
                     self.set_block(cont_block);
                     return sub_op;

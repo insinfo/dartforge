@@ -1530,6 +1530,27 @@ pub fn funcao_recusada(ctx: &Context, fid: usize, motivo: &str) -> Function {
     b.func
 }
 
+/// Os fatos ARC de um corpo de recusa (que nunca volta, mas mantém a
+/// assinatura do membro): o retorno Ref segue a convenção Owned e os
+/// parâmetros não-Ref, na representação do tipo Dart, são escalares.
+fn registrar_fatos_de_recusa(ctx: &Context, module: &mut Module, f: &Function) {
+    if !ctx.memoria_arc {
+        return;
+    }
+    if f.return_ty == Type::Ref {
+        module.retornos_ref_dart.insert(f.symbol.clone());
+    }
+    let escalares: std::collections::HashSet<ValueId> = f
+        .params
+        .iter()
+        .filter(|(_, _, t)| matches!(t, Type::I64 | Type::F64 | Type::I1 | Type::I8))
+        .map(|(v, _, _)| *v)
+        .collect();
+    if !escalares.is_empty() {
+        module.parametros_escalares_dart.entry(f.symbol.clone()).or_default().extend(escalares);
+    }
+}
+
 /// Baixa uma função do SDK da fonte num módulo à parte; se ela não baixa
 /// (diagnóstico de construto, native pendente, intrínseco, pânico do
 /// lowering, problema do verificador), o módulo recebe no lugar dela a
@@ -1571,7 +1592,9 @@ pub fn lower_funcao_ou_recusa(ctx: &Context, module: &mut Module, fid: usize) {
             }
             let curto = motivo.rsplit_once(" (").map_or(motivo.as_str(), |(a, _)| a).to_string();
             let simbolo = super::simbolo_de(ctx, fid);
-            module.functions.push(funcao_recusada(ctx, fid, &curto));
+            let f = funcao_recusada(ctx, fid, &curto);
+            registrar_fatos_de_recusa(ctx, module, &f);
+            module.functions.push(f);
             // No resumo vai o diagnóstico inteiro, com a posição.
             module.recusados.push((simbolo, motivo));
         }
@@ -1876,7 +1899,8 @@ fn adaptadores_ou_recusa(ctx: &Context, module: &mut Module, gerar: impl FnOnce(
         );
         b.terminate(Terminator::Unreachable);
         module.recusados.push((simbolo, motivo.clone()));
-        module.functions.push(b.func);
+        // Com os fatos da ABI uniforme (vetores e retorno) declarados acima.
+        b.finalizar(module);
     }
 }
 /// O getter de um campo `late` com inicializador do SDK da fonte, ou a
@@ -1921,6 +1945,7 @@ pub fn lower_getter_late_ou_recusa(
         Type::Void,
     );
     b.terminate(Terminator::Unreachable);
+    registrar_fatos_de_recusa(ctx, module, &b.func);
     module.functions.push(b.func);
     module.recusados.push((simbolo, motivo));
 }
@@ -1943,6 +1968,10 @@ pub fn lower_global_podado(
     b.finalizar(module);
     let mut s = FnBuilder::new(ctx, unit, format!("{getter}$set"), nome, Type::Void);
     let v = s.add_param("v".to_string(), repr);
+    // O valor chega na representação do tipo Dart da global: escalar se não é Ref.
+    if ctx.memoria_arc && matches!(repr, Type::I64 | Type::F64 | Type::I1 | Type::I8) {
+        s.parametros_escalares_dart.entry(s.func.symbol.clone()).or_default().insert(v);
+    }
     s.gravar_global(vid, Operand::Val(v), Span { start: 0, end: 0 });
     s.terminate(Terminator::Return(None));
     s.finalizar(module);
@@ -1988,12 +2017,17 @@ pub fn lower_global_ou_recusa(
                 Type::Void,
             );
             b.terminate(Terminator::Unreachable);
+            registrar_fatos_de_recusa(ctx, module, &b.func);
             module.functions.push(b.func);
             module.recusados.push((getter.clone(), motivo));
         }
     }
     let mut s = FnBuilder::new(ctx, unit, format!("{getter}$set"), nome, Type::Void);
     let v = s.add_param("v".to_string(), repr);
+    // O valor chega na representação do tipo Dart da global: escalar se não é Ref.
+    if ctx.memoria_arc && matches!(repr, Type::I64 | Type::F64 | Type::I1 | Type::I8) {
+        s.parametros_escalares_dart.entry(s.func.symbol.clone()).or_default().insert(v);
+    }
     s.gravar_global(vid, Operand::Val(v), Span { start: 0, end: 0 });
     s.terminate(Terminator::Return(None));
     s.finalizar(module);

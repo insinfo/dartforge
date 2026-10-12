@@ -10,6 +10,12 @@ use super::operandos::{operandos, operandos_do_terminador};
 use crate::hir::*;
 use std::collections::{HashMap, HashSet};
 
+/// O prefixo do thunk Owned genérico de uma função do runtime que devolve
+/// `Ref` (`nativos::preparar`, `contratos::contrato_owned_generico`); o
+/// emissor LLVM define o thunk (`llvm/seletores.rs`).
+pub const PREFIXO_OWNED_GENERICO: &str = "df.arc.owned.";
+pub(crate) use nativos::ERROS_COM_VARIANTE_ARC;
+
 mod classificacao;
 pub mod analise;
 mod caixas;
@@ -27,6 +33,7 @@ pub use slots_compartilhados::{auditar_slots_ref_compartilhados, baixar_slots_re
 mod puros;
 mod emprestimos;
 mod arestas;
+mod phis;
 mod layouts;
 mod objetos;
 mod campos;

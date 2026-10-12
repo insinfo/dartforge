@@ -21,16 +21,40 @@ fn primeiro_invalido(
     f: &Function,
     classes: &HashMap<ValueId, Ownership>,
 ) -> Result<Option<(ValueId, String)>, String> {
+    // Um Phi cujas entradas são o próprio parâmetro emprestado do chamador,
+    // outro desses Phis, null ou valores triviais é só um alias do
+    // parâmetro: nada desta função o invalida (o chamador mantém o owner).
+    // Valores derivados do parâmetro (um campo dele) não entram aqui.
+    let mut aliases_do_chamador: HashSet<ValueId> = f.params.iter()
+        .filter(|(v, _, _)| matches!(classes.get(v), Some(Ownership::Borrowed { owner: OrigemOwner::Chamador, .. })))
+        .map(|(v, _, _)| *v)
+        .collect();
+    loop {
+        let novos: Vec<ValueId> = f.blocks.iter().flat_map(|b| &b.instructions).filter_map(|(v, i, _)| {
+            let Instruction::Phi { incoming, ty: Type::Ref } = i else { return None };
+            (!aliases_do_chamador.contains(v)
+                && matches!(classes.get(v), Some(Ownership::Borrowed { .. }))
+                && incoming.iter().all(|(_, op)| match op {
+                    Operand::Constant(Constant::Null) => true,
+                    Operand::Val(x) => aliases_do_chamador.contains(x) || classes.get(x) == Some(&Ownership::Trivial),
+                    _ => false,
+                })).then_some(*v)
+        }).collect();
+        if novos.is_empty() {
+            break;
+        }
+        aliases_do_chamador.extend(novos);
+    }
     let derivados: HashSet<_> = classes
         .iter()
         .filter_map(|(v, c)| {
-            matches!(
+            (matches!(
                 c,
                 Ownership::Borrowed {
                     owner: OrigemOwner::Valor(_),
                     ..
                 }
-            )
+            ) && !aliases_do_chamador.contains(v))
             .then_some(*v)
         })
         .collect();
@@ -483,7 +507,7 @@ mod testes {
     }
 
     #[test]
-    fn origem_sem_abi_ou_resultado_falivel_nao_recebem_copia_antes_da_guarda() {
+    fn origem_sem_abi_e_recusada_e_leitura_de_record_recebe_copia() {
         for falivel in [false, true] {
             let (mut f, mut classes) = funcao(vec![BasicBlock {
                 id: BlockId(0),
@@ -528,6 +552,12 @@ mod testes {
                 ..Default::default()
             };
             let antes = format!("{f:?}/{plano:?}");
+            if falivel {
+                // A leitura do record não falha: a cópia vem logo depois dela.
+                assert_eq!(proteger(&mut f, &mut plano).unwrap(), 1);
+                assert!(matches!(f.blocks[0].instructions[1].1, Instruction::ArcCopy { .. }));
+                continue;
+            }
             assert!(
                 proteger(&mut f, &mut plano)
                     .unwrap_err()

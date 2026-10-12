@@ -43,14 +43,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// membro).
     pub fn lancar_nsm(&mut self, nome: &str) -> Operand {
         let n = self.emit(Instruction::Const(Constant::String(nome.to_string())), Type::Ref);
-        let e = self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_no_such_method_error_new".to_string(),
-                args: vec![(n, Type::Ref)],
-                ret_ty: Type::Ref,
-            },
-            Type::Ref,
-        );
+        let e = self.novo_erro_do_runtime("dartforge_no_such_method_error_new", vec![(n, Type::Ref)]);
         self.emit_throw_op(e);
         Operand::Constant(Constant::Null)
     }

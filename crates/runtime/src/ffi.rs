@@ -259,16 +259,7 @@ pub extern "C" fn dartforge_ffi_ponteiro_de_retorno(endereco: i64, clo: i64) -> 
 /// fechado; aborta no limite C.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_ffi_ponteiro_de_retorno_owned_v1(endereco: i64, clo: i64) -> i64 {
-    let escopo = EscopoUniformeArc(dartforge_arc_escopo_nativo_abrir_v1());
-    let ponteiro = dartforge_ffi_ponteiro_de_retorno(endereco, clo);
-    let resultado = if dartforge_exception_pending() != 0 {
-        0
-    } else {
-        dartforge_arc_retain(ponteiro);
-        ponteiro
-    };
-    drop(escopo);
-    resultado
+    owner_em_escopo_nativo(|| dartforge_ffi_ponteiro_de_retorno(endereco, clo))
 }
 
 /// Um `Pointer` Dart com o endereço e, se conhecido, o tipo `Pointer<X>`.

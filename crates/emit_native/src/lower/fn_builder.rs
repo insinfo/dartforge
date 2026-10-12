@@ -53,6 +53,9 @@ pub struct FnBuilder<'a, 'c> {
     /// Vetores nativos com papel declarado pela ABI do produtor.
     pub parametros_vetores_dart: HashMap<String, HashMap<ValueId, VetorEntradaDart>>,
     pub retornos_uniformes_arc: std::collections::HashSet<String>,
+    /// Corpos Dart construídos aqui à parte (closures) cujo retorno Ref segue
+    /// a convenção Owned das funções Dart (`Module::retornos_ref_dart`).
+    pub retornos_ref_dart: std::collections::HashSet<String>,
     /// Caches de IDs nativos RTI declarados pelo lowering, com flag implícita `$ok`.
     /// Todas as escritas e representações exigem conferência antes de produzir contratos.
     pub caches_rti_arc: std::collections::HashSet<String>,
@@ -325,6 +328,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             parametros_rti_dart: HashMap::new(),
             parametros_vetores_dart: HashMap::new(),
             retornos_uniformes_arc: Default::default(),
+            retornos_ref_dart: Default::default(),
             caches_rti_arc: Default::default(),
             funcoes_compartilhadas_arc: Default::default(),
             funcoes_locais_diretas_arc: Default::default(),
@@ -555,6 +559,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         module.parametros_rti_dart.extend(self.parametros_rti_dart);
         module.parametros_vetores_dart.extend(self.parametros_vetores_dart);
         module.retornos_uniformes_arc.extend(self.retornos_uniformes_arc);
+        module.retornos_ref_dart.extend(self.retornos_ref_dart);
         module.caches_rti_arc.extend(self.caches_rti_arc);
         module.funcoes_compartilhadas_arc.extend(self.funcoes_compartilhadas_arc);
         module.funcoes_locais_diretas_arc.extend(self.funcoes_locais_diretas_arc);
@@ -572,14 +577,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn corpo_podado(&mut self) {
         let msg = format!("dartforge: código podado como inalcançável foi chamado: {}", self.func.symbol);
         let m = self.emit(Instruction::Const(Constant::String(msg)), Type::Ref);
-        let e = self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_unsupported_error_new".to_string(),
-                args: vec![(m, Type::Ref)],
-                ret_ty: Type::Ref,
-            },
-            Type::Ref,
-        );
+        let e = self.novo_erro_do_runtime("dartforge_unsupported_error_new", vec![(m, Type::Ref)]);
         self.emit_throw_op(e);
     }
 
@@ -599,14 +597,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if !self.is_terminated() {
                 let msg = format!("{}{oque}", crate::PREFIXO_NAO_SUPORTADO);
                 let m = self.emit(Instruction::Const(Constant::String(msg)), Type::Ref);
-                let e = self.emit(
-                    Instruction::CallRuntime {
-                        name: "dartforge_unsupported_error_new".to_string(),
-                        args: vec![(m, Type::Ref)],
-                        ret_ty: Type::Ref,
-                    },
-                    Type::Ref,
-                );
+                let e = self.novo_erro_do_runtime("dartforge_unsupported_error_new", vec![(m, Type::Ref)]);
                 self.emit_throw_op(e);
             }
             return Operand::Constant(Constant::Null);
@@ -1181,36 +1172,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     pub fn emit_throw_op(&mut self, ex_op: Operand) -> Operand {
-        let tag = match self.operand_type(&ex_op) {
-            Type::I64 => 1,
-            Type::I1 | Type::I8 => 2,
-            Type::Ref => 3,
-            Type::F64 => 4,
-            _ => 3,
-        };
-        let bits_op = match self.operand_type(&ex_op) {
-            Type::I1 => self.emit(
-                Instruction::ZExt {
-                    op: ex_op,
-                    from: Type::I1,
-                    to: Type::I8,
-                },
-                Type::I8,
-            ),
-            _ => ex_op,
-        };
-        self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_exception_throw".to_string(),
-                args: vec![
-                    (bits_op, Type::I64),
-                    (Operand::Constant(Constant::Int(tag as i64)), Type::I8),
-                ],
-                ret_ty: Type::Void,
-            },
-            Type::Void,
-        );
-
+        self.emitir_lancamento(ex_op, None);
         let curr_b = self.current_block;
         if let Some(&exc_target) = self.exception_targets.last() {
             self.terminate(Terminator::Branch(exc_target));
@@ -1230,18 +1192,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     pub fn emit_rethrow(&mut self) -> Operand {
-        if let Some(&(ref ex_op, tag)) = self.active_catch_stack.last() {
-            self.emit(
-                Instruction::CallRuntime {
-                    name: "dartforge_exception_throw".to_string(),
-                    args: vec![
-                        (ex_op.clone(), Type::I64),
-                        (Operand::Constant(Constant::Int(tag as i64)), Type::I8),
-                    ],
-                    ret_ty: Type::Void,
-                },
-                Type::Void,
-            );
+        if let Some((ex_op, _)) = self.active_catch_stack.last().cloned() {
+            self.emitir_lancamento(ex_op, None);
         }
         let curr_b = self.current_block;
         if let Some(&exc_target) = self.exception_targets.last() {
@@ -1411,14 +1363,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.terminate(Terminator::Branch(pass_b));
             }
             None => {
-                let err_op = self.emit(
-                    Instruction::CallRuntime {
-                        name: "dartforge_type_error_new".to_string(),
-                        args: Vec::new(),
-                        ret_ty: Type::Ref,
-                    },
-                    Type::Ref,
-                );
+                let err_op = self.novo_erro_do_runtime("dartforge_type_error_new", Vec::new());
                 self.emit_throw_op(err_op);
             }
         }
@@ -1493,17 +1438,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Ref,
         );
-        self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_exception_throw".to_string(),
-                args: vec![
-                    (err_obj, Type::I64),
-                    (Operand::Constant(Constant::Int(3)), Type::I8),
-                ],
-                ret_ty: Type::Void,
-            },
-            Type::Void,
-        );
+        self.emitir_lancamento(err_obj, None);
         let curr_b = self.current_block;
         if let Some(&exc_target) = self.exception_targets.last() {
             self.terminate(Terminator::Branch(exc_target));

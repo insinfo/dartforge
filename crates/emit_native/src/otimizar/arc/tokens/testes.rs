@@ -768,51 +768,29 @@ fn producao_verificada_nao_publica_metadados_de_funcao_com_token_vazado() {
 
 #[test]
 fn resultado_borrowed_auditado_depende_do_owner_do_argumento() {
-    let mut f = funcao(vec![
-        bloco(
-            0,
-            vec![
-                copia(1, 0),
-                (
-                    ValueId(2),
-                    Instruction::CallRuntime {
-                        name: "dartforge_nativo_DartForge_record_fieldAt".into(),
-                        args: vec![
-                            (valor(1), Type::Ref),
-                            (Operand::Constant(Constant::Int(0)), Type::I64),
-                        ],
-                        ret_ty: Type::Ref,
-                    },
-                    Type::Ref,
-                ),
-                (
-                    ValueId(7),
-                    Instruction::CallRuntime {
-                        name: "dartforge_exception_pending".into(),
-                        args: vec![],
-                        ret_ty: Type::I8,
-                    },
-                    Type::I8,
-                ),
-                (
-                    ValueId(8),
-                    Instruction::ICmp(ICmpOp::Ne, valor(7), Operand::Constant(Constant::Int(0))),
-                    Type::I1,
-                ),
-            ],
-            Terminator::CondBranch {
-                cond: valor(8),
-                then_block: BlockId(1),
-                else_block: BlockId(2),
-            },
-        ),
-        bloco(1, vec![drop(3, 1)], Terminator::Return(None)),
-        bloco(
-            2,
-            vec![copia(4, 2), drop(5, 4), drop(6, 1)],
-            Terminator::Return(None),
-        ),
-    ]);
+    let mut f = funcao(vec![bloco(
+        0,
+        vec![
+            copia(1, 0),
+            (
+                ValueId(2),
+                Instruction::CallRuntime {
+                    name: "dartforge_nativo_DartForge_record_fieldAt".into(),
+                    args: vec![
+                        (valor(1), Type::Ref),
+                        (Operand::Constant(Constant::Int(0)), Type::I64),
+                    ],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            ),
+        ],
+        Terminator::Branch(BlockId(2)),
+    ), bloco(
+        2,
+        vec![copia(4, 2), drop(5, 4), drop(6, 1)],
+        Terminator::Return(None),
+    )]);
     let mut c = classes(&[], &[]);
     let mut p = PlanoTokens::default();
     let t = TabelasDaFuncao::default();
@@ -831,22 +809,11 @@ fn resultado_borrowed_auditado_depende_do_owner_do_argumento() {
             escopo: 0
         }
     );
-    assert_eq!(p.pendencias[&ValueId(2)], BlockId(1));
-    f.blocks[1].instructions.insert(0, copia(10, 2));
-    f.blocks[1].instructions.insert(1, drop(11, 10));
-    c.insert(ValueId(10), Ownership::Owned);
-    c.insert(ValueId(11), Ownership::Trivial);
-    assert!(
-        verificar_tokens(&f, &c, &t, &p)
-            .unwrap_err()
-            .contains("resultado v2")
-    );
-    f.blocks[1].instructions.drain(..2);
-    c.remove(&ValueId(10));
-    c.remove(&ValueId(11));
-    f.blocks[2].instructions.rotate_right(1);
+    assert!(!p.pendencias.contains_key(&ValueId(2)));
+    // Soltar o owner antes do último uso do empréstimo é recusado.
+    f.blocks[1].instructions.rotate_right(1);
     let erro = verificar_tokens(&f, &c, &t, &p).unwrap_err();
-    assert!(erro.contains("indisponível v1"));
+    assert!(erro.contains("indisponível v1"), "{erro}");
 }
 
 #[test]

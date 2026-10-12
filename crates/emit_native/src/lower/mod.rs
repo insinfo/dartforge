@@ -480,6 +480,7 @@ pub(crate) fn juntar_fatos_arc(destino: &mut Module, origem: &mut Module) {
     destino.funcoes_locais_diretas_arc.extend(std::mem::take(&mut origem.funcoes_locais_diretas_arc));
     destino.retornos_ref_dart.extend(std::mem::take(&mut origem.retornos_ref_dart));
     destino.sitios_arc.extend(std::mem::take(&mut origem.sitios_arc));
+    destino.globais_escalares_dart.extend(std::mem::take(&mut origem.globais_escalares_dart));
 }
 
 /// Baixa uma função (de topo, método, construtor) para o módulo.
@@ -897,6 +898,9 @@ fn lower_globais_e_resto(ctx: &Context, mut module: Module) -> Module {
         let repr = ctx.to_hir_type(ty);
         let repr = if repr == Type::Void { Type::Ref } else { repr };
         module.globais.push((vid.0, repr, simbolo_valor_global(ctx, vid)));
+        if ctx.memoria_arc && matches!(repr, Type::I64 | Type::F64 | Type::I1 | Type::I8) {
+            module.globais_escalares_dart.insert(simbolo_valor_global(ctx, vid));
+        }
         // O getter (ou a recusa dele) e o setter que outro módulo chama para
         // gravar (P5c). Fora do mundo fechado (C7), o getter lança.
         if ctx.global_podado(vid) {

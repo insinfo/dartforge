@@ -244,6 +244,8 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
             ("ref:consume-error", false) => ("i64", "ModoParametro::ConsumeError"),
             ("i64:scalar", false) => ("i64", "ModoParametro::Scalar"),
             ("f64:scalar", false) => ("f64", "ModoParametro::ScalarF64"),
+            ("u8:scalar", false) => ("u8", "ModoParametro::ScalarI8"),
+            ("i8:scalar", false) => ("i8", "ModoParametro::ScalarI8"),
             ("i64:native", false) => ("i64", "ModoParametro::Native"),
             ("ptr:native", false) => ("*const i64", "ModoParametro::EnderecoNative"),
             ("vetor:native", false) => ("*const i64", "ModoParametro::VetorEstatico"),
@@ -364,7 +366,7 @@ fn tabela_de_ownership(manifesto: &std::path::Path, nomes: &[String]) -> String 
 /// assert_ne!(ModoParametro::Borrow, ModoParametro::Consume);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModoParametro { Borrow, Consume, ConsumeSuccess, ConsumeError, Scalar, ScalarF64, Native, EnderecoNative, TabelaEstatica, VetorEstatico }
+pub enum ModoParametro { Borrow, Consume, ConsumeSuccess, ConsumeError, Scalar, ScalarF64, ScalarI8, Native, EnderecoNative, TabelaEstatica, VetorEstatico }
 /// Resultado das externs auditadas, sem convenção implícita.
 ///
 /// ```

@@ -1299,7 +1299,7 @@ mod testes {
     }
 
     #[test]
-    fn guarda_de_layout_nao_oculta_phi_sem_owner_na_aresta() {
+    fn guarda_de_layout_com_phi_misto_recebe_copia_na_aresta() {
         let (mut m, mut planos) =
             modulo(vec![Type::I64], vec![Operand::Constant(Constant::Int(85))]);
         let f = &mut m.functions[0];
@@ -1353,10 +1353,12 @@ mod testes {
             ],
             terminator: Terminator::Return(None),
         });
-        let antes = format!("{m:?}/{planos:?}");
-        let erro = preparar_arc_modulo_dart(&mut m, &mut planos).unwrap_err();
-        assert!(erro.contains("entrada não é owned/null"), "{erro}");
-        assert_eq!(format!("{m:?}/{planos:?}"), antes);
+        // Sem consumidor falível no meio: o empréstimo do parâmetro ganha a
+        // cópia na aresta, e a guarda de layout continua em `v11`.
+        m.functions[0].blocks.last_mut().unwrap().instructions.remove(1);
+        preparar_arc_modulo_dart(&mut m, &mut planos).unwrap();
+        assert!(m.functions[0].blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)|
+            matches!(i, Instruction::ArcCopy { value: Operand::Val(ValueId(7)) })));
     }
 
     #[test]
@@ -1510,6 +1512,14 @@ mod testes {
             ];
             let antes = format!("{m:?}/{planos:?}");
             let resultado = preparar_arc_modulo_dart(&mut m, &mut planos);
+            // Caso 3: o parâmetro emprestado entra no Phi com owner; a
+            // preparação copia na aresta (`phis.rs`), como o caso 0 explícito.
+            if caso == 3 {
+                resultado.unwrap();
+                assert!(m.functions[0].blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)|
+                    matches!(i, Instruction::ArcCopy { value: Operand::Val(ValueId(7)) })));
+                continue;
+            }
             if caso == 0 {
                 resultado.unwrap();
                 let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
@@ -1521,7 +1531,6 @@ mod testes {
             } else {
                 let erro = resultado.unwrap_err();
                 if caso == 1 { assert!(erro.contains("tipo ou guarda incompatível"), "{erro}"); }
-                if caso == 3 { assert!(erro.contains("entrada não é owned/null"), "{erro}"); }
                 assert_eq!(antes, format!("{m:?}/{planos:?}"));
             }
         }
