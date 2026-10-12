@@ -2588,6 +2588,15 @@ fn propriedade(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, target: Ex
         // `computeWhyNotPromotedMessages(nameErrorEntity, whyNotPromoted(receiver))`.
         inf.anexar_nao_promocao(desde, cx, Some(target), name.span);
     }
+    // `f.call` lido com `f` do tipo `Function` de `dart:core`: o
+    // `functionTypeCallType` é o próprio tipo (`property_element_resolver.dart:
+    // 440-445`); só a invocação `f.call()` sai dinâmica.
+    if !checar_nulo
+        && Some(name.sym) == inf.sym.call
+        && matches!(inf.table.get(recv), Type::Interface { class, nullable: false, .. } if Some(*class) == inf.core.function_class)
+    {
+        return (recv, curto);
+    }
     let busca = buscar_membro_do_alvo(inf, cx, target, recv, name.sym, false);
     inf.relatar_ambiguidade_de_extensao(name.span);
     let t = match busca {

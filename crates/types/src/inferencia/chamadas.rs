@@ -641,6 +641,21 @@ fn invocar_valor(inf: &mut BodyInferrer<'_>, cx: &mut Corpo, e: ExprId, t: TypeI
             return (inf.core.never, t);
         }
     }
+    // `x()` com `x` de tipo `Null` ou `Never?`: o `call` não existe e o
+    // receptor pode ser nulo — `invalid_use_of_null_value` (`Null`) ou
+    // `unchecked_use_of_nullable_value` (`Never?`) na função; o resultado é
+    // `dynamic` (não `Never`: não há código morto depois).
+    if matches!(inf.table.get(t), Type::Null)
+        && let ExprKind::Call { target, .. } = &inf.program.unit(cx.unit).ast.expr(e).kind
+    {
+        let funcao = *target;
+        expr::desreferencia_anulavel(inf, cx, funcao, t, dartforge_diagnostics::codigos::compile_time_error::UNCHECKED_INVOCATION_OF_NULLABLE_VALUE);
+        for a in args.args.iter() {
+            inferir_livre(inf, cx, a.value);
+        }
+        let _ = alvo;
+        return (inf.core.dynamic_, t);
+    }
     let t_nn = inf.nao_nulo(t);
     // `x(3)` com `x` de tipo `void`: `use_of_void_result` na função.
     if matches!(inf.table.get(t_nn), Type::Void) {
