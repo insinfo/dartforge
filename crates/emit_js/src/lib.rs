@@ -93,10 +93,36 @@ const CLASSES_FREQUENTES: &[(&str, &str)] = &[
 /// com o próximo nome da sequência `a`, `b`, …, `$`, `aa`, `ba`… (a primeira
 /// letra entre 54, as seguintes entre 64). Função só do programa: o
 /// emissor, o verificador e a tabela de nomes chegam ao mesmo id.
+/// Primeiro caractere de um id de receita ([`ids_de_receita`]).
+pub const ID_PRIMEIRA: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$";
+/// Caracteres seguintes de um id de receita.
+pub const ID_OUTRAS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$0123456789";
+
+/// O número de ordem de um id de [`ids_de_receita`] (o inverso da
+/// numeração): `a` é 0, `$` é 53, `aa` é 54.
+///
+/// ```
+/// assert_eq!(dartforge_emit_js::numero_de_id("a"), Some(0));
+/// assert_eq!(dartforge_emit_js::numero_de_id("aa"), Some(54));
+/// assert_eq!(dartforge_emit_js::numero_de_id("ba"), Some(55));
+/// assert_eq!(dartforge_emit_js::numero_de_id("ab"), Some(54 + 54));
+/// ```
+pub fn numero_de_id(id: &str) -> Option<usize> {
+    let b = id.as_bytes();
+    let primeiro = *b.first()?;
+    let mut n = ID_PRIMEIRA.iter().position(|c| *c == primeiro)?;
+    let mut peso = ID_PRIMEIRA.len();
+    for c in &b[1..] {
+        n += (ID_OUTRAS.iter().position(|x| x == c)? + 1) * peso;
+        peso *= ID_OUTRAS.len();
+    }
+    Some(n)
+}
+
 pub fn ids_de_receita(program: &dartforge_elements::model::Program, interner: &dartforge_intern::Interner) -> Vec<String> {
     use dartforge_elements::model::{ClassId, Element};
-    const PRIMEIRA: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$";
-    const OUTRAS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$0123456789";
+    const PRIMEIRA: &[u8] = ID_PRIMEIRA;
+    const OUTRAS: &[u8] = ID_OUTRAS;
     let nome = |mut n: usize| -> String {
         let mut s = vec![PRIMEIRA[n % PRIMEIRA.len()]];
         n /= PRIMEIRA.len();

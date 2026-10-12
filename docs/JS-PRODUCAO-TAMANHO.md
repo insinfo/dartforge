@@ -665,8 +665,11 @@ listas do `addRtiResources`, mais a primeira de cada lista. Uma classe que só
 aparece como supertipo nas regras nunca vira objeto rti.
 `DARTFORGE_JSPROD_RECEITA_CURTA=0` volta à receita `rótulo|Nome`.
 
-A tabela custa 130 KB no `new_sali` (os nomes das ~6 mil classes
-mostráveis); ainda assim o arquivo caiu 146 KB.
+A tabela custava 130 KB no `new_sali` como objeto JSON. Agora é uma
+*string* só, com os nomes separados por espaço na ordem dos ids (vazio o que
+não aparece) e a função `t$I` que converte o id no número
+(`dartforge_emit_js::numero_de_id`): um byte por classe em vez da chave e das
+aspas, −35 KB.
 
 ### 9.6 Construtores (`C.new`, `C.nome`) renomeados
 

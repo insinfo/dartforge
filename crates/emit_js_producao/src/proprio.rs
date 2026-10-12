@@ -341,19 +341,37 @@ pub fn nomes_de_receita(a: &dartforge_emit_js::Analise<'_>) -> HashMap<String, S
 /// devolve: `null`. No modo SDK com ids curtos, ele lê a tabela `t$N`.
 const DESMANGLE: &str = "unmangleGlobalNameIfPreservedAnyways = function unmangleGlobalNameIfPreservedAnyways(name) {\nreturn null;";
 
-/// Põe no arquivo a tabela `t$N` (id curto → nome da classe) com os ids que
-/// o texto cita e liga o `unmangleGlobalNameIfPreservedAnyways` a ela.
-/// Sem a função no texto (ninguém mostra tipos), nada muda.
+/// Põe no arquivo a tabela `t$N` dos nomes das classes que o texto pode
+/// mostrar e liga o `unmangleGlobalNameIfPreservedAnyways` a ela. A tabela é
+/// uma *string* só, com os nomes separados por espaço na ordem dos ids
+/// (`dartforge_emit_js::numero_de_id`), vazios os que não aparecem: um byte
+/// por classe em vez das aspas e da chave de um objeto. `t$I` converte o id
+/// no número, como `numero_de_id`. Sem a função no texto (ninguém mostra
+/// tipos), nada muda.
 fn tabela_de_nomes(js: &str, rti: &HashMap<String, String>) -> String {
     let Some(p) = js.find(DESMANGLE) else { return js.to_string() };
     let mostraveis = crate::regras::mostraveis(js);
-    let citados: std::collections::BTreeMap<&str, &str> =
-        mostraveis.iter().filter_map(|k| Some((k.as_str(), rti.get(k.strip_prefix('|')?)?.as_str()))).collect();
-    let json = serde_json::to_string(&citados).unwrap_or_default();
-    let mut out = String::with_capacity(js.len() + json.len() + 64);
-    out.push_str(&format!("var t$N = JSON.parse({});\n", dartforge_emit_js::js::string_literal(&json)));
+    let mut nomes: Vec<&str> = Vec::new();
+    for k in &mostraveis {
+        let Some(id) = k.strip_prefix('|') else { continue };
+        let (Some(nome), Some(n)) = (rti.get(id), dartforge_emit_js::numero_de_id(id)) else { continue };
+        if nomes.len() <= n {
+            nomes.resize(n + 1, "");
+        }
+        nomes[n] = nome.as_str();
+    }
+    let lista = nomes.join(" ");
+    let primeira = std::str::from_utf8(dartforge_emit_js::ID_PRIMEIRA).unwrap_or_default();
+    let outras = std::str::from_utf8(dartforge_emit_js::ID_OUTRAS).unwrap_or_default();
+    let mut out = String::with_capacity(js.len() + lista.len() + 400);
+    out.push_str(&format!(
+        "var t$N = {}.split(\" \");\nvar t$I = function(id) {{ let a = \"{primeira}\", b = \"{outras}\", n = a.indexOf(id[1]), p = {}; for (let i = 2; i < id.length; i++) {{ n += (b.indexOf(id[i]) + 1) * p; p *= {}; }} return n; }};\n",
+        dartforge_emit_js::js::string_literal(&lista),
+        primeira.len(),
+        outras.len(),
+    ));
     out.push_str(&js[..p]);
-    out.push_str(&DESMANGLE.replace("return null;", "return t$N[name] ?? null;"));
+    out.push_str(&DESMANGLE.replace("return null;", "return name[0] === \"|\" && t$N[t$I(name)] || null;"));
     out.push_str(&js[p + DESMANGLE.len()..]);
     out
 }
