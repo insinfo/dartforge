@@ -1,19 +1,19 @@
-//! Paridade de diagnósticos com o `dart analyze` oficial (plano A1/A2).
+//! Diagnostic parity with the official `dart analyze` (plan A1/A2).
 //!
-//! * [`json`]: o JSON v1 do `dart analyze --format=json`, lido e emitido.
-//! * [`analise`]: o nosso lado — um lote de arquivos vira um programa,
-//!   diagnósticos por arquivo, com código.
-//! * [`bridge`]: códigos para os diagnósticos que ainda saem só com texto.
-//! * [`filtros`]: `analysis_options.yaml` e `// ignore:`.
-//! * [`oraculo`]: rodar e gravar o oráculo (SDK 3.6.2 e 3.13.4).
-//! * [`corpus`]: os grupos de `corpus/diagnosticos/`.
-//! * [`scoreboard`]: a comparação por código.
+//! * [`json`]: the JSON v1 of `dart analyze --format=json`, read and written.
+//! * [`analise`]: our side — a batch of files becomes one program, with
+//!   diagnostics per file, with codes.
+//! * [`bridge`]: codes for the diagnostics that still come out as text only.
+//! * [`filtros`]: `analysis_options.yaml` and `// ignore:`.
+//! * [`oraculo`]: running and recording the oracle (SDK 3.6.2 and 3.13.4).
+//! * [`corpus`]: the groups of `corpus/diagnosticos/`.
+//! * [`scoreboard`]: the per-code comparison.
 //!
-//! Regra de publicação (plano §2.3): sintaxe é publicada sempre; um código
-//! semântico só é publicado se estiver em `crates/analysis/verificados.txt`
-//! (zero falso positivo, posição ou mensagem errada no corpus e nos projetos
-//! reais; falso negativo é permitido). O resto existe internamente e vai só
-//! para o placar.
+//! Publication rule (plan §2.3): syntax is always published; a semantic code
+//! is only published if it is in `crates/analysis/verificados.txt` (zero
+//! false positives, wrong positions or wrong messages in the corpus and in the
+//! real projects; false negatives are allowed). The rest exists internally and
+//! only goes to the scoreboard.
 
 pub mod analise;
 pub mod corpus;
@@ -33,87 +33,88 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub use dartforge_analysis::publicacao::{VERIFICADOS, publicado, verificados};
 
-/// Os diagnósticos da análise no JSON v1, com os filtros aplicados
-/// (`analysis_options.yaml` da raiz e `// ignore:`). `so_publicados` aplica a
-/// regra de publicação.
+/// The analysis diagnostics in JSON v1, with the filters applied (the root
+/// `analysis_options.yaml` and `// ignore:`). `so_publicados` applies the
+/// publication rule.
 pub fn diagnosticos_json(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoes, so_publicados: bool) -> Vec<json::DiagJson> {
     let mut out = Vec::new();
-    // As opções de subpasta (INFRA §4.5): o `analysis_options.yaml` mais
-    // próximo acima do arquivo, abaixo da raiz, vale para ele; os `exclude`
-    // dele somam-se aos da raiz.
-    let mut de_subpasta: std::collections::HashMap<std::path::PathBuf, filtros::Opcoes> = std::collections::HashMap::new();
+    // Subfolder options (INFRA §4.5): the nearest `analysis_options.yaml`
+    // above the file, below the root, applies to it; its `exclude`s add to
+    // the root's.
+    let mut by_subfolder: std::collections::HashMap<std::path::PathBuf, filtros::Opcoes> = std::collections::HashMap::new();
     for (p, a) in &analise.arquivos {
         if oraculo::relativo(p, raiz).is_some_and(|rel| opcoes.excluido(&rel)) {
             continue;
         }
-        let proprias: Option<&filtros::Opcoes> = match filtros::Opcoes::de_subpasta(p, raiz) {
-            Some(arquivo) => {
-                if !de_subpasta.contains_key(&arquivo) {
-                    let lidas = filtros::Opcoes::ler_arquivo(&arquivo);
-                    de_subpasta.insert(arquivo.clone(), lidas);
+        let own: Option<&filtros::Opcoes> = match filtros::Opcoes::de_subpasta(p, raiz) {
+            Some(file) => {
+                if !by_subfolder.contains_key(&file) {
+                    let read = filtros::Opcoes::ler_arquivo(&file);
+                    by_subfolder.insert(file.clone(), read);
                 }
-                de_subpasta.get(&arquivo)
+                by_subfolder.get(&file)
             }
             None => None,
         };
-        if proprias.is_some_and(|o| o.exclui_arquivo(p)) {
+        if own.is_some_and(|o| o.exclui_arquivo(p)) {
             continue;
         }
-        let opcoes = proprias.unwrap_or(opcoes);
-        let linhas = json::Linhas::new(&a.texto);
-        let caminho = p.to_string_lossy();
-        for (d, sintaxe) in publicaveis(a, opcoes, so_publicados) {
-            out.push(json::para_json(&caminho, &linhas, &d, sintaxe));
+        let opcoes = own.unwrap_or(opcoes);
+        let lines = json::Linhas::new(&a.texto);
+        let path = p.to_string_lossy();
+        for (d, syntax) in publicaveis(a, opcoes, so_publicados) {
+            out.push(json::para_json(&path, &lines, &d, syntax));
         }
-        // As regras de lint ligadas em `linter: rules:` (INFRA §8), sobre a
-        // árvore do texto, com os comentários `// ignore:` e o `errors:` das
-        // opções (que cala a regra ou troca a severidade).
-        if opcoes.regras.values().any(|ligada| *ligada) {
-            let ligada = |regra: &str| opcoes.regras.get(regra).copied().unwrap_or(false);
-            let ignorados = filtros::Ignorados::de_texto(&a.texto);
-            // Os relatos sobre a árvore do programa, com a semântica; sem
-            // ela (arquivo fora do programa), sobre a árvore do texto.
-            let mut relatos = match &a.relatos_de_lint {
-                Some(r) => r.iter().filter(|x| ligada(x.codigo.nome)).cloned().collect::<Vec<_>>(),
+        // The lint rules enabled in `linter: rules:` (INFRA §8), over the
+        // text's tree, with the `// ignore:` comments and the options'
+        // `errors:` (which silences the rule or changes its severity).
+        if opcoes.regras.values().any(|enabled| *enabled) {
+            let enabled = |rule: &str| opcoes.regras.get(rule).copied().unwrap_or(false);
+            let ignored = filtros::Ignorados::de_texto(&a.texto);
+            // The reports over the program's tree, with semantics; without it
+            // (a file outside the program), over the text's tree.
+            let mut reports = match &a.relatos_de_lint {
+                Some(r) => r.iter().filter(|x| enabled(x.codigo.nome)).cloned().collect::<Vec<_>>(),
                 None => {
-                    let mut nomes = dartforge_intern::Interner::new();
-                    let analisado = dartforge_frontend::parser::parse(&a.texto, &mut nomes);
-                    let unidade = dartforge_analysis::Unidade { ast: &analisado.ast, unit: &analisado.unit, fonte: &a.texto };
-                    dartforge_analysis::lints::executar(unidade, &nomes, &ligada)
+                    let mut names = dartforge_intern::Interner::new();
+                    let parsed = dartforge_frontend::parser::parse(&a.texto, &mut names);
+                    let unit = dartforge_analysis::Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: &a.texto };
+                    dartforge_analysis::lints::executar(unit, &names, &enabled)
                 }
             };
-            // Os das regras que pedem o programa resolvido, já calculados
-            // pelo motor.
+            // Those of the rules that need the resolved program, already
+            // computed by the engine.
             for l in &a.lints_semanticos {
-                if let Some(codigo) = dartforge_analysis::lints::codigos_g::TODOS.iter().copied().find(|k| k.unico == l.unico)
-                    && ligada(codigo.nome)
+                if let Some(code) = dartforge_analysis::lints::codigos_g::TODOS.iter().copied().find(|k| k.unico == l.unico)
+                    && enabled(code.nome)
                 {
-                    relatos.push(dartforge_analysis::lints::rules::RelatoDeLint { codigo, span: l.span, args: l.args.clone() });
+                    reports.push(dartforge_analysis::lints::rules::RelatoDeLint { codigo: code, span: l.span, args: l.args.clone() });
                 }
             }
-            relatos.sort_by_key(|r| (r.span.start, r.span.end, r.codigo.unico));
-            // O mesmo código no mesmo lugar com os mesmos argumentos sai uma
-            // vez só (`final (a, b) = …` relata a palavra por variável).
-            relatos.dedup_by(|x, y| x.span == y.span && x.codigo.unico == y.codigo.unico && x.args == y.args);
-            for r in relatos {
-                let severidade = match opcoes.errors.get(r.codigo.nome) {
+            reports.sort_by_key(|r| (r.span.start, r.span.end, r.codigo.unico));
+            // The same code at the same place with the same arguments is
+            // reported only once (`final (a, b) = …` reports the keyword per
+            // variable).
+            reports.dedup_by(|x, y| x.span == y.span && x.codigo.unico == y.codigo.unico && x.args == y.args);
+            for r in reports {
+                let severity = match opcoes.errors.get(r.codigo.nome) {
                     Some(None) => continue,
                     Some(Some(s)) => s.nome(),
                     None => "INFO",
                 };
-                // `cannot-ignore` com o nome do lint: o `// ignore:` não o cala.
+                // `cannot-ignore` with the lint's name: `// ignore:` does not silence it.
                 if opcoes.lint_ignoravel(r.codigo.nome, r.codigo.unico)
-                    && ignorados.ignora_lint(r.codigo.nome, r.codigo.unico, linhas.ponto(r.span.start).line)
+                    && ignored.ignora_lint(r.codigo.nome, r.codigo.unico, lines.ponto(r.span.start).line)
                 {
                     continue;
                 }
                 out.push(json::DiagJson {
                     code: r.codigo.nome.to_string(),
-                    severity: severidade.to_string(),
+                    severity: severity.to_string(),
                     tipo: "LINT".to_string(),
                     location: json::Local {
-                        file: caminho.to_string(),
-                        range: json::Faixa { start: linhas.ponto(r.span.start), end: linhas.ponto(r.span.end.max(r.span.start)) },
+                        file: path.to_string(),
+                        range: json::Faixa { start: lines.ponto(r.span.start), end: lines.ponto(r.span.end.max(r.span.start)) },
                     },
                     problem_message: r.mensagem(),
                     correction_message: r.correcao(),
@@ -127,15 +128,15 @@ pub fn diagnosticos_json(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoe
     out
 }
 
-/// Um relato de arquivo não-Dart no JSON v1.
-fn relato_em_json(arquivo: &str, linhas: &json::Linhas<'_>, r: &dartforge_analysis::naodart::Relato) -> json::DiagJson {
+/// A report on a non-Dart file, in JSON v1.
+fn report_to_json(file: &str, lines: &json::Linhas<'_>, r: &dartforge_analysis::naodart::Relato) -> json::DiagJson {
     json::DiagJson {
         code: r.codigo.nome.to_string(),
         severity: r.codigo.severidade.nome().to_string(),
         tipo: r.codigo.tipo.nome().to_string(),
         location: json::Local {
-            file: arquivo.to_string(),
-            range: json::Faixa { start: linhas.ponto(r.span.start), end: linhas.ponto(r.span.end.max(r.span.start)) },
+            file: file.to_string(),
+            range: json::Faixa { start: lines.ponto(r.span.start), end: lines.ponto(r.span.end.max(r.span.start)) },
         },
         problem_message: r.mensagem(),
         correction_message: r.correcao(),
@@ -144,93 +145,93 @@ fn relato_em_json(arquivo: &str, linhas: &json::Linhas<'_>, r: &dartforge_analys
     }
 }
 
-/// Os diagnósticos de cada `AndroidManifest.xml` sob `raiz` (o
-/// `ManifestValidator` do analyzer, `dartforge_analysis::naodart::manifest`),
-/// no JSON v1. Só com `analyzer: optional-checks: chrome-os-manifest-checks`
-/// nas opções; pastas ocultas ficam fora.
+/// The diagnostics of each `AndroidManifest.xml` under `raiz` (the analyzer's
+/// `ManifestValidator`, `dartforge_analysis::naodart::manifest`), in JSON v1.
+/// Only with `analyzer: optional-checks: chrome-os-manifest-checks` in the
+/// options; hidden folders are skipped.
 pub fn diagnosticos_do_manifesto(raiz: &Path, opcoes: &filtros::Opcoes) -> Vec<json::DiagJson> {
     let mut out = Vec::new();
     if !opcoes.manifesto_do_chrome_os {
         return out;
     }
-    let mut pilha = vec![raiz.to_path_buf()];
-    let mut achados: Vec<PathBuf> = Vec::new();
-    while let Some(pasta) = pilha.pop() {
-        let Ok(entradas) = std::fs::read_dir(&pasta) else { continue };
-        for e in entradas.flatten() {
-            let (p, nome) = (e.path(), e.file_name());
-            let nome = nome.to_string_lossy();
+    let mut stack = vec![raiz.to_path_buf()];
+    let mut found: Vec<PathBuf> = Vec::new();
+    while let Some(folder) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&folder) else { continue };
+        for e in entries.flatten() {
+            let (p, name) = (e.path(), e.file_name());
+            let name = name.to_string_lossy();
             if p.is_dir() {
-                if !nome.starts_with('.') {
-                    pilha.push(p);
+                if !name.starts_with('.') {
+                    stack.push(p);
                 }
-            } else if nome == "AndroidManifest.xml" {
-                achados.push(p);
+            } else if name == "AndroidManifest.xml" {
+                found.push(p);
             }
         }
     }
-    achados.sort();
-    for arquivo in achados {
-        let Ok(texto) = std::fs::read_to_string(&arquivo) else { continue };
-        let linhas = json::Linhas::new(&texto);
-        let caminho = arquivo.to_string_lossy();
-        out.extend(dartforge_analysis::naodart::manifest::validar(&texto).iter().map(|r| relato_em_json(&caminho, &linhas, r)));
+    found.sort();
+    for file in found {
+        let Ok(text) = std::fs::read_to_string(&file) else { continue };
+        let lines = json::Linhas::new(&text);
+        let path = file.to_string_lossy();
+        out.extend(dartforge_analysis::naodart::manifest::validar(&text).iter().map(|r| report_to_json(&path, &lines, r)));
     }
     out
 }
 
-/// Os diagnósticos do `analysis_options.yaml` de `raiz`
-/// (`analyzeAnalysisOptions`, `dartforge_analysis::naodart::options`), no JSON
-/// v1. Um `include:` é relativo ao arquivo que inclui, ou `package:` pelo
-/// `package_config.json` achado acima da raiz. A restrição de SDK não é
-/// passada: uma regra de lint removida com `since` não é relatada.
+/// The diagnostics of the `analysis_options.yaml` of `raiz`
+/// (`analyzeAnalysisOptions`, `dartforge_analysis::naodart::options`), in
+/// JSON v1. An `include:` is relative to the including file, or `package:`
+/// through the `package_config.json` found above the root. The SDK constraint
+/// is not passed: a lint rule removed with `since` is not reported.
 pub fn diagnosticos_das_opcoes(raiz: &Path) -> Vec<json::DiagJson> {
-    let arquivo = raiz.join("analysis_options.yaml");
-    let Ok(texto) = std::fs::read_to_string(&arquivo) else { return Vec::new() };
-    let config = dartforge_elements::config::PackageConfig::discover(&arquivo)
+    let file = raiz.join("analysis_options.yaml");
+    let Ok(text) = std::fs::read_to_string(&file) else { return Vec::new() };
+    let config = dartforge_elements::config::PackageConfig::discover(&file)
         .and_then(|p| dartforge_elements::config::PackageConfig::load(&p).ok());
-    let resolver = |de: &Path, uri: &str| -> Option<PathBuf> {
+    let resolver = |from: &Path, uri: &str| -> Option<PathBuf> {
         if uri.starts_with("package:") {
             config.as_ref().and_then(|c| c.resolve_package_uri(uri).ok())
         } else {
-            de.parent().map(|p| p.join(uri))
+            from.parent().map(|p| p.join(uri))
         }
     };
-    let raiz_em_texto = raiz.to_string_lossy();
+    let root_text = raiz.to_string_lossy();
     let ctx = dartforge_analysis::naodart::options::Contexto {
-        arquivo: &arquivo,
-        raiz_do_contexto: raiz_em_texto.as_ref(),
+        arquivo: &file,
+        raiz_do_contexto: root_text.as_ref(),
         resolver: &resolver,
         sdk_permite: None,
     };
-    let linhas = json::Linhas::new(&texto);
-    let caminho = arquivo.to_string_lossy();
-    dartforge_analysis::naodart::options::analisar(&texto, &ctx).iter().map(|r| relato_em_json(&caminho, &linhas, r)).collect()
+    let lines = json::Linhas::new(&text);
+    let path = file.to_string_lossy();
+    dartforge_analysis::naodart::options::analisar(&text, &ctx).iter().map(|r| report_to_json(&path, &lines, r)).collect()
 }
 
-/// Os diagnósticos do `pubspec.yaml` de `raiz` (o `PubspecValidator` do
-/// analyzer, `dartforge_analysis::naodart::pubspec`, e os lints de pubspec
-/// ligados nas opções, `dartforge_analysis::lints::pubspec`), no JSON v1,
-/// sem os calados por `# ignore:`/`# ignore_for_file:` (o
-/// `IgnoreInfo.forYaml` do fim de `validatePubspec`). Sem o arquivo, nada.
-/// Os avisos do validador saem como ele os dá; os lints levam o `errors:`
-/// das opções.
+/// The diagnostics of the `pubspec.yaml` of `raiz` (the analyzer's
+/// `PubspecValidator`, `dartforge_analysis::naodart::pubspec`, and the pubspec
+/// lints enabled in the options, `dartforge_analysis::lints::pubspec`), in
+/// JSON v1, without those silenced by `# ignore:`/`# ignore_for_file:` (the
+/// `IgnoreInfo.forYaml` at the end of `validatePubspec`). Without the file,
+/// nothing. The validator's warnings come out as it gives them; the lints
+/// take the options' `errors:`.
 pub fn diagnosticos_do_pubspec(raiz: &Path, opcoes: &filtros::Opcoes) -> Vec<json::DiagJson> {
-    let arquivo = raiz.join("pubspec.yaml");
-    let Ok(texto) = std::fs::read_to_string(&arquivo) else { return Vec::new() };
-    let linhas = json::Linhas::new(&texto);
-    let caminho = arquivo.to_string_lossy();
-    let ignorados = dartforge_analysis::lints::pubspec::IgnoradosYaml::de(&texto);
-    let mut saida: Vec<json::DiagJson> = dartforge_analysis::naodart::pubspec::validar(&texto, raiz)
+    let file = raiz.join("pubspec.yaml");
+    let Ok(text) = std::fs::read_to_string(&file) else { return Vec::new() };
+    let lines = json::Linhas::new(&text);
+    let path = file.to_string_lossy();
+    let ignored = dartforge_analysis::lints::pubspec::IgnoradosYaml::de(&text);
+    let mut out: Vec<json::DiagJson> = dartforge_analysis::naodart::pubspec::validar(&text, raiz)
         .into_iter()
-        .filter(|r| !ignorados.ignora(r.codigo.nome, r.codigo.nome, r.span.start))
+        .filter(|r| !ignored.ignora(r.codigo.nome, r.codigo.nome, r.span.start))
         .map(|r| json::DiagJson {
             code: r.codigo.nome.to_string(),
             severity: r.codigo.severidade.nome().to_string(),
             tipo: r.codigo.tipo.nome().to_string(),
             location: json::Local {
-                file: caminho.to_string(),
-                range: json::Faixa { start: linhas.ponto(r.span.start), end: linhas.ponto(r.span.end.max(r.span.start)) },
+                file: path.to_string(),
+                range: json::Faixa { start: lines.ponto(r.span.start), end: lines.ponto(r.span.end.max(r.span.start)) },
             },
             problem_message: r.mensagem(),
             correction_message: r.correcao(),
@@ -238,24 +239,24 @@ pub fn diagnosticos_do_pubspec(raiz: &Path, opcoes: &filtros::Opcoes) -> Vec<jso
             documentation: r.codigo.documentado.then(|| format!("https://dart.dev/diagnostics/{}", r.codigo.nome)),
         })
         .collect();
-    if opcoes.regras.values().any(|ligada| *ligada) {
-        let ligada = |regra: &str| opcoes.regras.get(regra).copied().unwrap_or(false);
-        for r in dartforge_analysis::lints::pubspec::executar(&texto, &ligada) {
-            if ignorados.ignora(r.codigo.nome, r.codigo.unico, r.span.start) {
+    if opcoes.regras.values().any(|enabled| *enabled) {
+        let enabled = |rule: &str| opcoes.regras.get(rule).copied().unwrap_or(false);
+        for r in dartforge_analysis::lints::pubspec::executar(&text, &enabled) {
+            if ignored.ignora(r.codigo.nome, r.codigo.unico, r.span.start) {
                 continue;
             }
-            let severidade = match opcoes.errors.get(r.codigo.nome) {
+            let severity = match opcoes.errors.get(r.codigo.nome) {
                 Some(None) => continue,
                 Some(Some(s)) => s.nome(),
                 None => "INFO",
             };
-            saida.push(json::DiagJson {
+            out.push(json::DiagJson {
                 code: r.codigo.nome.to_string(),
-                severity: severidade.to_string(),
+                severity: severity.to_string(),
                 tipo: "LINT".to_string(),
                 location: json::Local {
-                    file: caminho.to_string(),
-                    range: json::Faixa { start: linhas.ponto(r.span.start), end: linhas.ponto(r.span.end.max(r.span.start)) },
+                    file: path.to_string(),
+                    range: json::Faixa { start: lines.ponto(r.span.start), end: lines.ponto(r.span.end.max(r.span.start)) },
                 },
                 problem_message: r.mensagem(),
                 correction_message: r.correcao(),
@@ -264,39 +265,40 @@ pub fn diagnosticos_do_pubspec(raiz: &Path, opcoes: &filtros::Opcoes) -> Vec<jso
             });
         }
     }
-    saida
+    out
 }
 
-/// Os diagnósticos de um arquivo que saem para o usuário, com a marca de
-/// sintaxe: a regra de publicação (com `so_publicados`), o
-/// `analysis_options.yaml` (`opcoes`) e os comentários `// ignore:` do
-/// texto. É o filtro comum do `dartforge analyze` e do LSP.
+/// The diagnostics of a file that reach the user, with the syntax flag: the
+/// publication rule (with `so_publicados`), the `analysis_options.yaml`
+/// (`opcoes`) and the text's `// ignore:` comments. It is the filter shared by
+/// `dartforge analyze` and the LSP.
 pub fn publicaveis(a: &analise::Arquivo, opcoes: &filtros::Opcoes, so_publicados: bool) -> Vec<(dartforge_diagnostics::Diagnostic, bool)> {
-    let linhas = json::Linhas::new(&a.texto);
-    let ignorados = filtros::Ignorados::de_texto(&a.texto);
+    let lines = json::Linhas::new(&a.texto);
+    let ignored = filtros::Ignorados::de_texto(&a.texto);
     let mut out = Vec::new();
     for (i, d) in a.diags.iter().enumerate() {
-        let sintaxe = i < a.sintaticos;
-        if so_publicados && !publicado(d, sintaxe) {
+        let syntax = i < a.sintaticos;
+        if so_publicados && !publicado(d, syntax) {
             continue;
         }
-        // Os dois `inference_failure_on_*` do `BestPracticesVerifier` só com
-        // `strict-inference: true` (INFRA §4.6); o motor os relata sempre.
+        // The two `inference_failure_on_*` of the `BestPracticesVerifier` only
+        // with `strict-inference: true` (INFRA §4.6); the engine always
+        // reports them.
         if !opcoes.strict_inference
             && d.code.is_some_and(|c| matches!(c.info().nome, "inference_failure_on_untyped_parameter" | "inference_failure_on_function_return_type"))
         {
             continue;
         }
         let Some(d) = opcoes.processar(d.clone()) else { continue };
-        let linha = linhas.ponto(d.span.start).line;
-        if opcoes.ignoravel(&d) && ignorados.ignora(&d, linha) {
+        let line = lines.ponto(d.span.start).line;
+        if opcoes.ignoravel(&d) && ignored.ignora(&d, line) {
             continue;
         }
-        out.push((d, sintaxe));
+        out.push((d, syntax));
     }
-    // `IgnoreValidator` (a última fase da unidade): os nomes repetidos nos
-    // comentários `ignore`.
-    for d in ignorados.duplicados() {
+    // `IgnoreValidator` (the unit's last phase): the names repeated in the
+    // `ignore` comments.
+    for d in ignored.duplicados() {
         if so_publicados && !publicado(&d, false) {
             continue;
         }
@@ -307,10 +309,10 @@ pub fn publicaveis(a: &analise::Arquivo, opcoes: &filtros::Opcoes, so_publicados
     out
 }
 
-/// Como [`diagnosticos_json`], em registros relativos a `raiz`, com o que o
-/// `dart analyze` (o oráculo) imprime: um `TODO` só sai quando o `errors:`
-/// o promoveu (`analyze.dart:191-192`, o mesmo filtro do nosso CLI).
-pub fn registros(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoes, so_publicados: bool) -> Vec<Registro> {
+/// Like [`diagnosticos_json`], as records relative to `raiz`, with what
+/// `dart analyze` (the oracle) prints: a `TODO` only comes out when `errors:`
+/// promoted it (`analyze.dart:191-192`, the same filter as our CLI).
+pub fn records(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoes, so_publicados: bool) -> Vec<Registro> {
     let mut out: Vec<Registro> = diagnosticos_json(analise, raiz, opcoes, so_publicados)
         .iter()
         .filter(|j| !(j.tipo == "TODO" && j.severity == "INFO"))
@@ -320,84 +322,86 @@ pub fn registros(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoes, so_pu
     out
 }
 
-/// Resultado do nosso lado para um conjunto de arquivos.
+/// Our side's result for a set of files.
 #[derive(Debug, Default)]
-pub struct Rodada {
-    pub registros: Vec<Registro>,
-    pub arquivos: usize,
-    pub lotes: usize,
-    /// Arquivos cuja análise entrou em pânico, estourou o teto de memória ou
-    /// o tempo (isolados um a um).
-    pub panicos: Vec<String>,
-    pub ambiguos: usize,
+pub struct Run {
+    pub records: Vec<Registro>,
+    pub files: usize,
+    pub batches: usize,
+    /// Files whose analysis panicked or exceeded the memory cap or the time
+    /// limit (isolated one by one).
+    pub panics: Vec<String>,
+    pub ambiguous: usize,
 }
 
-/// Como os lotes rodam.
+/// How the batches run.
 #[derive(Debug, Clone)]
-pub struct Execucao {
-    pub trabalhadores: usize,
-    pub tamanho_lote: usize,
-    pub progresso: bool,
-    /// `Some(exe)`: cada lote num processo filho (`exe _lote ...`), para que
-    /// estouro de pilha, falta de memória ou laço infinito numa análise não
-    /// derrubem o placar. `None`: na mesma thread (só pânicos são contidos).
-    pub isolar: Option<PathBuf>,
-    /// Tempo máximo de um lote isolado.
-    pub tempo_max: std::time::Duration,
+pub struct Execution {
+    pub workers: usize,
+    pub batch_size: usize,
+    pub progress: bool,
+    /// `Some(exe)`: each batch in a child process (`exe _lote ...`), so that
+    /// a stack overflow, out-of-memory or infinite loop in one analysis does
+    /// not take the scoreboard down. `None`: on the same thread (only panics
+    /// are contained).
+    pub isolate: Option<PathBuf>,
+    /// Maximum time of an isolated batch.
+    pub max_time: std::time::Duration,
 }
 
-/// Analisa `arquivos` de `raiz` em lotes. Os lotes são definidos pela ordem
-/// dos arquivos, não pelos trabalhadores: o resultado é o mesmo com 1, 4 ou 8.
-pub fn rodar_nosso(
+/// Analyzes `files` of `raiz` in batches. The batches are defined by the
+/// order of the files, not by the workers: the result is the same with 1, 4
+/// or 8.
+pub fn run_ours(
     motor: &Motor,
     raiz: &Path,
-    arquivos: &[PathBuf],
+    files: &[PathBuf],
     packages: Option<&Path>,
     opcoes: &filtros::Opcoes,
-    ex: &Execucao,
-) -> Rodada {
-    let lotes: Vec<&[PathBuf]> = arquivos.chunks(ex.tamanho_lote.max(1)).collect();
-    type Parcial = (Vec<Registro>, Vec<String>, usize);
-    let resultados: Mutex<Vec<Option<Parcial>>> = Mutex::new((0..lotes.len()).map(|_| None).collect());
-    let proximo = AtomicUsize::new(0);
-    let feitos = AtomicUsize::new(0);
-    let trabalhar = || {
+    ex: &Execution,
+) -> Run {
+    let batches: Vec<&[PathBuf]> = files.chunks(ex.batch_size.max(1)).collect();
+    type Partial = (Vec<Registro>, Vec<String>, usize);
+    let results: Mutex<Vec<Option<Partial>>> = Mutex::new((0..batches.len()).map(|_| None).collect());
+    let next = AtomicUsize::new(0);
+    let done = AtomicUsize::new(0);
+    let work = || {
         loop {
-            let i = proximo.fetch_add(1, Ordering::SeqCst);
-            if i >= lotes.len() {
+            let i = next.fetch_add(1, Ordering::SeqCst);
+            if i >= batches.len() {
                 break;
             }
-            let r = match &ex.isolar {
-                Some(exe) => lote_isolado(exe, raiz, lotes[i], packages, ex.tempo_max),
-                None => analisar_lote(motor, raiz, lotes[i], packages),
+            let r = match &ex.isolate {
+                Some(exe) => isolated_batch(exe, raiz, batches[i], packages, ex.max_time),
+                None => analyze_batch(motor, raiz, batches[i], packages),
             };
-            resultados.lock().expect("resultados")[i] = Some(r);
-            let n = feitos.fetch_add(1, Ordering::SeqCst) + 1;
-            if ex.progresso && (n % 20 == 0 || n == lotes.len()) {
-                eprintln!("  {n}/{} lotes", lotes.len());
+            results.lock().expect("results")[i] = Some(r);
+            let n = done.fetch_add(1, Ordering::SeqCst) + 1;
+            if ex.progress && (n % 20 == 0 || n == batches.len()) {
+                eprintln!("  {n}/{} batches", batches.len());
             }
         }
     };
     std::thread::scope(|s| {
         let mut hs = Vec::new();
-        for _ in 0..ex.trabalhadores.max(1) {
-            // Corpos profundos recursam fundo: pilha própria, como o `compile-js`.
-            hs.push(std::thread::Builder::new().stack_size(1 << 30).spawn_scoped(s, trabalhar).expect("thread"));
+        for _ in 0..ex.workers.max(1) {
+            // Deep bodies recurse deeply: own stack, like `compile-js`.
+            hs.push(std::thread::Builder::new().stack_size(1 << 30).spawn_scoped(s, work).expect("thread"));
         }
         for h in hs {
             let _ = h.join();
         }
     });
-    let mut rodada = Rodada { arquivos: arquivos.len(), lotes: lotes.len(), ..Rodada::default() };
-    for r in resultados.into_inner().expect("resultados").into_iter().flatten() {
-        rodada.registros.extend(r.0);
-        rodada.panicos.extend(r.1);
-        rodada.ambiguos += r.2;
+    let mut run = Run { files: files.len(), batches: batches.len(), ..Run::default() };
+    for r in results.into_inner().expect("results").into_iter().flatten() {
+        run.records.extend(r.0);
+        run.panics.extend(r.1);
+        run.ambiguous += r.2;
     }
-    // `analyzer: exclude/errors` do `analysis_options.yaml`, aplicados aqui
-    // (os comentários de ignore já vieram aplicados de cada lote).
-    rodada.registros = rodada
-        .registros
+    // `analyzer: exclude/errors` of `analysis_options.yaml`, applied here
+    // (the ignore comments were already applied by each batch).
+    run.records = run
+        .records
         .into_iter()
         .filter(|r| !opcoes.excluido(&r.arquivo))
         .filter_map(|mut r| match opcoes.errors.get(&r.code) {
@@ -409,71 +413,71 @@ pub fn rodar_nosso(
             }
         })
         .collect();
-    rodada.registros.sort();
-    rodada.panicos.sort();
-    rodada
+    run.records.sort();
+    run.panics.sort();
+    run
 }
 
-/// Um lote na mesma thread; em pânico, cada arquivo sozinho.
-fn analisar_lote(motor: &Motor, raiz: &Path, lote: &[PathBuf], packages: Option<&Path>) -> (Vec<Registro>, Vec<String>, usize) {
-    let tentar = |arqs: &[PathBuf]| {
+/// A batch on the same thread; on a panic, each file on its own.
+fn analyze_batch(motor: &Motor, raiz: &Path, batch: &[PathBuf], packages: Option<&Path>) -> (Vec<Registro>, Vec<String>, usize) {
+    let attempt = |files: &[PathBuf]| {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let a = motor.analisar(raiz, arqs, packages);
-            (registros(&a, raiz, &filtros::Opcoes::default(), false), a.ambiguos)
+            let a = motor.analisar(raiz, files, packages);
+            (records(&a, raiz, &filtros::Opcoes::default(), false), a.ambiguos)
         }))
     };
-    if let Ok((r, amb)) = tentar(lote) {
+    if let Ok((r, amb)) = attempt(batch) {
         return (r, Vec::new(), amb);
     }
     let mut regs = Vec::new();
-    let mut panicos = Vec::new();
+    let mut panics = Vec::new();
     let mut amb = 0;
-    for a in lote {
-        match tentar(std::slice::from_ref(a)) {
+    for a in batch {
+        match attempt(std::slice::from_ref(a)) {
             Ok((r, x)) => {
                 regs.extend(r);
                 amb += x;
             }
-            Err(_) => panicos.push(oraculo::relativo(a, raiz).unwrap_or_else(|| a.display().to_string())),
+            Err(_) => panics.push(oraculo::relativo(a, raiz).unwrap_or_else(|| a.display().to_string())),
         }
     }
-    (regs, panicos, amb)
+    (regs, panics, amb)
 }
 
-/// Um lote num processo filho; se ele morrer, cada arquivo num filho.
-fn lote_isolado(
+/// A batch in a child process; if it dies, each file in its own child.
+fn isolated_batch(
     exe: &Path,
     raiz: &Path,
-    lote: &[PathBuf],
+    batch: &[PathBuf],
     packages: Option<&Path>,
-    tempo_max: std::time::Duration,
+    max_time: std::time::Duration,
 ) -> (Vec<Registro>, Vec<String>, usize) {
-    if let Some((r, amb)) = filho(exe, raiz, lote, packages, tempo_max) {
+    if let Some((r, amb)) = child(exe, raiz, batch, packages, max_time) {
         return (r, Vec::new(), amb);
     }
     let mut regs = Vec::new();
-    let mut panicos = Vec::new();
+    let mut panics = Vec::new();
     let mut amb = 0;
-    for a in lote {
-        match filho(exe, raiz, std::slice::from_ref(a), packages, tempo_max) {
+    for a in batch {
+        match child(exe, raiz, std::slice::from_ref(a), packages, max_time) {
             Some((r, x)) => {
                 regs.extend(r);
                 amb += x;
             }
-            None => panicos.push(oraculo::relativo(a, raiz).unwrap_or_else(|| a.display().to_string())),
+            None => panics.push(oraculo::relativo(a, raiz).unwrap_or_else(|| a.display().to_string())),
         }
     }
-    (regs, panicos, amb)
+    (regs, panics, amb)
 }
 
-/// O executável com o subcomando `_lote`, os arquivos na entrada padrão.
-/// `None` se o filho não terminar bem dentro do tempo.
-fn filho(
+/// The executable with the `_lote` subcommand, the files on standard input.
+/// `None` if the child does not finish successfully within the time limit.
+fn child(
     exe: &Path,
     raiz: &Path,
-    lote: &[PathBuf],
+    batch: &[PathBuf],
     packages: Option<&Path>,
-    tempo_max: std::time::Duration,
+    max_time: std::time::Duration,
 ) -> Option<(Vec<Registro>, usize)> {
     use std::io::{Read, Write};
     use std::process::{Command, Stdio};
@@ -488,22 +492,22 @@ fn filho(
         .spawn()
         .ok()?;
     {
-        let mut entrada = c.stdin.take()?;
-        let lista: String = lote.iter().map(|a| format!("{}\n", a.display())).collect();
-        entrada.write_all(lista.as_bytes()).ok()?;
+        let mut input = c.stdin.take()?;
+        let list: String = batch.iter().map(|a| format!("{}\n", a.display())).collect();
+        input.write_all(list.as_bytes()).ok()?;
     }
-    // A saída é lida numa thread para o filho não travar com o cano cheio.
-    let mut saida = c.stdout.take()?;
-    let leitor = std::thread::spawn(move || {
+    // The output is read on a thread so the child does not block on a full pipe.
+    let mut output = c.stdout.take()?;
+    let reader = std::thread::spawn(move || {
         let mut s = String::new();
-        let _ = saida.read_to_string(&mut s);
+        let _ = output.read_to_string(&mut s);
         s
     });
-    let inicio = std::time::Instant::now();
+    let start = std::time::Instant::now();
     let status = loop {
         match c.try_wait() {
             Ok(Some(s)) => break Some(s),
-            Ok(None) if inicio.elapsed() > tempo_max => {
+            Ok(None) if start.elapsed() > max_time => {
                 let _ = c.kill();
                 let _ = c.wait();
                 break None;
@@ -512,14 +516,14 @@ fn filho(
             Err(_) => break None,
         }
     };
-    let texto = leitor.join().ok()?;
+    let text = reader.join().ok()?;
     if !status?.success() {
         return None;
     }
     let mut regs = Vec::new();
     let mut amb = None;
-    for l in texto.lines() {
-        if let Some(n) = l.strip_prefix("#ambiguos ") {
+    for l in text.lines() {
+        if let Some(n) = l.strip_prefix("#ambiguous ") {
             amb = n.trim().parse().ok();
         } else if !l.is_empty() {
             regs.push(serde_json::from_str(l).ok()?);
@@ -528,19 +532,19 @@ fn filho(
     Some((regs, amb?))
 }
 
-/// O lado filho de `filho`: analisa e escreve os registros (com os
-/// comentários de ignore; as opções o pai aplica) e `#ambiguos N`. Um vigia
-/// encerra o processo se a memória viva (`vivos`) passar de `teto` bytes.
-pub fn executar_lote_filho(
+/// The child side of `child`: analyzes and writes the records (with the
+/// ignore comments; the parent applies the options) and `#ambiguous N`. A
+/// watchdog ends the process if live memory (`live`) exceeds `cap` bytes.
+pub fn run_child_batch(
     raiz: &Path,
     packages: Option<&Path>,
-    arquivos: &[PathBuf],
-    vivos: fn() -> usize,
-    teto: usize,
+    files: &[PathBuf],
+    live: fn() -> usize,
+    cap: usize,
 ) -> i32 {
     std::thread::spawn(move || {
         loop {
-            if vivos() > teto {
+            if live() > cap {
                 std::process::exit(98);
             }
             std::thread::sleep(std::time::Duration::from_millis(25));
@@ -550,23 +554,23 @@ pub fn executar_lote_filho(
         Ok(m) => m,
         Err(_) => return 2,
     };
-    let (r2, p2, a2) = (raiz.to_path_buf(), packages.map(Path::to_path_buf), arquivos.to_vec());
-    let feito = std::thread::Builder::new()
+    let (r2, p2, a2) = (raiz.to_path_buf(), packages.map(Path::to_path_buf), files.to_vec());
+    let finished = std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
             let a = motor.analisar(&r2, &a2, p2.as_deref());
-            (registros(&a, &r2, &filtros::Opcoes::default(), false), a.ambiguos)
+            (records(&a, &r2, &filtros::Opcoes::default(), false), a.ambiguos)
         })
         .expect("thread")
         .join();
-    match feito {
+    match finished {
         Ok((regs, amb)) => {
             let mut s = String::new();
             for r in regs {
                 s.push_str(&serde_json::to_string(&r).expect("JSON"));
                 s.push('\n');
             }
-            s.push_str(&format!("#ambiguos {amb}\n"));
+            s.push_str(&format!("#ambiguous {amb}\n"));
             use std::io::Write;
             let _ = std::io::stdout().write_all(s.as_bytes());
             0
@@ -575,7 +579,7 @@ pub fn executar_lote_filho(
     }
 }
 
-/// Silencia a mensagem de pânico padrão (os pânicos são contados no relatório).
-pub fn silenciar_panicos() {
+/// Silences the default panic message (panics are counted in the report).
+pub fn silence_panics() {
     std::panic::set_hook(Box::new(|_| {}));
 }

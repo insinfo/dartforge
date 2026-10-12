@@ -1,123 +1,123 @@
-//! Compara, arquivo a arquivo, o nosso lado com o oráculo: cada diagnóstico
-//! dos dois lados em ordem de offset, marcado `=` (acerto), `~` (acerto com
-//! mensagem diferente), `-` (só do oráculo) ou `+` (só nosso).
+//! Compares our side with the oracle, file by file: every diagnostic of both
+//! sides in offset order, marked `=` (hit), `~` (hit with a different
+//! message), `-` (oracle only) or `+` (ours only).
 //!
 //! ```text
-//! cargo run --release -p dartforge-parity --example sonda_arquivos -- <grupo> <arquivo relativo>...
-//! cargo run --release -p dartforge-parity --example sonda_arquivos -- --livre <dir> [<arquivo relativo>...]
+//! cargo run --release -p dartforge-parity --example sonda_arquivos -- <group> <relative file>...
+//! cargo run --release -p dartforge-parity --example sonda_arquivos -- --livre <dir> [<relative file>...]
 //! ```
 //!
-//! Com um grupo do corpus, o oráculo é o gravado. Com `--livre`, `<dir>` vira
-//! um pacote de linguagem 3.6 (pubspec e package_config escritos na hora) e o
-//! oráculo é o `dart analyze` 3.6.2 rodado agora sobre os arquivos (todos os
-//! `.dart` do diretório, se nenhum for dado): serve para conferir um caso
-//! mínimo antes de portar uma regra. Os arquivos são analisados juntos, num
-//! lote só (como no placar, cada um é a sua biblioteca), sem os filtros de
-//! publicação.
+//! With a corpus group, the oracle is the recorded one. With `--livre`, `<dir>`
+//! becomes a language 3.6 package (pubspec and package_config written on the
+//! spot) and the oracle is `dart analyze` 3.6.2 run now over the files (every
+//! `.dart` in the directory, if none is given): useful to check a minimal case
+//! before porting a rule. The files are analyzed together, in a single batch
+//! (as in the scoreboard, each one is its own library), without the
+//! publication filters.
 
 use dartforge_parity::analise::Motor;
 use dartforge_parity::corpus::{self, Grupo};
 use dartforge_parity::oraculo::{self, Registro, SdkOraculo};
-use dartforge_parity::{Execucao, filtros, rodar_nosso};
+use dartforge_parity::{Execution, filtros, run_ours};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let Some((primeiro, resto)) = args.split_first() else {
-        eprintln!("uso: sonda_arquivos <grupo> <arquivo>... | --livre <dir> [<arquivo>...]");
+    let Some((first, rest)) = args.split_first() else {
+        eprintln!("usage: sonda_arquivos <group> <file>... | --livre <dir> [<file>...]");
         std::process::exit(2);
     };
-    let (dir, cfg, oraculo, rels) = if primeiro == "--livre" {
-        let Some((d, rels)) = resto.split_first() else {
-            eprintln!("--livre pede o diretório");
+    let (dir, cfg, oracle, rels) = if first == "--livre" {
+        let Some((d, rels)) = rest.split_first() else {
+            eprintln!("--livre needs the directory");
             std::process::exit(2);
         };
-        livre(Path::new(d), rels)
+        free(Path::new(d), rels)
     } else {
-        do_corpus(primeiro, resto)
+        from_corpus(first, rest)
     };
-    let motor = Motor::descobrir().expect("SDK");
-    let fontes: Vec<PathBuf> = rels.iter().map(|r| dir.join(r)).collect();
-    let ex = Execucao {
-        trabalhadores: 1,
-        tamanho_lote: fontes.len().max(1),
-        progresso: false,
-        isolar: None,
-        tempo_max: std::time::Duration::from_secs(600),
+    let engine = Motor::descobrir().expect("SDK");
+    let sources: Vec<PathBuf> = rels.iter().map(|r| dir.join(r)).collect();
+    let ex = Execution {
+        workers: 1,
+        batch_size: sources.len().max(1),
+        progress: false,
+        isolate: None,
+        max_time: std::time::Duration::from_secs(600),
     };
-    let r = rodar_nosso(&motor, &dir, &fontes, Some(&cfg), &filtros::Opcoes::ler(&dir), &ex);
-    let mut soma = [0usize; 4];
+    let r = run_ours(&engine, &dir, &sources, Some(&cfg), &filtros::Opcoes::ler(&dir), &ex);
+    let mut sum = [0usize; 4];
     for rel in &rels {
         let rel = rel.replace('\\', "/");
         println!("== {rel}");
-        // (offset, comprimento, código, lado) → registro; lado 0 oráculo, 1 nosso.
-        let mut linhas: BTreeMap<(usize, usize, String, u8), &Registro> = BTreeMap::new();
-        for o in oraculo.iter().filter(|o| o.arquivo == rel) {
-            linhas.insert((o.offset, o.length, o.code.clone(), 0), o);
+        // (offset, length, code, side) → record; side 0 oracle, 1 ours.
+        let mut lines: BTreeMap<(usize, usize, String, u8), &Registro> = BTreeMap::new();
+        for o in oracle.iter().filter(|o| o.arquivo == rel) {
+            lines.insert((o.offset, o.length, o.code.clone(), 0), o);
         }
-        for n in r.registros.iter().filter(|n| n.arquivo == rel) {
-            linhas.insert((n.offset, n.length, n.code.clone(), 1), n);
+        for n in r.records.iter().filter(|n| n.arquivo == rel) {
+            lines.insert((n.offset, n.length, n.code.clone(), 1), n);
         }
-        let mut vistos = BTreeSet::new();
-        for ((off, len, code, lado), reg) in &linhas {
-            if !vistos.insert((*off, *len, code.clone())) {
+        let mut seen = BTreeSet::new();
+        for ((off, len, code, side), reg) in &lines {
+            if !seen.insert((*off, *len, code.clone())) {
                 continue;
             }
-            let par = if *lado == 0 { linhas.get(&(*off, *len, code.clone(), 1)) } else { None };
-            let (marca, i) = match (lado, par) {
+            let pair = if *side == 0 { lines.get(&(*off, *len, code.clone(), 1)) } else { None };
+            let (mark, i) = match (side, pair) {
                 (0, Some(n)) if n.problem_message == reg.problem_message => ("=", 0),
                 (0, Some(_)) => ("~", 1),
                 (0, None) => ("-", 2),
                 _ => ("+", 3),
             };
-            soma[i] += 1;
-            println!("{marca} {}:{} (+{len}) {code}: {}", reg.line, reg.column, reg.problem_message);
-            if let (0, Some(n)) = (lado, par) {
+            sum[i] += 1;
+            println!("{mark} {}:{} (+{len}) {code}: {}", reg.line, reg.column, reg.problem_message);
+            if let (0, Some(n)) = (side, pair) {
                 if n.problem_message != reg.problem_message {
-                    println!("    nosso: {}", n.problem_message);
+                    println!("    ours: {}", n.problem_message);
                 }
             }
         }
     }
-    println!("total: = {} | ~ {} | - {} | + {}", soma[0], soma[1], soma[2], soma[3]);
-    if !r.panicos.is_empty() {
-        println!("pânicos: {:?}", r.panicos);
+    println!("total: = {} | ~ {} | - {} | + {}", sum[0], sum[1], sum[2], sum[3]);
+    if !r.panics.is_empty() {
+        println!("panics: {:?}", r.panics);
     }
 }
 
-type Preparo = (PathBuf, PathBuf, Vec<Registro>, Vec<String>);
+type Setup = (PathBuf, PathBuf, Vec<Registro>, Vec<String>);
 
-/// Um grupo do corpus, com o oráculo gravado.
-fn do_corpus(grupo: &str, rels: &[String]) -> Preparo {
-    let raiz = corpus::raiz_corpus();
-    let raiz = std::path::absolute(&raiz).unwrap_or(raiz);
-    let Some((_, g)) = corpus::grupos(&raiz).into_iter().find(|(n, _)| n == grupo) else {
-        eprintln!("grupo desconhecido: {grupo}");
+/// A corpus group, with the recorded oracle.
+fn from_corpus(group: &str, rels: &[String]) -> Setup {
+    let root = corpus::raiz_corpus();
+    let root = std::path::absolute(&root).unwrap_or(root);
+    let Some((_, g)) = corpus::grupos(&root).into_iter().find(|(n, _)| n == group) else {
+        eprintln!("unknown group: {group}");
         std::process::exit(2);
     };
-    let dir = raiz.join(grupo);
-    let cfg = corpus::preparar(&dir, grupo, &g).expect("preparar o grupo");
-    let (oraculo, _) = oraculo::ler(&dir).expect("oráculo gravado");
-    (dir, cfg, oraculo, rels.to_vec())
+    let dir = root.join(group);
+    let cfg = corpus::preparar(&dir, group, &g).expect("prepare the group");
+    let (oracle, _) = oraculo::ler(&dir).expect("recorded oracle");
+    (dir, cfg, oracle, rels.to_vec())
 }
 
-/// Um diretório qualquer, com o oráculo 3.6.2 rodado agora.
-fn livre(d: &Path, rels: &[String]) -> Preparo {
-    let dir = std::path::absolute(d).expect("diretório");
-    let nome = "sonda_livre";
-    std::fs::write(dir.join("pubspec.yaml"), format!("name: {nome}\npublish_to: none\nenvironment:\n  sdk: ^3.6.0\n"))
+/// Any directory, with the 3.6.2 oracle run now.
+fn free(d: &Path, rels: &[String]) -> Setup {
+    let dir = std::path::absolute(d).expect("directory");
+    let name = "sonda_livre";
+    std::fs::write(dir.join("pubspec.yaml"), format!("name: {name}\npublish_to: none\nenvironment:\n  sdk: ^3.6.0\n"))
         .expect("pubspec");
     let g = Grupo { sdk: SdkOraculo::V362, pacotes: Vec::new(), origem: String::new() };
-    let cfg = corpus::preparar(&dir, nome, &g).expect("package_config");
+    let cfg = corpus::preparar(&dir, name, &g).expect("package_config");
     let rels: Vec<String> = if rels.is_empty() {
         corpus::arquivos_dart(&dir).iter().filter_map(|a| oraculo::relativo(a, &dir)).collect()
     } else {
         rels.to_vec()
     };
-    let alvos: Vec<PathBuf> = rels.iter().map(|r| dir.join(r)).collect();
+    let targets: Vec<PathBuf> = rels.iter().map(|r| dir.join(r)).collect();
     let cache = std::env::temp_dir().join("dartforge-sonda-cache");
-    let diags = oraculo::rodar(SdkOraculo::V362, &dir, &alvos, &cache).expect("dart analyze 3.6.2");
+    let diags = oraculo::rodar(SdkOraculo::V362, &dir, &targets, &cache).expect("dart analyze 3.6.2");
     let regs = diags.iter().filter_map(|j| Registro::de_json(j, &dir)).collect();
     (dir, cfg, regs, rels)
 }

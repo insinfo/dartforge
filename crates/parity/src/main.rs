@@ -1,87 +1,89 @@
-//! `dartforge-parity`: placar de paridade de diagnósticos com o `dart analyze`.
+//! `dartforge-parity`: diagnostic parity scoreboard against `dart analyze`.
 //!
 //! ```text
 //! dartforge-parity placar [--grupo G]... [--trabalhadores N] [--lote N] [--detalhes]
 //! dartforge-parity determinismo [--trabalhadores 1,4,8] [--grupo G]...
-//! dartforge-parity oraculo [--grupo G]...          (regrava; precisa do dart)
-//! dartforge-parity sintaxe-nova [--grupo G]...     (3.13.4 nos arquivos com sintaxe que o 3.6.2 não conhece)
+//! dartforge-parity oraculo [--grupo G]...          (re-records; needs dart)
+//! dartforge-parity sintaxe-nova [--grupo G]...     (3.13.4 on files with syntax 3.6.2 does not know)
 //! dartforge-parity gerar-corpus [--referencias DIR] [--pub-cache DIR]
 //! dartforge-parity projetos [--oraculo] [--mutacoes N] [--regravar] [--trabalhadores N] [--lote N]
-//! dartforge-parity saida [DIR] [--gravar]          (saída inteira do `analyze`, três formatos)
+//! dartforge-parity saida [DIR] [--gravar]          (whole `analyze` output, three formats)
 //! ```
 //!
-//! Código de saída: 0 relatório completo; 1 oráculo ausente/desatualizado ou
-//! determinismo divergente; 2 uso inválido.
+//! Exit code: 0 complete report; 1 oracle missing/out of date or
+//! nondeterministic results; 2 invalid usage.
 
 use dartforge_parity::analise::Motor;
 use dartforge_parity::corpus::{self, Grupo};
 use dartforge_parity::oraculo::{self, Meta, Registro};
-use dartforge_parity::scoreboard::Placar;
 use dartforge_parity::projetos::{self, Mutacao, Projeto};
-use dartforge_parity::{Execucao, filtros, rodar_nosso};
+use dartforge_parity::scoreboard::Placar;
+use dartforge_parity::{Execution, filtros, run_ours};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
-// O alocador contador dá ao processo filho de cada lote o vigia de memória
-// (`executar_lote_filho`): uma análise que dispara não leva a máquina junto.
+// The counting allocator gives the child process of each batch its memory
+// watchdog (`run_child_batch`): an analysis that blows up does not take the
+// machine with it.
 #[global_allocator]
-static ALOCADOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
+static ALLOCATOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
 
-/// Teto de memória viva de um lote isolado (`DARTFORGE_PARIDADE_TETO_MB`, 2048).
-fn teto() -> usize {
+/// Live-memory cap of an isolated batch (`DARTFORGE_PARIDADE_TETO_MB`, 2048).
+fn memory_cap() -> usize {
     std::env::var("DARTFORGE_PARIDADE_TETO_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(2048usize) << 20
 }
 
-/// Cada lote num processo filho deste executável, com 90 s no máximo (um lote normal leva poucos segundos).
-fn execucao(trabalhadores: usize, tamanho_lote: usize) -> Execucao {
-    Execucao {
-        trabalhadores,
-        tamanho_lote,
-        progresso: true,
-        isolar: std::env::current_exe().ok(),
-        tempo_max: std::time::Duration::from_secs(90),
+/// Each batch in a child process of this executable, with at most 90 s (a
+/// normal batch takes a few seconds).
+fn execution(workers: usize, batch_size: usize) -> Execution {
+    Execution {
+        workers,
+        batch_size,
+        progress: true,
+        isolate: std::env::current_exe().ok(),
+        max_time: std::time::Duration::from_secs(90),
     }
 }
 
-/// `_lote <raiz> <packages|->`, arquivos na entrada padrão (uso interno).
-fn lote_filho(args: &[String]) -> ExitCode {
-    let (Some(raiz), Some(pk)) = (args.first(), args.get(1)) else { return ExitCode::from(2) };
-    let mut entrada = String::new();
-    let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut entrada);
-    let arquivos: Vec<PathBuf> = entrada.lines().filter(|l| !l.is_empty()).map(PathBuf::from).collect();
+/// `_lote <root> <packages|->`, files on standard input (internal use).
+fn child_batch(args: &[String]) -> ExitCode {
+    let (Some(root), Some(pk)) = (args.first(), args.get(1)) else { return ExitCode::from(2) };
+    let mut input = String::new();
+    let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut input);
+    let files: Vec<PathBuf> = input.lines().filter(|l| !l.is_empty()).map(PathBuf::from).collect();
     let packages = (pk != "-").then(|| PathBuf::from(pk));
-    let c = dartforge_parity::executar_lote_filho(
-        Path::new(raiz),
+    let c = dartforge_parity::run_child_batch(
+        Path::new(root),
         packages.as_deref(),
-        &arquivos,
+        &files,
         dartforge_instrument::live_bytes,
-        teto(),
+        memory_cap(),
     );
     ExitCode::from(c as u8)
 }
 
 struct Args {
     cmd: String,
-    grupos: Vec<String>,
-    trabalhadores: Vec<usize>,
-    lote: usize,
-    detalhes: bool,
-    referencias: PathBuf,
+    groups: Vec<String>,
+    workers: Vec<usize>,
+    batch: usize,
+    details: bool,
+    references: PathBuf,
     pub_cache: PathBuf,
-    oraculo: bool,
-    mutacoes: usize,
-    regravar: bool,
+    oracle: bool,
+    mutations: usize,
+    rerecord: bool,
     corpus: PathBuf,
 }
 
-fn uso() -> ExitCode {
+fn usage() -> ExitCode {
     eprintln!("{}", include_str!("main.rs").lines().skip(2).take(9).map(|l| l.trim_start_matches("//! ")).collect::<Vec<_>>().join("\n"));
     ExitCode::from(2)
 }
 
-fn ler_args() -> Option<Args> {
+fn read_args() -> Option<Args> {
     let mut it = std::env::args().skip(1);
     let cmd = it.next()?;
     let pub_cache = std::env::var_os("PUB_CACHE")
@@ -92,30 +94,30 @@ fn ler_args() -> Option<Args> {
         .join("pub.dev");
     let mut a = Args {
         cmd,
-        grupos: Vec::new(),
-        trabalhadores: vec![],
-        lote: 0,
-        detalhes: false,
-        referencias: PathBuf::from("E:/references"),
+        groups: Vec::new(),
+        workers: vec![],
+        batch: 0,
+        details: false,
+        references: PathBuf::from("E:/references"),
         pub_cache,
-        oraculo: false,
-        mutacoes: 0,
-        regravar: false,
+        oracle: false,
+        mutations: 0,
+        rerecord: false,
         corpus: corpus::raiz_corpus(),
     };
     while let Some(x) = it.next() {
         match x.as_str() {
-            "--grupo" => a.grupos.push(it.next()?),
+            "--grupo" => a.groups.push(it.next()?),
             "--trabalhadores" => {
-                a.trabalhadores = it.next()?.split(',').map(|n| n.trim().parse().ok()).collect::<Option<Vec<_>>>()?
+                a.workers = it.next()?.split(',').map(|n| n.trim().parse().ok()).collect::<Option<Vec<_>>>()?
             }
-            "--lote" => a.lote = it.next()?.parse().ok()?,
-            "--detalhes" => a.detalhes = true,
-            "--referencias" => a.referencias = PathBuf::from(it.next()?),
+            "--lote" => a.batch = it.next()?.parse().ok()?,
+            "--detalhes" => a.details = true,
+            "--referencias" => a.references = PathBuf::from(it.next()?),
             "--pub-cache" => a.pub_cache = PathBuf::from(it.next()?),
-            "--oraculo" => a.oraculo = true,
-            "--mutacoes" => a.mutacoes = it.next()?.parse().ok()?,
-            "--regravar" => a.regravar = true,
+            "--oraculo" => a.oracle = true,
+            "--mutacoes" => a.mutations = it.next()?.parse().ok()?,
+            "--regravar" => a.rerecord = true,
             "--corpus" => a.corpus = PathBuf::from(it.next()?),
             _ => return None,
         }
@@ -125,120 +127,120 @@ fn ler_args() -> Option<Args> {
 }
 
 fn main() -> ExitCode {
-    let brutos: Vec<String> = std::env::args().skip(1).collect();
-    if brutos.first().is_some_and(|c| c == "_lote") {
-        dartforge_parity::silenciar_panicos();
-        return lote_filho(&brutos[1..]);
+    let raw: Vec<String> = std::env::args().skip(1).collect();
+    if raw.first().is_some_and(|c| c == "_lote") {
+        dartforge_parity::silence_panics();
+        return child_batch(&raw[1..]);
     }
-    // `saida [DIR] [--gravar]`: o harness de paridade de projeto (III.1).
-    if brutos.first().is_some_and(|c| c == "saida") {
-        let gravar = brutos.iter().any(|x| x == "--gravar");
-        let dir = brutos.iter().skip(1).find(|x| !x.starts_with("--")).map(PathBuf::from).unwrap_or_else(|| corpus::raiz_corpus().join("saida-analyze"));
-        let ok = if gravar { dartforge_parity::output::gravar(&dir) } else { dartforge_parity::output::comparar(&dir) };
+    // `saida [DIR] [--gravar]`: the project parity harness (III.1).
+    if raw.first().is_some_and(|c| c == "saida") {
+        let write = raw.iter().any(|x| x == "--gravar");
+        let dir = raw.iter().skip(1).find(|x| !x.starts_with("--")).map(PathBuf::from).unwrap_or_else(|| corpus::raiz_corpus().join("saida-analyze"));
+        let ok = if write { dartforge_parity::output::gravar(&dir) } else { dartforge_parity::output::comparar(&dir) };
         return if ok { ExitCode::SUCCESS } else { ExitCode::from(1) };
     }
-    let Some(a) = ler_args() else { return uso() };
-    dartforge_parity::silenciar_panicos();
+    let Some(a) = read_args() else { return usage() };
+    dartforge_parity::silence_panics();
     match a.cmd.as_str() {
         "placar" => {
-            let (texto, ok) = placar(&a, a.trabalhadores.first().copied().unwrap_or(4));
-            print!("{texto}");
+            let (text, ok) = scoreboard(&a, a.workers.first().copied().unwrap_or(4));
+            print!("{text}");
             if ok { ExitCode::SUCCESS } else { ExitCode::from(1) }
         }
-        "determinismo" => determinismo(&a),
-        "oraculo" => regravar_oraculo(&a),
-        "sintaxe-nova" => classificar_sintaxe_nova(&a),
-        "gerar-corpus" => match corpus::gerar(&a.referencias, &a.corpus, &a.pub_cache) {
+        "determinismo" => determinism(&a),
+        "oraculo" => rerecord_oracle(&a),
+        "sintaxe-nova" => classify_new_syntax(&a),
+        "gerar-corpus" => match corpus::gerar(&a.references, &a.corpus, &a.pub_cache) {
             Ok(r) => {
                 print!("{r}");
                 ExitCode::SUCCESS
             }
             Err(e) => {
-                eprintln!("erro: {e}");
+                eprintln!("error: {e}");
                 ExitCode::from(1)
             }
         },
-        "projetos" => cmd_projetos(&a),
+        "projetos" => cmd_projects(&a),
         "encurtar" => {
-            for (nome, _) in grupos_escolhidos(&a) {
-                match corpus::encurtar(&a.corpus.join(&nome)) {
-                    Ok(n) => println!("{nome}: {n} arquivos renomeados"),
-                    Err(e) => eprintln!("{nome}: {e}"),
+            for (name, _) in chosen_groups(&a) {
+                match corpus::encurtar(&a.corpus.join(&name)) {
+                    Ok(n) => println!("{name}: {n} files renamed"),
+                    Err(e) => eprintln!("{name}: {e}"),
                 }
             }
             ExitCode::SUCCESS
         }
-        _ => uso(),
+        _ => usage(),
     }
 }
 
-fn grupos_escolhidos(a: &Args) -> Vec<(String, Grupo)> {
-    corpus::grupos(&a.corpus).into_iter().filter(|(n, _)| a.grupos.is_empty() || a.grupos.contains(n)).collect()
+fn chosen_groups(a: &Args) -> Vec<(String, Grupo)> {
+    corpus::grupos(&a.corpus).into_iter().filter(|(n, _)| a.groups.is_empty() || a.groups.contains(n)).collect()
 }
 
-fn motor() -> Motor {
+fn engine() -> Motor {
     Motor::descobrir().unwrap_or_else(|e| {
-        eprintln!("erro: SDK: {e}");
+        eprintln!("error: SDK: {e}");
         std::process::exit(2)
     })
 }
 
-/// O relatório inteiro (determinístico) e se o oráculo estava em dia.
-fn placar(a: &Args, trabalhadores: usize) -> (String, bool) {
-    let motor = motor();
+/// The whole (deterministic) report, and whether the oracle was up to date.
+fn scoreboard(a: &Args, workers: usize) -> (String, bool) {
+    let engine = engine();
     let mut total = Placar::default();
-    let mut corpo = String::new();
+    let mut body = String::new();
     let mut ok = true;
-    let mut arquivos = 0;
-    let mut lotes = 0;
-    let mut panicos = Vec::new();
-    let mut ambiguos = 0;
-    let grupos = grupos_escolhidos(a);
-    let sintaxe_nova = oraculo::ler_sintaxe_nova(&a.corpus);
-    for (nome, g) in &grupos {
-        let dir = a.corpus.join(nome);
-        let (oraculo, meta) = match oraculo::ler(&dir) {
+    let mut files = 0;
+    let mut batches = 0;
+    let mut panics = Vec::new();
+    let mut ambiguous = 0;
+    let groups = chosen_groups(a);
+    let new_syntax = oraculo::ler_sintaxe_nova(&a.corpus);
+    for (name, g) in &groups {
+        let dir = a.corpus.join(name);
+        let (oracle, meta) = match oraculo::ler(&dir) {
             Ok(x) => x,
             Err(e) => {
-                let _ = writeln!(corpo, "grupo {nome}: SEM ORÁCULO GRAVADO ({e}) — rode `dartforge-parity oraculo --grupo {nome}`");
+                let _ = writeln!(body, "group {name}: NO RECORDED ORACLE ({e}) — run `dartforge-parity oraculo --grupo {name}`");
                 ok = false;
                 continue;
             }
         };
         if meta.hash != corpus::hash_fontes(&dir) {
-            let _ = writeln!(corpo, "grupo {nome}: ORÁCULO DESATUALIZADO (fontes mudaram) — regravar");
+            let _ = writeln!(body, "group {name}: ORACLE OUT OF DATE (sources changed) — re-record");
             ok = false;
         }
-        let cfg = match corpus::preparar(&dir, nome, g) {
+        let cfg = match corpus::preparar(&dir, name, g) {
             Ok(c) => c,
             Err(e) => {
-                let _ = writeln!(corpo, "grupo {nome}: {e}");
+                let _ = writeln!(body, "group {name}: {e}");
                 ok = false;
                 continue;
             }
         };
-        let fontes = corpus::arquivos_dart(&dir);
+        let sources = corpus::arquivos_dart(&dir);
         let t = Instant::now();
-        eprintln!("grupo {nome}: {} arquivos", fontes.len());
-        let lote = if a.lote > 0 { a.lote } else { 12 };
-        let r = rodar_nosso(&motor, &dir, &fontes, Some(&cfg), &filtros::Opcoes::ler(&dir), &execucao(trabalhadores, lote));
-        eprintln!("grupo {nome}: {:.1} s", t.elapsed().as_secs_f64());
-        arquivos += r.arquivos;
-        lotes += r.lotes;
-        ambiguos += r.ambiguos;
-        panicos.extend(r.panicos.iter().map(|p| format!("{nome}/{p}")));
+        eprintln!("group {name}: {} files", sources.len());
+        let batch = if a.batch > 0 { a.batch } else { 12 };
+        let r = run_ours(&engine, &dir, &sources, Some(&cfg), &filtros::Opcoes::ler(&dir), &execution(workers, batch));
+        eprintln!("group {name}: {:.1} s", t.elapsed().as_secs_f64());
+        files += r.files;
+        batches += r.batches;
+        ambiguous += r.ambiguous;
+        panics.extend(r.panics.iter().map(|p| format!("{name}/{p}")));
         let mut p = Placar::default();
-        p.comparar(&oraculo, &r.registros);
+        p.comparar(&oracle, &r.records);
         let tg = p.total();
         let _ = writeln!(
-            corpo,
-            "grupo {nome} (oráculo {}{}, {} arquivos): oráculo {} | nosso {} | acertos {} (mensagem errada {}) | posição errada {} | FP {} | FN {}",
+            body,
+            "group {name} (oracle {}{}, {} files): oracle {} | ours {} | hits {} (wrong message {}) | wrong position {} | FP {} | FN {}",
             meta.sdk.versao(),
-            match sintaxe_nova.get(nome.as_str()).map_or(0, Vec::len) {
+            match new_syntax.get(name.as_str()).map_or(0, Vec::len) {
                 0 => String::new(),
-                n => format!("; {n} com sintaxe nova pelo 3.13.4"),
+                n => format!("; {n} with new syntax through 3.13.4"),
             },
-            r.arquivos,
+            r.files,
             tg.oraculo,
             tg.nosso,
             tg.acertos,
@@ -247,27 +249,27 @@ fn placar(a: &Args, trabalhadores: usize) -> (String, bool) {
             tg.falsos_positivos,
             tg.falsos_negativos
         );
-        // T2, critério de pronto: o marcador de referência do nosso parser
-        // contra a lista que o parser do 3.13.4 fez do grupo.
+        // T2, done criterion: our parser's reference marker against the list
+        // the 3.13.4 parser produced for the group.
         if meta.sdk == oraculo::SdkOraculo::V362 {
-            let nosso = oraculo::marcador_3_13(&dir, &fontes);
-            let do_oraculo: std::collections::BTreeSet<String> =
-                sintaxe_nova.get(nome.as_str()).map(|v| v.iter().cloned().collect()).unwrap_or_default();
-            let so_nosso: Vec<&String> = nosso.difference(&do_oraculo).collect();
-            let so_oraculo: Vec<&String> = do_oraculo.difference(&nosso).collect();
+            let ours = oraculo::marcador_3_13(&dir, &sources);
+            let from_oracle: std::collections::BTreeSet<String> =
+                new_syntax.get(name.as_str()).map(|v| v.iter().cloned().collect()).unwrap_or_default();
+            let only_ours: Vec<&String> = ours.difference(&from_oracle).collect();
+            let only_oracle: Vec<&String> = from_oracle.difference(&ours).collect();
             let _ = writeln!(
-                corpo,
-                "  referência 3.13.4 em {nome}: nosso {} | oráculo {} | só nosso {} | só oráculo {}",
-                nosso.len(),
-                do_oraculo.len(),
-                so_nosso.len(),
-                so_oraculo.len()
+                body,
+                "  3.13.4 reference in {name}: ours {} | oracle {} | only ours {} | only oracle {}",
+                ours.len(),
+                from_oracle.len(),
+                only_ours.len(),
+                only_oracle.len()
             );
-            for f in so_nosso.iter().take(10) {
-                let _ = writeln!(corpo, "    só nosso: {f}");
+            for f in only_ours.iter().take(10) {
+                let _ = writeln!(body, "    only ours: {f}");
             }
-            for f in so_oraculo.iter().take(10) {
-                let _ = writeln!(corpo, "    só oráculo: {f}");
+            for f in only_oracle.iter().take(10) {
+                let _ = writeln!(body, "    only oracle: {f}");
             }
         }
         total.somar(&p);
@@ -275,9 +277,10 @@ fn placar(a: &Args, trabalhadores: usize) -> (String, bool) {
     let t = total.total();
     let pct = if t.oraculo > 0 { 100.0 * t.acertos as f64 / t.oraculo as f64 } else { 0.0 };
     let mut s = String::new();
+    // The `placar paridade: ` prefix is matched by CI (`pesado.yml`).
     let _ = writeln!(
         s,
-        "placar paridade: {}/{} diagnósticos do oráculo na posição exata ({pct:.1}%), {} com mensagem igual; FP {}, FN {}, posição errada {}",
+        "placar paridade: {}/{} oracle diagnostics at the exact position ({pct:.1}%), {} with the same message; FP {}, FN {}, wrong position {}",
         t.acertos,
         t.oraculo,
         t.acertos - t.mensagem_errada,
@@ -285,129 +288,131 @@ fn placar(a: &Args, trabalhadores: usize) -> (String, bool) {
         t.falsos_negativos,
         t.posicao_errada
     );
-    let _ = writeln!(s, "DartForge paridade — {} grupos, {arquivos} arquivos, {lotes} lotes", grupos.len());
-    s.push_str(&corpo);
+    let _ = writeln!(s, "DartForge parity — {} groups, {files} files, {batches} batches", groups.len());
+    s.push_str(&body);
     s.push('\n');
-    s.push_str(&total.tabela("corpus inteiro"));
-    // Regra de publicação: um verificado que emite algo errado no corpus
-    // (falso positivo, posição ou mensagem) é erro. Falso negativo não é.
-    let ver = dartforge_parity::verificados();
-    let mut quebrados = Vec::new();
-    for c in &ver {
+    s.push_str(&total.tabela("whole corpus"));
+    // Publication rule: a verified code that emits anything wrong in the
+    // corpus (false positive, position or message) is an error. A false
+    // negative is not.
+    let verified = dartforge_parity::verificados();
+    let mut broken = Vec::new();
+    for c in &verified {
         if let Some(k) = total.por_codigo.get(*c) {
             if k.falsos_positivos > 0 || k.posicao_errada > 0 || k.mensagem_errada > 0 {
-                quebrados.push(*c);
+                broken.push(*c);
             }
         }
     }
-    let _ = writeln!(s, "\npublicados: sintaxe + {} códigos verificados {:?}", ver.len(), ver);
-    if !quebrados.is_empty() {
-        let _ = writeln!(s, "VERIFICADOS COM ERRO EMITIDO NO CORPUS: {quebrados:?}");
+    let _ = writeln!(s, "\npublished: syntax + {} verified codes {:?}", verified.len(), verified);
+    if !broken.is_empty() {
+        let _ = writeln!(s, "VERIFIED CODES WITH ERRORS EMITTED IN THE CORPUS: {broken:?}");
         ok = false;
     }
-    // Códigos sintáticos são publicados sempre: não são candidatos.
-    let sintatico = |k: &str| {
+    // Syntactic codes are always published: they are not candidates.
+    let syntactic = |k: &str| {
         dartforge_diagnostics::Codigo::por_nome(k)
             .is_some_and(|c| c.info().tipo == dartforge_diagnostics::TipoErro::SyntacticError)
     };
-    let candidatos: Vec<&String> = total
+    let candidates: Vec<&String> = total
         .por_codigo
         .iter()
-        .filter(|(k, c)| c.sem_erro_emitido() && !ver.contains(&k.as_str()) && !sintatico(k))
+        .filter(|(k, c)| c.sem_erro_emitido() && !verified.contains(&k.as_str()) && !syntactic(k))
         .map(|(k, _)| k)
         .collect();
-    let _ = writeln!(s, "sem erro emitido no corpus e fora da lista (candidatos, falta 0 FP nos projetos): {candidatos:?}");
-    let _ = writeln!(s, "pânicos: {}{}", panicos.len(), if panicos.is_empty() { String::new() } else { format!(" {:?}", &panicos[..panicos.len().min(20)]) });
-    let _ = writeln!(s, "atribuição ambígua (diagnóstico sem unidade, mais de uma candidata): {ambiguos}");
-    if a.detalhes {
-        s.push_str("\namostras:\n");
+    let _ = writeln!(s, "no errors emitted in the corpus and not in the list (candidates, still need 0 FP in the projects): {candidates:?}");
+    let _ = writeln!(s, "panics: {}{}", panics.len(), if panics.is_empty() { String::new() } else { format!(" {:?}", &panics[..panics.len().min(20)]) });
+    let _ = writeln!(s, "ambiguous attribution (diagnostic without a unit, more than one candidate): {ambiguous}");
+    if a.details {
+        s.push_str("\nsamples:\n");
         s.push_str(&total.amostras_texto());
     }
     (s, ok)
 }
 
-fn determinismo(a: &Args) -> ExitCode {
-    let ns = if a.trabalhadores.is_empty() { vec![1, 4, 8] } else { a.trabalhadores.clone() };
-    let mut textos = Vec::new();
+fn determinism(a: &Args) -> ExitCode {
+    let ns = if a.workers.is_empty() { vec![1, 4, 8] } else { a.workers.clone() };
+    let mut texts = Vec::new();
     for &n in &ns {
         let t = Instant::now();
-        eprintln!("determinismo: {n} trabalhador(es)…");
-        textos.push(placar(a, n).0);
+        eprintln!("determinism: {n} worker(s)…");
+        texts.push(scoreboard(a, n).0);
         eprintln!("  {:.1} s", t.elapsed().as_secs_f64());
     }
-    let iguais = textos.windows(2).all(|w| w[0] == w[1]);
-    if iguais {
-        println!("determinismo: idêntico com {ns:?} trabalhadores");
-        print!("{}", textos[0]);
+    let same = texts.windows(2).all(|w| w[0] == w[1]);
+    // The `determinismo: ` prefix is matched by CI (`pesado.yml`).
+    if same {
+        println!("determinismo: identical with {ns:?} workers");
+        print!("{}", texts[0]);
         ExitCode::SUCCESS
     } else {
-        println!("determinismo: DIVERGENTE entre {ns:?} trabalhadores");
-        for (i, t) in textos.iter().enumerate() {
-            println!("--- {} trabalhadores\n{t}", ns[i]);
+        println!("determinismo: DIVERGENT between {ns:?} workers");
+        for (i, t) in texts.iter().enumerate() {
+            println!("--- {} workers\n{t}", ns[i]);
         }
         ExitCode::from(1)
     }
 }
 
-fn cache_oraculo() -> PathBuf {
+fn oracle_cache() -> PathBuf {
     let d = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/paridade-cache-dart");
     let _ = std::fs::create_dir_all(&d);
     d
 }
 
-fn regravar_oraculo(a: &Args) -> ExitCode {
-    // Cache limpo: com o cache de uma rodada anterior, o 3.6.2 omitiu os
-    // `unexpected_separator_in_number` de `number/separators_error_no_experiment_test.dart`
-    // (7 registros a menos que a rodada a frio). A gravação parte sempre do zero.
-    let _ = std::fs::remove_dir_all(cache_oraculo());
-    let mut falhou = false;
-    for (nome, g) in grupos_escolhidos(a) {
-        let dir = a.corpus.join(&nome);
-        if let Err(e) = corpus::preparar(&dir, &nome, &g) {
-            eprintln!("{nome}: {e}");
-            falhou = true;
+fn rerecord_oracle(a: &Args) -> ExitCode {
+    // Clean cache: with the cache of an earlier run, 3.6.2 omitted the
+    // `unexpected_separator_in_number` of `number/separators_error_no_experiment_test.dart`
+    // (7 records fewer than the cold run). Recording always starts from scratch.
+    let _ = std::fs::remove_dir_all(oracle_cache());
+    let mut failed = false;
+    for (name, g) in chosen_groups(a) {
+        let dir = a.corpus.join(&name);
+        if let Err(e) = corpus::preparar(&dir, &name, &g) {
+            eprintln!("{name}: {e}");
+            failed = true;
             continue;
         }
         let t = Instant::now();
-        eprintln!("oráculo {} em {nome}…", g.sdk.versao());
-        // Grupos grandes: um `dart analyze` por fatia de subdiretórios (memória).
-        let fatias = fatias(&dir, 2500);
+        eprintln!("oracle {} on {name}…", g.sdk.versao());
+        // Large groups: one `dart analyze` per slice of subdirectories (memory).
+        let slices = slices(&dir, 2500);
         let mut regs = Vec::new();
-        let mut excluidos = Vec::new();
-        for alvo in &fatias {
-            bissectar(g.sdk, &dir, alvo.clone(), &mut regs, &mut excluidos);
+        let mut excluded = Vec::new();
+        for target in &slices {
+            bisect(g.sdk, &dir, target.clone(), &mut regs, &mut excluded);
         }
-        let novos_excluidos = excluidos.clone();
-        // Os retirados em gravações anteriores continuam fora do grupo (o
-        // arquivo já foi apagado); a lista registra o motivo da ausência.
-        if let Ok((_, anterior)) = oraculo::ler(&dir) {
-            excluidos.extend(anterior.excluidos.into_iter().filter(|e| !dir.join(e).exists()));
+        let newly_excluded = excluded.clone();
+        // Files removed in earlier recordings stay out of the group (the file
+        // was already deleted); the list records why it is missing.
+        if let Ok((_, previous)) = oraculo::ler(&dir) {
+            excluded.extend(previous.excluidos.into_iter().filter(|e| !dir.join(e).exists()));
         }
-        excluidos.sort();
-        excluidos.dedup();
-        for e in &novos_excluidos {
-            eprintln!("  derruba o oráculo, retirado do grupo: {e}");
+        excluded.sort();
+        excluded.dedup();
+        for e in &newly_excluded {
+            eprintln!("  crashes the oracle, removed from the group: {e}");
             let _ = std::fs::remove_file(dir.join(e));
         }
-        // Diagnósticos em arquivos retirados não contam.
-        regs.retain(|r| !excluidos.contains(&r.arquivo));
-        // Arquivos com sintaxe que o 3.6.2 não conhece: registro do 3.13.4.
-        let lista = oraculo::ler_sintaxe_nova(&a.corpus).remove(&nome).unwrap_or_default();
-        if g.sdk == oraculo::SdkOraculo::V362 && !lista.is_empty() {
+        // Diagnostics in removed files do not count.
+        regs.retain(|r| !excluded.contains(&r.arquivo));
+        // Files with syntax 3.6.2 does not know: the 3.13.4 record.
+        let list = oraculo::ler_sintaxe_nova(&a.corpus).remove(&name).unwrap_or_default();
+        if g.sdk == oraculo::SdkOraculo::V362 && !list.is_empty() {
             if oraculo::SdkOraculo::V3134.disponivel() {
-                eprintln!("oráculo 3.13.4 em {nome} ({} arquivo(s) com sintaxe nova)…", lista.len());
-                let (novos, _) = oraculo_313_do_grupo(&dir);
-                substituir_arquivos(&mut regs, novos, &lista);
+                eprintln!("oracle 3.13.4 on {name} ({} file(s) with new syntax)…", list.len());
+                let (new, _) = oracle_313_for_group(&dir);
+                replace_files(&mut regs, new, &list);
             } else {
-                // Sem o 3.13.4 nesta máquina: os arquivos com sintaxe nova
-                // mantêm o registro 3.13.4 gravado antes, em vez de ficarem
-                // com a cascata do 3.6.2 ou sem registro nenhum.
+                // Without 3.13.4 on this machine: the files with new syntax
+                // keep the 3.13.4 record made earlier, instead of getting the
+                // 3.6.2 cascade or no record at all.
                 eprintln!(
-                    "SDK 3.13.4 ausente: {} arquivo(s) com sintaxe nova em {nome} mantêm o registro anterior",
-                    lista.len()
+                    "SDK 3.13.4 missing: {} file(s) with new syntax in {name} keep the previous record",
+                    list.len()
                 );
-                let anteriores = oraculo::ler(&dir).map(|(r, _)| r).unwrap_or_default();
-                substituir_arquivos(&mut regs, anteriores, &lista);
+                let previous = oraculo::ler(&dir).map(|(r, _)| r).unwrap_or_default();
+                replace_files(&mut regs, previous, &list);
             }
         }
         regs.sort();
@@ -417,117 +422,117 @@ fn regravar_oraculo(a: &Args) -> ExitCode {
             hash: corpus::hash_fontes(&dir),
             arquivos: corpus::arquivos_dart(&dir).len(),
             diagnosticos: regs.len(),
-            excluidos,
+            excluidos: excluded,
         };
         if let Err(e) = oraculo::gravar(&dir, regs, &meta) {
-            eprintln!("{nome}: {e}");
-            falhou = true;
+            eprintln!("{name}: {e}");
+            failed = true;
             continue;
         }
         println!(
-            "{nome}: {} arquivos, {} diagnósticos do oráculo {} ({} fatia(s), {:.0} s)",
+            "{name}: {} files, {} diagnostics from oracle {} ({} slice(s), {:.0} s)",
             meta.arquivos,
             meta.diagnosticos,
             g.sdk.versao(),
-            fatias.len(),
+            slices.len(),
             t.elapsed().as_secs_f64()
         );
     }
-    if falhou { ExitCode::from(1) } else { ExitCode::SUCCESS }
+    if failed { ExitCode::from(1) } else { ExitCode::SUCCESS }
 }
 
-/// O 3.13.4 sobre o grupo inteiro, com o pacote do grupo como está
-/// (a linguagem continua a do grupo): as mesmas fatias do `oraculo`. Devolve
-/// também os arquivos que o derrubam (relativos a `dir`).
-fn oraculo_313_do_grupo(dir: &Path) -> (Vec<Registro>, Vec<String>) {
+/// 3.13.4 over the whole group, with the group's package as it is (the
+/// language stays the group's): the same slices as `oraculo`. Also returns
+/// the files that crash it (relative to `dir`).
+fn oracle_313_for_group(dir: &Path) -> (Vec<Registro>, Vec<String>) {
     let mut regs = Vec::new();
-    let mut excluidos = Vec::new();
-    for alvo in fatias(dir, 2500) {
-        bissectar(oraculo::SdkOraculo::V3134, dir, alvo, &mut regs, &mut excluidos);
+    let mut excluded = Vec::new();
+    for target in slices(dir, 2500) {
+        bisect(oraculo::SdkOraculo::V3134, dir, target, &mut regs, &mut excluded);
     }
-    (regs, excluidos)
+    (regs, excluded)
 }
 
-/// Troca, em `regs`, os registros dos arquivos de `lista` pelos de `novos`.
-fn substituir_arquivos(regs: &mut Vec<Registro>, novos: Vec<Registro>, lista: &[String]) {
-    let lista: std::collections::BTreeSet<&str> = lista.iter().map(String::as_str).collect();
-    regs.retain(|r| !lista.contains(r.arquivo.as_str()));
-    regs.extend(novos.into_iter().filter(|r| lista.contains(r.arquivo.as_str())));
+/// Replaces, in `regs`, the records of the files in `list` with those of `new`.
+fn replace_files(regs: &mut Vec<Registro>, new: Vec<Registro>, list: &[String]) {
+    let list: std::collections::BTreeSet<&str> = list.iter().map(String::as_str).collect();
+    regs.retain(|r| !list.contains(r.arquivo.as_str()));
+    regs.extend(new.into_iter().filter(|r| list.contains(r.arquivo.as_str())));
 }
 
-/// `sintaxe-nova`: roda o 3.13.4 sobre cada grupo do 3.6.2, escolhe os
-/// arquivos em que ele acusa um recurso que o 3.6.2 não conhece
-/// ([`oraculo::usa_sintaxe_nova`]), grava a lista em `sintaxe-nova.json` e
-/// troca só os registros desses arquivos no `oraculo.jsonl` do grupo. O
-/// hash e os demais metadados do grupo ficam como estão.
-fn classificar_sintaxe_nova(a: &Args) -> ExitCode {
-    let mut lista = oraculo::ler_sintaxe_nova(&a.corpus);
-    let mut falhou = false;
-    for (nome, g) in grupos_escolhidos(a) {
+/// `sintaxe-nova`: runs 3.13.4 over each 3.6.2 group, picks the files where
+/// it flags a feature 3.6.2 does not know ([`oraculo::usa_sintaxe_nova`]),
+/// writes the list to `sintaxe-nova.json` and replaces only those files'
+/// records in the group's `oraculo.jsonl`. The hash and the other metadata of
+/// the group stay as they are.
+fn classify_new_syntax(a: &Args) -> ExitCode {
+    let mut list = oraculo::ler_sintaxe_nova(&a.corpus);
+    let mut failed = false;
+    for (name, g) in chosen_groups(a) {
         if g.sdk != oraculo::SdkOraculo::V362 {
             continue;
         }
-        let dir = a.corpus.join(&nome);
-        if let Err(e) = corpus::preparar(&dir, &nome, &g) {
-            eprintln!("{nome}: {e}");
-            falhou = true;
+        let dir = a.corpus.join(&name);
+        if let Err(e) = corpus::preparar(&dir, &name, &g) {
+            eprintln!("{name}: {e}");
+            failed = true;
             continue;
         }
         let t = Instant::now();
-        eprintln!("oráculo 3.13.4 em {nome} (linguagem {})…", g.sdk.linguagem());
-        let (novos, mut caidos) = oraculo_313_do_grupo(&dir);
-        // A queda do servidor numa rodada de vários arquivos nem sempre
-        // falha a rodada: o arquivo só fica sem registros. Os que o nosso
-        // parser marca com a referência 3.13.4 e que o 3.13.4 não escolheu
-        // rodam um a um; o que derruba o oráculo sozinho conta como caído.
-        let escolhidos_313: std::collections::BTreeSet<&str> = novos
+        eprintln!("oracle 3.13.4 on {name} (language {})…", g.sdk.linguagem());
+        let (new, mut crashed) = oracle_313_for_group(&dir);
+        // A server crash in a multi-file run does not always fail the run:
+        // the file just gets no records. Those that our parser marks with the
+        // 3.13.4 reference and that 3.13.4 did not pick run one by one; one
+        // that crashes the oracle on its own counts as crashed.
+        let chosen_313: std::collections::BTreeSet<&str> = new
             .iter()
             .filter(|r| r.code == "experiment_not_enabled")
             .map(|r| r.arquivo.as_str())
             .collect();
-        let todos = corpus::arquivos_dart(&dir);
-        for e in oraculo::marcador_3_13(&dir, &todos) {
-            if !escolhidos_313.contains(e.as_str())
-                && !caidos.contains(&e)
-                && oraculo::rodar(oraculo::SdkOraculo::V3134, &dir, &[dir.join(&e)], &cache_oraculo()).is_err()
+        let all = corpus::arquivos_dart(&dir);
+        for e in oraculo::marcador_3_13(&dir, &all) {
+            if !chosen_313.contains(e.as_str())
+                && !crashed.contains(&e)
+                && oraculo::rodar(oraculo::SdkOraculo::V3134, &dir, &[dir.join(&e)], &oracle_cache()).is_err()
             {
-                caidos.push(e);
+                crashed.push(e);
             }
         }
-        // Um arquivo em que o 3.13.4 cai e que o nosso parser marca com a
-        // referência 3.13.4 não tem comportamento de referência: sai do
-        // grupo, como o que derruba o oráculo do 3.6.2 (`oraculo`). Os
-        // demais ficam com o registro do 3.6.2.
-        let fontes: Vec<PathBuf> = caidos.iter().map(|e| dir.join(e)).collect();
-        let marcados = oraculo::marcador_3_13(&dir, &fontes);
-        for e in &caidos {
-            if marcados.contains(e) {
-                eprintln!("  o 3.13.4 cai em {e}, de sintaxe nova; retirado do grupo");
+        // A file where 3.13.4 crashes and that our parser marks with the
+        // 3.13.4 reference has no reference behaviour: it leaves the group,
+        // like the one that crashes the 3.6.2 oracle (`oraculo`). The others
+        // keep the 3.6.2 record.
+        let sources: Vec<PathBuf> = crashed.iter().map(|e| dir.join(e)).collect();
+        let marked = oraculo::marcador_3_13(&dir, &sources);
+        for e in &crashed {
+            if marked.contains(e) {
+                eprintln!("  3.13.4 crashes on {e}, which has new syntax; removed from the group");
                 let _ = std::fs::remove_file(dir.join(e));
             } else {
-                eprintln!("  o 3.13.4 cai em {e}; o arquivo fica com o registro do 3.6.2");
+                eprintln!("  3.13.4 crashes on {e}; the file keeps the 3.6.2 record");
             }
         }
-        let mut por_arquivo: std::collections::BTreeMap<&str, Vec<&Registro>> = std::collections::BTreeMap::new();
-        for r in &novos {
-            por_arquivo.entry(r.arquivo.as_str()).or_default().push(r);
+        let mut by_file: std::collections::BTreeMap<&str, Vec<&Registro>> = std::collections::BTreeMap::new();
+        for r in &new {
+            by_file.entry(r.arquivo.as_str()).or_default().push(r);
         }
-        let escolhidos: Vec<String> =
-            por_arquivo.iter().filter(|(_, rs)| oraculo::usa_sintaxe_nova(rs)).map(|(f, _)| f.to_string()).collect();
+        let chosen: Vec<String> =
+            by_file.iter().filter(|(_, rs)| oraculo::usa_sintaxe_nova(rs)).map(|(f, _)| f.to_string()).collect();
         let (mut regs, mut meta) = match oraculo::ler(&dir) {
             Ok(x) => x,
             Err(e) => {
-                eprintln!("{nome}: {e}");
-                falhou = true;
+                eprintln!("{name}: {e}");
+                failed = true;
                 continue;
             }
         };
-        substituir_arquivos(&mut regs, novos.clone(), &escolhidos);
-        regs.retain(|r| !marcados.contains(&r.arquivo));
-        meta.excluidos.extend(marcados.iter().cloned());
+        replace_files(&mut regs, new.clone(), &chosen);
+        regs.retain(|r| !marked.contains(&r.arquivo));
+        meta.excluidos.extend(marked.iter().cloned());
         meta.excluidos.sort();
         meta.excluidos.dedup();
-        if !marcados.is_empty() {
+        if !marked.is_empty() {
             meta.hash = corpus::hash_fontes(&dir);
             meta.arquivos = corpus::arquivos_dart(&dir).len();
         }
@@ -535,43 +540,43 @@ fn classificar_sintaxe_nova(a: &Args) -> ExitCode {
         regs.dedup();
         meta.diagnosticos = regs.len();
         if let Err(e) = oraculo::gravar(&dir, regs, &meta) {
-            eprintln!("{nome}: {e}");
-            falhou = true;
+            eprintln!("{name}: {e}");
+            failed = true;
             continue;
         }
-        println!("{nome}: {} arquivo(s) com sintaxe nova, oráculo 3.13.4 ({:.0} s)", escolhidos.len(), t.elapsed().as_secs_f64());
-        if escolhidos.is_empty() {
-            lista.remove(&nome);
+        println!("{name}: {} file(s) with new syntax, oracle 3.13.4 ({:.0} s)", chosen.len(), t.elapsed().as_secs_f64());
+        if chosen.is_empty() {
+            list.remove(&name);
         } else {
-            lista.insert(nome, escolhidos);
+            list.insert(name, chosen);
         }
     }
-    if let Err(e) = oraculo::gravar_sintaxe_nova(&a.corpus, &lista) {
+    if let Err(e) = oraculo::gravar_sintaxe_nova(&a.corpus, &list) {
         eprintln!("sintaxe-nova.json: {e}");
-        falhou = true;
+        failed = true;
     }
-    if falhou { ExitCode::from(1) } else { ExitCode::SUCCESS }
+    if failed { ExitCode::from(1) } else { ExitCode::SUCCESS }
 }
 
-/// Roda o oráculo sobre `alvos`; se o servidor de análise cair, divide ao
-/// meio (um diretório sozinho vira os seus filhos) até isolar os arquivos
-/// que o derrubam, que vão para `excluidos` (relativos a `dir`).
-fn bissectar(
+/// Runs the oracle over `targets`; if the analysis server crashes, splits in
+/// half (a lone directory becomes its children) until the files that crash
+/// it are isolated, which go to `excluded` (relative to `dir`).
+fn bisect(
     sdk: oraculo::SdkOraculo,
     dir: &Path,
-    alvos: Vec<PathBuf>,
+    targets: Vec<PathBuf>,
     regs: &mut Vec<Registro>,
-    excluidos: &mut Vec<String>,
+    excluded: &mut Vec<String>,
 ) {
-    match oraculo::rodar(sdk, dir, &alvos, &cache_oraculo()) {
+    match oraculo::rodar(sdk, dir, &targets, &oracle_cache()) {
         Ok(ds) => regs.extend(ds.iter().filter_map(|d| Registro::de_json(d, dir))),
         Err(e) => {
-            if alvos.len() > 1 {
-                let meio = alvos.len() / 2;
-                bissectar(sdk, dir, alvos[..meio].to_vec(), regs, excluidos);
-                bissectar(sdk, dir, alvos[meio..].to_vec(), regs, excluidos);
-            } else if alvos[0].is_dir() {
-                let mut filhos: Vec<PathBuf> = std::fs::read_dir(&alvos[0])
+            if targets.len() > 1 {
+                let mid = targets.len() / 2;
+                bisect(sdk, dir, targets[..mid].to_vec(), regs, excluded);
+                bisect(sdk, dir, targets[mid..].to_vec(), regs, excluded);
+            } else if targets[0].is_dir() {
+                let mut children: Vec<PathBuf> = std::fs::read_dir(&targets[0])
                     .map(|r| {
                         r.flatten()
                             .map(|e| e.path())
@@ -580,29 +585,29 @@ fn bissectar(
                             .collect()
                     })
                     .unwrap_or_default();
-                filhos.sort();
-                if filhos.is_empty() {
-                    eprintln!("  {}: {e}", alvos[0].display());
+                children.sort();
+                if children.is_empty() {
+                    eprintln!("  {}: {e}", targets[0].display());
                 } else {
-                    eprintln!("  o oráculo caiu em {}; dividindo", alvos[0].display());
-                    bissectar(sdk, dir, filhos, regs, excluidos);
+                    eprintln!("  the oracle crashed on {}; splitting", targets[0].display());
+                    bisect(sdk, dir, children, regs, excluded);
                 }
             } else {
-                excluidos.push(oraculo::relativo(&alvos[0], dir).unwrap_or_default());
+                excluded.push(oraculo::relativo(&targets[0], dir).unwrap_or_default());
             }
         }
     }
 }
 
-/// Alvos de cada execução do `dart analyze`: o grupo inteiro, ou os
-/// subdiretórios agrupados até `max` arquivos por execução (memória do
-/// servidor de análise). O `dart analyze` aceita vários alvos de uma vez.
-fn fatias(dir: &Path, max: usize) -> Vec<Vec<PathBuf>> {
+/// Targets of each `dart analyze` run: the whole group, or the
+/// subdirectories grouped up to `max` files per run (analysis server
+/// memory). `dart analyze` accepts several targets at once.
+fn slices(dir: &Path, max: usize) -> Vec<Vec<PathBuf>> {
     if corpus::arquivos_dart(dir).len() <= max {
         return vec![vec![dir.to_path_buf()]];
     }
     let mut subs: Vec<(PathBuf, usize)> = Vec::new();
-    let mut soltos = false;
+    let mut loose = false;
     if let Ok(ents) = std::fs::read_dir(dir) {
         for e in ents.flatten() {
             let p = e.path();
@@ -610,203 +615,203 @@ fn fatias(dir: &Path, max: usize) -> Vec<Vec<PathBuf>> {
             if p.is_dir() && !n.starts_with('.') {
                 subs.push((p.clone(), corpus::arquivos_dart(&p).len()));
             } else if n.ends_with(".dart") {
-                soltos = true;
+                loose = true;
             }
         }
     }
-    if soltos {
-        // Arquivos soltos na raiz: o alvo teria de ser a raiz inteira.
+    if loose {
+        // Loose files at the root: the target would have to be the whole root.
         return vec![vec![dir.to_path_buf()]];
     }
     subs.sort();
     let mut out: Vec<Vec<PathBuf>> = Vec::new();
-    let mut n_atual = 0;
+    let mut n_current = 0;
     for (p, n) in subs.into_iter().filter(|(_, n)| *n > 0) {
-        if out.is_empty() || n_atual + n > max {
+        if out.is_empty() || n_current + n > max {
             out.push(Vec::new());
-            n_atual = 0;
+            n_current = 0;
         }
-        out.last_mut().expect("fatia").push(p);
-        n_atual += n;
+        out.last_mut().expect("slice").push(p);
+        n_current += n;
     }
     out
 }
-fn ler_projetos(corpus: &Path) -> Vec<(Projeto, Vec<Registro>)> {
-    let caminho = corpus.join("projetos.json");
-    match std::fs::read_to_string(&caminho).ok().and_then(|t| serde_json::from_str(&t).ok()) {
+fn read_projects(corpus: &Path) -> Vec<(Projeto, Vec<Registro>)> {
+    let path = corpus.join("projetos.json");
+    match std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()) {
         Some(v) => v,
         None => projetos::padrao().into_iter().map(|p| (p, Vec::new())).collect(),
     }
 }
 
-fn cmd_projetos(a: &Args) -> ExitCode {
-    let motor = motor();
-    let mut registro = ler_projetos(&a.corpus);
-    let trab = a.trabalhadores.first().copied().unwrap_or(1);
-    let lote = if a.lote > 0 { a.lote } else { 400 };
+fn cmd_projects(a: &Args) -> ExitCode {
+    let engine = engine();
+    let mut registry = read_projects(&a.corpus);
+    let workers = a.workers.first().copied().unwrap_or(1);
+    let batch = if a.batch > 0 { a.batch } else { 400 };
     let mut total = Placar::default();
     let mut s = String::new();
-    for (p, oraculo_regs) in registro.iter_mut() {
+    for (p, oracle_regs) in registry.iter_mut() {
         if !p.caminho.join("pubspec.yaml").is_file() {
-            let _ = writeln!(s, "{}: ausente em {} (pulado)", p.nome, p.caminho.display());
+            let _ = writeln!(s, "{}: missing at {} (skipped)", p.nome, p.caminho.display());
             continue;
         }
-        let opcoes = filtros::Opcoes::ler(&p.caminho);
-        if a.oraculo {
+        let options = filtros::Opcoes::ler(&p.caminho);
+        if a.oracle {
             let t = Instant::now();
-            eprintln!("{}: oráculo {}…", p.nome, p.sdk.versao());
-            match oraculo::rodar(p.sdk, &p.caminho, &[p.caminho.clone()], &cache_oraculo()) {
+            eprintln!("{}: oracle {}…", p.nome, p.sdk.versao());
+            match oraculo::rodar(p.sdk, &p.caminho, &[p.caminho.clone()], &oracle_cache()) {
                 Ok(ds) => {
-                    *oraculo_regs = ds.iter().filter_map(|d| Registro::de_json(d, &p.caminho)).collect();
-                    oraculo_regs.sort();
-                    p.oraculo = Some(oraculo_regs.len());
-                    eprintln!("  {} diagnósticos, {:.0} s", oraculo_regs.len(), t.elapsed().as_secs_f64());
+                    *oracle_regs = ds.iter().filter_map(|d| Registro::de_json(d, &p.caminho)).collect();
+                    oracle_regs.sort();
+                    p.oraculo = Some(oracle_regs.len());
+                    eprintln!("  {} diagnostics, {:.0} s", oracle_regs.len(), t.elapsed().as_secs_f64());
                 }
                 Err(e) => {
-                    let _ = writeln!(s, "{}: oráculo falhou: {e}", p.nome);
+                    let _ = writeln!(s, "{}: oracle failed: {e}", p.nome);
                     continue;
                 }
             }
         }
-        let arquivos = projetos::arquivos(&p.caminho, &opcoes);
+        let files = projetos::arquivos(&p.caminho, &options);
         let cfg = p.caminho.join(".dart_tool/package_config.json");
         let t = Instant::now();
-        eprintln!("{}: nosso lado, {} arquivos…", p.nome, arquivos.len());
-        // Pacotes aninhados (`example/` com pubspec próprio) são contextos de
-        // análise à parte no analyzer: cada um com o seu package_config.
-        let mut r = dartforge_parity::Rodada::default();
-        for (raiz_pkg, fs) in projetos::por_pacote(&p.caminho, &arquivos) {
-            let c = raiz_pkg.join(".dart_tool/package_config.json");
+        eprintln!("{}: our side, {} files…", p.nome, files.len());
+        // Nested packages (`example/` with its own pubspec) are separate
+        // analysis contexts in the analyzer: each with its own package_config.
+        let mut r = dartforge_parity::Run::default();
+        for (pkg_root, fs) in projetos::por_pacote(&p.caminho, &files) {
+            let c = pkg_root.join(".dart_tool/package_config.json");
             let c = if c.is_file() { c } else { cfg.clone() };
-            let parcial = rodar_nosso(&motor, &p.caminho, &fs, Some(&c), &opcoes, &execucao(trab, lote));
-            r.registros.extend(parcial.registros);
-            r.arquivos += parcial.arquivos;
-            r.lotes += parcial.lotes;
-            r.panicos.extend(parcial.panicos);
-            r.ambiguos += parcial.ambiguos;
+            let partial = run_ours(&engine, &p.caminho, &fs, Some(&c), &options, &execution(workers, batch));
+            r.records.extend(partial.records);
+            r.files += partial.files;
+            r.batches += partial.batches;
+            r.panics.extend(partial.panics);
+            r.ambiguous += partial.ambiguous;
         }
-        r.registros.sort();
+        r.records.sort();
         let mut pl = Placar::default();
-        pl.comparar(oraculo_regs, &r.registros);
+        pl.comparar(oracle_regs, &r.records);
         let tg = pl.total();
-        let publicados = r
-            .registros
+        let published = r
+            .records
             .iter()
             .filter(|x| x.tipo == "SYNTACTIC_ERROR" || dartforge_parity::verificados().contains(&x.code.as_str()))
             .count();
         let _ = writeln!(
             s,
-            "{} (oráculo {}: {} diagnósticos; {} arquivos, {:.0} s): nosso {} | FP {} | acertos {} | publicados pela regra {} | pânicos {}",
+            "{} (oracle {}: {} diagnostics; {} files, {:.0} s): ours {} | FP {} | hits {} | published by the rule {} | panics {}",
             p.nome,
             p.sdk.versao(),
             p.oraculo.map(|n| n.to_string()).unwrap_or_else(|| "?".into()),
-            r.arquivos,
+            r.files,
             t.elapsed().as_secs_f64(),
             tg.nosso,
             tg.falsos_positivos,
             tg.acertos,
-            publicados,
-            r.panicos.len()
+            published,
+            r.panics.len()
         );
         total.somar(&pl);
     }
     s.push('\n');
-    s.push_str(&total.tabela("projetos reais (todo diagnóstico nosso sem par no oráculo é FP)"));
-    if a.detalhes {
+    s.push_str(&total.tabela("real projects (every diagnostic of ours without a pair in the oracle is an FP)"));
+    if a.details {
         s.push_str("
-amostras:
+samples:
 ");
         s.push_str(&total.amostras_texto());
     }
-    if a.oraculo {
-        let texto = serde_json::to_string_pretty(&registro).expect("JSON") + "\n";
-        if let Err(e) = std::fs::write(a.corpus.join("projetos.json"), texto) {
+    if a.oracle {
+        let text = serde_json::to_string_pretty(&registry).expect("JSON") + "\n";
+        if let Err(e) = std::fs::write(a.corpus.join("projetos.json"), text) {
             eprintln!("projetos.json: {e}");
         }
     }
-    if a.mutacoes > 0 || a.regravar {
+    if a.mutations > 0 || a.rerecord {
         s.push('\n');
-        s.push_str(&mutacoes(a, &motor, &registro.iter().map(|x| x.0.clone()).collect::<Vec<_>>()));
+        s.push_str(&mutations(a, &engine, &registry.iter().map(|x| x.0.clone()).collect::<Vec<_>>()));
     }
     print!("{s}");
     ExitCode::SUCCESS
 }
 
-fn mutacoes(a: &Args, motor: &Motor, lista: &[Projeto]) -> String {
-    let arquivo = a.corpus.join("mutacoes.jsonl");
-    let mut gravadas: Vec<Mutacao> = std::fs::read_to_string(&arquivo)
+fn mutations(a: &Args, engine: &Motor, list: &[Projeto]) -> String {
+    let file = a.corpus.join("mutacoes.jsonl");
+    let mut recorded: Vec<Mutacao> = std::fs::read_to_string(&file)
         .map(|t| t.lines().filter_map(|l| serde_json::from_str(l).ok()).collect())
         .unwrap_or_default();
     let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/scratch-paridade/projetos");
     let mut s = String::new();
-    let mut placar = Placar::default();
-    let mut desatualizadas = 0;
-    let mut novas = Vec::new();
-    for p in lista {
+    let mut scoreboard = Placar::default();
+    let mut stale = 0;
+    let mut new = Vec::new();
+    for p in list {
         if !p.caminho.join("pubspec.yaml").is_file() {
             continue;
         }
-        let copia = scratch.join(&p.nome);
-        let cfg = match projetos::copiar(p, &copia) {
+        let copy = scratch.join(&p.nome);
+        let cfg = match projetos::copiar(p, &copy) {
             Ok(c) => c,
             Err(e) => {
-                let _ = writeln!(s, "{}: cópia falhou: {e}", p.nome);
+                let _ = writeln!(s, "{}: copy failed: {e}", p.nome);
                 continue;
             }
         };
-        let opcoes = filtros::Opcoes::ler(&copia);
-        let arquivos = projetos::arquivos(&copia, &opcoes);
-        let mut ms: Vec<Mutacao> = if a.regravar {
-            projetos::escolher(p, &copia, &arquivos, a.mutacoes.max(1))
+        let options = filtros::Opcoes::ler(&copy);
+        let files = projetos::arquivos(&copy, &options);
+        let mut ms: Vec<Mutacao> = if a.rerecord {
+            projetos::escolher(p, &copy, &files, a.mutations.max(1))
         } else {
-            gravadas.iter().filter(|m| m.projeto == p.nome).cloned().collect()
+            recorded.iter().filter(|m| m.projeto == p.nome).cloned().collect()
         };
         for m in ms.iter_mut() {
-            let alvo = copia.join(&m.arquivo);
-            let Ok(original) = std::fs::read_to_string(&alvo) else { continue };
+            let target = copy.join(&m.arquivo);
+            let Ok(original) = std::fs::read_to_string(&target) else { continue };
             if projetos::hash_texto(&original) != m.hash_original {
-                desatualizadas += 1;
+                stale += 1;
                 continue;
             }
-            let mutante = m.aplicar(&original);
-            if std::fs::write(&alvo, &mutante).is_err() {
+            let mutant = m.aplicar(&original);
+            if std::fs::write(&target, &mutant).is_err() {
                 continue;
             }
-            if a.regravar {
-                eprintln!("mutação {} {} {}…", p.nome, m.tipo, m.arquivo);
-                match oraculo::rodar(p.sdk, &copia, std::slice::from_ref(&alvo), &cache_oraculo()) {
+            if a.rerecord {
+                eprintln!("mutation {} {} {}…", p.nome, m.tipo, m.arquivo);
+                match oraculo::rodar(p.sdk, &copy, std::slice::from_ref(&target), &oracle_cache()) {
                     Ok(ds) => {
                         m.oraculo = ds
                             .iter()
-                            .filter_map(|d| Registro::de_json(d, &copia))
+                            .filter_map(|d| Registro::de_json(d, &copy))
                             .filter(|r| r.arquivo == m.arquivo)
                             .collect();
                         m.oraculo.sort();
                     }
-                    Err(e) => eprintln!("  oráculo falhou: {e}"),
+                    Err(e) => eprintln!("  oracle failed: {e}"),
                 }
             }
-            let r = motor.analisar(&copia, std::slice::from_ref(&alvo), Some(&cfg));
-            let nossos: Vec<Registro> = dartforge_parity::registros(&r, &copia, &opcoes, false)
+            let r = engine.analisar(&copy, std::slice::from_ref(&target), Some(&cfg));
+            let ours: Vec<Registro> = dartforge_parity::records(&r, &copy, &options, false)
                 .into_iter()
                 .filter(|x| x.arquivo == m.arquivo)
                 .collect();
-            placar.comparar(&m.oraculo, &nossos);
-            let _ = std::fs::write(&alvo, &original);
+            scoreboard.comparar(&m.oraculo, &ours);
+            let _ = std::fs::write(&target, &original);
         }
-        novas.extend(ms);
+        new.extend(ms);
     }
-    if a.regravar {
+    if a.rerecord {
         let mut t = String::new();
-        for m in &novas {
+        for m in &new {
             t.push_str(&serde_json::to_string(m).expect("JSON"));
             t.push('\n');
         }
-        let _ = std::fs::write(&arquivo, t);
-        gravadas = novas;
+        let _ = std::fs::write(&file, t);
+        recorded = new;
     }
-    let _ = writeln!(s, "mutações: {} registradas, {desatualizadas} desatualizadas", gravadas.len());
-    s.push_str(&placar.tabela("mutações dos projetos reais"));
-    s.push_str(&placar.amostras_texto());
+    let _ = writeln!(s, "mutations: {} recorded, {stale} stale", recorded.len());
+    s.push_str(&scoreboard.tabela("mutations of the real projects"));
+    s.push_str(&scoreboard.amostras_texto());
     s
 }

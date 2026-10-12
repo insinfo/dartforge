@@ -1,16 +1,16 @@
-//! Casos mínimos das regras portadas na rodada de paridade de 2026-09-30
-//! (docs/ANALISADOR-PARIDADE-PLANO.md). Cada caso foi conferido contra o
-//! `dart analyze` 3.6.2 com `examples/sonda_arquivos.rs --livre`: o
-//! esperado abaixo é o que o oráculo relatou (código, linha, coluna,
-//! comprimento), e nada além disso pode sair.
+//! Minimal cases of the rules ported in the 2026-09-30 parity round
+//! (docs/ANALISADOR-PARIDADE-PLANO.md). Each case was checked against
+//! `dart analyze` 3.6.2 with `examples/sonda_arquivos.rs --livre`: the
+//! expectation below is what the oracle reported (code, line, column,
+//! length), and nothing beyond that may come out.
 
 use dartforge_parity::analise::Motor;
 use dartforge_parity::corpus::{self, Grupo};
 use dartforge_parity::oraculo::SdkOraculo;
-use dartforge_parity::{Execucao, filtros, rodar_nosso};
+use dartforge_parity::{Execution, filtros, run_ours};
 use std::path::PathBuf;
 
-const CASOS: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
+const CASES: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
     (
         "dup.dart",
         "class A {\n  static void foo() {}\n}\nclass A {\n  void foo() {}\n}\n",
@@ -57,8 +57,8 @@ const CASOS: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "abstract class A {\n  void foo();\n}\nclass B extends A {\n  void foo() => super.foo();\n  void bar() => super.baz();\n}\n",
         &[("abstract_super_member_reference", 5, 23, 3), ("undefined_super_member", 6, 23, 3)],
     ),
-    // Segunda rodada (§7): exaustividade, `could_not_infer`, limites inferidos,
-    // alias de `typedef`/`Never?` (C9) e parâmetros opcionais não usados.
+    // Second round (§7): exhaustiveness, `could_not_infer`, inferred bounds,
+    // `typedef`/`Never?` aliases (C9) and unused optional parameters.
     (
         "exaustividade.dart",
         "enum E { a, b, c }\nsealed class S {}\nclass A extends S {}\nclass B extends S { final int x; B(this.x); }\nfinal class C implements S {}\nsealed class T<X> {}\nclass TI extends T<int> {}\nclass TG<X> extends T<X> {}\n\nint f1(E e) => switch (e) { E.a => 0, E.b => 1 };\nint f2(E? e) => switch (e) { E.a => 0, E.b => 1, E.c => 2 };\nint f3(bool b) => switch (b) { true => 0 };\nint f4(S s) => switch (s) { A() => 0, B(x: 1) => 1 };\nint f5(S s) => switch (s) { A() => 0, B() => 1, C() => 2, _ => 3 };\nint f6((bool, E) r) => switch (r) { (true, _) => 0, (false, E.a) => 1 };\nint f7(List<int> l) => switch (l) { [] => 0, [_] => 1 };\nint f8(S s) => switch (s) { A() => 0, A() => 1, B() => 2, C() => 3 };\nvoid f9(E e) {\n  switch (e) {\n    case E.a:\n      break;\n    case E.b:\n    case E.c:\n      break;\n    default:\n  }\n}\nvoid f10(S s) {\n  switch (s) {\n    case A():\n      print(1);\n  }\n}\nint f11(T<int> t) => switch (t) { TI() => 0 };\nint f12(Object o) => switch (o) { int() => 0 };\nint f13(Map<String, int> m) => switch (m) { {'a': 1} => 0 };\nint f14(int? i) => switch (i) { int() => 0 };\nint f15(S s) => switch (s) { A() || B() => 0 };\nint f16(bool? b) => switch (b) { true => 0, false => 1 };\nint f17((int, {String n}) r) => switch (r) { (1, n: 'x') => 0 };\nvoid main() {}\n",
@@ -79,9 +79,9 @@ const CASOS: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "sealed class State {\n  final String label;\n  final String? since;\n  const State({required this.label, this.since});\n}\nclass DeprecatedState extends State {\n  final String? replacedBy;\n  const DeprecatedState({super.since, this.replacedBy}) : super(label: 'deprecated');\n}\nclass _P {\n  void _m([int? a]) {}\n}\nf() => _P()._m;\nclass _Q { _Q([int? z]) { print(z); } }\nvoid main() { _Q(); }\n",
         &[],
     ),
-    // Rodada de 2026-10-12 (macOS): modificadores fora do `MethodDeclaration`,
-    // nome solto de padrão refutável, anotação por alias de `typedef` no FFI,
-    // anotações de diretivas e campos `late` sem falso ciclo.
+    // 2026-10-12 round (macOS): modifiers outside `MethodDeclaration`, a bare
+    // name in a refutable pattern, annotation through a `typedef` alias in FFI,
+    // directive annotations and `late` fields without a false cycle.
     (
         "metodo_modificador.dart",
         "class C {\n  const m1();\n  final m2();\n  abstract void m3();\n  covariant void m4();\n  var get m5;\n  late void m6();\n  required void m7();\n}\n",
@@ -112,7 +112,9 @@ const CASOS: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "class M {\n  late final c = f();\n  late final d = c.toString();\n  int f() => 0;\n}\nclass N {\n  late final c = this.g<int>();\n  late final d = c.isEven;\n  T g<T>() => throw 0;\n}\nvoid main() {\n  print(M().d);\n  print(N().d);\n}\n",
         &[],
     ),
-    // Posições do corpus (2026-10-12): trecho morto com nó reescrito (record) e\nfor de coleção com inicialização que não completa, `:var` repetido, `main`\ncom parâmetro de função, `..complete()` e o fluxo do `for (x in e)`.
+    // Corpus positions (2026-10-12): dead code with a rewritten node (record) and
+    // a collection `for` whose initialization does not complete, repeated `:var`,
+    // `main` with a function parameter, `..complete()` and the flow of `for (x in e)`.
     (
         "campo_padrao.dart",
         "void f(x) {\n  switch (x) {\n    case (foo: 0, :var foo):\n      break;\n  }\n}\n",
@@ -138,7 +140,9 @@ const CASOS: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "void f(({int x, int y}) p) {\n  true ? p.x : p.y;\n}\nvoid g(({bool b, }) r) {\n  if (true || r.b) {}\n}\nf2() => [for (var (i) = throw 0; true; 1) 0];\n",
         &[("dead_code", 2, 16, 4), ("dead_code", 5, 12, 6), ("unused_local_variable", 7, 20, 1), ("dead_code", 7, 34, 7)],
     ),
-    // Mensagens do corpus (2026-10-12): alias no `implements` do extension type,\n`?` em cláusula de alias que não é classe, `p.f<T>` com `p` indefinido,\nescrita pelo `this` anulável e contagem errada de argumentos de tipo.
+    // Corpus messages (2026-10-12): an alias in the extension type's `implements`,
+    // `?` in a clause through an alias that is not a class, `p.f<T>` with `p`
+    // undefined, a write through a nullable `this` and a wrong type-argument count.
     (
         "clausula_anulavel.dart",
         "typedef X1 = void Function();\ntypedef X2 = (int, String);\ntypedef X3 = Object;\nclass I {}\nextension type A1(int it) implements X1? {}\nextension type A2(int it) implements X2? {}\nextension type A3(int it) implements X3? {}\nextension type A4(int it) implements dynamic {}\nextension type A5(int it) implements Function? {}\nclass C1 implements X1? {}\nclass C2 implements X3? {}\nclass C3 extends X1? {}\nmixin M1 on X1? {}\nclass G<T> implements T? {}\nclass N1 implements Never? {}\nclass D1 implements dynamic? {}\nvar v = 1;\nclass V1 implements v? {}\n",
@@ -164,7 +168,8 @@ const CASOS: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "class A {\n  int foo = 0;\n  int get g => 0;\n  set s(int _) {}\n  void m() {}\n}\nextension E on A? {\n  void baz() {\n    foo = 0;\n    foo += 1;\n    foo++;\n    s = 1;\n    print(g);\n    m();\n    m;\n    foo ??= 1;\n  }\n}\n",
         &[("unchecked_use_of_nullable_value", 9, 5, 3), ("unchecked_use_of_nullable_value", 10, 5, 3), ("unchecked_use_of_nullable_value", 11, 5, 3), ("unchecked_use_of_nullable_value", 12, 5, 1), ("unchecked_use_of_nullable_value", 13, 11, 1), ("unchecked_use_of_nullable_value", 14, 5, 1), ("unchecked_use_of_nullable_value", 15, 5, 1), ("unchecked_use_of_nullable_value", 16, 5, 3), ("dead_null_aware_expression", 16, 13, 1)],
     ),
-    // FN do corpus (2026-10-12): `Enum` por supertipo, `Fn<int>.foo`,\n`dart:_wasm`, `@docImport` interpolado, hexadecimal negativo e `is Never?`.
+    // Corpus FNs (2026-10-12): `Enum` through a supertype, `Fn<int>.foo`,
+    // `dart:_wasm`, interpolated `@docImport`, negative hexadecimal and `is Never?`.
     (
         "alias_funcao_acesso.dart",
         "import 'dart:core' as c;\ntypedef Fn<T> = void Function(T);\nvoid bar() {\n  Fn<c.int>.foo;\n  Fn<c.int>.foo = 7;\n  Fn<c.int>.foo += 1;\n  Fn<c.int>.foo();\n  (Fn<c.int>).foo;\n  Fn<c.int>.hashCode;\n}\nextension E on c.Type {\n  c.int get foo => 1;\n  set foo(c.int v) {}\n}\n",
@@ -190,7 +195,8 @@ const CASOS: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "import 'dart:_wasm';\n",
         &[("import_internal_library", 1, 8, 12), ("unused_import", 1, 8, 12)],
     ),
-    // FN do corpus (2026-10-12, 2): `for (constante in …)`, `(_) && p`, `m<T>` estático\nherdado, `[super._]` repetido e o escopo de cada ramo de `if`/`while`/`do`.
+    // Corpus FNs (2026-10-12, 2): `for (constant in …)`, `(_) && p`, inherited static
+    // `m<T>`, repeated `[super._]` and the scope of each `if`/`while`/`do` branch.
     (
         "escopo_de_ramo.dart",
         "var x = 1;\nvoid f() {\n  while (false) var x = 0;\n  print(x);\n}\nvoid g(bool b) {\n  if (b) {} else var x = 0;\n  print(x);\n  do var x = 0; while (x > 0);\n  print(x);\n}\n",
@@ -211,7 +217,9 @@ const CASOS: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "class A {\n  final int x, y;\n  A(this.x, [this.y = 0]);\n}\nclass C extends A {\n  C(super.x, [super._]);\n}\nclass D extends A {\n  D(super._, [super.y]);\n}\n",
         &[],
     ),
-    // Pacotes e projetos reais (2026-10-12): captura só de variável de fora da\nfunção, condição guardada antes da 2.15, `/x.dart` numa biblioteca de `lib/`\ne construtor privado de outra biblioteca.
+    // Packages and real projects (2026-10-12): capture only of variables from
+    // outside the function, a guarded condition before 2.15, `/x.dart` in a
+    // `lib/` library and a private constructor of another library.
     (
         "captura_local.dart",
         "void f(List<int> l) {\n  void g(Map<int, int>? m) {\n    m ??= {};\n    l.forEach((x) {\n      if (!m!.containsKey(x)) print(m.keys);\n    });\n  }\n  Map<int, int>? n;\n  l.forEach((x) {\n    if (n!.containsKey(x)) print(n.keys);\n  });\n  n = {};\n  g(null);\n}\n",
@@ -242,7 +250,7 @@ const CASOS: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "import 'privado_lib.dart';\nimport 'privado_lib.dart' as p;\nmain() {\n  new Class._constructor();\n  new p.Class._constructor();\n  Class();\n}\n",
         &[("new_with_undefined_constructor", 4, 13, 12), ("new_with_undefined_constructor", 5, 15, 12)],
     ),
-    // Membro estático privado de outra biblioteca (2026-10-12).
+    // Private static member of another library (2026-10-12).
     (
         "privado_estatico_lib.dart",
         "enum E2 { _A, b }\nclass C { static int _s = 0; static void _m() {} static int get pub => _s; }\n",
@@ -253,7 +261,7 @@ const CASOS: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "import 'privado_estatico_lib.dart';\nvoid f() {\n  print(E2._A);\n  print(C._s);\n  C._m();\n  C._s = 1;\n  print(C.pub);\n}\nvoid g() {\n  C._s += 1;\n  C._s++;\n}\n",
         &[("undefined_enum_constant", 3, 12, 2), ("undefined_getter", 4, 11, 2), ("undefined_method", 5, 5, 2), ("private_setter", 6, 5, 2), ("private_setter", 10, 5, 2), ("undefined_getter", 10, 5, 2), ("private_setter", 11, 5, 2), ("undefined_getter", 11, 5, 2)],
     ),
-    // `f.call` lido com `f: Function` e a invocação de `Null`/`Never?` (2026-10-12).
+    // `f.call` read with `f: Function` and the invocation of `Null`/`Never?` (2026-10-12).
     (
         "call_de_function.dart",
         "void f(Function a, void Function(int) b) {\n  var x = a.call;\n  var y = (a).call;\n  var z = b.call;\n  int i = x;\n  int j = y;\n  int k = z;\n  print([i, j, k]);\n}\nvoid g(Function a) {\n  var r = a.call();\n  int i = r;\n  a.call;\n  print(i);\n}\n",
@@ -264,7 +272,7 @@ const CASOS: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "void f(Never? x, Null y, void Function()? z) {\n  x();\n  y();\n  z();\n  null();\n  y(1, 2);\n  print(1);\n}\n",
         &[("unchecked_use_of_nullable_value", 2, 3, 1), ("invalid_use_of_null_value", 3, 3, 1), ("unchecked_use_of_nullable_value", 4, 3, 1), ("invalid_use_of_null_value", 5, 3, 4), ("invalid_use_of_null_value", 6, 3, 1)],
     ),
-    // `values` e o construtor primário nomeado como membros; `A.new(…)` sem nome (2026-10-12).
+    // `values` and the named primary constructor as members; unnamed `A.new(…)` (2026-10-12).
     (
         "conflito_variavel_de_tipo.dart",
         "enum E<values> { a }\nenum F<a> { a }\nextension type A<T>.T(int it) {}\nextension type B<U>.named(int it) {}\nextension type C<it>(int it) {}\n",
@@ -278,42 +286,42 @@ const CASOS: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
 ];
 
 #[test]
-fn regras_portadas_dao_o_que_o_analyzer_3_6_2_da() {
-    let Ok(motor) = Motor::descobrir() else {
-        eprintln!("SDK ausente: teste pulado");
+fn ported_rules_give_what_analyzer_3_6_2_gives() {
+    let Ok(engine) = Motor::descobrir() else {
+        eprintln!("SDK missing: test skipped");
         return;
     };
-    let raiz = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/tmp-agent/regras-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&raiz);
-    std::fs::create_dir_all(&raiz).unwrap();
-    std::fs::write(raiz.join("pubspec.yaml"), "name: regras\npublish_to: none\nenvironment:\n  sdk: ^3.6.0\n").unwrap();
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/tmp-agent/regras-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("pubspec.yaml"), "name: regras\npublish_to: none\nenvironment:\n  sdk: ^3.6.0\n").unwrap();
     let g = Grupo { sdk: SdkOraculo::V362, pacotes: Vec::new(), origem: String::new() };
-    let cfg = corpus::preparar(&raiz, "regras", &g).unwrap();
-    let mut fontes = Vec::new();
-    for (nome, texto, _) in CASOS {
-        std::fs::create_dir_all(raiz.join(nome).parent().unwrap()).unwrap();
-        std::fs::write(raiz.join(nome), texto).unwrap();
-        fontes.push(raiz.join(nome));
+    let cfg = corpus::preparar(&root, "regras", &g).unwrap();
+    let mut sources = Vec::new();
+    for (name, text, _) in CASES {
+        std::fs::create_dir_all(root.join(name).parent().unwrap()).unwrap();
+        std::fs::write(root.join(name), text).unwrap();
+        sources.push(root.join(name));
     }
-    let ex = Execucao {
-        trabalhadores: 1,
-        tamanho_lote: fontes.len(),
-        progresso: false,
-        isolar: None,
-        tempo_max: std::time::Duration::from_secs(600),
+    let ex = Execution {
+        workers: 1,
+        batch_size: sources.len(),
+        progress: false,
+        isolate: None,
+        max_time: std::time::Duration::from_secs(600),
     };
-    let r = rodar_nosso(&motor, &raiz, &fontes, Some(&cfg), &filtros::Opcoes::default(), &ex);
-    let _ = std::fs::remove_dir_all(&raiz);
-    for (nome, _, esperado) in CASOS {
-        let mut achado: Vec<(String, usize, usize, usize)> = r
-            .registros
+    let r = run_ours(&engine, &root, &sources, Some(&cfg), &filtros::Opcoes::default(), &ex);
+    let _ = std::fs::remove_dir_all(&root);
+    for (name, _, expected) in CASES {
+        let mut found: Vec<(String, usize, usize, usize)> = r
+            .records
             .iter()
-            .filter(|x| x.arquivo == *nome)
+            .filter(|x| x.arquivo == *name)
             .map(|x| (x.code.clone(), x.line, x.column, x.length))
             .collect();
-        achado.sort();
-        let mut esp: Vec<(String, usize, usize, usize)> = esperado.iter().map(|&(c, l, k, n)| (c.to_string(), l, k, n)).collect();
-        esp.sort();
-        assert_eq!(achado, esp, "{nome}");
+        found.sort();
+        let mut exp: Vec<(String, usize, usize, usize)> = expected.iter().map(|&(c, l, k, n)| (c.to_string(), l, k, n)).collect();
+        exp.sort();
+        assert_eq!(found, exp, "{name}");
     }
 }
