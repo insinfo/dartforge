@@ -86,6 +86,25 @@ pub fn analisar(
     pode_coletar: &dyn Fn(&Instruction) -> bool,
     blocos_que_convertem_phi: &dyn Fn(BlockId) -> bool,
 ) -> Raizes {
+    analisar_com(func, tipos, pode_coletar, blocos_que_convertem_phi, &|_| false)
+}
+
+/// [`analisar`] com a chamada que enraíza os próprios argumentos:
+/// `chamado_enraiza(i)` diz que o ponto de coleta `i` é uma chamada a uma
+/// função Dart com quadro de raízes próprio, sem conversão que aloque entre
+/// os operandos e a chamada. A função chamada põe no quadro dela o
+/// parâmetro que ainda usa depois de um ponto de coleta seu; o que só
+/// vive até a chamada não precisa de raiz em quem chama (o coletor não move
+/// objetos). Ali só fica enraizado o que vive DEPOIS da chamada. O runtime
+/// continua contando com quem chama ([`analisar`]): as funções dele leem os
+/// argumentos depois de alocar.
+pub fn analisar_com(
+    func: &Function,
+    tipos: &HashMap<ValueId, Type>,
+    pode_coletar: &dyn Fn(&Instruction) -> bool,
+    blocos_que_convertem_phi: &dyn Fn(BlockId) -> bool,
+    chamado_enraiza: &dyn Fn(&Instruction) -> bool,
+) -> Raizes {
     let mut slots = HashMap::new();
     for block in &func.blocks {
         for (vid, inst, _) in &block.instructions {
@@ -235,8 +254,18 @@ pub fn analisar(
         let e = passar(b, saida, &mut |inst, quem, d, depois, antes| {
             let coleta = inst.is_none_or(|i| pode_coletar(i));
             if coleta {
-                enraizado.unir(antes);
-                pontos.push((quem, b, antes.clone()));
+                let raizes = match inst {
+                    Some(i) if chamado_enraiza(i) => {
+                        let mut r = depois.clone();
+                        if let Some(d) = d {
+                            r.tirar(d);
+                        }
+                        r
+                    }
+                    _ => antes.clone(),
+                };
+                enraizado.unir(&raizes);
+                pontos.push((quem, b, raizes));
             }
             if let Some(d) = d {
                 marcar(d, depois, &mut interfere);

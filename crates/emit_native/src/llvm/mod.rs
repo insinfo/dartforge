@@ -157,6 +157,16 @@ pub struct LlvmEmitter<'a> {
     /// `optsize` em cada função do módulo (o programa grande na produção;
     /// o SDK de produção já o tem, `sdk_modulo::com_optsize`).
     otimizar_tamanho: bool,
+    /// Os objetos recém-alocados neste bloco da HIR, sem ponto de coleta
+    /// desde a alocação (`emitir_endereco_dos_campos`): o corpo está no
+    /// bloco (nunca de fora, nunca null nem `Smi`) e o objeto é jovem (a
+    /// barreira não faz nada).
+    frescos: std::collections::HashSet<u32>,
+    /// Nenhum objeto tem corpo de fora (`com_corpo_sem_fora`).
+    corpo_sem_fora: bool,
+    /// O `this` da função em emissão, quando o corpo dele é direto
+    /// ([`Self::corpo_direto`]).
+    this_objeto: Option<u32>,
     /// Cada quadro de raízes desta emissão fica num quadro nativo próprio
     /// (o programa sem otimização: `-O0` no AOT, `CodeGenLevelNone` no JIT,
     /// sem inlining): o runtime pode conferir a ordem dos endereços na
@@ -290,6 +300,9 @@ impl<'a> LlvmEmitter<'a> {
             alocacao_fora_de_linha: false,
             ajudantes_fora: Vec::new(),
             otimizar_tamanho: false,
+            frescos: std::collections::HashSet::new(),
+            corpo_sem_fora: false,
+            this_objeto: None,
             seletor_compacto: false,
             tabelas_na_ligacao: false,
             textos: Default::default(),
@@ -385,6 +398,15 @@ impl<'a> LlvmEmitter<'a> {
     /// Requer emissão sem inlining, com um quadro nativo por função.
     pub fn com_quadros_ordenados(mut self, sim: bool) -> Self {
         self.quadros_ordenados = sim;
+        self
+    }
+
+    /// Nenhum objeto terá corpo de fora (o bit `FORA`, que só a migração da
+    /// recarga do JIT cria — `runtime/src/heap.rs`, `trocar_campos`): o AOT
+    /// e o SDK de produção. Com isto, o campo do `this` de um método é lido
+    /// direto do bloco ([`Self::corpo_direto`]).
+    pub fn com_corpo_sem_fora(mut self, sim: bool) -> Self {
+        self.corpo_sem_fora = sim;
         self
     }
 
@@ -817,6 +839,14 @@ impl<'a> LlvmEmitter<'a> {
         // A posição de uma instrução copiada pelo inlining (só o rastro).
         let mut embutida_escrita: Option<(u32, u32, u32)> = None;
         let atributos = if self.otimizar_tamanho { " optsize" } else { "" };
+        // O `this` de um método é sempre um objeto do espaço (nunca null nem
+        // `Smi`: a classe tem o campo lido); sem corpo de fora, o endereço
+        // dos campos dele é `this − 2 + 16`.
+        self.this_objeto = func
+            .params
+            .first()
+            .filter(|(_, nome, t)| self.corpo_sem_fora && !self.module.memoria_arc && nome == "this" && *t == Type::Ref)
+            .map(|(vid, _, _)| vid.0);
         // Exceções por tabelas: a decisão do passe para esta função. Só a
         // função com pouso nomeia a personalidade (é ela que lê a tabela dos
         // pousos); as outras o desenrolamento atravessa.
@@ -839,11 +869,12 @@ impl<'a> LlvmEmitter<'a> {
         // slot compartilhado entre os que nunca estão vivos juntos
         // (`raizes.rs`).
         let blocos_que_convertem: std::collections::HashSet<u32> = self.conv_phi.iter().map(|(b, ..)| *b).collect();
-        let mut analise = raizes::analisar(
+        let mut analise = raizes::analisar_com(
             func,
             &self.tipos,
             &|inst| self.pode_coletar(inst),
             &|b| blocos_que_convertem.contains(&b.0),
+            &|inst| self.chamado_enraiza_os_argumentos(inst),
         );
         // O orçamento do `rewrite-statepoints-for-gc` (§3.4): o passe cresce
         // de forma superlinear com `vivos × pontos de coleta`. Acima do teto
@@ -1010,6 +1041,15 @@ impl<'a> LlvmEmitter<'a> {
                     let n = self.tamanho_do_quadro();
                     writeln!(self.out, "  %gcq = alloca {{ ptr, i64, [{n} x i64] }}, align 8").unwrap();
                 }
+                // O marco da conferência da pilha
+                // (`emitir_conferencia_da_pilha`), pelo mesmo motivo: depois
+                // do `df.obter_area` (ou do contexto em linha,
+                // `sdk_modulo::com_contexto_em_tls`) ele virava alocação
+                // dinâmica, com o ponteiro de quadro e o ajuste do `sp` a cada
+                // chamada.
+                if self.tem_ctx {
+                    writeln!(self.out, "  %pilhaq = alloca i8, align 1").unwrap();
+                }
                 if Self::usa_area(func) {
                     writeln!(self.out, "  %area = call ptr @df.obter_area()").unwrap();
                 }
@@ -1094,6 +1134,7 @@ impl<'a> LlvmEmitter<'a> {
             // `phi` tem de ser a primeira instrução do bloco: as raízes dos
             // `phi` saem todas depois do último deles.
             let mut raizes_de_phi: Vec<(usize, u32)> = Vec::new();
+            self.frescos.clear();
 
             for (vid, inst, ty) in &block.instructions {
                 let v = vid.0;
@@ -1124,6 +1165,11 @@ impl<'a> LlvmEmitter<'a> {
                     && let Some(vivos) = self.raizes_da_funcao.vivos_em.get(vid).cloned()
                 {
                     self.gravar_conferencia(&vivos);
+                }
+                // Um ponto de coleta pode promover o objeto recém-alocado
+                // (velho depois da coleta): deixa de ser fresco.
+                if self.pode_coletar(inst) {
+                    self.frescos.clear();
                 }
                 let inicio_da_instrucao = self.out.len();
                 match inst {
@@ -1328,7 +1374,7 @@ impl<'a> LlvmEmitter<'a> {
                         // Os campos em linha, pela tabela de campos (o objeto
                         // é novo: nenhum outro código o vê antes disto).
                         if !fields.is_empty() {
-                            self.emitir_endereco_dos_campos(v, &format!("%v{v}"));
+                            self.emitir_endereco_dos_campos_de(v, &format!("%v{v}"), !self.module.memoria_arc);
                         }
                         for (idx, field) in fields.iter().enumerate() {
                             // E1: `is_ref` pela representação do valor.
@@ -1349,7 +1395,8 @@ impl<'a> LlvmEmitter<'a> {
                             format!("%v{v}")
                         } else { format!("%fb{v}") };
                         if *index < CAMPOS_EM_LINHA {
-                            self.emitir_endereco_dos_campos(v, &so);
+                            let direto = self.corpo_direto(object);
+                            self.emitir_endereco_dos_campos_de(v, &so, direto);
                             writeln!(self.out, "  %fg{v} = getelementptr inbounds i64, ptr %fp{v}, i64 {index}").unwrap();
                             writeln!(self.out, "  {bits} = load i64, ptr %fg{v}, align 8").unwrap();
                         } else {
@@ -1364,9 +1411,11 @@ impl<'a> LlvmEmitter<'a> {
                         let is_ref = u8::from(self.tipo_de(value) == Type::Ref);
                         let so = self.coagir(object, Type::I64);
                         let sv = self.coagir(value, Type::I64);
-                        self.emitir_endereco_dos_campos(v, &so);
+                        let fresco = self.fresco(object);
+                        let direto = self.corpo_direto(object);
+                        self.emitir_endereco_dos_campos_de(v, &so, direto);
                         self.emitir_gravacao_de_campo(v, "", *index, &sv, &is_ref.to_string());
-                        if self.barreira_em_linha(inst) {
+                        if self.barreira_em_linha(inst) && !fresco {
                             self.emitir_barreira(v, &so, &sv, None);
                         }
                     }
@@ -1413,7 +1462,8 @@ impl<'a> LlvmEmitter<'a> {
                     {
                         let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1) else { unreachable!() };
                         let so = self.coagir(&args[0].0, Type::I64);
-                        self.emitir_endereco_dos_campos(v, &so);
+                        let direto = self.corpo_direto(&args[0].0);
+                        self.emitir_endereco_dos_campos_de(v, &so, direto);
                         writeln!(self.out, "  %fg{v} = getelementptr inbounds i64, ptr %fp{v}, i64 {i}").unwrap();
                         writeln!(self.out, "  %v{v} = load i64, ptr %fg{v}, align 8").unwrap();
                     }
@@ -1437,9 +1487,11 @@ impl<'a> LlvmEmitter<'a> {
                                 format!("%fz{v}")
                             }
                         };
-                        self.emitir_endereco_dos_campos(v, &so);
+                        let fresco = self.fresco(&args[0].0);
+                        let direto = self.corpo_direto(&args[0].0);
+                        self.emitir_endereco_dos_campos_de(v, &so, direto);
                         self.emitir_gravacao_de_campo(v, "", *i as usize, &sv, &is_ref);
-                        if self.barreira_em_linha(inst) {
+                        if self.barreira_em_linha(inst) && !fresco {
                             let dinamico = is_ref.starts_with('%').then_some(is_ref.as_str());
                             self.emitir_barreira(v, &so, &sv, dinamico);
                         }
@@ -1833,6 +1885,12 @@ impl<'a> LlvmEmitter<'a> {
                     && let Some(vivos) = self.raizes_da_funcao.vivos_em.get(vid).cloned()
                 {
                     self.anexar_deopt(inicio_da_instrucao, &vivos);
+                }
+                if !self.module.memoria_arc
+                    && (matches!(inst, Instruction::AllocObject { .. }) || Self::alocacao_em_linha(inst).is_some()
+                        || matches!(inst, Instruction::CallRuntime { name, .. } if name == "dartforge_object_new"))
+                {
+                    self.frescos.insert(v);
                 }
                 let _ = ty;
             }
@@ -3419,7 +3477,6 @@ impl<'a> LlvmEmitter<'a> {
     fn emitir_conferencia_da_pilha(&mut self, func: &Function) {
         let por_tabelas = self.tab.is_some();
         let o = &mut self.out;
-        writeln!(o, "  %pilhaq = alloca i8, align 1").unwrap();
         writeln!(o, "  %pilhalp = getelementptr inbounds i8, ptr %ctx, i64 {}", layout::contexto::LIMITE_DA_PILHA).unwrap();
         writeln!(o, "  %pilhal = load ptr, ptr %pilhalp, align 8").unwrap();
         writeln!(o, "  %pilhab = icmp ult ptr %pilhaq, %pilhal").unwrap();
@@ -3462,6 +3519,31 @@ impl<'a> LlvmEmitter<'a> {
     /// bit `FORA` nas `flags`, o corpo é o endereço guardado no primeiro
     /// campo (o objeto que mudou de número de campos): uma seleção, sem
     /// desvio. Sem chamada.
+    /// O operando é um objeto recém-alocado neste bloco, sem ponto de
+    /// coleta desde a alocação (`frescos`).
+    fn fresco(&self, op: &Operand) -> bool {
+        !self.module.memoria_arc && matches!(op, Operand::Val(x) if self.frescos.contains(&x.0))
+    }
+
+    /// O corpo do objeto `op` é o próprio bloco: o recém-alocado, ou o
+    /// `this` quando nenhum objeto tem corpo de fora (`this_objeto`).
+    fn corpo_direto(&self, op: &Operand) -> bool {
+        self.fresco(op) || matches!(op, Operand::Val(x) if self.this_objeto == Some(x.0))
+    }
+
+    /// [`Self::emitir_endereco_dos_campos`]; `direto`: o corpo é o próprio
+    /// bloco ([`Self::corpo_direto`], `handle − 2`), sem a seleção de
+    /// null/`Smi` nem o corpo de fora.
+    fn emitir_endereco_dos_campos_de(&mut self, v: u32, so: &str, direto: bool) {
+        if !direto {
+            return self.emitir_endereco_dos_campos(v, so);
+        }
+        let o = &mut self.out;
+        writeln!(o, "  %fxa{v} = add i64 {so}, -{}", layout::DESLOCAMENTO_DO_HANDLE).unwrap();
+        writeln!(o, "  %fcb{v} = inttoptr i64 %fxa{v} to ptr").unwrap();
+        writeln!(o, "  %fp{v} = getelementptr inbounds i8, ptr %fcb{v}, i64 16").unwrap();
+    }
+
     fn emitir_endereco_dos_campos(&mut self, v: u32, so: &str) {
         let o = &mut self.out;
         if self.campos_por_chamada {
@@ -3782,8 +3864,47 @@ impl<'a> LlvmEmitter<'a> {
                 let nao_aloca = !e.aloca && !e.chama_dart;
                 !(nao_aloca && args.iter().all(|(a, t)| exato(a, *t)))
             }
+            // Na memória por rastreamento: o texto constante é um objeto
+            // estático da imagem (`textos_ir.rs`, `emitir_const_string`), e
+            // os vetores constantes e a leitura de um vetor de argumentos são
+            // endereços e cargas. Nenhum aloca; antes, cada literal de texto
+            // obrigava a enraizar tudo o que estava vivo nele.
+            Instruction::Const(Constant::String(_) | Constant::StringWtf8(_)) => {
+                !(self.objetos_estaticos && !self.module.memoria_arc)
+            }
+            Instruction::LoadIndexed { .. } | Instruction::ConstArray(_) | Instruction::TabelaDeFuncoes(_) => {
+                self.module.memoria_arc
+            }
             _ => true,
         }
+    }
+
+    /// Se a chamada `inst` enraíza os próprios argumentos
+    /// (`raizes::analisar_com`): uma chamada direta a uma função Dart — deste
+    /// módulo, ou do SDK da fonte (`df.dart$3a…`) — cujos operandos chegam
+    /// sem conversão que aloque (o tipo do parâmetro, nenhum texto
+    /// constante). Só na pilha-sombra da memória por rastreamento: as raízes
+    /// por mapas e o ARC seguem a regra de sempre. `DARTFORGE_RAIZES_NO_CHAMADO=0`
+    /// desliga (medida).
+    fn chamado_enraiza_os_argumentos(&self, inst: &Instruction) -> bool {
+        if self.mapas || self.module.memoria_arc || !raizes_no_chamado() {
+            return false;
+        }
+        let Instruction::CallStatic { symbol, args, .. } = inst else { return false };
+        let alvo = self.funcao_por_simbolo.get(symbol.as_str()).copied();
+        if alvo.is_none() && !symbol.starts_with("df.dart$3a") {
+            return false;
+        }
+        args.iter().enumerate().all(|(i, a)| {
+            if matches!(a, Operand::Constant(Constant::String(_) | Constant::StringWtf8(_))) {
+                return false;
+            }
+            let t = self.tipo_de(a);
+            match alvo.and_then(|f| f.params.get(i)).map(|p| p.2) {
+                Some(p) => p == t || (p != Type::Ref && t != Type::Ref && p != Type::Void),
+                None => true,
+            }
+        })
     }
 
     fn tipo_de(&self, op: &Operand) -> Type {
@@ -3952,6 +4073,13 @@ const FOLHAS_DO_MAPA: &[&str] = &[
     "dartforge_efeitos_nivel",
     "dartforge_efeitos_restaurar",
 ];
+
+/// A regra das raízes pelo chamado (`LlvmEmitter::chamado_enraiza_os_argumentos`)
+/// está ligada: `DARTFORGE_RAIZES_NO_CHAMADO=0` a desliga (medida).
+fn raizes_no_chamado() -> bool {
+    static LIGADA: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *LIGADA.get_or_init(|| !std::env::var("DARTFORGE_RAIZES_NO_CHAMADO").is_ok_and(|v| v == "0"))
+}
 
 /// Raízes por mapas: a chamada da linha pode coletar — a indireta, e a
 /// direta a uma função que não é intrínseco do LLVM nem folha (a extern que

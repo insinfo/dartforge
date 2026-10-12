@@ -323,7 +323,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
         if emit_ir && out.is_none() {
             return Err(usage.into());
         }
-        return emitir_ir_nativo(input, out.filter(|_| emit_ir), sdk, packages, timings, resumo, linguagem, depuracao);
+        return emitir_ir_nativo(input, out.filter(|_| emit_ir), sdk, packages, timings, resumo, linguagem, depuracao, optimize);
     }
     let Some(out) = out else {
         return Err(usage.into());
@@ -370,6 +370,9 @@ fn emitir_ir_nativo(
     resumo: bool,
     linguagem: dartforge_elements::sdk::Linguagem,
     depuracao: bool,
+    // O IR da produção (`--optimize`): literais estáticos, o programa grande
+    // com campos e ajudantes por chamada. A poda da ligação vem depois.
+    optimize: bool,
 ) -> Resultado {
     let ir = std::thread::Builder::new()
         .stack_size(1 << 30)
@@ -378,7 +381,7 @@ fn emitir_ir_nativo(
                 sdk: sdk.as_deref(),
                 packages: packages.as_deref(),
                 timings,
-                optimize: false,
+                optimize,
                 versao_linguagem: linguagem.versao_corrente,
                 experimentos: linguagem.experimentos,
                 depuracao,

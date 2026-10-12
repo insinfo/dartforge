@@ -508,6 +508,8 @@ fn emitir_ir_interno(
         .com_area_anterior(area_anterior)
         .com_area_enxuta(enxuta)
         .com_objetos_estaticos(objetos_estaticos)
+        // O AOT não recarrega: nenhum objeto ganha corpo de fora.
+        .com_corpo_sem_fora(podar)
         // Desenvolvimento (`-O0`): o endereço dos campos por chamada (C9).
         .com_campos_por_chamada(!options.optimize || campos_por_chamada)
         .com_ajudantes_fora(llvm::ajudantes_fora_de_linha(!options.optimize && tamanho_grande, grande))
@@ -536,6 +538,15 @@ fn emitir_ir_interno(
     // Nas exceções por checagem com a pilha-sombra nada desenrola o código
     // Dart: sem o CFI de cada função (`sdk_modulo::com_nounwind`).
     let llvm_ir = if !excecoes_por_tabelas && !raizes_por_mapas { sdk_modulo::com_nounwind(&llvm_ir) } else { llvm_ir };
+    // O contexto da thread numa variável `thread_local` do módulo, no AOT
+    // padrão (`sdk_modulo::com_contexto_em_tls`): em linha no programa
+    // pequeno, uma chamada no grande.
+    let llvm_ir = if podar && !excecoes_por_tabelas && !raizes_por_mapas && !memoria_arc {
+        let modo = if grande { sdk_modulo::ContextoEmTls::PorChamada } else { sdk_modulo::ContextoEmTls::EmLinha };
+        sdk_modulo::com_contexto_em_tls(&llvm_ir, modo)
+    } else {
+        llvm_ir
+    };
     let llvm_duration = t_llvm.elapsed();
 
     let bytes_sdk = bytes_do_sdk(&llvm_ir, &program);

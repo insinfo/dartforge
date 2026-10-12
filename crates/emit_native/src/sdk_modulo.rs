@@ -358,6 +358,9 @@ pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path, producao: bool) -> Result<Vec<B
         let ir = crate::llvm::LlvmEmitter::new(&module)
             .com_area_enxuta(producao)
             .com_objetos_estaticos(true)
+            // O SDK de produção só vai ao AOT; o de desenvolvimento (a DLL)
+            // também serve ao JIT, que migra objetos na recarga.
+            .com_corpo_sem_fora(producao)
             .com_tabelas_na_ligacao(producao)
             .com_raizes_por_mapas(raizes_por_mapas)
             .com_rastro(rastro_simbolico)
@@ -370,6 +373,11 @@ pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path, producao: bool) -> Result<Vec<B
         let ir = if producao { com_optsize(&ir) } else { ir };
         let ir = if excecoes_por_tabelas && cfg!(unix) { com_uwtable(&ir) } else { ir };
         let ir = if !excecoes_por_tabelas && !raizes_por_mapas { com_nounwind(&ir) } else { ir };
+        let ir = if producao && !excecoes_por_tabelas && !raizes_por_mapas && !memoria_arc {
+            com_contexto_em_tls(&ir, ContextoEmTls::Livre)
+        } else {
+            ir
+        };
         let tabelas = if producao { std::mem::take(&mut module.tabelas_de_metodos) } else { Vec::new() };
         saida.push(BibliotecaDoSdk { uri, ir, recusados: std::mem::take(&mut module.recusados), tabelas });
     }
@@ -937,6 +945,66 @@ pub fn com_uwtable(ir: &str) -> String {
 /// ```
 pub fn com_nounwind(ir: &str) -> String {
     com_atributo_ausente(ir, " nounwind")
+}
+
+/// Como o código Dart acha o contexto da thread em [`com_contexto_em_tls`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContextoEmTls {
+    /// O ajudante copiado em cada função (`alwaysinline`): o desempenho.
+    EmLinha,
+    /// O LLVM decide.
+    Livre,
+    /// Uma chamada (`noinline`): o tamanho, no programa grande.
+    PorChamada,
+}
+
+/// O IR com o contexto da thread (`dartforge_contexto`, uma função Rust com
+/// quadro, a variável `thread_local!` e a conferência do limite da pilha)
+/// guardado numa variável `thread_local` do próprio módulo
+/// (`@df.ctx.tls`): o prólogo de cada função lê a variável (no Mach-O, o
+/// `tlv_get_addr`, que não mexe nos outros registradores) e só chama o
+/// runtime na primeira vez em cada thread. O endereço do contexto de uma
+/// thread não muda enquanto ela vive (`runtime/src/gc_raizes.rs`). Só no
+/// AOT: o JIT não tem `thread_local` nos módulos dele. O `fib(32)` do
+/// `bench/comparativo` passava 1/3 do tempo na função do runtime.
+///
+/// ```
+/// use dartforge_emit_native::sdk_modulo::{com_contexto_em_tls, ContextoEmTls};
+/// let ir = "define i64 @f() {\n  %ctx = call ptr @dartforge_contexto()\n  ret i64 0\n}\n";
+/// let novo = com_contexto_em_tls(ir, ContextoEmTls::EmLinha);
+/// assert!(novo.contains("%ctx = call ptr @df.contexto()") && novo.contains("thread_local global ptr null"));
+/// assert_eq!(com_contexto_em_tls("define void @g() {\n  ret void\n}\n", ContextoEmTls::EmLinha), "define void @g() {\n  ret void\n}\n");
+/// ```
+pub fn com_contexto_em_tls(ir: &str, modo: ContextoEmTls) -> String {
+    const CHAMADA: &str = "call ptr @dartforge_contexto()";
+    if !ir.contains(CHAMADA) {
+        return ir.to_string();
+    }
+    let atributo = match modo {
+        ContextoEmTls::EmLinha => " alwaysinline",
+        ContextoEmTls::Livre => "",
+        ContextoEmTls::PorChamada => " noinline",
+    };
+    let mut s = ir.replace(CHAMADA, "call ptr @df.contexto()");
+    s.push_str(&format!(
+        "\n@df.ctx.tls = internal thread_local global ptr null, align 8\n\
+         define internal ptr @df.contexto() nounwind{atributo} {{\n\
+         \x20 %p = call ptr @llvm.threadlocal.address.p0(ptr @df.ctx.tls)\n\
+         \x20 %c = load ptr, ptr %p, align 8\n\
+         \x20 %z = icmp eq ptr %c, null\n\
+         \x20 br i1 %z, label %lento, label %pronto\n\
+         lento:\n\
+         \x20 %n = {CHAMADA}\n\
+         \x20 store ptr %n, ptr %p, align 8\n\
+         \x20 ret ptr %n\n\
+         pronto:\n\
+         \x20 ret ptr %c\n\
+         }}\n"
+    ));
+    if !s.contains("declare ptr @llvm.threadlocal.address.p0(ptr") {
+        s.push_str("declare nonnull ptr @llvm.threadlocal.address.p0(ptr nonnull)\n");
+    }
+    s
 }
 
 /// Acrescenta um atributo de função (com o espaço na frente) a cada linha

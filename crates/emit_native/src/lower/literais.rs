@@ -103,6 +103,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.preencher_em_pedacos(ast, alvo.clone(), tipo, elements, span) {
             return alvo;
         }
+        if self.preencher_mapa_de_uma_vez(ast, alvo.clone(), tipo, elements) {
+            return alvo;
+        }
         for el in elements {
             self.elemento_de_colecao(ast, alvo.clone(), tipo, el, span);
         }
@@ -250,6 +253,49 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             )
         };
         let avaliados: Vec<super::membros::Avaliado> = vec![(None, alvo), (None, valores)];
+        let args = self.casar_args(fid, &avaliados);
+        self.chamar_direto(fid, None, args);
+        true
+    }
+
+    /// O literal de mapa só de entradas (`{k: v, …}`, sem elementos de
+    /// controle nem `?`), como a VM o monta: avalia as chaves e os valores na
+    /// ordem, guarda-os numa lista `[k0, v0, k1, v1, …]` (`AllocList`, uma
+    /// alocação só) e insere tudo no fim (`_dartforgePreencherMapa`). A VM
+    /// faz o mesmo (`Map._fromLiteral`,
+    /// runtime/vm/compiler/frontend/kernel_binary_flowgraph.cc): o `hashCode`
+    /// e o `==` das chaves só rodam depois de todos os valores avaliados.
+    /// Antes era um `[]=` por seletor por entrada — o vetor de argumentos, a
+    /// busca do seletor, a chamada indireta e a conferência da exceção a cada
+    /// uma: os `toMap`/`toJson` de um backend real são feitos disso. Fora do
+    /// ARC, que monta a lista pela fábrica Owned (`listas_ir.rs`).
+    fn preencher_mapa_de_uma_vez(&mut self, ast: &ast::Ast, alvo: Operand, tipo: Colecao, elements: &[CollectionElement]) -> bool {
+        // Até `PEDACO_DE_LITERAL` entradas: os valores ficam vivos (e
+        // enraizados) até a lista, no quadro.
+        if tipo != Colecao::Mapa || elements.len() < 2 || elements.len() > PEDACO_DE_LITERAL || self.ctx.memoria_arc {
+            return false;
+        }
+        let so_entradas = elements.iter().all(|el| {
+            matches!(el, CollectionElement::MapEntry { null_aware_key: false, null_aware_value: false, .. })
+        });
+        if !so_entradas {
+            return false;
+        }
+        let Some(fid) = self.funcao_de_topo("dart:_compact_hash", "_dartforgePreencherMapa") else { return false };
+        let mut valores: Vec<(Operand, u8)> = Vec::with_capacity(elements.len() * 2);
+        for el in elements {
+            let CollectionElement::MapEntry { key, value, .. } = el else { unreachable!("conferido acima") };
+            for e in [*key, *value] {
+                let x = self.lower_expr(ast, e);
+                if self.is_terminated() {
+                    return true;
+                }
+                let tag = self.operand_tag(&x);
+                valores.push((x, tag));
+            }
+        }
+        let lista = self.emit(Instruction::AllocList { elements: valores }, Type::Ref);
+        let avaliados: Vec<super::membros::Avaliado> = vec![(None, alvo), (None, lista)];
         let args = self.casar_args(fid, &avaliados);
         self.chamar_direto(fid, None, args);
         true
