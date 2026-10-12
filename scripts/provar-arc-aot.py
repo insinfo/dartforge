@@ -192,7 +192,9 @@ def main():
         raise
     finally:
         try:
-            manifesto_path.write_text(json.dumps(manifesto, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+            # `open(newline=)` em vez de `write_text(newline=)`, que exige Python 3.10.
+            with manifesto_path.open("w", encoding="utf-8", newline="\n") as saida:
+                saida.write(json.dumps(manifesto, ensure_ascii=False, indent=2) + "\n")
         finally:
             temporario.cleanup()
 

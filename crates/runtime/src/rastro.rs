@@ -1096,13 +1096,37 @@ pub extern "C" fn dartforge_rastro_texto(h: i64) -> i64 {
 mod testes_rastro {
     use super::*;
 
+    /// Os registros, o código e a seção de um teste numa alocação só. Os
+    /// campos da seção são deslocamentos `i32`, como entre as seções de um
+    /// binário; alocações separadas do heap não têm essa garantia (no macOS
+    /// arm64 o `malloc` põe blocos pequenos em regiões a centenas de GiB
+    /// umas das outras), e o deslocamento truncado apontaria para fora.
+    struct Area {
+        resto: &'static mut [u8],
+    }
+
+    impl Area {
+        fn nova() -> Self {
+            Area { resto: Box::leak(vec![0u8; 4096].into_boxed_slice()) }
+        }
+
+        /// `n` bytes zerados da área, alinhados a 16, vivos até o fim do
+        /// processo.
+        fn reservar(&mut self, n: usize) -> &'static mut [u8] {
+            let resto = std::mem::take(&mut self.resto);
+            let pulo = resto.as_ptr().align_offset(16);
+            let (bloco, resto) = resto[pulo..].split_at_mut(n);
+            self.resto = resto;
+            bloco
+        }
+    }
+
     /// Os textos e os registros de um teste: `(base, registro de cada nome)`.
     /// A url em 0; cada registro tem o deslocamento até ela, o byte das
     /// marcas e o nome.
-    fn registros(nomes: &[(&str, u8)]) -> Vec<usize> {
-        let mut dados = vec![0u8; 16 + 32 * nomes.len()];
+    fn registros(area: &mut Area, nomes: &[(&str, u8)]) -> Vec<usize> {
+        let dados = area.reservar(16 + 32 * nomes.len());
         dados[..15].copy_from_slice(b"file:///a.dart\0");
-        let dados: &'static mut [u8] = Box::leak(dados.into_boxed_slice());
         let base = dados.as_ptr() as usize;
         let mut saida = Vec::new();
         for (i, (nome, marcas)) in nomes.iter().enumerate() {
@@ -1117,8 +1141,8 @@ mod testes_rastro {
 
     /// Uma seção montada à mão: `(espécie, rótulo, registro, palavra)`, com
     /// uma sentinela zerada no começo.
-    fn secao(entradas: &[(u32, usize, usize, u32)]) -> (usize, usize) {
-        let secao: &'static mut [u8] = Box::leak(vec![0u8; 12 * (entradas.len() + 1)].into_boxed_slice());
+    fn secao(area: &mut Area, entradas: &[(u32, usize, usize, u32)]) -> (usize, usize) {
+        let secao = area.reservar(12 * (entradas.len() + 1));
         let s = secao.as_ptr() as usize;
         for (k, &(especie, rotulo, registro, palavra)) in entradas.iter().enumerate() {
             let k = k + 1;
@@ -1131,8 +1155,8 @@ mod testes_rastro {
         (s, s + secao.len())
     }
 
-    fn indice(entradas: &[(u32, usize, usize, u32)]) -> IndiceDoRastro {
-        let (s, f) = secao(entradas);
+    fn indice(area: &mut Area, entradas: &[(u32, usize, usize, u32)]) -> IndiceDoRastro {
+        let (s, f) = secao(area, entradas);
         let (mut pontos, mut funcoes) = (Vec::new(), Vec::new());
         // SAFETY: a seção acima, viva até o fim do processo.
         unsafe { ler_secao_do_rastro(s, f, &mut pontos, &mut funcoes) };
@@ -1146,10 +1170,11 @@ mod testes_rastro {
     /// ocultos, não.
     #[test]
     fn simboliza_no_formato_da_vm() {
-        let r = registros(&[("main", 0), ("f", 0), ("g", 0), ("stub", MARCA_OCULTA)]);
-        let codigo: &'static [u8] = Box::leak(vec![0u8; 200].into_boxed_slice());
+        let mut area = Area::nova();
+        let r = registros(&mut area, &[("main", 0), ("f", 0), ("g", 0), ("stub", MARCA_OCULTA)]);
+        let codigo = area.reservar(200);
         let c = codigo.as_ptr() as usize;
-        let ind = indice(&[
+        let ind = indice(&mut area, &[
             (0, c + 50, r[1], 7 << 12),
             (0, c + 10, r[0], 3 << 12 | 5),
             // Um ponto com `g` copiada em `main` (de dentro para fora).
@@ -1172,10 +1197,11 @@ mod testes_rastro {
     /// do estado; o ouvinte no token.
     #[test]
     fn escreve_a_cadeia_de_quem_espera() {
-        let r = registros(&[("f", MARCA_CORPO_ASYNC), ("main", MARCA_CORPO_ASYNC), ("main.<anonymous closure>", 0)]);
-        let codigo: &'static [u8] = Box::leak(vec![0u8; 200].into_boxed_slice());
+        let mut area = Area::nova();
+        let r = registros(&mut area, &[("f", MARCA_CORPO_ASYNC), ("main", MARCA_CORPO_ASYNC), ("main.<anonymous closure>", 0)]);
+        let codigo = area.reservar(200);
         let c = codigo.as_ptr() as usize;
-        let ind = indice(&[
+        let ind = indice(&mut area, &[
             (0, c + 10, r[0], 2 << 12 | 3),
             (1, c + 100, r[1], 1 << 12 | 6),
             (2, c + 100, r[1], 5 << 12 | 9),

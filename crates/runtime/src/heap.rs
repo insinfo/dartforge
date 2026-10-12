@@ -1154,8 +1154,9 @@ fn visitar_quadros_por_mapas(mut f: impl FnMut(i64)) {
                 e.quadros += 1;
                 let inicio = _Unwind_GetRegionStart(contexto) as u64;
                 let fp = _Unwind_GetGR(contexto, i32::from(DWARF_FP)) as u64;
-                // SAFETY: o contexto do desenrolador, válido durante o passo.
-                let registrador = |r: u16| unsafe { _Unwind_GetGR(contexto, i32::from(r)) as u64 };
+                // O fecho herda o bloco `unsafe` acima: o contexto do
+                // desenrolador é válido durante o passo.
+                let registrador = |r: u16| _Unwind_GetGR(contexto, i32::from(r)) as u64;
                 visitar_quadro(e.mapas, (inicio != 0).then_some(inicio), ip, sp as u64, fp, &registrador, e.f);
             }
             e.cfa_anterior = Some(cfa);
