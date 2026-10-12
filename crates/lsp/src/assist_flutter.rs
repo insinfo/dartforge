@@ -15,9 +15,9 @@
 //! | `Wrap with Center`/`Container`/`Padding`/`SizedBox`/`Column`/`Row` | `refactor.flutter.wrap.*` | `FlutterWrap` |
 //! | `Move child property to end of arguments` | `refactor.sort.child.properties.last` | `SortChildPropertyLast` |
 
-use crate::acoes::AcaoDeCodigo;
-use crate::refatoracoes::Contexto;
-use crate::refatoracoes_exec::{Mudanca, Texto, UM_RECUO};
+use crate::actions::AcaoDeCodigo;
+use crate::refactorings::Contexto;
+use crate::refactorings_exec::{Mudanca, Texto, UM_RECUO};
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, ClassKind, Element};
 use dartforge_types::{Resolved, Type, TypeId};
@@ -269,7 +269,7 @@ impl Contexto<'_> {
             "VariableDeclaration" => {
                 let lista = self.pai(no).filter(|&l| self.especie(l) == "VariableDeclarationList")?;
                 self.pai(lista).filter(|&d| self.especie(d) == "FieldDeclaration")?;
-                let nome = crate::refatoracoes_exec::nome_no_inicio_pub(self.texto_do_no(no)).to_string();
+                let nome = crate::refactorings_exec::nome_no_inicio_pub(self.texto_do_no(no)).to_string();
                 let classe_no = self.com_pais(no).find(|&k| self.especie(k) == "ClassDeclaration")?;
                 let crate::arvore_analyzer::Marca::Decl(d) = self.arvore.nos[classe_no].marca else { return None };
                 let classe = self.classe_da_declaracao(self.unidade, d)?;
@@ -324,7 +324,7 @@ impl Contexto<'_> {
         };
         let tx = Texto::novo(self.fonte);
         let eol = tx.eol();
-        let mut escritor = crate::escrever_tipo::Escritor::novo(self, self.arvore.nos[no].inicio);
+        let mut escritor = crate::write_type::Escritor::novo(self, self.arvore.nos[no].inicio);
         let mut referencia = |prefixo: &str, construtor: &str| -> Option<String> {
             let mut s = format!("{prefixo}{construtor}.add({id}");
             match &argumentos {
@@ -358,7 +358,7 @@ impl Contexto<'_> {
                 let recuo2 = format!("{UM_RECUO}{UM_RECUO}");
                 let corpo = referencia(&recuo2, "properties")?;
                 let texto = format!("@override{eol}{recuo1}void debugFillProperties(DiagnosticPropertiesBuilder properties) {{{eol}{recuo2}super.debugFillProperties(properties);{eol}{corpo}{recuo1}}}");
-                let (offset, inserido) = self.inserir_no_membro(classe_no, crate::inserir::Filtro::Metodo, &texto)?;
+                let (offset, inserido) = self.inserir_no_membro(classe_no, crate::insert::Filtro::Metodo, &texto)?;
                 m.adicionar(uri, Span { start: offset, end: offset }, inserido);
             }
             [metodo] => {
@@ -385,7 +385,7 @@ impl Contexto<'_> {
                         return None;
                     }
                     let tipo = self.filhos(q).iter().copied().find(|&k| self.especie(k) == "NamedType")?;
-                    let nome_tipo = crate::refatoracoes_exec::nome_no_inicio_pub(self.texto_do_no(tipo).rsplit('.').next().unwrap_or(""));
+                    let nome_tipo = crate::refactorings_exec::nome_no_inicio_pub(self.texto_do_no(tipo).rsplit('.').next().unwrap_or(""));
                     if nome_tipo != "DiagnosticPropertiesBuilder" {
                         return None;
                     }
@@ -398,7 +398,7 @@ impl Contexto<'_> {
             }
             _ => return None,
         }
-        crate::refatoracoes_mover::imports_do_builder(self, &mut m, &escritor.importar);
+        crate::refactorings_move::imports_do_builder(self, &mut m, &escritor.importar);
         self.acao_com_mudanca("Add a debug reference to this property", "refactor.add.diagnosticPropertyReference", m)
     }
 
@@ -703,12 +703,12 @@ impl Contexto<'_> {
         let classe = self.classe_flutter(URI_WIDGETS, nome)?;
         let tx = Texto::novo(self.fonte);
         let eol = tx.eol();
-        let mut escritor = crate::escrever_tipo::Escritor::novo(self, self.arvore.nos[widget].inicio);
+        let mut escritor = crate::write_type::Escritor::novo(self, self.arvore.nos[widget].inicio);
         let referencia = escritor.referencia_de(Element::Class(classe), nome);
         let recuo = tx.prefixo_da_linha(self.arvore.nos[widget].inicio).to_string();
         let recuo1 = format!("{recuo}{UM_RECUO}");
         let recuo2 = format!("{recuo}{UM_RECUO}{UM_RECUO}");
-        let virgulas = crate::refatoracoes_exec::regra_ligada(self.p, self.unidade, "require_trailing_commas");
+        let virgulas = crate::refactorings_exec::regra_ligada(self.p, self.unidade, "require_trailing_commas");
         let fonte_widget = tx.trocar_recuo(self.texto_do_no(widget), &recuo, &recuo2, false, false);
         let mut s = referencia;
         let mut marcas = crate::snippets::Escrita::default();
@@ -735,7 +735,7 @@ impl Contexto<'_> {
         s.push(')');
         let mut m = Mudanca::default();
         m.adicionar(uri, self.arvore.span(widget), s);
-        crate::refatoracoes_mover::imports_do_builder(self, &mut m, &escritor.importar);
+        crate::refactorings_move::imports_do_builder(self, &mut m, &escritor.importar);
         let (titulo, especie) = if stream { ("Wrap with StreamBuilder", "refactor.flutter.wrap.streamBuilder") } else { ("Wrap with Builder", "refactor.flutter.wrap.builder") };
         self.acao_ligada(titulo, especie, m, self.arvore.span(widget), &marcas)
     }
@@ -881,7 +881,7 @@ impl Contexto<'_> {
             Some(x) => Some(self.classe_flutter(URI_WIDGETS, x)?),
             None => None,
         };
-        let mut escritor = crate::escrever_tipo::Escritor::novo(self, self.arvore.nos[widget].inicio);
+        let mut escritor = crate::write_type::Escritor::novo(self, self.arvore.nos[widget].inicio);
         // Sem classe, os grupos `WIDGET` e `CHILD`; com ela, a seleção logo
         // depois do `(` (`flutter_wrap.dart:302-345`).
         let mut marcas = crate::snippets::Escrita::default();
@@ -896,8 +896,8 @@ impl Contexto<'_> {
         }
         let mut s = marcas.texto.clone();
         let linhas: Vec<String> = if nome == Some("Padding") {
-            let palavra = if crate::criar::em_contexto_constante(self, widget) { "" } else { " const" };
-            let valor = if crate::refatoracoes_exec::regra_ligada(self.p, self.unidade, "prefer_int_literals") { "8" } else { "8.0" };
+            let palavra = if crate::create::em_contexto_constante(self, widget) { "" } else { " const" };
+            let valor = if crate::refactorings_exec::regra_ligada(self.p, self.unidade, "prefer_int_literals") { "8" } else { "8.0" };
             vec![format!("padding:{palavra} EdgeInsets.all({valor}),")]
         } else {
             Vec::new()
@@ -924,7 +924,7 @@ impl Contexto<'_> {
         marcas.escrever(": ").escrever(&fonte).escrever(")");
         let mut m = Mudanca::default();
         m.adicionar(uri, self.arvore.span(widget), marcas.texto.clone());
-        crate::refatoracoes_mover::imports_do_builder(self, &mut m, &escritor.importar);
+        crate::refactorings_move::imports_do_builder(self, &mut m, &escritor.importar);
         let (titulo, especie) = match nome {
             None => ("Wrap with widget...".to_string(), "refactor.flutter.wrap.generic".to_string()),
             Some("SizedBox") => ("Wrap with SizedBox".to_string(), "refactor.flutter.wrap.sizedBox".to_string()),
@@ -941,7 +941,7 @@ impl Contexto<'_> {
         let fonte = &self.fonte[faixa.start..faixa.end];
         let classe = self.classe_flutter(URI_WIDGETS, nome)?;
         self.classe_flutter(URI_WIDGETS, "Widget")?;
-        let mut escritor = crate::escrever_tipo::Escritor::novo(self, faixa.start);
+        let mut escritor = crate::write_type::Escritor::novo(self, faixa.start);
         let mut s = escritor.referencia_de(Element::Class(classe), nome);
         s.push('(');
         let recuo = tx.prefixo_da_linha(faixa.start).to_string();
@@ -962,7 +962,7 @@ impl Contexto<'_> {
         s.push(')');
         let mut m = Mudanca::default();
         m.adicionar(uri, faixa, s);
-        crate::refatoracoes_mover::imports_do_builder(self, &mut m, &escritor.importar);
+        crate::refactorings_move::imports_do_builder(self, &mut m, &escritor.importar);
         self.acao_com_mudanca(&format!("Wrap with {nome}"), &format!("refactor.flutter.wrap.{}", nome.to_lowercase()), m)
     }
 }

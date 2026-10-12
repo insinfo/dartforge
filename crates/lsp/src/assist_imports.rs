@@ -8,8 +8,8 @@
 //! | `Convert to a relative import` | `refactor.convert.packageToRelativeImport` | `ConvertToRelativeImport` |
 //! | `Convert to use a URI` | `refactor.convert.partOfToPartUri` | `ConvertPartOfToUri` |
 
-use crate::acoes::AcaoDeCodigo;
-use crate::refatoracoes::Contexto;
+use crate::actions::AcaoDeCodigo;
+use crate::refactorings::Contexto;
 use crate::Edicao;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::Element;
@@ -125,7 +125,7 @@ impl Contexto<'_> {
             for r in &c.referencias {
                 for i in 0..r.len() {
                     let Some(s) = self.p.consulta.nomes.lookup(&r[i].1) else { continue };
-                    if let Some((crate::projeto::Alvo::Topo(e), _)) = self.p.resolver_referencia_doc(self.unidade, c.span, &r[..=i])
+                    if let Some((crate::project::Alvo::Topo(e), _)) = self.p.resolver_referencia_doc(self.unidade, c.span, &r[..=i])
                         && do_import(s, e)
                     {
                         nomes.push(r[i].1.clone());

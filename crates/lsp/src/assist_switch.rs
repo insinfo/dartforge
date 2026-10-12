@@ -5,9 +5,9 @@
 //! |---|---|---|
 //! | `Convert to switch statement` | `refactor.convert.switchStatement` | `ConvertIfStatementToSwitchStatement`, `ConvertSwitchExpressionToSwitchStatement` |
 
-use crate::acoes::AcaoDeCodigo;
-use crate::refatoracoes::Contexto;
-use crate::refatoracoes_exec::{Mudanca, Texto, UM_RECUO};
+use crate::actions::AcaoDeCodigo;
+use crate::refactorings::Contexto;
+use crate::refactorings_exec::{Mudanca, Texto, UM_RECUO};
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast;
 use dartforge_types::{Type, TypeId};
@@ -210,7 +210,7 @@ impl Contexto<'_> {
                     }
                     let palavra = &self.fonte[k.start..k.end];
                     if matches!(palavra, "final" | "var" | "const") {
-                        let mut escritor = crate::escrever_tipo::Escritor::novo(self, k.start);
+                        let mut escritor = crate::write_type::Escritor::novo(self, k.start);
                         let tipo = self.expr_do_no(switch).and_then(|x| self.corpos.get_type(x));
                         let escrito = escritor.escrever_tipo(tipo, false).unwrap_or_default();
                         importar = escritor.importar;
@@ -248,7 +248,7 @@ impl Contexto<'_> {
             }
             _ => return None,
         }
-        crate::refatoracoes_mover::imports_do_builder(self, &mut m, &importar);
+        crate::refactorings_move::imports_do_builder(self, &mut m, &importar);
         if m.conflito.is_some() {
             return None;
         }

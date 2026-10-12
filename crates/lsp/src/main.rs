@@ -5,7 +5,7 @@
 //! `stdout` é só protocolo, e um byte fora do enquadramento corrompe a
 //! sessão do editor.
 //!
-//! Fios: uma thread lê `stdin` quadro a quadro ([`transporte::ler_mensagem`])
+//! Fios: uma thread lê `stdin` quadro a quadro ([`transport::ler_mensagem`])
 //! e enfileira valores no [`Servidor`]; a thread principal despacha com
 //! [`Servidor::bombear`] e escreve cada mensagem de saída por inteiro sob um
 //! `Mutex`. O servidor nunca envia requisições, então não há resposta a
@@ -14,7 +14,7 @@
 //! acorda o despacho com [`Entrada::Despertar`] quando termina.
 
 use dartforge_lsp::{AnalisadorSemantico, Servidor};
-use dartforge_lsp::transporte::{escrever_mensagem, ler_mensagem};
+use dartforge_lsp::transport::{escrever_mensagem, ler_mensagem};
 use serde_json::Value;
 use std::io::{self, BufReader};
 use std::sync::{Arc, Mutex, mpsc};

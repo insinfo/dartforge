@@ -16,7 +16,7 @@
 //!
 //! Escrito sem compilar nem executar (2026-10-05).
 
-use crate::projeto::Projeto;
+use crate::project::Projeto;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, UnitId};
 use dartforge_frontend::ast::{self, DeclKind, MemberKind};

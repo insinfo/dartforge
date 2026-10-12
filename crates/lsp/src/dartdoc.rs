@@ -4,7 +4,7 @@
 //!
 //! Só a varredura léxica vive aqui; a resolução de cada referência (o que
 //! `[nome]` denota no escopo da declaração documentada) é de
-//! [`crate::projeto`], com as tabelas do programa carregado.
+//! [`crate::project`], com as tabelas do programa carregado.
 
 use dartforge_diagnostics::Span;
 

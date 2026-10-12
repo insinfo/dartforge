@@ -6,10 +6,10 @@
 //! |---|---|
 //! | `Convert to using super parameters` | `refactor.convert.toSuperParameters` |
 
-use crate::acoes::AcaoDeCodigo;
+use crate::actions::AcaoDeCodigo;
 use crate::arvore_analyzer::Marca;
-use crate::refatoracoes::Contexto;
-use crate::refatoracoes_exec::Mudanca;
+use crate::refactorings::Contexto;
+use crate::refactorings_exec::Mudanca;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{FunctionElementId, FunctionRef, LibraryId, UnitId};
 use dartforge_frontend::ast::{self, ExprId, MemberKind, ParameterKind};

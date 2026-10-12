@@ -10,7 +10,7 @@
 //! UTF-16); o recorte é o mesmo porque todo marcador cai em fronteira de
 //! caractere.
 
-use crate::acoes::{GrupoLigado, Ligado};
+use crate::actions::{GrupoLigado, Ligado};
 
 /// O texto de uma edição escrito com as marcas do `EditBuilder` do Dart:
 /// `addSimpleLinkedEdit` (grupos por nome, na ordem de criação) e

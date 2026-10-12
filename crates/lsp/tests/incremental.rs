@@ -5,9 +5,9 @@
 //! amostradas são iguais. As edições de corpo não derrubam a sessão; as de
 //! assinatura e de diretivas derrubam.
 
-mod comum;
+mod common;
 
-use comum::Projeto;
+use common::Projeto;
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_lsp::{AnalisadorSemantico, Servidor};
 use serde_json::{Value, json};

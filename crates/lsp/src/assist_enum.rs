@@ -6,10 +6,10 @@
 //! |---|---|
 //! | `Convert class to an enum` | `refactor.convert.classToEnum` |
 
-use crate::acoes::AcaoDeCodigo;
+use crate::actions::AcaoDeCodigo;
 use crate::arvore_analyzer::{Ligacao, Marca};
-use crate::refatoracoes::Contexto;
-use crate::refatoracoes_exec::{Texto, UM_RECUO};
+use crate::refactorings::Contexto;
+use crate::refactorings_exec::{Texto, UM_RECUO};
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{FunctionElementId, VariableId, VariableRef};
 use dartforge_frontend::ast::{self, DeclKind, MemberKind, ParameterKind};

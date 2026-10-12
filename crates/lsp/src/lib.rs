@@ -13,97 +13,97 @@
 //! `dartforge analyze` (`tipado`), publicada só se a versão ainda é a
 //! vigente (`docs/LSP.md`, "Diagnósticos tipados").
 
-pub mod formatacao;
-pub mod servidor;
-mod acoes;
+pub mod formatting;
+pub mod server;
+mod actions;
 pub(crate) use dartforge_analysis::arvore_analyzer;
-mod assinatura;
-mod assist_condicionais;
-mod assist_desestruturar;
+mod signature;
+mod assist_conditionals;
+mod assist_destructure;
 mod assist_enum;
-mod assist_envolver;
-mod assist_expressoes;
+mod assist_surround;
+mod assist_expressions;
 mod assist_flutter;
 mod assist_flutter_widget;
-mod assist_funcoes;
+mod assist_functions;
 mod assist_imports;
-mod assist_lacos;
+mod assist_loops;
 mod assist_super;
 mod assist_switch;
-mod assist_switch_expressao;
-mod assist_membros;
-mod assist_textos;
-mod assist_tipo;
-mod assistencias;
-mod assistencias2;
-mod assistencias3;
-mod casador;
-mod chamadas;
-mod dicas;
-mod escrever_tipo;
+mod assist_switch_expression;
+mod assist_members;
+mod assist_strings;
+mod assist_type;
+mod assists;
+mod assists2;
+mod assists3;
+mod fuzzy_matcher;
+mod call_hierarchy;
+mod inlay_hints;
+mod write_type;
 mod especies_g;
-mod estrutura;
-mod fonte_corrigir;
-mod fonte_imports;
-mod fonte_ordenar;
-mod hierarquia;
-mod simbolos_workspace;
-mod nomes_referenciados;
-mod ignorar;
-mod completar;
-mod conhecidas;
-mod consulta;
-mod contorno;
-mod correcoes;
-mod correcoes_dart;
-mod criar;
+mod structure;
+mod fix_all;
+mod organize_imports;
+mod sort_members;
+mod hierarchy;
+mod workspace_symbols;
+mod referenced_names;
+mod ignore_diagnostic;
+mod completion;
+mod known_libraries;
+mod query;
+mod outline;
+mod fixes;
+mod dart_fixes;
+mod create;
 mod dartdoc;
-mod destaques;
-mod descricao;
-mod indice;
+mod document_highlight;
+mod description;
+mod index;
 mod links;
-mod cores;
+mod colors;
 mod augmentations;
-mod mover_arquivo;
-mod inserir;
-mod item_completar;
-mod navegacao;
-mod projeto;
-mod realce;
-mod refatoracoes;
-mod refatoracoes_embutir;
-mod refatoracoes_exec;
-mod refatoracoes_metodo;
-mod refatoracoes_mover;
-mod registro;
-mod relevancia;
-mod relevancia_tabelas;
-mod renomear;
-mod rotulos;
-mod semantica;
-mod sessao;
-mod simbolos;
+mod move_file;
+mod insert;
+mod completion_item;
+mod navigation;
+mod project;
+mod semantic_tokens;
+mod refactorings;
+mod refactorings_inline;
+mod refactorings_exec;
+mod refactorings_method;
+mod refactorings_move;
+mod registration;
+mod relevance;
+mod relevance_tables;
+mod rename;
+mod closing_labels;
+mod semantic;
+mod session;
+mod symbols;
 mod snippets;
-mod tipado;
-pub mod transporte;
+mod typed;
+pub mod transport;
 pub mod utf16;
 
 use dartforge_diagnostics::Diagnostic;
 use std::collections::HashMap;
 use utf16::TabelaLinhas;
 
-pub use servidor::Servidor;
-pub use semantica::AnalisadorSemantico;
-pub use completar::{Chamada, Completar, ImportAutomatico, ItemCompletar};
-pub use renomear::{Edicao, RenomearArquivo, Renomeacao};
+pub use server::Servidor;
+pub use semantic::AnalisadorSemantico;
+pub use completion::{Chamada, Completar, ImportAutomatico, ItemCompletar};
+pub use rename::{Edicao, RenomearArquivo, Renomeacao};
 
-pub use acoes::{AcaoDeCodigo, GrupoLigado, Ligado};
-pub use refatoracoes::{ComandoDeRefatoracao, PedidoDeRefatoracao, Refatoracao, ResultadoDeRefatoracao};
-pub use assinatura::Assinatura;
-pub use chamadas::{EspecieDeChamada, ItemDeChamada};
-pub use dicas::Dica;
-pub use estrutura::Dobra;
-pub use sessao::EstatisticasSessao;
+pub use actions::{AcaoDeCodigo, GrupoLigado, Ligado};
+pub use refactorings::{ComandoDeRefatoracao, PedidoDeRefatoracao, Refatoracao, ResultadoDeRefatoracao};
+pub use signature::Assinatura;
+pub use call_hierarchy::{EspecieDeChamada, ItemDeChamada};
+pub use inlay_hints::Dica;
+pub use structure::Dobra;
+pub use session::EstatisticasSessao;
 
 
 /// Posição LSP: linha e coluna em **unidades UTF-16** (ambas a partir de 0).
@@ -455,8 +455,8 @@ pub trait Analisador {
     fn acoes(&mut self, documentos: &DocumentStore, uri: &str, inicio: usize, fim: usize, _publicados: &[Diagnostic]) -> Vec<AcaoDeCodigo> {
         let Some(texto) = documentos.get(uri) else { return Vec::new() };
         let diagnosticos = self.diagnosticar(uri, texto);
-        let mut saida = acoes::corrigir_sintaxe(uri, texto, &diagnosticos, inicio, fim);
-        saida.push(acoes::organizar_imports(uri, texto));
+        let mut saida = actions::corrigir_sintaxe(uri, texto, &diagnosticos, inicio, fim);
+        saida.push(actions::organizar_imports(uri, texto));
         saida
     }
 
@@ -786,22 +786,22 @@ impl Analisador for AnalisadorSintatico {
 
     fn simbolos(&mut self, uri: &str, texto: &str) -> Vec<serde_json::Value> {
         let features = self.features(uri, texto);
-        simbolos::do_documento(texto, features)
+        symbols::do_documento(texto, features)
     }
 
     fn definicao(&mut self, uri: &str, texto: &str, offset: usize) -> Option<(String, Option<dartforge_diagnostics::Span>)> {
         let features = self.features(uri, texto);
-        match navegacao::destino(uri, texto, features, offset)? {
-            navegacao::Alvo::Arquivo(destino) => Some((destino, None)),
-            navegacao::Alvo::NomeLocal(tipo) => Some((uri.to_string(), Some(tipo.declaracao))),
+        match navigation::destino(uri, texto, features, offset)? {
+            navigation::Alvo::Arquivo(destino) => Some((destino, None)),
+            navigation::Alvo::NomeLocal(tipo) => Some((uri.to_string(), Some(tipo.declaracao))),
         }
     }
 
     fn hover(&mut self, uri: &str, texto: &str, offset: usize) -> Option<Hover> {
         let features = self.features(uri, texto);
-        match navegacao::destino(uri, texto, features, offset)? {
-            navegacao::Alvo::Arquivo(_) => None,
-            navegacao::Alvo::NomeLocal(tipo) => Some(Hover {
+        match navigation::destino(uri, texto, features, offset)? {
+            navigation::Alvo::Arquivo(_) => None,
+            navigation::Alvo::NomeLocal(tipo) => Some(Hover {
                 intervalo: tipo.referencia,
                 descricao: tipo.descricao?,
                 tipo: tipo.tipo_estatico,
@@ -821,30 +821,30 @@ impl Analisador for AnalisadorSintatico {
 
     fn referencias(&mut self, uri: &str, texto: &str, offset: usize) -> Option<Vec<dartforge_diagnostics::Span>> {
         let features = self.features(uri, texto);
-        navegacao::referencias(uri, texto, features, offset)
+        navigation::referencias(uri, texto, features, offset)
     }
 
     fn definicao_no_workspace(&mut self, uri: &str, _texto: &str, offset: usize, documentos: &DocumentStore) -> Option<(String, Option<dartforge_diagnostics::Span>)> {
-        navegacao::definicao_em(documentos, uri, offset, self)
+        navigation::definicao_em(documentos, uri, offset, self)
     }
 
     fn hover_no_workspace(&mut self, uri: &str, _texto: &str, offset: usize, documentos: &DocumentStore) -> Option<Hover> {
-        let (intervalo, descricao, tipo) = navegacao::hover_em(documentos, uri, offset, self)?;
+        let (intervalo, descricao, tipo) = navigation::hover_em(documentos, uri, offset, self)?;
         Some(Hover { intervalo, descricao, tipo, documentacao: None, biblioteca: None })
     }
 
     fn dobras(&mut self, uri: &str, texto: &str, so_linhas: bool) -> Vec<Dobra> {
         let features = self.features(uri, texto);
-        estrutura::dobras(texto, features, so_linhas)
+        structure::dobras(texto, features, so_linhas)
     }
 
     fn selecoes(&mut self, uri: &str, texto: &str, offset: usize) -> Vec<dartforge_diagnostics::Span> {
         let features = self.features(uri, texto);
-        estrutura::selecoes(texto, features, offset)
+        structure::selecoes(texto, features, offset)
     }
 
     fn referencias_em(&mut self, documentos: &DocumentStore, uri: &str, offset: usize) -> Option<Referencias> {
-        let mut achados = navegacao::referencias_em(documentos, uri, offset, self)?.into_iter();
+        let mut achados = navigation::referencias_em(documentos, uri, offset, self)?.into_iter();
         let declaracao = achados.next();
         Some(Referencias { declaracao, usos: achados.collect() })
     }

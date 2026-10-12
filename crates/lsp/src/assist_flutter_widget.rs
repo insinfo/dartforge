@@ -7,11 +7,11 @@
 //! | `Convert to StatefulWidget` | `refactor.flutter.convert.toStatefulWidget` |
 //! | `Convert to StatelessWidget` | `refactor.flutter.convert.toStatelessWidget` |
 
-use crate::acoes::AcaoDeCodigo;
+use crate::actions::AcaoDeCodigo;
 use crate::arvore_analyzer::{Ligacao, Marca};
 use crate::assist_flutter::URI_FRAMEWORK;
-use crate::refatoracoes::Contexto;
-use crate::refatoracoes_exec::{Mudanca, Texto};
+use crate::refactorings::Contexto;
+use crate::refactorings_exec::{Mudanca, Texto};
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, Element, FunctionKind, VariableId};
 use dartforge_frontend::ast::{self, DeclKind, MemberKind};
@@ -198,7 +198,7 @@ impl Contexto<'_> {
         let classe_stateful = self.classe_flutter("package:flutter/widgets.dart", "StatefulWidget")?;
         let tx = Texto::novo(self.fonte);
         let eol = tx.eol();
-        let mut escritor = crate::escrever_tipo::Escritor::novo(self, palavra.start);
+        let mut escritor = crate::write_type::Escritor::novo(self, palavra.start);
         let mut m = Mudanca::default();
         m.adicionar(uri, p.unit(self.unidade).ast.ty(extends).span, escritor.referencia_de(Element::Class(classe_stateful), "StatefulWidget"));
         let parametros_de_tipo = self.filhos(classe_no).iter().copied().find(|&f| self.especie(f) == "TypeParameterList").map(|f| self.texto_do_no(f).to_string()).unwrap_or_default();
@@ -285,7 +285,7 @@ impl Contexto<'_> {
         s.push('}');
         let fim_classe = self.arvore.nos[classe_no].fim;
         m.adicionar(uri, Span { start: fim_classe, end: fim_classe }, s);
-        crate::refatoracoes_mover::imports_do_builder(self, &mut m, &escritor.importar);
+        crate::refactorings_move::imports_do_builder(self, &mut m, &escritor.importar);
         if m.conflito.is_some() {
             return None;
         }
@@ -472,7 +472,7 @@ impl Contexto<'_> {
         let classe_stateless = self.classe_flutter("package:flutter/widgets.dart", "StatelessWidget")?;
         let tx = Texto::novo(self.fonte);
         let eol = tx.eol();
-        let mut escritor = crate::escrever_tipo::Escritor::novo(self, palavra.start);
+        let mut escritor = crate::write_type::Escritor::novo(self, palavra.start);
         let mut m = Mudanca::default();
         m.adicionar(uri, p.unit(self.unidade).ast.ty(extends).span, escritor.referencia_de(Element::Class(classe_stateless), "StatelessWidget"));
         m.adicionar(uri, self.faixa_de_exclusao(state_no, None)?, "");
@@ -493,7 +493,7 @@ impl Contexto<'_> {
             }
         }
         m.adicionar(uri, faixa, s);
-        crate::refatoracoes_mover::imports_do_builder(self, &mut m, &escritor.importar);
+        crate::refactorings_move::imports_do_builder(self, &mut m, &escritor.importar);
         if m.conflito.is_some() {
             return None;
         }
