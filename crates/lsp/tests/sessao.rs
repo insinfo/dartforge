@@ -144,3 +144,33 @@ fn orcamento_zero_nunca_retem() {
         "{e:?}"
     );
 }
+
+/// Abrir no editor um arquivo com o mesmo texto do disco não derruba o
+/// programa retido; fechar um arquivo cujo texto aberto é o do disco
+/// também não. Abrir com outro texto derruba.
+#[test]
+fn abrir_e_fechar_com_o_texto_do_disco_mantem_a_sessao() {
+    let mut p = Projeto::novo("sessao-abrir");
+    let b = "import 'a.dart';\nint h() => f();\n";
+    p.gravar("lib/b.dart", b);
+    p.abrir("lib/a.dart", "int f() => 1;\n");
+    assert_eq!(referencias(&mut p, "lib/a.dart", 0, 4), vec!["lib/b.dart:1:11", "lib/a.dart:0:4"]);
+    let carregadas = est(&p).carregadas;
+    // `b.dart` aberto com o texto do disco (sem regravar): a entrada fica.
+    let uri_b = p.uri("lib/b.dart");
+    p.servidor.receber(json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": uri_b, "languageId": "dart", "version": 1, "text": b}}}));
+    p.servidor.bombear();
+    assert_eq!(referencias(&mut p, "lib/a.dart", 0, 4), vec!["lib/b.dart:1:11", "lib/a.dart:0:4"]);
+    assert_eq!(est(&p).carregadas, carregadas, "{:?}", est(&p));
+    // Fechado sem mudança: continua.
+    let uri = p.uri("lib/b.dart");
+    p.servidor.receber(json!({"jsonrpc": "2.0", "method": "textDocument/didClose", "params": {"textDocument": {"uri": uri}}}));
+    p.servidor.bombear();
+    assert_eq!(referencias(&mut p, "lib/a.dart", 0, 4), vec!["lib/b.dart:1:11", "lib/a.dart:0:4"]);
+    assert_eq!(est(&p).carregadas, carregadas, "{:?}", est(&p));
+    // Aberto com outro texto (um uso a mais): recarrega e vê o uso.
+    p.servidor.receber(json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": uri_b, "languageId": "dart", "version": 1, "text": "import 'a.dart';\nint h() => f() + f();\n"}}}));
+    p.servidor.bombear();
+    assert_eq!(referencias(&mut p, "lib/a.dart", 0, 4), vec!["lib/b.dart:1:11", "lib/b.dart:1:17", "lib/a.dart:0:4"]);
+    assert!(est(&p).carregadas > carregadas);
+}

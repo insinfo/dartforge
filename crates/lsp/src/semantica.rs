@@ -367,6 +367,26 @@ impl Analisador for AnalisadorSemantico {
         self.sessao_ampla.invalidar();
     }
 
+    fn documento_aberto(&mut self, documentos: &DocumentStore, uri: &str) {
+        if self.incremental {
+            self.sessao.abrir(documentos, uri);
+            self.sessao_ampla.abrir(documentos, uri);
+        } else {
+            self.documento_alterado(uri);
+        }
+    }
+
+    fn documento_fechado_em(&mut self, documentos: &DocumentStore, uri: &str) {
+        self.sintatico.documento_fechado(uri);
+        if self.incremental {
+            self.sessao.fechar(documentos, uri);
+            self.sessao_ampla.fechar(documentos, uri);
+        } else {
+            self.sessao.invalidar();
+            self.sessao_ampla.invalidar();
+        }
+    }
+
     fn documento_editado(&mut self, documentos: &DocumentStore, uri: &str) {
         if self.incremental {
             self.sessao.atualizar(documentos, uri);

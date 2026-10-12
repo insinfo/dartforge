@@ -486,6 +486,20 @@ pub trait Analisador {
     /// analisador retém de consultas anteriores deixa de valer e cai aqui.
     fn documento_alterado(&mut self, _uri: &str) {}
 
+    /// `didOpen`: `uri` passou a estar aberto em `documentos`. O padrão é
+    /// [`Analisador::documento_alterado`]; quem retém estado pode mantê-lo
+    /// quando o texto aberto é o que já leu do disco.
+    fn documento_aberto(&mut self, _documentos: &DocumentStore, uri: &str) {
+        self.documento_alterado(uri);
+    }
+
+    /// `didClose`: `uri` já saiu de `documentos`. O padrão é
+    /// [`Analisador::documento_fechado`]; quem retém estado pode mantê-lo
+    /// quando o texto do disco é o que já tinha.
+    fn documento_fechado_em(&mut self, _documentos: &DocumentStore, uri: &str) {
+        self.documento_fechado(uri);
+    }
+
     /// `didChange` aceito: o texto de `uri` em `documentos` é o novo. O
     /// padrão é [`Analisador::documento_alterado`]; quem retém
     /// estado pode trocá-lo no lugar quando só corpos mudaram.

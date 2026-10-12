@@ -923,7 +923,7 @@ impl<A: Analisador> Servidor<A> {
                 }
                 self.documentos
                     .open(uri.to_string(), versao, texto.to_string());
-                self.analisador.documento_alterado(uri);
+                self.analisador.documento_aberto(&self.documentos, uri);
                 self.pedir_tipado(uri);
                 if self.diagnosticos_puxados {
                     return None;
@@ -953,7 +953,7 @@ impl<A: Analisador> Servidor<A> {
                 let uri = params.get("textDocument")?.get("uri")?.as_str()?;
                 if self.documentos.close(uri) {
                     self.tipados_publicados.remove(uri);
-                    self.analisador.documento_fechado(uri);
+                    self.analisador.documento_fechado_em(&self.documentos, uri);
                     if let Some(t) = &self.tipado {
                         t.fechado(uri);
                     }

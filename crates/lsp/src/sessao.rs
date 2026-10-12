@@ -127,6 +127,54 @@ impl Sessao {
         }
     }
 
+    /// `didOpen` de `uri`: a entrada continua valendo quando só esse
+    /// documento entrou na lista dos abertos e o texto dele é o que a carga
+    /// já leu do disco para a unidade (abrir um arquivo no editor não
+    /// recarrega o programa); senão cai.
+    pub(crate) fn abrir(&mut self, documentos: &DocumentStore, uri: &str) {
+        if !self.manter(documentos, uri, documentos.get(uri).map(str::to_string)) {
+            self.invalidar();
+        }
+    }
+
+    /// `didClose` de `uri` (já fora de `documentos`): a entrada continua
+    /// valendo quando o texto do disco é o que a unidade tem; senão cai.
+    pub(crate) fn fechar(&mut self, documentos: &DocumentStore, uri: &str) {
+        let disco = crate::projeto::arquivo_da_uri(uri).and_then(|c| std::fs::read_to_string(c).ok());
+        if !self.manter(documentos, uri, disco) {
+            self.invalidar();
+            return;
+        }
+        // O arquivo passa a vir do disco: mudanças nele derrubam a entrada.
+        if let Some((chave, projeto)) = self.entrada.as_mut()
+            && let Some(u) = projeto.unidade_do_uri(uri)
+            && let Some(p) = projeto.programa().unit(u).path.clone()
+            && !chave.disco.iter().any(|(q, _)| *q == p)
+        {
+            let m = metadados(&p);
+            chave.disco.push((p, m));
+            chave.disco.sort();
+        }
+    }
+
+    /// A entrada retida vale com os abertos de agora se só `uri` entrou ou
+    /// saiu da lista e a unidade dele tem `texto`.
+    fn manter(&mut self, documentos: &DocumentStore, uri: &str, texto: Option<String>) -> bool {
+        let Some((chave, projeto)) = self.entrada.as_mut() else { return true };
+        let Some(texto) = texto else { return false };
+        let novos = abertos(documentos);
+        let sem = |l: &[(String, i32, usize)]| l.iter().filter(|a| a.0 != uri).cloned().collect::<Vec<_>>();
+        if sem(&novos) != sem(&chave.abertos) {
+            return false;
+        }
+        let Some(u) = projeto.unidade_do_uri(uri) else { return false };
+        if projeto.programa().unit(u).source != texto {
+            return false;
+        }
+        chave.abertos = novos;
+        true
+    }
+
     fn trocar(&mut self, documentos: &DocumentStore, uri: &str) -> bool {
         let Some((chave, projeto)) = self.entrada.as_mut() else { return false };
         let Some(texto) = documentos.get(uri) else { return false };
