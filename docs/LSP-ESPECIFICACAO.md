@@ -16679,6 +16679,27 @@ guarda os URIs com diagnósticos no cliente (`_filesWithClientDiagnostics`) e n�
 repetida. Continuam: a publicação sintática imediata do documento editado (uma a mais que o Dart) e a
 reanálise do pacote inteiro a cada mudança (I5/I6 a tornariam proporcional ao que mudou).
 
+**Estado em 2026-10-12 (macOS, medido).** Do lado do `crates/lsp`, sem mexer no motor:
+
+* A carga ampla das buscas não locais (projeto + SDK inteiro + pacotes) fica numa sessão própria
+  (`Sessao::ampla`, `DARTFORGE_LSP_AMPLO_MIB`), atualizada pelo mesmo `didChange` de corpo (I4); os corpos das
+  bibliotecas de fora são inferidos sob demanda por unidade (`Consulta::inferir_bibliotecas`, o `inferir_corpos`
+  de I2) e ficam.
+* Índices por unidade, feitos uma vez e esquecidos só quando o texto da unidade muda
+  (`Projeto::esquecer_unidade`, chamado na troca de I4): o reverso nome → unidades do `referencedNames`, o de
+  ocorrências (elemento → nomes que o resolvem em expressões, anotações e metadados) e os comentários de
+  documentação. `references`/`implementation` medianas 1,5/1,1 ms (eram 269/221).
+* `didOpen`/`didClose` de um arquivo cujo texto é o que a carga já tem não derrubam mais as sessões.
+* Medido com `examples/latencia_recursos.rs`: o `didChange` dentro de um corpo de um arquivo de 1200 linhas
+  custa 3 ms (a troca da unidade com todos os corpos dela reinferidos), e o hover seguinte 0,7 ms — o ganho
+  de I5 (reinferir só o corpo editado) seria de ~2 ms por tecla.
+
+Continuam: I5 (reaproveitar as tabelas dos corpos não alterados pede remapear `ExprId`s e offsets dentro de
+`UnitBodyTypes`, em `crates/types`; diagnósticos tipados incrementais pedem o `Motor` de `crates/paridade`
+incremental) e I6 (edição de assinatura sem recarga: elementos e esboço só da biblioteca e das dependentes, em
+`crates/elements`/`crates/types`). Hoje uma edição de assinatura derruba a sessão; a carga ampla volta em
+~0,2 s mais a inferência dos corpos das bibliotecas que o nome procurado pedir.
+
 ## 17. Maiores divergências (por número de posições do oráculo)
 
 | # | Requisição / recurso | Atual | Posições diferentes | Causa principal | Onde se resolve | Especificado em |
