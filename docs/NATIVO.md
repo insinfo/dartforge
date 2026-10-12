@@ -19,7 +19,7 @@ O compilador nativo consome os artefatos semânticos da trilha nova:
 Etapas (`crates/emit_native/src/lib.rs`, `emitir_ir` e `compilar`):
 
 1. **Carregamento e inferência.** O programa e o SDK (seção `vm` do
-   `libraries.json`, com os patches e a sobreposição `sdk_nativo/`) viram um
+   `libraries.json`, com os patches e a sobreposição `native_sdk/`) viram um
    `Program`; os corpos **do programa** são inferidos. O SDK da fonte é o
    padrão (`sdk_modulo::sdk_da_fonte_pedido`,
    `crates/emit_native/src/sdk_modulo.rs:121-127`): as
@@ -63,7 +63,7 @@ Etapas (`crates/emit_native/src/lib.rs`, `emitir_ir` e `compilar`):
    por conteúdo (`cache.rs`).
 
 Para programas grandes (docs/NATIVO-PROJETOS-REAIS.md): antes do lowering,
-o mundo fechado do programa (`mundo_nativo.rs`, sobre o `crates/mundo`)
+o mundo fechado do programa (`mundo_nativo.rs`, sobre o `crates/world`)
 decide o que o `main` alcança, e o resto vira corpo que lança, sem entrada
 na tabela de métodos nem adaptadores; depois da emissão, um IR acima de
 48 MB é dividido em partes de ~16 MB (`particao.rs`), cada uma um objeto
@@ -109,7 +109,7 @@ em três pontos, todos para tamanho (docs/PLANO-TAMANHO-DESEMPENHO.md §1):
 * **As funções idênticas são juntadas pelo ICF seguro**, e as do SDK levam
   `optsize`. O ICF seguro só junta as funções cujo endereço ninguém toma,
   então o `==` de tear-offs de funções de corpo idêntico continua `false`
-  (corpus/nativo 80).
+  (corpus/native 80).
 
 ### 1.2 Ligação sem o toolchain de C do sistema (N15, N16)
 
@@ -312,7 +312,7 @@ o JIT (módulo `dartforge_runtime::abi`) —, mais os módulos `heap`, `layout`,
 ## 3. Membros do SDK
 
 Os membros do SDK vêm da **fonte do SDK 3.6.2** com a sobreposição
-`sdk_nativo/` (`sdk_nativo/libraries.json`) e os natives em Rust da tabela
+`native_sdk/` (`native_sdk/libraries.json`) e os natives em Rust da tabela
 `crates/emit_native/src/nativos.rs`; o que cada native pendente significa
 para a API pública está em `docs/NATIVOS-PENDENTES.md`. É o único modo: um
 membro do SDK sem elemento útil no ponto da chamada (receptor `dynamic`,
@@ -335,7 +335,7 @@ receptor na falta.
 
 ## 4. Medição
 
-O placar é o do harness (`crates/diferencial`), no CI:
+O placar é o do harness (`crates/differential`), no CI:
 `pwsh scripts/ci.ps1 -Frente <frente> -Acompanhar` e
 `pwsh scripts/ci.ps1 -Placar <id>`. O relatório nativo termina com duas
 seções: as falhas agrupadas pela primeira linha do stderr, e **"construtos

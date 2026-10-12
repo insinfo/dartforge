@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
-use dartforge_formatar::{ErroFormatacao, Opcoes, formatar};
+use dartforge_formatter::{ErroFormatacao, Opcoes, formatar};
 
 const USO: &str = "Usage: dart format [options...] <files or directories...>
 -h, --help                     Print this usage information.
@@ -523,7 +523,7 @@ fn processar_fonte(config: &Config, estado: &mut Estado, arquivo: Option<&Path>,
 
 /// A mensagem do `FormatterException`: o trecho com linha e coluna, no
 /// formato do `SourceSpan.message` do pacote `source_span`.
-fn mensagem_de_erro(fonte: &str, exibido: &str, e: &dartforge_formatar::ErroSintaxe) -> String {
+fn mensagem_de_erro(fonte: &str, exibido: &str, e: &dartforge_formatter::ErroSintaxe) -> String {
     let pos = e.posicao.min(fonte.len());
     let inicio_linha = fonte[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
     let linha = fonte[..pos].matches('\n').count() + 1;

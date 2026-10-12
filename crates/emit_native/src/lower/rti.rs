@@ -1301,7 +1301,7 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
         let obj = Operand::Val(t.add_param("this".to_string(), Type::Ref));
         // O campo 0 do `_Type` é o ID RTI, escalar (`dartforge_rti_objeto_tipo`).
         // Sob ARC, a leitura confere o mapa real do campo; o texto ganha owner
-        // na preparação ARC (`otimizar/arc/nativos.rs`), não aqui.
+        // na preparação ARC (`optimize/arc/nativos.rs`), não aqui.
         let ler = if ctx.memoria_arc { "dartforge_arc_ler_campo_escalar_v1" } else { "dartforge_object_get" };
         let id = t.emit(
             Instruction::CallRuntime {

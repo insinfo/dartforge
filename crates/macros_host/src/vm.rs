@@ -1,5 +1,5 @@
 //! O executor de **materialização**: roda a mesma macro — com a nossa API
-//! (`pacotes/macros`, Dart puro) — numa VM Dart, pelo mesmo protocolo
+//! (`packages/macros`, Dart puro) — numa VM Dart, pelo mesmo protocolo
 //! `dfexec/1`, para gravar a augmentation num arquivo que o SDK oficial aceita
 //! com a flag experimental (docs/MACROS-COMPATIBILIDADE.md). É o caminho do
 //! builder para o `build_runner` e da compatibilidade com a toolchain
@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 pub struct ConfigDaVm {
     /// O executável `dart`.
     pub dart: PathBuf,
-    /// A raiz do pacote da nossa API (`pacotes/macros`).
+    /// A raiz do pacote da nossa API (`packages/macros`).
     pub api: PathBuf,
     /// Onde gravar o bootstrap e o `package_config.json`.
     pub trabalho: PathBuf,

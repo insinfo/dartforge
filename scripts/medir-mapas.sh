@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Etapa 2 dos mapas de pilha (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §6 e §8):
-# para cada programa de bench/desempenho, em A0 (pilha-sombra) e em B0
+# para cada programa de bench/performance, em A0 (pilha-sombra) e em B0
 # (mapas),
 #
 # * o tempo da compilação de desenvolvimento (`compile-native`, sem cache de
@@ -20,7 +20,7 @@ objdump=${2:-llvm-objdump}
 raiz=$(cd "$(dirname "$0")/.." && pwd)
 mkdir -p "$saida"
 printf 'programa\tmodo\tdev_s\tarquivo\t.text\t.rdata\t.pdata\t.dfgcm\n'
-for f in "$raiz"/bench/desempenho/*.dart; do
+for f in "$raiz"/bench/performance/*.dart; do
   nome=$(basename "$f" .dart)
   [ "$nome" = comum ] && continue
   for modo in sombra mapas; do

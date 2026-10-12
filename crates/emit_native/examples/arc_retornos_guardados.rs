@@ -5,7 +5,7 @@
 //! invoke automático, exercitando o seletor catch no perfil de cleanup Unix.
 //! Não observa morte final nem certifica o restante do pipeline ARC.
 
-use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*};
+use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
 
 fn main() -> Result<(), String> {

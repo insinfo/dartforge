@@ -251,7 +251,7 @@ sem nenhuma mudança real no programa. Para nós isso é direto — o
 `dartforge serve` recarrega por geração, e geração que muda à toa é um
 defeito visível.
 
-**Onde está implementado.** `dartforge-diferencial determinismo` roda o
+**Onde está implementado.** `dartforge-differential determinismo` roda o
 teste acima sobre o corpus. No backend nativo o artefato comparado é o
 LLVM IR de cada programa (resumo FNV-1a de 128 bits, ou o erro inteiro),
 sem Clang nem execução: o executável é função do IR, do Clang e do runtime,
@@ -274,7 +274,7 @@ cada compilação. Agora saem na ordem do CFE, que é a do DDC
 interfaces; getter antes do setter) — `emit_js/tests/determinismo.rs` emite o
 mesmo programa 6 vezes em sequência e 4 em threads e exige texto idêntico
 byte a byte. Auditados 19 pontos de iteração em `emit_js`,
-`emit_js_producao`, `mundo` e `dev`: 4 corrigidos (o de cima; o
+`emit_js_production`, `mundo` e `dev`: 4 corrigidos (o de cima; o
 `seletores()` público do `Mundo`, agora ordenado; e dois relatórios de
 depuração em stderr — `DARTFORGE_AVISOS_RESUMO` e `DARTFORGE_JSPROD_DEBUG` —
 que ordenavam só pela contagem, sem desempate), os outros 15 provados

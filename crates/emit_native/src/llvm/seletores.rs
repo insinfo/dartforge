@@ -360,7 +360,7 @@ impl LlvmEmitter<'_> {
     /// Dart chamadas diretamente, entradas de closure, natives do runtime
     /// fora da tabela de externs. Sem o SDK da fonte o módulo é o programa
     /// inteiro, e nada sai aqui.
-    /// Os thunks Owned genéricos (`otimizar::arc::nativos`): a base roda num
+    /// Os thunks Owned genéricos (`optimize::arc::nativos`): a base roda num
     /// escopo nativo (os tokens que portas Dart devolvem ficam nele), e o
     /// resultado ganha um owner do código antes de o escopo fechar; com
     /// exceção pendente, null sem owner — o mesmo protocolo de
@@ -391,7 +391,7 @@ impl LlvmEmitter<'_> {
         }
     }
 
-    /// Os thunks de escopo nativo (`otimizar::arc::nativos`): a base roda
+    /// Os thunks de escopo nativo (`optimize::arc::nativos`): a base roda
     /// num escopo nativo, e o resultado (escalar, emprestado ou nenhum) e a
     /// pendência ficam como a base os deixou.
     fn emitir_thunks_escopo(&mut self) {

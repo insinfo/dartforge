@@ -8,7 +8,7 @@
 //! bin/dartforge[.exe]            este executável (e a LLVM-C.dll do JIT no Windows)
 //! lib/dartforge-distribuicao.json
 //! lib/runtime/                   as duas staticlib do runtime (build.rs do emit_native)
-//! lib/sdk_nativo/                a sobreposição do backend nativo
+//! lib/native_sdk/                a sobreposição do backend nativo
 //! lib/dart-sdk/{lib,version}     as bibliotecas do SDK do Dart
 //! lib/llvm/bin/                  o lld (e o Clang, se a build não tem o gerador embutido)
 //! lib/sysroot/<triple>/          o que a ligação exige do sistema: no Linux, a glibc e a
@@ -47,7 +47,7 @@ pub fn run(args: &[std::ffi::OsString]) -> Resultado {
     }
 
     // A sobreposição e o SDK do Dart.
-    copiar_arvore(&dartforge_emit_native::sdk_modulo::dir_sobreposicao(), &lib.join("sdk_nativo"))?;
+    copiar_arvore(&dartforge_emit_native::sdk_modulo::dir_sobreposicao(), &lib.join("native_sdk"))?;
     let sdk = dartforge_emit_native::sdk_do_dart()?;
     copiar_arvore(&sdk, &lib.join("dart-sdk").join("lib"))?;
     if let Some(raiz) = sdk.parent()

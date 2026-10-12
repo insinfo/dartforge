@@ -1,10 +1,10 @@
-//! Filtro de alcance para o perfil de produção (`crates/emit_js_producao`,
+//! Filtro de alcance para o perfil de produção (`crates/emit_js_production`,
 //! `docs/JS-PRODUCAO.md` §1.7).
 //!
 //! O emissor pergunta ao filtro se uma classe, função ou variável vive, e não
 //! emite o que está morto. **Sem filtro (`Ctx::filtro == None`), nada muda**:
 //! é o perfil de desenvolvimento e o `dartforge serve`, byte a byte como antes
-//! — o teste `identidade` do `emit_js_producao` compila os mesmos programas
+//! — o teste `identidade` do `emit_js_production` compila os mesmos programas
 //! pelos dois caminhos e compara.
 
 use dartforge_elements::model::{ClassId, FunctionElementId, VariableId};
@@ -54,7 +54,7 @@ pub trait Vivos {
         true
     }
     /// Valor booleano constante provado para a expressão `x` da unidade
-    /// `u` (`dartforge_mundo::Constantes`): o emissor escreve o literal, e
+    /// `u` (`dartforge_world::Constantes`): o emissor escreve o literal, e
     /// o desvio morto de um `if` some.
     fn constante_bool(&self, _u: dartforge_elements::model::UnitId, _x: dartforge_frontend::ast::ExprId) -> Option<bool> {
         None

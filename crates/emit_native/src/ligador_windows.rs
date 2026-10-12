@@ -866,7 +866,7 @@ pub fn argumentos(sysroot: &SysrootWindows, l: &Ligacao<'_>) -> Vec<std::ffi::Os
         a.push(s.into());
     }
     // O tear-off de função de topo se compara pelo endereço (`left == right`,
-    // corpus/js 147 e 184, corpus/nativo 80): o ICF completo juntaria duas
+    // corpus/js 147 e 184, corpus/native 80): o ICF completo juntaria duas
     // funções de corpo idêntico e o `==` dos tear-offs daria `true`. Na
     // produção, o ICF seguro (`/opt:safeicf`) só junta as funções cujo
     // endereço ninguém toma (a tabela `.llvm_addrsig` do objeto; um objeto

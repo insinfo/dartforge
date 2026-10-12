@@ -11,7 +11,7 @@
 //!   `quickfix.import.librarySdk` e `quickfix.import.libraryProject1`.
 //!
 //! * **Correções dos códigos semânticos publicados** (os de
-//!   `crates/analise/verificados.txt` que o servidor do Dart 3.6.2 corrige),
+//!   `crates/analysis/verificados.txt` que o servidor do Dart 3.6.2 corrige),
 //!   sobre os diagnósticos imediatos e os tipados da versão vigente, com os
 //!   títulos e espécies do Dart ([`corrigir_publicados`]).
 //! * **Assistência** `Add type annotation` (`crate::assistencias`).

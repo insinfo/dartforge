@@ -1,7 +1,7 @@
 //! Prova AOT das caixas SIMD ARC: palavras da ABI, bits e morte após release.
 //! Tracing preserva a fábrica antiga; o harness adquire seu owner explicitamente.
 
-use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*};
+use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, fmt::Write, path::PathBuf};
 
 fn main() -> Result<(), String> {

@@ -4,7 +4,7 @@
 // A fila de microtarefas e a ordem delas são as do `dart:async` da fonte
 // (`schedule_microtask.dart`: `_nextCallback`, `_startMicrotaskLoop`); o
 // runtime só guarda as closures que `_AsyncRun._scheduleImmediate` entrega
-// (o native `DartForge_scheduleImmediate` da sobreposição `sdk_nativo/`) e as
+// (o native `DartForge_scheduleImmediate` da sobreposição `native_sdk/`) e as
 // roda, em ordem, antes de qualquer timer. Os timers são os da VM
 // (`_internal/vm/lib/timer_impl.dart`, a referência): prazo em milissegundos
 // de um relógio monotônico — `agora` para duração 0 e `agora + 1 + ms` para

@@ -4,7 +4,7 @@
 //! certifica o registro/cleanup automático de imagens e recargas. Tracing
 //! executa o corpo com tokens explícitos para conferir compatibilidade.
 
-use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar, otimizar::arc::*};
+use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize, optimize::arc::*};
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
@@ -95,7 +95,7 @@ fn modulo(tabelas: bool, certificar: bool) -> Result<Module, String> {
         m.parametros_vetores_dart["entrada_uniforme"].clone(),
     );
     if tabelas {
-        otimizar::excecoes_por_tabelas(&mut m);
+        optimize::excecoes_por_tabelas(&mut m);
     }
     let mut planos = HashMap::from([
         ("ajudante_nsm".into(), PlanoFuncaoDart::default()),

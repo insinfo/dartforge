@@ -9,13 +9,13 @@
 //! fluxo de tipos retém (`VM/pkg/vm/lib/transformations/type_flow/`,
 //! `VM/runtime/vm/compiler/aot/precompiler.cc` `DropFunctions`).
 //!
-//! Aqui a alcançabilidade é a do `crates/mundo` — o RTA do JS de produção:
+//! Aqui a alcançabilidade é a do `crates/world` — o RTA do JS de produção:
 //! classes instanciadas × seletores invocados, com o SDK como fronteira
 //! (os membros que implementam um supertipo do SDK, os de `Object` e `call`
 //! vivem em toda classe instanciada). O que o SDK compilado (fora do mundo)
 //! pode chamar num objeto do programa entra como seletor externo: TODO nome
 //! de membro escrito nas bibliotecas do SDK (com a sobreposição
-//! `sdk_nativo/`) — `x.nome`, `nome` solto (o `this.nome()` implícito de uma
+//! `native_sdk/`) — `x.nome`, `nome` solto (o `this.nome()` implícito de uma
 //! classe do SDK estendida pelo programa), símbolos `#nome` e campos de
 //! padrão de objeto. É um superconjunto sintático: o SDK só chama um membro
 //! escrevendo o nome dele (sem espelhos), ou pelo `noSuchMethod`/`call`, que
@@ -52,11 +52,11 @@ pub fn calcular(
     table: &TypeTable,
     outline: &OutlineTypes,
     bodies: &BodyTypes,
-) -> Option<dartforge_mundo::Mundo> {
+) -> Option<dartforge_world::Mundo> {
     if std::env::var_os("DARTFORGE_SEM_PODA_DO_PROGRAMA").is_some_and(|v| v != "0") {
         return None;
     }
-    let mut r = dartforge_mundo::Raizes::default();
+    let mut r = dartforge_world::Raizes::default();
     let lib = program.entry?;
     let main = interner.lookup("main")?;
     match program.library(lib).declared.get(&main).and_then(|b| b.getter) {
@@ -70,14 +70,14 @@ pub fn calcular(
     }
     nomes_escritos_no_sdk(program, interner, &mut nomes);
     r.seletores = nomes.into_iter().collect();
-    let e = dartforge_mundo::Entrada { program, interner, table, outline, bodies };
-    Some(dartforge_mundo::calcular(e, &r))
+    let e = dartforge_world::Entrada { program, interner, table, outline, bodies };
+    Some(dartforge_world::calcular(e, &r))
 }
 
 /// `@pragma('vm:entry-point')` no programa: a VM retém o que a anotação
 /// marca (o embutidor chama por nome); aqui vira raiz — a função (de topo
 /// ou método) e a classe.
-fn entradas_marcadas(program: &Program, interner: &Interner, r: &mut dartforge_mundo::Raizes) {
+fn entradas_marcadas(program: &Program, interner: &Interner, r: &mut dartforge_world::Raizes) {
     use dartforge_elements::model::{ClassId, FunctionRef};
     let marcada = |a: &ast::Ast, meta: &[ast::Annotation]| {
         meta.iter().any(|m| {

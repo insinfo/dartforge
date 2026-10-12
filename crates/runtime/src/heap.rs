@@ -4180,7 +4180,7 @@ mod espaco_de_objetos {
         assert!(!heap.e_objeto_vivo(acao));
     }
 
-    /// A carga de `bench/desempenho/objetos_escapam.dart` (`lista_ligada`)
+    /// A carga de `bench/performance/objetos_escapam.dart` (`lista_ligada`)
     /// direto no heap, para medir o coletor sem compilar Dart:
     /// `cargo test --release -p dartforge-runtime lista_ligada_no_heap --
     /// --ignored --nocapture` (com `DARTFORGE_GC_RASTRO=1`, as coletas).

@@ -3,7 +3,7 @@
 //! Tracing usa tokens explícitos apenas no harness de comparação.
 //! Não certifica lowering de fonte Dart, guardas de getters ou recarga.
 
-use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*};
+use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
 
 fn modulo(quadro: bool, tipada: bool) -> Result<Module, String> {

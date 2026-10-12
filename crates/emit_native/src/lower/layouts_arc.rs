@@ -170,14 +170,14 @@ void main() { Base().exercitar(Object()); }
                     assert!(!modulo.sitios_arc.is_empty());
                     for f in &modulo.functions {
                         for (v, i, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
-                            if crate::otimizar::arc::analise::origens::alocacao(i) {
+                            if crate::optimize::arc::analise::origens::alocacao(i) {
                                 let sitio = &modulo.sitios_arc[&f.symbol][v];
                                 assert_eq!(sitio.funcao, f.symbol);
                             }
                         }
                     }
                     let principal = modulo.functions.iter().find(|f| f.name == "main").unwrap();
-                    let analise = crate::otimizar::arc::analise::modulo::analisar_no_modulo(
+                    let analise = crate::optimize::arc::analise::modulo::analisar_no_modulo(
                         &modulo, &principal.symbol, 8,
                     ).unwrap().unwrap();
                     let mut alocacoes = 0;
@@ -187,7 +187,7 @@ void main() { Base().exercitar(Object()); }
                                 assert_eq!(nos.len(), 1);
                                 let esperado = &modulo.sitios_arc[&principal.symbol][v];
                                 assert!(nos.iter().all(|n| matches!(n,
-                                    crate::otimizar::arc::analise::modelo::NoAbstrato::Alocacao { sitio, .. }
+                                    crate::optimize::arc::analise::modelo::NoAbstrato::Alocacao { sitio, .. }
                                         if sitio == esperado)));
                                 alocacoes += 1;
                             }
@@ -236,7 +236,7 @@ void main() { Base().exercitar(Object()); }
                         assert_eq!(classe.field_count, esperado.len());
                     }
                     let antes = modulo.layouts_campos_arc.clone();
-                    crate::otimizar::otimizar(&mut modulo);
+                    crate::optimize::otimizar(&mut modulo);
                     assert_eq!(modulo.layouts_campos_arc, antes);
                     let identidade = modulo
                         .functions
@@ -244,10 +244,10 @@ void main() { Base().exercitar(Object()); }
                         .find(|f| f.name == "identidade")
                         .unwrap();
                     assert!(modulo.retornos_ref_dart.contains(&identidade.symbol));
-                    let resumo = crate::otimizar::arc::analise::resumos::extrair(identidade, 8).unwrap();
-                    assert_eq!(resumo.campos(), crate::otimizar::arc::analise::resumos::CamposHeapArc::Preservados);
+                    let resumo = crate::optimize::arc::analise::resumos::extrair(identidade, 8).unwrap();
+                    assert_eq!(resumo.campos(), crate::optimize::arc::analise::resumos::CamposHeapArc::Preservados);
                     assert!(matches!(resumo.retorno(),
-                        crate::otimizar::arc::analise::resumos::RetornoHeapArc::Aliases { parametros, .. }
+                        crate::optimize::arc::analise::resumos::RetornoHeapArc::Aliases { parametros, .. }
                             if !parametros.is_empty() && parametros.iter().all(|&p| identidade.params[p].2 == Type::Ref)));
                     assert!(
                         modulo
@@ -268,19 +268,19 @@ void main() { Base().exercitar(Object()); }
                     let mut prova = Module::new();
                     prova.functions.push(identidade.clone());
                     prova.retornos_ref_dart.insert(identidade.symbol.clone());
-                    crate::otimizar::preparar_para_emissao(&mut prova, true, true);
+                    crate::optimize::preparar_para_emissao(&mut prova, true, true);
                     let mut planos = std::collections::HashMap::from([(
                         identidade.symbol.clone(),
-                        crate::otimizar::arc::PlanoFuncaoDart::default(),
+                        crate::optimize::arc::PlanoFuncaoDart::default(),
                     )]);
                     assert_eq!(
-                        crate::otimizar::arc::preparar_arc_modulo_tabelado(&mut prova, &mut planos)
+                        crate::optimize::arc::preparar_arc_modulo_tabelado(&mut prova, &mut planos)
                             .unwrap(),
                         (1, 0)
                     );
                     assert_eq!(
                         planos[&identidade.symbol].tokens.retorno,
-                        crate::otimizar::arc::RetornoTokens::Owned
+                        crate::optimize::arc::RetornoTokens::Owned
                     );
                     let ir = crate::llvm::LlvmEmitter::new(&prova).emit_all();
                     assert!(ir.contains("call void @dartforge_arc_retain("));
@@ -315,7 +315,7 @@ void main() { Base().exercitar(Object()); }
                     super::super::registrar_classes_do_programa(&sdk_ctx, &mut m);
                     let mut planos = std::collections::HashMap::new();
                     assert_eq!(
-                        crate::otimizar::arc::preparar_arc_modulo_dart(&mut m, &mut planos)
+                        crate::optimize::arc::preparar_arc_modulo_dart(&mut m, &mut planos)
                             .unwrap_or_else(|e| panic!(
                                 "{}: {e}; classes {:?}",
                                 lib.uri, m.classes

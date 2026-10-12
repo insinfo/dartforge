@@ -59,7 +59,7 @@ fn vm(entrada: &Path, config: &Path, sdk: &SdkLayout, trabalho: &Path) -> Execut
     let apps = dartforge_macros_host::aplicacoes::detectar(&Vista { program: &p, interner: &nomes });
     let cfg = dartforge_macros_host::vm::ConfigDaVm {
         dart: dart(),
-        api: raiz().join("pacotes/macros"),
+        api: raiz().join("packages/macros"),
         trabalho: trabalho.to_path_buf(),
     };
     dartforge_macros_host::vm::iniciar(&cfg, &apps, Some(config)).unwrap()

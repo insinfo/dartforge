@@ -17,7 +17,7 @@ if self.apenas_bibliotecas.as_ref().is_some_and(|s| !s.contains(&func_elem.libra
 **Por quê:** P5 compila `dart:core`, `dart:collection`, `dart:_internal`,
 `dart:math` e `dart:_compact_hash` **da fonte**; para isso o lowering precisa
 dos tipos e da resolução dos corpos do SDK (seção `vm` com os patches e a
-sobreposição `sdk_nativo/`). Hoje nenhum corpo do SDK é inferido, nem quando
+sobreposição `native_sdk/`). Hoje nenhum corpo do SDK é inferido, nem quando
 pedido por `infer_bodies_das_bibliotecas`: o `is_sdk` pula antes de olhar
 `apenas_bibliotecas`. O aceite de P5a é **zero** diagnósticos de inferência
 nesses corpos, e a medição dele depende disto.
@@ -259,7 +259,7 @@ parâmetros com os argumentos); o que não se deduz fica `dynamic`.
    `DartForge_Timer_novo`, `DartForge_Timer_cancelar` e
    `Error_trySetStackTrace` passam a `Runtime` (implementados em
    `runtime/src/eventos.rs`).
-3. **`sdk_nativo/async/timer_patch.dart`:** `_Timer._novo` recebe o tear-off
+3. **`native_sdk/async/timer_patch.dart`:** `_Timer._novo` recebe o tear-off
    `_disparar` (uma closure) em vez do próprio `_Timer`: o laço de eventos só
    chama closures sem argumentos — o único ponto em que o runtime chama Dart
    (`dartforge_laco_de_eventos`), sem precisar chamar um método pelo nome.

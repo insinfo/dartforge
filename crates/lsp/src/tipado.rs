@@ -2,11 +2,11 @@
 //!
 //! A cada `didOpen`/`didChange`/`didClose`, o [`crate::Servidor`] publica na
 //! hora os diagnósticos sintáticos (parser + verificadores locais de
-//! `crates/analise`) e pede a este trabalhador a análise completa do pacote
+//! `crates/analysis`) e pede a este trabalhador a análise completa do pacote
 //! do documento. A análise é **a mesma** do `dartforge analyze`:
-//! [`dartforge_paridade::analise::Motor`] (carga, outline, inferência de
-//! `crates/types` e os verificadores de `crates/analise`) seguida de
-//! [`dartforge_paridade::publicaveis`] (regra de publicação de
+//! [`dartforge_parity::analise::Motor`] (carga, outline, inferência de
+//! `crates/types` e os verificadores de `crates/analysis`) seguida de
+//! [`dartforge_parity::publicaveis`] (regra de publicação de
 //! `verificados.txt`, `analysis_options.yaml` e `// ignore:`). Nenhuma regra
 //! é duplicada aqui: só se escolhe quais arquivos analisar e se descarta o
 //! que ficou velho.
@@ -27,11 +27,11 @@
 //!   de bibliotecas) e uma cópia do texto vigente de cada documento aberto.
 //!   Programa, árvores e tabela de tipos vivem uma análise e caem com ela.
 //!
-//! [`Motor`]: dartforge_paridade::analise::Motor
+//! [`Motor`]: dartforge_parity::analise::Motor
 
 use crate::{Analisador, AnalisadorSintatico};
 use dartforge_diagnostics::Diagnostic;
-use dartforge_paridade::analise::{Motor, chave, e_parte};
+use dartforge_parity::analise::{Motor, chave, e_parte};
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
@@ -52,7 +52,7 @@ pub(crate) struct Resultado {
     /// Os diagnósticos de um arquivo YAML do pacote (`analysis_options.yaml`,
     /// `pubspec.yaml`), já no JSON do analyzer (§3.2: os arquivos não-Dart
     /// validados na criação dos contextos e a cada evento do observador).
-    pub yaml: Vec<dartforge_paridade::json::DiagJson>,
+    pub yaml: Vec<dartforge_parity::json::DiagJson>,
 }
 
 /// Documento aberto como o trabalhador o vê.
@@ -420,7 +420,7 @@ struct ConfiguracaoDaAnalise {
 fn pacotes_das_pastas(pastas: &[PathBuf]) -> Vec<PathBuf> {
     let mut v: BTreeSet<PathBuf> = BTreeSet::new();
     for p in pastas {
-        for a in dartforge_paridade::corpus::arquivos_dart(p) {
+        for a in dartforge_parity::corpus::arquivos_dart(p) {
             v.insert(raiz_do_pacote(&a, pastas));
         }
     }
@@ -430,7 +430,7 @@ fn pacotes_das_pastas(pastas: &[PathBuf]) -> Vec<PathBuf> {
 /// Os arquivos `afetados` por uma mudança em `alterados`: eles e, pelas
 /// diretivas (`import`, `export`, `part`, `part of`), os que dependem deles,
 /// transitivamente (os que o driver do Dart reanalisa e republica).
-fn afetados(arquivos: &std::collections::BTreeMap<PathBuf, dartforge_paridade::analise::Arquivo>, alterados: &BTreeSet<PathBuf>, pacotes: Option<&dartforge_elements::PackageConfig>) -> BTreeSet<PathBuf> {
+fn afetados(arquivos: &std::collections::BTreeMap<PathBuf, dartforge_parity::analise::Arquivo>, alterados: &BTreeSet<PathBuf>, pacotes: Option<&dartforge_elements::PackageConfig>) -> BTreeSet<PathBuf> {
     let mut dependentes: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
     for (caminho, a) in arquivos {
         let mut nomes = dartforge_intern::Interner::new();
@@ -494,11 +494,11 @@ fn analisar_pacote(
         .collect();
     let abertos: Vec<(String, i32, PathBuf, String)> = abertos.iter().filter(|(_, _, c, _)| !excluido(c)).cloned().collect();
     let abertos = &abertos[..];
-    let opcoes = dartforge_paridade::filtros::Opcoes::ler(raiz);
+    let opcoes = dartforge_parity::filtros::Opcoes::ler(raiz);
     // Os `.dart` do pacote que o `dart analyze` veria (fora das exclusões do
     // `analysis_options.yaml` e das `analysisExcludedFolders`).
     let do_pacote: Vec<PathBuf> = if no_workspace {
-        dartforge_paridade::projetos::arquivos(raiz, &opcoes).into_iter().filter(|a| !excluido(a)).collect()
+        dartforge_parity::projetos::arquivos(raiz, &opcoes).into_iter().filter(|a| !excluido(a)).collect()
     } else {
         Vec::new()
     };
@@ -547,7 +547,7 @@ fn analisar_pacote(
         let Some(arquivo) = analise.arquivos.get(&chave(caminho)) else {
             continue;
         };
-        if dartforge_paridade::oraculo::relativo(caminho, raiz)
+        if dartforge_parity::oraculo::relativo(caminho, raiz)
             .is_some_and(|rel| opcoes.excluido(&rel))
         {
             continue;
@@ -560,13 +560,13 @@ fn analisar_pacote(
         // promovida acima de INFO pelo `analysis_options.yaml`), cada um na
         // posição em que o analisador o relatou.
         let publicados: Vec<Diagnostic> =
-            dartforge_paridade::publicaveis(arquivo, &opcoes, true)
+            dartforge_parity::publicaveis(arquivo, &opcoes, true)
                 .into_iter()
                 .filter(|(_, sintaxe)| !sintaxe)
                 .map(|(d, _)| d)
                 .collect();
         let mut semanticos: Vec<Diagnostic> = Vec::new();
-        for (d, sintaxe) in dartforge_paridade::publicaveis(arquivo, &opcoes, false) {
+        for (d, sintaxe) in dartforge_parity::publicaveis(arquivo, &opcoes, false) {
             if sintaxe {
                 continue;
             }
@@ -606,12 +606,12 @@ fn analisar_pacote(
         let opcoes_yaml = raiz.join("analysis_options.yaml");
         let pubspec_yaml = raiz.join("pubspec.yaml");
         let mudou = |p: &Path| todos || alterados.contains(&chave(p));
-        let mut yaml: Vec<(PathBuf, Vec<dartforge_paridade::json::DiagJson>)> = Vec::new();
+        let mut yaml: Vec<(PathBuf, Vec<dartforge_parity::json::DiagJson>)> = Vec::new();
         if opcoes_yaml.is_file() && mudou(&opcoes_yaml) {
-            yaml.push((opcoes_yaml.clone(), dartforge_paridade::diagnosticos_das_opcoes(raiz)));
+            yaml.push((opcoes_yaml.clone(), dartforge_parity::diagnosticos_das_opcoes(raiz)));
         }
         if pubspec_yaml.is_file() && (mudou(&pubspec_yaml) || mudou(&opcoes_yaml)) {
-            yaml.push((pubspec_yaml.clone(), dartforge_paridade::diagnosticos_do_pubspec(raiz, &opcoes)));
+            yaml.push((pubspec_yaml.clone(), dartforge_parity::diagnosticos_do_pubspec(raiz, &opcoes)));
         }
         for (caminho, diagnosticos) in yaml {
             let Ok(texto) = std::fs::read_to_string(&caminho) else { continue };

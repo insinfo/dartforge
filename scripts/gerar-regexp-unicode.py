@@ -1,4 +1,4 @@
-r"""Gera `crates/analise/src/lints/regexp_unicode_g.rs`: as tabelas Unicode que o
+r"""Gera `crates/analysis/src/lints/regexp_unicode_g.rs`: as tabelas Unicode que o
 analisador de expressões regulares da VM do Dart 3.6.2 consulta no ICU 74.2
 (Unicode 15.1): `ID_Start`/`ID_Continue` (nomes de grupos de captura) e os nomes
 aceitos em `\p{...}` com `unicode: true` (`AddPropertyClassRange` de
@@ -15,7 +15,7 @@ import sys
 import urllib.request
 
 UCD = sys.argv[1] if len(sys.argv) > 1 else 'E:/dftemp/ucd-15.1.0'
-SAIDA = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'crates', 'analise', 'src', 'lints', 'regexp_unicode_g.rs')
+SAIDA = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'crates', 'analysis', 'src', 'lints', 'regexp_unicode_g.rs')
 ARQUIVOS = ['PropertyAliases.txt', 'PropertyValueAliases.txt', 'Scripts.txt', 'ScriptExtensions.txt', 'DerivedCoreProperties.txt']
 
 # As propriedades binárias de `IsSupportedBinaryProperty`, pelo nome curto do UCD.

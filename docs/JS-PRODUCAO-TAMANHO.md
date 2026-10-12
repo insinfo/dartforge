@@ -36,7 +36,7 @@ rodadas do ponto fixo, 6 rodadas):
 
 | fase | tempo |
 | --- | ---: |
-| mundo fechado (`dartforge_mundo::calcular_com`) | **707 s** |
+| mundo fechado (`dartforge_world::calcular_com`) | **707 s** |
 | verificador do texto (`verificar::conferir`) | **169 s** |
 | emissão | 19 s |
 
@@ -101,7 +101,7 @@ dart2js não paga:
 
 ## 2. Por que o mundo fechado leva minutos
 
-A fila do `Motor` (`crates/mundo/src/lib.rs:1256-1270`) já processa cada
+A fila do `Motor` (`crates/world/src/lib.rs:1256-1270`) já processa cada
 item uma vez. O tempo vai para três lugares:
 
 1. **A regra de cone varre todas as classes.** `alcanca(membro, cone)`
@@ -284,8 +284,8 @@ trabalho, não substitui a medida.
 
 ## 5. Validação de cada passo
 
-1. `dartforge-diferencial --producao`: corpus/js 238/238 iguais à VM.
-2. Testes de `mundo`, `emit_js`, `emit_js_producao` e `elements`.
+1. `dartforge-differential --producao`: corpus/js 238/238 iguais à VM.
+2. Testes de `mundo`, `emit_js`, `emit_js_production` e `elements`.
 3. `limitless_ui/example`: e2e 26/26.
 4. `new_sali/frontend`: `scripts/fluxo.mjs`, os 11 passos sem erro.
 5. Tamanho (bruto) e tempo por fase, na tabela da §1.1.
@@ -298,17 +298,17 @@ O que entrou:
 
 * **Mundo incremental** (§2.1): `Hierarquia`, `inst_sub`, pendentes por
   (nome, dono), par (nome, cone) uma vez só, e o motor retomável entre as
-  rodadas (`dartforge_mundo::Calculo`).
+  rodadas (`dartforge_world::Calculo`).
 * **Renomeio de propriedades** (§3.1). Fica em
-  `emit_js_producao/src/propriedades.rs` (o conjunto) e `minificar.rs` (o
+  `emit_js_production/src/propriedades.rs` (o conjunto) e `minificar.rs` (o
   `PropertyMangler` do `oxc_minifier`, em duas coletas: os candidatos que o
   `oxc` enxerga menos os livres vão para os reservados). As palavras dos
   *templates* reservadas são só as que podem ser propriedade: depois de
   `.`, antes de `:` ou entre aspas.
 * **Receitas rti com a biblioteca curta** (§3.2, `emit_js::tag_de_receita`).
 * **`assert` desligados por padrão e condições constantes** (§3.3,
-  `dartforge_mundo::Constantes`). `--enable-asserts` os liga, e o
-  `dartforge-diferencial` passa a flag, porque o oráculo roda a VM com
+  `dartforge_world::Constantes`). `--enable-asserts` os liga, e o
+  `dartforge-differential` passa a flag, porque o oráculo roda a VM com
   `--enable-asserts`.
 * **Compressão do `oxc_minifier`** antes do renomeio. `dart.fn` **não** é
   função pura: ela devolve a *closure*, e marcá-la pura fazia o `oxc`
@@ -442,7 +442,7 @@ consulta só `regra[S][T]` (`_isSubtype`, `lookupSupertype`), e o teste
 rápido de `is` lê a marca `$is_<T>` que o `addRtiResources` pôs no
 protótipo. `T` é sempre um tipo que alguma receita do arquivo cita: o alvo
 de um `is`/`as`/`catch`, um argumento de tipo, uma substituição. Então
-(`emit_js_producao/src/regras.rs`):
+(`emit_js_production/src/regras.rs`):
 
 * **citados** são os nomes `lib|Classe` do arquivo inteiro, menos as chaves
   das regras e as listas do `addRtiResources`, mais os dos **valores** das
@@ -477,7 +477,7 @@ da função (`~(core|int{limite:core|int})`). A checagem da chamada dinâmica
 receita é uma *string*, o nome não podia passar pelo renomeio de
 propriedades e ficava reservado, e junto com ele todo membro homônimo.
 
-A regra (`emit_js_producao/src/nomeados.rs`, `Ctx::nomeado`):
+A regra (`emit_js_production/src/nomeados.rs`, `Ctx::nomeado`):
 
 * um mapa **global por nome**, nome → `$` + base 36, aplicado ao mesmo
   tempo nas chaves da chamada (`call.rs`), no prólogo (`body.rs`,
@@ -540,7 +540,7 @@ local de uma letra (a variável do receptor em `ssa/codegen.dart`), e cada
 citação custa um byte em vez dos quatro de `this`, que nenhum minificador
 encurta.
 
-A regra (`emit_js_producao/src/aliasthis.rs`, antes da minificação): numa
+A regra (`emit_js_production/src/aliasthis.rs`, antes da minificação): numa
 função (não flecha) cujo corpo cita `this` `k` vezes, com `3k > 11` (cada
 citação economiza 3 bytes, contra os ~11 de `let t=this;` depois da troca de
 nomes), o corpo ganha `let t$this = this;` no começo, e cada `this` dele vira

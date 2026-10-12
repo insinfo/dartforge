@@ -1,4 +1,4 @@
-// GERADO por `cargo run -p dartforge-paridade --example gerar_codigos`. NÃO EDITE.
+// GERADO por `cargo run -p dartforge-parity --example gerar_codigos`. NÃO EDITE.
 // Fonte: analyzer-6.11.0 e _fe_analyzer_shared-76.0.0 (SDK Dart 3.6), cache do pub.
 // CompileTimeErrorCode: 542
 // StaticWarningCode: 7

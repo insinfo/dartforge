@@ -32,7 +32,7 @@ together and requires documentation to build without warnings. CI checks behavio
 does not run `cargo fmt` or `cargo doc` (the project owner's decision; see the header of
 `.github/workflows/ci.yml`).
 The differential comparison with Dart 3.6.2 (VM, `dartdevc` and production) is
-`crates/diferencial` (`cargo run --release -p dartforge-diferencial`); see `ESTADO.md` §3.
+`crates/differential` (`cargo run --release -p dartforge-differential`); see `ESTADO.md` §3.
 
 ## Commits
 

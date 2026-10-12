@@ -203,7 +203,7 @@ impl SdkLayout {
     }
 
     /// A seção `base` do SDK com arquivos trocados pela sobreposição de
-    /// `dir_sobreposicao` (o `sdk_nativo/` do backend nativo,
+    /// `dir_sobreposicao` (o `native_sdk/` do backend nativo,
     /// docs/NATIVO-PLANO.md §7, P5a).
     ///
     /// `<dir_sobreposicao>/libraries.json` tem uma seção `alvo` com `base`
@@ -387,7 +387,7 @@ mod tests {
         assert!(sdk.library("_runtime").is_some());
     }
 
-    /// A sobreposição do nativo (`sdk_nativo/`, P5a) troca por conteúdo os
+    /// A sobreposição do nativo (`native_sdk/`, P5a) troca por conteúdo os
     /// patches que dependem da máquina interna da VM, e o programa carrega
     /// sem diagnóstico: as `part` do patch trocado resolvem ao lado do
     /// original (e também são trocadas).
@@ -397,7 +397,7 @@ mod tests {
             eprintln!("SDK não encontrado; teste pulado");
             return;
         };
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sdk_nativo");
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../native_sdk");
         let sdk = SdkLayout::load_com_sobreposicao(&lib, &dir, "dartforge_nativo").unwrap();
         // Uma substituição por entrada de `substitui` no libraries.json.
         let json: serde_json::Value =

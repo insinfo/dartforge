@@ -152,7 +152,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return Some(Indexavel::Nucleo { gravacao });
         }
         // Sob ARC, cada acesso pelo endereço dos bytes ganha
-        // `@df.manter_vivo(lista)` na preparação (`otimizar/arc/derivados.rs`).
+        // `@df.manter_vivo(lista)` na preparação (`optimize/arc/derivados.rs`).
         if biblioteca != "dart:typed_data" {
             return None;
         }
@@ -551,7 +551,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ///
     /// Sob ARC, o endereço é derivado da lista: a preparação segura a lista
     /// depois de cada acesso, que fica no bloco da leitura, sem chamada entre
-    /// os dois (`otimizar/arc/derivados.rs`; o crescimento troca o armazenamento).
+    /// os dois (`optimize/arc/derivados.rs`; o crescimento troca o armazenamento).
     pub(super) fn armazenamento_da_lista(&mut self, lista: &Operand) -> (Operand, Operand) {
         let a = self.ajudante_tipado("df.nucleo_armazenamento", vec![(lista.clone(), Type::Ref)], Type::I64);
         let forma = self.ajudante_tipado("df.nucleo_forma", vec![(a.clone(), Type::I64)], Type::I64);
@@ -582,7 +582,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Com a preparação ARC, o armazenamento é relido em cada acesso: o
     /// caminho lento do `[]` (dentro das voltas) é uma chamada, e um
     /// armazenamento lido antes delas não teria quem o segurasse
-    /// (`otimizar/arc/derivados.rs`). A forma conferida antes vale.
+    /// (`optimize/arc/derivados.rs`). A forma conferida antes vale.
     fn elementos_e_forma(&mut self, lista: &Operand) -> (Operand, Result<i64, Operand>) {
         if let Some(f) = &self.fixa_do_acesso {
             let forma = f.forma;

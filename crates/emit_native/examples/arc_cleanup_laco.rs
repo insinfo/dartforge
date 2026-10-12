@@ -7,7 +7,7 @@
 //! durante a função. O erro usa pendência real pré-carregada, não throw do hook.
 //! Não certifica lowering da fonte, Finalizable, suspensão ou unwind.
 
-use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*};
+use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
 
 fn modulo() -> Result<Module, String> {

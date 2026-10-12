@@ -439,12 +439,12 @@ produzem apenas protótipos isolados e medições, sem ligar o modo ao produto.
 | P6 | Comparação completa AOT ARC × tracing × VM, plataformas e perfis; decisão documentada | critério quantitativo ou cobertura insuficiente |
 
 Áreas de código previstas: `crates/emit_native/src/hir.rs` e `lower/` para
-propriedade e arestas; `otimizar/` para eliminação de operações RC;
+propriedade e arestas; `optimize/` para eliminação de operações RC;
 `llvm/` para emissão e verificação; `crates/runtime/src/espaco.rs` e
 `heap.rs` para objeto, descritor e RC; `finalizadores.rs`, `nativos_sistema.rs`,
 `eventos.rs`, `ffi.rs`, `isolados.rs` e `portas.rs` para contratos especiais;
-`crates/cli/src/nativo.rs` para a opção; `crates/diferencial` e
-`corpus/nativo` para comparação. A lista é ponto de partida, não permissão
+`crates/cli/src/nativo.rs` para a opção; `crates/differential` e
+`corpus/native` para comparação. A lista é ponto de partida, não permissão
 para alterar arquivos antes de cada prova.
 
 ## 12. Matriz de testes semânticos
@@ -614,17 +614,17 @@ números de linha que mudam.
 | --- | --- |
 | `crates/cli/src/nativo.rs` | Nos parsers de `aot` e `run_compile_native`, reconhecer as duas formas de `--memoria`; validar valor e combinações antes de compilar o SDK. Usar `definir_modelo_de_excecoes` e `definir_modo_de_raizes` como referência de integração, não como razão para reler ambiente em cada passe. |
 | `crates/emit_native/src/alvo.rs`, `context.rs`, `hir.rs` | Criar `ModoMemoria { Tracing, Arc }`, ler a seleção uma vez e transportá-la no contexto/módulo. Registrar versão da ABI e configuração de raízes/exceções. |
-| `crates/emit_native/src/lib.rs`, `sdk_modulo.rs` | Ambos usam `otimizar::preparar_para_emissao`, que define o modo de memória, otimiza e materializa as tabelas por último. Integrar a preparação excepcional, a inserção e a verificação ARC (§20) neste pipeline comum. |
+| `crates/emit_native/src/lib.rs`, `sdk_modulo.rs` | Ambos usam `optimize::preparar_para_emissao`, que define o modo de memória, otimiza e materializa as tabelas por último. Integrar a preparação excepcional, a inserção e a verificação ARC (§20) neste pipeline comum. |
 | `crates/emit_native/src/hir.rs` | Acrescentar ownership, origem de ponteiros, operações ARC, extensão de vida e saídas excepcionais explícitas (§20). |
 | `crates/emit_native/src/lower/{mod,fn_builder,comandos,closures,async_sm,literais,membros}.rs` | Preservar classificação de referências, locais, capturas, globais, `Finalizable`, estado suspenso e destinos de erro antes da análise de ownership. |
-| `crates/emit_native/src/otimizar/{mod,operandos,cfg,tabelas}.rs` | Atualizar visitantes/CFG e separar preparação de exceções de sua emissão; inserir e verificar ARC, sem tratar operações de contador como instruções puras. |
+| `crates/emit_native/src/optimize/{mod,operandos,cfg,tabelas}.rs` | Atualizar visitantes/CFG e separar preparação de exceções de sua emissão; inserir e verificar ARC, sem tratar operações de contador como instruções puras. |
 | `crates/emit_native/src/llvm/mod.rs`, `llvm/listas_ir.rs`, `llvm/raizes.rs`, `llvm/externs.rs` | Emitir a ABI ARC; cobrir stores, inicializações, resultados, raízes e chamadas especiais (§21). |
 | `crates/runtime/src/heap.rs` | Integrar estado ARC em `Heap`; alterar `antes_de_alocar`, alocação, `definir_campo`, raízes, tabelas laterais e `collect`. Separar política de vida da varredura física. |
 | `crates/runtime/src/espaco.rs`, `layout.rs` | Implementar reclamador ARC sem reutilizar marcas de tracing como evidência de vida; preservar layout e invariantes do alocador (§19.4). |
 | `crates/runtime/src/{nucleo,gc_raizes}.rs` | Adaptar `dartforge_object_new/get/set`, `dartforge_alocar`, registro de imagem e raízes; não abastecer TLAB sem registro ARC. |
 | `crates/runtime/src/{listas,nativos_listas,colecoes,closures,tipos}.rs` | Enumerar e contabilizar todos os campos/buffers gerenciados, inclusive substituição, cópia, crescimento e redução. |
 | `crates/runtime/src/{nativos_sistema,finalizadores,eventos,excecoes}.rs` | Integrar promoção weak, ephemerons, anexos, eventos e pendências com a máquina de estados de morte. |
-| `sdk_nativo/core/finalizer_patch.dart`, `sdk_nativo/ffi/ffi_native_finalizer_patch.dart` | Preservar ligação do callback à zona, classificar a ação capturada e transportar `externalSize` ao runtime; atualmente o patch nativo valida esse tamanho, mas não o passa à extern. |
+| `native_sdk/core/finalizer_patch.dart`, `native_sdk/ffi/ffi_native_finalizer_patch.dart` | Preservar ligação do callback à zona, classificar a ação capturada e transportar `externalSize` ao runtime; atualmente o patch nativo valida esse tamanho, mas não o passa à extern. |
 | `crates/runtime/src/{ffi,ffi_callbacks,ffi_api_nativa,isolados,portas}.rs` | Implementar contratos de handles, callbacks, publicação, cópia entre isolates e encerramento. |
 | `crates/runtime/{build.rs,efeitos.tsv}`, `crates/runtime/src/lib.rs` | Registrar novos módulos/fragmentos e símbolos; gerar e validar tabela de ownership junto à tabela de efeitos. Incluir os módulos também em `RUNTIME_MAIN`. |
 | `crates/emit_native/src/{cache,cache_objeto,sdk_modulo,driver}.rs`, `crates/emit_native/build.rs` | Selecionar runtime correto e impedir mistura de ABI em caches, bibliotecas, SDK, objetos e ligação (§24). |
@@ -640,7 +640,7 @@ Arquivos **novos** com responsabilidade delimitada:
 | `crates/runtime/src/arc_condicionais.rs` | Índices de weak/ephemerons, conjunto protegido e ponto fixo global de alcançabilidade. |
 | `crates/runtime/src/arc_abi.rs` | Fragmento de externs `dartforge_arc_*`; chama `Heap` e valida a ABI, sem duplicar algoritmos. |
 | `crates/runtime/ownership.tsv` | Contrato por parâmetro/resultado/saída excepcional de cada extern. |
-| `crates/emit_native/src/otimizar/arc/{mod,inserir,verificar,otimizar}.rs` | Pipeline, inserção, verificador de fluxo e otimizações de ownership. |
+| `crates/emit_native/src/optimize/arc/{mod,inserir,verificar,otimizar}.rs` | Pipeline, inserção, verificador de fluxo e otimizações de ownership. |
 | `crates/emit_native/src/llvm/verificar_arc.rs` | Verificação complementar de emissão: stores e alocações reconhecidos, raízes e ABI consistentes. A prova principal continua na HIR. |
 
 ## 19. Runtime, representação e recuperação de memória
@@ -839,7 +839,7 @@ Adicionar tabela por `ValueId` com `Trivial`, `Owned` ou `Borrowed(owner, escopo
 Parâmetros Ref são borrowed até o retorno; resultados Ref são owned. A convenção
 vale para dispatch direto, seletor, closure e stubs de SDK.
 
-Representação disponível em `otimizar::arc::Ownership`: `Trivial`, `Owned`
+Representação disponível em `optimize::arc::Ownership`: `Trivial`, `Owned`
 e `Borrowed { owner, escopo }`. A origem pode ser o chamador (parâmetro) ou
 um `ValueId` local. `vivacidade_classificada` exige uma entrada explícita
 por parâmetro/definição, rejeita IDs obsoletos e converte dependências locais
@@ -924,7 +924,7 @@ continuam pendentes.
 cópia owned; `Store` substitui ou move. `mem2reg` converte essa propriedade em
 SSA antes de inserir contadores. `StoreGlobal` usa slot global contado. Store
 genérico sem classificação stack/global/heap/native é erro do compilador ARC.
-Adicionar variantes aos visitantes em `otimizar/operandos.rs`, poda, impressão,
+Adicionar variantes aos visitantes em `optimize/operandos.rs`, poda, impressão,
 substituição, clonagem, inlining e visitantes de `lower/async_sm.rs`.
 
 ### 20.2 Inserção por CFG
@@ -954,7 +954,7 @@ Implementar `arc::inserir(module) -> Result<(), DiagnosticoArc>` em fases:
    nunca dar drop em resultado inexistente/default escalar.
 8. Recalcular vivacidade depois de inserir blocos e passar pelo verificador.
 
-Base disponível: `otimizar::arc::vivacidade` calcula o ponto fixo reverso
+Base disponível: `optimize::arc::vivacidade` calcula o ponto fixo reverso
 nos blocos alcançáveis e expõe conjuntos antes/depois das instruções, por
 bloco e por aresta. As entradas de `Phi` são usos apenas na aresta do seu
 predecessor, inclusive backedges e as arestas excepcionais preparadas.
@@ -983,7 +983,7 @@ ReturnMove objeto                   // exige owner; copiar se era borrowed
 
 ### 20.3 Verificação e diagnósticos
 
-O `otimizar::valida` existente não é verificador de ownership. Criar análise
+O `optimize::valida` existente não é verificador de ownership. Criar análise
 dedicada com estado por token `{ausente, disponível, consumido}` e obrigações
 de slot/borrow. Junções devem concordar após normalização das arestas; não usar
 uma união que transforme “consumido em um caminho” em “disponível em todos”.
@@ -1005,7 +1005,7 @@ Raízes observacionais da pilha não acrescentam uma segunda ocorrência (§21.3
 
 ### 20.4 Exceções: alterar o passe atual, não apenas inserir drops no retorno
 
-`otimizar/tabelas.rs` atualmente permite que unwind atravesse funções sem
+`optimize/tabelas.rs` atualmente permite que unwind atravesse funções sem
 tratador, e `TabelasDaFuncao` guarda invocações por `ValueId`, pousos e saídas
 por `BlockId`. Em ARC, uma função sem `catch` ainda pode ter owners a limpar.
 
@@ -1098,7 +1098,7 @@ Este catálogo ainda é parcial: cobertura completa das externs, retornos
 borrowed, saídas excepcionais e consumo pelo produtor HIR/LLVM permanecem
 pendentes. Não há convenção borrowed implícita para completar a cobertura.
 
-`otimizar::arc::contrato_chamada_runtime` traduz essas chamadas auditadas
+`optimize::arc::contrato_chamada_runtime` traduz essas chamadas auditadas
 para consumo SSA e classe do resultado, conferindo aridade e tipos declarados.
 Ref deve estar em SSA ou ser null; I64 não vira Ref por ter a mesma largura.
 O verificador de tokens confere planos de chamadas auditadas contra esse
@@ -1552,7 +1552,7 @@ Cada otimização mantém o caminho de referência selecionável em testes.
 
 | Otimização | Onde implementar | Condição de segurança e medida |
 | --- | --- | --- |
-| Transferir resultado direto para campo/retorno | `otimizar/arc/otimizar.rs` | Owner com único consumo naquele caminho; falha do store preserva o token. Medir retains/drops eliminados. |
+| Transferir resultado direto para campo/retorno | `optimize/arc/otimizar.rs` | Owner com único consumo naquele caminho; falha do store preserva o token. Medir retains/drops eliminados. |
 | Empréstimo de leitura | Mesmo passe + efeitos | Owner do receptor e estabilidade do slot até o último uso; chamada que pode mutar invalida a prova. Não basta `rc(receptor)>0`. |
 | Eliminar copy/drop | Mesmo passe | Sem efeito observável/interferência entre as operações; respeitar weak e `Finalizable`. Validar CFG e exceções depois. |
 | Propagar transferências em φ/loops | Mesmo passe | Prova por aresta e backedge, inclusive saídas excepcionais; não colocar retain a cada iteração desnecessariamente. |
@@ -1563,7 +1563,7 @@ Cada otimização mantém o caminho de referência selecionável em testes.
 | Retain/release em linha | `llvm/mod.rs` | Tag, imortalidade, overflow, zero/candidato e geração corretos; caminho lento obrigatório. Comparar IR otimizado, tamanho e chamadas. |
 | TLAB ARC | Alocador + LLVM | Reservar metadados e registro de objetos junto aos blocos; publicação atômica; stress em cada fronteira. |
 | Cópia de buffers em lote | `listas.rs`, `colecoes.rs` | Multiplicidade, alias e sobreposição; reter entradas antes de soltar saídas, ou mover ownership comprovado. `memmove` de bytes sozinho não transfere contagem. |
-| Selecionar memória por prova estática | `otimizar/arc/analise/` (§§27–34) | Regiões, grupos, empréstimos e poda por sítio/contexto antes do ARC ordinário; validar o certificado e medir retenção adicional. |
+| Selecionar memória por prova estática | `optimize/arc/analise/` (§§27–34) | Regiões, grupos, empréstimos e poda por sítio/contexto antes do ARC ordinário; validar o certificado e medir retenção adicional. |
 | Suprimir candidatos acíclicos | Points-to, forma, descritores e runtime (§§28–32) | Provar ausência de participação em ciclos durante toda a vida; não remover a travessia nem inferir de objeto atualmente sem campos. |
 | Índice de ephemerons | `arc_condicionais.rs` | Mesmo ponto fixo da implementação de referência; worklist por chave/portador e proteção de mutações. |
 | Reclamador por classe | `espaco.rs` | Mesma morte lógica, contabilização e quarentena; medir fragmentação e RSS, não só número de blocos. |
@@ -1588,7 +1588,7 @@ cíclica e condicional. Não prometer vantagem universal sobre tracing.
 | --- | --- | --- |
 | E0 — inventário e baseline | Tabelas de ownership/descritores, testes existentes | Cada construtor/escritor/raiz tem classificação; divergências de weak/finalizadores identificadas; pré-condições do documento-base verificadas. |
 | E1 — configuração e ABI | CLI, contexto, módulo, caches, build/driver | Modo atravessa programa e SDK; mistura de artefatos é rejeitada; tracing mantém comportamento. |
-| E2 — HIR e verificador | `hir.rs`, lowering, `otimizar/arc`, CFG excepcional | Testes positivos/negativos de tokens, φ, loops, borrows e saídas; emissão ainda pode usar tracing como base de auditoria. |
+| E2 — HIR e verificador | `hir.rs`, lowering, `optimize/arc`, CFG excepcional | Testes positivos/negativos de tokens, φ, loops, borrows e saídas; emissão ainda pode usar tracing como base de auditoria. |
 | E3 — runtime e stores | `arc.rs`, descritores, heap, listas, LLVM | RC recontado coincide em todos os safepoints do corpus acíclico; nenhuma escrita sem contrato; alocador recupera e reutiliza com geração correta. |
 | E4 — ciclos e condicionais | `arc_ciclos`, `arc_condicionais`, weak/finalizadores | Provas/invariantes dos §§19 e 22 em testes aleatórios e dirigidos; nenhum ciclo fechado esquecido sob pressão. |
 | E5 — fronteiras completas | Exceções, async, eventos, FFI, isolates, JIT/reload | Matriz semântica passa nos modos/plataformas implementados, com vida estendida e limpeza exata. |
@@ -1610,7 +1610,7 @@ segundo executor de Dart:
 | `crates/runtime/tests/arc_condicionais.rs` | Valor→chave, cadeia de chaves, portador morto, chave viva sem RC externo direto, mutação de valor protegido, remoção da última entrada, weak promovida e reuso do endereço. |
 | `crates/emit_native/tests/arc_ownership.rs` | φ com consumo diferente, loop, aresta crítica, borrow escapado, store sem proveniência, extern desconhecida, resultado ausente no erro e `Finalizable` após último uso. |
 | `crates/emit_native/tests/arc_ir.rs` | Todas as especializações de campo/alocação/lista; nenhum bypass de store; cleanup em função sem catch; atributos LLVM e modo/ABI. |
-| `corpus/nativo/arc_*` | Identidade, ordem de getters/setters, avaliação de argumentos, finally/rethrow, closures cíclicas, async, coleções, timers, handles FFI e mensagens com alias/ciclos. Usar a organização/extensão do corpus existente. |
+| `corpus/native/arc_*` | Identidade, ordem de getters/setters, avaliação de argumentos, finally/rethrow, closures cíclicas, async, coleções, timers, handles FFI e mensagens com alias/ciclos. Usar a organização/extensão do corpus existente. |
 | `crates/jit/tests/arc_reload.rs` | Campo adicionado/removido, closure de versão antiga, falha de migração e tentativa de ABI diferente. |
 
 Adicionar gerador de grafos pequenos com semente reproduzível. Operações:
@@ -1639,7 +1639,7 @@ cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace -- --include-ignored
 cargo doc --locked --workspace --no-deps --document-private-items
-cargo run --release -p dartforge-diferencial
+cargo run --release -p dartforge-differential
 ```
 
 O filtro `arc` exige que os nomes dos testes novos contenham esse prefixo; o
@@ -1683,7 +1683,7 @@ metadados já é a do §19.1 por página e índice de bloco (o `HashMap` ficou s
 para os handles sem página); os de RC zero seguros por uma raiz ficam numa
 lista própria, uma vez por objeto, e voltam à fila de zeros uma vez por coleta.
 
-**Medida** (`bench/desempenho` em produção, 2026-10-08, preso a um núcleo P):
+**Medida** (`bench/performance` em produção, 2026-10-08, preso a um núcleo P):
 ARC/A0 = **2,81** de média geométrica antes das otimizações abaixo e **2,13**
 depois (`json` 2,2–3,7×, `lista_ligada` 8,8×, `arvores` 15×; o resto em
 0,8–1,1×). Os números de antes: Numérico, listas e chamadas ficam em
@@ -1762,7 +1762,7 @@ sítios ou funções não é uma lista de objetos concretos a liberar em conjunt
 
 ### 27.3 Plano por alocação e por aresta
 
-Criar os seguintes tipos **novos** em `otimizar/arc/analise/modelo.rs`, com a
+Criar os seguintes tipos **novos** em `optimize/arc/analise/modelo.rs`, com a
 parte necessária ao emissor em `hir.rs`. Campos são contratos de projeto:
 
 ```rust
@@ -1924,7 +1924,7 @@ Usar a hierarquia/RTA para um superconjunto de alvos; points-to pode reduzi-lo
 apenas com prova. Método ainda não analisado não é `noescape` por padrão.
 SDK já compilado precisa exportar esses resumos ou ser tratado como opaco.
 
-Base local disponível: `otimizar::arc::analise::chamadas` resolve aliases de
+Base local disponível: `optimize::arc::analise::chamadas` resolve aliases de
 parâmetro e null nas chamadas diretas com corpos HIR presentes, por Tarjan e
 worklist monotônica. Instancia argumentos reais, une aliases/nulabilidade e
 eleva orçamento excedido a desconhecido; bottom fica interno à solução.
@@ -2061,7 +2061,7 @@ Tarjan é linear no tamanho do grafo fornecido; construção de points-to,
 sensibilidade de contexto e análise de forma têm custo próprio. Reutilizar
 algoritmo de SCC não equivale a reutilizar SCC de chamadas como SCC de objetos.
 
-Base local disponível em `otimizar::arc::analise::grafo`: extrai arestas de
+Base local disponível em `optimize::arc::analise::grafo`: extrai arestas de
 campos do points-to do corpo e executa Tarjan sobre nós nominais de objetos.
 Fotografia imutável mantém sinalização de fronteiras opacas (valor sem origem,
 campo/esquema ausente, orçamento ou operação sem cobertura). Componente
@@ -2514,14 +2514,14 @@ deve ser apresentado como análise de regiões/points-to já implementada:
 
 | Ponto existente | Trabalho concreto |
 | --- | --- |
-| `crates/mundo/src/lib.rs::{Hierarquia,Raizes,Mundo,calcular}` e `emit_native/src/mundo_nativo.rs::calcular` | Usar classes instanciadas, hierarquia e seletores vivos como superconjunto. RTA determina alcance de código/tipos; não determina aliases de instâncias. |
+| `crates/world/src/lib.rs::{Hierarquia,Raizes,Mundo,calcular}` e `emit_native/src/mundo_nativo.rs::calcular` | Usar classes instanciadas, hierarquia e seletores vivos como superconjunto. RTA determina alcance de código/tipos; não determina aliases de instâncias. |
 | `emit_native/src/context.rs::Context` e `lower/membros.rs::{layout,tipo_da_variavel}` | Exportar esquema estruturado de campos com IDs, tipos declarados e classes possíveis antes do apagamento para `Type::Ref`. Não interpretar `CampoDoLayout::tipo`, que é texto para migração, como domínio de tipos. |
 | `lower/membros.rs::FnBuilder::{indice_campo,repr_do_campo,gravar_campo,ler_campo}` | Associar `IdCampo` e origem aos índices físicos, incluindo herança/mixins. Registrar stores gerados e seus efeitos. |
 | `hir.rs::{ClassDef,Function,Module,Instruction}` | Acrescentar sítios, plano, provas, resumo de heap, políticas de aresta e operações de região/grupo/borrow. Preservar tipos/forma de coleções. |
-| `otimizar/mod.rs::otimizar` | Integrar planejamento depois de transformações normais e antes de ARC; não perder metadados em limpeza/inlining. Centralizar programa e SDK na mesma entrada. |
-| `otimizar/escape.rs::substituir_objetos` | Preservar a substituição escalar existente. Hoje reconhece objetos com acessos simples por índice constante; argumento, retorno, phi ou identidade impedem essa transformação. Acrescentar análise interprocedural separada, sem tratar o passe atual como prova de região. |
-| `otimizar/inline.rs::{copiavel,inlining}` | Remapear origem/contexto ao clonar e aplicar orçamento de especializações; invalidar resumos dependentes do corpo. |
-| `otimizar/efeitos.rs::{instrucao_lanca,nao_lancam,em_ciclo}` e `otimizar/scc.rs::componentes` | Separar efeitos de heap dos efeitos de exceção existentes. Tarjan iterativo compartilhado já decompõe grafos indexados; `em_ciclo` continua aplicando-o a chamadas. Isso não fornece aliases, SCCs de instâncias ou certificados de memória. |
+| `optimize/mod.rs::otimizar` | Integrar planejamento depois de transformações normais e antes de ARC; não perder metadados em limpeza/inlining. Centralizar programa e SDK na mesma entrada. |
+| `optimize/escape.rs::substituir_objetos` | Preservar a substituição escalar existente. Hoje reconhece objetos com acessos simples por índice constante; argumento, retorno, phi ou identidade impedem essa transformação. Acrescentar análise interprocedural separada, sem tratar o passe atual como prova de região. |
+| `optimize/inline.rs::{copiavel,inlining}` | Remapear origem/contexto ao clonar e aplicar orçamento de especializações; invalidar resumos dependentes do corpo. |
+| `optimize/efeitos.rs::{instrucao_lanca,nao_lancam,em_ciclo}` e `optimize/scc.rs::componentes` | Separar efeitos de heap dos efeitos de exceção existentes. Tarjan iterativo compartilhado já decompõe grafos indexados; `em_ciclo` continua aplicando-o a chamadas. Isso não fornece aliases, SCCs de instâncias ou certificados de memória. |
 | `lower/captura.rs::{analisar,analisar_com,livres}` | Alimentar o grafo com capturas/células; ausência de resolução vira desconhecido, nunca ausência de captura. |
 | `lower/funcoes_diretas.rs::{Passagem,Captura,Direta}` e `FnBuilder::{declarar_funcao_direta,chamar_direta}` | Reaproveitar a eliminação existente de closures que só têm chamadas diretas; expandir com contratos de não retenção verificados. |
 | `lower/closures.rs::{preparar_capturas,lower_closure,tearoff_de_metodo,tearoff_instanciado}` | Registrar todos os objetos sintéticos, receptor, ambiente, células e tipos capturados. |
@@ -2534,7 +2534,7 @@ deve ser apresentado como análise de regiões/points-to já implementada:
 | `jit/src/reload.rs::{hot_reload,install_generation,check_contract}`, `migracao.rs::{layouts_do_ir,planejar}`, `vivo.rs::publicar` | Conferir dependências de prova antes de publicar geração; métodos são associados aos tipos correspondentes, como `JitSession`. Mudança de corpo também invalida. |
 | `cli/src/nativo.rs`, `emit_native/src/{cache_objeto,cache,driver}.rs`, `emit_native/build.rs` | Expor relatório/modos de comparação, incluir plano e capacidades no cache/ABI, selecionar artefato com ou sem coletor apenas sob certificado global. |
 
-Nesta tabela, `lower/`, `otimizar/`, `llvm/`, `hir.rs`, `poda.rs` e
+Nesta tabela, `lower/`, `optimize/`, `llvm/`, `hir.rs`, `poda.rs` e
 `sdk_modulo.rs` são relativos a `crates/emit_native/src/`; `emit_native/`,
 `runtime/`, `jit/` e `cli/` são relativos a `crates/`. A poda AOT
 não equivale a mundo fechado eterno no JIT: futuras gerações podem introduzir
@@ -2542,7 +2542,7 @@ seletores. Provas editáveis precisam de dependências e invalidação próprias
 
 ### 33.2 Arquivos novos e responsabilidades
 
-Sob `crates/emit_native/src/otimizar/arc/analise/`, criar:
+Sob `crates/emit_native/src/optimize/arc/analise/`, criar:
 
 | Arquivo novo | Responsabilidade e saída |
 | --- | --- |
@@ -2559,7 +2559,7 @@ Sob `crates/emit_native/src/otimizar/arc/analise/`, criar:
 | `certificados.rs` | `verificar_plano(module, plano)` independente da heurística de seleção. |
 | `relatorio.rs` | Explicações por sítio/aresta e dados para comparar com perfil de execução. |
 
-O algoritmo comum já está em `crates/emit_native/src/otimizar/scc.rs`,
+O algoritmo comum já está em `crates/emit_native/src/optimize/scc.rs`,
 sem associar o domínio dos nós a um grafo específico. Sua saída passa por
 `conferir`, independente de Tarjan: cobertura única dos nós, alcance interno
 nos dois sentidos e ordem estrita das arestas entre componentes. Isso rejeita
@@ -3095,11 +3095,11 @@ o parser não pode transformar presença de metadata em uma propriedade de heap.
 | `crates/types/src/anotacoes.rs::elemento_invocado`, `constantes/avaliador.rs::Motor::avaliar_anotacao` e `constantes/verificador.rs::anotacao` | Unificar resolução inequívoca, avaliação constante e proveniência para o reconhecimento especial. Respeitar shadowing; só usar valor cuja identidade/tipo constante corresponda à declaração suportada. Não substituir resolução por busca textual. |
 | `crates/elements/src/model.rs::{Library,Binding,Program}`, `config.rs::PackageConfig` e `load.rs::canonical_file_uri` | Usar URI definidora canônica e binding não ambíguo, inclusive imports prefixados/reexports. `language_version` é versão da linguagem, não versão do pacote. Obter versão resolvida do lock/pubspec quando disponível, esquema constante e hash do conteúdo efetivo; dependência local sem versão confiável continua identificada por conteúdo. |
 | **Novo** `crates/types/src/anotacoes_otimizacao.rs` e `resolved.rs::{BodyTypes,UnitBodyTypes}` | Normalizar `PreferenciaRegiao`, `PreferenciaAciclica`, `ContratoNoEscape` e `ContratoRealtime` em mapa por ID de elemento e span. Registrar esquema/origem, alvo e estado de reconhecimento; ainda não emitir fatos de segurança. |
-| **Novo** `crates/analise/src/anotacoes_otimizacao.rs` e `meta.rs::verificar` | Verificar alvos, argumentos e combinações. Usar infraestrutura de metadata existente; manter prova profunda no backend compartilhado, sem implementar outra análise de escape no analyzer. |
+| **Novo** `crates/analysis/src/anotacoes_otimizacao.rs` e `meta.rs::verificar` | Verificar alvos, argumentos e combinações. Usar infraestrutura de metadata existente; manter prova profunda no backend compartilhado, sem implementar outra análise de escape no analyzer. |
 | `crates/emit_native/src/hir.rs`, `context.rs` e `lower/` | Transportar IDs de contratos/preferências, relação parâmetro–valor e origem de alocações. Inlining/specialization devem clonar obrigações e remapear sítios; função sintética recebe efeitos reais mesmo sem anotação na fonte. |
-| **Novo** `crates/emit_native/src/otimizar/arc/analise/contratos.rs` | Vincular as obrigações normalizadas aos sítios/resumos dos §§28–33. Verificar não escape transitivo; priorizar análises de região/aciclicidade; produzir fatos somente com certificado e dependências. |
-| **Novo** `crates/emit_native/src/otimizar/arc/analise/latencia.rs` | Calcular efeitos transitivos, limites de laços/stack e obrigações de entradas. Validar perfil `dsp-v1`, com proveniência e caminho de chamada para cada impedimento. Reutilizar SCCs e resumos; não equiparar `nao_lancam` a segurança de áudio. |
-| `crates/emit_native/src/otimizar/{mod,efeitos}.rs`, `sdk_modulo.rs` | Rodar análise inicial para orientar otimizações e verificação final sobre a HIR transformada. SDK fornece resumos versionados; funções externas sem resumo têm efeito desconhecido. |
+| **Novo** `crates/emit_native/src/optimize/arc/analise/contratos.rs` | Vincular as obrigações normalizadas aos sítios/resumos dos §§28–33. Verificar não escape transitivo; priorizar análises de região/aciclicidade; produzir fatos somente com certificado e dependências. |
+| **Novo** `crates/emit_native/src/optimize/arc/analise/latencia.rs` | Calcular efeitos transitivos, limites de laços/stack e obrigações de entradas. Validar perfil `dsp-v1`, com proveniência e caminho de chamada para cada impedimento. Reutilizar SCCs e resumos; não equiparar `nao_lancam` a segurança de áudio. |
+| `crates/emit_native/src/optimize/{mod,efeitos}.rs`, `sdk_modulo.rs` | Rodar análise inicial para orientar otimizações e verificação final sobre a HIR transformada. SDK fornece resumos versionados; funções externas sem resumo têm efeito desconhecido. |
 | `crates/emit_native/src/lower/ffi.rs::{lower_ffi,corpo_do_callback}`, `llvm/` e `llvm/raizes.rs` | Incluir conversões, boxing, dispatch, registros de raiz, prólogo/epílogo e helpers nos efeitos da entrada. Relacionar chamadas LLVM emitidas à obrigação HIR; validar também helpers introduzidos pela toolchain ou impedir sua introdução no alvo certificado. |
 | `crates/runtime/src/ffi_callbacks.rs::{ContextoCallback,dartforge_ffi_callback_entrar,dartforge_ffi_callback_sair,dartforge_ffi_callback_postar}` | Separar capacidades verificadas da ponte comum e da futura ponte preparada. A atual postagem cria `Vec`/mensagem; a saída pode soltar contexto fechado. Esses caminhos não recebem resumo RT vazio. |
 | `crates/runtime/src/{heap,typed_data,ffi,gc_raizes}.rs` e módulos ARC propostos | Expor efeitos reais de helpers, garantir vida de buffers/backing stores e auditar alocação, último drop, safepoint e acesso nativo. Preparar contexto sem acesso concorrente ilegal ao heap do isolate. |
@@ -3113,7 +3113,7 @@ o parser não pode transformar presença de metadata em uma propriedade de heap.
 próprios de maneira explícita — por enum discriminada ou canal tipado separado —
 e atualizar consumidores. Não simular um código Dart oficial nem depender
 de interpretar texto livre. Manter os diagnósticos de paridade upstream em
-`crates/paridade/src/analise.rs` separados desses contratos opt-in.
+`crates/parity/src/analise.rs` separados desses contratos opt-in.
 
 Também não reutilizar diretamente `runtime/src/efeitos_conferir.rs` no callback:
 seu auditor atual cria `String` e empilha entradas em `Vec`. A tabela existente

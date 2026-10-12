@@ -1659,7 +1659,7 @@ fn entre_aspas_com_and(nomes: &[String]) -> String {
 
 // -- ExitDetector -----------------------------------------------------------------
 
-/// O `ExitDetector` ([`dartforge_analise::saida::Saida`]) com o
+/// O `ExitDetector` ([`dartforge_analysis::saida::Saida`]) com o
 /// `_elementExits` pelos elementos do contexto.
 pub(crate) struct Saida<'c, 'p> {
     cx: &'c Contexto<'p>,
@@ -1674,7 +1674,7 @@ impl<'c, 'p> Saida<'c, 'p> {
     pub(crate) fn sai(&mut self, n: usize) -> Result<bool, String> {
         let cx = self.cx;
         let elemento = |m: usize| elemento_sai(cx, m);
-        dartforge_analise::saida::Saida::novo(&cx.arvore, &cx.fonte, &elemento).sai(n)
+        dartforge_analysis::saida::Saida::novo(&cx.arvore, &cx.fonte, &elemento).sai(n)
     }
 }
 

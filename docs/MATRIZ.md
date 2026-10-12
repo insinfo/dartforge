@@ -1,6 +1,6 @@
 # Matriz de suporte por programa, perfil e sistema
 
-Gerada por `scripts/matriz.sh` (que roda o `dartforge-diferencial --matriz`
+Gerada por `scripts/matriz.sh` (que roda o `dartforge-differential --matriz`
 em cada corpus e perfil) e `scripts/matriz.py`; não edite à mão. Data da
 geração: 2026-09-27.
 
@@ -318,7 +318,7 @@ Nenhum: todo programa medido é suportado ou recusado como a referência.
 | `351_fluxo_solido` | ✓ | ✓ |
 | `352_fluxo_solido_versao_38` | ✓ | ✓ |
 
-### linux-x86_64 — corpus/nativo
+### linux-x86_64 — corpus/native
 
 | programa | aot | aot-gc-stress | jit |
 |---|:---:|:---:|:---:|

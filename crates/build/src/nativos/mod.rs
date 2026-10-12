@@ -1,4 +1,4 @@
-//! Geradores nativos ligados ao motor pela API **pública** do `gerador_ng`
+//! Geradores nativos ligados ao motor pela API **pública** do `ng_generator`
 //! (o motor não toca os internos dele; o que falta está pedido em
 //! `docs/BUILD-PEDIDOS-GERADOR-NG.md`).
 pub mod i18n;

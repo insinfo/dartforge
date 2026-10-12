@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Escreve a docs/MATRIZ.md (V02) a partir dos TSVs do `dartforge-diferencial --matriz`.
+"""Escreve a docs/MATRIZ.md (V02) a partir dos TSVs do `dartforge-differential --matriz`.
 
 Uso: scripts/matriz.py DIR SAIDA
 
@@ -78,7 +78,7 @@ def main():
     o = []
     o.append("# Matriz de suporte por programa, perfil e sistema")
     o.append("")
-    o.append("Gerada por `scripts/matriz.sh` (que roda o `dartforge-diferencial --matriz`")
+    o.append("Gerada por `scripts/matriz.sh` (que roda o `dartforge-differential --matriz`")
     o.append("em cada corpus e perfil) e `scripts/matriz.py`; não edite à mão. Data da")
     o.append(f"geração: {datetime.date.today().isoformat()}.")
     o.append("")

@@ -6,7 +6,7 @@
 //! mesma regra do `formatList` do analyzer (`src/generated/java_core.dart`):
 //! cada `{n}` vira o argumento `n`. A tabela de moldes ([`codigos`]) é gerada
 //! do `analyzer-6.11.0` (o analyzer do SDK 3.6) por
-//! `cargo run -p dartforge-paridade --example gerar_codigos`, e não é editada
+//! `cargo run -p dartforge-parity --example gerar_codigos`, e não é editada
 //! à mão.
 
 mod codigos_g;

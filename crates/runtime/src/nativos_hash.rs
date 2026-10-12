@@ -1,5 +1,5 @@
 // Runtime nativo: o caminho rápido do `_Map` e do `_Set` padrão
-// (`sdk_nativo/collection/compact_hash.dart`) para chaves `int` e `String`.
+// (`native_sdk/collection/compact_hash.dart`) para chaves `int` e `String`.
 //
 // A tabela é a do SDK, sem mudança de forma: o `_index` (`Uint32List`, as
 // sondas lineares com o padrão de hash nos bits altos) e o `_data` (`_List`

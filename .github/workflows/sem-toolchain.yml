@@ -23,7 +23,7 @@ on:
       - 'crates/llvm/src/**'
       - 'crates/cli/src/empacotar.rs'
       - 'crates/elements/src/distribuicao.rs'
-      - 'corpus/nativo/**'
+      - 'corpus/native/**'
       - '.github/workflows/sem-toolchain.yml'
 permissions:
   contents: read
@@ -55,7 +55,7 @@ jobs:
           shared-key: pesado-release
           save-if: false
       - name: Compilar dartforge (nativo, jit) e o harness
-        run: cargo build --locked --release -p dartforge-cli --features nativo,jit -p dartforge-diferencial
+        run: cargo build --locked --release -p dartforge-cli --features nativo,jit -p dartforge-differential
       # As importações contra as DLLs do System32 do runner, e programas C
       # (executável e DLL) ligados só com o lld-link e executados.
       - name: Testes do ligador do Windows
@@ -81,10 +81,10 @@ jobs:
           # Visual C++), na mesma build: a diferença medida é só a ligação.
           $env:DARTFORGE_LIGAR_COM_CLANG = '1'
           New-Item -ItemType Directory -Force relatorios | Out-Null
-          foreach ($r in @(@('io', '--nativo --corpus corpus/nativo --jobs 2'),
-                           @('io-gc-stress', '--nativo --corpus corpus/nativo --gc-stress --jobs 2 --limite-exec 120'),
+          foreach ($r in @(@('io', '--nativo --corpus corpus/native --jobs 2'),
+                           @('io-gc-stress', '--nativo --corpus corpus/native --gc-stress --jobs 2 --limite-exec 120'),
                            @('corpus', '--nativo --jobs 4'))) {
-            $p = Start-Process -FilePath target/release/dartforge-diferencial.exe -ArgumentList $r[1] -RedirectStandardOutput "relatorios/ref-$($r[0]).txt" -RedirectStandardError "relatorios/ref-$($r[0]).err" -NoNewWindow -PassThru -Wait
+            $p = Start-Process -FilePath target/release/dartforge-differential.exe -ArgumentList $r[1] -RedirectStandardOutput "relatorios/ref-$($r[0]).txt" -RedirectStandardError "relatorios/ref-$($r[0]).err" -NoNewWindow -PassThru -Wait
             $texto = Get-Content "relatorios/ref-$($r[0]).txt" -Encoding utf8
             Write-Host "$($r[0]): código $($p.ExitCode); $($texto | Where-Object { $_ -match '^DartForge Nativo: ' } | Select-Object -First 1)"
             $texto | Where-Object { $_ -match '^FALHA ' } | ForEach-Object { Write-Host "  $_" }
@@ -178,15 +178,15 @@ jobs:
           $env:DARTFORGE_BIN = "$dist\bin\dartforge.exe"
           New-Item -ItemType Directory -Force relatorios | Out-Null
           $rodadas = @(
-            @('io', '--nativo --corpus corpus/nativo --jobs 2'),
-            @('io-gc-stress', '--nativo --corpus corpus/nativo --gc-stress --jobs 2 --limite-exec 120'),
+            @('io', '--nativo --corpus corpus/native --jobs 2'),
+            @('io-gc-stress', '--nativo --corpus corpus/native --gc-stress --jobs 2 --limite-exec 120'),
             @('corpus', '--nativo --jobs 4')
           )
           $falhou = $false
           function Falhas($arquivo) { @(Get-Content $arquivo -Encoding utf8 | Where-Object { $_ -match '^FALHA ' } | ForEach-Object { ($_ -split '\s+')[1] }) }
           foreach ($r in $rodadas) {
             $rel = "relatorios/$($r[0]).txt"
-            $p = Start-Process -FilePath target/release/dartforge-diferencial.exe -ArgumentList $r[1] -RedirectStandardOutput $rel -RedirectStandardError "relatorios/$($r[0]).err" -NoNewWindow -PassThru -Wait
+            $p = Start-Process -FilePath target/release/dartforge-differential.exe -ArgumentList $r[1] -RedirectStandardOutput $rel -RedirectStandardError "relatorios/$($r[0]).err" -NoNewWindow -PassThru -Wait
             $texto = Get-Content $rel -Encoding utf8
             $placar = $texto | Where-Object { $_ -match '^DartForge Nativo: ' } | Select-Object -First 1
             $ref = Get-Content "relatorios/ref-$($r[0]).txt" -Encoding utf8 | Where-Object { $_ -match '^DartForge Nativo: ' } | Select-Object -First 1
@@ -199,7 +199,7 @@ jobs:
               $passou = $false
               foreach ($i in 1, 2) {
                 $rr = "relatorios/repete-$($r[0])-$n-$i.txt"
-                Start-Process -FilePath target/release/dartforge-diferencial.exe -ArgumentList "$($r[1]) --filtro $n" -RedirectStandardOutput $rr -RedirectStandardError "$rr.err" -NoNewWindow -Wait
+                Start-Process -FilePath target/release/dartforge-differential.exe -ArgumentList "$($r[1]) --filtro $n" -RedirectStandardOutput $rr -RedirectStandardError "$rr.err" -NoNewWindow -Wait
                 if ((Get-Content $rr -Encoding utf8 | Where-Object { $_ -match '^FALHA ' }).Count -eq 0) { $passou = $true }
               }
               if ($passou) { Write-Host "::warning::$($r[0]): $n falhou uma vez e passou ao repetir (intermitente)" }
@@ -245,7 +245,7 @@ jobs:
           shared-key: pesado-unix
           save-if: false
       - name: Compilar dartforge (nativo, jit) e o harness
-        run: cargo build --locked --release -p dartforge-cli --features nativo,jit -p dartforge-diferencial
+        run: cargo build --locked --release -p dartforge-cli --features nativo,jit -p dartforge-differential
       - name: Testes dos ligadores
         run: cargo test --locked --release -p dartforge-emit-native --lib ligador_ -- --include-ignored
       - name: Montar a distribuição
@@ -255,7 +255,7 @@ jobs:
           ./target/release/dartforge empacotar "$dist"
           find "$dist/lib/sysroot" "$dist/lib/llvm" -type f | xargs ls -la
           echo "DIST=$dist" >> "$GITHUB_ENV"
-      # A referência: o corpus/nativo com o toolchain presente (a árvore de
+      # A referência: o corpus/native com o toolchain presente (a árvore de
       # desenvolvimento), para comparar com a rodada sem ele.
       # A referência: as mesmas rodadas, pela mesma distribuição, com o
       # toolchain presente. Sem ele, nenhum programa pode falhar que passava
@@ -265,9 +265,9 @@ jobs:
         run: |
           set +e -uo pipefail
           mkdir -p relatorios
-          for r in "io:--nativo --corpus corpus/nativo --jobs 2" "io-gc-stress:--nativo --corpus corpus/nativo --gc-stress --jobs 2 --limite-exec 120" "corpus:--nativo --jobs 3"; do
+          for r in "io:--nativo --corpus corpus/native --jobs 2" "io-gc-stress:--nativo --corpus corpus/native --gc-stress --jobs 2 --limite-exec 120" "corpus:--nativo --jobs 3"; do
             nome=${r%%:*}; args=${r#*:}
-            c=0; DARTFORGE_HOME="$DIST" DARTFORGE_BIN="$DIST/bin/dartforge" ./target/release/dartforge-diferencial $args > "relatorios/ref-$nome.txt" 2>&1 || c=$?
+            c=0; DARTFORGE_HOME="$DIST" DARTFORGE_BIN="$DIST/bin/dartforge" ./target/release/dartforge-differential $args > "relatorios/ref-$nome.txt" 2>&1 || c=$?
             echo "$nome: código $c; $(grep -E '^DartForge Nativo: ' "relatorios/ref-$nome.txt" || true)"
             grep -E '^FALHA ' "relatorios/ref-$nome.txt" || true
           done
@@ -301,11 +301,11 @@ jobs:
           done
           falhou=0
           falhas() { grep -E '^FALHA ' "$1" | awk '{print $2}' | sort -u; }
-          for r in "io:--nativo --corpus corpus/nativo --jobs 2" "io-gc-stress:--nativo --corpus corpus/nativo --gc-stress --jobs 2 --limite-exec 120" "corpus:--nativo --jobs 3"; do
+          for r in "io:--nativo --corpus corpus/native --jobs 2" "io-gc-stress:--nativo --corpus corpus/native --gc-stress --jobs 2 --limite-exec 120" "corpus:--nativo --jobs 3"; do
             nome=${r%%:*}; args=${r#*:}
             # O código 1 (placar parcial) não encerra o passo: o que conta é
             # a comparação com a referência.
-            c=0; "${ambiente[@]}" ./target/release/dartforge-diferencial $args > "relatorios/$nome.txt" 2>&1 || c=$?
+            c=0; "${ambiente[@]}" ./target/release/dartforge-differential $args > "relatorios/$nome.txt" 2>&1 || c=$?
             placar=$(grep -E '^DartForge Nativo: ' "relatorios/$nome.txt" || true)
             ref=$(grep -E '^DartForge Nativo: ' "relatorios/ref-$nome.txt" || true)
             echo "$nome: código $c; sem Xcode $placar; com Xcode $ref"
@@ -315,7 +315,7 @@ jobs:
               # Repete o programa duas vezes: passar em uma é intermitência.
               passou=0
               for i in 1 2; do
-                "${ambiente[@]}" ./target/release/dartforge-diferencial $args --filtro "$n" > "relatorios/repete-$nome-$n-$i.txt" 2>&1
+                "${ambiente[@]}" ./target/release/dartforge-differential $args --filtro "$n" > "relatorios/repete-$nome-$n-$i.txt" 2>&1
                 grep -qE '^FALHA ' "relatorios/repete-$nome-$n-$i.txt" || passou=1
               done
               if [ $passou = 1 ]; then echo "::warning::$nome: $n falhou uma vez e passou ao repetir (intermitente)"

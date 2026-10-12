@@ -807,20 +807,20 @@ void main() {}
                 assert_eq!(modulo.parametros_escalares_dart["escalares"].len(), 3);
                 assert!(!modulo.parametros_escalares_dart["escalares"].contains(&nativo));
                 assert!(modulo.parametros_rti_dart["escalares"].contains(&nativo));
-                crate::otimizar::otimizar(&mut modulo);
+                crate::optimize::otimizar(&mut modulo);
                 assert_eq!(modulo.parametros_escalares_dart["escalares"].len(), 3);
                 for id in &modulo.parametros_escalares_dart["escalares"] {
                     assert!(modulo.functions[0].params.iter().any(|(v, _, _)| v == id));
                 }
                 modulo.memoria_arc = true;
-                let mut planos = std::collections::HashMap::from([("escalares".into(), crate::otimizar::arc::PlanoFuncaoDart::default())]);
-                assert_eq!(crate::otimizar::arc::produzir_parametros_escalares_do_lowering(&modulo, &mut planos).unwrap(), 3);
+                let mut planos = std::collections::HashMap::from([("escalares".into(), crate::optimize::arc::PlanoFuncaoDart::default())]);
+                assert_eq!(crate::optimize::arc::produzir_parametros_escalares_do_lowering(&modulo, &mut planos).unwrap(), 3);
                 assert!(!planos["escalares"].classes.contains_key(&nativo));
-                assert_eq!(crate::otimizar::arc::produzir_parametros_escalares_do_lowering(&modulo, &mut planos).unwrap(), 0);
-                assert!(crate::otimizar::arc::inserir_arc_funcoes_dart(&mut modulo.functions, &mut planos).is_err());
-                assert_eq!(crate::otimizar::arc::produzir_parametros_rti_do_lowering(&modulo, &mut planos).unwrap(), 1);
-                assert_eq!(crate::otimizar::arc::produzir_parametros_rti_do_lowering(&modulo, &mut planos).unwrap(), 0);
-                assert_eq!(crate::otimizar::arc::inserir_arc_funcoes_dart(&mut modulo.functions, &mut planos).unwrap(), (0, 0));
+                assert_eq!(crate::optimize::arc::produzir_parametros_escalares_do_lowering(&modulo, &mut planos).unwrap(), 0);
+                assert!(crate::optimize::arc::inserir_arc_funcoes_dart(&mut modulo.functions, &mut planos).is_err());
+                assert_eq!(crate::optimize::arc::produzir_parametros_rti_do_lowering(&modulo, &mut planos).unwrap(), 1);
+                assert_eq!(crate::optimize::arc::produzir_parametros_rti_do_lowering(&modulo, &mut planos).unwrap(), 0);
+                assert_eq!(crate::optimize::arc::inserir_arc_funcoes_dart(&mut modulo.functions, &mut planos).unwrap(), (0, 0));
             })
             .unwrap()
             .join()

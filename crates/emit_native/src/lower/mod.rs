@@ -370,7 +370,7 @@ fn lower_classes_e_funcoes(ctx: &Context, mut module: Module) -> Module {
         ffi::lower_ffi(ctx, &mut module);
     }
     tearoffs_do_rastro(ctx, &mut module);
-    crate::otimizar::arc::analise::origens::registrar(&mut module, 0, ctx.memoria_arc);
+    crate::optimize::arc::analise::origens::registrar(&mut module, 0, ctx.memoria_arc);
     module
 }
 
@@ -505,7 +505,7 @@ pub fn lower_funcao(ctx: &Context, module: &mut Module, f_idx: usize) {
     let inicio = module.functions.len();
     let simbolo = simbolo_de(ctx, f_idx);
     baixar_funcao(ctx, module, f_idx);
-    crate::otimizar::arc::analise::origens::registrar(module, inicio, ctx.memoria_arc);
+    crate::optimize::arc::analise::origens::registrar(module, inicio, ctx.memoria_arc);
     // A convenção pertence ao corpo Dart identificado pelo front-end, não à
     // largura de retornos de thunks/FFI ou de funções extras criadas no corpo.
     if ctx.memoria_arc

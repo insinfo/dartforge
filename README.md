@@ -49,7 +49,7 @@ vector registers end to end (no boxing, no allocation, no runtime calls on the h
 - **SIMD, Dart 3.6 API**: `Int32x4` has no multiply in 3.6, so lanes go through `Float32x4`
   and back, the way real rasterizers are written today;
 - **SIMD, Dart 3.14 API**: `Int32x4 * Int32x4` and `>>`, from the 3.14 `dart:typed_data`, provided
-  on the 3.6.2 SDK by [`pacotes/dartforge_simd`](pacotes/dartforge_simd) (plain Dart on the VM,
+  on the 3.6.2 SDK by [`packages/dartforge_simd`](packages/dartforge_simd) (plain Dart on the VM,
   a `<4 x i32>` instruction in DartForge).
 
 Microseconds per call (lower is better), best of 7 rounds × 400 calls, minimum over 7 alternated
@@ -157,9 +157,9 @@ The `jit` feature needs the full LLVM distribution (`LLVM_SYS_221_PREFIX`, in
 ## Verify
 
     cargo test --locked --workspace
-    cargo run --release -p dartforge-diferencial               # JS corpus against the VM and dartdevc
-    cargo run --release -p dartforge-diferencial -- --producao
-    cargo run --release -p dartforge-diferencial -- --nativo --corpus corpus/nativo
+    cargo run --release -p dartforge-differential               # JS corpus against the VM and dartdevc
+    cargo run --release -p dartforge-differential -- --producao
+    cargo run --release -p dartforge-differential -- --nativo --corpus corpus/native
     pwsh scripts/ci.ps1 -Frente <name> -Acompanhar            # full CI (ci.yml + pesado.yml)
 
 What runs in CI and what is left out: `ESTADO.md` §1.6 and §3.
@@ -171,15 +171,15 @@ What runs in CI and what is left out: `ESTADO.md` §1.6 and §3.
 | frontend | Dart 3.6 lexer, syntax tree and parser (no resolution) |
 | elements / types | Element model, SDK from source, types, inference and flow analysis |
 | emit_js | JavaScript emission following the DDC contract |
-| mundo / emit_js_producao | Closed world and the production profile (one file) |
-| gerador_ng | Generator of ngdart `.template.dart` files |
+| world / emit_js_production | Closed world and the production profile (one file) |
+| ng_generator | Generator of ngdart `.template.dart` files |
 | emit_native / runtime / jit | Own HIR → LLVM IR → objects; Rust runtime; ORCv2 JIT |
 | build | Build engine (`package:build` builders, native executor) |
 | sass | Sass compiler (dart-sass compatible) |
 | abi | Scalar ABI profiles (`abi-info`) |
 | dev | Resident compiler (`dev`, `serve`) |
 | lsp | LSP server |
-| diferencial | Differential harness against the VM, `dartdevc` and our own AOT |
+| differential | Differential harness against the VM, `dartdevc` and our own AOT |
 | intern / diagnostics / instrument | Symbols, diagnostics and measurement |
 | cli | The `dartforge` executable |
 

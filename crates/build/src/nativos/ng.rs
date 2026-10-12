@@ -1,4 +1,4 @@
-//! `ngdart:ngdart` pelo `gerador_ng`, estágio A (`docs/BUILD-MOTOR.md`;
+//! `ngdart:ngdart` pelo `ng_generator`, estágio A (`docs/BUILD-MOTOR.md`;
 //! plano do motor §6.2): **uma ação de pacote**, sobre o `Program` da
 //! sessão (o `Resolvedor` é o `BuildStep.resolver` sem carga extra), com
 //! consultas conservadoras — qualquer `.dart`/`.html`/`.scss`/`.css` do
@@ -22,7 +22,7 @@ use std::sync::Mutex;
 
 pub struct NgEstagioA {
     /// A chave do builder: `ngdart:ngdart` (ngdart 8) ou `ngx_dart:ngx_dart`
-    /// (o fork 9 com `package:web`); o `gerador_ng` escolhe o dialeto pelo
+    /// (o fork 9 com `package:web`); o `ng_generator` escolhe o dialeto pelo
     /// programa (`docs/NGDART-COMPILADOR-DE-VISOES.md` parte B).
     chave: &'static str,
     /// Por pacote: a entrada e cada dependência com componentes têm a sua
@@ -51,7 +51,7 @@ struct CacheNg {
     saida: SaidaNativa,
     /// HTML/CSS/SCSS -> fontes Dart que leram o recurso.
     fontes_do_recurso: BTreeMap<PathBuf, Vec<PathBuf>>,
-    indice: Option<dartforge_gerador_ng::Indice>,
+    indice: Option<dartforge_ng_generator::Indice>,
 }
 
 /// Algo no texto que pode ser Angular (conservador: qualquer menção ao
@@ -250,16 +250,16 @@ impl GeradorNativo for NgEstagioA {
             }
         }
         let t_consultas = t.elapsed();
-        let pacote = dartforge_gerador_ng::Pacote {
+        let pacote = dartforge_ng_generator::Pacote {
             nome: pedido.pacote.clone(),
             raiz: raiz.clone(),
             folhas_geradas: folhas_geradas(ctx, &raiz),
         };
         let resolvedor =
-            dartforge_gerador_ng::resolucao::Resolvedor::novo(programa, nomes_programa);
+            dartforge_ng_generator::resolucao::Resolvedor::novo(programa, nomes_programa);
         let mut nomes = dartforge_intern::Interner::new();
         let (g, placar) =
-            dartforge_gerador_ng::gerar_com_apoio(&pacote, &mut nomes, None, Some(&resolvedor));
+            dartforge_ng_generator::gerar_com_apoio(&pacote, &mut nomes, None, Some(&resolvedor));
         if std::env::var_os("DARTFORGE_MOTOR_TEMPOS").is_some() {
             eprintln!(
                 "ngdart (estágio A): consultas {:.1} ms ({} arquivos), gerar_com_apoio {:.1} ms",
@@ -460,15 +460,15 @@ impl NgEstagioA {
         fecho.sort();
         let mut cache = self.cache.lock().ok()?;
         let cache = cache.get_mut(&pedido.pacote)?;
-        let pacote = dartforge_gerador_ng::Pacote {
+        let pacote = dartforge_ng_generator::Pacote {
             nome: pedido.pacote.clone(),
             raiz: raiz.clone(),
             folhas_geradas: folhas_geradas(ctx, &raiz),
         };
         let resolvedor =
-            dartforge_gerador_ng::resolucao::Resolvedor::novo(programa, nomes_programa);
+            dartforge_ng_generator::resolucao::Resolvedor::novo(programa, nomes_programa);
         for fonte in &fecho {
-            let destino = dartforge_gerador_ng::caminho_do_template(fonte);
+            let destino = dartforge_ng_generator::caminho_do_template(fonte);
             if !cache.saida.saidas.contains_key(&destino) || cache.saida.recusas.contains_key(fonte)
             {
                 return None;
@@ -480,7 +480,7 @@ impl NgEstagioA {
         let mut nomes = dartforge_intern::Interner::new();
         for fonte in &fecho {
             let texto = std::fs::read_to_string(fonte).ok()?;
-            let achados = dartforge_gerador_ng::analisar_arquivo(fonte, &texto, &mut nomes);
+            let achados = dartforge_ng_generator::analisar_arquivo(fonte, &texto, &mut nomes);
             textos.push(achados);
         }
         match cache.indice.as_mut() {
@@ -495,7 +495,7 @@ impl NgEstagioA {
         let mut novas = Vec::new();
         let mut recursos: Vec<(PathBuf, Vec<PathBuf>)> = Vec::new();
         for (fonte, achados) in fecho.iter().zip(&textos) {
-            let saida = dartforge_gerador_ng::gerar_arquivo(
+            let saida = dartforge_ng_generator::gerar_arquivo(
                 &pacote,
                 fonte,
                 achados,
@@ -504,7 +504,7 @@ impl NgEstagioA {
                 indice,
             )
             .ok()?;
-            let destino = dartforge_gerador_ng::caminho_do_template(fonte);
+            let destino = dartforge_ng_generator::caminho_do_template(fonte);
             novas.push((destino, saida.template.into_bytes()));
             for (destino, texto) in saida.extras {
                 if !cache.saida.saidas.contains_key(&destino) {
@@ -603,14 +603,14 @@ impl NgEstagioA {
             .extension()
             .is_some_and(|e| matches!(e.to_str(), Some("css" | "scss" | "sass")))
         {
-            let pacote = dartforge_gerador_ng::Pacote {
+            let pacote = dartforge_ng_generator::Pacote {
                 nome: pedido.pacote.clone(),
                 raiz: pedido.raiz_do_pacote.clone(),
                 folhas_geradas: folhas_geradas(ctx, &pedido.raiz_do_pacote),
             };
             let css = recurso.with_extension("css");
             let mut novas = Vec::new();
-            for (destino, r) in dartforge_gerador_ng::gerar_folha(&pacote, &css) {
+            for (destino, r) in dartforge_ng_generator::gerar_folha(&pacote, &css) {
                 // Saída que não era nossa, ou que deixa de ser: o caminho
                 // completo decide.
                 let bytes = r.ok()?.into_bytes();
@@ -630,13 +630,13 @@ impl NgEstagioA {
         }
         let fontes = cache.fontes_do_recurso.get(recurso)?.clone();
         let (programa, nomes_programa) = ctx.programa?;
-        let pacote = dartforge_gerador_ng::Pacote {
+        let pacote = dartforge_ng_generator::Pacote {
             nome: pedido.pacote.clone(),
             raiz: pedido.raiz_do_pacote.clone(),
             folhas_geradas: folhas_geradas(ctx, &pedido.raiz_do_pacote),
         };
         let resolvedor =
-            dartforge_gerador_ng::resolucao::Resolvedor::novo(programa, nomes_programa);
+            dartforge_ng_generator::resolucao::Resolvedor::novo(programa, nomes_programa);
         if cache.indice.is_none() {
             cache.indice = Some(indice_do_pacote(&pacote, &resolvedor));
         }
@@ -646,8 +646,8 @@ impl NgEstagioA {
         for fonte in fontes {
             let texto = std::fs::read_to_string(&fonte).ok()?;
             let mut nomes = dartforge_intern::Interner::new();
-            let achados = dartforge_gerador_ng::analisar_arquivo(&fonte, &texto, &mut nomes);
-            let saida = dartforge_gerador_ng::gerar_arquivo(
+            let achados = dartforge_ng_generator::analisar_arquivo(&fonte, &texto, &mut nomes);
+            let saida = dartforge_ng_generator::gerar_arquivo(
                 &pacote,
                 &fonte,
                 &achados,
@@ -656,7 +656,7 @@ impl NgEstagioA {
                 indice,
             )
             .ok()?;
-            let destino = dartforge_gerador_ng::caminho_do_template(&fonte);
+            let destino = dartforge_ng_generator::caminho_do_template(&fonte);
             if !cache.saida.saidas.contains_key(&destino) {
                 return None;
             }
@@ -687,10 +687,10 @@ impl NgEstagioA {
 }
 
 fn indice_do_pacote(
-    pacote: &dartforge_gerador_ng::Pacote,
-    resolvedor: &dartforge_gerador_ng::resolucao::Resolvedor<'_>,
-) -> dartforge_gerador_ng::Indice {
-    let mut indice = dartforge_gerador_ng::Indice::do_programa(resolvedor);
+    pacote: &dartforge_ng_generator::Pacote,
+    resolvedor: &dartforge_ng_generator::resolucao::Resolvedor<'_>,
+) -> dartforge_ng_generator::Indice {
+    let mut indice = dartforge_ng_generator::Indice::do_programa(resolvedor);
     let mut arquivos_dart = Vec::new();
     for dir in ["lib", "web", "test"] {
         arquivos(&pacote.raiz.join(dir), &mut arquivos_dart);
@@ -704,7 +704,7 @@ fn indice_do_pacote(
         }
         if let Ok(texto) = std::fs::read_to_string(&fonte) {
             let achados =
-                dartforge_gerador_ng::analisar_arquivo(Path::new(&fonte), &texto, &mut nomes);
+                dartforge_ng_generator::analisar_arquivo(Path::new(&fonte), &texto, &mut nomes);
             indice.atualizar(pacote, &fonte, &achados, Some(resolvedor));
         }
     }

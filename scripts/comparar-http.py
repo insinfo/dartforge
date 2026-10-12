@@ -2,7 +2,7 @@
 """Servidor HTTP do comparativo (RELATORIO-COMPARATIVO-NATIVO.md): o mesmo
 protocolo de `bench/http/servidor.dart` em Dart (DartForge e Dart), Go, Swift
 (SwiftNIO) e TypeScript (Perry, scriptc), sob a carga de
-`bench/comparativo/carga.go` (keep-alive; substitui o `wrk` no macOS).
+`bench/comparison/carga.go` (keep-alive; substitui o `wrk` no macOS).
 
 Para cada servidor: sobe na porta 0, aquece, e mede `/` e `/json` com 1 e N
 conexões: req/s, latência p50/p99, CPU do servidor por mil requisições
@@ -17,7 +17,7 @@ Uso: scripts/comparar-http.py <dir de saída> [--duracao S] [--conexoes 1,32] [s
 import argparse, os, re, shutil, subprocess, sys, time, urllib.request
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FONTES = os.path.join(RAIZ, "bench", "comparativo")
+FONTES = os.path.join(RAIZ, "bench", "comparison")
 
 
 def ferramenta(var, nome, padrao=None):

@@ -10,7 +10,7 @@
 //! Tracing executa o mesmo corpo com tokens explícitos, sem mudar seu fluxo
 //! padrão. Não prova lowering de fonte, suspensão, recarga ou unwinding.
 
-use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*};
+use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
 
 fn modulo() -> Result<Module, String> {

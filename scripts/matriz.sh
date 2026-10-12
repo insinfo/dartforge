@@ -1,13 +1,13 @@
 #!/bin/sh
 # Mede a matriz de suporte (V02) neste sistema: cada corpus em cada perfil
-# pelo `dartforge-diferencial --matriz`, um TSV por corpus em
+# pelo `dartforge-differential --matriz`, um TSV por corpus em
 # `target/matriz/<sistema>/`, e depois `scripts/matriz.py` escreve a
 # `docs/MATRIZ.md` com todos os sistemas medidos que estiverem ali (os TSVs de
 # outro sistema — o artefato `matriz-<sistema>` do Pesado — entram copiados para
 # `target/matriz/<sistema>/`).
 #
 # Uso: scripts/matriz.sh [--sem-nativo] [--sem-js]
-# Precisa do `dartforge-diferencial` e do `dartforge` compilados em release
+# Precisa do `dartforge-differential` e do `dartforge` compilados em release
 # (com `--features nativo,jit` para os perfis nativos) e dos oráculos
 # (DARTFORGE_DART_SDK, DARTFORGE_DART_SDK_3_13 para o corpus moderno).
 # O código de saída de cada rodada não interrompe o script: um programa que
@@ -31,8 +31,8 @@ case "$(uname -s)" in
 esac
 SISTEMA="$SO-$(uname -m)"
 DIR="target/matriz/$SISTEMA"
-D=./target/release/dartforge-diferencial
-[ -x "$D" ] || [ -x "$D.exe" ] || { echo "falta $D (cargo build --release -p dartforge-diferencial)" >&2; exit 2; }
+D=./target/release/dartforge-differential
+[ -x "$D" ] || [ -x "$D.exe" ] || { echo "falta $D (cargo build --release -p dartforge-differential)" >&2; exit 2; }
 rm -rf "$DIR"
 mkdir -p "$DIR"
 

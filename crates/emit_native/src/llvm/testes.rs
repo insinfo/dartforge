@@ -98,7 +98,7 @@ fn global_arc_carrega_bits_reais_e_publica_antes_de_transferir_owner() {
     m.globais.push((0, Type::Ref, "dfg.recurso".into()));
     m.functions.push(f);
     assert!(crate::lower::verificador::verificar(&m).is_empty());
-    crate::otimizar::otimizar(&mut m);
+    crate::optimize::otimizar(&mut m);
     let ir = LlvmEmitter::new(&m).emit_all();
     let corpo = corpo_de(&ir, "arc_global");
     assert!(corpo.contains("%v2 = load i64, ptr %ga2"));
@@ -160,7 +160,7 @@ fn slots_arc_emitidos_preservam_descritor_e_modos_apos_otimizar() {
     let mut m = Module::new();
     m.functions.push(f);
     assert!(crate::lower::verificador::verificar(&m).is_empty());
-    crate::otimizar::otimizar(&mut m);
+    crate::optimize::otimizar(&mut m);
     let ir = LlvmEmitter::new(&m).emit_all();
     let corpo = corpo_de(&ir, "arc_slots");
     assert!(corpo.contains("@dartforge_arc_quadro_copiar_v1(i64 %v0, i64 7, i64 %v1)"));
@@ -209,7 +209,7 @@ fn operacoes_arc_preservam_contagem_e_movimento_na_otimizacao() {
     let mut m = Module::new();
     m.functions.push(f);
     assert!(crate::lower::verificador::verificar(&m).is_empty());
-    crate::otimizar::otimizar(&mut m);
+    crate::optimize::otimizar(&mut m);
     assert!(crate::lower::verificador::verificar(&m).is_empty());
     let ir = LlvmEmitter::new(&m).emit_all();
     let corpo = corpo_de(&ir, "arc_linear");
@@ -267,7 +267,7 @@ fn inlining_remapeia_operando_arc_e_preserva_token_de_retorno() {
     );
     let mut m = Module::new();
     m.functions = vec![doar, chamar];
-    crate::otimizar::otimizar(&mut m);
+    crate::optimize::otimizar(&mut m);
     assert!(crate::lower::verificador::verificar(&m).is_empty());
     let ir = LlvmEmitter::new(&m).emit_all();
     let corpo = corpo_de(&ir, "arc_chamar");
@@ -747,7 +747,7 @@ fn cleanup_retoma_par_original_e_recusa_metadados_incoerentes() {
         saidas: [(BlockId(2), SaidaPorExcecao::Retoma)].into(),
         ..Default::default()
     };
-    crate::otimizar::arc::conferir_retomas(&f, &t).unwrap();
+    crate::optimize::arc::conferir_retomas(&f, &t).unwrap();
     let m = Module::new();
     let mut e = LlvmEmitter::new(&m);
     e.tab = Some(&t);
@@ -763,16 +763,16 @@ fn cleanup_retoma_par_original_e_recusa_metadados_incoerentes() {
     assert!(pouso.find("@dartforge_arc_release").unwrap() < pouso.find("resume").unwrap());
     let mut ruim = t.clone();
     ruim.pousos.clear();
-    assert!(crate::otimizar::arc::conferir_retomas(&f, &ruim).unwrap_err().contains("pouso"));
+    assert!(crate::optimize::arc::conferir_retomas(&f, &ruim).unwrap_err().contains("pouso"));
     ruim = t.clone();
     ruim.invocacoes.insert(ValueId(1000), BlockId(2));
-    assert!(crate::otimizar::arc::conferir_retomas(&f, &ruim).unwrap_err().contains("exatamente um invoke"));
+    assert!(crate::optimize::arc::conferir_retomas(&f, &ruim).unwrap_err().contains("exatamente um invoke"));
     let mut corpo = f.clone();
     corpo.blocks[0].terminator = Terminator::Branch(BlockId(2));
-    assert!(crate::otimizar::arc::conferir_retomas(&corpo, &t).unwrap_err().contains("sem invoke"));
+    assert!(crate::optimize::arc::conferir_retomas(&corpo, &t).unwrap_err().contains("sem invoke"));
     corpo = f.clone();
     corpo.blocks[2].instructions.push((ValueId(5), Instruction::CallRuntime { name: "dartforge_exception_clear".into(), args: vec![], ret_ty: Type::Void }, Type::Void));
-    assert!(crate::otimizar::arc::conferir_retomas(&corpo, &t).unwrap_err().contains("só admite drops"));
+    assert!(crate::optimize::arc::conferir_retomas(&corpo, &t).unwrap_err().contains("só admite drops"));
     let mut e = LlvmEmitter::new(&m);
     e.tab = Some(&t);
     e.mapas = true;
@@ -840,12 +840,12 @@ fn catch_no_perfil_cleanup_confere_seletor_e_remapeia_phi_do_pouso() {
         id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None),
     }]);
     let mut funcoes = vec![f, falha];
-    let mut plano = crate::otimizar::arc::PlanoFuncaoDart::default();
+    let mut plano = crate::optimize::arc::PlanoFuncaoDart::default();
     plano.tabelas = t;
-    let mut folha = crate::otimizar::arc::PlanoFuncaoDart::default();
+    let mut folha = crate::optimize::arc::PlanoFuncaoDart::default();
     folha.tabelas.confere_pilha = true;
     let mut planos = std::collections::HashMap::from([("misto".into(), plano), ("falha".into(), folha)]);
-    assert_eq!(crate::otimizar::arc::inserir_arc_funcoes_dart(&mut funcoes, &mut planos).unwrap(), (0, 0));
+    assert_eq!(crate::optimize::arc::inserir_arc_funcoes_dart(&mut funcoes, &mut planos).unwrap(), (0, 0));
     let f = &funcoes[0];
     let t = &planos["misto"].tabelas;
     let certificado = t.cleanup_estrangeiro.as_ref().unwrap();
@@ -903,18 +903,18 @@ fn cleanup_estrangeiro_fecha_quadros_locais_em_lifo() {
         BasicBlock { id: BlockId(4), instructions: vec![fechar(8, 1), fechar(9, 0)], terminator: Terminator::Return(None) },
     ]);
     let falha = funcao("falha", vec![], Type::Void, vec![BasicBlock { id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }]);
-    let mut plano = crate::otimizar::arc::PlanoFuncaoDart::default();
+    let mut plano = crate::optimize::arc::PlanoFuncaoDart::default();
     plano.tabelas.invocacoes.insert(ValueId(2), BlockId(1));
     plano.tabelas.pousos.insert(BlockId(1));
     plano.tabelas.saidas.insert(BlockId(1), SaidaPorExcecao::Guarda);
     plano.tabelas.invocacoes.insert(ValueId(7), BlockId(3));
     plano.tabelas.pousos.insert(BlockId(3));
     plano.tabelas.saidas.insert(BlockId(3), SaidaPorExcecao::Retoma);
-    let mut folha = crate::otimizar::arc::PlanoFuncaoDart::default();
+    let mut folha = crate::optimize::arc::PlanoFuncaoDart::default();
     folha.tabelas.confere_pilha = true;
     let mut planos = std::collections::HashMap::from([("quadros_estrangeiros".into(), plano), ("falha".into(), folha)]);
     let mut funcoes = vec![f, falha];
-    crate::otimizar::arc::inserir_arc_funcoes_dart(&mut funcoes, &mut planos).unwrap();
+    crate::optimize::arc::inserir_arc_funcoes_dart(&mut funcoes, &mut planos).unwrap();
     let t = &planos["quadros_estrangeiros"].tabelas;
     assert_eq!(t.cleanup_estrangeiro.as_ref().unwrap().quadros(BlockId(1)), &[ValueId(0), ValueId(1)]);
     let m = Module::new();
@@ -933,15 +933,15 @@ fn cleanup_estrangeiro_fecha_quadros_locais_em_lifo() {
         < retoma.find("@dartforge_arc_quadro_fechar_v1(i64 %v0)").unwrap());
     let mut invalida = funcoes[0].clone();
     invalida.blocks.iter_mut().find(|b| b.id == BlockId(3)).unwrap().instructions.swap(0, 1);
-    assert!(crate::otimizar::arc::conferir_retomas(&invalida, t).unwrap_err().contains("fora de LIFO"));
+    assert!(crate::optimize::arc::conferir_retomas(&invalida, t).unwrap_err().contains("fora de LIFO"));
     let mut sem_fechar = funcoes[0].clone();
     sem_fechar.blocks.iter_mut().find(|b| b.id == BlockId(3)).unwrap().instructions.pop();
-    assert!(crate::otimizar::arc::conferir_retomas(&sem_fechar, t).unwrap_err().contains("quadros ainda abertos"));
+    assert!(crate::optimize::arc::conferir_retomas(&sem_fechar, t).unwrap_err().contains("quadros ainda abertos"));
     let mut coleta = funcoes[0].clone();
     coleta.blocks.iter_mut().find(|b| b.id == BlockId(3)).unwrap().instructions.push((
         ValueId(10), Instruction::CallRuntime { name: "dartforge_arc_collect".into(), args: vec![], ret_ty: Type::Void }, Type::Void,
     ));
-    assert!(crate::otimizar::arc::conferir_retomas(&coleta, t).unwrap_err().contains("só admite drops"));
+    assert!(crate::optimize::arc::conferir_retomas(&coleta, t).unwrap_err().contains("só admite drops"));
     assert!(ir.contains("resume { ptr, i32 } %lpad3"));
 
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Roda corpus/nativo contra o `dart run`, vários programas ao mesmo tempo.
+# Roda corpus/native contra o `dart run`, vários programas ao mesmo tempo.
 #
 #   scripts/corpus-nativo.sh [tracing|arc|preparado|tabelas] [jobs] [filtro]
 #
@@ -48,7 +48,7 @@ export -f um
 export modo bin ref dest
 
 # Um programa primeiro: monta o SDK do perfil (cache) sem corrida entre jobs.
-programas=$(ls "$raiz"/corpus/nativo/*.dart | grep -- "$filtro")
+programas=$(ls "$raiz"/corpus/native/*.dart | grep -- "$filtro")
 primeiro=$(echo "$programas" | head -1)
 {
   um "$primeiro"

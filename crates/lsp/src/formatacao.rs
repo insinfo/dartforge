@@ -4,13 +4,13 @@
 //! servidor do Dart 3.6.2 (`generateEditsForFormatting`,
 //! `lsp/source_edits.dart`).
 //!
-//! O texto é formatado pelo porte do `dart_style` ([`dartforge_formatar`]); a
+//! O texto é formatado pelo porte do `dart_style` ([`dartforge_formatter`]); a
 //! resposta são as edições mínimas de brancos entre os tokens
-//! ([`dartforge_formatar::edicoes::edicoes_minimas`]). Sem mudança, ou com
+//! ([`dartforge_formatter::edicoes::edicoes_minimas`]). Sem mudança, ou com
 //! erro de sintaxe, a resposta é `null`.
 
-use dartforge_formatar::edicoes::edicoes_minimas;
-use dartforge_formatar::{Opcoes, formatar};
+use dartforge_formatter::edicoes::edicoes_minimas;
+use dartforge_formatter::{Opcoes, formatar};
 use serde_json::{Value, json};
 
 use crate::utf16::TabelaLinhas;

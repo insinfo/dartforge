@@ -2,7 +2,7 @@
 
 Seção da especificação do compilador AngularDart (`ngcompiler-3.0.0-dev.3` +
 runtime `ngdart-8.0.0-dev.4`), derivada da leitura do código-fonte, para o porte
-em Rust (`crates/gerador_ng`). Cobre: extração de metadados de
+em Rust (`crates/ng_generator`). Cobre: extração de metadados de
 `@Component`/`@Directive`/`@Pipe`, entradas/saídas e herança, `@HostBinding`/
 `@HostListener`, consultas, ganchos de ciclo de vida, `changeDetection`,
 `encapsulation`, `visibility`, provedores, tokens, dependências de construtor e
@@ -47,7 +47,7 @@ Caminhos relativos a `/root/.pub-cache/hosted/pub.dev/ngcompiler-3.0.0-dev.3/lib
 | NUL | `v2/analyzer.dart` (extensão `isExplicitlyNullable`/`isExplicitlyNonNullable`) |
 
 Runtime: `RT/…` = `/root/.pub-cache/hosted/pub.dev/ngdart-8.0.0-dev.4/lib/src/meta/…`.
-Porte: `RS/…` = `/home/user/dartforge/crates/gerador_ng/src/…`.
+Porte: `RS/…` = `/home/user/dartforge/crates/ng_generator/src/…`.
 
 Estado no porte: **Coberto**, **Parcial**, **Falta**, **Recusa** (o porte não gera e
 registra o motivo — saída ausente, não errada), **Divergente** (gera algo diferente).

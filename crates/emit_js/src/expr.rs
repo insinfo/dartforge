@@ -376,7 +376,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// Emite uma expressão; `expected` é o tipo de contexto (inferência descendente).
     /// Valor booleano constante de `x` provado pelo mundo (`Vivos::constante_bool`),
     /// só nas formas que o mundo também dobra (as mesmas de
-    /// `dartforge_mundo::impacto::constante`).
+    /// `dartforge_world::impacto::constante`).
     pub fn constante(&self, x: ExprId) -> Option<bool> {
         let f = self.ctx.filtro?;
         match &self.expr(x).kind {

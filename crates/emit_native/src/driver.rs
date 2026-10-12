@@ -358,7 +358,7 @@ thread_local! {
 /// O nível de otimização da LTO da produção (`DARTFORGE_LTO_NIVEL`, 0–3):
 /// `-O1` no programa em partes (ThinLTO; docs/NATIVO-PRODUCAO-GRANDE.md
 /// §6.2: a otimização cai de 275 para 150 s de CPU no new_sali/backend, o
-/// `bench/desempenho` não muda), `-O2` no resto.
+/// `bench/performance` não muda), `-O2` no resto.
 pub fn nivel_da_lto() -> u8 {
     let padrao = if LIGACAO_EM_PARTES.get() { 1 } else { 2 };
     std::env::var("DARTFORGE_LTO_NIVEL").ok().and_then(|v| v.trim().parse::<u8>().ok()).filter(|n| *n <= 3).unwrap_or(padrao)

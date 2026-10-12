@@ -1523,8 +1523,8 @@ impl<A: Analisador> Servidor<A> {
                             let finais = std::path::Path::new(&arquivo).parent().is_some_and(|_| {
                                 let caminho = std::path::Path::new(&arquivo);
                                 let raiz = crate::projeto::raiz_do_projeto(caminho);
-                                let opcoes = dartforge_paridade::filtros::Opcoes::de_subpasta(caminho, &raiz).unwrap_or_else(|| raiz.join("analysis_options.yaml"));
-                                dartforge_paridade::filtros::Opcoes::ler_arquivo(&opcoes).regras.get("prefer_final_locals").copied().unwrap_or(false)
+                                let opcoes = dartforge_parity::filtros::Opcoes::de_subpasta(caminho, &raiz).unwrap_or_else(|| raiz.join("analysis_options.yaml"));
+                                dartforge_parity::filtros::Opcoes::ler_arquivo(&opcoes).regras.get("prefer_final_locals").copied().unwrap_or(false)
                             });
                             let mut casador = crate::casador::Casador::novo(prefixo, crate::casador::Estilo::Texto);
                             for (pre, rotulo, doc, corpo) in crate::item_completar::snippets(contexto, &recuo, eol, em_testes, finais) {
@@ -2792,7 +2792,7 @@ impl<A: Analisador> Servidor<A> {
             alvos.iter().filter_map(|(u, _)| url::Url::parse(u).ok().and_then(|x| x.to_file_path().ok())).collect();
         let mut vistos: HashSet<std::path::PathBuf> = HashSet::new();
         for raiz in &self.raizes {
-            for arquivo in dartforge_paridade::corpus::arquivos_dart(raiz) {
+            for arquivo in dartforge_parity::corpus::arquivos_dart(raiz) {
                 if abertos.contains(&arquivo) || !vistos.insert(arquivo.clone()) {
                     continue;
                 }
@@ -3216,11 +3216,11 @@ impl<A: Analisador> Servidor<A> {
     /// `publishDiagnostics` de um arquivo não aberto, com o texto analisado.
     /// A publicação dos diagnósticos de um YAML (no JSON do analyzer: linha e
     /// coluna a partir de 1, deslocamento UTF-16): as faixas pelo texto lido.
-    fn publicacao_do_yaml(&mut self, uri: &str, texto: &str, diagnosticos: &[dartforge_paridade::json::DiagJson]) -> Option<Value> {
+    fn publicacao_do_yaml(&mut self, uri: &str, texto: &str, diagnosticos: &[dartforge_parity::json::DiagJson]) -> Option<Value> {
         let itens: Vec<Value> = diagnosticos
             .iter()
             .map(|d| {
-                let ponto = |p: &dartforge_paridade::json::Ponto| json!({"line": p.line.saturating_sub(1), "character": p.column.saturating_sub(1)});
+                let ponto = |p: &dartforge_parity::json::Ponto| json!({"line": p.line.saturating_sub(1), "character": p.column.saturating_sub(1)});
                 let severidade = match d.severity.as_str() {
                     "ERROR" => SEVERIDADE_ERRO,
                     "WARNING" => 2,

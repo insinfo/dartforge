@@ -3,7 +3,7 @@
 //! de sobrescrevê-lo. O harness observa owners/morte, sem fixture C++.
 //! Não certifica lowering Dart completo, late, publicação ou recarga.
 
-use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*};
+use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
 
 fn modulo() -> Result<Module, String> {

@@ -5,11 +5,11 @@
 //! `-`, uma linha por diagnóstico.
 //!
 //! Publica só o que a regra do plano §2.3 permite: sintaxe sempre, e os
-//! códigos semânticos de `crates/analise/verificados.txt`. `--todos` mostra
+//! códigos semânticos de `crates/analysis/verificados.txt`. `--todos` mostra
 //! também os não verificados (para depurar, nunca para o editor).
 //!
 //! Reescrito em 2026-10-04 sem compilar nem executar.
-use dartforge_paridade::json::DiagJson;
+use dartforge_parity::json::DiagJson;
 use std::path::{Path, PathBuf};
 
 /// A raiz do pacote: o diretório mais próximo, subindo, com `pubspec.yaml`.
@@ -129,7 +129,7 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dy
     } else {
         std::env::current_dir()?
     };
-    let motor = dartforge_paridade::analise::Motor::descobrir()?;
+    let motor = dartforge_parity::analise::Motor::descobrir()?;
     // Corpos profundos recursam fundo: pilha própria, como o `compile-js`.
     let mut diags: Vec<DiagJson> = std::thread::Builder::new()
         .stack_size(1 << 30)
@@ -137,17 +137,17 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dy
             let mut v = Vec::new();
             for alvo in &absolutos {
                 let raiz = raiz_do_pacote(alvo);
-                let opcoes = dartforge_paridade::filtros::Opcoes::ler(&raiz);
+                let opcoes = dartforge_parity::filtros::Opcoes::ler(&raiz);
                 // O `pubspec.yaml` do pacote, quando o alvo é a pasta dele.
                 if alvo.is_dir() && *alvo == raiz {
-                    v.extend(dartforge_paridade::diagnosticos_do_pubspec(&raiz, &opcoes));
-                    v.extend(dartforge_paridade::diagnosticos_das_opcoes(&raiz));
-                    v.extend(dartforge_paridade::diagnosticos_do_manifesto(&raiz, &opcoes));
+                    v.extend(dartforge_parity::diagnosticos_do_pubspec(&raiz, &opcoes));
+                    v.extend(dartforge_parity::diagnosticos_das_opcoes(&raiz));
+                    v.extend(dartforge_parity::diagnosticos_do_manifesto(&raiz, &opcoes));
                 }
                 let arquivos: Vec<PathBuf> = if alvo.is_dir() {
-                    dartforge_paridade::corpus::arquivos_dart(alvo)
+                    dartforge_parity::corpus::arquivos_dart(alvo)
                         .into_iter()
-                        .filter(|a| dartforge_paridade::oraculo::relativo(a, &raiz).is_some_and(|r| !opcoes.excluido(&r)))
+                        .filter(|a| dartforge_parity::oraculo::relativo(a, &raiz).is_some_and(|r| !opcoes.excluido(&r)))
                         .collect()
                 } else {
                     // O arquivo pedido na linha de comando não é excluído.
@@ -156,11 +156,11 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dy
                 let do_pacote = raiz.join(".dart_tool").join("package_config.json");
                 let padrao = packages_pedido.clone().or_else(|| do_pacote.is_file().then_some(do_pacote));
                 // Pacotes aninhados (`example/`): cada um com o seu package_config.
-                for (raiz_pkg, fs) in dartforge_paridade::projetos::por_pacote(&raiz, &arquivos) {
+                for (raiz_pkg, fs) in dartforge_parity::projetos::por_pacote(&raiz, &arquivos) {
                     let c = raiz_pkg.join(".dart_tool").join("package_config.json");
                     let c = if c.is_file() { Some(c) } else { padrao.clone() };
                     let a = motor.analisar(&raiz, &fs, c.as_deref());
-                    v.extend(dartforge_paridade::diagnosticos_json(&a, &raiz, &opcoes, !todos));
+                    v.extend(dartforge_parity::diagnosticos_json(&a, &raiz, &opcoes, !todos));
                 }
             }
             v
@@ -182,7 +182,7 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dy
     match formato {
         Formato::Json => {
             // Uma linha, com a quebra do `print` do Dart no fim.
-            println!("{}", dartforge_paridade::json::escrever(diags));
+            println!("{}", dartforge_parity::json::escrever(diags));
         }
         Formato::Maquina => {
             // Sem diagnósticos, nenhuma saída.

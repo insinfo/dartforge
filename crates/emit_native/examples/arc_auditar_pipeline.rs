@@ -1,7 +1,7 @@
 //! Diagnóstico da preparação ARC sobre módulos completos baixados da fonte.
 //! Não publica corpos nem emite um programa com convenções parcialmente mudadas.
 
-use dartforge_emit_native::{context::Context, driver, otimizar, otimizar::arc::*, sdk_modulo};
+use dartforge_emit_native::{context::Context, driver, optimize, optimize::arc::*, sdk_modulo};
 use dartforge_intern::Interner;
 use dartforge_types::table::{CoreTypes, TypeTable};
 use std::{collections::{BTreeMap, HashMap}, path::Path};
@@ -81,10 +81,10 @@ fn auditar(entrada: &Path, sdk_no_grupo: bool, inventario_externs: bool) -> Resu
         let refs = resumos.iter().map(|r| r.as_ref()).collect::<Vec<_>>();
         dartforge_emit_native::poda::podar_hir(&mut m, &refs);
     }
-    otimizar::otimizar(&mut m);
+    optimize::otimizar(&mut m);
     let por_tabelas = dartforge_emit_native::alvo::excecoes_por_tabelas()?;
     if por_tabelas {
-        otimizar::excecoes_por_tabelas(&mut m);
+        optimize::excecoes_por_tabelas(&mut m);
     }
     if sdk_no_grupo {
         let mut modulos = vec![m];
@@ -281,8 +281,8 @@ fn baixar_sdk_para_auditoria(
                 m.erros
             ));
         }
-        otimizar::otimizar(&mut m);
-        if por_tabelas { otimizar::excecoes_por_tabelas(&mut m); }
+        optimize::otimizar(&mut m);
+        if por_tabelas { optimize::excecoes_por_tabelas(&mut m); }
         println!(
             "SDK {}: {} funções",
             programa.library(lib).uri,

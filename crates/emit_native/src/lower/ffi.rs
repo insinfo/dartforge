@@ -22,7 +22,7 @@
 //!   ([`TipoNativo::Composto`], com o layout C do alvo), a parte variádica de
 //!   `VarArgs` (inclusive com structs, pela regra variádica do alvo) e
 //!   `Handle` (o objeto Dart na fronteira) também baixam
-//!   (`corpus/nativo/16_ffi_structs_por_valor.dart`, `17_ffi_varargs.dart`,
+//!   (`corpus/native/16_ffi_structs_por_valor.dart`, `17_ffi_varargs.dart`,
 //!   `18_ffi_handle.dart`).
 //!
 //! O que continua recusado — inteiro específico da ABI sem mapeamento para o

@@ -1,6 +1,6 @@
 //! O caminho inteiro do hospedeiro contra o oráculo: detecção, ordem, as três
 //! fases com o programa recarregado, o modelo e as consultas, o protocolo
-//! `dfexec/1`, a nossa API de macros (Dart, `pacotes/macros`) rodando o
+//! `dfexec/1`, a nossa API de macros (Dart, `packages/macros`) rodando o
 //! `@JsonCodable` do `package:json` 0.20.4 **sem mudança**, e a montagem —
 //! o texto sai byte a byte igual ao que o CFE 3.6.2 gera
 //! (`corpus/macros/*/esperado/*.augmentation.dart`, extraído do `.dill` por
@@ -184,7 +184,7 @@ fn vm_executa_a_macro_e_bate_com_o_cfe() {
     let trabalho = tempfile::tempdir().unwrap();
     let cfg = dartforge_macros_host::vm::ConfigDaVm {
         dart,
-        api: raiz().join("pacotes/macros"),
+        api: raiz().join("packages/macros"),
         trabalho: trabalho.path().to_path_buf(),
     };
     let vm = dartforge_macros_host::vm::iniciar(&cfg, &apps, Some(&c.config)).unwrap();
@@ -222,7 +222,7 @@ fn executor_nativo_bate_com_o_cfe() {
         let cfg = dartforge_macros_host::nativo::ConfigNativa {
             compilador: compilador.clone(),
             sdk_lib: sdk.root.clone(),
-            api: raiz().join("pacotes/macros"),
+            api: raiz().join("packages/macros"),
             trabalho: trabalho.path().to_path_buf(),
         };
         let t0 = std::time::Instant::now();

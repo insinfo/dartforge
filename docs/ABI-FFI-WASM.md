@@ -11,7 +11,7 @@ a infraestrutura inicial do incremento 11; ponteiros e FFI dinâmico continuam p
 **no crate `dartforge-abi`**. No backend nativo atual (`crates/emit_native`) eles
 existem: `Pointer`, `DynamicLibrary`, `lookupFunction`/`asFunction`, structs e
 unions (também por valor), callbacks, `@Native`, `Handle` e variádicas
-(`docs/NATIVO-PLANO.md` §7.9, item **dart:ffi**; `corpus/nativo/08`, `12`–`19`).
+(`docs/NATIVO-PLANO.md` §7.9, item **dart:ffi**; `corpus/native/08`, `12`–`19`).
 
 Alvo de linguagem: Dart **3.6.2**. A crate `dartforge-abi` é infraestrutura inicial;
 não interpreta imports `dart:ffi`, não carrega bibliotecas nem expõe ponteiros no Dart.

@@ -3,7 +3,7 @@
 //! Controles negativos retiram retenção ou liberação somente após verificação.
 //! `--crescer` força crescimento e descompactação com coleta durante a chamada.
 
-use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*};
+use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, fmt::Write, path::PathBuf};
 
 fn main() -> Result<(), String> {

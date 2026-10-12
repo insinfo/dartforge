@@ -466,7 +466,7 @@ fn executar_nos_dois_perfis(rotulo: &str, fonte: &str) -> (Execucao, Execucao) {
 /// Contrato central: desenvolvimento e produção podem divergir em tempo de
 /// compilação, nunca em resultado observável. A divergência entre os perfis
 /// num programa que falha é coberta em escala pelo job `jit` do CI
-/// (`dartforge-diferencial --jit-aot`, corpus inteiro).
+/// (`dartforge-differential --jit-aot`, corpus inteiro).
 #[test]
 #[ignore = "requer LLVM-C.dll no PATH, Clang (DARTFORGE_CLANG), rustc e o SDK Dart 3.6.2"]
 fn jit_e_aot_concordam_no_mesmo_ir() {

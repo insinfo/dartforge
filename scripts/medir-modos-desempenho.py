@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tempo de execução do `bench/desempenho` nas quatro combinações de raízes e
+"""Tempo de execução do `bench/performance` nas quatro combinações de raízes e
 exceções do backend nativo (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §6, §8):
 
     A0  pilha-sombra + checagem   (o padrão)
@@ -30,7 +30,7 @@ Uso: scripts/medir-modos-desempenho.py <dir de saída> [--repeticoes N]
 import argparse, json, os, re, shutil, statistics, subprocess, sys, time
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BENCH = os.path.join(RAIZ, "bench", "desempenho")
+BENCH = os.path.join(RAIZ, "bench", "performance")
 SUF = ".exe" if os.name == "nt" else ""
 DF = os.environ.get("DARTFORGE_BIN") or os.path.join(RAIZ, "target", "release", "dartforge" + SUF)
 # Fora do Windows, o SDK do `dart` no PATH.
@@ -105,7 +105,7 @@ def main():
     a = ap.parse_args()
     if a.repeticoes < 1:
         ap.error("--repeticoes deve ser positivo")
-    # Os executáveis rodam com cwd em bench/desempenho.
+    # Os executáveis rodam com cwd em bench/performance.
     a.saida = os.path.abspath(a.saida)
     os.makedirs(a.saida, exist_ok=True)
     if a.afinidade:

@@ -1,7 +1,7 @@
 # Paridade do analisador com o `dart analyze` — especificação (2026-09-30)
 
-Plano de trabalho do analisador (`crates/analise`, a inferência em
-`crates/types`, o motor em `crates/paridade`) e do LSP (`crates/lsp`,
+Plano de trabalho do analisador (`crates/analysis`, a inferência em
+`crates/types`, o motor em `crates/parity`) e do LSP (`crates/lsp`,
 `editors/vscode`). Cada família traz a regra do analyzer (arquivo:linha), o
 que falta no DartForge, o ganho medido no corpus e como se confere. A ordem
 de execução (§4) é a do ganho por custo. O resultado medido de cada passo
@@ -36,10 +36,10 @@ reais (§3.11).
 
 ## 1. Ferramentas
 
-* `dartforge-paridade placar [--lote N] [--detalhes]` — o placar. Com
+* `dartforge-parity placar [--lote N] [--detalhes]` — o placar. Com
   `DARTFORGE_PARIDADE_AMOSTRAS=100000`, `--detalhes` lista **todas** as
   divergências (base dos agrupamentos abaixo).
-* `crates/paridade/examples/sonda_arquivos.rs` (novo) — compara arquivo a
+* `crates/parity/examples/sonda_arquivos.rs` (novo) — compara arquivo a
   arquivo, diagnóstico a diagnóstico (`=` acerto, `~` mensagem, `-` FN, `+`
   FP), num grupo do corpus ou, com `--livre <dir>`, contra o `dart analyze`
   3.6.2 rodado na hora sobre um diretório de rascunho. Todo caso mínimo deste
@@ -47,7 +47,7 @@ reais (§3.11).
 * `scripts/paridade-pub-cache.py` (novo) — prepara os pacotes do pub-cache
   como projetos reais (a última versão de cada, sem Flutter, linguagem ≥ 2.12;
   `lib/` copiado; um `package_config` com todos) e o registro para
-  `dartforge-paridade projetos --oraculo --corpus <dir>/corpus`. Nesta
+  `dartforge-parity projetos --oraculo --corpus <dir>/corpus`. Nesta
   máquina: 209 pacotes.
 
 ## 2. Onde está a perda (agrupamento por causa raiz)
@@ -105,7 +105,7 @@ lote 12 dão o mesmo para os códigos do outline.
 de sintaxe não desliga verificador (`an611:src/dart/analysis/library_analyzer.dart`,
 `_resolveFile` roda sempre).
 
-**Falta.** `crates/paridade/src/analise.rs` (fase 6) descartava os códigos de
+**Falta.** `crates/parity/src/analise.rs` (fase 6) descartava os códigos de
 `depende_de_declaracoes` em todo arquivo com erro de recuperação, porque a
 nossa recuperação podia perder declarações. Desde o porte da recuperação do
 fasta (A01, quarto passo) a árvore é a mesma na maioria dos casos. Medido
@@ -241,7 +241,7 @@ em `Never?`, e não `invalid_use_of_null_value`).
 
 **Decisão.** Exige um tipo que carregue o alias fora da identidade do
 hash-consing e um `Never?` distinto de `Null` na tabela — muda a
-representação comum a todos os backends (`emit_js`, `emit_native`, `mundo`).
+representação comum a todos os backends (`emit_js`, `emit_native`, `world`).
 Fica fora desta rodada (docs/PENDENCIAS.md A02), com a especificação acima.
 
 ### 3.10 C10–C13
@@ -268,7 +268,7 @@ Fica fora desta rodada (docs/PENDENCIAS.md A02), com a especificação acima.
 
 ### 3.11 Publicação
 
-Regra de sempre (`crates/analise/verificados.txt`): entra o código sem
+Regra de sempre (`crates/analysis/verificados.txt`): entra o código sem
 nenhum FP, posição ou mensagem errada no corpus **e** nos projetos reais. Os
 três projetos do proprietário não existem nesta máquina; os projetos reais
 aqui são os 209 pacotes do pub-cache (`scripts/paridade-pub-cache.py`). Todo
@@ -281,7 +281,7 @@ por pacote, cancelamento entre fases, versão), latência medida no Linux
 (docs/LSP.md). Nesta rodada:
 
 * os códigos novos publicados aparecem no editor sem mudança no LSP (a
-  publicação tipada é `dartforge_paridade::publicaveis`);
+  publicação tipada é `dartforge_parity::publicaveis`);
 * a correção de C1 vale também para o LSP (o motor é o mesmo): diagnóstico
   de um arquivo aberto não vai mais parar noutro com o mesmo intervalo;
 * latência remedida no Windows com `examples/latencia_diagnosticos`;
@@ -304,11 +304,11 @@ representação de tipos; porte grande).
 
 ## 5. Verificação
 
-* `dartforge-paridade placar` depois de cada família (nenhum código pode
+* `dartforge-parity placar` depois de cada família (nenhum código pode
   perder acerto nem ganhar FP sem explicação; nenhum verificado com erro);
-* `dartforge-paridade projetos --corpus <pub>/corpus` (0 FP de código publicado);
-* `cargo test -p dartforge-types -p dartforge-analise -p dartforge-paridade -p dartforge-lsp`;
-* no fim, `cargo test --workspace` e `cargo run --release -p dartforge-diferencial`
+* `dartforge-parity projetos --corpus <pub>/corpus` (0 FP de código publicado);
+* `cargo test -p dartforge-types -p dartforge-analysis -p dartforge-parity -p dartforge-lsp`;
+* no fim, `cargo test --workspace` e `cargo run --release -p dartforge-differential`
   (o `crates/types` é comum a todos os backends).
 
 ## 6. Resultado (2026-10-01)
@@ -385,7 +385,7 @@ de 51–68 ms nos quatro arquivos do exemplo, rajada de 20 edições = 1
 publicação, publicação idêntica à do `dartforge analyze`. Testes do crate
 `lsp` verdes.
 
-**Testes novos.** `crates/paridade/tests/regras_do_analyzer.rs`: 18
+**Testes novos.** `crates/parity/tests/regras_do_analyzer.rs`: 18
 diagnósticos de sete arquivos mínimos, cada um conferido contra o `dart
 analyze` 3.6.2 (`sonda_arquivos --livre`); `duplicatas::declaracoes_de_mesmo_nome_juntam_os_membros`.
 
@@ -618,12 +618,12 @@ usados.
 `crates/lsp/oraculo/`, 4 projetos, 410 posições) e completado; tabela
 antes/depois e regras em `docs/LSP.md` ("Paridade com o servidor do Dart").
 
-**Testes.** `crates/paridade/tests/regras_do_analyzer.rs` ganhou quatro
+**Testes.** `crates/parity/tests/regras_do_analyzer.rs` ganhou quatro
 arquivos conferidos contra o `dart analyze` 3.6.2 (`sonda_arquivos
 --livre`): 17 diagnósticos de exaustividade, 6 de inferência/limites/C9, 4
 de parâmetros opcionais e um arquivo sem nenhum (os usos que não contam como
-não usados). `cargo test -p dartforge-types -p dartforge-analise -p
-dartforge-paridade` verde.
+não usados). `cargo test -p dartforge-types -p dartforge-analysis -p
+dartforge-parity` verde.
 
 ### 8.1 C13 — recuperação do parser (especificação e resultado)
 

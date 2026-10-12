@@ -1,5 +1,5 @@
 // Regressão: TLS do dart:io (crates/runtime/src/tls.rs e
-// sdk_nativo/io/secure_socket_patch.dart). Cliente e servidor no mesmo
+// native_sdk/io/secure_socket_patch.dart). Cliente e servidor no mesmo
 // isolado: ALPN, o X509Certificate do par, a recusa do certificado sem a CA
 // (a mensagem da VM), o onBadCertificate, um volume maior que os anéis do
 // filtro e o HTTPS do dart:_http. Os certificados de teste estão em tls/.

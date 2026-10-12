@@ -86,15 +86,15 @@ ocupada e para no próximo ponto de cancelamento quando o texto muda.
 Cada `didOpen`/`didChange` produz **duas** publicações para o documento:
 
 1. **Imediata**, no próprio `bombear`: o parser na versão de linguagem do
-   arquivo mais os verificadores de `crates/analise` que olham só o arquivo
+   arquivo mais os verificadores de `crates/analysis` que olham só o arquivo
    (duplicatas, locais não usados, `external`, aridade de operador…), já
    pela regra de publicação e pelos `// ignore:`. Custa milissegundos.
 2. **Tipada**, em segundo plano (`crates/lsp/src/tipado.rs`): a mesma
-   análise do `dartforge analyze` — `dartforge_paridade::analise::Motor`
+   análise do `dartforge analyze` — `dartforge_parity::analise::Motor`
    (carga, outline, inferência de `crates/types`, todos os verificadores de
-   `crates/analise`, imports não usados, diretivas sem alvo) seguida de
-   `dartforge_paridade::publicaveis` (sintaxe sempre; semântica só com
-   código em `crates/analise/verificados.txt`; `analysis_options.yaml` e
+   `crates/analysis`, imports não usados, diretivas sem alvo) seguida de
+   `dartforge_parity::publicaveis` (sintaxe sempre; semântica só com
+   código em `crates/analysis/verificados.txt`; `analysis_options.yaml` e
    `// ignore:`). Nenhuma regra é reescrita no LSP: a publicação tipada é a
    sintaxe do parser mais a semântica publicada do motor. Conferido com o
    exemplo de medição abaixo: nos arquivos medidos, a lista publicada é
@@ -518,7 +518,7 @@ correção leva o diagnóstico que corrige.
   algum nome do tipo não é visível na biblioteca (a anotação não
   compilaria).
 
-Dos códigos semânticos publicados (`crates/analise/verificados.txt`), os
+Dos códigos semânticos publicados (`crates/analysis/verificados.txt`), os
 três de enum (`enum_constant_same_name_as_enclosing`, `enum_with_name_values`,
 `values_declaration_in_enum`) não têm correção rápida no `dart
 language-server` 3.6.2 (conferido), e este servidor também não. Teste:

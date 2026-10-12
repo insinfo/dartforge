@@ -2,7 +2,7 @@
 //! docs/NATIVO-PLANO.md §7.7).
 //!
 //! A decisão 1 da rodada 2 (NATIVO-PLANO §7.1) é que o SDK do nativo vem da
-//! fonte da seção `vm` com a sobreposição `sdk_nativo/`. O `dart:async` é a
+//! fonte da seção `vm` com a sobreposição `native_sdk/`. O `dart:async` é a
 //! primeira biblioteca a entrar assim, porque o `async`/`await` precisa dele
 //! inteiro (`_Future`, `Zone`, microtarefas, `Timer`) e nenhuma classe dele
 //! tem representação própria no runtime em Rust: todas são objetos comuns do

@@ -22,9 +22,9 @@ inteiro visível, otimizado e minificado — o que o `dart2js` faz.
    conversão inteira de trabalho.
 
 2. **Não toque nestes arquivos**, que são de outro agente:
-   `crates/gerador_ng/**`, `crates/elements/src/gerado.rs`, `crates/dev/**`,
+   `crates/ng_generator/**`, `crates/elements/src/gerado.rs`, `crates/dev/**`,
    `crates/cli/src/main.rs`, `corpus/ngdart/**`, `scripts/corpus-ngdart.ps1`.
-   Seu território: **um crate novo** `crates/emit_js_producao` (ou o nome que
+   Seu território: **um crate novo** `crates/emit_js_production` (ou o nome que
    o desenho pedir), `corpus/js/**` só para acrescentar casos, e
    `docs/JS-PRODUCAO.md`.
    Em `crates/emit_js` **só acrescente** — não mude assinatura nem
@@ -50,7 +50,7 @@ inteiro visível, otimizado e minificado — o que o `dart2js` faz.
 | trilha nova | `crates/frontend` → `elements` → `types` | léxico, árvore, elementos, tipos |
 | emissor DDC | `crates/emit_js` | um módulo ES por biblioteca, contrato do DDC |
 | runtime | `runtime/ddc/dart_sdk.js` | gerado do `ddc_platform.dill` |
-| harness | `crates/diferencial` | 214 programas de `corpus/js`, comparados com a VM |
+| harness | `crates/differential` | 214 programas de `corpus/js`, comparados com a VM |
 
 O emissor de desenvolvimento passa **214/214** no corpus e roda dois
 projetos reais no navegador (`new_sali/frontend` e `limitless_ui/example`).
@@ -129,7 +129,7 @@ Nesta ordem, com o objetivo escrito ao lado:
    inteiro, só o que o mundo fechado alcança.
 
 5. **Verificação.** O corpus `corpus/js` roda igual, com o **mesmo
-   stdout**, pelo perfil de produção. Acrescente ao `crates/diferencial`
+   stdout**, pelo perfil de produção. Acrescente ao `crates/differential`
    um modo `--producao` que compare os três: VM, nosso desenvolvimento,
    nosso produção. E meça tamanho e tempo contra o `dart2js` nos dois
    projetos reais.
@@ -147,7 +147,7 @@ isso que ele serve.
 
 ```powershell
 # o corpus de desenvolvimento, que não pode regredir
-cargo run --release -p dartforge-diferencial
+cargo run --release -p dartforge-differential
 
 # a VM, que é o oráculo de comportamento
 dart run --enable-asserts corpus\js\001_hello.dart

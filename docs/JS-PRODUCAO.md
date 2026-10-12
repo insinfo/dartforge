@@ -253,7 +253,7 @@ Duas aplicações concretas, nesta ordem:
 A regra de higiene que vem junto (§2.1 da pesquisa): **nenhum cache cresce
 sem política de descarte explícita.**
 
-**Implementado (aplicação 1), 2026-09-27** — `crates/emit_js_producao/src/cache.rs`.
+**Implementado (aplicação 1), 2026-09-27** — `crates/emit_js_production/src/cache.rs`.
 O índice (`sdk::IndiceSdk`: fatias, unidades com condições, referências e
 seletores internados, raízes do próprio arquivo, aliases exportados e os
 seletores que o runtime chama por string) sai de `sdk::indexar` e fica em
@@ -279,19 +279,19 @@ runtime e configuração incompatíveis recusados, arquivo corrompido, descarte
 e poda idêntica pelo índice lido.
 
 A aplicação 2 (resumo por biblioteca do usuário) não foi feita: o mundo do
-usuário (`crates/mundo`) custa 14 ms no `new_sali/core` e roda sobre o
+usuário (`crates/world`) custa 14 ms no `new_sali/core` e roda sobre o
 `Program` já carregado; o custo dominante que sobra é carregar e inferir o
 programa, que é do `dartforge dev`/`serve`, não deste perfil.
 
 ### 1.7 O mundo fechado sobre a nossa trilha — o contrato (etapa 5)
 
-Implementado em `crates/mundo` (a análise, sem backend) e consumido por
-`crates/emit_js_producao` (as raízes do JS, o filtro, o verificador).
+Implementado em `crates/world` (a análise, sem backend) e consumido por
+`crates/emit_js_production` (as raízes do JS, o filtro, o verificador).
 
 **Onde.** Sobre o modelo de elementos, **antes** da emissão. O emissor
 recebe o mundo como filtro (`emit_js::filtro::Vivos`, `Ctx::filtro`) e não
 emite o que está morto. Com `filtro: None` a emissão é byte a byte a de
-antes; o teste `emit_js_producao/tests/identidade.rs` e a comparação de
+antes; o teste `emit_js_production/tests/identidade.rs` e a comparação de
 todo o corpus com o binário de `main` o provam. O texto não decide nada. Ele
 só **fiscaliza** (abaixo).
 
@@ -530,7 +530,7 @@ mangler de escopo (`oxc_mangler`) cuida dos locais, onde não há fuga
 possível.
 
 **Estado em 2026-09-27 (etapa 7, parcial): compactação sem renomear.**
-`crates/emit_js_producao/src/minificar.rs`, ligada por padrão
+`crates/emit_js_production/src/minificar.rs`, ligada por padrão
 (`--sem-minificar` desliga): tira comentários e o espaço que não separa
 tokens, mantém toda quebra de linha (a inserção automática de ponto e
 vírgula depende dela) e copia cadeias, *template literals* e regex byte a
@@ -693,7 +693,7 @@ brief não a pede.
 
 Nada entra sem passar por aqui.
 
-1. **`corpus/js` inteiro, mesmo `stdout` byte a byte.** `crates/diferencial`
+1. **`corpus/js` inteiro, mesmo `stdout` byte a byte.** `crates/differential`
    ganha `--producao`: um quarto executor, ao lado de `dart run`,
    `dartdevc`+Node e do nosso desenvolvimento. O relatório compara
    **VM × desenvolvimento × produção** e falha se qualquer um divergir. O
@@ -731,11 +731,11 @@ Nada entra sem passar por aqui.
      `frequency_namer.dart:72-86`); sem isso, dois builds iguais geram
      nomes diferentes.
 
-   O teste já existe no `crates/diferencial`, trazido pelo backend nativo, e
+   O teste já existe no `crates/differential`, trazido pelo backend nativo, e
    o perfil de produção entra nele:
 
    ```
-   dartforge-diferencial determinismo --producao --trabalhadores 1,4,8
+   dartforge-differential determinismo --producao --trabalhadores 1,4,8
    ```
 
    Verificado: saída idêntica com 1, 4 e 8. Duas peças do relatório
@@ -783,7 +783,7 @@ Por quanto cada passo destrava, com o corpus como placar em cada um.
 | --- | --- | --- | --- |
 | 1 | **Bundle de arquivo único** — remover `import`/`export`, IIFE por módulo, ordem topológica, `dart_sdk.js` embutido, `main()` no fim. | tudo o que vem depois: passa a existir **um** programa para analisar. Sozinho já troca N+1 arquivos por 1. | corpus 214/214, tamanho ainda ~7 MB |
 | 2 | **Alcance no `dart_sdk.js` por declaração** — segmentação, classificação, referências (inclusive receitas rti), ponto fixo, poda. | o único eixo de tamanho que existe hoje. | corpus 214/214, ~1,5 MB |
-| 3 | **`--producao` no `crates/diferencial`** — VM × desenvolvimento × produção, e o auto-teste de alcance. | torna 1 e 2 verificáveis em vez de plausíveis. Vem aqui, e não no fim, porque as etapas seguintes sem ele são tentativa e erro. | o próprio placar |
+| 3 | **`--producao` no `crates/differential`** — VM × desenvolvimento × produção, e o auto-teste de alcance. | torna 1 e 2 verificáveis em vez de plausíveis. Vem aqui, e não no fim, porque as etapas seguintes sem ele são tentativa e erro. | o próprio placar |
 | 4 | **Granularidade por membro** — classe partida por membro, seletores vivos, ponto fixo de duas condições. | ~30% a mais de poda; e é a mesma regra que o mundo fechado sobre elementos vai usar. | corpus 214/214, ~1,0 MB |
 | 5 | **Mundo fechado sobre a nossa trilha** — o ponto fixo da §1.1 sobre `Program`/`OutlineTypes`, podando classes e membros do usuário e dos pacotes antes de emitir. | pouco no corpus (programas pequenos); **muito** nos projetos reais, onde hoje se emitem 48 MB. | corpus 214/214 + `limitless_ui` 26/26 |
 | 6 | **Despacho direto por alvo único** — as três guardas de `locateSingleMember` mais a de aridade. | velocidade, e tamanho pela queda dos sítios `dart.dsend`. | corpus 214/214 |
@@ -815,7 +815,7 @@ entra no caminho do `serve`.
 
 ## 6.0 O placar, medido
 
-`cargo run --release -p dartforge-diferencial -- --producao`:
+`cargo run --release -p dartforge-differential -- --producao`:
 
 ```
 DartForge desenvolvimento: 214/214 ok
@@ -914,8 +914,8 @@ depois do SDK e antes dos módulos do programa.
 
 ## 6.1 O que já está implementado
 
-Etapas 1 a 5 do quadro acima, em `crates/emit_js_producao`
-(`dartforge-jsprod`) e `crates/mundo`. Em `crates/emit_js` a etapa 5 só
+Etapas 1 a 5 do quadro acima, em `crates/emit_js_production`
+(`dartforge-jsprod`) e `crates/world`. Em `crates/emit_js` a etapa 5 só
 acrescentou o filtro opcional: `filtro.rs`, o campo `Ctx::filtro`,
 `compilar_com`/`Analise::emitir` e guardas em `module.rs` que valem
 "tudo vivo" sem filtro.
@@ -954,7 +954,7 @@ adivinhar. Cada um virou teste de regressão:
 
 ## 7. Território
 
-Crate novo `crates/emit_js_producao`, com o binário `dartforge-jsprod`
+Crate novo `crates/emit_js_production`, com o binário `dartforge-jsprod`
 (`crates/cli/src/main.rs` é de outro agente e não é tocado). Em
 `crates/emit_js` **só se acrescenta**, porque o `dartforge serve` depende
-do que já existe. `crates/diferencial` ganha o modo `--producao`.
+do que já existe. `crates/differential` ganha o modo `--producao`.

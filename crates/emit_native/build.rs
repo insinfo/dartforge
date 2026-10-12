@@ -75,7 +75,7 @@ fn main() {
 const ABORTAR: &[&str] = &["--config", "profile.release.panic=\"abort\""];
 
 /// Compila as três variantes da `staticlib` do runtime
-/// (`crates/runtime_estatico`): a do executável sem o SDK da fonte (feature
+/// (`crates/runtime_static`): a do executável sem o SDK da fonte (feature
 /// `aot`, com o `main` C), a da DLL do SDK da fonte (feature `dll`; o perfil
 /// de desenvolvimento e o JIT) e a de produção (feature `dll` com
 /// [`ABORTAR`], ligada estaticamente no executável), para o alvo do build,
@@ -106,19 +106,19 @@ fn precompilar_runtime() {
     });
 
     let mut fontes = Vec::new();
-    for d in ["../runtime/src", "../runtime_estatico/src"] {
+    for d in ["../runtime/src", "../runtime_static/src"] {
         juntar(&raiz.join(d), &mut fontes);
     }
     for f in ["../runtime/build.rs", "../runtime/Cargo.toml", "../runtime/efeitos.tsv",
-        "../runtime/ownership.tsv", "../runtime_estatico/Cargo.toml", "../../Cargo.lock"] {
+        "../runtime/ownership.tsv", "../runtime_static/Cargo.toml", "../../Cargo.lock"] {
         let p = raiz.join(f);
         println!("cargo::rerun-if-changed={}", p.display());
         fontes.push(p);
     }
-    println!("cargo::rerun-if-changed={}", raiz.join("../runtime_estatico/src").display());
+    println!("cargo::rerun-if-changed={}", raiz.join("../runtime_static/src").display());
     fontes.sort();
 
-    let arquivo_do_cargo = if windows { "dartforge_runtime_estatico.lib" } else { "libdartforge_runtime_estatico.a" };
+    let arquivo_do_cargo = if windows { "dartforge_runtime_static.lib" } else { "libdartforge_runtime_static.a" };
     let ext = if windows { "lib" } else { "a" };
     for (variante, feature, prefixo, perfil) in [
         ("PRINCIPAL", "aot", "dartforge_runtime_", ABORTAR),
@@ -163,7 +163,7 @@ fn precompilar_runtime() {
             .arg("--locked")
             .arg("--manifest-path")
             .arg(workspace.join("Cargo.toml"))
-            .args(["-p", "dartforge-runtime-estatico", "--features", feature, "--target", &alvo])
+            .args(["-p", "dartforge-runtime-static", "--features", feature, "--target", &alvo])
             .args(perfil)
             .arg("--target-dir")
             .arg(&dir_alvo);

@@ -5,13 +5,13 @@ Esta seção descreve, a partir da **leitura do código-fonte oficial**, como o
 `.template.dart`: a estrutura do arquivo, a numeração de nós, a ordem das
 instruções no `build()`, a detecção de mudanças, a destruição, as fábricas e a
 alocação dos imports. Serve de guia para o porte byte a byte em Rust
-(`crates/gerador_ng/src/visao.rs`).
+(`crates/ng_generator/src/visao.rs`).
 
 Convenções:
 
 - `C/` = `/root/.pub-cache/hosted/pub.dev/ngcompiler-3.0.0-dev.3/lib/v1/src/compiler/`;
   `VC/` = `C/view_compiler/`.
-- `visao.rs:N` = `/home/user/dartforge/crates/gerador_ng/src/visao.rs`, linha da
+- `visao.rs:N` = `/home/user/dartforge/crates/ng_generator/src/visao.rs`, linha da
   função citada; `dom.rs:N` idem. As linhas do Rust são um retrato do arquivo
   no momento da leitura (ele muda com frequência): na dúvida, procure pelo
   nome da função.

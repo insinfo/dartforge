@@ -3,7 +3,7 @@
 //! ([`crate::vm`]), compilados pelo backend nativo do próprio DartForge
 //! (`dartforge compile-native`, o `emit_native`) num executável que fala
 //! `dfexec/1` por stdio e atende o serviço `build.*` com o lado Dart de
-//! `pacotes/build_executor`. Nenhuma VM Dart, nenhum `dart` e nenhum
+//! `packages/build_executor`. Nenhuma VM Dart, nenhum `dart` e nenhum
 //! `build_runner` entram no caminho: o processo nasce na primeira ação Dart da
 //! sessão e fica quente até [`ExecutorDart::encerrar`], como o da VM.
 //!
@@ -355,7 +355,7 @@ impl ExecutorNativo {
             self.cfg.trabalho.join("package_config.json"),
         );
         // O SDK que o analyzer dos builders lê (o resumo do SDK,
-        // `pacotes/build_executor`): a raiz do `lib/` com que se compila.
+        // `packages/build_executor`): a raiz do `lib/` com que se compila.
         // Remontada pelos componentes: o `buildSdkSummary` do analyzer exige
         // caminho normalizado do sistema (`C:/sdk` no Windows é recusado com
         // "Path must be normalized", também na VM), e `--sdk`/

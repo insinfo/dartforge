@@ -21,7 +21,7 @@ pub struct ConfigNativa {
     pub compilador: PathBuf,
     /// O `lib/` do SDK (o mesmo que o `compile-native` recebe em `--sdk`).
     pub sdk_lib: PathBuf,
-    /// A raiz do pacote da nossa API (`pacotes/macros`).
+    /// A raiz do pacote da nossa API (`packages/macros`).
     pub api: PathBuf,
     /// Onde gravar o bootstrap, o `package_config.json` e o executável.
     pub trabalho: PathBuf,

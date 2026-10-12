@@ -190,7 +190,7 @@ Cada contrato vale nas quatro combinações e tem pelo menos um teste no §7.
   * Intrínsecos do LLVM e externs que não coletam levam `"gc-leaf-function"`.
 * **C8 — `--gc-stress`.**
   * `DARTFORGE_GC_STRESS=1` coleta em toda alocação, e os mortos são zerados (`RT/heap.rs:582-626`).
-  * O diferencial roda o corpus assim (`crates/diferencial/src/main.rs:13-20`).
+  * O diferencial roda o corpus assim (`crates/differential/src/main.rs:13-20`).
   * As quatro combinações passam por ele, e o teste **prova** que coletou (§7.5).
 * **C9 — exceção nunca atravessa quadro Rust.** O runtime é `panic=abort` (`EN/cache.rs:6`, `:50`).
   * Um desenrolar estrangeiro entrando num quadro Rust é indefinido com `extern "C"`.
@@ -726,7 +726,7 @@ Uma função assim não leva `gc "statepoint-example"`. Ela grava os slots como 
 * **Padrão:** `sombra` e `checagem`.
 * **Variáveis de ambiente** para medir sem mudar scripts: `DARTFORGE_RAIZES` e `DARTFORGE_EXCECOES`. A
   opção da CLI vence.
-* **O diferencial** (`crates/diferencial/src/main.rs`) ganha `--raizes` e `--excecoes`, e os perfis
+* **O diferencial** (`crates/differential/src/main.rs`) ganha `--raizes` e `--excecoes`, e os perfis
   `aot-mapas`, `aot-tabelas` e `aot-mapas-tabelas`, com e sem `--gc-stress`.
 * **Por alvo,** uma opção pedida num alvo sem suporte é **erro** ("raízes por mapas não suportadas em
   aarch64-pc-windows-msvc"), não fallback. O fallback **por função** do §3.7 continua automático e é
@@ -797,7 +797,7 @@ Cada etapa é pequena, mensurável, tem critério de pronto e de **abandono**, e
 **Abandonar (e manter só E1.1) se:**
 
 * o `.text` + `.xdata`/`.eh_frame` + LSDA do backend em A1 não cair **pelo menos 3%** contra A0;
-* ou o tempo de `bench/desempenho` piorar além do ruído em qualquer medida sem exceção;
+* ou o tempo de `bench/performance` piorar além do ruído em qualquer medida sem exceção;
 * ou o lançamento-captura do micro-bench de exceções (§8.3) ficar mais de 50× mais lento que em A0, sem
   caminho para baixar.
 
@@ -838,12 +838,12 @@ Começar pelo Linux deixaria a pergunta mais cara sem resposta.
 
 * o corpus nativo passa em B0, com e sem `--gc-stress`, no Windows x64;
 * os testes direcionados do §7.3 estão verdes **e** cada um falha com a sua sabotagem;
-* o `bench/desempenho` está medido nas quatro combinações.
+* o `bench/performance` está medido nas quatro combinações.
 
 **Abandonar se:**
 
 * um defeito do LLVM 22.1.8 sem contorno local quebrar a correção (§9);
-* ou o `.text` dos programas do `bench/desempenho` em B0 não ficar **menor** que em A0, com o mapa
+* ou o `.text` dos programas do `bench/performance` em B0 não ficar **menor** que em A0, com o mapa
   incluído;
 * ou o tempo de compilação no desenvolvimento passar de 1,5× o de A0.
 
@@ -860,7 +860,7 @@ Abandonar é **arquivar** com as medidas: o código fica atrás da feature, sem 
 **Pronto quando:** o backend passa no e2e (39/42) em B0 e em B1, e as medidas estão publicadas.
 
 **Abandonar o modo mapas como candidato a padrão** (fica experimental) se o executável B1 não for menor
-que o A1 **e** o tempo do `bench/desempenho` não for melhor. Os dois juntos; o dono decide se só um vale.
+que o A1 **e** o tempo do `bench/performance` não for melhor. Os dois juntos; o dono decide se só um vale.
 
 ### Etapa 4: os demais alvos
 
@@ -905,7 +905,7 @@ o alvo = ele fica em sombra/checagem.
 
 ### 7.1 As quatro combinações no corpus inteiro
 
-* O CI pesado (`pesado.yml`) roda `dartforge-diferencial --nativo` em A0, A1, B0 e B1, cada uma também com
+* O CI pesado (`pesado.yml`) roda `dartforge-differential --nativo` em A0, A1, B0 e B1, cada uma também com
   `--gc-stress`.
 * Saída byte a byte igual à da VM. Qualquer diferença entre combinações é defeito, mesmo que as duas
   pareçam "certas".
@@ -921,7 +921,7 @@ o alvo = ele fica em sombra/checagem.
 
 ### 7.3 Testes direcionados aos estados perigosos
 
-Cada teste é um programa em `corpus/nativo/gc_*` ou `crates/emit_native/tests/`. Cada um tem uma
+Cada teste é um programa em `corpus/native/gc_*` ou `crates/emit_native/tests/`. Cada um tem uma
 **sabotagem** que o deixa vermelho: um modo de compilação de teste que remove uma raiz ou uma folha. Um
 teste que não falha com a sabotagem não conta.
 
@@ -1010,7 +1010,7 @@ teste que não falha com a sabotagem não conta.
 | tamanho | arquivo; `.text`; `.pdata`+`.xdata` (COFF) ou `.eh_frame`+`.gcc_except_table` (ELF) ou `__eh_frame`+`__unwind_info`+`__gcc_except_tab` (Mach-O); `__df_gcmap` (e, durante a Etapa 2, `.llvm_stackmaps`); dados; runtime (a `staticlib` da variante) | `llvm-objdump -h`/`llvm-size`; o mapa da ligação com `tools/tamanho/quebra.py` |
 | forma do código | funções com e sem quadro; `%gcvolta`/gravações/checagens restantes; statepoints, relocates, folhas; funções em quadro residual | contadores do emissor (`--timings`) e `llvm-objdump -d` |
 | compilação | front-end, mundo, HIR, IR, **RS4GC**, otimização, objetos, conversão do mapa, ligação | `--timings`, frio e quente |
-| desempenho | `bench/desempenho/*.dart` (chamadas, coleções, json, textos, numérico, objetos_*); micro-bench de exceção (lançar e pegar a 1, 10 e 100 quadros); micro-bench de GC (pilha profunda + muitas coletas menores) | mínimo de ≥ 10 execuções alternadas, mediana e dispersão, máquina sem build concorrente (`docs/PESQUISA-LLVM-DART-AOT.md` §7.4) |
+| desempenho | `bench/performance/*.dart` (chamadas, coleções, json, textos, numérico, objetos_*); micro-bench de exceção (lançar e pegar a 1, 10 e 100 quadros); micro-bench de GC (pilha profunda + muitas coletas menores) | mínimo de ≥ 10 execuções alternadas, mediana e dispersão, máquina sem build concorrente (`docs/PESQUISA-LLVM-DART-AOT.md` §7.4) |
 | programa grande | `new_sali/backend`: tamanho por seção, tempo de compilação frio e quente, e2e (39/42) e tempo de algumas rotas | o procedimento de `NATIVO-PRODUCAO-GRANDE.md` §5 |
 | memória | pico de RSS, número de coletas | `DARTFORGE_GC_RASTRO=1` |
 
@@ -1049,7 +1049,7 @@ Para um programa, entre uma combinação nova N e a referência A0:
   * H2: B0 reduz o `.text` mais do que custam derramamentos + mapa;
   * H3: B1 ≈ A1 + B0 (os efeitos somam);
   * H4: o tempo de compilação de B* fica ≤ 1,3× o de A0;
-  * H5: o percurso pelo desenrolador não deixa nenhum `bench/desempenho` mais lento além do ruído.
+  * H5: o percurso pelo desenrolador não deixa nenhum `bench/performance` mais lento além do ruído.
 
 ---
 
@@ -1982,7 +1982,7 @@ pela contagem.
 
 **Estado em 2026-10-05 (escrito, não compilado): quadros embutidos e `<asynchronous suspension>`.**
 
-*Quadros embutidos.* O inlining da HIR (`otimizar/inline.rs`) guarda, para cada instrução copiada,
+*Quadros embutidos.* O inlining da HIR (`optimize/inline.rs`) guarda, para cada instrução copiada,
 a posição na função copiada e o contexto (`DepuracaoDaFuncao::embutidas` e `posicoes_embutidas`:
 o nome e a url da copiada, a posição da chamada que a copiou e o contexto de fora); a emissão escreve
 o marcador `; df.emb linha coluna contexto`, que as tabelas de linha ignoram. O ponto de chamada
@@ -2061,7 +2061,7 @@ porta registrada chamam direto, como antes.
 | a chave: `--excecoes=checagem\|tabelas` em `compile-native` e `aot`, e a variável `DARTFORGE_EXCECOES` | `crates/cli/src/nativo.rs` (`definir_modelo_de_excecoes`), `EN/alvo.rs` (`excecoes_por_tabelas`) | E1.0 |
 | recusa por alvo (só Windows x86-64), recusa com `DARTFORGE_RASTRO=1`, recusa no JIT | `EN/alvo.rs`, `EN/lib.rs` (`emitir_ir_interno`) | E1.0 |
 | o modo na chave do SDK compilado (o padrão não entra na chave) | `EN/sdk_modulo.rs` (`chave_do_sdk`) | E1.0 |
-| o passe sobre a HIR já otimizada: sítios, pousos, saídas por exceção | `EN/otimizar/tabelas.rs`, `EN/hir.rs` (`TabelasDaFuncao`, `SaidaPorExcecao`, `Module::tabelas`) | E1.2 |
+| o passe sobre a HIR já otimizada: sítios, pousos, saídas por exceção | `EN/optimize/tabelas.rs`, `EN/hir.rs` (`TabelasDaFuncao`, `SaidaPorExcecao`, `Module::tabelas`) | E1.2 |
 | `invoke`/`landingpad`, restauração do topo, `@df.lancar`, a saída guardada, o estouro de pilha | `EN/llvm/mod.rs` (`tornar_invoke`, `EXCECOES_POR_TABELAS`, os terminadores) | E1.2 |
 | as 16 portas, a tabela `@df.portas`, o registro e a entrada do programa pelas portas | `EN/llvm/mod.rs` (`emitir_portas`, `chamada_de_entrada`, `emit_entry`, `chamar_main`) | E1.4 |
 | a entrada C do callback do `dart:ffi` com pouso próprio | `EN/llvm/mod.rs` (`emit_callbacks_ffi`) | E1.4 |
@@ -2073,7 +2073,7 @@ porta registrada chamam direto, como antes.
 **Como ficou diferente do texto acima.**
 
 1. **O lowering não muda.** O §15.1 previa `emit_call_with_check` seguindo a tabela do §13.2. Em vez
-   disso há um passe (`otimizar::excecoes_por_tabelas`) que roda **depois** de `otimizar::otimizar` e
+   disso há um passe (`optimize::excecoes_por_tabelas`) que roda **depois** de `optimize::otimizar` e
    reescreve a forma de conferência que sai dele. Os passes existentes (`efeitos`, `simplificar`,
    `inline`, `escape`) continuam vendo só a forma de conferência, e a máquina de estados `async` (§13.13)
    cai na regra geral sem código próprio. A decisão por chamada é a do §13.2, com um caso a mais:
@@ -2114,7 +2114,7 @@ porta registrada chamam direto, como antes.
   `DARTFORGE_EFEITOS=conferir` (`RT/efeitos_conferir.rs`). As marcas são as que o emissor já supunha:
   nenhuma passou de 1 para 0, porque isso exige a execução que a confere (§13.8).
 * No modo `tabelas`, a limpeza da pendência onde ela está comprovadamente limpa sai
-  (`EN/otimizar/tabelas.rs`), e a função que chama código Dart continua conferindo a pilha no prólogo
+  (`EN/optimize/tabelas.rs`), e a função que chama código Dart continua conferindo a pilha no prólogo
   (`TabelasDaFuncao::confere_pilha`).
 * **O `grep` do CI** contra `transmute` para `extern "C" fn` fora de `excecoes_tabelas.rs`: escrito em
   2026-10-05 como teste do runtime (`crates/runtime/tests/portas_dart.rs`: todo `transmute` para
@@ -2138,9 +2138,9 @@ x86-64, LLVM 22.1.8):
 | testes do workspace, inclusive `dartforge-jit` e `dartforge-llvm` com os ignorados (o `bin` do LLVM no `PATH`) | verdes |
 | `reload_estado` e `io_regressao` (`--features nativo,jit`, release) | 7/7 e 7/7 |
 | `corpus/js` em A0 e em A1 | 238/238 e 238/238 |
-| `corpus/nativo` em A0, em A1 e em A1 com `--gc-stress` | 129/129, 127/129 e 127/129 |
+| `corpus/native` em A0, em A1 e em A1 com `--gc-stress` | 129/129, 127/129 e 127/129 |
 
-As duas diferenças do `corpus/nativo` (`02_io_assincrono`, `03_processos`) são do ambiente, iguais em A0:
+As duas diferenças do `corpus/native` (`02_io_assincrono`, `03_processos`) são do ambiente, iguais em A0:
 o cache do oráculo foi gravado com outro `HOME` e outro `TEMP`; sem o cache (`--sem-cache`) as duas batem.
 
 Dois defeitos apareceram e foram consertados:
@@ -2167,21 +2167,21 @@ tabelas (LSDA e `.xdata` dos pousos) somam 1,57 MB. Contra a base `.text` + `.pd
 
 O tempo de geração de objetos não é comparável nesta medida: em A0 parte dos objetos veio do cache
 (82 s), e em A1 todos foram gerados frios (1.371 s). O LLVM IR passou de 12 s para 57 s e o HIR, de 52 s
-para 71 s, pelo passe `otimizar::excecoes_por_tabelas`.
+para 71 s, pelo passe `optimize::excecoes_por_tabelas`.
 
 **Decisão.** Pelo critério de abandono da Etapa 1 (§6: o `.text` + `.xdata` + LSDA do backend em A1
 não cai pelo menos 3%), a Etapa 1 fica **arquivada**: o código permanece atrás de `--excecoes=tabelas`,
 sem custo para o padrão, que continua `checagem` com o E1.1. O e2e do backend em A1 e o
-`bench/desempenho` não foram rodados, porque o critério de tamanho já decide. A Etapa 2 segue em B0;
+`bench/performance` não foram rodados, porque o critério de tamanho já decide. A Etapa 2 segue em B0;
 B1 deixa de ser candidato a padrão.
 
 **Revisão de 2026-10-08: o tempo de execução, que a decisão não mediu.** Sem exceção lançada, o modo
 tabelas tira a conferência depois de cada chamada Dart, e não pode ser mais lento que A0. A medida que
-faltava (`scripts/medir-modos-desempenho.py`, o `bench/desempenho` em produção, 7 execuções alternadas)
+faltava (`scripts/medir-modos-desempenho.py`, o `bench/performance` em produção, 7 execuções alternadas)
 deu A1/A0 = 1,013 de média geométrica, com `chamadas/formas` 1,23× e `colecoes/lista_add` 1,30×. Era
 defeito do passe, não do modelo: na entrada uniforme `$ent` (closure, método por seletor), o caminho da
 exceção e o normal se juntam num bloco que reconfere a pendência (`phi`, `p = pendente`, `c = p != 0`,
-`CondBranch`), e o `saida_pura` (`otimizar/tabelas.rs`) só aceitava `phi` até o `Return`. O sítio ficava
+`CondBranch`), e o `saida_pura` (`optimize/tabelas.rs`) só aceitava `phi` até o `Return`. O sítio ficava
 na "emulação exata": todo `$ent` ganhava um pouso que pega tudo e devolve a pendência, e cada chamada
 dinâmica pagava o `invoke` com pouso **mais** a conferência no chamador. O `saida_pura` agora atravessa a
 reconferência pelo lado da exceção (vindo do tratador, a pendência está ligada); só as portas
@@ -2189,7 +2189,7 @@ reconferência pelo lado da exceção (vindo do tratador, a pendência está lig
 inteira, refeita, vem logo abaixo.
 
 **A medida inteira** (2026-10-08, depois do `$ent` e da forma por `"deopt"` do §14.12;
-`scripts/medir-modos-desempenho.py --repeticoes 7 --afinidade 0x4`: os 32 núcleos do `bench/desempenho`
+`scripts/medir-modos-desempenho.py --repeticoes 7 --afinidade 0x4`: os 32 núcleos do `bench/performance`
 em produção, todos os modos recompilados, 7 execuções alternadas presas a um núcleo P; razões sobre A0):
 
 | modo | média geométrica | melhores | piores (ms) |
@@ -2241,7 +2241,7 @@ Regras, cada uma exercitada no `x7` ou no `x9`:
 O emissor faz isso por **funções de conversão** (passo E2.0 do §6): cada ponto de `EN/llvm/*.rs` que
 hoje escreve `i64` para um `Ref` chama `ctx.tipo_ref()`, `ctx.smi(v)`, `ctx.campo(h, k)` etc., que no
 modo sombra devolvem exatamente o texto de hoje. O critério do passo é **IR idêntico byte a byte** no
-modo sombra, conferido pelo determinismo do corpus (`dartforge-diferencial determinismo --nativo`).
+modo sombra, conferido pelo determinismo do corpus (`dartforge-differential determinismo --nativo`).
 
 ### 14.2 O pipeline
 
@@ -2566,7 +2566,7 @@ padrão). A decodificação preguiçosa foi escrita em 2026-10-05 (§14.10).
 | as sabotagens (`DARTFORGE_SABOTAGEM`, na chave do SDK): `folha:<extern>`, `pouso_sem_topo`, `sem_uso_ficticio`, `bruto_no_mapa` no emissor; `sem_nop` no runtime | `EN/alvo.rs` (`sabotagem`), `EN/llvm/mod.rs`, `RT/heap.rs` |
 | a recusa do conversor e do leitor para constante par não nula como raiz (§3.5) | `EN/gcmap.rs`, `RT/heap.rs` (`decodificar_funcao`) |
 | os instrumentos do §7.5: a prova de que coletou (`dartforge_gc_estatisticas`, e `DARTFORGE_GC_STATS=exigir`, que sai com 70 sem coleta ou sem raiz lida de mapa), a coleta agendada por semente (`DARTFORGE_GC_AGENDA=<semente>,<taxa>`) e o veneno com quarentena (`DARTFORGE_GC_VENENO=1` ou `=<n>` blocos) | `RT/gc_raizes.rs`, `RT/nucleo.rs`, `RT/heap.rs` (`Agenda`), `RT/espaco.rs` (`Quarentena`) |
-| os testes dirigidos D1, D2, D3, D4, D6, D7, D10, D11, D13 e D14, cada um com a saída calculada e, quando o §7.3 dá uma sabotagem implementável, o teste que exige a falha com ela; a conferência do E2.5 e a agenda | `corpus/nativo/gc_d*.dart`, `crates/cli/tests/mapas_dirigidos.rs` (com `DARTFORGE_TESTES_MAPAS=1`) |
+| os testes dirigidos D1, D2, D3, D4, D6, D7, D10, D11, D13 e D14, cada um com a saída calculada e, quando o §7.3 dá uma sabotagem implementável, o teste que exige a falha com ela; a conferência do E2.5 e a agenda | `corpus/native/gc_d*.dart`, `crates/cli/tests/mapas_dirigidos.rs` (com `DARTFORGE_TESTES_MAPAS=1`) |
 
 Do veneno: o bloco morto recebe a palavra `0xDFDF_DFDF_DFDF_DFDE` (o estado lido é `0xDE`, que a
 validação de handle recusa com "bloco envenenado") e só volta à lista livre depois que outros `n` blocos
@@ -2663,7 +2663,7 @@ atravessa o statepoint para um `phi` de outro bloco não é conferido; só os pa
 emissor entram (`%v5.i`/`%raiz5.i` do inlining contam). As violações plantadas estão nos testes do
 arquivo. O Mach-O (o passe roda na LTO do `ld64.lld`) e o JIT não passam por ele.
 
-**D5, D8 e D9 (§7.3), escritos em 2026-10-05.** Os programas `corpus/nativo/gc_d05_slot_antes_de_escrito.dart`
+**D5, D8 e D9 (§7.3), escritos em 2026-10-05.** Os programas `corpus/native/gc_d05_slot_antes_de_escrito.dart`
 (saída `1729 140`), `gc_d08_estouro_de_pilha.dart` (`3003 0`) e `gc_d09_fronteira_rust.dart` (`925`),
 com as saídas calculadas à mão, e as sabotagens:
 
@@ -2705,9 +2705,9 @@ Nesta máquina (Windows 11, x86-64, LLVM 22.1.8), com o gerador embutido.
 | verificação | resultado |
 |---|---|
 | `corpus/js` em B0, com e sem `--gc-stress` | 238/238 e 238/238 |
-| `corpus/nativo` em B0, com e sem `--gc-stress` | 128/130 e 128/130 (as duas diferenças são do ambiente, iguais em A0: §13.16) |
+| `corpus/native` em B0, com e sem `--gc-stress` | 128/130 e 128/130 (as duas diferenças são do ambiente, iguais em A0: §13.16) |
 | `mapas_dirigidos` (`DARTFORGE_TESTES_MAPAS=1`): os casos do §7.3 passam e cada um cai com a sua sabotagem; o percurso conferido contra a pilha-sombra; a folha que coleta achada pelo nome; a coleta agendada | 4/4 |
-| `aot --optimize` em B0 dos programas do `bench/desempenho`, com `--gc-stress` | roda |
+| `aot --optimize` em B0 dos programas do `bench/performance`, com `--gc-stress` | roda |
 
 Defeitos achados ao rodar, todos consertados:
 
@@ -2729,7 +2729,7 @@ Defeitos achados ao rodar, todos consertados:
   otimização da ligação. A detecção das funções `gc` no bitcode pergunta ao módulo lido (o Clang
   codifica o nome da estratégia, e a procura nos bytes falhava).
 
-**Medidas do §8** (`scripts/medir-mapas.sh`, `bench/desempenho`, produção `aot --optimize`). A0 vai
+**Medidas do §8** (`scripts/medir-mapas.sh`, `bench/performance`, produção `aot --optimize`). A0 vai
 pela LTO completa do ligador e B0 pelo ThinLTO distribuído; para isolar o modo de raízes, A0 também foi
 medido pelo distribuído (`DISTRIBUIDA=1`, `DARTFORGE_LTO_DISTRIBUIDA=1`):
 
@@ -2755,7 +2755,7 @@ diferem (A0 em `-O0` com FastISel, B0 sem FastISel), e o critério é o da produ
 O tempo de compilação de desenvolvimento (objetos frios, SDK em cache) vai de 0,3–0,4 s a 0,4–0,8 s
 (`json`: 2×), e a compilação do SDK, de 14,5 s para 60 s.
 
-**Decisão.** Pelos critérios de abandono da Etapa 2 (§6: o `.text` dos programas do `bench/desempenho`
+**Decisão.** Pelos critérios de abandono da Etapa 2 (§6: o `.text` dos programas do `bench/performance`
 em B0 não ficou menor que em A0 com o mapa incluído, e o tempo de desenvolvimento passou de 1,5×), as
 raízes por mapas ficam **arquivadas como experimentais**: o código continua atrás de `--raizes=mapas`,
 corrigido e com os testes dirigidos verdes, sem custo para o padrão (pilha-sombra). As Etapas 3 e 4 não
@@ -2776,7 +2776,7 @@ sem ignorados nem filtrados (777 s): casos e sabotagens, coleta agendada,
 folha incorreta detectada e percurso contra a pilha-sombra.
 
 **O defeito da forma do §14.8.** A medida do tempo de execução que faltava ao §14.11 (o
-`bench/desempenho` em produção, `scripts/medir-modos-desempenho.py`) deu B0/A0 = 0,996 de média, com
+`bench/performance` em produção, `scripts/medir-modos-desempenho.py`) deu B0/A0 = 0,996 de média, com
 `chamadas/formas` 1,43× e `chamadas/fib` 1,24×. Sem exceção lançada e sem coleta, o código com mapas
 não pode ser mais lento que o com pilha-sombra. Duas causas:
 
@@ -2898,7 +2898,7 @@ operando o mantém vivo nela — o contrato C1), e os três registros saem com `
     (`LLVMParseCommandLineOptions`), e entra na identidade do gerador (a chave do cache de objetos).
     `DARTFORGE_MAPAS_REGISTRADORES=0` volta as raízes para o slot (medida).
 
-**Medida** (`chamadas`, produção, mediana de 5 execuções presas a um núcleo P, ms; a do `bench/desempenho`
+**Medida** (`chamadas`, produção, mediana de 5 execuções presas a um núcleo P, ms; a do `bench/performance`
 inteiro está no §13.16, revisão de 2026-10-08: B0/A0 = 0,972 e B1/A0 = 0,961):
 
 | núcleo | A0 | B0 (§14.8) | B0 (`"deopt"`) |
@@ -2952,7 +2952,7 @@ dos commits. Nenhum passo muda o padrão (`sombra` + `checagem`).
 * `EN/lower/verificador.rs`: todo bloco de pouso tem um só predecessor, que é um `invoke`; nenhuma
   função sem `invoke` tem personalidade; em `tabelas`, nenhum `Return` é alcançável só por caminho de
   exceção.
-* Testes dirigidos (cada um um programa do `corpus/nativo`, comparado com a VM): os cinco de
+* Testes dirigidos (cada um um programa do `corpus/native`, comparado com a VM): os cinco de
   `ir-hoje\exc.dart`; `laco`/`aninhado` do §13.5; exceção atravessando 1.000 quadros sem `try`; `throw`
   dentro de `catch` dentro de `try`; `finally` que lança outra exceção; `return` dentro de `finally`;
   `try` em função sem quadro de raízes; `try` em laço com alocação no `catch` sob `--gc-stress`.
@@ -2976,7 +2976,7 @@ dos commits. Nenhum passo muda o padrão (`sombra` + `checagem`).
   (`assert` em `desempilhar_quadro`, `RT/heap.rs:379-385`).
 
 **Fechamento da Etapa 1.** As medidas do §8 nas duas combinações (A0, A1) e a decisão pelos critérios
-do §6: `.text` + `.xdata` + `.pdata` do `new_sali/backend` pelo menos 3% menor; `bench/desempenho` sem
+do §6: `.text` + `.xdata` + `.pdata` do `new_sali/backend` pelo menos 3% menor; `bench/performance` sem
 piora; o lançar-e-pegar dentro do limite.
 
 ### 15.2 Etapa 2
@@ -3011,7 +3011,7 @@ duas coisas (mapa e slots) e exige que o conjunto de handles visitados pelos map
 **E2.6 — o quadro-sombra residual** (§3.7), para as funções que o modo mapas recusa.
 
 **Fechamento da Etapa 2.** Corpus nativo em B0 com e sem `--gc-stress`; as três sabotagens do §14.7
-falham; `bench/desempenho` nas quatro combinações; a decisão pelos critérios do §6.
+falham; `bench/performance` nas quatro combinações; a decisão pelos critérios do §6.
 
 ### 15.3 O que este roteiro não cobre
 

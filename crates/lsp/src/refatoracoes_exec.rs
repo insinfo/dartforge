@@ -383,8 +383,8 @@ pub(crate) fn regra_ligada(p: &Projeto, unidade: UnitId, nome: &str) -> bool {
 /// Como [`regra_ligada`], pelo caminho do arquivo.
 pub(crate) fn regra_ligada_em(caminho: &std::path::Path, nome: &str) -> bool {
     let raiz = crate::projeto::raiz_do_projeto(caminho);
-    let arquivo = dartforge_paridade::filtros::Opcoes::de_subpasta(caminho, &raiz).unwrap_or_else(|| raiz.join("analysis_options.yaml"));
-    dartforge_paridade::filtros::Opcoes::ler_arquivo(&arquivo).regras.get(nome).copied().unwrap_or(false)
+    let arquivo = dartforge_parity::filtros::Opcoes::de_subpasta(caminho, &raiz).unwrap_or_else(|| raiz.join("analysis_options.yaml"));
+    dartforge_parity::filtros::Opcoes::ler_arquivo(&arquivo).regras.get(nome).copied().unwrap_or(false)
 }
 
 /// `options['name'] as String` com `options != null`: o nome, ou o erro do

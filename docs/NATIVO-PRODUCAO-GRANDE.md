@@ -143,13 +143,13 @@ Feito (as medidas estão na §5):
      mesmos ajudantes vão fora de linha. Lá o `alwaysinline` copiava cada um em cada uso, e a
      geração pagava as cópias: os objetos do backend caem de ~95 para ~80 s.
    * No programa pequeno, os ajudantes ficam em linha também no `-O0`. Fora de linha, o
-     `corpus/nativo` levou 116 s em vez de 53 s.
+     `corpus/native` levou 116 s em vez de 53 s.
 
 4. **HIR em paralelo.**
    * O lowering vai em pedaços de 512 funções distribuídos sob demanda entre até 4 threads,
      cada pedaço no seu módulo, juntados na ordem (`lower::baixar_funcoes`). O contexto
      (`Context`) passou a `Sync`: `OnceLock` e memórias em `RwLock`/`Arc`.
-   * Os passes por função da otimização (`otimizar::em_paralelo`) também vão em paralelo.
+   * Os passes por função da otimização (`optimize::em_paralelo`) também vão em paralelo.
    * O resultado é o mesmo da ordem sequencial, e os objetos em cache batem.
    * No backend (desenvolvimento): baixar 10,5–15 → 8,5–9 s; otimizar 21–25 → 12–16 s.
    * Medido e descartado: a emissão do IR em paralelo (trabalhadores com registros próprios)
@@ -187,7 +187,7 @@ e ponto fixo por lista de trabalho com invalidação:
 Os alvos de uma chamada são os das classes **alocadas** que chegam ao
 receptor (`:669-746`). Antes dele, um RTA por seletor e tipo estático
 (`TF/rta.dart:168-194`, chamado em `TF/transformer.dart:94-111`) dá as
-classes alocadas iniciais. Esse RTA é o equivalente do nosso `crates/mundo` e
+classes alocadas iniciais. Esse RTA é o equivalente do nosso `crates/world` e
 do `EN/poda.rs`.
 
 O que o TFA acrescenta, e que vale portar por ordem de custo:
@@ -264,7 +264,7 @@ só poupa a otimização e a emissão.
 
 ### 5.1 O preço em desempenho
 
-Cada `bench/desempenho` foi compilado em produção duas vezes, A (tudo em linha) e B (campos e
+Cada `bench/performance` foi compilado em produção duas vezes, A (tudo em linha) e B (campos e
 ajudantes por chamada), e as duas versões rodaram três vezes cada, alternadas. A máquina tem
 outros builds rodando. Os números são os mínimos por medida, em µs:
 
@@ -351,7 +351,7 @@ Ligação fria com os objetos em cache:
   Mas o ThinLTO recebe o IR cru e gasta mais, então o saldo de CPU fica igual.
 * O `-fast-isel` paga 3–4 MB de executável.
 
-O `bench/desempenho` (mínimo de 3 rodadas por medida) fica entre 0,94 e 1,09× com `-O1` contra
+O `bench/performance` (mínimo de 3 rodadas por medida) fica entre 0,94 e 1,09× com `-O1` contra
 `-O2`, dentro do ruído da máquina.
 
 Padrão: `-O1` na ligação do programa em partes (`driver::nivel_da_lto`); `-O2` no programa
@@ -391,7 +391,7 @@ seletor por entrada, cada um com o seu vetor de argumentos e a sua checagem de e
 * As funções HIR baixadas sobem de 183 mil para 201 mil (um getter por constante aninhada
   distinta). As vivas sobem 160.
 * Executável 59,0 → 57,2 MB.
-* Teste: `corpus/nativo/137_constantes_grandes_por_tabela.dart` (identidade canônica,
+* Teste: `corpus/native/137_constantes_grandes_por_tabela.dart` (identidade canônica,
   imutabilidade, o caso não constante), igual à VM em desenvolvimento, produção e `gc-stress`.
 
 ### 6.6 Resultado e o que resta

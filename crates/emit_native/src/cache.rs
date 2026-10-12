@@ -1,6 +1,6 @@
 //! O runtime nativo do AOT e o diretório dos caches do backend.
 //!
-//! O runtime é a `staticlib` de `crates/runtime_estatico`, compilada pelo
+//! O runtime é a `staticlib` de `crates/runtime_static`, compilada pelo
 //! `build.rs` deste crate com o `cargo` do build (três variantes: a do
 //! executável, com o `main` C, a da biblioteca compartilhada do SDK da
 //! fonte e a de produção, que é a da biblioteca com `panic=abort`). Vem pronta com o dartforge: em `lib/` da distribuição, ou no

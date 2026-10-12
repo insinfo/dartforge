@@ -2,7 +2,7 @@
 //!
 //! O `dart:core` do nativo vem da fonte do SDK 3.6.2 — a seção `vm` do
 //! `libraries.json` com os patches dela — e de uma sobreposição fina nossa,
-//! `sdk_nativo/` na raiz do repositório, que troca só os arquivos que dependem
+//! `native_sdk/` na raiz do repositório, que troca só os arquivos que dependem
 //! da máquina interna da VM (`_SuspendState`, `Timer`/microtarefas ligados ao
 //! `dart:isolate`, o `Finalizer` do GC fraco). A troca é feita no
 //! carregamento (`SdkLayout::load_com_sobreposicao`, `crates/elements`).
@@ -16,7 +16,7 @@ use crate::gerador::{Formato, Geracao, Gerador};
 use dartforge_elements::sdk::SdkLayout;
 use std::path::{Path, PathBuf};
 
-/// O alvo da sobreposição em `sdk_nativo/libraries.json`.
+/// O alvo da sobreposição em `native_sdk/libraries.json`.
 pub const ALVO_SOBREPOSICAO: &str = "dartforge_nativo";
 
 /// As bibliotecas que o nativo compila da fonte do SDK (decisão 1 de
@@ -41,7 +41,7 @@ pub const BIBLIOTECAS_DA_FONTE: &[&str] =
         "mirrors",
     ];
 
-/// Diretório da sobreposição: `DARTFORGE_SDK_NATIVO`, senão o `sdk_nativo/`
+/// Diretório da sobreposição: `DARTFORGE_SDK_NATIVO`, senão o `native_sdk/`
 /// do repositório que compilou este binário.
 pub fn dir_sobreposicao() -> PathBuf {
     if let Some(d) = std::env::var_os("DARTFORGE_SDK_NATIVO") {
@@ -50,7 +50,7 @@ pub fn dir_sobreposicao() -> PathBuf {
     if let Some(d) = dartforge_elements::distribuicao::sobreposicao_nativa() {
         return d;
     }
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sdk_nativo")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../native_sdk")
 }
 
 /// O SDK do nativo: a seção `vm` de `lib_dir` com a sobreposição.
@@ -331,9 +331,9 @@ pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path, producao: bool) -> Result<Vec<B
         if let Some(e) = module.erros.first() {
             return Err(format!("{uri}: o módulo do SDK tem diagnóstico fora de membro: {e}"));
         }
-        // O otimizador da HIR (`otimizar/`) também no SDK: é onde fica o
+        // O otimizador da HIR (`optimize/`) também no SDK: é onde fica o
         // código de `List`, `Map`, `String`… que os programas mais chamam.
-        crate::otimizar::preparar_para_emissao(&mut module, memoria_arc, excecoes_por_tabelas);
+        crate::optimize::preparar_para_emissao(&mut module, memoria_arc, excecoes_por_tabelas);
         modulos.push((uri, module));
     }
     // A preparação ARC publicada: as bibliotecas juntas (o SDK não chama o
@@ -341,11 +341,11 @@ pub fn emitir_bibliotecas_do_sdk(lib_dir: &Path, producao: bool) -> Result<Vec<B
     if arc_preparado {
         let mut hir: Vec<_> = modulos.iter_mut().map(|(_, m)| std::mem::take(m)).collect();
         let mut planos: Vec<std::collections::HashMap<_, _>> = hir.iter().map(|m| {
-            m.functions.iter().map(|f| (f.symbol.clone(), crate::otimizar::arc::PlanoFuncaoDart::default())).collect()
+            m.functions.iter().map(|f| (f.symbol.clone(), crate::optimize::arc::PlanoFuncaoDart::default())).collect()
         }).collect();
-        crate::otimizar::arc::preparar_arc_modulos_dart(&mut hir, &mut planos)
+        crate::optimize::arc::preparar_arc_modulos_dart(&mut hir, &mut planos)
             .map_err(|e| format!("preparação ARC do SDK da fonte: {e}"))?;
-        crate::otimizar::arc::certificar_portas_arc_modulos(&mut hir, &planos)
+        crate::optimize::arc::certificar_portas_arc_modulos(&mut hir, &planos)
             .map_err(|e| format!("portas ARC do SDK da fonte: {e}"))?;
         for ((_, m), h) in modulos.iter_mut().zip(hir) {
             *m = h;
@@ -479,7 +479,7 @@ fn chave_do_sdk(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     if std::env::var("DARTFORGE_RASTRO_VM").is_ok_and(|v| v == "simbolico") {
         h.update(b"rastro=simbolico\0");
     }
-    // O modelo de exceções muda o código (`otimizar/tabelas.rs`). O padrão
+    // O modelo de exceções muda o código (`optimize/tabelas.rs`). O padrão
     // não entra na chave: o SDK de sempre continua com a chave de sempre.
     if std::env::var("DARTFORGE_EXCECOES").is_ok_and(|v| v == "tabelas") {
         h.update(b"excecoes=tabelas\0");
@@ -904,7 +904,7 @@ pub fn medir_lowering_do_sdk(lib_dir: &Path) -> Result<Vec<MembroDoSdk>, String>
 /// perfil de produção): o LLVM pesa tamanho nas decisões de inlining,
 /// desenrolamento e vetorização. Medido em 2026-09-29: −453 KB no olá
 /// mundo e −532 KB no servidor HTTP, sem diferença além do ruído em
-/// `bench/desempenho/json.dart` e `bench/simd/bin/blend.dart`
+/// `bench/performance/json.dart` e `bench/simd/bin/blend.dart`
 /// (docs/PLANO-TAMANHO-DESEMPENHO.md §1). O código do SDK que a LTO
 /// embute no programa segue os atributos de quem chama.
 ///
@@ -969,7 +969,7 @@ pub enum ContextoEmTls {
 /// runtime na primeira vez em cada thread. O endereço do contexto de uma
 /// thread não muda enquanto ela vive (`runtime/src/gc_raizes.rs`). Só no
 /// AOT: o JIT não tem `thread_local` nos módulos dele. O `fib(32)` do
-/// `bench/comparativo` passava 1/3 do tempo na função do runtime.
+/// `bench/comparison` passava 1/3 do tempo na função do runtime.
 ///
 /// ```
 /// use dartforge_emit_native::sdk_modulo::{com_contexto_em_tls, ContextoEmTls};
@@ -1066,7 +1066,7 @@ mod testes {
         crate::sdk_testes();
         let sdk = carregar_sdk_nativo(crate::sdk_testes()).unwrap();
         // 26 com o `mirrors_patch.dart` (o `reflectClass` do executor de
-        // builders, corpus/nativo/45); 29 com `double.dart`, `integers.dart`
+        // builders, corpus/native/45); 29 com `double.dart`, `integers.dart`
         // e `convert_patch.dart` (o JSON, docs/NATIVO-PLANO.md); 30 com o
         // `convert/json.dart` (a escrita em UTF-8, §13.2).
         assert_eq!(sdk.substituicoes.len(), 30);
@@ -1220,7 +1220,7 @@ mod testes {
     }
 
     /// O teste de ausência de código (docs/NATIVO-PODA-DE-TABELAS.md §4, o
-    /// `deadstrip.test.ts` do scriptc): `corpus/nativo/81_poda_de_tabelas.dart`
+    /// `deadstrip.test.ts` do scriptc): `corpus/native/81_poda_de_tabelas.dart`
     /// tem uma classe instanciada com membros que nada usa. No executável de
     /// produção (o mapa da ligação) não fica símbolo nenhum deles — nem o
     /// corpo nem as entradas `$c`/`$tc`/`$g`/`$s`/`$tearm` —, ficam as
@@ -1233,7 +1233,7 @@ mod testes {
             assert!(std::env::var_os("CI").is_none(), "SDK do Dart ausente no CI ({})", sdk_dir.display());
             return;
         }
-        let entrada = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/nativo/81_poda_de_tabelas.dart");
+        let entrada = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/native/81_poda_de_tabelas.dart");
         let dir = tempfile::tempdir().unwrap();
         let exe = dir.path().join(crate::alvo::nome_executavel("poda"));
         crate::ligador::pedir_mapas_da_ligacao();

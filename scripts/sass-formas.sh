@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenera o oráculo das formas Sass (crates/gerador_ng/tests/sass_formas):
+# Regenera o oráculo das formas Sass (crates/ng_generator/tests/sass_formas):
 # o `sass_builder` 2.2.1 de verdade, pelo `build_runner`, com as versões do
 # lock de corpus/builders/sass_builder (dart-sass 1.102.0), nos dois estilos
 # (`outputStyle: expanded` e `compressed`), sem mapas de fonte.
@@ -13,7 +13,7 @@
 set -euo pipefail
 dart=${1:-dart}
 raiz=$(cd "$(dirname "$0")/.." && pwd)
-formas=$raiz/crates/gerador_ng/tests/sass_formas
+formas=$raiz/crates/ng_generator/tests/sass_formas
 caso=$raiz/corpus/builders/sass_builder
 mkdir -p "$formas/esperado"
 for estilo in expanded compressed; do

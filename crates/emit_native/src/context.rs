@@ -84,7 +84,7 @@ pub struct Context<'a> {
     /// O mundo fechado do programa (`mundo_nativo.rs`): a função ou o
     /// global do programa fora dele vira corpo que lança. `None`: sem poda
     /// (os módulos do SDK, `DARTFORGE_SEM_PODA_DO_PROGRAMA=1`).
-    pub mundo: Option<dartforge_mundo::Mundo>,
+    pub mundo: Option<dartforge_world::Mundo>,
     /// Memória de `sdk_fonte::implementacoes` por (classe, nome): a busca
     /// percorre TODAS as classes do programa e a linearização de cada uma, e
     /// é feita a cada acesso a membro pelo despacho por classe. Num programa
@@ -258,7 +258,7 @@ impl<'a> Context<'a> {
         let remendo = u
             .path
             .as_ref()
-            .is_some_and(|p| p.components().any(|c| matches!(c.as_os_str().to_str(), Some("_internal" | "sdk_nativo"))));
+            .is_some_and(|p| p.components().any(|c| matches!(c.as_os_str().to_str(), Some("_internal" | "native_sdk"))));
         if remendo { format!("dart:{nome}-patch/{arquivo}") } else { format!("dart:{nome}/{arquivo}") }
     }
 

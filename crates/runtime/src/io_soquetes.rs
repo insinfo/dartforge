@@ -962,7 +962,7 @@ pub extern "C" fn dartforge_nativo_SynchronousSocket_ShutdownWrite(this: i64) {
 // ---------------------------------------------------------------------------
 // Mensagens de controle e recursos passados por soquete de domínio Unix
 // (`SocketControlMessage`, `ResourceHandle`; N04). Os objetos Dart saem dos
-// ajudantes `_dartforge*` de `sdk_nativo/io/common_patch.dart`; no Windows,
+// ajudantes `_dartforge*` de `native_sdk/io/common_patch.dart`; no Windows,
 // como na VM, não há passagem de descritores.
 
 /// A função Dart registrada `nome` (da sobreposição de `dart:io`).

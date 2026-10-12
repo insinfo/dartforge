@@ -111,7 +111,7 @@ módulo, não por biblioteca.
 
 ## Harness diferencial e corpus
 
-`crates/diferencial` (`cargo run -p dartforge-diferencial`) roda cada programa de
+`crates/differential` (`cargo run -p dartforge-differential`) roda cada programa de
 `corpus/js/` em três executores e compara stdout e código de saída byte a byte:
 
 * `dart run --enable-asserts` (semântica; asserts ligados porque o DDC os liga);
@@ -124,13 +124,13 @@ lado a lado; no fim, N/total e as falhas agrupadas pela primeira linha do stderr
 DartForge — é por esse agrupamento que se prioriza o emissor. Oráculos em cache por
 hash do conteúdo em `target/diferencial/cache/`; paralelo por núcleo.
 
-* `dartforge-diferencial verificar` — só os oráculos (o corpus tem de rodar na VM e bater
+* `dartforge-differential verificar` — só os oráculos (o corpus tem de rodar na VM e bater
   com o DDC; `// diverge-ddc: motivo` na linha 2 declara a exceção e faz do DDC a
   referência do DartForge para aquele programa).
-* `dartforge-diferencial contrato` — regenera `docs/CONTRATO-DDC.md`: o Dart e o JS do
+* `dartforge-differential contrato` — regenera `docs/CONTRATO-DDC.md`: o Dart e o JS do
   `dartdevc` de cada programa, sem o preâmbulo repetido. Consultar antes de emitir um
   construto.
-* `cargo test -p dartforge-diferencial --test corpus -- --ignored --nocapture` — os dois
+* `cargo test -p dartforge-differential --test corpus -- --ignored --nocapture` — os dois
   testes do corpus (VM válida em 100%; DDC = VM salvo divergências declaradas).
 
 Corpus: um construto por arquivo, `NN_tema.dart` (ou `NN_tema/main.dart` para várias
@@ -152,7 +152,7 @@ Memória e tempo da emissão medidos no `new_sali` com o mesmo exemplo de
 
 ## Estado da emissão (crates/emit_js, 2026-09-22)
 
-`dartforge-diferencial`: **202/202** do corpus; `cargo test -p dartforge-emit-js`
+`dartforge-differential`: **202/202** do corpus; `cargo test -p dartforge-emit-js`
 tem um programa por item da entrega (`tests/programas/p1..p7`). Decisões que
 diferem da forma literal do `dartdevc` mas respeitam o contrato do runtime:
 

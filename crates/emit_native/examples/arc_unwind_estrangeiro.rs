@@ -6,7 +6,7 @@
 #[cfg(unix)]
 use dartforge_emit_native::llvm::LlvmEmitter;
 #[cfg(any(unix, test))]
-use dartforge_emit_native::{hir::*, otimizar::arc::*};
+use dartforge_emit_native::{hir::*, optimize::arc::*};
 #[cfg(any(unix, test))]
 use std::collections::HashMap;
 

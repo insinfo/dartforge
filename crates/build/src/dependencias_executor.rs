@@ -1,7 +1,7 @@
 //! As dependências do executor de builders que o projeto não resolve
 //! (DF-BUILD-004): o hospedeiro não pode depender de o projeto trazer
 //! `build_runner` ou `build_resolvers`. O lado Dart do executor
-//! (`pacotes/build_executor`) importa [`DEPENDENCIAS`]; quando o
+//! (`packages/build_executor`) importa [`DEPENDENCIAS`]; quando o
 //! `package_config.json` do projeto não resolve algum deles, o hospedeiro os
 //! procura no cache do pub (`PUB_CACHE`, ou o padrão da plataforma), com as
 //! restrições do `pubspec.yaml` do executor, e depois as dependências deles
@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// Os pacotes que o lado Dart do executor importa, com as restrições do
-/// `pubspec.yaml` de `pacotes/build_executor`.
+/// `pubspec.yaml` de `packages/build_executor`.
 pub const DEPENDENCIAS: &[(&str, &str)] = &[
     ("analyzer", ">=6.9.0 <8.0.0"),
     ("build", "^2.4.2"),

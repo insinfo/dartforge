@@ -21,7 +21,7 @@ Os exemplos marcados **(oráculo)** foram conferidos com a saída real do compil
 `corpus/ngdart/oraculo/*.template.dart`. Os marcados **(derivado)** foram deduzidos só do
 código, sem um caso do corpus que os confirme.
 
-Porte Rust: `crates/gerador_ng/src/visao.rs` (`V`) e `componente.rs` (`C`).
+Porte Rust: `crates/ng_generator/src/visao.rs` (`V`) e `componente.rs` (`C`).
 
 ---
 

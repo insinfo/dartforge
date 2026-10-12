@@ -5,7 +5,7 @@
 //   na VM vem do `--packages`; aqui, de `DARTFORGE_PACKAGE_CONFIG` (o
 //   hospedeiro do executor de builders o define). O `build_resolvers` acha
 //   o diretório dos pacotes por ele. A leitura e a resolução ficam no patch
-//   do `dart:isolate` (`sdk_nativo/isolate/isolate_patch.dart`), como no
+//   do `dart:isolate` (`native_sdk/isolate/isolate_patch.dart`), como no
 //   `builtin.dart` da VM; o runtime só dá o caminho e o texto do arquivo.
 //
 // * o subconjunto de `dart:mirrors`:
@@ -15,7 +15,7 @@
 // biblioteca que a declara (`(mirror.owner as LibraryMirror).uri`,
 // `MirrorSystem.getName(mirror.simpleName)`). O resto da API de reflexão não
 // existe no nativo (como no AOT da VM) e lança `UnsupportedError`
-// (`sdk_nativo/mirrors/mirrors_patch.dart`).
+// (`native_sdk/mirrors/mirrors_patch.dart`).
 //
 // O compilador registra, na tabela da RTI (`lower/rti.rs`), uma linha
 // `B<id> <uri> <nome>` por classe: a biblioteca que a declara e o nome

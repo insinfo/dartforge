@@ -29,7 +29,7 @@ não encostar.
    (PLANO.md, "Regra de trabalho aprendida a custo").
 
 2. **Não toque nestes arquivos** — são do outro agente, e conflito aqui
-   custa caro: `crates/gerador_ng/**`, `crates/elements/src/gerado.rs`,
+   custa caro: `crates/ng_generator/**`, `crates/elements/src/gerado.rs`,
    `crates/dev/**`, `crates/emit_js/**`, `crates/cli/src/main.rs`.
    Seu território: `crates/emit_native/**`, `crates/runtime/**`,
    `crates/jit/**`, `crates/cranelift-jit/**`, `crates/native/**`,
@@ -209,7 +209,7 @@ target\debug\dartforge.exe run entrada.dart
 dart run --enable-asserts corpus\js\001_hello.dart
 ```
 
-O harness diferencial (`crates/diferencial`) hoje roda o corpus pelo
+O harness diferencial (`crates/differential`) hoje roda o corpus pelo
 backend JS. **Estender esse harness para o nativo é a primeira coisa que
 vale a pena fazer**: sem placar automático você vai medir no olho, e o
 número "6/202" precisa virar um comando que qualquer um roda. Espelhe o

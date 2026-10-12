@@ -1,6 +1,6 @@
 //! O executor de builders **nativo** (`crates/build/src/executor_nativo.rs`,
 //! B01) contra o oráculo do `build_runner` (`corpus/builders/`): o bootstrap
-//! do `pacotes/build_executor` compilado pelo `compile-native` do próprio
+//! do `packages/build_executor` compilado pelo `compile-native` do próprio
 //! DartForge, sem VM, sem `dart` e sem o apoio do `build_runner` no disco. A
 //! régua é a do `executor_vm.rs`: saída byte a byte a do oráculo e
 //! incremental igual ao do zero em cada edição do caso.

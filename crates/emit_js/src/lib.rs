@@ -461,7 +461,7 @@ fn api_de_macros(entrada: &std::path::Path) -> Option<std::path::PathBuf> {
     let bases = [std::env::current_exe().ok(), std::env::current_dir().ok(), Some(entrada.to_path_buf())];
     for base in bases.into_iter().flatten() {
         for dir in base.ancestors() {
-            let p = dir.join("pacotes/macros");
+            let p = dir.join("packages/macros");
             if p.join("pubspec.yaml").is_file() { return Some(p); }
         }
     }
@@ -486,7 +486,7 @@ pub fn compilar_com_relatorio_e_gerador(
 
 /// O pipeline inteiro até a inferência de corpos; a emissão é de quem chama
 /// (`fim`), que recebe o programa analisado. O perfil de produção calcula o
-/// mundo fechado aqui dentro, antes de emitir (`crates/emit_js_producao`).
+/// mundo fechado aqui dentro, antes de emitir (`crates/emit_js_production`).
 pub fn compilar_com<R>(
     entrada: &std::path::Path,
     sdk_lib: Option<&std::path::Path>,
@@ -642,7 +642,7 @@ pub fn compilar_com_opcoes<R>(
             None
         } else {
             let api = api_de_macros(entrada).ok_or(
-                "API de macros ausente: defina DARTFORGE_MACROS_API para pacotes/macros"
+                "API de macros ausente: defina DARTFORGE_MACROS_API para packages/macros"
             )?;
             let dart = std::env::var_os("DARTFORGE_MACROS_DART")
                 .map(std::path::PathBuf::from)

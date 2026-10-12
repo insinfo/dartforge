@@ -80,7 +80,7 @@ superar o ganho das quatro operações juntas.
 
 ## 4. Como provar
 
-* **Corpus SIMD** (`corpus/js/` ou `corpus/nativo/`): soma de listas,
+* **Corpus SIMD** (`corpus/js/` ou `corpus/native/`): soma de listas,
   produto escalar com acumulador vetorial, máscara por comparação +
   `select`, `min`/`max` com NaN e ±0, visão sobre `ByteBuffer` com
   deslocamento — saída igual à da VM (inclusive NaN).
@@ -103,7 +103,7 @@ laço sobre lista tipada escapa da chamada genérica, SIMD ou não.
   e o endereço vêm de `dartforge_typed_len`/`dartforge_typed_ptr`, funções
   puras do handle (`memory(none) speculatable`) que o LLVM tira dos laços;
   índice fora dos limites, visão não modificável e `Uint8ClampedList` caem
-  no `typed_data_patch.dart`, com os erros da VM (`corpus/nativo/20`).
+  no `typed_data_patch.dart`, com os erros da VM (`corpus/native/20`).
 * **`List<E>`**: o runtime dá o cabeçalho da lista
   (`dartforge_lista_cabecalho`, `heap::CabecalhoDeLista`: endereço fixo
   enquanto a lista vive, `memory(none) speculatable`, fora dos laços), e o
@@ -115,12 +115,12 @@ laço sobre lista tipada escapa da chamada genérica, SIMD ou não.
   conferidos em tempo de compilação no runtime). A leitura confere a tag e
   cai na caixa se não bate; a gravação direta é só para `int`/`double`.
   Classe do usuário que implementa `List`, listas não modificáveis e
-  covariância ficam com o despacho (`corpus/nativo/21`).
+  covariância ficam com o despacho (`corpus/native/21`).
 * **Validade do endereço**: o vetor da lista pode ser realocado (crescer,
   `length =`, `_setData`), sempre por chamada sem atributo. O endereço é
   obtido no bloco do acesso, e o LLVM só o reaproveita entre pontos sem
   chamada assim; o dono continua enraizado (o slot do valor SSA só é
-  sobrescrito ao fim do quadro). `corpus/nativo/22` cobre crescimento por
+  sobrescrito ao fim do quadro). `corpus/native/22` cobre crescimento por
   outra referência, realocação no meio de uma expressão e de um composto,
   callback que encurta a lista, coleta entre o endereço e o uso e
   gravações alternadas entre o acesso direto, o SDK e `dynamic` — iguais à
@@ -175,7 +175,7 @@ x float>`, `shufflevector`, `fcmp` + `select`), sem intrínseca de alvo nem
 * **`min`/`max`/`clamp`** por API: os de `Float32x4`/`Float64x2` seguem o
   resultado da plataforma da VM (`Utils::Minimum`/`Maximum`: `fcmp olt`/
   `ogt` + `select`, com NaN e ±0 dando o segundo operando), conferidos
-  contra a VM em `corpus/nativo/24` (também com `--optimize`, GC stress e
+  contra a VM em `corpus/native/24` (também com `--optimize`, GC stress e
   JIT). O `clamp` muda com a arquitetura, como no `simd128.cc`: no arm64 é
   o `vminf`/`vmaxf` da VM (com NaN fica o primeiro operando, e na
   igualdade o `min` dá `-0` e o `max` dá `+0`), então `clamp` de NaN é NaN
@@ -196,7 +196,7 @@ x float>`, `shufflevector`, `fcmp` + `select`), sem intrínseca de alvo nem
   volta, que sozinha fazia o B2D v1 SIMD do dgfx 9× mais lento que o
   escalar. O local SIMD gravado por uma função local direta (pelo endereço
   do local de quem chama) grava 16 bytes (`llvm/mod.rs`, `Store`); antes o
-  IR era recusado pelo Clang. `corpus/nativo/67`.
+  IR era recusado pelo Clang. `corpus/native/67`.
 
 ## 6. A API de `Int32x4` do Dart 3.14
 
@@ -230,7 +230,7 @@ com sinal dão -1/0; `anyTrue` = alguma pista ≠ 0, `allTrue` = todas ≠ 0.
 **Como fica disponível sem quebrar a paridade com o 3.6.2** (decisão):
 `dart:typed_data` continua a do 3.6.2 (D1 de `docs/VERSOES-LINGUAGEM.md`). A
 API vem numa **extensão comum** de Dart 3.6,
-`pacotes/dartforge_simd/lib/int32x4_3_14.dart` (`extension Int32x4Api314 on
+`packages/dartforge_simd/lib/int32x4_3_14.dart` (`extension Int32x4Api314 on
 Int32x4`), com as assinaturas acima e os corpos do patch da VM, marcada com
 `@pragma('dartforge:simd-api', '3.14')`:
 
@@ -250,7 +250,7 @@ Int32x4`), com as assinaturas acima e os corpos do patch da VM, marcada com
 Os construtores `Int32x4.splat`/`zero` não cabem numa extensão do 3.6:
 `Int32x4(v, v, v, v)` e `Int32x4(0, 0, 0, 0)` já são intrinsecados. Um
 programa que não importa a extensão não muda em nada. Conferido em
-`corpus/nativo/69` (a extensão copiada; extremos, `s` negativo e ≥ 32,
+`corpus/native/69` (a extensão copiada; extremos, `s` negativo e ≥ 32,
 laço sobre `Int32x4List`, caminhos em caixa) contra a VM 3.6.2 — e, fora
 do harness, igual também no `dart run` do 3.14.0-248.0.dev.
 
@@ -292,7 +292,7 @@ B2D v2 Batch 1,18×, SKIA 3,60×; no Dart AOT 3.6.2: 31,8×, 19,4×, 6,5×,
    referência, "não nulo" já prova "inicializado" (o campo novo é zero, e
    nesse tipo nunca se grava `null`), e o runtime só é consultado com o
    campo nulo (`lower/membros.rs`). Tipos anuláveis, `int`/`double`/`bool`
-   e o ciclo de inicialização seguem pelo runtime (`corpus/nativo/67`).
+   e o ciclo de inicialização seguem pelo runtime (`corpus/native/67`).
 3. **Cabeçalho de lista tipada fora dos laços**: `dartforge_typed_cabecalho`
    devolve `dereferenceable(16) ptr` (nunca nulo), e as duas cargas dele
    passam a ser especuláveis — o LLVM as tira dos laços com a chamada (antes
@@ -417,7 +417,7 @@ closures, funções locais, laços internos (o de dentro se versiona sozinho),
 rótulos, `try`, `switch`, padrões, coleções literais e `const`
 (`duplicavel`). Funções `async` ficam de fora.
 `DARTFORGE_SEM_VERSIONAR_TIPADAS=1` na compilação desliga (medida; entra
-na chave do SDK). Correção: `corpus/nativo/77_versionamento_listas_tipadas`
+na chave do SDK). Correção: `corpus/native/77_versionamento_listas_tipadas`
 (prova que falha por lista curta, começo negativo, índice além do `Smi` e
 perto de `2^63`; visão com deslocamento e não modificável na mesma função;
 visões sobrepostas com dependência entre voltas e a mesma lista como fonte
@@ -454,7 +454,7 @@ a ida e volta pista a pista. Reconhecidos, com `v`/`r` locais:
   sempre — o `UnsupportedError` do `toInt()` de NaN/infinito, e fora da
   faixa a saturação em 64 bits e o truncamento do construtor, como a VM.
 
-Correção: `corpus/nativo/78_simd_conversao_de_pistas` (±0, frações,
+Correção: `corpus/native/78_simd_conversao_de_pistas` (±0, frações,
 `2147483520`, `±2^31`, `-2147483904`, `1e20`, `3e9`, `±FLT_MAX`, NaN e
 ±infinito em cada pista, `>> 8`/`>> 31`, formas que não casam, o blend da
 API 3.6 com pistas fora da faixa no meio das voltas). O programa achou um

@@ -9,9 +9,9 @@
 // bytes entre os anéis e a máquina de TLS. Aqui é o mesmo protocolo, com os
 // anéis nas `Uint8List` do heap e a máquina de TLS do rustls. O Dart do
 // `secure_socket.dart` do SDK fica intacto; a sobreposição troca só o patch
-// da VM (`sdk_nativo/io/secure_socket_patch.dart`) e o pedido
+// da VM (`native_sdk/io/secure_socket_patch.dart`) e o pedido
 // `sslProcessFilter` do IOService, atendido na thread do isolado
-// (`sdk_nativo/io/io_service_patch.dart`): o filtro só faz criptografia em
+// (`native_sdk/io/io_service_patch.dart`): o filtro só faz criptografia em
 // memória, nunca E/S — quem lê e escreve no soquete continua sendo o
 // `RawSocket`, pelo laço de eventos.
 //

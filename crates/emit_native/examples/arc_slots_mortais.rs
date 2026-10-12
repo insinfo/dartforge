@@ -118,7 +118,7 @@ fn main() -> Result<(), String> {
         }
         Some(outro) => return Err(format!("sabotagem desconhecida: {outro}")),
     }
-    dartforge_emit_native::otimizar::otimizar(&mut m);
+    dartforge_emit_native::optimize::otimizar(&mut m);
     let erros = dartforge_emit_native::lower::verificador::verificar(&m);
     if !erros.is_empty() {
         return Err(erros.join("\n"));

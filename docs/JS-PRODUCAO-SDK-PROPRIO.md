@@ -127,7 +127,7 @@ em §10.
 5. **Minifica nomes**: locais pelo escopo e membros por um *namer* global
    com lista de fugas (`docs/JS-PRODUCAO.md` §3).
 
-Nós temos 2 para o código do usuário (`crates/mundo`). Este plano traz 1, 3 e
+Nós temos 2 para o código do usuário (`crates/world`). Este plano traz 1, 3 e
 4 para o perfil de produção e a parte segura de 5.
 
 ---
@@ -187,7 +187,7 @@ empatar.
 
 ## 4. Mundo fechado do programa inteiro
 
-`crates/mundo` deixa de tratar o SDK como fronteira. Com
+`crates/world` deixa de tratar o SDK como fronteira. Com
 `Opcoes::incluir_sdk` (`calcular_com`), as classes, funções e variáveis das
 bibliotecas `dart:` entram no ponto fixo com as mesmas regras das do usuário
 (§1.7 de `docs/JS-PRODUCAO.md`): três níveis de classe, seletor por nome com
@@ -262,7 +262,7 @@ O emissor é o de `crates/emit_js`. O que ele precisa para compilar o SDK
 fica num arquivo novo, `crates/emit_js/src/sdk_proprio.rs`, chamado por
 ganchos pequenos nos pontos listados abaixo. **Sem o modo SDK nenhum gancho
 dispara** e a emissão é byte a byte a de antes (teste
-`emit_js_producao/tests/identidade.rs` e o corpus inteiro contra o binário
+`emit_js_production/tests/identidade.rs` e o corpus inteiro contra o binário
 anterior).
 
 Cada item tem a referência do DDC 3.6.2 e é marcado **[S]** (semântico:
@@ -503,7 +503,7 @@ lá é 97% do arquivo.
 
 ## 11. Verificação
 
-1. `cargo run --release -p dartforge-diferencial -- --producao`: o corpus
+1. `cargo run --release -p dartforge-differential -- --producao`: o corpus
    inteiro com o mesmo `stdout` da VM, byte a byte.
 2. Os testes do crate (`identidade.rs` garante que sem o modo SDK nada muda).
 3. `limitless_ui/example` e `new_sali/frontend` no navegador, pelo
@@ -526,9 +526,9 @@ próprio.
 
 | item | resultado |
 | --- | --- |
-| `dartforge-diferencial --producao`, SDK próprio | **238/238** iguais à VM |
+| `dartforge-differential --producao`, SDK próprio | **238/238** iguais à VM |
 | o mesmo com `--sdk-ddc` | 238/238 |
-| testes de `emit_js_producao`, `mundo`, `emit_js`, `elements`, `types` | verdes |
+| testes de `emit_js_production`, `mundo`, `emit_js`, `elements`, `types` | verdes |
 | `limitless_ui/example` em produção, suíte `ui_test/e2e` (Puppeteer) | **26/26** |
 | `new_sali/frontend` em produção, `scripts/fluxo.mjs` | 11 passos, 0 com erro, igual ao `dart2js -O4` |
 

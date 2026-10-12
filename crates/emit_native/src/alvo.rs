@@ -44,7 +44,7 @@ pub const fn sistema() -> Sistema {
 /// * ausente, vazia ou `checagem`: a exceção é uma pendência do runtime que
 ///   quem chama confere depois de cada chamada — o IR de sempre, byte a byte;
 /// * `tabelas`: a chamada Dart que lança desenrola a pilha até o
-///   `landingpad` de quem a trata (`otimizar/tabelas.rs`), com a
+///   `landingpad` de quem a trata (`optimize/tabelas.rs`), com a
 ///   personalidade do runtime (`dartforge_personalidade`). Só no Windows
 ///   x86-64, o único alvo com a personalidade escrita, e sem o rastro de
 ///   funções (`DARTFORGE_RASTRO=1` conta entradas e saídas, e o
@@ -105,7 +105,7 @@ pub fn memoria_arc() -> Result<bool, String> {
     }
 }
 
-/// A preparação ARC publicada (owners na HIR, `otimizar::arc`), pela
+/// A preparação ARC publicada (owners na HIR, `optimize::arc`), pela
 /// variável `DARTFORGE_ARC_PREPARADO=1`: só com a memória ARC. Ausente, o
 /// ARC segue o regime legado da CLI (sem tokens no código).
 pub fn arc_preparado() -> Result<bool, String> {

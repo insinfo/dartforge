@@ -1122,13 +1122,13 @@ fn resumo_da_hir_com(m: &crate::hir::Module, ffi_vivas: Option<&HashSet<String>>
                     Instruction::TabelaDeFuncoes(v) => nomes.extend(v.iter().map(String::as_str)),
                     _ => {}
                 }
-                crate::otimizar::operandos::operandos(inst, &mut |o| match o {
+                crate::optimize::operandos::operandos(inst, &mut |o| match o {
                     Operand::Constant(Constant::Funcao(s)) => funcoes.push(s.clone()),
                     Operand::Constant(Constant::String(t)) if t.contains("F<") => receitas.push(t.clone()),
                     _ => {}
                 });
             }
-            crate::otimizar::operandos::operandos_do_terminador(&b.terminator, &mut |o| {
+            crate::optimize::operandos::operandos_do_terminador(&b.terminator, &mut |o| {
                 if let Operand::Constant(Constant::Funcao(s)) = o {
                     funcoes.push(s.clone());
                 }

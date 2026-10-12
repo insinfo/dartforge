@@ -10,7 +10,7 @@
 // depois de criada: fixar ou tornar imutável é copiar (§2.16).
 //
 // Os erros: a biblioteca `dart:_internal` da sobreposição
-// (`sdk_nativo/internal/print_patch.dart`) tem funções `_dartforge*` que
+// (`native_sdk/internal/print_patch.dart`) tem funções `_dartforge*` que
 // constroem o erro da fonte (`IndexError`, `RangeError`…); o registro dela
 // entrega os endereços ao runtime (`dartforge_registrar_ajudante`). Sem o
 // SDK da fonte, o erro é o do runtime (`excecoes.rs`).
@@ -402,7 +402,7 @@ pub extern "C" fn dartforge_nativo_DartForge_List_copiar(destino: i64, origem: i
 }
 
 /// `_GrowableList._grow(capacidade)` da sobreposição
-/// (`sdk_nativo/core/growable_array.dart`): um armazenamento de
+/// (`native_sdk/core/growable_array.dart`): um armazenamento de
 /// `capacidade`, da mesma forma, com os elementos até o comprimento (o
 /// `_grow` da VM, que copiava pelo `[]=` e entregava ao `_setData`, numa
 /// cópia só).

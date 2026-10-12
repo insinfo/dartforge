@@ -62,7 +62,7 @@ jobs:
       - uses: ./.github/actions/dart
         with:
           gerar-dart-sdk-js: 'true'
-      # O corpus do ngdart (crates/gerador_ng/tests/corpus.rs) carrega o ngdart
+      # O corpus do ngdart (crates/ng_generator/tests/corpus.rs) carrega o ngdart
       # e o ngforms pelo .dart_tool/package_config.json, que fica fora do git.
       # Sem ele o teste falha de propósito (antes, degradava em silêncio e só
       # o caso que exige uma recusa específica acusava).
@@ -273,7 +273,7 @@ jobs:
         if: success() || failure()
         shell: pwsh
         run: |
-          Push-Location pacotes/macros
+          Push-Location packages/macros
           try {
             dart pub get
             if ($LASTEXITCODE -ne 0) { throw 'pub get da API de macros falhou' }

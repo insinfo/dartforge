@@ -37,7 +37,7 @@ desempenho — não é uma otimização, é outro contrato.
   otimizador pode fazer, sem mudar semântica, é eliminar os objetos
   intermediários (`(a + b) * c` → quatro cadeias de componentes), **mantendo
   cada `Math.fround`** — tirar um arredondamento intermediário muda o
-  resultado. É uma otimização do `emit_js_producao`, medida contra o
+  resultado. É uma otimização do `emit_js_production`, medida contra o
   `dart2js -O4`, depois do mundo fechado.
 * **Wasm como alvo** (futuro): SIMD de verdade na web só existe em WebAssembly
   (`v128`, `f32x4.add`); SIMD.js foi abandonado. O Dart oficial já tem

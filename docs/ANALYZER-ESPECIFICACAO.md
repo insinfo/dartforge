@@ -230,7 +230,7 @@ Achados transversais (valem para vários códigos):
 - **Tear-off implícita de `call`** (objeto com `call` em contexto de tipo de função) falta na inferência: origina FP e mensagens erradas em `invalid_assignment`.
 - **Aridade** (já reescrita no working tree, a validar): posição do excedente/token depois do último posicional, quatro variantes do `NOT_ENOUGH_POSITIONAL_ARGUMENTS` com o nome conforme a forma da invocação, `_COULD_BE_NAMED`, `DUPLICATE_NAMED_ARGUMENT`, `super.x` contados como argumentos, entidade correta do `MISSING_REQUIRED_ARGUMENT`.
 - Códigos que **não existem no 3.6.2** (julgados pelo oráculo 3.13 em arquivos de sintaxe nova): `assignment_to_primary_constructor_parameter` (40) e parte de `extension_type_declares_member_of_object`, `return_of_invalid_type` (`constructor_body/*`), `undefined_getter` (`anonymous_methods/*`), `instantiate_abstract_class` (`dot_shorthands/*`), `*_positional_arguments` (`dot_shorthands/*`).
-- `implicit_super_initializer_missing_arguments` e `super_formal_parameter_without_associated_*` **já estão implementados** em `crates/analise/src/construtores.rs:515-588`, mas o placar dá *nosso 0*: o bloco não é alcançado (ou o diagnóstico não chega à paridade) — investigar antes de reimplementar.
+- `implicit_super_initializer_missing_arguments` e `super_formal_parameter_without_associated_*` **já estão implementados** em `crates/analysis/src/construtores.rs:515-588`, mas o placar dá *nosso 0*: o bloco não é alcançado (ou o diagnóstico não chega à paridade) — investigar antes de reimplementar.
 
 **Estado em 2026-10-05 (escrito, não compilado).** `missing_required_param` (com e sem detalhes) ganhou
 emissor em `crates/types/src/fase_requeridos.rs`, com o `RequiredParametersVerifier` da 6.11.0 aberto:
@@ -242,14 +242,14 @@ emissor nesta data, cada um com os testes de unidade do próprio arquivo (não r
 
 | códigos | onde |
 |---|---|
-| `super_in_invalid_context`, `super_in_extension`, `super_in_extension_type`, `async_for_in_wrong_context`, `await_in_late_local_variable_initializer`, `expected_one_list_type_arguments`, `expected_one_set_type_arguments`, `expected_two_map_type_arguments`, `extension_type_constructor_with_super_invocation`, `extension_type_constructor_with_super_formal_parameter` | `crates/analise/src/a_contexto.rs` (só a árvore e o contexto sintático) |
-| `doc_directive_missing_argument` (as três variantes), `doc_directive_has_extra_arguments`, `doc_directive_has_unexpected_named_argument`, `doc_directive_argument_wrong_format` | `crates/analise/src/a_doc.rs` (só comentários `///`; `Uri.tryParse` aproximado pelo lado seguro) |
+| `super_in_invalid_context`, `super_in_extension`, `super_in_extension_type`, `async_for_in_wrong_context`, `await_in_late_local_variable_initializer`, `expected_one_list_type_arguments`, `expected_one_set_type_arguments`, `expected_two_map_type_arguments`, `extension_type_constructor_with_super_invocation`, `extension_type_constructor_with_super_formal_parameter` | `crates/analysis/src/a_contexto.rs` (só a árvore e o contexto sintático) |
+| `doc_directive_missing_argument` (as três variantes), `doc_directive_has_extra_arguments`, `doc_directive_has_unexpected_named_argument`, `doc_directive_argument_wrong_format` | `crates/analysis/src/a_doc.rs` (só comentários `///`; `Uri.tryParse` aproximado pelo lado seguro) |
 | `main_first_positional_parameter_type`, `main_has_too_many_required_positional_parameters`, `main_has_required_named_parameters` | `crates/types/src/a_main.rs` |
-| `deferred_import_of_extension` | `crates/analise/src/importacoes.rs` (`extensoes_adiadas`) |
+| `deferred_import_of_extension` | `crates/analysis/src/importacoes.rs` (`extensoes_adiadas`) |
 | `mixin_instantiate` (só a criação escrita com `new`/`const`), `invocation_of_non_function` (só o parâmetro de tipo invocado) | `crates/types/src/inferencia/chamadas.rs` |
 | `no_annotation_constructor_arguments` | `crates/types/src/inferencia/funcoes.rs` (`validar_anotacao`) |
 
-Todos estão ligados em `crates/paridade/src/analise.rs`. Nenhum entrou em `verificados.txt`. Pontos
+Todos estão ligados em `crates/parity/src/analise.rs`. Nenhum entrou em `verificados.txt`. Pontos
 frágeis: o `await for` supõe que o intervalo do comando começa no `await`; o `super` de um
 `UNDEFINED_SUPER_*` no mesmo contexto inválido ainda sai junto (a supressão é da inferência);
 `for_in_with_const_variable` não foi feito porque a árvore não guarda o `const` da variável do laço.
@@ -495,7 +495,7 @@ anulável (`_resolveEqual`, 3.6.2 `binary_expression_resolver.dart:117-124`): `s
 ##### `must_return_void` (perda 1: FN 1)
 - **Emissão:** `FfiVerifier._validateNativeCallable…` (`analyzer/lib/src/generated/ffi_verifier.dart:1830-1838`): `NativeCallable.listener(f)` com tipo nativo de retorno ≠ `Void`.
 - **Posição:** o argumento `f`. **Mensagem:** `The return type of the function passed to 'NativeCallable.listener' must be 'void' rather than '{0}'.` (`{0}` o tipo nativo de retorno, ex. `Int32`).
-- **No DartForge:** inexistente (FFI; `crates/analise/src/nativos.rs` se for implementado).
+- **No DartForge:** inexistente (FFI; `crates/analysis/src/nativos.rs` se for implementado).
 
 ##### `await_in_late_local_variable_initializer` (perda 2: FN 2)
 - **Emissão:** `ErrorVerifier._checkForAwaitInLateLocalVariableInitializer` (`analyzer/lib/src/generated/error_verifier.dart:2205-2212`), de `visitAwaitExpression`.
@@ -707,7 +707,7 @@ O `assert(…)` como expressão é `FunctionExpressionInvocation` e o avaliador 
 
 ##### `deferred_import_of_extension` (perda 2: FN 2)
 - **Emissão:** `ErrorVerifier._checkForDeferredImportOfExtensions` (`analyzer/lib/src/generated/error_verifier.dart:3053-3066`), de `visitImportDirective` para imports `deferred`.
-- **Condição exata:** o namespace importado (depois de `show`/`hide`) contém alguma extensão. **Posição:** a URI do import. **Mensagem:** `Imports of deferred libraries must hide all extensions.` **No DartForge:** inexistente; lugar natural `crates/analise/src/importacoes.rs`.
+- **Condição exata:** o namespace importado (depois de `show`/`hide`) contém alguma extensão. **Posição:** a URI do import. **Mensagem:** `Imports of deferred libraries must hide all extensions.` **No DartForge:** inexistente; lugar natural `crates/analysis/src/importacoes.rs`.
 
 #### Grupo 3 — `this`/`super` em contexto inválido e atribuição a final/const
 
@@ -790,7 +790,7 @@ O `assert(…)` como expressão é `FunctionExpressionInvocation` e o avaliador 
 
 #### Grupo 4 — declarações de extension type, `main`, diretivas de documentação e FFI
 
-Estes códigos são de **declaração** (não de corpo); o lugar natural no DartForge é `crates/analise/src/*.rs` (verificações por declaração), exceto os de FFI que dependem de tipos resolvidos de invocações (`crates/types`). Nenhum deles existe hoje, salvo `EXTENSION_TYPE_DECLARES_MEMBER_OF_OBJECT` (`crates/analise/src/membros.rs:948`).
+Estes códigos são de **declaração** (não de corpo); o lugar natural no DartForge é `crates/analysis/src/*.rs` (verificações por declaração), exceto os de FFI que dependem de tipos resolvidos de invocações (`crates/types`). Nenhum deles existe hoje, salvo `EXTENSION_TYPE_DECLARES_MEMBER_OF_OBJECT` (`crates/analysis/src/membros.rs:948`).
 
 **Estado em 2026-10-05 (escrito, não compilado).** `crates/types/src/tipos_de_extensao.rs` (`verificar`,
 ligado em `paridade/src/analise.rs` depois de `funcao_main`) porta os ciclos do link com Tarjan e auto-laço:
@@ -808,12 +808,12 @@ Representação cíclica ou inválida cala o `implements` e o fundo. Um `dynamic
 - **Posição:** o nome do extension type (token `name`), em **cada** declaração do ciclo (oráculo: `1:16` e `5:16`).
 - **Mensagem:** `The extension type representation can't depend on itself.`
 - **Supressões:** com a representação inválida, os demais checks de representação não relatam.
-- **No DartForge:** inexistente. **Mudança:** em `crates/analise` (ou no outline de `types`, que já conhece a representação), montar o grafo extension type → extension types citados no tipo da representação, achar SCCs (Tarjan) e relatar no nome de cada membro da SCC (inclusive auto-laço).
+- **No DartForge:** inexistente. **Mudança:** em `crates/analysis` (ou no outline de `types`, que já conhece a representação), montar o grafo extension type → extension types citados no tipo da representação, achar SCCs (Tarjan) e relatar no nome de cada membro da SCC (inclusive auto-laço).
 
 ##### `extension_type_declares_member_of_object` (perda 7: FN 7)
 - **Emissão:** `error_verifier.dart:3384-3390` (método/getter/setter com nome de membro de `Object`: `==`, `hashCode`, `toString`, `noSuchMethod`, `runtimeType`), no token do nome.
 - **Mensagem:** `Extension types can't declare members with the same name as a member declared by 'Object'.`
-- **No DartForge:** `crates/analise/src/membros.rs:948` (48 acertos). As **7 FN** são de `primary_constructors/header/extension_type_error_test.dart` — **construtor primário com parâmetros nomeados** (`extension type ET12({required final int hashCode})`), sintaxe nova julgada pelo 3.13: o campo declarado no cabeçalho é membro. **Mudança:** quando o parser aceitar o cabeçalho com parâmetros nomeados (3.13), aplicar a regra aos campos do cabeçalho.
+- **No DartForge:** `crates/analysis/src/membros.rs:948` (48 acertos). As **7 FN** são de `primary_constructors/header/extension_type_error_test.dart` — **construtor primário com parâmetros nomeados** (`extension type ET12({required final int hashCode})`), sintaxe nova julgada pelo 3.13: o campo declarado no cabeçalho é membro. **Mudança:** quando o parser aceitar o cabeçalho com parâmetros nomeados (3.13), aplicar a regra aos campos do cabeçalho.
 - **Feito em 2026-10-07 (55/55):** o 3.13.4 confere o nome do único parâmetro da representação contra os membros
   de `Object` (checkout main `error_verifier.dart:5641-5655`), qualquer que seja a forma do parâmetro (nomeado,
   opcional, `final`); o 3.6.2 não confere (o oráculo de `ExtensionTypeDeclaresMemberOfObject__re_6471d06e.dart`
@@ -845,23 +845,23 @@ Representação cíclica ou inválida cala o `implements` e o fundo. Um `dynamic
 - **Emissão:** `ErrorVerifier._checkForExtensionTypeMemberConflicts` (`error_verifier.dart:3448-3485`) com os `conflicts` da interface (`InheritanceManager3.getInterface`).
 - **Condição exata:** algum conflito na interface combinada do extension type: `CandidatesConflict` (dois membros distintos de mesmo nome vindos de supertipos sem sobrescrita local), `HasNonExtensionAndExtensionMemberConflict` (membro de classe e de extension type com mesmo nome), `NotUniqueExtensionMemberConflict` (dois membros de extension types distintos).
 - **Posição:** o nome do extension type. **Mensagem:** `The extension type '{0}' has more than one distinct member named '{1}' from implemented types.` (`{0}` nome, `{1}` membro). Um relato por conflito.
-- **No DartForge:** inexistente; requer a interface combinada de extension types (`crates/analise/src/heranca.rs`).
+- **No DartForge:** inexistente; requer a interface combinada de extension types (`crates/analysis/src/heranca.rs`).
 
 ##### `extension_type_representation_type_bottom` (perda 4: FN 4)
 - **Emissão:** `error_verifier.dart:3503-3513`.
 - **Condição exata:** o tipo da representação é bottom (`isBottom`, `analyzer/lib/src/dart/element/type.dart`: `Never` não anulável, parâmetro de tipo cujo limite/promoção é bottom (:1538-...); `Never?` não é bottom).
 - **Posição:** o **tipo** do campo de representação (`fieldType`). **Mensagem:** `The representation type can't be a bottom type.`
-- **No DartForge:** inexistente; em `crates/analise` com o tipo da representação do outline.
+- **No DartForge:** inexistente; em `crates/analysis` com o tipo da representação do outline.
 
 ##### `extension_type_constructor_with_super_invocation` (perda 3: FN 3)
 - **Emissão:** `error_verifier.dart:3393-3402`, de `visitSuperConstructorInvocation` (:1443-1453).
 - **Condição:** inicializador `super(...)`/`super.n(...)` em construtor de extension type. **Posição:** o token `super`. **Mensagem:** `Extension type constructors can't include super initializers.`
-- **No DartForge:** inexistente; `crates/analise/src/construtores.rs`.
+- **No DartForge:** inexistente; `crates/analysis/src/construtores.rs`.
 
 ##### `extension_type_implements_itself` (perda 3: FN 3)
 - **Emissão:** `error_verifier.dart:3438-3447`; sinal calculado em `summary2/extension_type.dart:63-110` (`_ImplementsNode`/`_ImplementsWalker`: SCC no grafo extension type → extension types da cláusula `implements`).
 - **Posição:** o nome de cada extension type do ciclo. **Mensagem:** `The extension type can't implement itself.`
-- **No DartForge:** inexistente; `crates/analise/src/heranca.rs` (há detecção de ciclos de classe que pode ser reaproveitada).
+- **No DartForge:** inexistente; `crates/analysis/src/heranca.rs` (há detecção de ciclos de classe que pode ser reaproveitada).
 
 ##### `extension_type_constructor_with_super_formal_parameter` (perda 2: FN 2)
 - **Emissão:** `ErrorVerifier.visitSuperFormalParameter` (`error_verifier.dart:1456-1466`).
@@ -876,7 +876,7 @@ Representação cíclica ou inválida cala o `implements` e o fundo. Um `dynamic
 - **Emissão:** `ErrorVerifier._checkForMainFunction2` (`analyzer/lib/src/generated/error_verifier.dart:4143-4188`), de `visitFunctionDeclaration` de topo.
 - **Condição exata:** função de topo `main` com algum parâmetro posicional; `List<String>` não é subtipo do tipo do primeiro posicional.
 - **Posição:** o **tipo** escrito do primeiro posicional (`first.notDefault.typeOrSelf`: o `NamedType`, ou o próprio parâmetro se sem tipo). **Mensagem:** `The type of the first positional parameter of the 'main' function must be a supertype of 'List<String>'.`
-- **No DartForge:** inexistente; `crates/analise` (declarações de topo).
+- **No DartForge:** inexistente; `crates/analysis` (declarações de topo).
 
 ##### `main_has_too_many_required_positional_parameters` (perda 3: FN 3)
 - **Emissão:** a mesma função (`error_verifier.dart:4160-4166`). **Condição:** mais de 2 posicionais obrigatórios. **Posição:** o nome `main`. **Mensagem:** `The function 'main' can't have more than two required positional parameters.`
@@ -889,8 +889,8 @@ Representação cíclica ou inválida cala o `implements` e o fundo. Um `dynamic
 - **Condição exata:** menos argumentos posicionais que os exigidos pelo tipo (`DocDirectiveType`: `animation` (width, height, url), `youtube` (width, height, url), `macro`/`template` (name), `canonicalFor` (element), `category`/`subCategory` (resto), `inject-html`, `tool`, etc.). Variantes por diferença: 1 → `DOC_DIRECTIVE_MISSING_ONE_ARGUMENT [tipo, último exigido]`; 2 → `…_TWO_ARGUMENTS [tipo, penúltimo, último]`; 3 → `…_THREE_ARGUMENTS`.
 - **Posição:** a tag inteira (`tag.offset` a `tag.end`: do `{@` ao `}`).
 - **Mensagem:** `The '{0}' directive is missing a '{1}' argument.` / `… a '{1}' and a '{2}' argument.` / `… a '{1}', a '{2}', and a '{3}' argument.`
-- **No DartForge:** inexistente; exige um analisador de comentários de documentação (`///` e `/** */`) que reconheça as diretivas. Lugar: um módulo novo em `crates/analise`.
-- **Feito (`crates/analise/src/a_doc.rs`), posição corrigida em 2026-10-07 (10/10, e `doc_directive_missing_closing_brace` 2/2):** o `_DirectiveParser` do 3.6.2 (`doc_comment_builder.dart:1084-1200`) guarda em `_offset` o offset do `{@` e soma a ele o ÍNDICE NO CONTEÚDO DA LINHA (tudo depois do `///`, com o espaço inicial): o fim da tag é `_offset + index` e a chave ausente fica em `_offset + _length - 1`. Os dois saem deslocados pelo que precede o `{@` na linha (`/// {@youtube 600 400` dá tag de comprimento 18 e a chave ausente uma coluna depois do fim da linha), e reproduzimos o deslocamento. A diretiva sem nada depois do nome (`/// {@youtube`) termina no fim da linha, sem argumentos e SEM `DOC_DIRECTIVE_MISSING_CLOSING_BRACE` (`directive` fixa `_end` quando `index == _length`, e `_parseArguments` retorna antes).
+- **No DartForge:** inexistente; exige um analisador de comentários de documentação (`///` e `/** */`) que reconheça as diretivas. Lugar: um módulo novo em `crates/analysis`.
+- **Feito (`crates/analysis/src/a_doc.rs`), posição corrigida em 2026-10-07 (10/10, e `doc_directive_missing_closing_brace` 2/2):** o `_DirectiveParser` do 3.6.2 (`doc_comment_builder.dart:1084-1200`) guarda em `_offset` o offset do `{@` e soma a ele o ÍNDICE NO CONTEÚDO DA LINHA (tudo depois do `///`, com o espaço inicial): o fim da tag é `_offset + index` e a chave ausente fica em `_offset + _length - 1`. Os dois saem deslocados pelo que precede o `{@` na linha (`/// {@youtube 600 400` dá tag de comprimento 18 e a chave ausente uma coluna depois do fim da linha), e reproduzimos o deslocamento. A diretiva sem nada depois do nome (`/// {@youtube`) termina no fim da linha, sem argumentos e SEM `DOC_DIRECTIVE_MISSING_CLOSING_BRACE` (`directive` fixa `_end` quando `index == _length`, e `_parseArguments` retorna antes).
 
 ##### `doc_directive_argument_wrong_format` (perda 5: FN 5)
 - **Emissão:** `doc_comment_verifier.dart:121-150`. **Condição:** argumento posicional com formato esperado `integer` que não é inteiro (`width`, `height` de `animation`/`youtube`), ou `uri` inválida. **Posição:** o argumento. **Mensagem:** `The '{0}' argument must be formatted as {1}.` — `{1}` = `displayString` do formato (`an integer`, `a URI`, …).
@@ -925,7 +925,7 @@ Representação cíclica ou inválida cala o `implements` e o fundo. Um `dynamic
 ##### `use_of_native_extension` (perda 3: FN 3)
 - **Emissão:** `LibraryAnalyzer._reportImportDirectiveErrors` (`analyzer/lib/src/dart/analysis/library_analyzer.dart:672-684`) e export (:906-916); também para `@docImport`.
 - **Condição:** URI selecionada começa com `dart-ext:`. **Posição:** a URI (string). **Mensagem:** `Dart native extensions are deprecated and aren't available in Dart 2.15.`
-- **No DartForge:** inexistente; `crates/analise/src/importacoes.rs` (antes de `uri_does_not_exist`).
+- **No DartForge:** inexistente; `crates/analysis/src/importacoes.rs` (antes de `uri_does_not_exist`).
 - **Estado em 2026-10-05 (escrito, não compilado):** na fase 2 da `paridade`, antes do alvo ausente, para
   `import`/`export` e para os `@docImport` do doc da biblioteca.
 
@@ -992,8 +992,8 @@ Representação cíclica ou inválida cala o `implements` e o fundo. Um `dynamic
 - **Condição exata:** no **limite** de um parâmetro de tipo (de classe, mixin, função, typedef, método…), cada `NamedType` **sem argumentos de tipo** cujo elemento é genérico e **não é simplesmente limitado** (`isSimplyBounded == false`, calculado em `analyzer/lib/src/summary2/simply_bounded.dart`: um parâmetro cujo limite menciona, direta ou indiretamente, tipos genéricos não instanciados que dependem dele — ciclos `class A<T extends A>`). Os `NamedType` com argumentos são visitados recursivamente (só os argumentos).
 - **Posição:** o `NamedType` cru. **Mensagem:** `Type parameter bound types must be instantiated.`
 - **Supressões:** o TODO diz que relata mesmo com `TYPE_ALIAS_CANNOT_REFERENCE_ITSELF`.
-- **No DartForge:** inexistente. **Mudança:** calcular "simplesmente limitado" para classes/aliases (algoritmo da especificação, seção "Simply bounded") no outline e, nos limites de parâmetros de tipo, relatar cada tipo cru não simplesmente limitado (`crates/analise`/`crates/types`).
-- **Estado em 2026-10-05 (escrito, não compilado):** `crates/analise/src/limites_simples.rs` porta o
+- **No DartForge:** inexistente. **Mudança:** calcular "simplesmente limitado" para classes/aliases (algoritmo da especificação, seção "Simply bounded") no outline e, nos limites de parâmetros de tipo, relatar cada tipo cru não simplesmente limitado (`crates/analysis`/`crates/types`).
+- **Estado em 2026-10-05 (escrito, não compilado):** `crates/analysis/src/limites_simples.rs` porta o
   `computeSimplyBounded`: o `_visitType` e o `_TypeCollector` sobre o AST, dependências por tipos crus e
   Tarjan com auto-laço. Roda uma vez por programa (`calcular`, na `paridade`). `verificar` relata
   `not_instantiated_bound` em todas as listas de parâmetros de tipo da unidade: declarações, funções, métodos,
@@ -1172,13 +1172,13 @@ Forma da invocação no analyzer (decide nome citado e entidade):
 ##### `positional_super_formal_parameter_with_positional_argument` (perda 2: FN 2)
 - **Emissão:** `verifySuperFormalParameters` (`super_formal_parameters_verifier.dart:22-33`), chamado com `errorReporter` em `resolveArgumentsToParameters` (super explícito, `hasExplicitPositionalArguments: positionalArgumentCount != 0`).
 - **Condição:** o `super(...)` explícito tem argumento posicional **e** o construtor tem `super.x` posicional. **Posição:** o nome de **cada** `super.x` posicional. **Mensagem:** `Positional super parameters can't be used when the super constructor invocation has a positional argument.`
-- **No DartForge:** inexistente. **Mudança:** em `funcoes.rs::chamar_construtor_de` (onde o alvo já conta os `super.x`), ou em `crates/analise/src/construtores.rs`.
+- **No DartForge:** inexistente. **Mudança:** em `funcoes.rs::chamar_construtor_de` (onde o alvo já conta os `super.x`), ou em `crates/analysis/src/construtores.rs`.
 
 ##### `super_formal_parameter_without_associated_positional` (perda 12: FN 12)
 - **Emissão:** `ErrorVerifier.visitSuperFormalParameter` (`analyzer/lib/src/generated/error_verifier.dart:1456-1493`).
 - **Condição:** (não em extension type; construtor gerador não redirecionador) `superConstructorParameter == null` (`analyzer/lib/src/dart/element/element.dart:9291-9311`): o construtor da superclasse **invocado** (`superConstructor`: o do `super.n(...)` explícito, ou o sem nome implícito) existe, e o índice deste `super.x` **entre os `super.x` do construtor** (`indexIn`, :9318-...) não é menor que o número de parâmetros posicionais (obrigatórios + opcionais) daquele construtor — os posicionais explícitos do `super(...)` **não** deslocam o índice. Sem `superConstructor` (superclasse sem o construtor) não relata.
 - **Posição:** o nome do parâmetro. **Mensagem:** `No associated positional super constructor parameter.`
-- **No DartForge:** existe em `crates/analise/src/construtores.rs:533-551`, mas o placar mostra **nosso 0** — o bloco não é alcançado (ver `implicit_super_initializer_missing_arguments`). FN `primary_constructors/cycle_error_test` são sintaxe nova.
+- **No DartForge:** existe em `crates/analysis/src/construtores.rs:533-551`, mas o placar mostra **nosso 0** — o bloco não é alcançado (ver `implicit_super_initializer_missing_arguments`). FN `primary_constructors/cycle_error_test` são sintaxe nova.
 - **Estado em 2026-10-07 (placar 12/12):** três regras em `funcoes::parametros_super`.
   * **Sem `superConstructor`:** no 3.13.4 (`error_verifier.dart:2391-2408` do checkout main) a verificação para;
     no 3.6.2, cada `super.x` relata. Exemplo: `this : super.named()` com `named` indefinido.
@@ -1199,7 +1199,7 @@ Forma da invocação no analyzer (decide nome citado e entidade):
 - **Posição:** do `returnType` (nome da classe no construtor) ao fim do nome do construtor (`B.named` → `B.named`; `B` → `B`). Para construtor **primário** (sintaxe nova, 3.13) o oráculo aponta o nome da classe no cabeçalho.
 - **Mensagem:** `The implicitly invoked unnamed constructor from '{0}' has required parameters.` — `{0}` = `superType` (DartType: `'A'`, `'A<int>'`).
 - **Supressões e ordem:** sem `super-parameters` → `NO_DEFAULT_SUPER_CONSTRUCTOR_EXPLICIT`; sem construtor sem nome → `UNDEFINED_CONSTRUCTOR_IN_INITIALIZER_DEFAULT`; factory → `NON_GENERATIVE_CONSTRUCTOR`. Classe **sem construtores** usa outro caminho (`_checkForNoDefaultSuperConstructorImplicit`, :4634-4678: `NO_DEFAULT_SUPER_CONSTRUCTOR_IMPLICIT`).
-- **No DartForge:** `crates/analise/src/construtores.rs:552-588` implementa a regra, mas **nosso 0** no placar: o trecho não é alcançado ou o diagnóstico não chega à paridade (investigar `cx.superclasse`/`cx.construtor`/`cx.assinatura` e se o passe de construtores roda para classes comuns). As 22 FN incluem 13 de `no_default_super_constructor/*` simples (`B.named();` com `A({required int? a})`). `{0}` usa só o nome da classe (`nome_sup`): deveria ser o tipo com argumentos.
+- **No DartForge:** `crates/analysis/src/construtores.rs:552-588` implementa a regra, mas **nosso 0** no placar: o trecho não é alcançado ou o diagnóstico não chega à paridade (investigar `cx.superclasse`/`cx.construtor`/`cx.assinatura` e se o passe de construtores roda para classes comuns). As 22 FN incluem 13 de `no_default_super_constructor/*` simples (`B.named();` com `A({required int? a})`). `{0}` usa só o nome da classe (`nome_sup`): deveria ser o tipo com argumentos.
 
 ##### `new_with_undefined_constructor_default` (perda 26: FN 26)
 - **Emissão:** `ErrorVerifier._checkForNewWithUndefinedConstructor` (`error_verifier.dart:4596-4626`), de `visitInstanceCreationExpression` (não const, :1117-1119); e `C.new(...)` em `method_invocation_resolver.dart:917-929`.
@@ -1438,7 +1438,7 @@ foram rodados no oráculo vivo (`C:\tools\dartsdk-3.6.2\bin\dart analyze --forma
   (`DOC_DIRECTIVE_ARGUMENT_WRONG_FORMAT`) roda sempre (`:31`).
 - **No DartForge:** inexistente (nenhum uso da constante em `crates/`); o léxico guarda os comentários
   de documentação, mas não há leitura de diretivas `{@…}`. Os 4 FN (`DocDirectiveHasExtraArguments__*`)
-  são a regra inteira. Mudança: um leitor de diretivas em `crates/analise` (tipos e aridades de
+  são a regra inteira. Mudança: um leitor de diretivas em `crates/analysis` (tipos e aridades de
   `analyzer/lib/src/dart/ast/doc_comment.dart`, `DocDirectiveType`), com os três relatos de aridade.
 - **Exemplo (oráculo vivo 3.6.2):**
   ```dart
@@ -1579,7 +1579,7 @@ foram rodados no oráculo vivo (`C:\tools\dartsdk-3.6.2\bin\dart analyze --forma
   relatam igual (`:2958-2970`, os dois ramos são idênticos).
 - **Confere com §A:** certo. Posição = o `NamedType` (com prefixo e argumentos de tipo, se houver).
 - **No DartForge:** `crates/types/src/inferencia/chamadas.rs:680`, `:1545`, `:1620`; código publicado
-  (`crates/analise/verificados.txt`). Os 4 FN são `dot_shorthands/constructor/*` (`.new()` com contexto
+  (`crates/analysis/verificados.txt`). Os 4 FN são `dot_shorthands/constructor/*` (`.new()` com contexto
   de classe abstrata — sintaxe 3.10, oráculo 3.13).
 - **Exemplo (oráculo vivo 3.6.2):**
   ```dart
@@ -1674,7 +1674,7 @@ foram rodados no oráculo vivo (`C:\tools\dartsdk-3.6.2\bin\dart analyze --forma
     `ASSIGNMENT_TO_FINAL_LOCAL` (fluxo). Local `const` é este código (exemplo, linhas 7–11).
   - Um relato por nó; `x += 1` com `x` const dá um só.
 - **Confere com §A:** posição (o identificador; em `A.sc = 3` só o `sc`, length 2) e mensagem certas.
-- **No DartForge:** emissão por texto convertida em `crates/paridade/src/ponte.rs:87`, `:221`, `:227`;
+- **No DartForge:** emissão por texto convertida em `crates/parity/src/ponte.rs:87`, `:221`, `:227`;
   código publicado. FN: `AssignmentToConst__localVariable_inForEach.dart:3:8` (`for (x in …)` com `x`
   const — falta o ramo de `visitForEachPartsWithIdentifier`) e
   `switch/case_expression_with_assignment{,_legacy}_test.dart:18:10` (`case ERROR_B = 1:` em biblioteca
@@ -1728,7 +1728,7 @@ foram rodados no oráculo vivo (`C:\tools\dartsdk-3.6.2\bin\dart analyze --forma
   Getter explícito (variável sintética) → `ASSIGNMENT_TO_FINAL_NO_SETTER`; variável local → o fluxo
   (`ASSIGNMENT_TO_FINAL_LOCAL`).
 - **Confere com §A:** posição (o identificador; `highlightedNode`), mensagem (`{0}` = `variable.name`) certas.
-- **No DartForge:** `crates/paridade/src/ponte.rs:71`, `:223`, `:230`; publicado. Os 3 FN de
+- **No DartForge:** `crates/parity/src/ponte.rs:71`, `:223`, `:230`; publicado. Os 3 FN de
   `extension_methods/static_extension_internal_basename_shadowing_error_test.dart:402/406/410` eram da classe
   `A11 extends A10` com `static final int extensionFieldSetter`, sombreando o setter da extensão `E9 on A10`.
   O `LexicalLookup.resolveSetter` acha o getter estático, que não é `isInstanceMember`; ele vira recuperação, sem
@@ -1869,7 +1869,7 @@ foram rodados no oráculo vivo (`C:\tools\dartsdk-3.6.2\bin\dart analyze --forma
   `MainFirstPositionalParameter__positiona_{190cac1f,2f89c8e2,dca9bcf6}.dart`,
   `MainHasTooManyRequiredPositionalParamet_{33422a3e,5676a295,a32afec7}.dart:1:6`,
   `MainHasRequiredNamedParameters__namedRequired.dart:1:6` (+ `…33422a3e.dart:1:6`, que tem os dois).
-  Entram em `crates/analise` (declarações de topo), com o tipo do parâmetro vindo do outline.
+  Entram em `crates/analysis` (declarações de topo), com o tipo do parâmetro vindo do outline.
 - **Exemplos (oráculo vivo 3.6.2; um arquivo por linha):**
   - `void main(int a) {}` → `main_first_positional_parameter_type` | offset 10, length 3 | 1:11 | The type of the first positional parameter of the 'main' function must be a supertype of 'List<String>'.
   - `void main(a, b, c) {}` → `main_has_too_many_required_positional_parameters` | offset 5, length 4 | 1:6 | The function 'main' can't have more than two required positional parameters.
@@ -1916,7 +1916,7 @@ foram rodados no oráculo vivo (`C:\tools\dartsdk-3.6.2\bin\dart analyze --forma
   não este código. Quando o alvo da chamada não resolve (função/construtor indefinido, `dynamic`), a
   função não é chamada com parâmetros e nada sai. `errorReporter` nulo (chamadas de reanálise) silencia.
 - **Confere com §A:** posição e mensagem certas (`{0}` = nome como escrito, inclusive `_x`).
-- **No DartForge:** `crates/types/src/inferencia/chamadas.rs:184`, conversão em `crates/paridade/src/ponte.rs:106`.
+- **No DartForge:** `crates/types/src/inferencia/chamadas.rs:184`, conversão em `crates/parity/src/ponte.rs:106`.
   3 FP: `DuplicateNamedArgument__constructor_sup_c6e7b4a1.dart:6:33` (nome vindo de `super.a` nomeado:
   deve ser `duplicate_named_argument`), `ExperimentalMemberUse__incorrectlyNeste_0e44e3bf.dart:16:13`
   (`const Experimental(x: …)` — a assinatura vista é a do SDK do DartForge; ver T3),
@@ -1932,7 +1932,7 @@ foram rodados no oráculo vivo (`C:\tools\dartsdk-3.6.2\bin\dart analyze --forma
   `@docImport` passa pelo mesmo `_reportImportDirectiveErrors`.
 - **Confere com §A:** posição = o literal da URI com as aspas (length 12 para `'dart-ext:a'`); mensagem fixa.
 - **No DartForge:** inexistente. 3 FN: `UseOfNativeExtension__{docImport:1:16, export:1:8, import:1:8}.dart`.
-  Entra em `crates/analise/src/importacoes.rs`, antes de `uri_does_not_exist`.
+  Entra em `crates/analysis/src/importacoes.rs`, antes de `uri_does_not_exist`.
 - **Exemplo (oráculo vivo 3.6.2):**
   ```dart
   import 'dart-ext:a';
@@ -2282,7 +2282,7 @@ foram rodados no oráculo vivo (`C:\tools\dartsdk-3.6.2\bin\dart analyze --forma
     `errorNode`, argumento `T` (o `NativeFunction<…>` inteiro) (`:1219-1226`).
 - **Supressões e ordem:** as de cada item acima (os `return` antecipados). Nenhum depende de
   `InvalidType` explicitamente — não verificado o comportamento com tipos não resolvidos.
-- **No DartForge:** inexistentes (nenhum uso das constantes; `crates/analise/src/nativos.rs` é o lugar).
+- **No DartForge:** inexistentes (nenhum uso das constantes; `crates/analysis/src/nativos.rs` é o lugar).
   FN: `NonSizedTypeArgument__invalid_{struct,union}.dart:5:18`; `ffi_native/AddressOf__invalid_{Lambda:3:39,
   NotAConstant:9:26, String:3:39}.dart`; `FfiNativeCallableListenersMustReturnVoi_5a4b8147.dart:4:50`;
   `NonNativeFunctionTypeArgumentToPointer__5c6a9635.dart:6:18`.
@@ -3272,7 +3272,7 @@ Esta parte foi **gerada por script** (`E:\dftemp\analise\spec-r4\final\guardas.p
 ## B. Fluxo, nulidade, padrões, código morto
 
 **Estado em 2026-10-04 (escrito, não compilado).** Além do T6 (§G), ganharam emissor nesta data:
-em `crates/analise/src/c2_sintaticos.rs` (só a árvore), `break_label_on_switch_member`,
+em `crates/analysis/src/c2_sintaticos.rs` (só a árvore), `break_label_on_switch_member`,
 `duplicate_variable_pattern`, `duplicate_pattern_assignment_variable`, `duplicate_pattern_field`,
 `rest_element_in_map_pattern`, `empty_map_pattern`, `expected_one_list_pattern_type_arguments`,
 `expected_two_map_pattern_type_arguments`, `unnecessary_final` e
@@ -4286,7 +4286,7 @@ cascata) em `crates/types/src/inferencia/expr.rs`; `unnecessary_set_literal` (o 
 função que recebe a closure em `chamadas::invocar`, e o retorno escrito de função de topo e local em
 `funcoes.rs`); `non_nullable_equals_parameter`, `unnecessary_no_such_method` (o `super.noSuchMethod`
 pelos mixins e superclasses, método de classe que não é `Object`) e `unnecessary_question_mark` em
-`crates/types/src/boas_praticas.rs`, ligados em `crates/paridade/src/analise.rs`.
+`crates/types/src/boas_praticas.rs`, ligados em `crates/parity/src/analise.rs`.
 
 
 ##### Achado transversal: local inicializado/atribuído com valor de tipo **inválido**
@@ -4318,12 +4318,12 @@ interesse (`nao_nulo_promocao(declarado)` quando o declarado é anulável).
 - **Posição:** o `VariableDeclaration` (nome até o fim do declarador); no construtor: o nome do tipo de retorno (`P` em `P._()`).
 - **Mensagem:** "Non-nullable instance field '{0}' must be initialized." / "…_CONSTRUCTOR": "Non-nullable instance field '{0}'
   must be initialized." (correção diferente).
-- **No DartForge:** `crates/analise/src/inicializacao.rs` (~l. 51 e ~202). FN: `T v;` (`VariableNotInitialized__class_instanceF_29bac040.dart`),
+- **No DartForge:** `crates/analysis/src/inicializacao.rs` (~l. 51 e ~202). FN: `T v;` (`VariableNotInitialized__class_instanceF_29bac040.dart`),
   `const int v;` de instância em classe/enum/extensão (`…_aa07ca15.dart`, `…enum_instanceFi_f37cbf12.dart`, `…extension_insta_0857cd32.dart`),
   `var v;` herdando tipo não anulável (`…_ac43854d.dart`), `augment abstract int foo;` (3, augmentations — fora de escopo),
   `could_not_infer/CouldNotInfer__constructors_inferenceFBounded.dart:7:3` (dois campos `t`, `u` no construtor `P._()`).
   Ver as 2 FP e a posição no placar (não analisadas aqui: fora do fluxo).
-- **Feito em 2026-10-06 (35/35):** `_checkForNotInitializedNonNullableInstanceFields` (`error_verifier.dart:4837-4862`, chamado por `_checkForFinalNotInitializedInClass` em classe, enum, extensão e mixin sem construtor gerador explícito) decide pelo **tipo do elemento** (`isPotentiallyNonNullable`), não pela forma escrita: parâmetro de tipo (`T v;`), campo `const` (o `isFinal` da lista é só a palavra `final`), campo sem tipo inferido pela sobrescrita (`var v;` sobre `int get v`), extensão. `crates/analise/src/inicializacao.rs::finais_nao_inicializados_com` recebe o predicado (`!(Null <: T)` pelo tipo escrito ou inferido); a paridade o chama depois da inferência dos corpos. Sem o predicado (LSP, testes), a evidência sintática de antes.
+- **Feito em 2026-10-06 (35/35):** `_checkForNotInitializedNonNullableInstanceFields` (`error_verifier.dart:4837-4862`, chamado por `_checkForFinalNotInitializedInClass` em classe, enum, extensão e mixin sem construtor gerador explícito) decide pelo **tipo do elemento** (`isPotentiallyNonNullable`), não pela forma escrita: parâmetro de tipo (`T v;`), campo `const` (o `isFinal` da lista é só a palavra `final`), campo sem tipo inferido pela sobrescrita (`var v;` sobre `int get v`), extensão. `crates/analysis/src/inicializacao.rs::finais_nao_inicializados_com` recebe o predicado (`!(Null <: T)` pelo tipo escrito ou inferido); a paridade o chama depois da inferência dos corpos. Sem o predicado (LSP, testes), a evidência sintática de antes.
 
 ##### `unnecessary_set_literal` (perda 12: FN 12)
 
@@ -4342,7 +4342,7 @@ interesse (`nao_nulo_promocao(declarado)` quando o declarado é anulável).
 - **Emissão:** `ErrorVerifier._checkForLateFinalFieldWithConstConstructor` (`analyzer/lib/src/generated/error_verifier.dart:4068-4091`).
 - **Condição:** campo de instância `late final` numa classe/enum (não extensão) com algum construtor `const` não factory.
 - **Posição:** a palavra `late`. **Mensagem:** "Can't have a late final field in a class with a generative const constructor."
-- **No DartForge:** não implementado (crates/analise, junto das regras de campo). Amostras `VariableNotInitialized__class_instanceF_0b3e114e.dart:2:3`,
+- **No DartForge:** não implementado (crates/analysis, junto das regras de campo). Amostras `VariableNotInitialized__class_instanceF_0b3e114e.dart:2:3`,
   enums (construtores de enum são `const`), `InvalidReferenceToThis__enum_instanceFi_2e3283ae.dart:3:3`.
 
 ##### `dead_null_aware_expression` (perda 8: FN 6, FP 2)
@@ -4415,7 +4415,7 @@ interesse (`nao_nulo_promocao(declarado)` quando o declarado é anulável).
 - **Condição:** método `operator ==` com exatamente 1 parâmetro (de qualquer espécie: `[a]`, `{a}`, genérico `==<T>(a)`), cujo
   tipo é `Object?` ou `dynamic` (inclusive herdado: `==(other)` sem tipo herda `dynamic`/`Object?` da superclasse).
 - **Posição:** o nome do operador (`==`). **Mensagem:** "The parameter type of '==' operators should be non-nullable."
-- **No DartForge:** não implementado (crates/analise ou `sobrescritas.rs`, onde o tipo herdado do parâmetro já é calculado).
+- **No DartForge:** não implementado (crates/analysis ou `sobrescritas.rs`, onde o tipo herdado do parâmetro já é calculado).
 
 ##### `null_argument_to_non_null_type` (perda 7: FN 7)
 
@@ -4477,7 +4477,7 @@ interesse (`nao_nulo_promocao(declarado)` quando o declarado é anulável).
 - **Emissão:** `NamedTypeResolver._verifyNullability` (`analyzer/lib/src/dart/resolver/named_type_resolver.dart:381-410`).
 - **Condição:** o tipo resolvido (já com o alias expandido) tem sufixo `?` — inclusive por um `typedef X = A?`.
 - **Posição:** o tipo nomeado. **Mensagem:** "A class, mixin, or extension type can't implement a nullable type."
-- **No DartForge:** `crates/analise/src/clausulas.rs` (~l. 1247): FN em **tipo de extensão** (`extension type E(A _) implements A?`,
+- **No DartForge:** `crates/analysis/src/clausulas.rs` (~l. 1247): FN em **tipo de extensão** (`extension type E(A _) implements A?`,
   `implements B` com `typedef B = A?`; `ExtensionTypeImplementsDisallowedType___c43dde67.dart`) — o ramo dos tipos de
   extensão não confere a nulidade (nem a do alias).
 - **Estado em 2026-10-07 (placar 10/10):** o ramo do tipo de extensão em `clausulas::verificar` confere cada tipo do
@@ -4498,7 +4498,7 @@ interesse (`nao_nulo_promocao(declarado)` quando o declarado é anulável).
   `visitFieldFormalParameter`/`visitSuperFormalParameter`.
 - **Condição:** `final this.x` / `final super.x`. **Posição:** a palavra `final`. **Mensagem:** "The keyword 'final' isn't
   necessary because the parameter is implicitly 'final'."
-- **No DartForge:** não implementado (crates/analise, parâmetros de construtor).
+- **No DartForge:** não implementado (crates/analysis, parâmetros de construtor).
 
 ##### `cast_from_nullable_always_fails` (perda 2: FN 2)
 
@@ -5340,7 +5340,7 @@ Esta parte foi **gerada por script** (`E:\dftemp\analise\spec-r4\final\guardas.p
 ## C. Declarações, herança, construtores, limites, FFI
 
 **Estado em 2026-10-04 (escrito, não compilado).** Ganharam emissor nesta data, em
-`crates/analise/src/c2_sintaticos.rs` (só a árvore; testes de unidade no arquivo, não rodados):
+`crates/analysis/src/c2_sintaticos.rs` (só a árvore; testes de unidade no arquivo, não rodados):
 `rethrow_outside_catch`, `return_in_generator`, `label_undefined`, `label_in_outer_scope`,
 `continue_label_invalid`, `invalid_modifier_on_setter`, `uri_with_interpolation` (diretivas; o
 `@docImport` não) e `main_is_not_function`. Não feitos por dependerem do parser, que descarta o dado:
@@ -5392,9 +5392,9 @@ vira uma **segunda declaração** com `duplicate_definition`) são elementos **i
 
 **No DartForge** quase todo verificador de herança pula essas classes, e a maioria dos FN do grupo vem
 daí:
-- `crates/analise/src/clausulas.rs:1114` (`verificador_de_heranca_prossegue`): classe com nome repetido
+- `crates/analysis/src/clausulas.rs:1114` (`verificador_de_heranca_prossegue`): classe com nome repetido
   na biblioteca fica fora da lista `classes` usada por `sobrescritas_invalidas`, `membros_de_enum`,
-  `membros_abstratos`, `getters_e_setters` (`crates/paridade/src/analise.rs:503-523`) — inclusive a **1ª**
+  `membros_abstratos`, `getters_e_setters` (`crates/parity/src/analise.rs:503-523`) — inclusive a **1ª**
   declaração (FN em `NonAbstractClassInheritsAbstractMember__9a2979d9.dart:5:7`,
   `InconsistentInheritance__enum_returnTyp_221d07c1.dart:9:6`).
 - `crates/types/src/sobrescritas.rs:1358-1364` (`membros_em_conflito`) e `:1525-1534`
@@ -5429,8 +5429,8 @@ transitivo (`:196-205`), herança recursiva (`:207`). Depois disso não para mai
 membros de mixins (`:233-239`), membros declarados (`:245-274`), enum (`:276-277`),
 `GetterSetterTypesVerifier.checkInterface` (`:279-282`), membros abstratos/implementação (`:284-349`).
 
-Os registros do oráculo são deduplicados (`crates/paridade/src/main.rs:383` `regs.dedup()`), e o
-nosso lado também (`crates/paridade/src/analise.rs:640-655`, por código+intervalo+mensagem): dois
+Os registros do oráculo são deduplicados (`crates/parity/src/main.rs:383` `regs.dedup()`), e o
+nosso lado também (`crates/parity/src/analise.rs:640-655`, por código+intervalo+mensagem): dois
 relatos iguais do analyzer contam um.
 
 ---
@@ -5455,12 +5455,12 @@ relatos iguais do analyzer contam um.
 - **Supressões e ordem:** nenhuma específica; sai mesmo com erro de sintaxe no arquivo (todos os 55
   casos têm `expected_token`/`missing_const_final_var_or_type` na linha do `augment`). Sai junto de
   `duplicate_definition` no mesmo nome.
-- **No DartForge:** `crates/analise/src/enums.rs` `sem_constantes`, chamado em
-  `crates/paridade/src/analise.rs:329`. Classificação dos 62 FN:
+- **No DartForge:** `crates/analysis/src/enums.rs` `sem_constantes`, chamado em
+  `crates/parity/src/analise.rs:329`. Classificação dos 62 FN:
   - **55** (corpus 3.6.2): arquivos com `augment enum E ...` sem o experimento (o 2º `E`, vazio, relata;
     ou o 1º vazio quando só o 2º tem constantes, ex. `EnumWithoutConstants__hasConstants_inAu_eadf4494.dart:1:6`).
     Causa: o código antigo juntava constantes por **nome** do enum. A correção já no working tree
-    (`git diff crates/analise/src/enums.rs`: só `decl.augment` contribui constantes ao alvo; todo enum
+    (`git diff crates/analysis/src/enums.rs`: só `decl.augment` contribui constantes ao alvo; todo enum
     não-augment com 0 constantes próprias relata) está **de acordo com o fonte**: sem o experimento o
     parser (`declarations.rs:269`) põe `augment = false` e a 2ª declaração não entra em
     `com_constantes`. Fica correta também com o experimento ligado (augmentation real com constantes
@@ -5780,7 +5780,7 @@ relatos iguais do analyzer contam um.
 - **Mensagem (sem argumentos):** extends "A type alias that expands to a type parameter can't be used as a
   superclass."; implements "… can't be implemented."; on "… can't be used as a superclass constraint.";
   with "… can't be mixed in.".
-- **No DartForge:** `crates/analise/src/clausulas.rs:115-122` (`alvo`) e `:310-316` (`resolver`) já
+- **No DartForge:** `crates/analysis/src/clausulas.rs:115-122` (`alvo`) e `:310-316` (`resolver`) já
   reconhecem o caso (só o alias direto com nome de parâmetro) e devolvem `Desconhecido`/`Ignorar` com o
   comentário "outro verificador" — mas ninguém emite. Emitir ali (em `verificar`, ao lado dos
   `*_non_class`) com o span do nome. 21 FN: 9 em `*_type_alias_expands_to_type_parameter/*`, 12 em
@@ -5874,7 +5874,7 @@ relatos iguais do analyzer contam um.
 - **Supressões:** `_checkForAllMixinErrorCodes` devolve `true` → `_checkClassInheritance` não roda
   `conflicting_generic_interfaces`, `class_used_as_mixin` etc. Mixin com restrição não satisfeita relata
   `mixin_application_not_implemented_interface` e não chega aqui.
-- **No DartForge:** inexistente. `crates/analise/src/clausulas.rs:741-750` marca `incerta` todo mixin cujo
+- **No DartForge:** inexistente. `crates/analysis/src/clausulas.rs:741-750` marca `incerta` todo mixin cujo
   texto contém `super` — é exatamente o caso deste código. Precisa: coletor de nomes (sintático, possível em
   `analise`) e o "implementado concreto até o mixin i" (`implementado` em `sobrescritas.rs:909`, com corte
   por índice de mixin). 11 FN (8 no diretório do código, `mixin/illegal_super_use_test`, 2
@@ -5890,7 +5890,7 @@ relatos iguais do analyzer contam um.
 - **Mensagem:** "'{0}' can't be mixed onto '{1}' because '{1}' doesn't implement '{2}'." — DartType:
   `{0}` = `mixinName.type` (com args inferidos: `'M<dynamic>'`, `'M0<int>'`), `{1}` = supertipo da classe
   (`'Object'`, `'A<double>'`, `'B<X, Y>'`), `{2}` = restrição substituída (`'A<int>'`, `'I<int>'`).
-- **No DartForge:** `crates/analise/src/clausulas.rs:923-1015` (`restricoes_satisfeitas`/`nao_implementa`),
+- **No DartForge:** `crates/analysis/src/clausulas.rs:923-1015` (`restricoes_satisfeitas`/`nao_implementa`),
   nominal. FN: **9** genéricos (restrição com argumentos ou mixin genérico/inferido → `None` em `:946-958`:
   `…65fb1b04`, `…66b205b0`, `…71767084`, `…99c7eb8b`, `…d6fae84e`, `mixin_declaration_inference_invalid_00/01/02`,
   `regress32353_2_test`); **2** mixins cujo corpo contém `super` (`incerta` em `clausulas.rs:741-750`:
@@ -5955,7 +5955,7 @@ relatos iguais do analyzer contam um.
   `path[0..].displayName` + o elemento final, separados por `, ` (3.6.2: `A, C, B, A` — começa e termina na
   própria classe); diretos "'{0}' can't extend itself." / "implement itself." / "use itself as a superclass
   constraint." / "use itself as a mixin.".
-- **No DartForge:** `crates/analise/src/clausulas.rs:1340-1370`. Divergências:
+- **No DartForge:** `crates/analysis/src/clausulas.rs:1340-1370`. Divergências:
   - **4 FN** — `augment class A extends/implements/with A {}` e `augment mixin A on A {}` homônimos: a
     referência `A` resolve para o 1º `A`, que é "igual" ao 2º → base, e `_getRecursiveErrorCode(1º A)` não
     acha o 2º em supertype/on/mixins do 1º → **sempre `_IMPLEMENTS`** ("'A' can't implement itself.") no
@@ -6056,7 +6056,7 @@ VB<R> v)` contra `R foo<R>(VA<R> v)` compara `VB<R>` com `VA<R>` do mesmo `R` e 
 - **Posição:** `atElement(constructor)` → nome do construtor (no primário `A.foo(...)`, o `foo`).
 - **Mensagem:** "'{0}' can't be used to name both a constructor and a static field/getter/setter/method in
   this class.".
-- **No DartForge:** `crates/analise/src/duplicatas.rs:711-726` usa só `nomeados` (construtores membros,
+- **No DartForge:** `crates/analysis/src/duplicatas.rs:711-726` usa só `nomeados` (construtores membros,
   `:656-672`). O primário do tipo de extensão é inserido em `ctx.construtores` (`:617`) mas **não** em
   `nomeados` → 4 FN (`ConflictingConstructorAndStatic{Field,Method}__e_*`). 1 FN em sintaxe nova
   (`primary_constructors/header/static_member_conflict_error_test.dart:59:20`, construtor primário de classe
@@ -6095,7 +6095,7 @@ VB<R> v)` contra `R foo<R>(VA<R> v)` compara `VB<R>` com `VA<R>` do mesmo `R` e 
 - **Emissão:** direto: `_checkDirectSuperTypeNode` (`inheritance_override.dart:459-481`, no `NamedType`);
   transitivo: `verify()` `:196-205` (`declaration is ClassElement && !isAbstract && implementsDartCoreEnum`,
   `allSupertypes.any(isDartCoreEnum)` `:166-167`), no `classNameToken`, e `verify()` para.
-- **No DartForge:** `crates/analise/src/clausulas.rs:1145-1153` (`verificador_de_heranca_prossegue`) calcula o
+- **No DartForge:** `crates/analysis/src/clausulas.rs:1145-1153` (`verificador_de_heranca_prossegue`) calcula o
   caso transitivo só para tirar a classe da lista, sem relatar; relatar ali no nome da classe (inclui alias de
   classe `class B = Object with M implements A`). 2 FN: `NonAbstractClassHasEnumSuperinterface___0aaf3cfa:3:7`,
   `…fc47f638:2:7`.
@@ -6106,7 +6106,7 @@ VB<R> v)` contra `R foo<R>(VA<R> v)` compara `VB<R>` com `VA<R>` do mesmo `R` e 
   `_checkForConflictingEnumTypeVariableErrorCodes` (`:2567-2591`: `getMethod/getGetter/getSetter(name)`,
   incluindo o getter sintético **`values`**).
 - **Posição:** `atElement(typeParameter)` → nome do parâmetro de tipo.
-- **No DartForge:** `crates/analise/src/membros.rs:855-880`. FN: `extension type A<T>.T(int it)` (nome do
+- **No DartForge:** `crates/analysis/src/membros.rs:855-880`. FN: `extension type A<T>.T(int it)` (nome do
   construtor primário não considerado) e `enum/enhanced_enums_error_test.dart:232:34` (`enum E<values>`,
   falta o `values` implícito).
 
@@ -6163,7 +6163,7 @@ VB<R> v)` contra `R foo<R>(VA<R> v)` compara `VB<R>` com `VA<R>` do mesmo `R` e 
   (unidade, membros `_checkClassMembers` `:333-409`, parâmetros, variáveis locais; padrões: `:100-104`, sobre
   `declaration.elements`, que a resolução já deduplica — `resolution_visitor.dart:1144`, duplicata de padrão
   relatada como `duplicate_variable_pattern` `:1983`).
-- **No DartForge:** `crates/analise/src/duplicatas.rs`.
+- **No DartForge:** `crates/analysis/src/duplicatas.rs`.
   - **FP 12** em parâmetros nomeados privados (`duplicate_private_named_parameter/*` ×4,
     `private_named_parameters/{declaring_parameter,initializing_formal}_collision_error_test.dart` ×8; todos
     sintaxe nova, oráculo 3.13.4): relatamos "The name 'foo' is already defined." pela colisão do **nome
@@ -6200,7 +6200,7 @@ VB<R> v)` contra `R foo<R>(VA<R> v)` compara `VB<R>` com `VA<R>` do mesmo `R` e 
   `SimpleFormalParameter`), retorno, argumentos de tipo, tipos de função (parâmetros de tipo, parâmetros,
   retorno), campos de registro; segue classes/mixins (só limites), outros typedefs.
 - **Posição:** nome do typedef.
-- **No DartForge:** `crates/analise/src/membros.rs:393-500` (`AchaAutoReferencia`). FN:
+- **No DartForge:** `crates/analysis/src/membros.rs:393-500` (`AchaAutoReferencia`). FN:
   `nonfunction_type_aliases/cyclic_bound_error_test.dart:51:9` e `cyclic_bound_unused_error_test.dart:52:9`
   — `typedef T10<X extends void Function({T10<Never> x})> = List<X>;` (parâmetro **nomeado** de tipo de
   função no limite). `parametros` (`:473-488`) deveria cobri-lo; conferir se o parser guarda `ty` do
@@ -6244,7 +6244,7 @@ ou `undefined_class 'augment'`) e o resto é **outra declaração homônima** (`
 
 1. **Nenhum destes códigos tem emissão registrada** fora de `final_not_initialized*`,
    `invalid_factory_name_not_a_class` e `duplicate_field_formal_parameter`. O rascunho
-   `crates/analise/src/construtores.rs` não está em `analise/src/lib.rs` (não há `pub mod construtores;`) nem é
+   `crates/analysis/src/construtores.rs` não está em `analise/src/lib.rs` (não há `pub mod construtores;`) nem é
    chamado em `paridade/src/analise.rs`; além disso **não compila**: usa `c::PRIMARY_CONSTRUCTOR_CANNOT_REDIRECT`
    (código ausente da tabela `diagnostics/src/codigos_*.rs`) e `dartforge_frontend::features::Feature::SuperParameters`
    (não existe em `frontend/src/features.rs`; só há `PrimaryConstructors`, `Augmentations`, `Macros`…). Como recebe
@@ -6696,7 +6696,7 @@ construtor é `C Function({dynamic })`, que entra na compatibilidade do redireci
 
 ---
 
-**Estado em 2026-10-05 (escrito, não compilado).** `crates/analise/src/construtores.rs` (novo, ligado na
+**Estado em 2026-10-05 (escrito, não compilado).** `crates/analysis/src/construtores.rs` (novo, ligado na
 paridade) porta o `ConstructorFieldsVerifier` (estados `notInit`/`initInDeclaration`/`initInFieldFormal`/
 `initInInitializer` por construtor gerador não redirecionador e não `external`, com os estáticos e as
 constantes de enum no mapa e sem o `index`) e o `_checkForValidField`/`_checkForInvalidField` (campo pelo
@@ -6705,7 +6705,7 @@ constantes de enum no mapa e sem o `index`) e o `_checkForValidField`/`_checkFor
 do `invalid_assignment` de antes, e `field_initializing_formal_not_assignable` (subtipo do tipo escrito de
 `this.x` contra o do campo).
 
-#### Revisão do rascunho `crates/analise/src/construtores.rs` (regra por regra)
+#### Revisão do rascunho `crates/analysis/src/construtores.rs` (regra por regra)
 
 | Regra | Acerta | Errado / faltando |
 |---|---|---|
@@ -7184,9 +7184,9 @@ FFI está em `sintaxe-nova.json`.
   `ExtensionElement.isFfiExtension` idem (`:2409-2413`), `isTypedDataClass => library.name ==
   'dart.typed_data'` (`:2404-2406`). `dart.ffi` é o nome da diretiva `library dart.ffi;` do
   `sdk/lib/ffi/ffi.dart:11`. No DartForge o equivalente é `program.library(classe.library).uri ==
-  "dart:ffi"` (já usado em `crates/analise/src/clausulas.rs:1454` e
-  `crates/analise/src/modificadores.rs:82`); `dart:ffi` já é carregado pela seção `vm` do
-  `libraries.json` (`crates/paridade/src/analise.rs:109-124`), do SDK 3.6.2
+  "dart:ffi"` (já usado em `crates/analysis/src/clausulas.rs:1454` e
+  `crates/analysis/src/modificadores.rs:82`); `dart:ffi` já é carregado pela seção `vm` do
+  `libraries.json` (`crates/parity/src/analise.rs:109-124`), do SDK 3.6.2
   (`C:/tools/dartsdk-3.6.2/lib/ffi/*.dart`).
 - **Predicados por nome** (todos exigem `isFfiClass`/`isFfiExtension`):
   - classes: `Struct`, `Union` (`isCompound`, `:2482-2492`), `AbiSpecificInteger`,
@@ -7213,7 +7213,7 @@ FFI está em `sintaxe-nova.json`.
   estão (`fieldType.toSource()`, `node.name.lexeme`, `'T'` literal).
 - **No DartForge (todos):** não existe verificador FFI. Proposta: novo módulo
   `crates/types/src/ffi.rs` (precisa de `TypeTable`, `OutlineTypes`, `BodyTypes`, hierarquia e
-  `subtyping::is_subtype`), chamado por biblioteca em `crates/paridade/src/analise.rs` depois das
+  `subtyping::is_subtype`), chamado por biblioteca em `crates/parity/src/analise.rs` depois das
   constantes (junto do bloco de `sobrescritas`, ~`:488-520`), devolvendo `Vec<(UnitId, Diagnostic)>`.
   Infra que falta: (1) resolver uma `ast::Annotation` para *(classe ffi, construtor, tipo
   instanciado, argumentos)* — o resolvedor de nomes já existe em
@@ -7636,9 +7636,9 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
   Obstáculo: `ast::TypeKind::Record { positional: Box<[TypeId]>, named: Box<[(Name, TypeId)]> }`
   (`crates/frontend/src/ast.rs:637`) perde o NOME dos campos posicionais; é preciso guardá-lo no AST
   (`positional: Box<[(Option<Name>, TypeId)]>`) ou relê-lo da fonte depois do span do tipo. Lugar natural:
-  um verificador novo em `crates/analise` que percorre `ast.types` (todo tipo escrito) e as expressões
+  um verificador novo em `crates/analysis` que percorre `ast.types` (todo tipo escrito) e as expressões
   `ExprKind::Record` de `ast.exprs`.
-- **Estado em 2026-10-05 (escrito, não compilado):** `crates/analise/src/registros.rs` relê o nome dos
+- **Estado em 2026-10-05 (escrito, não compilado):** `crates/analysis/src/registros.rs` relê o nome dos
   campos posicionais na fonte, depois do tipo de cada campo, e relata nos tipos (`ast.types`) e nos literais
   (`ExprKind::Record`, só os nomeados). As duplicatas saem antes dos nomes inválidos. Com
   `wildcard-variables` (3.7+), o `_` posicional não conta.
@@ -7736,7 +7736,7 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
   escrito (`FinalClassTypeDef`), com prefixo e argumentos de tipo se houver.
 - **Mensagem:** p.ex. "The class '{0}' can't be extended outside of its library because it's a final
   class." `{0}` = `element.name` da CLASSE (não do alias: `'FinalClass'`, `'Function'`).
-- **No DartForge:** `crates/analise/src/modificadores.rs` resolve cada tipo de cláusula pelo nome no
+- **No DartForge:** `crates/analysis/src/modificadores.rs` resolve cada tipo de cláusula pelo nome no
   escopo da biblioteca e só aceita `Element::Class`; as 20 amostras são TODAS por alias de tipo:
   `typedef XTypeDef = FinalClass/BaseClass/InterfaceClass/SealedClass` (testes `*_typedef_*`) e
   `typedef F = Function` / `class A extends Function` (`deprecated_extends_function`,
@@ -7772,9 +7772,9 @@ Total coberto: 153 (= perda do grupo). Outros `FfiCode` do corpus que caem de gr
 - **No DartForge:** não existe (só o _GREATER). As 19 amostras: 4 LOCATION (depois de classe, de
   diretiva, dentro de classe), e os de formato (`// dart = 2.0`, `// @dart 2.0`, `// @dart >= 2.0`,
   `// @Dart = 2.0`, `/// @dart = 2.0`, `// dart @ 2.0`). Implementação puramente léxica: precisa dos
-  comentários com offset (o lexer do frontend) — um verificador novo em `crates/analise` (o código já
+  comentários com offset (o lexer do frontend) — um verificador novo em `crates/analysis` (o código já
   está em `verificados.txt`; nada de FP).
-- **Estado em 2026-10-05 (escrito, não compilado):** `crates/analise/src/versao_de_linguagem.rs` porta o
+- **Estado em 2026-10-05 (escrito, não compilado):** `crates/analysis/src/versao_de_linguagem.rs` porta o
   verificador inteiro (os oito códigos de formato e o `_LOCATION`), ligado por unidade na paridade.
 ##### `wrong_explicit_type_parameter_variance_in_superinterface` (perda 14: msg 14) e `wrong_type_parameter_variance_in_superinterface` (perda 13: msg 13)
 - **Emissão:** `ErrorVerifier._checkForWrongTypeParameterVarianceInSuperinterfaces`
@@ -7846,7 +7846,7 @@ limite fica como escrito (`'T'`), e o `A<U>` não é cadeia de nomes.
   limite `{1}`).
 - **No DartForge:** não existe. Sintático, salvo o apagamento de tipo de extensão (precisa resolver o
   nome do limite para saber se é tipo de extensão cuja representação é um parâmetro). Lugar: um
-  verificador em `crates/analise` que percorre todas as listas de parâmetros de tipo (`ast.decls`,
+  verificador em `crates/analysis` que percorre todas as listas de parâmetros de tipo (`ast.decls`,
   `ast.functions`, `TypeKind::Function` em `ast.types`).
 - **Estado em 2026-10-05 (escrito, não compilado):** `limites_simples::verificar` segue os limites com a
   mesma contagem de passos. O apagamento de tipo de extensão cobre a representação que é um parâmetro do tipo,
@@ -7892,7 +7892,7 @@ limite fica como escrito (`'T'`), e o `A<U>` não é cadeia de nomes.
   `FunctionElement` (classe, alias de classe, enum, mixin, typedef de qualquer forma, getter/setter de
   topo — `PropertyAccessorElement` —, variável de topo).
 - **Posição:** o token do nome. **Mensagem:** "The declaration named 'main' must be a function." (sem args).
-- **No DartForge:** não existe. Sintático: em `crates/analise` (percorrer `unit.declarations`). As 9
+- **No DartForge:** não existe. Sintático: em `crates/analysis` (percorrer `unit.declarations`). As 9
   amostras cobrem exatamente as formas acima (`class main`, `class main = A with M`, `enum main`,
   `int get main`, `mixin main`, `typedef main = …`, `typedef void main()`, `var main`).
 
@@ -7929,7 +7929,7 @@ limite fica como escrito (`'T'`), e o `A<U>` não é cadeia de nomes.
   (`crates/frontend/src/parser/declarations.rs:≈1268`, `p.span` inteiro → as 3 posições erradas, devem
   ser `p.name.span`). FN: funções, métodos (inclusive abstratos) e o teste
   `nnbd/syntax/class_member_declarations_error_test.dart` — falta a regra geral (sintática; pode ficar no
-  parser ou em `crates/analise`).
+  parser ou em `crates/analysis`).
 - **Estado em 2026-10-07 (placar 7/7):** a regra geral fica no parser (`types.rs::conferir_padrao_de_obrigatorio`),
   no fim de toda lista com grupo `{…}`: inclusive tipo de função e método abstrato, porque o `visitFormalParameterList`
   vê todas. O relato vai no nome, ou no parâmetro quando não há nome. A cópia que a elaboração do construtor
@@ -8060,7 +8060,7 @@ contexto (salvo `dynamic`/`_`, `function_expression_resolver.dart:37-48`): `Iter
 - **Mensagem:** "The built-in identifier '{0}' can't be used as a type." `{0}` = lexema.
 - **No DartForge:** não existe; o caso de topo é do parser (`crates/frontend/src/parser/types.rs`), o
   prefixado é da resolução de tipos (`crates/types/src/resolve.rs` / `codigo_de_nome_de_tipo`).
-- **Estado em 2026-10-05 (escrito, não compilado):** `crates/analise/src/fases.rs`,
+- **Estado em 2026-10-05 (escrito, não compilado):** `crates/analysis/src/fases.rs`,
   `embutido_como_tipo`, sobre os tipos nomeados da árvore (o parser do DartForge não foi mexido): o
   nome sem prefixo ou o nome depois do prefixo. **Não verificado** se, nesses casos, o resolvedor do
   DartForge emite além disso um `undefined_class` que o analyzer não emite.
@@ -8086,7 +8086,7 @@ contexto (salvo `dynamic`/`_`, `function_expression_resolver.dart:37-48`): `Iter
 - **No DartForge:** não existe; sintático (precisa saber que o separador foi `:` — guardar no
   `ast::Parameter` ou olhar a fonte entre o nome e o default, como `membros::span_sem_padrao` já faz).
   As amostras de `deprecated_colon_for_default_value/*` no 3.6.2 também dão OBSOLETE (versão 3.6).
-- **Estado em 2026-10-05 (escrito, não compilado):** `crates/analise/src/fases.rs`,
+- **Estado em 2026-10-05 (escrito, não compilado):** `crates/analysis/src/fases.rs`,
   `dois_pontos_no_padrao`, olhando a fonte antes do valor padrão. Desde o mesmo dia distingue a versão:
   biblioteca anterior à 3.0 dá `deprecated_colon_for_default_value` (dica), as outras o `OBSOLETE`.
 
@@ -8118,7 +8118,7 @@ contexto (salvo `dynamic`/`_`, `function_expression_resolver.dart:37-48`): `Iter
   `onError` de `Future.catchError` e trocar o código.
 - **Estado em 2026-10-05 (escrito, não compilado):** `crates/types/src/fase_catch_error.rs`
   (`retornos_de_catch_error`), uma fase sobre os tipos da inferência, ligada em
-  `crates/paridade/src/analise.rs` ao lado do `FfiVerifier`: a closure que é o primeiro argumento
+  `crates/parity/src/analise.rs` ao lado do `FfiVerifier`: a closure que é o primeiro argumento
   posicional de `catchError` num `Future<X>`, os `return e;` dela (fora das funções de dentro) e o
   `=> e` quando `X` não é `void`, conferidos pelo ramo assíncrono do `_checkReturnExpression` com
   `T = FutureOr<X>`. O `return;` sem valor (`_checkReturnWithoutValue`) não é conferido.
@@ -8320,7 +8320,7 @@ contexto (salvo `dynamic`/`_`, `function_expression_resolver.dart:37-48`): `Iter
   `dart:_wasm`…, conforme `libraries.dart` do SDK). Import: posição = a URI (string), arg = URI;
   export: posição = a DIRETIVA inteira (`export 'dart:_internal';`, col 1), arg = URI.
 - **Mensagens:** "The library '{0}' is internal and can't be imported." / "…exported."
-- **No DartForge:** não existe. Lugar: a fase de diretivas (`crates/paridade/src/analise.rs` passo 2 /
+- **No DartForge:** não existe. Lugar: a fase de diretivas (`crates/parity/src/analise.rs` passo 2 /
   `crates/elements` carga), com a lista de bibliotecas internas do SDK (todas `dart:_*`).
 - **Estado em 2026-10-05 (escrito, não compilado):** `importacoes::diretivas_internas_e_adiadas`, com a
   lista `isInternal` do SDK 3.6.2 (`categories` vazio no `libraries.dart`), as exceções de `dart:_wasm` e
@@ -8368,7 +8368,7 @@ contexto (salvo `dynamic`/`_`, `function_expression_resolver.dart:37-48`): `Iter
   em comentário, no `new`), `DocCommentVerifier` (`analyzer/lib/src/error/doc_comment_verifier.dart:40-48`,
   `deferred` e `if (…)` em `@docImport`).
 - **No DartForge:** não existe (comentários de doc não são analisados). Baixa prioridade.
-- **Estado em 2026-10-05 (escrito, não compilado):** `crates/analise/src/a_doc.rs` relata os cinco nas
+- **Estado em 2026-10-05 (escrito, não compilado):** `crates/analysis/src/a_doc.rs` relata os cinco nas
   linhas `///`: `doc_directive_missing_closing_brace` (fim da linha sem `}`, no último caractere),
   `doc_import_cannot_be_deferred` e `doc_import_cannot_have_configurations` (o resto da linha do
   `@docImport` lido como `import …`, com o mapa de offsets do `DocImportStringScanner`),
@@ -8416,7 +8416,7 @@ contexto (salvo `dynamic`/`_`, `function_expression_resolver.dart:37-48`): `Iter
 ##### `static_access_to_instance_member` (perda 1: FP 1)
 - FP em `augmentation_type_parameter_count/…class_s_a61207de.dart` (`A.foo<int>()` com `augment class A`
   e `augment static void foo<T,U>();` sem o experimento — a recuperação do analyzer é outra). Já
-  emitido via `crates/paridade/src/ponte.rs`; suprimir em unidades com `augment` sem o experimento.
+  emitido via `crates/parity/src/ponte.rs`; suprimir em unidades com `augment` sem o experimento.
 
 ##### `dot_shorthand_undefined_member` (perda 8: FP 8) — sintaxe nova, oráculo 3.13.4
 - FP em `dot_shorthands/equality/equality_extension_override_error_test.dart` e afins: `ExtensionOverride == .member`
@@ -8428,7 +8428,7 @@ contexto (salvo `dynamic`/`_`, `function_expression_resolver.dart:37-48`): `Iter
   3.6.2, que recupera `.member` como acesso a um identificador sintético (`MISSING_IDENTIFIER` no `.`, e
   `.new()` como `UNDEFINED_METHOD` em `'<unknown>'`). Nas outras unidades a regra `super == .member` do 3.13.4
   é atalho; a diferença está no oráculo, não numa regra do analyzer. Fica pendente regravar o oráculo desse
-  arquivo com o 3.13.4 (`dartforge-paridade sintaxe-nova`).
+  arquivo com o 3.13.4 (`dartforge-parity sintaxe-nova`).
 
 ### Rodada 4 — família C
 
@@ -11738,7 +11738,7 @@ Arquitetura no DartForge (vale para quase todos os códigos):
 - `crates/types/src/constantes/avaliador.rs` = `ConstantVisitor` + `_InstanceCreationEvaluator`
   (evaluation.dart); `verificador.rs` = `ConstantVerifier` (constant_verifier.dart);
   `potencial.rs` = `potentially_constant.dart`; `valor.rs` = `value.dart`.
-- Chamado de `crates/paridade/src/analise.rs:493` (`constantes::verificar`) só para as
+- Chamado de `crates/parity/src/analise.rs:493` (`constantes::verificar`) só para as
   bibliotecas do lote; diagnósticos atribuídos à unidade.
 - **Não existe hoje**: (1) grafo de dependências de constantes (`compute.dart` +
   `computeDependencies`, evaluation.dart:223-325) — ciclos só são vistos entre variáveis em
@@ -13446,7 +13446,7 @@ existem** no disco (foram revertidas no commit `fa8cfa96`).
   `assert` a mensagem "não avalia" e a falha sai como `CONST_EVAL_ASSERTION_FAILURE` sem mensagem.
 - **No DartForge:** não existe (nenhuma ocorrência de `CONST_CONSTRUCTOR_THROWS_EXCEPTION` fora de
   `crates/diagnostics/src/codigos_g.rs` e da lista de `verificador.rs`). FN
-  `ConstEvalThrowsException__assertInitial_5db8e50b.dart:2:36`. Lugar: verificador de erros (`crates/analise`),
+  `ConstEvalThrowsException__assertInitial_5db8e50b.dart:2:36`. Lugar: verificador de erros (`crates/analysis`),
   com o construtor const envolvente.
 - **Exemplos (oráculo vivo 3.6.2):**
   ```dart
@@ -15017,7 +15017,7 @@ non_constant_list_element off=112 len=10 7:12 | The values in a const list liter
 - **No DartForge:** não existe (busca por `CONST_NOT_INITIALIZED` em `crates/`: só o comentário de
   `crates/frontend/src/parser/statements.rs:343`, que deixa o erro "para a fase seguinte"). As 29 FN são todas a regra ausente:
   `variable_not_initialized/*` (20, uma por espécie de declaração), `const/syntax_test.dart` (4), `const/const_locals_constant_locals_test.dart:10:9`,
-  `static/final_field2_test.dart:13:16`. Mudança: uma função no verificador de constantes (ou em `crates/analise/src/inicializacao.rs`,
+  `static/final_field2_test.dart:13:16`. Mudança: uma função no verificador de constantes (ou em `crates/analysis/src/inicializacao.rs`,
   que já percorre campos e topo), para topo, campos de qualquer declaração e `StmtKind::Variables` locais — não para o `for`.
 - **Estado em 2026-10-05 (escrito, não compilado):** `inicializacao::constantes_nao_inicializadas`, por
   unidade, cobre topo, campos e `StmtKind::Variables`; o cabeçalho do `for` não é instrução e fica de fora.
@@ -15452,10 +15452,10 @@ const_constructor_with_non_const_super off=252 len=1 16:9 | A constant construct
 - **Supressões e ordem:** nenhuma. Vale para o que o parser **recupera** como construtor: `static int E1() => 0;` e `void E3() {}`
   num enum de mesmo nome viram construtores (`static_constructor`, `constructor_with_return_type`) e recebem este código no nome
   (g02); `augment E.named();` no 3.6.2 (sem o experimento) idem (h04).
-- **No DartForge:** não existe (`crates/analise/src/enums.rs` só tem `sem_constantes`). FN: `non_const_generative_enum_constructor/*`
+- **No DartForge:** não existe (`crates/analysis/src/enums.rs` só tem `sem_constantes`). FN: `non_const_generative_enum_constructor/*`
   (5), `enum/enhanced_enums_error_test.dart:350:14, 371:7, 493:3` (os dois primeiros são método com nome do enum recuperado como
   construtor), `augmentation_modifier_missing/…a93fc07a.dart:9:11`, `constructor_body/…b4bc584e.dart:8:11` e `…c6f5a1c0.dart:5:11`
-  (3.13, não conferidos aqui). Mudança: `verificador.rs::construtor` ou `crates/analise/src/membros.rs` (onde já sai
+  (3.13, não conferidos aqui). Mudança: `verificador.rs::construtor` ou `crates/analysis/src/membros.rs` (onde já sai
   `NON_FINAL_FIELD_IN_ENUM`, `:930`): enum, `!k.const_ && !k.factory` → span `k.class_name.start .. k.name.end` (ou `k.class_name`);
   depende de o nosso parser também tratar o método homônimo como construtor (não verificado).
 - **Exemplos (oráculo vivo 3.6.2):** `b04.dart`:
@@ -15684,7 +15684,7 @@ const_constructor_with_field_initialized_by_non_const off=223 len=5 15:3 | Can't
 - **Supressões e ordem:** no `asFunction`, o teste do argumento escrito vem primeiro e retorna; o do alvo vem depois. `_isValidFfiNativeType`
   e os chamadores: não detalhados aqui (família C/FFI).
 - **No DartForge:** não existe (nenhuma ocorrência de `NON_CONSTANT_TYPE_ARGUMENT` nem regra de `asFunction`/`ref`/`sizeOf` em
-  `crates/analise` e `crates/types/src/inferencia`). FN: `non_constant_type_argument/…ref_typ_cf5f5ff8.dart:4:5` (`p.ref`, len 5),
+  `crates/analysis` e `crates/types/src/inferencia`). FN: `non_constant_type_argument/…ref_typ_cf5f5ff8.dart:4:5` (`p.ref`, len 5),
   `…asFunction_R.dart:5:18` (o `R`), `non_native_function_type_argument_to_pointer/…5c69d119.dart:5:5` (o alvo `p`). Mudança: pertence
   ao verificador FFI (família C); a parte de constantes não a implementa.
 - **Estado em 2026-10-05 (escrito, não compilado):** `crates/types/src/fase_ffi.rs` (`verificar`) porta o
@@ -15801,7 +15801,7 @@ invalid_annotation off=235 len=7 26:1 | Annotation must be either a const variab
 ## E. Parser e scanner
 
 **Estado em 2026-10-04 (escrito, não compilado).** Entraram: `break_outside_of_loop`,
-`continue_outside_of_loop` e `continue_without_label_in_case` (em `crates/analise/src/c2_sintaticos.rs`,
+`continue_outside_of_loop` e `continue_without_label_in_case` (em `crates/analysis/src/c2_sintaticos.rs`,
 sobre a árvore, com o estado de laço do parser do fasta); `non_sync_factory` e
 `invalid_modifier_on_constructor` (família C, no parser, `parse_constructor_resto`). O parser passou a
 registrar os trechos pulados na recuperação (`Parsed::pulados`, T5). O resto da família não foi
@@ -16769,7 +16769,7 @@ do número), sem interromper a análise; `operator ===` tem o nome `===`; o valo
 - **No DartForge:** `lexer.rs:192-198` (byte `≥ 0x80`) e :525-527 (resto) → `caractere_ilegal`
   (:98-101): código e argumento certos para o BMP. Diferenças: (1) o span é `[inicio, inicio + 1)` em
   **bytes** (:92-94); num caractere de 2+ bytes o fim cai no meio do caractere e a conversão para UTF-16
-  (`crates/paridade/src/json.rs:108-110`, recuo até a fronteira) dá length 0 — é a amostra "posição" de
+  (`crates/parity/src/json.rs:108-110`, recuo até a fronteira) dá length 0 — é a amostra "posição" de
   `illegal_character/IllegalCharacter__nonAsciiIdentifier.dart:1:8` (mesma linha:coluna, comprimento
   diferente); (2) aborta a unidade; (3) fora do BMP relata um erro com o ponto de código (`128512`) em vez
   de dois com as metades; (4) `` ` `` e `\` são ilegais aqui e tokens lá; FF (`0x0C`) é espaço aqui
@@ -18371,7 +18371,7 @@ Correções ao texto existente da família E (§E, r3-e), detalhadas nos código
   `sintaxe-nova.json`), não pelo 3.6.2; e `int new = 1;` não é "construtor nomeado `new`": é um campo
   com nome reservado (`expected_identifier_but_got_keyword`), nas duas versões.
 - `expected_body`: os dois FN de `test_runner/impl/*part*.dart` não são do parser: o arquivo é uma
-  parte cuja biblioteca não está no corpus e nunca é carregada (`crates/paridade/src/analise.rs:192`).
+  parte cuja biblioteca não está no corpus e nunca é carregada (`crates/parity/src/analise.rs:192`).
 - `const_primary_constructor_with_body` e `extraneous_modifier_in_primary_constructor`: o segundo
   **existe** no 3.6.2 (`fm:1418`, índice 175, `mc:693`); só o primeiro é posterior (§E.3.6).
 - `missing_function_body`: a amostra `MissingRequiredParam__constructor_field_ce0ca2ef.dart:7:1` não é
@@ -19333,7 +19333,7 @@ gerado; `this` não abre membro: `d31`). É do `ErrorVerifier` posterior ([main]
     `crates/frontend/src/parser/statements.rs` (nenhuma referência a `EXPECTED_SWITCH_STATEMENT_BODY`).
   - FN `test_runner/impl/imported_library_part.dart:7:7` e `test_runner/impl/part.dart:3:7`: o parser
     acerta (`imported_library.dart:5:7` bate); os dois arquivos são `part of` de bibliotecas que não
-    estão no corpus e não entram na análise (`crates/paridade/src/analise.rs:192-199` só importa o que
+    estão no corpus e não entram na análise (`crates/parity/src/analise.rs:192-199` só importa o que
     não é parte). O `dart analyze` analisa a parte órfã (`d06`). Mudança fora do parser: analisar
     partes órfãs como unidade solta.
 - **Exemplos (oráculo vivo 3.6.2):**
@@ -20978,8 +20978,8 @@ recuperação de vírgula em literais e a leitura de `(T) nome` como tipo record
 ## F. Nomes e tipos não resolvidos, não usados
 
 **Estado em 2026-10-04 (escrito, não compilado).** Entraram `unused_label`
-(`crates/analise/src/c2_sintaticos.rs`), `undefined_shown_name` e `ambiguous_export`
-(`crates/analise/src/importacoes.rs`: `nomes_mostrados_indefinidos`, `exports_ambiguos`). Continuam sem
+(`crates/analysis/src/c2_sintaticos.rs`), `undefined_shown_name` e `ambiguous_export`
+(`crates/analysis/src/importacoes.rs`: `nomes_mostrados_indefinidos`, `exports_ambiguos`). Continuam sem
 emissor `part_of_non_part`, `prefix_shadowed_by_local_declaration`, `type_annotation_deferred_class` e
 `deprecated_member_use`; a tabela do `NamedTypeResolver` (F.R4-1) e o verificador de não usados
 (F.R4-2) não foram conferidos.
@@ -21026,7 +21026,7 @@ Fonte: `analyzer/lib/...` do `E:\references\dart-sdk-3.6.2\pkg\analyzer` (idênt
 - **Mensagem:** `Undefined name '{0}'.` (`messages.yaml:17396`), `{0}` = o nome escrito (`node.name`).
 - **Supressões e ordem:** identificador sintético (recuperação do parser) não é relatado; nome em contexto de declaração; o mesmo nó não é relatado duas vezes (leitura e escrita de `x += 1` dão o mesmo diagnóstico, que o `ErrorReporter` não deduplica — mas o oráculo só tem um: (2) e (3) só ocorrem juntos quando os dois falham e o resultado é igual). Num arquivo com erro de sintaxe, a árvore recuperada do fasta é resolvida normalmente (o código sai), mas a nossa recuperação difere — daí o filtro da fase 6.
 - **No DartForge:**
-  - Hoje: `crates/types/src/inferencia/expr.rs` `identificador` (braços `ThisImplicito`/`Ausente` e `Nenhum`), `tipo_de_escrita_nome` (escrita), `propriedade` (`p.nome` com prefixo) e a leitura do alvo de toda invocação `nome(args)` (`chamadas.rs::chamada`, braço `_`, que infere o alvo como identificador). `resolver_nome` (busca léxica) não distingue "só setter" de getter, não faz busca pelo `this` em contexto estático (devolve `Nenhum` se `cx.tipo_this` é `None`, e `Corpo` só põe `tipo_this` onde `this` vale), não tem recuperação estática, não conhece `loadLibrary` nem `shouldIgnoreUndefined`. A paridade (`crates/paridade/src/analise.rs` fase 6) descarta o código em arquivo com erro de recuperação do parser.
+  - Hoje: `crates/types/src/inferencia/expr.rs` `identificador` (braços `ThisImplicito`/`Ausente` e `Nenhum`), `tipo_de_escrita_nome` (escrita), `propriedade` (`p.nome` com prefixo) e a leitura do alvo de toda invocação `nome(args)` (`chamadas.rs::chamada`, braço `_`, que infere o alvo como identificador). `resolver_nome` (busca léxica) não distingue "só setter" de getter, não faz busca pelo `this` em contexto estático (devolve `Nenhum` se `cx.tipo_this` é `None`, e `Corpo` só põe `tipo_this` onde `this` vale), não tem recuperação estática, não conhece `loadLibrary` nem `shouldIgnoreUndefined`. A paridade (`crates/parity/src/analise.rs` fase 6) descarta o código em arquivo com erro de recuperação do parser.
   - Causas dos **95 FP** (placar base): invocação sem alvo relatada como nome indefinido em vez de `UNDEFINED_FUNCTION`/`UNDEFINED_METHOD` (~30: `sdk_version_since` A(…)/foo(…), `regress11724`, `regress17382`, `lib/a.dart h()`, `top_level/unresolved_method`, `UnknownType()`, `abs()`/`bOnly()`/`X()` em classe → `UNDEFINED_METHOD`); prefixo de import inexistente (`shouldIgnoreUndefined`, 12: `creation_with_non_type/…implicit_*p*`, `sdk_version_since/…prefixed`); `p.nome` sem o nome → `UNDEFINED_PREFIXED_NAME`/`UNDEFINED_FUNCTION` (12: `const/instantiated_function_constant_error`, `if_null/assignment_behavior`, `import/self`, `prefix/transitive_import`, `private/access`, `regress27572`); `loadLibrary` de import adiado (5); membro achado pelo `this` do analyzer em contexto estático/inicializador (6: `instance_member_access_from_static`, `factory/and_instance_variable`, `implicit_this_reference_in_initializer`) e estático herdado (16: `unqualified_reference_to_*`); `await` num corpo síncrono → `UNDEFINED_IDENTIFIER_AWAIT` (1); padrão relacional `== b && var b` → `referenced_before_declaration` (4, `patterns/pattern_variable_constant_scope`); `A<B>.foo()` → `creation_with_non_type` (2: `regress34495`, `…class_constructor_name`); lexer (`3457e`, `0x`, 3: o analyzer não produz o identificador `e`/`x`); sintaxe 3.13 de construtor primário (5, bibliotecas julgadas pelo 3.13).
   - Causas dos **73 FN**: leitura de nome que só tem setter (de topo, ou de instância no contêiner sem getter herdado) — 30 (`static_extension_internal_basename_shadowing_error` 24, `static_extension_internal_resolution_4` 3, `compoundAssignment`/`postfix`/`prefix` com `set foo`, `inheritedGetter_sh…`, `setter/no_getter`); argumentos de anotação em parâmetro de tipo não inferidos (15: `UndefinedIdentifier__annotation_*`, `metadata/type_parameter_scope_inner`); padrões — constante `case foo`, `case unresolved:`, atribuição por padrão `(x) = 0` (5); membro privado de outra biblioteca achado pelo `this` (`private/member1`, 1: `buscar_membro` não respeita a privacidade); `dart:core` importado com `show` ainda dá o `String` implícito (`importCore_withShow`, 1 — escopo do `elements`); arquivos com erro de sintaxe filtrados pela fase 6 (≈17: `augmentation_formal_parameter`, `class/keyword`, `label8`, `variance`, `invalid_const_pattern`, `yield 0`, `$$x`, `never..(_)`, `mixin_class_syntax_error`); `@Annotation(Bar)` com classe sombreada (1).
   - Mudança (já parcialmente no código desta rodada, compilando — ver relatório): `expr.rs` ganhou `tipo_this_do_analyzer`, `busca_lexica_de_leitura` (getter / só setter de instância / só setter solto / nada), `buscar_pelo_this` (+ `estatico_na_cadeia`, recuperação estática), `nome_lido_indefinido`, `nome_escrito_indefinido`, `invocacao_sem_alvo_indefinida`, `load_library`, `avisar_nome_prefixado_indefinido`, `erro_de_instancia_sem_this`; `crates/types/src/scope.rs::deve_ignorar_indefinido` (porta de `shouldIgnoreUndefined`); `chamadas.rs::chamada` intercepta `nome(args)` e `p.nome(args)` antes de inferir o alvo. Falta: anotações de parâmetro de tipo, padrões (`visitAssignedVariablePattern`, constante), privacidade na busca pelo `this`, o `show` de `dart:core`, `x.a<T>` (5) e o relacional `== b && var b`.
@@ -21082,7 +21082,7 @@ augmentation que as macros geram, ou o de uma parte, não tira o core implícito
 - **Posição:** `_getErrorRange(node)` (`named_type_resolver.dart:653-666`): do prefixo, se houver, ao fim de `name2` (sem argumentos nem `?`).
 - **Mensagem:** `Undefined class '{0}'.` (`analyzer/messages.yaml:16701`), `{0}` = `name2.lexeme`.
 - **Supressões e ordem:** `shouldIgnoreUndefined` (`analyzer/lib/src/dart/element/element.dart:1186-1221`: import sintético de mesmo prefixo sem `show`; `show` que cita o nome; `_$…` com parte gerada inexistente); nome sintético (`:519`); `MultiplyDefinedElement` (`:316-319`); cláusulas de herança. Recuperação do fasta: `augment`/`base`/`sealed` diante de `mixin|extension|…` sem o experimento viram o **tipo** de uma variável de topo de nome sintético (`TopLevelDeclarationIdentifierContext.ensureIdentifier`, `_fe_analyzer_shared/lib/src/parser/identifier_context_impl.dart:1056-1094`, `looksLikeStartOfNextTopLevelDeclaration` `:1330-1332`; `parseFields`, `_fe_analyzer_shared/lib/src/parser/parser_impl.dart:3634-3652`); `augment class` não (`computeType` devolve `noType` diante da palavra reservada, `parser_impl.dart:3521-3550`; `augment` vira o **nome**, MISSING_CONST_FINAL_VAR_OR_TYPE).
-- **No DartForge:** outline em `crates/types/src/resolve.rs` (`resolve_annotation`, ~1390), corpos em `crates/types/src/inferencia/tipos.rs` (`resolver_anotacao`, ~339), cláusulas em `crates/analise/src/clausulas.rs`, filtro `nomes_de_clausulas` em `crates/paridade/src/analise.rs:577`. Causas:
+- **No DartForge:** outline em `crates/types/src/resolve.rs` (`resolve_annotation`, ~1390), corpos em `crates/types/src/inferencia/tipos.rs` (`resolver_anotacao`, ~339), cláusulas em `crates/analysis/src/clausulas.rs`, filtro `nomes_de_clausulas` em `crates/parity/src/analise.rs:577`. Causas:
   - **Parser descarta `augment mixin/extension/extension type …` (FN 112)** — ex.: `AugmentationModifierExtra__mixin_nothin_8b7e1a8b.dart`, `AugmentationOfDifferentDeclarationKind__0fc33736.dart`. Em `crates/frontend/src/parser/declarations.rs::parse_function_or_variables` (~2066-2095) o ramo do contexto de topo relata MISSING_IDENTIFIER e devolve `Err(";")`, e o `NamedType` some (`augment base mixin` já funciona: `base` vira o nome). O parser (outro dono) precisaria devolver `Variables{ ty: Some(tipo), variables: [nome sintético vazio] }` sem consumir a palavra-chave; o nome vazio precisa ser ignorado por `duplicate_definition`, `unused_*` e pelos elementos; os filtros "span vazio = sintético" de `resolve.rs` já evitam relatar o nome. Sem o parser não há nó (reconstruir pelos tokens é frágil: não recomendado).
   - **`dart:core` implícito sempre e `dynamic` embutido (FN 2)** — `UndefinedClass__dynamic_coreWithPrefix.dart`, `AugmentationReturnTypeMismatch__topLeve_549a3325.dart`. `crates/elements/src/outline.rs:460-468` injeta o core sempre; `resolve.rs` (passo 2) e `tipos.rs` dão `dynamic`/`Never` sem escopo. Mudança: não injetar com import explícito de `dart:core` (corrige também `show`/`hide`, cf. `UndefinedIdentifier__importCore_withShow.dart`); `dynamic`/`Never` embutidos só com core sem prefixo.
   - **Parâmetro sem `)` derruba a função (FN 1)** — `variance/syntax/variance_type_parameter_error_syntax_test.dart`; `parse_parameter_list` (`crates/frontend/src/parser/types.rs:620-673`) usa `expect_op(RParen)?`; o fasta usa `ensureCloseParen`. Trocar por `garantir_fecha_parenteses` (`parser/mod.rs:574-587`) — parser.
@@ -21131,7 +21131,7 @@ Citações `analyzer/lib/...` do 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\analyz
 - **Posição:** `element.nameOffset`/`nameLength` (`:993-1006`): construtor → o nome depois do ponto; operador → o token do operador; função local `_` → o `_`.
 - **Mensagem:** `messages.yaml:27333` "The declaration '{0}' isn't referenced." `{0}` = `displayName` (`E.named`, `[]=`, `_s` sem `=`). Forma de parâmetro `messages.yaml:27393` "A value for optional parameter '{0}' isn't ever given." (código `unused_element`).
 - **Supressões e ordem:** só `// ignore`. Uso medido na biblioteca inteira, relato por arquivo; sem duplicata; erro de sintaxe não suprime.
-- **No DartForge:** membros/topo em `crates/analise/src/privados.rs::nao_usados` (chamado de `crates/paridade/src/analise.rs:354`, ligação **por nome de token**); funções locais em `crates/analise/src/locais.rs::nao_usados_sem_filtro` (`Especie::Funcao`, `:875`); parâmetros em `crates/types/src/parametros.rs`. Causas dos 74 FN:
+- **No DartForge:** membros/topo em `crates/analysis/src/privados.rs::nao_usados` (chamado de `crates/parity/src/analise.rs:354`, ligação **por nome de token**); funções locais em `crates/analysis/src/locais.rs::nao_usados_sem_filtro` (`Especie::Funcao`, `:875`); parâmetros em `crates/types/src/parametros.rs`. Causas dos 74 FN:
   1. **Funções locais `_`/`__` filtradas (14)** — `locais.rs:869` aplica `so_sublinhados` também a `Funcao` (ex.: `UnusedElement__localFunction_underscores.dart`, `DuplicateDefinition__block_localFunctio_93d08194.dart`). Mudança: pular só `curinga && nome == "_"`.
   2. **Portão de sintaxe na biblioteca (10)** — `privados.rs:223` e `analise.rs:348-354`. Erros: `constructor_with_return_type` (`linguagem/enum/enhanced_enums_error_test.dart` 481–497, 5), `const_constructor_with_body` (`ConstructorBody__enum_secondaryConstruc_815c9994.dart`), `missing_const_final_var_or_type` do `augment` (`UnusedElement__parameter_isUsed_overrid_387a0899.dart`, 4). Mudança: esses erros na lista "sem descarte" de `recuperacao_do_parser` (`analise.rs:726`); portão por declaração (só o candidato cuja declaração contém erro de recuperação); em `privados.rs:253` ignorar `decl.augment` sem o recurso.
   3. **Membros de extensão sem nome tratados como públicos (11)** — `privados.rs:330` `None => (String::new(), false)`; o analyzer a trata como privada (ex.: `super_in_extension/...2100d7fc.dart`, `UnusedElement__method_notUsed_unnamedExtension.dart`, `ffi_address_of_cast/...no_error.dart`, `issue_45551_error_test.dart`, `nullable_expression_call_error_test.dart` 46/91). Mudança: `None => (String::new(), true)` (operador/`call` dependem da causa 4).
@@ -21144,7 +21144,7 @@ Citações `analyzer/lib/...` do 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\analyz
   10. **`super.e` posicional obrigatório marca o do super (1)** — `UnusedElement__classPrivate_secondaryCo_2f78d312.dart`; só `DefaultFormalParameter` marca (`:114-121`). Mudança: `parametros.rs:291` só com `p.kind != Required`.
   11. **Artefato 3.13 `'<unnamed>'` em 1:1 (2)** — `augmentation_modifier_{extra,missing}/...`: FN conhecido.
 
-- **Correções de 2026-10-06 (FP 29 para 0, FN 32 para 8; verificador ativo `crates/types/src/fase_nao_usados.rs`, locais em `crates/analise/src/locais.rs`):**
+- **Correções de 2026-10-06 (FP 29 para 0, FN 32 para 8; verificador ativo `crates/types/src/fase_nao_usados.rs`, locais em `crates/analysis/src/locais.rs`):**
   - Atalho de ponto (3.13, checkout main `unused_local_elements_verifier.dart:203-238`): a declaração do contexto é usada por `addElement` (sem a regra da própria classe); o membro estático pelo nome vira membro usado e lido; o construtor pela chamada (alvo `DotShorthand` conta como nome escrito).
   - Escrita de acessor (3.6.2 `:284-286`, `_useIdentifierElement` de `readElement`, `writeElement` e `staticElement`): a composta e o `++`/`--` usam também o getter (`readElement`); a escrita simples sem setter usa o getter da recuperação (`writeElement`). Vale para acessor de topo e para membro.
   - `visitNamedType` passa o próprio `NamedType` como `parent` (3.6.2 `:221-224`), então a regra de não uso vale para toda a subárvore do tipo de uma lista de variáveis que não é de campo e do tipo do `is` (`_enclosingVariableDeclaration` só durante o tipo da lista, `:336-347`; `_enclosingIsExpression`, `:189-198`): `List<_A>? v;`, `p is List<_A>`, `p is void Function<T extends _A>()`, `final List<_A> x = []` de topo.
@@ -21168,7 +21168,7 @@ Citações `analyzer/lib/...` do 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\analyz
   Uso (`visitSimpleIdentifier`, `:255-282`): fora de declaração e de `CommentReference`; elemento `LocalVariableElement` e `_isReadIdentifier(node)`; `JoinPatternVariableElement` adiciona as `transitiveVariables` (`:1145-1153`). `_isReadIdentifier` (`:416-440`): só contexto de leitura (`x = e` não lê); se `parent.parent is ExpressionStatement` e o pai é **qualquer** `PrefixExpression`/`PostfixExpression` (`-x;`, `!x;`, `~x;`, `++x;`, `x++;`, `x!;`) não lê; composto com `x` à esquerda lê só com `??=`. Padrões: em `PatternVariableDeclaration` (inclusive `ForPartsWithPattern`) o grupo só se relata se nenhuma for lida; `DeclaredVariablePattern` fora disso (`case`, `if-case`, padrão de atribuição `[x, final y] = …`) um a um; `isDuplicate` não; guarda `when` lê a variável do próprio `case`, corpo compartilhado lê a join. `catch`: exceção usada se há pilha ou não há `on` (`:57-71`). Roda **com** erro de sintaxe.
 - **Posição:** o nome declarado (`:993-1006`). **Mensagem:** "The value of the local variable '{0}' isn't used." (`displayName`).
 - **Supressões:** só `// ignore` (`library_analyzer.dart:540`).
-- **No DartForge:** `crates/analise/src/locais.rs::nao_usados` (`:812`), integrado em `crates/paridade/src/analise.rs` com os erros de `recuperacao_do_parser`. Causas:
+- **No DartForge:** `crates/analysis/src/locais.rs::nao_usados` (`:812`), integrado em `crates/parity/src/analise.rs` com os erros de `recuperacao_do_parser`. Causas:
   1. **Filtro de erro de sintaxe (25)** (`locais.rs:814-825`): `await/backwards_compatibility_test.dart` (3), `patterns/version_2_32_changes_error_test.dart` (8), `string/unicode1..4_test.dart` (4), `string/interpolate1/3_test.dart` (4), `map/literal13_test.dart`, `operator/unary_plus_test.dart`, `enum/is_keyword_test.dart`, `string/bad_raw_string_test.dart`, `patterns/invalid_const_pattern_test.dart`, `UnawaitedReturnInTryBlock__insideClosur_c0f7d494.dart`. Proposta segura: (a) erros de escape do scanner (`invalid_unicode_escape_u_no_bracket`, `invalid_unicode_escape_u_bracket`, `invalid_hex_escape`, `invalid_code_point`) fora de `recuperacao_do_parser`; (b) só reter se, depois da declaração e até o fim do executável, houver token com o texto do nome.
   2. **Prefixo/sufixo como comando (7)** (`locais.rs:161-170` só trata `++`/`--`): `UndefinedOperator__unaryMinus_null.dart`, `UncheckedUseOfNullableValue__operatorUn_*` (2), `implicit_downcast_during/not_test.dart`, `nnbd/definite_assignment/read_error_test.dart` (3). Proposta: todo `UnaryOp` como comando com operando `Identifier` direto não lê.
   3. **Variável declarada em padrão de atribuição (5)** (`padrao_de_atribuicao`, `:417-420`, trata `final y`/`int y`/`var y` como escrita): `patterns/declared_variable_in_pattern_assignment_error_test.dart` (4), `var_keyword_in_typed_variable_pattern_error_test.dart`. Proposta: declarar como variável sem grupo.
@@ -21200,7 +21200,7 @@ bloco **inteiro**, também antes da declaração: em `a.Future? x = null; int a 
   Uso (`analyzer/lib/src/dart/element/scope.dart:119-255`): `PrefixScope.lookup` que devolve elemento marca **todos** os imports do mesmo prefixo cujo namespace (com `show`/`hide`) o fornece; `MultiplyDefinedElement` não marca; inclui o `dart:core` implícito (`Future` marca `dart:async`); o `PrefixScope` só é consultado se a busca léxica não achou antes; `p.X` marca pelo escopo de `p`, `p` sozinho não; `loadLibrary` não marca; extensão implícita: `ExtensionMemberResolver.findExtension` (`extension_member_resolver.dart:89-115`) chama `notifyExtensionUsed` só com escolha única/mais específica única (ambíguo não marca); combinadores não rastreiam. Import duplicado continua `unused_import`.
 - **Posição:** `importDirective.uri`. **Mensagem:** "Unused import: '{0}'." (`relativeUriString`).
 - **Supressões:** nada sai se `_hasDiagnosticReportedThatPreventsImportWarnings` (`library_analyzer.dart:588-613`) acha na biblioteca `AMBIGUOUS_IMPORT`, `CONST_WITH_NON_TYPE`, `EXTENDS_NON_CLASS`, `IMPLEMENTS_NON_CLASS`, `MIXIN_OF_NON_CLASS`, `NEW_WITH_NON_TYPE`, `NOT_A_TYPE`, `PREFIX_IDENTIFIER_NOT_FOLLOWED_BY_DOT`, `UNDEFINED_ANNOTATION`, `UNDEFINED_CLASS`, `UNDEFINED_FUNCTION`, `UNDEFINED_IDENTIFIER`, `UNDEFINED_PREFIXED_NAME`, `DEPRECATED_EXPORT_USE`. Erro de sintaxe não suprime.
-- **No DartForge:** `crates/analise/src/importacoes.rs::nao_usados` (fase 5 de `paridade/src/analise.rs`), uso aproximado sintaticamente. Causas:
+- **No DartForge:** `crates/analysis/src/importacoes.rs::nao_usados` (fase 5 de `paridade/src/analise.rs`), uso aproximado sintaticamente. Causas:
   1. **Import com extensão conta sempre como usado (35)** (`traz_extensao`, `importacoes.rs:155-158`; `dart:async` exporta `FutureExtensions`…, `dart:collection` `IterableExtensions`…): `invalid_returns/*` (12), `nonfunction_type_aliases/generic_usage_*` (5), `BuiltInIdentifierAsPrefixName__*` (6), `PrefixShadowedByLocalDeclaration__local_*` (3), `mixin_class_legacy_interactions_forward_error_test.dart`, `static_extension_prefix_import_conflict_test.dart` (2), `static_extension_internal_resolution_3_error_test.dart`, `null_aware_elements/type_inference_simple_error_test.dart`. Proposta: registrar a extensão escolhida (única) em `types::inferencia::membros::membro_de_extensao`, `membro_de_extensao_explicita` e `scope.rs::lookup_extension_member`, exposto em `BodyTypes` (incluindo as passadas de inicializadores); o import é usado por extensão só se fornece uma extensão usada.
   2. **Prefixo sombreado conta como uso (3)**: `prefix/shadow_test.dart` (2), `variable/ref_before_declaration_test.dart`. Proposta: contar `p.X` só com `Resolved::Prefix`; meta: gravar em `types` cada busca que atravessa o escopo de import.
   3. **`loadLibrary` (1)**: `deferred/load_library_wrong_args_test.dart` — o FP `undefined_identifier 'loadLibrary'` suprimia; resolver `p.loadLibrary` (feito na seção de `undefined_identifier`) e não contar como uso.
@@ -21381,7 +21381,7 @@ Nome próprio só no 3.13; no 3.6.2 é `WarningCode.UNUSED_ELEMENT_PARAMETER` co
   Sem reinício em fronteira de função; `continue` para rótulo de outro `switch` não acha; nomes repetidos: o mapa guarda o **último** índice; `L:` depois de `case 17:` é `LabeledStatement` e `break;` sem rótulo não o usa; switch expression não tem rótulos.
 - **Posição:** o nó `Label`: identificador até o `:` inclusive (`analyzer/lib/src/dart/ast/ast.dart:11052`).
 - **Mensagem:** `messages.yaml:27470` "The label '{0}' isn't used.".
-- **No DartForge:** não existe (`locais.rs:683` só desce no corpo). 5/5 não implementado: `LabelUndefined__{break,continue}.dart`, `const_functions/const_functions_switch_statements_error_test.dart:16`, `switch/switch7_test.dart:9`, `switch/case_fallthrough_legacy_error_test.dart:244`. Mudança: passada nova (`crates/analise/src/rotulos.rs`) com pilha de trackers sobre todos os comandos; emitir `UNUSED_LABEL` do nome ao `:`; sem filtro de sintaxe, salvo o comando com erro de recuperação.
+- **No DartForge:** não existe (`locais.rs:683` só desce no corpo). 5/5 não implementado: `LabelUndefined__{break,continue}.dart`, `const_functions/const_functions_switch_statements_error_test.dart:16`, `switch/switch7_test.dart:9`, `switch/case_fallthrough_legacy_error_test.dart:244`. Mudança: passada nova (`crates/analysis/src/rotulos.rs`) com pilha de trackers sobre todos os comandos; emitir `UNUSED_LABEL` do nome ao `:`; sem filtro de sintaxe, salvo o comando com erro de recuperação.
 
 ##### `ambiguous_import` (perda 3: FN 2, FP 0, msg 1, pos 0)
 
@@ -21405,7 +21405,7 @@ ordenada, entre aspas e com `and`, do URI da biblioteca que declara cada element
 - **No DartForge:** não emitido (`elements/src/load.rs:572-580` pula a parte que já é unidade; `verify_part_of` (`:1398-1407`) gera diagnóstico sem código no span 0). Exemplos: `import/internal_library_test.dart`, `part/self_test.dart`. Proposta: fase 2 de `paridade/src/analise.rs` para `Part` com alvo existente sem `PartOf`.
 
 **Estado em 2026-10-05 (escrito, não compilado).** `part_of_non_part` na fase 2 de
-`crates/paridade/src/analise.rs` (`parte_sem_part_of`: o alvo existente sem `part of`, pelo texto aberto,
+`crates/parity/src/analise.rs` (`parte_sem_part_of`: o alvo existente sem `part of`, pelo texto aberto,
 pela unidade carregada ou pelo disco; a `uriStr` da unidade, ou a escrita, ou `file:///…`).
 
 ##### `type_test_with_undefined_name` (perda 2: FP 2)
@@ -21419,7 +21419,7 @@ pela unidade carregada ou pelo disco; a `uriStr` da unidade, ou a escrita, ou `f
 - **Emissão:** `ErrorVerifier._checkForAmbiguousExport` (`error_verifier.dart:2085-2111`), de `visitExportDirective` (`:731-739`).
 - **Condição:** exports em ordem, mapa compartilhado nome→elemento; `prev != null && prev != element` → relata e **retorna** (o resto da diretiva não entra); mesmo elemento por dois caminhos não é erro.
 - **Posição:** `uri` da segunda diretiva. **Mensagem:** "The name '{0}' is defined in the libraries '{1}' and '{2}'." (URIs das declarantes).
-- **No DartForge:** não existe; exemplo `export/ambiguous_main_test.dart`. Proposta: passada em `crates/analise` sobre `program.library(lib).exports`.
+- **No DartForge:** não existe; exemplo `export/ambiguous_main_test.dart`. Proposta: passada em `crates/analysis` sobre `program.library(lib).exports`.
 
 ##### `deprecated_member_use` (perda 1: FN 1)
 
@@ -21434,10 +21434,10 @@ pela unidade carregada ou pelo disco; a `uriStr` da unidade, ou a escrita, ou `f
 - **Emissão:** `ErrorVerifier._checkForTypeAnnotationDeferredClass` (`analyzer/lib/src/generated/error_verifier.dart:5369-5377`), de `visitAsExpression` (`:342`), `visitIsExpression` (`:1138`), catch (`:442`), `FieldFormalParameter`/`SimpleFormalParameter` (`:899`, `:1406`), retornos de função/método/parâmetro funcional (`:963`, `:1030`, `:1179`), **cada elemento de toda `TypeArgumentList`** (`:1576-1580`), limite de parâmetro de tipo (`:1588`), `VariableDeclarationList` (`:1630`). Fora: cláusulas, typedef, `GenericFunctionType`, record, padrões, `for-in`, `new lib.K()`.
 - **Condição:** `type is NamedType && type.isDeferred` (`analyzer/lib/src/dart/ast/ast.dart:12695-12705`): prefixo `PrefixElement` com **exatamente um** import, e ele `deferred`; independe de o nome resolver.
 - **Posição:** o `NamedType` inteiro. **Mensagem:** `The deferred type '{0}' can't be used in a declaration, cast, or type test.` (`messages.yaml:16288`), `{0}` = `prefixo.Nome`.
-- **No DartForge:** não implementado; FN `regress/regress23408a_test.dart:17` (`factory C.l() = A<lib.K>;`). Proposta: verificador sintático em `crates/analise` nas posições acima (pode reaproveitar `Leitor::adiado`, `clausulas.rs:200-210`, exigindo `count == 1` e prefixo não escondido).
+- **No DartForge:** não implementado; FN `regress/regress23408a_test.dart:17` (`factory C.l() = A<lib.K>;`). Proposta: verificador sintático em `crates/analysis` nas posições acima (pode reaproveitar `Leitor::adiado`, `clausulas.rs:200-210`, exigindo `count == 1` e prefixo não escondido).
 
 **Estado em 2026-10-05 (escrito, não compilado).** `type_annotation_deferred_class` em
-`crates/analise/src/importacoes.rs` (`tipos_adiados`), sobre as arenas do AST: `as`/`is`, `on`, tipos de
+`crates/analysis/src/importacoes.rs` (`tipos_adiados`), sobre as arenas do AST: `as`/`is`, `on`, tipos de
 parâmetro (também dentro de tipos de função e da forma antiga), retornos de declaração, limites de
 parâmetro de tipo, listas de variáveis e os elementos de toda lista de argumentos de tipo.
 
@@ -23922,9 +23922,9 @@ unidade); `unused_element` e afins usam os usos da **biblioteca inteira** (todas
 
 | regra oficial | DartForge hoje | diferença |
 |---|---|---|
-| coleta de usos sobre a AST **resolvida** (elementos) | `crates/analise/src/privados.rs:218` (`nao_usados`) e `crates/analise/src/locais.rs:812` | o DartForge não tem os cinco conjuntos; a comparação linha a linha das regras de F.R4-2.1 contra `privados.rs` não foi feita nesta rodada |
+| coleta de usos sobre a AST **resolvida** (elementos) | `crates/analysis/src/privados.rs:218` (`nao_usados`) e `crates/analysis/src/locais.rs:812` | o DartForge não tem os cinco conjuntos; a comparação linha a linha das regras de F.R4-2.1 contra `privados.rs` não foi feita nesta rodada |
 | `_isUsedElement`/`_isUsedMember`/`_isReadMember` | idem | a conferir contra os pseudocódigos de F.R4-2.2, um ramo por caso da seção F.R4-2.6 |
-| import usado = alguma consulta de nome o atingiu; todo import que fornece o nome é marcado | `crates/analise/src/importacoes.rs:50` (`nao_usados`), com as funções auxiliares `parametros` (`:193`), `anotacoes` (`:206`), `referencias_de_comentario` (`:223`) | o DartForge decide "pelo lado seguro" (ESTADO.md, §1.4); a regra oficial exige o **namespace por diretiva** (que import fornece cada elemento), que é a mesma estrutura pedida pelo LSP |
+| import usado = alguma consulta de nome o atingiu; todo import que fornece o nome é marcado | `crates/analysis/src/importacoes.rs:50` (`nao_usados`), com as funções auxiliares `parametros` (`:193`), `anotacoes` (`:206`), `referencias_de_comentario` (`:223`) | o DartForge decide "pelo lado seguro" (ESTADO.md, §1.4); a regra oficial exige o **namespace por diretiva** (que import fornece cada elemento), que é a mesma estrutura pedida pelo LSP |
 | `unnecessary_import`, `duplicate_import`, `duplicate_export`, `duplicate_shown_name`, `duplicate_hidden_name` | não implementados (documento de infraestrutura, II.8) | — |
 
 O plano: (1) portar a coleta de F.R4-2.1 como uma passada sobre os corpos já inferidos, produzindo os
@@ -26611,7 +26611,7 @@ de `dart:core`).
   passar sobrescreve, e a passagem é em ordem de fonte. Logo hoje vence a última em ordem de fonte;
   não há a ordem por espécie de (a).
 * Os verificadores **pulam** classes homônimas em vez de as tratar:
-  `crates/analise/src/clausulas.rs:1114` (`if programa.classes.iter().filter(|c| c.library == lib &&
+  `crates/analysis/src/clausulas.rs:1114` (`if programa.classes.iter().filter(|c| c.library == lib &&
   c.name == classe.name).count() > 1 { continue; }`) e os pontos citados no §0 T1
   (`types/src/sobrescritas.rs`, `analise/src/construtores.rs`, `analise/src/inicializacao.rs`).
 * Tipos: a identidade de uma classe é o `ClassId`; dois homônimos têm ids diferentes, logo **já são
@@ -26657,7 +26657,7 @@ Invariantes:
    posição; depois escolher o vencedor pela ordem `(espécie conforme a lista de (a), unidade, posição
    na fonte)`. Getters e setters ocupam vagas separadas (`getter`/`setter`), como `_getters`/`_setters`.
    Preencher `representante` para os grupos da mesma espécie.
-2. **Duplicatas de topo** (`crates/analise/src/duplicatas.rs`): conferir que o relato já é por ordem de
+2. **Duplicatas de topo** (`crates/analysis/src/duplicatas.rs`): conferir que o relato já é por ordem de
    fonte e independente do vencedor (regra (b)); os casos `c02` são o teste.
 3. **Consultas de interface e hierarquia** (`crates/types/src/hierarchy.rs`, `inferencia/membros.rs`):
    um único ponto de entrada `interface_de(classe)` / `supertipos_de(classe)` que aplica o invariante 3.
@@ -26755,8 +26755,8 @@ Os casos `c08`, `c17` e `c19` (homônimos entre unidades `part` e entre bibliote
 **não foram rodados nesta rodada**: a regra (a) diz que a ordem entre unidades é a de
 `library.units`; falta a evidência.
 
-Cada caso vira um teste em `crates/paridade/tests/` no molde da sonda
-(`crates/paridade/tests/sonda.rs`): a fonte, e a lista esperada de `(código, offset, length, mensagem)`.
+Cada caso vira um teste em `crates/parity/tests/` no molde da sonda
+(`crates/parity/tests/sonda.rs`): a fonte, e a lista esperada de `(código, offset, length, mensagem)`.
 
 ##### T1.6 Códigos e famílias afetados
 
@@ -26783,7 +26783,7 @@ Cada caso vira um teste em `crates/paridade/tests/` no molde da sonda
   não vazio").
 * **Risco 3: o emissor JS e o nativo** usam `declared`. A mudança do passo 1 altera qual declaração um
   nome designa quando há homônimos — programas inválidos, que os compiladores já recusam. Conferir que
-  o corpus JS e o nativo não mudam (`dartforge-diferencial determinismo`).
+  o corpus JS e o nativo não mudam (`dartforge-differential determinismo`).
 * **Pronto quando:** (1) os 19 casos passam com a lista exata de diagnósticos; (2) o placar não perde
   acerto em nenhum código publicado; (3) as amostras de `aug.txt` dos seis códigos acima viram acerto ou
   ficam explicadas por outro achado; (4) nenhum diagnóstico novo nos pacotes do pub-cache
@@ -27165,7 +27165,7 @@ cobre pela regra geral (a assinatura pública vem sempre da declaração de orig
 - Carregamento: `crates/elements/src/sdk.rs:117` (`SdkLayout::load(lib_dir, target)`) lê
   `lib/libraries.json`, seção do alvo; cada `SdkLibrary` traz `patches: Vec<PathBuf>` (`sdk.rs:14-20`,
   leitura em `sdk.rs:227-246`). Todos os consumidores de análise usam o alvo `"dartdevc"`:
-  `crates/paridade/src/analise.rs:108`, `crates/lsp/src/semantica.rs:79`, `crates/cli/src/motor.rs:316`.
+  `crates/parity/src/analise.rs:108`, `crates/lsp/src/semantica.rs:79`, `crates/cli/src/motor.rs:316`.
 - `crates/elements/src/load.rs:345-410`: para `dart:x`, carrega a unidade principal
   (`UnitRole::Library`) e, em seguida, cada patch como unidade `UnitRole::Patch` com URI
   `dart:x#patch_<arquivo>` (`load.rs:388-407`); partes de patch também são patch (`load.rs:471-473`).
@@ -27195,8 +27195,8 @@ cobre pela regra geral (a assinatura pública vem sempre da declaração de orig
     por nome existe (`sym_from_environment`/`sym_has_environment`, `avaliador.rs:158-159`), mas a
     recusa vem antes.
   - Unidades de patch são puladas por vários verificadores (`crates/types/src/constantes/verificador.rs:127`,
-    `crates/analise/src/importacoes.rs:66`, `crates/analise/src/membros.rs:741`,
-    `crates/paridade/src/analise.rs:308`) — isto é: o patch já é tratado como "não é código do
+    `crates/analysis/src/importacoes.rs:66`, `crates/analysis/src/membros.rs:741`,
+    `crates/parity/src/analise.rs:308`) — isto é: o patch já é tratado como "não é código do
     usuário", mas os **elementos** dele ainda são os que a resolução entrega.
   - LSP: definição/hover/documentação caem na unidade `#patch_…` (§0 T3; `crates/lsp` — pontos
     exatos não levantados nesta rodada: **não verificado**).
@@ -27372,7 +27372,7 @@ nós para todo elemento com `declaracao_publica`), hover/definição no LSP.
 - Pronto quando: (1) os casos 1–5 dão exatamente os diagnósticos listados; (2) as 5 FP de
   `const_with_non_const` e a FP de `const_initialized_with_non_constant_value` somem e os 3 FN de
   `const_eval_throws_exception` viram acerto; (3) nenhum FP novo nos códigos de
-  `crates/analise/verificados.txt`; (4) os testes de emissão JS/nativo passam sem mudança de saída.
+  `crates/analysis/verificados.txt`; (4) os testes de emissão JS/nativo passam sem mudança de saída.
 
 #### T2 — Plano de implementação detalhado
 
@@ -27409,7 +27409,7 @@ oraculo(arquivo, grupo):
 
 - `corpus/diagnosticos/sintaxe-nova.json`: objeto `{ "<grupo>": ["<caminho relativo ao grupo>", …] }`,
   duas chaves: `analyzer` (498 arquivos) e `linguagem` (68) — 566 no total. Gravado por
-  `oraculo::gravar_sintaxe_nova` (`crates/paridade/src/oraculo.rs:276`), lido por `ler_sintaxe_nova` (`:268`).
+  `oraculo::gravar_sintaxe_nova` (`crates/parity/src/oraculo.rs:276`), lido por `ler_sintaxe_nova` (`:268`).
 - Grupos `*-3.13` (`grupo.json` com `"sdk": "3.13.4"`): `analyzer-3.13` tem 2 arquivos
   (`invalid_language_override/InvalidLanguageOverride__correct_11_12.dart`, `…correct_3_190.dart`),
   `linguagem-3.13` tem 5 (`extension_type/regress_53625_error_test.dart`, `final/param_test.dart`,
@@ -27518,7 +27518,7 @@ continua dando `experiment_not_enabled … 3.6.0`, c19) — por isso esses arqui
 
 ##### 2. Estado atual no DartForge
 
-- **Corpus/placar** (`crates/paridade`): `SdkOraculo::{V362,V3134}` (`oraculo.rs:18-25`), `raiz()`
+- **Corpus/placar** (`crates/parity`): `SdkOraculo::{V362,V3134}` (`oraculo.rs:18-25`), `raiz()`
   (`:57-63`, `E:/DartSDKs/3.6.2` e `E:/DartSDKs/3.13.4/dart-sdk`, variáveis `DARTFORGE_ORACULO_3_6/_3_13`);
   `RECURSOS_DESCONHECIDOS_NO_3_6_2` (`:252`); `usa_sintaxe_nova` (`:259`); `regravar_oraculo`
   (`main.rs:327`) regrava com o SDK do grupo e depois `substituir_arquivos` (`main.rs:423`) troca os
@@ -27528,13 +27528,13 @@ continua dando `experiment_not_enabled … 3.6.0`, c19) — por isso esses arqui
   "mensagem" quando `problem_message` **ou `correction_message`** diferem (`placar.rs:121-122`) —
   é por isso que as 96 amostras `mensagem` de `experiment_not_enabled` mostram a mesma problemMessage
   dos dois lados: a diferença está só na correção (`3.6.0` × `3.8.0`).
-- **Motor** (`crates/paridade/src/analise.rs`): não recebe a lista. Calcula
+- **Motor** (`crates/parity/src/analise.rs`): não recebe a lista. Calcula
   `libs_com_sintaxe_nova: BTreeSet<LibraryId>` (`:297`) por biblioteca, a partir dos diagnósticos
   sintáticos **do nosso parser** (`:317-327`, `duplicatas::usa_sintaxe_posterior_ao_3_6`). Usos hoje:
   (1) `duplicatas(…, !sintaxe_nova)` (`:328`) — não juntar homônimas; (2) pular
   `parametros_nao_usados` (`:524-531`) — em vez de trocar o nome do código; (3) calar
   `invalid_annotation`/`undefined_annotation` (`:571-575`). Mais nada consulta o marcador.
-- **`crates/analise/src/duplicatas.rs:128`** `RECURSOS_POSTERIORES_AO_3_6` (cópia da lista de
+- **`crates/analysis/src/duplicatas.rs:128`** `RECURSOS_POSTERIORES_AO_3_6` (cópia da lista de
   `oraculo.rs:252`) e `:132` `usa_sintaxe_posterior_ao_3_6(&[Diagnostic])` — olha `d.args[0]` dos
   `experiment_not_enabled`. `crates/lsp/src/lib.rs:624` repete o cálculo por arquivo aberto.
 - **`crates/frontend/src/features.rs`**: `LanguageVersion::PISO = 3.6` (`:37`), `ATUAL = 3.13` (`:41`);
@@ -27551,7 +27551,7 @@ continua dando `experiment_not_enabled … 3.6.0`, c19) — por isso esses arqui
 - **Catálogo** (`crates/diagnostics/src/codigos_g.rs`, gerado de analyzer-6.11.0 +
   `_fe_analyzer_shared-76.0.0`, cabeçalho `:2`): 1.040 entradas; `InfoCodigo { nome, unico, mensagem,
   correcao, tipo, severidade, documentado }` (`lib.rs:137-152`) — **um** molde por código. Suplemento
-  3.13.4 de 10 entradas (`crates/paridade/examples/gerar_codigos.rs:37` `SUPLEMENTO_3_13`): só códigos
+  3.13.4 de 10 entradas (`crates/parity/examples/gerar_codigos.rs:37` `SUPLEMENTO_3_13`): só códigos
   novos (construtores primários, atalhos de ponto), nenhum texto alternativo de código existente.
   `WarningCode.UNUSED_ELEMENT_PARAMETER` tem `nome: "unused_element"` (`codigos_g.rs:700`).
 - **Emissores sensíveis à versão hoje**: `types/src/parametros.rs:402` (`UNUSED_ELEMENT_PARAMETER`,
@@ -27630,7 +27630,7 @@ Não entram (texto do main que o 3.13.4 **não** tem ou não foi conferido): `am
 1. `crates/diagnostics/src/lib.rs` (depois de `Codigo`, `:164-201`): `Referencia`, `Variante313`,
    `Codigo::variante_3_13`, `Diagnostic::na_referencia` (re-renderiza `message` com
    `formatar(para.info().mensagem, args reordenados)`, troca `code`, mantém `span`; severidade = a de
-   `para`). `crates/paridade/examples/gerar_codigos.rs:37-78,426-438`: estender `SUPLEMENTO_3_13` com
+   `para`). `crates/parity/examples/gerar_codigos.rs:37-78,426-438`: estender `SUPLEMENTO_3_13` com
    as entradas `para` novas e gerar `VARIANTES_3_13`. Teste da contagem em `lib.rs:356-360` muda.
 2. `crates/frontend/src/features.rs:103-163`: `Feature::DESCONHECIDOS_NO_3_6`,
    `versao_relatada_no_3_6`. Depende de 1 só pelo tipo `Referencia` (reexportado).
@@ -27648,20 +27648,20 @@ Não entram (texto do main que o 3.13.4 **não** tem ou não foi conferido): `am
 5. `crates/elements/src/model.rs:120-130` + `crates/elements/src/load.rs` (onde as unidades são
    montadas com `features`, `:242`, `:285`, `:364`, `:1084`): copiar `Parsed::referencia` para
    `Unit::referencia`; `Program::referencia_da_biblioteca` = máximo das unidades.
-6. `crates/paridade/src/analise.rs`: apagar o cálculo de `:317-327` (usar
+6. `crates/parity/src/analise.rs`: apagar o cálculo de `:317-327` (usar
    `program.referencia_da_biblioteca(*lib)`), manter `:328` com ele; apagar a porta `:526-528`
    (`parametros_nao_usados` roda sempre — o nome sai pela variante); manter `:571-575`; **ponto
    único**: no laço final `:642-656`, antes da deduplicação, `d = d.na_referencia(referencia da
    unidade do arquivo)`. Nenhum emissor consulta a referência — só passam os argumentos extras.
-7. `crates/analise/src/duplicatas.rs:123-137`: `RECURSOS_POSTERIORES_AO_3_6` e
+7. `crates/analysis/src/duplicatas.rs:123-137`: `RECURSOS_POSTERIORES_AO_3_6` e
    `usa_sintaxe_posterior_ao_3_6` saem (ficam `Feature::DESCONHECIDOS_NO_3_6` e `Unit::referencia`);
-   `crates/paridade/src/oraculo.rs:252` passa a derivar a lista de `Feature::DESCONHECIDOS_NO_3_6`;
+   `crates/parity/src/oraculo.rs:252` passa a derivar a lista de `Feature::DESCONHECIDOS_NO_3_6`;
    `crates/lsp/src/lib.rs:616-624` usa `parsed.referencia`.
 8. Emissores que ganham argumentos extras (cada um com a sua família): `types/src/parametros.rs:402`
    (nada muda), `analise/src/enums.rs:33` (nada muda), §D `const_constructor_with_non_const_super`
    (`[classe, superclasse]`), §C `super_invocation_not_last`, `recursive_interface_inheritance`
    (dois caminhos), §A `wrong_number_of_type_arguments_method`, `ambiguous_extension_member_access`.
-9. `crates/paridade/src/main.rs:189-231` (placar): nova linha de conferência — para cada grupo 3.6.2,
+9. `crates/parity/src/main.rs:189-231` (placar): nova linha de conferência — para cada grupo 3.6.2,
    `nosso_313 = {arquivos com Unit::referencia == V3_13}` contra `sintaxe-nova.json[grupo]`; imprimir
    `só nosso` e `só oráculo`. É o critério de pronto (item 7).
 
@@ -27914,7 +27914,7 @@ os casos novos foram rodados nos dois oráculos vivos.
   (`[classe, superclasse]`), `ambiguous_extension_member_access` (as duas extensões por extenso, só
   quando são duas, nomeadas e sem parâmetros de tipo), `recursive_interface_inheritance` (terceiro
   argumento: o componente fortemente conexo na ordem do `DependencyWalker` do main, função
-  `componente_3_13` em `crates/analise/src/clausulas.rs`; lido em
+  `componente_3_13` em `crates/analysis/src/clausulas.rs`; lido em
   `analyzer/lib/src/summary2/interface_cycles.dart` e
   `_fe_analyzer_shared/lib/src/util/dependency_walker.dart`, e confere com c21),
   `non_exhaustive_switch_*` (quarto argumento na condição "privado", olhando só a primeira
@@ -28076,7 +28076,7 @@ antes de `expected_token` ("Expected to find ')'."); s12 `const_constructor_para
 
 ##### 2. Estado atual no DartForge
 
-`Motor::analisar_com` (`crates/paridade/src/analise.rs:173-658`) é o único condutor; a ordem das
+`Motor::analisar_com` (`crates/parity/src/analise.rs:173-658`) é o único condutor; a ordem das
 passagens (os números são os dos comentários do próprio arquivo):
 
 | passo | linhas | o que roda | escopo |
@@ -28084,9 +28084,9 @@ passagens (os números são os dos comentários do próprio arquivo):
 | carga | `:209-225` | `load_lenient_gerados` (parse de tudo, outline de elementos) | lote |
 | 1 sintaxe | `:246-271` | diagnósticos da carga → `ponte::codificar_sintaxe`; `Arquivo::sintaticos` conta os primeiros | arquivo |
 | 2 diretivas | `:273-293` | `diretiva_sem_alvo` (`:662-713`) | unidade |
-| 3 `crates/analise` | `:301-386` | `duplicatas::duplicatas`, `enums::sem_constantes`, `inicializacao::finais_nao_inicializados`; por unidade `locais::nao_usados`, `externos::inicializadores`, `nativos::fora_do_sdk`, `operadores::aridade`; `privados::nao_usados`; `heranca::estatico_contra_super`; `modificadores::fora_da_biblioteca`; `clausulas::verificar`; `membros::verificar` | biblioteca |
+| 3 `crates/analysis` | `:301-386` | `duplicatas::duplicatas`, `enums::sem_constantes`, `inicializacao::finais_nao_inicializados`; por unidade `locais::nao_usados`, `externos::inicializadores`, `nativos::fora_do_sdk`, `operadores::aridade`; `privados::nao_usados`; `heranca::estatico_contra_super`; `modificadores::fora_da_biblioteca`; `clausulas::verificar`; `membros::verificar` | biblioteca |
 | 4 tipos | `:392-586` | outline (`resolve_outline_com_unidades`), inicializadores (duas passadas, `:403-412`), corpos por biblioteca (`:418-463`), `constantes::verificar` (`:491-503`), `sobrescritas::*`, `variancia`, `parametros_nao_usados` (`:506-532`), `limites::*` (`:534-543`), codificação pela ponte e filtros (`:551-586`) | lote/biblioteca |
-| 5 imports | `:588-605` | `importacoes::nao_usados` com os diagnósticos já acumulados (`suprime`, `crates/analise/src/importacoes.rs:27-46`: os mesmos 14 códigos de 1.3) | biblioteca |
+| 5 imports | `:588-605` | `importacoes::nao_usados` com os diagnósticos já acumulados (`suprime`, `crates/analysis/src/importacoes.rs:27-46`: os mesmos 14 códigos de 1.3) | biblioteca |
 | 6 filtros de sintaxe | `:607-637` | ver abaixo | arquivo |
 | deduplicação | `:638-656` | chave `(nome do código, início, fim, mensagem)` | arquivo |
 
@@ -28094,10 +28094,10 @@ Portas ligadas a erro de sintaxe que o oficial **não** tem:
 
 1. `libs_com_erro_de_sintaxe` (`:300`, preenchido em `:348-353`): a biblioteca tem algum diagnóstico
    sintático para o qual `recuperacao_do_parser` (`:725-765`) responde verdadeiro. Consequências:
-   `privados::nao_usados(…, com_erro)` devolve vazio (`crates/analise/src/privados.rs:223-225`) —
+   `privados::nao_usados(…, com_erro)` devolve vazio (`crates/analysis/src/privados.rs:223-225`) —
    somem `unused_element` e `unused_field` da biblioteca inteira; `parametros_nao_usados` não roda
    (`analise.rs:524-531`).
-2. `locais::nao_usados(…, &sintaticos)` (`analise.rs:333-342`, `crates/analise/src/locais.rs:812-827`):
+2. `locais::nao_usados(…, &sintaticos)` (`analise.rs:333-342`, `crates/analysis/src/locais.rs:812-827`):
    descarta o local declarado **antes** de um erro de sintaxe da mesma declaração executável.
 3. Passo 6 (`:621-637`): num arquivo com erro de recuperação, descarta todo semântico cujo código é
    `depende_de_declaracoes` (`:814-824`: `undefined_identifier`, `undefined_function`,
@@ -28123,11 +28123,11 @@ Outros pontos gerais: `vistos` (`:551`, `:581`) deduplica os diagnósticos de ti
 `(unidade, início, fim, mensagem)` — **sem o código**; `clausulas` (`:547-550`, `:576-580`) cala
 `undefined_class`/`not_a_type` nos tipos de `extends`/`implements`/`with`; os códigos de constantes
 sem `code` vindos da inferência são descartados (`:561-566`). Publicação
-(`crates/analise/src/publicacao.rs:24-32`): sintático sempre, semântico só se o nome está em
-`crates/analise/verificados.txt` (194 linhas). `// ignore` e `analysis_options`:
-`crates/paridade/src/filtros.rs` (`Ignorados::de_texto` :168-195 — linha seguinte ou a própria;
+(`crates/analysis/src/publicacao.rs:24-32`): sintático sempre, semântico só se o nome está em
+`crates/analysis/verificados.txt` (194 linhas). `// ignore` e `analysis_options`:
+`crates/parity/src/filtros.rs` (`Ignorados::de_texto` :168-195 — linha seguinte ou a própria;
 `ignora` :204-210 por nome ou `type=`; `Opcoes::processar` :122-132). Ordenação da saída:
-`crates/paridade/src/json.rs:157-166` (severidade, arquivo, linha, coluna, mensagem) — igual à do
+`crates/parity/src/json.rs:157-166` (severidade, arquivo, linha, coluna, mensagem) — igual à do
 `dartdev`. O placar não depende da ordem (`placar.rs:107-109` ordena os dois lados).
 
 Efeito medido das portas no `placar-r7.txt` (amostras em arquivos cujo oráculo tem algum
@@ -28155,10 +28155,10 @@ desligadas — não feito (proibido compilar nesta rodada).
 
 (a) **Um coletor por arquivo**, com a semântica do `RecordingErrorListener` — hoje há três pontos de
 deduplicação com chaves diferentes (`vistos` de tipos sem código, `:551`; `vistos` final com o nome,
-`:643`; nenhum nas passagens de `crates/analise`).
+`:643`; nenhum nas passagens de `crates/analysis`).
 
 ```rust
-// crates/paridade/src/analise.rs (substitui Arquivo::diags: Vec<Diagnostic> + os dois `vistos`)
+// crates/parity/src/analise.rs (substitui Arquivo::diags: Vec<Diagnostic> + os dois `vistos`)
 pub struct Coletor {
     diags: Vec<Diagnostic>,                         // ordem de chegada (irrelevante para a saída)
     vistos: HashSet<(Codigo, usize, usize, u64)>,   // (ErrorCode único, início, fim, hash da mensagem)
@@ -28194,7 +28194,7 @@ pub struct Parsed { /* … */ pub recuperacoes: Vec<(Span, Recuperacao)> }   // 
 `locais::nao_usados`, `com_erro_de_sintaxe` de `privados::nao_usados` e o passo 6:
 
 ```rust
-// crates/analise/src/lib.rs
+// crates/analysis/src/lib.rs
 pub struct Pulados<'a> { fonte: &'a str, trechos: Vec<Span> }      // os TrechoPulado da unidade
 impl Pulados<'_> {
     /// O identificador `nome` aparece como palavra inteira em algum trecho pulado?
@@ -28215,7 +28215,7 @@ a do fasta):
 
 ##### 4. Funções a tocar (em ordem)
 
-1. `crates/paridade/src/analise.rs:41-48` (`Arquivo`) e todos os `a.diags.push(…)` (`:260`, `:270`,
+1. `crates/parity/src/analise.rs:41-48` (`Arquivo`) e todos os `a.diags.push(…)` (`:260`, `:270`,
    `:290`, `:358`, `:365`, `:372`, `:382`, `:585`, `:601`): passam a `coletor.relatar(d)`. Apagar
    `vistos` de `:551/:581` e o laço `:642-656`. Sem dependência; não muda o placar exceto onde a
    chave antiga juntava variantes (c16 de T2).
@@ -28229,20 +28229,20 @@ a do fasta):
    de ter registrado `SoRelato`.
 3. `crates/elements/src/model.rs` (`Unit`, `:120-130`): guardar `recuperacoes` da unidade (a carga
    hoje só repassa os diagnósticos, `load.rs`). Depende de 2.
-4. `crates/analise/src/lib.rs:43-53`: `Pulados`; `Unidade` ganha `pulados: &'a [Span]`.
-5. `crates/analise/src/locais.rs:812-827` (`nao_usados`): trocar o filtro "erro depois da declaração
-   no mesmo executável" por `pulados_do_executavel.cita(nome)`. `crates/analise/src/privados.rs:218-225`:
+4. `crates/analysis/src/lib.rs:43-53`: `Pulados`; `Unidade` ganha `pulados: &'a [Span]`.
+5. `crates/analysis/src/locais.rs:812-827` (`nao_usados`): trocar o filtro "erro depois da declaração
+   no mesmo executável" por `pulados_do_executavel.cita(nome)`. `crates/analysis/src/privados.rs:218-225`:
    tirar o retorno antecipado; no ponto em que o candidato vira diagnóstico (`:410-411`), pular se
    `pulados_da_biblioteca.cita(nome)`. Depende de 4.
-6. `crates/paridade/src/analise.rs`: apagar `libs_com_erro_de_sintaxe` (`:300`, `:348-353`) e a
+6. `crates/parity/src/analise.rs`: apagar `libs_com_erro_de_sintaxe` (`:300`, `:348-353`) e a
    condição em `:525`; passo 6 (`:607-637`) reescrito com a tabela de (c);
    `depende_de_declaracoes`/`depende_da_linha` (`:814-832`) ficam, com a condição nova;
    `recuperacao_do_parser` e `ponto_e_virgula_inserido` (`:725-804`) saem. Depende de 3 e 5.
 7. `crates/lsp/src/lib.rs:616-624`: usar `parsed.recuperacoes`. Depende de 2.
-8. `crates/analise/src/importacoes.rs:27-46,56`: sem mudança de regra (a lista já é a de
+8. `crates/analysis/src/importacoes.rs:27-46,56`: sem mudança de regra (a lista já é a de
    `library_analyzer.dart:594-609` e compara `Codigo`); trocar `ja_relatados: &[Diagnostic]` por
    `Coletor::tem_codigo` das unidades da biblioteca. Depende de 1.
-9. (fora das famílias; só se for pedido) `crates/paridade/src/filtros.rs:168-195`: `duplicate_ignore`
+9. (fora das famílias; só se for pedido) `crates/parity/src/filtros.rs:168-195`: `duplicate_ignore`
    do `IgnoreValidator` (s05). Hoje o código só existe no catálogo.
 
 A ordem dos verificadores em si **não precisa mudar**: como a saída é um conjunto ordenado
@@ -28484,12 +28484,12 @@ naquele arquivo não citar o nome — não verificado arquivo a arquivo (exige r
   (4) há um só ponto de deduplicação (`Coletor::relatar`).
 
 **Estado em 2026-10-04 (escrito, não compilado).** Feito: do passo 1, a chave de deduplicação passou
-ao código **único** nos dois pontos de `crates/paridade/src/analise.rs` (o tipo `Coletor` não foi
+ao código **único** nos dois pontos de `crates/parity/src/analise.rs` (o tipo `Coletor` não foi
 criado: `Arquivo::diags` é lido por outros crates e ficou como está); do passo 2, o parser registra os
 trechos pulados (`Parsed::pulados`, `Parser::registrar_pulado`, chamado depois de `recover_top_level`,
 `recover_member`, `synchronize_statement` e no salto de `garantir_fecha_parenteses`) — só a classe
 `TrechoPulado`; `SoRelato` e `TokenSintetico` não são registrados, porque nenhuma regra os consulta; o
-passo 3 (`Unit::pulados`, inclusive na troca incremental); o passo 4 como `dartforge_analise::Pulados`
+passo 3 (`Unit::pulados`, inclusive na troca incremental); o passo 4 como `dartforge_analysis::Pulados`
 (a `Unidade` não ganhou campo: as variantes recebem os trechos à parte); o passo 5 como
 `locais::nao_usados_com_pulados` e `privados::nao_usados_com_pulados`; o passo 6 com a tabela da
 estrutura (c). **A regra nova só vale com `DARTFORGE_PORTAS_DE_SINTAXE=pulados`**; o padrão continua
@@ -28508,7 +28508,7 @@ antes da declaração ou fora do escopo não pode ter uma leitura do local (`cas
 **Estado em 2026-10-05 (compilado e testado): a regra dos trechos pulados é a única.** Com a
 recuperação do parser alinhada à do fasta (agrupamento do scanner, `ensureIdentifier`,
 `moveSynthetic`, laços de progresso), a troca foi medida e feita: `libs_com_erro_de_sintaxe`,
-`recuperacao_do_parser` e `ponto_e_virgula_inserido` saíram de `crates/paridade/src/analise.rs`, e
+`recuperacao_do_parser` e `ponto_e_virgula_inserido` saíram de `crates/parity/src/analise.rs`, e
 `DARTFORGE_PORTAS_DE_SINTAXE` não existe mais. O `UnusedLocalElementsVerifier` roda em toda
 biblioteca (`library_analyzer.dart:513-521`), o semântico (`fase_nao_usados`) inclusive nas que têm
 erro de sintaxe, com o filtro dos nomes citados em trechos pulados; `privados::nao_usados` e
@@ -28591,7 +28591,7 @@ o mesmo texto e elementos diferentes de mesmo nome (p04 `C`×`C`, `List<C>`×`Li
 `'(C,)'` × `'(C,)'` sem `where`); o alias não esconde os elementos (p12 `P<C>`: percorre o
 `Map<C, C>` real); `Map<C, C>` com os dois `C` diferentes lista os dois, na ordem dos argumentos de
 tipo (p12). O caminho é `source.fullName` (no Windows, `E:\…\a.dart`); o registro do corpus o
-normaliza para `<raiz>/…` (`crates/paridade/src/oraculo.rs:120` `sem_raiz`).
+normaliza para `<raiz>/…` (`crates/parity/src/oraculo.rs:120` `sem_raiz`).
 
 **1.2 `getDisplayString` de tipos** (`type.dart:1438-1450` → `appendTo` → `ElementDisplayStringBuilder`).
 `preferTypeAlias` é falso por padrão e **verdadeiro** só no `_convertTypeNames`.
@@ -28701,7 +28701,7 @@ Há **dois formatadores de tipo** e nenhuma etapa comum de argumentos:
 
 Emissores: `verificar_atribuivel` (`crates/types/src/inferencia/mod.rs:628-639`) formata `de` e
 `para` com `table.format` cada um e monta um texto em português (`"{molde}: '{}' não é atribuível a
-'{}'"`), que a ponte (`crates/paridade/src/ponte.rs:123-136`, `aspas` `:19-33`) reparte pelos
+'{}'"`), que a ponte (`crates/parity/src/ponte.rs:123-136`, `aspas` `:19-33`) reparte pelos
 apóstrofos para obter os argumentos do molde oficial. Os demais chamam `table.format` direto — 10
 pontos em `inferencia/expr.rs` (`:1090`, `:1284-1285`, `:1655`, `:2102`, `:2308`, `:2320`, `:3192`,
 `:3253`…), 8 em `inferencia/colecoes.rs`, 6 em `inferencia/instrucoes.rs`, 5 em
@@ -28710,7 +28710,7 @@ pontos em `inferencia/expr.rs` (`:1090`, `:1284-1285`, `:1655`, `:2102`, `:2308`
 `constantes/verificador.rs:774,906-1004`), `constraints.rs:514,611` e `inferencia/atalhos.rs:72`
 (`format_sem_alias`), `inferencia/expr.rs:1278` (`format_sem_alias` no texto extra de records).
 **Nenhum** agrupa os argumentos-tipo do relato: `grep "defined in"` em `crates/types/src` não acha
-nada — a desambiguação de 1.1 não existe. `crates/analise/src/*` não formata tipos (trabalha sobre a
+nada — a desambiguação de 1.1 não existe. `crates/analysis/src/*` não formata tipos (trabalha sobre a
 árvore, sem `TypeTable`); `crates/diagnostics` só formata o molde (`formatar`, `lib.rs:232-256`).
 
 ##### 3. Estruturas de dados
@@ -28773,7 +28773,7 @@ Os nomeados de `Type::Function` continuam ordenados por `SymbolId` para o hash-c
 3. Novo `crates/types/src/exibicao.rs`: mover `formatar`, `renomear_formais`,
    `parametros_referidos` (`table.rs:349-580`) para `Exibidor::tipo`; `TypeTable::format` e
    `format_sem_alias` (`:413-420`) viram delegações (não quebrar `emit_js`, `emit_native`,
-   `gerador_ng`, `runtime`, que chamam `format`). Implementar `argumentos` (1.1).
+   `ng_generator`, `runtime`, que chamam `format`). Implementar `argumentos` (1.1).
 4. `crates/types/src/despejo.rs:198-265`: `formatar` passa a delegar a `Exibidor::tipo(t, false)`
    para os usos de **despejo**; os oito usos em diagnóstico (`variancia.rs:314`,
    `sobrescritas.rs:384,386,455,457,772,842,1152,1154`) trocam para `Arg::Tipo` ou
@@ -28794,7 +28794,7 @@ Os nomeados de `Type::Function` continuam ordenados por `SymbolId` para o hash-c
    `constantes/verificador.rs:906,914,967,979`, `limites.rs:156-158,270-272`: trocar o par de
    `format` por uma chamada a `argumentos`. As de um tipo só não mudam de texto e migram quando a
    família passar por elas. Depende de 5.
-7. `crates/paridade/src/ponte.rs:63-118`: tirar da lista de moldes os códigos que passaram a sair
+7. `crates/parity/src/ponte.rs:63-118`: tirar da lista de moldes os códigos que passaram a sair
    com código (passo 5).
 
 ##### 5. Casos de teste dirigidos (oráculo vivo 3.6.2; pasta `casos\t2\t7`)
@@ -29067,7 +29067,7 @@ Sem amostra no corpus, mas divergência certa pela leitura do código: nomeados 
   novo, senão a decoração se perde em silêncio (o texto volta a `Null`).
 - **Ponte**: enquanto um código sair pela ponte, o `where` não pode ser emitido para ele (os
   argumentos são recortados por apóstrofo). Fazer o passo 5 antes do 6.
-- **Compiladores**: `format` é usado por `emit_js`, `emit_native`, `gerador_ng`, `runtime`; a
+- **Compiladores**: `format` é usado por `emit_js`, `emit_native`, `ng_generator`, `runtime`; a
   mudança de ordem dos nomeados de função (passo 1) altera textos de depuração lá — conferir que
   nenhum usa o texto como chave.
 - **Ordem**: passos 1–2 a qualquer momento; 3–4 antes de C (variância); 5–7 antes de A. T7 não
@@ -29567,7 +29567,7 @@ Gerado por `E:\dftemp\analise\spec-r4\indice.py` sobre este arquivo. Colunas:
 
 - **seções**: linhas deste documento cujo título cita o código (a 1ª é a seção da rodada 3; as seguintes, os complementos e aprofundamentos da rodada 4). `—` = o código só é tratado dentro de uma seção de grupo, sem título próprio.
 - **verificador oficial (3.6.2)**: constante(s) do código e o primeiro ponto de relato achado por script nos fontes do 3.6.2 (`error/…`, `generated/…`, `dart/…` são relativos a `analyzer/lib/src/`; `fe:` = `_fe_analyzer_shared/lib/src/`; `+n` = outros pontos de relato). Para códigos do parser, o ponto é o uso da mensagem do fasta (`messageX`/`templateX`) que o `error_converter.dart` traduz. A seção do código diz qual ponto vale para cada caso.
-- **DartForge (placar r7)**: `oráculo/nosso/acerto`, depois as perdas (`FN`, `FP`, `msg`, `pos`); `pub` = código publicado em `crates/analise/verificados.txt`; `sem emissão` = o DartForge não emite o código no corpus (nosso = 0).
+- **DartForge (placar r7)**: `oráculo/nosso/acerto`, depois as perdas (`FN`, `FP`, `msg`, `pos`); `pub` = código publicado em `crates/analysis/verificados.txt`; `sem emissão` = o DartForge não emite o código no corpus (nosso = 0).
 
 | código | fam. | seções (linha) | verificador oficial (3.6.2) | DartForge (placar r7) |
 |---|---|---|---|---|

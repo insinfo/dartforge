@@ -30,7 +30,7 @@ Dois caminhos produzem **o mesmo texto, byte a byte**:
   `DARTFORGE_MACROS_NATIVO`) produz o mesmo texto sem VM (MACROS-PROTOCOLO.md
   §3);
 * **na toolchain oficial**, um *builder* do `build_runner` roda **a mesma
-  macro** na VM oficial, com a **nossa** API de macros (`pacotes/macros`, Dart
+  macro** na VM oficial, com a **nossa** API de macros (`packages/macros`, Dart
   puro, sem nada que só o nosso compilador tenha), e grava o arquivo.
 
 O critério é conferido no CI sobre o mesmo corpus (`corpus/macros/*/esperado`):
@@ -40,7 +40,7 @@ pela nossa API também.
 ## 3. A materialização (implementada)
 
 ```
-dartforge macros <entrada.dart> --materializar [--forma 3.6|atual] --dart <dart> [--api pacotes/macros]
+dartforge macros <entrada.dart> --materializar [--forma 3.6|atual] --dart <dart> [--api packages/macros]
 ```
 
 * roda o hospedeiro inteiro (detecção, as três fases com o programa
@@ -92,12 +92,12 @@ O pacote `dartforge_macros_builder` já oferece uma primeira etapa opt-in:
 o `build_runner` resolve as anotações pelo element model do analyzer e grava
 `x.macro_uses.json`. Um caso derivado de `410_json_codable` identifica 4 aplicações.
 A montagem dos resultados estruturados também existe em Dart
-(`pacotes/macros/lib/src/executor/montagem.dart`): a reprodução dos 8
+(`packages/macros/lib/src/executor/montagem.dart`): a reprodução dos 8
 `macro.resultado` de `sessao.dfexec` produz os mesmos 3266 caracteres da
 augmentation do CFE 3.6.2. Essa verificação cobre a montagem, não a
 execução da macro pelo builder.
 Um ensaio no mesmo isolate, usando `package:json` 0.20.4 com a API de
-`pacotes/macros`, reproduz os 8 resultados da sessão CFE. O builder ainda
+`packages/macros`, reproduz os 8 resultados da sessão CFE. O builder ainda
 precisa completar o modelo semântico a partir do `Resolver` para as fases
 restantes.
 O adaptador do builder já serializa classes simples e campos no formato de
@@ -196,7 +196,7 @@ Um pacote `dartforge_macros_builder` para o `build_runner`:
   resolvem para uma `macro class` e monta o modelo com o mesmo JSON do
   `dfexec/1` (`MACROS-PROTOCOLO.md` §5), a partir do *element model* do
   analyzer;
-* executa a macro **no mesmo isolate**, com a nossa API (`pacotes/macros`:
+* executa a macro **no mesmo isolate**, com a nossa API (`packages/macros`:
   `Modelo`, `Introspector`, `executarFase`) e um `Hospedeiro` que responde do
   analyzer — sem processo, sem VM de macros do SDK;
 * monta o texto com a mesma montagem do hospedeiro (a ser portada do

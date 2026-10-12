@@ -82,7 +82,7 @@ A tabela acima é a estimativa por religação. O que entrou, medido de ponta a 
   - `--icf=safe` no `ld.lld`.
   - No `ld64.lld` não entrou: não foi verificado num Mac que um objeto sem `__llvm_addrsig`
     (os do Rust) conte como endereço tomado.
-  - `corpus/nativo/80_tearoffs_de_corpo_identico.dart` confere contra a VM. Com o
+  - `corpus/native/80_tearoffs_de_corpo_identico.dart` confere contra a VM. Com o
     `/opt:icf` completo forçado, ele falha (`nada == nadab` dá `true`); com o seguro, passa.
 - **`optsize` em toda função do SDK de produção** (`sdk_modulo::com_optsize`).
 - **Rejeitado: `opt-level="s"` no runtime.** Tira mais 233 KB (hello) e 248 KB (servidor),
@@ -96,7 +96,7 @@ Tamanho, `aot --optimize`, numa cópia do `HEAD` 0ef4a7ac (bytes):
 | hello | 12 349 440 | 10 706 944 | 10 253 824 | −2,00 MB (−17,0%) |
 | t0 (`map`/`join`) | 12 351 488 | 10 708 992 | 10 255 360 | −17,0% |
 | `bench/http/servidor.dart` | 13 827 584 | 12 124 672 | 11 592 192 | −2,13 MB (−16,2%) |
-| `bench/desempenho/json.dart` | 12 429 312 | 10 773 504 | 10 319 872 | −17,0% |
+| `bench/performance/json.dart` | 12 429 312 | 10 773 504 | 10 319 872 | −17,0% |
 | `bench/simd/bin/blend.dart` | 12 368 384 | 10 724 864 | 10 272 256 | −16,9% |
 
 Tempo de ligação do servidor (cache de objeto quente, duas rodadas): antes 50,6 e 38,2 s;
@@ -137,7 +137,7 @@ Esforço e retorno:
   `llvm/mod.rs` e os resumos em `sdk_modulo.rs`.
 - **Risco:** chamadas por nome em tempo de execução (`Function.apply`, `noSuchMethod`,
   `hash_do_nome` em `seletores.rs`/`closures.rs`, mirrors). Pedem raízes conservadoras, como as
-  do `crates/mundo`.
+  do `crates/world`.
 - **Esforço:** 1–2 semanas.
 - **Projeção (estimativa):** hello de 3,3–3,8 MB e servidor de 4,5–5 MB, abaixo do Dart AOT. A
   religação de produção também fica bem mais rápida; hoje leva de 30 a 86 s.
@@ -169,7 +169,7 @@ em bytes:
 | hello | 10 711 552 | 3 181 568 (−70%) | 5 797 376 |
 | t0 (`map`/`join`) | 10 713 088 | 3 183 616 (−70%) | — |
 | `bench/http/servidor.dart` | 12 075 520 | 4 759 552 (−61%) | 6 108 160 |
-| `bench/desempenho/json.dart` | 10 774 016 | 3 522 560 (−67%) | — |
+| `bench/performance/json.dart` | 10 774 016 | 3 522 560 (−67%) | — |
 | `bench/simd/bin/blend.dart` | 10 731 520 | 3 227 648 (−70%) | — |
 
 - **Pares vivos no hello:** 3 111 de 50 066, em 158 de 662 tabelas. O `.text` cai de 9,5 MB
@@ -181,16 +181,16 @@ em bytes:
   - depois, 11–22 s nas mesmas condições.
 
   É o LTO que encolhe.
-- **Chave de comparação:** com `DARTFORGE_SEM_PODA_DE_TABELAS=1`, o `corpus/nativo/81` volta a
+- **Chave de comparação:** com `DARTFORGE_SEM_PODA_DE_TABELAS=1`, o `corpus/native/81` volta a
   10,8 MB, e todas as formas dos membros não usados reaparecem no mapa.
 - **Verificação, na cópia com a mudança:**
 
   | Corpus e perfil | Resultado |
   |---|---:|
-  | `corpus/nativo` em produção (`dartforge-diferencial --nativo --otimizar`, opção nova) | 93/93 |
-  | `corpus/nativo` com `--nativo` | 93/93 |
-  | `corpus/nativo` com `--nativo --gc-stress --limite-exec 60` | 93/93 |
-  | `corpus/nativo` com `--jit` | 93/93 |
+  | `corpus/native` em produção (`dartforge-differential --nativo --otimizar`, opção nova) | 93/93 |
+  | `corpus/native` com `--nativo` | 93/93 |
+  | `corpus/native` com `--nativo --gc-stress --limite-exec 60` | 93/93 |
+  | `corpus/native` com `--jit` | 93/93 |
   | `corpus/js` em produção | 235/235 |
 
 - **Desempenho igual.** Mínimos em ms de rodadas alternadas, antes / depois:
@@ -229,7 +229,7 @@ Os dois são o que mais pesa agora: `toString` puxa 187 KB do hello.
 | Carga | DartForge | Dart AOT |
 |---|---:|---:|
 | Servidor HTTP, CPU/req, 1 conexão | 180 µs | 102 µs |
-| JSON (`bench/desempenho/json.dart`) | 1,3–7× o Dart AOT | 1× |
+| JSON (`bench/performance/json.dart`) | 1,3–7× o Dart AOT | 1× |
 
 No servidor, cerca de 50 µs por requisição são E/S que os dois pagam. Detalhes nas seções
 §9.10 e §10 de `NATIVO-PLANO.md`.
@@ -415,7 +415,7 @@ que já está neste plano não se repete aqui. O que ele acrescenta:
      `$c`/`$tc`/`$g`/`$tearm` deles (conferido pelo mapa do ligador ou por `llvm-nm`), e o programa
      roda igual à VM.
    - Sem esse caso, o teste só provaria a eliminação de classes inteiras, que já existe.
-   - **Feito (2026-09-30):** `corpus/nativo/81_poda_de_tabelas.dart` e o teste
+   - **Feito (2026-09-30):** `corpus/native/81_poda_de_tabelas.dart` e o teste
      `sdk_modulo::testes::poda_tira_membros_nao_usados`, que confere pelo mapa da ligação.
 2. **Marcador de ABI na ligação** (`packages/compiler/src/backend/runtime-abi.ts`). O objeto do
    programa deixa `scr_runtime_abi_v4` indefinido, e só o runtime compatível o define: a mistura
@@ -434,7 +434,7 @@ que já está neste plano não se repete aqui. O que ele acrescenta:
      montadas na ligação.
    - Então a seleção explícita por capacidade tem **prioridade baixa** como ganho de tamanho. Vale
      como relatório verificável: quais capacidades o executável liga e por quê.
-4. **Relatório de "por que isto ficou no executável".** O `crates/mundo` já registra a causa de
+4. **Relatório de "por que isto ficou no executável".** O `crates/world` já registra a causa de
    alcance (`Causa`: raiz, função, variável, classe). Estender isso ao SDK nativo e às tabelas
    responde a perguntas como "quem puxou este método?" e "por que TLS entrou no hello?".
    - Primeiro passo: trazer para `tools/` o `alcance.py` e o `quebra.py` da pesquisa.

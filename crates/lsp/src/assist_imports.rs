@@ -33,7 +33,7 @@ impl Contexto<'_> {
         }
         let imp = prog.library(unidade.library).imports.iter().find(|i| i.unit == self.unidade && i.directive == indice)?;
         let mut nomes: Vec<String> = match imp.prefix {
-            None => dartforge_analise::importacoes::nomes_usados_do_import(prog, self.unidade, indice, &self.p.consulta.nomes)?
+            None => dartforge_analysis::importacoes::nomes_usados_do_import(prog, self.unidade, indice, &self.p.consulta.nomes)?
                 .into_iter()
                 .map(|s| self.p.nome(s).to_string())
                 .collect(),

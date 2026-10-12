@@ -52,7 +52,7 @@ um método, o tear-off), `s:x` → `<x>$s` (gravar), e as tipadas `tc:m`/`ts:x` 
 * **Swift.** `lib/SILOptimizer/IPO/DeadFunctionElimination.cpp`: um método de vtable vive se algum
   `class_method` alcançável o cita (`ensureAliveClassMethod`); `lib/IRGen/GenMeta.cpp` com
   `VirtualFunctionElimination` deixa o mesmo trabalho para o `GlobalDCE` do LLVM.
-* **`crates/mundo`.** O RTA do JS de produção: classes instanciadas × seletores vivos, e raízes
+* **`crates/world`.** O RTA do JS de produção: classes instanciadas × seletores vivos, e raízes
   explícitas para o que o runtime chama por nome.
 
 A diferença do DartForge: o SDK é compilado **uma vez**, antes de qualquer programa. O que o Dart e
@@ -125,7 +125,7 @@ que só crescem: **vivos** e **seletores chamados**. Uma fila de trabalho:
 3. Se é tabela: cada par `(h, e)` com `h` chamado vai para a fila; senão fica pendente em `h`.
 4. Senão, cada referência vai para a fila.
 
-É o `ResolutionWorldBuilder` do dart2js (e o `crates/mundo`) sem restrição por tipo do receptor:
+É o `ResolutionWorldBuilder` do dart2js (e o `crates/world`) sem restrição por tipo do receptor:
 a entrada vive se a classe tem a tabela viva **e** o seletor é chamado em algum lugar. O custo é
 linear no grafo.
 
@@ -144,7 +144,7 @@ linear no grafo.
 | Tear-off de função e de construtor, closures | referência direta no IR | sem raiz extra |
 | FFI | callbacks e trampolins registrados em `df.preparar_isolado` (`dartforge_ffi_registrar_*`); `@Native` é importação | pela entrada |
 | Isolados | `Isolate.spawn` leva uma closure; a thread nova chama `df.preparar_isolado`, passado por `dartforge_registrar_isolados`; as tabelas copiadas entre isolados (`RT/portas.rs`) são do mesmo executável | pela entrada |
-| Mirrors | o `dart:mirrors` nativo só lê nome e biblioteca da classe (`sdk_nativo/mirrors/mirrors_patch.dart`); não há invocação por nome | nenhuma. Se um dia houver `invoke`/`getField`, a função do runtime que busca por nome entra em `CHAMA_POR_NOME` (§3.7) |
+| Mirrors | o `dart:mirrors` nativo só lê nome e biblioteca da classe (`native_sdk/mirrors/mirrors_patch.dart`); não há invocação por nome | nenhuma. Se um dia houver `invoke`/`getField`, a função do runtime que busca por nome entra em `CHAMA_POR_NOME` (§3.7) |
 | `llvm.used`, `llvm.global_ctors` | o LLVM | todo global `llvm.*` |
 
 Regra geral: uma busca por hash calculado em tempo de execução, fora de `df.seletor`, **precisa**
@@ -289,7 +289,7 @@ desliga.
 
 ## 4. Verificação
 
-* **Teste de ausência** (o `deadstrip.test.ts` do scriptc): `corpus/nativo/81_poda_de_tabelas.dart`
+* **Teste de ausência** (o `deadstrip.test.ts` do scriptc): `corpus/native/81_poda_de_tabelas.dart`
   tem uma classe **instanciada** com métodos, getter, setter e tear-off nunca usados (nomes
   únicos) e outros usados de cada forma. O teste `poda_tira_membros_nao_usados` (ignorado por
   padrão, como `producao_e_um_executavel_autocontido`) compila em produção com o mapa da ligação e
@@ -312,13 +312,13 @@ desliga.
 | `EN/sdk_modulo.rs` | tabelas no `BibliotecaDoSdk`, `.poda` no perfil de produção, `SdkCompilado::resumos` |
 | `EN/driver.rs` | `montar` na ligação de produção; `--timings` |
 | `EN/ligador.rs`, `ligador_windows.rs`, `ligador_macos.rs` | `DARTFORGE_MAPA_DA_LIGACAO` |
-| `corpus/nativo/81_poda_de_tabelas.dart` | o caso do teste de ausência |
+| `corpus/native/81_poda_de_tabelas.dart` | o caso do teste de ausência |
 | `tools/tamanho/` | `quebra.py`, `por-que.py` |
 
 ## 6. Limites
 
 * Sem restrição pelo tipo do receptor: `toString` chamado em qualquer lugar mantém o `toString` de
-  toda classe viva. A restrição do `crates/mundo` pede os tipos no resumo; fica para depois.
+  toda classe viva. A restrição do `crates/world` pede os tipos no resumo; fica para depois.
 * Os ajudantes `_dartforge*` são raízes por biblioteca: `_dartforgeIniciarIo` mantém o preparo do
   `dart:io` em todo programa. Tirá-los pede saber quais o programa pode disparar.
 * As funções que só uma tabela podada citava continuam no bitcode do SDK; quem as tira é o LTO.

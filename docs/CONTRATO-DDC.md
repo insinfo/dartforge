@@ -1,6 +1,6 @@
 # Contrato do DDC: o corpus compilado pelo `dartdevc`
 
-Gerado por `cargo run -p dartforge-diferencial -- contrato`; não editar à mão.
+Gerado por `cargo run -p dartforge-differential -- contrato`; não editar à mão.
 Para cada programa de `corpus/js/`, o Dart e o JS (`--modules=es6`) que o
 `dartdevc` 3.6.2 emite, sem o que se repete em todo módulo:
 

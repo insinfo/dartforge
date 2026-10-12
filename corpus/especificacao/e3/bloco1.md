@@ -26,7 +26,7 @@ Correções ao texto existente da família E (§E, r3-e), detalhadas nos código
   `sintaxe-nova.json`), não pelo 3.6.2; e `int new = 1;` não é "construtor nomeado `new`": é um campo
   com nome reservado (`expected_identifier_but_got_keyword`), nas duas versões.
 - `expected_body`: os dois FN de `test_runner/impl/*part*.dart` não são do parser: o arquivo é uma
-  parte cuja biblioteca não está no corpus e nunca é carregada (`crates/paridade/src/analise.rs:192`).
+  parte cuja biblioteca não está no corpus e nunca é carregada (`crates/parity/src/analise.rs:192`).
 - `const_primary_constructor_with_body` e `extraneous_modifier_in_primary_constructor`: o segundo
   **existe** no 3.6.2 (`fm:1418`, índice 175, `mc:693`); só o primeiro é posterior (§E.3.6).
 - Cauda: `external_constructor_with_field_initializers` não é do parser (é do AstBuilder, nos

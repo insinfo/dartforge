@@ -474,7 +474,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // de `c` (`const [...c]` com `const c = [1, 2]`): o getter
                 // canônico avaliava `c`, cujo inicializador chamava o mesmo
                 // getter ainda em curso — o `StackOverflowError` do global
-                // reentrante (corpus/nativo/120).
+                // reentrante (corpus/native/120).
                 if self.em_contexto_const
                     && let Some((unidade, init)) = self.literal_da_constante(ast, *value)
                 {

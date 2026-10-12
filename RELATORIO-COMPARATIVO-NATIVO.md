@@ -15,7 +15,7 @@ Há três partes:
 ### Núcleos
 
 Os mesmos cinco núcleos foram escritos em Dart, Go, Swift e TypeScript
-(`bench/comparativo/bench.*`), mais um "olá" em cada linguagem:
+(`bench/comparison/bench.*`), mais um "olá" em cada linguagem:
 
 | núcleo | o que exercita |
 |---|---|
@@ -47,7 +47,7 @@ python3 scripts/comparar-linguagens.py target/comparativo [ferramenta...]
 
 ### Servidor HTTP
 
-O mesmo servidor em cada linguagem (`bench/comparativo/servidor.*`, o
+O mesmo servidor em cada linguagem (`bench/comparison/servidor.*`, o
 protocolo de `bench/http/servidor.dart`):
 - `GET /` responde `hello`;
 - `GET /json` responde um objeto pequeno codificado na hora.
@@ -59,7 +59,7 @@ protocolo de `bench/http/servidor.dart`):
 | Swift | SwiftNIO (`swift-servidor/`) |
 | TypeScript | `node:http` (Perry e scriptc) |
 
-- A carga vem de `bench/comparativo/carga.go`: clientes com keep-alive em laço
+- A carga vem de `bench/comparison/carga.go`: clientes com keep-alive em laço
   por 5 s, com 1 e 32 conexões. Ele substitui o `wrk`, que não está instalado.
 - Além de req/s e latência, mede-se a CPU do servidor por mil requisições.
   É a medida mais justa entre servidores de uma thread (Dart) e de várias

@@ -784,7 +784,7 @@ fn materializar(g: &Grafo) -> i64 {
 /// `hash_de_identidade`): como a VM (`runtime/vm/object_graph_copy.cc`,
 /// `CopyLinkedHashBase` + `_rehashObjects`), o índice é refeito no destino
 /// quando alguma chave pode ter outro hash. A decisão e o refazer são do
-/// Dart (`_dartforgeRefazerIndiceCopiado`, `sdk_nativo/collection/
+/// Dart (`_dartforgeRefazerIndiceCopiado`, `native_sdk/collection/
 /// compact_hash.dart`): -1 para objeto que não é `_Map`/`_Set` (a classe
 /// inteira fica de fora daí em diante). Os nós continuam enraizados no
 /// quadro de [`materializar`].
@@ -1063,7 +1063,7 @@ impl FilaDoIsolado {
 /// `pthread_cond_timedwait` do `Condvar` passa do prazo pela folga de
 /// coalescência do kernel: 200 timers de 5 ms levavam 5,9 s contra 1,5 s na
 /// VM (a sonda `tools/sondas/precisao_de_timers.dart`), e o
-/// `corpus/nativo/33_mensagens_de_controle` estourava o tempo. Fora do macOS
+/// `corpus/native/33_mensagens_de_controle` estourava o tempo. Fora do macOS
 /// o `Condvar` já é preciso e o despertador não faz nada.
 struct Despertador {
     #[cfg(target_vendor = "apple")]
@@ -1610,7 +1610,7 @@ fn despachar_proxima(chamar: extern "C" fn(i64) -> i64) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Natives da sobreposição (`sdk_nativo/isolate/isolate_patch.dart`).
+// Natives da sobreposição (`native_sdk/isolate/isolate_patch.dart`).
 
 /// `DartForge_porta_abrir(porta)`: abre uma porta deste isolado para o
 /// objeto `porta` (um `_RawReceivePort`, cuja classe passa a ser não

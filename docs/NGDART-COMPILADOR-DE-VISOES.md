@@ -2,14 +2,14 @@
 
 Objetivo: `dartforge serve`/`dev` rodarem o `new_sali/frontend` e o
 `limitless_ui/example` **sem** o `build_runner` ter rodado antes. Para isso o
-`crates/gerador_ng` tem de gerar todo `.template.dart`/`.css.shim.dart` que
+`crates/ng_generator` tem de gerar todo `.template.dart`/`.css.shim.dart` que
 esses dois projetos (e as dependências deles com saída do ngdart) pedem,
 **byte a byte igual** ao compilador oficial. Onde não souber, recusa (a regra
 de sempre, `docs/GERADOR-NG.md` §1) — mas a meta é 0 recusas nesses projetos.
 
 Este documento é a especificação da rodada: o placar de partida medido, cada
 sub-forma pendente com a regra do compilador oficial (arquivo:linha), o
-desenho no `gerador_ng` e a ordem. As regras gerais do porte continuam em
+desenho no `ng_generator` e a ordem. As regras gerais do porte continuam em
 `docs/GERADOR-NG.md` e `docs/espec-ngdart/`.
 
 Abreviações das referências:
@@ -40,7 +40,7 @@ Os projetos em `C:\MyDartProjects` são só leitura. As cópias e o oráculo do
 no `ngdart` 8 (e usa o `limitless_ui` 1.0.0-dev.34 hospedado, ainda no
 `ngdart` 8).
 
-Harness: `cargo run -p dartforge-gerador-ng --example oraculo --
+Harness: `cargo run -p dartforge-ng-generator --example oraculo --
 <projeto> --todos --listar [--despejar <dir>]`. Nesta rodada ganhou:
 
 - `--todos`: gera e compara também cada dependência com saída oficial em

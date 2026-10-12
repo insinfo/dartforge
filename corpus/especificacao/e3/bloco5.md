@@ -266,7 +266,7 @@
     `crates/frontend/src/parser/statements.rs` (nenhuma referência a `EXPECTED_SWITCH_STATEMENT_BODY`).
   - FN `test_runner/impl/imported_library_part.dart:7:7` e `test_runner/impl/part.dart:3:7`: o parser
     acerta (`imported_library.dart:5:7` bate); os dois arquivos são `part of` de bibliotecas que não
-    estão no corpus e não entram na análise (`crates/paridade/src/analise.rs:192-199` só importa o que
+    estão no corpus e não entram na análise (`crates/parity/src/analise.rs:192-199` só importa o que
     não é parte). O `dart analyze` analisa a parte órfã (`d06`). Mudança fora do parser: analisar
     partes órfãs como unidade solta.
 - **Exemplos (oráculo vivo 3.6.2):**

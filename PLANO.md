@@ -990,7 +990,7 @@ com o que o `build_runner` escreveu, para separar encanamento de gerador.
 
 **Oráculo.** Os 284 `.template.dart` que o `build_runner` já escreveu no
 `new_sali/frontend` são o oráculo do gerador, como o `dartdevc` é o do
-emissor (`cargo run -p dartforge-gerador-ng --example oraculo`). O que vale
+emissor (`cargo run -p dartforge-ng-generator --example oraculo`). O que vale
 é a ABI — mesmos símbolos públicos (`XNgFactory`, `createXFactory`,
 `ViewX0`) com a mesma semântica —, mas onde sair igual byte a byte,
 melhor: é verificação de graça.

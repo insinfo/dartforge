@@ -271,7 +271,7 @@ name = "dartforge-abi"
 version = "0.1.0"
 
 [[package]]
-name = "dartforge-analise"
+name = "dartforge-analysis"
 version = "0.1.0"
 dependencies = [
  "dartforge-diagnostics",
@@ -291,8 +291,8 @@ dependencies = [
  "dartforge-dfexec",
  "dartforge-elements",
  "dartforge-frontend",
- "dartforge-gerador-ng",
  "dartforge-intern",
+ "dartforge-ng-generator",
  "serde_json",
  "tempfile",
  "url",
@@ -309,11 +309,11 @@ dependencies = [
  "dartforge-elements",
  "dartforge-emit-js",
  "dartforge-emit-native",
- "dartforge-formatar",
+ "dartforge-formatter",
  "dartforge-intern",
  "dartforge-jit",
  "dartforge-macros-host",
- "dartforge-paridade",
+ "dartforge-parity",
  "serde_json",
 ]
 
@@ -349,7 +349,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "dartforge-diferencial"
+name = "dartforge-differential"
 version = "0.1.0"
 dependencies = [
  "dartforge-emit-native",
@@ -385,15 +385,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "dartforge-emit-js-producao"
+name = "dartforge-emit-js-production"
 version = "0.1.0"
 dependencies = [
  "dartforge-elements",
  "dartforge-emit-js",
  "dartforge-frontend",
  "dartforge-intern",
- "dartforge-mundo",
  "dartforge-types",
+ "dartforge-world",
  "oxc_allocator",
  "oxc_ast",
  "oxc_ast_visit",
@@ -419,14 +419,14 @@ dependencies = [
  "dartforge-instrument",
  "dartforge-intern",
  "dartforge-llvm",
- "dartforge-mundo",
  "dartforge-runtime",
  "dartforge-types",
+ "dartforge-world",
  "tempfile",
 ]
 
 [[package]]
-name = "dartforge-formatar"
+name = "dartforge-formatter"
 version = "0.1.0"
 dependencies = [
  "dartforge-frontend",
@@ -441,17 +441,6 @@ dependencies = [
  "dartforge-instrument",
  "dartforge-intern",
  "serde",
-]
-
-[[package]]
-name = "dartforge-gerador-ng"
-version = "0.1.0"
-dependencies = [
- "dartforge-elements",
- "dartforge-frontend",
- "dartforge-intern",
- "dartforge-sass",
- "tempfile",
 ]
 
 [[package]]
@@ -486,14 +475,14 @@ dependencies = [
 name = "dartforge-lsp"
 version = "0.1.0"
 dependencies = [
- "dartforge-analise",
+ "dartforge-analysis",
  "dartforge-diagnostics",
  "dartforge-elements",
- "dartforge-formatar",
+ "dartforge-formatter",
  "dartforge-frontend",
  "dartforge-instrument",
  "dartforge-intern",
- "dartforge-paridade",
+ "dartforge-parity",
  "dartforge-types",
  "serde",
  "serde_json",
@@ -515,21 +504,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "dartforge-mundo"
+name = "dartforge-ng-generator"
 version = "0.1.0"
 dependencies = [
  "dartforge-elements",
- "dartforge-emit-js",
  "dartforge-frontend",
  "dartforge-intern",
- "dartforge-types",
+ "dartforge-sass",
+ "tempfile",
 ]
 
 [[package]]
-name = "dartforge-paridade"
+name = "dartforge-parity"
 version = "0.1.0"
 dependencies = [
- "dartforge-analise",
+ "dartforge-analysis",
  "dartforge-diagnostics",
  "dartforge-elements",
  "dartforge-frontend",
@@ -559,7 +548,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "dartforge-runtime-estatico"
+name = "dartforge-runtime-static"
 version = "0.1.0"
 dependencies = [
  "dartforge-runtime",
@@ -586,6 +575,17 @@ dependencies = [
  "dartforge-instrument",
  "dartforge-intern",
  "tempfile",
+]
+
+[[package]]
+name = "dartforge-world"
+version = "0.1.0"
+dependencies = [
+ "dartforge-elements",
+ "dartforge-emit-js",
+ "dartforge-frontend",
+ "dartforge-intern",
+ "dartforge-types",
 ]
 
 [[package]]

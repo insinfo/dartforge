@@ -60,13 +60,13 @@ fn conferir_com_analyze(arquivo: &std::path::Path, publicacao: &Value) -> String
             }
         }
     }
-    let motor = dartforge_paridade::analise::Motor::descobrir().expect("SDK");
+    let motor = dartforge_parity::analise::Motor::descobrir().expect("SDK");
     let config = raiz.join(".dart_tool/package_config.json");
     let config = config.is_file().then_some(config);
-    let opcoes = dartforge_paridade::filtros::Opcoes::ler(&raiz);
+    let opcoes = dartforge_parity::filtros::Opcoes::ler(&raiz);
     let analise = motor.analisar(&raiz, &[arquivo.to_path_buf()], config.as_deref());
     let mut cli: Vec<(String, u64, u64)> =
-        dartforge_paridade::diagnosticos_json(&analise, &raiz, &opcoes, true)
+        dartforge_parity::diagnosticos_json(&analise, &raiz, &opcoes, true)
             .iter()
             .map(|d| {
                 (
@@ -95,7 +95,7 @@ fn conferir_com_analyze(arquivo: &std::path::Path, publicacao: &Value) -> String
     lsp.sort();
     let semanticos = lsp
         .iter()
-        .filter(|(c, _, _)| dartforge_analise::publicacao::verificados().contains(&c.as_str()))
+        .filter(|(c, _, _)| dartforge_analysis::publicacao::verificados().contains(&c.as_str()))
         .count();
     let so_cli: Vec<_> = cli.iter().filter(|x| !lsp.contains(x)).take(5).collect();
     let so_lsp: Vec<_> = lsp.iter().filter(|x| !cli.contains(x)).take(5).collect();

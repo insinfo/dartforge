@@ -199,7 +199,7 @@ desnecessários (`implementation.function as RunHandler` em `zone.dart`,
 depois de chamada `Never` em `uri.dart`, `s is! String` com `s: String` em
 `string_patch.dart`, `return -1` depois de `while (true)` em
 `convert_patch.dart`). Ferramenta: `cargo run --release -p dartforge-types
---example avisos -- sdk <sdk/lib> sdk_nativo dartforge_nativo _internal core
+--example avisos -- sdk <sdk/lib> native_sdk dartforge_nativo _internal core
 _compact_hash collection math convert async`.
 
 Conformidade com a especificação (`crates/types/tests/corpus_inferencia.rs`
@@ -235,7 +235,7 @@ O emissor JavaScript (`crates/emit_js`: `ctx.rs` `ty_of`/`lookup_member`/
 `lub`, `expr.rs` `infer_elements_ty`…) **não lê** os tipos de corpo do
 `crates/types` (`BodyTypes`): ele reconstrói, durante a emissão, a sua própria
 inferência paralela sobre a AST. Quem consome `BodyTypes` hoje é o mundo
-fechado da produção (`crates/mundo`), o backend nativo e o LSP. Consequência:
+fechado da produção (`crates/world`), o backend nativo e o LSP. Consequência:
 os ganhos desta frente não mudam o JS de desenvolvimento (tamanho e despacho
 dinâmico continuam decididos pela inferência do emissor), e há duas
 inferências a manter coerentes. A unificação — o `emit_js` consumindo

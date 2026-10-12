@@ -1,6 +1,6 @@
 # Placar do harness diferencial em Markdown, para o $GITHUB_STEP_SUMMARY.
 #
-# Lê um ou mais relatórios de `dartforge-diferencial` (o stdout dele) e escreve
+# Lê um ou mais relatórios de `dartforge-differential` (o stdout dele) e escreve
 # na saída: o placar, o tempo e o agrupamento de falhas. Com vários relatórios
 # (os fragmentos do corpus nativo), SOMA os placares e FUNDE os grupos de
 # falha pela chave — o mesmo agrupamento que o harness daria rodando o corpus

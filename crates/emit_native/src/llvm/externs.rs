@@ -26,7 +26,7 @@ pub struct Efeitos {
 
 /// Aloca (ponto de coleta), mas não lança nem chama código Dart: as
 /// alocações e leituras simples do runtime (conferidas no código de cada
-/// uma). `otimizar/efeitos.rs` conta com isso para saber quem não lança.
+/// uma). `optimize/efeitos.rs` conta com isso para saber quem não lança.
 pub const ALOCA_SEM_LANCAR: Efeitos = Efeitos {
     aloca: true,
     lanca: false,
@@ -1080,11 +1080,11 @@ pub const GLOBAIS: &[(&str, &str)] = &[];
 /// Efeitos da extern `nome`; desconhecida é conservadora.
 pub fn efeitos_de(nome: &str) -> Efeitos {
     // O thunk Owned genérico tem os efeitos da base, mais o retain.
-    if let Some(base) = nome.strip_prefix(crate::otimizar::arc::PREFIXO_OWNED_GENERICO) {
+    if let Some(base) = nome.strip_prefix(crate::optimize::arc::PREFIXO_OWNED_GENERICO) {
         return Efeitos { aloca: true, ..efeitos_de(base) };
     }
     // O thunk de escopo tem os efeitos da base (o escopo não aloca).
-    if let Some(base) = nome.strip_prefix(crate::otimizar::arc::PREFIXO_ESCOPO_NATIVO) {
+    if let Some(base) = nome.strip_prefix(crate::optimize::arc::PREFIXO_ESCOPO_NATIVO) {
         return efeitos_de(base);
     }
     // Os ajudantes `@df.*` de cada pacote do espaço unificado chamados por

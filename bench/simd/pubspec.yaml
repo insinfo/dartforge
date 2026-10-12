@@ -9,4 +9,4 @@ environment:
 
 dependencies:
   dartforge_simd:
-    path: ../../pacotes/dartforge_simd
+    path: ../../packages/dartforge_simd

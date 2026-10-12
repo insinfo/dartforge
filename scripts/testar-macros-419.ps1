@@ -11,7 +11,7 @@ $env:PUB_CACHE = Join-Path $trabalho 'pub-cache'
 Push-Location $caso
 try {
     & $binario macros (Join-Path $caso 'main.dart') --materializar --dart (Get-Command dart).Source `
-        --api (Join-Path $raiz 'pacotes/macros') --versao-linguagem 3.6 --enable-experiment=macros
+        --api (Join-Path $raiz 'packages/macros') --versao-linguagem 3.6 --enable-experiment=macros
     if ($LASTEXITCODE -ne 0) { throw 'hospedeiro não materializou o 419' }
 }
 finally {

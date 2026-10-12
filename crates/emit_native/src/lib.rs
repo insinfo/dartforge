@@ -22,7 +22,7 @@ pub mod lower;
 pub mod mundo_nativo;
 pub mod particao;
 pub mod nativos;
-pub mod otimizar;
+pub mod optimize;
 pub mod poda;
 pub mod resumo;
 pub mod sdk_modulo;
@@ -203,7 +203,7 @@ pub fn construtos_do_erro(texto: &str) -> Vec<String> {
 /// Carrega, analisa e baixa um programa até o LLVM IR, sem Clang nem ligação.
 ///
 /// É a parte de [`compilar`] que é nossa: o teste de determinismo do harness
-/// compara só isto (`dartforge-diferencial determinismo --nativo`), e
+/// compara só isto (`dartforge-differential determinismo --nativo`), e
 /// `compile-native --emit-ir` grava isto. Diagnósticos de carga vão na
 /// mensagem de erro, e não no stderr, para não se entrelaçarem quando várias
 /// emissões rodam no mesmo processo. A primeira linha é o primeiro
@@ -301,7 +301,7 @@ fn emitir_ir_interno(
         None => sdk_do_dart()?,
     };
 
-    // A seção `vm` com a sobreposição `sdk_nativo/` (P5a): as bibliotecas de
+    // A seção `vm` com a sobreposição `native_sdk/` (P5a): as bibliotecas de
     // `BIBLIOTECAS_DA_FONTE` são as dela, ligadas como objetos em cache
     // (`sdk_modulo::sdk_compilado`). `mut`: a
     // versão de linguagem corrente pode vir de `--versao-linguagem` (Dart
@@ -449,11 +449,11 @@ fn emitir_ir_interno(
             );
         }
     }
-    // 2b. Otimização da HIR (inlining, substituição escalar: `otimizar/`).
+    // 2b. Otimização da HIR (inlining, substituição escalar: `optimize/`).
     let t_otimizar = Instant::now();
     // O mesmo pipeline prepara as bibliotecas do SDK e materializa tabelas
     // somente depois das transformações da HIR.
-    otimizar::preparar_para_emissao(&mut hir_module, memoria_arc, excecoes_por_tabelas);
+    optimize::preparar_para_emissao(&mut hir_module, memoria_arc, excecoes_por_tabelas);
     // A preparação ARC publicada (`DARTFORGE_ARC_PREPARADO=1`): o programa
     // sozinho, chamando o SDK preparado (`sdk_modulo`, a mesma opção na
     // chave do cache) pelos resumos das próprias chamadas.
@@ -463,16 +463,16 @@ fn emitir_ir_interno(
         let mut planos: std::collections::HashMap<_, _> = hir_module
             .functions
             .iter()
-            .map(|f| (f.symbol.clone(), otimizar::arc::PlanoFuncaoDart::default()))
+            .map(|f| (f.symbol.clone(), optimize::arc::PlanoFuncaoDart::default()))
             .collect();
         // Com tabelas, os planos partem dos invokes e pousos já materializados.
         if excecoes_por_tabelas {
-            otimizar::arc::preparar_arc_modulo_tabelado(&mut hir_module, &mut planos)
+            optimize::arc::preparar_arc_modulo_tabelado(&mut hir_module, &mut planos)
         } else {
-            otimizar::arc::preparar_arc_modulo_dart(&mut hir_module, &mut planos)
+            optimize::arc::preparar_arc_modulo_dart(&mut hir_module, &mut planos)
         }
         .map_err(|e| format!("preparação ARC do programa: {e}"))?;
-        otimizar::arc::certificar_portas_arc_aot(&mut hir_module, &planos)
+        optimize::arc::certificar_portas_arc_aot(&mut hir_module, &planos)
             .map_err(|e| format!("portas ARC do programa: {e}"))?;
     }
     if options.timings {
@@ -491,7 +491,7 @@ fn emitir_ir_interno(
     // cai de 94,6 para ~71 MB e a geração de 707 para ~460 s
     // (docs/NATIVO-PRODUCAO-GRANDE.md §5). O preço é o desempenho do código
     // que chama muito por despacho dinâmico ou lê muitos campos
-    // (`bench/desempenho/chamadas.dart`: 1,4–2,5× mais lento); com
+    // (`bench/performance/chamadas.dart`: 1,4–2,5× mais lento); com
     // `DARTFORGE_AJUDANTES_FORA=` (vazio) e `DARTFORGE_CAMPOS_POR_CHAMADA=0`
     // o programa grande volta todo em linha. O programa pequeno continua em
     // linha (a LTO tira o que sobra).

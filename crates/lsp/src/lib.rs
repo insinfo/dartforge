@@ -7,7 +7,7 @@
 //! UTF-16 como em `lsp/utils.rs` (aqui em [`utf16`]).
 //!
 //! O servidor diagnostica em dois tempos: na hora, pelo parser novo e pelos
-//! verificadores locais de `crates/analise` através do [`trait Analisador`];
+//! verificadores locais de `crates/analysis` através do [`trait Analisador`];
 //! em segundo plano, quando o analisador tem SDK
 //! ([`Analisador::sdk_para_diagnosticos`]), pela mesma análise tipada do
 //! `dartforge analyze` (`tipado`), publicada só se a versão ainda é a
@@ -16,7 +16,7 @@
 pub mod formatacao;
 pub mod servidor;
 mod acoes;
-pub(crate) use dartforge_analise::arvore_analyzer;
+pub(crate) use dartforge_analysis::arvore_analyzer;
 mod assinatura;
 mod assist_condicionais;
 mod assist_desestruturar;
@@ -746,37 +746,37 @@ impl Analisador for AnalisadorSintatico {
     /// Analisa com o parser completo, na versão de linguagem do arquivo, com
     /// recuperação por declaração.
     ///
-    /// Depois da sintaxe, os verificadores de `crates/analise` que não
+    /// Depois da sintaxe, os verificadores de `crates/analysis` que não
     /// dependem de tipos (nomes duplicados, locais não usados) sobre o próprio
     /// arquivo; destes, só sai o que a regra de publicação deixa
-    /// (`dartforge_analise::publicacao`): código verificado contra o oráculo,
+    /// (`dartforge_analysis::publicacao`): código verificado contra o oráculo,
     /// e não suprimido por `// ignore:` (o filtro do `dartforge analyze`).
     fn diagnosticar(&mut self, uri: &str, texto: &str) -> Vec<Diagnostic> {
         let features = self.features(uri, texto);
         let mut nomes = dartforge_intern::Interner::new();
         let parsed = dartforge_frontend::parser::parse_com(texto, &mut nomes, features);
         let mut saida = parsed.diagnostics;
-        let unidade = dartforge_analise::Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: texto };
+        let unidade = dartforge_analysis::Unidade { ast: &parsed.ast, unit: &parsed.unit, fonte: texto };
         // Os locais não usados pela regra dos trechos pulados (T5), como no
         // `dartforge analyze`: sem porta por erro de sintaxe.
-        let pulados = dartforge_analise::Pulados { fonte: texto, trechos: &parsed.pulados };
+        let pulados = dartforge_analysis::Pulados { fonte: texto, trechos: &parsed.pulados };
         let curinga = features.tem(dartforge_frontend::features::Feature::WildcardVariables);
         let referencia = parsed.referencia;
         let juntar = referencia == dartforge_diagnostics::Referencia::V3_6;
-        let semanticos = dartforge_analise::duplicatas::duplicatas(&[unidade], &nomes, curinga, juntar)
+        let semanticos = dartforge_analysis::duplicatas::duplicatas(&[unidade], &nomes, curinga, juntar)
             .into_iter()
             .map(|(_, d)| d)
-            .chain(dartforge_analise::enums::sem_constantes(&[unidade]).into_iter().map(|(_, d)| d))
-            .chain(dartforge_analise::inicializacao::finais_nao_inicializados(&[unidade], &nomes).into_iter().map(|(_, d)| d))
-            .chain(dartforge_analise::locais::nao_usados_com_pulados(unidade, &nomes, curinga, pulados))
-            .chain(dartforge_analise::externos::inicializadores(unidade))
-            .chain(dartforge_analise::operadores::aridade(unidade, &nomes));
+            .chain(dartforge_analysis::enums::sem_constantes(&[unidade]).into_iter().map(|(_, d)| d))
+            .chain(dartforge_analysis::inicializacao::finais_nao_inicializados(&[unidade], &nomes).into_iter().map(|(_, d)| d))
+            .chain(dartforge_analysis::locais::nao_usados_com_pulados(unidade, &nomes, curinga, pulados))
+            .chain(dartforge_analysis::externos::inicializadores(unidade))
+            .chain(dartforge_analysis::operadores::aridade(unidade, &nomes));
         // `// ignore:` como no `dartforge analyze` (o mesmo filtro).
-        let ignorados = dartforge_paridade::filtros::Ignorados::de_texto(texto);
-        let linhas = dartforge_paridade::json::Linhas::new(texto);
+        let ignorados = dartforge_parity::filtros::Ignorados::de_texto(texto);
+        let linhas = dartforge_parity::json::Linhas::new(texto);
         saida.extend(
             semanticos
-                .filter(|d| dartforge_analise::publicacao::publicado(d, false))
+                .filter(|d| dartforge_analysis::publicacao::publicado(d, false))
                 .filter(|d| !ignorados.ignora(d, linhas.ponto(d.span.start).line)),
         );
         // Por último, o nome e o texto do analyzer de referência (T2): os

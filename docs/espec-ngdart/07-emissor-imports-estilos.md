@@ -46,7 +46,7 @@ Exemplos **(oráculo)** foram conferidos com `corpus/ngdart/oraculo/*` ou com a 
 do `build_runner` para o `limitless_ui` (`.dart_tool/build/generated/...`). Exemplos
 **(derivado)** saem só da leitura do código.
 
-Porte Rust: `crates/gerador_ng/src/` — `lib.rs` (`L`), `visao.rs` (`V`), `expr.rs` (`X`),
+Porte Rust: `crates/ng_generator/src/` — `lib.rs` (`L`), `visao.rs` (`V`), `expr.rs` (`X`),
 `injetor.rs` (`INJ`), `resolucao.rs` (`RS`), `css.rs`, `shadow_css.rs`; e
 `crates/build/src/nativos/ng.rs`. As linhas de `visao.rs` mudam com frequência; por isso
 as citações do porte usam o nome da função sempre que possível.
@@ -787,7 +787,7 @@ impressão com `CssPrinter` compacto (formato do `csslib`: sem espaços supérfl
 5. `toSequences` zera o combinador de todas as sequências do composto e põe o do composto
    na primeira (`SH:409-417`).
 
-Exemplos (oráculo: testes de `crates/gerador_ng/src/css.rs`, conferidos com o oficial):
+Exemplos (oráculo: testes de `crates/ng_generator/src/css.rs`, conferidos com o oficial):
 
 | entrada | saída |
 |---|---|

@@ -1,6 +1,6 @@
 //! `async`/`await` (P6, docs/NATIVO-PLANO.md §7.7): o corpo como máquina de
 //! estados, no molde do dart2js (`pkg/compiler/lib/src/js/rewrite_async.dart`)
-//! e dos apoios de `sdk_nativo/async/async_patch.dart`.
+//! e dos apoios de `native_sdk/async/async_patch.dart`.
 //!
 //! Uma função `async f(p…) { … }` vira duas:
 //!
@@ -746,7 +746,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// `await for (alvo in s) corpo` (especificação §18.6.3), baixado como o
-    /// kernel da VM o desaçucara (`sdk_nativo/async/async_patch.dart`):
+    /// kernel da VM o desaçucara (`native_sdk/async/async_patch.dart`):
     /// `StreamIterator`, `while (await it.moveNext())`, e o `finally` que
     /// cancela a inscrição se ela ainda existe — por `break`, `return` ou
     /// exceção no corpo.
@@ -1068,7 +1068,7 @@ fn ler_do_quadro(quadro: &Operand, slot: usize, ty: Type, destino: ValueId, prox
 #[cfg(test)]
 mod testes_restauracao_ref {
     use super::*;
-    use crate::otimizar::arc::*;
+    use crate::optimize::arc::*;
 
     #[test]
     fn ref_restaurada_do_quadro_recebe_keepalive_antes_de_mutar_o_filho() {

@@ -6,7 +6,7 @@ O DartForge é MIT. A formatação abreviada de Iterable em
 Copyright (c) 2011, the Dart project authors. All rights reserved.
 O aviso abaixo é preservado também na saída JS que inclui esse runtime.
 
-`corpus/diagnosticos/` (placar de paridade do `crates/paridade`) contém
+`corpus/diagnosticos/` (placar de paridade do `crates/parity`) contém
 cópias de `tests/language` e trechos de `pkg/analyzer/test/src/diagnostics`
 do SDK Dart, `pkg/expect` do mesmo SDK e o `lib/` do pacote `meta` 1.16.0,
 todos do Dart project authors sob a mesma licença abaixo. A tabela

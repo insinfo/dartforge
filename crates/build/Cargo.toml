@@ -12,14 +12,14 @@ workspace = true
 [features]
 default = ["nativos"]
 # Geradores nativos (ngdart e sass) pelo gerador_ng, só pela API pública.
-nativos = ["dep:dartforge-gerador-ng"]
+nativos = ["dep:dartforge-ng-generator"]
 
 [dependencies]
 dartforge-elements = { path = "../elements" }
 dartforge-frontend = { path = "../frontend" }
 dartforge-intern = { path = "../intern" }
 dartforge-dfexec = { path = "../dfexec" }
-dartforge-gerador-ng = { path = "../gerador_ng", optional = true }
+dartforge-ng-generator = { path = "../ng_generator", optional = true }
 base64 = "0.22"
 blake3 = "1"
 yaml-rust2 = "0.10"

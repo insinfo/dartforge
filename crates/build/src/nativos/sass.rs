@@ -1,4 +1,4 @@
-//! `sass_builder:sass_builder` pelo Sass do `gerador_ng`
+//! `sass_builder:sass_builder` pelo Sass do `ng_generator`
 //! (`sass::compilar_ativo`, API pública), que é o dart-sass 1.102.0 byte a
 //! byte (o crate `dartforge-sass`) ou, quando o `pubspec.lock` traz o `sass`
 //! 1.66.0, o modo de compatibilidade com ele (`VersaoDartSass::V1_66_0`).
@@ -12,7 +12,7 @@
 use crate::consulta::Consulta;
 use crate::executor::{CtxGerador, GeradorNativo, PedidoNativo, SaidaNativa};
 use crate::valor::Valor;
-use dartforge_gerador_ng::sass::{Estilo, Leitor, VersaoDartSass, compilar_ativo};
+use dartforge_ng_generator::sass::{Estilo, Leitor, VersaoDartSass, compilar_ativo};
 use std::path::Path;
 use std::sync::Arc;
 

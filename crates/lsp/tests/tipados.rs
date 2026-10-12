@@ -111,7 +111,7 @@ fn so_codigos_publicados_e_ignore_respeitado() {
         tipada["params"]["diagnostics"][1]["range"]["start"]["line"],
         4
     );
-    let publicados = dartforge_analise::publicacao::verificados();
+    let publicados = dartforge_analysis::publicacao::verificados();
     for c in codigos(&tipada) {
         assert!(publicados.contains(&c.as_str()), "{c} não é publicado");
     }

@@ -74,7 +74,7 @@ def main():
     fontes_verificadas = [fixture, layout, Path(__file__),
         raiz / "crates/emit_native/src/lower/membros.rs",
         raiz / "crates/emit_native/src/llvm/mod.rs",
-        raiz / "crates/emit_native/src/otimizar/escape.rs"]
+        raiz / "crates/emit_native/src/optimize/escape.rs"]
     manifesto = dict(status="aprovado", base=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=raiz).decode().strip(),
         cli_sha256=sha(cli), limite_inline=limite,
         fontes={str(p.relative_to(raiz)): sha(p) for p in fontes_verificadas}, casos=evidencias)

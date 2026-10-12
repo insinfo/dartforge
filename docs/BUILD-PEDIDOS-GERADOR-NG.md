@@ -1,6 +1,6 @@
-# Pedidos do motor de build ao `crates/gerador_ng`
+# Pedidos do motor de build ao `crates/ng_generator`
 
-O motor (`crates/build`, `docs/BUILD-MOTOR.md`) usa o `gerador_ng` só pela
+O motor (`crates/build`, `docs/BUILD-MOTOR.md`) usa o `ng_generator` só pela
 API pública, pelo adaptador `crates/build/src/nativos/ng.rs` (e `sass.rs`).
 Hoje isso é o **estágio A**: uma ação de pacote que chama `gerar_com_apoio`
 e reanalisa o pacote inteiro a cada edição relevante. Medido no
@@ -9,7 +9,7 @@ e reanalisa o pacote inteiro a cada edição relevante. Medido no
 acima do orçamento de 500 ms da edição de componente, e é o que torna o
 **estágio B** (uma ação por componente, consultas finas) pré-requisito do
 aceite. O estágio B precisa dos acréscimos abaixo, **públicos e em arquivos
-do `gerador_ng`** (o motor não toca os internos). Cada item diz o que o
+do `ng_generator`** (o motor não toca os internos). Cada item diz o que o
 motor faz com ele.
 
 ## 1. Geração de um arquivo
@@ -100,7 +100,7 @@ pub fn sass::compilar_com(fonte: &str, dir: Option<&Path>, estilo: Estilo)
     -> Result<(String, Vec<PathBuf>), Motivo>;
 ```
 
-Hoje o Sass do `gerador_ng` só é verificado depois do shim do ngdart
+Hoje o Sass do `ng_generator` só é verificado depois do shim do ngdart
 (`sass.rs:14-17`), então o motor o trata como **não verificado**: publica o
 `.css` do apoio e só executa o nativo para medir (`dartforge build
 --comparar`). Com `compilar_com` igual ao oficial nos dois estilos (o
@@ -143,7 +143,7 @@ os 5 `.template.dart` da aplicação e da dependência iguais, e incremental = d
 zero depois de editar o HTML e um `@Input` da dependência e o `.dart` da
 aplicação (`ng_dependencia_pelo_motor_igual_ao_oraculo`). Na mesma rodada de
 medição, os 219 `.template.dart` que o oficial gerou para `ngdart` e
-`ngcompiler` saíram iguais do `gerador_ng` (0 diferentes; 18 arquivos que o
+`ngcompiler` saíram iguais do `ng_generator` (0 diferentes; 18 arquivos que o
 oficial não gera por serem opcionais não pedidos). Um componente da
 dependência que o programa da entrada não carrega é recusado com motivo, e a
 saída vem do executor Dart ou do apoio.
@@ -156,7 +156,7 @@ não existir, e o motor troca de estágio só no adaptador. O teste
 `crates/build/tests/ng_transparencia.rs` (no `ci.yml`) acusa na hora uma
 mudança de assinatura pública que quebre o adaptador.
 
-## Resposta do `gerador_ng` (rodada 3, 2026-09-23)
+## Resposta do `ng_generator` (rodada 3, 2026-09-23)
 
 Atendido, público, sem mudar a saída (new_sali: 162 gerados, 166 iguais,
 0 diferentes antes e depois):
@@ -184,7 +184,7 @@ Atendido, público, sem mudar a saída (new_sali: 162 gerados, 166 iguais,
    aceito para conferir.
 
    **Atualização (B05, 2026-09-27)**: oráculo por forma e por opção
-   (`crates/gerador_ng/tests/sass_formas`, gravado pelo `sass_builder` 2.2.1
+   (`crates/ng_generator/tests/sass_formas`, gravado pelo `sass_builder` 2.2.1
    de verdade com `scripts/sass-formas.sh`). Ele achou onze formas em que o
    `compressed` "verificado" saía diferente do oficial (cor com nome e
    hexadecimal, números, BOM, módulos, ordem de listas aninhadas, `@media`

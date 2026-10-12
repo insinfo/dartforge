@@ -258,7 +258,7 @@ O `tls.rs` depende do `Box` de forma ainda mais forte: `tomar_bytes_tipados` (76
 
 **Externs:** 275 em `EN/llvm/externs.rs:61-1236`, com efeitos `CONSERVADOR`/`ALOCA_SEM_LANCAR`/
 `{aloca:false,lanca:false}` que alimentam `pode_coletar` (`EN/llvm/mod.rs:2810-2814`) e
-`otimizar/efeitos.rs:21`. Por categoria: texto 43, `StringBuffer` 2, lista 30, mapa 10, conjunto
+`optimize/efeitos.rs:21`. Por categoria: texto 43, `StringBuffer` 2, lista 30, mapa 10, conjunto
 4, record 3, closure/ambiente/célula 21, caixas 6, tipados 12, SIMD 1, objeto 17, RTI 17,
 exceções 43, GC/raízes 11, seletores 9, FFI 23, impressão 9, outros 14. **92 das 275** (texto,
 SB, lista, mapa, conjunto, record) e **40** (closure/célula/caixas/tipados/SIMD) dependem da
@@ -310,7 +310,7 @@ estável a partir de 1, pulando 1000–1012). Chega ao runtime por `@df.cids` e
 
 ### 1.8 O SDK nativo
 
-Sobreposições (`sdk_nativo/libraries.json:6-38`): `core/string_patch.dart` (`==` e buscas por
+Sobreposições (`native_sdk/libraries.json:6-38`): `core/string_patch.dart` (`==` e buscas por
 natives `DartForge_string_*`), `core/integers.dart` (`_Smi.toString` fora da tabela por
 `DartForge_int_toString`, 650-661), `core/double.dart` (cache de `toString`), `core/array.dart`
 (`DartForge_List_preencher`/`_copiar`), `core/growable_array.dart` (`_reservar`, cópias no
@@ -592,7 +592,7 @@ Observações:
 * O `_Contexto` mantém o modelo de hoje (capturas imutáveis mais células para as mutáveis); o
   modelo da VM (variáveis no contexto, cadeia de pais) fica como trabalho futuro.
 * `_Map`, `_Set`, `_ConstMap`, `_ConstSet` não mudam: são objetos Dart com os campos da sobreposição
-  (`sdk_nativo/collection/compact_hash.dart:161-178`); o `_data` passa a ser `_List` geral (cid 8,
+  (`native_sdk/collection/compact_hash.dart:161-178`); o `_data` passa a ser `_List` geral (cid 8,
   `REFS`) e o `_index` uma `_Uint32List` (cid 28).
 * `_ByteBuffer` é classe Dart comum (campo `_data`), sem cid fixo.
 
@@ -795,7 +795,7 @@ O grafo da mensagem (`RT/portas.rs:44-88`) deixa de espelhar o `Value` e passa a
 * E/S assíncrona continua copiando para buffers do runtime (§1.9); zero-cópia em escrita síncrona
   fica possível, mas não faz parte desta especificação.
 * `asTypedList` cria a lista `EXTERNO` (§2.5); o `finalizer:` continua pelo `NativeFinalizer`
-  (`sdk_nativo/ffi/ffi_native_finalizer_patch.dart:54-64`).
+  (`native_sdk/ffi/ffi_native_finalizer_patch.dart:54-64`).
 
 ### 2.15 RTI
 
@@ -1354,7 +1354,7 @@ ganchos do emissor.
    formato; cartões (gravação velho → jovem em lista grande sobrevive à menor); anexo solto quando
    o dono morre; região grande devolvida; estático nunca marcado nem varrido; purga de
    `permanentes`; gatilho com bytes externos.
-10. Remedir `LIMITE_JOVEM` e `CONTAGEM_JOVEM` com `bench/desempenho` (§2.8).
+10. Remedir `LIMITE_JOVEM` e `CONTAGEM_JOVEM` com `bench/performance` (§2.8).
 11. **Corte** (último passo, depois que P1–P5 migraram): apagar `enum Value` e tudo de §2.17;
     `cargo check` do workspace aponta o que sobrou.
 
@@ -1365,9 +1365,9 @@ programa com string, lista, closure e `double` passa no verificador do LLVM.
 ### 4.3 P1 — Strings (fase B)
 
 **Possui:** `RT/textos.rs` (novo), `RT/strings.rs`, `RT/nativos_strings.rs`, `RT/regexp.rs`;
-`EN/llvm/textos_ir.rs` (novo), `EN/lower/textos.rs`; `sdk_nativo/core/string_patch.dart`,
+`EN/llvm/textos_ir.rs` (novo), `EN/lower/textos.rs`; `native_sdk/core/string_patch.dart`,
 `string_buffer_patch.dart`, `integers.dart`, `double.dart`, `regexp_patch.dart`,
-`sdk_nativo/convert/convert_patch.dart`.
+`native_sdk/convert/convert_patch.dart`.
 
 **Consome:** §3.1, §3.2 (`alocar`, `cabecalho`, `bytes`, `anexar`, `Valor`), `caixas.rs` (P2) para
 os natives que devolvem número. **Fornece:** `textos.rs` (§3.3), os helpers P1 de §3.5,
@@ -1395,9 +1395,9 @@ os natives que devolvem número. **Fornece:** `textos.rs` (§3.3), os helpers P1
    em linha, como `asm_intrinsifier_x64.cc:1754-1818`) e se o `==` volta ao da VM. Registrar.
 8. Receber os natives de §4.9.
 
-**Pronto quando:** compila contra a API; no fim, `corpus/nativo` 49, 56, 61, 75 e 90–94 e os
+**Pronto quando:** compila contra a API; no fim, `corpus/native` 49, 56, 61, 75 e 90–94 e os
 programas de string de `corpus/js` (pares substitutos inclusive) iguais à VM;
-`bench/desempenho/json.dart` e `textos.dart` com a saída da VM.
+`bench/performance/json.dart` e `textos.dart` com a saída da VM.
 
 ### 4.4 P2 — Caixas, células, contextos, closures, records (fase C)
 
@@ -1405,7 +1405,7 @@ programas de string de `corpus/js` (pares substitutos inclusive) iguais à VM;
 `RT/nativos_numeros.rs`; `EN/llvm/caixas_ir.rs` (novo), `EN/lower/caixas.rs` (novo),
 `EN/lower/closures.rs`, `EN/lower/locais.rs`, `EN/lower/captura.rs`, `EN/lower/extensoes.rs`,
 `EN/lower/async_sm.rs`, `EN/lower/registros.rs`, `EN/lower/tipos_de_extensao.rs`,
-`EN/lower/funcoes_diretas.rs`; `sdk_nativo/core/function.dart`.
+`EN/lower/funcoes_diretas.rs`; `native_sdk/core/function.dart`.
 
 **Consome:** §3.1, §3.2. **Fornece:** `caixas.rs` (§3.3), os helpers P2 de §3.5, os braços de
 caixa/célula/contexto/closure/record, `caixa_em_linha`.
@@ -1432,17 +1432,17 @@ caixa/célula/contexto/closure/record, `caixa_em_linha`.
    (P2 decide e registra).
 6. Receber os natives de §4.9.
 
-**Pronto quando:** compila; no fim, `corpus/nativo` 25, 28, 41, 50 (os dois), 52, 54, 60, 63, 64,
+**Pronto quando:** compila; no fim, `corpus/native` 25, 28, 41, 50 (os dois), 52, 54, 60, 63, 64,
 68, 80 e 95 iguais à VM;
-`bench/desempenho/objetos_*.dart` e `chamadas.dart` com a saída da VM.
+`bench/performance/objetos_*.dart` e `chamadas.dart` com a saída da VM.
 
 ### 4.5 P3 — Listas, mapas, conjuntos (fase D, núcleo)
 
 **Possui:** `RT/listas.rs` (novo), `RT/nativos_listas.rs`, `RT/colecoes.rs`, `RT/nativos_hash.rs`;
 `EN/llvm/listas_ir.rs` (novo), `EN/lower/listas.rs` (novo), `EN/lower/literais.rs`,
-`EN/lower/intrinsecos.rs`, `EN/lower/constantes.rs`; `sdk_nativo/core/array.dart`,
-`growable_array.dart`, `sdk_nativo/collection/compact_hash.dart`, `collection/list.dart`,
-`sdk_nativo/internal/sort.dart`.
+`EN/lower/intrinsecos.rs`, `EN/lower/constantes.rs`; `native_sdk/core/array.dart`,
+`growable_array.dart`, `native_sdk/collection/compact_hash.dart`, `collection/list.dart`,
+`native_sdk/internal/sort.dart`.
 
 **Consome:** §3.1, §3.2, `caixas.rs` (P2: `como_ref`, `valor`), `textos.rs` (P1: `hash_de_texto`,
 `textos_iguais`), `tipadas.rs` (P4: o `_index` do `_Map`). **Fornece:** `listas.rs` (§3.3), os
@@ -1467,9 +1467,9 @@ helpers P3 de §3.5, o braço `AllocList`, `lista_em_linha`.
    quando cresce); `lower/constantes.rs`.
 6. Receber e entregar os natives de §4.9.
 
-**Pronto quando:** compila; no fim, `corpus/nativo` 10, 21, 22, 26, 27, 30, 37, 40, 46 (os dois),
+**Pronto quando:** compila; no fim, `corpus/native` 10, 21, 22, 26, 27, 30, 37, 40, 46 (os dois),
 47 (os dois), 85, 87, 96 e 97 iguais à VM;
-`bench/desempenho/colecoes.dart` e `objetos_em_colecoes.dart` com a saída da VM.
+`bench/performance/colecoes.dart` e `objetos_em_colecoes.dart` com a saída da VM.
 
 ### 4.6 P4 — Listas tipadas, SIMD, FFI, E/S (fase D, dados)
 
@@ -1479,7 +1479,7 @@ helpers P3 de §3.5, o braço `AllocList`, `lista_em_linha`.
 `RT/io_soquetes.rs`, `RT/io_soquetes_unix.rs`, `RT/io_windows_eventos.rs`,
 `RT/io_windows_processos.rs`, `RT/io_windows_soquetes.rs`, `RT/tls.rs`, `RT/tls_formatos.rs`,
 `RT/zlib.rs`; `EN/llvm/tipados_ir.rs` (novo), `EN/llvm/simd.rs`, `EN/lower/tipados.rs`,
-`EN/lower/comandos.rs`, `EN/lower/simd.rs`, `EN/lower/ffi.rs`; `sdk_nativo/ffi/*`.
+`EN/lower/comandos.rs`, `EN/lower/simd.rs`, `EN/lower/ffi.rs`; `native_sdk/ffi/*`.
 
 **Consome:** §3.1, §3.2, os helpers de lista de P3 (acesso em linha a `List<E>` em
 `tipados.rs`), `caixas.rs` (P2). **Fornece:** `tipadas.rs` (§3.3), os helpers P4 de §3.5, os
@@ -1502,9 +1502,9 @@ braços SIMD, `tipada_em_linha`, o acesso em linha a listas tipadas e a `List<E>
 6. Coordenação: `lower/comandos.rs` e `lower/tipados.rs` são hoje da frente de vetorização; P4
    começa depois que ela fechar ou combina a ordem com ela.
 
-**Pronto quando:** compila; no fim, `corpus/nativo` 01–06, 08, 09, 11–13, 15–20, 24, 31, 32, 34,
+**Pronto quando:** compila; no fim, `corpus/native` 01–06, 08, 09, 11–13, 15–20, 24, 31, 32, 34,
 38, 39, 55, 62, 67, 69, 77, 78 e 98 iguais à VM;
-`bench/simd` e `bench/desempenho/tipados.dart` com a saída da VM;
+`bench/simd` e `bench/performance/tipados.dart` com a saída da VM;
 `crates/cli/tests/io_regressao.rs` verde.
 
 ### 4.7 P5 — Transversais e remoção do legado
@@ -1515,10 +1515,10 @@ braços SIMD, `tipada_em_linha`, o acesso em linha a listas tipadas e a `List<E>
 `EN/lower/sdk_por_nome.rs` (apaga), `EN/lower/expressoes.rs`, `atribuicao.rs`, `padroes.rs`,
 `membros.rs`, `chamadas.rs`, `verificador.rs`, `operadores.rs`, `enums.rs`, `nsm.rs`,
 `erros_do_runtime.rs`, `despacho.rs`, `heranca.rs`, `rti.rs`, `cascata.rs`,
-`const_primitiva.rs`, `entrada_tipada.rs`, `EN/otimizar/*`, `EN/llvm/testes.rs`,
-`EN/tests/*`, `crates/jit/**`, `crates/cli/tests/*`; `sdk_nativo/isolate/*`,
-`sdk_nativo/core/identical_patch.dart`, `finalizer_patch.dart`, `sdk_nativo/internal/print_patch.dart`,
-`sdk_nativo/io/*`; `corpus/nativo/90…99`; `docs/*`.
+`const_primitiva.rs`, `entrada_tipada.rs`, `EN/optimize/*`, `EN/llvm/testes.rs`,
+`EN/tests/*`, `crates/jit/**`, `crates/cli/tests/*`; `native_sdk/isolate/*`,
+`native_sdk/core/identical_patch.dart`, `finalizer_patch.dart`, `native_sdk/internal/print_patch.dart`,
+`native_sdk/io/*`; `corpus/native/90…99`; `docs/*`.
 
 **Consome:** tudo. **Fornece:** isolados, RTI, saída, erros e seletores sobre a API nova; o
 emissor sem o legado; os testes e a documentação.
@@ -1540,7 +1540,7 @@ emissor sem o legado; os testes e a documentação.
    legados de §3.7 depois de conferir por busca que ninguém os emite. `operadores.rs`:
    `identical` por `@df.identico`, `==` de strings por `@df.texto_igual`. `verificador.rs`:
    recusa `EnvGet`/`CellGet` em tipo diferente do gravado e as instruções que sumiram.
-   `otimizar/*`: efeitos das externs novas; `escape.rs` continua só para objetos do programa.
+   `optimize/*`: efeitos das externs novas; `escape.rs` continua só para objetos do programa.
 7. Testes: `EN/tests/contrato.rs:36` e `crates/jit/tests/sessao_persistente.rs:148` sem o modo
    legado; `EN/llvm/testes.rs`; os programas 90–99 (§5.3) com as saídas da VM.
 8. Documentação: `NATIVO.md` (a representação), `NATIVO-PLANO.md` (seção nova com os números),
@@ -1558,7 +1558,7 @@ emissor sem o legado; os testes e a documentação.
 | P2 | caixas\*, nucleo, closures, despacho, nativos_numeros | llvm/caixas_ir\*, lower/caixas\*, lower/closures, locais, captura, extensoes, async_sm, registros, tipos_de_extensao, funcoes_diretas | core/function |
 | P3 | listas\*, nativos_listas, colecoes, nativos_hash | llvm/listas_ir\*, lower/listas\*, lower/literais, intrinsecos, constantes | core/array, growable_array; collection/compact_hash, list; internal/sort |
 | P4 | tipadas\*, typed_data, simd, ffi, ffi_callbacks, io_\* (12), tls, tls_formatos, zlib | llvm/tipados_ir\*, llvm/simd, lower/tipados, comandos, simd, ffi | ffi/\* |
-| P5 | portas, isolados, ffi_api_nativa, tipos, seletores, excecoes, saida, compat_jit, eventos, finalizadores, nativos_sistema, nativos_desenvolvedor | lower/sdk_por_nome (apaga), expressoes, atribuicao, padroes, membros, chamadas, verificador, operadores, enums, nsm, erros_do_runtime, despacho, heranca, rti, cascata, const_primitiva, entrada_tipada, otimizar/\*, llvm/testes, tests/\*; crates/jit, crates/cli/tests | isolate/\*, core/identical_patch, finalizer_patch, internal/print_patch, io/\* |
+| P5 | portas, isolados, ffi_api_nativa, tipos, seletores, excecoes, saida, compat_jit, eventos, finalizadores, nativos_sistema, nativos_desenvolvedor | lower/sdk_por_nome (apaga), expressoes, atribuicao, padroes, membros, chamadas, verificador, operadores, enums, nsm, erros_do_runtime, despacho, heranca, rti, cascata, const_primitiva, entrada_tipada, optimize/\*, llvm/testes, tests/\*; crates/jit, crates/cli/tests | isolate/\*, core/identical_patch, finalizer_patch, internal/print_patch, io/\* |
 
 \* arquivo novo. Os demais arquivos do emissor (`alvo`, `apagamento`, `bin/*`, `cache_objeto`,
 `driver`, `fonte`, `gerador`, `ligador*`, `llvm/abi_c`, `llvm/depuracao`, `resumo`) não mudam;
@@ -1674,7 +1674,7 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     `DartForge_int_hashCode` (o próprio `i64`) e `DartForge_double_bits` (`Bitcast`). Os
     `DartForge_record_*` ficam no runtime: o receptor pode ser um record com forma (objeto do
     programa), e o native confere a classe.
-16. **`sdk_nativo/core/function.dart`:** os campos do `_Closure` da VM saem; entram
+16. **`native_sdk/core/function.dart`:** os campos do `_Closure` da VM saem; entram
     `int _codigo`, `Object? _contexto`, `int _tipado`, `int _abi` na ordem do bloco (só para a
     classe descrever o layout). `==` e `hashCode` continuam natives (`Closure_equals`,
     `Closure_computeHash`, em `nucleo.rs`): precisam do receptor guardado no `_Contexto`.
@@ -1725,7 +1725,7 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     o caso especial `dartforge_typed_cabecalho`/`cabecalhos_invariantes` de `llvm/mod.rs`, e
     consultar `tipados_ir::EFEITOS_DOS_AJUDANTES` em `efeitos_de`; à P3, trocar `resolver`/
     `bytes_de` em `nativos_listas.rs` (`codigos_da_lista`); à P5, tirar `dartforge_typed_len`/
-    `_ptr`/`_cabecalho` de `otimizar/simplificar.rs` e tratar os `df.*` sem efeito como puros.
+    `_ptr`/`_cabecalho` de `optimize/simplificar.rs` e tratar os `df.*` sem efeito como puros.
 22. **P4 — `tipada_em_linha`:** em linha `TypedDataBase_length`, `TypedDataView_offsetInBytes`,
     `TypedDataView_typedData`, o `[]` reconhecido das listas numéricas e visões e
     `_TypedList._getX`/`_setX` numéricos, com o runtime como caminho lento; SIMD, `_memMove*` e
@@ -1913,7 +1913,7 @@ O que a P0a entregou diferente do texto acima, ou além dele (regra 2 de §4.1):
     `crates/cli/tests/reload_estado.rs` perdeu a variante sem SDK e ganhou
     `cli_preserva_o_estado_do_espaco_unificado_em_tres_recargas` (§5.2 item 9, fixtures
     `reload_espaco_v1..4.dart`, saída conferida na VM); os testes da CLI não passam mais
-    `DARTFORGE_SDK_DA_FONTE`. Os programas 90–99 estão em `corpus/nativo` (o 92 é um diretório
+    `DARTFORGE_SDK_DA_FONTE`. Os programas 90–99 estão em `corpus/native` (o 92 é um diretório
     com duas bibliotecas).
 48. **Pedidos da P5:** à **P0** — (a) tirar `pub mod sdk_por_nome;` e `pub mod nsm;` de
     `lower/mod.rs` (a P5 então apaga os dois arquivos); (b) em `sdk_fonte.rs`,
@@ -2104,18 +2104,18 @@ Máquina Windows 11 (ambiente do scratchpad `agente-http/env.sh`), `--release`:
 2. `cargo test --release -p dartforge-runtime -p dartforge-emit-native -p dartforge-jit -p dartforge-cli`
    (inclui `tests/hot_reload.rs`, `reload_estado.rs`, `io_regressao.rs`, `jit_programa.rs`).
 3. Módulo `heap` com `DARTFORGE_GC_VERIFICAR=1`.
-4. `env -u HOME cargo run --release -p dartforge-diferencial -- --nativo --corpus corpus/nativo`
+4. `env -u HOME cargo run --release -p dartforge-differential -- --nativo --corpus corpus/native`
    (82 programas de hoje + 90–99).
 5. O mesmo com `--jit` e `--jit-aot`.
 6. O mesmo com `--nativo --gc-stress --limite-exec 60`, uma vez sem e uma com
    `DARTFORGE_GC_VERIFICAR=1`.
 7. `--nativo --corpus corpus/js` (235 programas) e `--nativo --producao` (o `aot --optimize`).
-8. `bench/desempenho/*.dart`, `bench/simd` e `bench/http/servidor.dart` com a saída igual à da VM.
+8. `bench/performance/*.dart`, `bench/simd` e `bench/http/servidor.dart` com a saída igual à da VM.
 9. Recarga: um programa que guarda strings, listas compactas e gerais, closures, `double` em
    caixa e uma lista grande com cartões em globais, recarregado três vezes (`crates/cli/tests/
    reload_estado.rs` ganha o caso), com a saída igual antes e depois.
 
-### 5.3 Programas novos (`corpus/nativo`, P5 escreve, os pacotes conferem)
+### 5.3 Programas novos (`corpus/native`, P5 escreve, os pacotes conferem)
 
 | Nº | Arquivo | Cobre |
 |---|---|---|
@@ -2167,7 +2167,7 @@ alocação e coleta ~21%, classe do receptor ~12%, `malloc` 7–11% e consultas 
 | 6 | **Cid mudando depois de publicado** com `!invariant.load` | regra do §2.16 (objeto novo em vez de troca); `definir_flags` recusa mexer em outra coisa que `FORMA`/`ELEMENTO` |
 | 7 | **Conversão de forma com coleta no meio** (caixas alocadas enquanto a lista ainda diz `BRUTO`) | a ordem de §2.16: montar o geral enraizado, depois copiar e trocar `flags` sem alocar |
 | 8 | **`mapa` lido como mapa de referências numa string** | regra de §2.3 (`FORMA` antes de `mapa`), `debug_assert!` em `empilhar_referencias` e na cópia entre isolados |
-| 9 | **Fragmentação** com 89 classes (uma página parcial por classe em uso: até ~5,6 MiB) | a folga por classe de hoje (`varrer`, `RT/heap.rs:2253`); medir o RSS de pico em `bench/desempenho` e no servidor; se preciso, juntar classes médias vizinhas |
+| 9 | **Fragmentação** com 89 classes (uma página parcial por classe em uso: até ~5,6 MiB) | a folga por classe de hoje (`varrer`, `RT/heap.rs:2253`); medir o RSS de pico em `bench/performance` e no servidor; se preciso, juntar classes médias vizinhas |
 | 10 | **Objetos grandes frequentes** (uma chamada ao sistema por objeto acima de 16 KiB) | cache de regiões soltas por tamanho (§4.2, passo 6), como o cache de páginas da VM; os buffers de 8 KiB do `dart:io` ficam em classe média |
 | 11 | **`double` em lista geral e em record passa a ter caixa** (antes ficava sem caixa na `TaggedValue` e era reencaixotado a cada leitura como `Ref`) | é o modelo da VM; as listas `List<double>` ficam compactas; medir `json.dart` (listas de `double` do `_JsonListener`) |
 | 12 | **Captura lida em representação diferente da gravada** (o `@df.env_ref` de hoje escondia isso) | `EnvGet`/`CellGet` no tipo gravado (P2) e o verificador da HIR recusando a divergência (P5) |

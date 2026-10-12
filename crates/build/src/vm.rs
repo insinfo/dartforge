@@ -1,6 +1,6 @@
 //! O executor de builders pela **VM Dart** (`docs/BUILD-PROTOCOLO.md` §3):
 //! um processo persistente que fala `dfexec/1` e atende o serviço `build.*`
-//! com o lado Dart de `pacotes/build_executor`. É o caminho provisório da
+//! com o lado Dart de `packages/build_executor`. É o caminho provisório da
 //! Fase 4 (BUILD-RUST.md): o mesmo protocolo que o executor auto-hospedado
 //! vai falar, com a VM oficial no lugar do nosso runtime. Por isso é opcional
 //! e explícito (`dartforge build --dart <exe>`, ou `DARTFORGE_BUILD_DART`):
@@ -35,15 +35,15 @@ pub const PACOTE: &str = "dartforge_build_executor";
 const FONTES: &[(&str, &str)] = &[
     (
         "executor.dart",
-        include_str!("../../../pacotes/build_executor/lib/executor.dart"),
+        include_str!("../../../packages/build_executor/lib/executor.dart"),
     ),
     (
         "src/canal.dart",
-        include_str!("../../../pacotes/build_executor/lib/src/canal.dart"),
+        include_str!("../../../packages/build_executor/lib/src/canal.dart"),
     ),
     (
         "src/servico.dart",
-        include_str!("../../../pacotes/build_executor/lib/src/servico.dart"),
+        include_str!("../../../packages/build_executor/lib/src/servico.dart"),
     ),
 ];
 

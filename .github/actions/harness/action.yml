@@ -2,13 +2,13 @@ name: Harness diferencial
 description: >
   Prepara o ambiente de execução (Node, SDK Dart, binários do job `compilar`,
   cache dos oráculos; no nativo também Rust e LLVM), roda
-  `dartforge-diferencial` com os argumentos dados, publica o placar no
+  `dartforge-differential` com os argumentos dados, publica o placar no
   $GITHUB_STEP_SUMMARY e numa anotação, e sobe o relatório como artefato.
 
 # Pressupõe o checkout já feito (a ação é local) e o artefato `binarios` do job
 # `compilar` desta mesma execução.
 #
-# Código de saída do harness (crates/diferencial/src/main.rs): 0 = todos batem;
+# Código de saída do harness (crates/differential/src/main.rs): 0 = todos batem;
 # 1 = algum programa falha (relatório completo, placar abaixo do total);
 # 2 = argumento inválido ou corpus vazio; 101 = pânico do harness.
 # `aceitar-placar-parcial: true` aceita o 1 — é o caso do nativo, que é trabalho
@@ -23,7 +23,7 @@ inputs:
     description: Título do placar no resumo
     required: true
   args:
-    description: Argumentos do dartforge-diferencial
+    description: Argumentos do dartforge-differential
     required: true
   nativo:
     description: Instalar Rust (runtime nativo) e LLVM 22.1.8 (Clang)
@@ -106,7 +106,7 @@ runs:
         & $env:SCRIPT_PREPARAR
         if ($LASTEXITCODE -ne 0) { throw "preparação do corpus falhou: $env:SCRIPT_PREPARAR" }
 
-    - name: dartforge-diferencial ${{ inputs.args }}
+    - name: dartforge-differential ${{ inputs.args }}
       id: rodar
       shell: pwsh
       env:
@@ -117,7 +117,7 @@ runs:
         New-Item -ItemType Directory -Force $dir | Out-Null
         $rel = Join-Path $dir 'relatorio.txt'
         $prog = Join-Path $dir 'progresso.txt'
-        $exe = Join-Path $env:GITHUB_WORKSPACE 'target\release\dartforge-diferencial.exe'
+        $exe = Join-Path $env:GITHUB_WORKSPACE 'target\release\dartforge-differential.exe'
         "dir=$dir" >> $env:GITHUB_OUTPUT
         Write-Host "$exe $env:ARGS_HARNESS"
         # Start-Process grava stdout/stderr byte a byte (o relatório é UTF-8) e
@@ -214,5 +214,5 @@ runs:
           Write-Host 'placar abaixo do total — aceito neste job (trabalho em andamento)'
           exit 0
         }
-        Write-Host "::error::dartforge-diferencial saiu com código $env:CODIGO"
+        Write-Host "::error::dartforge-differential saiu com código $env:CODIGO"
         exit 1

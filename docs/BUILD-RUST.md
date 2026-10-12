@@ -24,16 +24,16 @@ Números medidos no ESTADO.md §1.8. Em uma linha por passo do plano:
   pós-processador, 0
   diferentes, determinismo 1/4/8 e incremental = do zero nas edições.
 * **B4** — sessão, `serve`, `compile-js` (o `emit_js` não depende mais do
-  `gerador_ng`), `dartforge build`, custo zero com os três portões.
+  `ng_generator`), `dartforge build`, custo zero com os três portões.
 * **B5** — ngdart nativo no estágio A (ação de pacote). Sass nativo publica
   `compressed` e `expanded` sem mapas, conferidos forma a forma contra o
-  `sass_builder` (`crates/gerador_ng/tests/sass_formas`: 0 diferentes);
+  `sass_builder` (`crates/ng_generator/tests/sass_formas`: 0 diferentes);
   registra os módulos importados na ação e recusa mapas de fonte. Saídas CSS pedidas sob demanda usam o gerador
   nativo elegível antes do apoio.
-* **B6** — o estágio B do ngdart depende do que está pedido ao `gerador_ng`
+* **B6** — o estágio B do ngdart depende do que está pedido ao `ng_generator`
   em `docs/BUILD-PEDIDOS-GERADOR-NG.md`.
 * **B7** — builders do ecossistema **executados de verdade**, pela VM Dart
-  (degrau provisório da Fase 4, §3): `pacotes/build_executor` (o lado Dart
+  (degrau provisório da Fase 4, §3): `packages/build_executor` (o lado Dart
   do serviço `build.*`: `runBuilder` do `package:build`, `AnalyzerResolvers`
   do `build_resolvers`, todas as leituras e escritas pelo motor) e
   `crates/build/src/vm.rs` (bootstrap, kernel em cache pelo depfile,
@@ -204,7 +204,7 @@ Aceite, em duas partes:
    código que exercite o gerador. Critério: a saída do `dartforge build`
    é **byte a byte igual** à do `dart run build_runner build`, e o
    programa gerado compila e executa igual pelos dois caminhos. É o
-   `crates/diferencial` aplicado à geração de código.
+   `crates/differential` aplicado à geração de código.
 
 Nota de campo: o `mockito` 5.4.5 quebra com o `analyzer` 7.x (o gerador
 de mocks usa tipos internos do analyzer) — está anotado nos `pubspec` de

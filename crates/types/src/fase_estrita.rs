@@ -5,7 +5,7 @@
 //! `analyzer/lib/src/error/best_practices_verifier.dart:1359-1431`).
 //!
 //! Só valem com `analyzer: language: strict-inference: true`; a fase relata
-//! sempre e quem publica (`dartforge_paridade::diagnosticos_json`) tira os
+//! sempre e quem publica (`dartforge_parity::diagnosticos_json`) tira os
 //! dois códigos sem a opção.
 //!
 //! * Parâmetro simples sem tipo (nem `this.`, nem `super.`, nem forma de

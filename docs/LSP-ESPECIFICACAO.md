@@ -719,7 +719,7 @@ capacidades estáticas).
 **Estado no DartForge** (`docs/LSP.md`, "Diagnósticos tipados"): publica para
 os documentos **abertos** (o Dart publica para todos os arquivos das raízes) o
 sintático imediatamente e o tipado em seguida, só com os códigos de
-`crates/analise/verificados.txt` (os de paridade conferida no corpus); no
+`crates/analysis/verificados.txt` (os de paridade conferida no corpus); no
 `didClose` publica lista vazia (o Dart mantém). `code`, `severity`,
 `message`/`correction`, `tags` e `codeDescription` seguem o Dart para os
 códigos publicados. **Diverge:** conjunto de arquivos (abertos × raízes), a
@@ -1646,7 +1646,7 @@ cerca de 90% (soma das posições de causa única: 45 + 71 + 26 + 37 = 179 de
 ### 7.6 Para implementar: a árvore no formato do analyzer
 
 **Estado em 2026-10-05 (escrito, não compilado).** A árvore e o `ExitDetector` dela passaram para
-`crates/analise/src/arvore_analyzer.rs` e `crates/analise/src/saida.rs` (o lint
+`crates/analysis/src/arvore_analyzer.rs` e `crates/analysis/src/saida.rs` (o lint
 `use_build_context_synchronously` os usa); o LSP os usa de lá, e o `_elementExits` vem do contexto dele
 (`refatoracoes_metodo.rs`, `elemento_sai`). `crates/lsp/src/arvore_analyzer.rs` (hoje no `analise`) monta a árvore no
 formato do analyzer sobre a do parser e os tokens (etapas 1 a 6 da tabela abaixo de uma vez): os nós de
@@ -5724,7 +5724,7 @@ lints recebem ainda os três *ignore* (13.7.1 item 6).
 #### 13.7.4 Produtores dos códigos que o DartForge publica
 
 Cobertura: os 61 produtores distintos alcançados pelos códigos de
-`crates/analise/verificados.txt` (cruzamento feito por `gen.py`/`gen_ver.py`, saída em
+`crates/analysis/verificados.txt` (cruzamento feito por `gen.py`/`gen_ver.py`, saída em
 `E:\dftemp\lsp\spec-r2\f13-07\ver.txt`) e mais os produtores dos códigos sintáticos e dos
 "indefinidos" que o LSP já atende ou vai atender (`ImportLibrary`, `Create*`, `InsertSemicolon`,
 `AddMissingRequiredArgument`…). Dos 167 códigos de `verificados.txt`: 62 têm produtor na 3.6.2
@@ -13492,7 +13492,7 @@ Observações sobre a lista:
 
 #### 13.12.10 Código publicado pelo DartForge → produtor(es) em lote
 
-Cruzamento de `crates/analise/verificados.txt` (167 códigos semânticos publicados) com a
+Cruzamento de `crates/analysis/verificados.txt` (167 códigos semânticos publicados) com a
 lista acima, pelo `name` em minúsculas do `ErrorCode` (várias constantes compartilham um
 `name`; a coluna do meio diz qual constante está registrada). **É este o conjunto que o
 `Fix All` do DartForge precisa cobrir para os diagnósticos que ele já publica.**
@@ -16545,7 +16545,7 @@ zero com o texto resultante.
 | completar | pedido de completar entre edições | o estado retido depois do pedido é idêntico ao de antes (16.7, regra 3) |
 
 **Corpus.** Os 4 projetos do oráculo (`E:\dftemp\lsp\proj\{app,args,path,
-string_scanner}`) e o corpus do analisador (`crates/analise`). **Onde.**
+string_scanner}`) e o corpus do analisador (`crates/analysis`). **Onde.**
 Testes de integração no crate que hospedar o caminho incremental
 (`crates/lsp/tests/incremental.rs` para o caminho completo;
 `crates/elements` para `substituir_unidade` isolado: forma, remapeamento de
@@ -16697,7 +16697,7 @@ reanálise do pacote inteiro a cada mudança (I5/I6 a tornariam proporcional ao 
   `context.dart`) e 27 ms (`args`, `arg_parser.dart`).
 
 Continuam: I5 (reaproveitar as tabelas dos corpos não alterados pede remapear `ExprId`s e offsets dentro de
-`UnitBodyTypes`, em `crates/types`; diagnósticos tipados incrementais pedem o `Motor` de `crates/paridade`
+`UnitBodyTypes`, em `crates/types`; diagnósticos tipados incrementais pedem o `Motor` de `crates/parity`
 incremental) e I6 (edição de assinatura sem recarga: elementos e esboço só da biblioteca e das dependentes, em
 `crates/elements`/`crates/types`). Hoje uma edição de assinatura derruba a sessão; a carga ampla volta em
 ~0,2 s mais a inferência dos corpos das bibliotecas que o nome procurado pedir.
@@ -17007,7 +17007,7 @@ F1 e F2 são pré-requisito dos assists e das refatorações (13.8 a 13.11 escol
 | 11 | `workspace/symbol` | 0% | F4 | 5 | as 24 consultas iguais |
 | 12 | `inlayHint` | 50% dos arquivos | M3 | 15.3 | os 36 arquivos iguais |
 | 13 | `typeDefinition`, `documentHighlight`, `definition` | 95–96% | M1 | 10, 11.6 | ≥ 99% |
-| 14 | quick fixes dos códigos publicados | 75% | F1, F2 | 13.7 | todo código de `crates/analise/verificados.txt` com produtor registrado no Dart tem o mesmo conjunto de títulos |
+| 14 | quick fixes dos códigos publicados | 75% | F1, F2 | 13.7 | todo código de `crates/analysis/verificados.txt` com produtor registrado no Dart tem o mesmo conjunto de títulos |
 | 15 | `semanticTokens`, `signatureHelp`, `documentSymbol` | 97–100% | — | 15.2, 15.1, 4 | 100% |
 | 16 | formatação | 0% | porte do `dart_style` | 8.1 | fora deste plano |
 

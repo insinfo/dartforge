@@ -2,7 +2,7 @@
 //! Variantes usam literal permanente ou Mint mortal, além de Smi e null.
 //! Não certifica morte após o último owner nem o restante do pipeline ARC.
 
-use dartforge_emit_native::otimizar::arc::*;
+use dartforge_emit_native::optimize::arc::*;
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -221,7 +221,7 @@ fn main() -> Result<(), String> {
             terminator: Terminator::Return(None),
         }],
     });
-    dartforge_emit_native::otimizar::otimizar(&mut m);
+    dartforge_emit_native::optimize::otimizar(&mut m);
     let mut resumos_dart = Vec::new();
     if prova_retorno {
         let mut identidade = Function {

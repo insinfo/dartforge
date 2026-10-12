@@ -7,7 +7,7 @@
 //! Controles negativos `sem-retencao` e `sem-liberar` alteram somente o IR
 //! final do harness, depois da conferência; a execução deve falhar.
 
-use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*};
+use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
 
 #[derive(Clone, Copy)]

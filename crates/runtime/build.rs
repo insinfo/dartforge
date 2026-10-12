@@ -121,7 +121,7 @@ fn main() {
     // As features escolhem o perfil do módulo `abi`: sem nenhuma, o JIT
     // (sem o `main` C); `aot`, a `staticlib` do executável (com o `main`);
     // `dll`, a da biblioteca compartilhada do SDK da fonte (sem o `main`).
-    // As duas `staticlib` saem de `crates/runtime_estatico`.
+    // As duas `staticlib` saem de `crates/runtime_static`.
     let aot = std::env::var_os("CARGO_FEATURE_AOT").is_some();
     let dll = std::env::var_os("CARGO_FEATURE_DLL").is_some();
     assert!(!(aot && dll), "as features aot e dll do runtime são exclusivas");

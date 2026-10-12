@@ -34,7 +34,7 @@ diretório do pacote como corrente. Programas: todo `example/*.dart` com
 `main` e os 3 menores `test/**/*_test.dart` de cada pacote — 272. O
 roteiro `E:\dftemp\backend-real\placar.py` roda cada um na VM
 (`dart --enable-asserts --packages=… arquivo`, o mesmo oráculo do
-corpus, `crates/diferencial/src/oraculos.rs:260`) e no nativo
+corpus, `crates/differential/src/oraculos.rs:260`) e no nativo
 (`dartforge aot`), e compara a saída padrão (sem os tempos `00:00` do
 `package:test` e as sementes `Random Seed: N` que os testes imprimem) e o
 código de saída. Programa que a VM não compila (código 254: dependência
@@ -84,7 +84,7 @@ escape); e daí em diante só `LlvmEmitter::emit_function`
    programa (`EN/lower/membros.rs`, a busca por `cdecl`): a cada acesso a
    membro, uma varredura de TODAS as classes do programa (com a
    linearização de cada subtipo). O(acessos × classes).
-3. `otimizar::efeitos::nao_lancam`: o maior ponto fixo por rodadas, cada
+3. `optimize::efeitos::nao_lancam`: o maior ponto fixo por rodadas, cada
    uma varrendo o módulo inteiro, uma rodada por nível da cadeia de
    chamadas que lançam.
 
@@ -233,7 +233,7 @@ para o módulo inteiro.
 (`VM/pkg/vm/lib/transformations/type_flow/`;
 `VM/runtime/vm/compiler/aot/precompiler.cc`, `DropFunctions`).
 
-**Desenho** (`EN/mundo_nativo.rs`). O mundo fechado do `crates/mundo` (o
+**Desenho** (`EN/mundo_nativo.rs`). O mundo fechado do `crates/world` (o
 RTA do JS de produção: classes instanciadas × seletores, o SDK como
 fronteira) com as raízes do nativo: o `main`, o que tem
 `@pragma('vm:entry-point')`, os nomes que o lowering chama por seletor
@@ -266,7 +266,7 @@ gravação do global), ~135 linhas por elemento.
 **Regra.** A VM lê o campo estático e só chama o inicializador na primeira
 vez (`LoadStaticField` + `InitStaticField`).
 
-**Desenho.** `otimizar::inline::copiavel` recusa função com `StoreGlobal`
+**Desenho.** `optimize::inline::copiavel` recusa função com `StoreGlobal`
 (o getter preguiçoso de global ou de valor de enum).
 
 ### C9. O módulo grande em partes; o endereço dos campos por chamada
@@ -302,10 +302,10 @@ vezes — 21% das linhas.
 
 **Medido.** O LLVM recusava o IR: "use of undefined value '%v129'" no
 `RIPEMD128Digest.processBlock` do `pointycastle` (`a = aa = state[0]` com
-locais `int?`). Reproduz sem pacote (`corpus/nativo/124`), também com o
+locais `int?`). Reproduz sem pacote (`corpus/native/124`), também com o
 `dartforge` de antes destas mudanças.
 
-**Desenho.** `otimizar::simplificar::dobrar_constantes` troca
+**Desenho.** `optimize::simplificar::dobrar_constantes` troca
 `Unbox(Box(x))` por `x` e tira as duas instruções; quando o próprio `x`
 também sai na mesma volta, a troca apontava para um valor removido. As
 trocas agora seguem a cadeia antes de aplicar.
@@ -316,7 +316,7 @@ trocas agora seguem a cadeia antes de aplicar.
 `index out of bounds: the len is 1858 but the index is 1992`
 (`RT/tipos.rs`, `tipo(id)`), e depois com `type 'Function' is not a
 subtype of type '(Stream<dynamic>, dynamic) => Stream<dynamic>' in type
-cast` (o `StreamIsolate` do projeto). Reproduzem em `corpus/nativo/125` e
+cast` (o `StreamIsolate` do projeto). Reproduzem em `corpus/native/125` e
 `126`.
 
 **Regra.** Na VM os argumentos de tipo e as closures atravessam
@@ -344,7 +344,7 @@ dynamic>' of 'middleware'` — o `{Iterable<T> middleware = const []}` do
 
 **Regra.** Uma constante não depende de variáveis de tipo: o contexto de um
 literal `const` vale pelo fecho menor (a VM dá `List<Never>`,
-`corpus/nativo/127`).
+`corpus/native/127`).
 
 **Desenho.** `crates/types/src/inferencia/colecoes.rs`, `literal`: com
 `const` explícito e sem argumentos de tipo, o contexto passa por
@@ -368,7 +368,7 @@ registered in the DartForge native backend" — as estruturas do Win32 do
 
 **Desenho.** `EN/lower/ffi.rs`, `tipo_do_campo`: a classe da anotação vem
 do escopo da biblioteca (`classe_da_anotacao`: `@Nome()`, `@p.Nome()`,
-alias de classe), não do texto (`corpus/nativo/128`).
+alias de classe), não do texto (`corpus/native/128`).
 
 ### C14. Testes do SDK sem mensagem no macOS
 
@@ -392,7 +392,7 @@ biblioteca (RFC 3986 §5.2.2: referência vazia dá a base; a CFE resolve
 pelo `Uri.resolve`).
 
 **Desenho.** `crates/elements/src/load.rs`, `resolve_directive_target`:
-URI vazia → a base (`corpus/nativo/129`).
+URI vazia → a base (`corpus/native/129`).
 
 ### C16. Extensão genérica sobre um tipo registro
 
@@ -409,7 +409,7 @@ estático do receptor contra o `on` pela inferência genérica comum
 
 **Desenho.** `EN/lower/rti.rs`, `unificar` (que arma a tupla da extensão
 pelo receptor): casa registro com registro — posicionais pela posição,
-nomeados pelo nome (`corpus/nativo/130`).
+nomeados pelo nome (`corpus/native/130`).
 
 ### C17. Chave PKCS#12 cifrada com RC4
 
@@ -478,11 +478,11 @@ bool, null e portas têm hash estrutural), e depois `_rehashObjects`
 identidade. `RT/portas.rs`, `materializar` → `refazer_indices_copiados`:
 com os nós ainda enraizados, chama para cada instância copiada o ajudante
 Dart `_dartforgeRefazerIndiceCopiado`
-(`sdk_nativo/collection/compact_hash.dart`), que confere as chaves como
+(`native_sdk/collection/compact_hash.dart`), que confere as chaves como
 `MightNeedReHashing` e, se preciso, zera `_hashMask`/`_deletedKeys` e chama
 o `_regenerateIndex` do próprio SDK; a classe que não é `_Map`/`_Set` sai
 na primeira consulta (uma chamada por classe, não por objeto)
-(`corpus/nativo/132`).
+(`corpus/native/132`).
 
 ### C21. Fábrica redirecionadora para classe importada com prefixo
 
@@ -495,7 +495,7 @@ importada com o prefixo `t`, tem o mesmo nome da classe pública.
 nas quatro formas, `Alvo`, `Alvo.nome`, `p.Alvo` e `p.Alvo.nome`; o prefixo
 é procurado no escopo de importação (`lookup_prefixed`). Antes, o último nome
 era procurado no escopo da própria biblioteca, que acha a classe pública e
-não a de destino. Corpus: `corpus/nativo/133`.
+não a de destino. Corpus: `corpus/native/133`.
 
 ### C22. Recursão sem fim estourava a pilha do sistema
 
@@ -521,16 +521,16 @@ overflow trace correctly" derrubava o executável com o código -11
   `dartforge_estouro_de_pilha`, que lança o `StackOverflowError` do SDK, e
   volta com a exceção pendente.
 * Uma função num ciclo de chamadas diretas (Tarjan sobre os `CallStatic`,
-  `otimizar/efeitos.rs`, `em_ciclo`) conta como função que lança. Antes, o
+  `optimize/efeitos.rs`, `em_ciclo`) conta como função que lança. Antes, o
   resumo de exceções supunha que a recursão sem outra operação que lance não
   lançava (`void f() => f();`). Então a função ficava sem conferência, sem
   o `%ctx` e sem a conferência da pilha, e ainda derrubava o
   `stack_trace/test/vm_test` no Linux.
 * O ret do estouro vem antes de o quadro de raízes ser encadeado
-  (`llvm::testes::quadro_de_raizes_em_todo_ret`). `corpus/nativo/136` estoura
+  (`llvm::testes::quadro_de_raizes_em_todo_ret`). `corpus/native/136` estoura
   e depois aloca muito com `--gc-stress`.
 
-Corpus: `corpus/nativo/134`, que cobre recursão direta, pura, mútua e
+Corpus: `corpus/native/134`, que cobre recursão direta, pura, mútua e
 virtual e um isolado.
 
 ### C23. `void f() => e` devolve o valor de `e`
@@ -549,7 +549,7 @@ expressão, e quem chama por `Function` ou `dynamic` o recebe. A VM devolve
 `void` de corpo `=> e` síncrono tem retorno HIR `Ref`. Isso vale para a
 definição, para as chamadas diretas (`repr_retorno`) e para os
 adaptadores. Quem chama direto ignora o valor. O `main` fica de fora, porque
-a entrada o chama como `void`. Corpus: `corpus/nativo/135`.
+a entrada o chama como `void`. Corpus: `corpus/native/135`.
 
 ### Infraestrutura do placar
 
@@ -593,23 +593,23 @@ a entrada o chama como `void`. Corpus: `corpus/nativo/135`.
 
 | programa | causa |
 |---|---|
-| `corpus/nativo/120_constantes_entre_bibliotecas/` | C3 |
-| `corpus/nativo/121_estaticos_por_typedef_e_extensao_prefixada/` | C2 |
-| `corpus/nativo/122_literais_grandes_constantes.dart` | C4 |
-| `corpus/nativo/123_fuso_horario_por_ano.dart` | C6 |
-| `corpus/nativo/124_atribuicao_encadeada_anulavel.dart` | C10 |
-| `corpus/nativo/125_tipos_capturados_entre_isolados.dart` | C11 |
-| `corpus/nativo/126_tearoff_entre_isolados.dart` | C11 |
-| `corpus/nativo/127_const_padrao_com_variavel_de_tipo.dart` | C12 |
-| `corpus/nativo/128_ffi_anotacoes_por_alias.dart` | C13 |
-| `corpus/nativo/129_importa_a_si_mesma.dart` | C15 |
-| `corpus/nativo/130_extensao_sobre_registro.dart` | C16 |
-| `corpus/nativo/131_const_no_argumento_de_fabrica.dart` | C12 |
-| `corpus/nativo/132_mapas_entre_isolados.dart` | C20 |
-| `corpus/nativo/133_fabrica_redirecionada_prefixada/` | C21 |
-| `corpus/nativo/134_estouro_de_pilha.dart` | C22 |
-| `corpus/nativo/135_void_de_seta_devolve_o_valor.dart` | C23 |
-| `corpus/nativo/136_estouro_de_pilha_e_coleta.dart` | C22 |
+| `corpus/native/120_constantes_entre_bibliotecas/` | C3 |
+| `corpus/native/121_estaticos_por_typedef_e_extensao_prefixada/` | C2 |
+| `corpus/native/122_literais_grandes_constantes.dart` | C4 |
+| `corpus/native/123_fuso_horario_por_ano.dart` | C6 |
+| `corpus/native/124_atribuicao_encadeada_anulavel.dart` | C10 |
+| `corpus/native/125_tipos_capturados_entre_isolados.dart` | C11 |
+| `corpus/native/126_tearoff_entre_isolados.dart` | C11 |
+| `corpus/native/127_const_padrao_com_variavel_de_tipo.dart` | C12 |
+| `corpus/native/128_ffi_anotacoes_por_alias.dart` | C13 |
+| `corpus/native/129_importa_a_si_mesma.dart` | C15 |
+| `corpus/native/130_extensao_sobre_registro.dart` | C16 |
+| `corpus/native/131_const_no_argumento_de_fabrica.dart` | C12 |
+| `corpus/native/132_mapas_entre_isolados.dart` | C20 |
+| `corpus/native/133_fabrica_redirecionada_prefixada/` | C21 |
+| `corpus/native/134_estouro_de_pilha.dart` | C22 |
+| `corpus/native/135_void_de_seta_devolve_o_valor.dart` | C23 |
+| `corpus/native/136_estouro_de_pilha_e_coleta.dart` | C22 |
 
 C1, C7, C8 e C9 são de escala (medidos no backend; o 122 cobre a parte de
 C4 que cabe no corpus); C5 precisa de `package_config` e vai num teste do

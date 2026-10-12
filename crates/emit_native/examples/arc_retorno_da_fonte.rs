@@ -3,7 +3,7 @@
 //! e morte após soltar o retorno. Não certifica todo o programa/SDK ou dispatch.
 
 use dartforge_emit_native::{
-    context::Context, driver, hir::*, llvm::LlvmEmitter, otimizar, otimizar::arc::*,
+    context::Context, driver, hir::*, llvm::LlvmEmitter, optimize, optimize::arc::*,
 };
 use dartforge_intern::Interner;
 use dartforge_types::table::{CoreTypes, TypeTable};
@@ -78,8 +78,8 @@ fn modulo(entrada: &Path) -> Result<Module, String> {
             m.retornos_ref_dart.insert(corpo.symbol.clone());
         }
     }
-    otimizar::otimizar(&mut m);
-    otimizar::excecoes_por_tabelas(&mut m);
+    optimize::otimizar(&mut m);
+    optimize::excecoes_por_tabelas(&mut m);
     let mut planos: HashMap<_, _> = m
         .functions
         .iter()

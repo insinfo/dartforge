@@ -4,7 +4,7 @@
 //! regras `prefer_const_constructors`,
 //! `prefer_const_literals_to_create_immutables` e
 //! `prefer_const_constructors_in_immutables` (que vivem com a árvore em
-//! `dartforge_analise::lints`, onde está o `approximateContextType`).
+//! `dartforge_analysis::lints`, onde está o `approximateContextType`).
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use crate::constantes::avaliador::Motor;

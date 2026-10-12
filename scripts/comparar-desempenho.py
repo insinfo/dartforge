@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Compara o desempenho de quatro executores nos programas de
-`bench/desempenho`: o JIT e o AOT (`--optimize`) do DartForge, a VM do Dart
+`bench/performance`: o JIT e o AOT (`--optimize`) do DartForge, a VM do Dart
 (`dart run`, JIT) e o AOT oficial (`dart compile exe`).
 
 Cada programa imprime, por núcleo, o tempo de cada rodada e o resultado
@@ -16,7 +16,7 @@ Uso: scripts/comparar-desempenho.py [--repeticoes N] [--saida ARQ.md]
 import argparse, os, re, shutil, signal, statistics, subprocess, sys, tempfile, threading, time, platform
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BENCH = os.path.join(RAIZ, "bench", "desempenho")
+BENCH = os.path.join(RAIZ, "bench", "performance")
 # `DARTFORGE_BIN` troca o binário (uma cópia estável enquanto outros compilam).
 DF = os.environ.get("DARTFORGE_BIN") or os.path.join(RAIZ, "target", "release", "dartforge")
 LINHA = re.compile(r"^(\w+): ([\d ]+) us \| (.*)$")

@@ -170,13 +170,13 @@ e o `finally` externo depois do corpo do `catch`.
 ## 2. Como medir — o placar nativo é um comando
 
 Sem placar automático o número do corpus é medido no olho. O harness
-`crates/diferencial` roda o corpus pelo backend nativo:
+`crates/differential` roda o corpus pelo backend nativo:
 
 ```powershell
-cargo build --release -p dartforge-diferencial
-target\release\dartforge-diferencial.exe --nativo
+cargo build --release -p dartforge-differential
+target\release\dartforge-differential.exe --nativo
 # um só programa:
-target\release\dartforge-diferencial.exe --nativo --filtro 76_erros
+target\release\dartforge-differential.exe --nativo --filtro 76_erros
 ```
 
 No modo `--nativo` ele compara **`dart run --enable-asserts` contra o
@@ -306,7 +306,7 @@ compilado, como "compilação do runtime nativo com rustc falhou". A
 verificação rápida é compilar um programa qualquer:
 
 ```powershell
-target\release\dartforge-diferencial.exe --nativo --filtro 01_print
+target\release\dartforge-differential.exe --nativo --filtro 01_print
 ```
 
 ### 5.4 O emissor de LLVM precisa saber o tipo de cada valor
@@ -785,7 +785,7 @@ idêntico com 1, 4 e 8 trabalhadores, JS 223/223 nos dois perfis.
 
 A divisão do P0 é mecânica: nenhum comportamento mudou. Prova: o LLVM IR de
 cada programa do corpus é byte a byte o mesmo antes e depois
-(`dartforge-diferencial determinismo --nativo`, 223 programas, mesmo resumo
+(`dartforge-differential determinismo --nativo`, 223 programas, mesmo resumo
 FNV-128 programa a programa), e os itens do runtime são os mesmos (cada função,
 `thread_local!` e `use` movido inteiro, conferido por script).
 
@@ -848,7 +848,7 @@ pelo contador novo `smi_caixas_evitadas` do `DARTFORGE_GC_STATS` (antes =
 de 100 000 `Object o = i`, 100 000 alocações a menos. O ganho grande é com o
 SDK da fonte, genérico (`E`, `Object?`).
 
-**P5a — sobreposição.** `sdk_nativo/libraries.json` (alvo
+**P5a — sobreposição.** `native_sdk/libraries.json` (alvo
 `dartforge_nativo`, base `vm`) troca por **conteúdo** quatro arquivos:
 `async_patch.dart` (o modelo do dart2js sem `_SuspendState`),
 `schedule_microtask_patch.dart` e `timer_patch.dart` (natives
@@ -1068,7 +1068,7 @@ O que entrou, as decisões e o porquê. O placar medido fica em §7.8.
 primeira parte da decisão 1 posta em prática: o programa que usa `dart:async`
 (função `async`/gerador, `await`, o nome `Future`/`Stream`/`FutureOr` ou
 `import 'dart:async'`) compila o `dart:async` da seção `vm` com a sobreposição
-`sdk_nativo/` — e o `dart:_internal` (de onde ele usa `unsafeCast`,
+`native_sdk/` — e o `dart:_internal` (de onde ele usa `unsafeCast`,
 `IterableElementError`…) e a `Duration` do `dart:core` (o `Timer` a recebe; o
 runtime em Rust nunca a teve) —, **com os corpos inferidos**. Nenhuma classe
 dessas bibliotecas tem representação própria no runtime: são objetos comuns
@@ -1207,7 +1207,7 @@ falha com ele. IR de um programa `async` típico (83): 1,2 MB, a maior parte do
 **Como o SDK entra.** Com `DARTFORGE_SDK_DA_FONTE=1` (opt-in até o placar
 do SDK da fonte passar o de hoje), as oito bibliotecas da fonte (`core`,
 `async`, `collection`, `convert`, `math`, `_internal`, `_compact_hash`,
-`typed_data`, com os patches `vm` e a sobreposição `sdk_nativo/`) são
+`typed_data`, com os patches `vm` e a sobreposição `native_sdk/`) são
 baixadas **cada uma no seu módulo**, em mundo aberto, com os símbolos
 estáveis `df.<biblioteca>.<dono>.<membro>`, e compiladas uma vez por
 conteúdo: a chave é o blake3 das fontes do SDK e da sobreposição, das fontes
@@ -1369,14 +1369,14 @@ pipes nomeados sobrepostos do lado do pai e síncronos do lado do filho, e o
 código de saída pelo pool do sistema (`RegisterWaitForSingleObject`). O
 Windows não tem soquetes de domínio Unix no `dart:io` (o `OSError` da VM).
 O `FileSystemWatcher`, o SIMD e as mensagens de controle de soquete
-(`SCM_RIGHTS`) são recusados por membro. O corpus `corpus/nativo/` (só VM ×
+(`SCM_RIGHTS`) são recusados por membro. O corpus `corpus/native/` (só VM ×
 nativo) cobre o `dart:io`: arquivos, diretórios, processos, TCP, HTTP, UDP,
 sinais e escuta compartilhada.
 
 **Validação por sistema.** `cargo check --target` só filtra erros de
 compilação; o que vale é o CI de cada sistema (build, testes do emissor e do
 JIT, `io_regressao` e o corpus nativo). A camada Windows ainda precisa do
-corpus `corpus/nativo` rodando no runner Windows e de medições sob carga
+corpus `corpus/native` rodando no runner Windows e de medições sob carga
 (vazão, latência, CPU, memória e threads com muitas conexões, consumidores
 lentos e processos com muita saída).
 
@@ -1411,7 +1411,7 @@ o `kill` imediato só é visto quando o isolado volta ao laço de eventos (a
 VM interrompe na verificação de pilha); `Isolate.spawnUri` não existe
 num programa compilado (a porta de pronto recebe o erro).
 
-**dart:ffi** (`lower/ffi.rs`, `runtime/src/ffi.rs`, `sdk_nativo/ffi/`).
+**dart:ffi** (`lower/ffi.rs`, `runtime/src/ffi.rs`, `native_sdk/ffi/`).
 O que o transformador de FFI da VM faz no kernel, aqui é feito no
 lowering, e a chamada nativa é LLVM puro — sem libffi e sem interpretar a
 assinatura a cada chamada:
@@ -1438,7 +1438,7 @@ assinatura a cada chamada:
   conferência de limites). `DynamicLibrary` usa `dlopen`/`dlsym` (Linux,
   macOS) e `LoadLibraryW`/`GetProcAddress` com busca nos módulos do
   processo (Windows).
-* **Também baixados** (cada um com programa em `corpus/nativo/`, comparado
+* **Também baixados** (cada um com programa em `corpus/native/`, comparado
   com a VM pelo `pesado.yml`): layout de `Struct`/`Union` e `asTypedList`
   (`12_ffi_structs.dart`), `Pointer.fromFunction` e `NativeCallable`
   (`13_ffi_callbacks.dart`; redirecionamento em `lower/ffi.rs:390-409`),
@@ -1485,7 +1485,7 @@ A representação é o próprio receptor; o construtor primário é o valor do
 argumento; os demais (generativos com `this.v`, `v = e` ou `this(…)`, e as
 fábricas, redirecionadoras inclusive) são funções que devolvem a
 representação, chamadas como fábricas. `lower/tipos_de_extensao.rs`;
-`corpus/nativo/36` e `corpus/js/230`–`232` iguais à VM.
+`corpus/native/36` e `corpus/js/230`–`232` iguais à VM.
 
 **Recusa por membro.** O membro do SDK que não baixa (construto não
 suportado, native pendente, intrínseco da VM sem entrada, teste de tipo sobre
@@ -1499,7 +1499,7 @@ errada.
 Quem usa o dartforge instala só a distribuição. Três peças saíram da máquina
 do usuário para o build do dartforge:
 
-* **Runtime pré-compilado** (`crates/runtime_estatico`,
+* **Runtime pré-compilado** (`crates/runtime_static`,
   `crates/emit_native/build.rs`). O runtime é a `staticlib` de um crate do
   Cargo — o módulo `abi` de `dartforge-runtime` no perfil `aot` (com o
   `main` C) ou `dll` (a biblioteca compartilhada do SDK da fonte) —, e por
@@ -1534,7 +1534,7 @@ do usuário para o build do dartforge:
   distribuição chamado direto, com as bibliotecas do sistema resolvidas pelo
   dartforge; os caminhos fixos de desenvolvimento (`C:/tools/dartsdk…`, o
   cache em `target/`) passam para a distribuição (o SDK Dart e o
-  `sdk_nativo/` em `lib/`, o cache no diretório de cache do usuário).
+  `native_sdk/` em `lib/`, o cache no diretório de cache do usuário).
 
 ### 7.11 TLS: `SecureSocket`, `SecurityContext`, `X509Certificate`, HTTPS
 
@@ -1542,7 +1542,7 @@ O runtime (`crates/runtime/src/tls.rs`) implementa o filtro da VM
 (`runtime/bin/secure_socket_filter.cc`) sobre o **rustls** (provedor
 `ring`); o `secure_socket.dart` e o `dart:_http` do SDK rodam intactos por
 cima. A sobreposição troca só o patch da VM
-(`sdk_nativo/io/secure_socket_patch.dart`) e o pedido `sslProcessFilter` do
+(`native_sdk/io/secure_socket_patch.dart`) e o pedido `sslProcessFilter` do
 IOService (`io_service_patch.dart`).
 
 * **Os anéis.** Os quatro `_ExternalBuffer` (texto lido/a escrever, cifrado
@@ -1615,7 +1615,7 @@ em `dartforge run`, entregues também ao runtime da biblioteca do SDK).
 
 * **Leiaute** (`crates/elements/src/distribuicao.rs`): `bin/dartforge`,
   `lib/dartforge-distribuicao.json` (a marca), `lib/runtime/`,
-  `lib/sdk_nativo/`, `lib/dart-sdk/{lib,version}`, `lib/llvm/bin/` (Clang e
+  `lib/native_sdk/`, `lib/dart-sdk/{lib,version}`, `lib/llvm/bin/` (Clang e
   lld). O SDK do Dart, a sobreposição, o Clang e o runtime são procurados
   primeiro ali (depois nas variáveis de ambiente e na árvore de
   desenvolvimento); o cache vai para o do usuário
@@ -1698,7 +1698,7 @@ O LLVM só otimiza o que recebe. Um objeto criado pelo runtime
 aqui não é deixar o runtime fazer mais depressa o trabalho de sempre, é o
 executável precisar de menos trabalho.
 
-### 8.1 Os passes (`crates/emit_native/src/otimizar/`)
+### 8.1 Os passes (`crates/emit_native/src/optimize/`)
 
 Rodam sobre o módulo HIR do programa, antes do emissor, em todo modo (AOT,
 produção e JIT); `DARTFORGE_OTIMIZAR_HIR=0` desliga para comparar.
@@ -1768,7 +1768,7 @@ heap, nenhuma raiz, nenhuma conferência de exceção.
 * **`List<bool>`** lida e gravada em linha, e a gravação direta confere o
   `E` reificado da lista (`dartforge_lista_len_gravavel`): um `List<Never>`
   ou um `List<int>` visto como `List<num>` fica com o `[]=` do SDK, que
-  lança o `TypeError` da VM (`corpus/nativo/27`). Antes, a gravação direta
+  lança o `TypeError` da VM (`corpus/native/27`). Antes, a gravação direta
   de `int`/`double` não conferia a covariância.
 
 * **Cabeçalho fixo de lista** (`runtime/src/heap.rs`, `Elementos` e
@@ -1803,7 +1803,7 @@ heap, nenhuma raiz, nenhuma conferência de exceção.
   pela última marcação (uma lista grande com poucos objetos vivos não
   coleta a cada 256 alocações).
 
-### 8.3 Medido (Linux x86-64, AOT `--optimize`, `bench/desempenho`)
+### 8.3 Medido (Linux x86-64, AOT `--optimize`, `bench/performance`)
 
 Tempo estável por núcleo, ms (mediana das rodadas depois da primeira):
 
@@ -1939,7 +1939,7 @@ O que entrou, uma coisa de cada vez:
    75 ms (Dart AOT 90 ms), e o pico de memória do `textos` cai de ~190 MB
    (Dart AOT) para 68 MB.
 
-Correção: `corpus/nativo/47_mapas_e_conjuntos_int_string.dart` e
+Correção: `corpus/native/47_mapas_e_conjuntos_int_string.dart` e
 `49_strings_busca_divisao_e_buffer.dart` iguais à VM no AOT, no JIT e com
 `--gc-stress`; corpus nativo 52/52 (AOT e JIT; com `--gc-stress` 51/52, o
 `50_receptor_int_e_objetos_do_espaco` de outro trabalho esgota o prazo de
@@ -2038,7 +2038,7 @@ sem mover** (marcas "pegajosas"):
    literal de texto num cache do ponto de uso, na área do isolado (a busca no
    runtime só na primeira avaliação; a recarga do JIT esvazia os caches); o
    receptor escalar de membro do SDK chamado direto vai em caixa
-   (`chamar_membro_fonte`, `corpus/nativo/50`).
+   (`chamar_membro_fonte`, `corpus/native/50`).
 
 `scripts/comparar-desempenho.py` passou a medir também o pico de memória
 residente (`ru_maxrss` pelo `wait4`, o mesmo do `/usr/bin/time -v`, que não
@@ -2127,8 +2127,8 @@ Agora:
   classe << 32`) e zera o primeiro campo (o encadeamento).
 
 O nó da lista tem 32 bytes (a VM, 24). Validação: corpus/js 235/235 e
-corpus/nativo 59/59 em AOT, JIT e `--gc-stress` com
-`DARTFORGE_GC_VERIFICAR=1`; `bench/desempenho` inteiro com os resultados da
+corpus/native 59/59 em AOT, JIT e `--gc-stress` com
+`DARTFORGE_GC_VERIFICAR=1`; `bench/performance` inteiro com os resultados da
 VM. Medido (3 rodadas alternadas, máquina carregada; razão contra o Dart
 AOT das mesmas rodadas):
 
@@ -2326,7 +2326,7 @@ avaliado (a mensagem sem " of 'nome'").
   argumentos como a entrada uniforme (os nomes do parâmetro da
   implementação).
 
-Correção: `corpus/nativo/52_chamada_tipada_e_covariancia.dart`
+Correção: `corpus/native/52_chamada_tipada_e_covariancia.dart`
 (covariância de lista, mapa e conjunto pela interface; `covariant` escrito,
 nomeado e herdado; genérico da classe pela interface e sobrescrita que
 alarga; classe do programa sobre `ListBase`; argumentos `dynamic` para
@@ -2397,7 +2397,7 @@ chama outra declarada fora dela recebe as capturas dela e as repassa: a
 chamada nunca procura uma captura pelo nome, que um bloco de dentro pode ter
 sombreado.
 
-Correção: `corpus/nativo/54_funcoes_locais_diretas.dart` (o molde do
+Correção: `corpus/native/54_funcoes_locais_diretas.dart` (o molde do
 `_parse` com várias funções sobre o mesmo índice, recursão, captura
 modificada antes e depois, `Ref` atribuído, sombreamento, chamada de dentro
 de uma closure que escapa, captura compartilhada com uma closure que escapa,
@@ -2412,7 +2412,7 @@ Instruções por requisição (callgrind, `/`, §9.1): **1 164 449 → 927 176**
 inclusivo 112 → 95 mil instruções/req e `dartforge_closure_new_tipada` 130
 → 71 mil (o que resta são closures que escapam de fato: os
 `onData`/`onDone` de `_HttpOutgoing.addStream`, os `then` do
-`_AsyncCompleter`, as dos `_StreamController`). No `bench/desempenho` nenhum
+`_AsyncCompleter`, as dos `_StreamController`). No `bench/performance` nenhum
 núcleo tem função local que não escapa: `chamadas/closures` (closures
 guardadas numa lista) fica igual (84 ms, 2,7× o Dart AOT, 5 repetições).
 
@@ -2441,7 +2441,7 @@ código volta a `dartforge_typed_len`/`dartforge_typed_ptr`, que resolvem a
 base, o deslocamento e a imutabilidade. O acesso guardado pelo teste de
 limites usa o endereço lido para ele, sem ler de novo.
 
-Correção: `corpus/nativo/55_listas_tipadas_cabecalho.dart` (os onze tipos
+Correção: `corpus/native/55_listas_tipadas_cabecalho.dart` (os onze tipos
 numéricos com os extremos, `Uint8ClampedList`, a vazia, índices fora da
 faixa na leitura e na escrita, visões com deslocamento e de outro tipo,
 `sublistView`, as não modificáveis, `List<int>` estático sobre a lista
@@ -2474,7 +2474,7 @@ três mudanças de §9.6–§9.8 sobre o ponto de partida fica em −26,3%.
 Ponto de partida: o `main` depois da rodada de caches inline de despacho
 (`df.classe`/`df.seletor` em linha, `==` de `String` numa chamada, a
 string canônica de um caractere do `s[i]`, a limpeza da exceção só quando
-pendente — `corpus/nativo/56_despacho_em_linha_e_igualdade_de_string.dart`,
+pendente — `corpus/native/56_despacho_em_linha_e_igualdade_de_string.dart`,
 completo e igual à VM) e do heap novo de N19: **593 029 instruções/req**
 (callgrind, `/`, §9.1). Cada item abaixo foi medido sozinho, na ordem:
 
@@ -2498,7 +2498,7 @@ Na rota `/json`: 606 103 (Dart AOT 125 788).
   byte da requisição; agora é uma tabela de saltos (o `_doParse` foi de 26
   para 13 mil instruções/req). A chave estrutural de `const [topo]` passa a
   ser a de `const [7]` (antes as duas constantes eram objetos diferentes).
-  `corpus/nativo/59_constantes_primitivas_e_switch.dart`.
+  `corpus/native/59_constantes_primitivas_e_switch.dart`.
 * **Closure de ambiente direto** (`lower/closures.rs`): com um valor só no
   ambiente — o `this` sem capturas, ou uma captura `Ref` (ou a célula
   dela) sem `this` —, a closure guarda o valor no lugar do ambiente e o
@@ -2508,16 +2508,16 @@ Na rota `/json`: 606 103 (Dart AOT 125 788).
   tupla de tipos, `late`. O `==` de duas closures da mesma expressão sobre
   o mesmo objeto passa a ser `false`, como na VM (o runtime as igualava
   quando o ambiente tinha um valor só).
-  `corpus/nativo/60_closures_de_ambiente_direto.dart`.
+  `corpus/native/60_closures_de_ambiente_direto.dart`.
 * **`String.fromCharCodes` de lista do runtime**
-  (`sdk_nativo/core/string_patch.dart`, `_deCodigos`;
+  (`native_sdk/core/string_patch.dart`, `_deCodigos`;
   `DartForge_string_de_codigos`): a lista toda em Latin-1 vira a string
   numa cópia só, em vez do `_scanCodeUnits` e de um `_setAt` (uma chamada ao
   runtime) por unidade — os nomes e valores de cabeçalho do `_HttpParser`.
   De passagem, dois defeitos antigos dos natives de string: o
   `_allocateFromTwoByteList` com `Uint16List` (pânico "lista esperada") e o
   `ArgumentError` do `_createFromCodePoints` acima de U+10FFFF.
-  `corpus/nativo/61_string_de_codigos.dart`.
+  `corpus/native/61_string_de_codigos.dart`.
 * **Cache do cabeçalho tipado** (`lower/tipados.rs`, `cabecalho_tipado`):
   a lista tipada relida de um campo a cada acesso (`_buffer![_index++]`,
   `_buffer[_length + i] = bytes[i]`) passa por um cache por função e tipo
@@ -2528,7 +2528,7 @@ Na rota `/json`: 606 103 (Dart AOT 125 788).
   cache virava um `select`). Lista de parâmetro ou de local fica com a
   chamada pura, que o LLVM tira do laço e vetoriza (`tipados/produto_f64`
   6,3 ms e `fnv_bytes` 13,2 ms, iguais). `typed_cabecalho` por requisição:
-  394 → 58 chamadas. `corpus/nativo/62_cache_de_cabecalho_tipado.dart`.
+  394 → 58 chamadas. `corpus/native/62_cache_de_cabecalho_tipado.dart`.
 
 **O servidor caía quando o cliente fechava a conexão** (defeito de §9.7,
 achado aqui): um cliente que mandava a requisição e fechava antes da
@@ -2540,7 +2540,7 @@ rodada. A função local direta `handleError` grava `listenerHasError`
 chamador: os 7 bytes a mais zeravam o ponteiro da área de globais guardado
 ao lado. O `store` por um ponteiro que não é `alloca` da função agora tem a
 largura do valor (`llvm/mod.rs`).
-`corpus/nativo/63_funcao_direta_grava_bool_por_endereco.dart`.
+`corpus/native/63_funcao_direta_grava_bool_por_endereco.dart`.
 
 Correção de tudo: corpus nativo inteiro igual à VM no AOT e com
 `--gc-stress` (fora os programas em obra de outras frentes).
@@ -2699,7 +2699,7 @@ heap a cada closure, ambiente, vetor de lista ou texto.
   0,97 [0,27–1,17]. **Sem ganho mensurável** com este ruído; fica porque
   remove as alocações dinâmicas e o código delas.
 
-Correção: `corpus/nativo/70_rti_cache_no_ponto_de_uso.dart` (o mesmo ponto
+Correção: `corpus/native/70_rti_cache_no_ponto_de_uso.dart` (o mesmo ponto
 de uso com receptores de outros argumentos de tipo, outras classes,
 subclasses que fixam o argumento, sem tipo gravado; as coleções criadas em
 métodos genéricos, com `is`, `runtimeType` e a covariância do `add`/`[]=`;
@@ -2758,7 +2758,7 @@ AOT varia muito entre rodadas (59–365 ms).
 
 ### 10.1 O benchmark
 
-`bench/desempenho/json.dart` segue o padrão de `comum.dart`. Os documentos
+`bench/performance/json.dart` segue o padrão de `comum.dart`. Os documentos
 saem de um gerador determinístico:
 
 * pequeno: 1 080 unidades, decodificado 2 000 vezes por rodada;
@@ -2823,7 +2823,7 @@ igual à da VM e à do `dart compile exe`.
    Com isso, os testes `is String`/`is num`/`is Map` do `writeJsonValue`
    deixam de levar as referências vivas ao quadro de raízes.
 3. **`int.toString` e `double.toString`** (sobreposições
-   `sdk_nativo/core/integers.dart` e `double.dart`, `nativos_numeros.rs`).
+   `native_sdk/core/integers.dart` e `double.dart`, `nativos_numeros.rs`).
    * `_Smi.toString`: a tabela pequena da VM continua devolvendo a mesma
      string para -99..99. Fora dela, uma chamada ao runtime. Antes era o
      laço da VM, com um `_setAt` (uma chamada) a cada dois dígitos e o `~/`
@@ -2835,7 +2835,7 @@ igual à da VM e à do `dart compile exe`.
      nos mesmos casos.
    * O `Double_toString` escreve num buffer da pilha, sem as quatro
      `String` que alocava antes.
-4. **`StringBuffer`** (`sdk_nativo/core/string_buffer_patch.dart`,
+4. **`StringBuffer`** (`native_sdk/core/string_buffer_patch.dart`,
    `nativos_strings.rs`).
    * `write` de uma `String` é uma chamada só: o teste, o `isEmpty` e o
      `length` ficam no runtime, com duas consultas ao slot.
@@ -2843,7 +2843,7 @@ igual à da VM e à do `dart compile exe`.
      de um caractere por chamada. Os `RangeError` agora são os do
      `writeCharCode` da VM (antes eram os do `String.fromCharCode`).
 5. **`_JsonListener` e `_JsonStringParser`** (sobreposição
-   `sdk_nativo/convert/convert_patch.dart`, gerada do arquivo da VM).
+   `native_sdk/convert/convert_patch.dart`, gerada do arquivo da VM).
    * O listener acrescenta aos contêineres que ele mesmo criou (os pares de
      um objeto, os elementos de um vetor e a pilha, todos `[]` de
      `dynamic`/`Object?`) pelo native `DartForge_json_acrescentar`. Isso
@@ -2854,7 +2854,7 @@ igual à da VM e à do `dart compile exe`.
      `_JsonStringParser`, com o `chunk` num local. Assim o endereço das
      unidades sai dos laços.
 
-**Correção.** `corpus/nativo/75_json_textos_e_numeros.dart` saiu igual à
+**Correção.** `corpus/native/75_json_textos_e_numeros.dart` saiu igual à
 VM no AOT, no JIT e com `--gc-stress`. Ele cobre:
 
 * `codeUnitAt`/`length` de parâmetro, de campo e de campo trocado no meio
@@ -2900,7 +2900,7 @@ que outras frentes mudaram na mesma árvore no intervalo (alocador, RTI).
 * **Pico de memória residente** (`PeakWorkingSetSize`): 477 → 317 MB (Dart
   AOT 195). A queda não foi atribuída a uma mudança só, porque o alocador
   de outra frente entrou no mesmo intervalo.
-* **`bench/desempenho/textos`**, as mesmas três versões: `construir` 187 →
+* **`bench/performance/textos`**, as mesmas três versões: `construir` 187 →
   159 ms (Dart AOT 81), `hashes` 74 → 63 ms (38), pico de memória 87 → 88
   MB.
 
@@ -3153,14 +3153,14 @@ e do emissor, o módulo `heap` com `DARTFORGE_GC_VERIFICAR=1`, o corpus nativo
 a saída da VM e a recarga (`crates/cli/tests/reload_estado.rs`,
 `cli_preserva_o_estado_do_espaco_unificado_em_tres_recargas`).
 
-Integrado em 2026-09-30, tudo verde: `corpus/nativo` (92 programas) no AOT, no
+Integrado em 2026-09-30, tudo verde: `corpus/native` (92 programas) no AOT, no
 JIT e no `--jit-aot` (JIT × AOT idênticos), com `--gc-stress --limite-exec 60`
 sem e com `DARTFORGE_GC_VERIFICAR=1`, e no `aot --optimize` contra a VM;
 `corpus/js` no AOT (235); os testes do runtime, do emissor, do JIT e da CLI,
 inclusive os `#[ignore]` de fixture, recarga e JIT, e `cargo test --workspace`.
 O que a integração corrigiu está em §4.10 da especificação (itens 55–64).
 
-Os programas novos (`corpus/nativo`):
+Os programas novos (`corpus/native`):
 
 * `90_textos_um_e_dois_bytes`, `91_textos_grandes_e_interpolacao`,
   `92_textos_identidade_hash_mapas` (duas bibliotecas),
@@ -3190,7 +3190,7 @@ que são estáticos — o 93 confere só esses); `int.hashCode` não é o valor
 
 Método de §9.10: execuções alternadas dos três executáveis (`aot --optimize`
 do `main` antes do espaço unificado, `6f6d14bf`, compilado à parte; o de
-depois; e `dart compile exe` do SDK 3.6.2), 5 rodadas de cada `bench/desempenho`
+depois; e `dart compile exe` do SDK 3.6.2), 5 rodadas de cada `bench/performance`
 (6 medidas por rodada), mínimo em ms; razão = mínimo / mínimo do Dart AOT.
 Máquina Windows 11 de 2 núcleos com ruído, sem builds rodando. As saídas dos
 benchmarks são iguais às da VM nos três. A estimativa é a de
@@ -3305,7 +3305,7 @@ já tem cópias com o `chunk` num local, §10.3).
 ### 13.2 O que muda
 
 **Mapas e conjuntos** (`runtime/src/nativos_hash.rs`,
-`sdk_nativo/collection/compact_hash.dart`):
+`native_sdk/collection/compact_hash.dart`):
 
 1. **Sonda sem o `Heap`.** Os natives leem o `_index` e o `_data` pelos
    deslocamentos do contrato (`layout`: comprimento em `h+14`, elementos em
@@ -3331,7 +3331,7 @@ já tem cópias com o `chunk` num local, §10.3).
    lote; chave repetida fica com o último valor na posição da primeira, como o
    `_set`.
 
-**JSON** (`sdk_nativo/convert/convert_patch.dart`,
+**JSON** (`native_sdk/convert/convert_patch.dart`,
 `runtime/src/nativos_listas.rs`):
 
 4. **Uma pilha de valores só.** O `_JsonListener` passa a guardar todos os
@@ -3364,7 +3364,7 @@ Acrescentados depois do primeiro perfil da implementação (o mesmo método):
    thread sem destrutor: a mesma chave e as mesmas respostas da `memo_e`,
    esquecida junto com ela (`esquecer_memorias`). O acerto não faz o
    `RTI.with`, o `borrow` nem o `teste_sem_o_valor`.
-8. **A escrita em UTF-8 do `encode`** (sobreposição nova `sdk_nativo/convert/json.dart`,
+8. **A escrita em UTF-8 do `encode`** (sobreposição nova `native_sdk/convert/json.dart`,
    a 30ª, igual à do SDK fora dois métodos). O `writeAsciiString` e o
    `writeStringSlice` do `_JsonUtf8Stringifier` gravam o ASCII direto num
    `Uint8List` local, sem o `writeByte` virtual por byte; o bloco cheio vai ao
@@ -3384,7 +3384,7 @@ O que fica de fora: o `optsize` do SDK de produção (§1 de
 
 ### 13.3 Como validar
 
-`corpus/nativo` inteiro no AOT, no JIT e com `--gc-stress --limite-exec 60`;
+`corpus/native` inteiro no AOT, no JIT e com `--gc-stress --limite-exec 60`;
 `aot --optimize` dos programas afetados contra a VM; testes do runtime e do
 emissor. Programas novos a partir de 100: mapas e conjuntos de chave `int`
 (negativas, grandes, `_Mint`, colisões de padrão, remoção durante o
@@ -3423,7 +3423,7 @@ conferências de covariância caíram para 1,8%.
 
 **Correção:**
 
-* `corpus/nativo` inteiro igual à VM no AOT (95/95), no JIT (96/96), com
+* `corpus/native` inteiro igual à VM no AOT (95/95), no JIT (96/96), com
   `--gc-stress --limite-exec 60` (95/95) e em produção, `--otimizar` (96/96).
   O 96º entrou de outra frente durante as rodadas.
 * Programas novos:
@@ -3444,7 +3444,7 @@ confere essa identidade.
 ## 14. Memória do espaço de objetos (plano, 2026-09-30)
 
 Alvos (§12.2): o servidor HTTP em repouso subiu de 16,2 para 19,3 MB com o
-espaço unificado (Dart AOT: 17,0); o pico do `bench/desempenho/json.dart` é
+espaço unificado (Dart AOT: 17,0); o pico do `bench/performance/json.dart` é
 323 MB contra 195 do Dart AOT. A hipótese de partida — as 89 classes de
 tamanho, cada uma com página e TLAB próprias, e as regiões grandes em cache —
 foi medida antes de mudar qualquer coisa.
@@ -3576,7 +3576,7 @@ Depois, no servidor em repouso, o heap do sistema confirmado cai de 11,6 para
 foram escritas. No pico do `json`: 911 páginas (58 MB), 222 vazias guardadas (14
 MB) e nenhuma região grande morta à espera.
 
-**Pendente.** O `--gc-stress --limite-exec 60` do `corpus/nativo` passou
+**Pendente.** O `--gc-stress --limite-exec 60` do `corpus/native` passou
 95/96 com as outras frentes rodando em paralelo. O `91_textos_grandes_e_interpolacao`
 estourou os 60 s. Sozinho, ele passa em 22 s (23 s rodando o executável
 direto), e o `9*` passou inteiro com `DARTFORGE_GC_VERIFICAR=1`. As vazias

@@ -103,7 +103,7 @@ negativo, auditoria divergente) é pânico `bug do ARC`, nunca erro Dart
   primeira rodada achou dois furos, corrigidos: o zero que volta a subir não
   virava candidato (o autociclo vazava), e o ciclo valor→portador de um
   efêmero ficava vivo pela chave.
-* O corpus nativo com `DARTFORGE_MEMORIA=arc` pelo `dartforge-diferencial`
+* O corpus nativo com `DARTFORGE_MEMORIA=arc` pelo `dartforge-differential`
   (2026-10-08, Windows x86-64, 238 programas):
 
   | Rodada | Resultado |
@@ -143,7 +143,7 @@ do ambiente desta máquina, `02` e `03`, e o `91`, que estoura os 5 s com
 quatro tarefas em paralelo). O `--gc-stress` achou o caminho que faltava: o
 record pequeno alocado em linha não contava os campos.
 
-**Custo atual.** O `corpus/nativo/91` (strings grandes) leva 3,2 s no ARC puro
+**Custo atual.** O `corpus/native/91` (strings grandes) leva 3,2 s no ARC puro
 contra 1,1 s no rastreamento: 3,1 milhões de objetos mortos pelo RC, cada um
 passando pela tabela de metadados (um `HashMap` por handle) várias vezes, e
 1,1 milhão de candidatos a ciclo (quase todos strings). As otimizações, em
@@ -179,7 +179,7 @@ fixo/tabelas, em µs; `zeros_vistos=` e `adiados=` contam a fila de zeros):
   milhões de mortos da rodada; **os efêmeros** não custam hash por morte quando
   não há nenhum contado; **o objeto `BRUTO`** não vira candidato a ciclo.
 
-Medida (`bench/desempenho` em produção, preso a um núcleo P, ARC/A0): **2,81 →
+Medida (`bench/performance` em produção, preso a um núcleo P, ARC/A0): **2,81 →
 2,13** de média geométrica. `json` 4,1–8,4× → 2,2–3,7×; `lista_objetos` 6,5× →
 3,8×; `lista_ligada` 19,9× → 8,8×; `arvores` 17× → 15×; numérico, chamadas e
 listas 0,8–1,1×. Corpus 238/238 com auditoria e `--gc-stress`, com ciclos em
@@ -255,7 +255,7 @@ O benchmark inteiro, depois das mudanças de raízes e índice, teve ARC/A0
 sete execuções alternadas no núcleo P, produção/LTO, Dart 3.6.2 AOT como
 referência. A1/A0 0,983, B0/A0 0,959, B1/A0 0,950 e A0/Dart 1,260.
 Todos os resultados iguais em todas as 378 execuções, sem processo falho
-nem núcleo ausente. [Protocolo, dados brutos e hashes dos executáveis](../bench/resultados/2026-10-09-modos-windows/README.md).
+nem núcleo ausente. [Protocolo, dados brutos e hashes dos executáveis](../bench/results/2026-10-09-modos-windows/README.md).
 
 A primeira rodada, com os mesmos executáveis mas sem registro das amostras
 brutas, deu ARC/A0 2,120. Ambas ficam perto dos 2,13 anteriores: o ganho
@@ -276,11 +276,11 @@ vivo e quarentena; suíte completa do runtime: 115 testes passaram, três
 microbenchmarks ignorados. Grafos aleatórios: 3.000 sementes por modo.
 Em duas medidas dirigidas independentes, ARC caiu 4–5% em árvores e
 7,5–8,8% em lista ligada; A0 variou cerca de ±3% e −2,3% a 0% nos mesmos
-núcleos. [Amostras, hashes e protocolo](../bench/resultados/2026-10-09-arc-faixas/README.md).
+núcleos. [Amostras, hashes e protocolo](../bench/results/2026-10-09-arc-faixas/README.md).
 São dois núcleos do benchmark. Na rodada completa posterior, ARC/A0 foi
 **2,108**, contra 2,107 da anterior: não há ganho demonstrado na média.
 A1/A0 0,991, B0/A0 0,969, B1/A0 0,952, A0/Dart 1,270; todas as 378
-execuções válidas e iguais. [Dados da rodada completa](../bench/resultados/2026-10-09-modos-faixas-windows/README.md).
+execuções válidas e iguais. [Dados da rodada completa](../bench/results/2026-10-09-modos-faixas-windows/README.md).
 A validação do corpus nativo desta mudança continua pendente no CI.
 
 ### 6.3 Quadros proprietários explícitos (2026-10-09)
@@ -629,7 +629,7 @@ provas de vida/política e cobertura SDK/observadores permanecem pendentes.
   em sete pares mostrou resultado misto: árvores 1,59% mais lentas e
   lista ligada 4,59% mais rápida nas medianas. Não demonstra ganho geral;
   A0 e os outros 30 kernels não foram reexecutados. Dados brutos em
-  [trial denso](../bench/resultados/2026-10-10-arc-trial-denso-windows/README.md).
+  [trial denso](../bench/results/2026-10-10-arc-trial-denso-windows/README.md).
 * A entrega dos mortos ao reclamador usa `EstadoDoArc::transferir_mortos`:
   destino vazio recebe o buffer por troca; rodadas seguintes acrescentam
   handles sem apagar os anteriores. Remove os mesmos metadados mortos antes
@@ -638,7 +638,7 @@ provas de vida/política e cobertura SDK/observadores permanecem pendentes.
   para testar se houve mortes. Comparação local anterior em sete pares
   observou medianas 3,31% menores em árvores e 3,74% em lista ligada,
   sem reavaliar A0 ou os outros 30 kernels. Dados brutos em
-  [transferência de mortos](../bench/resultados/2026-10-10-arc-transferencia-mortos-windows/README.md).
+  [transferência de mortos](../bench/results/2026-10-10-arc-transferencia-mortos-windows/README.md).
 * Reduzir o custo da reclamação por bloco (`EspacoDeObjetos::soltar_morto`,
   já usada pela drenagem pura, sem varrer páginas): a junção dos vizinhos
   na ponta da lista está feita (§6.2), sem ganho demonstrado na média

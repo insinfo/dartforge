@@ -547,7 +547,7 @@ pub fn verificacoes_de_nulo(e: &FnEmitter, params: &[ast::Parameter]) -> String 
 
 /// Inicializador que o DDC dobra no ponto de uso (`kernel/constants.dart:105-120`,
 /// `shouldInlineConstant`): literal numérico, booleano, nulo ou *string*
-/// com menos de 32 unidades. O mesmo critério está em `crates/mundo`
+/// com menos de 32 unidades. O mesmo critério está em `crates/world`
 /// (`constante_inlinavel`), que não mantém viva a variável assim lida.
 pub fn literal_inlinavel(ast: &ast::Ast, x: ExprId) -> bool {
     match &ast.expr(x).kind {
@@ -983,7 +983,7 @@ pub fn emitir_intrinseco(e: &mut FnEmitter, fid: FunctionElementId, args: &ast::
             let ty = tipo_do_generico(e, args, expected);
             // `Function.apply` (`core_patch.dart:96-101`) monta o objeto dos
             // nomeados com `JS('', '#[#] = #', map, _symbolToString(symbol), arg)`:
-            // com as chaves curtas dos nomeados (`emit_js_producao/src/nomeados.rs`),
+            // com as chaves curtas dos nomeados (`emit_js_production/src/nomeados.rs`),
             // o nome de origem é traduzido em execução por `dart.nomeadoJS`.
             if e.class.is_some() && e.class == e.ctx.function_ && e.ctx.filtro.is_some_and(|f| f.tabela_de_nomeados().is_some()) {
                 let tpl = pos.get(1).and_then(|t| string_constante(e, *t));

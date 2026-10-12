@@ -14,7 +14,7 @@ toolchain oficial em [`MACROS-COMPATIBILIDADE.md`](MACROS-COMPATIBILIDADE.md).
 * **API e comportamento observável**: o da 1ª geração que o SDK 3.6.2 executa
   com `--enable-experiment=macros` (D5) — `package:macros` 0.1.3-main.0 /
   `_macros` 0.3.3. Caso de aceite: `@JsonCodable` do `package:json` 0.20.4.
-  **A API é reescrita por nós** (D3) em `pacotes/macros` (pacote `macros`,
+  **A API é reescrita por nós** (D3) em `packages/macros` (pacote `macros`,
   mesma superfície pública), seguindo
   `references/dart-language/working/macros/feature-specification.md` e usando
   o `_macros` 0.3.3 só como referência de forma; não vendorizamos `_macros`.
@@ -89,7 +89,7 @@ JS embutido nem runtime de terceiros. `int` tem a semântica da VM (64 bits).
 | `nativo::iniciar` | **o executor nativo (D4)**: o mesmo bootstrap e o mesmo `package_config.json`, compilados pelo `dartforge compile-native` (o `emit_native`, com `--versao-linguagem 3.6 --enable-experiment=macros`) num executável em cache em `.dart_tool/dartforge/macros/nativo`; `dartforge macros --nativo`, e `DARTFORGE_MACROS_NATIVO=<dartforge com a feature nativo>` no `compile-js`/`jsprod` |
 
 **Executor nativo (B06, 2026-09-27)**: `macros_host::nativo` compila
-`pacotes/macros` (a API, o `executor/servico.dart` e o `canal_stdio.dart`) e
+`packages/macros` (a API, o `executor/servico.dart` e o `canal_stdio.dart`) e
 as bibliotecas das macros com o *bootstrap* do `vm::bootstrap` pelo backend
 nativo do DartForge, e roda o executável num `ExecutorDfexec<CanalDeProcesso>`.
 A chave do cache é o compilador (caminho, tamanho, data), o SDK e o conteúdo
@@ -324,7 +324,7 @@ revalidação só delas, corte pela saída.
 
 * augmentations: 6/6 do `corpus/macros/40*` batem com o oráculo (3.6.2 e
   3.13.4) no perfil de desenvolvimento;
-* API: `json.dart` do `package:json` 0.20.4 analisado contra `pacotes/macros`
+* API: `json.dart` do `package:json` 0.20.4 analisado contra `packages/macros`
   pelo analyzer 3.6.2: 0 problemas;
 * hospedeiro: augmentation montada **igual à do CFE 3.6.2, byte a byte**, no
   `410_json_codable` (4 classes, 3 macros, 62 linhas) — pela VM (executor de

@@ -104,7 +104,7 @@ ver E.1.13). O lexer não tem pilha de grupos nem tokens sintéticos.
 - **No DartForge:** `lexer.rs:192-198` (byte `≥ 0x80`) e :525-527 (resto) → `caractere_ilegal`
   (:98-101): código e argumento certos para o BMP. Diferenças: (1) o span é `[inicio, inicio + 1)` em
   **bytes** (:92-94); num caractere de 2+ bytes o fim cai no meio do caractere e a conversão para UTF-16
-  (`crates/paridade/src/json.rs:108-110`, recuo até a fronteira) dá length 0 — é a amostra "posição" de
+  (`crates/parity/src/json.rs:108-110`, recuo até a fronteira) dá length 0 — é a amostra "posição" de
   `illegal_character/IllegalCharacter__nonAsciiIdentifier.dart:1:8` (mesma linha:coluna, comprimento
   diferente); (2) aborta a unidade; (3) fora do BMP relata um erro com o ponto de código (`128512`) em vez
   de dois com as metades; (4) `` ` `` e `\` são ilegais aqui e tokens lá; FF (`0x0C`) é espaço aqui

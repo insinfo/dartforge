@@ -108,7 +108,7 @@ const DIRETIVAS: &[&str] = &[
 
 const PARTES_DE_FOR: &[&str] = &["ForPartsWithDeclarations", "ForPartsWithExpression", "ForPartsWithPattern"];
 
-use dartforge_analise::arvore_analyzer::{COMANDOS, EXPRESSOES};
+use dartforge_analysis::arvore_analyzer::{COMANDOS, EXPRESSOES};
 
 /// As subclasses de `FunctionBody`.
 const CORPOS: &[&str] = &["BlockFunctionBody", "ExpressionFunctionBody", "EmptyFunctionBody", "NativeFunctionBody"];

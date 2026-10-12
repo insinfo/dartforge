@@ -6,7 +6,7 @@
 //! <raiz>/bin/dartforge[.exe]
 //! <raiz>/lib/dartforge-distribuicao.json   marca e versão da distribuição
 //! <raiz>/lib/dart-sdk/lib/…                as bibliotecas do SDK do Dart (fonte)
-//! <raiz>/lib/sdk_nativo/…                  a sobreposição do backend nativo
+//! <raiz>/lib/native_sdk/…                  a sobreposição do backend nativo
 //! <raiz>/lib/runtime/…                     o runtime pré-compilado (staticlib)
 //! <raiz>/lib/llvm/bin/…                    o ligador do LLVM (e o Clang, sem o gerador embutido)
 //! <raiz>/lib/sysroot/<triple>/…            o que a ligação exige do sistema
@@ -44,9 +44,9 @@ pub fn sdk_do_dart() -> Option<PathBuf> {
     em_lib("dart-sdk/lib").filter(|p| p.join("libraries.json").is_file())
 }
 
-/// A sobreposição do backend nativo (`sdk_nativo/`).
+/// A sobreposição do backend nativo (`native_sdk/`).
 pub fn sobreposicao_nativa() -> Option<PathBuf> {
-    em_lib("sdk_nativo").filter(|p| p.join("libraries.json").is_file())
+    em_lib("native_sdk").filter(|p| p.join("libraries.json").is_file())
 }
 
 /// Um executável do LLVM da distribuição (`clang`, `ld.lld`…), com a

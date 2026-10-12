@@ -2,7 +2,7 @@
 //! Confere token Owned, registro de métodos, chamada por seletor e morte final.
 //! A construção é uma fixture HIR explícita; não certifica construtores gerais.
 
-use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*};
+use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
 
 fn modulo() -> Result<Module, String> {

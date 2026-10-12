@@ -3,7 +3,7 @@
 //
 // Os natives de `runtime/lib/string.cc`, os `Internal_*` de string
 // (`internal_patch.dart`) e os `DartForge_string_*`/`DartForge_sb_*` da
-// sobreposição (`sdk_nativo/core/string_patch.dart`,
+// sobreposição (`native_sdk/core/string_patch.dart`,
 // `string_buffer_patch.dart`) sobre as strings do espaço de objetos
 // (`textos.rs`): leitura pela vista emprestada do bloco, criação numa alocação
 // na forma canônica. O receptor é o `Ref` da string; `int` chega como `i64`.
@@ -401,7 +401,7 @@ pub extern "C" fn dartforge_nativo_StringBase_joinReplaceAllResult(base: i64, pa
 // Um bloco `BRUTO`+`ANEXO` de uma palavra: o ponteiro de um `Box<Vec<u16>>`
 // com as unidades escritas, que o coletor solta (`soltar_acumulador`) quando o
 // bloco morre (§2.8). Só o `StringBuffer` o vê
-// (`sdk_nativo/core/string_buffer_patch.dart`).
+// (`native_sdk/core/string_buffer_patch.dart`).
 
 /// Solta o `Vec<u16>` de um acumulador morto (chamado pelo coletor).
 ///

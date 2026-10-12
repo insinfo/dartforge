@@ -71,8 +71,8 @@ jobs:
           no_output_timeout: 60m
           command: >-
             cargo test --locked --release --no-fail-fast
-            -p dartforge-frontend -p dartforge-types -p dartforge-analise
-            -p dartforge-diagnostics -p dartforge-paridade
+            -p dartforge-frontend -p dartforge-types -p dartforge-analysis
+            -p dartforge-diagnostics -p dartforge-parity
       - guardar
 
   lsp:

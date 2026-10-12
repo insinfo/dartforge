@@ -4,7 +4,7 @@
 # defeitos que só aparecem no Linux ou no macOS, sem esperar o Pesado.
 #
 #   gh workflow run depurar.yml --ref main -f so=macos-latest \
-#     -f programa=corpus/nativo/33_mensagens_de_controle.dart \
+#     -f programa=corpus/native/33_mensagens_de_controle.dart \
 #     -f ambiente="DARTFORGE_IO_RASTRO=1"
 name: depurar
 

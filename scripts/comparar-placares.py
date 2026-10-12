@@ -1,4 +1,4 @@
-"""Compara duas saídas de `dartforge-paridade placar --detalhes` código a código.
+"""Compara duas saídas de `dartforge-parity placar --detalhes` código a código.
 
 Uso: python scripts/comparar-placares.py <placar-a> <placar-b>
 Imprime os códigos cujo acerto, FP ou FN mudou de A para B, piores primeiro.

@@ -47,8 +47,8 @@ aqui: as referências são `ANALYZER-ESPECIFICACAO.md §X` e `T1`…`T8`.
   deles só existem no 3.13 e não entram na conta da 3.6.2). São **546
   constantes, 512 nomes distintos** (Parte II).
 - **Estado no DartForge** (Parte II), conferido por grep em `crates/`:
-  **publicado** (emitido e, se semântico, listado em `crates/analise/verificados.txt`;
-  sintaxe é publicada sempre — `crates/analise/src/publicacao.rs:24-34`),
+  **publicado** (emitido e, se semântico, listado em `crates/analysis/verificados.txt`;
+  sintaxe é publicada sempre — `crates/analysis/src/publicacao.rs:24-34`),
   **emitido, não publicado** (há emissor em `crates/{analise,types,frontend,elements}`,
   o nome não está em `verificados.txt`), **não implementado** (nenhum emissor).
 - **Sondas no binário**: há um `dart` 3.6.2 nesta máquina
@@ -445,13 +445,13 @@ aparece na saída. Ela importa em quatro pontos:
 
 ### 1.5 No DartForge
 
-- O orquestrador é `Motor::analisar_com` (`crates/paridade/src/analise.rs:173-660`),
+- O orquestrador é `Motor::analisar_com` (`crates/parity/src/analise.rs:173-660`),
   usado pelo `dartforge analyze` (`crates/cli/src/analisar.rs:50-66`) e pelo LSP.
   Ele monta uma biblioteca de entrada sintética que importa todos os arquivos
   do lote (`analise.rs:183-210`), carrega o programa (`load_lenient_gerados`,
   `:217-225`) e roda: (1) sintaxe vinda da carga (`:244-270`); (2) diretivas sem
   alvo (`:272-293`, `diretiva_sem_alvo` `:662`); (3) por biblioteca, os
-  verificadores sem tipos de `crates/analise` (`duplicatas`, `enums`,
+  verificadores sem tipos de `crates/analysis` (`duplicatas`, `enums`,
   `inicializacao`, `locais`, `externos`, `nativos`, `operadores`, `privados` —
   `:328-354`; `heranca`, `modificadores`, `clausulas`, `membros` — `:362-378`);
   (4) tipos e constantes (`dartforge_types::constantes::verificar`, `:493`);
@@ -464,12 +464,12 @@ aparece na saída. Ela importa em quatro pontos:
      (`analise.rs:300`, `:349-352`, `:525`) e `recuperacao_do_parser` (`:725`);
      ver T5 — cada porta é FN potencial.
   3. *Publicação*: só sintaxe e `verificados.txt` saem
-     (`crates/analise/src/publicacao.rs:24-34`); o oficial publica tudo.
+     (`crates/analysis/src/publicacao.rs:24-34`); o oficial publica tudo.
   4. *Fases ausentes por inteiro*: C4a (Unicode), C4c (`BestPracticesVerifier`
      e sub-verificadores), C4d/C4e (`OverrideVerifier`, `RedeclareVerifier`),
      C4f (`TodoFinder`), C4j (`SdkConstraintVerifier`), C5 (lints), C7
      (`IgnoreValidator`). Parciais: C4b (`dead_code` vem da inferência), C4h
-     (`unused_import` existe, `crates/analise/src/importacoes.rs:165`; os
+     (`unused_import` existe, `crates/analysis/src/importacoes.rs:165`; os
      `duplicate_*`/`unnecessary_import` não), C4i (`locais.rs`, `privados.rs`).
      O detalhe por código está na Parte II.
   5. *Deduplicação*: não há um conjunto por arquivo equivalente ao
@@ -815,7 +815,7 @@ Fatos:
    (`getDisplayString()` sem `preferTypeAlias` × com). O T7 cobre o texto do
    tipo; esta seção cobre o sufixo `(where …)` e as mensagens de contexto,
    que **não existem no DartForge** (não há `contextMessages` em
-   `dartforge_diagnostics::Diagnostic`; `crates/paridade/src/json.rs:24-37`
+   `dartforge_diagnostics::Diagnostic`; `crates/parity/src/json.rs:24-37`
    não tem o campo).
 4. `contextMessages` passados pelo emissor (`DiagnosticFactory`,
    `analyzer/lib/src/diagnostic/diagnostic_factory.dart`: "The first definition
@@ -859,7 +859,7 @@ pelos ignores. O servidor a envia nessa ordem em `analysis.errors`
   `span` (bytes UTF-8), `message` e argumentos; a mensagem é renderizada do
   molde pela mesma regra do `formatList` (`crates/diagnostics/src/lib.rs:5-8`).
   A conversão byte→UTF-16/linha/coluna é de `Linhas`
-  (`crates/paridade/src/json.rs:60-117`).
+  (`crates/parity/src/json.rs:60-117`).
 - **Faltam** (cada item é uma etapa da Parte III):
   1. `contextMessages` (campo, produção pelos emissores que usam
      `DiagnosticFactory`, e pelo `_convertTypeNames`);
@@ -1011,7 +1011,7 @@ devolve os não ignorados
   `errorSeverity != ERROR`, `_fe_analyzer_shared/lib/src/base/errors.dart:73`;
   nenhum uso em `analyzer/lib` nem em `analysis_server/lib`). Um `// ignore:`
   cala **erros de compilação e de sintaxe** tanto quanto avisos. O DartForge já
-  registra isso (`crates/paridade/src/filtros.rs:197-204`, com teste em `:230-249`).
+  registra isso (`crates/parity/src/filtros.rs:197-204`, com teste em `:230-249`).
 - `ignoredAt` (`:187-199`): primeiro os de arquivo, depois os da linha.
 - O filtro vale também para os diagnósticos do `IgnoreValidator` e dos lints
   (já estão na lista quando ele roda).
@@ -1094,15 +1094,15 @@ e passa a sê-lo também com `cannot-ignore: [warning]`. **Conferido no binário
 3.6.2** (sonda `s5/lib/a.dart`: `errors: invalid_assignment: warning` +
 `cannot-ignore: [error]` + `// ignore_for_file: invalid_assignment` → o
 diagnóstico **sai**, como `WARNING|COMPILE_TIME_ERROR|INVALID_ASSIGNMENT`). O
-teste do DartForge `crates/paridade/src/filtros.rs:247-248`
+teste do DartForge `crates/parity/src/filtros.rs:247-248`
 (`rebaixado.ignoravel(&d)`) afirma o contrário: é um defeito; (d) lints não
 entram por severidade (só `errorCodeValues` é percorrido), só por nome.
 
-**Estado em 2026-10-05 (escrito, não compilado).** `Opcoes::ignoravel` (`crates/paridade/src/filtros.rs`)
+**Estado em 2026-10-05 (escrito, não compilado).** `Opcoes::ignoravel` (`crates/parity/src/filtros.rs`)
 segue o fato (c): o código não ignorável pela severidade padrão continua não ignorável quando
 `errors:` o rebaixa, e passa a sê-lo também pela severidade nova; o teste que afirmava o contrário
 foi corrigido. `Opcoes::lint_ignoravel` é o fato (d), para os lints: só o nome (ou o nome único),
-sem caixa; `diagnosticos_json` (`crates/paridade/src/lib.rs`) não cala o lint da lista com
+sem caixa; `diagnosticos_json` (`crates/parity/src/lib.rs`) não cala o lint da lista com
 `// ignore:`.
 
 ### 4.4 `analyzer: errors:` — o `ErrorProcessor`
@@ -1289,14 +1289,14 @@ removida/obsoleta, II.10); `applyOptions` não lê.
 
 ### 4.7 No DartForge
 
-O que existe (`crates/paridade/src/filtros.rs`, usado por
-`crates/paridade/src/lib.rs:58-75` e `crates/cli/src/analisar.rs:39-47`):
+O que existe (`crates/parity/src/filtros.rs`, usado por
+`crates/parity/src/lib.rs:58-75` e `crates/cli/src/analisar.rs:39-47`):
 
 | item | DartForge | divergência da fonte |
 |---|---|---|
 | leitura do `analysis_options.yaml` | `Opcoes::ler` (`filtros.rs:33-38`): só o da **raiz do pacote**, por um leitor de YAML por indentação (`de_texto`, `:40-90`) | sem YAML real (âncoras, fluxo `{}`, escalares multilinha, chaves com aspas e `#` dentro de string); sem `include:` (`:12-13`); sem opções por subpasta (§4.4, item 6); sem `language:`, `enable-experiment`, `optional-checks`, `linter` |
 | `errors:` | `Opcoes::processar` (`:122-132`) | casa por nome minúsculo — equivalente; sinônimo `false` de `ignore` não é lido (`:72-78` só aceita `ignore`) |
-| `exclude:` | `Opcoes::excluido` + `glob` (`:117-119`, `:142-158`) | glob próprio: sem `{a,b}`, `[abc]`, escapes; relativo à raiz, não à pasta do arquivo de opções; sem a regra "`x/**` também exclui `x`"; sem a exceção do arquivo pedido explicitamente; a varredura (`corpus::arquivos_dart`, `crates/paridade/src/corpus.rs:60-80`) pula pastas começadas por `.` (igual ao oficial) **e a pasta `build`** (o oficial não pula `build`; só os globs de `exclude:` a tiram), e não pula **arquivos** começados por `.` (o oficial pula, `context_root.dart:142-147`) |
+| `exclude:` | `Opcoes::excluido` + `glob` (`:117-119`, `:142-158`) | glob próprio: sem `{a,b}`, `[abc]`, escapes; relativo à raiz, não à pasta do arquivo de opções; sem a regra "`x/**` também exclui `x`"; sem a exceção do arquivo pedido explicitamente; a varredura (`corpus::arquivos_dart`, `crates/parity/src/corpus.rs:60-80`) pula pastas começadas por `.` (igual ao oficial) **e a pasta `build`** (o oficial não pula `build`; só os globs de `exclude:` a tiram), e não pula **arquivos** começados por `.` (o oficial pula, `context_root.dart:142-147`) |
 | `cannot-ignore:` | `Opcoes::ignoravel` (`:95-114`) | diverge no caso "rebaixado por `errors:`" (§4.3) |
 | `// ignore:` | `Ignorados::de_texto` (`:168-195`): por linha de texto, primeiro `//` da linha | não usa tokens: um `//` dentro de string (`'http://x' // ignore: y`) ou de comentário de bloco engana; `///ignore:` e a regra de espaços-só; `ignore_for_file` com três barras é aceito aqui e não no oficial; o analisador de nomes é `split(',')` + primeira palavra (`:181-185`), sem a regra "caractere estranho encerra sem incluir", sem `type = lint` com espaços; não casa pelo `uniqueName` |
 | `type=` | `ignora` (`:204-210`): `type=<tipo em minúsculas>` | o oficial só aceita `hint`, `lint`, `warning` (este último ↔ `STATIC_WARNING`); aqui `type=static_warning` casaria e `type=warning` não — **invertido** |
@@ -1613,7 +1613,7 @@ são aceitos.
 
 ### 5.8 No DartForge
 
-`crates/cli/src/analisar.rs` (113 linhas) e `crates/paridade/src/json.rs`.
+`crates/cli/src/analisar.rs` (113 linhas) e `crates/parity/src/json.rs`.
 
 | aspecto | DartForge | divergência |
 |---|---|---|
@@ -1822,7 +1822,7 @@ especificação completa está em II.8.
   inclusive o texto inválido).
 - Diferenças a conferir contra esta seção:
   1. `enable-experiment` do `analysis_options.yaml` não é lido
-     (`crates/paridade/src/filtros.rs` só lê `exclude`/`errors`/`cannot-ignore`);
+     (`crates/parity/src/filtros.rs` só lê `exclude`/`errors`/`cannot-ignore`);
      `--enable-experiment` não existe no `dartforge analyze`.
   2. A regra "experimento sem versão experimental só vale na versão exata do
      SDK" (`experiments_impl.dart:131-137`): **não verificado** em `features.rs`.
@@ -1965,11 +1965,11 @@ reproduzir — está na Parte II, II.10.
   `TodoCode`, cabeçalho `:10`). Como o `dart analyze` os descarta por padrão,
   só fazem falta (a) com `errors: todo: warning|error` e (b) no LSP.
 - Arquivos não-Dart: nenhum validador. `dartforge analyze` só coleta `.dart`
-  (`crates/cli/src/analisar.rs:40-47`, `crates/paridade/src/corpus.rs:60-80`) e
+  (`crates/cli/src/analisar.rs:40-47`, `crates/parity/src/corpus.rs:60-80`) e
   o placar descarta do oráculo o que não é `.dart`
-  (`crates/paridade/src/oraculo.rs:87-91`, citado pelo levantamento de II.10).
+  (`crates/parity/src/oraculo.rs:87-91`, citado pelo levantamento de II.10).
   O `analysis_options.yaml` é lido só para `exclude`/`errors`/`cannot-ignore`
-  (`crates/paridade/src/filtros.rs:33-90`), sem posições. É a etapa 7 da Parte III.
+  (`crates/parity/src/filtros.rs:33-90`), sem posições. É a etapa 7 da Parte III.
 
 ## 8. Lints: mecanismo, registro e lista de regras
 
@@ -2344,7 +2344,7 @@ Gerada de `linter/lib/src/rules.dart` (ordem do registro) e de cada
 ### 8.6 No DartForge
 
 - Nenhum lint, nenhum registro, nenhuma leitura de `linter:` nem de `include:`
-  (`crates/paridade/src/filtros.rs:12-13` diz que o include "só traria lints,
+  (`crates/parity/src/filtros.rs:12-13` diz que o include "só traria lints,
   que são o passo A4" do plano — `docs/ANALISADOR-PARIDADE-PLANO.md`).
 - Consequência para a paridade de um projeto real: todo projeto criado por
   `dart create` inclui `package:lints/recommended.yaml`; o `dart analyze`
@@ -2366,7 +2366,7 @@ Gerada de `linter/lib/src/rules.dart` (ordem do registro) e de cada
 
 São **546 constantes** de diagnóstico da tabela oficial do 3.6.2 que não estão nas listas `familia-*.txt` do documento por código, em dez lotes. Três lotes (II.5 em parte, II.8 e II.10) foram escritos lendo cada método emissor; os demais foram gerados por script a partir do levantamento automático e estão marcados como tal: neles a condição é a mensagem oficial e a posição não foi conferida.
 
-Estado no DartForge, por lote (contagem do script `final/gera2.py`: emissor = referência à constante em `crates/` fora de `diagnostics`, `paridade` e `lsp`; publicado = código de sintaxe ou nome em `crates/analise/verificados.txt`):
+Estado no DartForge, por lote (contagem do script `final/gera2.py`: emissor = referência à constante em `crates/` fora de `diagnostics`, `parity` e `lsp`; publicado = código de sintaxe ou nome em `crates/analysis/verificados.txt`):
 
 | lote | conteúdo | constantes | publicadas | emitidas, não publicadas | não implementadas | origem |
 |---|---|---:|---:|---:|---:|---|
@@ -2781,23 +2781,23 @@ um** import e ele é `deferred` (`analyzer/lib/src/dart/ast/ast.dart:12695-12705
 
 | código | constante | emissor (arquivo:linha, método) | condição | posição | DartForge |
 |---|---|---|---|---|---|
-| `subtype_of_deferred_class` | `CompileTimeErrorCode.EXTENDS_DEFERRED_CLASS` | `analyzer/lib/src/generated/error_verifier.dart:3312` `ErrorVerifier._checkForExtendsDeferredClass` → `_checkForExtendsOrImplementsDeferredClass` (:3337-3350); chamado em `_checkClassInheritance` :1884 | depois da porta de hierarquia: superclasse não sintética com `namedType.isDeferred` | `atNode(superclass)` (o `NamedType` inteiro, com prefixo e argumentos de tipo) | **publicado** — `crates/analise/src/clausulas.rs:1434` (`verificar`, depois da porta; `Leitor::adiado` :200-210 usa `any` sobre os imports do prefixo, o analyzer exige exatamente um import) |
-| `subtype_of_deferred_class` | `CompileTimeErrorCode.IMPLEMENTS_DEFERRED_CLASS` | `analyzer/lib/src/generated/error_verifier.dart:3785` `ErrorVerifier._checkForImplementsClauseErrorCodes` (classe, enum, mixin) e `:3433` `_checkForExtensionTypeImplementsDeferred` (extension type) | para cada tipo de `implements`: não é classe proibida (`else if`, :3781-3787) e `isDeferred`; em extension type, todo tipo de `implements` com `isDeferred` | `atNode(namedType)` | **publicado** — `crates/analise/src/clausulas.rs:673` (`implements`) |
-| `implements_repeated` | `CompileTimeErrorCode.IMPLEMENTS_REPEATED` | `analyzer/lib/src/generated/error_verifier.dart:5187-5191` `ErrorVerifier._checkForRepeatedType`; chamado em `visitExtensionTypeDeclaration` :819-823, `_checkClassInheritance` :1885-1889, `_checkMixinInheritance` :6103-6107 | o elemento do `InterfaceType` já está no conjunto `libraryContext.setOfImplements(declaração)` (conjunto por declaração, compartilhado entre a declaração e as suas augmentations, :6657-6659); em classe/mixin só depois da porta | `atNode(namedType)` da segunda ocorrência em diante; `{0}` = `element.name` | **publicado** — `crates/analise/src/clausulas.rs:1215`, `:1403`, `:1408` (`repetidos`, :1167) |
-| `implements_super_class` | `CompileTimeErrorCode.IMPLEMENTS_SUPER_CLASS` | `analyzer/lib/src/generated/error_verifier.dart:6032` `ErrorVerifier._checkImplementsSuperClass` (:6017-6037); chamado em `_checkClassInheritance` :1890 | depois da porta: tipo de `implements` é `InterfaceType` cujo elemento é o de `_enclosingClass.supertype` | `atNode(interfaceNode)`; `{0}` é o **Element** da superclasse, convertido por `getDisplayString()` (`analyzer/lib/error/listener.dart:338-346`) | **publicado** — `crates/analise/src/clausulas.rs:1418` (`exibir_classe` :405 monta o `{0}`) |
-| `implements_super_class` | `CompileTimeErrorCode.MIXINS_SUPER_CLASS` | `analyzer/lib/src/generated/error_verifier.dart:6136` `ErrorVerifier._checkMixinsSuperClass` (:6121-6141); chamado em `_checkClassInheritance` :1891 | depois da porta: tipo do `with` é `InterfaceType` cujo elemento é o da superclasse | `atNode(mixinNode)`; `{0}` = Element da superclasse por `getDisplayString()` | **publicado** — `crates/analise/src/clausulas.rs:1418` (mesmo laço, com `cl.with`) |
-| `mixin_class_declaration_extends_not_object` | `CompileTimeErrorCode.MIXIN_CLASS_DECLARATION_EXTENDS_NOT_OBJECT` | `analyzer/lib/src/generated/error_verifier.dart:4347` e `:4354` `ErrorVerifier._checkForMixinClassErrorCodes` (:4320-4359); chamado em `visitClassDeclaration` :519 e `visitClassTypeAlias` :547-548 | elemento é `mixin class`: (a) há `extends` e o tipo não é `Object`; senão (b) há `with` e não é (aplicação de mixin com menos de 2 mixins) | (a) `atNode(superclass)`; (b) `atNode(withClause)` (do `with` ao último mixin); `{0}` = nome da classe | **publicado** — `crates/analise/src/clausulas.rs:872`, `:887` (`classe_mixin`) |
-| `mixin_class_declares_constructor` | `CompileTimeErrorCode.MIXIN_CLASS_DECLARES_CONSTRUCTOR` | `analyzer/lib/src/generated/error_verifier.dart:4306` `ErrorVerifier._checkForMixinClassDeclaresConstructor` (uso num `with`, via `_checkForAllMixinErrorCodes` :2009-2011) e `:4336` `_checkForMixinClassErrorCodes` (declaração) | uso: o elemento misturado não é `MixinElement` nem `mixin class` e tem construtor não sintético e não factory (para no primeiro); declaração: `mixin class` com construtor gerador não trivial (`isTrivial`: sem redirecionamento, sem parâmetros, sem inicializadores, corpo `;`, não `external` — `analyzer/lib/src/dart/ast/ast.dart:4307-4312`) | uso: `atNode(mixinName)` com `{0}` = nome do mixin; declaração: `atNode(member.returnType)` (o identificador do nome da classe no construtor) com `{0}` = nome da classe | **publicado** — `crates/analise/src/clausulas.rs:774` (`mixins`), `:851` (`classe_mixin`) |
-| `subtype_of_deferred_class` | `CompileTimeErrorCode.MIXIN_DEFERRED_CLASS` | `analyzer/lib/src/generated/error_verifier.dart:1993` `ErrorVerifier._checkForAllMixinErrorCodes` (:1974-2022) | tipo do `with` é `InterfaceType`, não é classe proibida e `isDeferred`; os demais testes do mesmo mixin (restrições, construtor, herança) continuam depois do relato | `atNode(mixinName)` | **publicado** — `crates/analise/src/clausulas.rs:717` (`mixins`) |
-| `mixin_inherits_from_not_object` | `CompileTimeErrorCode.MIXIN_INHERITS_FROM_NOT_OBJECT` | `analyzer/lib/src/generated/error_verifier.dart:4384` `ErrorVerifier._checkForMixinInheritsNotFromObject` (:4367-4388); chamado em `_checkForAllMixinErrorCodes` :2014 | o misturado é `ClassElement` (não `mixin`, não extension type) e não vale: (supertipo nulo ou `Object`) e (sem mixins, ou é aplicação de mixin com menos de 2 mixins) | `atNode(mixinName)`; `{0}` = nome da classe misturada | **publicado** — `crates/analise/src/clausulas.rs:799` (`mixins`) |
-| `mixin_super_class_constraint_deferred_class` | `CompileTimeErrorCode.MIXIN_SUPER_CLASS_CONSTRAINT_DEFERRED_CLASS` | `analyzer/lib/src/generated/error_verifier.dart:4937` `ErrorVerifier._checkForOnClauseErrorCodes` (:4920-4944); chamado em `_checkMixinInheritance` :6095 | tipo do `on` é `InterfaceType`, não é classe proibida e `isDeferred` | `atNode(namedType)` | **publicado** — `crates/analise/src/clausulas.rs:570` (`avaliar`) |
-| `no_generative_constructors_in_superclass` | `CompileTimeErrorCode.NO_GENERATIVE_CONSTRUCTORS_IN_SUPERCLASS` | `analyzer/lib/src/generated/error_verifier.dart:4702` `ErrorVerifier._checkForNoGenerativeConstructorsInSuperclass` (:4680-4708); 4º termo da porta :1883 | `_enclosingClass.supertype` não nulo; a classe tem algum construtor não factory; a superclasse tem construtores (lista não vazia) e **todos** são factory | `atNode(superclass)`; `{0}` = nome da classe, `{1}` = nome da superclasse | **publicado** — `crates/analise/src/clausulas.rs:637` (`avaliar`) |
-| `on_repeated` | `CompileTimeErrorCode.ON_REPEATED` | `analyzer/lib/src/generated/error_verifier.dart:5187-5191` `ErrorVerifier._checkForRepeatedType`; chamado em `_checkMixinInheritance` :6098-6102 | depois da porta do mixin: elemento do tipo do `on` já está em `libraryContext.setOfOn(declaração)` | `atNode(namedType)` repetido; `{0}` = `element.name` | **publicado** — `crates/analise/src/clausulas.rs:1402` |
+| `subtype_of_deferred_class` | `CompileTimeErrorCode.EXTENDS_DEFERRED_CLASS` | `analyzer/lib/src/generated/error_verifier.dart:3312` `ErrorVerifier._checkForExtendsDeferredClass` → `_checkForExtendsOrImplementsDeferredClass` (:3337-3350); chamado em `_checkClassInheritance` :1884 | depois da porta de hierarquia: superclasse não sintética com `namedType.isDeferred` | `atNode(superclass)` (o `NamedType` inteiro, com prefixo e argumentos de tipo) | **publicado** — `crates/analysis/src/clausulas.rs:1434` (`verificar`, depois da porta; `Leitor::adiado` :200-210 usa `any` sobre os imports do prefixo, o analyzer exige exatamente um import) |
+| `subtype_of_deferred_class` | `CompileTimeErrorCode.IMPLEMENTS_DEFERRED_CLASS` | `analyzer/lib/src/generated/error_verifier.dart:3785` `ErrorVerifier._checkForImplementsClauseErrorCodes` (classe, enum, mixin) e `:3433` `_checkForExtensionTypeImplementsDeferred` (extension type) | para cada tipo de `implements`: não é classe proibida (`else if`, :3781-3787) e `isDeferred`; em extension type, todo tipo de `implements` com `isDeferred` | `atNode(namedType)` | **publicado** — `crates/analysis/src/clausulas.rs:673` (`implements`) |
+| `implements_repeated` | `CompileTimeErrorCode.IMPLEMENTS_REPEATED` | `analyzer/lib/src/generated/error_verifier.dart:5187-5191` `ErrorVerifier._checkForRepeatedType`; chamado em `visitExtensionTypeDeclaration` :819-823, `_checkClassInheritance` :1885-1889, `_checkMixinInheritance` :6103-6107 | o elemento do `InterfaceType` já está no conjunto `libraryContext.setOfImplements(declaração)` (conjunto por declaração, compartilhado entre a declaração e as suas augmentations, :6657-6659); em classe/mixin só depois da porta | `atNode(namedType)` da segunda ocorrência em diante; `{0}` = `element.name` | **publicado** — `crates/analysis/src/clausulas.rs:1215`, `:1403`, `:1408` (`repetidos`, :1167) |
+| `implements_super_class` | `CompileTimeErrorCode.IMPLEMENTS_SUPER_CLASS` | `analyzer/lib/src/generated/error_verifier.dart:6032` `ErrorVerifier._checkImplementsSuperClass` (:6017-6037); chamado em `_checkClassInheritance` :1890 | depois da porta: tipo de `implements` é `InterfaceType` cujo elemento é o de `_enclosingClass.supertype` | `atNode(interfaceNode)`; `{0}` é o **Element** da superclasse, convertido por `getDisplayString()` (`analyzer/lib/error/listener.dart:338-346`) | **publicado** — `crates/analysis/src/clausulas.rs:1418` (`exibir_classe` :405 monta o `{0}`) |
+| `implements_super_class` | `CompileTimeErrorCode.MIXINS_SUPER_CLASS` | `analyzer/lib/src/generated/error_verifier.dart:6136` `ErrorVerifier._checkMixinsSuperClass` (:6121-6141); chamado em `_checkClassInheritance` :1891 | depois da porta: tipo do `with` é `InterfaceType` cujo elemento é o da superclasse | `atNode(mixinNode)`; `{0}` = Element da superclasse por `getDisplayString()` | **publicado** — `crates/analysis/src/clausulas.rs:1418` (mesmo laço, com `cl.with`) |
+| `mixin_class_declaration_extends_not_object` | `CompileTimeErrorCode.MIXIN_CLASS_DECLARATION_EXTENDS_NOT_OBJECT` | `analyzer/lib/src/generated/error_verifier.dart:4347` e `:4354` `ErrorVerifier._checkForMixinClassErrorCodes` (:4320-4359); chamado em `visitClassDeclaration` :519 e `visitClassTypeAlias` :547-548 | elemento é `mixin class`: (a) há `extends` e o tipo não é `Object`; senão (b) há `with` e não é (aplicação de mixin com menos de 2 mixins) | (a) `atNode(superclass)`; (b) `atNode(withClause)` (do `with` ao último mixin); `{0}` = nome da classe | **publicado** — `crates/analysis/src/clausulas.rs:872`, `:887` (`classe_mixin`) |
+| `mixin_class_declares_constructor` | `CompileTimeErrorCode.MIXIN_CLASS_DECLARES_CONSTRUCTOR` | `analyzer/lib/src/generated/error_verifier.dart:4306` `ErrorVerifier._checkForMixinClassDeclaresConstructor` (uso num `with`, via `_checkForAllMixinErrorCodes` :2009-2011) e `:4336` `_checkForMixinClassErrorCodes` (declaração) | uso: o elemento misturado não é `MixinElement` nem `mixin class` e tem construtor não sintético e não factory (para no primeiro); declaração: `mixin class` com construtor gerador não trivial (`isTrivial`: sem redirecionamento, sem parâmetros, sem inicializadores, corpo `;`, não `external` — `analyzer/lib/src/dart/ast/ast.dart:4307-4312`) | uso: `atNode(mixinName)` com `{0}` = nome do mixin; declaração: `atNode(member.returnType)` (o identificador do nome da classe no construtor) com `{0}` = nome da classe | **publicado** — `crates/analysis/src/clausulas.rs:774` (`mixins`), `:851` (`classe_mixin`) |
+| `subtype_of_deferred_class` | `CompileTimeErrorCode.MIXIN_DEFERRED_CLASS` | `analyzer/lib/src/generated/error_verifier.dart:1993` `ErrorVerifier._checkForAllMixinErrorCodes` (:1974-2022) | tipo do `with` é `InterfaceType`, não é classe proibida e `isDeferred`; os demais testes do mesmo mixin (restrições, construtor, herança) continuam depois do relato | `atNode(mixinName)` | **publicado** — `crates/analysis/src/clausulas.rs:717` (`mixins`) |
+| `mixin_inherits_from_not_object` | `CompileTimeErrorCode.MIXIN_INHERITS_FROM_NOT_OBJECT` | `analyzer/lib/src/generated/error_verifier.dart:4384` `ErrorVerifier._checkForMixinInheritsNotFromObject` (:4367-4388); chamado em `_checkForAllMixinErrorCodes` :2014 | o misturado é `ClassElement` (não `mixin`, não extension type) e não vale: (supertipo nulo ou `Object`) e (sem mixins, ou é aplicação de mixin com menos de 2 mixins) | `atNode(mixinName)`; `{0}` = nome da classe misturada | **publicado** — `crates/analysis/src/clausulas.rs:799` (`mixins`) |
+| `mixin_super_class_constraint_deferred_class` | `CompileTimeErrorCode.MIXIN_SUPER_CLASS_CONSTRAINT_DEFERRED_CLASS` | `analyzer/lib/src/generated/error_verifier.dart:4937` `ErrorVerifier._checkForOnClauseErrorCodes` (:4920-4944); chamado em `_checkMixinInheritance` :6095 | tipo do `on` é `InterfaceType`, não é classe proibida e `isDeferred` | `atNode(namedType)` | **publicado** — `crates/analysis/src/clausulas.rs:570` (`avaliar`) |
+| `no_generative_constructors_in_superclass` | `CompileTimeErrorCode.NO_GENERATIVE_CONSTRUCTORS_IN_SUPERCLASS` | `analyzer/lib/src/generated/error_verifier.dart:4702` `ErrorVerifier._checkForNoGenerativeConstructorsInSuperclass` (:4680-4708); 4º termo da porta :1883 | `_enclosingClass.supertype` não nulo; a classe tem algum construtor não factory; a superclasse tem construtores (lista não vazia) e **todos** são factory | `atNode(superclass)`; `{0}` = nome da classe, `{1}` = nome da superclasse | **publicado** — `crates/analysis/src/clausulas.rs:637` (`avaliar`) |
+| `on_repeated` | `CompileTimeErrorCode.ON_REPEATED` | `analyzer/lib/src/generated/error_verifier.dart:5187-5191` `ErrorVerifier._checkForRepeatedType`; chamado em `_checkMixinInheritance` :6098-6102 | depois da porta do mixin: elemento do tipo do `on` já está em `libraryContext.setOfOn(declaração)` | `atNode(namedType)` repetido; `{0}` = `element.name` | **publicado** — `crates/analysis/src/clausulas.rs:1402` |
 | `private_collision_in_mixin_application` | `CompileTimeErrorCode.PRIVATE_COLLISION_IN_MIXIN_APPLICATION` | `analyzer/lib/src/generated/error_verifier.dart:4517` e `:4537` `ErrorVerifier._checkForMixinWithConflictingPrivateMember` (:4491-4574); chamado em `_checkClassInheritance` :1892 | depois da porta: mixin de **outra** biblioteca declara membro de instância privado cujo nome já foi trazido por um mixin anterior da mesma biblioteca (:4510-4521) ou existe como membro concreto herdado da superclasse declarada (:4523-4545); só o primeiro conflito do `with` é relatado | `atNode(namedType)` do mixin; `{0}` nome sem o `=` final, `{1}` lexema do mixin, `{2}` lexema do mixin anterior ou nome da classe que declara o herdado | **não implementado** — especificação completa abaixo |
-| `extension_declares_member_of_object` | `CompileTimeErrorCode.EXTENSION_DECLARES_MEMBER_OF_OBJECT` | `analyzer/lib/src/generated/error_verifier.dart:3379` `ErrorVerifier._checkForExtensionDeclaresMemberOfObject` (:3374-3392); chamado em `visitMethodDeclaration` :1178 | `_enclosingExtension != null` e o nome do método/acessor/operador está em {`==`, `hashCode`, `toString`, `runtimeType`, `noSuchMethod`} (`analyzer/lib/src/dart/ast/extensions.dart:290-298`); não há teste de `static` | `atToken(node.name)` | **publicado** — `crates/analise/src/membros.rs:943` |
-| `extension_type_declares_instance_field` | `CompileTimeErrorCode.EXTENSION_TYPE_DECLARES_INSTANCE_FIELD` | `analyzer/lib/src/generated/error_verifier.dart:3417` `ErrorVerifier._checkForExtensionTypeDeclaresInstanceField` (:3405-3420); chamado em `visitFieldDeclaration` :870. A mensagem do parser (`_fe_analyzer_shared/lib/src/parser/parser_impl.dart:3825`) é descartada em `analyzer/lib/src/fasta/error_converter.dart:529-532` | `_enclosingClass` é extension type e a declaração de campo não é `static` nem `external` | `atToken(field.name)` — um relato **por variável** da lista | **publicado** — `crates/analise/src/membros.rs:919` |
-| `extension_type_with_abstract_member` | `CompileTimeErrorCode.EXTENSION_TYPE_WITH_ABSTRACT_MEMBER` | `analyzer/lib/src/generated/error_verifier.dart:3523` `ErrorVerifier._checkForExtensionTypeWithAbstractMember` (:3515-3529); chamado em `visitExtensionTypeDeclaration` :838. A mensagem do parser (`_fe_analyzer_shared/lib/src/parser/parser_impl.dart:5088`) é descartada em `analyzer/lib/src/fasta/error_converter.dart:526-528` | membro `MethodDeclaration` não estático e `isAbstract` | `atNode(member)` — a declaração inteira, **incluindo comentário de documentação e anotações** (`AnnotatedNodeImpl.beginToken`, `analyzer/lib/src/dart/ast/ast.dart:148-163`); `{0}` lexema do nome do membro, `{1}` nome do extension type | **publicado** — `crates/analise/src/membros.rs:967` |
-| `non_final_field_in_enum` | `CompileTimeErrorCode.NON_FINAL_FIELD_IN_ENUM` | `analyzer/lib/src/generated/error_verifier.dart:4795` `ErrorVerifier._checkForNonFinalFieldInEnum` (:4782-4797); chamado em `visitFieldDeclaration` :874 | campo não `static`, lista com `isFinal` falso e `_enclosingClass` é enum | `atToken(variables.first.name)` — só a **primeira** variável da lista | **publicado** — `crates/analise/src/membros.rs:930` |
+| `extension_declares_member_of_object` | `CompileTimeErrorCode.EXTENSION_DECLARES_MEMBER_OF_OBJECT` | `analyzer/lib/src/generated/error_verifier.dart:3379` `ErrorVerifier._checkForExtensionDeclaresMemberOfObject` (:3374-3392); chamado em `visitMethodDeclaration` :1178 | `_enclosingExtension != null` e o nome do método/acessor/operador está em {`==`, `hashCode`, `toString`, `runtimeType`, `noSuchMethod`} (`analyzer/lib/src/dart/ast/extensions.dart:290-298`); não há teste de `static` | `atToken(node.name)` | **publicado** — `crates/analysis/src/membros.rs:943` |
+| `extension_type_declares_instance_field` | `CompileTimeErrorCode.EXTENSION_TYPE_DECLARES_INSTANCE_FIELD` | `analyzer/lib/src/generated/error_verifier.dart:3417` `ErrorVerifier._checkForExtensionTypeDeclaresInstanceField` (:3405-3420); chamado em `visitFieldDeclaration` :870. A mensagem do parser (`_fe_analyzer_shared/lib/src/parser/parser_impl.dart:3825`) é descartada em `analyzer/lib/src/fasta/error_converter.dart:529-532` | `_enclosingClass` é extension type e a declaração de campo não é `static` nem `external` | `atToken(field.name)` — um relato **por variável** da lista | **publicado** — `crates/analysis/src/membros.rs:919` |
+| `extension_type_with_abstract_member` | `CompileTimeErrorCode.EXTENSION_TYPE_WITH_ABSTRACT_MEMBER` | `analyzer/lib/src/generated/error_verifier.dart:3523` `ErrorVerifier._checkForExtensionTypeWithAbstractMember` (:3515-3529); chamado em `visitExtensionTypeDeclaration` :838. A mensagem do parser (`_fe_analyzer_shared/lib/src/parser/parser_impl.dart:5088`) é descartada em `analyzer/lib/src/fasta/error_converter.dart:526-528` | membro `MethodDeclaration` não estático e `isAbstract` | `atNode(member)` — a declaração inteira, **incluindo comentário de documentação e anotações** (`AnnotatedNodeImpl.beginToken`, `analyzer/lib/src/dart/ast/ast.dart:148-163`); `{0}` lexema do nome do membro, `{1}` nome do extension type | **publicado** — `crates/analysis/src/membros.rs:967` |
+| `non_final_field_in_enum` | `CompileTimeErrorCode.NON_FINAL_FIELD_IN_ENUM` | `analyzer/lib/src/generated/error_verifier.dart:4795` `ErrorVerifier._checkForNonFinalFieldInEnum` (:4782-4797); chamado em `visitFieldDeclaration` :874 | campo não `static`, lista com `isFinal` falso e `_enclosingClass` é enum | `atToken(variables.first.name)` — só a **primeira** variável da lista | **publicado** — `crates/analysis/src/membros.rs:930` |
 
 **Augmentations (8)** — todas dependem de `augmentKeyword != null`, isto é, do experimento de augmentations/macros; sem ele o parser não produz o nó com `augment` (T1). `_checkAugmentations` (:1644-1678) é chamado para classe (:454), construtor (:608), constante de enum (:659), enum (:674), extension (:757), extension type (:799), campo (:879), função de topo (:967), typedef genérico (:1042), método (:1182), mixin (:1217) e variável de topo (:1565).
 
@@ -2816,33 +2816,33 @@ um** import e ele é `deferred` (`analyzer/lib/src/dart/ast/ast.dart:12695-12705
 
 | código | constante | emissor (arquivo:linha, método) | condição | posição | DartForge |
 |---|---|---|---|---|---|
-| `abstract_field_initializer` | `CompileTimeErrorCode.ABSTRACT_FIELD_CONSTRUCTOR_INITIALIZER` | `analyzer/lib/src/generated/error_verifier.dart:1931` `ErrorVerifier._checkForAbstractOrExternalFieldConstructorInitializer` (:1926-1940); chamado em `visitConstructorFieldInitializer` :624-627 e `visitFieldFormalParameter` :900-907 | o campo inicializado (`x = …` na lista de inicializadores, ou `this.x` formal) tem `isAbstract` | `atToken(identifier)`: o nome do campo no inicializador, ou `node.name` do formal `this.x` | **publicado** — `crates/analise/src/externos.rs:80`, `:97` (`inicializadores`) |
-| `external_with_initializer` | `CompileTimeErrorCode.EXTERNAL_FIELD_CONSTRUCTOR_INITIALIZER` | `analyzer/lib/src/generated/error_verifier.dart:1937` `ErrorVerifier._checkForAbstractOrExternalFieldConstructorInitializer` | idem com `fieldElement.isExternal` (os dois testes são independentes, não `else`) | `atToken(identifier)` | **publicado** — `crates/analise/src/externos.rs:74`, `:91` |
-| `assert_in_redirecting_constructor` | `CompileTimeErrorCode.ASSERT_IN_REDIRECTING_CONSTRUCTOR` | `analyzer/lib/src/generated/error_verifier.dart:2772` `ErrorVerifier._checkForConflictingInitializerErrorCodes` (:2684-2796); chamado em `visitConstructorDeclaration` :601 | `_enclosingClass != null`, a lista de inicializadores tem pelo menos um `this(...)`/`this.n(...)` e o inicializador é `AssertInitializer` (um relato por assert) | `atNode(initializer)` | **publicado** — `crates/analise/src/membros.rs:326` (`inicializadores`) |
-| `field_initializer_factory_constructor` | `CompileTimeErrorCode.FIELD_INITIALIZER_FACTORY_CONSTRUCTOR` | `analyzer/lib/src/generated/error_verifier.dart:3549` `ErrorVerifier._checkForFieldInitializingFormalRedirectingConstructor` (:3535-3569); chamado em `visitFieldFormalParameter` :898 | formal `this.x` cujo construtor (pai da lista de parâmetros, subindo um nível quando o pai do formal não é a lista) tem `factoryKeyword`; retorna antes do teste de redirecionamento | `atNode(parameter)` — o `FieldFormalParameter` | **publicado** — `crates/analise/src/membros.rs:376` (`construtor`) |
-| `field_initializer_redirecting_constructor` | `CompileTimeErrorCode.FIELD_INITIALIZER_REDIRECTING_CONSTRUCTOR` | `analyzer/lib/src/generated/error_verifier.dart:2766` `ErrorVerifier._checkForConflictingInitializerErrorCodes` e `:3558` `_checkForFieldInitializingFormalRedirectingConstructor`. O caso de `analyzer/lib/src/fasta/error_converter.dart:144-151` só é alcançado se o parser emitir `RedirectingConstructorWithAnotherInitializer`; o dump não achou sítio no parser (não verificado) | (a) inicializador `x = e` num construtor que tem `this(...)`; (b) formal `this.x` num construtor não factory cuja lista tem `RedirectingConstructorInvocation` | (a) `atNode(initializer)` (o `ConstructorFieldInitializer` inteiro); (b) `atNode(parameter)` | **publicado** — `crates/analise/src/membros.rs:323` (a), `:378` (b) |
-| `multiple_redirecting_constructor_invocations` | `CompileTimeErrorCode.MULTIPLE_REDIRECTING_CONSTRUCTOR_INVOCATIONS` | `analyzer/lib/src/generated/error_verifier.dart:2699` `ErrorVerifier._checkForConflictingInitializerErrorCodes` | segundo `this(...)` em diante na mesma lista de inicializadores (`redirectingInitializerCount > 0`) | `atNode(initializer)` de cada redirecionamento extra | **publicado** — `crates/analise/src/membros.rs:293` |
-| `super_in_redirecting_constructor` | `CompileTimeErrorCode.SUPER_IN_REDIRECTING_CONSTRUCTOR` | `analyzer/lib/src/generated/error_verifier.dart:2759` `ErrorVerifier._checkForConflictingInitializerErrorCodes`; o caso de `analyzer/lib/src/fasta/error_converter.dart:428-434` não tem sítio do parser no dump (não verificado) | há redirecionamento `this(...)`, o inicializador é `super(...)` e a classe **não** é enum (em enum sai `super_in_enum_constructor`, :2735-2739) | `atNode(initializer)` | **publicado** — `crates/analise/src/membros.rs:320` |
+| `abstract_field_initializer` | `CompileTimeErrorCode.ABSTRACT_FIELD_CONSTRUCTOR_INITIALIZER` | `analyzer/lib/src/generated/error_verifier.dart:1931` `ErrorVerifier._checkForAbstractOrExternalFieldConstructorInitializer` (:1926-1940); chamado em `visitConstructorFieldInitializer` :624-627 e `visitFieldFormalParameter` :900-907 | o campo inicializado (`x = …` na lista de inicializadores, ou `this.x` formal) tem `isAbstract` | `atToken(identifier)`: o nome do campo no inicializador, ou `node.name` do formal `this.x` | **publicado** — `crates/analysis/src/externos.rs:80`, `:97` (`inicializadores`) |
+| `external_with_initializer` | `CompileTimeErrorCode.EXTERNAL_FIELD_CONSTRUCTOR_INITIALIZER` | `analyzer/lib/src/generated/error_verifier.dart:1937` `ErrorVerifier._checkForAbstractOrExternalFieldConstructorInitializer` | idem com `fieldElement.isExternal` (os dois testes são independentes, não `else`) | `atToken(identifier)` | **publicado** — `crates/analysis/src/externos.rs:74`, `:91` |
+| `assert_in_redirecting_constructor` | `CompileTimeErrorCode.ASSERT_IN_REDIRECTING_CONSTRUCTOR` | `analyzer/lib/src/generated/error_verifier.dart:2772` `ErrorVerifier._checkForConflictingInitializerErrorCodes` (:2684-2796); chamado em `visitConstructorDeclaration` :601 | `_enclosingClass != null`, a lista de inicializadores tem pelo menos um `this(...)`/`this.n(...)` e o inicializador é `AssertInitializer` (um relato por assert) | `atNode(initializer)` | **publicado** — `crates/analysis/src/membros.rs:326` (`inicializadores`) |
+| `field_initializer_factory_constructor` | `CompileTimeErrorCode.FIELD_INITIALIZER_FACTORY_CONSTRUCTOR` | `analyzer/lib/src/generated/error_verifier.dart:3549` `ErrorVerifier._checkForFieldInitializingFormalRedirectingConstructor` (:3535-3569); chamado em `visitFieldFormalParameter` :898 | formal `this.x` cujo construtor (pai da lista de parâmetros, subindo um nível quando o pai do formal não é a lista) tem `factoryKeyword`; retorna antes do teste de redirecionamento | `atNode(parameter)` — o `FieldFormalParameter` | **publicado** — `crates/analysis/src/membros.rs:376` (`construtor`) |
+| `field_initializer_redirecting_constructor` | `CompileTimeErrorCode.FIELD_INITIALIZER_REDIRECTING_CONSTRUCTOR` | `analyzer/lib/src/generated/error_verifier.dart:2766` `ErrorVerifier._checkForConflictingInitializerErrorCodes` e `:3558` `_checkForFieldInitializingFormalRedirectingConstructor`. O caso de `analyzer/lib/src/fasta/error_converter.dart:144-151` só é alcançado se o parser emitir `RedirectingConstructorWithAnotherInitializer`; o dump não achou sítio no parser (não verificado) | (a) inicializador `x = e` num construtor que tem `this(...)`; (b) formal `this.x` num construtor não factory cuja lista tem `RedirectingConstructorInvocation` | (a) `atNode(initializer)` (o `ConstructorFieldInitializer` inteiro); (b) `atNode(parameter)` | **publicado** — `crates/analysis/src/membros.rs:323` (a), `:378` (b) |
+| `multiple_redirecting_constructor_invocations` | `CompileTimeErrorCode.MULTIPLE_REDIRECTING_CONSTRUCTOR_INVOCATIONS` | `analyzer/lib/src/generated/error_verifier.dart:2699` `ErrorVerifier._checkForConflictingInitializerErrorCodes` | segundo `this(...)` em diante na mesma lista de inicializadores (`redirectingInitializerCount > 0`) | `atNode(initializer)` de cada redirecionamento extra | **publicado** — `crates/analysis/src/membros.rs:293` |
+| `super_in_redirecting_constructor` | `CompileTimeErrorCode.SUPER_IN_REDIRECTING_CONSTRUCTOR` | `analyzer/lib/src/generated/error_verifier.dart:2759` `ErrorVerifier._checkForConflictingInitializerErrorCodes`; o caso de `analyzer/lib/src/fasta/error_converter.dart:428-434` não tem sítio do parser no dump (não verificado) | há redirecionamento `this(...)`, o inicializador é `super(...)` e a classe **não** é enum (em enum sai `super_in_enum_constructor`, :2735-2739) | `atNode(initializer)` | **publicado** — `crates/analysis/src/membros.rs:320` |
 | `instantiate_enum` | `CompileTimeErrorCode.INSTANTIATE_ENUM` | `analyzer/lib/src/generated/error_verifier.dart:3964` `ErrorVerifier._checkForInvalidGenerativeConstructorReference` (:3951-3968); chamado em `visitConstructorReference` :637 e `visitInstanceCreationExpression` :1107 | construtor resolvido, gerador, de enum, e a biblioteca **não** tem `Feature.enhanced_enums` (linguagem anterior à 2.17, `analyzer/lib/src/dart/analysis/experiments.g.dart:246-253`) | `atNode(node.type)` — só o `NamedType`, sem `.nome` | **não implementado** — só bibliotecas com linguagem menor que 2.17; nenhum emissor em `crates/` |
-| `invalid_reference_to_generative_enum_constructor` | `CompileTimeErrorCode.INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR` | `analyzer/lib/src/generated/error_verifier.dart:3959` `ErrorVerifier._checkForInvalidGenerativeConstructorReference` | mesmo teste, com `enhanced_enums` ligado: `ConstructorName` (em criação de instância ou em tear-off) cujo `staticElement` é construtor gerador de enum | `atNode(node)` — o `ConstructorName` inteiro | **publicado** — emitido por texto em `crates/types/src/inferencia/chamadas.rs:628`, `:686`, `:1533`, `crates/types/src/inferencia/expr.rs:1779`, `crates/types/src/inferencia/funcoes.rs:232`, `:237` (`inf.aviso` com o molde de `crates/types/src/codes.rs:100`, codificado pela ponte `crates/paridade/src/ponte.rs:83`) |
+| `invalid_reference_to_generative_enum_constructor` | `CompileTimeErrorCode.INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR` | `analyzer/lib/src/generated/error_verifier.dart:3959` `ErrorVerifier._checkForInvalidGenerativeConstructorReference` | mesmo teste, com `enhanced_enums` ligado: `ConstructorName` (em criação de instância ou em tear-off) cujo `staticElement` é construtor gerador de enum | `atNode(node)` — o `ConstructorName` inteiro | **publicado** — emitido por texto em `crates/types/src/inferencia/chamadas.rs:628`, `:686`, `:1533`, `crates/types/src/inferencia/expr.rs:1779`, `crates/types/src/inferencia/funcoes.rs:232`, `:237` (`inf.aviso` com o molde de `crates/types/src/codes.rs:100`, codificado pela ponte `crates/parity/src/ponte.rs:83`) |
 | `const_deferred_class` | `CompileTimeErrorCode.CONST_DEFERRED_CLASS` | `analyzer/lib/src/generated/error_verifier.dart:2927` `ErrorVerifier._checkForConstDeferredClass` (:2922-2930); chamado em `visitInstanceCreationExpression` :1116 | criação com `node.isConst`, tipo `InterfaceType` e `namedType.isDeferred` | `atNode(constructorName)` — `p.C` ou `p.C.named` inteiro | **não implementado** — especificação completa abaixo |
 
 **Membros e modificadores (12)**
 
 | código | constante | emissor (arquivo:linha, método) | condição | posição | DartForge |
 |---|---|---|---|---|---|
-| `abstract_field_initializer` | `CompileTimeErrorCode.ABSTRACT_FIELD_INITIALIZER` | `analyzer/lib/src/generated/error_verifier.dart:1950` `ErrorVerifier._checkForAbstractOrExternalVariableInitializer` (:1942-1968); chamado em `visitVariableDeclaration` :1606 | variável com inicializador cujo elemento é `FieldElement` com `isAbstract` | `atToken(node.name)` | **publicado** — `crates/analise/src/externos.rs:61` |
-| `external_with_initializer` | `CompileTimeErrorCode.EXTERNAL_FIELD_INITIALIZER` | `analyzer/lib/src/generated/error_verifier.dart:1956` `ErrorVerifier._checkForAbstractOrExternalVariableInitializer` | idem com `FieldElement.isExternal` (independente do teste de `abstract`) | `atToken(node.name)` | **publicado** — `crates/analise/src/externos.rs:58` |
-| `external_with_initializer` | `CompileTimeErrorCode.EXTERNAL_VARIABLE_INITIALIZER` | `analyzer/lib/src/generated/error_verifier.dart:1963` `ErrorVerifier._checkForAbstractOrExternalVariableInitializer` | variável de topo (`TopLevelVariableElement`) `external` com inicializador | `atToken(node.name)` | **publicado** — `crates/analise/src/externos.rs:27` |
-| `const_instance_field` | `CompileTimeErrorCode.CONST_INSTANCE_FIELD` | `analyzer/lib/src/generated/error_verifier.dart:863` `ErrorVerifier.visitFieldDeclaration` (:854-892) | declaração de campo não `static` com `fields.isConst` | `atToken(fields.keyword)` — a palavra `const` | **publicado** — `crates/analise/src/membros.rs:912` |
-| `non_void_return_for_operator` | `CompileTimeErrorCode.NON_VOID_RETURN_FOR_OPERATOR` | `analyzer/lib/src/generated/error_verifier.dart:4815` `ErrorVerifier._checkForNonVoidReturnTypeForOperator` (:4803-4819); chamado em `visitMethodDeclaration` :1176 (sempre, mesmo com aridade errada) | operador de nome `[]=` com tipo de retorno escrito cujo tipo resolvido não é `VoidType` | `atNode(returnType)` | **publicado** — `crates/analise/src/operadores.rs:83` (`aridade`) |
-| `non_void_return_for_setter` | `CompileTimeErrorCode.NON_VOID_RETURN_FOR_SETTER` | `analyzer/lib/src/generated/error_verifier.dart:4831` `ErrorVerifier._checkForNonVoidReturnTypeForSetter` (:4825-4835); chamado em `visitFunctionDeclaration` :961 e `visitMethodDeclaration` :1167 | setter (de topo ou membro) com tipo de retorno escrito que não resolve para `VoidType` | `atNode(namedType)` (a anotação de retorno) | **publicado** — `crates/analise/src/membros.rs:176` (`setter`) |
-| `optional_parameter_in_operator` | `CompileTimeErrorCode.OPTIONAL_PARAMETER_IN_OPERATOR` | `analyzer/lib/src/generated/error_verifier.dart:4964` `ErrorVerifier._checkForOptionalParameterInOperator` (:4953-4968); chamado em `visitMethodDeclaration` :1171-1175 | operador **sem** erro de aridade (`_checkForWrongNumberOfParametersForOperator` devolveu `false`) com parâmetro `isOptional`; um relato por parâmetro opcional | `atNode(formalParameter)` | **publicado** — `crates/analise/src/operadores.rs:74` |
-| `wrong_number_of_parameters_for_operator` | `CompileTimeErrorCode.WRONG_NUMBER_OF_PARAMETERS_FOR_OPERATOR` | `analyzer/lib/src/generated/error_verifier.dart:5810` `ErrorVerifier._checkForWrongNumberOfParametersForOperator` (:5771-5823) | lista de parâmetros presente e contagem diferente do esperado: `[]=` 2; `<` `>` `<=` `>=` `==` `+` `/` `~/` `*` `%` `∣` `^` `&` `<<` `>>` `>>>` `[]` 1; `~` 0 | `atToken(declaration.name)`; `{0}` nome, `{1}` esperado, `{2}` contagem (inteiros) | **publicado** — `crates/analise/src/operadores.rs:50` |
-| `wrong_number_of_parameters_for_operator` | `CompileTimeErrorCode.WRONG_NUMBER_OF_PARAMETERS_FOR_OPERATOR_MINUS` | `analyzer/lib/src/generated/error_verifier.dart:5817` `ErrorVerifier._checkForWrongNumberOfParametersForOperator` | operador `-` com mais de 1 parâmetro | `atToken(declaration.name)`; `{0}` = contagem | **publicado** — `crates/analise/src/operadores.rs:62` |
-| `wrong_number_of_parameters_for_setter` | `CompileTimeErrorCode.WRONG_NUMBER_OF_PARAMETERS_FOR_SETTER` | `analyzer/lib/src/generated/error_verifier.dart:5843` `ErrorVerifier._checkForWrongNumberOfParametersForSetter` (:5833-5846); chamado em `visitFunctionDeclaration` :959-960 e `visitMethodDeclaration` :1166; o caso de `analyzer/lib/src/fasta/error_converter.dart:492-498` não tem sítio do parser no dump (não verificado) | setter com lista de parâmetros cuja contagem não é 1, ou cujo único parâmetro não é `isRequiredPositional` | `atToken(setterName)` | **publicado** — `crates/analise/src/membros.rs:171` (`setter`) |
-| `native_clause_in_non_sdk_code` | `ParserErrorCode.NATIVE_CLAUSE_IN_NON_SDK_CODE` | `analyzer/lib/src/generated/error_verifier.dart:1287` `ErrorVerifier.visitNativeClause` (:1281-1291) | `NativeClause` em biblioteca cujo URI não é `dart:` (`!_isInSystemLibrary`) | `atNode(node)` — o `NativeClause` inteiro | **publicado** — `crates/analise/src/nativos.rs:107` (`fora_do_sdk`); é `SyntacticError` na tabela (`crates/diagnostics/src/codigos_g.rs:976`), publicado por `crates/analise/src/publicacao.rs:29` sem passar por `verificados.txt` |
-| `native_function_body_in_non_sdk_code` | `ParserErrorCode.NATIVE_FUNCTION_BODY_IN_NON_SDK_CODE` | `analyzer/lib/src/generated/error_verifier.dart:4583` `ErrorVerifier._checkForNativeFunctionBodyInNonSdkCode` (:4579-4586); chamado em `visitNativeFunctionBody` :1295 | `NativeFunctionBody` fora de biblioteca `dart:` | `atNode(body)` — o `NativeFunctionBody` inteiro | **publicado** — `crates/analise/src/nativos.rs:117`; `SyntacticError` (`crates/diagnostics/src/codigos_g.rs:978`), mesma regra de publicação |
+| `abstract_field_initializer` | `CompileTimeErrorCode.ABSTRACT_FIELD_INITIALIZER` | `analyzer/lib/src/generated/error_verifier.dart:1950` `ErrorVerifier._checkForAbstractOrExternalVariableInitializer` (:1942-1968); chamado em `visitVariableDeclaration` :1606 | variável com inicializador cujo elemento é `FieldElement` com `isAbstract` | `atToken(node.name)` | **publicado** — `crates/analysis/src/externos.rs:61` |
+| `external_with_initializer` | `CompileTimeErrorCode.EXTERNAL_FIELD_INITIALIZER` | `analyzer/lib/src/generated/error_verifier.dart:1956` `ErrorVerifier._checkForAbstractOrExternalVariableInitializer` | idem com `FieldElement.isExternal` (independente do teste de `abstract`) | `atToken(node.name)` | **publicado** — `crates/analysis/src/externos.rs:58` |
+| `external_with_initializer` | `CompileTimeErrorCode.EXTERNAL_VARIABLE_INITIALIZER` | `analyzer/lib/src/generated/error_verifier.dart:1963` `ErrorVerifier._checkForAbstractOrExternalVariableInitializer` | variável de topo (`TopLevelVariableElement`) `external` com inicializador | `atToken(node.name)` | **publicado** — `crates/analysis/src/externos.rs:27` |
+| `const_instance_field` | `CompileTimeErrorCode.CONST_INSTANCE_FIELD` | `analyzer/lib/src/generated/error_verifier.dart:863` `ErrorVerifier.visitFieldDeclaration` (:854-892) | declaração de campo não `static` com `fields.isConst` | `atToken(fields.keyword)` — a palavra `const` | **publicado** — `crates/analysis/src/membros.rs:912` |
+| `non_void_return_for_operator` | `CompileTimeErrorCode.NON_VOID_RETURN_FOR_OPERATOR` | `analyzer/lib/src/generated/error_verifier.dart:4815` `ErrorVerifier._checkForNonVoidReturnTypeForOperator` (:4803-4819); chamado em `visitMethodDeclaration` :1176 (sempre, mesmo com aridade errada) | operador de nome `[]=` com tipo de retorno escrito cujo tipo resolvido não é `VoidType` | `atNode(returnType)` | **publicado** — `crates/analysis/src/operadores.rs:83` (`aridade`) |
+| `non_void_return_for_setter` | `CompileTimeErrorCode.NON_VOID_RETURN_FOR_SETTER` | `analyzer/lib/src/generated/error_verifier.dart:4831` `ErrorVerifier._checkForNonVoidReturnTypeForSetter` (:4825-4835); chamado em `visitFunctionDeclaration` :961 e `visitMethodDeclaration` :1167 | setter (de topo ou membro) com tipo de retorno escrito que não resolve para `VoidType` | `atNode(namedType)` (a anotação de retorno) | **publicado** — `crates/analysis/src/membros.rs:176` (`setter`) |
+| `optional_parameter_in_operator` | `CompileTimeErrorCode.OPTIONAL_PARAMETER_IN_OPERATOR` | `analyzer/lib/src/generated/error_verifier.dart:4964` `ErrorVerifier._checkForOptionalParameterInOperator` (:4953-4968); chamado em `visitMethodDeclaration` :1171-1175 | operador **sem** erro de aridade (`_checkForWrongNumberOfParametersForOperator` devolveu `false`) com parâmetro `isOptional`; um relato por parâmetro opcional | `atNode(formalParameter)` | **publicado** — `crates/analysis/src/operadores.rs:74` |
+| `wrong_number_of_parameters_for_operator` | `CompileTimeErrorCode.WRONG_NUMBER_OF_PARAMETERS_FOR_OPERATOR` | `analyzer/lib/src/generated/error_verifier.dart:5810` `ErrorVerifier._checkForWrongNumberOfParametersForOperator` (:5771-5823) | lista de parâmetros presente e contagem diferente do esperado: `[]=` 2; `<` `>` `<=` `>=` `==` `+` `/` `~/` `*` `%` `∣` `^` `&` `<<` `>>` `>>>` `[]` 1; `~` 0 | `atToken(declaration.name)`; `{0}` nome, `{1}` esperado, `{2}` contagem (inteiros) | **publicado** — `crates/analysis/src/operadores.rs:50` |
+| `wrong_number_of_parameters_for_operator` | `CompileTimeErrorCode.WRONG_NUMBER_OF_PARAMETERS_FOR_OPERATOR_MINUS` | `analyzer/lib/src/generated/error_verifier.dart:5817` `ErrorVerifier._checkForWrongNumberOfParametersForOperator` | operador `-` com mais de 1 parâmetro | `atToken(declaration.name)`; `{0}` = contagem | **publicado** — `crates/analysis/src/operadores.rs:62` |
+| `wrong_number_of_parameters_for_setter` | `CompileTimeErrorCode.WRONG_NUMBER_OF_PARAMETERS_FOR_SETTER` | `analyzer/lib/src/generated/error_verifier.dart:5843` `ErrorVerifier._checkForWrongNumberOfParametersForSetter` (:5833-5846); chamado em `visitFunctionDeclaration` :959-960 e `visitMethodDeclaration` :1166; o caso de `analyzer/lib/src/fasta/error_converter.dart:492-498` não tem sítio do parser no dump (não verificado) | setter com lista de parâmetros cuja contagem não é 1, ou cujo único parâmetro não é `isRequiredPositional` | `atToken(setterName)` | **publicado** — `crates/analysis/src/membros.rs:171` (`setter`) |
+| `native_clause_in_non_sdk_code` | `ParserErrorCode.NATIVE_CLAUSE_IN_NON_SDK_CODE` | `analyzer/lib/src/generated/error_verifier.dart:1287` `ErrorVerifier.visitNativeClause` (:1281-1291) | `NativeClause` em biblioteca cujo URI não é `dart:` (`!_isInSystemLibrary`) | `atNode(node)` — o `NativeClause` inteiro | **publicado** — `crates/analysis/src/nativos.rs:107` (`fora_do_sdk`); é `SyntacticError` na tabela (`crates/diagnostics/src/codigos_g.rs:976`), publicado por `crates/analysis/src/publicacao.rs:29` sem passar por `verificados.txt` |
+| `native_function_body_in_non_sdk_code` | `ParserErrorCode.NATIVE_FUNCTION_BODY_IN_NON_SDK_CODE` | `analyzer/lib/src/generated/error_verifier.dart:4583` `ErrorVerifier._checkForNativeFunctionBodyInNonSdkCode` (:4579-4586); chamado em `visitNativeFunctionBody` :1295 | `NativeFunctionBody` fora de biblioteca `dart:` | `atNode(body)` — o `NativeFunctionBody` inteiro | **publicado** — `crates/analysis/src/nativos.rs:117`; `SyntacticError` (`crates/diagnostics/src/codigos_g.rs:978`), mesma regra de publicação |
 
 #### Constantes do lote `S1` ainda sem leitura do emissor (28 de 75)
 
@@ -2852,22 +2852,22 @@ As linhas abaixo foram **geradas por script** (mesmo método dos lotes automáti
 
 | código | constante | emissor (arquivo:linha, método) | condição (mensagem oficial) | posição | DartForge |
 |---|---|---|---|---|---|
-| `built_in_identifier_in_declaration` | `CompileTimeErrorCode.BUILT_IN_IDENTIFIER_AS_EXTENSION_NAME` | `analyzer/lib/src/generated/error_verifier.dart:784` `ErrorVerifier.visitExtensionDeclaration` | The built-in identifier '{0}' can't be used as an extension name. | não verificado | **publicado** — `crates/analise/src/membros.rs:661` |
-| `built_in_identifier_in_declaration` | `CompileTimeErrorCode.BUILT_IN_IDENTIFIER_AS_EXTENSION_TYPE_NAME` | `analyzer/lib/src/generated/error_verifier.dart:815` `ErrorVerifier.visitExtensionTypeDeclaration` | The built-in identifier '{0}' can't be used as an extension type name. | não verificado | **publicado** — `crates/analise/src/membros.rs:662` |
-| `built_in_identifier_in_declaration` | `CompileTimeErrorCode.BUILT_IN_IDENTIFIER_AS_PREFIX_NAME` | `analyzer/lib/src/generated/error_verifier.dart:1069` `ErrorVerifier.visitImportDirective` | The built-in identifier '{0}' can't be used as a prefix name. | não verificado | **publicado** — `crates/analise/src/membros.rs:649` |
-| `built_in_identifier_in_declaration` | `CompileTimeErrorCode.BUILT_IN_IDENTIFIER_AS_TYPEDEF_NAME` | `analyzer/lib/src/generated/error_verifier.dart:541` `ErrorVerifier.visitClassTypeAlias`; `analyzer/lib/src/generated/error_verifier.dart:1018` `ErrorVerifier.visitFunctionTypeAlias`; `analyzer/lib/src/generated/error_verifier.dart:1048` `ErrorVerifier.visitGenericTypeAlias` | The built-in identifier '{0}' can't be used as a typedef name. | não verificado | **publicado** — `crates/analise/src/membros.rs:656`, `crates/analise/src/membros.rs:660` |
-| `built_in_identifier_in_declaration` | `CompileTimeErrorCode.BUILT_IN_IDENTIFIER_AS_TYPE_NAME` | `analyzer/lib/src/generated/error_verifier.dart:487` `ErrorVerifier.visitClassDeclaration`; `analyzer/lib/src/generated/error_verifier.dart:692` `ErrorVerifier.visitEnumDeclaration`; `analyzer/lib/src/generated/error_verifier.dart:1242` `ErrorVerifier.visitMixinDeclaration` | The built-in identifier '{0}' can't be used as a type name. | não verificado | **publicado** — `crates/analise/src/membros.rs:657`, `crates/analise/src/membros.rs:658` |
-| `built_in_identifier_in_declaration` | `CompileTimeErrorCode.BUILT_IN_IDENTIFIER_AS_TYPE_PARAMETER_NAME` | `analyzer/lib/src/generated/error_verifier.dart:1587` `ErrorVerifier.visitTypeParameter` | The built-in identifier '{0}' can't be used as a type parameter name. | não verificado | **publicado** — `crates/analise/src/membros.rs:681` |
-| `conflicting_type_variable_and_container` | `CompileTimeErrorCode.CONFLICTING_TYPE_VARIABLE_AND_CLASS` | `analyzer/lib/src/generated/error_verifier.dart:2543` `ErrorVerifier._checkForConflictingClassTypeVariableErrorCodes` | '{0}' can't be used to name both a type parameter and the class in which the type parameter is defined. | não verificado | **publicado** — `crates/analise/src/membros.rs:861` |
-| `conflicting_type_variable_and_container` | `CompileTimeErrorCode.CONFLICTING_TYPE_VARIABLE_AND_ENUM` | `analyzer/lib/src/generated/error_verifier.dart:2576` `ErrorVerifier._checkForConflictingEnumTypeVariableErrorCodes` | '{0}' can't be used to name both a type parameter and the enum in which the type parameter is defined. | não verificado | **publicado** — `crates/analise/src/membros.rs:869` |
-| `conflicting_type_variable_and_container` | `CompileTimeErrorCode.CONFLICTING_TYPE_VARIABLE_AND_EXTENSION` | `analyzer/lib/src/generated/error_verifier.dart:2635` `ErrorVerifier._checkForConflictingExtensionTypeVariableErrorCodes` | '{0}' can't be used to name both a type parameter and the extension in which the type parameter is defined. | não verificado | **publicado** — `crates/analise/src/membros.rs:873` |
-| `conflicting_type_variable_and_container` | `CompileTimeErrorCode.CONFLICTING_TYPE_VARIABLE_AND_EXTENSION_TYPE` | `analyzer/lib/src/generated/error_verifier.dart:2604` `ErrorVerifier._checkForConflictingExtensionTypeTypeVariableErrorCodes` | '{0}' can't be used to name both a type parameter and the extension type in which the type parameter is defined. | não verificado | **publicado** — `crates/analise/src/membros.rs:877` |
-| `conflicting_type_variable_and_container` | `CompileTimeErrorCode.CONFLICTING_TYPE_VARIABLE_AND_MIXIN` | `analyzer/lib/src/generated/error_verifier.dart:2542` `ErrorVerifier._checkForConflictingClassTypeVariableErrorCodes` | '{0}' can't be used to name both a type parameter and the mixin in which the type parameter is defined. | não verificado | **publicado** — `crates/analise/src/membros.rs:865` |
+| `built_in_identifier_in_declaration` | `CompileTimeErrorCode.BUILT_IN_IDENTIFIER_AS_EXTENSION_NAME` | `analyzer/lib/src/generated/error_verifier.dart:784` `ErrorVerifier.visitExtensionDeclaration` | The built-in identifier '{0}' can't be used as an extension name. | não verificado | **publicado** — `crates/analysis/src/membros.rs:661` |
+| `built_in_identifier_in_declaration` | `CompileTimeErrorCode.BUILT_IN_IDENTIFIER_AS_EXTENSION_TYPE_NAME` | `analyzer/lib/src/generated/error_verifier.dart:815` `ErrorVerifier.visitExtensionTypeDeclaration` | The built-in identifier '{0}' can't be used as an extension type name. | não verificado | **publicado** — `crates/analysis/src/membros.rs:662` |
+| `built_in_identifier_in_declaration` | `CompileTimeErrorCode.BUILT_IN_IDENTIFIER_AS_PREFIX_NAME` | `analyzer/lib/src/generated/error_verifier.dart:1069` `ErrorVerifier.visitImportDirective` | The built-in identifier '{0}' can't be used as a prefix name. | não verificado | **publicado** — `crates/analysis/src/membros.rs:649` |
+| `built_in_identifier_in_declaration` | `CompileTimeErrorCode.BUILT_IN_IDENTIFIER_AS_TYPEDEF_NAME` | `analyzer/lib/src/generated/error_verifier.dart:541` `ErrorVerifier.visitClassTypeAlias`; `analyzer/lib/src/generated/error_verifier.dart:1018` `ErrorVerifier.visitFunctionTypeAlias`; `analyzer/lib/src/generated/error_verifier.dart:1048` `ErrorVerifier.visitGenericTypeAlias` | The built-in identifier '{0}' can't be used as a typedef name. | não verificado | **publicado** — `crates/analysis/src/membros.rs:656`, `crates/analysis/src/membros.rs:660` |
+| `built_in_identifier_in_declaration` | `CompileTimeErrorCode.BUILT_IN_IDENTIFIER_AS_TYPE_NAME` | `analyzer/lib/src/generated/error_verifier.dart:487` `ErrorVerifier.visitClassDeclaration`; `analyzer/lib/src/generated/error_verifier.dart:692` `ErrorVerifier.visitEnumDeclaration`; `analyzer/lib/src/generated/error_verifier.dart:1242` `ErrorVerifier.visitMixinDeclaration` | The built-in identifier '{0}' can't be used as a type name. | não verificado | **publicado** — `crates/analysis/src/membros.rs:657`, `crates/analysis/src/membros.rs:658` |
+| `built_in_identifier_in_declaration` | `CompileTimeErrorCode.BUILT_IN_IDENTIFIER_AS_TYPE_PARAMETER_NAME` | `analyzer/lib/src/generated/error_verifier.dart:1587` `ErrorVerifier.visitTypeParameter` | The built-in identifier '{0}' can't be used as a type parameter name. | não verificado | **publicado** — `crates/analysis/src/membros.rs:681` |
+| `conflicting_type_variable_and_container` | `CompileTimeErrorCode.CONFLICTING_TYPE_VARIABLE_AND_CLASS` | `analyzer/lib/src/generated/error_verifier.dart:2543` `ErrorVerifier._checkForConflictingClassTypeVariableErrorCodes` | '{0}' can't be used to name both a type parameter and the class in which the type parameter is defined. | não verificado | **publicado** — `crates/analysis/src/membros.rs:861` |
+| `conflicting_type_variable_and_container` | `CompileTimeErrorCode.CONFLICTING_TYPE_VARIABLE_AND_ENUM` | `analyzer/lib/src/generated/error_verifier.dart:2576` `ErrorVerifier._checkForConflictingEnumTypeVariableErrorCodes` | '{0}' can't be used to name both a type parameter and the enum in which the type parameter is defined. | não verificado | **publicado** — `crates/analysis/src/membros.rs:869` |
+| `conflicting_type_variable_and_container` | `CompileTimeErrorCode.CONFLICTING_TYPE_VARIABLE_AND_EXTENSION` | `analyzer/lib/src/generated/error_verifier.dart:2635` `ErrorVerifier._checkForConflictingExtensionTypeVariableErrorCodes` | '{0}' can't be used to name both a type parameter and the extension in which the type parameter is defined. | não verificado | **publicado** — `crates/analysis/src/membros.rs:873` |
+| `conflicting_type_variable_and_container` | `CompileTimeErrorCode.CONFLICTING_TYPE_VARIABLE_AND_EXTENSION_TYPE` | `analyzer/lib/src/generated/error_verifier.dart:2604` `ErrorVerifier._checkForConflictingExtensionTypeTypeVariableErrorCodes` | '{0}' can't be used to name both a type parameter and the extension type in which the type parameter is defined. | não verificado | **publicado** — `crates/analysis/src/membros.rs:877` |
+| `conflicting_type_variable_and_container` | `CompileTimeErrorCode.CONFLICTING_TYPE_VARIABLE_AND_MIXIN` | `analyzer/lib/src/generated/error_verifier.dart:2542` `ErrorVerifier._checkForConflictingClassTypeVariableErrorCodes` | '{0}' can't be used to name both a type parameter and the mixin in which the type parameter is defined. | não verificado | **publicado** — `crates/analysis/src/membros.rs:865` |
 | `generic_function_type_cannot_be_bound` | `CompileTimeErrorCode.GENERIC_FUNCTION_TYPE_CANNOT_BE_BOUND` | `analyzer/lib/src/generated/error_verifier.dart:3744` `ErrorVerifier._checkForGenericFunctionType` | Generic function types can't be used as type parameter bounds. | não verificado | **não implementado** |
 | `illegal_language_version_override` | `CompileTimeErrorCode.ILLEGAL_LANGUAGE_VERSION_OVERRIDE` | `analyzer/lib/src/generated/error_verifier.dart:3764` `ErrorVerifier._checkForIllegalLanguageOverride` | The language version must be {0}. | não verificado | **publicado** — `crates/elements/src/load.rs:960` |
 | `invalid_annotation_from_deferred_library` | `CompileTimeErrorCode.INVALID_ANNOTATION_FROM_DEFERRED_LIBRARY` | `analyzer/lib/src/generated/error_verifier.dart:3916` `ErrorVerifier._checkForInvalidAnnotationFromDeferredLibrary` | Constant values from a deferred library can't be used as annotations. | não verificado | **não implementado** |
 | `invalid_macro_application_target` | `CompileTimeErrorCode.INVALID_MACRO_APPLICATION_TARGET` | `analyzer/lib/src/generated/error_verifier.dart:6883` `_MacroDiagnosticsReporter._reportInvalidTarget` | The macro can be applied only to a {0}. | não verificado | **não implementado** |
-| `invalid_reference_to_this` | `CompileTimeErrorCode.INVALID_REFERENCE_TO_THIS` | `analyzer/lib/src/generated/error_verifier.dart:4063` `ErrorVerifier._checkForInvalidReferenceToThis` | Invalid reference to 'this' expression. | não verificado | **publicado** — `crates/analise/src/membros.rs:622` |
+| `invalid_reference_to_this` | `CompileTimeErrorCode.INVALID_REFERENCE_TO_THIS` | `analyzer/lib/src/generated/error_verifier.dart:4063` `ErrorVerifier._checkForInvalidReferenceToThis` | Invalid reference to 'this' expression. | não verificado | **publicado** — `crates/analysis/src/membros.rs:622` |
 | `macro_application_argument_error` | `CompileTimeErrorCode.MACRO_APPLICATION_ARGUMENT_ERROR` | `analyzer/lib/src/generated/error_verifier.dart:6755` `_MacroDiagnosticsReporter._reportArgument` | {0} | não verificado | **não implementado** |
 | `macro_declarations_phase_introspection_cycle` | `CompileTimeErrorCode.MACRO_DECLARATIONS_PHASE_INTROSPECTION_CYCLE` | `analyzer/lib/src/generated/error_verifier.dart:6874` `_MacroDiagnosticsReporter._reportIntrospectionCycle` | The declaration '{0}' can't be introspected because there is a cycle of macro applications. | não verificado | **não implementado** |
 | `macro_definition_application_same_library_cycle` | `CompileTimeErrorCode.MACRO_DEFINITION_APPLICATION_SAME_LIBRARY_CYCLE` | `analyzer/lib/src/generated/error_verifier.dart:6742` `_MacroDiagnosticsReporter._reportApplicationFromSameLibraryCycle` | The macro '{0}' can't be applied in the same library cycle where it is defined. | não verificado | **não implementado** |
@@ -2956,15 +2956,15 @@ Esta tabela foi **gerada por script** (`E:\dftempnalise\spec-infrainal\gera2.p
 
 | código | constante | emissor (arquivo:linha, método) | condição (mensagem oficial) | posição | DartForge |
 |---|---|---|---|---|---|
-| `deprecated_export_use` | `WarningCode.DEPRECATED_EXPORT_USE` | `analyzer/lib/src/dart/analysis/library_analyzer.dart:608` `LibraryAnalyzer._hasDiagnosticReportedThatPreventsImportWarnings`; `analyzer/lib/src/generated/scope_helpers.dart:67` `ScopeHelpers._reportDeprecatedExportUse` | The ability to import '{0}' indirectly is deprecated. | não verificado | **emitido, não publicado** — `crates/analise/src/importacoes.rs:43` |
+| `deprecated_export_use` | `WarningCode.DEPRECATED_EXPORT_USE` | `analyzer/lib/src/dart/analysis/library_analyzer.dart:608` `LibraryAnalyzer._hasDiagnosticReportedThatPreventsImportWarnings`; `analyzer/lib/src/generated/scope_helpers.dart:67` `ScopeHelpers._reportDeprecatedExportUse` | The ability to import '{0}' indirectly is deprecated. | não verificado | **emitido, não publicado** — `crates/analysis/src/importacoes.rs:43` |
 | `duplicate_part` | `CompileTimeErrorCode.DUPLICATE_PART` | `analyzer/lib/src/dart/analysis/library_analyzer.dart:1040` `LibraryAnalyzer._resolvePartDirective` | The library already contains a part with the URI '{0}'. | não verificado | **não implementado** |
 | `export_of_non_library` | `CompileTimeErrorCode.EXPORT_OF_NON_LIBRARY` | `analyzer/lib/src/dart/analysis/library_analyzer.dart:934` `LibraryAnalyzer._resolveLibraryExportDirective` | The exported library '{0}' can't have a part-of directive. | não verificado | **não implementado** |
-| `extends_non_class` | `CompileTimeErrorCode.EXTENDS_NON_CLASS` | `analyzer/lib/src/dart/analysis/library_analyzer.dart:597` `LibraryAnalyzer._hasDiagnosticReportedThatPreventsImportWarnings`; `analyzer/lib/src/dart/resolver/resolution_visitor.dart:1698` `ResolutionVisitor._resolveType` | Classes can only extend other classes. | não verificado | **publicado** — `crates/analise/src/clausulas.rs:1231`, `crates/analise/src/importacoes.rs:32` |
-| `implements_non_class` | `CompileTimeErrorCode.IMPLEMENTS_NON_CLASS` | `analyzer/lib/src/dart/analysis/library_analyzer.dart:598` `LibraryAnalyzer._hasDiagnosticReportedThatPreventsImportWarnings`; `analyzer/lib/src/dart/resolver/resolution_visitor.dart:1702` `ResolutionVisitor._resolveType` | Classes and mixins can only implement other classes and mixins. | não verificado | **publicado** — `crates/analise/src/clausulas.rs:1236`, `crates/analise/src/clausulas.rs:1246` |
+| `extends_non_class` | `CompileTimeErrorCode.EXTENDS_NON_CLASS` | `analyzer/lib/src/dart/analysis/library_analyzer.dart:597` `LibraryAnalyzer._hasDiagnosticReportedThatPreventsImportWarnings`; `analyzer/lib/src/dart/resolver/resolution_visitor.dart:1698` `ResolutionVisitor._resolveType` | Classes can only extend other classes. | não verificado | **publicado** — `crates/analysis/src/clausulas.rs:1231`, `crates/analysis/src/importacoes.rs:32` |
+| `implements_non_class` | `CompileTimeErrorCode.IMPLEMENTS_NON_CLASS` | `analyzer/lib/src/dart/analysis/library_analyzer.dart:598` `LibraryAnalyzer._hasDiagnosticReportedThatPreventsImportWarnings`; `analyzer/lib/src/dart/resolver/resolution_visitor.dart:1702` `ResolutionVisitor._resolveType` | Classes and mixins can only implement other classes and mixins. | não verificado | **publicado** — `crates/analysis/src/clausulas.rs:1236`, `crates/analysis/src/clausulas.rs:1246` |
 | `import_of_non_library` | `CompileTimeErrorCode.IMPORT_OF_NON_LIBRARY` | `analyzer/lib/src/dart/analysis/library_analyzer.dart:706` `LibraryAnalyzer._reportImportDirectiveErrors`; `analyzer/lib/src/fasta/error_converter.dart:212` `FastaErrorReporter.reportByCode` | The imported library '{0}' can't have a part-of directive. | não verificado | **não implementado** |
 | `inconsistent_language_version_override` | `CompileTimeErrorCode.INCONSISTENT_LANGUAGE_VERSION_OVERRIDE` | `analyzer/lib/src/dart/analysis/library_analyzer.dart:263` `LibraryAnalyzer._checkForInconsistentLanguageVersionOverride` | Parts must have exactly the same language version override as the library. | não verificado | **não implementado** |
 | `invalid_uri` | `CompileTimeErrorCode.INVALID_URI` | `analyzer/lib/src/dart/analysis/library_analyzer.dart:713` `LibraryAnalyzer._reportImportDirectiveErrors`; `analyzer/lib/src/dart/analysis/library_analyzer.dart:941` `LibraryAnalyzer._resolveLibraryExportDirective`; `analyzer/lib/src/dart/analysis/library_analyzer.dart:1002` `LibraryAnalyzer._resolvePartDirective` | Invalid URI syntax: '{0}'. | não verificado | **não implementado** |
-| `mixin_of_non_class` | `CompileTimeErrorCode.MIXIN_OF_NON_CLASS` | `analyzer/lib/src/dart/analysis/library_analyzer.dart:599` `LibraryAnalyzer._hasDiagnosticReportedThatPreventsImportWarnings`; `analyzer/lib/src/dart/resolver/resolution_visitor.dart:1707` `ResolutionVisitor._resolveType` | Classes can only mix in mixins and classes. | não verificado | **publicado** — `crates/analise/src/clausulas.rs:1235`, `crates/analise/src/clausulas.rs:1248` |
+| `mixin_of_non_class` | `CompileTimeErrorCode.MIXIN_OF_NON_CLASS` | `analyzer/lib/src/dart/analysis/library_analyzer.dart:599` `LibraryAnalyzer._hasDiagnosticReportedThatPreventsImportWarnings`; `analyzer/lib/src/dart/resolver/resolution_visitor.dart:1707` `ResolutionVisitor._resolveType` | Classes can only mix in mixins and classes. | não verificado | **publicado** — `crates/analysis/src/clausulas.rs:1235`, `crates/analysis/src/clausulas.rs:1248` |
 | `part_of_different_library` | `CompileTimeErrorCode.PART_OF_DIFFERENT_LIBRARY` | `analyzer/lib/src/dart/analysis/library_analyzer.dart:1060` `LibraryAnalyzer._resolvePartDirective`; `analyzer/lib/src/dart/analysis/library_analyzer.dart:1067` `LibraryAnalyzer._resolvePartDirective` | Expected this library to be part of '{0}', not '{1}'. | não verificado | **não implementado** |
 | `part_of_unnamed_library` | `CompileTimeErrorCode.PART_OF_UNNAMED_LIBRARY` | `analyzer/lib/src/dart/analysis/library_analyzer.dart:1055` `LibraryAnalyzer._resolvePartDirective` | The library is unnamed. A URI is expected, not a library name '{0}', in the part-of directive. | não verificado | **não implementado** |
 | `uri_does_not_exist` | `CompileTimeErrorCode.URI_DOES_NOT_EXIST` | `analyzer/lib/src/dart/analysis/library_analyzer.dart:686` `LibraryAnalyzer._reportImportDirectiveErrors`; `analyzer/lib/src/dart/analysis/library_analyzer.dart:697` `LibraryAnalyzer._reportImportDirectiveErrors`; `analyzer/lib/src/dart/analysis/library_analyzer.dart:919` `LibraryAnalyzer._resolveLibraryExportDirective` | Target of URI doesn't exist: '{0}'. | não verificado | **não implementado** |
@@ -2981,10 +2981,10 @@ Esta tabela foi **gerada por script** (`E:\dftempnalise\spec-infrainal\gera2.p
 | `missing_override_of_must_be_overridden` | `WarningCode.MISSING_OVERRIDE_OF_MUST_BE_OVERRIDDEN_ONE` | `analyzer/lib/src/error/inheritance_override.dart:1053` `_ClassVerifier._verifyMustBeOverridden` | Missing concrete implementation of '{0}'. | não verificado | **não implementado** |
 | `missing_override_of_must_be_overridden` | `WarningCode.MISSING_OVERRIDE_OF_MUST_BE_OVERRIDDEN_THREE_PLUS` | `analyzer/lib/src/error/inheritance_override.dart:1065` `_ClassVerifier._verifyMustBeOverridden` | Missing concrete implementations of '{0}', '{1}', and {2} more. | não verificado | **não implementado** |
 | `missing_override_of_must_be_overridden` | `WarningCode.MISSING_OVERRIDE_OF_MUST_BE_OVERRIDDEN_TWO` | `analyzer/lib/src/error/inheritance_override.dart:1059` `_ClassVerifier._verifyMustBeOverridden` | Missing concrete implementations of '{0}' and '{1}'. | não verificado | **não implementado** |
-| `subtype_of_disallowed_type` | `CompileTimeErrorCode.EXTENDS_DISALLOWED_CLASS` | `analyzer/lib/src/error/inheritance_override.dart:511` `_ClassVerifier._checkDirectSuperTypes`; `analyzer/lib/src/generated/error_verifier.dart:3324` `ErrorVerifier._checkForExtendsDisallowedClass` | Classes can't extend '{0}'. | não verificado | **publicado** — `crates/analise/src/clausulas.rs:1288` |
-| `subtype_of_disallowed_type` | `CompileTimeErrorCode.IMPLEMENTS_DISALLOWED_CLASS` | `analyzer/lib/src/error/inheritance_override.dart:492` `_ClassVerifier._checkDirectSuperTypes`; `analyzer/lib/src/generated/error_verifier.dart:3782` `ErrorVerifier._checkForImplementsClauseErrorCodes` | Classes and mixins can't implement '{0}'. | não verificado | **publicado** — `crates/analise/src/clausulas.rs:1286` |
-| `subtype_of_disallowed_type` | `CompileTimeErrorCode.MIXIN_OF_DISALLOWED_CLASS` | `analyzer/lib/src/error/inheritance_override.dart:520` `_ClassVerifier._checkDirectSuperTypes`; `analyzer/lib/src/generated/error_verifier.dart:1988` `ErrorVerifier._checkForAllMixinErrorCodes` | Classes can't mixin '{0}'. | não verificado | **publicado** — `crates/analise/src/clausulas.rs:1289` |
-| `subtype_of_disallowed_type` | `CompileTimeErrorCode.MIXIN_SUPER_CLASS_CONSTRAINT_DISALLOWED_CLASS` | `analyzer/lib/src/error/inheritance_override.dart:502` `_ClassVerifier._checkDirectSuperTypes`; `analyzer/lib/src/generated/error_verifier.dart:4931` `ErrorVerifier._checkForOnClauseErrorCodes` | '{0}' can't be used as a superclass constraint. | não verificado | **publicado** — `crates/analise/src/clausulas.rs:1287` |
+| `subtype_of_disallowed_type` | `CompileTimeErrorCode.EXTENDS_DISALLOWED_CLASS` | `analyzer/lib/src/error/inheritance_override.dart:511` `_ClassVerifier._checkDirectSuperTypes`; `analyzer/lib/src/generated/error_verifier.dart:3324` `ErrorVerifier._checkForExtendsDisallowedClass` | Classes can't extend '{0}'. | não verificado | **publicado** — `crates/analysis/src/clausulas.rs:1288` |
+| `subtype_of_disallowed_type` | `CompileTimeErrorCode.IMPLEMENTS_DISALLOWED_CLASS` | `analyzer/lib/src/error/inheritance_override.dart:492` `_ClassVerifier._checkDirectSuperTypes`; `analyzer/lib/src/generated/error_verifier.dart:3782` `ErrorVerifier._checkForImplementsClauseErrorCodes` | Classes and mixins can't implement '{0}'. | não verificado | **publicado** — `crates/analysis/src/clausulas.rs:1286` |
+| `subtype_of_disallowed_type` | `CompileTimeErrorCode.MIXIN_OF_DISALLOWED_CLASS` | `analyzer/lib/src/error/inheritance_override.dart:520` `_ClassVerifier._checkDirectSuperTypes`; `analyzer/lib/src/generated/error_verifier.dart:1988` `ErrorVerifier._checkForAllMixinErrorCodes` | Classes can't mixin '{0}'. | não verificado | **publicado** — `crates/analysis/src/clausulas.rs:1289` |
+| `subtype_of_disallowed_type` | `CompileTimeErrorCode.MIXIN_SUPER_CLASS_CONSTRAINT_DISALLOWED_CLASS` | `analyzer/lib/src/error/inheritance_override.dart:502` `_ClassVerifier._checkDirectSuperTypes`; `analyzer/lib/src/generated/error_verifier.dart:4931` `ErrorVerifier._checkForOnClauseErrorCodes` | '{0}' can't be used as a superclass constraint. | não verificado | **publicado** — `crates/analysis/src/clausulas.rs:1287` |
 
 #### `analyzer/lib/src/dart/constant/evaluation.dart` (5)
 
@@ -3000,20 +3000,20 @@ Esta tabela foi **gerada por script** (`E:\dftempnalise\spec-infrainal\gera2.p
 
 | código | constante | emissor (arquivo:linha, método) | condição (mensagem oficial) | posição | DartForge |
 |---|---|---|---|---|---|
-| `enum_constant_same_name_as_enclosing` | `CompileTimeErrorCode.ENUM_CONSTANT_SAME_NAME_AS_ENCLOSING` | `analyzer/lib/src/error/duplicate_definition_verifier.dart:585` `MemberDuplicateDefinitionVerifier._checkEnum` | The name of the enum value can't be the same as the enum's name. | não verificado | **publicado** — `crates/analise/src/duplicatas.rs:627` |
-| `enum_with_name_values` | `CompileTimeErrorCode.ENUM_WITH_NAME_VALUES` | `analyzer/lib/src/error/duplicate_definition_verifier.dart:598` `MemberDuplicateDefinitionVerifier._checkEnum` | The name 'values' is not a valid name for an enum. | não verificado | **publicado** — `crates/analise/src/duplicatas.rs:643` |
-| `extension_conflicting_static_and_instance` | `CompileTimeErrorCode.EXTENSION_CONFLICTING_STATIC_AND_INSTANCE` | `analyzer/lib/src/error/duplicate_definition_verifier.dart:711` `MemberDuplicateDefinitionVerifier._checkExtensionStatic`; `analyzer/lib/src/error/duplicate_definition_verifier.dart:725` `MemberDuplicateDefinitionVerifier._checkExtensionStatic` | An extension can't define static member '{0}' and an instance member with the same name. | não verificado | **publicado** — `crates/analise/src/duplicatas.rs:759` |
-| `prefix_collides_with_top_level_member` | `CompileTimeErrorCode.PREFIX_COLLIDES_WITH_TOP_LEVEL_MEMBER` | `analyzer/lib/src/error/duplicate_definition_verifier.dart:169` `DuplicateDefinitionVerifier.checkUnit` | The name '{0}' is already used as an import prefix and can't be used to name a top-level element. | não verificado | **publicado** — `crates/analise/src/duplicatas.rs:284` |
-| `values_declaration_in_enum` | `CompileTimeErrorCode.VALUES_DECLARATION_IN_ENUM` | `analyzer/lib/src/error/duplicate_definition_verifier.dart:803` `MemberDuplicateDefinitionVerifier._checkValuesDeclarationInEnum` | A member named 'values' can't be declared in an enum. | não verificado | **publicado** — `crates/analise/src/duplicatas.rs:632`, `crates/analise/src/duplicatas.rs:690` |
+| `enum_constant_same_name_as_enclosing` | `CompileTimeErrorCode.ENUM_CONSTANT_SAME_NAME_AS_ENCLOSING` | `analyzer/lib/src/error/duplicate_definition_verifier.dart:585` `MemberDuplicateDefinitionVerifier._checkEnum` | The name of the enum value can't be the same as the enum's name. | não verificado | **publicado** — `crates/analysis/src/duplicatas.rs:627` |
+| `enum_with_name_values` | `CompileTimeErrorCode.ENUM_WITH_NAME_VALUES` | `analyzer/lib/src/error/duplicate_definition_verifier.dart:598` `MemberDuplicateDefinitionVerifier._checkEnum` | The name 'values' is not a valid name for an enum. | não verificado | **publicado** — `crates/analysis/src/duplicatas.rs:643` |
+| `extension_conflicting_static_and_instance` | `CompileTimeErrorCode.EXTENSION_CONFLICTING_STATIC_AND_INSTANCE` | `analyzer/lib/src/error/duplicate_definition_verifier.dart:711` `MemberDuplicateDefinitionVerifier._checkExtensionStatic`; `analyzer/lib/src/error/duplicate_definition_verifier.dart:725` `MemberDuplicateDefinitionVerifier._checkExtensionStatic` | An extension can't define static member '{0}' and an instance member with the same name. | não verificado | **publicado** — `crates/analysis/src/duplicatas.rs:759` |
+| `prefix_collides_with_top_level_member` | `CompileTimeErrorCode.PREFIX_COLLIDES_WITH_TOP_LEVEL_MEMBER` | `analyzer/lib/src/error/duplicate_definition_verifier.dart:169` `DuplicateDefinitionVerifier.checkUnit` | The name '{0}' is already used as an import prefix and can't be used to name a top-level element. | não verificado | **publicado** — `crates/analysis/src/duplicatas.rs:284` |
+| `values_declaration_in_enum` | `CompileTimeErrorCode.VALUES_DECLARATION_IN_ENUM` | `analyzer/lib/src/error/duplicate_definition_verifier.dart:803` `MemberDuplicateDefinitionVerifier._checkValuesDeclarationInEnum` | A member named 'values' can't be declared in an enum. | não verificado | **publicado** — `crates/analysis/src/duplicatas.rs:632`, `crates/analysis/src/duplicatas.rs:690` |
 
 #### `analyzer/lib/src/error/base_or_final_type_verifier.dart` (4)
 
 | código | constante | emissor (arquivo:linha, método) | condição (mensagem oficial) | posição | DartForge |
 |---|---|---|---|---|---|
-| `subtype_of_base_or_final_is_not_base_final_or_sealed` | `CompileTimeErrorCode.MIXIN_SUBTYPE_OF_BASE_IS_NOT_BASE` | `analyzer/lib/src/error/base_or_final_type_verifier.dart:256` `BaseOrFinalTypeVerifier._reportRestrictionError` | The mixin '{0}' must be 'base' because the supertype '{1}' is 'base'. | não verificado | **publicado** — `crates/analise/src/modificadores.rs:293` |
-| `subtype_of_base_or_final_is_not_base_final_or_sealed` | `CompileTimeErrorCode.MIXIN_SUBTYPE_OF_FINAL_IS_NOT_BASE` | `analyzer/lib/src/error/base_or_final_type_verifier.dart:241` `BaseOrFinalTypeVerifier._reportRestrictionError` | The mixin '{0}' must be 'base' because the supertype '{1}' is 'final'. | não verificado | **publicado** — `crates/analise/src/modificadores.rs:289` |
-| `subtype_of_base_or_final_is_not_base_final_or_sealed` | `CompileTimeErrorCode.SUBTYPE_OF_BASE_IS_NOT_BASE_FINAL_OR_SEALED` | `analyzer/lib/src/error/base_or_final_type_verifier.dart:258` `BaseOrFinalTypeVerifier._reportRestrictionError` | The type '{0}' must be 'base', 'final' or 'sealed' because the supertype '{1}' is 'base'. | não verificado | **publicado** — `crates/analise/src/modificadores.rs:293` |
-| `subtype_of_base_or_final_is_not_base_final_or_sealed` | `CompileTimeErrorCode.SUBTYPE_OF_FINAL_IS_NOT_BASE_FINAL_OR_SEALED` | `analyzer/lib/src/error/base_or_final_type_verifier.dart:243` `BaseOrFinalTypeVerifier._reportRestrictionError` | The type '{0}' must be 'base', 'final' or 'sealed' because the supertype '{1}' is 'final'. | não verificado | **publicado** — `crates/analise/src/modificadores.rs:289` |
+| `subtype_of_base_or_final_is_not_base_final_or_sealed` | `CompileTimeErrorCode.MIXIN_SUBTYPE_OF_BASE_IS_NOT_BASE` | `analyzer/lib/src/error/base_or_final_type_verifier.dart:256` `BaseOrFinalTypeVerifier._reportRestrictionError` | The mixin '{0}' must be 'base' because the supertype '{1}' is 'base'. | não verificado | **publicado** — `crates/analysis/src/modificadores.rs:293` |
+| `subtype_of_base_or_final_is_not_base_final_or_sealed` | `CompileTimeErrorCode.MIXIN_SUBTYPE_OF_FINAL_IS_NOT_BASE` | `analyzer/lib/src/error/base_or_final_type_verifier.dart:241` `BaseOrFinalTypeVerifier._reportRestrictionError` | The mixin '{0}' must be 'base' because the supertype '{1}' is 'final'. | não verificado | **publicado** — `crates/analysis/src/modificadores.rs:289` |
+| `subtype_of_base_or_final_is_not_base_final_or_sealed` | `CompileTimeErrorCode.SUBTYPE_OF_BASE_IS_NOT_BASE_FINAL_OR_SEALED` | `analyzer/lib/src/error/base_or_final_type_verifier.dart:258` `BaseOrFinalTypeVerifier._reportRestrictionError` | The type '{0}' must be 'base', 'final' or 'sealed' because the supertype '{1}' is 'base'. | não verificado | **publicado** — `crates/analysis/src/modificadores.rs:293` |
+| `subtype_of_base_or_final_is_not_base_final_or_sealed` | `CompileTimeErrorCode.SUBTYPE_OF_FINAL_IS_NOT_BASE_FINAL_OR_SEALED` | `analyzer/lib/src/error/base_or_final_type_verifier.dart:243` `BaseOrFinalTypeVerifier._reportRestrictionError` | The type '{0}' must be 'base', 'final' or 'sealed' because the supertype '{1}' is 'final'. | não verificado | **publicado** — `crates/analysis/src/modificadores.rs:289` |
 
 #### `analyzer/lib/src/dart/constant/value.dart` (1)
 
@@ -3043,7 +3043,7 @@ Esta tabela foi **gerada por script** (`E:\dftempnalise\spec-infrainal\gera2.p
 | código | constante | emissor (arquivo:linha, método) | condição (mensagem oficial) | posição | DartForge |
 |---|---|---|---|---|---|
 | `assignment_of_do_not_store` | `WarningCode.ASSIGNMENT_OF_DO_NOT_STORE` | `analyzer/lib/src/error/best_practices_verifier.dart:845` `BestPracticesVerifier._checkForAssignmentOfDoNotStore` | '{0}' is marked 'doNotStore' and shouldn't be assigned to a field or top-level variable. | não verificado | **não implementado** |
-| `deprecated_colon_for_default_value` | `HintCode.DEPRECATED_COLON_FOR_DEFAULT_VALUE` | `analyzer/lib/src/error/best_practices_verifier.dart:298` `BestPracticesVerifier.visitDefaultFormalParameter` | Using a colon as the separator before a default value is deprecated and will not be supported in language version 3.0 and later. | não verificado | escrito em 2026-10-05, não compilado: `crates/analise/src/fases.rs` `dois_pontos_no_padrao` com a versão da biblioteca |
+| `deprecated_colon_for_default_value` | `HintCode.DEPRECATED_COLON_FOR_DEFAULT_VALUE` | `analyzer/lib/src/error/best_practices_verifier.dart:298` `BestPracticesVerifier.visitDefaultFormalParameter` | Using a colon as the separator before a default value is deprecated and will not be supported in language version 3.0 and later. | não verificado | escrito em 2026-10-05, não compilado: `crates/analysis/src/fases.rs` `dois_pontos_no_padrao` com a versão da biblioteca |
 | `import_deferred_library_with_load_function` | `HintCode.IMPORT_DEFERRED_LIBRARY_WITH_LOAD_FUNCTION` | `analyzer/lib/src/error/best_practices_verifier.dart:1144` `BestPracticesVerifier._checkForLoadLibraryFunction` | The imported library defines a top-level function named 'loadLibrary' that is hidden by deferring this library. | não verificado | **não implementado** |
 | `inference_failure_on_function_return_type` | `WarningCode.INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE` | `analyzer/lib/src/error/best_practices_verifier.dart:1419` `BestPracticesVerifier._checkStrictInferenceReturnType`; `analyzer/lib/src/error/best_practices_verifier.dart:1425` `BestPracticesVerifier._checkStrictInferenceReturnType`; `analyzer/lib/src/error/best_practices_verifier.dart:1431` `BestPracticesVerifier._checkStrictInferenceReturnType` | The return type of '{0}' cannot be inferred. | não verificado | **não implementado** |
 | `inference_failure_on_untyped_parameter` | `WarningCode.INFERENCE_FAILURE_ON_UNTYPED_PARAMETER` | `analyzer/lib/src/error/best_practices_verifier.dart:1388` `BestPracticesVerifier._checkStrictInferenceInParameters` | The type of {0} can't be inferred; a type must be explicitly provided. | não verificado | **não implementado** |
@@ -3129,7 +3129,7 @@ areSyntacticallyIdenticalExceptUri(n1, n2)               // analyzer/lib/src/dar
 | `duplicate_import` | `WarningCode.DUPLICATE_IMPORT` | `analyzer/lib/src/error/imports_verifier.dart:127-130` `ImportsVerifier.generateDuplicateImportWarnings` | cada diretiva em `_duplicateImports`: import de biblioteca resolvida e não sintética, com mesma URI absoluta, mesmo prefixo e mesmos combinadores de um import anterior do mesmo arquivo | `atNode(directive.uri)`: o literal do URI da diretiva de maior offset | **não implementado** — nenhum emissor em `crates/` |
 | `duplicate_shown_name` | `WarningCode.DUPLICATE_SHOWN_NAME` | `analyzer/lib/src/error/imports_verifier.dart:157-160` `ImportsVerifier.generateDuplicateShownHiddenNameWarnings` (coleta em `:351-362`) | nome de um `show` cujo `staticElement` (não nulo) já apareceu no MESMO combinador | `atNode(identifier)`: a ocorrência repetida | **não implementado** — nenhum emissor em `crates/` |
 | `unnecessary_import` | `HintCode.UNNECESSARY_IMPORT` | `analyzer/lib/src/error/imports_verifier.dart:222-229` `ImportsVerifier.generateUnnecessaryImportHints` | import usado, não `dart:core`, para o qual existe outro import usado do mesmo prefixo cujo conjunto de elementos usados contém o dele e é estritamente maior | `atNode(firstDirective.uri)`; argumentos `[relativeUriString do primeiro, relativeUriString do segundo]` | **não implementado** — nenhum emissor em `crates/` |
-| `unused_shown_name` | `WarningCode.UNUSED_SHOWN_NAME` | `analyzer/lib/src/error/imports_verifier.dart:320-324` `ImportsVerifier.generateUnusedShownNameHints` | import usado (fora de `_unusedImports`), resolvido, não `dart:core`; nome de `show` com elemento não nulo que não está no conjunto de elementos usados do import (para variável/campo: nem o getter nem o setter) | `atNode(identifier)`; argumento `identifier.name` | **emitido, não publicado** — `crates/analise/src/importacoes.rs:184` (uso aproximado por nome citado; fora de `verificados.txt`) |
+| `unused_shown_name` | `WarningCode.UNUSED_SHOWN_NAME` | `analyzer/lib/src/error/imports_verifier.dart:320-324` `ImportsVerifier.generateUnusedShownNameHints` | import usado (fora de `_unusedImports`), resolvido, não `dart:core`; nome de `show` com elemento não nulo que não está no conjunto de elementos usados do import (para variável/campo: nem o getter nem o setter) | `atNode(identifier)`; argumento `identifier.name` | **emitido, não publicado** — `crates/analysis/src/importacoes.rs:184` (uso aproximado por nome citado; fora de `verificados.txt`) |
 
 #### DeprecatedMemberUseVerifier (`analyzer/lib/src/error/deprecated_member_use_verifier.dart`)
 
@@ -3171,7 +3171,7 @@ Só a constante de combinador pertence a este lote (o `dead_code` de fluxo é do
 
 | código | constante | emissor (arquivo:linha, método) | condição | posição | DartForge |
 |---|---|---|---|---|---|
-| `undefined_hidden_name` | `WarningCode.UNDEFINED_HIDDEN_NAME` | `analyzer/lib/src/error/dead_code_verifier.dart:150-154` `DeadCodeVerifier._checkCombinator` (código escolhido em `:140`) | nome de `hide` (import ou export) para o qual o namespace de exportação da biblioteca alvo não tem `nome` nem `nome=` (`:147-149`) | `atNode(name)`; argumentos `[library.identifier, nome]` (`identifier` = `'${source.uri}'`, `analyzer/lib/src/dart/element/element.dart:5903`) | **não implementado** — nenhum emissor em `crates/` (`crates/analise/src/importacoes.rs:152` só usa `hide` como filtro de visibilidade) |
+| `undefined_hidden_name` | `WarningCode.UNDEFINED_HIDDEN_NAME` | `analyzer/lib/src/error/dead_code_verifier.dart:150-154` `DeadCodeVerifier._checkCombinator` (código escolhido em `:140`) | nome de `hide` (import ou export) para o qual o namespace de exportação da biblioteca alvo não tem `nome` nem `nome=` (`:147-149`) | `atNode(name)`; argumentos `[library.identifier, nome]` (`identifier` = `'${source.uri}'`, `analyzer/lib/src/dart/element/element.dart:5903`) | **não implementado** — nenhum emissor em `crates/` (`crates/analysis/src/importacoes.rs:152` só usa `hide` como filtro de visibilidade) |
 
 #### UnusedLocalElementsVerifier (`analyzer/lib/src/error/unused_local_elements_verifier.dart`)
 
@@ -3181,7 +3181,7 @@ Coleta de uso por `GatherUsedLocalElementsVisitor` de todos os arquivos da bibli
 (`unused_element` e `unused_field` de classes, mixins, enums, tipos de
 extensão, typedefs, funções, variáveis de topo, métodos, acessores,
 construtores nomeados, campos e constantes de enum) saiu do relato pelo nome
-de `crates/analise/src/privados.rs` para `crates/types/src/fase_nao_usados.rs`,
+de `crates/analysis/src/privados.rs` para `crates/types/src/fase_nao_usados.rs`,
 pelo elemento resolvido de cada referência depois da inferência:
 `_isReadIdentifier` (o operando de prefixo/pós-fixo e o alvo de atribuição
 composta no comando de expressão não leem; `??=` lê), `_useIdentifierElement`
@@ -3198,8 +3198,8 @@ corpos.
 
 | código | constante | emissor (arquivo:linha, método) | condição | posição | DartForge |
 |---|---|---|---|---|---|
-| `unused_catch_clause` | `WarningCode.UNUSED_CATCH_CLAUSE` | `analyzer/lib/src/error/unused_local_elements_verifier.dart:1049` (relato em `:1055`) `UnusedLocalElementsVerifier._visitLocalVariableElement` | variável de exceção de `on T catch (e)` sem pilha, nunca lida e que não é só `_`; com pilha ou sem `on` a exceção é marcada usada na coleta (`:57-66`) | `_reportErrorForElement` (`:993-1004`): `element.nameOffset`, `element.nameLength`; argumento `element.displayName` | **publicado** — `crates/analise/src/locais.rs:876` (declaração em `:671`) |
-| `unused_catch_stack` | `WarningCode.UNUSED_CATCH_STACK` | `analyzer/lib/src/error/unused_local_elements_verifier.dart:1051` (relato em `:1055`) `UnusedLocalElementsVerifier._visitLocalVariableElement` | variável de pilha de `catch (e, s)` (`addCatchStackTrace`, `:67-70`) nunca lida e que não é só `_` (`_isNamedWildcard`, `:775`) | idem: nome da variável de pilha; argumento `element.displayName` | **publicado** — `crates/analise/src/locais.rs:877` |
+| `unused_catch_clause` | `WarningCode.UNUSED_CATCH_CLAUSE` | `analyzer/lib/src/error/unused_local_elements_verifier.dart:1049` (relato em `:1055`) `UnusedLocalElementsVerifier._visitLocalVariableElement` | variável de exceção de `on T catch (e)` sem pilha, nunca lida e que não é só `_`; com pilha ou sem `on` a exceção é marcada usada na coleta (`:57-66`) | `_reportErrorForElement` (`:993-1004`): `element.nameOffset`, `element.nameLength`; argumento `element.displayName` | **publicado** — `crates/analysis/src/locais.rs:876` (declaração em `:671`) |
+| `unused_catch_stack` | `WarningCode.UNUSED_CATCH_STACK` | `analyzer/lib/src/error/unused_local_elements_verifier.dart:1051` (relato em `:1055`) `UnusedLocalElementsVerifier._visitLocalVariableElement` | variável de pilha de `catch (e, s)` (`addCatchStackTrace`, `:67-70`) nunca lida e que não é só `_` (`_isNamedWildcard`, `:775`) | idem: nome da variável de pilha; argumento `element.displayName` | **publicado** — `crates/analysis/src/locais.rs:877` |
 
 #### UnicodeTextVerifier (`analyzer/lib/src/error/unicode_text_verifier.dart`)
 
@@ -3225,7 +3225,7 @@ Roda por arquivo no fim de `_computeDiagnostics` (`library_analyzer.dart:341-349
 
 | código | constante | emissor (arquivo:linha, método) | condição | posição | DartForge |
 |---|---|---|---|---|---|
-| `duplicate_ignore` | `WarningCode.DUPLICATE_IGNORE` | `analyzer/lib/src/error/ignore_validator.dart:129-134` (nome) e `:137-142` (`type=`) `IgnoreValidator._reportUnignorableAndDuplicateIgnores` | nome (ou `type=x`) repetido nos `ignore_for_file` do arquivo, ou num `ignore` de linha quando já está nos `ignore_for_file` ou já apareceu entre os `ignore` que valem para a mesma linha; nomes de `unignorableNames` ficam fora | `atOffset(offset: ignoredElement.offset, length: name.length)` para nome; para tipo, `length` de `type` até o fim da palavra do tipo; argumento = nome ou tipo em minúsculas | **não implementado** — nenhum emissor em `crates/` (`crates/paridade/src/filtros.rs:168` só interpreta os ignores para filtrar) |
+| `duplicate_ignore` | `WarningCode.DUPLICATE_IGNORE` | `analyzer/lib/src/error/ignore_validator.dart:129-134` (nome) e `:137-142` (`type=`) `IgnoreValidator._reportUnignorableAndDuplicateIgnores` | nome (ou `type=x`) repetido nos `ignore_for_file` do arquivo, ou num `ignore` de linha quando já está nos `ignore_for_file` ou já apareceu entre os `ignore` que valem para a mesma linha; nomes de `unignorableNames` ficam fora | `atOffset(offset: ignoredElement.offset, length: name.length)` para nome; para tipo, `length` de `type` até o fim da palavra do tipo; argumento = nome ou tipo em minúsculas | **não implementado** — nenhum emissor em `crates/` (`crates/parity/src/filtros.rs:168` só interpreta os ignores para filtrar) |
 
 #### RequiredParametersVerifier (`analyzer/lib/src/error/required_parameters_verifier.dart`)
 
@@ -3248,7 +3248,7 @@ Só `strict_raw_type` pertence ao lote. `checkNamedType` (`type_arguments_verifi
 
 | código | constante | emissor (arquivo:linha, método) | condição | posição | DartForge |
 |---|---|---|---|---|---|
-| `return_in_generative_constructor` | `CompileTimeErrorCode.RETURN_IN_GENERATIVE_CONSTRUCTOR` | `analyzer/lib/src/error/return_type_verifier.dart:59-62` `ReturnTypeVerifier.verifyReturnStatement` (de `ErrorVerifier.visitReturnStatement`, `analyzer/lib/src/generated/error_verifier.dart:1386`); e `analyzer/lib/src/generated/error_verifier.dart:5225-5228` `ErrorVerifier._checkForReturnInGenerativeConstructor` (chamado em `:607`) | `return e;` com expressão dentro de construtor gerador (`enclosingExecutable.isGenerativeConstructor`); ou construtor não `factory` com corpo de expressão `=> e` | `atNode(expression)` no `return`; `atNode(body)` (o `ExpressionFunctionBody` inteiro) no `=>` | **publicado** — `crates/analise/src/membros.rs:224` (`return e;`) e `:362` (`=> e`) |
+| `return_in_generative_constructor` | `CompileTimeErrorCode.RETURN_IN_GENERATIVE_CONSTRUCTOR` | `analyzer/lib/src/error/return_type_verifier.dart:59-62` `ReturnTypeVerifier.verifyReturnStatement` (de `ErrorVerifier.visitReturnStatement`, `analyzer/lib/src/generated/error_verifier.dart:1386`); e `analyzer/lib/src/generated/error_verifier.dart:5225-5228` `ErrorVerifier._checkForReturnInGenerativeConstructor` (chamado em `:607`) | `return e;` com expressão dentro de construtor gerador (`enclosingExecutable.isGenerativeConstructor`); ou construtor não `factory` com corpo de expressão `=> e` | `atNode(expression)` no `return`; `atNode(body)` (o `ExpressionFunctionBody` inteiro) no `=>` | **publicado** — `crates/analysis/src/membros.rs:224` (`return e;`) e `:362` (`=> e`) |
 
 #### AssignmentVerifier (`analyzer/lib/src/error/assignment_verifier.dart`)
 
@@ -3256,9 +3256,9 @@ Chamado pelo `PropertyElementResolver` durante a resolução, quando o identific
 
 | código | constante | emissor (arquivo:linha, método) | condição | posição | DartForge |
 |---|---|---|---|---|---|
-| `assignment_to_function` | `CompileTimeErrorCode.ASSIGNMENT_TO_FUNCTION` | `analyzer/lib/src/error/assignment_verifier.dart:57-60` `AssignmentVerifier.verify`; `analyzer/lib/src/generated/error_verifier.dart:2186-2189` `ErrorVerifier._checkForAssignmentToFinal` | escrita cujo elemento de recuperação é `FunctionElement` (função de topo ou local), sem setter | `atNode(node)`: o `SimpleIdentifier`; no `ErrorVerifier`, `atNode(expression)`: o alvo inteiro | **publicado** — `crates/types/src/inferencia/expr.rs:2624`, `:2761`, `:2889` (molde de texto de `crates/types/src/codes.rs:130`; código ligado em `crates/paridade/src/ponte.rs:89`) |
-| `assignment_to_method` | `CompileTimeErrorCode.ASSIGNMENT_TO_METHOD` | `analyzer/lib/src/error/assignment_verifier.dart:62-65` `AssignmentVerifier.verify`; `analyzer/lib/src/generated/error_verifier.dart:2191-2194` `ErrorVerifier._checkForAssignmentToFinal` | escrita cujo elemento de recuperação é `MethodElement` | `atNode(node)`: o nome (`propertyName` em `o.m = …`); no `ErrorVerifier`, o alvo inteiro | **publicado** — `crates/types/src/inferencia/expr.rs:2638` (molde de `crates/types/src/codes.rs:50`; código ligado em `crates/paridade/src/ponte.rs:73`) |
-| `assignment_to_type` | `CompileTimeErrorCode.ASSIGNMENT_TO_TYPE` | `analyzer/lib/src/error/assignment_verifier.dart:52-55` `AssignmentVerifier.verify`; `analyzer/lib/src/generated/error_verifier.dart:2198-2201` `ErrorVerifier._checkForAssignmentToFinal` | escrita cujo elemento de recuperação é `dynamic`, classe/mixin/enum/extension type (`InterfaceElement`), typedef (`TypeAliasElement`, só no `AssignmentVerifier`) ou parâmetro de tipo | `atNode(node)`: o identificador; no `ErrorVerifier`, o alvo inteiro | **publicado** — `crates/types/src/inferencia/expr.rs:2768`, `:2775` (molde de `crates/types/src/codes.rs:125`; código ligado em `crates/paridade/src/ponte.rs:88`) |
+| `assignment_to_function` | `CompileTimeErrorCode.ASSIGNMENT_TO_FUNCTION` | `analyzer/lib/src/error/assignment_verifier.dart:57-60` `AssignmentVerifier.verify`; `analyzer/lib/src/generated/error_verifier.dart:2186-2189` `ErrorVerifier._checkForAssignmentToFinal` | escrita cujo elemento de recuperação é `FunctionElement` (função de topo ou local), sem setter | `atNode(node)`: o `SimpleIdentifier`; no `ErrorVerifier`, `atNode(expression)`: o alvo inteiro | **publicado** — `crates/types/src/inferencia/expr.rs:2624`, `:2761`, `:2889` (molde de texto de `crates/types/src/codes.rs:130`; código ligado em `crates/parity/src/ponte.rs:89`) |
+| `assignment_to_method` | `CompileTimeErrorCode.ASSIGNMENT_TO_METHOD` | `analyzer/lib/src/error/assignment_verifier.dart:62-65` `AssignmentVerifier.verify`; `analyzer/lib/src/generated/error_verifier.dart:2191-2194` `ErrorVerifier._checkForAssignmentToFinal` | escrita cujo elemento de recuperação é `MethodElement` | `atNode(node)`: o nome (`propertyName` em `o.m = …`); no `ErrorVerifier`, o alvo inteiro | **publicado** — `crates/types/src/inferencia/expr.rs:2638` (molde de `crates/types/src/codes.rs:50`; código ligado em `crates/parity/src/ponte.rs:73`) |
+| `assignment_to_type` | `CompileTimeErrorCode.ASSIGNMENT_TO_TYPE` | `analyzer/lib/src/error/assignment_verifier.dart:52-55` `AssignmentVerifier.verify`; `analyzer/lib/src/generated/error_verifier.dart:2198-2201` `ErrorVerifier._checkForAssignmentToFinal` | escrita cujo elemento de recuperação é `dynamic`, classe/mixin/enum/extension type (`InterfaceElement`), typedef (`TypeAliasElement`, só no `AssignmentVerifier`) ou parâmetro de tipo | `atNode(node)`: o identificador; no `ErrorVerifier`, o alvo inteiro | **publicado** — `crates/types/src/inferencia/expr.rs:2768`, `:2775` (molde de `crates/types/src/codes.rs:125`; código ligado em `crates/parity/src/ponte.rs:88`) |
 
 #### TodoFinder (`analyzer/lib/src/error/todo_finder.dart`, `analyzer/lib/src/dart/error/todo_codes.dart`)
 
@@ -3282,9 +3282,9 @@ Esta tabela foi **gerada por script** (`E:\dftempnalise\spec-infrainal\gera2.p
 |---|---|---|---|---|---|
 | `cast_to_non_type` | `CompileTimeErrorCode.CAST_TO_NON_TYPE` | `analyzer/lib/src/dart/resolver/named_type_resolver.dart:550` `_ErrorHelper.reportNullOrNonTypeElement` | The name '{0}' isn't a type, so it can't be used in an 'as' expression. | não verificado | **publicado** — `crates/types/src/resolve.rs:144` |
 | `non_type_in_catch_clause` | `CompileTimeErrorCode.NON_TYPE_IN_CATCH_CLAUSE` | `analyzer/lib/src/dart/resolver/named_type_resolver.dart:539` `_ErrorHelper.reportNullOrNonTypeElement` | The name '{0}' isn't a type and can't be used in an on-catch clause. | não verificado | **publicado** — `crates/types/src/resolve.rs:143` |
-| `nullable_type_in_extends_clause` | `CompileTimeErrorCode.NULLABLE_TYPE_IN_EXTENDS_CLAUSE` | `analyzer/lib/src/dart/resolver/named_type_resolver.dart:395` `NamedTypeResolver._verifyNullability` | A class can't extend a nullable type. | não verificado | **publicado** — `crates/analise/src/clausulas.rs:1253` |
-| `nullable_type_in_on_clause` | `CompileTimeErrorCode.NULLABLE_TYPE_IN_ON_CLAUSE` | `analyzer/lib/src/dart/resolver/named_type_resolver.dart:405` `NamedTypeResolver._verifyNullability` | A mixin can't have a nullable type as a superclass constraint. | não verificado | **publicado** — `crates/analise/src/clausulas.rs:1251` |
-| `nullable_type_in_with_clause` | `CompileTimeErrorCode.NULLABLE_TYPE_IN_WITH_CLAUSE` | `analyzer/lib/src/dart/resolver/named_type_resolver.dart:410` `NamedTypeResolver._verifyNullability` | A class or mixin can't mix in a nullable type. | não verificado | **publicado** — `crates/analise/src/clausulas.rs:1249` |
+| `nullable_type_in_extends_clause` | `CompileTimeErrorCode.NULLABLE_TYPE_IN_EXTENDS_CLAUSE` | `analyzer/lib/src/dart/resolver/named_type_resolver.dart:395` `NamedTypeResolver._verifyNullability` | A class can't extend a nullable type. | não verificado | **publicado** — `crates/analysis/src/clausulas.rs:1253` |
+| `nullable_type_in_on_clause` | `CompileTimeErrorCode.NULLABLE_TYPE_IN_ON_CLAUSE` | `analyzer/lib/src/dart/resolver/named_type_resolver.dart:405` `NamedTypeResolver._verifyNullability` | A mixin can't have a nullable type as a superclass constraint. | não verificado | **publicado** — `crates/analysis/src/clausulas.rs:1251` |
+| `nullable_type_in_with_clause` | `CompileTimeErrorCode.NULLABLE_TYPE_IN_WITH_CLAUSE` | `analyzer/lib/src/dart/resolver/named_type_resolver.dart:410` `NamedTypeResolver._verifyNullability` | A class or mixin can't mix in a nullable type. | não verificado | **publicado** — `crates/analysis/src/clausulas.rs:1249` |
 
 #### `analyzer/lib/src/generated/ffi_verifier.dart` (5)
 
@@ -3368,7 +3368,7 @@ Esta tabela foi **gerada por script** (`E:\dftempnalise\spec-infrainal\gera2.p
 
 | código | constante | emissor (arquivo:linha, método) | condição (mensagem oficial) | posição | DartForge |
 |---|---|---|---|---|---|
-| `mixin_with_non_class_superclass` | `CompileTimeErrorCode.MIXIN_WITH_NON_CLASS_SUPERCLASS` | `analyzer/lib/src/dart/resolver/resolution_visitor.dart:1693` `ResolutionVisitor._resolveType`; `analyzer/lib/src/dart/resolver/resolution_visitor.dart:1699` `ResolutionVisitor._resolveType` | Mixin can only be applied to class. | não verificado | **publicado** — `crates/analise/src/clausulas.rs:1229` |
+| `mixin_with_non_class_superclass` | `CompileTimeErrorCode.MIXIN_WITH_NON_CLASS_SUPERCLASS` | `analyzer/lib/src/dart/resolver/resolution_visitor.dart:1693` `ResolutionVisitor._resolveType`; `analyzer/lib/src/dart/resolver/resolution_visitor.dart:1699` `ResolutionVisitor._resolveType` | Mixin can only be applied to class. | não verificado | **publicado** — `crates/analysis/src/clausulas.rs:1229` |
 
 #### `analyzer/lib/src/dart/resolver/typed_literal_resolver.dart` (1)
 
@@ -3852,13 +3852,13 @@ de resolução `2.0x/`, `3.0x/`); por isso uma entrada sem `/` final que é past
 não é relatada. Entradas `packages/…` nunca são validadas (:117-118).
 
 **Estado em 2026-10-05 (escrito, não compilado).** O `PubspecValidator` está em
-`crates/analise/src/naodart/pubspec.rs`, com os sub-validadores da 6.11.0 abertos: os sete de
+`crates/analysis/src/naodart/pubspec.rs`, com os sub-validadores da 6.11.0 abertos: os sete de
 `validatePubspec`, na ordem do original, com todos os códigos da tabela menos `missing_dependency`
-(que nunca chega ao `dart analyze`). O YAML com posições é `crates/analise/src/naodart/yaml.rs`, sobre
+(que nunca chega ao `dart analyze`). O YAML com posições é `crates/analysis/src/naodart/yaml.rs`, sobre
 os eventos marcados do `yaml-rust2` 0.10 (API conferida na fonte do crate): o fim de cada nó é
 calculado ali (aspas casadas, bloco pela indentação, `]`/`}` do fluxo, último filho do bloco).
-`crates/analise/src/naodart/mod.rs` define `CodigoNaoDart` e `Relato` e passa a incluir as tabelas
-geradas. Saída: `dartforge_paridade::diagnosticos_do_pubspec`, chamada pelo `dartforge analyze` quando
+`crates/analysis/src/naodart/mod.rs` define `CodigoNaoDart` e `Relato` e passa a incluir as tabelas
+geradas. Saída: `dartforge_parity::diagnosticos_do_pubspec`, chamada pelo `dartforge analyze` quando
 o alvo é a pasta do pacote. Fora: os lints de pubspec, o `# ignore` do pubspec, o `errors:` das opções
 sobre estes códigos, e o `documentation` conferido contra o oráculo.
 
@@ -3877,20 +3877,20 @@ do valor do `include:` do arquivo inicial.
 | `parse_error` | `AnalysisOptionsErrorCode.PARSE_ERROR` | `analyzer/lib/src/task/options.dart:187` `analyzeAnalysisOptions` | `loadYamlNode` do arquivo inicial lança `YamlException` (`analysis_options_provider.dart:95-99`) | `e.span`: `span.start.offset`, `span.length` do `YamlException` | **não implementado** — ver especificação completa |
 
 **Estado em 2026-10-05 (escrito, não compilado).** `analyzeAnalysisOptions` e os validadores estão em
-`crates/analise/src/naodart/opcoes.rs`, com `task/options.dart` e `options_rule_validator.dart` da
+`crates/analysis/src/naodart/opcoes.rs`, com `task/options.dart` e `options_rule_validator.dart` da
 6.11.0 abertos: erro de sintaxe, a cadeia de `include:` (não achado, recursivo, avisos e erro de
 sintaxe do incluído relatados no `include:` inicial), `analyzer` (chaves, `strong-mode`, `errors`,
 `language`, `optional-checks`, `cannot-ignore`, `plugins`), `code-style`, `formatter`, `linter` e as
 regras de `linter: rules:` (indefinida, incompatível, repetida, removida). As tabelas de lint ganharam
-o módulo `crates/analise/src/lints/mod.rs`. Saída: `dartforge_paridade::diagnosticos_das_opcoes`,
+o módulo `crates/analysis/src/lints/mod.rs`. Saída: `dartforge_parity::diagnosticos_das_opcoes`,
 chamada pelo `dartforge analyze`. Diferenças: o texto e o comprimento do erro de sintaxe são os do
 `yaml-rust2`; os nomes de `enable-experiment` não são conferidos; `replaced_lint` e
 `deprecated_lint_with_replacement` não saem (a tabela não guarda a substituta); a restrição de SDK não
 é passada, logo regra removida com `since` não é relatada pelo `dartforge analyze`. O
-`ManifestValidator` está em `crates/analise/src/naodart/manifesto.rs` (2026-10-05, escrito, não compilado): o analisador de XML e as sete checagens do original transcritos, ligado por `Opcoes::manifesto_do_chrome_os` e `dartforge_paridade::diagnosticos_do_manifesto`.
+`ManifestValidator` está em `crates/analysis/src/naodart/manifesto.rs` (2026-10-05, escrito, não compilado): o analisador de XML e as sete checagens do original transcritos, ligado por `Opcoes::manifesto_do_chrome_os` e `dartforge_parity::diagnosticos_do_manifesto`.
 
 **Estado em 2026-10-05 (escrito, não compilado), lints.** Primeiro lote em
-`crates/analise/src/lints/regras.rs`, dez regras que só olham a árvore: `camel_case_types`,
+`crates/analysis/src/lints/regras.rs`, dez regras que só olham a árvore: `camel_case_types`,
 `camel_case_extensions`, `non_constant_identifier_names`, `empty_catches`, `avoid_empty_else`,
 `curly_braces_in_flow_control_structures`, `use_string_in_part_of_directives`,
 `prefer_generic_function_type_aliases`, `provide_deprecation_message` e `avoid_relative_lib_imports`.
@@ -3902,7 +3902,7 @@ construtores relatam no nome da classe (e a dos sem nome só olha extension type
 primário nomeado); `always_put_required_named_parameters_first` não isenta `super.x`;
 `empty_constructor_bodies` relata também o `factory`; o prefixo `_` não é curinga nas duas regras de
 prefixo; `use_function_type_syntax_for_parameters` só olha o parâmetro comum. Ligação: `diagnosticos_json`
-(`crates/paridade/src/lib.rs`) roda as regras ligadas em `linter: rules:` (com os `include:` fundidos)
+(`crates/parity/src/lib.rs`) roda as regras ligadas em `linter: rules:` (com os `include:` fundidos)
 sobre a árvore do texto e as emite como `LINT`/`INFO`. Segundo lote, em `lints/regras2.rs`, mais onze:
 `avoid_return_types_on_setters`, `empty_constructor_bodies`, `library_prefixes`,
 `no_leading_underscores_for_library_prefixes` (só a variante sem sombreamento),
@@ -4110,14 +4110,14 @@ Só roda com `chromeOsManifestChecks` (Mecanismo 1). `_checkManifestTag`
 
 - Emissão: `grep -rnE "::<CONSTANTE>\b"` das 53 constantes em
   `crates/{analise,types,frontend,elements,cli}` não acha nada; nenhum dos 52
-  nomes emitidos está em `crates/analise/verificados.txt`; e os nomes nem
+  nomes emitidos está em `crates/analysis/verificados.txt`; e os nomes nem
   existem na tabela (`grep -rniE "asset_does_not_exist|undefined_lint|include_file_not_found|unnecessary_dev_dependency|no_touchscreen_feature|unrecognized_error_code" crates --include=*.rs --include=*.txt`
   vazio): `crates/diagnostics/src/codigos_g.rs` só tem os módulos de códigos
   Dart (`:2104` `compile_time_error`, `:2657` `static_warning`, `:2668`
   `warning`, `:2816` `hint`, `:2828` `ffi`, `:2880` `parser`, `:3152`
   `scanner`, `:3168` `todo`). Os 53 são **não implementados**.
 - O que existe de leitura desses arquivos:
-  - `crates/paridade/src/filtros.rs:33-90` (`Opcoes::ler`/`de_texto`): lê
+  - `crates/parity/src/filtros.rs:33-90` (`Opcoes::ler`/`de_texto`): lê
     `<raiz>/analysis_options.yaml` linha a linha, por indentação, e extrai só
     `analyzer: exclude:`, `analyzer: errors:` e `analyzer: cannot-ignore:`;
     não segue `include:` (comentário em `:12-13`), não guarda posições, ignora
@@ -4135,9 +4135,9 @@ Só roda com `chromeOsManifestChecks` (Mecanismo 1). `_checkManifestTag`
   - `AndroidManifest.xml`: nenhuma referência
     (`grep -rn AndroidManifest crates --include=*.rs` vazio).
 - O `dartforge analyze` só coleta `.dart`
-  (`crates/cli/src/analisar.rs:40-47`, `crates/paridade/src/corpus.rs:60-76`)
+  (`crates/cli/src/analisar.rs:40-47`, `crates/parity/src/corpus.rs:60-76`)
   e o placar descarta do oráculo tudo que não é `.dart`
-  (`crates/paridade/src/oraculo.rs:87-91`): hoje estes diagnósticos não são
+  (`crates/parity/src/oraculo.rs:87-91`): hoje estes diagnósticos não são
   nem produzidos nem medidos.
 - O que falta, em ordem: (1) um leitor YAML com span por nó (início/fim em
   UTF-16, escalares com aspas no span, escalar nulo de span vazio, chaves como
@@ -4273,7 +4273,7 @@ linha; `<raiz>` é o caminho absoluto do diretório analisado.
 - **Posição:** `initialIncludeSpan`: offset e length do nó valor do `include:` do arquivo **inicial** (mesmo quando o include quebrado está num arquivo incluído).
 - **Mensagem:** `The include file '{0}' in '{1}' can't be found when analyzing '{2}'.` (sem correção); `{0}` = texto do include que falhou (cru, com aspas se escritas); `{1}` = `fullName` (caminho absoluto, separador da plataforma) do arquivo que contém esse include; `{2}` = caminho da raiz do contexto.
 - **Supressões e ordem:** sem `# ignore`; `errors: {include_file_not_found: ignore}` no próprio arquivo cala (as opções efetivas do arquivo são calculadas à parte, pelo `AnalysisOptionsProvider`). Os diagnósticos do próprio arquivo (validadores) já foram acrescentados antes (`:77-84`); depois deste relato o `validate` retorna — `multiple_plugins` não é checado nesse nível.
-- **No DartForge:** não implementado; `Opcoes::de_texto` nem segue `include:` (`crates/paridade/src/filtros.rs:12-13`). Para a resolução de `package:` há o `package_config.json` já lido pelo motor (`crates/cli/src/analisar.rs:48-49`). Casos:
+- **No DartForge:** não implementado; `Opcoes::de_texto` nem segue `include:` (`crates/parity/src/filtros.rs:12-13`). Para a resolução de `package:` há o `package_config.json` já lido pelo motor (`crates/cli/src/analisar.rs:48-49`). Casos:
   1. `include: package:nao_existe/x.yaml\n` → em 9/25; mensagem com `{0}` = `package:nao_existe/x.yaml`, `{1}` = `<raiz>/analysis_options.yaml`, `{2}` = `<raiz>`.
   2. `include: outro.yaml\n` com `outro.yaml` ao lado → nada.
   3. `include: analysis_options.yaml\n` → `recursive_include_file` em 9/21: `The include file 'analysis_options.yaml' in '<raiz>/analysis_options.yaml' includes itself recursively.` + `Try changing the chain of 'include's to not re-include this file.`
@@ -4355,7 +4355,7 @@ linha; `<raiz>` é o caminho absoluto do diretório analisado.
 - **Posição:** a chave (ou o item).
 - **Mensagem:** `'{0}' isn't a recognized error code.` (sem correção); `{0}` como escrito (sem mudar a caixa).
 - **Supressões e ordem:** WARNING; `errors: {unrecognized_error_code: ignore}` vale. Para a mesma entrada de `errors:`, o relato da chave precede o do valor (`unsupported_option_with_legal_values`).
-- **No DartForge:** não implementado; `Opcoes::de_texto` aceita qualquer chave (`crates/paridade/src/filtros.rs:71-79`). Precisa do conjunto completo de nomes do 3.6.2 (todas as classes de `errorCodeValues`, inclusive as deste lote, mais os lints). Casos:
+- **No DartForge:** não implementado; `Opcoes::de_texto` aceita qualquer chave (`crates/parity/src/filtros.rs:71-79`). Precisa do conjunto completo de nomes do 3.6.2 (todas as classes de `errorCodeValues`, inclusive as deste lote, mais os lints). Casos:
   1. `analyzer:\n  errors:\n    nao_existe: ignore\n    dead_code: banana\n` → `unrecognized_error_code` em 24/10 e `unsupported_option_with_legal_values` em 58/6.
   2. `    missing_return: error` → nada (lista de removidos).
   3. `    camel_case_types: ignore` (lint) → nada; `    todo: ignore` → nada.
@@ -4483,23 +4483,23 @@ ganho; cada etapa tem critério de pronto verificável.
 | 9 | fim do filtro de publicação | todas | — |
 
 As etapas 2, 3 e 4 são independentes entre si depois da 1 e podem ser feitas
-em qualquer ordem. A 5 é a única que mexe em `crates/paridade/src/analise.rs`
+em qualquer ordem. A 5 é a única que mexe em `crates/parity/src/analise.rs`
 de forma estrutural; fazê-la antes da 6 evita portar cada verificador novo
 duas vezes.
 
 ## III.1 Etapa 1 — Harness de paridade de projeto
 
-Hoje o placar (`crates/paridade`) compara **registros** (código, arquivo,
+Hoje o placar (`crates/parity`) compara **registros** (código, arquivo,
 offset, mensagem) contra um oráculo gravado. Falta comparar a **saída do
 comando**.
 
-1. Comando novo `dartforge-paridade saida <dir-de-casos>`: cada caso é uma
+1. Comando novo `dartforge-parity saida <dir-de-casos>`: cada caso é uma
    pasta com um projeto mínimo (`pubspec.yaml`, `.dart_tool/package_config.json`
    gravado, `analysis_options.yaml` opcional, fontes) e um arquivo
    `ESPERADO.<formato>.txt` por formato (`default`, `json`, `machine`), mais
    `ESPERADO.codigo` (o código de saída) e `ARGS` (os argumentos, um por linha,
    relativos à pasta).
-2. Gravação do oráculo: `dartforge-paridade saida --gravar` roda
+2. Gravação do oráculo: `dartforge-parity saida --gravar` roda
    `dart analyze` do 3.6.2 com `ANALYZER_STATE_LOCATION_OVERRIDE` numa pasta
    temporária de E:, com stdout **redirecionado para arquivo** (sem terminal: é
    o modo sem ANSI da §5.4), e normaliza só o que depende da máquina: o
@@ -4514,8 +4514,8 @@ comando**.
 **Pronto quando** o comando roda no CI (job `analise` do `pesado.yml`, sem
 SDK: contra o esperado gravado) e reprova qualquer diferença de byte.
 
-**Estado em 2026-10-05 (escrito, não compilado).** `crates/paridade/src/saida.rs` e o subcomando
-`dartforge-paridade saida [DIR] [--gravar]`: cada caso de `corpus/saida-analyze/` tem `projeto/`, `ARGS` e os
+**Estado em 2026-10-05 (escrito, não compilado).** `crates/parity/src/saida.rs` e o subcomando
+`dartforge-parity saida [DIR] [--gravar]`: cada caso de `corpus/saida-analyze/` tem `projeto/`, `ARGS` e os
 esperados; a comparação roda o `dartforge` ao lado do executável, normaliza o caminho do projeto para
 `<raiz>` e o separador de caminho dos dois lados (o CI é Windows e Linux), e relata a primeira linha
 diferente por caso e formato, mais o código de saída quando há `ESPERADO.codigo`. As sondas `s1`–`s7` foram
@@ -4525,19 +4525,19 @@ copiadas por `scripts/copiar_sondas_saida.py`. O `ESPERADO.codigo` sai na primei
 ## III.2 Etapa 2 — Supressões
 
 **Estado em 2026-10-04 (escrito, não compilado).** Feitos III.2.1 e III.2.3 em
-`crates/paridade/src/filtros.rs`: `Ignorados::de_texto` foi reescrito sobre uma varredura da fonte que
+`crates/parity/src/filtros.rs`: `Ignorados::de_texto` foi reescrito sobre uma varredura da fonte que
 conhece strings, interpolações e comentários de bloco (o lexer não guarda comentários), com a regra de
 prefixo (`//+[ ]*ignore:` e `//[ ]*ignore_for_file:`), a ordem dos testes de `forDart`, a linha alvo,
 o leitor de nomes de `ignoredElements`, o casamento pelo nome emitido ou pelo nome único sem a classe,
 e `type=` só com `hint`, `lint` e `warning`; `Ignorados::duplicados` dá os `duplicate_ignore`, ligados
-em `publicaveis` (`crates/paridade/src/lib.rs`). Os testes novos são a tabela do oráculo da §4.1, não
-rodados. O `IgnoreValidator` ficou em `filtros.rs`, não num módulo de `crates/analise`. Não feitos:
+em `publicaveis` (`crates/parity/src/lib.rs`). Os testes novos são a tabela do oráculo da §4.1, não
+rodados. O `IgnoreValidator` ficou em `filtros.rs`, não num módulo de `crates/analysis`. Não feitos:
 III.2.2 (a regra de `errors:` × erro ignorável, que já existia em parte em `Opcoes::ignoravel`), III.2.4
 (leitor de YAML de verdade, `include:`, opções por subpasta, glob do `package:glob`) e os casos do
 harness de III.2.5. As demais etapas da Parte III não foram começadas.
 
-Arquivos: `crates/paridade/src/filtros.rs` (reescrita das três estruturas),
-`crates/analise` (um módulo novo `ignores.rs` para o `IgnoreValidator`).
+Arquivos: `crates/parity/src/filtros.rs` (reescrita das três estruturas),
+`crates/analysis` (um módulo novo `ignores.rs` para o `IgnoreValidator`).
 
 ### III.2.1 `IgnoreInfo` sobre tokens
 
@@ -4606,17 +4606,17 @@ II.8): nome repetido no mesmo comentário, ou nome de linha já coberto por
 4. `exclude:` com o glob do `package:glob` (chaves, classes de caractere,
    escape), relativo à pasta do arquivo de opções; a regra "`x/**` também
    exclui `x`"; o arquivo pedido explicitamente na linha de comando não é
-   excluído. Na varredura (`crates/paridade/src/corpus.rs:60-80`): **não**
+   excluído. Na varredura (`crates/parity/src/corpus.rs:60-80`): **não**
    pular `build` e **pular** arquivos começados por `.`.
 5. `language:` (`strict-casts`, `strict-inference`, `strict-raw-types`) e
    `enable-experiment`: entregues ao motor como opções da análise; os códigos
    que cada uma liga estão na §4.6.
 
-**Estado em 2026-10-04 (escrito, não compilado).** `Opcoes` em `crates/paridade/src/filtros.rs` foi
-reescrito sobre o `yaml-rust2` 0.10 (dependência nova de `crates/paridade`): item 1 pela árvore `Yaml`,
+**Estado em 2026-10-04 (escrito, não compilado).** `Opcoes` em `crates/parity/src/filtros.rs` foi
+reescrito sobre o `yaml-rust2` 0.10 (dependência nova de `crates/parity`): item 1 pela árvore `Yaml`,
 **sem posições** (a etapa 7 vai precisar do analisador de eventos); item 2 com `include:` escalar,
 relativo ou `package:` (pelo `package_config.json` achado acima do arquivo), fusão pelo `Merger` e corte
-de ciclo; item 3 em `diagnosticos_json` (`crates/paridade/src/lib.rs`): o arquivo de opções mais próximo
+de ciclo; item 3 em `diagnosticos_json` (`crates/parity/src/lib.rs`): o arquivo de opções mais próximo
 abaixo da raiz vale para o arquivo e soma os seus `exclude`; o LSP e o placar seguem com o da raiz; item
 4 com chaves, classes e escape no glob, a regra do `x/**`, os componentes começados por `.` em
 `excluido`, e a varredura de `corpus::arquivos_dart` (entra `build`, saem os arquivos ocultos); item 5
@@ -4650,9 +4650,9 @@ exercita. **Pronto quando** os 14 casos passam nos três formatos.
 
 **Estado em 2026-10-04 (escrito, não compilado).** Feito o item 2 em parte: `Contexto` e
 `Diagnostic::contexto` (`crates/diagnostics/src/lib.rs`, com `com_contexto`), a chave `contextMessages`
-do JSON (`crates/paridade/src/json.rs`, com a linha e a coluna calculadas pelo arquivo do erro, como o
+do JSON (`crates/parity/src/json.rs`, com a linha e a coluna calculadas pelo arquivo do erro, como o
 oficial) e as linhas de contexto do formato de texto (`crates/cli/src/analisar.rs`). O único produtor
-por enquanto é o `duplicate_definition` de `crates/analise/src/duplicatas.rs` ("The first definition of
+por enquanto é o `duplicate_definition` de `crates/analysis/src/duplicatas.rs` ("The first definition of
 this name."), e só quando a primeira definição está no mesmo arquivo. O item 1 (deduplicação por
 arquivo) já existia e passou a usar o código único (T5 do outro documento); o sufixo `(where …)` do
 item 3 está em `crates/types/src/exibicao.rs` (T7), sem gerar a mensagem de contexto por tipo. Não
@@ -4718,12 +4718,12 @@ leitura do lado esquerdo de uma atribuição composta e o alvo de cascata não r
 receptor nulo do padrão relacional não consulta o `this`.
 
 Arquivos: `crates/diagnostics/src/lib.rs` (o `Diagnostic`),
-`crates/paridade/src/json.rs`, e os emissores que usam a fábrica.
+`crates/parity/src/json.rs`, e os emissores que usam a fábrica.
 
 1. **Deduplicação por arquivo.** Um conjunto por arquivo com a chave da §3.5
    (constante, offset, length, mensagem **já renderizada**), aplicado no ponto
    único por onde todo diagnóstico passa antes da publicação
-   (`Motor::analisar_com`, `crates/paridade/src/analise.rs:173-660`, na coleta
+   (`Motor::analisar_com`, `crates/parity/src/analise.rs:173-660`, na coleta
    final), inclusive entre sintaxe e semântica. O primeiro relato vence e a
    ordem de chegada é a das fases da §1.2 — por isso a etapa 5 importa.
 2. **`contextMessages`.** Campo novo:
@@ -4800,7 +4800,7 @@ isso não é medido.
 
 ## III.5 Etapa 5 — Pipeline
 
-Arquivo: `crates/paridade/src/analise.rs`.
+Arquivo: `crates/parity/src/analise.rs`.
 
 1. **Unidade de análise = biblioteca.** Manter a carga em lote (é o que dá a
    velocidade), mas rodar as fases **por biblioteca, na ordem da §1.2**, com
@@ -4841,8 +4841,8 @@ medição (o T5 do outro documento tem os números): a regra é a dos trechos pu
 
 ## III.6 Etapa 6 — Fases ausentes
 
-**Estado em 2026-10-04 (escrito, não compilado).** Entraram, em `crates/analise/src/fases.rs` e ligados
-em `crates/paridade/src/analise.rs`: do `ImportsVerifier`, `duplicate_import`, `duplicate_export`,
+**Estado em 2026-10-04 (escrito, não compilado).** Entraram, em `crates/analysis/src/fases.rs` e ligados
+em `crates/parity/src/analise.rs`: do `ImportsVerifier`, `duplicate_import`, `duplicate_export`,
 `duplicate_shown_name` e `duplicate_hidden_name` (com `_duplicates` e
 `areSyntacticallyIdenticalExceptUri` literais); `undefined_hidden_name`; e o `UnicodeTextVerifier`
 (`text_direction_code_point_in_comment` e `…_in_literal`; "literal" é o trecho de texto de uma string,
@@ -4852,7 +4852,7 @@ fora das expressões interpoladas, mais as URIs das diretivas). `undefined_shown
 transitivo tem membro de instância com a mesma chave, visível da biblioteca. Não feitos:
 `BestPracticesVerifier`
 e `AnnotationVerifier`. O `TodoFinder` (`todo`, `fixme`, `hack`, `undone`) está em
-`crates/analise/src/todos.rs`, com a expressão `Todo.TODO_REGEX` escrita à mão, as continuações de
+`crates/analysis/src/todos.rs`, com a expressão `Todo.TODO_REGEX` escrita à mão, as continuações de
 linha e o desdobramento do bloco; os comentários são os dos vãos entre os tokens do lexer. O
 `MustCallSuperVerifier` (`must_call_super`) está em `crates/types/src/fase_super.rs`: a busca em
 largura pelo membro anotado (mixins, superclasse, restrições `on`), a implementação concreta herdada
@@ -4870,7 +4870,7 @@ identificadores e propriedades resolvidos, construtores, tipos nomeados e import
 biblioteca depreciada, com a pilha de declarações depreciadas e a pontuação da mensagem; "mesmo
 pacote" é a biblioteca cujo arquivo fica dentro da raiz analisada. Fora: operadores, argumentos de
 parâmetros depreciados, nomes de `show`, campos de padrão, `extension override`, `call` implícito e
-`expires`. O `unnecessary_import` está em `crates/analise/src/importacoes.rs`, junto do
+`expires`. O `unnecessary_import` está em `crates/analysis/src/importacoes.rs`, junto do
 `unused_import`, com os "elementos usados" aproximados pelos nomes citados (como o `unused_import` de
 lá) e as extensões tratadas à parte. O `SdkConstraintVerifier` (`sdk_version_since` e
 `sdk_version_gt_gt_gt_operator`) está em `crates/types/src/fase_sdk.rs`, com o emissor aberto: a
@@ -4878,7 +4878,7 @@ restrição vem do `environment: sdk:` do `pubspec.yaml` da raiz (`^v`, faixas, 
 uniões não) e o `@Since` do elemento do SDK ou da classe que o contém. Fora: argumentos posicionais de
 parâmetros com `@Since`, operadores de índice e de atribuição, e a propriedade `index`.
 
-**Estado em 2026-10-04 (escrito, não compilado), lote II.7.** Em `crates/analise/src/meta.rs`, com os
+**Estado em 2026-10-04 (escrito, não compilado), lote II.7.** Em `crates/analysis/src/meta.rs`, com os
 emissores abertos: do `AnnotationVerifier`, `invalid_factory_method_decl`, `invalid_factory_method_impl`,
 `invalid_internal_annotation`, `invalid_literal_annotation`, `invalid_non_virtual_annotation`,
 `invalid_reopen_annotation`, `invalid_annotation_target` (só o caso de `@redeclare`),
@@ -4904,7 +4904,7 @@ entraram em `meta.rs` em 2026-10-05, sem os limites dos parâmetros de tipo no c
 `deprecated_colon_for_default_value`.
 
 **Estado em 2026-10-05 (escrito, não compilado), o resto do lote II.7.** Em `crates/types/`, ligados
-em `crates/paridade/src/analise.rs` com os tipos da inferência: `fase_nao_guardar.rs`
+em `crates/parity/src/analise.rs` com os tipos da inferência: `fase_nao_guardar.rs`
 (`assignment_of_do_not_store` nos inicializadores de topo e de campo; `return_of_do_not_store` nos
 `return e;` e `=> e` com a declaração de função ou método que os contém, fora de membro, classe ou
 biblioteca `@doNotStore`; nada num diretório `test`), `fase_literal.rs`
@@ -4966,7 +4966,7 @@ da primeira escrita saíram; cada regra usa o mesmo dado que o emissor do analyz
   `prefer_is_not_empty` pelo elemento que declara o `isEmpty` (`getChildren`, extensão inclusive);
   `unnecessary_string_interpolations` sem `trim` (o trecho de antes e o de depois têm de ser vazios);
   `unnecessary_null_aware_assignments` não cala o `[]=`.
-- Lints da árvore com a semântica do motor: `dartforge_analise::lints::executar_com` recebe uma
+- Lints da árvore com a semântica do motor: `dartforge_analysis::lints::executar_com` recebe uma
   `Semantica` (programa, unidade, corpo, tabela de tipos, outline). Em `paridade` (`analise.rs`) os
   lints rodam sobre a árvore do programa, a mesma versão de linguagem da biblioteca e o `interner`
   dele, e o resultado fica em `Arquivo::relatos_de_lint`; a publicação filtra pelas regras ligadas.
@@ -4994,7 +4994,7 @@ da primeira escrita saíram; cada regra usa o mesmo dado que o emissor do analyz
   `prefer_asserts_in_initializer_lists`, o `required` nomeado sem padrão em `parameter_assignments`).
   Novos dados do motor: `OutlineTypes::tipos_escritos`, `UnitBodyTypes::declaracoes_de_padroes`.
 
-Cada verificador é um módulo novo em `crates/analise/src/`, chamado no ponto
+Cada verificador é um módulo novo em `crates/analysis/src/`, chamado no ponto
 da ordem da §1.2. Os códigos de cada um estão nos lotes II.7 e II.8 (II.8 com
 a especificação lida do emissor; II.7 gerado por script: **ler o emissor
 antes de implementar**). Ordem sugerida, pelo que aparece em projeto real:
@@ -5020,7 +5020,7 @@ diretório de testes do próprio analyzer para o código
 ## III.7 Etapa 7 — Arquivos não-Dart
 
 Lote II.10 (lido do emissor, com as especificações completas). Três
-validadores, cada um um módulo em `crates/analise/src/naodart/`:
+validadores, cada um um módulo em `crates/analysis/src/naodart/`:
 
 1. `analysis_options.yaml`: os `AnalysisOptions*Code` (chaves desconhecidas
    com a sugestão, valores inválidos de `errors:`, `include` inexistente,
@@ -5033,7 +5033,7 @@ validadores, cada um um módulo em `crates/analise/src/naodart/`:
 Saída: entram no **bloco prioritário** da §5.4 (antes dos `.dart`, com a
 ordenação própria) e contam para o código de saída. O placar precisa parar
 de descartar do oráculo o que não é `.dart`
-(`crates/paridade/src/oraculo.rs:87-91`).
+(`crates/parity/src/oraculo.rs:87-91`).
 
 **Pronto quando** os casos dirigidos de II.10 (cada especificação completa
 traz os seus) passam pela etapa 1.
@@ -5041,7 +5041,7 @@ traz os seus) passam pela etapa 1.
 
 **Lotes 14 a 33, escritos em 2026-10-05 direto da fonte 3.6.2 (escrito, não compilado).** Com isto,
 todas as regras da 3.6.2 que têm emissor estão escritas; as diferenças conhecidas de cada uma estão no
-cabeçalho do arquivo dela. Na árvore (`crates/analise/src/lints/`): `regras14.rs` (`dangling_library_doc_comments`,
+cabeçalho do arquivo dela. Na árvore (`crates/analysis/src/lints/`): `regras14.rs` (`dangling_library_doc_comments`,
 `unintended_html_in_doc_comment`, `file_names`, `valid_regexps` pelo porte do analisador de expressão
 regular da VM em `regexp_vm.rs` com as tabelas Unicode de `regexp_unicode_g.rs`, geradas por
 `scripts/gerar-regexp-unicode.py`, `library_annotations`, `no_wildcard_variable_uses`,
@@ -5082,7 +5082,7 @@ os quatro códigos); `regras32.rs` (`unsafe_html`, com os `SecurityLintCode` do 
 diferente da do `messages.yaml`, e `analyzer_use_new_elements`, a interna, com o
 `analyzer_use_new_elements.txt`); `regras33.rs` (`use_build_context_synchronously`, o `AsyncStateVisitor`
 inteiro sobre a árvore no formato do analyzer). Para esta última, a árvore do LSP
-(`arvore_analyzer.rs`) e o `ExitDetector` dela (`saida.rs`) passaram para `crates/analise/src/`, e o LSP os usa
+(`arvore_analyzer.rs`) e o `ExitDetector` dela (`saida.rs`) passaram para `crates/analysis/src/`, e o LSP os usa
 de lá. No `pubspec.yaml` (`lints/pubspec.rs`, ligado em `diagnosticos_do_pubspec` da paridade):
 `package_names`, `secure_pubspec_urls` e `sort_pub_dependencies`, com os `# ignore:` do YAML
 (`IgnoreInfo.forYaml`). Com os tipos da inferência (`crates/types/src/`, pelo canal de
@@ -5121,7 +5121,7 @@ Enquanto a etapa 8.3 não fechar, a paridade de saída só é exigida de projeto
 
 ## III.9 Etapa 9 — Fim do filtro de publicação
 
-O filtro (`crates/analise/src/publicacao.rs:24-34`: só sintaxe e
+O filtro (`crates/analysis/src/publicacao.rs:24-34`: só sintaxe e
 `verificados.txt`) é, por definição, uma diferença do oficial. Ele sai por
 último, código a código, pela regra que já vale: um código entra em
 `verificados.txt` quando não emite nada errado no corpus e nos pacotes do

@@ -232,7 +232,7 @@ non_constant_list_element off=112 len=10 7:12 | The values in a const list liter
 - **No DartForge:** não existe (busca por `CONST_NOT_INITIALIZED` em `crates/`: só o comentário de
   `crates/frontend/src/parser/statements.rs:343`, que deixa o erro "para a fase seguinte"). As 29 FN são todas a regra ausente:
   `variable_not_initialized/*` (20, uma por espécie de declaração), `const/syntax_test.dart` (4), `const/const_locals_constant_locals_test.dart:10:9`,
-  `static/final_field2_test.dart:13:16`. Mudança: uma função no verificador de constantes (ou em `crates/analise/src/inicializacao.rs`,
+  `static/final_field2_test.dart:13:16`. Mudança: uma função no verificador de constantes (ou em `crates/analysis/src/inicializacao.rs`,
   que já percorre campos e topo), para topo, campos de qualquer declaração e `StmtKind::Variables` locais — não para o `for`.
 - **Exemplos (oráculo vivo 3.6.2):** `c01.dart`:
 

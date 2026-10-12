@@ -1111,7 +1111,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // nas voltas — nenhum chamado no corpo — e a lista for do
                 // runtime, o que só a execução diz (as voltas são duplicadas).
                 // Sob ARC, a preparação segura a lista em cada acesso pelo
-                // armazenamento lido antes das voltas (`otimizar/arc/derivados.rs`).
+                // armazenamento lido antes das voltas (`optimize/arc/derivados.rs`).
                 if crescente
                     && estrita
                     && passo <= 1 << 60

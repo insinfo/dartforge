@@ -45,7 +45,7 @@ Abreviações usadas nas citações (`arquivo:linha`):
 | `FC` | `source_gen/template_compiler/find_components.dart` |
 | `RT:x` | runtime `ngdart` (`lib/src/runtime/x.dart`) |
 
-Porte Rust: `crates/gerador_ng/src/expr.rs` (`X`) e `crates/gerador_ng/src/visao.rs` (`V`),
+Porte Rust: `crates/ng_generator/src/expr.rs` (`X`) e `crates/ng_generator/src/visao.rs` (`V`),
 citados por função. Legenda de cobertura: **✅ coberto**, **⚠️ parcial/divergente**,
 **❌ falta** (o porte recusa a forma ou não a gera).
 

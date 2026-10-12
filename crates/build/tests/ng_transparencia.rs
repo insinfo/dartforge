@@ -1,7 +1,7 @@
 //! O ngdart pelo motor (estágio A) é **transparente**: a geração publicada é
-//! a mesma de chamar o `gerador_ng` direto (`gerar_com_apoio`), e o que ela
+//! a mesma de chamar o `ng_generator` direto (`gerar_com_apoio`), e o que ela
 //! gera confere byte a byte com o oráculo de `corpus/ngdart/oraculo/` — o
-//! mesmo contrato do `crates/gerador_ng/tests/corpus.rs`, agora pelo motor.
+//! mesmo contrato do `crates/ng_generator/tests/corpus.rs`, agora pelo motor.
 //! Também vale "incremental = do zero" com edições de template.
 //!
 //! Exige `dart pub get` em `corpus/ngdart` (o `package_config.json`): por
@@ -59,15 +59,15 @@ fn ng_pelo_motor_igual_ao_gerador_direto_e_ao_oraculo() {
     let g = m.geracao();
 
     // Direto, pela API pública do gerador_ng.
-    let resolvedor = dartforge_gerador_ng::resolucao::Resolvedor::novo(&p, &nomes);
+    let resolvedor = dartforge_ng_generator::resolucao::Resolvedor::novo(&p, &nomes);
     let mut i = Interner::new();
-    let pacote = dartforge_gerador_ng::Pacote {
+    let pacote = dartforge_ng_generator::Pacote {
         nome: "corpus_ngdart".into(),
         raiz: raiz.clone(),
         ..Default::default()
     };
     let (direta, _) =
-        dartforge_gerador_ng::gerar_com_apoio(&pacote, &mut i, None, Some(&resolvedor));
+        dartforge_ng_generator::gerar_com_apoio(&pacote, &mut i, None, Some(&resolvedor));
     let esperadas: std::collections::HashSet<&PathBuf> = m.naturais.values().collect();
     let mut iguais = 0;
     for (caminho, f) in direta.iter().filter(|(_, f)| f.gerador == "ngdart") {

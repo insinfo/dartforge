@@ -324,10 +324,10 @@ const_constructor_with_non_const_super off=252 len=1 16:9 | A constant construct
 - **Supressões e ordem:** nenhuma. Vale para o que o parser **recupera** como construtor: `static int E1() => 0;` e `void E3() {}`
   num enum de mesmo nome viram construtores (`static_constructor`, `constructor_with_return_type`) e recebem este código no nome
   (g02); `augment E.named();` no 3.6.2 (sem o experimento) idem (h04).
-- **No DartForge:** não existe (`crates/analise/src/enums.rs` só tem `sem_constantes`). FN: `non_const_generative_enum_constructor/*`
+- **No DartForge:** não existe (`crates/analysis/src/enums.rs` só tem `sem_constantes`). FN: `non_const_generative_enum_constructor/*`
   (5), `enum/enhanced_enums_error_test.dart:350:14, 371:7, 493:3` (os dois primeiros são método com nome do enum recuperado como
   construtor), `augmentation_modifier_missing/…a93fc07a.dart:9:11`, `constructor_body/…b4bc584e.dart:8:11` e `…c6f5a1c0.dart:5:11`
-  (3.13, não conferidos aqui). Mudança: `verificador.rs::construtor` ou `crates/analise/src/membros.rs` (onde já sai
+  (3.13, não conferidos aqui). Mudança: `verificador.rs::construtor` ou `crates/analysis/src/membros.rs` (onde já sai
   `NON_FINAL_FIELD_IN_ENUM`, `:930`): enum, `!k.const_ && !k.factory` → span `k.class_name.start .. k.name.end` (ou `k.class_name`);
   depende de o nosso parser também tratar o método homônimo como construtor (não verificado).
 - **Exemplos (oráculo vivo 3.6.2):** `b04.dart`:
@@ -556,7 +556,7 @@ const_constructor_with_field_initialized_by_non_const off=223 len=5 15:3 | Can't
 - **Supressões e ordem:** no `asFunction`, o teste do argumento escrito vem primeiro e retorna; o do alvo vem depois. `_isValidFfiNativeType`
   e os chamadores: não detalhados aqui (família C/FFI).
 - **No DartForge:** não existe (nenhuma ocorrência de `NON_CONSTANT_TYPE_ARGUMENT` nem regra de `asFunction`/`ref`/`sizeOf` em
-  `crates/analise` e `crates/types/src/inferencia`). FN: `non_constant_type_argument/…ref_typ_cf5f5ff8.dart:4:5` (`p.ref`, len 5),
+  `crates/analysis` e `crates/types/src/inferencia`). FN: `non_constant_type_argument/…ref_typ_cf5f5ff8.dart:4:5` (`p.ref`, len 5),
   `…asFunction_R.dart:5:18` (o `R`), `non_native_function_type_argument_to_pointer/…5c69d119.dart:5:5` (o alvo `p`). Mudança: pertence
   ao verificador FFI (família C); a parte de constantes não a implementa.
 - **Exemplos (oráculo vivo 3.6.2):** `h01.dart`:

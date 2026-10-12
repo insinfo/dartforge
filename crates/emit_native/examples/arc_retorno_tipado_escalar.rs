@@ -1,6 +1,6 @@
 //! Prova AOT das três representações escalares com contexto heap emprestado.
 //! O certificado registra o corpo; o chamador promove e libera seu contexto.
-use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*};
+use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
 
 fn modulo(ty: Type, valor: Constant, abi: i64) -> Result<Module, String> {

@@ -14,7 +14,7 @@ param(
 $ErrorActionPreference = "Stop"
 $raiz = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $jsprod = Join-Path $raiz "target/release/dartforge-jsprod.exe"
-if (-not (Test-Path $jsprod)) { throw "compile antes: cargo build --release -p dartforge-emit-js-producao" }
+if (-not (Test-Path $jsprod)) { throw "compile antes: cargo build --release -p dartforge-emit-js-production" }
 $trabalho = Join-Path $raiz "target/medir-js"
 New-Item -ItemType Directory -Force $trabalho | Out-Null
 

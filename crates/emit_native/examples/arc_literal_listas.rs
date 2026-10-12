@@ -2,7 +2,7 @@
 //! Tracing conserva sua fábrica e o harness retém o retorno explicitamente.
 //! Controles negativos alteram somente o IR já preparado e verificado.
 
-use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, otimizar::arc::*};
+use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
 
 fn main() -> Result<(), String> {

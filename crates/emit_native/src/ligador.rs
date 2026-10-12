@@ -222,7 +222,7 @@ pub fn comando(ld: &Path, sysroot: &SysrootLinux, l: &Ligacao<'_>) -> Result<Com
         cmd.arg("--gc-sections");
         // O ICF seguro: junta só as funções idênticas cujo endereço ninguém
         // toma (`.llvm_addrsig`), então o `==` de tear-offs continua certo
-        // (`ligador_windows.rs`, corpus/nativo 80).
+        // (`ligador_windows.rs`, corpus/native 80).
         cmd.arg("--icf=safe");
         // `DARTFORGE_MANTER_SIMBOLOS=1`: a tabela de símbolos fica (perfis).
         if !manter_simbolos() && !l.manter_depuracao {

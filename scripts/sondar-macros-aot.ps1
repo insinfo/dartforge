@@ -17,7 +17,7 @@ Push-Location $caso
 try {
     & $dart pub get --enforce-lockfile
     if ($LASTEXITCODE -ne 0) { throw 'pub get do caso 411 falhou' }
-    & $binario macros $entrada --dart $dart --api (Join-Path $raiz 'pacotes/macros') `
+    & $binario macros $entrada --dart $dart --api (Join-Path $raiz 'packages/macros') `
         --versao-linguagem 3.6 --enable-experiment=macros > (Join-Path $trabalho 'macros.txt')
     if ($LASTEXITCODE -ne 0) { throw 'bootstrap do dfexec/1 não foi gerado' }
 }

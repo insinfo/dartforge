@@ -8,11 +8,11 @@ dev_dependencies:
   analyzer: 7.3.0
   build_runner: 2.4.15
   dartforge_macros_builder:
-    path: ../../../pacotes/macros_builder
+    path: ../../../packages/macros_builder
   corpus_macros_registry:
     path: ../macros_registry
   macros:
-    path: ../../../pacotes/macros
+    path: ../../../packages/macros
 dependency_overrides:
   macros:
-    path: ../../../pacotes/macros
+    path: ../../../packages/macros

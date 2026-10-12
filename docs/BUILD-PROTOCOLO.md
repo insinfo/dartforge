@@ -13,7 +13,7 @@ Os dois lados existem e rodam builders reais:
   consulta e só deixa escrever saídas da ação; o cliente `build.*`
   (`crates/build/src/cliente.rs`) fala pelo canal de `crates/dfexec`,
   compartilhado com as macros;
-* **executor** — `pacotes/build_executor` (`dartforge_build_executor`):
+* **executor** — `packages/build_executor` (`dartforge_build_executor`):
   instancia as fábricas do bootstrap e executa `Builder.build` pelo
   `runBuilder` do próprio `package:build`, com `AssetReader`/`AssetWriter`
   que perguntam tudo ao hospedeiro; o `BuildStep.resolver` é o
@@ -175,7 +175,7 @@ stderr ao diagnóstico da ação ainda não foram feitos.
 
 Definido em [`MACROS-PROTOCOLO.md`](MACROS-PROTOCOLO.md) §5 e implementado
 dos dois lados (`crates/macros_host/src/{protocolo,executor}.rs` e
-`pacotes/macros/lib/src/executor/servico.dart`): o mesmo enquadramento e o
+`packages/macros/lib/src/executor/servico.dart`): o mesmo enquadramento e o
 mesmo handshake daqui, com `"servicos": ["macro"]` e as mensagens
 `macro.instanciar`/`macro.executar`/`macro.consulta`/`macro.resposta` no
 lugar do `build.*`. Um executor que ofereça os dois serviços atende ao motor

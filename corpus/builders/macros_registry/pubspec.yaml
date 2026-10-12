@@ -5,8 +5,8 @@ environment:
 dependencies:
   build: 2.4.2
   dartforge_macros_builder:
-    path: ../../../pacotes/macros_builder
+    path: ../../../packages/macros_builder
   json: 0.20.4
 dependency_overrides:
   macros:
-    path: ../../../pacotes/macros
+    path: ../../../packages/macros

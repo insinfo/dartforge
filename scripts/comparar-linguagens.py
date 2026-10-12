@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compara o DartForge com outros compiladores nativos (RELATORIO-COMPARATIVO-NATIVO.md).
 
-Compila `bench/comparativo/{ola,bench}.<ext>` com cada ferramenta encontrada e
+Compila `bench/comparison/{ola,bench}.<ext>` com cada ferramenta encontrada e
 mede: tamanho do executável do `ola`, o tempo de cada núcleo do `bench`
 (o menor das rodadas depois da primeira), o RSS de pico do `bench` e 10
 partidas do `ola`. Os resultados de cada núcleo têm de ser iguais entre as
@@ -26,7 +26,7 @@ Uso: scripts/comparar-linguagens.py <dir de saída> [ferramenta...]
 import os, re, shutil, subprocess, sys, time
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FONTES = os.path.join(RAIZ, "bench", "comparativo")
+FONTES = os.path.join(RAIZ, "bench", "comparison")
 LINHA = re.compile(r"^(\w+): ([\d ]+) ms \| (.*)$")
 
 

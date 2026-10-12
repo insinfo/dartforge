@@ -13,14 +13,14 @@ cada bloco verificado; números medidos, não adjetivos.
 
 Outros agentes estão no compilador JavaScript. Você **não edita**
 `crates/frontend`, `crates/elements`, `crates/types`, `crates/emit_js`,
-`crates/lsp`, `crates/diferencial`, `corpus/js`, `docs/EMISSAO-DDC.md`. Se
+`crates/lsp`, `crates/differential`, `corpus/js`, `docs/EMISSAO-DDC.md`. Se
 precisar de algo dessas fases (uma consulta que o `types` não expõe, um
 campo no `Program`), escreva o pedido em `docs/NATIVO.md` §"Pendências
 para outras fases" com o motivo e siga sem — nunca duplique a análise. No
 `crates/cli/src/main.rs` acrescente **uma linha** de despacho para
 `crates/cli/src/nativo.rs`, que é seu. Você é dono de `crates/llvm`,
 `crates/native`, `crates/runtime`, `crates/jit`, `crates/cranelift-jit`,
-`crates/abi`, do novo `crates/emit_native` e de `corpus/nativo/`.
+`crates/abi`, do novo `crates/emit_native` e de `corpus/native/`.
 
 ## Contexto — leia antes de escrever código
 
@@ -91,11 +91,11 @@ para outras fases" com o motivo e siga sem — nunca duplique a análise. No
 
 ## Alvos, na ordem, e o critério de aceite de cada um
 
-1. **Corpus JS como corpus nativo**: `cargo run -p dartforge-diferencial`
+1. **Corpus JS como corpus nativo**: `cargo run -p dartforge-differential`
    já roda os 202 programas de `corpus/js/` contra `dart run`. Crie
    `crates/emit_native/tests/diferencial.rs` (ou um subcomando `nativo`
    no seu próprio harness em `crates/emit_native/src/bin/`; não edite
-   `crates/diferencial`) que compila cada programa com `dartforge
+   `crates/differential`) que compila cada programa com `dartforge
    compile-native x.dart -o x.exe`, executa e compara stdout + código com
    `dart run --enable-asserts` byte a byte (os 5 marcados
    `// diverge-ddc:` **batem** no nativo — é semântica da VM; para o

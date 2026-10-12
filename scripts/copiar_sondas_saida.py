@@ -4,7 +4,7 @@ corpus/saida-analyze (docs/ANALYZER-ESPECIFICACAO-INFRA.md, III.1, item 4).
 Cada sonda vira um caso: `projeto/` (a pasta da sonda), `ARGS` (`.`) e os
 três `ESPERADO.<formato>.txt`, com o caminho absoluto da sonda trocado por
 `<raiz>` (nas grafias com `\\\\`, `\\` e `/`). O `ESPERADO.codigo` sai na
-próxima gravação (`dartforge-paridade saida --gravar`).
+próxima gravação (`dartforge-parity saida --gravar`).
 """
 
 import os

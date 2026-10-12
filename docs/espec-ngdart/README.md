@@ -2,7 +2,7 @@
 
 Especificação do compilador oficial — `ngast` 3.0.0-dev.2 e `ngcompiler`
 3.0.0-dev.3 — escrita a partir da leitura do código-fonte dele, para o porte
-byte a byte em `crates/gerador_ng`. Cada regra cita arquivo:linha do Dart,
+byte a byte em `crates/ng_generator`. Cada regra cita arquivo:linha do Dart,
 traz exemplo de entrada e saída (os marcados "oráculo" conferidos contra
 `corpus/ngdart/oraculo`, os "derivado" tirados só do código) e diz o estado
 no porte (coberto, parcial, recusado, falta). Cada seção termina com as

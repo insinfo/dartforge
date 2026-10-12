@@ -250,7 +250,7 @@ Por ação, na ordem, o primeiro que aceita:
 2. **Dart** (`ExecutorDart`, `docs/BUILD-PROTOCOLO.md`): o motor chama o
    executor e serve `BuildStep` com visibilidade, consultas e saídas
    permitidas, pelo canal `dfexec/1` compartilhado com as macros. O
-   executor que existe é o **pela VM Dart** (`vm.rs` + `pacotes/build_executor`):
+   executor que existe é o **pela VM Dart** (`vm.rs` + `packages/build_executor`):
    executa o builder do ecossistema de verdade (o `runBuilder` do
    `package:build`, o `AnalyzerResolvers` do `build_resolvers`), ligado por
    `dartforge build --dart <exe>` ou `DARTFORGE_BUILD_DART`. O **nativo**

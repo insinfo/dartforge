@@ -34,6 +34,6 @@ md-5 = "0.10"
 
 [features]
 # O perfil do módulo `abi` (ver o build.rs): nenhuma feature é o JIT; `aot` e
-# `dll` são as duas `staticlib` do AOT, montadas por `crates/runtime_estatico`.
+# `dll` são as duas `staticlib` do AOT, montadas por `crates/runtime_static`.
 aot = []
 dll = []

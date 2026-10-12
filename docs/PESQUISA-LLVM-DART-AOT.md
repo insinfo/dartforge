@@ -475,7 +475,7 @@ experiências e da literatura já citada no repositório
 geração de código**:
 
 1. **A decisão global é nossa, sobre resumos, antes do LLVM.** Alcançabilidade
-   e classes instanciadas (`crates/mundo`, o RTA no estilo do
+   e classes instanciadas (`crates/world`, o RTA no estilo do
    `ResolutionWorldBuilder`), ids de seletor e de classe, devirtualização
    (seletor com uma implementação viva ⇒ chamada direta; poucas classes ⇒
    teste de `class_id` e chamada direta, como o Dartino em
@@ -648,7 +648,7 @@ Metodologia, derivada dos dois erros documentados (checagens desligadas;
 conjuntos de funções diferentes):
 
 1. **Mesmo SDK** (3.6.2, `C:/tools/dartsdk-3.6.2`), mesma fonte, mesmas
-   bibliotecas. O programa passa no diferencial (`dartforge-diferencial
+   bibliotecas. O programa passa no diferencial (`dartforge-differential
    --nativo`) **antes** de ser medido.
 2. **Mesma semântica ligada**: checagens de tipo sempre (não há como desligar
    no oficial); `assert` no mesmo estado dos dois lados (desligado por padrão
@@ -692,7 +692,7 @@ conjuntos de funções diferentes):
 | GC | statepoints, preciso e **móvel**, `addrspace(1)`, otimiza antes de rebaixar | statepoints, mapas convertidos para o formato da VM | raízes explícitas por quadro; heap por *handles* |
 | ponto sem coleta | `gc-leaf-function` por análise (`ScanForGC`) | só a chamada C; a barreira tinha stack map | proposto: marca por extern (§2.4) |
 | exceções | EH do LLVM + personalidade própria + `_Unwind_RaiseException` | `invoke` + landing pad, desenrolador da VM | pendente + verificação |
-| despacho | `invariant.load`/`never.faults`; mundo fechado ⇒ chamada direta ⇒ inlining | o da VM (tabela de despacho, ICs) | vtable por seletor; mundo fechado em `crates/mundo` |
+| despacho | `invariant.load`/`never.faults`; mundo fechado ⇒ chamada direta ⇒ inlining | o da VM (tabela de despacho, ICs) | vtable por seletor; mundo fechado em `crates/world` |
 | dados estáticos | classes, constantes, tabelas como globais do binário | o snapshot da VM | proposto (§7.1, item 5) |
 | atalhos semânticos | sem `noSuchMethod`, sem estouro de pilha, `int` de 64 bits | sem `AssertAssignable`/`AssertSubtype`/`AssertBoolean` | **nenhum** (`PLANO.md`) |
 | resultado declarado | desempenho comparável ao AOT de 2016, inicialização melhor | +7% de tamanho com paridade; −33% de tempo sem checagens | — (ainda sem SDK no IR) |

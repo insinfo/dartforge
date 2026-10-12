@@ -13,7 +13,7 @@ use dartforge_macros_host::executor::{ExecutorMacros, Indisponivel};
 use std::path::{Path, PathBuf};
 
 const USO: &str = "usage: dartforge macros <entrada.dart> [--materializar] [--forma 3.6|atual] [--dart <executável dart> | --nativo] \
-[--api <pacotes/macros>] [--packages <package_config.json>] [--sdk <lib>] [--versao-linguagem x.y] [--enable-experiment=a,b]";
+[--api <packages/macros>] [--packages <package_config.json>] [--sdk <lib>] [--versao-linguagem x.y] [--enable-experiment=a,b]";
 
 /// A forma do arquivo materializado, por versão do SDK oficial.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -37,7 +37,7 @@ fn com_cabecalho(texto: &str, biblioteca: &Path, forma: Forma) -> String {
     }
 }
 
-/// A nossa API de macros: `--api`, `DARTFORGE_MACROS_API`, ou `pacotes/macros`
+/// A nossa API de macros: `--api`, `DARTFORGE_MACROS_API`, ou `packages/macros`
 /// num diretório acima do executável ou do diretório corrente.
 fn achar_api(explicita: Option<PathBuf>) -> Option<PathBuf> {
     if let Some(p) = explicita.or_else(|| std::env::var_os("DARTFORGE_MACROS_API").map(PathBuf::from)) {
@@ -46,7 +46,7 @@ fn achar_api(explicita: Option<PathBuf>) -> Option<PathBuf> {
     let bases = [std::env::current_exe().ok(), std::env::current_dir().ok()];
     for base in bases.into_iter().flatten() {
         for d in base.ancestors() {
-            let p = d.join("pacotes").join("macros");
+            let p = d.join("packages").join("macros");
             if p.join("pubspec.yaml").is_file() {
                 return Some(p);
             }
@@ -117,7 +117,7 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>
             if !cfg!(feature = "nativo") {
                 return Err("--nativo exige o dartforge compilado com a feature nativo (o compile-native compila o executor)".into());
             }
-            let api = achar_api(api).ok_or("a API de macros (pacotes/macros) não foi encontrada: use --api")?;
+            let api = achar_api(api).ok_or("a API de macros (packages/macros) não foi encontrada: use --api")?;
             let raiz = entrada.parent().unwrap_or(Path::new("."));
             let cfg = dartforge_macros_host::nativo::ConfigNativa {
                 compilador: std::env::current_exe()?,
@@ -128,7 +128,7 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>
             Box::new(dartforge_macros_host::nativo::iniciar(&cfg, &apps, packages.as_deref())?)
         }
         Some(d) => {
-            let api = achar_api(api).ok_or("a API de macros (pacotes/macros) não foi encontrada: use --api")?;
+            let api = achar_api(api).ok_or("a API de macros (packages/macros) não foi encontrada: use --api")?;
             let raiz = entrada.parent().unwrap_or(Path::new("."));
             let cfg = dartforge_macros_host::vm::ConfigDaVm {
                 dart: d.clone(),

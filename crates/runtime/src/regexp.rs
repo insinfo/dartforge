@@ -10,7 +10,7 @@
 // caractere sem grupos (`.*`, `\d+`, `[a-z]{2,}`) é iterativa, sem recursão
 // por caractere.
 //
-// O `_RegExp` da sobreposição (`sdk_nativo/core/regexp_patch.dart`) compila
+// O `_RegExp` da sobreposição (`native_sdk/core/regexp_patch.dart`) compila
 // o padrão uma vez (`DartForge_regexp_compilar`) num `_ProgramaDeRegExp` (cid
 // 16, `BRUTO`+`ANEXO`: o `Box<ProgramaRe>` solto pelo coletor quando o
 // `_RegExp` morre, docs/NATIVO-ESPACO-UNIFICADO.md §4.3) e pede cada

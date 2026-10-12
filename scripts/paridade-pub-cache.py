@@ -7,10 +7,10 @@ não os analisa com null safety). De cada um, `lib/` e o `pubspec.yaml` vão
 para `<destino>/pacotes/<nome>` (sem `analysis_options.yaml`: os lints não são
 da paridade), com um `package_config.json` que resolve todos os escolhidos
 pelas cópias. O registro `projetos.json` do corpus alternativo
-`<destino>/corpus` lista os pacotes para o `dartforge-paridade projetos`:
+`<destino>/corpus` lista os pacotes para o `dartforge-parity projetos`:
 
     python scripts/paridade-pub-cache.py E:/dftemp/analise/pub
-    dartforge-paridade projetos --oraculo --corpus E:/dftemp/analise/pub/corpus
+    dartforge-parity projetos --oraculo --corpus E:/dftemp/analise/pub/corpus
 
 (o `--oraculo` roda o `dart analyze` 3.6.2 de cada pacote; sem ele, o
 registro gravado é reaproveitado). Nada é escrito no pub-cache.

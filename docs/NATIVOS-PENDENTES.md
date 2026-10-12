@@ -6,7 +6,7 @@ Levantamento de 2026-09-27 sobre `crates/emit_native/src/nativos.rs` e o SDK
 mensagens de controle (§1.2–1.4, agora implementados) e da observação de
 arquivos (§1.1, implementada no Linux) restam **38**. Esse número **não** mede o que falta: a maior parte das
 entradas é de natives que continuam declarados no SDK com a sobreposição
-`sdk_nativo/`, mas que nenhum caminho de um programa Dart válido alcança,
+`native_sdk/`, mas que nenhum caminho de um programa Dart válido alcança,
 porque o recurso público é servido pela sobreposição ou pelo próprio
 lowering. Este documento separa as duas coisas.
 
@@ -33,8 +33,8 @@ lowering. Este documento separa as duas coisas.
   `socket_patch.dart`, `sync_socket_patch.dart`, `internal_patch.dart`,
   `type_patch.dart`, `errors_patch.dart`, `object_patch.dart`,
   `lib_prefix.dart`, `invocation_mirror_patch.dart` e `developer.dart` **não**
-  são substituídos (`sdk_nativo/libraries.json`, chave `substitui`;
-  `sdk_nativo/io/common_patch.dart:49-59` só reúne os `part` originais).
+  são substituídos (`native_sdk/libraries.json`, chave `substitui`;
+  `native_sdk/io/common_patch.dart:49-59` só reúne os `part` originais).
 
 Classificação usada abaixo:
 
@@ -63,12 +63,12 @@ Natives: `FileSystemWatcher_CloseWatcher`, `_GetSocketId`, `_InitWatcher`,
 * Estado: **implementado no Linux e no Windows** (Linux: inotify, como a
   VM, `crates/runtime/src/io_observador.rs`, o descritor vai ao laço de
   eventos como soquete interno pelo `_NativeSocket.watch` do patch;
-  `corpus/nativo/34_observar_arquivos.dart`. Windows: `ReadDirectoryChangesW`
+  `corpus/native/34_observar_arquivos.dart`. Windows: `ReadDirectoryChangesW`
   na porta de conclusão, como `file_system_watcher_win.cc` — cada caminho é
   um manipulador de diretório do laço de eventos (`DirectoryWatchHandle`,
   `io_windows_eventos.rs`) com a leitura já emitida, filtro de nomes e de
   escrita, recursivo, falha de emissão silenciosa como na VM;
-  `corpus/nativo/38_observar_arquivos_windows.dart`, comparado com a VM do
+  `corpus/native/38_observar_arquivos_windows.dart`, comparado com a VM do
   Windows no Pesado). No macOS (FSEvents) falta: `isWatchSupported` é
   falso e `watch()` lança a `FileSystemException` "not supported" do patch.
 
@@ -86,7 +86,7 @@ Natives: `Socket_JoinMulticast`, `Socket_LeaveMulticast` (`nativos.rs:612-613`).
 * Estado: **implementado** (`Socket_JoinMulticast`/`LeaveMulticast` em
   `crates/runtime/src/io_soquetes.rs`: `MCAST_JOIN_GROUP`/`MCAST_LEAVE_GROUP`
   no Linux, `IP_ADD_MEMBERSHIP`/`IPV6_JOIN_GROUP` nos outros);
-  `corpus/nativo/31_udp_multicast.dart`.
+  `corpus/native/31_udp_multicast.dart`.
 
 ### 1.3 `dart:io` — mensagens de controle e `ResourceHandle` (Unix domain sockets)
 
@@ -111,8 +111,8 @@ Natives: `Socket_ReceiveMessage`, `Socket_SendMessage` (`nativos.rs:615`,
   handle de volta e trafegá-lo pelo socket.
 * Estado: **implementado** no Unix (`sendmsg`/`recvmsg` com `SCM_RIGHTS`,
   `crates/runtime/src/io_soquetes_unix.rs`; os objetos Dart pelos ajudantes
-  `_dartforge*` de `sdk_nativo/io/common_patch.dart`);
-  `corpus/nativo/33_mensagens_de_controle.dart`. Como na VM,
+  `_dartforge*` de `native_sdk/io/common_patch.dart`);
+  `corpus/native/33_mensagens_de_controle.dart`. Como na VM,
   `ResourceHandle.toSocket`/`toRawDatagramSocket` não são suportados (o
   native da VM devolve um `UnsupportedError`, que o retorno tipado vira
   `TypeError`; aqui a `UnsupportedError` é lançada) e o Windows não passa
@@ -129,7 +129,7 @@ Natives: os 11 `SynchronousSocket_*` (`nativos.rs:649-659`).
   `RawSynchronousSocket` (só os patches de JS/Wasm, que lançam).
 * Estado: **implementado** (`SynchronousSocket_*` em
   `crates/runtime/src/io_soquetes.rs`, sobre `std::net::TcpStream`);
-  `corpus/nativo/32_soquete_sincrono.dart`.
+  `corpus/native/32_soquete_sincrono.dart`.
 
 ### 1.5 `dart:developer` — `NativeRuntime.writeHeapSnapshotToFile`
 
@@ -150,14 +150,14 @@ Native: `Developer_NativeRuntime_writeHeapSnapshotToFile` (`nativos.rs:287`).
   (`FinalizerEntry.allocate`), chamado na VM só por
   `_internal/vm/lib/finalizer_patch.dart:49` e
   `_internal/vm/lib/ffi_native_finalizer_patch.dart:56`.
-* Os dois arquivos são substituídos (`sdk_nativo/libraries.json`) por
-  `sdk_nativo/core/finalizer_patch.dart` e
-  `sdk_nativo/ffi/ffi_native_finalizer_patch.dart`, que guardam o anexo no
+* Os dois arquivos são substituídos (`native_sdk/libraries.json`) por
+  `native_sdk/core/finalizer_patch.dart` e
+  `native_sdk/ffi/ffi_native_finalizer_patch.dart`, que guardam o anexo no
   coletor do runtime (`crates/runtime/src/finalizadores.rs`); nenhum deles
   chama `FinalizerEntry.allocate` (só o citam no comentário de cabeçalho).
   `internal_patch.dart` não é substituído, por isso a declaração continua na
   tabela.
-* Teste: `corpus/nativo/14_finalizadores.dart`.
+* Teste: `corpus/native/14_finalizadores.dart`.
 
 ### 2.2 `dart:ffi` — callbacks nativos
 
@@ -165,7 +165,7 @@ Natives: `Ffi_nativeCallbackFunction`, `Ffi_nativeAsyncCallbackFunction`,
 `Ffi_createNativeCallableListener`, `Ffi_createNativeCallableIsolateLocal`,
 `Ffi_nativeIsolateLocalCallbackFunction` (`nativos.rs:335-336`, `343-345`).
 
-* Sítios na sobreposição: `sdk_nativo/ffi/ffi_patch.dart:188-204` e `282-285`
+* Sítios na sobreposição: `native_sdk/ffi/ffi_patch.dart:188-204` e `282-285`
   (declarações mantidas, sem chamador).
 * APIs públicas: `Pointer.fromFunction`, `NativeCallable.isolateLocal`,
   `NativeCallable.listener`. Na VM o front-end reescreve essas chamadas
@@ -173,12 +173,12 @@ Natives: `Ffi_nativeCallbackFunction`, `Ffi_nativeAsyncCallbackFunction`,
   `_dartforgeFromFunction`, `_dartforgeCallableLocal`,
   `_dartforgeCallableListener` da sobreposição
   (`crates/emit_native/src/lower/ffi.rs:390-409`;
-  `sdk_nativo/ffi/ffi_patch.dart:214-280`), que usam os natives
+  `native_sdk/ffi/ffi_patch.dart:214-280`), que usam os natives
   `DartForge_ffi_callback_*` do runtime (`crates/runtime/src/ffi_callbacks.rs`).
   Chamada dinâmica ou por tear-off de `Pointer.fromFunction` lança
-  `UnsupportedError` também na VM (`sdk_nativo/ffi/ffi_patch.dart:298-309`,
+  `UnsupportedError` também na VM (`native_sdk/ffi/ffi_patch.dart:298-309`,
   `ffi/ffi.dart:329-333`, `401-404`).
-* Teste: `corpus/nativo/13_ffi_callbacks.dart`.
+* Teste: `corpus/native/13_ffi_callbacks.dart`.
 * Estado: **servido por sobreposição + lowering** (tabela: sobreposição).
 
 ## 3. Servido pelo lowering
@@ -191,7 +191,7 @@ Natives: `Bool_fromEnvironment`, `Bool_hasEnvironment`,
 
 * Sítios: `_internal/vm_shared/lib/bool_patch.dart:13-19`,
   `_internal/vm_shared/lib/integers_patch.dart:15-16`,
-  `sdk_nativo/core/string_patch.dart:50`.
+  `native_sdk/core/string_patch.dart:50`.
 * O lowering intercepta toda criação pelas factories `const external` de
   ambiente e nunca chama o native
   (`crates/emit_native/src/lower/membros.rs:1376-1407`): `hasEnvironment` é
@@ -204,13 +204,13 @@ Natives: `Bool_fromEnvironment`, `Bool_hasEnvironment`,
 
 ### 3.2 `@Native` — `Ffi_GetFfiNativeResolver`
 
-* Sítio: `sdk_nativo/ffi/ffi_patch.dart:1623-1637` (`Native._get_ffi_native_resolver`,
+* Sítio: `native_sdk/ffi/ffi_patch.dart:1623-1637` (`Native._get_ffi_native_resolver`,
   usado só pelo `_ffi_resolver` `vm:entry-point`).
 * O `external` com `@Native` é baixado por
   `FnBuilder::chamar_native_anotado` (`crates/emit_native/src/lower/ffi.rs:1283-1284`),
   que resolve o símbolo pelo runtime (`crates/runtime/src/ffi.rs:746-748`).
-* Teste: `corpus/nativo/19_ffi_native_variaveis.dart`,
-  `corpus/nativo/15_ffi_api_nativa.dart`.
+* Teste: `corpus/native/19_ffi_native_variaveis.dart`,
+  `corpus/native/15_ffi_api_nativa.dart`.
 
 ### 3.3 `assert`
 
@@ -223,7 +223,7 @@ Natives: `AssertionError_throwNew`, `AssertionError_throwNewSource`
   (`crates/emit_native/src/lower/comandos.rs:9-43`), que cria o erro por
   `dartforge_assertion_error_new` (`crates/runtime/src/excecoes.rs:429-437`)
   com o ajudante `_dartforgeErroDeAssercao` da sobreposição
-  (`sdk_nativo/core/identical_patch.dart:25`).
+  (`native_sdk/core/identical_patch.dart:25`).
 * Diferença conhecida: o texto é o de `AssertionError(m)`, sem a URL, a
   linha e o trecho da asserção que `_throwNew` extrai do script na VM.
 
@@ -251,7 +251,7 @@ Natives: `LibraryPrefix_isLoaded`, `_issueLoad`, `_loadingUnit`, `_setLoaded`
   `import … deferred as p`.
 * O lowering troca `p.loadLibrary()` por `_dartforgeCarregarBiblioteca`, um
   `Future` já completo (`crates/emit_native/src/lower/chamadas.rs:225-234`;
-  `sdk_nativo/async/async_patch.dart:97`): o programa compilado já contém a
+  `native_sdk/async/async_patch.dart:97`): o programa compilado já contém a
   biblioteca. Não há `_checkLoaded` antes de `loadLibrary`.
 
 ### 3.6 Testes de tipo e erros de tipo da VM
@@ -265,7 +265,7 @@ Natives: `Object_instanceOf`, `Object_simpleInstanceOf` (`nativos.rs:549`,
 * `is`/`as` são baixados pela RTI do nativo (`crates/emit_native/src/lower/rti.rs`),
   e a falha cria o `_TypeError` da fonte por
   `dartforge_type_error_com_mensagem` (`crates/runtime/src/tipos.rs:1121-1130`;
-  ajudante `_dartforgeErroDeTipo`, `sdk_nativo/core/identical_patch.dart:21`).
+  ajudante `_dartforgeErroDeTipo`, `native_sdk/core/identical_patch.dart:21`).
 
 ## 4. Inalcançáveis
 
@@ -281,7 +281,7 @@ pelo compilador/runtime da VM):
 | `Internal_nativeEffect` | `internal_patch.dart:160-164` | inserido pelo transformador de FFI da VM; sem chamador no SDK |
 | `Internal_prependTypeArguments`, `Internal_boundsCheckForPartialInstantiation` | `internal_patch.dart:135-148` | `vm:entry-point` das closures genéricas da VM; o nativo tem as suas (`lower/closures.rs`) |
 | `InvocationMirror_unpackTypeArguments` | `_internal/vm/lib/invocation_mirror_patch.dart:106-109` | só via `_InvocationMirror`/`NoSuchMethodError._withType`, criados pela VM; o nativo monta `Invocation` no runtime pelo `_dartforgeNoSuchMethod` (`seletores.rs`) e tem `NoSuchMethodError` próprio (id 1012, `lower/mod.rs:205`) |
-| `Isolate_registerKernelBlob`, `Isolate_unregisterKernelBlob` | `sdk_nativo/isolate/isolate_patch.dart:701-717` | `createUriForKernelBlob`/`unregisterKernelBlobUri` são membros injetados pelo patch, ausentes de `isolate/isolate.dart`; recebem kernel, que o nativo não executa |
+| `Isolate_registerKernelBlob`, `Isolate_unregisterKernelBlob` | `native_sdk/isolate/isolate_patch.dart:701-717` | `createUriForKernelBlob`/`unregisterKernelBlobUri` são membros injetados pelo patch, ausentes de `isolate/isolate.dart`; recebem kernel, que o nativo não executa |
 
 Ressalva: `dart:_internal` é privada da plataforma (a VM recusa
 `import 'dart:_internal'` em código de usuário). O DartForge ainda **não
@@ -299,17 +299,17 @@ lança `UnsupportedError`. Para programas válidos, são inalcançáveis.
 | `RawSocket.readMessage`/`sendMessage`, `SocketControlMessage.fromHandles`/`extractHandles`, `ResourceHandle.to*` | `Socket_ReceiveMessage`, `Socket_SendMessage`, 2 `SocketControlMessage*`, 4 `ResourceHandleImpl_*` | implementado (Unix) | `socket_patch.dart:1155-1165`, `1295-1316`, `1744-1757`, `2740-2833` |
 | `RawSynchronousSocket` | 11 `SynchronousSocket_*` | implementado | `sync_socket_patch.dart:303-323` |
 | `NativeRuntime.writeHeapSnapshotToFile` (`dart:developer`) | `Developer_NativeRuntime_writeHeapSnapshotToFile` | ausente | `_internal/vm/lib/developer.dart:193-195` |
-| `Finalizer`, `NativeFinalizer` | `FinalizerEntry_allocate` | servido por sobreposição | `sdk_nativo/core/finalizer_patch.dart`, `sdk_nativo/ffi/ffi_native_finalizer_patch.dart`; `corpus/nativo/14_finalizadores.dart` |
-| `Pointer.fromFunction`, `NativeCallable.isolateLocal`/`listener` | 5 `Ffi_*Callback*`/`Ffi_createNativeCallable*` | servido por sobreposição (com redirecionamento no lowering) | `lower/ffi.rs:390-409`; `sdk_nativo/ffi/ffi_patch.dart:214-280`; `corpus/nativo/13_ffi_callbacks.dart` |
+| `Finalizer`, `NativeFinalizer` | `FinalizerEntry_allocate` | servido por sobreposição | `native_sdk/core/finalizer_patch.dart`, `native_sdk/ffi/ffi_native_finalizer_patch.dart`; `corpus/native/14_finalizadores.dart` |
+| `Pointer.fromFunction`, `NativeCallable.isolateLocal`/`listener` | 5 `Ffi_*Callback*`/`Ffi_createNativeCallable*` | servido por sobreposição (com redirecionamento no lowering) | `lower/ffi.rs:390-409`; `native_sdk/ffi/ffi_patch.dart:214-280`; `corpus/native/13_ffi_callbacks.dart` |
 | `bool/int/String.fromEnvironment`, `bool.hasEnvironment` | `Bool_fromEnvironment`, `Bool_hasEnvironment`, `Integer_fromEnvironment`, `String_fromEnvironment` | servido pelo lowering (sem `-D`) | `lower/membros.rs:1376-1407` |
-| `external` com `@Native` | `Ffi_GetFfiNativeResolver` | servido pelo lowering | `lower/ffi.rs:1283-1284`; `runtime/src/ffi.rs:746-748`; `corpus/nativo/19_ffi_native_variaveis.dart` |
+| `external` com `@Native` | `Ffi_GetFfiNativeResolver` | servido pelo lowering | `lower/ffi.rs:1283-1284`; `runtime/src/ffi.rs:746-748`; `corpus/native/19_ffi_native_variaveis.dart` |
 | `assert` | `AssertionError_throwNew`, `AssertionError_throwNewSource` | servido pelo lowering (texto sem URL/linha) | `lower/comandos.rs:9-43`; `runtime/src/excecoes.rs:429-437` |
 | `Type` (`runtimeType`, literais de tipo, `==`, `toString`) | 3 `AbstractType_*`, `Type_equality` | servido pelo lowering | `lower/rti.rs:1052-1090`; `runtime/src/tipos.rs:1086-1110` |
-| `import … deferred as p` / `p.loadLibrary()` | 4 `LibraryPrefix_*` | servido pelo lowering | `lower/chamadas.rs:225-234`; `sdk_nativo/async/async_patch.dart:97` |
+| `import … deferred as p` / `p.loadLibrary()` | 4 `LibraryPrefix_*` | servido pelo lowering | `lower/chamadas.rs:225-234`; `native_sdk/async/async_patch.dart:97` |
 | `is`/`as` e `TypeError` | `Object_instanceOf`, `Object_simpleInstanceOf`, `TypeError_throwNew` | servido pelo lowering | `lower/rti.rs`; `runtime/src/tipos.rs:1121-1130` |
 | `VMInternalsForTesting`, `extractTypeArguments`, `intern`, `loadDynamicModule`, `_nativeEffect` (`dart:_internal`) | 7 `Internal_*`, `StringBase_intern` | inalcançável | `_internal/vm/lib/internal_patch.dart` (§4) |
 | closures genéricas da VM, `_InvocationMirror` | `Internal_prependTypeArguments`, `Internal_boundsCheckForPartialInstantiation`, `InvocationMirror_unpackTypeArguments` | inalcançável | §4 |
-| `Isolate.createUriForKernelBlob` (membro injetado) | `Isolate_registerKernelBlob`, `Isolate_unregisterKernelBlob` | inalcançável | `sdk_nativo/isolate/isolate_patch.dart:701-717` |
+| `Isolate.createUriForKernelBlob` (membro injetado) | `Isolate_registerKernelBlob`, `Isolate_unregisterKernelBlob` | inalcançável | `native_sdk/isolate/isolate_patch.dart:701-717` |
 
 Contagem dos 66 pendentes do levantamento:
 
@@ -339,7 +339,7 @@ Para refazer a lista de pendentes e os sítios:
 grep -o 'pendente("[A-Za-z_]*")' crates/emit_native/src/nativos.rs | wc -l
 for n in $(grep -o 'pendente("[A-Za-z_]*")' crates/emit_native/src/nativos.rs \
            | sed 's/pendente("\(.*\)")/\1/'); do
-  echo "== $n"; grep -rn --include='*.dart' "['\"]$n['\"]" "$SDK/lib" sdk_nativo
+  echo "== $n"; grep -rn --include='*.dart' "['\"]$n['\"]" "$SDK/lib" native_sdk
 done
 ```
 

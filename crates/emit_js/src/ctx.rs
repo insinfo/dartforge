@@ -2017,7 +2017,7 @@ impl<'a> Ctx<'a> {
     /// No modo SDK a receita é um id curto (`|a`, `|bK`,
     /// `docs/JS-PRODUCAO-TAMANHO.md` §9.5): o `|` inicial é identificador
     /// para o *parser* de receitas (`Recipe.isIdentifierStart`) e marca a
-    /// receita para o verificador e as regras (`emit_js_producao::regras`); o
+    /// receita para o verificador e as regras (`emit_js_production::regras`); o
     /// nome que o `_rtiToString` mostra vem da tabela que o perfil de produção
     /// põe no `unmangleGlobalNameIfPreservedAnyways`.
     pub fn class_recipe(&self, c: ClassId) -> String {

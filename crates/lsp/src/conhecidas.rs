@@ -336,7 +336,7 @@ fn fora_de_lib_bin_web(arquivo: &Path, raiz: &Path) -> bool {
 fn dependencias(raiz: &Path, dev: bool) -> BTreeSet<String> {
     let mut v = BTreeSet::new();
     let Ok(texto) = std::fs::read_to_string(raiz.join("pubspec.yaml")) else { return v };
-    let Ok(Some(r)) = dartforge_analise::naodart::yaml::ler(&texto) else { return v };
+    let Ok(Some(r)) = dartforge_analysis::naodart::yaml::ler(&texto) else { return v };
     let mut chaves = vec!["dependencies"];
     if dev {
         chaves.push("dev_dependencies");

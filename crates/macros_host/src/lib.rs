@@ -14,7 +14,7 @@
 //! * [`cache`] — o cache de expansões: uma aplicação cujo pedido e cujas
 //!   consultas respondem igual é reaproveitada sem falar com o executor;
 //! * [`vm`] — o executor de **materialização**: a mesma API de macros (Dart
-//!   puro, `pacotes/macros`) numa VM Dart, para gravar a augmentation que o
+//!   puro, `packages/macros`) numa VM Dart, para gravar a augmentation que o
 //!   SDK oficial aceita com a flag experimental
 //!   (docs/MACROS-COMPATIBILIDADE.md). O JS o usa provisoriamente até o
 //!   executor nativo estar pronto.

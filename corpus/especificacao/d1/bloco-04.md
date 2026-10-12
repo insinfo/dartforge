@@ -267,7 +267,7 @@ existem** no disco (foram revertidas no commit `fa8cfa96`).
   `assert` a mensagem "não avalia" e a falha sai como `CONST_EVAL_ASSERTION_FAILURE` sem mensagem.
 - **No DartForge:** não existe (nenhuma ocorrência de `CONST_CONSTRUCTOR_THROWS_EXCEPTION` fora de
   `crates/diagnostics/src/codigos_g.rs` e da lista de `verificador.rs`). FN
-  `ConstEvalThrowsException__assertInitial_5db8e50b.dart:2:36`. Lugar: verificador de erros (`crates/analise`),
+  `ConstEvalThrowsException__assertInitial_5db8e50b.dart:2:36`. Lugar: verificador de erros (`crates/analysis`),
   com o construtor const envolvente.
 - **Exemplos (oráculo vivo 3.6.2):**
   ```dart

@@ -30,7 +30,7 @@ Os exemplos marcados **(oráculo)** estão na saída real do compilador em
 `corpus/ngdart/oraculo/*.template.dart` (o arquivo é citado). Os marcados **(derivado)**
 foram deduzidos só do código, sem caso do corpus que os confirme.
 
-Porte Rust: `crates/gerador_ng/src/diretivas.rs` (`D`) e `crates/gerador_ng/src/visao.rs`
+Porte Rust: `crates/ng_generator/src/diretivas.rs` (`D`) e `crates/ng_generator/src/visao.rs`
 (`V`). Os números de linha do porte são aproximados (os arquivos mudam); a função é a
 referência.
 

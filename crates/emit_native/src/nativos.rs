@@ -180,7 +180,7 @@ const fn pendente(nome: &'static str) -> Nativo {
     Nativo { nome, estado: Estado::Pendente, efeitos: CONSERVADOR }
 }
 
-/// Todo native das bibliotecas da fonte com a sobreposição `sdk_nativo/`,
+/// Todo native das bibliotecas da fonte com a sobreposição `native_sdk/`,
 /// em ordem de bytes (a de `str`, que a busca binária usa). Os `DartForge_*` são os da sobreposição.
 pub const NATIVOS: &[Nativo] = &[
     pendente("AbstractType_equality"),

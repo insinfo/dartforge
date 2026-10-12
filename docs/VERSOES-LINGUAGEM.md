@@ -36,7 +36,7 @@ qualquer `@Since` 3.7+. A API SIMD do Dart 3.14 (`Int32x4.lessThan`, `<<`,
 `allTrue`, …) entra por outro caminho, sem mexer no SDK nem na versão de
 linguagem: uma **extensão comum** de Dart 3.6 com as assinaturas exatas do
 3.14 e os corpos do `typed_data_patch.dart` da VM
-(`pacotes/dartforge_simd/lib/int32x4_3_14.dart`, marcada com
+(`packages/dartforge_simd/lib/int32x4_3_14.dart`, marcada com
 `@pragma('dartforge:simd-api', '3.14')`), que o backend nativo reconhece
 pelo pragma e compila em instruções vetoriais. O programa que a importa roda
 igual na VM 3.6.2 (o oráculo executa os corpos em Dart) e num SDK 3.14 (os
@@ -319,7 +319,7 @@ corrigido lá e vale este.
 
 ## 5. Harness, corpus e CI
 
-* `crates/diferencial`: **dois SDKs de oráculo**, `DARTFORGE_DART_SDK` (o
+* `crates/differential`: **dois SDKs de oráculo**, `DARTFORGE_DART_SDK` (o
   piso, 3.6.2) e `DARTFORGE_DART_SDK_3_13` (padrão
   `E:/DartSDKs/3.13.4/dart-sdk`). Cada SDK tem o seu `dart`, o seu
   `dartdevc` e o **seu** `dart_sdk.js` (`runtime/ddc/dart_sdk.js` e
@@ -337,7 +337,7 @@ corrigido lá e vale este.
   `PENDENTES` no diretório do corpus lista o que ainda falha por recurso não
   implementado: pendente que falha não reprova; pendente que passa reprova
   (a lista só encolhe).
-* Placar do analyzer (`crates/paridade`, `corpus/diagnosticos`): os grupos
+* Placar do analyzer (`crates/parity`, `corpus/diagnosticos`): os grupos
   `analyzer` e `linguagem` são bibliotecas 3.6 com oráculo 3.6.2, exceto os
   arquivos listados em `corpus/diagnosticos/sintaxe-nova.json`, gravados
   pelo **3.13.4 sobre o mesmo pacote 3.6**. São os que usam sintaxe que o
@@ -345,7 +345,7 @@ corrigido lá e vale este.
   privados): o 3.6.2 responde com cascata de sintaxe, o 3.13.4 com
   `experiment_not_enabled` e segue analisando — o comportamento de uma
   ferramenta cuja versão corrente é a 3.13 (D2). A lista é escolhida pelo
-  próprio oráculo (`dartforge-paridade sintaxe-nova`), não pelo nosso
+  próprio oráculo (`dartforge-parity sintaxe-nova`), não pelo nosso
   parser, e o `oraculo` a respeita ao regravar. `augment` fica de fora: sem
   o experimento, os dois SDKs o tratam como identificador.
 * CI (`.github/workflows/pesado.yml`): a ação `.github/actions/dart` instala

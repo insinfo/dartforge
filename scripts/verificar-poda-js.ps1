@@ -19,7 +19,7 @@ if (-not $Jsprod) {
   $alvo = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $raiz "target" }
   $Jsprod = Join-Path $alvo "release/dartforge-jsprod.exe"
 }
-if (-not (Test-Path $Jsprod)) { throw "compile antes: cargo build --release -p dartforge-emit-js-producao" }
+if (-not (Test-Path $Jsprod)) { throw "compile antes: cargo build --release -p dartforge-emit-js-production" }
 $trabalho = Join-Path $raiz "target/verificar-poda"
 New-Item -ItemType Directory -Force $trabalho | Out-Null
 

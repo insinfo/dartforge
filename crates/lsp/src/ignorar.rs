@@ -8,7 +8,7 @@
 
 use crate::acoes::AcaoDeCodigo;
 use crate::Edicao;
-use dartforge_analise::naodart::yaml::{self, No, Valor};
+use dartforge_analysis::naodart::yaml::{self, No, Valor};
 use dartforge_diagnostics::{Diagnostic, Span};
 use std::path::{Path, PathBuf};
 use url::Url;
@@ -44,11 +44,11 @@ fn comeca_com_ignore(linha: &str) -> bool {
 
 /// As opções aplicáveis ao arquivo e o caminho do `analysis_options.yaml`
 /// (`analysisOptions.file`), quando existe.
-pub(crate) fn opcoes_do_arquivo(caminho: &Path) -> (dartforge_paridade::filtros::Opcoes, Option<PathBuf>) {
+pub(crate) fn opcoes_do_arquivo(caminho: &Path) -> (dartforge_parity::filtros::Opcoes, Option<PathBuf>) {
     let raiz = crate::projeto::raiz_do_projeto(caminho);
-    let arquivo = dartforge_paridade::filtros::Opcoes::de_subpasta(caminho, &raiz).unwrap_or_else(|| raiz.join("analysis_options.yaml"));
+    let arquivo = dartforge_parity::filtros::Opcoes::de_subpasta(caminho, &raiz).unwrap_or_else(|| raiz.join("analysis_options.yaml"));
     let existe = arquivo.is_file();
-    (dartforge_paridade::filtros::Opcoes::ler_arquivo(&arquivo), existe.then_some(arquivo))
+    (dartforge_parity::filtros::Opcoes::ler_arquivo(&arquivo), existe.then_some(arquivo))
 }
 
 /// Os três fixes de cada diagnóstico `HintCode`/`WarningCode` das linhas
@@ -58,7 +58,7 @@ pub(crate) fn ignorar(uri: &str, texto: &str, diagnosticos: &[Diagnostic], inici
     let caminho = crate::projeto::arquivo_da_uri(uri);
     let (opcoes, arquivo_de_opcoes) = match caminho.as_deref() {
         Some(c) => opcoes_do_arquivo(c),
-        None => (dartforge_paridade::filtros::Opcoes::default(), None),
+        None => (dartforge_parity::filtros::Opcoes::default(), None),
     };
     let tx = crate::refatoracoes_exec::Texto::novo(texto);
     let eol = tx.eol();

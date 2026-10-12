@@ -248,7 +248,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
              tabela de endereços que o executável leva; §13.14)
   --emit-ir  grava o LLVM IR em -o, sem Clang nem ligação
   --resumo   imprime `<hash de 32 dígitos>  <bytes>` do LLVM IR (o mesmo resumo
-             do `dartforge-diferencial determinismo --nativo`), sem Clang";
+             do `dartforge-differential determinismo --nativo`), sem Clang";
     let mut input: Option<PathBuf> = None;
     let mut out: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;

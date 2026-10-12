@@ -1,7 +1,7 @@
 //! Os testes dirigidos das raízes por mapas de pilha
 //! (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.3, §7.5 e §14.7).
 //!
-//! Cada caso é um programa de `corpus/nativo/gc_*` (que o diferencial também
+//! Cada caso é um programa de `corpus/native/gc_*` (que o diferencial também
 //! roda contra a VM) com a saída calculada à mão. Ele é compilado com
 //! `--raizes=mapas` e rodado com `--gc-stress`, o veneno com quarentena e a
 //! prova de que coletou (`DARTFORGE_GC_STATS=exigir`: sem coleta, ou sem
@@ -197,7 +197,7 @@ fn ligado() -> bool {
 }
 
 fn fonte(arquivo: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/nativo").join(arquivo)
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/native").join(arquivo)
 }
 
 /// Os executáveis e SDKs de teste saem também quando uma asserção falha.

@@ -15,7 +15,7 @@ use super::membros::Avaliado;
 use crate::hir::*;
 use dartforge_diagnostics::Span;
 
-use crate::otimizar::arc::ERROS_COM_VARIANTE_ARC;
+use crate::optimize::arc::ERROS_COM_VARIANTE_ARC;
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Os argumentos casados com os parâmetros do outline de `fid`, pelo
@@ -61,7 +61,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         // Sob ARC o valor do par (bits, é-referência) vai como `Ref` (a
         // marca fica 1) e a pendência é conferida: a preparação troca pela
-        // variante Owned (`otimizar::arc::nativos`), que roda Dart.
+        // variante Owned (`optimize::arc::nativos`), que roda Dart.
         if matches!(base, "exception_new" | "assertion_error_new" | "argument_error_value") {
             let valor = self.coagir(args[0].0.clone(), Type::Ref);
             args[0].0 = valor;

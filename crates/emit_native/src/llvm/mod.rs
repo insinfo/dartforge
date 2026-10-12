@@ -194,7 +194,7 @@ pub struct LlvmEmitter<'a> {
     #[allow(dead_code)]
     tipados: tipados_ir::EstadoDeTipados,
     /// Exceções por tabelas (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13):
-    /// a decisão do passe `otimizar::tabelas` para a função em emissão —
+    /// a decisão do passe `optimize::tabelas` para a função em emissão —
     /// quem é `invoke`, os pousos e como cada `Return` sai. `None` no modelo
     /// de sempre (a pendência conferida depois de cada chamada), e o IR é
     /// então o de sempre, byte a byte.
@@ -859,7 +859,7 @@ impl<'a> LlvmEmitter<'a> {
         let tem_cleanup = tem_retoma || (cfg!(unix) && tab.is_some_and(|t| t.cleanup_estrangeiro.is_some()));
         assert!(!tem_cleanup || !self.mapas, "Retoma não admite landingpad token de statepoint");
         if tem_retoma {
-            crate::otimizar::arc::conferir_retomas(func, tab.unwrap()).expect("Retoma inválida");
+            crate::optimize::arc::conferir_retomas(func, tab.unwrap()).expect("Retoma inválida");
         }
         let personalidade = if tem_cleanup { " personality ptr @dartforge_personalidade_cleanup_itanium" }
             else if tem_pouso { " personality ptr @dartforge_personalidade" } else { "" };
@@ -1532,10 +1532,10 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  %v{v} = call i64 @{name}_t({}, ptr @{f})", resto.join(", ")).unwrap();
                         let _ = ret_ty;
                     }
-                    // O mesmo pelo thunk Owned genérico (`otimizar::arc::nativos`):
+                    // O mesmo pelo thunk Owned genérico (`optimize::arc::nativos`):
                     // o thunk da variante `_t`, que registra a tabela.
                     Instruction::CallRuntime { name, args, ret_ty }
-                        if name.strip_prefix(crate::otimizar::arc::PREFIXO_OWNED_GENERICO).is_some_and(|b|
+                        if name.strip_prefix(crate::optimize::arc::PREFIXO_OWNED_GENERICO).is_some_and(|b|
                             matches!(b, "dartforge_typed_novo" | "dartforge_view_nova" | "dartforge_typed_externo"))
                             && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
                                 if self.module.funcoes_de_tabela.contains_key(&(*c as u32))) =>
@@ -1543,8 +1543,8 @@ impl<'a> LlvmEmitter<'a> {
                         let Some((Operand::Constant(Constant::Int(c)), _)) = args.first() else { unreachable!() };
                         let f = self.module.funcoes_de_tabela[&(*c as u32)].clone();
                         self.anotar_externo(&f, Type::Ptr, &[]);
-                        let base = format!("{}_t", &name[crate::otimizar::arc::PREFIXO_OWNED_GENERICO.len()..]);
-                        let thunk = format!("{}{base}", crate::otimizar::arc::PREFIXO_OWNED_GENERICO);
+                        let base = format!("{}_t", &name[crate::optimize::arc::PREFIXO_OWNED_GENERICO.len()..]);
+                        let thunk = format!("{}{base}", crate::optimize::arc::PREFIXO_OWNED_GENERICO);
                         let mut tipos: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
                         tipos.push(Type::Ptr);
                         self.thunks_owned.insert(thunk.clone(), (base, tipos));
@@ -1624,14 +1624,14 @@ impl<'a> LlvmEmitter<'a> {
                         {
                             self.anotar_externo(codigo, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
                         }
-                        if let Some(base) = name.strip_prefix(crate::otimizar::arc::PREFIXO_OWNED_GENERICO) {
+                        if let Some(base) = name.strip_prefix(crate::optimize::arc::PREFIXO_OWNED_GENERICO) {
                             let tipos: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
                             if base.starts_with("dartforge_nativo_") {
                                 self.anotar_externo(base, Type::Ref, &tipos);
                             }
                             self.thunks_owned.insert(name.clone(), (base.to_string(), tipos));
                         }
-                        if let Some(base) = name.strip_prefix(crate::otimizar::arc::PREFIXO_ESCOPO_NATIVO) {
+                        if let Some(base) = name.strip_prefix(crate::optimize::arc::PREFIXO_ESCOPO_NATIVO) {
                             let tipos: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
                             if base.starts_with("dartforge_nativo_") {
                                 self.anotar_externo(base, *ret_ty, &tipos);
@@ -1996,7 +1996,7 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  br label %b{}", target.0).unwrap();
                 }
                 // O desvio ao pouso é o do `invoke` deste bloco
-                // (`otimizar/tabelas.rs`): aqui só segue a continuação.
+                // (`optimize/tabelas.rs`): aqui só segue a continuação.
                 Terminator::CondBranch { then_block, else_block, .. } if tab.is_some_and(|t| t.pousos.contains(then_block)) => {
                     writeln!(self.out, "  br label %b{}", else_block.0).unwrap();
                 }
@@ -4079,7 +4079,7 @@ const FOLHAS_DO_MAPA: &[&str] = &[
 /// padrão). Ela tira ~8% das gravações de raiz do new_sali/backend, mas
 /// muda a coloração dos slots: um slot compartilhado guarda o último valor
 /// até ser reusado ou o quadro fechar, e com menos valores enraizados o
-/// valor morto fica mais tempo — o núcleo `json` do `bench/comparativo`
+/// valor morto fica mais tempo — o núcleo `json` do `bench/comparison`
 /// terminava com 1,05 milhão de objetos vivos em vez de 650 mil (pico de
 /// 121 contra 95 MB). Falta zerar o slot do valor que morre antes de ligar.
 fn raizes_no_chamado() -> bool {
@@ -4423,7 +4423,7 @@ pub const AJUDANTES_FORA_DO_PROGRAMA_GRANDE: &[&str] =
 /// o ajudante em cada uso e a geração de código paga por cada cópia:
 /// `desenvolvimento_grande`) e na produção (`programa_grande`), e nenhum
 /// nos demais — o programa pequeno roda o dobro do tempo no `-O0` sem os
-/// ajudantes em linha (o corpus/nativo: 53 → 116 s).
+/// ajudantes em linha (o corpus/native: 53 → 116 s).
 pub fn ajudantes_fora_de_linha(desenvolvimento_grande: bool, programa_grande: bool) -> Vec<String> {
     let todos = || ["seletor", "classe"].iter().chain(AJUDANTES_FORA_DO_PROGRAMA_GRANDE).map(|s| (*s).to_string()).collect();
     match std::env::var("DARTFORGE_AJUDANTES_FORA") {

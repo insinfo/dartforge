@@ -1,7 +1,7 @@
 # O gerador do ngdart — modelo e plano
 
 Este documento é o que se tem de saber antes de mexer em
-`crates/gerador_ng`. Ele guarda as **regras do compilador oficial** que
+`crates/ng_generator`. Ele guarda as **regras do compilador oficial** que
 governam a saída, derivadas da leitura do `ngcompiler` e conferidas contra
 a saída dele no corpus. Sem elas, a comparação byte a byte não fecha e o
 trabalho vira tentativa e erro.

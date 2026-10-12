@@ -36,7 +36,7 @@ Nada aqui foi conferido executando o compilador: todos os exemplos são **(deriv
 Raízes: `ngast` = `/root/.pub-cache/hosted/pub.dev/ngast-3.0.0-dev.2/`, `ngcompiler` =
 `/root/.pub-cache/hosted/pub.dev/ngcompiler-3.0.0-dev.3/`.
 
-Porte Rust (`crates/gerador_ng/src/`): `html.rs` (`H`), `micro.rs` (`M`), `seletor.rs`
+Porte Rust (`crates/ng_generator/src/`): `html.rs` (`H`), `micro.rs` (`M`), `seletor.rs`
 (`S`), `entidades.rs` (`E`), `dom.rs` (`D`), `visao.rs` (`V`), `componente.rs` (`C`). Como
 `visao.rs` está em edição, as citações dele são por **nome de função**; as de `html.rs`,
 `micro.rs` e `seletor.rs` também trazem a linha.

@@ -796,7 +796,7 @@ pub struct DepuracaoDaFuncao {
     /// ou o começo de uma closure): a do quadro de uma closure que escuta um
     /// `Future` (`kFutureListenerPcOffset`).
     pub token: (u32, u32),
-    /// As funções copiadas nesta pelo inlining da HIR (`otimizar::inline`),
+    /// As funções copiadas nesta pelo inlining da HIR (`optimize::inline`),
     /// para o rastro mostrar o quadro de cada uma como a VM mostra os quadros
     /// embutidos (`GetInlinedFunctionsAtReturnAddress`).
     pub embutidas: Vec<Embutida>,
@@ -982,7 +982,7 @@ pub enum SaidaPorExcecao {
     Guarda,
 }
 
-/// O que o passe das exceções por tabelas (`otimizar/tabelas.rs`) decidiu
+/// O que o passe das exceções por tabelas (`optimize/tabelas.rs`) decidiu
 /// para uma função: quem é `invoke`, onde pousa e como cada `Return` sai. O
 /// emissor (`llvm/mod.rs`) só lê.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -1001,10 +1001,10 @@ pub struct TabelasDaFuncao {
     /// `f() => f()` estouraria a pilha do sistema.
     pub confere_pilha: bool,
     /// Inventário certificado de owners para cleanup estrangeiro; recalcular após mutações.
-    pub cleanup_estrangeiro: Option<crate::otimizar::arc::CleanupEstrangeiro>,
+    pub cleanup_estrangeiro: Option<crate::optimize::arc::CleanupEstrangeiro>,
     /// Papéis nativos de quadros compartilhados para conferir Retoma/cleanup.
     /// Não substitui o certificado de owners nem prova unwind por si só.
-    pub quadros_compartilhados: Option<crate::otimizar::arc::ContratoQuadrosCompartilhadosCfg>,
+    pub quadros_compartilhados: Option<crate::optimize::arc::ContratoQuadrosCompartilhadosCfg>,
 }
 
 /// Papel semântico dos vetores nativos da ABI de entrada uniforme.
@@ -1028,7 +1028,7 @@ pub struct Module {
     /// Sem isto, as posições que houver são só do rastro simbólico (§13.14).
     pub dwarf: bool,
     /// As exceções do módulo são por tabelas (`--excecoes=tabelas`): o passe
-    /// `otimizar::tabelas` rodou e [`Module::tabelas`] vale. Falso: o modelo
+    /// `optimize::tabelas` rodou e [`Module::tabelas`] vale. Falso: o modelo
     /// de sempre (pendência conferida depois de cada chamada).
     pub excecoes_por_tabelas: bool,
     /// A memória do módulo é ARC (`--memoria=arc`, `alvo::memoria_arc`): a
@@ -1073,7 +1073,7 @@ pub struct Module {
     pub retornos_uniformes_arc: std::collections::HashSet<String>,
     /// Portas de uma imagem AOT fixa, após verificar os corpos e dependências.
     /// Alterações posteriores invalidam o inventário; não certifica recarga JIT.
-    pub portas_arc_aot: Option<crate::otimizar::arc::PortasArcAot>,
+    pub portas_arc_aot: Option<crate::optimize::arc::PortasArcAot>,
     /// A preparação ARC de ownership publicou estes corpos. Sem ela, uma imagem
     /// ARC segue o regime legado (chamadas diretas, fábricas sem owner do
     /// código); com ela, a emissão exige o certificado de portas AOT.
@@ -1095,7 +1095,7 @@ pub struct Module {
     /// Origem nominal pré-otimização das alocações reconhecidas do lowering ARC.
     /// IDs SSA indexam a versão atual; cópias do inliner conservam o sítio de
     /// origem. Contextos especializados e dependências de recarga ainda faltam.
-    pub sitios_arc: std::collections::HashMap<String, std::collections::HashMap<ValueId, crate::otimizar::arc::analise::modelo::SitioArc>>,
+    pub sitios_arc: std::collections::HashMap<String, std::collections::HashMap<ValueId, crate::optimize::arc::analise::modelo::SitioArc>>,
     /// Representações declaradas dos campos por classe/posição, somente no ARC.
     /// Inclui herança, mixins e prefixo de enum; late com inicializador fica Ref.
     /// Não certifica o tipo do receiver, forma física do heap ou versão/pins de recarga.

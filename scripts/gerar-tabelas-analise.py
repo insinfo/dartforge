@@ -9,7 +9,7 @@ AN = r"E:\references\dart-sdk-3.6.2\pkg\analyzer\lib"
 FE = r"E:\references\dart-sdk-3.6.2\pkg\_fe_analyzer_shared\lib"
 LI = r"E:\dftemp\analise\spec-infra\sdk362\pkg\linter\lib\src"
 LINTS = r"C:\Users\pmro\AppData\Local\Pub\Cache\hosted\pub.dev\lints-5.1.1\lib"
-SAIDA = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "crates", "analise", "src")
+SAIDA = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "crates", "analysis", "src")
 
 
 def ler(p):
