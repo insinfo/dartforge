@@ -29,6 +29,10 @@ use std::time::SystemTime;
 /// Orçamento padrão, em MiB de fonte carregada (SDK incluído).
 pub(crate) const ORCAMENTO_PADRAO_MIB: usize = 8;
 
+/// Orçamento padrão da carga ampla das buscas não locais, em MiB de fonte
+/// (o SDK do analyzer tem ~8 MiB; os pacotes do projeto somam o resto).
+pub(crate) const ORCAMENTO_AMPLO_PADRAO_MIB: usize = 48;
+
 /// O que a entrada carregou.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Escopo {
@@ -85,6 +89,17 @@ impl Sessao {
         Self::com_orcamento(mib)
     }
 
+    /// A sessão da carga ampla (o SDK inteiro e os pacotes), com o
+    /// orçamento de `DARTFORGE_LSP_AMPLO_MIB` (padrão
+    /// [`ORCAMENTO_AMPLO_PADRAO_MIB`]; `0` volta a carregar a cada busca).
+    pub(crate) fn ampla() -> Self {
+        let mib = std::env::var("DARTFORGE_LSP_AMPLO_MIB")
+            .ok()
+            .and_then(|v| v.trim().parse::<usize>().ok())
+            .unwrap_or(ORCAMENTO_AMPLO_PADRAO_MIB);
+        Self::com_orcamento(mib)
+    }
+
     /// Sessão com orçamento de `mib` MiB de fonte (`0`: nunca retém).
     pub(crate) fn com_orcamento(mib: usize) -> Self {
         Self {
@@ -129,9 +144,7 @@ impl Sessao {
             if projeto.consulta.trocar_unidade(u, texto, modo).is_none() {
                 return false;
             }
-            if let Ok(mut m) = projeto.nomes_referenciados.lock() {
-                m.remove(&u);
-            }
+            projeto.esquecer_unidade(u);
         }
         let fonte: usize = projeto.programa().units.iter().map(|u| u.source.len()).sum();
         if fonte > self.orcamento {

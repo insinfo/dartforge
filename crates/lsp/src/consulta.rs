@@ -133,8 +133,23 @@ impl Consulta {
         dartforge_elements::incremental::restaurar_unidade(&mut self.programa, anterior);
     }
 
+    /// Infere os corpos de mais `bibliotecas` sobre o esboço e a tabela
+    /// retidos, unidade por unidade (`inferir_corpos`, §16.5: cada corpo sai
+    /// como na inferência completa), sem refazer o esboço nem os corpos já
+    /// inferidos.
+    pub fn inferir_bibliotecas(&mut self, bibliotecas: &[LibraryId]) {
+        for &lib in bibliotecas {
+            let unidades = self.programa.library(lib).units.clone();
+            for u in unidades {
+                let corpos = dartforge_types::corpos_da_unidade(&self.programa, &self.outline, u, true);
+                let r = dartforge_types::inferir_corpos(&self.programa, &self.nomes, &mut self.tabela, &self.core, &mut self.outline, u, &corpos, true, None, true);
+                self.corpos.units[u.0 as usize] = r.tabelas;
+            }
+        }
+    }
+
     /// A mesma consulta sobre o mesmo programa, com os corpos de outras
-    /// bibliotecas (a busca de referências amplia a lista).
+    /// bibliotecas (as cores do Flutter ampliam a lista).
     pub fn reinferir(self, bibliotecas: &[LibraryId]) -> Self {
         let Consulta { programa, nomes, .. } = self;
         Consulta::inferir(programa, nomes, bibliotecas, true, None)

@@ -52,6 +52,35 @@ pub(crate) struct Projeto {
     /// O `referencedNames` de cada unidade já calculado
     /// (`crate::nomes_referenciados`).
     pub(crate) nomes_referenciados: std::sync::Mutex<std::collections::HashMap<UnitId, std::sync::Arc<HashSet<String>>>>,
+    /// O índice reverso nome → unidades que o citam
+    /// (`crate::nomes_referenciados::IndiceReverso`), mantido por unidade.
+    pub(crate) indice_reverso: std::sync::Mutex<crate::nomes_referenciados::IndiceReverso>,
+    /// Os comentários de documentação de cada unidade já lidos (com o
+    /// tamanho do texto de que vieram).
+    pub(crate) comentarios: std::sync::Mutex<std::collections::HashMap<UnitId, ComentariosLidos>>,
+    /// O índice de ocorrências de cada unidade já percorrida
+    /// ([`Projeto::ocorrencias_da_unidade`]), com o carimbo (tamanho do texto
+    /// e número de expressões) de que veio.
+    pub(crate) ocorrencias_por_unidade: std::sync::Mutex<std::collections::HashMap<UnitId, OcorrenciasCarimbadas>>,
+}
+
+/// Os comentários de uma unidade com o tamanho do texto de que vieram.
+pub(crate) type ComentariosLidos = (usize, std::sync::Arc<Vec<dartdoc::Comentario>>);
+
+/// O índice de ocorrências de uma unidade com o carimbo (tamanho do texto,
+/// número de expressões) de que veio.
+pub(crate) type OcorrenciasCarimbadas = ((usize, usize), std::sync::Arc<OcorrenciasDaUnidade>);
+
+/// O índice reverso de uma unidade: para cada elemento de topo, função e
+/// variável membro, os nomes que o resolvem nas expressões dela (o
+/// identificador ou o nome do acesso), na ordem das expressões.
+#[derive(Debug, Default)]
+pub(crate) struct OcorrenciasDaUnidade {
+    pub(crate) elementos: std::collections::HashMap<Element, Vec<Span>>,
+    pub(crate) funcoes: std::collections::HashMap<FunctionElementId, Vec<Span>>,
+    pub(crate) variaveis: std::collections::HashMap<VariableId, Vec<Span>>,
+    /// Os nomes de anotações de tipo e de metadados, pelo elemento de topo.
+    pub(crate) nomes_de_tipo: std::collections::HashMap<Element, Vec<Span>>,
 }
 
 /// O que uma posição denota.
@@ -215,9 +244,9 @@ pub(crate) fn pacotes_com_nome(raiz: &Path) -> Vec<(String, PathBuf)> {
 
 /// A carga ampla da busca de referências não local (docs/LSP-ESPECIFICACAO.md
 /// §11.9 B): o projeto, mais toda biblioteca do SDK e todo arquivo `lib/` dos
-/// pacotes; os corpos inferidos são os do projeto e os das bibliotecas cujos
-/// arquivos citam ou declaram `nome` (os candidatos de `_addResults`).
-pub(crate) fn carregar_projeto_amplo(sdk: &SdkLayout, documentos: &DocumentStore, uri: &str, nome: &str) -> Option<Projeto> {
+/// pacotes, com os corpos do projeto inferidos. Os das bibliotecas de fora
+/// que citam ou declaram um nome entram por [`Projeto::ampliar_para`].
+pub(crate) fn carregar_projeto_amplo(sdk: &SdkLayout, documentos: &DocumentStore, uri: &str) -> Option<Projeto> {
     let arquivo = arquivo_da_uri(uri)?;
     let raiz = raiz_do_projeto(&arquivo);
     let mut texto = String::new();
@@ -250,35 +279,40 @@ pub(crate) fn carregar_projeto_amplo(sdk: &SdkLayout, documentos: &DocumentStore
             texto.push_str(&format!("import 'package:{pacote}/{rel}' as _pkg_{i}_{k};\n"));
         }
     }
-    let projeto = carregar_projeto_com(sdk, documentos, uri, Some((raiz.join(CONHECIDOS), texto)))?;
-    // Os candidatos: as bibliotecas fora do projeto com arquivo que cita ou
-    // declara o nome.
-    let p = projeto.programa();
-    let mut extras: Vec<LibraryId> = Vec::new();
-    for i in 0..p.units.len() {
-        let u = UnitId(i as u32);
-        let unidade = p.unit(u);
-        if projeto.bibliotecas.contains(&unidade.library) || extras.contains(&unidade.library) || unidade.role == dartforge_elements::model::UnitRole::Patch {
-            continue;
+    carregar_projeto_com(sdk, documentos, uri, Some((raiz.join(CONHECIDOS), texto)))
+}
+
+impl Projeto {
+    /// Infere os corpos das bibliotecas fora das inferidas com arquivo que
+    /// cita ou declara `nome` (os candidatos de `_addResults`), sobre o
+    /// esboço retido ([`Consulta::inferir_bibliotecas`]). As já inferidas
+    /// ficam: numa carga ampla retida, cada biblioteca é inferida uma vez.
+    pub(crate) fn ampliar_para(&mut self, nome: &str) {
+        let p = self.programa();
+        let mut extras: Vec<LibraryId> = Vec::new();
+        for i in 0..p.units.len() {
+            let u = UnitId(i as u32);
+            let unidade = p.unit(u);
+            if self.bibliotecas.contains(&unidade.library) || extras.contains(&unidade.library) || unidade.role == dartforge_elements::model::UnitRole::Patch {
+                continue;
+            }
+            if unidade.path.as_deref().is_some_and(|c| c.ends_with(CONHECIDOS)) {
+                continue;
+            }
+            if !unidade.source.contains(nome) {
+                continue;
+            }
+            if self.nomes_referenciados_da_unidade(u).contains(nome) || declara(unidade, &self.consulta.nomes, nome) {
+                extras.push(unidade.library);
+            }
         }
-        if unidade.path.as_deref().is_some_and(|c| c.ends_with(CONHECIDOS)) {
-            continue;
+        if extras.is_empty() {
+            return;
         }
-        if !unidade.source.contains(nome) {
-            continue;
-        }
-        if projeto.nomes_referenciados_da_unidade(u).contains(nome) || declara(unidade, &projeto.consulta.nomes, nome) {
-            extras.push(unidade.library);
-        }
+        extras.sort();
+        self.consulta.inferir_bibliotecas(&extras);
+        self.bibliotecas.extend(extras);
     }
-    if extras.is_empty() {
-        return Some(projeto);
-    }
-    let mut lista: Vec<LibraryId> = projeto.bibliotecas.iter().copied().chain(extras.iter().copied()).collect();
-    lista.sort();
-    let Projeto { consulta, raiz, mut bibliotecas, nomes_referenciados } = projeto;
-    bibliotecas.extend(extras);
-    Some(Projeto { consulta: consulta.reinferir(&lista), raiz, bibliotecas, nomes_referenciados })
 }
 
 /// A unidade declara (no topo ou como membro) algo chamado `nome`.
@@ -379,6 +413,9 @@ fn carregar_projeto_com(
         raiz,
         bibliotecas,
         nomes_referenciados: Default::default(),
+        indice_reverso: Default::default(),
+        comentarios: Default::default(),
+        ocorrencias_por_unidade: Default::default(),
     })
 }
 
@@ -399,6 +436,9 @@ pub(crate) fn carregar_biblioteca(
         raiz: raiz_do_projeto(&arquivo),
         bibliotecas: HashSet::from([lib]),
         nomes_referenciados: Default::default(),
+        indice_reverso: Default::default(),
+        comentarios: Default::default(),
+        ocorrencias_por_unidade: Default::default(),
     })
 }
 
@@ -460,6 +500,15 @@ impl Projeto {
             .map(|i| UnitId(i as u32))
             .filter(|u| self.bibliotecas.contains(&self.programa().unit(*u).library))
             .collect()
+    }
+
+    /// [`Projeto::unidades`], só as de `filtro` quando há.
+    pub(crate) fn unidades_em(&self, filtro: Option<&HashSet<UnitId>>) -> Vec<UnitId> {
+        let mut v = self.unidades();
+        if let Some(f) = filtro {
+            v.retain(|u| f.contains(u));
+        }
+        v
     }
 
     /// A URI `file:` de uma unidade com caminho.
@@ -1723,6 +1772,21 @@ impl Projeto {
         alvo: &Alvo,
         recusar_externos: bool,
     ) -> Result<BTreeSet<(UnitId, usize, usize)>, String> {
+        self.ocorrencias_em(alvo, recusar_externos, None)
+    }
+
+    /// [`Projeto::ocorrencias`] só nas unidades de `filtro` (quando há): as
+    /// varreduras de expressões, tipos e documentação de membros, elementos
+    /// de topo e construtores olham só elas. A busca de referências passa os
+    /// arquivos candidatos de `_addResults`, que é onde ela aceita usos
+    /// (docs/LSP-ESPECIFICACAO.md §11.2): o resultado dela é o mesmo, sem
+    /// percorrer os demais arquivos.
+    pub(crate) fn ocorrencias_em(
+        &self,
+        alvo: &Alvo,
+        recusar_externos: bool,
+        filtro: Option<&HashSet<UnitId>>,
+    ) -> Result<BTreeSet<(UnitId, usize, usize)>, String> {
         let mut saida = BTreeSet::new();
         let mut por = |u: UnitId, s: Span| {
             saida.insert((u, s.start, s.end));
@@ -1736,13 +1800,13 @@ impl Projeto {
                     por(u, s);
                 }
             }
-            Alvo::Topo(el) => self.ocorrencias_de_topo(*el, &mut por),
+            Alvo::Topo(el) => self.ocorrencias_de_topo(*el, filtro, &mut por),
             Alvo::Membro {
                 dono,
                 nome,
                 estatico,
-            } => self.ocorrencias_de_membro(*dono, nome, *estatico, recusar_externos, &mut por)?,
-            Alvo::Construtor(f) => self.ocorrencias_de_construtor(*f, &mut por),
+            } => self.ocorrencias_de_membro(*dono, nome, *estatico, recusar_externos, filtro, &mut por)?,
+            Alvo::Construtor(f) => self.ocorrencias_de_construtor(*f, filtro, &mut por),
             Alvo::Prefixo { biblioteca, nome } => {
                 self.ocorrencias_de_prefixo(*biblioteca, *nome, &mut por)
             }
@@ -1752,33 +1816,8 @@ impl Projeto {
             } => self.ocorrencias_de_parametro_de_tipo(*unidade, *declaracao, &mut por),
         }
         // Referências de documentação.
-        for u in self.unidades() {
-            let fonte = &self.programa().unit(u).source;
-            if !fonte.contains('[') {
-                continue;
-            }
-            for c in dartdoc::comentarios(fonte) {
-                for r in &c.referencias {
-                    // `visitCommentReference` do índice: `[A]`/`[A.b]` que
-                    // resolve para construtor só cita o construtor (o
-                    // prefixo não é visitado).
-                    let so_o_construtor = r.len() <= 2
-                        && matches!(self.resolver_referencia_doc(u, c.span, r), Some((Alvo::Construtor(_), _)));
-                    for i in 0..r.len() {
-                        if so_o_construtor && i + 1 < r.len() {
-                            continue;
-                        }
-                        if let Some((a, _)) = self.resolver_referencia_doc(u, c.span, &r[..=i])
-                            && self.mesmo_alvo(&a, alvo)
-                        {
-                            // `[A.nome]`: do fim do prefixo ao fim (`.nome`).
-                            let s = r[i].0;
-                            let s = if matches!(alvo, Alvo::Construtor(_)) && i > 0 { Span { start: r[i - 1].0.end, end: s.end } } else { s };
-                            por(u, s);
-                        }
-                    }
-                }
-            }
+        for (u, s) in self.referencias_de_documentacao(alvo, filtro, |a| self.mesmo_alvo(a, alvo), true) {
+            por(u, s);
         }
         Ok(saida)
     }
@@ -1943,25 +1982,159 @@ impl Projeto {
 
     /// Os `[ref]` de documentação que resolvem para `alvo`.
     fn docs_que_referem(&self, alvo: &Alvo) -> Vec<(UnitId, Span)> {
+        self.referencias_de_documentacao(alvo, None, |a| a == alvo, false)
+    }
+
+    /// Os `[ref]` de documentação das unidades (de `filtro`, quando há) cujo
+    /// prefixo `r[..=i]` resolve para algo que `casa` aceita. Os comentários
+    /// de cada unidade vêm do cache ([`Projeto::comentarios_da_unidade`]) e
+    /// só se resolvem os prefixos cujo último segmento é o nome do alvo (um
+    /// prefixo só denota o alvo escrevendo o nome dele); o construtor sem
+    /// nome, que `[A]` também denota, resolve tudo. Com `indice`, a regra do
+    /// `visitCommentReference`: `[A]`/`[A.b]` que resolve para construtor só
+    /// cita o construtor, e `[A.nome]` de um construtor vai do fim do
+    /// prefixo ao fim.
+    fn referencias_de_documentacao(&self, alvo: &Alvo, filtro: Option<&HashSet<UnitId>>, casa: impl Fn(&Alvo) -> bool, indice: bool) -> Vec<(UnitId, Span)> {
+        let palavra = self.palavra_do_alvo(alvo);
         let mut v = Vec::new();
-        for u in self.unidades() {
+        for u in self.unidades_em(filtro) {
             let fonte = &self.programa().unit(u).source;
-            if !fonte.contains('[') {
+            if !fonte.contains('[') || palavra.as_deref().is_some_and(|w| !fonte.contains(w)) {
                 continue;
             }
-            for c in dartdoc::comentarios(fonte) {
+            for c in self.comentarios_da_unidade(u).iter() {
                 for r in &c.referencias {
+                    if palavra.as_deref().is_some_and(|w| r.iter().all(|(_, s)| s != w)) {
+                        continue;
+                    }
+                    let so_o_construtor = indice
+                        && r.len() <= 2
+                        && matches!(self.resolver_referencia_doc(u, c.span, r), Some((Alvo::Construtor(_), _)));
                     for i in 0..r.len() {
+                        if so_o_construtor && i + 1 < r.len() {
+                            continue;
+                        }
+                        if palavra.as_deref().is_some_and(|w| r[i].1 != w) {
+                            continue;
+                        }
                         if let Some((a, _)) = self.resolver_referencia_doc(u, c.span, &r[..=i])
-                            && &a == alvo
+                            && casa(&a)
                         {
-                            v.push((u, r[i].0));
+                            let s = r[i].0;
+                            let s = if indice && matches!(alvo, Alvo::Construtor(_)) && i > 0 { Span { start: r[i - 1].0.end, end: s.end } } else { s };
+                            v.push((u, s));
                         }
                     }
                 }
             }
         }
         v
+    }
+
+    /// O nome que toda ocorrência de `alvo` escreve (o texto do
+    /// identificador); `None` para o construtor, que `[A]`, `super(…)` e a
+    /// chamada implícita citam sem o nome dele.
+    fn palavra_do_alvo(&self, alvo: &Alvo) -> Option<String> {
+        let w = match alvo {
+            Alvo::Local { unidade, declaracao } | Alvo::ParametroDeTipo { unidade, declaracao } => {
+                let fonte = &self.programa().unit(*unidade).source;
+                let s = palavra(fonte, *declaracao)?;
+                fonte[s.start..s.end].to_string()
+            }
+            Alvo::Membro { nome, .. } => nome.clone(),
+            Alvo::Topo(el) => self.consulta.nome_do_elemento(*el).map(|s| self.nome(s).trim_end_matches('=').to_string())?,
+            Alvo::Prefixo { nome, .. } => self.nome(*nome).to_string(),
+            Alvo::Construtor(_) => return None,
+        };
+        let ident = !w.is_empty() && w.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$');
+        ident.then_some(w)
+    }
+
+    /// O índice de ocorrências de `u` (o elemento de topo, a função ou a
+    /// variável membro que cada identificador e cada nome de acesso
+    /// resolvem), feito numa passada pelas expressões e guardado até o texto
+    /// da unidade mudar.
+    pub(crate) fn ocorrencias_da_unidade(&self, u: UnitId) -> std::sync::Arc<OcorrenciasDaUnidade> {
+        let unidade = self.programa().unit(u);
+        let carimbo = (unidade.source.len(), unidade.ast.exprs.len());
+        if let Some((c, i)) = self.ocorrencias_por_unidade.lock().ok().and_then(|m| m.get(&u).cloned())
+            && c == carimbo
+        {
+            return i;
+        }
+        let corpos = &self.consulta.corpos.units[u.0 as usize];
+        let mut indice = OcorrenciasDaUnidade::default();
+        for (i, e) in unidade.ast.exprs.iter().enumerate() {
+            let s = match &e.kind {
+                ExprKind::Identifier(n) => n.span,
+                ExprKind::Property { name, .. } => name.span,
+                _ => continue,
+            };
+            match corpos.get_resolved(ast::ExprId(i as u32)) {
+                Some(Resolved::Element(r)) => indice.elementos.entry(*r).or_default().push(s),
+                Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::ExtensionMember { member: f, .. }) => {
+                    indice.funcoes.entry(*f).or_default().push(s)
+                }
+                Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => indice.variaveis.entry(*v).or_default().push(s),
+                _ => {}
+            }
+        }
+        // As anotações de tipo (`T`, `p.T`, o `A` de `new A.n()`, o `T` de
+        // `new p.T.n()`) e os metadados (`@nome`, `@p.nome`): o elemento de
+        // topo que o nome alcança no escopo da biblioteca (o getter do
+        // vínculo), como em `ocorrencias_de_topo`.
+        let p = self.programa();
+        let lib = unidade.library;
+        let mut tipo = |b: Option<dartforge_elements::model::Binding>, s: Span| {
+            if let Some(g) = b.and_then(|b| b.getter) {
+                indice.nomes_de_tipo.entry(g).or_default().push(s);
+            }
+        };
+        let escopos = escopos_de_parametros_de_tipo(&unidade.ast);
+        let parametro_de_tipo = |n: &ast::Name| escopos.get(&n.sym).is_some_and(|l| l.iter().any(|s| contem(*s, n.span.start)));
+        for ty in &unidade.ast.types {
+            let ast::TypeKind::Named { name, .. } = &ty.kind else { continue };
+            match &name[..] {
+                [n] if !parametro_de_tipo(n) => tipo(p.lookup(lib, n.sym), n.span),
+                [pr, n] if eh_prefixo(p, lib, pr.sym) => tipo(p.lookup_prefixed(lib, pr.sym, n.sym), n.span),
+                [c, _] => tipo(p.lookup(lib, c.sym), c.span),
+                [pr, n, _] => tipo(p.lookup_prefixed(lib, pr.sym, n.sym), n.span),
+                _ => {}
+            }
+        }
+        for a in metadados(&unidade.ast, &unidade.unit) {
+            match &a.name[..] {
+                [n] => tipo(p.lookup(lib, n.sym), n.span),
+                [n, m, ..] => {
+                    tipo(p.lookup(lib, n.sym), n.span);
+                    if m.sym != n.sym {
+                        tipo(p.lookup_prefixed(lib, n.sym, m.sym), m.span);
+                    }
+                }
+                [] => {}
+            }
+        }
+        let indice = std::sync::Arc::new(indice);
+        if let Ok(mut m) = self.ocorrencias_por_unidade.lock() {
+            m.insert(u, (carimbo, indice.clone()));
+        }
+        indice
+    }
+
+    /// Os comentários de documentação de `u` (`dartdoc::comentarios`),
+    /// calculados uma vez por texto da unidade.
+    pub(crate) fn comentarios_da_unidade(&self, u: UnitId) -> std::sync::Arc<Vec<dartdoc::Comentario>> {
+        let fonte = &self.programa().unit(u).source;
+        if let Some((n, c)) = self.comentarios.lock().ok().and_then(|m| m.get(&u).cloned())
+            && n == fonte.len()
+        {
+            return c;
+        }
+        let c = std::sync::Arc::new(dartdoc::comentarios(fonte));
+        if let Ok(mut m) = self.comentarios.lock() {
+            m.insert(u, (fonte.len(), c.clone()));
+        }
+        c
     }
 
     /// O `i`-ésimo argumento posicional de cada chamada de `f`, quando ele
@@ -2015,6 +2188,7 @@ impl Projeto {
         nome: &str,
         estatico: bool,
         recusar_externos: bool,
+        filtro: Option<&HashSet<UnitId>>,
         por: &mut impl FnMut(UnitId, Span),
     ) -> Result<(), String> {
         let fam = self.familia(dono, nome, estatico, recusar_externos)?;
@@ -2032,29 +2206,17 @@ impl Projeto {
                 por(u, s);
             }
         }
-        for u in self.unidades() {
-            let corpos = &self.consulta.corpos.units[u.0 as usize];
-            let ast = &self.programa().unit(u).ast;
-            for (i, e) in ast.exprs.iter().enumerate() {
-                let membro = match corpos.get_resolved(ast::ExprId(i as u32)) {
-                    Some(Resolved::Member {
-                        member: MemberRef::Function(f),
-                        ..
-                    })
-                    | Some(Resolved::ExtensionMember { member: f, .. }) => fam.funcoes.contains(f),
-                    Some(Resolved::Member {
-                        member: MemberRef::Variable(v),
-                        ..
-                    }) => fam.variaveis.contains(v),
-                    _ => false,
-                };
-                if !membro {
-                    continue;
+        // Os usos em expressões, pelo índice de ocorrências de cada unidade.
+        for u in self.unidades_em(filtro) {
+            let indice = self.ocorrencias_da_unidade(u);
+            for f in &fam.funcoes {
+                for s in indice.funcoes.get(f).into_iter().flatten() {
+                    por(u, *s);
                 }
-                match &e.kind {
-                    ExprKind::Identifier(n) => por(u, n.span),
-                    ExprKind::Property { name, .. } => por(u, name.span),
-                    _ => {}
+            }
+            for v in &fam.variaveis {
+                for s in indice.variaveis.get(v).into_iter().flatten() {
+                    por(u, *s);
                 }
             }
         }
@@ -2130,7 +2292,7 @@ impl Projeto {
                 }
             }
             if !parametros.is_empty() {
-                for u in self.unidades() {
+                for u in self.unidades_em(filtro) {
                     let ast = &self.programa().unit(u).ast;
                     for (mi, m) in ast.members.iter().enumerate() {
                         let MemberKind::Constructor(k) = &m.kind else { continue };
@@ -2170,7 +2332,7 @@ impl Projeto {
     /// Construtor nomeado: a declaração, as criações (`A.nome()`,
     /// `new A.nome()`), os tear-offs, os redirecionamentos (`this.nome()`,
     /// `super.nome()`, `= A.nome`), as constantes de enum e os metadados.
-    fn ocorrencias_de_construtor(&self, f: FunctionElementId, por: &mut impl FnMut(UnitId, Span)) {
+    fn ocorrencias_de_construtor(&self, f: FunctionElementId, filtro: Option<&HashSet<UnitId>>, por: &mut impl FnMut(UnitId, Span)) {
         // As relações do índice (§11.1.2): o construtor nomeado é `.nome`
         // (com o ponto; `A.new` dá `.new`); o sem nome tem comprimento 0 no
         // fim do tipo, de `super`/`this`, do nome da constante de enum; a
@@ -2186,7 +2348,7 @@ impl Projeto {
         let simbolo = p.function(f).name;
         let sem_nome = self.nome(simbolo).is_empty();
         let vazio = |o: usize| Span { start: o, end: o };
-        for u in self.unidades() {
+        for u in self.unidades_em(filtro) {
             let unidade = p.unit(u);
             let ast = &unidade.ast;
             let fonte = unidade.source.as_str();
@@ -2719,7 +2881,7 @@ impl Projeto {
     }
 
     /// Topo: declarações, usos, tipos, metadados e `show`/`hide`.
-    fn ocorrencias_de_topo(&self, el: Element, por: &mut impl FnMut(UnitId, Span)) {
+    fn ocorrencias_de_topo(&self, el: Element, filtro: Option<&HashSet<UnitId>>, por: &mut impl FnMut(UnitId, Span)) {
         let p = self.programa();
         let elementos = self.elementos_de_topo(el);
         let Some(simbolo) = self.consulta.nome_do_elemento(el) else {
@@ -2741,70 +2903,18 @@ impl Projeto {
                 }
             }
         }
-        for u in self.unidades() {
-            let unidade = p.unit(u);
-            let ast = &unidade.ast;
-            let corpos = &self.consulta.corpos.units[u.0 as usize];
-            // Usos em expressões.
-            for (i, e) in ast.exprs.iter().enumerate() {
-                let r = match corpos.get_resolved(ast::ExprId(i as u32)) {
-                    Some(Resolved::Element(r)) => *r,
-                    _ => continue,
-                };
-                if !elementos.contains(&r) {
-                    continue;
-                }
-                match &e.kind {
-                    ExprKind::Identifier(n) => por(u, n.span),
-                    ExprKind::Property { name, .. } => por(u, name.span),
-                    _ => {}
+        for u in self.unidades_em(filtro) {
+            // Usos em expressões, pelo índice de ocorrências da unidade.
+            let indice = self.ocorrencias_da_unidade(u);
+            for el in &elementos {
+                for s in indice.elementos.get(el).into_iter().flatten() {
+                    por(u, *s);
                 }
             }
-            // Anotações de tipo.
-            for t in &ast.types {
-                let ast::TypeKind::Named { name, .. } = &t.kind else {
-                    continue;
-                };
-                let vinculo = match &name[..] {
-                    [n] if n.sym == simbolo
-                        && declaracao_de_parametro_de_tipo(ast, n.span.start, n.sym).is_none() =>
-                    {
-                        p.lookup(unidade.library, n.sym).map(|b| (b, *n))
-                    }
-                    [pr, n] if n.sym == simbolo && eh_prefixo(p, unidade.library, pr.sym) => p
-                        .lookup_prefixed(unidade.library, pr.sym, n.sym)
-                        .map(|b| (b, *n)),
-                    // `new A.n()`/`const A.n()` (o nome de duas partes do
-                    // parser) e `new p.A.n()`: o `NamedType` é o `A`.
-                    [c, _] if c.sym == simbolo && !eh_prefixo(p, unidade.library, c.sym) => {
-                        p.lookup(unidade.library, c.sym).map(|b| (b, *c))
-                    }
-                    [pr, n, _] if n.sym == simbolo => p
-                        .lookup_prefixed(unidade.library, pr.sym, n.sym)
-                        .map(|b| (b, *n)),
-                    _ => None,
-                };
-                if let Some((b, n)) = vinculo
-                    && b.getter.is_some_and(|g| elementos.contains(&g))
-                {
-                    por(u, n.span);
-                }
-            }
-            // Metadados (`@nome`, `@p.nome`, `@Classe(...)`).
-            for a in metadados(ast, &unidade.unit) {
-                let n = match &a.name[..] {
-                    [n, ..] if n.sym == simbolo => {
-                        p.lookup(unidade.library, n.sym).map(|b| (b, *n))
-                    }
-                    [pr, n, ..] if n.sym == simbolo => p
-                        .lookup_prefixed(unidade.library, pr.sym, n.sym)
-                        .map(|b| (b, *n)),
-                    _ => None,
-                };
-                if let Some((b, n)) = n
-                    && b.getter.is_some_and(|g| elementos.contains(&g))
-                {
-                    por(u, n.span);
+            // Anotações de tipo e metadados, pelo mesmo índice.
+            for el in &elementos {
+                for s in indice.nomes_de_tipo.get(el).into_iter().flatten() {
+                    por(u, *s);
                 }
             }
         }
@@ -3188,6 +3298,40 @@ pub(crate) fn parametro_em(ast: &Ast, offset: usize) -> Option<(&Parameter, Dono
 /// O offset da declaração do parâmetro de tipo `nome` mais interno em
 /// escopo em `offset` (numa declaração, função ou tipo de função que o
 /// contém); `None` quando nenhum está em escopo.
+/// Para cada nome de parâmetro de tipo da unidade, os trechos das
+/// declarações que o declaram: um nome em `offset` é parâmetro de tipo
+/// quando algum desses trechos contém `offset` (o mesmo critério de
+/// [`declaracao_de_parametro_de_tipo`], sem percorrer a árvore por nome).
+pub(crate) fn escopos_de_parametros_de_tipo(ast: &Ast) -> std::collections::HashMap<SymbolId, Vec<Span>> {
+    let mut m: std::collections::HashMap<SymbolId, Vec<Span>> = std::collections::HashMap::new();
+    let mut por = |s: Span, ps: &[ast::TypeParameter]| {
+        for t in ps {
+            m.entry(t.name.sym).or_default().push(s);
+        }
+    };
+    for d in &ast.decls {
+        let ps = match &d.kind {
+            DeclKind::Class(c) => &c.type_params,
+            DeclKind::Mixin(m) => &m.type_params,
+            DeclKind::Enum(e) => &e.type_params,
+            DeclKind::Extension(x) => &x.type_params,
+            DeclKind::ExtensionType(x) => &x.type_params,
+            DeclKind::Typedef(t) => &t.type_params,
+            _ => continue,
+        };
+        por(d.span, ps);
+    }
+    for f in &ast.functions {
+        por(f.span, &f.type_params);
+    }
+    for t in &ast.types {
+        if let ast::TypeKind::Function { type_params, .. } = &t.kind {
+            por(t.span, type_params);
+        }
+    }
+    m
+}
+
 pub(crate) fn declaracao_de_parametro_de_tipo(
     ast: &Ast,
     offset: usize,

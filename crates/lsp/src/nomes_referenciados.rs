@@ -19,6 +19,17 @@ use dartforge_frontend::ast::{self, DeclKind, MemberKind, ParameterKind};
 use std::collections::HashSet;
 use std::sync::Arc;
 
+/// O índice reverso do `referencedNames`: para cada nome, as unidades que o
+/// citam. Construído sob demanda, unidade por unidade (as inferidas que
+/// ainda não estão nele), e atualizado por unidade quando o texto dela muda
+/// ([`Projeto::esquecer_unidade`]): a busca de referências acha os arquivos
+/// candidatos sem percorrer todos.
+#[derive(Debug, Default)]
+pub(crate) struct IndiceReverso {
+    pub(crate) indexadas: HashSet<UnitId>,
+    pub(crate) por_nome: std::collections::HashMap<String, std::collections::BTreeSet<UnitId>>,
+}
+
 /// O identificador que começa em `pos`.
 fn identificador_em(fonte: &str, pos: usize) -> &str {
     let resto = &fonte[pos.min(fonte.len())..];
@@ -324,6 +335,57 @@ impl Contexto<'_> {
 
 impl Projeto {
     /// O `referencedNames` de `u`, calculado uma vez por sessão.
+    /// Esquece o que foi calculado para `u` (o texto dela mudou): os nomes
+    /// citados e as entradas dela no índice reverso.
+    pub(crate) fn esquecer_unidade(&self, u: UnitId) {
+        let velhos = self.nomes_referenciados.lock().ok().and_then(|mut m| m.remove(&u));
+        if let Ok(mut m) = self.comentarios.lock() {
+            m.remove(&u);
+        }
+        if let Ok(mut m) = self.ocorrencias_por_unidade.lock() {
+            m.remove(&u);
+        }
+        if let Ok(mut i) = self.indice_reverso.lock()
+            && i.indexadas.remove(&u)
+            && let Some(velhos) = velhos
+        {
+            for nome in velhos.iter() {
+                if let Some(l) = i.por_nome.get_mut(nome.as_str()) {
+                    l.remove(&u);
+                }
+            }
+        }
+    }
+
+    /// As unidades inferidas (fora os patches) cujo `referencedNames` contém
+    /// `nome`, pelo índice reverso: as unidades que ainda não estão nele
+    /// (as de bibliotecas recém-inferidas ou de texto novo) entram antes.
+    pub(crate) fn unidades_que_citam(&self, nome: &str) -> Vec<UnitId> {
+        let unidades = self.unidades();
+        let faltam: Vec<UnitId> = match self.indice_reverso.lock() {
+            Ok(i) => unidades.iter().copied().filter(|u| !i.indexadas.contains(u)).collect(),
+            Err(_) => Vec::new(),
+        };
+        for u in faltam {
+            if self.programa().unit(u).role == UnitRole::Patch {
+                continue;
+            }
+            let nomes = self.nomes_referenciados_da_unidade(u);
+            if let Ok(mut i) = self.indice_reverso.lock()
+                && i.indexadas.insert(u)
+            {
+                for n in nomes.iter() {
+                    i.por_nome.entry(n.clone()).or_default().insert(u);
+                }
+            }
+        }
+        let Ok(i) = self.indice_reverso.lock() else { return Vec::new() };
+        i.por_nome
+            .get(nome)
+            .map(|l| l.iter().copied().filter(|u| self.bibliotecas.contains(&self.programa().unit(*u).library)).collect())
+            .unwrap_or_default()
+    }
+
     pub(crate) fn nomes_referenciados_da_unidade(&self, u: UnitId) -> Arc<HashSet<String>> {
         if let Some(n) = self.nomes_referenciados.lock().ok().and_then(|m| m.get(&u).cloned()) {
             return n;
@@ -376,15 +438,8 @@ impl Projeto {
             }
         }
         if !privado {
-            for u in self.unidades() {
-                // O analyzer não vê os patches do SDK.
-                if p.unit(u).role == UnitRole::Patch {
-                    continue;
-                }
-                if self.nomes_referenciados_da_unidade(u).contains(nome) {
-                    saida.insert(u);
-                }
-            }
+            // O analyzer não vê os patches do SDK (o índice os deixa de fora).
+            saida.extend(self.unidades_que_citam(nome));
         }
         saida
     }

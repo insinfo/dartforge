@@ -24,6 +24,12 @@ pub struct AnalisadorSemantico {
     indice_projeto: crate::indice::IndiceProjeto,
     /// O último programa carregado, reaproveitado enquanto nada mudou.
     sessao: crate::sessao::Sessao,
+    /// A carga ampla das buscas não locais (`references`, `implementation`:
+    /// o projeto, o SDK inteiro e os pacotes), retida à parte da sessão
+    /// principal para não ser trocada a cada `hover`; os corpos das
+    /// bibliotecas de fora do projeto são inferidos sob demanda e ficam
+    /// (docs/LSP-ESPECIFICACAO.md §11.9 B).
+    sessao_ampla: crate::sessao::Sessao,
     /// Os resumos das bibliotecas conhecidas (namespace de exportação) do
     /// `ImportLibrary`.
     conhecidas: crate::conhecidas::IndiceDeBibliotecas,
@@ -46,7 +52,7 @@ impl AnalisadorSemantico {
     /// assert_eq!(a.estatisticas_da_sessao().carregadas, 0);
     /// ```
     pub fn novo(sdk: Option<SdkLayout>) -> Self {
-        Self { sintatico: AnalisadorSintatico::new(), sdk, indice_sdk: None, indice_projeto: crate::indice::IndiceProjeto::default(), sessao: crate::sessao::Sessao::nova(), conhecidas: Default::default(), maximo_de_completar: crate::completar::MAXIMO_PADRAO, nao_importados_no_completar: true, incremental: std::env::var("DARTFORGE_LSP_INCREMENTAL").map(|v| v.trim() != "0").unwrap_or(true) }
+        Self { sintatico: AnalisadorSintatico::new(), sdk, indice_sdk: None, indice_projeto: crate::indice::IndiceProjeto::default(), sessao: crate::sessao::Sessao::nova(), sessao_ampla: crate::sessao::Sessao::ampla(), conhecidas: Default::default(), maximo_de_completar: crate::completar::MAXIMO_PADRAO, nao_importados_no_completar: true, incremental: std::env::var("DARTFORGE_LSP_INCREMENTAL").map(|v| v.trim() != "0").unwrap_or(true) }
     }
 
     /// Troca o orçamento da sessão semântica (MiB de fonte retida; `0`
@@ -96,6 +102,19 @@ impl AnalisadorSemantico {
         self.sessao.obter(crate::sessao::Escopo::Projeto(raiz), documentos, || {
             crate::projeto::carregar_projeto(sdk, documentos, uri)
         })
+    }
+
+    /// A carga ampla de `uri` com os corpos das bibliotecas que citam ou
+    /// declaram `nome` inferidos (os candidatos de `_addResults`, §11.2), da
+    /// sessão ampla ou carregada.
+    pub(crate) fn amplo(&mut self, documentos: &DocumentStore, uri: &str, nome: &str) -> Option<crate::sessao::Uso<'_>> {
+        let AnalisadorSemantico { sessao_ampla, sdk: Some(sdk), .. } = self else { return None };
+        let raiz = crate::projeto::raiz_do_projeto(&crate::projeto::arquivo_da_uri(uri)?);
+        let mut uso = sessao_ampla.obter(crate::sessao::Escopo::Projeto(raiz), documentos, || {
+            crate::projeto::carregar_projeto_amplo(sdk, documentos, uri)
+        })?;
+        uso.ampliar_para(nome);
+        Some(uso)
     }
 
     /// Descobre o SDK pelos mesmos caminhos usados pelo compilador.
@@ -178,8 +197,7 @@ impl AnalisadorSemantico {
             projeto.nome_da_busca(&d.alvo)
         };
         if let Some(nome) = nome
-            && let Some(sdk) = self.sdk.as_ref()
-            && let Some(amplo) = crate::projeto::carregar_projeto_amplo(sdk, documentos, uri, &nome)
+            && let Some(amplo) = self.amplo(documentos, uri, &nome)
         {
             return referencias_em(&amplo, uri, offset);
         }
@@ -214,7 +232,8 @@ fn referencias_em(projeto: &crate::projeto::Projeto, uri: &str, offset: usize) -
             projeto.arquivos_candidatos(&nome, &unidades)
         });
         let mut usos: Vec<(String, Span)> = Vec::new();
-        for (u, de, ate) in projeto.ocorrencias(&d.alvo, false).ok()? {
+        // Só os candidatos aceitam usos: a varredura fica neles.
+        for (u, de, ate) in projeto.ocorrencias_em(&d.alvo, false, candidatos.as_ref()).ok()? {
             if declaracoes.contains(&(u, de, ate)) {
                 continue;
             }
@@ -338,17 +357,21 @@ impl Analisador for AnalisadorSemantico {
     fn documento_fechado(&mut self, uri: &str) {
         self.sintatico.documento_fechado(uri);
         self.sessao.invalidar();
+        self.sessao_ampla.invalidar();
     }
 
     fn documento_alterado(&mut self, _uri: &str) {
         self.sessao.invalidar();
+        self.sessao_ampla.invalidar();
     }
 
     fn documento_editado(&mut self, documentos: &DocumentStore, uri: &str) {
         if self.incremental {
             self.sessao.atualizar(documentos, uri);
+            self.sessao_ampla.atualizar(documentos, uri);
         } else {
             self.sessao.invalidar();
+            self.sessao_ampla.invalidar();
         }
     }
 
@@ -549,8 +572,7 @@ impl Analisador for AnalisadorSemantico {
             projeto.nome_da_busca(&d.alvo)
         });
         if let Some(nome) = nome
-            && let Some(sdk) = self.sdk.as_ref()
-            && let Some(amplo) = crate::projeto::carregar_projeto_amplo(sdk, documentos, uri, &nome)
+            && let Some(amplo) = self.amplo(documentos, uri, &nome)
             && let Some(unidade) = amplo.unidade_do_uri(uri)
         {
             return amplo.implementacoes(unidade, offset).into_iter().filter_map(|(u, s)| Some((amplo.uri_da_unidade(u)?, s))).collect();
@@ -579,12 +601,12 @@ impl Analisador for AnalisadorSemantico {
         }
         let Some(sdk) = self.sdk.as_ref() else { return Vec::new() };
         let Some(projeto) = crate::projeto::carregar_biblioteca(sdk, documentos, uri) else { return Vec::new() };
-        let crate::projeto::Projeto { consulta, raiz, mut bibliotecas, nomes_referenciados } = projeto;
+        let crate::projeto::Projeto { consulta, raiz, mut bibliotecas, nomes_referenciados, indice_reverso, comentarios, ocorrencias_por_unidade } = projeto;
         let mut lista: Vec<dartforge_elements::model::LibraryId> = bibliotecas.iter().copied().chain(extras.iter().copied()).collect();
         lista.sort();
         lista.dedup();
         bibliotecas.extend(extras);
-        let mut projeto = crate::projeto::Projeto { consulta: consulta.reinferir(&lista), raiz, bibliotecas, nomes_referenciados };
+        let mut projeto = crate::projeto::Projeto { consulta: consulta.reinferir(&lista), raiz, bibliotecas, nomes_referenciados, indice_reverso, comentarios, ocorrencias_por_unidade };
         let Some(unidade) = projeto.unidade_do_uri(uri) else { return Vec::new() };
         projeto.cores(unidade)
     }
