@@ -1504,8 +1504,11 @@ pub fn registrar_universo(ctx: &Context, module: &mut Module) {
         let Some(Element::Class(c)) = ctx.program.lookup(core_lib, sym).and_then(|b| b.getter) else { continue };
         tabela.push_str(&format!("F{heap_id} {}\n", ctx.id_rti(c)));
     }
-    // Os bytes empacotados em palavras (little-endian, como todos os alvos).
+    // A tabela grande vai comprimida (`dartforge_runtime::tabela_rti`): 1,37
+    // MB de texto no new_sali/backend, ~260 KB comprimida.
     let bytes = tabela.into_bytes();
+    let bytes = if bytes.len() >= dartforge_runtime::tabela_rti::LIMIAR { dartforge_runtime::tabela_rti::comprimir(&bytes) } else { bytes };
+    // Os bytes empacotados em palavras (little-endian, como todos os alvos).
     let palavras: Vec<i64> = bytes
         .chunks(8)
         .map(|c| {

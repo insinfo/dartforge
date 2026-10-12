@@ -768,14 +768,19 @@ mod testes {
         // O mesmo programa em outro diretório dá o mesmo IR, salvo as
         // constantes de dados (`@df.arr.*`): a tabela da RTI leva a URI
         // `file:` da biblioteca de cada classe (`dart:mirrors`), que depende
-        // do diretório por definição. Essas linhas só mudam de conteúdo, não
-        // de tipo (`[N x i64]`).
+        // do diretório por definição. A tabela vai comprimida
+        // (`dartforge_runtime::tabela_rti`), então o tamanho de uma
+        // constante (o tipo `[N x i64]`) e o argumento da chamada que
+        // registra a tabela também podem mudar.
         let (la, la2): (Vec<_>, Vec<_>) = (ia.lines().collect(), ia2.lines().collect());
         assert_eq!(la.len(), la2.len(), "o mesmo programa em outro diretório dá o mesmo IR");
+        let tabela_da_rti = |l: &str| l.contains("@dartforge_rti_iniciar_tabela(");
         for (x, y) in la.iter().zip(&la2) {
             if x != y {
-                let tipo = |l: &str| l.split(']').next().map(str::to_string);
-                assert!(x.starts_with("@df.arr.") && tipo(x) == tipo(y), "o mesmo programa em outro diretório dá o mesmo IR:\n{x}\n{y}");
+                assert!(
+                    (x.starts_with("@df.arr.") && y.starts_with("@df.arr.")) || (tabela_da_rti(x) && tabela_da_rti(y)),
+                    "o mesmo programa em outro diretório dá o mesmo IR:\n{x}\n{y}"
+                );
             }
         }
     }

@@ -551,8 +551,9 @@ fn tabela_de_efeitos(manifesto: &std::path::Path, nomes: &[String]) -> String {
 /// Os arquivos de `src/` que são módulos Rust (e não fragmentos): o `lib.rs` os
 /// declara com `pub mod` e o `RUNTIME_MAIN` os embrulha em `mod x { … }`. O
 /// espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md §3.1–§3.3) acrescenta o
-/// contrato de layout, o espaço de objetos e as vistas por pacote.
-const MODULOS: &[&str] = &["heap", "hash", "arc", "layout", "espaco", "textos", "caixas", "listas", "tipadas"];
+/// contrato de layout, o espaço de objetos e as vistas por pacote; a forma
+/// comprimida da tabela da RTI (`tabela_rti`) serve ao compilador e ao runtime.
+const MODULOS: &[&str] = &["heap", "hash", "arc", "layout", "espaco", "textos", "caixas", "listas", "tipadas", "tabela_rti"];
 
 /// Todo `src/*.rs` é `lib.rs`, um dos [`MODULOS`] ou um fragmento listado.
 fn conferir_lista(src: &std::path::Path) {

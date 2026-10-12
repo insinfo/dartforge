@@ -14,6 +14,8 @@
 //! sem debug-assertions): o `Cargo.toml` da raiz fixa o perfil deste crate no
 //! que o `rustc -O` do AOT dá. O teste `tests/fonte_unica.rs` confere.
 pub mod hash;
+/// A forma comprimida da tabela da RTI (compilador e runtime).
+pub mod tabela_rti;
 /// O núcleo do ARC com coleta de ciclos (docs/ARC-CICLOS-ESPECIFICACAO.md §19, §22).
 pub mod arc;
 pub mod heap;

@@ -1081,15 +1081,18 @@ pub(crate) fn tipo_lista_copiada(origem: i64, classe_concreta: Option<i64>) -> O
 /// Os registros da RTI do programa numa tabela (`lower/rti.rs`): uma linha
 /// por registro — `C<id> <parâmetros> <nome>` (o nome da classe),
 /// `R<id> <receita>` (uma regra de supertipo) e `F<forma> <id>` (a classe de
-/// uma forma do runtime) —, lidos na ordem.
+/// uma forma do runtime) —, lidos na ordem. A tabela grande vem comprimida
+/// (`tabela_rti`).
 ///
 /// # Safety
 /// `dados` aponta para as palavras do vetor constante do módulo, com ao menos
-/// `len` bytes UTF-8 legíveis (empacotados em little-endian).
+/// `len` bytes legíveis (empacotados em little-endian): o texto UTF-8 ou a
+/// forma comprimida dele. O vetor vive o processo inteiro.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_rti_iniciar_tabela(dados: *const i64, len: i64) {
     // SAFETY: garantido por quem chama (uma constante do módulo).
-    let bytes = unsafe { std::slice::from_raw_parts(dados.cast::<u8>(), usize::try_from(len).unwrap_or(0)) };
+    let bytes: &'static [u8] = unsafe { std::slice::from_raw_parts(dados.cast::<u8>(), usize::try_from(len).unwrap_or(0)) };
+    let bytes = if bytes.starts_with(crate::tabela_rti::CABECALHO) { crate::tabela_rti::descomprimida(bytes) } else { bytes };
     let texto = std::str::from_utf8(bytes).expect("tabela da RTI em UTF-8");
     for linha in texto.lines() {
         let (tipo, resto) = linha.split_at(1);
